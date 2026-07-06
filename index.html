@@ -1,0 +1,61 @@
+<!DOCTYPE html>
+<html lang="no">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <meta name="theme-color" content="#f4f1fb" />
+  <title>Mine lister</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Quicksand:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <header class="app-header">
+    <div class="brand">
+      <span class="brand-mark">✓</span>
+      <h1>Mine&nbsp;lister</h1>
+    </div>
+    <nav class="tabs" id="tabs" role="tablist" aria-label="Listetyper">
+      <button class="tab" data-tab="huskelister" role="tab">Huskelister</button>
+      <button class="tab" data-tab="handlelister" role="tab">Handlelister</button>
+    </nav>
+  </header>
+
+  <main class="app-main">
+    <div class="toolbar">
+      <button class="btn btn-primary" id="add-card-btn" type="button">
+        <span class="plus">＋</span> Ny kategori
+      </button>
+      <p class="hint" id="board-hint"></p>
+    </div>
+    <section class="board" id="board" aria-live="polite"></section>
+  </main>
+
+  <!-- Templates -->
+  <template id="card-template">
+    <article class="card" tabindex="-1">
+      <header class="card-head">
+        <button class="drag-handle card-handle" title="Dra for å endre rekkefølge" aria-label="Flytt kategori">⣿</button>
+        <h2 class="card-title" title="Klikk for å endre navn"></h2>
+        <button class="icon-btn card-delete" title="Slett kategori" aria-label="Slett kategori">✕</button>
+      </header>
+      <ul class="items-container"></ul>
+      <form class="add-item-form">
+        <input class="add-item-input" type="text" placeholder="Legg til …" aria-label="Nytt element" autocomplete="off" />
+        <button class="icon-btn add-item-btn" type="submit" title="Legg til element" aria-label="Legg til element">＋</button>
+      </form>
+    </article>
+  </template>
+
+  <template id="item-template">
+    <li class="item">
+      <button class="drag-handle item-handle" title="Dra for å endre rekkefølge" aria-label="Flytt element">⠿</button>
+      <span class="item-text" title="Klikk for å redigere"></span>
+      <button class="icon-btn item-delete" title="Slett element" aria-label="Slett element">✕</button>
+    </li>
+  </template>
+
+  <script src="app.js"></script>
+</body>
+</html>
