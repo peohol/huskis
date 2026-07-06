@@ -87,10 +87,13 @@ Listene kan synkes mellom enheter via **Supabase**. Første variant bruker en **
 
 ### SQL som må kjøres i Supabase (SQL Editor)
 
-```sql
-create extension if not exists pgcrypto;
+Full SQL ligger i `supabase/setup.sql` (idempotent, kan også kjøres via GitHub Actionen
+«Supabase DB-oppsett» — se «Databaseoppsett via GitHub Actions» under). Kort oppsummert:
 
-create table public.lists (
+```sql
+create extension if not exists pgcrypto with schema extensions;
+
+create table if not exists public.lists (
   code_hash  text primary key,
   data       jsonb not null,
   updated_at timestamptz not null default now()
@@ -99,13 +102,13 @@ create table public.lists (
 alter table public.lists enable row level security;  -- ingen policy → ingen direkte tilgang
 
 create or replace function public.get_list(p_code text)
-returns jsonb language sql security definer set search_path = public as $$
+returns jsonb language sql security definer set search_path = public, extensions as $$
   select data from public.lists
   where code_hash = encode(digest(p_code, 'sha256'), 'hex');
 $$;
 
 create or replace function public.save_list(p_code text, p_data jsonb)
-returns void language sql security definer set search_path = public as $$
+returns void language sql security definer set search_path = public, extensions as $$
   insert into public.lists (code_hash, data, updated_at)
   values (encode(digest(p_code, 'sha256'), 'hex'), p_data, now())
   on conflict (code_hash) do update
@@ -115,6 +118,11 @@ $$;
 grant execute on function public.get_list(text)         to anon;
 grant execute on function public.save_list(text, jsonb) to anon;
 ```
+
+**Merk:** i Supabase ligger `pgcrypto` (og dermed `digest()`) normalt i skjemaet
+`extensions`, ikke `public`. Funksjonene må derfor ha `extensions` i `search_path` i
+tillegg til `public` — ellers feiler kallet med
+`function digest(text, unknown) does not exist`.
 
 ## Innlogging (mønster-lås)
 
