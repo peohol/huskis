@@ -27,10 +27,29 @@
       <button class="btn btn-primary" id="add-card-btn" type="button">
         <span class="plus">＋</span> Ny kategori
       </button>
+      <button class="btn btn-ghost" id="trash-btn" type="button" title="Vis papirkurv">
+        <span class="trash-icon" aria-hidden="true">🗑️</span> Papirkurv
+        <span class="trash-count" id="trash-count">0</span>
+      </button>
       <p class="hint" id="board-hint"></p>
     </div>
     <section class="board" id="board" aria-live="polite"></section>
   </main>
+
+  <!-- Papirkurv-modal -->
+  <div class="modal-overlay" id="trash-modal" hidden>
+    <div class="modal" role="dialog" aria-modal="true" aria-labelledby="trash-title">
+      <header class="modal-head">
+        <h2 id="trash-title">🗑️ Papirkurv</h2>
+        <button class="icon-btn" id="trash-close" type="button" title="Lukk" aria-label="Lukk">✕</button>
+      </header>
+      <div class="modal-body" id="trash-list"></div>
+      <footer class="modal-foot">
+        <p class="modal-note">Slettede kategorier ligger her til du tømmer papirkurven.</p>
+        <button class="btn btn-danger" id="trash-empty" type="button">Tøm papirkurv</button>
+      </footer>
+    </div>
+  </div>
 
   <!-- Templates -->
   <template id="card-template">
