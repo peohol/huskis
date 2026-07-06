@@ -49,17 +49,28 @@ Design:
 
 ## Dra-og-slipp-logikk (kjernen)
 
-Felles treffdeteksjon for både kort og elementer:
-- Kandidatpunkt = (pekerX, dra-elementets øvre kant Y).
-- Finn kortet/elementet punktet er **inni**.
-  - Er punktet i **nederste femtedel** (y ≥ topp + 0.8·høyde) → placeholder **etter** det (dra-elementet lander under).
-  - Er punktet i **øverste femtedel** (y ≤ topp + 0.2·høyde) → placeholder **før** det.
-  - Midtsonen (60 %) er en **dødsone** som hindrer flimring (hysterese).
-- Fallback når punktet ikke er inni noe kort: velg kolonne ut fra X, deretter nærmeste vertikale gap;
-  ellers nærmeste kort totalt.
+Bytte utløses av **overlapp**, ikke av et punkt:
+- Når dra-elementets boks overlapper et annet kort/element med **≥ 20 % av høyden**, bytter de plass.
+- Byttet er **retningsstyrt** (hysterese mot flimring): drar man **nedover** byttes kun med kortet **under**,
+  drar man **oppover** kun med kortet **over**. Rett etter et bytte forskyves nabokortet så mye at det
+  motsatte byttet ikke trigges umiddelbart → stabilt, men «ivrig» (bytter tidlig).
+- **Kolonne** = kort som ligger på samme horisontale spor (≥ 50 % horisontal overlapp med dra-kortet).
+  Føres dra-kortet inn i en **annen kolonne**, plasseres placeholderen ut fra vertikal senterposisjon
+  (kryss-kolonne). For elementer tilsvarer dette **overføring til en annen `.items-container`** (kategori).
+- **FLIP-animasjon (150 ms)**: før hver placeholder-flytting tas et øyeblikksbilde av kortenes/elementenes
+  posisjoner (`getBoundingClientRect`); etter flyttingen inverteres differansen med `transform` og animeres
+  til 0. Ved slipp animeres dra-elementet fra flytende posisjon inn i placeholder-sloten.
+- `layoutRect()` trekker fra en evt. pågående FLIP-`transform` (via `DOMMatrix`) slik at treffdeteksjonen
+  bruker **hvilende** layout-posisjoner selv midt i en animasjon → ingen dobbeltbytter.
 - Kort-DnD reflower automatisk fordi layouten er `CSS multi-column` og rekkefølgen bestemmes av DOM-rekkefølge.
-- Element-DnD er scoped til `.items-container`, men treffdeteksjon går på tvers av alle kort → overføring mellom kategorier.
 - Under draging manipuleres DOM direkte (for ytelse); state bygges opp igjen fra DOM ved slipp, så re-render.
+
+## Papirkurv
+
+- Å slette en **kategori** flytter den til `tabs[tab].trash` (per fane) i stedet for å slette den.
+- «Papirkurv»-knappen i verktøylinja viser antall og åpner en modal med de slettede kategoriene.
+- Der kan man **Gjenopprett**e enkeltkategorier eller trykke **Tøm papirkurv** for å slette **permanent**
+  (med bekreftelse). Sletting av enkelt-**elementer** i et kort er fortsatt permanent.
 
 ## Fargepalett
 
@@ -76,9 +87,11 @@ unngår å gjenta forrige korts farge.
 - [x] Render av kort og elementer
 - [x] Klikk-for-å-redigere tittel og elementer
 - [x] Legg til / slett kategori og element
-- [x] Dra-og-slipp for kort (kryss-kolonne, placeholder, femtedel-terskel)
+- [x] Dra-og-slipp for kort (kryss-kolonne, placeholder, 20 % overlapp-terskel)
 - [x] Dra-og-slipp for elementer (inkl. overføring mellom kort)
-- [x] Testet i nettleser (Playwright) — kort-reorder, element-reorder, element-overføring
+- [x] FLIP-animasjon (150 ms) ved bytte og ved slipp
+- [x] Papirkurv (slett kategori → papirkurv, gjenopprett, tøm permanent)
+- [x] Testet i nettleser (Playwright) — kort-reorder, element-reorder, element-overføring, papirkurv
 - [x] Mobiltilpasning (touch-action, responsiv layout)
 
 ## Hvordan kjøre

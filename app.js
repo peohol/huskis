@@ -112,6 +112,19 @@
 
   const state = load() || defaultState();
 
+  // Sørg for at (evt. eldre) lagret state har forventet struktur, inkl. papirkurv.
+  function normalize(s) {
+    if (!TABS.includes(s.activeTab)) s.activeTab = 'huskelister';
+    TABS.forEach((t) => {
+      if (!s.tabs[t]) s.tabs[t] = { cards: [], trash: [] };
+      if (!Array.isArray(s.tabs[t].cards)) s.tabs[t].cards = [];
+      if (!Array.isArray(s.tabs[t].trash)) s.tabs[t].trash = [];
+      s.tabs[t].cards.forEach((c) => { if (!Array.isArray(c.items)) c.items = []; });
+      s.tabs[t].trash.forEach((c) => { if (!Array.isArray(c.items)) c.items = []; });
+    });
+  }
+  normalize(state);
+
   /* ---------------- DOM-referanser ---------------- */
   const board = document.getElementById('board');
   const tabsEl = document.getElementById('tabs');
@@ -120,16 +133,32 @@
   const cardTpl = document.getElementById('card-template');
   const itemTpl = document.getElementById('item-template');
 
+  const trashBtn = document.getElementById('trash-btn');
+  const trashCount = document.getElementById('trash-count');
+  const trashModal = document.getElementById('trash-modal');
+  const trashList = document.getElementById('trash-list');
+  const trashClose = document.getElementById('trash-close');
+  const trashEmptyBtn = document.getElementById('trash-empty');
+
   const activeCards = () => state.tabs[state.activeTab].cards;
+  const activeTrash = () => state.tabs[state.activeTab].trash;
   const findCard = (id) => activeCards().find((c) => c.id === id);
 
   /* ---------------- Render ---------------- */
+  function updateTrashCount() {
+    const n = activeTrash().length;
+    trashCount.textContent = n;
+    trashBtn.classList.toggle('has-items', n > 0);
+  }
+
   function render() {
     // Faner
     [...tabsEl.querySelectorAll('.tab')].forEach((t) => {
       t.classList.toggle('active', t.dataset.tab === state.activeTab);
       t.setAttribute('aria-selected', t.dataset.tab === state.activeTab ? 'true' : 'false');
     });
+
+    updateTrashCount();
 
     board.innerHTML = '';
     const cards = activeCards();
@@ -170,11 +199,13 @@
       save();
     }));
 
+    // Slett kategori -> legg i papirkurv (ikke permanent før «Tøm papirkurv»)
     el.querySelector('.card-delete').addEventListener('click', () => {
       const arr = activeCards();
       const idx = arr.findIndex((c) => c.id === cardData.id);
       if (idx > -1) {
-        arr.splice(idx, 1);
+        const [removed] = arr.splice(idx, 1);
+        activeTrash().unshift(removed);
         render();
       }
     });
@@ -266,14 +297,81 @@
 
   /* ============================================================
      DRA-OG-SLIPP-MOTOR
-     Felles idé: kandidatpunkt = (pekerX, dra-elementets øvre kant Y).
-     - i nederste femtedel av et mål  -> placeholder ETTER målet
-     - i øverste femtedel av et mål   -> placeholder FØR målet
-     - midtsonen = dødsone (hindrer flimring)
+     Kort og elementer bytter plass når de overlapper et annet
+     kort/element med minst 20 % av høyden. For å unngå flimring er
+     byttet retningsstyrt: nedover-drag bytter kun med kortet under,
+     oppover-drag kun med kortet over. Bytter animeres med FLIP (150 ms).
+     Kryss-kolonne / overføring mellom kort skjer når dra-elementet
+     føres inn i en annen kolonne/kategori.
      ============================================================ */
+
+  const SWAP_RATIO = 0.2; // 20 % høydeoverlapp utløser bytte
+  const FLIP_MS = 150;
 
   const drag = { active: false };
 
+  /* ------- Geometri-hjelpere ------- */
+  function vOverlap(a, b) {
+    return Math.max(0, Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top));
+  }
+  function hOverlapFrac(a, b) {
+    const o = Math.max(0, Math.min(a.right, b.right) - Math.max(a.left, b.left));
+    return o / Math.max(1, Math.min(a.width, b.width));
+  }
+  // Layout-boks uten evt. pågående FLIP-transform, så treffdeteksjon er stabil
+  // selv mens kort animerer på plass.
+  function layoutRect(el) {
+    const r = el.getBoundingClientRect();
+    const t = getComputedStyle(el).transform;
+    if (t && t !== 'none') {
+      try {
+        const m = new DOMMatrixReadOnly(t);
+        return {
+          left: r.left - m.e, right: r.right - m.e,
+          top: r.top - m.f, bottom: r.bottom - m.f,
+          width: r.width, height: r.height,
+        };
+      } catch (e) { /* faller tilbake til r */ }
+    }
+    return r;
+  }
+  // Dra-elementets logiske boks ut fra pekerposisjon (urørt av rotasjon/skala).
+  function draggedRect() {
+    const left = drag.lastX - drag.grabX;
+    const top = drag.lastY - drag.grabY;
+    return { left, top, right: left + drag.width, bottom: top + drag.height, width: drag.width, height: drag.height };
+  }
+
+  /* ------- FLIP-animasjon ------- */
+  function snapshotRects(els) {
+    const m = new Map();
+    els.forEach((el) => m.set(el, el.getBoundingClientRect()));
+    return m;
+  }
+  function flipFrom(prev, dur) {
+    prev.forEach((old, el) => {
+      if (!el.isConnected) return;
+      const now = el.getBoundingClientRect();
+      const dx = old.left - now.left;
+      const dy = old.top - now.top;
+      if (Math.abs(dx) < 0.5 && Math.abs(dy) < 0.5) return;
+      el.style.transition = 'none';
+      el.style.transform = `translate(${dx}px, ${dy}px)`;
+      void el.offsetWidth; // tving reflow så starttilstanden registreres
+      requestAnimationFrame(() => {
+        el.style.transition = `transform ${dur}ms cubic-bezier(.2,.75,.3,1)`;
+        el.style.transform = '';
+        el.addEventListener('transitionend', function te(e) {
+          if (e.propertyName !== 'transform') return;
+          el.style.transition = '';
+          el.style.transform = '';
+          el.removeEventListener('transitionend', te);
+        });
+      });
+    });
+  }
+
+  /* ------- Felles start / bevegelse / slutt ------- */
   function beginDragCommon(ev, el) {
     ev.preventDefault();
     const rect = el.getBoundingClientRect();
@@ -283,6 +381,8 @@
     drag.grabX = ev.clientX - rect.left;
     drag.grabY = ev.clientY - rect.top;
     drag.pointerId = ev.pointerId;
+    drag.lastX = ev.clientX;
+    drag.lastY = ev.clientY;
     drag.active = true;
     try { ev.target.setPointerCapture(ev.pointerId); } catch (e) {}
     document.body.classList.add('is-dragging');
@@ -303,40 +403,45 @@
     el.style.top = (drag.lastY - drag.grabY) + 'px';
   }
 
-  /* ------- Generisk treffdeteksjon ------- */
-  // targets: array av { el, rect }. point: {x, y}. Returnerer {el, pos:'before'|'after'} el. null.
-  function hitTest(point, targets) {
-    // 1) Direkte inni et mål?
-    for (const t of targets) {
-      const r = t.rect;
-      if (point.x >= r.left && point.x <= r.right && point.y >= r.top && point.y <= r.bottom) {
-        if (point.y >= r.top + r.height * 0.8) return { el: t.el, pos: 'after' };
-        if (point.y <= r.top + r.height * 0.2) return { el: t.el, pos: 'before' };
-        return null; // dødsone
-      }
-    }
-    // 2) Samme kolonne (x innenfor horisontalt spenn) -> nærmeste vertikale gap
-    const col = targets.filter((t) => point.x >= t.rect.left && point.x <= t.rect.right);
-    if (col.length) {
-      col.sort((a, b) => a.rect.top - b.rect.top);
-      for (const t of col) {
-        if (point.y < t.rect.top) return { el: t.el, pos: 'before' };
-      }
-      return { el: col[col.length - 1].el, pos: 'after' };
-    }
-    // 3) Nærmeste mål totalt (avstand til senter)
-    let best = null, bestD = Infinity;
-    for (const t of targets) {
-      const cx = t.rect.left + t.rect.width / 2;
-      const cy = t.rect.top + t.rect.height / 2;
-      const d = (cx - point.x) ** 2 + (cy - point.y) ** 2;
-      if (d < bestD) { bestD = d; best = t; }
-    }
-    if (best) {
-      const r = best.rect;
-      return { el: best.el, pos: point.y < r.top + r.height / 2 ? 'before' : 'after' };
-    }
-    return null;
+  function wouldMove(ph, refEl, pos) {
+    if (refEl === ph) return false;
+    if (pos === 'before') return refEl.previousElementSibling !== ph;
+    return refEl.nextElementSibling !== ph; // 'after'
+  }
+  function placePlaceholder(container, ph, refEl, pos) {
+    if (pos === 'before') container.insertBefore(ph, refEl);
+    else container.insertBefore(ph, refEl.nextElementSibling);
+  }
+
+  // Animer dra-elementet fra flytende posisjon inn i placeholder-sloten.
+  function dropIntoPlaceholder(el, spin) {
+    const floatLeft = drag.lastX - drag.grabX;
+    const floatTop = drag.lastY - drag.grabY;
+    el.classList.remove('dragging');
+    el.style.left = el.style.top = el.style.width = el.style.height = '';
+    const now = el.getBoundingClientRect();
+    const dx = floatLeft - now.left;
+    const dy = floatTop - now.top;
+    el.style.transition = 'none';
+    el.style.transform = `translate(${dx}px, ${dy}px)${spin ? ' rotate(1.2deg) scale(1.02)' : ''}`;
+    void el.offsetWidth;
+    requestAnimationFrame(() => {
+      el.style.transition = `transform ${FLIP_MS}ms cubic-bezier(.2,.75,.3,1)`;
+      el.style.transform = '';
+      el.addEventListener('transitionend', function te(e) {
+        if (e.propertyName !== 'transform') return;
+        el.style.transition = '';
+        el.style.transform = '';
+        el.removeEventListener('transitionend', te);
+      });
+    });
+  }
+
+  function finishDrag() {
+    drag.active = false;
+    drag.el = null;
+    drag.ph = null;
+    document.body.classList.remove('is-dragging');
   }
 
   /* ---------------- KORT-DRAGING ---------------- */
@@ -344,10 +449,7 @@
     if (ev.button != null && ev.button !== 0) return;
     beginDragCommon(ev, cardEl);
     drag.kind = 'card';
-    drag.lastX = ev.clientX;
-    drag.lastY = ev.clientY;
 
-    // Placeholder på kortets plass
     const ph = document.createElement('div');
     ph.className = 'card-placeholder';
     ph.style.height = drag.height + 'px';
@@ -363,22 +465,59 @@
 
   function onCardMove(ev) {
     if (!drag.active) return;
+    const dy = ev.clientY - drag.lastY;
     drag.lastX = ev.clientX;
     drag.lastY = ev.clientY;
     moveElement();
 
-    const topEdgeY = ev.clientY - drag.grabY;
-    const point = { x: ev.clientX, y: topEdgeY };
+    const dragRect = draggedRect();
+    const cards = [...board.querySelectorAll('.card:not(.dragging)')];
+    if (!cards.length) return;
+    const rects = new Map(cards.map((c) => [c, layoutRect(c)]));
 
-    const targets = [...board.querySelectorAll('.card:not(.dragging)')].map((el) => ({
-      el,
-      rect: el.getBoundingClientRect(),
-    }));
-    if (!targets.length) return;
+    // Kolonne = kort som ligger på samme horisontale spor som dra-kortet.
+    const col = cards.filter((c) => hOverlapFrac(dragRect, rects.get(c)) >= 0.5);
+    const ph = drag.ph;
+    const phInCol = col.length && hOverlapFrac(dragRect, layoutRect(ph)) >= 0.5;
 
-    const hit = hitTest(point, targets);
-    if (!hit) return;
-    placePlaceholder(board, drag.ph, hit.el, hit.pos);
+    let action = null;
+
+    if (col.length && !phInCol) {
+      // Bytte kolonne: plasser etter vertikal senterposisjon.
+      const cy = dragRect.top + dragRect.height / 2;
+      const sorted = col.slice().sort((a, b) => rects.get(a).top - rects.get(b).top);
+      let ref = null;
+      for (const c of sorted) {
+        const r = rects.get(c);
+        if (cy < r.top + r.height / 2) { ref = c; break; }
+      }
+      action = ref ? { ref, pos: 'before' } : { ref: sorted[sorted.length - 1], pos: 'after' };
+    } else if (col.length && dy > 0) {
+      // Nedover: nærmeste kort under med >= 20 % overlapp.
+      let best = null, bestTop = Infinity;
+      for (const c of col) {
+        const r = rects.get(c);
+        if (r.top >= dragRect.top && vOverlap(dragRect, r) >= SWAP_RATIO * r.height && r.top < bestTop) {
+          bestTop = r.top; best = c;
+        }
+      }
+      if (best) action = { ref: best, pos: 'after' };
+    } else if (col.length && dy < 0) {
+      // Oppover: nærmeste kort over med >= 20 % overlapp.
+      let best = null, bestTop = -Infinity;
+      for (const c of col) {
+        const r = rects.get(c);
+        if (r.top <= dragRect.top && vOverlap(dragRect, r) >= SWAP_RATIO * r.height && r.top > bestTop) {
+          bestTop = r.top; best = c;
+        }
+      }
+      if (best) action = { ref: best, pos: 'before' };
+    }
+
+    if (!action || !wouldMove(ph, action.ref, action.pos)) return;
+    const snap = snapshotRects(cards);
+    placePlaceholder(board, ph, action.ref, action.pos);
+    flipFrom(snap, FLIP_MS);
   }
 
   function onCardUp() {
@@ -388,13 +527,11 @@
     window.removeEventListener('pointercancel', onCardUp);
 
     const el = drag.el;
-    // Plasser kortet der placeholder står
     board.insertBefore(el, drag.ph);
     drag.ph.remove();
-    resetDraggedEl(el);
+    dropIntoPlaceholder(el, true);
     finishDrag();
 
-    // Bygg ny rekkefølge fra DOM
     const order = [...board.querySelectorAll('.card')].map((c) => c.dataset.id);
     const cards = activeCards();
     cards.sort((a, b) => order.indexOf(a.id) - order.indexOf(b.id));
@@ -406,8 +543,6 @@
     if (ev.button != null && ev.button !== 0) return;
     beginDragCommon(ev, itemEl);
     drag.kind = 'item';
-    drag.lastX = ev.clientX;
-    drag.lastY = ev.clientY;
 
     const ph = document.createElement('li');
     ph.className = 'item-placeholder';
@@ -423,45 +558,78 @@
 
   function onItemMove(ev) {
     if (!drag.active) return;
+    const dy = ev.clientY - drag.lastY;
     drag.lastX = ev.clientX;
     drag.lastY = ev.clientY;
     moveElement();
 
-    const topEdgeY = ev.clientY - drag.grabY;
-    const point = { x: ev.clientX, y: topEdgeY };
+    const dragRect = draggedRect();
+    const flipEls = [...document.querySelectorAll('.item:not(.dragging)')];
 
-    const targets = [...document.querySelectorAll('.item:not(.dragging)')].map((el) => ({
-      el,
-      rect: el.getBoundingClientRect(),
-    }));
-
-    const hit = hitTest(point, targets);
-    if (hit) {
-      placePlaceholder(hit.el.parentNode, drag.ph, hit.el, hit.pos);
-      return;
-    }
-
-    // Ingen element truffet: sjekk om vi er over en (tom) items-container
+    // Finn hvilken items-container pekeren er over (håndterer overføring mellom kort).
     const containers = [...document.querySelectorAll('.items-container')];
+    let targetCont = null;
     for (const cont of containers) {
       const r = cont.getBoundingClientRect();
-      // Litt slingringsmonn så det er lett å treffe smale/tomme kort
-      if (ev.clientX >= r.left && ev.clientX <= r.right && ev.clientY >= r.top - 8 && ev.clientY <= r.bottom + 8) {
-        const items = [...cont.querySelectorAll('.item:not(.dragging)')];
-        let placed = false;
-        for (const it of items) {
-          const ir = it.getBoundingClientRect();
-          if (point.y < ir.top + ir.height / 2) {
-            cont.insertBefore(drag.ph, it);
-            placed = true;
-            break;
-          }
-        }
-        if (!placed && drag.ph.parentNode !== cont) cont.appendChild(drag.ph);
-        else if (!placed && cont.lastElementChild !== drag.ph) cont.appendChild(drag.ph);
-        return;
+      if (ev.clientX >= r.left && ev.clientX <= r.right && ev.clientY >= r.top - 12 && ev.clientY <= r.bottom + 12) {
+        targetCont = cont; break;
       }
     }
+    if (!targetCont) {
+      for (const cont of containers) {
+        const cr = cont.closest('.card').getBoundingClientRect();
+        if (ev.clientX >= cr.left && ev.clientX <= cr.right && ev.clientY >= cr.top && ev.clientY <= cr.bottom) {
+          targetCont = cont; break;
+        }
+      }
+    }
+    if (!targetCont) return;
+
+    const ph = drag.ph;
+    const items = [...targetCont.querySelectorAll('.item:not(.dragging)')];
+    const phInCont = ph.parentNode === targetCont;
+
+    let action = null; // {pos:'before'|'after'|'append', ref?}
+
+    if (!phInCont) {
+      // Overføring til en annen kategori: plasser etter vertikal posisjon.
+      const cy = dragRect.top + dragRect.height / 2;
+      let ref = null;
+      for (const it of items) {
+        const r = layoutRect(it);
+        if (cy < r.top + r.height / 2) { ref = it; break; }
+      }
+      action = ref ? { ref, pos: 'before' } : { pos: 'append' };
+    } else if (dy > 0) {
+      let best = null, bestTop = Infinity;
+      for (const it of items) {
+        const r = layoutRect(it);
+        if (r.top >= dragRect.top && vOverlap(dragRect, r) >= SWAP_RATIO * r.height && r.top < bestTop) {
+          bestTop = r.top; best = it;
+        }
+      }
+      if (best) action = { ref: best, pos: 'after' };
+    } else if (dy < 0) {
+      let best = null, bestTop = -Infinity;
+      for (const it of items) {
+        const r = layoutRect(it);
+        if (r.top <= dragRect.top && vOverlap(dragRect, r) >= SWAP_RATIO * r.height && r.top > bestTop) {
+          bestTop = r.top; best = it;
+        }
+      }
+      if (best) action = { ref: best, pos: 'before' };
+    }
+
+    if (!action) return;
+    const willMove = action.pos === 'append'
+      ? targetCont.lastElementChild !== ph
+      : wouldMove(ph, action.ref, action.pos);
+    if (!willMove) return;
+
+    const snap = snapshotRects(flipEls);
+    if (action.pos === 'append') targetCont.appendChild(ph);
+    else placePlaceholder(targetCont, ph, action.ref, action.pos);
+    flipFrom(snap, FLIP_MS);
   }
 
   function onItemUp() {
@@ -475,7 +643,7 @@
     const targetContainer = drag.ph.parentNode;
     targetContainer.insertBefore(el, drag.ph);
     drag.ph.remove();
-    resetDraggedEl(el);
+    dropIntoPlaceholder(el, false);
     finishDrag();
 
     const targetCardId = el.closest('.card').dataset.id;
@@ -498,28 +666,6 @@
     cardData.items = domIds.map((id) => pool[id]).filter(Boolean);
   }
 
-  /* ---------------- Delte drag-hjelpere ---------------- */
-  function placePlaceholder(container, ph, refEl, pos) {
-    if (refEl === ph) return;
-    if (pos === 'before') {
-      if (refEl.previousElementSibling !== ph) container.insertBefore(ph, refEl);
-    } else {
-      if (refEl.nextElementSibling !== ph) container.insertBefore(ph, refEl.nextElementSibling);
-    }
-  }
-
-  function resetDraggedEl(el) {
-    el.classList.remove('dragging');
-    el.style.left = el.style.top = el.style.width = el.style.height = '';
-  }
-
-  function finishDrag() {
-    drag.active = false;
-    drag.el = null;
-    drag.ph = null;
-    document.body.classList.remove('is-dragging');
-  }
-
   /* ---------------- Fane / topp-knapper ---------------- */
   tabsEl.addEventListener('click', (ev) => {
     const t = ev.target.closest('.tab');
@@ -536,6 +682,79 @@
     // Fokuser den nye tittelen for redigering
     const el = board.querySelector('.card[data-id="' + c.id + '"] .card-title');
     if (el) el.click();
+  });
+
+  /* ---------------- Papirkurv ---------------- */
+  function buildTrashList() {
+    const trash = activeTrash();
+    trashList.innerHTML = '';
+    if (!trash.length) {
+      const p = document.createElement('p');
+      p.className = 'trash-empty-msg';
+      p.textContent = 'Papirkurven er tom.';
+      trashList.appendChild(p);
+      trashEmptyBtn.disabled = true;
+      return;
+    }
+    trashEmptyBtn.disabled = false;
+    trash.forEach((c) => {
+      const row = document.createElement('div');
+      row.className = 'trash-row';
+
+      const dot = document.createElement('span');
+      dot.className = 'trash-dot';
+      dot.style.background = c.color;
+
+      const name = document.createElement('span');
+      name.className = 'trash-name';
+      name.textContent = c.title;
+
+      const n = c.items.length;
+      const meta = document.createElement('span');
+      meta.className = 'trash-meta';
+      meta.textContent = n + ' ' + (n === 1 ? 'element' : 'elementer');
+
+      const restore = document.createElement('button');
+      restore.className = 'btn btn-small';
+      restore.type = 'button';
+      restore.textContent = 'Gjenopprett';
+      restore.addEventListener('click', () => {
+        const i = trash.findIndex((x) => x.id === c.id);
+        if (i > -1) { const [rc] = trash.splice(i, 1); activeCards().push(rc); }
+        buildTrashList();
+        render();
+      });
+
+      row.append(dot, name, meta, restore);
+      trashList.appendChild(row);
+    });
+  }
+
+  function openTrash() {
+    buildTrashList();
+    trashModal.hidden = false;
+    document.body.classList.add('modal-open');
+  }
+  function closeTrash() {
+    trashModal.hidden = true;
+    document.body.classList.remove('modal-open');
+  }
+
+  trashBtn.addEventListener('click', openTrash);
+  trashClose.addEventListener('click', closeTrash);
+  trashModal.addEventListener('click', (ev) => { if (ev.target === trashModal) closeTrash(); });
+  document.addEventListener('keydown', (ev) => {
+    if (ev.key === 'Escape' && !trashModal.hidden) closeTrash();
+  });
+
+  trashEmptyBtn.addEventListener('click', () => {
+    const trash = activeTrash();
+    if (!trash.length) return;
+    if (!confirm('Slette alt i papirkurven permanent? Dette kan ikke angres.')) return;
+    trash.length = 0;
+    buildTrashList();
+    render();
+    save();
   });
 
   /* ---------------- Start ---------------- */
