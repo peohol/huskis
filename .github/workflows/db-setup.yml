@@ -1,0 +1,32 @@
+name: Supabase DB-oppsett
+
+# Kjører supabase/setup.sql mot Supabase-databasen.
+# Startes manuelt fra fanen «Actions» → «Supabase DB-oppsett» → «Run workflow».
+#
+# Krever én repository-secret:
+#   SUPABASE_DB_URL = tilkoblingsstrengen fra Supabase
+#   (Project Settings → Database → Connection string → URI,
+#    med [YOUR-PASSWORD] byttet ut med databasepassordet ditt)
+#
+# psql følger med på ubuntu-runneren, så ingen ekstra installasjon trengs.
+
+on:
+  workflow_dispatch:
+
+jobs:
+  apply-sql:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Hent koden
+        uses: actions/checkout@v4
+
+      - name: Kjør setup.sql mot Supabase
+        env:
+          SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+        run: |
+          if [ -z "$SUPABASE_DB_URL" ]; then
+            echo "::error::Mangler secret SUPABASE_DB_URL. Legg den til under Settings → Secrets and variables → Actions."
+            exit 1
+          fi
+          psql "$SUPABASE_DB_URL" -v ON_ERROR_STOP=1 -f supabase/setup.sql
+          echo "✅ Databasen er satt opp."

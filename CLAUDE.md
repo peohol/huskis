@@ -1,6 +1,6 @@
 # CLAUDE.md — Arbeidsdokument
 
-Personlig arbeidsnotat for utvikling av **Huskeliste-appen**. Oppdateres underveis.
+Personlig arbeidsnotat for utvikling av **Huskekurv-appen**. Oppdateres underveis.
 
 ## Mål (fra oppgaven)
 
@@ -64,6 +64,97 @@ Bytte utløses av **overlapp**, ikke av et punkt:
   bruker **hvilende** layout-posisjoner selv midt i en animasjon → ingen dobbeltbytter.
 - Kort-DnD reflower automatisk fordi layouten er `CSS multi-column` og rekkefølgen bestemmes av DOM-rekkefølge.
 - Under draging manipuleres DOM direkte (for ytelse); state bygges opp igjen fra DOM ved slipp, så re-render.
+
+## Sky-synk (Supabase, synk-kode)
+
+Listene kan synkes mellom enheter via **Supabase**. Første variant bruker en **synk-kode**
+(ingen innlogging): alle enheter som skriver samme hemmelige kode deler de samme listene.
+
+- **`config.js`** holder `window.SUPABASE_CONFIG` (`url` + `anonKey`). Så lenge plassholderne
+  (`DIN_...`) står, kjører appen lokalt (localStorage) uten synk. Appen **degraderer pent** hvis
+  Supabase-biblioteket ikke lastes / nettet er nede → fortsetter lokalt.
+- **Datamodell i skyen**: hele `state`-objektet lagres som **ett `jsonb`-felt** i én rad,
+  identifisert av `sha256(synk-kode)`. Tabellen er låst med Row Level Security (ingen policy),
+  og all tilgang går via to `SECURITY DEFINER`-funksjoner slik at man trenger koden for å nå dataene:
+  - `get_list(p_code text) → jsonb`
+  - `save_list(p_code text, p_data jsonb) → void`
+- **Klient**: `app.js` lager en Supabase-klient lazy og kaller `rpc('get_list' | 'save_list')`.
+  `save()` pusher til skyen (debouncet 800 ms, serialisert – én lagring om gangen). Ved oppstart
+  hentes skyens versjon (**skyen vinner** ved oppstart). Modellen er ellers **«sist lagret vinner»**.
+- **UI**: «Synk»-knapp i verktøylinja med statusprikk (grå=av, grønn=tilkoblet, gul=lagrer, rød=feil)
+  og en modal som viser status + «Logg ut». Synk-koden **utledes fra innloggingsmønsteret**
+  (se «Innlogging»), så man taster ingen egen kode; ved oppstart kobles det til med den lagrede koden.
+
+### SQL som må kjøres i Supabase (SQL Editor)
+
+Full SQL ligger i `supabase/setup.sql` (idempotent, kan også kjøres via GitHub Actionen
+«Supabase DB-oppsett» — se «Databaseoppsett via GitHub Actions» under). Kort oppsummert:
+
+```sql
+create extension if not exists pgcrypto with schema extensions;
+
+create table if not exists public.lists (
+  code_hash  text primary key,
+  data       jsonb not null,
+  updated_at timestamptz not null default now()
+);
+
+alter table public.lists enable row level security;  -- ingen policy → ingen direkte tilgang
+
+create or replace function public.get_list(p_code text)
+returns jsonb language sql security definer set search_path = public, extensions as $$
+  select data from public.lists
+  where code_hash = encode(digest(p_code, 'sha256'), 'hex');
+$$;
+
+create or replace function public.save_list(p_code text, p_data jsonb)
+returns void language sql security definer set search_path = public, extensions as $$
+  insert into public.lists (code_hash, data, updated_at)
+  values (encode(digest(p_code, 'sha256'), 'hex'), p_data, now())
+  on conflict (code_hash) do update
+    set data = excluded.data, updated_at = now();
+$$;
+
+grant execute on function public.get_list(text)         to anon;
+grant execute on function public.save_list(text, jsonb) to anon;
+```
+
+**Merk:** i Supabase ligger `pgcrypto` (og dermed `digest()`) normalt i skjemaet
+`extensions`, ikke `public`. Funksjonene må derfor ha `extensions` i `search_path` i
+tillegg til `public` — ellers feiler kallet med
+`function digest(text, unknown) does not exist`.
+
+## Innlogging (mønster-lås)
+
+Appen åpner med en **splash-screen** der man tegner et mønster i et **3x3-rutenett**
+(à la Android). Ingen appinnhold vises før riktig mønster er tegnet (`body.locked`
+skjuler `.app-header` + `.app-main`; en fast overlay `#lock-screen` ligger over).
+
+- **Punkter** nummereres `rad,kolonne` (1-basert). Hvert punkt har en sirkel med
+  treffradius ≈ halve cellebredden (`SNAP_R = 44` i et `300x300`-viewBox). Når pekeren
+  er innenfor sirkelen, låses linjen til punktet.
+- **Bevegelse kun til nærmeste nabo** (Chebyshev-avstand 1), horisontalt/vertikalt/diagonalt.
+  Trekker man en rett linje **2 unna** (f.eks. `1,1`→`1,3`), settes **mellompunktet**
+  (`1,2`) automatisk inn. «Knight»-hopp og lengre sprang ignoreres.
+- **Fasit** ligger kun som en **SHA-256-hash** i koden (`PATTERN_HASH`), ikke i klartekst.
+  Riktig mønster: `1,1-2,1-2,2-1,2-1,3-2,3-3,3-3,2-3,1`.
+- **Lås ved for mange feil**: mer enn 5 gale forsøk → innlogging **låst i 5 minutter**
+  (nedtelling vises; teller/tidspunkt i `localStorage`).
+- **Husket innlogging**: ved suksess settes `mine-lister-auth` i `localStorage` – huskes
+  til man **logger ut** (knapp i Synk-modalen → `location.reload()`).
+- **Synk-kobling**: synk-koden **utledes fra mønsteret** (`sha256('sync|' + mønster)`),
+  så samme mønster gir de samme listene på alle enheter – ingen egen kode å taste.
+  (Merk: for en ren statisk app er dette gate-nivå sikkerhet; ekte serverside-auth
+  ville kreve f.eks. Supabase Auth med magisk lenke.)
+
+## Databaseoppsett via GitHub Actions
+
+- **`supabase/setup.sql`** inneholder hele skjemaet (tabell + `get_list`/`save_list` + grants), idempotent.
+- **`.github/workflows/db-setup.yml`** kjører SQL-en mot Supabase med `psql` (følger med på
+  ubuntu-runneren). Startes manuelt via **Actions → Supabase DB-oppsett → Run workflow**.
+- Krever repository-secret **`SUPABASE_DB_URL`** = tilkoblingsstrengen (Project Settings →
+  Database → Connection string → URI, med passordet innsatt). Alternativt kan SQL-en limes
+  rett inn i Supabase sin SQL Editor.
 
 ## Papirkurv
 

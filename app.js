@@ -1,5 +1,5 @@
 /* ============================================================
-   Mine lister — app.js
+   Huskekurv — app.js
    Vanilla JS. Egen dra-og-slipp-motor på Pointer Events.
    ============================================================ */
 (function () {
@@ -108,6 +108,8 @@
         /* ignore quota */
       }
     }, 120);
+    // Sky-synk (hvis en synk-kode er aktiv). Definert lenger nede; trygt å kalle.
+    if (typeof cloudPush === 'function') cloudPush();
   }
 
   const state = load() || defaultState();
@@ -757,12 +759,387 @@
     save();
   });
 
+  /* ---------------- Sky-synk (Supabase, synk-kode) ----------------
+     Alle enheter som skriver samme hemmelige synk-kode deler de samme
+     listene. Tabellen er låst bak koden (via SECURITY DEFINER-funksjoner
+     i databasen), så uten koden får man ikke tak i dataene.
+     Modell: «sist lagret vinner». localStorage beholdes som offline-buffer. */
+  const SYNC_CODE_KEY = 'mine-lister-sync-code';
+
+  let sb = null;          // Supabase-klient (lazy)
+  let syncCode = null;    // aktiv synk-kode, eller null
+  let cloudTimer = null;
+  let cloudBusy = false;
+  let cloudPending = false;
+
+  const syncBtn = document.getElementById('sync-btn');
+  const syncDot = document.getElementById('sync-dot');
+  const syncModal = document.getElementById('sync-modal');
+  const syncClose = document.getElementById('sync-close');
+  const syncLogoutBtn = document.getElementById('sync-logout');
+  const syncStatusText = document.getElementById('sync-status-text');
+  const syncConfigNote = document.getElementById('sync-config-note');
+
+  function cloudConfigured() {
+    const c = window.SUPABASE_CONFIG;
+    return !!(
+      c && typeof c.url === 'string' && typeof c.anonKey === 'string' &&
+      c.url.indexOf('DIN_') !== 0 && c.anonKey.indexOf('DIN_') !== 0 &&
+      window.supabase && typeof window.supabase.createClient === 'function'
+    );
+  }
+
+  function ensureClient() {
+    if (sb) return sb;
+    if (!cloudConfigured()) return null;
+    sb = window.supabase.createClient(window.SUPABASE_CONFIG.url, window.SUPABASE_CONFIG.anonKey);
+    return sb;
+  }
+
+  // status: 'off' | 'connected' | 'saving' | 'error'
+  function setSyncStatus(status, text) {
+    syncDot.dataset.status = status;
+    if (text) {
+      syncStatusText.textContent = text;
+      syncBtn.title = text;
+    }
+  }
+
+  async function cloudPullCode(code) {
+    const client = ensureClient();
+    if (!client) return { ok: false };
+    try {
+      const { data, error } = await client.rpc('get_list', { p_code: code });
+      if (error) return { ok: false, error };
+      return { ok: true, data: data || null };
+    } catch (e) {
+      return { ok: false, error: e };
+    }
+  }
+
+  async function cloudSaveNow() {
+    const client = ensureClient();
+    if (!client || !syncCode) return;
+    cloudBusy = true;
+    setSyncStatus('saving', 'Lagrer i skyen …');
+    try {
+      const { error } = await client.rpc('save_list', { p_code: syncCode, p_data: state });
+      if (error) setSyncStatus('error', 'Kunne ikke lagre i skyen. Prøver igjen ved neste endring.');
+      else setSyncStatus('connected', 'Tilkoblet — alt er lagret i skyen.');
+    } catch (e) {
+      setSyncStatus('error', 'Frakoblet — lagret lokalt. Prøver igjen senere.');
+    }
+    cloudBusy = false;
+    if (cloudPending) { cloudPending = false; cloudPush(); }
+  }
+
+  // Kalles fra save(). Debouncet, og serialisert (én lagring om gangen).
+  function cloudPush() {
+    if (!syncCode || !cloudConfigured()) return;
+    if (cloudBusy) { cloudPending = true; return; }
+    clearTimeout(cloudTimer);
+    cloudTimer = setTimeout(cloudSaveNow, 800);
+  }
+
+  // Skriv fjern-tilstand inn i det eksisterende state-objektet og tegn på nytt.
+  function applyRemoteState(remote) {
+    if (!remote || !remote.tabs) return;
+    state.activeTab = remote.activeTab;
+    state.tabs = remote.tabs;
+    normalize(state);
+    const ex = activeCards();
+    if (ex.length) lastColor = ex[ex.length - 1].color;
+    render();
+  }
+
+  // Koble til skyen med en kode (utledet fra mønsteret). Skyen vinner hvis den har data.
+  async function cloudConnect(code) {
+    syncCode = code;
+    localStorage.setItem(SYNC_CODE_KEY, code);
+    if (!cloudConfigured()) {
+      setSyncStatus('off', 'Sky-synk er ikke satt opp ennå. Fyll inn Supabase-verdiene i config.js.');
+      return;
+    }
+    setSyncStatus('saving', 'Kobler til skyen …');
+    const res = await cloudPullCode(code);
+    if (!res.ok) {
+      setSyncStatus('error', 'Frakoblet — bruker lokale lister. Synker ved neste endring.');
+      return;
+    }
+    if (res.data) {
+      applyRemoteState(res.data);
+      setSyncStatus('connected', 'Synket fra skyen.');
+    } else {
+      await cloudSaveNow();
+      setSyncStatus('connected', 'Tilkoblet — lastet opp listene dine.');
+    }
+  }
+
+  function openSync() {
+    syncConfigNote.hidden = cloudConfigured();
+    if (!cloudConfigured()) {
+      setSyncStatus('off', 'Sky-synk er ikke satt opp ennå. Fyll inn Supabase-verdiene i config.js.');
+    } else if (syncCode) {
+      setSyncStatus('connected', 'Tilkoblet — listene synkes mellom enhetene dine.');
+    } else {
+      setSyncStatus('off', 'Ikke tilkoblet.');
+    }
+    syncModal.hidden = false;
+    document.body.classList.add('modal-open');
+  }
+  function closeSync() {
+    syncModal.hidden = true;
+    document.body.classList.remove('modal-open');
+  }
+
+  syncBtn.addEventListener('click', openSync);
+  syncClose.addEventListener('click', closeSync);
+  syncLogoutBtn.addEventListener('click', logout);
+  syncModal.addEventListener('click', (ev) => { if (ev.target === syncModal) closeSync(); });
+  document.addEventListener('keydown', (ev) => {
+    if (ev.key === 'Escape' && !syncModal.hidden) closeSync();
+  });
+
+  // Ved oppstart (allerede innlogget): koble til med den lagrede koden.
+  async function syncInit() {
+    const savedCode = localStorage.getItem(SYNC_CODE_KEY);
+    if (!savedCode) { setSyncStatus('off'); return; }
+    await cloudConnect(savedCode);
+  }
+
+  /* ---------------- Innlogging (mønster-lås) ----------------
+     Splash-screen der man tegner et mønster i et 3x3-rutenett. Fasiten
+     ligger kun som en hash i koden. Innlogging huskes til man logger ut.
+     Synk-koden utledes fra mønsteret, så samme mønster gir samme lister. */
+  const AUTH_KEY = 'mine-lister-auth';
+  const FAIL_KEY = 'mine-lister-lock-fails';
+  const UNTIL_KEY = 'mine-lister-lock-until';
+  const MAX_FAILS = 5;                 // «mer enn 5 gale forsøk» → lås
+  const LOCK_MS = 5 * 60 * 1000;       // 5 minutter
+  const PATTERN_HASH = 'd49f889217daf70b19763a1491179f690d3b131ef10e2e2d849ce50d0f6e12ba';
+
+  const SVG_NS = 'http://www.w3.org/2000/svg';
+  const lockScreen = document.getElementById('lock-screen');
+  const lockSvg = document.getElementById('lock-svg');
+  const lockPath = document.getElementById('lock-path');
+  const lockLive = document.getElementById('lock-live');
+  const lockNodesLayer = document.getElementById('lock-nodes');
+  const lockMsg = document.getElementById('lock-msg');
+
+  // Rutenett i 300x300-viewBox: sentre på 50/150/250, cellebredde 100.
+  const LOCK_NODES = [];
+  for (let r = 1; r <= 3; r++) {
+    for (let c = 1; c <= 3; c++) {
+      LOCK_NODES.push({ r, c, id: r + ',' + c, x: 50 + (c - 1) * 100, y: 50 + (r - 1) * 100 });
+    }
+  }
+  const SNAP_R = 44;                   // treffradius ≈ halve cellebredden
+  const lockNodeById = (id) => LOCK_NODES.find((n) => n.id === id);
+
+  let drawSeq = [];
+  const drawUsed = new Set();
+  let drawing = false;
+  let lockTimer = null;
+
+  async function sha256Hex(str) {
+    const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(str));
+    return [...new Uint8Array(buf)].map((b) => b.toString(16).padStart(2, '0')).join('');
+  }
+
+  function buildLockNodes() {
+    LOCK_NODES.forEach((n) => {
+      const g = document.createElementNS(SVG_NS, 'g');
+      g.setAttribute('class', 'lock-node');
+      g.setAttribute('data-id', n.id);
+      const ring = document.createElementNS(SVG_NS, 'circle');
+      ring.setAttribute('class', 'lock-ring');
+      ring.setAttribute('cx', n.x); ring.setAttribute('cy', n.y); ring.setAttribute('r', 44);
+      const dot = document.createElementNS(SVG_NS, 'circle');
+      dot.setAttribute('class', 'lock-dot');
+      dot.setAttribute('cx', n.x); dot.setAttribute('cy', n.y); dot.setAttribute('r', 9);
+      g.appendChild(ring); g.appendChild(dot);
+      lockNodesLayer.appendChild(g);
+    });
+  }
+
+  function isLockedOut() {
+    return Date.now() < (+localStorage.getItem(UNTIL_KEY) || 0);
+  }
+
+  function pointToViewBox(clientX, clientY) {
+    const rect = lockSvg.getBoundingClientRect();
+    return {
+      x: (clientX - rect.left) / rect.width * 300,
+      y: (clientY - rect.top) / rect.height * 300,
+    };
+  }
+
+  function resetDraw() {
+    drawSeq = [];
+    drawUsed.clear();
+    lockPath.setAttribute('points', '');
+    lockLive.setAttribute('x1', 0); lockLive.setAttribute('y1', 0);
+    lockLive.setAttribute('x2', 0); lockLive.setAttribute('y2', 0);
+    lockScreen.classList.remove('err');
+    [...lockNodesLayer.querySelectorAll('.lock-node')].forEach((g) => g.classList.remove('on'));
+  }
+
+  function redrawPath() {
+    lockPath.setAttribute(
+      'points',
+      drawSeq.map((id) => { const n = lockNodeById(id); return n.x + ',' + n.y; }).join(' ')
+    );
+  }
+
+  function pushNode(n) {
+    drawSeq.push(n.id);
+    drawUsed.add(n.id);
+    const g = lockNodesLayer.querySelector('.lock-node[data-id="' + n.id + '"]');
+    if (g) g.classList.add('on');
+    redrawPath();
+  }
+
+  // Kun til nærmeste nabo (Chebyshev-avstand 1). Rett linje 2 unna
+  // (horisontalt/vertikalt/diagonalt) → sett inn mellompunktet først.
+  function tryAddNode(n) {
+    if (drawUsed.has(n.id)) return;
+    if (drawSeq.length === 0) { pushNode(n); return; }
+    const last = lockNodeById(drawSeq[drawSeq.length - 1]);
+    const dr = n.r - last.r, dc = n.c - last.c;
+    const cheb = Math.max(Math.abs(dr), Math.abs(dc));
+    if (cheb === 1) { pushNode(n); return; }
+    if ((dr === 0 || Math.abs(dr) === 2) && (dc === 0 || Math.abs(dc) === 2) && cheb === 2) {
+      const mid = lockNodeById(((last.r + n.r) / 2) + ',' + ((last.c + n.c) / 2));
+      if (mid && !drawUsed.has(mid.id)) { pushNode(mid); pushNode(n); }
+    }
+    // ellers: ignorér (aldri lengre enn nærmeste nabo)
+  }
+
+  function snapAt(p) {
+    for (const n of LOCK_NODES) {
+      const dx = p.x - n.x, dy = p.y - n.y;
+      if (dx * dx + dy * dy <= SNAP_R * SNAP_R) { tryAddNode(n); return; }
+    }
+  }
+
+  function updateLive(p) {
+    if (drawSeq.length === 0) {
+      lockLive.setAttribute('x1', p.x); lockLive.setAttribute('y1', p.y);
+      lockLive.setAttribute('x2', p.x); lockLive.setAttribute('y2', p.y);
+      return;
+    }
+    const last = lockNodeById(drawSeq[drawSeq.length - 1]);
+    lockLive.setAttribute('x1', last.x); lockLive.setAttribute('y1', last.y);
+    lockLive.setAttribute('x2', p.x); lockLive.setAttribute('y2', p.y);
+  }
+
+  function onLockDown(ev) {
+    if (isLockedOut()) return;
+    ev.preventDefault();
+    drawing = true;
+    resetDraw();
+    try { lockSvg.setPointerCapture(ev.pointerId); } catch (e) { /* ignore */ }
+    const p = pointToViewBox(ev.clientX, ev.clientY);
+    snapAt(p); updateLive(p);
+  }
+  function onLockMove(ev) {
+    if (!drawing) return;
+    const p = pointToViewBox(ev.clientX, ev.clientY);
+    snapAt(p); updateLive(p);
+  }
+  async function onLockUp() {
+    if (!drawing) return;
+    drawing = false;
+    lockLive.setAttribute('x2', lockLive.getAttribute('x1'));
+    lockLive.setAttribute('y2', lockLive.getAttribute('y1'));
+    const seqStr = drawSeq.join('-');
+    if (drawSeq.length < 2) { resetDraw(); return; }
+    if ((await sha256Hex('verify|' + seqStr)) === PATTERN_HASH) {
+      localStorage.removeItem(FAIL_KEY);
+      localStorage.removeItem(UNTIL_KEY);
+      localStorage.setItem(AUTH_KEY, '1');
+      const code = await sha256Hex('sync|' + seqStr);
+      await unlockApp(code);
+    } else {
+      onLockFail();
+    }
+  }
+
+  function onLockFail() {
+    lockScreen.classList.add('err');
+    const fails = (+localStorage.getItem(FAIL_KEY) || 0) + 1;
+    localStorage.setItem(FAIL_KEY, String(fails));
+    if (fails > MAX_FAILS) {
+      localStorage.setItem(UNTIL_KEY, String(Date.now() + LOCK_MS));
+      localStorage.removeItem(FAIL_KEY);
+      startLockCountdown();
+    } else {
+      const left = MAX_FAILS + 1 - fails;
+      lockMsg.textContent = 'Feil mønster – ' + left + ' forsøk igjen.';
+      setTimeout(() => { if (!drawing) resetDraw(); }, 700);
+    }
+  }
+
+  function startLockCountdown() {
+    clearInterval(lockTimer);
+    const tick = () => {
+      const ms = (+localStorage.getItem(UNTIL_KEY) || 0) - Date.now();
+      if (ms <= 0) {
+        clearInterval(lockTimer);
+        lockScreen.classList.remove('locked-out');
+        lockMsg.textContent = 'Tegn mønsteret for å låse opp.';
+        resetDraw();
+        return;
+      }
+      const m = Math.floor(ms / 60000);
+      const s = Math.floor((ms % 60000) / 1000);
+      lockScreen.classList.add('locked-out');
+      lockMsg.textContent = 'For mange forsøk. Låst i ' + m + ':' + String(s).padStart(2, '0');
+    };
+    tick();
+    lockTimer = setInterval(tick, 500);
+  }
+
+  let appStarted = false;
+  async function unlockApp(code) {
+    lockScreen.hidden = true;
+    document.body.classList.remove('locked');
+    if (!appStarted) {
+      appStarted = true;
+      const existing = activeCards();
+      if (existing.length) lastColor = existing[existing.length - 1].color;
+      render();
+    }
+    if (code) await cloudConnect(code);
+    else await syncInit();
+  }
+
+  function logout() {
+    localStorage.removeItem(AUTH_KEY);
+    localStorage.removeItem(SYNC_CODE_KEY);
+    location.reload();
+  }
+
+  function initAuth() {
+    buildLockNodes();
+    lockSvg.addEventListener('pointerdown', onLockDown);
+    lockSvg.addEventListener('pointermove', onLockMove);
+    lockSvg.addEventListener('pointerup', onLockUp);
+    lockSvg.addEventListener('pointercancel', onLockUp);
+
+    if (localStorage.getItem(AUTH_KEY) === '1') {
+      unlockApp();
+    } else {
+      document.body.classList.add('locked');
+      lockScreen.hidden = false;
+      if (isLockedOut()) startLockCountdown();
+      else lockMsg.textContent = 'Tegn mønsteret for å låse opp.';
+    }
+  }
+
   /* ---------------- Start ---------------- */
-  // Sett en fornuftig lastColor så nye kort varierer
-  const existing = activeCards();
-  if (existing.length) lastColor = existing[existing.length - 1].color;
-  render();
+  initAuth();
 
   // Eksponer for enkel feilsøking/testing
-  window.__mineLister = { state, render };
+  window.__huskekurv = { state, render, logout };
 })();

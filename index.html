@@ -4,17 +4,17 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
   <meta name="theme-color" content="#f4f1fb" />
-  <title>Mine lister</title>
+  <title>Huskekurv</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Quicksand:wght@400;500;600;700&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="styles.css" />
 </head>
-<body>
+<body class="locked">
   <header class="app-header">
     <div class="brand">
       <span class="brand-mark">✓</span>
-      <h1>Mine&nbsp;lister</h1>
+      <h1>Huskekurv</h1>
     </div>
     <nav class="tabs" id="tabs" role="tablist" aria-label="Listetyper">
       <button class="tab" data-tab="huskelister" role="tab">Huskelister</button>
@@ -30,6 +30,9 @@
       <button class="btn btn-ghost" id="trash-btn" type="button" title="Vis papirkurv">
         <span class="trash-icon" aria-hidden="true">🗑️</span> Papirkurv
         <span class="trash-count" id="trash-count">0</span>
+      </button>
+      <button class="btn btn-ghost" id="sync-btn" type="button" title="Synk mellom enheter">
+        <span class="sync-dot" id="sync-dot" aria-hidden="true"></span> Synk
       </button>
       <p class="hint" id="board-hint"></p>
     </div>
@@ -47,6 +50,30 @@
       <footer class="modal-foot">
         <p class="modal-note">Slettede kategorier ligger her til du tømmer papirkurven.</p>
         <button class="btn btn-danger" id="trash-empty" type="button">Tøm papirkurv</button>
+      </footer>
+    </div>
+  </div>
+
+  <!-- Synk-modal -->
+  <div class="modal-overlay" id="sync-modal" hidden>
+    <div class="modal" role="dialog" aria-modal="true" aria-labelledby="sync-title">
+      <header class="modal-head">
+        <h2 id="sync-title">🔗 Synk mellom enheter</h2>
+        <button class="icon-btn" id="sync-close" type="button" title="Lukk" aria-label="Lukk">✕</button>
+      </header>
+      <div class="modal-body">
+        <p class="modal-note" id="sync-status-text">Ikke tilkoblet.</p>
+        <p class="sync-help">
+          Listene dine synkes automatisk til skyen mens du er logget inn, og dukker
+          opp på alle enheter der du tegner det <strong>samme mønsteret</strong>.
+          Ingen egen kode å taste.
+        </p>
+      </div>
+      <footer class="modal-foot">
+        <p class="modal-note" id="sync-config-note" hidden>
+          ⚠️ Sky-synk er ikke satt opp ennå. Fyll inn Supabase-verdiene i <code>config.js</code>.
+        </p>
+        <button class="btn btn-danger" type="button" id="sync-logout">Logg ut</button>
       </footer>
     </div>
   </div>
@@ -75,6 +102,23 @@
     </li>
   </template>
 
+  <!-- Innlogging: mønster-lås som splash-screen. Vises til riktig mønster er tegnet. -->
+  <div class="lock-screen" id="lock-screen" hidden>
+    <div class="lock-box">
+      <div class="lock-brand"><span class="brand-mark">✓</span> Huskekurv</div>
+      <p class="lock-msg" id="lock-msg">Tegn mønsteret for å låse opp.</p>
+      <svg class="lock-svg" id="lock-svg" viewBox="0 0 300 300" role="img"
+           aria-label="Mønster-lås" xmlns="http://www.w3.org/2000/svg">
+        <polyline id="lock-path" class="lock-path" points="" />
+        <line id="lock-live" class="lock-live" x1="0" y1="0" x2="0" y2="0" />
+        <g id="lock-nodes"></g>
+      </svg>
+    </div>
+  </div>
+
+  <!-- Sky-synk (Supabase). Biblioteket lastes fra CDN; config.js holder dine verdier. -->
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="config.js"></script>
   <script src="app.js"></script>
 </body>
 </html>
