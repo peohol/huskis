@@ -515,6 +515,47 @@ body.is-dragging * { cursor: grabbing !important; }
 
 body.modal-open { overflow: hidden; }
 
+/* ---------------- Synk ---------------- */
+.sync-dot {
+  display: inline-block;
+  width: 9px;
+  height: 9px;
+  border-radius: 999px;
+  background: #c3bcd2;                 /* av / ukjent */
+  box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.7);
+  transition: background 0.2s ease;
+}
+.sync-dot[data-status='connected'] { background: #46c48a; }
+.sync-dot[data-status='saving']    { background: #f0b429; animation: sync-pulse 1s ease-in-out infinite; }
+.sync-dot[data-status='error']     { background: var(--danger); }
+
+@keyframes sync-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.35; } }
+
+.sync-help {
+  margin: 0 0 14px;
+  font-size: 13.5px;
+  line-height: 1.5;
+  color: var(--ink-soft);
+  font-weight: 500;
+}
+.sync-help strong { color: var(--ink); }
+
+.sync-form { display: flex; gap: 8px; }
+.sync-input {
+  flex: 1;
+  min-width: 0;
+  font-family: inherit;
+  font-size: 15px;
+  font-weight: 500;
+  color: var(--ink);
+  padding: 10px 12px;
+  border: 1.5px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: #fff;
+}
+.sync-input::placeholder { color: rgba(60, 55, 80, 0.45); }
+.sync-input:focus { outline: none; border-color: var(--primary); }
+
 /* ---------------- Mobil ---------------- */
 @media (max-width: 560px) {
   .app-header { justify-content: center; }

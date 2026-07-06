@@ -31,6 +31,9 @@
         <span class="trash-icon" aria-hidden="true">🗑️</span> Papirkurv
         <span class="trash-count" id="trash-count">0</span>
       </button>
+      <button class="btn btn-ghost" id="sync-btn" type="button" title="Synk mellom enheter">
+        <span class="sync-dot" id="sync-dot" aria-hidden="true"></span> Synk
+      </button>
       <p class="hint" id="board-hint"></p>
     </div>
     <section class="board" id="board" aria-live="polite"></section>
@@ -47,6 +50,47 @@
       <footer class="modal-foot">
         <p class="modal-note">Slettede kategorier ligger her til du tømmer papirkurven.</p>
         <button class="btn btn-danger" id="trash-empty" type="button">Tøm papirkurv</button>
+      </footer>
+    </div>
+  </div>
+
+  <!-- Synk-modal -->
+  <div class="modal-overlay" id="sync-modal" hidden>
+    <div class="modal" role="dialog" aria-modal="true" aria-labelledby="sync-title">
+      <header class="modal-head">
+        <h2 id="sync-title">🔗 Synk mellom enheter</h2>
+        <button class="icon-btn" id="sync-close" type="button" title="Lukk" aria-label="Lukk">✕</button>
+      </header>
+      <div class="modal-body">
+        <p class="modal-note" id="sync-status-text">Ikke tilkoblet.</p>
+
+        <div id="sync-connect">
+          <p class="sync-help">
+            Velg en <strong>hemmelig synk-kode</strong> (et ord eller en setning bare du kjenner).
+            Skriv den samme koden på alle enhetene dine, så deler de samme lister.
+            Alle som kjenner koden kan se listene — velg noe langt og vanskelig å gjette.
+          </p>
+          <form class="sync-form" id="sync-form">
+            <input class="sync-input" id="sync-code-input" type="text"
+                   placeholder="f.eks. blå-katt-på-taket-42" autocomplete="off"
+                   aria-label="Synk-kode" minlength="6" />
+            <button class="btn btn-primary" type="submit" id="sync-connect-btn">Koble til</button>
+          </form>
+        </div>
+
+        <div id="sync-connected" hidden>
+          <p class="sync-help">
+            Denne enheten er koblet til med koden
+            <strong><span id="sync-code-shown"></span></strong>.
+            Endringer lagres i skyen og dukker opp på andre enheter med samme kode.
+          </p>
+          <button class="btn btn-danger" type="button" id="sync-disconnect-btn">Koble fra</button>
+        </div>
+      </div>
+      <footer class="modal-foot">
+        <p class="modal-note" id="sync-config-note" hidden>
+          ⚠️ Sky-synk er ikke satt opp ennå. Fyll inn Supabase-verdiene i <code>config.js</code>.
+        </p>
       </footer>
     </div>
   </div>
@@ -75,6 +119,9 @@
     </li>
   </template>
 
+  <!-- Sky-synk (Supabase). Biblioteket lastes fra CDN; config.js holder dine verdier. -->
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="config.js"></script>
   <script src="app.js"></script>
 </body>
 </html>

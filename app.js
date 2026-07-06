@@ -108,6 +108,8 @@
         /* ignore quota */
       }
     }, 120);
+    // Sky-synk (hvis en synk-kode er aktiv). Definert lenger nede; trygt å kalle.
+    if (typeof cloudPush === 'function') cloudPush();
   }
 
   const state = load() || defaultState();
@@ -757,11 +759,219 @@
     save();
   });
 
+  /* ---------------- Sky-synk (Supabase, synk-kode) ----------------
+     Alle enheter som skriver samme hemmelige synk-kode deler de samme
+     listene. Tabellen er låst bak koden (via SECURITY DEFINER-funksjoner
+     i databasen), så uten koden får man ikke tak i dataene.
+     Modell: «sist lagret vinner». localStorage beholdes som offline-buffer. */
+  const SYNC_CODE_KEY = 'mine-lister-sync-code';
+
+  let sb = null;          // Supabase-klient (lazy)
+  let syncCode = null;    // aktiv synk-kode, eller null
+  let cloudTimer = null;
+  let cloudBusy = false;
+  let cloudPending = false;
+
+  const syncBtn = document.getElementById('sync-btn');
+  const syncDot = document.getElementById('sync-dot');
+  const syncModal = document.getElementById('sync-modal');
+  const syncClose = document.getElementById('sync-close');
+  const syncForm = document.getElementById('sync-form');
+  const syncCodeInput = document.getElementById('sync-code-input');
+  const syncConnectBtn = document.getElementById('sync-connect-btn');
+  const syncConnectEl = document.getElementById('sync-connect');
+  const syncConnectedEl = document.getElementById('sync-connected');
+  const syncCodeShown = document.getElementById('sync-code-shown');
+  const syncDisconnectBtn = document.getElementById('sync-disconnect-btn');
+  const syncStatusText = document.getElementById('sync-status-text');
+  const syncConfigNote = document.getElementById('sync-config-note');
+
+  function cloudConfigured() {
+    const c = window.SUPABASE_CONFIG;
+    return !!(
+      c && typeof c.url === 'string' && typeof c.anonKey === 'string' &&
+      c.url.indexOf('DIN_') !== 0 && c.anonKey.indexOf('DIN_') !== 0 &&
+      window.supabase && typeof window.supabase.createClient === 'function'
+    );
+  }
+
+  function ensureClient() {
+    if (sb) return sb;
+    if (!cloudConfigured()) return null;
+    sb = window.supabase.createClient(window.SUPABASE_CONFIG.url, window.SUPABASE_CONFIG.anonKey);
+    return sb;
+  }
+
+  // status: 'off' | 'connected' | 'saving' | 'error'
+  function setSyncStatus(status, text) {
+    syncDot.dataset.status = status;
+    if (text) {
+      syncStatusText.textContent = text;
+      syncBtn.title = text;
+    }
+  }
+
+  async function cloudPullCode(code) {
+    const client = ensureClient();
+    if (!client) return { ok: false };
+    try {
+      const { data, error } = await client.rpc('get_list', { p_code: code });
+      if (error) return { ok: false, error };
+      return { ok: true, data: data || null };
+    } catch (e) {
+      return { ok: false, error: e };
+    }
+  }
+
+  async function cloudSaveNow() {
+    const client = ensureClient();
+    if (!client || !syncCode) return;
+    cloudBusy = true;
+    setSyncStatus('saving', 'Lagrer i skyen …');
+    try {
+      const { error } = await client.rpc('save_list', { p_code: syncCode, p_data: state });
+      if (error) setSyncStatus('error', 'Kunne ikke lagre i skyen. Prøver igjen ved neste endring.');
+      else setSyncStatus('connected', 'Tilkoblet — alt er lagret i skyen.');
+    } catch (e) {
+      setSyncStatus('error', 'Frakoblet — lagret lokalt. Prøver igjen senere.');
+    }
+    cloudBusy = false;
+    if (cloudPending) { cloudPending = false; cloudPush(); }
+  }
+
+  // Kalles fra save(). Debouncet, og serialisert (én lagring om gangen).
+  function cloudPush() {
+    if (!syncCode || !cloudConfigured()) return;
+    if (cloudBusy) { cloudPending = true; return; }
+    clearTimeout(cloudTimer);
+    cloudTimer = setTimeout(cloudSaveNow, 800);
+  }
+
+  // Skriv fjern-tilstand inn i det eksisterende state-objektet og tegn på nytt.
+  function applyRemoteState(remote) {
+    if (!remote || !remote.tabs) return;
+    state.activeTab = remote.activeTab;
+    state.tabs = remote.tabs;
+    normalize(state);
+    const ex = activeCards();
+    if (ex.length) lastColor = ex[ex.length - 1].color;
+    render();
+  }
+
+  function updateSyncUI() {
+    const connected = !!syncCode;
+    syncConnectEl.hidden = connected;
+    syncConnectedEl.hidden = !connected;
+    syncConfigNote.hidden = cloudConfigured();
+    if (connected) syncCodeShown.textContent = syncCode;
+    else syncCodeInput.value = '';
+  }
+
+  syncForm.addEventListener('submit', async (ev) => {
+    ev.preventDefault();
+    if (!cloudConfigured()) {
+      setSyncStatus('off', 'Sky-synk er ikke satt opp ennå. Fyll inn Supabase-verdiene i config.js.');
+      return;
+    }
+    const code = syncCodeInput.value.trim();
+    if (code.length < 6) {
+      setSyncStatus('error', 'Velg en kode på minst 6 tegn (helst mye lengre).');
+      return;
+    }
+    syncConnectBtn.disabled = true;
+    setSyncStatus('saving', 'Kobler til …');
+    const res = await cloudPullCode(code);
+    if (!res.ok) {
+      setSyncStatus('error', 'Kunne ikke koble til. Sjekk nettforbindelse og config.js.');
+      syncConnectBtn.disabled = false;
+      return;
+    }
+    if (res.data) {
+      const ok = confirm(
+        'Denne koden har allerede lister i skyen. Hente dem hit?\n\n' +
+        'Listene som ligger lokalt på denne enheten blir erstattet.'
+      );
+      if (!ok) {
+        setSyncStatus(syncCode ? 'connected' : 'off', syncCode ? 'Fortsatt tilkoblet.' : 'Avbrutt.');
+        syncConnectBtn.disabled = false;
+        return;
+      }
+      syncCode = code;
+      localStorage.setItem(SYNC_CODE_KEY, code);
+      applyRemoteState(res.data);
+      setSyncStatus('connected', 'Tilkoblet — hentet listene fra skyen.');
+    } else {
+      // Ny kode uten data i skyen ennå → last opp det som ligger lokalt.
+      syncCode = code;
+      localStorage.setItem(SYNC_CODE_KEY, code);
+      await cloudSaveNow();
+      setSyncStatus('connected', 'Tilkoblet — lastet opp de lokale listene dine.');
+    }
+    syncConnectBtn.disabled = false;
+    updateSyncUI();
+  });
+
+  syncDisconnectBtn.addEventListener('click', () => {
+    syncCode = null;
+    localStorage.removeItem(SYNC_CODE_KEY);
+    clearTimeout(cloudTimer);
+    setSyncStatus('off', 'Frakoblet. Listene lagres nå bare lokalt på denne enheten.');
+    updateSyncUI();
+  });
+
+  function openSync() {
+    updateSyncUI();
+    if (!cloudConfigured()) {
+      setSyncStatus('off', 'Sky-synk er ikke satt opp ennå. Fyll inn Supabase-verdiene i config.js.');
+    } else if (syncCode) {
+      setSyncStatus('connected', 'Tilkoblet med synk-koden din.');
+    } else {
+      setSyncStatus('off', 'Ikke tilkoblet. Skriv en synk-kode for å dele listene mellom enheter.');
+    }
+    syncModal.hidden = false;
+    document.body.classList.add('modal-open');
+  }
+  function closeSync() {
+    syncModal.hidden = true;
+    document.body.classList.remove('modal-open');
+  }
+
+  syncBtn.addEventListener('click', openSync);
+  syncClose.addEventListener('click', closeSync);
+  syncModal.addEventListener('click', (ev) => { if (ev.target === syncModal) closeSync(); });
+  document.addEventListener('keydown', (ev) => {
+    if (ev.key === 'Escape' && !syncModal.hidden) closeSync();
+  });
+
+  // Ved oppstart: har vi en lagret kode, hentes skyens versjon (skyen vinner).
+  async function syncInit() {
+    const savedCode = localStorage.getItem(SYNC_CODE_KEY);
+    if (!cloudConfigured() || !savedCode) {
+      setSyncStatus('off');
+      return;
+    }
+    syncCode = savedCode;
+    setSyncStatus('saving', 'Henter listene fra skyen …');
+    const res = await cloudPullCode(savedCode);
+    if (!res.ok) {
+      setSyncStatus('error', 'Frakoblet — bruker lokale lister. Synker ved neste endring.');
+      return;
+    }
+    if (res.data) {
+      applyRemoteState(res.data);
+      setSyncStatus('connected', 'Synket fra skyen.');
+    } else {
+      await cloudSaveNow();
+      setSyncStatus('connected', 'Tilkoblet.');
+    }
+  }
+
   /* ---------------- Start ---------------- */
   // Sett en fornuftig lastColor så nye kort varierer
   const existing = activeCards();
   if (existing.length) lastColor = existing[existing.length - 1].color;
   render();
+  syncInit();
 
   // Eksponer for enkel feilsøking/testing
   window.__mineLister = { state, render };

@@ -65,6 +65,56 @@ Bytte utløses av **overlapp**, ikke av et punkt:
 - Kort-DnD reflower automatisk fordi layouten er `CSS multi-column` og rekkefølgen bestemmes av DOM-rekkefølge.
 - Under draging manipuleres DOM direkte (for ytelse); state bygges opp igjen fra DOM ved slipp, så re-render.
 
+## Sky-synk (Supabase, synk-kode)
+
+Listene kan synkes mellom enheter via **Supabase**. Første variant bruker en **synk-kode**
+(ingen innlogging): alle enheter som skriver samme hemmelige kode deler de samme listene.
+
+- **`config.js`** holder `window.SUPABASE_CONFIG` (`url` + `anonKey`). Så lenge plassholderne
+  (`DIN_...`) står, kjører appen lokalt (localStorage) uten synk. Appen **degraderer pent** hvis
+  Supabase-biblioteket ikke lastes / nettet er nede → fortsetter lokalt.
+- **Datamodell i skyen**: hele `state`-objektet lagres som **ett `jsonb`-felt** i én rad,
+  identifisert av `sha256(synk-kode)`. Tabellen er låst med Row Level Security (ingen policy),
+  og all tilgang går via to `SECURITY DEFINER`-funksjoner slik at man trenger koden for å nå dataene:
+  - `get_list(p_code text) → jsonb`
+  - `save_list(p_code text, p_data jsonb) → void`
+- **Klient**: `app.js` lager en Supabase-klient lazy og kaller `rpc('get_list' | 'save_list')`.
+  `save()` pusher til skyen (debouncet 800 ms, serialisert – én lagring om gangen). Ved oppstart
+  hentes skyens versjon (**skyen vinner** ved oppstart). Modellen er ellers **«sist lagret vinner»**.
+- **UI**: «Synk»-knapp i verktøylinja med statusprikk (grå=av, grønn=tilkoblet, gul=lagrer, rød=feil)
+  og en modal for å koble til/fra med kode.
+
+### SQL som må kjøres i Supabase (SQL Editor)
+
+```sql
+create extension if not exists pgcrypto;
+
+create table public.lists (
+  code_hash  text primary key,
+  data       jsonb not null,
+  updated_at timestamptz not null default now()
+);
+
+alter table public.lists enable row level security;  -- ingen policy → ingen direkte tilgang
+
+create or replace function public.get_list(p_code text)
+returns jsonb language sql security definer set search_path = public as $$
+  select data from public.lists
+  where code_hash = encode(digest(p_code, 'sha256'), 'hex');
+$$;
+
+create or replace function public.save_list(p_code text, p_data jsonb)
+returns void language sql security definer set search_path = public as $$
+  insert into public.lists (code_hash, data, updated_at)
+  values (encode(digest(p_code, 'sha256'), 'hex'), p_data, now())
+  on conflict (code_hash) do update
+    set data = excluded.data, updated_at = now();
+$$;
+
+grant execute on function public.get_list(text)         to anon;
+grant execute on function public.save_list(text, jsonb) to anon;
+```
+
 ## Papirkurv
 
 - Å slette en **kategori** flytter den til `tabs[tab].trash` (per fane) i stedet for å slette den.
