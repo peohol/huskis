@@ -1,5 +1,5 @@
 /* ============================================================
-   Mine lister — app.js
+   Huskekurv — app.js
    Vanilla JS. Egen dra-og-slipp-motor på Pointer Events.
    ============================================================ */
 (function () {
@@ -1141,5 +1141,5 @@
   initAuth();
 
   // Eksponer for enkel feilsøking/testing
-  window.__mineLister = { state, render, logout };
+  window.__huskekurv = { state, render, logout };
 })();

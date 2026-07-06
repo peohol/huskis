@@ -11,7 +11,7 @@
    appen lokalt (localStorage) uten sky-synk.
    ============================================================ */
 window.SUPABASE_CONFIG = {
-  url: 'https://kdrsapafvmyjhzyqkrbc.supabase.co',
+  url: 'https://bmkynefxgklxzcofflqu.supabase.co',
   anonKey:
-    'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtkcnNhcGFmdm15amh6eXFrcmJjIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODMzMDE3NzQsImV4cCI6MjA5ODg3Nzc3NH0.Uu2--tsBvDVqeYm0rsabxAWOoDabzgwf9wx9TELNkgs',
+    'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImJta3luZWZ4Z2tseHpjb2ZmbHF1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODMzMDY1NzUsImV4cCI6MjA5ODg4MjU3NX0.6aKDubEVdP1WNKMvu8MsHAQGgw8BprlBOe6aP5yXn_A',
 };

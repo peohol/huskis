@@ -1,6 +1,6 @@
 # CLAUDE.md — Arbeidsdokument
 
-Personlig arbeidsnotat for utvikling av **Huskeliste-appen**. Oppdateres underveis.
+Personlig arbeidsnotat for utvikling av **Huskekurv-appen**. Oppdateres underveis.
 
 ## Mål (fra oppgaven)
 
