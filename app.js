@@ -305,6 +305,10 @@
      oppover-drag kun med kortet over. Bytter animeres med FLIP (150 ms).
      Kryss-kolonne / overføring mellom kort skjer når dra-elementet
      føres inn i en annen kolonne/kategori.
+     Spesialtilfelle: hvis ingen kolonne har mer enn ett kort (alle
+     kategorier ligger på samme horisontale rad), er vertikalt bytte
+     umulig — da gjelder i stedet en tilsvarende 20 %-regel for
+     bredde-overlapp, retningsstyrt mot venstre/høyre.
      ============================================================ */
 
   const SWAP_RATIO = 0.2; // 20 % høydeoverlapp utløser bytte
@@ -316,9 +320,21 @@
   function vOverlap(a, b) {
     return Math.max(0, Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top));
   }
+  function hOverlap(a, b) {
+    return Math.max(0, Math.min(a.right, b.right) - Math.max(a.left, b.left));
+  }
   function hOverlapFrac(a, b) {
-    const o = Math.max(0, Math.min(a.right, b.right) - Math.max(a.left, b.left));
-    return o / Math.max(1, Math.min(a.width, b.width));
+    return hOverlap(a, b) / Math.max(1, Math.min(a.width, b.width));
+  }
+  // Sant når ingen to kort deler kolonne (>= 50 % horisontal overlapp),
+  // altså at kortene ligger på én enkelt horisontal rad.
+  function isSingleRowLayout(rects) {
+    for (let i = 0; i < rects.length; i++) {
+      for (let j = i + 1; j < rects.length; j++) {
+        if (hOverlapFrac(rects[i], rects[j]) >= 0.5) return false;
+      }
+    }
+    return true;
   }
   // Layout-boks uten evt. pågående FLIP-transform, så treffdeteksjon er stabil
   // selv mens kort animerer på plass.
@@ -467,6 +483,7 @@
 
   function onCardMove(ev) {
     if (!drag.active) return;
+    const dx = ev.clientX - drag.lastX;
     const dy = ev.clientY - drag.lastY;
     drag.lastX = ev.clientX;
     drag.lastY = ev.clientY;
@@ -476,44 +493,72 @@
     const cards = [...board.querySelectorAll('.card:not(.dragging)')];
     if (!cards.length) return;
     const rects = new Map(cards.map((c) => [c, layoutRect(c)]));
-
-    // Kolonne = kort som ligger på samme horisontale spor som dra-kortet.
-    const col = cards.filter((c) => hOverlapFrac(dragRect, rects.get(c)) >= 0.5);
     const ph = drag.ph;
-    const phInCol = col.length && hOverlapFrac(dragRect, layoutRect(ph)) >= 0.5;
 
     let action = null;
 
-    if (col.length && !phInCol) {
-      // Bytte kolonne: plasser etter vertikal senterposisjon.
-      const cy = dragRect.top + dragRect.height / 2;
-      const sorted = col.slice().sort((a, b) => rects.get(a).top - rects.get(b).top);
-      let ref = null;
-      for (const c of sorted) {
-        const r = rects.get(c);
-        if (cy < r.top + r.height / 2) { ref = c; break; }
-      }
-      action = ref ? { ref, pos: 'before' } : { ref: sorted[sorted.length - 1], pos: 'after' };
-    } else if (col.length && dy > 0) {
-      // Nedover: nærmeste kort under med >= 20 % overlapp.
-      let best = null, bestTop = Infinity;
-      for (const c of col) {
-        const r = rects.get(c);
-        if (r.top >= dragRect.top && vOverlap(dragRect, r) >= SWAP_RATIO * r.height && r.top < bestTop) {
-          bestTop = r.top; best = c;
+    // Spesialtilfelle: ingen kolonne har mer enn ett kort → vertikalt
+    // bytte er umulig. Bruk i stedet en 20 %-regel for bredde-overlapp,
+    // retningsstyrt mot venstre/høyre.
+    const restRects = cards.map((c) => rects.get(c)).concat([layoutRect(ph)]);
+    if (isSingleRowLayout(restRects)) {
+      if (dx > 0) {
+        // Høyre: nærmeste kort til høyre med >= 20 % breddeoverlapp.
+        let best = null, bestLeft = Infinity;
+        for (const c of cards) {
+          const r = rects.get(c);
+          if (r.left >= dragRect.left && hOverlap(dragRect, r) >= SWAP_RATIO * r.width && r.left < bestLeft) {
+            bestLeft = r.left; best = c;
+          }
         }
-      }
-      if (best) action = { ref: best, pos: 'after' };
-    } else if (col.length && dy < 0) {
-      // Oppover: nærmeste kort over med >= 20 % overlapp.
-      let best = null, bestTop = -Infinity;
-      for (const c of col) {
-        const r = rects.get(c);
-        if (r.top <= dragRect.top && vOverlap(dragRect, r) >= SWAP_RATIO * r.height && r.top > bestTop) {
-          bestTop = r.top; best = c;
+        if (best) action = { ref: best, pos: 'after' };
+      } else if (dx < 0) {
+        // Venstre: nærmeste kort til venstre med >= 20 % breddeoverlapp.
+        let best = null, bestLeft = -Infinity;
+        for (const c of cards) {
+          const r = rects.get(c);
+          if (r.left <= dragRect.left && hOverlap(dragRect, r) >= SWAP_RATIO * r.width && r.left > bestLeft) {
+            bestLeft = r.left; best = c;
+          }
         }
+        if (best) action = { ref: best, pos: 'before' };
       }
-      if (best) action = { ref: best, pos: 'before' };
+    } else {
+      // Kolonne = kort som ligger på samme horisontale spor som dra-kortet.
+      const col = cards.filter((c) => hOverlapFrac(dragRect, rects.get(c)) >= 0.5);
+      const phInCol = col.length && hOverlapFrac(dragRect, layoutRect(ph)) >= 0.5;
+
+      if (col.length && !phInCol) {
+        // Bytte kolonne: plasser etter vertikal senterposisjon.
+        const cy = dragRect.top + dragRect.height / 2;
+        const sorted = col.slice().sort((a, b) => rects.get(a).top - rects.get(b).top);
+        let ref = null;
+        for (const c of sorted) {
+          const r = rects.get(c);
+          if (cy < r.top + r.height / 2) { ref = c; break; }
+        }
+        action = ref ? { ref, pos: 'before' } : { ref: sorted[sorted.length - 1], pos: 'after' };
+      } else if (col.length && dy > 0) {
+        // Nedover: nærmeste kort under med >= 20 % overlapp.
+        let best = null, bestTop = Infinity;
+        for (const c of col) {
+          const r = rects.get(c);
+          if (r.top >= dragRect.top && vOverlap(dragRect, r) >= SWAP_RATIO * r.height && r.top < bestTop) {
+            bestTop = r.top; best = c;
+          }
+        }
+        if (best) action = { ref: best, pos: 'after' };
+      } else if (col.length && dy < 0) {
+        // Oppover: nærmeste kort over med >= 20 % overlapp.
+        let best = null, bestTop = -Infinity;
+        for (const c of col) {
+          const r = rects.get(c);
+          if (r.top <= dragRect.top && vOverlap(dragRect, r) >= SWAP_RATIO * r.height && r.top > bestTop) {
+            bestTop = r.top; best = c;
+          }
+        }
+        if (best) action = { ref: best, pos: 'before' };
+      }
     }
 
     if (!action || !wouldMove(ph, action.ref, action.pos)) return;
