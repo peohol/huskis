@@ -10,7 +10,7 @@
   <link href="https://fonts.googleapis.com/css2?family=Quicksand:wght@400;500;600;700&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="styles.css" />
 </head>
-<body>
+<body class="locked">
   <header class="app-header">
     <div class="brand">
       <span class="brand-mark">✓</span>
@@ -63,34 +63,17 @@
       </header>
       <div class="modal-body">
         <p class="modal-note" id="sync-status-text">Ikke tilkoblet.</p>
-
-        <div id="sync-connect">
-          <p class="sync-help">
-            Velg en <strong>hemmelig synk-kode</strong> (et ord eller en setning bare du kjenner).
-            Skriv den samme koden på alle enhetene dine, så deler de samme lister.
-            Alle som kjenner koden kan se listene — velg noe langt og vanskelig å gjette.
-          </p>
-          <form class="sync-form" id="sync-form">
-            <input class="sync-input" id="sync-code-input" type="text"
-                   placeholder="f.eks. blå-katt-på-taket-42" autocomplete="off"
-                   aria-label="Synk-kode" minlength="6" />
-            <button class="btn btn-primary" type="submit" id="sync-connect-btn">Koble til</button>
-          </form>
-        </div>
-
-        <div id="sync-connected" hidden>
-          <p class="sync-help">
-            Denne enheten er koblet til med koden
-            <strong><span id="sync-code-shown"></span></strong>.
-            Endringer lagres i skyen og dukker opp på andre enheter med samme kode.
-          </p>
-          <button class="btn btn-danger" type="button" id="sync-disconnect-btn">Koble fra</button>
-        </div>
+        <p class="sync-help">
+          Listene dine synkes automatisk til skyen mens du er logget inn, og dukker
+          opp på alle enheter der du tegner det <strong>samme mønsteret</strong>.
+          Ingen egen kode å taste.
+        </p>
       </div>
       <footer class="modal-foot">
         <p class="modal-note" id="sync-config-note" hidden>
           ⚠️ Sky-synk er ikke satt opp ennå. Fyll inn Supabase-verdiene i <code>config.js</code>.
         </p>
+        <button class="btn btn-danger" type="button" id="sync-logout">Logg ut</button>
       </footer>
     </div>
   </div>
@@ -118,6 +101,20 @@
       <button class="icon-btn item-delete" title="Slett element" aria-label="Slett element">✕</button>
     </li>
   </template>
+
+  <!-- Innlogging: mønster-lås som splash-screen. Vises til riktig mønster er tegnet. -->
+  <div class="lock-screen" id="lock-screen" hidden>
+    <div class="lock-box">
+      <div class="lock-brand"><span class="brand-mark">✓</span> Mine&nbsp;lister</div>
+      <p class="lock-msg" id="lock-msg">Tegn mønsteret for å låse opp.</p>
+      <svg class="lock-svg" id="lock-svg" viewBox="0 0 300 300" role="img"
+           aria-label="Mønster-lås" xmlns="http://www.w3.org/2000/svg">
+        <polyline id="lock-path" class="lock-path" points="" />
+        <line id="lock-live" class="lock-live" x1="0" y1="0" x2="0" y2="0" />
+        <g id="lock-nodes"></g>
+      </svg>
+    </div>
+  </div>
 
   <!-- Sky-synk (Supabase). Biblioteket lastes fra CDN; config.js holder dine verdier. -->
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
