@@ -15,6 +15,10 @@
   --line: #e3e7e3;
 
   --surface: #ffffff;
+  /* Ugjennomsiktig tilnærming av header-flaten (hvit 0.72 over bakgrunnen).
+     Brukes til den festede «＋»-sonen på mobil-overflow, som må være ugjennomsiktig
+     for at gruppekortene skal kunne forsvinne bak den. */
+  --header-solid: #dee2e4;
   --primary: #668866;
   --primary-dark: #4d664d;
   --primary-soft: rgba(102, 136, 102, 0.14);
@@ -158,32 +162,29 @@ body {
 .add-group-btn:hover { box-shadow: var(--shadow-md); background: var(--primary-soft); }
 .add-group-btn:active { transform: translateY(1px); }
 
-/* Fastlåst «＋» til høyre + fade (kun mobil når kortene overskrider bredden). */
+/* Fastlåst «＋» til høyre (kun mobil når kortene overskrider bredden).
+   Sonen er UGJENNOMSIKTIG mot høyre, og faden er en ren opacity-gradient
+   (0 % → 100 %) uten backdrop-blur — så gruppekortene forsvinner helt bak
+   knappen og oppløses mykt, uten en tydelig kant. Bredden på det transparente
+   fade-partiet settes av `--fade-w` (padding-left holder knappen i den
+   ugjennomsiktige delen). */
 .groups-pin {
+  --fade-w: 64px;
   display: none;
   position: absolute;
   top: 0;
   right: 0;
   bottom: 0;
   align-items: center;
+  padding-left: var(--fade-w);
   padding-right: clamp(12px, 3vw, 32px);
   pointer-events: none;
+  background: linear-gradient(to right,
+    rgba(222, 226, 228, 0) 0,
+    var(--header-solid) var(--fade-w),
+    var(--header-solid) 100%);
 }
 .groups-pin .add-group-pinned { pointer-events: auto; }
-.groups-fade {
-  width: 54px;
-  align-self: stretch;
-  margin-right: 6px;
-  /* Kortene glir gradvis ut i header-flaten — ingen tydelig kant. Tonen matcher
-     den lyse header-flaten (hvit over bakgrunnen), og en svak uklarhet oppløser
-     kortene mykt idet de scroller forbi. */
-  background: linear-gradient(to right,
-    rgba(232, 235, 236, 0),
-    rgba(233, 236, 237, 0.72) 52%,
-    rgba(235, 238, 238, 0.95));
-  backdrop-filter: blur(3px);
-  -webkit-backdrop-filter: blur(3px);
-}
 
 /* ---------------- Main / toolbar ---------------- */
 .app-main {
@@ -815,9 +816,10 @@ body.locked .app-main { display: none; }
   }
   .groups-bar::-webkit-scrollbar { display: none; }  /* WebKit */
 
-  /* Når kortene overskrider bredden: «＋» festes til høyre, kortene scroller
-     forbi bak fade-gradienten, og inline-«＋» skjules. */
+  /* Når kortene overskrider bredden: «＋» festes til høyre i sin ugjennomsiktige
+     sone, kortene scroller helt ut til kanten og forsvinner bak fade-gradienten,
+     og inline-«＋» skjules. Ingen padding-right her — kortene skal kunne scrolle
+     helt ut til sidens ytterkant (og oppløses i faden), ikke stoppe for tidlig. */
   .app-header.groups-overflow .add-group-inline { display: none; }
   .app-header.groups-overflow .groups-pin { display: flex; }
-  .app-header.groups-overflow .groups-bar { padding-right: 92px; }
 }

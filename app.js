@@ -722,6 +722,9 @@
   function hOverlapFrac(a, b) {
     return hOverlap(a, b) / Math.max(1, Math.min(a.width, b.width));
   }
+  function vOverlapFrac(a, b) {
+    return vOverlap(a, b) / Math.max(1, Math.min(a.height, b.height));
+  }
   // Sant når ingen to kort deler kolonne (>= 50 % horisontal overlapp),
   // altså at kortene ligger på én enkelt horisontal rad.
   function isSingleRowLayout(rects) {
@@ -1230,36 +1233,69 @@
 
   function onGroupMove(ev) {
     if (!drag.active) return;
+    const dx = ev.clientX - drag.lastX;
+    const dy = ev.clientY - drag.lastY;
     drag.lastX = ev.clientX;
     drag.lastY = ev.clientY;
     moveElement();
     drag.el.style.transform = `rotate(${cardRotation()}deg) scale(1.05)`;
     updateGroupAutoScroll(ev);
-    updateGroupPlacement();
+    updateGroupPlacement(dx, dy);
   }
 
-  function updateGroupPlacement() {
+  // Samme «ivrige» bytte-logikk som kort/elementer, men transponert til den
+  // horisontale gruppe-raden: en **rad** = kort med >= 50 % vertikal overlapp med
+  // dra-kortet (analogt til «kolonne» for kort). Innen raden byttes retningsstyrt
+  // ved >= 20 % BREDDE-overlapp (dra høyre → kortet til høyre; dra venstre → til
+  // venstre). Føres kortet til en annen rad (desktop-wrap), plasseres placeholderen
+  // ut fra horisontal senterposisjon (kryss-rad, analogt til kryss-kolonne).
+  function updateGroupPlacement(dx, dy) {
     if (!drag.active || drag.kind !== 'group') return;
     const dragRect = draggedRect();
-    const dcx = dragRect.left + dragRect.width / 2;
-    const dcy = dragRect.top + dragRect.height / 2;
     const cards = [...groupsBar.querySelectorAll('.group-card:not(.dragging)')];
+    if (!cards.length) return;
+    const rects = new Map(cards.map((c) => [c, layoutRect(c)]));
     const ph = drag.ph;
 
-    let ref = null;
-    for (const c of cards) {
-      const r = layoutRect(c);
-      const cx = r.left + r.width / 2;
-      if (dcy < r.top - 1 || (dcy <= r.bottom + 1 && dcx < cx)) { ref = c; break; }
+    const row = cards.filter((c) => vOverlapFrac(dragRect, rects.get(c)) >= 0.5);
+    const phInRow = row.length && vOverlapFrac(dragRect, layoutRect(ph)) >= 0.5;
+
+    let action = null;
+    if (row.length && !phInRow) {
+      // Kryss-rad: plasser etter horisontal senterposisjon.
+      const cx = dragRect.left + dragRect.width / 2;
+      const sorted = row.slice().sort((a, b) => rects.get(a).left - rects.get(b).left);
+      let ref = null;
+      for (const c of sorted) {
+        const r = rects.get(c);
+        if (cx < r.left + r.width / 2) { ref = c; break; }
+      }
+      action = ref ? { ref, pos: 'before' } : { ref: sorted[sorted.length - 1], pos: 'after' };
+    } else if (row.length && dx > 0) {
+      // Høyre: nærmeste kort til høyre med >= 20 % breddeoverlapp.
+      let best = null, bestLeft = Infinity;
+      for (const c of row) {
+        const r = rects.get(c);
+        if (r.left >= dragRect.left && hOverlap(dragRect, r) >= SWAP_RATIO * r.width && r.left < bestLeft) {
+          bestLeft = r.left; best = c;
+        }
+      }
+      if (best) action = { ref: best, pos: 'after' };
+    } else if (row.length && dx < 0) {
+      // Venstre: nærmeste kort til venstre med >= 20 % breddeoverlapp.
+      let best = null, bestLeft = -Infinity;
+      for (const c of row) {
+        const r = rects.get(c);
+        if (r.left <= dragRect.left && hOverlap(dragRect, r) >= SWAP_RATIO * r.width && r.left > bestLeft) {
+          bestLeft = r.left; best = c;
+        }
+      }
+      if (best) action = { ref: best, pos: 'before' };
     }
 
-    // Endrer flyttingen faktisk noe?
-    if (ref) { if (ref.previousElementSibling === ph) return; }
-    else if (ph.nextElementSibling === addGroupBtn) return;
-
+    if (!action || !wouldMove(ph, action.ref, action.pos)) return;
     const snap = snapshotRects(cards);
-    if (ref) groupsBar.insertBefore(ph, ref);
-    else groupsBar.insertBefore(ph, addGroupBtn); // etter siste kort, foran «＋»
+    placePlaceholder(groupsBar, ph, action.ref, action.pos); // 'after' siste kort → foran «＋»
     flipFrom(snap, FLIP_MS);
   }
 
@@ -1308,7 +1344,9 @@
       if (!drag.active || groupScrollSpeed === 0) { groupScrollRAF = null; return; }
       const before = groupsBar.scrollLeft;
       groupsBar.scrollLeft += groupScrollSpeed;
-      if (groupsBar.scrollLeft !== before) updateGroupPlacement();
+      // Kortene flytter seg når raden ruller → re-evaluer med rulleretningen
+      // som syntetisk drag-retning (som kort-auto-scroll).
+      if (groupsBar.scrollLeft !== before) updateGroupPlacement(groupScrollSpeed > 0 ? 1 : -1, 0);
       groupScrollRAF = requestAnimationFrame(step);
     };
     groupScrollRAF = requestAnimationFrame(step);
@@ -1318,11 +1356,17 @@
     groupScrollSpeed = 0;
   }
 
-  /* ------- Overflow: på mobil legges «＋» statisk til høyre med fade ------- */
+  /* ------- Overflow: på mobil legges «＋» statisk til høyre i ugjennomsiktig sone -------
+     Målet er stabilt (unngår flip-flop): når vi allerede er i overflow er inline-«＋»
+     skjult, så vi legger dens bredde tilbake i regnestykket. groups-bar sin clientWidth
+     endres ikke av klassen (ingen padding-endring), så målingen er konsistent. */
+  const INLINE_ADD_W = 46; // inline «＋» + gap, brukt som stabil reserve
   function updateGroupsOverflow() {
     const mobile = window.matchMedia('(max-width: 560px)').matches;
-    const overflow = mobile && (groupsBar.scrollWidth - groupsBar.clientWidth > 1);
-    appHeader.classList.toggle('groups-overflow', overflow);
+    if (!mobile) { appHeader.classList.remove('groups-overflow'); return; }
+    const compensate = appHeader.classList.contains('groups-overflow') ? INLINE_ADD_W : 0;
+    const content = groupsBar.scrollWidth + compensate;
+    appHeader.classList.toggle('groups-overflow', content - groupsBar.clientWidth > 1);
   }
   window.addEventListener('resize', updateGroupsOverflow);
 
