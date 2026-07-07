@@ -44,23 +44,52 @@
     return c;
   }
 
+  /* ---------------- Synk-metadata: enhet, klokke, stempling ----------------
+     For å kunne flette endringer fra flere enheter (à la git) har hver
+     entitet (kort/element) to «registre»:
+       • innhold  (tittel/tekst/farge/trashed)  → felt: ts, org
+       • posisjon (rekkefølge + evt. ny forelder) → felt: pos, posTs, posOrg
+     Ved fletting velges nyeste register per felt (LWW). Å endre ulike
+     entiteter/felter gir aldri konflikt; kun endring på samme register
+     på to enheter «konflikter», og da vinner den nyeste. */
+  const DEVICE_KEY = 'mine-lister-device';
+  let deviceId = localStorage.getItem(DEVICE_KEY);
+  if (!deviceId) {
+    deviceId = 'd-' + Math.random().toString(36).slice(2, 10);
+    try { localStorage.setItem(DEVICE_KEY, deviceId); } catch (e) { /* ignore */ }
+  }
+
+  // Hybrid logisk klokke: monotont voksende tidsstempel. Robust mot at
+  // enhetenes veggklokker går litt i utakt (bruker max av lokal tid og sist sette).
+  let hlc = 0;
+  function tick() { hlc = Math.max(hlc + 1, Date.now()); return hlc; }
+  function observeTs(t) { if (typeof t === 'number' && t > hlc) hlc = t; }
+
+  function stampContent(e) { e.ts = tick(); e.org = deviceId; }   // tittel/tekst/farge/trashed
+  function stampPos(e) { e.posTs = tick(); e.posOrg = deviceId; } // rekkefølge/forelder
+
+  // Nyere av to registre: sammenlign (ts, org). org bryter uavgjort deterministisk.
+  function newer(aTs, aOrg, bTs, bOrg) {
+    aTs = aTs || 0; bTs = bTs || 0;
+    if (aTs !== bTs) return aTs > bTs;
+    return String(aOrg || '') > String(bOrg || '');
+  }
+
+  // Fraksjonsindeksering for rekkefølge: en pos-verdi mellom to naboer.
+  function between(a, b) {
+    if (a == null && b == null) return 0;
+    if (a == null) return b - 1;
+    if (b == null) return a + 1;
+    return (a + b) / 2;
+  }
+  function maxPos(arr) { return arr.reduce((m, e) => Math.max(m, e.pos || 0), 0); }
+
   /* ---------------- State ---------------- */
-  function seedTab(kind) {
-    if (kind === 'huskelister') {
-      return {
-        cards: [
-          card('Ukens gjøremål', ['Rydde garasjen', 'Ringe tannlegen', 'Vanne blomstene']),
-          card('Pakke til tur', ['Regnjakke', 'Ladekabel', 'Drikkeflaske', 'Kart']),
-          card('Ideer', ['Male gjerdet', 'Prøve ny kaffebar']),
-        ],
-      };
-    }
+  function makeItem(text, homeId) {
     return {
-      cards: [
-        card('Dagligvarer', ['Melk', 'Brød', 'Egg', 'Smør', 'Kaffe']),
-        card('Middag i kveld', ['Kyllingfilet', 'Ris', 'Brokkoli', 'Soyasaus']),
-        card('Apotek', ['Plaster', 'Solkrem']),
-      ],
+      id: uid(), text, home: homeId,
+      ts: 0, org: deviceId,           // innholdsregister (tekst)
+      pos: 0, posTs: 0, posOrg: deviceId, // posisjonsregister (rekkefølge/forelder)
     };
   }
 
@@ -68,21 +97,46 @@
   function card(title, items) {
     const color = randomColor(lastColor);
     lastColor = color;
-    return {
-      id: uid(),
-      title,
-      color,
-      items: (items || []).map((t) => ({ id: uid(), text: t })),
+    const id = uid();
+    const c = {
+      id, title, color, trashed: false,
+      ts: 0, org: deviceId,           // innholdsregister (tittel/farge/trashed)
+      pos: 0, posTs: 0, posOrg: deviceId, // posisjonsregister (rekkefølge)
+      items: [],
     };
+    (items || []).forEach((t, i) => {
+      const it = makeItem(t, id);
+      it.pos = i;
+      c.items.push(it);
+    });
+    return c;
   }
 
-  function defaultState() {
+  function seedTab(kind) {
+    const cards = kind === 'huskelister'
+      ? [
+          card('Ukens gjøremål', ['Rydde garasjen', 'Ringe tannlegen', 'Vanne blomstene']),
+          card('Pakke til tur', ['Regnjakke', 'Ladekabel', 'Drikkeflaske', 'Kart']),
+          card('Ideer', ['Male gjerdet', 'Prøve ny kaffebar']),
+        ]
+      : [
+          card('Dagligvarer', ['Melk', 'Brød', 'Egg', 'Smør', 'Kaffe']),
+          card('Middag i kveld', ['Kyllingfilet', 'Ris', 'Brokkoli', 'Soyasaus']),
+          card('Apotek', ['Plaster', 'Solkrem']),
+        ];
+    cards.forEach((c, i) => { c.pos = i; });
+    return { cards };
+  }
+
+  function baseState(seeded) {
     return {
       activeTab: 'huskelister',
       tabs: {
-        huskelister: seedTab('huskelister'),
-        handlelister: seedTab('handlelister'),
+        huskelister: seeded ? seedTab('huskelister') : { cards: [] },
+        handlelister: seeded ? seedTab('handlelister') : { cards: [] },
       },
+      _tomb: { cards: {}, items: {} }, // gravsteiner: id → tidsstempel for sletting
+      _hlc: 0,
     };
   }
 
@@ -103,29 +157,60 @@
     clearTimeout(saveTimer);
     saveTimer = setTimeout(() => {
       try {
+        state._hlc = hlc;
         localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
       } catch (e) {
         /* ignore quota */
       }
     }, 120);
-    // Sky-synk (hvis en synk-kode er aktiv). Definert lenger nede; trygt å kalle.
-    if (typeof cloudPush === 'function') cloudPush();
+    // Sky-synk: flett + push (debouncet). Ikke mens vi nettopp skrev fjern-tilstand.
+    if (!applyingRemote && syncCode && cloudConfigured()) scheduleSync();
   }
 
-  const state = load() || defaultState();
+  // Første gang (ingen lokal state): start tom når sky-synk er konfigurert
+  // (skyen fyller på / tom-tilstanden veileder), ellers med eksempeldata.
+  const state = load() || baseState(!cloudConfigured());
 
-  // Sørg for at (evt. eldre) lagret state har forventet struktur, inkl. papirkurv.
+  // Migrer/normaliser: gi (evt. eldre) lagret state forventet struktur og synk-metadata.
+  function normalizeItem(it, homeId, j) {
+    if (!it.home) it.home = homeId;
+    if (typeof it.ts !== 'number') it.ts = 0;
+    if (!it.org) it.org = deviceId;
+    if (typeof it.pos !== 'number') it.pos = j;
+    if (typeof it.posTs !== 'number') it.posTs = 0;
+    if (!it.posOrg) it.posOrg = deviceId;
+  }
+  function normalizeCard(c, i) {
+    if (typeof c.trashed !== 'boolean') c.trashed = false;
+    if (typeof c.ts !== 'number') c.ts = 0;
+    if (!c.org) c.org = deviceId;
+    if (typeof c.pos !== 'number') c.pos = i;
+    if (typeof c.posTs !== 'number') c.posTs = 0;
+    if (!c.posOrg) c.posOrg = deviceId;
+    if (!Array.isArray(c.items)) c.items = [];
+    c.items.forEach((it, j) => normalizeItem(it, c.id, j));
+  }
   function normalize(s) {
     if (!TABS.includes(s.activeTab)) s.activeTab = 'huskelister';
+    if (!s._tomb || typeof s._tomb !== 'object') s._tomb = { cards: {}, items: {} };
+    if (!s._tomb.cards) s._tomb.cards = {};
+    if (!s._tomb.items) s._tomb.items = {};
+    if (typeof s._hlc !== 'number') s._hlc = 0;
     TABS.forEach((t) => {
-      if (!s.tabs[t]) s.tabs[t] = { cards: [], trash: [] };
-      if (!Array.isArray(s.tabs[t].cards)) s.tabs[t].cards = [];
-      if (!Array.isArray(s.tabs[t].trash)) s.tabs[t].trash = [];
-      s.tabs[t].cards.forEach((c) => { if (!Array.isArray(c.items)) c.items = []; });
-      s.tabs[t].trash.forEach((c) => { if (!Array.isArray(c.items)) c.items = []; });
+      if (!s.tabs[t]) s.tabs[t] = { cards: [] };
+      const tab = s.tabs[t];
+      if (!Array.isArray(tab.cards)) tab.cards = [];
+      // Migrer gammel papirkurv (egen array) → trashed-flagg på kortene.
+      if (Array.isArray(tab.trash)) {
+        tab.trash.forEach((c) => { c.trashed = true; tab.cards.push(c); });
+        delete tab.trash;
+      }
+      tab.cards.forEach((c, i) => normalizeCard(c, i));
     });
+    observeTs(s._hlc);
   }
   normalize(state);
+  hlc = Math.max(hlc, state._hlc || 0);
 
   /* ---------------- DOM-referanser ---------------- */
   const board = document.getElementById('board');
@@ -142,13 +227,22 @@
   const trashClose = document.getElementById('trash-close');
   const trashEmptyBtn = document.getElementById('trash-empty');
 
-  const activeCards = () => state.tabs[state.activeTab].cards;
-  const activeTrash = () => state.tabs[state.activeTab].trash;
-  const findCard = (id) => activeCards().find((c) => c.id === id);
+  const posCmp = (a, b) => (a.pos - b.pos) || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0);
+  const allCards = () => state.tabs[state.activeTab].cards;
+  const activeCards = () => allCards().filter((c) => !c.trashed).sort(posCmp);
+  const trashedCards = () => allCards().filter((c) => c.trashed);
+  const findCard = (id) => allCards().find((c) => c.id === id);
+  function findItemById(id) {
+    for (const c of allCards()) {
+      const it = c.items.find((x) => x.id === id);
+      if (it) return it;
+    }
+    return null;
+  }
 
   /* ---------------- Render ---------------- */
   function updateTrashCount() {
-    const n = activeTrash().length;
+    const n = trashedCards().length;
     trashCount.textContent = n;
     trashBtn.classList.toggle('has-items', n > 0);
   }
@@ -198,26 +292,23 @@
     titleEl.addEventListener('click', () => editText(titleEl, cardData.title, (val) => {
       cardData.title = val || 'Uten navn';
       titleEl.textContent = cardData.title;
+      stampContent(cardData);
       save();
     }));
 
-    // Slett kategori -> legg i papirkurv (ikke permanent før «Tøm papirkurv»)
+    // Slett kategori -> legg i papirkurv (trashed-flagg; permanent først ved «Tøm papirkurv»)
     el.querySelector('.card-delete').addEventListener('click', () => {
-      const arr = activeCards();
-      const idx = arr.findIndex((c) => c.id === cardData.id);
-      if (idx > -1) {
-        const [removed] = arr.splice(idx, 1);
-        activeTrash().unshift(removed);
-        render();
-      }
+      cardData.trashed = true;
+      stampContent(cardData);
+      render();
     });
 
     // Håndtak for kort-draging
     el.querySelector('.card-handle').addEventListener('pointerdown', (ev) => startCardDrag(ev, el));
 
-    // Elementer
+    // Elementer (sortert på posisjon)
     const list = el.querySelector('.items-container');
-    cardData.items.forEach((it) => list.appendChild(buildItem(it, cardData)));
+    cardData.items.slice().sort(posCmp).forEach((it) => list.appendChild(buildItem(it, cardData)));
 
     // Legg til element
     const form = el.querySelector('.add-item-form');
@@ -226,7 +317,10 @@
       ev.preventDefault();
       const text = input.value.trim();
       if (!text) return;
-      const it = { id: uid(), text };
+      const it = makeItem(text, cardData.id);
+      it.pos = maxPos(cardData.items) + 1;
+      stampContent(it);
+      stampPos(it);
       cardData.items.push(it);
       list.appendChild(buildItem(it, cardData));
       input.value = '';
@@ -247,6 +341,7 @@
       if (!val) return; // tom redigering = ingen endring
       itemData.text = val;
       textEl.textContent = val;
+      stampContent(itemData);
       save();
     }));
 
@@ -254,6 +349,7 @@
       const owner = ownerCardOf(el) || cardData;
       const idx = owner.items.findIndex((i) => i.id === itemData.id);
       if (idx > -1) owner.items.splice(idx, 1);
+      state._tomb.items[itemData.id] = tick(); // gravstein hindrer gjenoppstandelse
       el.remove();
       save();
     });
@@ -579,9 +675,18 @@
     dropIntoPlaceholder(el, true);
     finishDrag();
 
-    const order = [...board.querySelectorAll('.card')].map((c) => c.dataset.id);
-    const cards = activeCards();
-    cards.sort((a, b) => order.indexOf(a.id) - order.indexOf(b.id));
+    // Ny rekkefølge: gi kortet en pos mellom DOM-naboene. Kirurgisk – kun
+    // dette kortets posisjonsregister endres, så samtidige endringer på
+    // andre kort/enheter flettes uten konflikt.
+    const prev = el.previousElementSibling;
+    const next = el.nextElementSibling;
+    const c = findCard(el.dataset.id);
+    if (c) {
+      const pPrev = prev && prev.classList.contains('card') ? (findCard(prev.dataset.id) || {}).pos : null;
+      const pNext = next && next.classList.contains('card') ? (findCard(next.dataset.id) || {}).pos : null;
+      c.pos = between(pPrev == null ? null : pPrev, pNext == null ? null : pNext);
+      stampPos(c);
+    }
     save();
   }
 
@@ -694,12 +799,25 @@
     finishDrag();
 
     const targetCardId = el.closest('.card').dataset.id;
+    const prev = el.previousElementSibling;
+    const next = el.nextElementSibling;
+
     reconcileItems(sourceCardId);
     if (targetCardId !== sourceCardId) reconcileItems(targetCardId);
+
+    // Kirurgisk: sett kun det flyttede elementets forelder (home) + posisjon.
+    const moved = findItemById(el.dataset.id);
+    if (moved) {
+      moved.home = targetCardId;
+      const pPrev = prev && prev.classList.contains('item') ? (findItemById(prev.dataset.id) || {}).pos : null;
+      const pNext = next && next.classList.contains('item') ? (findItemById(next.dataset.id) || {}).pos : null;
+      moved.pos = between(pPrev == null ? null : pPrev, pNext == null ? null : pNext);
+      stampPos(moved);
+    }
     save();
   }
 
-  // Bygg items-array for et kort ut fra gjeldende DOM-rekkefølge
+  // Bygg items-array for et kort ut fra gjeldende DOM-rekkefølge (medlemskap).
   function reconcileItems(cardId) {
     const cardData = findCard(cardId);
     if (!cardData) return;
@@ -709,7 +827,7 @@
 
     // Slå sammen elementer som kan ha kommet fra et annet kort
     const pool = {};
-    activeCards().forEach((c) => c.items.forEach((it) => { pool[it.id] = it; }));
+    allCards().forEach((c) => c.items.forEach((it) => { pool[it.id] = it; }));
     cardData.items = domIds.map((id) => pool[id]).filter(Boolean);
   }
 
@@ -724,7 +842,10 @@
 
   addCardBtn.addEventListener('click', () => {
     const c = card('Ny kategori', []);
-    activeCards().push(c);
+    c.pos = maxPos(allCards()) + 1;
+    stampContent(c);
+    stampPos(c);
+    allCards().push(c);
     render();
     // Fokuser den nye tittelen for redigering
     const el = board.querySelector('.card[data-id="' + c.id + '"] .card-title');
@@ -733,7 +854,7 @@
 
   /* ---------------- Papirkurv ---------------- */
   function buildTrashList() {
-    const trash = activeTrash();
+    const trash = trashedCards();
     trashList.innerHTML = '';
     if (!trash.length) {
       const p = document.createElement('p');
@@ -766,8 +887,8 @@
       restore.type = 'button';
       restore.textContent = 'Gjenopprett';
       restore.addEventListener('click', () => {
-        const i = trash.findIndex((x) => x.id === c.id);
-        if (i > -1) { const [rc] = trash.splice(i, 1); activeCards().push(rc); }
+        c.trashed = false;
+        stampContent(c);
         buildTrashList();
         render();
       });
@@ -795,30 +916,55 @@
   });
 
   trashEmptyBtn.addEventListener('click', () => {
-    const trash = activeTrash();
+    const trash = trashedCards();
     if (!trash.length) return;
     if (!confirm('Slette alt i papirkurven permanent? Dette kan ikke angres.')) return;
-    trash.length = 0;
+    const arr = allCards();
+    trash.forEach((c) => {
+      state._tomb.cards[c.id] = tick(); // permanent gravstein hindrer gjenoppstandelse
+      const i = arr.indexOf(c);
+      if (i > -1) arr.splice(i, 1);
+    });
     buildTrashList();
     render();
     save();
   });
 
-  /* ---------------- Sky-synk (Supabase, synk-kode) ----------------
-     Alle enheter som skriver samme hemmelige synk-kode deler de samme
-     listene. Tabellen er låst bak koden (via SECURITY DEFINER-funksjoner
-     i databasen), så uten koden får man ikke tak i dataene.
-     Modell: «sist lagret vinner». localStorage beholdes som offline-buffer. */
+  /* ============================================================
+     SANNTIDS-SYNK (Supabase) MED FELT-NIVÅ FLETTING
+     ------------------------------------------------------------
+     Enheter som deler samme hemmelige synk-kode holdes fortløpende i
+     synk. To mekanismer sørger for at ingenting går tapt:
+
+       1) Fletting (à la git): hele tilstanden ligger som ett jsonb-doc,
+          men hver entitet har egne «registre» med tidsstempel. Ved
+          fletting velges nyeste verdi per felt. Endringer på ulike
+          kort/elementer/felter kolliderer aldri; kun samme register
+          endret på to enheter «konflikter», og da vinner nyeste.
+
+       2) Optimistisk samtidighetskontroll (CAS) i databasen: save_list
+          skriver kun hvis versjonen stemmer. Ellers får klienten gjeldende
+          tilstand tilbake, fletter, og prøver igjen. Slik kan aldri én
+          enhet overskrive en annens samtidige endring.
+
+     Live-oppdatering skjer via Supabase Realtime (broadcast) med polling
+     som fallback + oppdatering når fanen får fokus. Degraderer pent til
+     ren localStorage hvis Supabase mangler / nettet er nede. */
   const SYNC_CODE_KEY = 'mine-lister-sync-code';
 
-  let sb = null;          // Supabase-klient (lazy)
-  let syncCode = null;    // aktiv synk-kode, eller null
-  let cloudTimer = null;
-  let cloudBusy = false;
-  let cloudPending = false;
+  let sb = null;              // Supabase-klient (lazy)
+  let syncCode = null;        // aktiv synk-kode (utledet fra mønster), eller null
+  let channelId = null;       // realtime-kanalnavn (sha256 av koden)
+  let rtChannel = null;       // Supabase realtime-kanal
+  let rtConnected = false;
+  let serverVersion = 0;      // sist kjente versjon i databasen
+  let lastServerCanon = null; // kanonisk form av doc vi vet ligger i databasen
+  let applyingRemote = false; // sant mens vi skriver fjern-tilstand lokalt (unngå re-push)
+  let legacyMode = false;     // databasen mangler ny save_list-signatur (før migrering)
+  let cycleRunning = false, cycleAgain = false;
+  let pollTimer = null, pollTick = 0, syncDebounce = null;
 
   const syncBtn = document.getElementById('sync-btn');
-  const syncDot = document.getElementById('sync-dot');
   const syncModal = document.getElementById('sync-modal');
   const syncClose = document.getElementById('sync-close');
   const syncLogoutBtn = document.getElementById('sync-logout');
@@ -837,98 +983,354 @@
   function ensureClient() {
     if (sb) return sb;
     if (!cloudConfigured()) return null;
-    sb = window.supabase.createClient(window.SUPABASE_CONFIG.url, window.SUPABASE_CONFIG.anonKey);
+    sb = window.supabase.createClient(window.SUPABASE_CONFIG.url, window.SUPABASE_CONFIG.anonKey, {
+      realtime: { params: { eventsPerSecond: 5 } },
+    });
     return sb;
   }
 
-  // status: 'off' | 'connected' | 'saving' | 'error'
-  function setSyncStatus(status, text) {
-    syncDot.dataset.status = status;
-    if (text) {
-      syncStatusText.textContent = text;
-      syncBtn.title = text;
+  /* ---------- Kanonisk serialisering (rekkefølge-uavhengig likhet) ---------- */
+  function canonValue(v) {
+    if (Array.isArray(v)) {
+      const arr = v.map(canonValue);
+      if (arr.length && arr[0] && typeof arr[0] === 'object' && 'id' in arr[0]) {
+        arr.sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+      }
+      return arr;
     }
+    if (v && typeof v === 'object') {
+      const o = {};
+      Object.keys(v).sort().forEach((k) => { o[k] = canonValue(v[k]); });
+      return o;
+    }
+    return v;
+  }
+  function canonical(doc) { return JSON.stringify(canonValue(doc)); }
+
+  /* ---------- Doc <-> state ---------- */
+  // Synk-doc: kun det som deles (ikke activeTab, som er per enhet).
+  function cleanItem(it, homeId) {
+    return {
+      id: it.id, text: it.text, home: it.home || homeId,
+      ts: it.ts || 0, org: it.org || '',
+      pos: it.pos || 0, posTs: it.posTs || 0, posOrg: it.posOrg || '',
+    };
+  }
+  function cleanCard(c) {
+    return {
+      id: c.id, title: c.title, color: c.color, trashed: !!c.trashed,
+      ts: c.ts || 0, org: c.org || '',
+      pos: c.pos || 0, posTs: c.posTs || 0, posOrg: c.posOrg || '',
+      items: (c.items || []).map((it) => cleanItem(it, c.id)),
+    };
+  }
+  function docFromState() {
+    return {
+      tabs: {
+        huskelister: { cards: state.tabs.huskelister.cards.map(cleanCard) },
+        handlelister: { cards: state.tabs.handlelister.cards.map(cleanCard) },
+      },
+      tomb: { cards: Object.assign({}, state._tomb.cards), items: Object.assign({}, state._tomb.items) },
+      hlc: hlc,
+    };
   }
 
-  async function cloudPullCode(code) {
-    const client = ensureClient();
-    if (!client) return { ok: false };
+  // Skriv et (flettet) doc inn i state, behold activeTab, tegn på nytt.
+  function applyDoc(doc) {
+    applyingRemote = true;
     try {
-      const { data, error } = await client.rpc('get_list', { p_code: code });
-      if (error) return { ok: false, error };
-      return { ok: true, data: data || null };
-    } catch (e) {
-      return { ok: false, error: e };
+      state.tabs.huskelister = { cards: doc.tabs.huskelister.cards };
+      state.tabs.handlelister = { cards: doc.tabs.handlelister.cards };
+      state._tomb = doc.tomb;
+      state._hlc = doc.hlc;
+      observeTs(doc.hlc);
+      normalize(state);
+      const ex = activeCards();
+      if (ex.length) lastColor = ex[ex.length - 1].color;
+      render();
+    } finally {
+      applyingRemote = false;
     }
   }
 
-  async function cloudSaveNow() {
+  /* ---------- Fletting (CRDT-lett, felt-nivå LWW + gravsteiner) ---------- */
+  function deadBy(tombTs, ts, posTs) {
+    if (tombTs == null) return false;
+    return tombTs >= Math.max(ts || 0, posTs || 0); // gravstein nyere/lik siste aktivitet
+  }
+  function mergeItem(a, b) {
+    const content = newer(a.ts, a.org, b.ts, b.org) ? a : b;
+    const posw = newer(a.posTs, a.posOrg, b.posTs, b.posOrg) ? a : b;
+    return {
+      id: a.id, text: content.text, ts: content.ts || 0, org: content.org || '',
+      home: posw.home, pos: posw.pos || 0, posTs: posw.posTs || 0, posOrg: posw.posOrg || '',
+    };
+  }
+  function mergeCardScalar(a, b) {
+    const content = newer(a.ts, a.org, b.ts, b.org) ? a : b;
+    const posw = newer(a.posTs, a.posOrg, b.posTs, b.posOrg) ? a : b;
+    return {
+      id: a.id, title: content.title, color: content.color || a.color || b.color,
+      trashed: !!content.trashed, ts: content.ts || 0, org: content.org || '',
+      pos: posw.pos || 0, posTs: posw.posTs || 0, posOrg: posw.posOrg || '',
+    };
+  }
+  function mergeTomb(a, b) {
+    const out = { cards: {}, items: {} };
+    ['cards', 'items'].forEach((k) => {
+      const ax = (a && a[k]) || {}, bx = (b && b[k]) || {};
+      Object.keys(ax).forEach((id) => { out[k][id] = ax[id]; });
+      Object.keys(bx).forEach((id) => { out[k][id] = Math.max(out[k][id] || 0, bx[id]); });
+    });
+    return out;
+  }
+  function mergeTabCards(ca, cb, tomb) {
+    // 1) Global element-tabell på tvers av alle kort i begge sider (håndterer overføring).
+    const items = new Map();
+    const collectItems = (list) => list.forEach((c) => (c.items || []).forEach((raw) => {
+      const it = cleanItem(raw, c.id);
+      const prev = items.get(it.id);
+      items.set(it.id, prev ? mergeItem(prev, it) : it);
+    }));
+    collectItems(ca); collectItems(cb);
+    // 2) Flett kort-skalarer (uten elementer) på id.
+    const cards = new Map();
+    const collectCards = (list) => list.forEach((raw) => {
+      const c = mergeCardScalar(cleanCard(raw), cleanCard(raw)); // normaliser felter
+      const prev = cards.get(c.id);
+      cards.set(c.id, prev ? mergeCardScalar(prev, c) : c);
+    });
+    collectCards(ca); collectCards(cb);
+    // 3) Fjern gravlagte.
+    cards.forEach((c, id) => { if (deadBy(tomb.cards[id], c.ts, c.posTs)) cards.delete(id); });
+    items.forEach((it, id) => { if (deadBy(tomb.items[id], it.ts, it.posTs)) items.delete(id); });
+    // 4) Plasser elementer i sine hjem-kort; foreldreløse (hjem borte) forkastes.
+    const byHome = new Map();
+    items.forEach((it) => {
+      if (!cards.has(it.home)) return;
+      if (!byHome.has(it.home)) byHome.set(it.home, []);
+      byHome.get(it.home).push(it);
+    });
+    // 5) Sett sammen; kort og elementer sortert på pos.
+    const result = [];
+    cards.forEach((c) => {
+      const its = (byHome.get(c.id) || []).sort(posCmp);
+      result.push(Object.assign({}, c, { items: its }));
+    });
+    result.sort(posCmp);
+    return result;
+  }
+  function mergeStates(a, b) {
+    const tomb = mergeTomb(a.tomb, b.tomb);
+    const out = { tabs: {}, tomb: tomb, hlc: Math.max(a.hlc || 0, b.hlc || 0) };
+    TABS.forEach((t) => {
+      const ca = (a.tabs && a.tabs[t] && a.tabs[t].cards) || [];
+      const cb = (b.tabs && b.tabs[t] && b.tabs[t].cards) || [];
+      out.tabs[t] = { cards: mergeTabCards(ca, cb, tomb) };
+    });
+    return out;
+  }
+
+  /* ---------- Migrering av gammel hel-tilstand fra databasen ---------- */
+  function migrateBareState(s) {
+    const tmp = JSON.parse(JSON.stringify(s));
+    normalize(tmp); // legger til metadata, folder gammel trash → trashed, osv.
+    return {
+      tabs: {
+        huskelister: { cards: (tmp.tabs.huskelister.cards || []).map(cleanCard) },
+        handlelister: { cards: (tmp.tabs.handlelister.cards || []).map(cleanCard) },
+      },
+      tomb: tmp._tomb || { cards: {}, items: {} },
+      hlc: tmp._hlc || 0,
+    };
+  }
+
+  /* ---------- RPC-innpakninger (tolerante for før/etter DB-migrering) ---------- */
+  async function rpcGet() {
     const client = ensureClient();
-    if (!client || !syncCode) return;
-    cloudBusy = true;
-    setSyncStatus('saving', 'Lagrer i skyen …');
-    try {
-      const { error } = await client.rpc('save_list', { p_code: syncCode, p_data: state });
-      if (error) setSyncStatus('error', 'Kunne ikke lagre i skyen. Prøver igjen ved neste endring.');
-      else setSyncStatus('connected', 'Tilkoblet — alt er lagret i skyen.');
-    } catch (e) {
-      setSyncStatus('error', 'Frakoblet — lagret lokalt. Prøver igjen senere.');
+    if (!client || !syncCode) return null;
+    const { data, error } = await client.rpc('get_list', { p_code: syncCode });
+    if (error) throw error;
+    if (data == null) return null;
+    if (typeof data === 'object' && 'version' in data && 'data' in data) {
+      // Ny form: { data, version }
+      return { data: data.data ? normalizeRemoteDoc(data.data) : null, version: data.version || 0 };
     }
-    cloudBusy = false;
-    if (cloudPending) { cloudPending = false; cloudPush(); }
+    if (data.tabs) return { data: migrateBareState(data), version: 0 }; // gammel hel-tilstand
+    return null;
+  }
+  // Ser dette ut som en gammel hel-tilstand (fra før felt-nivå-synken)?
+  // Den har activeTab og/eller egne trash-arrays, og mangler synk-markørene
+  // (tomb/hlc). Slike kan ligge pakket inn i { data, version }-konvolutten når
+  // ny SQL er kjørt men raden fortsatt inneholder gammel data.
+  function looksLegacy(d) {
+    if (!d || typeof d !== 'object' || !d.tabs) return false;
+    if ('activeTab' in d) return true;
+    if (TABS.some((t) => d.tabs[t] && Array.isArray(d.tabs[t].trash))) return true;
+    if (!('tomb' in d) && !('hlc' in d)) return true;
+    return false;
+  }
+  // Fjern-doc kan mangle nyere felter hvis skrevet av en eldre klient.
+  function normalizeRemoteDoc(d) {
+    if (!d || !d.tabs) return migrateBareState(d || {});
+    // Gammel hel-tilstand må migreres (folder trash → trashed, bevarer
+    // rekkefølge via pos=indeks, legger på metadata) — ikke behandles som et
+    // ferdig synk-doc, som ellers ville droppet papirkurven og rekkefølgen.
+    if (looksLegacy(d)) return migrateBareState(d);
+    if (!d.tomb) d.tomb = { cards: {}, items: {} };
+    if (!d.tomb.cards) d.tomb.cards = {};
+    if (!d.tomb.items) d.tomb.items = {};
+    if (typeof d.hlc !== 'number') d.hlc = 0;
+    TABS.forEach((t) => {
+      if (!d.tabs[t] || !Array.isArray(d.tabs[t].cards)) d.tabs[t] = { cards: [] };
+      d.tabs[t].cards = d.tabs[t].cards.map(cleanCard);
+    });
+    return d;
+  }
+  function isMissingFunction(error) {
+    return !!error && (error.code === 'PGRST202' ||
+      (typeof error.message === 'string' && /save_list|function|does not exist|schema cache/i.test(error.message)));
+  }
+  async function rpcSave(doc, prevVersion) {
+    const client = ensureClient();
+    if (!client || !syncCode) return null;
+    if (!legacyMode) {
+      const { data, error } = await client.rpc('save_list', {
+        p_code: syncCode, p_data: doc, p_prev_version: prevVersion | 0,
+      });
+      if (!error) {
+        if (data && data.ok) return { ok: true, version: data.version || 0 };
+        if (data && data.ok === false) return { conflict: true, version: data.version || 0 };
+        return { ok: true, version: (prevVersion | 0) + 1 };
+      }
+      if (isMissingFunction(error)) { legacyMode = true; } // fall tilbake til gammel signatur
+      else throw error;
+    }
+    // Legacy (før migrering): gammel save_list(text,jsonb) uten CAS.
+    const { error } = await client.rpc('save_list', { p_code: syncCode, p_data: doc });
+    if (error) throw error;
+    return { ok: true, version: (prevVersion | 0) + 1 };
   }
 
-  // Kalles fra save(). Debouncet, og serialisert (én lagring om gangen).
-  function cloudPush() {
+  /* ---------- Kjerne: én serialisert synk-runde (pull → flett → push) ---------- */
+  function isBusyEditing() {
+    if (drag.active) return true;
+    const ae = document.activeElement;
+    if (ae && ae.classList && ae.classList.contains('edit-input')) return true;
+    if (ae && ae.classList && ae.classList.contains('add-item-input') && ae.value) return true;
+    return false;
+  }
+  function scheduleSync(delay) {
+    clearTimeout(syncDebounce);
+    syncDebounce = setTimeout(syncCycle, delay == null ? 300 : delay);
+  }
+  async function syncCycle() {
     if (!syncCode || !cloudConfigured()) return;
-    if (cloudBusy) { cloudPending = true; return; }
-    clearTimeout(cloudTimer);
-    cloudTimer = setTimeout(cloudSaveNow, 800);
+    if (cycleRunning) { cycleAgain = true; return; }
+    cycleRunning = true;
+    try {
+      const remote = await rpcGet();                    // { data, version } | null
+      const ver = remote ? (remote.version || 0) : 0;
+      const remoteDoc = remote && remote.data ? remote.data : null;
+      if (remoteDoc) observeTs(remoteDoc.hlc);
+
+      const localDoc = docFromState();
+      const localCanon = canonical(localDoc);
+      const mergedDoc = remoteDoc ? mergeStates(localDoc, remoteDoc) : localDoc;
+      const mergedCanon = canonical(mergedDoc);
+      const remoteCanon = remoteDoc ? canonical(remoteDoc) : null;
+
+      // Reflekter fletteresultatet lokalt (hvis noe endret seg) — men ikke
+      // avbryt aktiv redigering/draging; prøv da igjen straks etter.
+      if (mergedCanon !== localCanon) {
+        if (isBusyEditing()) { cycleAgain = true; }
+        else { applyDoc(mergedDoc); showToast('Oppdatert fra en annen enhet'); }
+      }
+
+      // Push hvis vår (flettede) tilstand avviker fra det som ligger i databasen.
+      if (mergedCanon !== remoteCanon) {
+        const res = await rpcSave(mergedDoc, ver);
+        if (res && res.ok) {
+          serverVersion = res.version;
+          lastServerCanon = mergedCanon;
+          broadcastChanged(res.version);
+        } else if (res && res.conflict) {
+          serverVersion = res.version || ver;
+          cycleAgain = true; // noen skrev i mellomtiden → flett på nytt
+        } else {
+          cycleAgain = true;
+        }
+      } else {
+        serverVersion = ver;
+        lastServerCanon = remoteCanon;
+      }
+    } catch (e) {
+      // Offline / feil — realtime/poll prøver igjen senere.
+    } finally {
+      cycleRunning = false;
+      if (cycleAgain) { cycleAgain = false; scheduleSync(150); }
+    }
   }
 
-  // Skriv fjern-tilstand inn i det eksisterende state-objektet og tegn på nytt.
-  function applyRemoteState(remote) {
-    if (!remote || !remote.tabs) return;
-    state.activeTab = remote.activeTab;
-    state.tabs = remote.tabs;
-    normalize(state);
-    const ex = activeCards();
-    if (ex.length) lastColor = ex[ex.length - 1].color;
-    render();
-  }
-
-  // Koble til skyen med en kode (utledet fra mønsteret). Skyen vinner hvis den har data.
-  async function cloudConnect(code) {
-    syncCode = code;
-    localStorage.setItem(SYNC_CODE_KEY, code);
-    if (!cloudConfigured()) {
-      setSyncStatus('off', 'Sky-synk er ikke satt opp ennå. Fyll inn Supabase-verdiene i config.js.');
-      return;
-    }
-    setSyncStatus('saving', 'Kobler til skyen …');
-    const res = await cloudPullCode(code);
-    if (!res.ok) {
-      setSyncStatus('error', 'Frakoblet — bruker lokale lister. Synker ved neste endring.');
-      return;
-    }
-    if (res.data) {
-      applyRemoteState(res.data);
-      setSyncStatus('connected', 'Synket fra skyen.');
-    } else {
-      await cloudSaveNow();
-      setSyncStatus('connected', 'Tilkoblet — lastet opp listene dine.');
+  /* ---------- Realtime (broadcast) + poll-fallback ---------- */
+  function broadcastChanged(version) {
+    if (rtChannel && rtConnected) {
+      try { rtChannel.send({ type: 'broadcast', event: 'changed', payload: { v: version, from: deviceId } }); }
+      catch (e) { /* ignore */ }
     }
   }
+  function startRealtime() {
+    const client = ensureClient();
+    if (!client || !channelId) return;
+    if (rtChannel) { try { client.removeChannel(rtChannel); } catch (e) { /* ignore */ } rtChannel = null; }
+    rtChannel = client.channel('hk-' + channelId, { config: { broadcast: { self: false } } });
+    rtChannel.on('broadcast', { event: 'changed' }, (msg) => {
+      const p = msg && msg.payload;
+      if (!p || p.from === deviceId) return;
+      scheduleSync(120); // en annen enhet skrev → hent + flett straks
+    });
+    rtChannel.subscribe((status) => {
+      if (status === 'SUBSCRIBED') { rtConnected = true; scheduleSync(0); }
+      else if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT' || status === 'CLOSED') {
+        rtConnected = false;
+        setTimeout(() => { if (!rtConnected && syncCode) startRealtime(); }, 4000);
+      }
+    });
+  }
+  function startPoll() {
+    clearInterval(pollTimer);
+    pollTimer = setInterval(() => {
+      if (document.hidden || !syncCode) return;
+      // Poll sjeldnere når realtime er tilkoblet (kun sikkerhetsnett).
+      if (rtConnected && (pollTick++ % 4 !== 0)) return;
+      syncCycle();
+    }, 4000);
+  }
 
-  function openSync() {
+  /* ---------- Lett, forbigående varsel (ingen fast statusindikator) ---------- */
+  let toastTimer = null;
+  function showToast(msg) {
+    let t = document.getElementById('toast');
+    if (!t) { t = document.createElement('div'); t.id = 'toast'; t.className = 'toast'; document.body.appendChild(t); }
+    t.textContent = msg;
+    t.classList.add('show');
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => t.classList.remove('show'), 2200);
+  }
+
+  /* ---------- Synk-modal (sannferdig tekst, ingen misvisende prikk) ---------- */
+  function updateSyncModal() {
     syncConfigNote.hidden = cloudConfigured();
     if (!cloudConfigured()) {
-      setSyncStatus('off', 'Sky-synk er ikke satt opp ennå. Fyll inn Supabase-verdiene i config.js.');
+      syncStatusText.textContent = 'Sky-synk er ikke satt opp ennå. Fyll inn Supabase-verdiene i config.js.';
     } else if (syncCode) {
-      setSyncStatus('connected', 'Tilkoblet — listene synkes mellom enhetene dine.');
+      syncStatusText.textContent = 'Listene dine synkes automatisk og fortløpende mellom alle enhetene dine.';
     } else {
-      setSyncStatus('off', 'Ikke tilkoblet.');
+      syncStatusText.textContent = 'Ikke tilkoblet.';
     }
+  }
+  function openSync() {
+    updateSyncModal();
     syncModal.hidden = false;
     document.body.classList.add('modal-open');
   }
@@ -945,11 +1347,33 @@
     if (ev.key === 'Escape' && !syncModal.hidden) closeSync();
   });
 
+  // Hold i synk når fanen kommer i forgrunnen igjen (mobil suspenderer sockets/timere).
+  document.addEventListener('visibilitychange', () => {
+    if (!document.hidden && syncCode) {
+      if (!rtConnected) startRealtime();
+      scheduleSync(0);
+    }
+  });
+  window.addEventListener('online', () => { if (syncCode) { startRealtime(); scheduleSync(0); } });
+  window.addEventListener('focus', () => { if (syncCode) scheduleSync(200); });
+
+  // Koble til: abonnér på realtime, start poll, kjør første synk-runde.
+  async function syncConnect(code) {
+    syncCode = code;
+    try { localStorage.setItem(SYNC_CODE_KEY, code); } catch (e) { /* ignore */ }
+    if (!cloudConfigured()) { updateSyncModal(); return; }
+    try { channelId = await sha256Hex('rt|' + code); } catch (e) { channelId = code; }
+    startRealtime();
+    startPoll();
+    await syncCycle();
+    updateSyncModal();
+  }
+
   // Ved oppstart (allerede innlogget): koble til med den lagrede koden.
   async function syncInit() {
     const savedCode = localStorage.getItem(SYNC_CODE_KEY);
-    if (!savedCode) { setSyncStatus('off'); return; }
-    await cloudConnect(savedCode);
+    if (!savedCode) return;
+    await syncConnect(savedCode);
   }
 
   /* ---------------- Innlogging (mønster-lås) ----------------
@@ -1155,11 +1579,14 @@
       if (existing.length) lastColor = existing[existing.length - 1].color;
       render();
     }
-    if (code) await cloudConnect(code);
+    if (code) await syncConnect(code);
     else await syncInit();
   }
 
   function logout() {
+    try { if (rtChannel && sb) sb.removeChannel(rtChannel); } catch (e) { /* ignore */ }
+    clearInterval(pollTimer);
+    clearTimeout(syncDebounce);
     localStorage.removeItem(AUTH_KEY);
     localStorage.removeItem(SYNC_CODE_KEY);
     location.reload();
@@ -1186,5 +1613,12 @@
   initAuth();
 
   // Eksponer for enkel feilsøking/testing
-  window.__huskekurv = { state, render, logout };
+  window.__huskekurv = {
+    state, render, logout,
+    // Synk-interne (for testing av fletting/synk):
+    mergeStates, canonical, docFromState, applyDoc, syncCycle, normalizeRemoteDoc,
+    get syncCode() { return syncCode; },
+    get serverVersion() { return serverVersion; },
+    get rtConnected() { return rtConnected; },
+  };
 })();
