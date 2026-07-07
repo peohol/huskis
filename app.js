@@ -16,6 +16,7 @@
     '#AFC17A', '#96B36E', '#B9C9A3', '#D6C7A1', '#E7D6B5',
     '#C6B089', '#B58D6A', '#D1A85F', '#E2C46F', '#C7A35A',
   ];
+  const PALETTE_SET = new Set(PALETTE.map((c) => c.toLowerCase()));
 
   /* ---------------- Hjelpere ---------------- */
   const uid = () =>
@@ -69,6 +70,29 @@
   function stampContent(e) { e.ts = tick(); e.org = deviceId; }   // tittel/tekst/farge/trashed
   function stampPos(e) { e.posTs = tick(); e.posOrg = deviceId; } // rekkefølge/forelder
   function stampLabel(e) { e.labTs = tick(); e.labOrg = deviceId; } // merkelapper k/p (eget register)
+
+  // Deterministisk palett-farge fra kort-id (samme farge på alle enheter, så en
+  // fargemigrering ikke gir synk-flimmer). Brukes til å gi eldre kort høstfarger.
+  function paletteColorForId(id) {
+    const s = String(id);
+    let h = 0;
+    for (let i = 0; i < s.length; i++) h = (Math.imul(h, 31) + s.charCodeAt(i)) >>> 0;
+    return PALETTE[h % PALETTE.length];
+  }
+  // Engangs-migrering: gi kort som fortsatt har en farge utenfor den nye paletten
+  // en ny (deterministisk) høstfarge, og stemple innholdsregisteret så den synkes.
+  // Idempotent — kort som allerede har palett-farge røres ikke. Returnerer antall endret.
+  function recolorOldCards(cards) {
+    let n = 0;
+    (cards || []).forEach((c) => {
+      if (!c.color || !PALETTE_SET.has(String(c.color).toLowerCase())) {
+        c.color = paletteColorForId(c.id);
+        stampContent(c);
+        n++;
+      }
+    });
+    return n;
+  }
 
   // Nyere av to registre: sammenlign (ts, org). org bryter uavgjort deterministisk.
   function newer(aTs, aOrg, bTs, bOrg) {
@@ -219,6 +243,10 @@
   normalize(state);
   hlc = Math.max(hlc, state._hlc || 0);
 
+  // Gi eldre kort (fra før den nye paletten) høstfarger. Idempotent. Muterer
+  // state; persisteres av første render()→save() (etter at synk-let-ene er init).
+  TABS.forEach((t) => recolorOldCards(state.tabs[t].cards));
+
   /* ---------------- DOM-referanser ---------------- */
   const board = document.getElementById('board');
   const tabsEl = document.getElementById('tabs');
@@ -247,24 +275,33 @@
     return null;
   }
 
-  /* ---------------- Filter (K/P) ----------------
-     Per enhet (ikke synket). Et kort vises hvis en av dets påslåtte
-     merkelapper også er påslått i filteret. Er kun K på i filteret vises
-     kun kort som har K, osv. Minst én bryter må alltid være på. */
+  /* ---------------- Filter (K / P / KP) ----------------
+     Per enhet (ikke synket). Hvert kort tilhører nøyaktig én kategori ut fra
+     bryterne sine: kun K, kun P, eller begge (KP). Filteret har tre brytere
+     (K, P, KP) og et kort vises hvis bryteren for kortets kategori er på.
+     Velger man f.eks. K + KP, vises kun-K-kort og KP-kort, men ikke kun-P-kort.
+     Minst ett filter må alltid være på. */
   const FILTER_KEY = 'mine-lister-filter';
+  const FILTERS = ['k', 'p', 'kp'];
   function loadFilter() {
     try {
       const f = JSON.parse(localStorage.getItem(FILTER_KEY));
-      if (f && (f.k || f.p)) return { k: f.k !== false, p: f.p !== false };
+      if (f && (f.k || f.p || f.kp)) return { k: f.k !== false, p: f.p !== false, kp: f.kp !== false };
     } catch (e) { /* ignore */ }
-    return { k: true, p: true };
+    return { k: true, p: true, kp: true };
   }
   const filter = loadFilter();
   function saveFilter() {
     try { localStorage.setItem(FILTER_KEY, JSON.stringify(filter)); } catch (e) { /* ignore */ }
   }
+  // Kortets kategori: kun K, kun P, eller begge (KP). (Minst én bryter er alltid på.)
+  function cardCategory(c) {
+    const k = c.k !== false, p = c.p !== false;
+    if (k && p) return 'kp';
+    return k ? 'k' : 'p';
+  }
   function cardMatchesFilter(c) {
-    return (filter.k && c.k !== false) || (filter.p && c.p !== false);
+    return !!filter[cardCategory(c)];
   }
   // Liten «kan ikke»-risting når man prøver å skru av den siste bryteren.
   function flashDeny(el) {
@@ -300,7 +337,7 @@
       es.className = 'empty-state';
       es.innerHTML = active.length === 0
         ? '<div class="big">🗒️</div><p>Ingen kategorier ennå.</p><p>Trykk «Ny kategori» for å komme i gang.</p>'
-        : '<div class="big">🫙</div><p>Ingen kategorier passer filteret.</p><p>Skru på K eller P for å se flere.</p>';
+        : '<div class="big">🫙</div><p>Ingen kategorier passer filteret.</p><p>Skru på K, P eller KP for å se flere.</p>';
       board.appendChild(es);
       save();
       return;
@@ -512,9 +549,10 @@
   }
 
   // Dynamisk rotasjon av dra-kortet ut fra horisontal posisjon på siden:
-  // −10° når kortet ligger inntil venstre ytterkant, 0° midtstilt, +10° inntil
+  // −5° når kortet ligger inntil venstre ytterkant, 0° midtstilt, +5° inntil
   // høyre ytterkant. Vi normaliserer mot det oppnåelige senter-området
   // (halve kortbredden inn fra hver kant) så ytterpunktene faktisk nås.
+  const MAX_ROT = 5;
   function cardRotation() {
     const r = draggedRect();
     const vw = window.innerWidth || document.documentElement.clientWidth || 1;
@@ -523,7 +561,7 @@
     const cx = r.left + half;
     let t = max > min ? ((cx - min) / (max - min)) * 2 - 1 : 0; // −1 venstre, +1 høyre
     t = Math.max(-1, Math.min(1, t));
-    return t * 10;
+    return t * MAX_ROT;
   }
 
   /* ------- FLIP-animasjon ------- */
@@ -987,8 +1025,8 @@
   filterSwitchesEl.querySelectorAll('.switch').forEach((sw) => {
     sw.addEventListener('click', () => {
       const flag = sw.dataset.flag;
-      const other = flag === 'k' ? 'p' : 'k';
-      if (filter[flag] && !filter[other]) { flashDeny(sw); return; } // minst én må være på
+      const onCount = FILTERS.filter((f) => filter[f]).length;
+      if (filter[flag] && onCount === 1) { flashDeny(sw); return; } // minst ett filter må være på
       filter[flag] = !filter[flag];
       saveFilter();
       render(); // tegner også bryterne på nytt via renderFilterSwitches()
@@ -1381,6 +1419,9 @@
       const localDoc = docFromState();
       const localCanon = canonical(localDoc);
       const mergedDoc = remoteDoc ? mergeStates(localDoc, remoteDoc) : localDoc;
+      // Kort som kommer fra en eldre fjern-tilstand kan ha gamle farger → gi dem
+      // høstfarger her også (idempotent), så de synkes ut til alle enheter.
+      TABS.forEach((t) => recolorOldCards(mergedDoc.tabs[t].cards));
       const mergedCanon = canonical(mergedDoc);
       const remoteCanon = remoteDoc ? canonical(remoteDoc) : null;
 

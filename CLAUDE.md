@@ -65,8 +65,8 @@ Bytte utløses av **overlapp**, ikke av et punkt:
   bruker **hvilende** layout-posisjoner selv midt i en animasjon → ingen dobbeltbytter.
 - Kort-DnD reflower automatisk fordi layouten er `CSS multi-column` og rekkefølgen bestemmes av DOM-rekkefølge.
 - Under draging manipuleres DOM direkte (for ytelse); state bygges opp igjen fra DOM ved slipp, så re-render.
-- **Dynamisk rotasjon av dra-kortet** (`cardRotation()`): kortet vippes ut fra sin horisontale
-  posisjon — `−10°` inntil venstre ytterkant, `0°` midtstilt, `+10°` inntil høyre ytterkant.
+- **Dynamisk rotasjon av dra-kortet** (`cardRotation()`, `MAX_ROT = 5`): kortet vippes ut fra sin
+  horisontale posisjon — `−5°` inntil venstre ytterkant, `0°` midtstilt, `+5°` inntil høyre ytterkant.
   Normaliseres mot det oppnåelige senter-området (halve kortbredden inn fra hver kant) så
   ytterpunktene faktisk nås. Settes inline som `transform: rotate(…) scale(1.02)` på hver
   peker-bevegelse; `.card.dragging` har kun `scale(1.02)` som fallback. Elementer roterer ikke.
@@ -244,6 +244,10 @@ skjuler `.app-header` + `.app-main`; en fast overlay `#lock-screen` ligger over)
 - **Kortfarger** velges tilfeldig fra en fast liste med 20 varme oker-/jordtoner (`PALETTE` i
   `app.js`). Header-farge = litt mørkere variant av kortfargen (via `darken()`). Farge lagres per
   kort så den er stabil, og velges tilfeldig men unngår å gjenta forrige korts farge.
+- **Fargemigrering** (`recolorOldCards`): kort med en farge utenfor den nye paletten (dvs. laget før
+  paletten ble byttet) får en ny høstfarge ved oppstart og under synk. Fargen er **deterministisk fra
+  kort-id** (`paletteColorForId`) så alle enheter velger samme farge → ingen synk-flimmer. Idempotent
+  (kort som allerede har palett-farge røres ikke), og endringen stemples/synkes som vanlig innhold.
 - Mørk tekst (`#37343f`) på lyse flater; lys tekst direkte på bakgrunnen (tom-tilstand, lås-skjerm).
 
 ## Merkelapper (K/P) + filter
@@ -251,9 +255,11 @@ skjuler `.app-header` + `.app-main`; en fast overlay `#lock-screen` ligger over)
 - Hvert kort har to **brytere**, `K` og `P` (felt `k`/`p`, default begge på), vist som bokstaver i små
   sirkler vertikalt stablet til venstre for slett-knappen. Sirkelen blir **lysere** når bryteren er på.
   **Minst én** bryter må alltid være på — forsøk på å skru av den siste gir en liten risting (`flashDeny`).
-- I verktøylinja, ved siden av papirkurv-knappen, ligger et tilsvarende **filter** (`#filter-switches`).
-  Et kort vises hvis en av dets påslåtte merkelapper også er på i filteret — er kun `K` på i filteret,
-  vises kun kort som har `K`, osv. (`cardMatchesFilter`). Filteret er per enhet (`localStorage`,
+- Hvert kort tilhører nøyaktig **én kategori** ut fra bryterne (`cardCategory`): kun **K**, kun **P**,
+  eller **KP** (begge på). I verktøylinja, ved siden av papirkurv-knappen, ligger et **filter**
+  (`#filter-switches`) med tre brytere: `K`, `P`, `KP`. Et kort vises hvis bryteren for kortets
+  kategori er på (`cardMatchesFilter`) — velger man f.eks. `K` + `KP`, vises kun-K-kort og KP-kort,
+  men ikke kun-P-kort. Minst ett filter må være på. Filteret er per enhet (`localStorage`,
   `mine-lister-filter`) og synkes ikke; `k`/`p` synkes i sitt **eget merkelapp-register**
   (`labTs`/`labOrg`), uavhengig av tittel/farge (se «To mekanismer …»).
 - **Verktøylinja** har ikke lenger «# kategorier»-tellingen eller «Synk»-knappen. I stedet ligger en
