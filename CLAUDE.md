@@ -92,7 +92,12 @@ Den viser en **venstreorientert rad** med gruppekort (`#groups-bar`), etterfulgt
 - **Desktop**: raden **bryter til flere rader** (`flex-wrap: wrap`) når gruppene fyller
   bredden; «＋» flyter etter siste kort på siste rad.
 - **Mobil** (`max-width: 560px`): gruppene ligger alltid på **én rad** med **horisontal
-  scroll uten synlig scrollbar**. Får kortene plass, vises «＋» inline etter siste kort.
+  scroll**. Ved overflow vises en **diskret, app-tilpasset scrollbar** (tynn «flytende»
+  thumb i dempet ink-tone, med luft rundt via transparent kant + `background-clip`, og
+  header-paddingen som luft ned mot kanten). På ekte touch-enheter er nettleserens scrollbar
+  uansett overlay/skjult, så dette treffer først og fremst **smale PC-vinduer** (der
+  mobil-layoutet også slår inn) og gir en synlig scroll-indikator. Får kortene plass, vises
+  «＋» inline etter siste kort.
   **Overskrider** kortene bredden (`updateGroupsOverflow()` setter `.groups-overflow` på
   headeren), festes «＋» **statisk til høyre** i en **ugjennomsiktig sone** (`.groups-pin`,
   `position: absolute`, bakgrunn `--header-solid`). Fordi headeren selv er delvis
