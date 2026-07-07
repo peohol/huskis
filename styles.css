@@ -6,24 +6,26 @@
 :root {
   --font: 'Quicksand', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
 
-  --bg: #f4f1fb;
-  --bg-grad-a: #f6f2fc;
-  --bg-grad-b: #eef4fb;
+  --bg: #667788;
+  --bg-grad-a: #667788;
+  --bg-grad-b: #667788;
 
   --ink: #37343f;
   --ink-soft: #6b6577;
-  --line: #e4dff0;
+  --line: #e3e7e3;
 
   --surface: #ffffff;
-  --primary: #7c6cf0;
-  --primary-dark: #6455d6;
+  --primary: #668866;
+  --primary-dark: #4d664d;
+  --primary-soft: rgba(102, 136, 102, 0.14);
+  --primary-soft-hover: rgba(102, 136, 102, 0.24);
   --danger: #ef6b7d;
 
   --radius: 18px;
   --radius-sm: 12px;
-  --shadow-sm: 0 2px 6px rgba(60, 50, 90, 0.07);
-  --shadow-md: 0 8px 20px rgba(60, 50, 90, 0.12);
-  --shadow-lg: 0 18px 42px rgba(50, 40, 80, 0.28);
+  --shadow-sm: 0 2px 6px rgba(35, 45, 55, 0.12);
+  --shadow-md: 0 8px 20px rgba(35, 45, 55, 0.18);
+  --shadow-lg: 0 18px 42px rgba(25, 35, 45, 0.34);
 }
 
 * { box-sizing: border-box; }
@@ -37,7 +39,7 @@ html, body {
 body {
   font-family: var(--font);
   color: var(--ink);
-  background: linear-gradient(160deg, var(--bg-grad-a), var(--bg-grad-b));
+  background: var(--bg);
   background-attachment: fixed;
   -webkit-font-smoothing: antialiased;
   overscroll-behavior-y: none;
@@ -72,7 +74,7 @@ body {
   width: 38px;
   height: 38px;
   border-radius: 12px;
-  background: linear-gradient(135deg, var(--primary), #9b8bff);
+  background: linear-gradient(135deg, var(--primary), #86ad86);
   color: #fff;
   font-weight: 700;
   font-size: 20px;
@@ -91,9 +93,9 @@ body {
   display: inline-flex;
   gap: 4px;
   padding: 5px;
-  background: #ece7f7;
+  background: #e6ece6;
   border-radius: 999px;
-  box-shadow: inset 0 1px 3px rgba(80, 70, 110, 0.08);
+  box-shadow: inset 0 1px 3px rgba(60, 80, 60, 0.10);
 }
 
 .tab {
@@ -151,7 +153,7 @@ body {
 .btn:active { transform: translateY(1px); }
 
 .btn-primary {
-  background: linear-gradient(135deg, var(--primary), #9b8bff);
+  background: linear-gradient(135deg, var(--primary), #7fa77f);
   color: #fff;
   box-shadow: var(--shadow-sm);
 }
@@ -178,10 +180,10 @@ body {
   padding: 7px 12px;
   font-size: 13.5px;
   border-radius: 9px;
-  background: rgba(124, 108, 240, 0.12);
+  background: var(--primary-soft);
   color: var(--primary-dark);
 }
-.btn-small:hover { background: rgba(124, 108, 240, 0.22); }
+.btn-small:hover { background: var(--primary-soft-hover); }
 
 .btn .plus { font-size: 18px; line-height: 1; margin-top: -1px; }
 
@@ -192,7 +194,7 @@ body {
   height: 20px;
   padding: 0 6px;
   border-radius: 999px;
-  background: #ece7f7;
+  background: #e6ece6;
   color: var(--ink-soft);
   font-size: 12.5px;
   font-weight: 700;
@@ -204,6 +206,76 @@ body {
   color: var(--ink-soft);
   font-size: 13.5px;
   font-weight: 500;
+}
+
+.toolbar .btn-logout { margin-left: auto; }
+.logout-icon { font-size: 15px; line-height: 1; }
+
+/* ---------------- K/P-brytere ---------------- */
+.switch {
+  appearance: none;
+  border: none;
+  cursor: pointer;
+  padding: 0;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  font-family: inherit;
+  font-weight: 700;
+  font-size: 12px;
+  line-height: 1;
+  transition: background 0.15s, color 0.15s, opacity 0.15s, transform 0.08s;
+}
+.switch:active { transform: scale(0.88); }
+
+@keyframes switch-deny {
+  0%, 100% { transform: translateX(0); }
+  25% { transform: translateX(-2px); }
+  75% { transform: translateX(2px); }
+}
+.switch.deny { animation: switch-deny 0.24s; }
+
+/* Kort-brytere: vertikal stabel til venstre for slett-knappen; lyser opp når på. */
+.card-switches {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  flex: 0 0 auto;
+}
+.card-switches .switch {
+  background: rgba(255, 255, 255, 0.24);
+  color: rgba(55, 52, 63, 0.5);
+}
+.card-switches .switch.on {
+  background: rgba(255, 255, 255, 0.92);
+  color: var(--card-accent);
+}
+
+/* Filter-brytere i verktøylinja: hvit pille, grønn når på. */
+.filter-switches {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  background: #fff;
+  border-radius: 12px;
+  box-shadow: var(--shadow-sm);
+}
+.filter-label {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ink-soft);
+  margin-right: 2px;
+}
+.filter-switches .switch {
+  background: #e6ece6;
+  color: var(--ink-soft);
+}
+.filter-switches .switch.on {
+  background: var(--primary);
+  color: #fff;
 }
 
 /* ---------------- Board (kolonner) ---------------- */
@@ -221,7 +293,7 @@ body {
 
 .empty-state {
   text-align: center;
-  color: var(--ink-soft);
+  color: rgba(255, 255, 255, 0.92);
   max-width: 360px;
 }
 .empty-state .big { font-size: 46px; margin-bottom: 6px; }
@@ -368,12 +440,12 @@ body {
 .card-delete:hover, .item-delete:hover { color: var(--danger); background: rgba(239, 107, 125, 0.12); }
 .add-item-btn {
   color: var(--primary-dark);
-  background: rgba(124, 108, 240, 0.12);
+  background: var(--primary-soft);
   width: 38px;
   height: 38px;
   font-size: 18px;
 }
-.add-item-btn:hover { background: rgba(124, 108, 240, 0.22); }
+.add-item-btn:hover { background: var(--primary-soft-hover); }
 
 /* item-delete skjult til hover for renere kort */
 .item-delete { opacity: 0; }
@@ -401,10 +473,10 @@ body {
   z-index: 100;
   margin: 0;
   box-shadow: var(--shadow-lg);
-  transform: rotate(1.4deg) scale(1.02);
+  transform: scale(1.02); /* rotasjon settes dynamisk i JS ut fra horisontal posisjon */
   cursor: grabbing;
   pointer-events: none;
-  will-change: left, top;
+  will-change: left, top, transform;
 }
 
 .item.dragging {
@@ -426,16 +498,16 @@ body {
   width: 100%;
   margin: 0 0 20px;
   border-radius: var(--radius);
-  border: 2.5px dashed var(--card-accent, #b7add8);
-  background: rgba(124, 108, 240, 0.06);
+  border: 2.5px dashed var(--card-accent, #8fb08f);
+  background: rgba(102, 136, 102, 0.10);
 }
 
 .item-placeholder {
   list-style: none;
   margin-bottom: 6px;
   border-radius: 10px;
-  border: 2px dashed var(--card-accent, #b7add8);
-  background: rgba(124, 108, 240, 0.06);
+  border: 2px dashed var(--card-accent, #8fb08f);
+  background: rgba(102, 136, 102, 0.10);
 }
 
 body.is-dragging { cursor: grabbing; user-select: none; -webkit-user-select: none; }
@@ -515,11 +587,9 @@ body.is-dragging * { cursor: grabbing !important; }
 
 body.modal-open { overflow: hidden; }
 
-/* ---------------- Synk ---------------- */
-.sync-icon { font-size: 14px; line-height: 1; }
-
-/* Lett, forbigående varsel når en endring kommer fra en annen enhet.
-   (Ingen fast statusindikator — synken bare virker.) */
+/* ---------------- Synk-varsel ----------------
+   Synken går fortløpende i bakgrunnen (ingen egen knapp lenger). Når en
+   endring kommer fra en annen enhet vises et lite, forbigående varsel. */
 .toast {
   position: fixed;
   left: 50%;
@@ -539,31 +609,6 @@ body.modal-open { overflow: hidden; }
   transition: opacity 0.25s ease, transform 0.25s ease;
 }
 .toast.show { opacity: 1; transform: translate(-50%, 0); }
-
-.sync-help {
-  margin: 0 0 14px;
-  font-size: 13.5px;
-  line-height: 1.5;
-  color: var(--ink-soft);
-  font-weight: 500;
-}
-.sync-help strong { color: var(--ink); }
-
-.sync-form { display: flex; gap: 8px; }
-.sync-input {
-  flex: 1;
-  min-width: 0;
-  font-family: inherit;
-  font-size: 15px;
-  font-weight: 500;
-  color: var(--ink);
-  padding: 10px 12px;
-  border: 1.5px solid var(--line);
-  border-radius: var(--radius-sm);
-  background: #fff;
-}
-.sync-input::placeholder { color: rgba(60, 55, 80, 0.45); }
-.sync-input:focus { outline: none; border-color: var(--primary); }
 
 /* ---------------- Innlogging (mønster-lås) ---------------- */
 /* Skjul alt appinnhold til man er logget inn. */
@@ -596,7 +641,7 @@ body.locked .app-main { display: none; }
   gap: 8px;
   font-size: 26px;
   font-weight: 700;
-  color: var(--ink);
+  color: #f4f6f7;
 }
 .lock-brand .brand-mark {
   display: inline-grid;
@@ -613,7 +658,7 @@ body.locked .app-main { display: none; }
   min-height: 20px;
   font-size: 14.5px;
   font-weight: 600;
-  color: var(--ink-soft);
+  color: rgba(255, 255, 255, 0.82);
   text-align: center;
 }
 
@@ -627,12 +672,12 @@ body.locked .app-main { display: none; }
 }
 
 .lock-ring {
-  fill: rgba(255, 255, 255, 0.55);
-  stroke: #d8d0ec;
+  fill: rgba(255, 255, 255, 0.18);
+  stroke: rgba(255, 255, 255, 0.45);
   stroke-width: 2;
 }
 .lock-dot {
-  fill: #c3bcd2;
+  fill: rgba(255, 255, 255, 0.55);
   transition: fill 0.12s ease;
 }
 .lock-node.on .lock-ring { stroke: var(--primary); }

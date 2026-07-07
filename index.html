@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
-  <meta name="theme-color" content="#f4f1fb" />
+  <meta name="theme-color" content="#667788" />
   <title>Huskekurv</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
@@ -31,10 +31,14 @@
         <span class="trash-icon" aria-hidden="true">🗑️</span> Papirkurv
         <span class="trash-count" id="trash-count">0</span>
       </button>
-      <button class="btn btn-ghost" id="sync-btn" type="button" title="Synk mellom enheter">
-        <span class="sync-icon" aria-hidden="true">🔗</span> Synk
+      <div class="filter-switches" id="filter-switches" role="group" aria-label="Filtrer kategorier">
+        <span class="filter-label">Vis</span>
+        <button class="switch" type="button" data-flag="k" aria-pressed="true" title="Vis K-kategorier">K</button>
+        <button class="switch" type="button" data-flag="p" aria-pressed="true" title="Vis P-kategorier">P</button>
+      </div>
+      <button class="btn btn-ghost btn-logout" id="logout-btn" type="button" title="Logg ut">
+        <span class="logout-icon" aria-hidden="true">⎋</span> Logg ut
       </button>
-      <p class="hint" id="board-hint"></p>
     </div>
     <section class="board" id="board" aria-live="polite"></section>
   </main>
@@ -54,37 +58,16 @@
     </div>
   </div>
 
-  <!-- Synk-modal -->
-  <div class="modal-overlay" id="sync-modal" hidden>
-    <div class="modal" role="dialog" aria-modal="true" aria-labelledby="sync-title">
-      <header class="modal-head">
-        <h2 id="sync-title">🔗 Synk mellom enheter</h2>
-        <button class="icon-btn" id="sync-close" type="button" title="Lukk" aria-label="Lukk">✕</button>
-      </header>
-      <div class="modal-body">
-        <p class="modal-note" id="sync-status-text">Ikke tilkoblet.</p>
-        <p class="sync-help">
-          Listene dine synkes <strong>automatisk og fortløpende</strong> mellom alle
-          enheter der du tegner det <strong>samme mønsteret</strong> — endringer på én
-          enhet dukker opp på de andre med det samme, uten å laste siden på nytt.
-          Ingen egen kode å taste.
-        </p>
-      </div>
-      <footer class="modal-foot">
-        <p class="modal-note" id="sync-config-note" hidden>
-          ⚠️ Sky-synk er ikke satt opp ennå. Fyll inn Supabase-verdiene i <code>config.js</code>.
-        </p>
-        <button class="btn btn-danger" type="button" id="sync-logout">Logg ut</button>
-      </footer>
-    </div>
-  </div>
-
   <!-- Templates -->
   <template id="card-template">
     <article class="card" tabindex="-1">
       <header class="card-head">
         <button class="drag-handle card-handle" title="Dra for å endre rekkefølge" aria-label="Flytt kategori">⣿</button>
         <h2 class="card-title" title="Klikk for å endre navn"></h2>
+        <div class="card-switches" role="group" aria-label="Merkelapper">
+          <button class="switch" type="button" data-flag="k" aria-pressed="true" title="Merkelapp K">K</button>
+          <button class="switch" type="button" data-flag="p" aria-pressed="true" title="Merkelapp P">P</button>
+        </div>
         <button class="icon-btn card-delete" title="Slett kategori" aria-label="Slett kategori">✕</button>
       </header>
       <ul class="items-container"></ul>

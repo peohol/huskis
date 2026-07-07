@@ -41,11 +41,12 @@ Design:
   state = {
     activeTab: 'huskelister' | 'handlelister',
     tabs: {
-      huskelister: { cards: [ { id, title, color, items: [ { id, text } ] } ] },
+      huskelister: { cards: [ { id, title, color, k, p, items: [ { id, text } ] } ] },
       handlelister: { cards: [ ... ] }
     }
   }
   ```
+  (`k`/`p` = merkelapp-brytere per kort, se «Merkelapper (K/P) + filter».)
 
 ## Dra-og-slipp-logikk (kjernen)
 
@@ -64,6 +65,16 @@ Bytte utløses av **overlapp**, ikke av et punkt:
   bruker **hvilende** layout-posisjoner selv midt i en animasjon → ingen dobbeltbytter.
 - Kort-DnD reflower automatisk fordi layouten er `CSS multi-column` og rekkefølgen bestemmes av DOM-rekkefølge.
 - Under draging manipuleres DOM direkte (for ytelse); state bygges opp igjen fra DOM ved slipp, så re-render.
+- **Dynamisk rotasjon av dra-kortet** (`cardRotation()`): kortet vippes ut fra sin horisontale
+  posisjon — `−10°` inntil venstre ytterkant, `0°` midtstilt, `+10°` inntil høyre ytterkant.
+  Normaliseres mot det oppnåelige senter-området (halve kortbredden inn fra hver kant) så
+  ytterpunktene faktisk nås. Settes inline som `transform: rotate(…) scale(1.02)` på hver
+  peker-bevegelse; `.card.dragging` har kun `scale(1.02)` som fallback. Elementer roterer ikke.
+- **Auto-scroll ved kant** (`updateAutoScroll` + `startAutoScroll`, kun for kort): når pekeren nærmer
+  seg topp/bunn av vinduet ruller siden — **sakte** i ytterkanten av sonen, **raskere** jo lengre ut,
+  og raskest når kortet holdes forbi selve kanten (`edgeSpeed`, sone = 120 px). Kortet er `fixed`, så
+  for at de andre kortene skal bytte plass under rullingen re-kjøres plasseringslogikken
+  (`updateCardPlacement(0, ±1)`) med rulleretningen som syntetisk drag-retning på hver frame.
 
 ## Sanntids-synk (Supabase) med felt-nivå fletting
 
@@ -103,9 +114,10 @@ når *samme* element endres to steder).
 - **Poll-fallback**: enhetene poller også (hyppig når realtime er nede, sjeldnere ellers), og
   synker straks når fanen får fokus / nettet kommer tilbake. Slik er man i synk selv om realtime
   skulle feile eller mobilen suspenderer socket-en.
-- **UI**: «Synk»-knappen har ikke lenger en (misvisende) statusprikk — synken bare virker. Når en
-  endring kommer fra en annen enhet, vises et lite, forbigående varsel («Oppdatert fra en annen
-  enhet»). Modalen forklarer synken og har «Logg ut».
+- **UI**: Det finnes ingen «Synk»-knapp eller synk-modal lenger — synken bare virker fortløpende i
+  bakgrunnen. Når en endring kommer fra en annen enhet, vises et lite, forbigående varsel
+  («Oppdatert fra en annen enhet», `showToast`). Utlogging skjer via **«Logg ut»**-knappen i
+  verktøylinja (`logout()` → tømmer auth/synk-kode i `localStorage` og laster siden på nytt).
 
 ### Klient (kort)
 
@@ -224,9 +236,25 @@ skjuler `.app-header` + `.app-main`; en fast overlay `#lock-screen` ligger over)
 
 ## Fargepalett
 
-Myke, harmoniske pastellfarger. Mørk tekst (`#37343f`) for god kontrast. Header-farge = litt mørkere
-variant av kortfargen (via `darken()`). Farge lagres per kort så den er stabil, og velges tilfeldig men
-unngår å gjenta forrige korts farge.
+- **Bakgrunn**: `#667788` (dempet skifer-blå). **Primær aksentfarge**: `#668866` (dempet grønn,
+  `--primary`; `--primary-dark` = mørkere grønn). Knapper o.l. er fortsatt hvite.
+- **Kortfarger** velges tilfeldig fra en fast liste med 20 varme oker-/jordtoner (`PALETTE` i
+  `app.js`). Header-farge = litt mørkere variant av kortfargen (via `darken()`). Farge lagres per
+  kort så den er stabil, og velges tilfeldig men unngår å gjenta forrige korts farge.
+- Mørk tekst (`#37343f`) på lyse flater; lys tekst direkte på bakgrunnen (tom-tilstand, lås-skjerm).
+
+## Merkelapper (K/P) + filter
+
+- Hvert kort har to **brytere**, `K` og `P` (felt `k`/`p`, default begge på), vist som bokstaver i små
+  sirkler vertikalt stablet til venstre for slett-knappen. Sirkelen blir **lysere** når bryteren er på.
+  **Minst én** bryter må alltid være på — forsøk på å skru av den siste gir en liten risting (`flashDeny`).
+- I verktøylinja, ved siden av papirkurv-knappen, ligger et tilsvarende **filter** (`#filter-switches`).
+  Et kort vises hvis en av dets påslåtte merkelapper også er på i filteret — er kun `K` på i filteret,
+  vises kun kort som har `K`, osv. (`cardMatchesFilter`). Filteret er per enhet (`localStorage`,
+  `mine-lister-filter`) og synkes ikke; `k`/`p` ligger i kortets **innholdsregister** og flettes/synkes
+  som tittel/farge/`trashed`.
+- **Verktøylinja** har ikke lenger «# kategorier»-tellingen eller «Synk»-knappen. I stedet ligger en
+  **«Logg ut»**-knapp til høyre (synken går uansett fortløpende i bakgrunnen; se under).
 
 ## Status / TODO
 
@@ -249,6 +277,12 @@ unngår å gjenta forrige korts farge.
 - [x] Gravsteiner for sletting; `activeTab` per enhet (synkes ikke)
 - [x] Fjernet misvisende synk-statusprikk; lite «oppdatert»-varsel ved fjern-endringer
 - [x] Testet fletting + to-enhets-konvergens + live-broadcast (Playwright, falsk delt backend)
+- [x] Ny fargepalett: bakgrunn `#667788`, aksent `#668866`, 20 varme kortfarger
+- [x] Fjernet «Synk»-knapp/modal + «# kategorier»-tekst; lagt til «Logg ut»-knapp
+- [x] Dynamisk rotasjon av dra-kort ut fra horisontal posisjon (−10°/0°/+10°)
+- [x] Auto-scroll når dra-kort holdes nær/forbi topp- eller bunnkant
+- [x] Merkelapp-brytere K/P per kort (minst én på) + filter ved siden av papirkurv
+- [x] Testet i nettleser (Playwright): palett, brytere/filter, rotasjon, auto-scroll
 
 ## Hvordan kjøre
 
