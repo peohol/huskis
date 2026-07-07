@@ -15,6 +15,10 @@
   --line: #e3e7e3;
 
   --surface: #ffffff;
+  /* Ugjennomsiktig tilnærming av header-flaten (hvit 0.72 over bakgrunnen).
+     Brukes til den festede «＋»-sonen på mobil-overflow, som må være ugjennomsiktig
+     for at gruppekortene skal kunne forsvinne bak den. */
+  --header-solid: #dee2e4;
   --primary: #668866;
   --primary-dark: #4d664d;
   --primary-soft: rgba(102, 136, 102, 0.14);
@@ -45,80 +49,142 @@ body {
   overscroll-behavior-y: none;
 }
 
-/* ---------------- Header ---------------- */
+/* ---------------- Header (gruppe-rad) ----------------
+   Ligger låst øverst (sticky). Gruppekortene ligger venstreorientert på én rad
+   som bryter til flere rader på desktop, og scroller horisontalt på mobil.
+   Header er også containing block for den fastlåste «＋»-knappen (mobil). */
 .app-header {
   position: sticky;
   top: 0;
   z-index: 30;
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  justify-content: space-between;
-  gap: 14px;
-  padding: 14px clamp(14px, 4vw, 40px);
+  padding: 12px clamp(12px, 3vw, 32px);
   background: rgba(255, 255, 255, 0.72);
   backdrop-filter: blur(14px);
   -webkit-backdrop-filter: blur(14px);
   border-bottom: 1px solid var(--line);
 }
 
-.brand {
+/* Raden med gruppekort + inline-«＋». Desktop: bryter til flere rader. */
+.groups-bar {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  gap: 12px;
+  gap: 8px;
 }
 
-.brand-mark {
-  display: grid;
-  place-items: center;
-  width: 38px;
-  height: 38px;
-  border-radius: 12px;
-  background: linear-gradient(135deg, var(--primary), #86ad86);
-  color: #fff;
-  font-weight: 700;
-  font-size: 20px;
-  box-shadow: var(--shadow-sm);
-}
-
-.brand h1 {
-  margin: 0;
-  font-size: clamp(20px, 3.4vw, 26px);
-  font-weight: 700;
-  letter-spacing: -0.01em;
-}
-
-/* ---------------- Tabs ---------------- */
-.tabs {
+/* ---------------- Gruppekort (chip) ----------------
+   Som et liste-element: håndtak, navn, dempet antall, slett — men bredden
+   følger navnet (inline-flex, ingen strekk). */
+.group-card {
   display: inline-flex;
-  gap: 4px;
-  padding: 5px;
-  background: #e6ece6;
-  border-radius: 999px;
-  box-shadow: inset 0 1px 3px rgba(60, 80, 60, 0.10);
+  align-items: center;
+  gap: 3px;
+  flex: 0 0 auto;
+  max-width: min(60vw, 420px);
+  padding: 5px 8px 5px 6px;
+  border-radius: 12px;
+  background: #fff;
+  color: var(--ink);
+  box-shadow: var(--shadow-sm);
+  cursor: pointer;
+  transition: box-shadow 0.18s, background 0.18s, transform 0.12s;
+}
+.group-card:hover { box-shadow: var(--shadow-md); }
+.group-card.active {
+  background: var(--primary);
+  color: #fff;
+  box-shadow: var(--shadow-md);
 }
 
-.tab {
+.group-handle {
+  color: var(--ink-soft);
+  font-size: 14px;
+  opacity: 0.7;
+  padding: 2px 3px;
+}
+.group-card.active .group-handle { color: rgba(255, 255, 255, 0.85); opacity: 1; }
+
+.group-name {
+  font-weight: 600;
+  font-size: 15px;
+  line-height: 1.2;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  padding: 2px 2px;
+  border-radius: 6px;
+  cursor: text;
+}
+
+/* Antall lister: dempet (mindre «pop» enn navnet). */
+.group-count {
+  font-weight: 700;
+  font-size: 13px;
+  opacity: 0.42;
+  font-variant-numeric: tabular-nums;
+  padding-right: 1px;
+}
+.group-card.active .group-count { opacity: 0.72; }
+
+.group-delete {
+  width: 22px;
+  height: 22px;
+  font-size: 12.5px;
+  color: var(--ink-soft);
+  opacity: 0;                 /* vises ved hover/aktiv, som element-slett */
+  margin-left: -1px;
+}
+.group-card:hover .group-delete,
+.group-card:focus-within .group-delete,
+.group-card.active .group-delete { opacity: 1; }
+.group-card.active .group-delete { color: rgba(255, 255, 255, 0.9); }
+.group-delete:hover { color: var(--danger) !important; background: rgba(239, 107, 125, 0.16); }
+@media (hover: none) { .group-delete { opacity: 1; } }
+
+/* «＋» oppretter ny gruppe (inline etter siste kort; pinned på mobil-overflow). */
+.add-group-btn {
+  flex: 0 0 auto;
   appearance: none;
   border: none;
   cursor: pointer;
-  font-family: inherit;
-  font-weight: 600;
-  font-size: 15px;
-  color: var(--ink-soft);
-  padding: 9px 20px;
-  border-radius: 999px;
-  background: transparent;
-  transition: color 0.18s, background 0.18s, box-shadow 0.18s;
-}
-
-.tab:hover { color: var(--ink); }
-
-.tab.active {
-  color: var(--primary-dark);
+  width: 34px;
+  height: 34px;
+  display: grid;
+  place-items: center;
+  border-radius: 12px;
   background: #fff;
+  color: var(--primary-dark);
+  font-size: 20px;
+  line-height: 1;
   box-shadow: var(--shadow-sm);
+  transition: box-shadow 0.18s, background 0.18s, transform 0.12s;
 }
+.add-group-btn:hover { box-shadow: var(--shadow-md); background: var(--primary-soft); }
+.add-group-btn:active { transform: translateY(1px); }
+
+/* Fastlåst «＋» til høyre (kun mobil når kortene overskrider bredden).
+   Sonen er UGJENNOMSIKTIG mot høyre, og faden er en ren opacity-gradient
+   (0 % → 100 %) uten backdrop-blur — så gruppekortene forsvinner helt bak
+   knappen og oppløses mykt, uten en tydelig kant. Bredden på det transparente
+   fade-partiet settes av `--fade-w` (padding-left holder knappen i den
+   ugjennomsiktige delen). */
+.groups-pin {
+  --fade-w: 64px;
+  display: none;
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  align-items: center;
+  padding-left: var(--fade-w);
+  padding-right: clamp(12px, 3vw, 32px);
+  pointer-events: none;
+  background: linear-gradient(to right,
+    rgba(222, 226, 228, 0) 0,
+    var(--header-solid) var(--fade-w),
+    var(--header-solid) 100%);
+}
+.groups-pin .add-group-pinned { pointer-events: auto; }
 
 /* ---------------- Main / toolbar ---------------- */
 .app-main {
@@ -151,6 +217,8 @@ body {
 }
 
 .btn:active { transform: translateY(1px); }
+.btn:disabled { opacity: 0.45; cursor: not-allowed; box-shadow: none; }
+.btn:disabled:hover { box-shadow: none; }
 
 .btn-primary {
   background: linear-gradient(135deg, var(--primary), #7fa77f);
@@ -470,6 +538,14 @@ body {
   padding: 2px 6px;
   width: 100%;
 }
+/* Gruppenavn-redigering: bredden følger innholdet (settes inline i JS), ikke 100 %. */
+.edit-input.group-edit {
+  width: auto;
+  min-width: 60px;
+  font-weight: 600;
+  font-size: 15px;
+  outline: 2px solid var(--primary);
+}
 
 /* ---------------- Drag & drop states ---------------- */
 .card.dragging {
@@ -512,6 +588,25 @@ body {
   border-radius: 10px;
   border: 2px dashed var(--card-accent, #8fb08f);
   background: rgba(102, 136, 102, 0.10);
+}
+
+/* Gruppe-draging: løftet chip følger pekeren; placeholder viser landingsplass. */
+.group-card.dragging {
+  position: fixed;
+  z-index: 100;
+  margin: 0;
+  box-shadow: var(--shadow-lg);
+  transform: scale(1.05); /* rotasjon settes dynamisk i JS */
+  cursor: grabbing;
+  pointer-events: none;
+  will-change: left, top, transform;
+}
+.group-placeholder {
+  flex: 0 0 auto;
+  align-self: stretch;
+  border-radius: 12px;
+  border: 2px dashed var(--primary);
+  background: var(--primary-soft);
 }
 
 body.is-dragging { cursor: grabbing; user-select: none; -webkit-user-select: none; }
@@ -709,9 +804,52 @@ body.locked .app-main { display: none; }
 
 /* ---------------- Mobil ---------------- */
 @media (max-width: 560px) {
-  .app-header { justify-content: center; }
-  .tabs { width: 100%; justify-content: center; }
-  .tab { flex: 1; text-align: center; padding: 10px 8px; }
   .board { column-width: 100%; column-gap: 0; }
-  .brand h1 { font-size: 22px; }
+
+  /* Gruppe-raden er FULL-BLEED på mobil: headeren dropper side-paddingen så
+     kortene kan scrolle helt ut til BEGGE kantene (ellers klippes de for tidlig,
+     med et tomt mellomrom inn mot kanten). Hvile-innrykket for første kort gis i
+     stedet av bar-ens egen padding-left, som scroller bort sammen med kortene. */
+  .app-header { padding-left: 0; padding-right: 0; }
+
+  /* Gruppene ligger alltid på én rad; scroller horisontalt. Ved overflow vises en
+     DISKRET, app-tilpasset scrollbar. På ekte touch-enheter er nettleserens
+     scrollbar uansett overlay/skjult; dette treffer først og fremst smale
+     PC-vinduer (der mobil-layoutet også slår inn) og gir en synlig scroll-indikator.
+     Litt vertikal padding gir luft mellom kortene og scrollbaren (og header-
+     paddingen under gir luft ned mot header-kanten). */
+  .groups-bar {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    padding-left: clamp(12px, 3vw, 32px);
+    padding-top: 2px;
+    padding-bottom: 2px;
+    scrollbar-width: thin;                              /* Firefox: tynn, farget bar */
+    scrollbar-color: rgba(107, 101, 119, 0.42) transparent;
+  }
+  /* WebKit: «flytende» tynn thumb med luft rundt (transparent kant + padding-box-
+     clip gjør den synlige delen tynnere enn sporet), i appens dempede ink-tone.
+     Sporet er 14 px høyt så det er luft over (mot kortene) og under; header-
+     paddingen (12 px) gir i tillegg luft ned mot header-kanten. */
+  .groups-bar::-webkit-scrollbar { height: 12px; }
+  .groups-bar::-webkit-scrollbar-track {
+    background: transparent;
+    margin: 0 clamp(12px, 3vw, 32px);                  /* i takt med kortene, unna kantene */
+  }
+  .groups-bar::-webkit-scrollbar-thumb {
+    background-color: rgba(107, 101, 119, 0.36);
+    border: 3px solid transparent;                     /* luft over/under thumben (synlig ~6px) */
+    background-clip: padding-box;
+    border-radius: 999px;
+    min-width: 44px;
+  }
+  .groups-bar::-webkit-scrollbar-thumb:hover { background-color: rgba(107, 101, 119, 0.55); }
+
+  /* Når kortene overskrider bredden: «＋» festes til høyre i sin ugjennomsiktige
+     sone, kortene scroller helt ut til kanten og forsvinner bak fade-gradienten,
+     og inline-«＋» skjules. Ingen padding-right — verken på header eller bar — så
+     kortene når helt ut til sidens ytterkant (og oppløses i faden). */
+  .app-header.groups-overflow .add-group-inline { display: none; }
+  .app-header.groups-overflow .groups-pin { display: flex; }
 }
