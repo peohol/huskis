@@ -65,30 +65,66 @@ Bytte utløses av **overlapp**, ikke av et punkt:
 - Kort-DnD reflower automatisk fordi layouten er `CSS multi-column` og rekkefølgen bestemmes av DOM-rekkefølge.
 - Under draging manipuleres DOM direkte (for ytelse); state bygges opp igjen fra DOM ved slipp, så re-render.
 
-## Sky-synk (Supabase, synk-kode)
+## Sanntids-synk (Supabase) med felt-nivå fletting
 
-Listene kan synkes mellom enheter via **Supabase**. Første variant bruker en **synk-kode**
-(ingen innlogging): alle enheter som skriver samme hemmelige kode deler de samme listene.
+Listene synkes **fortløpende** mellom enheter via **Supabase**. Alle enheter som deler samme
+hemmelige synk-kode (utledet fra innloggingsmønsteret) holdes i synk uten å laste siden på nytt.
+Endringer på én enhet dukker opp på de andre «med det samme».
+
+Målet er at enheter alltid er **reelt** i synk, og at samtidige endringer på ulike
+kort/elementer aldri overskriver hverandre (à la hvordan git merger brancher — konflikt kun
+når *samme* element endres to steder).
+
+### To mekanismer sikrer at ingenting går tapt
+
+1. **Fletting på felt-nivå (CRDT-lett)** — hele tilstanden ligger fortsatt som **ett `jsonb`-doc**,
+   men hver entitet har egne «registre» med logisk tidsstempel:
+   - **innhold** (`ts`, `org`): kortets tittel/farge/`trashed`, elementets tekst.
+   - **posisjon** (`posTs`, `posOrg`): rekkefølge (`pos`, fraksjonsindeksering) + elementets
+     forelder (`home`).
+   Ved fletting velges nyeste verdi per register (LWW; `org`/enhets-id bryter uavgjort
+   deterministisk). Endringer på ulike kort/elementer/felter kolliderer aldri; kun samme register
+   endret to steder «konflikter», og da vinner nyeste. `tick()` er en **hybrid logisk klokke**
+   (monotont voksende) så den tåler at enhetenes veggklokker går i utakt.
+   - **Sletting** bruker **gravsteiner** (`_tomb.cards` / `_tomb.items`: id → tidsstempel) så en
+     sletting ikke «gjenoppstår» fra en foreldet enhet. Å tømme papirkurven gir permanent
+     gravstein; sletting av enkelt-element likeså. Papirkurv = kort med `trashed: true`.
+   - `activeTab` er **per enhet** og synkes ikke.
+2. **Optimistisk samtidighetskontroll (CAS) i databasen** — raden har en `version`-teller.
+   `save_list` skriver kun hvis klientens forventede versjon stemmer; ellers får klienten
+   gjeldende `{data, version}` tilbake, **fletter lokalt, og prøver igjen**. Dermed kan aldri
+   én enhet overskrive en annen enhets samtidige skriving.
+
+### Live-oppdatering
+
+- **Supabase Realtime (broadcast)**: hver enhet abonnerer på en kanal utledet fra synk-koden
+  (`sha256('rt|' + kode)`). Etter en vellykket skriving kringkastes «changed» + versjon, og de
+  andre enhetene henter + fletter straks. Broadcast krever **ingen** ekstra databaseoppsett.
+- **Poll-fallback**: enhetene poller også (hyppig når realtime er nede, sjeldnere ellers), og
+  synker straks når fanen får fokus / nettet kommer tilbake. Slik er man i synk selv om realtime
+  skulle feile eller mobilen suspenderer socket-en.
+- **UI**: «Synk»-knappen har ikke lenger en (misvisende) statusprikk — synken bare virker. Når en
+  endring kommer fra en annen enhet, vises et lite, forbigående varsel («Oppdatert fra en annen
+  enhet»). Modalen forklarer synken og har «Logg ut».
+
+### Klient (kort)
 
 - **`config.js`** holder `window.SUPABASE_CONFIG` (`url` + `anonKey`). Så lenge plassholderne
-  (`DIN_...`) står, kjører appen lokalt (localStorage) uten synk. Appen **degraderer pent** hvis
-  Supabase-biblioteket ikke lastes / nettet er nede → fortsetter lokalt.
-- **Datamodell i skyen**: hele `state`-objektet lagres som **ett `jsonb`-felt** i én rad,
-  identifisert av `sha256(synk-kode)`. Tabellen er låst med Row Level Security (ingen policy),
-  og all tilgang går via to `SECURITY DEFINER`-funksjoner slik at man trenger koden for å nå dataene:
-  - `get_list(p_code text) → jsonb`
-  - `save_list(p_code text, p_data jsonb) → void`
-- **Klient**: `app.js` lager en Supabase-klient lazy og kaller `rpc('get_list' | 'save_list')`.
-  `save()` pusher til skyen (debouncet 800 ms, serialisert – én lagring om gangen). Ved oppstart
-  hentes skyens versjon (**skyen vinner** ved oppstart). Modellen er ellers **«sist lagret vinner»**.
-- **UI**: «Synk»-knapp i verktøylinja med statusprikk (grå=av, grønn=tilkoblet, gul=lagrer, rød=feil)
-  og en modal som viser status + «Logg ut». Synk-koden **utledes fra innloggingsmønsteret**
-  (se «Innlogging»), så man taster ingen egen kode; ved oppstart kobles det til med den lagrede koden.
+  (`DIN_...`) står, eller Supabase-biblioteket ikke lastes / nettet er nede, kjører appen lokalt
+  (localStorage) og **degraderer pent**. Ny enhet med sky konfigurert starter **tom** (skyen
+  fyller på); helt uten sky brukes eksempeldata.
+- **`syncCycle()`** er én serialisert runde: **pull → flett → (evt.) push**. Den kalles debouncet
+  ved lokale endringer, på broadcast, ved poll, og når fanen får fokus. `docFromState()` /
+  `applyDoc()` mapper mellom synk-doc og `state`; `canonical()` gir rekkefølge-uavhengig likhet
+  (så en runde uten reell endring ikke pusher).
+- Interne synk-funksjoner er eksponert på `window.__huskekurv` for testing
+  (`mergeStates`, `canonical`, `docFromState`, `syncCycle`, …).
 
 ### SQL som må kjøres i Supabase (SQL Editor)
 
-Full SQL ligger i `supabase/setup.sql` (idempotent, kan også kjøres via GitHub Actionen
-«Supabase DB-oppsett» — se «Databaseoppsett via GitHub Actions» under). Kort oppsummert:
+**Etter denne endringen må SQL-en kjøres på nytt** (idempotent — kan også kjøres via GitHub
+Actionen «Supabase DB-oppsett»). Den legger til `version`-kolonnen og bytter `save_list` til
+CAS-varianten. Full SQL ligger i `supabase/setup.sql`. Kort oppsummert:
 
 ```sql
 create extension if not exists pgcrypto with schema extensions;
@@ -96,27 +132,48 @@ create extension if not exists pgcrypto with schema extensions;
 create table if not exists public.lists (
   code_hash  text primary key,
   data       jsonb not null,
+  version    bigint not null default 0,
   updated_at timestamptz not null default now()
 );
+alter table public.lists add column if not exists version bigint not null default 0;
 
 alter table public.lists enable row level security;  -- ingen policy → ingen direkte tilgang
 
+-- get_list returnerer nå BÅDE data og versjon: { data, version }
 create or replace function public.get_list(p_code text)
 returns jsonb language sql security definer set search_path = public, extensions as $$
-  select data from public.lists
+  select jsonb_build_object('data', data, 'version', version)
+  from public.lists
   where code_hash = encode(digest(p_code, 'sha256'), 'hex');
 $$;
 
-create or replace function public.save_list(p_code text, p_data jsonb)
-returns void language sql security definer set search_path = public, extensions as $$
-  insert into public.lists (code_hash, data, updated_at)
-  values (encode(digest(p_code, 'sha256'), 'hex'), p_data, now())
+drop function if exists public.save_list(text, jsonb);
+
+-- save_list gjør compare-and-swap: skriver kun hvis p_prev_version stemmer,
+-- ellers returneres gjeldende { ok:false, version, data } for fletting + nytt forsøk.
+create or replace function public.save_list(p_code text, p_data jsonb, p_prev_version bigint)
+returns jsonb language plpgsql security definer set search_path = public, extensions as $$
+declare
+  h text := encode(digest(p_code, 'sha256'), 'hex');
+  new_version bigint;
+begin
+  insert into public.lists as l (code_hash, data, version, updated_at)
+  values (h, p_data, 1, now())
   on conflict (code_hash) do update
-    set data = excluded.data, updated_at = now();
+    set data = p_data, version = l.version + 1, updated_at = now()
+    where l.version = coalesce(p_prev_version, 0)
+  returning l.version into new_version;
+  if new_version is not null then
+    return jsonb_build_object('ok', true, 'version', new_version);
+  end if;
+  return jsonb_build_object('ok', false,
+    'version', (select version from public.lists where code_hash = h),
+    'data',    (select data    from public.lists where code_hash = h));
+end;
 $$;
 
-grant execute on function public.get_list(text)         to anon;
-grant execute on function public.save_list(text, jsonb) to anon;
+grant execute on function public.get_list(text)                 to anon;
+grant execute on function public.save_list(text, jsonb, bigint) to anon;
 ```
 
 **Merk:** i Supabase ligger `pgcrypto` (og dermed `digest()`) normalt i skjemaet
@@ -158,10 +215,12 @@ skjuler `.app-header` + `.app-main`; en fast overlay `#lock-screen` ligger over)
 
 ## Papirkurv
 
-- Å slette en **kategori** flytter den til `tabs[tab].trash` (per fane) i stedet for å slette den.
+- Å slette en **kategori** setter `trashed: true` på kortet (i stedet for en egen `trash`-array)
+  slik at «papirkurv-tilstanden» er et felt som synkes/flettes som alt annet.
 - «Papirkurv»-knappen i verktøylinja viser antall og åpner en modal med de slettede kategoriene.
-- Der kan man **Gjenopprett**e enkeltkategorier eller trykke **Tøm papirkurv** for å slette **permanent**
-  (med bekreftelse). Sletting av enkelt-**elementer** i et kort er fortsatt permanent.
+- Der kan man **Gjenopprett**e enkeltkategorier (`trashed: false`) eller trykke **Tøm papirkurv**
+  for å slette **permanent** (med bekreftelse) — det gir en **gravstein** (`_tomb.cards`).
+  Sletting av enkelt-**elementer** er fortsatt permanent og gir gravstein (`_tomb.items`).
 
 ## Fargepalett
 
@@ -181,9 +240,15 @@ unngår å gjenta forrige korts farge.
 - [x] Dra-og-slipp for kort (kryss-kolonne, placeholder, 20 % overlapp-terskel)
 - [x] Dra-og-slipp for elementer (inkl. overføring mellom kort)
 - [x] FLIP-animasjon (150 ms) ved bytte og ved slipp
-- [x] Papirkurv (slett kategori → papirkurv, gjenopprett, tøm permanent)
+- [x] Papirkurv (slett kategori → `trashed`, gjenopprett, tøm permanent → gravstein)
 - [x] Testet i nettleser (Playwright) — kort-reorder, element-reorder, element-overføring, papirkurv
 - [x] Mobiltilpasning (touch-action, responsiv layout)
+- [x] Sanntids-synk mellom enheter (Supabase Realtime broadcast + poll-fallback)
+- [x] Felt-nivå fletting (CRDT-lett): samtidige endringer på ulike kort/elementer går ikke tapt
+- [x] CAS i databasen (`version` + `save_list`) så ingen enhet overskriver en annens skriving
+- [x] Gravsteiner for sletting; `activeTab` per enhet (synkes ikke)
+- [x] Fjernet misvisende synk-statusprikk; lite «oppdatert»-varsel ved fjern-endringer
+- [x] Testet fletting + to-enhets-konvergens + live-broadcast (Playwright, falsk delt backend)
 
 ## Hvordan kjøre
 

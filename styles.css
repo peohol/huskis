@@ -516,20 +516,29 @@ body.is-dragging * { cursor: grabbing !important; }
 body.modal-open { overflow: hidden; }
 
 /* ---------------- Synk ---------------- */
-.sync-dot {
-  display: inline-block;
-  width: 9px;
-  height: 9px;
-  border-radius: 999px;
-  background: #c3bcd2;                 /* av / ukjent */
-  box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.7);
-  transition: background 0.2s ease;
-}
-.sync-dot[data-status='connected'] { background: #46c48a; }
-.sync-dot[data-status='saving']    { background: #f0b429; animation: sync-pulse 1s ease-in-out infinite; }
-.sync-dot[data-status='error']     { background: var(--danger); }
+.sync-icon { font-size: 14px; line-height: 1; }
 
-@keyframes sync-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.35; } }
+/* Lett, forbigående varsel når en endring kommer fra en annen enhet.
+   (Ingen fast statusindikator — synken bare virker.) */
+.toast {
+  position: fixed;
+  left: 50%;
+  bottom: 24px;
+  transform: translate(-50%, 16px);
+  z-index: 300;
+  max-width: min(90vw, 420px);
+  padding: 11px 18px;
+  border-radius: 999px;
+  background: rgba(45, 38, 70, 0.92);
+  color: #fff;
+  font-size: 14px;
+  font-weight: 600;
+  box-shadow: var(--shadow-md);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.25s ease, transform 0.25s ease;
+}
+.toast.show { opacity: 1; transform: translate(-50%, 0); }
 
 .sync-help {
   margin: 0 0 14px;
