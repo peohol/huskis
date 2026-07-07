@@ -9,12 +9,14 @@
   const STORAGE_KEY = 'mine-lister-v1';
   const TABS = ['huskelister', 'handlelister'];
 
-  // Pen, myk pastellpalett. Header og aksent utledes ved å mørkne bakgrunnen.
+  // Varm palett i oker-/jordtoner. Header og aksent utledes ved å mørkne bakgrunnen.
   const PALETTE = [
-    '#FFD6A5', '#FDFFB6', '#CAFFBF', '#9BF6FF', '#A0C4FF',
-    '#BDB2FF', '#FFC6FF', '#FFADAD', '#B5EAD7', '#C7CEEA',
-    '#FFDAC1', '#E2F0CB', '#FEC8D8', '#D6E2E9', '#F1E0C5',
+    '#F3D6A2', '#EBCB77', '#D8B45A', '#C99A53', '#E7A96B',
+    '#D9875F', '#C9775A', '#E3B39A', '#D6A181', '#BFA36A',
+    '#AFC17A', '#96B36E', '#B9C9A3', '#D6C7A1', '#E7D6B5',
+    '#C6B089', '#B58D6A', '#D1A85F', '#E2C46F', '#C7A35A',
   ];
+  const PALETTE_SET = new Set(PALETTE.map((c) => c.toLowerCase()));
 
   /* ---------------- Hjelpere ---------------- */
   const uid = () =>
@@ -67,6 +69,30 @@
 
   function stampContent(e) { e.ts = tick(); e.org = deviceId; }   // tittel/tekst/farge/trashed
   function stampPos(e) { e.posTs = tick(); e.posOrg = deviceId; } // rekkefølge/forelder
+  function stampLabel(e) { e.labTs = tick(); e.labOrg = deviceId; } // merkelapper k/p (eget register)
+
+  // Deterministisk palett-farge fra kort-id (samme farge på alle enheter, så en
+  // fargemigrering ikke gir synk-flimmer). Brukes til å gi eldre kort høstfarger.
+  function paletteColorForId(id) {
+    const s = String(id);
+    let h = 0;
+    for (let i = 0; i < s.length; i++) h = (Math.imul(h, 31) + s.charCodeAt(i)) >>> 0;
+    return PALETTE[h % PALETTE.length];
+  }
+  // Engangs-migrering: gi kort som fortsatt har en farge utenfor den nye paletten
+  // en ny (deterministisk) høstfarge, og stemple innholdsregisteret så den synkes.
+  // Idempotent — kort som allerede har palett-farge røres ikke. Returnerer antall endret.
+  function recolorOldCards(cards) {
+    let n = 0;
+    (cards || []).forEach((c) => {
+      if (!c.color || !PALETTE_SET.has(String(c.color).toLowerCase())) {
+        c.color = paletteColorForId(c.id);
+        stampContent(c);
+        n++;
+      }
+    });
+    return n;
+  }
 
   // Nyere av to registre: sammenlign (ts, org). org bryter uavgjort deterministisk.
   function newer(aTs, aOrg, bTs, bOrg) {
@@ -99,8 +125,9 @@
     lastColor = color;
     const id = uid();
     const c = {
-      id, title, color, trashed: false,
+      id, title, color, trashed: false, k: true, p: true,
       ts: 0, org: deviceId,           // innholdsregister (tittel/farge/trashed)
+      labTs: 0, labOrg: deviceId,     // merkelapp-register (k/p) — uavhengig av innhold
       pos: 0, posTs: 0, posOrg: deviceId, // posisjonsregister (rekkefølge)
       items: [],
     };
@@ -182,8 +209,12 @@
   }
   function normalizeCard(c, i) {
     if (typeof c.trashed !== 'boolean') c.trashed = false;
+    if (typeof c.k !== 'boolean') c.k = true;
+    if (typeof c.p !== 'boolean') c.p = true;
     if (typeof c.ts !== 'number') c.ts = 0;
     if (!c.org) c.org = deviceId;
+    if (typeof c.labTs !== 'number') c.labTs = 0;
+    if (!c.labOrg) c.labOrg = deviceId;
     if (typeof c.pos !== 'number') c.pos = i;
     if (typeof c.posTs !== 'number') c.posTs = 0;
     if (!c.posOrg) c.posOrg = deviceId;
@@ -212,11 +243,15 @@
   normalize(state);
   hlc = Math.max(hlc, state._hlc || 0);
 
+  // Gi eldre kort (fra før den nye paletten) høstfarger. Idempotent. Muterer
+  // state; persisteres av første render()→save() (etter at synk-let-ene er init).
+  TABS.forEach((t) => recolorOldCards(state.tabs[t].cards));
+
   /* ---------------- DOM-referanser ---------------- */
   const board = document.getElementById('board');
   const tabsEl = document.getElementById('tabs');
   const addCardBtn = document.getElementById('add-card-btn');
-  const boardHint = document.getElementById('board-hint');
+  const filterSwitchesEl = document.getElementById('filter-switches');
   const cardTpl = document.getElementById('card-template');
   const itemTpl = document.getElementById('item-template');
 
@@ -240,6 +275,41 @@
     return null;
   }
 
+  /* ---------------- Filter (K / P / KP) ----------------
+     Per enhet (ikke synket). Hvert kort tilhører nøyaktig én kategori ut fra
+     bryterne sine: kun K, kun P, eller begge (KP). Filteret har tre brytere
+     (K, P, KP) og et kort vises hvis bryteren for kortets kategori er på.
+     Velger man f.eks. K + KP, vises kun-K-kort og KP-kort, men ikke kun-P-kort.
+     Minst ett filter må alltid være på. */
+  const FILTER_KEY = 'mine-lister-filter';
+  const FILTERS = ['k', 'p', 'kp'];
+  function loadFilter() {
+    try {
+      const f = JSON.parse(localStorage.getItem(FILTER_KEY));
+      if (f && (f.k || f.p || f.kp)) return { k: f.k !== false, p: f.p !== false, kp: f.kp !== false };
+    } catch (e) { /* ignore */ }
+    return { k: true, p: true, kp: true };
+  }
+  const filter = loadFilter();
+  function saveFilter() {
+    try { localStorage.setItem(FILTER_KEY, JSON.stringify(filter)); } catch (e) { /* ignore */ }
+  }
+  // Kortets kategori: kun K, kun P, eller begge (KP). (Minst én bryter er alltid på.)
+  function cardCategory(c) {
+    const k = c.k !== false, p = c.p !== false;
+    if (k && p) return 'kp';
+    return k ? 'k' : 'p';
+  }
+  function cardMatchesFilter(c) {
+    return !!filter[cardCategory(c)];
+  }
+  // Liten «kan ikke»-risting når man prøver å skru av den siste bryteren.
+  function flashDeny(el) {
+    el.classList.remove('deny');
+    void el.offsetWidth;
+    el.classList.add('deny');
+  }
+
   /* ---------------- Render ---------------- */
   function updateTrashCount() {
     const n = trashedCards().length;
@@ -255,25 +325,26 @@
     });
 
     updateTrashCount();
+    renderFilterSwitches();
 
     board.innerHTML = '';
-    const cards = activeCards();
+    const active = activeCards();
+    const cards = active.filter(cardMatchesFilter);
 
     if (cards.length === 0) {
       board.classList.add('empty');
       const es = document.createElement('div');
       es.className = 'empty-state';
-      es.innerHTML =
-        '<div class="big">🗒️</div><p>Ingen kategorier ennå.</p><p>Trykk «Ny kategori» for å komme i gang.</p>';
+      es.innerHTML = active.length === 0
+        ? '<div class="big">🗒️</div><p>Ingen kategorier ennå.</p><p>Trykk «Ny kategori» for å komme i gang.</p>'
+        : '<div class="big">🫙</div><p>Ingen kategorier passer filteret.</p><p>Skru på K, P eller KP for å se flere.</p>';
       board.appendChild(es);
-      boardHint.textContent = '';
       save();
       return;
     }
 
     board.classList.remove('empty');
     cards.forEach((c) => board.appendChild(buildCard(c)));
-    boardHint.textContent = cards.length + (cards.length === 1 ? ' kategori' : ' kategorier');
     save();
   }
 
@@ -301,6 +372,27 @@
       cardData.trashed = true;
       stampContent(cardData);
       render();
+    });
+
+    // K/P-brytere: minst én må være på; lysere sirkel = på.
+    el.querySelectorAll('.card-switches .switch').forEach((sw) => {
+      const flag = sw.dataset.flag;
+      const paint = () => {
+        const on = cardData[flag] !== false;
+        sw.classList.toggle('on', on);
+        sw.setAttribute('aria-pressed', on ? 'true' : 'false');
+      };
+      paint();
+      sw.addEventListener('click', () => {
+        const other = flag === 'k' ? 'p' : 'k';
+        const on = cardData[flag] !== false;
+        if (on && cardData[other] === false) { flashDeny(sw); return; } // kan ikke skru av den siste
+        cardData[flag] = !on;
+        stampLabel(cardData); // eget register → merkelapp-endringer flettes uavhengig av tittel/farge
+        paint();
+        save();
+        if (!cardMatchesFilter(cardData)) render(); // skjul hvis den ikke lenger passer filteret
+      });
     });
 
     // Håndtak for kort-draging
@@ -456,6 +548,22 @@
     return { left, top, right: left + drag.width, bottom: top + drag.height, width: drag.width, height: drag.height };
   }
 
+  // Dynamisk rotasjon av dra-kortet ut fra horisontal posisjon på siden:
+  // −5° når kortet ligger inntil venstre ytterkant, 0° midtstilt, +5° inntil
+  // høyre ytterkant. Vi normaliserer mot det oppnåelige senter-området
+  // (halve kortbredden inn fra hver kant) så ytterpunktene faktisk nås.
+  const MAX_ROT = 5;
+  function cardRotation() {
+    const r = draggedRect();
+    const vw = window.innerWidth || document.documentElement.clientWidth || 1;
+    const half = r.width / 2;
+    const min = half, max = vw - half;   // senter når kortet er inntil venstre/høyre kant
+    const cx = r.left + half;
+    let t = max > min ? ((cx - min) / (max - min)) * 2 - 1 : 0; // −1 venstre, +1 høyre
+    t = Math.max(-1, Math.min(1, t));
+    return t * MAX_ROT;
+  }
+
   /* ------- FLIP-animasjon ------- */
   function snapshotRects(els) {
     const m = new Map();
@@ -528,16 +636,18 @@
   }
 
   // Animer dra-elementet fra flytende posisjon inn i placeholder-sloten.
-  function dropIntoPlaceholder(el, spin) {
+  // rot = grader kortet skal starte rotert i (0/false for elementer → ingen spin).
+  function dropIntoPlaceholder(el, rot) {
     const floatLeft = drag.lastX - drag.grabX;
     const floatTop = drag.lastY - drag.grabY;
     el.classList.remove('dragging');
     el.style.left = el.style.top = el.style.width = el.style.height = '';
+    el.style.transform = ''; // fjern evt. dynamisk drag-rotasjon før vi måler hvileposisjonen
     const now = el.getBoundingClientRect();
     const dx = floatLeft - now.left;
     const dy = floatTop - now.top;
     el.style.transition = 'none';
-    el.style.transform = `translate(${dx}px, ${dy}px)${spin ? ' rotate(1.2deg) scale(1.02)' : ''}`;
+    el.style.transform = `translate(${dx}px, ${dy}px)${rot ? ` rotate(${rot}deg) scale(1.02)` : ''}`;
     void el.offsetWidth;
     requestAnimationFrame(() => {
       el.style.transition = `transform ${FLIP_MS}ms cubic-bezier(.2,.75,.3,1)`;
@@ -555,7 +665,49 @@
     drag.active = false;
     drag.el = null;
     drag.ph = null;
+    stopAutoScroll();
     document.body.classList.remove('is-dragging');
+  }
+
+  /* ------- Auto-scroll når dra-kortet nærmer seg topp/bunn av vinduet -------
+     Sakte når kortet nærmer seg kanten, raskere jo lengre ut i sonen — og
+     raskest når det holdes forbi selve kanten. Fungerer begge veier. */
+  let autoScrollRAF = null;
+  let autoScrollSpeed = 0;
+
+  function edgeSpeed(p) {
+    // p: 0 ved sonens indre kant, 1 ved vinduskanten, >1 forbi kanten.
+    const MIN = 4, MAX = 20, BEYOND = 34;
+    if (p <= 0) return 0;
+    if (p <= 1) return MIN + (MAX - MIN) * p;
+    return MAX + (BEYOND - MAX) * Math.min(1, p - 1);
+  }
+  function updateAutoScroll() {
+    if (!drag.active || drag.kind !== 'card') { stopAutoScroll(); return; }
+    const y = drag.lastY;
+    const vh = window.innerHeight || document.documentElement.clientHeight || 1;
+    const ZONE = 120;
+    const down = edgeSpeed((y - (vh - ZONE)) / ZONE);
+    const up = edgeSpeed((ZONE - y) / ZONE);
+    autoScrollSpeed = down > 0 ? down : (up > 0 ? -up : 0);
+    if (autoScrollSpeed !== 0) startAutoScroll(); else stopAutoScroll();
+  }
+  function startAutoScroll() {
+    if (autoScrollRAF != null) return;
+    const step = () => {
+      if (!drag.active || autoScrollSpeed === 0) { autoScrollRAF = null; return; }
+      const before = window.scrollY;
+      window.scrollBy(0, autoScrollSpeed);
+      // Kortet er fixed, men de andre kortene flytter seg når siden ruller →
+      // re-evaluer plassering med rulleretningen som «drag-retning».
+      if (window.scrollY !== before) updateCardPlacement(0, autoScrollSpeed > 0 ? 1 : -1);
+      autoScrollRAF = requestAnimationFrame(step);
+    };
+    autoScrollRAF = requestAnimationFrame(step);
+  }
+  function stopAutoScroll() {
+    if (autoScrollRAF != null) { cancelAnimationFrame(autoScrollRAF); autoScrollRAF = null; }
+    autoScrollSpeed = 0;
   }
 
   /* ---------------- KORT-DRAGING ---------------- */
@@ -572,6 +724,7 @@
     drag.ph = ph;
 
     liftElement();
+    drag.el.style.transform = `rotate(${cardRotation()}deg) scale(1.02)`;
     window.addEventListener('pointermove', onCardMove);
     window.addEventListener('pointerup', onCardUp);
     window.addEventListener('pointercancel', onCardUp);
@@ -584,7 +737,15 @@
     drag.lastX = ev.clientX;
     drag.lastY = ev.clientY;
     moveElement();
+    drag.el.style.transform = `rotate(${cardRotation()}deg) scale(1.02)`;
+    updateAutoScroll();
+    updateCardPlacement(dx, dy);
+  }
 
+  // Finn og utfør evt. placeholder-flytting ut fra dra-retningen (dx, dy).
+  // Kalles både fra peker-bevegelse og fra auto-scroll (med syntetisk retning).
+  function updateCardPlacement(dx, dy) {
+    if (!drag.active || drag.kind !== 'card') return;
     const dragRect = draggedRect();
     const cards = [...board.querySelectorAll('.card:not(.dragging)')];
     if (!cards.length) return;
@@ -670,9 +831,10 @@
     window.removeEventListener('pointercancel', onCardUp);
 
     const el = drag.el;
+    const rot = cardRotation();
     board.insertBefore(el, drag.ph);
     drag.ph.remove();
-    dropIntoPlaceholder(el, true);
+    dropIntoPlaceholder(el, rot);
     finishDrag();
 
     // Ny rekkefølge: gi kortet en pos mellom DOM-naboene. Kirurgisk – kun
@@ -852,6 +1014,25 @@
     if (el) el.click();
   });
 
+  /* ---------------- Filter-brytere (verktøylinja) ---------------- */
+  function renderFilterSwitches() {
+    filterSwitchesEl.querySelectorAll('.switch').forEach((sw) => {
+      const on = filter[sw.dataset.flag] !== false;
+      sw.classList.toggle('on', on);
+      sw.setAttribute('aria-pressed', on ? 'true' : 'false');
+    });
+  }
+  filterSwitchesEl.querySelectorAll('.switch').forEach((sw) => {
+    sw.addEventListener('click', () => {
+      const flag = sw.dataset.flag;
+      const onCount = FILTERS.filter((f) => filter[f]).length;
+      if (filter[flag] && onCount === 1) { flashDeny(sw); return; } // minst ett filter må være på
+      filter[flag] = !filter[flag];
+      saveFilter();
+      render(); // tegner også bryterne på nytt via renderFilterSwitches()
+    });
+  });
+
   /* ---------------- Papirkurv ---------------- */
   function buildTrashList() {
     const trash = trashedCards();
@@ -964,12 +1145,7 @@
   let cycleRunning = false, cycleAgain = false;
   let pollTimer = null, pollTick = 0, syncDebounce = null;
 
-  const syncBtn = document.getElementById('sync-btn');
-  const syncModal = document.getElementById('sync-modal');
-  const syncClose = document.getElementById('sync-close');
-  const syncLogoutBtn = document.getElementById('sync-logout');
-  const syncStatusText = document.getElementById('sync-status-text');
-  const syncConfigNote = document.getElementById('sync-config-note');
+  const logoutBtn = document.getElementById('logout-btn');
 
   function cloudConfigured() {
     const c = window.SUPABASE_CONFIG;
@@ -1019,7 +1195,9 @@
   function cleanCard(c) {
     return {
       id: c.id, title: c.title, color: c.color, trashed: !!c.trashed,
+      k: c.k !== false, p: c.p !== false,
       ts: c.ts || 0, org: c.org || '',
+      labTs: c.labTs || 0, labOrg: c.labOrg || '',
       pos: c.pos || 0, posTs: c.posTs || 0, posOrg: c.posOrg || '',
       items: (c.items || []).map((it) => cleanItem(it, c.id)),
     };
@@ -1054,9 +1232,9 @@
   }
 
   /* ---------- Fletting (CRDT-lett, felt-nivå LWW + gravsteiner) ---------- */
-  function deadBy(tombTs, ts, posTs) {
+  function deadBy(tombTs, ts, posTs, labTs) {
     if (tombTs == null) return false;
-    return tombTs >= Math.max(ts || 0, posTs || 0); // gravstein nyere/lik siste aktivitet
+    return tombTs >= Math.max(ts || 0, posTs || 0, labTs || 0); // gravstein nyere/lik siste aktivitet
   }
   function mergeItem(a, b) {
     const content = newer(a.ts, a.org, b.ts, b.org) ? a : b;
@@ -1068,10 +1246,14 @@
   }
   function mergeCardScalar(a, b) {
     const content = newer(a.ts, a.org, b.ts, b.org) ? a : b;
+    const labw = newer(a.labTs, a.labOrg, b.labTs, b.labOrg) ? a : b; // merkelapper (k/p) flettes for seg
     const posw = newer(a.posTs, a.posOrg, b.posTs, b.posOrg) ? a : b;
     return {
       id: a.id, title: content.title, color: content.color || a.color || b.color,
-      trashed: !!content.trashed, ts: content.ts || 0, org: content.org || '',
+      trashed: !!content.trashed,
+      k: labw.k !== false, p: labw.p !== false,
+      ts: content.ts || 0, org: content.org || '',
+      labTs: labw.labTs || 0, labOrg: labw.labOrg || '',
       pos: posw.pos || 0, posTs: posw.posTs || 0, posOrg: posw.posOrg || '',
     };
   }
@@ -1102,7 +1284,7 @@
     });
     collectCards(ca); collectCards(cb);
     // 3) Fjern gravlagte.
-    cards.forEach((c, id) => { if (deadBy(tomb.cards[id], c.ts, c.posTs)) cards.delete(id); });
+    cards.forEach((c, id) => { if (deadBy(tomb.cards[id], c.ts, c.posTs, c.labTs)) cards.delete(id); });
     items.forEach((it, id) => { if (deadBy(tomb.items[id], it.ts, it.posTs)) items.delete(id); });
     // 4) Plasser elementer i sine hjem-kort; foreldreløse (hjem borte) forkastes.
     const byHome = new Map();
@@ -1237,6 +1419,9 @@
       const localDoc = docFromState();
       const localCanon = canonical(localDoc);
       const mergedDoc = remoteDoc ? mergeStates(localDoc, remoteDoc) : localDoc;
+      // Kort som kommer fra en eldre fjern-tilstand kan ha gamle farger → gi dem
+      // høstfarger her også (idempotent), så de synkes ut til alle enheter.
+      TABS.forEach((t) => recolorOldCards(mergedDoc.tabs[t].cards));
       const mergedCanon = canonical(mergedDoc);
       const remoteCanon = remoteDoc ? canonical(remoteDoc) : null;
 
@@ -1318,33 +1503,11 @@
     toastTimer = setTimeout(() => t.classList.remove('show'), 2200);
   }
 
-  /* ---------- Synk-modal (sannferdig tekst, ingen misvisende prikk) ---------- */
-  function updateSyncModal() {
-    syncConfigNote.hidden = cloudConfigured();
-    if (!cloudConfigured()) {
-      syncStatusText.textContent = 'Sky-synk er ikke satt opp ennå. Fyll inn Supabase-verdiene i config.js.';
-    } else if (syncCode) {
-      syncStatusText.textContent = 'Listene dine synkes automatisk og fortløpende mellom alle enhetene dine.';
-    } else {
-      syncStatusText.textContent = 'Ikke tilkoblet.';
-    }
-  }
-  function openSync() {
-    updateSyncModal();
-    syncModal.hidden = false;
-    document.body.classList.add('modal-open');
-  }
-  function closeSync() {
-    syncModal.hidden = true;
-    document.body.classList.remove('modal-open');
-  }
-
-  syncBtn.addEventListener('click', openSync);
-  syncClose.addEventListener('click', closeSync);
-  syncLogoutBtn.addEventListener('click', logout);
-  syncModal.addEventListener('click', (ev) => { if (ev.target === syncModal) closeSync(); });
-  document.addEventListener('keydown', (ev) => {
-    if (ev.key === 'Escape' && !syncModal.hidden) closeSync();
+  /* ---------- Logg ut (erstatter den gamle Synk-knappen) ----------
+     Synken går fortløpende i bakgrunnen; ingen egen synk-knapp trengs.
+     Ved fjern-endringer vises et lite «oppdatert»-varsel (showToast). */
+  logoutBtn.addEventListener('click', () => {
+    if (confirm('Logge ut? Listene dine ligger trygt i skyen og kommer tilbake når du tegner mønsteret igjen.')) logout();
   });
 
   // Hold i synk når fanen kommer i forgrunnen igjen (mobil suspenderer sockets/timere).
@@ -1361,12 +1524,11 @@
   async function syncConnect(code) {
     syncCode = code;
     try { localStorage.setItem(SYNC_CODE_KEY, code); } catch (e) { /* ignore */ }
-    if (!cloudConfigured()) { updateSyncModal(); return; }
+    if (!cloudConfigured()) return;
     try { channelId = await sha256Hex('rt|' + code); } catch (e) { channelId = code; }
     startRealtime();
     startPoll();
     await syncCycle();
-    updateSyncModal();
   }
 
   // Ved oppstart (allerede innlogget): koble til med den lagrede koden.
