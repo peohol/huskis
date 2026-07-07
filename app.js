@@ -458,15 +458,33 @@
     const countEl = el.querySelector('.group-count');
     countEl.textContent = groupData.cards.filter((c) => !c.trashed).length;
 
-    // Klikk på kortet bytter til gruppen. Er den allerede aktiv → rediger navnet.
-    el.addEventListener('click', (ev) => {
-      if (ev.target.closest('.group-handle') || ev.target.closest('.group-delete')) return;
+    // Bytt til gruppen; er den allerede aktiv → rediger navnet.
+    const activate = () => {
       if (nameEl.dataset.editing === '1') return;
       if (groupData.id !== state.activeGroup) {
         state.activeGroup = groupData.id;
         render();
       } else {
         startGroupRename(nameEl, groupData);
+      }
+    };
+
+    el.addEventListener('click', (ev) => {
+      if (ev.target.closest('.group-handle') || ev.target.closest('.group-delete')) return;
+      activate();
+    });
+    // Tastatur: kortet er role="tab" (tabindex=0). Enter/Mellomrom aktiverer det
+    // (bytt gruppe / omdøp den aktive), og fokus følger til den nye aktive gruppen.
+    el.addEventListener('keydown', (ev) => {
+      if (ev.target !== el) return; // slett/håndtak har egen tastaturoppførsel
+      if (ev.key === 'Enter' || ev.key === ' ' || ev.key === 'Spacebar') {
+        ev.preventDefault();
+        const wasActive = groupData.id === state.activeGroup;
+        activate();
+        if (!wasActive) {
+          const card = groupsBar.querySelector('.group-card[data-id="' + groupData.id + '"]');
+          if (card) card.focus();
+        }
       }
     });
 
