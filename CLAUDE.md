@@ -79,9 +79,13 @@ Den viser en **venstreorientert rad** med gruppekort (`#groups-bar`), etterfulgt
 - **Slette gruppe**: sletter gruppen + **alle dens lister/elementer permanent** (bekreftelse
   om den ikke er tom) og legger gravsteiner (`_tomb.groups/cards/items`).
 - **Rekkefølge**: dra-og-slipp via håndtaket, med **placeholder + FLIP** som kort/elementer
-  (`startGroupDrag`/`updateGroupPlacement`/`onGroupUp`). Innsettingspunktet velges i
-  **lese-rekkefølge** (foran første kort dra-senteret ligger «foran»: tidligere rad, eller
-  samme rad + venstre for senter), ellers etter siste kort (foran «＋»). Løftet kort roterer
+  (`startGroupDrag`/`updateGroupPlacement`/`onGroupUp`). Samme **ivrige, retningsstyrte
+  bytte** som lister/elementer, men transponert til den horisontale raden: en **rad** =
+  gruppekort med ≥ 50 % vertikal overlapp med dra-kortet (analogt til «kolonne» for kort).
+  Innen raden byttes ved ≥ 20 % **breddeoverlapp** retningsstyrt (dra høyre → kortet til
+  høyre; dra venstre → til venstre). Føres kortet til en **annen rad** (desktop-wrap),
+  plasseres placeholderen ut fra horisontal senterposisjon (kryss-rad, analogt til
+  kryss-kolonne). «Etter siste kort» legger placeholderen foran «＋». Løftet kort roterer
   som vanlige kort (`cardRotation()`).
 
 **Responsiv layout:**
@@ -90,12 +94,15 @@ Den viser en **venstreorientert rad** med gruppekort (`#groups-bar`), etterfulgt
 - **Mobil** (`max-width: 560px`): gruppene ligger alltid på **én rad** med **horisontal
   scroll uten synlig scrollbar**. Får kortene plass, vises «＋» inline etter siste kort.
   **Overskrider** kortene bredden (`updateGroupsOverflow()` setter `.groups-overflow` på
-  headeren), festes «＋» **statisk til høyre** (`.groups-pin`, `position: absolute`) mens
-  kortene scroller forbi bak en **fade-gradient** (`.groups-fade`, transparent → header-tone
-  + svak `backdrop-blur`) så de **oppløses mykt** uten en tydelig kant. Baren får ekstra
-  `padding-right` så siste kort kan scrolle helt fram forbi knappen. Under gruppe-draging
-  auto-scroller raden horisontalt når pekeren nærmer seg venstre/høyre kant
-  (`updateGroupAutoScroll`).
+  headeren), festes «＋» **statisk til høyre** i en **ugjennomsiktig sone** (`.groups-pin`,
+  `position: absolute`, bakgrunn `--header-solid`). Fordi headeren selv er delvis
+  gjennomsiktig, MÅ denne sonen være ugjennomsiktig for at kortene skal forsvinne helt bak
+  knappen. Faden er en **ren opacity-gradient** (transparent → `--header-solid`) satt på
+  selve sonen — **ingen** `backdrop-blur` (en uniform uklarhet toner ikke, den bare smører).
+  Kortene får scrolle **helt ut til kanten** og oppløses i faden (ingen `padding-right` som
+  stopper dem for tidlig). Overflow-målingen kompenserer for skjult inline-«＋» så den ikke
+  veksler frem/tilbake nær grensen. Under gruppe-draging auto-scroller raden horisontalt når
+  pekeren nærmer seg venstre/høyre kant (`updateGroupAutoScroll`).
 
 ## Dra-og-slipp-logikk (kjernen)
 
