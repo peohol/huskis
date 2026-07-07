@@ -4,11 +4,20 @@ Personlig arbeidsnotat for utvikling av **Huskekurv-appen**. Oppdateres undervei
 
 ## Mål (fra oppgaven)
 
-En app med to faner: **Huskelister** og **Handlelister**. De fungerer helt likt.
+> **Omorganisering (juli 2026):** De to faste fanene (Huskelister/Handlelister) er
+> erstattet av et **selvvalgt antall grupper**. Inndelingen er nå
+> **Gruppe > Liste > Element** (der «Liste» = det gamle «kategori»-kortet, og
+> «Element» er uendret). Apptittelen «🧺 Huskekurv» er fjernet fra headeren, som
+> i stedet viser en rad med gruppene (se «Grupper (header)»). Gammel data
+> migreres til to grupper «Huskelister»/«Handlelister» (se «Migrering»).
 
-I hver fane:
-- Legge til / slette / redigere / endre rekkefølge på **kategorier**.
-- Hver kategori er sitt eget **kort**.
+En app organisert som **Gruppe > Liste > Element**:
+- Opprette / slette / endre rekkefølge på / endre navn på **grupper** (i headeren).
+- Hver gruppe har sin **egen papirkurv**.
+
+I hver gruppe (helt som de gamle fanene fungerte):
+- Legge til / slette / redigere / endre rekkefølge på **lister** (tidl. «kategorier»).
+- Hver liste er sitt eget **kort**.
 - Kortene vises **kolonnevis** (masonry-aktig) slik at man ser flest mulig kort samtidig.
 - Endre rekkefølge på kort via **dra-og-slipp** med håndtak:
   - Når man tar tak i et kort løftes det opp og følger musepekeren.
@@ -19,10 +28,10 @@ I hver fane:
   - Kort kan bytte plass **på tvers av kolonner**.
 - Endre **navn** på kategori ved å klikke på tittelen.
 
-Inne i kortene:
+Inne i kortene (listene):
 - Legge til / slette / redigere / endre rekkefølge på **elementer**.
 - Samme dra-og-slipp-oppførsel.
-- Elementer kan **overføres mellom kategorier**.
+- Elementer kan **overføres mellom lister** (i samme gruppe).
 
 Design:
 - Fint, ryddig, oversiktlig, brukervennlig UI. Responsivt (desktop + mobil).
@@ -36,17 +45,57 @@ Design:
 - **Vanilla JS** med egen dra-og-slipp-motor bygget på **Pointer Events** (fungerer likt for mus og touch).
   - Egen motor fordi kravene (øvre kant vs. nederste femtedel, kryss-kolonne, placeholder) er svært spesifikke.
 - **Persistens** i `localStorage`.
-- **Datamodell**:
+- **Datamodell** (nøstet i minnet for rendring, flat i synk-doc'et):
   ```js
   state = {
-    activeTab: 'huskelister' | 'handlelister',
-    tabs: {
-      huskelister: { cards: [ { id, title, color, k, p, items: [ { id, text } ] } ] },
-      handlelister: { cards: [ ... ] }
-    }
+    activeGroup: <groupId>,        // per enhet, synkes ikke (erstatter activeTab)
+    groups: [
+      { id, name, pos,             // + synk-registre: ts/org (navn), posTs/posOrg (rekkefølge)
+        cards: [                   // «lister» (tidl. kategorier)
+          { id, group, title, color, trashed, k, p,
+            items: [ { id, text, home } ] }   // home = kortets id (forelder)
+        ] }
+    ],
+    _tomb: { groups:{}, cards:{}, items:{} },  // gravsteiner: id → tidsstempel
   }
   ```
-  (`k`/`p` = merkelapp-brytere per kort, se «Merkelapper (K/P) + filter».)
+  Hierarkiet har forelder-peker på hvert nivå: `element.home → kort`, `kort.group → gruppe`.
+  (`k`/`p` = merkelapp-brytere per liste, se «Merkelapper (K/P) + filter».)
+
+## Grupper (header)
+
+Headeren ligger låst øverst (`position: sticky`) og alt annet innhold scroller bak den.
+Den viser en **venstreorientert rad** med gruppekort (`#groups-bar`), etterfulgt av en
+**«＋»-knapp** som oppretter ny gruppe.
+
+- **Gruppekort** (`.group-card`, mal `#group-template`) ser ut som et liste-element:
+  håndtak til venstre, navn i midten, slett-knapp til høyre — men **bredden følger navnet**
+  (`display: inline-flex`, `flex: 0 0 auto`; svært lange navn kappes med ellipsis ved
+  `max-width`). Etter navnet vises **antall lister i gruppen** som et **dempet tall**
+  (`.group-count`, `opacity ~0.42`) — mindre «pop» enn navnet. Det aktive kortet er grønt.
+- **Bytte gruppe**: klikk på et kort gjør gruppen aktiv (board-et tegner dens lister).
+  Klikk på **navnet til den allerede aktive** gruppen redigerer navnet inline (input som
+  vokser med innholdet, `editText(..., { cls:'group-edit', autosize:true })`).
+- **Slette gruppe**: sletter gruppen + **alle dens lister/elementer permanent** (bekreftelse
+  om den ikke er tom) og legger gravsteiner (`_tomb.groups/cards/items`).
+- **Rekkefølge**: dra-og-slipp via håndtaket, med **placeholder + FLIP** som kort/elementer
+  (`startGroupDrag`/`updateGroupPlacement`/`onGroupUp`). Innsettingspunktet velges i
+  **lese-rekkefølge** (foran første kort dra-senteret ligger «foran»: tidligere rad, eller
+  samme rad + venstre for senter), ellers etter siste kort (foran «＋»). Løftet kort roterer
+  som vanlige kort (`cardRotation()`).
+
+**Responsiv layout:**
+- **Desktop**: raden **bryter til flere rader** (`flex-wrap: wrap`) når gruppene fyller
+  bredden; «＋» flyter etter siste kort på siste rad.
+- **Mobil** (`max-width: 560px`): gruppene ligger alltid på **én rad** med **horisontal
+  scroll uten synlig scrollbar**. Får kortene plass, vises «＋» inline etter siste kort.
+  **Overskrider** kortene bredden (`updateGroupsOverflow()` setter `.groups-overflow` på
+  headeren), festes «＋» **statisk til høyre** (`.groups-pin`, `position: absolute`) mens
+  kortene scroller forbi bak en **fade-gradient** (`.groups-fade`, transparent → header-tone
+  + svak `backdrop-blur`) så de **oppløses mykt** uten en tydelig kant. Baren får ekstra
+  `padding-right` så siste kort kan scrolle helt fram forbi knappen. Under gruppe-draging
+  auto-scroller raden horisontalt når pekeren nærmer seg venstre/høyre kant
+  (`updateGroupAutoScroll`).
 
 ## Dra-og-slipp-logikk (kjernen)
 
@@ -57,7 +106,7 @@ Bytte utløses av **overlapp**, ikke av et punkt:
   motsatte byttet ikke trigges umiddelbart → stabilt, men «ivrig» (bytter tidlig).
 - **Kolonne** = kort som ligger på samme horisontale spor (≥ 50 % horisontal overlapp med dra-kortet).
   Føres dra-kortet inn i en **annen kolonne**, plasseres placeholderen ut fra vertikal senterposisjon
-  (kryss-kolonne). For elementer tilsvarer dette **overføring til en annen `.items-container`** (kategori).
+  (kryss-kolonne). For elementer tilsvarer dette **overføring til en annen `.items-container`** (liste).
 - **FLIP-animasjon (150 ms)**: før hver placeholder-flytting tas et øyeblikksbilde av kortenes/elementenes
   posisjoner (`getBoundingClientRect`); etter flyttingen inverteres differansen med `transform` og animeres
   til 0. Ved slipp animeres dra-elementet fra flytende posisjon inn i placeholder-sloten.
@@ -88,22 +137,29 @@ når *samme* element endres to steder).
 
 ### To mekanismer sikrer at ingenting går tapt
 
-1. **Fletting på felt-nivå (CRDT-lett)** — hele tilstanden ligger fortsatt som **ett `jsonb`-doc**,
-   men hver entitet har egne «registre» med logisk tidsstempel:
-   - **innhold** (`ts`, `org`): kortets tittel/farge/`trashed`, elementets tekst.
+1. **Fletting på felt-nivå (CRDT-lett)** — hele tilstanden ligger fortsatt som **ett `jsonb`-doc**.
+   Doc'et er **flatt**: tre parallelle tabeller (`groups` / `cards` / `items`) med forelder-peker
+   (`kort.group`, `element.home`), slik at gruppe/liste/element flettes hver for seg på `id` og
+   forelderløse forkastes. Hver entitet har egne «registre» med logisk tidsstempel:
+   - **innhold** (`ts`, `org`): gruppens navn; kortets tittel/farge/`trashed`; elementets tekst.
    - **merkelapp** (`labTs`, `labOrg`): kortets `k`/`p`-brytere. Eget register så en merkelapp-endring
      på én enhet ikke overskrives av en samtidig tittel-/farge-endring på en annen (og omvendt).
      `k` og `p` deler register (flettes som ett par) så «minst én på» aldri brytes av fletting.
-   - **posisjon** (`posTs`, `posOrg`): rekkefølge (`pos`, fraksjonsindeksering) + elementets
-     forelder (`home`).
+   - **posisjon** (`posTs`, `posOrg`): rekkefølge (`pos`, fraksjonsindeksering) + **forelder**
+     (elementets `home`, kortets `group`) — forelder følger posisjonsregisteret siden flytting
+     endrer forelder + plassering samtidig.
    Ved fletting velges nyeste verdi per register (LWW; `org`/enhets-id bryter uavgjort
-   deterministisk). Endringer på ulike kort/elementer/felter kolliderer aldri; kun samme register
-   endret to steder «konflikter», og da vinner nyeste. `tick()` er en **hybrid logisk klokke**
-   (monotont voksende) så den tåler at enhetenes veggklokker går i utakt.
-   - **Sletting** bruker **gravsteiner** (`_tomb.cards` / `_tomb.items`: id → tidsstempel) så en
-     sletting ikke «gjenoppstår» fra en foreldet enhet. Å tømme papirkurven gir permanent
-     gravstein; sletting av enkelt-element likeså. Papirkurv = kort med `trashed: true`.
-   - `activeTab` er **per enhet** og synkes ikke.
+   deterministisk). Endringer på ulike grupper/kort/elementer/felter kolliderer aldri; kun samme
+   register endret to steder «konflikter», og da vinner nyeste. `tick()` er en **hybrid logisk
+   klokke** (monotont voksende) så den tåler at enhetenes veggklokker går i utakt.
+   - **Sletting** bruker **gravsteiner** (`_tomb.groups` / `_tomb.cards` / `_tomb.items`:
+     id → tidsstempel) så en sletting ikke «gjenoppstår» fra en foreldet enhet. Å tømme
+     papirkurven / slette enkelt-element / slette en hel gruppe gir permanente gravsteiner.
+     Papirkurv = kort med `trashed: true`.
+   - `activeGroup` er **per enhet** og synkes ikke.
+   - **Migrering**: gammel to-fane-form (både hel-tilstand og forrige synk-doc) gjøres om til to
+     grupper med **faste, deterministiske id-er** (`grp-huskelister`/`grp-handlelister`) i
+     `migrateBareState`/`normalizeRemoteDoc`, så alle enheter migrerer likt uten duplisering.
 2. **Optimistisk samtidighetskontroll (CAS) i databasen** — raden har en `version`-teller.
    `save_list` skriver kun hvis klientens forventede versjon stemmer; ellers får klienten
    gjeldende `{data, version}` tilbake, **fletter lokalt, og prøver igjen**. Dermed kan aldri
@@ -228,14 +284,18 @@ skjuler `.app-header` + `.app-main`; en fast overlay `#lock-screen` ligger over)
   Database → Connection string → URI, med passordet innsatt). Alternativt kan SQL-en limes
   rett inn i Supabase sin SQL Editor.
 
-## Papirkurv
+## Papirkurv (per gruppe)
 
-- Å slette en **kategori** setter `trashed: true` på kortet (i stedet for en egen `trash`-array)
+- Papirkurven er **per gruppe**: knappen/modalen gjelder alltid den **aktive gruppen**, og
+  telleren + listen viser kun dens slettede lister. Modaltittelen navngir gruppen
+  («🗑️ Papirkurv – {gruppenavn}»). `trashedCards()`/`allCards()` er gruppe-scopet.
+- Å slette en **liste** setter `trashed: true` på kortet (i stedet for en egen `trash`-array)
   slik at «papirkurv-tilstanden» er et felt som synkes/flettes som alt annet.
-- «Papirkurv»-knappen i verktøylinja viser antall og åpner en modal med de slettede kategoriene.
-- Der kan man **Gjenopprett**e enkeltkategorier (`trashed: false`) eller trykke **Tøm papirkurv**
+- I modalen kan man **Gjenopprett**e enkeltlister (`trashed: false`) eller trykke **Tøm papirkurv**
   for å slette **permanent** (med bekreftelse) — det gir en **gravstein** (`_tomb.cards`).
   Sletting av enkelt-**elementer** er fortsatt permanent og gir gravstein (`_tomb.items`).
+- Å slette en hel **gruppe** fjerner gruppen + alle dens lister/elementer permanent (gravsteiner
+  i `_tomb.groups`/`cards`/`items`), utenom papirkurven.
 
 ## Fargepalett
 
@@ -262,8 +322,9 @@ skjuler `.app-header` + `.app-main`; en fast overlay `#lock-screen` ligger over)
   men ikke kun-P-kort. Minst ett filter må være på. Filteret er per enhet (`localStorage`,
   `mine-lister-filter`) og synkes ikke; `k`/`p` synkes i sitt **eget merkelapp-register**
   (`labTs`/`labOrg`), uavhengig av tittel/farge (se «To mekanismer …»).
-- **Verktøylinja** har ikke lenger «# kategorier»-tellingen eller «Synk»-knappen. I stedet ligger en
-  **«Logg ut»**-knapp til høyre (synken går uansett fortløpende i bakgrunnen; se under).
+- **Verktøylinja** har «Ny liste», «Papirkurv» (per gruppe), filteret og en **«Logg ut»**-knapp
+  til høyre (synken går uansett fortløpende i bakgrunnen; se under). «Ny liste»/«Papirkurv»
+  er deaktivert når det ikke finnes noen aktiv gruppe. (K/P + filter gjelder lister, uendret.)
 
 ## Status / TODO
 
@@ -292,6 +353,15 @@ skjuler `.app-header` + `.app-main`; en fast overlay `#lock-screen` ligger over)
 - [x] Auto-scroll når dra-kort holdes nær/forbi topp- eller bunnkant
 - [x] Merkelapp-brytere K/P per kort (minst én på) + filter ved siden av papirkurv
 - [x] Testet i nettleser (Playwright): palett, brytere/filter, rotasjon, auto-scroll
+- [x] **Omorganisering: Gruppe > Liste > Element.** Fjernet apptittel + de to faste fanene
+- [x] Header viser en rad med gruppekort (håndtak/navn/dempet antall/slett; bredde følger navnet)
+- [x] Grupper: opprett/slett/omdøp + dra-og-slipp-rekkefølge (placeholder + FLIP)
+- [x] Papirkurv per gruppe; slett hel gruppe → permanent (gravsteiner `_tomb.groups`)
+- [x] Desktop: gruppene bryter til flere rader + inline «＋»; Mobil: én rad + horisontal scroll,
+      «＋» festet til høyre med fade-gradient når kortene overskrider bredden
+- [x] Flat synk-doc (`groups`/`cards`/`items` m/ forelder-peker); migrering fra to-fane-form
+- [x] Testet i nettleser (Playwright): gruppe-CRUD/-reorder, per-gruppe papirkurv, migrering
+      (lokal + fjern), mobil-overflow/pinned/fade, desktop-wrap, felt-nivå fletting (43 sjekker)
 
 ## Hvordan kjøre
 

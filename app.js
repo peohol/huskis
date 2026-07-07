@@ -7,7 +7,15 @@
 
   /* ---------------- Konstanter ---------------- */
   const STORAGE_KEY = 'mine-lister-v1';
-  const TABS = ['huskelister', 'handlelister'];
+
+  // Faste, deterministiske gruppe-id-er brukt ved migrering fra den gamle
+  // to-fane-modellen (Huskelister/Handlelister) og for eksempeldata. Faste id-er
+  // gjør at alle enheter migrerer til de SAMME gruppene → ingen duplisering ved
+  // fletting.
+  const LEGACY_TABS = [
+    { id: 'grp-huskelister', name: 'Huskelister', key: 'huskelister' },
+    { id: 'grp-handlelister', name: 'Handlelister', key: 'handlelister' },
+  ];
 
   // Varm palett i oker-/jordtoner. Header og aksent utledes ved å mørkne bakgrunnen.
   const PALETTE = [
@@ -120,15 +128,15 @@
   }
 
   let lastColor = null;
-  function card(title, items) {
+  function card(title, items, groupId) {
     const color = randomColor(lastColor);
     lastColor = color;
     const id = uid();
     const c = {
-      id, title, color, trashed: false, k: true, p: true,
+      id, group: groupId || null, title, color, trashed: false, k: true, p: true,
       ts: 0, org: deviceId,           // innholdsregister (tittel/farge/trashed)
       labTs: 0, labOrg: deviceId,     // merkelapp-register (k/p) — uavhengig av innhold
-      pos: 0, posTs: 0, posOrg: deviceId, // posisjonsregister (rekkefølge)
+      pos: 0, posTs: 0, posOrg: deviceId, // posisjonsregister (rekkefølge + gruppe-forelder)
       items: [],
     };
     (items || []).forEach((t, i) => {
@@ -139,30 +147,45 @@
     return c;
   }
 
-  function seedTab(kind) {
-    const cards = kind === 'huskelister'
-      ? [
-          card('Ukens gjøremål', ['Rydde garasjen', 'Ringe tannlegen', 'Vanne blomstene']),
-          card('Pakke til tur', ['Regnjakke', 'Ladekabel', 'Drikkeflaske', 'Kart']),
-          card('Ideer', ['Male gjerdet', 'Prøve ny kaffebar']),
-        ]
-      : [
-          card('Dagligvarer', ['Melk', 'Brød', 'Egg', 'Smør', 'Kaffe']),
-          card('Middag i kveld', ['Kyllingfilet', 'Ris', 'Brokkoli', 'Soyasaus']),
-          card('Apotek', ['Plaster', 'Solkrem']),
-        ];
-    cards.forEach((c, i) => { c.pos = i; });
-    return { cards };
+  // En gruppe er øverste nivå (Gruppe > Liste > Element). Den har innholds-
+  // register (navn) og posisjonsregister (rekkefølge), og eier sine lister.
+  function makeGroup(name, id) {
+    return {
+      id: id || uid(), name,
+      ts: 0, org: deviceId,               // innholdsregister (navn)
+      pos: 0, posTs: 0, posOrg: deviceId, // posisjonsregister (rekkefølge)
+      cards: [],
+    };
+  }
+
+  // Eksempeldata (kun uten sky): to grupper som speiler de gamle fanene.
+  function seedGroups() {
+    const defs = [
+      { g: LEGACY_TABS[0], lists: [
+        ['Ukens gjøremål', ['Rydde garasjen', 'Ringe tannlegen', 'Vanne blomstene']],
+        ['Pakke til tur', ['Regnjakke', 'Ladekabel', 'Drikkeflaske', 'Kart']],
+        ['Ideer', ['Male gjerdet', 'Prøve ny kaffebar']],
+      ] },
+      { g: LEGACY_TABS[1], lists: [
+        ['Dagligvarer', ['Melk', 'Brød', 'Egg', 'Smør', 'Kaffe']],
+        ['Middag i kveld', ['Kyllingfilet', 'Ris', 'Brokkoli', 'Soyasaus']],
+        ['Apotek', ['Plaster', 'Solkrem']],
+      ] },
+    ];
+    return defs.map((d, gi) => {
+      const g = makeGroup(d.g.name, d.g.id);
+      g.pos = gi;
+      d.lists.forEach((l, i) => { const c = card(l[0], l[1], g.id); c.pos = i; g.cards.push(c); });
+      return g;
+    });
   }
 
   function baseState(seeded) {
+    const groups = seeded ? seedGroups() : [];
     return {
-      activeTab: 'huskelister',
-      tabs: {
-        huskelister: seeded ? seedTab('huskelister') : { cards: [] },
-        handlelister: seeded ? seedTab('handlelister') : { cards: [] },
-      },
-      _tomb: { cards: {}, items: {} }, // gravsteiner: id → tidsstempel for sletting
+      activeGroup: groups.length ? groups[0].id : null, // per enhet, synkes ikke
+      groups,
+      _tomb: { groups: {}, cards: {}, items: {} }, // gravsteiner: id → tidsstempel
       _hlc: 0,
     };
   }
@@ -172,7 +195,9 @@
       const raw = localStorage.getItem(STORAGE_KEY);
       if (!raw) return null;
       const parsed = JSON.parse(raw);
-      if (!parsed || !parsed.tabs || !parsed.tabs.huskelister || !parsed.tabs.handlelister) return null;
+      if (!parsed || typeof parsed !== 'object') return null;
+      // Godta både ny (groups) og gammel (tabs) form — normalize migrerer.
+      if (!Array.isArray(parsed.groups) && !parsed.tabs) return null;
       return parsed;
     } catch (e) {
       return null;
@@ -198,7 +223,27 @@
   // (skyen fyller på / tom-tilstanden veileder), ellers med eksempeldata.
   const state = load() || baseState(!cloudConfigured());
 
-  // Migrer/normaliser: gi (evt. eldre) lagret state forventet struktur og synk-metadata.
+  // Migrering: gjør om den gamle to-fane-modellen til grupper. To faste grupper
+  // (Huskelister/Handlelister) med deterministiske id-er, slik at alle enheter
+  // migrerer likt. Kjøres på gammel lagret state og på gamle fjern-doc.
+  function migrateTabsToGroups(s) {
+    if (Array.isArray(s.groups) || !s.tabs) return;
+    s.groups = LEGACY_TABS.map((m, gi) => {
+      const g = makeGroup(m.name, m.id);
+      g.pos = gi;
+      const tab = s.tabs[m.key] || {};
+      const list = Array.isArray(tab.cards) ? tab.cards.slice() : [];
+      // Gammel papirkurv (egen array) → trashed-flagg på kortene.
+      if (Array.isArray(tab.trash)) tab.trash.forEach((c) => { c.trashed = true; list.push(c); });
+      list.forEach((c) => { c.group = m.id; g.cards.push(c); });
+      return g;
+    });
+    s.activeGroup = s.activeTab === 'handlelister' ? 'grp-handlelister' : 'grp-huskelister';
+    delete s.tabs;
+    delete s.activeTab;
+  }
+
+  // Normaliser: gi (evt. eldre) lagret state forventet struktur og synk-metadata.
   function normalizeItem(it, homeId, j) {
     if (!it.home) it.home = homeId;
     if (typeof it.ts !== 'number') it.ts = 0;
@@ -207,7 +252,8 @@
     if (typeof it.posTs !== 'number') it.posTs = 0;
     if (!it.posOrg) it.posOrg = deviceId;
   }
-  function normalizeCard(c, i) {
+  function normalizeCard(c, groupId, i) {
+    if (!c.group) c.group = groupId;
     if (typeof c.trashed !== 'boolean') c.trashed = false;
     if (typeof c.k !== 'boolean') c.k = true;
     if (typeof c.p !== 'boolean') c.p = true;
@@ -221,23 +267,32 @@
     if (!Array.isArray(c.items)) c.items = [];
     c.items.forEach((it, j) => normalizeItem(it, c.id, j));
   }
+  function normalizeGroup(g, i) {
+    if (!g.id) g.id = uid();
+    if (typeof g.name !== 'string') g.name = 'Uten navn';
+    if (typeof g.ts !== 'number') g.ts = 0;
+    if (!g.org) g.org = deviceId;
+    if (typeof g.pos !== 'number') g.pos = i;
+    if (typeof g.posTs !== 'number') g.posTs = 0;
+    if (!g.posOrg) g.posOrg = deviceId;
+    if (!Array.isArray(g.cards)) g.cards = [];
+    g.cards.forEach((c, ci) => normalizeCard(c, g.id, ci));
+  }
   function normalize(s) {
-    if (!TABS.includes(s.activeTab)) s.activeTab = 'huskelister';
-    if (!s._tomb || typeof s._tomb !== 'object') s._tomb = { cards: {}, items: {} };
+    migrateTabsToGroups(s);
+    if (!Array.isArray(s.groups)) s.groups = [];
+    if (!s._tomb || typeof s._tomb !== 'object') s._tomb = { groups: {}, cards: {}, items: {} };
+    if (!s._tomb.groups) s._tomb.groups = {};
     if (!s._tomb.cards) s._tomb.cards = {};
     if (!s._tomb.items) s._tomb.items = {};
     if (typeof s._hlc !== 'number') s._hlc = 0;
-    TABS.forEach((t) => {
-      if (!s.tabs[t]) s.tabs[t] = { cards: [] };
-      const tab = s.tabs[t];
-      if (!Array.isArray(tab.cards)) tab.cards = [];
-      // Migrer gammel papirkurv (egen array) → trashed-flagg på kortene.
-      if (Array.isArray(tab.trash)) {
-        tab.trash.forEach((c) => { c.trashed = true; tab.cards.push(c); });
-        delete tab.trash;
-      }
-      tab.cards.forEach((c, i) => normalizeCard(c, i));
-    });
+    s.groups.forEach((g, i) => normalizeGroup(g, i));
+    // activeGroup må peke på en eksisterende gruppe.
+    if (!s.groups.some((g) => g.id === s.activeGroup)) {
+      let first = null;
+      s.groups.forEach((g) => { if (!first || g.pos < first.pos) first = g; });
+      s.activeGroup = first ? first.id : null;
+    }
     observeTs(s._hlc);
   }
   normalize(state);
@@ -245,25 +300,35 @@
 
   // Gi eldre kort (fra før den nye paletten) høstfarger. Idempotent. Muterer
   // state; persisteres av første render()→save() (etter at synk-let-ene er init).
-  TABS.forEach((t) => recolorOldCards(state.tabs[t].cards));
+  state.groups.forEach((g) => recolorOldCards(g.cards));
 
   /* ---------------- DOM-referanser ---------------- */
   const board = document.getElementById('board');
-  const tabsEl = document.getElementById('tabs');
+  const appHeader = document.getElementById('app-header');
+  const groupsBar = document.getElementById('groups-bar');
+  const groupsPin = document.getElementById('groups-pin');
+  const addGroupBtn = document.getElementById('add-group-btn');
+  const addGroupPinned = document.getElementById('add-group-pinned');
   const addCardBtn = document.getElementById('add-card-btn');
   const filterSwitchesEl = document.getElementById('filter-switches');
+  const groupTpl = document.getElementById('group-template');
   const cardTpl = document.getElementById('card-template');
   const itemTpl = document.getElementById('item-template');
 
   const trashBtn = document.getElementById('trash-btn');
   const trashCount = document.getElementById('trash-count');
+  const trashTitle = document.getElementById('trash-title');
   const trashModal = document.getElementById('trash-modal');
   const trashList = document.getElementById('trash-list');
   const trashClose = document.getElementById('trash-close');
   const trashEmptyBtn = document.getElementById('trash-empty');
 
   const posCmp = (a, b) => (a.pos - b.pos) || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0);
-  const allCards = () => state.tabs[state.activeTab].cards;
+  // Gruppe-scope: «aktive» kort/elementer gjelder alltid den aktive gruppen.
+  const activeGroupObj = () => state.groups.find((g) => g.id === state.activeGroup) || null;
+  const sortedGroups = () => state.groups.slice().sort(posCmp);
+  const findGroup = (id) => state.groups.find((g) => g.id === id) || null;
+  const allCards = () => { const g = activeGroupObj(); return g ? g.cards : []; };
   const activeCards = () => allCards().filter((c) => !c.trashed).sort(posCmp);
   const trashedCards = () => allCards().filter((c) => c.trashed);
   const findCard = (id) => allCards().find((c) => c.id === id);
@@ -318,16 +383,26 @@
   }
 
   function render() {
-    // Faner
-    [...tabsEl.querySelectorAll('.tab')].forEach((t) => {
-      t.classList.toggle('active', t.dataset.tab === state.activeTab);
-      t.setAttribute('aria-selected', t.dataset.tab === state.activeTab ? 'true' : 'false');
-    });
-
+    renderGroups();
     updateTrashCount();
     renderFilterSwitches();
+    updateToolbarState();
 
     board.innerHTML = '';
+    const group = activeGroupObj();
+
+    // Ingen grupper i det hele tatt.
+    if (!group) {
+      board.classList.add('empty');
+      const es = document.createElement('div');
+      es.className = 'empty-state';
+      es.innerHTML = '<div class="big">📂</div><p>Ingen grupper ennå.</p>' +
+        '<p>Trykk «＋» oppe til venstre for å lage en gruppe.</p>';
+      board.appendChild(es);
+      save();
+      return;
+    }
+
     const active = activeCards();
     const cards = active.filter(cardMatchesFilter);
 
@@ -335,9 +410,15 @@
       board.classList.add('empty');
       const es = document.createElement('div');
       es.className = 'empty-state';
-      es.innerHTML = active.length === 0
-        ? '<div class="big">🗒️</div><p>Ingen kategorier ennå.</p><p>Trykk «Ny kategori» for å komme i gang.</p>'
-        : '<div class="big">🫙</div><p>Ingen kategorier passer filteret.</p><p>Skru på K, P eller KP for å se flere.</p>';
+      if (active.length === 0) {
+        const big = document.createElement('div'); big.className = 'big'; big.textContent = '🗒️';
+        const p1 = document.createElement('p'); p1.textContent = 'Ingen lister i «' + group.name + '» ennå.';
+        const p2 = document.createElement('p'); p2.textContent = 'Trykk «Ny liste» for å komme i gang.';
+        es.append(big, p1, p2);
+      } else {
+        es.innerHTML = '<div class="big">🫙</div><p>Ingen lister passer filteret.</p>' +
+          '<p>Skru på K, P eller KP for å se flere.</p>';
+      }
       board.appendChild(es);
       save();
       return;
@@ -345,6 +426,107 @@
 
     board.classList.remove('empty');
     cards.forEach((c) => board.appendChild(buildCard(c)));
+    save();
+  }
+
+  // «Ny liste» / «Papirkurv» gir bare mening med en aktiv gruppe.
+  function updateToolbarState() {
+    const has = !!activeGroupObj();
+    addCardBtn.disabled = !has;
+    trashBtn.disabled = !has;
+  }
+
+  /* ---------------- Grupper (header) ---------------- */
+  // Tegn gruppekortene inn i headeren (foran inline-«＋»-knappen).
+  function renderGroups() {
+    [...groupsBar.querySelectorAll('.group-card')].forEach((el) => el.remove());
+    sortedGroups().forEach((g) => groupsBar.insertBefore(buildGroupCard(g), addGroupBtn));
+    updateGroupsOverflow();
+  }
+
+  function buildGroupCard(groupData) {
+    const el = groupTpl.content.firstElementChild.cloneNode(true);
+    el.dataset.id = groupData.id;
+    const isActive = groupData.id === state.activeGroup;
+    el.classList.toggle('active', isActive);
+    el.setAttribute('aria-selected', isActive ? 'true' : 'false');
+
+    const nameEl = el.querySelector('.group-name');
+    nameEl.textContent = groupData.name;
+
+    // Antall lister i gruppen (ikke papirkurv), dempet tall etter navnet.
+    const countEl = el.querySelector('.group-count');
+    countEl.textContent = groupData.cards.filter((c) => !c.trashed).length;
+
+    // Klikk på kortet bytter til gruppen. Er den allerede aktiv → rediger navnet.
+    el.addEventListener('click', (ev) => {
+      if (ev.target.closest('.group-handle') || ev.target.closest('.group-delete')) return;
+      if (nameEl.dataset.editing === '1') return;
+      if (groupData.id !== state.activeGroup) {
+        state.activeGroup = groupData.id;
+        render();
+      } else {
+        startGroupRename(nameEl, groupData);
+      }
+    });
+
+    el.querySelector('.group-delete').addEventListener('click', (ev) => {
+      ev.stopPropagation();
+      deleteGroup(groupData);
+    });
+
+    el.querySelector('.group-handle').addEventListener('pointerdown', (ev) => startGroupDrag(ev, el));
+    return el;
+  }
+
+  function startGroupRename(nameEl, groupData) {
+    editText(nameEl, groupData.name, (val) => {
+      groupData.name = val || 'Uten navn';
+      nameEl.textContent = groupData.name;
+      stampContent(groupData);
+      save();
+      renderGroups(); // bredde/overflow kan endre seg med navnet
+    }, { cls: 'group-edit', autosize: true });
+  }
+
+  function addGroup() {
+    const g = makeGroup('Ny gruppe');
+    let maxP = 0;
+    state.groups.forEach((x) => { maxP = Math.max(maxP, x.pos || 0); });
+    g.pos = state.groups.length ? maxP + 1 : 0;
+    stampContent(g);
+    stampPos(g);
+    state.groups.push(g);
+    state.activeGroup = g.id;
+    render();
+    // Rull den nye gruppen inn i syne og start redigering av navnet.
+    const el = groupsBar.querySelector('.group-card[data-id="' + g.id + '"]');
+    if (el) {
+      try { el.scrollIntoView({ inline: 'end', block: 'nearest' }); } catch (e) { /* ignore */ }
+      startGroupRename(el.querySelector('.group-name'), g);
+    }
+  }
+
+  function deleteGroup(groupData) {
+    const total = groupData.cards.length;
+    if (total > 0) {
+      const word = total === 1 ? 'liste' : 'lister';
+      if (!confirm('Slette gruppen «' + groupData.name + '» og alle ' + total + ' ' + word +
+        ' i den permanent? Dette kan ikke angres.')) return;
+    }
+    // Gravsteiner for gruppen + alle dens lister + elementer (hindrer gjenoppstandelse).
+    state._tomb.groups[groupData.id] = tick();
+    groupData.cards.forEach((c) => {
+      state._tomb.cards[c.id] = tick();
+      c.items.forEach((it) => { state._tomb.items[it.id] = tick(); });
+    });
+    const idx = state.groups.indexOf(groupData);
+    if (idx > -1) state.groups.splice(idx, 1);
+    if (state.activeGroup === groupData.id) {
+      const first = sortedGroups()[0];
+      state.activeGroup = first ? first.id : null;
+    }
+    render();
     save();
   }
 
@@ -458,14 +640,22 @@
   }
 
   /* ---------------- Inline-redigering ---------------- */
-  function editText(displayEl, current, onSave) {
+  // opts.cls: ekstra klasse på input. opts.autosize: la input vokse med innholdet
+  // (brukes til gruppenavn i headeren, som ikke skal ta full bredde).
+  function editText(displayEl, current, onSave, opts) {
+    opts = opts || {};
     if (displayEl.dataset.editing === '1') return;
     displayEl.dataset.editing = '1';
     const input = document.createElement('input');
     input.type = 'text';
-    input.className = 'edit-input';
+    input.className = 'edit-input' + (opts.cls ? ' ' + opts.cls : '');
     input.value = current;
     displayEl.replaceWith(input);
+    if (opts.autosize) {
+      const resize = () => { input.style.width = Math.max(4, input.value.length + 1) + 'ch'; };
+      input.addEventListener('input', resize);
+      resize();
+    }
     input.focus();
     input.setSelectionRange(0, input.value.length);
 
@@ -666,6 +856,7 @@
     drag.el = null;
     drag.ph = null;
     stopAutoScroll();
+    stopGroupAutoScroll();
     document.body.classList.remove('is-dragging');
   }
 
@@ -993,21 +1184,142 @@
     cardData.items = domIds.map((id) => pool[id]).filter(Boolean);
   }
 
-  /* ---------------- Fane / topp-knapper ---------------- */
-  tabsEl.addEventListener('click', (ev) => {
-    const t = ev.target.closest('.tab');
-    if (!t) return;
-    if (state.activeTab === t.dataset.tab) return;
-    state.activeTab = t.dataset.tab;
-    render();
-  });
+  /* ---------------- GRUPPE-DRAGING (header-rad) ----------------
+     Gruppekortene ligger på en horisontal rad (som bryter til flere rader på
+     desktop, og scroller horisontalt på mobil). Rekkefølgen endres med samme
+     placeholder + FLIP-oppførsel som kort/elementer. Innsettingspunktet
+     bestemmes i lese-rekkefølge: placeholderen legges foran det første kortet
+     dra-senteret ligger «foran» (tidligere rad, eller samme rad + venstre for
+     senter), ellers etter siste kort (foran «＋»-knappen). */
+  function startGroupDrag(ev, groupEl) {
+    if (ev.button != null && ev.button !== 0) return;
+    beginDragCommon(ev, groupEl);
+    drag.kind = 'group';
+
+    const ph = document.createElement('div');
+    ph.className = 'group-placeholder';
+    ph.style.width = drag.width + 'px';
+    ph.style.height = drag.height + 'px';
+    groupsBar.insertBefore(ph, groupEl);
+    drag.ph = ph;
+
+    liftElement();
+    drag.el.style.transform = `rotate(${cardRotation()}deg) scale(1.05)`;
+    window.addEventListener('pointermove', onGroupMove);
+    window.addEventListener('pointerup', onGroupUp);
+    window.addEventListener('pointercancel', onGroupUp);
+  }
+
+  function onGroupMove(ev) {
+    if (!drag.active) return;
+    drag.lastX = ev.clientX;
+    drag.lastY = ev.clientY;
+    moveElement();
+    drag.el.style.transform = `rotate(${cardRotation()}deg) scale(1.05)`;
+    updateGroupAutoScroll(ev);
+    updateGroupPlacement();
+  }
+
+  function updateGroupPlacement() {
+    if (!drag.active || drag.kind !== 'group') return;
+    const dragRect = draggedRect();
+    const dcx = dragRect.left + dragRect.width / 2;
+    const dcy = dragRect.top + dragRect.height / 2;
+    const cards = [...groupsBar.querySelectorAll('.group-card:not(.dragging)')];
+    const ph = drag.ph;
+
+    let ref = null;
+    for (const c of cards) {
+      const r = layoutRect(c);
+      const cx = r.left + r.width / 2;
+      if (dcy < r.top - 1 || (dcy <= r.bottom + 1 && dcx < cx)) { ref = c; break; }
+    }
+
+    // Endrer flyttingen faktisk noe?
+    if (ref) { if (ref.previousElementSibling === ph) return; }
+    else if (ph.nextElementSibling === addGroupBtn) return;
+
+    const snap = snapshotRects(cards);
+    if (ref) groupsBar.insertBefore(ph, ref);
+    else groupsBar.insertBefore(ph, addGroupBtn); // etter siste kort, foran «＋»
+    flipFrom(snap, FLIP_MS);
+  }
+
+  function onGroupUp() {
+    if (!drag.active) return;
+    window.removeEventListener('pointermove', onGroupMove);
+    window.removeEventListener('pointerup', onGroupUp);
+    window.removeEventListener('pointercancel', onGroupUp);
+
+    const el = drag.el;
+    const rot = cardRotation();
+    groupsBar.insertBefore(el, drag.ph);
+    drag.ph.remove();
+    dropIntoPlaceholder(el, rot);
+    finishDrag();
+
+    // Ny rekkefølge: pos mellom DOM-naboene (kun dette gruppe-kortets pos-register).
+    const prev = el.previousElementSibling;
+    const next = el.nextElementSibling;
+    const g = findGroup(el.dataset.id);
+    if (g) {
+      const prevG = prev && prev.classList.contains('group-card') ? findGroup(prev.dataset.id) : null;
+      const nextG = next && next.classList.contains('group-card') ? findGroup(next.dataset.id) : null;
+      g.pos = between(prevG ? prevG.pos : null, nextG ? nextG.pos : null);
+      stampPos(g);
+    }
+    updateGroupsOverflow();
+    save();
+  }
+
+  /* ------- Horisontal auto-scroll av gruppe-raden (mobil-overflow) ------- */
+  let groupScrollRAF = null, groupScrollSpeed = 0;
+  function updateGroupAutoScroll(ev) {
+    if (!drag.active || drag.kind !== 'group') { stopGroupAutoScroll(); return; }
+    const r = groupsBar.getBoundingClientRect();
+    const EDGE = 52, x = ev.clientX;
+    let speed = 0;
+    if (x < r.left + EDGE) speed = -Math.ceil(((r.left + EDGE - x) / EDGE) * 16);
+    else if (x > r.right - EDGE) speed = Math.ceil(((x - (r.right - EDGE)) / EDGE) * 16);
+    groupScrollSpeed = speed;
+    if (speed !== 0) startGroupAutoScroll(); else stopGroupAutoScroll();
+  }
+  function startGroupAutoScroll() {
+    if (groupScrollRAF != null) return;
+    const step = () => {
+      if (!drag.active || groupScrollSpeed === 0) { groupScrollRAF = null; return; }
+      const before = groupsBar.scrollLeft;
+      groupsBar.scrollLeft += groupScrollSpeed;
+      if (groupsBar.scrollLeft !== before) updateGroupPlacement();
+      groupScrollRAF = requestAnimationFrame(step);
+    };
+    groupScrollRAF = requestAnimationFrame(step);
+  }
+  function stopGroupAutoScroll() {
+    if (groupScrollRAF != null) { cancelAnimationFrame(groupScrollRAF); groupScrollRAF = null; }
+    groupScrollSpeed = 0;
+  }
+
+  /* ------- Overflow: på mobil legges «＋» statisk til høyre med fade ------- */
+  function updateGroupsOverflow() {
+    const mobile = window.matchMedia('(max-width: 560px)').matches;
+    const overflow = mobile && (groupsBar.scrollWidth - groupsBar.clientWidth > 1);
+    appHeader.classList.toggle('groups-overflow', overflow);
+  }
+  window.addEventListener('resize', updateGroupsOverflow);
+
+  /* ---------------- Topp-knapper ---------------- */
+  addGroupBtn.addEventListener('click', addGroup);
+  addGroupPinned.addEventListener('click', addGroup);
 
   addCardBtn.addEventListener('click', () => {
-    const c = card('Ny kategori', []);
-    c.pos = maxPos(allCards()) + 1;
+    const g = activeGroupObj();
+    if (!g) return;
+    const c = card('Ny liste', [], g.id);
+    c.pos = maxPos(g.cards) + 1;
     stampContent(c);
     stampPos(c);
-    allCards().push(c);
+    g.cards.push(c);
     render();
     // Fokuser den nye tittelen for redigering
     const el = board.querySelector('.card[data-id="' + c.id + '"] .card-title');
@@ -1080,6 +1392,9 @@
   }
 
   function openTrash() {
+    const g = activeGroupObj();
+    if (!g) return; // papirkurv er per gruppe
+    trashTitle.textContent = '🗑️ Papirkurv – ' + g.name;
     buildTrashList();
     trashModal.hidden = false;
     document.body.classList.add('modal-open');
@@ -1184,7 +1499,7 @@
   function canonical(doc) { return JSON.stringify(canonValue(doc)); }
 
   /* ---------- Doc <-> state ---------- */
-  // Synk-doc: kun det som deles (ikke activeTab, som er per enhet).
+  // Synk-doc: kun det som deles (ikke activeGroup, som er per enhet).
   function cleanItem(it, homeId) {
     return {
       id: it.id, text: it.text, home: it.home || homeId,
@@ -1194,35 +1509,77 @@
   }
   function cleanCard(c) {
     return {
-      id: c.id, title: c.title, color: c.color, trashed: !!c.trashed,
+      id: c.id, group: c.group || null, title: c.title, color: c.color, trashed: !!c.trashed,
       k: c.k !== false, p: c.p !== false,
       ts: c.ts || 0, org: c.org || '',
       labTs: c.labTs || 0, labOrg: c.labOrg || '',
       pos: c.pos || 0, posTs: c.posTs || 0, posOrg: c.posOrg || '',
-      items: (c.items || []).map((it) => cleanItem(it, c.id)),
     };
   }
-  function docFromState() {
+  function cleanGroup(g) {
     return {
-      tabs: {
-        huskelister: { cards: state.tabs.huskelister.cards.map(cleanCard) },
-        handlelister: { cards: state.tabs.handlelister.cards.map(cleanCard) },
+      id: g.id, name: g.name,
+      ts: g.ts || 0, org: g.org || '',
+      pos: g.pos || 0, posTs: g.posTs || 0, posOrg: g.posOrg || '',
+    };
+  }
+  // Synk-doc er flatt: tre parallelle tabeller (grupper/lister/elementer) med
+  // forelder-peker (kort.group, element.home). Rekkefølge-uavhengig likhet via
+  // canonical(); activeGroup deles ikke (per enhet).
+  function docFromState() {
+    const groups = [], cards = [], items = [];
+    state.groups.forEach((g) => {
+      groups.push(cleanGroup(g));
+      (g.cards || []).forEach((c) => {
+        cards.push(cleanCard(Object.assign({}, c, { group: c.group || g.id })));
+        (c.items || []).forEach((it) => items.push(cleanItem(it, c.id)));
+      });
+    });
+    return {
+      groups, cards, items,
+      tomb: {
+        groups: Object.assign({}, state._tomb.groups),
+        cards: Object.assign({}, state._tomb.cards),
+        items: Object.assign({}, state._tomb.items),
       },
-      tomb: { cards: Object.assign({}, state._tomb.cards), items: Object.assign({}, state._tomb.items) },
       hlc: hlc,
     };
   }
 
-  // Skriv et (flettet) doc inn i state, behold activeTab, tegn på nytt.
+  // Skriv et (flettet) flatt doc inn i state (nøstet igjen), behold activeGroup, tegn på nytt.
   function applyDoc(doc) {
     applyingRemote = true;
     try {
-      state.tabs.huskelister = { cards: doc.tabs.huskelister.cards };
-      state.tabs.handlelister = { cards: doc.tabs.handlelister.cards };
-      state._tomb = doc.tomb;
-      state._hlc = doc.hlc;
+      const groups = (doc.groups || []).map((g) => Object.assign(cleanGroup(g), { cards: [] }));
+      const gById = new Map(groups.map((g) => [g.id, g]));
+      const cById = new Map();
+      (doc.cards || []).forEach((raw) => {
+        const c = cleanCard(raw);
+        const parent = gById.get(c.group);
+        if (!parent) return;      // foreldreløs liste → dropp
+        c.items = [];
+        cById.set(c.id, c);
+        parent.cards.push(c);
+      });
+      (doc.items || []).forEach((raw) => {
+        const it = cleanItem(raw, raw.home);
+        const parent = cById.get(it.home);
+        if (parent) parent.items.push(it); // foreldreløst element → dropp
+      });
+      groups.sort(posCmp);
+      groups.forEach((g) => { g.cards.sort(posCmp); g.cards.forEach((c) => c.items.sort(posCmp)); });
+
+      state.groups = groups;
+      state._tomb = {
+        groups: Object.assign({}, (doc.tomb && doc.tomb.groups) || {}),
+        cards: Object.assign({}, (doc.tomb && doc.tomb.cards) || {}),
+        items: Object.assign({}, (doc.tomb && doc.tomb.items) || {}),
+      };
+      state._hlc = doc.hlc || 0;
       observeTs(doc.hlc);
-      normalize(state);
+      if (!state.groups.some((g) => g.id === state.activeGroup)) {
+        state.activeGroup = state.groups.length ? state.groups[0].id : null;
+      }
       const ex = activeCards();
       if (ex.length) lastColor = ex[ex.length - 1].color;
       render();
@@ -1249,7 +1606,9 @@
     const labw = newer(a.labTs, a.labOrg, b.labTs, b.labOrg) ? a : b; // merkelapper (k/p) flettes for seg
     const posw = newer(a.posTs, a.posOrg, b.posTs, b.posOrg) ? a : b;
     return {
-      id: a.id, title: content.title, color: content.color || a.color || b.color,
+      id: a.id,
+      group: posw.group != null ? posw.group : (a.group || b.group || null), // forelder følger posisjon
+      title: content.title, color: content.color || a.color || b.color,
       trashed: !!content.trashed,
       k: labw.k !== false, p: labw.p !== false,
       ts: content.ts || 0, org: content.org || '',
@@ -1257,74 +1616,88 @@
       pos: posw.pos || 0, posTs: posw.posTs || 0, posOrg: posw.posOrg || '',
     };
   }
+  function mergeGroupScalar(a, b) {
+    const content = newer(a.ts, a.org, b.ts, b.org) ? a : b;
+    const posw = newer(a.posTs, a.posOrg, b.posTs, b.posOrg) ? a : b;
+    return {
+      id: a.id, name: content.name,
+      ts: content.ts || 0, org: content.org || '',
+      pos: posw.pos || 0, posTs: posw.posTs || 0, posOrg: posw.posOrg || '',
+    };
+  }
   function mergeTomb(a, b) {
-    const out = { cards: {}, items: {} };
-    ['cards', 'items'].forEach((k) => {
+    const out = { groups: {}, cards: {}, items: {} };
+    ['groups', 'cards', 'items'].forEach((k) => {
       const ax = (a && a[k]) || {}, bx = (b && b[k]) || {};
       Object.keys(ax).forEach((id) => { out[k][id] = ax[id]; });
       Object.keys(bx).forEach((id) => { out[k][id] = Math.max(out[k][id] || 0, bx[id]); });
     });
     return out;
   }
-  function mergeTabCards(ca, cb, tomb) {
-    // 1) Global element-tabell på tvers av alle kort i begge sider (håndterer overføring).
-    const items = new Map();
-    const collectItems = (list) => list.forEach((c) => (c.items || []).forEach((raw) => {
-      const it = cleanItem(raw, c.id);
-      const prev = items.get(it.id);
-      items.set(it.id, prev ? mergeItem(prev, it) : it);
-    }));
-    collectItems(ca); collectItems(cb);
-    // 2) Flett kort-skalarer (uten elementer) på id.
+  // Flett to flate doc-er felt for felt. Grupper/lister/elementer flettes hver for
+  // seg på id (LWW per register); forelderløse (gruppe/kort borte) forkastes;
+  // gravlagte fjernes. Endringer på ulike entiteter/felter kolliderer aldri.
+  function mergeStates(a, b) {
+    const tomb = mergeTomb(a.tomb, b.tomb);
+
+    const groups = new Map();
+    const addGroups = (list) => (list || []).forEach((raw) => {
+      const g = cleanGroup(raw);
+      const prev = groups.get(g.id);
+      groups.set(g.id, prev ? mergeGroupScalar(prev, g) : g);
+    });
+    addGroups(a.groups); addGroups(b.groups);
+    groups.forEach((g, id) => { if (deadBy(tomb.groups[id], g.ts, g.posTs)) groups.delete(id); });
+
     const cards = new Map();
-    const collectCards = (list) => list.forEach((raw) => {
-      const c = mergeCardScalar(cleanCard(raw), cleanCard(raw)); // normaliser felter
+    const addCards = (list) => (list || []).forEach((raw) => {
+      const c = cleanCard(raw);
       const prev = cards.get(c.id);
       cards.set(c.id, prev ? mergeCardScalar(prev, c) : c);
     });
-    collectCards(ca); collectCards(cb);
-    // 3) Fjern gravlagte.
+    addCards(a.cards); addCards(b.cards);
     cards.forEach((c, id) => { if (deadBy(tomb.cards[id], c.ts, c.posTs, c.labTs)) cards.delete(id); });
+    cards.forEach((c, id) => { if (!groups.has(c.group)) cards.delete(id); }); // foreldreløs liste
+
+    const items = new Map();
+    const addItems = (list) => (list || []).forEach((raw) => {
+      const it = cleanItem(raw, raw.home);
+      const prev = items.get(it.id);
+      items.set(it.id, prev ? mergeItem(prev, it) : it);
+    });
+    addItems(a.items); addItems(b.items);
     items.forEach((it, id) => { if (deadBy(tomb.items[id], it.ts, it.posTs)) items.delete(id); });
-    // 4) Plasser elementer i sine hjem-kort; foreldreløse (hjem borte) forkastes.
-    const byHome = new Map();
-    items.forEach((it) => {
-      if (!cards.has(it.home)) return;
-      if (!byHome.has(it.home)) byHome.set(it.home, []);
-      byHome.get(it.home).push(it);
-    });
-    // 5) Sett sammen; kort og elementer sortert på pos.
-    const result = [];
-    cards.forEach((c) => {
-      const its = (byHome.get(c.id) || []).sort(posCmp);
-      result.push(Object.assign({}, c, { items: its }));
-    });
-    result.sort(posCmp);
-    return result;
-  }
-  function mergeStates(a, b) {
-    const tomb = mergeTomb(a.tomb, b.tomb);
-    const out = { tabs: {}, tomb: tomb, hlc: Math.max(a.hlc || 0, b.hlc || 0) };
-    TABS.forEach((t) => {
-      const ca = (a.tabs && a.tabs[t] && a.tabs[t].cards) || [];
-      const cb = (b.tabs && b.tabs[t] && b.tabs[t].cards) || [];
-      out.tabs[t] = { cards: mergeTabCards(ca, cb, tomb) };
-    });
-    return out;
+    items.forEach((it, id) => { if (!cards.has(it.home)) items.delete(id); }); // foreldreløst element
+
+    return {
+      groups: [...groups.values()],
+      cards: [...cards.values()],
+      items: [...items.values()],
+      tomb, hlc: Math.max(a.hlc || 0, b.hlc || 0),
+    };
   }
 
-  /* ---------- Migrering av gammel hel-tilstand fra databasen ---------- */
+  /* ---------- Migrering av gammel to-fane-form (fra databasen) ----------
+     Både gammel hel-tilstand (activeTab + evt. trash-arrays) og forrige synk-doc
+     ({tabs, tomb, hlc}) gjøres om til det flate gruppe-doc-et. To faste grupper
+     (Huskelister/Handlelister) med deterministiske id-er → alle enheter migrerer
+     likt. Bevarer gravsteiner uansett om de lå som _tomb (state) eller tomb (doc). */
   function migrateBareState(s) {
-    const tmp = JSON.parse(JSON.stringify(s));
-    normalize(tmp); // legger til metadata, folder gammel trash → trashed, osv.
-    return {
-      tabs: {
-        huskelister: { cards: (tmp.tabs.huskelister.cards || []).map(cleanCard) },
-        handlelister: { cards: (tmp.tabs.handlelister.cards || []).map(cleanCard) },
-      },
-      tomb: tmp._tomb || { cards: {}, items: {} },
-      hlc: tmp._hlc || 0,
-    };
+    const src = s || {};
+    const rawTomb = src._tomb || src.tomb || {};
+    const tomb = { groups: rawTomb.groups || {}, cards: rawTomb.cards || {}, items: rawTomb.items || {} };
+    const groups = [], cards = [], items = [];
+    LEGACY_TABS.forEach((m, gi) => {
+      groups.push({ id: m.id, name: m.name, ts: 0, org: '', pos: gi, posTs: 0, posOrg: '' });
+      const tab = (src.tabs && src.tabs[m.key]) || {};
+      const list = Array.isArray(tab.cards) ? tab.cards.slice() : [];
+      if (Array.isArray(tab.trash)) tab.trash.forEach((c) => list.push(Object.assign({}, c, { trashed: true })));
+      list.forEach((c, ci) => {
+        cards.push(cleanCard(Object.assign({ pos: ci }, c, { group: m.id })));
+        (c.items || []).forEach((it, ii) => items.push(cleanItem(Object.assign({ pos: ii }, it), c.id)));
+      });
+    });
+    return { groups, cards, items, tomb, hlc: src._hlc || src.hlc || 0 };
   }
 
   /* ---------- RPC-innpakninger (tolerante for før/etter DB-migrering) ---------- */
@@ -1338,36 +1711,27 @@
       // Ny form: { data, version }
       return { data: data.data ? normalizeRemoteDoc(data.data) : null, version: data.version || 0 };
     }
-    if (data.tabs) return { data: migrateBareState(data), version: 0 }; // gammel hel-tilstand
+    if (data.tabs || data.groups) return { data: normalizeRemoteDoc(data), version: 0 }; // bar tilstand
     return null;
   }
-  // Ser dette ut som en gammel hel-tilstand (fra før felt-nivå-synken)?
-  // Den har activeTab og/eller egne trash-arrays, og mangler synk-markørene
-  // (tomb/hlc). Slike kan ligge pakket inn i { data, version }-konvolutten når
-  // ny SQL er kjørt men raden fortsatt inneholder gammel data.
-  function looksLegacy(d) {
-    if (!d || typeof d !== 'object' || !d.tabs) return false;
-    if ('activeTab' in d) return true;
-    if (TABS.some((t) => d.tabs[t] && Array.isArray(d.tabs[t].trash))) return true;
-    if (!('tomb' in d) && !('hlc' in d)) return true;
-    return false;
-  }
-  // Fjern-doc kan mangle nyere felter hvis skrevet av en eldre klient.
+  // Normaliser fjern-doc: gammel to-fane-form (hel-tilstand ELLER forrige synk-doc)
+  // migreres til flatt gruppe-doc; ny gruppe-form renses. Diskriminatoren er enkel:
+  // gammelt har `tabs`, nytt har `groups`.
   function normalizeRemoteDoc(d) {
-    if (!d || !d.tabs) return migrateBareState(d || {});
-    // Gammel hel-tilstand må migreres (folder trash → trashed, bevarer
-    // rekkefølge via pos=indeks, legger på metadata) — ikke behandles som et
-    // ferdig synk-doc, som ellers ville droppet papirkurven og rekkefølgen.
-    if (looksLegacy(d)) return migrateBareState(d);
-    if (!d.tomb) d.tomb = { cards: {}, items: {} };
-    if (!d.tomb.cards) d.tomb.cards = {};
-    if (!d.tomb.items) d.tomb.items = {};
-    if (typeof d.hlc !== 'number') d.hlc = 0;
-    TABS.forEach((t) => {
-      if (!d.tabs[t] || !Array.isArray(d.tabs[t].cards)) d.tabs[t] = { cards: [] };
-      d.tabs[t].cards = d.tabs[t].cards.map(cleanCard);
-    });
-    return d;
+    if (!d || typeof d !== 'object') return migrateBareState(d || {});
+    if (d.tabs) return migrateBareState(d);
+    const tomb = {
+      groups: (d.tomb && d.tomb.groups) || {},
+      cards: (d.tomb && d.tomb.cards) || {},
+      items: (d.tomb && d.tomb.items) || {},
+    };
+    return {
+      groups: (Array.isArray(d.groups) ? d.groups : []).map(cleanGroup),
+      cards: (Array.isArray(d.cards) ? d.cards : []).map(cleanCard),
+      items: (Array.isArray(d.items) ? d.items : []).map((it) => cleanItem(it, it.home)),
+      tomb,
+      hlc: typeof d.hlc === 'number' ? d.hlc : 0,
+    };
   }
   function isMissingFunction(error) {
     return !!error && (error.code === 'PGRST202' ||
@@ -1421,7 +1785,7 @@
       const mergedDoc = remoteDoc ? mergeStates(localDoc, remoteDoc) : localDoc;
       // Kort som kommer fra en eldre fjern-tilstand kan ha gamle farger → gi dem
       // høstfarger her også (idempotent), så de synkes ut til alle enheter.
-      TABS.forEach((t) => recolorOldCards(mergedDoc.tabs[t].cards));
+      recolorOldCards(mergedDoc.cards);
       const mergedCanon = canonical(mergedDoc);
       const remoteCanon = remoteDoc ? canonical(remoteDoc) : null;
 
@@ -1776,9 +2140,9 @@
 
   // Eksponer for enkel feilsøking/testing
   window.__huskekurv = {
-    state, render, logout,
+    state, render, logout, addGroup, deleteGroup,
     // Synk-interne (for testing av fletting/synk):
-    mergeStates, canonical, docFromState, applyDoc, syncCycle, normalizeRemoteDoc,
+    mergeStates, canonical, docFromState, applyDoc, syncCycle, normalizeRemoteDoc, migrateBareState,
     get syncCode() { return syncCode; },
     get serverVersion() { return serverVersion; },
     get rtConnected() { return rtConnected; },

@@ -45,79 +45,144 @@ body {
   overscroll-behavior-y: none;
 }
 
-/* ---------------- Header ---------------- */
+/* ---------------- Header (gruppe-rad) ----------------
+   Ligger låst øverst (sticky). Gruppekortene ligger venstreorientert på én rad
+   som bryter til flere rader på desktop, og scroller horisontalt på mobil.
+   Header er også containing block for den fastlåste «＋»-knappen (mobil). */
 .app-header {
   position: sticky;
   top: 0;
   z-index: 30;
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  justify-content: space-between;
-  gap: 14px;
-  padding: 14px clamp(14px, 4vw, 40px);
+  padding: 12px clamp(12px, 3vw, 32px);
   background: rgba(255, 255, 255, 0.72);
   backdrop-filter: blur(14px);
   -webkit-backdrop-filter: blur(14px);
   border-bottom: 1px solid var(--line);
 }
 
-.brand {
+/* Raden med gruppekort + inline-«＋». Desktop: bryter til flere rader. */
+.groups-bar {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  gap: 12px;
+  gap: 8px;
 }
 
-.brand-mark {
-  display: grid;
-  place-items: center;
-  width: 38px;
-  height: 38px;
-  border-radius: 12px;
-  background: linear-gradient(135deg, var(--primary), #86ad86);
-  color: #fff;
-  font-weight: 700;
-  font-size: 20px;
-  box-shadow: var(--shadow-sm);
-}
-
-.brand h1 {
-  margin: 0;
-  font-size: clamp(20px, 3.4vw, 26px);
-  font-weight: 700;
-  letter-spacing: -0.01em;
-}
-
-/* ---------------- Tabs ---------------- */
-.tabs {
+/* ---------------- Gruppekort (chip) ----------------
+   Som et liste-element: håndtak, navn, dempet antall, slett — men bredden
+   følger navnet (inline-flex, ingen strekk). */
+.group-card {
   display: inline-flex;
-  gap: 4px;
-  padding: 5px;
-  background: #e6ece6;
-  border-radius: 999px;
-  box-shadow: inset 0 1px 3px rgba(60, 80, 60, 0.10);
+  align-items: center;
+  gap: 3px;
+  flex: 0 0 auto;
+  max-width: min(60vw, 420px);
+  padding: 5px 8px 5px 6px;
+  border-radius: 12px;
+  background: #fff;
+  color: var(--ink);
+  box-shadow: var(--shadow-sm);
+  cursor: pointer;
+  transition: box-shadow 0.18s, background 0.18s, transform 0.12s;
+}
+.group-card:hover { box-shadow: var(--shadow-md); }
+.group-card.active {
+  background: var(--primary);
+  color: #fff;
+  box-shadow: var(--shadow-md);
 }
 
-.tab {
+.group-handle {
+  color: var(--ink-soft);
+  font-size: 14px;
+  opacity: 0.7;
+  padding: 2px 3px;
+}
+.group-card.active .group-handle { color: rgba(255, 255, 255, 0.85); opacity: 1; }
+
+.group-name {
+  font-weight: 600;
+  font-size: 15px;
+  line-height: 1.2;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  padding: 2px 2px;
+  border-radius: 6px;
+  cursor: text;
+}
+
+/* Antall lister: dempet (mindre «pop» enn navnet). */
+.group-count {
+  font-weight: 700;
+  font-size: 13px;
+  opacity: 0.42;
+  font-variant-numeric: tabular-nums;
+  padding-right: 1px;
+}
+.group-card.active .group-count { opacity: 0.72; }
+
+.group-delete {
+  width: 22px;
+  height: 22px;
+  font-size: 12.5px;
+  color: var(--ink-soft);
+  opacity: 0;                 /* vises ved hover/aktiv, som element-slett */
+  margin-left: -1px;
+}
+.group-card:hover .group-delete,
+.group-card:focus-within .group-delete,
+.group-card.active .group-delete { opacity: 1; }
+.group-card.active .group-delete { color: rgba(255, 255, 255, 0.9); }
+.group-delete:hover { color: var(--danger) !important; background: rgba(239, 107, 125, 0.16); }
+@media (hover: none) { .group-delete { opacity: 1; } }
+
+/* «＋» oppretter ny gruppe (inline etter siste kort; pinned på mobil-overflow). */
+.add-group-btn {
+  flex: 0 0 auto;
   appearance: none;
   border: none;
   cursor: pointer;
-  font-family: inherit;
-  font-weight: 600;
-  font-size: 15px;
-  color: var(--ink-soft);
-  padding: 9px 20px;
-  border-radius: 999px;
-  background: transparent;
-  transition: color 0.18s, background 0.18s, box-shadow 0.18s;
-}
-
-.tab:hover { color: var(--ink); }
-
-.tab.active {
-  color: var(--primary-dark);
+  width: 34px;
+  height: 34px;
+  display: grid;
+  place-items: center;
+  border-radius: 12px;
   background: #fff;
+  color: var(--primary-dark);
+  font-size: 20px;
+  line-height: 1;
   box-shadow: var(--shadow-sm);
+  transition: box-shadow 0.18s, background 0.18s, transform 0.12s;
+}
+.add-group-btn:hover { box-shadow: var(--shadow-md); background: var(--primary-soft); }
+.add-group-btn:active { transform: translateY(1px); }
+
+/* Fastlåst «＋» til høyre + fade (kun mobil når kortene overskrider bredden). */
+.groups-pin {
+  display: none;
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  align-items: center;
+  padding-right: clamp(12px, 3vw, 32px);
+  pointer-events: none;
+}
+.groups-pin .add-group-pinned { pointer-events: auto; }
+.groups-fade {
+  width: 54px;
+  align-self: stretch;
+  margin-right: 6px;
+  /* Kortene glir gradvis ut i header-flaten — ingen tydelig kant. Tonen matcher
+     den lyse header-flaten (hvit over bakgrunnen), og en svak uklarhet oppløser
+     kortene mykt idet de scroller forbi. */
+  background: linear-gradient(to right,
+    rgba(232, 235, 236, 0),
+    rgba(233, 236, 237, 0.72) 52%,
+    rgba(235, 238, 238, 0.95));
+  backdrop-filter: blur(3px);
+  -webkit-backdrop-filter: blur(3px);
 }
 
 /* ---------------- Main / toolbar ---------------- */
@@ -151,6 +216,8 @@ body {
 }
 
 .btn:active { transform: translateY(1px); }
+.btn:disabled { opacity: 0.45; cursor: not-allowed; box-shadow: none; }
+.btn:disabled:hover { box-shadow: none; }
 
 .btn-primary {
   background: linear-gradient(135deg, var(--primary), #7fa77f);
@@ -470,6 +537,14 @@ body {
   padding: 2px 6px;
   width: 100%;
 }
+/* Gruppenavn-redigering: bredden følger innholdet (settes inline i JS), ikke 100 %. */
+.edit-input.group-edit {
+  width: auto;
+  min-width: 60px;
+  font-weight: 600;
+  font-size: 15px;
+  outline: 2px solid var(--primary);
+}
 
 /* ---------------- Drag & drop states ---------------- */
 .card.dragging {
@@ -512,6 +587,25 @@ body {
   border-radius: 10px;
   border: 2px dashed var(--card-accent, #8fb08f);
   background: rgba(102, 136, 102, 0.10);
+}
+
+/* Gruppe-draging: løftet chip følger pekeren; placeholder viser landingsplass. */
+.group-card.dragging {
+  position: fixed;
+  z-index: 100;
+  margin: 0;
+  box-shadow: var(--shadow-lg);
+  transform: scale(1.05); /* rotasjon settes dynamisk i JS */
+  cursor: grabbing;
+  pointer-events: none;
+  will-change: left, top, transform;
+}
+.group-placeholder {
+  flex: 0 0 auto;
+  align-self: stretch;
+  border-radius: 12px;
+  border: 2px dashed var(--primary);
+  background: var(--primary-soft);
 }
 
 body.is-dragging { cursor: grabbing; user-select: none; -webkit-user-select: none; }
@@ -709,9 +803,21 @@ body.locked .app-main { display: none; }
 
 /* ---------------- Mobil ---------------- */
 @media (max-width: 560px) {
-  .app-header { justify-content: center; }
-  .tabs { width: 100%; justify-content: center; }
-  .tab { flex: 1; text-align: center; padding: 10px 8px; }
   .board { column-width: 100%; column-gap: 0; }
-  .brand h1 { font-size: 22px; }
+
+  /* Gruppene ligger alltid på én rad; scroller horisontalt uten synlig scrollbar. */
+  .groups-bar {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    scrollbar-width: none;               /* Firefox */
+    -ms-overflow-style: none;            /* eldre Edge */
+    -webkit-overflow-scrolling: touch;
+  }
+  .groups-bar::-webkit-scrollbar { display: none; }  /* WebKit */
+
+  /* Når kortene overskrider bredden: «＋» festes til høyre, kortene scroller
+     forbi bak fade-gradienten, og inline-«＋» skjules. */
+  .app-header.groups-overflow .add-group-inline { display: none; }
+  .app-header.groups-overflow .groups-pin { display: flex; }
+  .app-header.groups-overflow .groups-bar { padding-right: 92px; }
 }

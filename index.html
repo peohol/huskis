@@ -11,31 +11,36 @@
   <link rel="stylesheet" href="styles.css" />
 </head>
 <body class="locked">
-  <header class="app-header">
-    <div class="brand">
-      <span class="brand-mark">🧺</span>
-      <h1>Huskekurv</h1>
+  <header class="app-header" id="app-header">
+    <!-- Gruppene brukeren har opprettet. Venstreorientert rad; bryter til flere
+         rader på desktop, horisontal scroll på mobil. «＋» oppretter ny gruppe. -->
+    <div class="groups-bar" id="groups-bar" role="tablist" aria-label="Grupper">
+      <button class="add-group-btn add-group-inline" id="add-group-btn" type="button"
+              title="Ny gruppe" aria-label="Ny gruppe">＋</button>
     </div>
-    <nav class="tabs" id="tabs" role="tablist" aria-label="Listetyper">
-      <button class="tab" data-tab="huskelister" role="tab">💭 Huskelister</button>
-      <button class="tab" data-tab="handlelister" role="tab">🛒 Handlelister</button>
-    </nav>
+    <!-- Mobil: når gruppekortene overskrider bredden, ligger «＋» statisk til
+         høyre og kortene scroller forbi bak en fade-gradient. -->
+    <div class="groups-pin" id="groups-pin" aria-hidden="true">
+      <span class="groups-fade" aria-hidden="true"></span>
+      <button class="add-group-btn add-group-pinned" id="add-group-pinned" type="button"
+              title="Ny gruppe" aria-label="Ny gruppe">＋</button>
+    </div>
   </header>
 
   <main class="app-main">
     <div class="toolbar">
       <button class="btn btn-primary" id="add-card-btn" type="button">
-        <span class="plus">＋</span> Ny kategori
+        <span class="plus">＋</span> Ny liste
       </button>
       <button class="btn btn-ghost" id="trash-btn" type="button" title="Vis papirkurv">
         <span class="trash-icon" aria-hidden="true">🗑️</span> Papirkurv
         <span class="trash-count" id="trash-count">0</span>
       </button>
-      <div class="filter-switches" id="filter-switches" role="group" aria-label="Filtrer kategorier">
+      <div class="filter-switches" id="filter-switches" role="group" aria-label="Filtrer lister">
         <span class="filter-label">Vis</span>
-        <button class="switch" type="button" data-flag="k" aria-pressed="true" title="Vis kun-K-kategorier">K</button>
-        <button class="switch" type="button" data-flag="p" aria-pressed="true" title="Vis kun-P-kategorier">P</button>
-        <button class="switch switch-kp" type="button" data-flag="kp" aria-pressed="true" title="Vis KP-kategorier (både K og P)">KP</button>
+        <button class="switch" type="button" data-flag="k" aria-pressed="true" title="Vis kun-K-lister">K</button>
+        <button class="switch" type="button" data-flag="p" aria-pressed="true" title="Vis kun-P-lister">P</button>
+        <button class="switch switch-kp" type="button" data-flag="kp" aria-pressed="true" title="Vis KP-lister (både K og P)">KP</button>
       </div>
       <button class="btn btn-ghost btn-logout" id="logout-btn" type="button" title="Logg ut">
         <span class="logout-icon" aria-hidden="true">⎋</span> Logg ut
@@ -53,23 +58,32 @@
       </header>
       <div class="modal-body" id="trash-list"></div>
       <footer class="modal-foot">
-        <p class="modal-note">Slettede kategorier ligger her til du tømmer papirkurven.</p>
+        <p class="modal-note">Slettede lister ligger her til du tømmer papirkurven.</p>
         <button class="btn btn-danger" id="trash-empty" type="button">Tøm papirkurv</button>
       </footer>
     </div>
   </div>
 
   <!-- Templates -->
+  <template id="group-template">
+    <div class="group-card" role="tab" tabindex="0">
+      <button class="drag-handle group-handle" title="Dra for å endre rekkefølge" aria-label="Flytt gruppe">⠿</button>
+      <span class="group-name" title="Klikk for å bytte gruppe"></span>
+      <span class="group-count" aria-hidden="true"></span>
+      <button class="icon-btn group-delete" title="Slett gruppe" aria-label="Slett gruppe">✕</button>
+    </div>
+  </template>
+
   <template id="card-template">
     <article class="card" tabindex="-1">
       <header class="card-head">
-        <button class="drag-handle card-handle" title="Dra for å endre rekkefølge" aria-label="Flytt kategori">⣿</button>
+        <button class="drag-handle card-handle" title="Dra for å endre rekkefølge" aria-label="Flytt liste">⣿</button>
         <h2 class="card-title" title="Klikk for å endre navn"></h2>
         <div class="card-switches" role="group" aria-label="Merkelapper">
           <button class="switch" type="button" data-flag="k" aria-pressed="true" title="Merkelapp K">K</button>
           <button class="switch" type="button" data-flag="p" aria-pressed="true" title="Merkelapp P">P</button>
         </div>
-        <button class="icon-btn card-delete" title="Slett kategori" aria-label="Slett kategori">✕</button>
+        <button class="icon-btn card-delete" title="Slett liste" aria-label="Slett liste">✕</button>
       </header>
       <ul class="items-container"></ul>
       <form class="add-item-form">
