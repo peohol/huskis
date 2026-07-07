@@ -13,7 +13,8 @@ Personlig arbeidsnotat for utvikling av **Huskekurv-appen**. Oppdateres undervei
 
 En app organisert som **Gruppe > Liste > Element**:
 - Opprette / slette / endre rekkefølge på / endre navn på **grupper** (i headeren).
-- Hver gruppe har sin **egen papirkurv**.
+- **Søppelkasse på alle tre nivåer** (grupper, lister, elementer): sletting legger i en
+  gjenopprettbar søppelkasse (`trashed`-flagg), ikke permanent. Se «Søppelkasser».
 
 I hver gruppe (helt som de gamle fanene fungerte):
 - Legge til / slette / redigere / endre rekkefølge på **lister** (tidl. «kategorier»).
@@ -50,10 +51,10 @@ Design:
   state = {
     activeGroup: <groupId>,        // per enhet, synkes ikke (erstatter activeTab)
     groups: [
-      { id, name, pos,             // + synk-registre: ts/org (navn), posTs/posOrg (rekkefølge)
+      { id, name, trashed, pos,    // + synk-registre: ts/org (navn/trashed), posTs/posOrg (rekkefølge)
         cards: [                   // «lister» (tidl. kategorier)
           { id, group, title, color, trashed, k, p,
-            items: [ { id, text, home } ] }   // home = kortets id (forelder)
+            items: [ { id, text, trashed, home } ] }   // home = kortets id (forelder)
         ] }
     ],
     _tomb: { groups:{}, cards:{}, items:{} },  // gravsteiner: id → tidsstempel
@@ -155,7 +156,8 @@ når *samme* element endres to steder).
    Doc'et er **flatt**: tre parallelle tabeller (`groups` / `cards` / `items`) med forelder-peker
    (`kort.group`, `element.home`), slik at gruppe/liste/element flettes hver for seg på `id` og
    forelderløse forkastes. Hver entitet har egne «registre» med logisk tidsstempel:
-   - **innhold** (`ts`, `org`): gruppens navn; kortets tittel/farge/`trashed`; elementets tekst.
+   - **innhold** (`ts`, `org`): gruppens navn/`trashed`; kortets tittel/farge/`trashed`;
+     elementets tekst/`trashed`. (`trashed` = søppelkasse-flagg; se «Søppelkasser».)
    - **merkelapp** (`labTs`, `labOrg`): kortets `k`/`p`-brytere. Eget register så en merkelapp-endring
      på én enhet ikke overskrives av en samtidig tittel-/farge-endring på en annen (og omvendt).
      `k` og `p` deler register (flettes som ett par) så «minst én på» aldri brytes av fletting.
@@ -167,9 +169,10 @@ når *samme* element endres to steder).
    register endret to steder «konflikter», og da vinner nyeste. `tick()` er en **hybrid logisk
    klokke** (monotont voksende) så den tåler at enhetenes veggklokker går i utakt.
    - **Sletting** bruker **gravsteiner** (`_tomb.groups` / `_tomb.cards` / `_tomb.items`:
-     id → tidsstempel) så en sletting ikke «gjenoppstår» fra en foreldet enhet. Å tømme
-     papirkurven / slette enkelt-element / slette en hel gruppe gir permanente gravsteiner.
-     Papirkurv = kort med `trashed: true`.
+     id → tidsstempel) så en sletting ikke «gjenoppstår» fra en foreldet enhet. Gravstein
+     settes **først når en søppelkasse tømmes permanent** (gruppe-, liste- eller element-nivå);
+     vanlig sletting setter kun `trashed: true` (gjenopprettbart). Søppelkasse = entitet med
+     `trashed: true`.
    - `activeGroup` er **per enhet** og synkes ikke.
    - **Migrering**: gammel to-fane-form (både hel-tilstand og forrige synk-doc) gjøres om til to
      grupper med **faste, deterministiske id-er** (`grp-huskelister`/`grp-handlelister`) i
@@ -298,18 +301,35 @@ skjuler `.app-header` + `.app-main`; en fast overlay `#lock-screen` ligger over)
   Database → Connection string → URI, med passordet innsatt). Alternativt kan SQL-en limes
   rett inn i Supabase sin SQL Editor.
 
-## Papirkurv (per gruppe)
+## Søppelkasser (grupper / lister / elementer)
 
-- Papirkurven er **per gruppe**: knappen/modalen gjelder alltid den **aktive gruppen**, og
-  telleren + listen viser kun dens slettede lister. Modaltittelen navngir gruppen
-  («🗑️ Papirkurv – {gruppenavn}»). `trashedCards()`/`allCards()` er gruppe-scopet.
-- Å slette en **liste** setter `trashed: true` på kortet (i stedet for en egen `trash`-array)
-  slik at «papirkurv-tilstanden» er et felt som synkes/flettes som alt annet.
-- I modalen kan man **Gjenopprett**e enkeltlister (`trashed: false`) eller trykke **Tøm papirkurv**
-  for å slette **permanent** (med bekreftelse) — det gir en **gravstein** (`_tomb.cards`).
-  Sletting av enkelt-**elementer** er fortsatt permanent og gir gravstein (`_tomb.items`).
-- Å slette en hel **gruppe** fjerner gruppen + alle dens lister/elementer permanent (gravsteiner
-  i `_tomb.groups`/`cards`/`items`), utenom papirkurven.
+Alle tre nivåene har en søppelkasse. Sletting setter `trashed: true` (gjenopprettbart);
+permanent sletting (med gravstein) skjer **først når søppelkassen tømmes**. En slettet entitet
+skjules fra sitt nivå (`visibleGroups()` / `activeCards()` / ikke-`trashed` elementer i kortet).
+
+**Tre søppelkasse-knapper** — hver viser **kun en søppelkasse-emoji + et tall** (ingen tekst-etikett):
+- **Grupper** (`#groups-trash`): helt til **venstre i headeren**, og vises **kun når det ligger
+  grupper i den** (`updateGroupsTrash` → `appHeader.has-trashed-groups`, `[hidden]` ellers).
+  På **mobil-overflow** festes den til venstre (`position: sticky; left: 0`) med en **fade på høyre
+  side** (`--header-solid`-gradient), så gruppekortene scroller mykt bak den — speiler «＋»-sonen
+  til høyre. Bar-en gir da fra seg sitt venstre-innrykk til søppelkassen (`padding-left: 0`).
+- **Lister** (`#trash-btn`, verktøylinja): per **aktiv gruppe** (`trashedCards()`/`allCards()` er
+  gruppe-scopet). Tidligere «Papirkurv»-tekst er fjernet; kun emoji + tellepille.
+- **Elementer** (`.item-trash`, i hvert listekort): **midtstilt nederst i kortet**, under «Legg
+  til»-feltet, og vises **kun når kortet har slettede elementer**.
+
+**Interaksjon (`attachTrashHold`)** — felles for alle tre knappene:
+- **Kort trykk** (< `TAP_MS`) → åpner **søppelkasse-modalen** (felles `#trash-modal`, fylt av
+  `showTrashModal({title, note, rows, empty})`). Der kan man **Gjenopprett**e enkeltvis
+  (`trashed: false`) eller **Tøm permanent** (med bekreftelse).
+- **Hold inne i 3 s** (`HOLD_MS`) → **tømmer direkte, uten modal**. Knappen «lader opp»: JS driver
+  `transform` (rister mer og mer + vokser) via `requestAnimationFrame` og setter `--charge` (0→1);
+  CSS bruker `--charge` til gradvis **rødhet + glød** (`::after`-overlay) — som om den varmer seg
+  opp mot å eksplodere. Ved 3 s tømmes den; slipper man før 3 s (eller når den er tømt) **fader
+  den tilbake** (`RELEASE_MS`).
+- Tømming gir permanente **gravsteiner**: `emptyGroupsTrash` (gruppe + dens lister + elementer),
+  `emptyCardsTrash` (liste + dens elementer), `emptyItemsTrash` (elementer). `refreshCard()`
+  bygger ett kort på nytt etter element-endringer (uten å tegne hele tavla).
 
 ## Fargepalett
 
@@ -330,15 +350,16 @@ skjuler `.app-header` + `.app-main`; en fast overlay `#lock-screen` ligger over)
   sirkler vertikalt stablet til venstre for slett-knappen. Sirkelen blir **lysere** når bryteren er på.
   **Minst én** bryter må alltid være på — forsøk på å skru av den siste gir en liten risting (`flashDeny`).
 - Hvert kort tilhører nøyaktig **én kategori** ut fra bryterne (`cardCategory`): kun **K**, kun **P**,
-  eller **KP** (begge på). I verktøylinja, ved siden av papirkurv-knappen, ligger et **filter**
+  eller **KP** (begge på). I verktøylinja, ved siden av lister-søppelkassen, ligger et **filter**
   (`#filter-switches`) med tre brytere: `K`, `P`, `KP`. Et kort vises hvis bryteren for kortets
   kategori er på (`cardMatchesFilter`) — velger man f.eks. `K` + `KP`, vises kun-K-kort og KP-kort,
   men ikke kun-P-kort. Minst ett filter må være på. Filteret er per enhet (`localStorage`,
   `mine-lister-filter`) og synkes ikke; `k`/`p` synkes i sitt **eget merkelapp-register**
   (`labTs`/`labOrg`), uavhengig av tittel/farge (se «To mekanismer …»).
-- **Verktøylinja** har «Ny liste», «Papirkurv» (per gruppe), filteret og en **«Logg ut»**-knapp
-  til høyre (synken går uansett fortløpende i bakgrunnen; se under). «Ny liste»/«Papirkurv»
-  er deaktivert når det ikke finnes noen aktiv gruppe. (K/P + filter gjelder lister, uendret.)
+- **Verktøylinja** har «Ny liste», lister-**søppelkassen** (per gruppe, se «Søppelkasser»), filteret
+  og en **«Logg ut»**-knapp til høyre (synken går uansett fortløpende i bakgrunnen; se under). «Ny
+  liste»/søppelkassen er deaktivert når det ikke finnes noen aktiv gruppe. (K/P + filter gjelder
+  lister, uendret.)
 
 ## Status / TODO
 
@@ -376,6 +397,15 @@ skjuler `.app-header` + `.app-main`; en fast overlay `#lock-screen` ligger over)
 - [x] Flat synk-doc (`groups`/`cards`/`items` m/ forelder-peker); migrering fra to-fane-form
 - [x] Testet i nettleser (Playwright): gruppe-CRUD/-reorder, per-gruppe papirkurv, migrering
       (lokal + fjern), mobil-overflow/pinned/fade, desktop-wrap, felt-nivå fletting (43 sjekker)
+- [x] **Søppelkasse på alle tre nivåer** (grupper/lister/elementer): `trashed`-flagg (gjenopprettbart),
+      gravstein først ved tømming. Gruppe- og element-sletting er ikke lenger permanent.
+- [x] Gruppe-søppelkasse helt til venstre i headeren (kun når den har innhold); mobil-overflow: festet
+      til venstre med fade, gruppekortene scroller bak den. Lister-søppelkasse: fjernet «Papirkurv»-tekst
+- [x] Element-søppelkasse midtstilt nederst i hvert listekort (kun når den har slettede elementer)
+- [x] Hold-inne-i-3-s-for-å-tømme (`attachTrashHold`): rister/vokser/blir rødere («varmer seg opp»),
+      fader tilbake ved slipp/tømming; kort trykk åpner felles søppelkasse-modal (gjenopprett/tøm)
+- [x] Testet i nettleser (Playwright): 3 nivåer slett/gjenopprett/tøm-via-modal, hold-3s-tøm (inkl.
+      knapp som destrueres), rist/rødhet mid-hold, mobil gruppe-fade, felt-nivå fletting av `trashed`
 
 ## Hvordan kjøre
 

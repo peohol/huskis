@@ -269,6 +269,91 @@ body {
 }
 .btn-ghost.has-items .trash-count { background: var(--danger); color: #fff; }
 
+/* ---------------- Søppelkasse-knapper (felles) ----------------
+   Tre nivåer (grupper/lister/elementer) deler «hold-inne-for-å-tømme». JS driver
+   transform (rist + vekst) og setter --charge (0→1); CSS bruker --charge til
+   rødhet + glød. En ::after-overlay legger seg over knappens egen flate, men bak
+   emoji/tall, og «varmes opp» mot rødt (som om den bygger seg opp mot å eksplodere). */
+.trashcan {
+  position: relative;
+  isolation: isolate;
+  cursor: pointer;
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
+  touch-action: none;          /* hold uten at siden scroller */
+}
+.trashcan > * { position: relative; z-index: 1; } /* emoji/tall over rød-overlay */
+.trashcan::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  border-radius: inherit;
+  background: radial-gradient(circle at 50% 42%, #ff6a3a, #d81f1f 72%);
+  opacity: calc(var(--charge, 0) * 0.92);
+  box-shadow: 0 0 calc(var(--charge, 0) * 22px) calc(var(--charge, 0) * 4px)
+              rgba(226, 42, 30, calc(var(--charge, 0) * 0.7));
+  pointer-events: none;
+}
+.trashcan.trash-charging { z-index: 60; } /* over naboene mens den «lades opp» */
+.trashcan.trash-charging .trash-count,
+.trashcan.trash-charging .trashcan-count { color: #fff; }
+
+.trashcan-icon { font-size: 15px; line-height: 1; }
+.trashcan-count {
+  font-weight: 700;
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+  color: var(--ink-soft);
+}
+
+/* Lister-søppelkassen (verktøylinja) er en .btn.btn-ghost.trashcan — kun ikon+tall.
+   Litt strammere polstring nå som teksten er borte. */
+#trash-btn { gap: 6px; padding-left: 14px; padding-right: 14px; }
+
+/* ---------------- Gruppe-søppelkasse (helt til venstre i headeren) ---------------- */
+.groups-trash { flex: 0 0 auto; display: flex; align-items: center; }
+.groups-trash[hidden] { display: none; }
+.groups-trash-btn {
+  appearance: none;
+  border: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 6px 10px;
+  border-radius: 12px;
+  background: #fff;
+  color: var(--ink);
+  box-shadow: var(--shadow-sm);
+  font-family: inherit;
+}
+.groups-trash-btn:hover { box-shadow: var(--shadow-md); }
+
+/* ---------------- Element-søppelkasse (midtstilt nederst i listekortet) ----------------
+   Kortet har overflow:hidden, så vi holder «eksplosjonen» til rødhet + rist + moderat
+   vekst (ingen utoverglød som ville blitt klippet). */
+.item-trash {
+  display: flex;
+  justify-content: center;
+  padding: 2px 12px 14px;
+}
+.item-trash-btn {
+  appearance: none;
+  border: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 5px 13px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.6);
+  color: var(--ink);
+  box-shadow: var(--shadow-sm);
+  font-family: inherit;
+}
+.item-trash-btn:hover { background: rgba(255, 255, 255, 0.9); }
+.item-trash-btn::after { box-shadow: none; } /* ingen utoverglød inne i klippet kort */
+
 .hint {
   margin: 0;
   color: var(--ink-soft);
@@ -852,4 +937,27 @@ body.locked .app-main { display: none; }
      kortene når helt ut til sidens ytterkant (og oppløses i faden). */
   .app-header.groups-overflow .add-group-inline { display: none; }
   .app-header.groups-overflow .groups-pin { display: flex; }
+
+  /* Gruppe-søppelkassen (helt til venstre): når den finnes overtar DEN venstre-
+     innrykket fra bar-en, så den kan festes flush mot venstre kant. */
+  .app-header.has-trashed-groups .groups-bar { padding-left: 0; }
+  .app-header.has-trashed-groups .groups-trash { padding-left: clamp(12px, 3vw, 32px); }
+
+  /* Ved overflow festes søppelkassen til venstre (sticky): ugjennomsiktig med en
+     fade på HØYRE side, så gruppekortene scroller mykt bak den — speiler «＋»-sonen
+     til høyre. Kortene (uten z-index) forsvinner bak sonen (z-index over dem). */
+  .app-header.has-trashed-groups.groups-overflow .groups-trash {
+    --fade-w: 64px;
+    position: sticky;
+    left: 0;
+    z-index: 4;
+    align-self: stretch;
+    padding-right: var(--fade-w);
+    background: linear-gradient(to left,
+      rgba(222, 226, 228, 0) 0,
+      var(--header-solid) var(--fade-w),
+      var(--header-solid) 100%);
+  }
+  /* Sonen skal ha luft rundt selve knappen når den er festet. */
+  .app-header.has-trashed-groups.groups-overflow .groups-trash-btn { margin: 2px 0; }
 }
