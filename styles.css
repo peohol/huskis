@@ -806,6 +806,12 @@ body.locked .app-main { display: none; }
 @media (max-width: 560px) {
   .board { column-width: 100%; column-gap: 0; }
 
+  /* Gruppe-raden er FULL-BLEED på mobil: headeren dropper side-paddingen så
+     kortene kan scrolle helt ut til BEGGE kantene (ellers klippes de for tidlig,
+     med et tomt mellomrom inn mot kanten). Hvile-innrykket for første kort gis i
+     stedet av bar-ens egen padding-left, som scroller bort sammen med kortene. */
+  .app-header { padding-left: 0; padding-right: 0; }
+
   /* Gruppene ligger alltid på én rad; scroller horisontalt uten synlig scrollbar. */
   .groups-bar {
     flex-wrap: nowrap;
@@ -813,13 +819,14 @@ body.locked .app-main { display: none; }
     scrollbar-width: none;               /* Firefox */
     -ms-overflow-style: none;            /* eldre Edge */
     -webkit-overflow-scrolling: touch;
+    padding-left: clamp(12px, 3vw, 32px);
   }
   .groups-bar::-webkit-scrollbar { display: none; }  /* WebKit */
 
   /* Når kortene overskrider bredden: «＋» festes til høyre i sin ugjennomsiktige
      sone, kortene scroller helt ut til kanten og forsvinner bak fade-gradienten,
-     og inline-«＋» skjules. Ingen padding-right her — kortene skal kunne scrolle
-     helt ut til sidens ytterkant (og oppløses i faden), ikke stoppe for tidlig. */
+     og inline-«＋» skjules. Ingen padding-right — verken på header eller bar — så
+     kortene når helt ut til sidens ytterkant (og oppløses i faden). */
   .app-header.groups-overflow .add-group-inline { display: none; }
   .app-header.groups-overflow .groups-pin { display: flex; }
 }

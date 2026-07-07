@@ -99,9 +99,11 @@ Den viser en **venstreorientert rad** med gruppekort (`#groups-bar`), etterfulgt
   gjennomsiktig, MÅ denne sonen være ugjennomsiktig for at kortene skal forsvinne helt bak
   knappen. Faden er en **ren opacity-gradient** (transparent → `--header-solid`) satt på
   selve sonen — **ingen** `backdrop-blur` (en uniform uklarhet toner ikke, den bare smører).
-  Kortene får scrolle **helt ut til kanten** og oppløses i faden (ingen `padding-right` som
-  stopper dem for tidlig). Overflow-målingen kompenserer for skjult inline-«＋» så den ikke
-  veksler frem/tilbake nær grensen. Under gruppe-draging auto-scroller raden horisontalt når
+  Gruppe-raden er **full-bleed** på mobil (headeren dropper side-padding; hvile-innrykket for
+  første kort gis av bar-ens `padding-left`, som scroller bort) så kortene kan scrolle **helt
+  ut til BEGGE kantene** og oppløses i faden — ikke klippes for tidlig med et tomt mellomrom.
+  Overflow-målingen kompenserer for skjult inline-«＋» så den ikke veksler frem/tilbake nær
+  grensen. Under gruppe-draging auto-scroller raden horisontalt når
   pekeren nærmer seg venstre/høyre kant (`updateGroupAutoScroll`).
 
 ## Dra-og-slipp-logikk (kjernen)
