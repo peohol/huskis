@@ -1159,9 +1159,24 @@
     if (data.tabs) return { data: migrateBareState(data), version: 0 }; // gammel hel-tilstand
     return null;
   }
+  // Ser dette ut som en gammel hel-tilstand (fra før felt-nivå-synken)?
+  // Den har activeTab og/eller egne trash-arrays, og mangler synk-markørene
+  // (tomb/hlc). Slike kan ligge pakket inn i { data, version }-konvolutten når
+  // ny SQL er kjørt men raden fortsatt inneholder gammel data.
+  function looksLegacy(d) {
+    if (!d || typeof d !== 'object' || !d.tabs) return false;
+    if ('activeTab' in d) return true;
+    if (TABS.some((t) => d.tabs[t] && Array.isArray(d.tabs[t].trash))) return true;
+    if (!('tomb' in d) && !('hlc' in d)) return true;
+    return false;
+  }
   // Fjern-doc kan mangle nyere felter hvis skrevet av en eldre klient.
   function normalizeRemoteDoc(d) {
     if (!d || !d.tabs) return migrateBareState(d || {});
+    // Gammel hel-tilstand må migreres (folder trash → trashed, bevarer
+    // rekkefølge via pos=indeks, legger på metadata) — ikke behandles som et
+    // ferdig synk-doc, som ellers ville droppet papirkurven og rekkefølgen.
+    if (looksLegacy(d)) return migrateBareState(d);
     if (!d.tomb) d.tomb = { cards: {}, items: {} };
     if (!d.tomb.cards) d.tomb.cards = {};
     if (!d.tomb.items) d.tomb.items = {};
