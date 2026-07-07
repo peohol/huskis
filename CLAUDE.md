@@ -91,6 +91,9 @@ når *samme* element endres to steder).
 1. **Fletting på felt-nivå (CRDT-lett)** — hele tilstanden ligger fortsatt som **ett `jsonb`-doc**,
    men hver entitet har egne «registre» med logisk tidsstempel:
    - **innhold** (`ts`, `org`): kortets tittel/farge/`trashed`, elementets tekst.
+   - **merkelapp** (`labTs`, `labOrg`): kortets `k`/`p`-brytere. Eget register så en merkelapp-endring
+     på én enhet ikke overskrives av en samtidig tittel-/farge-endring på en annen (og omvendt).
+     `k` og `p` deler register (flettes som ett par) så «minst én på» aldri brytes av fletting.
    - **posisjon** (`posTs`, `posOrg`): rekkefølge (`pos`, fraksjonsindeksering) + elementets
      forelder (`home`).
    Ved fletting velges nyeste verdi per register (LWW; `org`/enhets-id bryter uavgjort
@@ -251,8 +254,8 @@ skjuler `.app-header` + `.app-main`; en fast overlay `#lock-screen` ligger over)
 - I verktøylinja, ved siden av papirkurv-knappen, ligger et tilsvarende **filter** (`#filter-switches`).
   Et kort vises hvis en av dets påslåtte merkelapper også er på i filteret — er kun `K` på i filteret,
   vises kun kort som har `K`, osv. (`cardMatchesFilter`). Filteret er per enhet (`localStorage`,
-  `mine-lister-filter`) og synkes ikke; `k`/`p` ligger i kortets **innholdsregister** og flettes/synkes
-  som tittel/farge/`trashed`.
+  `mine-lister-filter`) og synkes ikke; `k`/`p` synkes i sitt **eget merkelapp-register**
+  (`labTs`/`labOrg`), uavhengig av tittel/farge (se «To mekanismer …»).
 - **Verktøylinja** har ikke lenger «# kategorier»-tellingen eller «Synk»-knappen. I stedet ligger en
   **«Logg ut»**-knapp til høyre (synken går uansett fortløpende i bakgrunnen; se under).
 

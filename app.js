@@ -68,6 +68,7 @@
 
   function stampContent(e) { e.ts = tick(); e.org = deviceId; }   // tittel/tekst/farge/trashed
   function stampPos(e) { e.posTs = tick(); e.posOrg = deviceId; } // rekkefølge/forelder
+  function stampLabel(e) { e.labTs = tick(); e.labOrg = deviceId; } // merkelapper k/p (eget register)
 
   // Nyere av to registre: sammenlign (ts, org). org bryter uavgjort deterministisk.
   function newer(aTs, aOrg, bTs, bOrg) {
@@ -101,7 +102,8 @@
     const id = uid();
     const c = {
       id, title, color, trashed: false, k: true, p: true,
-      ts: 0, org: deviceId,           // innholdsregister (tittel/farge/trashed/k/p)
+      ts: 0, org: deviceId,           // innholdsregister (tittel/farge/trashed)
+      labTs: 0, labOrg: deviceId,     // merkelapp-register (k/p) — uavhengig av innhold
       pos: 0, posTs: 0, posOrg: deviceId, // posisjonsregister (rekkefølge)
       items: [],
     };
@@ -187,6 +189,8 @@
     if (typeof c.p !== 'boolean') c.p = true;
     if (typeof c.ts !== 'number') c.ts = 0;
     if (!c.org) c.org = deviceId;
+    if (typeof c.labTs !== 'number') c.labTs = 0;
+    if (!c.labOrg) c.labOrg = deviceId;
     if (typeof c.pos !== 'number') c.pos = i;
     if (typeof c.posTs !== 'number') c.posTs = 0;
     if (!c.posOrg) c.posOrg = deviceId;
@@ -347,7 +351,7 @@
         const on = cardData[flag] !== false;
         if (on && cardData[other] === false) { flashDeny(sw); return; } // kan ikke skru av den siste
         cardData[flag] = !on;
-        stampContent(cardData);
+        stampLabel(cardData); // eget register → merkelapp-endringer flettes uavhengig av tittel/farge
         paint();
         save();
         if (!cardMatchesFilter(cardData)) render(); // skjul hvis den ikke lenger passer filteret
@@ -1155,6 +1159,7 @@
       id: c.id, title: c.title, color: c.color, trashed: !!c.trashed,
       k: c.k !== false, p: c.p !== false,
       ts: c.ts || 0, org: c.org || '',
+      labTs: c.labTs || 0, labOrg: c.labOrg || '',
       pos: c.pos || 0, posTs: c.posTs || 0, posOrg: c.posOrg || '',
       items: (c.items || []).map((it) => cleanItem(it, c.id)),
     };
@@ -1189,9 +1194,9 @@
   }
 
   /* ---------- Fletting (CRDT-lett, felt-nivå LWW + gravsteiner) ---------- */
-  function deadBy(tombTs, ts, posTs) {
+  function deadBy(tombTs, ts, posTs, labTs) {
     if (tombTs == null) return false;
-    return tombTs >= Math.max(ts || 0, posTs || 0); // gravstein nyere/lik siste aktivitet
+    return tombTs >= Math.max(ts || 0, posTs || 0, labTs || 0); // gravstein nyere/lik siste aktivitet
   }
   function mergeItem(a, b) {
     const content = newer(a.ts, a.org, b.ts, b.org) ? a : b;
@@ -1203,11 +1208,14 @@
   }
   function mergeCardScalar(a, b) {
     const content = newer(a.ts, a.org, b.ts, b.org) ? a : b;
+    const labw = newer(a.labTs, a.labOrg, b.labTs, b.labOrg) ? a : b; // merkelapper (k/p) flettes for seg
     const posw = newer(a.posTs, a.posOrg, b.posTs, b.posOrg) ? a : b;
     return {
       id: a.id, title: content.title, color: content.color || a.color || b.color,
-      trashed: !!content.trashed, k: content.k !== false, p: content.p !== false,
+      trashed: !!content.trashed,
+      k: labw.k !== false, p: labw.p !== false,
       ts: content.ts || 0, org: content.org || '',
+      labTs: labw.labTs || 0, labOrg: labw.labOrg || '',
       pos: posw.pos || 0, posTs: posw.posTs || 0, posOrg: posw.posOrg || '',
     };
   }
@@ -1238,7 +1246,7 @@
     });
     collectCards(ca); collectCards(cb);
     // 3) Fjern gravlagte.
-    cards.forEach((c, id) => { if (deadBy(tomb.cards[id], c.ts, c.posTs)) cards.delete(id); });
+    cards.forEach((c, id) => { if (deadBy(tomb.cards[id], c.ts, c.posTs, c.labTs)) cards.delete(id); });
     items.forEach((it, id) => { if (deadBy(tomb.items[id], it.ts, it.posTs)) items.delete(id); });
     // 4) Plasser elementer i sine hjem-kort; foreldreløse (hjem borte) forkastes.
     const byHome = new Map();
