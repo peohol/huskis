@@ -85,15 +85,17 @@ body {
   border-radius: 12px;
   background: #fff;
   color: var(--ink);
-  box-shadow: var(--shadow-sm);
+  /* Tett skygge (ikke shadow-md): må få plass i header-luften uten å klippes av
+     gruppe-radens overflow på mobil. */
+  box-shadow: 0 1px 4px rgba(35, 45, 55, 0.18);
   cursor: pointer;
   transition: box-shadow 0.18s, background 0.18s, transform 0.12s;
 }
-.group-card:hover { box-shadow: var(--shadow-md); }
+.group-card:hover { box-shadow: 0 2px 7px rgba(35, 45, 55, 0.26); }
 .group-card.active {
   background: var(--primary);
   color: #fff;
-  box-shadow: var(--shadow-md);
+  box-shadow: 0 2px 7px rgba(35, 45, 55, 0.32);
 }
 
 .group-handle {
@@ -366,14 +368,13 @@ body {
   display: inline-flex;
   align-items: center;
   gap: 4px;
-  padding: 6px 10px;
+  padding: 6px 9px;
   border-radius: 12px;
-  background: #fff;
+  background: transparent;   /* ingen boks-skygge; sonen bak dekker header-høyden */
   color: var(--ink);
-  box-shadow: var(--shadow-sm);
   font-family: inherit;
 }
-.groups-trash-btn:hover { box-shadow: var(--shadow-md); }
+.groups-trash-btn:hover { background: rgba(0, 0, 0, 0.05); }
 
 /* ---------------- Element-søppelkasse (midtstilt nederst i listekortet) ---------------- */
 .item-trash {
@@ -936,8 +937,10 @@ body.locked .app-main { display: none; }
   /* Gruppe-raden er FULL-BLEED på mobil: headeren dropper side-paddingen så
      kortene kan scrolle helt ut til BEGGE kantene (ellers klippes de for tidlig,
      med et tomt mellomrom inn mot kanten). Hvile-innrykket for første kort gis i
-     stedet av bar-ens egen padding-left, som scroller bort sammen med kortene. */
-  .app-header { padding-left: 0; padding-right: 0; }
+     stedet av bar-ens egen padding-left, som scroller bort sammen med kortene.
+     Liten topp/bunn-padding — hovedluften rundt kortene gis av bar-en (så
+     boks-skyggene deres får plass uten å klippes av gruppe-radens overflow). */
+  .app-header { padding: 5px 0; }
 
   /* Gruppene ligger alltid på én rad; scroller horisontalt. Ved overflow vises en
      DISKRET, app-tilpasset scrollbar. På ekte touch-enheter er nettleserens
@@ -950,8 +953,8 @@ body.locked .app-main { display: none; }
     overflow-x: auto;
     -webkit-overflow-scrolling: touch;
     padding-left: clamp(12px, 3vw, 32px);
-    padding-top: 2px;
-    padding-bottom: 2px;
+    padding-top: 9px;         /* luft så gruppekortenes boks-skygge får plass */
+    padding-bottom: 9px;
     scrollbar-width: thin;                              /* Firefox: tynn, farget bar */
     scrollbar-color: rgba(107, 101, 119, 0.42) transparent;
   }
@@ -983,23 +986,29 @@ body.locked .app-main { display: none; }
   /* Ved overflow: siste gruppe-kort skal ikke gjemme sin sletteknapp bak «＋».
      Gi bar-en høyre-innrykk så kortet kan scrolles klar av selve «＋»-knappen
      (faden er pointer-events:none, så et kort under den er fortsatt trykkbart). */
-  .app-header.groups-overflow .groups-bar { padding-right: 46px; }
+  .app-header.groups-overflow .groups-bar { padding-right: 54px; }
 
   /* Gruppe-søppelkassen (helt til venstre): når den finnes overtar DEN venstre-
-     innrykket fra bar-en, så den kan festes flush mot venstre kant. */
+     innrykket fra bar-en, så den kan festes flush mot venstre kant (lite innrykk). */
   .app-header.has-trashed-groups .groups-bar { padding-left: 0; }
-  .app-header.has-trashed-groups .groups-trash { padding-left: 10px; }
+  .app-header.has-trashed-groups .groups-trash { padding-left: 6px; }
 
   /* Ved overflow festes søppelkassen til venstre (sticky): ugjennomsiktig med en
      fade på HØYRE side, så gruppekortene scroller mykt bak den — speiler «＋»-sonen
-     til høyre. Selve sonen slipper peker-hendelser gjennom (kun knappen fanger),
-     så et gruppe-kort delvis bak faden fortsatt kan dras/trykkes. */
+     til høyre. Ingen boks-skygge; sonen dekker HELE gruppe-radens høyde (negative
+     vertikale marger som spiser opp bar-paddingen) så kortenes skygger forsvinner
+     helt bak den, ikke klippes og legger seg oppå. Selve sonen slipper peker-
+     hendelser gjennom (kun knappen fanger), så et kort delvis bak faden er trykkbart. */
   .app-header.has-trashed-groups.groups-overflow .groups-trash {
     --fade-w: 22px;
     position: sticky;
     left: 0;
     z-index: 4;
     align-self: stretch;
+    margin-top: -9px;
+    margin-bottom: -9px;
+    padding-top: 9px;
+    padding-bottom: 9px;
     padding-right: var(--fade-w);
     pointer-events: none;
     background: linear-gradient(to left,
@@ -1007,8 +1016,5 @@ body.locked .app-main { display: none; }
       var(--header-solid) var(--fade-w),
       var(--header-solid) 100%);
   }
-  .app-header.has-trashed-groups.groups-overflow .groups-trash-btn {
-    margin: 2px 0;
-    pointer-events: auto;
-  }
+  .app-header.has-trashed-groups.groups-overflow .groups-trash-btn { pointer-events: auto; }
 }

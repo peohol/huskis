@@ -1511,11 +1511,12 @@
        • lister    → i verktøylinja (per aktiv gruppe).
        • elementer → midtstilt nederst i hvert listekort (kun når den har innhold).
      Interaksjon (attachTrashHold): kort trykk åpner modalen (gjenopprett/tøm
-     derfra); hold inne i 3 s tømmer direkte — knappen «lader opp» (rister mer og
-     mer, vokser og blir rødere) og fader tilbake når den er tømt eller slippes. */
+     derfra); klikk-og-hold utvider knappen til et sveipefelt («Sveip for å tømme
+     →») der man sveiper mot høyre for å tømme (se attachTrashHold). */
 
   /* ---------- Felles modal (deles av alle tre nivåer) ---------- */
   let modalCfg = null;
+  let modalOpenedAt = 0; // tid modalen ble åpnet — ignorér overlay-klikk rett etter
 
   function showTrashModal(cfg) {
     modalCfg = cfg;
@@ -1523,6 +1524,7 @@
     modalNote.textContent = cfg.note;
     renderTrashModalBody();
     trashModal.hidden = false;
+    modalOpenedAt = Date.now();
     document.body.classList.add('modal-open');
   }
   function renderTrashModalBody() {
@@ -1793,7 +1795,13 @@
   });
 
   trashClose.addEventListener('click', closeTrash);
-  trashModal.addEventListener('click', (ev) => { if (ev.target === trashModal) closeTrash(); });
+  // Klikk på selve overlay-en (utenfor modal-boksen) lukker — men ignorér det
+  // (evt. forsinkede) klikket fra trykket som nettopp ÅPNET modalen. Uten dette
+  // lukket åpnings-trykkets etter-klikk modalen igjen for gruppe-/liste-kurven
+  // (som ligger nær kanten, der etter-klikket treffer overlay-en, ikke modal-boksen).
+  trashModal.addEventListener('click', (ev) => {
+    if (ev.target === trashModal && Date.now() - modalOpenedAt > 450) closeTrash();
+  });
   document.addEventListener('keydown', (ev) => {
     if (ev.key === 'Escape' && !trashModal.hidden) closeTrash();
   });

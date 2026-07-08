@@ -312,10 +312,14 @@ skjules fra sitt nivå (`visibleGroups()` / `activeCards()` / ikke-`trashed` ele
   grupper i den** (`updateGroupsTrash` → `appHeader.has-trashed-groups`, `[hidden]` ellers).
   På **mobil-overflow** festes den til venstre (`position: sticky; left: 0`) med en **fade på høyre
   side** (`--header-solid`-gradient), så gruppekortene scroller mykt bak den — speiler «＋»-sonen
-  til høyre. Begge fadene er **smale** (`--fade-w: 22px`) så kortene når nær kantene. Sonen selv er
-  `pointer-events: none` (kun knappen fanger), så et kort delvis bak faden fortsatt kan dras/trykkes.
-  Bar-en gir fra seg venstre-innrykket til søppelkassen, og får **høyre-innrykk ved overflow**
-  (`padding-right: 46px`) så **siste** gruppe-korts sletteknapp ikke gjemmes bak «＋».
+  til høyre. Begge fadene er **smale** (`--fade-w: 22px`) så kortene når nær kantene. Sonen har
+  **ingen boks-skygge** og **dekker hele gruppe-radens høyde** (negative vertikale marger som spiser
+  opp bar-paddingen), så gruppekortenes skygger forsvinner helt bak den i stedet for å klippes og
+  legge seg oppå. Sonen er `pointer-events: none` (kun knappen fanger), så et kort delvis bak faden
+  fortsatt kan dras/trykkes. Bar-en gir fra seg venstre-innrykket til søppelkassen (lite innrykk),
+  og får **høyre-innrykk ved overflow** (`padding-right: 54px`) så **siste** gruppe-korts sletteknapp
+  ikke gjemmes bak «＋». Gruppekortene har en **tett boks-skygge** (ikke `shadow-md`) og bar-en har
+  vertikal luft (`padding: 9px 0`) så skyggene får plass uten å klippes av radens `overflow`.
 - **Lister** (`#trash-btn`, verktøylinja): per **aktiv gruppe** (`trashedCards()`/`allCards()` er
   gruppe-scopet). Tidligere «Papirkurv»-tekst er fjernet; kun emoji + tellepille.
 - **Elementer** (`.item-trash`, i hvert listekort): **midtstilt nederst i kortet**, under «Legg
@@ -325,7 +329,10 @@ skjules fra sitt nivå (`visibleGroups()` / `activeCards()` / ikke-`trashed` ele
 - **Kort trykk** → åpner **søppelkasse-modalen** (felles `#trash-modal`, fylt av
   `showTrashModal({title, note, rows, empty})`). Der kan man **Gjenopprett**e enkeltvis
   (`trashed: false`) eller **Tøm permanent** (med bekreftelse). Modalen åpnes via `setTimeout(…, 0)`
-  (etter click-sekvensen) så det peker-genererte klikket ikke treffer overlay-en og lukker den igjen.
+  (etter click-sekvensen), og overlay-en ignorerer klikk de første ~450 ms (`modalOpenedAt`) — ellers
+  lukket åpnings-trykkets (evt. forsinkede) etter-klikk modalen igjen for gruppe-/liste-kurven, som
+  ligger nær kanten der etter-klikket treffer overlay-en i stedet for modal-boksen (elementkurven,
+  midt på skjermen, traff modal-boksen og «virket» derfor).
 - **Klikk-og-hold** (> `HOLD_EXPAND_MS`, eller start med bevegelse) → knappen utvider seg til et
   **sveipefelt** (ett gjenbrukt, `position: fixed` overlay `.swipe-field`, plassert ved knappen og
   klemt innenfor viewporten med plass til å sveipe litt forbi høyre ende): «🗑️ Sveip for å tømme →».
