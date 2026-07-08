@@ -101,6 +101,23 @@ body {
   box-shadow: 0 2px 7px rgba(35, 45, 55, 0.32);
 }
 
+/* Mål når man drar en liste opp på et gruppekort (overføring mellom grupper):
+   gruppekortet lyser opp så man ser hvor lista havner ved slipp. */
+.group-card.drop-target {
+  background: var(--primary-soft);
+  outline: 2.5px dashed var(--primary);
+  outline-offset: 2px;
+  box-shadow: 0 4px 12px rgba(102, 136, 102, 0.4);
+  transform: translateY(-1px) scale(1.06);
+}
+/* Kvittering: gruppekortet som nettopp mottok en liste pulserer kort. */
+.group-card.received { animation: group-receive 0.5s ease; }
+@keyframes group-receive {
+  0%   { transform: scale(1); }
+  35%  { transform: scale(1.14); box-shadow: 0 5px 16px rgba(102, 136, 102, 0.5); }
+  100% { transform: scale(1); }
+}
+
 .group-handle {
   color: var(--ink-soft);
   font-size: 14px;
@@ -707,6 +724,9 @@ body {
   pointer-events: none;
   will-change: left, top, transform;
 }
+/* Lista sikter på et gruppekort (overføring): gjør den gjennomskinnelig så
+   gruppekortet under (med .drop-target-markering) synes gjennom det løftede kortet. */
+.card.dragging.to-group { opacity: 0.45; }
 
 .item.dragging {
   position: fixed;
