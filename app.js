@@ -1174,14 +1174,21 @@
     flipFrom(snap, FLIP_MS);
   }
 
-  function onCardUp() {
+  function onCardUp(ev) {
     if (!drag.active) return;
     window.removeEventListener('pointermove', onCardMove);
     window.removeEventListener('pointerup', onCardUp);
     window.removeEventListener('pointercancel', onCardUp);
 
     const el = drag.el;
-    const groupTarget = drag.groupTarget;
+    // Bestem drop-mål ut fra de FAKTISKE slipp-koordinatene, ikke det som lå
+    // mellomlagret fra siste pointermove: slippes lista like utenfor gruppekortet
+    // (rask/koalescerte bevegelse, eller pointercancel), skal den ikke overføres
+    // til den sist markerte gruppen. Faller tilbake på siste peker-posisjon bare
+    // hvis hendelsen mangler koordinater.
+    const relX = ev && typeof ev.clientX === 'number' ? ev.clientX : drag.lastX;
+    const relY = ev && typeof ev.clientY === 'number' ? ev.clientY : drag.lastY;
+    const groupTarget = pointerInHeader(relX, relY) ? cardTransferGroupAt(relX, relY) : null;
     setCardGroupTarget(null); // fjern evt. highlight uansett utfall
 
     // --- Overføring til en annen gruppe (samme logikk som elementer mellom lister) ---
