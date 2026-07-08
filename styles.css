@@ -54,8 +54,11 @@ body {
    som bryter til flere rader på desktop, og scroller horisontalt på mobil.
    Header er også containing block for den fastlåste «＋»-knappen (mobil). */
 .app-header {
-  position: sticky;
+  position: fixed;          /* fast øverst, uavhengig av scrolling (mer robust enn
+                               sticky, som svikter med backdrop-filter på iOS Safari) */
   top: 0;
+  left: 0;
+  right: 0;
   z-index: 30;
   padding: 12px clamp(12px, 3vw, 32px);
   background: rgba(255, 255, 255, 0.72);
@@ -85,15 +88,17 @@ body {
   border-radius: 12px;
   background: #fff;
   color: var(--ink);
-  box-shadow: var(--shadow-sm);
+  /* Tett skygge (ikke shadow-md): må få plass i header-luften uten å klippes av
+     gruppe-radens overflow på mobil. */
+  box-shadow: 0 1px 4px rgba(35, 45, 55, 0.18);
   cursor: pointer;
   transition: box-shadow 0.18s, background 0.18s, transform 0.12s;
 }
-.group-card:hover { box-shadow: var(--shadow-md); }
+.group-card:hover { box-shadow: 0 2px 7px rgba(35, 45, 55, 0.26); }
 .group-card.active {
   background: var(--primary);
   color: #fff;
-  box-shadow: var(--shadow-md);
+  box-shadow: 0 2px 7px rgba(35, 45, 55, 0.32);
 }
 
 .group-handle {
@@ -168,27 +173,45 @@ body {
    knappen og oppløses mykt, uten en tydelig kant. Bredden på det transparente
    fade-partiet settes av `--fade-w` (padding-left holder knappen i den
    ugjennomsiktige delen). */
-.groups-pin {
-  --fade-w: 64px;
+/* Faste full-høyde soner (kun mobil-overflow): søppelkasse til VENSTRE, «＋» til
+   HØYRE. Hver sone er en UGJENNOMSIKTIG blokk (--header-solid) med en smal fade på
+   INNSIDEN (mot kortene) — samme element, så ingen synlig skjøt. Scroll-feltet
+   ligger mellom sonene (bar-marger); kortene oppløses i innsidefaden. Ingen skygge.
+   Vises av media-query-reglene lenger ned. */
+.groups-pin,
+.groups-trash-pin {
   display: none;
   position: absolute;
   top: 0;
-  right: 0;
   bottom: 0;
+  z-index: 5;
   align-items: center;
-  padding-left: var(--fade-w);
-  padding-right: clamp(12px, 3vw, 32px);
-  pointer-events: none;
-  background: linear-gradient(to right,
-    rgba(222, 226, 228, 0) 0,
-    var(--header-solid) var(--fade-w),
-    var(--header-solid) 100%);
+  justify-content: center;
+  pointer-events: none;                 /* faden slipper gjennom; kun knappen fanger */
 }
-.groups-pin .add-group-pinned { pointer-events: auto; }
+.groups-pin .add-group-pinned,
+.groups-trash-pin .groups-trash-btn { pointer-events: auto; }
+.groups-trash-pin {
+  left: 0;
+  width: calc(var(--trash-zone-w, 54px) + var(--fade-w, 14px));
+  padding-right: var(--fade-w, 14px);   /* sentrér knappen i den solide delen */
+  background: linear-gradient(to right,
+    var(--header-solid) calc(100% - var(--fade-w, 14px)), transparent 100%);
+}
+.groups-pin {
+  right: 0;
+  width: calc(var(--plus-zone-w, 46px) + var(--fade-w, 14px));
+  padding-left: var(--fade-w, 14px);
+  background: linear-gradient(to left,
+    var(--header-solid) calc(100% - var(--fade-w, 14px)), transparent 100%);
+}
 
 /* ---------------- Main / toolbar ---------------- */
 .app-main {
   padding: clamp(16px, 3vw, 30px) clamp(12px, 4vw, 40px) 80px;
+  /* plass til den faste headeren (høyden settes i JS via --header-h, siden den
+     varierer med gruppe-radens ombrekking / antall). */
+  padding-top: calc(var(--header-h, 62px) + clamp(16px, 3vw, 30px));
   max-width: 1600px;
   margin: 0 auto;
 }
@@ -268,6 +291,132 @@ body {
   font-weight: 700;
 }
 .btn-ghost.has-items .trash-count { background: var(--danger); color: #fff; }
+
+/* ---------------- Søppelkasse-knapper (felles) ----------------
+   Tre nivåer (grupper/lister/elementer) deler «sveip-for-å-tømme»: kort trykk
+   åpner modalen, klikk-og-hold utvider knappen til et sveipefelt (se .swipe-field). */
+.trashcan {
+  position: relative;
+  cursor: pointer;
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
+  touch-action: none;          /* hold/sveip uten at siden scroller */
+}
+
+/* Sveipefelt: fixed overlay som dukker opp ved klikk-og-hold på en søppelkasse.
+   JS setter posisjon/bredde inline og roterer ikonet (0→180°) ut fra sveipet;
+   --p (0→1) driver den visuelle fyllingen. */
+.swipe-field {
+  position: fixed;
+  z-index: 250;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 0 14px;
+  border-radius: 999px;
+  background: #fff;
+  box-shadow: var(--shadow-lg);
+  overflow: hidden;
+  white-space: nowrap;
+  opacity: 0;
+  pointer-events: none;                 /* pekeren fanges av knappen (setPointerCapture) */
+  -webkit-user-select: none;
+  user-select: none;
+  transition: opacity 0.14s ease, width 0.18s cubic-bezier(.2, .75, .3, 1);
+}
+.swipe-field.open { opacity: 1; }
+/* Grønn fylling som følger sveipet (venstre → høyre). */
+.swipe-field::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: linear-gradient(90deg, var(--primary-soft), var(--primary-soft-hover));
+  transform: scaleX(var(--p, 0));
+  transform-origin: left center;
+  pointer-events: none;
+}
+.swipe-icon {
+  position: relative;
+  font-size: 21px;
+  line-height: 1;
+  flex: 0 0 auto;
+  transition: transform 0.1s ease;      /* jevn rotasjon; kollaps roterer tilbake */
+  transform-origin: 50% 50%;
+}
+.swipe-icon.shake { animation: swipe-shake 0.5s ease; }
+@keyframes swipe-shake {
+  0%, 100% { transform: rotate(180deg) translateX(0); }
+  20% { transform: rotate(180deg) translateX(-4px); }
+  40% { transform: rotate(180deg) translateX(4px); }
+  60% { transform: rotate(180deg) translateX(-3px); }
+  80% { transform: rotate(180deg) translateX(3px); }
+}
+.swipe-label {
+  position: relative;
+  flex: 1 1 auto;
+  font-weight: 700;
+  font-size: 14px;
+  color: var(--ink-soft);
+}
+.swipe-arrow {
+  position: relative;
+  flex: 0 0 auto;
+  font-size: 17px;
+  font-weight: 700;
+  color: var(--primary-dark);
+}
+
+.trashcan-icon { font-size: 15px; line-height: 1; }
+.trashcan-count {
+  font-weight: 700;
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+  color: var(--ink-soft);
+}
+
+/* Lister-søppelkassen (verktøylinja) er en .btn.btn-ghost.trashcan — kun ikon+tall.
+   Litt strammere polstring nå som teksten er borte. */
+#trash-btn { gap: 6px; padding-left: 14px; padding-right: 14px; }
+
+/* ---------------- Gruppe-søppelkasse (helt til venstre i headeren) ---------------- */
+.groups-trash { flex: 0 0 auto; display: flex; align-items: center; }
+.groups-trash[hidden] { display: none; }
+.groups-trash-btn {
+  appearance: none;
+  border: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 6px 9px;
+  border-radius: 12px;
+  background: transparent;   /* ingen boks-skygge; sonen bak dekker header-høyden */
+  color: var(--ink);
+  font-family: inherit;
+}
+.groups-trash-btn:hover { background: rgba(0, 0, 0, 0.05); }
+
+/* ---------------- Element-søppelkasse (midtstilt nederst i listekortet) ---------------- */
+.item-trash {
+  display: flex;
+  justify-content: center;
+  padding: 2px 12px 14px;
+}
+.item-trash-btn {
+  appearance: none;
+  border: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 5px 13px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.6);
+  color: var(--ink);
+  box-shadow: var(--shadow-sm);
+  font-family: inherit;
+}
+.item-trash-btn:hover { background: rgba(255, 255, 255, 0.9); }
 
 .hint {
   margin: 0;
@@ -809,8 +958,10 @@ body.locked .app-main { display: none; }
   /* Gruppe-raden er FULL-BLEED på mobil: headeren dropper side-paddingen så
      kortene kan scrolle helt ut til BEGGE kantene (ellers klippes de for tidlig,
      med et tomt mellomrom inn mot kanten). Hvile-innrykket for første kort gis i
-     stedet av bar-ens egen padding-left, som scroller bort sammen med kortene. */
-  .app-header { padding-left: 0; padding-right: 0; }
+     stedet av bar-ens egen padding-left, som scroller bort sammen med kortene.
+     Liten topp/bunn-padding — hovedluften rundt kortene gis av bar-en (så
+     boks-skyggene deres får plass uten å klippes av gruppe-radens overflow). */
+  .app-header { padding: 5px 0; }
 
   /* Gruppene ligger alltid på én rad; scroller horisontalt. Ved overflow vises en
      DISKRET, app-tilpasset scrollbar. På ekte touch-enheter er nettleserens
@@ -823,8 +974,8 @@ body.locked .app-main { display: none; }
     overflow-x: auto;
     -webkit-overflow-scrolling: touch;
     padding-left: clamp(12px, 3vw, 32px);
-    padding-top: 2px;
-    padding-bottom: 2px;
+    padding-top: 9px;         /* luft så gruppekortenes boks-skygge får plass */
+    padding-bottom: 9px;
     scrollbar-width: thin;                              /* Firefox: tynn, farget bar */
     scrollbar-color: rgba(107, 101, 119, 0.42) transparent;
   }
@@ -846,10 +997,30 @@ body.locked .app-main { display: none; }
   }
   .groups-bar::-webkit-scrollbar-thumb:hover { background-color: rgba(107, 101, 119, 0.55); }
 
-  /* Når kortene overskrider bredden: «＋» festes til høyre i sin ugjennomsiktige
-     sone, kortene scroller helt ut til kanten og forsvinner bak fade-gradienten,
-     og inline-«＋» skjules. Ingen padding-right — verken på header eller bar — så
-     kortene når helt ut til sidens ytterkant (og oppløses i faden). */
+  /* ---- Mobil-overflow: scroll-felt klemt MELLOM to faste, full-høyde soner ----
+     «＋» (høyre) og søppelkasse (venstre, kun med innhold) er faste soner utenfor
+     scroll-feltet. Gruppe-raden ligger mellom dem (bar-marger = sone-bredder) og
+     fader ut mot begge via en mask. Fadene er like brede på begge sider, og
+     kortenes hvile-innrykk (padding) = fade-bredden. Kortene scroller ALDRI bak
+     sonene — feltet slutter nøyaktig der en sone begynner. */
+  .app-header.groups-overflow {
+    --fade-w: 14px;
+    --trash-zone-w: 54px;
+    --plus-zone-w: 46px;
+  }
   .app-header.groups-overflow .add-group-inline { display: none; }
   .app-header.groups-overflow .groups-pin { display: flex; }
+
+  /* Inline-søppelkassen skjules ved overflow; den faste sonen overtar (kun med innhold). */
+  .app-header.groups-overflow #groups-trash { display: none; }
+  .app-header.has-trashed-groups.groups-overflow .groups-trash-pin { display: flex; }
+
+  .app-header.groups-overflow .groups-bar {
+    margin-right: var(--plus-zone-w);          /* klem inntil «＋»-sonen (solid del) */
+    padding-left: var(--fade-w);               /* hvile-innrykk = fade-bredde */
+    padding-right: var(--fade-w);
+  }
+  .app-header.has-trashed-groups.groups-overflow .groups-bar {
+    margin-left: var(--trash-zone-w);          /* klem inntil søppelkasse-sonen (solid del) */
+  }
 }

@@ -13,7 +13,8 @@ Personlig arbeidsnotat for utvikling av **Huskekurv-appen**. Oppdateres undervei
 
 En app organisert som **Gruppe > Liste > Element**:
 - Opprette / slette / endre rekkefølge på / endre navn på **grupper** (i headeren).
-- Hver gruppe har sin **egen papirkurv**.
+- **Søppelkasse på alle tre nivåer** (grupper, lister, elementer): sletting legger i en
+  gjenopprettbar søppelkasse (`trashed`-flagg), ikke permanent. Se «Søppelkasser».
 
 I hver gruppe (helt som de gamle fanene fungerte):
 - Legge til / slette / redigere / endre rekkefølge på **lister** (tidl. «kategorier»).
@@ -50,10 +51,10 @@ Design:
   state = {
     activeGroup: <groupId>,        // per enhet, synkes ikke (erstatter activeTab)
     groups: [
-      { id, name, pos,             // + synk-registre: ts/org (navn), posTs/posOrg (rekkefølge)
+      { id, name, trashed, pos,    // + synk-registre: ts/org (navn/trashed), posTs/posOrg (rekkefølge)
         cards: [                   // «lister» (tidl. kategorier)
           { id, group, title, color, trashed, k, p,
-            items: [ { id, text, home } ] }   // home = kortets id (forelder)
+            items: [ { id, text, trashed, home } ] }   // home = kortets id (forelder)
         ] }
     ],
     _tomb: { groups:{}, cards:{}, items:{} },  // gravsteiner: id → tidsstempel
@@ -64,9 +65,13 @@ Design:
 
 ## Grupper (header)
 
-Headeren ligger låst øverst (`position: sticky`) og alt annet innhold scroller bak den.
-Den viser en **venstreorientert rad** med gruppekort (`#groups-bar`), etterfulgt av en
-**«＋»-knapp** som oppretter ny gruppe.
+Headeren ligger **fast øverst** (`position: fixed`, uavhengig av scrolling — mer robust
+enn `sticky`, som svikter med `backdrop-filter` på iOS Safari) og alt annet innhold scroller
+bak den. Siden en fast header er ute av flyten, måles høyden i JS (`ResizeObserver`) og
+eksponeres som `--header-h` så `.app-main` får riktig topp-padding (høyden varierer med
+gruppe-radens ombrekking / antall grupper / mobil↔desktop). Headeren viser en
+**venstreorientert rad** med gruppekort (`#groups-bar`), etterfulgt av en **«＋»-knapp** som
+oppretter ny gruppe.
 
 - **Gruppekort** (`.group-card`, mal `#group-template`) ser ut som et liste-element:
   håndtak til venstre, navn i midten, slett-knapp til høyre — men **bredden følger navnet**
@@ -97,18 +102,23 @@ Den viser en **venstreorientert rad** med gruppekort (`#groups-bar`), etterfulgt
   header-paddingen som luft ned mot kanten). På ekte touch-enheter er nettleserens scrollbar
   uansett overlay/skjult, så dette treffer først og fremst **smale PC-vinduer** (der
   mobil-layoutet også slår inn) og gir en synlig scroll-indikator. Får kortene plass, vises
-  «＋» inline etter siste kort.
+  «＋» (og evt. søppelkassen) inline i raden.
   **Overskrider** kortene bredden (`updateGroupsOverflow()` setter `.groups-overflow` på
-  headeren), festes «＋» **statisk til høyre** i en **ugjennomsiktig sone** (`.groups-pin`,
-  `position: absolute`, bakgrunn `--header-solid`). Fordi headeren selv er delvis
-  gjennomsiktig, MÅ denne sonen være ugjennomsiktig for at kortene skal forsvinne helt bak
-  knappen. Faden er en **ren opacity-gradient** (transparent → `--header-solid`) satt på
-  selve sonen — **ingen** `backdrop-blur` (en uniform uklarhet toner ikke, den bare smører).
-  Gruppe-raden er **full-bleed** på mobil (headeren dropper side-padding; hvile-innrykket for
-  første kort gis av bar-ens `padding-left`, som scroller bort) så kortene kan scrolle **helt
-  ut til BEGGE kantene** og oppløses i faden — ikke klippes for tidlig med et tomt mellomrom.
-  Overflow-målingen kompenserer for skjult inline-«＋» så den ikke veksler frem/tilbake nær
-  grensen. Under gruppe-draging auto-scroller raden horisontalt når
+  headeren), legges **to faste, full-høyde soner** utenfor scroll-feltet: **«＋» til høyre**
+  (`.groups-pin`) og **søppelkassen til venstre** (`.groups-trash-pin`, kun når den har
+  innhold) — begge `position: absolute`, `top/bottom: 0`. Hver sone er en **ugjennomsiktig**
+  blokk (`--header-solid`) med en **smal fade på innsiden** (mot kortene), satt som én
+  gradient på selve sonen (solid → transparent) så det ikke blir noen synlig skjøt. Selve
+  scroll-feltet (gruppe-raden) er **klemt mellom sonene** via bar-marger (`margin-left/right`
+  = sonenes solide bredde), så kortene scroller **aldri bak** sonene — feltet slutter nøyaktig
+  der en sone begynner, og kortene oppløses i innsidefaden. Fadene er **like brede** på begge
+  sider (`--fade-w: 14px`), og kortenes **hvile-innrykk = fade-bredden** (`padding: 0 var(--fade-w)`).
+  De faste sonene er `pointer-events: none` (kun knappene fanger), så et kort delvis under en
+  fade er fortsatt trykkbart. Overflow-**målingen** er flip-flop-fri: den summerer kortenes egne
+  bredder + faste sone-/fade-bredder og sammenligner mot viewporten (uavhengig av
+  `.groups-overflow`-klassen, som ellers endrer bar-bredden). På desktop / uten overflow er
+  søppelkassen i stedet **inline** i raden (`#groups-trash`); ved overflow skjules den og
+  `.groups-trash-pin` overtar. Under gruppe-draging auto-scroller raden horisontalt når
   pekeren nærmer seg venstre/høyre kant (`updateGroupAutoScroll`).
 
 ## Dra-og-slipp-logikk (kjernen)
@@ -155,7 +165,8 @@ når *samme* element endres to steder).
    Doc'et er **flatt**: tre parallelle tabeller (`groups` / `cards` / `items`) med forelder-peker
    (`kort.group`, `element.home`), slik at gruppe/liste/element flettes hver for seg på `id` og
    forelderløse forkastes. Hver entitet har egne «registre» med logisk tidsstempel:
-   - **innhold** (`ts`, `org`): gruppens navn; kortets tittel/farge/`trashed`; elementets tekst.
+   - **innhold** (`ts`, `org`): gruppens navn/`trashed`; kortets tittel/farge/`trashed`;
+     elementets tekst/`trashed`. (`trashed` = søppelkasse-flagg; se «Søppelkasser».)
    - **merkelapp** (`labTs`, `labOrg`): kortets `k`/`p`-brytere. Eget register så en merkelapp-endring
      på én enhet ikke overskrives av en samtidig tittel-/farge-endring på en annen (og omvendt).
      `k` og `p` deler register (flettes som ett par) så «minst én på» aldri brytes av fletting.
@@ -167,9 +178,10 @@ når *samme* element endres to steder).
    register endret to steder «konflikter», og da vinner nyeste. `tick()` er en **hybrid logisk
    klokke** (monotont voksende) så den tåler at enhetenes veggklokker går i utakt.
    - **Sletting** bruker **gravsteiner** (`_tomb.groups` / `_tomb.cards` / `_tomb.items`:
-     id → tidsstempel) så en sletting ikke «gjenoppstår» fra en foreldet enhet. Å tømme
-     papirkurven / slette enkelt-element / slette en hel gruppe gir permanente gravsteiner.
-     Papirkurv = kort med `trashed: true`.
+     id → tidsstempel) så en sletting ikke «gjenoppstår» fra en foreldet enhet. Gravstein
+     settes **først når en søppelkasse tømmes permanent** (gruppe-, liste- eller element-nivå);
+     vanlig sletting setter kun `trashed: true` (gjenopprettbart). Søppelkasse = entitet med
+     `trashed: true`.
    - `activeGroup` er **per enhet** og synkes ikke.
    - **Migrering**: gammel to-fane-form (både hel-tilstand og forrige synk-doc) gjøres om til to
      grupper med **faste, deterministiske id-er** (`grp-huskelister`/`grp-handlelister`) i
@@ -298,18 +310,48 @@ skjuler `.app-header` + `.app-main`; en fast overlay `#lock-screen` ligger over)
   Database → Connection string → URI, med passordet innsatt). Alternativt kan SQL-en limes
   rett inn i Supabase sin SQL Editor.
 
-## Papirkurv (per gruppe)
+## Søppelkasser (grupper / lister / elementer)
 
-- Papirkurven er **per gruppe**: knappen/modalen gjelder alltid den **aktive gruppen**, og
-  telleren + listen viser kun dens slettede lister. Modaltittelen navngir gruppen
-  («🗑️ Papirkurv – {gruppenavn}»). `trashedCards()`/`allCards()` er gruppe-scopet.
-- Å slette en **liste** setter `trashed: true` på kortet (i stedet for en egen `trash`-array)
-  slik at «papirkurv-tilstanden» er et felt som synkes/flettes som alt annet.
-- I modalen kan man **Gjenopprett**e enkeltlister (`trashed: false`) eller trykke **Tøm papirkurv**
-  for å slette **permanent** (med bekreftelse) — det gir en **gravstein** (`_tomb.cards`).
-  Sletting av enkelt-**elementer** er fortsatt permanent og gir gravstein (`_tomb.items`).
-- Å slette en hel **gruppe** fjerner gruppen + alle dens lister/elementer permanent (gravsteiner
-  i `_tomb.groups`/`cards`/`items`), utenom papirkurven.
+Alle tre nivåene har en søppelkasse. Sletting setter `trashed: true` (gjenopprettbart);
+permanent sletting (med gravstein) skjer **først når søppelkassen tømmes**. En slettet entitet
+skjules fra sitt nivå (`visibleGroups()` / `activeCards()` / ikke-`trashed` elementer i kortet).
+
+**Tre søppelkasse-knapper** — hver viser **kun en søppelkasse-emoji + et tall** (ingen tekst-etikett):
+- **Grupper**: helt til **venstre i headeren**, vises **kun når det ligger grupper i den**
+  (`updateGroupsTrash` → `appHeader.has-trashed-groups`). To varianter: **inline** i raden
+  (`#groups-trash`) på desktop / uten overflow, og en **fast full-høyde sone**
+  (`#groups-trash-pin`) ved mobil-overflow. Ved overflow ligger søppelkassen (venstre) og «＋»
+  (høyre) som faste, ugjennomsiktige soner med en **smal innsidefade** UTENFOR scroll-feltet;
+  gruppe-raden er klemt mellom dem, så kortene scroller **aldri bak** sonene (se «Grupper
+  (header) → Responsiv layout» for detaljer: like brede fader `--fade-w`, padding = fade-bredde,
+  full-høyde soner uten skygge, flip-flop-fri overflow-måling). Gruppekortene har en **tett
+  boks-skygge** (ikke `shadow-md`) og bar-en har vertikal luft (`padding: 9px 0`) så skyggene
+  får plass uten å klippes av radens `overflow`.
+- **Lister** (`#trash-btn`, verktøylinja): per **aktiv gruppe** (`trashedCards()`/`allCards()` er
+  gruppe-scopet). Tidligere «Papirkurv»-tekst er fjernet; kun emoji + tellepille.
+- **Elementer** (`.item-trash`, i hvert listekort): **midtstilt nederst i kortet**, under «Legg
+  til»-feltet, og vises **kun når kortet har slettede elementer**.
+
+**Interaksjon (`attachTrashHold`)** — felles for alle tre knappene:
+- **Kort trykk** → åpner **søppelkasse-modalen** (felles `#trash-modal`, fylt av
+  `showTrashModal({title, note, rows, empty})`). Der kan man **Gjenopprett**e enkeltvis
+  (`trashed: false`) eller **Tøm permanent** (med bekreftelse). Modalen åpnes via `setTimeout(…, 0)`
+  (etter click-sekvensen), og overlay-en ignorerer klikk de første ~450 ms (`modalOpenedAt`) — ellers
+  lukket åpnings-trykkets (evt. forsinkede) etter-klikk modalen igjen for gruppe-/liste-kurven, som
+  ligger nær kanten der etter-klikket treffer overlay-en i stedet for modal-boksen (elementkurven,
+  midt på skjermen, traff modal-boksen og «virket» derfor).
+- **Klikk-og-hold** (> `HOLD_EXPAND_MS`, eller start med bevegelse) → knappen utvider seg til et
+  **sveipefelt** (ett gjenbrukt, `position: fixed` overlay `.swipe-field`, plassert ved knappen og
+  klemt innenfor viewporten med plass til å sveipe litt forbi høyre ende): «🗑️ Sveip for å tømme →».
+  Sveiper man mot høyre roterer søppelkasse-ikonet gradvis (`rotate(p·180°)`) og blir **opp-ned** helt
+  til høyre (`p ≥ 1`); da **tømmes** den — ikonet **rister i 500 ms** (`SHAKE_MS`), roterer tilbake og
+  feltet **kollapser**. Slipper man **før** høyre ende, kollapser feltet **uten** å tømme. `--p` (0→1)
+  driver en grønn fylling i feltet.
+- Tømming gir permanente **gravsteiner**: `emptyGroupsTrash` (gruppe + dens lister + elementer),
+  `emptyCardsTrash` (liste + dens elementer), `emptyItemsTrash` (elementer). `refreshCard()`
+  bygger ett kort på nytt etter element-endringer (uten å tegne hele tavla). Sveipefeltet er
+  frikoblet fra knappen (ligger på `body`), så tømming som fjerner knappen (element-kortet bygges
+  på nytt) ikke avbryter rist/kollaps-animasjonen.
 
 ## Fargepalett
 
@@ -330,15 +372,16 @@ skjuler `.app-header` + `.app-main`; en fast overlay `#lock-screen` ligger over)
   sirkler vertikalt stablet til venstre for slett-knappen. Sirkelen blir **lysere** når bryteren er på.
   **Minst én** bryter må alltid være på — forsøk på å skru av den siste gir en liten risting (`flashDeny`).
 - Hvert kort tilhører nøyaktig **én kategori** ut fra bryterne (`cardCategory`): kun **K**, kun **P**,
-  eller **KP** (begge på). I verktøylinja, ved siden av papirkurv-knappen, ligger et **filter**
+  eller **KP** (begge på). I verktøylinja, ved siden av lister-søppelkassen, ligger et **filter**
   (`#filter-switches`) med tre brytere: `K`, `P`, `KP`. Et kort vises hvis bryteren for kortets
   kategori er på (`cardMatchesFilter`) — velger man f.eks. `K` + `KP`, vises kun-K-kort og KP-kort,
   men ikke kun-P-kort. Minst ett filter må være på. Filteret er per enhet (`localStorage`,
   `mine-lister-filter`) og synkes ikke; `k`/`p` synkes i sitt **eget merkelapp-register**
   (`labTs`/`labOrg`), uavhengig av tittel/farge (se «To mekanismer …»).
-- **Verktøylinja** har «Ny liste», «Papirkurv» (per gruppe), filteret og en **«Logg ut»**-knapp
-  til høyre (synken går uansett fortløpende i bakgrunnen; se under). «Ny liste»/«Papirkurv»
-  er deaktivert når det ikke finnes noen aktiv gruppe. (K/P + filter gjelder lister, uendret.)
+- **Verktøylinja** har «Ny liste», lister-**søppelkassen** (per gruppe, se «Søppelkasser»), filteret
+  og en **«Logg ut»**-knapp til høyre (synken går uansett fortløpende i bakgrunnen; se under). «Ny
+  liste»/søppelkassen er deaktivert når det ikke finnes noen aktiv gruppe. (K/P + filter gjelder
+  lister, uendret.)
 
 ## Status / TODO
 
@@ -376,6 +419,30 @@ skjuler `.app-header` + `.app-main`; en fast overlay `#lock-screen` ligger over)
 - [x] Flat synk-doc (`groups`/`cards`/`items` m/ forelder-peker); migrering fra to-fane-form
 - [x] Testet i nettleser (Playwright): gruppe-CRUD/-reorder, per-gruppe papirkurv, migrering
       (lokal + fjern), mobil-overflow/pinned/fade, desktop-wrap, felt-nivå fletting (43 sjekker)
+- [x] **Søppelkasse på alle tre nivåer** (grupper/lister/elementer): `trashed`-flagg (gjenopprettbart),
+      gravstein først ved tømming. Gruppe- og element-sletting er ikke lenger permanent.
+- [x] Gruppe-søppelkasse helt til venstre i headeren (kun når den har innhold); mobil-overflow: festet
+      til venstre med fade, gruppekortene scroller bak den. Lister-søppelkasse: fjernet «Papirkurv»-tekst
+- [x] Element-søppelkasse midtstilt nederst i hvert listekort (kun når den har slettede elementer)
+- [x] Kort trykk åpner felles søppelkasse-modal (gjenopprett/tøm); modalen åpnes utsatt så det
+      etterfølgende klikket ikke lukker den igjen (fikset: modal åpnet ikke for gruppe-/liste-kurv)
+- [x] **Sveip-for-å-tømme** (`attachTrashHold` + `.swipe-field`): klikk-og-hold utvider knappen til et
+      sveipefelt («Sveip for å tømme →»); sveip til høyre roterer ikonet til opp-ned og tømmer (rister
+      500 ms, kollapser); slipp før høyre ende kollapser uten å tømme. Erstatter hold-3s-animasjonen
+      (som ble skjult bak tommelen på mobil)
+- [x] Mobil: smalere fader (`--fade-w: 22px`) + bar-`padding-right` så siste gruppe-korts sletteknapp
+      ikke gjemmes bak «＋»; fade-sonene er `pointer-events: none` så kort bak dem er trykkbare
+- [x] Mobil-overflow omdesignet: scroll-feltet **klemt mellom** to faste full-høyde soner (søppelkasse
+      venstre + «＋» høyre), kortene scroller ikke lenger bak sonene; like brede smale innsidefader
+      (`--fade-w: 14px`), padding = fade-bredde; flip-flop-fri overflow-måling (kortbredder vs viewport)
+- [x] Fast header (`position: fixed`, uavhengig av scrolling; robust mot iOS-`backdrop-filter`-bug);
+      `.app-main` topp-padding følger målt header-høyde via `--header-h` (`ResizeObserver`)
+- [x] Fikset (fra før, uavhengig): element-overføring mistet det flyttede elementet + reconcile
+      droppet skjulte slettede elementer — `reconcileItems` bruker nå ett felles pool-øyeblikksbilde
+      og bevarer `trashed`-elementer
+- [x] Testet i nettleser (Playwright): 3 nivåer tap→modal/gjenopprett/tøm-via-modal, sveip-tøm på alle
+      tre (inkl. knapp som destrueres), delvis sveip avbryter, mobil fade/overflow + siste-kort-klarering,
+      element-DnD (reorder + overføring, med/uten slettede), felt-nivå fletting av `trashed`
 
 ## Hvordan kjøre
 
