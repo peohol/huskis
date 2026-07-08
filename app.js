@@ -1475,6 +1475,19 @@
   }
   window.addEventListener('resize', updateGroupsOverflow);
 
+  // Fast header (position: fixed) er ute av flyten, så .app-main må ha topp-padding
+  // = header-høyden. Høyden varierer (gruppe-raden brekker om / antall grupper /
+  // mobil↔desktop), så vi måler den og eksponerer som --header-h.
+  function syncHeaderHeight() {
+    document.documentElement.style.setProperty(
+      '--header-h', appHeader.getBoundingClientRect().height + 'px');
+  }
+  if (typeof ResizeObserver === 'function') {
+    new ResizeObserver(syncHeaderHeight).observe(appHeader);
+  } else {
+    window.addEventListener('resize', syncHeaderHeight);
+  }
+
   /* ---------------- Topp-knapper ---------------- */
   addGroupBtn.addEventListener('click', addGroup);
   addGroupPinned.addEventListener('click', addGroup);

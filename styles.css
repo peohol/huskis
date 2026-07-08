@@ -54,8 +54,11 @@ body {
    som bryter til flere rader på desktop, og scroller horisontalt på mobil.
    Header er også containing block for den fastlåste «＋»-knappen (mobil). */
 .app-header {
-  position: sticky;
+  position: fixed;          /* fast øverst, uavhengig av scrolling (mer robust enn
+                               sticky, som svikter med backdrop-filter på iOS Safari) */
   top: 0;
+  left: 0;
+  right: 0;
   z-index: 30;
   padding: 12px clamp(12px, 3vw, 32px);
   background: rgba(255, 255, 255, 0.72);
@@ -206,6 +209,9 @@ body {
 /* ---------------- Main / toolbar ---------------- */
 .app-main {
   padding: clamp(16px, 3vw, 30px) clamp(12px, 4vw, 40px) 80px;
+  /* plass til den faste headeren (høyden settes i JS via --header-h, siden den
+     varierer med gruppe-radens ombrekking / antall). */
+  padding-top: calc(var(--header-h, 62px) + clamp(16px, 3vw, 30px));
   max-width: 1600px;
   margin: 0 auto;
 }

@@ -65,9 +65,13 @@ Design:
 
 ## Grupper (header)
 
-Headeren ligger låst øverst (`position: sticky`) og alt annet innhold scroller bak den.
-Den viser en **venstreorientert rad** med gruppekort (`#groups-bar`), etterfulgt av en
-**«＋»-knapp** som oppretter ny gruppe.
+Headeren ligger **fast øverst** (`position: fixed`, uavhengig av scrolling — mer robust
+enn `sticky`, som svikter med `backdrop-filter` på iOS Safari) og alt annet innhold scroller
+bak den. Siden en fast header er ute av flyten, måles høyden i JS (`ResizeObserver`) og
+eksponeres som `--header-h` så `.app-main` får riktig topp-padding (høyden varierer med
+gruppe-radens ombrekking / antall grupper / mobil↔desktop). Headeren viser en
+**venstreorientert rad** med gruppekort (`#groups-bar`), etterfulgt av en **«＋»-knapp** som
+oppretter ny gruppe.
 
 - **Gruppekort** (`.group-card`, mal `#group-template`) ser ut som et liste-element:
   håndtak til venstre, navn i midten, slett-knapp til høyre — men **bredden følger navnet**
@@ -431,6 +435,8 @@ skjules fra sitt nivå (`visibleGroups()` / `activeCards()` / ikke-`trashed` ele
 - [x] Mobil-overflow omdesignet: scroll-feltet **klemt mellom** to faste full-høyde soner (søppelkasse
       venstre + «＋» høyre), kortene scroller ikke lenger bak sonene; like brede smale innsidefader
       (`--fade-w: 14px`), padding = fade-bredde; flip-flop-fri overflow-måling (kortbredder vs viewport)
+- [x] Fast header (`position: fixed`, uavhengig av scrolling; robust mot iOS-`backdrop-filter`-bug);
+      `.app-main` topp-padding følger målt header-høyde via `--header-h` (`ResizeObserver`)
 - [x] Fikset (fra før, uavhengig): element-overføring mistet det flyttede elementet + reconcile
       droppet skjulte slettede elementer — `reconcileItems` bruker nå ett felles pool-øyeblikksbilde
       og bevarer `trashed`-elementer
