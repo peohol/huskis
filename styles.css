@@ -1125,13 +1125,20 @@ body.locked .app-main { display: none; }
   .app-header.groups-overflow .groups-pin { display: flex; }
   .app-header.groups-overflow #groups-trash { display: none; }
   .app-header.has-trashed-groups.groups-overflow .groups-trash-pin { display: flex; }
+  /* Kort ned SELVE scrollporten (ikke bare margin utenfor): bar-en har
+     height: 100%, så margin-bottom ville bare skjøvet plass utenfor scroll-
+     containeren — da regnes clientHeight/maks scrollTop som om «＋»-sonen var
+     synlig innhold, og siste gruppe havner bak den faste bunn-sonen. Ved å
+     redusere høyden med sone-høyden ligger siste kort klart over «＋»-sonen når
+     man scroller helt ned (fade-padding gir litt luft). */
   .app-header.groups-overflow .groups-bar {
-    margin-bottom: var(--plus-zone-h);         /* klem inntil «＋»-sonen */
+    height: calc(100% - var(--plus-zone-h));
     padding-top: var(--fade-h);
     padding-bottom: var(--fade-h);
   }
   .app-header.has-trashed-groups.groups-overflow .groups-bar {
     margin-top: var(--trash-zone-h);           /* klem inntil søppelkasse-sonen */
+    height: calc(100% - var(--trash-zone-h) - var(--plus-zone-h));
   }
 
   /* Board fyller området til høyre for kolonnen; verktøylinja ligger over. */
