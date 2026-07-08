@@ -1643,62 +1643,93 @@
     save();
   }
 
-  /* ---------- Hold-inne-for-å-tømme (felles for alle tre knappene) ----------
-     Kort trykk → api.open() (modal). Hold inne HOLD_MS → api.empty() + fade.
-     Slipp før HOLD_MS → fade tilbake uten å tømme. api = {count, open, empty}. */
-  const HOLD_MS = 3000;   // hold-varighet for å tømme
-  const TAP_MS = 300;     // kortere trykk enn dette = åpne modalen
-  const RELEASE_MS = 280; // varighet på tilbake-fadingen
+  /* ---------- Sveip-for-å-tømme (felles for alle tre knappene) ----------
+     • Kort trykk → api.open() (modalen).
+     • Klikk-og-hold → knappen utvider seg til et SVEIPEFELT («🗑️ Sveip for å
+       tømme →»). Sveiper man mot høyre ende roterer søppelkasse-ikonet gradvis og
+       blir opp-ned helt til høyre; da tømmes den (ikonet rister 500 ms, roterer
+       tilbake mens feltet kollapser). Slipper man før høyre ende, kollapser feltet
+       uten å tømme. api = { count, open, empty }. */
+  const HOLD_EXPAND_MS = 320; // hold så lenge (grensen tap/hold) → utvid til sveipefelt
+  const SWIPE_MOVE = 8;       // px bevegelse som også starter sveipet
+  const SHAKE_MS = 500;       // rist-varighet etter tømming
+
+  // Ett gjenbrukt, fixed sveipefelt-overlay (deles av alle tre knappene).
+  let swipeEl = null, swipeIconEl = null;
+  function ensureSwipeField() {
+    if (swipeEl) return swipeEl;
+    swipeEl = document.createElement('div');
+    swipeEl.className = 'swipe-field';
+    swipeEl.innerHTML =
+      '<span class="swipe-icon" aria-hidden="true">🗑️</span>' +
+      '<span class="swipe-label">Sveip for å tømme</span>' +
+      '<span class="swipe-arrow" aria-hidden="true">→</span>';
+    document.body.appendChild(swipeEl);
+    swipeIconEl = swipeEl.querySelector('.swipe-icon');
+    return swipeEl;
+  }
+  const COLLAPSE_W = 40;
 
   function attachTrashHold(btn, api) {
-    let holdStart = 0, raf = null, phase = null, releaseStart = 0, releaseFromP = 0;
-    let completed = false, holding = false, ignoreClick = false, pid = null;
+    let pid = null, startX = 0, startY = 0;
+    let mode = null;           // null | 'pending' | 'swiping' | 'done'
+    let holdTimer = null, ignoreClick = false;
+    let swStart = 0, swEnd = 0; // sveip-strekk i klient-koordinater
 
-    function paint(p) {
-      const scale = 1 + 0.38 * p;         // vokser gradvis (opp mot 1.38×)
-      const amp = 6 * p * p;              // rister mer og mer (super-lineært)
-      const rot = 8 * p * p;
-      const jx = (Math.random() * 2 - 1) * amp;
-      const jy = (Math.random() * 2 - 1) * amp;
-      const jr = (Math.random() * 2 - 1) * rot;
-      btn.style.transform = 'translate(' + jx + 'px,' + jy + 'px) rotate(' + jr + 'deg) scale(' + scale + ')';
-      btn.style.setProperty('--charge', p.toFixed(3)); // CSS bruker denne til rødhet/glød
+    function setProgress(p) {
+      if (!swipeEl) return;
+      swipeEl.style.setProperty('--p', p.toFixed(3));
+      swipeIconEl.style.transform = 'rotate(' + (p * 180) + 'deg)';
     }
-    function clearPaint() {
-      btn.classList.remove('trash-charging');
-      btn.style.transform = '';
-      btn.style.transition = '';
-      btn.style.removeProperty('--charge');
+    function openField() {
+      if (api.count() <= 0) return;    // ingenting å tømme
+      mode = 'swiping';
+      const r = btn.getBoundingClientRect();
+      const vw = window.innerWidth || document.documentElement.clientWidth || 360;
+      const vh = window.innerHeight || 800;
+      const EDGE = 8, PAST = 44;        // PAST = plass til å sveipe litt forbi høyre ende
+      const H = Math.max(38, Math.round(r.height) + 8);
+      let width = Math.min(236, vw - 2 * EDGE - PAST);
+      let left = r.left + r.width / 2 - COLLAPSE_W / 2; // start rundt ikonet
+      if (left + width > vw - EDGE - PAST) left = vw - EDGE - PAST - width;
+      if (left < EDGE) left = EDGE;
+      let top = Math.round(r.top + r.height / 2 - H / 2);
+      top = Math.max(EDGE, Math.min(top, vh - H - EDGE));
+
+      const field = ensureSwipeField();
+      swipeIconEl.classList.remove('shake');
+      field.style.transition = 'none';
+      field.style.left = left + 'px';
+      field.style.top = top + 'px';
+      field.style.height = H + 'px';
+      field.style.width = COLLAPSE_W + 'px';   // start kollapset
+      field.classList.add('open');
+      setProgress(0);
+      void field.offsetWidth;                  // reflow → animér åpningen
+      field.style.transition = '';
+      field.style.width = width + 'px';
+
+      // Sveip-strekk: fra ikon-senter til nær feltets høyre ende.
+      swStart = left + H * 0.5;
+      swEnd = left + width - 16;
+      if (swEnd - swStart < 90) swEnd = swStart + 90;
     }
-    function frame(now) {
-      if (phase === 'charging') {
-        const p = Math.min(1, (now - holdStart) / HOLD_MS);
-        paint(p);
-        if (p >= 1) {
-          completed = true;
-          phase = 'releasing'; releaseStart = now; releaseFromP = 1;
-          api.empty();          // 3 s nådd → tøm
-        }
-        raf = requestAnimationFrame(frame);
-      } else if (phase === 'releasing') {
-        const t = Math.min(1, (now - releaseStart) / RELEASE_MS);
-        paint(releaseFromP * (1 - t));
-        if (t >= 1) { phase = null; raf = null; clearPaint(); return; }
-        raf = requestAnimationFrame(frame);
-      }
+    function collapseField() {
+      if (!swipeEl) return;
+      swipeEl.style.width = COLLAPSE_W + 'px';
+      swipeEl.classList.remove('open');
+      swipeIconEl.style.transform = 'rotate(0deg)';
+      swipeEl.style.removeProperty('--p');
     }
-    function startCharge() {
-      if (raf != null) cancelAnimationFrame(raf);
-      btn.classList.add('trash-charging');
-      btn.style.transition = 'none';
-      phase = 'charging'; completed = false;
-      raf = requestAnimationFrame(frame);
-    }
-    function beginRelease() {
-      if (phase !== 'charging') return;
-      releaseFromP = Math.min(1, (performance.now() - holdStart) / HOLD_MS);
-      releaseStart = performance.now();
-      phase = 'releasing'; // raf-løkka fanger overgangen
+    function fireEmpty() {
+      mode = 'done';
+      setProgress(1);
+      swipeIconEl.classList.add('shake'); // opp-ned + rist 500 ms
+      api.empty();
+      setTimeout(() => {
+        if (swipeIconEl) swipeIconEl.classList.remove('shake');
+        collapseField();                  // roter tilbake + kollaps
+      }, SHAKE_MS);
     }
 
     btn.addEventListener('pointerdown', (ev) => {
@@ -1706,26 +1737,42 @@
       ev.preventDefault();
       pid = ev.pointerId;
       try { btn.setPointerCapture(pid); } catch (e) { /* ignore */ }
-      holding = true;
-      holdStart = performance.now();
-      if (api.count() > 0) startCharge();
+      startX = ev.clientX; startY = ev.clientY;
+      mode = 'pending';
+      clearTimeout(holdTimer);
+      holdTimer = setTimeout(() => { if (mode === 'pending') openField(); }, HOLD_EXPAND_MS);
     });
-    btn.addEventListener('pointerup', () => {
-      if (!holding) return;
-      holding = false;
-      try { btn.releasePointerCapture(pid); } catch (e) { /* ignore */ }
-      ignoreClick = true;
-      setTimeout(() => { ignoreClick = false; }, 350);
-      const elapsed = performance.now() - holdStart;
-      if (completed) return;             // allerede tømt → bare fade ut
-      beginRelease();
-      if (elapsed < TAP_MS) api.open();  // kort trykk → åpne modal
+    btn.addEventListener('pointermove', (ev) => {
+      if (mode === 'pending' &&
+          (Math.abs(ev.clientX - startX) > SWIPE_MOVE || Math.abs(ev.clientY - startY) > SWIPE_MOVE)) {
+        clearTimeout(holdTimer); holdTimer = null;
+        openField();                        // rask sveip rett fra trykket
+      }
+      if (mode === 'swiping') {
+        const p = Math.max(0, Math.min(1, (ev.clientX - swStart) / (swEnd - swStart)));
+        setProgress(p);
+        if (p >= 1) fireEmpty();            // nådd høyre ende (opp-ned) → tøm
+      }
     });
-    btn.addEventListener('pointercancel', () => {
-      if (!holding) return;
-      holding = false;
-      if (!completed) beginRelease();
-    });
+    const onUp = (ev) => {
+      if (pid != null) { try { btn.releasePointerCapture(pid); } catch (e) { /* ignore */ } }
+      clearTimeout(holdTimer); holdTimer = null;
+      // Svelg det etterfølgende (peker-genererte) klikket uansett, så det verken
+      // åpner modalen på nytt (etter sveip) eller treffer modal-overlay-en.
+      ignoreClick = true; setTimeout(() => { ignoreClick = false; }, 350);
+      const moved = Math.abs(ev.clientX - startX) > SWIPE_MOVE || Math.abs(ev.clientY - startY) > SWIPE_MOVE;
+      // Slapp før feltet rakk å utvide seg (mode fortsatt 'pending'), uten bevegelse
+      // → kort trykk → åpne modalen (utsatt til etter click-sekvensen).
+      if (mode === 'pending' && !moved) {
+        mode = null;
+        setTimeout(() => api.open(), 0);
+        return;
+      }
+      if (mode === 'swiping') collapseField(); // slapp før høyre ende → kollaps uten tømming
+      if (mode !== 'done') mode = null;        // 'done' rydder seg selv (fireEmpty)
+    };
+    btn.addEventListener('pointerup', onUp);
+    btn.addEventListener('pointercancel', onUp);
     // Tastatur (Enter/Mellomrom) → syntetisk click uten peker: åpne modalen.
     btn.addEventListener('click', (ev) => {
       if (ignoreClick) { ignoreClick = false; ev.preventDefault(); ev.stopPropagation(); return; }

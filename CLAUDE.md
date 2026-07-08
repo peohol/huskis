@@ -312,24 +312,32 @@ skjules fra sitt nivå (`visibleGroups()` / `activeCards()` / ikke-`trashed` ele
   grupper i den** (`updateGroupsTrash` → `appHeader.has-trashed-groups`, `[hidden]` ellers).
   På **mobil-overflow** festes den til venstre (`position: sticky; left: 0`) med en **fade på høyre
   side** (`--header-solid`-gradient), så gruppekortene scroller mykt bak den — speiler «＋»-sonen
-  til høyre. Bar-en gir da fra seg sitt venstre-innrykk til søppelkassen (`padding-left: 0`).
+  til høyre. Begge fadene er **smale** (`--fade-w: 22px`) så kortene når nær kantene. Sonen selv er
+  `pointer-events: none` (kun knappen fanger), så et kort delvis bak faden fortsatt kan dras/trykkes.
+  Bar-en gir fra seg venstre-innrykket til søppelkassen, og får **høyre-innrykk ved overflow**
+  (`padding-right: 46px`) så **siste** gruppe-korts sletteknapp ikke gjemmes bak «＋».
 - **Lister** (`#trash-btn`, verktøylinja): per **aktiv gruppe** (`trashedCards()`/`allCards()` er
   gruppe-scopet). Tidligere «Papirkurv»-tekst er fjernet; kun emoji + tellepille.
 - **Elementer** (`.item-trash`, i hvert listekort): **midtstilt nederst i kortet**, under «Legg
   til»-feltet, og vises **kun når kortet har slettede elementer**.
 
 **Interaksjon (`attachTrashHold`)** — felles for alle tre knappene:
-- **Kort trykk** (< `TAP_MS`) → åpner **søppelkasse-modalen** (felles `#trash-modal`, fylt av
+- **Kort trykk** → åpner **søppelkasse-modalen** (felles `#trash-modal`, fylt av
   `showTrashModal({title, note, rows, empty})`). Der kan man **Gjenopprett**e enkeltvis
-  (`trashed: false`) eller **Tøm permanent** (med bekreftelse).
-- **Hold inne i 3 s** (`HOLD_MS`) → **tømmer direkte, uten modal**. Knappen «lader opp»: JS driver
-  `transform` (rister mer og mer + vokser) via `requestAnimationFrame` og setter `--charge` (0→1);
-  CSS bruker `--charge` til gradvis **rødhet + glød** (`::after`-overlay) — som om den varmer seg
-  opp mot å eksplodere. Ved 3 s tømmes den; slipper man før 3 s (eller når den er tømt) **fader
-  den tilbake** (`RELEASE_MS`).
+  (`trashed: false`) eller **Tøm permanent** (med bekreftelse). Modalen åpnes via `setTimeout(…, 0)`
+  (etter click-sekvensen) så det peker-genererte klikket ikke treffer overlay-en og lukker den igjen.
+- **Klikk-og-hold** (> `HOLD_EXPAND_MS`, eller start med bevegelse) → knappen utvider seg til et
+  **sveipefelt** (ett gjenbrukt, `position: fixed` overlay `.swipe-field`, plassert ved knappen og
+  klemt innenfor viewporten med plass til å sveipe litt forbi høyre ende): «🗑️ Sveip for å tømme →».
+  Sveiper man mot høyre roterer søppelkasse-ikonet gradvis (`rotate(p·180°)`) og blir **opp-ned** helt
+  til høyre (`p ≥ 1`); da **tømmes** den — ikonet **rister i 500 ms** (`SHAKE_MS`), roterer tilbake og
+  feltet **kollapser**. Slipper man **før** høyre ende, kollapser feltet **uten** å tømme. `--p` (0→1)
+  driver en grønn fylling i feltet.
 - Tømming gir permanente **gravsteiner**: `emptyGroupsTrash` (gruppe + dens lister + elementer),
   `emptyCardsTrash` (liste + dens elementer), `emptyItemsTrash` (elementer). `refreshCard()`
-  bygger ett kort på nytt etter element-endringer (uten å tegne hele tavla).
+  bygger ett kort på nytt etter element-endringer (uten å tegne hele tavla). Sveipefeltet er
+  frikoblet fra knappen (ligger på `body`), så tømming som fjerner knappen (element-kortet bygges
+  på nytt) ikke avbryter rist/kollaps-animasjonen.
 
 ## Fargepalett
 
@@ -402,10 +410,20 @@ skjules fra sitt nivå (`visibleGroups()` / `activeCards()` / ikke-`trashed` ele
 - [x] Gruppe-søppelkasse helt til venstre i headeren (kun når den har innhold); mobil-overflow: festet
       til venstre med fade, gruppekortene scroller bak den. Lister-søppelkasse: fjernet «Papirkurv»-tekst
 - [x] Element-søppelkasse midtstilt nederst i hvert listekort (kun når den har slettede elementer)
-- [x] Hold-inne-i-3-s-for-å-tømme (`attachTrashHold`): rister/vokser/blir rødere («varmer seg opp»),
-      fader tilbake ved slipp/tømming; kort trykk åpner felles søppelkasse-modal (gjenopprett/tøm)
-- [x] Testet i nettleser (Playwright): 3 nivåer slett/gjenopprett/tøm-via-modal, hold-3s-tøm (inkl.
-      knapp som destrueres), rist/rødhet mid-hold, mobil gruppe-fade, felt-nivå fletting av `trashed`
+- [x] Kort trykk åpner felles søppelkasse-modal (gjenopprett/tøm); modalen åpnes utsatt så det
+      etterfølgende klikket ikke lukker den igjen (fikset: modal åpnet ikke for gruppe-/liste-kurv)
+- [x] **Sveip-for-å-tømme** (`attachTrashHold` + `.swipe-field`): klikk-og-hold utvider knappen til et
+      sveipefelt («Sveip for å tømme →»); sveip til høyre roterer ikonet til opp-ned og tømmer (rister
+      500 ms, kollapser); slipp før høyre ende kollapser uten å tømme. Erstatter hold-3s-animasjonen
+      (som ble skjult bak tommelen på mobil)
+- [x] Mobil: smalere fader (`--fade-w: 22px`) + bar-`padding-right` så siste gruppe-korts sletteknapp
+      ikke gjemmes bak «＋»; fade-sonene er `pointer-events: none` så kort bak dem er trykkbare
+- [x] Fikset (fra før, uavhengig): element-overføring mistet det flyttede elementet + reconcile
+      droppet skjulte slettede elementer — `reconcileItems` bruker nå ett felles pool-øyeblikksbilde
+      og bevarer `trashed`-elementer
+- [x] Testet i nettleser (Playwright): 3 nivåer tap→modal/gjenopprett/tøm-via-modal, sveip-tøm på alle
+      tre (inkl. knapp som destrueres), delvis sveip avbryter, mobil fade/overflow + siste-kort-klarering,
+      element-DnD (reorder + overføring, med/uten slettede), felt-nivå fletting av `trashed`
 
 ## Hvordan kjøre
 
