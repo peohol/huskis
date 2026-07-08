@@ -15,9 +15,9 @@
     <!-- Gruppene brukeren har opprettet. Venstreorientert rad; bryter til flere
          rader på desktop, horisontal scroll på mobil. «＋» oppretter ny gruppe. -->
     <div class="groups-bar" id="groups-bar" role="tablist" aria-label="Grupper">
-      <!-- Gruppe-søppelkasse: helt til venstre, vises kun når det ligger grupper i
-           den. Kun emoji + antall. På mobil-overflow blir den «festet» til venstre
-           med en fade, slik at gruppekortene scroller mykt bak den. -->
+      <!-- Gruppe-søppelkasse (inline): vises helt til venstre når det ligger grupper i
+           den (kun emoji + antall). På mobil-overflow skjules denne og #groups-trash-pin
+           overtar som fast full-høyde sone (se CSS). -->
       <div class="groups-trash" id="groups-trash" hidden>
         <button class="trashcan groups-trash-btn" id="groups-trash-btn" type="button"
                 title="Slettede grupper – trykk for å åpne, hold inne for å tømme"
@@ -29,9 +29,17 @@
       <button class="add-group-btn add-group-inline" id="add-group-btn" type="button"
               title="Ny gruppe" aria-label="Ny gruppe">＋</button>
     </div>
-    <!-- Mobil: når gruppekortene overskrider bredden, ligger «＋» statisk til
-         høyre i en ugjennomsiktig sone, og kortene scroller forbi bak en
-         fade-gradient (satt på selve sonen). -->
+    <!-- Mobil-overflow: to faste, full-høyde soner utenfor scroll-feltet — søppelkasse
+         til venstre og «＋» til høyre. Gruppe-raden (scroll-feltet) ligger mellom dem
+         (bar-marger), og fader ut mot begge soner via en mask på selve raden. -->
+    <div class="groups-trash-pin" id="groups-trash-pin">
+      <button class="trashcan groups-trash-btn" id="groups-trash-pinned" type="button"
+              title="Slettede grupper – trykk for å åpne, hold inne for å tømme"
+              aria-label="Slettede grupper">
+        <span class="trashcan-icon" aria-hidden="true">🗑️</span>
+        <span class="trashcan-count" id="groups-trash-count-pinned">0</span>
+      </button>
+    </div>
     <div class="groups-pin" id="groups-pin">
       <button class="add-group-btn add-group-pinned" id="add-group-pinned" type="button"
               title="Ny gruppe" aria-label="Ny gruppe">＋</button>

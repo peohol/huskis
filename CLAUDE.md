@@ -98,18 +98,23 @@ Den viser en **venstreorientert rad** med gruppekort (`#groups-bar`), etterfulgt
   header-paddingen som luft ned mot kanten). På ekte touch-enheter er nettleserens scrollbar
   uansett overlay/skjult, så dette treffer først og fremst **smale PC-vinduer** (der
   mobil-layoutet også slår inn) og gir en synlig scroll-indikator. Får kortene plass, vises
-  «＋» inline etter siste kort.
+  «＋» (og evt. søppelkassen) inline i raden.
   **Overskrider** kortene bredden (`updateGroupsOverflow()` setter `.groups-overflow` på
-  headeren), festes «＋» **statisk til høyre** i en **ugjennomsiktig sone** (`.groups-pin`,
-  `position: absolute`, bakgrunn `--header-solid`). Fordi headeren selv er delvis
-  gjennomsiktig, MÅ denne sonen være ugjennomsiktig for at kortene skal forsvinne helt bak
-  knappen. Faden er en **ren opacity-gradient** (transparent → `--header-solid`) satt på
-  selve sonen — **ingen** `backdrop-blur` (en uniform uklarhet toner ikke, den bare smører).
-  Gruppe-raden er **full-bleed** på mobil (headeren dropper side-padding; hvile-innrykket for
-  første kort gis av bar-ens `padding-left`, som scroller bort) så kortene kan scrolle **helt
-  ut til BEGGE kantene** og oppløses i faden — ikke klippes for tidlig med et tomt mellomrom.
-  Overflow-målingen kompenserer for skjult inline-«＋» så den ikke veksler frem/tilbake nær
-  grensen. Under gruppe-draging auto-scroller raden horisontalt når
+  headeren), legges **to faste, full-høyde soner** utenfor scroll-feltet: **«＋» til høyre**
+  (`.groups-pin`) og **søppelkassen til venstre** (`.groups-trash-pin`, kun når den har
+  innhold) — begge `position: absolute`, `top/bottom: 0`. Hver sone er en **ugjennomsiktig**
+  blokk (`--header-solid`) med en **smal fade på innsiden** (mot kortene), satt som én
+  gradient på selve sonen (solid → transparent) så det ikke blir noen synlig skjøt. Selve
+  scroll-feltet (gruppe-raden) er **klemt mellom sonene** via bar-marger (`margin-left/right`
+  = sonenes solide bredde), så kortene scroller **aldri bak** sonene — feltet slutter nøyaktig
+  der en sone begynner, og kortene oppløses i innsidefaden. Fadene er **like brede** på begge
+  sider (`--fade-w: 14px`), og kortenes **hvile-innrykk = fade-bredden** (`padding: 0 var(--fade-w)`).
+  De faste sonene er `pointer-events: none` (kun knappene fanger), så et kort delvis under en
+  fade er fortsatt trykkbart. Overflow-**målingen** er flip-flop-fri: den summerer kortenes egne
+  bredder + faste sone-/fade-bredder og sammenligner mot viewporten (uavhengig av
+  `.groups-overflow`-klassen, som ellers endrer bar-bredden). På desktop / uten overflow er
+  søppelkassen i stedet **inline** i raden (`#groups-trash`); ved overflow skjules den og
+  `.groups-trash-pin` overtar. Under gruppe-draging auto-scroller raden horisontalt når
   pekeren nærmer seg venstre/høyre kant (`updateGroupAutoScroll`).
 
 ## Dra-og-slipp-logikk (kjernen)
@@ -308,18 +313,16 @@ permanent sletting (med gravstein) skjer **først når søppelkassen tømmes**. 
 skjules fra sitt nivå (`visibleGroups()` / `activeCards()` / ikke-`trashed` elementer i kortet).
 
 **Tre søppelkasse-knapper** — hver viser **kun en søppelkasse-emoji + et tall** (ingen tekst-etikett):
-- **Grupper** (`#groups-trash`): helt til **venstre i headeren**, og vises **kun når det ligger
-  grupper i den** (`updateGroupsTrash` → `appHeader.has-trashed-groups`, `[hidden]` ellers).
-  På **mobil-overflow** festes den til venstre (`position: sticky; left: 0`) med en **fade på høyre
-  side** (`--header-solid`-gradient), så gruppekortene scroller mykt bak den — speiler «＋»-sonen
-  til høyre. Begge fadene er **smale** (`--fade-w: 22px`) så kortene når nær kantene. Sonen har
-  **ingen boks-skygge** og **dekker hele gruppe-radens høyde** (negative vertikale marger som spiser
-  opp bar-paddingen), så gruppekortenes skygger forsvinner helt bak den i stedet for å klippes og
-  legge seg oppå. Sonen er `pointer-events: none` (kun knappen fanger), så et kort delvis bak faden
-  fortsatt kan dras/trykkes. Bar-en gir fra seg venstre-innrykket til søppelkassen (lite innrykk),
-  og får **høyre-innrykk ved overflow** (`padding-right: 54px`) så **siste** gruppe-korts sletteknapp
-  ikke gjemmes bak «＋». Gruppekortene har en **tett boks-skygge** (ikke `shadow-md`) og bar-en har
-  vertikal luft (`padding: 9px 0`) så skyggene får plass uten å klippes av radens `overflow`.
+- **Grupper**: helt til **venstre i headeren**, vises **kun når det ligger grupper i den**
+  (`updateGroupsTrash` → `appHeader.has-trashed-groups`). To varianter: **inline** i raden
+  (`#groups-trash`) på desktop / uten overflow, og en **fast full-høyde sone**
+  (`#groups-trash-pin`) ved mobil-overflow. Ved overflow ligger søppelkassen (venstre) og «＋»
+  (høyre) som faste, ugjennomsiktige soner med en **smal innsidefade** UTENFOR scroll-feltet;
+  gruppe-raden er klemt mellom dem, så kortene scroller **aldri bak** sonene (se «Grupper
+  (header) → Responsiv layout» for detaljer: like brede fader `--fade-w`, padding = fade-bredde,
+  full-høyde soner uten skygge, flip-flop-fri overflow-måling). Gruppekortene har en **tett
+  boks-skygge** (ikke `shadow-md`) og bar-en har vertikal luft (`padding: 9px 0`) så skyggene
+  får plass uten å klippes av radens `overflow`.
 - **Lister** (`#trash-btn`, verktøylinja): per **aktiv gruppe** (`trashedCards()`/`allCards()` er
   gruppe-scopet). Tidligere «Papirkurv»-tekst er fjernet; kun emoji + tellepille.
 - **Elementer** (`.item-trash`, i hvert listekort): **midtstilt nederst i kortet**, under «Legg
@@ -425,6 +428,9 @@ skjules fra sitt nivå (`visibleGroups()` / `activeCards()` / ikke-`trashed` ele
       (som ble skjult bak tommelen på mobil)
 - [x] Mobil: smalere fader (`--fade-w: 22px`) + bar-`padding-right` så siste gruppe-korts sletteknapp
       ikke gjemmes bak «＋»; fade-sonene er `pointer-events: none` så kort bak dem er trykkbare
+- [x] Mobil-overflow omdesignet: scroll-feltet **klemt mellom** to faste full-høyde soner (søppelkasse
+      venstre + «＋» høyre), kortene scroller ikke lenger bak sonene; like brede smale innsidefader
+      (`--fade-w: 14px`), padding = fade-bredde; flip-flop-fri overflow-måling (kortbredder vs viewport)
 - [x] Fikset (fra før, uavhengig): element-overføring mistet det flyttede elementet + reconcile
       droppet skjulte slettede elementer — `reconcileItems` bruker nå ett felles pool-øyeblikksbilde
       og bevarer `trashed`-elementer

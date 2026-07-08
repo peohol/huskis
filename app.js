@@ -326,10 +326,13 @@
   const trashEmptyBtn = document.getElementById('trash-empty');
   const modalNote = document.getElementById('trash-note');
 
-  // Gruppe-søppelkasse (helt til venstre i headeren)
+  // Gruppe-søppelkasse (helt til venstre i headeren): inline (i raden) på desktop /
+  // uten overflow; fast full-høyde sone (#groups-trash-pin) ved mobil-overflow.
   const groupsTrash = document.getElementById('groups-trash');
   const groupsTrashBtn = document.getElementById('groups-trash-btn');
   const groupsTrashCount = document.getElementById('groups-trash-count');
+  const groupsTrashPinnedBtn = document.getElementById('groups-trash-pinned');
+  const groupsTrashCountPinned = document.getElementById('groups-trash-count-pinned');
 
   const posCmp = (a, b) => (a.pos - b.pos) || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0);
   // Gruppe-scope: «aktive» kort/elementer gjelder alltid den aktive gruppen.
@@ -461,6 +464,7 @@
   function updateGroupsTrash() {
     const n = trashedGroups().length;
     groupsTrashCount.textContent = n;
+    groupsTrashCountPinned.textContent = n;
     groupsTrash.hidden = n === 0;
     appHeader.classList.toggle('has-trashed-groups', n > 0);
   }
@@ -1451,17 +1455,23 @@
     groupScrollSpeed = 0;
   }
 
-  /* ------- Overflow: på mobil legges «＋» statisk til høyre i ugjennomsiktig sone -------
-     Målet er stabilt (unngår flip-flop): når vi allerede er i overflow er inline-«＋»
-     skjult, så vi legger dens bredde tilbake i regnestykket. groups-bar sin clientWidth
-     endres ikke av klassen (ingen padding-endring), så målingen er konsistent. */
-  const INLINE_ADD_W = 46; // inline «＋» + gap, brukt som stabil reserve
+  /* ------- Overflow (mobil): fast søppelkasse- + «＋»-sone rundt scroll-feltet -------
+     Ved overflow ligger søppelkassen (venstre) og «＋» (høyre) som faste, full-høyde
+     soner UTENFOR scroll-feltet; gruppe-raden er klemt mellom dem (bar-marger) og
+     fader ut mot begge via en mask. Behovsbredden måles flip-flop-fritt fra kortenes
+     egne (intrinsiske) bredder + faste sone-/fade-bredder mot viewport — uavhengig av
+     om overflow-klassen er på (som ellers endrer bar-bredden og gir flip-flop).
+     MÅ holdes i takt med CSS: --fade-w / --trash-zone-w / --plus-zone-w og gap. */
+  const FADE_W = 14, TRASH_ZONE_W = 54, PLUS_ZONE_W = 46, GROUP_GAP = 8;
   function updateGroupsOverflow() {
     const mobile = window.matchMedia('(max-width: 560px)').matches;
     if (!mobile) { appHeader.classList.remove('groups-overflow'); return; }
-    const compensate = appHeader.classList.contains('groups-overflow') ? INLINE_ADD_W : 0;
-    const content = groupsBar.scrollWidth + compensate;
-    appHeader.classList.toggle('groups-overflow', content - groupsBar.clientWidth > 1);
+    const cards = [...groupsBar.querySelectorAll('.group-card')];
+    let need = 2 * FADE_W + PLUS_ZONE_W;                 // padding beggie sider + «＋»-sone
+    if (trashedGroups().length) need += TRASH_ZONE_W;    // søppelkasse-sone (kun med innhold)
+    cards.forEach((c) => { need += c.getBoundingClientRect().width; });
+    need += Math.max(0, cards.length - 1) * GROUP_GAP;  // mellomrom mellom kort
+    appHeader.classList.toggle('groups-overflow', need > appHeader.clientWidth + 1);
   }
   window.addEventListener('resize', updateGroupsOverflow);
 
@@ -1788,11 +1798,13 @@
     open: openCardsTrash,
     empty: emptyCardsTrash,
   });
-  attachTrashHold(groupsTrashBtn, {
+  const groupsTrashApi = {
     count: () => trashedGroups().length,
     open: openGroupsTrash,
     empty: emptyGroupsTrash,
-  });
+  };
+  attachTrashHold(groupsTrashBtn, groupsTrashApi);       // inline (desktop / uten overflow)
+  attachTrashHold(groupsTrashPinnedBtn, groupsTrashApi); // fast sone (mobil-overflow)
 
   trashClose.addEventListener('click', closeTrash);
   // Klikk på selve overlay-en (utenfor modal-boksen) lukker — men ignorér det
