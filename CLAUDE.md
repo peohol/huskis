@@ -67,61 +67,55 @@ Design:
 
 ## Grupper (header)
 
-Headeren ligger **fast øverst** (`position: fixed`, uavhengig av scrolling — mer robust
-enn `sticky`, som svikter med `backdrop-filter` på iOS Safari) og alt annet innhold scroller
-bak den. Siden en fast header er ute av flyten, måles høyden i JS (`ResizeObserver`) og
-eksponeres som `--header-h` så `.app-main` får riktig topp-padding (høyden varierer med
-gruppe-radens ombrekking / antall grupper / mobil↔desktop). Headeren viser en
-**venstreorientert rad** med gruppekort (`#groups-bar`), etterfulgt av en **«＋»-knapp** som
-oppretter ny gruppe.
+Headeren ligger **fast** (`position: fixed`, uavhengig av scrolling — mer robust enn
+`sticky`, som svikter med `backdrop-filter` på iOS Safari) og alt annet innhold scroller bak
+den. **Layouten er ulik på desktop og mobil** (én felles DOM, delt i to media-queryer så
+egenskaper ikke lekker mellom modusene):
 
-- **Gruppekort** (`.group-card`, mal `#group-template`) ser ut som et liste-element:
-  håndtak til venstre, navn i midten, slett-knapp til høyre — men **bredden følger navnet**
-  (`display: inline-flex`, `flex: 0 0 auto`; svært lange navn kappes med ellipsis ved
-  `max-width`). Etter navnet vises **antall lister i gruppen** som et **dempet tall**
-  (`.group-count`, `opacity ~0.42`) — mindre «pop» enn navnet. Det aktive kortet er grønt.
+- **Desktop (`min-width: 561px`): headeren er en fast, full-høyde KOLONNE til venstre**
+  (`width: --sidebar-w`, `border-right`). Innholdet stables ovenfra: **søppelkasse (øverst) →
+  gruppekort → «＋» (nederst)** — DOM-rekkefølgen er allerede trash→grupper→«＋», så
+  `flex-direction: column` gir riktig stabling. `.app-main` klareres med `margin-left:
+  --sidebar-w`.
+- **Mobil (`max-width: 560px`): headeren er en fast RAD øverst** (som før), venstreorientert,
+  med horisontal scroll. `.app-main` klareres med topp-padding = `--header-h` + `--toolbar-h`.
+
+- **Gruppekort** (`.group-card`, mal `#group-template`): håndtak, navn, **dempet antall lister**
+  (`.group-count`, `opacity ~0.42`), slett-knapp. På desktop **full bredde** i kolonnen; på
+  mobil følger bredden navnet (`max-width`, ellipsis). Kortene har nå **posisjonsbasert farge**
+  (samme HSL-system som listekort, se «Fargesystem»). Det **aktive** kortet markeres med en
+  **grønn brand-ring** (`outline: 2.5px solid var(--primary)`) rundt den fargede chipen.
 - **Bytte gruppe**: klikk på et kort gjør gruppen aktiv (board-et tegner dens lister).
   Klikk på **navnet til den allerede aktive** gruppen redigerer navnet inline (input som
   vokser med innholdet, `editText(..., { cls:'group-edit', autosize:true })`).
-- **Slette gruppe**: sletter gruppen + **alle dens lister/elementer permanent** (bekreftelse
-  om den ikke er tom) og legger gravsteiner (`_tomb.groups/cards/items`).
+- **Slette gruppe**: legger gruppen i gruppe-søppelkassen (`trashed`-flagg; gjenopprettbar).
 - **Rekkefølge**: dra-og-slipp via håndtaket, med **placeholder + FLIP** som kort/elementer
-  (`startGroupDrag`/`updateGroupPlacement`/`onGroupUp`). Samme **ivrige, retningsstyrte
-  bytte** som lister/elementer, men transponert til den horisontale raden: en **rad** =
-  gruppekort med ≥ 50 % vertikal overlapp med dra-kortet (analogt til «kolonne» for kort).
-  Innen raden byttes ved ≥ 20 % **breddeoverlapp** retningsstyrt (dra høyre → kortet til
-  høyre; dra venstre → til venstre). Føres kortet til en **annen rad** (desktop-wrap),
-  plasseres placeholderen ut fra horisontal senterposisjon (kryss-rad, analogt til
-  kryss-kolonne). «Etter siste kort» legger placeholderen foran «＋». Løftet kort roterer
-  som vanlige kort (`cardRotation()`).
+  (`startGroupDrag`/`updateGroupPlacement`/`onGroupUp`). `updateGroupPlacement` **dispatcher**
+  ut fra orientering (`groupsVertical()`):
+  - **Desktop (`updateGroupPlacementV`)**: én vertikal kolonne — bytt med kortet **over/under**
+    ut fra dra-retningen ved ≥ 20 % **høyde**-overlapp (som elementer i én kolonne).
+  - **Mobil (`updateGroupPlacementH`)**: transponert til raden — en **rad** = kort med ≥ 50 %
+    vertikal overlapp; innen raden byttes ved ≥ 20 % breddeoverlapp retningsstyrt; kryss-rad
+    plasseres etter horisontal senter.
+  «Etter siste kort» legger placeholderen foran «＋». Løftet kort roterer (`cardRotation()`).
 
-**Responsiv layout:**
-- **Desktop**: raden **bryter til flere rader** (`flex-wrap: wrap`) når gruppene fyller
-  bredden; «＋» flyter etter siste kort på siste rad.
-- **Mobil** (`max-width: 560px`): gruppene ligger alltid på **én rad** med **horisontal
-  scroll**. Ved overflow vises en **diskret, app-tilpasset scrollbar** (tynn «flytende»
-  thumb i dempet ink-tone, med luft rundt via transparent kant + `background-clip`, og
-  header-paddingen som luft ned mot kanten). På ekte touch-enheter er nettleserens scrollbar
-  uansett overlay/skjult, så dette treffer først og fremst **smale PC-vinduer** (der
-  mobil-layoutet også slår inn) og gir en synlig scroll-indikator. Får kortene plass, vises
-  «＋» (og evt. søppelkassen) inline i raden.
-  **Overskrider** kortene bredden (`updateGroupsOverflow()` setter `.groups-overflow` på
-  headeren), legges **to faste, full-høyde soner** utenfor scroll-feltet: **«＋» til høyre**
-  (`.groups-pin`) og **søppelkassen til venstre** (`.groups-trash-pin`, kun når den har
-  innhold) — begge `position: absolute`, `top/bottom: 0`. Hver sone er en **ugjennomsiktig**
-  blokk (`--header-solid`) med en **smal fade på innsiden** (mot kortene), satt som én
-  gradient på selve sonen (solid → transparent) så det ikke blir noen synlig skjøt. Selve
-  scroll-feltet (gruppe-raden) er **klemt mellom sonene** via bar-marger (`margin-left/right`
-  = sonenes solide bredde), så kortene scroller **aldri bak** sonene — feltet slutter nøyaktig
-  der en sone begynner, og kortene oppløses i innsidefaden. Fadene er **like brede** på begge
-  sider (`--fade-w: 14px`), og kortenes **hvile-innrykk = fade-bredden** (`padding: 0 var(--fade-w)`).
-  De faste sonene er `pointer-events: none` (kun knappene fanger), så et kort delvis under en
-  fade er fortsatt trykkbart. Overflow-**målingen** er flip-flop-fri: den summerer kortenes egne
-  bredder + faste sone-/fade-bredder og sammenligner mot viewporten (uavhengig av
-  `.groups-overflow`-klassen, som ellers endrer bar-bredden). På desktop / uten overflow er
-  søppelkassen i stedet **inline** i raden (`#groups-trash`); ved overflow skjules den og
-  `.groups-trash-pin` overtar. Under gruppe-draging auto-scroller raden horisontalt når
-  pekeren nærmer seg venstre/høyre kant (`updateGroupAutoScroll`).
+**Overflow (for mange grupper til å få plass):** `updateGroupsOverflow()` setter
+`.groups-overflow` på headeren. Da legges **to faste soner** utenfor scroll-feltet, og
+gruppelista klemmes mellom dem (bar-marger) og oppløses i **innsidefader** (`--header-solid`
+→ transparent, satt som én gradient på sonen, så ingen synlig skjøt; `pointer-events: none`
+så kort delvis under en fade fortsatt er trykkbare):
+- **Desktop**: søppelkasse **øverst** (`.groups-trash-pin`, kun med innhold) + «＋» **nederst**
+  (`.groups-pin`), full bredde, fade på innsiden mot kortene. Kolonnen scroller vertikalt
+  (`updateGroupAutoScroll` scroller `scrollTop` under draging). Overflow **måles i nøytral
+  tilstand** (uten klassen): `groupsBar.scrollHeight > clientHeight` — flip-flop-fritt, siden
+  bar-marginene bare gjelder med klassen.
+- **Mobil**: søppelkasse **venstre** + «＋» **høyre**, full høyde; raden scroller horisontalt.
+  Overflow-**målingen** summerer kortenes intrinsiske bredder + faste sone-/fade-bredder mot
+  viewporten (flip-flop-fritt). Uten overflow vises en diskret, app-tilpasset scrollbar; med
+  overflow overtar de faste sonene og inline-«＋»/-søppelkasse skjules.
+
+Både header- og verktøylinje-høyden måles i JS (`ResizeObserver`) og eksponeres som
+`--header-h` / `--toolbar-h` for riktig klarering (høydene varierer med ombrekking / innhold).
 
 ## Dra-og-slipp-logikk (kjernen)
 
@@ -340,16 +334,13 @@ permanent sletting (med gravstein) skjer **først når søppelkassen tømmes**. 
 skjules fra sitt nivå (`visibleGroups()` / `activeCards()` / ikke-`trashed` elementer i kortet).
 
 **Tre søppelkasse-knapper** — hver viser **kun en søppelkasse-emoji + et tall** (ingen tekst-etikett):
-- **Grupper**: helt til **venstre i headeren**, vises **kun når det ligger grupper i den**
-  (`updateGroupsTrash` → `appHeader.has-trashed-groups`). To varianter: **inline** i raden
-  (`#groups-trash`) på desktop / uten overflow, og en **fast full-høyde sone**
-  (`#groups-trash-pin`) ved mobil-overflow. Ved overflow ligger søppelkassen (venstre) og «＋»
-  (høyre) som faste, ugjennomsiktige soner med en **smal innsidefade** UTENFOR scroll-feltet;
-  gruppe-raden er klemt mellom dem, så kortene scroller **aldri bak** sonene (se «Grupper
-  (header) → Responsiv layout» for detaljer: like brede fader `--fade-w`, padding = fade-bredde,
-  full-høyde soner uten skygge, flip-flop-fri overflow-måling). Gruppekortene har en **tett
-  boks-skygge** (ikke `shadow-md`) og bar-en har vertikal luft (`padding: 9px 0`) så skyggene
-  får plass uten å klippes av radens `overflow`.
+- **Grupper**: i **gruppelista/headeren** — **øverst** i venstre-kolonnen på desktop, **helt til
+  venstre** i raden på mobil. Vises **kun når det ligger grupper i den** (`updateGroupsTrash` →
+  `appHeader.has-trashed-groups`). To varianter: **inline** (`#groups-trash`) uten overflow, og en
+  **fast sone** (`#groups-trash-pin`) ved overflow (topp på desktop, venstre på mobil). Ved overflow
+  ligger søppelkassen og «＋» som faste, ugjennomsiktige soner med en **smal innsidefade** UTENFOR
+  scroll-feltet; gruppelista er klemt mellom dem, så kortene scroller **aldri bak** sonene (se
+  «Grupper (header) → Overflow»).
 - **Lister** (`#trash-btn`, verktøylinja): per **aktiv gruppe** (`trashedCards()`/`allCards()` er
   gruppe-scopet). Tidligere «Papirkurv»-tekst er fjernet; kun emoji + tellepille.
 - **Elementer** (`.item-trash`, i hvert listekort): **midtstilt nederst i kortet**, under «Legg
@@ -376,18 +367,38 @@ skjules fra sitt nivå (`visibleGroups()` / `activeCards()` / ikke-`trashed` ele
   frikoblet fra knappen (ligger på `body`), så tømming som fjerner knappen (element-kortet bygges
   på nytt) ikke avbryter rist/kollaps-animasjonen.
 
-## Fargepalett
+## Fargesystem (HSL, posisjonsbasert)
 
 - **Bakgrunn**: `#667788` (dempet skifer-blå). **Primær aksentfarge**: `#668866` (dempet grønn,
   `--primary`; `--primary-dark` = mørkere grønn). Knapper o.l. er fortsatt hvite.
-- **Kortfarger** velges tilfeldig fra en fast liste med 20 varme oker-/jordtoner (`PALETTE` i
-  `app.js`). Header-farge = litt mørkere variant av kortfargen (via `darken()`). Farge lagres per
-  kort så den er stabil, og velges tilfeldig men unngår å gjenta forrige korts farge.
-- **Fargemigrering** (`recolorOldCards`): kort med en farge utenfor den nye paletten (dvs. laget før
-  paletten ble byttet) får en ny høstfarge ved oppstart og under synk. Fargen er **deterministisk fra
-  kort-id** (`paletteColorForId`) så alle enheter velger samme farge → ingen synk-flimmer. Idempotent
-  (kort som allerede har palett-farge røres ikke), og endringen stemples/synkes som vanlig innhold.
+- **Kort- og gruppefarger utledes av POSISJON** (indeks i den synlige, sorterte lista), ikke en
+  lagret tilfeldig farge. Kortene **re-indekseres og re-fargelegges fortløpende** når man legger
+  til, sletter eller endrer rekkefølge (fargen settes i `render()` / `renderGroups()` via
+  `colorForIndex(i)`, uavhengig av K/P-filteret). Målet er **maksimal separasjon** mellom
+  nabo-kort.
+- **Systemet** (alt i `app.js`, justerbart/skalerbart via konstanter — ikke hardkodede farger):
+  - Alle farger har samme **S = `COLOR_SAT` (20 %)**.
+  - Flere **L-nivåer** utgjør «sett»: `COLOR_LIGHTNESS = [60, 75, 90]`. Man fyller sett 1 (L=60)
+    for de første 12 kortene, sett 2 (L=75) for de neste 12, sett 3 (L=90) for de neste 12, så
+    rundt igjen (`level = floor(i / HUE_COUNT) % COLOR_LIGHTNESS.length`).
+  - Innen et sett hopper **fargetonen (H)** i lange steg (`HUE_STEP = 60`) fordelt på flere
+    forskjøvne «sveip», bygget av `buildHueOrder(HUE_COUNT=12, HUE_STEP=60)` →
+    `[0,60,120,180,240,300, 30,90,150,210,270,330]`. Lange hopp gir nabo-lister god visuell
+    separasjon. `hue = HUE_ORDER[i % HUE_ORDER.length]`.
+  - `hslToHex()` gir hex; `darken()` gir header-/aksentvarianter som før.
+- **Ikke lagret / ikke synket**: fargen er ren presentasjon (utelatt fra synk-doc'et i
+  `cleanCard`/`mergeCardScalar`). Siden rekkefølgen (`pos`) synkes, får alle enheter samme
+  farger. `colorForId(id)` gir en stabil reservefarge til søppelkasse-prikker for entiteter som
+  ikke er synlige (og derfor mangler posisjonsfarge).
 - Mørk tekst (`#37343f`) på lyse flater; lys tekst direkte på bakgrunnen (tom-tilstand, lås-skjerm).
+
+## Verktøylinje (fast meny)
+
+Verktøylinja (`.toolbar`: «Ny liste», lister-søppelkasse, K/P/KP-filter, «Logg ut») er en
+**fast meny** (`position: fixed`, uavhengig av scrolling) med en **litt mer gjennomsiktig**
+bakgrunn enn headeren (`rgba(255,255,255,0.55)` mot headerens `0.72`). Den ligger **øverst til
+høyre for gruppekolonnen på desktop** (`left: --sidebar-w`) og **rett under headeren på mobil**
+(`top: --header-h`). Høyden måles (`--toolbar-h`) så board-et klareres riktig.
 
 ## Merkelapper (K/P) + filter
 
@@ -404,7 +415,7 @@ skjules fra sitt nivå (`visibleGroups()` / `activeCards()` / ikke-`trashed` ele
 - **Verktøylinja** har «Ny liste», lister-**søppelkassen** (per gruppe, se «Søppelkasser»), filteret
   og en **«Logg ut»**-knapp til høyre (synken går uansett fortløpende i bakgrunnen; se under). «Ny
   liste»/søppelkassen er deaktivert når det ikke finnes noen aktiv gruppe. (K/P + filter gjelder
-  lister, uendret.)
+  lister, uendret.) Verktøylinja er nå en **fast meny** (se «Verktøylinje (fast meny)»).
 
 ## Status / TODO
 
@@ -473,6 +484,19 @@ skjules fra sitt nivå (`visibleGroups()` / `activeCards()` / ikke-`trashed` ele
 - [x] Testet i nettleser (Playwright): liste→gruppe-overføring (drop-target/`.to-group`/toast, kilde−1
       / mål+1 bakerst, elementer + `home` bevart, flat synk-doc `card.group` + `posTs`), slipp på egen
       gruppe = ingen overføring, vanlig reorder uendret, persistens over reload (21 sjekker)
+- [x] **Desktop: headeren (gruppelista) er nå en fast venstre-KOLONNE** (transponert fra mobil-raden):
+      søppelkasse øverst → gruppekort → «＋» nederst. Ved overflow pinnes søppelkasse (topp) + «＋» (bunn)
+      med innsidefader, kolonnen scroller vertikalt mellom dem (`updateGroupPlacementV` + vertikal
+      auto-scroll; overflow måles nøytralt via `scrollHeight`). Mobil beholder rad-layouten
+- [x] **Verktøylinja er nå en fast meny** (`.toolbar`, `position: fixed`) — øverst til høyre for kolonnen
+      (desktop) / rett under headeren (mobil, `top: --header-h`); litt mer gjennomsiktig bakgrunn enn
+      headeren; høyde måles som `--toolbar-h` for board-klarering
+- [x] **Nytt fargesystem (HSL, posisjonsbasert)**: S=20 %, L-sett `[60,75,90]`, tone-rekkefølge
+      `[0,60,120,180,240,300,30,90,150,210,270,330]` (`HUE_STEP`/`HUE_COUNT` justerbare). Kort + gruppekort
+      re-indekseres/re-fargelegges ved add/slett/omrokkering; farge er ren presentasjon (ikke lagret/synket)
+- [x] Testet i nettleser (Playwright): desktop venstre-kolonne + fast verktøylinje (bokser), desktop-overflow
+      pinnet søppelkasse-topp/«＋»-bunn m/fade, mobil rad + verktøylinje under, vertikal gruppe-reorder,
+      HSL-farger (tone-rekkefølge + sett-nivåer) + re-indeksering ved sletting
 
 ## Hvordan kjøre
 

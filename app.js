@@ -17,14 +17,70 @@
     { id: 'grp-handlelister', name: 'Handlelister', key: 'handlelister' },
   ];
 
-  // Varm palett i oker-/jordtoner. Header og aksent utledes ved å mørkne bakgrunnen.
-  const PALETTE = [
-    '#F3D6A2', '#EBCB77', '#D8B45A', '#C99A53', '#E7A96B',
-    '#D9875F', '#C9775A', '#E3B39A', '#D6A181', '#BFA36A',
-    '#AFC17A', '#96B36E', '#B9C9A3', '#D6C7A1', '#E7D6B5',
-    '#C6B089', '#B58D6A', '#D1A85F', '#E2C46F', '#C7A35A',
-  ];
-  const PALETTE_SET = new Set(PALETTE.map((c) => c.toLowerCase()));
+  /* ---------------- Fargesystem (HSL, posisjonsbasert) ----------------
+     Kort (og gruppekort) får farge ut fra POSISJONEN sin (indeks i den synlige,
+     sorterte lista) — ikke en lagret tilfeldig farge. Derfor re-indekseres og
+     re-fargelegges de fortløpende når man legger til, sletter eller endrer
+     rekkefølge. Målet er maksimal separasjon mellom nabo-kort:
+       • Alle farger deler samme S.
+       • Flere L-nivåer utgjør «sett»; man fyller sett 1 først, så sett 2, osv.
+       • Innen et sett hopper fargetonen (H) i lange steg (HUE_STEP), fordelt på
+         flere forskjøvne «sveip», så to nabo-indekser ligger langt fra hverandre
+         på fargehjulet.
+     Alt styres av konstantene under (justerbart/skalerbart — endre antall nivåer
+     eller steg uten å røre resten). Farger lagres ikke/synkes ikke; de utledes
+     ved rendring (rekkefølgen `pos` synkes, så alle enheter får samme farger). */
+  const COLOR_SAT = 20;                 // S (%) — likt for alle farger
+  const COLOR_LIGHTNESS = [60, 75, 90]; // L (%) per sett (sett 1, 2, 3 …)
+  const HUE_STEP = 60;                  // hopp mellom nabo-indekser (grader)
+  const HUE_COUNT = 12;                 // antall toner per sett
+
+  // Bygg tone-rekkefølgen: start på 0° og øk med HUE_STEP til vi er rundt, så
+  // start forskjøvet (med den fine oppløsningen) og øk med HUE_STEP igjen, til vi
+  // har HUE_COUNT toner. HUE_STEP=60, HUE_COUNT=12 gir:
+  //   [0,60,120,180,240,300, 30,90,150,210,270,330].
+  function buildHueOrder(count, step) {
+    const fine = 360 / count;                             // fin oppløsning (30° for 12)
+    const perSweep = Math.max(1, Math.round(360 / step)); // toner pr. sveip (6)
+    const sweeps = Math.max(1, Math.round((count * step) / 360)); // antall sveip (2)
+    const order = [];
+    for (let s = 0; s < sweeps && order.length < count; s++) {
+      for (let k = 0; k < perSweep && order.length < count; k++) {
+        order.push(((s * fine) + (k * step)) % 360);
+      }
+    }
+    return order;
+  }
+  const HUE_ORDER = buildHueOrder(HUE_COUNT, HUE_STEP);
+  const COLOR_COUNT = HUE_ORDER.length * COLOR_LIGHTNESS.length; // farger før repetisjon
+
+  function hslToHex(h, s, l) {
+    s /= 100; l /= 100;
+    const a = s * Math.min(l, 1 - l);
+    const f = (n) => {
+      const k = (n + h / 30) % 12;
+      const c = l - a * Math.max(-1, Math.min(k - 3, Math.min(9 - k, 1)));
+      return Math.round(255 * c).toString(16).padStart(2, '0');
+    };
+    return '#' + f(0) + f(8) + f(4);
+  }
+
+  // Farge for indeks i: tonen velges av (i % antall toner), settet (L-nivå) av
+  // hvor mange hele runder vi har fylt (floor(i / antall toner)). Wrapper rundt.
+  function colorForIndex(i) {
+    i = ((i % COLOR_COUNT) + COLOR_COUNT) % COLOR_COUNT;
+    const hue = HUE_ORDER[i % HUE_ORDER.length];
+    const level = Math.floor(i / HUE_ORDER.length) % COLOR_LIGHTNESS.length;
+    return hslToHex(hue, COLOR_SAT, COLOR_LIGHTNESS[level]);
+  }
+  // Stabil reservefarge (f.eks. til søppelkasse-prikker) når en entitet ikke er
+  // synlig og derfor mangler posisjonsfarge: utled deterministisk fra id-en.
+  function colorForId(id) {
+    const s = String(id);
+    let h = 0;
+    for (let i = 0; i < s.length; i++) h = (Math.imul(h, 31) + s.charCodeAt(i)) >>> 0;
+    return colorForIndex(h % COLOR_COUNT);
+  }
 
   /* ---------------- Hjelpere ---------------- */
   const uid = () =>
@@ -43,15 +99,6 @@
     const f = (c) => Math.max(0, Math.round(c * (1 - amt)));
     const to = (c) => c.toString(16).padStart(2, '0');
     return '#' + to(f(r)) + to(f(g)) + to(f(b));
-  }
-
-  function randomColor(avoid) {
-    let c = PALETTE[Math.floor(Math.random() * PALETTE.length)];
-    if (avoid && PALETTE.length > 1) {
-      let guard = 0;
-      while (c === avoid && guard++ < 10) c = PALETTE[Math.floor(Math.random() * PALETTE.length)];
-    }
-    return c;
   }
 
   /* ---------------- Synk-metadata: enhet, klokke, stempling ----------------
@@ -79,29 +126,6 @@
   function stampPos(e) { e.posTs = tick(); e.posOrg = deviceId; } // rekkefølge/forelder
   function stampLabel(e) { e.labTs = tick(); e.labOrg = deviceId; } // merkelapper k/p (eget register)
 
-  // Deterministisk palett-farge fra kort-id (samme farge på alle enheter, så en
-  // fargemigrering ikke gir synk-flimmer). Brukes til å gi eldre kort høstfarger.
-  function paletteColorForId(id) {
-    const s = String(id);
-    let h = 0;
-    for (let i = 0; i < s.length; i++) h = (Math.imul(h, 31) + s.charCodeAt(i)) >>> 0;
-    return PALETTE[h % PALETTE.length];
-  }
-  // Engangs-migrering: gi kort som fortsatt har en farge utenfor den nye paletten
-  // en ny (deterministisk) høstfarge, og stemple innholdsregisteret så den synkes.
-  // Idempotent — kort som allerede har palett-farge røres ikke. Returnerer antall endret.
-  function recolorOldCards(cards) {
-    let n = 0;
-    (cards || []).forEach((c) => {
-      if (!c.color || !PALETTE_SET.has(String(c.color).toLowerCase())) {
-        c.color = paletteColorForId(c.id);
-        stampContent(c);
-        n++;
-      }
-    });
-    return n;
-  }
-
   // Nyere av to registre: sammenlign (ts, org). org bryter uavgjort deterministisk.
   function newer(aTs, aOrg, bTs, bOrg) {
     aTs = aTs || 0; bTs = bTs || 0;
@@ -127,13 +151,11 @@
     };
   }
 
-  let lastColor = null;
   function card(title, items, groupId) {
-    const color = randomColor(lastColor);
-    lastColor = color;
     const id = uid();
     const c = {
-      id, group: groupId || null, title, color, trashed: false, k: true, p: true,
+      // Farge lagres ikke: den utledes av posisjon ved rendring (colorForIndex).
+      id, group: groupId || null, title, trashed: false, k: true, p: true,
       ts: 0, org: deviceId,           // innholdsregister (tittel/farge/trashed)
       labTs: 0, labOrg: deviceId,     // merkelapp-register (k/p) — uavhengig av innhold
       pos: 0, posTs: 0, posOrg: deviceId, // posisjonsregister (rekkefølge + gruppe-forelder)
@@ -300,10 +322,6 @@
   normalize(state);
   hlc = Math.max(hlc, state._hlc || 0);
 
-  // Gi eldre kort (fra før den nye paletten) høstfarger. Idempotent. Muterer
-  // state; persisteres av første render()→save() (etter at synk-let-ene er init).
-  state.groups.forEach((g) => recolorOldCards(g.cards));
-
   /* ---------------- DOM-referanser ---------------- */
   const board = document.getElementById('board');
   const appHeader = document.getElementById('app-header');
@@ -312,6 +330,7 @@
   const addGroupBtn = document.getElementById('add-group-btn');
   const addGroupPinned = document.getElementById('add-group-pinned');
   const addCardBtn = document.getElementById('add-card-btn');
+  const toolbarEl = document.querySelector('.toolbar');
   const filterSwitchesEl = document.getElementById('filter-switches');
   const groupTpl = document.getElementById('group-template');
   const cardTpl = document.getElementById('card-template');
@@ -410,13 +429,16 @@
       const es = document.createElement('div');
       es.className = 'empty-state';
       es.innerHTML = '<div class="big">📂</div><p>Ingen grupper ennå.</p>' +
-        '<p>Trykk «＋» oppe til venstre for å lage en gruppe.</p>';
+        '<p>Trykk «＋» for å lage en gruppe.</p>';
       board.appendChild(es);
       save();
       return;
     }
 
     const active = activeCards();
+    // Posisjonsbasert farge: kortene re-fargelegges her (etter add/slett/omrokkering)
+    // ut fra sin indeks i den synlige, sorterte lista — uavhengig av filteret.
+    active.forEach((c, i) => { c.color = colorForIndex(i); });
     const cards = active.filter(cardMatchesFilter);
 
     if (cards.length === 0) {
@@ -454,7 +476,10 @@
   // grupper vises; slettede ligger i gruppe-søppelkassen (helt til venstre).
   function renderGroups() {
     [...groupsBar.querySelectorAll('.group-card')].forEach((el) => el.remove());
-    visibleGroups().forEach((g) => groupsBar.insertBefore(buildGroupCard(g), addGroupBtn));
+    const vis = visibleGroups();
+    // Gruppekort får farge etter samme posisjonssystem som listekort.
+    vis.forEach((g, i) => { g.color = colorForIndex(i); });
+    vis.forEach((g) => groupsBar.insertBefore(buildGroupCard(g), addGroupBtn));
     updateGroupsTrash();
     updateGroupsOverflow();
   }
@@ -475,6 +500,11 @@
     const isActive = groupData.id === state.activeGroup;
     el.classList.toggle('active', isActive);
     el.setAttribute('aria-selected', isActive ? 'true' : 'false');
+
+    // Farge etter posisjon (samme system som listekort); aksent = mørkere variant.
+    const gBase = groupData.color || colorForId(groupData.id);
+    el.style.setProperty('--g-bg', gBase);
+    el.style.setProperty('--g-accent', darken(gBase, 0.34));
 
     const nameEl = el.querySelector('.group-name');
     nameEl.textContent = groupData.name;
@@ -585,11 +615,12 @@
     const el = cardTpl.content.firstElementChild.cloneNode(true);
     el.dataset.id = cardData.id;
 
-    const head = darken(cardData.color, 0.08);
-    const accent = darken(cardData.color, 0.32);
-    el.style.setProperty('--card-bg', cardData.color);
-    el.style.setProperty('--card-head', head);
-    el.style.setProperty('--card-accent', accent);
+    // Fargen settes normalt av render() (posisjonsbasert); fall tilbake på en
+    // stabil id-farge om kortet bygges utenfor en full render.
+    const base = cardData.color || colorForId(cardData.id);
+    el.style.setProperty('--card-bg', base);
+    el.style.setProperty('--card-head', darken(base, 0.08));
+    el.style.setProperty('--card-accent', darken(base, 0.32));
 
     const titleEl = el.querySelector('.card-title');
     titleEl.textContent = cardData.title;
@@ -1431,13 +1462,57 @@
     updateGroupPlacement(dx, dy);
   }
 
-  // Samme «ivrige» bytte-logikk som kort/elementer, men transponert til den
-  // horisontale gruppe-raden: en **rad** = kort med >= 50 % vertikal overlapp med
+  // Er gruppelista en vertikal kolonne (desktop) eller en horisontal rad (mobil)?
+  function groupsVertical() { return !window.matchMedia('(max-width: 560px)').matches; }
+
+  // Dispatch: samme «ivrige», retningsstyrte bytte-logikk som kort/elementer,
+  // transponert til gruppelistas orientering (vertikal kolonne / horisontal rad).
+  function updateGroupPlacement(dx, dy) {
+    if (groupsVertical()) updateGroupPlacementV(dx, dy);
+    else updateGroupPlacementH(dx, dy);
+  }
+
+  // DESKTOP (vertikal kolonne): som elementer i én kolonne — bytt med kortet
+  // over/under ut fra dra-retningen når de overlapper >= 20 % i høyden.
+  function updateGroupPlacementV(dx, dy) {
+    if (!drag.active || drag.kind !== 'group') return;
+    const dragRect = draggedRect();
+    const cards = [...groupsBar.querySelectorAll('.group-card:not(.dragging)')];
+    if (!cards.length) return;
+    const rects = new Map(cards.map((c) => [c, layoutRect(c)]));
+    const ph = drag.ph;
+    let action = null;
+    if (dy > 0) {
+      let best = null, bestTop = Infinity;
+      for (const c of cards) {
+        const r = rects.get(c);
+        if (r.top >= dragRect.top && vOverlap(dragRect, r) >= SWAP_RATIO * r.height && r.top < bestTop) {
+          bestTop = r.top; best = c;
+        }
+      }
+      if (best) action = { ref: best, pos: 'after' };
+    } else if (dy < 0) {
+      let best = null, bestTop = -Infinity;
+      for (const c of cards) {
+        const r = rects.get(c);
+        if (r.top <= dragRect.top && vOverlap(dragRect, r) >= SWAP_RATIO * r.height && r.top > bestTop) {
+          bestTop = r.top; best = c;
+        }
+      }
+      if (best) action = { ref: best, pos: 'before' };
+    }
+    if (!action || !wouldMove(ph, action.ref, action.pos)) return;
+    const snap = snapshotRects(cards);
+    placePlaceholder(groupsBar, ph, action.ref, action.pos); // 'after' siste kort → foran «＋»
+    flipFrom(snap, FLIP_MS);
+  }
+
+  // MOBIL (horisontal rad): en **rad** = kort med >= 50 % vertikal overlapp med
   // dra-kortet (analogt til «kolonne» for kort). Innen raden byttes retningsstyrt
   // ved >= 20 % BREDDE-overlapp (dra høyre → kortet til høyre; dra venstre → til
-  // venstre). Føres kortet til en annen rad (desktop-wrap), plasseres placeholderen
-  // ut fra horisontal senterposisjon (kryss-rad, analogt til kryss-kolonne).
-  function updateGroupPlacement(dx, dy) {
+  // venstre). Føres kortet til en annen rad (wrap), plasseres placeholderen ut fra
+  // horisontal senterposisjon (kryss-rad, analogt til kryss-kolonne).
+  function updateGroupPlacementH(dx, dy) {
     if (!drag.active || drag.kind !== 'group') return;
     const dragRect = draggedRect();
     const cards = [...groupsBar.querySelectorAll('.group-card:not(.dragging)')];
@@ -1514,15 +1589,25 @@
     save();
   }
 
-  /* ------- Horisontal auto-scroll av gruppe-raden (mobil-overflow) ------- */
-  let groupScrollRAF = null, groupScrollSpeed = 0;
+  /* ------- Auto-scroll av gruppelista under draging (ved overflow) -------
+     Desktop scroller vertikalt (kolonne), mobil horisontalt (rad). */
+  let groupScrollRAF = null, groupScrollSpeed = 0, groupScrollAxis = 'x';
   function updateGroupAutoScroll(ev) {
     if (!drag.active || drag.kind !== 'group') { stopGroupAutoScroll(); return; }
     const r = groupsBar.getBoundingClientRect();
-    const EDGE = 52, x = ev.clientX;
+    const EDGE = 52;
     let speed = 0;
-    if (x < r.left + EDGE) speed = -Math.ceil(((r.left + EDGE - x) / EDGE) * 16);
-    else if (x > r.right - EDGE) speed = Math.ceil(((x - (r.right - EDGE)) / EDGE) * 16);
+    if (groupsVertical()) {
+      groupScrollAxis = 'y';
+      const y = ev.clientY;
+      if (y < r.top + EDGE) speed = -Math.ceil(((r.top + EDGE - y) / EDGE) * 16);
+      else if (y > r.bottom - EDGE) speed = Math.ceil(((y - (r.bottom - EDGE)) / EDGE) * 16);
+    } else {
+      groupScrollAxis = 'x';
+      const x = ev.clientX;
+      if (x < r.left + EDGE) speed = -Math.ceil(((r.left + EDGE - x) / EDGE) * 16);
+      else if (x > r.right - EDGE) speed = Math.ceil(((x - (r.right - EDGE)) / EDGE) * 16);
+    }
     groupScrollSpeed = speed;
     if (speed !== 0) startGroupAutoScroll(); else stopGroupAutoScroll();
   }
@@ -1530,11 +1615,17 @@
     if (groupScrollRAF != null) return;
     const step = () => {
       if (!drag.active || groupScrollSpeed === 0) { groupScrollRAF = null; return; }
-      const before = groupsBar.scrollLeft;
-      groupsBar.scrollLeft += groupScrollSpeed;
-      // Kortene flytter seg når raden ruller → re-evaluer med rulleretningen
-      // som syntetisk drag-retning (som kort-auto-scroll).
-      if (groupsBar.scrollLeft !== before) updateGroupPlacement(groupScrollSpeed > 0 ? 1 : -1, 0);
+      // Kortene flytter seg når feltet ruller → re-evaluer med rulleretningen som
+      // syntetisk drag-retning (som kort-auto-scroll), på rett akse.
+      if (groupScrollAxis === 'y') {
+        const before = groupsBar.scrollTop;
+        groupsBar.scrollTop += groupScrollSpeed;
+        if (groupsBar.scrollTop !== before) updateGroupPlacement(0, groupScrollSpeed > 0 ? 1 : -1);
+      } else {
+        const before = groupsBar.scrollLeft;
+        groupsBar.scrollLeft += groupScrollSpeed;
+        if (groupsBar.scrollLeft !== before) updateGroupPlacement(groupScrollSpeed > 0 ? 1 : -1, 0);
+      }
       groupScrollRAF = requestAnimationFrame(step);
     };
     groupScrollRAF = requestAnimationFrame(step);
@@ -1544,35 +1635,47 @@
     groupScrollSpeed = 0;
   }
 
-  /* ------- Overflow (mobil): fast søppelkasse- + «＋»-sone rundt scroll-feltet -------
-     Ved overflow ligger søppelkassen (venstre) og «＋» (høyre) som faste, full-høyde
-     soner UTENFOR scroll-feltet; gruppe-raden er klemt mellom dem (bar-marger) og
-     fader ut mot begge via en mask. Behovsbredden måles flip-flop-fritt fra kortenes
-     egne (intrinsiske) bredder + faste sone-/fade-bredder mot viewport — uavhengig av
-     om overflow-klassen er på (som ellers endrer bar-bredden og gir flip-flop).
-     MÅ holdes i takt med CSS: --fade-w / --trash-zone-w / --plus-zone-w og gap. */
+  /* ------- Overflow: faste søppelkasse- + «＋»-soner rundt scroll-feltet -------
+     Ved overflow ligger søppelkassen og «＋» som faste soner UTENFOR scroll-feltet
+     (desktop: topp/bunn; mobil: venstre/høyre); gruppelista er klemt mellom dem og
+     oppløses i innsidefadene.
+     • Mobil (rad): behovsbredden måles flip-flop-fritt fra kortenes intrinsiske
+       bredder + faste sone-/fade-bredder mot viewport (uavhengig av overflow-klassen,
+       som ellers endrer bar-bredden). MÅ holdes i takt med CSS.
+     • Desktop (kolonne): måles i NØYTRAL tilstand (uten klassen) via scrollHeight vs
+       clientHeight — også flip-flop-fritt siden bar-marginene bare gjelder med klassen. */
   const FADE_W = 14, TRASH_ZONE_W = 54, PLUS_ZONE_W = 46, GROUP_GAP = 8;
   function updateGroupsOverflow() {
     const mobile = window.matchMedia('(max-width: 560px)').matches;
-    if (!mobile) { appHeader.classList.remove('groups-overflow'); return; }
-    const cards = [...groupsBar.querySelectorAll('.group-card')];
-    let need = 2 * FADE_W + PLUS_ZONE_W;                 // padding beggie sider + «＋»-sone
-    if (trashedGroups().length) need += TRASH_ZONE_W;    // søppelkasse-sone (kun med innhold)
-    cards.forEach((c) => { need += c.getBoundingClientRect().width; });
-    need += Math.max(0, cards.length - 1) * GROUP_GAP;  // mellomrom mellom kort
-    appHeader.classList.toggle('groups-overflow', need > appHeader.clientWidth + 1);
+    if (mobile) {
+      const cards = [...groupsBar.querySelectorAll('.group-card')];
+      let need = 2 * FADE_W + PLUS_ZONE_W;                 // padding begge sider + «＋»-sone
+      if (trashedGroups().length) need += TRASH_ZONE_W;    // søppelkasse-sone (kun med innhold)
+      cards.forEach((c) => { need += c.getBoundingClientRect().width; });
+      need += Math.max(0, cards.length - 1) * GROUP_GAP;  // mellomrom mellom kort
+      appHeader.classList.toggle('groups-overflow', need > appHeader.clientWidth + 1);
+      return;
+    }
+    // Desktop: mål naturlig (uten klassen) om kolonnen er høyere enn synlig område.
+    appHeader.classList.remove('groups-overflow');
+    const overflow = groupsBar.scrollHeight > groupsBar.clientHeight + 1;
+    appHeader.classList.toggle('groups-overflow', overflow);
   }
   window.addEventListener('resize', updateGroupsOverflow);
 
-  // Fast header (position: fixed) er ute av flyten, så .app-main må ha topp-padding
-  // = header-høyden. Høyden varierer (gruppe-raden brekker om / antall grupper /
-  // mobil↔desktop), så vi måler den og eksponerer som --header-h.
+  // Faste (position: fixed) header + verktøylinje er ute av flyten, så innholdet må
+  // få riktig klaring: mobil bruker --header-h (rad-høyden) + --toolbar-h, desktop
+  // bruker --toolbar-h (venstre-kolonnen klareres av margin-left i CSS). Begge måles
+  // og eksponeres som CSS-variabler (høydene varierer med ombrekking / innhold).
   function syncHeaderHeight() {
-    document.documentElement.style.setProperty(
-      '--header-h', appHeader.getBoundingClientRect().height + 'px');
+    const root = document.documentElement.style;
+    root.setProperty('--header-h', appHeader.getBoundingClientRect().height + 'px');
+    if (toolbarEl) root.setProperty('--toolbar-h', toolbarEl.getBoundingClientRect().height + 'px');
   }
   if (typeof ResizeObserver === 'function') {
-    new ResizeObserver(syncHeaderHeight).observe(appHeader);
+    const ro = new ResizeObserver(syncHeaderHeight);
+    ro.observe(appHeader);
+    if (toolbarEl) ro.observe(toolbarEl);
   } else {
     window.addEventListener('resize', syncHeaderHeight);
   }
@@ -1698,6 +1801,7 @@
       note: HOLD_NOTE,
       emptyMsg: 'Ingen slettede grupper.',
       rows: () => trashedGroups().sort(posCmp).map((g) => ({
+        color: g.color || colorForId(g.id),
         name: g.name,
         meta: listWord(g.cards.filter((c) => !c.trashed).length),
         restore: () => {
@@ -1720,7 +1824,7 @@
       note: HOLD_NOTE,
       emptyMsg: 'Ingen slettede lister.',
       rows: () => trashedCards().map((c) => ({
-        color: c.color,
+        color: c.color || colorForId(c.id),
         name: c.title,
         meta: itemWord(c.items.filter((it) => !it.trashed).length),
         restore: () => { c.trashed = false; stampContent(c); render(); save(); },
@@ -2009,7 +2113,8 @@
   }
   function cleanCard(c) {
     return {
-      id: c.id, group: c.group || null, title: c.title, color: c.color, trashed: !!c.trashed,
+      // Farge synkes ikke: den utledes av posisjon på hver enhet (colorForIndex).
+      id: c.id, group: c.group || null, title: c.title, trashed: !!c.trashed,
       k: c.k !== false, p: c.p !== false,
       ts: c.ts || 0, org: c.org || '',
       labTs: c.labTs || 0, labOrg: c.labOrg || '',
@@ -2081,8 +2186,6 @@
         const vis = visibleGroups();
         state.activeGroup = vis.length ? vis[0].id : null;
       }
-      const ex = activeCards();
-      if (ex.length) lastColor = ex[ex.length - 1].color;
       render();
     } finally {
       applyingRemote = false;
@@ -2110,7 +2213,7 @@
     return {
       id: a.id,
       group: posw.group != null ? posw.group : (a.group || b.group || null), // forelder følger posisjon
-      title: content.title, color: content.color || a.color || b.color,
+      title: content.title,
       trashed: !!content.trashed,
       k: labw.k !== false, p: labw.p !== false,
       ts: content.ts || 0, org: content.org || '',
@@ -2285,9 +2388,6 @@
       const localDoc = docFromState();
       const localCanon = canonical(localDoc);
       const mergedDoc = remoteDoc ? mergeStates(localDoc, remoteDoc) : localDoc;
-      // Kort som kommer fra en eldre fjern-tilstand kan ha gamle farger → gi dem
-      // høstfarger her også (idempotent), så de synkes ut til alle enheter.
-      recolorOldCards(mergedDoc.cards);
       const mergedCanon = canonical(mergedDoc);
       const remoteCanon = remoteDoc ? canonical(remoteDoc) : null;
 
@@ -2603,8 +2703,6 @@
     document.body.classList.remove('locked');
     if (!appStarted) {
       appStarted = true;
-      const existing = activeCards();
-      if (existing.length) lastColor = existing[existing.length - 1].color;
       render();
     }
     if (code) await syncConnect(code);
