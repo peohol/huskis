@@ -27,6 +27,8 @@ I hver gruppe (helt som de gamle fanene fungerte):
     det andre kortet flyttes, og en ny placeholder avdekkes der dra-kortet vil lande.
   - Tilsvarende oppover og nedover.
   - Kort kan bytte plass **på tvers av kolonner**.
+- Lister kan **overføres til en annen gruppe** ved å dra listen opp på et gruppekort i
+  headeren (samme idé som å flytte et element til en annen liste).
 - Endre **navn** på kategori ved å klikke på tittelen.
 
 Inne i kortene (listene):
@@ -148,6 +150,27 @@ Bytte utløses av **overlapp**, ikke av et punkt:
   og raskest når kortet holdes forbi selve kanten (`edgeSpeed`, sone = 120 px). Kortet er `fixed`, så
   for at de andre kortene skal bytte plass under rullingen re-kjøres plasseringslogikken
   (`updateCardPlacement(0, ±1)`) med rulleretningen som syntetisk drag-retning på hver frame.
+
+### Overføring av lister mellom grupper (dra en liste opp på et gruppekort)
+
+Analogt til at et **element** kan dras over i en annen liste (`.items-container`), kan en **liste**
+(kort) dras opp på et **gruppekort i headeren** og dermed flyttes til den gruppen. Fordi mål-gruppens
+board **ikke vises** akkurat nå, brukes gruppekortet selv som «drop-target» i stedet for en placeholder:
+
+- Under kort-draging sjekker `onCardMove` om pekeren er **over headeren** (`pointerInHeader`). Er den det,
+  markeres evt. **gyldig mål-gruppe** under pekeren (`cardTransferGroupAt` → et `.group-card` som ikke er
+  den aktive gruppen) via `setCardGroupTarget`: gruppekortet får `.drop-target` (grønn stiplet ramme) og
+  dra-kortet får `.to-group` (gjøres gjennomskinnelig så gruppekortet under synes — dra-kortet ligger
+  `z-index` over headeren). Mens man sikter på headeren **fryses board-et** (ingen `updateCardPlacement`)
+  og side-auto-scroll stanses, så lista ikke bytter plass mens man løfter den opp.
+- Ved slipp over en mål-gruppe (`onCardUp`) overføres lista **kirurgisk**, akkurat som elementer: kortet
+  fjernes fra kilde-gruppens `cards`, `card.group` settes til mål-gruppens id, `pos = maxPos(mål) + 1`
+  (bakerst), og **kun posisjonsregisteret** stemples (`stampPos` — «forelder følger posisjon», jf. flat
+  synk-doc). Deretter `render()` (lista forsvinner fra dette board-et), et lite kvitteringsvarsel
+  (`showToast`) og en kort puls på mål-gruppekortet (`pulseReceivedGroup` → `.received`). Slippes lista på
+  **egen** gruppe eller utenfor et gruppekort, faller den tilbake til vanlig omorganisering i board-et.
+- Slippes lista **utenfor headeren** kjører alt som før (reorder + kryss-kolonne). Overføringen er derfor
+  et **rent tillegg** til kort-DnD-en, uten å endre den eksisterende rekkefølge-logikken.
 
 ## Sanntids-synk (Supabase) med felt-nivå fletting
 
@@ -443,6 +466,13 @@ skjules fra sitt nivå (`visibleGroups()` / `activeCards()` / ikke-`trashed` ele
 - [x] Testet i nettleser (Playwright): 3 nivåer tap→modal/gjenopprett/tøm-via-modal, sveip-tøm på alle
       tre (inkl. knapp som destrueres), delvis sveip avbryter, mobil fade/overflow + siste-kort-klarering,
       element-DnD (reorder + overføring, med/uten slettede), felt-nivå fletting av `trashed`
+- [x] **Overføring av lister mellom grupper**: dra en liste opp på et gruppekort i headeren → lista
+      flyttes til den gruppen (samme kirurgiske `card.group` + `stampPos`-logikk som elementer mellom
+      lister). Gruppekortet lyser opp som drop-target (`.drop-target`), dra-kortet blir gjennomskinnelig
+      (`.to-group`), board-et fryses mens man sikter, og slipp gir kvitteringsvarsel + puls (`.received`)
+- [x] Testet i nettleser (Playwright): liste→gruppe-overføring (drop-target/`.to-group`/toast, kilde−1
+      / mål+1 bakerst, elementer + `home` bevart, flat synk-doc `card.group` + `posTs`), slipp på egen
+      gruppe = ingen overføring, vanlig reorder uendret, persistens over reload (21 sjekker)
 
 ## Hvordan kjøre
 

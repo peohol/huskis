@@ -1011,6 +1011,7 @@
     if (ev.button != null && ev.button !== 0) return;
     beginDragCommon(ev, cardEl);
     drag.kind = 'card';
+    drag.groupTarget = null; // evt. gruppekort lista slippes på (overføring mellom grupper)
 
     const ph = document.createElement('div');
     ph.className = 'card-placeholder';
@@ -1026,6 +1027,49 @@
     window.addEventListener('pointercancel', onCardUp);
   }
 
+  /* ------- Overføring av en liste til en annen gruppe -------
+     Samme idé som å dra et element fra én liste til en annen: slippes lista over
+     et gruppekort i headeren, får den ny forelder (`group`) + posisjon. Mål-
+     gruppens board vises ikke akkurat nå, så vi markerer gruppekortet som mål
+     mens man sikter, og gir et lite kvitteringsvarsel + puls ved slipp. */
+  function pointerInHeader(x, y) {
+    const r = appHeader.getBoundingClientRect();
+    return x >= r.left && x <= r.right && y >= r.top && y <= r.bottom;
+  }
+  // Gyldig mål-gruppe under pekeren: et gruppekort som IKKE er den aktive gruppen
+  // (å slippe på egen gruppe overfører ingenting). Slettede grupper ligger ikke i
+  // raden. Returnerer gruppekort-DOM eller null.
+  function cardTransferGroupAt(x, y) {
+    const cards = groupsBar.querySelectorAll('.group-card:not(.dragging)');
+    for (const gc of cards) {
+      if (gc.dataset.id === state.activeGroup) continue;
+      const r = gc.getBoundingClientRect();
+      if (x >= r.left && x <= r.right && y >= r.top && y <= r.bottom) return gc;
+    }
+    return null;
+  }
+  // Sett/fjern gjeldende mål-gruppe: highlight på gruppekortet + gjør dra-kortet
+  // gjennomskinnelig så gruppekortet under vises (dra-kortet ligger over headeren).
+  function setCardGroupTarget(gt) {
+    if (drag.groupTarget === gt) return;
+    if (drag.groupTarget) drag.groupTarget.classList.remove('drop-target');
+    drag.groupTarget = gt || null;
+    if (drag.groupTarget) drag.groupTarget.classList.add('drop-target');
+    if (drag.el) drag.el.classList.toggle('to-group', !!drag.groupTarget);
+  }
+  // Kort puls på gruppekortet som nettopp mottok en liste (kalles etter render()).
+  function pulseReceivedGroup(id) {
+    const gc = groupsBar.querySelector('.group-card[data-id="' + id + '"]');
+    if (!gc) return;
+    gc.classList.remove('received');
+    void gc.offsetWidth; // tving reflow så animasjonen kan starte på nytt
+    gc.classList.add('received');
+    gc.addEventListener('animationend', function done() {
+      gc.classList.remove('received');
+      gc.removeEventListener('animationend', done);
+    });
+  }
+
   function onCardMove(ev) {
     if (!drag.active) return;
     const dx = ev.clientX - drag.lastX;
@@ -1034,6 +1078,16 @@
     drag.lastY = ev.clientY;
     moveElement();
     drag.el.style.transform = `rotate(${cardRotation()}deg) scale(1.02)`;
+
+    // Over headeren sikter vi på en gruppe (overføring) i stedet for å omorganisere
+    // board-et: marker evt. mål-gruppe, og la board-et + siden ligge i ro så lista
+    // ikke bytter plass mens man løfter den opp mot gruppene.
+    if (pointerInHeader(ev.clientX, ev.clientY)) {
+      setCardGroupTarget(cardTransferGroupAt(ev.clientX, ev.clientY));
+      stopAutoScroll();
+      return;
+    }
+    setCardGroupTarget(null);
     updateAutoScroll();
     updateCardPlacement(dx, dy);
   }
@@ -1120,13 +1174,48 @@
     flipFrom(snap, FLIP_MS);
   }
 
-  function onCardUp() {
+  function onCardUp(ev) {
     if (!drag.active) return;
     window.removeEventListener('pointermove', onCardMove);
     window.removeEventListener('pointerup', onCardUp);
     window.removeEventListener('pointercancel', onCardUp);
 
     const el = drag.el;
+    // Bestem drop-mål ut fra de FAKTISKE slipp-koordinatene, ikke det som lå
+    // mellomlagret fra siste pointermove: slippes lista like utenfor gruppekortet
+    // (rask/koalescerte bevegelse, eller pointercancel), skal den ikke overføres
+    // til den sist markerte gruppen. Faller tilbake på siste peker-posisjon bare
+    // hvis hendelsen mangler koordinater.
+    const relX = ev && typeof ev.clientX === 'number' ? ev.clientX : drag.lastX;
+    const relY = ev && typeof ev.clientY === 'number' ? ev.clientY : drag.lastY;
+    const groupTarget = pointerInHeader(relX, relY) ? cardTransferGroupAt(relX, relY) : null;
+    setCardGroupTarget(null); // fjern evt. highlight uansett utfall
+
+    // --- Overføring til en annen gruppe (samme logikk som elementer mellom lister) ---
+    // Slippes lista over et gruppekort i headeren, flytter vi den til den gruppen:
+    // sett kortets forelder (`group`) + posisjon (kirurgisk — kun posisjonsregisteret,
+    // som «forelder følger posisjon»), og flytt kort-objektet mellom gruppenes lister.
+    if (groupTarget) {
+      const c = findCard(el.dataset.id);
+      const dest = findGroup(groupTarget.dataset.id);
+      const src = activeGroupObj();
+      if (c && dest && src && dest.id !== c.group) {
+        drag.ph.remove();
+        finishDrag();
+        const i = src.cards.indexOf(c);
+        if (i > -1) src.cards.splice(i, 1);
+        c.group = dest.id;
+        c.pos = maxPos(dest.cards) + 1; // legg bakerst i mål-gruppen
+        stampPos(c);
+        dest.cards.push(c);
+        save();
+        render();                       // lista forsvinner fra dette board-et
+        showToast('Flyttet «' + c.title + '» til «' + dest.name + '»');
+        pulseReceivedGroup(dest.id);
+        return;
+      }
+    }
+
     const rot = cardRotation();
     board.insertBefore(el, drag.ph);
     drag.ph.remove();
