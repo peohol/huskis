@@ -1256,8 +1256,12 @@
     const prev = el.previousElementSibling;
     const next = el.nextElementSibling;
 
-    reconcileItems(sourceCardId);
-    if (targetCardId !== sourceCardId) reconcileItems(targetCardId);
+    // Ta et øyeblikksbilde av alle elementer FØR reconcile: ved overføring til et
+    // annet kort må mål-kortet finne det flyttede elementet selv om kilde-kortet
+    // reconciles først (ellers droppes det fra pool-en før målet ser det).
+    const pool = itemPool();
+    reconcileItems(sourceCardId, pool);
+    if (targetCardId !== sourceCardId) reconcileItems(targetCardId, pool);
 
     // Kirurgisk: sett kun det flyttede elementets forelder (home) + posisjon.
     const moved = findItemById(el.dataset.id);
@@ -1271,18 +1275,29 @@
     save();
   }
 
+  // Alle elementer på tvers av kortene i aktiv gruppe, oppslag på id.
+  function itemPool() {
+    const pool = {};
+    allCards().forEach((c) => c.items.forEach((it) => { pool[it.id] = it; }));
+    return pool;
+  }
+
   // Bygg items-array for et kort ut fra gjeldende DOM-rekkefølge (medlemskap).
-  function reconcileItems(cardId) {
+  // `pool` = felles øyeblikksbilde av alle elementer (så en overføring ikke faller
+  // ut mellom kilde- og mål-reconcile); bygges her hvis ikke gitt.
+  function reconcileItems(cardId, pool) {
     const cardData = findCard(cardId);
     if (!cardData) return;
     const cardEl = board.querySelector('.card[data-id="' + cardId + '"]');
     if (!cardEl) return;
+    pool = pool || itemPool();
     const domIds = [...cardEl.querySelectorAll('.items-container > .item')].map((i) => i.dataset.id);
-
-    // Slå sammen elementer som kan ha kommet fra et annet kort
-    const pool = {};
-    allCards().forEach((c) => c.items.forEach((it) => { pool[it.id] = it; }));
-    cardData.items = domIds.map((id) => pool[id]).filter(Boolean);
+    const visible = domIds.map((id) => pool[id]).filter(Boolean);
+    // Bevar slettede elementer: de er skjult fra `.items-container`, så de ligger
+    // ikke i DOM-rekkefølgen — men de skal ikke falle ut av state (uten gravstein)
+    // når man drar/omorganiserer et synlig element i samme kort.
+    const trashedHere = cardData.items.filter((it) => it.trashed);
+    cardData.items = visible.concat(trashedHere);
   }
 
   /* ---------------- GRUPPE-DRAGING (header-rad) ----------------
