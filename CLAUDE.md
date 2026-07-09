@@ -390,15 +390,23 @@ skjules fra sitt nivå (`visibleGroups()` / `activeCards()` / ikke-`trashed` ele
   `cleanCard`/`mergeCardScalar`). Siden rekkefølgen (`pos`) synkes, får alle enheter samme
   farger. `colorForId(id)` gir en stabil reservefarge til søppelkasse-prikker for entiteter som
   ikke er synlige (og derfor mangler posisjonsfarge).
-- Mørk tekst (`#37343f`) på lyse flater; lys tekst direkte på bakgrunnen (tom-tilstand, lås-skjerm).
+- **Hvit skrift m/tekst-skygge** (`--text-shadow`) på gruppekort, listenavn (kort-titler), «＋ Ny
+  liste»-knappen og aktive filter-brytere — skyggen holder den lesbar også på de lyseste kort-
+  fargene (L=90). Element-tekst inne i kortene er fortsatt mørk (den ligger på lyse element-rader).
+- Slett-knappen (`×`) på gruppekort er **alltid synlig** (også på desktop, ikke bare ved hover).
+- Lys tekst direkte på bakgrunnen (tom-tilstand, lås-skjerm).
 
 ## Verktøylinje (fast meny)
 
-Verktøylinja (`.toolbar`: «Ny liste», lister-søppelkasse, K/P/KP-filter, «Logg ut») er en
-**fast meny** (`position: fixed`, uavhengig av scrolling) med en **litt mer gjennomsiktig**
-bakgrunn enn headeren (`rgba(255,255,255,0.55)` mot headerens `0.72`). Den ligger **øverst til
-høyre for gruppekolonnen på desktop** (`left: --sidebar-w`) og **rett under headeren på mobil**
-(`top: --header-h`). Høyden måles (`--toolbar-h`) så board-et klareres riktig.
+Verktøylinja (`.toolbar`) er en **fast meny** (`position: fixed`, uavhengig av scrolling) med en
+**litt mer gjennomsiktig** bakgrunn enn headeren (`rgba(255,255,255,0.55)` mot headerens `0.72`).
+Den ligger **øverst til høyre for gruppekolonnen på desktop** (`left: --sidebar-w`) og **rett under
+headeren på mobil** (`top: --header-h`). Høyden måles (`--toolbar-h`) så board-et klareres riktig.
+Knappene er kompakte/ikon-baserte for å spare plass:
+- **«Ny liste»** er nå bare en **«＋»** (`.add-card-btn`) — identisk med gruppenes «＋»-knapp, men
+  grønn bakgrunn + hvit skrift (m/skygge).
+- Lister-søppelkasse (emoji + tall), filteret med **👁️**-etikett (erstatter «Vis»-teksten) + K/P/KP,
+  og en **ikon-bare «Logg ut»** (kun `⎋`-symbolet).
 
 ## Merkelapper (K/P) + filter
 
@@ -497,8 +505,13 @@ høyre for gruppekolonnen på desktop** (`left: --sidebar-w`) og **rett under he
 - [x] Testet i nettleser (Playwright): desktop venstre-kolonne + fast verktøylinje (bokser), desktop-overflow
       pinnet søppelkasse-topp/«＋»-bunn m/fade, mobil rad + verktøylinje under, vertikal gruppe-reorder,
       HSL-farger (tone-rekkefølge + sett-nivåer) + re-indeksering ved sletting
-
-## Hvordan kjøre
+- [x] Fiks (Codex-review): kort ned SELVE scrollporten for gruppekolonnen ved overflow
+      (`height: calc(100% - soner)`), ikke bare `margin` utenfor scroll-containeren — siste gruppe
+      lå ellers bak den faste «＋»-sonen
+- [x] Designjusteringer: (1) foreldreløs placeholder-fiks (guard mot nøstet drag + sikkerhetsnett i
+      `finishDrag`), (2) hvit skrift m/tekst-skygge på gruppekort/listenavn/«＋»/aktive filtre, (3) «Ny
+      liste» → grønn «＋» (lik gruppenes «＋»), (4) strammere gruppe-søppelkasse, (5) «Vis» → 👁️, (6)
+      ikon-bare «Logg ut» (⎋), (7) gruppekortenes slett-`×` alltid synlig. Verifisert i nettleser
 
 ```bash
 cd /home/user/huskeliste
@@ -511,3 +524,8 @@ python3 -m http.server 8000
 - Håndtak (`.drag-handle`) har `touch-action: none` så draging ikke scroller siden på mobil.
 - Draging starter kun fra håndtaket; klikk på tittel/element-tekst redigerer i stedet.
 - `pointercapture` brukes så draging ikke mister eventer.
+- **Placeholder lever kun mens draging pågår.** `startCardDrag`/`startItemDrag`/`startGroupDrag`
+  ignorerer en ny drag mens en pågår (`if (drag.active) return;`) — ellers kunne et nytt
+  peker-trykk på et annet håndtak (f.eks. multi-touch) starte en nøstet drag og etterlate en
+  foreldreløs placeholder. `finishDrag()` har i tillegg et sikkerhetsnett som feier bort alle
+  `.group-/​.card-/​.item-placeholder` ved slipp.

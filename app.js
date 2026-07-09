@@ -989,8 +989,14 @@
 
   function finishDrag() {
     drag.active = false;
+    // Sikkerhetsnett: en placeholder skal kun eksistere mens draging pågår.
+    // Fjern den aktive om den fortsatt henger i DOM, og fei bort evt. foreldreløse
+    // (f.eks. hvis en drag ble avbrutt uvanlig) så ingen blir stående etter slipp.
+    if (drag.ph && drag.ph.parentNode) drag.ph.remove();
     drag.el = null;
     drag.ph = null;
+    document.querySelectorAll('.group-placeholder, .card-placeholder, .item-placeholder')
+      .forEach((el) => el.remove());
     stopAutoScroll();
     stopGroupAutoScroll();
     document.body.classList.remove('is-dragging');
@@ -1040,6 +1046,7 @@
   /* ---------------- KORT-DRAGING ---------------- */
   function startCardDrag(ev, cardEl) {
     if (ev.button != null && ev.button !== 0) return;
+    if (drag.active) return; // ignorer ny drag mens en pågår (unngår foreldreløs placeholder)
     beginDragCommon(ev, cardEl);
     drag.kind = 'card';
     drag.groupTarget = null; // evt. gruppekort lista slippes på (overføring mellom grupper)
@@ -1271,6 +1278,7 @@
   /* ---------------- ELEMENT-DRAGING ---------------- */
   function startItemDrag(ev, itemEl) {
     if (ev.button != null && ev.button !== 0) return;
+    if (drag.active) return; // ignorer ny drag mens en pågår (unngår foreldreløs placeholder)
     beginDragCommon(ev, itemEl);
     drag.kind = 'item';
 
@@ -1433,6 +1441,7 @@
      senter), ellers etter siste kort (foran «＋»-knappen). */
   function startGroupDrag(ev, groupEl) {
     if (ev.button != null && ev.button !== 0) return;
+    if (drag.active) return; // ignorer ny drag mens en pågår (unngår foreldreløs placeholder)
     beginDragCommon(ev, groupEl);
     drag.kind = 'group';
 

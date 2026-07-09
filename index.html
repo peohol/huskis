@@ -48,9 +48,7 @@
 
   <main class="app-main">
     <div class="toolbar">
-      <button class="btn btn-primary" id="add-card-btn" type="button">
-        <span class="plus">＋</span> Ny liste
-      </button>
+      <button class="add-card-btn" id="add-card-btn" type="button" title="Ny liste" aria-label="Ny liste">＋</button>
       <button class="btn btn-ghost trashcan" id="trash-btn" type="button"
               title="Slettede lister – trykk for å åpne, hold inne for å tømme"
               aria-label="Slettede lister">
@@ -58,13 +56,13 @@
         <span class="trash-count" id="trash-count">0</span>
       </button>
       <div class="filter-switches" id="filter-switches" role="group" aria-label="Filtrer lister">
-        <span class="filter-label">Vis</span>
+        <span class="filter-label" aria-hidden="true" title="Vis">👁️</span>
         <button class="switch" type="button" data-flag="k" aria-pressed="true" title="Vis kun-K-lister">K</button>
         <button class="switch" type="button" data-flag="p" aria-pressed="true" title="Vis kun-P-lister">P</button>
         <button class="switch switch-kp" type="button" data-flag="kp" aria-pressed="true" title="Vis KP-lister (både K og P)">KP</button>
       </div>
-      <button class="btn btn-ghost btn-logout" id="logout-btn" type="button" title="Logg ut">
-        <span class="logout-icon" aria-hidden="true">⎋</span> Logg ut
+      <button class="btn btn-ghost btn-logout" id="logout-btn" type="button" title="Logg ut" aria-label="Logg ut">
+        <span class="logout-icon" aria-hidden="true">⎋</span>
       </button>
     </div>
     <section class="board" id="board" aria-live="polite"></section>

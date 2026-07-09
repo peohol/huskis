@@ -33,6 +33,9 @@
   --shadow-sm: 0 2px 6px rgba(35, 45, 55, 0.12);
   --shadow-md: 0 8px 20px rgba(35, 45, 55, 0.18);
   --shadow-lg: 0 18px 42px rgba(25, 35, 45, 0.34);
+
+  /* Skygge bak hvit skrift så den er lesbar også på lyse kort-/gruppefarger. */
+  --text-shadow: 0 1px 2px rgba(0, 0, 0, 0.42);
 }
 
 * { box-sizing: border-box; }
@@ -85,7 +88,8 @@ body {
   padding: 6px 8px 6px 6px;
   border-radius: 12px;
   background: var(--g-bg, #fff);   /* posisjonsbasert farge (samme system som kort) */
-  color: var(--ink);
+  color: #fff;                     /* hvit skrift m/ skygge for lesbarhet på fargene */
+  text-shadow: var(--text-shadow);
   /* Tett skygge (ikke shadow-md): må få plass i header-luften uten å klippes av
      gruppe-radens overflow på mobil. */
   box-shadow: 0 1px 4px rgba(35, 45, 55, 0.18);
@@ -119,9 +123,9 @@ body {
 }
 
 .group-handle {
-  color: var(--ink-soft);
+  color: rgba(255, 255, 255, 0.82);
   font-size: 14px;
-  opacity: 0.7;
+  opacity: 0.8;
   padding: 2px 3px;
 }
 .group-card.active .group-handle { opacity: 1; }
@@ -142,29 +146,28 @@ body {
 .group-count {
   font-weight: 700;
   font-size: 13px;
-  opacity: 0.42;
+  opacity: 0.6;
   font-variant-numeric: tabular-nums;
   padding-right: 1px;
 }
-.group-card.active .group-count { opacity: 0.66; }
+.group-card.active .group-count { opacity: 0.8; }
 
-.group-delete {
+/* .group-card-prefiks slår .icon-btn (som defineres senere i fila) på spesifisitet. */
+.group-card .group-delete {
   width: 22px;
   height: 22px;
   font-size: 12.5px;
-  color: var(--ink-soft);
-  opacity: 0;                 /* vises ved hover/aktiv, som element-slett */
+  color: rgba(255, 255, 255, 0.9);
+  opacity: 1;                 /* alltid synlig (også på desktop, ikke bare ved hover) */
   margin-left: -1px;
+  text-shadow: var(--text-shadow);
 }
-.group-card:hover .group-delete,
-.group-card:focus-within .group-delete,
-.group-card.active .group-delete { opacity: 1; }
-.group-delete:hover { color: var(--danger) !important; background: rgba(239, 107, 125, 0.16); }
-@media (hover: none) { .group-delete { opacity: 1; } }
+.group-card .group-delete:hover { color: #fff !important; background: rgba(0, 0, 0, 0.18); }
 
 /* «＋» oppretter ny gruppe. Desktop: full-bredde nederst i kolonnen (inline uten
    overflow, pinned nederst ved overflow). Mobil: liten firkant til høyre. */
-.add-group-btn {
+.add-group-btn,
+.add-card-btn {
   flex: 0 0 auto;
   appearance: none;
   border: none;
@@ -173,15 +176,25 @@ body {
   display: grid;
   place-items: center;
   border-radius: 12px;
-  background: #fff;
-  color: var(--primary-dark);
   font-size: 20px;
   line-height: 1;
   box-shadow: var(--shadow-sm);
   transition: box-shadow 0.18s, background 0.18s, transform 0.12s;
 }
+.add-group-btn { background: #fff; color: var(--primary-dark); }
 .add-group-btn:hover { box-shadow: var(--shadow-md); background: var(--primary-soft); }
 .add-group-btn:active { transform: translateY(1px); }
+
+/* «Ny liste»: identisk med gruppenes «＋», men grønn bakgrunn + hvit skrift m/skygge. */
+.add-card-btn {
+  width: 40px;
+  background: linear-gradient(135deg, var(--primary), #7fa77f);
+  color: #fff;
+  text-shadow: var(--text-shadow);
+}
+.add-card-btn:hover { box-shadow: var(--shadow-md); }
+.add-card-btn:active { transform: translateY(1px); }
+.add-card-btn:disabled { opacity: 0.45; cursor: not-allowed; box-shadow: none; }
 
 /* Faste soner ved overflow (utenfor scroll-feltet). Hver sone er en UGJENNOMSIKTIG
    blokk (--header-solid) med en smal fade på INNSIDEN (mot kortene) — samme element,
@@ -244,14 +257,6 @@ body {
 .btn:disabled { opacity: 0.45; cursor: not-allowed; box-shadow: none; }
 .btn:disabled:hover { box-shadow: none; }
 
-.btn-primary {
-  background: linear-gradient(135deg, var(--primary), #7fa77f);
-  color: #fff;
-  box-shadow: var(--shadow-sm);
-}
-
-.btn-primary:hover { box-shadow: var(--shadow-md); }
-
 .btn-ghost {
   background: #fff;
   color: var(--ink-soft);
@@ -276,8 +281,6 @@ body {
   color: var(--primary-dark);
 }
 .btn-small:hover { background: var(--primary-soft-hover); }
-
-.btn .plus { font-size: 18px; line-height: 1; margin-top: -1px; }
 
 .trash-count {
   display: inline-grid;
@@ -389,9 +392,9 @@ body {
   border: none;
   display: inline-flex;
   align-items: center;
-  gap: 4px;
-  padding: 6px 9px;
-  border-radius: 12px;
+  gap: 3px;
+  padding: 3px 6px;          /* stramt for å spare plass rundt gruppe-søppelkassen */
+  border-radius: 10px;
   background: transparent;   /* ingen boks-skygge; sonen bak dekker header-høyden */
   color: var(--ink);
   font-family: inherit;
@@ -426,8 +429,8 @@ body {
   font-weight: 500;
 }
 
-.toolbar .btn-logout { margin-left: auto; }
-.logout-icon { font-size: 15px; line-height: 1; }
+.toolbar .btn-logout { margin-left: auto; padding: 11px 13px; }  /* kun symbol, kompakt */
+.logout-icon { font-size: 16px; line-height: 1; }
 
 /* ---------------- K/P-brytere ---------------- */
 .switch {
@@ -482,7 +485,8 @@ body {
   box-shadow: var(--shadow-sm);
 }
 .filter-label {
-  font-size: 13px;
+  font-size: 15px;            /* 👁️-emoji i stedet for «Vis»-tekst */
+  line-height: 1;
   font-weight: 600;
   color: var(--ink-soft);
   margin-right: 2px;
@@ -498,6 +502,7 @@ body {
 .filter-switches .switch.on {
   background: var(--primary);
   color: #fff;
+  text-shadow: var(--text-shadow);
 }
 
 /* ---------------- Board (kolonner) ---------------- */
@@ -555,14 +560,15 @@ body {
   margin: 0;
   font-size: 17px;
   font-weight: 700;
-  color: var(--ink);
+  color: #fff;                 /* hvit skrift m/ skygge for lesbarhet på kortfargen */
+  text-shadow: var(--text-shadow);
   cursor: text;
   padding: 4px 6px;
   border-radius: 8px;
   word-break: break-word;
   transition: background 0.15s;
 }
-.card-title:hover { background: rgba(255, 255, 255, 0.45); }
+.card-title:hover { background: rgba(0, 0, 0, 0.12); }
 
 /* ---------------- Items ---------------- */
 .items-container {
@@ -1091,8 +1097,9 @@ body.locked .app-main { display: none; }
 
   .group-card { width: 100%; }           /* full-bredde rad i kolonnen */
   .add-group-btn { width: 100%; }        /* full-bredde «＋» nederst */
-  .groups-trash { width: 100%; }
-  .groups-trash-btn { width: 100%; justify-content: center; }
+  /* Gruppe-søppelkassen holdes kompakt (venstrestilt, ikke full bredde) for å
+     spare plass øverst i kolonnen. */
+  .groups-trash { align-self: flex-start; }
 
   /* Soner: søppelkasse ØVERST, «＋» NEDERST — full bredde, fade på innsiden. */
   .groups-trash-pin {
