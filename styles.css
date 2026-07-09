@@ -1,6 +1,16 @@
 /* ============================================================
    Huskekurv — styles
-   Font: Quicksand. Myk pastellpalett. Responsivt.
+   Font: Quicksand. Dempet skifer/grønn-palett. Responsivt.
+   ------------------------------------------------------------
+   DESIGNSYSTEM (gjenbruk — ikke hardkod):
+   • Kontroll-tokens: --control-h/--control-radius/--control-bg gjelder ALLE
+     knapper i knapperadene (＋-knapper, søppelkasser, filter, ☰) → identisk
+     høyde/radius/flate i samme rad.
+   • Delte klasser: .panel-head/.panel-title/.panel-actions (menyoverskrift +
+     knapperad), .btn-add (grønn ＋), .trashcan (hvit søppelkasse), .menu-btn (☰),
+     .chip (farget gruppe-/universkort), delte sletteknapp- og håndtak-regler.
+   • Flate-mønster: halvgjennomsiktig hvit (--control-bg) som hviletilstand,
+     helt ugjennomsiktig (#fff) ved hover.
    ============================================================ */
 
 :root {
@@ -15,18 +25,23 @@
   --line: #e3e7e3;
 
   --surface: #ffffff;
-  /* Ugjennomsiktig tilnærming av header-flaten (hvit 0.72 over bakgrunnen).
-     Brukes til den festede «＋»-sonen på mobil-overflow, som må være ugjennomsiktig
-     for at gruppekortene skal kunne forsvinne bak den. */
-  --header-solid: #dee2e4;
   --primary: #668866;
   --primary-dark: #4d664d;
   --primary-soft: rgba(102, 136, 102, 0.14);
   --primary-soft-hover: rgba(102, 136, 102, 0.24);
   --danger: #ef6b7d;
 
-  /* Desktop: bredden på den faste venstre-kolonnen (header/gruppeliste). */
+  /* Desktop: bredden på den faste venstre-kolonnen (gruppemenyen). */
   --sidebar-w: 232px;
+  /* Sidepolstring inne i panelene (gruppemeny/verktøylinje). */
+  --side-pad: 14px;
+  /* Fade-høyden der gruppekortene scroller under knapperaden (desktop). */
+  --fade-h: 16px;
+
+  /* Kontroll-tokens: alle knapper/kontroller i knapperadene deler disse. */
+  --control-h: 38px;
+  --control-radius: 12px;
+  --control-bg: rgba(255, 255, 255, 0.75);
 
   --radius: 18px;
   --radius-sm: 12px;
@@ -39,6 +54,10 @@
 }
 
 * { box-sizing: border-box; }
+
+/* hidden-attributtet skal alltid vinne over display-regler (f.eks. .trashcan
+   sin inline-flex) — søppelkassene o.l. skjules med `hidden` i JS. */
+[hidden] { display: none !important; }
 
 html, body {
   margin: 0;
@@ -55,54 +74,108 @@ body {
   overscroll-behavior-y: none;
 }
 
-/* ---------------- Header (gruppeliste) ----------------
-   DESKTOP: en fast, full-høyde KOLONNE til venstre. Innholdet stables ovenfra:
-   søppelkasse (øverst), gruppekort, «＋» (nederst) — transponert fra mobil-raden.
-   Ved overflow pinnes søppelkassen øverst og «＋» nederst (faste soner med fade),
-   og gruppekortene scroller mellom dem.
-   MOBIL (media-query nederst): en fast rad øverst (som før), horisontal scroll.
-   Header er også containing block for de fastlåste sonene (position: absolute). */
+/* ---------------- Paneler (gruppemeny + listemeny + meny-modal) ----------------
+   Felles anatomi: en overskriftslinje (.panel-head med .panel-title) og en
+   knapperad (.panel-actions) der alle kontroller deler høyde/radius. */
+.panel-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  min-height: 20px;
+}
+.panel-title {
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--ink-soft);
+}
+.panel-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+/* ---------------- Header (gruppemenyen) ----------------
+   DESKTOP: fast, full-høyde KOLONNE til venstre — overskrift + knapperad øverst,
+   gruppekortene scroller under dem (fade via mask). MOBIL (media-query nederst):
+   fast panel øverst — overskrift, knapperad (m/ ☰ til høyre) og én horisontalt
+   scrollende kortrad (uten fader). */
 .app-header {
   position: fixed;          /* uavhengig av scrolling (robust mot iOS-backdrop-bug) */
   z-index: 30;
+  display: flex;
+  flex-direction: column;
   background: rgba(255, 255, 255, 0.72);
   backdrop-filter: blur(14px);
   -webkit-backdrop-filter: blur(14px);
 }
+.panel-top { flex: 0 0 auto; }
+.app-header .panel-top { padding: 12px var(--side-pad) 8px; }
+.app-header .panel-head { margin-bottom: 8px; }
+/* ☰ ligger til høyre i knapperaden (mobil); desktop bruker ☰ i listemenyen. */
+.app-header .menu-btn { margin-left: auto; }
 
-/* Beholderen for gruppekort + inline-søppelkasse/«＋». Retning settes per skjerm:
+/* Beholderen for gruppekortene. Retning settes per skjerm:
    vertikal kolonne på desktop, horisontal rad på mobil. */
 .groups-bar {
   display: flex;
   gap: 8px;
+  min-width: 0;
 }
 
-/* ---------------- Gruppekort (chip) ----------------
-   Som et liste-element: håndtak, navn, dempet antall, slett — men bredden
-   følger navnet (inline-flex, ingen strekk). */
-.group-card {
+/* ---------------- Chip (delt av gruppekort og univers-rader) ----------------
+   Som et liste-element: navn, dempet antall, slett — på posisjonsbasert farge
+   med hvit skrift m/ skygge. */
+.chip {
   display: flex;
   align-items: center;
   gap: 3px;
-  flex: 0 0 auto;
-  padding: 6px 8px 6px 6px;
-  border-radius: 12px;
+  border-radius: var(--control-radius);
   background: var(--g-bg, #fff);   /* posisjonsbasert farge (samme system som kort) */
   color: #fff;                     /* hvit skrift m/ skygge for lesbarhet på fargene */
   text-shadow: var(--text-shadow);
-  /* Tett skygge (ikke shadow-md): må få plass i header-luften uten å klippes av
-     gruppe-radens overflow på mobil. */
+  /* Tett skygge (ikke shadow-md): må få plass i panel-luften uten å klippes av
+     kortradens overflow på mobil. */
   box-shadow: 0 1px 4px rgba(35, 45, 55, 0.18);
   cursor: pointer;
   transition: box-shadow 0.18s, transform 0.12s, outline-color 0.18s;
 }
-.group-card:hover { box-shadow: 0 2px 7px rgba(35, 45, 55, 0.26); }
-/* Aktiv gruppe: grønn brand-ring rundt den fargede chipen (skiller seg fra alle
-   de dempede pastellene). */
-.group-card.active {
+.chip:hover { box-shadow: 0 2px 7px rgba(35, 45, 55, 0.26); }
+/* Aktiv chip: grønn brand-ring rundt den fargede flaten. */
+.chip.active {
   box-shadow: 0 2px 8px rgba(35, 45, 55, 0.3);
   outline: 2.5px solid var(--primary);
   outline-offset: 2px;
+}
+.chip-name {
+  font-weight: 600;
+  font-size: 15px;
+  line-height: 1.2;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  padding: 2px 2px;
+  border-radius: 6px;
+  cursor: text;
+}
+/* Antall (lister/grupper): dempet (mindre «pop» enn navnet). */
+.chip-count {
+  font-weight: 700;
+  font-size: 13px;
+  opacity: 0.6;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  padding-right: 1px;
+}
+.chip.active .chip-count { opacity: 0.8; }
+
+/* Gruppekort: chip + håndtak; bredden følger navnet (mobil) / full bredde (desktop). */
+.group-card {
+  flex: 0 0 auto;
+  padding: 5px 8px 5px 5px;
 }
 
 /* Mål når man drar en liste opp på et gruppekort (overføring mellom grupper):
@@ -122,101 +195,80 @@ body {
   100% { transform: scale(1); }
 }
 
-.group-handle {
-  color: rgba(255, 255, 255, 0.82);
+/* Univers-rader (meny-modalen): chip uten håndtak, full bredde. */
+.uni-row {
+  width: 100%;
+  padding: 6px 8px;
+}
+.uni-row .chip-name { min-width: 0; }
+.uni-empty {
+  margin: 2px 0;
+  color: var(--ink-soft);
+  font-weight: 500;
   font-size: 14px;
-  opacity: 0.8;
-  padding: 2px 3px;
-}
-.group-card.active .group-handle { opacity: 1; }
-
-.group-name {
-  font-weight: 600;
-  font-size: 15px;
-  line-height: 1.2;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  padding: 2px 2px;
-  border-radius: 6px;
-  cursor: text;
 }
 
-/* Antall lister: dempet (mindre «pop» enn navnet). */
-.group-count {
-  font-weight: 700;
-  font-size: 13px;
-  opacity: 0.6;
-  font-variant-numeric: tabular-nums;
-  padding-right: 1px;
-}
-.group-card.active .group-count { opacity: 0.8; }
-
-/* .group-card-prefiks slår .icon-btn (som defineres senere i fila) på spesifisitet. */
-.group-card .group-delete {
-  width: 22px;
-  height: 22px;
-  font-size: 12.5px;
-  color: rgba(255, 255, 255, 0.9);
-  opacity: 1;                 /* alltid synlig (også på desktop, ikke bare ved hover) */
-  margin-left: -1px;
-  text-shadow: var(--text-shadow);
-}
-.group-card .group-delete:hover { color: #fff !important; background: rgba(0, 0, 0, 0.18); }
-
-/* «＋» oppretter ny gruppe. Desktop: full-bredde nederst i kolonnen (inline uten
-   overflow, pinned nederst ved overflow). Mobil: liten firkant til høyre. */
-.add-group-btn,
-.add-card-btn {
+/* ---------------- «＋»-knapper (felles: gruppe/liste/univers/element) ----------------
+   Grønn flate, hvit skrift m/ tekst-skygge. .icon-only = kvadratisk ＋. */
+.btn-add {
   flex: 0 0 auto;
   appearance: none;
   border: none;
   cursor: pointer;
-  height: 34px;
-  display: grid;
-  place-items: center;
-  border-radius: 12px;
-  font-size: 20px;
+  height: var(--control-h);
+  padding: 0 14px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  border-radius: var(--control-radius);
+  font-family: inherit;
+  font-weight: 600;
+  font-size: 14.5px;
   line-height: 1;
-  box-shadow: var(--shadow-sm);
-  transition: box-shadow 0.18s, background 0.18s, transform 0.12s;
-}
-.add-group-btn { background: #fff; color: var(--primary-dark); }
-.add-group-btn:hover { box-shadow: var(--shadow-md); background: var(--primary-soft); }
-.add-group-btn:active { transform: translateY(1px); }
-
-/* «Ny liste»: identisk med gruppenes «＋», men grønn bakgrunn + hvit skrift m/skygge. */
-.add-card-btn {
-  width: 40px;
+  white-space: nowrap;
   background: linear-gradient(135deg, var(--primary), #7fa77f);
   color: #fff;
   text-shadow: var(--text-shadow);
+  box-shadow: var(--shadow-sm);
+  transition: box-shadow 0.18s, transform 0.12s, background 0.18s;
 }
-.add-card-btn:hover { box-shadow: var(--shadow-md); }
-.add-card-btn:active { transform: translateY(1px); }
-.add-card-btn:disabled { opacity: 0.45; cursor: not-allowed; box-shadow: none; }
+.btn-add:hover { box-shadow: var(--shadow-md); }
+.btn-add:active { transform: translateY(1px); }
+.btn-add:disabled { opacity: 0.45; cursor: not-allowed; box-shadow: none; }
+.btn-add.icon-only { width: var(--control-h); padding: 0; font-size: 18px; }
 
-/* Faste soner ved overflow (utenfor scroll-feltet). Hver sone er en UGJENNOMSIKTIG
-   blokk (--header-solid) med en smal fade på INNSIDEN (mot kortene) — samme element,
-   så ingen synlig skjøt. Kortene oppløses i innsidefaden og scroller aldri bak den
-   solide delen. Geometrien (topp/bunn på desktop, venstre/høyre på mobil) settes i
-   media-queryene; her kun det felles. Vises av overflow-reglene. */
-.groups-pin,
-.groups-trash-pin {
-  display: none;
-  position: absolute;
-  z-index: 5;
-  align-items: center;
-  justify-content: center;
-  pointer-events: none;                 /* faden slipper gjennom; kun knappen fanger */
+/* ---------------- Menyknapp (☰) ----------------
+   Samme flate-mønster som søppelkassene: halvgjennomsiktig hvit → hvit ved hover. */
+.menu-btn {
+  flex: 0 0 auto;
+  appearance: none;
+  border: none;
+  cursor: pointer;
+  width: var(--control-h);
+  height: var(--control-h);
+  display: grid;
+  place-items: center;
+  border-radius: var(--control-radius);
+  background: var(--control-bg);
+  color: var(--ink-soft);
+  box-shadow: var(--shadow-sm);
+  transition: background 0.18s, box-shadow 0.18s, color 0.18s, transform 0.12s;
 }
-.groups-pin .add-group-pinned,
-.groups-trash-pin .groups-trash-btn { pointer-events: auto; }
+.menu-btn:hover { background: #fff; color: var(--ink); box-shadow: var(--shadow-md); }
+.menu-btn:active { transform: translateY(1px); }
+/* Tre horisontale linjer: én strek + to via box-shadow. */
+.menu-bars {
+  width: 16px;
+  height: 2px;
+  border-radius: 2px;
+  background: currentColor;
+  box-shadow: 0 -5px 0 currentColor, 0 5px 0 currentColor;
+}
 
-/* ---------------- Main / toolbar ----------------
-   Verktøylinja er en fast meny som blir liggende (desktop: øverst til høyre for
-   kolonnen; mobil: rett under headeren) uavhengig av scrolling. Litt mer
-   gjennomsiktig bakgrunn enn headeren. */
+/* ---------------- Main / verktøylinje (listemenyen) ----------------
+   Fast meny (desktop: øverst til høyre for kolonnen; mobil: rett under
+   gruppemenyen), litt mer gjennomsiktig bakgrunn enn headeren. */
 .app-main {
   padding: clamp(16px, 3vw, 30px) clamp(12px, 4vw, 40px) 80px;
 }
@@ -228,16 +280,17 @@ body {
   right: 0;
   z-index: 20;
   display: flex;
-  align-items: center;
-  gap: 16px;
-  flex-wrap: wrap;
-  padding: 10px clamp(12px, 3vw, 40px);
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px clamp(12px, 3vw, 40px) 10px;
   background: rgba(255, 255, 255, 0.55);   /* mer gjennomsiktig enn header (0.72) */
   backdrop-filter: blur(14px);
   -webkit-backdrop-filter: blur(14px);
   border-bottom: 1px solid var(--line);
 }
+.toolbar .panel-actions { flex-wrap: wrap; }
 
+/* ---------------- Generelle knapper (modaler o.l.) ---------------- */
 .btn {
   appearance: none;
   cursor: pointer;
@@ -245,7 +298,7 @@ body {
   font-weight: 600;
   font-size: 15px;
   border: none;
-  border-radius: 12px;
+  border-radius: var(--control-radius);
   padding: 11px 18px;
   display: inline-flex;
   align-items: center;
@@ -262,8 +315,7 @@ body {
   color: var(--ink-soft);
   box-shadow: var(--shadow-sm);
 }
-.btn-ghost:hover { color: var(--ink); }
-.btn-ghost.has-items { color: var(--ink); }
+.btn-ghost:hover { color: var(--ink); box-shadow: var(--shadow-md); }
 
 .btn-danger {
   background: linear-gradient(135deg, #f4788a, var(--danger));
@@ -282,7 +334,36 @@ body {
 }
 .btn-small:hover { background: var(--primary-soft-hover); }
 
-.trash-count {
+/* ---------------- Søppelkasse-knapper (felles for alle fire nivåer) ----------------
+   Hvit, avrundet beholder (halvgjennomsiktig → hvit ved hover) med emoji +
+   antall i grå sirkel. Vises kun når søppelkassen har innhold. Kort trykk åpner
+   modalen; klikk-og-hold utvider til et sveipefelt (se .swipe-field). */
+.trashcan {
+  position: relative;
+  flex: 0 0 auto;
+  appearance: none;
+  border: none;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: var(--control-h);
+  padding: 0 12px;
+  border-radius: var(--control-radius);
+  background: var(--control-bg);
+  color: var(--ink);
+  font-family: inherit;
+  box-shadow: var(--shadow-sm);
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
+  touch-action: none;          /* hold/sveip uten at siden scroller */
+  transition: background 0.18s, box-shadow 0.18s;
+}
+.trashcan:hover { background: #fff; box-shadow: var(--shadow-md); }
+
+.trashcan-icon { font-size: 15px; line-height: 1; }
+.trashcan-count {
   display: inline-grid;
   place-items: center;
   min-width: 20px;
@@ -293,19 +374,7 @@ body {
   color: var(--ink-soft);
   font-size: 12.5px;
   font-weight: 700;
-}
-.btn-ghost.has-items .trash-count { background: var(--danger); color: #fff; }
-
-/* ---------------- Søppelkasse-knapper (felles) ----------------
-   Tre nivåer (grupper/lister/elementer) deler «sveip-for-å-tømme»: kort trykk
-   åpner modalen, klikk-og-hold utvider knappen til et sveipefelt (se .swipe-field). */
-.trashcan {
-  position: relative;
-  cursor: pointer;
-  -webkit-user-select: none;
-  user-select: none;
-  -webkit-touch-callout: none;
-  touch-action: none;          /* hold/sveip uten at siden scroller */
+  font-variant-numeric: tabular-nums;
 }
 
 /* Sveipefelt: fixed overlay som dukker opp ved klikk-og-hold på en søppelkasse.
@@ -372,65 +441,12 @@ body {
   color: var(--primary-dark);
 }
 
-.trashcan-icon { font-size: 15px; line-height: 1; }
-.trashcan-count {
-  font-weight: 700;
-  font-size: 13px;
-  font-variant-numeric: tabular-nums;
-  color: var(--ink-soft);
-}
-
-/* Lister-søppelkassen (verktøylinja) er en .btn.btn-ghost.trashcan — kun ikon+tall.
-   Litt strammere polstring nå som teksten er borte. */
-#trash-btn { gap: 6px; padding-left: 14px; padding-right: 14px; }
-
-/* ---------------- Gruppe-søppelkasse (helt til venstre i headeren) ---------------- */
-.groups-trash { flex: 0 0 auto; display: flex; align-items: center; }
-.groups-trash[hidden] { display: none; }
-.groups-trash-btn {
-  appearance: none;
-  border: none;
-  display: inline-flex;
-  align-items: center;
-  gap: 3px;
-  padding: 3px 6px;          /* stramt for å spare plass rundt gruppe-søppelkassen */
-  border-radius: 10px;
-  background: transparent;   /* ingen boks-skygge; sonen bak dekker header-høyden */
-  color: var(--ink);
-  font-family: inherit;
-}
-.groups-trash-btn:hover { background: rgba(0, 0, 0, 0.05); }
-
-/* ---------------- Element-søppelkasse (midtstilt nederst i listekortet) ---------------- */
+/* Element-søppelkassen: midtstilt nederst i listekortet (samme knapp som de andre). */
 .item-trash {
   display: flex;
   justify-content: center;
   padding: 2px 12px 14px;
 }
-.item-trash-btn {
-  appearance: none;
-  border: none;
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  padding: 5px 13px;
-  border-radius: 999px;
-  background: rgba(255, 255, 255, 0.6);
-  color: var(--ink);
-  box-shadow: var(--shadow-sm);
-  font-family: inherit;
-}
-.item-trash-btn:hover { background: rgba(255, 255, 255, 0.9); }
-
-.hint {
-  margin: 0;
-  color: var(--ink-soft);
-  font-size: 13.5px;
-  font-weight: 500;
-}
-
-.toolbar .btn-logout { margin-left: auto; padding: 11px 13px; }  /* kun symbol, kompakt */
-.logout-icon { font-size: 16px; line-height: 1; }
 
 /* ---------------- K/P-brytere ---------------- */
 .switch {
@@ -474,16 +490,21 @@ body {
   color: var(--card-accent);
 }
 
-/* Filter-brytere i verktøylinja: hvit pille, grønn når på. */
+/* Filter (👁️ K/P/KP) i verktøylinja: samme flate-mønster som søppelkassene —
+   halvgjennomsiktig hvit → hvit ved hover; samme høyde/radius som resten av raden. */
 .filter-switches {
+  flex: 0 0 auto;
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  padding: 6px 10px;
-  background: #fff;
-  border-radius: 12px;
+  height: var(--control-h);
+  padding: 0 10px;
+  background: var(--control-bg);
+  border-radius: var(--control-radius);
   box-shadow: var(--shadow-sm);
+  transition: background 0.18s, box-shadow 0.18s;
 }
+.filter-switches:hover { background: #fff; box-shadow: var(--shadow-md); }
 .filter-label {
   font-size: 15px;            /* 👁️-emoji i stedet for «Vis»-tekst */
   line-height: 1;
@@ -611,6 +632,8 @@ body {
 
 .add-item-input {
   flex: 1;
+  min-width: 0;
+  height: var(--control-h);
   font-family: inherit;
   font-size: 14.5px;
   font-weight: 500;
@@ -618,7 +641,7 @@ body {
   border: 1.5px dashed rgba(80, 70, 110, 0.28);
   background: rgba(255, 255, 255, 0.5);
   border-radius: 10px;
-  padding: 8px 12px;
+  padding: 0 12px;
   outline: none;
   transition: border-color 0.15s, background 0.15s;
 }
@@ -629,7 +652,9 @@ body {
   background: rgba(255, 255, 255, 0.85);
 }
 
-/* ---------------- Buttons: handles & icons ---------------- */
+/* ---------------- Håndtak & ikon-knapper ----------------
+   Håndtak er alltid MØRKERE enn flaten sin (kortets/gruppens aksentfarge) og
+   midtstilles i boksen sin (grid) så de står vertikalt sentrert i raden. */
 .drag-handle {
   appearance: none;
   border: none;
@@ -638,15 +663,24 @@ body {
   color: var(--card-accent);
   font-size: 18px;
   line-height: 1;
+  display: grid;
+  place-items: center;
   padding: 4px 6px;
   border-radius: 8px;
   touch-action: none; /* la peker-draging styre, ikke scroll */
   transition: background 0.15s, color 0.15s;
   flex: 0 0 auto;
+  align-self: center;
 }
 .drag-handle:hover { background: rgba(0, 0, 0, 0.06); }
 .drag-handle:active { cursor: grabbing; }
 .item-handle { font-size: 15px; opacity: 0.75; }
+/* Gruppekortets håndtak: mørkere enn chipfargen (samme mønster som kortene). */
+.group-handle {
+  color: var(--g-accent, rgba(0, 0, 0, 0.4));
+  font-size: 14px;
+  padding: 4px 3px;
+}
 
 .icon-btn {
   appearance: none;
@@ -662,24 +696,34 @@ body {
   place-items: center;
   border-radius: 8px;
   flex: 0 0 auto;
+  align-self: center;
   transition: background 0.15s, color 0.15s, transform 0.1s;
 }
 .icon-btn:hover { background: rgba(0, 0, 0, 0.07); color: var(--ink); }
-.card-delete:hover, .item-delete:hover { color: var(--danger); background: rgba(239, 107, 125, 0.12); }
-.add-item-btn {
-  color: var(--primary-dark);
-  background: var(--primary-soft);
-  width: 38px;
-  height: 38px;
-  font-size: 18px;
-}
-.add-item-btn:hover { background: var(--primary-soft-hover); }
 
-/* item-delete skjult til hover for renere kort */
-.item-delete { opacity: 0; }
+/* Sletteknapper (liste/element/gruppe/univers): samme utseende overalt —
+   dempet ✕ som blir rød ved hover. Gruppe-/univers-✕ ligger helt til høyre. */
+.card-delete:hover, .item-delete:hover, .group-delete:hover, .uni-delete:hover {
+  color: var(--danger);
+  background: rgba(239, 107, 125, 0.12);
+}
+.group-delete, .uni-delete { margin-left: auto; }
+/* Element-✕ alltid synlig, men diskré; full styrke ved hover/fokus. */
+.item-delete { opacity: 0.55; }
 .item:hover .item-delete,
-.item:focus-within .item-delete { opacity: 1; }
-@media (hover: none) { .item-delete { opacity: 1; } }
+.item:focus-within .item-delete,
+.item-delete:focus-visible { opacity: 1; }
+
+/* Synlig tastaturfokus på kontrollene (samme brand-ring som aktiv chip). */
+.btn-add:focus-visible,
+.trashcan:focus-visible,
+.menu-btn:focus-visible,
+.chip:focus-visible,
+.switch:focus-visible,
+.icon-btn:focus-visible {
+  outline: 2.5px solid var(--primary);
+  outline-offset: 2px;
+}
 
 /* ---------------- Inline editing ---------------- */
 .edit-input {
@@ -694,8 +738,10 @@ body {
   padding: 2px 6px;
   width: 100%;
 }
-/* Gruppenavn-redigering: bredden følger innholdet (settes inline i JS), ikke 100 %. */
-.edit-input.group-edit {
+/* Chip-navn-redigering (gruppe/univers): bredden følger innholdet (settes
+   inline i JS), ikke 100 %. */
+.edit-input.group-edit,
+.edit-input.chip-edit {
   width: auto;
   min-width: 60px;
   font-weight: 600;
@@ -763,7 +809,7 @@ body {
 .group-placeholder {
   flex: 0 0 auto;
   align-self: stretch;
-  border-radius: 12px;
+  border-radius: var(--control-radius);
   border: 2px dashed var(--primary);
   background: var(--primary-soft);
 }
@@ -775,7 +821,7 @@ body.is-dragging * { cursor: grabbing !important; }
 .card, .item { -webkit-user-select: none; user-select: none; }
 .item-text, .card-title, .add-item-input, .edit-input { -webkit-user-select: text; user-select: text; }
 
-/* ---------------- Papirkurv-modal ---------------- */
+/* ---------------- Modaler (meny + søppelkasse) ---------------- */
 .modal-overlay {
   position: fixed;
   inset: 0;
@@ -818,6 +864,32 @@ body.is-dragging * { cursor: grabbing !important; }
   padding: 12px 20px;
   overflow-y: auto;
 }
+
+/* Meny-modalen: logg ut øverst, deretter universer (skilt med <hr>). */
+.menu-modal { width: min(440px, 100%); }
+.menu-body {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 10px;
+  padding-top: 16px;
+  padding-bottom: 18px;
+}
+.menu-logout { align-self: flex-start; }
+.logout-icon { font-size: 16px; line-height: 1; }
+.menu-divider {
+  width: 100%;
+  border: none;
+  border-top: 1px solid var(--line);
+  margin: 6px 0;
+}
+.uni-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.menu-body .panel-head { min-height: 0; }
+.menu-body .panel-actions { margin-top: 2px; }
 
 .trash-row {
   display: flex;
@@ -962,33 +1034,35 @@ body.locked .app-main { display: none; }
 .lock-screen.locked-out .lock-msg { color: var(--danger); }
 
 /* ---------------- Mobil ----------------
-   Headeren er en fast RAD øverst (som før), og verktøylinja ligger rett under den.
-   Begge er faste (uavhengig av scrolling). Board-et klarerer begge. */
+   Gruppemenyen er et fast panel øverst: overskrift, knapperad (＋ Gruppe +
+   søppelkasse til venstre, ☰ til høyre) og gruppekortene på én horisontalt
+   scrollende rad UNDER knappene (ingen fader). Verktøylinja ligger rett under.
+   Board-et klarerer begge (målte høyder). */
 @media (max-width: 560px) {
+  :root { --side-pad: 12px; }
+
   .board { column-width: 100%; column-gap: 0; }
 
-  /* Header: full-bredde rad øverst. FULL-BLEED (ingen side-padding) så kortene kan
-     scrolle helt ut til begge kanter; liten topp/bunn-padding (hovedluften rundt
-     kortene gis av bar-en, så boks-skyggene får plass i overflow-raden). */
   .app-header {
     top: 0;
     left: 0;
     right: 0;
-    padding: 5px 0;
     border-bottom: 1px solid var(--line);
   }
+  .app-header .panel-top { padding: 10px var(--side-pad) 0; }
 
-  /* Verktøylinja rett under headeren (målt header-høyde), full bredde. */
-  .toolbar { top: var(--header-h, 60px); }
+  /* Verktøylinja rett under gruppemenyen (målt høyde), full bredde. */
+  .toolbar { top: var(--header-h, 132px); }
+  /* ☰ vises i gruppemenyen på mobil — skjul verktøylinjas. */
+  .toolbar .menu-btn { display: none; }
 
-  /* Board klarerer både header og verktøylinje. */
+  /* Board klarerer både gruppemeny og verktøylinje. */
   .app-main {
-    padding-top: calc(var(--header-h, 60px) + var(--toolbar-h, 56px) + clamp(12px, 3vw, 24px));
+    padding-top: calc(var(--header-h, 132px) + var(--toolbar-h, 96px) + clamp(12px, 3vw, 24px));
   }
 
-  /* Gruppekort: bredden følger navnet (rad); lange navn kappes. «＋» liten firkant. */
+  /* Gruppekort: bredden følger navnet (rad); lange navn kappes. */
   .group-card { max-width: min(60vw, 420px); }
-  .add-group-btn { width: 34px; }
 
   /* Gruppene ligger alltid på én rad; scroller horisontalt. Ved overflow vises en
      DISKRET, app-tilpasset scrollbar. På ekte touch-enheter er nettleserens
@@ -1000,10 +1074,9 @@ body.locked .app-main { display: none; }
     align-items: center;
     overflow-x: auto;
     overflow-y: visible;
-    height: auto;
     -webkit-overflow-scrolling: touch;
-    padding: 9px 0 9px clamp(12px, 3vw, 32px);  /* luft så boks-skyggene får plass */
-    scrollbar-width: thin;                       /* Firefox: tynn, farget bar */
+    padding: 9px var(--side-pad) 9px;  /* luft så boks-skyggene får plass */
+    scrollbar-width: thin;             /* Firefox: tynn, farget bar */
     scrollbar-color: rgba(107, 101, 119, 0.42) transparent;
   }
   /* WebKit: «flytende» tynn thumb med luft rundt (transparent kant + padding-box-
@@ -1011,7 +1084,7 @@ body.locked .app-main { display: none; }
   .groups-bar::-webkit-scrollbar { height: 12px; width: auto; }
   .groups-bar::-webkit-scrollbar-track {
     background: transparent;
-    margin: 0 clamp(12px, 3vw, 32px);                  /* i takt med kortene, unna kantene */
+    margin: 0 var(--side-pad);                         /* i takt med kortene, unna kantene */
   }
   .groups-bar::-webkit-scrollbar-thumb {
     background-color: rgba(107, 101, 119, 0.36);
@@ -1021,137 +1094,59 @@ body.locked .app-main { display: none; }
     min-width: 44px;
   }
   .groups-bar::-webkit-scrollbar-thumb:hover { background-color: rgba(107, 101, 119, 0.55); }
-
-  /* ---- Mobil-overflow: scroll-felt klemt MELLOM to faste, full-høyde soner ----
-     «＋» (høyre) og søppelkasse (venstre, kun med innhold) er faste soner utenfor
-     scroll-feltet. Gruppe-raden ligger mellom dem (bar-marger = sone-bredder) og
-     oppløses i innsidefadene. Fadene er like brede; kortenes hvile-innrykk = fade-
-     bredden. Kortene scroller ALDRI bak sonene. */
-  .app-header.groups-overflow {
-    --fade-w: 14px;
-    --trash-zone-w: 54px;
-    --plus-zone-w: 46px;
-  }
-  .app-header.groups-overflow .add-group-inline { display: none; }
-  .app-header.groups-overflow .groups-pin { display: flex; }
-  .app-header.groups-overflow #groups-trash { display: none; }
-  .app-header.has-trashed-groups.groups-overflow .groups-trash-pin { display: flex; }
-
-  /* Faste full-høyde soner: søppelkasse VENSTRE, «＋» HØYRE, fade på innsiden. */
-  .groups-trash-pin {
-    top: 0;
-    bottom: 0;
-    left: 0;
-    width: calc(var(--trash-zone-w, 54px) + var(--fade-w, 14px));
-    padding-right: var(--fade-w, 14px);   /* sentrér knappen i den solide delen */
-    background: linear-gradient(to right,
-      var(--header-solid) calc(100% - var(--fade-w, 14px)), transparent 100%);
-  }
-  .groups-pin {
-    top: 0;
-    bottom: 0;
-    right: 0;
-    width: calc(var(--plus-zone-w, 46px) + var(--fade-w, 14px));
-    padding-left: var(--fade-w, 14px);
-    background: linear-gradient(to left,
-      var(--header-solid) calc(100% - var(--fade-w, 14px)), transparent 100%);
-  }
-
-  .app-header.groups-overflow .groups-bar {
-    margin-right: var(--plus-zone-w);          /* klem inntil «＋»-sonen (solid del) */
-    padding-left: var(--fade-w);               /* hvile-innrykk = fade-bredde */
-    padding-right: var(--fade-w);
-  }
-  .app-header.has-trashed-groups.groups-overflow .groups-bar {
-    margin-left: var(--trash-zone-w);          /* klem inntil søppelkasse-sonen (solid del) */
-  }
 }
 
 /* ============================================================
-   DESKTOP: header som fast venstre-KOLONNE
-   Transponert fra mobil-raden: søppelkasse øverst, gruppekort, «＋» nederst.
-   Ved overflow pinnes søppelkasse (topp) og «＋» (bunn) med innsidefader, og
-   gruppekortene scroller mellom dem.
-   (Plassert sist så desktop-reglene vinner over de felles base-reglene ved lik
-   spesifisitet — kildeorden avgjør; mobil- og desktop-queryene utelukker hverandre.)
+   DESKTOP: gruppemenyen som fast venstre-KOLONNE
+   Overskrift + knapperad («＋ Gruppe» og søppelkasse side om side) ligger fast
+   øverst; gruppekortene scroller i kolonnen under dem og oppløses i en fade
+   (mask) mot knapperaden — samt en tilsvarende fade i bunnen. ☰ ligger i
+   listemenyen (verktøylinja), på overskriftslinjen helt til høyre.
    ============================================================ */
 @media (min-width: 561px) {
   .app-header {
-    --side-pad: 14px;
     top: 0;
     left: 0;
     bottom: 0;
     width: var(--sidebar-w);
     border-right: 1px solid var(--line);
-    overflow: hidden;                    /* soner/fader klippes her */
   }
+  /* ☰ vises i verktøylinja på desktop — skjul gruppemenyens. */
+  .app-header .menu-btn { display: none; }
+  /* Verktøylinjas overskriftslinje er ☰-høy — gi gruppemenyens samme høyde så
+     GRUPPER/LISTER og de to knapperadene ligger på samme horisontale linjer. */
+  .app-header .panel-head { min-height: var(--control-h); }
+
   .groups-bar {
+    flex: 1 1 auto;
+    min-height: 0;
     flex-direction: column;
     align-items: stretch;
-    height: 100%;
     overflow-y: auto;
-    padding: 14px var(--side-pad);
+    padding: var(--fade-h) var(--side-pad);
     scrollbar-width: none;               /* skjul; fadene indikerer scroll */
+    /* Kortene «scroller under» knapperaden: innholdet oppløses i en fade øverst
+       (og nederst) i scrollfeltet. Hvile-padding = fade-høyden, så ingenting er
+       falmet i ro. */
+    -webkit-mask-image: linear-gradient(to bottom,
+      transparent 0, #000 var(--fade-h), #000 calc(100% - var(--fade-h)), transparent 100%);
+    mask-image: linear-gradient(to bottom,
+      transparent 0, #000 var(--fade-h), #000 calc(100% - var(--fade-h)), transparent 100%);
   }
   .groups-bar::-webkit-scrollbar { width: 0; height: 0; }
+  /* Masken gjelder også fixed-posisjonerte barn (det løftede dra-kortet) —
+     slå den av under draging så kortet ikke klippes utenfor kolonnen. */
+  body.is-dragging .groups-bar {
+    -webkit-mask-image: none;
+    mask-image: none;
+  }
 
   .group-card { width: 100%; }           /* full-bredde rad i kolonnen */
-  .add-group-btn { width: 100%; }        /* full-bredde «＋» nederst */
-  /* Gruppe-søppelkassen holdes kompakt (venstrestilt, ikke full bredde) for å
-     spare plass øverst i kolonnen. */
-  .groups-trash { align-self: flex-start; }
-
-  /* Soner: søppelkasse ØVERST, «＋» NEDERST — full bredde, fade på innsiden. */
-  .groups-trash-pin {
-    top: 0;
-    left: 0;
-    right: 0;
-    height: calc(var(--trash-zone-h, 48px) + var(--fade-h, 14px));
-    padding: 14px var(--side-pad) var(--fade-h, 14px);
-    align-items: flex-start;
-    background: linear-gradient(to bottom,
-      var(--header-solid) calc(100% - var(--fade-h, 14px)), transparent 100%);
-  }
-  .groups-pin {
-    bottom: 0;
-    left: 0;
-    right: 0;
-    height: calc(var(--plus-zone-h, 48px) + var(--fade-h, 14px));
-    padding: var(--fade-h, 14px) var(--side-pad) 14px;
-    align-items: flex-end;
-    background: linear-gradient(to top,
-      var(--header-solid) calc(100% - var(--fade-h, 14px)), transparent 100%);
-  }
-
-  .app-header.groups-overflow {
-    --fade-h: 14px;
-    --trash-zone-h: 48px;
-    --plus-zone-h: 48px;
-  }
-  .app-header.groups-overflow .add-group-inline { display: none; }
-  .app-header.groups-overflow .groups-pin { display: flex; }
-  .app-header.groups-overflow #groups-trash { display: none; }
-  .app-header.has-trashed-groups.groups-overflow .groups-trash-pin { display: flex; }
-  /* Kort ned SELVE scrollporten (ikke bare margin utenfor): bar-en har
-     height: 100%, så margin-bottom ville bare skjøvet plass utenfor scroll-
-     containeren — da regnes clientHeight/maks scrollTop som om «＋»-sonen var
-     synlig innhold, og siste gruppe havner bak den faste bunn-sonen. Ved å
-     redusere høyden med sone-høyden ligger siste kort klart over «＋»-sonen når
-     man scroller helt ned (fade-padding gir litt luft). */
-  .app-header.groups-overflow .groups-bar {
-    height: calc(100% - var(--plus-zone-h));
-    padding-top: var(--fade-h);
-    padding-bottom: var(--fade-h);
-  }
-  .app-header.has-trashed-groups.groups-overflow .groups-bar {
-    margin-top: var(--trash-zone-h);           /* klem inntil søppelkasse-sonen */
-    height: calc(100% - var(--trash-zone-h) - var(--plus-zone-h));
-  }
 
   /* Board fyller området til høyre for kolonnen; verktøylinja ligger over. */
   .app-main {
     margin-left: var(--sidebar-w);
-    padding-top: calc(var(--toolbar-h, 60px) + clamp(16px, 3vw, 30px));
+    padding-top: calc(var(--toolbar-h, 96px) + clamp(16px, 3vw, 30px));
   }
   .toolbar { left: var(--sidebar-w); }
 }

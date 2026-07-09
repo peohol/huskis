@@ -4,528 +4,294 @@ Personlig arbeidsnotat for utvikling av **Huskekurv-appen**. Oppdateres undervei
 
 ## Mål (fra oppgaven)
 
-> **Omorganisering (juli 2026):** De to faste fanene (Huskelister/Handlelister) er
-> erstattet av et **selvvalgt antall grupper**. Inndelingen er nå
-> **Gruppe > Liste > Element** (der «Liste» = det gamle «kategori»-kortet, og
-> «Element» er uendret). Apptittelen «🧺 Huskekurv» er fjernet fra headeren, som
-> i stedet viser en rad med gruppene (se «Grupper (header)»). Gammel data
-> migreres til to grupper «Huskelister»/«Handlelister» (se «Migrering»).
+> **Universer (juli 2026):** Det er innført et nytt nivå over gruppene:
+> **Univers > Gruppe > Liste > Element**. Universer er **helt uavhengige
+> områder** — grupper kan ALDRI flyttes på tvers av universer. Universer
+> administreres i en **meny-modal** (☰) sammen med «Logg ut». Gammel data
+> migreres inn i standard-universet (`uni-standard`, se «Migrering»).
 
-En app organisert som **Gruppe > Liste > Element**:
-- Opprette / slette / endre rekkefølge på / endre navn på **grupper** (i headeren).
-- **Søppelkasse på alle tre nivåer** (grupper, lister, elementer): sletting legger i en
-  gjenopprettbar søppelkasse (`trashed`-flagg), ikke permanent. Se «Søppelkasser».
+Appen er organisert som **Univers > Gruppe > Liste > Element**:
+- **Universer**: bytt/opprett/omdøp/slett i meny-modalen (☰). Egen søppelkasse der.
+- **Grupper** (gruppemenyen): opprett/slett/omdøp/dra-rekkefølge. Egen søppelkasse.
+- **Lister** («kort», tidl. «kategorier») i hver gruppe: samme CRUD + dra-og-slipp;
+  kortene vises kolonnevis (CSS multi-column) og kan dras **på tvers av kolonner**
+  og **til en annen gruppe** (slipp på et gruppekort i gruppemenyen — kun innen
+  samme univers, siden bare det aktive universets grupper vises).
+- **Elementer** i hvert kort: samme CRUD + dra-og-slipp, inkl. overføring mellom
+  lister (i samme gruppe).
+- **Søppelkasse på alle fire nivåer** (`trashed`-flagg, gjenopprettbart; gravstein
+  først ved tømming). Se «Søppelkasser».
+- Klikk på navn (aktiv gruppe / aktivt univers / kort-tittel / element) = omdøp inline.
 
-I hver gruppe (helt som de gamle fanene fungerte):
-- Legge til / slette / redigere / endre rekkefølge på **lister** (tidl. «kategorier»).
-- Hver liste er sitt eget **kort**.
-- Kortene vises **kolonnevis** (masonry-aktig) slik at man ser flest mulig kort samtidig.
-- Endre rekkefølge på kort via **dra-og-slipp** med håndtak:
-  - Når man tar tak i et kort løftes det opp og følger musepekeren.
-  - En **placeholder** vises der kortet var.
-  - Når dra-kortets **øvre kant** passerer **nederste femtedel** av et annet kort, bytter de plass;
-    det andre kortet flyttes, og en ny placeholder avdekkes der dra-kortet vil lande.
-  - Tilsvarende oppover og nedover.
-  - Kort kan bytte plass **på tvers av kolonner**.
-- Lister kan **overføres til en annen gruppe** ved å dra listen opp på et gruppekort i
-  headeren (samme idé som å flytte et element til en annen liste).
-- Endre **navn** på kategori ved å klikke på tittelen.
+## Design- og UX-føringer (VIKTIG — videreføres av fremtidige agenter)
 
-Inne i kortene (listene):
-- Legge til / slette / redigere / endre rekkefølge på **elementer**.
-- Samme dra-og-slipp-oppførsel.
-- Elementer kan **overføres mellom lister** (i samme gruppe).
+Appen skal føles **visuelt ryddig, konsistent og forutsigbar**. Konkret:
 
-Design:
-- Fint, ryddig, oversiktlig, brukervennlig UI. Responsivt (desktop + mobil).
-- **Quicksand**-fonten (Google Fonts) på alt.
-- Kortene har **ulike, tilfeldige farger** fra en **pen fargepalett** for visuell separasjon.
+**Designsystem (styles.css, øverst):**
+- **Tokens, ikke hardkoding**: `--control-h` (38px), `--control-radius` (12px),
+  `--control-bg` (rgba(255,255,255,.75)), `--side-pad`, `--fade-h`, `--text-shadow`,
+  skygge- og radius-variablene. Nye kontroller skal bruke disse — aldri egne ad
+  hoc-verdier. Endres et token, skal hele appen følge med.
+- **Alle knapper i samme knapperad har identisk høyde/radius/flate** (`--control-h`
+  / `--control-radius`). Gjelder ＋-knapper, søppelkasser, filterkortet og ☰.
+- **Delte klasser — gjenbruk før du lager nye**:
+  - `.panel-head` + `.panel-title` + `.panel-actions`: overskrift («GRUPPER»/
+    «LISTER»/«UNIVERSER», uppercase via CSS) på egen linje + knapperad under.
+    Brukes i gruppemenyen, listemenyen og meny-modalen.
+  - `.btn-add` (+ `.icon-only` for kvadratisk ＋): ALLE ＋-knapper — grønn gradient,
+    **hvit tekst m/ `--text-shadow`**.
+  - `.trashcan`: ALLE søppelkasse-knapper — hvit avrundet beholder, antall i grå
+    sirkel (`.trashcan-count`), **skjult (`hidden`) når tom**.
+  - `.menu-btn`: ☰ (tre linjer via `.menu-bars` + box-shadow).
+  - `.chip` / `.chip-name` / `.chip-count`: fargede kort med hvit skrift — deles av
+    gruppekort og univers-rader. Aktiv = grønn brand-ring (`outline --primary`).
+  - Sletteknapper: felles regel (dempet ✕ → rød ved hover), `margin-left: auto` på
+    chips (alltid helt til høyre). Element-✕ alltid synlig, dempet (`opacity .55`).
+  - Håndtak (`.drag-handle`): alltid **mørkere enn flaten sin** (kortets/gruppens
+    aksentfarge `--card-accent`/`--g-accent`), grid-sentrert (vertikalt midtstilt).
+- **Flate-mønsteret**: hvile = halvgjennomsiktig hvit (`--control-bg`), hover =
+  helt ugjennomsiktig hvit. Gjelder søppelkasser, filterkortet og ☰.
+- `[hidden]` har en global `display:none !important`-regel — den MÅ beholdes
+  (klasse-display som `inline-flex` ville ellers overstyre `hidden`-attributtet).
+
+**UX-prinsipper (samme mønster på alle nivåer):**
+- Klikk = bytt/aktivér; klikk på det **aktive** navnet = omdøp inline (autosize).
+- Slett = `trashed`-flagg → søppelkasse; **søppelkasser vises kun med innhold**;
+  kort trykk = modal (gjenopprett/tøm), klikk-og-hold = sveipefelt for tømming.
+  Destruktivt er alltid reversibelt frem til tømming (gravstein først da).
+- Nytt objekt (univers/gruppe/liste) aktiveres og går rett i navneredigering.
+- «＋ Gruppe» skal alltid bare virke: uten univers opprettes standard-universet i
+  farten (`ensureUniverse`).
+- Escape lukker øverste modal — men avbryter kun inline-redigering hvis en pågår.
+
+**Arbeidsfilosofi:**
+- Jobb autonomt; ikke still oppfølgingsspørsmål — bruk beste skjønn og dokumentér valg her.
+- **Verifiser alltid i ekte nettleser** (Playwright mot `python3 -m http.server`,
+  desktop- OG mobil-viewport, blokker eksterne kall for hermetikk) før du sier deg
+  ferdig — funksjonelt (CRUD/DnD/synk/migrering) og visuelt (screenshots).
+- Oppdater CLAUDE.md (denne fila) med endringer, beslutninger og status.
 
 ## Valgt arkitektur
 
 - **Ren statisk app**: `index.html` + `styles.css` + `app.js`. Ingen byggesteg, ingen rammeverk.
-  - Enkelt å kjøre (`python3 -m http.server`) og enkelt å deploye hvor som helst.
-- **Vanilla JS** med egen dra-og-slipp-motor bygget på **Pointer Events** (fungerer likt for mus og touch).
-  - Egen motor fordi kravene (øvre kant vs. nederste femtedel, kryss-kolonne, placeholder) er svært spesifikke.
-- **Persistens** i `localStorage`.
+- **Vanilla JS** med egen dra-og-slipp-motor på **Pointer Events** (mus + touch likt).
+- **Persistens** i `localStorage`; sanntids-synk via Supabase (se lenger ned).
 - **Datamodell** (nøstet i minnet for rendring, flat i synk-doc'et):
   ```js
   state = {
-    activeGroup: <groupId>,        // per enhet, synkes ikke (erstatter activeTab)
-    groups: [
-      { id, name, trashed, pos,    // + synk-registre: ts/org (navn/trashed), posTs/posOrg (rekkefølge)
-        cards: [                   // «lister» (tidl. kategorier)
-          { id, group, title, color, trashed, k, p,
-            items: [ { id, text, trashed, home } ] }   // home = kortets id (forelder)
-        ] }
+    activeUniverse: <uniId>,     // per enhet, synkes ikke
+    activeGroup: <groupId>,      // per enhet, synkes ikke
+    activeGroups: { uniId: groupId }, // per enhet: sist aktive gruppe per univers
+    universes: [
+      { id, name, trashed, pos,  // + registre: ts/org (innhold), posTs/posOrg (rekkefølge)
+        groups: [
+          { id, uni, name, trashed, pos,   // uni = univers-forelder
+            cards: [                        // «lister»
+              { id, group, title, color, trashed, k, p,
+                items: [ { id, text, trashed, home } ] } ] } ] }
     ],
-    _tomb: { groups:{}, cards:{}, items:{} },  // gravsteiner: id → tidsstempel
+    _tomb: { universes:{}, groups:{}, cards:{}, items:{} }, // gravsteiner: id → ts
   }
   ```
-  Hierarkiet har forelder-peker på hvert nivå: `element.home → kort`, `kort.group → gruppe`.
-  (`k`/`p` = merkelapp-brytere per liste, se «Merkelapper (K/P) + filter».)
+  Forelder-peker på hvert nivå: `element.home → kort`, `kort.group → gruppe`,
+  `gruppe.uni → univers`. Aktiv gruppe settes ALLTID via `setActiveGroup()` /
+  `setActiveUniverse()` så per-univers-minnet holdes i takt.
 
-## Grupper (header)
+## Gruppemenyen (header)
 
-Headeren ligger **fast** (`position: fixed`, uavhengig av scrolling — mer robust enn
-`sticky`, som svikter med `backdrop-filter` på iOS Safari) og alt annet innhold scroller bak
-den. **Layouten er ulik på desktop og mobil** (én felles DOM, delt i to media-queryer så
-egenskaper ikke lekker mellom modusene):
+Fast panel (`position: fixed`), **én felles DOM** delt i to media-queryer:
 
-- **Desktop (`min-width: 561px`): headeren er en fast, full-høyde KOLONNE til venstre**
-  (`width: --sidebar-w`, `border-right`). Innholdet stables ovenfra: **søppelkasse (øverst) →
-  gruppekort → «＋» (nederst)** — DOM-rekkefølgen er allerede trash→grupper→«＋», så
-  `flex-direction: column` gir riktig stabling. `.app-main` klareres med `margin-left:
-  --sidebar-w`.
-- **Mobil (`max-width: 560px`): headeren er en fast RAD øverst** (som før), venstreorientert,
-  med horisontal scroll. `.app-main` klareres med topp-padding = `--header-h` + `--toolbar-h`.
+- **Desktop (`min-width: 561px`)**: fast, full-høyde **kolonne til venstre**
+  (`--sidebar-w`). Øverst `.panel-top`: overskriften **GRUPPER** (linjen er
+  `--control-h` høy så den flukter med LISTER-linjen i verktøylinja) og
+  knapperaden **«＋ Gruppe» + gruppe-søppelkassen side om side**. Gruppekortene
+  scroller i kolonnen under og **oppløses i en fade** (CSS `mask-image`, høyde
+  `--fade-h`, tilsvarende fade i bunnen; hvile-padding = fade-høyden så ingenting
+  er falmet i ro). Masken slås av under draging (`body.is-dragging`) fordi den
+  ellers ville klippe det løftede (fixed) dra-kortet. Ingen pinnede soner lenger.
+- **Mobil (`max-width: 560px`)**: fast panel øverst: overskrift, knapperad
+  («＋ Gruppe» + søppelkasse til venstre, **☰ helt til høyre** på samme rad) og
+  gruppekortene på **én horisontalt scrollende rad** under — **uten fader** (kun
+  en diskret, app-tilpasset scrollbar).
 
-- **Gruppekort** (`.group-card`, mal `#group-template`): håndtak, navn, **dempet antall lister**
-  (`.group-count`, `opacity ~0.42`), slett-knapp. På desktop **full bredde** i kolonnen; på
-  mobil følger bredden navnet (`max-width`, ellipsis). Kortene har nå **posisjonsbasert farge**
-  (samme HSL-system som listekort, se «Fargesystem»). Det **aktive** kortet markeres med en
-  **grønn brand-ring** (`outline: 2.5px solid var(--primary)`) rundt den fargede chipen.
-- **Bytte gruppe**: klikk på et kort gjør gruppen aktiv (board-et tegner dens lister).
-  Klikk på **navnet til den allerede aktive** gruppen redigerer navnet inline (input som
-  vokser med innholdet, `editText(..., { cls:'group-edit', autosize:true })`).
-- **Slette gruppe**: legger gruppen i gruppe-søppelkassen (`trashed`-flagg; gjenopprettbar).
-- **Rekkefølge**: dra-og-slipp via håndtaket, med **placeholder + FLIP** som kort/elementer
-  (`startGroupDrag`/`updateGroupPlacement`/`onGroupUp`). `updateGroupPlacement` **dispatcher**
-  ut fra orientering (`groupsVertical()`):
-  - **Desktop (`updateGroupPlacementV`)**: én vertikal kolonne — bytt med kortet **over/under**
-    ut fra dra-retningen ved ≥ 20 % **høyde**-overlapp (som elementer i én kolonne).
-  - **Mobil (`updateGroupPlacementH`)**: transponert til raden — en **rad** = kort med ≥ 50 %
-    vertikal overlapp; innen raden byttes ved ≥ 20 % breddeoverlapp retningsstyrt; kryss-rad
-    plasseres etter horisontal senter.
-  «Etter siste kort» legger placeholderen foran «＋». Løftet kort roterer (`cardRotation()`).
+- **Gruppekort** (`.group-card.chip`): håndtak (mørkt, `--g-accent`), navn, dempet
+  antall, ✕ helt til høyre. Posisjonsbasert farge; aktiv = grønn ring. Klikk =
+  bytt gruppe; klikk på aktivt navn = omdøp (`editText` autosize).
+- **Rekkefølge**: dra-og-slipp via håndtaket med placeholder + FLIP
+  (`updateGroupPlacement` dispatcher på orientering: vertikal kolonne på desktop
+  (`…V`), horisontal rad på mobil (`…H`)); auto-scroll av feltet ved kantene.
+- Header- og verktøylinje-høyder måles (`ResizeObserver`) → `--header-h`/`--toolbar-h`.
 
-**Overflow (for mange grupper til å få plass):** `updateGroupsOverflow()` setter
-`.groups-overflow` på headeren. Da legges **to faste soner** utenfor scroll-feltet, og
-gruppelista klemmes mellom dem (bar-marger) og oppløses i **innsidefader** (`--header-solid`
-→ transparent, satt som én gradient på sonen, så ingen synlig skjøt; `pointer-events: none`
-så kort delvis under en fade fortsatt er trykkbare):
-- **Desktop**: søppelkasse **øverst** (`.groups-trash-pin`, kun med innhold) + «＋» **nederst**
-  (`.groups-pin`), full bredde, fade på innsiden mot kortene. Kolonnen scroller vertikalt
-  (`updateGroupAutoScroll` scroller `scrollTop` under draging). Overflow **måles i nøytral
-  tilstand** (uten klassen): `groupsBar.scrollHeight > clientHeight` — flip-flop-fritt, siden
-  bar-marginene bare gjelder med klassen.
-- **Mobil**: søppelkasse **venstre** + «＋» **høyre**, full høyde; raden scroller horisontalt.
-  Overflow-**målingen** summerer kortenes intrinsiske bredder + faste sone-/fade-bredder mot
-  viewporten (flip-flop-fritt). Uten overflow vises en diskret, app-tilpasset scrollbar; med
-  overflow overtar de faste sonene og inline-«＋»/-søppelkasse skjules.
+## Listemenyen (verktøylinja)
 
-Både header- og verktøylinje-høyden måles i JS (`ResizeObserver`) og eksponeres som
-`--header-h` / `--toolbar-h` for riktig klarering (høydene varierer med ombrekking / innhold).
+Fast meny (`position: fixed`; desktop: øverst til høyre for kolonnen, mobil: rett
+under gruppemenyen). To linjer: overskriften **LISTER** (desktop: med **☰ helt til
+høyre** på samme linje) og knapperaden **«＋ Liste» + liste-søppelkassen +
+filterkortet (👁️ K/P/KP)**. Filterkortet følger flate-mønsteret (halvgjennomsiktig
+→ opak ved hover). Logg ut-knappen er FLYTTET til meny-modalen.
+
+## Meny-modal (☰) + universer
+
+Menyknappen (☰, `.menu-btn`) åpner `#menu-modal`:
+- **«Logg ut»** øverst (med bekreftelse), deretter `<hr class="menu-divider">`.
+- **UNIVERSER**-seksjon: univers-rader (`.uni-row.chip` — farget, aktiv m/ ring,
+  antall grupper dempet, ✕ helt til høyre), «＋ Univers» og univers-søppelkassen
+  (samme knapp/oppførsel som de andre).
+- Klikk på en rad = **bytt univers + lukk menyen** (bytt kontekst og gå); klikk på
+  det aktive navnet = omdøp. Slett = i søppelkassen (menyen forblir åpen så man
+  kan angre). `setActiveUniverse` gjenoppretter sist aktive gruppe i universet.
+- Søppelkasse-modalen kan ligge **over** menyen (ligger etter i DOM, samme
+  z-index); `body.modal-open` styres samlet (`updateModalOpenClass`).
+- Universer er **helt uavhengige**: alt gruppe-/liste-UI er scopet til det aktive
+  universet (`allGroups()` osv.), så kryss-univers-flytting er umulig i UI-et.
 
 ## Dra-og-slipp-logikk (kjernen)
 
 Bytte utløses av **overlapp**, ikke av et punkt:
-- Når dra-elementets boks overlapper et annet kort/element med **≥ 20 % av høyden**, bytter de plass.
-- Byttet er **retningsstyrt** (hysterese mot flimring): drar man **nedover** byttes kun med kortet **under**,
-  drar man **oppover** kun med kortet **over**. Rett etter et bytte forskyves nabokortet så mye at det
-  motsatte byttet ikke trigges umiddelbart → stabilt, men «ivrig» (bytter tidlig).
-- **Kolonne** = kort som ligger på samme horisontale spor (≥ 50 % horisontal overlapp med dra-kortet).
-  Føres dra-kortet inn i en **annen kolonne**, plasseres placeholderen ut fra vertikal senterposisjon
-  (kryss-kolonne). For elementer tilsvarer dette **overføring til en annen `.items-container`** (liste).
-- **FLIP-animasjon (150 ms)**: før hver placeholder-flytting tas et øyeblikksbilde av kortenes/elementenes
-  posisjoner (`getBoundingClientRect`); etter flyttingen inverteres differansen med `transform` og animeres
-  til 0. Ved slipp animeres dra-elementet fra flytende posisjon inn i placeholder-sloten.
-- `layoutRect()` trekker fra en evt. pågående FLIP-`transform` (via `DOMMatrix`) slik at treffdeteksjonen
-  bruker **hvilende** layout-posisjoner selv midt i en animasjon → ingen dobbeltbytter.
-- Kort-DnD reflower automatisk fordi layouten er `CSS multi-column` og rekkefølgen bestemmes av DOM-rekkefølge.
-- Under draging manipuleres DOM direkte (for ytelse); state bygges opp igjen fra DOM ved slipp, så re-render.
-- **Dynamisk rotasjon av dra-kortet** (`cardRotation()`, `MAX_ROT = 5`): kortet vippes ut fra sin
-  horisontale posisjon — `−5°` inntil venstre ytterkant, `0°` midtstilt, `+5°` inntil høyre ytterkant.
-  Normaliseres mot det oppnåelige senter-området (halve kortbredden inn fra hver kant) så
-  ytterpunktene faktisk nås. Settes inline som `transform: rotate(…) scale(1.02)` på hver
-  peker-bevegelse; `.card.dragging` har kun `scale(1.02)` som fallback. Elementer roterer ikke.
-- **Auto-scroll ved kant** (`updateAutoScroll` + `startAutoScroll`, kun for kort): når pekeren nærmer
-  seg topp/bunn av vinduet ruller siden — **sakte** i ytterkanten av sonen, **raskere** jo lengre ut,
-  og raskest når kortet holdes forbi selve kanten (`edgeSpeed`, sone = 120 px). Kortet er `fixed`, så
-  for at de andre kortene skal bytte plass under rullingen re-kjøres plasseringslogikken
-  (`updateCardPlacement(0, ±1)`) med rulleretningen som syntetisk drag-retning på hver frame.
+- ≥ **20 %** høyde-/breddeoverlapp bytter plass; **retningsstyrt** (hysterese mot
+  flimring): nedover-drag bytter kun med kortet under, oppover kun med kortet over
+  (transponert for horisontale rader).
+- **Kolonne** = kort med ≥ 50 % horisontal overlapp; kryss-kolonne plasseres etter
+  vertikal senterposisjon. For elementer = overføring til annen `.items-container`.
+- **FLIP-animasjon (150 ms)** ved hver placeholder-flytting og ved slipp.
+  `layoutRect()` trekker fra pågående FLIP-transform → stabil treffdeteksjon.
+- Under draging manipuleres DOM direkte; state bygges fra DOM ved slipp (kirurgisk:
+  kun det flyttede objektets posisjonsregister stemples).
+- **Dynamisk rotasjon** av dra-kort (`cardRotation()`, ±5° ut fra horisontal
+  posisjon); elementer roterer ikke. **Auto-scroll** ved vindus-kant for kort, og
+  av gruppefeltet ved feltets kanter under gruppe-drag.
+- Kun én drag om gangen (`if (drag.active) return`); `finishDrag()` feier bort
+  evt. foreldreløse placeholdere.
 
-### Overføring av lister mellom grupper (dra en liste opp på et gruppekort)
+### Overføring av lister mellom grupper (innen samme univers)
 
-Analogt til at et **element** kan dras over i en annen liste (`.items-container`), kan en **liste**
-(kort) dras opp på et **gruppekort i headeren** og dermed flyttes til den gruppen. Fordi mål-gruppens
-board **ikke vises** akkurat nå, brukes gruppekortet selv som «drop-target» i stedet for en placeholder:
+Dra en liste opp på et gruppekort i gruppemenyen: gruppekortet markeres
+(`.drop-target`), dra-kortet blir gjennomskinnelig (`.to-group`), board-et fryses
+mens man sikter. Slipp = kirurgisk flytting (`card.group` + `pos` bakerst, kun
+posisjonsregisteret stemples) + toast + puls på målgruppen (`pulseReceivedGroup`).
 
-- Under kort-draging sjekker `onCardMove` om pekeren er **over headeren** (`pointerInHeader`). Er den det,
-  markeres evt. **gyldig mål-gruppe** under pekeren (`cardTransferGroupAt` → et `.group-card` som ikke er
-  den aktive gruppen) via `setCardGroupTarget`: gruppekortet får `.drop-target` (grønn stiplet ramme) og
-  dra-kortet får `.to-group` (gjøres gjennomskinnelig så gruppekortet under synes — dra-kortet ligger
-  `z-index` over headeren). Mens man sikter på headeren **fryses board-et** (ingen `updateCardPlacement`)
-  og side-auto-scroll stanses, så lista ikke bytter plass mens man løfter den opp.
-- Ved slipp over en mål-gruppe (`onCardUp`) overføres lista **kirurgisk**, akkurat som elementer: kortet
-  fjernes fra kilde-gruppens `cards`, `card.group` settes til mål-gruppens id, `pos = maxPos(mål) + 1`
-  (bakerst), og **kun posisjonsregisteret** stemples (`stampPos` — «forelder følger posisjon», jf. flat
-  synk-doc). Deretter `render()` (lista forsvinner fra dette board-et), et lite kvitteringsvarsel
-  (`showToast`) og en kort puls på mål-gruppekortet (`pulseReceivedGroup` → `.received`). Slippes lista på
-  **egen** gruppe eller utenfor et gruppekort, faller den tilbake til vanlig omorganisering i board-et.
-- Slippes lista **utenfor headeren** kjører alt som før (reorder + kryss-kolonne). Overføringen er derfor
-  et **rent tillegg** til kort-DnD-en, uten å endre den eksisterende rekkefølge-logikken.
+## Søppelkasser (universer / grupper / lister / elementer)
+
+Fire nivåer, samme knapp (`.trashcan`: hvit beholder, 🗑️ + antall i grå sirkel) og
+samme oppførsel; **alle vises kun når de har innhold** (`hidden`):
+- **Universer**: i meny-modalen, ved siden av «＋ Univers».
+- **Grupper**: i gruppemenyens knapperad (per aktivt univers).
+- **Lister**: i listemenyens knapperad (per aktiv gruppe).
+- **Elementer**: midtstilt nederst i hvert listekort.
+
+**Interaksjon (`attachTrashHold`)**: kort trykk → felles modal (`showTrashModal`:
+gjenopprett enkeltvis / tøm med bekreftelse; modalen åpnes utsatt og ignorerer
+overlay-klikk de første ~450 ms). Klikk-og-hold (> `HOLD_EXPAND_MS`) → **sveipefelt**
+(«🗑️ Sveip for å tømme →», fixed overlay): sveip helt til høyre roterer ikonet
+opp-ned og **tømmer** (rist 500 ms, kollaps); slipp før enden = avbryt. Tømming
+setter **gravsteiner** rekursivt (univers → grupper → lister → elementer:
+`emptyUniversesTrash`/`emptyGroupsTrash`/`emptyCardsTrash`/`emptyItemsTrash`).
+Alle tekster/titler sier «hold og sveip for å tømme» (den gamle «hold i 3
+sekunder»-teksten er utfaset).
 
 ## Sanntids-synk (Supabase) med felt-nivå fletting
 
-Listene synkes **fortløpende** mellom enheter via **Supabase**. Alle enheter som deler samme
-hemmelige synk-kode (utledet fra innloggingsmønsteret) holdes i synk uten å laste siden på nytt.
-Endringer på én enhet dukker opp på de andre «med det samme».
+Som før: ett `jsonb`-doc per synk-kode, CAS (`version`) i databasen, Realtime
+broadcast + poll-fallback, felt-nivå LWW-fletting med hybrid logisk klokke og
+gravsteiner. **Ingen databaseendring var nødvendig for universer** (samme
+`get_list`/`save_list`; SQL i `supabase/setup.sql`).
 
-Målet er at enheter alltid er **reelt** i synk, og at samtidige endringer på ulike
-kort/elementer aldri overskriver hverandre (à la hvordan git merger brancher — konflikt kun
-når *samme* element endres to steder).
-
-### To mekanismer sikrer at ingenting går tapt
-
-1. **Fletting på felt-nivå (CRDT-lett)** — hele tilstanden ligger fortsatt som **ett `jsonb`-doc**.
-   Doc'et er **flatt**: tre parallelle tabeller (`groups` / `cards` / `items`) med forelder-peker
-   (`kort.group`, `element.home`), slik at gruppe/liste/element flettes hver for seg på `id` og
-   forelderløse forkastes. Hver entitet har egne «registre» med logisk tidsstempel:
-   - **innhold** (`ts`, `org`): gruppens navn/`trashed`; kortets tittel/farge/`trashed`;
-     elementets tekst/`trashed`. (`trashed` = søppelkasse-flagg; se «Søppelkasser».)
-   - **merkelapp** (`labTs`, `labOrg`): kortets `k`/`p`-brytere. Eget register så en merkelapp-endring
-     på én enhet ikke overskrives av en samtidig tittel-/farge-endring på en annen (og omvendt).
-     `k` og `p` deler register (flettes som ett par) så «minst én på» aldri brytes av fletting.
-   - **posisjon** (`posTs`, `posOrg`): rekkefølge (`pos`, fraksjonsindeksering) + **forelder**
-     (elementets `home`, kortets `group`) — forelder følger posisjonsregisteret siden flytting
-     endrer forelder + plassering samtidig.
-   Ved fletting velges nyeste verdi per register (LWW; `org`/enhets-id bryter uavgjort
-   deterministisk). Endringer på ulike grupper/kort/elementer/felter kolliderer aldri; kun samme
-   register endret to steder «konflikter», og da vinner nyeste. `tick()` er en **hybrid logisk
-   klokke** (monotont voksende) så den tåler at enhetenes veggklokker går i utakt.
-   - **Sletting** bruker **gravsteiner** (`_tomb.groups` / `_tomb.cards` / `_tomb.items`:
-     id → tidsstempel) så en sletting ikke «gjenoppstår» fra en foreldet enhet. Gravstein
-     settes **først når en søppelkasse tømmes permanent** (gruppe-, liste- eller element-nivå);
-     vanlig sletting setter kun `trashed: true` (gjenopprettbart). Søppelkasse = entitet med
-     `trashed: true`.
-   - `activeGroup` er **per enhet** og synkes ikke.
-   - **Migrering**: gammel to-fane-form (både hel-tilstand og forrige synk-doc) gjøres om til to
-     grupper med **faste, deterministiske id-er** (`grp-huskelister`/`grp-handlelister`) i
-     `migrateBareState`/`normalizeRemoteDoc`, så alle enheter migrerer likt uten duplisering.
-2. **Optimistisk samtidighetskontroll (CAS) i databasen** — raden har en `version`-teller.
-   `save_list` skriver kun hvis klientens forventede versjon stemmer; ellers får klienten
-   gjeldende `{data, version}` tilbake, **fletter lokalt, og prøver igjen**. Dermed kan aldri
-   én enhet overskrive en annen enhets samtidige skriving.
-
-### Live-oppdatering
-
-- **Supabase Realtime (broadcast)**: hver enhet abonnerer på en kanal utledet fra synk-koden
-  (`sha256('rt|' + kode)`). Etter en vellykket skriving kringkastes «changed» + versjon, og de
-  andre enhetene henter + fletter straks. Broadcast krever **ingen** ekstra databaseoppsett.
-- **Poll-fallback**: enhetene poller også (hyppig når realtime er nede, sjeldnere ellers), og
-  synker straks når fanen får fokus / nettet kommer tilbake. Slik er man i synk selv om realtime
-  skulle feile eller mobilen suspenderer socket-en.
-- **UI**: Det finnes ingen «Synk»-knapp eller synk-modal lenger — synken bare virker fortløpende i
-  bakgrunnen. Når en endring kommer fra en annen enhet, vises et lite, forbigående varsel
-  («Oppdatert fra en annen enhet», `showToast`). Utlogging skjer via **«Logg ut»**-knappen i
-  verktøylinja (`logout()` → tømmer auth/synk-kode i `localStorage` og laster siden på nytt).
-
-### Klient (kort)
-
-- **`config.js`** holder `window.SUPABASE_CONFIG` (`url` + `anonKey`). Så lenge plassholderne
-  (`DIN_...`) står, eller Supabase-biblioteket ikke lastes / nettet er nede, kjører appen lokalt
-  (localStorage) og **degraderer pent**. Ny enhet med sky konfigurert starter **tom** (skyen
-  fyller på); helt uten sky brukes eksempeldata.
-- **`syncCycle()`** er én serialisert runde: **pull → flett → (evt.) push**. Den kalles debouncet
-  ved lokale endringer, på broadcast, ved poll, og når fanen får fokus. `docFromState()` /
-  `applyDoc()` mapper mellom synk-doc og `state`; `canonical()` gir rekkefølge-uavhengig likhet
-  (så en runde uten reell endring ikke pusher).
-- Interne synk-funksjoner er eksponert på `window.__huskekurv` for testing
-  (`mergeStates`, `canonical`, `docFromState`, `syncCycle`, …).
-
-### SQL som må kjøres i Supabase (SQL Editor)
-
-**Etter denne endringen må SQL-en kjøres på nytt** (idempotent — kan også kjøres via GitHub
-Actionen «Supabase DB-oppsett»). Den legger til `version`-kolonnen og bytter `save_list` til
-CAS-varianten. Full SQL ligger i `supabase/setup.sql`. Kort oppsummert:
-
-```sql
-create extension if not exists pgcrypto with schema extensions;
-
-create table if not exists public.lists (
-  code_hash  text primary key,
-  data       jsonb not null,
-  version    bigint not null default 0,
-  updated_at timestamptz not null default now()
-);
-alter table public.lists add column if not exists version bigint not null default 0;
-
-alter table public.lists enable row level security;  -- ingen policy → ingen direkte tilgang
-
--- get_list returnerer nå BÅDE data og versjon: { data, version }
-create or replace function public.get_list(p_code text)
-returns jsonb language sql security definer set search_path = public, extensions as $$
-  select jsonb_build_object('data', data, 'version', version)
-  from public.lists
-  where code_hash = encode(digest(p_code, 'sha256'), 'hex');
-$$;
-
-drop function if exists public.save_list(text, jsonb);
-
--- save_list gjør compare-and-swap: skriver kun hvis p_prev_version stemmer,
--- ellers returneres gjeldende { ok:false, version, data } for fletting + nytt forsøk.
-create or replace function public.save_list(p_code text, p_data jsonb, p_prev_version bigint)
-returns jsonb language plpgsql security definer set search_path = public, extensions as $$
-declare
-  h text := encode(digest(p_code, 'sha256'), 'hex');
-  new_version bigint;
-begin
-  insert into public.lists as l (code_hash, data, version, updated_at)
-  values (h, p_data, 1, now())
-  on conflict (code_hash) do update
-    set data = p_data, version = l.version + 1, updated_at = now()
-    where l.version = coalesce(p_prev_version, 0)
-  returning l.version into new_version;
-  if new_version is not null then
-    return jsonb_build_object('ok', true, 'version', new_version);
-  end if;
-  return jsonb_build_object('ok', false,
-    'version', (select version from public.lists where code_hash = h),
-    'data',    (select data    from public.lists where code_hash = h));
-end;
-$$;
-
-grant execute on function public.get_list(text)                 to anon;
-grant execute on function public.save_list(text, jsonb, bigint) to anon;
-```
-
-**Merk:** i Supabase ligger `pgcrypto` (og dermed `digest()`) normalt i skjemaet
-`extensions`, ikke `public`. Funksjonene må derfor ha `extensions` i `search_path` i
-tillegg til `public` — ellers feiler kallet med
-`function digest(text, unknown) does not exist`.
+- **Flatt doc**: fire parallelle tabeller + gravsteiner:
+  `{ universes, groups, cards, items, tomb: {universes, groups, cards, items}, hlc }`
+  med forelder-pekere (`gruppe.uni`, `kort.group`, `element.home`). Fletting per
+  register (innhold `ts/org`; merkelapp `labTs/labOrg` (kort); posisjon
+  `posTs/posOrg` — **forelder følger posisjonsregisteret**). Forelderløse forkastes
+  (gruppe uten univers, liste uten gruppe, element uten liste).
+- `activeUniverse`/`activeGroup`/`activeGroups` er per enhet og synkes ikke.
+- **Migrering** (deterministisk, uten duplisering — alle enheter migrerer likt):
+  1. To-fane-form (`tabs`) → to faste grupper (`grp-huskelister`/`grp-handlelister`).
+  2. Flat/nøstet gruppe-form (uten `universes`) → alt inn i **standard-universet**
+     `uni-standard` («Standard») med nøytrale registre (ts 0, org '').
+  Steg 1+2 kjøres både på lagret state (`migrateTabsToGroups` +
+  `migrateGroupsToUniverses` i `normalize`) og på fjern-doc
+  (`migrateBareState`/`normalizeRemoteDoc`).
+- `syncCycle()` (pull → flett → evt. push), `docFromState()`/`applyDoc()`,
+  `canonical()` som før. Interne funksjoner eksponert på `window.__huskekurv`.
 
 ## Innlogging (mønster-lås)
 
-Appen åpner med en **splash-screen** der man tegner et mønster i et **3x3-rutenett**
-(à la Android). Ingen appinnhold vises før riktig mønster er tegnet (`body.locked`
-skjuler `.app-header` + `.app-main`; en fast overlay `#lock-screen` ligger over).
-
-- **Punkter** nummereres `rad,kolonne` (1-basert). Hvert punkt har en sirkel med
-  treffradius ≈ halve cellebredden (`SNAP_R = 44` i et `300x300`-viewBox). Når pekeren
-  er innenfor sirkelen, låses linjen til punktet.
-- **Bevegelse kun til nærmeste nabo** (Chebyshev-avstand 1), horisontalt/vertikalt/diagonalt.
-  Trekker man en rett linje **2 unna** (f.eks. `1,1`→`1,3`), settes **mellompunktet**
-  (`1,2`) automatisk inn. «Knight»-hopp og lengre sprang ignoreres.
-- **Fasit** ligger kun som en **SHA-256-hash** i koden (`PATTERN_HASH`), ikke i klartekst.
-  Riktig mønster: `1,1-2,1-2,2-1,2-1,3-2,3-3,3-3,2-3,1`.
-- **Lås ved for mange feil**: mer enn 5 gale forsøk → innlogging **låst i 5 minutter**
-  (nedtelling vises; teller/tidspunkt i `localStorage`).
-- **Husket innlogging**: ved suksess settes `mine-lister-auth` i `localStorage` – huskes
-  til man **logger ut** (knapp i Synk-modalen → `location.reload()`).
-- **Synk-kobling**: synk-koden **utledes fra mønsteret** (`sha256('sync|' + mønster)`),
-  så samme mønster gir de samme listene på alle enheter – ingen egen kode å taste.
-  (Merk: for en ren statisk app er dette gate-nivå sikkerhet; ekte serverside-auth
-  ville kreve f.eks. Supabase Auth med magisk lenke.)
+Uendret: 3×3-mønster på splash-screen, fasit kun som SHA-256-hash, lås i 5 min
+etter > 5 feil, husket innlogging (`mine-lister-auth`), synk-koden utledes av
+mønsteret (`sha256('sync|' + mønster)`). «Logg ut» ligger nå i meny-modalen
+(`logout()` → tømmer auth/synk-kode og laster på nytt).
 
 ## Databaseoppsett via GitHub Actions
 
-- **`supabase/setup.sql`** inneholder hele skjemaet (tabell + `get_list`/`save_list` + grants), idempotent.
-- **`.github/workflows/db-setup.yml`** kjører SQL-en mot Supabase med `psql` (følger med på
-  ubuntu-runneren). Startes manuelt via **Actions → Supabase DB-oppsett → Run workflow**.
-- Krever repository-secret **`SUPABASE_DB_URL`** = tilkoblingsstrengen (Project Settings →
-  Database → Connection string → URI, med passordet innsatt). Alternativt kan SQL-en limes
-  rett inn i Supabase sin SQL Editor.
-
-## Søppelkasser (grupper / lister / elementer)
-
-Alle tre nivåene har en søppelkasse. Sletting setter `trashed: true` (gjenopprettbart);
-permanent sletting (med gravstein) skjer **først når søppelkassen tømmes**. En slettet entitet
-skjules fra sitt nivå (`visibleGroups()` / `activeCards()` / ikke-`trashed` elementer i kortet).
-
-**Tre søppelkasse-knapper** — hver viser **kun en søppelkasse-emoji + et tall** (ingen tekst-etikett):
-- **Grupper**: i **gruppelista/headeren** — **øverst** i venstre-kolonnen på desktop, **helt til
-  venstre** i raden på mobil. Vises **kun når det ligger grupper i den** (`updateGroupsTrash` →
-  `appHeader.has-trashed-groups`). To varianter: **inline** (`#groups-trash`) uten overflow, og en
-  **fast sone** (`#groups-trash-pin`) ved overflow (topp på desktop, venstre på mobil). Ved overflow
-  ligger søppelkassen og «＋» som faste, ugjennomsiktige soner med en **smal innsidefade** UTENFOR
-  scroll-feltet; gruppelista er klemt mellom dem, så kortene scroller **aldri bak** sonene (se
-  «Grupper (header) → Overflow»).
-- **Lister** (`#trash-btn`, verktøylinja): per **aktiv gruppe** (`trashedCards()`/`allCards()` er
-  gruppe-scopet). Tidligere «Papirkurv»-tekst er fjernet; kun emoji + tellepille.
-- **Elementer** (`.item-trash`, i hvert listekort): **midtstilt nederst i kortet**, under «Legg
-  til»-feltet, og vises **kun når kortet har slettede elementer**.
-
-**Interaksjon (`attachTrashHold`)** — felles for alle tre knappene:
-- **Kort trykk** → åpner **søppelkasse-modalen** (felles `#trash-modal`, fylt av
-  `showTrashModal({title, note, rows, empty})`). Der kan man **Gjenopprett**e enkeltvis
-  (`trashed: false`) eller **Tøm permanent** (med bekreftelse). Modalen åpnes via `setTimeout(…, 0)`
-  (etter click-sekvensen), og overlay-en ignorerer klikk de første ~450 ms (`modalOpenedAt`) — ellers
-  lukket åpnings-trykkets (evt. forsinkede) etter-klikk modalen igjen for gruppe-/liste-kurven, som
-  ligger nær kanten der etter-klikket treffer overlay-en i stedet for modal-boksen (elementkurven,
-  midt på skjermen, traff modal-boksen og «virket» derfor).
-- **Klikk-og-hold** (> `HOLD_EXPAND_MS`, eller start med bevegelse) → knappen utvider seg til et
-  **sveipefelt** (ett gjenbrukt, `position: fixed` overlay `.swipe-field`, plassert ved knappen og
-  klemt innenfor viewporten med plass til å sveipe litt forbi høyre ende): «🗑️ Sveip for å tømme →».
-  Sveiper man mot høyre roterer søppelkasse-ikonet gradvis (`rotate(p·180°)`) og blir **opp-ned** helt
-  til høyre (`p ≥ 1`); da **tømmes** den — ikonet **rister i 500 ms** (`SHAKE_MS`), roterer tilbake og
-  feltet **kollapser**. Slipper man **før** høyre ende, kollapser feltet **uten** å tømme. `--p` (0→1)
-  driver en grønn fylling i feltet.
-- Tømming gir permanente **gravsteiner**: `emptyGroupsTrash` (gruppe + dens lister + elementer),
-  `emptyCardsTrash` (liste + dens elementer), `emptyItemsTrash` (elementer). `refreshCard()`
-  bygger ett kort på nytt etter element-endringer (uten å tegne hele tavla). Sveipefeltet er
-  frikoblet fra knappen (ligger på `body`), så tømming som fjerner knappen (element-kortet bygges
-  på nytt) ikke avbryter rist/kollaps-animasjonen.
+Uendret: `supabase/setup.sql` (idempotent) kjøres via Actionen «Supabase
+DB-oppsett» (krever secret `SUPABASE_DB_URL`) eller limes inn i SQL Editor.
+Husk `extensions` i `search_path` (pgcrypto/`digest()`).
 
 ## Fargesystem (HSL, posisjonsbasert)
 
-- **Bakgrunn**: `#667788` (dempet skifer-blå). **Primær aksentfarge**: `#668866` (dempet grønn,
-  `--primary`; `--primary-dark` = mørkere grønn). Knapper o.l. er fortsatt hvite.
-- **Kort- og gruppefarger utledes av POSISJON** (indeks i den synlige, sorterte lista), ikke en
-  lagret tilfeldig farge. Kortene **re-indekseres og re-fargelegges fortløpende** når man legger
-  til, sletter eller endrer rekkefølge (fargen settes i `render()` / `renderGroups()` via
-  `colorForIndex(i)`, uavhengig av K/P-filteret). Målet er **maksimal separasjon** mellom
-  nabo-kort.
-- **Systemet** (alt i `app.js`, justerbart/skalerbart via konstanter — ikke hardkodede farger):
-  - Alle farger har samme **S = `COLOR_SAT` (20 %)**.
-  - Flere **L-nivåer** utgjør «sett»: `COLOR_LIGHTNESS = [60, 75, 90]`. Man fyller sett 1 (L=60)
-    for de første 12 kortene, sett 2 (L=75) for de neste 12, sett 3 (L=90) for de neste 12, så
-    rundt igjen (`level = floor(i / HUE_COUNT) % COLOR_LIGHTNESS.length`).
-  - Innen et sett hopper **fargetonen (H)** i lange steg (`HUE_STEP = 60`) fordelt på flere
-    forskjøvne «sveip», bygget av `buildHueOrder(HUE_COUNT=12, HUE_STEP=60)` →
-    `[0,60,120,180,240,300, 30,90,150,210,270,330]`. Lange hopp gir nabo-lister god visuell
-    separasjon. `hue = HUE_ORDER[i % HUE_ORDER.length]`.
-  - `hslToHex()` gir hex; `darken()` gir header-/aksentvarianter som før.
-- **Ikke lagret / ikke synket**: fargen er ren presentasjon (utelatt fra synk-doc'et i
-  `cleanCard`/`mergeCardScalar`). Siden rekkefølgen (`pos`) synkes, får alle enheter samme
-  farger. `colorForId(id)` gir en stabil reservefarge til søppelkasse-prikker for entiteter som
-  ikke er synlige (og derfor mangler posisjonsfarge).
-- **Hvit skrift m/tekst-skygge** (`--text-shadow`) på gruppekort, listenavn (kort-titler), «＋ Ny
-  liste»-knappen og aktive filter-brytere — skyggen holder den lesbar også på de lyseste kort-
-  fargene (L=90). Element-tekst inne i kortene er fortsatt mørk (den ligger på lyse element-rader).
-- Slett-knappen (`×`) på gruppekort er **alltid synlig** (også på desktop, ikke bare ved hover).
-- Lys tekst direkte på bakgrunnen (tom-tilstand, lås-skjerm).
-
-## Verktøylinje (fast meny)
-
-Verktøylinja (`.toolbar`) er en **fast meny** (`position: fixed`, uavhengig av scrolling) med en
-**litt mer gjennomsiktig** bakgrunn enn headeren (`rgba(255,255,255,0.55)` mot headerens `0.72`).
-Den ligger **øverst til høyre for gruppekolonnen på desktop** (`left: --sidebar-w`) og **rett under
-headeren på mobil** (`top: --header-h`). Høyden måles (`--toolbar-h`) så board-et klareres riktig.
-Knappene er kompakte/ikon-baserte for å spare plass:
-- **«Ny liste»** er nå bare en **«＋»** (`.add-card-btn`) — identisk med gruppenes «＋»-knapp, men
-  grønn bakgrunn + hvit skrift (m/skygge).
-- Lister-søppelkasse (emoji + tall), filteret med **👁️**-etikett (erstatter «Vis»-teksten) + K/P/KP,
-  og en **ikon-bare «Logg ut»** (kun `⎋`-symbolet).
+Uendret prinsipp: farge utledes av **posisjon** i den synlige, sorterte lista
+(S=`COLOR_SAT` 20 %, L-sett `[60,75,90]`, tone-rekkefølge fra `buildHueOrder`
+(12 toner, 60°-hopp)); re-fargelegges ved add/slett/omrokkering; ikke lagret/synket
+(`colorForId` som stabil reserve i søppelkasse-modalen). Gjelder nå også
+**univers-radene** i menyen. Hvit skrift m/ `--text-shadow` på alle fargede flater
+og grønne knapper.
 
 ## Merkelapper (K/P) + filter
 
-- Hvert kort har to **brytere**, `K` og `P` (felt `k`/`p`, default begge på), vist som bokstaver i små
-  sirkler vertikalt stablet til venstre for slett-knappen. Sirkelen blir **lysere** når bryteren er på.
-  **Minst én** bryter må alltid være på — forsøk på å skru av den siste gir en liten risting (`flashDeny`).
-- Hvert kort tilhører nøyaktig **én kategori** ut fra bryterne (`cardCategory`): kun **K**, kun **P**,
-  eller **KP** (begge på). I verktøylinja, ved siden av lister-søppelkassen, ligger et **filter**
-  (`#filter-switches`) med tre brytere: `K`, `P`, `KP`. Et kort vises hvis bryteren for kortets
-  kategori er på (`cardMatchesFilter`) — velger man f.eks. `K` + `KP`, vises kun-K-kort og KP-kort,
-  men ikke kun-P-kort. Minst ett filter må være på. Filteret er per enhet (`localStorage`,
-  `mine-lister-filter`) og synkes ikke; `k`/`p` synkes i sitt **eget merkelapp-register**
-  (`labTs`/`labOrg`), uavhengig av tittel/farge (se «To mekanismer …»).
-- **Verktøylinja** har «Ny liste», lister-**søppelkassen** (per gruppe, se «Søppelkasser»), filteret
-  og en **«Logg ut»**-knapp til høyre (synken går uansett fortløpende i bakgrunnen; se under). «Ny
-  liste»/søppelkassen er deaktivert når det ikke finnes noen aktiv gruppe. (K/P + filter gjelder
-  lister, uendret.) Verktøylinja er nå en **fast meny** (se «Verktøylinje (fast meny)»).
+Uendret: K/P-brytere per kort (minst én på; eget synk-register `labTs/labOrg`),
+filter (👁️ K/P/KP) i listemenyen, per enhet (`mine-lister-filter`).
 
 ## Status / TODO
 
-- [x] Prosjektoppsett + CLAUDE.md
-- [x] HTML-skjelett + faner
-- [x] CSS (responsivt, Quicksand, palett, kolonner)
-- [x] State + persistens
-- [x] Render av kort og elementer
-- [x] Klikk-for-å-redigere tittel og elementer
-- [x] Legg til / slett kategori og element
-- [x] Dra-og-slipp for kort (kryss-kolonne, placeholder, 20 % overlapp-terskel)
-- [x] Dra-og-slipp for elementer (inkl. overføring mellom kort)
-- [x] FLIP-animasjon (150 ms) ved bytte og ved slipp
-- [x] Papirkurv (slett kategori → `trashed`, gjenopprett, tøm permanent → gravstein)
-- [x] Testet i nettleser (Playwright) — kort-reorder, element-reorder, element-overføring, papirkurv
-- [x] Mobiltilpasning (touch-action, responsiv layout)
-- [x] Sanntids-synk mellom enheter (Supabase Realtime broadcast + poll-fallback)
-- [x] Felt-nivå fletting (CRDT-lett): samtidige endringer på ulike kort/elementer går ikke tapt
-- [x] CAS i databasen (`version` + `save_list`) så ingen enhet overskriver en annens skriving
-- [x] Gravsteiner for sletting; `activeTab` per enhet (synkes ikke)
-- [x] Fjernet misvisende synk-statusprikk; lite «oppdatert»-varsel ved fjern-endringer
-- [x] Testet fletting + to-enhets-konvergens + live-broadcast (Playwright, falsk delt backend)
-- [x] Ny fargepalett: bakgrunn `#667788`, aksent `#668866`, 20 varme kortfarger
-- [x] Fjernet «Synk»-knapp/modal + «# kategorier»-tekst; lagt til «Logg ut»-knapp
-- [x] Dynamisk rotasjon av dra-kort ut fra horisontal posisjon (−10°/0°/+10°)
-- [x] Auto-scroll når dra-kort holdes nær/forbi topp- eller bunnkant
-- [x] Merkelapp-brytere K/P per kort (minst én på) + filter ved siden av papirkurv
-- [x] Testet i nettleser (Playwright): palett, brytere/filter, rotasjon, auto-scroll
-- [x] **Omorganisering: Gruppe > Liste > Element.** Fjernet apptittel + de to faste fanene
-- [x] Header viser en rad med gruppekort (håndtak/navn/dempet antall/slett; bredde følger navnet)
-- [x] Grupper: opprett/slett/omdøp + dra-og-slipp-rekkefølge (placeholder + FLIP)
-- [x] Papirkurv per gruppe; slett hel gruppe → permanent (gravsteiner `_tomb.groups`)
-- [x] Desktop: gruppene bryter til flere rader + inline «＋»; Mobil: én rad + horisontal scroll,
-      «＋» festet til høyre med fade-gradient når kortene overskrider bredden
-- [x] Flat synk-doc (`groups`/`cards`/`items` m/ forelder-peker); migrering fra to-fane-form
-- [x] Testet i nettleser (Playwright): gruppe-CRUD/-reorder, per-gruppe papirkurv, migrering
-      (lokal + fjern), mobil-overflow/pinned/fade, desktop-wrap, felt-nivå fletting (43 sjekker)
-- [x] **Søppelkasse på alle tre nivåer** (grupper/lister/elementer): `trashed`-flagg (gjenopprettbart),
-      gravstein først ved tømming. Gruppe- og element-sletting er ikke lenger permanent.
-- [x] Gruppe-søppelkasse helt til venstre i headeren (kun når den har innhold); mobil-overflow: festet
-      til venstre med fade, gruppekortene scroller bak den. Lister-søppelkasse: fjernet «Papirkurv»-tekst
-- [x] Element-søppelkasse midtstilt nederst i hvert listekort (kun når den har slettede elementer)
-- [x] Kort trykk åpner felles søppelkasse-modal (gjenopprett/tøm); modalen åpnes utsatt så det
-      etterfølgende klikket ikke lukker den igjen (fikset: modal åpnet ikke for gruppe-/liste-kurv)
-- [x] **Sveip-for-å-tømme** (`attachTrashHold` + `.swipe-field`): klikk-og-hold utvider knappen til et
-      sveipefelt («Sveip for å tømme →»); sveip til høyre roterer ikonet til opp-ned og tømmer (rister
-      500 ms, kollapser); slipp før høyre ende kollapser uten å tømme. Erstatter hold-3s-animasjonen
-      (som ble skjult bak tommelen på mobil)
-- [x] Mobil: smalere fader (`--fade-w: 22px`) + bar-`padding-right` så siste gruppe-korts sletteknapp
-      ikke gjemmes bak «＋»; fade-sonene er `pointer-events: none` så kort bak dem er trykkbare
-- [x] Mobil-overflow omdesignet: scroll-feltet **klemt mellom** to faste full-høyde soner (søppelkasse
-      venstre + «＋» høyre), kortene scroller ikke lenger bak sonene; like brede smale innsidefader
-      (`--fade-w: 14px`), padding = fade-bredde; flip-flop-fri overflow-måling (kortbredder vs viewport)
-- [x] Fast header (`position: fixed`, uavhengig av scrolling; robust mot iOS-`backdrop-filter`-bug);
-      `.app-main` topp-padding følger målt header-høyde via `--header-h` (`ResizeObserver`)
-- [x] Fikset (fra før, uavhengig): element-overføring mistet det flyttede elementet + reconcile
-      droppet skjulte slettede elementer — `reconcileItems` bruker nå ett felles pool-øyeblikksbilde
-      og bevarer `trashed`-elementer
-- [x] Testet i nettleser (Playwright): 3 nivåer tap→modal/gjenopprett/tøm-via-modal, sveip-tøm på alle
-      tre (inkl. knapp som destrueres), delvis sveip avbryter, mobil fade/overflow + siste-kort-klarering,
-      element-DnD (reorder + overføring, med/uten slettede), felt-nivå fletting av `trashed`
-- [x] **Overføring av lister mellom grupper**: dra en liste opp på et gruppekort i headeren → lista
-      flyttes til den gruppen (samme kirurgiske `card.group` + `stampPos`-logikk som elementer mellom
-      lister). Gruppekortet lyser opp som drop-target (`.drop-target`), dra-kortet blir gjennomskinnelig
-      (`.to-group`), board-et fryses mens man sikter, og slipp gir kvitteringsvarsel + puls (`.received`)
-- [x] Testet i nettleser (Playwright): liste→gruppe-overføring (drop-target/`.to-group`/toast, kilde−1
-      / mål+1 bakerst, elementer + `home` bevart, flat synk-doc `card.group` + `posTs`), slipp på egen
-      gruppe = ingen overføring, vanlig reorder uendret, persistens over reload (21 sjekker)
-- [x] **Desktop: headeren (gruppelista) er nå en fast venstre-KOLONNE** (transponert fra mobil-raden):
-      søppelkasse øverst → gruppekort → «＋» nederst. Ved overflow pinnes søppelkasse (topp) + «＋» (bunn)
-      med innsidefader, kolonnen scroller vertikalt mellom dem (`updateGroupPlacementV` + vertikal
-      auto-scroll; overflow måles nøytralt via `scrollHeight`). Mobil beholder rad-layouten
-- [x] **Verktøylinja er nå en fast meny** (`.toolbar`, `position: fixed`) — øverst til høyre for kolonnen
-      (desktop) / rett under headeren (mobil, `top: --header-h`); litt mer gjennomsiktig bakgrunn enn
-      headeren; høyde måles som `--toolbar-h` for board-klarering
-- [x] **Nytt fargesystem (HSL, posisjonsbasert)**: S=20 %, L-sett `[60,75,90]`, tone-rekkefølge
-      `[0,60,120,180,240,300,30,90,150,210,270,330]` (`HUE_STEP`/`HUE_COUNT` justerbare). Kort + gruppekort
-      re-indekseres/re-fargelegges ved add/slett/omrokkering; farge er ren presentasjon (ikke lagret/synket)
-- [x] Testet i nettleser (Playwright): desktop venstre-kolonne + fast verktøylinje (bokser), desktop-overflow
-      pinnet søppelkasse-topp/«＋»-bunn m/fade, mobil rad + verktøylinje under, vertikal gruppe-reorder,
-      HSL-farger (tone-rekkefølge + sett-nivåer) + re-indeksering ved sletting
-- [x] Fiks (Codex-review): kort ned SELVE scrollporten for gruppekolonnen ved overflow
-      (`height: calc(100% - soner)`), ikke bare `margin` utenfor scroll-containeren — siste gruppe
-      lå ellers bak den faste «＋»-sonen
-- [x] Designjusteringer: (1) foreldreløs placeholder-fiks (guard mot nøstet drag + sikkerhetsnett i
-      `finishDrag`), (2) hvit skrift m/tekst-skygge på gruppekort/listenavn/«＋»/aktive filtre, (3) «Ny
-      liste» → grønn «＋» (lik gruppenes «＋»), (4) strammere gruppe-søppelkasse, (5) «Vis» → 👁️, (6)
-      ikon-bare «Logg ut» (⎋), (7) gruppekortenes slett-`×` alltid synlig. Verifisert i nettleser
+- [x] Alt til og med «Design: venstre-kolonne header, fast verktøylinje, HSL-farger» (se git-historikk)
+- [x] **Universer: nytt toppnivå (Univers > Gruppe > Liste > Element)** — helt
+      uavhengige områder; state/normalisering/synk-doc/fletting/gravsteiner/
+      migrering (lokal + fjern, deterministisk `uni-standard`); per-univers-scoping
+      av alt gruppe-/liste-UI; `activeGroups`-minne per univers
+- [x] **Meny-modal (☰)**: Logg ut (flyttet fra verktøylinja) + `<hr>` + UNIVERSER
+      (bytt/opprett/omdøp/slett + egen søppelkasse); søppelkasse-modal kan ligge
+      over menyen; Escape lukker øverste (men avbryter inline-redigering først)
+- [x] **Gruppemenyen omstrukturert**: overskrift «GRUPPER»; «＋ Gruppe» +
+      gruppe-søppelkasse side om side ØVERST (over kortene); mobil: ☰ til høyre på
+      knapperaden, kortrad uten fader; desktop: kortene scroller under knapperaden
+      med mask-fade (topp + bunn), av under drag; pinnede soner/overflow-JS fjernet
+- [x] **Listemenyen**: overskrift «LISTER» på egen linje (desktop: ☰ på samme
+      linje, GRUPPER/LISTER + de to knapperadene flukter); «＋ Liste»
+- [x] **Designsystem**: kontroll-tokens (`--control-h/-radius/-bg`), delte klasser
+      (`.panel-*`, `.btn-add`, `.trashcan`, `.menu-btn`, `.chip`); alle
+      søppelkasser like (hvit beholder, grå tellesirkel, halvgjennomsiktig → opak
+      ved hover, skjult når tom — også lister-søppelkassen); alle ＋-knapper like
+      (grønn, hvit tekst m/ skygge — også listekortenes ＋); alle sletteknapper
+      like (dempet ✕ → rødt hover; helt til høyre i chips; element-✕ alltid
+      synlig m/ opacity .55); håndtak mørkere enn flaten (også gruppekort) og
+      vertikalt midtstilt; filterkort følger flate-mønsteret; `[hidden]`-regel
+- [x] Oppdaterte søppelkasse-tekster («hold og sveip for å tømme» i titler + modal)
+- [x] Verifisert i nettleser (Playwright, hermetisk): 85 sjekker grønne — CRUD/
+      bytte/omdøp/slett/gjenopprett/tøm på alle nivåer, sveip-tømming (inkl. inne
+      i modalen), DnD-røyk (element/kort/gruppe/overføringer), migrering (lokal
+      nøstet + fjern flat + to-fane), flette-idempotens, foreldreløs-dropp,
+      layout-asserts (høyder, plasseringer, fader, ☰-plassering desktop/mobil),
+      screenshots desktop/mobil/meny/søppelkasse
+- [ ] Evt.: dra-rekkefølge for universer i menyen (ikke etterspurt; pos-felt er klart)
 
 ```bash
-cd /home/user/huskeliste
+cd /home/user/huskekurv
 python3 -m http.server 8000
 # åpne http://localhost:8000
 ```
 
 ## Notater / beslutninger
 
-- Håndtak (`.drag-handle`) har `touch-action: none` så draging ikke scroller siden på mobil.
-- Draging starter kun fra håndtaket; klikk på tittel/element-tekst redigerer i stedet.
+- Håndtak (`.drag-handle`) har `touch-action: none`; draging starter kun fra håndtak.
 - `pointercapture` brukes så draging ikke mister eventer.
-- **Placeholder lever kun mens draging pågår.** `startCardDrag`/`startItemDrag`/`startGroupDrag`
-  ignorerer en ny drag mens en pågår (`if (drag.active) return;`) — ellers kunne et nytt
-  peker-trykk på et annet håndtak (f.eks. multi-touch) starte en nøstet drag og etterlate en
-  foreldreløs placeholder. `finishDrag()` har i tillegg et sikkerhetsnett som feier bort alle
-  `.group-/​.card-/​.item-placeholder` ved slipp.
+- Placeholder lever kun under draging; `finishDrag()` har sikkerhetsnett.
+- **`[hidden]` display-regelen i styles.css må bestå** (ellers overstyrer
+  `.trashcan`s `inline-flex` skjulingen).
+- Desktop-fade på gruppekolonnen er `mask-image` på scroll-feltet — masken gjelder
+  også fixed-posisjonerte barn, derfor slås den av med `body.is-dragging`.
+- Bytte av univers lukker menyen (bytt kontekst og gå); sletting gjør det ikke
+  (så man kan angre fra søppelkassen med én gang).
+- «＋ Gruppe» uten univers auto-oppretter «Standard» (ny tilfeldig id — IKKE den
+  faste `uni-standard`-id-en, som kan ha gravstein).
+- Verifisering skjer med Playwright (globalt installert) mot en lokal
+  `http.server`; eksterne kall blokkeres i testene (appen degraderer pent), og
+  `localStorage['mine-lister-auth']='1'` hopper over mønster-låsen.

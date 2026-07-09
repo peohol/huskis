@@ -11,64 +11,94 @@
   <link rel="stylesheet" href="styles.css" />
 </head>
 <body class="locked">
+  <!-- Gruppemenyen: overskrift («GRUPPER»), knapperad («＋ Gruppe» + søppelkasse, og
+       ☰ på mobil), og under dem gruppekortene til det aktive universet.
+       Desktop: fast venstre-kolonne — kortene scroller under knapperaden (fade).
+       Mobil: fast topp-panel — kortene på én horisontalt scrollende rad (uten fader). -->
   <header class="app-header" id="app-header">
-    <!-- Gruppene brukeren har opprettet. Venstreorientert rad; bryter til flere
-         rader på desktop, horisontal scroll på mobil. «＋» oppretter ny gruppe. -->
-    <div class="groups-bar" id="groups-bar" role="tablist" aria-label="Grupper">
-      <!-- Gruppe-søppelkasse (inline): vises helt til venstre når det ligger grupper i
-           den (kun emoji + antall). På mobil-overflow skjules denne og #groups-trash-pin
-           overtar som fast full-høyde sone (se CSS). -->
-      <div class="groups-trash" id="groups-trash" hidden>
-        <button class="trashcan groups-trash-btn" id="groups-trash-btn" type="button"
-                title="Slettede grupper – trykk for å åpne, hold inne for å tømme"
-                aria-label="Slettede grupper">
+    <div class="panel-top">
+      <div class="panel-head">
+        <span class="panel-title">Grupper</span>
+      </div>
+      <div class="panel-actions">
+        <button class="btn-add" id="add-group-btn" type="button" title="Ny gruppe">＋ Gruppe</button>
+        <button class="trashcan" id="groups-trash-btn" type="button"
+                title="Slettede grupper – trykk for å åpne, hold og sveip for å tømme"
+                aria-label="Slettede grupper" hidden>
           <span class="trashcan-icon" aria-hidden="true">🗑️</span>
           <span class="trashcan-count" id="groups-trash-count">0</span>
         </button>
+        <!-- ☰ i øvre høyre hjørne av gruppemenyen — kun mobil (desktop: i listemenyen). -->
+        <button class="menu-btn" id="menu-btn-header" type="button" title="Meny"
+                aria-label="Åpne menyen" aria-haspopup="dialog">
+          <span class="menu-bars" aria-hidden="true"></span>
+        </button>
       </div>
-      <button class="add-group-btn add-group-inline" id="add-group-btn" type="button"
-              title="Ny gruppe" aria-label="Ny gruppe">＋</button>
     </div>
-    <!-- Mobil-overflow: to faste, full-høyde soner utenfor scroll-feltet — søppelkasse
-         til venstre og «＋» til høyre. Gruppe-raden (scroll-feltet) ligger mellom dem
-         (bar-marger), og fader ut mot begge soner via en mask på selve raden. -->
-    <div class="groups-trash-pin" id="groups-trash-pin">
-      <button class="trashcan groups-trash-btn" id="groups-trash-pinned" type="button"
-              title="Slettede grupper – trykk for å åpne, hold inne for å tømme"
-              aria-label="Slettede grupper">
-        <span class="trashcan-icon" aria-hidden="true">🗑️</span>
-        <span class="trashcan-count" id="groups-trash-count-pinned">0</span>
-      </button>
-    </div>
-    <div class="groups-pin" id="groups-pin">
-      <button class="add-group-btn add-group-pinned" id="add-group-pinned" type="button"
-              title="Ny gruppe" aria-label="Ny gruppe">＋</button>
-    </div>
+    <div class="groups-bar" id="groups-bar" role="tablist" aria-label="Grupper"></div>
   </header>
 
   <main class="app-main">
+    <!-- Listemenyen (verktøylinja): overskrift («LISTER», med ☰ på desktop) og
+         knapperad («＋ Liste», søppelkasse, filter). -->
     <div class="toolbar">
-      <button class="add-card-btn" id="add-card-btn" type="button" title="Ny liste" aria-label="Ny liste">＋</button>
-      <button class="btn btn-ghost trashcan" id="trash-btn" type="button"
-              title="Slettede lister – trykk for å åpne, hold inne for å tømme"
-              aria-label="Slettede lister">
-        <span class="trashcan-icon" aria-hidden="true">🗑️</span>
-        <span class="trash-count" id="trash-count">0</span>
-      </button>
-      <div class="filter-switches" id="filter-switches" role="group" aria-label="Filtrer lister">
-        <span class="filter-label" aria-hidden="true" title="Vis">👁️</span>
-        <button class="switch" type="button" data-flag="k" aria-pressed="true" title="Vis kun-K-lister">K</button>
-        <button class="switch" type="button" data-flag="p" aria-pressed="true" title="Vis kun-P-lister">P</button>
-        <button class="switch switch-kp" type="button" data-flag="kp" aria-pressed="true" title="Vis KP-lister (både K og P)">KP</button>
+      <div class="panel-head">
+        <span class="panel-title">Lister</span>
+        <button class="menu-btn" id="menu-btn-toolbar" type="button" title="Meny"
+                aria-label="Åpne menyen" aria-haspopup="dialog">
+          <span class="menu-bars" aria-hidden="true"></span>
+        </button>
       </div>
-      <button class="btn btn-ghost btn-logout" id="logout-btn" type="button" title="Logg ut" aria-label="Logg ut">
-        <span class="logout-icon" aria-hidden="true">⎋</span>
-      </button>
+      <div class="panel-actions">
+        <button class="btn-add" id="add-card-btn" type="button" title="Ny liste">＋ Liste</button>
+        <button class="trashcan" id="trash-btn" type="button"
+                title="Slettede lister – trykk for å åpne, hold og sveip for å tømme"
+                aria-label="Slettede lister" hidden>
+          <span class="trashcan-icon" aria-hidden="true">🗑️</span>
+          <span class="trashcan-count" id="trash-count">0</span>
+        </button>
+        <div class="filter-switches" id="filter-switches" role="group" aria-label="Filtrer lister">
+          <span class="filter-label" aria-hidden="true" title="Vis">👁️</span>
+          <button class="switch" type="button" data-flag="k" aria-pressed="true" title="Vis kun-K-lister">K</button>
+          <button class="switch" type="button" data-flag="p" aria-pressed="true" title="Vis kun-P-lister">P</button>
+          <button class="switch switch-kp" type="button" data-flag="kp" aria-pressed="true" title="Vis KP-lister (både K og P)">KP</button>
+        </div>
+      </div>
     </div>
     <section class="board" id="board" aria-live="polite"></section>
   </main>
 
-  <!-- Papirkurv-modal -->
+  <!-- Meny-modal: logg ut + universer (bytt/opprett/omdøp/slett + egen søppelkasse).
+       Ligger FØR søppelkasse-modalen i DOM så søppelkassen (lik z-index) tegnes over. -->
+  <div class="modal-overlay" id="menu-modal" hidden>
+    <div class="modal menu-modal" role="dialog" aria-modal="true" aria-labelledby="menu-title">
+      <header class="modal-head">
+        <h2 id="menu-title">Meny</h2>
+        <button class="icon-btn" id="menu-close" type="button" title="Lukk" aria-label="Lukk">✕</button>
+      </header>
+      <div class="modal-body menu-body">
+        <button class="btn btn-ghost menu-logout" id="logout-btn" type="button" title="Logg ut">
+          <span class="logout-icon" aria-hidden="true">⎋</span> Logg ut
+        </button>
+        <hr class="menu-divider" />
+        <div class="panel-head">
+          <span class="panel-title">Universer</span>
+        </div>
+        <div class="uni-list" id="uni-list"></div>
+        <div class="panel-actions">
+          <button class="btn-add" id="add-uni-btn" type="button" title="Nytt univers">＋ Univers</button>
+          <button class="trashcan" id="uni-trash-btn" type="button"
+                  title="Slettede universer – trykk for å åpne, hold og sveip for å tømme"
+                  aria-label="Slettede universer" hidden>
+            <span class="trashcan-icon" aria-hidden="true">🗑️</span>
+            <span class="trashcan-count" id="uni-trash-count">0</span>
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Søppelkasse-modal (felles for universer/grupper/lister/elementer) -->
   <div class="modal-overlay" id="trash-modal" hidden>
     <div class="modal" role="dialog" aria-modal="true" aria-labelledby="trash-title">
       <header class="modal-head">
@@ -85,11 +115,19 @@
 
   <!-- Templates -->
   <template id="group-template">
-    <div class="group-card" role="tab" tabindex="0">
+    <div class="group-card chip" role="tab" tabindex="0">
       <button class="drag-handle group-handle" title="Dra for å endre rekkefølge" aria-label="Flytt gruppe">⠿</button>
-      <span class="group-name" title="Klikk for å bytte gruppe"></span>
-      <span class="group-count" aria-hidden="true"></span>
+      <span class="group-name chip-name" title="Klikk for å bytte gruppe"></span>
+      <span class="group-count chip-count" aria-hidden="true"></span>
       <button class="icon-btn group-delete" title="Slett gruppe" aria-label="Slett gruppe">✕</button>
+    </div>
+  </template>
+
+  <template id="uni-template">
+    <div class="uni-row chip" role="button" tabindex="0">
+      <span class="uni-name chip-name" title="Klikk for å bytte univers"></span>
+      <span class="uni-count chip-count" aria-hidden="true"></span>
+      <button class="icon-btn uni-delete" title="Slett univers" aria-label="Slett univers">✕</button>
     </div>
   </template>
 
@@ -107,7 +145,7 @@
       <ul class="items-container"></ul>
       <form class="add-item-form">
         <input class="add-item-input" type="text" placeholder="Legg til …" aria-label="Nytt element" autocomplete="off" />
-        <button class="icon-btn add-item-btn" type="submit" title="Legg til element" aria-label="Legg til element">＋</button>
+        <button class="btn-add icon-only add-item-btn" type="submit" title="Legg til element" aria-label="Legg til element">＋</button>
       </form>
     </article>
   </template>
