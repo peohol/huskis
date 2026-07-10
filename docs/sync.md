@@ -41,6 +41,15 @@ for universer (samme `get_list`/`save_list`).
 
 ## Databaseoppsett via GitHub Actions
 
-`supabase/setup.sql` (idempotent) kjøres via Actionen «Supabase DB-oppsett»
-(krever secret `SUPABASE_DB_URL`) eller limes inn i SQL Editor. Husk
-`extensions` i `search_path` (pgcrypto/`digest()`).
+Actionen «Supabase DB-oppsett» kjører nå to idempotente filer i rekkefølge:
+`supabase/setup.sql` (denne synk-modellen) og `supabase/users-and-sharing.sql`
+(brukerkontoer/deling, se `docs/arkitektur-brukere-deling.md`) — begge kan
+også limes inn direkte i SQL Editor. Husk `extensions` i `search_path`
+(pgcrypto/`digest()`).
+
+**Secret-fallgruve**: `SUPABASE_DB_URL` må peke på Supabase sin **Session
+pooler**-adresse (`aws-0-<region>.pooler.supabase.com:5432`,
+brukernavn `postgres.<prosjekt-ref>`), IKKE *direct connection*-adressen
+(`db.<ref>.supabase.co:5432`). GitHub Actions-runnere mangler IPv6, og
+direct-connection-adressen er nå IPv6-only — feiler med
+«Network is unreachable».

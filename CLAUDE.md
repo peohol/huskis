@@ -31,6 +31,7 @@ oppdater det aktuelle dokumentet der (ikke dump alt tilbake i denne fila).
 | `docs/sync.md` | Supabase-synk, fletting, gravsteiner, migrering, databaseoppsett |
 | `docs/auth.md` | mønster-lås/splash-screen/innlogging |
 | `docs/colors-and-labels.md` | HSL-fargesystem, K/P-merkelapper, filter |
+| `docs/arkitektur-brukere-deling.md` | brukerkontoer (Supabase Auth), eierskap, deling/mounts, lås — database-grunnmuren for fase 2 |
 
 ## Verifisering (påkrevd før du sier deg ferdig)
 
@@ -85,6 +86,13 @@ oppgave som ferdig uten denne verifiseringen.
 
 Alt i oppgavebeskrivelsen (universer, designsystem, søppelkasser på alle
 nivåer, luft-system i board-et) er implementert og verifisert i nettleser — se
-git-historikk for detaljer. Eneste åpne punkt: dra-rekkefølge for universer i
-menyen (ikke etterspurt; `pos`-felt er klart i datamodellen, se
+git-historikk for detaljer. Eneste åpne punkt der: dra-rekkefølge for
+universer i menyen (ikke etterspurt; `pos`-felt er klart i datamodellen, se
 `docs/data-model.md`).
+
+**Brukere og deling**: database-grunnmuren (Supabase Auth, eierskap, deling,
+lås — se `docs/arkitektur-brukere-deling.md`) er ferdig, testet og kjørt mot
+Supabase. Klient/UI (fase 2: innlogging, delings-UI, mount-rendring) gjenstår
+— se `TODO.md` for detaljert løypekart. Appen bruker fortsatt mønster-låsen
+(`docs/auth.md`) og det gamle synk-doc'et (`docs/sync.md`) inntil fase 2 er
+ferdig.
