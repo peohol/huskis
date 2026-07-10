@@ -41,6 +41,15 @@ desktop- OG mobil-viewport, blokker eksterne kall for hermetikk) — funksjonelt
 auth']='1'` hopper over mønster-låsen under testing. Ikke rapporter en
 oppgave som ferdig uten denne verifiseringen.
 
+## GitHub-arbeidsflyt
+
+- Hand-off-prompter: skriv dem i kopierbart format, og ikke ta med informasjon
+  enhver agent uansett har tilgang til (f.eks. det som allerede står i denne
+  fila).
+- Når en PR er opprettet: send lenken til PR-en.
+- Sjekk-inn-timer etter opprettet PR: sett den til maks 5 minutter — det tar
+  sjelden lenger før tester er ferdige og reviewere har fått sett på den.
+
 ## Arbeidsstil
 
 - Jobb autonomt; ikke still oppfølgingsspørsmål — bruk beste skjønn og
