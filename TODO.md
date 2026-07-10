@@ -23,21 +23,25 @@ plukke opp tråden.
       kjørt dobbelt (idempotens)
 - [x] GitHub-Actions-workflowen «Supabase DB-oppsett» kjører nå begge
       SQL-filene
-- [ ] **Migreringen kjørt mot Supabase — BLOKKERT på manuelt steg**:
-      workflow-kjøringen feilet fordi repo-secreten `SUPABASE_DB_URL`
-      mangler (workflowen har aldri vært kjørt; se run 29099343073).
-      Når secreten er lagt inn (se under): kjør Actionen «Supabase
-      DB-oppsett» på nytt (grenen `claude/user-registration-sharing-arch-1ly3io`
-      før merge, eller `main` etter) — eller be Claude trigge den
+- [x] **Migreringen kjørt mot Supabase**: run 29117524478 (db-setup.yml,
+      grenen `claude/user-registration-sharing-arch-1ly3io`) — grønn,
+      «Kjør SQL-filene mot Supabase»-steget fullførte på 19s. To runder
+      trengtes: (1) secreten `SUPABASE_DB_URL` manglet først (run
+      29099343073), (2) direct-connection-adressen
+      (`db.<ref>.supabase.co:5432`) er IPv6-only og GitHub Actions-
+      runnere har ikke IPv6 → «Network is unreachable» (run 29117143019).
+      Løst ved å bytte secreten til Supabase sin **Session pooler**-
+      adresse (`aws-0-<region>.pooler.supabase.com:5432`, IPv4-
+      kompatibel, brukernavn `postgres.<prosjekt-ref>`). **Husk denne
+      pooler-adressen ved evt. fremtidige kjøringer/dokumentasjon** —
+      direct connection vil feile fra GitHub Actions med mindre Supabase
+      sin IPv4-tilleggstjeneste er kjøpt.
 
 ## Manuelle steg (krever dashboard-tilgang — Peder)
 
-- [ ] **GitHub → Settings → Secrets and variables → Actions**: legg inn
-      secreten `SUPABASE_DB_URL` = tilkoblingsstrengen fra Supabase
-      (Project Settings → Database → Connection string → URI, med
-      `[YOUR-PASSWORD]` byttet ut). Alternativ uten secret: lim inn
-      `supabase/setup.sql` + `supabase/users-and-sharing.sql` i
-      Supabase SQL Editor (begge er idempotente)
+- [x] ~~GitHub → Settings → Secrets and variables → Actions: legg inn
+      secreten `SUPABASE_DB_URL`~~ — gjort (se merknad over ang. pooler-
+      adresse vs. direct connection)
 - [ ] Supabase → Authentication → URL Configuration: sett **Site URL** +
       **Redirect URLs** til appens adresse (bekreftelseslenken peker dit)
 - [ ] Verifiser at **Confirm email** står PÅ (Authentication → Sign In / Up;
