@@ -11,8 +11,8 @@
   <link rel="stylesheet" href="styles.css" />
 </head>
 <body class="locked">
-  <!-- Gruppemenyen: overskrift («GRUPPER»), knapperad («＋ Gruppe» + søppelkasse, og
-       ☰ på mobil), og under dem gruppekortene til det aktive universet.
+  <!-- Gruppemenyen: overskrift («GRUPPER»), knapperad («＋ Gruppe» + søppelkasse),
+       og under dem gruppekortene til det aktive universet.
        Desktop: fast venstre-kolonne — kortene scroller under knapperaden (fade).
        Mobil: fast topp-panel — kortene på én horisontalt scrollende rad (uten fader). -->
   <header class="app-header" id="app-header">
@@ -28,18 +28,14 @@
           <span class="trashcan-icon" aria-hidden="true">🗑️</span>
           <span class="trashcan-count" id="groups-trash-count">0</span>
         </button>
-        <!-- ☰ i øvre høyre hjørne av gruppemenyen — kun mobil (desktop: i listemenyen). -->
-        <button class="menu-btn" id="menu-btn-header" type="button" title="Meny"
-                aria-label="Åpne menyen" aria-haspopup="dialog">
-          <span class="menu-bars" aria-hidden="true"></span>
-        </button>
       </div>
     </div>
     <div class="groups-bar" id="groups-bar" role="tablist" aria-label="Grupper"></div>
   </header>
 
   <main class="app-main">
-    <!-- Listemenyen (verktøylinja): overskrift («LISTER», med ☰ på desktop) og
+    <!-- Listemenyen (verktøylinja): overskrift («LISTER», med ☰ helt til høyre på
+         samme linje — øvre, høyre hjørne av listemenyen, både mobil og desktop) og
          knapperad («＋ Liste», søppelkasse, filter). -->
     <div class="toolbar">
       <div class="panel-head">

@@ -101,8 +101,8 @@ body {
 /* ---------------- Header (gruppemenyen) ----------------
    DESKTOP: fast, full-høyde KOLONNE til venstre — overskrift + knapperad øverst,
    gruppekortene scroller under dem (fade via mask). MOBIL (media-query nederst):
-   fast panel øverst — overskrift, knapperad (m/ ☰ til høyre) og én horisontalt
-   scrollende kortrad (uten fader). */
+   fast panel øverst — overskrift, knapperad og én horisontalt scrollende kortrad
+   (uten fader). ☰ bor i listemenyen (verktøylinja) på begge skjermstørrelser. */
 .app-header {
   position: fixed;          /* uavhengig av scrolling (robust mot iOS-backdrop-bug) */
   z-index: 30;
@@ -115,8 +115,6 @@ body {
 .panel-top { flex: 0 0 auto; }
 .app-header .panel-top { padding: 12px var(--side-pad) 8px; }
 .app-header .panel-head { margin-bottom: 8px; }
-/* ☰ ligger til høyre i knapperaden (mobil); desktop bruker ☰ i listemenyen. */
-.app-header .menu-btn { margin-left: auto; }
 
 /* Beholderen for gruppekortene. Retning settes per skjerm:
    vertikal kolonne på desktop, horisontal rad på mobil. */
@@ -865,7 +863,10 @@ body.is-dragging * { cursor: grabbing !important; }
   overflow-y: auto;
 }
 
-/* Meny-modalen: logg ut øverst, deretter universer (skilt med <hr>). */
+/* Meny-modalen: logg ut øverst, deretter universer — skilt med en linje i samme
+   stil som modal-head sin border-bottom (samme farge/tykkelse, kant-til-kant).
+   .menu-body arver modal-body sin side-padding (20px); negativ side-margin
+   kansellerer den så linja når helt ut til modal-kanten, som modal-head sin. */
 .menu-modal { width: min(440px, 100%); }
 .menu-body {
   display: flex;
@@ -878,10 +879,9 @@ body.is-dragging * { cursor: grabbing !important; }
 .menu-logout { align-self: flex-start; }
 .logout-icon { font-size: 16px; line-height: 1; }
 .menu-divider {
-  width: 100%;
   border: none;
-  border-top: 1px solid var(--line);
-  margin: 6px 0;
+  border-bottom: 1px solid var(--line);
+  margin: 4px -20px 6px;
 }
 .uni-list {
   display: flex;
@@ -1035,9 +1035,9 @@ body.locked .app-main { display: none; }
 
 /* ---------------- Mobil ----------------
    Gruppemenyen er et fast panel øverst: overskrift, knapperad (＋ Gruppe +
-   søppelkasse til venstre, ☰ til høyre) og gruppekortene på én horisontalt
-   scrollende rad UNDER knappene (ingen fader). Verktøylinja ligger rett under.
-   Board-et klarerer begge (målte høyder). */
+   søppelkasse) og gruppekortene på én horisontalt scrollende rad UNDER
+   knappene (ingen fader). Verktøylinja (med ☰ i øvre høyre hjørne) ligger
+   rett under. Board-et klarerer begge (målte høyder). */
 @media (max-width: 560px) {
   :root { --side-pad: 12px; }
 
@@ -1053,8 +1053,6 @@ body.locked .app-main { display: none; }
 
   /* Verktøylinja rett under gruppemenyen (målt høyde), full bredde. */
   .toolbar { top: var(--header-h, 132px); }
-  /* ☰ vises i gruppemenyen på mobil — skjul verktøylinjas. */
-  .toolbar .menu-btn { display: none; }
 
   /* Board klarerer både gruppemeny og verktøylinje. */
   .app-main {
@@ -1111,8 +1109,6 @@ body.locked .app-main { display: none; }
     width: var(--sidebar-w);
     border-right: 1px solid var(--line);
   }
-  /* ☰ vises i verktøylinja på desktop — skjul gruppemenyens. */
-  .app-header .menu-btn { display: none; }
   /* Verktøylinjas overskriftslinje er ☰-høy — gi gruppemenyens samme høyde så
      GRUPPER/LISTER og de to knapperadene ligger på samme horisontale linjer. */
   .app-header .panel-head { min-height: var(--control-h); }

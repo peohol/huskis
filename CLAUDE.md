@@ -110,9 +110,9 @@ Fast panel (`position: fixed`), **én felles DOM** delt i to media-queryer:
   er falmet i ro). Masken slås av under draging (`body.is-dragging`) fordi den
   ellers ville klippe det løftede (fixed) dra-kortet. Ingen pinnede soner lenger.
 - **Mobil (`max-width: 560px`)**: fast panel øverst: overskrift, knapperad
-  («＋ Gruppe» + søppelkasse til venstre, **☰ helt til høyre** på samme rad) og
-  gruppekortene på **én horisontalt scrollende rad** under — **uten fader** (kun
-  en diskret, app-tilpasset scrollbar).
+  («＋ Gruppe» + søppelkasse) og gruppekortene på **én horisontalt scrollende
+  rad** under — **uten fader** (kun en diskret, app-tilpasset scrollbar). ☰
+  ligger IKKE her (se «Listemenyen») — den skal ikke stå på nivå med «＋ Gruppe».
 
 - **Gruppekort** (`.group-card.chip`): håndtak (mørkt, `--g-accent`), navn, dempet
   antall, ✕ helt til høyre. Posisjonsbasert farge; aktiv = grønn ring. Klikk =
@@ -125,15 +125,20 @@ Fast panel (`position: fixed`), **én felles DOM** delt i to media-queryer:
 ## Listemenyen (verktøylinja)
 
 Fast meny (`position: fixed`; desktop: øverst til høyre for kolonnen, mobil: rett
-under gruppemenyen). To linjer: overskriften **LISTER** (desktop: med **☰ helt til
-høyre** på samme linje) og knapperaden **«＋ Liste» + liste-søppelkassen +
-filterkortet (👁️ K/P/KP)**. Filterkortet følger flate-mønsteret (halvgjennomsiktig
-→ opak ved hover). Logg ut-knappen er FLYTTET til meny-modalen.
+under gruppemenyen). To linjer: overskriften **LISTER** med **☰ helt til høyre**
+på samme linje (**både mobil og desktop** — ett felles `#menu-btn-toolbar`, ikke
+to knapper; ☰ bor ALDRI i gruppemenyen/knapperaden med «＋ Gruppe») og knapperaden
+**«＋ Liste» + liste-søppelkassen + filterkortet (👁️ K/P/KP)**. Filterkortet
+følger flate-mønsteret (halvgjennomsiktig → opak ved hover). Logg ut-knappen er
+FLYTTET til meny-modalen.
 
 ## Meny-modal (☰) + universer
 
-Menyknappen (☰, `.menu-btn`) åpner `#menu-modal`:
-- **«Logg ut»** øverst (med bekreftelse), deretter `<hr class="menu-divider">`.
+Menyknappen (☰, `.menu-btn`, kun i listemenyen — se over) åpner `#menu-modal`:
+- **«Logg ut»** øverst (med bekreftelse), deretter en delelinje (`<hr class=
+  "menu-divider">`) i **samme border-stil som `.modal-head`** (`border-bottom:
+  1px solid var(--line)`, kant-til-kant via negativ side-margin som kansellerer
+  `.modal-body`s side-padding) — IKKE en vanlig innrykket `<hr>`.
 - **UNIVERSER**-seksjon: univers-rader (`.uni-row.chip` — farget, aktiv m/ ring,
   antall grupper dempet, ✕ helt til høyre), «＋ Univers» og univers-søppelkassen
   (samme knapp/oppførsel som de andre).
@@ -247,15 +252,19 @@ filter (👁️ K/P/KP) i listemenyen, per enhet (`mine-lister-filter`).
       uavhengige områder; state/normalisering/synk-doc/fletting/gravsteiner/
       migrering (lokal + fjern, deterministisk `uni-standard`); per-univers-scoping
       av alt gruppe-/liste-UI; `activeGroups`-minne per univers
-- [x] **Meny-modal (☰)**: Logg ut (flyttet fra verktøylinja) + `<hr>` + UNIVERSER
+- [x] **Meny-modal (☰)**: Logg ut (flyttet fra verktøylinja) + delelinje (samme
+      border-stil som `.modal-head`, ikke en innrykket `<hr>`) + UNIVERSER
       (bytt/opprett/omdøp/slett + egen søppelkasse); søppelkasse-modal kan ligge
       over menyen; Escape lukker øverste (men avbryter inline-redigering først)
 - [x] **Gruppemenyen omstrukturert**: overskrift «GRUPPER»; «＋ Gruppe» +
-      gruppe-søppelkasse side om side ØVERST (over kortene); mobil: ☰ til høyre på
-      knapperaden, kortrad uten fader; desktop: kortene scroller under knapperaden
-      med mask-fade (topp + bunn), av under drag; pinnede soner/overflow-JS fjernet
-- [x] **Listemenyen**: overskrift «LISTER» på egen linje (desktop: ☰ på samme
-      linje, GRUPPER/LISTER + de to knapperadene flukter); «＋ Liste»
+      gruppe-søppelkasse side om side ØVERST (over kortene); kortrad uten fader
+      på mobil; desktop: kortene scroller under knapperaden med mask-fade (topp +
+      bunn), av under drag; pinnede soner/overflow-JS fjernet. ☰ bor IKKE her —
+      se listemenyen (skal ikke stå på nivå med «＋ Gruppe»)
+- [x] **Listemenyen**: overskrift «LISTER» på egen linje med **☰ helt til høyre
+      på samme linje — både mobil og desktop** (ett felles `#menu-btn-toolbar`,
+      ikke to knapper); GRUPPER/LISTER + de to knapperadene flukter på desktop;
+      «＋ Liste»
 - [x] **Designsystem**: kontroll-tokens (`--control-h/-radius/-bg`), delte klasser
       (`.panel-*`, `.btn-add`, `.trashcan`, `.menu-btn`, `.chip`); alle
       søppelkasser like (hvit beholder, grå tellesirkel, halvgjennomsiktig → opak
@@ -265,12 +274,21 @@ filter (👁️ K/P/KP) i listemenyen, per enhet (`mine-lister-filter`).
       synlig m/ opacity .55); håndtak mørkere enn flaten (også gruppekort) og
       vertikalt midtstilt; filterkort følger flate-mønsteret; `[hidden]`-regel
 - [x] Oppdaterte søppelkasse-tekster («hold og sveip for å tømme» i titler + modal)
-- [x] Verifisert i nettleser (Playwright, hermetisk): 85 sjekker grønne — CRUD/
+- [x] Verifisert i nettleser (Playwright, hermetisk): 77+ sjekker grønne — CRUD/
       bytte/omdøp/slett/gjenopprett/tøm på alle nivåer, sveip-tømming (inkl. inne
       i modalen), DnD-røyk (element/kort/gruppe/overføringer), migrering (lokal
       nøstet + fjern flat + to-fane), flette-idempotens, foreldreløs-dropp,
-      layout-asserts (høyder, plasseringer, fader, ☰-plassering desktop/mobil),
+      layout-asserts (høyder, plasseringer, fader, ☰-plassering, delelinje-stil),
       screenshots desktop/mobil/meny/søppelkasse
+- [x] **Etterjustering (brukertilbakemelding)**: meny-delelinjen brukte først
+      `<hr>` med `border-top` + vanlig margin, som ble innrykket av
+      `.modal-body`s side-padding (så den IKKE fluktet med `.modal-head`s
+      kant-til-kant-linje mellom «Meny»-tittel og «Logg ut») — byttet til
+      `border-bottom` + negativ side-margin (kansellerer paddingen). ☰ lå først
+      i gruppemenyen på mobil (nivå med «＋ Gruppe») og i listemenyen på desktop
+      (to separate knapper, `#menu-btn-header` + `#menu-btn-toolbar`, vist/skjult
+      via CSS) — forenklet til ÉN knapp (`#menu-btn-toolbar`) i listemenyens
+      `.panel-head`, brukt på begge skjermstørrelser
 - [ ] Evt.: dra-rekkefølge for universer i menyen (ikke etterspurt; pos-felt er klart)
 
 ```bash
@@ -295,3 +313,12 @@ python3 -m http.server 8000
 - Verifisering skjer med Playwright (globalt installert) mot en lokal
   `http.server`; eksterne kall blokkeres i testene (appen degraderer pent), og
   `localStorage['mine-lister-auth']='1'` hopper over mønster-låsen.
+- ☰ er ÉN knapp (`#menu-btn-toolbar`) som alltid bor i listemenyens `.panel-head`
+  (øvre høyre hjørne av LISTER-linjen, både mobil og desktop) — IKKE i
+  gruppemenyen, og IKKE på nivå med «＋ Gruppe». Ikke gjeninnfør en egen
+  header-knapp for mobil.
+- Delelinjer i modaler (f.eks. meny-modalens Logg ut/Universer-skille) skal se ut
+  som `.modal-head`s `border-bottom` — kant-til-kant, IKKE en innrykket `<hr>`
+  med vanlig margin (den ville stoppe ved `.modal-body`s side-padding og se
+  kortere ut enn linja over). Bruk `border-bottom: 1px solid var(--line)` +
+  negativ side-margin som kansellerer den omsluttende paddingen.
