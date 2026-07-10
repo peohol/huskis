@@ -22,6 +22,23 @@ Bytte utløses av **overlapp**, ikke av et punkt:
 - Håndtak (`.drag-handle`) har `touch-action: none`; draging starter kun fra
   håndtaket. `pointercapture` brukes så draging ikke mister eventer. Placeholder
   lever kun under draging; `finishDrag()` har sikkerhetsnett.
+- **Posisjonsbasert farge reindekseres alltid ved en fullført omrokkering**
+  (ikke bare ved add/slett): `onCardUp`/`onGroupUp`/`onUniverseUp` kaller hhv.
+  `reindexCardColors()`/`reindexGroupColors()`/`reindexUniverseColors()` etter
+  `stampPos()`. Disse går gjennom den sorterte lista (samme kilde som
+  `render()`/`renderGroups()`/`renderUniverses()` bruker) og setter
+  `colorForIndex(i)` + oppdaterer CSS-variablene direkte på de allerede
+  eksisterende DOM-nodene — kirurgisk, ingen full re-rendring (som ville
+  kuttet FLIP/drop-avslutningsanimasjonen).
+
+## Univers-rader (meny-modalen)
+
+Samme håndtak + placeholder + FLIP-motor som gruppekortene, men kun i én
+variant: `uni-list` er alltid en vertikal kolonne (ingen mobil/desktop-bytte
+som gruppelista), så `updateUniversePlacement` er en transponert kopi av kun
+`updateGroupPlacementV`. Auto-scroll under draging ruller `.menu-body`
+(modalens `overflow-y: auto`-container), ikke `uni-list` selv — `uni-list` har
+ingen egen scroll.
 
 ## Overføring av lister mellom grupper (innen samme univers)
 

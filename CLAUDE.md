@@ -94,10 +94,10 @@ oppgave som ferdig uten denne verifiseringen.
 ## Status
 
 Alt i oppgavebeskrivelsen (universer, designsystem, søppelkasser på alle
-nivåer, luft-system i board-et) er implementert og verifisert i nettleser — se
-git-historikk for detaljer. Eneste åpne punkt der: dra-rekkefølge for
-universer i menyen (ikke etterspurt; `pos`-felt er klart i datamodellen, se
-`docs/data-model.md`).
+nivåer, luft-system i board-et, dra-rekkefølge for universer i menyen) er
+implementert og verifisert i nettleser — se git-historikk for detaljer.
+Posisjonsbasert farge reindekseres alltid ved omrokkering (ikke bare
+add/slett) for grupper, lister og universer — se `docs/drag-and-drop.md`.
 
 **Brukere og deling**: database-grunnmuren (Supabase Auth, eierskap, deling,
 lås — se `docs/arkitektur-brukere-deling.md`) er ferdig, testet og kjørt mot
