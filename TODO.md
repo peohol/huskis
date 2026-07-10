@@ -17,7 +17,7 @@ plukke opp tråden.
       RPC-er (`create/accept/decline/revoke_share_invite`, `revoke_share`,
       `leave_share`, `set_locked`, `get_members`, `get_my_doc`,
       `import_doc`), grants, realtime-publikasjon
-- [x] Hermetisk testsuite (`supabase/tests/`, ren PostgreSQL): 57 sjekker
+- [x] Hermetisk testsuite (`supabase/tests/`, ren PostgreSQL): 61 sjekker
       grønne — RLS-isolasjon, delingsflyt alle nivåer, låsing, utkastelse,
       LWW, import-idempotens, gravsteiner, anon-avvisning; migreringen
       kjørt dobbelt (idempotens)

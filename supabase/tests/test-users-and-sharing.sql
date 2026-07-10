@@ -46,6 +46,7 @@ grant execute on function public.t_fails(text, text) to public;
 \set g1     '20000000-0000-0000-0000-000000000001'
 \set gb     '20000000-0000-0000-0000-000000000002'
 \set gcarol '20000000-0000-0000-0000-000000000003'
+\set g2     '20000000-0000-0000-0000-000000000004'
 \set c1     '30000000-0000-0000-0000-000000000001'
 \set i1     '40000000-0000-0000-0000-000000000001'
 
@@ -90,6 +91,12 @@ select public.t_check('bob ser kun egen profil', (select count(*) from public.pr
 select public.t_fails('bob kan ikke opprette gruppe i alices univers',
   format('insert into public.groups (owner_id, universe_id, name) values (%L, %L, ''inntrenger'')', :'bob', :'u1'));
 
+select public.t_fails('profil-e-post er skrivebeskyttet for klienter',
+  format('update public.profiles set email = ''kapring@example.com'' where id = %L', :'bob'));
+update public.profiles set display_name = 'Bob B.' where id = :'bob';
+select public.t_check('display_name kan endres av brukeren selv',
+  (select display_name from public.profiles where id = :'bob') = 'Bob B.');
+
 insert into public.universes (id, owner_id, name, ts, org) values (:'ub', :'bob', 'Bobs univers', 1, 'bob');
 insert into public.groups (id, owner_id, universe_id, name, ts, org) values (:'gb', :'bob', :'ub', 'Bobs gruppe', 1, 'bob');
 
@@ -124,6 +131,11 @@ select public.t_check('bob ser elementene', (select count(*) from public.items w
 select public.t_check('mount peker på bobs univers',
   (select jsonb_path_query_first(public.get_my_doc(), '$.groups[*] ? (@.id == $gid).mount.parent',
      jsonb_build_object('gid', :'g1'::text)) = to_jsonb(:'ub'::text)));
+
+-- mottakerens «sletting» er å forlate — hardsletting av share-roten er sperret
+delete from public.groups where id = :'g1';   -- RLS: 0 rader (direkte medlemskap)
+select public.t_check('direkte delt gruppe kan ikke hardslettes av mottakeren',
+  (select count(*) from public.groups where id = :'g1') = 1);
 
 -- redigering + felt-nivå LWW
 update public.items set text = 'Melk og brød', ts = 100, org = 'bob' where id = :'i1';
@@ -234,6 +246,20 @@ insert into public.groups (id, owner_id, universe_id, name, ts, org)
 select public.t_check('carol kan opprette gruppe i delt univers',
   (select count(*) from public.groups where id = :'gcarol') = 1);
 
+-- felles søppel-tømming INNE i delt univers er derimot lov (ikke share-rot)
+reset role;
+select set_config('request.jwt.claim.sub', :'alice', false);
+set role authenticated;
+insert into public.groups (id, owner_id, universe_id, name, ts, org)
+  values (:'g2', :'alice', :'u1', 'Midlertidig', 1, 'alice');
+
+reset role;
+select set_config('request.jwt.claim.sub', :'carol', false);
+set role authenticated;
+delete from public.groups where id = :'g2';
+select public.t_check('univers-medlem kan hardslette gruppe UTEN direkte medlemskap (felles tømming)',
+  (select count(*) from public.groups where id = :'g2') = 0);
+
 update public.memberships set trashed = true where user_id = :'carol' and universe_id = :'u1';
 select public.t_check('carols mount kan legges i HENNES søppelkasse',
   (select jsonb_path_query_first(public.get_my_doc(), '$.universes[*] ? (@.id == $uid).mount.trashed',
@@ -259,6 +285,10 @@ select public.t_check('bob ser den delte listen + elementer, men IKKE gruppen de
   (select count(*) from public.cards where id = :'c1') = 1
   and (select count(*) from public.items where id = :'i1') = 1
   and (select count(*) from public.groups where id = :'g1') = 0);
+
+delete from public.cards where id = :'c1';   -- RLS: 0 rader (direkte medlemskap)
+select public.t_check('direkte delt liste kan ikke hardslettes av mottakeren',
+  (select count(*) from public.cards where id = :'c1') = 1);
 
 select public.t_fails('mottaker kan ikke flytte kanonisk forelder (må bruke mount)',
   format('update public.cards set group_id = %L, pos_ts = 999, pos_org = ''bob'' where id = %L', :'gb', :'c1'));

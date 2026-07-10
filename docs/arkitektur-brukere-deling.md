@@ -100,6 +100,16 @@ Viktige egenskaper:
   forelder (eierens plassering) — de flytter sin egen mount. Innen et delt
   univers/gruppe kan medlemmer derimot dra lister/elementer fritt (felles
   struktur).
+- Mottakere av en direkte deling kan heller ikke **hardslette** selve
+  share-roten (delete-policyen sperrer alle med direkte medlemskap på
+  objektet) — deres «tøm søppelkasse» på en mount er `leave_share`.
+  *Innhold inne i* et delt univers/gruppe kan derimot hardslettes av
+  medlemmer med redigeringstilgang (felles tømming av delt søppel).
+- `profiles.email` er **skrivebeskyttet for klienter** (kolonne-grant: kun
+  `display_name`) og speiles utelukkende fra `auth.users` — ellers kunne en
+  bruker kapre invitasjoner sendt til uregistrerte adresser (aksept
+  sammenligner mot `profiles.email`) eller blokkere andres registrering
+  via unik-indeksen på e-post.
 
 ## Låsing
 

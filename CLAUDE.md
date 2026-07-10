@@ -297,7 +297,7 @@ setup.sql). Full design i `docs/arkitektur-brukere-deling.md`, løypekart i
   synk-doc (gjenbruk `applyDoc`); `import_doc()` migrerer lokal state
   (deterministiske id-er, idempotent).
 - Hermetisk testsuite i `supabase/tests/` (ren PostgreSQL 16 + stub av
-  auth-skjemaet); 57 sjekker. Den gamle éndoc-modellen under er urørt og
+  auth-skjemaet); 61 sjekker. Den gamle éndoc-modellen under er urørt og
   kjører parallelt til fase 2 er ferdig.
 
 ## Innlogging (mønster-lås)
@@ -393,7 +393,7 @@ filter (👁️ K/P/KP) i listemenyen, per enhet (`mine-lister-filter`).
 - [x] **Grunnmur for brukere + deling (fase 1)**: `supabase/users-and-sharing.sql`
       (Supabase Auth-integrasjon, RLS, delings-RPC-er, mounts, lås, gravsteiner,
       server-side LWW), arkitekturdok (`docs/arkitektur-brukere-deling.md`),
-      løypekart (`TODO.md`), hermetisk testsuite (`supabase/tests/`, 57 grønne),
+      løypekart (`TODO.md`), hermetisk testsuite (`supabase/tests/`, 61 grønne),
       Action oppdatert til å kjøre begge SQL-filene
 - [ ] **Fase 2: klient/UI for brukere + deling** — se `TODO.md` (auth-UI,
       synk-motor v2 på `get_my_doc`/rad-CRUD, mount-rendring, delings-UI,

@@ -585,9 +585,11 @@ drop policy if exists universes_delete on public.universes;
 create policy universes_delete on public.universes
   for delete using (owner_id = auth.uid());   -- kun eier hardsletter
 
--- groups: opprettelse krever redigeringstilgang i universet;
--- hardsletting krever eierskap ELLER redigeringstilgang (tømming av
--- felles søppelkasse i et delt univers).
+-- groups: opprettelse krever redigeringstilgang i universet.
+-- Hardsletting: eieren, ELLER redigeringstilgang (tømming av felles
+-- søppelkasse i et delt univers) — men ALDRI av en som har direkte
+-- medlemskap på objektet (share-roten): mottakerens «sletting» er å
+-- forlate delingen (leave_share), ikke å slette eierens data.
 drop policy if exists groups_select on public.groups;
 create policy groups_select on public.groups
   for select using (public.can_read_group(id, auth.uid()));
@@ -600,7 +602,12 @@ create policy groups_update on public.groups
   for update using (public.can_edit_group(id, auth.uid()));
 drop policy if exists groups_delete on public.groups;
 create policy groups_delete on public.groups
-  for delete using (owner_id = auth.uid() or public.can_edit_group(id, auth.uid()));
+  for delete using (
+    owner_id = auth.uid()
+    or (public.can_edit_group(id, auth.uid())
+        and not exists (select 1 from public.memberships m
+                        where m.group_id = groups.id and m.user_id = auth.uid()))
+  );
 
 -- cards («lister»)
 drop policy if exists cards_select on public.cards;
@@ -615,7 +622,12 @@ create policy cards_update on public.cards
   for update using (public.can_edit_card(id, auth.uid()));
 drop policy if exists cards_delete on public.cards;
 create policy cards_delete on public.cards
-  for delete using (owner_id = auth.uid() or public.can_edit_card(id, auth.uid()));
+  for delete using (
+    owner_id = auth.uid()
+    or (public.can_edit_card(id, auth.uid())
+        and not exists (select 1 from public.memberships m
+                        where m.card_id = cards.id and m.user_id = auth.uid()))
+  );
 
 -- items
 drop policy if exists items_select on public.items;
@@ -1174,7 +1186,13 @@ revoke all on public.profiles, public.universes, public.groups, public.cards,
               public.items, public.memberships, public.share_invites,
               public.tombstones from anon;
 
-grant select, update on public.profiles to authenticated;
+-- profiles: e-posten speiles KUN fra auth.users (triggerne over) og er
+-- skrivebeskyttet for klienter — ellers kunne en bruker kapre ventende
+-- invitasjoner (aksept sammenligner mot profiles.email) eller blokkere
+-- andres registrering via unik-indeksen. Kun display_name kan endres.
+grant select on public.profiles to authenticated;
+revoke update on public.profiles from authenticated;
+grant update (display_name) on public.profiles to authenticated;
 grant select, insert, update, delete on public.universes, public.groups,
                                         public.cards, public.items to authenticated;
 grant select, update, delete on public.memberships to authenticated;
