@@ -250,18 +250,31 @@
   }
 
   let saveTimer = null;
+  // Serialisering hopper over intern backend-metadata (_parent/_mount/_canon/…),
+  // som ellers ville gitt sykliske referanser i kontomodus. State-nivå _tomb/_hlc
+  // beholdes.
+  function stateReplacer(k, v) {
+    return (k && k[0] === '_' && k !== '_tomb' && k !== '_hlc') ? undefined : v;
+  }
   function save() {
     clearTimeout(saveTimer);
+    const accounts = accountsMode() && authUser;
+    const key = accounts ? (STORAGE_KEY + ':' + authUser.id) : STORAGE_KEY;
     saveTimer = setTimeout(() => {
       try {
         state._hlc = hlc;
-        localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+        localStorage.setItem(key, JSON.stringify(state, stateReplacer));
       } catch (e) {
         /* ignore quota */
       }
     }, 120);
-    // Sky-synk: flett + push (debouncet). Ikke mens vi nettopp skrev fjern-tilstand.
-    if (!applyingRemote && syncCode && cloudConfigured()) scheduleSync();
+    if (applyingRemote) return;
+    if (accountsMode()) {
+      if (authUser) scheduleCloud();
+    } else if (syncCode && cloudConfigured()) {
+      // Sky-synk v1 (mønster-lås): flett + push (debouncet).
+      scheduleSync();
+    }
   }
 
   // Første gang (ingen lokal state): start tom når sky-synk er konfigurert
@@ -597,6 +610,22 @@
     el.style.setProperty('--g-bg', gBase);
     el.style.setProperty('--g-accent', darken(gBase, 0.34));
 
+    // Delings-/låse-status (kontomodus).
+    const gShared = accountsMode() && (groupData._shared || groupData._mount);
+    const gCanEdit = !frozen(groupData);
+    el.classList.toggle('is-shared', !!gShared);
+    const gBadge = el.querySelector('.share-badge');
+    if (gShared) {
+      gBadge.hidden = false;
+      gBadge.textContent = !gCanEdit ? '🔒' : '🔗';
+      gBadge.title = groupData._mount ? 'Delt med deg' : 'Delt med andre';
+    }
+    const gShareBtn = el.querySelector('.chip-share');
+    if (accountsMode() && (groupData._mine || groupData._mount)) {
+      gShareBtn.hidden = false;
+      gShareBtn.addEventListener('click', (ev) => { ev.stopPropagation(); openShare('group', groupData.id, groupData); });
+    }
+
     const nameEl = el.querySelector('.group-name');
     nameEl.textContent = groupData.name;
 
@@ -610,13 +639,14 @@
       if (groupData.id !== state.activeGroup) {
         setActiveGroup(groupData.id);
         render();
-      } else {
+      } else if (gCanEdit) {
         startGroupRename(nameEl, groupData);
       }
     };
 
     el.addEventListener('click', (ev) => {
-      if (ev.target.closest('.group-handle') || ev.target.closest('.group-delete')) return;
+      if (ev.target.closest('.group-handle') || ev.target.closest('.group-delete') ||
+          ev.target.closest('.chip-share')) return;
       activate();
     });
     // Tastatur: kortet er role="tab" (tabindex=0). Enter/Mellomrom aktiverer det
@@ -634,12 +664,16 @@
       }
     });
 
-    el.querySelector('.group-delete').addEventListener('click', (ev) => {
-      ev.stopPropagation();
-      deleteGroup(groupData);
-    });
+    const gDelBtn = el.querySelector('.group-delete');
+    if (accountsMode() && !gCanEdit && !groupData._mount) {
+      gDelBtn.hidden = true;
+    } else {
+      gDelBtn.addEventListener('click', (ev) => { ev.stopPropagation(); deleteGroup(groupData); });
+    }
 
-    el.querySelector('.group-handle').addEventListener('pointerdown', (ev) => startGroupDrag(ev, el));
+    const gHandle = el.querySelector('.group-handle');
+    if (accountsMode() && !gCanEdit && !groupData._mount) gHandle.style.visibility = 'hidden';
+    else gHandle.addEventListener('pointerdown', (ev) => startGroupDrag(ev, el));
     return el;
   }
 
@@ -688,8 +722,13 @@
   // Slett en gruppe → legg i gruppe-søppelkassen (trashed-flagg; gjenopprettbar).
   // Permanent sletting (med gravsteiner) skjer først når søppelkassen tømmes.
   function deleteGroup(groupData) {
-    groupData.trashed = true;
-    stampContent(groupData);
+    if (groupData._mount) {
+      groupData.trashed = true; groupData._mount.trashed = true;
+      cloudMountUpdate('group', groupData.id, { trashed: true });
+    } else {
+      groupData.trashed = true;
+      stampContent(groupData);
+    }
     if (state.activeGroup === groupData.id) {
       const first = visibleGroups()[0];
       setActiveGroup(first ? first.id : null);
@@ -704,15 +743,23 @@
     const u = activeUniverseObj();
     const trash = trashedGroups();
     if (!u || !trash.length) return;
+    let left = false;
     trash.forEach((g) => {
+      const idx = u.groups.indexOf(g);
+      if (g._mount) {
+        // Mottaker forlater delingen (rører ikke eierens innhold).
+        if (idx > -1) u.groups.splice(idx, 1);
+        cloudLeave('group', g.id); left = true;
+        return;
+      }
       state._tomb.groups[g.id] = tick();
       g.cards.forEach((c) => {
         state._tomb.cards[c.id] = tick();
         c.items.forEach((it) => { state._tomb.items[it.id] = tick(); });
       });
-      const idx = u.groups.indexOf(g);
       if (idx > -1) u.groups.splice(idx, 1);
     });
+    if (left) cloudBase = null;
     render();
     save();
   }
@@ -728,21 +775,54 @@
     el.style.setProperty('--card-head', darken(base, 0.08));
     el.style.setProperty('--card-accent', darken(base, 0.32));
 
+    // Delings-/låse-status (kontomodus). canEdit=false fryser redigering, men en
+    // montert liste-rot (mottakerens egen) kan alltid dras/legges i egen søppel.
+    const shared = accountsMode() && (cardData._shared || cardData._mount);
+    const canEdit = !frozen(cardData);
+    el.classList.toggle('is-shared', !!shared);
+    el.classList.toggle('is-locked', accountsMode() && !canEdit);
+    const cardBadge = el.querySelector('.share-badge');
+    if (shared) {
+      cardBadge.hidden = false;
+      cardBadge.textContent = !canEdit ? '🔒' : '🔗';
+      cardBadge.title = cardData._mount ? 'Delt med deg' : 'Delt med andre';
+    }
+    const cardShareBtn = el.querySelector('.card-share');
+    if (accountsMode() && (cardData._mine || cardData._mount)) {
+      cardShareBtn.hidden = false;
+      cardShareBtn.addEventListener('click', () => openShare('card', cardData.id, cardData));
+    }
+
     const titleEl = el.querySelector('.card-title');
     titleEl.textContent = cardData.title;
-    titleEl.addEventListener('click', () => editText(titleEl, cardData.title, (val) => {
-      cardData.title = val || 'Uten navn';
-      titleEl.textContent = cardData.title;
-      stampContent(cardData);
-      save();
-    }));
-
-    // Slett kategori -> legg i papirkurv (trashed-flagg; permanent først ved «Tøm papirkurv»)
-    el.querySelector('.card-delete').addEventListener('click', () => {
-      cardData.trashed = true;
-      stampContent(cardData);
-      render();
+    titleEl.addEventListener('click', () => {
+      if (!canEdit) return;
+      editText(titleEl, cardData.title, (val) => {
+        cardData.title = val || 'Uten navn';
+        titleEl.textContent = cardData.title;
+        stampContent(cardData);
+        save();
+      });
     });
+
+    // Slett kategori -> legg i papirkurv (trashed-flagg; permanent først ved «Tøm papirkurv»).
+    // Frosset (låst av andre) og ikke egen mount → ingen slett-knapp.
+    const cardDelBtn = el.querySelector('.card-delete');
+    if (accountsMode() && !canEdit && !cardData._mount) {
+      cardDelBtn.hidden = true;
+    } else {
+      cardDelBtn.addEventListener('click', () => {
+        if (cardData._mount) {
+          cardData.trashed = true; cardData._mount.trashed = true;
+          cloudMountUpdate('card', cardData.id, { trashed: true });
+        } else {
+          cardData.trashed = true;
+          stampContent(cardData);
+        }
+        render();
+        save();
+      });
+    }
 
     // K/P-brytere: minst én må være på; lysere sirkel = på.
     el.querySelectorAll('.card-switches .switch').forEach((sw) => {
@@ -754,6 +834,7 @@
       };
       paint();
       sw.addEventListener('click', () => {
+        if (!canEdit) { flashDeny(sw); return; }
         const other = flag === 'k' ? 'p' : 'k';
         const on = cardData[flag] !== false;
         if (on && cardData[other] === false) { flashDeny(sw); return; } // kan ikke skru av den siste
@@ -765,8 +846,10 @@
       });
     });
 
-    // Håndtak for kort-draging
-    el.querySelector('.card-handle').addEventListener('pointerdown', (ev) => startCardDrag(ev, el));
+    // Håndtak for kort-draging. Frosset (låst av andre) og ikke egen mount → skjul.
+    const cardHandle = el.querySelector('.card-handle');
+    if (accountsMode() && !canEdit && !cardData._mount) cardHandle.style.visibility = 'hidden';
+    else cardHandle.addEventListener('pointerdown', (ev) => startCardDrag(ev, el));
 
     // Elementer (kun ikke-slettede; sortert på posisjon). Slettede ligger i
     // element-søppelkassen nederst i kortet.
@@ -777,8 +860,10 @@
     // Legg til element
     const form = el.querySelector('.add-item-form');
     const input = form.querySelector('.add-item-input');
+    if (accountsMode() && !canEdit) form.hidden = true;
     form.addEventListener('submit', (ev) => {
       ev.preventDefault();
+      if (!canEdit) return;
       const text = input.value.trim();
       if (!text) return;
       const it = makeItem(text, cardData.id);
@@ -846,28 +931,38 @@
   function buildItem(itemData, cardData) {
     const el = itemTpl.content.firstElementChild.cloneNode(true);
     el.dataset.id = itemData.id;
+    const canEdit = !(accountsMode() && frozen(cardData));
 
     const textEl = el.querySelector('.item-text');
     textEl.textContent = itemData.text;
-    textEl.addEventListener('click', () => editText(textEl, itemData.text, (val) => {
-      if (!val) return; // tom redigering = ingen endring
-      itemData.text = val;
-      textEl.textContent = val;
-      stampContent(itemData);
-      save();
-    }));
+    textEl.addEventListener('click', () => {
+      if (!canEdit) return;
+      editText(textEl, itemData.text, (val) => {
+        if (!val) return; // tom redigering = ingen endring
+        itemData.text = val;
+        textEl.textContent = val;
+        stampContent(itemData);
+        save();
+      });
+    });
 
     // Slett element → legg i kortets element-søppelkasse (trashed-flagg;
     // gjenopprettbar). Permanent sletting (gravstein) skjer først ved tømming.
-    el.querySelector('.item-delete').addEventListener('click', () => {
-      const owner = ownerCardOf(el) || cardData;
-      const it = owner.items.find((i) => i.id === itemData.id);
-      if (it) { it.trashed = true; stampContent(it); }
-      refreshCard(owner);
-      save();
-    });
-
-    el.querySelector('.item-handle').addEventListener('pointerdown', (ev) => startItemDrag(ev, el));
+    const itemDel = el.querySelector('.item-delete');
+    const itemHandle = el.querySelector('.item-handle');
+    if (!canEdit) {
+      itemDel.hidden = true;
+      itemHandle.style.visibility = 'hidden';
+    } else {
+      itemDel.addEventListener('click', () => {
+        const owner = ownerCardOf(el) || cardData;
+        const it = owner.items.find((i) => i.id === itemData.id);
+        if (it) { it.trashed = true; stampContent(it); }
+        refreshCard(owner);
+        save();
+      });
+      itemHandle.addEventListener('pointerdown', (ev) => startItemDrag(ev, el));
+    }
     return el;
   }
 
@@ -1343,14 +1438,22 @@
       const c = findCard(el.dataset.id);
       const dest = findGroup(groupTarget.dataset.id);
       const src = activeGroupObj();
-      if (c && dest && src && dest.id !== c.group) {
+      if (c && dest && src && dest.id !== c.group && dest.id !== (c._mount && c._mount.parent)) {
         drag.ph.remove();
         finishDrag();
         const i = src.cards.indexOf(c);
         if (i > -1) src.cards.splice(i, 1);
-        c.group = dest.id;
-        c.pos = maxPos(dest.cards) + 1; // legg bakerst i mål-gruppen
-        stampPos(c);
+        const np = maxPos(dest.cards) + 1; // legg bakerst i mål-gruppen
+        if (c._mount) {
+          // Montert liste: flytt mottakerens mount til ny gruppe (ikke eierens plassering).
+          c._mount.parent = dest.id; c._mount.pos = np; c.pos = np;
+          c._parent = dest;
+          cloudMountUpdate('card', c.id, { parent_group_id: dest.id, pos: np });
+        } else {
+          c.group = dest.id;
+          c.pos = np;
+          stampPos(c);
+        }
         dest.cards.push(c);
         save();
         render();                       // lista forsvinner fra dette board-et
@@ -1375,8 +1478,14 @@
     if (c) {
       const pPrev = prev && prev.classList.contains('card') ? (findCard(prev.dataset.id) || {}).pos : null;
       const pNext = next && next.classList.contains('card') ? (findCard(next.dataset.id) || {}).pos : null;
-      c.pos = between(pPrev == null ? null : pPrev, pNext == null ? null : pNext);
-      stampPos(c);
+      const np = between(pPrev == null ? null : pPrev, pNext == null ? null : pNext);
+      if (c._mount) {
+        c.pos = np; c._mount.pos = np;
+        cloudMountUpdate('card', c.id, { pos: np });
+      } else {
+        c.pos = np;
+        stampPos(c);
+      }
     }
     save();
   }
@@ -1697,8 +1806,15 @@
     if (g) {
       const prevG = prev && prev.classList.contains('group-card') ? findGroup(prev.dataset.id) : null;
       const nextG = next && next.classList.contains('group-card') ? findGroup(next.dataset.id) : null;
-      g.pos = between(prevG ? prevG.pos : null, nextG ? nextG.pos : null);
-      stampPos(g);
+      const np = between(prevG ? prevG.pos : null, nextG ? nextG.pos : null);
+      if (g._mount) {
+        // Montert gruppe: mottakerens egen rekkefølge ligger i membership-raden.
+        g.pos = np; g._mount.pos = np;
+        cloudMountUpdate('group', g.id, { pos: np });
+      } else {
+        g.pos = np;
+        stampPos(g);
+      }
     }
     save();
   }
@@ -1852,7 +1968,11 @@
   // To modaler kan være åpne samtidig (søppelkassen over menyen); body låses
   // så lenge minst én er åpen.
   function updateModalOpenClass() {
-    document.body.classList.toggle('modal-open', !trashModal.hidden || !menuModal.hidden);
+    const share = document.getElementById('share-modal');
+    const place = document.getElementById('place-modal');
+    document.body.classList.toggle('modal-open',
+      !trashModal.hidden || !menuModal.hidden ||
+      (share && !share.hidden) || (place && !place.hidden));
   }
 
   function showTrashModal(cfg) {
@@ -1928,8 +2048,8 @@
         name: u.name,
         meta: groupWord(u.groups.filter((g) => !g.trashed).length),
         restore: () => {
-          u.trashed = false;
-          stampContent(u);
+          if (u._mount) { u.trashed = false; u._mount.trashed = false; cloudMountUpdate('universe', u.id, { trashed: false }); }
+          else { u.trashed = false; stampContent(u); }
           if (!activeUniverseObj()) setActiveUniverse(u.id); // ingen aktiv? aktivér den gjenopprettede
           render();
           save();
@@ -1949,8 +2069,8 @@
         name: g.name,
         meta: listWord(g.cards.filter((c) => !c.trashed).length),
         restore: () => {
-          g.trashed = false;
-          stampContent(g);
+          if (g._mount) { g.trashed = false; g._mount.trashed = false; cloudMountUpdate('group', g.id, { trashed: false }); }
+          else { g.trashed = false; stampContent(g); }
           if (!activeGroupObj()) setActiveGroup(g.id); // ingen aktiv? aktivér den gjenopprettede
           render();
           save();
@@ -1971,7 +2091,11 @@
         color: c.color || colorForId(c.id),
         name: c.title,
         meta: itemWord(c.items.filter((it) => !it.trashed).length),
-        restore: () => { c.trashed = false; stampContent(c); render(); save(); },
+        restore: () => {
+          if (c._mount) { c.trashed = false; c._mount.trashed = false; cloudMountUpdate('card', c.id, { trashed: false }); }
+          else { c.trashed = false; stampContent(c); }
+          render(); save();
+        },
       })),
       empty: emptyCardsTrash,
     });
@@ -1995,12 +2119,19 @@
     const trash = trashedCards();
     if (!trash.length) return;
     const arr = allCards();
+    let left = false;
     trash.forEach((c) => {
+      const i = arr.indexOf(c);
+      if (c._mount) {
+        if (i > -1) arr.splice(i, 1);
+        cloudLeave('card', c.id); left = true;
+        return;
+      }
       state._tomb.cards[c.id] = tick(); // permanent gravstein hindrer gjenoppstandelse
       c.items.forEach((it) => { state._tomb.items[it.id] = tick(); });
-      const i = arr.indexOf(c);
       if (i > -1) arr.splice(i, 1);
     });
+    if (left) cloudBase = null;
     render();
     save();
   }
@@ -2010,7 +2141,14 @@
   function emptyUniversesTrash() {
     const trash = trashedUniverses();
     if (!trash.length) return;
+    let left = false;
     trash.forEach((u) => {
+      const i = state.universes.indexOf(u);
+      if (u._mount) {
+        if (i > -1) state.universes.splice(i, 1);
+        cloudLeave('universe', u.id); left = true;
+        return;
+      }
       state._tomb.universes[u.id] = tick();
       u.groups.forEach((g) => {
         state._tomb.groups[g.id] = tick();
@@ -2019,9 +2157,9 @@
           c.items.forEach((it) => { state._tomb.items[it.id] = tick(); });
         });
       });
-      const i = state.universes.indexOf(u);
       if (i > -1) state.universes.splice(i, 1);
     });
+    if (left) cloudBase = null;
     render();
     save();
   }
@@ -2193,7 +2331,11 @@
   document.addEventListener('keydown', (ev) => {
     if (ev.key !== 'Escape') return;
     if (ev.target && ev.target.classList && ev.target.classList.contains('edit-input')) return;
-    if (!trashModal.hidden) closeTrash();
+    const share = document.getElementById('share-modal');
+    const place = document.getElementById('place-modal');
+    if (place && !place.hidden) { place.hidden = true; updateModalOpenClass(); }
+    else if (share && !share.hidden) { share.hidden = true; updateModalOpenClass(); }
+    else if (!trashModal.hidden) closeTrash();
     else if (!menuModal.hidden) closeMenu();
   });
   trashEmptyBtn.addEventListener('click', () => {
@@ -2262,6 +2404,21 @@
     el.style.setProperty('--g-bg', base);
     el.style.setProperty('--g-accent', darken(base, 0.34));
 
+    const uShared = accountsMode() && (u._shared || u._mount);
+    const uCanEdit = !frozen(u);
+    el.classList.toggle('is-shared', !!uShared);
+    const uBadge = el.querySelector('.share-badge');
+    if (uShared) {
+      uBadge.hidden = false;
+      uBadge.textContent = !uCanEdit ? '🔒' : '🔗';
+      uBadge.title = u._mount ? 'Delt med deg' : 'Delt med andre';
+    }
+    const uShareBtn = el.querySelector('.chip-share');
+    if (accountsMode() && (u._mine || u._mount)) {
+      uShareBtn.hidden = false;
+      uShareBtn.addEventListener('click', (ev) => { ev.stopPropagation(); openShare('universe', u.id, u); });
+    }
+
     const nameEl = el.querySelector('.uni-name');
     nameEl.textContent = u.name;
     el.querySelector('.uni-count').textContent = groupWord(u.groups.filter((g) => !g.trashed).length);
@@ -2275,12 +2432,12 @@
         render();
         save();
         closeMenu();
-      } else {
+      } else if (uCanEdit) {
         startUniverseRename(nameEl, u);
       }
     };
     el.addEventListener('click', (ev) => {
-      if (ev.target.closest('.uni-delete')) return;
+      if (ev.target.closest('.uni-delete') || ev.target.closest('.chip-share')) return;
       activate();
     });
     el.addEventListener('keydown', (ev) => {
@@ -2290,10 +2447,12 @@
         activate();
       }
     });
-    el.querySelector('.uni-delete').addEventListener('click', (ev) => {
-      ev.stopPropagation();
-      deleteUniverse(u);
-    });
+    const uDelBtn = el.querySelector('.uni-delete');
+    if (accountsMode() && !uCanEdit && !u._mount) {
+      uDelBtn.hidden = true;
+    } else {
+      uDelBtn.addEventListener('click', (ev) => { ev.stopPropagation(); deleteUniverse(u); });
+    }
     return el;
   }
 
@@ -2322,8 +2481,14 @@
   // Slett et univers → legg i univers-søppelkassen (trashed-flagg; gjenopprettbar).
   // Permanent sletting (med gravsteiner) skjer først når søppelkassen tømmes.
   function deleteUniverse(u) {
-    u.trashed = true;
-    stampContent(u);
+    if (u._mount) {
+      // Mottaker: «slett» = legg mounten i egen søppel (kan forlates ved tømming).
+      u.trashed = true; u._mount.trashed = true;
+      cloudMountUpdate('universe', u.id, { trashed: true });
+    } else {
+      u.trashed = true;
+      stampContent(u);
+    }
     if (state.activeUniverse === u.id) {
       const first = visibleUniverses()[0];
       setActiveUniverse(first ? first.id : null);
@@ -2848,7 +3013,10 @@
      Synken går fortløpende i bakgrunnen; ingen egen synk-knapp trengs.
      Ved fjern-endringer vises et lite «oppdatert»-varsel (showToast). */
   logoutBtn.addEventListener('click', () => {
-    if (confirm('Logge ut? Listene dine ligger trygt i skyen og kommer tilbake når du tegner mønsteret igjen.')) logout();
+    const q = accountsMode()
+      ? 'Logge ut? Listene dine ligger trygt i skyen og kommer tilbake når du logger inn igjen.'
+      : 'Logge ut? Listene dine ligger trygt i skyen og kommer tilbake når du tegner mønsteret igjen.';
+    if (confirm(q)) logout();
   });
 
   // Hold i synk når fanen kommer i forgrunnen igjen (mobil suspenderer sockets/timere).
@@ -3085,6 +3253,13 @@
   }
 
   function logout() {
+    if (accountsMode()) {
+      closeMenu();
+      const client = acli();
+      cloudStop();
+      if (client) { try { client.auth.signOut(); } catch (e) { /* ignore */ } }
+      return;
+    }
     try { if (rtChannel && sb) sb.removeChannel(rtChannel); } catch (e) { /* ignore */ }
     clearInterval(pollTimer);
     clearTimeout(syncDebounce);
@@ -3093,7 +3268,934 @@
     location.reload();
   }
 
-  function initAuth() {
+  /* ============================================================
+     FASE 2 — BRUKERKONTOER OG DELING (klient)
+     ------------------------------------------------------------
+     Ekte kontoer (Supabase Auth) med e-post/passord erstatter
+     mønster-låsen. Data ligger relasjonelt (universes/groups/cards/
+     items + memberships) med RLS og server-side felt-nivå LWW.
+     Synk-motor v2: get_my_doc() (pull) → 3-veis fletting mot en
+     base-snapshot → rad-CRUD (push); realtime postgres_changes +
+     poll. Delte objekter «monteres» inn i mottakerens valgte
+     forelder via membership-rader. Se docs/arkitektur-brukere-
+     deling.md og docs/auth.md.
+     ============================================================ */
+
+  // Kontomodus: på når Supabase er konfigurert (kan tvinges av / av med
+  // query-parametere for testing). ?mock=1 kjører mot en hermetisk
+  // in-memory-backend (mock-backend.js) for to-bruker-testing.
+  function useMock() { return /[?&]mock=1/.test(location.search); }
+  // Kontomodus er bevisst BAK et flagg inntil fase 2 er verifisert mot ekte
+  // Supabase (Auth-dashboard-stegene i TODO.md må gjøres først: Site URL,
+  // Redirect URLs, «Confirm email»). Slås på med `window.SUPABASE_CONFIG.accounts
+  // = true` (config.js), `?accounts=1`, eller `?mock=1` (hermetisk testbackend).
+  // Til da kjører den gamle mønster-låsen + synk-doc-modellen uendret.
+  function accountsMode() {
+    if (useMock()) return true;
+    if (/[?&]patternlock=1/.test(location.search)) return false;
+    if (/[?&]accounts=1/.test(location.search)) return cloudConfigured();
+    if (window.SUPABASE_CONFIG && window.SUPABASE_CONFIG.accounts === true) return cloudConfigured();
+    return false;
+  }
+
+  let authUser = null;         // innlogget bruker { id, email } | null
+  let aclient = null;          // backend-klient (Supabase eller mock)
+  function acli() {
+    if (aclient) return aclient;
+    if (useMock() && window.HK_MOCK) { aclient = window.HK_MOCK.createClient(); return aclient; }
+    aclient = ensureClient();
+    return aclient;
+  }
+
+  /* ---------------- Auth-UI (registrering/innlogging/glemt) ---------------- */
+  const authScreen = document.getElementById('auth-screen');
+  const authForm = document.getElementById('auth-form');
+  const authHeading = document.getElementById('auth-heading');
+  const authEmail = document.getElementById('auth-email');
+  const authPassword = document.getElementById('auth-password');
+  const authPassField = document.getElementById('auth-pass-field');
+  const authMsgEl = document.getElementById('auth-msg');
+  const authSubmit = document.getElementById('auth-submit');
+  const authLinks = document.getElementById('auth-links');
+  const authSent = document.getElementById('auth-sent');
+  const authSentMsg = document.getElementById('auth-sent-msg');
+  const authSentBack = document.getElementById('auth-sent-back');
+  let authModeCur = 'login';
+
+  const AUTH_MODES = {
+    login:    { title: 'Logg inn',       submit: 'Logg inn',        pass: true },
+    register: { title: 'Registrer deg',  submit: 'Opprett konto',   pass: true },
+    forgot:   { title: 'Glemt passord',  submit: 'Send lenke',      pass: false },
+  };
+  function setAuthMode(mode) {
+    authModeCur = mode;
+    const m = AUTH_MODES[mode];
+    authHeading.textContent = m.title;
+    authSubmit.textContent = m.submit;
+    authPassField.hidden = !m.pass;
+    authPassword.required = m.pass;
+    authPassword.autocomplete = mode === 'register' ? 'new-password' : 'current-password';
+    authMsg('');
+    authForm.hidden = false;
+    authSent.hidden = true;
+    // Lenkene bytter ut fra modus.
+    authLinks.innerHTML = '';
+    const link = (label, target) => {
+      const b = document.createElement('button');
+      b.type = 'button'; b.className = 'auth-link'; b.dataset.mode = target; b.textContent = label;
+      b.addEventListener('click', () => setAuthMode(target));
+      authLinks.appendChild(b);
+    };
+    if (mode === 'login') { link('Ny bruker? Registrer deg', 'register'); link('Glemt passord?', 'forgot'); }
+    else if (mode === 'register') { link('Har du konto? Logg inn', 'login'); }
+    else { link('Tilbake til innlogging', 'login'); }
+  }
+  function authMsg(text, ok) {
+    authMsgEl.textContent = text || '';
+    authMsgEl.classList.toggle('ok', !!ok);
+  }
+  function showAuthSent(html) {
+    authForm.hidden = true;
+    authSent.hidden = false;
+    authSentMsg.innerHTML = html;
+  }
+  function friendlyAuthError(err) {
+    const msg = (err && err.message) || String(err || 'Noe gikk galt');
+    if (/invalid login credentials/i.test(msg)) return 'Feil e-post eller passord.';
+    if (/email not confirmed/i.test(msg)) return 'E-posten er ikke bekreftet ennå – sjekk innboksen.';
+    if (/already registered|already exists|user already/i.test(msg)) return 'Denne e-posten er allerede registrert.';
+    if (/password should be at least|weak password/i.test(msg)) return 'Passordet må ha minst 6 tegn.';
+    if (/rate limit|too many/i.test(msg)) return 'For mange forsøk – vent litt og prøv igjen.';
+    return msg;
+  }
+
+  authForm && authForm.addEventListener('submit', async (ev) => {
+    ev.preventDefault();
+    const client = acli();
+    if (!client) { authMsg('Sky-synk er ikke konfigurert.'); return; }
+    const email = authEmail.value.trim().toLowerCase();
+    const password = authPassword.value;
+    if (!email) { authMsg('Skriv inn e-postadressen din.'); return; }
+    authSubmit.disabled = true;
+    authMsg('');
+    try {
+      if (authModeCur === 'login') {
+        const { error } = await client.auth.signInWithPassword({ email, password });
+        if (error) throw error;
+        // onAuthStateChange starter appen.
+      } else if (authModeCur === 'register') {
+        const { data, error } = await client.auth.signUp({
+          email, password,
+          options: { emailRedirectTo: location.origin + location.pathname },
+        });
+        if (error) throw error;
+        if (data && data.session) {
+          // Bekreftelse er av → onAuthStateChange logger inn direkte.
+        } else {
+          showAuthSent('Vi har sendt en bekreftelseslenke til <strong>' + email +
+            '</strong>. Åpne den for å fullføre registreringen, så kan du logge inn.');
+        }
+      } else if (authModeCur === 'forgot') {
+        const { error } = await client.auth.resetPasswordForEmail(email, {
+          redirectTo: location.origin + location.pathname,
+        });
+        if (error) throw error;
+        showAuthSent('Hvis <strong>' + email + '</strong> har en konto, har vi sendt en ' +
+          'lenke for å velge nytt passord. Sjekk innboksen.');
+      }
+    } catch (e) {
+      authMsg(friendlyAuthError(e));
+    } finally {
+      authSubmit.disabled = false;
+    }
+  });
+  authSentBack && authSentBack.addEventListener('click', () => setAuthMode('login'));
+
+  async function handleRecovery() {
+    const np = prompt('Velg et nytt passord (minst 6 tegn):');
+    if (!np || np.length < 6) { showToast('Passordet må ha minst 6 tegn'); return; }
+    try {
+      const { error } = await acli().auth.updateUser({ password: np });
+      if (error) throw error;
+      showToast('Passordet er oppdatert');
+    } catch (e) { showToast(friendlyAuthError(e)); }
+  }
+
+  /* ---------------- Backend-metadata på state-objektene ----------------
+     Hvert nested objekt får (utenfor synk-doc'et): _owner/_mine/_locked/
+     _shared/_mount/_parent. _mount finnes kun på en «share-rot» mottakeren
+     har montert; da speiler objektets .pos/.trashed montasjepunktet (per
+     bruker), mens de kanoniske verdiene ligger i _canon (til push). */
+  function isMounted(o) { return !!(o && o._mount); }
+  function effTrashed(o) { return o && o._mount ? !!o._mount.trashed : !!(o && o.trashed); }
+  // Frosset = objektet selv eller en forelder er låst av noen andre enn meg.
+  function frozen(o) {
+    let n = o;
+    while (n) {
+      if (n._locked && !n._mine) return true;
+      n = n._parent;
+    }
+    return false;
+  }
+  const isMine = (o) => !o || o._mine !== false; // lokalt nye (uten meta) er «mine»
+
+  /* ---------------- get_my_doc → kanonisk innholds-doc + metadata ---------------- */
+  function contentDocFromMy(my) {
+    let maxTs = 0;
+    const bump = (r) => { maxTs = Math.max(maxTs, r.ts || 0, r.posTs || 0, r.labTs || 0); };
+    const universes = (my.universes || []).map((u) => { const r = cleanUniverse(u); bump(r); return r; });
+    const groups = (my.groups || []).map((g) => { const r = cleanGroup(g); bump(r); return r; });
+    const cards = (my.cards || []).map((c) => { const r = cleanCard(c); bump(r); return r; });
+    const items = (my.items || []).map((it) => { const r = cleanItem(it, it.home); bump(r); return r; });
+    return { universes, groups, cards, items, hlc: maxTs };
+  }
+  function metaFromMy(my) {
+    const meta = new Map();
+    const add = (list, type) => (list || []).forEach((r) => meta.set(r.id, {
+      type, owner: r.owner, mine: r.mine !== false, locked: !!r.locked,
+      shared: !!r.shared, mount: r.mount || null,
+    }));
+    add(my.universes, 'universe');
+    add(my.groups, 'group');
+    add(my.cards, 'card');
+    add(my.items, 'item');
+    return meta;
+  }
+
+  /* ---------------- Lokal state → kanonisk innholds-doc (for push) ----------------
+     For monterte røtter brukes kanoniske verdier (fra _canon) for pos/
+     forelder/trashed, mens innhold (navn/tekst/k/p) leses live (kan være
+     redigert). For alt annet leses alt live. */
+  function canonRow(o, type) {
+    if (o._mount && o._canon) {
+      const c = o._canon;
+      const base = {
+        id: o.id, ts: o.ts || 0, org: o.org || '',
+        trashed: !!c.trashed, pos: c.pos || 0, posTs: c.posTs || 0, posOrg: c.posOrg || '',
+      };
+      if (type === 'universe') return Object.assign(base, { name: o.name });
+      if (type === 'group') return Object.assign(base, { name: o.name, uni: c.parent });
+      if (type === 'card') return Object.assign(base, {
+        title: o.title, group: c.parent, k: o.k !== false, p: o.p !== false,
+        labTs: o.labTs || 0, labOrg: o.labOrg || '',
+      });
+    }
+    if (type === 'universe') return cleanUniverse(o);
+    if (type === 'group') return cleanGroup(o);
+    if (type === 'card') return cleanCard(o);
+    return cleanItem(o, o.home);
+  }
+  function docFromMyState() {
+    const universes = [], groups = [], cards = [], items = [];
+    state.universes.forEach((u) => {
+      universes.push(canonRow(u, 'universe'));
+      (u.groups || []).forEach((g) => {
+        groups.push(canonRow(g, 'group'));
+        (g.cards || []).forEach((c) => {
+          cards.push(canonRow(c, 'card'));
+          (c.items || []).forEach((it) => items.push(cleanItem(it, it.home)));
+        });
+      });
+    });
+    return { universes, groups, cards, items };
+  }
+
+  /* ---------------- 3-veis fletting (base/lokal/fjern) → merged + push-ops ----------------
+     base = forrige serverkjente doc. For hver rad:
+       lokal & fjern  → felt-LWW; push oppdatering hvis vår vant på et register
+       lokal, !fjern, base → fjern-slettet → droppes
+       lokal, !fjern, !base → lokalt ny → beholdes + push insert
+       !lokal, fjern, base → lokalt slettet → droppes + push delete
+       !lokal, fjern, !base → fjern-ny → legges til
+     Innhold-LWW gjenbruker merge*Scalar/mergeItem fra synk v1. */
+  function emptyDoc() { return { universes: [], groups: [], cards: [], items: [] }; }
+  function reconcile(base, local, remote) {
+    const merged = { universes: [], groups: [], cards: [], items: [] };
+    const ops = [];
+    const TYPES = [
+      { key: 'universes', t: 'universe', merge: mergeUniverseScalar },
+      { key: 'groups', t: 'group', merge: mergeGroupScalar },
+      { key: 'cards', t: 'card', merge: mergeCardScalar },
+      { key: 'items', t: 'item', merge: mergeItem },
+    ];
+    TYPES.forEach(({ key, t, merge }) => {
+      const bMap = new Map((base[key] || []).map((r) => [r.id, r]));
+      const lMap = new Map((local[key] || []).map((r) => [r.id, r]));
+      const rMap = new Map((remote[key] || []).map((r) => [r.id, r]));
+      const ids = new Set([...lMap.keys(), ...rMap.keys()]);
+      ids.forEach((id) => {
+        const L = lMap.get(id), R = rMap.get(id), B = bMap.get(id);
+        if (L && R) {
+          const m = merge(L, R);
+          merged[key].push(m);
+          if (canonical(m) !== canonical(R)) ops.push({ op: 'update', t, row: m });
+        } else if (L && !R && !B) {
+          merged[key].push(L);
+          ops.push({ op: 'insert', t, row: L });
+        } else if (!L && R && B) {
+          ops.push({ op: 'delete', t, id });
+        } else if (!L && R && !B) {
+          merged[key].push(R);
+        }
+        // L && !R && B  → fjern-slettet → dropp (ingen op)
+      });
+    });
+    return { merged, ops };
+  }
+
+  /* ---------------- merged (kanonisk) + metadata → nested state ----------------
+     Monterte røtter re-foreldres til montasjepunktet (mount.parent); .pos/
+     .trashed speiler mounten (per bruker), kanoniske verdier i _canon.
+     «Umonterte» delinger (mount uten parent) samles til plassering. */
+  let pendingPlacements = [];
+  function applyMyDoc(doc, meta) {
+    applyingRemote = true;
+    try {
+      pendingPlacements = [];
+      const attachMeta = (obj, id, canonParent) => {
+        const m = meta.get(id);
+        obj._mine = m ? m.mine : true;
+        obj._owner = m ? m.owner : (authUser && authUser.id);
+        obj._locked = m ? m.locked : false;
+        obj._shared = m ? m.shared : false;
+        obj._mount = m && m.mount ? m.mount : null;
+        if (obj._mount) {
+          obj._canon = { parent: canonParent, pos: obj.pos, posTs: obj.posTs, posOrg: obj.posOrg, trashed: obj.trashed };
+          obj.pos = obj._mount.pos || 0;
+          obj.trashed = !!obj._mount.trashed;
+        }
+      };
+
+      const universes = (doc.universes || []).map((u) => Object.assign(cleanUniverse(u), { groups: [] }));
+      universes.forEach((u) => attachMeta(u, u.id, null));
+      const uById = new Map(universes.map((u) => [u.id, u]));
+
+      const gById = new Map();
+      (doc.groups || []).forEach((raw) => {
+        const g = Object.assign(cleanGroup(raw), { cards: [] });
+        attachMeta(g, g.id, g.uni);
+        const parentId = g._mount ? g._mount.parent : g.uni;
+        const parent = parentId != null ? uById.get(parentId) : null;
+        if (!parent) {
+          if (g._mount) { pendingPlacements.push({ type: 'group', id: g.id, name: g.name, obj: g }); }
+          return; // foreldreløs / umontert
+        }
+        g._parent = parent;
+        gById.set(g.id, g);
+        parent.groups.push(g);
+      });
+
+      const cById = new Map();
+      (doc.cards || []).forEach((raw) => {
+        const c = Object.assign(cleanCard(raw), { items: [] });
+        attachMeta(c, c.id, c.group);
+        const parentId = c._mount ? c._mount.parent : c.group;
+        const parent = parentId != null ? gById.get(parentId) : null;
+        if (!parent) {
+          if (c._mount) { pendingPlacements.push({ type: 'card', id: c.id, name: c.title, obj: c }); }
+          return;
+        }
+        c._parent = parent;
+        cById.set(c.id, c);
+        parent.cards.push(c);
+      });
+
+      (doc.items || []).forEach((raw) => {
+        const it = cleanItem(raw, raw.home);
+        const parent = cById.get(it.home);
+        if (parent) { it._parent = parent; it._mine = true; parent.items.push(it); }
+      });
+
+      universes.sort(posCmp);
+      universes.forEach((u) => {
+        u.groups.sort(posCmp);
+        u.groups.forEach((g) => { g.cards.sort(posCmp); g.cards.forEach((c) => c.items.sort(posCmp)); });
+      });
+
+      state.universes = universes;
+      state._hlc = doc.hlc || state._hlc || 0;
+      observeTs(doc.hlc);
+      validateActive(state);
+      render();
+    } finally {
+      applyingRemote = false;
+    }
+  }
+
+  /* ---------------- Push: rad-CRUD mot tabellene ---------------- */
+  const TABLE = { universe: 'universes', group: 'groups', card: 'cards', item: 'items' };
+  function insertPayload(t, row, uid) {
+    const base = { id: row.id, owner_id: uid, trashed: !!row.trashed,
+      ts: row.ts || 0, org: row.org || '', pos: row.pos || 0, pos_ts: row.posTs || 0, pos_org: row.posOrg || '' };
+    if (t === 'universe') return Object.assign(base, { name: row.name || '' });
+    if (t === 'group') return Object.assign(base, { name: row.name || '', universe_id: row.uni });
+    if (t === 'card') return Object.assign(base, { title: row.title || '', group_id: row.group,
+      k: row.k !== false, p: row.p !== false, lab_ts: row.labTs || 0, lab_org: row.labOrg || '' });
+    return Object.assign(base, { text: row.text || '', card_id: row.home });
+  }
+  function updatePayload(t, row) {
+    const base = { trashed: !!row.trashed, ts: row.ts || 0, org: row.org || '',
+      pos: row.pos || 0, pos_ts: row.posTs || 0, pos_org: row.posOrg || '' };
+    if (t === 'universe') return Object.assign(base, { name: row.name || '' });
+    if (t === 'group') return Object.assign(base, { name: row.name || '', universe_id: row.uni });
+    if (t === 'card') return Object.assign(base, { title: row.title || '', group_id: row.group,
+      k: row.k !== false, p: row.p !== false, lab_ts: row.labTs || 0, lab_org: row.labOrg || '' });
+    return Object.assign(base, { text: row.text || '', card_id: row.home });
+  }
+  async function pushOps(ops) {
+    const client = acli();
+    if (!client || !authUser) return;
+    const uid = authUser.id;
+    const order = { universe: 0, group: 1, card: 2, item: 3 };
+    // Insert/oppdater ovenfra-ned (foreldre først), slett nedenfra-opp.
+    const ins = ops.filter((o) => o.op === 'insert').sort((a, b) => order[a.t] - order[b.t]);
+    const upd = ops.filter((o) => o.op === 'update').sort((a, b) => order[a.t] - order[b.t]);
+    const del = ops.filter((o) => o.op === 'delete').sort((a, b) => order[b.t] - order[a.t]);
+    for (const o of ins) {
+      try { await client.from(TABLE[o.t]).insert(insertPayload(o.t, o.row, uid)); } catch (e) { /* RLS/konflikt */ }
+    }
+    for (const o of upd) {
+      try { await client.from(TABLE[o.t]).update(updatePayload(o.t, o.row)).eq('id', o.row.id); } catch (e) { /* ignore */ }
+    }
+    for (const o of del) {
+      try { await client.from(TABLE[o.t]).delete().eq('id', o.id); } catch (e) { /* ignore */ }
+    }
+  }
+
+  /* ---------------- Mount-skrivinger (membership) ---------------- */
+  async function cloudMountUpdate(type, id, patch) {
+    const client = acli();
+    if (!client || !authUser) return;
+    const col = type === 'universe' ? 'universe_id' : type === 'group' ? 'group_id' : 'card_id';
+    try {
+      await client.from('memberships').update(patch).eq('user_id', authUser.id).eq(col, id);
+    } catch (e) { /* ignore */ }
+  }
+  async function cloudLeave(type, id) {
+    const client = acli();
+    if (!client || !authUser) return;
+    try { await client.rpc('leave_share', { p_type: type, p_id: id }); } catch (e) { /* ignore */ }
+  }
+
+  /* ---------------- Synk-syklus v2 ---------------- */
+  let cloudBase = null;
+  let cloudRunning = false, cloudAgain = false;
+  let cloudDebounce = null, cloudPoll = null, cloudChan = null, cloudRt = false;
+  let lastMy = null;
+
+  function scheduleCloud(delay) {
+    clearTimeout(cloudDebounce);
+    cloudDebounce = setTimeout(cloudCycle, delay == null ? 300 : delay);
+  }
+  async function rpcMyDoc() {
+    const client = acli();
+    if (!client || !authUser) return null;
+    const { data, error } = await client.rpc('get_my_doc');
+    if (error) throw error;
+    return data || null;
+  }
+  async function cloudCycle() {
+    if (!authUser || !acli()) return;
+    if (cloudRunning) { cloudAgain = true; return; }
+    cloudRunning = true;
+    try {
+      const my = await rpcMyDoc();
+      if (!my) return;
+      lastMy = my;
+      const remote = contentDocFromMy(my);
+      const meta = metaFromMy(my);
+      const local = docFromMyState();
+      const { merged, ops } = reconcile(cloudBase || emptyDoc(), local, remote);
+      cloudBase = remote;
+      if (!isBusyEditing()) applyMyDoc(merged, meta);
+      else cloudAgain = true;
+      if (ops.length) await pushOps(ops);
+      updateInbox(my);
+      maybeOfferMigration(my);
+    } catch (e) {
+      /* offline / feil — poll/realtime prøver igjen */
+    } finally {
+      cloudRunning = false;
+      if (cloudAgain) { cloudAgain = false; scheduleCloud(150); }
+    }
+  }
+
+  /* ---------------- Realtime (postgres_changes) + poll ---------------- */
+  function startCloudRealtime() {
+    const client = acli();
+    if (!client || !authUser) return;
+    if (cloudChan) { try { client.removeChannel(cloudChan); } catch (e) {} cloudChan = null; }
+    cloudChan = client.channel('hk-user-' + authUser.id);
+    ['universes', 'groups', 'cards', 'items', 'memberships', 'share_invites'].forEach((t) => {
+      cloudChan.on('postgres_changes', { event: '*', schema: 'public', table: t }, () => scheduleCloud(150));
+    });
+    cloudChan.subscribe((status) => {
+      if (status === 'SUBSCRIBED') { cloudRt = true; scheduleCloud(0); }
+      else if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT' || status === 'CLOSED') {
+        cloudRt = false;
+        setTimeout(() => { if (!cloudRt && authUser) startCloudRealtime(); }, 4000);
+      }
+    });
+  }
+  function startCloudPoll() {
+    clearInterval(cloudPoll);
+    cloudPoll = setInterval(() => {
+      if (document.hidden || !authUser) return;
+      scheduleCloud(0);
+    }, 5000);
+  }
+
+  /* ---------------- Migreringsflyt (lokale data → import_doc) ---------------- */
+  function flattenState(s) {
+    const universes = [], groups = [], cards = [], items = [];
+    (s.universes || []).forEach((u) => {
+      universes.push(cleanUniverse(u));
+      (u.groups || []).forEach((g) => {
+        groups.push(cleanGroup(Object.assign({}, g, { uni: g.uni || u.id })));
+        (g.cards || []).forEach((c) => {
+          cards.push(cleanCard(Object.assign({}, c, { group: c.group || g.id })));
+          (c.items || []).forEach((it) => items.push(cleanItem(it, c.id)));
+        });
+      });
+    });
+    return { universes, groups, cards, items };
+  }
+  function legacyFlatDoc() {
+    try {
+      const raw = localStorage.getItem(STORAGE_KEY);
+      if (!raw) return null;
+      const s = JSON.parse(raw);
+      if (!s || typeof s !== 'object') return null;
+      migrateTabsToGroups(s);
+      migrateGroupsToUniverses(s);
+      if (!Array.isArray(s.universes) || !s.universes.length) return null;
+      const doc = flattenState(s);
+      return doc.universes.length ? doc : null;
+    } catch (e) { return null; }
+  }
+  let migrationChecked = false;
+  async function maybeOfferMigration(my) {
+    if (migrationChecked || !authUser) return;
+    migrationChecked = true;
+    const flag = 'hk-migrated:' + authUser.id;
+    if (localStorage.getItem(flag)) return;
+    const remoteEmpty = !(my.universes && my.universes.length);
+    const legacy = legacyFlatDoc();
+    if (!remoteEmpty || !legacy) { localStorage.setItem(flag, '1'); return; }
+    const n = legacy.cards.length;
+    if (!confirm('Vi fant lokale lister på denne enheten (' + listWord(n) +
+      '). Vil du importere dem til kontoen din?')) { localStorage.setItem(flag, '1'); return; }
+    try {
+      const { error } = await acli().rpc('import_doc', { p_doc: legacy });
+      if (error) throw error;
+      localStorage.setItem(flag, '1');
+      showToast('Lokale lister importert');
+      cloudBase = null;
+      scheduleCloud(0);
+    } catch (e) {
+      migrationChecked = false; // la brukeren prøve igjen senere
+      showToast('Import feilet – prøv igjen senere');
+    }
+  }
+
+  /* ---------------- Innboks + konto-visning i menyen ---------------- */
+  const menuAccount = document.getElementById('menu-account');
+  const accountAvatar = document.getElementById('account-avatar');
+  const accountEmail = document.getElementById('account-email');
+  const menuInvites = document.getElementById('menu-invites');
+  const inviteListEl = document.getElementById('invite-list');
+  const menuBadge = document.getElementById('menu-badge');
+
+  function updateInbox(my) {
+    const invites = (my && my.invites_in) || [];
+    const placements = pendingPlacements || [];
+    const total = invites.length + placements.length;
+    menuBadge.textContent = String(total);
+    menuBadge.hidden = total === 0;
+    if (authUser) {
+      menuAccount.hidden = false;
+      accountEmail.textContent = authUser.email || '';
+      accountAvatar.textContent = (authUser.email || '?').slice(0, 1);
+    }
+    if (!total) { menuInvites.hidden = true; inviteListEl.innerHTML = ''; return; }
+    menuInvites.hidden = false;
+    inviteListEl.innerHTML = '';
+    const typeLabel = { universe: 'Univers', group: 'Gruppe', card: 'Liste' };
+    invites.forEach((inv) => {
+      const row = document.createElement('div');
+      row.className = 'invite-row';
+      const info = document.createElement('div');
+      info.className = 'invite-info';
+      info.innerHTML = '<span class="invite-type-tag">' + (typeLabel[inv.type] || '') + '</span> ' +
+        '<span class="invite-name"></span><span class="invite-from"></span>';
+      info.querySelector('.invite-name').textContent = inv.name || '(uten navn)';
+      info.querySelector('.invite-from').textContent = 'fra ' + (inv.from || '');
+      const actions = document.createElement('div');
+      actions.className = 'invite-actions';
+      const acc = document.createElement('button');
+      acc.className = 'btn btn-small'; acc.type = 'button'; acc.textContent = 'Godta';
+      acc.addEventListener('click', () => acceptInvite(inv));
+      const dec = document.createElement('button');
+      dec.className = 'btn btn-small btn-ghost'; dec.type = 'button'; dec.textContent = 'Avslå';
+      dec.addEventListener('click', () => declineInvite(inv));
+      actions.append(acc, dec);
+      row.append(info, actions);
+      inviteListEl.appendChild(row);
+    });
+    placements.forEach((pl) => {
+      const row = document.createElement('div');
+      row.className = 'invite-row';
+      const info = document.createElement('div');
+      info.className = 'invite-info';
+      info.innerHTML = '<span class="invite-type-tag">' + (typeLabel[pl.type] || '') + '</span> ' +
+        '<span class="invite-name"></span><span class="invite-from">uten plassering</span>';
+      info.querySelector('.invite-name').textContent = pl.name || '(uten navn)';
+      const actions = document.createElement('div');
+      actions.className = 'invite-actions';
+      const place = document.createElement('button');
+      place.className = 'btn btn-small'; place.type = 'button'; place.textContent = 'Plasser';
+      place.addEventListener('click', () => placeMount(pl));
+      actions.append(place);
+      row.append(info, actions);
+      inviteListEl.appendChild(row);
+    });
+  }
+
+  /* ---------------- Plasseringsvalg (aksept / remount) ---------------- */
+  const placeModal = document.getElementById('place-modal');
+  const placeBody = document.getElementById('place-body');
+  const placeClose = document.getElementById('place-close');
+  function closePlace() { placeModal.hidden = true; updateModalOpenClass2(); }
+  placeClose && placeClose.addEventListener('click', closePlace);
+  placeModal && placeModal.addEventListener('click', (ev) => { if (ev.target === placeModal) closePlace(); });
+  function updateModalOpenClass2() { updateModalOpenClass(); }
+  // Velg forelder for et delt objekt: univers-deling → ingen; gruppe → et av
+  // mine universer; liste → en av mine grupper (på tvers av universer).
+  function askPlacement(type, name, onPick) {
+    if (type === 'universe') { onPick(null); return; }
+    placeBody.innerHTML = '';
+    const hint = document.createElement('p');
+    hint.className = 'place-hint';
+    const options = [];
+    if (type === 'group') {
+      hint.textContent = 'Velg hvilket univers «' + name + '» skal ligge i:';
+      visibleUniverses().filter((u) => isMine(u) || !u._mount).forEach((u) =>
+        options.push({ id: u.id, label: u.name }));
+    } else {
+      hint.textContent = 'Velg hvilken gruppe «' + name + '» skal ligge i:';
+      state.universes.filter((u) => !u.trashed).forEach((u) => {
+        (u.groups || []).filter((g) => !effTrashed(g)).forEach((g) =>
+          options.push({ id: g.id, label: u.name + ' › ' + g.name }));
+      });
+    }
+    placeBody.appendChild(hint);
+    if (!options.length) {
+      const p = document.createElement('p');
+      p.className = 'place-hint';
+      p.textContent = type === 'group'
+        ? 'Du har ingen universer ennå – opprett ett først.'
+        : 'Du har ingen grupper ennå – opprett en først.';
+      placeBody.appendChild(p);
+    }
+    options.forEach((o) => {
+      const b = document.createElement('button');
+      b.className = 'place-option'; b.type = 'button'; b.textContent = o.label;
+      b.addEventListener('click', () => { closePlace(); onPick(o.id); });
+      placeBody.appendChild(b);
+    });
+    placeModal.hidden = false;
+    updateModalOpenClass2();
+  }
+
+  async function acceptInvite(inv) {
+    askPlacement(inv.type, inv.name, async (parent) => {
+      try {
+        const pos = Date.now();
+        const { error } = await acli().rpc('accept_share_invite',
+          { p_invite: inv.id, p_parent: parent, p_pos: pos });
+        if (error) throw error;
+        showToast('Deling godtatt');
+        cloudBase = null;
+        scheduleCloud(0);
+      } catch (e) { showToast(friendlyAuthError(e)); }
+    });
+  }
+  async function declineInvite(inv) {
+    try {
+      const { error } = await acli().rpc('decline_share_invite', { p_invite: inv.id });
+      if (error) throw error;
+      scheduleCloud(0);
+    } catch (e) { showToast(friendlyAuthError(e)); }
+  }
+  function placeMount(pl) {
+    askPlacement(pl.type, pl.name, async (parent) => {
+      const patch = pl.type === 'group'
+        ? { parent_universe_id: parent } : { parent_group_id: parent };
+      await cloudMountUpdate(pl.type, pl.id, patch);
+      cloudBase = null;
+      scheduleCloud(0);
+    });
+  }
+
+  /* ---------------- Del-modal (eier: inviter/medlemmer/lås; mottaker: forlat) ---------------- */
+  const shareModal = document.getElementById('share-modal');
+  const shareBody = document.getElementById('share-body');
+  const shareTitle = document.getElementById('share-title');
+  const shareClose = document.getElementById('share-close');
+  let shareCtx = null; // { type, id, obj }
+  function closeShare() { shareModal.hidden = true; shareCtx = null; updateModalOpenClass2(); }
+  shareClose && shareClose.addEventListener('click', closeShare);
+  shareModal && shareModal.addEventListener('click', (ev) => { if (ev.target === shareModal) closeShare(); });
+
+  async function openShare(type, id, obj) {
+    shareCtx = { type, id, obj };
+    shareTitle.textContent = 'Del «' + (obj.name || obj.title) + '»';
+    shareBody.innerHTML = '<p class="place-hint">Laster …</p>';
+    shareModal.hidden = false;
+    updateModalOpenClass2();
+    let info = { owner: null, members: [], pending_invites: [] };
+    try {
+      const { data, error } = await acli().rpc('get_members', { p_type: type, p_id: id });
+      if (error) throw error;
+      info = data || info;
+    } catch (e) { /* vis skjema likevel */ }
+    if (obj._mine === false) {
+      if (info.owner) obj._ownerEmail = info.owner.email;
+      renderShareRecipient(obj);
+      return;
+    }
+    renderShareOwner(type, id, obj, info);
+  }
+
+  function avatarFor(email, owner) {
+    const s = document.createElement('span');
+    s.className = 'member-avatar' + (owner ? ' owner' : '');
+    s.textContent = (email || '?').slice(0, 1);
+    return s;
+  }
+  function renderShareOwner(type, id, obj, info) {
+    shareBody.innerHTML = '';
+    // Inviter på e-post
+    const form = document.createElement('form');
+    form.className = 'share-invite-form';
+    const input = document.createElement('input');
+    input.type = 'email'; input.placeholder = 'E-post å invitere'; input.required = true;
+    const btn = document.createElement('button');
+    btn.className = 'btn btn-primary btn-small'; btn.type = 'submit'; btn.textContent = 'Inviter';
+    form.append(input, btn);
+    const msg = document.createElement('p');
+    msg.className = 'share-msg';
+    // Lås/åpne
+    const lockRow = document.createElement('div');
+    lockRow.className = 'share-lock-row';
+    const lockBtn = document.createElement('button');
+    lockBtn.className = 'btn btn-small'; lockBtn.type = 'button';
+    lockRow.innerHTML = '<div><span class="share-lock-label">Skrivebeskyttet</span>' +
+      '<span class="share-lock-hint">Andre kan se, men ikke endre</span></div>';
+    const paintLock = () => { lockBtn.textContent = obj._locked ? 'Lås opp' : 'Lås'; };
+    paintLock();
+    lockRow.appendChild(lockBtn);
+    // Medlemsliste (egen beholder → oppdateres uten å nullstille skjema/melding)
+    const title = document.createElement('div');
+    title.className = 'share-section-title'; title.textContent = 'Medlemmer';
+    const membersWrap = document.createElement('div');
+
+    function renderMembers(inf) {
+      membersWrap.innerHTML = '';
+      if (inf.owner) {
+        const row = document.createElement('div');
+        row.className = 'member-row';
+        const box = document.createElement('div'); box.className = 'member-info';
+        box.innerHTML = '<span class="member-name"></span><span class="member-role">Eier (deg)</span>';
+        box.querySelector('.member-name').textContent = inf.owner.email;
+        row.append(avatarFor(inf.owner.email, true), box);
+        membersWrap.appendChild(row);
+      }
+      (inf.members || []).forEach((mbr) => {
+        const row = document.createElement('div');
+        row.className = 'member-row';
+        const box = document.createElement('div'); box.className = 'member-info';
+        box.innerHTML = '<span class="member-name"></span><span class="member-role">Medlem</span>';
+        box.querySelector('.member-name').textContent = mbr.email;
+        const kick = document.createElement('button');
+        kick.className = 'btn btn-small btn-ghost'; kick.type = 'button'; kick.textContent = 'Kast ut';
+        kick.addEventListener('click', async () => {
+          if (!confirm('Fjerne ' + mbr.email + ' fra delingen?')) return;
+          try {
+            const { error } = await acli().rpc('revoke_share', { p_type: type, p_id: id, p_user: mbr.id });
+            if (error) throw error;
+            refreshMembers(); scheduleCloud(0);
+          } catch (e) { showToast(friendlyAuthError(e)); }
+        });
+        row.append(avatarFor(mbr.email, false), box, kick);
+        membersWrap.appendChild(row);
+      });
+      (inf.pending_invites || []).forEach((inv) => {
+        const row = document.createElement('div');
+        row.className = 'member-row member-pending';
+        const box = document.createElement('div'); box.className = 'member-info';
+        box.innerHTML = '<span class="member-name"></span><span class="member-role">Venter på svar</span>';
+        box.querySelector('.member-name').textContent = inv.email;
+        const cancel = document.createElement('button');
+        cancel.className = 'btn btn-small btn-ghost'; cancel.type = 'button'; cancel.textContent = 'Trekk tilbake';
+        cancel.addEventListener('click', async () => {
+          try {
+            const { error } = await acli().rpc('revoke_share_invite', { p_invite: inv.id });
+            if (error) throw error;
+            refreshMembers();
+          } catch (e) { showToast(friendlyAuthError(e)); }
+        });
+        row.append(avatarFor(inv.email, false), box, cancel);
+        membersWrap.appendChild(row);
+      });
+    }
+    async function refreshMembers() {
+      try {
+        const { data } = await acli().rpc('get_members', { p_type: type, p_id: id });
+        if (data) renderMembers(data);
+      } catch (e) { /* behold forrige */ }
+    }
+
+    form.addEventListener('submit', async (ev) => {
+      ev.preventDefault();
+      const email = input.value.trim().toLowerCase();
+      if (!email) return;
+      btn.disabled = true; msg.textContent = ''; msg.classList.remove('ok');
+      try {
+        const { error } = await acli().rpc('create_share_invite',
+          { p_type: type, p_id: id, p_email: email });
+        if (error) throw error;
+        msg.textContent = 'Invitasjon sendt til ' + email; msg.classList.add('ok');
+        input.value = '';
+        refreshMembers();
+      } catch (e) { msg.textContent = friendlyAuthError(e); }
+      finally { btn.disabled = false; }
+    });
+    lockBtn.addEventListener('click', async () => {
+      lockBtn.disabled = true;
+      try {
+        const { error } = await acli().rpc('set_locked',
+          { p_type: type, p_id: id, p_locked: !obj._locked });
+        if (error) throw error;
+        obj._locked = !obj._locked;
+        paintLock();
+        scheduleCloud(0);
+      } catch (e) { showToast(friendlyAuthError(e)); }
+      finally { lockBtn.disabled = false; }
+    });
+
+    shareBody.append(form, msg, lockRow, title, membersWrap);
+    renderMembers(info);
+  }
+  function renderShareRecipient(obj) {
+    shareBody.innerHTML = '';
+    const line = document.createElement('div');
+    line.className = 'owner-line';
+    const ownerEmail = obj._ownerEmail || '';
+    line.append(avatarFor(ownerEmail || '?', true));
+    const inf = document.createElement('div'); inf.className = 'member-info';
+    inf.innerHTML = '<span class="member-name">Delt med deg</span>' +
+      '<span class="member-role">' + (obj._locked ? 'Skrivebeskyttet' : 'Du kan redigere') + '</span>';
+    line.appendChild(inf);
+    shareBody.appendChild(line);
+    const leave = document.createElement('button');
+    leave.className = 'btn btn-danger share-leave'; leave.type = 'button'; leave.textContent = 'Forlat deling';
+    leave.addEventListener('click', async () => {
+      if (!confirm('Forlate denne delingen? Den forsvinner fra dine lister.')) return;
+      await cloudLeave(shareCtx.type, shareCtx.id);
+      closeShare();
+      cloudBase = null;
+      scheduleCloud(0);
+    });
+    shareBody.appendChild(leave);
+  }
+
+  /* ---------------- Start/stopp av kontomodus ---------------- */
+  function cacheKey() { return authUser ? STORAGE_KEY + ':' + authUser.id : STORAGE_KEY; }
+  function loadCache() {
+    try {
+      const raw = localStorage.getItem(cacheKey());
+      if (!raw) return false;
+      const s = JSON.parse(raw);
+      if (!s || !Array.isArray(s.universes)) return false;
+      normalize(s);
+      state.universes = s.universes;
+      state._tomb = s._tomb || state._tomb;
+      state._hlc = s._hlc || 0;
+      validateActive(state);
+      return true;
+    } catch (e) { return false; }
+  }
+
+  let cloudStarted = false;
+  async function cloudStart() {
+    document.body.classList.remove('no-auth', 'locked');
+    authScreen.hidden = true;
+    lockScreen.hidden = true;
+    if (!cloudStarted) {
+      cloudStarted = true;
+      if (!loadCache()) {           // ingen buffer for denne brukeren → start tomt (ikke vis annen brukers data)
+        state.universes = [];
+        state._tomb = { universes: {}, groups: {}, cards: {}, items: {} };
+        validateActive(state);
+      }
+      render();
+    }
+    cloudBase = null;
+    migrationChecked = false;
+    startCloudRealtime();
+    startCloudPoll();
+    await cloudCycle();
+  }
+  function cloudStop() {
+    clearInterval(cloudPoll);
+    clearTimeout(cloudDebounce);
+    if (cloudChan && aclient) { try { aclient.removeChannel(cloudChan); } catch (e) {} }
+    cloudChan = null; cloudRt = false; cloudBase = null; lastMy = null;
+    cloudStarted = false;
+    authUser = null;
+    state.universes = [];
+    document.body.classList.add('no-auth');
+    authScreen.hidden = false;
+    setAuthMode('login');
+    menuAccount.hidden = true;
+    menuInvites.hidden = true;
+    menuBadge.hidden = true;
+  }
+
+  async function initAccounts() {
+    const client = acli();
+    if (!client) {
+      // Ingen backend → fall tilbake til mønster-lås.
+      initPatternLock();
+      return;
+    }
+    document.body.classList.add('no-auth');
+    document.body.classList.remove('locked');
+    authScreen.hidden = false;
+    setAuthMode('login');
+    client.auth.onAuthStateChange((event, session) => {
+      if (event === 'PASSWORD_RECOVERY') { handleRecovery(); return; }
+      const user = session && session.user;
+      if (user) {
+        if (authUser && authUser.id === user.id) return; // allerede i gang
+        authUser = { id: user.id, email: user.email };
+        cloudStart();
+      } else if (event === 'SIGNED_OUT') {
+        cloudStop();
+      }
+    });
+    // Gjenopprett evt. eksisterende sesjon (onAuthStateChange kan allerede ha
+    // gjort det via INITIAL_SESSION — ikke start på nytt da).
+    try {
+      const { data } = await client.auth.getSession();
+      const user = data && data.session && data.session.user;
+      if (user && !authUser) { authUser = { id: user.id, email: user.email }; cloudStart(); }
+    } catch (e) { /* ingen sesjon */ }
+  }
+
+  /* ---------------- Innlogging: velg modus ---------------- */
+  function initPatternLock() {
     buildLockNodes();
     lockSvg.addEventListener('pointerdown', onLockDown);
     lockSvg.addEventListener('pointermove', onLockMove);
@@ -3110,6 +4212,11 @@
     }
   }
 
+  function initAuth() {
+    if (accountsMode()) initAccounts();
+    else initPatternLock();
+  }
+
   /* ---------------- Start ---------------- */
   initAuth();
 
@@ -3122,5 +4229,11 @@
     get syncCode() { return syncCode; },
     get serverVersion() { return serverVersion; },
     get rtConnected() { return rtConnected; },
+    // Kontomodus (fase 2):
+    accountsMode, reconcile, docFromMyState, contentDocFromMy, applyMyDoc, cloudCycle,
+    openShare,
+    get authUser() { return authUser; },
+    get lastMy() { return lastMy; },
+    get pendingPlacements() { return pendingPlacements; },
   };
 })();

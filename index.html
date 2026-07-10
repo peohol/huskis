@@ -19,6 +19,7 @@
   <button class="menu-btn" id="menu-btn" type="button" title="Meny"
           aria-label="Åpne menyen" aria-haspopup="dialog">
     <span class="menu-bars" aria-hidden="true"></span>
+    <span class="menu-badge" id="menu-badge" hidden aria-hidden="true"></span>
   </button>
 
   <!-- Gruppemenyen: overskrift («GRUPPER»), knapperad («＋ Gruppe» + søppelkasse),
@@ -79,9 +80,23 @@
         <button class="icon-btn" id="menu-close" type="button" title="Lukk" aria-label="Lukk">✕</button>
       </header>
       <div class="modal-body menu-body">
+        <div class="menu-account" id="menu-account" hidden>
+          <span class="account-avatar" id="account-avatar" aria-hidden="true"></span>
+          <span class="account-email" id="account-email"></span>
+        </div>
         <button class="btn btn-ghost menu-logout" id="logout-btn" type="button" title="Logg ut">
           <span class="logout-icon" aria-hidden="true">⎋</span> Logg ut
         </button>
+
+        <!-- Innboks: mottatte delings-invitasjoner (fase 2) -->
+        <section class="menu-invites" id="menu-invites" hidden>
+          <hr class="menu-divider" />
+          <div class="panel-head">
+            <span class="panel-title">Invitasjoner</span>
+          </div>
+          <div class="invite-list" id="invite-list"></div>
+        </section>
+
         <hr class="menu-divider" />
         <div class="panel-head">
           <span class="panel-title">Universer</span>
@@ -119,16 +134,20 @@
   <template id="group-template">
     <div class="group-card chip" role="tab" tabindex="0">
       <button class="drag-handle group-handle" title="Dra for å endre rekkefølge" aria-label="Flytt gruppe">⠿</button>
+      <span class="share-badge" hidden aria-hidden="true"></span>
       <span class="group-name chip-name" title="Klikk for å bytte gruppe"></span>
       <span class="group-count chip-count" aria-hidden="true"></span>
+      <button class="icon-btn chip-share" title="Del gruppe" aria-label="Del gruppe" hidden>🔗</button>
       <button class="icon-btn group-delete" title="Slett gruppe" aria-label="Slett gruppe">✕</button>
     </div>
   </template>
 
   <template id="uni-template">
     <div class="uni-row chip" role="button" tabindex="0">
+      <span class="share-badge" hidden aria-hidden="true"></span>
       <span class="uni-name chip-name" title="Klikk for å bytte univers"></span>
       <span class="uni-count chip-count" aria-hidden="true"></span>
+      <button class="icon-btn chip-share" title="Del univers" aria-label="Del univers" hidden>🔗</button>
       <button class="icon-btn uni-delete" title="Slett univers" aria-label="Slett univers">✕</button>
     </div>
   </template>
@@ -137,11 +156,13 @@
     <article class="card" tabindex="-1">
       <header class="card-head">
         <button class="drag-handle card-handle" title="Dra for å endre rekkefølge" aria-label="Flytt liste">⣿</button>
+        <span class="share-badge" hidden aria-hidden="true"></span>
         <h2 class="card-title" title="Klikk for å endre navn"></h2>
         <div class="card-switches" role="group" aria-label="Merkelapper">
           <button class="switch" type="button" data-flag="k" aria-pressed="true" title="Merkelapp K">K</button>
           <button class="switch" type="button" data-flag="p" aria-pressed="true" title="Merkelapp P">P</button>
         </div>
+        <button class="icon-btn card-share" title="Del liste" aria-label="Del liste" hidden>🔗</button>
         <button class="icon-btn card-delete" title="Slett liste" aria-label="Slett liste">✕</button>
       </header>
       <ul class="items-container"></ul>
@@ -160,7 +181,65 @@
     </li>
   </template>
 
-  <!-- Innlogging: mønster-lås som splash-screen. Vises til riktig mønster er tegnet. -->
+  <!-- Del-modal: eier inviterer, ser medlemmer/ventende, kaster ut, låser (fase 2).
+       Mottaker ser eier + låst-status + «Forlat deling». -->
+  <div class="modal-overlay" id="share-modal" hidden>
+    <div class="modal share-modal" role="dialog" aria-modal="true" aria-labelledby="share-title">
+      <header class="modal-head">
+        <h2 id="share-title">Del</h2>
+        <button class="icon-btn" id="share-close" type="button" title="Lukk" aria-label="Lukk">✕</button>
+      </header>
+      <div class="modal-body share-body" id="share-body"></div>
+    </div>
+  </div>
+
+  <!-- Plasserings-modal: mottaker velger hvor et delt objekt skal ligge (fase 2). -->
+  <div class="modal-overlay" id="place-modal" hidden>
+    <div class="modal place-modal" role="dialog" aria-modal="true" aria-labelledby="place-title">
+      <header class="modal-head">
+        <h2 id="place-title">Velg plassering</h2>
+        <button class="icon-btn" id="place-close" type="button" title="Lukk" aria-label="Lukk">✕</button>
+      </header>
+      <div class="modal-body" id="place-body"></div>
+    </div>
+  </div>
+
+  <!-- Innlogging med konto (e-post + passord): registrering, innlogging, glemt
+       passord, «sjekk innboksen» (fase 2). Vises til man er logget inn. -->
+  <div class="auth-screen" id="auth-screen" hidden>
+    <div class="auth-box">
+      <div class="lock-brand"><span class="brand-mark">✓</span> Huskekurv</div>
+
+      <form class="auth-form" id="auth-form" autocomplete="on">
+        <h1 class="auth-title" id="auth-heading">Logg inn</h1>
+        <label class="auth-field">
+          <span>E-post</span>
+          <input type="email" id="auth-email" autocomplete="email" required
+                 placeholder="deg@eksempel.no" />
+        </label>
+        <label class="auth-field" id="auth-pass-field">
+          <span>Passord</span>
+          <input type="password" id="auth-password" autocomplete="current-password"
+                 minlength="6" placeholder="Minst 6 tegn" />
+        </label>
+        <p class="auth-msg" id="auth-msg" role="status"></p>
+        <button class="btn btn-primary auth-submit" id="auth-submit" type="submit">Logg inn</button>
+        <div class="auth-links" id="auth-links">
+          <button type="button" class="auth-link" data-mode="register">Ny bruker? Registrer deg</button>
+          <button type="button" class="auth-link" data-mode="forgot">Glemt passord?</button>
+        </div>
+      </form>
+
+      <!-- «Sjekk innboksen»-visning etter registrering / glemt-passord -->
+      <div class="auth-sent" id="auth-sent" hidden>
+        <div class="auth-sent-icon" aria-hidden="true">✉️</div>
+        <p class="auth-sent-msg" id="auth-sent-msg"></p>
+        <button class="btn btn-ghost" id="auth-sent-back" type="button">Tilbake til innlogging</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Innlogging: mønster-lås som splash-screen (fallback; brukes ikke i kontomodus). -->
   <div class="lock-screen" id="lock-screen" hidden>
     <div class="lock-box">
       <div class="lock-brand"><span class="brand-mark">✓</span> Huskekurv</div>
@@ -177,6 +256,10 @@
   <!-- Sky-synk (Supabase). Biblioteket lastes fra CDN; config.js holder dine verdier. -->
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <script src="config.js"></script>
+  <!-- Mock-backend for hermetisk to-bruker-testing: aktiveres kun med ?mock=1. -->
+  <script>
+    if (/[?&]mock=1/.test(location.search)) document.write('<script src="mock-backend.js"><\/script>');
+  </script>
   <script src="app.js"></script>
 </body>
 </html>

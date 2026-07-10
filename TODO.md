@@ -50,41 +50,45 @@ plukke opp tråden.
       ratebegrenset til utviklingsbruk
 - [ ] (Valgfritt) tilpass e-postmalen for bekreftelse (norsk tekst)
 
-## Fase 2 — klient/UI (ny økt starter her)
+## Fase 2 — klient/UI (✅ implementert, bak flagg — se `docs/accounts.md`)
 
-- [ ] **Auth-UI**: registrering (e-post + passord + «sjekk innboksen»-visning),
-      innlogging, glemt passord (`resetPasswordForEmail`), logg ut; erstatter
-      mønster-låsen (behold gammel flyt som fallback bak feature-flagg til alt
-      er verifisert)
-- [ ] **Sesjon**: `supabase.auth.onAuthStateChange`; husket innlogging via
-      Supabase-sesjonen (erstatter `mine-lister-auth`)
-- [ ] **Synk-motor v2**: hent `get_my_doc()` → gjenbruk `applyDoc`-maskineriet
-      (doc-fasongen er bevisst lik); skriv endringer som rad-CRUD med
-      `ts/org`-stempling (serveren håndhever LWW); realtime
-      `postgres_changes` + poll-fallback; offline-kø
-- [ ] **Mount-rendring**: delte grupper/lister tegnes inn i mottakerens valgte
-      forelder (`mount.parent`/`mount.pos`); «umontert» deling (parent = null)
-      må få en «velg plassering»-dialog; delte objekter merkes visuelt
-      (delt-ikon + ev. eierens navn + låst-indikator)
-- [ ] **Delings-UI**: «Del …»-valg på univers/gruppe/liste (kun eier):
-      inviter på e-post, se medlemmer/ventende (`get_members`), kaste ut,
-      lås/åpne; innboks for mottatte invitasjoner (aksepter med
-      plasseringsvalg / avslå)
-- [ ] **Søppel-semantikk for delinger**: skjul/deaktiver «slett»-knappen på
-      selve det delte objektet (share-roten) for mottakere — deres handling
-      der er «forlat deling» (mount i søppel `membership.trashed`, tømming →
-      `leave_share`). Innhold UNDER det delte objektet slettes som vanlig, og
-      siden `trashed` er felles ser alle sletting/gjenoppretting samtidig
-      (vis gjerne hvem/at det er delt). Eiers sletting av selve objektet som
-      i dag (trashed → tøm = hard delete m/ advarsel om at delingen ryker for
-      alle). Serveren håndhever allerede reglene (RLS + trashed-vakter)
-- [ ] **Migreringsflyt**: ved første innlogging med lokale data → tilby
-      `import_doc(docFromState())`; behold localStorage-kopi til bekreftet
-- [ ] **Verifisering**: Playwright mot lokal server med to innloggede
-      testbrukere (Supabase-stub eller test-prosjekt), desktop + mobil,
-      screenshots; deretter oppdater CLAUDE.md + denne fila
+Alt under er implementert i `app.js` (seksjon «FASE 2 — BRUKERKONTOER OG
+DELING») og verifisert i nettleser (Playwright) mot `mock-backend.js`
+(`?mock=1`). Kontomodus er bak flagg (`config.js` `accounts: true`, eller
+`?accounts=1`) inntil de manuelle Supabase-stegene under er gjort og alt er
+verifisert mot **ekte** Supabase.
+
+- [x] **Auth-UI**: registrering (e-post + passord + «sjekk innboksen»-visning),
+      innlogging, glemt passord (`resetPasswordForEmail`), logg ut; mønster-
+      låsen beholdt som fallback bak flagg
+- [x] **Sesjon**: `supabase.auth.onAuthStateChange`; husket innlogging via
+      Supabase-sesjonen (erstatter `mine-lister-auth` i kontomodus)
+- [x] **Synk-motor v2**: `get_my_doc()` → 3-veis fletting (base-snapshot) →
+      rad-CRUD med `ts/org`-stempling (serveren håndhever LWW); realtime
+      `postgres_changes` + poll-fallback; per-bruker offline-buffer
+- [x] **Mount-rendring**: delte grupper/lister tegnes inn i mottakerens valgte
+      forelder (`mount.parent`/`mount.pos`); «umontert» deling får «velg
+      plassering»-dialog; delt-/låst-merker på univers/gruppe/liste
+- [x] **Delings-UI**: «Del …» (🔗, kun eier): inviter på e-post, se medlemmer/
+      ventende (`get_members`), kaste ut, lås/åpne; innboks for mottatte
+      invitasjoner (aksepter med plasseringsvalg / avslå)
+- [x] **Søppel-semantikk for delinger**: mottakerens «slett» på share-roten =
+      mount i søppel (`membership.trashed`), tømming → `leave_share`. Innhold
+      UNDER slettes som vanlig (felles). Serveren håndhever reglene
+- [x] **Migreringsflyt**: ved første innlogging med tom konto + lokale data →
+      tilby `import_doc(legacyFlatDoc())`; localStorage-kopi beholdes
+- [x] **Verifisering**: Playwright, to innloggede testbrukere via mock-backend,
+      desktop + mobil, screenshots; CLAUDE.md/docs/TODO.md oppdatert
+
+### Gjenstår før produksjon (Peder / manuelt)
+
+- [ ] Supabase → Authentication → URL Configuration: Site URL + Redirect URLs
+      (jf. de manuelle stegene under)
+- [ ] Verifiser «Confirm email» PÅ; ev. egen SMTP
+- [ ] Kjør fase 2 mot **ekte** Supabase (to reelle konti) og verifiser
+- [ ] Deretter: sett `accounts: true` i `config.js` for å slå på i produksjon
 - [ ] **Opprydding (fase 3)**: pensjoner mønster-lås, `lists`-tabellen og
-      `get_list`/`save_list` når fase 2 har kjørt stabilt
+      `get_list`/`save_list` når kontomodus har kjørt stabilt
 
 ## Kjente beslutninger (ikke spør på nytt — se arkitekturdok for hvorfor)
 
