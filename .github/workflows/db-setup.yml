@@ -1,6 +1,7 @@
 name: Supabase DB-oppsett
 
-# Kjører supabase/setup.sql mot Supabase-databasen.
+# Kjører supabase/setup.sql + supabase/users-and-sharing.sql mot
+# Supabase-databasen (begge er idempotente).
 # Startes manuelt fra fanen «Actions» → «Supabase DB-oppsett» → «Run workflow».
 #
 # Krever én repository-secret:
@@ -20,7 +21,7 @@ jobs:
       - name: Hent koden
         uses: actions/checkout@v4
 
-      - name: Kjør setup.sql mot Supabase
+      - name: Kjør SQL-filene mot Supabase
         env:
           SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
         run: |
@@ -29,4 +30,5 @@ jobs:
             exit 1
           fi
           psql "$SUPABASE_DB_URL" -v ON_ERROR_STOP=1 -f supabase/setup.sql
-          echo "✅ Databasen er satt opp."
+          psql "$SUPABASE_DB_URL" -v ON_ERROR_STOP=1 -f supabase/users-and-sharing.sql
+          echo "✅ Databasen er satt opp (legacy-synk + brukere/deling)."

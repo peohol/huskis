@@ -274,6 +274,32 @@ gravsteiner. **Ingen databaseendring var nødvendig for universer** (samme
 - `syncCycle()` (pull → flett → evt. push), `docFromState()`/`applyDoc()`,
   `canonical()` som før. Interne funksjoner eksponert på `window.__huskekurv`.
 
+## Brukere og deling (GRUNNMUR klar — UI gjenstår)
+
+Databasegrunnmuren for ekte brukerkontoer (Supabase Auth: e-post + passord,
+bekreftelseslenke) og deling av universer/grupper/lister ligger i
+`supabase/users-and-sharing.sql` (idempotent, kjøres av samme Action som
+setup.sql). Full design i `docs/arkitektur-brukere-deling.md`, løypekart i
+`TODO.md` (fase 2 = klient/UI). Kortversjon:
+
+- Relasjonelle tabeller `profiles`, `universes`, `groups`, `cards`
+  (= «lister»), `items` med `owner_id` + RLS; `anon` har null tilgang.
+- Samme LWW-registre som synk-doc'et (`ts/org`, `pos_ts/pos_org`,
+  `lab_ts/lab_org`) håndheves nå OGSÅ server-side (BEFORE UPDATE-triggere);
+  gravsteiner skrives automatisk ved hard sletting.
+- Deling: eier inviterer på e-post (`share_invites`) → mottaker aksepterer
+  og velger plassering → membership-rad = **mount** (tilgang + mottakerens
+  egen plassering; innholdet er felles). Eier har aldri membership → kan
+  aldri kastes ut; eier kan kaste ut andre (`revoke_share`) og låse/åpne
+  (`set_locked`, gjelder nedover; eier kan alltid redigere selv).
+  Mottakers «sletting» = forlate delingen; eiers sletting er reell.
+- `get_my_doc()` returnerer alt som ETT flatt doc i samme fasong som dagens
+  synk-doc (gjenbruk `applyDoc`); `import_doc()` migrerer lokal state
+  (deterministiske id-er, idempotent).
+- Hermetisk testsuite i `supabase/tests/` (ren PostgreSQL 16 + stub av
+  auth-skjemaet); 57 sjekker. Den gamle éndoc-modellen under er urørt og
+  kjører parallelt til fase 2 er ferdig.
+
 ## Innlogging (mønster-lås)
 
 Uendret: 3×3-mønster på splash-screen, fasit kun som SHA-256-hash, lås i 5 min
@@ -364,6 +390,15 @@ filter (👁️ K/P/KP) i listemenyen, per enhet (`mine-lister-filter`).
       stedet for en tilnærmet CSS-`calc()`. Se «Listevisningen (board):
       luft-system» for detaljer, inkl. en multi-column-kvirk med balanserte
       kolonner som måtte løses i JS (`fixBoardBottomGap`)
+- [x] **Grunnmur for brukere + deling (fase 1)**: `supabase/users-and-sharing.sql`
+      (Supabase Auth-integrasjon, RLS, delings-RPC-er, mounts, lås, gravsteiner,
+      server-side LWW), arkitekturdok (`docs/arkitektur-brukere-deling.md`),
+      løypekart (`TODO.md`), hermetisk testsuite (`supabase/tests/`, 57 grønne),
+      Action oppdatert til å kjøre begge SQL-filene
+- [ ] **Fase 2: klient/UI for brukere + deling** — se `TODO.md` (auth-UI,
+      synk-motor v2 på `get_my_doc`/rad-CRUD, mount-rendring, delings-UI,
+      migreringsflyt). Mønster-låsen og `lists`-tabellen beholdes til fase 2
+      er verifisert
 - [ ] Evt.: dra-rekkefølge for universer i menyen (ikke etterspurt; pos-felt er klart)
 
 ```bash
