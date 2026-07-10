@@ -86,10 +86,21 @@ Viktige egenskaper:
 - **Eieren har aldri membership-rad** → kan strukturelt aldri kastes ut.
 - **Kaste ut**: `revoke_share(type, id, user)` (kun eier) sletter
   medlemskapet + ev. ventende invitasjoner for brukeren.
-- **Forlate/«slette» hos mottaker**: mottakerens sletting av et delt
-  objekt rører aldri innholdet — `membership.trashed = true` legger
-  *mounten* i mottakerens søppelkasse; tømming = `leave_share()` /
-  slette membership-raden. Eierens data består urørt.
+- **Sletteregelen for en mottaker** (samme mønster på alle tre nivåer):
+  mottakeren kan **ikke slette selve det delte objektet** (share-roten) —
+  hverken legge det i søppel (`trashed`) *eller* hardslette det. Å fjerne
+  det fra sitt eget syn gjøres i stedet via mounten (`membership.trashed`
+  → tømming = `leave_share()`), som aldri rører innholdet.
+  - Delt **univers** → mottakeren kan ikke slette universet, men kan slette
+    grupper/lister/elementer **i** det.
+  - Delt **gruppe** → kan ikke slette gruppen, men kan slette lister/
+    elementer i den.
+  - Delt **liste** → kan ikke slette listen, men kan slette elementene i den.
+- **Sletting og gjenoppretting av delt *innhold* gjelder for alle.**
+  `trashed` er et **felles** felt på selve raden, så når en mottaker legger
+  en gruppe/liste/element i søppel (eller henter den ut igjen), ser eieren
+  og alle andre med tilgang nøyaktig samme tilstand. Det finnes ingen
+  per-bruker søppelkasse for delt innhold — kun for selve mounten.
 - **Eierens sletting er reell** (trashed → tømming = hard delete med
   kaskade); da forsvinner objektet for alle. Eieren kan i stedet kaste
   ut de andre hvis bare delingen skal opphøre.
@@ -100,11 +111,20 @@ Viktige egenskaper:
   forelder (eierens plassering) — de flytter sin egen mount. Innen et delt
   univers/gruppe kan medlemmer derimot dra lister/elementer fritt (felles
   struktur).
-- Mottakere av en direkte deling kan heller ikke **hardslette** selve
-  share-roten (delete-policyen sperrer alle med direkte medlemskap på
-  objektet) — deres «tøm søppelkasse» på en mount er `leave_share`.
-  *Innhold inne i* et delt univers/gruppe kan derimot hardslettes av
-  medlemmer med redigeringstilgang (felles tømming av delt søppel).
+
+Håndhevingen ligger på to steder: RLS `*_delete`-policyene sperrer
+hardsletting av en share-rot for alle med direkte medlemskap på objektet
+(universe-sletting er dessuten eier-only), og BEFORE UPDATE-triggerne
+sperrer `trashed`-endring på en share-rot fra en mottaker (et univers kan
+ingen ikke-eier trashe; en gruppe/liste kan ikke trashes av en med direkte
+medlemskap *på den*, men gjerne av et univers-/gruppemedlem over den).
+Innhold uten eget medlemskap (barn) faller alltid utenfor sperren og kan
+slettes fritt.
+- `profiles.email` er **skrivebeskyttet for klienter** (kolonne-grant: kun
+  `display_name`) og speiles utelukkende fra `auth.users` — ellers kunne en
+  bruker kapre invitasjoner sendt til uregistrerte adresser (aksept
+  sammenligner mot `profiles.email`) eller blokkere andres registrering
+  via unik-indeksen på e-post.
 - `profiles.email` er **skrivebeskyttet for klienter** (kolonne-grant: kun
   `display_name`) og speiles utelukkende fra `auth.users` — ellers kunne en
   bruker kapre invitasjoner sendt til uregistrerte adresser (aksept
@@ -123,7 +143,9 @@ alltid redigere selv. Lesing påvirkes aldri av lås.
 ## Sletting, søppel og gravsteiner
 
 - `trashed`-flagg = søppelkasse (reversibel), som i dag. For delt innhold
-  er den felles; for selve mounten er den per mottaker.
+  er den **felles** (sletting/gjenoppretting gjelder for alle med tilgang);
+  kun for selve mounten er den per mottaker. Share-roten kan mottakeren
+  ikke trashe i det hele tatt (se «Deling»).
 - Tømming = hard `DELETE`. AFTER DELETE-triggere skriver **gravsteiner**
   (`tombstones(resource_type, resource_id, ts)`) slik at en klient som
   var offline ikke gjenoppliver slettede objekter ved neste synk.

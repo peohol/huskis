@@ -430,6 +430,12 @@ begin
   if new.locked is distinct from old.locked and uid is not null and uid <> old.owner_id then
     raise exception 'kun eieren kan låse/åpne';
   end if;
+  -- En mottaker kan ALDRI slette/gjenopprette selve det delte universet
+  -- (trashed er felles). Deres «fjern fra mitt syn» er leave_share (mount).
+  -- Innhold NEDE i universet kan de derimot slette fritt (felles søppel).
+  if new.trashed is distinct from old.trashed and uid is not null and uid <> old.owner_id then
+    raise exception 'mottakere kan ikke slette et delt univers (bruk leave_share)';
+  end if;
   if not public.reg_newer(new.ts, new.org, old.ts, old.org) then
     new.name := old.name; new.trashed := old.trashed;
     new.ts := old.ts; new.org := old.org;
@@ -455,6 +461,15 @@ begin
   end if;
   if new.locked is distinct from old.locked and uid is not null and uid <> old.owner_id then
     raise exception 'kun eieren kan låse/åpne';
+  end if;
+  -- Mottaker av en DIREKTE gruppe-deling kan ikke slette/gjenopprette selve
+  -- gruppen (bruk leave_share). Innhold under gruppen — og en gruppe man kun
+  -- når via et delt UNIVERS (ingen direkte gruppe-medlemskap) — kan slettes
+  -- fritt (felles søppel, gjelder for alle).
+  if new.trashed is distinct from old.trashed and uid is not null and uid <> old.owner_id
+     and exists (select 1 from public.memberships m
+                 where m.group_id = old.id and m.user_id = uid) then
+    raise exception 'mottakere kan ikke slette en delt gruppe (bruk leave_share)';
   end if;
   if new.universe_id is distinct from old.universe_id and uid is not null then
     -- Mottakere av en direkte gruppe-deling flytter via sin egen
@@ -495,6 +510,15 @@ begin
   end if;
   if new.locked is distinct from old.locked and uid is not null and uid <> old.owner_id then
     raise exception 'kun eieren kan låse/åpne';
+  end if;
+  -- Mottaker av en DIREKTE liste-deling kan ikke slette/gjenopprette selve
+  -- listen (bruk leave_share). Elementer i listen — og en liste man kun når
+  -- via et delt univers/gruppe (ingen direkte liste-medlemskap) — kan slettes
+  -- fritt (felles søppel, gjelder for alle).
+  if new.trashed is distinct from old.trashed and uid is not null and uid <> old.owner_id
+     and exists (select 1 from public.memberships m
+                 where m.card_id = old.id and m.user_id = uid) then
+    raise exception 'mottakere kan ikke slette en delt liste (bruk leave_share)';
   end if;
   if new.group_id is distinct from old.group_id and uid is not null then
     -- Mottakere av en direkte liste-deling flytter via sin egen

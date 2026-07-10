@@ -132,10 +132,23 @@ select public.t_check('mount peker på bobs univers',
   (select jsonb_path_query_first(public.get_my_doc(), '$.groups[*] ? (@.id == $gid).mount.parent',
      jsonb_build_object('gid', :'g1'::text)) = to_jsonb(:'ub'::text)));
 
--- mottakerens «sletting» er å forlate — hardsletting av share-roten er sperret
+-- mottakerens «sletting» av share-roten er sperret på begge måter:
+-- hardsletting (RLS) OG å legge den i felles søppel (trashed).
 delete from public.groups where id = :'g1';   -- RLS: 0 rader (direkte medlemskap)
 select public.t_check('direkte delt gruppe kan ikke hardslettes av mottakeren',
   (select count(*) from public.groups where id = :'g1') = 1);
+select public.t_fails('mottaker kan ikke legge delt gruppe i søppel (share-rot)',
+  format('update public.groups set trashed = true, ts = 500, org = ''bob'' where id = %L', :'g1'));
+
+-- ...men mottakeren KAN slette innhold NEDE i den delte gruppen (felles søppel).
+-- (Lave ts her: c1s innholds-register er fortsatt 1 på dette punktet, så en
+-- senere eier-redigering med ts=300 skal fortsatt vinne LWW.)
+update public.cards set trashed = true, ts = 2, org = 'bob' where id = :'c1';
+select public.t_check('mottaker kan slette (trashe) liste inne i delt gruppe',
+  (select trashed from public.cards where id = :'c1') = true);
+update public.cards set trashed = false, ts = 3, org = 'bob' where id = :'c1';  -- gjenopprett
+select public.t_check('mottaker kan gjenopprette listen igjen',
+  (select trashed from public.cards where id = :'c1') = false);
 
 -- redigering + felt-nivå LWW
 update public.items set text = 'Melk og brød', ts = 100, org = 'bob' where id = :'i1';
@@ -260,6 +273,34 @@ delete from public.groups where id = :'g2';
 select public.t_check('univers-medlem kan hardslette gruppe UTEN direkte medlemskap (felles tømming)',
   (select count(*) from public.groups where id = :'g2') = 0);
 
+-- delt UNIVERS: mottakeren kan IKKE slette selve universet ...
+select public.t_fails('mottaker kan ikke legge delt univers i søppel (share-rot)',
+  format('update public.universes set trashed = true, ts = 600, org = ''carol'' where id = %L', :'u1'));
+-- ... men KAN slette innhold i det (her: alices gruppe g1), og det gjelder for ALLE
+update public.groups set trashed = true, ts = 600, org = 'carol' where id = :'g1';
+select public.t_check('mottaker av delt univers kan slette gruppe i universet',
+  (select trashed from public.groups where id = :'g1') = true);
+
+reset role;
+select set_config('request.jwt.claim.sub', :'alice', false);
+set role authenticated;
+select public.t_check('sletting av delt innhold gjelder for alle (eieren ser trashed)',
+  (select trashed from public.groups where id = :'g1') = true);
+
+reset role;
+select set_config('request.jwt.claim.sub', :'carol', false);
+set role authenticated;
+update public.groups set trashed = false, ts = 601, org = 'carol' where id = :'g1';   -- gjenopprett
+
+reset role;
+select set_config('request.jwt.claim.sub', :'alice', false);
+set role authenticated;
+select public.t_check('gjenoppretting av delt innhold gjelder for alle (eieren ser gjenopprettet)',
+  (select trashed from public.groups where id = :'g1') = false);
+
+reset role;
+select set_config('request.jwt.claim.sub', :'carol', false);
+set role authenticated;
 update public.memberships set trashed = true where user_id = :'carol' and universe_id = :'u1';
 select public.t_check('carols mount kan legges i HENNES søppelkasse',
   (select jsonb_path_query_first(public.get_my_doc(), '$.universes[*] ? (@.id == $uid).mount.trashed',
@@ -289,6 +330,14 @@ select public.t_check('bob ser den delte listen + elementer, men IKKE gruppen de
 delete from public.cards where id = :'c1';   -- RLS: 0 rader (direkte medlemskap)
 select public.t_check('direkte delt liste kan ikke hardslettes av mottakeren',
   (select count(*) from public.cards where id = :'c1') = 1);
+select public.t_fails('mottaker kan ikke legge delt liste i søppel (share-rot)',
+  format('update public.cards set trashed = true, ts = 700, org = ''bob'' where id = %L', :'c1'));
+
+-- ...men mottakeren KAN slette elementer i den delte listen (felles søppel)
+update public.items set trashed = true, ts = 700, org = 'bob' where id = :'i1';
+select public.t_check('mottaker kan slette element i delt liste',
+  (select trashed from public.items where id = :'i1') = true);
+update public.items set trashed = false, ts = 701, org = 'bob' where id = :'i1';  -- gjenopprett
 
 select public.t_fails('mottaker kan ikke flytte kanonisk forelder (må bruke mount)',
   format('update public.cards set group_id = %L, pos_ts = 999, pos_org = ''bob'' where id = %L', :'gb', :'c1'));

@@ -17,7 +17,7 @@ plukke opp tråden.
       RPC-er (`create/accept/decline/revoke_share_invite`, `revoke_share`,
       `leave_share`, `set_locked`, `get_members`, `get_my_doc`,
       `import_doc`), grants, realtime-publikasjon
-- [x] Hermetisk testsuite (`supabase/tests/`, ren PostgreSQL): 61 sjekker
+- [x] Hermetisk testsuite (`supabase/tests/`, ren PostgreSQL): 70 sjekker
       grønne — RLS-isolasjon, delingsflyt alle nivåer, låsing, utkastelse,
       LWW, import-idempotens, gravsteiner, anon-avvisning; migreringen
       kjørt dobbelt (idempotens)
@@ -66,10 +66,14 @@ plukke opp tråden.
       inviter på e-post, se medlemmer/ventende (`get_members`), kaste ut,
       lås/åpne; innboks for mottatte invitasjoner (aksepter med
       plasseringsvalg / avslå)
-- [ ] **Søppel-semantikk for delinger**: mottakers sletting av delt objekt →
-      mount i søppel (`membership.trashed`), tømming → `leave_share`;
-      eiers sletting som i dag (trashed → tøm = hard delete m/ advarsel om
-      at delingen ryker for alle)
+- [ ] **Søppel-semantikk for delinger**: skjul/deaktiver «slett»-knappen på
+      selve det delte objektet (share-roten) for mottakere — deres handling
+      der er «forlat deling» (mount i søppel `membership.trashed`, tømming →
+      `leave_share`). Innhold UNDER det delte objektet slettes som vanlig, og
+      siden `trashed` er felles ser alle sletting/gjenoppretting samtidig
+      (vis gjerne hvem/at det er delt). Eiers sletting av selve objektet som
+      i dag (trashed → tøm = hard delete m/ advarsel om at delingen ryker for
+      alle). Serveren håndhever allerede reglene (RLS + trashed-vakter)
 - [ ] **Migreringsflyt**: ved første innlogging med lokale data → tilby
       `import_doc(docFromState())`; behold localStorage-kopi til bekreftet
 - [ ] **Verifisering**: Playwright mot lokal server med to innloggede
@@ -80,7 +84,9 @@ plukke opp tråden.
 
 ## Kjente beslutninger (ikke spør på nytt — se arkitekturdok for hvorfor)
 
-- Eier-sletting er reell for alle; mottaker-sletting = forlate delingen
+- Mottaker kan ALDRI slette share-roten (trashe/hardslette) — kun forlate
+  (leave_share). Innhold UNDER en deling slettes fritt, og sletting/
+  gjenoppretting er felles (gjelder alle). Eier-sletting av objektet er reell
 - Lås gjelder nedover i hierarkiet; eieren kan alltid redigere selv
 - Mottakere flytter delte objekter via mount, aldri eierens plassering
 - Import-id-er: `md5(uid ':' gammel_id) → uuid` (idempotent per bruker)
