@@ -88,8 +88,18 @@
   }
 
   /* ---------------- Hjelpere ---------------- */
-  const uid = () =>
-    'id-' + Math.random().toString(36).slice(2, 9) + Math.random().toString(36).slice(2, 5);
+  // Ekte UUID-er: de relasjonelle fase 2-tabellene har `uuid`-kolonner (id +
+  // forelder-FK-er), så nye objekter MÅ ha gyldige UUID-er ellers avviser
+  // PostgREST insert-en. crypto.randomUUID() finnes i sikre kontekster
+  // (https/localhost); ellers en RFC4122-kompatibel reserve. UUID-er er også
+  // gyldige streng-id-er i synk-doc v1 (mønster-lås), så dette gjelder begge modi.
+  function uid() {
+    try { if (window.crypto && crypto.randomUUID) return crypto.randomUUID(); } catch (e) { /* ignore */ }
+    return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
+      const r = (Math.random() * 16) | 0;
+      return (c === 'x' ? r : (r & 0x3) | 0x8).toString(16);
+    });
+  }
 
   function hexToRgb(hex) {
     const h = hex.replace('#', '');

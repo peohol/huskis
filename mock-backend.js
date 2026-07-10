@@ -194,8 +194,19 @@
   }
 
   /* ---------------- Tabell-CRUD (med server-side LWW + vakter) ---------------- */
+  var UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
   function applyInsert(db, table, uid, payload) {
     var rows = Array.isArray(payload) ? payload : [payload];
+    // Objekt-tabellene har uuid-kolonner (som ekte Postgres): avvis ugyldige
+    // id-er slik at klienten faktisk må generere UUID-er (fanger P1-regresjon).
+    var OBJ = { universes: 1, groups: 1, cards: 1, items: 1 };
+    if (OBJ[table]) {
+      for (var i = 0; i < rows.length; i++) {
+        if (!UUID_RE.test(String(rows[i].id || ''))) {
+          throw new Error('invalid input syntax for type uuid: "' + rows[i].id + '"');
+        }
+      }
+    }
     rows.forEach(function (r) {
       var row = clone(r);
       if (table !== 'memberships') row.owner_id = uid;
