@@ -23,10 +23,21 @@ plukke opp tråden.
       kjørt dobbelt (idempotens)
 - [x] GitHub-Actions-workflowen «Supabase DB-oppsett» kjører nå begge
       SQL-filene
-- [x] Migreringen kjørt mot Supabase via Actions
+- [ ] **Migreringen kjørt mot Supabase — BLOKKERT på manuelt steg**:
+      workflow-kjøringen feilet fordi repo-secreten `SUPABASE_DB_URL`
+      mangler (workflowen har aldri vært kjørt; se run 29099343073).
+      Når secreten er lagt inn (se under): kjør Actionen «Supabase
+      DB-oppsett» på nytt (grenen `claude/user-registration-sharing-arch-1ly3io`
+      før merge, eller `main` etter) — eller be Claude trigge den
 
 ## Manuelle steg (krever dashboard-tilgang — Peder)
 
+- [ ] **GitHub → Settings → Secrets and variables → Actions**: legg inn
+      secreten `SUPABASE_DB_URL` = tilkoblingsstrengen fra Supabase
+      (Project Settings → Database → Connection string → URI, med
+      `[YOUR-PASSWORD]` byttet ut). Alternativ uten secret: lim inn
+      `supabase/setup.sql` + `supabase/users-and-sharing.sql` i
+      Supabase SQL Editor (begge er idempotente)
 - [ ] Supabase → Authentication → URL Configuration: sett **Site URL** +
       **Redirect URLs** til appens adresse (bekreftelseslenken peker dit)
 - [ ] Verifiser at **Confirm email** står PÅ (Authentication → Sign In / Up;
