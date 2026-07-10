@@ -102,17 +102,16 @@ Appen skal føles **visuelt ryddig, konsistent og forutsigbar**. Konkret:
 Fast panel (`position: fixed`), **én felles DOM** delt i to media-queryer:
 
 - **Desktop (`min-width: 561px`)**: fast, full-høyde **kolonne til venstre**
-  (`--sidebar-w`). Øverst `.panel-top`: overskriften **GRUPPER** (linjen er
-  `--control-h` høy så den flukter med LISTER-linjen i verktøylinja) og
-  knapperaden **«＋ Gruppe» + gruppe-søppelkassen side om side**. Gruppekortene
-  scroller i kolonnen under og **oppløses i en fade** (CSS `mask-image`, høyde
-  `--fade-h`, tilsvarende fade i bunnen; hvile-padding = fade-høyden så ingenting
-  er falmet i ro). Masken slås av under draging (`body.is-dragging`) fordi den
-  ellers ville klippe det løftede (fixed) dra-kortet. Ingen pinnede soner lenger.
+  (`--sidebar-w`). Øverst `.panel-top`: overskriften **GRUPPER** og knapperaden
+  **«＋ Gruppe» + gruppe-søppelkassen side om side**. Gruppekortene scroller i
+  kolonnen under og **oppløses i en fade** (CSS `mask-image`, høyde `--fade-h`,
+  tilsvarende fade i bunnen; hvile-padding = fade-høyden så ingenting er falmet
+  i ro). Masken slås av under draging (`body.is-dragging`) fordi den ellers
+  ville klippe det løftede (fixed) dra-kortet. Ingen pinnede soner lenger.
 - **Mobil (`max-width: 560px`)**: fast panel øverst: overskrift, knapperad
   («＋ Gruppe» + søppelkasse) og gruppekortene på **én horisontalt scrollende
   rad** under — **uten fader** (kun en diskret, app-tilpasset scrollbar). ☰
-  ligger IKKE her (se «Listemenyen») — den skal ikke stå på nivå med «＋ Gruppe».
+  ligger IKKE i denne DOM-en (se «Menyknapp»), men overlapper panelet visuelt.
 
 - **Gruppekort** (`.group-card.chip`): håndtak (mørkt, `--g-accent`), navn, dempet
   antall, ✕ helt til høyre. Posisjonsbasert farge; aktiv = grønn ring. Klikk =
@@ -125,16 +124,36 @@ Fast panel (`position: fixed`), **én felles DOM** delt i to media-queryer:
 ## Listemenyen (verktøylinja)
 
 Fast meny (`position: fixed`; desktop: øverst til høyre for kolonnen, mobil: rett
-under gruppemenyen). To linjer: overskriften **LISTER** med **☰ helt til høyre**
-på samme linje (**både mobil og desktop** — ett felles `#menu-btn-toolbar`, ikke
-to knapper; ☰ bor ALDRI i gruppemenyen/knapperaden med «＋ Gruppe») og knapperaden
-**«＋ Liste» + liste-søppelkassen + filterkortet (👁️ K/P/KP)**. Filterkortet
-følger flate-mønsteret (halvgjennomsiktig → opak ved hover). Logg ut-knappen er
-FLYTTET til meny-modalen.
+under gruppemenyen). To linjer: overskriften **LISTER** og knapperaden **«＋
+Liste» + liste-søppelkassen + filterkortet (👁️ K/P/KP)**. Filterkortet følger
+flate-mønsteret (halvgjennomsiktig → opak ved hover). Logg ut-knappen er FLYTTET
+til meny-modalen. ☰ er ikke en del av denne DOM-en (se «Menyknapp»), men
+overlapper panelet visuelt på desktop.
 
-## Meny-modal (☰) + universer
+## Menyknapp (☰)
 
-Menyknappen (☰, `.menu-btn`, kun i listemenyen — se over) åpner `#menu-modal`:
+**Én knapp** (`#menu-btn`, direkte i `<body>` — ikke inni gruppemenyen eller
+listemenyen), **fast posisjonert i øvre høyre hjørne av VIEWPORTET**
+(`position: fixed; top: 12px; right: …`), uavhengig av begge menyenes DOM/flyt.
+Samme knapp/posisjon-strategi brukes på både mobil og desktop — kun selve
+høyre-offset-tokenet byttes (se under) — det er IKKE to knapper med vis/skjul.
+- z-index (35) over begge faste paneler (header 30, toolbar 20) men under
+  modaler (200), så den ligger alltid synlig oppå uansett scroll-posisjon.
+- **Mobil**: overlapper gruppemenyen (det faste toppanelet der) — bruker
+  `--side-pad` (samme token som gruppemenyens egen sidepolstring) som høyre-
+  offset, så den havner nøyaktig i det panelets hjørne.
+- **Desktop**: overlapper listemenyen (til høyre for gruppemeny-kolonnen) —
+  bruker i stedet `--toolbar-pad` (`clamp(12px, 3vw, 40px)`, listemenyens egen,
+  viewport-relative sidepolstring — egen token, satt via en desktop-override av
+  `.menu-btn { right: … }`), så den flukter nøyaktig med LISTER-linjens kant.
+- Skjules på låseskjermen (`body.locked #menu-btn { display: none; }`).
+- Effekt: knappen «arver» riktig hjørne fra hvilket som helst panel som faktisk
+  ligger der på gjeldende skjermstørrelse, uten skjermstørrelse-spesifikk
+  DOM-plassering eller flere knapper.
+
+## Meny-modal + universer
+
+Menyknappen (☰, se over) åpner `#menu-modal`:
 - **«Logg ut»** øverst (med bekreftelse), deretter en delelinje (`<hr class=
   "menu-divider">`) i **samme border-stil som `.modal-head`** (`border-bottom:
   1px solid var(--line)`, kant-til-kant via negativ side-margin som kansellerer
@@ -259,12 +278,17 @@ filter (👁️ K/P/KP) i listemenyen, per enhet (`mine-lister-filter`).
 - [x] **Gruppemenyen omstrukturert**: overskrift «GRUPPER»; «＋ Gruppe» +
       gruppe-søppelkasse side om side ØVERST (over kortene); kortrad uten fader
       på mobil; desktop: kortene scroller under knapperaden med mask-fade (topp +
-      bunn), av under drag; pinnede soner/overflow-JS fjernet. ☰ bor IKKE her —
-      se listemenyen (skal ikke stå på nivå med «＋ Gruppe»)
-- [x] **Listemenyen**: overskrift «LISTER» på egen linje med **☰ helt til høyre
-      på samme linje — både mobil og desktop** (ett felles `#menu-btn-toolbar`,
-      ikke to knapper); GRUPPER/LISTER + de to knapperadene flukter på desktop;
-      «＋ Liste»
+      bunn), av under drag; pinnede soner/overflow-JS fjernet. ☰ bor IKKE i denne
+      DOM-en — se «Menyknapp» (overlapper panelet visuelt på mobil)
+- [x] **Listemenyen**: overskrift «LISTER»; GRUPPER/LISTER + de to knapperadene
+      flukter på desktop; «＋ Liste»
+- [x] **Menyknapp (☰) som fast, viewport-pinnet element**: én knapp (`#menu-btn`,
+      direkte i `<body>`, ikke inni noen av menyene), `position: fixed; top:
+      12px;`, høyre-offset via `--side-pad` (mobil, matcher gruppemenyen) eller
+      `--toolbar-pad` (desktop, matcher listemenyen — egen, viewport-relativ
+      token), z-index 35 (over begge faste paneler, under modaler). Havner «for
+      gratis» i riktig hjørne uten skjermstørrelse-spesifikk DOM/flere knapper;
+      skjules på låseskjermen
 - [x] **Designsystem**: kontroll-tokens (`--control-h/-radius/-bg`), delte klasser
       (`.panel-*`, `.btn-add`, `.trashcan`, `.menu-btn`, `.chip`); alle
       søppelkasser like (hvit beholder, grå tellesirkel, halvgjennomsiktig → opak
@@ -284,11 +308,17 @@ filter (👁️ K/P/KP) i listemenyen, per enhet (`mine-lister-filter`).
       `<hr>` med `border-top` + vanlig margin, som ble innrykket av
       `.modal-body`s side-padding (så den IKKE fluktet med `.modal-head`s
       kant-til-kant-linje mellom «Meny»-tittel og «Logg ut») — byttet til
-      `border-bottom` + negativ side-margin (kansellerer paddingen). ☰ lå først
-      i gruppemenyen på mobil (nivå med «＋ Gruppe») og i listemenyen på desktop
-      (to separate knapper, `#menu-btn-header` + `#menu-btn-toolbar`, vist/skjult
-      via CSS) — forenklet til ÉN knapp (`#menu-btn-toolbar`) i listemenyens
-      `.panel-head`, brukt på begge skjermstørrelser
+      `border-bottom` + negativ side-margin (kansellerer paddingen). ☰ sin
+      plassering gikk gjennom tre runder: (1) opprinnelig spec — to separate
+      knapper (`#menu-btn-header` i gruppemenyen på mobil nivå med «＋ Gruppe»,
+      `#menu-btn-toolbar` i listemenyen på desktop); (2) forenklet til ÉN knapp
+      i listemenyens `.panel-head`, brukt på begge skjermstørrelser (mobil
+      flyttet vekk fra «＋ Gruppe»-nivået, men da også vekk fra gruppemenyen);
+      (3) presisert til det som faktisk var ønsket: fortsatt kun ÉN knapp, men nå
+      et **fast, viewport-pinnet element** (`#menu-btn`, direkte i `<body>`) som
+      alltid ligger i øvre høyre hjørne — det havner dermed automatisk over
+      gruppemenyen på mobil og listemenyen på desktop, uten at knappen «tilhører»
+      noen av dem i DOM-en. Se «Menyknapp (☰)»
 - [ ] Evt.: dra-rekkefølge for universer i menyen (ikke etterspurt; pos-felt er klart)
 
 ```bash
@@ -313,10 +343,14 @@ python3 -m http.server 8000
 - Verifisering skjer med Playwright (globalt installert) mot en lokal
   `http.server`; eksterne kall blokkeres i testene (appen degraderer pent), og
   `localStorage['mine-lister-auth']='1'` hopper over mønster-låsen.
-- ☰ er ÉN knapp (`#menu-btn-toolbar`) som alltid bor i listemenyens `.panel-head`
-  (øvre høyre hjørne av LISTER-linjen, både mobil og desktop) — IKKE i
-  gruppemenyen, og IKKE på nivå med «＋ Gruppe». Ikke gjeninnfør en egen
-  header-knapp for mobil.
+- ☰ er ÉN knapp (`#menu-btn`), `position: fixed` direkte i `<body>` — IKKE inni
+  gruppemenyens eller listemenyens DOM, og IKKE på nivå med «＋ Gruppe». Den skal
+  alltid ligge i øvre høyre hjørne av VIEWPORTET (ikke av et bestemt panel); at
+  den visuelt havner over gruppemenyen på mobil og listemenyen på desktop er en
+  konsekvens av at disse panelene selv ligger i det hjørnet på hver sin
+  skjermstørrelse, ikke noe knappen aktivt oppsøker. Ikke gjeninnfør separate
+  knapper per skjermstørrelse eller flytt den inn i et panels flex-flyt igjen —
+  bruk i stedet `--side-pad`/`--toolbar-pad` for å style den responsivt.
 - Delelinjer i modaler (f.eks. meny-modalens Logg ut/Universer-skille) skal se ut
   som `.modal-head`s `border-bottom` — kant-til-kant, IKKE en innrykket `<hr>`
   med vanlig margin (den ville stoppe ved `.modal-body`s side-padding og se

@@ -35,6 +35,10 @@
   --sidebar-w: 232px;
   /* Sidepolstring inne i panelene (gruppemeny/verktøylinje). */
   --side-pad: 14px;
+  /* Sidepolstring i listemenyen (verktøylinja) — bredere og viewport-relativ,
+     i motsetning til gruppemenyens faste --side-pad. Egen token så ☰ (fast i
+     viewportets hjørne) kan flukte nøyaktig med LISTER-linjens høyre kant. */
+  --toolbar-pad: clamp(12px, 3vw, 40px);
   /* Fade-høyden der gruppekortene scroller under knapperaden (desktop). */
   --fade-h: 16px;
 
@@ -102,7 +106,8 @@ body {
    DESKTOP: fast, full-høyde KOLONNE til venstre — overskrift + knapperad øverst,
    gruppekortene scroller under dem (fade via mask). MOBIL (media-query nederst):
    fast panel øverst — overskrift, knapperad og én horisontalt scrollende kortrad
-   (uten fader). ☰ bor i listemenyen (verktøylinja) på begge skjermstørrelser. */
+   (uten fader). ☰ er fast i viewportets hjørne (se «Menyknapp»), ikke en del av
+   denne headeren, men overlapper den visuelt på mobil. */
 .app-header {
   position: fixed;          /* uavhengig av scrolling (robust mot iOS-backdrop-bug) */
   z-index: 30;
@@ -237,9 +242,15 @@ body {
 .btn-add.icon-only { width: var(--control-h); padding: 0; font-size: 18px; }
 
 /* ---------------- Menyknapp (☰) ----------------
-   Samme flate-mønster som søppelkassene: halvgjennomsiktig hvit → hvit ved hover. */
+   Fast i øvre høyre hjørne av VIEWPORTET, uavhengig av gruppemeny/listemeny sin
+   DOM/flyt (se kommentar i index.html) — z-index over begge faste panelene
+   (30/20) men under modaler (200). Samme flate-mønster som søppelkassene:
+   halvgjennomsiktig hvit → hvit ved hover. */
 .menu-btn {
-  flex: 0 0 auto;
+  position: fixed;
+  top: 12px;
+  right: var(--side-pad);
+  z-index: 35;
   appearance: none;
   border: none;
   cursor: pointer;
@@ -280,7 +291,7 @@ body {
   display: flex;
   flex-direction: column;
   gap: 8px;
-  padding: 12px clamp(12px, 3vw, 40px) 10px;
+  padding: 12px var(--toolbar-pad) 10px;
   background: rgba(255, 255, 255, 0.55);   /* mer gjennomsiktig enn header (0.72) */
   backdrop-filter: blur(14px);
   -webkit-backdrop-filter: blur(14px);
@@ -943,7 +954,8 @@ body.modal-open { overflow: hidden; }
 /* ---------------- Innlogging (mønster-lås) ---------------- */
 /* Skjul alt appinnhold til man er logget inn. */
 body.locked .app-header,
-body.locked .app-main { display: none; }
+body.locked .app-main,
+body.locked #menu-btn { display: none; }
 
 .lock-screen {
   position: fixed;
@@ -1036,8 +1048,9 @@ body.locked .app-main { display: none; }
 /* ---------------- Mobil ----------------
    Gruppemenyen er et fast panel øverst: overskrift, knapperad (＋ Gruppe +
    søppelkasse) og gruppekortene på én horisontalt scrollende rad UNDER
-   knappene (ingen fader). Verktøylinja (med ☰ i øvre høyre hjørne) ligger
-   rett under. Board-et klarerer begge (målte høyder). */
+   knappene (ingen fader). ☰ (fast i viewportets hjørne) overlapper dette
+   panelet øverst til høyre. Verktøylinja ligger rett under gruppemenyen.
+   Board-et klarerer begge (målte høyder). */
 @media (max-width: 560px) {
   :root { --side-pad: 12px; }
 
@@ -1098,8 +1111,8 @@ body.locked .app-main { display: none; }
    DESKTOP: gruppemenyen som fast venstre-KOLONNE
    Overskrift + knapperad («＋ Gruppe» og søppelkasse side om side) ligger fast
    øverst; gruppekortene scroller i kolonnen under dem og oppløses i en fade
-   (mask) mot knapperaden — samt en tilsvarende fade i bunnen. ☰ ligger i
-   listemenyen (verktøylinja), på overskriftslinjen helt til høyre.
+   (mask) mot knapperaden — samt en tilsvarende fade i bunnen. ☰ (fast i
+   viewportets hjørne) havner over listemenyen, øverst til høyre der.
    ============================================================ */
 @media (min-width: 561px) {
   .app-header {
@@ -1109,9 +1122,10 @@ body.locked .app-main { display: none; }
     width: var(--sidebar-w);
     border-right: 1px solid var(--line);
   }
-  /* Verktøylinjas overskriftslinje er ☰-høy — gi gruppemenyens samme høyde så
-     GRUPPER/LISTER og de to knapperadene ligger på samme horisontale linjer. */
-  .app-header .panel-head { min-height: var(--control-h); }
+  /* ☰ overlapper listemenyen på desktop — bruk dens (viewport-relative)
+     sidepolstring i stedet for gruppemenyens, så den flukter nøyaktig med
+     LISTER-linjens høyre kant. */
+  .menu-btn { right: var(--toolbar-pad); }
 
   .groups-bar {
     flex: 1 1 auto;

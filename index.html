@@ -11,6 +11,16 @@
   <link rel="stylesheet" href="styles.css" />
 </head>
 <body class="locked">
+  <!-- Menyknapp (☰): fast i øvre høyre hjørne av VIEWPORTET — ikke en del av
+       verken gruppemenyen eller listemenyen sin flyt. Havner dermed «for gratis»
+       over listemenyen på desktop (som ligger til høyre) og over gruppemenyen på
+       mobil (som er det faste toppanelet der) uten skjermstørrelse-spesifikk
+       DOM-plassering. -->
+  <button class="menu-btn" id="menu-btn" type="button" title="Meny"
+          aria-label="Åpne menyen" aria-haspopup="dialog">
+    <span class="menu-bars" aria-hidden="true"></span>
+  </button>
+
   <!-- Gruppemenyen: overskrift («GRUPPER»), knapperad («＋ Gruppe» + søppelkasse),
        og under dem gruppekortene til det aktive universet.
        Desktop: fast venstre-kolonne — kortene scroller under knapperaden (fade).
@@ -34,16 +44,12 @@
   </header>
 
   <main class="app-main">
-    <!-- Listemenyen (verktøylinja): overskrift («LISTER», med ☰ helt til høyre på
-         samme linje — øvre, høyre hjørne av listemenyen, både mobil og desktop) og
-         knapperad («＋ Liste», søppelkasse, filter). -->
+    <!-- Listemenyen (verktøylinja): overskrift («LISTER») og knapperad
+         («＋ Liste», søppelkasse, filter). ☰ er ikke en del av denne (se toppen
+         av body) — den havner likevel visuelt i dette hjørnet på desktop. -->
     <div class="toolbar">
       <div class="panel-head">
         <span class="panel-title">Lister</span>
-        <button class="menu-btn" id="menu-btn-toolbar" type="button" title="Meny"
-                aria-label="Åpne menyen" aria-haspopup="dialog">
-          <span class="menu-bars" aria-hidden="true"></span>
-        </button>
       </div>
       <div class="panel-actions">
         <button class="btn-add" id="add-card-btn" type="button" title="Ny liste">＋ Liste</button>

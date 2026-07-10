@@ -415,7 +415,7 @@
   // Meny-modal (☰): logg ut + universer (bytt/opprett/omdøp/slett + søppelkasse).
   const menuModal = document.getElementById('menu-modal');
   const menuClose = document.getElementById('menu-close');
-  const menuBtnToolbar = document.getElementById('menu-btn-toolbar');
+  const menuBtn = document.getElementById('menu-btn');
   const uniList = document.getElementById('uni-list');
   const addUniBtn = document.getElementById('add-uni-btn');
   const uniTrashBtn = document.getElementById('uni-trash-btn');
@@ -2187,7 +2187,7 @@
     menuModal.hidden = true;
     updateModalOpenClass();
   }
-  menuBtnToolbar.addEventListener('click', openMenu);
+  menuBtn.addEventListener('click', openMenu);
   menuClose.addEventListener('click', closeMenu);
   menuModal.addEventListener('click', (ev) => {
     if (ev.target === menuModal) closeMenu();
