@@ -813,7 +813,7 @@ body {
   margin: 0 0 var(--board-gap);
   border-radius: var(--radius);
   border: 2.5px dashed var(--card-accent, #8fb08f);
-  background: rgba(102, 136, 102, 0.10);
+  background: rgba(102, 136, 102, 0.22);
 }
 
 .item-placeholder {
