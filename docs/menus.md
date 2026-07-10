@@ -76,13 +76,19 @@ Menyknappen (☰) åpner `#menu-modal`:
 - **«Logg ut»** øverst (med bekreftelse), deretter en delelinje (`<hr class=
   "menu-divider">`) i samme border-stil som `.modal-head` — se
   `docs/design-system.md` («Delelinjer i modaler»).
-- **UNIVERSER**-seksjon: univers-rader (`.uni-row.chip` — farget, aktiv m/ ring,
-  antall grupper dempet, ✕ helt til høyre), «＋ Univers» og univers-søppelkassen
-  (samme knapp/oppførsel som de andre — se `docs/trash.md`).
+- **UNIVERSER**-seksjon: univers-rader (`.uni-row.chip` — håndtak, farget, aktiv
+  m/ ring, antall grupper dempet, ✕ helt til høyre), «＋ Univers» og
+  univers-søppelkassen (samme knapp/oppførsel som de andre — se
+  `docs/trash.md`).
 - Klikk på en rad = **bytt univers + lukk menyen**; klikk på det aktive navnet =
   omdøp. Slett = i søppelkassen (menyen forblir åpen så man kan angre).
   `setActiveUniverse` gjenoppretter sist aktive gruppe i universet
   (`activeGroups`, se `docs/data-model.md`).
+- **Rekkefølge**: dra-og-slipp via håndtaket, samme placeholder+FLIP-motor som
+  gruppekortene (se `docs/drag-and-drop.md`). `uni-list` er alltid én vertikal
+  kolonne (ingen mobil/desktop-veksling som gruppelista), så kun
+  V-varianten av bytte-logikken trengs (`updateUniversePlacement`); auto-scroll
+  ruller `.menu-body` (modalens scroll-container), ikke `uni-list` selv.
 - Søppelkasse-modalen kan ligge **over** menyen (ligger etter i DOM, samme
   z-index); `body.modal-open` styres samlet (`updateModalOpenClass`).
 - Universer er **helt uavhengige**: se `docs/data-model.md`.

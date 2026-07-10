@@ -207,10 +207,11 @@ body {
   100% { transform: scale(1); }
 }
 
-/* Univers-rader (meny-modalen): chip uten håndtak, full bredde. */
+/* Univers-rader (meny-modalen): chip med håndtak (samme mønster som
+   gruppekortene), full bredde. */
 .uni-row {
   width: 100%;
-  padding: 6px 8px;
+  padding: 5px 8px 5px 5px;
 }
 .uni-row .chip-name { min-width: 0; }
 .uni-empty {
@@ -824,8 +825,10 @@ body {
   background: rgba(102, 136, 102, 0.10);
 }
 
-/* Gruppe-draging: løftet chip følger pekeren; placeholder viser landingsplass. */
-.group-card.dragging {
+/* Gruppe-/univers-draging: løftet chip følger pekeren; placeholder viser
+   landingsplass. Samme mønster/klasser for begge (uni-list er alltid en
+   vertikal kolonne, som gruppelista på desktop). */
+.group-card.dragging, .uni-row.dragging {
   position: fixed;
   z-index: 100;
   margin: 0;
