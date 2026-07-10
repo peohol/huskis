@@ -17,6 +17,11 @@
     { id: 'grp-handlelister', name: 'Handlelister', key: 'handlelister' },
   ];
 
+  // Fast, deterministisk id/navn for universet eksisterende data migreres inn i
+  // (Univers > Gruppe > Liste > Element). Fast id → alle enheter migrerer til
+  // det SAMME universet, uten duplisering ved fletting.
+  const DEFAULT_UNI = { id: 'uni-standard', name: 'Standard' };
+
   /* ---------------- Fargesystem (HSL, posisjonsbasert) ----------------
      Kort (og gruppekort) får farge ut fra POSISJONEN sin (indeks i den synlige,
      sorterte lista) — ikke en lagret tilfeldig farge. Derfor re-indekseres og
@@ -169,19 +174,33 @@
     return c;
   }
 
-  // En gruppe er øverste nivå (Gruppe > Liste > Element). Den har innholds-
-  // register (navn) og posisjonsregister (rekkefølge), og eier sine lister.
-  function makeGroup(name, id) {
+  // En gruppe er nivå to (Univers > Gruppe > Liste > Element). Den har innholds-
+  // register (navn) og posisjonsregister (rekkefølge + univers-forelder), og
+  // eier sine lister.
+  function makeGroup(name, id, uniId) {
     return {
-      id: id || uid(), name, trashed: false,
+      id: id || uid(), uni: uniId || null, name, trashed: false,
       ts: 0, org: deviceId,               // innholdsregister (navn/trashed)
-      pos: 0, posTs: 0, posOrg: deviceId, // posisjonsregister (rekkefølge)
+      pos: 0, posTs: 0, posOrg: deviceId, // posisjonsregister (rekkefølge + univers)
       cards: [],
     };
   }
 
-  // Eksempeldata (kun uten sky): to grupper som speiler de gamle fanene.
-  function seedGroups() {
+  // Et univers er øverste nivå — et helt uavhengig område med egne grupper.
+  // Grupper kan aldri flyttes på tvers av universer.
+  function makeUniverse(name, id) {
+    return {
+      id: id || uid(), name, trashed: false,
+      ts: 0, org: deviceId,               // innholdsregister (navn/trashed)
+      pos: 0, posTs: 0, posOrg: deviceId, // posisjonsregister (rekkefølge)
+      groups: [],
+    };
+  }
+
+  // Eksempeldata (kun uten sky): to grupper som speiler de gamle fanene,
+  // pakket inn i standard-universet.
+  function seedUniverses() {
+    const u = makeUniverse(DEFAULT_UNI.name, DEFAULT_UNI.id);
     const defs = [
       { g: LEGACY_TABS[0], lists: [
         ['Ukens gjøremål', ['Rydde garasjen', 'Ringe tannlegen', 'Vanne blomstene']],
@@ -194,20 +213,24 @@
         ['Apotek', ['Plaster', 'Solkrem']],
       ] },
     ];
-    return defs.map((d, gi) => {
-      const g = makeGroup(d.g.name, d.g.id);
+    u.groups = defs.map((d, gi) => {
+      const g = makeGroup(d.g.name, d.g.id, u.id);
       g.pos = gi;
       d.lists.forEach((l, i) => { const c = card(l[0], l[1], g.id); c.pos = i; g.cards.push(c); });
       return g;
     });
+    return [u];
   }
 
   function baseState(seeded) {
-    const groups = seeded ? seedGroups() : [];
+    const universes = seeded ? seedUniverses() : [];
+    const firstGroups = universes.length ? universes[0].groups : [];
     return {
-      activeGroup: groups.length ? groups[0].id : null, // per enhet, synkes ikke
-      groups,
-      _tomb: { groups: {}, cards: {}, items: {} }, // gravsteiner: id → tidsstempel
+      activeUniverse: universes.length ? universes[0].id : null, // per enhet, synkes ikke
+      activeGroup: firstGroups.length ? firstGroups[0].id : null, // per enhet, synkes ikke
+      activeGroups: {}, // uniId → sist aktive gruppe der (per enhet, synkes ikke)
+      universes,
+      _tomb: { universes: {}, groups: {}, cards: {}, items: {} }, // gravsteiner: id → tidsstempel
       _hlc: 0,
     };
   }
@@ -218,8 +241,8 @@
       if (!raw) return null;
       const parsed = JSON.parse(raw);
       if (!parsed || typeof parsed !== 'object') return null;
-      // Godta både ny (groups) og gammel (tabs) form — normalize migrerer.
-      if (!Array.isArray(parsed.groups) && !parsed.tabs) return null;
+      // Godta ny (universes), forrige (groups) og eldste (tabs) form — normalize migrerer.
+      if (!Array.isArray(parsed.universes) && !Array.isArray(parsed.groups) && !parsed.tabs) return null;
       return parsed;
     } catch (e) {
       return null;
@@ -245,11 +268,11 @@
   // (skyen fyller på / tom-tilstanden veileder), ellers med eksempeldata.
   const state = load() || baseState(!cloudConfigured());
 
-  // Migrering: gjør om den gamle to-fane-modellen til grupper. To faste grupper
-  // (Huskelister/Handlelister) med deterministiske id-er, slik at alle enheter
-  // migrerer likt. Kjøres på gammel lagret state og på gamle fjern-doc.
+  // Migrering (steg 1): gjør om den gamle to-fane-modellen til grupper. To faste
+  // grupper (Huskelister/Handlelister) med deterministiske id-er, slik at alle
+  // enheter migrerer likt. Kjøres på gammel lagret state.
   function migrateTabsToGroups(s) {
-    if (Array.isArray(s.groups) || !s.tabs) return;
+    if (Array.isArray(s.universes) || Array.isArray(s.groups) || !s.tabs) return;
     s.groups = LEGACY_TABS.map((m, gi) => {
       const g = makeGroup(m.name, m.id);
       g.pos = gi;
@@ -263,6 +286,17 @@
     s.activeGroup = s.activeTab === 'handlelister' ? 'grp-handlelister' : 'grp-huskelister';
     delete s.tabs;
     delete s.activeTab;
+  }
+
+  // Migrering (steg 2): pakk en flat gruppe-tilstand inn i standard-universet.
+  // Fast id (uni-standard) → alle enheter migrerer likt, ingen duplisering.
+  function migrateGroupsToUniverses(s) {
+    if (Array.isArray(s.universes) || !Array.isArray(s.groups)) return;
+    const u = makeUniverse(DEFAULT_UNI.name, DEFAULT_UNI.id);
+    s.groups.forEach((g) => { g.uni = u.id; u.groups.push(g); });
+    s.universes = [u];
+    s.activeUniverse = u.id;
+    delete s.groups;
   }
 
   // Normaliser: gi (evt. eldre) lagret state forventet struktur og synk-metadata.
@@ -290,8 +324,9 @@
     if (!Array.isArray(c.items)) c.items = [];
     c.items.forEach((it, j) => normalizeItem(it, c.id, j));
   }
-  function normalizeGroup(g, i) {
+  function normalizeGroup(g, i, uniId) {
     if (!g.id) g.id = uid();
+    if (!g.uni) g.uni = uniId || null;
     if (typeof g.name !== 'string') g.name = 'Uten navn';
     if (typeof g.trashed !== 'boolean') g.trashed = false;
     if (typeof g.ts !== 'number') g.ts = 0;
@@ -302,21 +337,50 @@
     if (!Array.isArray(g.cards)) g.cards = [];
     g.cards.forEach((c, ci) => normalizeCard(c, g.id, ci));
   }
+  function normalizeUniverse(u, i) {
+    if (!u.id) u.id = uid();
+    if (typeof u.name !== 'string') u.name = 'Uten navn';
+    if (typeof u.trashed !== 'boolean') u.trashed = false;
+    if (typeof u.ts !== 'number') u.ts = 0;
+    if (!u.org) u.org = deviceId;
+    if (typeof u.pos !== 'number') u.pos = i;
+    if (typeof u.posTs !== 'number') u.posTs = 0;
+    if (!u.posOrg) u.posOrg = deviceId;
+    if (!Array.isArray(u.groups)) u.groups = [];
+    u.groups.forEach((g, gi) => normalizeGroup(g, gi, u.id));
+  }
+  // activeUniverse/activeGroup må peke på eksisterende, ikke-slettede entiteter;
+  // activeGroups-minnet (per univers) brukes som fallback før «første synlige».
+  function validateActive(s) {
+    if (!s.activeGroups || typeof s.activeGroups !== 'object') s.activeGroups = {};
+    if (!s.universes.some((u) => u.id === s.activeUniverse && !u.trashed)) {
+      let first = null;
+      s.universes.forEach((u) => { if (!u.trashed && (!first || u.pos < first.pos)) first = u; });
+      s.activeUniverse = first ? first.id : null;
+    }
+    const uni = s.universes.find((u) => u.id === s.activeUniverse && !u.trashed) || null;
+    const groups = uni ? uni.groups.filter((g) => !g.trashed) : [];
+    const ok = (id) => id && groups.some((g) => g.id === id);
+    if (!ok(s.activeGroup)) {
+      const remembered = uni ? s.activeGroups[uni.id] : null;
+      let first = null;
+      groups.forEach((g) => { if (!first || g.pos < first.pos) first = g; });
+      s.activeGroup = ok(remembered) ? remembered : (first ? first.id : null);
+    }
+    if (s.activeUniverse) s.activeGroups[s.activeUniverse] = s.activeGroup;
+  }
   function normalize(s) {
     migrateTabsToGroups(s);
-    if (!Array.isArray(s.groups)) s.groups = [];
-    if (!s._tomb || typeof s._tomb !== 'object') s._tomb = { groups: {}, cards: {}, items: {} };
+    migrateGroupsToUniverses(s);
+    if (!Array.isArray(s.universes)) s.universes = [];
+    if (!s._tomb || typeof s._tomb !== 'object') s._tomb = { universes: {}, groups: {}, cards: {}, items: {} };
+    if (!s._tomb.universes) s._tomb.universes = {};
     if (!s._tomb.groups) s._tomb.groups = {};
     if (!s._tomb.cards) s._tomb.cards = {};
     if (!s._tomb.items) s._tomb.items = {};
     if (typeof s._hlc !== 'number') s._hlc = 0;
-    s.groups.forEach((g, i) => normalizeGroup(g, i));
-    // activeGroup må peke på en eksisterende, ikke-slettet gruppe.
-    if (!s.groups.some((g) => g.id === s.activeGroup && !g.trashed)) {
-      let first = null;
-      s.groups.forEach((g) => { if (!g.trashed && (!first || g.pos < first.pos)) first = g; });
-      s.activeGroup = first ? first.id : null;
-    }
+    s.universes.forEach((u, i) => normalizeUniverse(u, i));
+    validateActive(s);
     observeTs(s._hlc);
   }
   normalize(state);
@@ -326,13 +390,12 @@
   const board = document.getElementById('board');
   const appHeader = document.getElementById('app-header');
   const groupsBar = document.getElementById('groups-bar');
-  const groupsPin = document.getElementById('groups-pin');
   const addGroupBtn = document.getElementById('add-group-btn');
-  const addGroupPinned = document.getElementById('add-group-pinned');
   const addCardBtn = document.getElementById('add-card-btn');
   const toolbarEl = document.querySelector('.toolbar');
   const filterSwitchesEl = document.getElementById('filter-switches');
   const groupTpl = document.getElementById('group-template');
+  const uniTpl = document.getElementById('uni-template');
   const cardTpl = document.getElementById('card-template');
   const itemTpl = document.getElementById('item-template');
 
@@ -345,20 +408,32 @@
   const trashEmptyBtn = document.getElementById('trash-empty');
   const modalNote = document.getElementById('trash-note');
 
-  // Gruppe-søppelkasse (helt til venstre i headeren): inline (i raden) på desktop /
-  // uten overflow; fast full-høyde sone (#groups-trash-pin) ved mobil-overflow.
-  const groupsTrash = document.getElementById('groups-trash');
+  // Gruppe-søppelkasse: i knapperaden øverst i gruppemenyen, ved siden av «＋ Gruppe».
   const groupsTrashBtn = document.getElementById('groups-trash-btn');
   const groupsTrashCount = document.getElementById('groups-trash-count');
-  const groupsTrashPinnedBtn = document.getElementById('groups-trash-pinned');
-  const groupsTrashCountPinned = document.getElementById('groups-trash-count-pinned');
+
+  // Meny-modal (☰): logg ut + universer (bytt/opprett/omdøp/slett + søppelkasse).
+  const menuModal = document.getElementById('menu-modal');
+  const menuClose = document.getElementById('menu-close');
+  const menuBtn = document.getElementById('menu-btn');
+  const uniList = document.getElementById('uni-list');
+  const addUniBtn = document.getElementById('add-uni-btn');
+  const uniTrashBtn = document.getElementById('uni-trash-btn');
+  const uniTrashCount = document.getElementById('uni-trash-count');
 
   const posCmp = (a, b) => (a.pos - b.pos) || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0);
-  // Gruppe-scope: «aktive» kort/elementer gjelder alltid den aktive gruppen.
-  const activeGroupObj = () => state.groups.find((g) => g.id === state.activeGroup && !g.trashed) || null;
-  const visibleGroups = () => state.groups.filter((g) => !g.trashed).sort(posCmp); // vist i header-raden
-  const trashedGroups = () => state.groups.filter((g) => g.trashed);               // i gruppe-søppelkassen
-  const findGroup = (id) => state.groups.find((g) => g.id === id) || null;
+  // Univers-scope: «aktive» grupper gjelder alltid det aktive universet, og
+  // «aktive» kort/elementer den aktive gruppen. Universer er helt uavhengige
+  // områder — alt gruppe-UI (header, søppelkasse, DnD) er scopet hit.
+  const activeUniverseObj = () => state.universes.find((u) => u.id === state.activeUniverse && !u.trashed) || null;
+  const visibleUniverses = () => state.universes.filter((u) => !u.trashed).sort(posCmp); // i meny-modalen
+  const trashedUniverses = () => state.universes.filter((u) => u.trashed);               // i univers-søppelkassen
+  const findUniverse = (id) => state.universes.find((u) => u.id === id) || null;
+  const allGroups = () => { const u = activeUniverseObj(); return u ? u.groups : []; };
+  const activeGroupObj = () => allGroups().find((g) => g.id === state.activeGroup && !g.trashed) || null;
+  const visibleGroups = () => allGroups().filter((g) => !g.trashed).sort(posCmp); // vist i gruppemenyen
+  const trashedGroups = () => allGroups().filter((g) => g.trashed);               // i gruppe-søppelkassen
+  const findGroup = (id) => allGroups().find((g) => g.id === id) || null;
   const allCards = () => { const g = activeGroupObj(); return g ? g.cards : []; };
   const activeCards = () => allCards().filter((c) => !c.trashed).sort(posCmp);
   const trashedCards = () => allCards().filter((c) => c.trashed);
@@ -370,6 +445,21 @@
       if (it) return it;
     }
     return null;
+  }
+
+  // Aktiv gruppe settes alltid via denne, så per-univers-minnet (activeGroups)
+  // holdes i takt og man lander på samme gruppe når man bytter tilbake.
+  function setActiveGroup(id) {
+    state.activeGroup = id || null;
+    if (state.activeUniverse) state.activeGroups[state.activeUniverse] = state.activeGroup;
+  }
+  function setActiveUniverse(id) {
+    state.activeUniverse = id || null;
+    const vis = visibleGroups();
+    const remembered = id ? state.activeGroups[id] : null;
+    setActiveGroup(remembered && vis.some((g) => g.id === remembered)
+      ? remembered
+      : (vis[0] ? vis[0].id : null));
   }
 
   /* ---------------- Filter (K / P / KP) ----------------
@@ -408,14 +498,16 @@
   }
 
   /* ---------------- Render ---------------- */
+  // Lister-søppelkassen vises kun når den har innhold (samme logikk som de andre).
   function updateTrashCount() {
     const n = trashedCards().length;
     trashCount.textContent = n;
-    trashBtn.classList.toggle('has-items', n > 0);
+    trashBtn.hidden = n === 0;
   }
 
   function render() {
     renderGroups();
+    renderUniverses();
     updateTrashCount();
     renderFilterSwitches();
     updateToolbarState();
@@ -423,14 +515,15 @@
     board.innerHTML = '';
     const group = activeGroupObj();
 
-    // Ingen grupper i det hele tatt.
+    // Ingen aktiv gruppe (evt. heller ikke noe univers — «＋ Gruppe» ordner begge).
     if (!group) {
       board.classList.add('empty');
       const es = document.createElement('div');
       es.className = 'empty-state';
       es.innerHTML = '<div class="big">📂</div><p>Ingen grupper ennå.</p>' +
-        '<p>Trykk «＋» for å lage en gruppe.</p>';
+        '<p>Trykk «＋ Gruppe» for å komme i gang.</p>';
       board.appendChild(es);
+      fixBoardBottomGap();
       save();
       return;
     }
@@ -448,50 +541,48 @@
       if (active.length === 0) {
         const big = document.createElement('div'); big.className = 'big'; big.textContent = '🗒️';
         const p1 = document.createElement('p'); p1.textContent = 'Ingen lister i «' + group.name + '» ennå.';
-        const p2 = document.createElement('p'); p2.textContent = 'Trykk «Ny liste» for å komme i gang.';
+        const p2 = document.createElement('p'); p2.textContent = 'Trykk «＋ Liste» for å komme i gang.';
         es.append(big, p1, p2);
       } else {
         es.innerHTML = '<div class="big">🫙</div><p>Ingen lister passer filteret.</p>' +
           '<p>Skru på K, P eller KP for å se flere.</p>';
       }
       board.appendChild(es);
+      fixBoardBottomGap();
       save();
       return;
     }
 
     board.classList.remove('empty');
     cards.forEach((c) => board.appendChild(buildCard(c)));
+    fixBoardBottomGap();
     save();
   }
 
-  // «Ny liste» / «Papirkurv» gir bare mening med en aktiv gruppe.
+  // «＋ Liste» gir bare mening med en aktiv gruppe. («＋ Gruppe» virker alltid:
+  // finnes ikke noe univers, opprettes standard-universet i farten.)
   function updateToolbarState() {
-    const has = !!activeGroupObj();
-    addCardBtn.disabled = !has;
-    trashBtn.disabled = !has;
+    addCardBtn.disabled = !activeGroupObj();
   }
 
-  /* ---------------- Grupper (header) ---------------- */
-  // Tegn gruppekortene inn i headeren (foran inline-«＋»-knappen). Kun ikke-slettede
-  // grupper vises; slettede ligger i gruppe-søppelkassen (helt til venstre).
+  /* ---------------- Grupper (gruppemenyen) ---------------- */
+  // Tegn gruppekortene til det aktive universet inn i gruppelista. Kun
+  // ikke-slettede grupper vises; slettede ligger i gruppe-søppelkassen
+  // (i knapperaden over kortene).
   function renderGroups() {
     [...groupsBar.querySelectorAll('.group-card')].forEach((el) => el.remove());
     const vis = visibleGroups();
     // Gruppekort får farge etter samme posisjonssystem som listekort.
     vis.forEach((g, i) => { g.color = colorForIndex(i); });
-    vis.forEach((g) => groupsBar.insertBefore(buildGroupCard(g), addGroupBtn));
+    vis.forEach((g) => groupsBar.appendChild(buildGroupCard(g)));
     updateGroupsTrash();
-    updateGroupsOverflow();
   }
 
-  // Gruppe-søppelkassen (helt til venstre i headeren): vises kun når det faktisk
-  // ligger grupper i den. Kun søppelkasse-emoji + antall (ingen tekst-etikett).
+  // Gruppe-søppelkassen (per univers): vises kun når det ligger grupper i den.
   function updateGroupsTrash() {
     const n = trashedGroups().length;
     groupsTrashCount.textContent = n;
-    groupsTrashCountPinned.textContent = n;
-    groupsTrash.hidden = n === 0;
-    appHeader.classList.toggle('has-trashed-groups', n > 0);
+    groupsTrashBtn.hidden = n === 0;
   }
 
   function buildGroupCard(groupData) {
@@ -517,7 +608,7 @@
     const activate = () => {
       if (nameEl.dataset.editing === '1') return;
       if (groupData.id !== state.activeGroup) {
-        state.activeGroup = groupData.id;
+        setActiveGroup(groupData.id);
         render();
       } else {
         startGroupRename(nameEl, groupData);
@@ -562,15 +653,29 @@
     }, { cls: 'group-edit', autosize: true });
   }
 
+  // Finnes ikke noe aktivt univers (helt fersk / alt slettet), opprettes et nytt
+  // standard-univers i farten — «＋ Gruppe» skal alltid bare virke. (Ny tilfeldig
+  // id, ikke den faste migrerings-id-en, så en evt. gravstein ikke dreper det.)
+  function ensureUniverse() {
+    let u = activeUniverseObj();
+    if (u) return u;
+    u = makeUniverse(DEFAULT_UNI.name);
+    u.pos = state.universes.length ? maxPos(state.universes) + 1 : 0;
+    stampContent(u);
+    stampPos(u);
+    state.universes.push(u);
+    setActiveUniverse(u.id);
+    return u;
+  }
+
   function addGroup() {
-    const g = makeGroup('Ny gruppe');
-    let maxP = 0;
-    state.groups.forEach((x) => { maxP = Math.max(maxP, x.pos || 0); });
-    g.pos = state.groups.length ? maxP + 1 : 0;
+    const u = ensureUniverse();
+    const g = makeGroup('Ny gruppe', null, u.id);
+    g.pos = u.groups.length ? maxPos(u.groups) + 1 : 0;
     stampContent(g);
     stampPos(g);
-    state.groups.push(g);
-    state.activeGroup = g.id;
+    u.groups.push(g);
+    setActiveGroup(g.id);
     render();
     // Rull den nye gruppen inn i syne og start redigering av navnet.
     const el = groupsBar.querySelector('.group-card[data-id="' + g.id + '"]');
@@ -587,25 +692,26 @@
     stampContent(groupData);
     if (state.activeGroup === groupData.id) {
       const first = visibleGroups()[0];
-      state.activeGroup = first ? first.id : null;
+      setActiveGroup(first ? first.id : null);
     }
     render();
     save();
   }
 
-  // Tøm gruppe-søppelkassen permanent: gravsteiner for hver slettet gruppe + alle
-  // dens lister + elementer (hindrer gjenoppstandelse), og fjern fra state.
+  // Tøm gruppe-søppelkassen (aktivt univers) permanent: gravsteiner for hver
+  // slettet gruppe + alle dens lister + elementer (hindrer gjenoppstandelse).
   function emptyGroupsTrash() {
+    const u = activeUniverseObj();
     const trash = trashedGroups();
-    if (!trash.length) return;
+    if (!u || !trash.length) return;
     trash.forEach((g) => {
       state._tomb.groups[g.id] = tick();
       g.cards.forEach((c) => {
         state._tomb.cards[c.id] = tick();
         c.items.forEach((it) => { state._tomb.items[it.id] = tick(); });
       });
-      const idx = state.groups.indexOf(g);
-      if (idx > -1) state.groups.splice(idx, 1);
+      const idx = u.groups.indexOf(g);
+      if (idx > -1) u.groups.splice(idx, 1);
     });
     render();
     save();
@@ -695,7 +801,7 @@
       const btn = document.createElement('button');
       btn.type = 'button';
       btn.className = 'trashcan item-trash-btn';
-      btn.title = 'Slettede elementer – trykk for å åpne, hold inne for å tømme';
+      btn.title = 'Slettede elementer – trykk for å åpne, hold og sveip for å tømme';
       btn.setAttribute('aria-label', 'Slettede elementer');
       const icon = document.createElement('span');
       icon.className = 'trashcan-icon';
@@ -1594,7 +1700,6 @@
       g.pos = between(prevG ? prevG.pos : null, nextG ? nextG.pos : null);
       stampPos(g);
     }
-    updateGroupsOverflow();
     save();
   }
 
@@ -1644,54 +1749,55 @@
     groupScrollSpeed = 0;
   }
 
-  /* ------- Overflow: faste søppelkasse- + «＋»-soner rundt scroll-feltet -------
-     Ved overflow ligger søppelkassen og «＋» som faste soner UTENFOR scroll-feltet
-     (desktop: topp/bunn; mobil: venstre/høyre); gruppelista er klemt mellom dem og
-     oppløses i innsidefadene.
-     • Mobil (rad): behovsbredden måles flip-flop-fritt fra kortenes intrinsiske
-       bredder + faste sone-/fade-bredder mot viewport (uavhengig av overflow-klassen,
-       som ellers endrer bar-bredden). MÅ holdes i takt med CSS.
-     • Desktop (kolonne): måles i NØYTRAL tilstand (uten klassen) via scrollHeight vs
-       clientHeight — også flip-flop-fritt siden bar-marginene bare gjelder med klassen. */
-  const FADE_W = 14, TRASH_ZONE_W = 54, PLUS_ZONE_W = 46, GROUP_GAP = 8;
-  function updateGroupsOverflow() {
-    const mobile = window.matchMedia('(max-width: 560px)').matches;
-    if (mobile) {
-      const cards = [...groupsBar.querySelectorAll('.group-card')];
-      let need = 2 * FADE_W + PLUS_ZONE_W;                 // padding begge sider + «＋»-sone
-      if (trashedGroups().length) need += TRASH_ZONE_W;    // søppelkasse-sone (kun med innhold)
-      cards.forEach((c) => { need += c.getBoundingClientRect().width; });
-      need += Math.max(0, cards.length - 1) * GROUP_GAP;  // mellomrom mellom kort
-      appHeader.classList.toggle('groups-overflow', need > appHeader.clientWidth + 1);
-      return;
-    }
-    // Desktop: mål naturlig (uten klassen) om kolonnen er høyere enn synlig område.
-    appHeader.classList.remove('groups-overflow');
-    const overflow = groupsBar.scrollHeight > groupsBar.clientHeight + 1;
-    appHeader.classList.toggle('groups-overflow', overflow);
-  }
-  window.addEventListener('resize', updateGroupsOverflow);
-
-  // Faste (position: fixed) header + verktøylinje er ute av flyten, så innholdet må
-  // få riktig klaring: mobil bruker --header-h (rad-høyden) + --toolbar-h, desktop
-  // bruker --toolbar-h (venstre-kolonnen klareres av margin-left i CSS). Begge måles
-  // og eksponeres som CSS-variabler (høydene varierer med ombrekking / innhold).
+  // Faste (position: fixed) header + verktøylinje er ute av flyten, så board-et må
+  // få nøyaktig klaring: mobil = gruppemeny-høyde + verktøylinje-høyde, desktop =
+  // kun verktøylinje-høyde (venstre-kolonnen klareres av margin-left i CSS).
+  // --header-h eksponeres uansett (brukes av .toolbar sin egen topp-posisjon på
+  // mobil). Selve padding-top for board-et regnes ut HER (ikke i en CSS calc())
+  // og adderer --board-gap slik at avstanden ned til første kort blir
+  // PIKSELNØYAKTIG lik gapet ellers (venstre/høyre/bunn-padding, kolonne-gap,
+  // kort-til-kort). --board-gap er en clamp()/vw-verdi — å lese den direkte fra
+  // :root ville gitt oss selve uttrykket (som streng), ikke tallet den løses til;
+  // vi leser den derfor fra board sin FAKTISK OPPLØSTE column-gap i stedet.
   function syncHeaderHeight() {
     const root = document.documentElement.style;
-    root.setProperty('--header-h', appHeader.getBoundingClientRect().height + 'px');
-    if (toolbarEl) root.setProperty('--toolbar-h', toolbarEl.getBoundingClientRect().height + 'px');
+    const headerH = appHeader.getBoundingClientRect().height;
+    const toolbarH = toolbarEl ? toolbarEl.getBoundingClientRect().height : 0;
+    root.setProperty('--header-h', headerH + 'px');
+    const gap = parseFloat(getComputedStyle(board).columnGap) || 0;
+    const mobile = window.matchMedia('(max-width: 560px)').matches;
+    const topPad = (mobile ? headerH + toolbarH : toolbarH) + gap;
+    root.setProperty('--board-pad-top', topPad + 'px');
   }
   if (typeof ResizeObserver === 'function') {
     const ro = new ResizeObserver(syncHeaderHeight);
     ro.observe(appHeader);
     if (toolbarEl) ro.observe(toolbarEl);
-  } else {
-    window.addEventListener('resize', syncHeaderHeight);
+  }
+  window.addEventListener('resize', () => { syncHeaderHeight(); fixBoardBottomGap(); });
+
+  // Bunn-luft etter siste kort — uansett hvilken kolonne som ender opp høyest.
+  // Kortenes EGEN margin-bottom (--board-gap) er upålitelig her: ved balanserte
+  // kolonner (column-fill: balance, default) kan nettlesere se helt bort fra
+  // siste korts margin når board-ets auto-høyde regnes ut (bidrar 0 i noen
+  // kolonnefordelinger, hele verdien i andre — f.eks. når alt havner i én
+  // kolonne). Vi måler derfor det FAKTISKE utfallet (nullstill → tving reflow →
+  // les av) og legger PÅ akkurat nok padding til at totalen alltid blir
+  // nøyaktig --board-gap, aldri mer og aldri mindre.
+  function fixBoardBottomGap() {
+    const cards = board.querySelectorAll('.card');
+    if (!cards.length) { board.style.paddingBottom = '0px'; return; }
+    board.style.paddingBottom = '0px';
+    const boardBottom = board.getBoundingClientRect().bottom; // tvinger reflow
+    let lastBottom = 0;
+    cards.forEach((c) => { lastBottom = Math.max(lastBottom, c.getBoundingClientRect().bottom); });
+    const gap = parseFloat(getComputedStyle(board).columnGap) || 0;
+    const natural = boardBottom - lastBottom;
+    board.style.paddingBottom = Math.max(0, gap - natural) + 'px';
   }
 
   /* ---------------- Topp-knapper ---------------- */
   addGroupBtn.addEventListener('click', addGroup);
-  addGroupPinned.addEventListener('click', addGroup);
 
   addCardBtn.addEventListener('click', () => {
     const g = activeGroupObj();
@@ -1727,20 +1833,27 @@
   });
 
   /* ============================================================
-     SØPPELKASSER (grupper / lister / elementer)
+     SØPPELKASSER (universer / grupper / lister / elementer)
      ------------------------------------------------------------
-     Tre nivåer, samme oppførsel. Hver søppelkasse-knapp viser kun en
-     søppelkasse-emoji + antall (ingen tekst-etikett):
-       • grupper   → helt til venstre i headeren (kun når den har innhold).
-       • lister    → i verktøylinja (per aktiv gruppe).
-       • elementer → midtstilt nederst i hvert listekort (kun når den har innhold).
+     Fire nivåer, samme knapp (hvit beholder, emoji + antall i grå
+     sirkel) og samme oppførsel; alle vises KUN når de har innhold:
+       • universer → i meny-modalen (☰), ved siden av «＋ Univers».
+       • grupper   → i gruppemenyens knapperad, ved siden av «＋ Gruppe».
+       • lister    → i listemenyens knapperad, ved siden av «＋ Liste».
+       • elementer → midtstilt nederst i hvert listekort.
      Interaksjon (attachTrashHold): kort trykk åpner modalen (gjenopprett/tøm
      derfra); klikk-og-hold utvider knappen til et sveipefelt («Sveip for å tømme
      →») der man sveiper mot høyre for å tømme (se attachTrashHold). */
 
-  /* ---------- Felles modal (deles av alle tre nivåer) ---------- */
+  /* ---------- Felles modal (deles av alle fire nivåer) ---------- */
   let modalCfg = null;
   let modalOpenedAt = 0; // tid modalen ble åpnet — ignorér overlay-klikk rett etter
+
+  // To modaler kan være åpne samtidig (søppelkassen over menyen); body låses
+  // så lenge minst én er åpen.
+  function updateModalOpenClass() {
+    document.body.classList.toggle('modal-open', !trashModal.hidden || !menuModal.hidden);
+  }
 
   function showTrashModal(cfg) {
     modalCfg = cfg;
@@ -1749,7 +1862,7 @@
     renderTrashModalBody();
     trashModal.hidden = false;
     modalOpenedAt = Date.now();
-    document.body.classList.add('modal-open');
+    updateModalOpenClass();
   }
   function renderTrashModalBody() {
     if (!modalCfg) return;
@@ -1794,20 +1907,42 @@
   }
   function closeTrash() {
     trashModal.hidden = true;
-    document.body.classList.remove('modal-open');
+    updateModalOpenClass();
     modalCfg = null;
   }
 
-  const HOLD_NOTE = 'Gjenopprett enkeltvis, eller tøm for å slette permanent. ' +
-    'Tips: hold inne søppelkasse-knappen i 3 sekunder for å tømme direkte.';
+  const TRASH_NOTE = 'Gjenopprett enkeltvis, eller tøm for å slette permanent. ' +
+    'Tips: hold inne søppelkasse-knappen og sveip mot høyre for å tømme direkte.';
+  const groupWord = (n) => n + ' ' + (n === 1 ? 'gruppe' : 'grupper');
   const listWord = (n) => n + ' ' + (n === 1 ? 'liste' : 'lister');
   const itemWord = (n) => n + ' ' + (n === 1 ? 'element' : 'elementer');
 
-  /* ---------- De tre søppelkassene ---------- */
+  /* ---------- De fire søppelkassene ---------- */
+  function openUniversesTrash() {
+    showTrashModal({
+      title: '🗑️ Slettede universer',
+      note: TRASH_NOTE,
+      emptyMsg: 'Ingen slettede universer.',
+      rows: () => trashedUniverses().sort(posCmp).map((u) => ({
+        color: u.color || colorForId(u.id),
+        name: u.name,
+        meta: groupWord(u.groups.filter((g) => !g.trashed).length),
+        restore: () => {
+          u.trashed = false;
+          stampContent(u);
+          if (!activeUniverseObj()) setActiveUniverse(u.id); // ingen aktiv? aktivér den gjenopprettede
+          render();
+          save();
+        },
+      })),
+      empty: emptyUniversesTrash,
+    });
+  }
+
   function openGroupsTrash() {
     showTrashModal({
       title: '🗑️ Slettede grupper',
-      note: HOLD_NOTE,
+      note: TRASH_NOTE,
       emptyMsg: 'Ingen slettede grupper.',
       rows: () => trashedGroups().sort(posCmp).map((g) => ({
         color: g.color || colorForId(g.id),
@@ -1816,7 +1951,7 @@
         restore: () => {
           g.trashed = false;
           stampContent(g);
-          if (!activeGroupObj()) state.activeGroup = g.id; // ingen aktiv? aktivér den gjenopprettede
+          if (!activeGroupObj()) setActiveGroup(g.id); // ingen aktiv? aktivér den gjenopprettede
           render();
           save();
         },
@@ -1830,7 +1965,7 @@
     if (!g) return; // lister-søppelkassen er per gruppe
     showTrashModal({
       title: '🗑️ Slettede lister – ' + g.name,
-      note: HOLD_NOTE,
+      note: TRASH_NOTE,
       emptyMsg: 'Ingen slettede lister.',
       rows: () => trashedCards().map((c) => ({
         color: c.color || colorForId(c.id),
@@ -1845,7 +1980,7 @@
   function openItemsTrash(cardData) {
     showTrashModal({
       title: '🗑️ Slettede elementer – ' + cardData.title,
-      note: HOLD_NOTE,
+      note: TRASH_NOTE,
       emptyMsg: 'Ingen slettede elementer.',
       rows: () => trashedItemsOf(cardData).sort(posCmp).map((it) => ({
         name: it.text,
@@ -1865,6 +2000,27 @@
       c.items.forEach((it) => { state._tomb.items[it.id] = tick(); });
       const i = arr.indexOf(c);
       if (i > -1) arr.splice(i, 1);
+    });
+    render();
+    save();
+  }
+
+  // Tøm univers-søppelkassen permanent: gravsteiner for hvert slettet univers +
+  // alle dets grupper, lister og elementer (hindrer gjenoppstandelse).
+  function emptyUniversesTrash() {
+    const trash = trashedUniverses();
+    if (!trash.length) return;
+    trash.forEach((u) => {
+      state._tomb.universes[u.id] = tick();
+      u.groups.forEach((g) => {
+        state._tomb.groups[g.id] = tick();
+        g.cards.forEach((c) => {
+          state._tomb.cards[c.id] = tick();
+          c.items.forEach((it) => { state._tomb.items[it.id] = tick(); });
+        });
+      });
+      const i = state.universes.indexOf(u);
+      if (i > -1) state.universes.splice(i, 1);
     });
     render();
     save();
@@ -2007,19 +2163,22 @@
     });
   }
 
-  /* ---------- Kobling: faste knapper (lister + grupper) + modal-kontroller ---------- */
+  /* ---------- Kobling: faste knapper (universer/grupper/lister) + modal-kontroller ---------- */
   attachTrashHold(trashBtn, {
     count: () => trashedCards().length,
     open: openCardsTrash,
     empty: emptyCardsTrash,
   });
-  const groupsTrashApi = {
+  attachTrashHold(groupsTrashBtn, {
     count: () => trashedGroups().length,
     open: openGroupsTrash,
     empty: emptyGroupsTrash,
-  };
-  attachTrashHold(groupsTrashBtn, groupsTrashApi);       // inline (desktop / uten overflow)
-  attachTrashHold(groupsTrashPinnedBtn, groupsTrashApi); // fast sone (mobil-overflow)
+  });
+  attachTrashHold(uniTrashBtn, {
+    count: () => trashedUniverses().length,
+    open: openUniversesTrash,
+    empty: emptyUniversesTrash,
+  });
 
   trashClose.addEventListener('click', closeTrash);
   // Klikk på selve overlay-en (utenfor modal-boksen) lukker — men ignorér det
@@ -2029,8 +2188,13 @@
   trashModal.addEventListener('click', (ev) => {
     if (ev.target === trashModal && Date.now() - modalOpenedAt > 450) closeTrash();
   });
+  // Escape lukker øverste modal først (søppelkassen kan ligge over menyen) —
+  // men ikke midt i en inline-redigering (der avbryter Escape bare redigeringen).
   document.addEventListener('keydown', (ev) => {
-    if (ev.key === 'Escape' && !trashModal.hidden) closeTrash();
+    if (ev.key !== 'Escape') return;
+    if (ev.target && ev.target.classList && ev.target.classList.contains('edit-input')) return;
+    if (!trashModal.hidden) closeTrash();
+    else if (!menuModal.hidden) closeMenu();
   });
   trashEmptyBtn.addEventListener('click', () => {
     if (!modalCfg || !modalCfg.rows().length) return;
@@ -2038,6 +2202,135 @@
     modalCfg.empty();
     renderTrashModalBody();
   });
+
+  /* ============================================================
+     MENY-MODAL (☰) + UNIVERSER
+     ------------------------------------------------------------
+     Menyknappen (☰ i gruppemenyen på mobil / listemenyen på desktop) åpner en
+     modal med «Logg ut» og univers-administrasjon. Universer er helt uavhengige
+     områder (Univers > Gruppe > Liste > Element); de byttes/opprettes/omdøpes/
+     slettes her, og har sin egen søppelkasse (samme oppførsel som de andre).
+     Grupper kan aldri flyttes på tvers av universer. */
+  function openMenu() {
+    renderUniverses();
+    menuModal.hidden = false;
+    updateModalOpenClass();
+  }
+  function closeMenu() {
+    menuModal.hidden = true;
+    updateModalOpenClass();
+  }
+  menuBtn.addEventListener('click', openMenu);
+  menuClose.addEventListener('click', closeMenu);
+  menuModal.addEventListener('click', (ev) => {
+    if (ev.target === menuModal) closeMenu();
+  });
+
+  // Univers-søppelkassen (i menyen): vises kun når den har innhold.
+  function updateUniversesTrash() {
+    const n = trashedUniverses().length;
+    uniTrashCount.textContent = n;
+    uniTrashBtn.hidden = n === 0;
+  }
+
+  // Tegn univers-radene i menyen. Kalles fra render() (så fjern-endringer
+  // reflekteres straks også mens menyen er åpen) og ved åpning av menyen.
+  function renderUniverses() {
+    updateUniversesTrash();
+    uniList.innerHTML = '';
+    const vis = visibleUniverses();
+    // Samme posisjonsbaserte fargesystem som gruppe-/listekort.
+    vis.forEach((u, i) => { u.color = colorForIndex(i); });
+    if (!vis.length) {
+      const p = document.createElement('p');
+      p.className = 'uni-empty';
+      p.textContent = 'Ingen universer ennå.';
+      uniList.appendChild(p);
+      return;
+    }
+    vis.forEach((u) => uniList.appendChild(buildUniverseRow(u)));
+  }
+
+  function buildUniverseRow(u) {
+    const el = uniTpl.content.firstElementChild.cloneNode(true);
+    el.dataset.id = u.id;
+    const isActive = u.id === state.activeUniverse;
+    el.classList.toggle('active', isActive);
+    el.setAttribute('aria-pressed', isActive ? 'true' : 'false');
+
+    const base = u.color || colorForId(u.id);
+    el.style.setProperty('--g-bg', base);
+    el.style.setProperty('--g-accent', darken(base, 0.34));
+
+    const nameEl = el.querySelector('.uni-name');
+    nameEl.textContent = u.name;
+    el.querySelector('.uni-count').textContent = groupWord(u.groups.filter((g) => !g.trashed).length);
+
+    // Bytt til universet (og lukk menyen — man bytter kontekst og går videre);
+    // er det allerede aktivt → rediger navnet (samme mønster som gruppekort).
+    const activate = () => {
+      if (nameEl.dataset.editing === '1') return;
+      if (u.id !== state.activeUniverse) {
+        setActiveUniverse(u.id);
+        render();
+        save();
+        closeMenu();
+      } else {
+        startUniverseRename(nameEl, u);
+      }
+    };
+    el.addEventListener('click', (ev) => {
+      if (ev.target.closest('.uni-delete')) return;
+      activate();
+    });
+    el.addEventListener('keydown', (ev) => {
+      if (ev.target !== el) return;
+      if (ev.key === 'Enter' || ev.key === ' ' || ev.key === 'Spacebar') {
+        ev.preventDefault();
+        activate();
+      }
+    });
+    el.querySelector('.uni-delete').addEventListener('click', (ev) => {
+      ev.stopPropagation();
+      deleteUniverse(u);
+    });
+    return el;
+  }
+
+  function startUniverseRename(nameEl, u) {
+    editText(nameEl, u.name, (val) => {
+      u.name = val || 'Uten navn';
+      stampContent(u);
+      save();
+      renderUniverses();
+    }, { cls: 'chip-edit', autosize: true });
+  }
+
+  function addUniverse() {
+    const u = makeUniverse('Nytt univers');
+    u.pos = state.universes.length ? maxPos(state.universes) + 1 : 0;
+    stampContent(u);
+    stampPos(u);
+    state.universes.push(u);
+    setActiveUniverse(u.id);
+    render(); // tegner også univers-radene (nytt univers er tomt → tomt board)
+    const nameEl = uniList.querySelector('.uni-row[data-id="' + u.id + '"] .uni-name');
+    if (nameEl) startUniverseRename(nameEl, u);
+  }
+  addUniBtn.addEventListener('click', addUniverse);
+
+  // Slett et univers → legg i univers-søppelkassen (trashed-flagg; gjenopprettbar).
+  // Permanent sletting (med gravsteiner) skjer først når søppelkassen tømmes.
+  function deleteUniverse(u) {
+    u.trashed = true;
+    stampContent(u);
+    if (state.activeUniverse === u.id) {
+      const first = visibleUniverses()[0];
+      setActiveUniverse(first ? first.id : null);
+    }
+    render();
+    save();
+  }
 
   /* ============================================================
      SANNTIDS-SYNK (Supabase) MED FELT-NIVÅ FLETTING
@@ -2112,7 +2405,7 @@
   function canonical(doc) { return JSON.stringify(canonValue(doc)); }
 
   /* ---------- Doc <-> state ---------- */
-  // Synk-doc: kun det som deles (ikke activeGroup, som er per enhet).
+  // Synk-doc: kun det som deles (ikke activeUniverse/activeGroup, som er per enhet).
   function cleanItem(it, homeId) {
     return {
       id: it.id, text: it.text, home: it.home || homeId, trashed: !!it.trashed,
@@ -2132,26 +2425,38 @@
   }
   function cleanGroup(g) {
     return {
-      id: g.id, name: g.name, trashed: !!g.trashed,
+      id: g.id, uni: g.uni || null, name: g.name, trashed: !!g.trashed,
       ts: g.ts || 0, org: g.org || '',
       pos: g.pos || 0, posTs: g.posTs || 0, posOrg: g.posOrg || '',
     };
   }
-  // Synk-doc er flatt: tre parallelle tabeller (grupper/lister/elementer) med
-  // forelder-peker (kort.group, element.home). Rekkefølge-uavhengig likhet via
-  // canonical(); activeGroup deles ikke (per enhet).
+  function cleanUniverse(u) {
+    return {
+      id: u.id, name: u.name, trashed: !!u.trashed,
+      ts: u.ts || 0, org: u.org || '',
+      pos: u.pos || 0, posTs: u.posTs || 0, posOrg: u.posOrg || '',
+    };
+  }
+  // Synk-doc er flatt: fire parallelle tabeller (universer/grupper/lister/
+  // elementer) med forelder-peker (gruppe.uni, kort.group, element.home).
+  // Rekkefølge-uavhengig likhet via canonical(); activeUniverse/activeGroup
+  // deles ikke (per enhet).
   function docFromState() {
-    const groups = [], cards = [], items = [];
-    state.groups.forEach((g) => {
-      groups.push(cleanGroup(g));
-      (g.cards || []).forEach((c) => {
-        cards.push(cleanCard(Object.assign({}, c, { group: c.group || g.id })));
-        (c.items || []).forEach((it) => items.push(cleanItem(it, c.id)));
+    const universes = [], groups = [], cards = [], items = [];
+    state.universes.forEach((u) => {
+      universes.push(cleanUniverse(u));
+      (u.groups || []).forEach((g) => {
+        groups.push(cleanGroup(Object.assign({}, g, { uni: g.uni || u.id })));
+        (g.cards || []).forEach((c) => {
+          cards.push(cleanCard(Object.assign({}, c, { group: c.group || g.id })));
+          (c.items || []).forEach((it) => items.push(cleanItem(it, c.id)));
+        });
       });
     });
     return {
-      groups, cards, items,
+      universes, groups, cards, items,
       tomb: {
+        universes: Object.assign({}, state._tomb.universes),
         groups: Object.assign({}, state._tomb.groups),
         cards: Object.assign({}, state._tomb.cards),
         items: Object.assign({}, state._tomb.items),
@@ -2160,13 +2465,23 @@
     };
   }
 
-  // Skriv et (flettet) flatt doc inn i state (nøstet igjen), behold activeGroup, tegn på nytt.
+  // Skriv et (flettet) flatt doc inn i state (nøstet igjen), behold
+  // activeUniverse/activeGroup (validert), tegn på nytt.
   function applyDoc(doc) {
     applyingRemote = true;
     try {
-      const groups = (doc.groups || []).map((g) => Object.assign(cleanGroup(g), { cards: [] }));
-      const gById = new Map(groups.map((g) => [g.id, g]));
+      const universes = (doc.universes || []).map((u) => Object.assign(cleanUniverse(u), { groups: [] }));
+      const uById = new Map(universes.map((u) => [u.id, u]));
+      const gById = new Map();
       const cById = new Map();
+      (doc.groups || []).forEach((raw) => {
+        const g = cleanGroup(raw);
+        const parent = uById.get(g.uni);
+        if (!parent) return;      // foreldreløs gruppe → dropp
+        g.cards = [];
+        gById.set(g.id, g);
+        parent.groups.push(g);
+      });
       (doc.cards || []).forEach((raw) => {
         const c = cleanCard(raw);
         const parent = gById.get(c.group);
@@ -2180,21 +2495,22 @@
         const parent = cById.get(it.home);
         if (parent) parent.items.push(it); // foreldreløst element → dropp
       });
-      groups.sort(posCmp);
-      groups.forEach((g) => { g.cards.sort(posCmp); g.cards.forEach((c) => c.items.sort(posCmp)); });
+      universes.sort(posCmp);
+      universes.forEach((u) => {
+        u.groups.sort(posCmp);
+        u.groups.forEach((g) => { g.cards.sort(posCmp); g.cards.forEach((c) => c.items.sort(posCmp)); });
+      });
 
-      state.groups = groups;
+      state.universes = universes;
       state._tomb = {
+        universes: Object.assign({}, (doc.tomb && doc.tomb.universes) || {}),
         groups: Object.assign({}, (doc.tomb && doc.tomb.groups) || {}),
         cards: Object.assign({}, (doc.tomb && doc.tomb.cards) || {}),
         items: Object.assign({}, (doc.tomb && doc.tomb.items) || {}),
       };
       state._hlc = doc.hlc || 0;
       observeTs(doc.hlc);
-      if (!state.groups.some((g) => g.id === state.activeGroup && !g.trashed)) {
-        const vis = visibleGroups();
-        state.activeGroup = vis.length ? vis[0].id : null;
-      }
+      validateActive(state);
       render();
     } finally {
       applyingRemote = false;
@@ -2234,25 +2550,46 @@
     const content = newer(a.ts, a.org, b.ts, b.org) ? a : b;
     const posw = newer(a.posTs, a.posOrg, b.posTs, b.posOrg) ? a : b;
     return {
+      id: a.id,
+      uni: posw.uni != null ? posw.uni : (a.uni || b.uni || null), // forelder følger posisjon
+      name: content.name, trashed: !!content.trashed,
+      ts: content.ts || 0, org: content.org || '',
+      pos: posw.pos || 0, posTs: posw.posTs || 0, posOrg: posw.posOrg || '',
+    };
+  }
+  function mergeUniverseScalar(a, b) {
+    const content = newer(a.ts, a.org, b.ts, b.org) ? a : b;
+    const posw = newer(a.posTs, a.posOrg, b.posTs, b.posOrg) ? a : b;
+    return {
       id: a.id, name: content.name, trashed: !!content.trashed,
       ts: content.ts || 0, org: content.org || '',
       pos: posw.pos || 0, posTs: posw.posTs || 0, posOrg: posw.posOrg || '',
     };
   }
   function mergeTomb(a, b) {
-    const out = { groups: {}, cards: {}, items: {} };
-    ['groups', 'cards', 'items'].forEach((k) => {
+    const out = { universes: {}, groups: {}, cards: {}, items: {} };
+    ['universes', 'groups', 'cards', 'items'].forEach((k) => {
       const ax = (a && a[k]) || {}, bx = (b && b[k]) || {};
       Object.keys(ax).forEach((id) => { out[k][id] = ax[id]; });
       Object.keys(bx).forEach((id) => { out[k][id] = Math.max(out[k][id] || 0, bx[id]); });
     });
     return out;
   }
-  // Flett to flate doc-er felt for felt. Grupper/lister/elementer flettes hver for
-  // seg på id (LWW per register); forelderløse (gruppe/kort borte) forkastes;
-  // gravlagte fjernes. Endringer på ulike entiteter/felter kolliderer aldri.
+  // Flett to flate doc-er felt for felt. Universer/grupper/lister/elementer
+  // flettes hver for seg på id (LWW per register); forelderløse (univers/gruppe/
+  // kort borte) forkastes; gravlagte fjernes. Endringer på ulike entiteter/
+  // felter kolliderer aldri.
   function mergeStates(a, b) {
     const tomb = mergeTomb(a.tomb, b.tomb);
+
+    const universes = new Map();
+    const addUniverses = (list) => (list || []).forEach((raw) => {
+      const u = cleanUniverse(raw);
+      const prev = universes.get(u.id);
+      universes.set(u.id, prev ? mergeUniverseScalar(prev, u) : u);
+    });
+    addUniverses(a.universes); addUniverses(b.universes);
+    universes.forEach((u, id) => { if (deadBy(tomb.universes[id], u.ts, u.posTs)) universes.delete(id); });
 
     const groups = new Map();
     const addGroups = (list) => (list || []).forEach((raw) => {
@@ -2262,6 +2599,7 @@
     });
     addGroups(a.groups); addGroups(b.groups);
     groups.forEach((g, id) => { if (deadBy(tomb.groups[id], g.ts, g.posTs)) groups.delete(id); });
+    groups.forEach((g, id) => { if (!universes.has(g.uni)) groups.delete(id); }); // foreldreløs gruppe
 
     const cards = new Map();
     const addCards = (list) => (list || []).forEach((raw) => {
@@ -2284,6 +2622,7 @@
     items.forEach((it, id) => { if (!cards.has(it.home)) items.delete(id); }); // foreldreløst element
 
     return {
+      universes: [...universes.values()],
       groups: [...groups.values()],
       cards: [...cards.values()],
       items: [...items.values()],
@@ -2291,18 +2630,31 @@
     };
   }
 
-  /* ---------- Migrering av gammel to-fane-form (fra databasen) ----------
-     Både gammel hel-tilstand (activeTab + evt. trash-arrays) og forrige synk-doc
-     ({tabs, tomb, hlc}) gjøres om til det flate gruppe-doc-et. To faste grupper
-     (Huskelister/Handlelister) med deterministiske id-er → alle enheter migrerer
-     likt. Bevarer gravsteiner uansett om de lå som _tomb (state) eller tomb (doc). */
+  /* ---------- Migrering av gamle former (fra databasen) ----------
+     Alle tidligere doc-former løftes til den flate univers-formen:
+       • to-fane-form (hel-tilstand ELLER forrige synk-doc med {tabs, …})
+         → to faste grupper (Huskelister/Handlelister) …
+       • flat gruppe-form ({groups, cards, items, …} uten universer)
+     … og i begge tilfeller pakkes gruppene inn i standard-universet
+     (uni-standard) med nøytrale registre (ts 0, org '') → alle enheter
+     migrerer identisk og fletting dedupliserer av seg selv. Bevarer
+     gravsteiner uansett om de lå som _tomb (state) eller tomb (doc). */
+  function defaultUniverseRow() {
+    return {
+      id: DEFAULT_UNI.id, name: DEFAULT_UNI.name, trashed: false,
+      ts: 0, org: '', pos: 0, posTs: 0, posOrg: '',
+    };
+  }
   function migrateBareState(s) {
     const src = s || {};
     const rawTomb = src._tomb || src.tomb || {};
-    const tomb = { groups: rawTomb.groups || {}, cards: rawTomb.cards || {}, items: rawTomb.items || {} };
+    const tomb = {
+      universes: rawTomb.universes || {},
+      groups: rawTomb.groups || {}, cards: rawTomb.cards || {}, items: rawTomb.items || {},
+    };
     const groups = [], cards = [], items = [];
     LEGACY_TABS.forEach((m, gi) => {
-      groups.push({ id: m.id, name: m.name, ts: 0, org: '', pos: gi, posTs: 0, posOrg: '' });
+      groups.push({ id: m.id, uni: DEFAULT_UNI.id, name: m.name, ts: 0, org: '', pos: gi, posTs: 0, posOrg: '' });
       const tab = (src.tabs && src.tabs[m.key]) || {};
       const list = Array.isArray(tab.cards) ? tab.cards.slice() : [];
       if (Array.isArray(tab.trash)) tab.trash.forEach((c) => list.push(Object.assign({}, c, { trashed: true })));
@@ -2311,7 +2663,7 @@
         (c.items || []).forEach((it, ii) => items.push(cleanItem(Object.assign({ pos: ii }, it), c.id)));
       });
     });
-    return { groups, cards, items, tomb, hlc: src._hlc || src.hlc || 0 };
+    return { universes: [defaultUniverseRow()], groups, cards, items, tomb, hlc: src._hlc || src.hlc || 0 };
   }
 
   /* ---------- RPC-innpakninger (tolerante for før/etter DB-migrering) ---------- */
@@ -2325,21 +2677,35 @@
       // Ny form: { data, version }
       return { data: data.data ? normalizeRemoteDoc(data.data) : null, version: data.version || 0 };
     }
-    if (data.tabs || data.groups) return { data: normalizeRemoteDoc(data), version: 0 }; // bar tilstand
+    if (data.tabs || data.groups || data.universes) return { data: normalizeRemoteDoc(data), version: 0 }; // bar tilstand
     return null;
   }
-  // Normaliser fjern-doc: gammel to-fane-form (hel-tilstand ELLER forrige synk-doc)
-  // migreres til flatt gruppe-doc; ny gruppe-form renses. Diskriminatoren er enkel:
-  // gammelt har `tabs`, nytt har `groups`.
+  // Normaliser fjern-doc: to-fane-form → migreres helt; flat gruppe-form (uten
+  // universer) → gruppene pakkes inn i standard-universet; ny univers-form →
+  // renses. Diskriminatorer: `tabs` (eldst), `universes` (nyest), ellers `groups`.
   function normalizeRemoteDoc(d) {
     if (!d || typeof d !== 'object') return migrateBareState(d || {});
     if (d.tabs) return migrateBareState(d);
     const tomb = {
+      universes: (d.tomb && d.tomb.universes) || {},
       groups: (d.tomb && d.tomb.groups) || {},
       cards: (d.tomb && d.tomb.cards) || {},
       items: (d.tomb && d.tomb.items) || {},
     };
+    if (!Array.isArray(d.universes)) {
+      // Forrige flate form: grupper uten univers-nivå → inn i standard-universet.
+      return {
+        universes: [defaultUniverseRow()],
+        groups: (Array.isArray(d.groups) ? d.groups : [])
+          .map((g) => cleanGroup(Object.assign({}, g, { uni: DEFAULT_UNI.id }))),
+        cards: (Array.isArray(d.cards) ? d.cards : []).map(cleanCard),
+        items: (Array.isArray(d.items) ? d.items : []).map((it) => cleanItem(it, it.home)),
+        tomb,
+        hlc: typeof d.hlc === 'number' ? d.hlc : 0,
+      };
+    }
     return {
+      universes: d.universes.map(cleanUniverse),
       groups: (Array.isArray(d.groups) ? d.groups : []).map(cleanGroup),
       cards: (Array.isArray(d.cards) ? d.cards : []).map(cleanCard),
       items: (Array.isArray(d.items) ? d.items : []).map((it) => cleanItem(it, it.home)),
@@ -2478,7 +2844,7 @@
     toastTimer = setTimeout(() => t.classList.remove('show'), 2200);
   }
 
-  /* ---------- Logg ut (erstatter den gamle Synk-knappen) ----------
+  /* ---------- Logg ut (i meny-modalen, ☰) ----------
      Synken går fortløpende i bakgrunnen; ingen egen synk-knapp trengs.
      Ved fjern-endringer vises et lite «oppdatert»-varsel (showToast). */
   logoutBtn.addEventListener('click', () => {
@@ -2750,6 +3116,7 @@
   // Eksponer for enkel feilsøking/testing
   window.__huskekurv = {
     state, render, logout, addGroup, deleteGroup,
+    addUniverse, deleteUniverse, setActiveUniverse, setActiveGroup, openMenu, closeMenu,
     // Synk-interne (for testing av fletting/synk):
     mergeStates, canonical, docFromState, applyDoc, syncCycle, normalizeRemoteDoc, migrateBareState,
     get syncCode() { return syncCode; },
