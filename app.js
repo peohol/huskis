@@ -523,6 +523,7 @@
       es.innerHTML = '<div class="big">📂</div><p>Ingen grupper ennå.</p>' +
         '<p>Trykk «＋ Gruppe» for å komme i gang.</p>';
       board.appendChild(es);
+      fixBoardBottomGap();
       save();
       return;
     }
@@ -547,12 +548,14 @@
           '<p>Skru på K, P eller KP for å se flere.</p>';
       }
       board.appendChild(es);
+      fixBoardBottomGap();
       save();
       return;
     }
 
     board.classList.remove('empty');
     cards.forEach((c) => board.appendChild(buildCard(c)));
+    fixBoardBottomGap();
     save();
   }
 
@@ -1746,21 +1749,51 @@
     groupScrollSpeed = 0;
   }
 
-  // Faste (position: fixed) header + verktøylinje er ute av flyten, så innholdet må
-  // få riktig klaring: mobil bruker --header-h (panel-høyden) + --toolbar-h, desktop
-  // bruker --toolbar-h (venstre-kolonnen klareres av margin-left i CSS). Begge måles
-  // og eksponeres som CSS-variabler (høydene varierer med ombrekking / innhold).
+  // Faste (position: fixed) header + verktøylinje er ute av flyten, så board-et må
+  // få nøyaktig klaring: mobil = gruppemeny-høyde + verktøylinje-høyde, desktop =
+  // kun verktøylinje-høyde (venstre-kolonnen klareres av margin-left i CSS).
+  // --header-h eksponeres uansett (brukes av .toolbar sin egen topp-posisjon på
+  // mobil). Selve padding-top for board-et regnes ut HER (ikke i en CSS calc())
+  // og adderer --board-gap slik at avstanden ned til første kort blir
+  // PIKSELNØYAKTIG lik gapet ellers (venstre/høyre/bunn-padding, kolonne-gap,
+  // kort-til-kort). --board-gap er en clamp()/vw-verdi — å lese den direkte fra
+  // :root ville gitt oss selve uttrykket (som streng), ikke tallet den løses til;
+  // vi leser den derfor fra board sin FAKTISK OPPLØSTE column-gap i stedet.
   function syncHeaderHeight() {
     const root = document.documentElement.style;
-    root.setProperty('--header-h', appHeader.getBoundingClientRect().height + 'px');
-    if (toolbarEl) root.setProperty('--toolbar-h', toolbarEl.getBoundingClientRect().height + 'px');
+    const headerH = appHeader.getBoundingClientRect().height;
+    const toolbarH = toolbarEl ? toolbarEl.getBoundingClientRect().height : 0;
+    root.setProperty('--header-h', headerH + 'px');
+    const gap = parseFloat(getComputedStyle(board).columnGap) || 0;
+    const mobile = window.matchMedia('(max-width: 560px)').matches;
+    const topPad = (mobile ? headerH + toolbarH : toolbarH) + gap;
+    root.setProperty('--board-pad-top', topPad + 'px');
   }
   if (typeof ResizeObserver === 'function') {
     const ro = new ResizeObserver(syncHeaderHeight);
     ro.observe(appHeader);
     if (toolbarEl) ro.observe(toolbarEl);
-  } else {
-    window.addEventListener('resize', syncHeaderHeight);
+  }
+  window.addEventListener('resize', () => { syncHeaderHeight(); fixBoardBottomGap(); });
+
+  // Bunn-luft etter siste kort — uansett hvilken kolonne som ender opp høyest.
+  // Kortenes EGEN margin-bottom (--board-gap) er upålitelig her: ved balanserte
+  // kolonner (column-fill: balance, default) kan nettlesere se helt bort fra
+  // siste korts margin når board-ets auto-høyde regnes ut (bidrar 0 i noen
+  // kolonnefordelinger, hele verdien i andre — f.eks. når alt havner i én
+  // kolonne). Vi måler derfor det FAKTISKE utfallet (nullstill → tving reflow →
+  // les av) og legger PÅ akkurat nok padding til at totalen alltid blir
+  // nøyaktig --board-gap, aldri mer og aldri mindre.
+  function fixBoardBottomGap() {
+    const cards = board.querySelectorAll('.card');
+    if (!cards.length) { board.style.paddingBottom = '0px'; return; }
+    board.style.paddingBottom = '0px';
+    const boardBottom = board.getBoundingClientRect().bottom; // tvinger reflow
+    let lastBottom = 0;
+    cards.forEach((c) => { lastBottom = Math.max(lastBottom, c.getBoundingClientRect().bottom); });
+    const gap = parseFloat(getComputedStyle(board).columnGap) || 0;
+    const natural = boardBottom - lastBottom;
+    board.style.paddingBottom = Math.max(0, gap - natural) + 'px';
   }
 
   /* ---------------- Topp-knapper ---------------- */

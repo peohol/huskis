@@ -169,6 +169,43 @@ Menyknappen (☰, se over) åpner `#menu-modal`:
 - Universer er **helt uavhengige**: alt gruppe-/liste-UI er scopet til det aktive
   universet (`allGroups()` osv.), så kryss-univers-flytting er umulig i UI-et.
 
+## Listevisningen (board): luft-system
+
+**Ett tall, `--board-gap` (`clamp(12px, 4vw, 40px)`), styrer ALL luft i board-et**
+— venstre/høyre-padding på `.app-main`, kolonne-gap (`.board`), og kort-til-kort-
+avstand (`.card`s `margin-bottom`). Samme variabel overalt → luften er alltid
+identisk, uansett viewport-bredde (verdien er responsiv, men leses fra ÉN kilde).
+
+- **Bunn**: `.app-main` har `padding-bottom: 0` — luften under SISTE kort kommer
+  fra kortets EGEN `margin-bottom` (samme `--board-gap`), ikke fra en egen
+  bunn-padding (det ville lagt gap oppå gap). Multi-column-layouten
+  (`column-fill: balance`, default) kan imidlertid **ignorere nettopp den
+  margin-en** når den regner ut board-ets auto-høyde ved ujevnt balanserte
+  kolonner (bidrar 0 i noen kolonnefordelinger, hele verdien i andre — en kjent
+  nettleser-kvirk, ikke noe vi kan style oss vekk fra). Løsning: `fixBoardBottomGap()`
+  i app.js måler det FAKTISKE utfallet (nullstiller `.board`s `padding-bottom`,
+  tvinger reflow, sammenligner board- og siste-korts bunnkant) og legger på
+  akkurat nok padding til at total bunn-luft alltid blir nøyaktig `--board-gap` —
+  aldri mer, aldri mindre. Kalles ved hver `render()` og ved vindus-resize.
+- **Topp**: `.app-main`s `padding-top` settes IKKE via CSS `calc()`, men regnes
+  ut i JS (`syncHeaderHeight`, samme funksjon som måler `--header-h`/
+  `--toolbar-h`): eksakt meny-høyde (mobil: gruppemeny + listemeny; desktop: kun
+  listemeny, siden gruppemenyen er en venstre-kolonne) **+ `--board-gap`**, satt
+  som `--board-pad-top`. `--board-gap` kan IKKE leses direkte fra `:root` i
+  JS (en `clamp()`/`vw`-custom-property gir tilbake selve uttrykket som streng,
+  ikke tallet den løses til) — den leses derfor fra `.board`s FAKTISK OPPLØSTE
+  `column-gap` (`getComputedStyle(board).columnGap`), som ER et vanlig,
+  oppløst tall. Resultat: avstanden fra menyenes nedre kant til første kort er
+  PIKSELNØYAKTIG lik gapet ellers, ikke en tilnærmet verdi fra en separat
+  `clamp()` (slik det var før).
+- **Mobil, én kolonne**: `column-count: 1` (IKKE `column-width: 100%` — prosent
+  er ugyldig for `column-width` per spec og blir stille ignorert av nettlesere).
+  Kortene (`width: 100%`, base-regelen) fyller dermed hele den ene kolonnen →
+  jevn luft på alle sider siden `--board-gap` uansett brukes konsekvent.
+- Endres `--board-gap`, følger ALT (padding, gap, kort-margin, og — via JS —
+  topp/bunn-utregningen) automatisk med. Ikke hardkod en egen verdi noe sted i
+  board-et; bruk `--board-gap`.
+
 ## Dra-og-slipp-logikk (kjernen)
 
 Bytte utløses av **overlapp**, ikke av et punkt:
@@ -319,6 +356,14 @@ filter (👁️ K/P/KP) i listemenyen, per enhet (`mine-lister-filter`).
       alltid ligger i øvre høyre hjørne — det havner dermed automatisk over
       gruppemenyen på mobil og listemenyen på desktop, uten at knappen «tilhører»
       noen av dem i DOM-en. Se «Menyknapp (☰)»
+- [x] **Listevisningens luft samlet i ett tall** (`--board-gap`): venstre/høyre-
+      padding, kolonne-gap og kort-margin er nå samme variabel (var før en
+      blanding av responsive clamp()-er og en hardkodet 20px). Bunn-padding
+      (var 80px, langt større enn resten) er fjernet til fordel for siste korts
+      egen margin; padding-top regnes nå ut i JS (eksakt meny-høyde + gap) i
+      stedet for en tilnærmet CSS-`calc()`. Se «Listevisningen (board):
+      luft-system» for detaljer, inkl. en multi-column-kvirk med balanserte
+      kolonner som måtte løses i JS (`fixBoardBottomGap`)
 - [ ] Evt.: dra-rekkefølge for universer i menyen (ikke etterspurt; pos-felt er klart)
 
 ```bash
@@ -356,3 +401,15 @@ python3 -m http.server 8000
   med vanlig margin (den ville stoppe ved `.modal-body`s side-padding og se
   kortere ut enn linja over). Bruk `border-bottom: 1px solid var(--line)` +
   negativ side-margin som kansellerer den omsluttende paddingen.
+- **Board-ets bunn-luft kan IKKE styres med en fast `padding-bottom` alene**
+  (verken på `.app-main` eller `.board`) — `column-fill: balance` (default på
+  multi-column-layout) kan ignorere siste korts `margin-bottom` fullstendig ved
+  ujevnt balanserte kolonner, mens den samme margin-en telles med normalt når
+  alt havner i én kolonne. En statisk padding ville derfor gitt riktig luft i
+  det ene tilfellet og DOBBEL luft i det andre (bekreftet empirisk under
+  utvikling — se «Listevisningen (board): luft-system»). Riktig løsning:
+  `fixBoardBottomGap()` i app.js MÅLER det faktiske utfallet per render og
+  topper opp differansen. Ikke «forenkle» dette til en ren CSS-regel uten å
+  re-teste med et ODDETALL kort som gir ujevnt balanserte kolonner (f.eks. 3
+  kort ved en bredde som gir nøyaktig 2 kolonner) — det er nettopp det
+  scenarioet som avslører kvirken.

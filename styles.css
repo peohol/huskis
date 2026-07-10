@@ -41,6 +41,15 @@
   --toolbar-pad: clamp(12px, 3vw, 40px);
   /* Fade-høyden der gruppekortene scroller under knapperaden (desktop). */
   --fade-h: 16px;
+  /* Ett tall for ALT luft-mellomrom i listevisningen: board-ets venstre/høyre/
+     bunn-padding, kolonne-gap OG kort-til-kort-avstand — samme verdi overalt gir
+     identisk luft rundt og mellom listekortene. Bunn-padding-effekten kommer fra
+     siste korts EGEN bunn-margin (se .app-main), ikke fra en egen padding-bottom.
+     Padding-top regnes ut i JS (se syncHeaderHeight) — nøyaktig meny-høyde +
+     denne verdien, lest fra en reelt oppløst egenskap (column-gap), ikke fra
+     denne variabelen direkte (clamp()/vw løses ikke ut ved lesing av en
+     custom property). */
+  --board-gap: clamp(12px, 4vw, 40px);
 
   /* Kontroll-tokens: alle knapper/kontroller i knapperadene deler disse. */
   --control-h: 38px;
@@ -279,7 +288,11 @@ body {
    Fast meny (desktop: øverst til høyre for kolonnen; mobil: rett under
    gruppemenyen), litt mer gjennomsiktig bakgrunn enn headeren. */
 .app-main {
-  padding: clamp(16px, 3vw, 30px) clamp(12px, 4vw, 40px) 80px;
+  /* Topp settes i JS (--board-pad-top, se syncHeaderHeight): eksakt meny-høyde
+     + --board-gap, så avstanden ned til første kort matcher gapet overalt
+     ellers. Bunn er 0 — siste korts EGEN bunn-margin (også --board-gap, se
+     .card) ER bunn-luften; en egen bunn-padding her ville lagt gap på gap. */
+  padding: var(--board-pad-top, 160px) var(--board-gap) 0;
 }
 
 .toolbar {
@@ -538,7 +551,14 @@ body {
 /* ---------------- Board (kolonner) ---------------- */
 .board {
   column-width: 320px;
-  column-gap: 20px;
+  column-gap: var(--board-gap);
+  /* Bunn-luft etter siste kort: satt i JS (fixBoardBottomGap), IKKE en fast
+     verdi her. Ved ujevnt balanserte kolonner (column-fill: balance, default)
+     kan nettlesere se bort fra siste korts EGEN margin-bottom når de regner ut
+     board-ets auto-høyde (den bidrar 0 i noen tilfeller, den fulle verdien i
+     andre) — JS måler det FAKTISKE utfallet og legger til akkurat nok padding
+     til at totalen alltid blir nøyaktig --board-gap, uansett. */
+  padding-bottom: 0;
 }
 
 .board.empty {
@@ -567,7 +587,7 @@ body {
   page-break-inside: avoid;
   display: block;
   width: 100%;
-  margin: 0 0 20px;
+  margin: 0 0 var(--board-gap);
   border-radius: var(--radius);
   background: var(--card-bg);
   box-shadow: var(--shadow-sm);
@@ -790,7 +810,7 @@ body {
   break-inside: avoid;
   -webkit-column-break-inside: avoid;
   width: 100%;
-  margin: 0 0 20px;
+  margin: 0 0 var(--board-gap);
   border-radius: var(--radius);
   border: 2.5px dashed var(--card-accent, #8fb08f);
   background: rgba(102, 136, 102, 0.10);
@@ -1050,11 +1070,15 @@ body.locked #menu-btn { display: none; }
    søppelkasse) og gruppekortene på én horisontalt scrollende rad UNDER
    knappene (ingen fader). ☰ (fast i viewportets hjørne) overlapper dette
    panelet øverst til høyre. Verktøylinja ligger rett under gruppemenyen.
-   Board-et klarerer begge (målte høyder). */
+   Board-et klarerer begge (målte høyder, se syncHeaderHeight i app.js). */
 @media (max-width: 560px) {
   :root { --side-pad: 12px; }
 
-  .board { column-width: 100%; column-gap: 0; }
+  /* Én kolonne, full bredde: column-count:1 (IKKE column-width:100% — prosent
+     er ikke en gyldig lengde for column-width og blir ignorert av nettlesere).
+     Kortene (width:100%, base-regel) fyller da hele kolonnen → jevn luft på
+     alle sider, siden --board-gap uansett brukes for padding/margin. */
+  .board { column-count: 1; }
 
   .app-header {
     top: 0;
@@ -1066,11 +1090,6 @@ body.locked #menu-btn { display: none; }
 
   /* Verktøylinja rett under gruppemenyen (målt høyde), full bredde. */
   .toolbar { top: var(--header-h, 132px); }
-
-  /* Board klarerer både gruppemeny og verktøylinje. */
-  .app-main {
-    padding-top: calc(var(--header-h, 132px) + var(--toolbar-h, 96px) + clamp(12px, 3vw, 24px));
-  }
 
   /* Gruppekort: bredden følger navnet (rad); lange navn kappes. */
   .group-card { max-width: min(60vw, 420px); }
@@ -1153,10 +1172,10 @@ body.locked #menu-btn { display: none; }
 
   .group-card { width: 100%; }           /* full-bredde rad i kolonnen */
 
-  /* Board fyller området til høyre for kolonnen; verktøylinja ligger over. */
+  /* Board fyller området til høyre for kolonnen; verktøylinja ligger over
+     (padding-top settes i JS, se syncHeaderHeight). */
   .app-main {
     margin-left: var(--sidebar-w);
-    padding-top: calc(var(--toolbar-h, 96px) + clamp(16px, 3vw, 30px));
   }
   .toolbar { left: var(--sidebar-w); }
 }
