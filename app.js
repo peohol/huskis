@@ -661,6 +661,7 @@
       stampContent(groupData);
       save();
       renderGroups(); // bredde/overflow kan endre seg med navnet
+      updatePanelTitles(activeGroupObj()); // navnet kan stå i «GRUPPE: …»-overskriften
     }, { cls: 'group-edit', autosize: true });
   }
 
@@ -2482,6 +2483,7 @@
       stampContent(u);
       save();
       renderUniverses();
+      updatePanelTitles(activeGroupObj()); // navnet kan stå i «UNIVERS: …»-overskriften
     }, { cls: 'chip-edit', autosize: true });
   }
 
