@@ -261,9 +261,11 @@
   let saveTimer = null;
   // Serialisering hopper over intern backend-metadata (_parent/_mount/_canon/…),
   // som ellers ville gitt sykliske referanser i kontomodus. State-nivå _tomb/_hlc
-  // beholdes.
+  // beholdes. _mine (en ren boolsk verdi, ingen sirkulær referanse) beholdes også,
+  // slik at Mine/Delte-filteret har et riktig eierskaps-signal fra cachet state
+  // på kalde reloads/offline — før en vellykket get_my_doc overskriver den friskt.
   function stateReplacer(k, v) {
-    return (k && k[0] === '_' && k !== '_tomb' && k !== '_hlc') ? undefined : v;
+    return (k && k[0] === '_' && k !== '_tomb' && k !== '_hlc' && k !== '_mine') ? undefined : v;
   }
   function save() {
     clearTimeout(saveTimer);
