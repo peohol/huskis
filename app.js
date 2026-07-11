@@ -391,6 +391,8 @@
   const appHeader = document.getElementById('app-header');
   const groupsBar = document.getElementById('groups-bar');
   const addGroupBtn = document.getElementById('add-group-btn');
+  const groupsPanelTitle = document.getElementById('groups-panel-title');
+  const listerPanelTitle = document.getElementById('lister-panel-title');
   const addCardBtn = document.getElementById('add-card-btn');
   const toolbarEl = document.querySelector('.toolbar');
   const filterSwitchesEl = document.getElementById('filter-switches');
@@ -514,6 +516,7 @@
 
     board.innerHTML = '';
     const group = activeGroupObj();
+    updatePanelTitles(group);
 
     // Ingen aktiv gruppe (evt. heller ikke noe univers — «＋ Gruppe» ordner begge).
     if (!group) {
@@ -563,6 +566,14 @@
   // finnes ikke noe univers, opprettes standard-universet i farten.)
   function updateToolbarState() {
     addCardBtn.disabled = !activeGroupObj();
+  }
+
+  // Panel-overskriftene viser navnet på gjeldende univers/gruppe, ikke bare
+  // nivånavnet — så man alltid ser hvor i hierarkiet man er.
+  function updatePanelTitles(group) {
+    const uni = activeUniverseObj();
+    groupsPanelTitle.textContent = uni ? 'Univers: ' + uni.name : 'Grupper';
+    listerPanelTitle.textContent = group ? 'Gruppe: ' + group.name : 'Lister';
   }
 
   /* ---------------- Grupper (gruppemenyen) ---------------- */
