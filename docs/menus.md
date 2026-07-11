@@ -38,7 +38,7 @@ univers lukker IKKE menyen** — brukeren skal kunne angre fra søppelkassen med
 Fast meny (`position: fixed`; desktop: øverst til høyre for kolonnen, mobil: rett
 under gruppemenyen). To linjer: overskriften **GRUPPE: [navn]** (navnet på
 gjeldende gruppe, samme `updatePanelTitles()`) og knapperaden **«＋
-Liste» + liste-søppelkassen + filterkortet (👁️ K/P/KP)** (filter, se
+Liste» + liste-søppelkassen + filterkortet (👁️ Mine/Delte)** (filter, se
 `docs/colors-and-labels.md`). Filterkortet følger flate-mønsteret
 (halvgjennomsiktig → opak ved hover). Logg ut-knappen ligger i meny-modalen
 (ikke her). ☰ er ikke en del av denne DOM-en (se under), men overlapper

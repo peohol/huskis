@@ -62,9 +62,10 @@
         </button>
         <div class="filter-switches" id="filter-switches" role="group" aria-label="Filtrer lister">
           <span class="filter-label" aria-hidden="true" title="Vis">👁️</span>
-          <button class="switch" type="button" data-flag="k" aria-pressed="true" title="Vis kun-K-lister">K</button>
-          <button class="switch" type="button" data-flag="p" aria-pressed="true" title="Vis kun-P-lister">P</button>
-          <button class="switch switch-kp" type="button" data-flag="kp" aria-pressed="true" title="Vis KP-lister (både K og P)">KP</button>
+          <button class="switch" type="button" data-flag="mine" aria-pressed="true"
+                  title="Vis mine lister (hold i 500 ms for å vise kun mine)">Mine</button>
+          <button class="switch" type="button" data-flag="delt" aria-pressed="true"
+                  title="Vis delte lister (hold i 500 ms for å vise kun delte)">Delte</button>
         </div>
       </div>
     </div>
@@ -159,10 +160,6 @@
         <button class="drag-handle card-handle" title="Dra for å endre rekkefølge" aria-label="Flytt liste">⣿</button>
         <span class="share-badge" hidden aria-hidden="true"></span>
         <h2 class="card-title" title="Klikk for å endre navn"></h2>
-        <div class="card-switches" role="group" aria-label="Merkelapper">
-          <button class="switch" type="button" data-flag="k" aria-pressed="true" title="Merkelapp K">K</button>
-          <button class="switch" type="button" data-flag="p" aria-pressed="true" title="Merkelapp P">P</button>
-        </div>
         <button class="icon-btn card-share" title="Del liste" aria-label="Del liste" hidden>🔗</button>
         <button class="icon-btn card-delete" title="Slett liste" aria-label="Slett liste">✕</button>
       </header>

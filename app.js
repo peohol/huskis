@@ -139,7 +139,6 @@
 
   function stampContent(e) { e.ts = tick(); e.org = deviceId; }   // tittel/tekst/farge/trashed
   function stampPos(e) { e.posTs = tick(); e.posOrg = deviceId; } // rekkefølge/forelder
-  function stampLabel(e) { e.labTs = tick(); e.labOrg = deviceId; } // merkelapper k/p (eget register)
 
   // Nyere av to registre: sammenlign (ts, org). org bryter uavgjort deterministisk.
   function newer(aTs, aOrg, bTs, bOrg) {
@@ -262,9 +261,11 @@
   let saveTimer = null;
   // Serialisering hopper over intern backend-metadata (_parent/_mount/_canon/…),
   // som ellers ville gitt sykliske referanser i kontomodus. State-nivå _tomb/_hlc
-  // beholdes.
+  // beholdes. _mine (en ren boolsk verdi, ingen sirkulær referanse) beholdes også,
+  // slik at Mine/Delte-filteret har et riktig eierskaps-signal fra cachet state
+  // på kalde reloads/offline — før en vellykket get_my_doc overskriver den friskt.
   function stateReplacer(k, v) {
-    return (k && k[0] === '_' && k !== '_tomb' && k !== '_hlc') ? undefined : v;
+    return (k && k[0] === '_' && k !== '_tomb' && k !== '_hlc' && k !== '_mine') ? undefined : v;
   }
   function save() {
     clearTimeout(saveTimer);
@@ -487,39 +488,30 @@
       : (vis[0] ? vis[0].id : null));
   }
 
-  /* ---------------- Filter (K / P / KP) ----------------
-     Per enhet (ikke synket). Hvert kort tilhører nøyaktig én kategori ut fra
-     bryterne sine: kun K, kun P, eller begge (KP). Filteret har tre brytere
-     (K, P, KP) og et kort vises hvis bryteren for kortets kategori er på.
-     Velger man f.eks. K + KP, vises kun-K-kort og KP-kort, men ikke kun-P-kort.
-     Minst ett filter må alltid være på. */
+  /* ---------------- Filter (Mine / Delte) ----------------
+     Per enhet (ikke synket). To uavhengige brytere: «Mine» (lister du selv har
+     opprettet) og «Delte» (lister andre har delt med deg — kun kontomodus;
+     alltid tomt utenfor kontomodus siden deling ikke finnes der). Begge kan stå
+     på samtidig (viser alt), eller begge av (skjuler alt). Kort trykk på en
+     bryter = vanlig toggle; hold i FILTER_HOLD_MS → aktiver kun den bryteren
+     (skru av den andre) — se klikk-/hold-håndteringen ved filterSwitchesEl. */
   const FILTER_KEY = 'mine-lister-filter';
-  const FILTERS = ['k', 'p', 'kp'];
+  const FILTERS = ['mine', 'delt'];
   function loadFilter() {
     try {
       const f = JSON.parse(localStorage.getItem(FILTER_KEY));
-      if (f && (f.k || f.p || f.kp)) return { k: f.k !== false, p: f.p !== false, kp: f.kp !== false };
+      if (f && typeof f === 'object') return { mine: f.mine !== false, delt: f.delt !== false };
     } catch (e) { /* ignore */ }
-    return { k: true, p: true, kp: true };
+    return { mine: true, delt: true };
   }
   const filter = loadFilter();
   function saveFilter() {
     try { localStorage.setItem(FILTER_KEY, JSON.stringify(filter)); } catch (e) { /* ignore */ }
   }
-  // Kortets kategori: kun K, kun P, eller begge (KP). (Minst én bryter er alltid på.)
-  function cardCategory(c) {
-    const k = c.k !== false, p = c.p !== false;
-    if (k && p) return 'kp';
-    return k ? 'k' : 'p';
-  }
+  // Er kortet delt med meg av noen andre? (Utenfor kontomodus er alt «mine».)
+  function cardIsShared(c) { return accountsMode() && c._mine === false; }
   function cardMatchesFilter(c) {
-    return !!filter[cardCategory(c)];
-  }
-  // Liten «kan ikke»-risting når man prøver å skru av den siste bryteren.
-  function flashDeny(el) {
-    el.classList.remove('deny');
-    void el.offsetWidth;
-    el.classList.add('deny');
+    return cardIsShared(c) ? filter.delt : filter.mine;
   }
 
   /* ---------------- Render ---------------- */
@@ -571,7 +563,7 @@
         es.append(big, p1, p2);
       } else {
         es.innerHTML = '<div class="big">🫙</div><p>Ingen lister passer filteret.</p>' +
-          '<p>Skru på K, P eller KP for å se flere.</p>';
+          '<p>Skru på Mine eller Delte for å se flere.</p>';
       }
       board.appendChild(es);
       fixBoardBottomGap();
@@ -845,28 +837,6 @@
         save();
       });
     }
-
-    // K/P-brytere: minst én må være på; lysere sirkel = på.
-    el.querySelectorAll('.card-switches .switch').forEach((sw) => {
-      const flag = sw.dataset.flag;
-      const paint = () => {
-        const on = cardData[flag] !== false;
-        sw.classList.toggle('on', on);
-        sw.setAttribute('aria-pressed', on ? 'true' : 'false');
-      };
-      paint();
-      sw.addEventListener('click', () => {
-        if (!canEdit) { flashDeny(sw); return; }
-        const other = flag === 'k' ? 'p' : 'k';
-        const on = cardData[flag] !== false;
-        if (on && cardData[other] === false) { flashDeny(sw); return; } // kan ikke skru av den siste
-        cardData[flag] = !on;
-        stampLabel(cardData); // eget register → merkelapp-endringer flettes uavhengig av tittel/farge
-        paint();
-        save();
-        if (!cardMatchesFilter(cardData)) render(); // skjul hvis den ikke lenger passer filteret
-      });
-    });
 
     // Håndtak for kort-draging. Frosset (låst av andre) og ikke egen mount → skjul.
     const cardHandle = el.querySelector('.card-handle');
@@ -2125,7 +2095,10 @@
     if (el) el.click();
   });
 
-  /* ---------------- Filter-brytere (verktøylinja) ---------------- */
+  /* ---------------- Filter-brytere (verktøylinja) ----------------
+     Kort trykk = uavhengig toggle. Hold i FILTER_HOLD_MS → aktiver kun den
+     bryteren man holder (skru av den andre) — samme pointerdown/-up/-move-mønster
+     som `attachTrashHold`, uten sveipefeltet. */
   function renderFilterSwitches() {
     filterSwitchesEl.querySelectorAll('.switch').forEach((sw) => {
       const on = filter[sw.dataset.flag] !== false;
@@ -2133,11 +2106,29 @@
       sw.setAttribute('aria-pressed', on ? 'true' : 'false');
     });
   }
+  const FILTER_HOLD_MS = 500;
   filterSwitchesEl.querySelectorAll('.switch').forEach((sw) => {
+    const flag = sw.dataset.flag;
+    const other = FILTERS.find((f) => f !== flag);
+    let holdTimer = null, held = false;
+    sw.addEventListener('pointerdown', (ev) => {
+      if (ev.button != null && ev.button > 0) return;
+      held = false;
+      clearTimeout(holdTimer);
+      holdTimer = setTimeout(() => {
+        held = true;
+        filter[flag] = true;
+        filter[other] = false;
+        saveFilter();
+        render();
+      }, FILTER_HOLD_MS);
+    });
+    const cancelHold = () => { clearTimeout(holdTimer); holdTimer = null; };
+    sw.addEventListener('pointerup', cancelHold);
+    sw.addEventListener('pointercancel', cancelHold);
+    sw.addEventListener('pointerleave', cancelHold);
     sw.addEventListener('click', () => {
-      const flag = sw.dataset.flag;
-      const onCount = FILTERS.filter((f) => filter[f]).length;
-      if (filter[flag] && onCount === 1) { flashDeny(sw); return; } // minst ett filter må være på
+      if (held) { held = false; return; } // allerede håndtert av holdet
       filter[flag] = !filter[flag];
       saveFilter();
       render(); // tegner også bryterne på nytt via renderFilterSwitches()
