@@ -21,7 +21,7 @@ state = {
       groups: [
         { id, uni, name, trashed, pos,   // uni = univers-forelder
           cards: [                        // «lister»
-            { id, group, title, color, trashed, k, p,
+            { id, group, title, color, trashed, k, p, // k/p: legacy, se docs/colors-and-labels.md
               items: [ { id, text, trashed, home } ] } ] } ] }
   ],
   _tomb: { universes:{}, groups:{}, cards:{}, items:{} }, // gravsteiner: id → ts

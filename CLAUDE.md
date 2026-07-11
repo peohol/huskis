@@ -30,7 +30,7 @@ oppdater det aktuelle dokumentet der (ikke dump alt tilbake i denne fila).
 | `docs/trash.md` | slette/gjenopprette/tømme på ethvert nivå |
 | `docs/sync.md` | Supabase-synk, fletting, gravsteiner, migrering, databaseoppsett |
 | `docs/auth.md` | mønster-lås/splash-screen/innlogging |
-| `docs/colors-and-labels.md` | HSL-fargesystem, K/P-merkelapper, filter |
+| `docs/colors-and-labels.md` | HSL-fargesystem, Mine/Delte-filter |
 | `docs/arkitektur-brukere-deling.md` | brukerkontoer (Supabase Auth), eierskap, deling/mounts, lås — database-grunnmuren for fase 2 |
 | `docs/accounts.md` | fase 2-KLIENTEN: auth-UI, synk-motor v2 (get_my_doc/rad-CRUD), mount-rendring, delings-UI, kontomodus-flagget, mock-backend for testing |
 

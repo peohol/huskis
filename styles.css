@@ -471,7 +471,7 @@ body {
   padding: 2px 12px 14px;
 }
 
-/* ---------------- K/P-brytere ---------------- */
+/* ---------------- Filter-brytere ---------------- */
 .switch {
   appearance: none;
   border: none;
@@ -490,30 +490,7 @@ body {
 }
 .switch:active { transform: scale(0.88); }
 
-@keyframes switch-deny {
-  0%, 100% { transform: translateX(0); }
-  25% { transform: translateX(-2px); }
-  75% { transform: translateX(2px); }
-}
-.switch.deny { animation: switch-deny 0.24s; }
-
-/* Kort-brytere: vertikal stabel til venstre for slett-knappen; lyser opp når på. */
-.card-switches {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  flex: 0 0 auto;
-}
-.card-switches .switch {
-  background: rgba(255, 255, 255, 0.24);
-  color: rgba(55, 52, 63, 0.5);
-}
-.card-switches .switch.on {
-  background: rgba(255, 255, 255, 0.92);
-  color: var(--card-accent);
-}
-
-/* Filter (👁️ K/P/KP) i verktøylinja: samme flate-mønster som søppelkassene —
+/* Filter (👁️ Mine/Delte) i verktøylinja: samme flate-mønster som søppelkassene —
    halvgjennomsiktig hvit → hvit ved hover; samme høyde/radius som resten av raden. */
 .filter-switches {
   flex: 0 0 auto;
@@ -539,7 +516,7 @@ body {
   width: auto;
   min-width: 22px;
   padding: 0 8px;
-  border-radius: 999px;   /* pille-form så «KP» får plass ved siden av K og P */
+  border-radius: 999px;   /* pille-form så «Mine»/«Delte»-teksten får plass */
   background: #e6ece6;
   color: var(--ink-soft);
 }
