@@ -8,8 +8,10 @@ meny-modalen (universer, logg ut).
 Fast panel (`position: fixed`), **én felles DOM** delt i to media-queryer:
 
 - **Desktop (`min-width: 561px`)**: fast, full-høyde **kolonne til venstre**
-  (`--sidebar-w`). Øverst `.panel-top`: overskriften **GRUPPER** og knapperaden
-  **«＋ Gruppe» + gruppe-søppelkassen side om side**. Gruppekortene scroller i
+  (`--sidebar-w`). Øverst `.panel-top`: overskriften **UNIVERS: [navn]** (navnet
+  på gjeldende univers, satt av `updatePanelTitles()` i `render()`) og
+  knapperaden **«＋ Gruppe» + gruppe-søppelkassen side om side**. Gruppekortene
+  scroller i
   kolonnen under og **oppløses i en fade** (CSS `mask-image`, høyde `--fade-h`,
   tilsvarende fade i bunnen; hvile-padding = fade-høyden så ingenting er falmet
   i ro). Masken slås av under draging (`body.is-dragging`) fordi den ellers
@@ -34,7 +36,8 @@ univers lukker IKKE menyen** — brukeren skal kunne angre fra søppelkassen med
 ## Listemenyen (verktøylinja)
 
 Fast meny (`position: fixed`; desktop: øverst til høyre for kolonnen, mobil: rett
-under gruppemenyen). To linjer: overskriften **LISTER** og knapperaden **«＋
+under gruppemenyen). To linjer: overskriften **GRUPPE: [navn]** (navnet på
+gjeldende gruppe, samme `updatePanelTitles()`) og knapperaden **«＋
 Liste» + liste-søppelkassen + filterkortet (👁️ K/P/KP)** (filter, se
 `docs/colors-and-labels.md`). Filterkortet følger flate-mønsteret
 (halvgjennomsiktig → opak ved hover). Logg ut-knappen ligger i meny-modalen

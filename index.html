@@ -21,14 +21,14 @@
     <span class="menu-bars" aria-hidden="true"></span>
   </button>
 
-  <!-- Gruppemenyen: overskrift («GRUPPER»), knapperad («＋ Gruppe» + søppelkasse),
+  <!-- Gruppemenyen: overskrift («UNIVERS: [navn]»), knapperad («＋ Gruppe» + søppelkasse),
        og under dem gruppekortene til det aktive universet.
        Desktop: fast venstre-kolonne — kortene scroller under knapperaden (fade).
        Mobil: fast topp-panel — kortene på én horisontalt scrollende rad (uten fader). -->
   <header class="app-header" id="app-header">
     <div class="panel-top">
       <div class="panel-head">
-        <span class="panel-title">Grupper</span>
+        <span class="panel-title" id="groups-panel-title">Grupper</span>
       </div>
       <div class="panel-actions">
         <button class="btn-add" id="add-group-btn" type="button" title="Ny gruppe">＋ Gruppe</button>
@@ -44,12 +44,12 @@
   </header>
 
   <main class="app-main">
-    <!-- Listemenyen (verktøylinja): overskrift («LISTER») og knapperad
+    <!-- Listemenyen (verktøylinja): overskrift («GRUPPE: [navn]») og knapperad
          («＋ Liste», søppelkasse, filter). ☰ er ikke en del av denne (se toppen
          av body) — den havner likevel visuelt i dette hjørnet på desktop. -->
     <div class="toolbar">
       <div class="panel-head">
-        <span class="panel-title">Lister</span>
+        <span class="panel-title" id="lister-panel-title">Lister</span>
       </div>
       <div class="panel-actions">
         <button class="btn-add" id="add-card-btn" type="button" title="Ny liste">＋ Liste</button>
