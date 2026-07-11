@@ -265,6 +265,7 @@ body {
 .btn-add:active { transform: translateY(1px); }
 .btn-add:disabled { opacity: 0.45; cursor: not-allowed; box-shadow: none; }
 .btn-add.icon-only { width: var(--control-h); padding: 0; font-size: 18px; }
+.btn-add .icon { font-size: 15px; filter: drop-shadow(var(--text-shadow)); }
 
 /* ---------------- Menyknapp (☰) ----------------
    Fast i øvre høyre hjørne av VIEWPORTET, uavhengig av gruppemeny/listemeny sin
@@ -457,15 +458,14 @@ body {
   transform-origin: 50% 50%;
 }
 /* Lokket (topp-strek + hank) svinger opp rundt venstre hengsel (4.5,7.5 av
-   24×24 viewBox → 18.75%/31.25%), søppelet (ribbene) fader/faller ut — begge
-   drevet av setProgress(p) i app.js sin sveip-for-å-tømme-motor. */
+   24×24 viewBox → 18.75%/31.25%) gjennom hele sveipet og går ALDRI tilbake
+   til lukket — kassekropp + ribbene er urørt og roterer kun med hele ikonet
+   (via .swipe-icon sin transform). Drevet av setProgress(p) i app.js sin
+   sveip-for-å-tømme-motor. */
 .swipe-icon-lid {
   transform-box: view-box;
   transform-origin: 18.75% 31.25%;
   transition: transform 0.12s ease;
-}
-.swipe-icon-dots {
-  transition: transform 0.12s ease, opacity 0.12s ease;
 }
 .swipe-icon.shake { animation: swipe-shake 0.5s ease; }
 @keyframes swipe-shake {
@@ -516,8 +516,9 @@ body {
 }
 .switch:active { transform: scale(0.88); }
 
-/* Filter (👁️ Mine/Delte) i verktøylinja: samme flate-mønster som søppelkassene —
-   halvgjennomsiktig hvit → hvit ved hover; samme høyde/radius som resten av raden. */
+/* Filter (øye + Mine/Delte-ikoner) i verktøylinja: samme flate-mønster som
+   søppelkassene — halvgjennomsiktig hvit → hvit ved hover; samme høyde/radius
+   som resten av raden. */
 .filter-switches {
   flex: 0 0 auto;
   display: inline-flex;
@@ -532,24 +533,22 @@ body {
 }
 .filter-switches:hover { background: #fff; box-shadow: var(--shadow-md); }
 .filter-label {
-  font-size: 15px;            /* 👁️-emoji i stedet for «Vis»-tekst */
+  font-size: 15px;
   line-height: 1;
-  font-weight: 600;
   color: var(--ink-soft);
   margin-right: 2px;
 }
 .filter-switches .switch {
-  width: auto;
-  min-width: 22px;
-  padding: 0 8px;
-  border-radius: 999px;   /* pille-form så «Mine»/«Delte»-teksten får plass */
+  font-size: 13px;
   background: #e6ece6;
   color: var(--ink-soft);
 }
 .filter-switches .switch.on {
   background: var(--primary);
   color: #fff;
-  text-shadow: var(--text-shadow);
+}
+.filter-switches .switch.on .icon {
+  filter: drop-shadow(var(--text-shadow));
 }
 
 /* ---------------- Board (kolonner) ---------------- */
@@ -1439,7 +1438,9 @@ body.no-auth #menu-btn { display: none; }
 .share-badge[hidden] { display: none; }
 .chip-share, .card-share { flex: 0 0 auto; font-size: 13px; opacity: 0.85; }
 .chip-share:hover, .card-share:hover { opacity: 1; }
-.card-share { color: rgba(255,255,255,0.92); }
+/* card-share sitter på fargelagt korthode ved siden av hvit skrift m/
+   skygge (.card-title) — samme behandling som .share-badge. */
+.card-share { color: #fff; filter: drop-shadow(var(--text-shadow)); }
 /* Delt liste-kort: en tydelig men diskret kant-markør. */
 .card.is-shared { box-shadow: var(--shadow-sm), inset 0 0 0 2px rgba(255,255,255,0.55); }
 .card.is-locked .card-title { opacity: 0.9; }

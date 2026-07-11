@@ -23,7 +23,7 @@
     <span class="menu-badge" id="menu-badge" hidden aria-hidden="true"></span>
   </button>
 
-  <!-- Gruppemenyen: overskrift («UNIVERS: [navn]»), knapperad («＋ Gruppe» + søppelkasse),
+  <!-- Gruppemenyen: overskrift (globus-ikon + univers-navn), knapperad («＋ Gruppe» + søppelkasse),
        og under dem gruppekortene til det aktive universet.
        Desktop: fast venstre-kolonne — kortene scroller under knapperaden (fade).
        Mobil: fast topp-panel — kortene på én horisontalt scrollende rad (uten fader). -->
@@ -31,12 +31,12 @@
     <div class="panel-top">
       <div class="panel-head">
         <span class="panel-title">
-          <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3.5 19V6.5a2 2 0 0 1 2-2h3.3a2 2 0 0 1 1.6.8l1.1 1.5a2 2 0 0 0 1.6.8H19a2 2 0 0 1 2 2V19a2 2 0 0 1-2 2H5.5a2 2 0 0 1-2-2Z"></path></svg>
+          <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"></circle><path d="M3 12h18"></path><path d="M12 3a14 14 0 0 1 3.8 9 14 14 0 0 1-3.8 9 14 14 0 0 1-3.8-9A14 14 0 0 1 12 3Z"></path></svg>
           <span id="groups-panel-title">Grupper</span>
         </span>
       </div>
       <div class="panel-actions">
-        <button class="btn-add" id="add-group-btn" type="button" title="Ny gruppe">＋ Gruppe</button>
+        <button class="btn-add" id="add-group-btn" type="button" title="Ny gruppe" aria-label="Ny gruppe">＋ <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3.5 19V6.5a2 2 0 0 1 2-2h3.3a2 2 0 0 1 1.6.8l1.1 1.5a2 2 0 0 0 1.6.8H19a2 2 0 0 1 2 2V19a2 2 0 0 1-2 2H5.5a2 2 0 0 1-2-2Z"></path></svg></button>
         <button class="trashcan" id="groups-trash-btn" type="button"
                 title="Slettede grupper – trykk for å åpne, hold og sveip for å tømme"
                 aria-label="Slettede grupper" hidden>
@@ -49,18 +49,18 @@
   </header>
 
   <main class="app-main">
-    <!-- Listemenyen (verktøylinja): overskrift («GRUPPE: [navn]») og knapperad
+    <!-- Listemenyen (verktøylinja): overskrift (mappe-ikon + gruppe-navn) og knapperad
          («＋ Liste», søppelkasse, filter). ☰ er ikke en del av denne (se toppen
          av body) — den havner likevel visuelt i dette hjørnet på desktop. -->
     <div class="toolbar">
       <div class="panel-head">
         <span class="panel-title">
-          <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3" width="18" height="18" rx="4.5"></rect><circle cx="8" cy="8.5" r="1.05"></circle><circle cx="8" cy="12" r="1.05"></circle><circle cx="8" cy="15.5" r="1.05"></circle><path d="M11.5 8.5h5.5"></path><path d="M11.5 12h5.5"></path><path d="M11.5 15.5h5.5"></path></svg>
+          <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3.5 19V6.5a2 2 0 0 1 2-2h3.3a2 2 0 0 1 1.6.8l1.1 1.5a2 2 0 0 0 1.6.8H19a2 2 0 0 1 2 2V19a2 2 0 0 1-2 2H5.5a2 2 0 0 1-2-2Z"></path></svg>
           <span id="lister-panel-title">Lister</span>
         </span>
       </div>
       <div class="panel-actions">
-        <button class="btn-add" id="add-card-btn" type="button" title="Ny liste">＋ Liste</button>
+        <button class="btn-add" id="add-card-btn" type="button" title="Ny liste" aria-label="Ny liste">＋ <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3" width="18" height="18" rx="4.5"></rect><circle cx="8" cy="8.5" r="1.05"></circle><circle cx="8" cy="12" r="1.05"></circle><circle cx="8" cy="15.5" r="1.05"></circle><path d="M11.5 8.5h5.5"></path><path d="M11.5 12h5.5"></path><path d="M11.5 15.5h5.5"></path></svg></button>
         <button class="trashcan" id="trash-btn" type="button"
                 title="Slettede lister – trykk for å åpne, hold og sveip for å tømme"
                 aria-label="Slettede lister" hidden>
@@ -68,11 +68,13 @@
           <span class="trashcan-count" id="trash-count">0</span>
         </button>
         <div class="filter-switches" id="filter-switches" role="group" aria-label="Filtrer lister">
-          <span class="filter-label" aria-hidden="true" title="Vis">👁️</span>
+          <span class="filter-label" aria-hidden="true" title="Vis"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2.5 12S6 5.5 12 5.5 21.5 12 21.5 12 18 18.5 12 18.5 2.5 12 2.5 12Z"></path><circle cx="12" cy="12" r="3"></circle></svg></span>
           <button class="switch" type="button" data-flag="mine" aria-pressed="true"
-                  title="Vis mine lister (hold i 500 ms for å vise kun mine)">Mine</button>
+                  aria-label="Mine"
+                  title="Vis mine lister (hold i 500 ms for å vise kun mine)"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="8" r="3.4"></circle><path d="M5.5 20a6.5 6.5 0 0 1 13 0"></path></svg></button>
           <button class="switch" type="button" data-flag="delt" aria-pressed="true"
-                  title="Vis delte lister (hold i 500 ms for å vise kun delte)">Delte</button>
+                  aria-label="Delte"
+                  title="Vis delte lister (hold i 500 ms for å vise kun delte)"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="7.8" r="3.1"></circle><path d="M6.7 18.6a5.3 5.2 0 0 1 10.6 0"></path><circle cx="4.7" cy="10.3" r="1.95"></circle><path d="M1.8 18a3.3 3.2 0 0 1 3.3-2.7"></path><circle cx="19.3" cy="10.3" r="1.95"></circle><path d="M22.2 18a3.3 3.2 0 0 0-3.3-2.7"></path></svg></button>
         </div>
       </div>
     </div>

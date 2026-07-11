@@ -538,7 +538,7 @@
       board.classList.add('empty');
       const es = document.createElement('div');
       es.className = 'empty-state';
-      es.innerHTML = '<div class="big">📂</div><p>Ingen grupper ennå.</p>' +
+      es.innerHTML = '<div class="big">' + ICONS.folder + '</div><p>Ingen grupper ennå.</p>' +
         '<p>Trykk «＋ Gruppe» for å komme i gang.</p>';
       board.appendChild(es);
       fixBoardBottomGap();
@@ -557,7 +557,7 @@
       const es = document.createElement('div');
       es.className = 'empty-state';
       if (active.length === 0) {
-        const big = document.createElement('div'); big.className = 'big'; big.textContent = '🗒️';
+        const big = document.createElement('div'); big.className = 'big'; big.innerHTML = ICONS.list;
         const p1 = document.createElement('p'); p1.textContent = 'Ingen lister i «' + group.name + '» ennå.';
         const p2 = document.createElement('p'); p2.textContent = 'Trykk «＋ Liste» for å komme i gang.';
         es.append(big, p1, p2);
@@ -587,8 +587,8 @@
   // nivånavnet — så man alltid ser hvor i hierarkiet man er.
   function updatePanelTitles(group) {
     const uni = activeUniverseObj();
-    groupsPanelTitle.textContent = uni ? 'Univers: ' + uni.name : 'Grupper';
-    listerPanelTitle.textContent = group ? 'Gruppe: ' + group.name : 'Lister';
+    groupsPanelTitle.textContent = uni ? uni.name : 'Grupper';
+    listerPanelTitle.textContent = group ? group.name : 'Lister';
   }
 
   /* ---------------- Grupper (gruppemenyen) ---------------- */
@@ -2363,7 +2363,7 @@
   const SHAKE_MS = 500;       // rist-varighet etter tømming
 
   // Ett gjenbrukt, fixed sveipefelt-overlay (deles av alle tre knappene).
-  let swipeEl = null, swipeIconEl = null, swipeLidEl = null, swipeDotsEl = null;
+  let swipeEl = null, swipeIconEl = null, swipeLidEl = null;
   function ensureSwipeField() {
     if (swipeEl) return swipeEl;
     swipeEl = document.createElement('div');
@@ -2375,7 +2375,6 @@
     document.body.appendChild(swipeEl);
     swipeIconEl = swipeEl.querySelector('.swipe-icon');
     swipeLidEl = swipeEl.querySelector('.swipe-icon-lid');
-    swipeDotsEl = swipeEl.querySelector('.swipe-icon-dots');
     return swipeEl;
   }
   const COLLAPSE_W = 40;
@@ -2388,15 +2387,14 @@
 
     function setProgress(p) {
       if (!swipeEl) return;
+      const pc = Math.min(1, Math.max(0, p));
       swipeEl.style.setProperty('--p', p.toFixed(3));
       swipeIconEl.style.transform = 'rotate(' + (p * 180) + 'deg)';
-      // Lokket svinger opp og lukkes igjen midtveis i sveipet (0 → -42° → 0),
-      // søppelet (ribbene) faller ut/fader bort i samme vindu og forblir borte.
-      const lidP = Math.sin(Math.min(1, Math.max(0, p)) * Math.PI);
-      swipeLidEl.style.transform = 'rotate(' + (-42 * lidP) + 'deg)';
-      const dotsP = Math.min(1, Math.max(0, (p - 0.2) / 0.4));
-      swipeDotsEl.style.opacity = String(1 - dotsP);
-      swipeDotsEl.style.transform = 'translateY(' + (-6 * dotsP) + 'px)';
+      // Lokket svinger stadig lenger opp gjennom hele sveipet (aldri tilbake
+      // til lukket) — når kassen er helt opp-ned (p=1) henger den løst av,
+      // ikke smekket igjen på nytt. Kropp + ribber er urørt og roterer kun
+      // med hele ikonet (satt via swipeIconEl over).
+      swipeLidEl.style.transform = 'rotate(' + (-95 * pc) + 'deg)';
     }
     function openField() {
       if (api.count() <= 0) return;    // ingenting å tømme
@@ -2435,7 +2433,7 @@
       if (!swipeEl) return;
       swipeEl.style.width = COLLAPSE_W + 'px';
       swipeEl.classList.remove('open');
-      setProgress(0); // roter kasse/lokk/prikker tilbake til hviletilstand
+      setProgress(0); // roter kasse/lokk tilbake til hviletilstand
       swipeEl.style.removeProperty('--p');
     }
     function fireEmpty() {

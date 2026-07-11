@@ -2,9 +2,9 @@
    Huskekurv — ikonsett brukt fra app.js (SVG som strenger)
    ------------------------------------------------------------
    Kun ikonene som bygges dynamisk fra JS ligger her (badges, lås-knapp,
-   auth-heading, sveipefeltet). De statiske ikonene (trash/logout/globe/
-   folder/list/share/logo) er limt direkte inn i index.html — se den for
-   resten av ikonsettet fra design-handoffen.
+   auth-heading, sveipefeltet, tom-tilstander). De rent statiske ikonene
+   (trash/logout/globe/share/logo) er limt direkte inn i index.html — se den
+   for resten av ikonsettet fra design-handoffen.
 
    Alle ikoner: stroke="currentColor" (arver farge fra `color` på forelder,
    samme mønster som --ink-soft/grønn-bruk i knapper), viewBox 0 0 24 24.
@@ -12,9 +12,11 @@
    sett font-size på elementet ikonet limes inn i for å skalere det, akkurat
    som emoji-glyfene de erstatter.
 
-   trashSwipe har egne grupper (lid/body/dots) med klassenavn som app.js sin
-   sveip-for-å-tømme-motor styrer direkte (se attachTrashHold/setProgress i
-   app.js og .swipe-icon-* i styles.css) — ikke fjern disse klassene.
+   trashSwipe har to bevegelige deler: `.swipe-icon-lid` (lokk+hank) roteres
+   separat av app.js sin sveip-for-å-tømme-motor (se attachTrashHold/
+   setProgress i app.js og .swipe-icon-lid i styles.css) — resten (kasse-kropp
+   + ribbene) er statisk og roterer kun med hele ikonet. Ikke fjern
+   `.swipe-icon-lid`-klassen uten å oppdatere setProgress tilsvarende.
    ============================================================ */
 window.ICONS = {
   trashSwipe: '<svg class="icon swipe-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
@@ -22,12 +24,10 @@ window.ICONS = {
     '<path d="M4.5 7.5h15"></path>' +
     '<path d="M9.5 7.5V6a2.5 2.5 0 0 1 5 0v1.5"></path>' +
     '</g>' +
-    '<path class="swipe-icon-body" d="M6.3 7.5l.9 11a2 2 0 0 0 2 1.9h5.6a2 2 0 0 0 2-1.9l.9-11"></path>' +
-    '<g class="swipe-icon-dots">' +
+    '<path d="M6.3 7.5l.9 11a2 2 0 0 0 2 1.9h5.6a2 2 0 0 0 2-1.9l.9-11"></path>' +
     '<path d="M9.7 11v6"></path>' +
     '<path d="M12 11v6"></path>' +
     '<path d="M14.3 11v6"></path>' +
-    '</g>' +
     '</svg>',
 
   login: '<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
@@ -62,5 +62,19 @@ window.ICONS = {
     '<path d="M8 10.5V7.5a4 4 0 0 1 7.6-1.9"></path>' +
     '<circle cx="12" cy="14.6" r="1.2"></circle>' +
     '<path d="M12 15.8v1.9"></path>' +
+    '</svg>',
+
+  folder: '<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
+    '<path d="M3.5 19V6.5a2 2 0 0 1 2-2h3.3a2 2 0 0 1 1.6.8l1.1 1.5a2 2 0 0 0 1.6.8H19a2 2 0 0 1 2 2V19a2 2 0 0 1-2 2H5.5a2 2 0 0 1-2-2Z"></path>' +
+    '</svg>',
+
+  list: '<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
+    '<rect x="3" y="3" width="18" height="18" rx="4.5"></rect>' +
+    '<circle cx="8" cy="8.5" r="1.05"></circle>' +
+    '<circle cx="8" cy="12" r="1.05"></circle>' +
+    '<circle cx="8" cy="15.5" r="1.05"></circle>' +
+    '<path d="M11.5 8.5h5.5"></path>' +
+    '<path d="M11.5 12h5.5"></path>' +
+    '<path d="M11.5 15.5h5.5"></path>' +
     '</svg>',
 };
