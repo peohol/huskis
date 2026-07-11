@@ -15,6 +15,27 @@ Endres et token, skal hele appen følge med.
 Alle knapper i samme knapperad har identisk høyde/radius/flate (`--control-h`
 / `--control-radius`). Gjelder ＋-knapper, søppelkasser, filterkortet og ☰.
 
+## Ikoner (`.icon`, `icons.js`)
+
+Appen brukte tidligere emoji som ikoner; erstattet med et egendefinert SVG-
+ikonsett (stroke="currentColor", stroke-width 1.5, viewBox 0 0 24 24, avrundede
+linjer/hjørner — Quicksand-aktig, myk stil). Alle ikoner har klassen `.icon`
+(`width/height: 1em` — skalerer med `font-size` på elementet de limes inn i,
+akkurat som emoji-glyfene de erstattet).
+
+- **Statiske forekomster** (panel-title-ikoner, søppelkasse-knapper,
+  del-knapper, logo/brand-mark, ☰) limes rett inn som `<svg>`-markup i
+  `index.html` — ingen build-steg, så det er enklest å holde dem der de brukes.
+- **Dynamiske forekomster** (delt/låst-merker på chips, lås-knappen i
+  del-modalen, auth-heading-ikonet som bytter med innloggingsmodus,
+  sveipefelt-søppelkassen) bygges fra `window.ICONS` (`icons.js`, lastet før
+  `app.js`) via `el.innerHTML = ICONS.xxx`.
+- ☰-knappen beholder sin CSS-tegnede `.menu-bars` (tre avrundede streker) —
+  den matcher allerede ikonsettets stil (tynn, avrundet, `currentColor`), så
+  `icon-menu.svg` fra design-handoffen ble ikke tatt i bruk.
+- Favicon (`favicon.svg`, sky-med-punkt-logoen) er en frittstående fil siden
+  `<link rel="icon">` ikke kan peke på en JS-streng.
+
 ## Delte klasser — gjenbruk før du lager nye
 
 - `.panel-head` + `.panel-title` + `.panel-actions`: overskrift («UNIVERS:
