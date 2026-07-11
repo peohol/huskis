@@ -5,53 +5,106 @@ visuell konsistens på tvers av nivåer (univers/gruppe/liste/element).
 
 Appen skal føles **visuelt ryddig, konsistent og forutsigbar**.
 
+## Typografi og skala
+
+Fonten er **Atkinson Hyperlegible Next** (Google Fonts, lastet i index.html) —
+valgt for lesbarhet/tilgjengelighet. Alle synlige elementer (tekst, ikoner,
+knapper, kontroller) er skalert opp ~30 % i forhold til det opprinnelige
+designet, mens padding/margin/gap IKKE er skalert tilsvarende — bevisst valg:
+større, mer lesbare og lettere treffbare elementer i et fortsatt kompakt UI.
+
+Univers-rader, gruppekort og listekort har **identisk tittel-typografi**
+(20px/600: `.chip-name` og `.card-title`) og identisk størrelse på ekvivalente
+ikoner (delt-merke, del-knapp, slett-✕, håndtak).
+
 ## Tokens, ikke hardkoding (styles.css, øverst)
 
-`--control-h` (38px), `--control-radius` (12px), `--control-bg`
-(rgba(255,255,255,.75)), `--side-pad`, `--fade-h`, `--text-shadow`, skygge- og
-radius-variablene. Nye kontroller skal bruke disse — aldri egne ad hoc-verdier.
-Endres et token, skal hele appen følge med.
+`--control-h` (49px), `--control-radius` (14px), `--control-bg`
+(rgba(255,255,255,.75)), `--side-pad`, `--fade-h`, `--text-shadow`,
+`--grad-green/-red/-yellow` (knappe-gradienter), skygge- og radius-variablene.
+Nye kontroller skal bruke disse — aldri egne ad hoc-verdier. Endres et token,
+skal hele appen følge med.
 
 Alle knapper i samme knapperad har identisk høyde/radius/flate (`--control-h`
 / `--control-radius`). Gjelder ＋-knapper, søppelkasser, filterkortet og ☰.
 
+## Luft-regler (padding/margin/gap)
+
+- **Symmetri per element**: et element skal ha samme luft på alle kanter — én
+  padding-verdi, ikke ulike topp/høyre/bunn/venstre. (Full-bredde-paneler har
+  symmetrisk v/h-par der siden styres av en token, f.eks. `--toolbar-pad`.)
+- **Utenfor ≥ inni**: luften rundt/mellom elementer (margin/gap) skal alltid
+  være minst like stor som paddingen inni dem — trangere inni enn utenfor
+  oppleves harmonisk, det motsatte ikke. (F.eks. item-padding 6 / item-gap 8;
+  chip-padding 6 / chip-gap 8; kort-seksjonspadding 10 / `--board-gap` ≥ 12.)
+- Listekortet er en flex-kolonne med `gap: 10px` + `padding-bottom: 10px`;
+  seksjonene (head/items/skjema/element-kurv) har 10px sidepolstring → jevn
+  10px-luft langs alle kanter inne i kortet.
+
 ## Ikoner (`.icon`, `icons.js`)
 
-Appen brukte tidligere emoji som ikoner; erstattet med et egendefinert SVG-
-ikonsett (stroke="currentColor", stroke-width 1.5, viewBox 0 0 24 24, avrundede
-linjer/hjørner — Quicksand-aktig, myk stil). Alle ikoner har klassen `.icon`
-(`width/height: 1em` — skalerer med `font-size` på elementet de limes inn i,
-akkurat som emoji-glyfene de erstattet).
+Egendefinert SVG-ikonsett: stroke="currentColor", **stroke-width 1.05** (30 %
+tynnere enn opprinnelig 1.5 — luftigere ikoner med tydeligere detaljer),
+viewBox 0 0 24 24, avrundede linjer/hjørner. Alle ikoner har klassen `.icon`
+(`width/height: 1em` — skalerer med `font-size` på elementet de limes inn i).
 
 - **Statiske forekomster** (panel-title-ikoner, søppelkasse-knapper,
-  del-knapper, logo/brand-mark, ☰) limes rett inn som `<svg>`-markup i
+  del-knapper, logo/brand-mark) limes rett inn som `<svg>`-markup i
   `index.html` — ingen build-steg, så det er enklest å holde dem der de brukes.
-- **Dynamiske forekomster** (delt/låst-merker på chips, lås-knappen i
-  del-modalen, auth-heading-ikonet som bytter med innloggingsmodus,
-  sveipefelt-søppelkassen) bygges fra `window.ICONS` (`icons.js`, lastet før
-  `app.js`) via `el.innerHTML = ICONS.xxx`.
-- ☰-knappen beholder sin CSS-tegnede `.menu-bars` (tre avrundede streker) —
-  den matcher allerede ikonsettets stil (tynn, avrundet, `currentColor`), så
-  `icon-menu.svg` fra design-handoffen ble ikke tatt i bruk.
-- Favicon (`favicon.svg`, sky-med-punkt-logoen) er en frittstående fil siden
-  `<link rel="icon">` ikke kan peke på en JS-streng.
+- **Dynamiske forekomster** (delt/låst-merker, lås-knappen i del-modalen,
+  auth-heading-ikonet, sveipefelt-søppelkassen, antall-pillene, element-
+  søppelknappen, tom-tilstander) bygges fra `window.ICONS` (`icons.js`, lastet
+  før `app.js`) via `el.innerHTML = ICONS.xxx`.
+- ☰-knappen og dra-håndtakene tegnes i ren CSS (`.menu-bars` /
+  `.drag-handle::before` — strek/prikk + kopier via `box-shadow`), i samme
+  tynne, avrundede stil som ikonsettet.
+- Favicon (`favicon.svg`) er en frittstående fil siden `<link rel="icon">`
+  ikke kan peke på en JS-streng (beholder stroke 1.5 — lesbarhet i 16px).
+
+## Fargede knapper: `.btn-solid` + `.btn-green`/`.btn-red`/`.btn-yellow`
+
+ÉN felles stil for alle fargede knapper — aldri egne ad hoc-gradienter:
+
+- `.btn-solid`: hvit skrift m/ `--text-shadow`, `--shadow-sm`, og felles
+  hover-feedback: flaten **lysner litt** (`filter: brightness(1.09)`) og
+  skyggen løftes — tydelig, men ikke dramatisk fargeendring.
+- `.btn-green` (`--grad-green`): alle positive/primære handlinger — ＋-knapper,
+  Inviter, Gjenopprett, Godta, Plasser, auth-submit, filter-brytere i
+  på-tilstand.
+- `.btn-red` (`--grad-red`): destruktive handlinger — Tøm permanent, Forlat
+  deling, Kast ut, Logg ut.
+- `.btn-yellow` (`--grad-yellow`): lås-knappene i del-modalen.
+
+Størrelse/form kommer fra egne klasser: `.btn` (modaler), `.btn-small`,
+`.btn-add` (knapperadene, + `.icon-only` for kvadratisk ＋), `.switch`.
+`.btn-ghost` er den nøytrale hvite varianten (Avslå, Trekk tilbake, Lukk).
 
 ## Delte klasser — gjenbruk før du lager nye
 
 - `.panel-head` + `.panel-title` + `.panel-actions`: overskrift («UNIVERS:
   [navn]»/«GRUPPE: [navn]»/«UNIVERSER», uppercase via CSS) på egen linje +
   knapperad under. Brukes i gruppemenyen, listemenyen og meny-modalen.
-- `.btn-add` (+ `.icon-only` for kvadratisk ＋): ALLE ＋-knapper — grønn gradient,
-  **hvit tekst m/ `--text-shadow`**.
 - `.trashcan`: ALLE søppelkasse-knapper — hvit avrundet beholder, antall i grå
   sirkel (`.trashcan-count`), **skjult (`hidden`) når tom**.
 - `.menu-btn`: ☰ (tre linjer via `.menu-bars` + box-shadow).
-- `.chip` / `.chip-name` / `.chip-count`: fargede kort med hvit skrift — deles av
-  gruppekort og univers-rader. Aktiv = grønn brand-ring (`outline --primary`).
-- Sletteknapper: felles regel (dempet ✕ → rød ved hover), `margin-left: auto` på
-  chips (alltid helt til høyre). Element-✕ alltid synlig, dempet (`opacity .55`).
-- Håndtak (`.drag-handle`): alltid **mørkere enn flaten sin** (kortets/gruppens
-  aksentfarge `--card-accent`/`--g-accent`), grid-sentrert (vertikalt midtstilt).
+- `.chip` / `.chip-name` / `.chip-count`: fargede kort med hvit skrift — deles
+  av gruppekort og univers-rader. Aktiv = grønn brand-ring (`outline
+  --primary`). `.chip-count` er en liten, subtil **pill med nivå-ikon +
+  antall** (univers-rad: mappe + antall grupper; gruppekort: liste-ikon +
+  antall lister), med litt avstand fra navnet.
+- Sletteknapper: felles regel (dempet ✕ → rød ved hover). På chips ligger
+  **del-knappen alltid rett til venstre for ✕** (auto-margen flytter seg til
+  del-knappen når den er synlig). Element-✕ alltid synlig, dempet
+  (`opacity .55`).
+- Del-knapper (`.chip-share`/`.card-share`): ser ut som knapper — svakt hvit
+  flate + tynn ring som lysner ved hover, samme høyde som navneteksten ved
+  siden av. Delt-merket (`.share-badge`) har også samme høyde som teksten.
+- Håndtak (`.drag-handle`): tre vertikale prikker (CSS `::before` +
+  box-shadow), alltid **mørkere enn flaten sin** (`--card-accent`/`--g-accent`)
+  og alltid nøyaktig vertikalt midtstilt (`align-self: stretch` +
+  grid-sentrering).
+- Placeholders: én delt stil for `.card-/.item-/.group-placeholder` — se
+  `docs/drag-and-drop.md`.
 
 ## Flate-mønsteret
 
@@ -77,11 +130,16 @@ side-margin som kansellerer den omsluttende paddingen.
 - Klikk = bytt/aktivér; klikk på det **aktive** navnet = omdøp inline (autosize).
 - Slett = `trashed`-flagg → søppelkasse; søppelkasser vises kun med innhold;
   kort trykk = modal (gjenopprett/tøm), klikk-og-hold = sveipefelt for tømming.
-  Destruktivt er alltid reversibelt frem til tømming (gravstein først da). Se
-  `docs/trash.md`.
+  Sletting animeres («pakk sammen og fly i søpla», se `docs/trash.md`) så
+  brukeren ser hvor objektet havnet. Destruktivt er alltid reversibelt frem
+  til tømming (gravstein først da) — derfor ingen bekreftelses-dialog på selve
+  slettingen, og heller ikke på «Tøm permanent» i modalen (sveipe-tømming har
+  heller ingen).
 - Nytt objekt (univers/gruppe/liste) aktiveres og går rett i navneredigering.
 - Escape lukker øverste modal — men avbryter kun inline-redigering hvis en pågår.
+- Del-modalens overskrift er alltid «[objekttype-ikon] [navn] — Innstillinger
+  for deling» (gir mening for både eier og mottaker).
 
-## Fargesystem (HSL, posisjonsbasert) + merkelapper/filter
+## Fargesystem (HSL, posisjonsbasert) + filter
 
 Se `docs/colors-and-labels.md`.

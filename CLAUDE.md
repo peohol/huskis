@@ -97,6 +97,11 @@ oppgave som ferdig uten denne verifiseringen.
 Alt i oppgavebeskrivelsen (universer, designsystem, søppelkasser på alle
 nivåer, luft-system i board-et, dra-rekkefølge for universer i menyen) er
 implementert og verifisert i nettleser — se git-historikk for detaljer.
+Designsystemet er senere overhalt (Atkinson Hyperlegible Next, ~30 % større
+elementer m/ tynnere ikonstreker, felles `.btn-solid`-knappesystem,
+prikke-håndtak, delt placeholder-stil, knapp-til-sveipefelt-morf,
+slette-animasjon inn i søppelknappen) — se `docs/design-system.md` og
+`docs/trash.md`.
 Posisjonsbasert farge reindekseres alltid ved omrokkering (ikke bare
 add/slett) for grupper, lister og universer — se `docs/drag-and-drop.md`.
 

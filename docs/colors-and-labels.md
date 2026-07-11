@@ -19,8 +19,9 @@ Filterkortet (👁️ Mine/Delte) i listemenyen (se `docs/menus.md`), per enhet
 selv eier, `isMine(c)`/`c._mine !== false`) og «Delte» (lister andre har delt
 med deg — `accountsMode() && c._mine === false`; alltid tomt utenfor
 kontomodus). Begge kan stå på (alt vises) eller av (alt skjules). Kort trykk =
-uavhengig toggle; hold en bryter i 500 ms (`FILTER_HOLD_MS`) → aktiverer kun
-den (skrur av den andre).
+uavhengig toggle; hold en bryter i 250 ms (`FILTER_HOLD_MS`) → aktiverer kun
+den (skrur av den andre). På-tilstanden bruker samme grønne knappestil
+(`--grad-green` + lys-opp-hover) som resten av de grønne knappene.
 
 Erstatter det gamle K/P-merkelapp-systemet (per-kort K/P-brytere + KP-filter).
 `k`/`p`/`labTs`/`labOrg`-feltene lever videre i datamodellen og synk-laget

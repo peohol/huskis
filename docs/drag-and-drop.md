@@ -22,6 +22,13 @@ Bytte utløses av **overlapp**, ikke av et punkt:
 - Håndtak (`.drag-handle`) har `touch-action: none`; draging starter kun fra
   håndtaket. `pointercapture` brukes så draging ikke mister eventer. Placeholder
   lever kun under draging; `finishDrag()` har sikkerhetsnett.
+- **Alle håndtak er tre vertikale prikker** tegnet i CSS (`::before` + to
+  prikker via `box-shadow` — ingen glyf/SVG i templatene), og er alltid
+  nøyaktig vertikalt midtstilt i raden sin (`align-self: stretch` +
+  grid-sentrering). **Alle placeholders deler én stil** (felles regel for
+  `.card-/.item-/.group-placeholder`): 1px stiplet kant med lav opacity, svakt
+  mørknet flate og en subtil inset-skygge («hull som skal fylles») — kun
+  radius/margens varierer per type.
 - **Posisjonsbasert farge reindekseres alltid ved en fullført omrokkering**
   (ikke bare ved add/slett): `onCardUp`/`onGroupUp`/`onUniverseUp` kaller hhv.
   `reindexCardColors()`/`reindexGroupColors()`/`reindexUniverseColors()` etter

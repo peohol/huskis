@@ -21,9 +21,11 @@ Fast panel (`position: fixed`), **én felles DOM** delt i to media-queryer:
   rad** under — **uten fader** (kun en diskret, app-tilpasset scrollbar). ☰
   ligger IKKE i denne DOM-en (se «Menyknapp» under), men overlapper panelet
   visuelt.
-- **Gruppekort** (`.group-card.chip`): håndtak (mørkt, `--g-accent`), navn, dempet
-  antall, ✕ helt til høyre. Posisjonsbasert farge; aktiv = grønn ring. Klikk =
-  bytt gruppe; klikk på aktivt navn = omdøp (`editText` autosize).
+- **Gruppekort** (`.group-card.chip`): håndtak (tre prikker, mørkt,
+  `--g-accent`), navn, antall-pill (liste-ikon + antall lister, `.chip-count`),
+  evt. del-knapp, ✕ helt til høyre (del alltid rett til venstre for ✕).
+  Posisjonsbasert farge; aktiv = grønn ring. Klikk = bytt gruppe; klikk på
+  aktivt navn = omdøp (`editText` autosize).
 - **Rekkefølge**: dra-og-slipp via håndtaket med placeholder + FLIP
   (`updateGroupPlacement` dispatcher på orientering: vertikal kolonne på desktop
   (`…V`), horisontal rad på mobil (`…H`)); auto-scroll av feltet ved kantene.
@@ -76,13 +78,14 @@ responsiv styling i stedet.
 
 Menyknappen (☰) åpner `#menu-modal`:
 
-- **«Logg ut»** øverst (med bekreftelse), deretter en delelinje (`<hr class=
-  "menu-divider">`) i samme border-stil som `.modal-head` — se
+- **«Logg ut»** øverst (rød knapp, med bekreftelse), deretter en delelinje
+  (`<hr class="menu-divider">`) i samme border-stil som `.modal-head` — se
   `docs/design-system.md` («Delelinjer i modaler»).
-- **UNIVERSER**-seksjon: univers-rader (`.uni-row.chip` — håndtak, farget, aktiv
-  m/ ring, antall grupper dempet, ✕ helt til høyre), «＋ Univers» og
-  univers-søppelkassen (samme knapp/oppførsel som de andre — se
-  `docs/trash.md`).
+- **UNIVERSER**-seksjon: univers-rader (`.uni-row.chip` — håndtak, farget,
+  aktiv m/ ring, antall-pill med gruppe-ikon (mappe) + antall grupper
+  (`.chip-count`), evt. del-knapp, ✕ helt til høyre), «＋ [univers-ikon]»
+  (globus, ikke tekst) og univers-søppelkassen (samme knapp/oppførsel som de
+  andre — se `docs/trash.md`).
 - Klikk på en rad = **bytt univers + lukk menyen**; klikk på det aktive navnet =
   omdøp. Slett = i søppelkassen (menyen forblir åpen så man kan angre).
   `setActiveUniverse` gjenoppretter sist aktive gruppe i universet
