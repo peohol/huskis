@@ -1182,3 +1182,257 @@ body.locked #menu-btn { display: none; }
   }
   .toolbar { left: var(--sidebar-w); }
 }
+
+/* ============================================================
+   FASE 2 — brukerkontoer og deling
+   Auth-skjerm (e-post/passord), del-modal, plasserings-modal,
+   invitasjons-innboks, delt/låst-merker. Gjenbruker tokens og
+   flate-mønstre fra designsystemet over.
+   ============================================================ */
+
+/* Skjul app-innhold også i kontomodus (før innlogging). */
+body.locked .auth-screen ~ * { }
+body.no-auth .app-header,
+body.no-auth .app-main,
+body.no-auth #menu-btn { display: none; }
+
+/* ---------------- Auth-skjerm ---------------- */
+.auth-screen {
+  position: fixed;
+  inset: 0;
+  z-index: 400;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  overflow-y: auto;
+  background: linear-gradient(160deg, var(--bg-grad-a), var(--bg-grad-b));
+}
+.auth-screen[hidden] { display: none; }
+
+.auth-box {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 18px;
+  width: 100%;
+  max-width: 360px;
+}
+.auth-box .lock-brand { justify-content: center; }
+
+.auth-form, .auth-sent {
+  display: flex;
+  flex-direction: column;
+  gap: 13px;
+  background: #fff;
+  border-radius: 20px;
+  padding: 22px 20px;
+  box-shadow: var(--shadow-lg);
+}
+.auth-sent[hidden] { display: none; }
+.auth-title {
+  margin: 0 0 2px;
+  font-size: 20px;
+  font-weight: 700;
+  color: var(--ink);
+  text-align: center;
+}
+.auth-field {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ink-soft);
+}
+.auth-field input {
+  font-family: inherit;
+  font-size: 15px;
+  font-weight: 500;
+  color: var(--ink);
+  padding: 11px 13px;
+  border: 1.5px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: #fbfbfd;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+.auth-field input:focus {
+  outline: none;
+  border-color: var(--primary);
+  box-shadow: 0 0 0 3px var(--primary-soft);
+}
+.auth-msg {
+  margin: 0;
+  min-height: 18px;
+  font-size: 13px;
+  font-weight: 600;
+  text-align: center;
+  color: var(--danger);
+}
+.auth-msg.ok { color: var(--primary-dark); }
+.auth-msg:empty { min-height: 0; }
+
+.btn-primary {
+  background: linear-gradient(135deg, var(--primary), var(--primary-dark));
+  color: #fff;
+  box-shadow: var(--shadow-sm);
+}
+.btn-primary:hover { box-shadow: var(--shadow-md); }
+.btn-primary:disabled { opacity: 0.55; cursor: progress; box-shadow: none; }
+.auth-submit { padding: 12px; font-size: 15px; }
+
+.auth-links {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  align-items: center;
+  margin-top: 2px;
+}
+.auth-link {
+  appearance: none;
+  border: none;
+  background: none;
+  cursor: pointer;
+  font-family: inherit;
+  font-size: 13.5px;
+  font-weight: 600;
+  color: var(--primary-dark);
+  padding: 2px 4px;
+}
+.auth-link:hover { text-decoration: underline; }
+
+.auth-sent { align-items: center; text-align: center; gap: 14px; }
+.auth-sent-icon { font-size: 42px; }
+.auth-sent-msg { margin: 0; font-weight: 600; color: var(--ink); line-height: 1.5; }
+.auth-sent-msg strong { color: var(--primary-dark); }
+
+/* ---------------- Meny: konto + badge ---------------- */
+.menu-account {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 2px 0 6px;
+}
+.menu-account[hidden] { display: none; }
+.account-avatar {
+  width: 34px; height: 34px;
+  flex: 0 0 auto;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  font-size: 15px;
+  font-weight: 700;
+  color: #fff;
+  background: linear-gradient(135deg, var(--primary), var(--primary-dark));
+  text-transform: uppercase;
+}
+.account-email { font-weight: 600; font-size: 14px; color: var(--ink); word-break: break-all; }
+
+.menu-badge {
+  position: absolute;
+  top: -5px; right: -5px;
+  min-width: 17px; height: 17px;
+  padding: 0 4px;
+  border-radius: 999px;
+  background: var(--danger);
+  color: #fff;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 17px;
+  text-align: center;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.3);
+}
+.menu-badge[hidden] { display: none; }
+.menu-btn { position: fixed; } /* allerede fixed; sørg for badge-anker */
+
+/* ---------------- Invitasjons-innboks ---------------- */
+.menu-invites[hidden] { display: none; }
+.invite-list { display: flex; flex-direction: column; gap: 8px; margin-top: 4px; }
+.invite-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px;
+  border-radius: var(--radius-sm);
+  background: var(--primary-soft);
+}
+.invite-info { flex: 1 1 140px; min-width: 0; }
+.invite-name { font-weight: 700; color: var(--ink); }
+.invite-from { display: block; font-size: 12.5px; color: var(--ink-soft); font-weight: 500; }
+.invite-type-tag {
+  font-size: 11px; font-weight: 700; text-transform: uppercase;
+  color: var(--primary-dark); letter-spacing: 0.03em;
+}
+.invite-actions { display: flex; gap: 6px; }
+
+/* ---------------- Del-modal ---------------- */
+.share-body { display: flex; flex-direction: column; gap: 14px; padding-bottom: 18px; }
+.share-invite-form { display: flex; gap: 8px; }
+.share-invite-form input {
+  flex: 1; min-width: 0;
+  font-family: inherit; font-size: 14px;
+  padding: 10px 12px;
+  border: 1.5px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: #fbfbfd;
+}
+.share-invite-form input:focus { outline: none; border-color: var(--primary); box-shadow: 0 0 0 3px var(--primary-soft); }
+.share-section-title { font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; color: var(--ink-soft); margin: 2px 0; }
+.member-row {
+  display: flex; align-items: center; gap: 10px;
+  padding: 9px 4px;
+  border-bottom: 1px solid var(--line);
+}
+.member-row:last-child { border-bottom: none; }
+.member-avatar {
+  width: 30px; height: 30px; flex: 0 0 auto;
+  border-radius: 50%; display: grid; place-items: center;
+  font-size: 13px; font-weight: 700; color: #fff; text-transform: uppercase;
+  background: linear-gradient(135deg, #8496a6, #5f6f7d);
+}
+.member-avatar.owner { background: linear-gradient(135deg, var(--primary), var(--primary-dark)); }
+.member-info { flex: 1; min-width: 0; }
+.member-name { font-weight: 600; color: var(--ink); word-break: break-word; }
+.member-role { display: block; font-size: 12px; color: var(--ink-soft); font-weight: 500; }
+.member-pending .member-name { color: var(--ink-soft); font-style: italic; }
+.share-msg { margin: 0; font-size: 13px; font-weight: 600; min-height: 16px; color: var(--danger); }
+.share-msg.ok { color: var(--primary-dark); }
+.share-lock-row {
+  display: flex; align-items: center; justify-content: space-between; gap: 10px;
+  padding: 12px; border-radius: var(--radius-sm); background: #faf9fe;
+}
+.share-lock-label { font-weight: 600; color: var(--ink); }
+.share-lock-hint { display: block; font-size: 12px; font-weight: 500; color: var(--ink-soft); }
+.share-leave { align-self: flex-start; }
+.owner-line { display: flex; align-items: center; gap: 10px; }
+
+/* ---------------- Plasserings-modal ---------------- */
+#place-body { display: flex; flex-direction: column; gap: 8px; padding-bottom: 18px; }
+.place-hint { margin: 0 0 4px; font-size: 13.5px; color: var(--ink-soft); font-weight: 500; }
+.place-option {
+  appearance: none; cursor: pointer; text-align: left;
+  font-family: inherit; font-size: 15px; font-weight: 600; color: var(--ink);
+  padding: 12px 14px;
+  border: 1.5px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: #fff;
+  transition: border-color 0.15s, background 0.15s;
+}
+.place-option:hover { border-color: var(--primary); background: var(--primary-soft); }
+
+/* ---------------- Delt / låst-merker ---------------- */
+.share-badge {
+  flex: 0 0 auto;
+  font-size: 12px;
+  line-height: 1;
+  filter: drop-shadow(var(--text-shadow));
+}
+.share-badge[hidden] { display: none; }
+.chip-share, .card-share { flex: 0 0 auto; font-size: 13px; opacity: 0.85; }
+.chip-share:hover, .card-share:hover { opacity: 1; }
+.card-share { color: rgba(255,255,255,0.92); }
+/* Delt liste-kort: en tydelig men diskret kant-markør. */
+.card.is-shared { box-shadow: var(--shadow-sm), inset 0 0 0 2px rgba(255,255,255,0.55); }
+.card.is-locked .card-title { opacity: 0.9; }
+.chip.is-shared { box-shadow: 0 2px 7px rgba(35,45,55,0.2), inset 0 0 0 1.5px rgba(255,255,255,0.6); }

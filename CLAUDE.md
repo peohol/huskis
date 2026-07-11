@@ -32,6 +32,7 @@ oppdater det aktuelle dokumentet der (ikke dump alt tilbake i denne fila).
 | `docs/auth.md` | mønster-lås/splash-screen/innlogging |
 | `docs/colors-and-labels.md` | HSL-fargesystem, K/P-merkelapper, filter |
 | `docs/arkitektur-brukere-deling.md` | brukerkontoer (Supabase Auth), eierskap, deling/mounts, lås — database-grunnmuren for fase 2 |
+| `docs/accounts.md` | fase 2-KLIENTEN: auth-UI, synk-motor v2 (get_my_doc/rad-CRUD), mount-rendring, delings-UI, kontomodus-flagget, mock-backend for testing |
 
 ## Verifisering (påkrevd før du sier deg ferdig)
 
@@ -101,7 +102,16 @@ add/slett) for grupper, lister og universer — se `docs/drag-and-drop.md`.
 
 **Brukere og deling**: database-grunnmuren (Supabase Auth, eierskap, deling,
 lås — se `docs/arkitektur-brukere-deling.md`) er ferdig, testet og kjørt mot
-Supabase. Klient/UI (fase 2: innlogging, delings-UI, mount-rendring) gjenstår
-— se `TODO.md` for detaljert løypekart. Appen bruker fortsatt mønster-låsen
-(`docs/auth.md`) og det gamle synk-doc'et (`docs/sync.md`) inntil fase 2 er
-ferdig.
+Supabase. **Fase 2 (klient/UI) er implementert** — auth-UI (registrering/
+innlogging/glemt passord), synk-motor v2 (`get_my_doc` → 3-veis fletting →
+rad-CRUD), mount-rendring av delt innhold, delings-UI (inviter/medlemmer/
+lås/innboks), søppel-semantikk for delinger (forlat) og migreringsflyt. Se
+`docs/accounts.md`. Kontomodus ligger **bak et flagg** (`config.js`:
+`accounts: true`, eller `?accounts=1`) inntil de manuelle Supabase-dashboard-
+stegene i `TODO.md` er gjort og alt er verifisert mot ekte Supabase; til da
+kjører fortsatt mønster-låsen (`docs/auth.md`) + synk-doc v1 (`docs/sync.md`).
+
+Verifisert i nettleser (Playwright) mot en hermetisk in-memory-backend
+(`mock-backend.js`, aktiveres med `?mock=1`) som etterligner Supabase-
+klienten og deler «server» mellom faner via localStorage — kjør to faner for
+å teste deling mellom to brukere uten ekte backend/e-postbekreftelse.
