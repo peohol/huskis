@@ -1160,7 +1160,6 @@
     const ph = document.createElement('div');
     ph.className = 'card-placeholder';
     ph.style.height = drag.height + 'px';
-    ph.style.setProperty('--card-accent', getComputedStyle(cardEl).getPropertyValue('--card-accent'));
     board.insertBefore(ph, cardEl);
     drag.ph = ph;
 
