@@ -21,5 +21,5 @@ window.SUPABASE_CONFIG = {
   // Redirect URLs; «Confirm email» på). Kan også slås på per økt med ?accounts=1.
   // Til da kjører den gamle mønster-låsen. (?mock=1 kjører kontomodus mot en
   // hermetisk in-memory-backend for testing.)
-  accounts: false,
+  accounts: true,
 };
