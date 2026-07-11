@@ -207,10 +207,11 @@ body {
   100% { transform: scale(1); }
 }
 
-/* Univers-rader (meny-modalen): chip uten håndtak, full bredde. */
+/* Univers-rader (meny-modalen): chip med håndtak (samme mønster som
+   gruppekortene), full bredde. */
 .uni-row {
   width: 100%;
-  padding: 6px 8px;
+  padding: 5px 8px 5px 5px;
 }
 .uni-row .chip-name { min-width: 0; }
 .uni-empty {
@@ -812,20 +813,22 @@ body {
   width: 100%;
   margin: 0 0 var(--board-gap);
   border-radius: var(--radius);
-  border: 2.5px dashed var(--card-accent, #8fb08f);
-  background: rgba(102, 136, 102, 0.10);
+  border: 2.5px dashed rgba(0, 0, 0, 0.45);
+  background: rgba(0, 0, 0, 0.25);
 }
 
 .item-placeholder {
   list-style: none;
   margin-bottom: 6px;
   border-radius: 10px;
-  border: 2px dashed var(--card-accent, #8fb08f);
-  background: rgba(102, 136, 102, 0.10);
+  border: 2px dashed rgba(0, 0, 0, 0.45);
+  background: rgba(0, 0, 0, 0.25);
 }
 
-/* Gruppe-draging: løftet chip følger pekeren; placeholder viser landingsplass. */
-.group-card.dragging {
+/* Gruppe-/univers-draging: løftet chip følger pekeren; placeholder viser
+   landingsplass. Samme mønster/klasser for begge (uni-list er alltid en
+   vertikal kolonne, som gruppelista på desktop). */
+.group-card.dragging, .uni-row.dragging {
   position: fixed;
   z-index: 100;
   margin: 0;
@@ -839,8 +842,8 @@ body {
   flex: 0 0 auto;
   align-self: stretch;
   border-radius: var(--control-radius);
-  border: 2px dashed var(--primary);
-  background: var(--primary-soft);
+  border: 2px dashed rgba(0, 0, 0, 0.45);
+  background: rgba(0, 0, 0, 0.25);
 }
 
 body.is-dragging { cursor: grabbing; user-select: none; -webkit-user-select: none; }

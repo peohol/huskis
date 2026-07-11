@@ -17,9 +17,9 @@ Alle knapper i samme knapperad har identisk høyde/radius/flate (`--control-h`
 
 ## Delte klasser — gjenbruk før du lager nye
 
-- `.panel-head` + `.panel-title` + `.panel-actions`: overskrift («GRUPPER»/
-  «LISTER»/«UNIVERSER», uppercase via CSS) på egen linje + knapperad under.
-  Brukes i gruppemenyen, listemenyen og meny-modalen.
+- `.panel-head` + `.panel-title` + `.panel-actions`: overskrift («UNIVERS:
+  [navn]»/«GRUPPE: [navn]»/«UNIVERSER», uppercase via CSS) på egen linje +
+  knapperad under. Brukes i gruppemenyen, listemenyen og meny-modalen.
 - `.btn-add` (+ `.icon-only` for kvadratisk ＋): ALLE ＋-knapper — grønn gradient,
   **hvit tekst m/ `--text-shadow`**.
 - `.trashcan`: ALLE søppelkasse-knapper — hvit avrundet beholder, antall i grå

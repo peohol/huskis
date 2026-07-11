@@ -414,6 +414,8 @@
   const appHeader = document.getElementById('app-header');
   const groupsBar = document.getElementById('groups-bar');
   const addGroupBtn = document.getElementById('add-group-btn');
+  const groupsPanelTitle = document.getElementById('groups-panel-title');
+  const listerPanelTitle = document.getElementById('lister-panel-title');
   const addCardBtn = document.getElementById('add-card-btn');
   const toolbarEl = document.querySelector('.toolbar');
   const filterSwitchesEl = document.getElementById('filter-switches');
@@ -537,6 +539,7 @@
 
     board.innerHTML = '';
     const group = activeGroupObj();
+    updatePanelTitles(group);
 
     // Ingen aktiv gruppe (evt. heller ikke noe univers — «＋ Gruppe» ordner begge).
     if (!group) {
@@ -586,6 +589,14 @@
   // finnes ikke noe univers, opprettes standard-universet i farten.)
   function updateToolbarState() {
     addCardBtn.disabled = !activeGroupObj();
+  }
+
+  // Panel-overskriftene viser navnet på gjeldende univers/gruppe, ikke bare
+  // nivånavnet — så man alltid ser hvor i hierarkiet man er.
+  function updatePanelTitles(group) {
+    const uni = activeUniverseObj();
+    groupsPanelTitle.textContent = uni ? 'Univers: ' + uni.name : 'Grupper';
+    listerPanelTitle.textContent = group ? 'Gruppe: ' + group.name : 'Lister';
   }
 
   /* ---------------- Grupper (gruppemenyen) ---------------- */
@@ -694,6 +705,7 @@
       stampContent(groupData);
       save();
       renderGroups(); // bredde/overflow kan endre seg med navnet
+      updatePanelTitles(activeGroupObj()); // navnet kan stå i «GRUPPE: …»-overskriften
     }, { cls: 'group-edit', autosize: true });
   }
 
@@ -1210,6 +1222,7 @@
       .forEach((el) => el.remove());
     stopAutoScroll();
     stopGroupAutoScroll();
+    stopUniverseAutoScroll();
     document.body.classList.remove('is-dragging');
   }
 
@@ -1265,7 +1278,6 @@
     const ph = document.createElement('div');
     ph.className = 'card-placeholder';
     ph.style.height = drag.height + 'px';
-    ph.style.setProperty('--card-accent', getComputedStyle(cardEl).getPropertyValue('--card-accent'));
     board.insertBefore(ph, cardEl);
     drag.ph = ph;
 
@@ -1497,7 +1509,23 @@
         stampPos(c);
       }
     }
+    reindexCardColors();
     save();
+  }
+
+  // Fargene er posisjonsbaserte (colorForIndex): en omrokkering endrer alle
+  // kortenes posisjon i den sorterte lista, ikke bare det flyttede kortets —
+  // reindekser derfor alltid samtlige (kirurgisk: kun CSS-variabler på
+  // eksisterende DOM-noder, ingen full re-rendring av board-et).
+  function reindexCardColors() {
+    activeCards().forEach((c, i) => {
+      c.color = colorForIndex(i);
+      const el = board.querySelector('.card[data-id="' + c.id + '"]');
+      if (!el) return;
+      el.style.setProperty('--card-bg', c.color);
+      el.style.setProperty('--card-head', darken(c.color, 0.08));
+      el.style.setProperty('--card-accent', darken(c.color, 0.32));
+    });
   }
 
   /* ---------------- ELEMENT-DRAGING ---------------- */
@@ -1826,7 +1854,20 @@
         stampPos(g);
       }
     }
+    reindexGroupColors();
     save();
+  }
+
+  // Samme resonnement som reindexCardColors: posisjonsbasert farge betyr at en
+  // omrokkering påvirker flere gruppekorts farge, ikke bare det flyttede.
+  function reindexGroupColors() {
+    visibleGroups().forEach((g, i) => {
+      g.color = colorForIndex(i);
+      const el = groupsBar.querySelector('.group-card[data-id="' + g.id + '"]');
+      if (!el) return;
+      el.style.setProperty('--g-bg', g.color);
+      el.style.setProperty('--g-accent', darken(g.color, 0.34));
+    });
   }
 
   /* ------- Auto-scroll av gruppelista under draging (ved overflow) -------
@@ -1873,6 +1914,151 @@
   function stopGroupAutoScroll() {
     if (groupScrollRAF != null) { cancelAnimationFrame(groupScrollRAF); groupScrollRAF = null; }
     groupScrollSpeed = 0;
+  }
+
+  /* ---------------- UNIVERS-DRAGING (meny-modalen) ----------------
+     Univers-radene ligger alltid i én vertikal kolonne i uni-list (ingen
+     mobil/desktop-veksling som gruppelista) — samme placeholder + FLIP-mønster
+     og samme retningsstyrte bytte-logikk som gruppekortenes desktop-variant
+     (updateGroupPlacementV), bare transponert til uni-list/.uni-row. */
+  function startUniverseDrag(ev, uniEl) {
+    if (ev.button != null && ev.button !== 0) return;
+    if (drag.active) return; // ignorer ny drag mens en pågår (unngår foreldreløs placeholder)
+    beginDragCommon(ev, uniEl);
+    drag.kind = 'universe';
+
+    const ph = document.createElement('div');
+    ph.className = 'group-placeholder';
+    ph.style.width = drag.width + 'px';
+    ph.style.height = drag.height + 'px';
+    uniList.insertBefore(ph, uniEl);
+    drag.ph = ph;
+
+    liftElement();
+    drag.el.style.transform = `rotate(${cardRotation()}deg) scale(1.05)`;
+    window.addEventListener('pointermove', onUniverseMove);
+    window.addEventListener('pointerup', onUniverseUp);
+    window.addEventListener('pointercancel', onUniverseUp);
+  }
+
+  function onUniverseMove(ev) {
+    if (!drag.active) return;
+    const dy = ev.clientY - drag.lastY;
+    drag.lastX = ev.clientX;
+    drag.lastY = ev.clientY;
+    moveElement();
+    drag.el.style.transform = `rotate(${cardRotation()}deg) scale(1.05)`;
+    updateUniverseAutoScroll(ev);
+    updateUniversePlacement(dy);
+  }
+
+  function updateUniversePlacement(dy) {
+    if (!drag.active || drag.kind !== 'universe') return;
+    const dragRect = draggedRect();
+    const rows = [...uniList.querySelectorAll('.uni-row:not(.dragging)')];
+    if (!rows.length) return;
+    const rects = new Map(rows.map((r) => [r, layoutRect(r)]));
+    const ph = drag.ph;
+    let action = null;
+    if (dy > 0) {
+      let best = null, bestTop = Infinity;
+      for (const r of rows) {
+        const rc = rects.get(r);
+        if (rc.top >= dragRect.top && vOverlap(dragRect, rc) >= SWAP_RATIO * rc.height && rc.top < bestTop) {
+          bestTop = rc.top; best = r;
+        }
+      }
+      if (best) action = { ref: best, pos: 'after' };
+    } else if (dy < 0) {
+      let best = null, bestTop = -Infinity;
+      for (const r of rows) {
+        const rc = rects.get(r);
+        if (rc.top <= dragRect.top && vOverlap(dragRect, rc) >= SWAP_RATIO * rc.height && rc.top > bestTop) {
+          bestTop = rc.top; best = r;
+        }
+      }
+      if (best) action = { ref: best, pos: 'before' };
+    }
+    if (!action || !wouldMove(ph, action.ref, action.pos)) return;
+    const snap = snapshotRects(rows);
+    placePlaceholder(uniList, ph, action.ref, action.pos); // 'after' siste rad → foran «＋ Univers»
+    flipFrom(snap, FLIP_MS);
+  }
+
+  function onUniverseUp() {
+    if (!drag.active) return;
+    window.removeEventListener('pointermove', onUniverseMove);
+    window.removeEventListener('pointerup', onUniverseUp);
+    window.removeEventListener('pointercancel', onUniverseUp);
+
+    const el = drag.el;
+    const rot = cardRotation();
+    uniList.insertBefore(el, drag.ph);
+    drag.ph.remove();
+    dropIntoPlaceholder(el, rot);
+    finishDrag();
+
+    // Ny rekkefølge: pos mellom DOM-naboene (kun dette universets pos-register).
+    const prev = el.previousElementSibling;
+    const next = el.nextElementSibling;
+    const u = findUniverse(el.dataset.id);
+    if (u) {
+      const prevU = prev && prev.classList.contains('uni-row') ? findUniverse(prev.dataset.id) : null;
+      const nextU = next && next.classList.contains('uni-row') ? findUniverse(next.dataset.id) : null;
+      const np = between(prevU ? prevU.pos : null, nextU ? nextU.pos : null);
+      if (u._mount) {
+        // Montert univers: mottakerens egen rekkefølge ligger i membership-raden.
+        u.pos = np; u._mount.pos = np;
+        cloudMountUpdate('universe', u.id, { pos: np });
+      } else {
+        u.pos = np;
+        stampPos(u);
+      }
+    }
+    reindexUniverseColors();
+    save();
+  }
+
+  // Samme resonnement som reindexCardColors/reindexGroupColors.
+  function reindexUniverseColors() {
+    visibleUniverses().forEach((u, i) => {
+      u.color = colorForIndex(i);
+      const el = uniList.querySelector('.uni-row[data-id="' + u.id + '"]');
+      if (!el) return;
+      el.style.setProperty('--g-bg', u.color);
+      el.style.setProperty('--g-accent', darken(u.color, 0.34));
+    });
+  }
+
+  /* ------- Auto-scroll av uni-list under draging (alltid vertikal — menyens
+     scroll-container er .menu-body, ikke selve uni-list). ------- */
+  let uniScrollRAF = null, uniScrollSpeed = 0;
+  function updateUniverseAutoScroll(ev) {
+    const scroller = menuModal.querySelector('.menu-body');
+    if (!drag.active || drag.kind !== 'universe' || !scroller) { stopUniverseAutoScroll(); return; }
+    const r = scroller.getBoundingClientRect();
+    const EDGE = 52;
+    let speed = 0;
+    const y = ev.clientY;
+    if (y < r.top + EDGE) speed = -Math.ceil(((r.top + EDGE - y) / EDGE) * 16);
+    else if (y > r.bottom - EDGE) speed = Math.ceil(((y - (r.bottom - EDGE)) / EDGE) * 16);
+    uniScrollSpeed = speed;
+    if (speed !== 0) startUniverseAutoScroll(scroller); else stopUniverseAutoScroll();
+  }
+  function startUniverseAutoScroll(scroller) {
+    if (uniScrollRAF != null) return;
+    const step = () => {
+      if (!drag.active || uniScrollSpeed === 0) { uniScrollRAF = null; return; }
+      const before = scroller.scrollTop;
+      scroller.scrollTop += uniScrollSpeed;
+      if (scroller.scrollTop !== before) updateUniversePlacement(uniScrollSpeed > 0 ? 1 : -1);
+      uniScrollRAF = requestAnimationFrame(step);
+    };
+    uniScrollRAF = requestAnimationFrame(step);
+  }
+  function stopUniverseAutoScroll() {
+    if (uniScrollRAF != null) { cancelAnimationFrame(uniScrollRAF); uniScrollRAF = null; }
+    uniScrollSpeed = 0;
   }
 
   // Faste (position: fixed) header + verktøylinje er ute av flyten, så board-et må
@@ -2447,7 +2633,8 @@
       }
     };
     el.addEventListener('click', (ev) => {
-      if (ev.target.closest('.uni-delete') || ev.target.closest('.chip-share')) return;
+      if (ev.target.closest('.uni-delete') || ev.target.closest('.chip-share') ||
+          ev.target.closest('.group-handle')) return;
       activate();
     });
     el.addEventListener('keydown', (ev) => {
@@ -2463,6 +2650,10 @@
     } else {
       uDelBtn.addEventListener('click', (ev) => { ev.stopPropagation(); deleteUniverse(u); });
     }
+
+    const uHandle = el.querySelector('.group-handle');
+    if (accountsMode() && !uCanEdit && !u._mount) uHandle.style.visibility = 'hidden';
+    else uHandle.addEventListener('pointerdown', (ev) => startUniverseDrag(ev, el));
     return el;
   }
 
@@ -2472,6 +2663,7 @@
       stampContent(u);
       save();
       renderUniverses();
+      updatePanelTitles(activeGroupObj()); // navnet kan stå i «UNIVERS: …»-overskriften
     }, { cls: 'chip-edit', autosize: true });
   }
 
