@@ -813,16 +813,16 @@ body {
   width: 100%;
   margin: 0 0 var(--board-gap);
   border-radius: var(--radius);
-  border: 2.5px dashed var(--card-accent, #8fb08f);
-  background: rgba(102, 136, 102, 0.22);
+  border: 2.5px dashed rgba(0, 0, 0, 0.45);
+  background: rgba(0, 0, 0, 0.25);
 }
 
 .item-placeholder {
   list-style: none;
   margin-bottom: 6px;
   border-radius: 10px;
-  border: 2px dashed var(--card-accent, #8fb08f);
-  background: rgba(102, 136, 102, 0.10);
+  border: 2px dashed rgba(0, 0, 0, 0.45);
+  background: rgba(0, 0, 0, 0.25);
 }
 
 /* Gruppe-/univers-draging: løftet chip følger pekeren; placeholder viser
@@ -842,8 +842,8 @@ body {
   flex: 0 0 auto;
   align-self: stretch;
   border-radius: var(--control-radius);
-  border: 2px dashed var(--primary);
-  background: var(--primary-soft);
+  border: 2px dashed rgba(0, 0, 0, 0.45);
+  background: rgba(0, 0, 0, 0.25);
 }
 
 body.is-dragging { cursor: grabbing; user-select: none; -webkit-user-select: none; }
