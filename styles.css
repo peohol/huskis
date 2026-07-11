@@ -87,6 +87,17 @@ body {
   overscroll-behavior-y: none;
 }
 
+/* ---------------- Ikoner (SVG, se icons.js/index.html) ----------------
+   Arver farge fra `color` (stroke="currentColor") og størrelse fra
+   font-size på elementet de limes inn i — samme skaleringsmønster som
+   emoji-glyfene de erstattet. */
+.icon {
+  display: block;
+  flex: 0 0 auto;
+  width: 1em;
+  height: 1em;
+}
+
 /* ---------------- Paneler (gruppemeny + listemeny + meny-modal) ----------------
    Felles anatomi: en overskriftslinje (.panel-head med .panel-title) og en
    knapperad (.panel-actions) der alle kontroller deler høyde/radius. */
@@ -98,12 +109,16 @@ body {
   min-height: 20px;
 }
 .panel-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
   font-size: 12px;
   font-weight: 700;
   letter-spacing: 0.1em;
   text-transform: uppercase;
   color: var(--ink-soft);
 }
+.panel-title .icon { font-size: 13px; }
 .panel-actions {
   display: flex;
   align-items: center;
@@ -440,6 +455,17 @@ body {
   flex: 0 0 auto;
   transition: transform 0.1s ease;      /* jevn rotasjon; kollaps roterer tilbake */
   transform-origin: 50% 50%;
+}
+/* Lokket (topp-strek + hank) svinger opp rundt venstre hengsel (4.5,7.5 av
+   24×24 viewBox → 18.75%/31.25%), søppelet (ribbene) fader/faller ut — begge
+   drevet av setProgress(p) i app.js sin sveip-for-å-tømme-motor. */
+.swipe-icon-lid {
+  transform-box: view-box;
+  transform-origin: 18.75% 31.25%;
+  transition: transform 0.12s ease;
+}
+.swipe-icon-dots {
+  transition: transform 0.12s ease, opacity 0.12s ease;
 }
 .swipe-icon.shake { animation: swipe-shake 0.5s ease; }
 @keyframes swipe-shake {
@@ -1208,12 +1234,17 @@ body.no-auth #menu-btn { display: none; }
 }
 .auth-sent[hidden] { display: none; }
 .auth-title {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
   margin: 0 0 2px;
   font-size: 20px;
   font-weight: 700;
   color: var(--ink);
   text-align: center;
 }
+.auth-title .icon { color: var(--primary); }
 .auth-field {
   display: flex;
   flex-direction: column;

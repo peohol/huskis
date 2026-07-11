@@ -427,7 +427,7 @@
 
   const trashBtn = document.getElementById('trash-btn');
   const trashCount = document.getElementById('trash-count');
-  const trashTitle = document.getElementById('trash-title');
+  const trashTitle = document.getElementById('trash-title-text');
   const trashModal = document.getElementById('trash-modal');
   const trashList = document.getElementById('trash-list');
   const trashClose = document.getElementById('trash-close');
@@ -630,7 +630,7 @@
     const gBadge = el.querySelector('.share-badge');
     if (gShared) {
       gBadge.hidden = false;
-      gBadge.textContent = !gCanEdit ? '🔒' : '🔗';
+      gBadge.innerHTML = !gCanEdit ? ICONS.lock : ICONS.people;
       gBadge.title = groupData._mount ? 'Delt med deg' : 'Delt med andre';
     }
     const gShareBtn = el.querySelector('.chip-share');
@@ -798,7 +798,7 @@
     const cardBadge = el.querySelector('.share-badge');
     if (shared) {
       cardBadge.hidden = false;
-      cardBadge.textContent = !canEdit ? '🔒' : '🔗';
+      cardBadge.innerHTML = !canEdit ? ICONS.lock : ICONS.people;
       cardBadge.title = cardData._mount ? 'Delt med deg' : 'Delt med andre';
     }
     const cardShareBtn = el.querySelector('.card-share');
@@ -2227,7 +2227,7 @@
   /* ---------- De fire søppelkassene ---------- */
   function openUniversesTrash() {
     showTrashModal({
-      title: '🗑️ Slettede universer',
+      title: 'Slettede universer',
       note: TRASH_NOTE,
       emptyMsg: 'Ingen slettede universer.',
       rows: () => trashedUniverses().sort(posCmp).map((u) => ({
@@ -2248,7 +2248,7 @@
 
   function openGroupsTrash() {
     showTrashModal({
-      title: '🗑️ Slettede grupper',
+      title: 'Slettede grupper',
       note: TRASH_NOTE,
       emptyMsg: 'Ingen slettede grupper.',
       rows: () => trashedGroups().sort(posCmp).map((g) => ({
@@ -2271,7 +2271,7 @@
     const g = activeGroupObj();
     if (!g) return; // lister-søppelkassen er per gruppe
     showTrashModal({
-      title: '🗑️ Slettede lister – ' + g.name,
+      title: 'Slettede lister – ' + g.name,
       note: TRASH_NOTE,
       emptyMsg: 'Ingen slettede lister.',
       rows: () => trashedCards().map((c) => ({
@@ -2290,7 +2290,7 @@
 
   function openItemsTrash(cardData) {
     showTrashModal({
-      title: '🗑️ Slettede elementer – ' + cardData.title,
+      title: 'Slettede elementer – ' + cardData.title,
       note: TRASH_NOTE,
       emptyMsg: 'Ingen slettede elementer.',
       rows: () => trashedItemsOf(cardData).sort(posCmp).map((it) => ({
@@ -2363,17 +2363,19 @@
   const SHAKE_MS = 500;       // rist-varighet etter tømming
 
   // Ett gjenbrukt, fixed sveipefelt-overlay (deles av alle tre knappene).
-  let swipeEl = null, swipeIconEl = null;
+  let swipeEl = null, swipeIconEl = null, swipeLidEl = null, swipeDotsEl = null;
   function ensureSwipeField() {
     if (swipeEl) return swipeEl;
     swipeEl = document.createElement('div');
     swipeEl.className = 'swipe-field';
     swipeEl.innerHTML =
-      '<span class="swipe-icon" aria-hidden="true">🗑️</span>' +
+      ICONS.trashSwipe +
       '<span class="swipe-label">Sveip for å tømme</span>' +
       '<span class="swipe-arrow" aria-hidden="true">→</span>';
     document.body.appendChild(swipeEl);
     swipeIconEl = swipeEl.querySelector('.swipe-icon');
+    swipeLidEl = swipeEl.querySelector('.swipe-icon-lid');
+    swipeDotsEl = swipeEl.querySelector('.swipe-icon-dots');
     return swipeEl;
   }
   const COLLAPSE_W = 40;
@@ -2388,6 +2390,13 @@
       if (!swipeEl) return;
       swipeEl.style.setProperty('--p', p.toFixed(3));
       swipeIconEl.style.transform = 'rotate(' + (p * 180) + 'deg)';
+      // Lokket svinger opp og lukkes igjen midtveis i sveipet (0 → -42° → 0),
+      // søppelet (ribbene) faller ut/fader bort i samme vindu og forblir borte.
+      const lidP = Math.sin(Math.min(1, Math.max(0, p)) * Math.PI);
+      swipeLidEl.style.transform = 'rotate(' + (-42 * lidP) + 'deg)';
+      const dotsP = Math.min(1, Math.max(0, (p - 0.2) / 0.4));
+      swipeDotsEl.style.opacity = String(1 - dotsP);
+      swipeDotsEl.style.transform = 'translateY(' + (-6 * dotsP) + 'px)';
     }
     function openField() {
       if (api.count() <= 0) return;    // ingenting å tømme
@@ -2426,7 +2435,7 @@
       if (!swipeEl) return;
       swipeEl.style.width = COLLAPSE_W + 'px';
       swipeEl.classList.remove('open');
-      swipeIconEl.style.transform = 'rotate(0deg)';
+      setProgress(0); // roter kasse/lokk/prikker tilbake til hviletilstand
       swipeEl.style.removeProperty('--p');
     }
     function fireEmpty() {
@@ -2597,7 +2606,7 @@
     const uBadge = el.querySelector('.share-badge');
     if (uShared) {
       uBadge.hidden = false;
-      uBadge.textContent = !uCanEdit ? '🔒' : '🔗';
+      uBadge.innerHTML = !uCanEdit ? ICONS.lock : ICONS.people;
       uBadge.title = u._mount ? 'Delt med deg' : 'Delt med andre';
     }
     const uShareBtn = el.querySelector('.chip-share');
@@ -3504,6 +3513,7 @@
   const authScreen = document.getElementById('auth-screen');
   const authForm = document.getElementById('auth-form');
   const authHeading = document.getElementById('auth-heading');
+  const authHeadingIcon = document.getElementById('auth-heading-icon');
   const authEmail = document.getElementById('auth-email');
   const authPassword = document.getElementById('auth-password');
   const authPassField = document.getElementById('auth-pass-field');
@@ -3516,14 +3526,15 @@
   let authModeCur = 'login';
 
   const AUTH_MODES = {
-    login:    { title: 'Logg inn',       submit: 'Logg inn',        pass: true },
-    register: { title: 'Registrer deg',  submit: 'Opprett konto',   pass: true },
-    forgot:   { title: 'Glemt passord',  submit: 'Send lenke',      pass: false },
+    login:    { title: 'Logg inn',       submit: 'Logg inn',        pass: true,  icon: 'login' },
+    register: { title: 'Registrer deg',  submit: 'Opprett konto',   pass: true,  icon: 'profile' },
+    forgot:   { title: 'Glemt passord',  submit: 'Send lenke',      pass: false, icon: 'lock' },
   };
   function setAuthMode(mode) {
     authModeCur = mode;
     const m = AUTH_MODES[mode];
     authHeading.textContent = m.title;
+    authHeadingIcon.innerHTML = ICONS[m.icon];
     authSubmit.textContent = m.submit;
     authPassField.hidden = !m.pass;
     authPassword.required = m.pass;
@@ -4185,7 +4196,10 @@
     lockBtn.className = 'btn btn-small'; lockBtn.type = 'button';
     lockRow.innerHTML = '<div><span class="share-lock-label">Skrivebeskyttet</span>' +
       '<span class="share-lock-hint">Andre kan se, men ikke endre</span></div>';
-    const paintLock = () => { lockBtn.textContent = obj._locked ? 'Lås opp' : 'Lås'; };
+    const paintLock = () => {
+      lockBtn.innerHTML = (obj._locked ? ICONS.lock : ICONS.unlock) +
+        '<span>' + (obj._locked ? 'Lås opp' : 'Lås') + '</span>';
+    };
     paintLock();
     lockRow.appendChild(lockBtn);
     // Medlemsliste (egen beholder → oppdateres uten å nullstille skjema/melding)
