@@ -144,6 +144,17 @@ i stedet for tallet mens dette gjelder — samme visuelle språk som spinneren
 per rad i modalen. Fordi tallet i seg selv ikke endrer seg når en sletting
 committes (objektet var allerede talt med som «i søppel»), måtte de tre
 commit-stedene (`armDeleteTimer`, kategoribytte i `pushDeleteToast`,
-`commitAllPending`) byttes fra kun `save()` til `render()` — ellers ble
+`commitAllPending`) begynne å rydde badgen når timeren utløper — ellers ble
 spinneren hengende til neste urelaterte re-render, selv etter at objektet
 faktisk var klart til å tømmes.
+
+Dette gjøres bevisst UTEN en full `render()`: siden `DELETE_BUFFER_MS`-
+timeren kan utløpe mens brukeren har et annet, usagret inline-redigeringsfelt
+åpent et sted i UI-et (`editText()` sitt `.edit-input`, som ikke er bundet
+til state før blur/Enter), ville en full board-rebuild slettet den uferdige
+redigeringen under brukerens hender. `commitDeleteOne` returnerer nå hva slags
+objekt som ble committet (`{ kind, obj, card? }`), og
+`refreshTrashBadgesAfterCommit()` bruker det til å oppdatere KUN de relevante
+badgene direkte (`updateTrashCount`/`updateGroupsTrash`/`updateUniversesTrash`
+for gruppe/liste/univers-nivå, `updateItemsTrashBadge(cardData)` — som kun
+rører `.trashcan-count`-spannet, ikke resten av kortet — for element-nivå).

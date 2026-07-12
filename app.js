@@ -1261,12 +1261,13 @@
   // objektet var allerede skjult (buffret), så board-et endres ikke visuelt.
   function commitDeleteOne(id) {
     const entry = pendingDeletes.get(id);
-    if (!entry) return;
+    if (!entry) return null;
     pendingDeletes.delete(id);
     const found = findAnyById(id);
-    if (!found) return;
+    if (!found) return null;
     delete found.obj._pendingDelete;
     entry.commit(found.obj);
+    return found; // { kind, obj, card? } — brukes til å rydde riktig badge (se under)
   }
   // Angrer ETT objekt (fjern flagget) uten å tegne på nytt.
   function undoDeleteOne(id) {
@@ -1276,11 +1277,39 @@
     const found = findAnyById(id);
     if (found) delete found.obj._pendingDelete;
   }
+  // Oppdaterer KUN element-søppel-badgen på ett kort (tall + pending-spinner),
+  // uten å bygge kortet på nytt — så en pågående inline-redigering i samme kort
+  // (eller andre kort) ikke forstyrres. commitDeleteOne bufrer ikke — badgen
+  // (med spinner) finnes allerede i DOM-en fra da elementet ble slettet.
+  function updateItemsTrashBadge(cardData) {
+    const count = board.querySelector('.card[data-id="' + cardData.id + '"] .item-trash-btn .trashcan-count');
+    if (!count) return;
+    const trashed = trashedItemsOf(cardData);
+    count.textContent = trashed.length;
+    count.classList.toggle('pending', trashed.some((it) => it._pendingDelete));
+  }
+  // Rydder pending-spinnerne som hørte til nettopp committede objekter — uten en
+  // full render() (som ville revet ned en pågående inline-redigering et annet
+  // sted i UI-et). `committed` er resultatene fra commitDeleteOne (kan inneholde
+  // null for allerede fjernede/ukjente id-er).
+  function refreshTrashBadgesAfterCommit(committed) {
+    const kinds = new Set(), cards = new Set();
+    committed.forEach((f) => {
+      if (!f) return;
+      kinds.add(f.kind);
+      if (f.kind === 'item' && f.card) cards.add(f.card);
+    });
+    if (kinds.has('universe')) updateUniversesTrash();
+    if (kinds.has('group')) updateGroupsTrash();
+    if (kinds.has('card')) updateTrashCount();
+    cards.forEach(updateItemsTrashBadge);
+  }
   function commitAllPending() {
     if (deleteToast) { clearTimeout(deleteToast.timer); deleteToast = null; hideToast(); }
     if (!pendingDeletes.size) return;
-    [...pendingDeletes.keys()].forEach(commitDeleteOne);
-    render(); // rydder pending-spinnere på søppelkasse-knappene (render() lagrer også)
+    const committed = [...pendingDeletes.keys()].map(commitDeleteOne);
+    save();
+    refreshTrashBadgesAfterCommit(committed);
   }
   // Etter at synken har bygget state-treet på nytt: gjenpåfør buffer-flagget på
   // de friske objektene (ellers ville et buffret objekt dukket opp igjen).
@@ -1314,8 +1343,9 @@
     clearTimeout(deleteToast.timer);
     deleteToast.timer = setTimeout(() => {
       const g = deleteToast; deleteToast = null;
-      g.ids.forEach(commitDeleteOne);
-      render(); // rydder pending-spinnere på søppelkasse-knappene (render() lagrer også)
+      const committed = g.ids.map(commitDeleteOne);
+      save();
+      refreshTrashBadgesAfterCommit(committed);
       hideToast();
       if (!trashModal.hidden) renderTrashModalBody();
     }, DELETE_BUFFER_MS);
@@ -1325,8 +1355,9 @@
     if (deleteToast && deleteToast.kind !== kind) {
       const old = deleteToast; deleteToast = null;
       clearTimeout(old.timer);
-      old.ids.forEach(commitDeleteOne);
-      render(); // rydder pending-spinnere på søppelkasse-knappene (render() lagrer også)
+      const committed = old.ids.map(commitDeleteOne);
+      save();
+      refreshTrashBadgesAfterCommit(committed);
       if (!trashModal.hidden) renderTrashModalBody();
     }
     if (deleteToast && deleteToast.kind === kind) {
