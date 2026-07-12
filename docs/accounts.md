@@ -87,6 +87,10 @@ rekkefølge + egen søppel) ligger i en membership-rad («mount»). I `applyMyDo
   fra `accountsMode()` + `_mine`/`_mount`; klikk-handlerne leser aktivt objekt.
 - **`item.done`** (avkryssing) synker via samme rad-CRUD som resten (innholds-
   register `ts`/`org`). Krever `items.done`-kolonnen — se `TODO.md`.
+- **Sletting er buffret** (`docs/trash.md`): den skrives ikke til DB før toast-
+  vinduet utløper (eller fanen skjules). Angre innen vinduet gir null DB-trafikk.
+  Buffer-flagget (`_pendingDelete`) gjenpåføres etter hver `applyMyDoc`
+  (`reapplyPendingDeletes`), så en samtidig synk-runde ikke «angrer» skjulingen.
 - **Del-modal** (på univers/gruppe/liste, kun for eier eller mottaker):
   eier ser inviter-på-e-post (`create_share_invite`), medlemsliste
   (`get_members`), kast ut (`revoke_share`), trekk tilbake invitasjon

@@ -99,9 +99,9 @@ window.ICONS = {
 
   list: '<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.05" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
     '<rect x="3" y="3" width="18" height="18" rx="4.5"></rect>' +
-    '<circle cx="8" cy="8.5" r="1.05"></circle>' +
-    '<circle cx="8" cy="12" r="1.05"></circle>' +
-    '<circle cx="8" cy="15.5" r="1.05"></circle>' +
+    '<circle cx="8" cy="8.5" r="0.7" fill="currentColor" stroke="none"></circle>' +
+    '<circle cx="8" cy="12" r="0.7" fill="currentColor" stroke="none"></circle>' +
+    '<circle cx="8" cy="15.5" r="0.7" fill="currentColor" stroke="none"></circle>' +
     '<path d="M11.5 8.5h5.5"></path>' +
     '<path d="M11.5 12h5.5"></path>' +
     '<path d="M11.5 15.5h5.5"></path>' +

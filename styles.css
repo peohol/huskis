@@ -544,17 +544,39 @@ body {
 }
 .swipe-label {
   position: relative;
-  flex: 1 1 auto;
+  flex: 0 0 auto;
   font-weight: 700;
   font-size: var(--fs-md);
   color: var(--ink-soft);
 }
+/* Pil som fyller resten av feltet: en voksende horisontal strek (::before) +
+   et fast pilhode (::after, rotert hjørne). Streken tilpasser seg feltbredden
+   via flex; symmetrisk padding (satt i JS) gir lik luft til høyre. */
 .swipe-arrow {
   position: relative;
-  flex: 0 0 auto;
-  font-size: 22px;
-  font-weight: 700;
+  flex: 1 1 auto;
+  min-width: 24px;
+  display: flex;
+  align-items: center;
   color: var(--primary-dark);
+}
+.swipe-arrow::before {
+  content: '';
+  flex: 1 1 auto;
+  height: 2.5px;
+  background: currentColor;
+  border-radius: 2px;
+}
+.swipe-arrow::after {
+  content: '';
+  flex: 0 0 auto;
+  width: 11px;
+  height: 11px;
+  border-top: 2.5px solid currentColor;
+  border-right: 2.5px solid currentColor;
+  border-top-right-radius: 2px;
+  transform: rotate(45deg);
+  margin-left: -6px;   /* la hodet sitte på enden av streken */
 }
 
 /* Element-søppelkassen: midtstilt nederst i listekortet (samme knapp som de andre). */
@@ -759,8 +781,43 @@ body {
   word-break: break-word;
   min-height: 26px;
 }
-/* Gjort element: gjennomstreket, dempet tekst (elementet beholder plassen). */
+/* Gjort element: lavere bakgrunns-opacity + gjennomstreket, dempet tekst.
+   Håndtaket er inaktivt (avkryssede reorderes ikke — de ligger i «Utført»). */
+.item.done { background: rgba(255, 255, 255, 0.3); }
+.item.done:hover { background: rgba(255, 255, 255, 0.48); }
 .item.done .item-text { text-decoration: line-through; opacity: 0.5; }
+.item.done .item-handle { opacity: 0; pointer-events: none; }
+
+/* «Utført»-seksjonen: egen liste under de aktive, skilt med en subtil linje. */
+.items-done-wrap { display: flex; flex-direction: column; gap: 8px; }
+.done-divider {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0 10px;
+}
+.done-divider span {
+  flex: 0 0 auto;
+  font-size: var(--fs-xs);
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: rgba(0, 0, 0, 0.42);
+}
+.done-divider::after {
+  content: '';
+  flex: 1 1 auto;
+  height: 1px;
+  background: rgba(0, 0, 0, 0.15);
+}
+.items-done {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 0;
+  padding: 0 10px;
+}
 
 /* ---------------- Add item ---------------- */
 .add-item-form {
@@ -1082,6 +1139,19 @@ body.is-dragging * { cursor: grabbing !important; }
 .trash-name { flex: 1; font-weight: 600; font-size: var(--fs-base); word-break: break-word; }
 .trash-meta { color: var(--ink-soft); font-size: var(--fs-sm); font-weight: 500; white-space: nowrap; }
 .trash-empty-msg { text-align: center; color: var(--ink-soft); font-weight: 500; font-size: var(--fs-base); padding: 26px 0; margin: 0; }
+/* Lasteindikator i søppel-modalen for buffer-slettede (ennå ikke committede)
+   objekter — vises til slettingen faktisk er skrevet og objektet kan
+   gjenopprettes. Snurringen nøytraliseres under «reduser bevegelse». */
+.spinner {
+  flex: 0 0 auto;
+  width: 26px;
+  height: 26px;
+  border: 2.5px solid rgba(0, 0, 0, 0.14);
+  border-top-color: var(--primary);
+  border-radius: 50%;
+  animation: spin 0.7s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
 
 .modal-foot {
   display: flex;
@@ -1601,15 +1671,27 @@ body.no-auth #menu-btn { display: none; }
    ikke fra kortene. */
 .card-share {
   flex: 0 0 auto;
+  align-self: center;
+  appearance: none;
+  border: none;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 36px;
+  padding: 0 9px;
+  border-radius: 9px;
   font-size: var(--fs-lg);
   color: #fff;
   background: rgba(255, 255, 255, 0.2);
   box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.35);
+  transition: background 0.15s;
 }
 .card-share:hover {
   color: #fff;
   background: rgba(255, 255, 255, 0.34);
 }
+.card-share:focus-visible { outline: 2.5px solid #fff; outline-offset: 2px; }
 .card-share .icon { filter: drop-shadow(var(--text-shadow)); }
 /* Delt liste-kort: en tydelig men diskret kant-markør. */
 .card.is-shared { box-shadow: var(--shadow-sm), inset 0 0 0 2px rgba(255,255,255,0.55); }

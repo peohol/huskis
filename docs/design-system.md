@@ -103,10 +103,12 @@ Størrelse/form kommer fra egne klasser: `.btn` (modaler), `.btn-small`,
   del-knappen når den er synlig). Element-✕ alltid synlig, dempet
   (`opacity .55`).
 - Del-knapper: listekort har `.card-share` (ser ut som en knapp — svakt hvit
-  flate + ring, lysner ved hover). **Univers og grupper deles IKKE fra kortene**,
-  men fra menyenes egne `.share-btn` (del-univers ved «＋ Gruppe», del-gruppe
-  ved «＋ Liste» — deler det AKTIVE universet/gruppen; flate-mønster). Kun
-  kontomodus. Delt-merket (`.share-badge`) har samme høyde som teksten.
+  flate + ring, lysner ved hover), som viser **[del-ikon] + [liste-ikon]** —
+  samme mønster som menyenes del-knapper. **Univers og grupper deles IKKE fra
+  kortene**, men fra menyenes egne `.share-btn` (del-univers = [del]+[globus]
+  ved «＋ Gruppe», del-gruppe = [del]+[mappe] ved «＋ Liste» — deler det AKTIVE
+  universet/gruppen; flate-mønster). Kun kontomodus. Delt-merket
+  (`.share-badge`) har samme høyde som teksten.
 - Håndtak (`.drag-handle`): tre vertikale prikker (CSS `::before` +
   box-shadow), alltid **mørkere enn flaten sin** (`--card-accent`/`--g-accent`)
   og alltid nøyaktig vertikalt midtstilt (`align-self: stretch` +
@@ -119,8 +121,14 @@ Størrelse/form kommer fra egne klasser: `.btn` (modaler), `.btn-small`,
 - `.account-avatar` / `.member-avatar`: felles avatar-form (rund, sentrert hvit
   initial på gradient) via delt selektor; størrelse/farge per bruk.
 - `.item-check`: avkryssingsboks på elementer — rund-firkantet boks, grønt
-  hake-fyll (`.item.done`) + gjennomstreket tekst. `done` er datamodell (se
-  `docs/data-model.md`).
+  hake-fyll (`.item.done`) + gjennomstreket tekst + lavere bakgrunn. Avkryssede
+  elementer flyttes med FLIP til en egen **«Utført»-seksjon** (`.items-done`,
+  skilt med `.done-divider`) nederst i kortet; `done` er datamodell (se
+  `docs/data-model.md`). Håndtaket er inaktivt for avkryssede rader.
+- `.spinner`: liten roterende ring — lasteindikator i søppel-modalen for
+  buffer-slettede objekter som ennå ikke er gjenopprettbare (se `docs/trash.md`).
+- Liste-ikonet (`ICONS.list`): de tre «linjene» er nå **fylte bullets** (små
+  sirkler, `r=0.7`, `fill=currentColor`) for tydeligere separasjon.
 - Antall-piller (`.chip-count`) og tellere (`.trashcan-count`) samt varsel-
   badgen (`.menu-badge`) holdes **bevisst separate** — de deler visuelt uttrykk
   (avrundet, tabular-nums) men har ulike roller; å tvinge dem inn i én `.pill`

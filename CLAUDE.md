@@ -110,6 +110,11 @@ gruppe-deling fra kortene til egne `.share-btn` i menyene (ved «＋ Gruppe» / 
 Liste»). `item.done` krever en DB-migrering i kontomodus — se `TODO.md`.
 Posisjonsbasert farge reindekseres alltid ved omrokkering (ikke bare
 add/slett) for grupper, lister og universer — se `docs/drag-and-drop.md`.
+Siste runde: **buffret sletting** (`_pendingDelete` + `DELETE_BUFFER_MS`) —
+sletting skrives ikke til DB før angre-vinduet utløper, angre er umiddelbart, og
+søppel-modalen viser en spinner til objektet er committet (`docs/trash.md`);
+**«Utført»-seksjon** for avkryssede elementer (FLIP, posisjonsminne via uendret
+`pos`); liste-del-chip og liste-ikon oppdatert; sveipefeltet sier «Tøm» + pil.
 
 **Brukere og deling**: database-grunnmuren (Supabase Auth, eierskap, deling,
 lås — se `docs/arkitektur-brukere-deling.md`) er ferdig, testet og kjørt mot

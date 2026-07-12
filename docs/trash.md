@@ -26,9 +26,34 @@ listekort. Poenget er å vise HVOR det slettede havnet (og at det kan
 gjenopprettes derfra). Ingen bekreftelses-dialog — sletting er reversibel.
 Hopper over ved `prefersReducedMotion()`.
 
-I tillegg vises en **angre-toast** («Slettet «X» — Angre», 5 s): «Angre»
-gjenoppretter via de delte `restoreUniverse/Group/Card/Item`-hjelperne (samme
-som «Gjenopprett» i søppel-modalen).
+## Delete-buffer (optimistisk sletting + angre)
+
+Sletting skriver **ikke** til databasen med en gang. Objektet får et lokalt
+`_pendingDelete`-flagg (`_`-prefiks → strippes av `stateReplacer`, ikke i synk-
+doc'et) og en **angre-toast** («Slettet «X» — Angre», 5 s). Angrer man innen
+vinduet (`undoDelete(id)`), fjernes flagget lokalt — **ingen databasetrafikk,
+umiddelbart**. Ellers committes slettingen når timeren (`DELETE_BUFFER_MS`,
+5 s) utløper — eller når fanen skjules (`visibilitychange`/`pagehide`) —:
+`trashed = true` + stempling/mount-push (`commitDelete`).
+
+Mens objektet er buffret:
+- Det er **skjult** fra board/menyer (`activeCards`/`visibleGroups`/… ekskluderer
+  `_pendingDelete`) men **vises i søppel-visningen** (`trashedCards`/… inkluderer
+  det) — med en **spinner** i stedet for «Gjenopprett»-knappen (ikke gjenopprettbart
+  ennå), og «Tøm permanent» er deaktivert for pending-rader.
+- Etter commit byttes spinneren til den vanlige «Gjenopprett»-knappen.
+
+ALT går via **id-oppslag** (`findAnyById`), aldri fangede objekt-referanser, så
+det tåler at synken bygger state-treet på nytt underveis — `reapplyPendingDeletes()`
+gjenpåfører flagget etter hver `applyDoc`/`applyMyDoc`. Dette løste også en bug
+der «Angre»/«Gjenopprett» mutere en foreldet referanse (etter at synken hadde
+bygget treet på nytt) og dermed ikke virket før noen sekunder hadde gått.
+
+«Angre» (og «Gjenopprett» for committede) bruker de delte
+`restoreUniverse/Group/Card/Item`-hjelperne (samme kode begge steder).
+
+Sveipefeltets tekst er «Tøm» + en pil som fyller resten av feltet (symmetrisk
+padding, satt i JS).
 
 ## Interaksjon (`attachTrashHold`)
 

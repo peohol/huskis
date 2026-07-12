@@ -47,10 +47,16 @@ osv.), så kryss-univers-flytting er umulig i UI-et.
 - Klikk på navn (aktiv gruppe / aktivt univers / kort-tittel / element) = omdøp inline.
 - Søppelkasse på alle fire nivåer (`trashed`-flagg) — se `docs/trash.md`.
 - **Avkryssing av elementer** (`item.done`): rir på innholds-registeret (`ts`/`org`,
-  som `text`/`trashed`) — LWW ved samtidig endring. Kun visuell markering
-  (gjennomstreking, `.item.done`); elementet beholder plassen sin. I kontomodus
+  som `text`/`trashed`) — LWW ved samtidig endring. Avkryssede elementer flyttes
+  (med FLIP, se `toggleItemDone`) til en egen **«Utført»-seksjon** nederst i kortet
+  (skilt med en linje), med lavere bakgrunns-opacity + gjennomstreking. `pos`
+  endres IKKE, så et reaktivert element sorterer tilbake til nøyaktig sin gamle
+  plass blant de aktive (og skyver den som nå står der, ett hakk ned). I kontomodus
   er `done` en egen kolonne (`items.done`, se `supabase/users-and-sharing.sql` +
   TODO.md for påkrevd DB-migrering).
+- **`_pendingDelete`** (lokalt, `_`-prefiks → ikke synket): buffret sletting —
+  objektet er skjult og «på vei til søppel», men ennå ikke `trashed`/skrevet til
+  DB. Se `docs/trash.md` (delete-buffer).
 
 Gotcha: «＋ Gruppe» skal alltid bare virke, selv uten univers — standard-universet
 opprettes i farten (`ensureUniverse`). Dette bruker en NY tilfeldig id, ikke den

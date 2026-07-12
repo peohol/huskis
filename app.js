@@ -477,20 +477,25 @@
   // Univers-scope: «aktive» grupper gjelder alltid det aktive universet, og
   // «aktive» kort/elementer den aktive gruppen. Universer er helt uavhengige
   // områder — alt gruppe-UI (header, søppelkasse, DnD) er scopet hit.
-  const activeUniverseObj = () => state.universes.find((u) => u.id === state.activeUniverse && !u.trashed) || null;
-  const visibleUniverses = () => state.universes.filter((u) => !u.trashed).sort(posCmp); // i meny-modalen
-  const trashedUniverses = () => state.universes.filter((u) => u.trashed);               // i univers-søppelkassen
+  // `_pendingDelete` (buffret sletting, se DELETE-BUFFER lenger nede): objektet
+  // er skjult fra de synlige listene og vist i søppel-visningen (med spinner),
+  // men er ENNÅ ikke `trashed` i state og skrives ikke til databasen — det skjer
+  // først når toasten utløper (eller committes ved unload). Derfor teller det som
+  // «i søppel» for visning, men ikke som aktivt.
+  const activeUniverseObj = () => state.universes.find((u) => u.id === state.activeUniverse && !u.trashed && !u._pendingDelete) || null;
+  const visibleUniverses = () => state.universes.filter((u) => !u.trashed && !u._pendingDelete).sort(posCmp); // i meny-modalen
+  const trashedUniverses = () => state.universes.filter((u) => u.trashed || u._pendingDelete);               // i univers-søppelkassen
   const findUniverse = (id) => state.universes.find((u) => u.id === id) || null;
   const allGroups = () => { const u = activeUniverseObj(); return u ? u.groups : []; };
-  const activeGroupObj = () => allGroups().find((g) => g.id === state.activeGroup && !g.trashed) || null;
-  const visibleGroups = () => allGroups().filter((g) => !g.trashed).sort(posCmp); // vist i gruppemenyen
-  const trashedGroups = () => allGroups().filter((g) => g.trashed);               // i gruppe-søppelkassen
+  const activeGroupObj = () => allGroups().find((g) => g.id === state.activeGroup && !g.trashed && !g._pendingDelete) || null;
+  const visibleGroups = () => allGroups().filter((g) => !g.trashed && !g._pendingDelete).sort(posCmp); // vist i gruppemenyen
+  const trashedGroups = () => allGroups().filter((g) => g.trashed || g._pendingDelete);               // i gruppe-søppelkassen
   const findGroup = (id) => allGroups().find((g) => g.id === id) || null;
   const allCards = () => { const g = activeGroupObj(); return g ? g.cards : []; };
-  const activeCards = () => allCards().filter((c) => !c.trashed).sort(posCmp);
-  const trashedCards = () => allCards().filter((c) => c.trashed);
+  const activeCards = () => allCards().filter((c) => !c.trashed && !c._pendingDelete).sort(posCmp);
+  const trashedCards = () => allCards().filter((c) => c.trashed || c._pendingDelete);
   const findCard = (id) => allCards().find((c) => c.id === id);
-  const trashedItemsOf = (cardData) => (cardData.items || []).filter((it) => it.trashed);
+  const trashedItemsOf = (cardData) => (cardData.items || []).filter((it) => it.trashed || it._pendingDelete);
   function findItemById(id) {
     for (const c of allCards()) {
       const it = c.items.find((x) => x.id === id);
@@ -799,28 +804,24 @@
   function deleteGroup(groupData) {
     const ghost = ghostFrom(
       groupsBar.querySelector('.group-card[data-id="' + groupData.id + '"]'));
-    if (groupData._mount) {
-      groupData.trashed = true; groupData._mount.trashed = true;
-      cloudMountUpdate('group', groupData.id, { trashed: true });
-    } else {
-      groupData.trashed = true;
-      stampContent(groupData);
-    }
+    bufferDelete(groupData, 'group', (g) => {
+      if (g._mount) { g.trashed = true; g._mount.trashed = true; cloudMountUpdate('group', g.id, { trashed: true }); }
+      else { g.trashed = true; stampContent(g); }
+    });
     if (state.activeGroup === groupData.id) {
-      const first = visibleGroups()[0];
+      const first = visibleGroups()[0]; // ekskluderer nå den buffer-slettede
       setActiveGroup(first ? first.id : null);
     }
     render(); // gruppe-søppelkassen blir synlig FØR animasjonen starter
-    save();
     flyGhost(ghost, groupsTrashBtn);
-    showToast('Slettet «' + groupData.name + '»', { label: 'Angre', fn: () => restoreGroup(groupData) });
+    showToast('Slettet «' + groupData.name + '»', { label: 'Angre', fn: () => undoDelete(groupData.id) });
   }
 
   // Tøm gruppe-søppelkassen (aktivt univers) permanent: gravsteiner for hver
   // slettet gruppe + alle dens lister + elementer (hindrer gjenoppstandelse).
   function emptyGroupsTrash() {
     const u = activeUniverseObj();
-    const trash = trashedGroups();
+    const trash = trashedGroups().filter((g) => !g._pendingDelete);
     if (!u || !trash.length) return;
     let left = false;
     trash.forEach((g) => {
@@ -892,17 +893,13 @@
     } else {
       cardDelBtn.addEventListener('click', () => {
         const ghost = ghostFrom(el); // klone FØR render (render fjerner kortet)
-        if (cardData._mount) {
-          cardData.trashed = true; cardData._mount.trashed = true;
-          cloudMountUpdate('card', cardData.id, { trashed: true });
-        } else {
-          cardData.trashed = true;
-          stampContent(cardData);
-        }
+        bufferDelete(cardData, 'card', (c) => {
+          if (c._mount) { c.trashed = true; c._mount.trashed = true; cloudMountUpdate('card', c.id, { trashed: true }); }
+          else { c.trashed = true; stampContent(c); }
+        });
         render(); // søppelkasse-knappen blir synlig FØR animasjonen starter
-        save();
         flyGhost(ghost, trashBtn);
-        showToast('Slettet «' + cardData.title + '»', { label: 'Angre', fn: () => restoreCard(cardData) });
+        showToast('Slettet «' + cardData.title + '»', { label: 'Angre', fn: () => undoDelete(cardData.id) });
       });
     }
 
@@ -930,10 +927,16 @@
     }
 
     // Elementer (kun ikke-slettede; sortert på posisjon). Slettede ligger i
-    // element-søppelkassen nederst i kortet.
+    // element-søppelkassen nederst i kortet. Aktive (ikke avkrysset) øverst;
+    // avkryssede («Utført») i egen seksjon under, skilt med en linje.
     const list = el.querySelector('.items-container');
-    cardData.items.filter((it) => !it.trashed).sort(posCmp)
-      .forEach((it) => list.appendChild(buildItem(it, cardData)));
+    const doneWrap = el.querySelector('.items-done-wrap');
+    const doneList = el.querySelector('.items-done');
+    const visibleItems = cardData.items.filter((it) => !it.trashed && !it._pendingDelete).sort(posCmp);
+    visibleItems.filter((it) => !it.done).forEach((it) => list.appendChild(buildItem(it, cardData)));
+    const doneItems = visibleItems.filter((it) => it.done);
+    doneItems.forEach((it) => doneList.appendChild(buildItem(it, cardData)));
+    doneWrap.hidden = doneItems.length === 0;
 
     // Legg til element
     const form = el.querySelector('.add-item-form');
@@ -995,7 +998,7 @@
 
   // Tøm kortets element-søppelkasse permanent: gravstein per slettet element.
   function emptyItemsTrash(cardData) {
-    const trash = trashedItemsOf(cardData);
+    const trash = trashedItemsOf(cardData).filter((it) => !it._pendingDelete);
     if (!trash.length) return;
     trash.forEach((it) => {
       state._tomb.items[it.id] = tick(); // gravstein hindrer gjenoppstandelse
@@ -1033,13 +1036,7 @@
     if (!canEdit) {
       checkBtn.disabled = true;
     } else {
-      checkBtn.addEventListener('click', () => {
-        itemData.done = !itemData.done;
-        stampContent(itemData);
-        el.classList.toggle('done', itemData.done);
-        checkBtn.setAttribute('aria-pressed', itemData.done ? 'true' : 'false');
-        save();
-      });
+      checkBtn.addEventListener('click', () => toggleItemDone(el, itemData, cardData));
     }
 
     // Slett element → legg i kortets element-søppelkasse (trashed-flagg;
@@ -1052,23 +1049,25 @@
     } else {
       itemDel.addEventListener('click', () => {
         const owner = ownerCardOf(el) || cardData;
-        const ghost = ghostFrom(el); // klone FØR refreshCard fjerner raden
         const it = owner.items.find((i) => i.id === itemData.id);
-        if (it) { it.trashed = true; stampContent(it); }
+        if (!it) return;
+        const ghost = ghostFrom(el); // klone FØR refreshCard fjerner raden
+        bufferDelete(it, 'item', (x) => { x.trashed = true; stampContent(x); });
         refreshCard(owner); // element-søppelkassen dukker opp FØR animasjonen
-        save();
         flyGhost(ghost, board.querySelector(
           '.card[data-id="' + owner.id + '"] .item-trash-btn'));
-        if (it) showToast('Slettet «' + it.text + '»', { label: 'Angre', fn: () => restoreItem(it, owner) });
+        showToast('Slettet «' + it.text + '»', { label: 'Angre', fn: () => undoDelete(it.id) });
       });
-      itemHandle.addEventListener('pointerdown', (ev) => startItemDrag(ev, el));
+      // Avkryssede elementer dras/reorderes ikke (de ligger i «Utført»).
+      itemHandle.addEventListener('pointerdown', (ev) => { if (itemData.done) return; startItemDrag(ev, el); });
       // Tastatur-reordering: piltaster opp/ned flytter det fokuserte elementet.
       itemHandle.addEventListener('keydown', (ev) => {
+        if (itemData.done) return;
         const dir = arrowDir(ev, false);
         if (!dir) return;
         ev.preventDefault();
         const owner = ownerCardOf(el) || cardData;
-        const sorted = owner.items.filter((it) => !it.trashed).sort(posCmp);
+        const sorted = owner.items.filter((it) => !it.trashed && !it.done && !it._pendingDelete).sort(posCmp);
         const i = sorted.indexOf(itemData);
         if (i < 0 || i + dir < 0 || i + dir >= sorted.length) return;
         itemData.home = owner.id;
@@ -1089,6 +1088,53 @@
     const cardEl = itemEl.closest('.card');
     if (!cardEl) return null;
     return findCard(cardEl.dataset.id);
+  }
+
+  /* ---------------- Avkryssing: flytt til/fra «Utført»-seksjonen ----------------
+     Når et element krysses av (eller reaktiveres) flyttes det mellom aktiv-lista
+     og «Utført»-seksjonen med en FLIP-animasjon: alle berørte rader måles før
+     flyttingen og glir smidig på plass, slik at destinasjonen «vokser» for å ta
+     imot raden (de under glir ned) mens raden lander. pos endres IKKE (kun
+     innholds-registeret stemples via stampContent), så et reaktivert element
+     sorterer tilbake til nøyaktig sin gamle plass blant de aktive — og skyver
+     den som nå står der, ett hakk ned. */
+  const DONE_FLIP_MS = 300;
+  function toggleItemDone(itemEl, itemData, cardData) {
+    const cardEl = itemEl.closest('.card');
+    if (!cardEl) return;
+    const activeUl = cardEl.querySelector('.items-container');
+    const doneWrap = cardEl.querySelector('.items-done-wrap');
+    const doneUl = cardEl.querySelector('.items-done');
+    const toDone = !itemData.done;
+    const reduce = prefersReducedMotion();
+
+    // FLIP: mål alle elementers posisjon FØR flyttingen.
+    const snap = reduce ? null : snapshotRects([...cardEl.querySelectorAll('.item')]);
+
+    itemData.done = toDone;
+    stampContent(itemData);
+    itemEl.classList.toggle('done', toDone);
+    const chk = itemEl.querySelector('.item-check');
+    if (chk) chk.setAttribute('aria-pressed', toDone ? 'true' : 'false');
+
+    // Vis «Utført»-seksjonen så den kan ta imot elementet (og måles i FLIP-en).
+    if (toDone) doneWrap.hidden = false;
+
+    // Flytt elementet til riktig seksjon, innsatt på pos-sortert plass.
+    const destUl = toDone ? doneUl : activeUl;
+    let ref = null;
+    for (const s of destUl.querySelectorAll('.item')) {
+      if (s === itemEl) continue;
+      const sd = cardData.items.find((it) => it.id === s.dataset.id);
+      if (sd && sd.pos > itemData.pos) { ref = s; break; }
+    }
+    if (ref) destUl.insertBefore(itemEl, ref); else destUl.appendChild(itemEl);
+
+    // Skjul seksjonen igjen hvis den ble tom (siste element reaktivert).
+    if (!doneUl.querySelector('.item')) doneWrap.hidden = true;
+
+    if (!reduce) flipFrom(snap, DONE_FLIP_MS);
+    save();
   }
 
   /* ---------------- Slette-animasjon («pakk sammen og fly i søpla») ----------------
@@ -1173,6 +1219,76 @@
   function restoreItem(it, cardData) {
     it.trashed = false; stampContent(it); refreshCard(cardData); save();
   }
+
+  /* ---------------- DELETE-BUFFER (optimistisk sletting med angre) ----------------
+     Sletting skriver IKKE til databasen med en gang. Objektet får et lokalt
+     `_pendingDelete`-flagg (skjules fra visning, vises i søppel med en spinner)
+     + en «Angre»-toast. Angrer man innen vinduet, fjernes flagget lokalt — ingen
+     databasetrafikk, umiddelbart. Ellers committes slettingen når timeren
+     utløper (eller når fanen skjules): `trashed = true` + stempling/mount-push.
+     ALT gjøres via id-oppslag (ikke fangede objekt-referanser), så det tåler at
+     synken bygger state-treet på nytt underveis; `reapplyPendingDeletes()`
+     gjenpåfører flagget etter hver applyDoc/applyMyDoc. */
+  const DELETE_BUFFER_MS = 5000;
+  const pendingDeletes = new Map(); // id → { kind, commit, timer }
+
+  function findAnyById(id) {
+    for (const u of state.universes) {
+      if (u.id === id) return { kind: 'universe', obj: u };
+      for (const g of (u.groups || [])) {
+        if (g.id === id) return { kind: 'group', obj: g };
+        for (const c of (g.cards || [])) {
+          if (c.id === id) return { kind: 'card', obj: c };
+          for (const it of (c.items || [])) if (it.id === id) return { kind: 'item', obj: it, card: c };
+        }
+      }
+    }
+    return null;
+  }
+  function bufferDelete(obj, kind, commit) {
+    obj._pendingDelete = true;
+    const timer = setTimeout(() => commitDelete(obj.id), DELETE_BUFFER_MS);
+    pendingDeletes.set(obj.id, { kind, commit, timer });
+  }
+  function undoDelete(id) {
+    const entry = pendingDeletes.get(id);
+    if (!entry) return;
+    clearTimeout(entry.timer);
+    pendingDeletes.delete(id);
+    const found = findAnyById(id);
+    if (found) delete found.obj._pendingDelete;
+    render();
+    if (!trashModal.hidden) renderTrashModalBody();
+  }
+  function commitDelete(id) {
+    const entry = pendingDeletes.get(id);
+    if (!entry) return;
+    clearTimeout(entry.timer);
+    pendingDeletes.delete(id);
+    const found = findAnyById(id);
+    if (!found) return;
+    delete found.obj._pendingDelete;
+    entry.commit(found.obj);              // trashed = true + stempling/mount
+    // Objektet var allerede skjult (buffret), så board-et endres ikke visuelt —
+    // ikke avbryt en pågående inline-redigering med en full render.
+    if (isBusyEditing()) save(); else render();
+    if (!trashModal.hidden) renderTrashModalBody();
+  }
+  function commitAllPending() { [...pendingDeletes.keys()].forEach(commitDelete); }
+  // Etter at synken har bygget state-treet på nytt: gjenpåfør buffer-flagget på
+  // de friske objektene (ellers ville et buffret objekt dukket opp igjen).
+  function reapplyPendingDeletes() {
+    if (!pendingDeletes.size) return;
+    for (const [id, entry] of pendingDeletes) {
+      const found = findAnyById(id);
+      if (found) found.obj._pendingDelete = true;
+      else { clearTimeout(entry.timer); pendingDeletes.delete(id); }
+    }
+  }
+  // Ikke la en buffret sletting «henge» hvis fanen lukkes/skjules før timeren —
+  // commit den da (så den faktisk havner i søppel og synkes).
+  document.addEventListener('visibilitychange', () => { if (document.hidden) commitAllPending(); });
+  window.addEventListener('pagehide', commitAllPending);
 
   /* ---------------- Inline-redigering ---------------- */
   // opts.cls: ekstra klasse på input. opts.autosize: la input vokse med innholdet
@@ -1859,11 +1975,13 @@
     pool = pool || itemPool();
     const domIds = [...cardEl.querySelectorAll('.items-container > .item')].map((i) => i.dataset.id);
     const visible = domIds.map((id) => pool[id]).filter(Boolean);
-    // Bevar slettede elementer: de er skjult fra `.items-container`, så de ligger
-    // ikke i DOM-rekkefølgen — men de skal ikke falle ut av state (uten gravstein)
-    // når man drar/omorganiserer et synlig element i samme kort.
-    const trashedHere = cardData.items.filter((it) => it.trashed);
-    cardData.items = visible.concat(trashedHere);
+    // Bevar elementer som IKKE ligger i `.items-container`: slettede (søppel),
+    // avkryssede («Utført»-seksjonen) og buffer-slettede. De er ikke i DOM-
+    // rekkefølgen her, men skal ikke falle ut av state når man drar/omorganiserer
+    // et aktivt element i samme kort. (Rekkefølgen deres bevares av pos ved neste
+    // render.)
+    const preserved = cardData.items.filter((it) => it.trashed || it.done || it._pendingDelete);
+    cardData.items = visible.concat(preserved);
   }
 
   /* ---------------- GRUPPE-DRAGING (header-rad) ----------------
@@ -2432,7 +2550,9 @@
       trashEmptyBtn.disabled = true;
       return;
     }
-    trashEmptyBtn.disabled = false;
+    // «Tøm permanent» gjelder kun ferdig-committede objekter; buffer-slettede
+    // (som ennå kan angres via toasten) hoppes over.
+    trashEmptyBtn.disabled = !rows.some((r) => !r.pending);
     rows.forEach((r) => {
       const row = document.createElement('div');
       row.className = 'trash-row';
@@ -2452,12 +2572,22 @@
         meta.textContent = r.meta;
         row.appendChild(meta);
       }
-      const restore = document.createElement('button');
-      restore.className = 'btn btn-solid btn-green btn-small';
-      restore.type = 'button';
-      restore.textContent = 'Gjenopprett';
-      restore.addEventListener('click', () => { r.restore(); renderTrashModalBody(); });
-      row.appendChild(restore);
+      if (r.pending) {
+        // Ennå ikke skrevet til databasen (buffret) → ikke gjenopprettbar ennå;
+        // vis en spinner til slettingen committes (da byttes den til knappen).
+        const spin = document.createElement('span');
+        spin.className = 'spinner';
+        spin.setAttribute('aria-label', 'Slettes …');
+        spin.title = 'Slettes … kan gjenopprettes om et øyeblikk';
+        row.appendChild(spin);
+      } else {
+        const restore = document.createElement('button');
+        restore.className = 'btn btn-solid btn-green btn-small';
+        restore.type = 'button';
+        restore.textContent = 'Gjenopprett';
+        restore.addEventListener('click', () => { r.restore(); renderTrashModalBody(); });
+        row.appendChild(restore);
+      }
       trashList.appendChild(row);
     });
   }
@@ -2483,6 +2613,7 @@
         color: u.color || colorForId(u.id),
         name: u.name,
         meta: groupWord(u.groups.filter((g) => !g.trashed).length),
+        pending: !!u._pendingDelete,
         restore: () => restoreUniverse(u),
       })),
       empty: emptyUniversesTrash,
@@ -2498,6 +2629,7 @@
         color: g.color || colorForId(g.id),
         name: g.name,
         meta: listWord(g.cards.filter((c) => !c.trashed).length),
+        pending: !!g._pendingDelete,
         restore: () => restoreGroup(g),
       })),
       empty: emptyGroupsTrash,
@@ -2515,6 +2647,7 @@
         color: c.color || colorForId(c.id),
         name: c.title,
         meta: itemWord(c.items.filter((it) => !it.trashed).length),
+        pending: !!c._pendingDelete,
         restore: () => restoreCard(c),
       })),
       empty: emptyCardsTrash,
@@ -2528,6 +2661,7 @@
       emptyMsg: 'Ingen slettede elementer.',
       rows: () => trashedItemsOf(cardData).sort(posCmp).map((it) => ({
         name: it.text,
+        pending: !!it._pendingDelete,
         restore: () => restoreItem(it, cardData),
       })),
       empty: () => emptyItemsTrash(cardData),
@@ -2536,7 +2670,7 @@
 
   // Tøm lister-søppelkassen (aktiv gruppe) permanent: gravstein per liste + element.
   function emptyCardsTrash() {
-    const trash = trashedCards();
+    const trash = trashedCards().filter((c) => !c._pendingDelete);
     if (!trash.length) return;
     const arr = allCards();
     let left = false;
@@ -2559,7 +2693,7 @@
   // Tøm univers-søppelkassen permanent: gravsteiner for hvert slettet univers +
   // alle dets grupper, lister og elementer (hindrer gjenoppstandelse).
   function emptyUniversesTrash() {
-    const trash = trashedUniverses();
+    const trash = trashedUniverses().filter((u) => !u._pendingDelete);
     if (!trash.length) return;
     let left = false;
     trash.forEach((u) => {
@@ -2607,8 +2741,8 @@
     swipeEl.className = 'swipe-field';
     swipeEl.innerHTML =
       ICONS.trashSwipe +
-      '<span class="swipe-label">Sveip for å tømme</span>' +
-      '<span class="swipe-arrow" aria-hidden="true">→</span>';
+      '<span class="swipe-label">Tøm</span>' +
+      '<span class="swipe-arrow" aria-hidden="true"></span>';
     document.body.appendChild(swipeEl);
     swipeIconEl = swipeEl.querySelector('.swipe-icon');
     swipeLidEl = swipeEl.querySelector('.swipe-icon-lid');
@@ -2665,7 +2799,8 @@
       field.style.width = r.width + 'px';
       field.style.borderRadius = getComputedStyle(btn).borderRadius;
       field.style.paddingLeft = padLeft + 'px';
-      field.style.paddingRight = '15px';
+      // Symmetrisk: like mye luft til høyre for pilen som til venstre for ikonet.
+      field.style.paddingRight = padLeft + 'px';
       field.classList.add('open');
       setProgress(0);
       void field.offsetWidth;                  // reflow → animér utvidelsen
@@ -2966,22 +3101,23 @@
   // Permanent sletting (med gravsteiner) skjer først når søppelkassen tømmes.
   function deleteUniverse(u) {
     const ghost = ghostFrom(uniList.querySelector('.uni-row[data-id="' + u.id + '"]'));
-    if (u._mount) {
-      // Mottaker: «slett» = legg mounten i egen søppel (kan forlates ved tømming).
-      u.trashed = true; u._mount.trashed = true;
-      cloudMountUpdate('universe', u.id, { trashed: true });
-    } else {
-      u.trashed = true;
-      stampContent(u);
-    }
+    bufferDelete(u, 'universe', (x) => {
+      if (x._mount) {
+        // Mottaker: «slett» = legg mounten i egen søppel (kan forlates ved tømming).
+        x.trashed = true; x._mount.trashed = true;
+        cloudMountUpdate('universe', x.id, { trashed: true });
+      } else {
+        x.trashed = true;
+        stampContent(x);
+      }
+    });
     if (state.activeUniverse === u.id) {
-      const first = visibleUniverses()[0];
+      const first = visibleUniverses()[0]; // ekskluderer nå den buffer-slettede
       setActiveUniverse(first ? first.id : null);
     }
     render(); // univers-søppelkassen blir synlig FØR animasjonen starter
-    save();
     flyGhost(ghost, uniTrashBtn);
-    showToast('Slettet «' + u.name + '»', { label: 'Angre', fn: () => restoreUniverse(u) });
+    showToast('Slettet «' + u.name + '»', { label: 'Angre', fn: () => undoDelete(u.id) });
   }
 
   /* ============================================================
@@ -3163,6 +3299,7 @@
       state._hlc = doc.hlc || 0;
       observeTs(doc.hlc);
       validateActive(state);
+      reapplyPendingDeletes(); // hold buffer-slettede skjult etter rebuild
       render();
     } finally {
       applyingRemote = false;
@@ -4130,6 +4267,7 @@
       state._hlc = doc.hlc || state._hlc || 0;
       observeTs(doc.hlc);
       validateActive(state);
+      reapplyPendingDeletes(); // hold buffer-slettede skjult etter rebuild
       render();
     } finally {
       applyingRemote = false;
