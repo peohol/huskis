@@ -22,7 +22,7 @@ state = {
         { id, uni, name, trashed, pos,   // uni = univers-forelder
           cards: [                        // «lister»
             { id, group, title, color, trashed, k, p, // k/p: legacy, se docs/colors-and-labels.md
-              items: [ { id, text, trashed, home } ] } ] } ] }
+              items: [ { id, text, trashed, done, home } ] } ] } ] } // done: avkrysset
   ],
   _tomb: { universes:{}, groups:{}, cards:{}, items:{} }, // gravsteiner: id → ts
 }
@@ -46,6 +46,11 @@ osv.), så kryss-univers-flytting er umulig i UI-et.
   lister i samme gruppe. Se `docs/drag-and-drop.md`.
 - Klikk på navn (aktiv gruppe / aktivt univers / kort-tittel / element) = omdøp inline.
 - Søppelkasse på alle fire nivåer (`trashed`-flagg) — se `docs/trash.md`.
+- **Avkryssing av elementer** (`item.done`): rir på innholds-registeret (`ts`/`org`,
+  som `text`/`trashed`) — LWW ved samtidig endring. Kun visuell markering
+  (gjennomstreking, `.item.done`); elementet beholder plassen sin. I kontomodus
+  er `done` en egen kolonne (`items.done`, se `supabase/users-and-sharing.sql` +
+  TODO.md for påkrevd DB-migrering).
 
 Gotcha: «＋ Gruppe» skal alltid bare virke, selv uten univers — standard-universet
 opprettes i farten (`ensureUniverse`). Dette bruker en NY tilfeldig id, ikke den

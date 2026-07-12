@@ -37,6 +37,21 @@ plukke opp tråden.
       direct connection vil feile fra GitHub Actions med mindre Supabase
       sin IPv4-tilleggstjeneste er kjøpt.
 
+## Skjema-endring: avkryssing av elementer (`items.done`)
+
+Design-overhalingen la til **avkryssing av elementer** (gjort/ikke gjort). Feltet
+`items.done` rir på det eksisterende innholds-registeret (`ts`/`org`), som
+`text`/`trashed`. `supabase/users-and-sharing.sql` er oppdatert idempotent
+(`alter table … add column if not exists done …`, LWW-trigger, `get_my_doc`,
+`import_doc`).
+
+- [ ] **Kjør «Supabase DB-oppsett»-workflowen på nytt** (Actions → Run
+      workflow) FØR/samtidig med at denne endringen tas i bruk i produksjon.
+      Frem til kolonnen finnes, avvises element-insert/-update i kontomodus
+      (klienten sender `done`) — `pushOps` fanger feilen, så appen krasjer ikke,
+      men avkryssing/nye elementer persisteres ikke før migreringen er kjørt.
+      Mock-backend (`?mock=1`) og synk-doc v1 (mønster-lås) har feltet uansett.
+
 ## Manuelle steg (krever dashboard-tilgang — Peder)
 
 - [x] ~~GitHub → Settings → Secrets and variables → Actions: legg inn

@@ -80,7 +80,14 @@ rekkefølge + egen søppel) ligger i en membership-rad («mount»). I `applyMyDo
 
 ## Delings-UI
 
-- **Del-modal** (🔗 på univers/gruppe/liste, kun for eier eller mottaker):
+- **Åpning av del-modalen**: listekort har egen `.card-share`-knapp. Univers og
+  grupper deles derimot fra menyenes `.share-btn` (del-univers ved «＋ Gruppe»,
+  del-gruppe ved «＋ Liste» — de deler det AKTIVE universet/gruppen, ikke et
+  vilkårlig kort). `updateShareButtons()` (i `render()`) toggler synlighet ut
+  fra `accountsMode()` + `_mine`/`_mount`; klikk-handlerne leser aktivt objekt.
+- **`item.done`** (avkryssing) synker via samme rad-CRUD som resten (innholds-
+  register `ts`/`org`). Krever `items.done`-kolonnen — se `TODO.md`.
+- **Del-modal** (på univers/gruppe/liste, kun for eier eller mottaker):
   eier ser inviter-på-e-post (`create_share_invite`), medlemsliste
   (`get_members`), kast ut (`revoke_share`), trekk tilbake invitasjon
   (`revoke_share_invite`) og lås/åpne (`set_locked`). Mottaker ser eier +

@@ -172,6 +172,7 @@ create table if not exists public.items (
   card_id    uuid not null references public.cards (id) on delete cascade,
   text       text not null default '',
   trashed    boolean not null default false,
+  done       boolean not null default false,
   ts         bigint not null default 0,
   org        text   not null default '',
   pos        double precision not null default 0,
@@ -180,6 +181,9 @@ create table if not exists public.items (
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
+-- Avkryssing av elementer (gjort/ikke gjort): rir på innholds-registeret
+-- (ts/org), som text/trashed. Idempotent for databaser opprettet før feltet.
+alter table public.items add column if not exists done boolean not null default false;
 
 create index if not exists universes_owner_idx on public.universes (owner_id);
 create index if not exists groups_owner_idx    on public.groups (owner_id);
@@ -567,7 +571,7 @@ begin
     raise exception 'mangler tilgang til mål-listen';
   end if;
   if not public.reg_newer(new.ts, new.org, old.ts, old.org) then
-    new.text := old.text; new.trashed := old.trashed;
+    new.text := old.text; new.trashed := old.trashed; new.done := old.done;
     new.ts := old.ts; new.org := old.org;
   end if;
   if not public.reg_newer(new.pos_ts, new.pos_org, old.pos_ts, old.pos_org) then
@@ -1066,7 +1070,7 @@ begin
     'items', coalesce((select jsonb_agg(jsonb_build_object(
         'id', i.id, 'owner', i.owner_id, 'mine', i.owner_id = uid,
         'home', i.card_id,
-        'text', i.text, 'trashed', i.trashed,
+        'text', i.text, 'trashed', i.trashed, 'done', i.done,
         'ts', i.ts, 'org', i.org,
         'pos', i.pos, 'posTs', i.pos_ts, 'posOrg', i.pos_org)) from my_items i), '[]'::jsonb),
     'invites_in', coalesce((select jsonb_agg(jsonb_build_object(
@@ -1182,15 +1186,16 @@ begin
     continue when not exists (
       select 1 from public.cards c
       where c.id = public.legacy_uuid(uid, r ->> 'home') and c.owner_id = uid);
-    insert into public.items as t (id, owner_id, card_id, text, trashed, ts, org, pos, pos_ts, pos_org)
+    insert into public.items as t (id, owner_id, card_id, text, trashed, done, ts, org, pos, pos_ts, pos_org)
     values (public.legacy_uuid(uid, r ->> 'id'), uid, public.legacy_uuid(uid, r ->> 'home'),
             coalesce(r ->> 'text', ''), coalesce((r ->> 'trashed')::boolean, false),
+            coalesce((r ->> 'done')::boolean, false),
             coalesce((r ->> 'ts')::bigint, 0), coalesce(r ->> 'org', ''),
             coalesce((r ->> 'pos')::double precision, 0),
             coalesce((r ->> 'posTs')::bigint, 0), coalesce(r ->> 'posOrg', ''))
     on conflict (id) do update
       set card_id = excluded.card_id, text = excluded.text,
-          trashed = excluded.trashed, ts = excluded.ts, org = excluded.org,
+          trashed = excluded.trashed, done = excluded.done, ts = excluded.ts, org = excluded.org,
           pos = excluded.pos, pos_ts = excluded.pos_ts, pos_org = excluded.pos_org
       where t.owner_id = uid;
     n_item := n_item + 1;

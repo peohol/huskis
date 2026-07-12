@@ -29,6 +29,12 @@ Bytte utløses av **overlapp**, ikke av et punkt:
   `.card-/.item-/.group-placeholder`): 1px stiplet kant med lav opacity, svakt
   mørknet flate og en subtil inset-skygge («hull som skal fylles») — kun
   radius/margens varierer per type.
+- **Tastatur-reordering**: håndtakene er `<button>` (fokuserbare). Piltaster
+  opp/ned (+ venstre/høyre for gruppe-rader) flytter det fokuserte objektet ett
+  hakk blant sine synlige søsken — `arrowDir()` + `neighborPos()` gir en ny
+  fraksjons-`pos` mellom de nye naboene, samme kirurgiske pos-stempling som
+  peker-draging, så fokus følger med til det flyttede objektet. Gjelder
+  element/kort/gruppe/univers. Redusert bevegelse hopper over FLIP-tweenen.
 - **Posisjonsbasert farge reindekseres alltid ved en fullført omrokkering**
   (ikke bare ved add/slett): `onCardUp`/`onGroupUp`/`onUniverseUp` kaller hhv.
   `reindexCardColors()`/`reindexGroupColors()`/`reindexUniverseColors()` etter

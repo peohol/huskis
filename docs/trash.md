@@ -18,11 +18,17 @@ Når et objekt slettes (element/liste/gruppe/univers) kjøres `ghostFrom` +
 `flyGhost` (app.js): en klone av DOM-elementet tas FØR re-render, deretter
 oppdateres state og `render()`/`refreshCard()` kjøres — slik at søppelkasse-
 knappen **finnes/er synlig FØR animasjonen starter** — og til slutt animeres
-klonen (~200 ms, WAAPI): innholdet fader ut, boksen krymper til en sirkel
-(bare de avrundede hjørnene igjen), og sirkelen svever inn i tilhørende
-søppelkasse-knapp og fader rett før den er fremme. Poenget er å vise HVOR det
-slettede havnet (og at det kan gjenopprettes derfra). Ingen bekreftelses-
-dialog — sletting er reversibel.
+klonen (`FLY_MS` = 600 ms, WAAPI): innholdet fader ut (første ~30 %), boksen
+krymper til en sirkel (bare de avrundede hjørnene igjen, ved halvveis) og
+svever inn i tilhørende søppelkasse-knapp og fader rett før den er fremme.
+Varigheten er bevisst romslig (600 ms) så den er godt synlig også for store
+listekort. Poenget er å vise HVOR det slettede havnet (og at det kan
+gjenopprettes derfra). Ingen bekreftelses-dialog — sletting er reversibel.
+Hopper over ved `prefersReducedMotion()`.
+
+I tillegg vises en **angre-toast** («Slettet «X» — Angre», 5 s): «Angre»
+gjenoppretter via de delte `restoreUniverse/Group/Card/Item`-hjelperne (samme
+som «Gjenopprett» i søppel-modalen).
 
 ## Interaksjon (`attachTrashHold`)
 

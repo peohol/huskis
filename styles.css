@@ -67,6 +67,17 @@
   --control-radius: 14px;
   --control-bg: rgba(255, 255, 255, 0.75);
 
+  /* Typografi-skala: ÉN kilde for de gjentakende tekststørrelsene, så «juster
+     alt X %» er én endring. --fs-base er brødteksten (element/input/kort-tekst).
+     Enkelte ikonspesifikke/en-gangs størrelser (brand, ikon-boks) står fortsatt
+     som px der de er nært knyttet til en piksel-geometri. */
+  --fs-xs: 15px;   /* etiketter, meta, panel-titler */
+  --fs-sm: 17px;   /* små knapper, hint */
+  --fs-md: 18px;   /* navn, sekundær tekst */
+  --fs-base: 19px; /* brødtekst: element/kort/input */
+  --fs-lg: 20px;   /* titler (chip/kort) */
+  --fs-xl: 24px;   /* modal-overskrifter */
+
   --radius: 18px;
   --radius-sm: 12px;
   --shadow-sm: 0 2px 6px rgba(35, 45, 55, 0.12);
@@ -123,13 +134,13 @@ body {
   display: flex;
   align-items: center;
   gap: 7px;
-  font-size: 15px;
+  font-size: var(--fs-xs);
   font-weight: 700;
   letter-spacing: 0.1em;
   text-transform: uppercase;
   color: var(--ink-soft);
 }
-.panel-title .icon { font-size: 17px; }
+.panel-title .icon { font-size: var(--fs-sm); }
 .panel-actions {
   display: flex;
   align-items: center;
@@ -191,7 +202,7 @@ body {
 }
 .chip-name {
   font-weight: 600;
-  font-size: 20px;
+  font-size: var(--fs-lg);
   line-height: 1.2;
   white-space: nowrap;
   overflow: hidden;
@@ -212,13 +223,13 @@ body {
   border-radius: 999px;
   background: rgba(0, 0, 0, 0.16);
   font-weight: 700;
-  font-size: 15px;
+  font-size: var(--fs-xs);
   line-height: 1;
   opacity: 0.85;
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
 }
-.chip-count .icon { font-size: 15px; }
+.chip-count .icon { font-size: var(--fs-xs); }
 .chip.active .chip-count { opacity: 1; }
 
 /* Gruppekort: chip + håndtak; bredden følger navnet (mobil) / full bredde (desktop). */
@@ -249,7 +260,7 @@ body {
   margin: 2px 0;
   color: var(--ink-soft);
   font-weight: 500;
-  font-size: 18px;
+  font-size: var(--fs-md);
 }
 
 /* ---------------- Fargede knapper (.btn-solid) ----------------
@@ -287,12 +298,37 @@ body {
   border-radius: var(--control-radius);
   font-family: inherit;
   font-weight: 600;
-  font-size: 19px;
+  font-size: var(--fs-base);
   line-height: 1;
   white-space: nowrap;
 }
 .btn-add.icon-only { width: var(--control-h); padding: 0; font-size: 23px; }
-.btn-add .icon { font-size: 19px; }
+.btn-add .icon { font-size: var(--fs-base); }
+
+/* ---------------- Del-knapper i menyene (del-univers / del-gruppe) ----------------
+   Del det AKTIVE universet (ved siden av «＋ Gruppe») / den AKTIVE gruppen (ved
+   siden av «＋ Liste»). To ikoner: del-ikon + nivå-ikon. Samme flate-mønster som
+   søppelkasse/filter/☰ (halvgjennomsiktig hvit → hvit ved hover). Kun kontomodus. */
+.share-btn {
+  flex: 0 0 auto;
+  appearance: none;
+  border: none;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: var(--control-h);
+  padding: 0 13px;
+  border-radius: var(--control-radius);
+  background: var(--control-bg);
+  color: var(--ink-soft);
+  box-shadow: var(--shadow-sm);
+  transition: background 0.18s, box-shadow 0.18s, color 0.18s, transform 0.12s;
+}
+.share-btn:hover { background: #fff; color: var(--ink); box-shadow: var(--shadow-md); }
+.share-btn:active { transform: translateY(1px); }
+.share-btn:focus-visible { outline: 2.5px solid var(--primary); outline-offset: 2px; }
+.share-btn .icon { font-size: var(--fs-base); }
 
 /* ---------------- Menyknapp (☰) ----------------
    Fast i øvre høyre hjørne av VIEWPORTET, uavhengig av gruppemeny/listemeny sin
@@ -365,7 +401,7 @@ body {
   cursor: pointer;
   font-family: inherit;
   font-weight: 600;
-  font-size: 19px;
+  font-size: var(--fs-base);
   line-height: 1;
   border: none;
   border-radius: var(--control-radius);
@@ -391,7 +427,7 @@ body {
 
 .btn-small {
   padding: 9px;
-  font-size: 17px;
+  font-size: var(--fs-sm);
   border-radius: 11px;
 }
 
@@ -424,7 +460,7 @@ body {
 }
 .trashcan:hover { background: #fff; box-shadow: var(--shadow-md); }
 
-.trashcan-icon { font-size: 19px; line-height: 1; display: inline-flex; }
+.trashcan-icon { font-size: var(--fs-base); line-height: 1; display: inline-flex; }
 .trashcan-count {
   display: inline-grid;
   place-items: center;
@@ -510,7 +546,7 @@ body {
   position: relative;
   flex: 1 1 auto;
   font-weight: 700;
-  font-size: 18px;
+  font-size: var(--fs-md);
   color: var(--ink-soft);
 }
 .swipe-arrow {
@@ -564,13 +600,13 @@ body {
 }
 .filter-switches:hover { background: #fff; box-shadow: var(--shadow-md); }
 .filter-label {
-  font-size: 19px;
+  font-size: var(--fs-base);
   line-height: 1;
   color: var(--ink-soft);
   margin-right: 2px;
 }
 .filter-switches .switch {
-  font-size: 17px;
+  font-size: var(--fs-sm);
   background: #e6ece6;
   color: var(--ink-soft);
 }
@@ -612,7 +648,7 @@ body {
 }
 .empty-state .big { font-size: 60px; margin-bottom: 6px; }
 .empty-state .big .icon { margin: 0 auto; }
-.empty-state p { margin: 6px 0; font-weight: 500; font-size: 19px; }
+.empty-state p { margin: 6px 0; font-weight: 500; font-size: var(--fs-base); }
 
 /* ---------------- Card ---------------- */
 .card {
@@ -649,7 +685,7 @@ body {
 .card-title {
   flex: 1;
   margin: 0;
-  font-size: 20px;
+  font-size: var(--fs-lg);
   font-weight: 600;
   line-height: 1.2;
   color: #fff;                 /* hvit skrift m/ skygge for lesbarhet på kortfargen */
@@ -684,9 +720,37 @@ body {
 }
 .item:hover { background: rgba(255, 255, 255, 0.85); }
 
+/* Avkryssingsboks: rund-firkantet boks; grønt hake-fyll når gjort.
+   Haken (SVG) ligger alltid der, men er usynlig til elementet er gjort. */
+.item-check {
+  flex: 0 0 auto;
+  align-self: center;
+  appearance: none;
+  cursor: pointer;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  display: grid;
+  place-items: center;
+  border: 2px solid var(--card-accent);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.55);
+  color: #fff;
+  transition: background 0.15s, border-color 0.15s, transform 0.1s;
+}
+.item-check .icon { width: 1em; height: 1em; font-size: 16px; opacity: 0; transition: opacity 0.12s; }
+.item-check:hover { border-color: var(--primary); }
+.item-check:active { transform: scale(0.9); }
+.item-check:focus-visible { outline: 2.5px solid var(--primary); outline-offset: 2px; }
+.item.done .item-check {
+  background: var(--grad-green);
+  border-color: transparent;
+}
+.item.done .item-check .icon { opacity: 1; filter: drop-shadow(var(--text-shadow)); }
+
 .item-text {
   flex: 1;
-  font-size: 19px;
+  font-size: var(--fs-base);
   font-weight: 500;
   color: var(--ink);
   cursor: text;
@@ -695,6 +759,8 @@ body {
   word-break: break-word;
   min-height: 26px;
 }
+/* Gjort element: gjennomstreket, dempet tekst (elementet beholder plassen). */
+.item.done .item-text { text-decoration: line-through; opacity: 0.5; }
 
 /* ---------------- Add item ---------------- */
 .add-item-form {
@@ -708,7 +774,7 @@ body {
   min-width: 0;
   height: var(--control-h);
   font-family: inherit;
-  font-size: 19px;
+  font-size: var(--fs-base);
   font-weight: 500;
   color: var(--ink);
   border: 1.5px dashed rgba(80, 70, 110, 0.28);
@@ -767,7 +833,7 @@ body {
   background: transparent;
   cursor: pointer;
   color: var(--ink-soft);
-  font-size: 19px;
+  font-size: var(--fs-base);
   line-height: 1;
   width: 36px;
   height: 36px;
@@ -787,11 +853,13 @@ body {
   background: rgba(239, 107, 125, 0.12);
 }
 .group-delete, .uni-delete { margin-left: auto; }
-/* Del-knappen ligger alltid rett til venstre for slett-knappen: når den er
-   synlig, tar DEN auto-margen (skyver del+slett samlet til høyre). */
-.chip-share:not([hidden]) { margin-left: auto; }
-.chip-share:not([hidden]) ~ .group-delete,
-.chip-share:not([hidden]) ~ .uni-delete { margin-left: 0; }
+/* Slett-✕ på fargede flater (chip + korthode) er hvit m/ tekst-skygge — som
+   resten av innholdet på fargede flater — så den er lesbar også på mørke
+   kortfarger (grå ✕ forsvant på dem). Blir rød ved hover som før. */
+.group-delete, .uni-delete, .card-delete {
+  color: #fff;
+  filter: drop-shadow(var(--text-shadow));
+}
 /* Element-✕ alltid synlig, men diskré; full styrke ved hover/fokus. */
 .item-delete { opacity: 0.55; }
 .item:hover .item-delete,
@@ -829,7 +897,7 @@ body {
   width: auto;
   min-width: 60px;
   font-weight: 600;
-  font-size: 20px;
+  font-size: var(--fs-lg);
   outline: 2px solid var(--primary);
 }
 
@@ -966,7 +1034,7 @@ body.is-dragging * { cursor: grabbing !important; }
   gap: 9px;
   min-width: 0;
   margin: 0;
-  font-size: 24px;
+  font-size: var(--fs-xl);
   font-weight: 700;
 }
 .modal-head h2 .icon { flex: 0 0 auto; }
@@ -988,7 +1056,7 @@ body.is-dragging * { cursor: grabbing !important; }
   gap: 10px;
 }
 .menu-logout { align-self: flex-start; }
-.logout-icon { font-size: 20px; line-height: 1; }
+.logout-icon { font-size: var(--fs-lg); line-height: 1; }
 .menu-divider {
   border: none;
   border-bottom: 1px solid var(--line);
@@ -1011,9 +1079,9 @@ body.is-dragging * { cursor: grabbing !important; }
 }
 .trash-row:last-child { border-bottom: none; }
 .trash-dot { width: 21px; height: 21px; border-radius: 7px; flex: 0 0 auto; box-shadow: inset 0 0 0 1px rgba(0,0,0,0.06); }
-.trash-name { flex: 1; font-weight: 600; font-size: 19px; word-break: break-word; }
-.trash-meta { color: var(--ink-soft); font-size: 17px; font-weight: 500; white-space: nowrap; }
-.trash-empty-msg { text-align: center; color: var(--ink-soft); font-weight: 500; font-size: 19px; padding: 26px 0; margin: 0; }
+.trash-name { flex: 1; font-weight: 600; font-size: var(--fs-base); word-break: break-word; }
+.trash-meta { color: var(--ink-soft); font-size: var(--fs-sm); font-weight: 500; white-space: nowrap; }
+.trash-empty-msg { text-align: center; color: var(--ink-soft); font-weight: 500; font-size: var(--fs-base); padding: 26px 0; margin: 0; }
 
 .modal-foot {
   display: flex;
@@ -1026,6 +1094,11 @@ body.is-dragging * { cursor: grabbing !important; }
 }
 .modal-note { margin: 0; font-size: 16px; color: var(--ink-soft); font-weight: 500; }
 
+/* Felles bekreftelses-modal: smal, melding + Avbryt/OK samlet til høyre. */
+.confirm-modal { width: min(430px, 100%); }
+.confirm-msg { margin: 0; font-size: var(--fs-base); line-height: 1.5; color: var(--ink); font-weight: 500; }
+.confirm-foot { justify-content: flex-end; }
+
 body.modal-open { overflow: hidden; }
 
 /* ---------------- Synk-varsel ----------------
@@ -1037,19 +1110,41 @@ body.modal-open { overflow: hidden; }
   bottom: 24px;
   transform: translate(-50%, 16px);
   z-index: 300;
+  display: flex;
+  align-items: center;
+  gap: 14px;
   max-width: min(90vw, 480px);
-  padding: 13px 20px;
+  padding: 11px 13px 11px 20px;
   border-radius: 999px;
   background: rgba(45, 38, 70, 0.92);
   color: #fff;
-  font-size: 18px;
+  font-size: var(--fs-md);
   font-weight: 600;
   box-shadow: var(--shadow-md);
   opacity: 0;
-  pointer-events: none;
+  pointer-events: none;              /* ikke-interaktiv i hvile … */
   transition: opacity 0.25s ease, transform 0.25s ease;
 }
 .toast.show { opacity: 1; transform: translate(-50%, 0); }
+.toast-msg { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* Angre-knappen: eneste interaktive del av toasten (re-aktiverer pekeren). */
+.toast-action {
+  flex: 0 0 auto;
+  appearance: none;
+  border: none;
+  cursor: pointer;
+  pointer-events: auto;
+  background: rgba(255, 255, 255, 0.16);
+  color: #fff;
+  font-family: inherit;
+  font-weight: 700;
+  font-size: 16px;
+  padding: 7px 14px;
+  border-radius: 999px;
+  transition: background 0.15s;
+}
+.toast-action:hover { background: rgba(255, 255, 255, 0.3); }
+.toast-action:focus-visible { outline: 2px solid rgba(255,255,255,0.7); outline-offset: 2px; }
 
 /* ---------------- Innlogging (mønster-lås) ---------------- */
 /* Skjul alt appinnhold til man er logget inn. */
@@ -1098,7 +1193,7 @@ body.locked #menu-btn { display: none; }
 .lock-msg {
   margin: 0;
   min-height: 26px;
-  font-size: 19px;
+  font-size: var(--fs-base);
   font-weight: 600;
   color: rgba(255, 255, 255, 0.82);
   text-align: center;
@@ -1322,13 +1417,15 @@ body.no-auth #menu-btn { display: none; }
   display: flex;
   flex-direction: column;
   gap: 5px;
-  font-size: 17px;
+  font-size: var(--fs-sm);
   font-weight: 600;
   color: var(--ink-soft);
 }
-.auth-field input {
+/* Felles tekstfelt-klasse (auth-input + inviter-input): solid kant, myk
+   bakgrunn, grønn fokus-ring. Nye felt trenger bare `.field`. */
+.field {
   font-family: inherit;
-  font-size: 19px;
+  font-size: var(--fs-base);
   font-weight: 500;
   color: var(--ink);
   padding: 12px;
@@ -1337,7 +1434,7 @@ body.no-auth #menu-btn { display: none; }
   background: #fbfbfd;
   transition: border-color 0.15s, box-shadow 0.15s;
 }
-.auth-field input:focus {
+.field:focus {
   outline: none;
   border-color: var(--primary);
   box-shadow: 0 0 0 3px var(--primary-soft);
@@ -1345,7 +1442,7 @@ body.no-auth #menu-btn { display: none; }
 .auth-msg {
   margin: 0;
   min-height: 22px;
-  font-size: 17px;
+  font-size: var(--fs-sm);
   font-weight: 600;
   text-align: center;
   color: var(--danger);
@@ -1366,7 +1463,7 @@ body.no-auth #menu-btn { display: none; }
   background: none;
   cursor: pointer;
   font-family: inherit;
-  font-size: 17px;
+  font-size: var(--fs-sm);
   font-weight: 600;
   color: var(--primary-dark);
   padding: 2px 4px;
@@ -1376,7 +1473,7 @@ body.no-auth #menu-btn { display: none; }
 .auth-sent { align-items: center; text-align: center; gap: 14px; }
 .auth-sent-icon { font-size: 55px; color: var(--primary); }
 .auth-sent-icon .icon { margin: 0 auto; }
-.auth-sent-msg { margin: 0; font-weight: 600; font-size: 19px; color: var(--ink); line-height: 1.5; }
+.auth-sent-msg { margin: 0; font-weight: 600; font-size: var(--fs-base); color: var(--ink); line-height: 1.5; }
 .auth-sent-msg strong { color: var(--primary-dark); }
 
 /* ---------------- Meny: konto + badge ---------------- */
@@ -1387,19 +1484,20 @@ body.no-auth #menu-btn { display: none; }
   padding: 2px 0;
 }
 .menu-account[hidden] { display: none; }
-.account-avatar {
-  width: 44px; height: 44px;
+/* Avatar-sirkler (konto + delings-medlemmer): felles form (rund, sentrert hvit
+   initial på gradient); størrelse/farge varierer per bruk. */
+.account-avatar, .member-avatar {
   flex: 0 0 auto;
   border-radius: 50%;
   display: grid;
   place-items: center;
-  font-size: 19px;
   font-weight: 700;
   color: #fff;
-  background: linear-gradient(135deg, var(--primary), var(--primary-dark));
   text-transform: uppercase;
+  background: linear-gradient(135deg, var(--primary), var(--primary-dark));
 }
-.account-email { font-weight: 600; font-size: 18px; color: var(--ink); word-break: break-all; }
+.account-avatar { width: 44px; height: 44px; font-size: var(--fs-base); }
+.account-email { font-weight: 600; font-size: var(--fs-md); color: var(--ink); word-break: break-all; }
 
 .menu-badge {
   position: absolute;
@@ -1431,7 +1529,7 @@ body.no-auth #menu-btn { display: none; }
   background: var(--primary-soft);
 }
 .invite-info { flex: 1 1 140px; min-width: 0; }
-.invite-name { font-weight: 700; font-size: 18px; color: var(--ink); }
+.invite-name { font-weight: 700; font-size: var(--fs-md); color: var(--ink); }
 .invite-from { display: block; font-size: 16px; color: var(--ink-soft); font-weight: 500; }
 .invite-type-tag {
   font-size: 14px; font-weight: 700; text-transform: uppercase;
@@ -1442,50 +1540,43 @@ body.no-auth #menu-btn { display: none; }
 /* ---------------- Del-modal ---------------- */
 .share-body { display: flex; flex-direction: column; gap: 14px; }
 .share-invite-form { display: flex; gap: 8px; }
-.share-invite-form input {
-  flex: 1; min-width: 0;
-  font-family: inherit; font-size: 18px;
-  padding: 11px;
-  border: 1.5px solid var(--line);
-  border-radius: var(--radius-sm);
-  background: #fbfbfd;
-}
-.share-invite-form input:focus { outline: none; border-color: var(--primary); box-shadow: 0 0 0 3px var(--primary-soft); }
-.share-section-title { font-size: 15px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; color: var(--ink-soft); margin: 2px 0; }
+.share-invite-form .field { flex: 1; min-width: 0; }
+.share-section-title { font-size: var(--fs-xs); font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; color: var(--ink-soft); margin: 2px 0; }
 .member-row {
   display: flex; align-items: center; gap: 10px;
   padding: 10px 4px;
   border-bottom: 1px solid var(--line);
 }
 .member-row:last-child { border-bottom: none; }
+/* Medlems-avatar: felles form fra .account-avatar, .member-avatar over; her kun
+   størrelse + grå standard-gradient (eier får den grønne igjen). */
 .member-avatar {
-  width: 39px; height: 39px; flex: 0 0 auto;
-  border-radius: 50%; display: grid; place-items: center;
-  font-size: 17px; font-weight: 700; color: #fff; text-transform: uppercase;
+  width: 39px; height: 39px;
+  font-size: var(--fs-sm);
   background: linear-gradient(135deg, #8496a6, #5f6f7d);
 }
 .member-avatar.owner { background: linear-gradient(135deg, var(--primary), var(--primary-dark)); }
 .member-info { flex: 1; min-width: 0; }
-.member-name { font-weight: 600; font-size: 18px; color: var(--ink); word-break: break-word; }
-.member-role { display: block; font-size: 15px; color: var(--ink-soft); font-weight: 500; }
+.member-name { font-weight: 600; font-size: var(--fs-md); color: var(--ink); word-break: break-word; }
+.member-role { display: block; font-size: var(--fs-xs); color: var(--ink-soft); font-weight: 500; }
 .member-pending .member-name { color: var(--ink-soft); font-style: italic; }
-.share-msg { margin: 0; font-size: 17px; font-weight: 600; min-height: 20px; color: var(--danger); }
+.share-msg { margin: 0; font-size: var(--fs-sm); font-weight: 600; min-height: 20px; color: var(--danger); }
 .share-msg.ok { color: var(--primary-dark); }
 .share-lock-row {
   display: flex; align-items: center; justify-content: space-between; gap: 12px;
   padding: 12px; border-radius: var(--radius-sm); background: #faf9fe;
 }
-.share-lock-label { font-weight: 600; font-size: 18px; color: var(--ink); }
-.share-lock-hint { display: block; font-size: 15px; font-weight: 500; color: var(--ink-soft); }
+.share-lock-label { font-weight: 600; font-size: var(--fs-md); color: var(--ink); }
+.share-lock-hint { display: block; font-size: var(--fs-xs); font-weight: 500; color: var(--ink-soft); }
 .share-leave { align-self: flex-start; }
 .owner-line { display: flex; align-items: center; gap: 10px; }
 
 /* ---------------- Plasserings-modal ---------------- */
 #place-body { display: flex; flex-direction: column; gap: 8px; }
-.place-hint { margin: 0 0 4px; font-size: 17px; color: var(--ink-soft); font-weight: 500; }
+.place-hint { margin: 0 0 4px; font-size: var(--fs-sm); color: var(--ink-soft); font-weight: 500; }
 .place-option {
   appearance: none; cursor: pointer; text-align: left;
-  font-family: inherit; font-size: 19px; font-weight: 600; color: var(--ink);
+  font-family: inherit; font-size: var(--fs-base); font-weight: 600; color: var(--ink);
   padding: 14px;
   border: 1.5px solid var(--line);
   border-radius: var(--radius-sm);
@@ -1499,26 +1590,42 @@ body.no-auth #menu-btn { display: none; }
    (chip-/korttittel-teksten) — relativt store og godt synlige. */
 .share-badge {
   flex: 0 0 auto;
-  font-size: 20px;
+  font-size: var(--fs-lg);
   line-height: 1;
   filter: drop-shadow(var(--text-shadow));
 }
 .share-badge[hidden] { display: none; }
-/* Del-knappene skal se ut som knapper: egen svakt markert flate som lysner
-   ved hover (samme idé som flate-mønsteret, på farget bakgrunn). */
-.chip-share, .card-share {
+/* Del-knappen på listekort (`.card-share`) skal se ut som en knapp: egen svakt
+   markert flate som lysner ved hover (samme idé som flate-mønsteret, på farget
+   bakgrunn). Univers/gruppe deles fra menyenes egne del-knapper (`.share-btn`),
+   ikke fra kortene. */
+.card-share {
   flex: 0 0 auto;
-  font-size: 20px;
+  font-size: var(--fs-lg);
   color: #fff;
   background: rgba(255, 255, 255, 0.2);
   box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.35);
 }
-.chip-share:hover, .card-share:hover {
+.card-share:hover {
   color: #fff;
   background: rgba(255, 255, 255, 0.34);
 }
-.chip-share .icon, .card-share .icon { filter: drop-shadow(var(--text-shadow)); }
+.card-share .icon { filter: drop-shadow(var(--text-shadow)); }
 /* Delt liste-kort: en tydelig men diskret kant-markør. */
 .card.is-shared { box-shadow: var(--shadow-sm), inset 0 0 0 2px rgba(255,255,255,0.55); }
 .card.is-locked .card-title { opacity: 0.9; }
 .chip.is-shared { box-shadow: 0 2px 7px rgba(35,45,55,0.2), inset 0 0 0 1.5px rgba(255,255,255,0.6); }
+
+/* ---------------- Redusert bevegelse (tilgjengelighet) ----------------
+   Respekterer OS-innstillingen «reduser bevegelse»: nøytraliser animasjoner/
+   transisjoner. JS-drevne fly-/FLIP-/drop-animasjoner hoppes uansett over i
+   app.js (prefersReducedMotion()); dette dekker de rene CSS-effektene
+   (modal-sprett, gruppe-puls, sveipefelt-morf, hover-løft osv.). */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+    scroll-behavior: auto !important;
+  }
+}

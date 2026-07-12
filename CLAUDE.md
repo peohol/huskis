@@ -101,7 +101,13 @@ Designsystemet er senere overhalt (Atkinson Hyperlegible Next, ~30 % større
 elementer m/ tynnere ikonstreker, felles `.btn-solid`-knappesystem,
 prikke-håndtak, delt placeholder-stil, knapp-til-sveipefelt-morf,
 slette-animasjon inn i søppelknappen) — se `docs/design-system.md` og
-`docs/trash.md`.
+`docs/trash.md`. En påfølgende runde la til: typografi-tokens (`--fs-*`),
+avkryssing av elementer (`item.done`), angre-toast + delte gjenopprett-hjelpere,
+felles bekreftelses-modal (`askConfirm`, erstatter native `confirm()`),
+tastatur-reordering på håndtakene, `prefers-reduced-motion`-støtte, delte
+`.field`/avatar-klasser, hvit ✕ på fargede flater, og flytting av univers-/
+gruppe-deling fra kortene til egne `.share-btn` i menyene (ved «＋ Gruppe» / «＋
+Liste»). `item.done` krever en DB-migrering i kontomodus — se `TODO.md`.
 Posisjonsbasert farge reindekseres alltid ved omrokkering (ikke bare
 add/slett) for grupper, lister og universer — se `docs/drag-and-drop.md`.
 

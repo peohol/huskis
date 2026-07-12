@@ -15,7 +15,13 @@ større, mer lesbare og lettere treffbare elementer i et fortsatt kompakt UI.
 
 Univers-rader, gruppekort og listekort har **identisk tittel-typografi**
 (20px/600: `.chip-name` og `.card-title`) og identisk størrelse på ekvivalente
-ikoner (delt-merke, del-knapp, slett-✕, håndtak).
+ikoner (delt-merke, slett-✕, håndtak).
+
+Tekststørrelsene er tokens (`--fs-xs` 15 / `--fs-sm` 17 / `--fs-md` 18 /
+`--fs-base` 19 (brødtekst) / `--fs-lg` 20 (titler) / `--fs-xl` 24
+(modal-overskrifter)). Bruk et token, ikke en px-verdi — «juster all tekst X %»
+skal være én endring. Kun ikon-/en-gangs-geometri (brand-mark, ikon-bokser)
+står fortsatt som px.
 
 ## Tokens, ikke hardkoding (styles.css, øverst)
 
@@ -96,15 +102,29 @@ Størrelse/form kommer fra egne klasser: `.btn` (modaler), `.btn-small`,
   **del-knappen alltid rett til venstre for ✕** (auto-margen flytter seg til
   del-knappen når den er synlig). Element-✕ alltid synlig, dempet
   (`opacity .55`).
-- Del-knapper (`.chip-share`/`.card-share`): ser ut som knapper — svakt hvit
-  flate + tynn ring som lysner ved hover, samme høyde som navneteksten ved
-  siden av. Delt-merket (`.share-badge`) har også samme høyde som teksten.
+- Del-knapper: listekort har `.card-share` (ser ut som en knapp — svakt hvit
+  flate + ring, lysner ved hover). **Univers og grupper deles IKKE fra kortene**,
+  men fra menyenes egne `.share-btn` (del-univers ved «＋ Gruppe», del-gruppe
+  ved «＋ Liste» — deler det AKTIVE universet/gruppen; flate-mønster). Kun
+  kontomodus. Delt-merket (`.share-badge`) har samme høyde som teksten.
 - Håndtak (`.drag-handle`): tre vertikale prikker (CSS `::before` +
   box-shadow), alltid **mørkere enn flaten sin** (`--card-accent`/`--g-accent`)
   og alltid nøyaktig vertikalt midtstilt (`align-self: stretch` +
-  grid-sentrering).
+  grid-sentrering). Tastatur: piltaster på et fokusert håndtak flytter objektet
+  (se `docs/drag-and-drop.md`).
 - Placeholders: én delt stil for `.card-/.item-/.group-placeholder` — se
   `docs/drag-and-drop.md`.
+- `.field`: felles tekstfelt (auth-input + inviter-input) — solid kant, myk
+  bakgrunn, grønn fokus-ring. Nye felt trenger bare klassen `.field`.
+- `.account-avatar` / `.member-avatar`: felles avatar-form (rund, sentrert hvit
+  initial på gradient) via delt selektor; størrelse/farge per bruk.
+- `.item-check`: avkryssingsboks på elementer — rund-firkantet boks, grønt
+  hake-fyll (`.item.done`) + gjennomstreket tekst. `done` er datamodell (se
+  `docs/data-model.md`).
+- Antall-piller (`.chip-count`) og tellere (`.trashcan-count`) samt varsel-
+  badgen (`.menu-badge`) holdes **bevisst separate** — de deler visuelt uttrykk
+  (avrundet, tabular-nums) men har ulike roller; å tvinge dem inn i én `.pill`
+  ville vært prematur abstraksjon.
 
 ## Flate-mønsteret
 
@@ -139,6 +159,21 @@ side-margin som kansellerer den omsluttende paddingen.
 - Escape lukker øverste modal — men avbryter kun inline-redigering hvis en pågår.
 - Del-modalens overskrift er alltid «[objekttype-ikon] [navn] — Innstillinger
   for deling» (gir mening for både eier og mottaker).
+- **Bekreftelse**: bruk `askConfirm({title, message, okLabel, danger})` (Promise
+  → boolean, app-stilt `#confirm-modal`), ALDRI native `confirm()`. `danger`
+  (standard) gir rød OK; `danger:false` grønn. Stables øverst blant modalene.
+- **Angre**: destruktive handlinger som kan angres viser en toast med «Angre»-
+  knapp: `showToast(msg, { label, fn })`. Slettinger bruker dette (5 s) sammen
+  med fly-i-søpla-animasjonen; gjenopprett-logikken deles med søppel-modalen
+  (`restoreUniverse/Group/Card/Item`).
+
+## Bevegelse og tilgjengelighet
+
+- `prefersReducedMotion()` (app.js) hopper over fly-/FLIP-/drop-animasjonene, og
+  et `@media (prefers-reduced-motion: reduce)`-blokk nøytraliserer CSS-
+  transisjoner/animasjoner. Respekter dette i nye animasjoner.
+- Ingen `user-scalable=no` (brukere skal kunne zoome). Kontroller er minst
+  ~29–49px høye for touch. Fargede ✕/håndtak er hvite m/ tekst-skygge på farge.
 
 ## Fargesystem (HSL, posisjonsbasert) + filter
 

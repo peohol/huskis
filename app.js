@@ -116,6 +116,13 @@
     return '#' + to(f(r)) + to(f(g)) + to(f(b));
   }
 
+  // Respekter operativsystemets «reduser bevegelse»-innstilling: fly-/FLIP-/
+  // sprett-animasjoner hoppes over når den er på (tilgjengelighet).
+  function prefersReducedMotion() {
+    try { return window.matchMedia('(prefers-reduced-motion: reduce)').matches; }
+    catch (e) { return false; }
+  }
+
   /* ---------------- Synk-metadata: enhet, klokke, stempling ----------------
      For å kunne flette endringer fra flere enheter (à la git) har hver
      entitet (kort/element) to «registre»:
@@ -156,11 +163,27 @@
   }
   function maxPos(arr) { return arr.reduce((m, e) => Math.max(m, e.pos || 0), 0); }
 
+  // Tastatur-reordering: ny pos-verdi når objektet på indeks i i den sorterte,
+  // synlige lista flyttes ett hakk (dir −1 opp / +1 ned) — mellom de nye naboene.
+  function neighborPos(sorted, i, dir) {
+    if (dir < 0) return between(i - 2 >= 0 ? sorted[i - 2].pos : null, sorted[i - 1].pos);
+    return between(sorted[i + 1].pos, i + 2 < sorted.length ? sorted[i + 2].pos : null);
+  }
+  // Piltast → retning. horizontal=true tar også med venstre/høyre (gruppe-rader
+  // kan ligge horisontalt på mobil).
+  function arrowDir(ev, horizontal) {
+    if (ev.key === 'ArrowUp') return -1;
+    if (ev.key === 'ArrowDown') return 1;
+    if (horizontal && ev.key === 'ArrowLeft') return -1;
+    if (horizontal && ev.key === 'ArrowRight') return 1;
+    return 0;
+  }
+
   /* ---------------- State ---------------- */
   function makeItem(text, homeId) {
     return {
-      id: uid(), text, home: homeId, trashed: false,
-      ts: 0, org: deviceId,           // innholdsregister (tekst/trashed)
+      id: uid(), text, home: homeId, trashed: false, done: false,
+      ts: 0, org: deviceId,           // innholdsregister (tekst/trashed/done)
       pos: 0, posTs: 0, posOrg: deviceId, // posisjonsregister (rekkefølge/forelder)
     };
   }
@@ -327,6 +350,7 @@
   function normalizeItem(it, homeId, j) {
     if (!it.home) it.home = homeId;
     if (typeof it.trashed !== 'boolean') it.trashed = false;
+    if (typeof it.done !== 'boolean') it.done = false;
     if (typeof it.ts !== 'number') it.ts = 0;
     if (!it.org) it.org = deviceId;
     if (typeof it.pos !== 'number') it.pos = j;
@@ -418,6 +442,8 @@
   const groupsPanelTitle = document.getElementById('groups-panel-title');
   const listerPanelTitle = document.getElementById('lister-panel-title');
   const addCardBtn = document.getElementById('add-card-btn');
+  const shareUniBtn = document.getElementById('share-uni-btn');
+  const shareGroupBtn = document.getElementById('share-group-btn');
   const toolbarEl = document.querySelector('.toolbar');
   const filterSwitchesEl = document.getElementById('filter-switches');
   const groupTpl = document.getElementById('group-template');
@@ -528,6 +554,7 @@
     updateTrashCount();
     renderFilterSwitches();
     updateToolbarState();
+    updateShareButtons();
 
     board.innerHTML = '';
     const group = activeGroupObj();
@@ -583,6 +610,27 @@
     addCardBtn.disabled = !activeGroupObj();
   }
 
+  // Del-knappene i menyene (kontomodus): del-univers ved siden av «＋ Gruppe»
+  // (deler det AKTIVE universet), del-gruppe ved siden av «＋ Liste» (deler den
+  // AKTIVE gruppen). Vises kun når objektet er ens eget eller montert — samme
+  // vilkår som de gamle per-kort-del-knappene. Klikk-handlere er koblet én gang
+  // (leser aktivt objekt ved klikk); her toggles bare synligheten.
+  function updateShareButtons() {
+    const acc = accountsMode();
+    const uni = activeUniverseObj();
+    const grp = activeGroupObj();
+    shareUniBtn.hidden = !(acc && uni && (uni._mine || uni._mount));
+    shareGroupBtn.hidden = !(acc && grp && (grp._mine || grp._mount));
+  }
+  shareUniBtn.addEventListener('click', () => {
+    const u = activeUniverseObj();
+    if (u) openShare('universe', u.id, u);
+  });
+  shareGroupBtn.addEventListener('click', () => {
+    const g = activeGroupObj();
+    if (g) openShare('group', g.id, g);
+  });
+
   // Panel-overskriftene viser navnet på gjeldende univers/gruppe, ikke bare
   // nivånavnet — så man alltid ser hvor i hierarkiet man er.
   function updatePanelTitles(group) {
@@ -633,12 +681,6 @@
       gBadge.innerHTML = !gCanEdit ? ICONS.lock : ICONS.people;
       gBadge.title = groupData._mount ? 'Delt med deg' : 'Delt med andre';
     }
-    const gShareBtn = el.querySelector('.chip-share');
-    if (accountsMode() && (groupData._mine || groupData._mount)) {
-      gShareBtn.hidden = false;
-      gShareBtn.addEventListener('click', (ev) => { ev.stopPropagation(); openShare('group', groupData.id, groupData); });
-    }
-
     const nameEl = el.querySelector('.group-name');
     nameEl.textContent = groupData.name;
 
@@ -660,8 +702,7 @@
     };
 
     el.addEventListener('click', (ev) => {
-      if (ev.target.closest('.group-handle') || ev.target.closest('.group-delete') ||
-          ev.target.closest('.chip-share')) return;
+      if (ev.target.closest('.group-handle') || ev.target.closest('.group-delete')) return;
       activate();
     });
     // Tastatur: kortet er role="tab" (tabindex=0). Enter/Mellomrom aktiverer det
@@ -687,8 +728,26 @@
     }
 
     const gHandle = el.querySelector('.group-handle');
-    if (accountsMode() && !gCanEdit && !groupData._mount) gHandle.style.visibility = 'hidden';
-    else gHandle.addEventListener('pointerdown', (ev) => startGroupDrag(ev, el));
+    if (accountsMode() && !gCanEdit && !groupData._mount) {
+      gHandle.style.visibility = 'hidden';
+    } else {
+      gHandle.addEventListener('pointerdown', (ev) => startGroupDrag(ev, el));
+      // Tastatur-reordering: piltaster (opp/ned + venstre/høyre for mobil-rad).
+      gHandle.addEventListener('keydown', (ev) => {
+        const dir = arrowDir(ev, true);
+        if (!dir) return;
+        ev.preventDefault();
+        const sorted = visibleGroups();
+        const i = sorted.indexOf(groupData);
+        if (i < 0 || i + dir < 0 || i + dir >= sorted.length) return;
+        const np = neighborPos(sorted, i, dir);
+        if (groupData._mount) { groupData.pos = np; groupData._mount.pos = np; cloudMountUpdate('group', groupData.id, { pos: np }); }
+        else { groupData.pos = np; stampPos(groupData); }
+        render(); save();
+        const h = groupsBar.querySelector('.group-card[data-id="' + groupData.id + '"] .group-handle');
+        if (h) h.focus();
+      });
+    }
     return el;
   }
 
@@ -754,6 +813,7 @@
     render(); // gruppe-søppelkassen blir synlig FØR animasjonen starter
     save();
     flyGhost(ghost, groupsTrashBtn);
+    showToast('Slettet «' + groupData.name + '»', { label: 'Angre', fn: () => restoreGroup(groupData) });
   }
 
   // Tøm gruppe-søppelkassen (aktivt univers) permanent: gravsteiner for hver
@@ -842,13 +902,32 @@
         render(); // søppelkasse-knappen blir synlig FØR animasjonen starter
         save();
         flyGhost(ghost, trashBtn);
+        showToast('Slettet «' + cardData.title + '»', { label: 'Angre', fn: () => restoreCard(cardData) });
       });
     }
 
     // Håndtak for kort-draging. Frosset (låst av andre) og ikke egen mount → skjul.
     const cardHandle = el.querySelector('.card-handle');
-    if (accountsMode() && !canEdit && !cardData._mount) cardHandle.style.visibility = 'hidden';
-    else cardHandle.addEventListener('pointerdown', (ev) => startCardDrag(ev, el));
+    if (accountsMode() && !canEdit && !cardData._mount) {
+      cardHandle.style.visibility = 'hidden';
+    } else {
+      cardHandle.addEventListener('pointerdown', (ev) => startCardDrag(ev, el));
+      // Tastatur-reordering: piltaster opp/ned flytter kortet blant de synlige.
+      cardHandle.addEventListener('keydown', (ev) => {
+        const dir = arrowDir(ev, false);
+        if (!dir) return;
+        ev.preventDefault();
+        const sorted = activeCards().filter(cardMatchesFilter);
+        const i = sorted.indexOf(cardData);
+        if (i < 0 || i + dir < 0 || i + dir >= sorted.length) return;
+        const np = neighborPos(sorted, i, dir);
+        if (cardData._mount) { cardData.pos = np; cardData._mount.pos = np; cloudMountUpdate('card', cardData.id, { pos: np }); }
+        else { cardData.pos = np; stampPos(cardData); }
+        render(); save();
+        const h = board.querySelector('.card[data-id="' + cardData.id + '"] .card-handle');
+        if (h) h.focus();
+      });
+    }
 
     // Elementer (kun ikke-slettede; sortert på posisjon). Slettede ligger i
     // element-søppelkassen nederst i kortet.
@@ -945,6 +1024,24 @@
       });
     });
 
+    // Avkryssing (gjort/ikke gjort): rir på innholds-registeret (som tekst/
+    // trashed) — LWW ved samtidig endring, som resten. Kun visuell markering
+    // (gjennomstreking); elementet beholder plassen sin.
+    const checkBtn = el.querySelector('.item-check');
+    el.classList.toggle('done', !!itemData.done);
+    checkBtn.setAttribute('aria-pressed', itemData.done ? 'true' : 'false');
+    if (!canEdit) {
+      checkBtn.disabled = true;
+    } else {
+      checkBtn.addEventListener('click', () => {
+        itemData.done = !itemData.done;
+        stampContent(itemData);
+        el.classList.toggle('done', itemData.done);
+        checkBtn.setAttribute('aria-pressed', itemData.done ? 'true' : 'false');
+        save();
+      });
+    }
+
     // Slett element → legg i kortets element-søppelkasse (trashed-flagg;
     // gjenopprettbar). Permanent sletting (gravstein) skjer først ved tømming.
     const itemDel = el.querySelector('.item-delete');
@@ -962,8 +1059,27 @@
         save();
         flyGhost(ghost, board.querySelector(
           '.card[data-id="' + owner.id + '"] .item-trash-btn'));
+        if (it) showToast('Slettet «' + it.text + '»', { label: 'Angre', fn: () => restoreItem(it, owner) });
       });
       itemHandle.addEventListener('pointerdown', (ev) => startItemDrag(ev, el));
+      // Tastatur-reordering: piltaster opp/ned flytter det fokuserte elementet.
+      itemHandle.addEventListener('keydown', (ev) => {
+        const dir = arrowDir(ev, false);
+        if (!dir) return;
+        ev.preventDefault();
+        const owner = ownerCardOf(el) || cardData;
+        const sorted = owner.items.filter((it) => !it.trashed).sort(posCmp);
+        const i = sorted.indexOf(itemData);
+        if (i < 0 || i + dir < 0 || i + dir >= sorted.length) return;
+        itemData.home = owner.id;
+        itemData.pos = neighborPos(sorted, i, dir);
+        stampPos(itemData);
+        refreshCard(owner);
+        save();
+        const h = board.querySelector('.card[data-id="' + owner.id +
+          '"] .item[data-id="' + itemData.id + '"] .item-handle');
+        if (h) h.focus();
+      });
     }
     return el;
   }
@@ -998,9 +1114,11 @@
     ghost.style.boxShadow = 'none';
     return { ghost, rect: r, radius: cs.borderRadius };
   }
+  const FLY_MS = 600;                               // total varighet på fly-i-søpla
   function flyGhost(g, targetBtn) {
     if (!g) return;
     if (!targetBtn || targetBtn.hidden || !targetBtn.isConnected) return;
+    if (prefersReducedMotion()) return;             // ingen bevegelse → ingen ghost
     const { ghost, rect, radius } = g;
     document.body.appendChild(ghost);
     const t = targetBtn.getBoundingClientRect();
@@ -1008,24 +1126,52 @@
     const cx = rect.left + rect.width / 2, cy = rect.top + rect.height / 2;
     const tx = t.left + t.width / 2, ty = t.top + t.height / 2;
     if (typeof ghost.animate !== 'function') { ghost.remove(); return; }
-    // Innholdet forsvinner først …
+    // Innholdet forsvinner først (raskt, men synlig — ~30 % av forløpet) …
     [...ghost.children].forEach((ch) => {
       if (typeof ch.animate === 'function') {
-        ch.animate([{ opacity: 1 }, { opacity: 0 }], { duration: 70, fill: 'forwards' });
+        ch.animate([{ opacity: 1 }, { opacity: 0 }],
+          { duration: FLY_MS * 0.3, easing: 'ease-out', fill: 'forwards' });
       }
     });
-    // … så pakkes boksen sammen til en sirkel som svever inn i knappen.
+    // … så pakkes boksen sammen til en sirkel (halvveis) som svever inn i knappen
+    // og fader like før den er fremme. Selve boksen holder full opacity lenge, så
+    // sammenpakkingen er godt synlig også for store listekort.
     const anim = ghost.animate([
       { left: rect.left + 'px', top: rect.top + 'px', width: rect.width + 'px',
         height: rect.height + 'px', borderRadius: radius, opacity: 1 },
       { left: (cx - D / 2) + 'px', top: (cy - D / 2) + 'px', width: D + 'px',
-        height: D + 'px', borderRadius: '50%', opacity: 1, offset: 0.55 },
+        height: D + 'px', borderRadius: '50%', opacity: 1, offset: 0.5 },
       { left: (tx - 4) + 'px', top: (ty - 4) + 'px', width: '8px', height: '8px',
         borderRadius: '50%', opacity: 0 },
-    ], { duration: 200, easing: 'cubic-bezier(.3,.6,.4,1)' });
+    ], { duration: FLY_MS, easing: 'cubic-bezier(.35,.5,.35,1)' });
     const cleanup = () => ghost.remove();
     anim.onfinish = cleanup;
     anim.oncancel = cleanup;
+  }
+
+  /* ---------------- Gjenopprett-hjelpere (delt av søppel-modal + angre-toast) ----------------
+     Ett sted for «trashed = false»-logikken per nivå (håndterer også monterte
+     delinger via mount-oppdatering), så både «Gjenopprett» i søppel-modalen og
+     «Angre» i slette-toasten bruker nøyaktig samme kode. */
+  function restoreUniverse(u) {
+    if (u._mount) { u.trashed = false; u._mount.trashed = false; cloudMountUpdate('universe', u.id, { trashed: false }); }
+    else { u.trashed = false; stampContent(u); }
+    if (!activeUniverseObj()) setActiveUniverse(u.id); // ingen aktiv? aktivér den gjenopprettede
+    render(); save();
+  }
+  function restoreGroup(g) {
+    if (g._mount) { g.trashed = false; g._mount.trashed = false; cloudMountUpdate('group', g.id, { trashed: false }); }
+    else { g.trashed = false; stampContent(g); }
+    if (!activeGroupObj()) setActiveGroup(g.id);
+    render(); save();
+  }
+  function restoreCard(c) {
+    if (c._mount) { c.trashed = false; c._mount.trashed = false; cloudMountUpdate('card', c.id, { trashed: false }); }
+    else { c.trashed = false; stampContent(c); }
+    render(); save();
+  }
+  function restoreItem(it, cardData) {
+    it.trashed = false; stampContent(it); refreshCard(cardData); save();
   }
 
   /* ---------------- Inline-redigering ---------------- */
@@ -1153,6 +1299,7 @@
     return m;
   }
   function flipFrom(prev, dur) {
+    if (prefersReducedMotion()) return;   // hopp over FLIP-tween (snap på plass)
     prev.forEach((old, el) => {
       if (!el.isConnected) return;
       const now = el.getBoundingClientRect();
@@ -1225,6 +1372,7 @@
     el.classList.remove('dragging');
     el.style.left = el.style.top = el.style.width = el.style.height = '';
     el.style.transform = ''; // fjern evt. dynamisk drag-rotasjon før vi måler hvileposisjonen
+    if (prefersReducedMotion()) return;   // ingen drop-tween ved redusert bevegelse
     const now = el.getBoundingClientRect();
     const dx = floatLeft - now.left;
     const dy = floatTop - now.top;
@@ -2220,10 +2368,48 @@
   function updateModalOpenClass() {
     const share = document.getElementById('share-modal');
     const place = document.getElementById('place-modal');
+    const confirmEl = document.getElementById('confirm-modal');
     document.body.classList.toggle('modal-open',
       !trashModal.hidden || !menuModal.hidden ||
-      (share && !share.hidden) || (place && !place.hidden));
+      (share && !share.hidden) || (place && !place.hidden) ||
+      (confirmEl && !confirmEl.hidden));
   }
+
+  /* ---------- Felles bekreftelses-modal (erstatter native confirm()) ----------
+     askConfirm(opts) → Promise<boolean>. Stables øverst (DOM sist blant modalene
+     → over dem ved lik z-index), så den kan brukes fra del-modalen. */
+  const confirmModalEl = document.getElementById('confirm-modal');
+  const confirmTitleEl = document.getElementById('confirm-title');
+  const confirmMsgEl = document.getElementById('confirm-msg');
+  const confirmOkBtn = document.getElementById('confirm-ok');
+  const confirmCancelBtn = document.getElementById('confirm-cancel');
+  let confirmResolve = null;
+  function askConfirm(opts) {
+    opts = opts || {};
+    confirmTitleEl.textContent = opts.title || 'Bekreft';
+    confirmMsgEl.textContent = opts.message || '';
+    confirmOkBtn.textContent = opts.okLabel || 'OK';
+    confirmCancelBtn.textContent = opts.cancelLabel || 'Avbryt';
+    // Grønn OK når handlingen ikke er destruktiv (danger: false), ellers rød.
+    confirmOkBtn.className = 'btn btn-solid ' + (opts.danger === false ? 'btn-green' : 'btn-red');
+    confirmModalEl.hidden = false;
+    updateModalOpenClass();
+    return new Promise((resolve) => {
+      confirmResolve = resolve;
+      confirmOkBtn.focus();
+    });
+  }
+  function closeConfirm(result) {
+    if (!confirmResolve) return;
+    const done = confirmResolve;
+    confirmResolve = null;
+    confirmModalEl.hidden = true;
+    updateModalOpenClass();
+    done(result);
+  }
+  confirmOkBtn.addEventListener('click', () => closeConfirm(true));
+  confirmCancelBtn.addEventListener('click', () => closeConfirm(false));
+  confirmModalEl.addEventListener('click', (ev) => { if (ev.target === confirmModalEl) closeConfirm(false); });
 
   function showTrashModal(cfg) {
     modalCfg = cfg;
@@ -2297,13 +2483,7 @@
         color: u.color || colorForId(u.id),
         name: u.name,
         meta: groupWord(u.groups.filter((g) => !g.trashed).length),
-        restore: () => {
-          if (u._mount) { u.trashed = false; u._mount.trashed = false; cloudMountUpdate('universe', u.id, { trashed: false }); }
-          else { u.trashed = false; stampContent(u); }
-          if (!activeUniverseObj()) setActiveUniverse(u.id); // ingen aktiv? aktivér den gjenopprettede
-          render();
-          save();
-        },
+        restore: () => restoreUniverse(u),
       })),
       empty: emptyUniversesTrash,
     });
@@ -2318,13 +2498,7 @@
         color: g.color || colorForId(g.id),
         name: g.name,
         meta: listWord(g.cards.filter((c) => !c.trashed).length),
-        restore: () => {
-          if (g._mount) { g.trashed = false; g._mount.trashed = false; cloudMountUpdate('group', g.id, { trashed: false }); }
-          else { g.trashed = false; stampContent(g); }
-          if (!activeGroupObj()) setActiveGroup(g.id); // ingen aktiv? aktivér den gjenopprettede
-          render();
-          save();
-        },
+        restore: () => restoreGroup(g),
       })),
       empty: emptyGroupsTrash,
     });
@@ -2341,11 +2515,7 @@
         color: c.color || colorForId(c.id),
         name: c.title,
         meta: itemWord(c.items.filter((it) => !it.trashed).length),
-        restore: () => {
-          if (c._mount) { c.trashed = false; c._mount.trashed = false; cloudMountUpdate('card', c.id, { trashed: false }); }
-          else { c.trashed = false; stampContent(c); }
-          render(); save();
-        },
+        restore: () => restoreCard(c),
       })),
       empty: emptyCardsTrash,
     });
@@ -2358,7 +2528,7 @@
       emptyMsg: 'Ingen slettede elementer.',
       rows: () => trashedItemsOf(cardData).sort(posCmp).map((it) => ({
         name: it.text,
-        restore: () => { it.trashed = false; stampContent(it); refreshCard(cardData); save(); },
+        restore: () => restoreItem(it, cardData),
       })),
       empty: () => emptyItemsTrash(cardData),
     });
@@ -2475,7 +2645,6 @@
       if (api.count() <= 0) return;    // ingenting å tømme
       mode = 'swiping';
       clearTimeout(swipeCollapseTimer);
-      if (swipeOwnerBtn && swipeOwnerBtn !== btn) swipeOwnerBtn.style.visibility = '';
       swipeOwnerBtn = btn;
       const r = btn.getBoundingClientRect();
       const iconEl = btn.querySelector('.trashcan-icon') || btn;
@@ -2508,7 +2677,10 @@
         Math.min(310, vw - EDGE - Math.round(r.left)));
       field.style.width = width + 'px';
       btnRect = r;
-      btn.style.visibility = 'hidden';         // feltet ER knappen nå
+      // Knappen skjules IKKE: det opake feltet starter med knappens eksakte
+      // geometri og dekker den fullstendig (og vokser utover), så det ser ut
+      // som knappen selv utvider seg. Å skjule knappen ville dessuten droppet
+      // pekerfangsten (setPointerCapture) midt i sveipet.
 
       // Sveip-strekk: fra ikon-senter til nær feltets høyre ende.
       swStart = iconCx;
@@ -2522,11 +2694,12 @@
       if (btnRect) swipeEl.style.width = btnRect.width + 'px'; // krymp til knappen
       clearTimeout(swipeCollapseTimer);
       swipeCollapseTimer = setTimeout(() => {
+        // Skjul feltet KUN hvis denne knappen fortsatt eier det (en annen kan
+        // ha åpnet det i mellomtiden — delt felt).
         if (swipeOwnerBtn === btn) {
           swipeEl.classList.remove('open');
           swipeOwnerBtn = null;
         }
-        btn.style.visibility = '';             // knappen tar over igjen
         btnRect = null;
       }, COLLAPSE_MS);
     }
@@ -2619,6 +2792,7 @@
   document.addEventListener('keydown', (ev) => {
     if (ev.key !== 'Escape') return;
     if (ev.target && ev.target.classList && ev.target.classList.contains('edit-input')) return;
+    if (confirmModalEl && !confirmModalEl.hidden) { closeConfirm(false); return; } // øverst
     const share = document.getElementById('share-modal');
     const place = document.getElementById('place-modal');
     if (place && !place.hidden) { place.hidden = true; updateModalOpenClass(); }
@@ -2702,12 +2876,6 @@
       uBadge.innerHTML = !uCanEdit ? ICONS.lock : ICONS.people;
       uBadge.title = u._mount ? 'Delt med deg' : 'Delt med andre';
     }
-    const uShareBtn = el.querySelector('.chip-share');
-    if (accountsMode() && (u._mine || u._mount)) {
-      uShareBtn.hidden = false;
-      uShareBtn.addEventListener('click', (ev) => { ev.stopPropagation(); openShare('universe', u.id, u); });
-    }
-
     const nameEl = el.querySelector('.uni-name');
     nameEl.textContent = u.name;
     // Antall grupper i universet: liten pill med gruppe-ikon (mappe) + tall.
@@ -2730,8 +2898,7 @@
       }
     };
     el.addEventListener('click', (ev) => {
-      if (ev.target.closest('.uni-delete') || ev.target.closest('.chip-share') ||
-          ev.target.closest('.group-handle')) return;
+      if (ev.target.closest('.uni-delete') || ev.target.closest('.group-handle')) return;
       activate();
     });
     el.addEventListener('keydown', (ev) => {
@@ -2749,8 +2916,26 @@
     }
 
     const uHandle = el.querySelector('.group-handle');
-    if (accountsMode() && !uCanEdit && !u._mount) uHandle.style.visibility = 'hidden';
-    else uHandle.addEventListener('pointerdown', (ev) => startUniverseDrag(ev, el));
+    if (accountsMode() && !uCanEdit && !u._mount) {
+      uHandle.style.visibility = 'hidden';
+    } else {
+      uHandle.addEventListener('pointerdown', (ev) => startUniverseDrag(ev, el));
+      // Tastatur-reordering: piltaster opp/ned flytter universet i menylista.
+      uHandle.addEventListener('keydown', (ev) => {
+        const dir = arrowDir(ev, false);
+        if (!dir) return;
+        ev.preventDefault();
+        const sorted = visibleUniverses();
+        const i = sorted.indexOf(u);
+        if (i < 0 || i + dir < 0 || i + dir >= sorted.length) return;
+        const np = neighborPos(sorted, i, dir);
+        if (u._mount) { u.pos = np; u._mount.pos = np; cloudMountUpdate('universe', u.id, { pos: np }); }
+        else { u.pos = np; stampPos(u); }
+        renderUniverses(); save();
+        const h = uniList.querySelector('.uni-row[data-id="' + u.id + '"] .group-handle');
+        if (h) h.focus();
+      });
+    }
     return el;
   }
 
@@ -2796,6 +2981,7 @@
     render(); // univers-søppelkassen blir synlig FØR animasjonen starter
     save();
     flyGhost(ghost, uniTrashBtn);
+    showToast('Slettet «' + u.name + '»', { label: 'Angre', fn: () => restoreUniverse(u) });
   }
 
   /* ============================================================
@@ -2874,7 +3060,7 @@
   // Synk-doc: kun det som deles (ikke activeUniverse/activeGroup, som er per enhet).
   function cleanItem(it, homeId) {
     return {
-      id: it.id, text: it.text, home: it.home || homeId, trashed: !!it.trashed,
+      id: it.id, text: it.text, home: it.home || homeId, trashed: !!it.trashed, done: !!it.done,
       ts: it.ts || 0, org: it.org || '',
       pos: it.pos || 0, posTs: it.posTs || 0, posOrg: it.posOrg || '',
     };
@@ -2992,7 +3178,7 @@
     const content = newer(a.ts, a.org, b.ts, b.org) ? a : b;
     const posw = newer(a.posTs, a.posOrg, b.posTs, b.posOrg) ? a : b;
     return {
-      id: a.id, text: content.text, trashed: !!content.trashed,
+      id: a.id, text: content.text, trashed: !!content.trashed, done: !!content.done,
       ts: content.ts || 0, org: content.org || '',
       home: posw.home, pos: posw.pos || 0, posTs: posw.posTs || 0, posOrg: posw.posOrg || '',
     };
@@ -3301,23 +3487,41 @@
 
   /* ---------- Lett, forbigående varsel (ingen fast statusindikator) ---------- */
   let toastTimer = null;
-  function showToast(msg) {
+  // action (valgfri): { label, fn } → knapp i toasten (f.eks. «Angre»). Med
+  // handling står toasten lenger (5 s) siden brukeren skal rekke å trykke.
+  function showToast(msg, action) {
     let t = document.getElementById('toast');
     if (!t) { t = document.createElement('div'); t.id = 'toast'; t.className = 'toast'; document.body.appendChild(t); }
-    t.textContent = msg;
+    t.innerHTML = '';
+    const span = document.createElement('span');
+    span.className = 'toast-msg';
+    span.textContent = msg;
+    t.appendChild(span);
+    if (action && action.label && typeof action.fn === 'function') {
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'toast-action';
+      btn.textContent = action.label;
+      btn.addEventListener('click', () => {
+        t.classList.remove('show');
+        clearTimeout(toastTimer);
+        action.fn();
+      });
+      t.appendChild(btn);
+    }
     t.classList.add('show');
     clearTimeout(toastTimer);
-    toastTimer = setTimeout(() => t.classList.remove('show'), 2200);
+    toastTimer = setTimeout(() => t.classList.remove('show'), action ? 5000 : 2200);
   }
 
   /* ---------- Logg ut (i meny-modalen, ☰) ----------
      Synken går fortløpende i bakgrunnen; ingen egen synk-knapp trengs.
      Ved fjern-endringer vises et lite «oppdatert»-varsel (showToast). */
-  logoutBtn.addEventListener('click', () => {
+  logoutBtn.addEventListener('click', async () => {
     const q = accountsMode()
       ? 'Logge ut? Listene dine ligger trygt i skyen og kommer tilbake når du logger inn igjen.'
       : 'Logge ut? Listene dine ligger trygt i skyen og kommer tilbake når du tegner mønsteret igjen.';
-    if (confirm(q)) logout();
+    if (await askConfirm({ title: 'Logg ut', message: q, okLabel: 'Logg ut' })) logout();
   });
 
   // Hold i synk når fanen kommer i forgrunnen igjen (mobil suspenderer sockets/timere).
@@ -3941,7 +4145,7 @@
     if (t === 'group') return Object.assign(base, { name: row.name || '', universe_id: row.uni });
     if (t === 'card') return Object.assign(base, { title: row.title || '', group_id: row.group,
       k: row.k !== false, p: row.p !== false, lab_ts: row.labTs || 0, lab_org: row.labOrg || '' });
-    return Object.assign(base, { text: row.text || '', card_id: row.home });
+    return Object.assign(base, { text: row.text || '', card_id: row.home, done: !!row.done });
   }
   function updatePayload(t, row) {
     const base = { trashed: !!row.trashed, ts: row.ts || 0, org: row.org || '',
@@ -3950,7 +4154,7 @@
     if (t === 'group') return Object.assign(base, { name: row.name || '', universe_id: row.uni });
     if (t === 'card') return Object.assign(base, { title: row.title || '', group_id: row.group,
       k: row.k !== false, p: row.p !== false, lab_ts: row.labTs || 0, lab_org: row.labOrg || '' });
-    return Object.assign(base, { text: row.text || '', card_id: row.home });
+    return Object.assign(base, { text: row.text || '', card_id: row.home, done: !!row.done });
   }
   async function pushOps(ops) {
     const client = acli();
@@ -4093,8 +4297,12 @@
     const legacy = legacyFlatDoc();
     if (!remoteEmpty || !legacy) { localStorage.setItem(flag, '1'); return; }
     const n = legacy.cards.length;
-    if (!confirm('Vi fant lokale lister på denne enheten (' + listWord(n) +
-      '). Vil du importere dem til kontoen din?')) { localStorage.setItem(flag, '1'); return; }
+    if (!await askConfirm({
+      title: 'Importer lokale lister',
+      message: 'Vi fant lokale lister på denne enheten (' + listWord(n) +
+        '). Vil du importere dem til kontoen din?',
+      okLabel: 'Importer', danger: false,
+    })) { localStorage.setItem(flag, '1'); return; }
     try {
       const { error } = await acli().rpc('import_doc', { p_doc: legacy });
       if (error) throw error;
@@ -4295,6 +4503,7 @@
     const form = document.createElement('form');
     form.className = 'share-invite-form';
     const input = document.createElement('input');
+    input.className = 'field';
     input.type = 'email'; input.placeholder = 'E-post å invitere'; input.required = true;
     const btn = document.createElement('button');
     btn.className = 'btn btn-solid btn-green btn-small'; btn.type = 'submit'; btn.textContent = 'Inviter';
@@ -4339,7 +4548,7 @@
         const kick = document.createElement('button');
         kick.className = 'btn btn-solid btn-red btn-small'; kick.type = 'button'; kick.textContent = 'Kast ut';
         kick.addEventListener('click', async () => {
-          if (!confirm('Fjerne ' + mbr.email + ' fra delingen?')) return;
+          if (!await askConfirm({ title: 'Kaste ut', message: 'Fjerne ' + mbr.email + ' fra delingen?', okLabel: 'Kast ut' })) return;
           try {
             const { error } = await acli().rpc('revoke_share', { p_type: type, p_id: id, p_user: mbr.id });
             if (error) throw error;
@@ -4420,7 +4629,7 @@
     const leave = document.createElement('button');
     leave.className = 'btn btn-solid btn-red share-leave'; leave.type = 'button'; leave.textContent = 'Forlat deling';
     leave.addEventListener('click', async () => {
-      if (!confirm('Forlate denne delingen? Den forsvinner fra dine lister.')) return;
+      if (!await askConfirm({ title: 'Forlat deling', message: 'Forlate denne delingen? Den forsvinner fra dine lister.', okLabel: 'Forlat' })) return;
       await cloudLeave(shareCtx.type, shareCtx.id);
       closeShare();
       cloudBase = null;

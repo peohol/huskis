@@ -10,7 +10,8 @@ Fast panel (`position: fixed`), **én felles DOM** delt i to media-queryer:
 - **Desktop (`min-width: 561px`)**: fast, full-høyde **kolonne til venstre**
   (`--sidebar-w`). Øverst `.panel-top`: overskriften **UNIVERS: [navn]** (navnet
   på gjeldende univers, satt av `updatePanelTitles()` i `render()`) og
-  knapperaden **«＋ Gruppe» + gruppe-søppelkassen side om side**. Gruppekortene
+  knapperaden **«＋ Gruppe» + del-univers-knappen (`.share-btn`, kontomodus) +
+  gruppe-søppelkassen**. Gruppekortene
   scroller i
   kolonnen under og **oppløses i en fade** (CSS `mask-image`, høyde `--fade-h`,
   tilsvarende fade i bunnen; hvile-padding = fade-høyden så ingenting er falmet
@@ -40,8 +41,8 @@ univers lukker IKKE menyen** — brukeren skal kunne angre fra søppelkassen med
 Fast meny (`position: fixed`; desktop: øverst til høyre for kolonnen, mobil: rett
 under gruppemenyen). To linjer: overskriften **GRUPPE: [navn]** (navnet på
 gjeldende gruppe, samme `updatePanelTitles()`) og knapperaden **«＋
-Liste» + liste-søppelkassen + filterkortet (👁️ Mine/Delte)** (filter, se
-`docs/colors-and-labels.md`). Filterkortet følger flate-mønsteret
+Liste» + del-gruppe-knappen (`.share-btn`, kontomodus) + liste-søppelkassen +
+filterkortet (👁️ Mine/Delte)** (filter, se `docs/colors-and-labels.md`). Filterkortet følger flate-mønsteret
 (halvgjennomsiktig → opak ved hover). Logg ut-knappen ligger i meny-modalen
 (ikke her). ☰ er ikke en del av denne DOM-en (se under), men overlapper
 panelet visuelt på desktop.
@@ -83,9 +84,11 @@ Menyknappen (☰) åpner `#menu-modal`:
   `docs/design-system.md` («Delelinjer i modaler»).
 - **UNIVERSER**-seksjon: univers-rader (`.uni-row.chip` — håndtak, farget,
   aktiv m/ ring, antall-pill med gruppe-ikon (mappe) + antall grupper
-  (`.chip-count`), evt. del-knapp, ✕ helt til høyre), «＋ [univers-ikon]»
-  (globus, ikke tekst) og univers-søppelkassen (samme knapp/oppførsel som de
-  andre — se `docs/trash.md`).
+  (`.chip-count`), ✕ helt til høyre), «＋ [univers-ikon]» (globus, ikke tekst)
+  og univers-søppelkassen (samme knapp/oppførsel som de andre — se
+  `docs/trash.md`). **Deling av et univers skjer IKKE fra univers-raden**, men
+  fra del-univers-knappen i gruppemenyens knapperad (deler det aktive
+  universet); tilsvarende deles en gruppe fra del-gruppe-knappen i listemenyen.
 - Klikk på en rad = **bytt univers + lukk menyen**; klikk på det aktive navnet =
   omdøp. Slett = i søppelkassen (menyen forblir åpen så man kan angre).
   `setActiveUniverse` gjenoppretter sist aktive gruppe i universet
