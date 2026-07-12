@@ -49,6 +49,22 @@ gjenpåfører flagget etter hver `applyDoc`/`applyMyDoc`. Dette løste også en 
 der «Angre»/«Gjenopprett» mutere en foreldet referanse (etter at synken hadde
 bygget treet på nytt) og dermed ikke virket før noen sekunder hadde gått.
 
+### Samle-toast (`pushDeleteToast`)
+
+Én felles «Angre»-toast eier timeren for en gruppe slettinger (ikke per objekt):
+
+- Slettes flere objekter av **samme** kategori mens toasten er åpen, **slås de
+  sammen** (`deleteToast.ids`) og timeren startes på nytt — meldingen blir
+  «Slettet N elementer/lister/grupper/universer», og én «Angre» angrer alle.
+- Slettes et objekt av en **annen** kategori, antas den forrige toasten
+  unødvendig: den forrige gruppen **committes straks**, og en fersk toast
+  starter for den nye kategorien.
+- Toasten er «sticky» (`showToast(..., { sticky: true })`) — den felles timeren
+  (`armDeleteTimer`) styrer både commit og skjuling. `commitDeleteOne`/
+  `undoDeleteOne` gjør én-objekt-jobben uten å tegne board-et på nytt (commit er
+  visuelt en no-op siden objektet allerede var skjult); gruppe-angre tegner én
+  gang til slutt.
+
 «Angre» (og «Gjenopprett» for committede) bruker de delte
 `restoreUniverse/Group/Card/Item`-hjelperne (samme kode begge steder).
 
