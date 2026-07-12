@@ -117,3 +117,33 @@ fletting.
 
 Alle tekster/titler sier «hold og sveip for å tømme» (ikke «hold i 3
 sekunder»).
+
+## Feltet henger igjen hvis knappen forsvinner midt i et sveip
+
+Element-søppelknappen bygges på nytt hver gang kortet re-renders
+(`buildCard`/`refreshCard`, f.eks. via en synk-oppdatering mens brukeren
+holder inne). Da fjernes DEN GAMLE knapp-DOM-noden midt i gesten, og
+pekerfangsten (`setPointerCapture`) frigis implisitt — men verken
+`pointerup` eller `pointercancel` fyres på den frakoblede knappen i så fall,
+kun `lostpointercapture`, og den leveres på `document` (ikke på selve
+knappen). `attachTrashHold` lytter derfor på `document` i fangst-fasen,
+filtrert på `pointerId`, koblet til/fra PER TRYKK (ikke i selve
+`attachTrashHold`-oppsettet) — ellers ville hver kort-ombygging lagt igjen en
+varig `document`-lytter (én per element-søppelknapp som noensinne bygges).
+
+## Buffer-slettede objekter kan ikke tømmes ennå
+
+`emptyXTrash()` hopper alltid over `_pendingDelete`-objekter (de er ikke
+`trashed` i state ennå). Derfor er både sveipefeltet og «Tøm permanent»-
+knappen i modalen sperret så lenge NOE i søppelen fortsatt er buffret:
+`attachTrashHold`s `api.pending()` stopper `openField()` fra å starte, og
+`renderTrashModalBody()` deaktiverer `trashEmptyBtn` når
+`rows.some(r => r.pending)`. Søppelkasse-knappens tall-badge
+(`.trashcan-count`) viser en liten spinner (`.pending`-klassen, CSS `::after`)
+i stedet for tallet mens dette gjelder — samme visuelle språk som spinneren
+per rad i modalen. Fordi tallet i seg selv ikke endrer seg når en sletting
+committes (objektet var allerede talt med som «i søppel»), måtte de tre
+commit-stedene (`armDeleteTimer`, kategoribytte i `pushDeleteToast`,
+`commitAllPending`) byttes fra kun `save()` til `render()` — ellers ble
+spinneren hengende til neste urelaterte re-render, selv etter at objektet
+faktisk var klart til å tømmes.

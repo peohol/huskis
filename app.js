@@ -548,9 +548,10 @@
   /* ---------------- Render ---------------- */
   // Lister-søppelkassen vises kun når den har innhold (samme logikk som de andre).
   function updateTrashCount() {
-    const n = trashedCards().length;
-    trashCount.textContent = n;
-    trashBtn.hidden = n === 0;
+    const list = trashedCards();
+    trashCount.textContent = list.length;
+    trashCount.classList.toggle('pending', list.some((c) => c._pendingDelete));
+    trashBtn.hidden = list.length === 0;
   }
 
   function render() {
@@ -660,9 +661,10 @@
 
   // Gruppe-søppelkassen (per univers): vises kun når det ligger grupper i den.
   function updateGroupsTrash() {
-    const n = trashedGroups().length;
-    groupsTrashCount.textContent = n;
-    groupsTrashBtn.hidden = n === 0;
+    const list = trashedGroups();
+    groupsTrashCount.textContent = list.length;
+    groupsTrashCount.classList.toggle('pending', list.some((g) => g._pendingDelete));
+    groupsTrashBtn.hidden = list.length === 0;
   }
 
   function buildGroupCard(groupData) {
@@ -977,9 +979,11 @@
       const count = document.createElement('span');
       count.className = 'trashcan-count';
       count.textContent = trashed.length;
+      count.classList.toggle('pending', trashed.some((it) => it._pendingDelete));
       btn.append(icon, count);
       attachTrashHold(btn, {
         count: () => trashedItemsOf(cardData).length,
+        pending: () => trashedItemsOf(cardData).some((it) => it._pendingDelete),
         open: () => openItemsTrash(cardData),
         empty: () => emptyItemsTrash(cardData),
       });
@@ -1276,7 +1280,7 @@
     if (deleteToast) { clearTimeout(deleteToast.timer); deleteToast = null; hideToast(); }
     if (!pendingDeletes.size) return;
     [...pendingDeletes.keys()].forEach(commitDeleteOne);
-    save();
+    render(); // rydder pending-spinnere på søppelkasse-knappene (render() lagrer også)
   }
   // Etter at synken har bygget state-treet på nytt: gjenpåfør buffer-flagget på
   // de friske objektene (ellers ville et buffret objekt dukket opp igjen).
@@ -1311,7 +1315,7 @@
     deleteToast.timer = setTimeout(() => {
       const g = deleteToast; deleteToast = null;
       g.ids.forEach(commitDeleteOne);
-      save();
+      render(); // rydder pending-spinnere på søppelkasse-knappene (render() lagrer også)
       hideToast();
       if (!trashModal.hidden) renderTrashModalBody();
     }, DELETE_BUFFER_MS);
@@ -1322,7 +1326,7 @@
       const old = deleteToast; deleteToast = null;
       clearTimeout(old.timer);
       old.ids.forEach(commitDeleteOne);
-      save();
+      render(); // rydder pending-spinnere på søppelkasse-knappene (render() lagrer også)
       if (!trashModal.hidden) renderTrashModalBody();
     }
     if (deleteToast && deleteToast.kind === kind) {
@@ -2606,9 +2610,10 @@
       trashEmptyBtn.disabled = true;
       return;
     }
-    // «Tøm permanent» gjelder kun ferdig-committede objekter; buffer-slettede
-    // (som ennå kan angres via toasten) hoppes over.
-    trashEmptyBtn.disabled = !rows.some((r) => !r.pending);
+    // «Tøm permanent» krever at ALLE rader er ferdig committet — er noen
+    // fortsatt buffer-slettet (_pendingDelete) hopper emptyXTrash over dem, så
+    // knappen må vente til alt er klart (ellers ser det ut som tømming feiler).
+    trashEmptyBtn.disabled = rows.some((r) => r.pending);
     rows.forEach((r) => {
       const row = document.createElement('div');
       row.className = 'trash-row';
@@ -2833,7 +2838,7 @@
       swipeLidEl.style.transform = 'rotate(' + (-95 * pc) + 'deg)';
     }
     function openField() {
-      if (api.count() <= 0) return;    // ingenting å tømme
+      if (api.count() <= 0 || api.pending()) return; // ingenting å tømme, eller ikke alt klart ennå
       mode = 'swiping';
       clearTimeout(swipeCollapseTimer);
       swipeOwnerBtn = btn;
@@ -2906,11 +2911,29 @@
       }, SHAKE_MS);
     }
 
+    // Fanger tilfellet der knappen fjernes fra DOM-en midt i et trykk/sveip
+    // (f.eks. et kort bygges på nytt av en synk mens man holder inne) — da
+    // frigis pekerfangsten implisitt, UTEN at pointerup/pointercancel noensinne
+    // fyres på den (nå frakoblede) knappen, og feltet ble hengende åpent til
+    // neste trykk. Nettleseren leverer i dette tilfellet lostpointercapture på
+    // `document` (ikke på knappen selv), filtrert på pointerId — koblet til/fra
+    // per trykk (ikke i selve attachTrashHold) for å unngå at hvert re-bygde
+    // element-søppel-ikon (buildCard kaller attachTrashHold på nytt hver gang)
+    // legger igjen en varig lytter på document.
+    function onLostCapture(ev) {
+      if (ev.pointerId !== pid) return;
+      document.removeEventListener('lostpointercapture', onLostCapture, true);
+      if (mode == null) return;
+      clearTimeout(holdTimer); holdTimer = null;
+      if (mode === 'swiping') collapseField(); // rydder feltet uten å tømme
+      if (mode !== 'done') mode = null;
+    }
     btn.addEventListener('pointerdown', (ev) => {
       if (ev.button != null && ev.button > 0) return;
       ev.preventDefault();
       pid = ev.pointerId;
       try { btn.setPointerCapture(pid); } catch (e) { /* ignore */ }
+      document.addEventListener('lostpointercapture', onLostCapture, true);
       startX = ev.clientX; startY = ev.clientY;
       mode = 'pending';
       clearTimeout(holdTimer);
@@ -2930,6 +2953,7 @@
     });
     const onUp = (ev) => {
       if (pid != null) { try { btn.releasePointerCapture(pid); } catch (e) { /* ignore */ } }
+      document.removeEventListener('lostpointercapture', onLostCapture, true);
       clearTimeout(holdTimer); holdTimer = null;
       // Svelg det etterfølgende (peker-genererte) klikket uansett, så det verken
       // åpner modalen på nytt (etter sveip) eller treffer modal-overlay-en.
@@ -2957,16 +2981,19 @@
   /* ---------- Kobling: faste knapper (universer/grupper/lister) + modal-kontroller ---------- */
   attachTrashHold(trashBtn, {
     count: () => trashedCards().length,
+    pending: () => trashedCards().some((c) => c._pendingDelete),
     open: openCardsTrash,
     empty: emptyCardsTrash,
   });
   attachTrashHold(groupsTrashBtn, {
     count: () => trashedGroups().length,
+    pending: () => trashedGroups().some((g) => g._pendingDelete),
     open: openGroupsTrash,
     empty: emptyGroupsTrash,
   });
   attachTrashHold(uniTrashBtn, {
     count: () => trashedUniverses().length,
+    pending: () => trashedUniverses().some((u) => u._pendingDelete),
     open: openUniversesTrash,
     empty: emptyUniversesTrash,
   });
@@ -3025,9 +3052,10 @@
 
   // Univers-søppelkassen (i menyen): vises kun når den har innhold.
   function updateUniversesTrash() {
-    const n = trashedUniverses().length;
-    uniTrashCount.textContent = n;
-    uniTrashBtn.hidden = n === 0;
+    const list = trashedUniverses();
+    uniTrashCount.textContent = list.length;
+    uniTrashCount.classList.toggle('pending', list.some((u) => u._pendingDelete));
+    uniTrashBtn.hidden = list.length === 0;
   }
 
   // Tegn univers-radene i menyen. Kalles fra render() (så fjern-endringer
