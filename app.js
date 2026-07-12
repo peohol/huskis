@@ -1310,6 +1310,7 @@
     const committed = [...pendingDeletes.keys()].map(commitDeleteOne);
     save();
     refreshTrashBadgesAfterCommit(committed);
+    if (!trashModal.hidden) renderTrashModalBody();
   }
   // Etter at synken har bygget state-treet på nytt: gjenpåfør buffer-flagget på
   // de friske objektene (ellers ville et buffret objekt dukket opp igjen).
@@ -2989,10 +2990,13 @@
       // Svelg det etterfølgende (peker-genererte) klikket uansett, så det verken
       // åpner modalen på nytt (etter sveip) eller treffer modal-overlay-en.
       ignoreClick = true; setTimeout(() => { ignoreClick = false; }, 350);
-      const moved = Math.abs(ev.clientX - startX) > SWIPE_MOVE || Math.abs(ev.clientY - startY) > SWIPE_MOVE;
-      // Slapp før feltet rakk å utvide seg (mode fortsatt 'pending'), uten bevegelse
-      // → kort trykk → åpne modalen (utsatt til etter click-sekvensen).
-      if (mode === 'pending' && !moved) {
+      // Feltet ble aldri faktisk åpnet (mode fortsatt 'pending') — enten et kort
+      // trykk, ELLER et sveipeforsøk som openField() avviste (api.pending()
+      // sperrer sveip mens noe fortsatt er buffret, uansett bevegelse). I begge
+      // tilfeller er ingenting synlig endret, så vi åpner modalen uansett liten
+      // bevegelse — ellers ble trykket helt uten respons (utsatt til etter
+      // click-sekvensen).
+      if (mode === 'pending') {
         mode = null;
         setTimeout(() => api.open(), 0);
         return;

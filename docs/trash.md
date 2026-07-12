@@ -158,3 +158,24 @@ objekt som ble committet (`{ kind, obj, card? }`), og
 badgene direkte (`updateTrashCount`/`updateGroupsTrash`/`updateUniversesTrash`
 for gruppe/liste/univers-nivå, `updateItemsTrashBadge(cardData)` — som kun
 rører `.trashcan-count`-spannet, ikke resten av kortet — for element-nivå).
+
+`commitAllPending()` (kjøres ved `visibilitychange`/`pagehide`, altså når
+fanen skjules mens noe er buffret) må også rydde modalen hvis den står åpen
+(`if (!trashModal.hidden) renderTrashModalBody();`) — ellers ble den
+stående med spinner-rader til brukeren lukket og åpnet den på nytt, selv
+lenge etter at objektene faktisk var committet.
+
+## Knappen svarer ikke på et lite bevegelig trykk mens noe er pending
+
+`openField()`s `api.pending()`-sperre (over) gjør at et sveipeforsøk kan
+avvises FØR `mode` rekker å bli `'swiping'`. Et ekte trykk har alltid litt
+bevegelse (fingerskjelving/mus-jitter) — og `onUp` krevde tidligere BÅDE
+`mode === 'pending'` OG at pekeren ikke hadde beveget seg (`!moved`) for å
+tolke slippet som et kort trykk (åpne modalen). Når `openField()` ble avvist
+midt i et forsøk med litt bevegelse, ble ingen av grenene i `onUp` truffet —
+knappen gjorde ingenting ved slipp, uten noen synlig feilmelding. Siden
+`mode` fortsatt er `'pending'` betyr nettopp at INGENTING visuelt åpnet seg
+(hverken sveipefeltet eller noe annet), er det alltid trygt å tolke et slipp
+i den tilstanden som et kort trykk — `moved`-sjekken er derfor fjernet fra
+denne grenen; `onUp` åpner modalen uansett når `mode === 'pending'` ved
+slipp.
