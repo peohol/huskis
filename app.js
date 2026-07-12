@@ -116,6 +116,13 @@
     return '#' + to(f(r)) + to(f(g)) + to(f(b));
   }
 
+  // Respekter operativsystemets «reduser bevegelse»-innstilling: fly-/FLIP-/
+  // sprett-animasjoner hoppes over når den er på (tilgjengelighet).
+  function prefersReducedMotion() {
+    try { return window.matchMedia('(prefers-reduced-motion: reduce)').matches; }
+    catch (e) { return false; }
+  }
+
   /* ---------------- Synk-metadata: enhet, klokke, stempling ----------------
      For å kunne flette endringer fra flere enheter (à la git) har hver
      entitet (kort/element) to «registre»:
@@ -156,11 +163,27 @@
   }
   function maxPos(arr) { return arr.reduce((m, e) => Math.max(m, e.pos || 0), 0); }
 
+  // Tastatur-reordering: ny pos-verdi når objektet på indeks i i den sorterte,
+  // synlige lista flyttes ett hakk (dir −1 opp / +1 ned) — mellom de nye naboene.
+  function neighborPos(sorted, i, dir) {
+    if (dir < 0) return between(i - 2 >= 0 ? sorted[i - 2].pos : null, sorted[i - 1].pos);
+    return between(sorted[i + 1].pos, i + 2 < sorted.length ? sorted[i + 2].pos : null);
+  }
+  // Piltast → retning. horizontal=true tar også med venstre/høyre (gruppe-rader
+  // kan ligge horisontalt på mobil).
+  function arrowDir(ev, horizontal) {
+    if (ev.key === 'ArrowUp') return -1;
+    if (ev.key === 'ArrowDown') return 1;
+    if (horizontal && ev.key === 'ArrowLeft') return -1;
+    if (horizontal && ev.key === 'ArrowRight') return 1;
+    return 0;
+  }
+
   /* ---------------- State ---------------- */
   function makeItem(text, homeId) {
     return {
-      id: uid(), text, home: homeId, trashed: false,
-      ts: 0, org: deviceId,           // innholdsregister (tekst/trashed)
+      id: uid(), text, home: homeId, trashed: false, done: false,
+      ts: 0, org: deviceId,           // innholdsregister (tekst/trashed/done)
       pos: 0, posTs: 0, posOrg: deviceId, // posisjonsregister (rekkefølge/forelder)
     };
   }
@@ -327,6 +350,7 @@
   function normalizeItem(it, homeId, j) {
     if (!it.home) it.home = homeId;
     if (typeof it.trashed !== 'boolean') it.trashed = false;
+    if (typeof it.done !== 'boolean') it.done = false;
     if (typeof it.ts !== 'number') it.ts = 0;
     if (!it.org) it.org = deviceId;
     if (typeof it.pos !== 'number') it.pos = j;
@@ -418,6 +442,8 @@
   const groupsPanelTitle = document.getElementById('groups-panel-title');
   const listerPanelTitle = document.getElementById('lister-panel-title');
   const addCardBtn = document.getElementById('add-card-btn');
+  const shareUniBtn = document.getElementById('share-uni-btn');
+  const shareGroupBtn = document.getElementById('share-group-btn');
   const toolbarEl = document.querySelector('.toolbar');
   const filterSwitchesEl = document.getElementById('filter-switches');
   const groupTpl = document.getElementById('group-template');
@@ -451,20 +477,25 @@
   // Univers-scope: «aktive» grupper gjelder alltid det aktive universet, og
   // «aktive» kort/elementer den aktive gruppen. Universer er helt uavhengige
   // områder — alt gruppe-UI (header, søppelkasse, DnD) er scopet hit.
-  const activeUniverseObj = () => state.universes.find((u) => u.id === state.activeUniverse && !u.trashed) || null;
-  const visibleUniverses = () => state.universes.filter((u) => !u.trashed).sort(posCmp); // i meny-modalen
-  const trashedUniverses = () => state.universes.filter((u) => u.trashed);               // i univers-søppelkassen
+  // `_pendingDelete` (buffret sletting, se DELETE-BUFFER lenger nede): objektet
+  // er skjult fra de synlige listene og vist i søppel-visningen (med spinner),
+  // men er ENNÅ ikke `trashed` i state og skrives ikke til databasen — det skjer
+  // først når toasten utløper (eller committes ved unload). Derfor teller det som
+  // «i søppel» for visning, men ikke som aktivt.
+  const activeUniverseObj = () => state.universes.find((u) => u.id === state.activeUniverse && !u.trashed && !u._pendingDelete) || null;
+  const visibleUniverses = () => state.universes.filter((u) => !u.trashed && !u._pendingDelete).sort(posCmp); // i meny-modalen
+  const trashedUniverses = () => state.universes.filter((u) => u.trashed || u._pendingDelete);               // i univers-søppelkassen
   const findUniverse = (id) => state.universes.find((u) => u.id === id) || null;
   const allGroups = () => { const u = activeUniverseObj(); return u ? u.groups : []; };
-  const activeGroupObj = () => allGroups().find((g) => g.id === state.activeGroup && !g.trashed) || null;
-  const visibleGroups = () => allGroups().filter((g) => !g.trashed).sort(posCmp); // vist i gruppemenyen
-  const trashedGroups = () => allGroups().filter((g) => g.trashed);               // i gruppe-søppelkassen
+  const activeGroupObj = () => allGroups().find((g) => g.id === state.activeGroup && !g.trashed && !g._pendingDelete) || null;
+  const visibleGroups = () => allGroups().filter((g) => !g.trashed && !g._pendingDelete).sort(posCmp); // vist i gruppemenyen
+  const trashedGroups = () => allGroups().filter((g) => g.trashed || g._pendingDelete);               // i gruppe-søppelkassen
   const findGroup = (id) => allGroups().find((g) => g.id === id) || null;
   const allCards = () => { const g = activeGroupObj(); return g ? g.cards : []; };
-  const activeCards = () => allCards().filter((c) => !c.trashed).sort(posCmp);
-  const trashedCards = () => allCards().filter((c) => c.trashed);
+  const activeCards = () => allCards().filter((c) => !c.trashed && !c._pendingDelete).sort(posCmp);
+  const trashedCards = () => allCards().filter((c) => c.trashed || c._pendingDelete);
   const findCard = (id) => allCards().find((c) => c.id === id);
-  const trashedItemsOf = (cardData) => (cardData.items || []).filter((it) => it.trashed);
+  const trashedItemsOf = (cardData) => (cardData.items || []).filter((it) => it.trashed || it._pendingDelete);
   function findItemById(id) {
     for (const c of allCards()) {
       const it = c.items.find((x) => x.id === id);
@@ -528,6 +559,7 @@
     updateTrashCount();
     renderFilterSwitches();
     updateToolbarState();
+    updateShareButtons();
 
     board.innerHTML = '';
     const group = activeGroupObj();
@@ -562,7 +594,7 @@
         const p2 = document.createElement('p'); p2.textContent = 'Trykk «＋ Liste» for å komme i gang.';
         es.append(big, p1, p2);
       } else {
-        es.innerHTML = '<div class="big">🫙</div><p>Ingen lister passer filteret.</p>' +
+        es.innerHTML = '<div class="big">' + ICONS.eye + '</div><p>Ingen lister passer filteret.</p>' +
           '<p>Skru på Mine eller Delte for å se flere.</p>';
       }
       board.appendChild(es);
@@ -582,6 +614,27 @@
   function updateToolbarState() {
     addCardBtn.disabled = !activeGroupObj();
   }
+
+  // Del-knappene i menyene (kontomodus): del-univers ved siden av «＋ Gruppe»
+  // (deler det AKTIVE universet), del-gruppe ved siden av «＋ Liste» (deler den
+  // AKTIVE gruppen). Vises kun når objektet er ens eget eller montert — samme
+  // vilkår som de gamle per-kort-del-knappene. Klikk-handlere er koblet én gang
+  // (leser aktivt objekt ved klikk); her toggles bare synligheten.
+  function updateShareButtons() {
+    const acc = accountsMode();
+    const uni = activeUniverseObj();
+    const grp = activeGroupObj();
+    shareUniBtn.hidden = !(acc && uni && (uni._mine || uni._mount));
+    shareGroupBtn.hidden = !(acc && grp && (grp._mine || grp._mount));
+  }
+  shareUniBtn.addEventListener('click', () => {
+    const u = activeUniverseObj();
+    if (u) openShare('universe', u.id, u);
+  });
+  shareGroupBtn.addEventListener('click', () => {
+    const g = activeGroupObj();
+    if (g) openShare('group', g.id, g);
+  });
 
   // Panel-overskriftene viser navnet på gjeldende univers/gruppe, ikke bare
   // nivånavnet — så man alltid ser hvor i hierarkiet man er.
@@ -633,18 +686,14 @@
       gBadge.innerHTML = !gCanEdit ? ICONS.lock : ICONS.people;
       gBadge.title = groupData._mount ? 'Delt med deg' : 'Delt med andre';
     }
-    const gShareBtn = el.querySelector('.chip-share');
-    if (accountsMode() && (groupData._mine || groupData._mount)) {
-      gShareBtn.hidden = false;
-      gShareBtn.addEventListener('click', (ev) => { ev.stopPropagation(); openShare('group', groupData.id, groupData); });
-    }
-
     const nameEl = el.querySelector('.group-name');
     nameEl.textContent = groupData.name;
 
-    // Antall lister i gruppen (ikke papirkurv), dempet tall etter navnet.
+    // Antall lister i gruppen (ikke papirkurv): liten pill med liste-ikon + tall.
     const countEl = el.querySelector('.group-count');
-    countEl.textContent = groupData.cards.filter((c) => !c.trashed).length;
+    const gListN = groupData.cards.filter((c) => !c.trashed).length;
+    countEl.innerHTML = ICONS.list + '<span>' + gListN + '</span>';
+    countEl.title = listWord(gListN);
 
     // Bytt til gruppen; er den allerede aktiv → rediger navnet.
     const activate = () => {
@@ -658,8 +707,7 @@
     };
 
     el.addEventListener('click', (ev) => {
-      if (ev.target.closest('.group-handle') || ev.target.closest('.group-delete') ||
-          ev.target.closest('.chip-share')) return;
+      if (ev.target.closest('.group-handle') || ev.target.closest('.group-delete')) return;
       activate();
     });
     // Tastatur: kortet er role="tab" (tabindex=0). Enter/Mellomrom aktiverer det
@@ -685,8 +733,26 @@
     }
 
     const gHandle = el.querySelector('.group-handle');
-    if (accountsMode() && !gCanEdit && !groupData._mount) gHandle.style.visibility = 'hidden';
-    else gHandle.addEventListener('pointerdown', (ev) => startGroupDrag(ev, el));
+    if (accountsMode() && !gCanEdit && !groupData._mount) {
+      gHandle.style.visibility = 'hidden';
+    } else {
+      gHandle.addEventListener('pointerdown', (ev) => startGroupDrag(ev, el));
+      // Tastatur-reordering: piltaster (opp/ned + venstre/høyre for mobil-rad).
+      gHandle.addEventListener('keydown', (ev) => {
+        const dir = arrowDir(ev, true);
+        if (!dir) return;
+        ev.preventDefault();
+        const sorted = visibleGroups();
+        const i = sorted.indexOf(groupData);
+        if (i < 0 || i + dir < 0 || i + dir >= sorted.length) return;
+        const np = neighborPos(sorted, i, dir);
+        if (groupData._mount) { groupData.pos = np; groupData._mount.pos = np; cloudMountUpdate('group', groupData.id, { pos: np }); }
+        else { groupData.pos = np; stampPos(groupData); }
+        render(); save();
+        const h = groupsBar.querySelector('.group-card[data-id="' + groupData.id + '"] .group-handle');
+        if (h) h.focus();
+      });
+    }
     return el;
   }
 
@@ -736,26 +802,26 @@
   // Slett en gruppe → legg i gruppe-søppelkassen (trashed-flagg; gjenopprettbar).
   // Permanent sletting (med gravsteiner) skjer først når søppelkassen tømmes.
   function deleteGroup(groupData) {
-    if (groupData._mount) {
-      groupData.trashed = true; groupData._mount.trashed = true;
-      cloudMountUpdate('group', groupData.id, { trashed: true });
-    } else {
-      groupData.trashed = true;
-      stampContent(groupData);
-    }
+    const ghost = ghostFrom(
+      groupsBar.querySelector('.group-card[data-id="' + groupData.id + '"]'));
+    bufferDelete(groupData, 'group', (g) => {
+      if (g._mount) { g.trashed = true; g._mount.trashed = true; cloudMountUpdate('group', g.id, { trashed: true }); }
+      else { g.trashed = true; stampContent(g); }
+    });
     if (state.activeGroup === groupData.id) {
-      const first = visibleGroups()[0];
+      const first = visibleGroups()[0]; // ekskluderer nå den buffer-slettede
       setActiveGroup(first ? first.id : null);
     }
-    render();
-    save();
+    render(); // gruppe-søppelkassen blir synlig FØR animasjonen starter
+    flyGhost(ghost, groupsTrashBtn);
+    showToast('Slettet «' + groupData.name + '»', { label: 'Angre', fn: () => undoDelete(groupData.id) });
   }
 
   // Tøm gruppe-søppelkassen (aktivt univers) permanent: gravsteiner for hver
   // slettet gruppe + alle dens lister + elementer (hindrer gjenoppstandelse).
   function emptyGroupsTrash() {
     const u = activeUniverseObj();
-    const trash = trashedGroups();
+    const trash = trashedGroups().filter((g) => !g._pendingDelete);
     if (!u || !trash.length) return;
     let left = false;
     trash.forEach((g) => {
@@ -826,28 +892,51 @@
       cardDelBtn.hidden = true;
     } else {
       cardDelBtn.addEventListener('click', () => {
-        if (cardData._mount) {
-          cardData.trashed = true; cardData._mount.trashed = true;
-          cloudMountUpdate('card', cardData.id, { trashed: true });
-        } else {
-          cardData.trashed = true;
-          stampContent(cardData);
-        }
-        render();
-        save();
+        const ghost = ghostFrom(el); // klone FØR render (render fjerner kortet)
+        bufferDelete(cardData, 'card', (c) => {
+          if (c._mount) { c.trashed = true; c._mount.trashed = true; cloudMountUpdate('card', c.id, { trashed: true }); }
+          else { c.trashed = true; stampContent(c); }
+        });
+        render(); // søppelkasse-knappen blir synlig FØR animasjonen starter
+        flyGhost(ghost, trashBtn);
+        showToast('Slettet «' + cardData.title + '»', { label: 'Angre', fn: () => undoDelete(cardData.id) });
       });
     }
 
     // Håndtak for kort-draging. Frosset (låst av andre) og ikke egen mount → skjul.
     const cardHandle = el.querySelector('.card-handle');
-    if (accountsMode() && !canEdit && !cardData._mount) cardHandle.style.visibility = 'hidden';
-    else cardHandle.addEventListener('pointerdown', (ev) => startCardDrag(ev, el));
+    if (accountsMode() && !canEdit && !cardData._mount) {
+      cardHandle.style.visibility = 'hidden';
+    } else {
+      cardHandle.addEventListener('pointerdown', (ev) => startCardDrag(ev, el));
+      // Tastatur-reordering: piltaster opp/ned flytter kortet blant de synlige.
+      cardHandle.addEventListener('keydown', (ev) => {
+        const dir = arrowDir(ev, false);
+        if (!dir) return;
+        ev.preventDefault();
+        const sorted = activeCards().filter(cardMatchesFilter);
+        const i = sorted.indexOf(cardData);
+        if (i < 0 || i + dir < 0 || i + dir >= sorted.length) return;
+        const np = neighborPos(sorted, i, dir);
+        if (cardData._mount) { cardData.pos = np; cardData._mount.pos = np; cloudMountUpdate('card', cardData.id, { pos: np }); }
+        else { cardData.pos = np; stampPos(cardData); }
+        render(); save();
+        const h = board.querySelector('.card[data-id="' + cardData.id + '"] .card-handle');
+        if (h) h.focus();
+      });
+    }
 
     // Elementer (kun ikke-slettede; sortert på posisjon). Slettede ligger i
-    // element-søppelkassen nederst i kortet.
+    // element-søppelkassen nederst i kortet. Aktive (ikke avkrysset) øverst;
+    // avkryssede («Utført») i egen seksjon under, skilt med en linje.
     const list = el.querySelector('.items-container');
-    cardData.items.filter((it) => !it.trashed).sort(posCmp)
-      .forEach((it) => list.appendChild(buildItem(it, cardData)));
+    const doneWrap = el.querySelector('.items-done-wrap');
+    const doneList = el.querySelector('.items-done');
+    const visibleItems = cardData.items.filter((it) => !it.trashed && !it._pendingDelete).sort(posCmp);
+    visibleItems.filter((it) => !it.done).forEach((it) => list.appendChild(buildItem(it, cardData)));
+    const doneItems = visibleItems.filter((it) => it.done);
+    doneItems.forEach((it) => doneList.appendChild(buildItem(it, cardData)));
+    doneWrap.hidden = doneItems.length === 0;
 
     // Legg til element
     const form = el.querySelector('.add-item-form');
@@ -883,7 +972,7 @@
       const icon = document.createElement('span');
       icon.className = 'trashcan-icon';
       icon.setAttribute('aria-hidden', 'true');
-      icon.textContent = '🗑️';
+      icon.innerHTML = ICONS.trash;
       const count = document.createElement('span');
       count.className = 'trashcan-count';
       count.textContent = trashed.length;
@@ -909,7 +998,7 @@
 
   // Tøm kortets element-søppelkasse permanent: gravstein per slettet element.
   function emptyItemsTrash(cardData) {
-    const trash = trashedItemsOf(cardData);
+    const trash = trashedItemsOf(cardData).filter((it) => !it._pendingDelete);
     if (!trash.length) return;
     trash.forEach((it) => {
       state._tomb.items[it.id] = tick(); // gravstein hindrer gjenoppstandelse
@@ -938,6 +1027,18 @@
       });
     });
 
+    // Avkryssing (gjort/ikke gjort): rir på innholds-registeret (som tekst/
+    // trashed) — LWW ved samtidig endring, som resten. Kun visuell markering
+    // (gjennomstreking); elementet beholder plassen sin.
+    const checkBtn = el.querySelector('.item-check');
+    el.classList.toggle('done', !!itemData.done);
+    checkBtn.setAttribute('aria-pressed', itemData.done ? 'true' : 'false');
+    if (!canEdit) {
+      checkBtn.disabled = true;
+    } else {
+      checkBtn.addEventListener('click', () => toggleItemDone(el, itemData, cardData));
+    }
+
     // Slett element → legg i kortets element-søppelkasse (trashed-flagg;
     // gjenopprettbar). Permanent sletting (gravstein) skjer først ved tømming.
     const itemDel = el.querySelector('.item-delete');
@@ -949,11 +1050,35 @@
       itemDel.addEventListener('click', () => {
         const owner = ownerCardOf(el) || cardData;
         const it = owner.items.find((i) => i.id === itemData.id);
-        if (it) { it.trashed = true; stampContent(it); }
+        if (!it) return;
+        const ghost = ghostFrom(el); // klone FØR refreshCard fjerner raden
+        bufferDelete(it, 'item', (x) => { x.trashed = true; stampContent(x); });
+        refreshCard(owner); // element-søppelkassen dukker opp FØR animasjonen
+        flyGhost(ghost, board.querySelector(
+          '.card[data-id="' + owner.id + '"] .item-trash-btn'));
+        showToast('Slettet «' + it.text + '»', { label: 'Angre', fn: () => undoDelete(it.id) });
+      });
+      // Avkryssede elementer dras/reorderes ikke (de ligger i «Utført»).
+      itemHandle.addEventListener('pointerdown', (ev) => { if (itemData.done) return; startItemDrag(ev, el); });
+      // Tastatur-reordering: piltaster opp/ned flytter det fokuserte elementet.
+      itemHandle.addEventListener('keydown', (ev) => {
+        if (itemData.done) return;
+        const dir = arrowDir(ev, false);
+        if (!dir) return;
+        ev.preventDefault();
+        const owner = ownerCardOf(el) || cardData;
+        const sorted = owner.items.filter((it) => !it.trashed && !it.done && !it._pendingDelete).sort(posCmp);
+        const i = sorted.indexOf(itemData);
+        if (i < 0 || i + dir < 0 || i + dir >= sorted.length) return;
+        itemData.home = owner.id;
+        itemData.pos = neighborPos(sorted, i, dir);
+        stampPos(itemData);
         refreshCard(owner);
         save();
+        const h = board.querySelector('.card[data-id="' + owner.id +
+          '"] .item[data-id="' + itemData.id + '"] .item-handle');
+        if (h) h.focus();
       });
-      itemHandle.addEventListener('pointerdown', (ev) => startItemDrag(ev, el));
     }
     return el;
   }
@@ -964,6 +1089,206 @@
     if (!cardEl) return null;
     return findCard(cardEl.dataset.id);
   }
+
+  /* ---------------- Avkryssing: flytt til/fra «Utført»-seksjonen ----------------
+     Når et element krysses av (eller reaktiveres) flyttes det mellom aktiv-lista
+     og «Utført»-seksjonen med en FLIP-animasjon: alle berørte rader måles før
+     flyttingen og glir smidig på plass, slik at destinasjonen «vokser» for å ta
+     imot raden (de under glir ned) mens raden lander. pos endres IKKE (kun
+     innholds-registeret stemples via stampContent), så et reaktivert element
+     sorterer tilbake til nøyaktig sin gamle plass blant de aktive — og skyver
+     den som nå står der, ett hakk ned. */
+  const DONE_FLIP_MS = 300;
+  function toggleItemDone(itemEl, itemData, cardData) {
+    const cardEl = itemEl.closest('.card');
+    if (!cardEl) return;
+    const activeUl = cardEl.querySelector('.items-container');
+    const doneWrap = cardEl.querySelector('.items-done-wrap');
+    const doneUl = cardEl.querySelector('.items-done');
+    const toDone = !itemData.done;
+    const reduce = prefersReducedMotion();
+
+    // FLIP: mål alle elementers posisjon FØR flyttingen.
+    const snap = reduce ? null : snapshotRects([...cardEl.querySelectorAll('.item')]);
+
+    itemData.done = toDone;
+    stampContent(itemData);
+    itemEl.classList.toggle('done', toDone);
+    const chk = itemEl.querySelector('.item-check');
+    if (chk) chk.setAttribute('aria-pressed', toDone ? 'true' : 'false');
+
+    // Vis «Utført»-seksjonen så den kan ta imot elementet (og måles i FLIP-en).
+    if (toDone) doneWrap.hidden = false;
+
+    // Flytt elementet til riktig seksjon, innsatt på pos-sortert plass.
+    const destUl = toDone ? doneUl : activeUl;
+    let ref = null;
+    for (const s of destUl.querySelectorAll('.item')) {
+      if (s === itemEl) continue;
+      const sd = cardData.items.find((it) => it.id === s.dataset.id);
+      if (sd && sd.pos > itemData.pos) { ref = s; break; }
+    }
+    if (ref) destUl.insertBefore(itemEl, ref); else destUl.appendChild(itemEl);
+
+    // Skjul seksjonen igjen hvis den ble tom (siste element reaktivert).
+    if (!doneUl.querySelector('.item')) doneWrap.hidden = true;
+
+    if (!reduce) flipFrom(snap, DONE_FLIP_MS);
+    save();
+  }
+
+  /* ---------------- Slette-animasjon («pakk sammen og fly i søpla») ----------------
+     Når et objekt slettes: 1) ta en klone av DOM-elementet FØR re-render
+     (ghostFrom), 2) oppdater state + render — slik at søppelkasse-knappen
+     finnes/er synlig FØR animasjonen starter, 3) flyGhost: innholdet fader ut,
+     boksen krymper til en sirkel (kun de avrundede hjørnene igjen), og
+     sirkelen svever inn i søppelkasse-knappen og fader rett før den er fremme.
+     ~200 ms totalt — signaliserer HVOR det slettede havnet (og at det kan
+     gjenopprettes derfra). */
+  function ghostFrom(el) {
+    if (!el) return null;
+    const r = el.getBoundingClientRect();
+    const ghost = el.cloneNode(true);
+    const cs = getComputedStyle(el);
+    ghost.classList.add('fly-ghost');
+    ghost.style.left = r.left + 'px';
+    ghost.style.top = r.top + 'px';
+    ghost.style.width = r.width + 'px';
+    ghost.style.height = r.height + 'px';
+    ghost.style.background = cs.backgroundColor;
+    ghost.style.borderRadius = cs.borderRadius;
+    ghost.style.boxShadow = 'none';
+    return { ghost, rect: r, radius: cs.borderRadius };
+  }
+  const FLY_MS = 600;                               // total varighet på fly-i-søpla
+  function flyGhost(g, targetBtn) {
+    if (!g) return;
+    if (!targetBtn || targetBtn.hidden || !targetBtn.isConnected) return;
+    if (prefersReducedMotion()) return;             // ingen bevegelse → ingen ghost
+    const { ghost, rect, radius } = g;
+    document.body.appendChild(ghost);
+    const t = targetBtn.getBoundingClientRect();
+    const D = 30;                                   // «bare hjørnene igjen»-sirkelen
+    const cx = rect.left + rect.width / 2, cy = rect.top + rect.height / 2;
+    const tx = t.left + t.width / 2, ty = t.top + t.height / 2;
+    if (typeof ghost.animate !== 'function') { ghost.remove(); return; }
+    // Innholdet forsvinner først (raskt, men synlig — ~30 % av forløpet) …
+    [...ghost.children].forEach((ch) => {
+      if (typeof ch.animate === 'function') {
+        ch.animate([{ opacity: 1 }, { opacity: 0 }],
+          { duration: FLY_MS * 0.3, easing: 'ease-out', fill: 'forwards' });
+      }
+    });
+    // … så pakkes boksen sammen til en sirkel (halvveis) som svever inn i knappen
+    // og fader like før den er fremme. Selve boksen holder full opacity lenge, så
+    // sammenpakkingen er godt synlig også for store listekort.
+    const anim = ghost.animate([
+      { left: rect.left + 'px', top: rect.top + 'px', width: rect.width + 'px',
+        height: rect.height + 'px', borderRadius: radius, opacity: 1 },
+      { left: (cx - D / 2) + 'px', top: (cy - D / 2) + 'px', width: D + 'px',
+        height: D + 'px', borderRadius: '50%', opacity: 1, offset: 0.5 },
+      { left: (tx - 4) + 'px', top: (ty - 4) + 'px', width: '8px', height: '8px',
+        borderRadius: '50%', opacity: 0 },
+    ], { duration: FLY_MS, easing: 'cubic-bezier(.35,.5,.35,1)' });
+    const cleanup = () => ghost.remove();
+    anim.onfinish = cleanup;
+    anim.oncancel = cleanup;
+  }
+
+  /* ---------------- Gjenopprett-hjelpere (delt av søppel-modal + angre-toast) ----------------
+     Ett sted for «trashed = false»-logikken per nivå (håndterer også monterte
+     delinger via mount-oppdatering), så både «Gjenopprett» i søppel-modalen og
+     «Angre» i slette-toasten bruker nøyaktig samme kode. */
+  function restoreUniverse(u) {
+    if (u._mount) { u.trashed = false; u._mount.trashed = false; cloudMountUpdate('universe', u.id, { trashed: false }); }
+    else { u.trashed = false; stampContent(u); }
+    if (!activeUniverseObj()) setActiveUniverse(u.id); // ingen aktiv? aktivér den gjenopprettede
+    render(); save();
+  }
+  function restoreGroup(g) {
+    if (g._mount) { g.trashed = false; g._mount.trashed = false; cloudMountUpdate('group', g.id, { trashed: false }); }
+    else { g.trashed = false; stampContent(g); }
+    if (!activeGroupObj()) setActiveGroup(g.id);
+    render(); save();
+  }
+  function restoreCard(c) {
+    if (c._mount) { c.trashed = false; c._mount.trashed = false; cloudMountUpdate('card', c.id, { trashed: false }); }
+    else { c.trashed = false; stampContent(c); }
+    render(); save();
+  }
+  function restoreItem(it, cardData) {
+    it.trashed = false; stampContent(it); refreshCard(cardData); save();
+  }
+
+  /* ---------------- DELETE-BUFFER (optimistisk sletting med angre) ----------------
+     Sletting skriver IKKE til databasen med en gang. Objektet får et lokalt
+     `_pendingDelete`-flagg (skjules fra visning, vises i søppel med en spinner)
+     + en «Angre»-toast. Angrer man innen vinduet, fjernes flagget lokalt — ingen
+     databasetrafikk, umiddelbart. Ellers committes slettingen når timeren
+     utløper (eller når fanen skjules): `trashed = true` + stempling/mount-push.
+     ALT gjøres via id-oppslag (ikke fangede objekt-referanser), så det tåler at
+     synken bygger state-treet på nytt underveis; `reapplyPendingDeletes()`
+     gjenpåfører flagget etter hver applyDoc/applyMyDoc. */
+  const DELETE_BUFFER_MS = 5000;
+  const pendingDeletes = new Map(); // id → { kind, commit, timer }
+
+  function findAnyById(id) {
+    for (const u of state.universes) {
+      if (u.id === id) return { kind: 'universe', obj: u };
+      for (const g of (u.groups || [])) {
+        if (g.id === id) return { kind: 'group', obj: g };
+        for (const c of (g.cards || [])) {
+          if (c.id === id) return { kind: 'card', obj: c };
+          for (const it of (c.items || [])) if (it.id === id) return { kind: 'item', obj: it, card: c };
+        }
+      }
+    }
+    return null;
+  }
+  function bufferDelete(obj, kind, commit) {
+    obj._pendingDelete = true;
+    const timer = setTimeout(() => commitDelete(obj.id), DELETE_BUFFER_MS);
+    pendingDeletes.set(obj.id, { kind, commit, timer });
+  }
+  function undoDelete(id) {
+    const entry = pendingDeletes.get(id);
+    if (!entry) return;
+    clearTimeout(entry.timer);
+    pendingDeletes.delete(id);
+    const found = findAnyById(id);
+    if (found) delete found.obj._pendingDelete;
+    render();
+    if (!trashModal.hidden) renderTrashModalBody();
+  }
+  function commitDelete(id) {
+    const entry = pendingDeletes.get(id);
+    if (!entry) return;
+    clearTimeout(entry.timer);
+    pendingDeletes.delete(id);
+    const found = findAnyById(id);
+    if (!found) return;
+    delete found.obj._pendingDelete;
+    entry.commit(found.obj);              // trashed = true + stempling/mount
+    // Objektet var allerede skjult (buffret), så board-et endres ikke visuelt —
+    // ikke avbryt en pågående inline-redigering med en full render.
+    if (isBusyEditing()) save(); else render();
+    if (!trashModal.hidden) renderTrashModalBody();
+  }
+  function commitAllPending() { [...pendingDeletes.keys()].forEach(commitDelete); }
+  // Etter at synken har bygget state-treet på nytt: gjenpåfør buffer-flagget på
+  // de friske objektene (ellers ville et buffret objekt dukket opp igjen).
+  function reapplyPendingDeletes() {
+    if (!pendingDeletes.size) return;
+    for (const [id, entry] of pendingDeletes) {
+      const found = findAnyById(id);
+      if (found) found.obj._pendingDelete = true;
+      else { clearTimeout(entry.timer); pendingDeletes.delete(id); }
+    }
+  }
+  // Ikke la en buffret sletting «henge» hvis fanen lukkes/skjules før timeren —
+  // commit den da (så den faktisk havner i søppel og synkes).
+  document.addEventListener('visibilitychange', () => { if (document.hidden) commitAllPending(); });
+  window.addEventListener('pagehide', commitAllPending);
 
   /* ---------------- Inline-redigering ---------------- */
   // opts.cls: ekstra klasse på input. opts.autosize: la input vokse med innholdet
@@ -1090,6 +1415,7 @@
     return m;
   }
   function flipFrom(prev, dur) {
+    if (prefersReducedMotion()) return;   // hopp over FLIP-tween (snap på plass)
     prev.forEach((old, el) => {
       if (!el.isConnected) return;
       const now = el.getBoundingClientRect();
@@ -1162,6 +1488,7 @@
     el.classList.remove('dragging');
     el.style.left = el.style.top = el.style.width = el.style.height = '';
     el.style.transform = ''; // fjern evt. dynamisk drag-rotasjon før vi måler hvileposisjonen
+    if (prefersReducedMotion()) return;   // ingen drop-tween ved redusert bevegelse
     const now = el.getBoundingClientRect();
     const dx = floatLeft - now.left;
     const dy = floatTop - now.top;
@@ -1648,11 +1975,13 @@
     pool = pool || itemPool();
     const domIds = [...cardEl.querySelectorAll('.items-container > .item')].map((i) => i.dataset.id);
     const visible = domIds.map((id) => pool[id]).filter(Boolean);
-    // Bevar slettede elementer: de er skjult fra `.items-container`, så de ligger
-    // ikke i DOM-rekkefølgen — men de skal ikke falle ut av state (uten gravstein)
-    // når man drar/omorganiserer et synlig element i samme kort.
-    const trashedHere = cardData.items.filter((it) => it.trashed);
-    cardData.items = visible.concat(trashedHere);
+    // Bevar elementer som IKKE ligger i `.items-container`: slettede (søppel),
+    // avkryssede («Utført»-seksjonen) og buffer-slettede. De er ikke i DOM-
+    // rekkefølgen her, men skal ikke falle ut av state når man drar/omorganiserer
+    // et aktivt element i samme kort. (Rekkefølgen deres bevares av pos ved neste
+    // render.)
+    const preserved = cardData.items.filter((it) => it.trashed || it.done || it._pendingDelete);
+    cardData.items = visible.concat(preserved);
   }
 
   /* ---------------- GRUPPE-DRAGING (header-rad) ----------------
@@ -2106,7 +2435,7 @@
       sw.setAttribute('aria-pressed', on ? 'true' : 'false');
     });
   }
-  const FILTER_HOLD_MS = 500;
+  const FILTER_HOLD_MS = 250;
   filterSwitchesEl.querySelectorAll('.switch').forEach((sw) => {
     const flag = sw.dataset.flag;
     const other = FILTERS.find((f) => f !== flag);
@@ -2157,10 +2486,48 @@
   function updateModalOpenClass() {
     const share = document.getElementById('share-modal');
     const place = document.getElementById('place-modal');
+    const confirmEl = document.getElementById('confirm-modal');
     document.body.classList.toggle('modal-open',
       !trashModal.hidden || !menuModal.hidden ||
-      (share && !share.hidden) || (place && !place.hidden));
+      (share && !share.hidden) || (place && !place.hidden) ||
+      (confirmEl && !confirmEl.hidden));
   }
+
+  /* ---------- Felles bekreftelses-modal (erstatter native confirm()) ----------
+     askConfirm(opts) → Promise<boolean>. Stables øverst (DOM sist blant modalene
+     → over dem ved lik z-index), så den kan brukes fra del-modalen. */
+  const confirmModalEl = document.getElementById('confirm-modal');
+  const confirmTitleEl = document.getElementById('confirm-title');
+  const confirmMsgEl = document.getElementById('confirm-msg');
+  const confirmOkBtn = document.getElementById('confirm-ok');
+  const confirmCancelBtn = document.getElementById('confirm-cancel');
+  let confirmResolve = null;
+  function askConfirm(opts) {
+    opts = opts || {};
+    confirmTitleEl.textContent = opts.title || 'Bekreft';
+    confirmMsgEl.textContent = opts.message || '';
+    confirmOkBtn.textContent = opts.okLabel || 'OK';
+    confirmCancelBtn.textContent = opts.cancelLabel || 'Avbryt';
+    // Grønn OK når handlingen ikke er destruktiv (danger: false), ellers rød.
+    confirmOkBtn.className = 'btn btn-solid ' + (opts.danger === false ? 'btn-green' : 'btn-red');
+    confirmModalEl.hidden = false;
+    updateModalOpenClass();
+    return new Promise((resolve) => {
+      confirmResolve = resolve;
+      confirmOkBtn.focus();
+    });
+  }
+  function closeConfirm(result) {
+    if (!confirmResolve) return;
+    const done = confirmResolve;
+    confirmResolve = null;
+    confirmModalEl.hidden = true;
+    updateModalOpenClass();
+    done(result);
+  }
+  confirmOkBtn.addEventListener('click', () => closeConfirm(true));
+  confirmCancelBtn.addEventListener('click', () => closeConfirm(false));
+  confirmModalEl.addEventListener('click', (ev) => { if (ev.target === confirmModalEl) closeConfirm(false); });
 
   function showTrashModal(cfg) {
     modalCfg = cfg;
@@ -2183,7 +2550,9 @@
       trashEmptyBtn.disabled = true;
       return;
     }
-    trashEmptyBtn.disabled = false;
+    // «Tøm permanent» gjelder kun ferdig-committede objekter; buffer-slettede
+    // (som ennå kan angres via toasten) hoppes over.
+    trashEmptyBtn.disabled = !rows.some((r) => !r.pending);
     rows.forEach((r) => {
       const row = document.createElement('div');
       row.className = 'trash-row';
@@ -2203,12 +2572,22 @@
         meta.textContent = r.meta;
         row.appendChild(meta);
       }
-      const restore = document.createElement('button');
-      restore.className = 'btn btn-small';
-      restore.type = 'button';
-      restore.textContent = 'Gjenopprett';
-      restore.addEventListener('click', () => { r.restore(); renderTrashModalBody(); });
-      row.appendChild(restore);
+      if (r.pending) {
+        // Ennå ikke skrevet til databasen (buffret) → ikke gjenopprettbar ennå;
+        // vis en spinner til slettingen committes (da byttes den til knappen).
+        const spin = document.createElement('span');
+        spin.className = 'spinner';
+        spin.setAttribute('aria-label', 'Slettes …');
+        spin.title = 'Slettes … kan gjenopprettes om et øyeblikk';
+        row.appendChild(spin);
+      } else {
+        const restore = document.createElement('button');
+        restore.className = 'btn btn-solid btn-green btn-small';
+        restore.type = 'button';
+        restore.textContent = 'Gjenopprett';
+        restore.addEventListener('click', () => { r.restore(); renderTrashModalBody(); });
+        row.appendChild(restore);
+      }
       trashList.appendChild(row);
     });
   }
@@ -2234,13 +2613,8 @@
         color: u.color || colorForId(u.id),
         name: u.name,
         meta: groupWord(u.groups.filter((g) => !g.trashed).length),
-        restore: () => {
-          if (u._mount) { u.trashed = false; u._mount.trashed = false; cloudMountUpdate('universe', u.id, { trashed: false }); }
-          else { u.trashed = false; stampContent(u); }
-          if (!activeUniverseObj()) setActiveUniverse(u.id); // ingen aktiv? aktivér den gjenopprettede
-          render();
-          save();
-        },
+        pending: !!u._pendingDelete,
+        restore: () => restoreUniverse(u),
       })),
       empty: emptyUniversesTrash,
     });
@@ -2255,13 +2629,8 @@
         color: g.color || colorForId(g.id),
         name: g.name,
         meta: listWord(g.cards.filter((c) => !c.trashed).length),
-        restore: () => {
-          if (g._mount) { g.trashed = false; g._mount.trashed = false; cloudMountUpdate('group', g.id, { trashed: false }); }
-          else { g.trashed = false; stampContent(g); }
-          if (!activeGroupObj()) setActiveGroup(g.id); // ingen aktiv? aktivér den gjenopprettede
-          render();
-          save();
-        },
+        pending: !!g._pendingDelete,
+        restore: () => restoreGroup(g),
       })),
       empty: emptyGroupsTrash,
     });
@@ -2278,11 +2647,8 @@
         color: c.color || colorForId(c.id),
         name: c.title,
         meta: itemWord(c.items.filter((it) => !it.trashed).length),
-        restore: () => {
-          if (c._mount) { c.trashed = false; c._mount.trashed = false; cloudMountUpdate('card', c.id, { trashed: false }); }
-          else { c.trashed = false; stampContent(c); }
-          render(); save();
-        },
+        pending: !!c._pendingDelete,
+        restore: () => restoreCard(c),
       })),
       empty: emptyCardsTrash,
     });
@@ -2295,7 +2661,8 @@
       emptyMsg: 'Ingen slettede elementer.',
       rows: () => trashedItemsOf(cardData).sort(posCmp).map((it) => ({
         name: it.text,
-        restore: () => { it.trashed = false; stampContent(it); refreshCard(cardData); save(); },
+        pending: !!it._pendingDelete,
+        restore: () => restoreItem(it, cardData),
       })),
       empty: () => emptyItemsTrash(cardData),
     });
@@ -2303,7 +2670,7 @@
 
   // Tøm lister-søppelkassen (aktiv gruppe) permanent: gravstein per liste + element.
   function emptyCardsTrash() {
-    const trash = trashedCards();
+    const trash = trashedCards().filter((c) => !c._pendingDelete);
     if (!trash.length) return;
     const arr = allCards();
     let left = false;
@@ -2326,7 +2693,7 @@
   // Tøm univers-søppelkassen permanent: gravsteiner for hvert slettet univers +
   // alle dets grupper, lister og elementer (hindrer gjenoppstandelse).
   function emptyUniversesTrash() {
-    const trash = trashedUniverses();
+    const trash = trashedUniverses().filter((u) => !u._pendingDelete);
     if (!trash.length) return;
     let left = false;
     trash.forEach((u) => {
@@ -2362,7 +2729,11 @@
   const SWIPE_MOVE = 8;       // px bevegelse som også starter sveipet
   const SHAKE_MS = 500;       // rist-varighet etter tømming
 
-  // Ett gjenbrukt, fixed sveipefelt-overlay (deles av alle tre knappene).
+  // Ett gjenbrukt, fixed sveipefelt (deles av alle knappene). Feltet starter
+  // med KNAPPENS eksakte geometri (posisjon/størrelse/radius) og vokser ut av
+  // den mens selve knappen skjules — det ser ut som knappen selv utvider seg
+  // til sveipefeltet, ikke som en popover. Ved kollaps krymper det tilbake til
+  // knappens bredde før knappen tar over igjen.
   let swipeEl = null, swipeIconEl = null, swipeLidEl = null;
   function ensureSwipeField() {
     if (swipeEl) return swipeEl;
@@ -2370,20 +2741,28 @@
     swipeEl.className = 'swipe-field';
     swipeEl.innerHTML =
       ICONS.trashSwipe +
-      '<span class="swipe-label">Sveip for å tømme</span>' +
-      '<span class="swipe-arrow" aria-hidden="true">→</span>';
+      '<span class="swipe-label">Tøm</span>' +
+      '<span class="swipe-arrow" aria-hidden="true"></span>';
     document.body.appendChild(swipeEl);
     swipeIconEl = swipeEl.querySelector('.swipe-icon');
     swipeLidEl = swipeEl.querySelector('.swipe-icon-lid');
     return swipeEl;
   }
-  const COLLAPSE_W = 40;
+  // Holdes i takt med .swipe-icon sin font-size i styles.css (ikon-boksens
+  // bredde brukes til å plassere ikonet nøyaktig over knappens eget ikon).
+  const SWIPE_ICON_BOX = 34;
+  const COLLAPSE_MS = 200; // litt over CSS-bredde-transisjonen (0.18s)
+  // Feltet er delt mellom alle søppelkasse-knappene → eierskap/kollaps-timer
+  // må også være delt, ellers kan knapp A sin ventende kollaps skjule feltet
+  // mens knapp B nettopp har åpnet det.
+  let swipeOwnerBtn = null, swipeCollapseTimer = null;
 
   function attachTrashHold(btn, api) {
     let pid = null, startX = 0, startY = 0;
     let mode = null;           // null | 'pending' | 'swiping' | 'done'
     let holdTimer = null, ignoreClick = false;
     let swStart = 0, swEnd = 0; // sveip-strekk i klient-koordinater
+    let btnRect = null;         // knappens geometri ved åpning (for kollaps tilbake)
 
     function setProgress(p) {
       if (!swipeEl) return;
@@ -2399,42 +2778,65 @@
     function openField() {
       if (api.count() <= 0) return;    // ingenting å tømme
       mode = 'swiping';
+      clearTimeout(swipeCollapseTimer);
+      swipeOwnerBtn = btn;
       const r = btn.getBoundingClientRect();
+      const iconEl = btn.querySelector('.trashcan-icon') || btn;
+      const iconR = iconEl.getBoundingClientRect();
       const vw = window.innerWidth || document.documentElement.clientWidth || 360;
-      const vh = window.innerHeight || 800;
-      const EDGE = 8, PAST = 44;        // PAST = plass til å sveipe litt forbi høyre ende
-      const H = Math.max(38, Math.round(r.height) + 8);
-      let width = Math.min(236, vw - 2 * EDGE - PAST);
-      let left = r.left + r.width / 2 - COLLAPSE_W / 2; // start rundt ikonet
-      if (left + width > vw - EDGE - PAST) left = vw - EDGE - PAST - width;
-      if (left < EDGE) left = EDGE;
-      let top = Math.round(r.top + r.height / 2 - H / 2);
-      top = Math.max(EDGE, Math.min(top, vh - H - EDGE));
+      const EDGE = 8;
 
       const field = ensureSwipeField();
+      // Start = knappens eksakte flate; padding-left plasserer sveipe-ikonets
+      // senter nøyaktig over knappens ikon-senter (samme visuelle størrelse).
+      const iconCx = iconR.left + iconR.width / 2;
+      const padLeft = Math.max(6, Math.round(iconCx - r.left - SWIPE_ICON_BOX / 2));
       swipeIconEl.classList.remove('shake');
       field.style.transition = 'none';
-      field.style.left = left + 'px';
-      field.style.top = top + 'px';
-      field.style.height = H + 'px';
-      field.style.width = COLLAPSE_W + 'px';   // start kollapset
+      field.style.left = r.left + 'px';
+      field.style.top = r.top + 'px';
+      field.style.height = r.height + 'px';
+      field.style.width = r.width + 'px';
+      field.style.borderRadius = getComputedStyle(btn).borderRadius;
+      field.style.paddingLeft = padLeft + 'px';
+      // Symmetrisk: like mye luft til høyre for pilen som til venstre for ikonet.
+      field.style.paddingRight = padLeft + 'px';
       field.classList.add('open');
       setProgress(0);
-      void field.offsetWidth;                  // reflow → animér åpningen
+      void field.offsetWidth;                  // reflow → animér utvidelsen
       field.style.transition = '';
+
+      // Utvid mot høyre så langt det trengs/er plass (venstre kant og høyde
+      // ligger fast → ingen vertikal asymmetri, ikonet står i ro).
+      const width = Math.max(Math.round(r.width),
+        Math.min(310, vw - EDGE - Math.round(r.left)));
       field.style.width = width + 'px';
+      btnRect = r;
+      // Knappen skjules IKKE: det opake feltet starter med knappens eksakte
+      // geometri og dekker den fullstendig (og vokser utover), så det ser ut
+      // som knappen selv utvider seg. Å skjule knappen ville dessuten droppet
+      // pekerfangsten (setPointerCapture) midt i sveipet.
 
       // Sveip-strekk: fra ikon-senter til nær feltets høyre ende.
-      swStart = left + H * 0.5;
-      swEnd = left + width - 16;
+      swStart = iconCx;
+      swEnd = r.left + width - 18;
       if (swEnd - swStart < 90) swEnd = swStart + 90;
     }
     function collapseField() {
       if (!swipeEl) return;
-      swipeEl.style.width = COLLAPSE_W + 'px';
-      swipeEl.classList.remove('open');
       setProgress(0); // roter kasse/lokk tilbake til hviletilstand
       swipeEl.style.removeProperty('--p');
+      if (btnRect) swipeEl.style.width = btnRect.width + 'px'; // krymp til knappen
+      clearTimeout(swipeCollapseTimer);
+      swipeCollapseTimer = setTimeout(() => {
+        // Skjul feltet KUN hvis denne knappen fortsatt eier det (en annen kan
+        // ha åpnet det i mellomtiden — delt felt).
+        if (swipeOwnerBtn === btn) {
+          swipeEl.classList.remove('open');
+          swipeOwnerBtn = null;
+        }
+        btnRect = null;
+      }, COLLAPSE_MS);
     }
     function fireEmpty() {
       mode = 'done';
@@ -2525,6 +2927,7 @@
   document.addEventListener('keydown', (ev) => {
     if (ev.key !== 'Escape') return;
     if (ev.target && ev.target.classList && ev.target.classList.contains('edit-input')) return;
+    if (confirmModalEl && !confirmModalEl.hidden) { closeConfirm(false); return; } // øverst
     const share = document.getElementById('share-modal');
     const place = document.getElementById('place-modal');
     if (place && !place.hidden) { place.hidden = true; updateModalOpenClass(); }
@@ -2532,9 +2935,10 @@
     else if (!trashModal.hidden) closeTrash();
     else if (!menuModal.hidden) closeMenu();
   });
+  // Ingen ekstra bekreftelse: sveipe-tømming har heller ingen, og tømming er
+  // et bevisst valg i en modal man allerede har åpnet.
   trashEmptyBtn.addEventListener('click', () => {
     if (!modalCfg || !modalCfg.rows().length) return;
-    if (!confirm('Tømme søppelkassen permanent? Dette kan ikke angres.')) return;
     modalCfg.empty();
     renderTrashModalBody();
   });
@@ -2607,15 +3011,13 @@
       uBadge.innerHTML = !uCanEdit ? ICONS.lock : ICONS.people;
       uBadge.title = u._mount ? 'Delt med deg' : 'Delt med andre';
     }
-    const uShareBtn = el.querySelector('.chip-share');
-    if (accountsMode() && (u._mine || u._mount)) {
-      uShareBtn.hidden = false;
-      uShareBtn.addEventListener('click', (ev) => { ev.stopPropagation(); openShare('universe', u.id, u); });
-    }
-
     const nameEl = el.querySelector('.uni-name');
     nameEl.textContent = u.name;
-    el.querySelector('.uni-count').textContent = groupWord(u.groups.filter((g) => !g.trashed).length);
+    // Antall grupper i universet: liten pill med gruppe-ikon (mappe) + tall.
+    const uCountEl = el.querySelector('.uni-count');
+    const uGroupN = u.groups.filter((g) => !g.trashed).length;
+    uCountEl.innerHTML = ICONS.folder + '<span>' + uGroupN + '</span>';
+    uCountEl.title = groupWord(uGroupN);
 
     // Bytt til universet (og lukk menyen — man bytter kontekst og går videre);
     // er det allerede aktivt → rediger navnet (samme mønster som gruppekort).
@@ -2631,8 +3033,7 @@
       }
     };
     el.addEventListener('click', (ev) => {
-      if (ev.target.closest('.uni-delete') || ev.target.closest('.chip-share') ||
-          ev.target.closest('.group-handle')) return;
+      if (ev.target.closest('.uni-delete') || ev.target.closest('.group-handle')) return;
       activate();
     });
     el.addEventListener('keydown', (ev) => {
@@ -2650,8 +3051,26 @@
     }
 
     const uHandle = el.querySelector('.group-handle');
-    if (accountsMode() && !uCanEdit && !u._mount) uHandle.style.visibility = 'hidden';
-    else uHandle.addEventListener('pointerdown', (ev) => startUniverseDrag(ev, el));
+    if (accountsMode() && !uCanEdit && !u._mount) {
+      uHandle.style.visibility = 'hidden';
+    } else {
+      uHandle.addEventListener('pointerdown', (ev) => startUniverseDrag(ev, el));
+      // Tastatur-reordering: piltaster opp/ned flytter universet i menylista.
+      uHandle.addEventListener('keydown', (ev) => {
+        const dir = arrowDir(ev, false);
+        if (!dir) return;
+        ev.preventDefault();
+        const sorted = visibleUniverses();
+        const i = sorted.indexOf(u);
+        if (i < 0 || i + dir < 0 || i + dir >= sorted.length) return;
+        const np = neighborPos(sorted, i, dir);
+        if (u._mount) { u.pos = np; u._mount.pos = np; cloudMountUpdate('universe', u.id, { pos: np }); }
+        else { u.pos = np; stampPos(u); }
+        renderUniverses(); save();
+        const h = uniList.querySelector('.uni-row[data-id="' + u.id + '"] .group-handle');
+        if (h) h.focus();
+      });
+    }
     return el;
   }
 
@@ -2681,20 +3100,24 @@
   // Slett et univers → legg i univers-søppelkassen (trashed-flagg; gjenopprettbar).
   // Permanent sletting (med gravsteiner) skjer først når søppelkassen tømmes.
   function deleteUniverse(u) {
-    if (u._mount) {
-      // Mottaker: «slett» = legg mounten i egen søppel (kan forlates ved tømming).
-      u.trashed = true; u._mount.trashed = true;
-      cloudMountUpdate('universe', u.id, { trashed: true });
-    } else {
-      u.trashed = true;
-      stampContent(u);
-    }
+    const ghost = ghostFrom(uniList.querySelector('.uni-row[data-id="' + u.id + '"]'));
+    bufferDelete(u, 'universe', (x) => {
+      if (x._mount) {
+        // Mottaker: «slett» = legg mounten i egen søppel (kan forlates ved tømming).
+        x.trashed = true; x._mount.trashed = true;
+        cloudMountUpdate('universe', x.id, { trashed: true });
+      } else {
+        x.trashed = true;
+        stampContent(x);
+      }
+    });
     if (state.activeUniverse === u.id) {
-      const first = visibleUniverses()[0];
+      const first = visibleUniverses()[0]; // ekskluderer nå den buffer-slettede
       setActiveUniverse(first ? first.id : null);
     }
-    render();
-    save();
+    render(); // univers-søppelkassen blir synlig FØR animasjonen starter
+    flyGhost(ghost, uniTrashBtn);
+    showToast('Slettet «' + u.name + '»', { label: 'Angre', fn: () => undoDelete(u.id) });
   }
 
   /* ============================================================
@@ -2773,7 +3196,7 @@
   // Synk-doc: kun det som deles (ikke activeUniverse/activeGroup, som er per enhet).
   function cleanItem(it, homeId) {
     return {
-      id: it.id, text: it.text, home: it.home || homeId, trashed: !!it.trashed,
+      id: it.id, text: it.text, home: it.home || homeId, trashed: !!it.trashed, done: !!it.done,
       ts: it.ts || 0, org: it.org || '',
       pos: it.pos || 0, posTs: it.posTs || 0, posOrg: it.posOrg || '',
     };
@@ -2876,6 +3299,7 @@
       state._hlc = doc.hlc || 0;
       observeTs(doc.hlc);
       validateActive(state);
+      reapplyPendingDeletes(); // hold buffer-slettede skjult etter rebuild
       render();
     } finally {
       applyingRemote = false;
@@ -2891,7 +3315,7 @@
     const content = newer(a.ts, a.org, b.ts, b.org) ? a : b;
     const posw = newer(a.posTs, a.posOrg, b.posTs, b.posOrg) ? a : b;
     return {
-      id: a.id, text: content.text, trashed: !!content.trashed,
+      id: a.id, text: content.text, trashed: !!content.trashed, done: !!content.done,
       ts: content.ts || 0, org: content.org || '',
       home: posw.home, pos: posw.pos || 0, posTs: posw.posTs || 0, posOrg: posw.posOrg || '',
     };
@@ -3200,23 +3624,41 @@
 
   /* ---------- Lett, forbigående varsel (ingen fast statusindikator) ---------- */
   let toastTimer = null;
-  function showToast(msg) {
+  // action (valgfri): { label, fn } → knapp i toasten (f.eks. «Angre»). Med
+  // handling står toasten lenger (5 s) siden brukeren skal rekke å trykke.
+  function showToast(msg, action) {
     let t = document.getElementById('toast');
     if (!t) { t = document.createElement('div'); t.id = 'toast'; t.className = 'toast'; document.body.appendChild(t); }
-    t.textContent = msg;
+    t.innerHTML = '';
+    const span = document.createElement('span');
+    span.className = 'toast-msg';
+    span.textContent = msg;
+    t.appendChild(span);
+    if (action && action.label && typeof action.fn === 'function') {
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'toast-action';
+      btn.textContent = action.label;
+      btn.addEventListener('click', () => {
+        t.classList.remove('show');
+        clearTimeout(toastTimer);
+        action.fn();
+      });
+      t.appendChild(btn);
+    }
     t.classList.add('show');
     clearTimeout(toastTimer);
-    toastTimer = setTimeout(() => t.classList.remove('show'), 2200);
+    toastTimer = setTimeout(() => t.classList.remove('show'), action ? 5000 : 2200);
   }
 
   /* ---------- Logg ut (i meny-modalen, ☰) ----------
      Synken går fortløpende i bakgrunnen; ingen egen synk-knapp trengs.
      Ved fjern-endringer vises et lite «oppdatert»-varsel (showToast). */
-  logoutBtn.addEventListener('click', () => {
+  logoutBtn.addEventListener('click', async () => {
     const q = accountsMode()
       ? 'Logge ut? Listene dine ligger trygt i skyen og kommer tilbake når du logger inn igjen.'
       : 'Logge ut? Listene dine ligger trygt i skyen og kommer tilbake når du tegner mønsteret igjen.';
-    if (confirm(q)) logout();
+    if (await askConfirm({ title: 'Logg ut', message: q, okLabel: 'Logg ut' })) logout();
   });
 
   // Hold i synk når fanen kommer i forgrunnen igjen (mobil suspenderer sockets/timere).
@@ -3561,6 +4003,13 @@
     authSent.hidden = false;
     authSentMsg.innerHTML = html;
   }
+  // Brukerinput som skal inn i en HTML-streng (f.eks. e-post i «sjekk
+  // innboksen»-meldingen) escapes alltid først.
+  function escapeHtml(s) {
+    return String(s).replace(/[&<>"']/g, (c) => (
+      { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]
+    ));
+  }
   function friendlyAuthError(err) {
     const msg = (err && err.message) || String(err || 'Noe gikk galt');
     if (/invalid login credentials/i.test(msg)) return 'Feil e-post eller passord.';
@@ -3594,7 +4043,7 @@
         if (data && data.session) {
           // Bekreftelse er av → onAuthStateChange logger inn direkte.
         } else {
-          showAuthSent('Vi har sendt en bekreftelseslenke til <strong>' + email +
+          showAuthSent('Vi har sendt en bekreftelseslenke til <strong>' + escapeHtml(email) +
             '</strong>. Åpne den for å fullføre registreringen, så kan du logge inn.');
         }
       } else if (authModeCur === 'forgot') {
@@ -3602,7 +4051,7 @@
           redirectTo: location.origin + location.pathname,
         });
         if (error) throw error;
-        showAuthSent('Hvis <strong>' + email + '</strong> har en konto, har vi sendt en ' +
+        showAuthSent('Hvis <strong>' + escapeHtml(email) + '</strong> har en konto, har vi sendt en ' +
           'lenke for å velge nytt passord. Sjekk innboksen.');
       }
     } catch (e) {
@@ -3818,6 +4267,7 @@
       state._hlc = doc.hlc || state._hlc || 0;
       observeTs(doc.hlc);
       validateActive(state);
+      reapplyPendingDeletes(); // hold buffer-slettede skjult etter rebuild
       render();
     } finally {
       applyingRemote = false;
@@ -3833,7 +4283,7 @@
     if (t === 'group') return Object.assign(base, { name: row.name || '', universe_id: row.uni });
     if (t === 'card') return Object.assign(base, { title: row.title || '', group_id: row.group,
       k: row.k !== false, p: row.p !== false, lab_ts: row.labTs || 0, lab_org: row.labOrg || '' });
-    return Object.assign(base, { text: row.text || '', card_id: row.home });
+    return Object.assign(base, { text: row.text || '', card_id: row.home, done: !!row.done });
   }
   function updatePayload(t, row) {
     const base = { trashed: !!row.trashed, ts: row.ts || 0, org: row.org || '',
@@ -3842,7 +4292,7 @@
     if (t === 'group') return Object.assign(base, { name: row.name || '', universe_id: row.uni });
     if (t === 'card') return Object.assign(base, { title: row.title || '', group_id: row.group,
       k: row.k !== false, p: row.p !== false, lab_ts: row.labTs || 0, lab_org: row.labOrg || '' });
-    return Object.assign(base, { text: row.text || '', card_id: row.home });
+    return Object.assign(base, { text: row.text || '', card_id: row.home, done: !!row.done });
   }
   async function pushOps(ops) {
     const client = acli();
@@ -3985,8 +4435,12 @@
     const legacy = legacyFlatDoc();
     if (!remoteEmpty || !legacy) { localStorage.setItem(flag, '1'); return; }
     const n = legacy.cards.length;
-    if (!confirm('Vi fant lokale lister på denne enheten (' + listWord(n) +
-      '). Vil du importere dem til kontoen din?')) { localStorage.setItem(flag, '1'); return; }
+    if (!await askConfirm({
+      title: 'Importer lokale lister',
+      message: 'Vi fant lokale lister på denne enheten (' + listWord(n) +
+        '). Vil du importere dem til kontoen din?',
+      okLabel: 'Importer', danger: false,
+    })) { localStorage.setItem(flag, '1'); return; }
     try {
       const { error } = await acli().rpc('import_doc', { p_doc: legacy });
       if (error) throw error;
@@ -4035,7 +4489,7 @@
       const actions = document.createElement('div');
       actions.className = 'invite-actions';
       const acc = document.createElement('button');
-      acc.className = 'btn btn-small'; acc.type = 'button'; acc.textContent = 'Godta';
+      acc.className = 'btn btn-solid btn-green btn-small'; acc.type = 'button'; acc.textContent = 'Godta';
       acc.addEventListener('click', () => acceptInvite(inv));
       const dec = document.createElement('button');
       dec.className = 'btn btn-small btn-ghost'; dec.type = 'button'; dec.textContent = 'Avslå';
@@ -4055,7 +4509,7 @@
       const actions = document.createElement('div');
       actions.className = 'invite-actions';
       const place = document.createElement('button');
-      place.className = 'btn btn-small'; place.type = 'button'; place.textContent = 'Plasser';
+      place.className = 'btn btn-solid btn-green btn-small'; place.type = 'button'; place.textContent = 'Plasser';
       place.addEventListener('click', () => placeMount(pl));
       actions.append(place);
       row.append(info, actions);
@@ -4149,9 +4603,15 @@
   shareClose && shareClose.addEventListener('click', closeShare);
   shareModal && shareModal.addEventListener('click', (ev) => { if (ev.target === shareModal) closeShare(); });
 
+  // Overskrift: «[objekttype-ikon] [navn] — Innstillinger for deling» — gir
+  // mening både for eier og mottaker (mottaker kan ikke dele videre, men har
+  // fortsatt innstillinger her). Navnet settes som tekstnode (aldri innerHTML).
+  const SHARE_TYPE_ICON = { universe: 'globe', group: 'folder', card: 'list' };
   async function openShare(type, id, obj) {
     shareCtx = { type, id, obj };
-    shareTitle.textContent = 'Del «' + (obj.name || obj.title) + '»';
+    shareTitle.innerHTML = ICONS[SHARE_TYPE_ICON[type]] || '';
+    shareTitle.appendChild(document.createTextNode(
+      (obj.name || obj.title || '') + ' — Innstillinger for deling'));
     shareBody.innerHTML = '<p class="place-hint">Laster …</p>';
     shareModal.hidden = false;
     updateModalOpenClass2();
@@ -4181,9 +4641,10 @@
     const form = document.createElement('form');
     form.className = 'share-invite-form';
     const input = document.createElement('input');
+    input.className = 'field';
     input.type = 'email'; input.placeholder = 'E-post å invitere'; input.required = true;
     const btn = document.createElement('button');
-    btn.className = 'btn btn-primary btn-small'; btn.type = 'submit'; btn.textContent = 'Inviter';
+    btn.className = 'btn btn-solid btn-green btn-small'; btn.type = 'submit'; btn.textContent = 'Inviter';
     form.append(input, btn);
     const msg = document.createElement('p');
     msg.className = 'share-msg';
@@ -4191,7 +4652,7 @@
     const lockRow = document.createElement('div');
     lockRow.className = 'share-lock-row';
     const lockBtn = document.createElement('button');
-    lockBtn.className = 'btn btn-small'; lockBtn.type = 'button';
+    lockBtn.className = 'btn btn-solid btn-yellow btn-small'; lockBtn.type = 'button';
     lockRow.innerHTML = '<div><span class="share-lock-label">Skrivebeskyttet</span>' +
       '<span class="share-lock-hint">Andre kan se, men ikke endre</span></div>';
     const paintLock = () => {
@@ -4223,9 +4684,9 @@
         box.innerHTML = '<span class="member-name"></span><span class="member-role">Medlem</span>';
         box.querySelector('.member-name').textContent = mbr.email;
         const kick = document.createElement('button');
-        kick.className = 'btn btn-small btn-ghost'; kick.type = 'button'; kick.textContent = 'Kast ut';
+        kick.className = 'btn btn-solid btn-red btn-small'; kick.type = 'button'; kick.textContent = 'Kast ut';
         kick.addEventListener('click', async () => {
-          if (!confirm('Fjerne ' + mbr.email + ' fra delingen?')) return;
+          if (!await askConfirm({ title: 'Kaste ut', message: 'Fjerne ' + mbr.email + ' fra delingen?', okLabel: 'Kast ut' })) return;
           try {
             const { error } = await acli().rpc('revoke_share', { p_type: type, p_id: id, p_user: mbr.id });
             if (error) throw error;
@@ -4304,9 +4765,9 @@
     line.appendChild(inf);
     shareBody.appendChild(line);
     const leave = document.createElement('button');
-    leave.className = 'btn btn-danger share-leave'; leave.type = 'button'; leave.textContent = 'Forlat deling';
+    leave.className = 'btn btn-solid btn-red share-leave'; leave.type = 'button'; leave.textContent = 'Forlat deling';
     leave.addEventListener('click', async () => {
-      if (!confirm('Forlate denne delingen? Den forsvinner fra dine lister.')) return;
+      if (!await askConfirm({ title: 'Forlat deling', message: 'Forlate denne delingen? Den forsvinner fra dine lister.', okLabel: 'Forlat' })) return;
       await cloudLeave(shareCtx.type, shareCtx.id);
       closeShare();
       cloudBase = null;

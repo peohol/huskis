@@ -10,7 +10,8 @@ Fast panel (`position: fixed`), **én felles DOM** delt i to media-queryer:
 - **Desktop (`min-width: 561px`)**: fast, full-høyde **kolonne til venstre**
   (`--sidebar-w`). Øverst `.panel-top`: overskriften **UNIVERS: [navn]** (navnet
   på gjeldende univers, satt av `updatePanelTitles()` i `render()`) og
-  knapperaden **«＋ Gruppe» + gruppe-søppelkassen side om side**. Gruppekortene
+  knapperaden **«＋ Gruppe» + del-univers-knappen (`.share-btn`, kontomodus) +
+  gruppe-søppelkassen**. Gruppekortene
   scroller i
   kolonnen under og **oppløses i en fade** (CSS `mask-image`, høyde `--fade-h`,
   tilsvarende fade i bunnen; hvile-padding = fade-høyden så ingenting er falmet
@@ -21,9 +22,11 @@ Fast panel (`position: fixed`), **én felles DOM** delt i to media-queryer:
   rad** under — **uten fader** (kun en diskret, app-tilpasset scrollbar). ☰
   ligger IKKE i denne DOM-en (se «Menyknapp» under), men overlapper panelet
   visuelt.
-- **Gruppekort** (`.group-card.chip`): håndtak (mørkt, `--g-accent`), navn, dempet
-  antall, ✕ helt til høyre. Posisjonsbasert farge; aktiv = grønn ring. Klikk =
-  bytt gruppe; klikk på aktivt navn = omdøp (`editText` autosize).
+- **Gruppekort** (`.group-card.chip`): håndtak (tre prikker, mørkt,
+  `--g-accent`), navn, antall-pill (liste-ikon + antall lister, `.chip-count`),
+  evt. del-knapp, ✕ helt til høyre (del alltid rett til venstre for ✕).
+  Posisjonsbasert farge; aktiv = grønn ring. Klikk = bytt gruppe; klikk på
+  aktivt navn = omdøp (`editText` autosize).
 - **Rekkefølge**: dra-og-slipp via håndtaket med placeholder + FLIP
   (`updateGroupPlacement` dispatcher på orientering: vertikal kolonne på desktop
   (`…V`), horisontal rad på mobil (`…H`)); auto-scroll av feltet ved kantene.
@@ -38,8 +41,8 @@ univers lukker IKKE menyen** — brukeren skal kunne angre fra søppelkassen med
 Fast meny (`position: fixed`; desktop: øverst til høyre for kolonnen, mobil: rett
 under gruppemenyen). To linjer: overskriften **GRUPPE: [navn]** (navnet på
 gjeldende gruppe, samme `updatePanelTitles()`) og knapperaden **«＋
-Liste» + liste-søppelkassen + filterkortet (👁️ Mine/Delte)** (filter, se
-`docs/colors-and-labels.md`). Filterkortet følger flate-mønsteret
+Liste» + del-gruppe-knappen (`.share-btn`, kontomodus) + liste-søppelkassen +
+filterkortet (👁️ Mine/Delte)** (filter, se `docs/colors-and-labels.md`). Filterkortet følger flate-mønsteret
 (halvgjennomsiktig → opak ved hover). Logg ut-knappen ligger i meny-modalen
 (ikke her). ☰ er ikke en del av denne DOM-en (se under), men overlapper
 panelet visuelt på desktop.
@@ -76,13 +79,16 @@ responsiv styling i stedet.
 
 Menyknappen (☰) åpner `#menu-modal`:
 
-- **«Logg ut»** øverst (med bekreftelse), deretter en delelinje (`<hr class=
-  "menu-divider">`) i samme border-stil som `.modal-head` — se
+- **«Logg ut»** øverst (rød knapp, med bekreftelse), deretter en delelinje
+  (`<hr class="menu-divider">`) i samme border-stil som `.modal-head` — se
   `docs/design-system.md` («Delelinjer i modaler»).
-- **UNIVERSER**-seksjon: univers-rader (`.uni-row.chip` — håndtak, farget, aktiv
-  m/ ring, antall grupper dempet, ✕ helt til høyre), «＋ Univers» og
-  univers-søppelkassen (samme knapp/oppførsel som de andre — se
-  `docs/trash.md`).
+- **UNIVERSER**-seksjon: univers-rader (`.uni-row.chip` — håndtak, farget,
+  aktiv m/ ring, antall-pill med gruppe-ikon (mappe) + antall grupper
+  (`.chip-count`), ✕ helt til høyre), «＋ [univers-ikon]» (globus, ikke tekst)
+  og univers-søppelkassen (samme knapp/oppførsel som de andre — se
+  `docs/trash.md`). **Deling av et univers skjer IKKE fra univers-raden**, men
+  fra del-univers-knappen i gruppemenyens knapperad (deler det aktive
+  universet); tilsvarende deles en gruppe fra del-gruppe-knappen i listemenyen.
 - Klikk på en rad = **bytt univers + lukk menyen**; klikk på det aktive navnet =
   omdøp. Slett = i søppelkassen (menyen forblir åpen så man kan angre).
   `setActiveUniverse` gjenoppretter sist aktive gruppe i universet

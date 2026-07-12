@@ -170,7 +170,8 @@
       items: myItems.map(function (i) {
         return {
           id: i.id, owner: i.owner_id, mine: i.owner_id === uid, home: i.card_id, text: i.text,
-          trashed: !!i.trashed, ts: i.ts, org: i.org, pos: i.pos, posTs: i.pos_ts, posOrg: i.pos_org,
+          trashed: !!i.trashed, done: !!i.done,
+          ts: i.ts, org: i.org, pos: i.pos, posTs: i.pos_ts, posOrg: i.pos_org,
         };
       }),
       invites_in: db.share_invites.filter(function (s) {
@@ -245,6 +246,7 @@
         if ('name' in patch) row.name = patch.name;
         if ('title' in patch) row.title = patch.title;
         if ('text' in patch) row.text = patch.text;
+        if ('done' in patch) row.done = patch.done;
         if ('trashed' in patch && !blockTrashed) row.trashed = patch.trashed;
         row.ts = patch.ts; row.org = patch.org;
       }
@@ -331,6 +333,7 @@
         });
         up(doc.items, 'items', function (r, id) {
           return { id: id, owner_id: uid, card_id: legacyId(uid, r.home), text: r.text || '', trashed: !!r.trashed,
+            done: !!r.done,
             ts: r.ts || 0, org: r.org || '', pos: r.pos || 0, pos_ts: r.posTs || 0, pos_org: r.posOrg || '' };
         });
         return { universes: (doc.universes || []).length, groups: (doc.groups || []).length,
