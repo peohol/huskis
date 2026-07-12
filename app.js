@@ -571,7 +571,7 @@
       const es = document.createElement('div');
       es.className = 'empty-state';
       es.innerHTML = '<div class="big">' + ICONS.folder + '</div><p>Ingen grupper ennå.</p>' +
-        '<p>Trykk «＋ Gruppe» for å komme i gang.</p>';
+        '<p>Trykk <span class="hint-chip">＋ ' + ICONS.folder + '</span> for å komme i gang.</p>';
       board.appendChild(es);
       fixBoardBottomGap();
       save();
@@ -591,7 +591,8 @@
       if (active.length === 0) {
         const big = document.createElement('div'); big.className = 'big'; big.innerHTML = ICONS.list;
         const p1 = document.createElement('p'); p1.textContent = 'Ingen lister i «' + group.name + '» ennå.';
-        const p2 = document.createElement('p'); p2.textContent = 'Trykk «＋ Liste» for å komme i gang.';
+        const p2 = document.createElement('p');
+        p2.innerHTML = 'Trykk <span class="hint-chip">＋ ' + ICONS.list + '</span> for å komme i gang.';
         es.append(big, p1, p2);
       } else {
         es.innerHTML = '<div class="big">' + ICONS.eye + '</div><p>Ingen lister passer filteret.</p>' +
@@ -814,7 +815,7 @@
     }
     render(); // gruppe-søppelkassen blir synlig FØR animasjonen starter
     flyGhost(ghost, groupsTrashBtn);
-    showToast('Slettet «' + groupData.name + '»', { label: 'Angre', fn: () => undoDelete(groupData.id) });
+    pushDeleteToast('group', groupData.id, groupData.name);
   }
 
   // Tøm gruppe-søppelkassen (aktivt univers) permanent: gravsteiner for hver
@@ -899,7 +900,7 @@
         });
         render(); // søppelkasse-knappen blir synlig FØR animasjonen starter
         flyGhost(ghost, trashBtn);
-        showToast('Slettet «' + cardData.title + '»', { label: 'Angre', fn: () => undoDelete(cardData.id) });
+        pushDeleteToast('card', cardData.id, cardData.title);
       });
     }
 
@@ -1056,7 +1057,7 @@
         refreshCard(owner); // element-søppelkassen dukker opp FØR animasjonen
         flyGhost(ghost, board.querySelector(
           '.card[data-id="' + owner.id + '"] .item-trash-btn'));
-        showToast('Slettet «' + it.text + '»', { label: 'Angre', fn: () => undoDelete(it.id) });
+        pushDeleteToast('item', it.id, it.text);
       });
       // Avkryssede elementer dras/reorderes ikke (de ligger i «Utført»).
       itemHandle.addEventListener('pointerdown', (ev) => { if (itemData.done) return; startItemDrag(ev, el); });
@@ -1245,50 +1246,105 @@
     }
     return null;
   }
+  // Buffrer sletting (skjuler + registrerer), men starter INGEN egen timer —
+  // commit/angre styres av samle-toasten (se pushDeleteToast under), så en gruppe
+  // slettinger committes samlet når den felles timeren utløper.
   function bufferDelete(obj, kind, commit) {
     obj._pendingDelete = true;
-    const timer = setTimeout(() => commitDelete(obj.id), DELETE_BUFFER_MS);
-    pendingDeletes.set(obj.id, { kind, commit, timer });
+    pendingDeletes.set(obj.id, { kind, commit });
   }
-  function undoDelete(id) {
+  // Committer ETT objekt (trashed=true + stempling/mount) uten å tegne på nytt —
+  // objektet var allerede skjult (buffret), så board-et endres ikke visuelt.
+  function commitDeleteOne(id) {
     const entry = pendingDeletes.get(id);
     if (!entry) return;
-    clearTimeout(entry.timer);
-    pendingDeletes.delete(id);
-    const found = findAnyById(id);
-    if (found) delete found.obj._pendingDelete;
-    render();
-    if (!trashModal.hidden) renderTrashModalBody();
-  }
-  function commitDelete(id) {
-    const entry = pendingDeletes.get(id);
-    if (!entry) return;
-    clearTimeout(entry.timer);
     pendingDeletes.delete(id);
     const found = findAnyById(id);
     if (!found) return;
     delete found.obj._pendingDelete;
-    entry.commit(found.obj);              // trashed = true + stempling/mount
-    // Objektet var allerede skjult (buffret), så board-et endres ikke visuelt —
-    // ikke avbryt en pågående inline-redigering med en full render.
-    if (isBusyEditing()) save(); else render();
-    if (!trashModal.hidden) renderTrashModalBody();
+    entry.commit(found.obj);
   }
-  function commitAllPending() { [...pendingDeletes.keys()].forEach(commitDelete); }
+  // Angrer ETT objekt (fjern flagget) uten å tegne på nytt.
+  function undoDeleteOne(id) {
+    const entry = pendingDeletes.get(id);
+    if (!entry) return;
+    pendingDeletes.delete(id);
+    const found = findAnyById(id);
+    if (found) delete found.obj._pendingDelete;
+  }
+  function commitAllPending() {
+    if (deleteToast) { clearTimeout(deleteToast.timer); deleteToast = null; hideToast(); }
+    if (!pendingDeletes.size) return;
+    [...pendingDeletes.keys()].forEach(commitDeleteOne);
+    save();
+  }
   // Etter at synken har bygget state-treet på nytt: gjenpåfør buffer-flagget på
   // de friske objektene (ellers ville et buffret objekt dukket opp igjen).
   function reapplyPendingDeletes() {
     if (!pendingDeletes.size) return;
-    for (const [id, entry] of pendingDeletes) {
+    for (const id of [...pendingDeletes.keys()]) {
       const found = findAnyById(id);
       if (found) found.obj._pendingDelete = true;
-      else { clearTimeout(entry.timer); pendingDeletes.delete(id); }
+      else pendingDeletes.delete(id);
     }
   }
   // Ikke la en buffret sletting «henge» hvis fanen lukkes/skjules før timeren —
   // commit den da (så den faktisk havner i søppel og synkes).
   document.addEventListener('visibilitychange', () => { if (document.hidden) commitAllPending(); });
   window.addEventListener('pagehide', commitAllPending);
+
+  /* ---------- Samle-toast for slettinger ----------
+     Slettes flere objekter av SAMME kategori mens toasten er åpen, slås de sammen
+     til én toast og timeren startes på nytt (én «Angre» gjelder alle). Slettes et
+     objekt av en ANNEN kategori, antas den forrige toasten unødvendig → den
+     forrige gruppen committes straks, og en fersk toast starter for den nye
+     kategorien. Toasten er «sticky» (auto-skjules ikke) — den felles timeren
+     styrer både commit og skjuling. */
+  let deleteToast = null; // { kind, ids: [], lastName, timer }
+  function deleteMsg(kind, ids, lastName) {
+    if (ids.length === 1) return 'Slettet «' + (lastName || '') + '»';
+    const w = kind === 'item' ? itemWord : kind === 'card' ? listWord : kind === 'group' ? groupWord : uniWord;
+    return 'Slettet ' + w(ids.length);
+  }
+  function armDeleteTimer() {
+    clearTimeout(deleteToast.timer);
+    deleteToast.timer = setTimeout(() => {
+      const g = deleteToast; deleteToast = null;
+      g.ids.forEach(commitDeleteOne);
+      save();
+      hideToast();
+      if (!trashModal.hidden) renderTrashModalBody();
+    }, DELETE_BUFFER_MS);
+  }
+  function pushDeleteToast(kind, id, name) {
+    // Ny kategori → commit den forrige gruppen straks (ikke lenger angrbar).
+    if (deleteToast && deleteToast.kind !== kind) {
+      const old = deleteToast; deleteToast = null;
+      clearTimeout(old.timer);
+      old.ids.forEach(commitDeleteOne);
+      save();
+      if (!trashModal.hidden) renderTrashModalBody();
+    }
+    if (deleteToast && deleteToast.kind === kind) {
+      deleteToast.ids.push(id);
+      deleteToast.lastName = name;
+    } else {
+      deleteToast = { kind, ids: [id], lastName: name, timer: null };
+    }
+    armDeleteTimer();
+    showToast(deleteMsg(kind, deleteToast.ids, deleteToast.lastName), {
+      label: 'Angre',
+      fn: () => {
+        if (!deleteToast) { hideToast(); return; }
+        const g = deleteToast; deleteToast = null;
+        clearTimeout(g.timer);
+        g.ids.forEach(undoDeleteOne);
+        render();
+        if (!trashModal.hidden) renderTrashModalBody();
+        hideToast();
+      },
+    }, { sticky: true });
+  }
 
   /* ---------------- Inline-redigering ---------------- */
   // opts.cls: ekstra klasse på input. opts.autosize: la input vokse med innholdet
@@ -2602,6 +2658,7 @@
   const groupWord = (n) => n + ' ' + (n === 1 ? 'gruppe' : 'grupper');
   const listWord = (n) => n + ' ' + (n === 1 ? 'liste' : 'lister');
   const itemWord = (n) => n + ' ' + (n === 1 ? 'element' : 'elementer');
+  const uniWord = (n) => n + ' ' + (n === 1 ? 'univers' : 'universer');
 
   /* ---------- De fire søppelkassene ---------- */
   function openUniversesTrash() {
@@ -3117,7 +3174,7 @@
     }
     render(); // univers-søppelkassen blir synlig FØR animasjonen starter
     flyGhost(ghost, uniTrashBtn);
-    showToast('Slettet «' + u.name + '»', { label: 'Angre', fn: () => undoDelete(u.id) });
+    pushDeleteToast('universe', u.id, u.name);
   }
 
   /* ============================================================
@@ -3626,7 +3683,10 @@
   let toastTimer = null;
   // action (valgfri): { label, fn } → knapp i toasten (f.eks. «Angre»). Med
   // handling står toasten lenger (5 s) siden brukeren skal rekke å trykke.
-  function showToast(msg, action) {
+  // opts.sticky: ikke auto-skjul — kalleren styrer skjuling selv (samle-toasten
+  // for slettinger, der en felles timer styrer både commit og skjuling).
+  function showToast(msg, action, opts) {
+    opts = opts || {};
     let t = document.getElementById('toast');
     if (!t) { t = document.createElement('div'); t.id = 'toast'; t.className = 'toast'; document.body.appendChild(t); }
     t.innerHTML = '';
@@ -3639,16 +3699,17 @@
       btn.type = 'button';
       btn.className = 'toast-action';
       btn.textContent = action.label;
-      btn.addEventListener('click', () => {
-        t.classList.remove('show');
-        clearTimeout(toastTimer);
-        action.fn();
-      });
+      btn.addEventListener('click', () => { action.fn(); });
       t.appendChild(btn);
     }
     t.classList.add('show');
     clearTimeout(toastTimer);
-    toastTimer = setTimeout(() => t.classList.remove('show'), action ? 5000 : 2200);
+    if (!opts.sticky) toastTimer = setTimeout(() => t.classList.remove('show'), action ? 5000 : 2200);
+  }
+  function hideToast() {
+    const t = document.getElementById('toast');
+    if (t) t.classList.remove('show');
+    clearTimeout(toastTimer);
   }
 
   /* ---------- Logg ut (i meny-modalen, ☰) ----------

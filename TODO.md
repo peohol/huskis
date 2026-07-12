@@ -45,12 +45,10 @@ Design-overhalingen la til **avkryssing av elementer** (gjort/ikke gjort). Felte
 (`alter table … add column if not exists done …`, LWW-trigger, `get_my_doc`,
 `import_doc`).
 
-- [ ] **Kjør «Supabase DB-oppsett»-workflowen på nytt** (Actions → Run
-      workflow) FØR/samtidig med at denne endringen tas i bruk i produksjon.
-      Frem til kolonnen finnes, avvises element-insert/-update i kontomodus
-      (klienten sender `done`) — `pushOps` fanger feilen, så appen krasjer ikke,
-      men avkryssing/nye elementer persisteres ikke før migreringen er kjørt.
-      Mock-backend (`?mock=1`) og synk-doc v1 (mønster-lås) har feltet uansett.
+- [x] **«Supabase DB-oppsett»-workflowen kjørt** (run #4 på `main`,
+      workflow_dispatch, conclusion `success`, 2026-07-12) — `items.done`-
+      kolonnen (+ LWW-trigger/`get_my_doc`/`import_doc`) er nå på ekte Supabase,
+      så avkryssing persisteres i kontomodus.
 
 ## Manuelle steg (krever dashboard-tilgang — Peder)
 

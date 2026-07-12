@@ -671,6 +671,19 @@ body {
 .empty-state .big { font-size: 60px; margin-bottom: 6px; }
 .empty-state .big .icon { margin: 0 auto; }
 .empty-state p { margin: 6px 0; font-weight: 500; font-size: var(--fs-base); }
+/* Inline «knapp-hint» i tom-tilstanden: viser ＋ + nivå-ikonet (som knappen),
+   siden knappene ikke lenger har tekst-etikett («＋ Gruppe»/«＋ Liste»). */
+.hint-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 1px 8px;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.16);
+  font-weight: 700;
+  vertical-align: middle;
+}
+.hint-chip .icon { font-size: 1em; }
 
 /* ---------------- Card ---------------- */
 .card {
