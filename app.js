@@ -4063,21 +4063,38 @@
      (Supabase Auth user_metadata) — så man lander på samme sted når appen lastes
      på nytt, også på tvers av enheter. Gjelder kun kontomodus (uten konto finnes
      ingen konto å lagre på; da holder den gamle per-enhet-oppførselen). Skrives
-     debouncet ved navigering, gjenopprettes ved første sky-pull etter innlogging. */
+     debouncet ved navigering, gjenopprettes ved første sky-pull etter innlogging.
+     `authUser.meta.nav` = sist BEKREFTET skrevet posisjon; `navPending` = ønsket
+     posisjon som ennå ikke er bekreftet. Vi markerer først som lagret når skrivingen
+     lykkes, og prøver igjen ved feil — så en forbigående offline/rate-limit-feil ikke
+     låser posisjonen ute permanent. */
   let navSaveTimer = null;
   let navRestored = false;
+  let navPending = null;
+  const navEq = (a, b) => !!a && !!b && a.u === b.u && a.g === b.g;
   function saveNavPref() {
     if (!accountsMode() || !authUser || applyingRemote || !navRestored) return;
     const nav = { u: state.activeUniverse || null, g: state.activeGroup || null };
-    const cur = authUser.meta && authUser.meta.nav;
-    if (cur && cur.u === nav.u && cur.g === nav.g) return; // uendret → ingen skriving
-    authUser.meta = Object.assign({}, authUser.meta, { nav });
+    if (navEq(nav, authUser.meta && authUser.meta.nav) && !navPending) return; // allerede lagret
+    if (navEq(nav, navPending)) return; // allerede planlagt
+    navPending = nav;
     clearTimeout(navSaveTimer);
-    navSaveTimer = setTimeout(() => {
-      const client = acli();
-      if (!client || !authUser) return;
-      try { client.auth.updateUser({ data: { nav } }); } catch (e) { /* ignore */ }
-    }, 800);
+    navSaveTimer = setTimeout(flushNavPref, 800);
+  }
+  async function flushNavPref() {
+    const nav = navPending;
+    if (!nav) return;
+    const client = acli();
+    if (!client || !authUser) return;
+    try {
+      const { error } = await client.auth.updateUser({ data: { nav } });
+      if (error) throw error;
+      authUser.meta = Object.assign({}, authUser.meta, { nav }); // marker lagret KUN ved suksess
+      if (navEq(navPending, nav)) navPending = null; // (ellers kom en nyere posisjon → la timeren ta den)
+    } catch (e) {
+      clearTimeout(navSaveTimer);
+      navSaveTimer = setTimeout(flushNavPref, 5000); // behold navPending, prøv igjen senere
+    }
   }
   // Sett aktivt univers/gruppe fra kontoens husket posisjon (hvis den fremdeles
   // peker på synlige entiteter). Kalles én gang, ved første sky-pull.
@@ -4495,8 +4512,11 @@
       const local = docFromMyState();
       const { merged, ops } = reconcile(cloudBase || emptyDoc(), local, remote);
       cloudBase = remote;
+      // Bruk fletteresultatet lokalt — men ikke avbryt aktiv redigering/draging.
+      // Planlegg et raskt nytt forsøk KUN når det faktisk er en utsatt endring
+      // (merged ≠ lokal); ellers ville et fokusert (tomt) felt hot-loope get_my_doc.
       if (!isBusyEditing()) applyMyDoc(merged, meta);
-      else cloudAgain = true;
+      else if (canonical(merged) !== canonical(local)) cloudAgain = true;
       if (ops.length) await pushOps(ops);
       updateInbox(my);
       maybeOfferMigration(my);
