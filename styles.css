@@ -591,7 +591,10 @@ body {
   border-right: 2.5px solid currentColor;
   border-top-right-radius: 2px;
   transform: rotate(45deg);
-  margin-left: -6px;   /* la hodet sitte på enden av streken */
+  margin-left: -13.5px;   /* pilspissen (etter 45°-rotasjon) stikker ut halve
+    diagonalen (5.5 + 11/√2 ≈ 13.3px) forbi boksens venstrekant — dette
+    trekker streken helt frem til selve tuppen i stedet for å stoppe der
+    firkanten begynner */
 }
 
 /* Element-søppelkassen: midtstilt nederst i listekortet (samme knapp som de andre). */
