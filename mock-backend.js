@@ -466,7 +466,7 @@
           var email = String(opts.email).toLowerCase();
           var uid = uidFor(email);
           if (!db.profiles.find(function (p) { return p.id === uid; })) {
-            db.profiles.push({ id: uid, email: email, display_name: email.split('@')[0] });
+            db.profiles.push({ id: uid, email: email, display_name: email.split('@')[0], user_metadata: {} });
             db.passwords[email] = opts.password;
             // koble ventende invitasjoner (handle_new_user)
             db.share_invites.forEach(function (s) {
@@ -485,7 +485,7 @@
           if (!p || db.passwords[email] !== opts.password) {
             return Promise.resolve({ data: null, error: { message: 'Invalid login credentials' } });
           }
-          var user = { id: uid, email: email };
+          var user = { id: uid, email: email, user_metadata: clone(p.user_metadata) || {} };
           setSess(user);
           setTimeout(function () { emitAuth('SIGNED_IN', { user: user }); }, 0);
           return Promise.resolve({ data: { user: user, session: { user: user } }, error: null });
@@ -493,7 +493,19 @@
         resetPasswordForEmail: function () { return Promise.resolve({ data: {}, error: null }); },
         updateUser: function (attrs) {
           var u = getSess();
-          if (u && attrs.password) { var db = loadDB(); db.passwords[u.email] = attrs.password; saveDB(db); }
+          if (u && (attrs.password || attrs.data)) {
+            var db = loadDB();
+            if (attrs.password) db.passwords[u.email] = attrs.password;
+            if (attrs.data) {
+              var p = db.profiles.find(function (x) { return x.id === u.id; });
+              if (p) {
+                p.user_metadata = Object.assign({}, p.user_metadata, attrs.data);
+                u.user_metadata = clone(p.user_metadata);
+                setSess(u); // hold denne fanens sesjon i takt
+              }
+            }
+            saveDB(db);
+          }
           return Promise.resolve({ data: { user: u }, error: null });
         },
         signOut: function () { setSess(null); setTimeout(function () { emitAuth('SIGNED_OUT', null); }, 0); return Promise.resolve({ error: null }); },
