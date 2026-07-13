@@ -62,10 +62,11 @@ navnet fortsatt er auto-standarden, så re-kjøring ikke overskriver). Klient-UI
 (registrering med navn, initialer/navn i del-modalen, ansvarsknapp/-popover) er
 implementert og verifisert i nettleser (mock-backend) — se `docs/accounts.md`.
 
-- [ ] **Kjør «Supabase DB-oppsett»-workflowen** (workflow_dispatch) mot ekte
-      Supabase så `items.responsible`-kolonnen og navne-seeden lander. Til det er
-      gjort mangler kolonnen i prod og ansvarlig-synk vil feile stille (skriving
-      avvises), mens navnene til de to kontoene fortsatt er e-post-prefiksen.
+- [x] **«Supabase DB-oppsett»-workflowen kjørt** (run #5, workflow_dispatch på
+      grenen `claude/user-names-responsibility-2nbd0z`, conclusion `success`,
+      2026-07-13) — `items.responsible`-kolonnen (+ LWW/`get_my_doc`/
+      `import_doc`) og navne-seeden («Karin Falch» / «Peder Holman») er nå på
+      ekte Supabase.
 
 ## Manuelle steg (krever dashboard-tilgang — Peder)
 
