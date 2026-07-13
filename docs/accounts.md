@@ -106,7 +106,10 @@ kan alltid gjøre neste operasjon umiddelbart, uansett hvor treg forrige er:
   optimistiske raden / resynker) og viser feilen — sluttilstanden blir som om
   operasjonen aldri var mulig.
 - Ved utlogging (`cloudStop`) tømmes køen og overlayene (operasjonene tilhørte
-  den gamle sesjonen).
+  den gamle sesjonen). En operasjon som allerede er I LUFTA kan ikke avbrytes,
+  men en epoke-teller gjør at resultatet forkastes når den lander — ingen
+  callbacks og ingen nettverks-retry, så arbeid fra forrige konto aldri kjører
+  videre under en ny innlogging.
 
 **Optimistiske overlays** holder lokal visning stabil over synk-rebuilds til
 operasjonen har landet (applyMyDoc bygger ellers fra serverens metadata, som

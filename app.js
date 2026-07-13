@@ -4943,6 +4943,11 @@
     let running = null;
     let retryTimer = null;
     let retryDelay = 1000;
+    // Epoke: bumpes av clear() (utlogging). En operasjon som var I LUFTA da
+    // køen ble tømt, kan ikke avbrytes — men resultatet forkastes når den
+    // lander (ingen callbacks, ingen retry), så arbeid fra en gammel sesjon
+    // aldri kjører videre under en ny konto.
+    let epoch = 0;
     const WAIT_POLL_MS = 400;
     const WAIT_MAX_POLLS = 150; // ≈ 60 s
 
@@ -4976,16 +4981,16 @@
       let value, err = null;
       try { value = await op.run(); }
       catch (e) { err = e; }
+      running = null;
+      if (op._epoch !== epoch) { pump(); return; } // køen ble tømt (utlogging) mens den var i lufta → forkast
       if (err && isNetworkErr(err)) {
         // Offline/nett-glipp: behold rekkefølgen (fremst igjen) og prøv senere.
         queue.unshift(op);
-        running = null;
         clearTimeout(retryTimer);
         retryTimer = setTimeout(pump, retryDelay);
         retryDelay = Math.min(retryDelay * 2, 15000);
         return;
       }
-      running = null;
       retryDelay = 1000;
       op.value = value;
       try {
@@ -4995,6 +5000,7 @@
       pump();
     }
     function enqueue(op) {
+      op._epoch = epoch;
       if (op.key) {
         const dup = queue.find((o) => o.key === op.key);
         if (dup) {
@@ -5014,6 +5020,7 @@
       return false;
     }
     function clear() {
+      epoch++; // forkaster også en ev. operasjon som er i lufta akkurat nå
       queue.length = 0;
       clearTimeout(retryTimer);
       retryDelay = 1000;
