@@ -16,6 +16,25 @@
   var DB_KEY = 'hk-mock-db';
   var PING_KEY = 'hk-mock-ping';
 
+  // Kunstig «server»-forsinkelse (ms) på alle RPC-/tabell-kall: ?mock=1&lag=800.
+  // Brukes i tester for å bevise at UI-et er umiddelbart og operasjonskøen
+  // serialiserer riktig selv når operasjonene er trege. 0 (av) uten parameter.
+  var LAG = (function () {
+    var m = /[?&]lag=(\d+)/.exec(location.search);
+    return m ? Math.min(parseInt(m[1], 10) || 0, 10000) : 0;
+  })();
+  // Utfør et «server»-kall: run() kjøres ETTER forsinkelsen (som om forespørselen
+  // var underveis), og resultatet leveres asynkront. Kastede feil → { error }.
+  function serverCall(run) {
+    function attempt() {
+      try { return run(); } catch (e) { return { data: null, error: { message: e.message } }; }
+    }
+    if (!LAG) return Promise.resolve(attempt());
+    return new Promise(function (resolve) {
+      setTimeout(function () { resolve(attempt()); }, LAG);
+    });
+  }
+
   function loadDB() {
     try {
       var raw = localStorage.getItem(DB_KEY);
@@ -448,14 +467,13 @@
     });
 
     function thenable(fn) {
-      // Awaitbar builder som utfører fn() ved await; .eq() kjeder filtre.
+      // Awaitbar builder som utfører fn() ved await (etter ev. ?lag=-forsinkelse);
+      // .eq() kjeder filtre.
       var filters = {};
       var builder = {
         eq: function (col, val) { filters[col] = val; return builder; },
         then: function (resolve, reject) {
-          var res;
-          try { res = fn(filters); } catch (e) { res = { data: null, error: { message: e.message } }; }
-          return Promise.resolve(res).then(resolve, reject);
+          return serverCall(function () { return fn(filters); }).then(resolve, reject);
         },
       };
       return builder;
@@ -555,18 +573,18 @@
         };
       },
       rpc: function (name, params) {
-        var u = getSess();
-        if (!u) return Promise.resolve({ data: null, error: { message: 'ikke innlogget' } });
-        var db = loadDB();
-        var h = rpcHandlers(db, u.id)[name];
-        if (!h) return Promise.resolve({ data: null, error: { message: 'ukjent rpc: ' + name } });
-        try {
+        return serverCall(function () {
+          var u = getSess();
+          if (!u) return { data: null, error: { message: 'ikke innlogget' } };
+          // Databasen leses FØRST når kallet «når serveren» (etter forsinkelsen),
+          // så serialiserte kall ser hverandres skrivinger — som ekte Postgres.
+          var db = loadDB();
+          var h = rpcHandlers(db, u.id)[name];
+          if (!h) return { data: null, error: { message: 'ukjent rpc: ' + name } };
           var data = h(params || {});
           saveDB(db);
-          return Promise.resolve({ data: data, error: null });
-        } catch (e) {
-          return Promise.resolve({ data: null, error: { message: e.message } });
-        }
+          return { data: data, error: null };
+        });
       },
       channel: function (nm) {
         var ch = { _handlers: [], _statusCb: null,

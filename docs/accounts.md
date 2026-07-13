@@ -54,7 +54,10 @@ samme nested `state` som før; synken går slik (`cloudCycle`):
 
 1. **Pull**: `get_my_doc()` → flatt doc i samme fasong som synk-doc v1, men med
    ekstra felt per rad: `owner`/`mine`/`locked`/`shared`/`mount`, samt
-   `invites_in`/`invites_out`.
+   `invites_in`/`invites_out`. Rader med en optimistisk forlatt deling
+   (`suppressedRows`, se operasjonskøen under) filtreres bort — inkludert hele
+   undertreet — i `contentDocFromMy`, så reconcile verken gjenoppliver dem
+   lokalt eller pusher delete på eierens rader mens `leave_share` er underveis.
 2. **3-veis fletting** (`reconcile(base, local, remote)`) mot en base-snapshot
    (forrige serverkjente doc): felt-nivå LWW (gjenbruker `merge*Scalar`/
    `mergeItem` fra v1) for rader som finnes begge steder; eksistens avgjøres
@@ -63,13 +66,62 @@ samme nested `state` som før; synken går slik (`cloudCycle`):
 3. **Push**: rad-CRUD (`insert`/`update`/`delete`) mot tabellene for radene der
    vår tilstand vant. Serveren håndhever RLS + felt-LWW (BEFORE UPDATE-
    triggere), så klienten stempler bare registrene som før og lar serveren
-   avvise utdaterte/uautoriserte skrivinger.
+   avvise utdaterte/uautoriserte skrivinger. Etter en push kjøres straks en
+   bekreftelses-pull (`cloudAgain = true`) — den frisker opp `lastMy`, så
+   køede delings-operasjoner som venter på en nypushet rad
+   (`rowKnownToServer`) slipper å vente på neste poll.
 4. **Realtime** `postgres_changes` på de seks tabellene + poll (5 s) +
    `visibilitychange`/`focus`/`online` → `scheduleCloud`.
 
 `cloudBase` settes til fjern-doc'et hver runde (basen for neste 3-veis).
 Offline-buffer: `state` caches per bruker (`mine-lister-v1:<uid>`), uten intern
 metadata (`stateReplacer` hopper over `_`-felt for å unngå sykliske refs).
+
+## Bakgrunns-operasjonskøen (`opQueue`)
+
+Delings-operasjonene går ikke gjennom doc-synken, og ventet tidligere i UI-et
+(deaktiverte knapper, spinnere, «Laster …») til de hadde landet. Nå utføres de
+**optimistisk** i UI-et og legges i én **seriell kø** i bakgrunnen — brukeren
+kan alltid gjøre neste operasjon umiddelbart, uansett hvor treg forrige er:
+
+- **Serialisering**: neste operasjon starter først når forrige er ferdig, så to
+  skrivinger på samme rad aldri lander i feil rekkefølge.
+- **Koalescering** (`key` + `merge`): en operasjon med samme nøkkel som en som
+  VENTER i køen slås sammen med den (siste tilstand vinner) — lås-spam blir én
+  `set_locked` med sluttilstanden, gjentatte mount-flytt én membership-patch.
+- **Kjeding** (`op.value`): resultatet av en ferdig operasjon er tilgjengelig
+  for senere køede — «Trekk tilbake» på en invitasjon som ennå ikke er
+  opprettet, køes bak opprettelsen og bruker invitasjons-id-en fra dens svar.
+  Ligger opprettelsen fortsatt i kø, avbrytes den i stedet (`opQueue.cancel`) —
+  kontrollert avbrudd, ingen server-trafikk.
+- **Forutsetninger** (`waitFor`): en operasjon som avhenger av at doc-synken
+  har pushet en rad først (inviter/lås et NYOPPRETTET objekt), blir stående
+  fremst i køen til `rowKnownToServer(id)` er sann (raden finnes i `lastMy`).
+  Gir opp med rollback etter ~60 s, så en rad som aldri dukker opp ikke låser
+  køen evig.
+- **Nettverksfeil** (offline): operasjonen legges fremst igjen og prøves med
+  backoff (maks 15 s); `online`-hendelsen napper køen i gang. Rekkefølgen
+  bevares — alt bak venter, akkurat som doc-synken selv.
+- **Serveravvisning**: operasjonens `onError` ruller UI-et tilbake (fjerner den
+  optimistiske raden / resynker) og viser feilen — sluttilstanden blir som om
+  operasjonen aldri var mulig.
+- Ved utlogging (`cloudStop`) tømmes køen og overlayene (operasjonene tilhørte
+  den gamle sesjonen).
+
+**Optimistiske overlays** holder lokal visning stabil over synk-rebuilds til
+operasjonen har landet (applyMyDoc bygger ellers fra serverens metadata, som
+ennå ikke vet om endringen): `lockOverrides` (ønsket lås-status),
+`mountOverrides` (pos/trashed/parent for membership-patcher i kø — brukes også
+av «Plasser»-flyten, så objektet monteres lokalt på første pull selv før
+patchen har landet), `suppressedRows` (forlatte delinger, filtreres fra pull),
+`suppressedInvites` (besvarte invitasjoner, filtreres fra innboksen). Ryddes
+av operasjonens onDone/onError når køen ikke har flere operasjoner for samme
+nøkkel, fulgt av en resynk.
+
+Avveining: køen lever i minnet. Lukkes fanen FØR en køet operasjon har landet,
+er den borte (samme vindu som et vanlig RPC-kall hadde; doc-synkede endringer
+overlever derimot via localStorage-cachen). Operasjoner committes ikke ved
+`pagehide` — det finnes ingen synkron flush for autentiserte RPC-er.
 
 ## Mount-rendring (delt innhold)
 
@@ -84,9 +136,13 @@ rekkefølge + egen søppel) ligger i en membership-rad («mount»). I `applyMyDo
 - Metadata legges på objektene: `_owner`/`_mine`/`_locked`/`_shared`/`_mount`/
   `_parent`. `frozen(obj)` = objektet selv eller en forelder er låst av noen
   andre → redigering deaktiveres i UI (serveren blokkerer uansett).
-- Mount-endringer (flytt/rekkefølge/søppel) skrives direkte til `memberships`
-  (`cloudMountUpdate`), ikke via reconcile. Reorder/flytt-håndtererne (`onGroup
-  Up`/`onCardUp`) og slett/gjenopprett-stiene forgrener på `obj._mount`.
+  `attachMeta` legger de optimistiske overlayene (`lockOverrides`/
+  `mountOverrides`) OVER serverens metadata, så en endring med skrivingen
+  fortsatt i kø ikke visuelt hopper tilbake når en pull rekker å kjøre først.
+- Mount-endringer (flytt/rekkefølge/søppel) skrives til `memberships` via
+  operasjonskøen (`cloudMountUpdate`: koalescert per objekt + overlay), ikke
+  via reconcile. Reorder/flytt-håndtererne (`onGroup Up`/`onCardUp`) og
+  slett/gjenopprett-stiene forgrener på `obj._mount`.
 - «Umonterte» delinger (mount uten forelder, f.eks. valgt forelder slettet)
   havner i `pendingPlacements` og vises som «Plasser»-rader i innboksen.
 
@@ -103,14 +159,28 @@ rekkefølge + egen søppel) ligger i en membership-rad («mount»). I `applyMyDo
   vinduet utløper (eller fanen skjules). Angre innen vinduet gir null DB-trafikk.
   Buffer-flagget (`_pendingDelete`) gjenpåføres etter hver `applyMyDoc`
   (`reapplyPendingDeletes`), så en samtidig synk-runde ikke «angrer» skjulingen.
-- **Del-modal** (på univers/gruppe/liste, kun for eier eller mottaker):
-  eier ser inviter-på-e-post (`create_share_invite`), medlemsliste
-  (`get_members`), kast ut (`revoke_share`), trekk tilbake invitasjon
-  (`revoke_share_invite`) og lås/åpne (`set_locked`). Mottaker ser eier +
-  låst-status + «Forlat deling» (`leave_share`).
-- **Innboks** (i meny-modalen, badge på ☰): mottatte invitasjoner
-  (`invites_in`) godtas med plasseringsvalg (`accept_share_invite`) eller
-  avslås (`decline_share_invite`).
+- **Del-modal** (på univers/gruppe/liste, kun for eier eller mottaker): åpner
+  UMIDDELBART — eierskapet (`_mine`) kjennes synkront, så riktig visning
+  tegnes uten «Laster …»; eieren selv vises straks fra kontoens egne data
+  (`myOwnerInfo`), og medlemmer/ventende fylles inn når `get_members` lander.
+  Alle handlingene er optimistiske med selve RPC-en i operasjonskøen:
+  - **Inviter** (`create_share_invite`): raden («Venter på svar») vises og
+    feltet tømmes straks; flere invitasjoner køes etter hverandre. Feiler den
+    (ugyldig/duplikat/ikke synket), fjernes raden og feilen vises. «Trekk
+    tilbake» på en ennå-ikke-landet rad avbryter/kjeder (se opQueue).
+  - **Lås/åpne** (`set_locked`): knappen vender straks; spam koalesceres til
+    én skriving med sluttilstanden.
+  - **Kast ut** (`revoke_share`) / **trekk tilbake** (`revoke_share_invite`):
+    raden forsvinner straks; `refreshMembers` gjenoppretter ved avvisning.
+  - **Forlat deling** (mottaker, `leave_share`): objektet fjernes fra treet og
+    modalen lukkes straks (`removeMountLocally` + `cloudLeave` med
+    undertrykking). Mottakerens eier-navn hentes i bakgrunnen («Delt med deg»
+    til det lander).
+- **Innboks** (i meny-modalen, badge på ☰): godta (med plasseringsvalg,
+  `accept_share_invite`), avslå (`decline_share_invite`) og «Plasser»
+  (mount-patch) fjerner raden umiddelbart (`suppressedInvites`/
+  `pendingPlacements`-filtrering) med RPC-en i køen; innholdet dukker opp når
+  neste pull ser medlemskapet. Ved avvisning kommer raden tilbake + feil-toast.
 
 ## Navn, initialer og ansvarlig
 
@@ -133,22 +203,28 @@ rekkefølge + egen søppel) ligger i en membership-rad («mount»). I `applyMyDo
   innhold, så alle med redigeringstilgang kan endre den. Delegruppen er nærmeste
   delte forelder (én get_members-kall), ikke unionen av flere overlappende
   delinger — bevisst forenkling.
-- **«Venter»-låsing** (`pendingResp`): når man velger en ansvarlig, markeres
-  elementet som «i lufta» (keyet på id) → knappen viser en **spinner** og er
-  deaktivert til endringen har landet (`clearLandedResp` fjerner flagget når det
-  flettede doc-et har satt feltet på/forbi vår `ts` etter push). Dette hindrer
-  et nytt bytte før det forrige er committet — og dermed en race der en samtidig
-  synk-rebuild bytter ut item-objektet under en åpen popover og det siste byttet
-  går tapt. `setResponsible` slår dessuten opp det *levende* item-objektet på id
-  (`findAnyById`), så et foreldet objekt fanget av popoveren aldri muteres.
+- **Umiddelbart og fritt bytte** (ingen venting): valget vises i samme øyeblikk
+  (ansvarssirkelen males fra state) og kan byttes igjen med en gang — også mens
+  forrige endring fortsatt er i lufta. Korrektheten ligger i synk-motoren, ikke
+  i UI-låsing: `setResponsible` slår opp det *levende* item-objektet på id
+  (`findAnyById`, så et foreldet objekt fanget av popoveren aldri muteres) og
+  stempler innholds-registeret med et nytt `ts` per valg; den serielle
+  `cloudCycle`-en + felt-LWW gjør at det siste valget alltid vinner, både
+  lokalt og på serveren. (Den gamle `pendingResp`-spinneren/-låsen er fjernet.)
+  Popoveren åpner også umiddelbart: cachet delegruppe males straks
+  (stale-while-revalidate), en fersk `get_members` bygger radene om når den
+  lander (ansvaret re-leses live på id, og panelet reposisjoneres aldri mot en
+  anker-knapp en rebuild har revet ut av DOM-en).
 
 ## Søppel-semantikk for delinger
 
 For en mottaker er «slett» på selve share-roten = legg mounten i egen søppel
 (`membership.trashed`); tømming = `leave_share` (forlat, rører ikke eierens
-innhold). Innhold UNDER en deling slettes som vanlig (felles `trashed`,
-gjelder alle). Håndteres i delete-/empty-/restore-stiene ved å forgrene på
-`obj._mount`. Serveren håndhever reglene uansett (RLS + trashed-vakter).
+innhold — går via operasjonskøen med `suppressedRows`-undertrykking, se
+`docs/trash.md`). Innhold UNDER en deling slettes som vanlig (felles
+`trashed`, gjelder alle). Håndteres i delete-/empty-/restore-stiene ved å
+forgrene på `obj._mount`. Serveren håndhever reglene uansett (RLS +
+trashed-vakter).
 
 ## Migreringsflyt
 
@@ -166,6 +242,15 @@ brukere. Nok fidelitet til å kjøre hele delingsflyten, server-LWW, lås og
 forlat/utkast, uten ekte backend eller e-postbekreftelse. Ikke en full RLS-
 implementasjon; produksjon bruker ekte Supabase.
 
+`?mock=1&lag=800` legger en kunstig «server»-forsinkelse (ms) på alle RPC-/
+tabell-kall (ikke auth) — brukes til å bevise at UI-et er umiddelbart og at
+operasjonskøen serialiserer riktig når operasjonene er trege.
+
 Verifisert med Playwright: registrering→«sjekk innboksen»→innlogging, CRUD +
 buffer over reload, to-bruker-deling (inviter→godta m/plassering→mount→kryss-
-bruker-synk→lås/frys→forlat), migrering, og desktop+mobil.
+bruker-synk→lås/frys→forlat), migrering, og desktop+mobil. Operasjonskøen er
+verifisert med `lag=800`: umiddelbar del-modal, køede invitasjoner m/
+tilbaketrekking, lås-spam→koalescert sluttilstand, umiddelbar aksept,
+fritt ansvars-bytte med LWW-sluttilstand, gjenopprett/tøm under buffret
+sletting, mount-sletting uten gjenoppstandelse under pull, og forlat uten
+resurrect-blink.

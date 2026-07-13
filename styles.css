@@ -501,21 +501,6 @@ body {
   font-weight: 700;
   font-variant-numeric: tabular-nums;
 }
-/* Buffer-slettede (_pendingDelete) objekter ligger i søppelen, men kan ikke
-   tømmes ennå (emptyXTrash hopper over dem til de er committet) — vis en
-   spinner i stedet for tallet så det er tydelig at sveip/tøm ikke virker enda. */
-.trashcan-count.pending { color: transparent; }
-.trashcan-count.pending::after {
-  content: '';
-  position: absolute;
-  width: 13px;
-  height: 13px;
-  border: 2px solid rgba(0, 0, 0, 0.14);
-  border-top-color: var(--ink-soft);
-  border-radius: 50%;
-  animation: spin 0.7s linear infinite;
-}
-
 /* Sveipefelt: fixed felt som «vokser ut av» søppelkasse-knappen ved
    klikk-og-hold — JS starter det med knappens eksakte posisjon/størrelse/
    radius (og skjuler knappen imens), så det ser ut som knappen selv utvider
@@ -854,9 +839,6 @@ body {
 .item-resp:focus-visible { outline: 2.5px solid var(--primary); outline-offset: 2px; }
 .item-resp:disabled { cursor: default; }
 .item.done .item-resp { opacity: 0.5; }
-/* «Lagrer ansvarlig …»: spinner mens endringen er i lufta (låst mot nytt bytte). */
-.item-resp.is-pending { opacity: 1; }
-.item-resp .spinner { width: 18px; height: 18px; border-width: 2px; }
 
 /* Farget sirkel med initialer (ansvarssirkel). Bakgrunnsfargen settes inline
    fra paletten (personens plass i delegruppen). */
@@ -1244,19 +1226,6 @@ body.is-dragging * { cursor: grabbing !important; }
 .trash-name { flex: 1; font-weight: 600; font-size: var(--fs-base); word-break: break-word; }
 .trash-meta { color: var(--ink-soft); font-size: var(--fs-sm); font-weight: 500; white-space: nowrap; }
 .trash-empty-msg { text-align: center; color: var(--ink-soft); font-weight: 500; font-size: var(--fs-base); padding: 26px 0; margin: 0; }
-/* Lasteindikator i søppel-modalen for buffer-slettede (ennå ikke committede)
-   objekter — vises til slettingen faktisk er skrevet og objektet kan
-   gjenopprettes. Snurringen nøytraliseres under «reduser bevegelse». */
-.spinner {
-  flex: 0 0 auto;
-  width: 26px;
-  height: 26px;
-  border: 2.5px solid rgba(0, 0, 0, 0.14);
-  border-top-color: var(--primary);
-  border-radius: 50%;
-  animation: spin 0.7s linear infinite;
-}
-@keyframes spin { to { transform: rotate(360deg); } }
 
 .modal-foot {
   display: flex;
