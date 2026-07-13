@@ -66,10 +66,41 @@ bygget treet på nytt) og dermed ikke virket før noen sekunder hadde gått.
   gang til slutt.
 
 «Angre» (og «Gjenopprett» for committede) bruker de delte
-`restoreUniverse/Group/Card/Item`-hjelperne (samme kode begge steder).
+`restoreUniverse/Group/Card/Item`-hjelperne (samme kode begge steder). Også
+disse slår opp objektet på nytt via `findAnyById(id)` FØR de muterer det —
+aldri referansen som ble sendt inn (se «Foreldede referanser i modalen» under).
 
 Sveipefeltets tekst er «Tøm» + en pil som fyller resten av feltet (symmetrisk
 padding, satt i JS).
+
+### Foreldede referanser i modalen (element-søppelkassen)
+
+Søppel-modalen kan stå åpen mens synken bygger hele state-treet på nytt
+(`applyDoc`/`applyMyDoc` gjør `state.universes = [...ferske objekter]` hver
+sky-runde — poll hvert 5. sekund + realtime-ekko i kontomodus). Da blir enhver
+fanget objekt-referanse fra da modalen ble åpnet, foreldreløs.
+
+De tre andre søppelkassene (`openUniversesTrash`/`openGroupsTrash`/
+`openCardsTrash`) leser allerede ferskt fra `state` i hver `rows()`-kall
+(`trashedUniverses()`/`trashedGroups()`/`trashedCards()`). **Element-modalen
+(`openItemsTrash`) gjorde det ikke** — den fanget `cardData` én gang og lot
+`rows()` lese `trashedItemsOf(cardData)` fra den. Etter en tre-rebuild pekte
+den på et foreldreløst kort, som ga to symptomer (kun elementer, ikke grupper/
+universer):
+
+1. **Spinner som aldri ga seg**: åpnet man modalen rett etter en element-
+   sletting og en rebuild traff mens den sto åpen, ryddet commit `_pendingDelete`
+   på det LEVENDE objektet, mens modalens foreldreløse kort beholdt flagget →
+   spinner for alltid, «Tøm permanent» aldri aktiv.
+2. **«Gjenopprett» som ikke festet seg**: klikket satte `trashed = false` på den
+   foreldreløse kopien → modalen så tom ut, men det levende treet hadde elementet
+   fortsatt slettet; ved neste åpning var det der igjen.
+
+Fiks: `openItemsTrash` slår opp kortet på nytt via `findAnyById(cardId)` i hver
+`rows()`/`empty()`-kall (som de andre gjør mot `state`), og `restore` går via
+`restoreItem(it)` som re-slår opp elementet på id. Restore-hjelperne for alle
+fire nivåene er samtidig gjort id-baserte, så samme klasse feil ikke kan ramme
+gruppe-/univers-gjenoppretting hvis en rebuild treffer mellom render og klikk.
 
 ## Interaksjon (`attachTrashHold`)
 

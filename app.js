@@ -1204,25 +1204,36 @@
      Ett sted for «trashed = false»-logikken per nivå (håndterer også monterte
      delinger via mount-oppdatering), så både «Gjenopprett» i søppel-modalen og
      «Angre» i slette-toasten bruker nøyaktig samme kode. */
+  // Alle fire slår opp objektet på nytt via id FØR de muterer det — aldri den
+  // (potensielt foreldede) referansen som ble sendt inn. Søppel-modalen kan stå
+  // åpen mens synken bygger state-treet på nytt (`applyDoc`/`applyMyDoc` bytter
+  // ut hele `state.universes` med ferske objekter), så en fanget referanse fra
+  // da modalen ble åpnet peker på et foreldreløst tre. Uten oppslaget satte
+  // «Gjenopprett» `trashed = false` på den foreldreløse kopien — modalen så tom
+  // ut, men det levende treet hadde objektet fortsatt slettet.
   function restoreUniverse(u) {
+    const f = findAnyById(u.id); if (!f || f.kind !== 'universe') return; u = f.obj;
     if (u._mount) { u.trashed = false; u._mount.trashed = false; cloudMountUpdate('universe', u.id, { trashed: false }); }
     else { u.trashed = false; stampContent(u); }
     if (!activeUniverseObj()) setActiveUniverse(u.id); // ingen aktiv? aktivér den gjenopprettede
     render(); save();
   }
   function restoreGroup(g) {
+    const f = findAnyById(g.id); if (!f || f.kind !== 'group') return; g = f.obj;
     if (g._mount) { g.trashed = false; g._mount.trashed = false; cloudMountUpdate('group', g.id, { trashed: false }); }
     else { g.trashed = false; stampContent(g); }
     if (!activeGroupObj()) setActiveGroup(g.id);
     render(); save();
   }
   function restoreCard(c) {
+    const f = findAnyById(c.id); if (!f || f.kind !== 'card') return; c = f.obj;
     if (c._mount) { c.trashed = false; c._mount.trashed = false; cloudMountUpdate('card', c.id, { trashed: false }); }
     else { c.trashed = false; stampContent(c); }
     render(); save();
   }
-  function restoreItem(it, cardData) {
-    it.trashed = false; stampContent(it); refreshCard(cardData); save();
+  function restoreItem(it) {
+    const f = findAnyById(it.id); if (!f || f.kind !== 'item') return;
+    f.obj.trashed = false; stampContent(f.obj); refreshCard(f.card); save();
   }
 
   /* ---------------- DELETE-BUFFER (optimistisk sletting med angre) ----------------
@@ -2749,16 +2760,26 @@
   }
 
   function openItemsTrash(cardData) {
+    // De tre andre søppelkassene leser ferskt fra `state` i hver `rows()`-kall
+    // (`trashedGroups()`/…); elementmodalen må gjøre det samme via id-oppslag i
+    // stedet for å fange `cardData` én gang — ellers peker den på et foreldreløst
+    // kort etter at synken har bygget treet på nytt (spinner som aldri gir seg,
+    // «Gjenopprett» som ikke fester seg). Se restore-hjelperne over.
+    const cardId = cardData.id;
+    const liveCard = () => { const f = findAnyById(cardId); return f && f.kind === 'card' ? f.obj : null; };
     showTrashModal({
       title: 'Slettede elementer – ' + cardData.title,
       note: TRASH_NOTE,
       emptyMsg: 'Ingen slettede elementer.',
-      rows: () => trashedItemsOf(cardData).sort(posCmp).map((it) => ({
-        name: it.text,
-        pending: !!it._pendingDelete,
-        restore: () => restoreItem(it, cardData),
-      })),
-      empty: () => emptyItemsTrash(cardData),
+      rows: () => {
+        const c = liveCard();
+        return c ? trashedItemsOf(c).sort(posCmp).map((it) => ({
+          name: it.text,
+          pending: !!it._pendingDelete,
+          restore: () => restoreItem(it),
+        })) : [];
+      },
+      empty: () => { const c = liveCard(); if (c) emptyItemsTrash(c); },
     });
   }
 
