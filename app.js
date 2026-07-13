@@ -2924,7 +2924,7 @@
       // Utvid mot høyre så langt det trengs/er plass (venstre kant og høyde
       // ligger fast → ingen vertikal asymmetri, ikonet står i ro).
       const width = Math.max(Math.round(r.width),
-        Math.min(310, vw - EDGE - Math.round(r.left)));
+        Math.min(207, vw - EDGE - Math.round(r.left)));
       field.style.width = width + 'px';
       btnRect = r;
       // Knappen skjules IKKE: det opake feltet starter med knappens eksakte
