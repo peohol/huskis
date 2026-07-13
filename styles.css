@@ -854,6 +854,9 @@ body {
 .item-resp:focus-visible { outline: 2.5px solid var(--primary); outline-offset: 2px; }
 .item-resp:disabled { cursor: default; }
 .item.done .item-resp { opacity: 0.5; }
+/* «Lagrer ansvarlig …»: spinner mens endringen er i lufta (låst mot nytt bytte). */
+.item-resp.is-pending { opacity: 1; }
+.item-resp .spinner { width: 18px; height: 18px; border-width: 2px; }
 
 /* Farget sirkel med initialer (ansvarssirkel). Bakgrunnsfargen settes inline
    fra paletten (personens plass i delegruppen). */

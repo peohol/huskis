@@ -1076,6 +1076,13 @@
   // get_members; personens indeks gir paletten (colorForIndex).
   const shareGroupCache = new Map();
   const shareGroupLoading = new Set();
+  // Elementer med en ansvars-endring som ennå ikke har «landet» (pushet til
+  // serveren): id → ts-en vi stemplet. Mens en endring er i lufta viser knappen
+  // en spinner og er deaktivert, så man ikke kan bytte igjen før den forrige er
+  // committet (unngår en race der en samtidig synk-rebuild bytter ut item-
+  // objektet under en åpen popover og det siste byttet går tapt). Keyet på id,
+  // ikke på objektet, så det overlever applyMyDoc-rebuilds.
+  const pendingResp = new Map();
   function rootKey(type, id) { return type + ':' + id; }
   function personEntry(p) {
     return { id: p.id, email: p.email, name: personName(p), initials: initialsFromName(p.display_name, p.email) };
@@ -1107,6 +1114,21 @@
     }).catch(() => { shareGroupLoading.delete(key); });
   }
 
+  // En ansvars-endring har «landet» når det flettede doc-et har satt feltet på
+  // (eller forbi) ts-en vi stemplet — dvs. endringen er pushet og reflektert, ev.
+  // overskrevet av en nyere endring. Da fjernes «venter»-flagget og board-et
+  // tegnes på nytt (spinner → ansvarssirkel). Kalles fra cloudCycle etter push.
+  function clearLandedResp(mergedDoc) {
+    if (!pendingResp.size) return;
+    const byId = new Map((mergedDoc.items || []).map((it) => [it.id, it]));
+    let cleared = false;
+    pendingResp.forEach((ts, id) => {
+      const it = byId.get(id);
+      if (!it || (it.ts || 0) >= ts) { pendingResp.delete(id); cleared = true; }
+    });
+    if (cleared && !isBusyEditing()) render();
+  }
+
   // En farget sirkel med initialer (ansvarssirkelen). Fargen fra paletten via
   // personens indeks i delegruppen; ukjent person → stabil id-farge.
   function respAvatar(person, index) {
@@ -1122,6 +1144,15 @@
   // fargede initial-sirkelen for den ansvarlige (fra delegruppen `group`).
   function paintResp(btn, itemData, group) {
     btn.innerHTML = '';
+    btn.classList.remove('has-resp', 'is-pending');
+    // Endring i lufta → spinner (kan ikke bytte før den har landet).
+    if (pendingResp.has(itemData.id)) {
+      btn.innerHTML = '<span class="spinner" aria-hidden="true"></span>';
+      btn.classList.add('is-pending');
+      btn.title = 'Lagrer ansvarlig …';
+      btn.setAttribute('aria-label', 'Lagrer ansvarlig …');
+      return;
+    }
     const rid = itemData.responsible;
     const entry = rid && group ? group.byId.get(rid) : null;
     if (entry) {
@@ -1225,7 +1256,8 @@
       if (!group) ensureShareGroup(rType, shareRoot.id);
       respBtn.hidden = false;
       paintResp(respBtn, itemData, group);
-      if (!canEdit) respBtn.disabled = true;
+      // Deaktivert mens en tidligere ansvars-endring ennå ikke har landet.
+      if (!canEdit || pendingResp.has(itemData.id)) respBtn.disabled = true;
       else respBtn.addEventListener('click', () => openResponsible(itemData, cardData, shareRoot, rType, respBtn));
     }
     return el;
@@ -3346,10 +3378,15 @@
     updateModalOpenClass();
   }
   function setResponsible(itemData, cardData, userId) {
-    if ((itemData.responsible || null) === (userId || null)) return;
-    itemData.responsible = userId || null;
-    stampContent(itemData);
-    const owner = findCard(cardData.id) || cardData;
+    // Slå opp DET LEVENDE objektet på id — popoveren kan ha fanget et foreldet
+    // item/kort hvis en synk-rebuild kjørte mens den var åpen.
+    const live = findAnyById(itemData.id);
+    const item = live && live.kind === 'item' ? live.obj : itemData;
+    if ((item.responsible || null) === (userId || null)) return;
+    item.responsible = userId || null;
+    stampContent(item);
+    pendingResp.set(item.id, item.ts); // marker «venter» → spinner + låst til den lander
+    const owner = (live && live.card) || findCard(cardData.id) || cardData;
     refreshCard(owner);
     save();
   }
@@ -4880,6 +4917,7 @@
       if (!isBusyEditing()) applyMyDoc(merged, meta);
       else if (canonical(merged) !== canonical(local)) cloudAgain = true;
       if (ops.length) await pushOps(ops);
+      clearLandedResp(merged);
       updateInbox(my);
       maybeOfferMigration(my);
     } catch (e) {
@@ -5333,6 +5371,7 @@
     if (cloudChan && aclient) { try { aclient.removeChannel(cloudChan); } catch (e) {} }
     cloudChan = null; cloudRt = false; cloudBase = null; lastMy = null;
     cloudStarted = false;
+    shareGroupCache.clear(); shareGroupLoading.clear(); pendingResp.clear();
     authUser = null;
     state.universes = [];
     document.body.classList.add('no-auth');

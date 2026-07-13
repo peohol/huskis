@@ -133,6 +133,14 @@ rekkefølge + egen søppel) ligger i en membership-rad («mount»). I `applyMyDo
   innhold, så alle med redigeringstilgang kan endre den. Delegruppen er nærmeste
   delte forelder (én get_members-kall), ikke unionen av flere overlappende
   delinger — bevisst forenkling.
+- **«Venter»-låsing** (`pendingResp`): når man velger en ansvarlig, markeres
+  elementet som «i lufta» (keyet på id) → knappen viser en **spinner** og er
+  deaktivert til endringen har landet (`clearLandedResp` fjerner flagget når det
+  flettede doc-et har satt feltet på/forbi vår `ts` etter push). Dette hindrer
+  et nytt bytte før det forrige er committet — og dermed en race der en samtidig
+  synk-rebuild bytter ut item-objektet under en åpen popover og det siste byttet
+  går tapt. `setResponsible` slår dessuten opp det *levende* item-objektet på id
+  (`findAnyById`), så et foreldet objekt fanget av popoveren aldri muteres.
 
 ## Søppel-semantikk for delinger
 
