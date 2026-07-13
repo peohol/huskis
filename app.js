@@ -548,9 +548,10 @@
   /* ---------------- Render ---------------- */
   // Lister-søppelkassen vises kun når den har innhold (samme logikk som de andre).
   function updateTrashCount() {
-    const n = trashedCards().length;
-    trashCount.textContent = n;
-    trashBtn.hidden = n === 0;
+    const list = trashedCards();
+    trashCount.textContent = list.length;
+    trashCount.classList.toggle('pending', list.some((c) => c._pendingDelete));
+    trashBtn.hidden = list.length === 0;
   }
 
   function render() {
@@ -660,9 +661,10 @@
 
   // Gruppe-søppelkassen (per univers): vises kun når det ligger grupper i den.
   function updateGroupsTrash() {
-    const n = trashedGroups().length;
-    groupsTrashCount.textContent = n;
-    groupsTrashBtn.hidden = n === 0;
+    const list = trashedGroups();
+    groupsTrashCount.textContent = list.length;
+    groupsTrashCount.classList.toggle('pending', list.some((g) => g._pendingDelete));
+    groupsTrashBtn.hidden = list.length === 0;
   }
 
   function buildGroupCard(groupData) {
@@ -977,9 +979,11 @@
       const count = document.createElement('span');
       count.className = 'trashcan-count';
       count.textContent = trashed.length;
+      count.classList.toggle('pending', trashed.some((it) => it._pendingDelete));
       btn.append(icon, count);
       attachTrashHold(btn, {
         count: () => trashedItemsOf(cardData).length,
+        pending: () => trashedItemsOf(cardData).some((it) => it._pendingDelete),
         open: () => openItemsTrash(cardData),
         empty: () => emptyItemsTrash(cardData),
       });
@@ -1200,25 +1204,36 @@
      Ett sted for «trashed = false»-logikken per nivå (håndterer også monterte
      delinger via mount-oppdatering), så både «Gjenopprett» i søppel-modalen og
      «Angre» i slette-toasten bruker nøyaktig samme kode. */
+  // Alle fire slår opp objektet på nytt via id FØR de muterer det — aldri den
+  // (potensielt foreldede) referansen som ble sendt inn. Søppel-modalen kan stå
+  // åpen mens synken bygger state-treet på nytt (`applyDoc`/`applyMyDoc` bytter
+  // ut hele `state.universes` med ferske objekter), så en fanget referanse fra
+  // da modalen ble åpnet peker på et foreldreløst tre. Uten oppslaget satte
+  // «Gjenopprett» `trashed = false` på den foreldreløse kopien — modalen så tom
+  // ut, men det levende treet hadde objektet fortsatt slettet.
   function restoreUniverse(u) {
+    const f = findAnyById(u.id); if (!f || f.kind !== 'universe') return; u = f.obj;
     if (u._mount) { u.trashed = false; u._mount.trashed = false; cloudMountUpdate('universe', u.id, { trashed: false }); }
     else { u.trashed = false; stampContent(u); }
     if (!activeUniverseObj()) setActiveUniverse(u.id); // ingen aktiv? aktivér den gjenopprettede
     render(); save();
   }
   function restoreGroup(g) {
+    const f = findAnyById(g.id); if (!f || f.kind !== 'group') return; g = f.obj;
     if (g._mount) { g.trashed = false; g._mount.trashed = false; cloudMountUpdate('group', g.id, { trashed: false }); }
     else { g.trashed = false; stampContent(g); }
     if (!activeGroupObj()) setActiveGroup(g.id);
     render(); save();
   }
   function restoreCard(c) {
+    const f = findAnyById(c.id); if (!f || f.kind !== 'card') return; c = f.obj;
     if (c._mount) { c.trashed = false; c._mount.trashed = false; cloudMountUpdate('card', c.id, { trashed: false }); }
     else { c.trashed = false; stampContent(c); }
     render(); save();
   }
-  function restoreItem(it, cardData) {
-    it.trashed = false; stampContent(it); refreshCard(cardData); save();
+  function restoreItem(it) {
+    const f = findAnyById(it.id); if (!f || f.kind !== 'item') return;
+    f.obj.trashed = false; stampContent(f.obj); refreshCard(f.card); save();
   }
 
   /* ---------------- DELETE-BUFFER (optimistisk sletting med angre) ----------------
@@ -1257,12 +1272,13 @@
   // objektet var allerede skjult (buffret), så board-et endres ikke visuelt.
   function commitDeleteOne(id) {
     const entry = pendingDeletes.get(id);
-    if (!entry) return;
+    if (!entry) return null;
     pendingDeletes.delete(id);
     const found = findAnyById(id);
-    if (!found) return;
+    if (!found) return null;
     delete found.obj._pendingDelete;
     entry.commit(found.obj);
+    return found; // { kind, obj, card? } — brukes til å rydde riktig badge (se under)
   }
   // Angrer ETT objekt (fjern flagget) uten å tegne på nytt.
   function undoDeleteOne(id) {
@@ -1272,11 +1288,40 @@
     const found = findAnyById(id);
     if (found) delete found.obj._pendingDelete;
   }
+  // Oppdaterer KUN element-søppel-badgen på ett kort (tall + pending-spinner),
+  // uten å bygge kortet på nytt — så en pågående inline-redigering i samme kort
+  // (eller andre kort) ikke forstyrres. commitDeleteOne bufrer ikke — badgen
+  // (med spinner) finnes allerede i DOM-en fra da elementet ble slettet.
+  function updateItemsTrashBadge(cardData) {
+    const count = board.querySelector('.card[data-id="' + cardData.id + '"] .item-trash-btn .trashcan-count');
+    if (!count) return;
+    const trashed = trashedItemsOf(cardData);
+    count.textContent = trashed.length;
+    count.classList.toggle('pending', trashed.some((it) => it._pendingDelete));
+  }
+  // Rydder pending-spinnerne som hørte til nettopp committede objekter — uten en
+  // full render() (som ville revet ned en pågående inline-redigering et annet
+  // sted i UI-et). `committed` er resultatene fra commitDeleteOne (kan inneholde
+  // null for allerede fjernede/ukjente id-er).
+  function refreshTrashBadgesAfterCommit(committed) {
+    const kinds = new Set(), cards = new Set();
+    committed.forEach((f) => {
+      if (!f) return;
+      kinds.add(f.kind);
+      if (f.kind === 'item' && f.card) cards.add(f.card);
+    });
+    if (kinds.has('universe')) updateUniversesTrash();
+    if (kinds.has('group')) updateGroupsTrash();
+    if (kinds.has('card')) updateTrashCount();
+    cards.forEach(updateItemsTrashBadge);
+  }
   function commitAllPending() {
     if (deleteToast) { clearTimeout(deleteToast.timer); deleteToast = null; hideToast(); }
     if (!pendingDeletes.size) return;
-    [...pendingDeletes.keys()].forEach(commitDeleteOne);
+    const committed = [...pendingDeletes.keys()].map(commitDeleteOne);
     save();
+    refreshTrashBadgesAfterCommit(committed);
+    if (!trashModal.hidden) renderTrashModalBody();
   }
   // Etter at synken har bygget state-treet på nytt: gjenpåfør buffer-flagget på
   // de friske objektene (ellers ville et buffret objekt dukket opp igjen).
@@ -1310,8 +1355,9 @@
     clearTimeout(deleteToast.timer);
     deleteToast.timer = setTimeout(() => {
       const g = deleteToast; deleteToast = null;
-      g.ids.forEach(commitDeleteOne);
+      const committed = g.ids.map(commitDeleteOne);
       save();
+      refreshTrashBadgesAfterCommit(committed);
       hideToast();
       if (!trashModal.hidden) renderTrashModalBody();
     }, DELETE_BUFFER_MS);
@@ -1321,8 +1367,9 @@
     if (deleteToast && deleteToast.kind !== kind) {
       const old = deleteToast; deleteToast = null;
       clearTimeout(old.timer);
-      old.ids.forEach(commitDeleteOne);
+      const committed = old.ids.map(commitDeleteOne);
       save();
+      refreshTrashBadgesAfterCommit(committed);
       if (!trashModal.hidden) renderTrashModalBody();
     }
     if (deleteToast && deleteToast.kind === kind) {
@@ -2606,9 +2653,10 @@
       trashEmptyBtn.disabled = true;
       return;
     }
-    // «Tøm permanent» gjelder kun ferdig-committede objekter; buffer-slettede
-    // (som ennå kan angres via toasten) hoppes over.
-    trashEmptyBtn.disabled = !rows.some((r) => !r.pending);
+    // «Tøm permanent» krever at ALLE rader er ferdig committet — er noen
+    // fortsatt buffer-slettet (_pendingDelete) hopper emptyXTrash over dem, så
+    // knappen må vente til alt er klart (ellers ser det ut som tømming feiler).
+    trashEmptyBtn.disabled = rows.some((r) => r.pending);
     rows.forEach((r) => {
       const row = document.createElement('div');
       row.className = 'trash-row';
@@ -2712,16 +2760,26 @@
   }
 
   function openItemsTrash(cardData) {
+    // De tre andre søppelkassene leser ferskt fra `state` i hver `rows()`-kall
+    // (`trashedGroups()`/…); elementmodalen må gjøre det samme via id-oppslag i
+    // stedet for å fange `cardData` én gang — ellers peker den på et foreldreløst
+    // kort etter at synken har bygget treet på nytt (spinner som aldri gir seg,
+    // «Gjenopprett» som ikke fester seg). Se restore-hjelperne over.
+    const cardId = cardData.id;
+    const liveCard = () => { const f = findAnyById(cardId); return f && f.kind === 'card' ? f.obj : null; };
     showTrashModal({
       title: 'Slettede elementer – ' + cardData.title,
       note: TRASH_NOTE,
       emptyMsg: 'Ingen slettede elementer.',
-      rows: () => trashedItemsOf(cardData).sort(posCmp).map((it) => ({
-        name: it.text,
-        pending: !!it._pendingDelete,
-        restore: () => restoreItem(it, cardData),
-      })),
-      empty: () => emptyItemsTrash(cardData),
+      rows: () => {
+        const c = liveCard();
+        return c ? trashedItemsOf(c).sort(posCmp).map((it) => ({
+          name: it.text,
+          pending: !!it._pendingDelete,
+          restore: () => restoreItem(it),
+        })) : [];
+      },
+      empty: () => { const c = liveCard(); if (c) emptyItemsTrash(c); },
     });
   }
 
@@ -2833,7 +2891,7 @@
       swipeLidEl.style.transform = 'rotate(' + (-95 * pc) + 'deg)';
     }
     function openField() {
-      if (api.count() <= 0) return;    // ingenting å tømme
+      if (api.count() <= 0 || api.pending()) return; // ingenting å tømme, eller ikke alt klart ennå
       mode = 'swiping';
       clearTimeout(swipeCollapseTimer);
       swipeOwnerBtn = btn;
@@ -2906,11 +2964,29 @@
       }, SHAKE_MS);
     }
 
+    // Fanger tilfellet der knappen fjernes fra DOM-en midt i et trykk/sveip
+    // (f.eks. et kort bygges på nytt av en synk mens man holder inne) — da
+    // frigis pekerfangsten implisitt, UTEN at pointerup/pointercancel noensinne
+    // fyres på den (nå frakoblede) knappen, og feltet ble hengende åpent til
+    // neste trykk. Nettleseren leverer i dette tilfellet lostpointercapture på
+    // `document` (ikke på knappen selv), filtrert på pointerId — koblet til/fra
+    // per trykk (ikke i selve attachTrashHold) for å unngå at hvert re-bygde
+    // element-søppel-ikon (buildCard kaller attachTrashHold på nytt hver gang)
+    // legger igjen en varig lytter på document.
+    function onLostCapture(ev) {
+      if (ev.pointerId !== pid) return;
+      document.removeEventListener('lostpointercapture', onLostCapture, true);
+      if (mode == null) return;
+      clearTimeout(holdTimer); holdTimer = null;
+      if (mode === 'swiping') collapseField(); // rydder feltet uten å tømme
+      if (mode !== 'done') mode = null;
+    }
     btn.addEventListener('pointerdown', (ev) => {
       if (ev.button != null && ev.button > 0) return;
       ev.preventDefault();
       pid = ev.pointerId;
       try { btn.setPointerCapture(pid); } catch (e) { /* ignore */ }
+      document.addEventListener('lostpointercapture', onLostCapture, true);
       startX = ev.clientX; startY = ev.clientY;
       mode = 'pending';
       clearTimeout(holdTimer);
@@ -2930,14 +3006,18 @@
     });
     const onUp = (ev) => {
       if (pid != null) { try { btn.releasePointerCapture(pid); } catch (e) { /* ignore */ } }
+      document.removeEventListener('lostpointercapture', onLostCapture, true);
       clearTimeout(holdTimer); holdTimer = null;
       // Svelg det etterfølgende (peker-genererte) klikket uansett, så det verken
       // åpner modalen på nytt (etter sveip) eller treffer modal-overlay-en.
       ignoreClick = true; setTimeout(() => { ignoreClick = false; }, 350);
-      const moved = Math.abs(ev.clientX - startX) > SWIPE_MOVE || Math.abs(ev.clientY - startY) > SWIPE_MOVE;
-      // Slapp før feltet rakk å utvide seg (mode fortsatt 'pending'), uten bevegelse
-      // → kort trykk → åpne modalen (utsatt til etter click-sekvensen).
-      if (mode === 'pending' && !moved) {
+      // Feltet ble aldri faktisk åpnet (mode fortsatt 'pending') — enten et kort
+      // trykk, ELLER et sveipeforsøk som openField() avviste (api.pending()
+      // sperrer sveip mens noe fortsatt er buffret, uansett bevegelse). I begge
+      // tilfeller er ingenting synlig endret, så vi åpner modalen uansett liten
+      // bevegelse — ellers ble trykket helt uten respons (utsatt til etter
+      // click-sekvensen).
+      if (mode === 'pending') {
         mode = null;
         setTimeout(() => api.open(), 0);
         return;
@@ -2957,16 +3037,19 @@
   /* ---------- Kobling: faste knapper (universer/grupper/lister) + modal-kontroller ---------- */
   attachTrashHold(trashBtn, {
     count: () => trashedCards().length,
+    pending: () => trashedCards().some((c) => c._pendingDelete),
     open: openCardsTrash,
     empty: emptyCardsTrash,
   });
   attachTrashHold(groupsTrashBtn, {
     count: () => trashedGroups().length,
+    pending: () => trashedGroups().some((g) => g._pendingDelete),
     open: openGroupsTrash,
     empty: emptyGroupsTrash,
   });
   attachTrashHold(uniTrashBtn, {
     count: () => trashedUniverses().length,
+    pending: () => trashedUniverses().some((u) => u._pendingDelete),
     open: openUniversesTrash,
     empty: emptyUniversesTrash,
   });
@@ -3025,9 +3108,10 @@
 
   // Univers-søppelkassen (i menyen): vises kun når den har innhold.
   function updateUniversesTrash() {
-    const n = trashedUniverses().length;
-    uniTrashCount.textContent = n;
-    uniTrashBtn.hidden = n === 0;
+    const list = trashedUniverses();
+    uniTrashCount.textContent = list.length;
+    uniTrashCount.classList.toggle('pending', list.some((u) => u._pendingDelete));
+    uniTrashBtn.hidden = list.length === 0;
   }
 
   // Tegn univers-radene i menyen. Kalles fra render() (så fjern-endringer

@@ -66,10 +66,41 @@ bygget treet på nytt) og dermed ikke virket før noen sekunder hadde gått.
   gang til slutt.
 
 «Angre» (og «Gjenopprett» for committede) bruker de delte
-`restoreUniverse/Group/Card/Item`-hjelperne (samme kode begge steder).
+`restoreUniverse/Group/Card/Item`-hjelperne (samme kode begge steder). Også
+disse slår opp objektet på nytt via `findAnyById(id)` FØR de muterer det —
+aldri referansen som ble sendt inn (se «Foreldede referanser i modalen» under).
 
 Sveipefeltets tekst er «Tøm» + en pil som fyller resten av feltet (symmetrisk
 padding, satt i JS).
+
+### Foreldede referanser i modalen (element-søppelkassen)
+
+Søppel-modalen kan stå åpen mens synken bygger hele state-treet på nytt
+(`applyDoc`/`applyMyDoc` gjør `state.universes = [...ferske objekter]` hver
+sky-runde — poll hvert 5. sekund + realtime-ekko i kontomodus). Da blir enhver
+fanget objekt-referanse fra da modalen ble åpnet, foreldreløs.
+
+De tre andre søppelkassene (`openUniversesTrash`/`openGroupsTrash`/
+`openCardsTrash`) leser allerede ferskt fra `state` i hver `rows()`-kall
+(`trashedUniverses()`/`trashedGroups()`/`trashedCards()`). **Element-modalen
+(`openItemsTrash`) gjorde det ikke** — den fanget `cardData` én gang og lot
+`rows()` lese `trashedItemsOf(cardData)` fra den. Etter en tre-rebuild pekte
+den på et foreldreløst kort, som ga to symptomer (kun elementer, ikke grupper/
+universer):
+
+1. **Spinner som aldri ga seg**: åpnet man modalen rett etter en element-
+   sletting og en rebuild traff mens den sto åpen, ryddet commit `_pendingDelete`
+   på det LEVENDE objektet, mens modalens foreldreløse kort beholdt flagget →
+   spinner for alltid, «Tøm permanent» aldri aktiv.
+2. **«Gjenopprett» som ikke festet seg**: klikket satte `trashed = false` på den
+   foreldreløse kopien → modalen så tom ut, men det levende treet hadde elementet
+   fortsatt slettet; ved neste åpning var det der igjen.
+
+Fiks: `openItemsTrash` slår opp kortet på nytt via `findAnyById(cardId)` i hver
+`rows()`/`empty()`-kall (som de andre gjør mot `state`), og `restore` går via
+`restoreItem(it)` som re-slår opp elementet på id. Restore-hjelperne for alle
+fire nivåene er samtidig gjort id-baserte, så samme klasse feil ikke kan ramme
+gruppe-/univers-gjenoppretting hvis en rebuild treffer mellom render og klikk.
 
 ## Interaksjon (`attachTrashHold`)
 
@@ -117,3 +148,65 @@ fletting.
 
 Alle tekster/titler sier «hold og sveip for å tømme» (ikke «hold i 3
 sekunder»).
+
+## Feltet henger igjen hvis knappen forsvinner midt i et sveip
+
+Element-søppelknappen bygges på nytt hver gang kortet re-renders
+(`buildCard`/`refreshCard`, f.eks. via en synk-oppdatering mens brukeren
+holder inne). Da fjernes DEN GAMLE knapp-DOM-noden midt i gesten, og
+pekerfangsten (`setPointerCapture`) frigis implisitt — men verken
+`pointerup` eller `pointercancel` fyres på den frakoblede knappen i så fall,
+kun `lostpointercapture`, og den leveres på `document` (ikke på selve
+knappen). `attachTrashHold` lytter derfor på `document` i fangst-fasen,
+filtrert på `pointerId`, koblet til/fra PER TRYKK (ikke i selve
+`attachTrashHold`-oppsettet) — ellers ville hver kort-ombygging lagt igjen en
+varig `document`-lytter (én per element-søppelknapp som noensinne bygges).
+
+## Buffer-slettede objekter kan ikke tømmes ennå
+
+`emptyXTrash()` hopper alltid over `_pendingDelete`-objekter (de er ikke
+`trashed` i state ennå). Derfor er både sveipefeltet og «Tøm permanent»-
+knappen i modalen sperret så lenge NOE i søppelen fortsatt er buffret:
+`attachTrashHold`s `api.pending()` stopper `openField()` fra å starte, og
+`renderTrashModalBody()` deaktiverer `trashEmptyBtn` når
+`rows.some(r => r.pending)`. Søppelkasse-knappens tall-badge
+(`.trashcan-count`) viser en liten spinner (`.pending`-klassen, CSS `::after`)
+i stedet for tallet mens dette gjelder — samme visuelle språk som spinneren
+per rad i modalen. Fordi tallet i seg selv ikke endrer seg når en sletting
+committes (objektet var allerede talt med som «i søppel»), måtte de tre
+commit-stedene (`armDeleteTimer`, kategoribytte i `pushDeleteToast`,
+`commitAllPending`) begynne å rydde badgen når timeren utløper — ellers ble
+spinneren hengende til neste urelaterte re-render, selv etter at objektet
+faktisk var klart til å tømmes.
+
+Dette gjøres bevisst UTEN en full `render()`: siden `DELETE_BUFFER_MS`-
+timeren kan utløpe mens brukeren har et annet, usagret inline-redigeringsfelt
+åpent et sted i UI-et (`editText()` sitt `.edit-input`, som ikke er bundet
+til state før blur/Enter), ville en full board-rebuild slettet den uferdige
+redigeringen under brukerens hender. `commitDeleteOne` returnerer nå hva slags
+objekt som ble committet (`{ kind, obj, card? }`), og
+`refreshTrashBadgesAfterCommit()` bruker det til å oppdatere KUN de relevante
+badgene direkte (`updateTrashCount`/`updateGroupsTrash`/`updateUniversesTrash`
+for gruppe/liste/univers-nivå, `updateItemsTrashBadge(cardData)` — som kun
+rører `.trashcan-count`-spannet, ikke resten av kortet — for element-nivå).
+
+`commitAllPending()` (kjøres ved `visibilitychange`/`pagehide`, altså når
+fanen skjules mens noe er buffret) må også rydde modalen hvis den står åpen
+(`if (!trashModal.hidden) renderTrashModalBody();`) — ellers ble den
+stående med spinner-rader til brukeren lukket og åpnet den på nytt, selv
+lenge etter at objektene faktisk var committet.
+
+## Knappen svarer ikke på et lite bevegelig trykk mens noe er pending
+
+`openField()`s `api.pending()`-sperre (over) gjør at et sveipeforsøk kan
+avvises FØR `mode` rekker å bli `'swiping'`. Et ekte trykk har alltid litt
+bevegelse (fingerskjelving/mus-jitter) — og `onUp` krevde tidligere BÅDE
+`mode === 'pending'` OG at pekeren ikke hadde beveget seg (`!moved`) for å
+tolke slippet som et kort trykk (åpne modalen). Når `openField()` ble avvist
+midt i et forsøk med litt bevegelse, ble ingen av grenene i `onUp` truffet —
+knappen gjorde ingenting ved slipp, uten noen synlig feilmelding. Siden
+`mode` fortsatt er `'pending'` betyr nettopp at INGENTING visuelt åpnet seg
+(hverken sveipefeltet eller noe annet), er det alltid trygt å tolke et slipp
+i den tilstanden som et kort trykk — `moved`-sjekken er derfor fjernet fra
+denne grenen; `onUp` åpner modalen uansett når `mode === 'pending'` ved
+slipp.

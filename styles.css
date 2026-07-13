@@ -462,6 +462,7 @@ body {
 
 .trashcan-icon { font-size: var(--fs-base); line-height: 1; display: inline-flex; }
 .trashcan-count {
+  position: relative;
   display: inline-grid;
   place-items: center;
   min-width: 26px;
@@ -473,6 +474,20 @@ body {
   font-size: 16px;
   font-weight: 700;
   font-variant-numeric: tabular-nums;
+}
+/* Buffer-slettede (_pendingDelete) objekter ligger i søppelen, men kan ikke
+   tømmes ennå (emptyXTrash hopper over dem til de er committet) — vis en
+   spinner i stedet for tallet så det er tydelig at sveip/tøm ikke virker enda. */
+.trashcan-count.pending { color: transparent; }
+.trashcan-count.pending::after {
+  content: '';
+  position: absolute;
+  width: 13px;
+  height: 13px;
+  border: 2px solid rgba(0, 0, 0, 0.14);
+  border-top-color: var(--ink-soft);
+  border-radius: 50%;
+  animation: spin 0.7s linear infinite;
 }
 
 /* Sveipefelt: fixed felt som «vokser ut av» søppelkasse-knappen ved
