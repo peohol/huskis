@@ -34,6 +34,15 @@ Ett skjema (`#auth-screen`) med tre modi (`login`/`register`/`forgot`):
 Sesjonen styres av `supabase.auth.onAuthStateChange` (erstatter
 `mine-lister-auth`): `SIGNED_IN` → `cloudStart()`, `SIGNED_OUT` →
 `cloudStop()`. En eksisterende sesjon hentes ved oppstart med `getSession()`.
+`authUser` bærer `{ id, email, meta }` der `meta` = `user.user_metadata`.
+
+**Aktiv posisjon på kontoen**: hvilket univers/gruppe man står i lagres i
+`user_metadata.nav = {u,g}` via `auth.updateUser({ data })` (debouncet,
+`saveNavPref`), og gjenopprettes ved første pull (`restoreNavPref`). Se
+`docs/data-model.md` for semantikken. Mock-backenden speiler dette:
+`user_metadata` ligger på profilen i den delte «databasen», settes av
+`updateUser`, og leses inn i sesjonsbrukeren ved `signInWithPassword` — så to
+faner (= to enheter) deler den huskede posisjonen.
 
 ## Synk-motor v2
 

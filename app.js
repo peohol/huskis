@@ -509,6 +509,7 @@
   function setActiveGroup(id) {
     state.activeGroup = id || null;
     if (state.activeUniverse) state.activeGroups[state.activeUniverse] = state.activeGroup;
+    saveNavPref(); // husk posisjonen på kontoen (kontomodus)
   }
   function setActiveUniverse(id) {
     state.activeUniverse = id || null;
@@ -3633,7 +3634,10 @@
     if (drag.active) return true;
     const ae = document.activeElement;
     if (ae && ae.classList && ae.classList.contains('edit-input')) return true;
-    if (ae && ae.classList && ae.classList.contains('add-item-input') && ae.value) return true;
+    // Fokusert «legg til element»-felt regnes som aktiv redigering selv når det er
+    // TOMT — ellers river neste synk-runde ned board-et og stjeler fokuset før man
+    // rekker å skrive noe.
+    if (ae && ae.classList && ae.classList.contains('add-item-input')) return true;
     return false;
   }
   function scheduleSync(delay) {
@@ -4045,13 +4049,48 @@
     return false;
   }
 
-  let authUser = null;         // innlogget bruker { id, email } | null
+  let authUser = null;         // innlogget bruker { id, email, meta } | null
   let aclient = null;          // backend-klient (Supabase eller mock)
   function acli() {
     if (aclient) return aclient;
     if (useMock() && window.HK_MOCK) { aclient = window.HK_MOCK.createClient(); return aclient; }
     aclient = ensureClient();
     return aclient;
+  }
+
+  /* ---------------- Aktiv posisjon (univers/gruppe) på kontoen ----------------
+     Hvilket univers og hvilken gruppe man står i huskes på selve brukerkontoen
+     (Supabase Auth user_metadata) — så man lander på samme sted når appen lastes
+     på nytt, også på tvers av enheter. Gjelder kun kontomodus (uten konto finnes
+     ingen konto å lagre på; da holder den gamle per-enhet-oppførselen). Skrives
+     debouncet ved navigering, gjenopprettes ved første sky-pull etter innlogging. */
+  let navSaveTimer = null;
+  let navRestored = false;
+  function saveNavPref() {
+    if (!accountsMode() || !authUser || applyingRemote || !navRestored) return;
+    const nav = { u: state.activeUniverse || null, g: state.activeGroup || null };
+    const cur = authUser.meta && authUser.meta.nav;
+    if (cur && cur.u === nav.u && cur.g === nav.g) return; // uendret → ingen skriving
+    authUser.meta = Object.assign({}, authUser.meta, { nav });
+    clearTimeout(navSaveTimer);
+    navSaveTimer = setTimeout(() => {
+      const client = acli();
+      if (!client || !authUser) return;
+      try { client.auth.updateUser({ data: { nav } }); } catch (e) { /* ignore */ }
+    }, 800);
+  }
+  // Sett aktivt univers/gruppe fra kontoens husket posisjon (hvis den fremdeles
+  // peker på synlige entiteter). Kalles én gang, ved første sky-pull.
+  function restoreNavPref() {
+    const nav = authUser && authUser.meta && authUser.meta.nav;
+    if (!nav || !nav.u) return;
+    const uni = state.universes.find((u) => u.id === nav.u && !u.trashed && !u._pendingDelete);
+    if (!uni) return;
+    state.activeUniverse = uni.id;
+    const vis = uni.groups.filter((g) => !g.trashed && !g._pendingDelete).sort(posCmp);
+    const grp = vis.find((g) => g.id === nav.g);
+    state.activeGroup = grp ? grp.id : (vis[0] ? vis[0].id : null);
+    state.activeGroups[uni.id] = state.activeGroup;
   }
 
   /* ---------------- Auth-UI (registrering/innlogging/glemt) ---------------- */
@@ -4362,6 +4401,8 @@
       state._hlc = doc.hlc || state._hlc || 0;
       observeTs(doc.hlc);
       validateActive(state);
+      // Første pull etter innlogging: land på posisjonen kontoen husker.
+      if (!navRestored) { navRestored = true; restoreNavPref(); }
       reapplyPendingDeletes(); // hold buffer-slettede skjult etter rebuild
       render();
     } finally {
@@ -4893,6 +4934,7 @@
     }
     cloudBase = null;
     migrationChecked = false;
+    navRestored = false; // gjenopprett husket posisjon ved neste (første) pull
     startCloudRealtime();
     startCloudPoll();
     await cloudCycle();
@@ -4929,7 +4971,7 @@
       const user = session && session.user;
       if (user) {
         if (authUser && authUser.id === user.id) return; // allerede i gang
-        authUser = { id: user.id, email: user.email };
+        authUser = { id: user.id, email: user.email, meta: user.user_metadata || {} };
         cloudStart();
       } else if (event === 'SIGNED_OUT') {
         cloudStop();
@@ -4940,7 +4982,7 @@
     try {
       const { data } = await client.auth.getSession();
       const user = data && data.session && data.session.user;
-      if (user && !authUser) { authUser = { id: user.id, email: user.email }; cloudStart(); }
+      if (user && !authUser) { authUser = { id: user.id, email: user.email, meta: user.user_metadata || {} }; cloudStart(); }
     } catch (e) { /* ingen sesjon */ }
   }
 

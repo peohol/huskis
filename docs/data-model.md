@@ -13,8 +13,8 @@ per-enhet-minnet for aktiv gruppe/univers.
 
 ```js
 state = {
-  activeUniverse: <uniId>,     // per enhet, synkes ikke
-  activeGroup: <groupId>,      // per enhet, synkes ikke
+  activeUniverse: <uniId>,     // aktiv posisjon (se under)
+  activeGroup: <groupId>,      // aktiv posisjon (se under)
   activeGroups: { uniId: groupId }, // per enhet: sist aktive gruppe per univers
   universes: [
     { id, name, trashed, pos,  // + registre: ts/org (innhold), posTs/posOrg (rekkefølge)
@@ -31,6 +31,17 @@ state = {
 Forelder-peker på hvert nivå: `element.home → kort`, `kort.group → gruppe`,
 `gruppe.uni → univers`. Aktiv gruppe settes ALLTID via `setActiveGroup()` /
 `setActiveUniverse()` så per-univers-minnet (`activeGroups`) holdes i takt.
+
+**Aktiv posisjon huskes på kontoen (kontomodus).** `activeUniverse`/`activeGroup`
+lagres på selve brukerkontoen (Supabase Auth `user_metadata.nav = {u,g}`), ikke i
+synk-doc'et. Skrives debouncet fra `setActiveGroup()` (`saveNavPref`), og
+gjenopprettes én gang ved første sky-pull etter innlogging (`restoreNavPref`, kalt
+fra `applyMyDoc` bak `navRestored`-flagget). Da lander man på samme univers/gruppe
+neste gang appen lastes — også på en ny enhet. Løpende synk flytter IKKE
+visningen (restore skjer kun på første pull), så to åpne enheter kan stå i hver
+sin gruppe. Utenfor kontomodus (mønster-lås) finnes ingen konto å lagre på; da er
+`activeUniverse`/`activeGroup` rent per-enhet som før. `activeGroups`-minnet er
+alltid per enhet (synkes aldri).
 
 ## Hierarkiet: Univers > Gruppe > Liste > Element
 
