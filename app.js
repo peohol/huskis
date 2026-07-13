@@ -546,13 +546,17 @@
   }
 
   /* ---------------- Render ---------------- */
-  // Lister-søppelkassen vises kun når den har innhold (samme logikk som de andre).
-  function updateTrashCount() {
-    const list = trashedCards();
-    trashCount.textContent = list.length;
-    trashCount.classList.toggle('pending', list.some((c) => c._pendingDelete));
-    trashBtn.hidden = list.length === 0;
+  // Søppelkasse-badgen (univers/gruppe/liste): tall + pending-spinner, og
+  // knappen skjules når kassen er tom. Delt av de tre faste knappene (element-
+  // nivået er annerledes — se updateItemsTrashBadge, som slår opp badgen i DOM).
+  function updateTrashBadge(trashedSel, countEl, btnEl) {
+    const list = trashedSel();
+    countEl.textContent = list.length;
+    countEl.classList.toggle('pending', list.some((o) => o._pendingDelete));
+    btnEl.hidden = list.length === 0;
   }
+  // Lister-søppelkassen vises kun når den har innhold (samme logikk som de andre).
+  function updateTrashCount() { updateTrashBadge(trashedCards, trashCount, trashBtn); }
 
   function render() {
     renderGroups();
@@ -660,11 +664,31 @@
   }
 
   // Gruppe-søppelkassen (per univers): vises kun når det ligger grupper i den.
-  function updateGroupsTrash() {
-    const list = trashedGroups();
-    groupsTrashCount.textContent = list.length;
-    groupsTrashCount.classList.toggle('pending', list.some((g) => g._pendingDelete));
-    groupsTrashBtn.hidden = list.length === 0;
+  function updateGroupsTrash() { updateTrashBadge(trashedGroups, groupsTrashCount, groupsTrashBtn); }
+
+  // Chip-farge (gruppe- og univers-rader): posisjonsfarge --g-bg + mørkere
+  // --g-accent. Listekort bruker egne --card-*-variabler (se buildCard), så de
+  // deler ikke denne.
+  function applyChipColor(el, obj) {
+    const base = obj.color || colorForId(obj.id);
+    el.style.setProperty('--g-bg', base);
+    el.style.setProperty('--g-accent', darken(base, 0.34));
+  }
+  // Delings-/låse-status (kontomodus): toggler .is-shared og fyller .share-badge
+  // (lås hvis frosset av andre, ellers «people»-ikon). Returnerer {shared, canEdit}
+  // som byggerne gjenbruker — canEdit gater redigering; buildCard toggler dessuten
+  // .is-locked selv (kun listekort har den).
+  function applyShareBadge(el, obj) {
+    const shared = accountsMode() && (obj._shared || obj._mount);
+    const canEdit = !frozen(obj);
+    el.classList.toggle('is-shared', !!shared);
+    if (shared) {
+      const badge = el.querySelector('.share-badge');
+      badge.hidden = false;
+      badge.innerHTML = !canEdit ? ICONS.lock : ICONS.people;
+      badge.title = obj._mount ? 'Delt med deg' : 'Delt med andre';
+    }
+    return { shared, canEdit };
   }
 
   function buildGroupCard(groupData) {
@@ -675,20 +699,9 @@
     el.setAttribute('aria-selected', isActive ? 'true' : 'false');
 
     // Farge etter posisjon (samme system som listekort); aksent = mørkere variant.
-    const gBase = groupData.color || colorForId(groupData.id);
-    el.style.setProperty('--g-bg', gBase);
-    el.style.setProperty('--g-accent', darken(gBase, 0.34));
-
+    applyChipColor(el, groupData);
     // Delings-/låse-status (kontomodus).
-    const gShared = accountsMode() && (groupData._shared || groupData._mount);
-    const gCanEdit = !frozen(groupData);
-    el.classList.toggle('is-shared', !!gShared);
-    const gBadge = el.querySelector('.share-badge');
-    if (gShared) {
-      gBadge.hidden = false;
-      gBadge.innerHTML = !gCanEdit ? ICONS.lock : ICONS.people;
-      gBadge.title = groupData._mount ? 'Delt med deg' : 'Delt med andre';
-    }
+    const gCanEdit = applyShareBadge(el, groupData).canEdit;
     const nameEl = el.querySelector('.group-name');
     nameEl.textContent = groupData.name;
 
@@ -807,10 +820,7 @@
   function deleteGroup(groupData) {
     const ghost = ghostFrom(
       groupsBar.querySelector('.group-card[data-id="' + groupData.id + '"]'));
-    bufferDelete(groupData, 'group', (g) => {
-      if (g._mount) { g.trashed = true; g._mount.trashed = true; cloudMountUpdate('group', g.id, { trashed: true }); }
-      else { g.trashed = true; stampContent(g); }
-    });
+    bufferDelete(groupData, 'group', (g) => setTrashed(g, 'group', true));
     if (state.activeGroup === groupData.id) {
       const first = visibleGroups()[0]; // ekskluderer nå den buffer-slettede
       setActiveGroup(first ? first.id : null);
@@ -835,11 +845,7 @@
         cloudLeave('group', g.id); left = true;
         return;
       }
-      state._tomb.groups[g.id] = tick();
-      g.cards.forEach((c) => {
-        state._tomb.cards[c.id] = tick();
-        c.items.forEach((it) => { state._tomb.items[it.id] = tick(); });
-      });
+      tombSubtree(g, 'group');
       if (idx > -1) u.groups.splice(idx, 1);
     });
     if (left) cloudBase = null;
@@ -860,16 +866,10 @@
 
     // Delings-/låse-status (kontomodus). canEdit=false fryser redigering, men en
     // montert liste-rot (mottakerens egen) kan alltid dras/legges i egen søppel.
-    const shared = accountsMode() && (cardData._shared || cardData._mount);
-    const canEdit = !frozen(cardData);
-    el.classList.toggle('is-shared', !!shared);
+    // Listekort har i tillegg .is-locked (egen kant-styling) — settes her, ikke
+    // i den delte hjelperen.
+    const canEdit = applyShareBadge(el, cardData).canEdit;
     el.classList.toggle('is-locked', accountsMode() && !canEdit);
-    const cardBadge = el.querySelector('.share-badge');
-    if (shared) {
-      cardBadge.hidden = false;
-      cardBadge.innerHTML = !canEdit ? ICONS.lock : ICONS.people;
-      cardBadge.title = cardData._mount ? 'Delt med deg' : 'Delt med andre';
-    }
     const cardShareBtn = el.querySelector('.card-share');
     if (accountsMode() && (cardData._mine || cardData._mount)) {
       cardShareBtn.hidden = false;
@@ -896,10 +896,7 @@
     } else {
       cardDelBtn.addEventListener('click', () => {
         const ghost = ghostFrom(el); // klone FØR render (render fjerner kortet)
-        bufferDelete(cardData, 'card', (c) => {
-          if (c._mount) { c.trashed = true; c._mount.trashed = true; cloudMountUpdate('card', c.id, { trashed: true }); }
-          else { c.trashed = true; stampContent(c); }
-        });
+        bufferDelete(cardData, 'card', (c) => setTrashed(c, 'card', true));
         render(); // søppelkasse-knappen blir synlig FØR animasjonen starter
         flyGhost(ghost, trashBtn);
         pushDeleteToast('card', cardData.id, cardData.title);
@@ -1006,7 +1003,7 @@
     const trash = trashedItemsOf(cardData).filter((it) => !it._pendingDelete);
     if (!trash.length) return;
     trash.forEach((it) => {
-      state._tomb.items[it.id] = tick(); // gravstein hindrer gjenoppstandelse
+      tombSubtree(it, 'item'); // gravstein hindrer gjenoppstandelse
       const idx = cardData.items.indexOf(it);
       if (idx > -1) cardData.items.splice(idx, 1);
     });
@@ -1057,7 +1054,7 @@
         const it = owner.items.find((i) => i.id === itemData.id);
         if (!it) return;
         const ghost = ghostFrom(el); // klone FØR refreshCard fjerner raden
-        bufferDelete(it, 'item', (x) => { x.trashed = true; stampContent(x); });
+        bufferDelete(it, 'item', (x) => setTrashed(x, 'item', true));
         refreshCard(owner); // element-søppelkassen dukker opp FØR animasjonen
         flyGhost(ghost, board.querySelector(
           '.card[data-id="' + owner.id + '"] .item-trash-btn'));
@@ -1204,36 +1201,51 @@
      Ett sted for «trashed = false»-logikken per nivå (håndterer også monterte
      delinger via mount-oppdatering), så både «Gjenopprett» i søppel-modalen og
      «Angre» i slette-toasten bruker nøyaktig samme kode. */
-  // Alle fire slår opp objektet på nytt via id FØR de muterer det — aldri den
-  // (potensielt foreldede) referansen som ble sendt inn. Søppel-modalen kan stå
-  // åpen mens synken bygger state-treet på nytt (`applyDoc`/`applyMyDoc` bytter
-  // ut hele `state.universes` med ferske objekter), så en fanget referanse fra
-  // da modalen ble åpnet peker på et foreldreløst tre. Uten oppslaget satte
-  // «Gjenopprett» `trashed = false` på den foreldreløse kopien — modalen så tom
-  // ut, men det levende treet hadde objektet fortsatt slettet.
+  // Sett `trashed`-flagget på ett objekt. Én kilde for mount/else-splitten som
+  // både sletting (commit-callback, `trashed = true`) og gjenoppretting
+  // (`trashed = false`) trenger: en montert deling speiler flagget i
+  // montasjepunktet + pusher til skyen, en egen-eid rad stemples lokalt.
+  // Elementer monteres aldri (kun univers/gruppe/liste kan være share-røtter),
+  // så else-grenen kjører alltid for `kind === 'item'`.
+  function setTrashed(o, kind, val) {
+    if (o._mount) { o.trashed = val; o._mount.trashed = val; cloudMountUpdate(kind, o.id, { trashed: val }); }
+    else { o.trashed = val; stampContent(o); }
+  }
+  // Sett gravstein på objektet + hele undertreet (hindrer gjenoppstandelse ved
+  // fletting, se docs/sync.md). Delt av alle fire «tøm permanent»-funksjonene.
+  function tombSubtree(o, kind) {
+    state._tomb[kind + 's'][o.id] = tick();
+    if (kind === 'universe') (o.groups || []).forEach((g) => tombSubtree(g, 'group'));
+    else if (kind === 'group') (o.cards || []).forEach((c) => tombSubtree(c, 'card'));
+    else if (kind === 'card') (o.items || []).forEach((it) => tombSubtree(it, 'item'));
+  }
+  // Alle fire gjenopprett-hjelperne slår opp objektet på nytt via id FØR de
+  // muterer det — aldri den (potensielt foreldede) referansen som ble sendt inn.
+  // Søppel-modalen kan stå åpen mens synken bygger state-treet på nytt
+  // (`applyDoc`/`applyMyDoc` bytter ut hele `state.universes` med ferske
+  // objekter), så en fanget referanse fra da modalen ble åpnet peker på et
+  // foreldreløst tre. Uten oppslaget satte «Gjenopprett» `trashed = false` på den
+  // foreldreløse kopien — modalen så tom ut, men treet hadde objektet slettet.
   function restoreUniverse(u) {
     const f = findAnyById(u.id); if (!f || f.kind !== 'universe') return; u = f.obj;
-    if (u._mount) { u.trashed = false; u._mount.trashed = false; cloudMountUpdate('universe', u.id, { trashed: false }); }
-    else { u.trashed = false; stampContent(u); }
+    setTrashed(u, 'universe', false);
     if (!activeUniverseObj()) setActiveUniverse(u.id); // ingen aktiv? aktivér den gjenopprettede
     render(); save();
   }
   function restoreGroup(g) {
     const f = findAnyById(g.id); if (!f || f.kind !== 'group') return; g = f.obj;
-    if (g._mount) { g.trashed = false; g._mount.trashed = false; cloudMountUpdate('group', g.id, { trashed: false }); }
-    else { g.trashed = false; stampContent(g); }
+    setTrashed(g, 'group', false);
     if (!activeGroupObj()) setActiveGroup(g.id);
     render(); save();
   }
   function restoreCard(c) {
     const f = findAnyById(c.id); if (!f || f.kind !== 'card') return; c = f.obj;
-    if (c._mount) { c.trashed = false; c._mount.trashed = false; cloudMountUpdate('card', c.id, { trashed: false }); }
-    else { c.trashed = false; stampContent(c); }
+    setTrashed(c, 'card', false);
     render(); save();
   }
   function restoreItem(it) {
     const f = findAnyById(it.id); if (!f || f.kind !== 'item') return;
-    f.obj.trashed = false; stampContent(f.obj); refreshCard(f.card); save();
+    setTrashed(f.obj, 'item', false); refreshCard(f.card); save();
   }
 
   /* ---------------- DELETE-BUFFER (optimistisk sletting med angre) ----------------
@@ -2226,51 +2238,56 @@
     flipFrom(snap, FLIP_MS);
   }
 
-  function onGroupUp() {
+  // Delt slipp-håndtering for de to «kolonne»-nivåene (grupper og universer):
+  // begge er rene vertikale lister uten kryss-kolonne-overføring (i motsetning
+  // til kort/element), så eneste forskjell er beholder/søsken-klasse/id-oppslag/
+  // mount-kind/reindeks + hvilke move/up-lyttere som skal kobles fra. Ny pos =
+  // mellom DOM-naboene; montert rad speiler rekkefølgen i membership-raden.
+  function finishColumnDrop(o) {
     if (!drag.active) return;
-    window.removeEventListener('pointermove', onGroupMove);
-    window.removeEventListener('pointerup', onGroupUp);
-    window.removeEventListener('pointercancel', onGroupUp);
+    window.removeEventListener('pointermove', o.move);
+    window.removeEventListener('pointerup', o.up);
+    window.removeEventListener('pointercancel', o.up);
 
     const el = drag.el;
     const rot = cardRotation();
-    groupsBar.insertBefore(el, drag.ph);
+    o.container.insertBefore(el, drag.ph);
     drag.ph.remove();
     dropIntoPlaceholder(el, rot);
     finishDrag();
 
-    // Ny rekkefølge: pos mellom DOM-naboene (kun dette gruppe-kortets pos-register).
     const prev = el.previousElementSibling;
     const next = el.nextElementSibling;
-    const g = findGroup(el.dataset.id);
-    if (g) {
-      const prevG = prev && prev.classList.contains('group-card') ? findGroup(prev.dataset.id) : null;
-      const nextG = next && next.classList.contains('group-card') ? findGroup(next.dataset.id) : null;
-      const np = between(prevG ? prevG.pos : null, nextG ? nextG.pos : null);
-      if (g._mount) {
-        // Montert gruppe: mottakerens egen rekkefølge ligger i membership-raden.
-        g.pos = np; g._mount.pos = np;
-        cloudMountUpdate('group', g.id, { pos: np });
-      } else {
-        g.pos = np;
-        stampPos(g);
-      }
+    const obj = o.find(el.dataset.id);
+    if (obj) {
+      const prevO = prev && prev.classList.contains(o.siblingClass) ? o.find(prev.dataset.id) : null;
+      const nextO = next && next.classList.contains(o.siblingClass) ? o.find(next.dataset.id) : null;
+      const np = between(prevO ? prevO.pos : null, nextO ? nextO.pos : null);
+      if (obj._mount) { obj.pos = np; obj._mount.pos = np; cloudMountUpdate(o.kind, obj.id, { pos: np }); }
+      else { obj.pos = np; stampPos(obj); }
     }
-    reindexGroupColors();
+    o.reindex();
     save();
   }
+  function onGroupUp() {
+    finishColumnDrop({ container: groupsBar, siblingClass: 'group-card', find: findGroup,
+      kind: 'group', reindex: reindexGroupColors, move: onGroupMove, up: onGroupUp });
+  }
 
-  // Samme resonnement som reindexCardColors: posisjonsbasert farge betyr at en
-  // omrokkering påvirker flere gruppekorts farge, ikke bare det flyttede.
-  function reindexGroupColors() {
-    visibleGroups().forEach((g, i) => {
-      g.color = colorForIndex(i);
-      const el = groupsBar.querySelector('.group-card[data-id="' + g.id + '"]');
+  // Posisjonsbasert farge: en omrokkering påvirker flere korts farge, ikke bare
+  // det flyttede. Delt av gruppe- og univers-nivået — begge bruker --g-bg/
+  // --g-accent + colorForIndex/darken(…, 0.34). Kort er egne (--card-*), se
+  // reindexCardColors.
+  function reindexColors(list, container, cls) {
+    list().forEach((o, i) => {
+      o.color = colorForIndex(i);
+      const el = container.querySelector('.' + cls + '[data-id="' + o.id + '"]');
       if (!el) return;
-      el.style.setProperty('--g-bg', g.color);
-      el.style.setProperty('--g-accent', darken(g.color, 0.34));
+      el.style.setProperty('--g-bg', o.color);
+      el.style.setProperty('--g-accent', darken(o.color, 0.34));
     });
   }
+  function reindexGroupColors() { reindexColors(visibleGroups, groupsBar, 'group-card'); }
 
   /* ------- Auto-scroll av gruppelista under draging (ved overflow) -------
      Desktop scroller vertikalt (kolonne), mobil horisontalt (rad). */
@@ -2388,49 +2405,10 @@
   }
 
   function onUniverseUp() {
-    if (!drag.active) return;
-    window.removeEventListener('pointermove', onUniverseMove);
-    window.removeEventListener('pointerup', onUniverseUp);
-    window.removeEventListener('pointercancel', onUniverseUp);
-
-    const el = drag.el;
-    const rot = cardRotation();
-    uniList.insertBefore(el, drag.ph);
-    drag.ph.remove();
-    dropIntoPlaceholder(el, rot);
-    finishDrag();
-
-    // Ny rekkefølge: pos mellom DOM-naboene (kun dette universets pos-register).
-    const prev = el.previousElementSibling;
-    const next = el.nextElementSibling;
-    const u = findUniverse(el.dataset.id);
-    if (u) {
-      const prevU = prev && prev.classList.contains('uni-row') ? findUniverse(prev.dataset.id) : null;
-      const nextU = next && next.classList.contains('uni-row') ? findUniverse(next.dataset.id) : null;
-      const np = between(prevU ? prevU.pos : null, nextU ? nextU.pos : null);
-      if (u._mount) {
-        // Montert univers: mottakerens egen rekkefølge ligger i membership-raden.
-        u.pos = np; u._mount.pos = np;
-        cloudMountUpdate('universe', u.id, { pos: np });
-      } else {
-        u.pos = np;
-        stampPos(u);
-      }
-    }
-    reindexUniverseColors();
-    save();
+    finishColumnDrop({ container: uniList, siblingClass: 'uni-row', find: findUniverse,
+      kind: 'universe', reindex: reindexUniverseColors, move: onUniverseMove, up: onUniverseUp });
   }
-
-  // Samme resonnement som reindexCardColors/reindexGroupColors.
-  function reindexUniverseColors() {
-    visibleUniverses().forEach((u, i) => {
-      u.color = colorForIndex(i);
-      const el = uniList.querySelector('.uni-row[data-id="' + u.id + '"]');
-      if (!el) return;
-      el.style.setProperty('--g-bg', u.color);
-      el.style.setProperty('--g-accent', darken(u.color, 0.34));
-    });
-  }
+  function reindexUniverseColors() { reindexColors(visibleUniverses, uniList, 'uni-row'); }
 
   /* ------- Auto-scroll av uni-list under draging (alltid vertikal — menyens
      scroll-container er .menu-body, ikke selve uni-list). ------- */
@@ -2796,8 +2774,7 @@
         cloudLeave('card', c.id); left = true;
         return;
       }
-      state._tomb.cards[c.id] = tick(); // permanent gravstein hindrer gjenoppstandelse
-      c.items.forEach((it) => { state._tomb.items[it.id] = tick(); });
+      tombSubtree(c, 'card'); // permanent gravstein hindrer gjenoppstandelse
       if (i > -1) arr.splice(i, 1);
     });
     if (left) cloudBase = null;
@@ -2818,14 +2795,7 @@
         cloudLeave('universe', u.id); left = true;
         return;
       }
-      state._tomb.universes[u.id] = tick();
-      u.groups.forEach((g) => {
-        state._tomb.groups[g.id] = tick();
-        g.cards.forEach((c) => {
-          state._tomb.cards[c.id] = tick();
-          c.items.forEach((it) => { state._tomb.items[it.id] = tick(); });
-        });
-      });
+      tombSubtree(u, 'universe');
       if (i > -1) state.universes.splice(i, 1);
     });
     if (left) cloudBase = null;
@@ -3107,12 +3077,7 @@
   });
 
   // Univers-søppelkassen (i menyen): vises kun når den har innhold.
-  function updateUniversesTrash() {
-    const list = trashedUniverses();
-    uniTrashCount.textContent = list.length;
-    uniTrashCount.classList.toggle('pending', list.some((u) => u._pendingDelete));
-    uniTrashBtn.hidden = list.length === 0;
-  }
+  function updateUniversesTrash() { updateTrashBadge(trashedUniverses, uniTrashCount, uniTrashBtn); }
 
   // Tegn univers-radene i menyen. Kalles fra render() (så fjern-endringer
   // reflekteres straks også mens menyen er åpen) og ved åpning av menyen.
@@ -3139,19 +3104,8 @@
     el.classList.toggle('active', isActive);
     el.setAttribute('aria-pressed', isActive ? 'true' : 'false');
 
-    const base = u.color || colorForId(u.id);
-    el.style.setProperty('--g-bg', base);
-    el.style.setProperty('--g-accent', darken(base, 0.34));
-
-    const uShared = accountsMode() && (u._shared || u._mount);
-    const uCanEdit = !frozen(u);
-    el.classList.toggle('is-shared', !!uShared);
-    const uBadge = el.querySelector('.share-badge');
-    if (uShared) {
-      uBadge.hidden = false;
-      uBadge.innerHTML = !uCanEdit ? ICONS.lock : ICONS.people;
-      uBadge.title = u._mount ? 'Delt med deg' : 'Delt med andre';
-    }
+    applyChipColor(el, u);
+    const uCanEdit = applyShareBadge(el, u).canEdit;
     const nameEl = el.querySelector('.uni-name');
     nameEl.textContent = u.name;
     // Antall grupper i universet: liten pill med gruppe-ikon (mappe) + tall.
@@ -3242,16 +3196,9 @@
   // Permanent sletting (med gravsteiner) skjer først når søppelkassen tømmes.
   function deleteUniverse(u) {
     const ghost = ghostFrom(uniList.querySelector('.uni-row[data-id="' + u.id + '"]'));
-    bufferDelete(u, 'universe', (x) => {
-      if (x._mount) {
-        // Mottaker: «slett» = legg mounten i egen søppel (kan forlates ved tømming).
-        x.trashed = true; x._mount.trashed = true;
-        cloudMountUpdate('universe', x.id, { trashed: true });
-      } else {
-        x.trashed = true;
-        stampContent(x);
-      }
-    });
+    // Mottaker (montert): «slett» = legg mounten i egen søppel (kan forlates ved
+    // tømming) — håndteres av setTrashed sin mount-gren.
+    bufferDelete(u, 'universe', (x) => setTrashed(x, 'universe', true));
     if (state.activeUniverse === u.id) {
       const first = visibleUniverses()[0]; // ekskluderer nå den buffer-slettede
       setActiveUniverse(first ? first.id : null);
@@ -3370,20 +3317,33 @@
   // elementer) med forelder-peker (gruppe.uni, kort.group, element.home).
   // Rekkefølge-uavhengig likhet via canonical(); activeUniverse/activeGroup
   // deles ikke (per enhet).
-  function docFromState() {
+  //
+  // Går gjennom nøstet state og bygger de fire flate rad-arrayene. `rowFn(obj,
+  // type, parent)` gir raden per objekt — `cleanRow` (v1/mergeState) eller
+  // `canonRow` (v2/kontomodus). Ett nøstet element har alltid home = kortets id,
+  // så `it.home || parent.id` gir samme resultat begge veier.
+  function flattenNested(s, rowFn) {
     const universes = [], groups = [], cards = [], items = [];
-    state.universes.forEach((u) => {
-      universes.push(cleanUniverse(u));
+    (s.universes || []).forEach((u) => {
+      universes.push(rowFn(u, 'universe', null));
       (u.groups || []).forEach((g) => {
-        groups.push(cleanGroup(Object.assign({}, g, { uni: g.uni || u.id })));
+        groups.push(rowFn(g, 'group', u));
         (g.cards || []).forEach((c) => {
-          cards.push(cleanCard(Object.assign({}, c, { group: c.group || g.id })));
-          (c.items || []).forEach((it) => items.push(cleanItem(it, c.id)));
+          cards.push(rowFn(c, 'card', g));
+          (c.items || []).forEach((it) => items.push(rowFn(it, 'item', c)));
         });
       });
     });
-    return {
-      universes, groups, cards, items,
+    return { universes, groups, cards, items };
+  }
+  function cleanRow(o, type, parent) {
+    if (type === 'universe') return cleanUniverse(o);
+    if (type === 'group') return cleanGroup(Object.assign({}, o, { uni: o.uni || parent.id }));
+    if (type === 'card') return cleanCard(Object.assign({}, o, { group: o.group || parent.id }));
+    return cleanItem(o, o.home || parent.id);
+  }
+  function docFromState() {
+    return Object.assign(flattenNested(state, cleanRow), {
       tomb: {
         universes: Object.assign({}, state._tomb.universes),
         groups: Object.assign({}, state._tomb.groups),
@@ -3391,7 +3351,7 @@
         items: Object.assign({}, state._tomb.items),
       },
       hlc: hlc,
-    };
+    });
   }
 
   // Skriv et (flettet) flatt doc inn i state (nøstet igjen), behold
@@ -4222,7 +4182,6 @@
      _shared/_mount/_parent. _mount finnes kun på en «share-rot» mottakeren
      har montert; da speiler objektets .pos/.trashed montasjepunktet (per
      bruker), mens de kanoniske verdiene ligger i _canon (til push). */
-  function isMounted(o) { return !!(o && o._mount); }
   function effTrashed(o) { return o && o._mount ? !!o._mount.trashed : !!(o && o.trashed); }
   // Frosset = objektet selv eller en forelder er låst av noen andre enn meg.
   function frozen(o) {
@@ -4282,18 +4241,9 @@
     return cleanItem(o, o.home);
   }
   function docFromMyState() {
-    const universes = [], groups = [], cards = [], items = [];
-    state.universes.forEach((u) => {
-      universes.push(canonRow(u, 'universe'));
-      (u.groups || []).forEach((g) => {
-        groups.push(canonRow(g, 'group'));
-        (g.cards || []).forEach((c) => {
-          cards.push(canonRow(c, 'card'));
-          (c.items || []).forEach((it) => items.push(cleanItem(it, it.home)));
-        });
-      });
-    });
-    return { universes, groups, cards, items };
+    // canonRow(o, type) ignorerer parent-argumentet flattenNested sender med;
+    // element-grenen gir cleanItem(it, it.home) som før.
+    return flattenNested(state, canonRow);
   }
 
   /* ---------------- 3-veis fletting (base/lokal/fjern) → merged + push-ops ----------------
@@ -4544,18 +4494,7 @@
 
   /* ---------------- Migreringsflyt (lokale data → import_doc) ---------------- */
   function flattenState(s) {
-    const universes = [], groups = [], cards = [], items = [];
-    (s.universes || []).forEach((u) => {
-      universes.push(cleanUniverse(u));
-      (u.groups || []).forEach((g) => {
-        groups.push(cleanGroup(Object.assign({}, g, { uni: g.uni || u.id })));
-        (g.cards || []).forEach((c) => {
-          cards.push(cleanCard(Object.assign({}, c, { group: c.group || g.id })));
-          (c.items || []).forEach((it) => items.push(cleanItem(it, c.id)));
-        });
-      });
-    });
-    return { universes, groups, cards, items };
+    return flattenNested(s, cleanRow);
   }
   function legacyFlatDoc() {
     try {
