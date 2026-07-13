@@ -66,6 +66,10 @@ viewBox 0 0 24 24, avrundede linjer/hjørner. Alle ikoner har klassen `.icon`
   tynne, avrundede stil som ikonsettet.
 - Favicon (`favicon.svg`) er en frittstående fil siden `<link rel="icon">`
   ikke kan peke på en JS-streng (beholder stroke 1.5 — lesbarhet i 16px).
+- `--icon-stroke` (token, 1.05px): linjetykkelsen for CSS-tegnede (ikke-SVG)
+  streker som skal matche ikonsettets stroke-width visuelt — brukt av
+  sveipefeltets pil (`.swipe-arrow::before`/`::after`), som tidligere hadde en
+  hardkodet, tykkere strek (2.5px).
 
 ## Fargede knapper: `.btn-solid` + `.btn-green`/`.btn-red`/`.btn-yellow`
 
@@ -115,7 +119,13 @@ Størrelse/form kommer fra egne klasser: `.btn` (modaler), `.btn-small`,
   grid-sentrering). Tastatur: piltaster på et fokusert håndtak flytter objektet
   (se `docs/drag-and-drop.md`).
 - Placeholders: én delt stil for `.card-/.item-/.group-placeholder` — se
-  `docs/drag-and-drop.md`.
+  `docs/drag-and-drop.md`. Ingen kant (kun mørknet flate + innover-skygge);
+  den stiplede kanten er fjernet.
+- `.add-item-input`: ingen synlig kant i hvile (`border: 1.5px solid
+  transparent` — usynlig, men holder boksens bredde stabil via
+  `box-sizing: border-box`) og dempet (`opacity: 0.62`) så den tydelig skiller
+  seg fra de eksisterende elementene. Fokus gir full opacity + synlig kant
+  (`--card-accent`), som før.
 - `.field`: felles tekstfelt (auth-input + inviter-input) — solid kant, myk
   bakgrunn, grønn fokus-ring. Nye felt trenger bare klassen `.field`.
 - `.account-avatar` / `.member-avatar`: felles avatar-form (rund, sentrert hvit
