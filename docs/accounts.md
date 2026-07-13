@@ -24,8 +24,11 @@ aktiveres av flagget.
 
 Ett skjema (`#auth-screen`) med tre modi (`login`/`register`/`forgot`):
 
-- **Registrering**: `supabase.auth.signUp`. Med «Confirm email» på returneres
-  ingen sesjon → «sjekk innboksen»-visning (`#auth-sent`).
+- **Registrering**: `supabase.auth.signUp`. Krever **fornavn + etternavn**
+  (egne felt, kun i register-modus) → `display_name = «Fornavn Etternavn»`
+  sendes som `options.data.display_name` og fanges av `handle_new_user`-
+  triggeren (`docs/arkitektur-brukere-deling.md`). Med «Confirm email» på
+  returneres ingen sesjon → «sjekk innboksen»-visning (`#auth-sent`).
 - **Innlogging**: `signInWithPassword`.
 - **Glemt passord**: `resetPasswordForEmail` → «sjekk innboksen». Retur via
   e-postlenken gir en `PASSWORD_RECOVERY`-hendelse → prompt om nytt passord.
@@ -108,6 +111,36 @@ rekkefølge + egen søppel) ligger i en membership-rad («mount»). I `applyMyDo
 - **Innboks** (i meny-modalen, badge på ☰): mottatte invitasjoner
   (`invites_in`) godtas med plasseringsvalg (`accept_share_invite`) eller
   avslås (`decline_share_invite`).
+
+## Navn, initialer og ansvarlig
+
+- **Navn/initialer**: `display_name` = «Fornavn Etternavn». `initialsFromName`
+  gir initialene (første bokstav i fornavn + etternavn), `personName` gir
+  navnet (faller tilbake på e-post for uregistrerte/ventende invitasjoner).
+  Del-modalen viser en initial-sirkel + navn for eier og hvert medlem
+  (`avatarFor`, eier grønn / medlem grå — samme roller som før). Meny-modalens
+  konto-avatar bruker samme navn/initialer (`my.user.display_name`).
+- **Ansvarlig for elementer** (`item.responsible`): elementer i delt kontekst
+  (delt liste, eller liste under en delt gruppe/univers — `shareRootFor`) får en
+  ansvarsknapp (`.item-resp`, hånd-opp-ikonet `ICONS.handRaise`) til venstre for
+  slette-✕. Klikk åpner en popover (desktop) / modal (mobil) som gjenbruker
+  `.switcher-overlay`/`.switcher-panel`-skallet (`openResponsible`): radene viser
+  hver i «delegruppen» (eier + medlemmer av nærmeste delte forelder, hentet med
+  `get_members` og cachet i `shareGroupCache`) alfabetisk, som en farget
+  initial-sirkel (`respAvatar`, palett via alfabetisk indeks — `colorForIndex`)
+  + fullt navn, pluss «Ingen ansvarlig» når noen er valgt. Valgt ansvarlig
+  erstatter ikonet med sirkelen (`paintResp`); `item.responsible` synkes som
+  innhold, så alle med redigeringstilgang kan endre den. Delegruppen er nærmeste
+  delte forelder (én get_members-kall), ikke unionen av flere overlappende
+  delinger — bevisst forenkling.
+- **«Venter»-låsing** (`pendingResp`): når man velger en ansvarlig, markeres
+  elementet som «i lufta» (keyet på id) → knappen viser en **spinner** og er
+  deaktivert til endringen har landet (`clearLandedResp` fjerner flagget når det
+  flettede doc-et har satt feltet på/forbi vår `ts` etter push). Dette hindrer
+  et nytt bytte før det forrige er committet — og dermed en race der en samtidig
+  synk-rebuild bytter ut item-objektet under en åpen popover og det siste byttet
+  går tapt. `setResponsible` slår dessuten opp det *levende* item-objektet på id
+  (`findAnyById`), så et foreldet objekt fanget av popoveren aldri muteres.
 
 ## Søppel-semantikk for delinger
 

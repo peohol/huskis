@@ -173,6 +173,7 @@ create table if not exists public.items (
   text       text not null default '',
   trashed    boolean not null default false,
   done       boolean not null default false,
+  responsible uuid references public.profiles (id) on delete set null,
   ts         bigint not null default 0,
   org        text   not null default '',
   pos        double precision not null default 0,
@@ -184,6 +185,11 @@ create table if not exists public.items (
 -- Avkryssing av elementer (gjort/ikke gjort): rir på innholds-registeret
 -- (ts/org), som text/trashed. Idempotent for databaser opprettet før feltet.
 alter table public.items add column if not exists done boolean not null default false;
+-- Ansvarlig bruker for et element (den som «tar oppgaven» i en delt liste).
+-- Peker på en profil (medlem eller eier av delingen). Rir på innholds-
+-- registeret (ts/org), som text/trashed/done. `on delete set null` så en
+-- slettet konto bare nullstiller ansvaret. Idempotent for eldre databaser.
+alter table public.items add column if not exists responsible uuid references public.profiles (id) on delete set null;
 
 create index if not exists universes_owner_idx on public.universes (owner_id);
 create index if not exists groups_owner_idx    on public.groups (owner_id);
@@ -572,6 +578,7 @@ begin
   end if;
   if not public.reg_newer(new.ts, new.org, old.ts, old.org) then
     new.text := old.text; new.trashed := old.trashed; new.done := old.done;
+    new.responsible := old.responsible;
     new.ts := old.ts; new.org := old.org;
   end if;
   if not public.reg_newer(new.pos_ts, new.pos_org, old.pos_ts, old.pos_org) then
@@ -1071,6 +1078,7 @@ begin
         'id', i.id, 'owner', i.owner_id, 'mine', i.owner_id = uid,
         'home', i.card_id,
         'text', i.text, 'trashed', i.trashed, 'done', i.done,
+        'responsible', i.responsible,
         'ts', i.ts, 'org', i.org,
         'pos', i.pos, 'posTs', i.pos_ts, 'posOrg', i.pos_org)) from my_items i), '[]'::jsonb),
     'invites_in', coalesce((select jsonb_agg(jsonb_build_object(
@@ -1269,3 +1277,20 @@ begin
     end loop;
   end if;
 end $$;
+
+-- ------------------------------------------------------------
+-- 13. ENGANGS-SEED: navn på de to første kontoene
+--     Navn (fornavn + etternavn) ble innført etter at disse to kontoene
+--     allerede fantes; nye brukere legger inn navn ved registrering.
+--     Setter KUN navnet hvis det fortsatt er auto-standarden (e-post-
+--     prefiksen eller tomt), så en manuelt endret display_name aldri
+--     overskrives ved re-kjøring, og hopper stille over hvis kontoen
+--     ikke finnes ennå.
+-- ------------------------------------------------------------
+
+update public.profiles set display_name = 'Karin Falch', updated_at = now()
+ where lower(email) = 'kvfalch@gmail.com'
+   and coalesce(display_name, '') in ('', split_part(email, '@', 1));
+update public.profiles set display_name = 'Peder Holman', updated_at = now()
+ where lower(email) = 'peder.holman@gmail.com'
+   and coalesce(display_name, '') in ('', split_part(email, '@', 1));

@@ -162,6 +162,12 @@
     <div class="switcher-panel" id="group-switcher-panel" role="listbox" aria-label="Bytt gruppe" tabindex="-1"></div>
   </div>
 
+  <!-- Ansvarlig-velger for elementer i delte lister: popover (desktop) / modal
+       (mobil), à la univers-/gruppebytteren. Bygges i openResponsible(). -->
+  <div class="switcher-overlay" id="resp-switcher" hidden>
+    <div class="switcher-panel resp-panel" id="resp-switcher-panel" role="listbox" aria-label="Velg ansvarlig" tabindex="-1"></div>
+  </div>
+
   <!-- Templates -->
   <template id="group-template">
     <div class="group-card chip" role="tab" tabindex="0">
@@ -209,6 +215,7 @@
       <button class="drag-handle item-handle" title="Dra eller bruk piltaster for å endre rekkefølge" aria-label="Flytt element"></button>
       <button class="item-check" type="button" title="Merk som gjort" aria-label="Merk som gjort" aria-pressed="false"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12.5l4 4L19 6.5"></path></svg></button>
       <span class="item-text" title="Klikk for å redigere"></span>
+      <button class="item-resp" type="button" hidden title="Velg ansvarlig" aria-label="Velg ansvarlig"></button>
       <button class="icon-btn item-delete" title="Slett element" aria-label="Slett element">✕</button>
     </li>
   </template>
@@ -263,6 +270,18 @@
           <span id="auth-heading-icon"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.05" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 3h3a2.5 2.5 0 0 1 2.5 2.5v13A2.5 2.5 0 0 1 18 21h-3"></path><path d="M3 12h11"></path><path d="M10.5 8.5 14 12l-3.5 3.5"></path></svg></span>
           <span id="auth-heading">Logg inn</span>
         </h1>
+        <div class="auth-name-row" id="auth-name-fields" hidden>
+          <label class="auth-field">
+            <span>Fornavn</span>
+            <input class="field" type="text" id="auth-first-name" autocomplete="given-name"
+                   placeholder="Fornavn" />
+          </label>
+          <label class="auth-field">
+            <span>Etternavn</span>
+            <input class="field" type="text" id="auth-last-name" autocomplete="family-name"
+                   placeholder="Etternavn" />
+          </label>
+        </div>
         <label class="auth-field">
           <span>E-post</span>
           <input class="field" type="email" id="auth-email" autocomplete="email" required

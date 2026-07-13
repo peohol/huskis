@@ -129,7 +129,13 @@ Størrelse/form kommer fra egne klasser: `.btn` (modaler), `.btn-small`,
 - `.field`: felles tekstfelt (auth-input + inviter-input) — solid kant, myk
   bakgrunn, grønn fokus-ring. Nye felt trenger bare klassen `.field`.
 - `.account-avatar` / `.member-avatar`: felles avatar-form (rund, sentrert hvit
-  initial på gradient) via delt selektor; størrelse/farge per bruk.
+  initial på gradient) via delt selektor; størrelse/farge per bruk. Initialene
+  kommer fra `display_name` (`initialsFromName`) — se `docs/accounts.md`.
+- `.item-resp` / `.resp-avatar` / `.resp-row`: ansvarsknappen på elementer i
+  delte lister (hånd-opp-ikonet `ICONS.handRaise`, eller en farget initial-
+  sirkel når ansvarlig er valgt) og ansvarlig-velgerens rader (farget sirkel +
+  navn). Sirkelfargen settes inline fra paletten (`colorForIndex`, personens
+  alfabetiske plass i delegruppen). Se `docs/accounts.md`.
 - `.item-check`: avkryssingsboks på elementer — rund-firkantet boks, grønt
   hake-fyll (`.item.done`) + gjennomstreket tekst + lavere bakgrunn. Avkryssede
   elementer flyttes med FLIP til en egen **«Utført»-seksjon** (`.items-done`,

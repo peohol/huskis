@@ -137,8 +137,9 @@
     });
 
     var email = emailOf(db, uid);
+    var selfProf = db.profiles.find(function (x) { return x.id === uid; }) || {};
     return {
-      user: { id: uid, email: email, display_name: (email || '').split('@')[0] },
+      user: { id: uid, email: email, display_name: selfProf.display_name || (email || '').split('@')[0] },
       universes: myUni.map(function (u) {
         var m = membershipFor(db, uid, 'universe', u.id);
         return {
@@ -170,7 +171,7 @@
       items: myItems.map(function (i) {
         return {
           id: i.id, owner: i.owner_id, mine: i.owner_id === uid, home: i.card_id, text: i.text,
-          trashed: !!i.trashed, done: !!i.done,
+          trashed: !!i.trashed, done: !!i.done, responsible: i.responsible || null,
           ts: i.ts, org: i.org, pos: i.pos, posTs: i.pos_ts, posOrg: i.pos_org,
         };
       }),
@@ -247,6 +248,7 @@
         if ('title' in patch) row.title = patch.title;
         if ('text' in patch) row.text = patch.text;
         if ('done' in patch) row.done = patch.done;
+        if ('responsible' in patch) row.responsible = patch.responsible;
         if ('trashed' in patch && !blockTrashed) row.trashed = patch.trashed;
         row.ts = patch.ts; row.org = patch.org;
       }
@@ -333,7 +335,7 @@
         });
         up(doc.items, 'items', function (r, id) {
           return { id: id, owner_id: uid, card_id: legacyId(uid, r.home), text: r.text || '', trashed: !!r.trashed,
-            done: !!r.done,
+            done: !!r.done, responsible: r.responsible || null,
             ts: r.ts || 0, org: r.org || '', pos: r.pos || 0, pos_ts: r.posTs || 0, pos_org: r.posOrg || '' };
         });
         return { universes: (doc.universes || []).length, groups: (doc.groups || []).length,
@@ -466,7 +468,10 @@
           var email = String(opts.email).toLowerCase();
           var uid = uidFor(email);
           if (!db.profiles.find(function (p) { return p.id === uid; })) {
-            db.profiles.push({ id: uid, email: email, display_name: email.split('@')[0], user_metadata: {} });
+            // Navn (display_name) fra registrerings-metadata (handle_new_user).
+            var meta = (opts.options && opts.options.data) || {};
+            var dn = (meta.display_name && String(meta.display_name).trim()) || email.split('@')[0];
+            db.profiles.push({ id: uid, email: email, display_name: dn, user_metadata: clone(meta) });
             db.passwords[email] = opts.password;
             // koble ventende invitasjoner (handle_new_user)
             db.share_invites.forEach(function (s) {

@@ -87,6 +87,22 @@
     return colorForIndex(h % COLOR_COUNT);
   }
 
+  /* ---------------- Brukernavn og initialer ----------------
+     display_name = «Fornavn Etternavn» (lagt inn ved registrering). Initialer =
+     første bokstav i fornavn + første bokstav i etternavn (vises i sirkler i
+     del-modalen og på ansvarsknappen). Uten navn faller vi tilbake på e-posten. */
+  function initialsFromName(name, email) {
+    const parts = String(name || '').trim().split(/\s+/).filter(Boolean);
+    if (parts.length >= 2) return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
+    if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
+    return String(email || '?').slice(0, 1).toUpperCase();
+  }
+  // Visningsnavn for en person (profil fra get_members/get_my_doc): navnet hvis
+  // satt, ellers e-posten (uregistrerte/ventende invitasjoner har bare e-post).
+  function personName(p) {
+    return (p && p.display_name && p.display_name.trim()) || (p && p.email) || '';
+  }
+
   /* ---------------- Hjelpere ---------------- */
   // Ekte UUID-er: de relasjonelle fase 2-tabellene har `uuid`-kolonner (id +
   // forelder-FK-er), så nye objekter MÅ ha gyldige UUID-er ellers avviser
@@ -448,6 +464,8 @@
   const groupSwitchBtn = document.getElementById('group-switch-btn');
   const groupSwitcherOverlay = document.getElementById('group-switcher');
   const groupSwitcherPanel = document.getElementById('group-switcher-panel');
+  const respSwitcherOverlay = document.getElementById('resp-switcher');
+  const respSwitcherPanel = document.getElementById('resp-switcher-panel');
   const addCardBtn = document.getElementById('add-card-btn');
   const shareUniBtn = document.getElementById('share-uni-btn');
   const shareGroupBtn = document.getElementById('share-group-btn');
@@ -1019,6 +1037,142 @@
     save();
   }
 
+  /* ---------------- Ansvarlig for elementer i delte lister ----------------
+     Elementer i en delt liste (eller en liste under en delt gruppe/univers) får
+     en ansvarsknapp: hånd-opp-ikonet → popover/modal med alle i «delegruppen»
+     (eier + medlemmer av nærmeste delte forelder). Velger man en ansvarlig,
+     erstattes ikonet med en farget sirkel med initialene deres. Fargen følger
+     personens alfabetiske plass i delegruppen (samme palett-syklus som resten av
+     appen). Ansvaret (`item.responsible`) rir på innholds-registeret og synkes
+     som tekst/avkryssing; alle med redigeringstilgang kan endre det. */
+
+  // Nivåtype ut fra formen på state-objektet (kort har items, gruppe har cards,
+  // univers har groups).
+  function nodeType(n) {
+    if (!n) return null;
+    if (n.items) return 'card';
+    if (n.cards) return 'group';
+    return 'universe';
+  }
+  // Nærmeste forelder (eller objektet selv) som er en ekte delings-rot: enten
+  // delt av meg (`_shared` = har medlemmer) eller montert av meg som mottaker
+  // (`_mount`). MERK: et ikke-eid *barn* av en delt gruppe/univers har også
+  // `_mine === false`, men er IKKE selv delings-roten (ingen egen medlemsliste)
+  // — derfor stopper vi kun på `_shared`/`_mount`, ikke på `_mine === false`,
+  // ellers ville ansvars-velgeren hentet get_members for feil (medlemsløst)
+  // objekt for arvede delinger. Null utenfor kontomodus / for private objekter.
+  function shareRootFor(node) {
+    if (!accountsMode()) return null;
+    let n = node;
+    while (n) {
+      if (n._shared || n._mount) return n;
+      n = n._parent;
+    }
+    return null;
+  }
+
+  // Cache av delegrupper per delte forelder: rootKey → sortert personliste
+  // (eier + medlemmer, alfabetisk på navn) + id→indeks-oppslag. Fylles lat via
+  // get_members; personens indeks gir paletten (colorForIndex).
+  const shareGroupCache = new Map();
+  const shareGroupLoading = new Set();
+  // Elementer med en ansvars-endring som ennå ikke har «landet» (pushet til
+  // serveren): id → ts-en vi stemplet. Mens en endring er i lufta viser knappen
+  // en spinner og er deaktivert, så man ikke kan bytte igjen før den forrige er
+  // committet (unngår en race der en samtidig synk-rebuild bytter ut item-
+  // objektet under en åpen popover og det siste byttet går tapt). Keyet på id,
+  // ikke på objektet, så det overlever applyMyDoc-rebuilds.
+  const pendingResp = new Map();
+  function rootKey(type, id) { return type + ':' + id; }
+  function personEntry(p) {
+    return { id: p.id, email: p.email, name: personName(p), initials: initialsFromName(p.display_name, p.email) };
+  }
+  function buildShareGroup(info) {
+    const people = [];
+    if (info.owner) people.push(personEntry(info.owner));
+    (info.members || []).forEach((m) => people.push(personEntry(m)));
+    people.sort((a, b) => a.name.localeCompare(b.name, 'nb'));
+    const byId = new Map();
+    people.forEach((p, i) => byId.set(p.id, { person: p, index: i }));
+    return { people, byId };
+  }
+  async function fetchShareGroup(type, id) {
+    const { data, error } = await acli().rpc('get_members', { p_type: type, p_id: id });
+    if (error) throw error;
+    return buildShareGroup(data || {});
+  }
+  // Sørg for at delegruppen for et delt objekt er i cachen; hent lat og tegn på
+  // nytt når den lander (så ansvarssirkelen kan vise riktig farge/initialer).
+  function ensureShareGroup(type, id) {
+    const key = rootKey(type, id);
+    if (shareGroupCache.has(key) || shareGroupLoading.has(key)) return;
+    shareGroupLoading.add(key);
+    fetchShareGroup(type, id).then((g) => {
+      shareGroupCache.set(key, g);
+      shareGroupLoading.delete(key);
+      render();
+    }).catch(() => { shareGroupLoading.delete(key); });
+  }
+
+  // En ansvars-endring har «landet» når det flettede doc-et har satt feltet på
+  // (eller forbi) ts-en vi stemplet — dvs. endringen er pushet og reflektert, ev.
+  // overskrevet av en nyere endring. Da fjernes «venter»-flagget og board-et
+  // tegnes på nytt (spinner → ansvarssirkel). Kalles fra cloudCycle etter push.
+  function clearLandedResp(mergedDoc) {
+    if (!pendingResp.size) return;
+    const byId = new Map((mergedDoc.items || []).map((it) => [it.id, it]));
+    let cleared = false;
+    pendingResp.forEach((ts, id) => {
+      const it = byId.get(id);
+      if (!it || (it.ts || 0) >= ts) { pendingResp.delete(id); cleared = true; }
+    });
+    if (cleared && !isBusyEditing()) render();
+  }
+
+  // En farget sirkel med initialer (ansvarssirkelen). Fargen fra paletten via
+  // personens indeks i delegruppen; ukjent person → stabil id-farge.
+  function respAvatar(person, index) {
+    const s = document.createElement('span');
+    s.className = 'resp-avatar';
+    s.textContent = person ? person.initials : '?';
+    const color = index != null && index >= 0 ? colorForIndex(index)
+      : (person ? colorForId(person.id) : '#8496a6');
+    s.style.background = color;
+    return s;
+  }
+  // Tegn ansvarsknappen: hånd-opp-ikon når ingen er ansvarlig, ellers den
+  // fargede initial-sirkelen for den ansvarlige (fra delegruppen `group`).
+  function paintResp(btn, itemData, group) {
+    btn.innerHTML = '';
+    btn.classList.remove('has-resp', 'is-pending');
+    // Endring i lufta → spinner (kan ikke bytte før den har landet).
+    if (pendingResp.has(itemData.id)) {
+      btn.innerHTML = '<span class="spinner" aria-hidden="true"></span>';
+      btn.classList.add('is-pending');
+      btn.title = 'Lagrer ansvarlig …';
+      btn.setAttribute('aria-label', 'Lagrer ansvarlig …');
+      return;
+    }
+    const rid = itemData.responsible;
+    const entry = rid && group ? group.byId.get(rid) : null;
+    if (entry) {
+      btn.appendChild(respAvatar(entry.person, entry.index));
+      btn.classList.add('has-resp');
+      btn.title = 'Ansvarlig: ' + entry.person.name;
+      btn.setAttribute('aria-label', 'Ansvarlig: ' + entry.person.name + '. Trykk for å endre');
+    } else if (rid) {
+      btn.appendChild(respAvatar(null, -1)); // delegruppen ikke lastet ennå / person borte
+      btn.classList.add('has-resp');
+      btn.title = 'Ansvarlig valgt';
+      btn.setAttribute('aria-label', 'Endre ansvarlig');
+    } else {
+      btn.innerHTML = ICONS.handRaise;
+      btn.classList.remove('has-resp');
+      btn.title = 'Velg ansvarlig';
+      btn.setAttribute('aria-label', 'Velg ansvarlig');
+    }
+  }
+
   function buildItem(itemData, cardData) {
     const el = itemTpl.content.firstElementChild.cloneNode(true);
     el.dataset.id = itemData.id;
@@ -1089,6 +1243,22 @@
           '"] .item[data-id="' + itemData.id + '"] .item-handle');
         if (h) h.focus();
       });
+    }
+
+    // Ansvarsknapp: kun for elementer i delt kontekst (delt liste, eller liste
+    // under en delt gruppe/univers). Ikonet erstattes av ansvarssirkelen når en
+    // ansvarlig er valgt. Delegruppen hentes lat og cachet (ensureShareGroup).
+    const respBtn = el.querySelector('.item-resp');
+    const shareRoot = shareRootFor(cardData);
+    if (shareRoot) {
+      const rType = nodeType(shareRoot);
+      const group = shareGroupCache.get(rootKey(rType, shareRoot.id));
+      if (!group) ensureShareGroup(rType, shareRoot.id);
+      respBtn.hidden = false;
+      paintResp(respBtn, itemData, group);
+      // Deaktivert mens en tidligere ansvars-endring ennå ikke har landet.
+      if (!canEdit || pendingResp.has(itemData.id)) respBtn.disabled = true;
+      else respBtn.addEventListener('click', () => openResponsible(itemData, cardData, shareRoot, rType, respBtn));
     }
     return el;
   }
@@ -2579,7 +2749,7 @@
     document.body.classList.toggle('modal-open',
       !trashModal.hidden || !menuModal.hidden ||
       (share && !share.hidden) || (place && !place.hidden) ||
-      (confirmEl && !confirmEl.hidden) || !!openSwitcherKind);
+      (confirmEl && !confirmEl.hidden) || !!openSwitcherKind || respOpen);
   }
 
   /* ---------- Felles bekreftelses-modal (erstatter native confirm()) ----------
@@ -3045,6 +3215,7 @@
   document.addEventListener('keydown', (ev) => {
     if (ev.key !== 'Escape') return;
     if (ev.target && ev.target.classList && ev.target.classList.contains('edit-input')) return;
+    if (respOpen) { closeResponsible(); return; } // ansvarlig-velgeren ligger øverst
     if (openSwitcherKind) { closeSwitcher(); return; } // popover/modal ligger øverst av alle
     if (confirmModalEl && !confirmModalEl.hidden) { closeConfirm(false); return; } // øverst
     const share = document.getElementById('share-modal');
@@ -3193,6 +3364,97 @@
       ev.preventDefault();
       rows[(i + (ev.key === 'ArrowDown' ? 1 : -1) + rows.length) % rows.length].focus();
     });
+  });
+
+  /* ---------------- Ansvarlig-velger (popover/modal) ----------------
+     Samme skall som univers-/gruppebytteren (popover på desktop, sentrert modal
+     på mobil), men radene viser en farget initial-sirkel + fullt navn for hver i
+     delegruppen (alfabetisk). Valg skriver `item.responsible` og synker. */
+  let respOpen = false;
+  function closeResponsible() {
+    if (!respOpen) return;
+    respSwitcherOverlay.hidden = true;
+    respOpen = false;
+    updateModalOpenClass();
+  }
+  function setResponsible(itemData, cardData, userId) {
+    // Slå opp DET LEVENDE objektet på id — popoveren kan ha fanget et foreldet
+    // item/kort hvis en synk-rebuild kjørte mens den var åpen.
+    const live = findAnyById(itemData.id);
+    const item = live && live.kind === 'item' ? live.obj : itemData;
+    if ((item.responsible || null) === (userId || null)) return;
+    item.responsible = userId || null;
+    stampContent(item);
+    pendingResp.set(item.id, item.ts); // marker «venter» → spinner + låst til den lander
+    const owner = (live && live.card) || findCard(cardData.id) || cardData;
+    refreshCard(owner);
+    save();
+  }
+  async function openResponsible(itemData, cardData, shareRoot, rType, anchorBtn) {
+    respSwitcherPanel.innerHTML = '';
+    respSwitcherPanel.style.top = '';
+    respSwitcherPanel.style.left = '';
+    // Hent delegruppen ferskt (medlemmer kan ha endret seg siden forrige cache).
+    let group = shareGroupCache.get(rootKey(rType, shareRoot.id));
+    try {
+      group = await fetchShareGroup(rType, shareRoot.id);
+      shareGroupCache.set(rootKey(rType, shareRoot.id), group);
+    } catch (e) { if (!group) { showToast('Kunne ikke hente medlemmer'); return; } }
+
+    const makeRow = (person, index, isRemove) => {
+      const row = document.createElement('button');
+      row.type = 'button';
+      row.className = 'resp-row' + (isRemove ? ' resp-row-clear' : '');
+      row.setAttribute('role', 'option');
+      const isActive = isRemove ? !itemData.responsible : itemData.responsible === person.id;
+      row.setAttribute('aria-selected', isActive ? 'true' : 'false');
+      row.classList.toggle('active', isActive);
+      if (isRemove) {
+        row.innerHTML = '<span class="resp-avatar resp-avatar-none">' + ICONS.handRaise + '</span>';
+        const nm = document.createElement('span');
+        nm.className = 'resp-row-name'; nm.textContent = 'Ingen ansvarlig';
+        row.appendChild(nm);
+      } else {
+        row.appendChild(respAvatar(person, index));
+        const nm = document.createElement('span');
+        nm.className = 'resp-row-name'; nm.textContent = person.name;
+        row.appendChild(nm);
+      }
+      row.addEventListener('click', () => {
+        setResponsible(itemData, cardData, isRemove ? null : person.id);
+        closeResponsible();
+      });
+      return row;
+    };
+
+    // «Ingen ansvarlig» først når noen er valgt (så man kan nullstille).
+    if (itemData.responsible) respSwitcherPanel.appendChild(makeRow(null, -1, true));
+    let activeRow = null;
+    group.people.forEach((p, i) => {
+      const row = makeRow(p, i, false);
+      if (p.id === itemData.responsible) activeRow = row;
+      respSwitcherPanel.appendChild(row);
+    });
+    if (!group.people.length) {
+      const p = document.createElement('p');
+      p.className = 'uni-empty'; p.textContent = 'Ingen medlemmer ennå.';
+      respSwitcherPanel.appendChild(p);
+    }
+
+    respOpen = true;
+    respSwitcherOverlay.hidden = false;
+    updateModalOpenClass();
+    if (window.matchMedia('(min-width: 561px)').matches) positionSwitcherPanel(respSwitcherPanel, anchorBtn);
+    (activeRow || respSwitcherPanel.firstElementChild || respSwitcherPanel).focus();
+  }
+  respSwitcherOverlay.addEventListener('click', (ev) => { if (ev.target === respSwitcherOverlay) closeResponsible(); });
+  respSwitcherPanel.addEventListener('keydown', (ev) => {
+    if (ev.key !== 'ArrowDown' && ev.key !== 'ArrowUp') return;
+    const rows = [...respSwitcherPanel.querySelectorAll('.resp-row')];
+    const i = rows.indexOf(document.activeElement);
+    if (i < 0) return;
+    ev.preventDefault();
+    rows[(i + (ev.key === 'ArrowDown' ? 1 : -1) + rows.length) % rows.length].focus();
   });
 
   // Univers-søppelkassen (i menyen): vises kun når den har innhold.
@@ -3404,6 +3666,7 @@
   function cleanItem(it, homeId) {
     return {
       id: it.id, text: it.text, home: it.home || homeId, trashed: !!it.trashed, done: !!it.done,
+      responsible: it.responsible || null,
       ts: it.ts || 0, org: it.org || '',
       pos: it.pos || 0, posTs: it.posTs || 0, posOrg: it.posOrg || '',
     };
@@ -3536,6 +3799,7 @@
     const posw = newer(a.posTs, a.posOrg, b.posTs, b.posOrg) ? a : b;
     return {
       id: a.id, text: content.text, trashed: !!content.trashed, done: !!content.done,
+      responsible: content.responsible || null,
       ts: content.ts || 0, org: content.org || '',
       home: posw.home, pos: posw.pos || 0, posTs: posw.posTs || 0, posOrg: posw.posOrg || '',
     };
@@ -4234,6 +4498,9 @@
   const authHeading = document.getElementById('auth-heading');
   const authHeadingIcon = document.getElementById('auth-heading-icon');
   const authEmail = document.getElementById('auth-email');
+  const authNameFields = document.getElementById('auth-name-fields');
+  const authFirstName = document.getElementById('auth-first-name');
+  const authLastName = document.getElementById('auth-last-name');
   const authPassword = document.getElementById('auth-password');
   const authPassField = document.getElementById('auth-pass-field');
   const authMsgEl = document.getElementById('auth-msg');
@@ -4257,6 +4524,11 @@
     authSubmit.textContent = m.submit;
     authPassField.hidden = !m.pass;
     authPassword.required = m.pass;
+    // Navnefeltene (fornavn/etternavn) vises kun ved registrering.
+    const reg = mode === 'register';
+    authNameFields.hidden = !reg;
+    authFirstName.required = reg;
+    authLastName.required = reg;
     authPassword.autocomplete = mode === 'register' ? 'new-password' : 'current-password';
     authMsg('');
     authForm.hidden = false;
@@ -4314,9 +4586,16 @@
         if (error) throw error;
         // onAuthStateChange starter appen.
       } else if (authModeCur === 'register') {
+        const firstName = authFirstName.value.trim();
+        const lastName = authLastName.value.trim();
+        if (!firstName || !lastName) { authMsg('Skriv inn både fornavn og etternavn.'); return; }
+        const displayName = firstName + ' ' + lastName;
         const { data, error } = await client.auth.signUp({
           email, password,
-          options: { emailRedirectTo: location.origin + location.pathname },
+          options: {
+            emailRedirectTo: location.origin + location.pathname,
+            data: { display_name: displayName },
+          },
         });
         if (error) throw error;
         if (data && data.session) {
@@ -4554,7 +4833,8 @@
     if (t === 'group') return Object.assign(base, { name: row.name || '', universe_id: row.uni });
     if (t === 'card') return Object.assign(base, { title: row.title || '', group_id: row.group,
       k: row.k !== false, p: row.p !== false, lab_ts: row.labTs || 0, lab_org: row.labOrg || '' });
-    return Object.assign(base, { text: row.text || '', card_id: row.home, done: !!row.done });
+    return Object.assign(base, { text: row.text || '', card_id: row.home, done: !!row.done,
+      responsible: row.responsible || null });
   }
   function updatePayload(t, row) {
     const base = { trashed: !!row.trashed, ts: row.ts || 0, org: row.org || '',
@@ -4563,7 +4843,8 @@
     if (t === 'group') return Object.assign(base, { name: row.name || '', universe_id: row.uni });
     if (t === 'card') return Object.assign(base, { title: row.title || '', group_id: row.group,
       k: row.k !== false, p: row.p !== false, lab_ts: row.labTs || 0, lab_org: row.labOrg || '' });
-    return Object.assign(base, { text: row.text || '', card_id: row.home, done: !!row.done });
+    return Object.assign(base, { text: row.text || '', card_id: row.home, done: !!row.done,
+      responsible: row.responsible || null });
   }
   async function pushOps(ops) {
     const client = acli();
@@ -4636,6 +4917,7 @@
       if (!isBusyEditing()) applyMyDoc(merged, meta);
       else if (canonical(merged) !== canonical(local)) cloudAgain = true;
       if (ops.length) await pushOps(ops);
+      clearLandedResp(merged);
       updateInbox(my);
       maybeOfferMigration(my);
     } catch (e) {
@@ -4733,8 +5015,9 @@
     menuBadge.hidden = total === 0;
     if (authUser) {
       menuAccount.hidden = false;
-      accountEmail.textContent = authUser.email || '';
-      accountAvatar.textContent = (authUser.email || '?').slice(0, 1);
+      const prof = (my && my.user) || {};
+      accountEmail.textContent = personName(prof) || authUser.email || '';
+      accountAvatar.textContent = initialsFromName(prof.display_name, authUser.email);
     }
     if (!total) { menuInvites.hidden = true; inviteListEl.innerHTML = ''; return; }
     menuInvites.hidden = false;
@@ -4885,17 +5168,20 @@
       info = data || info;
     } catch (e) { /* vis skjema likevel */ }
     if (obj._mine === false) {
-      if (info.owner) obj._ownerEmail = info.owner.email;
+      if (info.owner) { obj._ownerEmail = info.owner.email; obj._ownerName = info.owner.display_name; }
       renderShareRecipient(obj);
       return;
     }
     renderShareOwner(type, id, obj, info);
   }
 
-  function avatarFor(email, owner) {
+  // Avatar for en person i del-modalen: rund sirkel med initialer (navn hvis
+  // satt, ellers e-post). Eieren beholder den grønne markeringen; øvrige den
+  // nøytrale grå. Navn/e-post vises som tekst ved siden av (kallstedet).
+  function avatarFor(person, owner) {
     const s = document.createElement('span');
     s.className = 'member-avatar' + (owner ? ' owner' : '');
-    s.textContent = (email || '?').slice(0, 1);
+    s.textContent = initialsFromName(person && person.display_name, person && person.email);
     return s;
   }
   function renderShareOwner(type, id, obj, info) {
@@ -4936,8 +5222,8 @@
         row.className = 'member-row';
         const box = document.createElement('div'); box.className = 'member-info';
         box.innerHTML = '<span class="member-name"></span><span class="member-role">Eier (deg)</span>';
-        box.querySelector('.member-name').textContent = inf.owner.email;
-        row.append(avatarFor(inf.owner.email, true), box);
+        box.querySelector('.member-name').textContent = personName(inf.owner);
+        row.append(avatarFor(inf.owner, true), box);
         membersWrap.appendChild(row);
       }
       (inf.members || []).forEach((mbr) => {
@@ -4945,7 +5231,7 @@
         row.className = 'member-row';
         const box = document.createElement('div'); box.className = 'member-info';
         box.innerHTML = '<span class="member-name"></span><span class="member-role">Medlem</span>';
-        box.querySelector('.member-name').textContent = mbr.email;
+        box.querySelector('.member-name').textContent = personName(mbr);
         const kick = document.createElement('button');
         kick.className = 'btn btn-solid btn-red btn-small'; kick.type = 'button'; kick.textContent = 'Kast ut';
         kick.addEventListener('click', async () => {
@@ -4956,7 +5242,7 @@
             refreshMembers(); scheduleCloud(0);
           } catch (e) { showToast(friendlyAuthError(e)); }
         });
-        row.append(avatarFor(mbr.email, false), box, kick);
+        row.append(avatarFor(mbr, false), box, kick);
         membersWrap.appendChild(row);
       });
       (inf.pending_invites || []).forEach((inv) => {
@@ -4974,7 +5260,7 @@
             refreshMembers();
           } catch (e) { showToast(friendlyAuthError(e)); }
         });
-        row.append(avatarFor(inv.email, false), box, cancel);
+        row.append(avatarFor({ email: inv.email }, false), box, cancel);
         membersWrap.appendChild(row);
       });
     }
@@ -5020,11 +5306,13 @@
     shareBody.innerHTML = '';
     const line = document.createElement('div');
     line.className = 'owner-line';
-    const ownerEmail = obj._ownerEmail || '';
-    line.append(avatarFor(ownerEmail || '?', true));
+    const ownerPerson = { display_name: obj._ownerName, email: obj._ownerEmail };
+    line.append(avatarFor(ownerPerson, true));
     const inf = document.createElement('div'); inf.className = 'member-info';
-    inf.innerHTML = '<span class="member-name">Delt med deg</span>' +
+    const ownerLabel = personName(ownerPerson);
+    inf.innerHTML = '<span class="member-name"></span>' +
       '<span class="member-role">' + (obj._locked ? 'Skrivebeskyttet' : 'Du kan redigere') + '</span>';
+    inf.querySelector('.member-name').textContent = ownerLabel ? ('Delt av ' + ownerLabel) : 'Delt med deg';
     line.appendChild(inf);
     shareBody.appendChild(line);
     const leave = document.createElement('button');
@@ -5083,6 +5371,7 @@
     if (cloudChan && aclient) { try { aclient.removeChannel(cloudChan); } catch (e) {} }
     cloudChan = null; cloudRt = false; cloudBase = null; lastMy = null;
     cloudStarted = false;
+    shareGroupCache.clear(); shareGroupLoading.clear(); pendingResp.clear();
     authUser = null;
     state.universes = [];
     document.body.classList.add('no-auth');
