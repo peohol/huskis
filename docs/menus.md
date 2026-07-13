@@ -101,3 +101,27 @@ Menyknappen (☰) åpner `#menu-modal`:
 - Søppelkasse-modalen kan ligge **over** menyen (ligger etter i DOM, samme
   z-index); `body.modal-open` styres samlet (`updateModalOpenClass`).
 - Universer er **helt uavhengige**: se `docs/data-model.md`.
+
+## Univers-/gruppebytter (panel-title-knappene)
+
+Navnet øverst i gruppemenyen (globus-ikon + universnavn) og listemenyen
+(mappe-ikon + gruppenavn) er egne knapper (`#uni-switch-btn`/
+`#group-switch-btn`, klasse `.panel-title-btn`) — en tredje, rask måte å
+bytte univers/gruppe på, i tillegg til meny-modalen (universer) og
+gruppekortene (grupper). Klikk åpner `#uni-switcher`/`#group-switcher`
+(`.switcher-overlay` + `.switcher-panel`, bygget i `openSwitcher()` i app.js):
+en **ren bytte-liste** — posisjonsfarge vises (samme system som chips), men
+INGEN omdøping/sletting/rekkefølge herfra (det er forbeholdt meny-modalen/
+gruppemenyen selv). Gjeldende univers/gruppe er fokusert når den åpnes;
+piltaster opp/ned flytter fokus mellom radene (kun navigasjon).
+
+- **Desktop** (`min-width: 561px`): popover posisjonert rett til høyre for
+  knappen som åpnet den (`positionSwitcherPanel`, klemt til viewportet).
+- **Mobil** (`max-width: 560px`): sentrert modal med dempet bakgrunn
+  (samme mønster som `.modal-overlay`) og `overflow-y: auto` på selve
+  panelet, så man kan scrolle i listen uten å scrolle hele appen.
+- Lukkes ved klikk utenfor (`ev.target === overlay`, samme mønster som de
+  andre modalene), Escape (høyeste prioritet i det globale Escape-lyttet,
+  siden `.switcher-overlay` har høyere z-index enn `.modal-overlay`), eller
+  ved å velge en rad. `updateModalOpenClass()` låser body-scroll mens den
+  er åpen, akkurat som de andre modalene.

@@ -30,10 +30,11 @@
   <header class="app-header" id="app-header">
     <div class="panel-top">
       <div class="panel-head">
-        <span class="panel-title">
+        <button class="panel-title panel-title-btn" id="uni-switch-btn" type="button"
+                title="Bytt univers" aria-label="Bytt univers" aria-haspopup="true">
           <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.05" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"></circle><path d="M3 12h18"></path><path d="M12 3a14 14 0 0 1 3.8 9 14 14 0 0 1-3.8 9 14 14 0 0 1-3.8-9A14 14 0 0 1 12 3Z"></path></svg>
           <span id="groups-panel-title">Grupper</span>
-        </span>
+        </button>
       </div>
       <div class="panel-actions">
         <button class="btn-add btn-solid btn-green" id="add-group-btn" type="button" title="Ny gruppe" aria-label="Ny gruppe">＋ <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.05" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3.5 19V6.5a2 2 0 0 1 2-2h3.3a2 2 0 0 1 1.6.8l1.1 1.5a2 2 0 0 0 1.6.8H19a2 2 0 0 1 2 2V19a2 2 0 0 1-2 2H5.5a2 2 0 0 1-2-2Z"></path></svg></button>
@@ -55,10 +56,11 @@
          av body) — den havner likevel visuelt i dette hjørnet på desktop. -->
     <div class="toolbar">
       <div class="panel-head">
-        <span class="panel-title">
+        <button class="panel-title panel-title-btn" id="group-switch-btn" type="button"
+                title="Bytt gruppe" aria-label="Bytt gruppe" aria-haspopup="true">
           <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.05" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3.5 19V6.5a2 2 0 0 1 2-2h3.3a2 2 0 0 1 1.6.8l1.1 1.5a2 2 0 0 0 1.6.8H19a2 2 0 0 1 2 2V19a2 2 0 0 1-2 2H5.5a2 2 0 0 1-2-2Z"></path></svg>
           <span id="lister-panel-title">Lister</span>
-        </span>
+        </button>
       </div>
       <div class="panel-actions">
         <button class="btn-add btn-solid btn-green" id="add-card-btn" type="button" title="Ny liste" aria-label="Ny liste">＋ <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.05" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3" width="18" height="18" rx="4.5"></rect><circle cx="8" cy="8.5" r="0.7" fill="currentColor" stroke="none"></circle><circle cx="8" cy="12" r="0.7" fill="currentColor" stroke="none"></circle><circle cx="8" cy="15.5" r="0.7" fill="currentColor" stroke="none"></circle><path d="M11.5 8.5h5.5"></path><path d="M11.5 12h5.5"></path><path d="M11.5 15.5h5.5"></path></svg></button>
@@ -147,6 +149,17 @@
         <button class="btn btn-solid btn-red" id="trash-empty" type="button">Tøm permanent</button>
       </footer>
     </div>
+  </div>
+
+  <!-- Univers-/gruppebytter: popover (desktop) / sentrert modal (mobil), åpnet
+       fra panel-title-knappene (globus-/mappe-ikon + navn) i gruppemenyen/
+       listemenyen. Kun bytte — ingen omdøping/sletting/rekkefølge herfra
+       (det skjer fortsatt i meny-modalen/gruppemenyen selv). -->
+  <div class="switcher-overlay" id="uni-switcher" hidden>
+    <div class="switcher-panel" id="uni-switcher-panel" role="listbox" aria-label="Bytt univers" tabindex="-1"></div>
+  </div>
+  <div class="switcher-overlay" id="group-switcher" hidden>
+    <div class="switcher-panel" id="group-switcher-panel" role="listbox" aria-label="Bytt gruppe" tabindex="-1"></div>
   </div>
 
   <!-- Templates -->

@@ -441,6 +441,13 @@
   const addGroupBtn = document.getElementById('add-group-btn');
   const groupsPanelTitle = document.getElementById('groups-panel-title');
   const listerPanelTitle = document.getElementById('lister-panel-title');
+  // Univers-/gruppebytter (popover/modal), åpnet fra panel-title-knappene.
+  const uniSwitchBtn = document.getElementById('uni-switch-btn');
+  const uniSwitcherOverlay = document.getElementById('uni-switcher');
+  const uniSwitcherPanel = document.getElementById('uni-switcher-panel');
+  const groupSwitchBtn = document.getElementById('group-switch-btn');
+  const groupSwitcherOverlay = document.getElementById('group-switcher');
+  const groupSwitcherPanel = document.getElementById('group-switcher-panel');
   const addCardBtn = document.getElementById('add-card-btn');
   const shareUniBtn = document.getElementById('share-uni-btn');
   const shareGroupBtn = document.getElementById('share-group-btn');
@@ -2572,7 +2579,7 @@
     document.body.classList.toggle('modal-open',
       !trashModal.hidden || !menuModal.hidden ||
       (share && !share.hidden) || (place && !place.hidden) ||
-      (confirmEl && !confirmEl.hidden));
+      (confirmEl && !confirmEl.hidden) || !!openSwitcherKind);
   }
 
   /* ---------- Felles bekreftelses-modal (erstatter native confirm()) ----------
@@ -3038,6 +3045,7 @@
   document.addEventListener('keydown', (ev) => {
     if (ev.key !== 'Escape') return;
     if (ev.target && ev.target.classList && ev.target.classList.contains('edit-input')) return;
+    if (openSwitcherKind) { closeSwitcher(); return; } // popover/modal ligger øverst av alle
     if (confirmModalEl && !confirmModalEl.hidden) { closeConfirm(false); return; } // øverst
     const share = document.getElementById('share-modal');
     const place = document.getElementById('place-modal');
@@ -3075,6 +3083,111 @@
   menuClose.addEventListener('click', closeMenu);
   menuModal.addEventListener('click', (ev) => {
     if (ev.target === menuModal) closeMenu();
+  });
+
+  /* ============================================================
+     UNIVERS-/GRUPPEBYTTER (panel-title-knappene)
+     ------------------------------------------------------------
+     En ekstra, rask måte å bytte univers/gruppe på — i tillegg til
+     meny-modalen (universer) og gruppekortene (grupper): klikk på selve
+     navnet øverst i gruppemenyen/listemenyen åpner en enkel bytte-liste
+     (farge vises, men ingen omdøping/sletting/rekkefølge herfra). Desktop:
+     popover rett til høyre for knappen som åpnet den. Mobil: sentrert modal
+     med intern scroll (se .switcher-* i styles.css). */
+  let openSwitcherKind = null; // 'universe' | 'group' | null
+
+  function switcherConfig(kind) {
+    return kind === 'universe'
+      ? { overlay: uniSwitcherOverlay, panel: uniSwitcherPanel, btn: uniSwitchBtn, items: visibleUniverses, activeId: () => state.activeUniverse }
+      : { overlay: groupSwitcherOverlay, panel: groupSwitcherPanel, btn: groupSwitchBtn, items: visibleGroups, activeId: () => state.activeGroup };
+  }
+
+  function buildSwitcherRow(kind, obj, isActive) {
+    const el = document.createElement('button');
+    el.type = 'button';
+    el.className = 'switcher-row';
+    el.dataset.id = obj.id;
+    el.setAttribute('role', 'option');
+    el.setAttribute('aria-selected', isActive ? 'true' : 'false');
+    el.classList.toggle('active', isActive);
+    applyChipColor(el, obj);
+    const name = document.createElement('span');
+    name.className = 'switcher-row-name';
+    name.textContent = obj.name;
+    el.appendChild(name);
+    el.addEventListener('click', () => {
+      if (kind === 'universe') {
+        if (obj.id !== state.activeUniverse) { setActiveUniverse(obj.id); render(); save(); }
+      } else if (obj.id !== state.activeGroup) {
+        setActiveGroup(obj.id); render();
+      }
+      closeSwitcher();
+    });
+    return el;
+  }
+
+  // Plasser popoveren rett til høyre for knappen (desktop); klem til
+  // viewportet så den aldri havner utenfor skjermen.
+  function positionSwitcherPanel(panel, btn) {
+    const r = btn.getBoundingClientRect();
+    const gap = 8;
+    panel.style.visibility = 'hidden';
+    panel.style.top = '0px';
+    panel.style.left = '0px';
+    const pr = panel.getBoundingClientRect();
+    const top = Math.max(10, Math.min(r.top, window.innerHeight - pr.height - 10));
+    let left = r.right + gap;
+    if (left + pr.width > window.innerWidth - 10) left = Math.max(10, r.left - pr.width - gap);
+    panel.style.top = top + 'px';
+    panel.style.left = left + 'px';
+    panel.style.visibility = '';
+  }
+
+  function openSwitcher(kind) {
+    const cfg = switcherConfig(kind);
+    const vis = cfg.items();
+    vis.forEach((o, i) => { o.color = colorForIndex(i); }); // samme fargesystem som menyene
+    cfg.panel.innerHTML = '';
+    cfg.panel.style.top = '';
+    cfg.panel.style.left = '';
+    const activeId = cfg.activeId();
+    let activeRow = null;
+    vis.forEach((o) => {
+      const isActive = o.id === activeId;
+      const row = buildSwitcherRow(kind, o, isActive);
+      if (isActive) activeRow = row;
+      cfg.panel.appendChild(row);
+    });
+    openSwitcherKind = kind;
+    cfg.overlay.hidden = false;
+    updateModalOpenClass();
+    if (window.matchMedia('(min-width: 561px)').matches) positionSwitcherPanel(cfg.panel, cfg.btn);
+    (activeRow || cfg.panel.firstElementChild || cfg.panel).focus();
+  }
+
+  function closeSwitcher() {
+    if (!openSwitcherKind) return;
+    switcherConfig(openSwitcherKind).overlay.hidden = true;
+    openSwitcherKind = null;
+    updateModalOpenClass();
+  }
+
+  uniSwitchBtn.addEventListener('click', () => openSwitcher('universe'));
+  groupSwitchBtn.addEventListener('click', () => openSwitcher('group'));
+  [uniSwitcherOverlay, groupSwitcherOverlay].forEach((overlay) => {
+    overlay.addEventListener('click', (ev) => { if (ev.target === overlay) closeSwitcher(); });
+  });
+  // Piltaster opp/ned flytter fokus mellom radene (kun navigasjon — rekkefølgen
+  // kan ikke endres herfra, det er forbeholdt de fulle menyene).
+  [uniSwitcherPanel, groupSwitcherPanel].forEach((panel) => {
+    panel.addEventListener('keydown', (ev) => {
+      if (ev.key !== 'ArrowDown' && ev.key !== 'ArrowUp') return;
+      const rows = [...panel.querySelectorAll('.switcher-row')];
+      const i = rows.indexOf(document.activeElement);
+      if (i < 0) return;
+      ev.preventDefault();
+      rows[(i + (ev.key === 'ArrowDown' ? 1 : -1) + rows.length) % rows.length].focus();
+    });
   });
 
   // Univers-søppelkassen (i menyen): vises kun når den har innhold.
