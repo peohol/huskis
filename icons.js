@@ -70,6 +70,16 @@ window.ICONS = {
     '<path d="M5.5 20a6.5 6.5 0 0 1 13 0"></path>' +
     '</svg>',
 
+  // Personsiluett som rekker opp hånden («jeg tar oppgaven») — ansvarsknappen
+  // på elementer i delte lister. Samme grunnform som `profile` (hode + skuldre),
+  // men med én arm hevet opp til en hånd over hodet.
+  handRaise: '<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.05" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
+    '<circle cx="10.5" cy="8" r="3.2"></circle>' +
+    '<path d="M4.7 20a5.9 5.9 0 0 1 11.3-2.4"></path>' +
+    '<path d="M15.3 14.5 18 8.2"></path>' +
+    '<circle cx="18.4" cy="6.7" r="1.3"></circle>' +
+    '</svg>',
+
   people: '<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.05" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
     '<circle cx="12" cy="7.8" r="3.1"></circle>' +
     '<path d="M6.7 18.6a5.3 5.2 0 0 1 10.6 0"></path>' +

@@ -50,6 +50,23 @@ Design-overhalingen la til **avkryssing av elementer** (gjort/ikke gjort). Felte
       kolonnen (+ LWW-trigger/`get_my_doc`/`import_doc`) er nå på ekte Supabase,
       så avkryssing persisteres i kontomodus.
 
+## Skjema-endring: navn + ansvarlig (`display_name` / `items.responsible`)
+
+Brukernavn (fornavn + etternavn ved registrering → `profiles.display_name`) og
+**ansvarlig for elementer** i delte lister (`items.responsible`, FK til
+`profiles`, `on delete set null`, rir på innholds-registeret). `supabase/users-
+and-sharing.sql` er oppdatert idempotent (`add column if not exists responsible`,
+LWW-trigger, `get_my_doc`, `import_doc`) og har en **engangs-seed** som setter
+navnene «Karin Falch» / «Peder Holman» på de to eksisterende kontoene (kun hvis
+navnet fortsatt er auto-standarden, så re-kjøring ikke overskriver). Klient-UI
+(registrering med navn, initialer/navn i del-modalen, ansvarsknapp/-popover) er
+implementert og verifisert i nettleser (mock-backend) — se `docs/accounts.md`.
+
+- [ ] **Kjør «Supabase DB-oppsett»-workflowen** (workflow_dispatch) mot ekte
+      Supabase så `items.responsible`-kolonnen og navne-seeden lander. Til det er
+      gjort mangler kolonnen i prod og ansvarlig-synk vil feile stille (skriving
+      avvises), mens navnene til de to kontoene fortsatt er e-post-prefiksen.
+
 ## Manuelle steg (krever dashboard-tilgang — Peder)
 
 - [x] ~~GitHub → Settings → Secrets and variables → Actions: legg inn

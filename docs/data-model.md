@@ -22,7 +22,7 @@ state = {
         { id, uni, name, trashed, pos,   // uni = univers-forelder
           cards: [                        // «lister»
             { id, group, title, color, trashed, k, p, // k/p: legacy, se docs/colors-and-labels.md
-              items: [ { id, text, trashed, done, home } ] } ] } ] } // done: avkrysset
+              items: [ { id, text, trashed, done, responsible, home } ] } ] } ] } // done: avkrysset, responsible: ansvarlig bruker-id (delte lister)
   ],
   _tomb: { universes:{}, groups:{}, cards:{}, items:{} }, // gravsteiner: id → ts
 }
@@ -65,6 +65,11 @@ osv.), så kryss-univers-flytting er umulig i UI-et.
   plass blant de aktive (og skyver den som nå står der, ett hakk ned). I kontomodus
   er `done` en egen kolonne (`items.done`, se `supabase/users-and-sharing.sql` +
   TODO.md for påkrevd DB-migrering).
+- **Ansvarlig** (`item.responsible`): bruker-id-en til den som «tar oppgaven» i en
+  delt liste. Rir på innholds-registeret (`ts`/`org`, som `text`/`done`) — LWW ved
+  samtidig endring. Kun elementer i delt kontekst (delt liste, eller liste under en
+  delt gruppe/univers) viser ansvarsknappen; se `docs/accounts.md`. I kontomodus en
+  egen kolonne (`items.responsible`, FK til `profiles`, `on delete set null`).
 - **`_pendingDelete`** (lokalt, `_`-prefiks → ikke synket): buffret sletting —
   objektet er skjult og «på vei til søppel», men ennå ikke `trashed`/skrevet til
   DB. Se `docs/trash.md` (delete-buffer).

@@ -827,6 +827,52 @@ body {
 }
 .item.done .item-check .icon { opacity: 1; filter: drop-shadow(var(--text-shadow)); }
 
+/* Ansvarsknapp på elementer i delte lister: hånd-opp-ikon (tom) eller den
+   fargede initial-sirkelen (valgt ansvarlig). Til venstre for slette-✕. */
+.item-resp {
+  flex: 0 0 auto;
+  align-self: center;
+  appearance: none;
+  cursor: pointer;
+  width: 27px;
+  height: 27px;
+  padding: 0;
+  display: grid;
+  place-items: center;
+  border: none;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--ink-soft);
+  transition: transform 0.1s, color 0.15s, opacity 0.15s;
+}
+.item-resp .icon { width: 1em; height: 1em; font-size: 21px; }
+.item-resp:not(.has-resp) { opacity: 0.5; }
+.item:hover .item-resp,
+.item:focus-within .item-resp { opacity: 1; }
+.item-resp:not(.has-resp):hover { color: var(--primary); }
+.item-resp:active { transform: scale(0.9); }
+.item-resp:focus-visible { outline: 2.5px solid var(--primary); outline-offset: 2px; }
+.item-resp:disabled { cursor: default; }
+.item.done .item-resp { opacity: 0.5; }
+
+/* Farget sirkel med initialer (ansvarssirkel). Bakgrunnsfargen settes inline
+   fra paletten (personens plass i delegruppen). */
+.resp-avatar {
+  flex: 0 0 auto;
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  color: #fff;
+  font-weight: 700;
+  font-size: var(--fs-sm);
+  text-transform: uppercase;
+  text-shadow: var(--text-shadow);
+  background: #8496a6;
+}
+.item-resp .resp-avatar { width: 27px; height: 27px; font-size: 13px; }
+
 .item-text {
   flex: 1;
   font-size: var(--fs-base);
@@ -1292,6 +1338,47 @@ body.modal-open { overflow: hidden; }
   white-space: nowrap;
 }
 
+/* Ansvarlig-velgeren: nøytralt hvitt panel (arver .switcher-panel) med rader
+   som viser farget initial-sirkel + fullt navn. Ingen fulle fargede rader som
+   bytterne — her er selve avataren det fargede elementet. */
+.resp-panel { gap: 3px; }
+.resp-row {
+  appearance: none;
+  border: none;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex: 0 0 auto;
+  width: 100%;
+  padding: 7px 9px;
+  border-radius: var(--control-radius);
+  background: transparent;
+  color: var(--ink);
+  font-family: inherit;
+  font-weight: 600;
+  font-size: var(--fs-md);
+  text-align: left;
+  transition: background 0.15s;
+}
+.resp-row:hover { background: var(--primary-soft); }
+.resp-row.active { background: var(--primary-soft); }
+.resp-row:focus-visible { outline: 2.5px solid var(--primary); outline-offset: -2px; }
+.resp-row-name {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.resp-avatar-none {
+  background: var(--control-bg);
+  color: var(--ink-soft);
+  text-shadow: none;
+}
+.resp-avatar-none .icon { width: 1em; height: 1em; font-size: 21px; }
+.resp-row-clear { color: var(--ink-soft); }
+
 /* ---------------- Synk-varsel ----------------
    Synken går fortløpende i bakgrunnen (ingen egen knapp lenger). Når en
    endring kommer fra en annen enhet vises et lite, forbigående varsel. */
@@ -1626,6 +1713,9 @@ body.no-auth #menu-btn { display: none; }
   font-weight: 600;
   color: var(--ink-soft);
 }
+/* Fornavn + etternavn side om side (kun ved registrering). */
+.auth-name-row { display: flex; gap: 10px; }
+.auth-name-row .auth-field { flex: 1 1 0; min-width: 0; }
 /* Felles tekstfelt-klasse (auth-input + inviter-input): solid kant, myk
    bakgrunn, grønn fokus-ring. Nye felt trenger bare `.field`. */
 .field {

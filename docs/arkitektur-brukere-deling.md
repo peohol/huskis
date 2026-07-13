@@ -29,8 +29,11 @@ er **urørt** og kjører parallelt til fase 2 er ferdig.
   lenke automatisk, og brukeren kan ikke logge inn før e-posten er bekreftet.
   Ingen egen e-postinfrastruktur trengs.
 - `public.profiles` speiler `auth.users` via trigger (`handle_new_user`):
-  opprettes ved registrering, e-post holdes synkron (lowercase). Triggeren
-  kobler også **ventende invitasjoner** sendt til e-posten før kontoen fantes.
+  opprettes ved registrering, e-post holdes synkron (lowercase). `display_name`
+  = «Fornavn Etternavn» (fanges fra `raw_user_meta_data->>'display_name'`, som
+  klienten sender ved registrering; ellers e-post-prefiksen). Triggeren kobler
+  også **ventende invitasjoner** sendt til e-posten før kontoen fantes.
+  Klienten kan kun endre `display_name` (kolonne-grant), aldri e-posten.
 - RLS: hver bruker ser kun sin egen profil. Medlemslister hentes via
   `get_members()` (som krever tilgang til objektet).
 
@@ -52,6 +55,10 @@ Fire objekttabeller — `universes` > `groups` > `cards` (= «lister» i UI-et)
   skrivingen.
 - Id-er er `uuid` og kan genereres på klienten (`crypto.randomUUID()`)
   for offline-first-oppførsel.
+- `items.responsible` (FK til `profiles`, `on delete set null`): ansvarlig
+  bruker for et element i en delt liste. Rir på innholds-registeret (`ts`/`org`,
+  som `text`/`done`/`trashed`) — server-LWW som resten. Klienten viser/endrer
+  den kun for elementer i delt kontekst (`docs/accounts.md`).
 
 ## Tilgangsmodell
 

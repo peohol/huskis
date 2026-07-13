@@ -116,6 +116,13 @@ søppel-modalen viser en spinner til objektet er committet (`docs/trash.md`);
 **«Utført»-seksjon** for avkryssede elementer (FLIP, posisjonsminne via uendret
 `pos`); liste-del-chip og liste-ikon oppdatert; sveipefeltet sier «Tøm» + pil.
 
+**Navn og ansvarlig** (siste runde): registrering krever fornavn + etternavn
+(→ `profiles.display_name`); del-modalen viser initial-sirkel + navn for eier/
+medlemmer; elementer i delte lister har en **ansvarsknapp** (hånd-opp-ikon →
+popover/modal med delegruppen alfabetisk som fargede initial-sirkler + navn →
+valgt ansvarlig vises som farget initial-sirkel, `item.responsible`). Krever en
+DB-migrering + navne-seed i kontomodus — se `TODO.md`. Se `docs/accounts.md`.
+
 **Brukere og deling**: database-grunnmuren (Supabase Auth, eierskap, deling,
 lås — se `docs/arkitektur-brukere-deling.md`) er ferdig, testet og kjørt mot
 Supabase. **Fase 2 (klient/UI) er implementert** — auth-UI (registrering/
