@@ -1054,14 +1054,18 @@
     if (n.cards) return 'group';
     return 'universe';
   }
-  // Nærmeste forelder (eller objektet selv) som er delt — enten delt av meg
-  // (`_shared`) eller delt med meg (`_mine === false`). Null utenfor kontomodus
-  // eller for rent private objekter.
+  // Nærmeste forelder (eller objektet selv) som er en ekte delings-rot: enten
+  // delt av meg (`_shared` = har medlemmer) eller montert av meg som mottaker
+  // (`_mount`). MERK: et ikke-eid *barn* av en delt gruppe/univers har også
+  // `_mine === false`, men er IKKE selv delings-roten (ingen egen medlemsliste)
+  // — derfor stopper vi kun på `_shared`/`_mount`, ikke på `_mine === false`,
+  // ellers ville ansvars-velgeren hentet get_members for feil (medlemsløst)
+  // objekt for arvede delinger. Null utenfor kontomodus / for private objekter.
   function shareRootFor(node) {
     if (!accountsMode()) return null;
     let n = node;
     while (n) {
-      if (n._shared || n._mine === false) return n;
+      if (n._shared || n._mount) return n;
       n = n._parent;
     }
     return null;
