@@ -3111,6 +3111,11 @@
     el.setAttribute('aria-selected', isActive ? 'true' : 'false');
     el.classList.toggle('active', isActive);
     applyChipColor(el, obj);
+    const icon = document.createElement('span');
+    icon.className = 'switcher-row-icon';
+    icon.setAttribute('aria-hidden', 'true');
+    icon.innerHTML = kind === 'universe' ? ICONS.globe : ICONS.folder;
+    el.appendChild(icon);
     const name = document.createElement('span');
     name.className = 'switcher-row-name';
     name.textContent = obj.name;

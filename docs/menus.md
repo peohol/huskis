@@ -110,10 +110,13 @@ Navnet øverst i gruppemenyen (globus-ikon + universnavn) og listemenyen
 bytte univers/gruppe på, i tillegg til meny-modalen (universer) og
 gruppekortene (grupper). Klikk åpner `#uni-switcher`/`#group-switcher`
 (`.switcher-overlay` + `.switcher-panel`, bygget i `openSwitcher()` i app.js):
-en **ren bytte-liste** — posisjonsfarge vises (samme system som chips), men
-INGEN omdøping/sletting/rekkefølge herfra (det er forbeholdt meny-modalen/
-gruppemenyen selv). Gjeldende univers/gruppe er fokusert når den åpnes;
-piltaster opp/ned flytter fokus mellom radene (kun navigasjon).
+en **ren bytte-liste** — hver rad viser nivå-ikonet (globus/mappe) + navn og
+posisjonsfarge (samme system som chips), men INGEN omdøping/sletting/
+rekkefølge herfra (det er forbeholdt meny-modalen/gruppemenyen selv).
+Gjeldende univers/gruppe er fokusert når den åpnes; piltaster opp/ned flytter
+fokus mellom radene (kun navigasjon). Panelet er kun så bredt som det
+lengste navnet krever (`width: max-content`, ingen kunstig minstebredde),
+klemt til viewportet (`max-width`).
 
 - **Desktop** (`min-width: 561px`): popover posisjonert rett til høyre for
   knappen som åpnet den (`positionSwitcherPanel`, klemt til viewportet).
