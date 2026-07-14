@@ -892,15 +892,20 @@
 
     // Delings-/låse-status (kontomodus). canEdit=false fryser redigering, men en
     // montert liste-rot (mottakerens egen) kan alltid dras/legges i egen søppel.
-    // Listekort har i tillegg .is-locked (egen kant-styling) — settes her, ikke
-    // i den delte hjelperen.
-    const canEdit = applyShareBadge(el, cardData).canEdit;
+    // Delt-indikatoren ligger i meta-raden under tittelen (fillMetaRow), ikke
+    // som badge i headeren; .is-locked (egen kant-styling) settes her.
+    const shared = accountsMode() && (cardData._shared || cardData._mount);
+    const canEdit = !frozen(cardData);
+    el.classList.toggle('is-shared', !!shared);
     el.classList.toggle('is-locked', accountsMode() && !canEdit);
-    const cardShareBtn = el.querySelector('.card-share');
-    if (accountsMode() && (cardData._mine || cardData._mount)) {
-      cardShareBtn.hidden = false;
-      cardShareBtn.addEventListener('click', () => openShare('card', cardData.id, cardData));
-    }
+
+    // Tannhjulet åpner listens innstillingsmodal (navn/deling/ansvarlig/tidsplan).
+    el.querySelector('.card-cog').addEventListener('click', () =>
+      openSettings('card', cardData.id, cardData.id));
+
+    // Indikator-chips (delt/ansvarlig/start/frist) under tittelen.
+    fillMetaRow(el.querySelector('.card-meta'),
+      { kind: 'card', obj: cardData, card: cardData }, canEdit);
 
     const titleEl = el.querySelector('.card-title');
     titleEl.textContent = cardData.title;
@@ -1118,29 +1123,135 @@
     s.style.background = color;
     return s;
   }
-  // Tegn ansvarsknappen: hånd-opp-ikon når ingen er ansvarlig, ellers den
-  // fargede initial-sirkelen for den ansvarlige (fra delegruppen `group`).
-  function paintResp(btn, itemData, group) {
-    btn.innerHTML = '';
-    btn.classList.remove('has-resp');
-    const rid = itemData.responsible;
-    const entry = rid && group ? group.byId.get(rid) : null;
-    if (entry) {
-      btn.appendChild(respAvatar(entry.person, entry.index));
-      btn.classList.add('has-resp');
-      btn.title = 'Ansvarlig: ' + entry.person.name;
-      btn.setAttribute('aria-label', 'Ansvarlig: ' + entry.person.name + '. Trykk for å endre');
-    } else if (rid) {
-      btn.appendChild(respAvatar(null, -1)); // delegruppen ikke lastet ennå / person borte
-      btn.classList.add('has-resp');
-      btn.title = 'Ansvarlig valgt';
-      btn.setAttribute('aria-label', 'Endre ansvarlig');
-    } else {
-      btn.innerHTML = ICONS.handRaise;
-      btn.classList.remove('has-resp');
-      btn.title = 'Velg ansvarlig';
-      btn.setAttribute('aria-label', 'Velg ansvarlig');
+  /* ---------------- Tidsplan (start/frist) ----------------
+     Tidsverdi: null | 'YYYY-MM-DD' | 'YYYY-MM-DDTHH:MM' — klokkeslettet er
+     valgfritt (dato + tid er to felt i UI-et). Rir på innholds-registeret
+     (ts/org) som tekst/done/responsible. Starttid = når noe BØR påbegynnes,
+     frist = når det bør være utført; ingen av dem håndheves. Lister har i
+     tillegg `lockTimes`: listens tider gjelder da elementene, som ikke kan ha
+     egne. Alle statuser regnes på DATO-nivå (lokal tid):
+       start:  nøytral frem til startdatoen, grønn f.o.m. den.
+       frist:  nøytral → gul dagen før fristen → rød f.o.m. fristdatoen. */
+  function timeDatePart(v) { return v ? String(v).slice(0, 10) : null; }
+  function timeClockPart(v) { v = String(v || ''); return v.length > 10 ? v.slice(11, 16) : null; }
+  function localDateStr(d) {
+    return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') +
+      '-' + String(d.getDate()).padStart(2, '0');
+  }
+  function todayStr() { return localDateStr(new Date()); }
+  function addDaysStr(dateStr, days) {
+    const p = dateStr.split('-').map(Number);
+    return localDateStr(new Date(p[0], p[1] - 1, p[2] + days));
+  }
+  const MONTHS_NO = ['jan', 'feb', 'mar', 'apr', 'mai', 'jun', 'jul', 'aug', 'sep', 'okt', 'nov', 'des'];
+  function fmtDay(dateStr) {
+    const p = dateStr.split('-').map(Number);
+    const yr = p[0] !== new Date().getFullYear() ? ' ' + p[0] : '';
+    return p[2] + '. ' + (MONTHS_NO[p[1] - 1] || '') + yr;
+  }
+  function fmtTimeFull(v) {
+    const clock = timeClockPart(v);
+    return fmtDay(timeDatePart(v)) + (clock ? ' kl. ' + clock : '');
+  }
+  function startStatus(v) { // 'future' | 'started'
+    const d = timeDatePart(v);
+    return d && todayStr() >= d ? 'started' : 'future';
+  }
+  function dueStatus(v) { // 'later' | 'soon' (dagen før) | 'over' (f.o.m. fristdatoen)
+    const d = timeDatePart(v);
+    if (!d) return 'later';
+    const t = todayStr();
+    if (t >= d) return 'over';
+    if (t >= addDaysStr(d, -1)) return 'soon';
+    return 'later';
+  }
+  // Sammenlign to tidsverdier: på dato-nivå når minst én mangler klokkeslett
+  // (samme dag regnes da som «innenfor»), ellers på fullt tidspunkt.
+  function cmpTime(a, b) {
+    const A = timeClockPart(a) && timeClockPart(b) ? a : timeDatePart(a);
+    const B = timeClockPart(a) && timeClockPart(b) ? b : timeDatePart(b);
+    return A < B ? -1 : A > B ? 1 : 0;
+  }
+  // Er elementets start/frist utenfor listens tidsrom? (Subtil beskjed i
+  // tidsmodulen — fullt lovlig, bare et hint.)
+  function outsideFlags(item, card) {
+    const chk = (v) => !!v && ((card.start && cmpTime(v, card.start) < 0) ||
+                               (card.due && cmpTime(v, card.due) > 0));
+    return { start: chk(item.start), due: chk(item.due) };
+  }
+
+  /* ---------------- Indikator-chips (meta-raden under navnet) ----------------
+     Under liste-/elementnavnet vises en rad med chips for innstillingene som
+     faktisk er satt: delt (kun lister), ansvarlig, start og frist. Chipene er
+     knapper: delt → innstillingsmodalen, ansvarlig → ansvarlig-velgeren,
+     start/frist → tids-popoveren. Datoen vises med kalenderikon — bortsett fra
+     når datoen er i dag OG et klokkeslett er definert: da vises klokkeslettet
+     med klokkeikon i stedet. */
+  function metaChipEl(cls) {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.className = 'meta-chip ' + cls;
+    return b;
+  }
+  function appendTimeChip(row, target, field, canEdit) {
+    const v = target.obj[field];
+    if (!v) return;
+    const isDue = field === 'due';
+    const chip = metaChipEl(isDue ? 'meta-due' : 'meta-start');
+    if (isDue) {
+      const st = dueStatus(v);
+      if (st === 'soon') chip.classList.add('is-soon');
+      else if (st === 'over') chip.classList.add('is-over');
+    } else if (startStatus(v) === 'started') {
+      chip.classList.add('is-started');
     }
+    const clock = timeClockPart(v);
+    const showClock = clock && timeDatePart(v) === todayStr();
+    chip.innerHTML = (showClock ? ICONS.clock : (isDue ? ICONS.calendarDue : ICONS.calendar)) +
+      '<span>' + (showClock ? clock : fmtDay(timeDatePart(v))) + '</span>';
+    chip.title = (isDue ? 'Frist: ' : 'Start: ') + fmtTimeFull(v);
+    chip.setAttribute('aria-label', chip.title + (canEdit ? '. Trykk for å endre' : ''));
+    if (canEdit) chip.addEventListener('click', (ev) => { ev.stopPropagation(); openTimeQuick(target, field, chip); });
+    else chip.disabled = true;
+    row.appendChild(chip);
+  }
+  // Fyll meta-raden for en liste eller et element. target = { kind, obj, card }
+  // (for lister er obj === card). Raden skjules når ingen chips er satt.
+  function fillMetaRow(row, target, canEdit) {
+    row.innerHTML = '';
+    const obj = target.obj;
+    const isCard = target.kind === 'card';
+    if (isCard && accountsMode() && (obj._shared || obj._mount)) {
+      const chip = metaChipEl('meta-shared');
+      chip.innerHTML = !canEdit ? ICONS.lock : ICONS.people;
+      chip.title = obj._mount ? 'Delt med deg' : 'Delt med andre';
+      chip.setAttribute('aria-label', chip.title + '. Trykk for delingsinnstillinger');
+      chip.addEventListener('click', (ev) => { ev.stopPropagation(); openSettings(target.kind, obj.id, target.card.id); });
+      row.appendChild(chip);
+    }
+    if (obj.responsible) {
+      const shareRoot = shareRootFor(target.card);
+      const rType = shareRoot ? nodeType(shareRoot) : null;
+      const group = shareRoot ? shareGroupCache.get(rootKey(rType, shareRoot.id)) : null;
+      if (shareRoot && !group) ensureShareGroup(rType, shareRoot.id);
+      const entry = group ? group.byId.get(obj.responsible) : null;
+      const chip = metaChipEl('meta-resp');
+      chip.appendChild(respAvatar(entry ? entry.person : null, entry ? entry.index : -1));
+      chip.title = entry ? 'Ansvarlig: ' + entry.person.name : 'Ansvarlig valgt';
+      chip.setAttribute('aria-label', chip.title + '. Trykk for å endre');
+      if (shareRoot && canEdit) {
+        chip.addEventListener('click', (ev) => { ev.stopPropagation(); openResponsible(target, shareRoot, rType, chip); });
+      } else {
+        chip.disabled = true;
+      }
+      row.appendChild(chip);
+    }
+    // Elementer under en tids-låst liste har ingen egne tider (listen styrer).
+    if (isCard || !target.card.lockTimes) {
+      appendTimeChip(row, target, 'start', canEdit);
+      appendTimeChip(row, target, 'due', canEdit);
+    }
+    row.hidden = !row.children.length;
   }
 
   function buildItem(itemData, cardData) {
@@ -1215,20 +1326,14 @@
       });
     }
 
-    // Ansvarsknapp: kun for elementer i delt kontekst (delt liste, eller liste
-    // under en delt gruppe/univers). Ikonet erstattes av ansvarssirkelen når en
-    // ansvarlig er valgt. Delegruppen hentes lat og cachet (ensureShareGroup).
-    const respBtn = el.querySelector('.item-resp');
-    const shareRoot = shareRootFor(cardData);
-    if (shareRoot) {
-      const rType = nodeType(shareRoot);
-      const group = shareGroupCache.get(rootKey(rType, shareRoot.id));
-      if (!group) ensureShareGroup(rType, shareRoot.id);
-      respBtn.hidden = false;
-      paintResp(respBtn, itemData, group);
-      if (!canEdit) respBtn.disabled = true;
-      else respBtn.addEventListener('click', () => openResponsible(itemData, cardData, shareRoot, rType, respBtn));
-    }
+    // Tannhjulet åpner elementets innstillingsmodal (navn/ansvarlig/tidsplan).
+    const cogBtn = el.querySelector('.item-cog');
+    if (!canEdit) cogBtn.disabled = true;
+    else cogBtn.addEventListener('click', () => openSettings('item', itemData.id, cardData.id));
+
+    // Indikator-chips (ansvarlig/start/frist) under teksten.
+    fillMetaRow(el.querySelector('.item-meta'),
+      { kind: 'item', obj: itemData, card: cardData }, canEdit);
     return el;
   }
 
@@ -2752,10 +2857,13 @@
     const share = document.getElementById('share-modal');
     const place = document.getElementById('place-modal');
     const confirmEl = document.getElementById('confirm-modal');
+    const settings = document.getElementById('settings-modal');
+    const timeSw = document.getElementById('time-switcher');
     document.body.classList.toggle('modal-open',
       !trashModal.hidden || !menuModal.hidden ||
       (share && !share.hidden) || (place && !place.hidden) ||
-      (confirmEl && !confirmEl.hidden) || !!openSwitcherKind || respOpen);
+      (confirmEl && !confirmEl.hidden) || (settings && !settings.hidden) ||
+      (timeSw && !timeSw.hidden) || !!openSwitcherKind || respOpen);
   }
 
   /* ---------- Felles bekreftelses-modal (erstatter native confirm()) ----------
@@ -3214,6 +3322,7 @@
   document.addEventListener('keydown', (ev) => {
     if (ev.key !== 'Escape') return;
     if (ev.target && ev.target.classList && ev.target.classList.contains('edit-input')) return;
+    if (timeQuickOpen) { closeTimeQuick(); return; } // tids-popoveren ligger øverst
     if (respOpen) { closeResponsible(); return; } // ansvarlig-velgeren ligger øverst
     if (openSwitcherKind) { closeSwitcher(); return; } // popover/modal ligger øverst av alle
     if (confirmModalEl && !confirmModalEl.hidden) { closeConfirm(false); return; } // øverst
@@ -3221,6 +3330,7 @@
     const place = document.getElementById('place-modal');
     if (place && !place.hidden) { place.hidden = true; updateModalOpenClass(); }
     else if (share && !share.hidden) { share.hidden = true; updateModalOpenClass(); }
+    else if (settingsModal && !settingsModal.hidden) closeSettings();
     else if (!trashModal.hidden) closeTrash();
     else if (!menuModal.hidden) closeMenu();
   });
@@ -3368,7 +3478,8 @@
   /* ---------------- Ansvarlig-velger (popover/modal) ----------------
      Samme skall som univers-/gruppebytteren (popover på desktop, sentrert modal
      på mobil), men radene viser en farget initial-sirkel + fullt navn for hver i
-     delegruppen (alfabetisk). Valg skriver `item.responsible` og synker. */
+     delegruppen (alfabetisk). Gjelder både elementer og hele lister (target =
+     { kind: 'card'|'item', obj, card }); valg skriver `obj.responsible` og synker. */
   let respOpen = false;
   let respToken = 0; // skiller gjenåpninger — en sen medlems-henting skal ikke male en lukket/nyåpnet popover
   function closeResponsible() {
@@ -3377,22 +3488,27 @@
     respOpen = false;
     updateModalOpenClass();
   }
-  function setResponsible(itemData, cardData, userId) {
-    // Slå opp DET LEVENDE objektet på id — popoveren kan ha fanget et foreldet
-    // item/kort hvis en synk-rebuild kjørte mens den var åpen. Endringen vises
-    // umiddelbart og kan byttes igjen med en gang: hvert valg stempler et nytt
-    // ts på innholds-registeret, så doc-synken (seriell cloudCycle + felt-LWW)
-    // pusher alltid det siste valget — ingen venting/låsing trengs.
-    const live = findAnyById(itemData.id);
-    const item = live && live.kind === 'item' ? live.obj : itemData;
-    if ((item.responsible || null) === (userId || null)) return;
-    item.responsible = userId || null;
-    stampContent(item);
-    const owner = (live && live.card) || findCard(cardData.id) || cardData;
-    refreshCard(owner);
-    save();
+  // Slå opp DET LEVENDE objektet på id — popoveren/modalen kan ha fanget et
+  // foreldet objekt hvis en synk-rebuild kjørte mens den var åpen.
+  function liveTarget(target) {
+    const f = findAnyById(target.obj.id);
+    if (!f || f.kind !== target.kind) return null;
+    return { kind: target.kind, obj: f.obj, card: f.kind === 'item' ? f.card : f.obj };
   }
-  function openResponsible(itemData, cardData, shareRoot, rType, anchorBtn) {
+  function setResponsible(target, userId) {
+    // Endringen vises umiddelbart og kan byttes igjen med en gang: hvert valg
+    // stempler et nytt ts på innholds-registeret, så doc-synken (seriell
+    // cloudCycle + felt-LWW) pusher alltid det siste valget — ingen venting.
+    const live = liveTarget(target) || target;
+    const obj = live.obj;
+    if ((obj.responsible || null) === (userId || null)) return;
+    obj.responsible = userId || null;
+    stampContent(obj);
+    refreshCard(live.card || findCard(target.card.id) || target.card);
+    save();
+    repaintSettings(); // innstillingsmodalen kan stå åpen på samme objekt
+  }
+  function openResponsible(target, shareRoot, rType, anchorBtn) {
     respSwitcherPanel.innerHTML = '';
     respSwitcherPanel.style.top = '';
     respSwitcherPanel.style.left = '';
@@ -3403,8 +3519,8 @@
     // Bygg (ev. bygg om) radene fra en delegruppe. Ansvaret leses LIVE på id,
     // så en ombygging etter en synk-rebuild markerer riktig person som aktiv.
     const paint = (group) => {
-      const live = findAnyById(itemData.id);
-      const curResp = ((live && live.kind === 'item' ? live.obj : itemData).responsible) || null;
+      const live = liveTarget(target);
+      const curResp = ((live || target).obj.responsible) || null;
       const makeRow = (person, index, isRemove) => {
         const row = document.createElement('button');
         row.type = 'button';
@@ -3425,7 +3541,7 @@
           row.appendChild(nm);
         }
         row.addEventListener('click', () => {
-          setResponsible(itemData, cardData, isRemove ? null : person.id);
+          setResponsible(target, isRemove ? null : person.id);
           closeResponsible();
         });
         return row;
@@ -3484,6 +3600,346 @@
     ev.preventDefault();
     rows[(i + (ev.key === 'ArrowDown' ? 1 : -1) + rows.length) % rows.length].focus();
   });
+
+  /* ============================================================
+     INNSTILLINGSMODAL (liste/element) + TIDSPLAN
+     ------------------------------------------------------------
+     Tannhjulet på et listekort/element åpner én felles innstillingsmodal:
+       1) navn (redigerbart felt, liste-ikon for lister)
+       2) deling (kun lister — samme innhold som del-modalen)
+       3) ansvarlig (delt kontekst — åpner ansvarlig-velgeren)
+       4) tidsplan (start + frist; lister kan låse tidene til elementene)
+     ALT lagres fortløpende uten bekreftelsesknapp: innholds-endringer
+     (navn/tider/ansvar/lås-avkryssing) stemples med stampContent og går
+     gjennom doc-synken (optimistisk, LWW); delings-handlingene ligger i
+     operasjonskøen (opQueue) som før. Modalen slår alltid opp det LEVENDE
+     objektet på id (liveTarget), så den tåler synk-rebuilds mens den er åpen. */
+  const settingsModal = document.getElementById('settings-modal');
+  const settingsBody = document.getElementById('settings-body');
+  const settingsTitleEl = document.getElementById('settings-title');
+  const settingsCloseBtn = document.getElementById('settings-close');
+  let settingsCtx = null;       // { kind: 'card'|'item', id }
+  let settingsRespPaint = null; // repaint-hook for ansvarlig-raden (satt av renderSettings)
+
+  function settingsTarget() {
+    return settingsCtx ? liveTarget({ kind: settingsCtx.kind, obj: { id: settingsCtx.id } }) : null;
+  }
+  // Ansvarlig-raden males på nytt etter et valg i velgeren (setResponsible).
+  function repaintSettings() { if (settingsRespPaint) settingsRespPaint(); }
+
+  function openSettings(kind, id) {
+    settingsCtx = { kind, id };
+    renderSettings();
+    if (!settingsCtx) return; // objektet fantes ikke (renderSettings lukket)
+    settingsModal.hidden = false;
+    updateModalOpenClass();
+  }
+  function closeSettings() {
+    if (settingsModal.hidden && !settingsCtx) return;
+    settingsModal.hidden = true;
+    settingsCtx = null;
+    settingsRespPaint = null;
+    updateModalOpenClass();
+    render(); // navn/chips kan ha endret seg mens modalen var åpen
+  }
+
+  function settingsSection(icon, label) {
+    const sec = document.createElement('section');
+    sec.className = 'settings-section';
+    const h = document.createElement('div');
+    h.className = 'settings-section-title';
+    h.innerHTML = icon + '<span>' + label + '</span>';
+    sec.appendChild(h);
+    return sec;
+  }
+
+  function renderSettings() {
+    const t = settingsTarget();
+    if (!t) { closeSettings(); return; }
+    const obj = t.obj;
+    const isCard = t.kind === 'card';
+    const canEdit = !(accountsMode() && frozen(isCard ? obj : t.card));
+
+    settingsTitleEl.innerHTML = ICONS.gear;
+    settingsTitleEl.appendChild(document.createTextNode(' Innstillinger'));
+    settingsBody.innerHTML = '';
+    settingsRespPaint = null;
+
+    // 1) Navn — redigeres rett i feltet, lagres fortløpende (tomt felt
+    //    committes ikke og gjenopprettes ved blur).
+    const nameWrap = document.createElement('div');
+    nameWrap.className = 'settings-name';
+    if (isCard) {
+      const ic = document.createElement('span');
+      ic.className = 'settings-name-icon';
+      ic.setAttribute('aria-hidden', 'true');
+      ic.innerHTML = ICONS.list;
+      nameWrap.appendChild(ic);
+    }
+    const nameInput = document.createElement('input');
+    nameInput.type = 'text';
+    nameInput.className = 'field settings-name-input';
+    nameInput.value = isCard ? obj.title : obj.text;
+    nameInput.setAttribute('aria-label', isCard ? 'Listens navn' : 'Elementets tekst');
+    nameInput.disabled = !canEdit;
+    nameInput.addEventListener('input', () => {
+      const live = settingsTarget();
+      const val = nameInput.value.trim();
+      if (!live || !val) return;
+      const sel = isCard
+        ? '.card[data-id="' + live.obj.id + '"] .card-title'
+        : '.item[data-id="' + live.obj.id + '"] .item-text';
+      if (isCard) live.obj.title = val; else live.obj.text = val;
+      const dispEl = board.querySelector(sel);
+      if (dispEl) dispEl.textContent = val;
+      stampContent(live.obj);
+      save();
+    });
+    nameInput.addEventListener('blur', () => {
+      const live = settingsTarget();
+      if (live && !nameInput.value.trim()) {
+        nameInput.value = isCard ? live.obj.title : live.obj.text;
+      }
+    });
+    nameWrap.appendChild(nameInput);
+    settingsBody.appendChild(nameWrap);
+
+    // 2) Deling (kun lister; eget eller montert objekt, kontomodus). Samme
+    //    innhold som del-modalen — invitasjoner/lås/utkast går via opQueue.
+    //    isMine (ikke _mine): en NYOPPRETTET liste mangler metadata til første
+    //    pull, men er min — delingen skal ikke mangle rett etter opprettelse.
+    if (isCard && accountsMode() && (isMine(obj) || obj._mount)) {
+      const sec = settingsSection(ICONS.people, 'Deling');
+      const shareWrap = document.createElement('div');
+      shareWrap.className = 'share-body settings-share-body';
+      if (obj._mine === false) renderShareRecipient('card', obj.id, obj, shareWrap, closeSettings);
+      else renderShareOwner('card', obj.id, obj, shareWrap);
+      sec.appendChild(shareWrap);
+      settingsBody.appendChild(sec);
+    }
+
+    // 3) Ansvarlig (delt kontekst — også for HELE listen): rad med nåværende
+    //    ansvarlig; klikk åpner ansvarlig-velgeren forankret i raden.
+    const shareRoot = shareRootFor(t.card);
+    if (shareRoot) {
+      const rType = nodeType(shareRoot);
+      ensureShareGroup(rType, shareRoot.id);
+      const sec = settingsSection(ICONS.handRaise, 'Ansvarlig');
+      const respBtn = document.createElement('button');
+      respBtn.type = 'button';
+      respBtn.className = 'settings-resp-btn';
+      respBtn.disabled = !canEdit;
+      const nameSpan = (txt) => {
+        const s = document.createElement('span');
+        s.className = 'settings-resp-name';
+        s.textContent = txt;
+        return s;
+      };
+      const paintRespRow = () => {
+        const live = settingsTarget();
+        if (!live) return;
+        const rid = live.obj.responsible || null;
+        const group = shareGroupCache.get(rootKey(rType, shareRoot.id));
+        const entry = rid && group ? group.byId.get(rid) : null;
+        respBtn.innerHTML = '';
+        if (entry) {
+          respBtn.appendChild(respAvatar(entry.person, entry.index));
+          respBtn.appendChild(nameSpan(entry.person.name));
+        } else if (rid) {
+          respBtn.appendChild(respAvatar(null, -1)); // delegruppen ikke lastet ennå
+          respBtn.appendChild(nameSpan('Ansvarlig valgt'));
+        } else {
+          const none = document.createElement('span');
+          none.className = 'resp-avatar resp-avatar-none';
+          none.innerHTML = ICONS.handRaise;
+          respBtn.appendChild(none);
+          respBtn.appendChild(nameSpan('Velg ansvarlig'));
+        }
+      };
+      respBtn.addEventListener('click', () => {
+        const live = settingsTarget();
+        if (live) openResponsible(live, shareRoot, rType, respBtn);
+      });
+      paintRespRow();
+      settingsRespPaint = paintRespRow;
+      sec.appendChild(respBtn);
+      settingsBody.appendChild(sec);
+    }
+
+    // 4) Tidsplan (alltid).
+    const timeSec = settingsSection(ICONS.calendar, 'Tidsplan');
+    timeSec.appendChild(buildTimeEditor(settingsTarget));
+    settingsBody.appendChild(timeSec);
+  }
+
+  settingsCloseBtn.addEventListener('click', closeSettings);
+  settingsModal.addEventListener('click', (ev) => { if (ev.target === settingsModal) closeSettings(); });
+
+  /* ---------------- Tids-editoren (deles av modalen og popoveren) ----------------
+     getTarget() slår opp det levende objektet per interaksjon. opts.only
+     begrenser til én rad ('start'/'due' — tids-popoveren); ellers vises begge
+     + lås-avkryssingen for lister. Endringer committes på input-change:
+     stampContent + save (doc-synken pusher optimistisk), og kortet males på
+     nytt så indikator-chipene følger med umiddelbart. */
+  function buildTimeEditor(getTarget, opts) {
+    opts = opts || {};
+    const wrap = document.createElement('div');
+    wrap.className = 'time-editor';
+    const t0 = getTarget();
+    if (!t0) return wrap;
+    const isCard = t0.kind === 'card';
+    const locked = !isCard && !!t0.card.lockTimes; // listen styrer elementets tider
+    const canEdit = !locked && !(accountsMode() && frozen(isCard ? t0.obj : t0.card));
+
+    const note = document.createElement('p');
+    note.className = 'time-note';
+    note.hidden = true;
+    const updateNote = () => {
+      const t = getTarget();
+      if (!t) return;
+      if (locked) {
+        note.textContent = 'Tidene styres av listen «' + (t.card.title || 'Uten navn') + '».';
+        note.classList.add('is-muted');
+        note.hidden = false;
+        return;
+      }
+      if (isCard) { note.hidden = true; return; }
+      // Subtil beskjed når elementets tider ligger utenfor listens tidsrom
+      // (tre varianter: start / frist / begge). Fullt lovlig — bare et hint.
+      const fl = outsideFlags(t.obj, t.card);
+      if (fl.start && fl.due) note.textContent = 'Starttiden og fristen er utenfor listens tidsrom.';
+      else if (fl.start) note.textContent = 'Starttiden er utenfor listens tidsrom.';
+      else if (fl.due) note.textContent = 'Fristen er utenfor listens tidsrom.';
+      note.hidden = !(fl.start || fl.due);
+    };
+
+    const makeRow = (field) => {
+      const isDue = field === 'due';
+      const row = document.createElement('div');
+      row.className = 'time-row';
+      const label = document.createElement('span');
+      label.className = 'time-row-label';
+      label.innerHTML = (isDue ? ICONS.calendarDue : ICONS.calendar) +
+        '<span>' + (isDue ? 'Frist' : 'Start') + '</span>';
+      const dateIn = document.createElement('input');
+      dateIn.type = 'date';
+      dateIn.className = 'field time-date';
+      dateIn.placeholder = 'dd.mm.åååå';
+      dateIn.setAttribute('aria-label', isDue ? 'Fristdato' : 'Startdato');
+      // Klokkeikon til venstre for klokkeslettet, så feltet leses tydelig som
+      // klokkeslett (ikke en andre dato) selv når det står tomt.
+      const clockWrap = document.createElement('span');
+      clockWrap.className = 'time-clock-wrap';
+      const clockIcon = document.createElement('span');
+      clockIcon.className = 'time-clock-icon';
+      clockIcon.setAttribute('aria-hidden', 'true');
+      clockIcon.innerHTML = ICONS.clock;
+      const timeIn = document.createElement('input');
+      timeIn.type = 'time';
+      timeIn.className = 'field time-clock';
+      timeIn.placeholder = 'tt:mm';
+      timeIn.setAttribute('aria-label', 'Klokkeslett (valgfritt)');
+      clockWrap.append(clockIcon, timeIn);
+      const clearBtn = document.createElement('button');
+      clearBtn.type = 'button';
+      clearBtn.className = 'icon-btn time-clear';
+      clearBtn.textContent = '✕';
+      clearBtn.title = 'Fjern tiden';
+      clearBtn.setAttribute('aria-label', isDue ? 'Fjern fristen' : 'Fjern starttiden');
+
+      const src = locked ? t0.card : t0.obj;
+      dateIn.value = timeDatePart(src[field]) || '';
+      timeIn.value = timeClockPart(src[field]) || '';
+      clearBtn.hidden = !src[field];
+      if (!canEdit) { dateIn.disabled = true; timeIn.disabled = true; clearBtn.hidden = true; }
+
+      const commit = () => {
+        const t = getTarget();
+        if (!t || !canEdit) return;
+        const v = dateIn.value
+          ? (timeIn.value ? dateIn.value + 'T' + timeIn.value.slice(0, 5) : dateIn.value)
+          : null;
+        clearBtn.hidden = !v;
+        if ((t.obj[field] || null) === v) return;
+        t.obj[field] = v;
+        stampContent(t.obj);
+        refreshCard(t.card); // indikator-chipene følger med umiddelbart
+        updateNote();
+        save();
+      };
+      dateIn.addEventListener('change', commit);
+      timeIn.addEventListener('change', commit);
+      clearBtn.addEventListener('click', () => { dateIn.value = ''; timeIn.value = ''; commit(); });
+      row.append(label, dateIn, clockWrap, clearBtn);
+      return row;
+    };
+
+    if (!opts.only || opts.only === 'start') wrap.appendChild(makeRow('start'));
+    if (!opts.only || opts.only === 'due') wrap.appendChild(makeRow('due'));
+
+    // Lister: lås tidene til elementene (elementene kan da ikke ha egne tider).
+    if (isCard && !opts.only) {
+      const lockLabel = document.createElement('label');
+      lockLabel.className = 'time-lock';
+      const cb = document.createElement('input');
+      cb.type = 'checkbox';
+      cb.checked = !!t0.obj.lockTimes;
+      cb.disabled = !canEdit;
+      const txt = document.createElement('span');
+      txt.textContent = 'Lås tidene også til elementene i listen';
+      lockLabel.append(cb, txt);
+      cb.addEventListener('change', () => {
+        const t = getTarget();
+        if (!t) { cb.checked = !cb.checked; return; }
+        t.obj.lockTimes = cb.checked;
+        stampContent(t.obj);
+        refreshCard(t.card);
+        save();
+      });
+      wrap.appendChild(lockLabel);
+    }
+
+    updateNote();
+    wrap.appendChild(note);
+    return wrap;
+  }
+
+  /* ---------------- Tids-popover (fra start-/frist-chipene) ----------------
+     Rask redigering av ÉN av tidene — samme skall som bytterne (popover på
+     desktop, sentrert modal på mobil). Chip-raden males om fortløpende
+     (refreshCard i commit), så ankeret kan forsvinne — panelet blir stående
+     der det ble åpnet. */
+  const timeSwitcherOverlay = document.getElementById('time-switcher');
+  const timeSwitcherPanel = document.getElementById('time-switcher-panel');
+  let timeQuickOpen = false;
+  function closeTimeQuick() {
+    if (!timeQuickOpen) return;
+    timeSwitcherOverlay.hidden = true;
+    timeQuickOpen = false;
+    updateModalOpenClass();
+  }
+  function openTimeQuick(target, field, anchorBtn) {
+    const ctx = { kind: target.kind, id: target.obj.id };
+    const getT = () => liveTarget({ kind: ctx.kind, obj: { id: ctx.id } });
+    timeSwitcherPanel.innerHTML = '';
+    timeSwitcherPanel.style.top = '';
+    timeSwitcherPanel.style.left = '';
+    const head = document.createElement('div');
+    head.className = 'time-panel-title';
+    head.innerHTML = field === 'due'
+      ? ICONS.calendarDue + '<span>Frist</span>'
+      : ICONS.calendar + '<span>Starttid</span>';
+    timeSwitcherPanel.append(head, buildTimeEditor(getT, { only: field }));
+    timeQuickOpen = true;
+    timeSwitcherOverlay.hidden = false;
+    updateModalOpenClass();
+    if (anchorBtn && anchorBtn.isConnected && window.matchMedia('(min-width: 561px)').matches) {
+      positionSwitcherPanel(timeSwitcherPanel, anchorBtn);
+    }
+    const firstInput = timeSwitcherPanel.querySelector('input:not([disabled])');
+    if (firstInput) firstInput.focus();
+  }
+  timeSwitcherOverlay.addEventListener('click', (ev) => { if (ev.target === timeSwitcherOverlay) closeTimeQuick(); });
 
   // Univers-søppelkassen (i menyen): vises kun når den har innhold.
   function updateUniversesTrash() { updateTrashBadge(trashedUniverses, uniTrashCount, uniTrashBtn); }
@@ -3695,6 +4151,7 @@
     return {
       id: it.id, text: it.text, home: it.home || homeId, trashed: !!it.trashed, done: !!it.done,
       responsible: it.responsible || null,
+      start: it.start || null, due: it.due || null,
       ts: it.ts || 0, org: it.org || '',
       pos: it.pos || 0, posTs: it.posTs || 0, posOrg: it.posOrg || '',
     };
@@ -3704,6 +4161,8 @@
       // Farge synkes ikke: den utledes av posisjon på hver enhet (colorForIndex).
       id: c.id, group: c.group || null, title: c.title, trashed: !!c.trashed,
       k: c.k !== false, p: c.p !== false,
+      responsible: c.responsible || null,
+      start: c.start || null, due: c.due || null, lockTimes: !!c.lockTimes,
       ts: c.ts || 0, org: c.org || '',
       labTs: c.labTs || 0, labOrg: c.labOrg || '',
       pos: c.pos || 0, posTs: c.posTs || 0, posOrg: c.posOrg || '',
@@ -3828,6 +4287,7 @@
     return {
       id: a.id, text: content.text, trashed: !!content.trashed, done: !!content.done,
       responsible: content.responsible || null,
+      start: content.start || null, due: content.due || null,
       ts: content.ts || 0, org: content.org || '',
       home: posw.home, pos: posw.pos || 0, posTs: posw.posTs || 0, posOrg: posw.posOrg || '',
     };
@@ -3842,6 +4302,8 @@
       title: content.title,
       trashed: !!content.trashed,
       k: labw.k !== false, p: labw.p !== false,
+      responsible: content.responsible || null,
+      start: content.start || null, due: content.due || null, lockTimes: !!content.lockTimes,
       ts: content.ts || 0, org: content.org || '',
       labTs: labw.labTs || 0, labOrg: labw.labOrg || '',
       pos: posw.pos || 0, posTs: posw.posTs || 0, posOrg: posw.posOrg || '',
@@ -4726,6 +5188,8 @@
       if (type === 'group') return Object.assign(base, { name: o.name, uni: c.parent });
       if (type === 'card') return Object.assign(base, {
         title: o.title, group: c.parent, k: o.k !== false, p: o.p !== false,
+        responsible: o.responsible || null,
+        start: o.start || null, due: o.due || null, lockTimes: !!o.lockTimes,
         labTs: o.labTs || 0, labOrg: o.labOrg || '',
       });
     }
@@ -4875,9 +5339,12 @@
     if (t === 'universe') return Object.assign(base, { name: row.name || '' });
     if (t === 'group') return Object.assign(base, { name: row.name || '', universe_id: row.uni });
     if (t === 'card') return Object.assign(base, { title: row.title || '', group_id: row.group,
-      k: row.k !== false, p: row.p !== false, lab_ts: row.labTs || 0, lab_org: row.labOrg || '' });
+      k: row.k !== false, p: row.p !== false, lab_ts: row.labTs || 0, lab_org: row.labOrg || '',
+      responsible: row.responsible || null,
+      start_at: row.start || null, due_at: row.due || null, lock_times: !!row.lockTimes });
     return Object.assign(base, { text: row.text || '', card_id: row.home, done: !!row.done,
-      responsible: row.responsible || null });
+      responsible: row.responsible || null,
+      start_at: row.start || null, due_at: row.due || null });
   }
   function updatePayload(t, row) {
     const base = { trashed: !!row.trashed, ts: row.ts || 0, org: row.org || '',
@@ -4885,9 +5352,12 @@
     if (t === 'universe') return Object.assign(base, { name: row.name || '' });
     if (t === 'group') return Object.assign(base, { name: row.name || '', universe_id: row.uni });
     if (t === 'card') return Object.assign(base, { title: row.title || '', group_id: row.group,
-      k: row.k !== false, p: row.p !== false, lab_ts: row.labTs || 0, lab_org: row.labOrg || '' });
+      k: row.k !== false, p: row.p !== false, lab_ts: row.labTs || 0, lab_org: row.labOrg || '',
+      responsible: row.responsible || null,
+      start_at: row.start || null, due_at: row.due || null, lock_times: !!row.lockTimes });
     return Object.assign(base, { text: row.text || '', card_id: row.home, done: !!row.done,
-      responsible: row.responsible || null });
+      responsible: row.responsible || null,
+      start_at: row.start || null, due_at: row.due || null });
   }
   async function pushOps(ops) {
     const client = acli();
@@ -5439,8 +5909,8 @@
     // Åpne UMIDDELBART — eierskapet (_mine) kjenner vi synkront, så riktig
     // visning tegnes med en gang. Medlemslisten/eier-informasjonen hentes i
     // bakgrunnen og fylles inn når den lander (se renderShareOwner/-Recipient).
-    if (obj._mine === false) renderShareRecipient(obj);
-    else renderShareOwner(type, id, obj);
+    if (obj._mine === false) renderShareRecipient(type, id, obj, shareBody, closeShare);
+    else renderShareOwner(type, id, obj, shareBody);
   }
 
   // Avatar for en person i del-modalen: rund sirkel med initialer (navn hvis
@@ -5466,8 +5936,10 @@
       members: [], pending_invites: [],
     };
   }
-  function renderShareOwner(type, id, obj) {
-    shareBody.innerHTML = '';
+  // Tegner eier-visningen inn i `body` — brukes både av del-modalen (univers/
+  // gruppe) og av listers innstillingsmodal (deling-seksjonen).
+  function renderShareOwner(type, id, obj, body) {
+    body.innerHTML = '';
     // Inviter på e-post
     const form = document.createElement('form');
     form.className = 'share-invite-form';
@@ -5647,19 +6119,21 @@
         onError: (e) => {
           lockOverrides.delete(id);
           obj._locked = !obj._locked;
-          if (shareCtx && shareCtx.id === id) paintLock();
+          if (lockBtn.isConnected) paintLock(); // visningen kan ha byttet objekt
           showToast(friendlyAuthError(e));
           scheduleCloud(0); // server-sannheten gjenoppretter visningen
         },
       });
     });
 
-    shareBody.append(form, msg, lockRow, title, membersWrap);
+    body.append(form, msg, title, membersWrap, lockRow);
     renderMembers(myOwnerInfo()); // eieren (deg) vises straks
     refreshMembers();             // medlemmer/ventende fylles inn når de lander
   }
-  function renderShareRecipient(obj) {
-    shareBody.innerHTML = '';
+  // Mottaker-visningen («Delt av …» + Forlat deling) inn i `body`; closeFn
+  // lukker den omsluttende modalen (del-modalen eller innstillingsmodalen).
+  function renderShareRecipient(type, id, obj, body, closeFn) {
+    body.innerHTML = '';
     const line = document.createElement('div');
     line.className = 'owner-line';
     const ownerPerson = { display_name: obj._ownerName, email: obj._ownerEmail };
@@ -5670,30 +6144,29 @@
       '<span class="member-role">' + (obj._locked ? 'Skrivebeskyttet' : 'Du kan redigere') + '</span>';
     inf.querySelector('.member-name').textContent = ownerLabel ? ('Delt av ' + ownerLabel) : 'Delt med deg';
     line.appendChild(inf);
-    shareBody.appendChild(line);
+    body.appendChild(line);
     const leave = document.createElement('button');
     leave.className = 'btn btn-solid btn-red share-leave'; leave.type = 'button'; leave.textContent = 'Forlat deling';
     leave.addEventListener('click', async () => {
       if (!await askConfirm({ title: 'Forlat deling', message: 'Forlate denne delingen? Den forsvinner fra dine lister.', okLabel: 'Forlat' })) return;
-      const ctx = shareCtx; // fanges FØR closeShare nuller den
-      closeShare();
+      closeFn();
       // Optimistisk: delingen forsvinner fra treet straks; leave_share ligger i
       // køen (cloudLeave undertrykker raden fra pull-ene til den har landet).
-      removeMountLocally(ctx.id);
-      cloudLeave(ctx.type, ctx.id);
+      removeMountLocally(id);
+      cloudLeave(type, id);
       render();
       save();
     });
-    shareBody.appendChild(leave);
+    body.appendChild(leave);
     // Eier-navnet hentes i bakgrunnen første gang (og huskes på objektet);
-    // visningen over er komplett uten det («Delt med deg»).
-    if (!obj._ownerName && !obj._ownerEmail && shareCtx) {
-      const ctx = shareCtx;
-      acli().rpc('get_members', { p_type: ctx.type, p_id: ctx.id }).then(({ data }) => {
+    // visningen over er komplett uten det («Delt med deg»). Tegn kun på nytt
+    // hvis akkurat denne visningen fortsatt står i DOM-en.
+    if (!obj._ownerName && !obj._ownerEmail) {
+      acli().rpc('get_members', { p_type: type, p_id: id }).then(({ data }) => {
         if (!data || !data.owner) return;
         obj._ownerEmail = data.owner.email;
         obj._ownerName = data.owner.display_name;
-        if (shareCtx && shareCtx.id === ctx.id && !shareModal.hidden) renderShareRecipient(obj);
+        if (line.isConnected) renderShareRecipient(type, id, obj, body, closeFn);
       }).catch(() => { /* behold «Delt med deg» */ });
     }
   }
@@ -5826,7 +6299,7 @@
     get rtConnected() { return rtConnected; },
     // Kontomodus (fase 2):
     accountsMode, reconcile, docFromMyState, contentDocFromMy, applyMyDoc, cloudCycle,
-    openShare,
+    openShare, openSettings,
     get authUser() { return authUser; },
     get lastMy() { return lastMy; },
     get pendingPlacements() { return pendingPlacements; },

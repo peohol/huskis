@@ -31,6 +31,7 @@ oppdater det aktuelle dokumentet der (ikke dump alt tilbake i denne fila).
 | `docs/sync.md` | Supabase-synk, fletting, gravsteiner, migrering, databaseoppsett |
 | `docs/auth.md` | mønster-lås/splash-screen/innlogging |
 | `docs/colors-and-labels.md` | HSL-fargesystem, Mine/Delte-filter |
+| `docs/scheduling.md` | innstillingsmodalen (tannhjul), tidsplan (start/frist), indikator-chips |
 | `docs/arkitektur-brukere-deling.md` | brukerkontoer (Supabase Auth), eierskap, deling/mounts, lås — database-grunnmuren for fase 2 |
 | `docs/accounts.md` | fase 2-KLIENTEN: auth-UI, synk-motor v2 (get_my_doc/rad-CRUD), mount-rendring, delings-UI, kontomodus-flagget, mock-backend for testing |
 
@@ -134,7 +135,16 @@ lås/innboks), søppel-semantikk for delinger (forlat) og migreringsflyt. Se
 stegene i `TODO.md` er gjort og alt er verifisert mot ekte Supabase; til da
 kjører fortsatt mønster-låsen (`docs/auth.md`) + synk-doc v1 (`docs/sync.md`).
 
-**Ventefri UX (siste runde)**: all blokkerende venting/lasteindikatorer er
+**Innstillinger + tidsplan (siste runde)**: tannhjul-knapper på lister
+(erstattet del-knappen) og elementer (erstattet ansvarsknappen) åpner en
+felles innstillingsmodal (navn / deling (lister) / ansvarlig — nå også for
+hele listen, `card.responsible` / tidsplan). Tidsplan: `start`/`due` på
+begge nivåer + `card.lockTimes`; indikator-chips under navnet (delt/
+ansvarlig/start/frist, farge etter status) som selv er hurtigredigerings-
+knapper. Krever DB-migrering i kontomodus — se `TODO.md`. Alt i
+`docs/scheduling.md`.
+
+**Ventefri UX**: all blokkerende venting/lasteindikatorer er
 erstattet med optimistisk UI + en seriell bakgrunns-operasjonskø for delings-
 RPC-ene (`opQueue`: koalescering, venting på nypushede rader, offline-retry,
 rollback ved avvisning) og optimistiske overlays som overlever synk-rebuilds.

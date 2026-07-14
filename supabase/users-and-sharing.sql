@@ -191,6 +191,20 @@ alter table public.items add column if not exists done boolean not null default 
 -- slettet konto bare nullstiller ansvaret. Idempotent for eldre databaser.
 alter table public.items add column if not exists responsible uuid references public.profiles (id) on delete set null;
 
+-- Tidsplanlegging (start/frist) + ansvarlig for HELE lister. Tidsverdiene er
+-- klientens lokale «vegg-tid» som tekst ('YYYY-MM-DD' eller 'YYYY-MM-DDTHH:MM',
+-- klokkeslett valgfritt) — bevisst IKKE timestamptz: en frist «14. juli» skal
+-- bety 14. juli på alle enheter uansett tidssone, og klienten trenger å vite
+-- om et klokkeslett faktisk er definert. `cards.lock_times` låser listens
+-- tider til elementene (elementene kan da ikke ha egne). Alt rir på
+-- innholds-registeret (ts/org). Idempotent for eldre databaser.
+alter table public.cards add column if not exists start_at text;
+alter table public.cards add column if not exists due_at text;
+alter table public.cards add column if not exists lock_times boolean not null default false;
+alter table public.cards add column if not exists responsible uuid references public.profiles (id) on delete set null;
+alter table public.items add column if not exists start_at text;
+alter table public.items add column if not exists due_at text;
+
 create index if not exists universes_owner_idx on public.universes (owner_id);
 create index if not exists groups_owner_idx    on public.groups (owner_id);
 create index if not exists groups_universe_idx on public.groups (universe_id);
@@ -545,6 +559,8 @@ begin
   end if;
   if not public.reg_newer(new.ts, new.org, old.ts, old.org) then
     new.title := old.title; new.trashed := old.trashed;
+    new.responsible := old.responsible;
+    new.start_at := old.start_at; new.due_at := old.due_at; new.lock_times := old.lock_times;
     new.ts := old.ts; new.org := old.org;
   end if;
   if not public.reg_newer(new.lab_ts, new.lab_org, old.lab_ts, old.lab_org) then
@@ -579,6 +595,7 @@ begin
   if not public.reg_newer(new.ts, new.org, old.ts, old.org) then
     new.text := old.text; new.trashed := old.trashed; new.done := old.done;
     new.responsible := old.responsible;
+    new.start_at := old.start_at; new.due_at := old.due_at;
     new.ts := old.ts; new.org := old.org;
   end if;
   if not public.reg_newer(new.pos_ts, new.pos_org, old.pos_ts, old.pos_org) then
@@ -1069,6 +1086,8 @@ begin
         'group', c.group_id,
         'title', c.title, 'trashed', c.trashed, 'locked', c.locked,
         'k', c.k, 'p', c.p, 'labTs', c.lab_ts, 'labOrg', c.lab_org,
+        'responsible', c.responsible,
+        'start', c.start_at, 'due', c.due_at, 'lockTimes', c.lock_times,
         'ts', c.ts, 'org', c.org,
         'pos', c.pos, 'posTs', c.pos_ts, 'posOrg', c.pos_org,
         'shared', exists (select 1 from public.memberships mm where mm.card_id = c.id),
@@ -1079,6 +1098,7 @@ begin
         'home', i.card_id,
         'text', i.text, 'trashed', i.trashed, 'done', i.done,
         'responsible', i.responsible,
+        'start', i.start_at, 'due', i.due_at,
         'ts', i.ts, 'org', i.org,
         'pos', i.pos, 'posTs', i.pos_ts, 'posOrg', i.pos_org)) from my_items i), '[]'::jsonb),
     'invites_in', coalesce((select jsonb_agg(jsonb_build_object(
@@ -1172,10 +1192,12 @@ begin
       select 1 from public.groups g
       where g.id = public.legacy_uuid(uid, r ->> 'group') and g.owner_id = uid);
     insert into public.cards as t (id, owner_id, group_id, title, trashed, k, p,
+                                   start_at, due_at, lock_times,
                                    ts, org, lab_ts, lab_org, pos, pos_ts, pos_org)
     values (public.legacy_uuid(uid, r ->> 'id'), uid, public.legacy_uuid(uid, r ->> 'group'),
             coalesce(r ->> 'title', ''), coalesce((r ->> 'trashed')::boolean, false),
             coalesce((r ->> 'k')::boolean, true), coalesce((r ->> 'p')::boolean, true),
+            r ->> 'start', r ->> 'due', coalesce((r ->> 'lockTimes')::boolean, false),
             coalesce((r ->> 'ts')::bigint, 0), coalesce(r ->> 'org', ''),
             coalesce((r ->> 'labTs')::bigint, 0), coalesce(r ->> 'labOrg', ''),
             coalesce((r ->> 'pos')::double precision, 0),
@@ -1183,6 +1205,8 @@ begin
     on conflict (id) do update
       set group_id = excluded.group_id, title = excluded.title,
           trashed = excluded.trashed, k = excluded.k, p = excluded.p,
+          start_at = excluded.start_at, due_at = excluded.due_at,
+          lock_times = excluded.lock_times,
           ts = excluded.ts, org = excluded.org,
           lab_ts = excluded.lab_ts, lab_org = excluded.lab_org,
           pos = excluded.pos, pos_ts = excluded.pos_ts, pos_org = excluded.pos_org
@@ -1194,16 +1218,20 @@ begin
     continue when not exists (
       select 1 from public.cards c
       where c.id = public.legacy_uuid(uid, r ->> 'home') and c.owner_id = uid);
-    insert into public.items as t (id, owner_id, card_id, text, trashed, done, ts, org, pos, pos_ts, pos_org)
+    insert into public.items as t (id, owner_id, card_id, text, trashed, done,
+                                   start_at, due_at, ts, org, pos, pos_ts, pos_org)
     values (public.legacy_uuid(uid, r ->> 'id'), uid, public.legacy_uuid(uid, r ->> 'home'),
             coalesce(r ->> 'text', ''), coalesce((r ->> 'trashed')::boolean, false),
             coalesce((r ->> 'done')::boolean, false),
+            r ->> 'start', r ->> 'due',
             coalesce((r ->> 'ts')::bigint, 0), coalesce(r ->> 'org', ''),
             coalesce((r ->> 'pos')::double precision, 0),
             coalesce((r ->> 'posTs')::bigint, 0), coalesce(r ->> 'posOrg', ''))
     on conflict (id) do update
       set card_id = excluded.card_id, text = excluded.text,
-          trashed = excluded.trashed, done = excluded.done, ts = excluded.ts, org = excluded.org,
+          trashed = excluded.trashed, done = excluded.done,
+          start_at = excluded.start_at, due_at = excluded.due_at,
+          ts = excluded.ts, org = excluded.org,
           pos = excluded.pos, pos_ts = excluded.pos_ts, pos_org = excluded.pos_org
       where t.owner_id = uid;
     n_item := n_item + 1;
