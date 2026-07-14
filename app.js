@@ -6014,6 +6014,27 @@
   let cloudRunning = false, cloudAgain = false;
   let cloudDebounce = null, cloudPoll = null, cloudChan = null, cloudRt = false;
   let lastMy = null;
+  let lastViewSig = null; // signatur av sist anvendte visning (innhold + metadata + overlays)
+
+  // applyMyDoc's utfall er en ren funksjon av (flettet innhold, server-metadata,
+  // optimistiske overlays). Signaturen fanger alle tre, så cloudCycle kan hoppe
+  // over en rebuild + render() når ingenting faktisk endret seg — ellers ville
+  // hvert poll (og hver runde i en push-retry-løkke) tegnet hele board-et på
+  // nytt og nullstilt hover-tilstanden (flimmer). Motstykket til v1-synkens
+  // `mergedCanon !== localCanon`-vakt.
+  function viewSignature(mergedDoc, meta) {
+    const metaArr = [];
+    meta.forEach((m, id) => metaArr.push(
+      id + ':' + (m.mine ? 1 : 0) + (m.locked ? 1 : 0) + (m.shared ? 1 : 0) +
+      (m.mount ? canonical(m.mount) : '') + ':' + (m.owner || '')
+    ));
+    metaArr.sort();
+    const lo = []; lockOverrides.forEach((v, k) => lo.push(k + '=' + (v ? 1 : 0))); lo.sort();
+    const mo = []; mountOverrides.forEach((v, k) => mo.push(k + '=' + canonical(v))); mo.sort();
+    const sr = [...suppressedRows].sort();
+    return canonical(mergedDoc) + '||' + metaArr.join(',') + '||' +
+      lo.join(',') + '||' + mo.join(',') + '||' + sr.join(',');
+  }
 
   function scheduleCloud(delay) {
     clearTimeout(cloudDebounce);
@@ -6039,11 +6060,15 @@
       const local = docFromMyState();
       const { merged, ops } = reconcile(cloudBase || emptyDoc(), local, remote);
       cloudBase = remote;
-      // Bruk fletteresultatet lokalt — men ikke avbryt aktiv redigering/draging.
-      // Planlegg et raskt nytt forsøk KUN når det faktisk er en utsatt endring
-      // (merged ≠ lokal); ellers ville et fokusert (tomt) felt hot-loope get_my_doc.
-      if (!isBusyEditing()) applyMyDoc(merged, meta);
-      else if (canonical(merged) !== canonical(local)) cloudAgain = true;
+      // Bruk fletteresultatet lokalt — men ikke avbryt aktiv redigering/draging,
+      // og bare når visningen faktisk endrer seg (ellers tegner hvert poll / hver
+      // runde i en push-retry-løkke board-et på nytt → hover-flimmer).
+      const sig = viewSignature(merged, meta);
+      if (!isBusyEditing()) {
+        if (sig !== lastViewSig) { applyMyDoc(merged, meta); lastViewSig = sig; }
+      } else if (sig !== lastViewSig) {
+        cloudAgain = true; // utsatt visnings-endring → tegn på nytt når redigeringen er ferdig
+      }
       if (ops.length) {
         await pushOps(ops);
         // Bekreftelses-pull straks etter push: lastMy/metadata friskes opp, så
@@ -6628,6 +6653,7 @@
       render();
     }
     cloudBase = null;
+    lastViewSig = null; // tving en full første render ved (ny) innlogging
     migrationChecked = false;
     navRestored = false; // gjenopprett husket posisjon ved neste (første) pull
     startCloudRealtime();
@@ -6638,7 +6664,7 @@
     clearInterval(cloudPoll);
     clearTimeout(cloudDebounce);
     if (cloudChan && aclient) { try { aclient.removeChannel(cloudChan); } catch (e) {} }
-    cloudChan = null; cloudRt = false; cloudBase = null; lastMy = null;
+    cloudChan = null; cloudRt = false; cloudBase = null; lastMy = null; lastViewSig = null;
     cloudStarted = false;
     shareGroupCache.clear(); shareGroupLoading.clear();
     // Køede operasjoner tilhører den utloggede sesjonen — dropp dem (de ville

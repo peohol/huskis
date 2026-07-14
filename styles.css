@@ -836,8 +836,8 @@ body {
   border: none;
   border-radius: 50%;
   background: transparent;
-  color: var(--ink-soft);
-  opacity: 0.5;
+  color: var(--ink);
+  opacity: 0.6;
   transition: transform 0.1s, color 0.15s, opacity 0.15s;
 }
 .item-cog .icon { width: 1em; height: 1em; font-size: 21px; }
@@ -990,9 +990,9 @@ body {
   flex-direction: column;
   gap: 8px;
   margin: 0;
-  /* Fordypning («hylle»): stort venstre-innrykk (nesting-signal, erstatter den
-     gamle streken) + luft rundt «bøkene». */
-  padding: 9px 9px 9px 20px;
+  /* Fordypning («hylle»): lik luft på alle kanter rundt «bøkene» (fordypningen
+     + innover-skyggen er nesting-signalet — intet ekstra venstre-innrykk). */
+  padding: 9px;
   border-radius: 12px;
   background: rgba(0, 0, 0, 0.1);   /* litt mørkere enn veggen (listeflaten) */
   box-shadow: inset 0 2px 7px rgba(0, 0, 0, 0.17),   /* innover-skygge = fordypning */
@@ -1120,8 +1120,9 @@ body {
   color: #fff;
   filter: drop-shadow(var(--text-shadow));
 }
-/* Element-✕ alltid synlig, men diskré; full styrke ved hover/fokus. */
-.item-delete { opacity: 0.55; }
+/* Element-✕ alltid synlig, men diskré; full styrke ved hover/fokus. Mørkere
+   ink-farge i hvile (grå --ink-soft ga for svak kontrast mot listeflaten). */
+.item-delete { color: var(--ink); opacity: 0.6; }
 .item:hover .item-delete,
 .item:focus-within .item-delete,
 .item-delete:focus-visible { opacity: 1; }
