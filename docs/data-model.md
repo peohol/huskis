@@ -22,7 +22,8 @@ state = {
         { id, uni, name, trashed, pos,   // uni = univers-forelder
           cards: [                        // «lister»
             { id, group, title, color, trashed, k, p, // k/p: legacy, se docs/colors-and-labels.md
-              items: [ { id, text, trashed, done, responsible, home } ] } ] } ] } // done: avkrysset, responsible: ansvarlig bruker-id (delte lister)
+              responsible, start, due, lockTimes,     // ansvarlig + tidsplan for hele listen (docs/scheduling.md)
+              items: [ { id, text, trashed, done, responsible, start, due, home } ] } ] } ] } // done: avkrysset, responsible: ansvarlig bruker-id (delte lister), start/due: tidsplan
   ],
   _tomb: { universes:{}, groups:{}, cards:{}, items:{} }, // gravsteiner: id → ts
 }
@@ -65,11 +66,16 @@ osv.), så kryss-univers-flytting er umulig i UI-et.
   plass blant de aktive (og skyver den som nå står der, ett hakk ned). I kontomodus
   er `done` en egen kolonne (`items.done`, se `supabase/users-and-sharing.sql` +
   TODO.md for påkrevd DB-migrering).
-- **Ansvarlig** (`item.responsible`): bruker-id-en til den som «tar oppgaven» i en
-  delt liste. Rir på innholds-registeret (`ts`/`org`, som `text`/`done`) — LWW ved
-  samtidig endring. Kun elementer i delt kontekst (delt liste, eller liste under en
-  delt gruppe/univers) viser ansvarsknappen; se `docs/accounts.md`. I kontomodus en
-  egen kolonne (`items.responsible`, FK til `profiles`, `on delete set null`).
+- **Ansvarlig** (`item.responsible` og `card.responsible`): bruker-id-en til den
+  som «tar oppgaven» i delt kontekst — nå både per element og for HELE listen.
+  Rir på innholds-registeret (`ts`/`org`, som `text`/`done`) — LWW ved samtidig
+  endring. Settes fra innstillingsmodalen eller ansvarlig-chipen
+  (`docs/scheduling.md`); se `docs/accounts.md` for delegruppen. I kontomodus
+  egne kolonner (`items.responsible`/`cards.responsible`, FK til `profiles`,
+  `on delete set null`).
+- **Tidsplan** (`start`/`due` på elementer og lister + `card.lockTimes`): lokal
+  vegg-tid som tekst (`'YYYY-MM-DD'` evt. + `'THH:MM'`), rir på innholds-
+  registeret. Se `docs/scheduling.md` for semantikk, chips og DB-kolonner.
 - **`_pendingDelete`** (lokalt, `_`-prefiks → ikke synket): buffret sletting —
   objektet er skjult og «på vei til søppel», men ennå ikke `trashed`/skrevet til
   DB. Se `docs/trash.md` (delete-buffer).

@@ -106,13 +106,14 @@ Størrelse/form kommer fra egne klasser: `.btn` (modaler), `.btn-small`,
   **del-knappen alltid rett til venstre for ✕** (auto-margen flytter seg til
   del-knappen når den er synlig). Element-✕ alltid synlig, dempet
   (`opacity .55`).
-- Del-knapper: listekort har `.card-share` (ser ut som en knapp — svakt hvit
-  flate + ring, lysner ved hover), som viser **[del-ikon] + [liste-ikon]** —
-  samme mønster som menyenes del-knapper. **Univers og grupper deles IKKE fra
-  kortene**, men fra menyenes egne `.share-btn` (del-univers = [del]+[globus]
-  ved «＋ Gruppe», del-gruppe = [del]+[mappe] ved «＋ Liste» — deler det AKTIVE
-  universet/gruppen; flate-mønster). Kun kontomodus. Delt-merket
-  (`.share-badge`) har samme høyde som teksten.
+- Innstillings-/del-knapper: listekort har `.card-cog` (tannhjul, svakt hvit
+  flate + ring, lysner ved hover) som åpner innstillingsmodalen — **deling av
+  lister ligger DER** (`docs/scheduling.md`), ikke i en egen kortknapp.
+  **Univers og grupper deles fra menyenes egne `.share-btn`** (del-univers =
+  [del]+[globus] ved «＋ Gruppe», del-gruppe = [del]+[mappe] ved «＋ Liste» —
+  deler det AKTIVE universet/gruppen; flate-mønster; kun kontomodus).
+  Delt-merket (`.share-badge`) brukes av gruppe-/univers-chips; listekortets
+  delt-status vises som chip i meta-raden (`docs/scheduling.md`).
 - Håndtak (`.drag-handle`): tre vertikale prikker (CSS `::before` +
   box-shadow), alltid **mørkere enn flaten sin** (`--card-accent`/`--g-accent`)
   og alltid nøyaktig vertikalt midtstilt (`align-self: stretch` +
@@ -131,11 +132,13 @@ Størrelse/form kommer fra egne klasser: `.btn` (modaler), `.btn-small`,
 - `.account-avatar` / `.member-avatar`: felles avatar-form (rund, sentrert hvit
   initial på gradient) via delt selektor; størrelse/farge per bruk. Initialene
   kommer fra `display_name` (`initialsFromName`) — se `docs/accounts.md`.
-- `.item-resp` / `.resp-avatar` / `.resp-row`: ansvarsknappen på elementer i
-  delte lister (hånd-opp-ikonet `ICONS.handRaise`, eller en farget initial-
-  sirkel når ansvarlig er valgt) og ansvarlig-velgerens rader (farget sirkel +
-  navn). Sirkelfargen settes inline fra paletten (`colorForIndex`, personens
-  alfabetiske plass i delegruppen). Se `docs/accounts.md`.
+- `.item-cog` / `.card-cog`: tannhjul-knappene som åpner innstillingsmodalen
+  (element: dempet ikon ved slette-✕; liste: flate-knapp i kort-headeren).
+  `.meta-row` + `.meta-chip`: indikator-chipene under navnet (delt/ansvarlig/
+  start/frist — status-farger via `--grad-*`). `.resp-avatar` / `.resp-row`:
+  ansvarlig-sirkler og velger-rader; sirkelfargen settes inline fra paletten
+  (`colorForIndex`, personens alfabetiske plass i delegruppen). Se
+  `docs/scheduling.md` og `docs/accounts.md`.
 - `.item-check`: avkryssingsboks på elementer — rund-firkantet boks, grønt
   hake-fyll (`.item.done`) + gjennomstreket tekst + lavere bakgrunn. Avkryssede
   elementer flyttes med FLIP til en egen **«Utført»-seksjon** (`.items-done`,

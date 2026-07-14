@@ -182,6 +182,8 @@
         return {
           id: c.id, owner: c.owner_id, mine: c.owner_id === uid, group: c.group_id, title: c.title,
           trashed: !!c.trashed, locked: !!c.locked, k: c.k !== false, p: c.p !== false,
+          responsible: c.responsible || null,
+          start: c.start_at || null, due: c.due_at || null, lockTimes: !!c.lock_times,
           labTs: c.lab_ts, labOrg: c.lab_org, ts: c.ts, org: c.org,
           pos: c.pos, posTs: c.pos_ts, posOrg: c.pos_org,
           shared: !!sharedC[c.id], mount: mountObj(m, true),
@@ -191,6 +193,7 @@
         return {
           id: i.id, owner: i.owner_id, mine: i.owner_id === uid, home: i.card_id, text: i.text,
           trashed: !!i.trashed, done: !!i.done, responsible: i.responsible || null,
+          start: i.start_at || null, due: i.due_at || null,
           ts: i.ts, org: i.org, pos: i.pos, posTs: i.pos_ts, posOrg: i.pos_org,
         };
       }),
@@ -268,6 +271,9 @@
         if ('text' in patch) row.text = patch.text;
         if ('done' in patch) row.done = patch.done;
         if ('responsible' in patch) row.responsible = patch.responsible;
+        if ('start_at' in patch) row.start_at = patch.start_at;
+        if ('due_at' in patch) row.due_at = patch.due_at;
+        if ('lock_times' in patch) row.lock_times = patch.lock_times;
         if ('trashed' in patch && !blockTrashed) row.trashed = patch.trashed;
         row.ts = patch.ts; row.org = patch.org;
       }
@@ -350,11 +356,14 @@
         up(doc.cards, 'cards', function (r, id) {
           return { id: id, owner_id: uid, group_id: legacyId(uid, r.group), title: r.title || '', trashed: !!r.trashed,
             locked: false, k: r.k !== false, p: r.p !== false, lab_ts: r.labTs || 0, lab_org: r.labOrg || '',
+            responsible: r.responsible || null,
+            start_at: r.start || null, due_at: r.due || null, lock_times: !!r.lockTimes,
             ts: r.ts || 0, org: r.org || '', pos: r.pos || 0, pos_ts: r.posTs || 0, pos_org: r.posOrg || '' };
         });
         up(doc.items, 'items', function (r, id) {
           return { id: id, owner_id: uid, card_id: legacyId(uid, r.home), text: r.text || '', trashed: !!r.trashed,
             done: !!r.done, responsible: r.responsible || null,
+            start_at: r.start || null, due_at: r.due || null,
             ts: r.ts || 0, org: r.org || '', pos: r.pos || 0, pos_ts: r.posTs || 0, pos_org: r.posOrg || '' };
         });
         return { universes: (doc.universes || []).length, groups: (doc.groups || []).length,

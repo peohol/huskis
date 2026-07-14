@@ -116,4 +116,37 @@ window.ICONS = {
     '<path d="M11.5 12h5.5"></path>' +
     '<path d="M11.5 15.5h5.5"></path>' +
     '</svg>',
+
+  // Tannhjul (innstillingsknappene på lister/elementer): senterhull + 8 korte
+  // «tenner» rundt en ring — samme tynne strek som resten av settet.
+  gear: '<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.05" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
+    '<circle cx="12" cy="12" r="3.2"></circle>' +
+    '<circle cx="12" cy="12" r="7"></circle>' +
+    '<path d="M12 5V2.8"></path><path d="M12 21.2V19"></path>' +
+    '<path d="M19 12h2.2"></path><path d="M2.8 12H5"></path>' +
+    '<path d="m16.95 7.05 1.56-1.56"></path><path d="m5.49 18.51 1.56-1.56"></path>' +
+    '<path d="m16.95 16.95 1.56 1.56"></path><path d="m5.49 5.49 1.56 1.56"></path>' +
+    '</svg>',
+
+  // Kalender (starttid): ramme med opphengs-tapper og topplinje.
+  calendar: '<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.05" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
+    '<rect x="3.5" y="5" width="17" height="16" rx="2.5"></rect>' +
+    '<path d="M8 3v4"></path><path d="M16 3v4"></path>' +
+    '<path d="M3.5 9.5h17"></path>' +
+    '</svg>',
+
+  // Kalender med utropstegn (frist).
+  calendarDue: '<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.05" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
+    '<rect x="3.5" y="5" width="17" height="16" rx="2.5"></rect>' +
+    '<path d="M8 3v4"></path><path d="M16 3v4"></path>' +
+    '<path d="M3.5 9.5h17"></path>' +
+    '<path d="M12 12v3.4"></path>' +
+    '<circle cx="12" cy="18.1" r="0.7" fill="currentColor" stroke="none"></circle>' +
+    '</svg>',
+
+  // Klokke (tidspunkt i dag).
+  clock: '<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.05" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
+    '<circle cx="12" cy="12" r="8.5"></circle>' +
+    '<path d="M12 7.5V12l3 2.2"></path>' +
+    '</svg>',
 };

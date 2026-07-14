@@ -746,8 +746,16 @@ body {
   background: var(--card-head);
 }
 
-.card-title {
+/* Tittel + meta-rad stables i en kolonne som tar resten av bredden. */
+.card-title-wrap {
   flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.card-title {
   margin: 0;
   font-size: var(--fs-lg);
   font-weight: 600;
@@ -758,6 +766,7 @@ body {
   padding: 4px;
   border-radius: 8px;
   word-break: break-word;
+  align-self: flex-start;      /* klikkflaten følger teksten, ikke hele raden */
   transition: background 0.15s;
 }
 .card-title:hover { background: rgba(0, 0, 0, 0.12); }
@@ -812,9 +821,9 @@ body {
 }
 .item.done .item-check .icon { opacity: 1; filter: drop-shadow(var(--text-shadow)); }
 
-/* Ansvarsknapp på elementer i delte lister: hånd-opp-ikon (tom) eller den
-   fargede initial-sirkelen (valgt ansvarlig). Til venstre for slette-✕. */
-.item-resp {
+/* Innstillingsknapp (tannhjul) på elementer: dempet i hvile, tydelig ved
+   hover/fokus — samme plass som den gamle ansvarsknappen (venstre for ✕). */
+.item-cog {
   flex: 0 0 auto;
   align-self: center;
   appearance: none;
@@ -828,17 +837,17 @@ body {
   border-radius: 50%;
   background: transparent;
   color: var(--ink-soft);
+  opacity: 0.5;
   transition: transform 0.1s, color 0.15s, opacity 0.15s;
 }
-.item-resp .icon { width: 1em; height: 1em; font-size: 21px; }
-.item-resp:not(.has-resp) { opacity: 0.5; }
-.item:hover .item-resp,
-.item:focus-within .item-resp { opacity: 1; }
-.item-resp:not(.has-resp):hover { color: var(--primary); }
-.item-resp:active { transform: scale(0.9); }
-.item-resp:focus-visible { outline: 2.5px solid var(--primary); outline-offset: 2px; }
-.item-resp:disabled { cursor: default; }
-.item.done .item-resp { opacity: 0.5; }
+.item-cog .icon { width: 1em; height: 1em; font-size: 21px; }
+.item:hover .item-cog,
+.item:focus-within .item-cog { opacity: 1; }
+.item-cog:hover { color: var(--primary); }
+.item-cog:active { transform: scale(0.9); }
+.item-cog:focus-visible { outline: 2.5px solid var(--primary); outline-offset: 2px; }
+.item-cog:disabled { cursor: default; opacity: 0.3; }
+.item.done .item-cog { opacity: 0.5; }
 
 /* Farget sirkel med initialer (ansvarssirkel). Bakgrunnsfargen settes inline
    fra paletten (personens plass i delegruppen). */
@@ -856,10 +865,17 @@ body {
   text-shadow: var(--text-shadow);
   background: #8496a6;
 }
-.item-resp .resp-avatar { width: 27px; height: 27px; font-size: 13px; }
+
+/* Tekst + meta-rad stables i en kolonne som tar resten av bredden. */
+.item-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
 
 .item-text {
-  flex: 1;
   font-size: var(--fs-base);
   font-weight: 500;
   color: var(--ink);
@@ -1862,11 +1878,11 @@ body.no-auth #menu-btn { display: none; }
   filter: drop-shadow(var(--text-shadow));
 }
 .share-badge[hidden] { display: none; }
-/* Del-knappen på listekort (`.card-share`) skal se ut som en knapp: egen svakt
-   markert flate som lysner ved hover (samme idé som flate-mønsteret, på farget
-   bakgrunn). Univers/gruppe deles fra menyenes egne del-knapper (`.share-btn`),
-   ikke fra kortene. */
-.card-share {
+/* Innstillingsknappen på listekort (`.card-cog`, tannhjul — erstatter den
+   gamle del-knappen): egen svakt markert flate som lysner ved hover (samme
+   idé som flate-mønsteret, på farget bakgrunn). Univers/gruppe deles fortsatt
+   fra menyenes egne del-knapper (`.share-btn`). */
+.card-cog {
   flex: 0 0 auto;
   align-self: center;
   appearance: none;
@@ -1874,9 +1890,10 @@ body.no-auth #menu-btn { display: none; }
   cursor: pointer;
   display: inline-flex;
   align-items: center;
-  gap: 5px;
+  justify-content: center;
+  width: 36px;
   height: 36px;
-  padding: 0 9px;
+  padding: 0;
   border-radius: 9px;
   font-size: var(--fs-lg);
   color: #fff;
@@ -1884,16 +1901,185 @@ body.no-auth #menu-btn { display: none; }
   box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.35);
   transition: background 0.15s;
 }
-.card-share:hover {
+.card-cog:hover {
   color: #fff;
   background: rgba(255, 255, 255, 0.34);
 }
-.card-share:focus-visible { outline: 2.5px solid #fff; outline-offset: 2px; }
-.card-share .icon { filter: drop-shadow(var(--text-shadow)); }
+.card-cog:focus-visible { outline: 2.5px solid #fff; outline-offset: 2px; }
+.card-cog .icon { filter: drop-shadow(var(--text-shadow)); }
 /* Delt liste-kort: en tydelig men diskret kant-markør. */
 .card.is-shared { box-shadow: var(--shadow-sm), inset 0 0 0 2px rgba(255,255,255,0.55); }
 .card.is-locked .card-title { opacity: 0.9; }
 .chip.is-shared { box-shadow: 0 2px 7px rgba(35,45,55,0.2), inset 0 0 0 1.5px rgba(255,255,255,0.6); }
+
+/* ---------------- Indikator-chips (meta-raden under navn) ----------------
+   Rad under liste-/elementnavnet med chips for innstillinger som ER satt:
+   delt (kun lister), ansvarlig (initial-sirkel), start (kalender/klokke) og
+   frist (kalender-med-utropstegn/klokke). Chipene er knapper — de åpner
+   hurtig-redigering av akkurat den innstillingen. Fargestatus:
+     start:  nøytral → grønn når starttiden er passert.
+     frist:  nøytral → gul dagen før fristen → rød f.o.m. fristdatoen. */
+.meta-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 5px;
+  padding: 0 4px;
+}
+.meta-row[hidden] { display: none; }
+.card-meta { padding-bottom: 2px; }
+
+.meta-chip {
+  appearance: none;
+  border: none;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 26px;
+  padding: 0 9px;
+  border-radius: 999px;
+  font-family: inherit;
+  font-size: var(--fs-xs);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  color: var(--ink-soft);
+  background: rgba(255, 255, 255, 0.78);
+  box-shadow: 0 1px 3px rgba(35, 45, 55, 0.16);
+  transition: filter 0.15s, box-shadow 0.15s, transform 0.1s;
+}
+.meta-chip:hover { filter: brightness(1.04); box-shadow: 0 2px 5px rgba(35, 45, 55, 0.24); }
+.meta-chip:active { transform: scale(0.95); }
+.meta-chip:focus-visible { outline: 2.5px solid var(--primary); outline-offset: 1px; }
+.meta-chip:disabled { cursor: default; }
+.meta-chip .icon { width: 1em; height: 1em; font-size: 15px; flex: 0 0 auto; }
+/* Ansvarlig-chipen er kun sirkelen (navnet ligger i title/aria). */
+.meta-chip.meta-resp { padding: 0 3px; background: transparent; box-shadow: none; }
+.meta-chip .resp-avatar { width: 22px; height: 22px; font-size: 11px; }
+/* Statusfarger (samme gradienter som knappesystemet). */
+.meta-chip.is-started { background: var(--grad-green); color: #fff; text-shadow: var(--text-shadow); }
+.meta-chip.is-soon { background: var(--grad-yellow); color: #fff; text-shadow: var(--text-shadow); }
+.meta-chip.is-over { background: var(--grad-red); color: #fff; text-shadow: var(--text-shadow); }
+
+/* ---------------- Innstillingsmodal (liste/element) ---------------- */
+.settings-modal { width: min(520px, 100%); }
+.settings-body { display: flex; flex-direction: column; gap: 16px; }
+.settings-name { display: flex; align-items: center; gap: 10px; }
+.settings-name-icon {
+  flex: 0 0 auto;
+  display: grid;
+  place-items: center;
+  font-size: 26px;
+  color: var(--ink-soft);
+}
+.settings-name-input { flex: 1; min-width: 0; font-weight: 600; }
+/* Seksjonene skilles med kant-til-kant-linjer (samme stil som modal-head sin
+   border-bottom; negativ side-margin kansellerer modal-body-paddingen). */
+.settings-section {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  border-top: 1px solid var(--line);
+  margin: 0 -20px;
+  padding: 14px 20px 0;
+}
+.settings-section-title {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: var(--fs-xs);
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--ink-soft);
+}
+.settings-section-title .icon { font-size: 17px; }
+/* Ansvarlig-raden: nåværende valg som sirkel + navn; klikk åpner velgeren. */
+.settings-resp-btn {
+  appearance: none;
+  border: 1.5px solid var(--line);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 8px 10px;
+  border-radius: var(--radius-sm);
+  background: #fbfbfd;
+  font-family: inherit;
+  font-weight: 600;
+  font-size: var(--fs-md);
+  color: var(--ink);
+  text-align: left;
+  transition: border-color 0.15s, background 0.15s;
+}
+.settings-resp-btn:hover { border-color: var(--primary); background: var(--primary-soft); }
+.settings-resp-btn:focus-visible { outline: 2.5px solid var(--primary); outline-offset: 2px; }
+.settings-resp-btn:disabled { cursor: default; opacity: 0.6; }
+.settings-resp-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* ---------------- Tids-editoren (modalen + popoveren) ---------------- */
+.time-editor { display: flex; flex-direction: column; gap: 10px; }
+.time-row { display: flex; align-items: center; gap: 8px; }
+.time-row-label {
+  flex: 0 0 62px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: var(--fs-sm);
+  font-weight: 600;
+  color: var(--ink-soft);
+}
+.time-row-label .icon { font-size: 17px; flex: 0 0 auto; }
+.time-row .field { padding: 8px 10px; font-size: var(--fs-sm); }
+.time-date { flex: 1 1 130px; min-width: 0; }
+.time-clock { flex: 0 1 104px; min-width: 84px; }
+.time-clear {
+  flex: 0 0 auto;
+  width: 30px;
+  height: 30px;
+  border-radius: 8px;
+}
+.time-row .field:disabled { opacity: 0.55; }
+/* Subtilt hint (utenfor listens tidsrom / styrt av listen). */
+.time-note { margin: 0; font-size: var(--fs-xs); font-weight: 600; color: #9a6b15; }
+.time-note.is-muted { color: var(--ink-soft); font-weight: 500; }
+.time-note[hidden] { display: none; }
+.time-lock {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  cursor: pointer;
+  font-size: var(--fs-sm);
+  font-weight: 600;
+  color: var(--ink);
+}
+.time-lock input {
+  width: 21px;
+  height: 21px;
+  margin: 0;
+  accent-color: var(--primary);
+  cursor: pointer;
+}
+/* Smale skjermer: la klokkeslett + fjern-knapp bryte til egen linje, flukta
+   under datofeltet (ellers blir datofeltet klemt uleselig smalt). */
+@media (max-width: 560px) {
+  .time-row { flex-wrap: wrap; }
+  .time-date { flex: 1 1 160px; }
+  .time-clock { margin-left: 70px; } /* label-bredde (62) + gap (8) */
+}
+
+/* Tids-popoveren (samme skall som bytterne). */
+.time-panel { min-width: min(320px, calc(100vw - 20px)); gap: 10px; }
+.time-panel-title {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: var(--fs-md);
+  font-weight: 700;
+  color: var(--ink);
+}
+.time-panel-title .icon { font-size: 19px; }
 
 /* ---------------- Redusert bevegelse (tilgjengelighet) ----------------
    Respekterer OS-innstillingen «reduser bevegelse»: nøytraliser animasjoner/

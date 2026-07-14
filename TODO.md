@@ -68,6 +68,20 @@ implementert og verifisert i nettleser (mock-backend) — se `docs/accounts.md`.
       `import_doc`) og navne-seeden («Karin Falch» / «Peder Holman») er nå på
       ekte Supabase.
 
+## Skjema-endring: tidsplan + liste-ansvarlig (`start_at`/`due_at`/`lock_times`/`cards.responsible`)
+
+Innstillings-/tidsplan-runden (se `docs/scheduling.md`) la til **start/frist**
+på både elementer og lister (`items.start_at`/`due_at`, `cards.start_at`/
+`due_at` — text, lokal vegg-tid), **tids-lås** på lister (`cards.lock_times`,
+boolean) og **ansvarlig for hele listen** (`cards.responsible`, FK til
+`profiles`, `on delete set null`). Alt rir på innholds-registeret (`ts`/`org`).
+`supabase/users-and-sharing.sql` er oppdatert idempotent (`add column if not
+exists`, LWW-triggerne, `get_my_doc`, `import_doc`); mock-backenden speiler det.
+
+- [ ] **Kjør «Supabase DB-oppsett»-workflowen** (workflow_dispatch; husk
+      pooler-adressen, se merknad over) så kolonnene finnes på ekte Supabase —
+      uten dem avviser PostgREST insert/update fra kontomodus-klienten.
+
 ## Manuelle steg (krever dashboard-tilgang — Peder)
 
 - [x] ~~GitHub → Settings → Secrets and variables → Actions: legg inn

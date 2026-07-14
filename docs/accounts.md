@@ -151,11 +151,14 @@ rekkefølge + egen søppel) ligger i en membership-rad («mount»). I `applyMyDo
 
 ## Delings-UI
 
-- **Åpning av del-modalen**: listekort har egen `.card-share`-knapp. Univers og
-  grupper deles derimot fra menyenes `.share-btn` (del-univers ved «＋ Gruppe»,
-  del-gruppe ved «＋ Liste» — de deler det AKTIVE universet/gruppen, ikke et
-  vilkårlig kort). `updateShareButtons()` (i `render()`) toggler synlighet ut
-  fra `accountsMode()` + `_mine`/`_mount`; klikk-handlerne leser aktivt objekt.
+- **Åpning av delings-UI-et**: for LISTER ligger delingen som egen seksjon i
+  innstillingsmodalen (tannhjulet `.card-cog`, se `docs/scheduling.md`) —
+  `renderShareOwner`/`renderShareRecipient` tar en `body`-container og deles
+  med del-modalen. Univers og grupper deles fra menyenes `.share-btn`
+  (del-univers ved «＋ Gruppe», del-gruppe ved «＋ Liste» — de deler det AKTIVE
+  universet/gruppen). `updateShareButtons()` (i `render()`) toggler synlighet
+  ut fra `accountsMode()` + `_mine`/`_mount`; klikk-handlerne leser aktivt
+  objekt.
 - **`item.done`** (avkryssing) synker via samme rad-CRUD som resten (innholds-
   register `ts`/`org`). Krever `items.done`-kolonnen — se `TODO.md`.
 - **Sletting er buffret** (`docs/trash.md`): den skrives ikke til DB før toast-
@@ -193,19 +196,20 @@ rekkefølge + egen søppel) ligger i en membership-rad («mount»). I `applyMyDo
   Del-modalen viser en initial-sirkel + navn for eier og hvert medlem
   (`avatarFor`, eier grønn / medlem grå — samme roller som før). Meny-modalens
   konto-avatar bruker samme navn/initialer (`my.user.display_name`).
-- **Ansvarlig for elementer** (`item.responsible`): elementer i delt kontekst
-  (delt liste, eller liste under en delt gruppe/univers — `shareRootFor`) får en
-  ansvarsknapp (`.item-resp`, hånd-opp-ikonet `ICONS.handRaise`) til venstre for
-  slette-✕. Klikk åpner en popover (desktop) / modal (mobil) som gjenbruker
-  `.switcher-overlay`/`.switcher-panel`-skallet (`openResponsible`): radene viser
+- **Ansvarlig** (`item.responsible` OG `card.responsible`): objekter i delt
+  kontekst (delt liste, eller liste under en delt gruppe/univers —
+  `shareRootFor`) kan få en ansvarlig — både hvert element og hele listen.
+  Settes fra innstillingsmodalens «Ansvarlig»-rad eller ansvarlig-chipen i
+  meta-raden (`docs/scheduling.md`); begge åpner ansvarlig-velgeren
+  (`openResponsible(target, …)`, target = `{ kind: 'card'|'item', obj, card }`)
+  — popover (desktop) / modal (mobil) på `.switcher-*`-skallet. Radene viser
   hver i «delegruppen» (eier + medlemmer av nærmeste delte forelder, hentet med
   `get_members` og cachet i `shareGroupCache`) alfabetisk, som en farget
   initial-sirkel (`respAvatar`, palett via alfabetisk indeks — `colorForIndex`)
-  + fullt navn, pluss «Ingen ansvarlig» når noen er valgt. Valgt ansvarlig
-  erstatter ikonet med sirkelen (`paintResp`); `item.responsible` synkes som
-  innhold, så alle med redigeringstilgang kan endre den. Delegruppen er nærmeste
-  delte forelder (én get_members-kall), ikke unionen av flere overlappende
-  delinger — bevisst forenkling.
+  + fullt navn, pluss «Ingen ansvarlig» når noen er valgt. `responsible` synkes
+  som innhold, så alle med redigeringstilgang kan endre den. Delegruppen er
+  nærmeste delte forelder (ett get_members-kall), ikke unionen av flere
+  overlappende delinger — bevisst forenkling.
 - **Umiddelbart og fritt bytte** (ingen venting): valget vises i samme øyeblikk
   (ansvarssirkelen males fra state) og kan byttes igjen med en gang — også mens
   forrige endring fortsatt er i lufta. Korrektheten ligger i synk-motoren, ikke
