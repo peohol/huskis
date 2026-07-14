@@ -3767,7 +3767,7 @@
     }
 
     // 4) Tidsplan (alltid).
-    const timeSec = settingsSection(ICONS.calendar, 'Tidsplan');
+    const timeSec = settingsSection('', 'Tidsplan');
     timeSec.appendChild(buildTimeEditor(settingsTarget));
     settingsBody.appendChild(timeSec);
   }
@@ -3815,21 +3815,27 @@
 
     const makeRow = (field) => {
       const isDue = field === 'due';
+      const group = document.createElement('div');
+      group.className = 'time-group';
+      // Overskrift over feltparet («Starttid»/«Tidsfrist» + tilhørende ikon) —
+      // kun i fullvisningen (modalen). Tids-popoveren har allerede egen
+      // tilsvarende tittel (time-panel-title) for det ene feltet den viser.
+      if (!opts.only) {
+        const heading = document.createElement('div');
+        heading.className = 'time-group-heading';
+        heading.innerHTML = (isDue ? ICONS.calendarDue : ICONS.calendar) +
+          '<span>' + (isDue ? 'Tidsfrist' : 'Starttid') + '</span>';
+        group.appendChild(heading);
+      }
       const row = document.createElement('div');
       row.className = 'time-row';
-      const label = document.createElement('span');
-      label.className = 'time-row-label';
-      label.innerHTML = (isDue ? ICONS.calendarDue : ICONS.calendar) +
-        '<span>' + (isDue ? 'Frist' : 'Start') + '</span>';
       const dateIn = document.createElement('input');
       dateIn.type = 'date';
       dateIn.className = 'field time-date';
       dateIn.placeholder = 'dd.mm.åååå';
       dateIn.setAttribute('aria-label', isDue ? 'Fristdato' : 'Startdato');
-      // Klokkeikon til venstre for klokkeslettet, så feltet leses tydelig som
-      // klokkeslett (ikke en andre dato) selv når det står tomt.
-      const clockWrap = document.createElement('span');
-      clockWrap.className = 'time-clock-wrap';
+      // Klokkeikon til venstre for klokkeslett-feltet (egen ikon ved siden av,
+      // ikke inni inputen — unngår at det overlapper med teksten som skrives).
       const clockIcon = document.createElement('span');
       clockIcon.className = 'time-clock-icon';
       clockIcon.setAttribute('aria-hidden', 'true');
@@ -3839,7 +3845,6 @@
       timeIn.className = 'field time-clock';
       timeIn.placeholder = 'tt:mm';
       timeIn.setAttribute('aria-label', 'Klokkeslett (valgfritt)');
-      clockWrap.append(clockIcon, timeIn);
       const clearBtn = document.createElement('button');
       clearBtn.type = 'button';
       clearBtn.className = 'icon-btn time-clear';
@@ -3870,8 +3875,9 @@
       dateIn.addEventListener('change', commit);
       timeIn.addEventListener('change', commit);
       clearBtn.addEventListener('click', () => { dateIn.value = ''; timeIn.value = ''; commit(); });
-      row.append(label, dateIn, clockWrap, clearBtn);
-      return row;
+      row.append(dateIn, clockIcon, timeIn, clearBtn);
+      group.appendChild(row);
+      return group;
     };
 
     if (!opts.only || opts.only === 'start') wrap.appendChild(makeRow('start'));
@@ -3927,7 +3933,7 @@
     const head = document.createElement('div');
     head.className = 'time-panel-title';
     head.innerHTML = field === 'due'
-      ? ICONS.calendarDue + '<span>Frist</span>'
+      ? ICONS.calendarDue + '<span>Tidsfrist</span>'
       : ICONS.calendar + '<span>Starttid</span>';
     timeSwitcherPanel.append(head, buildTimeEditor(getT, { only: field }));
     timeQuickOpen = true;
