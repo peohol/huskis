@@ -147,8 +147,8 @@ rask kollaps-til-overskrift-animasjon under draging + utvidelse ved slipp; slipp
 på en annen kategori nøster ikke (vanlig bytte-plass). Kategori-overskriften har
 en innstillingsknapp (tannhjul → felles innstillingsmodal, `kind:'category'`,
 med tidslås som liste-modalen) og en oppløs-knapp (boble-sprekk-ikon → elementene
-blir ukategoriserte på samme plass). Kategoriserte elementer får en indent-linje
-til venstre. Krever en DB-migrering i kontomodus (`items.cat_id`/`is_cat`/
+blir ukategoriserte på samme plass). Kategoriens elementer ligger i en innrykket
+fordypning («hylle i veggen»); overskriften står på listeflaten over. Krever en DB-migrering i kontomodus (`items.cat_id`/`is_cat`/
 `lock_times`) — se `TODO.md`. Se `docs/data-model.md`, `docs/drag-and-drop.md`,
 `docs/scheduling.md`, `docs/design-system.md`.
 

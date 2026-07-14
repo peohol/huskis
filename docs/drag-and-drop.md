@@ -48,8 +48,9 @@ Bytte utløses av **overlapp**, ikke av et punkt:
 
 En liste har nivå 1 (ukategoriserte elementer + kategorier, om hverandre) og
 nivå 2 (elementene inne i hver kategori). DOM: kortets `.items-container` holder
-nivå-1-radene (`.item` og `.category`); hver `.category` har en nøstet
-`.cat-items`-liste (nivå 2, med en indent-linje til venstre).
+nivå-1-radene (`.item` og `.category`); hver `.category` har en overskrift på
+listeflaten + en nøstet `.cat-items`-liste (nivå 2) som er en innrykket
+fordypning («hylle», se `docs/design-system.md`).
 
 - **Element-draging** (`onItemMove`/`onItemUp`) finner mål-container i to steg:
   først om pekeren er inne i en `.category` → dens `.cat-items` (slipp på

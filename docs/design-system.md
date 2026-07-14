@@ -145,11 +145,13 @@ Størrelse/form kommer fra egne klasser: `.btn` (modaler), `.btn-small`,
   til venstre for oppløs-knappen (boble-sprekk-ikonet `ICONS.bubbleBurst`).
   `.cat-head`s 6px sidepolstring stiller håndtak/knapper i **samme kolonner** som
   elementenes (som har 6px boks-padding) og kort-hodets — hele lista leser som
-  felles kolonner. `.cat-items` rykker elementene inn med en **tynn, avrundet
-  grupperingsrail** (`::before`, `width 3px`, mykt topp-til-bunn-fall) som skjules
-  når kategorien er tom (`:empty::before`). `.category.dragging` er et løftet,
-  hvitt chip UTEN fast høyde (følger den kollapsende `.cat-items`-høyden under
-  draging — se `docs/drag-and-drop.md`).
+  felles kolonner. **«Hylle i veggen»-metafor:** overskriften står på veggen
+  (listeflaten), og `.cat-items` er en **fordypning** rett under (4px gap) — litt
+  mørkere flate (`rgba(0,0,0,.1)`) + innover-skygge (`inset box-shadow`) + stort
+  venstre-innrykk, så elementene blir som «bøker» i en hylle som går inn i veggen
+  (dette erstattet den tidligere grupperingsstreken). `.category.dragging` er et
+  løftet, hvitt chip UTEN fast høyde (følger den kollapsende `.cat-items`-høyden
+  under draging — se `docs/drag-and-drop.md`).
 - `.field`: felles tekstfelt (auth-input + inviter-input) — solid kant, myk
   bakgrunn, grønn fokus-ring. Nye felt trenger bare klassen `.field`.
 - `.account-avatar` / `.member-avatar`: felles avatar-form (rund, sentrert hvit
