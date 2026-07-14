@@ -1532,32 +1532,8 @@ body.modal-open { overflow: hidden; }
 .toast-action:hover { background: rgba(255, 255, 255, 0.3); }
 .toast-action:focus-visible { outline: 2px solid rgba(255,255,255,0.7); outline-offset: 2px; }
 
-/* ---------------- Innlogging (mønster-lås) ---------------- */
-/* Skjul alt appinnhold til man er logget inn. */
-body.locked .app-header,
-body.locked .app-main,
-body.locked #menu-btn { display: none; }
-
-.lock-screen {
-  position: fixed;
-  inset: 0;
-  z-index: 400;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 24px;
-  background: linear-gradient(160deg, var(--bg-grad-a), var(--bg-grad-b));
-}
-.lock-screen[hidden] { display: none; }
-
-.lock-box {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 14px;
-  width: 100%;
-  max-width: 420px;
-}
+/* ---------------- Merkevare-logo (innloggingsskjerm) ---------------- */
+/* (app-innhold skjules av `body.no-auth`-regelen i FASE 2-seksjonen under.) */
 .lock-brand {
   display: flex;
   align-items: center;
@@ -1576,55 +1552,6 @@ body.locked #menu-btn { display: none; }
   color: #fff;
   font-size: 23px;
 }
-.lock-msg {
-  margin: 0;
-  min-height: 26px;
-  font-size: var(--fs-base);
-  font-weight: 600;
-  color: rgba(255, 255, 255, 0.82);
-  text-align: center;
-}
-
-.lock-svg {
-  width: min(78vw, 320px);
-  height: min(78vw, 320px);
-  touch-action: none;            /* draging skal ikke scrolle siden */
-  -webkit-user-select: none;
-  user-select: none;
-  cursor: pointer;
-}
-
-.lock-ring {
-  fill: rgba(255, 255, 255, 0.18);
-  stroke: rgba(255, 255, 255, 0.45);
-  stroke-width: 2;
-}
-.lock-dot {
-  fill: rgba(255, 255, 255, 0.55);
-  transition: fill 0.12s ease;
-}
-.lock-node.on .lock-ring { stroke: var(--primary); }
-.lock-node.on .lock-dot { fill: var(--primary); }
-
-.lock-path,
-.lock-live {
-  fill: none;
-  stroke: var(--primary);
-  stroke-width: 7;
-  stroke-linecap: round;
-  stroke-linejoin: round;
-  pointer-events: none;
-}
-.lock-live { opacity: 0.7; }
-
-/* Feil-tilbakemelding: rød glød. */
-.lock-screen.err .lock-path,
-.lock-screen.err .lock-live { stroke: var(--danger); }
-.lock-screen.err .lock-node.on .lock-ring { stroke: var(--danger); }
-.lock-screen.err .lock-node.on .lock-dot { fill: var(--danger); }
-
-.lock-screen.locked-out .lock-svg { opacity: 0.4; pointer-events: none; }
-.lock-screen.locked-out .lock-msg { color: var(--danger); }
 
 /* ---------------- Mobil ----------------
    Gruppemenyen er et fast panel øverst: overskrift, knapperad (＋ Gruppe +
@@ -1918,6 +1845,44 @@ body.no-auth #menu-btn { display: none; }
 }
 .menu-badge[hidden] { display: none; }
 .menu-btn { position: fixed; } /* allerede fixed; sørg for badge-anker */
+
+/* ---------------- Meny-innstilling (e-postvarsel) ---------------- */
+.menu-setting {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  margin-top: 8px;
+  border-radius: var(--radius-sm);
+  background: var(--primary-soft);
+}
+.menu-setting[hidden] { display: none; }
+.menu-setting-label {
+  flex: 1; min-width: 0;
+  display: flex; align-items: center; gap: 9px;
+  font-size: var(--fs-sm); font-weight: 600; color: var(--ink);
+}
+.menu-setting-label .icon { width: 22px; height: 22px; flex: 0 0 auto; color: var(--ink-soft); }
+.toggle-switch {
+  flex: 0 0 auto;
+  width: 50px; height: 28px;
+  border: none; border-radius: 999px;
+  background: #c4ccd2;
+  padding: 3px;
+  cursor: pointer;
+  transition: background 0.16s ease;
+}
+.toggle-switch .toggle-knob {
+  display: block;
+  width: 22px; height: 22px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.28);
+  transition: transform 0.16s ease;
+}
+.toggle-switch[aria-checked="true"] { background: var(--primary); }
+.toggle-switch[aria-checked="true"] .toggle-knob { transform: translateX(22px); }
+.toggle-switch:focus-visible { outline: 2.5px solid var(--primary); outline-offset: 2px; }
 
 /* ---------------- Invitasjons-innboks ---------------- */
 .menu-invites[hidden] { display: none; }

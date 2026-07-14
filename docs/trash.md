@@ -148,9 +148,10 @@ tilsvarende.
 
 Tømming setter **gravsteiner** rekursivt (univers → grupper → lister →
 elementer: `emptyUniversesTrash`/`emptyGroupsTrash`/`emptyCardsTrash`/
-`emptyItemsTrash`). Destruktivt er alltid reversibelt frem til tømming
-(gravstein først da) — se `docs/sync.md` for hvordan gravsteiner brukes i
-fletting.
+`emptyItemsTrash`). Destruktivt er alltid reversibelt frem til tømming. På
+serveren skriver AFTER DELETE-triggere gravsteiner (`tombstones`-tabellen) som
+hindrer at en offline klient gjenoppliver et slettet objekt — se
+`docs/arkitektur-brukere-deling.md`.
 
 Alle tekster/titler sier «hold og sveip for å tømme» (ikke «hold i 3
 sekunder»).

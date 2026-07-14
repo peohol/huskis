@@ -28,20 +28,18 @@ oppdater det aktuelle dokumentet der (ikke dump alt tilbake i denne fila).
 | `docs/board-layout.md` | avstander/padding/gap i selve listevisningen |
 | `docs/drag-and-drop.md` | reorder, dra-og-slipp-motoren, overføring mellom lister/grupper |
 | `docs/trash.md` | slette/gjenopprette/tømme på ethvert nivå |
-| `docs/sync.md` | Supabase-synk, fletting, gravsteiner, migrering, databaseoppsett |
-| `docs/auth.md` | mønster-lås/splash-screen/innlogging |
 | `docs/colors-and-labels.md` | HSL-fargesystem, Mine/Delte-filter |
 | `docs/scheduling.md` | innstillingsmodalen (tannhjul), tidsplan (start/frist), indikator-chips |
-| `docs/arkitektur-brukere-deling.md` | brukerkontoer (Supabase Auth), eierskap, deling/mounts, lås — database-grunnmuren for fase 2 |
-| `docs/accounts.md` | fase 2-KLIENTEN: auth-UI, synk-motor v2 (get_my_doc/rad-CRUD), mount-rendring, delings-UI, kontomodus-flagget, mock-backend for testing |
+| `docs/arkitektur-brukere-deling.md` | brukerkontoer (Supabase Auth), eierskap, deling/mounts, lås, e-postvarsel — databasesiden |
+| `docs/accounts.md` | KLIENTEN: auth-UI, synk-motor (get_my_doc/rad-CRUD), mount-rendring, delings-UI, e-postvarsel/innboks, mock-backend for testing |
 
 ## Verifisering (påkrevd før du sier deg ferdig)
 
 Verifiser alltid i ekte nettleser (Playwright mot `python3 -m http.server`,
 desktop- OG mobil-viewport, blokker eksterne kall for hermetikk) — funksjonelt
-(CRUD/DnD/synk/migrering) og visuelt (screenshots). `localStorage['mine-lister-
-auth']='1'` hopper over mønster-låsen under testing. Ikke rapporter en
-oppgave som ferdig uten denne verifiseringen.
+(CRUD/DnD/synk/deling/migrering) og visuelt (screenshots). Bruk `?mock=1` (mock-
+backend) for å teste innlogging og to-bruker-deling uten ekte Supabase. Ikke
+rapporter en oppgave som ferdig uten denne verifiseringen.
 
 ## GitHub-arbeidsflyt
 
@@ -124,16 +122,27 @@ popover/modal med delegruppen alfabetisk som fargede initial-sirkler + navn →
 valgt ansvarlig vises som farget initial-sirkel, `item.responsible`). Krever en
 DB-migrering + navne-seed i kontomodus — se `TODO.md`. Se `docs/accounts.md`.
 
-**Brukere og deling**: database-grunnmuren (Supabase Auth, eierskap, deling,
-lås — se `docs/arkitektur-brukere-deling.md`) er ferdig, testet og kjørt mot
-Supabase. **Fase 2 (klient/UI) er implementert** — auth-UI (registrering/
-innlogging/glemt passord), synk-motor v2 (`get_my_doc` → 3-veis fletting →
-rad-CRUD), mount-rendring av delt innhold, delings-UI (inviter/medlemmer/
-lås/innboks), søppel-semantikk for delinger (forlat) og migreringsflyt. Se
-`docs/accounts.md`. Kontomodus ligger **bak et flagg** (`config.js`:
-`accounts: true`, eller `?accounts=1`) inntil de manuelle Supabase-dashboard-
-stegene i `TODO.md` er gjort og alt er verifisert mot ekte Supabase; til da
-kjører fortsatt mønster-låsen (`docs/auth.md`) + synk-doc v1 (`docs/sync.md`).
+**Brukere og deling**: appen kjører nå KUN på ekte kontoer (Supabase Auth,
+e-post/passord) + relasjonelle tabeller med RLS og server-side felt-LWW —
+auth-UI (registrering/innlogging/glemt passord), synk-motor (`get_my_doc` →
+3-veis fletting → rad-CRUD), mount-rendring av delt innhold, delings-UI
+(inviter/medlemmer/lås/innboks), søppel-semantikk for delinger (forlat) og
+migreringsflyt. Se `docs/accounts.md` og `docs/arkitektur-brukere-deling.md`.
+**Mønster-låsen og synk-doc v1 er fjernet** (setup.sql pensjonerer `lists`-
+tabellen + `get_list`/`save_list`). `?mock=1` kjører mot en hermetisk
+in-memory-backend for to-bruker-testing.
+
+**E-postvarsel + i-app-varsel ved deling (siste runde)**: mottakeren varsles på
+to måter. (1) **I appen**: en rød ring med antall på ☰-knappen + en «Invitasjoner»-
+innboks i meny-modalen (godta/avslå) — invitasjonen viser inviterendes **navn**
+(ikke e-post). (2) **På e-post** (valgfritt, krever konfig): en `share_invites`-
+insert-trigger (`send_invite_email`, pg_net → Resend) e-poster mottakeren —
+uregistrerte får en `?signup=<e-post>`-lenke som åpner registreringssiden med
+e-posten utfylt (invitasjonen kobles på ved registrering); registrerte får en
+åpne-appen-lenke, men kun hvis de har e-postvarsel PÅ. Registrerte kan slå
+e-postvarsel av/på i meny-modalen (`user_metadata.email_notifications`, standard
+PÅ). Krever manuell Supabase-konfig (Resend-nøkkel i `app_config` + pg_net) — se
+`TODO.md`. Se `docs/accounts.md`.
 
 **Kategorier (siste runde)**: lister har nå TO nivåer — nivå 1 rommer
 ukategoriserte elementer OG kategorier (om hverandre, kan omrokkeres), nivå 2 er
