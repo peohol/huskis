@@ -906,29 +906,44 @@ create table if not exists public.app_config (
 );
 alter table public.app_config enable row level security;
 -- Ingen RLS-policyer + ingen grants → verken anon eller authenticated kan lese
--- nøklene via PostgREST; kun SECURITY DEFINER-funksjonene under.
+-- nøklene via PostgREST. Konfig-verdiene leses KUN inne i trigger-funksjonen
+-- under (SECURITY DEFINER, ikke kallbar som RPC), aldri via en egen hjelpe-
+-- funksjon — en slik ville Postgres gitt EXECUTE til PUBLIC og dermed lekket
+-- nøkkelen. (Pensjoner en ev. tidligere `cfg`-variant av samme grunn.)
 revoke all on public.app_config from anon, authenticated;
+drop function if exists public.cfg(text);
 
-create or replace function public.cfg(p_key text)
-returns text language sql stable security definer set search_path = public as $$
-  select value from public.app_config where key = p_key;
+-- Enkel HTML-escaping for brukerstyrt tekst (navn) i e-postkroppen — hindrer at
+-- et navn med markup rendres i mottakerens e-postklient. Ren/immutabel.
+create or replace function public.html_escape(p text)
+returns text language sql immutable set search_path = public as $$
+  select replace(replace(replace(replace(replace(
+    coalesce(p, ''), '&', '&amp;'), '<', '&lt;'), '>', '&gt;'), '"', '&quot;'), '''', '&#39;');
 $$;
 
 create or replace function public.send_invite_email()
 returns trigger language plpgsql security definer
 set search_path = public, extensions, net as $$
 declare
-  api_key   text := public.cfg('resend_api_key');
-  from_addr text := coalesce(public.cfg('email_from'), 'Huskekurv <onboarding@resend.dev>');
-  app_url   text := coalesce(public.cfg('app_url'), '');
+  api_key   text;
+  from_addr text;
+  app_url   text;
   inviter   text;
   obj_name  text;
+  inv_e     text;   -- HTML-escaped inviter-navn
+  obj_e     text;   -- HTML-escaped objektnavn
   subject   text;
   body_html text;
   link      text;
 begin
+  -- Konfig leses inline (ingen egen RPC-kallbar funksjon som kan lekke nøkkelen).
+  select value into api_key from public.app_config where key = 'resend_api_key';
   -- Ikke konfigurert → ingen e-post (delingen fungerer likevel via appen).
   if api_key is null or api_key = '' then return new; end if;
+  select value into from_addr from public.app_config where key = 'email_from';
+  from_addr := coalesce(from_addr, 'Huskekurv <onboarding@resend.dev>');
+  select value into app_url from public.app_config where key = 'app_url';
+  app_url := coalesce(app_url, '');
 
   select display_name into inviter from public.profiles where id = new.inviter_id;
   inviter := coalesce(inviter, 'Noen');
@@ -937,19 +952,26 @@ begin
     (select name  from public.groups    where id = new.group_id),
     (select title from public.cards     where id = new.card_id),
     'noe');
+  -- Brukerstyrt tekst escapes før den settes inn i HTML-kroppen (subject er ren
+  -- tekst i e-post og trenger ingen escaping).
+  inv_e := public.html_escape(inviter);
+  obj_e := public.html_escape(obj_name);
   subject := inviter || ' har delt «' || obj_name || '» med deg på Huskekurv';
 
   if new.invitee_id is null then
-    -- Uregistrert mottaker → inviter til å registrere seg.
-    link := app_url || '?signup=' || replace(replace(new.invitee_email, '+', '%2B'), '@', '%40');
+    -- Uregistrert mottaker → inviter til å registrere seg. E-posten går til
+    -- invitee_email selv, så lenke-innholdet er ikke-fiendtlig (self-targeted);
+    -- vi URL-koder likevel de vanlige spesialtegnene.
+    link := app_url || '?signup=' ||
+      replace(replace(replace(new.invitee_email, '+', '%2B'), '@', '%40'), '&', '%26');
     body_html :=
       '<div style="font-family:sans-serif;max-width:480px;margin:auto">' ||
       '<h2>Du er invitert til Huskekurv</h2>' ||
-      '<p><strong>' || inviter || '</strong> har delt <strong>' || obj_name ||
+      '<p><strong>' || inv_e || '</strong> har delt <strong>' || obj_e ||
       '</strong> med deg på Huskekurv.</p>' ||
       '<p>Registrer deg med denne e-postadressen, så dukker delingen opp i appen ' ||
       'og du kan godta den:</p>' ||
-      '<p><a href="' || link || '" style="display:inline-block;background:#3a8a6a;' ||
+      '<p><a href="' || public.html_escape(link) || '" style="display:inline-block;background:#3a8a6a;' ||
       'color:#fff;padding:11px 20px;border-radius:8px;text-decoration:none">' ||
       'Opprett konto og bli med</a></p></div>';
   else
@@ -961,11 +983,11 @@ begin
     link := coalesce(nullif(app_url, ''), '#');
     body_html :=
       '<div style="font-family:sans-serif;max-width:480px;margin:auto">' ||
-      '<h2>' || obj_name || ' er delt med deg</h2>' ||
-      '<p><strong>' || inviter || '</strong> har delt <strong>' || obj_name ||
+      '<h2>' || obj_e || ' er delt med deg</h2>' ||
+      '<p><strong>' || inv_e || '</strong> har delt <strong>' || obj_e ||
       '</strong> med deg på Huskekurv.</p>' ||
       '<p>Åpne appen for å godta delingen:</p>' ||
-      '<p><a href="' || link || '" style="display:inline-block;background:#3a8a6a;' ||
+      '<p><a href="' || public.html_escape(link) || '" style="display:inline-block;background:#3a8a6a;' ||
       'color:#fff;padding:11px 20px;border-radius:8px;text-decoration:none">' ||
       'Åpne Huskekurv</a></p></div>';
   end if;
@@ -986,6 +1008,10 @@ exception when others then
   return new;
 end;
 $$;
+
+-- Trigger-funksjoner er ikke kallbare via PostgREST, men vi fjerner uansett
+-- PUBLIC-EXECUTE som ekstra forsvar (funksjonen leser Resend-nøkkelen).
+revoke all on function public.send_invite_email() from public, anon, authenticated;
 
 drop trigger if exists on_share_invite_created on public.share_invites;
 create trigger on_share_invite_created
