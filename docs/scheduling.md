@@ -5,9 +5,13 @@ indikator-chipene under liste-/elementnavn, eller start-/frist-tider.
 
 ## Innstillingsmodalen (`#settings-modal`, `openSettings(kind, id)`)
 
-Én felles modal for lister og elementer, åpnet fra **tannhjulet**
-(`.card-cog` på listekort — erstattet den gamle del-knappen; `.item-cog` på
-elementer — erstattet den gamle ansvarsknappen). Seksjoner, i rekkefølge:
+Én felles modal for lister, elementer OG kategorier (`kind: 'card'|'item'|
+'category'`), åpnet fra **tannhjulet** (`.card-cog` på listekort — erstattet den
+gamle del-knappen; `.item-cog` på elementer — erstattet den gamle ansvarsknappen;
+`.cat-cog` på kategori-overskrifter). Kategori-modalen er som element-modalen
+(navn m/ kategori-ikon + ansvarlig i delt kontekst + tidsplan), men har i tillegg
+– som liste-modalen – en **lås-avkryssing** som låser kategoriens tider til
+elementene i kategorien (`category.lockTimes`). Seksjoner, i rekkefølge:
 
 1. **Navn**: redigerbart `.field` (liste-ikon foran for lister). Lagres
    fortløpende per tastetrykk (stampContent + save; board-DOM oppdateres
@@ -23,7 +27,14 @@ elementer — erstattet den gamle ansvarsknappen). Seksjoner, i rekkefølge:
    listen, `card.responsible`): rad med nåværende ansvarlig (initial-sirkel +
    navn) → åpner ansvarlig-velgeren. Velgeren er generalisert til targets
    (`{ kind: 'card'|'item', obj, card }`); `setResponsible(target, userId)`.
-4. **Tidsplan** (alltid, også utenfor kontomodus): se under.
+4. **Tidsplan** (alltid, også utenfor kontomodus): se under. I fullvisningen
+   (modalen) er hvert feltpar (dato + klokkeslett) gruppert under en egen
+   overskrift med ikon — **«Starttid»** (kalender) og **«Tidsfrist»**
+   (kalender-m/-utropstegn) — i stedet for en inline-etikett til venstre;
+   klokkeikonet står som eget element ved siden av klokkeslett-feltet (ikke inni
+   inputen). «Tidsplan»-seksjonstittelen har ikke eget ikon. Tids-popoveren
+   (fra chipene) viser bare den ene raden og har sin egen tittel, så den hopper
+   over feltpar-overskriften (`opts.only`).
 
 Ingen bekreftelsesknapp noe sted — alt settes fortløpende og optimistisk.
 Modalen slår alltid opp det LEVENDE objektet på id per interaksjon
@@ -39,11 +50,15 @@ Modalen slår alltid opp det LEVENDE objektet på id per interaksjon
   Ingen av dem håndheves — bare visualiseres.
 - Feltene finnes på både elementer og lister og rir på **innholds-registeret**
   (`ts`/`org`, LWW) som tekst/done/responsible.
-- **`card.lockTimes`**: avkryssing i listens tidsmodul («Lås tidene også til
-  elementene i listen»). Da styrer listens tider elementene: elementenes egne
-  tids-chips skjules, og tidsfeltene i element-modalen er disablet og viser
-  listens tider + notis («Tidene styres av listen …»). Elementenes egne
-  verdier beholdes i data (kommer tilbake om låsen skrus av).
+- **`card.lockTimes` / `category.lockTimes`**: avkryssing i tidsmodulen som
+  låser en containers tider til elementene i den. Presedens (`timeController`):
+  listen (kort) har forrang for ALLE sine elementer (også de i kategorier);
+  ellers styrer en kategori med `lockTimes` bare sine egne elementer. Er et
+  element låst, skjules dets egne tids-chips, og tidsfeltene i element-modalen er
+  disablet og viser containerens tider + notis («Tidene styres av listen/
+  kategorien …»). Elementenes egne verdier beholdes i data (kommer tilbake om
+  låsen skrus av). En kategori viser alltid sine EGNE tids-chips (dens
+  `lockTimes` gjelder elementene, ikke kategorien selv).
 - **Utenfor listens tidsrom**: et element KAN få tider utenfor listens
   `start`–`due`-vindu; tidsmodulen viser da en subtil beskjed med tre
   varianter (start / frist / begge «… er utenfor listens tidsrom», se
@@ -78,9 +93,12 @@ Fargene bruker knappesystemets gradienter (`--grad-green/-yellow/-red`).
 
 ## Synk/DB
 
-Doc-radene har `start`/`due` (element + liste) og `lockTimes`/`responsible`
-(liste); DB-kolonnene heter `start_at`/`due_at` (text), `lock_times`
-(boolean) og `cards.responsible` (uuid → profiles, `on delete set null`).
+Doc-radene har `start`/`due` (element + liste + kategori) og `lockTimes`/
+`responsible` (liste + kategori); DB-kolonnene heter `start_at`/`due_at` (text),
+`lock_times` (boolean, nå også på `items` for kategorier) og `cards.responsible`
+(uuid → profiles, `on delete set null`). Kategorier lever i `items`-tabellen
+(`items.is_cat`, `items.cat_id` → self-FK, `items.lock_times`) — se
+`docs/data-model.md`.
 Oppdatert hele veien: `cleanItem`/`cleanCard`, `mergeItem`/`mergeCardScalar`,
 `canonRow` (mount-grenen), `insert-`/`updatePayload`, mock-backend,
 `supabase/users-and-sharing.sql` (idempotente `add column if not exists`,

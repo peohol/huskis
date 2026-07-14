@@ -127,6 +127,31 @@ Størrelse/form kommer fra egne klasser: `.btn` (modaler), `.btn-small`,
   `box-sizing: border-box`) og dempet (`opacity: 0.62`) så den tydelig skiller
   seg fra de eksisterende elementene. Fokus gir full opacity + synlig kant
   (`--card-accent`), som før.
+- `.add-item-btn`: ＋-knappen er **disablet (`opacity: .45`)** når feltet er
+  tomt (`syncAddBtn` toggler `disabled` på input-event) — ingen hover-oppløfting
+  da. **Klikk-og-hold** i `CAT_HOLD_MS` (400 ms) oppretter en kategori i stedet
+  for et element (`attachAddHold`); under holdet fyller en ekspanderende ring
+  (`.holding::after`, `add-hold-fill`) knappen som progresjon, og det
+  påfølgende klikket/submit undertrykkes.
+- **Kategorier** (`.category` / `.cat-head` / `.cat-title` / `.cat-cog` /
+  `.cat-dissolve` / `.cat-items`): en nivå-1-rad med en header (håndtak +
+  tittel/meta + tannhjul + oppløs-knapp) over en nøstet elementliste. Kondensert:
+  samme 8px-luft som mellom elementer, både over overskriften og mellom
+  overskriften og elementene (`.category` gap 8px; `.cat-items` uten vertikal
+  padding). `.cat-title` er **hvit m/ tekst-skygge** (som `.card-title`) —
+  lesbar på enhver listefarge. `.cat-cog`/`.cat-dissolve` bruker den **hvite
+  flate-knappestilen fra `.card-cog`** (svakt hvit flate + ring, lysner ved
+  hover) så de er synlige mot den fargede listeflaten; tannhjul (innstillinger)
+  til venstre for oppløs-knappen (boble-sprekk-ikonet `ICONS.bubbleBurst`).
+  `.cat-head`s 6px sidepolstring stiller håndtak/knapper i **samme kolonner** som
+  elementenes (som har 6px boks-padding) og kort-hodets — hele lista leser som
+  felles kolonner. **«Hylle i veggen»-metafor:** overskriften står på veggen
+  (listeflaten), og `.cat-items` er en **fordypning** rett under (4px gap) — litt
+  mørkere flate (`rgba(0,0,0,.1)`) + innover-skygge (`inset box-shadow`) + stort
+  venstre-innrykk, så elementene blir som «bøker» i en hylle som går inn i veggen
+  (dette erstattet den tidligere grupperingsstreken). `.category.dragging` er et
+  løftet, hvitt chip UTEN fast høyde (følger den kollapsende `.cat-items`-høyden
+  under draging — se `docs/drag-and-drop.md`).
 - `.field`: felles tekstfelt (auth-input + inviter-input) — solid kant, myk
   bakgrunn, grønn fokus-ring. Nye felt trenger bare klassen `.field`.
 - `.account-avatar` / `.member-avatar`: felles avatar-form (rund, sentrert hvit

@@ -192,6 +192,7 @@
       items: myItems.map(function (i) {
         return {
           id: i.id, owner: i.owner_id, mine: i.owner_id === uid, home: i.card_id, text: i.text,
+          cat: i.cat_id || null, isCat: !!i.is_cat, lockTimes: !!i.lock_times,
           trashed: !!i.trashed, done: !!i.done, responsible: i.responsible || null,
           start: i.start_at || null, due: i.due_at || null,
           ts: i.ts, org: i.org, pos: i.pos, posTs: i.pos_ts, posOrg: i.pos_org,
@@ -274,6 +275,7 @@
         if ('start_at' in patch) row.start_at = patch.start_at;
         if ('due_at' in patch) row.due_at = patch.due_at;
         if ('lock_times' in patch) row.lock_times = patch.lock_times;
+        if ('is_cat' in patch) row.is_cat = patch.is_cat;
         if ('trashed' in patch && !blockTrashed) row.trashed = patch.trashed;
         row.ts = patch.ts; row.org = patch.org;
       }
@@ -289,6 +291,7 @@
         if ('universe_id' in patch) row.universe_id = patch.universe_id;
         if ('group_id' in patch) row.group_id = patch.group_id;
         if ('card_id' in patch) row.card_id = patch.card_id;
+        if ('cat_id' in patch) row.cat_id = patch.cat_id;
         row.pos_ts = patch.pos_ts; row.pos_org = patch.pos_org;
       }
     });
@@ -361,7 +364,9 @@
             ts: r.ts || 0, org: r.org || '', pos: r.pos || 0, pos_ts: r.posTs || 0, pos_org: r.posOrg || '' };
         });
         up(doc.items, 'items', function (r, id) {
-          return { id: id, owner_id: uid, card_id: legacyId(uid, r.home), text: r.text || '', trashed: !!r.trashed,
+          return { id: id, owner_id: uid, card_id: legacyId(uid, r.home),
+            cat_id: r.cat ? legacyId(uid, r.cat) : null, is_cat: !!r.isCat, lock_times: !!r.lockTimes,
+            text: r.text || '', trashed: !!r.trashed,
             done: !!r.done, responsible: r.responsible || null,
             start_at: r.start || null, due_at: r.due || null,
             ts: r.ts || 0, org: r.org || '', pos: r.pos || 0, pos_ts: r.posTs || 0, pos_org: r.posOrg || '' };

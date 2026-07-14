@@ -135,7 +135,24 @@ lås/innboks), søppel-semantikk for delinger (forlat) og migreringsflyt. Se
 stegene i `TODO.md` er gjort og alt er verifisert mot ekte Supabase; til da
 kjører fortsatt mønster-låsen (`docs/auth.md`) + synk-doc v1 (`docs/sync.md`).
 
-**Innstillinger + tidsplan (siste runde)**: tannhjul-knapper på lister
+**Kategorier (siste runde)**: lister har nå TO nivåer — nivå 1 rommer
+ukategoriserte elementer OG kategorier (om hverandre, kan omrokkeres), nivå 2 er
+elementene inne i hver kategori. En kategori lagres SOM et element (`item.isCat`),
+leaf-elementer peker på den via `item.cat`; kategorier nøstes aldri. Opprettes
+ved **klikk-og-hold** (400 ms) på ＋-knappen (som ellers legger til et element;
+knappen er disablet til feltet har tekst). Dra-og-slipp: elementer flyttes mellom
+nivå 1 / kategorier / lister (slipp på kategori-overskriften eller blant
+elementene legger det i kategorien); kategori-håndtak reorderer på nivå 1 med en
+rask kollaps-til-overskrift-animasjon under draging + utvidelse ved slipp; slipp
+på en annen kategori nøster ikke (vanlig bytte-plass). Kategori-overskriften har
+en innstillingsknapp (tannhjul → felles innstillingsmodal, `kind:'category'`,
+med tidslås som liste-modalen) og en oppløs-knapp (boble-sprekk-ikon → elementene
+blir ukategoriserte på samme plass). Kategoriens elementer ligger i en innrykket
+fordypning («hylle i veggen»); overskriften står på listeflaten over. Krever en DB-migrering i kontomodus (`items.cat_id`/`is_cat`/
+`lock_times`) — se `TODO.md`. Se `docs/data-model.md`, `docs/drag-and-drop.md`,
+`docs/scheduling.md`, `docs/design-system.md`.
+
+**Innstillinger + tidsplan (forrige runde)**: tannhjul-knapper på lister
 (erstattet del-knappen) og elementer (erstattet ansvarsknappen) åpner en
 felles innstillingsmodal (navn / deling (lister) / ansvarlig — nå også for
 hele listen, `card.responsible` / tidsplan). Tidsplan: `start`/`due` på

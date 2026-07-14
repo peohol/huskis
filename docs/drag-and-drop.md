@@ -44,6 +44,43 @@ Bytte utløses av **overlapp**, ikke av et punkt:
   eksisterende DOM-nodene — kirurgisk, ingen full re-rendring (som ville
   kuttet FLIP/drop-avslutningsanimasjonen).
 
+## Kategorier: to nivåer i en liste (`docs/data-model.md`)
+
+En liste har nivå 1 (ukategoriserte elementer + kategorier, om hverandre) og
+nivå 2 (elementene inne i hver kategori). DOM: kortets `.items-container` holder
+nivå-1-radene (`.item` og `.category`); hver `.category` har en overskrift på
+listeflaten + en nøstet `.cat-items`-liste (nivå 2) som er en innrykket
+fordypning («hylle», se `docs/design-system.md`).
+
+- **Element-draging** (`onItemMove`/`onItemUp`) finner mål-container i to steg:
+  først om pekeren er inne i en `.category` → dens `.cat-items` (slipp på
+  overskriften ELLER blant elementene legger elementet i kategorien); ellers
+  kortets `.items-container` (nivå 1, inkl. overføring mellom lister). Elementer
+  flyttes fritt mellom nivå 1, kategorier og lister. Søsken-rader leses fra
+  **direkte barn** (`rowChildren`, ikke `querySelectorAll('.item')`) så nivå-1
+  ikke plukker elementer inne i kategorier. Innsetting er senterbasert når
+  containeren har kategorier (blandede radhøyder) eller ved overføring; ellers
+  den vanlige retningsstyrte overlapp-hysteresen. `reconcileItems` bygger nå
+  kortets `items` fra HELE DOM-treet (nivå 1 + hver kategoris `.cat-items`) og
+  setter `it.cat`; ved slipp stemples kun det flyttede elementets `home`/`cat`/
+  `pos` (kirurgisk, `cat` på posisjonsregisteret som `home`).
+- **Kategori-draging** (`startCategoryDrag`) flytter en kategori KUN innen sin
+  egen liste på nivå 1; den kan ikke nøstes i en annen kategori (slipp på en
+  annen kategori = vanlig bytte-plass). Idet draget starter **kollapser**
+  kategorien (`CAT_COLLAPSE_MS` = 300 ms) til bare overskriften — `.cat-items`
+  animeres til høyde/opacity 0 og placeholderen krymper til header-høyden; ved
+  slipp folder den seg ut igjen (`expandCategory`, reversert animasjon).
+  `liftCategory` setter ingen fast høyde (så det løftede elementet følger den
+  kollapsende høyden). Innsetting er senterbasert (`placeRowPlaceholder`) blant
+  nivå-1-radene. `prefers-reduced-motion` hopper over kollaps/utvidelse.
+- **Oppløs kategori** (`dissolveCategory`, boble-sprekk-knappen): elementene blir
+  ukategoriserte og «arver» kategoriens plass i nivå-1-lista (fordeles jevnt i
+  pos-gapet mellom kategorien og neste nivå-1-rad, rekkefølge bevart), og selve
+  kategori-raden tombstones + fjernes.
+- **Avkryssing**: et avkrysset element (også i en kategori) flyttes til kortets
+  felles «Utført»-seksjon; reaktivering ruter det tilbake INN i kategorien sin
+  (om den finnes), ellers til nivå 1 (se `toggleItemDone`).
+
 ## Univers-rader (meny-modalen)
 
 Samme håndtak + placeholder + FLIP-motor som gruppekortene, men kun i én

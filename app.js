@@ -198,10 +198,23 @@
   /* ---------------- State ---------------- */
   function makeItem(text, homeId) {
     return {
-      id: uid(), text, home: homeId, trashed: false, done: false,
+      id: uid(), text, home: homeId, cat: null, trashed: false, done: false,
       ts: 0, org: deviceId,           // innholdsregister (tekst/trashed/done)
-      pos: 0, posTs: 0, posOrg: deviceId, // posisjonsregister (rekkefølge/forelder)
+      pos: 0, posTs: 0, posOrg: deviceId, // posisjonsregister (rekkefølge/forelder + cat)
     };
+  }
+  // En kategori er en nivå-1-«rad» i en liste som grupperer elementer (nivå 2)
+  // under en felles overskrift. Den lagres SOM et element i kortets `items`
+  // (rir dermed på hele element-synken), men markert `isCat: true` — den har
+  // navn (`text`), egen tidsplan (`start`/`due`) og kan låse tidene til
+  // elementene sine (`lockTimes`, som lister). Leaf-elementer peker på kategorien
+  // sin via `cat` (null = ukategorisert, nivå 1). Kategorier nøstes aldri
+  // (har alltid `cat: null`) og krysses aldri av (`done`).
+  function makeCategory(name, homeId) {
+    const c = makeItem(name, homeId);
+    c.isCat = true;
+    c.lockTimes = false;
+    return c;
   }
 
   function card(title, items, groupId) {
@@ -475,6 +488,7 @@
   const uniTpl = document.getElementById('uni-template');
   const cardTpl = document.getElementById('card-template');
   const itemTpl = document.getElementById('item-template');
+  const catTpl = document.getElementById('category-template');
 
   const trashBtn = document.getElementById('trash-btn');
   const trashCount = document.getElementById('trash-count');
@@ -527,6 +541,13 @@
       if (it) return it;
     }
     return null;
+  }
+  // Kategorier og ukategoriserte elementer deler nivå-1-posisjonsrommet (begge
+  // har `cat` falsy); en ny nivå-1-rad legges bakerst der.
+  function level1MaxPos(cardData) { return maxPos(cardData.items.filter((it) => !it.cat)); }
+  // Kategori-objektet et element ligger i (eller null for ukategorisert / ukjent).
+  function catOf(cardData, catId) {
+    return catId ? cardData.items.find((x) => x.id === catId && x.isCat) || null : null;
   }
 
   // Aktiv gruppe settes alltid via denne, så per-univers-minnet (activeGroups)
@@ -957,37 +978,66 @@
       });
     }
 
-    // Elementer (kun ikke-slettede; sortert på posisjon). Slettede ligger i
-    // element-søppelkassen nederst i kortet. Aktive (ikke avkrysset) øverst;
-    // avkryssede («Utført») i egen seksjon under, skilt med en linje.
+    // Elementer (kun ikke-slettede; sortert på posisjon). To nivåer: nivå 1 er
+    // kortets direkte rader — ukategoriserte elementer OG kategorier, om
+    // hverandre; nivå 2 er elementene inne i hver kategori (buildCategory).
+    // Avkryssede («Utført») samles i egen seksjon nederst uansett kategori.
+    // Slettede ligger i element-søppelkassen. Et element hvis `cat` peker på en
+    // kategori som ikke finnes (f.eks. oppløst på en annen enhet) faller tilbake
+    // til nivå 1 (ukategorisert).
     const list = el.querySelector('.items-container');
     const doneWrap = el.querySelector('.items-done-wrap');
     const doneList = el.querySelector('.items-done');
-    const visibleItems = cardData.items.filter((it) => !it.trashed && !it._pendingDelete).sort(posCmp);
-    visibleItems.filter((it) => !it.done).forEach((it) => list.appendChild(buildItem(it, cardData)));
-    const doneItems = visibleItems.filter((it) => it.done);
+    const active = cardData.items.filter((it) => !it.trashed && !it._pendingDelete);
+    const catIds = new Set(active.filter((it) => it.isCat).map((c) => c.id));
+    const level1 = active.filter((it) => !it.done && (it.isCat || !it.cat || !catIds.has(it.cat))).sort(posCmp);
+    level1.forEach((row) => list.appendChild(row.isCat ? buildCategory(row, cardData) : buildItem(row, cardData)));
+    const doneItems = active.filter((it) => it.done && !it.isCat).sort(posCmp);
     doneItems.forEach((it) => doneList.appendChild(buildItem(it, cardData)));
     doneWrap.hidden = doneItems.length === 0;
 
-    // Legg til element
+    // Legg til element / kategori. ＋-knappen er disablet (dempet) til feltet har
+    // tekst. Kort trykk = legg til element; klikk-og-hold (CAT_HOLD_MS) = opprett
+    // en kategori med det innskrevne navnet i stedet (se attachAddHold).
     const form = el.querySelector('.add-item-form');
     const input = form.querySelector('.add-item-input');
+    const addBtn = form.querySelector('.add-item-btn');
     if (accountsMode() && !canEdit) form.hidden = true;
-    form.addEventListener('submit', (ev) => {
-      ev.preventDefault();
+    const syncAddBtn = () => { addBtn.disabled = !input.value.trim(); };
+    syncAddBtn();
+    input.addEventListener('input', syncAddBtn);
+
+    const addItemNow = () => {
       if (!canEdit) return;
       const text = input.value.trim();
       if (!text) return;
       const it = makeItem(text, cardData.id);
-      it.pos = maxPos(cardData.items) + 1;
+      it.pos = level1MaxPos(cardData) + 1;
       stampContent(it);
       stampPos(it);
       cardData.items.push(it);
       list.appendChild(buildItem(it, cardData));
       input.value = '';
+      syncAddBtn();
       input.focus();
       save();
-    });
+    };
+    const addCategoryNow = () => {
+      if (!canEdit) return;
+      const name = input.value.trim();
+      if (!name) return;
+      const cat = makeCategory(name, cardData.id);
+      cat.pos = level1MaxPos(cardData) + 1;
+      stampContent(cat);
+      stampPos(cat);
+      cardData.items.push(cat);
+      list.appendChild(buildCategory(cat, cardData));
+      input.value = '';
+      syncAddBtn();
+      input.focus();
+      save();
+    };
+    attachAddHold(form, input, addBtn, () => canEdit, addItemNow, addCategoryNow);
 
     // Element-søppelkasse: midtstilt nederst i kortet, kun når det ligger
     // slettede elementer i kortet. Emoji + antall (ingen tekst-etikett).
@@ -1172,12 +1222,22 @@
     const B = timeClockPart(a) && timeClockPart(b) ? b : timeDatePart(b);
     return A < B ? -1 : A > B ? 1 : 0;
   }
-  // Er elementets start/frist utenfor listens tidsrom? (Subtil beskjed i
-  // tidsmodulen — fullt lovlig, bare et hint.)
-  function outsideFlags(item, card) {
-    const chk = (v) => !!v && ((card.start && cmpTime(v, card.start) < 0) ||
-                               (card.due && cmpTime(v, card.due) > 0));
+  // Er elementets start/frist utenfor tidsrommet til containeren (liste eller
+  // kategori)? (Subtil beskjed i tidsmodulen — fullt lovlig, bare et hint.)
+  function outsideFlags(item, container) {
+    const chk = (v) => !!v && ((container.start && cmpTime(v, container.start) < 0) ||
+                               (container.due && cmpTime(v, container.due) > 0));
     return { start: chk(item.start), due: chk(item.due) };
+  }
+  // Hva styrer et elements tider når `lockTimes` er på? Listen (kort) har
+  // forrang; ellers en kategori elementet ligger i som selv låser tidene. Null
+  // → elementet har sine egne tider. Returnerer kort-/kategori-objektet.
+  function timeController(item, card) {
+    if (!item || item.isCat) return null;
+    if (card && card.lockTimes) return card;
+    const cat = item.cat ? catOf(card, item.cat) : null;
+    if (cat && cat.lockTimes) return cat;
+    return null;
   }
 
   /* ---------------- Indikator-chips (meta-raden under navnet) ----------------
@@ -1246,8 +1306,9 @@
       }
       row.appendChild(chip);
     }
-    // Elementer under en tids-låst liste har ingen egne tider (listen styrer).
-    if (isCard || !target.card.lockTimes) {
+    // Lister og kategorier viser alltid sine egne tider. Elementer viser sine
+    // egne kun når ingen container (liste ELLER kategori) styrer tidene deres.
+    if (isCard || target.kind === 'category' || !timeController(obj, target.card)) {
       appendTimeChip(row, target, 'start', canEdit);
       appendTimeChip(row, target, 'due', canEdit);
     }
@@ -1312,7 +1373,12 @@
         if (!dir) return;
         ev.preventDefault();
         const owner = ownerCardOf(el) || cardData;
-        const sorted = owner.items.filter((it) => !it.trashed && !it.done && !it._pendingDelete).sort(posCmp);
+        // Flytt blant SØSKEN i samme nivå: inne i en kategori kun kategoriens
+        // egne elementer; ellers nivå-1-rader (ukategoriserte + kategorier).
+        const cids = new Set(owner.items.filter((x) => x.isCat).map((x) => x.id));
+        const inCat = itemData.cat && cids.has(itemData.cat);
+        const sorted = owner.items.filter((it) => !it.trashed && !it.done && !it._pendingDelete &&
+          (inCat ? (it.cat === itemData.cat && !it.isCat) : (it.isCat || !it.cat || !cids.has(it.cat)))).sort(posCmp);
         const i = sorted.indexOf(itemData);
         if (i < 0 || i + dir < 0 || i + dir >= sorted.length) return;
         itemData.home = owner.id;
@@ -1342,6 +1408,150 @@
     const cardEl = itemEl.closest('.card');
     if (!cardEl) return null;
     return findCard(cardEl.dataset.id);
+  }
+
+  /* ---------------- Kategorier (nivå-1-rad som grupperer elementer) ----------------
+     En kategori bygges som en <li class="category"> med et header (håndtak +
+     tittel/meta + tannhjul + oppløs-knapp) og en nøstet <ul class="cat-items">
+     med kategoriens elementer (nivå 2, indent-linje til venstre). Kategorien er
+     et element i kortets `items` (isCat), så den rir på element-synken. */
+  function buildCategory(catData, cardData) {
+    const el = catTpl.content.firstElementChild.cloneNode(true);
+    el.dataset.id = catData.id;
+    const canEdit = !(accountsMode() && frozen(cardData));
+
+    const titleEl = el.querySelector('.cat-title');
+    titleEl.textContent = catData.text || 'Kategori';
+    titleEl.addEventListener('click', () => {
+      if (!canEdit) return;
+      editText(titleEl, catData.text, (val) => {
+        catData.text = val || 'Kategori';
+        titleEl.textContent = catData.text;
+        stampContent(catData);
+        save();
+      });
+    });
+
+    // Innstillinger for kategorien (navn/ansvarlig/tidsplan m/ tidslås).
+    const cog = el.querySelector('.cat-cog');
+    cog.innerHTML = ICONS.gear;
+    if (!canEdit) cog.disabled = true;
+    else cog.addEventListener('click', () => openSettings('category', catData.id, cardData.id));
+
+    // Oppløs kategorien: elementene blir stående som ukategoriserte på samme plass.
+    const dissolve = el.querySelector('.cat-dissolve');
+    dissolve.innerHTML = ICONS.bubbleBurst;
+    if (!canEdit) dissolve.disabled = true;
+    else dissolve.addEventListener('click', () => dissolveCategory(catData, cardData));
+
+    const handle = el.querySelector('.cat-handle');
+    if (!canEdit) {
+      handle.style.visibility = 'hidden';
+    } else {
+      handle.addEventListener('pointerdown', (ev) => startCategoryDrag(ev, el));
+      // Tastatur-reordering: piltaster flytter kategorien blant nivå-1-radene.
+      handle.addEventListener('keydown', (ev) => {
+        const dir = arrowDir(ev, false);
+        if (!dir) return;
+        ev.preventDefault();
+        const sorted = cardData.items.filter((it) => !it.trashed && !it._pendingDelete && !it.done && !it.cat).sort(posCmp);
+        const i = sorted.findIndex((o) => o.id === catData.id);
+        if (i < 0 || i + dir < 0 || i + dir >= sorted.length) return;
+        catData.pos = neighborPos(sorted, i, dir);
+        stampPos(catData);
+        refreshCard(cardData);
+        save();
+        const h = board.querySelector('.card[data-id="' + cardData.id +
+          '"] .category[data-id="' + catData.id + '"] .cat-handle');
+        if (h) h.focus();
+      });
+    }
+
+    fillMetaRow(el.querySelector('.cat-meta'),
+      { kind: 'category', obj: catData, card: cardData }, canEdit);
+
+    const inner = el.querySelector('.cat-items');
+    const members = cardData.items.filter((it) => !it.trashed && !it._pendingDelete &&
+      !it.done && !it.isCat && it.cat === catData.id).sort(posCmp);
+    members.forEach((it) => inner.appendChild(buildItem(it, cardData)));
+    return el;
+  }
+
+  // Oppløs en kategori: elementene beholder rekkefølge og «arver» kategoriens
+  // plass i nivå-1-lista (fordeles jevnt i pos-gapet mellom kategorien og neste
+  // nivå-1-rad), blir ukategoriserte, og selve kategorien tombstones + fjernes.
+  function dissolveCategory(catData, cardData) {
+    const cat = cardData.items.find((x) => x.id === catData.id && x.isCat);
+    if (!cat) return;
+    const level1 = cardData.items.filter((it) => !it.trashed && !it._pendingDelete && !it.done && !it.cat).sort(posCmp);
+    const idx = level1.findIndex((o) => o.id === cat.id);
+    const startP = cat.pos || 0;
+    const nextP = idx > -1 && idx + 1 < level1.length ? level1[idx + 1].pos : null;
+    const members = cardData.items.filter((it) => it.cat === cat.id && !it.isCat);
+    const active = members.filter((it) => !it.trashed && !it._pendingDelete && !it.done).sort(posCmp);
+    const n = active.length;
+    active.forEach((it, i) => {
+      it.cat = null;
+      it.pos = nextP == null ? startP + (i + 1) : startP + (nextP - startP) * ((i + 1) / (n + 1));
+      stampPos(it);
+    });
+    // Avkryssede/slettede medlemmer: bare løsne fra kategorien (beholder pos).
+    members.filter((it) => it.trashed || it._pendingDelete || it.done).forEach((it) => {
+      it.cat = null;
+      stampPos(it);
+    });
+    tombSubtree(cat, 'item'); // gravstein hindrer at kategorien gjenoppstår ved synk
+    const ci = cardData.items.indexOf(cat);
+    if (ci > -1) cardData.items.splice(ci, 1);
+    refreshCard(cardData);
+    save();
+  }
+
+  /* ---------------- Legg til: kort trykk = element, klikk-og-hold = kategori ----------------
+     ＋-knappen er type=submit. Et kort trykk (eller Enter) legger til et element;
+     holdes knappen inne i CAT_HOLD_MS opprettes i stedet en kategori med det
+     innskrevne navnet. Under holdingen fylles knappen (`.holding`) som en
+     progresjon. Den påfølgende klikk-/submit-hendelsen undertrykkes når holdet
+     allerede har utført handlingen. */
+  const CAT_HOLD_MS = 400;
+  function attachAddHold(form, input, addBtn, canEdit, addItem, addCategory) {
+    let holdTimer = null;
+    let didHold = false;
+    const cancelHold = () => {
+      if (holdTimer) { clearTimeout(holdTimer); holdTimer = null; }
+      addBtn.classList.remove('holding');
+      // Etter et fullført hold tømmer addCategory feltet → knappen blir disablet,
+      // så det påfølgende klikket UTEBLIR (disablede knapper sender ikke click)
+      // og click-handleren under nullstiller aldri didHold. Nullstill den derfor
+      // på neste tick — etter at et evt. synkront klikk allerede er undertrykt —
+      // så neste Enter/submit ikke feilaktig spises.
+      if (didHold) setTimeout(() => { didHold = false; }, 0);
+    };
+    addBtn.addEventListener('pointerdown', (ev) => {
+      if (ev.button != null && ev.button !== 0) return;
+      if (addBtn.disabled || !canEdit() || !input.value.trim()) return;
+      didHold = false;
+      addBtn.classList.add('holding');
+      holdTimer = setTimeout(() => {
+        holdTimer = null;
+        didHold = true;
+        addBtn.classList.remove('holding');
+        addCategory();
+      }, CAT_HOLD_MS);
+    });
+    addBtn.addEventListener('pointerup', cancelHold);
+    addBtn.addEventListener('pointerleave', cancelHold);
+    addBtn.addEventListener('pointercancel', cancelHold);
+    // Undertrykk klikket som følger et fullført hold (ellers ville submit lagt
+    // til et element i tillegg til kategorien).
+    addBtn.addEventListener('click', (ev) => {
+      if (didHold) { ev.preventDefault(); didHold = false; }
+    });
+    form.addEventListener('submit', (ev) => {
+      ev.preventDefault();
+      if (didHold) { didHold = false; return; }
+      addItem();
+    });
   }
 
   /* ---------------- Avkryssing: flytt til/fra «Utført»-seksjonen ----------------
@@ -1374,8 +1584,11 @@
     // Vis «Utført»-seksjonen så den kan ta imot elementet (og måles i FLIP-en).
     if (toDone) doneWrap.hidden = false;
 
-    // Flytt elementet til riktig seksjon, innsatt på pos-sortert plass.
-    const destUl = toDone ? doneUl : activeUl;
+    // Flytt elementet til riktig seksjon, innsatt på pos-sortert plass. Ved
+    // reaktivering av et kategorisert element går det tilbake INN i kategorien
+    // sin (om den fortsatt finnes), ellers til nivå 1.
+    const destUl = toDone ? doneUl
+      : ((itemData.cat && cardEl.querySelector('.category[data-id="' + itemData.cat + '"] .cat-items')) || activeUl);
     let ref = null;
     for (const s of destUl.querySelectorAll('.item')) {
       if (s === itemEl) continue;
@@ -1522,7 +1735,7 @@
         if (g.id === id) return { kind: 'group', obj: g };
         for (const c of (g.cards || [])) {
           if (c.id === id) return { kind: 'card', obj: c };
-          for (const it of (c.items || [])) if (it.id === id) return { kind: 'item', obj: it, card: c };
+          for (const it of (c.items || [])) if (it.id === id) return { kind: it.isCat ? 'category' : 'item', obj: it, card: c };
         }
       }
     }
@@ -2248,6 +2461,23 @@
     window.addEventListener('pointercancel', onItemUp);
   }
 
+  // Direkte-barn-rader i en drop-container som deltar i rekkefølgen: elementer
+  // (og på nivå 1 også kategorier), unntatt det som dras. Placeholderen er
+  // hverken `.item` eller `.category`, så den utelates automatisk. Bruker
+  // direkte barn (ikke querySelectorAll('.item')) så vi ikke plukker elementer
+  // som ligger INNE i en kategori når vi ser på nivå-1-containeren.
+  function rowChildren(cont) {
+    return [...cont.children].filter((c) =>
+      (c.classList.contains('item') && !c.classList.contains('dragging')) ||
+      (c.classList.contains('category') && !c.classList.contains('dragging')));
+  }
+  // Pos-en til en DOM-rad (element ELLER kategori) via state-oppslaget.
+  function rowPos(sib) {
+    if (!sib || !(sib.classList.contains('item') || sib.classList.contains('category'))) return null;
+    const o = findItemById(sib.dataset.id);
+    return o ? (o.pos || 0) : null;
+  }
+
   function onItemMove(ev) {
     if (!drag.active) return;
     const dy = ev.clientY - drag.lastY;
@@ -2256,45 +2486,58 @@
     moveElement();
 
     const dragRect = draggedRect();
-    const flipEls = [...document.querySelectorAll('.item:not(.dragging)')];
+    const flipEls = [...document.querySelectorAll('.item:not(.dragging), .category:not(.dragging)')];
 
-    // Finn hvilken items-container pekeren er over (håndterer overføring mellom kort).
-    const containers = [...document.querySelectorAll('.items-container')];
+    // 1) Nivå 2 først: er pekeren inne i en kategori? → kategoriens .cat-items
+    //    (slipp på overskriften ELLER blant elementene legger elementet i den).
     let targetCont = null;
-    for (const cont of containers) {
-      const r = cont.getBoundingClientRect();
-      if (ev.clientX >= r.left && ev.clientX <= r.right && ev.clientY >= r.top - 12 && ev.clientY <= r.bottom + 12) {
-        targetCont = cont; break;
+    for (const cat of document.querySelectorAll('.category:not(.dragging)')) {
+      const r = cat.getBoundingClientRect();
+      if (ev.clientX >= r.left && ev.clientX <= r.right && ev.clientY >= r.top && ev.clientY <= r.bottom) {
+        targetCont = cat.querySelector('.cat-items'); break;
       }
     }
+    // 2) Nivå 1: kortets .items-container (håndterer overføring mellom kort).
     if (!targetCont) {
+      const containers = [...document.querySelectorAll('.items-container')];
       for (const cont of containers) {
-        const cr = cont.closest('.card').getBoundingClientRect();
-        if (ev.clientX >= cr.left && ev.clientX <= cr.right && ev.clientY >= cr.top && ev.clientY <= cr.bottom) {
+        const r = cont.getBoundingClientRect();
+        if (ev.clientX >= r.left && ev.clientX <= r.right && ev.clientY >= r.top - 12 && ev.clientY <= r.bottom + 12) {
           targetCont = cont; break;
+        }
+      }
+      if (!targetCont) {
+        for (const cont of containers) {
+          const cr = cont.closest('.card').getBoundingClientRect();
+          if (ev.clientX >= cr.left && ev.clientX <= cr.right && ev.clientY >= cr.top && ev.clientY <= cr.bottom) {
+            targetCont = cont; break;
+          }
         }
       }
     }
     if (!targetCont) return;
 
     const ph = drag.ph;
-    const items = [...targetCont.querySelectorAll('.item:not(.dragging)')];
+    const rows = rowChildren(targetCont);
     const phInCont = ph.parentNode === targetCont;
+    const hasCat = rows.some((r) => r.classList.contains('category'));
 
     let action = null; // {pos:'before'|'after'|'append', ref?}
 
-    if (!phInCont) {
-      // Overføring til en annen kategori: plasser etter vertikal posisjon.
+    if (!phInCont || hasCat) {
+      // Overføring til en annen container, ELLER nivå 1 med kategorier (blandede
+      // radhøyder): senterbasert innsetting — robust der overlapp-hysteresen
+      // ellers ville feilet mot en høy kategori-blokk.
       const cy = dragRect.top + dragRect.height / 2;
       let ref = null;
-      for (const it of items) {
+      for (const it of rows) {
         const r = layoutRect(it);
         if (cy < r.top + r.height / 2) { ref = it; break; }
       }
       action = ref ? { ref, pos: 'before' } : { pos: 'append' };
     } else if (dy > 0) {
       let best = null, bestTop = Infinity;
-      for (const it of items) {
+      for (const it of rows) {
         const r = layoutRect(it);
         if (r.top >= dragRect.top && vOverlap(dragRect, r) >= SWAP_RATIO * r.height && r.top < bestTop) {
           bestTop = r.top; best = it;
@@ -2303,7 +2546,7 @@
       if (best) action = { ref: best, pos: 'after' };
     } else if (dy < 0) {
       let best = null, bestTop = -Infinity;
-      for (const it of items) {
+      for (const it of rows) {
         const r = layoutRect(it);
         if (r.top <= dragRect.top && vOverlap(dragRect, r) >= SWAP_RATIO * r.height && r.top > bestTop) {
           bestTop = r.top; best = it;
@@ -2339,6 +2582,7 @@
     finishDrag();
 
     const targetCardId = el.closest('.card').dataset.id;
+    const catEl = el.closest('.category'); // ligger elementet nå inne i en kategori?
     const prev = el.previousElementSibling;
     const next = el.nextElementSibling;
 
@@ -2349,13 +2593,13 @@
     reconcileItems(sourceCardId, pool);
     if (targetCardId !== sourceCardId) reconcileItems(targetCardId, pool);
 
-    // Kirurgisk: sett kun det flyttede elementets forelder (home) + posisjon.
+    // Kirurgisk: sett kun det flyttede elementets forelder (home), kategori (cat)
+    // og posisjon. `cat` rir på posisjonsregisteret (som `home`).
     const moved = findItemById(el.dataset.id);
     if (moved) {
       moved.home = targetCardId;
-      const pPrev = prev && prev.classList.contains('item') ? (findItemById(prev.dataset.id) || {}).pos : null;
-      const pNext = next && next.classList.contains('item') ? (findItemById(next.dataset.id) || {}).pos : null;
-      moved.pos = between(pPrev == null ? null : pPrev, pNext == null ? null : pNext);
+      moved.cat = catEl ? catEl.dataset.id : null;
+      moved.pos = between(rowPos(prev), rowPos(next));
       stampPos(moved);
     }
     save();
@@ -2368,24 +2612,167 @@
     return pool;
   }
 
-  // Bygg items-array for et kort ut fra gjeldende DOM-rekkefølge (medlemskap).
-  // `pool` = felles øyeblikksbilde av alle elementer (så en overføring ikke faller
-  // ut mellom kilde- og mål-reconcile); bygges her hvis ikke gitt.
+  // Bygg items-array for et kort ut fra gjeldende DOM (medlemskap OG kategori):
+  // nivå-1-rader leses fra `.items-container` (ukategoriserte + kategorier), og
+  // hver kategoris elementer fra dens `.cat-items` (setter `it.cat`). `pool` =
+  // felles øyeblikksbilde av alle elementer (så en overføring ikke faller ut
+  // mellom kilde- og mål-reconcile); bygges her hvis ikke gitt.
   function reconcileItems(cardId, pool) {
     const cardData = findCard(cardId);
     if (!cardData) return;
     const cardEl = board.querySelector('.card[data-id="' + cardId + '"]');
     if (!cardEl) return;
     pool = pool || itemPool();
-    const domIds = [...cardEl.querySelectorAll('.items-container > .item')].map((i) => i.dataset.id);
-    const visible = domIds.map((id) => pool[id]).filter(Boolean);
-    // Bevar elementer som IKKE ligger i `.items-container`: slettede (søppel),
-    // avkryssede («Utført»-seksjonen) og buffer-slettede. De er ikke i DOM-
-    // rekkefølgen her, men skal ikke falle ut av state når man drar/omorganiserer
-    // et aktivt element i samme kort. (Rekkefølgen deres bevares av pos ved neste
-    // render.)
-    const preserved = cardData.items.filter((it) => it.trashed || it.done || it._pendingDelete);
-    cardData.items = visible.concat(preserved);
+    const level1 = cardEl.querySelector('.items-container');
+    const result = [];
+    const seen = new Set();
+    const push = (id, cat) => {
+      const o = pool[id];
+      if (!o || seen.has(id)) return;
+      seen.add(id);
+      o.cat = cat;
+      result.push(o);
+    };
+    [...level1.children].forEach((child) => {
+      if (child.classList.contains('item')) {
+        push(child.dataset.id, null);
+      } else if (child.classList.contains('category')) {
+        push(child.dataset.id, null); // kategorien selv er en nivå-1-rad
+        const inner = child.querySelector('.cat-items');
+        if (inner) [...inner.children].forEach((li) => {
+          if (li.classList.contains('item')) push(li.dataset.id, child.dataset.id);
+        });
+      }
+    });
+    // Bevar rader UTENFOR nivå-1-containeren: slettede (søppel), avkryssede
+    // («Utført»-seksjonen) og buffer-slettede. Kategori-medlemskapet (cat) deres
+    // beholdes urørt (de er ikke i DOM-en her). Rekkefølgen bevares av pos.
+    const preserved = cardData.items.filter((it) => !seen.has(it.id) && (it.trashed || it.done || it._pendingDelete));
+    cardData.items = result.concat(preserved);
+  }
+
+  /* ---------------- KATEGORI-DRAGING (nivå-1-rad) ----------------
+     En kategori dras kun innen sin egen liste (nivå 1); den kan ikke nøstes i en
+     annen kategori (slipp på en annen kategori = vanlig bytte-plass). Idet
+     draget starter kollapser kategorien (CAT_COLLAPSE_MS) til bare overskriften;
+     ved slipp folder den seg ut igjen med den reverserte animasjonen. */
+  const CAT_COLLAPSE_MS = 300;
+  function liftCategory() {
+    const el = drag.el;
+    el.style.width = drag.width + 'px'; // ingen fast høyde → følger den kollapsende høyden
+    el.style.left = (drag.lastX - drag.grabX) + 'px';
+    el.style.top = (drag.lastY - drag.grabY) + 'px';
+    el.classList.add('dragging');
+  }
+  function collapseCategory(catEl, ph) {
+    const catItems = catEl.querySelector('.cat-items');
+    const headH = catEl.querySelector('.cat-head').getBoundingClientRect().height;
+    const collapsedH = headH + 8; // header + kategoriens dra-padding (.category.dragging)
+    drag.height = collapsedH;      // treffdeteksjon bruker den kollapsede boksen
+    if (prefersReducedMotion()) {
+      catItems.style.overflow = 'hidden';
+      catItems.style.height = '0px'; catItems.style.opacity = '0';
+      catItems.style.paddingTop = '0'; catItems.style.paddingBottom = '0';
+      ph.style.height = collapsedH + 'px';
+      return;
+    }
+    const startH = catItems.getBoundingClientRect().height;
+    catItems.style.overflow = 'hidden';
+    catItems.style.height = startH + 'px';
+    void catItems.offsetWidth; // registrer starttilstanden
+    catItems.style.transition = 'height ' + CAT_COLLAPSE_MS + 'ms ease, opacity ' + CAT_COLLAPSE_MS + 'ms ease, padding ' + CAT_COLLAPSE_MS + 'ms ease';
+    ph.style.transition = 'height ' + CAT_COLLAPSE_MS + 'ms ease';
+    requestAnimationFrame(() => {
+      catItems.style.height = '0px'; catItems.style.opacity = '0';
+      catItems.style.paddingTop = '0'; catItems.style.paddingBottom = '0';
+      ph.style.height = collapsedH + 'px';
+    });
+  }
+  function expandCategory(catEl) {
+    const catItems = catEl.querySelector('.cat-items');
+    const clear = () => {
+      catItems.style.transition = ''; catItems.style.height = ''; catItems.style.opacity = '';
+      catItems.style.overflow = ''; catItems.style.paddingTop = ''; catItems.style.paddingBottom = '';
+    };
+    if (prefersReducedMotion()) { clear(); return; }
+    catItems.style.transition = 'none';
+    catItems.style.height = 'auto'; catItems.style.paddingTop = ''; catItems.style.paddingBottom = '';
+    const full = catItems.getBoundingClientRect().height;
+    catItems.style.height = '0px';
+    void catItems.offsetWidth;
+    catItems.style.transition = 'height ' + CAT_COLLAPSE_MS + 'ms ease, opacity ' + CAT_COLLAPSE_MS + 'ms ease';
+    requestAnimationFrame(() => { catItems.style.opacity = '1'; catItems.style.height = full + 'px'; });
+    catItems.addEventListener('transitionend', function te(e) {
+      if (e.propertyName !== 'height') return;
+      clear();
+      catItems.removeEventListener('transitionend', te);
+    });
+  }
+  // Senterbasert placeholder-innsetting blant nivå-1-rader (blandede høyder).
+  function placeRowPlaceholder(cont) {
+    const ph = drag.ph;
+    const dragRect = draggedRect();
+    const cy = dragRect.top + dragRect.height / 2;
+    const rows = rowChildren(cont);
+    let ref = null;
+    for (const r of rows) {
+      const rr = layoutRect(r);
+      if (cy < rr.top + rr.height / 2) { ref = r; break; }
+    }
+    const action = ref ? { ref, pos: 'before' } : { pos: 'append' };
+    const willMove = action.pos === 'append' ? cont.lastElementChild !== ph : wouldMove(ph, action.ref, 'before');
+    if (!willMove) return;
+    const snap = snapshotRects(rows);
+    if (action.pos === 'append') cont.appendChild(ph);
+    else placePlaceholder(cont, ph, action.ref, 'before');
+    flipFrom(snap, FLIP_MS);
+  }
+  function startCategoryDrag(ev, catEl) {
+    if (ev.button != null && ev.button !== 0) return;
+    if (drag.active) return; // ignorer ny drag mens en pågår
+    beginDragCommon(ev, catEl);
+    drag.kind = 'category';
+    drag.card = catEl.closest('.card'); // kategorier flyttes kun innen egen liste
+
+    const ph = document.createElement('li');
+    ph.className = 'item-placeholder cat-placeholder';
+    ph.style.height = drag.height + 'px';
+    catEl.parentNode.insertBefore(ph, catEl);
+    drag.ph = ph;
+
+    liftCategory();
+    collapseCategory(catEl, ph);
+    window.addEventListener('pointermove', onCategoryMove);
+    window.addEventListener('pointerup', onCategoryUp);
+    window.addEventListener('pointercancel', onCategoryUp);
+  }
+  function onCategoryMove(ev) {
+    if (!drag.active) return;
+    drag.lastX = ev.clientX;
+    drag.lastY = ev.clientY;
+    moveElement();
+    const cont = drag.card && drag.card.querySelector('.items-container');
+    if (cont) placeRowPlaceholder(cont);
+  }
+  function onCategoryUp() {
+    if (!drag.active) return;
+    window.removeEventListener('pointermove', onCategoryMove);
+    window.removeEventListener('pointerup', onCategoryUp);
+    window.removeEventListener('pointercancel', onCategoryUp);
+
+    const el = drag.el;
+    const cont = drag.ph.parentNode;
+    cont.insertBefore(el, drag.ph);
+    drag.ph.remove();
+    dropIntoPlaceholder(el, false); // fly inn i sloten (kollapset) …
+    expandCategory(el);             // … og fold ut igjen (reversert animasjon)
+    finishDrag();
+
+    const prev = el.previousElementSibling;
+    const next = el.nextElementSibling;
+    const cat = findItemById(el.dataset.id);
+    if (cat) { cat.pos = between(rowPos(prev), rowPos(next)); stampPos(cat); }
+    save();
   }
 
   /* ---------------- GRUPPE-DRAGING (header-rad) ----------------
@@ -3493,7 +3880,8 @@
   function liveTarget(target) {
     const f = findAnyById(target.obj.id);
     if (!f || f.kind !== target.kind) return null;
-    return { kind: target.kind, obj: f.obj, card: f.kind === 'item' ? f.card : f.obj };
+    // card = selve kortet for kort-mål; for element/kategori det eiende kortet.
+    return { kind: target.kind, obj: f.obj, card: f.kind === 'card' ? f.obj : f.card };
   }
   function setResponsible(target, userId) {
     // Endringen vises umiddelbart og kan byttes igjen med en gang: hvert valg
@@ -3658,6 +4046,7 @@
     if (!t) { closeSettings(); return; }
     const obj = t.obj;
     const isCard = t.kind === 'card';
+    const isCat = t.kind === 'category';
     const canEdit = !(accountsMode() && frozen(isCard ? obj : t.card));
 
     settingsTitleEl.innerHTML = ICONS.gear;
@@ -3666,28 +4055,29 @@
     settingsRespPaint = null;
 
     // 1) Navn — redigeres rett i feltet, lagres fortløpende (tomt felt
-    //    committes ikke og gjenopprettes ved blur).
+    //    committes ikke og gjenopprettes ved blur). Lister/kategorier har et
+    //    ikon foran; navnet ligger i `title` (lister) eller `text` (element/kat.).
     const nameWrap = document.createElement('div');
     nameWrap.className = 'settings-name';
-    if (isCard) {
+    if (isCard || isCat) {
       const ic = document.createElement('span');
       ic.className = 'settings-name-icon';
       ic.setAttribute('aria-hidden', 'true');
-      ic.innerHTML = ICONS.list;
+      ic.innerHTML = isCard ? ICONS.list : ICONS.category;
       nameWrap.appendChild(ic);
     }
     const nameInput = document.createElement('input');
     nameInput.type = 'text';
     nameInput.className = 'field settings-name-input';
     nameInput.value = isCard ? obj.title : obj.text;
-    nameInput.setAttribute('aria-label', isCard ? 'Listens navn' : 'Elementets tekst');
+    nameInput.setAttribute('aria-label', isCard ? 'Listens navn' : isCat ? 'Kategoriens navn' : 'Elementets tekst');
     nameInput.disabled = !canEdit;
     nameInput.addEventListener('input', () => {
       const live = settingsTarget();
       const val = nameInput.value.trim();
       if (!live || !val) return;
-      const sel = isCard
-        ? '.card[data-id="' + live.obj.id + '"] .card-title'
+      const sel = isCard ? '.card[data-id="' + live.obj.id + '"] .card-title'
+        : isCat ? '.category[data-id="' + live.obj.id + '"] .cat-title'
         : '.item[data-id="' + live.obj.id + '"] .item-text';
       if (isCard) live.obj.title = val; else live.obj.text = val;
       const dispEl = board.querySelector(sel);
@@ -3788,8 +4178,19 @@
     const t0 = getTarget();
     if (!t0) return wrap;
     const isCard = t0.kind === 'card';
-    const locked = !isCard && !!t0.card.lockTimes; // listen styrer elementets tider
+    const isCat = t0.kind === 'category';
+    // Elementets tider kan være låst av listen ELLER en kategori (timeController).
+    const controller = (!isCard && !isCat) ? timeController(t0.obj, t0.card) : null;
+    const locked = !!controller;
+    const ctrlIsCat = locked && !!controller.isCat;
     const canEdit = !locked && !(accountsMode() && frozen(isCard ? t0.obj : t0.card));
+
+    // Containeren elementets tider måles mot (utenfor-hint): kategorien om den
+    // finnes og har tider, ellers listen.
+    const outsideContainer = () => {
+      const cat = (!isCard && !isCat && t0.obj.cat) ? catOf(t0.card, t0.obj.cat) : null;
+      return cat && (cat.start || cat.due) ? cat : t0.card;
+    };
 
     const note = document.createElement('p');
     note.className = 'time-note';
@@ -3798,18 +4199,20 @@
       const t = getTarget();
       if (!t) return;
       if (locked) {
-        note.textContent = 'Tidene styres av listen «' + (t.card.title || 'Uten navn') + '».';
+        const which = ctrlIsCat ? 'kategorien' : 'listen';
+        const nm = ctrlIsCat ? (controller.text || 'Kategori') : (controller.title || 'Uten navn');
+        note.textContent = 'Tidene styres av ' + which + ' «' + nm + '».';
         note.classList.add('is-muted');
         note.hidden = false;
         return;
       }
-      if (isCard) { note.hidden = true; return; }
-      // Subtil beskjed når elementets tider ligger utenfor listens tidsrom
+      if (isCard || isCat) { note.hidden = true; return; }
+      // Subtil beskjed når elementets tider ligger utenfor containerens tidsrom
       // (tre varianter: start / frist / begge). Fullt lovlig — bare et hint.
-      const fl = outsideFlags(t.obj, t.card);
-      if (fl.start && fl.due) note.textContent = 'Starttiden og fristen er utenfor listens tidsrom.';
-      else if (fl.start) note.textContent = 'Starttiden er utenfor listens tidsrom.';
-      else if (fl.due) note.textContent = 'Fristen er utenfor listens tidsrom.';
+      const fl = outsideFlags(t.obj, outsideContainer());
+      if (fl.start && fl.due) note.textContent = 'Starttiden og fristen er utenfor tidsrommet.';
+      else if (fl.start) note.textContent = 'Starttiden er utenfor tidsrommet.';
+      else if (fl.due) note.textContent = 'Fristen er utenfor tidsrommet.';
       note.hidden = !(fl.start || fl.due);
     };
 
@@ -3852,7 +4255,7 @@
       clearBtn.title = 'Fjern tiden';
       clearBtn.setAttribute('aria-label', isDue ? 'Fjern fristen' : 'Fjern starttiden');
 
-      const src = locked ? t0.card : t0.obj;
+      const src = locked ? controller : t0.obj;
       dateIn.value = timeDatePart(src[field]) || '';
       timeIn.value = timeClockPart(src[field]) || '';
       clearBtn.hidden = !src[field];
@@ -3883,8 +4286,10 @@
     if (!opts.only || opts.only === 'start') wrap.appendChild(makeRow('start'));
     if (!opts.only || opts.only === 'due') wrap.appendChild(makeRow('due'));
 
-    // Lister: lås tidene til elementene (elementene kan da ikke ha egne tider).
-    if (isCard && !opts.only) {
+    // Lister og kategorier: lås tidene til elementene (elementene kan da ikke ha
+    // egne tider). For en liste gjelder det alle elementer (også de i kategorier);
+    // for en kategori bare dens egne.
+    if ((isCard || isCat) && !opts.only) {
       const lockLabel = document.createElement('label');
       lockLabel.className = 'time-lock';
       const cb = document.createElement('input');
@@ -3892,7 +4297,7 @@
       cb.checked = !!t0.obj.lockTimes;
       cb.disabled = !canEdit;
       const txt = document.createElement('span');
-      txt.textContent = 'Lås tidene også til elementene i listen';
+      txt.textContent = isCat ? 'Lås tidene til elementene i kategorien' : 'Lås tidene også til elementene i listen';
       lockLabel.append(cb, txt);
       cb.addEventListener('change', () => {
         const t = getTarget();
@@ -4155,7 +4560,9 @@
   // Synk-doc: kun det som deles (ikke activeUniverse/activeGroup, som er per enhet).
   function cleanItem(it, homeId) {
     return {
-      id: it.id, text: it.text, home: it.home || homeId, trashed: !!it.trashed, done: !!it.done,
+      id: it.id, text: it.text, home: it.home || homeId, cat: it.cat || null,
+      isCat: !!it.isCat, lockTimes: !!it.lockTimes,
+      trashed: !!it.trashed, done: !!it.done,
       responsible: it.responsible || null,
       start: it.start || null, due: it.due || null,
       ts: it.ts || 0, org: it.org || '',
@@ -4292,10 +4699,12 @@
     const posw = newer(a.posTs, a.posOrg, b.posTs, b.posOrg) ? a : b;
     return {
       id: a.id, text: content.text, trashed: !!content.trashed, done: !!content.done,
+      isCat: !!content.isCat, lockTimes: !!content.lockTimes, // innhold: kategori-markør + tidslås
       responsible: content.responsible || null,
       start: content.start || null, due: content.due || null,
       ts: content.ts || 0, org: content.org || '',
-      home: posw.home, pos: posw.pos || 0, posTs: posw.posTs || 0, posOrg: posw.posOrg || '',
+      // `cat` (kategori-medlemskap) er en forelder-endring → følger posisjonsregisteret, som `home`.
+      home: posw.home, cat: posw.cat || null, pos: posw.pos || 0, posTs: posw.posTs || 0, posOrg: posw.posOrg || '',
     };
   }
   function mergeCardScalar(a, b) {
@@ -5348,7 +5757,8 @@
       k: row.k !== false, p: row.p !== false, lab_ts: row.labTs || 0, lab_org: row.labOrg || '',
       responsible: row.responsible || null,
       start_at: row.start || null, due_at: row.due || null, lock_times: !!row.lockTimes });
-    return Object.assign(base, { text: row.text || '', card_id: row.home, done: !!row.done,
+    return Object.assign(base, { text: row.text || '', card_id: row.home, cat_id: row.cat || null,
+      is_cat: !!row.isCat, lock_times: !!row.lockTimes, done: !!row.done,
       responsible: row.responsible || null,
       start_at: row.start || null, due_at: row.due || null });
   }
@@ -5361,7 +5771,8 @@
       k: row.k !== false, p: row.p !== false, lab_ts: row.labTs || 0, lab_org: row.labOrg || '',
       responsible: row.responsible || null,
       start_at: row.start || null, due_at: row.due || null, lock_times: !!row.lockTimes });
-    return Object.assign(base, { text: row.text || '', card_id: row.home, done: !!row.done,
+    return Object.assign(base, { text: row.text || '', card_id: row.home, cat_id: row.cat || null,
+      is_cat: !!row.isCat, lock_times: !!row.lockTimes, done: !!row.done,
       responsible: row.responsible || null,
       start_at: row.start || null, due_at: row.due || null });
   }

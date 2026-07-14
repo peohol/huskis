@@ -923,6 +923,82 @@ body {
   padding: 0 10px;
 }
 
+/* ---------------- Kategorier (nivå-1-rad som grupperer elementer) ----------------
+   «Hylle i veggen»-metafor: overskriften (håndtak + tittel/meta + tannhjul +
+   oppløs-knapp) står på VEGGEN (listeflaten), og elementene ligger i en
+   FORDYPNING rett under — `.cat-items` er en litt mørkere flate med innover-
+   skygge, som en hylle som går inn i veggen, og elementene blir som «bøker» i
+   hylla. Overskriften ligger tett oppå hylla (4px), så den leser som hyllas
+   etikett. `.cat-head`s 6px sidepolstring stiller håndtak/knapper i SAMME
+   kolonner som elementenes og kort-hodets; knappene bruker den hvite kort-hode-
+   knappestilen (.card-cog) så de er synlige mot listeflaten. */
+.category { list-style: none; display: flex; flex-direction: column; gap: 4px; }
+.cat-head { display: flex; align-items: center; gap: 6px; padding: 0 6px; }
+.cat-title-wrap {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.cat-title {
+  margin: 0;                   /* <h3> — nullstill nettleserens standardmarg (blåste opp headeren) */
+  font-size: var(--fs-md);
+  font-weight: 700;
+  line-height: 1.2;
+  color: #fff;                 /* hvit m/ skygge — lesbar på enhver listefarge, som kort-tittelen */
+  text-shadow: var(--text-shadow);
+  cursor: text;
+  padding: 3px 5px;
+  border-radius: 7px;
+  word-break: break-word;
+  align-self: flex-start;
+  letter-spacing: 0.01em;
+}
+.cat-title:hover { background: rgba(0, 0, 0, 0.12); }
+
+/* Tannhjul + oppløs-knapp: samme hvite flate-knapp som .card-cog (svakt hvit
+   flate + ring, lysner ved hover) — synlige mot den fargede listeflaten og på
+   linje med kort-hodets og elementenes knapper. */
+.cat-cog, .cat-dissolve {
+  flex: 0 0 auto;
+  align-self: center;
+  appearance: none;
+  border: none;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  border-radius: 9px;
+  color: #fff;
+  background: rgba(255, 255, 255, 0.2);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.35);
+  transition: background 0.15s, transform 0.1s;
+}
+.cat-cog .icon, .cat-dissolve .icon { width: 1em; height: 1em; font-size: 21px; filter: drop-shadow(var(--text-shadow)); }
+.cat-cog:hover, .cat-dissolve:hover { background: rgba(255, 255, 255, 0.34); }
+.cat-cog:active, .cat-dissolve:active { transform: scale(0.92); }
+.cat-cog:focus-visible, .cat-dissolve:focus-visible { outline: 2.5px solid #fff; outline-offset: 2px; }
+.cat-cog:disabled, .cat-dissolve:disabled { cursor: default; opacity: 0.4; }
+
+.cat-items {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 0;
+  /* Fordypning («hylle»): stort venstre-innrykk (nesting-signal, erstatter den
+     gamle streken) + luft rundt «bøkene». */
+  padding: 9px 9px 9px 20px;
+  border-radius: 12px;
+  background: rgba(0, 0, 0, 0.1);   /* litt mørkere enn veggen (listeflaten) */
+  box-shadow: inset 0 2px 7px rgba(0, 0, 0, 0.17),   /* innover-skygge = fordypning */
+              inset 0 0 0 1px rgba(0, 0, 0, 0.05);
+}
+
 /* ---------------- Add item ---------------- */
 .add-item-form {
   display: flex;
@@ -951,6 +1027,28 @@ body {
   border-color: var(--card-accent);
   background: rgba(255, 255, 255, 0.85);
   opacity: 1;
+}
+
+/* ＋-knappen er disablet (dempet) til feltet har tekst; ingen hover-oppløfting da. */
+.add-item-btn { position: relative; overflow: hidden; }
+.add-item-btn:disabled { opacity: 0.45; cursor: default; filter: none; box-shadow: var(--shadow-sm); }
+.add-item-btn:disabled:hover { filter: none; }
+/* Klikk-og-hold på ＋ (oppretter en kategori): en ekspanderende ring fyller
+   knappen over CAT_HOLD_MS som en tydelig progresjon. */
+.add-item-btn.holding::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: radial-gradient(circle at center, rgba(255, 255, 255, 0.65) 0%, rgba(255, 255, 255, 0) 70%);
+  transform: scale(0);
+  transform-origin: center;
+  animation: add-hold-fill 400ms ease-out forwards;
+  pointer-events: none;
+}
+@keyframes add-hold-fill { from { transform: scale(0); opacity: 0.2; } to { transform: scale(2.2); opacity: 1; } }
+@media (prefers-reduced-motion: reduce) {
+  .add-item-btn.holding::after { animation: none; }
 }
 
 /* ---------------- Håndtak & ikon-knapper ----------------
@@ -1090,6 +1188,27 @@ body {
   pointer-events: none;
   will-change: left, top;
 }
+
+/* Kategori under draging: løftet chip (kollapser til bare overskriften mens man
+   drar — se collapse/expandCategory i app.js). Ingen fast høyde, så den følger
+   den kollapsende .cat-items-høyden. */
+.category.dragging {
+  position: fixed;
+  z-index: 100;
+  margin: 0;
+  list-style: none;
+  box-shadow: var(--shadow-lg);
+  background: #fff;
+  border-radius: 12px;
+  padding: 4px 8px;
+  transform: scale(1.03);
+  cursor: grabbing;
+  pointer-events: none;
+  overflow: hidden;
+  will-change: left, top;
+}
+.category.dragging .cat-cog,
+.category.dragging .cat-dissolve { opacity: 0; }
 
 /* Placeholders (kort/element/gruppe/univers): IDENTISK stil overalt — svakt
    mørknet flate og en subtil INNOVER-skygge som gir inntrykk av et «hull» som
