@@ -1520,6 +1520,12 @@
     const cancelHold = () => {
       if (holdTimer) { clearTimeout(holdTimer); holdTimer = null; }
       addBtn.classList.remove('holding');
+      // Etter et fullført hold tømmer addCategory feltet → knappen blir disablet,
+      // så det påfølgende klikket UTEBLIR (disablede knapper sender ikke click)
+      // og click-handleren under nullstiller aldri didHold. Nullstill den derfor
+      // på neste tick — etter at et evt. synkront klikk allerede er undertrykt —
+      // så neste Enter/submit ikke feilaktig spises.
+      if (didHold) setTimeout(() => { didHold = false; }, 0);
     };
     addBtn.addEventListener('pointerdown', (ev) => {
       if (ev.button != null && ev.button !== 0) return;
