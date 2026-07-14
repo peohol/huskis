@@ -117,10 +117,11 @@ lås-melding + «Gjør unntak» i del-/innstillingsmodalen, arvede medlemmer i
 delingslisten) er implementert og verifisert i nettleser (mock-backend, to/tre
 testbrukere, desktop + mobil) — se `docs/accounts.md`.
 
-- [ ] **Kjør «Supabase DB-oppsett»-workflowen** (workflow_dispatch; husk
-      pooler-adressen) så `unlocked`-kolonnene + `set_unlocked` finnes på ekte
-      Supabase — uten dem avviser PostgREST unntaks-skriving fra kontomodus-
-      klienten (og `can_edit_*` mangler unntaks-grenen).
+- [x] **«Supabase DB-oppsett»-workflowen kjørt** (run 29360860503,
+      workflow_dispatch på grenen `claude/hierarchical-sharing-permissions-
+      1n7w49`, conclusion `success`, 2026-07-14) — `unlocked`-kolonnene +
+      `set_unlocked` (+ oppdatert `can_edit_*`/`get_my_doc`) er nå på ekte
+      Supabase, så unntaks-knappen fungerer i kontomodus.
 
 ## Manuelle steg (krever dashboard-tilgang — Peder)
 
