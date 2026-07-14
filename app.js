@@ -6414,8 +6414,12 @@
     const lockLabel = lockRow.querySelector('.share-lock-label');
     const lockHint = lockRow.querySelector('.share-lock-hint');
     const TYPE_WORD = { universe: 'universet', group: 'gruppen', card: 'listen' };
+    // Nærmeste eksplisitt tilstand vinner: en EGEN lås på objektet (obj._locked)
+    // går foran en arvet lås, så vi viser den vanlige av/på-låsen (ikke unntaks-
+    // grenen, som ville nullstilt den egne låsen ved «Gjør unntak»).
+    const effInheritedLock = () => (obj._locked ? null : inheritedLockInfo(type, obj));
     const paintLock = () => {
-      const anc = inheritedLockInfo(type, obj);
+      const anc = effInheritedLock();
       lockRow.classList.toggle('is-inherited', !!anc);
       if (!anc) {
         lockIcon.innerHTML = obj._locked ? ICONS.lock : ICONS.unlock;
@@ -6614,10 +6618,11 @@
       });
     });
     lockBtn.addEventListener('click', () => {
-      // Under en arvet lås styrer knappen UNNTAKET (set_unlocked); ellers den
-      // vanlige låsen (set_locked). Begge er optimistiske med koalescert kø-
-      // skriving (rask av/på blir én skriving med sluttilstanden).
-      if (inheritedLockInfo(type, obj)) {
+      // Under en arvet lås (og UTEN egen lås) styrer knappen UNNTAKET
+      // (set_unlocked); ellers den vanlige låsen (set_locked). Begge er
+      // optimistiske med koalescert kø-skriving (rask av/på blir én skriving
+      // med sluttilstanden).
+      if (effInheritedLock()) {
         obj._unlocked = !obj._unlocked;
         unlockOverrides.set(id, obj._unlocked);
         paintLock();
