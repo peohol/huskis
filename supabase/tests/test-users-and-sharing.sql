@@ -201,9 +201,40 @@ update public.items set text = 'HACK', ts = 400, org = 'bob' where id = :'i1';
 select public.t_check('låst UNIVERS fryser også delt gruppe under',
   (select text from public.items where id = :'i1') = 'Melk og brød');
 
+-- unntak fra arvet lås: eieren åpner gruppen igjen selv om universet er låst
 reset role;
 select set_config('request.jwt.claim.sub', :'alice', false);
 set role authenticated;
+select public.set_unlocked('group', :'g1', true);
+
+reset role;
+select set_config('request.jwt.claim.sub', :'bob', false);
+set role authenticated;
+update public.items set text = 'Via unntak', ts = 500, org = 'bob' where id = :'i1';
+select public.t_check('unntak på gruppe: bob kan redigere selv om universet er låst',
+  (select text from public.items where id = :'i1') = 'Via unntak');
+
+-- lås på nytt på et lavere nivå (kortet) inni unntaket → fryser igjen
+reset role;
+select set_config('request.jwt.claim.sub', :'alice', false);
+set role authenticated;
+select public.set_locked('card', :'c1', true);
+
+reset role;
+select set_config('request.jwt.claim.sub', :'bob', false);
+set role authenticated;
+update public.items set text = 'HACK2', ts = 600, org = 'bob' where id = :'i1';
+select public.t_check('re-lås på kort inni unntak fryser igjen',
+  (select text from public.items where id = :'i1') = 'Via unntak');
+select public.t_fails('bare eier kan sette unntak',
+  format('select public.set_unlocked(''card'', %L, true)', :'c1'));
+
+-- rydd opp: fjern kort-lås + gruppe-unntak, lås opp universet
+reset role;
+select set_config('request.jwt.claim.sub', :'alice', false);
+set role authenticated;
+select public.set_locked('card', :'c1', false);
+select public.set_unlocked('group', :'g1', false);
 select public.set_locked('universe', :'u1', false);
 
 -- mottakeren forlater (= «slett» hos mottakeren) — eierens data består

@@ -5541,14 +5541,38 @@
      har montert; da speiler objektets .pos/.trashed montasjepunktet (per
      bruker), mens de kanoniske verdiene ligger i _canon (til push). */
   function effTrashed(o) { return o && o._mount ? !!o._mount.trashed : !!(o && o.trashed); }
-  // Frosset = objektet selv eller en forelder er låst av noen andre enn meg.
+  // Frosset = redigering er sperret for MEG. Vi går oppover fra objektet og lar
+  // det NÆRMESTE nivået (objektet selv eller en forelder) som har en eksplisitt
+  // lås-tilstand satt av en annen enn meg avgjøre: et unntak (_unlocked) åpner
+  // grenen igjen, en lås (_locked) fryser den. Slik kan et låst univers ha en
+  // gruppe/liste som er gjort til unntak (redigerbar), og en unntaksgruppe kan i
+  // sin tur ha en liste som er låst på nytt.
   function frozen(o) {
     let n = o;
     while (n) {
-      if (n._locked && !n._mine) return true;
+      if (!n._mine) {
+        if (n._unlocked) return false;
+        if (n._locked) return true;
+      }
       n = n._parent;
     }
     return false;
+  }
+  // Forfedrene til et objekt, nærmeste først, med type. Univers har ingen.
+  const PARENT_TYPE = { card: 'group', group: 'universe', universe: null };
+  function ancestorChain(type, obj) {
+    const out = [];
+    let t = PARENT_TYPE[type], n = obj && obj._parent;
+    while (t && n) { out.push({ type: t, id: n.id, obj: n }); t = PARENT_TYPE[t]; n = n._parent; }
+    return out;
+  }
+  // Forelderen (m/ type) hvis lås faktisk gjelder for objektet — dvs. arvet
+  // låsing. Et unntak (_unlocked) på veien opp bryter arven. Uavhengig av _mine,
+  // så eieren (som ser sine egne låser) også får riktig svar i del-UI-et.
+  function inheritedLockInfo(type, obj) {
+    const chain = ancestorChain(type, obj);
+    for (const a of chain) { if (a.obj._unlocked) return null; if (a.obj._locked) return a; }
+    return null;
   }
   const isMine = (o) => !o || o._mine !== false; // lokalt nye (uten meta) er «mine»
 
@@ -5579,7 +5603,7 @@
     const meta = new Map();
     const add = (list, type) => (list || []).forEach((r) => meta.set(r.id, {
       type, owner: r.owner, mine: r.mine !== false, locked: !!r.locked,
-      shared: !!r.shared, mount: r.mount || null,
+      unlocked: !!r.unlocked, shared: !!r.shared, mount: r.mount || null,
     }));
     add(my.universes, 'universe');
     add(my.groups, 'group');
@@ -5678,6 +5702,9 @@
         // Optimistiske overlays: en køet set_locked/membership-patch skal ikke
         // visuelt «hoppe tilbake» hvis en pull rekker å kjøre før den lander.
         obj._locked = lockOverrides.has(id) ? !!lockOverrides.get(id) : (m ? m.locked : false);
+        // Unntak fra en arvet lås («gjør redigerbar likevel»). Egen overlay, samme
+        // mønster som _locked, så en køet set_unlocked ikke hopper tilbake ved pull.
+        obj._unlocked = unlockOverrides.has(id) ? !!unlockOverrides.get(id) : (m ? m.unlocked : false);
         obj._shared = m ? m.shared : false;
         obj._mount = m && m.mount ? Object.assign({}, m.mount, mountOverrides.get(id) || null) : null;
         if (obj._mount) {
@@ -5922,6 +5949,7 @@
      rakk å kjøre før den køede skrivingen landet. Ryddes av operasjonens
      onDone/onError (når køen ikke har flere operasjoner for samme nøkkel). */
   const lockOverrides = new Map();  // id → ønsket locked-verdi (set_locked i kø)
+  const unlockOverrides = new Map(); // id → ønsket unntak-verdi (set_unlocked i kø)
   const mountOverrides = new Map(); // id → { pos?, trashed?, parent? } (membership-patch i kø)
   const suppressedRows = new Set(); // share-rot-id-er fjernet lokalt (leave_share i kø)
 
@@ -6393,9 +6421,13 @@
     form.append(input, btn);
     const msg = document.createElement('p');
     msg.className = 'share-msg'; msg.hidden = true;
-    // Lås/åpne — overskrift+ikon og hint bytter mellom låst/åpen tilstand, så
-    // det aldri er tvil om hva som gjelder NÅ (knappen beskriver kun handlingen
-    // et klikk utfører, ikke gjeldende status).
+    // Lås/unntak. To moduser:
+    //  (a) Ingen arvet lås → vanlig av/på-lås på dette objektet (som før):
+    //      overskrift+ikon og hint bytter mellom låst/åpen, knappen beskriver
+    //      handlingen et klikk utfører.
+    //  (b) En forelder er låst → objektet er AUTOMATISK låst. Feltet informerer
+    //      om hvilket objekt over som låser (ikon + navn), og tilbyr et UNNTAK
+    //      for nettopp dette objektet (la andre redigere det likevel).
     const lockRow = document.createElement('div');
     lockRow.className = 'share-lock-row';
     const lockBtn = document.createElement('button');
@@ -6406,14 +6438,43 @@
     const lockIcon = lockRow.querySelector('.share-lock-icon');
     const lockLabel = lockRow.querySelector('.share-lock-label');
     const lockHint = lockRow.querySelector('.share-lock-hint');
+    const TYPE_WORD = { universe: 'universet', group: 'gruppen', card: 'listen' };
+    // Nærmeste eksplisitt tilstand vinner: en EGEN lås på objektet (obj._locked)
+    // går foran en arvet lås, så vi viser den vanlige av/på-låsen (ikke unntaks-
+    // grenen, som ville nullstilt den egne låsen ved «Gjør unntak»).
+    const effInheritedLock = () => (obj._locked ? null : inheritedLockInfo(type, obj));
     const paintLock = () => {
-      lockIcon.innerHTML = obj._locked ? ICONS.lock : ICONS.unlock;
-      lockLabel.textContent = obj._locked ? 'Låst for redigering' : 'Åpent for redigering';
-      lockHint.textContent = obj._locked ? 'Andre kan se, men ikke redigere' : 'Alle kan se og redigere';
-      lockBtn.textContent = obj._locked ? 'Åpne nå' : 'Lås nå';
+      const anc = effInheritedLock();
+      lockRow.classList.toggle('is-inherited', !!anc);
+      if (!anc) {
+        lockIcon.innerHTML = obj._locked ? ICONS.lock : ICONS.unlock;
+        lockLabel.textContent = obj._locked ? 'Låst for redigering' : 'Åpent for redigering';
+        lockHint.textContent = obj._locked ? 'Andre kan se, men ikke redigere' : 'Alle kan se og redigere';
+        lockBtn.textContent = obj._locked ? 'Åpne nå' : 'Lås nå';
+        return;
+      }
+      // Arvet lås: hint viser «… [ikon] [navn] er låst» (navnet som trygg tekst).
+      const ex = !!obj._unlocked;
+      lockIcon.innerHTML = ex ? ICONS.unlock : ICONS.lock;
+      lockLabel.textContent = ex
+        ? ('Unntak: andre kan redigere ' + (TYPE_WORD[type] || 'objektet'))
+        : 'Automatisk låst for redigering';
+      lockHint.textContent = '';
+      const ancIcon = document.createElement('span');
+      ancIcon.className = 'share-lock-anc-icon';
+      ancIcon.innerHTML = ICONS[SHARE_TYPE_ICON[anc.type]] || '';
+      lockHint.appendChild(document.createTextNode(ex ? '' : 'Fordi '));
+      lockHint.appendChild(ancIcon);
+      lockHint.appendChild(document.createTextNode(' ' + (anc.obj.name || anc.obj.title || '')));
+      lockHint.appendChild(document.createTextNode(ex ? ' er låst — denne er unntatt' : ' er låst'));
+      lockBtn.textContent = ex ? 'Fjern unntak' : 'Gjør unntak';
     };
     paintLock();
     lockRow.appendChild(lockBtn);
+    // Arvede medlemmer (delt via en forelder): vises som en egen seksjon under
+    // de direkte medlemmene, uten «Kast ut» (fjernes der de faktisk ble delt).
+    const inheritedWrap = document.createElement('div');
+    let directIds = new Set();
     // Medlemsliste (egen beholder → oppdateres uten å nullstille skjema/melding)
     const title = document.createElement('div');
     title.className = 'share-section-title'; title.textContent = 'Medlemmer';
@@ -6481,11 +6542,52 @@
         membersWrap.appendChild(row);
       });
       optimisticRows.forEach((r) => membersWrap.appendChild(r));
+      directIds = new Set((inf.members || []).map((m) => m.id));
+    }
+    // Arvede medlemmer: gå oppover til hver DELT forelder, hent medlemmene og vis
+    // dem her (uten duplikater av eier/direkte medlemmer). Slik ser man på en
+    // liste/gruppe også de personene som delingen over gir tilgang.
+    // Kalles fra flere steder (åpning + hver medlems-refresh); en generasjons-
+    // teller sørger for at BARE den nyeste kjøringen skriver til DOM-en — ellers
+    // kunne to overlappende async-kall begge rukket å legge til hver sin «Arvet
+    // fra deling over»-seksjon (dobbel visning). Vi bygger radene først og
+    // committer (tømmer + fyller) samlet til slutt, så det heller ikke flimrer.
+    let inheritedGen = 0;
+    async function refreshInherited() {
+      const gen = ++inheritedGen;
+      const chain = ancestorChain(type, obj).filter((a) => a.obj._shared);
+      const seen = new Set(directIds);
+      if (authUser) seen.add(authUser.id);
+      const rows = [];
+      for (const a of chain) {
+        let data;
+        try { ({ data } = await acli().rpc('get_members', { p_type: a.type, p_id: a.id })); }
+        catch (e) { continue; }
+        (data && data.members || []).forEach((mbr) => {
+          if (!mbr || seen.has(mbr.id)) return;
+          seen.add(mbr.id);
+          const row = document.createElement('div');
+          row.className = 'member-row member-inherited';
+          const box = document.createElement('div'); box.className = 'member-info';
+          box.innerHTML = '<span class="member-name"></span><span class="member-role"></span>';
+          box.querySelector('.member-name').textContent = personName(mbr);
+          box.querySelector('.member-role').textContent = 'Deles via ' + (a.obj.name || a.obj.title || 'et objekt over');
+          row.append(avatarFor(mbr, false), box);
+          rows.push(row);
+        });
+      }
+      if (gen !== inheritedGen || !inheritedWrap.isConnected) return; // en nyere kjøring vant
+      inheritedWrap.innerHTML = '';
+      if (!rows.length) return;
+      const t = document.createElement('div');
+      t.className = 'share-section-title'; t.textContent = 'Arvet fra deling over';
+      inheritedWrap.appendChild(t);
+      rows.forEach((r) => inheritedWrap.appendChild(r));
     }
     async function refreshMembers() {
       try {
         const { data } = await acli().rpc('get_members', { p_type: type, p_id: id });
-        if (data) renderMembers(data);
+        if (data) { renderMembers(data); refreshInherited(); }
       } catch (e) { /* behold forrige */ }
     }
 
@@ -6548,9 +6650,34 @@
       });
     });
     lockBtn.addEventListener('click', () => {
-      // Optimistisk: statusen vender straks (lockOverrides holder den stabil
-      // over synk-rebuilds); koalescert kø-skriving gjør rask av/på-veksling
-      // til én skriving med sluttilstanden.
+      // Under en arvet lås (og UTEN egen lås) styrer knappen UNNTAKET
+      // (set_unlocked); ellers den vanlige låsen (set_locked). Begge er
+      // optimistiske med koalescert kø-skriving (rask av/på blir én skriving
+      // med sluttilstanden).
+      if (effInheritedLock()) {
+        obj._unlocked = !obj._unlocked;
+        unlockOverrides.set(id, obj._unlocked);
+        paintLock();
+        const key = 'unlock:' + type + ':' + id;
+        opQueue.enqueue({
+          key,
+          waitFor: () => rowKnownToServer(id),
+          run: async () => {
+            const want = unlockOverrides.has(id) ? unlockOverrides.get(id) : obj._unlocked;
+            const { error } = await acli().rpc('set_unlocked', { p_type: type, p_id: id, p_unlocked: want });
+            if (error) throw error;
+          },
+          onDone: () => { if (!opQueue.hasPending(key)) { unlockOverrides.delete(id); scheduleCloud(0); } },
+          onError: (e) => {
+            unlockOverrides.delete(id);
+            obj._unlocked = !obj._unlocked;
+            if (lockBtn.isConnected) paintLock();
+            showToast(friendlyAuthError(e));
+            scheduleCloud(0);
+          },
+        });
+        return;
+      }
       obj._locked = !obj._locked;
       lockOverrides.set(id, obj._locked);
       paintLock();
@@ -6576,8 +6703,9 @@
       });
     });
 
-    body.append(form, msg, title, membersWrap, lockRow);
+    body.append(form, msg, title, membersWrap, inheritedWrap, lockRow);
     renderMembers(myOwnerInfo()); // eieren (deg) vises straks
+    refreshInherited();           // arvede medlemmer hentes i bakgrunnen
     refreshMembers();             // medlemmer/ventende fylles inn når de lander
   }
   // Mottaker-visningen («Delt av …» + Forlat deling) inn i `body`; closeFn
@@ -6591,7 +6719,7 @@
     const inf = document.createElement('div'); inf.className = 'member-info';
     const ownerLabel = personName(ownerPerson);
     inf.innerHTML = '<span class="member-name"></span>' +
-      '<span class="member-role">' + (obj._locked ? 'Skrivebeskyttet' : 'Du kan redigere') + '</span>';
+      '<span class="member-role">' + (frozen(obj) ? 'Skrivebeskyttet' : 'Du kan redigere') + '</span>';
     inf.querySelector('.member-name').textContent = ownerLabel ? ('Delt av ' + ownerLabel) : 'Delt med deg';
     line.appendChild(inf);
     body.appendChild(line);
@@ -6670,7 +6798,7 @@
     // Køede operasjoner tilhører den utloggede sesjonen — dropp dem (de ville
     // uansett blitt avvist uten sesjon) og nullstill de optimistiske overlayene.
     opQueue.clear();
-    lockOverrides.clear(); mountOverrides.clear(); suppressedRows.clear();
+    lockOverrides.clear(); unlockOverrides.clear(); mountOverrides.clear(); suppressedRows.clear();
     suppressedInvites.clear();
     authUser = null;
     state.universes = [];

@@ -104,6 +104,28 @@ sharing.sql` er oppdatert idempotent (`add column if not exists`, LWW-triggeren,
       avviste hver kort-/element-insert/update (manglende kolonner) og
       kontomodus-synken var brutt — se PR-en for denne runden.
 
+## Skjema-endring: unntak fra arvet lås (`universes/groups/cards.unlocked`)
+
+Hierarkisk deling/låsing-runden (se `docs/arkitektur-brukere-deling.md` +
+`docs/accounts.md`) la til et **unntak** fra arvet lås: et objekt under et låst
+univers/gruppe er automatisk låst for andre, men eieren kan sette `unlocked =
+true` for nettopp det objektet så det likevel kan redigeres (og alt under det,
+med mindre et lavere nivå låses på nytt). `locked` og `unlocked` er gjensidig
+utelukkende per rad (`set_locked`/`set_unlocked` holder dem det). `supabase/
+users-and-sharing.sql` er oppdatert idempotent (`add column if not exists
+unlocked …` på universes/groups/cards, `set_unlocked`-RPC + grant, `can_edit_*`
+oppdatert til nærmeste-eksplisitt-tilstand-semantikk, eier-vakt i BEFORE UPDATE,
+`get_my_doc` eksponerer `unlocked`); mock-backenden speiler det. Klient-UI (auto-
+lås-melding + «Gjør unntak» i del-/innstillingsmodalen, arvede medlemmer i
+delingslisten) er implementert og verifisert i nettleser (mock-backend, to/tre
+testbrukere, desktop + mobil) — se `docs/accounts.md`.
+
+- [x] **«Supabase DB-oppsett»-workflowen kjørt** (run 29360860503,
+      workflow_dispatch på grenen `claude/hierarchical-sharing-permissions-
+      1n7w49`, conclusion `success`, 2026-07-14) — `unlocked`-kolonnene +
+      `set_unlocked` (+ oppdatert `can_edit_*`/`get_my_doc`) er nå på ekte
+      Supabase, så unntaks-knappen fungerer i kontomodus.
+
 ## Manuelle steg (krever dashboard-tilgang — Peder)
 
 - [x] ~~GitHub → Settings → Secrets and variables → Actions: legg inn
