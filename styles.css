@@ -1849,8 +1849,10 @@ body.no-auth #menu-btn { display: none; }
   display: flex; align-items: center; justify-content: space-between; gap: 12px;
   padding: 12px; border-radius: var(--radius-sm); background: #faf9fe;
 }
+.share-lock-title { display: flex; align-items: center; gap: 6px; }
+.share-lock-icon { display: inline-flex; font-size: 18px; color: var(--ink); }
 .share-lock-label { font-weight: 600; font-size: var(--fs-md); color: var(--ink); }
-.share-lock-hint { display: block; font-size: var(--fs-xs); font-weight: 500; color: var(--ink-soft); }
+.share-lock-hint { display: block; font-size: var(--fs-xs); font-weight: 500; color: var(--ink-soft); margin-top: 2px; }
 .share-leave { align-self: flex-start; }
 .owner-line { display: flex; align-items: center; gap: 10px; }
 

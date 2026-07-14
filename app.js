@@ -5950,17 +5950,25 @@
     btn.className = 'btn btn-solid btn-green btn-small'; btn.type = 'submit'; btn.textContent = 'Inviter';
     form.append(input, btn);
     const msg = document.createElement('p');
-    msg.className = 'share-msg';
-    // Lås/åpne
+    msg.className = 'share-msg'; msg.hidden = true;
+    // Lås/åpne — overskrift+ikon og hint bytter mellom låst/åpen tilstand, så
+    // det aldri er tvil om hva som gjelder NÅ (knappen beskriver kun handlingen
+    // et klikk utfører, ikke gjeldende status).
     const lockRow = document.createElement('div');
     lockRow.className = 'share-lock-row';
     const lockBtn = document.createElement('button');
     lockBtn.className = 'btn btn-solid btn-yellow btn-small'; lockBtn.type = 'button';
-    lockRow.innerHTML = '<div><span class="share-lock-label">Skrivebeskyttet</span>' +
-      '<span class="share-lock-hint">Andre kan se, men ikke endre</span></div>';
+    lockRow.innerHTML = '<div><span class="share-lock-title">' +
+      '<span class="share-lock-icon"></span><span class="share-lock-label"></span></span>' +
+      '<span class="share-lock-hint"></span></div>';
+    const lockIcon = lockRow.querySelector('.share-lock-icon');
+    const lockLabel = lockRow.querySelector('.share-lock-label');
+    const lockHint = lockRow.querySelector('.share-lock-hint');
     const paintLock = () => {
-      lockBtn.innerHTML = (obj._locked ? ICONS.lock : ICONS.unlock) +
-        '<span>' + (obj._locked ? 'Lås opp' : 'Lås') + '</span>';
+      lockIcon.innerHTML = obj._locked ? ICONS.lock : ICONS.unlock;
+      lockLabel.textContent = obj._locked ? 'Låst for redigering' : 'Åpent for redigering';
+      lockHint.textContent = obj._locked ? 'Andre kan se, men ikke redigere' : 'Alle kan se og redigere';
+      lockBtn.textContent = obj._locked ? 'Åpne nå' : 'Lås nå';
     };
     paintLock();
     lockRow.appendChild(lockBtn);
@@ -6044,7 +6052,7 @@
       const email = input.value.trim().toLowerCase();
       if (!email) return;
       input.value = '';
-      msg.textContent = ''; msg.classList.remove('ok');
+      msg.textContent = ''; msg.classList.remove('ok'); msg.hidden = true;
       // Optimistisk: raden vises straks, feltet er klart for neste e-post —
       // selve invitasjonen ligger i køen (flere invitasjoner køes etter hverandre).
       const row = document.createElement('div');
@@ -6068,13 +6076,13 @@
         onDone: () => {
           // La raden stå til refreshMembers tegner den ekte (ingen blink-lucke).
           optimisticRows.delete(row);
-          msg.textContent = 'Invitasjon sendt til ' + email; msg.classList.add('ok');
+          msg.textContent = 'Invitasjon sendt til ' + email; msg.classList.add('ok'); msg.hidden = false;
           refreshMembers();
         },
         onError: (e) => {
           optimisticRows.delete(row);
           row.remove();
-          msg.textContent = friendlyAuthError(e);
+          msg.textContent = friendlyAuthError(e); msg.hidden = false;
         },
       });
       // «Trekk tilbake» på en optimistisk rad: avbryt kontrollert — fjernes fra
