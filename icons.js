@@ -149,4 +149,27 @@ window.ICONS = {
     '<circle cx="12" cy="12" r="8.5"></circle>' +
     '<path d="M12 7.5V12l3 2.2"></path>' +
     '</svg>',
+
+  // Kategori (venstre klamme rundt en liten liste): brukes i navne-seksjonen i
+  // kategoriens innstillingsmodal — samme tynne strek som resten av settet.
+  category: '<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.05" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
+    '<path d="M8.5 4.5H6.5a2 2 0 0 0-2 2v11a2 2 0 0 0 2 2H8.5"></path>' +
+    '<circle cx="12.5" cy="8" r="0.8" fill="currentColor" stroke="none"></circle>' +
+    '<path d="M15 8h4.5"></path>' +
+    '<circle cx="12.5" cy="12" r="0.8" fill="currentColor" stroke="none"></circle>' +
+    '<path d="M15 12h4.5"></path>' +
+    '<circle cx="12.5" cy="16" r="0.8" fill="currentColor" stroke="none"></circle>' +
+    '<path d="M15 16h4.5"></path>' +
+    '</svg>',
+
+  // Oppløs kategori: en stilisert såpeboble som sprekker — en oppbrutt (stiplet)
+  // ring med åtte korte streker som stråler utover fra midten (bristende
+  // overflate). Samme tynne, avrundede strek som resten av settet.
+  bubbleBurst: '<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.05" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
+    '<circle cx="12" cy="12" r="4.2" stroke-dasharray="2.2 2.4"></circle>' +
+    '<path d="M12 2.6v2.2"></path><path d="M12 19.2v2.2"></path>' +
+    '<path d="M2.6 12h2.2"></path><path d="M19.2 12h2.2"></path>' +
+    '<path d="m5.1 5.1 1.6 1.6"></path><path d="m17.3 17.3 1.6 1.6"></path>' +
+    '<path d="m18.9 5.1-1.6 1.6"></path><path d="m5.1 18.9 1.6-1.6"></path>' +
+    '</svg>',
 };

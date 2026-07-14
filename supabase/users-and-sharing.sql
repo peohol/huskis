@@ -205,6 +205,20 @@ alter table public.cards add column if not exists responsible uuid references pu
 alter table public.items add column if not exists start_at text;
 alter table public.items add column if not exists due_at text;
 
+-- Kategorier: en kategori er en nivå-1-«rad» i en liste som grupperer elementer
+-- (nivå 2) under en felles overskrift. Den lagres SOM et element (samme tabell),
+-- markert `is_cat = true`; leaf-elementer peker på kategorien sin via `cat_id`
+-- (null = ukategorisert). `on delete set null` løsner elementene om kategori-raden
+-- slettes. `lock_times` (som cards) låser kategoriens tider til elementene sine.
+-- `cat_id` følger posisjonsregisteret (som `card_id`); `is_cat`/`lock_times` rir
+-- på innholds-registeret (ts/org). Idempotent for eldre databaser.
+-- `deferrable initially deferred`: import_doc kan sette inn et element FØR
+-- kategori-raden det peker på (doc-rekkefølgen er vilkårlig) — FK-en sjekkes
+-- da først ved commit, når alle radene finnes.
+alter table public.items add column if not exists cat_id uuid references public.items (id) on delete set null deferrable initially deferred;
+alter table public.items add column if not exists is_cat boolean not null default false;
+alter table public.items add column if not exists lock_times boolean not null default false;
+
 create index if not exists universes_owner_idx on public.universes (owner_id);
 create index if not exists groups_owner_idx    on public.groups (owner_id);
 create index if not exists groups_universe_idx on public.groups (universe_id);
@@ -596,10 +610,11 @@ begin
     new.text := old.text; new.trashed := old.trashed; new.done := old.done;
     new.responsible := old.responsible;
     new.start_at := old.start_at; new.due_at := old.due_at;
+    new.is_cat := old.is_cat; new.lock_times := old.lock_times;
     new.ts := old.ts; new.org := old.org;
   end if;
   if not public.reg_newer(new.pos_ts, new.pos_org, old.pos_ts, old.pos_org) then
-    new.card_id := old.card_id;
+    new.card_id := old.card_id; new.cat_id := old.cat_id;
     new.pos := old.pos; new.pos_ts := old.pos_ts; new.pos_org := old.pos_org;
   end if;
   new.updated_at := now();
@@ -1095,7 +1110,7 @@ begin
           'parent', c.mount_parent, 'pos', c.mount_pos, 'trashed', c.mount_trashed) end)) from my_cards c), '[]'::jsonb),
     'items', coalesce((select jsonb_agg(jsonb_build_object(
         'id', i.id, 'owner', i.owner_id, 'mine', i.owner_id = uid,
-        'home', i.card_id,
+        'home', i.card_id, 'cat', i.cat_id, 'isCat', i.is_cat, 'lockTimes', i.lock_times,
         'text', i.text, 'trashed', i.trashed, 'done', i.done,
         'responsible', i.responsible,
         'start', i.start_at, 'due', i.due_at,
@@ -1218,9 +1233,11 @@ begin
     continue when not exists (
       select 1 from public.cards c
       where c.id = public.legacy_uuid(uid, r ->> 'home') and c.owner_id = uid);
-    insert into public.items as t (id, owner_id, card_id, text, trashed, done,
+    insert into public.items as t (id, owner_id, card_id, cat_id, is_cat, lock_times, text, trashed, done,
                                    start_at, due_at, ts, org, pos, pos_ts, pos_org)
     values (public.legacy_uuid(uid, r ->> 'id'), uid, public.legacy_uuid(uid, r ->> 'home'),
+            case when r ->> 'cat' is null then null else public.legacy_uuid(uid, r ->> 'cat') end,
+            coalesce((r ->> 'isCat')::boolean, false), coalesce((r ->> 'lockTimes')::boolean, false),
             coalesce(r ->> 'text', ''), coalesce((r ->> 'trashed')::boolean, false),
             coalesce((r ->> 'done')::boolean, false),
             r ->> 'start', r ->> 'due',
@@ -1228,7 +1245,8 @@ begin
             coalesce((r ->> 'pos')::double precision, 0),
             coalesce((r ->> 'posTs')::bigint, 0), coalesce(r ->> 'posOrg', ''))
     on conflict (id) do update
-      set card_id = excluded.card_id, text = excluded.text,
+      set card_id = excluded.card_id, cat_id = excluded.cat_id,
+          is_cat = excluded.is_cat, lock_times = excluded.lock_times, text = excluded.text,
           trashed = excluded.trashed, done = excluded.done,
           start_at = excluded.start_at, due_at = excluded.due_at,
           ts = excluded.ts, org = excluded.org,

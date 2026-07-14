@@ -82,6 +82,25 @@ exists`, LWW-triggerne, `get_my_doc`, `import_doc`); mock-backenden speiler det.
       pooler-adressen, se merknad over) så kolonnene finnes på ekte Supabase —
       uten dem avviser PostgREST insert/update fra kontomodus-klienten.
 
+## Skjema-endring: kategorier (`items.cat_id`/`is_cat`/`lock_times`)
+
+Kategori-runden (se `docs/data-model.md` + `docs/drag-and-drop.md`) grupperer
+elementer under nivå-1-overskrifter. En kategori lagres SOM et element
+(`items.is_cat = true`); leaf-elementer peker på den via `items.cat_id`
+(self-FK, `on delete set null`, `deferrable initially deferred` for
+import-rekkefølge), og en kategori kan låse tidene til elementene sine
+(`items.lock_times`, som lister). `cat_id` følger posisjonsregisteret (som
+`card_id`); `is_cat`/`lock_times` innholds-registeret. `supabase/users-and-
+sharing.sql` er oppdatert idempotent (`add column if not exists`, LWW-triggeren,
+`get_my_doc`, `import_doc`); mock-backenden speiler det. Verifisert i nettleser
+(Playwright, default-modus + synk-doc-round-trip via `docFromState`/
+`mergeStates`/`canonical`).
+
+- [ ] **Kjør «Supabase DB-oppsett»-workflowen** (workflow_dispatch; husk
+      pooler-adressen) så `items.cat_id`/`is_cat`/`lock_times` finnes på ekte
+      Supabase — uten dem avviser PostgREST insert/update av kategorier og
+      kategori-medlemskap fra kontomodus-klienten.
+
 ## Manuelle steg (krever dashboard-tilgang — Peder)
 
 - [x] ~~GitHub → Settings → Secrets and variables → Actions: legg inn

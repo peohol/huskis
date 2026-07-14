@@ -923,6 +923,80 @@ body {
   padding: 0 10px;
 }
 
+/* ---------------- Kategorier (nivå-1-rad som grupperer elementer) ----------------
+   Header (håndtak + tittel/meta + tannhjul + oppløs-knapp) over en nøstet
+   liste (.cat-items) med elementene. Elementene rykkes inn med en vertikal,
+   halvgjennomsiktig hvit linje til venstre (avrundede ender). */
+.category { list-style: none; display: flex; flex-direction: column; gap: 6px; }
+.cat-head { display: flex; align-items: center; gap: 6px; }
+.cat-title-wrap {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.cat-title {
+  font-size: var(--fs-md);
+  font-weight: 700;
+  color: var(--ink);
+  cursor: text;
+  padding: 2px 4px;
+  border-radius: 6px;
+  word-break: break-word;
+  min-height: 24px;
+  letter-spacing: 0.01em;
+}
+.cat-title:hover { background: rgba(0, 0, 0, 0.1); }
+
+/* Tannhjul + oppløs-knapp: dempet ghost-ikoner, tydelige ved hover/fokus. */
+.cat-cog, .cat-dissolve {
+  flex: 0 0 auto;
+  align-self: center;
+  appearance: none;
+  cursor: pointer;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  display: grid;
+  place-items: center;
+  border: none;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--ink-soft);
+  opacity: 0.6;
+  transition: transform 0.1s, color 0.15s, opacity 0.15s;
+}
+.cat-cog .icon, .cat-dissolve .icon { width: 1em; height: 1em; font-size: 22px; }
+.cat-head:hover .cat-cog, .cat-head:hover .cat-dissolve,
+.cat-head:focus-within .cat-cog, .cat-head:focus-within .cat-dissolve { opacity: 1; }
+.cat-cog:hover { color: var(--primary); }
+.cat-dissolve:hover { color: var(--danger, #d1495b); }
+.cat-cog:active, .cat-dissolve:active { transform: scale(0.88); }
+.cat-cog:focus-visible, .cat-dissolve:focus-visible { outline: 2.5px solid var(--primary); outline-offset: 2px; }
+.cat-cog:disabled, .cat-dissolve:disabled { cursor: default; opacity: 0.3; }
+
+.cat-items {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 0;
+  padding: 2px 0 2px 14px; /* venstre-innrykk gir plass til grupperingslinja */
+  position: relative;
+  min-height: 12px;
+}
+.cat-items::before {
+  content: '';
+  position: absolute;
+  left: 3px;
+  top: 2px;
+  bottom: 2px;
+  width: 3.5px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.55);
+}
+
 /* ---------------- Add item ---------------- */
 .add-item-form {
   display: flex;
@@ -951,6 +1025,28 @@ body {
   border-color: var(--card-accent);
   background: rgba(255, 255, 255, 0.85);
   opacity: 1;
+}
+
+/* ＋-knappen er disablet (dempet) til feltet har tekst; ingen hover-oppløfting da. */
+.add-item-btn { position: relative; overflow: hidden; }
+.add-item-btn:disabled { opacity: 0.45; cursor: default; filter: none; box-shadow: var(--shadow-sm); }
+.add-item-btn:disabled:hover { filter: none; }
+/* Klikk-og-hold på ＋ (oppretter en kategori): en ekspanderende ring fyller
+   knappen over CAT_HOLD_MS som en tydelig progresjon. */
+.add-item-btn.holding::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: radial-gradient(circle at center, rgba(255, 255, 255, 0.65) 0%, rgba(255, 255, 255, 0) 70%);
+  transform: scale(0);
+  transform-origin: center;
+  animation: add-hold-fill 400ms ease-out forwards;
+  pointer-events: none;
+}
+@keyframes add-hold-fill { from { transform: scale(0); opacity: 0.2; } to { transform: scale(2.2); opacity: 1; } }
+@media (prefers-reduced-motion: reduce) {
+  .add-item-btn.holding::after { animation: none; }
 }
 
 /* ---------------- Håndtak & ikon-knapper ----------------
@@ -1090,6 +1186,27 @@ body {
   pointer-events: none;
   will-change: left, top;
 }
+
+/* Kategori under draging: løftet chip (kollapser til bare overskriften mens man
+   drar — se collapse/expandCategory i app.js). Ingen fast høyde, så den følger
+   den kollapsende .cat-items-høyden. */
+.category.dragging {
+  position: fixed;
+  z-index: 100;
+  margin: 0;
+  list-style: none;
+  box-shadow: var(--shadow-lg);
+  background: #fff;
+  border-radius: 12px;
+  padding: 4px 8px;
+  transform: scale(1.03);
+  cursor: grabbing;
+  pointer-events: none;
+  overflow: hidden;
+  will-change: left, top;
+}
+.category.dragging .cat-cog,
+.category.dragging .cat-dissolve { opacity: 0; }
 
 /* Placeholders (kort/element/gruppe/univers): IDENTISK stil overalt — svakt
    mørknet flate og en subtil INNOVER-skygge som gir inntrykk av et «hull» som

@@ -23,7 +23,7 @@ state = {
           cards: [                        // «lister»
             { id, group, title, color, trashed, k, p, // k/p: legacy, se docs/colors-and-labels.md
               responsible, start, due, lockTimes,     // ansvarlig + tidsplan for hele listen (docs/scheduling.md)
-              items: [ { id, text, trashed, done, responsible, start, due, home } ] } ] } ] } // done: avkrysset, responsible: ansvarlig bruker-id (delte lister), start/due: tidsplan
+              items: [ { id, text, trashed, done, responsible, start, due, home, cat, isCat, lockTimes } ] } ] } ] } // done: avkrysset; responsible: ansvarlig bruker-id (delte lister); start/due: tidsplan; cat/isCat/lockTimes: kategorier (se under)
   ],
   _tomb: { universes:{}, groups:{}, cards:{}, items:{} }, // gravsteiner: id → ts
 }
@@ -79,6 +79,23 @@ osv.), så kryss-univers-flytting er umulig i UI-et.
 - **`_pendingDelete`** (lokalt, `_`-prefiks → ikke synket): buffret sletting —
   objektet er skjult og «på vei til søppel», men ennå ikke `trashed`/skrevet til
   DB. Se `docs/trash.md` (delete-buffer).
+- **Kategorier** (`item.isCat` / `item.cat`): en liste har nå TO nivåer. En
+  kategori er en nivå-1-«rad» som grupperer elementer under en felles overskrift,
+  men den **lagres som et element** i kortets `items` (markert `isCat: true`), så
+  den rir på hele element-synken gratis. En kategori har navn (`text`), egen
+  tidsplan (`start`/`due`) og kan låse tidene til elementene sine (`lockTimes`,
+  som lister). Leaf-elementer peker på kategorien sin via `cat` (kategori-id;
+  null/undefined = ukategorisert, nivå 1). Regler: kategorier nøstes ALDRI
+  (`cat` alltid falsy på en `isCat`), krysses aldri av (`done`), og et element
+  hvis `cat` peker på en kategori som ikke finnes (f.eks. oppløst på en annen
+  enhet) rendres som ukategorisert (nivå 1). Nivå 1 = aktive elementer med `cat`
+  falsy (ukategoriserte + kategorier), sortert på `pos`; en kategoris medlemmer =
+  aktive leaf-elementer med `cat === kategori.id`. Begge nivåer deler samme
+  `pos`-rom (filtreres til søskengruppen FØR sortering, så absolutte pos-verdier
+  trenger ikke være globalt monotone). `cat` er et forelder-medlemskap → rir på
+  posisjonsregisteret (som `home`); `isCat`/`lockTimes` på innholds-registeret.
+  Opprettes ved **klikk-og-hold** på ＋-knappen; se `docs/drag-and-drop.md` for
+  nivå-2-dra-og-slipp og `docs/scheduling.md` for kategori-innstillingsmodalen.
 
 Gotcha: «＋ Gruppe» skal alltid bare virke, selv uten univers — standard-universet
 opprettes i farten (`ensureUniverse`). Dette bruker en NY tilfeldig id, ikke den
