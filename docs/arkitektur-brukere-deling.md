@@ -73,6 +73,14 @@ Alt håndheves med RLS-policyer bygget på `can_read_*`/`can_edit_*`
 (SECURITY DEFINER-funksjoner — ingen policy-rekursjon). `anon`-rollen har
 null tilgang til de nye tabellene; alt krever innlogget bruker.
 
+**Nedovergående deling er automatisk og additiv.** Å dele et univers deler
+*hele* universet — alle grupper/lister/elementer arver tilgangen. Man kan i
+tillegg dele et objekt lenger ned med **flere** enn forelderen er delt med (egen
+membership-rad på gruppen/listen); de nye får bare den grenen, ikke søsken. Så en
+liste kan være delt med 6 i en gruppe delt med 4 i et univers delt med 2.
+Klienten viser arvede medlemmer (fra forfedre) sammen med de direkte i delings-
+listen — se `docs/accounts.md`.
+
 ## Deling (invitasjon → aksept → mount)
 
 1. **Eieren** (og kun eieren) inviterer en e-postadresse:
@@ -138,14 +146,24 @@ slettes fritt.
   sammenligner mot `profiles.email`) eller blokkere andres registrering
   via unik-indeksen på e-post.
 
-## Låsing
+## Låsing (med unntak for arvet lås)
 
-`locked` på universes/groups/cards settes/fjernes av **eieren** via
-`set_locked(type, id, bool)`. Semantikk: et objekt kan redigeres av en
-bruker hvis brukeren har lesetilgang OG ingen node på veien fra objektet
-opp til rot-universet er låst *av noen andre* — dvs. lås på et univers
-fryser alt under for alle unntatt eieren; eieren av et låst objekt kan
-alltid redigere selv. Lesing påvirkes aldri av lås.
+`locked` og `unlocked` på universes/groups/cards settes/fjernes av **eieren** via
+`set_locked(type, id, bool)` og `set_unlocked(type, id, bool)`. De er **gjensidig
+utelukkende** per rad (å låse fjerner et ev. unntak og omvendt), så hver node har
+én av tre tilstander: *låst*, *unntak (åpnet)*, eller *arv* (ingen av delene).
+
+Semantikk (`can_edit_*`): et objekt kan redigeres av en bruker hvis brukeren har
+lesetilgang OG det **nærmeste nivået** — objektet selv, så oppover mot rot-
+universet — som har en eksplisitt tilstand satt *av noen andre* er et **unntak**
+(ikke en lås). Egne låser/unntak blokkerer aldri en selv, og eieren kan alltid
+redigere. Lesing påvirkes aldri av lås.
+
+Følger: lås på et univers fryser alt under for alle unntatt eieren, MEN eieren kan
+gjøre et **unntak** for en konkret gruppe/liste under (`unlocked = true`) så
+nettopp den (og alt under den) likevel kan redigeres — og et enda lavere nivå kan
+låses på nytt inni et unntak. Nærmeste-eksplisitt-regelen håndterer vilkårlig
+nøsting av lås/unntak/lås.
 
 ## Sletting, søppel og gravsteiner
 
@@ -166,7 +184,7 @@ alltid redigere selv. Lesing påvirkes aldri av lås.
 | vanlige `insert/update/delete` på tabellene | CRUD med RLS + server-side LWW; klienten stempler `ts/org`-registrene som i dag |
 | `import_doc(doc)` | engangs-migrering av lokalt/legacy doc til egne data (deterministiske id-er per bruker, idempotent) |
 | `create_share_invite` / `accept_share_invite` / `decline_share_invite` / `revoke_share_invite` | delingsflyt |
-| `revoke_share` / `leave_share` / `set_locked` / `get_members` | administrasjon av delinger |
+| `revoke_share` / `leave_share` / `set_locked` / `set_unlocked` / `get_members` | administrasjon av delinger (låsing + unntak fra arvet lås) |
 | Realtime `postgres_changes` på tabellene | live-oppdatering (tabellene ligger i `supabase_realtime`-publikasjonen) |
 
 ## Migrering fra dagens modell

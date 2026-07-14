@@ -1972,6 +1972,14 @@ body.no-auth #menu-btn { display: none; }
 .share-lock-icon { display: inline-flex; font-size: 18px; color: var(--ink); }
 .share-lock-label { font-weight: 600; font-size: var(--fs-md); color: var(--ink); }
 .share-lock-hint { display: block; font-size: var(--fs-xs); font-weight: 500; color: var(--ink-soft); margin-top: 2px; }
+/* Arvet lås (objektet er låst fordi en forelder er låst): tydeliggjør at dette
+   er en informasjons-/unntakstilstand, ikke en vanlig av/på-lås. */
+.share-lock-row.is-inherited { background: #fff7ed; }
+.share-lock-anc-icon { display: inline-flex; vertical-align: -3px; font-size: 15px; color: var(--ink); }
+.share-lock-anc-icon svg { width: 15px; height: 15px; }
+/* Arvet medlem (delt via en forelder): svakere, uten «Kast ut» her. */
+.member-inherited { opacity: 0.85; }
+.member-inherited .member-avatar { background: linear-gradient(135deg, #b0bcc7, #8a97a3); }
 .share-leave { align-self: flex-start; }
 .owner-line { display: flex; align-items: center; gap: 10px; }
 

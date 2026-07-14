@@ -101,6 +101,27 @@ sharing.sql` er oppdatert idempotent (`add column if not exists`, LWW-triggeren,
       Supabase — uten dem avviser PostgREST insert/update av kategorier og
       kategori-medlemskap fra kontomodus-klienten.
 
+## Skjema-endring: unntak fra arvet lås (`universes/groups/cards.unlocked`)
+
+Hierarkisk deling/låsing-runden (se `docs/arkitektur-brukere-deling.md` +
+`docs/accounts.md`) la til et **unntak** fra arvet lås: et objekt under et låst
+univers/gruppe er automatisk låst for andre, men eieren kan sette `unlocked =
+true` for nettopp det objektet så det likevel kan redigeres (og alt under det,
+med mindre et lavere nivå låses på nytt). `locked` og `unlocked` er gjensidig
+utelukkende per rad (`set_locked`/`set_unlocked` holder dem det). `supabase/
+users-and-sharing.sql` er oppdatert idempotent (`add column if not exists
+unlocked …` på universes/groups/cards, `set_unlocked`-RPC + grant, `can_edit_*`
+oppdatert til nærmeste-eksplisitt-tilstand-semantikk, eier-vakt i BEFORE UPDATE,
+`get_my_doc` eksponerer `unlocked`); mock-backenden speiler det. Klient-UI (auto-
+lås-melding + «Gjør unntak» i del-/innstillingsmodalen, arvede medlemmer i
+delingslisten) er implementert og verifisert i nettleser (mock-backend, to/tre
+testbrukere, desktop + mobil) — se `docs/accounts.md`.
+
+- [ ] **Kjør «Supabase DB-oppsett»-workflowen** (workflow_dispatch; husk
+      pooler-adressen) så `unlocked`-kolonnene + `set_unlocked` finnes på ekte
+      Supabase — uten dem avviser PostgREST unntaks-skriving fra kontomodus-
+      klienten (og `can_edit_*` mangler unntaks-grenen).
+
 ## Manuelle steg (krever dashboard-tilgang — Peder)
 
 - [x] ~~GitHub → Settings → Secrets and variables → Actions: legg inn

@@ -152,6 +152,17 @@ fordypning («hylle i veggen»); overskriften står på listeflaten over. Krever
 `lock_times`) — se `TODO.md`. Se `docs/data-model.md`, `docs/drag-and-drop.md`,
 `docs/scheduling.md`, `docs/design-system.md`.
 
+**Hierarkisk deling og lås (siste runde)**: å dele et objekt deler automatisk
+*hele* undertreet med de samme folkene, og delings-listen viser nå de arvede
+personene («Arvet fra deling over», `refreshInherited`) sammen med de direkte.
+Man kan dele lenger ned med FLERE (additivt — egen invitasjon på gruppen/listen).
+Lås arves nedover, MEN eieren kan gjøre et **unntak** for en konkret gruppe/liste
+under et låst objekt («Gjør unntak» → `set_unlocked`/`unlocked`): lås-feltet viser
+da «Automatisk låst … Fordi [ikon][navn] er låst». `frozen()`/`can_edit_*` bruker
+nærmeste-eksplisitt-tilstand oppover. Krever DB-migrering i kontomodus
+(`unlocked`-kolonner + `set_unlocked`) — se `TODO.md`. Se
+`docs/arkitektur-brukere-deling.md` og `docs/accounts.md`.
+
 **Innstillinger + tidsplan (forrige runde)**: tannhjul-knapper på lister
 (erstattet del-knappen) og elementer (erstattet ansvarsknappen) åpner en
 felles innstillingsmodal (navn / deling (lister) / ansvarlig — nå også for

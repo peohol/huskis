@@ -219,6 +219,15 @@ alter table public.items add column if not exists cat_id uuid references public.
 alter table public.items add column if not exists is_cat boolean not null default false;
 alter table public.items add column if not exists lock_times boolean not null default false;
 
+-- Unntak fra arvet lås: et objekt under et låst univers/gruppe er automatisk
+-- låst for andre, men eieren kan sette `unlocked = true` for NETTOPP dette
+-- objektet så det likevel kan redigeres (og alt under det, med mindre et enda
+-- lavere nivå låses på nytt). `locked` og `unlocked` er gjensidig utelukkende
+-- per rad (set_locked/set_unlocked holder dem det). Idempotent for eldre databaser.
+alter table public.universes add column if not exists unlocked boolean not null default false;
+alter table public.groups    add column if not exists unlocked boolean not null default false;
+alter table public.cards     add column if not exists unlocked boolean not null default false;
+
 create index if not exists universes_owner_idx on public.universes (owner_id);
 create index if not exists groups_owner_idx    on public.groups (owner_id);
 create index if not exists groups_universe_idx on public.groups (universe_id);
@@ -393,6 +402,9 @@ returns boolean language sql stable security definer set search_path = public as
   );
 $$;
 
+-- Redigering: nærmeste nivå (objektet, så oppover) med en eksplisitt lås-
+-- tilstand satt av en ANNEN avgjør — et unntak (unlocked) åpner grenen, en lås
+-- (locked) fryser den. Egne låser/unntak blokkerer aldri en selv.
 create or replace function public.can_edit_group(p_id uuid, p_uid uuid)
 returns boolean language sql stable security definer set search_path = public as $$
   select exists (
@@ -401,8 +413,13 @@ returns boolean language sql stable security definer set search_path = public as
     join public.universes u on u.id = g.universe_id
     where g.id = p_id
       and public.can_read_group(g.id, p_uid)
-      and (not g.locked or g.owner_id = p_uid)
-      and (not u.locked or u.owner_id = p_uid)
+      and case
+            when g.owner_id <> p_uid and g.locked   then false
+            when g.owner_id <> p_uid and g.unlocked then true
+            when u.owner_id <> p_uid and u.locked   then false
+            when u.owner_id <> p_uid and u.unlocked then true
+            else true
+          end
   );
 $$;
 
@@ -427,9 +444,15 @@ returns boolean language sql stable security definer set search_path = public as
     join public.universes u on u.id = g.universe_id
     where c.id = p_id
       and public.can_read_card(c.id, p_uid)
-      and (not c.locked or c.owner_id = p_uid)
-      and (not g.locked or g.owner_id = p_uid)
-      and (not u.locked or u.owner_id = p_uid)
+      and case
+            when c.owner_id <> p_uid and c.locked   then false
+            when c.owner_id <> p_uid and c.unlocked then true
+            when g.owner_id <> p_uid and g.locked   then false
+            when g.owner_id <> p_uid and g.unlocked then true
+            when u.owner_id <> p_uid and u.locked   then false
+            when u.owner_id <> p_uid and u.unlocked then true
+            else true
+          end
   );
 $$;
 
@@ -468,6 +491,9 @@ begin
   if new.locked is distinct from old.locked and uid is not null and uid <> old.owner_id then
     raise exception 'kun eieren kan låse/åpne';
   end if;
+  if new.unlocked is distinct from old.unlocked and uid is not null and uid <> old.owner_id then
+    raise exception 'kun eieren kan endre unntak';
+  end if;
   -- En mottaker kan ALDRI slette/gjenopprette selve det delte universet
   -- (trashed er felles). Deres «fjern fra mitt syn» er leave_share (mount).
   -- Innhold NEDE i universet kan de derimot slette fritt (felles søppel).
@@ -499,6 +525,9 @@ begin
   end if;
   if new.locked is distinct from old.locked and uid is not null and uid <> old.owner_id then
     raise exception 'kun eieren kan låse/åpne';
+  end if;
+  if new.unlocked is distinct from old.unlocked and uid is not null and uid <> old.owner_id then
+    raise exception 'kun eieren kan endre unntak';
   end if;
   -- Mottaker av en DIREKTE gruppe-deling kan ikke slette/gjenopprette selve
   -- gruppen (bruk leave_share). Innhold under gruppen — og en gruppe man kun
@@ -548,6 +577,9 @@ begin
   end if;
   if new.locked is distinct from old.locked and uid is not null and uid <> old.owner_id then
     raise exception 'kun eieren kan låse/åpne';
+  end if;
+  if new.unlocked is distinct from old.unlocked and uid is not null and uid <> old.owner_id then
+    raise exception 'kun eieren kan endre unntak';
   end if;
   -- Mottaker av en DIREKTE liste-deling kan ikke slette/gjenopprette selve
   -- listen (bruk leave_share). Elementer i listen — og en liste man kun når
@@ -983,9 +1015,29 @@ begin
   if public.resource_owner(p_type, p_id) is distinct from uid then
     raise exception 'kun eieren kan låse/åpne';
   end if;
-  if p_type = 'universe' then update public.universes set locked = p_locked where id = p_id;
-  elsif p_type = 'group' then update public.groups set locked = p_locked where id = p_id;
-  elsif p_type = 'card'  then update public.cards  set locked = p_locked where id = p_id;
+  -- locked og unlocked er gjensidig utelukkende: å låse fjerner et ev. unntak.
+  if p_type = 'universe' then update public.universes set locked = p_locked, unlocked = (unlocked and not p_locked) where id = p_id;
+  elsif p_type = 'group' then update public.groups set locked = p_locked, unlocked = (unlocked and not p_locked) where id = p_id;
+  elsif p_type = 'card'  then update public.cards  set locked = p_locked, unlocked = (unlocked and not p_locked) where id = p_id;
+  else raise exception 'ugyldig type: %', p_type;
+  end if;
+end;
+$$;
+
+-- Eieren gjør/opphever et UNNTAK fra en arvet lås for et objekt: `unlocked`
+-- åpner grenen for andre selv om en forelder er låst. Gjensidig utelukkende med
+-- objektets egen `locked` (å sette unntak fjerner en ev. egen lås).
+create or replace function public.set_unlocked(p_type text, p_id uuid, p_unlocked boolean)
+returns void language plpgsql security definer set search_path = public as $$
+declare uid uuid := auth.uid();
+begin
+  if uid is null then raise exception 'ikke innlogget'; end if;
+  if public.resource_owner(p_type, p_id) is distinct from uid then
+    raise exception 'kun eieren kan endre unntak';
+  end if;
+  if p_type = 'universe' then update public.universes set unlocked = p_unlocked, locked = (locked and not p_unlocked) where id = p_id;
+  elsif p_type = 'group' then update public.groups set unlocked = p_unlocked, locked = (locked and not p_unlocked) where id = p_id;
+  elsif p_type = 'card'  then update public.cards  set unlocked = p_unlocked, locked = (locked and not p_unlocked) where id = p_id;
   else raise exception 'ugyldig type: %', p_type;
   end if;
 end;
@@ -1081,7 +1133,7 @@ begin
              from public.profiles pr where pr.id = uid),
     'universes', coalesce((select jsonb_agg(jsonb_build_object(
         'id', u.id, 'owner', u.owner_id, 'mine', u.owner_id = uid,
-        'name', u.name, 'trashed', u.trashed, 'locked', u.locked,
+        'name', u.name, 'trashed', u.trashed, 'locked', u.locked, 'unlocked', u.unlocked,
         'ts', u.ts, 'org', u.org,
         'pos', u.pos, 'posTs', u.pos_ts, 'posOrg', u.pos_org,
         'shared', exists (select 1 from public.memberships mm where mm.universe_id = u.id),
@@ -1090,7 +1142,7 @@ begin
     'groups', coalesce((select jsonb_agg(jsonb_build_object(
         'id', g.id, 'owner', g.owner_id, 'mine', g.owner_id = uid,
         'uni', g.universe_id,
-        'name', g.name, 'trashed', g.trashed, 'locked', g.locked,
+        'name', g.name, 'trashed', g.trashed, 'locked', g.locked, 'unlocked', g.unlocked,
         'ts', g.ts, 'org', g.org,
         'pos', g.pos, 'posTs', g.pos_ts, 'posOrg', g.pos_org,
         'shared', exists (select 1 from public.memberships mm where mm.group_id = g.id),
@@ -1099,7 +1151,7 @@ begin
     'cards', coalesce((select jsonb_agg(jsonb_build_object(
         'id', c.id, 'owner', c.owner_id, 'mine', c.owner_id = uid,
         'group', c.group_id,
-        'title', c.title, 'trashed', c.trashed, 'locked', c.locked,
+        'title', c.title, 'trashed', c.trashed, 'locked', c.locked, 'unlocked', c.unlocked,
         'k', c.k, 'p', c.p, 'labTs', c.lab_ts, 'labOrg', c.lab_org,
         'responsible', c.responsible,
         'start', c.start_at, 'due', c.due_at, 'lockTimes', c.lock_times,
@@ -1293,6 +1345,7 @@ begin
     'public.revoke_share(text, uuid, uuid)',
     'public.leave_share(text, uuid)',
     'public.set_locked(text, uuid, boolean)',
+    'public.set_unlocked(text, uuid, boolean)',
     'public.get_members(text, uuid)',
     'public.get_my_doc()',
     'public.import_doc(jsonb)'

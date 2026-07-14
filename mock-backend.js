@@ -102,19 +102,25 @@
     return c.owner_id === uid || !!membershipFor(db, uid, 'card', id) || canReadGroup(db, c.group_id, uid);
   }
   function lockedAncestor(db, obj, type, uid) {
-    // Redigering blokkeres hvis objektet selv eller en forelder er låst av en annen.
-    var u, g;
-    if (type === 'universe') { return obj.locked && obj.owner_id !== uid; }
-    if (type === 'group') {
-      u = db.universes.find(function (x) { return x.id === obj.universe_id; });
-      return (obj.locked && obj.owner_id !== uid) || (u && u.locked && u.owner_id !== uid);
+    // Redigering blokkeres hvis nærmeste nivå (objektet selv eller en forelder)
+    // med eksplisitt lås-tilstand satt av en ANNEN er låst. Et unntak (unlocked)
+    // åpner grenen igjen. Nærmeste-først: objektet, så oppover.
+    var chain = [];
+    if (type === 'universe') { chain = [obj]; }
+    else if (type === 'group') {
+      chain = [obj, db.universes.find(function (x) { return x.id === obj.universe_id; })];
+    } else { // card
+      var g = db.groups.find(function (x) { return x.id === obj.group_id; });
+      var u = g && db.universes.find(function (x) { return x.id === g.universe_id; });
+      chain = [obj, g, u];
     }
-    // card
-    g = db.groups.find(function (x) { return x.id === obj.group_id; });
-    u = g && db.universes.find(function (x) { return x.id === g.universe_id; });
-    return (obj.locked && obj.owner_id !== uid) ||
-           (g && g.locked && g.owner_id !== uid) ||
-           (u && u.locked && u.owner_id !== uid);
+    for (var i = 0; i < chain.length; i++) {
+      var n = chain[i];
+      if (!n || n.owner_id === uid) continue; // egne låser/unntak blokkerer ikke meg selv
+      if (n.unlocked) return false;
+      if (n.locked) return true;
+    }
+    return false;
   }
   function ownerOf(db, type, id) {
     var t = type === 'universe' ? db.universes : type === 'group' ? db.groups : db.cards;
@@ -163,7 +169,7 @@
         var m = membershipFor(db, uid, 'universe', u.id);
         return {
           id: u.id, owner: u.owner_id, mine: u.owner_id === uid, name: u.name,
-          trashed: !!u.trashed, locked: !!u.locked, ts: u.ts, org: u.org,
+          trashed: !!u.trashed, locked: !!u.locked, unlocked: !!u.unlocked, ts: u.ts, org: u.org,
           pos: u.pos, posTs: u.pos_ts, posOrg: u.pos_org,
           shared: !!sharedU[u.id], mount: mountObj(m, false),
         };
@@ -172,7 +178,7 @@
         var m = membershipFor(db, uid, 'group', g.id);
         return {
           id: g.id, owner: g.owner_id, mine: g.owner_id === uid, uni: g.universe_id, name: g.name,
-          trashed: !!g.trashed, locked: !!g.locked, ts: g.ts, org: g.org,
+          trashed: !!g.trashed, locked: !!g.locked, unlocked: !!g.unlocked, ts: g.ts, org: g.org,
           pos: g.pos, posTs: g.pos_ts, posOrg: g.pos_org,
           shared: !!sharedG[g.id], mount: mountObj(m, true),
         };
@@ -181,7 +187,7 @@
         var m = membershipFor(db, uid, 'card', c.id);
         return {
           id: c.id, owner: c.owner_id, mine: c.owner_id === uid, group: c.group_id, title: c.title,
-          trashed: !!c.trashed, locked: !!c.locked, k: c.k !== false, p: c.p !== false,
+          trashed: !!c.trashed, locked: !!c.locked, unlocked: !!c.unlocked, k: c.k !== false, p: c.p !== false,
           responsible: c.responsible || null,
           start: c.start_at || null, due: c.due_at || null, lockTimes: !!c.lock_times,
           labTs: c.lab_ts, labOrg: c.lab_org, ts: c.ts, org: c.org,
@@ -443,7 +449,17 @@
         if (ownerOf(db, p.p_type, p.p_id) !== uid) throw new Error('kun eieren kan låse/åpne');
         var t = p.p_type === 'universe' ? db.universes : p.p_type === 'group' ? db.groups : db.cards;
         var r = t.find(function (x) { return x.id === p.p_id; });
-        if (r) r.locked = p.p_locked;
+        // locked og unlocked er gjensidig utelukkende: å låse fjerner et ev. unntak.
+        if (r) { r.locked = p.p_locked; if (p.p_locked) r.unlocked = false; }
+        return null;
+      },
+      set_unlocked: function (p) {
+        // Unntak fra en arvet lås: gjør objektet redigerbart selv om en forelder
+        // er låst. Å sette unntak fjerner en ev. egen lås (gjensidig utelukkende).
+        if (ownerOf(db, p.p_type, p.p_id) !== uid) throw new Error('kun eieren kan endre unntak');
+        var t = p.p_type === 'universe' ? db.universes : p.p_type === 'group' ? db.groups : db.cards;
+        var r = t.find(function (x) { return x.id === p.p_id; });
+        if (r) { r.unlocked = p.p_unlocked; if (p.p_unlocked) r.locked = false; }
         return null;
       },
       get_members: function (p) {

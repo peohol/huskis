@@ -176,6 +176,20 @@ rekkefølge + egen søppel) ligger i en membership-rad («mount»). I `applyMyDo
     tilbake» på en ennå-ikke-landet rad avbryter/kjeder (se opQueue).
   - **Lås/åpne** (`set_locked`): knappen vender straks; spam koalesceres til
     én skriving med sluttilstanden.
+  - **Unntak fra arvet lås** (`set_unlocked`, egen overlay `unlockOverrides`):
+    når objektet har en **arvet lås** (en forelder er låst — `inheritedLockInfo`
+    finner den nærmeste, et `_unlocked` på veien opp bryter arven), viser lås-
+    feltet i stedet «Automatisk låst … Fordi [ikon][navn] er låst» og knappen
+    «Gjør unntak» → objektet (og alt under, med mindre et lavere nivå låses på
+    nytt) kan redigeres av andre likevel. Samme optimistiske kø-mønster som
+    `set_locked`. `locked`/`unlocked` er gjensidig utelukkende (RPC-ene holder
+    dem det). `frozen()` bruker nærmeste-eksplisitt-tilstand oppover `_parent`.
+  - **Arvede medlemmer** (`refreshInherited`): under de direkte medlemmene vises
+    en «Arvet fra deling over»-seksjon med personene forfedrenes delinger gir
+    tilgang (henter `get_members` for hver DELT forelder, deduplisert mot eier +
+    direkte medlemmer, «Deles via [navn]», uten «Kast ut» — de fjernes der de
+    faktisk ble delt). Deling lenger ned kan legge til FLERE personer (egen
+    invitasjon på gruppen/listen) uten å røre forelderens delegruppe.
   - **Kast ut** (`revoke_share`) / **trekk tilbake** (`revoke_share_invite`):
     raden forsvinner straks; `refreshMembers` gjenoppretter ved avvisning.
   - **Forlat deling** (mottaker, `leave_share`): objektet fjernes fra treet og
