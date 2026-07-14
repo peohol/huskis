@@ -110,11 +110,11 @@ gruppe-deling fra kortene til egne `.share-btn` i menyene (ved «＋ Gruppe» / 
 Liste»). `item.done` krever en DB-migrering i kontomodus — se `TODO.md`.
 Posisjonsbasert farge reindekseres alltid ved omrokkering (ikke bare
 add/slett) for grupper, lister og universer — se `docs/drag-and-drop.md`.
-Siste runde: **buffret sletting** (`_pendingDelete` + `DELETE_BUFFER_MS`) —
-sletting skrives ikke til DB før angre-vinduet utløper, angre er umiddelbart, og
-søppel-modalen viser en spinner til objektet er committet (`docs/trash.md`);
-**«Utført»-seksjon** for avkryssede elementer (FLIP, posisjonsminne via uendret
-`pos`); liste-del-chip og liste-ikon oppdatert; sveipefeltet sier «Tøm» + pil.
+En runde la til: **buffret sletting** (`_pendingDelete` + `DELETE_BUFFER_MS`) —
+sletting skrives ikke til DB før angre-vinduet utløper, angre er umiddelbart
+(`docs/trash.md`); **«Utført»-seksjon** for avkryssede elementer (FLIP,
+posisjonsminne via uendret `pos`); liste-del-chip og liste-ikon oppdatert;
+sveipefeltet sier «Tøm» + pil.
 
 **Navn og ansvarlig** (siste runde): registrering krever fornavn + etternavn
 (→ `profiles.display_name`); del-modalen viser initial-sirkel + navn for eier/
@@ -134,7 +134,16 @@ lås/innboks), søppel-semantikk for delinger (forlat) og migreringsflyt. Se
 stegene i `TODO.md` er gjort og alt er verifisert mot ekte Supabase; til da
 kjører fortsatt mønster-låsen (`docs/auth.md`) + synk-doc v1 (`docs/sync.md`).
 
+**Ventefri UX (siste runde)**: all blokkerende venting/lasteindikatorer er
+erstattet med optimistisk UI + en seriell bakgrunns-operasjonskø for delings-
+RPC-ene (`opQueue`: koalescering, venting på nypushede rader, offline-retry,
+rollback ved avvisning) og optimistiske overlays som overlever synk-rebuilds.
+Ansvarlig kan byttes fritt mens forrige valg er i lufta (LWW tar siste), søppel
+kan gjenopprettes/tømmes UNDER buffring, og del-modalen åpner umiddelbart. Se
+`docs/accounts.md` (opQueue) og `docs/trash.md`.
+
 Verifisert i nettleser (Playwright) mot en hermetisk in-memory-backend
 (`mock-backend.js`, aktiveres med `?mock=1`) som etterligner Supabase-
 klienten og deler «server» mellom faner via localStorage — kjør to faner for
 å teste deling mellom to brukere uten ekte backend/e-postbekreftelse.
+`&lag=800` gir kunstig serverforsinkelse for å teste kø-/optimisme-oppførselen.

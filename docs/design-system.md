@@ -141,8 +141,9 @@ Størrelse/form kommer fra egne klasser: `.btn` (modaler), `.btn-small`,
   elementer flyttes med FLIP til en egen **«Utført»-seksjon** (`.items-done`,
   skilt med `.done-divider`) nederst i kortet; `done` er datamodell (se
   `docs/data-model.md`). Håndtaket er inaktivt for avkryssede rader.
-- `.spinner`: liten roterende ring — lasteindikator i søppel-modalen for
-  buffer-slettede objekter som ennå ikke er gjenopprettbare (se `docs/trash.md`).
+- Ingen lasteindikatorer/spinnere: operasjoner utføres optimistisk og
+  serialiseres i en bakgrunnskø (se `docs/accounts.md`) — UI-et venter aldri
+  synlig på at noe skal lande. (Den gamle `.spinner`-klassen er fjernet.)
 - Liste-ikonet (`ICONS.list`): de tre «linjene» er nå **fylte bullets** (små
   sirkler, `r=0.7`, `fill=currentColor`) for tydeligere separasjon.
 - Antall-piller (`.chip-count`) og tellere (`.trashcan-count`) samt varsel-

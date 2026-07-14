@@ -503,7 +503,7 @@
   // «aktive» kort/elementer den aktive gruppen. Universer er helt uavhengige
   // områder — alt gruppe-UI (header, søppelkasse, DnD) er scopet hit.
   // `_pendingDelete` (buffret sletting, se DELETE-BUFFER lenger nede): objektet
-  // er skjult fra de synlige listene og vist i søppel-visningen (med spinner),
+  // er skjult fra de synlige listene og vist i søppel-visningen,
   // men er ENNÅ ikke `trashed` i state og skrives ikke til databasen — det skjer
   // først når toasten utløper (eller committes ved unload). Derfor teller det som
   // «i søppel» for visning, men ikke som aktivt.
@@ -572,13 +572,12 @@
   }
 
   /* ---------------- Render ---------------- */
-  // Søppelkasse-badgen (univers/gruppe/liste): tall + pending-spinner, og
-  // knappen skjules når kassen er tom. Delt av de tre faste knappene (element-
-  // nivået er annerledes — se updateItemsTrashBadge, som slår opp badgen i DOM).
+  // Søppelkasse-badgen (univers/gruppe/liste): antall, og knappen skjules når
+  // kassen er tom. Delt av de tre faste knappene (element-nivået er annerledes
+  // — se updateItemsTrashBadge, som slår opp badgen i DOM).
   function updateTrashBadge(trashedSel, countEl, btnEl) {
     const list = trashedSel();
     countEl.textContent = list.length;
-    countEl.classList.toggle('pending', list.some((o) => o._pendingDelete));
     btnEl.hidden = list.length === 0;
   }
   // Lister-søppelkassen vises kun når den har innhold (samme logikk som de andre).
@@ -860,21 +859,22 @@
   // slettet gruppe + alle dens lister + elementer (hindrer gjenoppstandelse).
   function emptyGroupsTrash() {
     const u = activeUniverseObj();
-    const trash = trashedGroups().filter((g) => !g._pendingDelete);
-    if (!u || !trash.length) return;
-    let left = false;
+    if (!u) return;
+    commitBufferedFor(trashedGroups().map((g) => g.id));
+    const trash = trashedGroups();
+    if (!trash.length) return;
     trash.forEach((g) => {
       const idx = u.groups.indexOf(g);
       if (g._mount) {
-        // Mottaker forlater delingen (rører ikke eierens innhold).
+        // Mottaker forlater delingen (rører ikke eierens innhold). cloudLeave
+        // undertrykker raden fra pull-ene til forlatelsen har landet.
         if (idx > -1) u.groups.splice(idx, 1);
-        cloudLeave('group', g.id); left = true;
+        cloudLeave('group', g.id);
         return;
       }
       tombSubtree(g, 'group');
       if (idx > -1) u.groups.splice(idx, 1);
     });
-    if (left) cloudBase = null;
     render();
     save();
   }
@@ -1002,11 +1002,9 @@
       const count = document.createElement('span');
       count.className = 'trashcan-count';
       count.textContent = trashed.length;
-      count.classList.toggle('pending', trashed.some((it) => it._pendingDelete));
       btn.append(icon, count);
       attachTrashHold(btn, {
         count: () => trashedItemsOf(cardData).length,
-        pending: () => trashedItemsOf(cardData).some((it) => it._pendingDelete),
         open: () => openItemsTrash(cardData),
         empty: () => emptyItemsTrash(cardData),
       });
@@ -1025,8 +1023,10 @@
   }
 
   // Tøm kortets element-søppelkasse permanent: gravstein per slettet element.
+  // Buffrede slettinger committes først, så tømming aldri venter på angre-vinduet.
   function emptyItemsTrash(cardData) {
-    const trash = trashedItemsOf(cardData).filter((it) => !it._pendingDelete);
+    commitBufferedFor(trashedItemsOf(cardData).map((it) => it.id));
+    const trash = trashedItemsOf(cardData);
     if (!trash.length) return;
     trash.forEach((it) => {
       tombSubtree(it, 'item'); // gravstein hindrer gjenoppstandelse
@@ -1076,13 +1076,6 @@
   // get_members; personens indeks gir paletten (colorForIndex).
   const shareGroupCache = new Map();
   const shareGroupLoading = new Set();
-  // Elementer med en ansvars-endring som ennå ikke har «landet» (pushet til
-  // serveren): id → ts-en vi stemplet. Mens en endring er i lufta viser knappen
-  // en spinner og er deaktivert, så man ikke kan bytte igjen før den forrige er
-  // committet (unngår en race der en samtidig synk-rebuild bytter ut item-
-  // objektet under en åpen popover og det siste byttet går tapt). Keyet på id,
-  // ikke på objektet, så det overlever applyMyDoc-rebuilds.
-  const pendingResp = new Map();
   function rootKey(type, id) { return type + ':' + id; }
   function personEntry(p) {
     return { id: p.id, email: p.email, name: personName(p), initials: initialsFromName(p.display_name, p.email) };
@@ -1114,21 +1107,6 @@
     }).catch(() => { shareGroupLoading.delete(key); });
   }
 
-  // En ansvars-endring har «landet» når det flettede doc-et har satt feltet på
-  // (eller forbi) ts-en vi stemplet — dvs. endringen er pushet og reflektert, ev.
-  // overskrevet av en nyere endring. Da fjernes «venter»-flagget og board-et
-  // tegnes på nytt (spinner → ansvarssirkel). Kalles fra cloudCycle etter push.
-  function clearLandedResp(mergedDoc) {
-    if (!pendingResp.size) return;
-    const byId = new Map((mergedDoc.items || []).map((it) => [it.id, it]));
-    let cleared = false;
-    pendingResp.forEach((ts, id) => {
-      const it = byId.get(id);
-      if (!it || (it.ts || 0) >= ts) { pendingResp.delete(id); cleared = true; }
-    });
-    if (cleared && !isBusyEditing()) render();
-  }
-
   // En farget sirkel med initialer (ansvarssirkelen). Fargen fra paletten via
   // personens indeks i delegruppen; ukjent person → stabil id-farge.
   function respAvatar(person, index) {
@@ -1144,15 +1122,7 @@
   // fargede initial-sirkelen for den ansvarlige (fra delegruppen `group`).
   function paintResp(btn, itemData, group) {
     btn.innerHTML = '';
-    btn.classList.remove('has-resp', 'is-pending');
-    // Endring i lufta → spinner (kan ikke bytte før den har landet).
-    if (pendingResp.has(itemData.id)) {
-      btn.innerHTML = '<span class="spinner" aria-hidden="true"></span>';
-      btn.classList.add('is-pending');
-      btn.title = 'Lagrer ansvarlig …';
-      btn.setAttribute('aria-label', 'Lagrer ansvarlig …');
-      return;
-    }
+    btn.classList.remove('has-resp');
     const rid = itemData.responsible;
     const entry = rid && group ? group.byId.get(rid) : null;
     if (entry) {
@@ -1256,8 +1226,7 @@
       if (!group) ensureShareGroup(rType, shareRoot.id);
       respBtn.hidden = false;
       paintResp(respBtn, itemData, group);
-      // Deaktivert mens en tidligere ansvars-endring ennå ikke har landet.
-      if (!canEdit || pendingResp.has(itemData.id)) respBtn.disabled = true;
+      if (!canEdit) respBtn.disabled = true;
       else respBtn.addEventListener('click', () => openResponsible(itemData, cardData, shareRoot, rType, respBtn));
     }
     return el;
@@ -1428,10 +1397,13 @@
 
   /* ---------------- DELETE-BUFFER (optimistisk sletting med angre) ----------------
      Sletting skriver IKKE til databasen med en gang. Objektet får et lokalt
-     `_pendingDelete`-flagg (skjules fra visning, vises i søppel med en spinner)
-     + en «Angre»-toast. Angrer man innen vinduet, fjernes flagget lokalt — ingen
-     databasetrafikk, umiddelbart. Ellers committes slettingen når timeren
-     utløper (eller når fanen skjules): `trashed = true` + stempling/mount-push.
+     `_pendingDelete`-flagg (skjules fra visning, ligger som vanlig rad i
+     søppel-modalen) + en «Angre»-toast. Angrer man innen vinduet — via toasten
+     eller «Gjenopprett» i modalen — fjernes flagget lokalt: ingen database-
+     trafikk, umiddelbart. Ellers committes slettingen når timeren utløper, når
+     fanen skjules, ELLER når en «Tøm»-sti trenger den committet
+     (commitBufferedFor): `trashed = true` + stempling/mount-push. Ingenting i
+     søppel-flyten venter altså på bufferet.
      ALT gjøres via id-oppslag (ikke fangede objekt-referanser), så det tåler at
      synken bygger state-treet på nytt underveis; `reapplyPendingDeletes()`
      gjenpåfører flagget etter hver applyDoc/applyMyDoc. */
@@ -1478,18 +1450,47 @@
     const found = findAnyById(id);
     if (found) delete found.obj._pendingDelete;
   }
-  // Oppdaterer KUN element-søppel-badgen på ett kort (tall + pending-spinner),
-  // uten å bygge kortet på nytt — så en pågående inline-redigering i samme kort
-  // (eller andre kort) ikke forstyrres. commitDeleteOne bufrer ikke — badgen
-  // (med spinner) finnes allerede i DOM-en fra da elementet ble slettet.
+  // Fjern id-er fra samle-toasten (etter enkelt-angre/commit utenom timeren);
+  // tom gruppe → toasten og timeren ryddes helt.
+  function pruneDeleteToast(ids) {
+    if (!deleteToast) return;
+    deleteToast.ids = deleteToast.ids.filter((x) => !ids.includes(x));
+    if (!deleteToast.ids.length) {
+      clearTimeout(deleteToast.timer);
+      deleteToast = null;
+      hideToast();
+    } else {
+      // Oppdater antallet i toasten (uten å restarte commit-timeren).
+      showToast(deleteMsg(deleteToast.kind, deleteToast.ids, deleteToast.lastName),
+        deleteToastAction(), { sticky: true });
+    }
+  }
+  // «Gjenopprett» på en buffret (ennå ikke committet) sletting: bare angre
+  // bufferet — umiddelbart, ingen databasetrafikk (objektet ble aldri trashed).
+  function undoBufferedDelete(id) {
+    undoDeleteOne(id);
+    pruneDeleteToast([id]);
+    render();
+  }
+  // Committer buffrede slettinger blant `ids` UMIDDELBART (uten å vente på
+  // angre-vinduet) — brukes av «Tøm»-stiene, så tømming aldri må vente på at
+  // bufferet skal utløpe. Objektene var allerede skjult, så ingen re-rendring.
+  function commitBufferedFor(ids) {
+    const mine = ids.filter((id) => pendingDeletes.has(id));
+    if (!mine.length) return;
+    mine.forEach(commitDeleteOne);
+    pruneDeleteToast(mine);
+  }
+  // Oppdaterer KUN element-søppel-badgen på ett kort (antallet), uten å bygge
+  // kortet på nytt — så en pågående inline-redigering i samme kort (eller andre
+  // kort) ikke forstyrres. Badgen finnes allerede i DOM-en fra da elementet
+  // ble slettet.
   function updateItemsTrashBadge(cardData) {
     const count = board.querySelector('.card[data-id="' + cardData.id + '"] .item-trash-btn .trashcan-count');
     if (!count) return;
-    const trashed = trashedItemsOf(cardData);
-    count.textContent = trashed.length;
-    count.classList.toggle('pending', trashed.some((it) => it._pendingDelete));
+    count.textContent = trashedItemsOf(cardData).length;
   }
-  // Rydder pending-spinnerne som hørte til nettopp committede objekter — uten en
+  // Oppdaterer badge-tellerne som hørte til nettopp committede objekter — uten en
   // full render() (som ville revet ned en pågående inline-redigering et annet
   // sted i UI-et). `committed` er resultatene fra commitDeleteOne (kan inneholde
   // null for allerede fjernede/ukjente id-er).
@@ -1552,6 +1553,22 @@
       if (!trashModal.hidden) renderTrashModalBody();
     }, DELETE_BUFFER_MS);
   }
+  // Angre-knappen i samle-toasten (deles med pruneDeleteToast, som maler toasten
+  // på nytt med oppdatert antall etter en enkelt-gjenoppretting fra modalen).
+  function deleteToastAction() {
+    return {
+      label: 'Angre',
+      fn: () => {
+        if (!deleteToast) { hideToast(); return; }
+        const g = deleteToast; deleteToast = null;
+        clearTimeout(g.timer);
+        g.ids.forEach(undoDeleteOne);
+        render();
+        if (!trashModal.hidden) renderTrashModalBody();
+        hideToast();
+      },
+    };
+  }
   function pushDeleteToast(kind, id, name) {
     // Ny kategori → commit den forrige gruppen straks (ikke lenger angrbar).
     if (deleteToast && deleteToast.kind !== kind) {
@@ -1569,18 +1586,7 @@
       deleteToast = { kind, ids: [id], lastName: name, timer: null };
     }
     armDeleteTimer();
-    showToast(deleteMsg(kind, deleteToast.ids, deleteToast.lastName), {
-      label: 'Angre',
-      fn: () => {
-        if (!deleteToast) { hideToast(); return; }
-        const g = deleteToast; deleteToast = null;
-        clearTimeout(g.timer);
-        g.ids.forEach(undoDeleteOne);
-        render();
-        if (!trashModal.hidden) renderTrashModalBody();
-        hideToast();
-      },
-    }, { sticky: true });
+    showToast(deleteMsg(kind, deleteToast.ids, deleteToast.lastName), deleteToastAction(), { sticky: true });
   }
 
   /* ---------------- Inline-redigering ---------------- */
@@ -2809,10 +2815,7 @@
       trashEmptyBtn.disabled = true;
       return;
     }
-    // «Tøm permanent» krever at ALLE rader er ferdig committet — er noen
-    // fortsatt buffer-slettet (_pendingDelete) hopper emptyXTrash over dem, så
-    // knappen må vente til alt er klart (ellers ser det ut som tømming feiler).
-    trashEmptyBtn.disabled = rows.some((r) => r.pending);
+    trashEmptyBtn.disabled = false;
     rows.forEach((r) => {
       const row = document.createElement('div');
       row.className = 'trash-row';
@@ -2832,22 +2835,19 @@
         meta.textContent = r.meta;
         row.appendChild(meta);
       }
-      if (r.pending) {
-        // Ennå ikke skrevet til databasen (buffret) → ikke gjenopprettbar ennå;
-        // vis en spinner til slettingen committes (da byttes den til knappen).
-        const spin = document.createElement('span');
-        spin.className = 'spinner';
-        spin.setAttribute('aria-label', 'Slettes …');
-        spin.title = 'Slettes … kan gjenopprettes om et øyeblikk';
-        row.appendChild(spin);
-      } else {
-        const restore = document.createElement('button');
-        restore.className = 'btn btn-solid btn-green btn-small';
-        restore.type = 'button';
-        restore.textContent = 'Gjenopprett';
-        restore.addEventListener('click', () => { r.restore(); renderTrashModalBody(); });
-        row.appendChild(restore);
-      }
+      const restore = document.createElement('button');
+      restore.className = 'btn btn-solid btn-green btn-small';
+      restore.type = 'button';
+      restore.textContent = 'Gjenopprett';
+      // Buffret (ennå ikke committet) sletting gjenopprettes ved å angre
+      // bufferet — umiddelbart og uten databasetrafikk; committede rader
+      // gjenopprettes som før (trashed=false).
+      restore.addEventListener('click', () => {
+        if (r.pending) undoBufferedDelete(r.id);
+        else r.restore();
+        renderTrashModalBody();
+      });
+      row.appendChild(restore);
       trashList.appendChild(row);
     });
   }
@@ -2871,6 +2871,7 @@
       note: TRASH_NOTE,
       emptyMsg: 'Ingen slettede universer.',
       rows: () => trashedUniverses().sort(posCmp).map((u) => ({
+        id: u.id,
         color: u.color || colorForId(u.id),
         name: u.name,
         meta: groupWord(u.groups.filter((g) => !g.trashed).length),
@@ -2887,6 +2888,7 @@
       note: TRASH_NOTE,
       emptyMsg: 'Ingen slettede grupper.',
       rows: () => trashedGroups().sort(posCmp).map((g) => ({
+        id: g.id,
         color: g.color || colorForId(g.id),
         name: g.name,
         meta: listWord(g.cards.filter((c) => !c.trashed).length),
@@ -2905,6 +2907,7 @@
       note: TRASH_NOTE,
       emptyMsg: 'Ingen slettede lister.',
       rows: () => trashedCards().map((c) => ({
+        id: c.id,
         color: c.color || colorForId(c.id),
         name: c.title,
         meta: itemWord(c.items.filter((it) => !it.trashed).length),
@@ -2919,8 +2922,8 @@
     // De tre andre søppelkassene leser ferskt fra `state` i hver `rows()`-kall
     // (`trashedGroups()`/…); elementmodalen må gjøre det samme via id-oppslag i
     // stedet for å fange `cardData` én gang — ellers peker den på et foreldreløst
-    // kort etter at synken har bygget treet på nytt (spinner som aldri gir seg,
-    // «Gjenopprett» som ikke fester seg). Se restore-hjelperne over.
+    // kort etter at synken har bygget treet på nytt («Gjenopprett» som ikke
+    // fester seg). Se restore-hjelperne over.
     const cardId = cardData.id;
     const liveCard = () => { const f = findAnyById(cardId); return f && f.kind === 'card' ? f.obj : null; };
     showTrashModal({
@@ -2930,6 +2933,7 @@
       rows: () => {
         const c = liveCard();
         return c ? trashedItemsOf(c).sort(posCmp).map((it) => ({
+          id: it.id,
           name: it.text,
           pending: !!it._pendingDelete,
           restore: () => restoreItem(it),
@@ -2940,22 +2944,22 @@
   }
 
   // Tøm lister-søppelkassen (aktiv gruppe) permanent: gravstein per liste + element.
+  // Buffrede slettinger committes først, så tømming aldri venter på angre-vinduet.
   function emptyCardsTrash() {
-    const trash = trashedCards().filter((c) => !c._pendingDelete);
+    commitBufferedFor(trashedCards().map((c) => c.id));
+    const trash = trashedCards();
     if (!trash.length) return;
     const arr = allCards();
-    let left = false;
     trash.forEach((c) => {
       const i = arr.indexOf(c);
       if (c._mount) {
         if (i > -1) arr.splice(i, 1);
-        cloudLeave('card', c.id); left = true;
+        cloudLeave('card', c.id);
         return;
       }
       tombSubtree(c, 'card'); // permanent gravstein hindrer gjenoppstandelse
       if (i > -1) arr.splice(i, 1);
     });
-    if (left) cloudBase = null;
     render();
     save();
   }
@@ -2963,20 +2967,19 @@
   // Tøm univers-søppelkassen permanent: gravsteiner for hvert slettet univers +
   // alle dets grupper, lister og elementer (hindrer gjenoppstandelse).
   function emptyUniversesTrash() {
-    const trash = trashedUniverses().filter((u) => !u._pendingDelete);
+    commitBufferedFor(trashedUniverses().map((u) => u.id));
+    const trash = trashedUniverses();
     if (!trash.length) return;
-    let left = false;
     trash.forEach((u) => {
       const i = state.universes.indexOf(u);
       if (u._mount) {
         if (i > -1) state.universes.splice(i, 1);
-        cloudLeave('universe', u.id); left = true;
+        cloudLeave('universe', u.id);
         return;
       }
       tombSubtree(u, 'universe');
       if (i > -1) state.universes.splice(i, 1);
     });
-    if (left) cloudBase = null;
     render();
     save();
   }
@@ -3039,7 +3042,7 @@
       swipeLidEl.style.transform = 'rotate(' + (-95 * pc) + 'deg)';
     }
     function openField() {
-      if (api.count() <= 0 || api.pending()) return; // ingenting å tømme, eller ikke alt klart ennå
+      if (api.count() <= 0) return; // ingenting å tømme
       mode = 'swiping';
       clearTimeout(swipeCollapseTimer);
       swipeOwnerBtn = btn;
@@ -3160,8 +3163,7 @@
       // åpner modalen på nytt (etter sveip) eller treffer modal-overlay-en.
       ignoreClick = true; setTimeout(() => { ignoreClick = false; }, 350);
       // Feltet ble aldri faktisk åpnet (mode fortsatt 'pending') — enten et kort
-      // trykk, ELLER et sveipeforsøk som openField() avviste (api.pending()
-      // sperrer sveip mens noe fortsatt er buffret, uansett bevegelse). I begge
+      // trykk, ELLER et sveipeforsøk som openField() avviste (tom kasse). I begge
       // tilfeller er ingenting synlig endret, så vi åpner modalen uansett liten
       // bevegelse — ellers ble trykket helt uten respons (utsatt til etter
       // click-sekvensen).
@@ -3185,19 +3187,16 @@
   /* ---------- Kobling: faste knapper (universer/grupper/lister) + modal-kontroller ---------- */
   attachTrashHold(trashBtn, {
     count: () => trashedCards().length,
-    pending: () => trashedCards().some((c) => c._pendingDelete),
     open: openCardsTrash,
     empty: emptyCardsTrash,
   });
   attachTrashHold(groupsTrashBtn, {
     count: () => trashedGroups().length,
-    pending: () => trashedGroups().some((g) => g._pendingDelete),
     open: openGroupsTrash,
     empty: emptyGroupsTrash,
   });
   attachTrashHold(uniTrashBtn, {
     count: () => trashedUniverses().length,
-    pending: () => trashedUniverses().some((u) => u._pendingDelete),
     open: openUniversesTrash,
     empty: emptyUniversesTrash,
   });
@@ -3371,6 +3370,7 @@
      på mobil), men radene viser en farget initial-sirkel + fullt navn for hver i
      delegruppen (alfabetisk). Valg skriver `item.responsible` og synker. */
   let respOpen = false;
+  let respToken = 0; // skiller gjenåpninger — en sen medlems-henting skal ikke male en lukket/nyåpnet popover
   function closeResponsible() {
     if (!respOpen) return;
     respSwitcherOverlay.hidden = true;
@@ -3379,73 +3379,101 @@
   }
   function setResponsible(itemData, cardData, userId) {
     // Slå opp DET LEVENDE objektet på id — popoveren kan ha fanget et foreldet
-    // item/kort hvis en synk-rebuild kjørte mens den var åpen.
+    // item/kort hvis en synk-rebuild kjørte mens den var åpen. Endringen vises
+    // umiddelbart og kan byttes igjen med en gang: hvert valg stempler et nytt
+    // ts på innholds-registeret, så doc-synken (seriell cloudCycle + felt-LWW)
+    // pusher alltid det siste valget — ingen venting/låsing trengs.
     const live = findAnyById(itemData.id);
     const item = live && live.kind === 'item' ? live.obj : itemData;
     if ((item.responsible || null) === (userId || null)) return;
     item.responsible = userId || null;
     stampContent(item);
-    pendingResp.set(item.id, item.ts); // marker «venter» → spinner + låst til den lander
     const owner = (live && live.card) || findCard(cardData.id) || cardData;
     refreshCard(owner);
     save();
   }
-  async function openResponsible(itemData, cardData, shareRoot, rType, anchorBtn) {
+  function openResponsible(itemData, cardData, shareRoot, rType, anchorBtn) {
     respSwitcherPanel.innerHTML = '';
     respSwitcherPanel.style.top = '';
     respSwitcherPanel.style.left = '';
-    // Hent delegruppen ferskt (medlemmer kan ha endret seg siden forrige cache).
-    let group = shareGroupCache.get(rootKey(rType, shareRoot.id));
-    try {
-      group = await fetchShareGroup(rType, shareRoot.id);
-      shareGroupCache.set(rootKey(rType, shareRoot.id), group);
-    } catch (e) { if (!group) { showToast('Kunne ikke hente medlemmer'); return; } }
+    const key = rootKey(rType, shareRoot.id);
+    const token = ++respToken;
+    let didFocus = false;
 
-    const makeRow = (person, index, isRemove) => {
-      const row = document.createElement('button');
-      row.type = 'button';
-      row.className = 'resp-row' + (isRemove ? ' resp-row-clear' : '');
-      row.setAttribute('role', 'option');
-      const isActive = isRemove ? !itemData.responsible : itemData.responsible === person.id;
-      row.setAttribute('aria-selected', isActive ? 'true' : 'false');
-      row.classList.toggle('active', isActive);
-      if (isRemove) {
-        row.innerHTML = '<span class="resp-avatar resp-avatar-none">' + ICONS.handRaise + '</span>';
-        const nm = document.createElement('span');
-        nm.className = 'resp-row-name'; nm.textContent = 'Ingen ansvarlig';
-        row.appendChild(nm);
-      } else {
-        row.appendChild(respAvatar(person, index));
-        const nm = document.createElement('span');
-        nm.className = 'resp-row-name'; nm.textContent = person.name;
-        row.appendChild(nm);
-      }
-      row.addEventListener('click', () => {
-        setResponsible(itemData, cardData, isRemove ? null : person.id);
-        closeResponsible();
+    // Bygg (ev. bygg om) radene fra en delegruppe. Ansvaret leses LIVE på id,
+    // så en ombygging etter en synk-rebuild markerer riktig person som aktiv.
+    const paint = (group) => {
+      const live = findAnyById(itemData.id);
+      const curResp = ((live && live.kind === 'item' ? live.obj : itemData).responsible) || null;
+      const makeRow = (person, index, isRemove) => {
+        const row = document.createElement('button');
+        row.type = 'button';
+        row.className = 'resp-row' + (isRemove ? ' resp-row-clear' : '');
+        row.setAttribute('role', 'option');
+        const isActive = isRemove ? !curResp : curResp === person.id;
+        row.setAttribute('aria-selected', isActive ? 'true' : 'false');
+        row.classList.toggle('active', isActive);
+        if (isRemove) {
+          row.innerHTML = '<span class="resp-avatar resp-avatar-none">' + ICONS.handRaise + '</span>';
+          const nm = document.createElement('span');
+          nm.className = 'resp-row-name'; nm.textContent = 'Ingen ansvarlig';
+          row.appendChild(nm);
+        } else {
+          row.appendChild(respAvatar(person, index));
+          const nm = document.createElement('span');
+          nm.className = 'resp-row-name'; nm.textContent = person.name;
+          row.appendChild(nm);
+        }
+        row.addEventListener('click', () => {
+          setResponsible(itemData, cardData, isRemove ? null : person.id);
+          closeResponsible();
+        });
+        return row;
+      };
+
+      respSwitcherPanel.innerHTML = '';
+      // «Ingen ansvarlig» først når noen er valgt (så man kan nullstille).
+      if (curResp) respSwitcherPanel.appendChild(makeRow(null, -1, true));
+      let activeRow = null;
+      group.people.forEach((p, i) => {
+        const row = makeRow(p, i, false);
+        if (p.id === curResp) activeRow = row;
+        respSwitcherPanel.appendChild(row);
       });
-      return row;
+      if (!group.people.length) {
+        const p = document.createElement('p');
+        p.className = 'uni-empty'; p.textContent = 'Ingen medlemmer ennå.';
+        respSwitcherPanel.appendChild(p);
+      }
+      // Reposisjoner ved ombygging (radantallet kan ha endret seg) — men aldri
+      // mot en anker-knapp som en synk-rebuild har revet ut av DOM-en.
+      if (anchorBtn.isConnected && window.matchMedia('(min-width: 561px)').matches) {
+        positionSwitcherPanel(respSwitcherPanel, anchorBtn);
+      }
+      if (!didFocus) {
+        didFocus = true;
+        (activeRow || respSwitcherPanel.firstElementChild || respSwitcherPanel).focus();
+      }
     };
 
-    // «Ingen ansvarlig» først når noen er valgt (så man kan nullstille).
-    if (itemData.responsible) respSwitcherPanel.appendChild(makeRow(null, -1, true));
-    let activeRow = null;
-    group.people.forEach((p, i) => {
-      const row = makeRow(p, i, false);
-      if (p.id === itemData.responsible) activeRow = row;
-      respSwitcherPanel.appendChild(row);
-    });
-    if (!group.people.length) {
-      const p = document.createElement('p');
-      p.className = 'uni-empty'; p.textContent = 'Ingen medlemmer ennå.';
-      respSwitcherPanel.appendChild(p);
-    }
-
+    // Åpne UMIDDELBART med cachet delegruppe (normalt varm via ensureShareGroup
+    // fra ansvarsknapp-rendringen); hent ferskt i bakgrunnen og bygg om når det
+    // lander (medlemmer kan ha endret seg siden forrige cache).
     respOpen = true;
     respSwitcherOverlay.hidden = false;
     updateModalOpenClass();
-    if (window.matchMedia('(min-width: 561px)').matches) positionSwitcherPanel(respSwitcherPanel, anchorBtn);
-    (activeRow || respSwitcherPanel.firstElementChild || respSwitcherPanel).focus();
+    const cached = shareGroupCache.get(key);
+    if (cached) paint(cached);
+    fetchShareGroup(rType, shareRoot.id).then((g) => {
+      shareGroupCache.set(key, g);
+      if (respOpen && token === respToken) paint(g);
+    }).catch(() => {
+      // Uten cache har vi ingenting å vise → lukk med beskjed (som før).
+      if (!shareGroupCache.has(key) && respOpen && token === respToken) {
+        closeResponsible();
+        showToast('Kunne ikke hente medlemmer');
+      }
+    });
   }
   respSwitcherOverlay.addEventListener('click', (ev) => { if (ev.target === respSwitcherOverlay) closeResponsible(); });
   respSwitcherPanel.addEventListener('keydown', (ev) => {
@@ -4648,13 +4676,26 @@
   const isMine = (o) => !o || o._mine !== false; // lokalt nye (uten meta) er «mine»
 
   /* ---------------- get_my_doc → kanonisk innholds-doc + metadata ---------------- */
+  // Optimistisk forlatte delinger (leave_share i kø, se suppressedRows): filtrer
+  // bort share-roten OG alt under den fra fjern-doc'et til operasjonen har
+  // landet. Uten dette ville reconcile enten gjenopplivet raden lokalt (flimmer)
+  // eller — for undertreet, som også er fjernet lokalt men fortsatt finnes i
+  // basen — pushet delete på EIERENS rader.
+  function suppressedSetsFor(my) {
+    const supU = new Set(), supG = new Set(), supC = new Set();
+    (my.universes || []).forEach((u) => { if (suppressedRows.has(u.id)) supU.add(u.id); });
+    (my.groups || []).forEach((g) => { if (suppressedRows.has(g.id) || supU.has(g.uni)) supG.add(g.id); });
+    (my.cards || []).forEach((c) => { if (suppressedRows.has(c.id) || supG.has(c.group)) supC.add(c.id); });
+    return { supU, supG, supC };
+  }
   function contentDocFromMy(my) {
+    const { supU, supG, supC } = suppressedSetsFor(my);
     let maxTs = 0;
     const bump = (r) => { maxTs = Math.max(maxTs, r.ts || 0, r.posTs || 0, r.labTs || 0); };
-    const universes = (my.universes || []).map((u) => { const r = cleanUniverse(u); bump(r); return r; });
-    const groups = (my.groups || []).map((g) => { const r = cleanGroup(g); bump(r); return r; });
-    const cards = (my.cards || []).map((c) => { const r = cleanCard(c); bump(r); return r; });
-    const items = (my.items || []).map((it) => { const r = cleanItem(it, it.home); bump(r); return r; });
+    const universes = (my.universes || []).filter((u) => !supU.has(u.id)).map((u) => { const r = cleanUniverse(u); bump(r); return r; });
+    const groups = (my.groups || []).filter((g) => !supG.has(g.id)).map((g) => { const r = cleanGroup(g); bump(r); return r; });
+    const cards = (my.cards || []).filter((c) => !supC.has(c.id)).map((c) => { const r = cleanCard(c); bump(r); return r; });
+    const items = (my.items || []).filter((it) => !supC.has(it.home)).map((it) => { const r = cleanItem(it, it.home); bump(r); return r; });
     return { universes, groups, cards, items, hlc: maxTs };
   }
   function metaFromMy(my) {
@@ -4755,9 +4796,11 @@
         const m = meta.get(id);
         obj._mine = m ? m.mine : true;
         obj._owner = m ? m.owner : (authUser && authUser.id);
-        obj._locked = m ? m.locked : false;
+        // Optimistiske overlays: en køet set_locked/membership-patch skal ikke
+        // visuelt «hoppe tilbake» hvis en pull rekker å kjøre før den lander.
+        obj._locked = lockOverrides.has(id) ? !!lockOverrides.get(id) : (m ? m.locked : false);
         obj._shared = m ? m.shared : false;
-        obj._mount = m && m.mount ? m.mount : null;
+        obj._mount = m && m.mount ? Object.assign({}, m.mount, mountOverrides.get(id) || null) : null;
         if (obj._mount) {
           obj._canon = { parent: canonParent, pos: obj.pos, posTs: obj.posTs, posOrg: obj.posOrg, trashed: obj.trashed };
           obj.pos = obj._mount.pos || 0;
@@ -4866,19 +4909,217 @@
     }
   }
 
-  /* ---------------- Mount-skrivinger (membership) ---------------- */
-  async function cloudMountUpdate(type, id, patch) {
-    const client = acli();
-    if (!client || !authUser) return;
-    const col = type === 'universe' ? 'universe_id' : type === 'group' ? 'group_id' : 'card_id';
-    try {
-      await client.from('memberships').update(patch).eq('user_id', authUser.id).eq(col, id);
-    } catch (e) { /* ignore */ }
+  /* ---------------- Bakgrunns-operasjonskø (RPC-operasjoner) ----------------
+     Delings-operasjonene (inviter/lås/kast ut/forlat/godta + mount-skrivinger)
+     går ikke gjennom doc-synken, og ventet tidligere i UI-et (deaktiverte
+     knapper/spinnere) til de hadde landet. Nå utføres de optimistisk i UI-et og
+     legges i ÉN seriell kø i bakgrunnen: neste operasjon starter først når
+     forrige er ferdig, så to skrivinger på samme rad aldri kan lande i feil
+     rekkefølge — uansett hvor fort brukeren klikker.
+
+       • `key` + `merge`: en operasjon med samme nøkkel som en som VENTER i køen
+         koalesceres inn i den (siste tilstand vinner — lås-spam og gjentatte
+         mount-flytt blir én skriving). En kjørende operasjon røres ikke.
+       • Nettverksfeil (offline): operasjonen legges fremst igjen og prøves på
+         nytt med backoff (rekkefølgen bevares); `online`-hendelsen napper køen
+         i gang straks.
+       • Serveravvisning: operasjonens `onError` ruller UI-et tilbake (resynk/
+         fjern optimistisk rad) + viser feilen — samme sluttilstand som om
+         operasjonen aldri var mulig.
+       • `op.value` settes til run()-resultatet, så en senere køet operasjon kan
+         kjede på det (f.eks. «trekk tilbake» som venter på invitasjons-id-en
+         fra en «inviter» lenger frem i køen).
+       • `waitFor`: en forutsetning som må være sann før operasjonen starter —
+         køen venter (og prøver jevnlig) i stedet for å kjøre for tidlig. Brukes
+         av operasjoner som avhenger av at doc-synken har fått pushet en rad
+         først (f.eks. «del en nettopp opprettet liste»: invitasjonen ligger i
+         kø til kort-raden finnes på serveren). Gir opp med onError etter en
+         romslig frist, så en rad som aldri dukker opp ikke låser køen evig.
+     Optimistisk lokal visning holdes stabil over synk-rebuilds med overlayene
+     under (lockOverrides/mountOverrides/suppressedRows) til operasjonen har
+     landet — se applyMyDoc/contentDocFromMy. */
+  const opQueue = (() => {
+    const queue = [];
+    let running = null;
+    let retryTimer = null;
+    let retryDelay = 1000;
+    // Epoke: bumpes av clear() (utlogging). En operasjon som var I LUFTA da
+    // køen ble tømt, kan ikke avbrytes — men resultatet forkastes når den
+    // lander (ingen callbacks, ingen retry), så arbeid fra en gammel sesjon
+    // aldri kjører videre under en ny konto.
+    let epoch = 0;
+    const WAIT_POLL_MS = 400;
+    const WAIT_MAX_POLLS = 150; // ≈ 60 s
+
+    function isNetworkErr(e) {
+      if (typeof navigator !== 'undefined' && navigator.onLine === false) return true;
+      const m = String((e && e.message) || e || '');
+      return /failed to fetch|networkerror|network request failed|load failed|fetch failed/i.test(m);
+    }
+    function hasPending(key) {
+      return (running && running.key === key) || queue.some((o) => o.key === key);
+    }
+    async function pump() {
+      if (running || !queue.length) return;
+      // Forutsetning ikke oppfylt ennå → la operasjonen bli stående fremst og
+      // prøv igjen om litt (rekkefølgen bevares).
+      const head = queue[0];
+      if (head.waitFor && !head.waitFor()) {
+        head._waited = (head._waited || 0) + 1;
+        if (head._waited <= WAIT_MAX_POLLS) {
+          clearTimeout(retryTimer);
+          retryTimer = setTimeout(pump, WAIT_POLL_MS);
+          return;
+        }
+        queue.shift();
+        try { if (head.onError) head.onError(new Error('Endringen er ikke lagret i skyen ennå — prøv igjen')); }
+        catch (e) { /* callback-feil skal ikke stoppe køen */ }
+        pump();
+        return;
+      }
+      const op = running = queue.shift();
+      let value, err = null;
+      try { value = await op.run(); }
+      catch (e) { err = e; }
+      running = null;
+      if (op._epoch !== epoch) { pump(); return; } // køen ble tømt (utlogging) mens den var i lufta → forkast
+      if (err && isNetworkErr(err)) {
+        // Offline/nett-glipp: behold rekkefølgen (fremst igjen) og prøv senere.
+        queue.unshift(op);
+        clearTimeout(retryTimer);
+        retryTimer = setTimeout(pump, retryDelay);
+        retryDelay = Math.min(retryDelay * 2, 15000);
+        return;
+      }
+      retryDelay = 1000;
+      op.value = value;
+      try {
+        if (err) { if (op.onError) op.onError(err); }
+        else if (op.onDone) op.onDone(value);
+      } catch (e) { /* callback-feil skal ikke stoppe køen */ }
+      pump();
+    }
+    function enqueue(op) {
+      op._epoch = epoch;
+      if (op.key) {
+        const dup = queue.find((o) => o.key === op.key);
+        if (dup) {
+          if (dup.merge) dup.merge(op);
+          else { dup.run = op.run; dup.onDone = op.onDone; dup.onError = op.onError; }
+          return dup;
+        }
+      }
+      queue.push(op);
+      pump();
+      return op;
+    }
+    // Kontrollert avbrudd: fjerner en operasjon som ennå ikke har startet.
+    function cancel(op) {
+      const i = queue.indexOf(op);
+      if (i > -1) { queue.splice(i, 1); return true; }
+      return false;
+    }
+    function clear() {
+      epoch++; // forkaster også en ev. operasjon som er i lufta akkurat nå
+      queue.length = 0;
+      clearTimeout(retryTimer);
+      retryDelay = 1000;
+    }
+    window.addEventListener('online', () => { clearTimeout(retryTimer); retryDelay = 1000; pump(); });
+    return { enqueue, cancel, clear, hasPending };
+  })();
+
+  /* ---------------- Optimistiske overlays (til operasjonen har landet) ----------------
+     applyMyDoc bygger state fra SERVERENS metadata hver synk-runde; uten
+     overlayene ville en optimistisk endring visuelt hoppet tilbake hvis en pull
+     rakk å kjøre før den køede skrivingen landet. Ryddes av operasjonens
+     onDone/onError (når køen ikke har flere operasjoner for samme nøkkel). */
+  const lockOverrides = new Map();  // id → ønsket locked-verdi (set_locked i kø)
+  const mountOverrides = new Map(); // id → { pos?, trashed?, parent? } (membership-patch i kø)
+  const suppressedRows = new Set(); // share-rot-id-er fjernet lokalt (leave_share i kø)
+
+  // Er raden (share-roten) kjent på serveren ennå? Delings-RPC-er mot et NYTT
+  // objekt (inviter/lås rett etter opprettelse) må vente i køen til doc-synken
+  // har fått pushet raden — ellers avviser serveren dem («finnes ikke»).
+  // lastMy er forrige pull; cloudCycle kjører en bekreftelses-pull etter hver
+  // push, så ventetiden er kort.
+  function rowKnownToServer(id) {
+    if (!lastMy) return false;
+    const has = (list) => (list || []).some((r) => r.id === id);
+    return has(lastMy.universes) || has(lastMy.groups) || has(lastMy.cards);
   }
-  async function cloudLeave(type, id) {
-    const client = acli();
-    if (!client || !authUser) return;
-    try { await client.rpc('leave_share', { p_type: type, p_id: id }); } catch (e) { /* ignore */ }
+
+  /* ---------------- Mount-skrivinger (membership) ---------------- */
+  // Patch-kolonner → overlay-felt (samme fasong som meta.mount i applyMyDoc).
+  function mountOverrideFrom(patch) {
+    const o = {};
+    if ('pos' in patch) o.pos = patch.pos;
+    if ('trashed' in patch) o.trashed = patch.trashed;
+    if ('parent_universe_id' in patch) o.parent = patch.parent_universe_id;
+    if ('parent_group_id' in patch) o.parent = patch.parent_group_id;
+    return o;
+  }
+  function cloudMountUpdate(type, id, patch) {
+    mountOverrides.set(id, Object.assign(mountOverrides.get(id) || {}, mountOverrideFrom(patch)));
+    const key = 'mount:' + id;
+    const col = type === 'universe' ? 'universe_id' : type === 'group' ? 'group_id' : 'card_id';
+    const op = {
+      key,
+      patch: Object.assign({}, patch),
+      merge: (next) => { Object.assign(op.patch, next.patch); },
+      run: async () => {
+        const client = acli();
+        if (!client || !authUser) return;
+        const { error } = await client.from('memberships').update(op.patch)
+          .eq('user_id', authUser.id).eq(col, id);
+        if (error) throw error;
+      },
+      onDone: () => {
+        if (!opQueue.hasPending(key)) { mountOverrides.delete(id); scheduleCloud(0); }
+      },
+      onError: () => {
+        mountOverrides.delete(id);
+        showToast('Kunne ikke lagre endringen av delt innhold');
+        scheduleCloud(0); // server-sannheten gjenoppretter visningen
+      },
+    };
+    opQueue.enqueue(op);
+  }
+  // Forlat en deling: share-roten er allerede fjernet lokalt (optimistisk);
+  // undertrykkes fra pull-ene til leave har landet, så den verken gjenoppstår
+  // lokalt eller (verre) får reconcile til å pushe delete på eierens rader.
+  function cloudLeave(type, id) {
+    suppressedRows.add(id);
+    const key = 'leave:' + type + ':' + id;
+    if (opQueue.hasPending(key)) return;
+    opQueue.enqueue({
+      key,
+      run: async () => {
+        const client = acli();
+        if (!client || !authUser) return;
+        const { error } = await client.rpc('leave_share', { p_type: type, p_id: id });
+        if (error) throw error;
+      },
+      onDone: () => { suppressedRows.delete(id); scheduleCloud(0); },
+      onError: (e) => {
+        suppressedRows.delete(id);
+        showToast(friendlyAuthError(e));
+        scheduleCloud(0); // objektet kommer tilbake fra serveren hvis vi fortsatt er medlem
+      },
+    });
+  }
+  // Fjern en montert share-rot fra det lokale treet (optimistisk «forlat» fra
+  // del-modalen — motstykket til splice-ene i emptyXTrash-stiene).
+  function removeMountLocally(id) {
+    const f = findAnyById(id);
+    if (!f) return;
+    const arr = f.kind === 'universe' ? state.universes
+      : f.kind === 'group' ? (f.obj._parent ? f.obj._parent.groups : null)
+      : f.obj._parent ? f.obj._parent.cards : null;
+    if (!arr) return;
+    const i = arr.indexOf(f.obj);
+    if (i > -1) arr.splice(i, 1);
+    validateActive(state); // delingen kan ha vært aktivt univers/gruppe
   }
 
   /* ---------------- Synk-syklus v2 ---------------- */
@@ -4916,8 +5157,14 @@
       // (merged ≠ lokal); ellers ville et fokusert (tomt) felt hot-loope get_my_doc.
       if (!isBusyEditing()) applyMyDoc(merged, meta);
       else if (canonical(merged) !== canonical(local)) cloudAgain = true;
-      if (ops.length) await pushOps(ops);
-      clearLandedResp(merged);
+      if (ops.length) {
+        await pushOps(ops);
+        // Bekreftelses-pull straks etter push: lastMy/metadata friskes opp, så
+        // køede operasjoner som venter på en nypushet rad (rowKnownToServer)
+        // slipper å vente på neste poll. Løper ikke løpsk: neste runde ser
+        // remote == lokal → ingen nye ops → ingen ny runde.
+        cloudAgain = true;
+      }
       updateInbox(my);
       maybeOfferMigration(my);
     } catch (e) {
@@ -5008,7 +5255,7 @@
   const menuBadge = document.getElementById('menu-badge');
 
   function updateInbox(my) {
-    const invites = (my && my.invites_in) || [];
+    const invites = ((my && my.invites_in) || []).filter((inv) => !suppressedInvites.has(inv.id));
     const placements = pendingPlacements || [];
     const total = invites.length + placements.length;
     menuBadge.textContent = String(total);
@@ -5109,32 +5356,61 @@
     updateModalOpenClass2();
   }
 
-  async function acceptInvite(inv) {
-    askPlacement(inv.type, inv.name, async (parent) => {
-      try {
-        const pos = Date.now();
-        const { error } = await acli().rpc('accept_share_invite',
-          { p_invite: inv.id, p_parent: parent, p_pos: pos });
-        if (error) throw error;
-        showToast('Deling godtatt');
-        cloudBase = null;
-        scheduleCloud(0);
-      } catch (e) { showToast(friendlyAuthError(e)); }
+  // Optimistisk besvarte invitasjoner (svar-RPC-en ligger i køen): raden holdes
+  // ute av innboksen så en synk-pull ikke gjenoppliver den før svaret har landet.
+  const suppressedInvites = new Set();
+  function acceptInvite(inv) {
+    askPlacement(inv.type, inv.name, (parent) => {
+      // Optimistisk: raden forsvinner straks; selve aksepten ligger i køen.
+      // Innholdet dukker opp når neste pull ser det nye medlemskapet.
+      suppressedInvites.add(inv.id);
+      updateInbox(lastMy);
+      showToast('Deling godtatt');
+      opQueue.enqueue({
+        run: async () => {
+          const { error } = await acli().rpc('accept_share_invite',
+            { p_invite: inv.id, p_parent: parent, p_pos: Date.now() });
+          if (error) throw error;
+        },
+        onDone: () => {
+          suppressedInvites.delete(inv.id);
+          cloudBase = null;
+          scheduleCloud(0);
+        },
+        onError: (e) => {
+          suppressedInvites.delete(inv.id);
+          updateInbox(lastMy); // raden kommer tilbake
+          showToast(friendlyAuthError(e));
+        },
+      });
     });
   }
-  async function declineInvite(inv) {
-    try {
-      const { error } = await acli().rpc('decline_share_invite', { p_invite: inv.id });
-      if (error) throw error;
-      scheduleCloud(0);
-    } catch (e) { showToast(friendlyAuthError(e)); }
+  function declineInvite(inv) {
+    suppressedInvites.add(inv.id);
+    updateInbox(lastMy);
+    opQueue.enqueue({
+      run: async () => {
+        const { error } = await acli().rpc('decline_share_invite', { p_invite: inv.id });
+        if (error) throw error;
+      },
+      onDone: () => { suppressedInvites.delete(inv.id); scheduleCloud(0); },
+      onError: (e) => {
+        suppressedInvites.delete(inv.id);
+        updateInbox(lastMy);
+        showToast(friendlyAuthError(e));
+      },
+    });
   }
   function placeMount(pl) {
-    askPlacement(pl.type, pl.name, async (parent) => {
+    askPlacement(pl.type, pl.name, (parent) => {
+      // Optimistisk: raden forsvinner straks; mount-patchen ligger i køen, og
+      // mount-overlayet gjør at neste pull monterer objektet lokalt også før
+      // patchen har landet.
       const patch = pl.type === 'group'
         ? { parent_universe_id: parent } : { parent_group_id: parent };
-      await cloudMountUpdate(pl.type, pl.id, patch);
-      cloudBase = null;
+      cloudMountUpdate(pl.type, pl.id, patch);
+      pendingPlacements = pendingPlacements.filter((p) => p.id !== pl.id);
+      updateInbox(lastMy);
       scheduleCloud(0);
     });
   }
@@ -5153,26 +5429,18 @@
   // mening både for eier og mottaker (mottaker kan ikke dele videre, men har
   // fortsatt innstillinger her). Navnet settes som tekstnode (aldri innerHTML).
   const SHARE_TYPE_ICON = { universe: 'globe', group: 'folder', card: 'list' };
-  async function openShare(type, id, obj) {
+  function openShare(type, id, obj) {
     shareCtx = { type, id, obj };
     shareTitle.innerHTML = ICONS[SHARE_TYPE_ICON[type]] || '';
     shareTitle.appendChild(document.createTextNode(
       (obj.name || obj.title || '') + ' — Innstillinger for deling'));
-    shareBody.innerHTML = '<p class="place-hint">Laster …</p>';
     shareModal.hidden = false;
     updateModalOpenClass2();
-    let info = { owner: null, members: [], pending_invites: [] };
-    try {
-      const { data, error } = await acli().rpc('get_members', { p_type: type, p_id: id });
-      if (error) throw error;
-      info = data || info;
-    } catch (e) { /* vis skjema likevel */ }
-    if (obj._mine === false) {
-      if (info.owner) { obj._ownerEmail = info.owner.email; obj._ownerName = info.owner.display_name; }
-      renderShareRecipient(obj);
-      return;
-    }
-    renderShareOwner(type, id, obj, info);
+    // Åpne UMIDDELBART — eierskapet (_mine) kjenner vi synkront, så riktig
+    // visning tegnes med en gang. Medlemslisten/eier-informasjonen hentes i
+    // bakgrunnen og fylles inn når den lander (se renderShareOwner/-Recipient).
+    if (obj._mine === false) renderShareRecipient(obj);
+    else renderShareOwner(type, id, obj);
   }
 
   // Avatar for en person i del-modalen: rund sirkel med initialer (navn hvis
@@ -5184,7 +5452,21 @@
     s.textContent = initialsFromName(person && person.display_name, person && person.email);
     return s;
   }
-  function renderShareOwner(type, id, obj, info) {
+  // Eieren selv, fra kontoens egne data — så medlemslisten kan tegnes UMIDDELBART
+  // (uten å vente på get_members); medlemmer/ventende invitasjoner fylles inn
+  // når hentingen lander.
+  function myOwnerInfo() {
+    const prof = (lastMy && lastMy.user) || {};
+    return {
+      owner: {
+        id: authUser && authUser.id,
+        email: prof.email || (authUser && authUser.email),
+        display_name: prof.display_name || (authUser && authUser.meta && authUser.meta.display_name),
+      },
+      members: [], pending_invites: [],
+    };
+  }
+  function renderShareOwner(type, id, obj) {
     shareBody.innerHTML = '';
     // Inviter på e-post
     const form = document.createElement('form');
@@ -5214,6 +5496,11 @@
     const title = document.createElement('div');
     title.className = 'share-section-title'; title.textContent = 'Medlemmer';
     const membersWrap = document.createElement('div');
+    // Optimistiske «Venter på svar»-rader (invitasjoner som ligger i køen):
+    // renderMembers tegner medlemslisten fra serverens svar og henger disse på
+    // etterpå, så en oppdatering for én invitasjon ikke sluker en annen som
+    // fortsatt er underveis.
+    const optimisticRows = new Set();
 
     function renderMembers(inf) {
       membersWrap.innerHTML = '';
@@ -5236,11 +5523,15 @@
         kick.className = 'btn btn-solid btn-red btn-small'; kick.type = 'button'; kick.textContent = 'Kast ut';
         kick.addEventListener('click', async () => {
           if (!await askConfirm({ title: 'Kaste ut', message: 'Fjerne ' + mbr.email + ' fra delingen?', okLabel: 'Kast ut' })) return;
-          try {
-            const { error } = await acli().rpc('revoke_share', { p_type: type, p_id: id, p_user: mbr.id });
-            if (error) throw error;
-            refreshMembers(); scheduleCloud(0);
-          } catch (e) { showToast(friendlyAuthError(e)); }
+          row.remove(); // optimistisk — refreshMembers gjenoppretter hvis serveren avviser
+          opQueue.enqueue({
+            run: async () => {
+              const { error } = await acli().rpc('revoke_share', { p_type: type, p_id: id, p_user: mbr.id });
+              if (error) throw error;
+            },
+            onDone: () => { refreshMembers(); scheduleCloud(0); },
+            onError: (e) => { showToast(friendlyAuthError(e)); refreshMembers(); },
+          });
         });
         row.append(avatarFor(mbr, false), box, kick);
         membersWrap.appendChild(row);
@@ -5253,16 +5544,21 @@
         box.querySelector('.member-name').textContent = inv.email;
         const cancel = document.createElement('button');
         cancel.className = 'btn btn-small btn-ghost'; cancel.type = 'button'; cancel.textContent = 'Trekk tilbake';
-        cancel.addEventListener('click', async () => {
-          try {
-            const { error } = await acli().rpc('revoke_share_invite', { p_invite: inv.id });
-            if (error) throw error;
-            refreshMembers();
-          } catch (e) { showToast(friendlyAuthError(e)); }
+        cancel.addEventListener('click', () => {
+          row.remove(); // optimistisk
+          opQueue.enqueue({
+            run: async () => {
+              const { error } = await acli().rpc('revoke_share_invite', { p_invite: inv.id });
+              if (error) throw error;
+            },
+            onDone: refreshMembers,
+            onError: (e) => { showToast(friendlyAuthError(e)); refreshMembers(); },
+          });
         });
         row.append(avatarFor({ email: inv.email }, false), box, cancel);
         membersWrap.appendChild(row);
       });
+      optimisticRows.forEach((r) => membersWrap.appendChild(r));
     }
     async function refreshMembers() {
       try {
@@ -5271,36 +5567,96 @@
       } catch (e) { /* behold forrige */ }
     }
 
-    form.addEventListener('submit', async (ev) => {
+    form.addEventListener('submit', (ev) => {
       ev.preventDefault();
       const email = input.value.trim().toLowerCase();
       if (!email) return;
-      btn.disabled = true; msg.textContent = ''; msg.classList.remove('ok');
-      try {
-        const { error } = await acli().rpc('create_share_invite',
-          { p_type: type, p_id: id, p_email: email });
-        if (error) throw error;
-        msg.textContent = 'Invitasjon sendt til ' + email; msg.classList.add('ok');
-        input.value = '';
-        refreshMembers();
-      } catch (e) { msg.textContent = friendlyAuthError(e); }
-      finally { btn.disabled = false; }
+      input.value = '';
+      msg.textContent = ''; msg.classList.remove('ok');
+      // Optimistisk: raden vises straks, feltet er klart for neste e-post —
+      // selve invitasjonen ligger i køen (flere invitasjoner køes etter hverandre).
+      const row = document.createElement('div');
+      row.className = 'member-row member-pending';
+      const box = document.createElement('div'); box.className = 'member-info';
+      box.innerHTML = '<span class="member-name"></span><span class="member-role">Venter på svar</span>';
+      box.querySelector('.member-name').textContent = email;
+      const cancel = document.createElement('button');
+      cancel.className = 'btn btn-small btn-ghost'; cancel.type = 'button'; cancel.textContent = 'Trekk tilbake';
+      row.append(avatarFor({ email }, false), box, cancel);
+      optimisticRows.add(row);
+      membersWrap.appendChild(row);
+      const op = opQueue.enqueue({
+        waitFor: () => rowKnownToServer(id), // et nyopprettet objekt må først være pushet
+        run: async () => {
+          const { data, error } = await acli().rpc('create_share_invite',
+            { p_type: type, p_id: id, p_email: email });
+          if (error) throw error;
+          return data;
+        },
+        onDone: () => {
+          // La raden stå til refreshMembers tegner den ekte (ingen blink-lucke).
+          optimisticRows.delete(row);
+          msg.textContent = 'Invitasjon sendt til ' + email; msg.classList.add('ok');
+          refreshMembers();
+        },
+        onError: (e) => {
+          optimisticRows.delete(row);
+          row.remove();
+          msg.textContent = friendlyAuthError(e);
+        },
+      });
+      // «Trekk tilbake» på en optimistisk rad: avbryt kontrollert — fjernes fra
+      // køen hvis opprettelsen ikke har startet; ellers køes en tilbaketrekking
+      // som (pga. seriell kø) først kjører når opprettelsen har landet, og
+      // bruker invitasjons-id-en fra dens resultat.
+      cancel.addEventListener('click', () => {
+        optimisticRows.delete(row);
+        row.remove();
+        if (opQueue.cancel(op)) return;
+        opQueue.enqueue({
+          run: async () => {
+            const inv = op.value;
+            if (!inv || !inv.id) return; // opprettelsen feilet → ingenting å trekke tilbake
+            const { error } = await acli().rpc('revoke_share_invite', { p_invite: inv.id });
+            if (error) throw error;
+          },
+          onDone: refreshMembers,
+          onError: (e) => { showToast(friendlyAuthError(e)); refreshMembers(); },
+        });
+      });
     });
-    lockBtn.addEventListener('click', async () => {
-      lockBtn.disabled = true;
-      try {
-        const { error } = await acli().rpc('set_locked',
-          { p_type: type, p_id: id, p_locked: !obj._locked });
-        if (error) throw error;
-        obj._locked = !obj._locked;
-        paintLock();
-        scheduleCloud(0);
-      } catch (e) { showToast(friendlyAuthError(e)); }
-      finally { lockBtn.disabled = false; }
+    lockBtn.addEventListener('click', () => {
+      // Optimistisk: statusen vender straks (lockOverrides holder den stabil
+      // over synk-rebuilds); koalescert kø-skriving gjør rask av/på-veksling
+      // til én skriving med sluttilstanden.
+      obj._locked = !obj._locked;
+      lockOverrides.set(id, obj._locked);
+      paintLock();
+      const key = 'lock:' + type + ':' + id;
+      opQueue.enqueue({
+        key,
+        waitFor: () => rowKnownToServer(id), // et nyopprettet objekt må først være pushet
+        run: async () => {
+          const want = lockOverrides.has(id) ? lockOverrides.get(id) : obj._locked;
+          const { error } = await acli().rpc('set_locked', { p_type: type, p_id: id, p_locked: want });
+          if (error) throw error;
+        },
+        onDone: () => {
+          if (!opQueue.hasPending(key)) { lockOverrides.delete(id); scheduleCloud(0); }
+        },
+        onError: (e) => {
+          lockOverrides.delete(id);
+          obj._locked = !obj._locked;
+          if (shareCtx && shareCtx.id === id) paintLock();
+          showToast(friendlyAuthError(e));
+          scheduleCloud(0); // server-sannheten gjenoppretter visningen
+        },
+      });
     });
 
     shareBody.append(form, msg, lockRow, title, membersWrap);
-    renderMembers(info);
+    renderMembers(myOwnerInfo()); // eieren (deg) vises straks
+    refreshMembers();             // medlemmer/ventende fylles inn når de lander
   }
   function renderShareRecipient(obj) {
     shareBody.innerHTML = '';
@@ -5319,12 +5675,27 @@
     leave.className = 'btn btn-solid btn-red share-leave'; leave.type = 'button'; leave.textContent = 'Forlat deling';
     leave.addEventListener('click', async () => {
       if (!await askConfirm({ title: 'Forlat deling', message: 'Forlate denne delingen? Den forsvinner fra dine lister.', okLabel: 'Forlat' })) return;
-      await cloudLeave(shareCtx.type, shareCtx.id);
+      const ctx = shareCtx; // fanges FØR closeShare nuller den
       closeShare();
-      cloudBase = null;
-      scheduleCloud(0);
+      // Optimistisk: delingen forsvinner fra treet straks; leave_share ligger i
+      // køen (cloudLeave undertrykker raden fra pull-ene til den har landet).
+      removeMountLocally(ctx.id);
+      cloudLeave(ctx.type, ctx.id);
+      render();
+      save();
     });
     shareBody.appendChild(leave);
+    // Eier-navnet hentes i bakgrunnen første gang (og huskes på objektet);
+    // visningen over er komplett uten det («Delt med deg»).
+    if (!obj._ownerName && !obj._ownerEmail && shareCtx) {
+      const ctx = shareCtx;
+      acli().rpc('get_members', { p_type: ctx.type, p_id: ctx.id }).then(({ data }) => {
+        if (!data || !data.owner) return;
+        obj._ownerEmail = data.owner.email;
+        obj._ownerName = data.owner.display_name;
+        if (shareCtx && shareCtx.id === ctx.id && !shareModal.hidden) renderShareRecipient(obj);
+      }).catch(() => { /* behold «Delt med deg» */ });
+    }
   }
 
   /* ---------------- Start/stopp av kontomodus ---------------- */
@@ -5371,7 +5742,12 @@
     if (cloudChan && aclient) { try { aclient.removeChannel(cloudChan); } catch (e) {} }
     cloudChan = null; cloudRt = false; cloudBase = null; lastMy = null;
     cloudStarted = false;
-    shareGroupCache.clear(); shareGroupLoading.clear(); pendingResp.clear();
+    shareGroupCache.clear(); shareGroupLoading.clear();
+    // Køede operasjoner tilhører den utloggede sesjonen — dropp dem (de ville
+    // uansett blitt avvist uten sesjon) og nullstill de optimistiske overlayene.
+    opQueue.clear();
+    lockOverrides.clear(); mountOverrides.clear(); suppressedRows.clear();
+    suppressedInvites.clear();
     authUser = null;
     state.universes = [];
     document.body.classList.add('no-auth');

@@ -39,9 +39,15 @@ umiddelbart**. Ellers committes slettingen når timeren (`DELETE_BUFFER_MS`,
 Mens objektet er buffret:
 - Det er **skjult** fra board/menyer (`activeCards`/`visibleGroups`/… ekskluderer
   `_pendingDelete`) men **vises i søppel-visningen** (`trashedCards`/… inkluderer
-  det) — med en **spinner** i stedet for «Gjenopprett»-knappen (ikke gjenopprettbart
-  ennå), og «Tøm permanent» er deaktivert for pending-rader.
-- Etter commit byttes spinneren til den vanlige «Gjenopprett»-knappen.
+  det) — som en helt vanlig rad. **Ingenting i søppel-flyten venter på
+  bufferet** (ingen spinnere/deaktiverte knapper):
+  - «Gjenopprett» på en buffret rad = angre bufferet (`undoBufferedDelete`):
+    flagget fjernes og raden pilles ut av samle-toasten (`pruneDeleteToast`,
+    som oppdaterer antallet i toasten / rydder den når den blir tom) —
+    umiddelbart, null databasetrafikk.
+  - «Tøm permanent» / sveipe-tømming committer buffrede rader i sitt omfang
+    FØRST (`commitBufferedFor`) og tømmer så — brukeren merker ingen forskjell
+    på en buffret og en committet rad.
 
 ALT går via **id-oppslag** (`findAnyById`), aldri fangede objekt-referanser, så
 det tåler at synken bygger state-treet på nytt underveis — `reapplyPendingDeletes()`
@@ -162,51 +168,45 @@ filtrert på `pointerId`, koblet til/fra PER TRYKK (ikke i selve
 `attachTrashHold`-oppsettet) — ellers ville hver kort-ombygging lagt igjen en
 varig `document`-lytter (én per element-søppelknapp som noensinne bygges).
 
-## Buffer-slettede objekter kan ikke tømmes ennå
+## Tømming venter aldri på bufferet
 
-`emptyXTrash()` hopper alltid over `_pendingDelete`-objekter (de er ikke
-`trashed` i state ennå). Derfor er både sveipefeltet og «Tøm permanent»-
-knappen i modalen sperret så lenge NOE i søppelen fortsatt er buffret:
-`attachTrashHold`s `api.pending()` stopper `openField()` fra å starte, og
-`renderTrashModalBody()` deaktiverer `trashEmptyBtn` når
-`rows.some(r => r.pending)`. Søppelkasse-knappens tall-badge
-(`.trashcan-count`) viser en liten spinner (`.pending`-klassen, CSS `::after`)
-i stedet for tallet mens dette gjelder — samme visuelle språk som spinneren
-per rad i modalen. Fordi tallet i seg selv ikke endrer seg når en sletting
-committes (objektet var allerede talt med som «i søppel»), måtte de tre
-commit-stedene (`armDeleteTimer`, kategoribytte i `pushDeleteToast`,
-`commitAllPending`) begynne å rydde badgen når timeren utløper — ellers ble
-spinneren hengende til neste urelaterte re-render, selv etter at objektet
-faktisk var klart til å tømmes.
+`emptyXTrash()` starter med `commitBufferedFor(ids)`: alle buffrede rader i
+tømmingens omfang committes umiddelbart (uten å vente på angre-vinduet) og
+pilles ut av samle-toasten, før selve tømmingen kjører over hele lista.
+Sveipefeltet og «Tøm permanent» er derfor **aldri sperret**; badge-tellerne
+viser bare antallet. (Tidligere var begge deaktivert med spinnere til bufferet
+var committet — det er borte.)
 
-Dette gjøres bevisst UTEN en full `render()`: siden `DELETE_BUFFER_MS`-
-timeren kan utløpe mens brukeren har et annet, usagret inline-redigeringsfelt
-åpent et sted i UI-et (`editText()` sitt `.edit-input`, som ikke er bundet
-til state før blur/Enter), ville en full board-rebuild slettet den uferdige
-redigeringen under brukerens hender. `commitDeleteOne` returnerer nå hva slags
-objekt som ble committet (`{ kind, obj, card? }`), og
-`refreshTrashBadgesAfterCommit()` bruker det til å oppdatere KUN de relevante
-badgene direkte (`updateTrashCount`/`updateGroupsTrash`/`updateUniversesTrash`
-for gruppe/liste/univers-nivå, `updateItemsTrashBadge(cardData)` — som kun
-rører `.trashcan-count`-spannet, ikke resten av kortet — for element-nivå).
+Commit-stedene som treffes av timeren/kategoribyttet (`armDeleteTimer`,
+`pushDeleteToast`, `commitAllPending`) rydder fortsatt badge-tellerne bevisst
+UTEN en full `render()`: `DELETE_BUFFER_MS`-timeren kan utløpe mens brukeren
+har et usagret inline-redigeringsfelt åpent (`editText()` sitt `.edit-input`),
+og en full board-rebuild ville slettet den uferdige redigeringen. `commitDeleteOne`
+returnerer hva slags objekt som ble committet (`{ kind, obj, card? }`), og
+`refreshTrashBadgesAfterCommit()` oppdaterer kun de relevante badgene
+(`updateTrashCount`/`updateGroupsTrash`/`updateUniversesTrash`/
+`updateItemsTrashBadge`).
 
-`commitAllPending()` (kjøres ved `visibilitychange`/`pagehide`, altså når
-fanen skjules mens noe er buffret) må også rydde modalen hvis den står åpen
-(`if (!trashModal.hidden) renderTrashModalBody();`) — ellers ble den
-stående med spinner-rader til brukeren lukket og åpnet den på nytt, selv
-lenge etter at objektene faktisk var committet.
+`commitAllPending()` (ved `visibilitychange`/`pagehide`) rydder også modalen
+hvis den står åpen (`renderTrashModalBody()`), så radene alltid speiler
+faktisk tilstand.
 
-## Knappen svarer ikke på et lite bevegelig trykk mens noe er pending
+**Delte mounts i tømming**: for en mottaker er «tøm» på en montert share-rot =
+forlat delingen. `emptyXTrash` splicer objektet lokalt og kaller `cloudLeave`,
+som legger `leave_share` i bakgrunns-operasjonskøen og undertrykker raden fra
+synk-pullene til den har landet (`suppressedRows`, se `docs/accounts.md`) — så
+den verken gjenoppstår lokalt eller trigger delete-push mot eierens rader.
+(Tidligere ble hele `cloudBase` nullstilt i stedet; det kunne kortvarig
+gjenopplive andre, egne rader som ble tømt i samme runde.)
 
-`openField()`s `api.pending()`-sperre (over) gjør at et sveipeforsøk kan
-avvises FØR `mode` rekker å bli `'swiping'`. Et ekte trykk har alltid litt
-bevegelse (fingerskjelving/mus-jitter) — og `onUp` krevde tidligere BÅDE
-`mode === 'pending'` OG at pekeren ikke hadde beveget seg (`!moved`) for å
-tolke slippet som et kort trykk (åpne modalen). Når `openField()` ble avvist
-midt i et forsøk med litt bevegelse, ble ingen av grenene i `onUp` truffet —
-knappen gjorde ingenting ved slipp, uten noen synlig feilmelding. Siden
-`mode` fortsatt er `'pending'` betyr nettopp at INGENTING visuelt åpnet seg
-(hverken sveipefeltet eller noe annet), er det alltid trygt å tolke et slipp
-i den tilstanden som et kort trykk — `moved`-sjekken er derfor fjernet fra
-denne grenen; `onUp` åpner modalen uansett når `mode === 'pending'` ved
-slipp.
+## Knappen svarer alltid på et lite bevegelig trykk
+
+`openField()` kan avvise et sveipeforsøk FØR `mode` rekker å bli `'swiping'`
+(tom kasse). Et ekte trykk har alltid litt bevegelse (fingerskjelving/
+mus-jitter) — og `onUp` krevde tidligere BÅDE `mode === 'pending'` OG at
+pekeren ikke hadde beveget seg (`!moved`) for å tolke slippet som et kort
+trykk (åpne modalen). Da kunne et avvist forsøk med litt bevegelse ende med
+at knappen ikke gjorde noenting ved slipp. Siden `mode` fortsatt `'pending'`
+betyr at INGENTING visuelt åpnet seg, er det alltid trygt å tolke et slipp i
+den tilstanden som et kort trykk — `onUp` åpner modalen uansett liten
+bevegelse.
