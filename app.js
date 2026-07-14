@@ -3824,11 +3824,22 @@
       const dateIn = document.createElement('input');
       dateIn.type = 'date';
       dateIn.className = 'field time-date';
+      dateIn.placeholder = 'dd.mm.åååå';
       dateIn.setAttribute('aria-label', isDue ? 'Fristdato' : 'Startdato');
+      // Klokkeikon til venstre for klokkeslettet, så feltet leses tydelig som
+      // klokkeslett (ikke en andre dato) selv når det står tomt.
+      const clockWrap = document.createElement('span');
+      clockWrap.className = 'time-clock-wrap';
+      const clockIcon = document.createElement('span');
+      clockIcon.className = 'time-clock-icon';
+      clockIcon.setAttribute('aria-hidden', 'true');
+      clockIcon.innerHTML = ICONS.clock;
       const timeIn = document.createElement('input');
       timeIn.type = 'time';
       timeIn.className = 'field time-clock';
+      timeIn.placeholder = 'tt:mm';
       timeIn.setAttribute('aria-label', 'Klokkeslett (valgfritt)');
+      clockWrap.append(clockIcon, timeIn);
       const clearBtn = document.createElement('button');
       clearBtn.type = 'button';
       clearBtn.className = 'icon-btn time-clear';
@@ -3859,7 +3870,7 @@
       dateIn.addEventListener('change', commit);
       timeIn.addEventListener('change', commit);
       clearBtn.addEventListener('click', () => { dateIn.value = ''; timeIn.value = ''; commit(); });
-      row.append(label, dateIn, timeIn, clearBtn);
+      row.append(label, dateIn, clockWrap, clearBtn);
       return row;
     };
 
@@ -6115,7 +6126,7 @@
       });
     });
 
-    body.append(form, msg, lockRow, title, membersWrap);
+    body.append(form, msg, title, membersWrap, lockRow);
     renderMembers(myOwnerInfo()); // eieren (deg) vises straks
     refreshMembers();             // medlemmer/ventende fylles inn når de lander
   }

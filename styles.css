@@ -1821,7 +1821,7 @@ body.no-auth #menu-btn { display: none; }
 .invite-actions { display: flex; gap: 6px; }
 
 /* ---------------- Del-modal ---------------- */
-.share-body { display: flex; flex-direction: column; gap: 14px; }
+.share-body { display: flex; flex-direction: column; gap: 10px; }
 .share-invite-form { display: flex; gap: 8px; }
 .share-invite-form .field { flex: 1; min-width: 0; }
 .share-section-title { font-size: var(--fs-xs); font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; color: var(--ink-soft); margin: 2px 0; }
@@ -2032,8 +2032,30 @@ body.no-auth #menu-btn { display: none; }
 }
 .time-row-label .icon { font-size: 17px; flex: 0 0 auto; }
 .time-row .field { padding: 8px 10px; font-size: var(--fs-sm); }
-.time-date { flex: 1 1 130px; min-width: 0; }
-.time-clock { flex: 0 1 104px; min-width: 84px; }
+/* Datofeltet er så bredt som «dd.mm.åååå» + kalenderikonet trenger — ikke
+   bredere (var tidligere elastisk og langt bredere enn innholdet). Samme
+   bredde på alle skjermstørrelser. Litt krymp tillatt (helt smale mobiler)
+   fremfor å tvinge klokkeslettet ned på egen linje. */
+.time-date { flex: 0 1 146px; min-width: 130px; }
+/* Klokkeslett-feltet får et klokkeikon til venstre (inni feltet, som et
+   søkefelt-ikon) — venstre-paddingen på selve inputen gir rom til det. Bredden
+   er tilpasset det norske 24-timersformatet («tt:mm», uten fm/em-suffiks). */
+.time-clock-wrap {
+  position: relative;
+  flex: 0 1 88px;
+  min-width: 72px;
+  display: inline-flex;
+  align-items: center;
+}
+.time-clock-icon {
+  position: absolute;
+  left: 9px;
+  display: flex;
+  color: var(--ink-soft);
+  pointer-events: none;
+}
+.time-clock-icon .icon { font-size: 15px; }
+.time-clock { width: 100%; padding-left: 27px; }
 .time-clear {
   flex: 0 0 auto;
   width: 30px;
@@ -2041,6 +2063,7 @@ body.no-auth #menu-btn { display: none; }
   border-radius: 8px;
 }
 .time-row .field:disabled { opacity: 0.55; }
+.time-clock-wrap:has(.time-clock:disabled) .time-clock-icon { opacity: 0.55; }
 /* Subtilt hint (utenfor listens tidsrom / styrt av listen). */
 .time-note { margin: 0; font-size: var(--fs-xs); font-weight: 600; color: #9a6b15; }
 .time-note.is-muted { color: var(--ink-soft); font-weight: 500; }
@@ -2061,12 +2084,13 @@ body.no-auth #menu-btn { display: none; }
   accent-color: var(--primary);
   cursor: pointer;
 }
-/* Smale skjermer: la klokkeslett + fjern-knapp bryte til egen linje, flukta
-   under datofeltet (ellers blir datofeltet klemt uleselig smalt). */
+/* Smale skjermer: label-teksten («Start»/«Frist») viker for ikonet alene —
+   inputene har egen aria-label, så ingenting går tapt for skjermlesere — slik
+   at dato + klokkeslett + fjern-knapp fortsatt får plass på én linje. */
 @media (max-width: 560px) {
-  .time-row { flex-wrap: wrap; }
-  .time-date { flex: 1 1 160px; }
-  .time-clock { margin-left: 70px; } /* label-bredde (62) + gap (8) */
+  .time-row { gap: 6px; }
+  .time-row-label { flex: 0 0 auto; gap: 0; }
+  .time-row-label span:last-child { display: none; }
 }
 
 /* Tids-popoveren (samme skall som bytterne). */
