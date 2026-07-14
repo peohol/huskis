@@ -1,24 +1,13 @@
-# Brukerkontoer og deling — klienten (fase 2)
+# Brukerkontoer og deling — klienten
 
 Les denne når oppgaven berører innlogging med e-post/passord, synk mot de
-relasjonelle tabellene, mount-rendring av delt innhold, delings-UI, eller
-kontomodus-flagget. Databasesiden: `docs/arkitektur-brukere-deling.md`.
-All koden ligger i `app.js`, seksjonen «FASE 2 — BRUKERKONTOER OG DELING».
+relasjonelle tabellene, mount-rendring av delt innhold, delings-UI, e-postvarsel
+eller innboks. Databasesiden: `docs/arkitektur-brukere-deling.md`. All koden
+ligger i `app.js`, seksjonen «BRUKERKONTOER OG DELING».
 
-## Kontomodus-flagget
-
-Kontomodus (ekte kontoer i stedet for mønster-lås) er bevisst bak et flagg
-inntil de manuelle Supabase-dashboard-stegene i `TODO.md` er gjort:
-
-- `window.SUPABASE_CONFIG.accounts = true` (i `config.js`) — slår det på i
-  produksjon.
-- `?accounts=1` — slår det på for én økt (mot ekte Supabase).
-- `?mock=1` — kontomodus mot `mock-backend.js` (hermetisk, se under).
-- `?patternlock=1` / standard — den gamle mønster-låsen (`docs/auth.md`).
-
-`accountsMode()` avgjør dette. Er den av, kjører appen 100 % som før (mønster-
-lås + synk-doc v1, `docs/sync.md`) — fase 2-koden er ren tilleggskode som bare
-aktiveres av flagget.
+Appen kjører KUN på ekte kontoer — mønster-låsen og synk-doc v1 er fjernet.
+`?mock=1` bytter backend til `mock-backend.js` (hermetisk in-memory, for testing;
+se under). Supabase-klienten lages av `acli()`.
 
 ## Auth-UI
 
@@ -52,7 +41,7 @@ faner (= to enheter) deler den huskede posisjonen.
 Kanonisk innhold ligger nå relasjonelt (ikke ett jsonb-doc). Klienten holder
 samme nested `state` som før; synken går slik (`cloudCycle`):
 
-1. **Pull**: `get_my_doc()` → flatt doc i samme fasong som synk-doc v1, men med
+1. **Pull**: `get_my_doc()` → ett flatt doc (universes/groups/cards/items), med
    ekstra felt per rad: `owner`/`mine`/`locked`/`shared`/`mount`, samt
    `invites_in`/`invites_out`. Rader med en optimistisk forlatt deling
    (`suppressedRows`, se operasjonskøen under) filtreres bort — inkludert hele
@@ -168,8 +157,7 @@ rekkefølge + egen søppel) ligger i en membership-rad («mount»). I `applyMyDo
   med del-modalen. Univers og grupper deles fra menyenes `.share-btn`
   (del-univers ved «＋ Gruppe», del-gruppe ved «＋ Liste» — de deler det AKTIVE
   universet/gruppen). `updateShareButtons()` (i `render()`) toggler synlighet
-  ut fra `accountsMode()` + `_mine`/`_mount`; klikk-handlerne leser aktivt
-  objekt.
+  ut fra `_mine`/`_mount`; klikk-handlerne leser aktivt objekt.
 - **`item.done`** (avkryssing) synker via samme rad-CRUD som resten (innholds-
   register `ts`/`org`). Krever `items.done`-kolonnen — se `TODO.md`.
 - **Sletting er buffret** (`docs/trash.md`): den skrives ikke til DB før toast-
@@ -212,6 +200,35 @@ rekkefølge + egen søppel) ligger i en membership-rad («mount»). I `applyMyDo
   (mount-patch) fjerner raden umiddelbart (`suppressedInvites`/
   `pendingPlacements`-filtrering) med RPC-en i køen; innholdet dukker opp når
   neste pull ser medlemskapet. Ved avvisning kommer raden tilbake + feil-toast.
+  Hver invitasjonsrad viser **inviterendes navn** (`invites_in[].from_name` =
+  `display_name`), ikke e-posten — `updateInbox` bruker `from_name || from`.
+
+## Varsling ved deling (i appen + e-post)
+
+Mottakeren varsles på to måter når noe deles med hen:
+
+- **I appen (alltid)**: `updateInbox(my)` (kalt hver `cloudCycle`) setter en rød
+  ring med antall (`#menu-badge`) på ☰-knappen — summen av `invites_in` (ikke
+  besvarte) + `pendingPlacements` — og fyller «Invitasjoner»-innboksen i meny-
+  modalen. Dette dekker **registrerte** mottakere fullt ut (de trenger ikke
+  e-post).
+- **På e-post (valgfritt)**: en `share_invites`-insert-trigger i databasen
+  (`send_invite_email`, pg_net → Resend, `docs/arkitektur-brukere-deling.md`)
+  sender e-post. **Uregistrerte** mottakere får en lenke `<app_url>?signup=
+  <e-post>`; **registrerte** får en åpne-appen-lenke, men kun hvis de har
+  e-postvarsel PÅ. Triggeren gjør ingenting uten Resend-konfig (`app_config`) —
+  se `TODO.md`.
+- **`?signup=<e-post>`-dyplenke** (`applySignupInvite`, i `initAccounts`): åpner
+  auth-skjermen i **register**-modus med e-posten utfylt + en «du er invitert»-
+  melding, så en uregistrert mottaker oppretter konto direkte. `handle_new_user`
+  kobler den ventende invitasjonen på e-post ved registrering, og den dukker opp
+  i innboksen straks mottakeren logger inn.
+- **E-postvarsel-innstilling** (registrerte): en toggle i meny-modalen
+  (`#email-pref-toggle`) lagrer `user_metadata.email_notifications` via
+  `auth.updateUser({ data })` (optimistisk, `emailPrefOn`/`paintEmailPref`).
+  Standard PÅ (manglende flagg → på). E-post-triggeren respekterer flagget for
+  registrerte mottakere. Mock-backenden speiler `user_metadata` (samme vei som
+  `nav`), så toggelen persisterer på tvers av «faner» i test.
 
 ## Navn, initialer og ansvarlig
 

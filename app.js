@@ -108,7 +108,7 @@
   // forelder-FK-er), så nye objekter MÅ ha gyldige UUID-er ellers avviser
   // PostgREST insert-en. crypto.randomUUID() finnes i sikre kontekster
   // (https/localhost); ellers en RFC4122-kompatibel reserve. UUID-er er også
-  // gyldige streng-id-er i synk-doc v1 (mønster-lås), så dette gjelder begge modi.
+  // gyldige som uuid-kolonner i databasen (offline-first: id-en lages på klienten).
   function uid() {
     try { if (window.crypto && crypto.randomUUID) return crypto.randomUUID(); } catch (e) { /* ignore */ }
     return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
@@ -321,8 +321,7 @@
   }
   function save() {
     clearTimeout(saveTimer);
-    const accounts = accountsMode() && authUser;
-    const key = accounts ? (STORAGE_KEY + ':' + authUser.id) : STORAGE_KEY;
+    const key = authUser ? (STORAGE_KEY + ':' + authUser.id) : STORAGE_KEY;
     saveTimer = setTimeout(() => {
       try {
         state._hlc = hlc;
@@ -332,12 +331,7 @@
       }
     }, 120);
     if (applyingRemote) return;
-    if (accountsMode()) {
-      if (authUser) scheduleCloud();
-    } else if (syncCode && cloudConfigured()) {
-      // Sky-synk v1 (mønster-lås): flett + push (debouncet).
-      scheduleSync();
-    }
+    if (authUser) scheduleCloud();
   }
 
   // Første gang (ingen lokal state): start tom når sky-synk er konfigurert
@@ -587,7 +581,7 @@
     try { localStorage.setItem(FILTER_KEY, JSON.stringify(filter)); } catch (e) { /* ignore */ }
   }
   // Er kortet delt med meg av noen andre? (Utenfor kontomodus er alt «mine».)
-  function cardIsShared(c) { return accountsMode() && c._mine === false; }
+  function cardIsShared(c) { return c._mine === false; }
   function cardMatchesFilter(c) {
     return cardIsShared(c) ? filter.delt : filter.mine;
   }
@@ -673,11 +667,10 @@
   // vilkår som de gamle per-kort-del-knappene. Klikk-handlere er koblet én gang
   // (leser aktivt objekt ved klikk); her toggles bare synligheten.
   function updateShareButtons() {
-    const acc = accountsMode();
     const uni = activeUniverseObj();
     const grp = activeGroupObj();
-    shareUniBtn.hidden = !(acc && uni && (uni._mine || uni._mount));
-    shareGroupBtn.hidden = !(acc && grp && (grp._mine || grp._mount));
+    shareUniBtn.hidden = !(uni && (uni._mine || uni._mount));
+    shareGroupBtn.hidden = !(grp && (grp._mine || grp._mount));
   }
   shareUniBtn.addEventListener('click', () => {
     const u = activeUniverseObj();
@@ -725,7 +718,7 @@
   // som byggerne gjenbruker — canEdit gater redigering; buildCard toggler dessuten
   // .is-locked selv (kun listekort har den).
   function applyShareBadge(el, obj) {
-    const shared = accountsMode() && (obj._shared || obj._mount);
+    const shared = obj._shared || obj._mount;
     const canEdit = !frozen(obj);
     el.classList.toggle('is-shared', !!shared);
     if (shared) {
@@ -788,14 +781,14 @@
     });
 
     const gDelBtn = el.querySelector('.group-delete');
-    if (accountsMode() && !gCanEdit && !groupData._mount) {
+    if (!gCanEdit && !groupData._mount) {
       gDelBtn.hidden = true;
     } else {
       gDelBtn.addEventListener('click', (ev) => { ev.stopPropagation(); deleteGroup(groupData); });
     }
 
     const gHandle = el.querySelector('.group-handle');
-    if (accountsMode() && !gCanEdit && !groupData._mount) {
+    if (!gCanEdit && !groupData._mount) {
       gHandle.style.visibility = 'hidden';
     } else {
       gHandle.addEventListener('pointerdown', (ev) => startGroupDrag(ev, el));
@@ -915,10 +908,10 @@
     // montert liste-rot (mottakerens egen) kan alltid dras/legges i egen søppel.
     // Delt-indikatoren ligger i meta-raden under tittelen (fillMetaRow), ikke
     // som badge i headeren; .is-locked (egen kant-styling) settes her.
-    const shared = accountsMode() && (cardData._shared || cardData._mount);
+    const shared = cardData._shared || cardData._mount;
     const canEdit = !frozen(cardData);
     el.classList.toggle('is-shared', !!shared);
-    el.classList.toggle('is-locked', accountsMode() && !canEdit);
+    el.classList.toggle('is-locked', !canEdit);
 
     // Tannhjulet åpner listens innstillingsmodal (navn/deling/ansvarlig/tidsplan).
     el.querySelector('.card-cog').addEventListener('click', () =>
@@ -943,7 +936,7 @@
     // Slett kategori -> legg i papirkurv (trashed-flagg; permanent først ved «Tøm papirkurv»).
     // Frosset (låst av andre) og ikke egen mount → ingen slett-knapp.
     const cardDelBtn = el.querySelector('.card-delete');
-    if (accountsMode() && !canEdit && !cardData._mount) {
+    if (!canEdit && !cardData._mount) {
       cardDelBtn.hidden = true;
     } else {
       cardDelBtn.addEventListener('click', () => {
@@ -957,7 +950,7 @@
 
     // Håndtak for kort-draging. Frosset (låst av andre) og ikke egen mount → skjul.
     const cardHandle = el.querySelector('.card-handle');
-    if (accountsMode() && !canEdit && !cardData._mount) {
+    if (!canEdit && !cardData._mount) {
       cardHandle.style.visibility = 'hidden';
     } else {
       cardHandle.addEventListener('pointerdown', (ev) => startCardDrag(ev, el));
@@ -1002,7 +995,7 @@
     const form = el.querySelector('.add-item-form');
     const input = form.querySelector('.add-item-input');
     const addBtn = form.querySelector('.add-item-btn');
-    if (accountsMode() && !canEdit) form.hidden = true;
+    if (!canEdit) form.hidden = true;
     const syncAddBtn = () => { addBtn.disabled = !input.value.trim(); };
     syncAddBtn();
     input.addEventListener('input', syncAddBtn);
@@ -1115,9 +1108,8 @@
   // `_mine === false`, men er IKKE selv delings-roten (ingen egen medlemsliste)
   // — derfor stopper vi kun på `_shared`/`_mount`, ikke på `_mine === false`,
   // ellers ville ansvars-velgeren hentet get_members for feil (medlemsløst)
-  // objekt for arvede delinger. Null utenfor kontomodus / for private objekter.
+  // objekt for arvede delinger. Null for private objekter.
   function shareRootFor(node) {
-    if (!accountsMode()) return null;
     let n = node;
     while (n) {
       if (n._shared || n._mount) return n;
@@ -1281,7 +1273,7 @@
     row.innerHTML = '';
     const obj = target.obj;
     const isCard = target.kind === 'card';
-    if (isCard && accountsMode() && (obj._shared || obj._mount)) {
+    if (isCard && (obj._shared || obj._mount)) {
       const chip = metaChipEl('meta-shared');
       chip.innerHTML = !canEdit ? ICONS.lock : ICONS.people;
       chip.title = obj._mount ? 'Delt med deg' : 'Delt med andre';
@@ -1318,7 +1310,7 @@
   function buildItem(itemData, cardData) {
     const el = itemTpl.content.firstElementChild.cloneNode(true);
     el.dataset.id = itemData.id;
-    const canEdit = !(accountsMode() && frozen(cardData));
+    const canEdit = !frozen(cardData);
 
     const textEl = el.querySelector('.item-text');
     textEl.textContent = itemData.text;
@@ -1418,7 +1410,7 @@
   function buildCategory(catData, cardData) {
     const el = catTpl.content.firstElementChild.cloneNode(true);
     el.dataset.id = catData.id;
-    const canEdit = !(accountsMode() && frozen(cardData));
+    const canEdit = !frozen(cardData);
 
     const titleEl = el.querySelector('.cat-title');
     titleEl.textContent = catData.text || 'Kategori';
@@ -1676,8 +1668,8 @@
     if (o._mount) { o.trashed = val; o._mount.trashed = val; cloudMountUpdate(kind, o.id, { trashed: val }); }
     else { o.trashed = val; stampContent(o); }
   }
-  // Sett gravstein på objektet + hele undertreet (hindrer gjenoppstandelse ved
-  // fletting, se docs/sync.md). Delt av alle fire «tøm permanent»-funksjonene.
+  // Sett gravstein på objektet + hele undertreet (lokal per-enhet-markør).
+  // Delt av alle fire «tøm permanent»-funksjonene.
   function tombSubtree(o, kind) {
     state._tomb[kind + 's'][o.id] = tick();
     if (kind === 'universe') (o.groups || []).forEach((g) => tombSubtree(g, 'group'));
@@ -1687,7 +1679,7 @@
   // Alle fire gjenopprett-hjelperne slår opp objektet på nytt via id FØR de
   // muterer det — aldri den (potensielt foreldede) referansen som ble sendt inn.
   // Søppel-modalen kan stå åpen mens synken bygger state-treet på nytt
-  // (`applyDoc`/`applyMyDoc` bytter ut hele `state.universes` med ferske
+  // (`applyMyDoc` bytter ut hele `state.universes` med ferske
   // objekter), så en fanget referanse fra da modalen ble åpnet peker på et
   // foreldreløst tre. Uten oppslaget satte «Gjenopprett» `trashed = false` på den
   // foreldreløse kopien — modalen så tom ut, men treet hadde objektet slettet.
@@ -1724,7 +1716,7 @@
      søppel-flyten venter altså på bufferet.
      ALT gjøres via id-oppslag (ikke fangede objekt-referanser), så det tåler at
      synken bygger state-treet på nytt underveis; `reapplyPendingDeletes()`
-     gjenpåfører flagget etter hver applyDoc/applyMyDoc. */
+     gjenpåfører flagget etter hver applyMyDoc. */
   const DELETE_BUFFER_MS = 5000;
   const pendingDeletes = new Map(); // id → { kind, commit, timer }
 
@@ -4047,7 +4039,7 @@
     const obj = t.obj;
     const isCard = t.kind === 'card';
     const isCat = t.kind === 'category';
-    const canEdit = !(accountsMode() && frozen(isCard ? obj : t.card));
+    const canEdit = !frozen(isCard ? obj : t.card);
 
     settingsTitleEl.innerHTML = ICONS.gear;
     settingsTitleEl.appendChild(document.createTextNode(' Innstillinger'));
@@ -4098,7 +4090,7 @@
     //    innhold som del-modalen — invitasjoner/lås/utkast går via opQueue.
     //    isMine (ikke _mine): en NYOPPRETTET liste mangler metadata til første
     //    pull, men er min — delingen skal ikke mangle rett etter opprettelse.
-    if (isCard && accountsMode() && (isMine(obj) || obj._mount)) {
+    if (isCard && (isMine(obj) || obj._mount)) {
       const sec = settingsSection(ICONS.people, 'Deling');
       const shareWrap = document.createElement('div');
       shareWrap.className = 'share-body settings-share-body';
@@ -4183,7 +4175,7 @@
     const controller = (!isCard && !isCat) ? timeController(t0.obj, t0.card) : null;
     const locked = !!controller;
     const ctrlIsCat = locked && !!controller.isCat;
-    const canEdit = !locked && !(accountsMode() && frozen(isCard ? t0.obj : t0.card));
+    const canEdit = !locked && !frozen(isCard ? t0.obj : t0.card);
 
     // Containeren elementets tider måles mot (utenfor-hint): kategorien om den
     // finnes og har tider, ellers listen.
@@ -4415,14 +4407,14 @@
       }
     });
     const uDelBtn = el.querySelector('.uni-delete');
-    if (accountsMode() && !uCanEdit && !u._mount) {
+    if (!uCanEdit && !u._mount) {
       uDelBtn.hidden = true;
     } else {
       uDelBtn.addEventListener('click', (ev) => { ev.stopPropagation(); deleteUniverse(u); });
     }
 
     const uHandle = el.querySelector('.group-handle');
-    if (accountsMode() && !uCanEdit && !u._mount) {
+    if (!uCanEdit && !u._mount) {
       uHandle.style.visibility = 'hidden';
     } else {
       uHandle.addEventListener('pointerdown', (ev) => startUniverseDrag(ev, el));
@@ -4485,38 +4477,15 @@
   }
 
   /* ============================================================
-     SANNTIDS-SYNK (Supabase) MED FELT-NIVÅ FLETTING
+     SANNTIDS-SYNK (Supabase Auth + relasjonelle tabeller)
      ------------------------------------------------------------
-     Enheter som deler samme hemmelige synk-kode holdes fortløpende i
-     synk. To mekanismer sørger for at ingenting går tapt:
-
-       1) Fletting (à la git): hele tilstanden ligger som ett jsonb-doc,
-          men hver entitet har egne «registre» med tidsstempel. Ved
-          fletting velges nyeste verdi per felt. Endringer på ulike
-          kort/elementer/felter kolliderer aldri; kun samme register
-          endret på to enheter «konflikter», og da vinner nyeste.
-
-       2) Optimistisk samtidighetskontroll (CAS) i databasen: save_list
-          skriver kun hvis versjonen stemmer. Ellers får klienten gjeldende
-          tilstand tilbake, fletter, og prøver igjen. Slik kan aldri én
-          enhet overskrive en annens samtidige endring.
-
-     Live-oppdatering skjer via Supabase Realtime (broadcast) med polling
-     som fallback + oppdatering når fanen får fokus. Degraderer pent til
-     ren localStorage hvis Supabase mangler / nettet er nede. */
-  const SYNC_CODE_KEY = 'mine-lister-sync-code';
-
+     Brukeren logger inn med e-post/passord. Data ligger relasjonelt
+     (universes/groups/cards/items + memberships) med RLS og server-
+     side felt-nivå LWW. Synk-motoren (get_my_doc → 3-veis fletting →
+     rad-CRUD) og delings-maskineriet ligger lenger ned; her defineres
+     bare backend-klienten. Se docs/accounts.md. */
   let sb = null;              // Supabase-klient (lazy)
-  let syncCode = null;        // aktiv synk-kode (utledet fra mønster), eller null
-  let channelId = null;       // realtime-kanalnavn (sha256 av koden)
-  let rtChannel = null;       // Supabase realtime-kanal
-  let rtConnected = false;
-  let serverVersion = 0;      // sist kjente versjon i databasen
-  let lastServerCanon = null; // kanonisk form av doc vi vet ligger i databasen
   let applyingRemote = false; // sant mens vi skriver fjern-tilstand lokalt (unngå re-push)
-  let legacyMode = false;     // databasen mangler ny save_list-signatur (før migrering)
-  let cycleRunning = false, cycleAgain = false;
-  let pollTimer = null, pollTick = 0, syncDebounce = null;
 
   const logoutBtn = document.getElementById('logout-btn');
 
@@ -4624,76 +4593,10 @@
     if (type === 'card') return cleanCard(Object.assign({}, o, { group: o.group || parent.id }));
     return cleanItem(o, o.home || parent.id);
   }
-  function docFromState() {
-    return Object.assign(flattenNested(state, cleanRow), {
-      tomb: {
-        universes: Object.assign({}, state._tomb.universes),
-        groups: Object.assign({}, state._tomb.groups),
-        cards: Object.assign({}, state._tomb.cards),
-        items: Object.assign({}, state._tomb.items),
-      },
-      hlc: hlc,
-    });
-  }
-
-  // Skriv et (flettet) flatt doc inn i state (nøstet igjen), behold
-  // activeUniverse/activeGroup (validert), tegn på nytt.
-  function applyDoc(doc) {
-    applyingRemote = true;
-    try {
-      const universes = (doc.universes || []).map((u) => Object.assign(cleanUniverse(u), { groups: [] }));
-      const uById = new Map(universes.map((u) => [u.id, u]));
-      const gById = new Map();
-      const cById = new Map();
-      (doc.groups || []).forEach((raw) => {
-        const g = cleanGroup(raw);
-        const parent = uById.get(g.uni);
-        if (!parent) return;      // foreldreløs gruppe → dropp
-        g.cards = [];
-        gById.set(g.id, g);
-        parent.groups.push(g);
-      });
-      (doc.cards || []).forEach((raw) => {
-        const c = cleanCard(raw);
-        const parent = gById.get(c.group);
-        if (!parent) return;      // foreldreløs liste → dropp
-        c.items = [];
-        cById.set(c.id, c);
-        parent.cards.push(c);
-      });
-      (doc.items || []).forEach((raw) => {
-        const it = cleanItem(raw, raw.home);
-        const parent = cById.get(it.home);
-        if (parent) parent.items.push(it); // foreldreløst element → dropp
-      });
-      universes.sort(posCmp);
-      universes.forEach((u) => {
-        u.groups.sort(posCmp);
-        u.groups.forEach((g) => { g.cards.sort(posCmp); g.cards.forEach((c) => c.items.sort(posCmp)); });
-      });
-
-      state.universes = universes;
-      state._tomb = {
-        universes: Object.assign({}, (doc.tomb && doc.tomb.universes) || {}),
-        groups: Object.assign({}, (doc.tomb && doc.tomb.groups) || {}),
-        cards: Object.assign({}, (doc.tomb && doc.tomb.cards) || {}),
-        items: Object.assign({}, (doc.tomb && doc.tomb.items) || {}),
-      };
-      state._hlc = doc.hlc || 0;
-      observeTs(doc.hlc);
-      validateActive(state);
-      reapplyPendingDeletes(); // hold buffer-slettede skjult etter rebuild
-      render();
-    } finally {
-      applyingRemote = false;
-    }
-  }
-
-  /* ---------- Fletting (CRDT-lett, felt-nivå LWW + gravsteiner) ---------- */
-  function deadBy(tombTs, ts, posTs, labTs) {
-    if (tombTs == null) return false;
-    return tombTs >= Math.max(ts || 0, posTs || 0, labTs || 0); // gravstein nyere/lik siste aktivitet
-  }
+  /* ---------- Felt-nivå LWW-fletting (per register) ----------
+     Gjenbrukes av 3-veis-fletteren (reconcile) i synk-motoren: for rader
+     som finnes både lokalt og på serveren velges nyeste verdi per register
+     (innhold `ts/org`, posisjon `posTs/posOrg`, merkelapp `labTs/labOrg`). */
   function mergeItem(a, b) {
     const content = newer(a.ts, a.org, b.ts, b.org) ? a : b;
     const posw = newer(a.posTs, a.posOrg, b.posTs, b.posOrg) ? a : b;
@@ -4744,179 +4647,7 @@
       pos: posw.pos || 0, posTs: posw.posTs || 0, posOrg: posw.posOrg || '',
     };
   }
-  function mergeTomb(a, b) {
-    const out = { universes: {}, groups: {}, cards: {}, items: {} };
-    ['universes', 'groups', 'cards', 'items'].forEach((k) => {
-      const ax = (a && a[k]) || {}, bx = (b && b[k]) || {};
-      Object.keys(ax).forEach((id) => { out[k][id] = ax[id]; });
-      Object.keys(bx).forEach((id) => { out[k][id] = Math.max(out[k][id] || 0, bx[id]); });
-    });
-    return out;
-  }
-  // Flett to flate doc-er felt for felt. Universer/grupper/lister/elementer
-  // flettes hver for seg på id (LWW per register); forelderløse (univers/gruppe/
-  // kort borte) forkastes; gravlagte fjernes. Endringer på ulike entiteter/
-  // felter kolliderer aldri.
-  function mergeStates(a, b) {
-    const tomb = mergeTomb(a.tomb, b.tomb);
-
-    const universes = new Map();
-    const addUniverses = (list) => (list || []).forEach((raw) => {
-      const u = cleanUniverse(raw);
-      const prev = universes.get(u.id);
-      universes.set(u.id, prev ? mergeUniverseScalar(prev, u) : u);
-    });
-    addUniverses(a.universes); addUniverses(b.universes);
-    universes.forEach((u, id) => { if (deadBy(tomb.universes[id], u.ts, u.posTs)) universes.delete(id); });
-
-    const groups = new Map();
-    const addGroups = (list) => (list || []).forEach((raw) => {
-      const g = cleanGroup(raw);
-      const prev = groups.get(g.id);
-      groups.set(g.id, prev ? mergeGroupScalar(prev, g) : g);
-    });
-    addGroups(a.groups); addGroups(b.groups);
-    groups.forEach((g, id) => { if (deadBy(tomb.groups[id], g.ts, g.posTs)) groups.delete(id); });
-    groups.forEach((g, id) => { if (!universes.has(g.uni)) groups.delete(id); }); // foreldreløs gruppe
-
-    const cards = new Map();
-    const addCards = (list) => (list || []).forEach((raw) => {
-      const c = cleanCard(raw);
-      const prev = cards.get(c.id);
-      cards.set(c.id, prev ? mergeCardScalar(prev, c) : c);
-    });
-    addCards(a.cards); addCards(b.cards);
-    cards.forEach((c, id) => { if (deadBy(tomb.cards[id], c.ts, c.posTs, c.labTs)) cards.delete(id); });
-    cards.forEach((c, id) => { if (!groups.has(c.group)) cards.delete(id); }); // foreldreløs liste
-
-    const items = new Map();
-    const addItems = (list) => (list || []).forEach((raw) => {
-      const it = cleanItem(raw, raw.home);
-      const prev = items.get(it.id);
-      items.set(it.id, prev ? mergeItem(prev, it) : it);
-    });
-    addItems(a.items); addItems(b.items);
-    items.forEach((it, id) => { if (deadBy(tomb.items[id], it.ts, it.posTs)) items.delete(id); });
-    items.forEach((it, id) => { if (!cards.has(it.home)) items.delete(id); }); // foreldreløst element
-
-    return {
-      universes: [...universes.values()],
-      groups: [...groups.values()],
-      cards: [...cards.values()],
-      items: [...items.values()],
-      tomb, hlc: Math.max(a.hlc || 0, b.hlc || 0),
-    };
-  }
-
-  /* ---------- Migrering av gamle former (fra databasen) ----------
-     Alle tidligere doc-former løftes til den flate univers-formen:
-       • to-fane-form (hel-tilstand ELLER forrige synk-doc med {tabs, …})
-         → to faste grupper (Huskelister/Handlelister) …
-       • flat gruppe-form ({groups, cards, items, …} uten universer)
-     … og i begge tilfeller pakkes gruppene inn i standard-universet
-     (uni-standard) med nøytrale registre (ts 0, org '') → alle enheter
-     migrerer identisk og fletting dedupliserer av seg selv. Bevarer
-     gravsteiner uansett om de lå som _tomb (state) eller tomb (doc). */
-  function defaultUniverseRow() {
-    return {
-      id: DEFAULT_UNI.id, name: DEFAULT_UNI.name, trashed: false,
-      ts: 0, org: '', pos: 0, posTs: 0, posOrg: '',
-    };
-  }
-  function migrateBareState(s) {
-    const src = s || {};
-    const rawTomb = src._tomb || src.tomb || {};
-    const tomb = {
-      universes: rawTomb.universes || {},
-      groups: rawTomb.groups || {}, cards: rawTomb.cards || {}, items: rawTomb.items || {},
-    };
-    const groups = [], cards = [], items = [];
-    LEGACY_TABS.forEach((m, gi) => {
-      groups.push({ id: m.id, uni: DEFAULT_UNI.id, name: m.name, ts: 0, org: '', pos: gi, posTs: 0, posOrg: '' });
-      const tab = (src.tabs && src.tabs[m.key]) || {};
-      const list = Array.isArray(tab.cards) ? tab.cards.slice() : [];
-      if (Array.isArray(tab.trash)) tab.trash.forEach((c) => list.push(Object.assign({}, c, { trashed: true })));
-      list.forEach((c, ci) => {
-        cards.push(cleanCard(Object.assign({ pos: ci }, c, { group: m.id })));
-        (c.items || []).forEach((it, ii) => items.push(cleanItem(Object.assign({ pos: ii }, it), c.id)));
-      });
-    });
-    return { universes: [defaultUniverseRow()], groups, cards, items, tomb, hlc: src._hlc || src.hlc || 0 };
-  }
-
-  /* ---------- RPC-innpakninger (tolerante for før/etter DB-migrering) ---------- */
-  async function rpcGet() {
-    const client = ensureClient();
-    if (!client || !syncCode) return null;
-    const { data, error } = await client.rpc('get_list', { p_code: syncCode });
-    if (error) throw error;
-    if (data == null) return null;
-    if (typeof data === 'object' && 'version' in data && 'data' in data) {
-      // Ny form: { data, version }
-      return { data: data.data ? normalizeRemoteDoc(data.data) : null, version: data.version || 0 };
-    }
-    if (data.tabs || data.groups || data.universes) return { data: normalizeRemoteDoc(data), version: 0 }; // bar tilstand
-    return null;
-  }
-  // Normaliser fjern-doc: to-fane-form → migreres helt; flat gruppe-form (uten
-  // universer) → gruppene pakkes inn i standard-universet; ny univers-form →
-  // renses. Diskriminatorer: `tabs` (eldst), `universes` (nyest), ellers `groups`.
-  function normalizeRemoteDoc(d) {
-    if (!d || typeof d !== 'object') return migrateBareState(d || {});
-    if (d.tabs) return migrateBareState(d);
-    const tomb = {
-      universes: (d.tomb && d.tomb.universes) || {},
-      groups: (d.tomb && d.tomb.groups) || {},
-      cards: (d.tomb && d.tomb.cards) || {},
-      items: (d.tomb && d.tomb.items) || {},
-    };
-    if (!Array.isArray(d.universes)) {
-      // Forrige flate form: grupper uten univers-nivå → inn i standard-universet.
-      return {
-        universes: [defaultUniverseRow()],
-        groups: (Array.isArray(d.groups) ? d.groups : [])
-          .map((g) => cleanGroup(Object.assign({}, g, { uni: DEFAULT_UNI.id }))),
-        cards: (Array.isArray(d.cards) ? d.cards : []).map(cleanCard),
-        items: (Array.isArray(d.items) ? d.items : []).map((it) => cleanItem(it, it.home)),
-        tomb,
-        hlc: typeof d.hlc === 'number' ? d.hlc : 0,
-      };
-    }
-    return {
-      universes: d.universes.map(cleanUniverse),
-      groups: (Array.isArray(d.groups) ? d.groups : []).map(cleanGroup),
-      cards: (Array.isArray(d.cards) ? d.cards : []).map(cleanCard),
-      items: (Array.isArray(d.items) ? d.items : []).map((it) => cleanItem(it, it.home)),
-      tomb,
-      hlc: typeof d.hlc === 'number' ? d.hlc : 0,
-    };
-  }
-  function isMissingFunction(error) {
-    return !!error && (error.code === 'PGRST202' ||
-      (typeof error.message === 'string' && /save_list|function|does not exist|schema cache/i.test(error.message)));
-  }
-  async function rpcSave(doc, prevVersion) {
-    const client = ensureClient();
-    if (!client || !syncCode) return null;
-    if (!legacyMode) {
-      const { data, error } = await client.rpc('save_list', {
-        p_code: syncCode, p_data: doc, p_prev_version: prevVersion | 0,
-      });
-      if (!error) {
-        if (data && data.ok) return { ok: true, version: data.version || 0 };
-        if (data && data.ok === false) return { conflict: true, version: data.version || 0 };
-        return { ok: true, version: (prevVersion | 0) + 1 };
-      }
-      if (isMissingFunction(error)) { legacyMode = true; } // fall tilbake til gammel signatur
-      else throw error;
-    }
-    // Legacy (før migrering): gammel save_list(text,jsonb) uten CAS.
-    const { error } = await client.rpc('save_list', { p_code: syncCode, p_data: doc });
-    if (error) throw error;
-    return { ok: true, version: (prevVersion | 0) + 1 };
-  }
-
-  /* ---------- Kjerne: én serialisert synk-runde (pull → flett → push) ---------- */
+  /* ---------- Aktiv redigering (ikke riv ned board-et midt i) ---------- */
   function isBusyEditing() {
     if (drag.active) return true;
     const ae = document.activeElement;
@@ -4927,93 +4658,6 @@
     if (ae && ae.classList && ae.classList.contains('add-item-input')) return true;
     return false;
   }
-  function scheduleSync(delay) {
-    clearTimeout(syncDebounce);
-    syncDebounce = setTimeout(syncCycle, delay == null ? 300 : delay);
-  }
-  async function syncCycle() {
-    if (!syncCode || !cloudConfigured()) return;
-    if (cycleRunning) { cycleAgain = true; return; }
-    cycleRunning = true;
-    try {
-      const remote = await rpcGet();                    // { data, version } | null
-      const ver = remote ? (remote.version || 0) : 0;
-      const remoteDoc = remote && remote.data ? remote.data : null;
-      if (remoteDoc) observeTs(remoteDoc.hlc);
-
-      const localDoc = docFromState();
-      const localCanon = canonical(localDoc);
-      const mergedDoc = remoteDoc ? mergeStates(localDoc, remoteDoc) : localDoc;
-      const mergedCanon = canonical(mergedDoc);
-      const remoteCanon = remoteDoc ? canonical(remoteDoc) : null;
-
-      // Reflekter fletteresultatet lokalt (hvis noe endret seg) — men ikke
-      // avbryt aktiv redigering/draging; prøv da igjen straks etter.
-      if (mergedCanon !== localCanon) {
-        if (isBusyEditing()) { cycleAgain = true; }
-        else { applyDoc(mergedDoc); showToast('Oppdatert fra en annen enhet'); }
-      }
-
-      // Push hvis vår (flettede) tilstand avviker fra det som ligger i databasen.
-      if (mergedCanon !== remoteCanon) {
-        const res = await rpcSave(mergedDoc, ver);
-        if (res && res.ok) {
-          serverVersion = res.version;
-          lastServerCanon = mergedCanon;
-          broadcastChanged(res.version);
-        } else if (res && res.conflict) {
-          serverVersion = res.version || ver;
-          cycleAgain = true; // noen skrev i mellomtiden → flett på nytt
-        } else {
-          cycleAgain = true;
-        }
-      } else {
-        serverVersion = ver;
-        lastServerCanon = remoteCanon;
-      }
-    } catch (e) {
-      // Offline / feil — realtime/poll prøver igjen senere.
-    } finally {
-      cycleRunning = false;
-      if (cycleAgain) { cycleAgain = false; scheduleSync(150); }
-    }
-  }
-
-  /* ---------- Realtime (broadcast) + poll-fallback ---------- */
-  function broadcastChanged(version) {
-    if (rtChannel && rtConnected) {
-      try { rtChannel.send({ type: 'broadcast', event: 'changed', payload: { v: version, from: deviceId } }); }
-      catch (e) { /* ignore */ }
-    }
-  }
-  function startRealtime() {
-    const client = ensureClient();
-    if (!client || !channelId) return;
-    if (rtChannel) { try { client.removeChannel(rtChannel); } catch (e) { /* ignore */ } rtChannel = null; }
-    rtChannel = client.channel('hk-' + channelId, { config: { broadcast: { self: false } } });
-    rtChannel.on('broadcast', { event: 'changed' }, (msg) => {
-      const p = msg && msg.payload;
-      if (!p || p.from === deviceId) return;
-      scheduleSync(120); // en annen enhet skrev → hent + flett straks
-    });
-    rtChannel.subscribe((status) => {
-      if (status === 'SUBSCRIBED') { rtConnected = true; scheduleSync(0); }
-      else if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT' || status === 'CLOSED') {
-        rtConnected = false;
-        setTimeout(() => { if (!rtConnected && syncCode) startRealtime(); }, 4000);
-      }
-    });
-  }
-  function startPoll() {
-    clearInterval(pollTimer);
-    pollTimer = setInterval(() => {
-      if (document.hidden || !syncCode) return;
-      // Poll sjeldnere når realtime er tilkoblet (kun sikkerhetsnett).
-      if (rtConnected && (pollTick++ % 4 !== 0)) return;
-      syncCycle();
-    }, 4000);
-  }
-
   /* ---------- Lett, forbigående varsel (ingen fast statusindikator) ---------- */
   let toastTimer = null;
   // action (valgfri): { label, fn } → knapp i toasten (f.eks. «Angre»). Med
@@ -5051,290 +4695,32 @@
      Synken går fortløpende i bakgrunnen; ingen egen synk-knapp trengs.
      Ved fjern-endringer vises et lite «oppdatert»-varsel (showToast). */
   logoutBtn.addEventListener('click', async () => {
-    const q = accountsMode()
-      ? 'Logge ut? Listene dine ligger trygt i skyen og kommer tilbake når du logger inn igjen.'
-      : 'Logge ut? Listene dine ligger trygt i skyen og kommer tilbake når du tegner mønsteret igjen.';
+    const q = 'Logge ut? Listene dine ligger trygt i skyen og kommer tilbake når du logger inn igjen.';
     if (await askConfirm({ title: 'Logg ut', message: q, okLabel: 'Logg ut' })) logout();
   });
 
-  // Hold i synk når fanen kommer i forgrunnen igjen (mobil suspenderer sockets/timere).
-  document.addEventListener('visibilitychange', () => {
-    if (!document.hidden && syncCode) {
-      if (!rtConnected) startRealtime();
-      scheduleSync(0);
-    }
-  });
-  window.addEventListener('online', () => { if (syncCode) { startRealtime(); scheduleSync(0); } });
-  window.addEventListener('focus', () => { if (syncCode) scheduleSync(200); });
-
-  // Koble til: abonnér på realtime, start poll, kjør første synk-runde.
-  async function syncConnect(code) {
-    syncCode = code;
-    try { localStorage.setItem(SYNC_CODE_KEY, code); } catch (e) { /* ignore */ }
-    if (!cloudConfigured()) return;
-    try { channelId = await sha256Hex('rt|' + code); } catch (e) { channelId = code; }
-    startRealtime();
-    startPoll();
-    await syncCycle();
-  }
-
-  // Ved oppstart (allerede innlogget): koble til med den lagrede koden.
-  async function syncInit() {
-    const savedCode = localStorage.getItem(SYNC_CODE_KEY);
-    if (!savedCode) return;
-    await syncConnect(savedCode);
-  }
-
-  /* ---------------- Innlogging (mønster-lås) ----------------
-     Splash-screen der man tegner et mønster i et 3x3-rutenett. Fasiten
-     ligger kun som en hash i koden. Innlogging huskes til man logger ut.
-     Synk-koden utledes fra mønsteret, så samme mønster gir samme lister. */
-  const AUTH_KEY = 'mine-lister-auth';
-  const FAIL_KEY = 'mine-lister-lock-fails';
-  const UNTIL_KEY = 'mine-lister-lock-until';
-  const MAX_FAILS = 5;                 // «mer enn 5 gale forsøk» → lås
-  const LOCK_MS = 5 * 60 * 1000;       // 5 minutter
-  const PATTERN_HASH = 'd49f889217daf70b19763a1491179f690d3b131ef10e2e2d849ce50d0f6e12ba';
-
-  const SVG_NS = 'http://www.w3.org/2000/svg';
-  const lockScreen = document.getElementById('lock-screen');
-  const lockSvg = document.getElementById('lock-svg');
-  const lockPath = document.getElementById('lock-path');
-  const lockLive = document.getElementById('lock-live');
-  const lockNodesLayer = document.getElementById('lock-nodes');
-  const lockMsg = document.getElementById('lock-msg');
-
-  // Rutenett i 300x300-viewBox: sentre på 50/150/250, cellebredde 100.
-  const LOCK_NODES = [];
-  for (let r = 1; r <= 3; r++) {
-    for (let c = 1; c <= 3; c++) {
-      LOCK_NODES.push({ r, c, id: r + ',' + c, x: 50 + (c - 1) * 100, y: 50 + (r - 1) * 100 });
-    }
-  }
-  const SNAP_R = 44;                   // treffradius ≈ halve cellebredden
-  const lockNodeById = (id) => LOCK_NODES.find((n) => n.id === id);
-
-  let drawSeq = [];
-  const drawUsed = new Set();
-  let drawing = false;
-  let lockTimer = null;
-
-  async function sha256Hex(str) {
-    const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(str));
-    return [...new Uint8Array(buf)].map((b) => b.toString(16).padStart(2, '0')).join('');
-  }
-
-  function buildLockNodes() {
-    LOCK_NODES.forEach((n) => {
-      const g = document.createElementNS(SVG_NS, 'g');
-      g.setAttribute('class', 'lock-node');
-      g.setAttribute('data-id', n.id);
-      const ring = document.createElementNS(SVG_NS, 'circle');
-      ring.setAttribute('class', 'lock-ring');
-      ring.setAttribute('cx', n.x); ring.setAttribute('cy', n.y); ring.setAttribute('r', 44);
-      const dot = document.createElementNS(SVG_NS, 'circle');
-      dot.setAttribute('class', 'lock-dot');
-      dot.setAttribute('cx', n.x); dot.setAttribute('cy', n.y); dot.setAttribute('r', 9);
-      g.appendChild(ring); g.appendChild(dot);
-      lockNodesLayer.appendChild(g);
-    });
-  }
-
-  function isLockedOut() {
-    return Date.now() < (+localStorage.getItem(UNTIL_KEY) || 0);
-  }
-
-  function pointToViewBox(clientX, clientY) {
-    const rect = lockSvg.getBoundingClientRect();
-    return {
-      x: (clientX - rect.left) / rect.width * 300,
-      y: (clientY - rect.top) / rect.height * 300,
-    };
-  }
-
-  function resetDraw() {
-    drawSeq = [];
-    drawUsed.clear();
-    lockPath.setAttribute('points', '');
-    lockLive.setAttribute('x1', 0); lockLive.setAttribute('y1', 0);
-    lockLive.setAttribute('x2', 0); lockLive.setAttribute('y2', 0);
-    lockScreen.classList.remove('err');
-    [...lockNodesLayer.querySelectorAll('.lock-node')].forEach((g) => g.classList.remove('on'));
-  }
-
-  function redrawPath() {
-    lockPath.setAttribute(
-      'points',
-      drawSeq.map((id) => { const n = lockNodeById(id); return n.x + ',' + n.y; }).join(' ')
-    );
-  }
-
-  function pushNode(n) {
-    drawSeq.push(n.id);
-    drawUsed.add(n.id);
-    const g = lockNodesLayer.querySelector('.lock-node[data-id="' + n.id + '"]');
-    if (g) g.classList.add('on');
-    redrawPath();
-  }
-
-  // Kun til nærmeste nabo (Chebyshev-avstand 1). Rett linje 2 unna
-  // (horisontalt/vertikalt/diagonalt) → sett inn mellompunktet først.
-  function tryAddNode(n) {
-    if (drawUsed.has(n.id)) return;
-    if (drawSeq.length === 0) { pushNode(n); return; }
-    const last = lockNodeById(drawSeq[drawSeq.length - 1]);
-    const dr = n.r - last.r, dc = n.c - last.c;
-    const cheb = Math.max(Math.abs(dr), Math.abs(dc));
-    if (cheb === 1) { pushNode(n); return; }
-    if ((dr === 0 || Math.abs(dr) === 2) && (dc === 0 || Math.abs(dc) === 2) && cheb === 2) {
-      const mid = lockNodeById(((last.r + n.r) / 2) + ',' + ((last.c + n.c) / 2));
-      if (mid && !drawUsed.has(mid.id)) { pushNode(mid); pushNode(n); }
-    }
-    // ellers: ignorér (aldri lengre enn nærmeste nabo)
-  }
-
-  function snapAt(p) {
-    for (const n of LOCK_NODES) {
-      const dx = p.x - n.x, dy = p.y - n.y;
-      if (dx * dx + dy * dy <= SNAP_R * SNAP_R) { tryAddNode(n); return; }
-    }
-  }
-
-  function updateLive(p) {
-    if (drawSeq.length === 0) {
-      lockLive.setAttribute('x1', p.x); lockLive.setAttribute('y1', p.y);
-      lockLive.setAttribute('x2', p.x); lockLive.setAttribute('y2', p.y);
-      return;
-    }
-    const last = lockNodeById(drawSeq[drawSeq.length - 1]);
-    lockLive.setAttribute('x1', last.x); lockLive.setAttribute('y1', last.y);
-    lockLive.setAttribute('x2', p.x); lockLive.setAttribute('y2', p.y);
-  }
-
-  function onLockDown(ev) {
-    if (isLockedOut()) return;
-    ev.preventDefault();
-    drawing = true;
-    resetDraw();
-    try { lockSvg.setPointerCapture(ev.pointerId); } catch (e) { /* ignore */ }
-    const p = pointToViewBox(ev.clientX, ev.clientY);
-    snapAt(p); updateLive(p);
-  }
-  function onLockMove(ev) {
-    if (!drawing) return;
-    const p = pointToViewBox(ev.clientX, ev.clientY);
-    snapAt(p); updateLive(p);
-  }
-  async function onLockUp() {
-    if (!drawing) return;
-    drawing = false;
-    lockLive.setAttribute('x2', lockLive.getAttribute('x1'));
-    lockLive.setAttribute('y2', lockLive.getAttribute('y1'));
-    const seqStr = drawSeq.join('-');
-    if (drawSeq.length < 2) { resetDraw(); return; }
-    if ((await sha256Hex('verify|' + seqStr)) === PATTERN_HASH) {
-      localStorage.removeItem(FAIL_KEY);
-      localStorage.removeItem(UNTIL_KEY);
-      localStorage.setItem(AUTH_KEY, '1');
-      const code = await sha256Hex('sync|' + seqStr);
-      await unlockApp(code);
-    } else {
-      onLockFail();
-    }
-  }
-
-  function onLockFail() {
-    lockScreen.classList.add('err');
-    const fails = (+localStorage.getItem(FAIL_KEY) || 0) + 1;
-    localStorage.setItem(FAIL_KEY, String(fails));
-    if (fails > MAX_FAILS) {
-      localStorage.setItem(UNTIL_KEY, String(Date.now() + LOCK_MS));
-      localStorage.removeItem(FAIL_KEY);
-      startLockCountdown();
-    } else {
-      const left = MAX_FAILS + 1 - fails;
-      lockMsg.textContent = 'Feil mønster – ' + left + ' forsøk igjen.';
-      setTimeout(() => { if (!drawing) resetDraw(); }, 700);
-    }
-  }
-
-  function startLockCountdown() {
-    clearInterval(lockTimer);
-    const tick = () => {
-      const ms = (+localStorage.getItem(UNTIL_KEY) || 0) - Date.now();
-      if (ms <= 0) {
-        clearInterval(lockTimer);
-        lockScreen.classList.remove('locked-out');
-        lockMsg.textContent = 'Tegn mønsteret for å låse opp.';
-        resetDraw();
-        return;
-      }
-      const m = Math.floor(ms / 60000);
-      const s = Math.floor((ms % 60000) / 1000);
-      lockScreen.classList.add('locked-out');
-      lockMsg.textContent = 'For mange forsøk. Låst i ' + m + ':' + String(s).padStart(2, '0');
-    };
-    tick();
-    lockTimer = setInterval(tick, 500);
-  }
-
-  let appStarted = false;
-  async function unlockApp(code) {
-    lockScreen.hidden = true;
-    document.body.classList.remove('locked');
-    if (!appStarted) {
-      appStarted = true;
-      render();
-    }
-    if (code) await syncConnect(code);
-    else await syncInit();
-  }
-
   function logout() {
-    if (accountsMode()) {
-      closeMenu();
-      const client = acli();
-      cloudStop();
-      if (client) { try { client.auth.signOut(); } catch (e) { /* ignore */ } }
-      return;
-    }
-    try { if (rtChannel && sb) sb.removeChannel(rtChannel); } catch (e) { /* ignore */ }
-    clearInterval(pollTimer);
-    clearTimeout(syncDebounce);
-    localStorage.removeItem(AUTH_KEY);
-    localStorage.removeItem(SYNC_CODE_KEY);
-    location.reload();
+    closeMenu();
+    const client = acli();
+    cloudStop();
+    if (client) { try { client.auth.signOut(); } catch (e) { /* ignore */ } }
   }
 
   /* ============================================================
-     FASE 2 — BRUKERKONTOER OG DELING (klient)
+     BRUKERKONTOER OG DELING (klient)
      ------------------------------------------------------------
-     Ekte kontoer (Supabase Auth) med e-post/passord erstatter
-     mønster-låsen. Data ligger relasjonelt (universes/groups/cards/
-     items + memberships) med RLS og server-side felt-nivå LWW.
-     Synk-motor v2: get_my_doc() (pull) → 3-veis fletting mot en
-     base-snapshot → rad-CRUD (push); realtime postgres_changes +
-     poll. Delte objekter «monteres» inn i mottakerens valgte
-     forelder via membership-rader. Se docs/arkitektur-brukere-
-     deling.md og docs/auth.md.
+     Brukeren logger inn med Supabase Auth (e-post/passord). Data
+     ligger relasjonelt (universes/groups/cards/items + memberships)
+     med RLS og server-side felt-nivå LWW. Synk-motor: get_my_doc()
+     (pull) → 3-veis fletting mot en base-snapshot → rad-CRUD (push);
+     realtime postgres_changes + poll. Delte objekter «monteres» inn i
+     mottakerens valgte forelder via membership-rader. Se
+     docs/accounts.md og docs/arkitektur-brukere-deling.md.
      ============================================================ */
 
-  // Kontomodus: på når Supabase er konfigurert (kan tvinges av / av med
-  // query-parametere for testing). ?mock=1 kjører mot en hermetisk
-  // in-memory-backend (mock-backend.js) for to-bruker-testing.
+  // ?mock=1 kjører mot en hermetisk in-memory-backend (mock-backend.js)
+  // for to-bruker-testing uten ekte Supabase.
   function useMock() { return /[?&]mock=1/.test(location.search); }
-  // Kontomodus er bevisst BAK et flagg inntil fase 2 er verifisert mot ekte
-  // Supabase (Auth-dashboard-stegene i TODO.md må gjøres først: Site URL,
-  // Redirect URLs, «Confirm email»). Slås på med `window.SUPABASE_CONFIG.accounts
-  // = true` (config.js), `?accounts=1`, eller `?mock=1` (hermetisk testbackend).
-  // Til da kjører den gamle mønster-låsen + synk-doc-modellen uendret.
-  function accountsMode() {
-    if (useMock()) return true;
-    if (/[?&]patternlock=1/.test(location.search)) return false;
-    if (/[?&]accounts=1/.test(location.search)) return cloudConfigured();
-    if (window.SUPABASE_CONFIG && window.SUPABASE_CONFIG.accounts === true) return cloudConfigured();
-    return false;
-  }
 
   let authUser = null;         // innlogget bruker { id, email, meta } | null
   let aclient = null;          // backend-klient (Supabase eller mock)
@@ -5360,7 +4746,7 @@
   let navPending = null;
   const navEq = (a, b) => !!a && !!b && a.u === b.u && a.g === b.g;
   function saveNavPref() {
-    if (!accountsMode() || !authUser || applyingRemote || !navRestored) return;
+    if (!authUser || applyingRemote || !navRestored) return;
     const nav = { u: state.activeUniverse || null, g: state.activeGroup || null };
     if (navEq(nav, authUser.meta && authUser.meta.nav) && !navPending) return; // allerede lagret
     if (navEq(nav, navPending)) return; // allerede planlagt
@@ -6193,6 +5579,34 @@
   const menuInvites = document.getElementById('menu-invites');
   const inviteListEl = document.getElementById('invite-list');
   const menuBadge = document.getElementById('menu-badge');
+  const menuEmailPref = document.getElementById('menu-email-pref');
+  const emailPrefToggle = document.getElementById('email-pref-toggle');
+
+  // E-postvarsel-innstillingen ligger på kontoen (user_metadata.email_notifications).
+  // Standard PÅ (ny bruker uten flagget → true). Endres optimistisk; skrivingen
+  // til Supabase Auth skjer i bakgrunnen, og authUser.meta oppdateres ved suksess.
+  function emailPrefOn() {
+    return !(authUser && authUser.meta && authUser.meta.email_notifications === false);
+  }
+  function paintEmailPref() {
+    if (!emailPrefToggle) return;
+    emailPrefToggle.setAttribute('aria-checked', emailPrefOn() ? 'true' : 'false');
+  }
+  emailPrefToggle && emailPrefToggle.addEventListener('click', async () => {
+    if (!authUser) return;
+    const next = !emailPrefOn();
+    authUser.meta = Object.assign({}, authUser.meta, { email_notifications: next });
+    paintEmailPref();
+    try {
+      const { error } = await acli().auth.updateUser({ data: { email_notifications: next } });
+      if (error) throw error;
+    } catch (e) {
+      // Rull tilbake ved feil (behold serverens sanne verdi).
+      authUser.meta = Object.assign({}, authUser.meta, { email_notifications: !next });
+      paintEmailPref();
+      showToast(friendlyAuthError(e));
+    }
+  });
 
   function updateInbox(my) {
     const invites = ((my && my.invites_in) || []).filter((inv) => !suppressedInvites.has(inv.id));
@@ -6202,6 +5616,8 @@
     menuBadge.hidden = total === 0;
     if (authUser) {
       menuAccount.hidden = false;
+      menuEmailPref.hidden = false;
+      paintEmailPref();
       const prof = (my && my.user) || {};
       accountEmail.textContent = personName(prof) || authUser.email || '';
       accountAvatar.textContent = initialsFromName(prof.display_name, authUser.email);
@@ -6218,7 +5634,7 @@
       info.innerHTML = '<span class="invite-type-tag">' + (typeLabel[inv.type] || '') + '</span> ' +
         '<span class="invite-name"></span><span class="invite-from"></span>';
       info.querySelector('.invite-name').textContent = inv.name || '(uten navn)';
-      info.querySelector('.invite-from').textContent = 'fra ' + (inv.from || '');
+      info.querySelector('.invite-from').textContent = 'fra ' + (inv.from_name || inv.from || '');
       const actions = document.createElement('div');
       actions.className = 'invite-actions';
       const acc = document.createElement('button');
@@ -6768,9 +6184,8 @@
 
   let cloudStarted = false;
   async function cloudStart() {
-    document.body.classList.remove('no-auth', 'locked');
+    document.body.classList.remove('no-auth');
     authScreen.hidden = true;
-    lockScreen.hidden = true;
     if (!cloudStarted) {
       cloudStarted = true;
       if (!loadCache()) {           // ingen buffer for denne brukeren → start tomt (ikke vis annen brukers data)
@@ -6806,21 +6221,40 @@
     authScreen.hidden = false;
     setAuthMode('login');
     menuAccount.hidden = true;
+    menuEmailPref.hidden = true;
     menuInvites.hidden = true;
     menuBadge.hidden = true;
+  }
+
+  // Dyplenke fra en delings-e-post til en UREGISTRERT mottaker: ?signup=<e-post>
+  // åpner registreringssiden med e-posten utfylt, så mottakeren oppretter konto
+  // og deretter godtar delingen i appen (invitasjonen kobles på e-post).
+  function applySignupInvite() {
+    const m = /[?&]signup=([^&]+)/.exec(location.search);
+    if (!m) return;
+    let email = '';
+    try { email = decodeURIComponent(m[1]); } catch (e) { email = m[1]; }
+    if (!email) return;
+    setAuthMode('register');
+    authEmail.value = email;
+    authMsg('Du er invitert til Huskekurv! Fullfør registreringen for å bli med.', true);
   }
 
   async function initAccounts() {
     const client = acli();
     if (!client) {
-      // Ingen backend → fall tilbake til mønster-lås.
-      initPatternLock();
+      // Supabase er ikke konfigurert (skal ikke skje i produksjon) — vis
+      // auth-skjermen med en tydelig feilmelding i stedet for et tomt board.
+      document.body.classList.add('no-auth');
+      authScreen.hidden = false;
+      setAuthMode('login');
+      authMsg('Sky-synk er ikke konfigurert.');
       return;
     }
     document.body.classList.add('no-auth');
-    document.body.classList.remove('locked');
     authScreen.hidden = false;
     setAuthMode('login');
+    applySignupInvite();
     client.auth.onAuthStateChange((event, session) => {
       if (event === 'PASSWORD_RECOVERY') { handleRecovery(); return; }
       const user = session && session.user;
@@ -6841,43 +6275,14 @@
     } catch (e) { /* ingen sesjon */ }
   }
 
-  /* ---------------- Innlogging: velg modus ---------------- */
-  function initPatternLock() {
-    buildLockNodes();
-    lockSvg.addEventListener('pointerdown', onLockDown);
-    lockSvg.addEventListener('pointermove', onLockMove);
-    lockSvg.addEventListener('pointerup', onLockUp);
-    lockSvg.addEventListener('pointercancel', onLockUp);
-
-    if (localStorage.getItem(AUTH_KEY) === '1') {
-      unlockApp();
-    } else {
-      document.body.classList.add('locked');
-      lockScreen.hidden = false;
-      if (isLockedOut()) startLockCountdown();
-      else lockMsg.textContent = 'Tegn mønsteret for å låse opp.';
-    }
-  }
-
-  function initAuth() {
-    if (accountsMode()) initAccounts();
-    else initPatternLock();
-  }
-
   /* ---------------- Start ---------------- */
-  initAuth();
+  initAccounts();
 
   // Eksponer for enkel feilsøking/testing
   window.__huskekurv = {
     state, render, logout, addGroup, deleteGroup,
     addUniverse, deleteUniverse, setActiveUniverse, setActiveGroup, openMenu, closeMenu,
-    // Synk-interne (for testing av fletting/synk):
-    mergeStates, canonical, docFromState, applyDoc, syncCycle, normalizeRemoteDoc, migrateBareState,
-    get syncCode() { return syncCode; },
-    get serverVersion() { return serverVersion; },
-    get rtConnected() { return rtConnected; },
-    // Kontomodus (fase 2):
-    accountsMode, reconcile, docFromMyState, contentDocFromMy, applyMyDoc, cloudCycle,
+    canonical, reconcile, docFromMyState, contentDocFromMy, applyMyDoc, cloudCycle,
     openShare, openSettings,
     get authUser() { return authUser; },
     get lastMy() { return lastMy; },

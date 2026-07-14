@@ -873,6 +873,125 @@ exception
 end;
 $$;
 
+-- ------------------------------------------------------------
+-- 8b. E-postvarsel ved deling (valgfritt — krever konfig)
+-- ------------------------------------------------------------
+-- Når en invitasjon opprettes sendes en e-post via pg_net → Resend:
+--   • UREGISTRERT mottaker  → «du er invitert, registrer deg» med en lenke
+--     til appen (?signup=<e-post>) som åpner registreringssiden med e-posten
+--     utfylt. Etter registrering kobles invitasjonen automatisk (handle_new_user)
+--     og mottakeren godtar den i appen.
+--   • REGISTRERT mottaker   → «X delte Y med deg» med lenke til appen, MEN kun
+--     hvis mottakeren har e-postvarsler på (user_metadata.email_notifications,
+--     standard på). Ellers vises delingen kun i appen (rød ring + innboks).
+--
+-- Konfig ligger i public.app_config (låst tabell — kun SECURITY DEFINER-
+-- funksjoner leser den). Uten `resend_api_key` gjør triggeren ingenting, så
+-- delingen fungerer som før. Slik settes den opp (Supabase SQL editor):
+--   insert into public.app_config(key, value) values
+--     ('resend_api_key', 're_xxx'),
+--     ('email_from',     'Huskekurv <noreply@dittdomene.no>'),
+--     ('app_url',        'https://din-app-adresse/')
+--   on conflict (key) do update set value = excluded.value;
+-- (pg_net må være aktivert: Database → Extensions → pg_net.)
+
+do $$ begin
+  create extension if not exists pg_net with schema extensions;
+exception when others then null;  -- ikke tilgjengelig i test-/lokalmiljø
+end $$;
+
+create table if not exists public.app_config (
+  key   text primary key,
+  value text not null
+);
+alter table public.app_config enable row level security;
+-- Ingen RLS-policyer + ingen grants → verken anon eller authenticated kan lese
+-- nøklene via PostgREST; kun SECURITY DEFINER-funksjonene under.
+revoke all on public.app_config from anon, authenticated;
+
+create or replace function public.cfg(p_key text)
+returns text language sql stable security definer set search_path = public as $$
+  select value from public.app_config where key = p_key;
+$$;
+
+create or replace function public.send_invite_email()
+returns trigger language plpgsql security definer
+set search_path = public, extensions, net as $$
+declare
+  api_key   text := public.cfg('resend_api_key');
+  from_addr text := coalesce(public.cfg('email_from'), 'Huskekurv <onboarding@resend.dev>');
+  app_url   text := coalesce(public.cfg('app_url'), '');
+  inviter   text;
+  obj_name  text;
+  subject   text;
+  body_html text;
+  link      text;
+begin
+  -- Ikke konfigurert → ingen e-post (delingen fungerer likevel via appen).
+  if api_key is null or api_key = '' then return new; end if;
+
+  select display_name into inviter from public.profiles where id = new.inviter_id;
+  inviter := coalesce(inviter, 'Noen');
+  obj_name := coalesce(
+    (select name  from public.universes where id = new.universe_id),
+    (select name  from public.groups    where id = new.group_id),
+    (select title from public.cards     where id = new.card_id),
+    'noe');
+  subject := inviter || ' har delt «' || obj_name || '» med deg på Huskekurv';
+
+  if new.invitee_id is null then
+    -- Uregistrert mottaker → inviter til å registrere seg.
+    link := app_url || '?signup=' || replace(replace(new.invitee_email, '+', '%2B'), '@', '%40');
+    body_html :=
+      '<div style="font-family:sans-serif;max-width:480px;margin:auto">' ||
+      '<h2>Du er invitert til Huskekurv</h2>' ||
+      '<p><strong>' || inviter || '</strong> har delt <strong>' || obj_name ||
+      '</strong> med deg på Huskekurv.</p>' ||
+      '<p>Registrer deg med denne e-postadressen, så dukker delingen opp i appen ' ||
+      'og du kan godta den:</p>' ||
+      '<p><a href="' || link || '" style="display:inline-block;background:#3a8a6a;' ||
+      'color:#fff;padding:11px 20px;border-radius:8px;text-decoration:none">' ||
+      'Opprett konto og bli med</a></p></div>';
+  else
+    -- Registrert mottaker → respekter e-postvarsel-innstillingen (standard på).
+    if (select coalesce(raw_user_meta_data ->> 'email_notifications', 'true')
+          from auth.users where id = new.invitee_id) = 'false' then
+      return new;
+    end if;
+    link := coalesce(nullif(app_url, ''), '#');
+    body_html :=
+      '<div style="font-family:sans-serif;max-width:480px;margin:auto">' ||
+      '<h2>' || obj_name || ' er delt med deg</h2>' ||
+      '<p><strong>' || inviter || '</strong> har delt <strong>' || obj_name ||
+      '</strong> med deg på Huskekurv.</p>' ||
+      '<p>Åpne appen for å godta delingen:</p>' ||
+      '<p><a href="' || link || '" style="display:inline-block;background:#3a8a6a;' ||
+      'color:#fff;padding:11px 20px;border-radius:8px;text-decoration:none">' ||
+      'Åpne Huskekurv</a></p></div>';
+  end if;
+
+  perform net.http_post(
+    url     := 'https://api.resend.com/emails',
+    headers := jsonb_build_object(
+      'Authorization', 'Bearer ' || api_key,
+      'Content-Type',  'application/json'),
+    body    := jsonb_build_object(
+      'from',    from_addr,
+      'to',      new.invitee_email,
+      'subject', subject,
+      'html',    body_html));
+  return new;
+exception when others then
+  -- E-post er en bieffekt; en feil her skal ALDRI blokkere selve delingen.
+  return new;
+end;
+$$;
+
+drop trigger if exists on_share_invite_created on public.share_invites;
+create trigger on_share_invite_created
+  after insert on public.share_invites
+  for each row execute function public.send_invite_email();
+
 -- Mottakeren aksepterer og velger plassering: p_parent = eget univers
 -- (for delt gruppe) / egen gruppe (for delt liste); null for univers.
 create or replace function public.accept_share_invite(
@@ -1176,6 +1295,7 @@ begin
                          (select name from public.groups    where id = s.group_id),
                          (select title from public.cards    where id = s.card_id)),
         'from', (select email from public.profiles where id = s.inviter_id),
+        'from_name', (select display_name from public.profiles where id = s.inviter_id),
         'created_at', s.created_at) order by s.created_at)
       from public.share_invites s
       where s.status = 'pending'

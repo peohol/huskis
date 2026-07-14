@@ -139,19 +139,40 @@ testbrukere, desktop + mobil) — se `docs/accounts.md`.
       ratebegrenset til utviklingsbruk
 - [ ] (Valgfritt) tilpass e-postmalen for bekreftelse (norsk tekst)
 
-## Fase 2 — klient/UI (✅ implementert, bak flagg — se `docs/accounts.md`)
+## E-postvarsel ved deling (siste runde) — manuell konfig gjenstår
 
-Alt under er implementert i `app.js` (seksjon «FASE 2 — BRUKERKONTOER OG
-DELING») og verifisert i nettleser (Playwright) mot `mock-backend.js`
-(`?mock=1`). Kontomodus er bak flagg (`config.js` `accounts: true`, eller
-`?accounts=1`) inntil de manuelle Supabase-stegene under er gjort og alt er
-verifisert mot **ekte** Supabase.
+Delingsinvitasjoner sender nå e-post via en `share_invites`-insert-trigger
+(`send_invite_email`, `supabase/users-and-sharing.sql`) som POSTer til Resend
+med pg_net. Uregistrerte får en `?signup=<e-post>`-lenke til registreringssiden;
+registrerte får en åpne-appen-lenke (kun hvis e-postvarsel er PÅ). Klienten er
+ferdig og verifisert mot mock-backend; selve e-postutsendingen krever at Peder:
+
+- [ ] Supabase → Database → Extensions: aktiver **pg_net**
+- [ ] Opprett en **Resend**-konto, verifiser et avsenderdomene (eller bruk
+      `onboarding@resend.dev` til egen e-post for test), hent en **API-nøkkel**
+- [ ] Legg nøkkelen + avsender + app-URL i `public.app_config` (Supabase SQL
+      editor):
+      ```sql
+      insert into public.app_config(key, value) values
+        ('resend_api_key', 're_...'),
+        ('email_from',      'Huskekurv <noreply@dittdomene.no>'),
+        ('app_url',         'https://din-app-adresse/')
+      on conflict (key) do update set value = excluded.value;
+      ```
+      Uten `resend_api_key` gjør triggeren ingenting (delingen fungerer via
+      appen som før). `app_config` er RLS-låst uten policyer → kun triggeren
+      leser nøklene, aldri klienten.
+
+## Fase 2 — klient/UI (✅ implementert — se `docs/accounts.md`)
+
+Alt under er implementert i `app.js` og verifisert i nettleser (Playwright) mot
+`mock-backend.js` (`?mock=1`). Appen kjører nå KUN på kontomodus — mønster-låsen
+og synk-doc v1 er fjernet (setup.sql pensjonerer `lists`/`get_list`/`save_list`).
 
 - [x] **Auth-UI**: registrering (e-post + passord + «sjekk innboksen»-visning),
-      innlogging, glemt passord (`resetPasswordForEmail`), logg ut; mønster-
-      låsen beholdt som fallback bak flagg
+      innlogging, glemt passord (`resetPasswordForEmail`), logg ut
 - [x] **Sesjon**: `supabase.auth.onAuthStateChange`; husket innlogging via
-      Supabase-sesjonen (erstatter `mine-lister-auth` i kontomodus)
+      Supabase-sesjonen
 - [x] **Synk-motor v2**: `get_my_doc()` → 3-veis fletting (base-snapshot) →
       rad-CRUD med `ts/org`-stempling (serveren håndhever LWW); realtime
       `postgres_changes` + poll-fallback; per-bruker offline-buffer
@@ -172,12 +193,15 @@ verifisert mot **ekte** Supabase.
 ### Gjenstår før produksjon (Peder / manuelt)
 
 - [ ] Supabase → Authentication → URL Configuration: Site URL + Redirect URLs
-      (jf. de manuelle stegene under)
+      (jf. de manuelle stegene over)
 - [ ] Verifiser «Confirm email» PÅ; ev. egen SMTP
-- [ ] Kjør fase 2 mot **ekte** Supabase (to reelle konti) og verifiser
-- [ ] Deretter: sett `accounts: true` i `config.js` for å slå på i produksjon
-- [ ] **Opprydding (fase 3)**: pensjoner mønster-lås, `lists`-tabellen og
-      `get_list`/`save_list` når kontomodus har kjørt stabilt
+- [ ] Kjør **«Supabase DB-oppsett»**-workflowen på nytt slik at setup.sql (v1-
+      pensjonering) og e-post-triggeren i users-and-sharing.sql kommer på ekte
+      Supabase
+- [x] **Opprydding: mønster-lås + synk-doc v1 fjernet** — pattern-lock-UI/JS,
+      v1 synk-motor (`get_list`/`save_list`, `syncCycle`) og `accountsMode`-
+      flagget er borte; `config.js` har ikke lenger `accounts`-flagget; setup.sql
+      dropper `lists`-tabellen + RPC-ene
 
 ## Kjente beslutninger (ikke spør på nytt — se arkitekturdok for hvorfor)
 

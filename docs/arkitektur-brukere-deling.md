@@ -19,8 +19,9 @@ Supabase Auth (e-post + passord, bekreftelseslenke)
                                   tombstones           ← mot gjenoppliving offline
 ```
 
-Dagens éndoc-modell (`public.lists` + `get_list`/`save_list`, mønster-lås)
-er **urørt** og kjører parallelt til fase 2 er ferdig.
+Den gamle éndoc-modellen (`public.lists` + `get_list`/`save_list`, mønster-lås)
+er **pensjonert** — `supabase/setup.sql` dropper tabellen + RPC-ene, og klienten
+har ingen v1-kode igjen.
 
 ## Identitet og registrering
 
@@ -197,8 +198,8 @@ nøsting av lås/unntak/lås.
    bruker (re-kjøring er idempotent) og to brukere som importerer samme
    gamle delte doc får hver sin uavhengige kopi (deling gjenopprettes
    eksplisitt med den nye delingsmodellen).
-4. Den gamle `lists`-tabellen + mønster-låsen beholdes som fallback til
-   fase 2 er verifisert, og kan deretter pensjoneres.
+4. Den gamle `lists`-tabellen + mønster-låsen er pensjonert (`setup.sql`
+   dropper dem); migrering av lokale data skjer ved første innlogging.
 
 ## Testing
 
@@ -226,3 +227,25 @@ utkastelse/forlating, eierskapsvakter, server-side LWW, import
 3. (Anbefalt før mange brukere) **Authentication → Emails/SMTP**: egen
    SMTP-avsender; Supabase sin innebygde e-postutsending er strengt
    ratebegrenset (~2–4 e-poster/time) og kun ment for utvikling.
+4. **E-postvarsel ved deling** (valgfritt): aktiver `pg_net` (Database →
+   Extensions) og legg en Resend-API-nøkkel + avsender + app-URL i
+   `public.app_config`. Da e-poster `send_invite_email`-triggeren mottakeren
+   ved hver ny invitasjon — se `docs/accounts.md` og `TODO.md`.
+
+## E-postvarsel ved deling (`send_invite_email`)
+
+En AFTER INSERT-trigger på `share_invites` (`send_invite_email`, SECURITY
+DEFINER) sender en e-post via `net.http_post` (pg_net) til Resend:
+
+- **Uregistrert mottaker** (`invitee_id is null`): e-post med lenke
+  `<app_url>?signup=<e-post>` → registreringssiden med e-posten utfylt.
+  `handle_new_user` kobler den ventende invitasjonen ved registrering.
+- **Registrert mottaker**: e-post med åpne-appen-lenke, MEN kun hvis
+  `auth.users.raw_user_meta_data->>'email_notifications'` ikke er `'false'`
+  (standard på; klienten setter flagget via `auth.updateUser`).
+
+Konfig ligger i `public.app_config` (RLS på, ingen policyer/grants → kun
+SECURITY DEFINER-funksjoner leser nøklene). Uten `resend_api_key` returnerer
+triggeren umiddelbart (`return new`), så delinger fungerer uten e-post; en feil
+i utsendingen svelges (`exception when others`) og blokkerer aldri selve
+invitasjonen.

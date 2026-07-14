@@ -131,6 +131,10 @@
     var p = db.profiles.find(function (x) { return x.id === uid; });
     return p ? p.email : null;
   }
+  function nameOf(db, uid) {
+    var p = db.profiles.find(function (x) { return x.id === uid; });
+    return p ? (p.display_name || null) : null;
+  }
 
   function getMyDoc(db, uid) {
     var myUni = db.universes.filter(function (u) {
@@ -212,7 +216,8 @@
         var name = s.universe_id ? (db.universes.find(function (x) { return x.id === s.universe_id; }) || {}).name :
                    s.group_id ? (db.groups.find(function (x) { return x.id === s.group_id; }) || {}).name :
                    (db.cards.find(function (x) { return x.id === s.card_id; }) || {}).title;
-        return { id: s.id, type: type, name: name, from: emailOf(db, s.inviter_id), created_at: s.created_at };
+        return { id: s.id, type: type, name: name, from: emailOf(db, s.inviter_id),
+                 from_name: nameOf(db, s.inviter_id), created_at: s.created_at };
       }),
       invites_out: db.share_invites.filter(function (s) {
         return s.status === 'pending' && s.inviter_id === uid;

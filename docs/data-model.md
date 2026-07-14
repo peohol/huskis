@@ -7,7 +7,8 @@ per-enhet-minnet for aktiv gruppe/univers.
 
 - **Ren statisk app**: `index.html` + `styles.css` + `app.js`. Ingen byggesteg, ingen rammeverk.
 - **Vanilla JS** med egen dra-og-slipp-motor på Pointer Events (mus + touch likt) — se `docs/drag-and-drop.md`.
-- **Persistens** i `localStorage`; sanntids-synk via Supabase — se `docs/sync.md`.
+- **Persistens** i `localStorage` (offline-buffer per konto); sanntids-synk mot
+  Supabase (Auth + relasjonelle tabeller) — se `docs/accounts.md`.
 
 ## State-form (nøstet i minnet for rendring, flat i synk-doc'et)
 
@@ -40,9 +41,7 @@ gjenopprettes én gang ved første sky-pull etter innlogging (`restoreNavPref`, 
 fra `applyMyDoc` bak `navRestored`-flagget). Da lander man på samme univers/gruppe
 neste gang appen lastes — også på en ny enhet. Løpende synk flytter IKKE
 visningen (restore skjer kun på første pull), så to åpne enheter kan stå i hver
-sin gruppe. Utenfor kontomodus (mønster-lås) finnes ingen konto å lagre på; da er
-`activeUniverse`/`activeGroup` rent per-enhet som før. `activeGroups`-minnet er
-alltid per enhet (synkes aldri).
+sin gruppe. `activeGroups`-minnet er alltid per enhet (synkes aldri).
 
 ## Hierarkiet: Univers > Gruppe > Liste > Element
 
