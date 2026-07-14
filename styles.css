@@ -925,10 +925,14 @@ body {
 
 /* ---------------- Kategorier (nivå-1-rad som grupperer elementer) ----------------
    Header (håndtak + tittel/meta + tannhjul + oppløs-knapp) over en nøstet
-   liste (.cat-items) med elementene. Elementene rykkes inn med en vertikal,
-   halvgjennomsiktig hvit linje til venstre (avrundede ender). */
-.category { list-style: none; display: flex; flex-direction: column; gap: 6px; }
-.cat-head { display: flex; align-items: center; gap: 6px; }
+   liste (.cat-items) med elementene. Kondensert: samme 8px-luft som mellom
+   elementer, både over overskriften og mellom overskriften og elementene.
+   `.cat-head`s 6px sidepolstring stiller innholdet (håndtak/knapper) i SAMME
+   kolonner som elementenes (som selv har 6px boks-padding) — knappene bruker
+   dessuten den hvite kort-hode-knappestilen (.card-cog) så de er synlige mot
+   den fargede listeflaten. */
+.category { list-style: none; display: flex; flex-direction: column; gap: 8px; }
+.cat-head { display: flex; align-items: center; gap: 6px; padding: 0 6px; }
 .cat-title-wrap {
   flex: 1;
   min-width: 0;
@@ -939,42 +943,43 @@ body {
 .cat-title {
   font-size: var(--fs-md);
   font-weight: 700;
-  color: var(--ink);
+  color: #fff;                 /* hvit m/ skygge — lesbar på enhver listefarge, som kort-tittelen */
+  text-shadow: var(--text-shadow);
   cursor: text;
-  padding: 2px 4px;
-  border-radius: 6px;
+  padding: 3px 5px;
+  border-radius: 7px;
   word-break: break-word;
-  min-height: 24px;
+  align-self: flex-start;
   letter-spacing: 0.01em;
 }
-.cat-title:hover { background: rgba(0, 0, 0, 0.1); }
+.cat-title:hover { background: rgba(0, 0, 0, 0.12); }
 
-/* Tannhjul + oppløs-knapp: dempet ghost-ikoner, tydelige ved hover/fokus. */
+/* Tannhjul + oppløs-knapp: samme hvite flate-knapp som .card-cog (svakt hvit
+   flate + ring, lysner ved hover) — synlige mot den fargede listeflaten og på
+   linje med kort-hodets og elementenes knapper. */
 .cat-cog, .cat-dissolve {
   flex: 0 0 auto;
   align-self: center;
   appearance: none;
-  cursor: pointer;
-  width: 28px;
-  height: 28px;
-  padding: 0;
-  display: grid;
-  place-items: center;
   border: none;
-  border-radius: 50%;
-  background: transparent;
-  color: var(--ink-soft);
-  opacity: 0.6;
-  transition: transform 0.1s, color 0.15s, opacity 0.15s;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  border-radius: 9px;
+  color: #fff;
+  background: rgba(255, 255, 255, 0.2);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.35);
+  transition: background 0.15s, transform 0.1s;
 }
-.cat-cog .icon, .cat-dissolve .icon { width: 1em; height: 1em; font-size: 22px; }
-.cat-head:hover .cat-cog, .cat-head:hover .cat-dissolve,
-.cat-head:focus-within .cat-cog, .cat-head:focus-within .cat-dissolve { opacity: 1; }
-.cat-cog:hover { color: var(--primary); }
-.cat-dissolve:hover { color: var(--danger, #d1495b); }
-.cat-cog:active, .cat-dissolve:active { transform: scale(0.88); }
-.cat-cog:focus-visible, .cat-dissolve:focus-visible { outline: 2.5px solid var(--primary); outline-offset: 2px; }
-.cat-cog:disabled, .cat-dissolve:disabled { cursor: default; opacity: 0.3; }
+.cat-cog .icon, .cat-dissolve .icon { width: 1em; height: 1em; font-size: 21px; filter: drop-shadow(var(--text-shadow)); }
+.cat-cog:hover, .cat-dissolve:hover { background: rgba(255, 255, 255, 0.34); }
+.cat-cog:active, .cat-dissolve:active { transform: scale(0.92); }
+.cat-cog:focus-visible, .cat-dissolve:focus-visible { outline: 2.5px solid #fff; outline-offset: 2px; }
+.cat-cog:disabled, .cat-dissolve:disabled { cursor: default; opacity: 0.4; }
 
 .cat-items {
   list-style: none;
@@ -982,20 +987,24 @@ body {
   flex-direction: column;
   gap: 8px;
   margin: 0;
-  padding: 2px 0 2px 14px; /* venstre-innrykk gir plass til grupperingslinja */
+  padding: 0 0 0 16px; /* venstre-innrykk (grupperingsrail + inntrykk mot ukategoriserte) */
   position: relative;
-  min-height: 12px;
+  min-height: 4px;
 }
+/* Grupperingsrail: en tynn, avrundet vertikal strek med et mykt topp-til-bunn-
+   fall (litt lysere øverst) — mer forfinet enn en flat, tykk strek. Skjules når
+   kategorien er tom (ingen løs stump å se på). */
 .cat-items::before {
   content: '';
   position: absolute;
-  left: 3px;
-  top: 2px;
-  bottom: 2px;
-  width: 3.5px;
+  left: 6px;
+  top: 1px;
+  bottom: 1px;
+  width: 3px;
   border-radius: 999px;
-  background: rgba(255, 255, 255, 0.55);
+  background: linear-gradient(to bottom, rgba(255, 255, 255, 0.5), rgba(255, 255, 255, 0.28));
 }
+.cat-items:empty::before { display: none; }
 
 /* ---------------- Add item ---------------- */
 .add-item-form {
@@ -1966,8 +1975,10 @@ body.no-auth #menu-btn { display: none; }
   display: flex; align-items: center; justify-content: space-between; gap: 12px;
   padding: 12px; border-radius: var(--radius-sm); background: #faf9fe;
 }
+.share-lock-title { display: flex; align-items: center; gap: 6px; }
+.share-lock-icon { display: inline-flex; font-size: 18px; color: var(--ink); }
 .share-lock-label { font-weight: 600; font-size: var(--fs-md); color: var(--ink); }
-.share-lock-hint { display: block; font-size: var(--fs-xs); font-weight: 500; color: var(--ink-soft); }
+.share-lock-hint { display: block; font-size: var(--fs-xs); font-weight: 500; color: var(--ink-soft); margin-top: 2px; }
 .share-leave { align-self: flex-start; }
 .owner-line { display: flex; align-items: center; gap: 10px; }
 
@@ -2136,43 +2147,35 @@ body.no-auth #menu-btn { display: none; }
 .settings-resp-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 /* ---------------- Tids-editoren (modalen + popoveren) ---------------- */
-.time-editor { display: flex; flex-direction: column; gap: 10px; }
-.time-row { display: flex; align-items: center; gap: 8px; }
-.time-row-label {
-  flex: 0 0 62px;
-  display: inline-flex;
+.time-editor { display: flex; flex-direction: column; gap: 14px; }
+/* Feltpar (dato+klokkeslett) med egen overskrift over («Starttid»/«Tidsfrist»
+   + tilhørende ikon) — kun i fullvisningen (modalen); tids-popoveren har sin
+   egen tittel (time-panel-title) og hopper over denne (se opts.only i JS). */
+.time-group { display: flex; flex-direction: column; gap: 6px; }
+.time-group-heading {
+  display: flex;
   align-items: center;
   gap: 6px;
   font-size: var(--fs-sm);
   font-weight: 600;
   color: var(--ink-soft);
 }
-.time-row-label .icon { font-size: 17px; flex: 0 0 auto; }
+.time-group-heading .icon { font-size: 17px; flex: 0 0 auto; }
+.time-row { display: flex; align-items: center; gap: 8px; }
 .time-row .field { padding: 8px 10px; font-size: var(--fs-sm); }
 /* Datofeltet er så bredt som «dd.mm.åååå» + kalenderikonet trenger — ikke
    bredere (var tidligere elastisk og langt bredere enn innholdet). Samme
    bredde på alle skjermstørrelser. Litt krymp tillatt (helt smale mobiler)
    fremfor å tvinge klokkeslettet ned på egen linje. */
 .time-date { flex: 0 1 146px; min-width: 130px; }
-/* Klokkeslett-feltet får et klokkeikon til venstre (inni feltet, som et
-   søkefelt-ikon) — venstre-paddingen på selve inputen gir rom til det. Bredden
-   er tilpasset det norske 24-timersformatet («tt:mm», uten fm/em-suffiks). */
-.time-clock-wrap {
-  position: relative;
-  flex: 0 1 88px;
-  min-width: 72px;
-  display: inline-flex;
-  align-items: center;
-}
-.time-clock-icon {
-  position: absolute;
-  left: 9px;
-  display: flex;
-  color: var(--ink-soft);
-  pointer-events: none;
-}
+/* Klokkeikonet står som eget element til venstre for klokkeslett-feltet
+   (ikke lenger inni inputen) — unngår at det overlapper med teksten som
+   skrives. Bredden på selve feltet er tilpasset det norske 24-timersformatet
+   («tt:mm», uten fm/em-suffiks). */
+.time-clock-icon { display: inline-flex; flex: 0 0 auto; color: var(--ink-soft); }
 .time-clock-icon .icon { font-size: 15px; }
-.time-clock { width: 100%; padding-left: 27px; }
+.time-clock-icon:has(+ .time-clock:disabled) { opacity: 0.55; }
+.time-clock { flex: 0 1 88px; min-width: 72px; }
 .time-clear {
   flex: 0 0 auto;
   width: 30px;
@@ -2180,7 +2183,6 @@ body.no-auth #menu-btn { display: none; }
   border-radius: 8px;
 }
 .time-row .field:disabled { opacity: 0.55; }
-.time-clock-wrap:has(.time-clock:disabled) .time-clock-icon { opacity: 0.55; }
 /* Subtilt hint (utenfor listens tidsrom / styrt av listen). */
 .time-note { margin: 0; font-size: var(--fs-xs); font-weight: 600; color: #9a6b15; }
 .time-note.is-muted { color: var(--ink-soft); font-weight: 500; }
@@ -2201,13 +2203,8 @@ body.no-auth #menu-btn { display: none; }
   accent-color: var(--primary);
   cursor: pointer;
 }
-/* Smale skjermer: label-teksten («Start»/«Frist») viker for ikonet alene —
-   inputene har egen aria-label, så ingenting går tapt for skjermlesere — slik
-   at dato + klokkeslett + fjern-knapp fortsatt får plass på én linje. */
 @media (max-width: 560px) {
   .time-row { gap: 6px; }
-  .time-row-label { flex: 0 0 auto; gap: 0; }
-  .time-row-label span:last-child { display: none; }
 }
 
 /* Tids-popoveren (samme skall som bytterne). */

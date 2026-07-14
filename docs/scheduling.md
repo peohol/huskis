@@ -27,7 +27,14 @@ elementene i kategorien (`category.lockTimes`). Seksjoner, i rekkefølge:
    listen, `card.responsible`): rad med nåværende ansvarlig (initial-sirkel +
    navn) → åpner ansvarlig-velgeren. Velgeren er generalisert til targets
    (`{ kind: 'card'|'item', obj, card }`); `setResponsible(target, userId)`.
-4. **Tidsplan** (alltid, også utenfor kontomodus): se under.
+4. **Tidsplan** (alltid, også utenfor kontomodus): se under. I fullvisningen
+   (modalen) er hvert feltpar (dato + klokkeslett) gruppert under en egen
+   overskrift med ikon — **«Starttid»** (kalender) og **«Tidsfrist»**
+   (kalender-m/-utropstegn) — i stedet for en inline-etikett til venstre;
+   klokkeikonet står som eget element ved siden av klokkeslett-feltet (ikke inni
+   inputen). «Tidsplan»-seksjonstittelen har ikke eget ikon. Tids-popoveren
+   (fra chipene) viser bare den ene raden og har sin egen tittel, så den hopper
+   over feltpar-overskriften (`opts.only`).
 
 Ingen bekreftelsesknapp noe sted — alt settes fortløpende og optimistisk.
 Modalen slår alltid opp det LEVENDE objektet på id per interaksjon

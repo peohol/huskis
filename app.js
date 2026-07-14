@@ -4157,7 +4157,7 @@
     }
 
     // 4) Tidsplan (alltid).
-    const timeSec = settingsSection(ICONS.calendar, 'Tidsplan');
+    const timeSec = settingsSection('', 'Tidsplan');
     timeSec.appendChild(buildTimeEditor(settingsTarget));
     settingsBody.appendChild(timeSec);
   }
@@ -4218,21 +4218,27 @@
 
     const makeRow = (field) => {
       const isDue = field === 'due';
+      const group = document.createElement('div');
+      group.className = 'time-group';
+      // Overskrift over feltparet («Starttid»/«Tidsfrist» + tilhørende ikon) —
+      // kun i fullvisningen (modalen). Tids-popoveren har allerede egen
+      // tilsvarende tittel (time-panel-title) for det ene feltet den viser.
+      if (!opts.only) {
+        const heading = document.createElement('div');
+        heading.className = 'time-group-heading';
+        heading.innerHTML = (isDue ? ICONS.calendarDue : ICONS.calendar) +
+          '<span>' + (isDue ? 'Tidsfrist' : 'Starttid') + '</span>';
+        group.appendChild(heading);
+      }
       const row = document.createElement('div');
       row.className = 'time-row';
-      const label = document.createElement('span');
-      label.className = 'time-row-label';
-      label.innerHTML = (isDue ? ICONS.calendarDue : ICONS.calendar) +
-        '<span>' + (isDue ? 'Frist' : 'Start') + '</span>';
       const dateIn = document.createElement('input');
       dateIn.type = 'date';
       dateIn.className = 'field time-date';
       dateIn.placeholder = 'dd.mm.åååå';
       dateIn.setAttribute('aria-label', isDue ? 'Fristdato' : 'Startdato');
-      // Klokkeikon til venstre for klokkeslettet, så feltet leses tydelig som
-      // klokkeslett (ikke en andre dato) selv når det står tomt.
-      const clockWrap = document.createElement('span');
-      clockWrap.className = 'time-clock-wrap';
+      // Klokkeikon til venstre for klokkeslett-feltet (egen ikon ved siden av,
+      // ikke inni inputen — unngår at det overlapper med teksten som skrives).
       const clockIcon = document.createElement('span');
       clockIcon.className = 'time-clock-icon';
       clockIcon.setAttribute('aria-hidden', 'true');
@@ -4242,7 +4248,6 @@
       timeIn.className = 'field time-clock';
       timeIn.placeholder = 'tt:mm';
       timeIn.setAttribute('aria-label', 'Klokkeslett (valgfritt)');
-      clockWrap.append(clockIcon, timeIn);
       const clearBtn = document.createElement('button');
       clearBtn.type = 'button';
       clearBtn.className = 'icon-btn time-clear';
@@ -4273,8 +4278,9 @@
       dateIn.addEventListener('change', commit);
       timeIn.addEventListener('change', commit);
       clearBtn.addEventListener('click', () => { dateIn.value = ''; timeIn.value = ''; commit(); });
-      row.append(label, dateIn, clockWrap, clearBtn);
-      return row;
+      row.append(dateIn, clockIcon, timeIn, clearBtn);
+      group.appendChild(row);
+      return group;
     };
 
     if (!opts.only || opts.only === 'start') wrap.appendChild(makeRow('start'));
@@ -4332,7 +4338,7 @@
     const head = document.createElement('div');
     head.className = 'time-panel-title';
     head.innerHTML = field === 'due'
-      ? ICONS.calendarDue + '<span>Frist</span>'
+      ? ICONS.calendarDue + '<span>Tidsfrist</span>'
       : ICONS.calendar + '<span>Starttid</span>';
     timeSwitcherPanel.append(head, buildTimeEditor(getT, { only: field }));
     timeQuickOpen = true;
@@ -6361,17 +6367,25 @@
     btn.className = 'btn btn-solid btn-green btn-small'; btn.type = 'submit'; btn.textContent = 'Inviter';
     form.append(input, btn);
     const msg = document.createElement('p');
-    msg.className = 'share-msg';
-    // Lås/åpne
+    msg.className = 'share-msg'; msg.hidden = true;
+    // Lås/åpne — overskrift+ikon og hint bytter mellom låst/åpen tilstand, så
+    // det aldri er tvil om hva som gjelder NÅ (knappen beskriver kun handlingen
+    // et klikk utfører, ikke gjeldende status).
     const lockRow = document.createElement('div');
     lockRow.className = 'share-lock-row';
     const lockBtn = document.createElement('button');
     lockBtn.className = 'btn btn-solid btn-yellow btn-small'; lockBtn.type = 'button';
-    lockRow.innerHTML = '<div><span class="share-lock-label">Skrivebeskyttet</span>' +
-      '<span class="share-lock-hint">Andre kan se, men ikke endre</span></div>';
+    lockRow.innerHTML = '<div><span class="share-lock-title">' +
+      '<span class="share-lock-icon"></span><span class="share-lock-label"></span></span>' +
+      '<span class="share-lock-hint"></span></div>';
+    const lockIcon = lockRow.querySelector('.share-lock-icon');
+    const lockLabel = lockRow.querySelector('.share-lock-label');
+    const lockHint = lockRow.querySelector('.share-lock-hint');
     const paintLock = () => {
-      lockBtn.innerHTML = (obj._locked ? ICONS.lock : ICONS.unlock) +
-        '<span>' + (obj._locked ? 'Lås opp' : 'Lås') + '</span>';
+      lockIcon.innerHTML = obj._locked ? ICONS.lock : ICONS.unlock;
+      lockLabel.textContent = obj._locked ? 'Låst for redigering' : 'Åpent for redigering';
+      lockHint.textContent = obj._locked ? 'Andre kan se, men ikke redigere' : 'Alle kan se og redigere';
+      lockBtn.textContent = obj._locked ? 'Åpne nå' : 'Lås nå';
     };
     paintLock();
     lockRow.appendChild(lockBtn);
@@ -6455,7 +6469,7 @@
       const email = input.value.trim().toLowerCase();
       if (!email) return;
       input.value = '';
-      msg.textContent = ''; msg.classList.remove('ok');
+      msg.textContent = ''; msg.classList.remove('ok'); msg.hidden = true;
       // Optimistisk: raden vises straks, feltet er klart for neste e-post —
       // selve invitasjonen ligger i køen (flere invitasjoner køes etter hverandre).
       const row = document.createElement('div');
@@ -6479,13 +6493,13 @@
         onDone: () => {
           // La raden stå til refreshMembers tegner den ekte (ingen blink-lucke).
           optimisticRows.delete(row);
-          msg.textContent = 'Invitasjon sendt til ' + email; msg.classList.add('ok');
+          msg.textContent = 'Invitasjon sendt til ' + email; msg.classList.add('ok'); msg.hidden = false;
           refreshMembers();
         },
         onError: (e) => {
           optimisticRows.delete(row);
           row.remove();
-          msg.textContent = friendlyAuthError(e);
+          msg.textContent = friendlyAuthError(e); msg.hidden = false;
         },
       });
       // «Trekk tilbake» på en optimistisk rad: avbryt kontrollert — fjernes fra
