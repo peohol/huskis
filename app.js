@@ -6522,10 +6522,15 @@
     // Arvede medlemmer: gå oppover til hver DELT forelder, hent medlemmene og vis
     // dem her (uten duplikater av eier/direkte medlemmer). Slik ser man på en
     // liste/gruppe også de personene som delingen over gir tilgang.
+    // Kalles fra flere steder (åpning + hver medlems-refresh); en generasjons-
+    // teller sørger for at BARE den nyeste kjøringen skriver til DOM-en — ellers
+    // kunne to overlappende async-kall begge rukket å legge til hver sin «Arvet
+    // fra deling over»-seksjon (dobbel visning). Vi bygger radene først og
+    // committer (tømmer + fyller) samlet til slutt, så det heller ikke flimrer.
+    let inheritedGen = 0;
     async function refreshInherited() {
+      const gen = ++inheritedGen;
       const chain = ancestorChain(type, obj).filter((a) => a.obj._shared);
-      inheritedWrap.innerHTML = '';
-      if (!chain.length) return;
       const seen = new Set(directIds);
       if (authUser) seen.add(authUser.id);
       const rows = [];
@@ -6546,7 +6551,9 @@
           rows.push(row);
         });
       }
-      if (!rows.length || !inheritedWrap.isConnected) return;
+      if (gen !== inheritedGen || !inheritedWrap.isConnected) return; // en nyere kjøring vant
+      inheritedWrap.innerHTML = '';
+      if (!rows.length) return;
       const t = document.createElement('div');
       t.className = 'share-section-title'; t.textContent = 'Arvet fra deling over';
       inheritedWrap.appendChild(t);
