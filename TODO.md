@@ -78,9 +78,10 @@ boolean) og **ansvarlig for hele listen** (`cards.responsible`, FK til
 `supabase/users-and-sharing.sql` er oppdatert idempotent (`add column if not
 exists`, LWW-triggerne, `get_my_doc`, `import_doc`); mock-backenden speiler det.
 
-- [ ] **Kjør «Supabase DB-oppsett»-workflowen** (workflow_dispatch; husk
-      pooler-adressen, se merknad over) så kolonnene finnes på ekte Supabase —
-      uten dem avviser PostgREST insert/update fra kontomodus-klienten.
+- [x] **«Supabase DB-oppsett»-workflowen kjørt** (run 29356822695, `main`,
+      workflow_dispatch, conclusion `success`, 2026-07-14) — `cards.start_at`/
+      `due_at`/`lock_times`/`responsible` og `items.start_at`/`due_at` er nå på
+      ekte Supabase.
 
 ## Skjema-endring: kategorier (`items.cat_id`/`is_cat`/`lock_times`)
 
@@ -96,10 +97,12 @@ sharing.sql` er oppdatert idempotent (`add column if not exists`, LWW-triggeren,
 (Playwright, default-modus + synk-doc-round-trip via `docFromState`/
 `mergeStates`/`canonical`).
 
-- [ ] **Kjør «Supabase DB-oppsett»-workflowen** (workflow_dispatch; husk
-      pooler-adressen) så `items.cat_id`/`is_cat`/`lock_times` finnes på ekte
-      Supabase — uten dem avviser PostgREST insert/update av kategorier og
-      kategori-medlemskap fra kontomodus-klienten.
+- [x] **«Supabase DB-oppsett»-workflowen kjørt** (run 29356822695, `main`,
+      workflow_dispatch, conclusion `success`, 2026-07-14) — `items.cat_id`/
+      `is_cat`/`lock_times` er nå på ekte Supabase. Disse to migreringene sto
+      igjen mens `accounts: true` allerede var live i produksjon, så PostgREST
+      avviste hver kort-/element-insert/update (manglende kolonner) og
+      kontomodus-synken var brutt — se PR-en for denne runden.
 
 ## Manuelle steg (krever dashboard-tilgang — Peder)
 

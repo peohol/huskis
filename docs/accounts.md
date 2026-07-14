@@ -77,6 +77,17 @@ samme nested `state` som før; synken går slik (`cloudCycle`):
 Offline-buffer: `state` caches per bruker (`mine-lister-v1:<uid>`), uten intern
 metadata (`stateReplacer` hopper over `_`-felt for å unngå sykliske refs).
 
+**Render-vakt (`viewSignature`/`lastViewSig`)**: `applyMyDoc` river ned og
+bygger hele board-DOM-en (`render()`). `cloudCycle` kaller den derfor KUN når
+visningen faktisk endrer seg — en signatur over (flettet innhold + server-
+metadata + optimistiske overlays) sammenlignes mot forrige anvendte. Uten denne
+vakta tegnet hvert poll (hvert 5. s) board-et på nytt og nullstilte hover-
+tilstanden (synlig «blink»); verre: hvis en push aldri lander (f.eks. en kolonne
+mangler i basen så PostgREST avviser hver insert), genererer reconcile samme
+op hver runde → `cloudAgain` → en rask retry-løkke som uten vakta ga konstant
+flimmer. Motstykket til v1-synkens `mergedCanon !== localCanon`. Nullstilles ved
+inn-/utlogging så en fersk sesjon alltid tegner første gang.
+
 ## Bakgrunns-operasjonskøen (`opQueue`)
 
 Delings-operasjonene går ikke gjennom doc-synken, og ventet tidligere i UI-et
