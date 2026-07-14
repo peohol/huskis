@@ -942,8 +942,10 @@ body {
   gap: 3px;
 }
 .cat-title {
+  margin: 0;                   /* <h3> — nullstill nettleserens standardmarg (blåste opp headeren) */
   font-size: var(--fs-md);
   font-weight: 700;
+  line-height: 1.2;
   color: #fff;                 /* hvit m/ skygge — lesbar på enhver listefarge, som kort-tittelen */
   text-shadow: var(--text-shadow);
   cursor: text;
