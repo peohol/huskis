@@ -114,9 +114,12 @@ body {
 }
 
 /* ---------------- Ikoner (SVG, se icons.js/index.html) ----------------
-   Arver farge fra `color` (stroke="currentColor") og størrelse fra
-   font-size på elementet de limes inn i — samme skaleringsmønster som
-   emoji-glyfene de erstattet. */
+   Fargelagt ikonsett: strekene er SVARTE (stroke="#111", hardkodet i SVG-ene,
+   ikke lenger currentColor) og flatene fylles med hvit + palettfarger der
+   motivet tilsier det (fargekart i icons.js / docs/design-system.md). Størrelse
+   arves fortsatt fra font-size på forelder. Unntak som beholder currentColor:
+   utloggings-glyfen (.logout-icon, hvit på rød knapp) og avkryssings-haken
+   (.item-check .icon), begge rene glyfer på massive fargeknapper. */
 .icon {
   display: block;
   flex: 0 0 auto;
@@ -1548,9 +1551,9 @@ body.modal-open { overflow: hidden; }
   width: 52px;
   height: 52px;
 }
-/* Logo: tre stablede lister (samme motiv som favicon.svg). Hvit strek på
-   app-bakgrunnen; kortene fylles med app-fargen (--brand-logo-fill) slik at det
-   fremste kortet dekker strekene på kortene bak → stablet «papirbunke»-effekt. */
+/* Logo: tre stablede lister (samme motiv som favicon.svg). Svarte streker;
+   kortene fylles med palettfarge 3/2/1 (bakerst→fremst), slik at det fremste
+   kortet dekker strekene på kortene bak → stablet «papirbunke»-effekt. */
 .lock-brand .brand-logo {
   width: 100%;
   height: 100%;
