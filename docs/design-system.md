@@ -71,10 +71,10 @@ grå = `#c0c4c9`):
 | Person (mine) | hode + kropp farge 4 |
 | Tre personer (delte) | hver person farge 1 / 2 / 3 |
 | Brev (e-postvarsel) | hvit |
-| Tannhjul (innstillinger) | grå disk, hvitt nav |
+| Tannhjul (innstillinger) | grå RING (annulus, even-odd) — senterhullet gjennomsiktig |
 | Oppløs (bubbleBurst) | ingen fyllflate — kun svarte streker |
 | Dør inn (login) | dørfeltet hvitt |
-| Hengelås (lock/unlock) | kroppen hvit |
+| Hengelås | låst = farge 1, åpen = farge 3 |
 | Kalender/klokke | flate hvit |
 | Hånd-opp (ansvarlig) | person farge 4 |
 

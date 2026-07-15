@@ -100,25 +100,27 @@ window.ICONS = {
     '</svg>',
 
   // Tre personer (Delte lister): hver person (hode + kropp) fylt med farge 1–3.
+  // Sidepersonene tegnes FØRST (bak) med en fylt skulder-kuppel hver, så
+  // senterpersonen oppå — da får sidene ekte fyll som titter fram på utsidene.
   people: '<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="#111" stroke-width="1.05" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
+    '<circle cx="4.7" cy="10.3" r="1.95" fill="#adad85"></circle>' +
+    '<path d="M2.1 17.6a2.6 2.6 0 0 1 5.2 0" fill="#adad85"></path>' +
+    '<circle cx="19.3" cy="10.3" r="1.95" fill="#85ad85"></circle>' +
+    '<path d="M16.7 17.6a2.6 2.6 0 0 1 5.2 0" fill="#85ad85"></path>' +
     '<circle cx="12" cy="7.8" r="3.1" fill="#ad8585"></circle>' +
     '<path d="M6.7 18.6a5.3 5.2 0 0 1 10.6 0" fill="#ad8585"></path>' +
-    '<circle cx="4.7" cy="10.3" r="1.95" fill="#adad85"></circle>' +
-    '<path d="M1.8 18a3.3 3.2 0 0 1 3.3-2.7" fill="#adad85"></path>' +
-    '<circle cx="19.3" cy="10.3" r="1.95" fill="#85ad85"></circle>' +
-    '<path d="M22.2 18a3.3 3.2 0 0 0-3.3-2.7" fill="#85ad85"></path>' +
     '</svg>',
 
-  // Hengelås: kroppen hvit, bøyle + nøkkelhull svart.
+  // Hengelås: LÅST fylles med farge 1, ÅPEN med farge 3; bøyle + nøkkelhull svart.
   lock: '<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="#111" stroke-width="1.05" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
-    '<rect x="4.5" y="10.5" width="15" height="10" rx="2.5" fill="#ffffff"></rect>' +
+    '<rect x="4.5" y="10.5" width="15" height="10" rx="2.5" fill="#ad8585"></rect>' +
     '<path d="M8 10.5V7.5a4 4 0 0 1 8 0v3"></path>' +
     '<circle cx="12" cy="14.6" r="1.2" fill="#111" stroke="none"></circle>' +
     '<path d="M12 15.8v1.9"></path>' +
     '</svg>',
 
   unlock: '<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="#111" stroke-width="1.05" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
-    '<rect x="4.5" y="10.5" width="15" height="10" rx="2.5" fill="#ffffff"></rect>' +
+    '<rect x="4.5" y="10.5" width="15" height="10" rx="2.5" fill="#85ad85"></rect>' +
     '<path d="M8 10.5V7.5a4 4 0 0 1 7.6-1.9"></path>' +
     '<circle cx="12" cy="14.6" r="1.2" fill="#111" stroke="none"></circle>' +
     '<path d="M12 15.8v1.9"></path>' +
@@ -140,10 +142,12 @@ window.ICONS = {
     '<path d="M11.5 15.5h5.5"></path>' +
     '</svg>',
 
-  // Tannhjul (innstillinger): fylt med grå — nav hvitt.
+  // Tannhjul (innstillinger): grå RING (annulus, even-odd) — senterhullet er
+  // gjennomsiktig, ikke fylt, siden det er hullet i tannhjulet.
   gear: '<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="#111" stroke-width="1.05" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
-    '<circle cx="12" cy="12" r="7" fill="#c0c4c9"></circle>' +
-    '<circle cx="12" cy="12" r="3.2" fill="#ffffff"></circle>' +
+    '<path d="M5 12a7 7 0 1 0 14 0 7 7 0 1 0 -14 0Z M8.8 12a3.2 3.2 0 1 0 6.4 0 3.2 3.2 0 1 0 -6.4 0Z" fill="#c0c4c9" fill-rule="evenodd" stroke="none"></path>' +
+    '<circle cx="12" cy="12" r="7"></circle>' +
+    '<circle cx="12" cy="12" r="3.2"></circle>' +
     '<path d="M12 5V2.8"></path><path d="M12 21.2V19"></path>' +
     '<path d="M19 12h2.2"></path><path d="M2.8 12H5"></path>' +
     '<path d="m16.95 7.05 1.56-1.56"></path><path d="m5.49 18.51 1.56-1.56"></path>' +
