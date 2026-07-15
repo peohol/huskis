@@ -1,5 +1,5 @@
 /* ============================================================
-   Huskekurv — app.js
+   Huskis — app.js
    Vanilla JS. Egen dra-og-slipp-motor på Pointer Events.
    ============================================================ */
 (function () {
@@ -6237,7 +6237,7 @@
     if (!email) return;
     setAuthMode('register');
     authEmail.value = email;
-    authMsg('Du er invitert til Huskekurv! Fullfør registreringen for å bli med.', true);
+    authMsg('Du er invitert til Huskis! Fullfør registreringen for å bli med.', true);
   }
 
   async function initAccounts() {
@@ -6279,7 +6279,7 @@
   initAccounts();
 
   // Eksponer for enkel feilsøking/testing
-  window.__huskekurv = {
+  window.__huskis = {
     state, render, logout, addGroup, deleteGroup,
     addUniverse, deleteUniverse, setActiveUniverse, setActiveGroup, openMenu, closeMenu,
     canonical, reconcile, docFromMyState, contentDocFromMy, applyMyDoc, cloudCycle,

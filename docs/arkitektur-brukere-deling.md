@@ -1,6 +1,6 @@
 # Arkitektur: brukere, eierskap og deling
 
-Grunnmuren for brukerkontoer og deling i Huskekurv. Databasesiden er
+Grunnmuren for brukerkontoer og deling i Huskis. Databasesiden er
 implementert i [`supabase/users-and-sharing.sql`](../supabase/users-and-sharing.sql)
 (idempotent, kjøres av Actionen «Supabase DB-oppsett»). UI-/klientsiden er
 **ikke** implementert ennå — se [TODO.md](../TODO.md).

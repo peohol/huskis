@@ -155,8 +155,8 @@ ferdig og verifisert mot mock-backend; selve e-postutsendingen krever at Peder:
       ```sql
       insert into public.app_config(key, value) values
         ('resend_api_key', 're_...'),
-        ('email_from',      'Huskekurv <noreply@dittdomene.no>'),
-        ('app_url',         'https://din-app-adresse/')
+        ('email_from',      'Huskis <noreply@huskis.no>'),
+        ('app_url',         'https://huskis.no/')
       on conflict (key) do update set value = excluded.value;
       ```
       Uten `resend_api_key` gjør triggeren ingenting (delingen fungerer via
