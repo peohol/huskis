@@ -188,13 +188,9 @@ window.ICONS = {
     '<path d="M15 16h4.5"></path>' +
     '</svg>',
 
-  // Oppløs kategori: en stilisert såpeboble som sprekker — ingen fyllbar flate,
-  // så den beholder rene svarte streker uten fyll.
+  // Oppløs kategori: en enkel sirkel med stiplet kant (boble som er i ferd med å
+  // briste) — ingen stråler ut fra midten (unngår sol-uttrykket). Ingen fyll.
   bubbleBurst: '<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="#111" stroke-width="1.05" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
-    '<circle cx="12" cy="12" r="4.2" stroke-dasharray="2.2 2.4"></circle>' +
-    '<path d="M12 2.6v2.2"></path><path d="M12 19.2v2.2"></path>' +
-    '<path d="M2.6 12h2.2"></path><path d="M19.2 12h2.2"></path>' +
-    '<path d="m5.1 5.1 1.6 1.6"></path><path d="m17.3 17.3 1.6 1.6"></path>' +
-    '<path d="m18.9 5.1-1.6 1.6"></path><path d="m5.1 18.9 1.6-1.6"></path>' +
+    '<circle cx="12" cy="12" r="8.5" stroke-dasharray="2.8 2.9"></circle>' +
     '</svg>',
 };
