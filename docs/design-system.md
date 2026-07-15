@@ -64,8 +64,17 @@ viewBox 0 0 24 24, avrundede linjer/hjørner. Alle ikoner har klassen `.icon`
 - ☰-knappen og dra-håndtakene tegnes i ren CSS (`.menu-bars` /
   `.drag-handle::before` — strek/prikk + kopier via `box-shadow`), i samme
   tynne, avrundede stil som ikonsettet.
-- Favicon (`favicon.svg`) er en frittstående fil siden `<link rel="icon">`
-  ikke kan peke på en JS-streng (beholder stroke 1.5 — lesbarhet i 16px).
+- **Logo (`favicon.svg` + brand-mark på innloggingsskjermen)**: tre stablede
+  lister — samme motiv som `list`-ikonet, men tegnet som tre avrundede kort
+  forskjøvet nedover/til høyre; kun det fremste kortet har de tre listepunktene
+  (prikk + strek). Logoen er tofarget (IKKE `currentColor`): **hvit** strek/
+  prikker på **app-bakgrunnen** (`#667788`). Kortene fylles med app-fargen slik
+  at det fremste kortet dekker strekene på kortene bak → «papirbunke»-effekt.
+  Tynnere strek enn ikonsettet (0.9) så listepunktene overlever i 16px favicon.
+  Logoen finnes to steder (samme markup): `favicon.svg` (frittstående fil, siden
+  `<link rel="icon">` ikke kan peke på en JS-streng) og inline i `.brand-mark`
+  (`index.html`) — kort-fyllet der styres av `--brand-logo-fill` (standard
+  app-fargen). Endrer du motivet, oppdater BEGGE.
 - `--icon-stroke` (token, 1.05px): linjetykkelsen for CSS-tegnede (ikke-SVG)
   streker som skal matche ikonsettets stroke-width visuelt — brukt av
   sveipefeltets pil (`.swipe-arrow::before`/`::after`), som tidligere hadde en

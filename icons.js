@@ -1,5 +1,5 @@
 /* ============================================================
-   Huskekurv — ikonsett brukt fra app.js (SVG som strenger)
+   Huskis — ikonsett brukt fra app.js (SVG som strenger)
    ------------------------------------------------------------
    Kun ikonene som bygges dynamisk fra JS ligger her (badges, lås-knapp,
    auth-heading, sveipefeltet, søppelkasse-ikonet i element-knappen og

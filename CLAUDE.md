@@ -1,4 +1,4 @@
-# CLAUDE.md — Huskekurv
+# CLAUDE.md — Huskis
 
 Statisk app: **Univers > Gruppe > Liste > Element**. Universer er helt
 uavhengige områder — grupper flyttes aldri på tvers av dem. Ingen byggesteg —
@@ -8,7 +8,7 @@ ren `index.html` + `styles.css` + `app.js` (vanilla JS), persistens i
 ## Kjøre appen
 
 ```bash
-cd /home/user/huskekurv
+cd /home/user/huskis
 python3 -m http.server 8000
 # åpne http://localhost:8000
 ```

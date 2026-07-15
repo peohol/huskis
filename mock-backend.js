@@ -1,5 +1,5 @@
 /* ============================================================
-   Huskekurv — hermetisk mock-backend (KUN for testing, ?mock=1)
+   Huskis — hermetisk mock-backend (KUN for testing, ?mock=1)
    ------------------------------------------------------------
    Etterligner den delmengden av Supabase-klienten appen bruker
    (auth, from().insert/update/delete, rpc, channel), med en

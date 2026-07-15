@@ -1,5 +1,5 @@
 -- ============================================================
--- Huskekurv: brukere, eierskap og deling (GRUNNMUR — fase 1)
+-- Huskis: brukere, eierskap og deling (GRUNNMUR — fase 1)
 -- Idempotent: trygg å kjøre flere ganger.
 --
 -- Dette skjemaet ERSTATTER på sikt den gamle éndoc-modellen
@@ -890,8 +890,8 @@ $$;
 -- delingen fungerer som før. Slik settes den opp (Supabase SQL editor):
 --   insert into public.app_config(key, value) values
 --     ('resend_api_key', 're_xxx'),
---     ('email_from',     'Huskekurv <noreply@dittdomene.no>'),
---     ('app_url',        'https://din-app-adresse/')
+--     ('email_from',     'Huskis <noreply@huskis.no>'),
+--     ('app_url',        'https://huskis.no/')
 --   on conflict (key) do update set value = excluded.value;
 -- (pg_net må være aktivert: Database → Extensions → pg_net.)
 
@@ -941,7 +941,7 @@ begin
   -- Ikke konfigurert → ingen e-post (delingen fungerer likevel via appen).
   if api_key is null or api_key = '' then return new; end if;
   select value into from_addr from public.app_config where key = 'email_from';
-  from_addr := coalesce(from_addr, 'Huskekurv <onboarding@resend.dev>');
+  from_addr := coalesce(from_addr, 'Huskis <onboarding@resend.dev>');
   select value into app_url from public.app_config where key = 'app_url';
   app_url := coalesce(app_url, '');
 
@@ -956,7 +956,7 @@ begin
   -- tekst i e-post og trenger ingen escaping).
   inv_e := public.html_escape(inviter);
   obj_e := public.html_escape(obj_name);
-  subject := inviter || ' har delt «' || obj_name || '» med deg på Huskekurv';
+  subject := inviter || ' har delt «' || obj_name || '» med deg på Huskis';
 
   if new.invitee_id is null then
     -- Uregistrert mottaker → inviter til å registrere seg. E-posten går til
@@ -966,9 +966,9 @@ begin
       replace(replace(replace(new.invitee_email, '+', '%2B'), '@', '%40'), '&', '%26');
     body_html :=
       '<div style="font-family:sans-serif;max-width:480px;margin:auto">' ||
-      '<h2>Du er invitert til Huskekurv</h2>' ||
+      '<h2>Du er invitert til Huskis</h2>' ||
       '<p><strong>' || inv_e || '</strong> har delt <strong>' || obj_e ||
-      '</strong> med deg på Huskekurv.</p>' ||
+      '</strong> med deg på Huskis.</p>' ||
       '<p>Registrer deg med denne e-postadressen, så dukker delingen opp i appen ' ||
       'og du kan godta den:</p>' ||
       '<p><a href="' || public.html_escape(link) || '" style="display:inline-block;background:#3a8a6a;' ||
@@ -985,11 +985,11 @@ begin
       '<div style="font-family:sans-serif;max-width:480px;margin:auto">' ||
       '<h2>' || obj_e || ' er delt med deg</h2>' ||
       '<p><strong>' || inv_e || '</strong> har delt <strong>' || obj_e ||
-      '</strong> med deg på Huskekurv.</p>' ||
+      '</strong> med deg på Huskis.</p>' ||
       '<p>Åpne appen for å godta delingen:</p>' ||
       '<p><a href="' || public.html_escape(link) || '" style="display:inline-block;background:#3a8a6a;' ||
       'color:#fff;padding:11px 20px;border-radius:8px;text-decoration:none">' ||
-      'Åpne Huskekurv</a></p></div>';
+      'Åpne Huskis</a></p></div>';
   end if;
 
   perform net.http_post(
