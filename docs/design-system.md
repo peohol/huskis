@@ -49,10 +49,44 @@ Alle knapper i samme knapperad har identisk høyde/radius/flate (`--control-h`
 
 ## Ikoner (`.icon`, `icons.js`)
 
-Egendefinert SVG-ikonsett: stroke="currentColor", **stroke-width 1.05** (30 %
-tynnere enn opprinnelig 1.5 — luftigere ikoner med tydeligere detaljer),
-viewBox 0 0 24 24, avrundede linjer/hjørner. Alle ikoner har klassen `.icon`
-(`width/height: 1em` — skalerer med `font-size` på elementet de limes inn i).
+Egendefinert SVG-ikonsett, **fargelagt**: streker er SVARTE (`stroke="#111"`,
+hardkodet — IKKE lenger `currentColor`) og flater fylles med hvit + palettfarger
+der motivet tilsier det (kart under). **stroke-width 1.05** (30 % tynnere enn
+opprinnelig 1.5), viewBox 0 0 24 24, avrundede linjer/hjørner. Alle ikoner har
+klassen `.icon` (`width/height: 1em` — skalerer med `font-size` på elementet de
+limes inn i).
+
+**Fargekart** (fyllene er hardkodet hex som speiler palettens seks første farger,
+HSL S=20 % L=60 %: farge 1–6 = `#ad8585 #adad85 #85ad85 #85adad #8585ad #ad85ad`;
+grå = `#c0c4c9`):
+
+| Ikon | Fyll |
+|---|---|
+| Globus (univers) | de seks globusfeltene = palettfarge 1–6 |
+| Del (share) | stor sirkel farge 1, de to små farge 2 og 3 |
+| Søppelkasse (trash/trashSwipe) | kroppen grå |
+| Mappe (gruppe) | farge 2 (gulaktig mappefarge) |
+| Liste | hvit flate, svarte punkter/linjer |
+| Øye (vis) | hornhinne hvit, pupill svart |
+| Person (mine) | hode + kropp farge 4 |
+| Tre personer (delte) | hver person farge 1 / 2 / 3 |
+| Brev (e-postvarsel) | hvit |
+| Tannhjul (innstillinger) | grå kogg med FYLTE, brede tenner (⚙️-stil) — senterhullet gjennomsiktig (even-odd) |
+| Oppløs (bubbleBurst) | ingen fyllflate — kun svarte streker |
+| Dør inn (login) | dørfeltet hvitt |
+| Hengelås | låst = farge 1, åpen = farge 3 |
+| Kalender/klokke | flate hvit |
+| Hånd-opp (ansvarlig) | person farge 4 |
+
+Unntak som beholder `currentColor` (rene glyfer på massive fargeknapper):
+utlogging (`.logout-icon`, hvit på rød) og avkryssings-haken (`.item-check`).
+
+**Kryss-ikonet** (`ICONS.xmark`, samt inline i `index.html`): lukk-/slett-
+knappenes ✕ er nå en egen SVG med samme strek (1.05) og runde ender som resten
+av settet, `stroke="currentColor"` så CSS styrer farge. Slett-knappene
+(`.card-delete`/`.item-delete`/`.group-delete`/`.uni-delete`) er SVARTE i hvile
+(også på fargede chip-/korthode-flater) og RØDE ved hover/aktivering; lukk-
+knappene arver `.icon-btn`-fargen (`--ink-soft`).
 
 - **Statiske forekomster** (panel-title-ikoner, søppelkasse-knapper,
   del-knapper, logo/brand-mark) limes rett inn som `<svg>`-markup i
@@ -67,14 +101,14 @@ viewBox 0 0 24 24, avrundede linjer/hjørner. Alle ikoner har klassen `.icon`
 - **Logo (`favicon.svg` + brand-mark på innloggingsskjermen)**: tre stablede
   lister — samme motiv som `list`-ikonet, men tegnet som tre avrundede kort
   forskjøvet nedover/til høyre; kun det fremste kortet har de tre listepunktene
-  (prikk + strek). Logoen er tofarget (IKKE `currentColor`): **hvit** strek/
-  prikker på **app-bakgrunnen** (`#667788`). Kortene fylles med app-fargen slik
-  at det fremste kortet dekker strekene på kortene bak → «papirbunke»-effekt.
-  Tynnere strek enn ikonsettet (0.9) så listepunktene overlever i 16px favicon.
-  Logoen finnes to steder (samme markup): `favicon.svg` (frittstående fil, siden
-  `<link rel="icon">` ikke kan peke på en JS-streng) og inline i `.brand-mark`
-  (`index.html`) — kort-fyllet der styres av `--brand-logo-fill` (standard
-  app-fargen). Endrer du motivet, oppdater BEGGE.
+  (prikk + strek). Logoen er fargelagt: **svarte** streker/prikker, og de tre
+  kortene fylles med palettfarge **3/2/1** (bakerst→fremst — det fremste kortet
+  har farge 1), slik at det fremste kortet dekker strekene på kortene bak →
+  «papirbunke»-effekt. Tynnere strek enn ikonsettet (0.9) så listepunktene
+  overlever i 16px favicon. Logoen finnes to steder (samme markup): `favicon.svg`
+  (frittstående fil, siden `<link rel="icon">` ikke kan peke på en JS-streng) og
+  inline i `.brand-mark` (`index.html`). Endrer du motivet/fargene, oppdater
+  BEGGE.
 - `--icon-stroke` (token, 1.05px): linjetykkelsen for CSS-tegnede (ikke-SVG)
   streker som skal matche ikonsettets stroke-width visuelt — brukt av
   sveipefeltets pil (`.swipe-arrow::before`/`::after`), som tidligere hadde en

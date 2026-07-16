@@ -1,16 +1,16 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
   <rect x="0" y="0" width="24" height="24" rx="5" fill="#667788"></rect>
-  <g fill="#667788" stroke="#ffffff" stroke-width="0.9" stroke-linecap="round" stroke-linejoin="round">
-    <rect x="3.3" y="3.3" width="11.4" height="11.4" rx="2.8"></rect>
-    <rect x="6.3" y="6.3" width="11.4" height="11.4" rx="2.8"></rect>
-    <rect x="9.3" y="9.3" width="11.4" height="11.4" rx="2.8"></rect>
+  <g stroke="#111" stroke-width="0.9" stroke-linecap="round" stroke-linejoin="round">
+    <rect x="3.3" y="3.3" width="11.4" height="11.4" rx="2.8" fill="#85ad85"></rect>
+    <rect x="6.3" y="6.3" width="11.4" height="11.4" rx="2.8" fill="#adad85"></rect>
+    <rect x="9.3" y="9.3" width="11.4" height="11.4" rx="2.8" fill="#ad8585"></rect>
   </g>
-  <g fill="#ffffff" stroke="none">
+  <g fill="#111" stroke="none">
     <circle cx="12.4" cy="12.9" r="0.6"></circle>
     <circle cx="12.4" cy="15" r="0.6"></circle>
     <circle cx="12.4" cy="17.1" r="0.6"></circle>
   </g>
-  <g fill="none" stroke="#ffffff" stroke-width="0.9" stroke-linecap="round">
+  <g fill="none" stroke="#111" stroke-width="0.9" stroke-linecap="round">
     <path d="M14.3 12.9h3.9"></path>
     <path d="M14.3 15h3.9"></path>
     <path d="M14.3 17.1h3.9"></path>

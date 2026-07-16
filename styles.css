@@ -114,9 +114,12 @@ body {
 }
 
 /* ---------------- Ikoner (SVG, se icons.js/index.html) ----------------
-   Arver farge fra `color` (stroke="currentColor") og størrelse fra
-   font-size på elementet de limes inn i — samme skaleringsmønster som
-   emoji-glyfene de erstattet. */
+   Fargelagt ikonsett: strekene er SVARTE (stroke="#111", hardkodet i SVG-ene,
+   ikke lenger currentColor) og flatene fylles med hvit + palettfarger der
+   motivet tilsier det (fargekart i icons.js / docs/design-system.md). Størrelse
+   arves fortsatt fra font-size på forelder. Unntak som beholder currentColor:
+   utloggings-glyfen (.logout-icon, hvit på rød knapp) og avkryssings-haken
+   (.item-check .icon), begge rene glyfer på massive fargeknapper. */
 .icon {
   display: block;
   flex: 0 0 auto;
@@ -1106,23 +1109,19 @@ body {
 }
 .icon-btn:hover { background: rgba(0, 0, 0, 0.07); color: var(--ink); }
 
-/* Sletteknapper (liste/element/gruppe/univers): samme utseende overalt —
-   dempet ✕ som blir rød ved hover. Gruppe-/univers-✕ ligger helt til høyre. */
-.card-delete:hover, .item-delete:hover, .group-delete:hover, .uni-delete:hover {
+/* Sletteknapper (liste/element/gruppe/univers): SVG-× (ICONS.xmark, samme strek
+   som ikonsettet) — SVARTE globalt, RØDE ved hover/aktivering. Gjelder også på
+   fargede flater (chip + korthode); svart leser fint på de lyse kortfargene.
+   Gruppe-/univers-× ligger helt til høyre. */
+.card-delete, .item-delete, .group-delete, .uni-delete { color: #111; }
+.card-delete:hover, .item-delete:hover, .group-delete:hover, .uni-delete:hover,
+.card-delete:active, .item-delete:active, .group-delete:active, .uni-delete:active {
   color: var(--danger);
   background: rgba(239, 107, 125, 0.12);
 }
 .group-delete, .uni-delete { margin-left: auto; }
-/* Slett-✕ på fargede flater (chip + korthode) er hvit m/ tekst-skygge — som
-   resten av innholdet på fargede flater — så den er lesbar også på mørke
-   kortfarger (grå ✕ forsvant på dem). Blir rød ved hover som før. */
-.group-delete, .uni-delete, .card-delete {
-  color: #fff;
-  filter: drop-shadow(var(--text-shadow));
-}
-/* Element-✕ alltid synlig, men diskré; full styrke ved hover/fokus. Mørkere
-   ink-farge i hvile (grå --ink-soft ga for svak kontrast mot listeflaten). */
-.item-delete { color: var(--ink); opacity: 0.6; }
+/* Element-× alltid synlig, men diskré; full styrke ved hover/fokus. */
+.item-delete { opacity: 0.6; }
 .item:hover .item-delete,
 .item:focus-within .item-delete,
 .item-delete:focus-visible { opacity: 1; }
@@ -1548,9 +1547,9 @@ body.modal-open { overflow: hidden; }
   width: 52px;
   height: 52px;
 }
-/* Logo: tre stablede lister (samme motiv som favicon.svg). Hvit strek på
-   app-bakgrunnen; kortene fylles med app-fargen (--brand-logo-fill) slik at det
-   fremste kortet dekker strekene på kortene bak → stablet «papirbunke»-effekt. */
+/* Logo: tre stablede lister (samme motiv som favicon.svg). Svarte streker;
+   kortene fylles med palettfarge 3/2/1 (bakerst→fremst), slik at det fremste
+   kortet dekker strekene på kortene bak → stablet «papirbunke»-effekt. */
 .lock-brand .brand-logo {
   width: 100%;
   height: 100%;
