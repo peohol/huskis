@@ -899,11 +899,10 @@ body {
   min-height: 26px;
 }
 /* Gjort element: lavere bakgrunns-opacity + gjennomstreket, dempet tekst.
-   Håndtaket er inaktivt (avkryssede reorderes ikke — de ligger i «Utført»). */
+   Avkryssede dras ikke (de ligger i «Utført») — attachHoldDrag gater på done. */
 .item.done { background: rgba(255, 255, 255, 0.3); }
 .item.done:hover { background: rgba(255, 255, 255, 0.48); }
 .item.done .item-text { text-decoration: line-through; opacity: 0.5; }
-.item.done .item-handle { opacity: 0; pointer-events: none; }
 
 /* «Utført»-seksjonen: egen liste under de aktive, skilt med en subtil linje. */
 .items-done-wrap { display: flex; flex-direction: column; gap: 8px; }
@@ -1064,42 +1063,17 @@ body {
   .add-item-btn.holding::after { animation: none; }
 }
 
-/* ---------------- Håndtak & ikon-knapper ----------------
-   ALLE dra-håndtak er tre vertikale prikker (én prikk + to via box-shadow,
-   samme teknikk med box-shadow-kopier), alltid MØRKERE enn flaten sin (kortets/
-   gruppens aksentfarge) og NØYAKTIG vertikalt midtstilt i beholderen sin:
-   knappen strekkes til beholderens fulle høyde (align-self: stretch) og
-   prikkene grid-sentreres i den. */
-.drag-handle {
-  appearance: none;
-  border: none;
-  background: transparent;
-  cursor: grab;
-  color: var(--card-accent);
-  display: grid;
-  place-items: center;
-  padding: 0 7px;
-  border-radius: 8px;
-  touch-action: none; /* la peker-draging styre, ikke scroll */
-  transition: background 0.15s, color 0.15s;
-  flex: 0 0 auto;
-  align-self: stretch;
+/* ---------------- Trykk-og-hold-sone (draging) ----------------
+   Dra-håndtakene er fjernet; draging inviteres ved å trykke og holde på et
+   objekts navn-/tittelsone (se attachHoldDrag i app.js). Mens holdet registreres
+   får det objektet som skal løftes et lite «press» (scale) som tilbakemelding —
+   fjernes idet draget starter (da tar `.dragging` over) eller holdet avbrytes. */
+.drag-hold { transform: scale(0.98); transition: transform 0.12s ease; }
+@media (prefers-reduced-motion: reduce) {
+  .drag-hold { transform: none; transition: none; }
 }
-.drag-handle::before {
-  content: '';
-  width: 5px;
-  height: 5px;
-  border-radius: 50%;
-  background: currentColor;
-  box-shadow: 0 -8px 0 currentColor, 0 8px 0 currentColor;
-}
-.drag-handle:hover { background: rgba(0, 0, 0, 0.06); }
-.drag-handle:active { cursor: grabbing; }
-.item-handle { opacity: 0.75; }
-/* Gruppekortets/universradens håndtak: mørkere enn chipfargen (samme mønster
-   som kortene). */
-.group-handle { color: var(--g-accent, rgba(0, 0, 0, 0.4)); }
 
+/* ---------------- Ikon-knapper ---------------- */
 .icon-btn {
   appearance: none;
   border: none;

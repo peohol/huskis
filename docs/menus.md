@@ -42,16 +42,15 @@ Skjules før innlogging (`body.no-auth`).
   knappen** (`.share-btn`, `#share-uni-btn`, kun kontomodus/eier-eller-mount)
   rett under. Del-knappen lukker univers-modalen og åpner del-modalen med
   tilbakeknapp (se «Del-modalens tilbakeknapp» under).
-- **«Alle universer»**: univers-rader (`.uni-row.chip` — håndtak, farget,
-  aktiv m/ ring, antall-pill med gruppe-ikon + antall grupper (`.chip-count`),
-  ✕ helt til høyre), «＋ [univers-ikon]» og univers-søppelkassen (se
-  `docs/trash.md`).
+- **«Alle universer»**: univers-rader (`.uni-row.chip` — farget, aktiv m/ ring,
+  antall-pill med gruppe-ikon + antall grupper (`.chip-count`), ✕ helt til
+  høyre), «＋ [univers-ikon]» og univers-søppelkassen (se `docs/trash.md`).
 - Klikk på en rad = **bytt univers + lukk modalen**; klikk på det aktive
   navnet = omdøp; opprettelse holder modalen åpen (navnet redigeres inline).
   `setActiveUniverse` gjenoppretter sist aktive gruppe i universet
   (`activeGroups`, se `docs/data-model.md`).
-- **Rekkefølge**: dra-og-slipp via håndtaket (placeholder + FLIP) eller
-  piltaster på håndtaket; auto-scroll ruller modalens `.menu-body`. Se
+- **Rekkefølge**: trykk-og-hold hvor som helst på raden (unntatt ×-knappen) for
+  å dra (placeholder + FLIP); auto-scroll ruller modalens `.menu-body`. Se
   `docs/drag-and-drop.md`.
 
 ## Gruppe-modalen (`#group-modal`, åpnes fra 📁-breadcrumben)
@@ -109,7 +108,7 @@ innstillingsmodalen) sender ingen `backTo` og har dermed ingen tilbakeknapp.
 
 ## Flytt liste til annen gruppe (uten gruppekort på hovedsiden)
 
-Dra en liste (håndtaket) opp på **📁-breadcrumben**: knappen markeres
+Dra en liste (trykk-og-hold på korthodet) opp på **📁-breadcrumben**: knappen markeres
 (`.drop-target`) når det finnes andre grupper å flytte til; slipp legger
 kortet normalt tilbake på board-et og åpner en velger («Flytt … til:») i
 plasserings-modal-skallet (`openPicker`). Avbrytes velgeren skjer ingenting.
