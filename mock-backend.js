@@ -253,6 +253,13 @@
     var list = db[table];
     list.forEach(function (row) {
       for (var k in filters) if (row[k] !== filters[k]) return;
+      if (table === 'profiles') {
+        // Som RLS-policyen: kun egen rad, og kun display_name kan endres
+        // (e-post går via auth.updateUser).
+        if (row.id !== uid) return;
+        if ('display_name' in patch) row.display_name = patch.display_name;
+        return;
+      }
       if (table === 'memberships') {
         if (row.user_id !== uid) return;
         ['pos', 'trashed', 'parent_universe_id', 'parent_group_id'].forEach(function (f) {
@@ -538,12 +545,13 @@
         signInWithPassword: function (opts) {
           var db = loadDB();
           var email = String(opts.email).toLowerCase();
-          var uid = uidFor(email);
-          var p = db.profiles.find(function (x) { return x.id === uid; });
+          // Slå opp på E-POST (ikke uidFor): e-posten kan være endret etter
+          // registrering (auth.updateUser({ email })), mens id-en består.
+          var p = db.profiles.find(function (x) { return x.email === email; });
           if (!p || db.passwords[email] !== opts.password) {
             return Promise.resolve({ data: null, error: { message: 'Invalid login credentials' } });
           }
-          var user = { id: uid, email: email, user_metadata: clone(p.user_metadata) || {} };
+          var user = { id: p.id, email: email, user_metadata: clone(p.user_metadata) || {} };
           setSess(user);
           setTimeout(function () { emitAuth('SIGNED_IN', { user: user }); }, 0);
           return Promise.resolve({ data: { user: user, session: { user: user } }, error: null });
@@ -551,7 +559,7 @@
         resetPasswordForEmail: function () { return Promise.resolve({ data: {}, error: null }); },
         updateUser: function (attrs) {
           var u = getSess();
-          if (u && (attrs.password || attrs.data)) {
+          if (u && (attrs.password || attrs.data || attrs.email)) {
             var db = loadDB();
             if (attrs.password) db.passwords[u.email] = attrs.password;
             if (attrs.data) {
@@ -561,6 +569,21 @@
                 u.user_metadata = clone(p.user_metadata);
                 setSess(u); // hold denne fanens sesjon i takt
               }
+            }
+            if (attrs.email) {
+              // E-postendring — ekte Supabase sender bekreftelseslenke; mocken
+              // endrer direkte (som handle_user_email_change etter bekreftelse).
+              var ne = String(attrs.email).toLowerCase().trim();
+              var mine = db.profiles.find(function (x) { return x.id === u.id; });
+              var taken = db.profiles.some(function (x) { return x.email === ne && x.id !== u.id; });
+              if (!mine || taken) {
+                return Promise.resolve({ data: null, error: { message: 'E-postadressen er allerede i bruk' } });
+              }
+              db.passwords[ne] = db.passwords[mine.email];
+              delete db.passwords[mine.email];
+              mine.email = ne;
+              u.email = ne;
+              setSess(u);
             }
             saveDB(db);
           }

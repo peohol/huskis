@@ -13,7 +13,7 @@ knapper, kontroller) er skalert opp ~30 % i forhold til det opprinnelige
 designet, mens padding/margin/gap IKKE er skalert tilsvarende — bevisst valg:
 større, mer lesbare og lettere treffbare elementer i et fortsatt kompakt UI.
 
-Univers-rader, gruppekort og listekort har **identisk tittel-typografi**
+Univers-rader, gruppe-rader og listekort har **identisk tittel-typografi**
 (20px/600: `.chip-name` og `.card-title`) og identisk størrelse på ekvivalente
 ikoner (delt-merke, slett-✕, håndtak).
 
@@ -26,13 +26,13 @@ står fortsatt som px.
 ## Tokens, ikke hardkoding (styles.css, øverst)
 
 `--control-h` (49px), `--control-radius` (14px), `--control-bg`
-(rgba(255,255,255,.75)), `--side-pad`, `--fade-h`, `--text-shadow`,
+(rgba(255,255,255,.75)), `--toolbar-pad`, `--text-shadow`,
 `--grad-green/-red/-yellow` (knappe-gradienter), skygge- og radius-variablene.
 Nye kontroller skal bruke disse — aldri egne ad hoc-verdier. Endres et token,
 skal hele appen følge med.
 
 Alle knapper i samme knapperad har identisk høyde/radius/flate (`--control-h`
-/ `--control-radius`). Gjelder ＋-knapper, søppelkasser, filterkortet og ☰.
+/ `--control-radius`). Gjelder ＋-knapper, søppelkasser, filterkortet, breadcrumb-knappene og kontoknappen.
 
 ## Luft-regler (padding/margin/gap)
 
@@ -95,9 +95,8 @@ knappene arver `.icon-btn`-fargen (`--ink-soft`).
   auth-heading-ikonet, sveipefelt-søppelkassen, antall-pillene, element-
   søppelknappen, tom-tilstander) bygges fra `window.ICONS` (`icons.js`, lastet
   før `app.js`) via `el.innerHTML = ICONS.xxx`.
-- ☰-knappen og dra-håndtakene tegnes i ren CSS (`.menu-bars` /
-  `.drag-handle::before` — strek/prikk + kopier via `box-shadow`), i samme
-  tynne, avrundede stil som ikonsettet.
+- Dra-håndtakene tegnes i ren CSS (`.drag-handle::before` — prikk + kopier
+  via `box-shadow`), i samme tynne, avrundede stil som ikonsettet.
 - **Logo (`favicon.svg` + brand-mark på innloggingsskjermen)**: tre stablede
   lister — samme motiv som `list`-ikonet, men tegnet som tre avrundede kort
   forskjøvet nedover/til høyre; kun det fremste kortet har de tre listepunktene
@@ -134,16 +133,24 @@ Størrelse/form kommer fra egne klasser: `.btn` (modaler), `.btn-small`,
 
 ## Delte klasser — gjenbruk før du lager nye
 
-- `.panel-head` + `.panel-title` + `.panel-actions`: overskrift («UNIVERS:
-  [navn]»/«GRUPPE: [navn]»/«UNIVERSER», uppercase via CSS) på egen linje +
-  knapperad under. Brukes i gruppemenyen, listemenyen og meny-modalen.
+- `.panel-head` + `.panel-title` + `.panel-actions`: overskrift («ALLE
+  UNIVERSER»/«INVITASJONER» osv., uppercase via CSS) på egen linje + knapperad
+  under. Brukes i univers-/gruppe-/konto-modalen og toppmenyens
+  listefunksjons-rad.
+- `.crumb-btn`: breadcrumb-knappene i toppmenyen (nivå-ikon + navn på
+  flate-mønsteret, `.crumb-name` med ellipsis); `.crumb-sep` er ›-skilletegnet.
 - `.trashcan`: ALLE søppelkasse-knapper — hvit avrundet beholder, antall i grå
   sirkel (`.trashcan-count`), **skjult (`hidden`) når tom**.
-- `.menu-btn`: ☰ (tre linjer via `.menu-bars` + box-shadow).
+- `.account-btn`: kontoknappen (person-ikon, fast i øvre høyre hjørne, med
+  `.menu-badge` som invitasjons-teller).
+- `.modal-current` + `.current-chip`: «Du er i»-blokken øverst i univers-/
+  gruppe-modalen (etikett + chip-farget navn + del-knapp under).
+- `.account-form` (+ `-label`/`-row`) og `.account-msg`: endre navn/e-post i
+  konto-modalen (etikett over felt, Lagre-knapp på samme rad).
 - `.chip` / `.chip-name` / `.chip-count`: fargede kort med hvit skrift — deles
-  av gruppekort og univers-rader. Aktiv = grønn brand-ring (`outline
+  av gruppe-/univers-rader (i modalene) og «Du er i»-chipen. Aktiv = grønn brand-ring (`outline
   --primary`). `.chip-count` er en liten, subtil **pill med nivå-ikon +
-  antall** (univers-rad: mappe + antall grupper; gruppekort: liste-ikon +
+  antall** (univers-rad: mappe + antall grupper; gruppe-rad: liste-ikon +
   antall lister), med litt avstand fra navnet.
 - Sletteknapper: felles regel (dempet ✕ → rød ved hover). På chips ligger
   **del-knappen alltid rett til venstre for ✕** (auto-margen flytter seg til
@@ -225,7 +232,7 @@ Størrelse/form kommer fra egne klasser: `.btn` (modaler), `.btn-small`,
 ## Flate-mønsteret
 
 Hvile = halvgjennomsiktig hvit (`--control-bg`), hover = helt ugjennomsiktig
-hvit. Gjelder søppelkasser, filterkortet og ☰.
+hvit. Gjelder søppelkasser, filterkortet, breadcrumb-knappene og kontoknappen.
 
 ## `[hidden]`-regelen
 
@@ -235,7 +242,7 @@ overstyre `hidden`-attributtet, og tomme søppelkasser ville vises likevel.
 
 ## Delelinjer i modaler
 
-Delelinjer (f.eks. meny-modalens Logg ut/Universer-skille) skal se ut som
+Delelinjer (f.eks. skillene i univers-/gruppe-/konto-modalen) skal se ut som
 `.modal-head`s `border-bottom` — kant-til-kant, IKKE en innrykket `<hr>` med
 vanlig margin (den ville stoppe ved `.modal-body`s side-padding og se kortere
 ut enn linja over). Bruk `border-bottom: 1px solid var(--line)` + negativ

@@ -8,13 +8,13 @@ Mine/Delte-filteret.
 Farge utledes av **posisjon** i den synlige, sorterte lista (S=`COLOR_SAT` 20 %,
 L-sett `[60,75,90]`, tone-rekkefølge fra `buildHueOrder` (12 toner, 60°-hopp));
 re-fargelegges ved add/slett/omrokkering; ikke lagret/synket (`colorForId` som
-stabil reserve i søppelkasse-modalen). Gjelder gruppekort, listekort OG
+stabil reserve i søppelkasse-modalen). Gjelder gruppe-rader, listekort OG
 univers-radene i menyen. Hvit skrift m/ `--text-shadow` på alle fargede flater
 og grønne knapper.
 
 ## Filter (Mine/Delte)
 
-Filterkortet (👁️ Mine/Delte) i listemenyen (se `docs/menus.md`), per enhet
+Filterkortet (👁️ Mine/Delte) i toppmenyens listefunksjons-rad (se `docs/menus.md`), per enhet
 (`mine-lister-filter`, ikke synket). To uavhengige brytere — «Mine» (lister du
 selv eier, `isMine(c)`/`c._mine !== false`) og «Delte» (lister andre har delt
 med deg — `c._mine === false`). Begge kan stå på (alt vises) eller av (alt

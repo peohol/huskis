@@ -49,8 +49,8 @@ Universer er **helt uavhengige områder** — grupper kan ALDRI flyttes på tver
 universer. Alt gruppe-/liste-UI er scopet til det aktive universet (`allGroups()`
 osv.), så kryss-univers-flytting er umulig i UI-et.
 
-- **Universer**: bytt/opprett/omdøp/slett i meny-modalen (☰). Se `docs/menus.md`.
-- **Grupper** (gruppemenyen): opprett/slett/omdøp/dra-rekkefølge. Se `docs/menus.md`.
+- **Universer**: bytt/opprett/omdøp/slett i univers-modalen (🌐-breadcrumben). Se `docs/menus.md`.
+- **Grupper** (gruppe-modalen, 📁-breadcrumben): opprett/slett/omdøp/dra-rekkefølge. Se `docs/menus.md`.
 - **Lister** («kort», tidl. «kategorier») i hver gruppe: samme CRUD + dra-og-slipp,
   inkl. overføring til annen gruppe. Se `docs/drag-and-drop.md`.
 - **Elementer** i hvert kort: samme CRUD + dra-og-slipp, inkl. overføring mellom

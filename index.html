@@ -12,59 +12,35 @@
   <link rel="stylesheet" href="styles.css" />
 </head>
 <body class="locked">
-  <!-- Menyknapp (☰): fast i øvre høyre hjørne av VIEWPORTET — ikke en del av
-       verken gruppemenyen eller listemenyen sin flyt. Havner dermed «for gratis»
-       over listemenyen på desktop (som ligger til høyre) og over gruppemenyen på
-       mobil (som er det faste toppanelet der) uten skjermstørrelse-spesifikk
-       DOM-plassering. -->
-  <button class="menu-btn" id="menu-btn" type="button" title="Meny"
-          aria-label="Åpne menyen" aria-haspopup="dialog">
-    <span class="menu-bars" aria-hidden="true"></span>
-    <span class="menu-badge" id="menu-badge" hidden aria-hidden="true"></span>
+  <!-- Kontoknapp: fast i øvre høyre hjørne av VIEWPORTET — utenfor toppmenyens
+       flyt, alltid synlig. Åpner konto-modalen; badgen viser ventende
+       invitasjoner. -->
+  <button class="account-btn" id="account-btn" type="button" title="Konto"
+          aria-label="Åpne kontoen" aria-haspopup="dialog">
+    <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="#111" stroke-width="1.05" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="8" r="3.4" fill="#85adad"></circle><path d="M5.5 20a6.5 6.5 0 0 1 13 0" fill="#85adad"></path></svg>
+    <span class="menu-badge" id="account-badge" hidden aria-hidden="true"></span>
   </button>
 
-  <!-- Gruppemenyen: overskrift (globus-ikon + univers-navn), knapperad («＋ Gruppe» + søppelkasse),
-       og under dem gruppekortene til det aktive universet.
-       Desktop: fast venstre-kolonne — kortene scroller under knapperaden (fade).
-       Mobil: fast topp-panel — kortene på én horisontalt scrollende rad (uten fader). -->
-  <header class="app-header" id="app-header">
-    <div class="panel-top">
-      <div class="panel-head">
-        <button class="panel-title panel-title-btn" id="uni-switch-btn" type="button"
-                title="Bytt univers" aria-label="Bytt univers" aria-haspopup="true">
-          <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="#111" stroke-width="1.05" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 12A9 9 0 0 1 12 3A14 14 0 0 0 8.2 12Z" fill="#ad8585" stroke="none"></path><path d="M8.2 12A14 14 0 0 1 12 3A14 14 0 0 1 15.8 12Z" fill="#adad85" stroke="none"></path><path d="M15.8 12A14 14 0 0 0 12 3A9 9 0 0 1 21 12Z" fill="#85ad85" stroke="none"></path><path d="M3 12A9 9 0 0 0 12 21A14 14 0 0 1 8.2 12Z" fill="#85adad" stroke="none"></path><path d="M8.2 12A14 14 0 0 0 12 21A14 14 0 0 0 15.8 12Z" fill="#8585ad" stroke="none"></path><path d="M15.8 12A14 14 0 0 1 12 21A9 9 0 0 0 21 12Z" fill="#ad85ad" stroke="none"></path><circle cx="12" cy="12" r="9"></circle><path d="M3 12h18"></path><path d="M12 3a14 14 0 0 1 3.8 9 14 14 0 0 1-3.8 9 14 14 0 0 1-3.8-9A14 14 0 0 1 12 3Z"></path></svg>
-          <span id="groups-panel-title">Grupper</span>
-        </button>
-      </div>
-      <div class="panel-actions">
-        <button class="btn-add btn-solid btn-green" id="add-group-btn" type="button" title="Ny gruppe" aria-label="Ny gruppe">＋ <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="#111" stroke-width="1.05" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3.5 19V6.5a2 2 0 0 1 2-2h3.3a2 2 0 0 1 1.6.8l1.1 1.5a2 2 0 0 0 1.6.8H19a2 2 0 0 1 2 2V19a2 2 0 0 1-2 2H5.5a2 2 0 0 1-2-2Z" fill="#adad85"></path></svg></button>
-        <button class="share-btn" id="share-uni-btn" type="button" title="Del universet" aria-label="Del universet" hidden><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="#111" stroke-width="1.05" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="6.5" cy="12" r="3.2" fill="#ad8585"></circle><circle cx="17.5" cy="6" r="2.3" fill="#adad85"></circle><circle cx="17.5" cy="18" r="2.3" fill="#85ad85"></circle><path d="m9.4 10.4 5.3-3"></path><path d="m9.4 13.6 5.3 3"></path></svg><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="#111" stroke-width="1.05" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 12A9 9 0 0 1 12 3A14 14 0 0 0 8.2 12Z" fill="#ad8585" stroke="none"></path><path d="M8.2 12A14 14 0 0 1 12 3A14 14 0 0 1 15.8 12Z" fill="#adad85" stroke="none"></path><path d="M15.8 12A14 14 0 0 0 12 3A9 9 0 0 1 21 12Z" fill="#85ad85" stroke="none"></path><path d="M3 12A9 9 0 0 0 12 21A14 14 0 0 1 8.2 12Z" fill="#85adad" stroke="none"></path><path d="M8.2 12A14 14 0 0 0 12 21A14 14 0 0 0 15.8 12Z" fill="#8585ad" stroke="none"></path><path d="M15.8 12A14 14 0 0 1 12 21A9 9 0 0 0 21 12Z" fill="#ad85ad" stroke="none"></path><circle cx="12" cy="12" r="9"></circle><path d="M3 12h18"></path><path d="M12 3a14 14 0 0 1 3.8 9 14 14 0 0 1-3.8 9 14 14 0 0 1-3.8-9A14 14 0 0 1 12 3Z"></path></svg></button>
-        <button class="trashcan" id="groups-trash-btn" type="button"
-                title="Slettede grupper – trykk for å åpne, hold og sveip for å tømme"
-                aria-label="Slettede grupper" hidden>
-          <svg class="icon trashcan-icon" viewBox="0 0 24 24" fill="none" stroke="#111" stroke-width="1.05" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6.3 7.5l.9 11a2 2 0 0 0 2 1.9h5.6a2 2 0 0 0 2-1.9l.9-11" fill="#c0c4c9" stroke="none"></path><path d="M4.5 7.5h15"></path><path d="M9.5 7.5V6a2.5 2.5 0 0 1 5 0v1.5"></path><path d="M6.3 7.5l.9 11a2 2 0 0 0 2 1.9h5.6a2 2 0 0 0 2-1.9l.9-11"></path><path d="M9.7 11v6"></path><path d="M12 11v6"></path><path d="M14.3 11v6"></path></svg>
-          <span class="trashcan-count" id="groups-trash-count">0</span>
-        </button>
-      </div>
-    </div>
-    <div class="groups-bar" id="groups-bar" role="tablist" aria-label="Grupper"></div>
-  </header>
-
-  <main class="app-main">
-    <!-- Listemenyen (verktøylinja): overskrift (mappe-ikon + gruppe-navn) og knapperad
-         («＋ Liste», søppelkasse, filter). ☰ er ikke en del av denne (se toppen
-         av body) — den havner likevel visuelt i dette hjørnet på desktop. -->
-    <div class="toolbar">
-      <div class="panel-head">
-        <button class="panel-title panel-title-btn" id="group-switch-btn" type="button"
-                title="Bytt gruppe" aria-label="Bytt gruppe" aria-haspopup="true">
-          <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="#111" stroke-width="1.05" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3.5 19V6.5a2 2 0 0 1 2-2h3.3a2 2 0 0 1 1.6.8l1.1 1.5a2 2 0 0 0 1.6.8H19a2 2 0 0 1 2 2V19a2 2 0 0 1-2 2H5.5a2 2 0 0 1-2-2Z" fill="#adad85"></path></svg>
-          <span id="lister-panel-title">Lister</span>
-        </button>
-      </div>
-      <div class="panel-actions">
+  <!-- Toppmenyen: breadcrumb-navigasjon (🌐 univers › 📁 gruppe — begge er
+       knapper som åpner sin modal) og listefunksjonene («＋ Liste», søppelkasse,
+       filter) på raden under. All navigering/redigering/deling av universer og
+       grupper skjer i modalene, ikke her. -->
+  <header class="topbar" id="topbar">
+    <nav class="breadcrumb" aria-label="Du er her">
+      <button class="crumb-btn" id="uni-crumb" type="button"
+              title="Univers – bytt, rediger og del" aria-haspopup="dialog">
+        <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="#111" stroke-width="1.05" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 12A9 9 0 0 1 12 3A14 14 0 0 0 8.2 12Z" fill="#ad8585" stroke="none"></path><path d="M8.2 12A14 14 0 0 1 12 3A14 14 0 0 1 15.8 12Z" fill="#adad85" stroke="none"></path><path d="M15.8 12A14 14 0 0 0 12 3A9 9 0 0 1 21 12Z" fill="#85ad85" stroke="none"></path><path d="M3 12A9 9 0 0 0 12 21A14 14 0 0 1 8.2 12Z" fill="#85adad" stroke="none"></path><path d="M8.2 12A14 14 0 0 0 12 21A14 14 0 0 0 15.8 12Z" fill="#8585ad" stroke="none"></path><path d="M15.8 12A14 14 0 0 1 12 21A9 9 0 0 0 21 12Z" fill="#ad85ad" stroke="none"></path><circle cx="12" cy="12" r="9"></circle><path d="M3 12h18"></path><path d="M12 3a14 14 0 0 1 3.8 9 14 14 0 0 1-3.8 9 14 14 0 0 1-3.8-9A14 14 0 0 1 12 3Z"></path></svg>
+        <span class="crumb-name" id="crumb-uni-name">Univers</span>
+      </button>
+      <span class="crumb-sep" aria-hidden="true">›</span>
+      <button class="crumb-btn" id="group-crumb" type="button"
+              title="Gruppe – bytt, rediger og del" aria-haspopup="dialog">
+        <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="#111" stroke-width="1.05" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3.5 19V6.5a2 2 0 0 1 2-2h3.3a2 2 0 0 1 1.6.8l1.1 1.5a2 2 0 0 0 1.6.8H19a2 2 0 0 1 2 2V19a2 2 0 0 1-2 2H5.5a2 2 0 0 1-2-2Z" fill="#adad85"></path></svg>
+        <span class="crumb-name" id="crumb-group-name">Gruppe</span>
+      </button>
+    </nav>
+    <div class="panel-actions toolbar">
         <button class="btn-add btn-solid btn-green" id="add-card-btn" type="button" title="Ny liste" aria-label="Ny liste">＋ <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="#111" stroke-width="1.05" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3" width="18" height="18" rx="4.5" fill="#ffffff"></rect><circle cx="8" cy="8.5" r="0.7" fill="#111" stroke="none"></circle><circle cx="8" cy="12" r="0.7" fill="#111" stroke="none"></circle><circle cx="8" cy="15.5" r="0.7" fill="#111" stroke="none"></circle><path d="M11.5 8.5h5.5"></path><path d="M11.5 12h5.5"></path><path d="M11.5 15.5h5.5"></path></svg></button>
-        <button class="share-btn" id="share-group-btn" type="button" title="Del gruppen" aria-label="Del gruppen" hidden><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="#111" stroke-width="1.05" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="6.5" cy="12" r="3.2" fill="#ad8585"></circle><circle cx="17.5" cy="6" r="2.3" fill="#adad85"></circle><circle cx="17.5" cy="18" r="2.3" fill="#85ad85"></circle><path d="m9.4 10.4 5.3-3"></path><path d="m9.4 13.6 5.3 3"></path></svg><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="#111" stroke-width="1.05" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3.5 19V6.5a2 2 0 0 1 2-2h3.3a2 2 0 0 1 1.6.8l1.1 1.5a2 2 0 0 0 1.6.8H19a2 2 0 0 1 2 2V19a2 2 0 0 1-2 2H5.5a2 2 0 0 1-2-2Z" fill="#adad85"></path></svg></button>
         <button class="trashcan" id="trash-btn" type="button"
                 title="Slettede lister – trykk for å åpne, hold og sveip for å tømme"
                 aria-label="Slettede lister" hidden>
@@ -80,24 +56,119 @@
                   aria-label="Delte"
                   title="Vis delte lister (hold inne for å vise kun delte)"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="#111" stroke-width="1.05" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="4.7" cy="10.3" r="1.95" fill="#adad85"></circle><path d="M2.1 17.6a2.6 2.6 0 0 1 5.2 0" fill="#adad85"></path><circle cx="19.3" cy="10.3" r="1.95" fill="#85ad85"></circle><path d="M16.7 17.6a2.6 2.6 0 0 1 5.2 0" fill="#85ad85"></path><circle cx="12" cy="7.8" r="3.1" fill="#ad8585"></circle><path d="M6.7 18.6a5.3 5.2 0 0 1 10.6 0" fill="#ad8585"></path></svg></button>
         </div>
-      </div>
     </div>
+  </header>
+
+  <main class="app-main">
     <section class="board" id="board" aria-live="polite"></section>
   </main>
 
-  <!-- Meny-modal: logg ut + universer (bytt/opprett/omdøp/slett + egen søppelkasse).
-       Ligger FØR søppelkasse-modalen i DOM så søppelkassen (lik z-index) tegnes over. -->
-  <div class="modal-overlay" id="menu-modal" hidden>
-    <div class="modal menu-modal" role="dialog" aria-modal="true" aria-labelledby="menu-title">
+  <!-- Univers-modal (åpnes fra 🌐-breadcrumben): aktuelt univers + del-knapp
+       øverst, deretter alle universene (bytt/opprett/omdøp/slett/rekkefølge)
+       og univers-søppelkassen. Ligger FØR søppelkasse-modalen i DOM så
+       søppelkassen (lik z-index) tegnes over. -->
+  <div class="modal-overlay" id="uni-modal" hidden>
+    <div class="modal menu-modal" role="dialog" aria-modal="true" aria-labelledby="uni-modal-title">
       <header class="modal-head">
-        <h2 id="menu-title">Meny</h2>
-        <button class="icon-btn" id="menu-close" type="button" title="Lukk" aria-label="Lukk"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.05" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6.5 6.5 17.5 17.5"></path><path d="M17.5 6.5 6.5 17.5"></path></svg></button>
+        <h2 id="uni-modal-title"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="#111" stroke-width="1.05" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 12A9 9 0 0 1 12 3A14 14 0 0 0 8.2 12Z" fill="#ad8585" stroke="none"></path><path d="M8.2 12A14 14 0 0 1 12 3A14 14 0 0 1 15.8 12Z" fill="#adad85" stroke="none"></path><path d="M15.8 12A14 14 0 0 0 12 3A9 9 0 0 1 21 12Z" fill="#85ad85" stroke="none"></path><path d="M3 12A9 9 0 0 0 12 21A14 14 0 0 1 8.2 12Z" fill="#85adad" stroke="none"></path><path d="M8.2 12A14 14 0 0 0 12 21A14 14 0 0 0 15.8 12Z" fill="#8585ad" stroke="none"></path><path d="M15.8 12A14 14 0 0 1 12 21A9 9 0 0 0 21 12Z" fill="#ad85ad" stroke="none"></path><circle cx="12" cy="12" r="9"></circle><path d="M3 12h18"></path><path d="M12 3a14 14 0 0 1 3.8 9 14 14 0 0 1-3.8 9 14 14 0 0 1-3.8-9A14 14 0 0 1 12 3Z"></path></svg><span>Univers</span></h2>
+        <button class="icon-btn" id="uni-modal-close" type="button" title="Lukk" aria-label="Lukk"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.05" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6.5 6.5 17.5 17.5"></path><path d="M17.5 6.5 6.5 17.5"></path></svg></button>
+      </header>
+      <div class="modal-body menu-body" id="uni-modal-body">
+        <!-- Aktuelt univers: navn på chip-farget flate + del-knapp rett under. -->
+        <div class="modal-current" id="uni-current" hidden>
+          <span class="current-label">Du er i</span>
+          <span class="chip current-chip" id="uni-current-chip">
+            <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="#111" stroke-width="1.05" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 12A9 9 0 0 1 12 3A14 14 0 0 0 8.2 12Z" fill="#ad8585" stroke="none"></path><path d="M8.2 12A14 14 0 0 1 12 3A14 14 0 0 1 15.8 12Z" fill="#adad85" stroke="none"></path><path d="M15.8 12A14 14 0 0 0 12 3A9 9 0 0 1 21 12Z" fill="#85ad85" stroke="none"></path><path d="M3 12A9 9 0 0 0 12 21A14 14 0 0 1 8.2 12Z" fill="#85adad" stroke="none"></path><path d="M8.2 12A14 14 0 0 0 12 21A14 14 0 0 0 15.8 12Z" fill="#8585ad" stroke="none"></path><path d="M15.8 12A14 14 0 0 1 12 21A9 9 0 0 0 21 12Z" fill="#ad85ad" stroke="none"></path><circle cx="12" cy="12" r="9"></circle><path d="M3 12h18"></path><path d="M12 3a14 14 0 0 1 3.8 9 14 14 0 0 1-3.8 9 14 14 0 0 1-3.8-9A14 14 0 0 1 12 3Z"></path></svg>
+            <span class="chip-name" id="uni-current-name"></span>
+          </span>
+          <button class="share-btn" id="share-uni-btn" type="button" title="Del universet" aria-label="Del universet" hidden><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="#111" stroke-width="1.05" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="6.5" cy="12" r="3.2" fill="#ad8585"></circle><circle cx="17.5" cy="6" r="2.3" fill="#adad85"></circle><circle cx="17.5" cy="18" r="2.3" fill="#85ad85"></circle><path d="m9.4 10.4 5.3-3"></path><path d="m9.4 13.6 5.3 3"></path></svg><span>Del universet</span></button>
+        </div>
+        <hr class="menu-divider" />
+        <div class="panel-head">
+          <span class="panel-title">Alle universer</span>
+        </div>
+        <div class="modal-list" id="uni-list"></div>
+        <div class="panel-actions">
+          <button class="btn-add btn-solid btn-green" id="add-uni-btn" type="button" title="Nytt univers" aria-label="Nytt univers">＋ <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="#111" stroke-width="1.05" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 12A9 9 0 0 1 12 3A14 14 0 0 0 8.2 12Z" fill="#ad8585" stroke="none"></path><path d="M8.2 12A14 14 0 0 1 12 3A14 14 0 0 1 15.8 12Z" fill="#adad85" stroke="none"></path><path d="M15.8 12A14 14 0 0 0 12 3A9 9 0 0 1 21 12Z" fill="#85ad85" stroke="none"></path><path d="M3 12A9 9 0 0 0 12 21A14 14 0 0 1 8.2 12Z" fill="#85adad" stroke="none"></path><path d="M8.2 12A14 14 0 0 0 12 21A14 14 0 0 0 15.8 12Z" fill="#8585ad" stroke="none"></path><path d="M15.8 12A14 14 0 0 1 12 21A9 9 0 0 0 21 12Z" fill="#ad85ad" stroke="none"></path><circle cx="12" cy="12" r="9"></circle><path d="M3 12h18"></path><path d="M12 3a14 14 0 0 1 3.8 9 14 14 0 0 1-3.8 9 14 14 0 0 1-3.8-9A14 14 0 0 1 12 3Z"></path></svg></button>
+          <button class="trashcan" id="uni-trash-btn" type="button"
+                  title="Slettede universer – trykk for å åpne, hold og sveip for å tømme"
+                  aria-label="Slettede universer" hidden>
+            <svg class="icon trashcan-icon" viewBox="0 0 24 24" fill="none" stroke="#111" stroke-width="1.05" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6.3 7.5l.9 11a2 2 0 0 0 2 1.9h5.6a2 2 0 0 0 2-1.9l.9-11" fill="#c0c4c9" stroke="none"></path><path d="M4.5 7.5h15"></path><path d="M9.5 7.5V6a2.5 2.5 0 0 1 5 0v1.5"></path><path d="M6.3 7.5l.9 11a2 2 0 0 0 2 1.9h5.6a2 2 0 0 0 2-1.9l.9-11"></path><path d="M9.7 11v6"></path><path d="M12 11v6"></path><path d="M14.3 11v6"></path></svg>
+            <span class="trashcan-count" id="uni-trash-count">0</span>
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Gruppe-modal (åpnes fra 📁-breadcrumben): aktuell gruppe + del-knapp
+       øverst, deretter alle gruppene i det aktive universet + gruppe-
+       søppelkassen. Samme oppbygning som univers-modalen. -->
+  <div class="modal-overlay" id="group-modal" hidden>
+    <div class="modal menu-modal" role="dialog" aria-modal="true" aria-labelledby="group-modal-title">
+      <header class="modal-head">
+        <h2 id="group-modal-title"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="#111" stroke-width="1.05" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3.5 19V6.5a2 2 0 0 1 2-2h3.3a2 2 0 0 1 1.6.8l1.1 1.5a2 2 0 0 0 1.6.8H19a2 2 0 0 1 2 2V19a2 2 0 0 1-2 2H5.5a2 2 0 0 1-2-2Z" fill="#adad85"></path></svg><span>Gruppe</span></h2>
+        <button class="icon-btn" id="group-modal-close" type="button" title="Lukk" aria-label="Lukk"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.05" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6.5 6.5 17.5 17.5"></path><path d="M17.5 6.5 6.5 17.5"></path></svg></button>
+      </header>
+      <div class="modal-body menu-body" id="group-modal-body">
+        <div class="modal-current" id="group-current" hidden>
+          <span class="current-label">Du er i</span>
+          <span class="chip current-chip" id="group-current-chip">
+            <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="#111" stroke-width="1.05" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3.5 19V6.5a2 2 0 0 1 2-2h3.3a2 2 0 0 1 1.6.8l1.1 1.5a2 2 0 0 0 1.6.8H19a2 2 0 0 1 2 2V19a2 2 0 0 1-2 2H5.5a2 2 0 0 1-2-2Z" fill="#adad85"></path></svg>
+            <span class="chip-name" id="group-current-name"></span>
+          </span>
+          <button class="share-btn" id="share-group-btn" type="button" title="Del gruppen" aria-label="Del gruppen" hidden><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="#111" stroke-width="1.05" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="6.5" cy="12" r="3.2" fill="#ad8585"></circle><circle cx="17.5" cy="6" r="2.3" fill="#adad85"></circle><circle cx="17.5" cy="18" r="2.3" fill="#85ad85"></circle><path d="m9.4 10.4 5.3-3"></path><path d="m9.4 13.6 5.3 3"></path></svg><span>Del gruppen</span></button>
+        </div>
+        <hr class="menu-divider" />
+        <div class="panel-head">
+          <span class="panel-title">Alle grupper i universet</span>
+        </div>
+        <div class="modal-list" id="group-list" role="tablist" aria-label="Grupper"></div>
+        <div class="panel-actions">
+          <button class="btn-add btn-solid btn-green" id="add-group-btn" type="button" title="Ny gruppe" aria-label="Ny gruppe">＋ <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="#111" stroke-width="1.05" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3.5 19V6.5a2 2 0 0 1 2-2h3.3a2 2 0 0 1 1.6.8l1.1 1.5a2 2 0 0 0 1.6.8H19a2 2 0 0 1 2 2V19a2 2 0 0 1-2 2H5.5a2 2 0 0 1-2-2Z" fill="#adad85"></path></svg></button>
+          <button class="trashcan" id="groups-trash-btn" type="button"
+                  title="Slettede grupper – trykk for å åpne, hold og sveip for å tømme"
+                  aria-label="Slettede grupper" hidden>
+            <svg class="icon trashcan-icon" viewBox="0 0 24 24" fill="none" stroke="#111" stroke-width="1.05" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6.3 7.5l.9 11a2 2 0 0 0 2 1.9h5.6a2 2 0 0 0 2-1.9l.9-11" fill="#c0c4c9" stroke="none"></path><path d="M4.5 7.5h15"></path><path d="M9.5 7.5V6a2.5 2.5 0 0 1 5 0v1.5"></path><path d="M6.3 7.5l.9 11a2 2 0 0 0 2 1.9h5.6a2 2 0 0 0 2-1.9l.9-11"></path><path d="M9.7 11v6"></path><path d="M12 11v6"></path><path d="M14.3 11v6"></path></svg>
+            <span class="trashcan-count" id="groups-trash-count">0</span>
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Konto-modal (kontoknappen øverst til høyre): profil med endring av navn
+       og e-post, e-postvarsel-innstilling, invitasjons-innboks og logg ut. -->
+  <div class="modal-overlay" id="account-modal" hidden>
+    <div class="modal menu-modal" role="dialog" aria-modal="true" aria-labelledby="account-title">
+      <header class="modal-head">
+        <h2 id="account-title"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="#111" stroke-width="1.05" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="8" r="3.4" fill="#85adad"></circle><path d="M5.5 20a6.5 6.5 0 0 1 13 0" fill="#85adad"></path></svg><span>Konto</span></h2>
+        <button class="icon-btn" id="account-close" type="button" title="Lukk" aria-label="Lukk"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.05" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6.5 6.5 17.5 17.5"></path><path d="M17.5 6.5 6.5 17.5"></path></svg></button>
       </header>
       <div class="modal-body menu-body">
         <div class="menu-account" id="menu-account" hidden>
           <span class="account-avatar" id="account-avatar" aria-hidden="true"></span>
           <span class="account-email" id="account-email"></span>
         </div>
+
+        <!-- Endre navn / e-post (lagres på kontoen; ny e-post bekreftes per e-post). -->
+        <section class="account-edit" id="account-edit" hidden>
+          <form class="account-form" id="account-name-form">
+            <label class="account-form-label" for="account-name-input">Navn</label>
+            <div class="account-form-row">
+              <input class="field" id="account-name-input" type="text" autocomplete="name" placeholder="Fornavn Etternavn" />
+              <button class="btn btn-solid btn-green btn-small" type="submit">Lagre</button>
+            </div>
+          </form>
+          <form class="account-form" id="account-email-form">
+            <label class="account-form-label" for="account-email-input">E-post</label>
+            <div class="account-form-row">
+              <input class="field" id="account-email-input" type="email" autocomplete="email" placeholder="deg@eksempel.no" />
+              <button class="btn btn-solid btn-green btn-small" type="submit">Lagre</button>
+            </div>
+          </form>
+          <p class="account-msg" id="account-msg" role="status" hidden></p>
+        </section>
 
         <!-- Innstilling: e-postvarsel når noe deles med meg (lagres på kontoen). -->
         <div class="menu-setting" id="menu-email-pref" hidden>
@@ -110,12 +181,7 @@
           </button>
         </div>
 
-        <button class="btn btn-solid btn-red btn-small menu-logout" id="logout-btn" type="button" title="Logg ut">
-          <svg class="icon logout-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.05" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 3H6a2.5 2.5 0 0 0-2.5 2.5v13A2.5 2.5 0 0 0 6 21h3"></path><path d="M21 12H10"></path><path d="M17.5 8.5 21 12l-3.5 3.5"></path></svg>
-          Logg ut
-        </button>
-
-        <!-- Innboks: mottatte delings-invitasjoner (fase 2) -->
+        <!-- Innboks: mottatte delings-invitasjoner -->
         <section class="menu-invites" id="menu-invites" hidden>
           <hr class="menu-divider" />
           <div class="panel-head">
@@ -125,22 +191,10 @@
         </section>
 
         <hr class="menu-divider" />
-        <div class="panel-head">
-          <span class="panel-title">
-            <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="#111" stroke-width="1.05" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 12A9 9 0 0 1 12 3A14 14 0 0 0 8.2 12Z" fill="#ad8585" stroke="none"></path><path d="M8.2 12A14 14 0 0 1 12 3A14 14 0 0 1 15.8 12Z" fill="#adad85" stroke="none"></path><path d="M15.8 12A14 14 0 0 0 12 3A9 9 0 0 1 21 12Z" fill="#85ad85" stroke="none"></path><path d="M3 12A9 9 0 0 0 12 21A14 14 0 0 1 8.2 12Z" fill="#85adad" stroke="none"></path><path d="M8.2 12A14 14 0 0 0 12 21A14 14 0 0 0 15.8 12Z" fill="#8585ad" stroke="none"></path><path d="M15.8 12A14 14 0 0 1 12 21A9 9 0 0 0 21 12Z" fill="#ad85ad" stroke="none"></path><circle cx="12" cy="12" r="9"></circle><path d="M3 12h18"></path><path d="M12 3a14 14 0 0 1 3.8 9 14 14 0 0 1-3.8 9 14 14 0 0 1-3.8-9A14 14 0 0 1 12 3Z"></path></svg>
-            <span>Universer</span>
-          </span>
-        </div>
-        <div class="uni-list" id="uni-list"></div>
-        <div class="panel-actions">
-          <button class="btn-add btn-solid btn-green" id="add-uni-btn" type="button" title="Nytt univers" aria-label="Nytt univers">＋ <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="#111" stroke-width="1.05" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 12A9 9 0 0 1 12 3A14 14 0 0 0 8.2 12Z" fill="#ad8585" stroke="none"></path><path d="M8.2 12A14 14 0 0 1 12 3A14 14 0 0 1 15.8 12Z" fill="#adad85" stroke="none"></path><path d="M15.8 12A14 14 0 0 0 12 3A9 9 0 0 1 21 12Z" fill="#85ad85" stroke="none"></path><path d="M3 12A9 9 0 0 0 12 21A14 14 0 0 1 8.2 12Z" fill="#85adad" stroke="none"></path><path d="M8.2 12A14 14 0 0 0 12 21A14 14 0 0 0 15.8 12Z" fill="#8585ad" stroke="none"></path><path d="M15.8 12A14 14 0 0 1 12 21A9 9 0 0 0 21 12Z" fill="#ad85ad" stroke="none"></path><circle cx="12" cy="12" r="9"></circle><path d="M3 12h18"></path><path d="M12 3a14 14 0 0 1 3.8 9 14 14 0 0 1-3.8 9 14 14 0 0 1-3.8-9A14 14 0 0 1 12 3Z"></path></svg></button>
-          <button class="trashcan" id="uni-trash-btn" type="button"
-                  title="Slettede universer – trykk for å åpne, hold og sveip for å tømme"
-                  aria-label="Slettede universer" hidden>
-            <svg class="icon trashcan-icon" viewBox="0 0 24 24" fill="none" stroke="#111" stroke-width="1.05" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6.3 7.5l.9 11a2 2 0 0 0 2 1.9h5.6a2 2 0 0 0 2-1.9l.9-11" fill="#c0c4c9" stroke="none"></path><path d="M4.5 7.5h15"></path><path d="M9.5 7.5V6a2.5 2.5 0 0 1 5 0v1.5"></path><path d="M6.3 7.5l.9 11a2 2 0 0 0 2 1.9h5.6a2 2 0 0 0 2-1.9l.9-11"></path><path d="M9.7 11v6"></path><path d="M12 11v6"></path><path d="M14.3 11v6"></path></svg>
-            <span class="trashcan-count" id="uni-trash-count">0</span>
-          </button>
-        </div>
+        <button class="btn btn-solid btn-red btn-small menu-logout" id="logout-btn" type="button" title="Logg ut">
+          <svg class="icon logout-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.05" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 3H6a2.5 2.5 0 0 0-2.5 2.5v13A2.5 2.5 0 0 0 6 21h3"></path><path d="M21 12H10"></path><path d="M17.5 8.5 21 12l-3.5 3.5"></path></svg>
+          Logg ut
+        </button>
       </div>
     </div>
   </div>
@@ -161,17 +215,6 @@
         <button class="btn btn-solid btn-red" id="trash-empty" type="button">Tøm permanent</button>
       </footer>
     </div>
-  </div>
-
-  <!-- Univers-/gruppebytter: popover (desktop) / sentrert modal (mobil), åpnet
-       fra panel-title-knappene (globus-/mappe-ikon + navn) i gruppemenyen/
-       listemenyen. Kun bytte — ingen omdøping/sletting/rekkefølge herfra
-       (det skjer fortsatt i meny-modalen/gruppemenyen selv). -->
-  <div class="switcher-overlay" id="uni-switcher" hidden>
-    <div class="switcher-panel" id="uni-switcher-panel" role="listbox" aria-label="Bytt univers" tabindex="-1"></div>
-  </div>
-  <div class="switcher-overlay" id="group-switcher" hidden>
-    <div class="switcher-panel" id="group-switcher-panel" role="listbox" aria-label="Bytt gruppe" tabindex="-1"></div>
   </div>
 
   <!-- Ansvarlig-velger for elementer i delte lister: popover (desktop) / modal
@@ -277,10 +320,13 @@
 
   <!-- Del-modal: eier inviterer, ser medlemmer/ventende, kaster ut, låser (fase 2).
        Mottaker ser eier + låst-status + «Forlat deling». Brukes for univers/
-       gruppe; listers deling ligger i innstillingsmodalen. -->
+       gruppe; listers deling ligger i innstillingsmodalen. Tilbakeknappen
+       (vises kun når modalen ble åpnet fra univers-/gruppe-modalen) navigerer
+       tilbake dit; ✕/overlay lukker helt (tilbake til hovedsiden). -->
   <div class="modal-overlay" id="share-modal" hidden>
     <div class="modal share-modal" role="dialog" aria-modal="true" aria-labelledby="share-title">
       <header class="modal-head">
+        <button class="icon-btn share-back" id="share-back" type="button" title="Tilbake" aria-label="Tilbake" hidden><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.05" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 12H4.5"></path><path d="M11 5.5 4.5 12l6.5 6.5"></path></svg></button>
         <h2 id="share-title">Del</h2>
         <button class="icon-btn" id="share-close" type="button" title="Lukk" aria-label="Lukk"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.05" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6.5 6.5 17.5 17.5"></path><path d="M17.5 6.5 6.5 17.5"></path></svg></button>
       </header>

@@ -79,7 +79,7 @@ Chipene er KNAPPER for hurtigendring:
   → åpner ansvarlig-velgeren direkte, forankret i chipen.
 - **Start** (kalenderikon) og **frist** (kalender-med-utropstegn,
   `ICONS.calendarDue`) → åpner tids-popoveren (`openTimeQuick`,
-  `#time-switcher` — samme skall som bytterne: popover på desktop, sentrert
+  `#time-switcher` — samme skall som ansvarlig-velgeren: popover på desktop, sentrert
   modal på mobil) med kun den ene raden.
 
 Chip-innhold: datoen (`fmtDay`: «14. jul», + årstall når ≠ i år) — MEN hvis

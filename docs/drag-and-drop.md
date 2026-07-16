@@ -81,21 +81,28 @@ fordypning («hylle», se `docs/design-system.md`).
   felles «Utført»-seksjon; reaktivering ruter det tilbake INN i kategorien sin
   (om den finnes), ellers til nivå 1 (se `toggleItemDone`).
 
-## Univers-rader (meny-modalen)
+## Univers- og gruppe-rader (i sine modaler)
 
-Samme håndtak + placeholder + FLIP-motor som gruppekortene, men kun i én
-variant: `uni-list` er alltid en vertikal kolonne (ingen mobil/desktop-bytte
-som gruppelista), så `updateUniversePlacement` er en transponert kopi av kun
-`updateGroupPlacementV`. Auto-scroll under draging ruller `.menu-body`
-(modalens `overflow-y: auto`-container), ikke `uni-list` selv — `uni-list` har
-ingen egen scroll.
+Samme håndtak + placeholder + FLIP-motor som listekortene, men kun i én
+variant: både `uni-list` (univers-modalen) og `group-list` (gruppe-modalen) er
+alltid vertikale kolonner, så `updateUniversePlacement`/`updateGroupPlacement`
+er transponerte kopier av kort-kolonelogikken (den gamle H-varianten for
+mobil-gruppeRADEN er fjernet sammen med raden). Auto-scroll under draging
+ruller modalens `.menu-body` (`overflow-y: auto`-containeren), ikke selve
+listene — de har ingen egen scroll.
 
-## Overføring av lister mellom grupper (innen samme univers)
+## Flytting av lister til en annen gruppe (innen samme univers)
 
-Dra en liste opp på et gruppekort i gruppemenyen: gruppekortet markeres
-(`.drop-target`), dra-kortet blir gjennomskinnelig (`.to-group`), board-et fryses
-mens man sikter. Slipp = kirurgisk flytting (`card.group` + `pos` bakerst, kun
-posisjonsregisteret stemples) + toast + puls på målgruppen (`pulseReceivedGroup`).
+Gruppene ligger ikke lenger som kort på hovedsiden. Dra i stedet lista opp på
+**📁-breadcrumben** i toppmenyen: knappen markeres (`.drop-target`, kun når
+det finnes andre grupper), dra-kortet blir gjennomskinnelig (`.to-group`), og
+board-et fryses mens man sikter (ingen reorder over toppmenyen). Slipp legger
+kortet normalt tilbake på board-et og åpner en velger («Flytt … til:», i
+plasserings-modal-skallet via `openPicker`); valget gjør en kirurgisk flytting
+(`moveCardToGroup`: `card.group` + `pos` bakerst, kun posisjonsregisteret
+stemples — mounts flytter membershipen) + toast. Avbrytes velgeren blir lista
+liggende. `moveCardToGroup` slår opp det LEVENDE kortet på id — en
+synk-rebuild kan ha byttet ut objektet mens velgeren sto åpen.
 
-Kun mulig innen samme univers — kun det aktive universets grupper vises i
-gruppemenyen, se `docs/data-model.md`.
+Kun mulig innen samme univers — velgeren viser kun det aktive universets
+grupper, se `docs/data-model.md`.

@@ -21,7 +21,7 @@ Ett skjema (`#auth-screen`) med tre modi (`login`/`register`/`forgot`):
 - **Innlogging**: `signInWithPassword`.
 - **Glemt passord**: `resetPasswordForEmail` → «sjekk innboksen». Retur via
   e-postlenken gir en `PASSWORD_RECOVERY`-hendelse → prompt om nytt passord.
-- **Logg ut**: `signOut` (i meny-modalen).
+- **Logg ut**: `signOut` (i konto-modalen).
 
 Sesjonen styres av `supabase.auth.onAuthStateChange` (erstatter
 `mine-lister-auth`): `SIGNED_IN` → `cloudStart()`, `SIGNED_OUT` →
@@ -195,7 +195,7 @@ rekkefølge + egen søppel) ligger i en membership-rad («mount»). I `applyMyDo
     modalen lukkes straks (`removeMountLocally` + `cloudLeave` med
     undertrykking). Mottakerens eier-navn hentes i bakgrunnen («Delt med deg»
     til det lander).
-- **Innboks** (i meny-modalen, badge på ☰): godta (med plasseringsvalg,
+- **Innboks** (i konto-modalen, badge på kontoknappen): godta (med plasseringsvalg,
   `accept_share_invite`), avslå (`decline_share_invite`) og «Plasser»
   (mount-patch) fjerner raden umiddelbart (`suppressedInvites`/
   `pendingPlacements`-filtrering) med RPC-en i køen; innholdet dukker opp når
@@ -208,8 +208,8 @@ rekkefølge + egen søppel) ligger i en membership-rad («mount»). I `applyMyDo
 Mottakeren varsles på to måter når noe deles med hen:
 
 - **I appen (alltid)**: `updateInbox(my)` (kalt hver `cloudCycle`) setter en rød
-  ring med antall (`#menu-badge`) på ☰-knappen — summen av `invites_in` (ikke
-  besvarte) + `pendingPlacements` — og fyller «Invitasjoner»-innboksen i meny-
+  ring med antall (`#account-badge`) på kontoknappen — summen av `invites_in` (ikke
+  besvarte) + `pendingPlacements` — og fyller «Invitasjoner»-innboksen i konto-
   modalen. Dette dekker **registrerte** mottakere fullt ut (de trenger ikke
   e-post).
 - **På e-post (valgfritt)**: en `share_invites`-insert-trigger i databasen
@@ -223,7 +223,7 @@ Mottakeren varsles på to måter når noe deles med hen:
   melding, så en uregistrert mottaker oppretter konto direkte. `handle_new_user`
   kobler den ventende invitasjonen på e-post ved registrering, og den dukker opp
   i innboksen straks mottakeren logger inn.
-- **E-postvarsel-innstilling** (registrerte): en toggle i meny-modalen
+- **E-postvarsel-innstilling** (registrerte): en toggle i konto-modalen
   (`#email-pref-toggle`) lagrer `user_metadata.email_notifications` via
   `auth.updateUser({ data })` (optimistisk, `emailPrefOn`/`paintEmailPref`).
   Standard PÅ (manglende flagg → på). E-post-triggeren respekterer flagget for

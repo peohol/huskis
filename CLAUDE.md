@@ -24,7 +24,7 @@ oppdater det aktuelle dokumentet der (ikke dump alt tilbake i denne fila).
 |---|---|
 | `docs/data-model.md` | state-form, foreldre-pekere, univers/gruppe/liste/element-hierarkiet |
 | `docs/design-system.md` | styles.css, nye knapper/kontroller, delte klasser, UX-mønstre |
-| `docs/menus.md` | gruppemeny, listemeny, ☰-knappen, meny-modal/universer |
+| `docs/menus.md` | toppmenyen (breadcrumb), univers-/gruppe-modalen, kontoknappen/-modalen |
 | `docs/board-layout.md` | avstander/padding/gap i selve listevisningen |
 | `docs/drag-and-drop.md` | reorder, dra-og-slipp-motoren, overføring mellom lister/grupper |
 | `docs/trash.md` | slette/gjenopprette/tømme på ethvert nivå |
@@ -133,14 +133,14 @@ tabellen + `get_list`/`save_list`). `?mock=1` kjører mot en hermetisk
 in-memory-backend for to-bruker-testing.
 
 **E-postvarsel + i-app-varsel ved deling (siste runde)**: mottakeren varsles på
-to måter. (1) **I appen**: en rød ring med antall på ☰-knappen + en «Invitasjoner»-
-innboks i meny-modalen (godta/avslå) — invitasjonen viser inviterendes **navn**
+to måter. (1) **I appen**: en rød ring med antall på kontoknappen + en «Invitasjoner»-
+innboks i konto-modalen (godta/avslå) — invitasjonen viser inviterendes **navn**
 (ikke e-post). (2) **På e-post** (valgfritt, krever konfig): en `share_invites`-
 insert-trigger (`send_invite_email`, pg_net → Resend) e-poster mottakeren —
 uregistrerte får en `?signup=<e-post>`-lenke som åpner registreringssiden med
 e-posten utfylt (invitasjonen kobles på ved registrering); registrerte får en
 åpne-appen-lenke, men kun hvis de har e-postvarsel PÅ. Registrerte kan slå
-e-postvarsel av/på i meny-modalen (`user_metadata.email_notifications`, standard
+e-postvarsel av/på i konto-modalen (`user_metadata.email_notifications`, standard
 PÅ). Krever manuell Supabase-konfig (Resend-nøkkel i `app_config` + pg_net) — se
 `TODO.md`. Se `docs/accounts.md`.
 
@@ -188,6 +188,18 @@ rollback ved avvisning) og optimistiske overlays som overlever synk-rebuilds.
 Ansvarlig kan byttes fritt mens forrige valg er i lufta (LWW tar siste), søppel
 kan gjenopprettes/tømmes UNDER buffring, og del-modalen åpner umiddelbart. Se
 `docs/accounts.md` (opQueue) og `docs/trash.md`.
+
+**Ny navigasjon (siste runde)**: gruppemenyen (sidebar/topp-panel), listemeny-
+overskriften, univers-/gruppebytterne og meny-modalen (☰) er erstattet av én
+**toppmeny med breadcrumb** (🌐 univers › 📁 gruppe — knappene åpner hver sin
+modal der ALT av navigering/redigering/deling for nivået skjer: «Du er i»-blokk
+med del-knapp, alle rader m/ omdøp/slett/rekkefølge, ＋ og søppelkasse) +
+listefunksjonene (＋ Liste/søppel/filter) på raden under. Del-modalen har
+tilbakeknapp når den åpnes derfra (lukk = hovedsiden). ☰ er blitt en
+**kontoknapp** → konto-modal (profil, endre navn (profiles.display_name) og
+e-post (auth.updateUser), e-postvarsel, innboks, logg ut — ingen DB-migrering
+nødvendig). Lister flyttes mellom grupper ved å slippe dem på 📁-breadcrumben
+(velger-modal). Se `docs/menus.md`.
 
 Verifisert i nettleser (Playwright) mot en hermetisk in-memory-backend
 (`mock-backend.js`, aktiveres med `?mock=1`) som etterligner Supabase-
