@@ -345,7 +345,9 @@ body {
 
 /* ---------------- «＋»-knapper (felles: gruppe/liste/univers/element) ----------------
    Størrelse/form for knappene i knapperadene; fargen kommer fra .btn-solid
-   .btn-green. .icon-only = kvadratisk ＋. */
+   .btn-green. .icon-only = kvadratisk, med kun ICONS.plus (se index.html) —
+   ingen tekst-glyf lenger, så streken matcher resten av ikonsettet (1.05,
+   runde ender, currentColor). */
 .btn-add {
   flex: 0 0 auto;
   appearance: none;
@@ -366,6 +368,13 @@ body {
 }
 .btn-add.icon-only { width: var(--control-h); padding: 0; font-size: 23px; }
 .btn-add .icon { font-size: var(--fs-base); }
+/* icon-only-knappene (element/kategori) er kvadratiske og større enn de
+   tekst+ikon-knappene over — la ikonet arve den fulle knapp-størrelsen
+   (23px) i stedet for den generelle .btn-add .icon-størrelsen. */
+.btn-add.icon-only .icon { font-size: 1em; }
+/* Kategori-ikonet har flere detaljer (klammer/prikker/linjer) enn ren ＋ og
+   trenger vesentlig mer størrelse for å være tydelig lesbart i knappen. */
+.add-cat-btn.icon-only .icon { font-size: 34px; }
 
 /* ---------------- Del-knapper i menyene (del-univers / del-gruppe) ----------------
    Del det AKTIVE universet (ved siden av «＋ Gruppe») / den AKTIVE gruppen (ved
@@ -948,12 +957,17 @@ body {
 .category { list-style: none; display: flex; flex-direction: column; gap: 4px; }
 /* Subtil skillelinje under en kategoris hylle, mot det påfølgende elementet/
    kategorien på nivå 1 — men ikke når kategorien er siste rad i lista (da er
-   det ingenting å skille fra). */
+   det ingenting å skille fra). Kant-til-kant: negativ sidemargin (-10px)
+   kansellerer .items-container sin egen sidepolstring. Lik avstand (20px)
+   over og under: 16px margin-top + .category sin 4px header-til-innhold-gap
+   = 20px over; 12px margin-bottom + .items-container sin 8px rad-gap = 20px
+   under — begge regnestykkene gir samme totale luft selv om margin-verdiene
+   ikke er like i seg selv. */
 .category:not(:last-child)::after {
   content: '';
   display: block;
   height: 1px;
-  margin: 0 6px;
+  margin: 16px -10px 12px;
   background: rgba(0, 0, 0, 0.15);
 }
 .cat-head { display: flex; align-items: center; gap: 6px; padding: 0 6px; }

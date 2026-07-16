@@ -627,7 +627,7 @@
       es.className = 'empty-state';
       es.innerHTML = '<div class="big">' + ICONS.folder + '</div><p>Ingen grupper ennå.</p>' +
         '<p>Trykk <span class="hint-chip">' + ICONS.folder + '</span> øverst og deretter ' +
-        '<span class="hint-chip">＋ ' + ICONS.folder + '</span> for å komme i gang.</p>';
+        '<span class="hint-chip">' + ICONS.plus + ' ' + ICONS.folder + '</span> for å komme i gang.</p>';
       board.appendChild(es);
       fixBoardBottomGap();
       save();
@@ -648,7 +648,7 @@
         const big = document.createElement('div'); big.className = 'big'; big.innerHTML = ICONS.list;
         const p1 = document.createElement('p'); p1.textContent = 'Ingen lister i «' + group.name + '» ennå.';
         const p2 = document.createElement('p');
-        p2.innerHTML = 'Trykk <span class="hint-chip">＋ ' + ICONS.list + '</span> for å komme i gang.';
+        p2.innerHTML = 'Trykk <span class="hint-chip">' + ICONS.plus + ' ' + ICONS.list + '</span> for å komme i gang.';
         es.append(big, p1, p2);
       } else {
         es.innerHTML = '<div class="big">' + ICONS.eye + '</div><p>Ingen lister passer filteret.</p>' +
