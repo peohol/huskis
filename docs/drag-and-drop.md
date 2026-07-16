@@ -17,6 +17,23 @@ Bytte utløses av **overlapp**, ikke av et punkt:
 - **Dynamisk rotasjon** av dra-kort (`cardRotation()`, ±5° ut fra horisontal
   posisjon); elementer roterer ikke. **Auto-scroll** ved vindus-kant for kort, og
   av gruppefeltet ved feltets kanter under gruppe-drag.
+- **Posisjonering av det løftede elementet**: kort/element/kategori dras på selve
+  board-et (window kan være scrollet) og er `position: absolute` med DOKUMENT-
+  koordinater (`dragPos*` = peker − grep + `window.scroll{X,Y}`). Det er bevisst
+  IKKE `position: fixed`: på iOS WebKit (bl.a. Chrome for iPhone) legges et
+  `fixed`-element SOM HAR en transform (skala/rotasjon under draging) relativt til
+  dokumentet i stedet for viewporten, så det «scroller vekk» og hopper rett opp —
+  ofte forbi viewporten — idet man tar tak. Absolute unngår dette (uendret på
+  Android/desktop). Under auto-scroll flyttes kortet hver frame (`moveElement()` i
+  scroll-loopen) så det blir liggende under fingeren. Gruppe/univers dras i en
+  modal der window-scroll aldri endres og er derfor fortsatt `fixed` (viewport-
+  koordinater — `dragUsesPageCoords()` skiller på `drag.kind`).
+- **Kort-auto-scrollens ankerpunkt** (`updateAutoScroll`): symmetrisk og kant-
+  forankret. OPPOVER måles kortets ØVRE kant mot toppen av området rett UNDER den
+  faste headeren (`topbarEl`-bunn + `ZONE`), ikke mot viewportens øvre kant — ellers
+  måtte man dra lista opp bak headeren før scrollingen slo inn (spesielt på mobil).
+  NEDOVER måles kortets NEDRE kant mot viewportens nedre kant. Er kortet høyere enn
+  gapet mellom sonene (ligger i begge samtidig), avgjør pekerens halvdel retningen.
 - Kun én drag om gangen (`if (drag.active) return`); `finishDrag()` feier bort
   evt. foreldreløse placeholdere.
 - Håndtak (`.drag-handle`) har `touch-action: none`; draging starter kun fra

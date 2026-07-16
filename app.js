@@ -2091,19 +2091,37 @@
     document.body.classList.add('is-dragging');
   }
 
+  // Posisjonen dra-elementet skal få via style.left/top.
+  // Kort/element/kategori dras på selve board-et (window kan være scrollet) og
+  // er `position: absolute` → DOKUMENT-koordinater (peker + window-scroll). Det
+  // unngår en iOS-WebKit-bug der et `position: fixed`-element SOM HAR en transform
+  // legges relativt til dokumentet og «scroller vekk» fra fingeren (kortet hopper
+  // rett opp, ofte forbi viewporten, idet man tar tak). Gruppe/univers dras i en
+  // modal og er fortsatt `position: fixed` (viewport-koordinater) — der endres
+  // aldri window-scroll mens draget pågår, så de rammes ikke av buggen.
+  function dragUsesPageCoords() {
+    return drag.kind !== 'group' && drag.kind !== 'universe';
+  }
+  function dragPosLeft() {
+    return (drag.lastX - drag.grabX) + (dragUsesPageCoords() ? window.scrollX : 0);
+  }
+  function dragPosTop() {
+    return (drag.lastY - drag.grabY) + (dragUsesPageCoords() ? window.scrollY : 0);
+  }
+
   function liftElement() {
     const el = drag.el;
     el.style.width = drag.width + 'px';
     el.style.height = drag.height + 'px';
-    el.style.left = (drag.lastX - drag.grabX) + 'px';
-    el.style.top = (drag.lastY - drag.grabY) + 'px';
+    el.style.left = dragPosLeft() + 'px';
+    el.style.top = dragPosTop() + 'px';
     el.classList.add('dragging');
   }
 
   function moveElement() {
     const el = drag.el;
-    el.style.left = (drag.lastX - drag.grabX) + 'px';
-    el.style.top = (drag.lastY - drag.grabY) + 'px';
+    el.style.left = dragPosLeft() + 'px';
+    el.style.top = dragPosTop() + 'px';
   }
 
   function wouldMove(ph, refEl, pos) {
@@ -2174,12 +2192,25 @@
   }
   function updateAutoScroll() {
     if (!drag.active || drag.kind !== 'card') { stopAutoScroll(); return; }
-    const y = drag.lastY;
+    const r = draggedRect();
     const vh = window.innerHeight || document.documentElement.clientHeight || 1;
     const ZONE = 120;
-    const down = edgeSpeed((y - (vh - ZONE)) / ZONE);
-    const up = edgeSpeed((ZONE - y) / ZONE);
-    autoScrollSpeed = down > 0 ? down : (up > 0 ? -up : 0);
+    // Symmetrisk, kant-forankret utløsning: OPPOVER måles kortets ØVRE kant mot
+    // toppen av området rett UNDER den faste headeren (ikke viewportens øvre kant
+    // — ellers måtte man dra lista opp bak headeren før scrollingen slo inn,
+    // spesielt på mobil). NEDOVER måles kortets NEDRE kant mot viewportens nedre
+    // kant.
+    const headerBottom = topbarEl.getBoundingClientRect().bottom;
+    const up = edgeSpeed((headerBottom + ZONE - r.top) / ZONE);
+    const down = edgeSpeed((r.bottom - (vh - ZONE)) / ZONE);
+    // Et kort som er høyere enn området mellom sonene kan ligge i begge samtidig;
+    // da avgjør pekerens halvdel (øvre/nedre av det synlige området) retningen, så
+    // brukeren styrer veien i stedet for at den flimrer.
+    if (up > 0 && down > 0) {
+      autoScrollSpeed = drag.lastY < (headerBottom + vh) / 2 ? -up : down;
+    } else {
+      autoScrollSpeed = down > 0 ? down : (up > 0 ? -up : 0);
+    }
     if (autoScrollSpeed !== 0) startAutoScroll(); else stopAutoScroll();
   }
   function startAutoScroll() {
@@ -2188,9 +2219,10 @@
       if (!drag.active || autoScrollSpeed === 0) { autoScrollRAF = null; return; }
       const before = window.scrollY;
       window.scrollBy(0, autoScrollSpeed);
-      // Kortet er fixed, men de andre kortene flytter seg når siden ruller →
-      // re-evaluer plassering med rulleretningen som «drag-retning».
-      if (window.scrollY !== before) updateCardPlacement(0, autoScrollSpeed > 0 ? 1 : -1);
+      // Kortet er `position: absolute` (dokument-koordinater) → flytt det med den
+      // nye scroll-posisjonen så det blir liggende under fingeren, og re-evaluer
+      // de andre kortenes plassering med rulleretningen som «drag-retning».
+      if (window.scrollY !== before) { moveElement(); updateCardPlacement(0, autoScrollSpeed > 0 ? 1 : -1); }
       autoScrollRAF = requestAnimationFrame(step);
     };
     autoScrollRAF = requestAnimationFrame(step);
@@ -2672,8 +2704,8 @@
   function liftCategory() {
     const el = drag.el;
     el.style.width = drag.width + 'px'; // ingen fast høyde → følger den kollapsende høyden
-    el.style.left = (drag.lastX - drag.grabX) + 'px';
-    el.style.top = (drag.lastY - drag.grabY) + 'px';
+    el.style.left = dragPosLeft() + 'px';
+    el.style.top = dragPosTop() + 'px';
     el.classList.add('dragging');
   }
   function collapseCategory(catEl, ph) {
