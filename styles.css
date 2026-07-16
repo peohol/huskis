@@ -1171,9 +1171,15 @@ body {
   outline: 2px solid var(--primary);
 }
 
-/* ---------------- Drag & drop states ---------------- */
+/* ---------------- Drag & drop states ----------------
+   Kort/element/kategori dras på selve board-et og er `position: absolute`
+   (dokument-koordinater, se dragPos* i app.js) — IKKE `fixed`. Et `fixed`-
+   element som har en `transform` (skala/rotasjon under draging) legges på iOS
+   WebKit (bl.a. Chrome for iPhone) relativt til dokumentet og «scroller vekk»
+   fra fingeren; absolute unngår dette. Gruppe/univers dras i en modal (der
+   window-scroll aldri endres) og er derfor fortsatt `fixed` lenger ned. */
 .card.dragging {
-  position: fixed;
+  position: absolute;
   z-index: 100;
   margin: 0;
   box-shadow: var(--shadow-lg);
@@ -1187,7 +1193,7 @@ body {
 .card.dragging.to-group { opacity: 0.45; }
 
 .item.dragging {
-  position: fixed;
+  position: absolute;
   z-index: 100;
   margin: 0;
   list-style: none;
@@ -1203,7 +1209,7 @@ body {
    drar — se collapse/expandCategory i app.js). Ingen fast høyde, så den følger
    den kollapsende .cat-items-høyden. */
 .category.dragging {
-  position: fixed;
+  position: absolute;
   z-index: 100;
   margin: 0;
   list-style: none;
