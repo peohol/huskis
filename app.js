@@ -2103,7 +2103,22 @@
     return drag.kind !== 'group' && drag.kind !== 'universe';
   }
   function dragPosLeft() {
-    return (drag.lastX - drag.grabX) + (dragUsesPageCoords() ? window.scrollX : 0);
+    const base = drag.lastX - drag.grabX;
+    if (!dragUsesPageCoords()) return base; // gruppe/univers: fixed, viewport-koordinater
+    // Board-drag er `position: absolute`: klem den horisontale plasseringen innenfor
+    // viewporten så det løftede kortet ikke stikker ut til siden og utvider sidens
+    // scroll-bredde. Ellers dukker en horisontal scrollbar opp, og på iOS WebKit
+    // forskyves høyre-forankrede `position: fixed`-elementer (kontoknappen). Vi klemmer
+    // mot kortets FAKTISK RENDREDE boks (skala + maks rotasjon), ikke bare layout-
+    // boksen, siden transformen maler noen piksler utenfor. Klemmen slår kun inn helt
+    // ute ved kanten, så den er usynlig for vanlig reorder/kolonnebytte.
+    const vw = window.innerWidth || document.documentElement.clientWidth || 0;
+    const rad = MAX_ROT * Math.PI / 180;
+    const halfW = 1.02 * ((drag.width / 2) * Math.cos(rad) + (drag.height / 2) * Math.sin(rad));
+    const lo = halfW - drag.width / 2;               // venstre kant treffer 0
+    const hi = vw - drag.width / 2 - halfW;           // høyre kant treffer vw
+    const clamped = hi > lo ? Math.max(lo, Math.min(base, hi)) : (lo + hi) / 2; // for stor → sentrer
+    return clamped + window.scrollX;
   }
   function dragPosTop() {
     return (drag.lastY - drag.grabY) + (dragUsesPageCoords() ? window.scrollY : 0);

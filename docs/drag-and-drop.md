@@ -27,7 +27,14 @@ Bytte utløses av **overlapp**, ikke av et punkt:
   Android/desktop). Under auto-scroll flyttes kortet hver frame (`moveElement()` i
   scroll-loopen) så det blir liggende under fingeren. Gruppe/univers dras i en
   modal der window-scroll aldri endres og er derfor fortsatt `fixed` (viewport-
-  koordinater — `dragUsesPageCoords()` skiller på `drag.kind`).
+  koordinater — `dragUsesPageCoords()` skiller på `drag.kind`). Fordi et absolutt-
+  posisjonert barn teller i sidens scroll-område (et `fixed` gjorde ikke det),
+  klemmes to nye ting: (1) nedover-auto-scroll stopper ved board-ets faktiske bunn
+  (ellers uendelig scroll ut i blankt), og (2) `dragPosLeft` klemmer kortets
+  horisontale plassering (mot dets FAKTISK RENDREDE boks: skala + maks rotasjon)
+  innenfor viewporten, ellers ville et kort dratt mot siden gitt horisontal
+  scrollbar og — på iOS WebKit — forskjøvet høyre-forankrede `fixed`-elementer
+  (kontoknappen). Klemmen slår kun inn helt ute ved kanten.
 - **Kort-auto-scrollens ankerpunkt** (`updateAutoScroll`): symmetrisk og kant-
   forankret. OPPOVER måles kortets ØVRE kant mot toppen av området rett UNDER den
   faste headeren (`topbarEl`-bunn + `ZONE`), ikke mot viewportens øvre kant — ellers
