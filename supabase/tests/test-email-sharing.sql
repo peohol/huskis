@@ -205,13 +205,36 @@ select set_config('request.jwt.claim.sub', '', false);
 set role anon;
 select public.t_fails('anon kan ikke lese app_config',      'select count(*) from public.app_config');
 select public.t_fails('anon kan ikke lese email_send_log',  'select count(*) from public.email_send_log');
-select public.t_fails('anon kan ikke kjøre send_invite_email', 'select public.send_invite_email()');
+-- send_invite_email er en triggerfunksjon og kan ikke kalles direkte uansett
+-- rettigheter (PostgreSQL blokkerer «select public.send_invite_email()» med en
+-- egen feil), så en t_fails-test hadde vært grønn uansett EXECUTE-ACL. Sjekk i
+-- stedet privilegiet direkte i katalogen.
+select public.t_check(
+  'anon har ikke EXECUTE på send_invite_email',
+  not has_function_privilege('anon', 'public.send_invite_email()', 'EXECUTE'));
 reset role;
 select set_config('request.jwt.claim.sub', :'reg', false);
 set role authenticated;
 select public.t_fails('authenticated kan ikke lese app_config',     'select count(*) from public.app_config');
 select public.t_fails('authenticated kan ikke lese email_send_log', 'select count(*) from public.email_send_log');
-select public.t_fails('authenticated kan ikke kjøre send_invite_email', 'select public.send_invite_email()');
+select public.t_check(
+  'authenticated har ikke EXECUTE på send_invite_email',
+  not has_function_privilege('authenticated', 'public.send_invite_email()', 'EXECUTE'));
+
+reset role;
+
+-- ---------- 10. send_invite_email gir ikke EXECUTE via PUBLIC ----------
+-- Funksjoner får EXECUTE til PUBLIC som standard; REVOKE-linjen i
+-- users-and-sharing.sql fjerner den. En NULL proacl betyr standard (= EXECUTE
+-- til PUBLIC), så coalesce(..., true) sikrer at testen FEILER dersom
+-- REVOKE-linjen fjernes.
+select public.t_check(
+  'send_invite_email sin ACL gir ikke EXECUTE til PUBLIC',
+  not coalesce(
+    (select bool_or(a.grantee = 0 and a.privilege_type = 'EXECUTE')
+       from pg_proc p, aclexplode(p.proacl) a
+      where p.oid = 'public.send_invite_email()'::regprocedure),
+    true));
 
 reset role;
 select 'ALLE E-POSTTESTER GRØNNE' as resultat;

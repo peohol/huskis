@@ -1107,7 +1107,7 @@ begin
             '<tr><td bgcolor="#ffffff" style="background-color:#ffffff;border-radius:18px;">' ||
               '<table width="100%" cellpadding="0" cellspacing="0" border="0" role="presentation" style="width:100%;">' ||
                 '<tr><td style="padding:34px 34px 8px 34px;font-family:Arial,Helvetica,sans-serif;">' ||
-                  '<p style="margin:0 0 10px 0;font-family:Arial,Helvetica,sans-serif;font-size:13px;line-height:16px;font-weight:700;letter-spacing:1.2px;color:#668866;">DELINGSINVITASJON</p>' ||
+                  '<p style="margin:0 0 10px 0;font-family:Arial,Helvetica,sans-serif;font-size:13px;line-height:16px;font-weight:700;letter-spacing:1.2px;color:#4d664d;">DELINGSINVITASJON</p>' ||
                   '<h1 style="margin:0 0 18px 0;font-family:Arial,Helvetica,sans-serif;font-size:26px;line-height:33px;font-weight:700;color:#37343f;">' || public.html_escape(heading) || '</h1>' ||
                   '<p style="margin:0 0 20px 0;font-family:Arial,Helvetica,sans-serif;font-size:17px;line-height:26px;color:#37343f;"><strong>' || inv_e || '</strong> har delt noe med deg:</p>' ||
                   -- Objekt-kort (lys grønn flate, grønn venstrekant).
@@ -1117,7 +1117,7 @@ begin
                   '<p style="margin:22px 0 26px 0;font-family:Arial,Helvetica,sans-serif;font-size:16px;line-height:25px;color:#37343f;">' || public.html_escape(explanation) || '</p>' ||
                   -- Handlingsknapp: stylet <a> på grønn flate (Outlook: bgcolor).
                   '<table cellpadding="0" cellspacing="0" border="0" role="presentation"><tr>' ||
-                    '<td bgcolor="#668866" style="background-color:#668866;border-radius:12px;">' ||
+                    '<td bgcolor="#4d664d" style="background-color:#4d664d;border-radius:12px;">' ||
                       '<a href="' || public.html_escape(link) || '" style="display:inline-block;padding:14px 28px;font-family:Arial,Helvetica,sans-serif;font-size:17px;line-height:20px;font-weight:700;color:#ffffff;text-decoration:none;border-radius:12px;">' || public.html_escape(action_text) || '</a>' ||
                     '</td>' ||
                   '</tr></table>' ||

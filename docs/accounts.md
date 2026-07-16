@@ -241,7 +241,7 @@ Mottakeren varsles på to måter når noe deles med hen:
   gir initialene (første bokstav i fornavn + etternavn), `personName` gir
   navnet (faller tilbake på e-post for uregistrerte/ventende invitasjoner).
   Del-modalen viser en initial-sirkel + navn for eier og hvert medlem
-  (`avatarFor`, eier grønn / medlem grå — samme roller som før). Meny-modalens
+  (`avatarFor`, eier grønn / medlem grå — samme roller som før). Konto-modalens
   konto-avatar bruker samme navn/initialer (`my.user.display_name`).
 - **Ansvarlig** (`item.responsible` OG `card.responsible`): objekter i delt
   kontekst (delt liste, eller liste under en delt gruppe/univers —
