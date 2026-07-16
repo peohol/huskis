@@ -4243,7 +4243,7 @@
       const clearBtn = document.createElement('button');
       clearBtn.type = 'button';
       clearBtn.className = 'icon-btn time-clear';
-      clearBtn.textContent = '✕';
+      clearBtn.innerHTML = ICONS.xmark;
       clearBtn.title = 'Fjern tiden';
       clearBtn.setAttribute('aria-label', isDue ? 'Fjern fristen' : 'Fjern starttiden');
 

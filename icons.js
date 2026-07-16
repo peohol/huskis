@@ -142,17 +142,18 @@ window.ICONS = {
     '<path d="M11.5 15.5h5.5"></path>' +
     '</svg>',
 
-  // Tannhjul (innstillinger): grå RING (annulus, even-odd) — senterhullet er
-  // gjennomsiktig, ikke fylt, siden det er hullet i tannhjulet.
+  // Tannhjul (innstillinger): grå kogg med FYLTE, brede tenner (som emojien ⚙️) —
+  // én sammensatt bane (koggsilhuett + senterhull, even-odd) så hullet forblir
+  // gjennomsiktig og den svarte streken tegner ytre silhuett + hull.
   gear: '<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="#111" stroke-width="1.05" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
-    '<path d="M5 12a7 7 0 1 0 14 0 7 7 0 1 0 -14 0Z M8.8 12a3.2 3.2 0 1 0 6.4 0 3.2 3.2 0 1 0 -6.4 0Z" fill="#c0c4c9" fill-rule="evenodd" stroke="none"></path>' +
-    '<circle cx="12" cy="12" r="7"></circle>' +
-    '<circle cx="12" cy="12" r="3.2"></circle>' +
-    '<path d="M12 5V2.8"></path><path d="M12 21.2V19"></path>' +
-    '<path d="M19 12h2.2"></path><path d="M2.8 12H5"></path>' +
-    '<path d="m16.95 7.05 1.56-1.56"></path><path d="m5.49 18.51 1.56-1.56"></path>' +
-    '<path d="m16.95 16.95 1.56 1.56"></path><path d="m5.49 5.49 1.56 1.56"></path>' +
+    '<path d="M10.56 5.76 L10.44 3.14 L13.56 3.14 L13.44 5.76 A6.4 6.4 0 0 1 15.39 6.57 L17.16 4.63 L19.37 6.84 L17.43 8.61 A6.4 6.4 0 0 1 18.24 10.56 L20.86 10.44 L20.86 13.56 L18.24 13.44 A6.4 6.4 0 0 1 17.43 15.39 L19.37 17.16 L17.16 19.37 L15.39 17.43 A6.4 6.4 0 0 1 13.44 18.24 L13.56 20.86 L10.44 20.86 L10.56 18.24 A6.4 6.4 0 0 1 8.61 17.43 L6.84 19.37 L4.63 17.16 L6.57 15.39 A6.4 6.4 0 0 1 5.76 13.44 L3.14 13.56 L3.14 10.44 L5.76 10.56 A6.4 6.4 0 0 1 6.57 8.61 L4.63 6.84 L6.84 4.63 L8.61 6.57 A6.4 6.4 0 0 1 10.56 5.76 Z M8.8 12a3.2 3.2 0 1 0 6.4 0 3.2 3.2 0 1 0 -6.4 0Z" fill="#c0c4c9" fill-rule="evenodd"></path>' +
     '</svg>',
+
+  // Kryss (×) for lukk-/slett-knapper: egen SVG med samme strek (1.05) og runde
+  // ender som resten av settet. Bruker currentColor så CSS styrer farge (svart i
+  // hvile, rød ved hover på slett-knappene — se .icon-btn/-delete i styles.css).
+  xmark: '<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.05" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
+    '<path d="M6.5 6.5 17.5 17.5"></path><path d="M17.5 6.5 6.5 17.5"></path></svg>',
 
   // Kalender (starttid): ramme hvit med opphengs-tapper og topplinje.
   calendar: '<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="#111" stroke-width="1.05" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +

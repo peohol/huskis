@@ -1109,23 +1109,19 @@ body {
 }
 .icon-btn:hover { background: rgba(0, 0, 0, 0.07); color: var(--ink); }
 
-/* Sletteknapper (liste/element/gruppe/univers): samme utseende overalt —
-   dempet ✕ som blir rød ved hover. Gruppe-/univers-✕ ligger helt til høyre. */
-.card-delete:hover, .item-delete:hover, .group-delete:hover, .uni-delete:hover {
+/* Sletteknapper (liste/element/gruppe/univers): SVG-× (ICONS.xmark, samme strek
+   som ikonsettet) — SVARTE globalt, RØDE ved hover/aktivering. Gjelder også på
+   fargede flater (chip + korthode); svart leser fint på de lyse kortfargene.
+   Gruppe-/univers-× ligger helt til høyre. */
+.card-delete, .item-delete, .group-delete, .uni-delete { color: #111; }
+.card-delete:hover, .item-delete:hover, .group-delete:hover, .uni-delete:hover,
+.card-delete:active, .item-delete:active, .group-delete:active, .uni-delete:active {
   color: var(--danger);
   background: rgba(239, 107, 125, 0.12);
 }
 .group-delete, .uni-delete { margin-left: auto; }
-/* Slett-✕ på fargede flater (chip + korthode) er hvit m/ tekst-skygge — som
-   resten av innholdet på fargede flater — så den er lesbar også på mørke
-   kortfarger (grå ✕ forsvant på dem). Blir rød ved hover som før. */
-.group-delete, .uni-delete, .card-delete {
-  color: #fff;
-  filter: drop-shadow(var(--text-shadow));
-}
-/* Element-✕ alltid synlig, men diskré; full styrke ved hover/fokus. Mørkere
-   ink-farge i hvile (grå --ink-soft ga for svak kontrast mot listeflaten). */
-.item-delete { color: var(--ink); opacity: 0.6; }
+/* Element-× alltid synlig, men diskré; full styrke ved hover/fokus. */
+.item-delete { opacity: 0.6; }
 .item:hover .item-delete,
 .item:focus-within .item-delete,
 .item-delete:focus-visible { opacity: 1; }
