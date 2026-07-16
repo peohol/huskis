@@ -368,13 +368,11 @@ body {
 }
 .btn-add.icon-only { width: var(--control-h); padding: 0; font-size: 23px; }
 .btn-add .icon { font-size: var(--fs-base); }
-/* icon-only-knappene (element/kategori) er kvadratiske og større enn de
-   tekst+ikon-knappene over — la ikonet arve den fulle knapp-størrelsen
-   (23px) i stedet for den generelle .btn-add .icon-størrelsen. */
-.btn-add.icon-only .icon { font-size: 1em; }
-/* Kategori-ikonet har flere detaljer (klammer/prikker/linjer) enn ren ＋ og
-   trenger vesentlig mer størrelse for å være tydelig lesbart i knappen. */
-.add-cat-btn.icon-only .icon { font-size: 34px; }
+/* icon-only-knappene (element ＋ / kategori) er kvadratiske og bærer store,
+   tydelige ikoner: begge settes til samme størrelse (34px) så ＋-en er like
+   stor som kategori-ikonet — kategori-ikonet trenger størrelsen for å lese
+   detaljene (klammer/prikker/linjer), og ＋-en matcher det visuelt. */
+.btn-add.icon-only .icon { font-size: 34px; }
 
 /* ---------------- Del-knapper i menyene (del-univers / del-gruppe) ----------------
    Del det AKTIVE universet (ved siden av «＋ Gruppe») / den AKTIVE gruppen (ved
@@ -955,21 +953,29 @@ body {
    kolonner som elementenes og kort-hodets; knappene bruker den hvite kort-hode-
    knappestilen (.card-cog) så de er synlige mot listeflaten. */
 .category { list-style: none; display: flex; flex-direction: column; gap: 4px; }
-/* Subtil skillelinje under en kategoris hylle, mot det påfølgende elementet/
-   kategorien på nivå 1 — men ikke når kategorien er siste rad i lista (da er
-   det ingenting å skille fra). Kant-til-kant: negativ sidemargin (-10px)
-   kansellerer .items-container sin egen sidepolstring. Lik avstand (20px)
-   over og under: 16px margin-top + .category sin 4px header-til-innhold-gap
-   = 20px over; 12px margin-bottom + .items-container sin 8px rad-gap = 20px
-   under — begge regnestykkene gir samme totale luft selv om margin-verdiene
-   ikke er like i seg selv. */
-.category:not(:last-child)::after {
+/* Subtile skillelinjer rundt en kategoris hylle, mot nabo-radene på nivå 1:
+   - UNDER kategorien (::after), mot det påfølgende elementet/kategorien — men
+     ikke når kategorien er siste rad (da er det ingenting å skille fra).
+   - OVER kategorien (::before) NÅR raden over er et element (`.item + .category`);
+     to kategorier på rad får ingen linje mellom seg utover ::after-en fra den
+     øverste.
+   Kant-til-kant: negativ sidemargin (-10px) kansellerer .items-container sin
+   sidepolstring. Lik avstand (16px) over og under hver linje, satt opp mot de
+   omkringliggende flex-gapene (.category-gap 4px øverst/nederst i kategorien,
+   .items-container-gap 8px mellom nivå-1-rader):
+   - ::after: 12px margin-top + 4px gap = 16px over; 8px margin-bottom + 8px gap
+     = 16px under.
+   - ::before: 8px margin-top + 8px gap = 16px over; 12px margin-bottom + 4px gap
+     = 16px under. */
+.category:not(:last-child)::after,
+.item + .category::before {
   content: '';
   display: block;
   height: 1px;
-  margin: 16px -10px 12px;
   background: rgba(0, 0, 0, 0.15);
 }
+.category:not(:last-child)::after { margin: 12px -10px 8px; }
+.item + .category::before { margin: 8px -10px 12px; }
 .cat-head { display: flex; align-items: center; gap: 6px; padding: 0 6px; }
 .cat-title-wrap {
   flex: 1;

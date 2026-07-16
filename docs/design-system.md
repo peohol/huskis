@@ -185,17 +185,18 @@ Størrelse/form kommer fra egne klasser: `.btn` (modaler), `.btn-small`,
   til høyre for ＋) oppretter i stedet en kategori med det innskrevne navnet.
   Kategori-knappens ikon er `ICONS.category`-tegningen limt inn direkte i
   `index.html` med `stroke/fill="currentColor"` (hvit på gul flate — samme
-  unntak som utloggings-ikonet), og er satt vesentlig større enn de andre
-  ikonene i knapperaden (`.add-cat-btn.icon-only .icon`, 34px) fordi motivet
-  (klammer/prikker/linjer) trenger mer plass for å lese tydelig.
+  unntak som utloggings-ikonet). Begge de kvadratiske icon-only-knappene
+  (element-＋ og kategori) bærer store, tydelige ikoner: `.btn-add.icon-only
+  .icon` settes til **34px** for begge, så ＋-en er like stor som kategori-ikonet
+  (kategori-motivet — klammer/prikker/linjer — trenger størrelsen for å lese
+  tydelig, og ＋-en matcher det).
 - **Delt ＋-ikon** (`ICONS.plus`, samt inline-kopier i `index.html`): ALLE
   «legg til»-knappene (element/liste/gruppe/univers) bruker nå samme SVG-tegnede
   ＋ (to rette streker, `stroke-width="1.05"`, runde ender, `currentColor`) i
   stedet for tekst-glyfen ＋ — som har annen linjestil/tykkelse enn resten av
-  ikonsettet og dermed brøt den ellers konsekvente streken. `.btn-add.icon-only
-  .icon` lar ikonet arve knappens fulle 23px (i stedet for den generelle
-  `.btn-add .icon`-størrelsen på 19px) så det kvadratiske ＋ (element) beholder
-  samme visuelle vekt som før.
+  ikonsettet og dermed brøt den ellers konsekvente streken. De tekst+ikon-
+  knappene (liste/gruppe/univers) beholder `.btn-add .icon`-størrelsen (19px);
+  kun de kvadratiske icon-only-knappene skaleres opp til 34px (se over).
 - **Kategorier** (`.category` / `.cat-head` / `.cat-title` / `.cat-cog` /
   `.cat-dissolve` / `.cat-items`): en nivå-1-rad med en header (håndtak +
   tittel/meta + tannhjul + oppløs-knapp) over en nøstet elementliste. Kondensert:
@@ -214,17 +215,19 @@ Størrelse/form kommer fra egne klasser: `.btn` (modaler), `.btn-small`,
   venstre-innrykk, så elementene blir som «bøker» i en hylle som går inn i veggen
   (dette erstattet den tidligere grupperingsstreken). `.category.dragging` er et
   løftet, hvitt chip UTEN fast høyde (følger den kollapsende `.cat-items`-høyden
-  under draging — se `docs/drag-and-drop.md`). En subtil skillelinje
-  (`.category:not(:last-child)::after`, `rgba(0,0,0,.15)`) markerer overgangen
-  fra en kategoris fordypning til det påfølgende elementet/kategorien på nivå 1
-  — men **ikke** når kategorien er siste rad i lista, siden `:not(:last-child)`
-  følger den faktiske DOM-rekkefølgen (item OG category som søsken). Linjen går
-  **kant-til-kant** (`margin: 16px -10px 12px` — negativ sidemargin kansellerer
-  `.items-container`s 10px sidepolstring) med **lik luft over og under (20px)**:
-  16px margin-top + `.category`s egen 4px gap (til `.cat-items`) = 20px over,
-  12px margin-bottom + `.items-container`s 8px rad-gap = 20px under — ulike
-  margin-verdier som gir samme totale avstand fordi de kompenserer for
-  forskjellige omkringliggende gap.
+  under draging — se `docs/drag-and-drop.md`). Subtile skillelinjer
+  (`rgba(0,0,0,.15)`) rammer en kategori mot nabo-radene på nivå 1: **under**
+  kategorien (`.category:not(:last-child)::after`) mot det påfølgende elementet/
+  kategorien — men **ikke** når kategorien er siste rad (`:not(:last-child)`
+  følger DOM-rekkefølgen, item OG category som søsken); og **over** kategorien
+  (`.item + .category::before`) KUN når raden over er et element. To kategorier
+  på rad får dermed ingen ekstra linje mellom seg utover ::after-en fra den
+  øverste. Linjene går **kant-til-kant** (negativ sidemargin `-10px` kansellerer
+  `.items-container`s 10px sidepolstring) med **lik luft over og under (16px)**
+  hver — margin-verdiene (`::after` 12/8, `::before` 8/12) er ulike fordi de
+  kompenserer for forskjellige omkringliggende flex-gap (`.category`s 4px
+  topp/bunn vs. `.items-container`s 8px mellom rader), men summerer til samme
+  16px på begge sider.
 - `.field`: felles tekstfelt (auth-input + inviter-input) — solid kant, myk
   bakgrunn, grønn fokus-ring. Nye felt trenger bare klassen `.field`.
 - `.account-avatar` / `.member-avatar`: felles avatar-form (rund, sentrert hvit
