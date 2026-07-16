@@ -156,28 +156,54 @@ Gjenstår manuelt:
 - [ ] **Resend**: domenet `huskis.no` er verifisert, sending aktivert, region
       `eu-west-1`, åpnings-/klikksporing AV. Opprett en API-nøkkel med KUN
       *Sending access*, begrenset til domenet `huskis.no`.
-- [ ] Legg nøkkelen i **Supabase Vault** (foretrukket — kryptert i ro; ikke lim
-      nøkkelen inn i en versjonert fil, parameteriser den via `psql -v`):
-      ```sql
-      select vault.create_secret(:'resend_key', 'resend_api_key',
-                                 'Resend sending API key (kun sending, huskis.no)');
-      ```
-      Legg ikke-hemmelig konfig i `public.app_config`:
+- [ ] **Legg Resend-nøkkelen i Supabase Vault** under secret-navnet
+      `resend_api_key`. Nøkkelen skal ALDRI skrives til Git, PR, logger eller
+      chat. To måter:
+
+      **A. Anbefalt (produksjon):** la Claude Code / Supabase-integrasjonen
+      opprette hemmeligheten direkte i Vault (secret-navn `resend_api_key`), så
+      selve nøkkelverdien aldri passerer gjennom en fil eller terminal.
+
+      **B. Manuelt via dashboard:** Supabase Dashboard → **Vault** → **New
+      secret**:
+      - **Name:** `resend_api_key`
+      - **Secret:** (lim inn Resend-nøkkelen her — feltet er kryptert, ikke
+        versjonert)
+      - **Description:** `Resend sending API key, begrenset til huskis.no`
+
+      (Kommandolinje-varianten `select vault.create_secret(...)` finnes, men
+      krever psql-variabler for å unngå å eksponere nøkkelen — bruk A eller B
+      i stedet for å slippe det.)
+- [ ] Legg **ikke-hemmelig** konfig i `public.app_config` (Supabase SQL editor
+      — dette er trygt å lime inn, ingen hemmelighet):
       ```sql
       insert into public.app_config(key, value) values
         ('email_from', 'Huskis <noreply@huskis.no>'),
         ('app_url',    'https://www.huskis.no/')
       on conflict (key) do update set value = excluded.value;
       ```
-      Triggeren leser Vault først, faller tilbake til `app_config`-nøkkel hvis
-      Vault ikke er satt opp. Uten en nøkkel gjør triggeren ingenting (delingen
-      fungerer via appen som før). `app_config` er RLS-låst uten policyer → kun
-      SECURITY DEFINER-triggeren leser verdiene, aldri klienten.
+      Triggeren leser nøkkelen fra Vault først; app_config-nøkkelen er KUN en
+      fallback for det lokale, hermetiske test-miljøet (som ikke har Vault) —
+      legg derfor IKKE `resend_api_key` i app_config i produksjon. Uten en
+      nøkkel gjør triggeren ingenting (delingen fungerer via appen som før).
+      `app_config` er RLS-låst uten policyer (revoke fra public/anon/
+      authenticated) → kun SECURITY DEFINER-triggeren leser verdiene.
+- [ ] Hvis en tidligere `resend_api_key` allerede ligger i `public.app_config`:
+      slett den etter at Vault-oppsettet er verifisert (`delete from
+      public.app_config where key = 'resend_api_key';`) — nøkkelen skal bo i
+      Vault, ikke i en tabell.
 - [ ] Etter deploy: verifiser at `https://www.huskis.no/assets/email/huskis-logo.png`
       returnerer 200 + `image/png` uten innlogging/preview-beskyttelse.
-- [ ] Diagnostikk ved behov: `select * from public.email_send_log order by id desc;`
-      (queued/error + pg_net-request-id) og `select * from net._http_response
-      order by id desc;` for selve Resend-svaret.
+- [ ] Diagnostikk ved behov:
+      - `select id, invite_id, variant, net_request_id, enqueue_status, error
+        from public.email_send_log order by id desc;` — `enqueue_status` sier KUN
+        om forespørselen ble lagt i pg_net-køen (`enqueued`) eller feilet synkront
+        før kølegging (`enqueue_error`); det betyr **ikke** accepted/delivered.
+      - `select * from net._http_response order by id desc;` — det FAKTISKE
+        Resend-HTTP-svaret (status 2xx/4xx/5xx), korrelert via `net_request_id`.
+        pg_net rydder denne tabellen etter en stund, så det er kortvarig
+        diagnostikk. For varig leveringsstatus: sjekk Resend-dashbordet (eller
+        vurder Resend-webhooks som en senere forbedring).
 
 ## Fase 2 — klient/UI (✅ implementert — se `docs/accounts.md`)
 

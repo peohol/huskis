@@ -250,22 +250,34 @@ stylet `<a>`-knapp og en `text/plain`-variant. To varianter:
   kun hvis `auth.users.raw_user_meta_data->>'email_notifications'` ikke er
   `'false'` (standard på; klienten setter flagget via `auth.updateUser`).
 
-**Hemmelighet:** selve Resend-nøkkelen foretrekkes lagret i **Supabase Vault**
-(kryptert i ro; `vault.decrypted_secrets` er kun lesbar for eier-rollen).
-Triggeren leser Vault først og faller tilbake til `public.app_config` hvis Vault
-ikke er satt opp (f.eks. det hermetiske test-miljøet). Ikke-hemmelig konfig
+**Hemmelighet:** selve Resend-nøkkelen bor i **Supabase Vault** (kryptert i ro;
+`vault.decrypted_secrets` er kun lesbar for eier-rollen), lagt inn via dashboard
+eller Supabase-integrasjonen under secret-navnet `resend_api_key` — aldri i Git/
+PR/logg/chat. Triggeren leser Vault først og faller tilbake til
+`public.app_config` KUN så det hermetiske test-miljøet (uten Vault) kan kjøre; i
+produksjon skal nøkkelen ikke ligge i app_config. Ikke-hemmelig konfig
 (`email_from`, `app_url`) ligger i `public.app_config` (RLS på, ingen policyer/
-grants → kun SECURITY DEFINER-funksjoner leser den; ingen `cfg()`-RPC som kunne
-lekket verdien; EXECUTE revoked fra public/anon/authenticated).
+grants, EXECUTE/SELECT revoked fra public/anon/authenticated → kun SECURITY
+DEFINER-funksjoner leser den; ingen `cfg()`-RPC som kunne lekket verdien).
 
 **Sikkerhet i kroppen:** brukerstyrt tekst (inviter-navn, objektnavn, over-
 skrifter, synlig lenketekst) HTML-escapes med `html_escape`; URL-parametre
 prosent-kodes med `url_encode` (byte-sikker RFC 3986, erstatter de gamle
 manuelle `replace`-kjedene); JSON bygges med `jsonb_build_object`.
 
-**Observabilitet:** utsendingen logges i den låste tabellen
-`public.email_send_log` (invitasjons-id, variant, pg_net-request-id, status
-`queued`/`error`, ev. `SQLERRM` — aldri nøkkelen eller kroppen). Uten en Resend-
-nøkkel returnerer triggeren umiddelbart (`return new`), så delinger fungerer uten
-e-post; en feil i utsendingen fanges (`exception when others`), logges som
-`error` og blokkerer aldri selve invitasjonen.
+**Observabilitet — merk pg_net er asynkron:** `net.http_post` KØLEGGER
+forespørselen og returnerer en request-id; selve HTTP-kallet til Resend skjer
+først etter commit, og svaret (HTTP 2xx/4xx/5xx) lander senere i
+`net._http_response`. Triggeren kan derfor bare vite om forespørselen ble kølagt,
+ikke om Resend aksepterte/leverte. Kølegging logges i den låste tabellen
+`public.email_send_log` (invitasjons-id, variant, `net_request_id`,
+`enqueue_status` = `enqueued`/`enqueue_error`, ev. `SQLERRM` — aldri nøkkel,
+Authorization-header, kropp eller mottakeradresse). `enqueued` betyr **ikke**
+accepted/delivered/successful — det FAKTISKE HTTP-resultatet korreleres via
+`net_request_id` mot `net._http_response` (kortvarig diagnostikk; pg_net rydder
+tabellen). Uten en Resend-nøkkel returnerer triggeren umiddelbart (`return new`).
+En **synkron** feil (f.eks. selve køleggingen feiler) fanges (`exception when
+others`), logges som `enqueue_error` og blokkerer aldri selve invitasjonen; en
+senere **asynkron** Resend-feil er ikke en trigger-exception og finnes kun i
+`net._http_response`. Resend-webhooks for varig leveringsstatus er en mulig
+senere forbedring, ikke implementert nå.

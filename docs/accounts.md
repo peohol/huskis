@@ -219,8 +219,9 @@ Mottakeren varsles på to måter når noe deles med hen:
   mottakere får «Du er invitert» med lenke `<app_url>?signup=<e-post>`;
   **registrerte** får «‹objekt› er delt med deg» + åpne-appen-lenke, men kun
   hvis de har e-postvarsel PÅ. Resend-nøkkelen ligger i **Supabase Vault**
-  (fallback `app_config`); triggeren gjør ingenting uten nøkkel, og utsendingen
-  logges i den låste `email_send_log` — se `docs/arkitektur-brukere-deling.md`
+  (`app_config` er kun fallback for lokale tester); triggeren gjør ingenting uten
+  nøkkel, og køleggingen logges i den låste `email_send_log` (`enqueue_status`,
+  ikke leveringsstatus) — se `docs/arkitektur-brukere-deling.md`
   og `TODO.md`.
 - **`?signup=<e-post>`-dyplenke** (`applySignupInvite`, i `initAccounts`): åpner
   auth-skjermen i **register**-modus med e-posten utfylt + en «du er invitert»-

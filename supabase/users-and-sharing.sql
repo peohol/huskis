@@ -888,9 +888,11 @@ $$;
 -- HEMMELIGHETER: selve Resend-API-nøkkelen foretrekkes lagret i **Supabase
 -- Vault** (kryptert i ro; `vault.decrypted_secrets` er kun lesbar for
 -- eier-rollen, aldri for anon/authenticated). Trigger-funksjonen leser Vault
--- først og faller tilbake til `public.app_config` hvis Vault ikke er satt opp
--- (f.eks. i det hermetiske test-miljøet, som ikke har Vault). Ikke-hemmelig
--- konfig (avsender, app-URL) ligger fortsatt i app_config.
+-- først og faller tilbake til `public.app_config` KUN så det hermetiske
+-- test-miljøet (uten Vault) fortsatt kan kjøre. Ikke-hemmelig konfig (avsender,
+-- app-URL) ligger i app_config. Oppsettet (Vault via dashboard/integrasjon,
+-- app_config-verdiene) er dokumentert i `TODO.md` — IKKE lim nøkkelen inn i
+-- en versjonert fil, PR, logg eller chat.
 --
 -- app_config er en LÅST tabell — RLS på, ingen policyer, ingen grants → verken
 -- anon eller authenticated kan lese den via PostgREST. Verdiene leses KUN inne
@@ -899,17 +901,15 @@ $$;
 -- dermed lekket nøkkelen. (Pensjoner en ev. tidligere `cfg`-variant.)
 --
 -- Uten en Resend-nøkkel (verken i Vault eller app_config) gjør triggeren
--- ingenting, så delingen fungerer som før. Oppsett (Supabase SQL editor):
---   -- Nøkkelen i Vault (kjøres én gang; parameteriser verdien, ikke lim den
---   -- inn i en versjonert fil):
---   select vault.create_secret(:'resend_key', 'resend_api_key',
---                              'Resend sending API key (domenebegrenset)');
---   -- Ikke-hemmelig konfig:
---   insert into public.app_config(key, value) values
---     ('email_from', 'Huskis <noreply@huskis.no>'),
---     ('app_url',    'https://www.huskis.no/')
---   on conflict (key) do update set value = excluded.value;
--- (pg_net må være aktivert: Database → Extensions → pg_net.)
+-- ingenting, så delingen fungerer som før.
+--
+-- pg_net er ASYNKRON: `net.http_post` legger forespørselen i en kø og returnerer
+-- en request-id; selve HTTP-kallet til Resend skjer FØRST etter at transaksjonen
+-- committer. Triggeren kan derfor bare vite om forespørselen ble KØLAGT — den
+-- kan ikke se en senere Resend-respons (HTTP 2xx/4xx/5xx) som en trigger-
+-- exception. Faktisk HTTP-resultat leses fra `net._http_response` via
+-- `net_request_id` (kortvarig diagnostikk — pg_net rydder responstabellen etter
+-- en stund). «enqueued» betyr altså IKKE accepted/delivered/successful.
 
 do $$ begin
   create extension if not exists pg_net with schema extensions;
@@ -923,26 +923,30 @@ create table if not exists public.app_config (
 alter table public.app_config enable row level security;
 -- Ingen RLS-policyer + ingen grants → verken anon eller authenticated kan lese
 -- verdiene via PostgREST. Leses KUN inne i trigger-funksjonen under (SECURITY
--- DEFINER, ikke kallbar som RPC), aldri via en egen hjelpefunksjon.
-revoke all on public.app_config from anon, authenticated;
+-- DEFINER, ikke kallbar som RPC), aldri via en egen hjelpefunksjon. Eksplisitt
+-- REVOKE også fra PUBLIC som ekstra forsvar.
+revoke all on public.app_config from public, anon, authenticated;
 drop function if exists public.cfg(text);
 
--- Minimal, LÅST loggtabell for observabilitet på e-postutsendingen. Lagrer
--- ALDRI API-nøkkelen eller e-postkroppen; kun invitasjons-id, variant, pg_net-
--- request-id (korreleres mot net._http_response) og en ev. feilmelding — nok
--- til å diagnostisere Resend-/pg_net-problemer uten unødvendige personopplys-
--- ninger. Samme lås som app_config (RLS på, ingen policyer, ingen grants).
+-- Minimal, LÅST loggtabell for observabilitet på KØLEGGINGEN av e-posten. Lagrer
+-- ALDRI API-nøkkelen, Authorization-headeren, e-postkroppen eller mottaker-
+-- adressen — kun invitasjons-id, variant, pg_net-request-id og en ev. synkron
+-- kø-feilmelding. `enqueue_status` gjelder BARE om forespørselen ble lagt i
+-- pg_net-køen (`enqueued`) eller feilet synkront før kølegging (`enqueue_error`)
+-- — det sier INGENTING om Resend faktisk aksepterte/leverte e-posten. Det
+-- faktiske HTTP-resultatet korreleres via `net_request_id` mot
+-- `net._http_response` (kortvarig diagnostikk). Samme lås som app_config.
 create table if not exists public.email_send_log (
   id             bigint generated always as identity primary key,
   created_at     timestamptz not null default now(),
   invite_id      uuid,
-  variant        text,          -- 'unregistered' | 'existing'
-  net_request_id bigint,        -- pg_net request-id (kø-kvittering)
-  status         text not null, -- 'queued' | 'error'
-  error          text           -- SQLERRM ved feil (ingen nøkkel, ingen kropp)
+  variant        text   check (variant in ('unregistered', 'existing')),
+  net_request_id bigint,        -- pg_net request-id (korreleres mot net._http_response)
+  enqueue_status text not null  check (enqueue_status in ('enqueued', 'enqueue_error')),
+  error          text           -- SQLERRM ved synkron kø-feil (ingen nøkkel/header/kropp/adresse)
 );
 alter table public.email_send_log enable row level security;
-revoke all on public.email_send_log from anon, authenticated;
+revoke all on public.email_send_log from public, anon, authenticated;
 
 -- Enkel HTML-escaping for brukerstyrt tekst (navn) i e-postkroppen — hindrer at
 -- et navn med markup rendres i mottakerens e-postklient. Ren/immutabel.
@@ -1131,8 +1135,10 @@ begin
       '</table>' ||
     '</body></html>';
 
-  -- pg_net er asynkron: returnerer en request-id nå, selve Resend-svaret lander
-  -- senere i net._http_response. Vi logger request-id-en for korrelasjon.
+  -- pg_net er asynkron: http_post legger forespørselen i køen og returnerer en
+  -- request-id NÅ; selve HTTP-kallet skjer etter commit, og Resend-svaret lander
+  -- senere i net._http_response. Vi logger request-id-en for korrelasjon dit.
+  -- «enqueued» betyr KUN kølagt — ikke at Resend har akseptert/levert.
   select net.http_post(
     url     := 'https://api.resend.com/emails',
     headers := jsonb_build_object(
@@ -1146,15 +1152,17 @@ begin
       'text',    body_text)
   ) into net_req;
 
-  insert into public.email_send_log(invite_id, variant, net_request_id, status)
-  values (new.id, variant, net_req, 'queued');
+  insert into public.email_send_log(invite_id, variant, net_request_id, enqueue_status)
+  values (new.id, variant, net_req, 'enqueued');
   return new;
 exception when others then
-  -- E-post er en bieffekt; en feil her skal ALDRI blokkere selve delingen.
-  -- Men vi logger den (uten nøkkel/kropp) så problemet kan diagnostiseres.
+  -- E-post er en bieffekt; en SYNKRON feil her (f.eks. kølegging feiler) skal
+  -- ALDRI blokkere selve delingen. Vi logger den (uten nøkkel/header/kropp/
+  -- adresse) så problemet kan diagnostiseres. Merk: dette fanger IKKE en senere
+  -- asynkron Resend-feil — den finnes bare i net._http_response.
   begin
-    insert into public.email_send_log(invite_id, variant, status, error)
-    values (new.id, variant, 'error', left(sqlerrm, 500));
+    insert into public.email_send_log(invite_id, variant, enqueue_status, error)
+    values (new.id, variant, 'enqueue_error', left(sqlerrm, 500));
   exception when others then null;  -- logging skal heller aldri velte delingen
   end;
   return new;
