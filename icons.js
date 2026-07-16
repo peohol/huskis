@@ -191,6 +191,6 @@ window.ICONS = {
   // Oppløs kategori: en enkel sirkel med stiplet kant (boble som er i ferd med å
   // briste) — ingen stråler ut fra midten (unngår sol-uttrykket). Ingen fyll.
   bubbleBurst: '<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="#111" stroke-width="1.05" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
-    '<circle cx="12" cy="12" r="8.5" stroke-dasharray="2.8 2.9"></circle>' +
+    '<circle cx="12" cy="12" r="8.5" stroke-dasharray="2 4"></circle>' +
     '</svg>',
 };
