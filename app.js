@@ -1016,14 +1016,19 @@
     doneItems.forEach((it) => doneList.appendChild(buildItem(it, cardData)));
     doneWrap.hidden = doneItems.length === 0;
 
-    // Legg til element / kategori. ＋-knappen er disablet (dempet) til feltet har
-    // tekst. Kort trykk = legg til element; klikk-og-hold (CAT_HOLD_MS) = opprett
-    // en kategori med det innskrevne navnet i stedet (se attachAddHold).
+    // Legg til element / kategori. ＋-knappen (grønn) legger til et element; den
+    // gule kategori-knappen ved siden av oppretter i stedet en kategori med det
+    // innskrevne navnet. Begge er disablet (dempet) til feltet har tekst.
     const form = el.querySelector('.add-item-form');
     const input = form.querySelector('.add-item-input');
     const addBtn = form.querySelector('.add-item-btn');
+    const addCatBtn = form.querySelector('.add-cat-btn');
     if (!canEdit) form.hidden = true;
-    const syncAddBtn = () => { addBtn.disabled = !input.value.trim(); };
+    const syncAddBtn = () => {
+      const empty = !input.value.trim();
+      addBtn.disabled = empty;
+      addCatBtn.disabled = empty;
+    };
     syncAddBtn();
     input.addEventListener('input', syncAddBtn);
 
@@ -1057,7 +1062,8 @@
       input.focus();
       save();
     };
-    attachAddHold(form, input, addBtn, () => canEdit, addItemNow, addCategoryNow);
+    form.addEventListener('submit', (ev) => { ev.preventDefault(); addItemNow(); });
+    addCatBtn.addEventListener('click', addCategoryNow);
 
     // Element-søppelkasse: midtstilt nederst i kortet, kun når det ligger
     // slettede elementer i kortet. Emoji + antall (ingen tekst-etikett).
@@ -1524,53 +1530,6 @@
     if (ci > -1) cardData.items.splice(ci, 1);
     refreshCard(cardData);
     save();
-  }
-
-  /* ---------------- Legg til: kort trykk = element, klikk-og-hold = kategori ----------------
-     ＋-knappen er type=submit. Et kort trykk (eller Enter) legger til et element;
-     holdes knappen inne i CAT_HOLD_MS opprettes i stedet en kategori med det
-     innskrevne navnet. Under holdingen fylles knappen (`.holding`) som en
-     progresjon. Den påfølgende klikk-/submit-hendelsen undertrykkes når holdet
-     allerede har utført handlingen. */
-  const CAT_HOLD_MS = 400;
-  function attachAddHold(form, input, addBtn, canEdit, addItem, addCategory) {
-    let holdTimer = null;
-    let didHold = false;
-    const cancelHold = () => {
-      if (holdTimer) { clearTimeout(holdTimer); holdTimer = null; }
-      addBtn.classList.remove('holding');
-      // Etter et fullført hold tømmer addCategory feltet → knappen blir disablet,
-      // så det påfølgende klikket UTEBLIR (disablede knapper sender ikke click)
-      // og click-handleren under nullstiller aldri didHold. Nullstill den derfor
-      // på neste tick — etter at et evt. synkront klikk allerede er undertrykt —
-      // så neste Enter/submit ikke feilaktig spises.
-      if (didHold) setTimeout(() => { didHold = false; }, 0);
-    };
-    addBtn.addEventListener('pointerdown', (ev) => {
-      if (ev.button != null && ev.button !== 0) return;
-      if (addBtn.disabled || !canEdit() || !input.value.trim()) return;
-      didHold = false;
-      addBtn.classList.add('holding');
-      holdTimer = setTimeout(() => {
-        holdTimer = null;
-        didHold = true;
-        addBtn.classList.remove('holding');
-        addCategory();
-      }, CAT_HOLD_MS);
-    });
-    addBtn.addEventListener('pointerup', cancelHold);
-    addBtn.addEventListener('pointerleave', cancelHold);
-    addBtn.addEventListener('pointercancel', cancelHold);
-    // Undertrykk klikket som følger et fullført hold (ellers ville submit lagt
-    // til et element i tillegg til kategorien).
-    addBtn.addEventListener('click', (ev) => {
-      if (didHold) { ev.preventDefault(); didHold = false; }
-    });
-    form.addEventListener('submit', (ev) => {
-      ev.preventDefault();
-      if (didHold) { didHold = false; return; }
-      addItem();
-    });
   }
 
   /* ---------------- Avkryssing: flytt til/fra «Utført»-seksjonen ----------------

@@ -946,6 +946,16 @@ body {
    kolonner som elementenes og kort-hodets; knappene bruker den hvite kort-hode-
    knappestilen (.card-cog) så de er synlige mot listeflaten. */
 .category { list-style: none; display: flex; flex-direction: column; gap: 4px; }
+/* Subtil skillelinje under en kategoris hylle, mot det påfølgende elementet/
+   kategorien på nivå 1 — men ikke når kategorien er siste rad i lista (da er
+   det ingenting å skille fra). */
+.category:not(:last-child)::after {
+  content: '';
+  display: block;
+  height: 1px;
+  margin: 0 6px;
+  background: rgba(0, 0, 0, 0.15);
+}
 .cat-head { display: flex; align-items: center; gap: 6px; padding: 0 6px; }
 .cat-title-wrap {
   flex: 1;
@@ -1042,27 +1052,10 @@ body {
   opacity: 1;
 }
 
-/* ＋-knappen er disablet (dempet) til feltet har tekst; ingen hover-oppløfting da. */
-.add-item-btn { position: relative; overflow: hidden; }
-.add-item-btn:disabled { opacity: 0.45; cursor: default; filter: none; box-shadow: var(--shadow-sm); }
-.add-item-btn:disabled:hover { filter: none; }
-/* Klikk-og-hold på ＋ (oppretter en kategori): en ekspanderende ring fyller
-   knappen over CAT_HOLD_MS som en tydelig progresjon. */
-.add-item-btn.holding::after {
-  content: '';
-  position: absolute;
-  inset: 0;
-  border-radius: inherit;
-  background: radial-gradient(circle at center, rgba(255, 255, 255, 0.65) 0%, rgba(255, 255, 255, 0) 70%);
-  transform: scale(0);
-  transform-origin: center;
-  animation: add-hold-fill 400ms ease-out forwards;
-  pointer-events: none;
-}
-@keyframes add-hold-fill { from { transform: scale(0); opacity: 0.2; } to { transform: scale(2.2); opacity: 1; } }
-@media (prefers-reduced-motion: reduce) {
-  .add-item-btn.holding::after { animation: none; }
-}
+/* ＋-knappen (element) og kategori-knappen (gul) er disablet (dempet) til
+   feltet har tekst; ingen hover-oppløfting da. */
+.add-item-btn:disabled, .add-cat-btn:disabled { opacity: 0.45; cursor: default; filter: none; box-shadow: var(--shadow-sm); }
+.add-item-btn:disabled:hover, .add-cat-btn:disabled:hover { filter: none; }
 
 /* ---------------- Håndtak & ikon-knapper ----------------
    ALLE dra-håndtak er tre vertikale prikker (én prikk + to via box-shadow,
