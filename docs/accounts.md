@@ -214,10 +214,15 @@ Mottakeren varsles på to måter når noe deles med hen:
   e-post).
 - **På e-post (valgfritt)**: en `share_invites`-insert-trigger i databasen
   (`send_invite_email`, pg_net → Resend, `docs/arkitektur-brukere-deling.md`)
-  sender e-post. **Uregistrerte** mottakere får en lenke `<app_url>?signup=
-  <e-post>`; **registrerte** får en åpne-appen-lenke, men kun hvis de har
-  e-postvarsel PÅ. Triggeren gjør ingenting uten Resend-konfig (`app_config`) —
-  se `TODO.md`.
+  sender en profilert Huskis-e-post (branded tabell-HTML + `text/plain`, PNG-
+  logo, skifer/grønn-palett, escaping + `url_encode`). **Uregistrerte**
+  mottakere får «Du er invitert» med lenke `<app_url>?signup=<e-post>`;
+  **registrerte** får «‹objekt› er delt med deg» + åpne-appen-lenke, men kun
+  hvis de har e-postvarsel PÅ. Resend-nøkkelen ligger i **Supabase Vault**
+  (`app_config` er kun fallback for lokale tester); triggeren gjør ingenting uten
+  nøkkel, og køleggingen logges i den låste `email_send_log` (`enqueue_status`,
+  ikke leveringsstatus) — se `docs/arkitektur-brukere-deling.md`
+  og `TODO.md`.
 - **`?signup=<e-post>`-dyplenke** (`applySignupInvite`, i `initAccounts`): åpner
   auth-skjermen i **register**-modus med e-posten utfylt + en «du er invitert»-
   melding, så en uregistrert mottaker oppretter konto direkte. `handle_new_user`
@@ -236,7 +241,7 @@ Mottakeren varsles på to måter når noe deles med hen:
   gir initialene (første bokstav i fornavn + etternavn), `personName` gir
   navnet (faller tilbake på e-post for uregistrerte/ventende invitasjoner).
   Del-modalen viser en initial-sirkel + navn for eier og hvert medlem
-  (`avatarFor`, eier grønn / medlem grå — samme roller som før). Meny-modalens
+  (`avatarFor`, eier grønn / medlem grå — samme roller som før). Konto-modalens
   konto-avatar bruker samme navn/initialer (`my.user.display_name`).
 - **Ansvarlig** (`item.responsible` OG `card.responsible`): objekter i delt
   kontekst (delt liste, eller liste under en delt gruppe/univers —
