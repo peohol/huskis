@@ -93,8 +93,9 @@ osv.), så kryss-univers-flytting er umulig i UI-et.
   `pos`-rom (filtreres til søskengruppen FØR sortering, så absolutte pos-verdier
   trenger ikke være globalt monotone). `cat` er et forelder-medlemskap → rir på
   posisjonsregisteret (som `home`); `isCat`/`lockTimes` på innholds-registeret.
-  Opprettes ved **klikk-og-hold** på ＋-knappen; se `docs/drag-and-drop.md` for
-  nivå-2-dra-og-slipp og `docs/scheduling.md` for kategori-innstillingsmodalen.
+  Opprettes via en egen **gul kategori-knapp** ved siden av ＋-knappen; se
+  `docs/drag-and-drop.md` for nivå-2-dra-og-slipp og `docs/scheduling.md` for
+  kategori-innstillingsmodalen.
 
 Gotcha: «＋ Gruppe» skal alltid bare virke, selv uten univers — standard-universet
 opprettes i farten (`ensureUniverse`). Dette bruker en NY tilfeldig id, ikke den

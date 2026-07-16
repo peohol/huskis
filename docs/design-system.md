@@ -79,7 +79,8 @@ grå = `#c0c4c9`):
 | Hånd-opp (ansvarlig) | person farge 4 |
 
 Unntak som beholder `currentColor` (rene glyfer på massive fargeknapper):
-utlogging (`.logout-icon`, hvit på rød) og avkryssings-haken (`.item-check`).
+utlogging (`.logout-icon`, hvit på rød), avkryssings-haken (`.item-check`) og
+kategori-knappen (`.add-cat-btn`, hvit på gul).
 
 **Kryss-ikonet** (`ICONS.xmark`, samt inline i `index.html`): lukk-/slett-
 knappenes ✕ er nå en egen SVG med samme strek (1.05) og runde ender som resten
@@ -177,12 +178,25 @@ Størrelse/form kommer fra egne klasser: `.btn` (modaler), `.btn-small`,
   `box-sizing: border-box`) og dempet (`opacity: 0.62`) så den tydelig skiller
   seg fra de eksisterende elementene. Fokus gir full opacity + synlig kant
   (`--card-accent`), som før.
-- `.add-item-btn`: ＋-knappen er **disablet (`opacity: .45`)** når feltet er
-  tomt (`syncAddBtn` toggler `disabled` på input-event) — ingen hover-oppløfting
-  da. **Klikk-og-hold** i `CAT_HOLD_MS` (400 ms) oppretter en kategori i stedet
-  for et element (`attachAddHold`); under holdet fyller en ekspanderende ring
-  (`.holding::after`, `add-hold-fill`) knappen som progresjon, og det
-  påfølgende klikket/submit undertrykkes.
+- `.add-item-btn` (grønn ＋) og `.add-cat-btn` (gul, kategori-ikon):
+  begge er **disablet (`opacity: .45`)** når feltet er tomt (`syncAddBtn`
+  toggler `disabled` på begge ved input-event) — ingen hover-oppløfting da.
+  ＋ legger til et element (`type=submit`); kategori-knappen (`type=button`,
+  til høyre for ＋) oppretter i stedet en kategori med det innskrevne navnet.
+  Kategori-knappens ikon er `ICONS.category`-tegningen limt inn direkte i
+  `index.html` med `stroke/fill="currentColor"` (hvit på gul flate — samme
+  unntak som utloggings-ikonet). Begge de kvadratiske icon-only-knappene
+  (element-＋ og kategori) bærer store, tydelige ikoner: `.btn-add.icon-only
+  .icon` settes til **34px** for begge, så ＋-en er like stor som kategori-ikonet
+  (kategori-motivet — klammer/prikker/linjer — trenger størrelsen for å lese
+  tydelig, og ＋-en matcher det).
+- **Delt ＋-ikon** (`ICONS.plus`, samt inline-kopier i `index.html`): ALLE
+  «legg til»-knappene (element/liste/gruppe/univers) bruker nå samme SVG-tegnede
+  ＋ (to rette streker, `stroke-width="1.05"`, runde ender, `currentColor`) i
+  stedet for tekst-glyfen ＋ — som har annen linjestil/tykkelse enn resten av
+  ikonsettet og dermed brøt den ellers konsekvente streken. De tekst+ikon-
+  knappene (liste/gruppe/univers) beholder `.btn-add .icon`-størrelsen (19px);
+  kun de kvadratiske icon-only-knappene skaleres opp til 34px (se over).
 - **Kategorier** (`.category` / `.cat-head` / `.cat-title` / `.cat-cog` /
   `.cat-dissolve` / `.cat-items`): en nivå-1-rad med en header (håndtak +
   tittel/meta + tannhjul + oppløs-knapp) over en nøstet elementliste. Kondensert:
@@ -201,7 +215,19 @@ Størrelse/form kommer fra egne klasser: `.btn` (modaler), `.btn-small`,
   venstre-innrykk, så elementene blir som «bøker» i en hylle som går inn i veggen
   (dette erstattet den tidligere grupperingsstreken). `.category.dragging` er et
   løftet, hvitt chip UTEN fast høyde (følger den kollapsende `.cat-items`-høyden
-  under draging — se `docs/drag-and-drop.md`).
+  under draging — se `docs/drag-and-drop.md`). Subtile skillelinjer
+  (`rgba(0,0,0,.15)`) rammer en kategori mot nabo-radene på nivå 1: **under**
+  kategorien (`.category:not(:last-child)::after`) mot det påfølgende elementet/
+  kategorien — men **ikke** når kategorien er siste rad (`:not(:last-child)`
+  følger DOM-rekkefølgen, item OG category som søsken); og **over** kategorien
+  (`.item + .category::before`) KUN når raden over er et element. To kategorier
+  på rad får dermed ingen ekstra linje mellom seg utover ::after-en fra den
+  øverste. Linjene går **kant-til-kant** (negativ sidemargin `-10px` kansellerer
+  `.items-container`s 10px sidepolstring) med **lik luft over og under (16px)**
+  hver — margin-verdiene (`::after` 12/8, `::before` 8/12) er ulike fordi de
+  kompenserer for forskjellige omkringliggende flex-gap (`.category`s 4px
+  topp/bunn vs. `.items-container`s 8px mellom rader), men summerer til samme
+  16px på begge sider.
 - `.field`: felles tekstfelt (auth-input + inviter-input) — solid kant, myk
   bakgrunn, grønn fokus-ring. Nye felt trenger bare klassen `.field`.
 - `.account-avatar` / `.member-avatar`: felles avatar-form (rund, sentrert hvit
