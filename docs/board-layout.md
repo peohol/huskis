@@ -37,10 +37,9 @@ nøyaktig 2 kolonner) — det er nettopp det scenarioet som avslører kvirken.
 ## Topp
 
 `.app-main`s `padding-top` settes IKKE via CSS `calc()`, men regnes ut i JS
-(`syncHeaderHeight`, samme funksjon som måler `--header-h`/`--toolbar-h`):
-eksakt meny-høyde (mobil: gruppemeny + listemeny; desktop: kun listemeny, siden
-gruppemenyen er en venstre-kolonne) **+ `--board-gap`**, satt som
-`--board-pad-top`.
+(`syncHeaderHeight`, med `ResizeObserver` på toppmenyen): eksakt målt
+toppmeny-høyde (`.topbar` — breadcrumb + listefunksjons-raden, samme panel på
+alle skjermstørrelser) **+ `--board-gap`**, satt som `--board-pad-top`.
 
 `--board-gap` kan IKKE leses direkte fra `:root` i JS (en `clamp()`/`vw`-custom-
 property gir tilbake selve uttrykket som streng, ikke tallet den løses til) —

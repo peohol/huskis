@@ -10,9 +10,10 @@
      stil (gradient, hvit skrift, lys-opp ved hover) for alle grønne/røde/gule
      knapper. Aldri egne ad hoc-gradienter.
    • Delte klasser: .panel-head/.panel-title/.panel-actions (menyoverskrift +
-     knapperad), .btn-add (grønn ＋), .trashcan (hvit søppelkasse), .menu-btn (☰),
-     .chip (farget gruppe-/universkort), .chip-count (antall-pill med ikon),
-     delte sletteknapp-, placeholder- og håndtak-regler.
+     knapperad), .btn-add (grønn ＋), .trashcan (hvit søppelkasse), .account-btn
+     (kontoknapp), .crumb-btn (breadcrumb-knapp), .chip (farget gruppe-/univers-
+     kort), .chip-count (antall-pill med ikon), delte sletteknapp-, placeholder-
+     og håndtak-regler.
    • Flate-mønster: halvgjennomsiktig hvit (--control-bg) som hviletilstand,
      helt ugjennomsiktig (#fff) ved hover.
    • Luft-regler: hvert element har samme luft på alle kanter (én padding-
@@ -42,16 +43,10 @@
   --grad-red: linear-gradient(135deg, #f4788a, var(--danger));
   --grad-yellow: linear-gradient(135deg, #dfaf46, #c99a2e);
 
-  /* Desktop: bredden på den faste venstre-kolonnen (gruppemenyen). */
-  --sidebar-w: 304px;
-  /* Sidepolstring inne i panelene (gruppemeny/verktøylinje). */
-  --side-pad: 14px;
-  /* Sidepolstring i listemenyen (verktøylinja) — bredere og viewport-relativ,
-     i motsetning til gruppemenyens faste --side-pad. Egen token så ☰ (fast i
-     viewportets hjørne) kan flukte nøyaktig med LISTER-linjens høyre kant. */
+  /* Sidepolstring i toppmenyen — viewport-relativ. Kontoknappen (fast i
+     viewportets hjørne) bruker samme token, så den flukter med toppmenyens
+     høyre kant. */
   --toolbar-pad: clamp(12px, 3vw, 40px);
-  /* Fade-høyden der gruppekortene scroller under knapperaden (desktop). */
-  --fade-h: 16px;
   /* Ett tall for ALT luft-mellomrom i listevisningen: board-ets venstre/høyre/
      bunn-padding, kolonne-gap OG kort-til-kort-avstand — samme verdi overalt gir
      identisk luft rundt og mellom listekortene. Bunn-padding-effekten kommer fra
@@ -127,7 +122,7 @@ body {
   height: 1em;
 }
 
-/* ---------------- Paneler (gruppemeny + listemeny + meny-modal) ----------------
+/* ---------------- Paneler (modaler) ----------------
    Felles anatomi: en overskriftslinje (.panel-head med .panel-title) og en
    knapperad (.panel-actions) der alle kontroller deler høyde/radius. */
 .panel-head {
@@ -148,27 +143,15 @@ body {
   color: var(--ink-soft);
 }
 .panel-title .icon { font-size: var(--fs-sm); }
-/* Univers-/gruppenavnet i gruppemenyen/listemenyen er en klikkbar knapp (åpner
-   bytteren, se .switcher-*): hvit flate-knapp i samme flate-mønster som
-   søppelkasser/filter (halvgjennomsiktig → hvit ved hover). Andre panel-titler
-   (meny-modalens «Universer»/«Invitasjoner») er fortsatt vanlige spans uten
-   denne klassen. */
-.panel-title-btn {
-  appearance: none;
-  border: none;
-  cursor: pointer;
-  font-family: inherit;
-  padding: 8px;
-  border-radius: var(--control-radius);
-  background: var(--control-bg);
-  box-shadow: var(--shadow-sm);
-  transition: background 0.18s, box-shadow 0.18s, color 0.15s;
-}
-.panel-title-btn:hover { background: #fff; box-shadow: var(--shadow-md); color: var(--ink); }
-.panel-title-btn:focus-visible {
-  background: #fff;
-  outline: 2.5px solid var(--primary);
-  outline-offset: 2px;
+/* Overskrifter med objektnavn («Alle grupper i 🌐 [navn]»): etiketten brytes
+   ikke; det er navnet som kappes med ellipsis når plassen er trang. */
+.panel-title { min-width: 0; }
+.panel-title-text { flex: 0 0 auto; white-space: nowrap; }
+.panel-title-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .panel-actions {
   display: flex;
@@ -177,31 +160,78 @@ body {
   min-width: 0;
 }
 
-/* ---------------- Header (gruppemenyen) ----------------
-   DESKTOP: fast, full-høyde KOLONNE til venstre — overskrift + knapperad øverst,
-   gruppekortene scroller under dem (fade via mask). MOBIL (media-query nederst):
-   fast panel øverst — overskrift, knapperad og én horisontalt scrollende kortrad
-   (uten fader). ☰ er fast i viewportets hjørne (se «Menyknapp»), ikke en del av
-   denne headeren, men overlapper den visuelt på mobil. */
-.app-header {
+/* ---------------- Toppmenyen (breadcrumb + listefunksjoner) ----------------
+   Ett fast panel øverst (alle skjermstørrelser): breadcrumb-raden
+   (🌐 univers › 📁 gruppe) og listefunksjonene («＋ Liste», søppelkasse,
+   filter) på raden under. Kontoknappen er fast i viewportets hjørne (egen
+   klasse) og overlapper panelet visuelt øverst til høyre. */
+.topbar {
   position: fixed;          /* uavhengig av scrolling (robust mot iOS-backdrop-bug) */
+  top: 0;
+  left: 0;
+  right: 0;
   z-index: 30;
   display: flex;
   flex-direction: column;
+  gap: 8px;
+  padding: 12px var(--toolbar-pad);
   background: rgba(255, 255, 255, 0.72);
   backdrop-filter: blur(14px);
   -webkit-backdrop-filter: blur(14px);
+  border-bottom: 1px solid var(--line);
 }
-.panel-top { flex: 0 0 auto; }
-.app-header .panel-top { padding: 12px var(--side-pad); }
-.app-header .panel-head { margin-bottom: 8px; }
 
-/* Beholderen for gruppekortene. Retning settes per skjerm:
-   vertikal kolonne på desktop, horisontal rad på mobil. */
-.groups-bar {
+/* Breadcrumb: to knapper med nivå-ikon + navn, skilt med ›. Holder avstand til
+   kontoknappen i hjørnet via padding-right. */
+.breadcrumb {
   display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  padding-right: calc(var(--control-h) + 10px);
+}
+.crumb-btn {
+  appearance: none;
+  border: none;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
   gap: 8px;
   min-width: 0;
+  height: var(--control-h);
+  padding: 0 13px;
+  border-radius: var(--control-radius);
+  background: var(--control-bg);
+  color: var(--ink);
+  font-family: inherit;
+  font-weight: 600;
+  font-size: var(--fs-lg);
+  box-shadow: var(--shadow-sm);
+  transition: background 0.18s, box-shadow 0.18s, transform 0.12s;
+}
+.crumb-btn:hover { background: #fff; box-shadow: var(--shadow-md); }
+.crumb-btn:active { transform: translateY(1px); }
+.crumb-btn:focus-visible { outline: 2.5px solid var(--primary); outline-offset: 2px; }
+.crumb-btn .icon { font-size: var(--fs-base); }
+.crumb-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.crumb-sep {
+  flex: 0 0 auto;
+  font-size: var(--fs-lg);
+  font-weight: 700;
+  color: var(--ink-soft);
+}
+/* Mål når man drar en liste opp på 📁-breadcrumben (flytt til annen gruppe):
+   knappen lyser opp; slipp åpner flytte-velgeren. */
+.crumb-btn.drop-target {
+  background: var(--primary-soft);
+  outline: 2.5px dashed var(--primary);
+  outline-offset: 2px;
+  box-shadow: 0 4px 12px rgba(102, 136, 102, 0.4);
 }
 
 /* ---------------- Chip (delt av gruppekort og univers-rader) ----------------
@@ -261,36 +291,39 @@ body {
 .chip-count .icon { font-size: var(--fs-xs); }
 .chip.active .chip-count { opacity: 1; }
 
-/* Gruppekort: chip + håndtak; bredden følger navnet (mobil) / full bredde (desktop). */
-.group-card { flex: 0 0 auto; }
-
-/* Mål når man drar en liste opp på et gruppekort (overføring mellom grupper):
-   gruppekortet lyser opp så man ser hvor lista havner ved slipp. */
-.group-card.drop-target {
-  background: var(--primary-soft);
-  outline: 2.5px dashed var(--primary);
-  outline-offset: 2px;
-  box-shadow: 0 4px 12px rgba(102, 136, 102, 0.4);
-  transform: translateY(-1px) scale(1.06);
-}
-/* Kvittering: gruppekortet som nettopp mottok en liste pulserer kort. */
-.group-card.received { animation: group-receive 0.5s ease; }
-@keyframes group-receive {
-  0%   { transform: scale(1); }
-  35%  { transform: scale(1.14); box-shadow: 0 5px 16px rgba(102, 136, 102, 0.5); }
-  100% { transform: scale(1); }
-}
-
-/* Univers-rader (meny-modalen): chip med håndtak (samme mønster som
-   gruppekortene), full bredde. */
-.uni-row { width: 100%; }
-.uni-row .chip-name { min-width: 0; }
+/* Univers-/gruppe-rader (i sine modaler): chip med håndtak, full bredde. */
+.uni-row, .modal-list .group-card { width: 100%; }
+.uni-row .chip-name, .modal-list .group-card .chip-name { min-width: 0; }
 .uni-empty {
   margin: 2px 0;
   color: var(--ink-soft);
   font-weight: 500;
   font-size: var(--fs-md);
 }
+
+/* «Du er i»-blokken øverst i univers-/gruppe-modalen: etikett, navnet på en
+   chip-farget flate (ikke klikkbar) og del-knappen rett under. */
+.modal-current {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 10px;
+}
+.current-label {
+  font-size: var(--fs-xs);
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--ink-soft);
+}
+.current-chip {
+  align-self: stretch;
+  gap: 8px;
+  padding: 10px;
+  cursor: default;
+}
+.current-chip .icon { font-size: var(--fs-base); filter: drop-shadow(var(--text-shadow)); }
+.current-chip .chip-name { cursor: inherit; }
 
 /* ---------------- Fargede knapper (.btn-solid) ----------------
    ÉN felles stil for alle grønne/røde/gule knapper: gradient-flate, hvit
@@ -359,15 +392,15 @@ body {
 .share-btn:focus-visible { outline: 2.5px solid var(--primary); outline-offset: 2px; }
 .share-btn .icon { font-size: var(--fs-base); }
 
-/* ---------------- Menyknapp (☰) ----------------
-   Fast i øvre høyre hjørne av VIEWPORTET, uavhengig av gruppemeny/listemeny sin
-   DOM/flyt (se kommentar i index.html) — z-index over begge faste panelene
-   (30/20) men under modaler (200). Samme flate-mønster som søppelkassene:
-   halvgjennomsiktig hvit → hvit ved hover. */
-.menu-btn {
+/* ---------------- Kontoknapp ----------------
+   Fast i øvre høyre hjørne av VIEWPORTET, utenfor toppmenyens flyt — z-index
+   over det faste panelet (30) men under modaler (200). Samme flate-mønster
+   som søppelkassene: halvgjennomsiktig hvit → hvit ved hover. Badgen (rød
+   sirkel med antall) viser ventende invitasjoner. */
+.account-btn {
   position: fixed;
   top: 12px;
-  right: var(--side-pad);
+  right: var(--toolbar-pad);
   z-index: 35;
   appearance: none;
   border: none;
@@ -382,45 +415,22 @@ body {
   box-shadow: var(--shadow-sm);
   transition: background 0.18s, box-shadow 0.18s, color 0.18s, transform 0.12s;
 }
-.menu-btn:hover { background: #fff; color: var(--ink); box-shadow: var(--shadow-md); }
-.menu-btn:active { transform: translateY(1px); }
-/* Tre horisontale linjer: én strek + to via box-shadow (30 % tynnere strek,
-   samme stil som ikonsettet). */
-.menu-bars {
-  width: 21px;
-  height: 2px;
-  border-radius: 2px;
-  background: currentColor;
-  box-shadow: 0 -7px 0 currentColor, 0 7px 0 currentColor;
-}
+.account-btn:hover { background: #fff; color: var(--ink); box-shadow: var(--shadow-md); }
+.account-btn:active { transform: translateY(1px); }
+.account-btn > .icon { font-size: 23px; }
 
-/* ---------------- Main / verktøylinje (listemenyen) ----------------
-   Fast meny (desktop: øverst til høyre for kolonnen; mobil: rett under
-   gruppemenyen), litt mer gjennomsiktig bakgrunn enn headeren. */
+/* ---------------- Main ---------------- */
 .app-main {
-  /* Topp settes i JS (--board-pad-top, se syncHeaderHeight): eksakt meny-høyde
-     + --board-gap, så avstanden ned til første kort matcher gapet overalt
-     ellers. Bunn er 0 — siste korts EGEN bunn-margin (også --board-gap, se
-     .card) ER bunn-luften; en egen bunn-padding her ville lagt gap på gap. */
+  /* Topp settes i JS (--board-pad-top, se syncHeaderHeight): eksakt toppmeny-
+     høyde + --board-gap, så avstanden ned til første kort matcher gapet
+     overalt ellers. Bunn er 0 — siste korts EGEN bunn-margin (også
+     --board-gap, se .card) ER bunn-luften; en egen bunn-padding her ville
+     lagt gap på gap. */
   padding: var(--board-pad-top, 160px) var(--board-gap) 0;
 }
 
-.toolbar {
-  position: fixed;
-  top: 0;
-  left: 0;
-  right: 0;
-  z-index: 20;
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  padding: 12px var(--toolbar-pad);
-  background: rgba(255, 255, 255, 0.55);   /* mer gjennomsiktig enn header (0.72) */
-  backdrop-filter: blur(14px);
-  -webkit-backdrop-filter: blur(14px);
-  border-bottom: 1px solid var(--line);
-}
-.toolbar .panel-actions { flex-wrap: wrap; }
+/* Listefunksjons-raden i toppmenyen (er også .panel-actions). */
+.toolbar { flex-wrap: wrap; }
 
 /* ---------------- Generelle knapper (modaler o.l.) ----------------
    .btn = base (form/typografi), .btn-ghost = hvit, .btn-small = mindre
@@ -1056,7 +1066,7 @@ body {
 
 /* ---------------- Håndtak & ikon-knapper ----------------
    ALLE dra-håndtak er tre vertikale prikker (én prikk + to via box-shadow,
-   samme teknikk som .menu-bars), alltid MØRKERE enn flaten sin (kortets/
+   samme teknikk med box-shadow-kopier), alltid MØRKERE enn flaten sin (kortets/
    gruppens aksentfarge) og NØYAKTIG vertikalt midtstilt i beholderen sin:
    knappen strekkes til beholderens fulle høyde (align-self: stretch) og
    prikkene grid-sentreres i den. */
@@ -1129,7 +1139,7 @@ body {
 /* Synlig tastaturfokus på kontrollene (samme brand-ring som aktiv chip). */
 .btn-add:focus-visible,
 .trashcan:focus-visible,
-.menu-btn:focus-visible,
+.account-btn:focus-visible,
 .chip:focus-visible,
 .switch:focus-visible,
 .icon-btn:focus-visible {
@@ -1323,8 +1333,8 @@ body.is-dragging * { cursor: grabbing !important; }
   overflow-y: auto;
 }
 
-/* Meny-modalen: logg ut øverst, deretter universer — skilt med en linje i samme
-   stil som modal-head sin border-bottom (samme farge/tykkelse, kant-til-kant).
+/* Univers-/gruppe-/konto-modalene: seksjoner skilt med en linje i samme stil
+   som modal-head sin border-bottom (samme farge/tykkelse, kant-til-kant).
    .menu-body arver modal-body sin side-padding (20px); negativ side-margin
    kansellerer den så linja når helt ut til modal-kanten, som modal-head sin. */
 .menu-modal { width: min(480px, 100%); }
@@ -1341,7 +1351,8 @@ body.is-dragging * { cursor: grabbing !important; }
   border-bottom: 1px solid var(--line);
   margin: 5px -20px;
 }
-.uni-list {
+/* Univers-/gruppe-radene i modalene: én vertikal kolonne. */
+.modal-list {
   display: flex;
   flex-direction: column;
   gap: 8px;
@@ -1380,14 +1391,10 @@ body.is-dragging * { cursor: grabbing !important; }
 
 body.modal-open { overflow: hidden; }
 
-/* ---------------- Univers-/gruppebytter (popover/modal) ----------------
-   Åpnes via panel-title-knappene (globus-/mappe-ikon + navn) i gruppemenyen/
-   listemenyen — en rask bytte-liste (farge vises, men rekkefølge/navn/
-   sletting kan IKKE endres herfra; det skjer fortsatt i meny-modalen/
-   gruppemenyen). Samme klikk-utenfor-lukker-mønster som de andre modalene
-   (ev.target === overlay). Desktop/mobil-forskjellen (popover vs. sentrert
-   modal) ligger i media-queryene lenger ned (samme to breakpoints som resten
-   av appen). */
+/* ---------------- Popover-skall (ansvarlig-velger + tids-popover) ----------------
+   Felles skall: popover på desktop, sentrert modal på mobil (media-queryen
+   lenger ned). Samme klikk-utenfor-lukker-mønster som de andre modalene
+   (ev.target === overlay). */
 .switcher-overlay {
   position: fixed;
   inset: 0;
@@ -1408,43 +1415,6 @@ body.modal-open { overflow: hidden; }
   background: var(--surface);
   box-shadow: var(--shadow-lg);
 }
-.switcher-row {
-  appearance: none;
-  border: none;
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  flex: 0 0 auto;
-  width: 100%;
-  padding: 10px 12px;
-  border-radius: var(--control-radius);
-  background: var(--g-bg, #fff);
-  color: #fff;
-  text-shadow: var(--text-shadow);
-  font-family: inherit;
-  font-weight: 600;
-  font-size: var(--fs-lg);
-  text-align: left;
-  box-shadow: 0 1px 4px rgba(35, 45, 55, 0.18);
-  transition: box-shadow 0.18s, filter 0.15s;
-}
-.switcher-row:hover { filter: brightness(1.06); box-shadow: 0 2px 7px rgba(35, 45, 55, 0.26); }
-.switcher-row.active { outline: 2.5px solid var(--primary); outline-offset: 2px; }
-.switcher-row:focus-visible { outline: 2.5px solid var(--primary); outline-offset: 2px; }
-.switcher-row-icon {
-  flex: 0 0 auto;
-  font-size: var(--fs-sm);
-  filter: drop-shadow(var(--text-shadow));
-}
-.switcher-row-name {
-  flex: 1 1 auto;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
 /* Ansvarlig-velgeren: nøytralt hvitt panel (arver .switcher-panel) med rader
    som viser farget initial-sirkel + fullt navn. Ingen fulle fargede rader som
    bytterne — her er selve avataren det fargede elementet. */
@@ -1556,67 +1526,21 @@ body.modal-open { overflow: hidden; }
 }
 
 /* ---------------- Mobil ----------------
-   Gruppemenyen er et fast panel øverst: overskrift, knapperad (＋ Gruppe +
-   søppelkasse) og gruppekortene på én horisontalt scrollende rad UNDER
-   knappene (ingen fader). ☰ (fast i viewportets hjørne) overlapper dette
-   panelet øverst til høyre. Verktøylinja ligger rett under gruppemenyen.
-   Board-et klarerer begge (målte høyder, se syncHeaderHeight i app.js). */
+   Samme toppmeny som desktop (breadcrumb + listefunksjoner); kun board-et
+   endres til én kolonne, og popover-skallet blir en sentrert modal. */
 @media (max-width: 560px) {
-  :root { --side-pad: 12px; }
-
   /* Én kolonne, full bredde: column-count:1 (IKKE column-width:100% — prosent
      er ikke en gyldig lengde for column-width og blir ignorert av nettlesere).
      Kortene (width:100%, base-regel) fyller da hele kolonnen → jevn luft på
      alle sider, siden --board-gap uansett brukes for padding/margin. */
   .board { column-count: 1; }
 
-  .app-header {
-    top: 0;
-    left: 0;
-    right: 0;
-    border-bottom: 1px solid var(--line);
-  }
-  .app-header .panel-top { padding: 12px var(--side-pad) 0; }
+  /* Litt tettere breadcrumb så navnene får plass ved siden av kontoknappen. */
+  .crumb-btn { font-size: var(--fs-md); padding: 0 10px; gap: 6px; }
 
-  /* Verktøylinja rett under gruppemenyen (målt høyde), full bredde. */
-  .toolbar { top: var(--header-h, 132px); }
-
-  /* Gruppekort: bredden følger navnet (rad); lange navn kappes. */
-  .group-card { max-width: min(60vw, 420px); }
-
-  /* Gruppene ligger alltid på én rad; scroller horisontalt. Ved overflow vises en
-     DISKRET, app-tilpasset scrollbar. På ekte touch-enheter er nettleserens
-     scrollbar uansett overlay/skjult; dette treffer først og fremst smale
-     PC-vinduer (der mobil-layoutet også slår inn) og gir en synlig scroll-indikator. */
-  .groups-bar {
-    flex-direction: row;
-    flex-wrap: nowrap;
-    align-items: center;
-    overflow-x: auto;
-    overflow-y: visible;
-    -webkit-overflow-scrolling: touch;
-    padding: 9px var(--side-pad) 9px;  /* luft så boks-skyggene får plass */
-    scrollbar-width: thin;             /* Firefox: tynn, farget bar */
-    scrollbar-color: rgba(107, 101, 119, 0.42) transparent;
-  }
-  /* WebKit: «flytende» tynn thumb med luft rundt (transparent kant + padding-box-
-     clip gjør den synlige delen tynnere enn sporet), i appens dempede ink-tone. */
-  .groups-bar::-webkit-scrollbar { height: 12px; width: auto; }
-  .groups-bar::-webkit-scrollbar-track {
-    background: transparent;
-    margin: 0 var(--side-pad);                         /* i takt med kortene, unna kantene */
-  }
-  .groups-bar::-webkit-scrollbar-thumb {
-    background-color: rgba(107, 101, 119, 0.36);
-    border: 3px solid transparent;                     /* luft over/under thumben (synlig ~6px) */
-    background-clip: padding-box;
-    border-radius: 999px;
-    min-width: 44px;
-  }
-  .groups-bar::-webkit-scrollbar-thumb:hover { background-color: rgba(107, 101, 119, 0.55); }
-
-  /* Univers-/gruppebytteren: sentrert modal med intern scroll i stedet for en
-     popover ved siden av knappen — mobilskjermen har ikke plass til det. */
+  /* Ansvarlig-velgeren/tids-popoveren: sentrert modal med intern scroll i
+     stedet for en popover ved siden av knappen — mobilskjermen har ikke
+     plass til det. */
   .switcher-overlay {
     display: grid;
     place-items: center;
@@ -1631,60 +1555,6 @@ body.modal-open { overflow: hidden; }
 }
 
 /* ============================================================
-   DESKTOP: gruppemenyen som fast venstre-KOLONNE
-   Overskrift + knapperad («＋ Gruppe» og søppelkasse side om side) ligger fast
-   øverst; gruppekortene scroller i kolonnen under dem og oppløses i en fade
-   (mask) mot knapperaden — samt en tilsvarende fade i bunnen. ☰ (fast i
-   viewportets hjørne) havner over listemenyen, øverst til høyre der.
-   ============================================================ */
-@media (min-width: 561px) {
-  .app-header {
-    top: 0;
-    left: 0;
-    bottom: 0;
-    width: var(--sidebar-w);
-    border-right: 1px solid var(--line);
-  }
-  /* ☰ overlapper listemenyen på desktop — bruk dens (viewport-relative)
-     sidepolstring i stedet for gruppemenyens, så den flukter nøyaktig med
-     LISTER-linjens høyre kant. */
-  .menu-btn { right: var(--toolbar-pad); }
-
-  .groups-bar {
-    flex: 1 1 auto;
-    min-height: 0;
-    flex-direction: column;
-    align-items: stretch;
-    overflow-y: auto;
-    padding: var(--fade-h) var(--side-pad);
-    scrollbar-width: none;               /* skjul; fadene indikerer scroll */
-    /* Kortene «scroller under» knapperaden: innholdet oppløses i en fade øverst
-       (og nederst) i scrollfeltet. Hvile-padding = fade-høyden, så ingenting er
-       falmet i ro. */
-    -webkit-mask-image: linear-gradient(to bottom,
-      transparent 0, #000 var(--fade-h), #000 calc(100% - var(--fade-h)), transparent 100%);
-    mask-image: linear-gradient(to bottom,
-      transparent 0, #000 var(--fade-h), #000 calc(100% - var(--fade-h)), transparent 100%);
-  }
-  .groups-bar::-webkit-scrollbar { width: 0; height: 0; }
-  /* Masken gjelder også fixed-posisjonerte barn (det løftede dra-kortet) —
-     slå den av under draging så kortet ikke klippes utenfor kolonnen. */
-  body.is-dragging .groups-bar {
-    -webkit-mask-image: none;
-    mask-image: none;
-  }
-
-  .group-card { width: 100%; }           /* full-bredde rad i kolonnen */
-
-  /* Board fyller området til høyre for kolonnen; verktøylinja ligger over
-     (padding-top settes i JS, se syncHeaderHeight). */
-  .app-main {
-    margin-left: var(--sidebar-w);
-  }
-  .toolbar { left: var(--sidebar-w); }
-}
-
-/* ============================================================
    FASE 2 — brukerkontoer og deling
    Auth-skjerm (e-post/passord), del-modal, plasserings-modal,
    invitasjons-innboks, delt/låst-merker. Gjenbruker tokens og
@@ -1692,9 +1562,9 @@ body.modal-open { overflow: hidden; }
    ============================================================ */
 
 /* Skjul app-innhold også i kontomodus (før innlogging). */
-body.no-auth .app-header,
+body.no-auth .topbar,
 body.no-auth .app-main,
-body.no-auth #menu-btn { display: none; }
+body.no-auth #account-btn { display: none; }
 
 /* ---------------- Auth-skjerm ---------------- */
 .auth-screen {
@@ -1808,7 +1678,7 @@ body.no-auth #menu-btn { display: none; }
 .auth-sent-msg { margin: 0; font-weight: 600; font-size: var(--fs-base); color: var(--ink); line-height: 1.5; }
 .auth-sent-msg strong { color: var(--primary-dark); }
 
-/* ---------------- Meny: konto + badge ---------------- */
+/* ---------------- Konto-modal: profil + badge ---------------- */
 .menu-account {
   display: flex;
   align-items: center;
@@ -1816,6 +1686,31 @@ body.no-auth #menu-btn { display: none; }
   padding: 2px 0;
 }
 .menu-account[hidden] { display: none; }
+/* Endre navn / e-post: etikett over felt + Lagre-knapp på samme rad. */
+.account-edit {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.account-form {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+.account-form-label {
+  font-size: var(--fs-sm);
+  font-weight: 600;
+  color: var(--ink-soft);
+}
+.account-form-row { display: flex; gap: 8px; }
+.account-form-row .field { flex: 1; min-width: 0; }
+.account-msg {
+  margin: 0;
+  font-size: var(--fs-sm);
+  font-weight: 600;
+  color: var(--primary-dark);
+}
+.account-msg.error { color: var(--danger); }
 /* Avatar-sirkler (konto + delings-medlemmer): felles form (rund, sentrert hvit
    initial på gradient); størrelse/farge varierer per bruk. */
 .account-avatar, .member-avatar {
@@ -1846,7 +1741,6 @@ body.no-auth #menu-btn { display: none; }
   box-shadow: 0 1px 3px rgba(0,0,0,0.3);
 }
 .menu-badge[hidden] { display: none; }
-.menu-btn { position: fixed; } /* allerede fixed; sørg for badge-anker */
 
 /* ---------------- Meny-innstilling (e-postvarsel) ---------------- */
 .menu-setting {
@@ -1908,6 +1802,21 @@ body.no-auth #menu-btn { display: none; }
 .invite-actions { display: flex; gap: 6px; }
 
 /* ---------------- Del-modal ---------------- */
+/* Tilbakeknappen (vises når del-modalen ble åpnet fra univers-/gruppe-
+   modalen) står før tittelen; tittelen tar resten av bredden. Overskriften
+   er vanlig tekstflyt (ikke flex): nivå-ikonet ligger INLINE i direkte
+   tilknytning til navnet (.share-title-obj), og bryter sammen med det. */
+.share-back { flex: 0 0 auto; }
+.share-modal .modal-head h2 {
+  flex: 1 1 auto;
+  display: block;
+}
+.share-title-obj { display: inline; }
+.share-title-obj .icon {
+  display: inline-block;
+  vertical-align: -0.13em;
+  margin-right: 6px;
+}
 .share-body { display: flex; flex-direction: column; gap: 10px; }
 .share-invite-form { display: flex; gap: 8px; }
 .share-invite-form .field { flex: 1; min-width: 0; }

@@ -1,130 +1,128 @@
-# Menyer: gruppemeny, listemeny, menyknapp, meny-modal
+# Menyer: toppmeny (breadcrumb), univers-/gruppe-modal, kontoknapp/-modal
 
-Les denne når oppgaven berører header/verktøylinje-layout, ☰-knappen, eller
-meny-modalen (universer, logg ut).
+Les denne når oppgaven berører toppmenyen, breadcrumb-navigasjonen,
+univers-/gruppe-modalene eller kontoknappen/konto-modalen.
 
-## Gruppemenyen (header)
+Prinsipp: **all navigering, redigering og deling av universer og grupper skjer
+i deres respektive modaler** — hovedsiden har kun breadcrumben (hvor er jeg) og
+listefunksjonene. Gruppene ligger IKKE lenger som kort på hovedsiden.
 
-Fast panel (`position: fixed`), **én felles DOM** delt i to media-queryer:
+## Toppmenyen (`.topbar`)
 
-- **Desktop (`min-width: 561px`)**: fast, full-høyde **kolonne til venstre**
-  (`--sidebar-w`). Øverst `.panel-top`: overskriften **UNIVERS: [navn]** (navnet
-  på gjeldende univers, satt av `updatePanelTitles()` i `render()`) og
-  knapperaden **«＋ Gruppe» + del-univers-knappen (`.share-btn`, kontomodus) +
-  gruppe-søppelkassen**. Gruppekortene
-  scroller i
-  kolonnen under og **oppløses i en fade** (CSS `mask-image`, høyde `--fade-h`,
-  tilsvarende fade i bunnen; hvile-padding = fade-høyden så ingenting er falmet
-  i ro). Masken slås av under draging (`body.is-dragging`) fordi den ellers
-  ville klippe det løftede (fixed) dra-kortet. Ingen pinnede soner lenger.
-- **Mobil (`max-width: 560px`)**: fast panel øverst: overskrift, knapperad
-  («＋ Gruppe» + søppelkasse) og gruppekortene på **én horisontalt scrollende
-  rad** under — **uten fader** (kun en diskret, app-tilpasset scrollbar). ☰
-  ligger IKKE i denne DOM-en (se «Menyknapp» under), men overlapper panelet
-  visuelt.
-- **Gruppekort** (`.group-card.chip`): håndtak (tre prikker, mørkt,
-  `--g-accent`), navn, antall-pill (liste-ikon + antall lister, `.chip-count`),
-  evt. del-knapp, ✕ helt til høyre (del alltid rett til venstre for ✕).
-  Posisjonsbasert farge; aktiv = grønn ring. Klikk = bytt gruppe; klikk på
-  aktivt navn = omdøp (`editText` autosize).
-- **Rekkefølge**: dra-og-slipp via håndtaket med placeholder + FLIP
-  (`updateGroupPlacement` dispatcher på orientering: vertikal kolonne på desktop
-  (`…V`), horisontal rad på mobil (`…H`)); auto-scroll av feltet ved kantene.
-- Header- og verktøylinje-høyder måles (`ResizeObserver`) → `--header-h`/`--toolbar-h`.
+Ett fast panel øverst (`position: fixed`, full bredde, samme DOM på mobil og
+desktop — ingen sidebar/media-query-veksling lenger). To rader:
 
-Gotcha: bytte av gruppe/univers kan lukke ting, men **sletting av en gruppe/et
-univers lukker IKKE menyen** — brukeren skal kunne angre fra søppelkassen med
-én gang. Bytte gjør det (bytt kontekst og gå).
+1. **Breadcrumb** (`.breadcrumb`): `🌐 [universnavn] › 📁 [gruppenavn]` — to
+   knapper (`.crumb-btn`, `#uni-crumb`/`#group-crumb`) med nivå-ikon + navnet
+   på gjeldende univers/gruppe (`updateCrumbs()` i `render()`; fallback
+   «Univers»/«Gruppe» når ingenting finnes). Klikk åpner univers-/gruppe-
+   modalen. Navnene kappes med ellipsis; raden holder avstand til kontoknappen
+   med `padding-right`. På mobil krympes fonten litt (media-query).
+2. **Listefunksjonene** (`.panel-actions.toolbar`): «＋ Liste»
+   (`#add-card-btn`), liste-søppelkassen (`#trash-btn`) og filterkortet
+   (👁️ Mine/Delte, se `docs/colors-and-labels.md`). Kun listefunksjoner her —
+   ingen gruppe-/univers-knapper.
 
-## Listemenyen (verktøylinja)
+Board-ets padding-top settes i JS (`syncHeaderHeight`: målt topbar-høyde +
+`--board-gap`, samme verdi på alle skjermstørrelser) — se
+`docs/board-layout.md`.
 
-Fast meny (`position: fixed`; desktop: øverst til høyre for kolonnen, mobil: rett
-under gruppemenyen). To linjer: overskriften **GRUPPE: [navn]** (navnet på
-gjeldende gruppe, samme `updatePanelTitles()`) og knapperaden **«＋
-Liste» + del-gruppe-knappen (`.share-btn`, kontomodus) + liste-søppelkassen +
-filterkortet (👁️ Mine/Delte)** (filter, se `docs/colors-and-labels.md`). Filterkortet følger flate-mønsteret
-(halvgjennomsiktig → opak ved hover). Logg ut-knappen ligger i meny-modalen
-(ikke her). ☰ er ikke en del av denne DOM-en (se under), men overlapper
-panelet visuelt på desktop.
+## Kontoknappen (`.account-btn`, `#account-btn`)
 
-## Menyknapp (☰)
+Fast i øvre høyre hjørne av VIEWPORTET (`position: fixed; top: 12px; right:
+var(--toolbar-pad)`), utenfor toppmenyens flyt — z-index (35) over det faste
+panelet (30) men under modaler (200). Person-ikon + rød badge
+(`#account-badge`) med antall ventende invitasjoner. Åpner konto-modalen.
+Skjules før innlogging (`body.no-auth`).
 
-**Én knapp** (`#menu-btn`, direkte i `<body>` — ikke inni gruppemenyen eller
-listemenyen), **fast posisjonert i øvre høyre hjørne av VIEWPORTET**
-(`position: fixed; top: 12px; right: …`), uavhengig av begge menyenes DOM/flyt.
-Samme knapp/posisjon-strategi brukes på både mobil og desktop — kun selve
-høyre-offset-tokenet byttes — det er IKKE to knapper med vis/skjul.
+## Univers-modalen (`#uni-modal`, åpnes fra 🌐-breadcrumben)
 
-- z-index (35) over begge faste paneler (header 30, toolbar 20) men under
-  modaler (200), så den ligger alltid synlig oppå uansett scroll-posisjon.
-- **Mobil**: overlapper gruppemenyen (det faste toppanelet der) — bruker
-  `--side-pad` (samme token som gruppemenyens egen sidepolstring) som høyre-
-  offset, så den havner nøyaktig i det panelets hjørne.
-- **Desktop**: overlapper listemenyen (til høyre for gruppemeny-kolonnen) —
-  bruker i stedet `--toolbar-pad` (`clamp(12px, 3vw, 40px)`, listemenyens egen,
-  viewport-relative sidepolstring — egen token, satt via en desktop-override av
-  `.menu-btn { right: … }`), så den flukter nøyaktig med LISTER-linjens kant.
-- Skjules på låseskjermen (`body.locked #menu-btn { display: none; }`).
-- Effekt: knappen «arver» riktig hjørne fra hvilket som helst panel som faktisk
-  ligger der på gjeldende skjermstørrelse, uten skjermstørrelse-spesifikk
-  DOM-plassering eller flere knapper.
-
-**Ikke gjeninnfør separate knapper per skjermstørrelse eller flytt den inn i et
-panels flex-flyt igjen.** Dette gikk gjennom tre design-runder (separate
-knapper → én knapp i listemenyen → dagens fast viewport-pinnede element) og
-løsningen over er den bevisst valgte. Bruk `--side-pad`/`--toolbar-pad` for
-responsiv styling i stedet.
-
-## Meny-modal + universer
-
-Menyknappen (☰) åpner `#menu-modal`:
-
-- **«Logg ut»** øverst (rød knapp, med bekreftelse), deretter en delelinje
-  (`<hr class="menu-divider">`) i samme border-stil som `.modal-head` — se
-  `docs/design-system.md` («Delelinjer i modaler»).
-- **UNIVERSER**-seksjon: univers-rader (`.uni-row.chip` — håndtak, farget,
-  aktiv m/ ring, antall-pill med gruppe-ikon (mappe) + antall grupper
-  (`.chip-count`), ✕ helt til høyre), «＋ [univers-ikon]» (globus, ikke tekst)
-  og univers-søppelkassen (samme knapp/oppførsel som de andre — se
-  `docs/trash.md`). **Deling av et univers skjer IKKE fra univers-raden**, men
-  fra del-univers-knappen i gruppemenyens knapperad (deler det aktive
-  universet); tilsvarende deles en gruppe fra del-gruppe-knappen i listemenyen.
-- Klikk på en rad = **bytt univers + lukk menyen**; klikk på det aktive navnet =
-  omdøp. Slett = i søppelkassen (menyen forblir åpen så man kan angre).
+- **Øverst «Du er i»** (`.modal-current`): navnet på det aktive universet på
+  en chip-farget flate (`#uni-current-chip`, ikke klikkbar) og **del-univers-
+  knappen** (`.share-btn`, `#share-uni-btn`, kun kontomodus/eier-eller-mount)
+  rett under. Del-knappen lukker univers-modalen og åpner del-modalen med
+  tilbakeknapp (se «Del-modalens tilbakeknapp» under).
+- **«Alle universer»**: univers-rader (`.uni-row.chip` — håndtak, farget,
+  aktiv m/ ring, antall-pill med gruppe-ikon + antall grupper (`.chip-count`),
+  ✕ helt til høyre), «＋ [univers-ikon]» og univers-søppelkassen (se
+  `docs/trash.md`).
+- Klikk på en rad = **bytt univers + lukk modalen**; klikk på det aktive
+  navnet = omdøp; opprettelse holder modalen åpen (navnet redigeres inline).
   `setActiveUniverse` gjenoppretter sist aktive gruppe i universet
   (`activeGroups`, se `docs/data-model.md`).
-- **Rekkefølge**: dra-og-slipp via håndtaket, samme placeholder+FLIP-motor som
-  gruppekortene (se `docs/drag-and-drop.md`). `uni-list` er alltid én vertikal
-  kolonne (ingen mobil/desktop-veksling som gruppelista), så kun
-  V-varianten av bytte-logikken trengs (`updateUniversePlacement`); auto-scroll
-  ruller `.menu-body` (modalens scroll-container), ikke `uni-list` selv.
-- Søppelkasse-modalen kan ligge **over** menyen (ligger etter i DOM, samme
-  z-index); `body.modal-open` styres samlet (`updateModalOpenClass`).
-- Universer er **helt uavhengige**: se `docs/data-model.md`.
+- **Rekkefølge**: dra-og-slipp via håndtaket (placeholder + FLIP) eller
+  piltaster på håndtaket; auto-scroll ruller modalens `.menu-body`. Se
+  `docs/drag-and-drop.md`.
 
-## Univers-/gruppebytter (panel-title-knappene)
+## Gruppe-modalen (`#group-modal`, åpnes fra 📁-breadcrumben)
 
-Navnet øverst i gruppemenyen (globus-ikon + universnavn) og listemenyen
-(mappe-ikon + gruppenavn) er egne knapper (`#uni-switch-btn`/
-`#group-switch-btn`, klasse `.panel-title-btn`) — en tredje, rask måte å
-bytte univers/gruppe på, i tillegg til meny-modalen (universer) og
-gruppekortene (grupper). Klikk åpner `#uni-switcher`/`#group-switcher`
-(`.switcher-overlay` + `.switcher-panel`, bygget i `openSwitcher()` i app.js):
-en **ren bytte-liste** — hver rad viser nivå-ikonet (globus/mappe) + navn og
-posisjonsfarge (samme system som chips), men INGEN omdøping/sletting/
-rekkefølge herfra (det er forbeholdt meny-modalen/gruppemenyen selv).
-Gjeldende univers/gruppe er fokusert når den åpnes; piltaster opp/ned flytter
-fokus mellom radene (kun navigasjon). Panelet er kun så bredt som det
-lengste navnet krever (`width: max-content`, ingen kunstig minstebredde),
-klemt til viewportet (`max-width`).
+Nøyaktig samme oppbygning som univers-modalen, for gruppene i det AKTIVE
+universet: «Du er i»-blokk med aktiv gruppe + del-gruppe-knapp
+(`#share-group-btn`), «Alle grupper i 🌐 [universets navn]»
+(`#group-modal-uni-name` settes i `refreshModalCurrents`; etiketten brytes
+ikke, navnet får ellipsis — `.panel-title-text`/`.panel-title-name`) med
+`.group-card.chip`-rader i `#group-list` (antall-pill = liste-ikon + antall
+lister), «＋ Gruppe» og
+gruppe-søppelkassen. Klikk på rad = bytt gruppe + lukk modalen; aktiv rad =
+omdøp; «＋ Gruppe» holder modalen åpen med inline-omdøping. Gruppe-radene er
+alltid én vertikal kolonne (V-varianten av dra-logikken — H-varianten fra den
+gamle mobil-raden er fjernet).
 
-- **Desktop** (`min-width: 561px`): popover posisjonert rett til høyre for
-  knappen som åpnet den (`positionSwitcherPanel`, klemt til viewportet).
-- **Mobil** (`max-width: 560px`): sentrert modal med dempet bakgrunn
-  (samme mønster som `.modal-overlay`) og `overflow-y: auto` på selve
-  panelet, så man kan scrolle i listen uten å scrolle hele appen.
-- Lukkes ved klikk utenfor (`ev.target === overlay`, samme mønster som de
-  andre modalene), Escape (høyeste prioritet i det globale Escape-lyttet,
-  siden `.switcher-overlay` har høyere z-index enn `.modal-overlay`), eller
-  ved å velge en rad. `updateModalOpenClass()` låser body-scroll mens den
-  er åpen, akkurat som de andre modalene.
+Gotcha: bytte av gruppe/univers lukker modalen (bytt kontekst og gå), men
+**sletting lukker den IKKE** — brukeren skal kunne angre fra søppelkassen med
+én gang (søppelkasse-modalen ligger over, samme z-index men senere i DOM).
+
+`refreshModalCurrents()` (kalles i `render()` og ved åpning) holder «Du er
+i»-blokkene og del-knappenes synlighet i takt.
+
+## Konto-modalen (`#account-modal`, erstatter den gamle meny-modalen/☰)
+
+Innhold (ovenfra og ned):
+
+- **Profil-linje**: initial-avatar + navn (`#menu-account`).
+- **Endre navn** (`#account-name-form`): ett felt for hele navnet →
+  `profiles.display_name` (RLS: kun egen rad) + `user_metadata.display_name`
+  (fallback før første pull). Se `docs/accounts.md`.
+- **Endre e-post** (`#account-email-form`): `auth.updateUser({ email })` —
+  ekte Supabase sender bekreftelseslenke (meldingen sier «sjekk innboksen»);
+  mock-backenden endrer direkte. `handle_user_email_change`-triggeren
+  speiler til `profiles.email` etter bekreftelse.
+- **E-postvarsel-toggle** (`#email-pref-toggle`, se `docs/accounts.md`).
+- **«Invitasjoner»-innboksen** (`#menu-invites`, vises kun med innhold).
+- **«Logg ut»** nederst (rød knapp, med bekreftelse), over en delelinje
+  (`.menu-divider`) i samme stil som `.modal-head` — se
+  `docs/design-system.md` («Delelinjer i modaler»).
+
+## Del-modalens tilbakeknapp
+
+Overskriften er «[nivå-ikon][navn] — Innstillinger for deling» i VANLIG
+tekstflyt: ikonet ligger inline i direkte tilknytning til navnet
+(`.share-title-obj`), ikke som egen flex-kolonne til venstre for overskriften.
+
+`openShare(type, id, obj, backTo)`: `backTo` (valgfri funksjon) gjenåpner
+modalen del-modalen ble åpnet fra — satt av del-knappene i univers-/gruppe-
+modalen (`openUniModal`/`openGroupModal`). Når satt vises `#share-back`
+(pil-venstre) først i `modal-head`; klikk lukker del-modalen og kaller
+`backTo`. **✕/overlay/Escape lukker helt** — da havner man på hovedsiden,
+ikke i modalen bak (bevisst: lukk = ferdig). Listers deling (fra
+innstillingsmodalen) sender ingen `backTo` og har dermed ingen tilbakeknapp.
+
+## Flytt liste til annen gruppe (uten gruppekort på hovedsiden)
+
+Dra en liste (håndtaket) opp på **📁-breadcrumben**: knappen markeres
+(`.drop-target`) når det finnes andre grupper å flytte til; slipp legger
+kortet normalt tilbake på board-et og åpner en velger («Flytt … til:») i
+plasserings-modal-skallet (`openPicker`). Avbrytes velgeren skjer ingenting.
+Se `docs/drag-and-drop.md`.
+
+## Modal-infrastruktur
+
+- `updateModalOpenClass()` samler alle modalene (uni/gruppe/konto/søppel/del/
+  plasser/bekreft/innstillinger/popovere) → `body.modal-open` (scroll-lås).
+- Escape lukker øverste lag først: tids-popover → ansvarlig-velger →
+  bekreftelses-modal → plasser → del (helt) → innstillinger → søppel →
+  univers/gruppe/konto-modal.
+- `.switcher-overlay`/`.switcher-panel`-skallet (popover på desktop, sentrert
+  modal på mobil) brukes nå kun av ansvarlig-velgeren og tids-popoveren —
+  univers-/gruppebytterne (panel-title-knappene) er fjernet; breadcrumb-
+  modalene er den ene måten å navigere på.

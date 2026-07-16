@@ -6,9 +6,9 @@ hvilket som helst av de fire nivåene.
 Fire nivåer, samme knapp (`.trashcan`: hvit beholder, søppelkasse-SVG + antall i
 grå sirkel) og samme oppførsel; **alle vises kun når de har innhold** (`hidden`):
 
-- **Universer**: i meny-modalen, ved siden av «＋ [univers-ikon]».
-- **Grupper**: i gruppemenyens knapperad (per aktivt univers).
-- **Lister**: i listemenyens knapperad (per aktiv gruppe).
+- **Universer**: i univers-modalen, ved siden av «＋ [univers-ikon]».
+- **Grupper**: i gruppe-modalens knapperad (per aktivt univers).
+- **Lister**: i toppmenyens listefunksjons-rad (per aktiv gruppe).
 - **Elementer**: midtstilt nederst i hvert listekort (`ICONS.trash`, samme
   SVG som de statiske knappene — aldri emoji).
 

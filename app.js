@@ -459,24 +459,18 @@
 
   /* ---------------- DOM-referanser ---------------- */
   const board = document.getElementById('board');
-  const appHeader = document.getElementById('app-header');
-  const groupsBar = document.getElementById('groups-bar');
+  const topbarEl = document.getElementById('topbar');
+  // Breadcrumb-knappene i toppmenyen (🌐 univers › 📁 gruppe) åpner hver sin modal.
+  const uniCrumbBtn = document.getElementById('uni-crumb');
+  const groupCrumbBtn = document.getElementById('group-crumb');
+  const crumbUniName = document.getElementById('crumb-uni-name');
+  const crumbGroupName = document.getElementById('crumb-group-name');
   const addGroupBtn = document.getElementById('add-group-btn');
-  const groupsPanelTitle = document.getElementById('groups-panel-title');
-  const listerPanelTitle = document.getElementById('lister-panel-title');
-  // Univers-/gruppebytter (popover/modal), åpnet fra panel-title-knappene.
-  const uniSwitchBtn = document.getElementById('uni-switch-btn');
-  const uniSwitcherOverlay = document.getElementById('uni-switcher');
-  const uniSwitcherPanel = document.getElementById('uni-switcher-panel');
-  const groupSwitchBtn = document.getElementById('group-switch-btn');
-  const groupSwitcherOverlay = document.getElementById('group-switcher');
-  const groupSwitcherPanel = document.getElementById('group-switcher-panel');
   const respSwitcherOverlay = document.getElementById('resp-switcher');
   const respSwitcherPanel = document.getElementById('resp-switcher-panel');
   const addCardBtn = document.getElementById('add-card-btn');
   const shareUniBtn = document.getElementById('share-uni-btn');
   const shareGroupBtn = document.getElementById('share-group-btn');
-  const toolbarEl = document.querySelector('.toolbar');
   const filterSwitchesEl = document.getElementById('filter-switches');
   const groupTpl = document.getElementById('group-template');
   const uniTpl = document.getElementById('uni-template');
@@ -493,18 +487,34 @@
   const trashEmptyBtn = document.getElementById('trash-empty');
   const modalNote = document.getElementById('trash-note');
 
-  // Gruppe-søppelkasse: i knapperaden øverst i gruppemenyen, ved siden av «＋ Gruppe».
+  // Gruppe-søppelkasse: i knapperaden i gruppe-modalen, ved siden av «＋ Gruppe».
   const groupsTrashBtn = document.getElementById('groups-trash-btn');
   const groupsTrashCount = document.getElementById('groups-trash-count');
 
-  // Meny-modal (☰): logg ut + universer (bytt/opprett/omdøp/slett + søppelkasse).
-  const menuModal = document.getElementById('menu-modal');
-  const menuClose = document.getElementById('menu-close');
-  const menuBtn = document.getElementById('menu-btn');
+  // Univers-modal (🌐-breadcrumben): aktuelt univers + deling + alle universene.
+  const uniModal = document.getElementById('uni-modal');
+  const uniModalClose = document.getElementById('uni-modal-close');
+  const uniCurrentWrap = document.getElementById('uni-current');
+  const uniCurrentChip = document.getElementById('uni-current-chip');
+  const uniCurrentName = document.getElementById('uni-current-name');
   const uniList = document.getElementById('uni-list');
   const addUniBtn = document.getElementById('add-uni-btn');
   const uniTrashBtn = document.getElementById('uni-trash-btn');
   const uniTrashCount = document.getElementById('uni-trash-count');
+
+  // Gruppe-modal (📁-breadcrumben): aktuell gruppe + deling + alle gruppene.
+  const groupModal = document.getElementById('group-modal');
+  const groupModalClose = document.getElementById('group-modal-close');
+  const groupCurrentWrap = document.getElementById('group-current');
+  const groupCurrentChip = document.getElementById('group-current-chip');
+  const groupCurrentName = document.getElementById('group-current-name');
+  const groupModalUniName = document.getElementById('group-modal-uni-name');
+  const groupList = document.getElementById('group-list');
+
+  // Konto-modal (kontoknappen øverst til høyre).
+  const accountBtn = document.getElementById('account-btn');
+  const accountModal = document.getElementById('account-modal');
+  const accountClose = document.getElementById('account-close');
 
   const posCmp = (a, b) => (a.pos - b.pos) || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0);
   // Univers-scope: «aktive» grupper gjelder alltid det aktive universet, og
@@ -604,11 +614,11 @@
     updateTrashCount();
     renderFilterSwitches();
     updateToolbarState();
-    updateShareButtons();
+    refreshModalCurrents();
 
     board.innerHTML = '';
     const group = activeGroupObj();
-    updatePanelTitles(group);
+    updateCrumbs(group);
 
     // Ingen aktiv gruppe (evt. heller ikke noe univers — «＋ Gruppe» ordner begge).
     if (!group) {
@@ -616,7 +626,8 @@
       const es = document.createElement('div');
       es.className = 'empty-state';
       es.innerHTML = '<div class="big">' + ICONS.folder + '</div><p>Ingen grupper ennå.</p>' +
-        '<p>Trykk <span class="hint-chip">＋ ' + ICONS.folder + '</span> for å komme i gang.</p>';
+        '<p>Trykk <span class="hint-chip">' + ICONS.folder + '</span> øverst og deretter ' +
+        '<span class="hint-chip">＋ ' + ICONS.folder + '</span> for å komme i gang.</p>';
       board.appendChild(es);
       fixBoardBottomGap();
       save();
@@ -661,44 +672,61 @@
     addCardBtn.disabled = !activeGroupObj();
   }
 
-  // Del-knappene i menyene (kontomodus): del-univers ved siden av «＋ Gruppe»
-  // (deler det AKTIVE universet), del-gruppe ved siden av «＋ Liste» (deler den
-  // AKTIVE gruppen). Vises kun når objektet er ens eget eller montert — samme
-  // vilkår som de gamle per-kort-del-knappene. Klikk-handlere er koblet én gang
-  // (leser aktivt objekt ved klikk); her toggles bare synligheten.
-  function updateShareButtons() {
+  // «Du er i»-blokkene øverst i univers-/gruppe-modalen: navnet på gjeldende
+  // univers/gruppe (chip-farget) + del-knappen rett under. Del-knappen vises
+  // kun når objektet er ens eget eller montert — samme vilkår som før.
+  // Klikk-handlere er koblet én gang (leser aktivt objekt ved klikk).
+  function refreshModalCurrents() {
     const uni = activeUniverseObj();
+    uniCurrentWrap.hidden = !uni;
+    // Gruppelistas overskrift: «Alle grupper i 🌐 [universets navn]».
+    groupModalUniName.textContent = uni ? uni.name : 'universet';
+    if (uni) {
+      uniCurrentName.textContent = uni.name;
+      applyChipColor(uniCurrentChip, uni);
+      shareUniBtn.hidden = !(uni._mine || uni._mount);
+    }
     const grp = activeGroupObj();
-    shareUniBtn.hidden = !(uni && (uni._mine || uni._mount));
-    shareGroupBtn.hidden = !(grp && (grp._mine || grp._mount));
+    groupCurrentWrap.hidden = !grp;
+    if (grp) {
+      groupCurrentName.textContent = grp.name;
+      applyChipColor(groupCurrentChip, grp);
+      shareGroupBtn.hidden = !(grp._mine || grp._mount);
+    }
   }
+  // Del-knappen sender videre til dele-modalen; tilbakeknappen der navigerer
+  // tilbake til univers-/gruppe-modalen (lukk = rett til hovedsiden).
   shareUniBtn.addEventListener('click', () => {
     const u = activeUniverseObj();
-    if (u) openShare('universe', u.id, u);
+    if (!u) return;
+    closeUniModal();
+    openShare('universe', u.id, u, openUniModal);
   });
   shareGroupBtn.addEventListener('click', () => {
     const g = activeGroupObj();
-    if (g) openShare('group', g.id, g);
+    if (!g) return;
+    closeGroupModal();
+    openShare('group', g.id, g, openGroupModal);
   });
 
-  // Panel-overskriftene viser navnet på gjeldende univers/gruppe, ikke bare
+  // Breadcrumben viser navnet på gjeldende univers/gruppe, ikke bare
   // nivånavnet — så man alltid ser hvor i hierarkiet man er.
-  function updatePanelTitles(group) {
+  function updateCrumbs(group) {
     const uni = activeUniverseObj();
-    groupsPanelTitle.textContent = uni ? uni.name : 'Grupper';
-    listerPanelTitle.textContent = group ? group.name : 'Lister';
+    crumbUniName.textContent = uni ? uni.name : 'Univers';
+    crumbGroupName.textContent = group ? group.name : 'Gruppe';
   }
 
-  /* ---------------- Grupper (gruppemenyen) ---------------- */
-  // Tegn gruppekortene til det aktive universet inn i gruppelista. Kun
-  // ikke-slettede grupper vises; slettede ligger i gruppe-søppelkassen
-  // (i knapperaden over kortene).
+  /* ---------------- Grupper (gruppe-modalen) ---------------- */
+  // Tegn gruppe-radene til det aktive universet inn i gruppelista i modalen.
+  // Kun ikke-slettede grupper vises; slettede ligger i gruppe-søppelkassen
+  // (i knapperaden under radene).
   function renderGroups() {
-    [...groupsBar.querySelectorAll('.group-card')].forEach((el) => el.remove());
+    [...groupList.querySelectorAll('.group-card')].forEach((el) => el.remove());
     const vis = visibleGroups();
-    // Gruppekort får farge etter samme posisjonssystem som listekort.
+    // Gruppe-rader får farge etter samme posisjonssystem som listekort.
     vis.forEach((g, i) => { g.color = colorForIndex(i); });
-    vis.forEach((g) => groupsBar.appendChild(buildGroupCard(g)));
+    vis.forEach((g) => groupList.appendChild(buildGroupCard(g)));
     updateGroupsTrash();
   }
 
@@ -750,12 +778,14 @@
     countEl.innerHTML = ICONS.list + '<span>' + gListN + '</span>';
     countEl.title = listWord(gListN);
 
-    // Bytt til gruppen; er den allerede aktiv → rediger navnet.
+    // Bytt til gruppen (og lukk modalen — man bytter kontekst og går videre);
+    // er den allerede aktiv → rediger navnet.
     const activate = () => {
       if (nameEl.dataset.editing === '1') return;
       if (groupData.id !== state.activeGroup) {
         setActiveGroup(groupData.id);
         render();
+        closeGroupModal();
       } else if (gCanEdit) {
         startGroupRename(nameEl, groupData);
       }
@@ -765,18 +795,13 @@
       if (ev.target.closest('.group-handle') || ev.target.closest('.group-delete')) return;
       activate();
     });
-    // Tastatur: kortet er role="tab" (tabindex=0). Enter/Mellomrom aktiverer det
-    // (bytt gruppe / omdøp den aktive), og fokus følger til den nye aktive gruppen.
+    // Tastatur: raden er role="tab" (tabindex=0). Enter/Mellomrom aktiverer den
+    // (bytt gruppe / omdøp den aktive).
     el.addEventListener('keydown', (ev) => {
       if (ev.target !== el) return; // slett/håndtak har egen tastaturoppførsel
       if (ev.key === 'Enter' || ev.key === ' ' || ev.key === 'Spacebar') {
         ev.preventDefault();
-        const wasActive = groupData.id === state.activeGroup;
         activate();
-        if (!wasActive) {
-          const card = groupsBar.querySelector('.group-card[data-id="' + groupData.id + '"]');
-          if (card) card.focus();
-        }
       }
     });
 
@@ -792,9 +817,9 @@
       gHandle.style.visibility = 'hidden';
     } else {
       gHandle.addEventListener('pointerdown', (ev) => startGroupDrag(ev, el));
-      // Tastatur-reordering: piltaster (opp/ned + venstre/høyre for mobil-rad).
+      // Tastatur-reordering: piltaster opp/ned flytter gruppen i modallista.
       gHandle.addEventListener('keydown', (ev) => {
-        const dir = arrowDir(ev, true);
+        const dir = arrowDir(ev, false);
         if (!dir) return;
         ev.preventDefault();
         const sorted = visibleGroups();
@@ -804,7 +829,7 @@
         if (groupData._mount) { groupData.pos = np; groupData._mount.pos = np; cloudMountUpdate('group', groupData.id, { pos: np }); }
         else { groupData.pos = np; stampPos(groupData); }
         render(); save();
-        const h = groupsBar.querySelector('.group-card[data-id="' + groupData.id + '"] .group-handle');
+        const h = groupList.querySelector('.group-card[data-id="' + groupData.id + '"] .group-handle');
         if (h) h.focus();
       });
     }
@@ -818,7 +843,8 @@
       stampContent(groupData);
       save();
       renderGroups(); // bredde/overflow kan endre seg med navnet
-      updatePanelTitles(activeGroupObj()); // navnet kan stå i «GRUPPE: …»-overskriften
+      refreshModalCurrents(); // navnet kan stå i «Du er i»-blokken
+      updateCrumbs(activeGroupObj()); // … og i breadcrumben
     }, { cls: 'group-edit', autosize: true });
   }
 
@@ -846,10 +872,11 @@
     u.groups.push(g);
     setActiveGroup(g.id);
     render();
-    // Rull den nye gruppen inn i syne og start redigering av navnet.
-    const el = groupsBar.querySelector('.group-card[data-id="' + g.id + '"]');
+    // Rull den nye gruppen inn i syne (modalen forblir åpen) og start
+    // redigering av navnet.
+    const el = groupList.querySelector('.group-card[data-id="' + g.id + '"]');
     if (el) {
-      try { el.scrollIntoView({ inline: 'end', block: 'nearest' }); } catch (e) { /* ignore */ }
+      try { el.scrollIntoView({ block: 'nearest' }); } catch (e) { /* ignore */ }
       startGroupRename(el.querySelector('.group-name'), g);
     }
   }
@@ -858,7 +885,7 @@
   // Permanent sletting (med gravsteiner) skjer først når søppelkassen tømmes.
   function deleteGroup(groupData) {
     const ghost = ghostFrom(
-      groupsBar.querySelector('.group-card[data-id="' + groupData.id + '"]'));
+      groupList.querySelector('.group-card[data-id="' + groupData.id + '"]'));
     bufferDelete(groupData, 'group', (g) => setTrashed(g, 'group', true));
     if (state.activeGroup === groupData.id) {
       const first = visibleGroups()[0]; // ekskluderer nå den buffer-slettede
@@ -2179,7 +2206,7 @@
     if (drag.active) return; // ignorer ny drag mens en pågår (unngår foreldreløs placeholder)
     beginDragCommon(ev, cardEl);
     drag.kind = 'card';
-    drag.groupTarget = null; // evt. gruppekort lista slippes på (overføring mellom grupper)
+    drag.crumbTarget = false; // sikter lista på 📁-breadcrumben? (flytt til annen gruppe)
 
     const ph = document.createElement('div');
     ph.className = 'card-placeholder';
@@ -2194,47 +2221,65 @@
     window.addEventListener('pointercancel', onCardUp);
   }
 
-  /* ------- Overføring av en liste til en annen gruppe -------
-     Samme idé som å dra et element fra én liste til en annen: slippes lista over
-     et gruppekort i headeren, får den ny forelder (`group`) + posisjon. Mål-
-     gruppens board vises ikke akkurat nå, så vi markerer gruppekortet som mål
-     mens man sikter, og gir et lite kvitteringsvarsel + puls ved slipp. */
-  function pointerInHeader(x, y) {
-    const r = appHeader.getBoundingClientRect();
+  /* ------- Flytting av en liste til en annen gruppe -------
+     Gruppene ligger ikke lenger på hovedsiden — i stedet slippes lista på
+     📁-breadcrumben i toppmenyen: knappen lyser opp mens man sikter, og ved
+     slipp åpnes en velger («Flytt … til:») med de andre gruppene i universet
+     (samme modal-skall som plasseringsvalget). */
+  function moveTargetGroups(c) {
+    return visibleGroups().filter((g) =>
+      g.id !== state.activeGroup && g.id !== (c && c._mount && c._mount.parent));
+  }
+  function pointerOnGroupCrumb(x, y) {
+    const r = groupCrumbBtn.getBoundingClientRect();
     return x >= r.left && x <= r.right && y >= r.top && y <= r.bottom;
   }
-  // Gyldig mål-gruppe under pekeren: et gruppekort som IKKE er den aktive gruppen
-  // (å slippe på egen gruppe overfører ingenting). Slettede grupper ligger ikke i
-  // raden. Returnerer gruppekort-DOM eller null.
-  function cardTransferGroupAt(x, y) {
-    const cards = groupsBar.querySelectorAll('.group-card:not(.dragging)');
-    for (const gc of cards) {
-      if (gc.dataset.id === state.activeGroup) continue;
-      const r = gc.getBoundingClientRect();
-      if (x >= r.left && x <= r.right && y >= r.top && y <= r.bottom) return gc;
+  function pointerInTopbar(x, y) {
+    const r = topbarEl.getBoundingClientRect();
+    return x >= r.left && x <= r.right && y >= r.top && y <= r.bottom;
+  }
+  // Sett/fjern siktemarkeringen på 📁-breadcrumben + gjør dra-kortet
+  // gjennomskinnelig så knappen synes gjennom det løftede kortet.
+  function setCardCrumbTarget(on) {
+    on = !!on;
+    if (drag.crumbTarget === on) return;
+    drag.crumbTarget = on;
+    groupCrumbBtn.classList.toggle('drop-target', on);
+    if (drag.el) drag.el.classList.toggle('to-group', on);
+  }
+  // Velgeren ved slipp på 📁-breadcrumben: de andre gruppene i universet.
+  function askCardMove(c) {
+    const options = moveTargetGroups(c).map((g) => ({ id: g.id, label: g.name }));
+    if (!options.length) return;
+    openPicker('Flytt «' + c.title + '» til:', options, '',
+      (gid) => moveCardToGroup(c.id, gid));
+  }
+  // Flytt lista: ny forelder (`group`) + posisjon bakerst i mål-gruppen
+  // (kirurgisk — kun posisjonsregisteret, som «forelder følger posisjon»).
+  // Slår opp DET LEVENDE kortet på id — en synk-rebuild kan ha byttet ut
+  // objektet mens velgeren sto åpen.
+  function moveCardToGroup(cardId, destId) {
+    const dest = findGroup(destId);
+    const src = activeGroupObj();
+    const c = src && src.cards.find((x) => x.id === cardId);
+    if (!c || !dest || !src) return;
+    const i = src.cards.indexOf(c);
+    if (i > -1) src.cards.splice(i, 1);
+    const np = maxPos(dest.cards) + 1; // legg bakerst i mål-gruppen
+    if (c._mount) {
+      // Montert liste: flytt mottakerens mount til ny gruppe (ikke eierens plassering).
+      c._mount.parent = dest.id; c._mount.pos = np; c.pos = np;
+      c._parent = dest;
+      cloudMountUpdate('card', c.id, { parent_group_id: dest.id, pos: np });
+    } else {
+      c.group = dest.id;
+      c.pos = np;
+      stampPos(c);
     }
-    return null;
-  }
-  // Sett/fjern gjeldende mål-gruppe: highlight på gruppekortet + gjør dra-kortet
-  // gjennomskinnelig så gruppekortet under vises (dra-kortet ligger over headeren).
-  function setCardGroupTarget(gt) {
-    if (drag.groupTarget === gt) return;
-    if (drag.groupTarget) drag.groupTarget.classList.remove('drop-target');
-    drag.groupTarget = gt || null;
-    if (drag.groupTarget) drag.groupTarget.classList.add('drop-target');
-    if (drag.el) drag.el.classList.toggle('to-group', !!drag.groupTarget);
-  }
-  // Kort puls på gruppekortet som nettopp mottok en liste (kalles etter render()).
-  function pulseReceivedGroup(id) {
-    const gc = groupsBar.querySelector('.group-card[data-id="' + id + '"]');
-    if (!gc) return;
-    gc.classList.remove('received');
-    void gc.offsetWidth; // tving reflow så animasjonen kan starte på nytt
-    gc.classList.add('received');
-    gc.addEventListener('animationend', function done() {
-      gc.classList.remove('received');
-      gc.removeEventListener('animationend', done);
-    });
+    dest.cards.push(c);
+    save();
+    render(); // lista forsvinner fra dette board-et
+    showToast('Flyttet «' + c.title + '» til «' + dest.name + '»');
   }
 
   function onCardMove(ev) {
@@ -2246,15 +2291,16 @@
     moveElement();
     drag.el.style.transform = `rotate(${cardRotation()}deg) scale(1.02)`;
 
-    // Over headeren sikter vi på en gruppe (overføring) i stedet for å omorganisere
-    // board-et: marker evt. mål-gruppe, og la board-et + siden ligge i ro så lista
-    // ikke bytter plass mens man løfter den opp mot gruppene.
-    if (pointerInHeader(ev.clientX, ev.clientY)) {
-      setCardGroupTarget(cardTransferGroupAt(ev.clientX, ev.clientY));
+    // Over toppmenyen sikter vi på 📁-breadcrumben (flytt til annen gruppe) i
+    // stedet for å omorganisere board-et: marker knappen, og la board-et +
+    // siden ligge i ro så lista ikke bytter plass mens man løfter den opp.
+    if (pointerInTopbar(ev.clientX, ev.clientY)) {
+      setCardCrumbTarget(pointerOnGroupCrumb(ev.clientX, ev.clientY) &&
+        moveTargetGroups(findCard(drag.el.dataset.id)).length > 0);
       stopAutoScroll();
       return;
     }
-    setCardGroupTarget(null);
+    setCardCrumbTarget(false);
     updateAutoScroll();
     updateCardPlacement(dx, dy);
   }
@@ -2349,47 +2395,16 @@
 
     const el = drag.el;
     // Bestem drop-mål ut fra de FAKTISKE slipp-koordinatene, ikke det som lå
-    // mellomlagret fra siste pointermove: slippes lista like utenfor gruppekortet
-    // (rask/koalescerte bevegelse, eller pointercancel), skal den ikke overføres
-    // til den sist markerte gruppen. Faller tilbake på siste peker-posisjon bare
-    // hvis hendelsen mangler koordinater.
+    // mellomlagret fra siste pointermove: slippes lista like utenfor knappen
+    // (rask/koalescerte bevegelse, eller pointercancel), skal velgeren ikke
+    // åpnes. Faller tilbake på siste peker-posisjon bare hvis hendelsen
+    // mangler koordinater.
     const relX = ev && typeof ev.clientX === 'number' ? ev.clientX : drag.lastX;
     const relY = ev && typeof ev.clientY === 'number' ? ev.clientY : drag.lastY;
-    const groupTarget = pointerInHeader(relX, relY) ? cardTransferGroupAt(relX, relY) : null;
-    setCardGroupTarget(null); // fjern evt. highlight uansett utfall
-
-    // --- Overføring til en annen gruppe (samme logikk som elementer mellom lister) ---
-    // Slippes lista over et gruppekort i headeren, flytter vi den til den gruppen:
-    // sett kortets forelder (`group`) + posisjon (kirurgisk — kun posisjonsregisteret,
-    // som «forelder følger posisjon»), og flytt kort-objektet mellom gruppenes lister.
-    if (groupTarget) {
-      const c = findCard(el.dataset.id);
-      const dest = findGroup(groupTarget.dataset.id);
-      const src = activeGroupObj();
-      if (c && dest && src && dest.id !== c.group && dest.id !== (c._mount && c._mount.parent)) {
-        drag.ph.remove();
-        finishDrag();
-        const i = src.cards.indexOf(c);
-        if (i > -1) src.cards.splice(i, 1);
-        const np = maxPos(dest.cards) + 1; // legg bakerst i mål-gruppen
-        if (c._mount) {
-          // Montert liste: flytt mottakerens mount til ny gruppe (ikke eierens plassering).
-          c._mount.parent = dest.id; c._mount.pos = np; c.pos = np;
-          c._parent = dest;
-          cloudMountUpdate('card', c.id, { parent_group_id: dest.id, pos: np });
-        } else {
-          c.group = dest.id;
-          c.pos = np;
-          stampPos(c);
-        }
-        dest.cards.push(c);
-        save();
-        render();                       // lista forsvinner fra dette board-et
-        showToast('Flyttet «' + c.title + '» til «' + dest.name + '»');
-        pulseReceivedGroup(dest.id);
-        return;
-      }
-    }
+    const cardObj = findCard(el.dataset.id);
+    const onCrumb = pointerOnGroupCrumb(relX, relY) &&
+      moveTargetGroups(cardObj).length > 0;
+    setCardCrumbTarget(false); // fjern evt. highlight uansett utfall
 
     const rot = cardRotation();
     board.insertBefore(el, drag.ph);
@@ -2417,6 +2432,11 @@
     }
     reindexCardColors();
     save();
+
+    // Slipp på 📁-breadcrumben: kortet er lagt normalt tilbake på board-et
+    // (posisjonen over), og flytte-velgeren åpnes — avbrytes den, blir lista
+    // stående der den lå.
+    if (onCrumb && cardObj) askCardMove(cardObj);
   }
 
   // Fargene er posisjonsbaserte (colorForIndex): en omrokkering endrer alle
@@ -2767,13 +2787,11 @@
     save();
   }
 
-  /* ---------------- GRUPPE-DRAGING (header-rad) ----------------
-     Gruppekortene ligger på en horisontal rad (som bryter til flere rader på
-     desktop, og scroller horisontalt på mobil). Rekkefølgen endres med samme
-     placeholder + FLIP-oppførsel som kort/elementer. Innsettingspunktet
-     bestemmes i lese-rekkefølge: placeholderen legges foran det første kortet
-     dra-senteret ligger «foran» (tidligere rad, eller samme rad + venstre for
-     senter), ellers etter siste kort (foran «＋»-knappen). */
+  /* ---------------- GRUPPE-DRAGING (gruppe-modalen) ----------------
+     Gruppe-radene ligger alltid i én vertikal kolonne i group-list (som
+     univers-radene i sin modal). Rekkefølgen endres med samme placeholder +
+     FLIP-oppførsel som kort/elementer: bytt med raden over/under ut fra
+     dra-retningen når de overlapper >= 20 % i høyden. */
   function startGroupDrag(ev, groupEl) {
     if (ev.button != null && ev.button !== 0) return;
     if (drag.active) return; // ignorer ny drag mens en pågår (unngår foreldreløs placeholder)
@@ -2784,7 +2802,7 @@
     ph.className = 'group-placeholder';
     ph.style.width = drag.width + 'px';
     ph.style.height = drag.height + 'px';
-    groupsBar.insertBefore(ph, groupEl);
+    groupList.insertBefore(ph, groupEl);
     drag.ph = ph;
 
     liftElement();
@@ -2796,32 +2814,19 @@
 
   function onGroupMove(ev) {
     if (!drag.active) return;
-    const dx = ev.clientX - drag.lastX;
     const dy = ev.clientY - drag.lastY;
     drag.lastX = ev.clientX;
     drag.lastY = ev.clientY;
     moveElement();
     drag.el.style.transform = `rotate(${cardRotation()}deg) scale(1.05)`;
     updateGroupAutoScroll(ev);
-    updateGroupPlacement(dx, dy);
+    updateGroupPlacement(dy);
   }
 
-  // Er gruppelista en vertikal kolonne (desktop) eller en horisontal rad (mobil)?
-  function groupsVertical() { return !window.matchMedia('(max-width: 560px)').matches; }
-
-  // Dispatch: samme «ivrige», retningsstyrte bytte-logikk som kort/elementer,
-  // transponert til gruppelistas orientering (vertikal kolonne / horisontal rad).
-  function updateGroupPlacement(dx, dy) {
-    if (groupsVertical()) updateGroupPlacementV(dx, dy);
-    else updateGroupPlacementH(dx, dy);
-  }
-
-  // DESKTOP (vertikal kolonne): som elementer i én kolonne — bytt med kortet
-  // over/under ut fra dra-retningen når de overlapper >= 20 % i høyden.
-  function updateGroupPlacementV(dx, dy) {
+  function updateGroupPlacement(dy) {
     if (!drag.active || drag.kind !== 'group') return;
     const dragRect = draggedRect();
-    const cards = [...groupsBar.querySelectorAll('.group-card:not(.dragging)')];
+    const cards = [...groupList.querySelectorAll('.group-card:not(.dragging)')];
     if (!cards.length) return;
     const rects = new Map(cards.map((c) => [c, layoutRect(c)]));
     const ph = drag.ph;
@@ -2847,62 +2852,7 @@
     }
     if (!action || !wouldMove(ph, action.ref, action.pos)) return;
     const snap = snapshotRects(cards);
-    placePlaceholder(groupsBar, ph, action.ref, action.pos); // 'after' siste kort → foran «＋»
-    flipFrom(snap, FLIP_MS);
-  }
-
-  // MOBIL (horisontal rad): en **rad** = kort med >= 50 % vertikal overlapp med
-  // dra-kortet (analogt til «kolonne» for kort). Innen raden byttes retningsstyrt
-  // ved >= 20 % BREDDE-overlapp (dra høyre → kortet til høyre; dra venstre → til
-  // venstre). Føres kortet til en annen rad (wrap), plasseres placeholderen ut fra
-  // horisontal senterposisjon (kryss-rad, analogt til kryss-kolonne).
-  function updateGroupPlacementH(dx, dy) {
-    if (!drag.active || drag.kind !== 'group') return;
-    const dragRect = draggedRect();
-    const cards = [...groupsBar.querySelectorAll('.group-card:not(.dragging)')];
-    if (!cards.length) return;
-    const rects = new Map(cards.map((c) => [c, layoutRect(c)]));
-    const ph = drag.ph;
-
-    const row = cards.filter((c) => vOverlapFrac(dragRect, rects.get(c)) >= 0.5);
-    const phInRow = row.length && vOverlapFrac(dragRect, layoutRect(ph)) >= 0.5;
-
-    let action = null;
-    if (row.length && !phInRow) {
-      // Kryss-rad: plasser etter horisontal senterposisjon.
-      const cx = dragRect.left + dragRect.width / 2;
-      const sorted = row.slice().sort((a, b) => rects.get(a).left - rects.get(b).left);
-      let ref = null;
-      for (const c of sorted) {
-        const r = rects.get(c);
-        if (cx < r.left + r.width / 2) { ref = c; break; }
-      }
-      action = ref ? { ref, pos: 'before' } : { ref: sorted[sorted.length - 1], pos: 'after' };
-    } else if (row.length && dx > 0) {
-      // Høyre: nærmeste kort til høyre med >= 20 % breddeoverlapp.
-      let best = null, bestLeft = Infinity;
-      for (const c of row) {
-        const r = rects.get(c);
-        if (r.left >= dragRect.left && hOverlap(dragRect, r) >= SWAP_RATIO * r.width && r.left < bestLeft) {
-          bestLeft = r.left; best = c;
-        }
-      }
-      if (best) action = { ref: best, pos: 'after' };
-    } else if (row.length && dx < 0) {
-      // Venstre: nærmeste kort til venstre med >= 20 % breddeoverlapp.
-      let best = null, bestLeft = -Infinity;
-      for (const c of row) {
-        const r = rects.get(c);
-        if (r.left <= dragRect.left && hOverlap(dragRect, r) >= SWAP_RATIO * r.width && r.left > bestLeft) {
-          bestLeft = r.left; best = c;
-        }
-      }
-      if (best) action = { ref: best, pos: 'before' };
-    }
-
-    if (!action || !wouldMove(ph, action.ref, action.pos)) return;
-    const snap = snapshotRects(cards);
-    placePlaceholder(groupsBar, ph, action.ref, action.pos); // 'after' siste kort → foran «＋»
+    placePlaceholder(groupList, ph, action.ref, action.pos); // 'after' siste rad → foran «＋»
     flipFrom(snap, FLIP_MS);
   }
 
@@ -2938,7 +2888,7 @@
     save();
   }
   function onGroupUp() {
-    finishColumnDrop({ container: groupsBar, siblingClass: 'group-card', find: findGroup,
+    finishColumnDrop({ container: groupList, siblingClass: 'group-card', find: findGroup,
       kind: 'group', reindex: reindexGroupColors, move: onGroupMove, up: onGroupUp });
   }
 
@@ -2955,45 +2905,32 @@
       el.style.setProperty('--g-accent', darken(o.color, 0.34));
     });
   }
-  function reindexGroupColors() { reindexColors(visibleGroups, groupsBar, 'group-card'); }
+  function reindexGroupColors() { reindexColors(visibleGroups, groupList, 'group-card'); }
 
-  /* ------- Auto-scroll av gruppelista under draging (ved overflow) -------
-     Desktop scroller vertikalt (kolonne), mobil horisontalt (rad). */
-  let groupScrollRAF = null, groupScrollSpeed = 0, groupScrollAxis = 'x';
+  /* ------- Auto-scroll av gruppelista under draging (alltid vertikal —
+     modalens scroll-container er .menu-body, ikke selve group-list). ------- */
+  let groupScrollRAF = null, groupScrollSpeed = 0;
   function updateGroupAutoScroll(ev) {
-    if (!drag.active || drag.kind !== 'group') { stopGroupAutoScroll(); return; }
-    const r = groupsBar.getBoundingClientRect();
+    const scroller = groupModal.querySelector('.menu-body');
+    if (!drag.active || drag.kind !== 'group' || !scroller) { stopGroupAutoScroll(); return; }
+    const r = scroller.getBoundingClientRect();
     const EDGE = 52;
     let speed = 0;
-    if (groupsVertical()) {
-      groupScrollAxis = 'y';
-      const y = ev.clientY;
-      if (y < r.top + EDGE) speed = -Math.ceil(((r.top + EDGE - y) / EDGE) * 16);
-      else if (y > r.bottom - EDGE) speed = Math.ceil(((y - (r.bottom - EDGE)) / EDGE) * 16);
-    } else {
-      groupScrollAxis = 'x';
-      const x = ev.clientX;
-      if (x < r.left + EDGE) speed = -Math.ceil(((r.left + EDGE - x) / EDGE) * 16);
-      else if (x > r.right - EDGE) speed = Math.ceil(((x - (r.right - EDGE)) / EDGE) * 16);
-    }
+    const y = ev.clientY;
+    if (y < r.top + EDGE) speed = -Math.ceil(((r.top + EDGE - y) / EDGE) * 16);
+    else if (y > r.bottom - EDGE) speed = Math.ceil(((y - (r.bottom - EDGE)) / EDGE) * 16);
     groupScrollSpeed = speed;
-    if (speed !== 0) startGroupAutoScroll(); else stopGroupAutoScroll();
+    if (speed !== 0) startGroupAutoScroll(scroller); else stopGroupAutoScroll();
   }
-  function startGroupAutoScroll() {
+  function startGroupAutoScroll(scroller) {
     if (groupScrollRAF != null) return;
     const step = () => {
       if (!drag.active || groupScrollSpeed === 0) { groupScrollRAF = null; return; }
-      // Kortene flytter seg når feltet ruller → re-evaluer med rulleretningen som
-      // syntetisk drag-retning (som kort-auto-scroll), på rett akse.
-      if (groupScrollAxis === 'y') {
-        const before = groupsBar.scrollTop;
-        groupsBar.scrollTop += groupScrollSpeed;
-        if (groupsBar.scrollTop !== before) updateGroupPlacement(0, groupScrollSpeed > 0 ? 1 : -1);
-      } else {
-        const before = groupsBar.scrollLeft;
-        groupsBar.scrollLeft += groupScrollSpeed;
-        if (groupsBar.scrollLeft !== before) updateGroupPlacement(groupScrollSpeed > 0 ? 1 : -1, 0);
-      }
+      // Radene flytter seg når feltet ruller → re-evaluer med rulleretningen
+      // som syntetisk drag-retning (som kort-auto-scroll).
+      const before = scroller.scrollTop;
+      scroller.scrollTop += groupScrollSpeed;
+      if (scroller.scrollTop !== before) updateGroupPlacement(groupScrollSpeed > 0 ? 1 : -1);
       groupScrollRAF = requestAnimationFrame(step);
     };
     groupScrollRAF = requestAnimationFrame(step);
@@ -3078,11 +3015,11 @@
   }
   function reindexUniverseColors() { reindexColors(visibleUniverses, uniList, 'uni-row'); }
 
-  /* ------- Auto-scroll av uni-list under draging (alltid vertikal — menyens
+  /* ------- Auto-scroll av uni-list under draging (alltid vertikal — modalens
      scroll-container er .menu-body, ikke selve uni-list). ------- */
   let uniScrollRAF = null, uniScrollSpeed = 0;
   function updateUniverseAutoScroll(ev) {
-    const scroller = menuModal.querySelector('.menu-body');
+    const scroller = uniModal.querySelector('.menu-body');
     if (!drag.active || drag.kind !== 'universe' || !scroller) { stopUniverseAutoScroll(); return; }
     const r = scroller.getBoundingClientRect();
     const EDGE = 52;
@@ -3109,30 +3046,22 @@
     uniScrollSpeed = 0;
   }
 
-  // Faste (position: fixed) header + verktøylinje er ute av flyten, så board-et må
-  // få nøyaktig klaring: mobil = gruppemeny-høyde + verktøylinje-høyde, desktop =
-  // kun verktøylinje-høyde (venstre-kolonnen klareres av margin-left i CSS).
-  // --header-h eksponeres uansett (brukes av .toolbar sin egen topp-posisjon på
-  // mobil). Selve padding-top for board-et regnes ut HER (ikke i en CSS calc())
-  // og adderer --board-gap slik at avstanden ned til første kort blir
+  // Den faste (position: fixed) toppmenyen er ute av flyten, så board-et må få
+  // nøyaktig klaring: målt toppmeny-høyde + --board-gap. Padding-top regnes ut
+  // HER (ikke i en CSS calc()) slik at avstanden ned til første kort blir
   // PIKSELNØYAKTIG lik gapet ellers (venstre/høyre/bunn-padding, kolonne-gap,
   // kort-til-kort). --board-gap er en clamp()/vw-verdi — å lese den direkte fra
   // :root ville gitt oss selve uttrykket (som streng), ikke tallet den løses til;
   // vi leser den derfor fra board sin FAKTISK OPPLØSTE column-gap i stedet.
   function syncHeaderHeight() {
     const root = document.documentElement.style;
-    const headerH = appHeader.getBoundingClientRect().height;
-    const toolbarH = toolbarEl ? toolbarEl.getBoundingClientRect().height : 0;
-    root.setProperty('--header-h', headerH + 'px');
+    const topH = topbarEl.getBoundingClientRect().height;
     const gap = parseFloat(getComputedStyle(board).columnGap) || 0;
-    const mobile = window.matchMedia('(max-width: 560px)').matches;
-    const topPad = (mobile ? headerH + toolbarH : toolbarH) + gap;
-    root.setProperty('--board-pad-top', topPad + 'px');
+    root.setProperty('--board-pad-top', (topH + gap) + 'px');
   }
   if (typeof ResizeObserver === 'function') {
     const ro = new ResizeObserver(syncHeaderHeight);
-    ro.observe(appHeader);
-    if (toolbarEl) ro.observe(toolbarEl);
+    ro.observe(topbarEl);
   }
   window.addEventListener('resize', () => { syncHeaderHeight(); fixBoardBottomGap(); });
 
@@ -3230,8 +3159,8 @@
   let modalCfg = null;
   let modalOpenedAt = 0; // tid modalen ble åpnet — ignorér overlay-klikk rett etter
 
-  // To modaler kan være åpne samtidig (søppelkassen over menyen); body låses
-  // så lenge minst én er åpen.
+  // To modaler kan være åpne samtidig (søppelkassen over univers-/gruppe-
+  // modalen); body låses så lenge minst én er åpen.
   function updateModalOpenClass() {
     const share = document.getElementById('share-modal');
     const place = document.getElementById('place-modal');
@@ -3239,10 +3168,11 @@
     const settings = document.getElementById('settings-modal');
     const timeSw = document.getElementById('time-switcher');
     document.body.classList.toggle('modal-open',
-      !trashModal.hidden || !menuModal.hidden ||
+      !trashModal.hidden || !uniModal.hidden || !groupModal.hidden ||
+      !accountModal.hidden ||
       (share && !share.hidden) || (place && !place.hidden) ||
       (confirmEl && !confirmEl.hidden) || (settings && !settings.hidden) ||
-      (timeSw && !timeSw.hidden) || !!openSwitcherKind || respOpen);
+      (timeSw && !timeSw.hidden) || respOpen);
   }
 
   /* ---------- Felles bekreftelses-modal (erstatter native confirm()) ----------
@@ -3703,15 +3633,16 @@
     if (ev.target && ev.target.classList && ev.target.classList.contains('edit-input')) return;
     if (timeQuickOpen) { closeTimeQuick(); return; } // tids-popoveren ligger øverst
     if (respOpen) { closeResponsible(); return; } // ansvarlig-velgeren ligger øverst
-    if (openSwitcherKind) { closeSwitcher(); return; } // popover/modal ligger øverst av alle
     if (confirmModalEl && !confirmModalEl.hidden) { closeConfirm(false); return; } // øverst
     const share = document.getElementById('share-modal');
     const place = document.getElementById('place-modal');
     if (place && !place.hidden) { place.hidden = true; updateModalOpenClass(); }
-    else if (share && !share.hidden) { share.hidden = true; updateModalOpenClass(); }
+    else if (share && !share.hidden) closeShare(); // helt lukk — tilbake til hovedsiden
     else if (settingsModal && !settingsModal.hidden) closeSettings();
     else if (!trashModal.hidden) closeTrash();
-    else if (!menuModal.hidden) closeMenu();
+    else if (!uniModal.hidden) closeUniModal();
+    else if (!groupModal.hidden) closeGroupModal();
+    else if (!accountModal.hidden) closeAccount();
   });
   // Ingen ekstra bekreftelse: sveipe-tømming har heller ingen, og tømming er
   // et bevisst valg i en modal man allerede har åpnet.
@@ -3722,76 +3653,54 @@
   });
 
   /* ============================================================
-     MENY-MODAL (☰) + UNIVERSER
+     UNIVERS-, GRUPPE- OG KONTO-MODALENE
      ------------------------------------------------------------
-     Menyknappen (☰ i gruppemenyen på mobil / listemenyen på desktop) åpner en
-     modal med «Logg ut» og univers-administrasjon. Universer er helt uavhengige
-     områder (Univers > Gruppe > Liste > Element); de byttes/opprettes/omdøpes/
-     slettes her, og har sin egen søppelkasse (samme oppførsel som de andre).
-     Grupper kan aldri flyttes på tvers av universer. */
-  function openMenu() {
+     Breadcrumb-knappene i toppmenyen åpner univers-/gruppe-modalen: der byttes,
+     opprettes, omdøpes, slettes og deles universer/grupper (egen søppelkasse i
+     hver, samme oppførsel som de andre). Universer er helt uavhengige områder
+     (Univers > Gruppe > Liste > Element); grupper kan aldri flyttes på tvers
+     av universer. Kontoknappen (øverst til høyre) åpner konto-modalen. */
+  function openUniModal() {
     renderUniverses();
-    menuModal.hidden = false;
+    refreshModalCurrents();
+    uniModal.hidden = false;
     updateModalOpenClass();
   }
-  function closeMenu() {
-    menuModal.hidden = true;
+  function closeUniModal() {
+    uniModal.hidden = true;
     updateModalOpenClass();
   }
-  menuBtn.addEventListener('click', openMenu);
-  menuClose.addEventListener('click', closeMenu);
-  menuModal.addEventListener('click', (ev) => {
-    if (ev.target === menuModal) closeMenu();
-  });
-
-  /* ============================================================
-     UNIVERS-/GRUPPEBYTTER (panel-title-knappene)
-     ------------------------------------------------------------
-     En ekstra, rask måte å bytte univers/gruppe på — i tillegg til
-     meny-modalen (universer) og gruppekortene (grupper): klikk på selve
-     navnet øverst i gruppemenyen/listemenyen åpner en enkel bytte-liste
-     (farge vises, men ingen omdøping/sletting/rekkefølge herfra). Desktop:
-     popover rett til høyre for knappen som åpnet den. Mobil: sentrert modal
-     med intern scroll (se .switcher-* i styles.css). */
-  let openSwitcherKind = null; // 'universe' | 'group' | null
-
-  function switcherConfig(kind) {
-    return kind === 'universe'
-      ? { overlay: uniSwitcherOverlay, panel: uniSwitcherPanel, btn: uniSwitchBtn, items: visibleUniverses, activeId: () => state.activeUniverse }
-      : { overlay: groupSwitcherOverlay, panel: groupSwitcherPanel, btn: groupSwitchBtn, items: visibleGroups, activeId: () => state.activeGroup };
+  function openGroupModal() {
+    renderGroups();
+    refreshModalCurrents();
+    groupModal.hidden = false;
+    updateModalOpenClass();
   }
-
-  function buildSwitcherRow(kind, obj, isActive) {
-    const el = document.createElement('button');
-    el.type = 'button';
-    el.className = 'switcher-row';
-    el.dataset.id = obj.id;
-    el.setAttribute('role', 'option');
-    el.setAttribute('aria-selected', isActive ? 'true' : 'false');
-    el.classList.toggle('active', isActive);
-    applyChipColor(el, obj);
-    const icon = document.createElement('span');
-    icon.className = 'switcher-row-icon';
-    icon.setAttribute('aria-hidden', 'true');
-    icon.innerHTML = kind === 'universe' ? ICONS.globe : ICONS.folder;
-    el.appendChild(icon);
-    const name = document.createElement('span');
-    name.className = 'switcher-row-name';
-    name.textContent = obj.name;
-    el.appendChild(name);
-    el.addEventListener('click', () => {
-      if (kind === 'universe') {
-        if (obj.id !== state.activeUniverse) { setActiveUniverse(obj.id); render(); save(); }
-      } else if (obj.id !== state.activeGroup) {
-        setActiveGroup(obj.id); render();
-      }
-      closeSwitcher();
-    });
-    return el;
+  function closeGroupModal() {
+    groupModal.hidden = true;
+    updateModalOpenClass();
   }
+  function openAccount() {
+    paintAccountForms(true);
+    accountModal.hidden = false;
+    updateModalOpenClass();
+  }
+  function closeAccount() {
+    accountModal.hidden = true;
+    updateModalOpenClass();
+  }
+  uniCrumbBtn.addEventListener('click', openUniModal);
+  groupCrumbBtn.addEventListener('click', openGroupModal);
+  accountBtn.addEventListener('click', openAccount);
+  uniModalClose.addEventListener('click', closeUniModal);
+  groupModalClose.addEventListener('click', closeGroupModal);
+  accountClose.addEventListener('click', closeAccount);
+  uniModal.addEventListener('click', (ev) => { if (ev.target === uniModal) closeUniModal(); });
+  groupModal.addEventListener('click', (ev) => { if (ev.target === groupModal) closeGroupModal(); });
+  accountModal.addEventListener('click', (ev) => { if (ev.target === accountModal) closeAccount(); });
 
-  // Plasser popoveren rett til høyre for knappen (desktop); klem til
-  // viewportet så den aldri havner utenfor skjermen.
+  // Plasser popoveren (ansvarlig-velger/tids-popover) rett til høyre for
+  // knappen (desktop); klem til viewportet så den aldri havner utenfor skjermen.
   function positionSwitcherPanel(panel, btn) {
     const r = btn.getBoundingClientRect();
     const gap = 8;
@@ -3807,56 +3716,9 @@
     panel.style.visibility = '';
   }
 
-  function openSwitcher(kind) {
-    const cfg = switcherConfig(kind);
-    const vis = cfg.items();
-    vis.forEach((o, i) => { o.color = colorForIndex(i); }); // samme fargesystem som menyene
-    cfg.panel.innerHTML = '';
-    cfg.panel.style.top = '';
-    cfg.panel.style.left = '';
-    const activeId = cfg.activeId();
-    let activeRow = null;
-    vis.forEach((o) => {
-      const isActive = o.id === activeId;
-      const row = buildSwitcherRow(kind, o, isActive);
-      if (isActive) activeRow = row;
-      cfg.panel.appendChild(row);
-    });
-    openSwitcherKind = kind;
-    cfg.overlay.hidden = false;
-    updateModalOpenClass();
-    if (window.matchMedia('(min-width: 561px)').matches) positionSwitcherPanel(cfg.panel, cfg.btn);
-    (activeRow || cfg.panel.firstElementChild || cfg.panel).focus();
-  }
-
-  function closeSwitcher() {
-    if (!openSwitcherKind) return;
-    switcherConfig(openSwitcherKind).overlay.hidden = true;
-    openSwitcherKind = null;
-    updateModalOpenClass();
-  }
-
-  uniSwitchBtn.addEventListener('click', () => openSwitcher('universe'));
-  groupSwitchBtn.addEventListener('click', () => openSwitcher('group'));
-  [uniSwitcherOverlay, groupSwitcherOverlay].forEach((overlay) => {
-    overlay.addEventListener('click', (ev) => { if (ev.target === overlay) closeSwitcher(); });
-  });
-  // Piltaster opp/ned flytter fokus mellom radene (kun navigasjon — rekkefølgen
-  // kan ikke endres herfra, det er forbeholdt de fulle menyene).
-  [uniSwitcherPanel, groupSwitcherPanel].forEach((panel) => {
-    panel.addEventListener('keydown', (ev) => {
-      if (ev.key !== 'ArrowDown' && ev.key !== 'ArrowUp') return;
-      const rows = [...panel.querySelectorAll('.switcher-row')];
-      const i = rows.indexOf(document.activeElement);
-      if (i < 0) return;
-      ev.preventDefault();
-      rows[(i + (ev.key === 'ArrowDown' ? 1 : -1) + rows.length) % rows.length].focus();
-    });
-  });
-
   /* ---------------- Ansvarlig-velger (popover/modal) ----------------
-     Samme skall som univers-/gruppebytteren (popover på desktop, sentrert modal
-     på mobil), men radene viser en farget initial-sirkel + fullt navn for hver i
+     Popover på desktop, sentrert modal på mobil (felles .switcher-*-skall
+     med tids-popoveren); radene viser en farget initial-sirkel + fullt navn for hver i
      delegruppen (alfabetisk). Gjelder både elementer og hele lister (target =
      { kind: 'card'|'item', obj, card }); valg skriver `obj.responsible` og synker. */
   let respOpen = false;
@@ -4382,15 +4244,15 @@
     uCountEl.innerHTML = ICONS.folder + '<span>' + uGroupN + '</span>';
     uCountEl.title = groupWord(uGroupN);
 
-    // Bytt til universet (og lukk menyen — man bytter kontekst og går videre);
-    // er det allerede aktivt → rediger navnet (samme mønster som gruppekort).
+    // Bytt til universet (og lukk modalen — man bytter kontekst og går videre);
+    // er det allerede aktivt → rediger navnet (samme mønster som gruppe-radene).
     const activate = () => {
       if (nameEl.dataset.editing === '1') return;
       if (u.id !== state.activeUniverse) {
         setActiveUniverse(u.id);
         render();
         save();
-        closeMenu();
+        closeUniModal();
       } else if (uCanEdit) {
         startUniverseRename(nameEl, u);
       }
@@ -4443,7 +4305,8 @@
       stampContent(u);
       save();
       renderUniverses();
-      updatePanelTitles(activeGroupObj()); // navnet kan stå i «UNIVERS: …»-overskriften
+      refreshModalCurrents(); // navnet kan stå i «Du er i»-blokken
+      updateCrumbs(activeGroupObj()); // … og i breadcrumben
     }, { cls: 'chip-edit', autosize: true });
   }
 
@@ -4691,7 +4554,7 @@
     clearTimeout(toastTimer);
   }
 
-  /* ---------- Logg ut (i meny-modalen, ☰) ----------
+  /* ---------- Logg ut (i konto-modalen) ----------
      Synken går fortløpende i bakgrunnen; ingen egen synk-knapp trengs.
      Ved fjern-endringer vises et lite «oppdatert»-varsel (showToast). */
   logoutBtn.addEventListener('click', async () => {
@@ -4700,7 +4563,7 @@
   });
 
   function logout() {
-    closeMenu();
+    closeAccount();
     const client = acli();
     cloudStop();
     if (client) { try { client.auth.signOut(); } catch (e) { /* ignore */ } }
@@ -5572,15 +5435,89 @@
     }
   }
 
-  /* ---------------- Innboks + konto-visning i menyen ---------------- */
+  /* ---------------- Innboks + profil (konto-modalen) ---------------- */
   const menuAccount = document.getElementById('menu-account');
   const accountAvatar = document.getElementById('account-avatar');
   const accountEmail = document.getElementById('account-email');
   const menuInvites = document.getElementById('menu-invites');
   const inviteListEl = document.getElementById('invite-list');
-  const menuBadge = document.getElementById('menu-badge');
+  const accountBadge = document.getElementById('account-badge');
   const menuEmailPref = document.getElementById('menu-email-pref');
   const emailPrefToggle = document.getElementById('email-pref-toggle');
+  const accountEdit = document.getElementById('account-edit');
+  const accountNameForm = document.getElementById('account-name-form');
+  const accountNameInput = document.getElementById('account-name-input');
+  const accountEmailForm = document.getElementById('account-email-form');
+  const accountEmailInput = document.getElementById('account-email-input');
+  const accountMsgEl = document.getElementById('account-msg');
+
+  /* ---------------- Endre navn og e-post ----------------
+     Navnet (display_name) ligger i profiles-tabellen (RLS: kun egen rad) og
+     speiles i user_metadata (fallback i myOwnerInfo); e-posten endres via
+     Supabase Auth (`updateUser({ email })` — bekreftes via lenke på e-post,
+     mock-backenden oppdaterer direkte). */
+  function setAccountMsg(msg, isError) {
+    accountMsgEl.textContent = msg || '';
+    accountMsgEl.hidden = !msg;
+    accountMsgEl.classList.toggle('error', !!isError);
+  }
+  // Fyll feltene fra kontoen. Uten force røres ikke et felt brukeren står i
+  // (en synk-runde skal ikke overskrive halvskrevet input).
+  function paintAccountForms(force) {
+    if (!authUser) return;
+    if (force) setAccountMsg('');
+    const prof = (lastMy && lastMy.user) || {};
+    if (force || document.activeElement !== accountNameInput) {
+      accountNameInput.value = prof.display_name ||
+        (authUser.meta && authUser.meta.display_name) || '';
+    }
+    if (force || document.activeElement !== accountEmailInput) {
+      accountEmailInput.value = authUser.email || '';
+    }
+  }
+  accountNameForm.addEventListener('submit', async (ev) => {
+    ev.preventDefault();
+    if (!authUser) return;
+    const name = accountNameInput.value.trim();
+    if (!name) { setAccountMsg('Navnet kan ikke være tomt.', true); return; }
+    setAccountMsg('');
+    try {
+      const { error } = await acli().from('profiles')
+        .update({ display_name: name }).eq('id', authUser.id);
+      if (error) throw error;
+      // Hold user_metadata i takt (brukes som fallback før første pull).
+      try { await acli().auth.updateUser({ data: { display_name: name } }); } catch (e) { /* uviktig */ }
+      authUser.meta = Object.assign({}, authUser.meta, { display_name: name });
+      if (lastMy && lastMy.user) lastMy.user.display_name = name;
+      updateInbox(lastMy); // avatar + navnelinjen øverst
+      setAccountMsg('Navnet er oppdatert.');
+      scheduleCloud(0); // frisk opp delte visninger (medlemslister o.l.)
+    } catch (e) {
+      setAccountMsg(friendlyAuthError(e), true);
+    }
+  });
+  accountEmailForm.addEventListener('submit', async (ev) => {
+    ev.preventDefault();
+    if (!authUser) return;
+    const email = accountEmailInput.value.trim().toLowerCase();
+    if (!email || email === (authUser.email || '').toLowerCase()) return;
+    setAccountMsg('');
+    try {
+      const { error } = await acli().auth.updateUser({ email });
+      if (error) throw error;
+      if (useMock()) {
+        // Mock-backenden endrer direkte (ingen e-postbekreftelse i test).
+        authUser.email = email;
+        if (lastMy && lastMy.user) lastMy.user.email = email;
+        updateInbox(lastMy);
+        setAccountMsg('E-postadressen er oppdatert.');
+      } else {
+        setAccountMsg('Nesten ferdig – bekreft endringen via lenken vi har sendt på e-post.');
+      }
+    } catch (e) {
+      setAccountMsg(friendlyAuthError(e), true);
+    }
+  });
 
   // E-postvarsel-innstillingen ligger på kontoen (user_metadata.email_notifications).
   // Standard PÅ (ny bruker uten flagget → true). Endres optimistisk; skrivingen
@@ -5612,12 +5549,14 @@
     const invites = ((my && my.invites_in) || []).filter((inv) => !suppressedInvites.has(inv.id));
     const placements = pendingPlacements || [];
     const total = invites.length + placements.length;
-    menuBadge.textContent = String(total);
-    menuBadge.hidden = total === 0;
+    accountBadge.textContent = String(total);
+    accountBadge.hidden = total === 0;
     if (authUser) {
       menuAccount.hidden = false;
       menuEmailPref.hidden = false;
+      accountEdit.hidden = false;
       paintEmailPref();
+      paintAccountForms(false);
       const prof = (my && my.user) || {};
       accountEmail.textContent = personName(prof) || authUser.email || '';
       accountAvatar.textContent = initialsFromName(prof.display_name, authUser.email);
@@ -5674,32 +5613,19 @@
   placeClose && placeClose.addEventListener('click', closePlace);
   placeModal && placeModal.addEventListener('click', (ev) => { if (ev.target === placeModal) closePlace(); });
   function updateModalOpenClass2() { updateModalOpenClass(); }
-  // Velg forelder for et delt objekt: univers-deling → ingen; gruppe → et av
-  // mine universer; liste → en av mine grupper (på tvers av universer).
-  function askPlacement(type, name, onPick) {
-    if (type === 'universe') { onPick(null); return; }
+  // Generisk liste-velger i plasserings-modalen: hint + klikkbare rader.
+  // Brukes av plasseringsvalget (delinger) og flytt-liste-velgeren (DnD på
+  // 📁-breadcrumben).
+  function openPicker(hintText, options, emptyMsg, onPick) {
     placeBody.innerHTML = '';
     const hint = document.createElement('p');
     hint.className = 'place-hint';
-    const options = [];
-    if (type === 'group') {
-      hint.textContent = 'Velg hvilket univers «' + name + '» skal ligge i:';
-      visibleUniverses().filter((u) => isMine(u) || !u._mount).forEach((u) =>
-        options.push({ id: u.id, label: u.name }));
-    } else {
-      hint.textContent = 'Velg hvilken gruppe «' + name + '» skal ligge i:';
-      state.universes.filter((u) => !u.trashed).forEach((u) => {
-        (u.groups || []).filter((g) => !effTrashed(g)).forEach((g) =>
-          options.push({ id: g.id, label: u.name + ' › ' + g.name }));
-      });
-    }
+    hint.textContent = hintText;
     placeBody.appendChild(hint);
-    if (!options.length) {
+    if (!options.length && emptyMsg) {
       const p = document.createElement('p');
       p.className = 'place-hint';
-      p.textContent = type === 'group'
-        ? 'Du har ingen universer ennå – opprett ett først.'
-        : 'Du har ingen grupper ennå – opprett en først.';
+      p.textContent = emptyMsg;
       placeBody.appendChild(p);
     }
     options.forEach((o) => {
@@ -5710,6 +5636,30 @@
     });
     placeModal.hidden = false;
     updateModalOpenClass2();
+  }
+  // Velg forelder for et delt objekt: univers-deling → ingen; gruppe → et av
+  // mine universer; liste → en av mine grupper (på tvers av universer).
+  function askPlacement(type, name, onPick) {
+    if (type === 'universe') { onPick(null); return; }
+    const options = [];
+    if (type === 'group') {
+      visibleUniverses().filter((u) => isMine(u) || !u._mount).forEach((u) =>
+        options.push({ id: u.id, label: u.name }));
+    } else {
+      state.universes.filter((u) => !u.trashed).forEach((u) => {
+        (u.groups || []).filter((g) => !effTrashed(g)).forEach((g) =>
+          options.push({ id: g.id, label: u.name + ' › ' + g.name }));
+      });
+    }
+    openPicker(
+      type === 'group'
+        ? 'Velg hvilket univers «' + name + '» skal ligge i:'
+        : 'Velg hvilken gruppe «' + name + '» skal ligge i:',
+      options,
+      type === 'group'
+        ? 'Du har ingen universer ennå – opprett ett først.'
+        : 'Du har ingen grupper ennå – opprett en først.',
+      onPick);
   }
 
   // Optimistisk besvarte invitasjoner (svar-RPC-en ligger i køen): raden holdes
@@ -5776,20 +5726,43 @@
   const shareBody = document.getElementById('share-body');
   const shareTitle = document.getElementById('share-title');
   const shareClose = document.getElementById('share-close');
+  const shareBackBtn = document.getElementById('share-back');
   let shareCtx = null; // { type, id, obj }
-  function closeShare() { shareModal.hidden = true; shareCtx = null; updateModalOpenClass2(); }
+  let shareBackTo = null; // gjenåpner modalen del-modalen ble åpnet fra (univers/gruppe)
+  function closeShare() {
+    shareModal.hidden = true;
+    shareCtx = null;
+    shareBackTo = null;
+    updateModalOpenClass2();
+  }
   shareClose && shareClose.addEventListener('click', closeShare);
   shareModal && shareModal.addEventListener('click', (ev) => { if (ev.target === shareModal) closeShare(); });
+  // Tilbake: lukk del-modalen og gjenåpne univers-/gruppe-modalen. (✕/overlay/
+  // Escape lukker helt — da havner man på hovedsiden, ikke i modalen bak.)
+  shareBackBtn && shareBackBtn.addEventListener('click', () => {
+    const back = shareBackTo;
+    closeShare();
+    if (back) back();
+  });
 
-  // Overskrift: «[objekttype-ikon] [navn] — Innstillinger for deling» — gir
+  // Overskrift: «[objekttype-ikon][navn] — Innstillinger for deling» — gir
   // mening både for eier og mottaker (mottaker kan ikke dele videre, men har
-  // fortsatt innstillinger her). Navnet settes som tekstnode (aldri innerHTML).
+  // fortsatt innstillinger her). Ikonet står INLINE i tekstflyten, i direkte
+  // tilknytning til navnet (.share-title-obj holder dem sammen) — ikke som
+  // egen flex-kolonne til venstre for hele overskriften. Navnet settes som
+  // tekstnode (aldri innerHTML).
   const SHARE_TYPE_ICON = { universe: 'globe', group: 'folder', card: 'list' };
-  function openShare(type, id, obj) {
+  function openShare(type, id, obj, backTo) {
     shareCtx = { type, id, obj };
-    shareTitle.innerHTML = ICONS[SHARE_TYPE_ICON[type]] || '';
-    shareTitle.appendChild(document.createTextNode(
-      (obj.name || obj.title || '') + ' — Innstillinger for deling'));
+    shareBackTo = backTo || null;
+    if (shareBackBtn) shareBackBtn.hidden = !shareBackTo;
+    shareTitle.textContent = '';
+    const objSpan = document.createElement('span');
+    objSpan.className = 'share-title-obj';
+    objSpan.innerHTML = ICONS[SHARE_TYPE_ICON[type]] || '';
+    objSpan.appendChild(document.createTextNode(obj.name || obj.title || ''));
+    shareTitle.appendChild(objSpan);
+    shareTitle.appendChild(document.createTextNode(' — Innstillinger for deling'));
     shareModal.hidden = false;
     updateModalOpenClass2();
     // Åpne UMIDDELBART — eierskapet (_mine) kjenner vi synkront, så riktig
@@ -6223,7 +6196,11 @@
     menuAccount.hidden = true;
     menuEmailPref.hidden = true;
     menuInvites.hidden = true;
-    menuBadge.hidden = true;
+    accountBadge.hidden = true;
+    accountEdit.hidden = true;
+    setAccountMsg('');
+    // Lukk evt. åpne modaler — de tilhørte den utloggede sesjonen.
+    closeUniModal(); closeGroupModal(); closeAccount();
   }
 
   // Dyplenke fra en delings-e-post til en UREGISTRERT mottaker: ?signup=<e-post>
@@ -6281,7 +6258,9 @@
   // Eksponer for enkel feilsøking/testing
   window.__huskis = {
     state, render, logout, addGroup, deleteGroup,
-    addUniverse, deleteUniverse, setActiveUniverse, setActiveGroup, openMenu, closeMenu,
+    addUniverse, deleteUniverse, setActiveUniverse, setActiveGroup,
+    openUniModal, closeUniModal, openGroupModal, closeGroupModal,
+    openAccount, closeAccount,
     canonical, reconcile, docFromMyState, contentDocFromMy, applyMyDoc, cloudCycle,
     openShare, openSettings,
     get authUser() { return authUser; },
