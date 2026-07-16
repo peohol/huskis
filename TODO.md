@@ -147,21 +147,37 @@ med pg_net. Uregistrerte får en `?signup=<e-post>`-lenke til registreringssiden
 registrerte får en åpne-appen-lenke (kun hvis e-postvarsel er PÅ). Klienten er
 ferdig og verifisert mot mock-backend; selve e-postutsendingen krever at Peder:
 
+Den profilerte e-posten (branded HTML + text/plain, PNG-logo, escaping,
+`url_encode`, Vault-first, `email_send_log`) ligger i `send_invite_email()` i
+`supabase/users-and-sharing.sql` (kjøres av «Supabase DB-oppsett»-workflowen).
+Gjenstår manuelt:
+
 - [ ] Supabase → Database → Extensions: aktiver **pg_net**
-- [ ] Opprett en **Resend**-konto, verifiser et avsenderdomene (eller bruk
-      `onboarding@resend.dev` til egen e-post for test), hent en **API-nøkkel**
-- [ ] Legg nøkkelen + avsender + app-URL i `public.app_config` (Supabase SQL
-      editor):
+- [ ] **Resend**: domenet `huskis.no` er verifisert, sending aktivert, region
+      `eu-west-1`, åpnings-/klikksporing AV. Opprett en API-nøkkel med KUN
+      *Sending access*, begrenset til domenet `huskis.no`.
+- [ ] Legg nøkkelen i **Supabase Vault** (foretrukket — kryptert i ro; ikke lim
+      nøkkelen inn i en versjonert fil, parameteriser den via `psql -v`):
+      ```sql
+      select vault.create_secret(:'resend_key', 'resend_api_key',
+                                 'Resend sending API key (kun sending, huskis.no)');
+      ```
+      Legg ikke-hemmelig konfig i `public.app_config`:
       ```sql
       insert into public.app_config(key, value) values
-        ('resend_api_key', 're_...'),
-        ('email_from',      'Huskis <noreply@huskis.no>'),
-        ('app_url',         'https://huskis.no/')
+        ('email_from', 'Huskis <noreply@huskis.no>'),
+        ('app_url',    'https://www.huskis.no/')
       on conflict (key) do update set value = excluded.value;
       ```
-      Uten `resend_api_key` gjør triggeren ingenting (delingen fungerer via
-      appen som før). `app_config` er RLS-låst uten policyer → kun triggeren
-      leser nøklene, aldri klienten.
+      Triggeren leser Vault først, faller tilbake til `app_config`-nøkkel hvis
+      Vault ikke er satt opp. Uten en nøkkel gjør triggeren ingenting (delingen
+      fungerer via appen som før). `app_config` er RLS-låst uten policyer → kun
+      SECURITY DEFINER-triggeren leser verdiene, aldri klienten.
+- [ ] Etter deploy: verifiser at `https://www.huskis.no/assets/email/huskis-logo.png`
+      returnerer 200 + `image/png` uten innlogging/preview-beskyttelse.
+- [ ] Diagnostikk ved behov: `select * from public.email_send_log order by id desc;`
+      (queued/error + pg_net-request-id) og `select * from net._http_response
+      order by id desc;` for selve Resend-svaret.
 
 ## Fase 2 — klient/UI (✅ implementert — se `docs/accounts.md`)
 

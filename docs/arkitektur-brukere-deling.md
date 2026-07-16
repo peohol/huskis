@@ -228,24 +228,44 @@ utkastelse/forlating, eierskapsvakter, server-side LWW, import
    SMTP-avsender; Supabase sin innebygde e-postutsending er strengt
    ratebegrenset (~2–4 e-poster/time) og kun ment for utvikling.
 4. **E-postvarsel ved deling** (valgfritt): aktiver `pg_net` (Database →
-   Extensions) og legg en Resend-API-nøkkel + avsender + app-URL i
-   `public.app_config`. Da e-poster `send_invite_email`-triggeren mottakeren
-   ved hver ny invitasjon — se `docs/accounts.md` og `TODO.md`.
+   Extensions), legg Resend-nøkkelen i **Supabase Vault** (`vault.create_secret`)
+   og avsender/app-URL i `public.app_config`. Da e-poster
+   `send_invite_email`-triggeren mottakeren ved hver ny invitasjon — se
+   `docs/accounts.md` og `TODO.md`.
 
 ## E-postvarsel ved deling (`send_invite_email`)
 
 En AFTER INSERT-trigger på `share_invites` (`send_invite_email`, SECURITY
-DEFINER) sender en e-post via `net.http_post` (pg_net) til Resend:
+DEFINER, `search_path = public, extensions, net`) sender en profilert Huskis-
+e-post via `net.http_post` (pg_net) til Resend (`api.resend.com/emails`). Kroppen
+er tabellbasert HTML med inline CSS (trygg fontstakk `Arial, Helvetica, sans-
+serif` — ingen webfont), PNG-logo fra `https://www.huskis.no/assets/email/
+huskis-logo.png`, skifer/grønn-palett fra designsystemet, preheader-tekst,
+stylet `<a>`-knapp og en `text/plain`-variant. To varianter:
 
-- **Uregistrert mottaker** (`invitee_id is null`): e-post med lenke
-  `<app_url>?signup=<e-post>` → registreringssiden med e-posten utfylt.
+- **Uregistrert mottaker** (`invitee_id is null`): «Du er invitert til Huskis» +
+  lenke `<app_url>?signup=<e-post>` → registreringssiden med e-posten utfylt.
   `handle_new_user` kobler den ventende invitasjonen ved registrering.
-- **Registrert mottaker**: e-post med åpne-appen-lenke, MEN kun hvis
-  `auth.users.raw_user_meta_data->>'email_notifications'` ikke er `'false'`
-  (standard på; klienten setter flagget via `auth.updateUser`).
+- **Registrert mottaker**: «‹objekt› er delt med deg» + åpne-appen-lenke, MEN
+  kun hvis `auth.users.raw_user_meta_data->>'email_notifications'` ikke er
+  `'false'` (standard på; klienten setter flagget via `auth.updateUser`).
 
-Konfig ligger i `public.app_config` (RLS på, ingen policyer/grants → kun
-SECURITY DEFINER-funksjoner leser nøklene). Uten `resend_api_key` returnerer
-triggeren umiddelbart (`return new`), så delinger fungerer uten e-post; en feil
-i utsendingen svelges (`exception when others`) og blokkerer aldri selve
-invitasjonen.
+**Hemmelighet:** selve Resend-nøkkelen foretrekkes lagret i **Supabase Vault**
+(kryptert i ro; `vault.decrypted_secrets` er kun lesbar for eier-rollen).
+Triggeren leser Vault først og faller tilbake til `public.app_config` hvis Vault
+ikke er satt opp (f.eks. det hermetiske test-miljøet). Ikke-hemmelig konfig
+(`email_from`, `app_url`) ligger i `public.app_config` (RLS på, ingen policyer/
+grants → kun SECURITY DEFINER-funksjoner leser den; ingen `cfg()`-RPC som kunne
+lekket verdien; EXECUTE revoked fra public/anon/authenticated).
+
+**Sikkerhet i kroppen:** brukerstyrt tekst (inviter-navn, objektnavn, over-
+skrifter, synlig lenketekst) HTML-escapes med `html_escape`; URL-parametre
+prosent-kodes med `url_encode` (byte-sikker RFC 3986, erstatter de gamle
+manuelle `replace`-kjedene); JSON bygges med `jsonb_build_object`.
+
+**Observabilitet:** utsendingen logges i den låste tabellen
+`public.email_send_log` (invitasjons-id, variant, pg_net-request-id, status
+`queued`/`error`, ev. `SQLERRM` — aldri nøkkelen eller kroppen). Uten en Resend-
+nøkkel returnerer triggeren umiddelbart (`return new`), så delinger fungerer uten
+e-post; en feil i utsendingen fanges (`exception when others`), logges som
+`error` og blokkerer aldri selve invitasjonen.

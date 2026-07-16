@@ -885,13 +885,29 @@ $$;
 --     hvis mottakeren har e-postvarsler på (user_metadata.email_notifications,
 --     standard på). Ellers vises delingen kun i appen (rød ring + innboks).
 --
--- Konfig ligger i public.app_config (låst tabell — kun SECURITY DEFINER-
--- funksjoner leser den). Uten `resend_api_key` gjør triggeren ingenting, så
--- delingen fungerer som før. Slik settes den opp (Supabase SQL editor):
+-- HEMMELIGHETER: selve Resend-API-nøkkelen foretrekkes lagret i **Supabase
+-- Vault** (kryptert i ro; `vault.decrypted_secrets` er kun lesbar for
+-- eier-rollen, aldri for anon/authenticated). Trigger-funksjonen leser Vault
+-- først og faller tilbake til `public.app_config` hvis Vault ikke er satt opp
+-- (f.eks. i det hermetiske test-miljøet, som ikke har Vault). Ikke-hemmelig
+-- konfig (avsender, app-URL) ligger fortsatt i app_config.
+--
+-- app_config er en LÅST tabell — RLS på, ingen policyer, ingen grants → verken
+-- anon eller authenticated kan lese den via PostgREST. Verdiene leses KUN inne
+-- i trigger-funksjonen (SECURITY DEFINER, ikke kallbar som RPC), aldri via en
+-- egen hjelpefunksjon — en slik ville Postgres gitt EXECUTE til PUBLIC og
+-- dermed lekket nøkkelen. (Pensjoner en ev. tidligere `cfg`-variant.)
+--
+-- Uten en Resend-nøkkel (verken i Vault eller app_config) gjør triggeren
+-- ingenting, så delingen fungerer som før. Oppsett (Supabase SQL editor):
+--   -- Nøkkelen i Vault (kjøres én gang; parameteriser verdien, ikke lim den
+--   -- inn i en versjonert fil):
+--   select vault.create_secret(:'resend_key', 'resend_api_key',
+--                              'Resend sending API key (domenebegrenset)');
+--   -- Ikke-hemmelig konfig:
 --   insert into public.app_config(key, value) values
---     ('resend_api_key', 're_xxx'),
---     ('email_from',     'Huskis <noreply@huskis.no>'),
---     ('app_url',        'https://huskis.no/')
+--     ('email_from', 'Huskis <noreply@huskis.no>'),
+--     ('app_url',    'https://www.huskis.no/')
 --   on conflict (key) do update set value = excluded.value;
 -- (pg_net må være aktivert: Database → Extensions → pg_net.)
 
@@ -906,12 +922,27 @@ create table if not exists public.app_config (
 );
 alter table public.app_config enable row level security;
 -- Ingen RLS-policyer + ingen grants → verken anon eller authenticated kan lese
--- nøklene via PostgREST. Konfig-verdiene leses KUN inne i trigger-funksjonen
--- under (SECURITY DEFINER, ikke kallbar som RPC), aldri via en egen hjelpe-
--- funksjon — en slik ville Postgres gitt EXECUTE til PUBLIC og dermed lekket
--- nøkkelen. (Pensjoner en ev. tidligere `cfg`-variant av samme grunn.)
+-- verdiene via PostgREST. Leses KUN inne i trigger-funksjonen under (SECURITY
+-- DEFINER, ikke kallbar som RPC), aldri via en egen hjelpefunksjon.
 revoke all on public.app_config from anon, authenticated;
 drop function if exists public.cfg(text);
+
+-- Minimal, LÅST loggtabell for observabilitet på e-postutsendingen. Lagrer
+-- ALDRI API-nøkkelen eller e-postkroppen; kun invitasjons-id, variant, pg_net-
+-- request-id (korreleres mot net._http_response) og en ev. feilmelding — nok
+-- til å diagnostisere Resend-/pg_net-problemer uten unødvendige personopplys-
+-- ninger. Samme lås som app_config (RLS på, ingen policyer, ingen grants).
+create table if not exists public.email_send_log (
+  id             bigint generated always as identity primary key,
+  created_at     timestamptz not null default now(),
+  invite_id      uuid,
+  variant        text,          -- 'unregistered' | 'existing'
+  net_request_id bigint,        -- pg_net request-id (kø-kvittering)
+  status         text not null, -- 'queued' | 'error'
+  error          text           -- SQLERRM ved feil (ingen nøkkel, ingen kropp)
+);
+alter table public.email_send_log enable row level security;
+revoke all on public.email_send_log from anon, authenticated;
 
 -- Enkel HTML-escaping for brukerstyrt tekst (navn) i e-postkroppen — hindrer at
 -- et navn med markup rendres i mottakerens e-postklient. Ren/immutabel.
@@ -921,29 +952,75 @@ returns text language sql immutable set search_path = public as $$
     coalesce(p, ''), '&', '&amp;'), '<', '&lt;'), '>', '&gt;'), '"', '&quot;'), '''', '&#39;');
 $$;
 
+-- Robust prosent-koding (RFC 3986) for URL-parametre — byte-sikker (UTF-8), så
+-- den håndterer `+`, `@`, `&`, mellomrom osv. korrekt uten manuelle replace-
+-- kjeder. Ren/immutabel; leser ingen hemmeligheter, så trygg som PUBLIC.
+create or replace function public.url_encode(p text)
+returns text language plpgsql immutable set search_path = public as $$
+declare
+  bytes bytea := convert_to(coalesce(p, ''), 'UTF8');
+  out   text  := '';
+  b     int;
+  i     int;
+begin
+  for i in 0 .. length(bytes) - 1 loop
+    b := get_byte(bytes, i);
+    if (b between 48 and 57)   -- 0-9
+       or (b between 65 and 90)  -- A-Z
+       or (b between 97 and 122) -- a-z
+       or b in (45, 46, 95, 126) then  -- - . _ ~  (unreserved)
+      out := out || chr(b);
+    else
+      out := out || '%' || upper(lpad(to_hex(b), 2, '0'));
+    end if;
+  end loop;
+  return out;
+end;
+$$;
+
 create or replace function public.send_invite_email()
 returns trigger language plpgsql security definer
 set search_path = public, extensions, net as $$
 declare
-  api_key   text;
-  from_addr text;
-  app_url   text;
-  inviter   text;
-  obj_name  text;
-  inv_e     text;   -- HTML-escaped inviter-navn
-  obj_e     text;   -- HTML-escaped objektnavn
-  subject   text;
-  body_html text;
-  link      text;
+  -- Fast produksjons-URL for logoen (PNG i repoet, serveres statisk). Ikke
+  -- brukerstyrt → trenger ingen escaping.
+  logo_url    constant text := 'https://www.huskis.no/assets/email/huskis-logo.png';
+  api_key     text;
+  from_addr   text;
+  app_url     text;
+  inviter     text;   -- rått inviter-navn (brukerstyrt)
+  obj_name    text;   -- rått objektnavn (brukerstyrt)
+  inv_e       text;   -- HTML-escaped inviter-navn
+  obj_e       text;   -- HTML-escaped objektnavn
+  subject     text;
+  heading     text;   -- ren tekst; escapes ved HTML-innsetting
+  explanation text;   -- ren tekst; escapes ved HTML-innsetting
+  action_text text;   -- ren tekst; escapes ved HTML-innsetting
+  variant     text;   -- 'unregistered' | 'existing' (til loggen)
+  link        text;
+  body_html   text;
+  body_text   text;
+  net_req     bigint;
 begin
-  -- Konfig leses inline (ingen egen RPC-kallbar funksjon som kan lekke nøkkelen).
-  select value into api_key from public.app_config where key = 'resend_api_key';
+  -- API-nøkkel: foretrekk Supabase Vault (kryptert i ro; kun eier-rollen kan
+  -- dekryptere), fall tilbake til app_config. Vault-skjemaet finnes ikke i
+  -- test-/lokalmiljø → fanges her uten å velte funksjonen.
+  begin
+    select decrypted_secret into api_key
+      from vault.decrypted_secrets where name = 'resend_api_key';
+  exception when others then
+    api_key := null;
+  end;
+  if api_key is null or api_key = '' then
+    select value into api_key from public.app_config where key = 'resend_api_key';
+  end if;
   -- Ikke konfigurert → ingen e-post (delingen fungerer likevel via appen).
   if api_key is null or api_key = '' then return new; end if;
+
   select value into from_addr from public.app_config where key = 'email_from';
-  from_addr := coalesce(from_addr, 'Huskis <onboarding@resend.dev>');
+  from_addr := coalesce(nullif(from_addr, ''), 'Huskis <noreply@huskis.no>');
   select value into app_url from public.app_config where key = 'app_url';
-  app_url := coalesce(app_url, '');
+  app_url := coalesce(nullif(app_url, ''), 'https://www.huskis.no/');
 
   select display_name into inviter from public.profiles where id = new.inviter_id;
   inviter := coalesce(inviter, 'Noen');
@@ -960,39 +1037,103 @@ begin
 
   if new.invitee_id is null then
     -- Uregistrert mottaker → inviter til å registrere seg. E-posten går til
-    -- invitee_email selv, så lenke-innholdet er ikke-fiendtlig (self-targeted);
-    -- vi URL-koder likevel de vanlige spesialtegnene.
-    link := app_url || '?signup=' ||
-      replace(replace(replace(new.invitee_email, '+', '%2B'), '@', '%40'), '&', '%26');
-    body_html :=
-      '<div style="font-family:sans-serif;max-width:480px;margin:auto">' ||
-      '<h2>Du er invitert til Huskis</h2>' ||
-      '<p><strong>' || inv_e || '</strong> har delt <strong>' || obj_e ||
-      '</strong> med deg på Huskis.</p>' ||
-      '<p>Registrer deg med denne e-postadressen, så dukker delingen opp i appen ' ||
-      'og du kan godta den:</p>' ||
-      '<p><a href="' || public.html_escape(link) || '" style="display:inline-block;background:#3a8a6a;' ||
-      'color:#fff;padding:11px 20px;border-radius:8px;text-decoration:none">' ||
-      'Opprett konto og bli med</a></p></div>';
+    -- invitee_email selv (self-targeted), men vi prosent-koder likevel korrekt.
+    variant     := 'unregistered';
+    link        := app_url || '?signup=' || public.url_encode(new.invitee_email);
+    heading     := 'Du er invitert til Huskis';
+    explanation := 'Opprett en konto med denne e-postadressen (' ||
+                   new.invitee_email ||
+                   '), så dukker delingen opp i appen og du kan godta den.';
+    action_text := 'Opprett konto og bli med';
   else
     -- Registrert mottaker → respekter e-postvarsel-innstillingen (standard på).
+    variant := 'existing';
     if (select coalesce(raw_user_meta_data ->> 'email_notifications', 'true')
           from auth.users where id = new.invitee_id) = 'false' then
       return new;
     end if;
-    link := coalesce(nullif(app_url, ''), '#');
-    body_html :=
-      '<div style="font-family:sans-serif;max-width:480px;margin:auto">' ||
-      '<h2>' || obj_e || ' er delt med deg</h2>' ||
-      '<p><strong>' || inv_e || '</strong> har delt <strong>' || obj_e ||
-      '</strong> med deg på Huskis.</p>' ||
-      '<p>Åpne appen for å godta delingen:</p>' ||
-      '<p><a href="' || public.html_escape(link) || '" style="display:inline-block;background:#3a8a6a;' ||
-      'color:#fff;padding:11px 20px;border-radius:8px;text-decoration:none">' ||
-      'Åpne Huskis</a></p></div>';
+    link        := app_url;
+    heading     := obj_name || ' er delt med deg';
+    explanation := 'Åpne Huskis for å se invitasjonen og velge hvor det delte innholdet skal plasseres.';
+    action_text := 'Åpne Huskis';
   end if;
 
-  perform net.http_post(
+  -- text/plain-variant (leveres sammen med HTML for maks kompatibilitet).
+  body_text :=
+    heading || E'\n\n' ||
+    inviter || ' har delt «' || obj_name || '» med deg på Huskis.' || E'\n\n' ||
+    explanation || E'\n\n' ||
+    action_text || ': ' || link || E'\n\n' ||
+    'Denne meldingen ble sendt automatisk fordi noen delte innhold med deg i ' ||
+    'Huskis. Du kan ikke svare på denne adressen.' || E'\n\n' ||
+    'Huskis — https://www.huskis.no/';
+
+  -- Tabellbasert, inline-stylet HTML for e-postklienter (Outlook m/ bgcolor).
+  -- Trygg fontstakk (ingen webfont), maks 600px, avrundede flater, ingen JS.
+  body_html :=
+    '<!DOCTYPE html>' ||
+    '<html lang="no" xmlns="http://www.w3.org/1999/xhtml">' ||
+    '<head>' ||
+      '<meta charset="utf-8" />' ||
+      '<meta name="viewport" content="width=device-width, initial-scale=1.0" />' ||
+      '<meta http-equiv="X-UA-Compatible" content="IE=edge" />' ||
+      '<meta name="color-scheme" content="light only" />' ||
+      '<title>' || public.html_escape(subject) || '</title>' ||
+    '</head>' ||
+    '<body style="margin:0;padding:0;background-color:#667788;">' ||
+      -- Preheader / forhåndsvisningstekst (skjult, men fanges opp av innboksen).
+      '<div style="display:none;max-height:0;overflow:hidden;mso-hide:all;font-size:1px;line-height:1px;color:#667788;opacity:0;">' ||
+        inv_e || ' har delt «' || obj_e || '» med deg på Huskis.' ||
+        '&nbsp;&zwnj;&nbsp;&zwnj;&nbsp;&zwnj;&nbsp;&zwnj;&nbsp;&zwnj;&nbsp;&zwnj;&nbsp;&zwnj;' ||
+      '</div>' ||
+      '<table width="100%" cellpadding="0" cellspacing="0" border="0" role="presentation" bgcolor="#667788" style="width:100%;background-color:#667788;">' ||
+        '<tr><td align="center" style="padding:28px 14px;">' ||
+          '<table width="600" cellpadding="0" cellspacing="0" border="0" role="presentation" style="width:100%;max-width:600px;">' ||
+            -- Toppbånd: logo + ordmerke på skifer-bakgrunn.
+            '<tr><td bgcolor="#667788" style="background-color:#667788;padding:8px 8px 20px 8px;">' ||
+              '<table cellpadding="0" cellspacing="0" border="0" role="presentation"><tr>' ||
+                '<td width="56" style="width:56px;vertical-align:middle;">' ||
+                  '<img src="' || logo_url || '" width="52" height="52" alt="Huskis" border="0" style="display:block;border:0;width:52px;height:52px;" />' ||
+                '</td>' ||
+                '<td width="12" style="width:12px;font-size:1px;line-height:1px;">&nbsp;</td>' ||
+                '<td style="font-family:Arial,Helvetica,sans-serif;font-size:26px;line-height:30px;font-weight:700;color:#ffffff;vertical-align:middle;">Huskis</td>' ||
+              '</tr></table>' ||
+            '</td></tr>' ||
+            -- Hvitt innholdskort.
+            '<tr><td bgcolor="#ffffff" style="background-color:#ffffff;border-radius:18px;">' ||
+              '<table width="100%" cellpadding="0" cellspacing="0" border="0" role="presentation" style="width:100%;">' ||
+                '<tr><td style="padding:34px 34px 8px 34px;font-family:Arial,Helvetica,sans-serif;">' ||
+                  '<p style="margin:0 0 10px 0;font-family:Arial,Helvetica,sans-serif;font-size:13px;line-height:16px;font-weight:700;letter-spacing:1.2px;color:#668866;">DELINGSINVITASJON</p>' ||
+                  '<h1 style="margin:0 0 18px 0;font-family:Arial,Helvetica,sans-serif;font-size:26px;line-height:33px;font-weight:700;color:#37343f;">' || public.html_escape(heading) || '</h1>' ||
+                  '<p style="margin:0 0 20px 0;font-family:Arial,Helvetica,sans-serif;font-size:17px;line-height:26px;color:#37343f;"><strong>' || inv_e || '</strong> har delt noe med deg:</p>' ||
+                  -- Objekt-kort (lys grønn flate, grønn venstrekant).
+                  '<table width="100%" cellpadding="0" cellspacing="0" border="0" role="presentation" bgcolor="#eef3ee" style="width:100%;background-color:#eef3ee;border-radius:12px;border-left:5px solid #668866;">' ||
+                    '<tr><td style="padding:16px 20px;font-family:Arial,Helvetica,sans-serif;font-size:19px;line-height:25px;font-weight:700;color:#37343f;">' || obj_e || '</td></tr>' ||
+                  '</table>' ||
+                  '<p style="margin:22px 0 26px 0;font-family:Arial,Helvetica,sans-serif;font-size:16px;line-height:25px;color:#37343f;">' || public.html_escape(explanation) || '</p>' ||
+                  -- Handlingsknapp: stylet <a> på grønn flate (Outlook: bgcolor).
+                  '<table cellpadding="0" cellspacing="0" border="0" role="presentation"><tr>' ||
+                    '<td bgcolor="#668866" style="background-color:#668866;border-radius:12px;">' ||
+                      '<a href="' || public.html_escape(link) || '" style="display:inline-block;padding:14px 28px;font-family:Arial,Helvetica,sans-serif;font-size:17px;line-height:20px;font-weight:700;color:#ffffff;text-decoration:none;border-radius:12px;">' || public.html_escape(action_text) || '</a>' ||
+                    '</td>' ||
+                  '</tr></table>' ||
+                  -- Fallback-lenke for klienter som ikke rendrer knappen.
+                  '<p style="margin:24px 0 0 0;font-family:Arial,Helvetica,sans-serif;font-size:12px;line-height:18px;color:#6b6577;">Virker ikke knappen? Kopier denne adressen:<br /><a href="' || public.html_escape(link) || '" style="color:#4d664d;text-decoration:underline;word-break:break-all;">' || public.html_escape(link) || '</a></p>' ||
+                '</td></tr>' ||
+                -- Bunntekst.
+                '<tr><td style="padding:22px 34px 30px 34px;font-family:Arial,Helvetica,sans-serif;font-size:12px;line-height:18px;color:#6b6577;border-top:1px solid #e3e7e3;">' ||
+                  'Denne meldingen ble sendt automatisk fordi noen delte innhold med deg i Huskis. Avsenderadressen overvåkes ikke og kan ikke motta svar.' ||
+                '</td></tr>' ||
+              '</table>' ||
+            '</td></tr>' ||
+          '</table>' ||
+        '</td></tr>' ||
+      '</table>' ||
+    '</body></html>';
+
+  -- pg_net er asynkron: returnerer en request-id nå, selve Resend-svaret lander
+  -- senere i net._http_response. Vi logger request-id-en for korrelasjon.
+  select net.http_post(
     url     := 'https://api.resend.com/emails',
     headers := jsonb_build_object(
       'Authorization', 'Bearer ' || api_key,
@@ -1001,10 +1142,21 @@ begin
       'from',    from_addr,
       'to',      new.invitee_email,
       'subject', subject,
-      'html',    body_html));
+      'html',    body_html,
+      'text',    body_text)
+  ) into net_req;
+
+  insert into public.email_send_log(invite_id, variant, net_request_id, status)
+  values (new.id, variant, net_req, 'queued');
   return new;
 exception when others then
   -- E-post er en bieffekt; en feil her skal ALDRI blokkere selve delingen.
+  -- Men vi logger den (uten nøkkel/kropp) så problemet kan diagnostiseres.
+  begin
+    insert into public.email_send_log(invite_id, variant, status, error)
+    values (new.id, variant, 'error', left(sqlerrm, 500));
+  exception when others then null;  -- logging skal heller aldri velte delingen
+  end;
   return new;
 end;
 $$;
