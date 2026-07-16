@@ -58,8 +58,11 @@ Skjules før innlogging (`body.no-auth`).
 
 Nøyaktig samme oppbygning som univers-modalen, for gruppene i det AKTIVE
 universet: «Du er i»-blokk med aktiv gruppe + del-gruppe-knapp
-(`#share-group-btn`), «Alle grupper i universet» (`.group-card.chip`-rader i
-`#group-list`, antall-pill = liste-ikon + antall lister), «＋ Gruppe» og
+(`#share-group-btn`), «Alle grupper i 🌐 [universets navn]»
+(`#group-modal-uni-name` settes i `refreshModalCurrents`; etiketten brytes
+ikke, navnet får ellipsis — `.panel-title-text`/`.panel-title-name`) med
+`.group-card.chip`-rader i `#group-list` (antall-pill = liste-ikon + antall
+lister), «＋ Gruppe» og
 gruppe-søppelkassen. Klikk på rad = bytt gruppe + lukk modalen; aktiv rad =
 omdøp; «＋ Gruppe» holder modalen åpen med inline-omdøping. Gruppe-radene er
 alltid én vertikal kolonne (V-varianten av dra-logikken — H-varianten fra den
@@ -91,6 +94,10 @@ Innhold (ovenfra og ned):
   `docs/design-system.md` («Delelinjer i modaler»).
 
 ## Del-modalens tilbakeknapp
+
+Overskriften er «[nivå-ikon][navn] — Innstillinger for deling» i VANLIG
+tekstflyt: ikonet ligger inline i direkte tilknytning til navnet
+(`.share-title-obj`), ikke som egen flex-kolonne til venstre for overskriften.
 
 `openShare(type, id, obj, backTo)`: `backTo` (valgfri funksjon) gjenåpner
 modalen del-modalen ble åpnet fra — satt av del-knappene i univers-/gruppe-

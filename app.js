@@ -508,6 +508,7 @@
   const groupCurrentWrap = document.getElementById('group-current');
   const groupCurrentChip = document.getElementById('group-current-chip');
   const groupCurrentName = document.getElementById('group-current-name');
+  const groupModalUniName = document.getElementById('group-modal-uni-name');
   const groupList = document.getElementById('group-list');
 
   // Konto-modal (kontoknappen øverst til høyre).
@@ -678,6 +679,8 @@
   function refreshModalCurrents() {
     const uni = activeUniverseObj();
     uniCurrentWrap.hidden = !uni;
+    // Gruppelistas overskrift: «Alle grupper i 🌐 [universets navn]».
+    groupModalUniName.textContent = uni ? uni.name : 'universet';
     if (uni) {
       uniCurrentName.textContent = uni.name;
       applyChipColor(uniCurrentChip, uni);
@@ -5742,17 +5745,24 @@
     if (back) back();
   });
 
-  // Overskrift: «[objekttype-ikon] [navn] — Innstillinger for deling» — gir
+  // Overskrift: «[objekttype-ikon][navn] — Innstillinger for deling» — gir
   // mening både for eier og mottaker (mottaker kan ikke dele videre, men har
-  // fortsatt innstillinger her). Navnet settes som tekstnode (aldri innerHTML).
+  // fortsatt innstillinger her). Ikonet står INLINE i tekstflyten, i direkte
+  // tilknytning til navnet (.share-title-obj holder dem sammen) — ikke som
+  // egen flex-kolonne til venstre for hele overskriften. Navnet settes som
+  // tekstnode (aldri innerHTML).
   const SHARE_TYPE_ICON = { universe: 'globe', group: 'folder', card: 'list' };
   function openShare(type, id, obj, backTo) {
     shareCtx = { type, id, obj };
     shareBackTo = backTo || null;
     if (shareBackBtn) shareBackBtn.hidden = !shareBackTo;
-    shareTitle.innerHTML = ICONS[SHARE_TYPE_ICON[type]] || '';
-    shareTitle.appendChild(document.createTextNode(
-      (obj.name || obj.title || '') + ' — Innstillinger for deling'));
+    shareTitle.textContent = '';
+    const objSpan = document.createElement('span');
+    objSpan.className = 'share-title-obj';
+    objSpan.innerHTML = ICONS[SHARE_TYPE_ICON[type]] || '';
+    objSpan.appendChild(document.createTextNode(obj.name || obj.title || ''));
+    shareTitle.appendChild(objSpan);
+    shareTitle.appendChild(document.createTextNode(' — Innstillinger for deling'));
     shareModal.hidden = false;
     updateModalOpenClass2();
     // Åpne UMIDDELBART — eierskapet (_mine) kjenner vi synkront, så riktig

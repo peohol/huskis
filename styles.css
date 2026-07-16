@@ -143,6 +143,16 @@ body {
   color: var(--ink-soft);
 }
 .panel-title .icon { font-size: var(--fs-sm); }
+/* Overskrifter med objektnavn («Alle grupper i 🌐 [navn]»): etiketten brytes
+   ikke; det er navnet som kappes med ellipsis når plassen er trang. */
+.panel-title { min-width: 0; }
+.panel-title-text { flex: 0 0 auto; white-space: nowrap; }
+.panel-title-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .panel-actions {
   display: flex;
   align-items: center;
@@ -1793,9 +1803,20 @@ body.no-auth #account-btn { display: none; }
 
 /* ---------------- Del-modal ---------------- */
 /* Tilbakeknappen (vises når del-modalen ble åpnet fra univers-/gruppe-
-   modalen) står før tittelen; tittelen tar resten av bredden. */
+   modalen) står før tittelen; tittelen tar resten av bredden. Overskriften
+   er vanlig tekstflyt (ikke flex): nivå-ikonet ligger INLINE i direkte
+   tilknytning til navnet (.share-title-obj), og bryter sammen med det. */
 .share-back { flex: 0 0 auto; }
-.share-modal .modal-head h2 { flex: 1 1 auto; }
+.share-modal .modal-head h2 {
+  flex: 1 1 auto;
+  display: block;
+}
+.share-title-obj { display: inline; }
+.share-title-obj .icon {
+  display: inline-block;
+  vertical-align: -0.13em;
+  margin-right: 6px;
+}
 .share-body { display: flex; flex-direction: column; gap: 10px; }
 .share-invite-form { display: flex; gap: 8px; }
 .share-invite-form .field { flex: 1; min-width: 0; }
