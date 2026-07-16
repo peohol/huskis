@@ -2217,8 +2217,20 @@
     if (autoScrollRAF != null) return;
     const step = () => {
       if (!drag.active || autoScrollSpeed === 0) { autoScrollRAF = null; return; }
+      let delta = autoScrollSpeed;
+      if (delta > 0) {
+        // Det løftede kortet er `position: absolute`, så dets dokument-posisjon
+        // (scrollY + peker) ville selv utvidet sidens scroll-område hver frame og
+        // gjort nedover-scrollingen uendelig ut i blankt. Stopp ved board-ets
+        // FAKTISKE bunn: et absolutt-posisjonert barn teller ikke i board-ets egen
+        // høyde (placeholderen holder kortets gamle slot), så board-ets bunn er den
+        // ekte innholdsenden — uavhengig av kortet vi drar.
+        const vh = window.innerHeight || document.documentElement.clientHeight || 0;
+        const maxScroll = Math.max(0, board.getBoundingClientRect().bottom + window.scrollY - vh);
+        delta = Math.min(delta, maxScroll - window.scrollY);
+      }
       const before = window.scrollY;
-      window.scrollBy(0, autoScrollSpeed);
+      if (delta !== 0) window.scrollBy(0, delta);
       // Kortet er `position: absolute` (dokument-koordinater) → flytt det med den
       // nye scroll-posisjonen så det blir liggende under fingeren, og re-evaluer
       // de andre kortenes plassering med rulleretningen som «drag-retning».
