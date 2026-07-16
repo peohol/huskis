@@ -527,7 +527,11 @@
           var db = loadDB();
           var email = String(opts.email).toLowerCase();
           var uid = uidFor(email);
-          if (!db.profiles.find(function (p) { return p.id === uid; })) {
+          // Unikhet på E-POST, ikke bare uidFor-id: en bruker som har ENDRET
+          // e-post beholder sin gamle id, og adressen må fortsatt regnes som
+          // opptatt — ellers kunne en ny registrering overskrive passordet
+          // (db.passwords[email]) og «overta» den eksisterende kontoen.
+          if (!db.profiles.some(function (p) { return p.email === email; })) {
             // Navn (display_name) fra registrerings-metadata (handle_new_user).
             var meta = (opts.options && opts.options.data) || {};
             var dn = (meta.display_name && String(meta.display_name).trim()) || email.split('@')[0];
