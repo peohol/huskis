@@ -1885,6 +1885,12 @@
 
   const SWAP_RATIO = 0.2; // 20 % høydeoverlapp utløser bytte
   const FLIP_MS = 150;
+  // Anti-flimring: rett etter at to objekter har byttet plass, ligger geometrien
+  // ofte slik at det motsatte byttet umiddelbart trigges igjen (pekeren står nær
+  // grensen, retningen jitrer) → de hopper frem og tilbake. Vi blokkerer derfor
+  // KUN det direkte omvendte av forrige bytte i et kort vindu; all annen fremdrift
+  // (andre naboer, samme retning videre) slipper alltid gjennom. Litt over FLIP_MS.
+  const SWAP_LOCK_MS = 200;
 
   const drag = { active: false };
 
@@ -2071,6 +2077,7 @@
     drag.lastX = ev.clientX;
     drag.lastY = ev.clientY;
     drag.active = true;
+    drag.recentSwap = null; // anti-flimring-lås nullstilles per drag (se SWAP_LOCK_MS)
     try { ev.target.setPointerCapture(ev.pointerId); } catch (e) {}
     document.body.classList.add('is-dragging');
     window.addEventListener('touchmove', preventTouchScroll, { passive: false });
@@ -2132,6 +2139,22 @@
   function placePlaceholder(container, ph, refEl, pos) {
     if (pos === 'before') container.insertBefore(ph, refEl);
     else container.insertBefore(ph, refEl.nextElementSibling);
+  }
+
+  // Anti-flimring (se SWAP_LOCK_MS): et bytte plasserer placeholderen foran/bak et
+  // nabo-element. Det direkte omvendte er samme nabo med motsatt side. Blokkér KUN
+  // det innen låsvinduet — så et objekt som nettopp byttet plass ikke straks
+  // byttes tilbake, mens vanlig fremdrift (andre naboer / 'append') slipper gjennom.
+  function swapReversesRecent(action) {
+    const rs = drag.recentSwap;
+    if (!rs || !action.ref) return false;
+    if (performance.now() - rs.t > SWAP_LOCK_MS) return false;
+    if (action.ref.dataset.id !== rs.refId) return false;
+    return (action.pos === 'before' && rs.pos === 'after') ||
+           (action.pos === 'after' && rs.pos === 'before');
+  }
+  function recordSwap(action) {
+    drag.recentSwap = { refId: action.ref ? action.ref.dataset.id : null, pos: action.pos, t: performance.now() };
   }
 
   // Animer dra-elementet fra flytende posisjon inn i placeholder-sloten.
@@ -2427,9 +2450,11 @@
     }
 
     if (!action || !wouldMove(ph, action.ref, action.pos)) return;
+    if (swapReversesRecent(action)) return;
     const snap = snapshotRects(cards);
     placePlaceholder(board, ph, action.ref, action.pos);
     flipFrom(snap, FLIP_MS);
+    recordSwap(action);
   }
 
   function onCardUp(ev) {
@@ -2617,11 +2642,13 @@
       ? targetCont.lastElementChild !== ph
       : wouldMove(ph, action.ref, action.pos);
     if (!willMove) return;
+    if (swapReversesRecent(action)) return;
 
     const snap = snapshotRects(flipEls);
     if (action.pos === 'append') targetCont.appendChild(ph);
     else placePlaceholder(targetCont, ph, action.ref, action.pos);
     flipFrom(snap, FLIP_MS);
+    recordSwap(action);
   }
 
   function onItemUp() {
@@ -2896,9 +2923,11 @@
       if (best) action = { ref: best, pos: 'before' };
     }
     if (!action || !wouldMove(ph, action.ref, action.pos)) return;
+    if (swapReversesRecent(action)) return;
     const snap = snapshotRects(cards);
     placePlaceholder(groupList, ph, action.ref, action.pos); // 'after' siste rad → foran «＋»
     flipFrom(snap, FLIP_MS);
+    recordSwap(action);
   }
 
   // Delt slipp-håndtering for de to «kolonne»-nivåene (grupper og universer):
@@ -3049,9 +3078,11 @@
       if (best) action = { ref: best, pos: 'before' };
     }
     if (!action || !wouldMove(ph, action.ref, action.pos)) return;
+    if (swapReversesRecent(action)) return;
     const snap = snapshotRects(rows);
     placePlaceholder(uniList, ph, action.ref, action.pos); // 'after' siste rad → foran «＋ Univers»
     flipFrom(snap, FLIP_MS);
+    recordSwap(action);
   }
 
   function onUniverseUp() {

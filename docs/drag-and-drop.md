@@ -8,6 +8,17 @@ Bytte utløses av **overlapp**, ikke av et punkt:
 - ≥ **20 %** høyde-/breddeoverlapp bytter plass; **retningsstyrt** (hysterese mot
   flimring): nedover-drag bytter kun med kortet under, oppover kun med kortet over
   (transponert for horisontale rader).
+- **Anti-flimring-lås** (`SWAP_LOCK_MS` = 200 ms, litt over FLIP_MS): rett etter et
+  bytte ligger geometrien ofte slik at det MOTSATTE byttet umiddelbart trigges
+  igjen (pekeren står nær grensen mens et nabo-element nettopp har relokert via
+  FLIP) → objektene hopper frem og tilbake. `swapReversesRecent`/`recordSwap`
+  blokkerer derfor KUN det direkte omvendte av forrige bytte (samme nabo-`ref`,
+  motsatt `pos`) innen låsvinduet; all annen fremdrift (andre naboer, `append`,
+  samme retning videre) slipper alltid gjennom, og en bevisst tilbakeføring virker
+  igjen etter 200 ms. Låsen nullstilles per drag (`drag.recentSwap`) og gjelder
+  kort/element/gruppe/univers (kategori-plasseringen er ren senterbasert og
+  flimrer ikke). Fjerner det umiddelbare auto-tilbake-byttet; en rask, bevisst
+  frem-og-tilbake begrenses til ett bytte per vindu (ikke øyeblikkelig).
 - **Kolonne** = kort med ≥ 50 % horisontal overlapp; kryss-kolonne plasseres etter
   vertikal senterposisjon. For elementer = overføring til annen `.items-container`.
 - **FLIP-animasjon (150 ms)** ved hver placeholder-flytting og ved slipp.
