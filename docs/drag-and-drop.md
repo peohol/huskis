@@ -8,21 +8,21 @@ Bytte utløses av **overlapp**, ikke av et punkt:
 - ≥ **20 %** høyde-/breddeoverlapp bytter plass; **retningsstyrt** (hysterese mot
   flimring): nedover-drag bytter kun med kortet under, oppover kun med kortet over
   (transponert for horisontale rader).
-- **Anti-flimring via posisjons-hysterese** (`SWAP_HYST` = 0.15): rett etter et
-  bytte ligger geometrien ofte slik at det MOTSATTE byttet umiddelbart trigges
+- **Anti-flimring** (`SWAP_LOCK_MS` = 300 ms + `SWAP_REV_RATIO` = 0.5): rett etter
+  et bytte ligger geometrien ofte slik at det MOTSATTE byttet umiddelbart trigges
   igjen (pekeren står nær grensen mens et nabo-element nettopp har relokert via
-  FLIP, og 20 %-overlappterskelen er lav) → objektene hopper frem og tilbake.
-  Vanlige (fremover) bytter beholder den ivrige 20 %-terskelen, men REVERSERINGEN
-  av det siste byttet (`swapReversesRecent`: samme nabo-`ref`, motsatt `pos`)
-  blokkeres til dra-senteret har KRYSSET naboens senter med en margin
-  (`SWAP_HYST` × naboens størrelse langs aksen) — ikke bare tangert det.
-  `layoutRect` gir naboens FLIP-fratrukne (relokerte) senter, så dødsonen følger
-  geometrien: parkering på grensen er **helt stabilt** (0 bytter uansett hvor lenge
-  man står), mens en bevisst tilbakeføring (dra forbi senteret) virker straks.
-  Aksen velges etter hvor nabo og dra-senter er mest adskilt (vertikale lister →
-  Y; horisontal kort-rad → X). `recordSwap` lagrer bare `{refId, pos}`, nullstilles
-  per drag (`drag.recentSwap`), og gjelder kort/element/gruppe/univers (kategori-
-  plasseringen er ren senterbasert og flimrer ikke).
+  FLIP, og 20 %-overlappterskelen er lav) → objektene hopper frem og tilbake. To
+  milde tiltak gjelder KUN reverseringen av forrige bytte (`swapReversesRecent`:
+  samme nabo-`ref`, motsatt `pos`); vanlige (fremover) bytter er urørt (20 %):
+  (a) **tidslås** — reverseringen blokkeres i 300 ms etter byttet; (b) **overlapp-
+  hysterese** — reverseringen krever ≥ 50 % overlapp mot naboen, ikke bare 20 %.
+  Bevisst dette milde (ikke full senter-kryssing, som overskjøt inn i NESTE
+  element): det tar unna det meste av flimringen, men en bevisst tilbakeføring er
+  fortsatt lett. `recordSwap` lagrer `{refId, pos, t}`, nullstilles per drag
+  (`drag.recentSwap`), og gjelder kort/element/gruppe/univers (kategori-
+  plasseringen er ren senterbasert og flimrer ikke). Aksen for overlapp-målingen
+  velges etter hvor nabo og dra-senter er mest adskilt (vertikale lister → Y-
+  overlapp; horisontal kort-rad → X-overlapp).
 - **Kolonne** = kort med ≥ 50 % horisontal overlapp; kryss-kolonne plasseres etter
   vertikal senterposisjon. For elementer = overføring til annen `.items-container`.
 - **FLIP-animasjon (150 ms)** ved hver placeholder-flytting og ved slipp.

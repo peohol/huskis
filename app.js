@@ -1844,13 +1844,17 @@
 
   const SWAP_RATIO = 0.2; // 20 % høydeoverlapp utløser bytte
   const FLIP_MS = 150;
-  // Anti-flimring via POSISJONS-HYSTERESE: rett etter et bytte ligger geometrien
-  // ofte slik at det motsatte byttet straks trigges igjen (naboen har nettopp
-  // relokert via FLIP, og 20 %-overlapp-terskelen er lav) → objektene hopper frem
-  // og tilbake. Vi krever derfor at det OMVENDTE av forrige bytte først kan utløses
-  // når dra-senteret har KRYSSET naboens senter med en margin — ikke bare tangert
-  // det med 20 % overlapp. Margin som andel av naboens størrelse langs aksen.
-  const SWAP_HYST = 0.15;
+  // Anti-flimring: rett etter et bytte ligger geometrien ofte slik at det motsatte
+  // byttet straks trigges igjen (naboen har nettopp relokert via FLIP) → objektene
+  // hopper frem og tilbake. To milde tiltak gjelder KUN reverseringen av forrige
+  // bytte (samme nabo, motsatt side); vanlige (fremover) bytter er urørt:
+  //  1) Tidslås (SWAP_LOCK_MS): reverseringen blokkeres et kort vindu etter byttet.
+  //  2) Overlapp-hysterese (SWAP_REV_RATIO): reverseringen krever mer overlapp
+  //     (50 %) enn et vanlig bytte (SWAP_RATIO, 20 %), så to objekter ikke bytter
+  //     tilbake ved bare såvidt-berøring — men fortsatt tydelig mindre enn full
+  //     senter-kryssing (som overskjøt inn i NESTE element).
+  const SWAP_LOCK_MS = 300;
+  const SWAP_REV_RATIO = 0.5;
 
   const drag = { active: false };
 
@@ -2037,7 +2041,7 @@
     drag.lastX = ev.clientX;
     drag.lastY = ev.clientY;
     drag.active = true;
-    drag.recentSwap = null; // anti-flimring-hysterese nullstilles per drag (se SWAP_HYST)
+    drag.recentSwap = null; // anti-flimring nullstilles per drag (se SWAP_LOCK_MS/SWAP_REV_RATIO)
     try { ev.target.setPointerCapture(ev.pointerId); } catch (e) {}
     document.body.classList.add('is-dragging');
     window.addEventListener('touchmove', preventTouchScroll, { passive: false });
@@ -2101,31 +2105,29 @@
     else container.insertBefore(ph, refEl.nextElementSibling);
   }
 
-  // Anti-flimring (se SWAP_HYST): et bytte plasserer placeholderen foran/bak et
-  // nabo-element; det direkte omvendte er samme nabo med motsatt side. Vanlige
-  // (fremover) bytter beholder den ivrige 20 %-terskelen, men REVERSERINGEN av det
-  // siste byttet blokkeres til dra-senteret har krysset naboens senter (med margin)
-  // i mål-retningen. `layoutRect` gir naboens relokerte (FLIP-fratrukne) posisjon,
-  // så dødsonen følger geometrien: parkering på grensen er stabilt, mens en bevisst
-  // tilbakeføring (dra forbi senteret) virker straks. Aksen velges etter hvor nabo
-  // og dra-senter er mest adskilt (vertikale lister → Y; horisontal kort-rad → X).
+  // Anti-flimring (se SWAP_LOCK_MS/SWAP_REV_RATIO): et bytte plasserer
+  // placeholderen foran/bak et nabo-element; det direkte omvendte er samme nabo
+  // med motsatt side. Vanlige (fremover) bytter beholder den ivrige 20 %-terskelen;
+  // REVERSERINGEN av siste bytte blokkeres (a) i et kort tidsvindu etter byttet, og
+  // (b) til overlappen mot naboen når SWAP_REV_RATIO (50 %) — begge milde, så en
+  // bevisst tilbakeføring fortsatt virker uten å måtte overskyte inn i neste
+  // element. Aksen (V-overlapp vs H-overlapp) velges etter hvor nabo og dra-senter
+  // er mest adskilt (vertikale lister → Y; horisontal kort-rad → X).
   function swapReversesRecent(action) {
     const rs = drag.recentSwap;
     if (!rs || !action.ref || action.ref.dataset.id !== rs.refId) return false;
     const isReverse = (action.pos === 'before' && rs.pos === 'after') ||
                       (action.pos === 'after' && rs.pos === 'before');
     if (!isReverse) return false;
+    if (performance.now() - rs.t < SWAP_LOCK_MS) return true; // tidslås
     const dr = draggedRect(), nr = layoutRect(action.ref);
-    const dCy = dr.top + dr.height / 2, dCx = dr.left + dr.width / 2;
-    const nCy = nr.top + nr.height / 2, nCx = nr.left + nr.width / 2;
-    const vertical = Math.abs(nCy - dCy) >= Math.abs(nCx - dCx);
-    const dc = vertical ? dCy : dCx, nc = vertical ? nCy : nCx;
-    const margin = SWAP_HYST * (vertical ? nr.height : nr.width);
-    // Blokkér til senteret har krysset naboens senter med margin i mål-retningen.
-    return action.pos === 'before' ? dc > nc - margin : dc < nc + margin;
+    const vertical = Math.abs((nr.top + nr.height / 2) - (dr.top + dr.height / 2)) >=
+                     Math.abs((nr.left + nr.width / 2) - (dr.left + dr.width / 2));
+    const frac = vertical ? vOverlap(dr, nr) / nr.height : hOverlap(dr, nr) / nr.width;
+    return frac < SWAP_REV_RATIO; // for lite overlapp → blokkér reverseringen
   }
   function recordSwap(action) {
-    drag.recentSwap = { refId: action.ref ? action.ref.dataset.id : null, pos: action.pos };
+    drag.recentSwap = { refId: action.ref ? action.ref.dataset.id : null, pos: action.pos, t: performance.now() };
   }
 
   // Animer dra-elementet fra flytende posisjon inn i placeholder-sloten.
