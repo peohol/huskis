@@ -762,30 +762,33 @@
     countEl.innerHTML = ICONS.list + '<span>' + gListN + '</span>';
     countEl.title = listWord(gListN);
 
-    // Bytt til gruppen (og lukk modalen — man bytter kontekst og går videre);
-    // er den allerede aktiv → rediger navnet.
-    const activate = () => {
+    // Klikk på TITTELEN = rediger navnet (uansett om gruppen er aktiv eller
+    // ikke); klikk ELLERS på raden = bytt gruppe og lukk modalen. (Før navigerte
+    // et klikk på en annen gruppes navn dit i stedet for å redigere.)
+    const navigate = () => {
       if (nameEl.dataset.editing === '1') return;
       if (groupData.id !== state.activeGroup) {
         setActiveGroup(groupData.id);
         render();
-        closeGroupModal();
-      } else if (gCanEdit) {
-        startGroupRename(nameEl, groupData);
       }
+      closeGroupModal(); // bytt kontekst og gå (allerede aktiv → bare lukk)
     };
 
     el.addEventListener('click', (ev) => {
-      if (ev.target.closest('.group-delete')) return;
-      activate();
+      if (ev.target.closest('.group-delete') || ev.target.closest('.edit-input')) return;
+      if (gCanEdit && ev.target.closest('.group-name')) { startGroupRename(nameEl, groupData); return; }
+      navigate();
     });
-    // Tastatur: raden er role="tab" (tabindex=0). Enter/Mellomrom aktiverer den
-    // (bytt gruppe / omdøp den aktive).
+    // Tastatur: raden (role="tab", tabindex=0) er det eneste fokuserbare punktet
+    // — tittelen er ikke fokuserbar. For å beholde en tastatur-vei til omdøping
+    // redigerer Enter/Mellomrom navnet når raden ALLEREDE er aktiv (som det gamle
+    // «klikk på det aktive navnet»); ellers bytter det gruppe.
     el.addEventListener('keydown', (ev) => {
       if (ev.target !== el) return; // slett-knappen har egen tastaturoppførsel
       if (ev.key === 'Enter' || ev.key === ' ' || ev.key === 'Spacebar') {
         ev.preventDefault();
-        activate();
+        if (gCanEdit && groupData.id === state.activeGroup) startGroupRename(nameEl, groupData);
+        else navigate();
       }
     });
 
@@ -947,6 +950,14 @@
     attachHoldDrag(el.querySelector('.card-head'), el, startCardDrag,
       () => canEdit || !!cardData._mount, '.card-cog, .card-delete');
 
+    // Klikk på korthodet (ikke tittel/tannhjul/×/meta-chip) kollapser/utvider
+    // kortet med en rullgardin-animasjon (et fullført hold løfter i stedet kortet
+    // — attachHoldDrag undertrykker da klikket). Lukketilstanden lagres i DB.
+    el.querySelector('.card-head').addEventListener('click', (ev) => {
+      if (ev.target.closest('.card-title, .card-cog, .card-delete, .meta-chip, .edit-input')) return;
+      toggleCardCollapsed(el, cardData);
+    });
+
     // Elementer (kun ikke-slettede; sortert på posisjon). To nivåer: nivå 1 er
     // kortets direkte rader — ukategoriserte elementer OG kategorier, om
     // hverandre; nivå 2 er elementene inne i hver kategori (buildCategory).
@@ -1023,8 +1034,8 @@
       const btn = document.createElement('button');
       btn.type = 'button';
       btn.className = 'trashcan item-trash-btn';
-      btn.title = 'Slettede elementer – trykk for å åpne, hold og sveip for å tømme';
-      btn.setAttribute('aria-label', 'Slettede elementer');
+      btn.title = 'Slettede listepunkter – trykk for å åpne, hold og sveip for å tømme';
+      btn.setAttribute('aria-label', 'Slettede listepunkter');
       const icon = document.createElement('span');
       icon.className = 'trashcan-icon';
       icon.setAttribute('aria-hidden', 'true');
@@ -1039,10 +1050,76 @@
         empty: () => emptyItemsTrash(cardData),
       });
       wrap.appendChild(btn);
-      el.appendChild(wrap);
+      el.querySelector('.card-body').appendChild(wrap); // i body-en så den kollapser med resten
     }
 
+    // Gjenopprett lagret lukketilstand (uten animasjon) etter en (re)bygging.
+    if (cardData.collapsed) collapseCardBody(el, false);
+
     return el;
+  }
+
+  /* ---------------- Liste-kollaps (rullgardin) ----------------
+     Klikk på korthodet trekker kort-body-en opp som en rullgardin (samme
+     collapse/expand-mekanikk som kategorienes .cat-items). Lukketilstanden
+     (`card.collapsed`) lagres i DB via save() (doc-synken/køen), så den overlever
+     reload og synkes mellom enheter — uten synlig forsinkelse (optimistisk UI).
+     overflow settes kun inline mens/når kollapset: et permanent overflow:hidden
+     ville klippet et løftet element under draging. */
+  const CARD_COLLAPSE_MS = 260;
+  function collapseCardBody(el, animate) {
+    const body = el.querySelector('.card-body');
+    if (!body) return;
+    el.classList.add('collapsed');
+    const setClosed = () => {
+      body.style.overflow = 'hidden';
+      body.style.height = '0px'; body.style.opacity = '0';
+      body.style.paddingTop = '0'; body.style.paddingBottom = '0';
+    };
+    if (!animate || prefersReducedMotion()) { setClosed(); return; }
+    const startH = body.getBoundingClientRect().height;
+    body.style.overflow = 'hidden';
+    body.style.height = startH + 'px';
+    void body.offsetWidth; // registrer starttilstanden
+    body.style.transition = 'height ' + CARD_COLLAPSE_MS + 'ms ease, opacity ' + CARD_COLLAPSE_MS + 'ms ease, padding ' + CARD_COLLAPSE_MS + 'ms ease';
+    requestAnimationFrame(setClosed);
+  }
+  function expandCardBody(el, animate) {
+    const body = el.querySelector('.card-body');
+    if (!body) return;
+    el.classList.remove('collapsed');
+    const clear = () => {
+      body.style.transition = ''; body.style.height = ''; body.style.opacity = '';
+      body.style.overflow = ''; body.style.paddingTop = ''; body.style.paddingBottom = '';
+    };
+    if (!animate || prefersReducedMotion()) { clear(); return; }
+    body.style.overflow = 'hidden';
+    body.style.transition = 'none';
+    body.style.height = 'auto'; body.style.opacity = '1';
+    body.style.paddingTop = ''; body.style.paddingBottom = '';
+    const full = body.getBoundingClientRect().height;
+    body.style.height = '0px'; body.style.opacity = '0';
+    body.style.paddingTop = '0'; body.style.paddingBottom = '0';
+    void body.offsetWidth;
+    body.style.transition = 'height ' + CARD_COLLAPSE_MS + 'ms ease, opacity ' + CARD_COLLAPSE_MS + 'ms ease, padding ' + CARD_COLLAPSE_MS + 'ms ease';
+    requestAnimationFrame(() => {
+      body.style.height = full + 'px'; body.style.opacity = '1';
+      body.style.paddingTop = ''; body.style.paddingBottom = '';
+    });
+    body.addEventListener('transitionend', function te(e) {
+      if (e.propertyName !== 'height') return;
+      clear();
+      body.removeEventListener('transitionend', te);
+    });
+  }
+  // Veksle lukketilstand + lagre. Tillates alltid (en visnings-preferanse); for et
+  // frosset (låst av andre) kort skrives den ikke — serveren ville avvist innholds-
+  // endringen — men den lokale visningen veksler uansett.
+  function toggleCardCollapsed(el, cardData) {
+    const nowCollapsed = !el.classList.contains('collapsed');
+    if (nowCollapsed) collapseCardBody(el, true); else expandCardBody(el, true);
+    cardData.collapsed = nowCollapsed;
+    if (!frozen(cardData)) { stampContent(cardData); save(); }
   }
 
   // Bygg ett kort på nytt i DOM (etter element-endringer: slett/gjenopprett/tøm).
@@ -1952,18 +2029,22 @@
   }
 
   /* ------- Felles start / bevegelse / slutt ------- */
-  /* ---------------- Trykk-og-hold → dra-og-slipp ----------------
-     Dra-håndtakene er fjernet. I stedet inviteres draging ved å trykke og holde
-     (HOLD_MS) på objektets navn-/tittelsone — men ikke på knappene (`except`-
-     selektoren). Et kort trykk gjør fortsatt det klikket pleide (omdøp/bytt/kryss
-     av); et fullført hold løfter objektet. Beveger pekeren seg mer enn HOLD_MOVE
-     px før holdet er fullført, tolkes det som scrolling/sveip og holdet avbrytes
-     (siden scroller da nativt — sonene beholder normal `touch-action`). Ved et
-     fullført hold undertrykkes det påfølgende klikket så det ikke også omdøper.
+  /* ---------------- Trykk-og-hold / dra → dra-og-slipp ----------------
+     Dra-håndtakene er fjernet. Draging inviteres på objektets navn-/tittelsone
+     (ikke på knappene, `except`-selektoren). To modi etter inn-enhet:
+     - **Touch/pen (mobil)**: trykk og HOLD (HOLD_MS) løfter objektet. Beveger
+       fingeren seg mer enn HOLD_MOVE px før holdet er fullført, tolkes det som
+       scroll/sveip og holdet avbrytes (siden scroller da nativt). Nødvendig for
+       å skille draging fra scrolling på en berøringsskjerm.
+     - **Mus (desktop)**: INGEN delay — draget starter idet pekeren beveger seg
+       forbi HOLD_MOVE px med knappen nede (klassisk desktop-drag). På desktop er
+       det ingen konflikt mellom scroll og drag, så et hold trengs ikke.
+     Et rent klikk (ingen bevegelse) gjør fortsatt det klikket pleide (omdøp/
+     bytt/kryss/kollaps); et fullført drag undertrykker det påfølgende klikket.
      `startDrag` er den vanlige peker-drag-starteren; vi gir den et syntetisk
-     event med pekerinfoen fra pointerdown (fingeren er fortsatt nede når timeren
-     løser ut, så pointerId-en er aktiv → setPointerCapture i beginDragCommon
-     virker på `dragEl`). */
+     event med pekerinfoen fra pointerdown (knappen er fortsatt nede, så
+     pointerId-en er aktiv → setPointerCapture i beginDragCommon virker på
+     `dragEl`). */
   const HOLD_MS = 200;
   const HOLD_MOVE = 10;
   // Interaktive/redigerbare etterkommere som ALDRI skal starte et drag, selv om
@@ -1973,7 +2054,7 @@
   // hurtigredigerings-knapper — et tregt trykk skal åpne dem, ikke løfte kortet).
   const HOLD_SKIP = '.edit-input, .meta-chip';
   function attachHoldDrag(zone, dragEl, startDrag, canDrag, except) {
-    let timer = null, held = false, sx = 0, sy = 0, pid = null;
+    let timer = null, held = false, sx = 0, sy = 0, pid = null, mouse = false;
     function disarm() {
       if (timer) { clearTimeout(timer); timer = null; }
       dragEl.classList.remove('drag-hold');
@@ -1981,9 +2062,22 @@
       window.removeEventListener('pointerup', onUp);
       window.removeEventListener('pointercancel', onUp);
     }
+    function startNow() {
+      disarm();
+      // En synk-rebuild kan ha byttet ut noden mens man holdt/trykket → ikke start
+      // et drag på en frakoblet node (peker-lytterne sitter på den nye noden).
+      if (!dragEl.isConnected) return;
+      held = true;
+      startDrag({ button: 0, clientX: sx, clientY: sy, pointerId: pid,
+        target: dragEl, preventDefault() {} }, dragEl);
+    }
     function onMove(ev) {
       if (ev.pointerId !== pid) return;
-      if (Math.abs(ev.clientX - sx) > HOLD_MOVE || Math.abs(ev.clientY - sy) > HOLD_MOVE) disarm();
+      const moved = Math.abs(ev.clientX - sx) > HOLD_MOVE || Math.abs(ev.clientY - sy) > HOLD_MOVE;
+      if (!moved) return;
+      // Mus: bevegelse forbi terskelen STARTER draget (ingen delay). Touch/pen:
+      // bevegelse FØR holdet er fullført = scroll/sveip → avbryt.
+      if (mouse) startNow(); else disarm();
     }
     function onUp(ev) { if (ev.pointerId === pid) disarm(); }
     zone.addEventListener('pointerdown', (ev) => {
@@ -1992,33 +2086,25 @@
       if (!canDrag()) return;
       if (ev.target.closest(HOLD_SKIP)) return;
       if (except && ev.target.closest(except)) return;
-      ev.preventDefault(); // ingen tekstmarkering/fokus mens man holder
+      ev.preventDefault(); // ingen tekstmarkering/fokus mens man holder/drar
       sx = ev.clientX; sy = ev.clientY; pid = ev.pointerId;
-      dragEl.classList.add('drag-hold');
-      // Lytt på WINDOW (ikke bare zone): før holdet er ferdig har vi ikke fanget
-      // pekeren, så flyttes/slippes den UTENFOR sonen ville zone-lytterne aldri
-      // fyre — og timeren startet et drag etter at knappen alt var sluppet
-      // (kortet ble hengende i `.dragging`). Fjernes idet holdet avbrytes/utløser.
+      mouse = ev.pointerType === 'mouse';
+      // Press-feedback (scale) kun på touch/pen der holdet faktisk tar tid; på
+      // mus starter draget umiddelbart på bevegelse, så et press-blink ved hvert
+      // klikk ville bare distrahert.
+      if (!mouse) dragEl.classList.add('drag-hold');
+      // Lytt på WINDOW (ikke bare zone): før draget er fanget kan pekeren flyttes/
+      // slippes UTENFOR sonen; da ville zone-lyttere aldri fyre og timeren startet
+      // et drag etter at knappen alt var sluppet. Fjernes idet draget starter/avbrytes.
       window.addEventListener('pointermove', onMove);
       window.addEventListener('pointerup', onUp);
       window.addEventListener('pointercancel', onUp);
-      timer = setTimeout(() => {
-        timer = null;
-        window.removeEventListener('pointermove', onMove);
-        window.removeEventListener('pointerup', onUp);
-        window.removeEventListener('pointercancel', onUp);
-        dragEl.classList.remove('drag-hold');
-        // En synk-rebuild kan ha byttet ut noden mens man holdt → ikke start et
-        // drag på en frakoblet node (peker-lytterne sitter på den nye noden).
-        if (!dragEl.isConnected) return;
-        held = true;
-        startDrag({ button: 0, clientX: sx, clientY: sy, pointerId: pid,
-          target: dragEl, preventDefault() {} }, dragEl);
-      }, HOLD_MS);
+      // Touch/pen: hold-timer. Mus: ingen timer — onMove starter draget på bevegelse.
+      if (!mouse) timer = setTimeout(() => { timer = null; startNow(); }, HOLD_MS);
     });
-    // Undertrykk klikket (omdøp/bytt/kryss) som ellers ville fulgt et fullført
-    // hold. Capture + stopImmediatePropagation stopper også lyttere på samme
-    // element (f.eks. rad-aktivering på gruppe-/univers-radene).
+    // Undertrykk klikket (omdøp/bytt/kryss/kollaps) som ellers ville fulgt et
+    // fullført drag. Capture + stopImmediatePropagation stopper også lyttere på
+    // samme element (f.eks. rad-aktivering på gruppe-/univers-radene).
     zone.addEventListener('click', (ev) => {
       if (held) { ev.stopImmediatePropagation(); ev.preventDefault(); held = false; }
     }, true);
@@ -2256,10 +2342,48 @@
     drag.ph = ph;
 
     liftElement();
+    // Kollaps ALLE lister (den dratte + de andre) mens draget pågår → kortere
+    // avstand å dra. Tilstanden gjenopprettes ved slipp (fra `card.collapsed`).
+    // Måles FØR rotasjonen settes (en rotert boks ville blåst opp høyden).
+    collapseCardsForDrag(drag.el, ph);
     drag.el.style.transform = `rotate(${cardRotation()}deg) scale(1.02)`;
     window.addEventListener('pointermove', onCardMove);
     window.addEventListener('pointerup', onCardUp);
     window.addEventListener('pointercancel', onCardUp);
+  }
+
+  /* ------- Midlertidig kollaps av alle lister under et liste-drag -------
+     Den dratte lista følger den kollapsende body-en (ingen fast høyde, som
+     liftCategory); placeholderen krymper i takt (mirror av collapseCategory).
+     De andre listene kollapser body-en sin animert → board-et blir kompakt, så
+     man ikke trenger dra langt for å omrokkere. `card.collapsed` røres ikke, så
+     `restoreCardsAfterDrag()` bare gjenoppretter den lagrede tilstanden. */
+  function collapseCardsForDrag(draggedEl, ph) {
+    const headH = draggedEl.querySelector('.card-head').getBoundingClientRect().height;
+    draggedEl.style.height = ''; // slipp fast høyde → kortet følger body-kollapsen
+    if (!draggedEl.classList.contains('collapsed')) collapseCardBody(draggedEl, true);
+    drag.height = headH; // treffdeteksjon + placeholder bruker den kollapsede boksen
+    if (prefersReducedMotion()) {
+      ph.style.height = headH + 'px';
+    } else {
+      ph.style.transition = 'height ' + CARD_COLLAPSE_MS + 'ms ease';
+      requestAnimationFrame(() => { ph.style.height = headH + 'px'; });
+    }
+    board.querySelectorAll('.card:not(.dragging)').forEach((cEl) => {
+      if (!cEl.classList.contains('collapsed')) collapseCardBody(cEl, true);
+    });
+  }
+  // Ved slipp: gjenopprett hver liste til sin lagrede lukketilstand (animert
+  // utvidelse for de som skal være åpne). Robust mot en samtidig synk-rebuild,
+  // som uansett ville bygget kortene fra `card.collapsed`.
+  function restoreCardsAfterDrag() {
+    board.querySelectorAll('.card').forEach((cEl) => {
+      const cd = findCard(cEl.dataset.id);
+      const want = cd ? !!cd.collapsed : false;
+      const isCollapsed = cEl.classList.contains('collapsed');
+      if (want && !isCollapsed) collapseCardBody(cEl, false);
+      else if (!want && isCollapsed) expandCardBody(cEl, true);
+    });
   }
 
   /* ------- Flytting av en liste til en annen gruppe -------
@@ -2454,6 +2578,7 @@
     drag.ph.remove();
     dropIntoPlaceholder(el, rot);
     finishDrag();
+    restoreCardsAfterDrag(); // fold listene tilbake til lagret lukketilstand
 
     // Ny rekkefølge: gi kortet en pos mellom DOM-naboene. Kirurgisk – kun
     // dette kortets posisjonsregister endres, så samtidige endringer på
@@ -2511,6 +2636,7 @@
     drag.ph = ph;
 
     liftElement();
+    drag.el.style.transform = `rotate(${cardRotation()}deg) scale(1.03)`; // dynamisk rotasjon (globalt)
     window.addEventListener('pointermove', onItemMove);
     window.addEventListener('pointerup', onItemUp);
     window.addEventListener('pointercancel', onItemUp);
@@ -2539,6 +2665,7 @@
     drag.lastX = ev.clientX;
     drag.lastY = ev.clientY;
     moveElement();
+    drag.el.style.transform = `rotate(${cardRotation()}deg) scale(1.03)`;
 
     const dragRect = draggedRect();
     const flipEls = [...document.querySelectorAll('.item:not(.dragging), .category:not(.dragging)')];
@@ -2631,11 +2758,12 @@
     window.removeEventListener('pointercancel', onItemUp);
 
     const el = drag.el;
+    const rot = cardRotation();
     const sourceCardId = el.closest('.card') ? el.closest('.card').dataset.id : null;
     const targetContainer = drag.ph.parentNode;
     targetContainer.insertBefore(el, drag.ph);
     drag.ph.remove();
-    dropIntoPlaceholder(el, false);
+    dropIntoPlaceholder(el, rot);
     finishDrag();
 
     const targetCardId = el.closest('.card').dataset.id;
@@ -2798,6 +2926,7 @@
     drag.ph = ph;
 
     liftCategory();
+    drag.el.style.transform = `rotate(${cardRotation()}deg) scale(1.03)`; // dynamisk rotasjon (globalt)
     collapseCategory(catEl, ph);
     window.addEventListener('pointermove', onCategoryMove);
     window.addEventListener('pointerup', onCategoryUp);
@@ -2808,6 +2937,7 @@
     drag.lastX = ev.clientX;
     drag.lastY = ev.clientY;
     moveElement();
+    drag.el.style.transform = `rotate(${cardRotation()}deg) scale(1.03)`;
     const cont = drag.card && drag.card.querySelector('.items-container');
     if (cont) placeRowPlaceholder(cont);
   }
@@ -3327,7 +3457,7 @@
     'Tips: hold inne søppelkasse-knappen og sveip mot høyre for å tømme direkte.';
   const groupWord = (n) => n + ' ' + (n === 1 ? 'gruppe' : 'grupper');
   const listWord = (n) => n + ' ' + (n === 1 ? 'liste' : 'lister');
-  const itemWord = (n) => n + ' ' + (n === 1 ? 'element' : 'elementer');
+  const itemWord = (n) => n + ' ' + (n === 1 ? 'listepunkt' : 'listepunkter');
   const uniWord = (n) => n + ' ' + (n === 1 ? 'univers' : 'universer');
 
   /* ---------- De fire søppelkassene ---------- */
@@ -3393,9 +3523,9 @@
     const cardId = cardData.id;
     const liveCard = () => { const f = findAnyById(cardId); return f && f.kind === 'card' ? f.obj : null; };
     showTrashModal({
-      title: 'Slettede elementer – ' + cardData.title,
+      title: 'Slettede listepunkter – ' + cardData.title,
       note: TRASH_NOTE,
-      emptyMsg: 'Ingen slettede elementer.',
+      emptyMsg: 'Ingen slettede listepunkter.',
       rows: () => {
         const c = liveCard();
         return c ? trashedItemsOf(c).sort(posCmp).map((it) => ({
@@ -3973,7 +4103,7 @@
     nameInput.type = 'text';
     nameInput.className = 'field settings-name-input';
     nameInput.value = isCard ? obj.title : obj.text;
-    nameInput.setAttribute('aria-label', isCard ? 'Listens navn' : isCat ? 'Kategoriens navn' : 'Elementets tekst');
+    nameInput.setAttribute('aria-label', isCard ? 'Listens navn' : isCat ? 'Kategoriens navn' : 'Listepunktets tekst');
     nameInput.disabled = !canEdit;
     nameInput.addEventListener('input', () => {
       const live = settingsTarget();
@@ -4200,7 +4330,7 @@
       cb.checked = !!t0.obj.lockTimes;
       cb.disabled = !canEdit;
       const txt = document.createElement('span');
-      txt.textContent = isCat ? 'Lås tidene til elementene i kategorien' : 'Lås tidene også til elementene i listen';
+      txt.textContent = isCat ? 'Lås tidene til listepunktene i kategorien' : 'Lås tidene også til listepunktene i listen';
       lockLabel.append(cb, txt);
       cb.addEventListener('change', () => {
         const t = getTarget();
@@ -4293,28 +4423,32 @@
     uCountEl.innerHTML = ICONS.folder + '<span>' + uGroupN + '</span>';
     uCountEl.title = groupWord(uGroupN);
 
-    // Bytt til universet (og lukk modalen — man bytter kontekst og går videre);
-    // er det allerede aktivt → rediger navnet (samme mønster som gruppe-radene).
-    const activate = () => {
+    // Klikk på TITTELEN = rediger navnet (uansett om universet er aktivt eller
+    // ikke); klikk ELLERS på raden = bytt univers og lukk modalen. (Før navigerte
+    // et klikk på et annet universs navn dit i stedet for å redigere.)
+    const navigate = () => {
       if (nameEl.dataset.editing === '1') return;
       if (u.id !== state.activeUniverse) {
         setActiveUniverse(u.id);
         render();
         save();
-        closeUniModal();
-      } else if (uCanEdit) {
-        startUniverseRename(nameEl, u);
       }
+      closeUniModal(); // bytt kontekst og gå (allerede aktivt → bare lukk)
     };
     el.addEventListener('click', (ev) => {
-      if (ev.target.closest('.uni-delete')) return;
-      activate();
+      if (ev.target.closest('.uni-delete') || ev.target.closest('.edit-input')) return;
+      if (uCanEdit && ev.target.closest('.uni-name')) { startUniverseRename(nameEl, u); return; }
+      navigate();
     });
+    // Tastatur: raden er eneste fokuserbare punkt (tittelen er ikke fokuserbar),
+    // så Enter/Mellomrom redigerer navnet når universet ALLEREDE er aktivt (behold
+    // en tastatur-vei til omdøping); ellers bytter det univers.
     el.addEventListener('keydown', (ev) => {
       if (ev.target !== el) return;
       if (ev.key === 'Enter' || ev.key === ' ' || ev.key === 'Spacebar') {
         ev.preventDefault();
-        activate();
+        if (uCanEdit && u.id === state.activeUniverse) startUniverseRename(nameEl, u);
+        else navigate();
       }
     });
     const uDelBtn = el.querySelector('.uni-delete');
@@ -4439,6 +4573,7 @@
       k: c.k !== false, p: c.p !== false,
       responsible: c.responsible || null,
       start: c.start || null, due: c.due || null, lockTimes: !!c.lockTimes,
+      collapsed: !!c.collapsed,
       ts: c.ts || 0, org: c.org || '',
       labTs: c.labTs || 0, labOrg: c.labOrg || '',
       pos: c.pos || 0, posTs: c.posTs || 0, posOrg: c.posOrg || '',
@@ -4516,6 +4651,7 @@
       k: labw.k !== false, p: labw.p !== false,
       responsible: content.responsible || null,
       start: content.start || null, due: content.due || null, lockTimes: !!content.lockTimes,
+      collapsed: !!content.collapsed,
       ts: content.ts || 0, org: content.org || '',
       labTs: labw.labTs || 0, labOrg: labw.labOrg || '',
       pos: posw.pos || 0, posTs: posw.posTs || 0, posOrg: posw.posOrg || '',
@@ -4909,6 +5045,7 @@
         title: o.title, group: c.parent, k: o.k !== false, p: o.p !== false,
         responsible: o.responsible || null,
         start: o.start || null, due: o.due || null, lockTimes: !!o.lockTimes,
+        collapsed: !!o.collapsed,
         labTs: o.labTs || 0, labOrg: o.labOrg || '',
       });
     }
@@ -5063,7 +5200,8 @@
     if (t === 'card') return Object.assign(base, { title: row.title || '', group_id: row.group,
       k: row.k !== false, p: row.p !== false, lab_ts: row.labTs || 0, lab_org: row.labOrg || '',
       responsible: row.responsible || null,
-      start_at: row.start || null, due_at: row.due || null, lock_times: !!row.lockTimes });
+      start_at: row.start || null, due_at: row.due || null, lock_times: !!row.lockTimes,
+      collapsed: !!row.collapsed });
     return Object.assign(base, { text: row.text || '', card_id: row.home, cat_id: row.cat || null,
       is_cat: !!row.isCat, lock_times: !!row.lockTimes, done: !!row.done,
       responsible: row.responsible || null,
@@ -5077,7 +5215,8 @@
     if (t === 'card') return Object.assign(base, { title: row.title || '', group_id: row.group,
       k: row.k !== false, p: row.p !== false, lab_ts: row.labTs || 0, lab_org: row.labOrg || '',
       responsible: row.responsible || null,
-      start_at: row.start || null, due_at: row.due || null, lock_times: !!row.lockTimes });
+      start_at: row.start || null, due_at: row.due || null, lock_times: !!row.lockTimes,
+      collapsed: !!row.collapsed });
     return Object.assign(base, { text: row.text || '', card_id: row.home, cat_id: row.cat || null,
       is_cat: !!row.isCat, lock_times: !!row.lockTimes, done: !!row.done,
       responsible: row.responsible || null,

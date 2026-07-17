@@ -1,4 +1,4 @@
-# Søppelkasser (universer / grupper / lister / elementer)
+# Søppelkasser (universer / grupper / lister / listepunkter)
 
 Les denne når oppgaven berører sletting, gjenoppretting, eller tømming på et
 hvilket som helst av de fire nivåene.
@@ -9,12 +9,12 @@ grå sirkel) og samme oppførsel; **alle vises kun når de har innhold** (`hidde
 - **Universer**: i univers-modalen, ved siden av «＋ [univers-ikon]».
 - **Grupper**: i gruppe-modalens knapperad (per aktivt univers).
 - **Lister**: i toppmenyens listefunksjons-rad (per aktiv gruppe).
-- **Elementer**: midtstilt nederst i hvert listekort (`ICONS.trash`, samme
+- **Listepunkter**: midtstilt nederst i hvert listekort (`ICONS.trash`, samme
   SVG som de statiske knappene — aldri emoji).
 
 ## Slette-animasjonen («pakk sammen og fly i søpla»)
 
-Når et objekt slettes (element/liste/gruppe/univers) kjøres `ghostFrom` +
+Når et objekt slettes (listepunkt/liste/gruppe/univers) kjøres `ghostFrom` +
 `flyGhost` (app.js): en klone av DOM-elementet tas FØR re-render, deretter
 oppdateres state og `render()`/`refreshCard()` kjøres — slik at søppelkasse-
 knappen **finnes/er synlig FØR animasjonen starter** — og til slutt animeres
@@ -61,7 +61,7 @@ bygget treet på nytt) og dermed ikke virket før noen sekunder hadde gått.
 
 - Slettes flere objekter av **samme** kategori mens toasten er åpen, **slås de
   sammen** (`deleteToast.ids`) og timeren startes på nytt — meldingen blir
-  «Slettet N elementer/lister/grupper/universer», og én «Angre» angrer alle.
+  «Slettet N listepunkter/lister/grupper/universer», og én «Angre» angrer alle.
 - Slettes et objekt av en **annen** kategori, antas den forrige toasten
   unødvendig: den forrige gruppen **committes straks**, og en fersk toast
   starter for den nye kategorien.
@@ -79,7 +79,7 @@ aldri referansen som ble sendt inn (se «Foreldede referanser i modalen» under)
 Sveipefeltets tekst er «Tøm» + en pil som fyller resten av feltet (symmetrisk
 padding, satt i JS).
 
-### Foreldede referanser i modalen (element-søppelkassen)
+### Foreldede referanser i modalen (listepunkt-søppelkassen)
 
 Søppel-modalen kan stå åpen mens synken bygger hele state-treet på nytt
 (`applyDoc`/`applyMyDoc` gjør `state.universes = [...ferske objekter]` hver
@@ -88,23 +88,23 @@ fanget objekt-referanse fra da modalen ble åpnet, foreldreløs.
 
 De tre andre søppelkassene (`openUniversesTrash`/`openGroupsTrash`/
 `openCardsTrash`) leser allerede ferskt fra `state` i hver `rows()`-kall
-(`trashedUniverses()`/`trashedGroups()`/`trashedCards()`). **Element-modalen
+(`trashedUniverses()`/`trashedGroups()`/`trashedCards()`). **Listepunkt-modalen
 (`openItemsTrash`) gjorde det ikke** — den fanget `cardData` én gang og lot
 `rows()` lese `trashedItemsOf(cardData)` fra den. Etter en tre-rebuild pekte
-den på et foreldreløst kort, som ga to symptomer (kun elementer, ikke grupper/
+den på et foreldreløst kort, som ga to symptomer (kun listepunkter, ikke grupper/
 universer):
 
-1. **Spinner som aldri ga seg**: åpnet man modalen rett etter en element-
+1. **Spinner som aldri ga seg**: åpnet man modalen rett etter en listepunkt-
    sletting og en rebuild traff mens den sto åpen, ryddet commit `_pendingDelete`
    på det LEVENDE objektet, mens modalens foreldreløse kort beholdt flagget →
    spinner for alltid, «Tøm permanent» aldri aktiv.
 2. **«Gjenopprett» som ikke festet seg**: klikket satte `trashed = false` på den
-   foreldreløse kopien → modalen så tom ut, men det levende treet hadde elementet
+   foreldreløse kopien → modalen så tom ut, men det levende treet hadde listepunktet
    fortsatt slettet; ved neste åpning var det der igjen.
 
 Fiks: `openItemsTrash` slår opp kortet på nytt via `findAnyById(cardId)` i hver
 `rows()`/`empty()`-kall (som de andre gjør mot `state`), og `restore` går via
-`restoreItem(it)` som re-slår opp elementet på id. Restore-hjelperne for alle
+`restoreItem(it)` som re-slår opp listepunktet på id. Restore-hjelperne for alle
 fire nivåene er samtidig gjort id-baserte, så samme klasse feil ikke kan ramme
 gruppe-/univers-gjenoppretting hvis en rebuild treffer mellom render og klikk.
 
@@ -121,7 +121,7 @@ der knappens ikon står — samme visuelle størrelse) mens selve knappen skjule
 utvider seg, ikke som en popover. Venstre kant og høyde ligger fast (ingen
 vertikal asymmetri). Sveip helt til høyre roterer ikonet opp-ned og **tømmer**
 (rist 500 ms, kollaps tilbake til knappebredden før knappen tar over igjen);
-slipp før enden = avbryt + kollaps. Feltet er ETT delt element — eierskap og
+slipp før enden = avbryt + kollaps. Feltet er ETT delt listepunkt — eierskap og
 kollaps-timer er delt (`swipeOwnerBtn`/`swipeCollapseTimer`) så en ventende
 kollaps fra én knapp aldri skjuler feltet for en annen.
 
@@ -147,7 +147,7 @@ transform-origin (hengselet 4.5,7.5) og `SWIPE_ICON_BOX` på nytt. Ikke fjern
 tilsvarende.
 
 Tømming setter **gravsteiner** rekursivt (univers → grupper → lister →
-elementer: `emptyUniversesTrash`/`emptyGroupsTrash`/`emptyCardsTrash`/
+listepunkter: `emptyUniversesTrash`/`emptyGroupsTrash`/`emptyCardsTrash`/
 `emptyItemsTrash`). Destruktivt er alltid reversibelt frem til tømming. På
 serveren skriver AFTER DELETE-triggere gravsteiner (`tombstones`-tabellen) som
 hindrer at en offline klient gjenoppliver et slettet objekt — se
@@ -158,7 +158,7 @@ sekunder»).
 
 ## Feltet henger igjen hvis knappen forsvinner midt i et sveip
 
-Element-søppelknappen bygges på nytt hver gang kortet re-renders
+Listepunkt-søppelknappen bygges på nytt hver gang kortet re-renders
 (`buildCard`/`refreshCard`, f.eks. via en synk-oppdatering mens brukeren
 holder inne). Da fjernes DEN GAMLE knapp-DOM-noden midt i gesten, og
 pekerfangsten (`setPointerCapture`) frigis implisitt — men verken
@@ -167,7 +167,7 @@ kun `lostpointercapture`, og den leveres på `document` (ikke på selve
 knappen). `attachTrashHold` lytter derfor på `document` i fangst-fasen,
 filtrert på `pointerId`, koblet til/fra PER TRYKK (ikke i selve
 `attachTrashHold`-oppsettet) — ellers ville hver kort-ombygging lagt igjen en
-varig `document`-lytter (én per element-søppelknapp som noensinne bygges).
+varig `document`-lytter (én per listepunkt-søppelknapp som noensinne bygges).
 
 ## Tømming venter aldri på bufferet
 

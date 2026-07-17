@@ -1,17 +1,17 @@
 # Designsystem og UX-prinsipper
 
 Les denne når oppgaven berører `styles.css`, nye kontroller/knapper, eller
-visuell konsistens på tvers av nivåer (univers/gruppe/liste/element).
+visuell konsistens på tvers av nivåer (univers/gruppe/liste/listepunkt).
 
 Appen skal føles **visuelt ryddig, konsistent og forutsigbar**.
 
 ## Typografi og skala
 
 Fonten er **Atkinson Hyperlegible Next** (Google Fonts, lastet i index.html) —
-valgt for lesbarhet/tilgjengelighet. Alle synlige elementer (tekst, ikoner,
+valgt for lesbarhet/tilgjengelighet. Alle synlige listepunkter (tekst, ikoner,
 knapper, kontroller) er skalert opp ~30 % i forhold til det opprinnelige
 designet, mens padding/margin/gap IKKE er skalert tilsvarende — bevisst valg:
-større, mer lesbare og lettere treffbare elementer i et fortsatt kompakt UI.
+større, mer lesbare og lettere treffbare listepunkter i et fortsatt kompakt UI.
 
 Univers-rader, gruppe-rader og listekort har **identisk tittel-typografi**
 (20px/600: `.chip-name` og `.card-title`) og identisk størrelse på ekvivalente
@@ -36,16 +36,19 @@ Alle knapper i samme knapperad har identisk høyde/radius/flate (`--control-h`
 
 ## Luft-regler (padding/margin/gap)
 
-- **Symmetri per element**: et element skal ha samme luft på alle kanter — én
+- **Symmetri per listepunkt**: et listepunkt skal ha samme luft på alle kanter — én
   padding-verdi, ikke ulike topp/høyre/bunn/venstre. (Full-bredde-paneler har
   symmetrisk v/h-par der siden styres av en token, f.eks. `--toolbar-pad`.)
-- **Utenfor ≥ inni**: luften rundt/mellom elementer (margin/gap) skal alltid
+- **Utenfor ≥ inni**: luften rundt/mellom listepunkter (margin/gap) skal alltid
   være minst like stor som paddingen inni dem — trangere inni enn utenfor
   oppleves harmonisk, det motsatte ikke. (F.eks. item-padding 6 / item-gap 8;
   chip-padding 6 / chip-gap 8; kort-seksjonspadding 10 / `--board-gap` ≥ 12.)
-- Listekortet er en flex-kolonne med `gap: 10px` + `padding-bottom: 10px`;
-  seksjonene (head/items/skjema/element-kurv) har 10px sidepolstring → jevn
-  10px-luft langs alle kanter inne i kortet.
+- Listekortet er en flex-kolonne: `.card-head` øverst + `.card-body` (alt annet).
+  `.card-body` bærer luften (`gap: 10px` mellom seksjonene + `padding: 10px 0`
+  topp/bunn); seksjonene (items/skjema/listepunkt-kurv) har 10px sidepolstring →
+  jevn 10px-luft langs alle kanter inne i kortet. Luften bor i body-en (ikke på
+  `.card`) så en **kollaps** (body → høyde/padding 0) gir et nøyaktig header-høyt
+  kort. Se listekollaps under.
 
 ## Ikoner (`.icon`, `icons.js`)
 
@@ -53,7 +56,7 @@ Egendefinert SVG-ikonsett, **fargelagt**: streker er SVARTE (`stroke="#111"`,
 hardkodet — IKKE lenger `currentColor`) og flater fylles med hvit + palettfarger
 der motivet tilsier det (kart under). **stroke-width 1.05** (30 % tynnere enn
 opprinnelig 1.5), viewBox 0 0 24 24, avrundede linjer/hjørner. Alle ikoner har
-klassen `.icon` (`width/height: 1em` — skalerer med `font-size` på elementet de
+klassen `.icon` (`width/height: 1em` — skalerer med `font-size` på listepunktet de
 limes inn i).
 
 **Fargekart** (fyllene er hardkodet hex som speiler palettens seks første farger,
@@ -93,7 +96,7 @@ knappene arver `.icon-btn`-fargen (`--ink-soft`).
   del-knapper, logo/brand-mark) limes rett inn som `<svg>`-markup i
   `index.html` — ingen build-steg, så det er enklest å holde dem der de brukes.
 - **Dynamiske forekomster** (delt/låst-merker, lås-knappen i del-modalen,
-  auth-heading-ikonet, sveipefelt-søppelkassen, antall-pillene, element-
+  auth-heading-ikonet, sveipefelt-søppelkassen, antall-pillene, listepunkt-
   søppelknappen, tom-tilstander) bygges fra `window.ICONS` (`icons.js`, lastet
   før `app.js`) via `el.innerHTML = ICONS.xxx`.
 - Dra-håndtakene er fjernet: draging inviteres ved trykk-og-hold på et objekts
@@ -156,7 +159,7 @@ Størrelse/form kommer fra egne klasser: `.btn` (modaler), `.btn-small`,
   antall lister), med litt avstand fra navnet.
 - Sletteknapper: felles regel (dempet ✕ → rød ved hover). På chips ligger
   **del-knappen alltid rett til venstre for ✕** (auto-margen flytter seg til
-  del-knappen når den er synlig). Element-✕ alltid synlig, dempet
+  del-knappen når den er synlig). Listepunkt-✕ alltid synlig, dempet
   (`opacity .55`).
 - Innstillings-/del-knapper: listekort har `.card-cog` (tannhjul, svakt hvit
   flate + ring, lysner ved hover) som åpner innstillingsmodalen — **deling av
@@ -166,31 +169,34 @@ Størrelse/form kommer fra egne klasser: `.btn` (modaler), `.btn-small`,
   deler det AKTIVE universet/gruppen; flate-mønster; kun kontomodus).
   Delt-merket (`.share-badge`) brukes av gruppe-/univers-chips; listekortets
   delt-status vises som chip i meta-raden (`docs/scheduling.md`).
-- Draging (ingen håndtak): trykk-og-hold på et objekts navn-/tittelsone løfter
-  det (`attachHoldDrag`); under holdet får `dragEl` et lite scale-press
-  (`.drag-hold`). Se `docs/drag-and-drop.md` for soner/unntak og mekanikk.
+- Draging (ingen håndtak): på et objekts navn-/tittelsone (`attachHoldDrag`). På
+  **touch** løftes det med trykk-og-hold (200 ms; press-scale `.drag-hold`); på
+  **mus/desktop** starter draget umiddelbart på bevegelse (ingen delay). **Cursor:**
+  listepunkt-/kategori-dra-sonene får `cursor: grab` (åpen hånd), mens univers/
+  gruppe/liste bruker `cursor: pointer` (pekende hånd — klikk er primærhandlingen).
+  Se `docs/drag-and-drop.md` for soner/unntak og mekanikk.
 - Placeholders: én delt stil for `.card-/.item-/.group-placeholder` — se
   `docs/drag-and-drop.md`. Ingen kant (kun mørknet flate + innover-skygge);
   den stiplede kanten er fjernet.
 - `.add-item-input`: ingen synlig kant i hvile (`border: 1.5px solid
   transparent` — usynlig, men holder boksens bredde stabil via
   `box-sizing: border-box`) og dempet (`opacity: 0.62`) så den tydelig skiller
-  seg fra de eksisterende elementene. Fokus gir full opacity + synlig kant
+  seg fra de eksisterende listepunktene. Fokus gir full opacity + synlig kant
   (`--card-accent`), som før.
 - `.add-item-btn` (grønn ＋) og `.add-cat-btn` (gul, kategori-ikon):
   begge er **disablet (`opacity: .45`)** når feltet er tomt (`syncAddBtn`
   toggler `disabled` på begge ved input-event) — ingen hover-oppløfting da.
-  ＋ legger til et element (`type=submit`); kategori-knappen (`type=button`,
+  ＋ legger til et listepunkt (`type=submit`); kategori-knappen (`type=button`,
   til høyre for ＋) oppretter i stedet en kategori med det innskrevne navnet.
   Kategori-knappens ikon er `ICONS.category`-tegningen limt inn direkte i
   `index.html` med `stroke/fill="currentColor"` (hvit på gul flate — samme
   unntak som utloggings-ikonet). Begge de kvadratiske icon-only-knappene
-  (element-＋ og kategori) bærer store, tydelige ikoner: `.btn-add.icon-only
+  (listepunkt-＋ og kategori) bærer store, tydelige ikoner: `.btn-add.icon-only
   .icon` settes til **34px** for begge, så ＋-en er like stor som kategori-ikonet
   (kategori-motivet — klammer/prikker/linjer — trenger størrelsen for å lese
   tydelig, og ＋-en matcher det).
 - **Delt ＋-ikon** (`ICONS.plus`, samt inline-kopier i `index.html`): ALLE
-  «legg til»-knappene (element/liste/gruppe/univers) bruker nå samme SVG-tegnede
+  «legg til»-knappene (listepunkt/liste/gruppe/univers) bruker nå samme SVG-tegnede
   ＋ (to rette streker, `stroke-width="1.05"`, runde ender, `currentColor`) i
   stedet for tekst-glyfen ＋ — som har annen linjestil/tykkelse enn resten av
   ikonsettet og dermed brøt den ellers konsekvente streken. De tekst+ikon-
@@ -200,8 +206,8 @@ Størrelse/form kommer fra egne klasser: `.btn` (modaler), `.btn-small`,
   `.cat-dissolve` / `.cat-items`): en nivå-1-rad med en header (tittel/meta +
   tannhjul + oppløs-knapp) over en nøstet elementliste. Overskriftslinjen (unntatt
   de to knappene) er trykk-og-hold-sonen for kategori-draging. Kondensert:
-  samme 8px-luft som mellom elementer, både over overskriften og mellom
-  overskriften og elementene (`.category` gap 8px; `.cat-items` uten vertikal
+  samme 8px-luft som mellom listepunkter, både over overskriften og mellom
+  overskriften og listepunktene (`.category` gap 8px; `.cat-items` uten vertikal
   padding). `.cat-title` er **hvit m/ tekst-skygge** (som `.card-title`) —
   lesbar på enhver listefarge. `.cat-cog`/`.cat-dissolve` bruker den **hvite
   flate-knappestilen fra `.card-cog`** (svakt hvit flate + ring, lysner ved
@@ -212,15 +218,15 @@ Størrelse/form kommer fra egne klasser: `.btn` (modaler), `.btn-small`,
   felles kolonner. **«Hylle i veggen»-metafor:** overskriften står på veggen
   (listeflaten), og `.cat-items` er en **fordypning** rett under (4px gap) — litt
   mørkere flate (`rgba(0,0,0,.1)`) + innover-skygge (`inset box-shadow`) + stort
-  venstre-innrykk, så elementene blir som «bøker» i en hylle som går inn i veggen
+  venstre-innrykk, så listepunktene blir som «bøker» i en hylle som går inn i veggen
   (dette erstattet den tidligere grupperingsstreken). `.category.dragging` er et
   løftet, hvitt chip UTEN fast høyde (følger den kollapsende `.cat-items`-høyden
   under draging — se `docs/drag-and-drop.md`). Subtile skillelinjer
   (`rgba(0,0,0,.15)`) rammer en kategori mot nabo-radene på nivå 1: **under**
-  kategorien (`.category:not(:last-child)::after`) mot det påfølgende elementet/
+  kategorien (`.category:not(:last-child)::after`) mot det påfølgende listepunktet/
   kategorien — men **ikke** når kategorien er siste rad (`:not(:last-child)`
   følger DOM-rekkefølgen, item OG category som søsken); og **over** kategorien
-  (`.item + .category::before`) KUN når raden over er et element. To kategorier
+  (`.item + .category::before`) KUN når raden over er et listepunkt. To kategorier
   på rad får dermed ingen ekstra linje mellom seg utover ::after-en fra den
   øverste. Linjene går **kant-til-kant** (negativ sidemargin `-10px` kansellerer
   `.items-container`s 10px sidepolstring) med **lik luft over og under (16px)**
@@ -228,21 +234,42 @@ Størrelse/form kommer fra egne klasser: `.btn` (modaler), `.btn-small`,
   kompenserer for forskjellige omkringliggende flex-gap (`.category`s 4px
   topp/bunn vs. `.items-container`s 8px mellom rader), men summerer til samme
   16px på begge sider.
+- **Tittel-redigering (global affordans)**: klikk på en tittel starter inline
+  omdøping på ALLE objekt-typer. To delte signaler, likt overalt: (1) klikkflaten
+  følger teksten (`align-self: flex-start`) — kun tittelen, ikke hele raden,
+  redigerer (gjaldt før bare `.card-title`/`.cat-title`; nå også `.item-text`); og
+  (2) en **hover-effekt** som mørkner bakgrunnen bak tittelen (`background:
+  rgba(0,0,0,.12)` på `.card-title`/`.cat-title`/`.item-text`/`.uni-name`/
+  `.group-name` ved hover) — når man ser den, vet man at klikk redigerer.
+- **Listekollaps (rullgardin)**: klikk på korthodet (`.card-head`, ikke på
+  tittel/tannhjul/×/meta-chip) folder `.card-body` sammen med en høyde/opacity/
+  padding-animasjon (`collapseCardBody`/`expandCardBody`, samme mekanikk som
+  kategorienes `.cat-items`). Kortet blir da nøyaktig header-høyt, og kortets
+  `overflow: hidden` + `border-radius` runder alle fire hjørnene — også nederst på
+  headeren. `overflow` settes KUN inline mens/når kollapset (et permanent
+  `overflow:hidden` ville klippet et løftet listepunkt under draging). Lukke-
+  tilstanden (`card.collapsed`) lagres i DB (`docs/data-model.md`), og alle lister
+  kollapser midlertidig mens en liste dras (`docs/drag-and-drop.md`).
+- **Univers-/gruppe-chips i modalene** (`.uni-row`/`.modal-list .group-card`):
+  slett-✕ ligger i en 36px `.icon-btn` helt til høyre, så det sentrerte ikonet
+  står lengre fra kanten enn tittelen gjør til venstre. `padding-left: calc(6px +
+  (36px - var(--fs-base)) / 2)` legger samme luft til venstre → lik TILSYNELATENDE
+  padding på begge sider (`--fs-base` = ikonstørrelsen, 36px = knappebredden).
 - `.field`: felles tekstfelt (auth-input + inviter-input) — solid kant, myk
   bakgrunn, grønn fokus-ring. Nye felt trenger bare klassen `.field`.
 - `.account-avatar` / `.member-avatar`: felles avatar-form (rund, sentrert hvit
   initial på gradient) via delt selektor; størrelse/farge per bruk. Initialene
   kommer fra `display_name` (`initialsFromName`) — se `docs/accounts.md`.
 - `.item-cog` / `.card-cog`: tannhjul-knappene som åpner innstillingsmodalen
-  (element: dempet ikon ved slette-✕; liste: flate-knapp i kort-headeren).
+  (listepunkt: dempet ikon ved slette-✕; liste: flate-knapp i kort-headeren).
   `.meta-row` + `.meta-chip`: indikator-chipene under navnet (delt/ansvarlig/
   start/frist — status-farger via `--grad-*`). `.resp-avatar` / `.resp-row`:
   ansvarlig-sirkler og velger-rader; sirkelfargen settes inline fra paletten
   (`colorForIndex`, personens alfabetiske plass i delegruppen). Se
   `docs/scheduling.md` og `docs/accounts.md`.
-- `.item-check`: avkryssingsboks på elementer — rund-firkantet boks, grønt
+- `.item-check`: avkryssingsboks på listepunkter — rund-firkantet boks, grønt
   hake-fyll (`.item.done`) + gjennomstreket tekst + lavere bakgrunn. Avkryssede
-  elementer flyttes med FLIP til en egen **«Utført»-seksjon** (`.items-done`,
+  listepunkter flyttes med FLIP til en egen **«Utført»-seksjon** (`.items-done`,
   skilt med `.done-divider`) nederst i kortet; `done` er datamodell (se
   `docs/data-model.md`). Avkryssede rader kan ikke dras (`canDrag` gater på `done`).
 - Ingen lasteindikatorer/spinnere: operasjoner utføres optimistisk og

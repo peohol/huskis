@@ -291,8 +291,14 @@ body {
 .chip-count .icon { font-size: var(--fs-xs); }
 .chip.active .chip-count { opacity: 1; }
 
-/* Univers-/gruppe-rader (i sine modaler): chip med håndtak, full bredde. */
-.uni-row, .modal-list .group-card { width: 100%; }
+/* Univers-/gruppe-rader (i sine modaler): full bredde. Slett-✕ ligger i en 36px
+   .icon-btn helt til høyre; ikonet (1em) er sentrert, så det står ~(36−1em)/2 fra
+   høyre kant — mer luft enn tittelen har til venstre. Legg samme mengde til
+   padding-left så den TILSYNELATENDE paddingen blir lik på begge sider. */
+.uni-row, .modal-list .group-card {
+  width: 100%;
+  padding-left: calc(6px + (36px - var(--fs-base)) / 2);
+}
 .uni-row .chip-name, .modal-list .group-card .chip-name { min-width: 0; }
 .uni-empty {
   margin: 2px 0;
@@ -745,10 +751,8 @@ body {
   page-break-inside: avoid;
   display: flex;
   flex-direction: column;
-  gap: 10px;
   width: 100%;
   margin: 0 0 var(--board-gap);
-  padding-bottom: 10px;
   border-radius: var(--radius);
   background: var(--card-bg);
   box-shadow: var(--shadow-sm);
@@ -764,6 +768,19 @@ body {
   gap: 6px;
   padding: 10px;
   background: var(--card-head);
+  cursor: pointer;             /* klikk = kollaps/utvid (pekende hånd som univers/gruppe) */
+}
+
+/* Alt under headeren: kollapser som en rullgardin (samme mønster som .cat-items).
+   Luften som lå på .card (10px gap + padding-bottom) bor nå her, så et kollapset
+   kort blir nøyaktig header-høyt — kortets overflow:hidden + border-radius runder
+   da alle fire hjørnene, også nederst på headeren. Ingen fast overflow: den settes
+   kun inline mens kollapsen animerer (ellers ville et løftet element bli klippet). */
+.card-body {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 10px 0;
 }
 
 /* Tittel + meta-rad stables i en kolonne som tar resten av bredden. */
@@ -789,7 +806,15 @@ body {
   align-self: flex-start;      /* klikkflaten følger teksten, ikke hele raden */
   transition: background 0.15s;
 }
-.card-title:hover { background: rgba(0, 0, 0, 0.12); }
+/* Tittel-hover (globalt redigerbarhets-signal): bakgrunnen bak tittelen mørkner
+   når man hoverer den, så det er tydelig at et klikk starter navneredigering.
+   Gjelder ALLE objekttyper — liste, kategori, element, univers og gruppe — så
+   affordansen er den samme overalt i appen. */
+.card-title:hover,
+.cat-title:hover,
+.item-text:hover,
+.uni-row .uni-name:hover,
+.group-card .group-name:hover { background: rgba(0, 0, 0, 0.12); }
 
 /* ---------------- Items ---------------- */
 .items-container {
@@ -904,6 +929,7 @@ body {
   border-radius: 6px;
   word-break: break-word;
   min-height: 26px;
+  align-self: flex-start;      /* klikkflaten (redigering) følger teksten, ikke hele radbredden — som .card-title/.cat-title */
 }
 /* Gjort element: lavere bakgrunns-opacity + gjennomstreket, dempet tekst.
    Avkryssede dras ikke (de ligger i «Utført») — attachHoldDrag gater på done. */
@@ -997,7 +1023,6 @@ body {
   align-self: flex-start;
   letter-spacing: 0.01em;
 }
-.cat-title:hover { background: rgba(0, 0, 0, 0.12); }
 
 /* Tannhjul + oppløs-knapp: samme hvite flate-knapp som .card-cog (svakt hvit
    flate + ring, lysner ved hover) — synlige mot den fargede listeflaten og på
@@ -1085,6 +1110,15 @@ body {
 @media (prefers-reduced-motion: reduce) {
   .drag-hold { transform: none; transition: none; }
 }
+
+/* Åpen hånd (grab) på element-/kategori-dra-sonene så det er tydelig at
+   klikk-og-hold (eller klikk-og-dra på desktop) løfter objektet. Universer,
+   grupper og lister bruker i stedet pekende hånd (cursor: pointer) — der er et
+   klikk den primære handlingen. Kun på det som faktisk KAN dras: ikke låste kort,
+   ikke avkryssede elementer. Tittelen (.item-text/.cat-title) beholder tekst-
+   cursoren og knappene sin egen (mer spesifikke regler vinner). */
+.card:not(.is-locked) .item:not(.done),
+.card:not(.is-locked) .cat-head { cursor: grab; }
 
 /* ---------------- Ikon-knapper ---------------- */
 .icon-btn {

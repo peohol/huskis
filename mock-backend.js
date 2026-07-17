@@ -194,6 +194,7 @@
           trashed: !!c.trashed, locked: !!c.locked, unlocked: !!c.unlocked, k: c.k !== false, p: c.p !== false,
           responsible: c.responsible || null,
           start: c.start_at || null, due: c.due_at || null, lockTimes: !!c.lock_times,
+          collapsed: !!c.collapsed,
           labTs: c.lab_ts, labOrg: c.lab_org, ts: c.ts, org: c.org,
           pos: c.pos, posTs: c.pos_ts, posOrg: c.pos_org,
           shared: !!sharedC[c.id], mount: mountObj(m, true),
@@ -293,6 +294,7 @@
         if ('start_at' in patch) row.start_at = patch.start_at;
         if ('due_at' in patch) row.due_at = patch.due_at;
         if ('lock_times' in patch) row.lock_times = patch.lock_times;
+        if ('collapsed' in patch) row.collapsed = patch.collapsed;
         if ('is_cat' in patch) row.is_cat = patch.is_cat;
         if ('trashed' in patch && !blockTrashed) row.trashed = patch.trashed;
         row.ts = patch.ts; row.org = patch.org;
@@ -379,6 +381,7 @@
             locked: false, k: r.k !== false, p: r.p !== false, lab_ts: r.labTs || 0, lab_org: r.labOrg || '',
             responsible: r.responsible || null,
             start_at: r.start || null, due_at: r.due || null, lock_times: !!r.lockTimes,
+            collapsed: !!r.collapsed,
             ts: r.ts || 0, org: r.org || '', pos: r.pos || 0, pos_ts: r.posTs || 0, pos_org: r.posOrg || '' };
         });
         up(doc.items, 'items', function (r, id) {

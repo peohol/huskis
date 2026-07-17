@@ -57,9 +57,9 @@ Fire objekttabeller — `universes` > `groups` > `cards` (= «lister» i UI-et)
 - Id-er er `uuid` og kan genereres på klienten (`crypto.randomUUID()`)
   for offline-first-oppførsel.
 - `items.responsible` (FK til `profiles`, `on delete set null`): ansvarlig
-  bruker for et element i en delt liste. Rir på innholds-registeret (`ts`/`org`,
+  bruker for et listepunkt i en delt liste. Rir på innholds-registeret (`ts`/`org`,
   som `text`/`done`/`trashed`) — server-LWW som resten. Klienten viser/endrer
-  den kun for elementer i delt kontekst (`docs/accounts.md`).
+  den kun for listepunkter i delt kontekst (`docs/accounts.md`).
 
 ## Tilgangsmodell
 
@@ -68,14 +68,14 @@ Lesetilgang til et objekt = én av:
 1. Du eier det (`owner_id`).
 2. Du har **medlemskap** på det (direkte deling).
 3. Du har medlemskap på en **forelder** (univers-deling gir alt under;
-   gruppe-deling gir lister + elementer; liste-deling gir elementer).
+   gruppe-deling gir lister + listepunkter; liste-deling gir listepunkter).
 
 Alt håndheves med RLS-policyer bygget på `can_read_*`/`can_edit_*`
 (SECURITY DEFINER-funksjoner — ingen policy-rekursjon). `anon`-rollen har
 null tilgang til de nye tabellene; alt krever innlogget bruker.
 
 **Nedovergående deling er automatisk og additiv.** Å dele et univers deler
-*hele* universet — alle grupper/lister/elementer arver tilgangen. Man kan i
+*hele* universet — alle grupper/lister/listepunkter arver tilgangen. Man kan i
 tillegg dele et objekt lenger ned med **flere** enn forelderen er delt med (egen
 membership-rad på gruppen/listen); de nye får bare den grenen, ikke søsken. Så en
 liste kan være delt med 6 i en gruppe delt med 4 i et univers delt med 2.
@@ -108,13 +108,13 @@ Viktige egenskaper:
   det fra sitt eget syn gjøres i stedet via mounten (`membership.trashed`
   → tømming = `leave_share()`), som aldri rører innholdet.
   - Delt **univers** → mottakeren kan ikke slette universet, men kan slette
-    grupper/lister/elementer **i** det.
+    grupper/lister/listepunkter **i** det.
   - Delt **gruppe** → kan ikke slette gruppen, men kan slette lister/
-    elementer i den.
-  - Delt **liste** → kan ikke slette listen, men kan slette elementene i den.
+    listepunkter i den.
+  - Delt **liste** → kan ikke slette listen, men kan slette listepunktene i den.
 - **Sletting og gjenoppretting av delt *innhold* gjelder for alle.**
   `trashed` er et **felles** felt på selve raden, så når en mottaker legger
-  en gruppe/liste/element i søppel (eller henter den ut igjen), ser eieren
+  en gruppe/liste/listepunkt i søppel (eller henter den ut igjen), ser eieren
   og alle andre med tilgang nøyaktig samme tilstand. Det finnes ingen
   per-bruker søppelkasse for delt innhold — kun for selve mounten.
 - **Eierens sletting er reell** (trashed → tømming = hard delete med
@@ -125,7 +125,7 @@ Viktige egenskaper:
   og UI-et kan be om ny plassering.
 - Mottakere av en **direkte** deling kan ikke flytte objektets *kanoniske*
   forelder (eierens plassering) — de flytter sin egen mount. Innen et delt
-  univers/gruppe kan medlemmer derimot dra lister/elementer fritt (felles
+  univers/gruppe kan medlemmer derimot dra lister/listepunkter fritt (felles
   struktur).
 
 Håndhevingen ligger på to steder: RLS `*_delete`-policyene sperrer
