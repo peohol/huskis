@@ -231,6 +231,21 @@ kommentarer er urørt — nettopp for å skille brukerbegrepet fra det tekniske)
 Se `docs/drag-and-drop.md`, `docs/design-system.md`, `docs/data-model.md`,
 `docs/menus.md`.
 
+**DnD-fikser: kategori-utseende, auto-scroll, mobil-kollaps (siste runde)**: (1)
+Løftet kategori (`.category.dragging`) leser nå som en kompakt rad, ikke et stort
+felt — kategori-ikon (`.cat-drag-icon`) til venstre for tittelen, svart tittel
+uten skygge (var hvit-på-hvit), tannhjul/oppløs + skillelinjer skjult, høyde =
+et listepunkt (`collapseCategory` måler headeren med `offsetHeight` så dra-
+rotasjonen ikke blåser opp placeholderen). (2) Auto-scroll ved viewport-kanten
+gjelder nå listepunkter og kategorier, ikke bare lister (`windowScrollDrag()` +
+`reapplyPlacement`); kategoriens `grabY` måles fra `.cat-head`. (3) Mobil: å
+løfte en liste under en HØY liste (som kollapser) krympet board-et under scroll-
+posisjonen → nettleseren justerte scrollen brått, kortet driftet fra
+placeholderen og Chrome for Android avbrøt draget (markert tekst). Nå:
+`overflowAnchor='none'` under draget + `anchorScrollDuringCollapse` holder
+placeholderen/fingeren i ro gjennom kollapsen. Ingen DB-migrering. Se
+`docs/drag-and-drop.md` og `docs/design-system.md`.
+
 Verifisert i nettleser (Playwright) mot en hermetisk in-memory-backend
 (`mock-backend.js`, aktiveres med `?mock=1`) som etterligner Supabase-
 klienten og deler «server» mellom faner via localStorage — kjør to faner for

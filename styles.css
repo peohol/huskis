@@ -1002,6 +1002,11 @@ body {
 .category:not(:last-child)::after { margin: 12px -10px 8px; }
 .item + .category::before { margin: 8px -10px 12px; }
 .cat-head { display: flex; align-items: center; gap: 6px; padding: 0 6px; }
+/* Kategori-ikon: skjult i hvile, vist til venstre for tittelen KUN mens
+   kategorien dras (se .category.dragging). Svarte streker (ICONS.category) mot
+   den hvite dra-flaten. */
+.cat-drag-icon { display: none; flex: 0 0 auto; align-items: center; }
+.cat-drag-icon .icon { width: 1em; height: 1em; font-size: 23px; }
 .cat-title-wrap {
   flex: 1;
   min-width: 0;
@@ -1228,24 +1233,37 @@ body {
 
 /* Kategori under draging: løftet chip (kollapser til bare overskriften mens man
    drar — se collapse/expandCategory i app.js). Ingen fast høyde, så den følger
-   den kollapsende .cat-items-høyden. */
+   den kollapsende .cat-items-høyden. Samme polstring/radius som et listepunkt
+   (.item) → samme høyde under DnD (ingen grunn til at kategorien er høyere).
+   gap:0 fjerner mellomrommet mot den kollapsende .cat-items (collapsedH i app.js
+   regner med det). */
 .category.dragging {
   position: absolute;
   z-index: 100;
   margin: 0;
+  gap: 0;
   list-style: none;
   box-shadow: var(--shadow-lg);
   background: #fff;
-  border-radius: 12px;
-  padding: 4px 8px;
+  border-radius: 10px;
+  padding: 6px;
   transform: scale(1.03);
   cursor: grabbing;
   pointer-events: none;
   overflow: hidden;
   will-change: left, top;
 }
+/* Skillelinjene hører til kategoriens plass på nivå 1 (mot nabo-radene) — de skal
+   ikke males på det løftede kortet (fulgte ellers med og ga en «fantom-strek»). */
+.category.dragging::before,
+.category.dragging::after { content: none; }
+/* Knappene skjules HELT (ikke bare opacity) så headeren får element-høyde; ikonet
+   + svart tittel bærer lesbarheten mot den hvite flaten i stedet. */
 .category.dragging .cat-cog,
-.category.dragging .cat-dissolve { opacity: 0; }
+.category.dragging .cat-dissolve { display: none; }
+/* Svart tittel uten skygge — hvit-på-hvit var uleselig på dra-flaten. */
+.category.dragging .cat-title { color: #111; text-shadow: none; }
+.category.dragging .cat-drag-icon { display: inline-flex; }
 
 /* Placeholders (kort/element/gruppe/univers): IDENTISK stil overalt — svakt
    mørknet flate og en subtil INNOVER-skygge som gir inntrykk av et «hull» som

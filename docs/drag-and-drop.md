@@ -56,12 +56,21 @@ Bytte utløses av **overlapp**, ikke av et punkt:
   innenfor viewporten, ellers ville et kort dratt mot siden gitt horisontal
   scrollbar og — på iOS WebKit — forskjøvet høyre-forankrede `fixed`-elementer
   (kontoknappen). Klemmen slår kun inn helt ute ved kanten.
-- **Kort-auto-scrollens ankerpunkt** (`updateAutoScroll`): symmetrisk og kant-
+- **Auto-scrollens ankerpunkt** (`updateAutoScroll`): symmetrisk og kant-
   forankret. OPPOVER måles kortets ØVRE kant mot toppen av området rett UNDER den
   faste headeren (`topbarEl`-bunn + `ZONE`), ikke mot viewportens øvre kant — ellers
   måtte man dra lista opp bak headeren før scrollingen slo inn (spesielt på mobil).
   NEDOVER måles kortets NEDRE kant mot viewportens nedre kant. Er kortet høyere enn
   gapet mellom sonene (ligger i begge samtidig), avgjør pekerens halvdel retningen.
+  **Gjelder kort, listepunkt OG kategori** (`windowScrollDrag()` — alle tre dras på
+  board-et med dokument-koordinater; gruppe/univers har egen modal-auto-scroll).
+  Etter hver scroll-frame re-evalueres plasseringen via `reapplyPlacement(dir)`
+  (kort → `updateCardPlacement`, listepunkt → `updateItemPlacement(lastX, lastY, dir)`,
+  kategori → `placeRowPlaceholder`) med rulleretningen som dra-retning siden pekeren
+  står stille. For kategorier settes `grabY` relativt til `.cat-head` (ikke hele den
+  u-kollapsede boksen), ellers ville en `::before`-skillelinje over headeren gjort
+  grabY større enn den kollapsede høyden → fingeren utenfor boksen, og nedre kant nådde
+  aldri scroll-sonen.
 - Kun én drag om gangen (`if (drag.active) return`); `finishDrag()` feier bort
   evt. foreldreløse placeholdere.
 - **Draging startes ulikt på touch og mus** (`attachHoldDrag`). Dra-håndtakene er
@@ -117,6 +126,20 @@ Bytte utløses av **overlapp**, ikke av et punkt:
   gjenopprettes hver liste til sin lagrede lukketilstand (animert utvidelse for de
   som skal være åpne) — robust mot en samtidig synk-rebuild, som uansett bygger
   kortene fra `card.collapsed`. Se listekollaps i `docs/design-system.md`.
+  - **Anker-scroll under kollapsen** (`anchorScrollDuringCollapse`): kollapser en
+    HØY liste OVER den dratte, blir board-et brått kortere enn scroll-posisjonen.
+    Uten mottiltak justerer nettleseren scroll-posisjonen selv (scroll-anchoring/
+    -klemme) — det løftede kortet «drifter» langt bort fra placeholderen, og på
+    Chrome for Android avbrytes hele draget (man sitter igjen med markert tekst).
+    Derfor: (1) `overflowAnchor='none'` på `<html>` mens draget pågår (av/på i
+    `beginDragCommon`/`finishDrag`) slår av nettleserens auto-justering; (2) en
+    RAF-loop gjennom kollaps-animasjonen scroller så placeholderen står i ro i
+    viewporten og flytter det løftede kortet med (`moveElement`) → fingeren beholder
+    både kortet og slotten under seg. Scrollingen skjer gradvis (som auto-scroll,
+    trygt på mobil) i stedet for nettleserens brå hopp. `drag.anchoring` stopper
+    loopen straks brukeren faktisk drar (`onCardMove` > 2 px) så den ikke kjemper mot
+    omrokkeringen; ellers stopper den når animasjonen er ferdig. Ved redusert
+    bevegelse (momentan kollaps) holder én korreksjon.
 - **Alle placeholders deler én stil** (felles regel for `.card-/.item-/.group-
   placeholder`): 1px stiplet kant med lav opacity, svakt mørknet flate og en
   subtil inset-skygge («hull som skal fylles») — kun radius/margens varierer per
@@ -162,6 +185,16 @@ fordypning («hylle», se `docs/design-system.md`).
   `liftCategory` setter ingen fast høyde (så det løftede elementet følger den
   kollapsende høyden). Innsetting er senterbasert (`placeRowPlaceholder`) blant
   nivå-1-radene. `prefers-reduced-motion` hopper over kollaps/utvidelse.
+  - **Utseende under draging** (`.category.dragging`): det løftede kortet skal lese
+    som en kompakt rad, ikke et stort felt. Kategori-ikonet (`.cat-drag-icon`,
+    `ICONS.category`, skjult i hvile) vises til venstre for tittelen; tittelen blir
+    SVART uten skygge (hvit-på-hvit var uleselig mot den hvite dra-flaten); tannhjul
+    + oppløs skjules `display:none` (ikke bare opacity) så headeren får element-høyde;
+    `::before`/`::after`-skillelinjene skjules (`content:none`) så de ikke males på
+    kortet; polstring/radius = et listepunkt (6px / 10px) + `gap:0`. `collapseCategory`
+    måler header-høyden med `offsetHeight` (IKKE `getBoundingClientRect`, som ville
+    inkludert dra-rotasjonen og blåst opp en bred, lav header) → `collapsedH = headH
+    + 12` gir riktig placeholder-/treff-høyde.
 - **Oppløs kategori** (`dissolveCategory`, boble-sprekk-knappen): listepunktene blir
   ukategoriserte og «arver» kategoriens plass i nivå-1-lista (fordeles jevnt i
   pos-gapet mellom kategorien og neste nivå-1-rad, rekkefølge bevart), og selve
