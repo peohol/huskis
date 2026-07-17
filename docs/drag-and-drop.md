@@ -8,7 +8,7 @@ Bytte utløses av **overlapp**, ikke av et punkt:
 - ≥ **20 %** høyde-/breddeoverlapp bytter plass; **retningsstyrt** (hysterese mot
   flimring): nedover-drag bytter kun med kortet under, oppover kun med kortet over
   (transponert for horisontale rader).
-- **Anti-flimring via posisjons-hysterese** (`SWAP_HYST` = 0.15): rett etter et
+- **Anti-flimring via posisjons-hysterese** (`SWAP_HYST` = 0.06): rett etter et
   bytte ligger geometrien ofte slik at det MOTSATTE byttet umiddelbart trigges
   igjen (pekeren står nær grensen mens et nabo-element nettopp har relokert via
   FLIP, og 20 %-overlappterskelen er lav) → objektene hopper frem og tilbake.

@@ -1850,7 +1850,9 @@
   // og tilbake. Vi krever derfor at det OMVENDTE av forrige bytte først kan utløses
   // når dra-senteret har KRYSSET naboens senter med en margin — ikke bare tangert
   // det med 20 % overlapp. Margin som andel av naboens størrelse langs aksen.
-  const SWAP_HYST = 0.15;
+  // Liten margin holder: selve senter-kryssingskravet gir dødsonen; marginen er
+  // bare et ekstra vern mot jitter som treffer nøyaktig på senterlinjen.
+  const SWAP_HYST = 0.06;
 
   const drag = { active: false };
 
