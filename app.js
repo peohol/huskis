@@ -1996,22 +1996,47 @@
      virker på `dragEl`). */
   const HOLD_MS = 200;
   const HOLD_MOVE = 10;
+  // Interaktive/redigerbare etterkommere som ALDRI skal starte et drag, selv om
+  // de ligger i dra-sonen (i tillegg til per-sone-`except`): den inline
+  // redigereren (`editText` → `.edit-input`, hvor et hold ville blokkert caret-
+  // plassering/markering) og meta-chipene (`fillMetaRow` → `.meta-chip`, egne
+  // hurtigredigerings-knapper — et tregt trykk skal åpne dem, ikke løfte kortet).
+  const HOLD_SKIP = '.edit-input, .meta-chip';
   function attachHoldDrag(zone, dragEl, startDrag, canDrag, except) {
     let timer = null, held = false, sx = 0, sy = 0, pid = null;
-    const cancel = () => {
+    function disarm() {
       if (timer) { clearTimeout(timer); timer = null; }
       dragEl.classList.remove('drag-hold');
-    };
+      window.removeEventListener('pointermove', onMove);
+      window.removeEventListener('pointerup', onUp);
+      window.removeEventListener('pointercancel', onUp);
+    }
+    function onMove(ev) {
+      if (ev.pointerId !== pid) return;
+      if (Math.abs(ev.clientX - sx) > HOLD_MOVE || Math.abs(ev.clientY - sy) > HOLD_MOVE) disarm();
+    }
+    function onUp(ev) { if (ev.pointerId === pid) disarm(); }
     zone.addEventListener('pointerdown', (ev) => {
       held = false;
       if (ev.button != null && ev.button !== 0) return;
       if (!canDrag()) return;
+      if (ev.target.closest(HOLD_SKIP)) return;
       if (except && ev.target.closest(except)) return;
       ev.preventDefault(); // ingen tekstmarkering/fokus mens man holder
       sx = ev.clientX; sy = ev.clientY; pid = ev.pointerId;
       dragEl.classList.add('drag-hold');
+      // Lytt på WINDOW (ikke bare zone): før holdet er ferdig har vi ikke fanget
+      // pekeren, så flyttes/slippes den UTENFOR sonen ville zone-lytterne aldri
+      // fyre — og timeren startet et drag etter at knappen alt var sluppet
+      // (kortet ble hengende i `.dragging`). Fjernes idet holdet avbrytes/utløser.
+      window.addEventListener('pointermove', onMove);
+      window.addEventListener('pointerup', onUp);
+      window.addEventListener('pointercancel', onUp);
       timer = setTimeout(() => {
         timer = null;
+        window.removeEventListener('pointermove', onMove);
+        window.removeEventListener('pointerup', onUp);
+        window.removeEventListener('pointercancel', onUp);
         dragEl.classList.remove('drag-hold');
         // En synk-rebuild kan ha byttet ut noden mens man holdt → ikke start et
         // drag på en frakoblet node (peker-lytterne sitter på den nye noden).
@@ -2021,12 +2046,6 @@
           target: dragEl, preventDefault() {} }, dragEl);
       }, HOLD_MS);
     });
-    zone.addEventListener('pointermove', (ev) => {
-      if (timer == null) return;
-      if (Math.abs(ev.clientX - sx) > HOLD_MOVE || Math.abs(ev.clientY - sy) > HOLD_MOVE) cancel();
-    });
-    zone.addEventListener('pointerup', cancel);
-    zone.addEventListener('pointercancel', cancel);
     // Undertrykk klikket (omdøp/bytt/kryss) som ellers ville fulgt et fullført
     // hold. Capture + stopImmediatePropagation stopper også lyttere på samme
     // element (f.eks. rad-aktivering på gruppe-/univers-radene).

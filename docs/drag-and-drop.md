@@ -46,7 +46,11 @@ Bytte utløses av **overlapp**, ikke av et punkt:
 - **Trykk-og-hold starter draging** (`attachHoldDrag`, `HOLD_MS` = 200 ms). Dra-
   håndtakene er FJERNET; i stedet inviteres draging ved å trykke og holde på
   objektets navn-/tittelsone — men ikke på knappene (`except`-selektoren, med
-  `closest`). Soner/unntak: **univers-/gruppe-rad** = hele chip-en unntatt
+  `closest`) og heller ikke på interaktive/redigerbare etterkommere som ligger i
+  sonen (`HOLD_SKIP` = `.edit-input` (inline omdøping — et hold ville blokkert
+  caret/markering) + `.meta-chip` (egne hurtigredigerings-knapper — et tregt
+  trykk skal åpne dem, ikke løfte kortet)). Soner/unntak: **univers-/gruppe-rad**
+  = hele chip-en unntatt
   ×-knappen; **liste** = hele korthodet (`.card-head`) unntatt tannhjul + ×;
   **element** = hele `.item` unntatt avmerkingsboks + tannhjul + ×; **kategori**
   = hele overskriftslinjen (`.cat-head`) unntatt tannhjul + oppløs-knapp.
@@ -57,7 +61,11 @@ Bytte utløses av **overlapp**, ikke av et punkt:
   kryss av); ved et fullført hold undertrykkes det påfølgende klikket (capture +
   `stopImmediatePropagation`). Beveger pekeren seg > `HOLD_MOVE` (10 px) før
   holdet er fullført, avbrytes det (scroll/sveip) og siden scroller nativt —
-  sonene har normal `touch-action`. `pointercancel` avbryter også. En synk-
+  sonene har normal `touch-action`. `pointercancel` avbryter også. Avbrudds-
+  lytterne (`pointermove`/`pointerup`/`pointercancel`) sitter på **window** mens
+  man venter (ikke på `zone`): før holdet er ferdig er ikke pekeren fanget, så
+  flyttes/slippes den utenfor sonen ville zone-lyttere aldri fyre og timeren
+  startet et drag etter at knappen alt var sluppet. En synk-
   rebuild kan bytte ut noden mens man holder → timeren dropper draget om
   `dragEl` ikke lenger er `isConnected`. `canDrag` gater på frossen/mount/`done`.
   Under et pågående drag blokkeres native scroll av en ikke-passiv `touchmove`-
