@@ -779,12 +779,16 @@
       if (gCanEdit && ev.target.closest('.group-name')) { startGroupRename(nameEl, groupData); return; }
       navigate();
     });
-    // Tastatur: raden er role="tab" (tabindex=0). Enter/Mellomrom bytter gruppe.
+    // Tastatur: raden (role="tab", tabindex=0) er det eneste fokuserbare punktet
+    // — tittelen er ikke fokuserbar. For å beholde en tastatur-vei til omdøping
+    // redigerer Enter/Mellomrom navnet når raden ALLEREDE er aktiv (som det gamle
+    // «klikk på det aktive navnet»); ellers bytter det gruppe.
     el.addEventListener('keydown', (ev) => {
       if (ev.target !== el) return; // slett-knappen har egen tastaturoppførsel
       if (ev.key === 'Enter' || ev.key === ' ' || ev.key === 'Spacebar') {
         ev.preventDefault();
-        navigate();
+        if (gCanEdit && groupData.id === state.activeGroup) startGroupRename(nameEl, groupData);
+        else navigate();
       }
     });
 
@@ -4436,11 +4440,15 @@
       if (uCanEdit && ev.target.closest('.uni-name')) { startUniverseRename(nameEl, u); return; }
       navigate();
     });
+    // Tastatur: raden er eneste fokuserbare punkt (tittelen er ikke fokuserbar),
+    // så Enter/Mellomrom redigerer navnet når universet ALLEREDE er aktivt (behold
+    // en tastatur-vei til omdøping); ellers bytter det univers.
     el.addEventListener('keydown', (ev) => {
       if (ev.target !== el) return;
       if (ev.key === 'Enter' || ev.key === ' ' || ev.key === 'Spacebar') {
         ev.preventDefault();
-        navigate();
+        if (uCanEdit && u.id === state.activeUniverse) startUniverseRename(nameEl, u);
+        else navigate();
       }
     });
     const uDelBtn = el.querySelector('.uni-delete');
