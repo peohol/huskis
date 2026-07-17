@@ -157,9 +157,9 @@ window.ICONS = {
 
   // ＋ for alle «legg til»-knapper (element/liste/gruppe/univers): egen SVG med
   // samme strek (1.05) og runde ender som resten av settet, i stedet for
-  // tekst-glyfen ＋ (som har annen linjestil/tykkelse enn ikonsettet).
-  // currentColor så CSS styrer farge (hvit på de fargede knappene).
-  plus: '<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.05" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
+  // tekst-glyfen ＋ (som har annen linjestil/tykkelse enn ikonsettet). Svart
+  // strek (#111) som resten av ikonsettet, også på de fargede knappene.
+  plus: '<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="#111" stroke-width="1.05" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
     '<path d="M12 4.5v15"></path><path d="M4.5 12h15"></path></svg>',
 
   // Kalender (starttid): ramme hvit med opphengs-tapper og topplinje.
