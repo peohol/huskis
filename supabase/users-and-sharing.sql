@@ -228,6 +228,11 @@ alter table public.universes add column if not exists unlocked boolean not null 
 alter table public.groups    add column if not exists unlocked boolean not null default false;
 alter table public.cards     add column if not exists unlocked boolean not null default false;
 
+-- Lukketilstand for lister (rullgardin-kollaps i UI-et): en visnings-preferanse
+-- per liste som lagres og synkes som annet innhold. Rir på innholds-registeret
+-- (ts/org), som lock_times/responsible. Idempotent for eldre databaser.
+alter table public.cards     add column if not exists collapsed boolean not null default false;
+
 create index if not exists universes_owner_idx on public.universes (owner_id);
 create index if not exists groups_owner_idx    on public.groups (owner_id);
 create index if not exists groups_universe_idx on public.groups (universe_id);
@@ -607,6 +612,7 @@ begin
     new.title := old.title; new.trashed := old.trashed;
     new.responsible := old.responsible;
     new.start_at := old.start_at; new.due_at := old.due_at; new.lock_times := old.lock_times;
+    new.collapsed := old.collapsed;
     new.ts := old.ts; new.org := old.org;
   end if;
   if not public.reg_newer(new.lab_ts, new.lab_org, old.lab_ts, old.lab_org) then
@@ -1460,6 +1466,7 @@ begin
         'k', c.k, 'p', c.p, 'labTs', c.lab_ts, 'labOrg', c.lab_org,
         'responsible', c.responsible,
         'start', c.start_at, 'due', c.due_at, 'lockTimes', c.lock_times,
+        'collapsed', c.collapsed,
         'ts', c.ts, 'org', c.org,
         'pos', c.pos, 'posTs', c.pos_ts, 'posOrg', c.pos_org,
         'shared', exists (select 1 from public.memberships mm where mm.card_id = c.id),
@@ -1565,12 +1572,13 @@ begin
       select 1 from public.groups g
       where g.id = public.legacy_uuid(uid, r ->> 'group') and g.owner_id = uid);
     insert into public.cards as t (id, owner_id, group_id, title, trashed, k, p,
-                                   start_at, due_at, lock_times,
+                                   start_at, due_at, lock_times, collapsed,
                                    ts, org, lab_ts, lab_org, pos, pos_ts, pos_org)
     values (public.legacy_uuid(uid, r ->> 'id'), uid, public.legacy_uuid(uid, r ->> 'group'),
             coalesce(r ->> 'title', ''), coalesce((r ->> 'trashed')::boolean, false),
             coalesce((r ->> 'k')::boolean, true), coalesce((r ->> 'p')::boolean, true),
             r ->> 'start', r ->> 'due', coalesce((r ->> 'lockTimes')::boolean, false),
+            coalesce((r ->> 'collapsed')::boolean, false),
             coalesce((r ->> 'ts')::bigint, 0), coalesce(r ->> 'org', ''),
             coalesce((r ->> 'labTs')::bigint, 0), coalesce(r ->> 'labOrg', ''),
             coalesce((r ->> 'pos')::double precision, 0),
@@ -1579,7 +1587,7 @@ begin
       set group_id = excluded.group_id, title = excluded.title,
           trashed = excluded.trashed, k = excluded.k, p = excluded.p,
           start_at = excluded.start_at, due_at = excluded.due_at,
-          lock_times = excluded.lock_times,
+          lock_times = excluded.lock_times, collapsed = excluded.collapsed,
           ts = excluded.ts, org = excluded.org,
           lab_ts = excluded.lab_ts, lab_org = excluded.lab_org,
           pos = excluded.pos, pos_ts = excluded.pos_ts, pos_org = excluded.pos_org

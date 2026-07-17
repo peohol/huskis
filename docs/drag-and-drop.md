@@ -17,22 +17,28 @@ Bytte utløses av **overlapp**, ikke av et punkt:
   (a) **tidslås** — reverseringen blokkeres i 300 ms etter byttet; (b) **overlapp-
   hysterese** — reverseringen krever ≥ 50 % overlapp mot naboen, ikke bare 20 %.
   Bevisst dette milde (ikke full senter-kryssing, som overskjøt inn i NESTE
-  element): det tar unna det meste av flimringen, men en bevisst tilbakeføring er
+  nabo): det tar unna det meste av flimringen, men en bevisst tilbakeføring er
   fortsatt lett. `recordSwap` lagrer `{refId, pos, t}`, nullstilles per drag
-  (`drag.recentSwap`), og gjelder kort/element/gruppe/univers (kategori-
+  (`drag.recentSwap`), og gjelder kort/listepunkt/gruppe/univers (kategori-
   plasseringen er ren senterbasert og flimrer ikke). Aksen for overlapp-målingen
   velges etter hvor nabo og dra-senter er mest adskilt (vertikale lister → Y-
   overlapp; horisontal kort-rad → X-overlapp).
 - **Kolonne** = kort med ≥ 50 % horisontal overlapp; kryss-kolonne plasseres etter
-  vertikal senterposisjon. For elementer = overføring til annen `.items-container`.
+  vertikal senterposisjon. For listepunkter = overføring til annen `.items-container`.
 - **FLIP-animasjon (150 ms)** ved hver placeholder-flytting og ved slipp.
   `layoutRect()` trekker fra pågående FLIP-transform → stabil treffdeteksjon.
 - Under draging manipuleres DOM direkte; state bygges fra DOM ved slipp (kirurgisk:
   kun det flyttede objektets posisjonsregister stemples).
-- **Dynamisk rotasjon** av dra-kort (`cardRotation()`, ±5° ut fra horisontal
-  posisjon); elementer roterer ikke. **Auto-scroll** ved vindus-kant for kort, og
-  av gruppefeltet ved feltets kanter under gruppe-drag.
-- **Posisjonering av det løftede elementet**: kort/element/kategori dras på selve
+- **Dynamisk rotasjon** av det løftede objektet (`cardRotation()`, ±5° ut fra
+  horisontal posisjon: −5° inntil venstre kant, +5° inntil høyre). Gjelder
+  **globalt** — ALLE objekt-typer (univers/gruppe/liste/listepunkt/kategori)
+  roterer likt under draging (`start*Drag`/`on*Move` setter `rotate(…) scale(…)`)
+  og ved slipp (`dropIntoPlaceholder(el, rot)`). Unntak: kategori-slippet folder
+  seg ut igjen (`expandCategory`) og hopper derfor over drop-rotasjonen, ellers
+  ville en rotert `.cat-items` blåst opp utfoldings-høyde-målingen; rotasjonen
+  under selve draging gjelder også kategorier. **Auto-scroll** ved vindus-kant for
+  kort, og av gruppefeltet ved feltets kanter under gruppe-drag.
+- **Posisjonering av det løftede elementet**: kort/listepunkt/kategori dras på selve
   board-et (window kan være scrollet) og er `position: absolute` med DOKUMENT-
   koordinater (`dragPos*` = peker − grep + `window.scroll{X,Y}`). Det er bevisst
   IKKE `position: fixed`: på iOS WebKit (bl.a. Chrome for iPhone) legges et
@@ -58,25 +64,36 @@ Bytte utløses av **overlapp**, ikke av et punkt:
   gapet mellom sonene (ligger i begge samtidig), avgjør pekerens halvdel retningen.
 - Kun én drag om gangen (`if (drag.active) return`); `finishDrag()` feier bort
   evt. foreldreløse placeholdere.
-- **Trykk-og-hold starter draging** (`attachHoldDrag`, `HOLD_MS` = 200 ms). Dra-
-  håndtakene er FJERNET; i stedet inviteres draging ved å trykke og holde på
-  objektets navn-/tittelsone — men ikke på knappene (`except`-selektoren, med
-  `closest`) og heller ikke på interaktive/redigerbare etterkommere som ligger i
-  sonen (`HOLD_SKIP` = `.edit-input` (inline omdøping — et hold ville blokkert
-  caret/markering) + `.meta-chip` (egne hurtigredigerings-knapper — et tregt
-  trykk skal åpne dem, ikke løfte kortet)). Soner/unntak: **univers-/gruppe-rad**
-  = hele chip-en unntatt
-  ×-knappen; **liste** = hele korthodet (`.card-head`) unntatt tannhjul + ×;
-  **element** = hele `.item` unntatt avmerkingsboks + tannhjul + ×; **kategori**
-  = hele overskriftslinjen (`.cat-head`) unntatt tannhjul + oppløs-knapp.
-  `attachHoldDrag(zone, dragEl, startDrag, canDrag, except)` gir `startXxxDrag`
-  et syntetisk event med pekerinfoen fra `pointerdown` (fingeren er fortsatt nede
-  når timeren løser ut, så `pointerId`-en er aktiv → `setPointerCapture` på
-  `dragEl` virker). Et kort trykk gjør fortsatt det klikket pleide (omdøp/bytt/
-  kryss av); ved et fullført hold undertrykkes det påfølgende klikket (capture +
-  `stopImmediatePropagation`). Beveger pekeren seg > `HOLD_MOVE` (10 px) før
-  holdet er fullført, avbrytes det (scroll/sveip) og siden scroller nativt —
-  sonene har normal `touch-action`. `pointercancel` avbryter også. Avbrudds-
+- **Draging startes ulikt på touch og mus** (`attachHoldDrag`). Dra-håndtakene er
+  FJERNET; draging inviteres på objektets navn-/tittelsone — men ikke på knappene
+  (`except`-selektoren, med `closest`) og heller ikke på interaktive/redigerbare
+  etterkommere i sonen (`HOLD_SKIP` = `.edit-input` (inline omdøping — et hold
+  ville blokkert caret/markering) + `.meta-chip` (egne hurtigredigerings-knapper
+  — et tregt trykk skal åpne dem, ikke løfte kortet)). To modi etter inn-enhet
+  (`ev.pointerType`):
+  - **Touch/pen (mobil)**: trykk og HOLD (`HOLD_MS` = 200 ms) løfter — nødvendig
+    for å skille drag fra scroll på en berøringsskjerm. Beveger fingeren seg >
+    `HOLD_MOVE` (10 px) FØR holdet er ferdig, tolkes det som scroll/sveip og
+    avbrytes (siden scroller da nativt — sonene har normal `touch-action`).
+  - **Mus (desktop)**: INGEN delay — draget starter idet pekeren beveger seg >
+    `HOLD_MOVE` px med knappen nede (klassisk desktop-drag). På desktop er det
+    ingen konflikt mellom scroll og drag, så et hold trengs ikke. Et rent klikk
+    (ingen bevegelse) forblir et klikk.
+
+  Soner/unntak: **univers-/gruppe-rad** = hele chip-en unntatt ×-knappen; **liste**
+  = hele korthodet (`.card-head`) unntatt tannhjul + × (klikk ellers på headeren
+  kollapser/utvider lista, se under); **listepunkt** = hele `.item` unntatt
+  avmerkingsboks + tannhjul + ×; **kategori** = hele overskriftslinjen
+  (`.cat-head`) unntatt tannhjul + oppløs-knapp. **Cursor:** dra-sonene for
+  listepunkt/kategori får `cursor: grab` (åpen hånd — «klikk-og-hold/dra drar»),
+  mens univers/gruppe/liste har `cursor: pointer` (pekende hånd — der er klikk den
+  primære handlingen: bytt/kollaps). `attachHoldDrag(zone, dragEl, startDrag,
+  canDrag, except)` gir `startXxxDrag` et syntetisk event med pekerinfoen fra
+  `pointerdown` (knappen er fortsatt nede når draget starter, så `pointerId`-en er
+  aktiv → `setPointerCapture` på `dragEl` virker). Et kort trykk/klikk gjør
+  fortsatt det klikket pleide (omdøp/bytt/kryss/kollaps); ved et fullført drag
+  undertrykkes det påfølgende klikket (capture + `stopImmediatePropagation`).
+  `pointercancel` avbryter også. Avbrudds-
   lytterne (`pointermove`/`pointerup`/`pointercancel`) sitter på **window** mens
   man venter (ikke på `zone`): før holdet er ferdig er ikke pekeren fanget, så
   flyttes/slippes den utenfor sonen ville zone-lyttere aldri fyre og timeren
@@ -85,10 +102,21 @@ Bytte utløses av **overlapp**, ikke av et punkt:
   `dragEl` ikke lenger er `isConnected`. `canDrag` gater på frossen/mount/`done`.
   Under et pågående drag blokkeres native scroll av en ikke-passiv `touchmove`-
   lytter (`preventTouchScroll`, av/på i `beginDragCommon`/`finishDrag`). Mens
-  holdet registreres får `dragEl` et lite «press» (`.drag-hold`, scale) —
-  hoppes over ved `prefers-reduced-motion`. `pointercapture` brukes så draging
-  ikke mister eventer. Placeholder lever kun under draging; `finishDrag()` har
-  sikkerhetsnett.
+  holdet registreres (KUN touch/pen, der holdet tar tid) får `dragEl` et lite
+  «press» (`.drag-hold`, scale) — hoppes over ved `prefers-reduced-motion` og på
+  mus (draget starter der umiddelbart på bevegelse). `pointercapture` brukes så
+  draging ikke mister eventer. Placeholder lever kun under draging; `finishDrag()`
+  har sikkerhetsnett.
+- **Lister kollapser mens en liste dras** (`collapseCardsForDrag`/
+  `restoreCardsAfterDrag`): idet et liste-drag starter, kollapses BÅDE den dratte
+  lista og alle de andre til bare korthodet (som kategorienes kollaps under drag)
+  → board-et blir kompakt og dra-avstanden kort. Den dratte lista slipper sin
+  faste høyde (følger den kollapsende body-en, som `liftCategory`), placeholderen
+  krymper i takt til header-høyden, og `drag.height` settes til header-høyden for
+  treffdeteksjon. `card.collapsed` røres IKKE under draget; ved slipp
+  gjenopprettes hver liste til sin lagrede lukketilstand (animert utvidelse for de
+  som skal være åpne) — robust mot en samtidig synk-rebuild, som uansett bygger
+  kortene fra `card.collapsed`. Se listekollaps i `docs/design-system.md`.
 - **Alle placeholders deler én stil** (felles regel for `.card-/.item-/.group-
   placeholder`): 1px stiplet kant med lav opacity, svakt mørknet flate og en
   subtil inset-skygge («hull som skal fylles») — kun radius/margens varierer per
@@ -107,23 +135,23 @@ Bytte utløses av **overlapp**, ikke av et punkt:
 
 ## Kategorier: to nivåer i en liste (`docs/data-model.md`)
 
-En liste har nivå 1 (ukategoriserte elementer + kategorier, om hverandre) og
-nivå 2 (elementene inne i hver kategori). DOM: kortets `.items-container` holder
+En liste har nivå 1 (ukategoriserte listepunkter + kategorier, om hverandre) og
+nivå 2 (listepunktene inne i hver kategori). DOM: kortets `.items-container` holder
 nivå-1-radene (`.item` og `.category`); hver `.category` har en overskrift på
 listeflaten + en nøstet `.cat-items`-liste (nivå 2) som er en innrykket
 fordypning («hylle», se `docs/design-system.md`).
 
-- **Element-draging** (`onItemMove`/`onItemUp`) finner mål-container i to steg:
+- **Listepunkt-draging** (`onItemMove`/`onItemUp`) finner mål-container i to steg:
   først om pekeren er inne i en `.category` → dens `.cat-items` (slipp på
-  overskriften ELLER blant elementene legger elementet i kategorien); ellers
-  kortets `.items-container` (nivå 1, inkl. overføring mellom lister). Elementer
+  overskriften ELLER blant listepunktene legger listepunktet i kategorien); ellers
+  kortets `.items-container` (nivå 1, inkl. overføring mellom lister). Listepunkter
   flyttes fritt mellom nivå 1, kategorier og lister. Søsken-rader leses fra
   **direkte barn** (`rowChildren`, ikke `querySelectorAll('.item')`) så nivå-1
-  ikke plukker elementer inne i kategorier. Innsetting er senterbasert når
+  ikke plukker listepunkter inne i kategorier. Innsetting er senterbasert når
   containeren har kategorier (blandede radhøyder) eller ved overføring; ellers
   den vanlige retningsstyrte overlapp-hysteresen. `reconcileItems` bygger nå
   kortets `items` fra HELE DOM-treet (nivå 1 + hver kategoris `.cat-items`) og
-  setter `it.cat`; ved slipp stemples kun det flyttede elementets `home`/`cat`/
+  setter `it.cat`; ved slipp stemples kun det flyttede listepunktets `home`/`cat`/
   `pos` (kirurgisk, `cat` på posisjonsregisteret som `home`).
 - **Kategori-draging** (`startCategoryDrag`) flytter en kategori KUN innen sin
   egen liste på nivå 1; den kan ikke nøstes i en annen kategori (slipp på en
@@ -134,11 +162,11 @@ fordypning («hylle», se `docs/design-system.md`).
   `liftCategory` setter ingen fast høyde (så det løftede elementet følger den
   kollapsende høyden). Innsetting er senterbasert (`placeRowPlaceholder`) blant
   nivå-1-radene. `prefers-reduced-motion` hopper over kollaps/utvidelse.
-- **Oppløs kategori** (`dissolveCategory`, boble-sprekk-knappen): elementene blir
+- **Oppløs kategori** (`dissolveCategory`, boble-sprekk-knappen): listepunktene blir
   ukategoriserte og «arver» kategoriens plass i nivå-1-lista (fordeles jevnt i
   pos-gapet mellom kategorien og neste nivå-1-rad, rekkefølge bevart), og selve
   kategori-raden tombstones + fjernes.
-- **Avkryssing**: et avkrysset element (også i en kategori) flyttes til kortets
+- **Avkryssing**: et avkrysset listepunkt (også i en kategori) flyttes til kortets
   felles «Utført»-seksjon; reaktivering ruter det tilbake INN i kategorien sin
   (om den finnes), ellers til nivå 1 (se `toggleItemDone`).
 

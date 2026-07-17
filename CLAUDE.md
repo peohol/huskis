@@ -1,6 +1,6 @@
 # CLAUDE.md — Huskis
 
-Statisk app: **Univers > Gruppe > Liste > Element**. Universer er helt
+Statisk app: **Univers > Gruppe > Liste > Listepunkt**. Universer er helt
 uavhengige områder — grupper flyttes aldri på tvers av dem. Ingen byggesteg —
 ren `index.html` + `styles.css` + `app.js` (vanilla JS), persistens i
 `localStorage` + sanntids-synk via Supabase.
@@ -22,7 +22,7 @@ oppdater det aktuelle dokumentet der (ikke dump alt tilbake i denne fila).
 
 | Fil | Les når oppgaven gjelder |
 |---|---|
-| `docs/data-model.md` | state-form, foreldre-pekere, univers/gruppe/liste/element-hierarkiet |
+| `docs/data-model.md` | state-form, foreldre-pekere, univers/gruppe/liste/listepunkt-hierarkiet |
 | `docs/design-system.md` | styles.css, nye knapper/kontroller, delte klasser, UX-mønstre |
 | `docs/menus.md` | toppmenyen (breadcrumb), univers-/gruppe-modalen, kontoknappen/-modalen |
 | `docs/board-layout.md` | avstander/padding/gap i selve listevisningen |
@@ -97,11 +97,11 @@ Alt i oppgavebeskrivelsen (universer, designsystem, søppelkasser på alle
 nivåer, luft-system i board-et, dra-rekkefølge for universer i menyen) er
 implementert og verifisert i nettleser — se git-historikk for detaljer.
 Designsystemet er senere overhalt (Atkinson Hyperlegible Next, ~30 % større
-elementer m/ tynnere ikonstreker, felles `.btn-solid`-knappesystem,
+listepunkter m/ tynnere ikonstreker, felles `.btn-solid`-knappesystem,
 prikke-håndtak, delt placeholder-stil, knapp-til-sveipefelt-morf,
 slette-animasjon inn i søppelknappen) — se `docs/design-system.md` og
 `docs/trash.md`. En påfølgende runde la til: typografi-tokens (`--fs-*`),
-avkryssing av elementer (`item.done`), angre-toast + delte gjenopprett-hjelpere,
+avkryssing av listepunkter (`item.done`), angre-toast + delte gjenopprett-hjelpere,
 felles bekreftelses-modal (`askConfirm`, erstatter native `confirm()`),
 tastatur-reordering på håndtakene, `prefers-reduced-motion`-støtte, delte
 `.field`/avatar-klasser, hvit ✕ på fargede flater, og flytting av univers-/
@@ -111,13 +111,13 @@ Posisjonsbasert farge reindekseres alltid ved omrokkering (ikke bare
 add/slett) for grupper, lister og universer — se `docs/drag-and-drop.md`.
 En runde la til: **buffret sletting** (`_pendingDelete` + `DELETE_BUFFER_MS`) —
 sletting skrives ikke til DB før angre-vinduet utløper, angre er umiddelbart
-(`docs/trash.md`); **«Utført»-seksjon** for avkryssede elementer (FLIP,
+(`docs/trash.md`); **«Utført»-seksjon** for avkryssede listepunkter (FLIP,
 posisjonsminne via uendret `pos`); liste-del-chip og liste-ikon oppdatert;
 sveipefeltet sier «Tøm» + pil.
 
 **Navn og ansvarlig** (siste runde): registrering krever fornavn + etternavn
 (→ `profiles.display_name`); del-modalen viser initial-sirkel + navn for eier/
-medlemmer; elementer i delte lister har en **ansvarsknapp** (hånd-opp-ikon →
+medlemmer; listepunkter i delte lister har en **ansvarsknapp** (hånd-opp-ikon →
 popover/modal med delegruppen alfabetisk som fargede initial-sirkler + navn →
 valgt ansvarlig vises som farget initial-sirkel, `item.responsible`). Krever en
 DB-migrering + navne-seed i kontomodus — se `TODO.md`. Se `docs/accounts.md`.
@@ -145,18 +145,18 @@ PÅ). Krever manuell Supabase-konfig (Resend-nøkkel i `app_config` + pg_net) �
 `TODO.md`. Se `docs/accounts.md`.
 
 **Kategorier (siste runde)**: lister har nå TO nivåer — nivå 1 rommer
-ukategoriserte elementer OG kategorier (om hverandre, kan omrokkeres), nivå 2 er
-elementene inne i hver kategori. En kategori lagres SOM et element (`item.isCat`),
-leaf-elementer peker på den via `item.cat`; kategorier nøstes aldri. Opprettes
-ved **klikk-og-hold** (400 ms) på ＋-knappen (som ellers legger til et element;
-knappen er disablet til feltet har tekst). Dra-og-slipp: elementer flyttes mellom
+ukategoriserte listepunkter OG kategorier (om hverandre, kan omrokkeres), nivå 2 er
+listepunktene inne i hver kategori. En kategori lagres SOM et listepunkt (`item.isCat`),
+leaf-listepunkter peker på den via `item.cat`; kategorier nøstes aldri. Opprettes
+ved **klikk-og-hold** (400 ms) på ＋-knappen (som ellers legger til et listepunkt;
+knappen er disablet til feltet har tekst). Dra-og-slipp: listepunkter flyttes mellom
 nivå 1 / kategorier / lister (slipp på kategori-overskriften eller blant
-elementene legger det i kategorien); kategori-håndtak reorderer på nivå 1 med en
+listepunktene legger det i kategorien); kategori-håndtak reorderer på nivå 1 med en
 rask kollaps-til-overskrift-animasjon under draging + utvidelse ved slipp; slipp
 på en annen kategori nøster ikke (vanlig bytte-plass). Kategori-overskriften har
 en innstillingsknapp (tannhjul → felles innstillingsmodal, `kind:'category'`,
-med tidslås som liste-modalen) og en oppløs-knapp (boble-sprekk-ikon → elementene
-blir ukategoriserte på samme plass). Kategoriens elementer ligger i en innrykket
+med tidslås som liste-modalen) og en oppløs-knapp (boble-sprekk-ikon → listepunktene
+blir ukategoriserte på samme plass). Kategoriens listepunkter ligger i en innrykket
 fordypning («hylle i veggen»); overskriften står på listeflaten over. Krever en DB-migrering i kontomodus (`items.cat_id`/`is_cat`/
 `lock_times`) — se `TODO.md`. Se `docs/data-model.md`, `docs/drag-and-drop.md`,
 `docs/scheduling.md`, `docs/design-system.md`.
@@ -173,7 +173,7 @@ nærmeste-eksplisitt-tilstand oppover. Krever DB-migrering i kontomodus
 `docs/arkitektur-brukere-deling.md` og `docs/accounts.md`.
 
 **Innstillinger + tidsplan (forrige runde)**: tannhjul-knapper på lister
-(erstattet del-knappen) og elementer (erstattet ansvarsknappen) åpner en
+(erstattet del-knappen) og listepunkter (erstattet ansvarsknappen) åpner en
 felles innstillingsmodal (navn / deling (lister) / ansvarlig — nå også for
 hele listen, `card.responsible` / tidsplan). Tidsplan: `start`/`due` på
 begge nivåer + `card.lockTimes`; indikator-chips under navnet (delt/
@@ -192,7 +192,7 @@ kan gjenopprettes/tømmes UNDER buffring, og del-modalen åpner umiddelbart. Se
 **Trykk-og-hold-draging (siste runde)**: alle dra-håndtak er FJERNET. Draging
 inviteres nå ved å trykke og holde (200 ms) på et objekts navn-/tittelsone —
 ikke på knappene: univers-/gruppe-rad = hele chip-en unntatt ×; liste = hele
-korthodet unntatt tannhjul + ×; element = hele raden unntatt avmerkingsboks +
+korthodet unntatt tannhjul + ×; listepunkt = hele raden unntatt avmerkingsboks +
 tannhjul + ×; kategori = hele overskriftslinjen unntatt tannhjul + oppløs.
 Felles `attachHoldDrag`-hjelper (syntetisk pointer-event → de eksisterende
 `startXxxDrag`); et kort trykk gjør fortsatt det klikket pleide (omdøp/bytt/
@@ -212,6 +212,24 @@ tilbakeknapp når den åpnes derfra (lukk = hovedsiden). ☰ er blitt en
 e-post (auth.updateUser), e-postvarsel, innboks, logg ut — ingen DB-migrering
 nødvendig). Lister flyttes mellom grupper ved å slippe dem på 📁-breadcrumben
 (velger-modal). Se `docs/menus.md`.
+
+**Listekollaps, global DnD-rotasjon, desktop-drag + fikser (siste runde)**:
+Lister kan **kollapses** som en rullgardin (klikk på korthodet, ikke tittel/
+tannhjul/×); `.card-body`-wrapper animeres til høyde 0 (kortet blir header-høyt,
+alle hjørner rundet), lukketilstanden `card.collapsed` lagres i DB (innholds-
+register, ny `cards.collapsed`-kolonne — se `TODO.md`). Alle lister kollapser
+midlertidig mens en liste dras (kortere dra-avstand). **DnD-rotasjonen gjelder nå
+globalt** — også listepunkter og kategorier roterer (før bare kort/gruppe/
+univers). **Desktop-drag** starter umiddelbart på musebevegelse (0 ms; touch
+beholder 200 ms-holdet); listepunkt-/kategori-dra-soner får åpen-hånd-cursor,
+univers/gruppe/liste pekende hånd. Fikser: univers-/gruppe-modalene redigerer
+navnet på tittel-klikk (navigerer ved klikk ellers); listepunkter redigeres kun
+på tittelen (som andre typer) med global hover-affordans; symmetrisk padding på
+univers-/gruppe-chips. **«Elementer» heter nå «listepunkter»** i UI og
+dokumentasjon (kode-identifikatorer som `item`/`items` og DOM-«element» i
+kommentarer er urørt — nettopp for å skille brukerbegrepet fra det tekniske).
+Se `docs/drag-and-drop.md`, `docs/design-system.md`, `docs/data-model.md`,
+`docs/menus.md`.
 
 Verifisert i nettleser (Playwright) mot en hermetisk in-memory-backend
 (`mock-backend.js`, aktiveres med `?mock=1`) som etterligner Supabase-

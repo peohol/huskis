@@ -45,8 +45,10 @@ Skjules før innlogging (`body.no-auth`).
 - **«Alle universer»**: univers-rader (`.uni-row.chip` — farget, aktiv m/ ring,
   antall-pill med gruppe-ikon + antall grupper (`.chip-count`), ✕ helt til
   høyre), «＋ [univers-ikon]» og univers-søppelkassen (se `docs/trash.md`).
-- Klikk på en rad = **bytt univers + lukk modalen**; klikk på det aktive
-  navnet = omdøp; opprettelse holder modalen åpen (navnet redigeres inline).
+- Klikk på **tittelen** (`.uni-name`) = **omdøp** — uansett om universet er
+  aktivt eller ikke (før navigerte et klikk på et annet universs navn dit i
+  stedet for å redigere). Klikk **ellers** på raden (unntatt ×) = **bytt univers +
+  lukk modalen**. Opprettelse holder modalen åpen (navnet redigeres inline).
   `setActiveUniverse` gjenoppretter sist aktive gruppe i universet
   (`activeGroups`, se `docs/data-model.md`).
 - **Rekkefølge**: trykk-og-hold hvor som helst på raden (unntatt ×-knappen) for
@@ -62,8 +64,9 @@ universet: «Du er i»-blokk med aktiv gruppe + del-gruppe-knapp
 ikke, navnet får ellipsis — `.panel-title-text`/`.panel-title-name`) med
 `.group-card.chip`-rader i `#group-list` (antall-pill = liste-ikon + antall
 lister), «＋ Gruppe» og
-gruppe-søppelkassen. Klikk på rad = bytt gruppe + lukk modalen; aktiv rad =
-omdøp; «＋ Gruppe» holder modalen åpen med inline-omdøping. Gruppe-radene er
+gruppe-søppelkassen. Klikk på **tittelen** (`.group-name`) = omdøp (uansett aktiv
+eller ei); klikk **ellers** på raden (unntatt ×) = bytt gruppe + lukk modalen;
+«＋ Gruppe» holder modalen åpen med inline-omdøping. Gruppe-radene er
 alltid én vertikal kolonne (V-varianten av dra-logikken — H-varianten fra den
 gamle mobil-raden er fjernet).
 

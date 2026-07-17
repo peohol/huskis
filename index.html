@@ -203,7 +203,7 @@
     </div>
   </div>
 
-  <!-- Søppelkasse-modal (felles for universer/grupper/lister/elementer) -->
+  <!-- Søppelkasse-modal (felles for universer/grupper/lister/listepunkter) -->
   <div class="modal-overlay" id="trash-modal" hidden>
     <div class="modal" role="dialog" aria-modal="true" aria-labelledby="trash-title">
       <header class="modal-head">
@@ -221,7 +221,7 @@
     </div>
   </div>
 
-  <!-- Ansvarlig-velger for elementer i delte lister: popover (desktop) / modal
+  <!-- Ansvarlig-velger for listepunkter i delte lister: popover (desktop) / modal
        (mobil), à la univers-/gruppebytteren. Bygges i openResponsible(). -->
   <div class="switcher-overlay" id="resp-switcher" hidden>
     <div class="switcher-panel resp-panel" id="resp-switcher-panel" role="listbox" aria-label="Velg ansvarlig" tabindex="-1"></div>
@@ -256,16 +256,20 @@
         <button class="card-cog" type="button" title="Innstillinger for listen" aria-label="Innstillinger for listen"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="#111" stroke-width="1.05" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10.56 5.76 L10.44 3.14 L13.56 3.14 L13.44 5.76 A6.4 6.4 0 0 1 15.39 6.57 L17.16 4.63 L19.37 6.84 L17.43 8.61 A6.4 6.4 0 0 1 18.24 10.56 L20.86 10.44 L20.86 13.56 L18.24 13.44 A6.4 6.4 0 0 1 17.43 15.39 L19.37 17.16 L17.16 19.37 L15.39 17.43 A6.4 6.4 0 0 1 13.44 18.24 L13.56 20.86 L10.44 20.86 L10.56 18.24 A6.4 6.4 0 0 1 8.61 17.43 L6.84 19.37 L4.63 17.16 L6.57 15.39 A6.4 6.4 0 0 1 5.76 13.44 L3.14 13.56 L3.14 10.44 L5.76 10.56 A6.4 6.4 0 0 1 6.57 8.61 L4.63 6.84 L6.84 4.63 L8.61 6.57 A6.4 6.4 0 0 1 10.56 5.76 Z M8.8 12a3.2 3.2 0 1 0 6.4 0 3.2 3.2 0 1 0 -6.4 0Z" fill="#c0c4c9" fill-rule="evenodd"></path></svg></button>
         <button class="icon-btn card-delete" title="Slett liste" aria-label="Slett liste"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.05" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6.5 6.5 17.5 17.5"></path><path d="M17.5 6.5 6.5 17.5"></path></svg></button>
       </header>
-      <ul class="items-container"></ul>
-      <div class="items-done-wrap" hidden>
-        <div class="done-divider"><span>Utført</span></div>
-        <ul class="items-done"></ul>
+      <!-- Alt under headeren ligger i .card-body så den kan kollapses som en
+           rullgardin (samme collapse/expand-mønster som kategorier). -->
+      <div class="card-body">
+        <ul class="items-container"></ul>
+        <div class="items-done-wrap" hidden>
+          <div class="done-divider"><span>Utført</span></div>
+          <ul class="items-done"></ul>
+        </div>
+        <form class="add-item-form">
+          <input class="add-item-input" type="text" placeholder="Legg til …" aria-label="Nytt listepunkt" autocomplete="off" />
+          <button class="btn-add btn-solid btn-green icon-only add-item-btn" type="submit" title="Legg til listepunkt" aria-label="Legg til listepunkt"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.05" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 4.5v15"></path><path d="M4.5 12h15"></path></svg></button>
+          <button class="btn-add btn-solid btn-yellow icon-only add-cat-btn" type="button" title="Legg til kategori" aria-label="Legg til kategori"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.05" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8.5 4.5H6.5a2 2 0 0 0-2 2v11a2 2 0 0 0 2 2H8.5"></path><circle cx="12.5" cy="8" r="0.8" fill="currentColor" stroke="none"></circle><path d="M15 8h4.5"></path><circle cx="12.5" cy="12" r="0.8" fill="currentColor" stroke="none"></circle><path d="M15 12h4.5"></path><circle cx="12.5" cy="16" r="0.8" fill="currentColor" stroke="none"></circle><path d="M15 16h4.5"></path></svg></button>
+        </form>
       </div>
-      <form class="add-item-form">
-        <input class="add-item-input" type="text" placeholder="Legg til …" aria-label="Nytt element" autocomplete="off" />
-        <button class="btn-add btn-solid btn-green icon-only add-item-btn" type="submit" title="Legg til element" aria-label="Legg til element"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.05" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 4.5v15"></path><path d="M4.5 12h15"></path></svg></button>
-        <button class="btn-add btn-solid btn-yellow icon-only add-cat-btn" type="button" title="Legg til kategori" aria-label="Legg til kategori"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.05" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8.5 4.5H6.5a2 2 0 0 0-2 2v11a2 2 0 0 0 2 2H8.5"></path><circle cx="12.5" cy="8" r="0.8" fill="currentColor" stroke="none"></circle><path d="M15 8h4.5"></path><circle cx="12.5" cy="12" r="0.8" fill="currentColor" stroke="none"></circle><path d="M15 12h4.5"></path><circle cx="12.5" cy="16" r="0.8" fill="currentColor" stroke="none"></circle><path d="M15 16h4.5"></path></svg></button>
-      </form>
     </article>
   </template>
 
@@ -276,14 +280,14 @@
         <span class="item-text" title="Klikk for å redigere"></span>
         <div class="meta-row item-meta" hidden></div>
       </div>
-      <button class="item-cog" type="button" title="Innstillinger for elementet" aria-label="Innstillinger for elementet"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="#111" stroke-width="1.05" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10.56 5.76 L10.44 3.14 L13.56 3.14 L13.44 5.76 A6.4 6.4 0 0 1 15.39 6.57 L17.16 4.63 L19.37 6.84 L17.43 8.61 A6.4 6.4 0 0 1 18.24 10.56 L20.86 10.44 L20.86 13.56 L18.24 13.44 A6.4 6.4 0 0 1 17.43 15.39 L19.37 17.16 L17.16 19.37 L15.39 17.43 A6.4 6.4 0 0 1 13.44 18.24 L13.56 20.86 L10.44 20.86 L10.56 18.24 A6.4 6.4 0 0 1 8.61 17.43 L6.84 19.37 L4.63 17.16 L6.57 15.39 A6.4 6.4 0 0 1 5.76 13.44 L3.14 13.56 L3.14 10.44 L5.76 10.56 A6.4 6.4 0 0 1 6.57 8.61 L4.63 6.84 L6.84 4.63 L8.61 6.57 A6.4 6.4 0 0 1 10.56 5.76 Z M8.8 12a3.2 3.2 0 1 0 6.4 0 3.2 3.2 0 1 0 -6.4 0Z" fill="#c0c4c9" fill-rule="evenodd"></path></svg></button>
-      <button class="icon-btn item-delete" title="Slett element" aria-label="Slett element"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.05" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6.5 6.5 17.5 17.5"></path><path d="M17.5 6.5 6.5 17.5"></path></svg></button>
+      <button class="item-cog" type="button" title="Innstillinger for listepunktet" aria-label="Innstillinger for listepunktet"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="#111" stroke-width="1.05" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10.56 5.76 L10.44 3.14 L13.56 3.14 L13.44 5.76 A6.4 6.4 0 0 1 15.39 6.57 L17.16 4.63 L19.37 6.84 L17.43 8.61 A6.4 6.4 0 0 1 18.24 10.56 L20.86 10.44 L20.86 13.56 L18.24 13.44 A6.4 6.4 0 0 1 17.43 15.39 L19.37 17.16 L17.16 19.37 L15.39 17.43 A6.4 6.4 0 0 1 13.44 18.24 L13.56 20.86 L10.44 20.86 L10.56 18.24 A6.4 6.4 0 0 1 8.61 17.43 L6.84 19.37 L4.63 17.16 L6.57 15.39 A6.4 6.4 0 0 1 5.76 13.44 L3.14 13.56 L3.14 10.44 L5.76 10.56 A6.4 6.4 0 0 1 6.57 8.61 L4.63 6.84 L6.84 4.63 L8.61 6.57 A6.4 6.4 0 0 1 10.56 5.76 Z M8.8 12a3.2 3.2 0 1 0 6.4 0 3.2 3.2 0 1 0 -6.4 0Z" fill="#c0c4c9" fill-rule="evenodd"></path></svg></button>
+      <button class="icon-btn item-delete" title="Slett listepunkt" aria-label="Slett listepunkt"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.05" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6.5 6.5 17.5 17.5"></path><path d="M17.5 6.5 6.5 17.5"></path></svg></button>
     </li>
   </template>
 
-  <!-- Kategori: nivå-1-rad i en liste som grupperer elementer (nivå 2) under en
+  <!-- Kategori: nivå-1-rad i en liste som grupperer listepunkter (nivå 2) under en
        felles overskrift. Tittel/meta + innstillinger (tannhjul) + oppløs-knapp i
-       headeren; elementene ligger i .cat-items (indent-linje). Overskriftslinjen
+       headeren; listepunktene ligger i .cat-items (indent-linje). Overskriftslinjen
        (unntatt de to knappene) er trykk-og-hold-sonen for kategori-draging. -->
   <template id="category-template">
     <li class="category">
@@ -299,7 +303,7 @@
     </li>
   </template>
 
-  <!-- Innstillingsmodal (liste/element): navn, deling (lister), ansvarlig og
+  <!-- Innstillingsmodal (liste/listepunkt): navn, deling (lister), ansvarlig og
        tidsplan (start/frist). Bygges i openSettings() — alt lagres fortløpende
        (optimistisk, via doc-synken/operasjonskøen), ingen bekreftelsesknapp. -->
   <div class="modal-overlay" id="settings-modal" hidden>

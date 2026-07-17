@@ -37,9 +37,9 @@ plukke opp tråden.
       direct connection vil feile fra GitHub Actions med mindre Supabase
       sin IPv4-tilleggstjeneste er kjøpt.
 
-## Skjema-endring: avkryssing av elementer (`items.done`)
+## Skjema-endring: avkryssing av listepunkter (`items.done`)
 
-Design-overhalingen la til **avkryssing av elementer** (gjort/ikke gjort). Feltet
+Design-overhalingen la til **avkryssing av listepunkter** (gjort/ikke gjort). Feltet
 `items.done` rir på det eksisterende innholds-registeret (`ts`/`org`), som
 `text`/`trashed`. `supabase/users-and-sharing.sql` er oppdatert idempotent
 (`alter table … add column if not exists done …`, LWW-trigger, `get_my_doc`,
@@ -53,7 +53,7 @@ Design-overhalingen la til **avkryssing av elementer** (gjort/ikke gjort). Felte
 ## Skjema-endring: navn + ansvarlig (`display_name` / `items.responsible`)
 
 Brukernavn (fornavn + etternavn ved registrering → `profiles.display_name`) og
-**ansvarlig for elementer** i delte lister (`items.responsible`, FK til
+**ansvarlig for listepunkter** i delte lister (`items.responsible`, FK til
 `profiles`, `on delete set null`, rir på innholds-registeret). `supabase/users-
 and-sharing.sql` er oppdatert idempotent (`add column if not exists responsible`,
 LWW-trigger, `get_my_doc`, `import_doc`) og har en **engangs-seed** som setter
@@ -71,7 +71,7 @@ implementert og verifisert i nettleser (mock-backend) — se `docs/accounts.md`.
 ## Skjema-endring: tidsplan + liste-ansvarlig (`start_at`/`due_at`/`lock_times`/`cards.responsible`)
 
 Innstillings-/tidsplan-runden (se `docs/scheduling.md`) la til **start/frist**
-på både elementer og lister (`items.start_at`/`due_at`, `cards.start_at`/
+på både listepunkter og lister (`items.start_at`/`due_at`, `cards.start_at`/
 `due_at` — text, lokal vegg-tid), **tids-lås** på lister (`cards.lock_times`,
 boolean) og **ansvarlig for hele listen** (`cards.responsible`, FK til
 `profiles`, `on delete set null`). Alt rir på innholds-registeret (`ts`/`org`).
@@ -86,10 +86,10 @@ exists`, LWW-triggerne, `get_my_doc`, `import_doc`); mock-backenden speiler det.
 ## Skjema-endring: kategorier (`items.cat_id`/`is_cat`/`lock_times`)
 
 Kategori-runden (se `docs/data-model.md` + `docs/drag-and-drop.md`) grupperer
-elementer under nivå-1-overskrifter. En kategori lagres SOM et element
-(`items.is_cat = true`); leaf-elementer peker på den via `items.cat_id`
+listepunkter under nivå-1-overskrifter. En kategori lagres SOM et listepunkt
+(`items.is_cat = true`); leaf-listepunkter peker på den via `items.cat_id`
 (self-FK, `on delete set null`, `deferrable initially deferred` for
-import-rekkefølge), og en kategori kan låse tidene til elementene sine
+import-rekkefølge), og en kategori kan låse tidene til listepunktene sine
 (`items.lock_times`, som lister). `cat_id` følger posisjonsregisteret (som
 `card_id`); `is_cat`/`lock_times` innholds-registeret. `supabase/users-and-
 sharing.sql` er oppdatert idempotent (`add column if not exists`, LWW-triggeren,
@@ -101,7 +101,7 @@ sharing.sql` er oppdatert idempotent (`add column if not exists`, LWW-triggeren,
       workflow_dispatch, conclusion `success`, 2026-07-14) — `items.cat_id`/
       `is_cat`/`lock_times` er nå på ekte Supabase. Disse to migreringene sto
       igjen mens `accounts: true` allerede var live i produksjon, så PostgREST
-      avviste hver kort-/element-insert/update (manglende kolonner) og
+      avviste hver kort-/listepunkt-insert/update (manglende kolonner) og
       kontomodus-synken var brutt — se PR-en for denne runden.
 
 ## Skjema-endring: unntak fra arvet lås (`universes/groups/cards.unlocked`)
@@ -125,6 +125,24 @@ testbrukere, desktop + mobil) — se `docs/accounts.md`.
       1n7w49`, conclusion `success`, 2026-07-14) — `unlocked`-kolonnene +
       `set_unlocked` (+ oppdatert `can_edit_*`/`get_my_doc`) er nå på ekte
       Supabase, så unntaks-knappen fungerer i kontomodus.
+
+## Skjema-endring: lukketilstand for lister (`cards.collapsed`)
+
+Listekollaps-runden (se `docs/design-system.md` + `docs/drag-and-drop.md`) la til
+**rullgardin-kollaps** av lister: klikk på korthodet folder listen sammen, og
+lukketilstanden (`cards.collapsed`, boolean) lagres og synkes som annet innhold.
+Rir på innholds-registeret (`ts`/`org`), som `lock_times`/`responsible`.
+`supabase/users-and-sharing.sql` er oppdatert idempotent (`add column if not
+exists collapsed …`, LWW-triggeren, `get_my_doc`, `import_doc`); mock-backenden
+speiler det; klienten pusher/leser feltet via samme rad-CRUD (`cleanCard`/
+`mergeCardScalar`/`insertPayload`/`updatePayload`). Implementert og verifisert i
+nettleser (mock-backend, desktop + mobil).
+
+- [ ] **Kjør «Supabase DB-oppsett»-workflowen** slik at `cards.collapsed`-kolonnen
+      (+ LWW-trigger/`get_my_doc`/`import_doc`) kommer på ekte Supabase. Uten den
+      avviser PostgREST hver kort-insert/-update (manglende kolonne) og
+      kontomodus-synken for lister brytes — kjør den FØR denne runden merges til
+      produksjon (samme lærdom som kategori-migreringen).
 
 ## Manuelle steg (krever dashboard-tilgang — Peder)
 

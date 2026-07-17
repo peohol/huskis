@@ -245,7 +245,7 @@ Mottakeren varsles på to måter når noe deles med hen:
   konto-avatar bruker samme navn/initialer (`my.user.display_name`).
 - **Ansvarlig** (`item.responsible` OG `card.responsible`): objekter i delt
   kontekst (delt liste, eller liste under en delt gruppe/univers —
-  `shareRootFor`) kan få en ansvarlig — både hvert element og hele listen.
+  `shareRootFor`) kan få en ansvarlig — både hvert listepunkt og hele listen.
   Settes fra innstillingsmodalens «Ansvarlig»-rad eller ansvarlig-chipen i
   meta-raden (`docs/scheduling.md`); begge åpner ansvarlig-velgeren
   (`openResponsible(target, …)`, target = `{ kind: 'card'|'item', obj, card }`)
