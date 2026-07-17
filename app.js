@@ -1885,12 +1885,13 @@
 
   const SWAP_RATIO = 0.2; // 20 % høydeoverlapp utløser bytte
   const FLIP_MS = 150;
-  // Anti-flimring: rett etter at to objekter har byttet plass, ligger geometrien
-  // ofte slik at det motsatte byttet umiddelbart trigges igjen (pekeren står nær
-  // grensen, retningen jitrer) → de hopper frem og tilbake. Vi blokkerer derfor
-  // KUN det direkte omvendte av forrige bytte i et kort vindu; all annen fremdrift
-  // (andre naboer, samme retning videre) slipper alltid gjennom. Litt over FLIP_MS.
-  const SWAP_LOCK_MS = 200;
+  // Anti-flimring via POSISJONS-HYSTERESE: rett etter et bytte ligger geometrien
+  // ofte slik at det motsatte byttet straks trigges igjen (naboen har nettopp
+  // relokert via FLIP, og 20 %-overlapp-terskelen er lav) → objektene hopper frem
+  // og tilbake. Vi krever derfor at det OMVENDTE av forrige bytte først kan utløses
+  // når dra-senteret har KRYSSET naboens senter med en margin — ikke bare tangert
+  // det med 20 % overlapp. Margin som andel av naboens størrelse langs aksen.
+  const SWAP_HYST = 0.15;
 
   const drag = { active: false };
 
@@ -2077,7 +2078,7 @@
     drag.lastX = ev.clientX;
     drag.lastY = ev.clientY;
     drag.active = true;
-    drag.recentSwap = null; // anti-flimring-lås nullstilles per drag (se SWAP_LOCK_MS)
+    drag.recentSwap = null; // anti-flimring-hysterese nullstilles per drag (se SWAP_HYST)
     try { ev.target.setPointerCapture(ev.pointerId); } catch (e) {}
     document.body.classList.add('is-dragging');
     window.addEventListener('touchmove', preventTouchScroll, { passive: false });
@@ -2141,20 +2142,31 @@
     else container.insertBefore(ph, refEl.nextElementSibling);
   }
 
-  // Anti-flimring (se SWAP_LOCK_MS): et bytte plasserer placeholderen foran/bak et
-  // nabo-element. Det direkte omvendte er samme nabo med motsatt side. Blokkér KUN
-  // det innen låsvinduet — så et objekt som nettopp byttet plass ikke straks
-  // byttes tilbake, mens vanlig fremdrift (andre naboer / 'append') slipper gjennom.
+  // Anti-flimring (se SWAP_HYST): et bytte plasserer placeholderen foran/bak et
+  // nabo-element; det direkte omvendte er samme nabo med motsatt side. Vanlige
+  // (fremover) bytter beholder den ivrige 20 %-terskelen, men REVERSERINGEN av det
+  // siste byttet blokkeres til dra-senteret har krysset naboens senter (med margin)
+  // i mål-retningen. `layoutRect` gir naboens relokerte (FLIP-fratrukne) posisjon,
+  // så dødsonen følger geometrien: parkering på grensen er stabilt, mens en bevisst
+  // tilbakeføring (dra forbi senteret) virker straks. Aksen velges etter hvor nabo
+  // og dra-senter er mest adskilt (vertikale lister → Y; horisontal kort-rad → X).
   function swapReversesRecent(action) {
     const rs = drag.recentSwap;
-    if (!rs || !action.ref) return false;
-    if (performance.now() - rs.t > SWAP_LOCK_MS) return false;
-    if (action.ref.dataset.id !== rs.refId) return false;
-    return (action.pos === 'before' && rs.pos === 'after') ||
-           (action.pos === 'after' && rs.pos === 'before');
+    if (!rs || !action.ref || action.ref.dataset.id !== rs.refId) return false;
+    const isReverse = (action.pos === 'before' && rs.pos === 'after') ||
+                      (action.pos === 'after' && rs.pos === 'before');
+    if (!isReverse) return false;
+    const dr = draggedRect(), nr = layoutRect(action.ref);
+    const dCy = dr.top + dr.height / 2, dCx = dr.left + dr.width / 2;
+    const nCy = nr.top + nr.height / 2, nCx = nr.left + nr.width / 2;
+    const vertical = Math.abs(nCy - dCy) >= Math.abs(nCx - dCx);
+    const dc = vertical ? dCy : dCx, nc = vertical ? nCy : nCx;
+    const margin = SWAP_HYST * (vertical ? nr.height : nr.width);
+    // Blokkér til senteret har krysset naboens senter med margin i mål-retningen.
+    return action.pos === 'before' ? dc > nc - margin : dc < nc + margin;
   }
   function recordSwap(action) {
-    drag.recentSwap = { refId: action.ref ? action.ref.dataset.id : null, pos: action.pos, t: performance.now() };
+    drag.recentSwap = { refId: action.ref ? action.ref.dataset.id : null, pos: action.pos };
   }
 
   // Animer dra-elementet fra flytende posisjon inn i placeholder-sloten.

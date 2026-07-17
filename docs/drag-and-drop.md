@@ -8,17 +8,21 @@ Bytte utløses av **overlapp**, ikke av et punkt:
 - ≥ **20 %** høyde-/breddeoverlapp bytter plass; **retningsstyrt** (hysterese mot
   flimring): nedover-drag bytter kun med kortet under, oppover kun med kortet over
   (transponert for horisontale rader).
-- **Anti-flimring-lås** (`SWAP_LOCK_MS` = 200 ms, litt over FLIP_MS): rett etter et
+- **Anti-flimring via posisjons-hysterese** (`SWAP_HYST` = 0.15): rett etter et
   bytte ligger geometrien ofte slik at det MOTSATTE byttet umiddelbart trigges
   igjen (pekeren står nær grensen mens et nabo-element nettopp har relokert via
-  FLIP) → objektene hopper frem og tilbake. `swapReversesRecent`/`recordSwap`
-  blokkerer derfor KUN det direkte omvendte av forrige bytte (samme nabo-`ref`,
-  motsatt `pos`) innen låsvinduet; all annen fremdrift (andre naboer, `append`,
-  samme retning videre) slipper alltid gjennom, og en bevisst tilbakeføring virker
-  igjen etter 200 ms. Låsen nullstilles per drag (`drag.recentSwap`) og gjelder
-  kort/element/gruppe/univers (kategori-plasseringen er ren senterbasert og
-  flimrer ikke). Fjerner det umiddelbare auto-tilbake-byttet; en rask, bevisst
-  frem-og-tilbake begrenses til ett bytte per vindu (ikke øyeblikkelig).
+  FLIP, og 20 %-overlappterskelen er lav) → objektene hopper frem og tilbake.
+  Vanlige (fremover) bytter beholder den ivrige 20 %-terskelen, men REVERSERINGEN
+  av det siste byttet (`swapReversesRecent`: samme nabo-`ref`, motsatt `pos`)
+  blokkeres til dra-senteret har KRYSSET naboens senter med en margin
+  (`SWAP_HYST` × naboens størrelse langs aksen) — ikke bare tangert det.
+  `layoutRect` gir naboens FLIP-fratrukne (relokerte) senter, så dødsonen følger
+  geometrien: parkering på grensen er **helt stabilt** (0 bytter uansett hvor lenge
+  man står), mens en bevisst tilbakeføring (dra forbi senteret) virker straks.
+  Aksen velges etter hvor nabo og dra-senter er mest adskilt (vertikale lister →
+  Y; horisontal kort-rad → X). `recordSwap` lagrer bare `{refId, pos}`, nullstilles
+  per drag (`drag.recentSwap`), og gjelder kort/element/gruppe/univers (kategori-
+  plasseringen er ren senterbasert og flimrer ikke).
 - **Kolonne** = kort med ≥ 50 % horisontal overlapp; kryss-kolonne plasseres etter
   vertikal senterposisjon. For elementer = overføring til annen `.items-container`.
 - **FLIP-animasjon (150 ms)** ved hver placeholder-flytting og ved slipp.
