@@ -82,8 +82,9 @@ grå = `#c0c4c9`):
 | Hånd-opp (ansvarlig) | person farge 4 |
 
 Unntak som beholder `currentColor` (rene glyfer på massive fargeknapper):
-utlogging (`.logout-icon`, hvit på rød), avkryssings-haken (`.item-check`) og
-kategori-knappen (`.add-cat-btn`, hvit på gul).
+utlogging (`.logout-icon`, hvit på rød) og avkryssings-haken (`.item-check`).
+＋-ikonet og kategori-knappens ikon (`.add-cat-btn`) er IKKE unntak — begge er
+svarte (`#111`) som resten av settet, også på de fargede knappene.
 
 **Kryss-ikonet** (`ICONS.xmark`, samt inline i `index.html`): lukk-/slett-
 knappenes ✕ er nå en egen SVG med samme strek (1.05) og runde ender som resten
@@ -189,17 +190,18 @@ Størrelse/form kommer fra egne klasser: `.btn` (modaler), `.btn-small`,
   ＋ legger til et listepunkt (`type=submit`); kategori-knappen (`type=button`,
   til høyre for ＋) oppretter i stedet en kategori med det innskrevne navnet.
   Kategori-knappens ikon er `ICONS.category`-tegningen limt inn direkte i
-  `index.html` med `stroke/fill="currentColor"` (hvit på gul flate — samme
-  unntak som utloggings-ikonet). Begge de kvadratiske icon-only-knappene
-  (listepunkt-＋ og kategori) bærer store, tydelige ikoner: `.btn-add.icon-only
-  .icon` settes til **34px** for begge, så ＋-en er like stor som kategori-ikonet
-  (kategori-motivet — klammer/prikker/linjer — trenger størrelsen for å lese
-  tydelig, og ＋-en matcher det).
+  `index.html` med `stroke/fill="#111"` — svart som resten av ikonsettet, også
+  på den gule flaten (ikke lenger et `currentColor`-unntak). Begge de
+  kvadratiske icon-only-knappene (listepunkt-＋ og kategori) bærer store,
+  tydelige ikoner: `.btn-add.icon-only .icon` settes til **34px** for begge, så
+  ＋-en er like stor som kategori-ikonet (kategori-motivet — klammer/prikker/
+  linjer — trenger størrelsen for å lese tydelig, og ＋-en matcher det).
 - **Delt ＋-ikon** (`ICONS.plus`, samt inline-kopier i `index.html`): ALLE
   «legg til»-knappene (listepunkt/liste/gruppe/univers) bruker nå samme SVG-tegnede
-  ＋ (to rette streker, `stroke-width="1.05"`, runde ender, `currentColor`) i
-  stedet for tekst-glyfen ＋ — som har annen linjestil/tykkelse enn resten av
-  ikonsettet og dermed brøt den ellers konsekvente streken. De tekst+ikon-
+  ＋ (to rette streker, `stroke-width="1.05"`, runde ender, `stroke="#111"` —
+  svart også på de fargede knappene) i stedet for tekst-glyfen ＋ — som har
+  annen linjestil/tykkelse enn resten av ikonsettet og dermed brøt den ellers
+  konsekvente streken. De tekst+ikon-
   knappene (liste/gruppe/univers) beholder `.btn-add .icon`-størrelsen (19px);
   kun de kvadratiske icon-only-knappene skaleres opp til 34px (se over).
 - **Kategorier** (`.category` / `.cat-head` / `.cat-title` / `.cat-cog` /

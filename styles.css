@@ -350,10 +350,10 @@ body {
 .btn-yellow { background: var(--grad-yellow); }
 
 /* ---------------- «＋»-knapper (felles: gruppe/liste/univers/element) ----------------
-   Størrelse/form for knappene i knapperadene; fargen kommer fra .btn-solid
-   .btn-green. .icon-only = kvadratisk, med kun ICONS.plus (se index.html) —
-   ingen tekst-glyf lenger, så streken matcher resten av ikonsettet (1.05,
-   runde ender, currentColor). */
+   Størrelse/form for knappene i knapperadene; fargen på FLATEN kommer fra
+   .btn-solid .btn-green. .icon-only = kvadratisk, med kun ICONS.plus (se
+   index.html) — ingen tekst-glyf lenger, så streken matcher resten av
+   ikonsettet (1.05, runde ender, svart #111 — også på de fargede knappene). */
 .btn-add {
   flex: 0 0 auto;
   appearance: none;
