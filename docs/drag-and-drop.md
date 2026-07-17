@@ -8,6 +8,21 @@ Bytte utløses av **overlapp**, ikke av et punkt:
 - ≥ **20 %** høyde-/breddeoverlapp bytter plass; **retningsstyrt** (hysterese mot
   flimring): nedover-drag bytter kun med kortet under, oppover kun med kortet over
   (transponert for horisontale rader).
+- **Anti-flimring via posisjons-hysterese** (`SWAP_HYST` = 0.15): rett etter et
+  bytte ligger geometrien ofte slik at det MOTSATTE byttet umiddelbart trigges
+  igjen (pekeren står nær grensen mens et nabo-element nettopp har relokert via
+  FLIP, og 20 %-overlappterskelen er lav) → objektene hopper frem og tilbake.
+  Vanlige (fremover) bytter beholder den ivrige 20 %-terskelen, men REVERSERINGEN
+  av det siste byttet (`swapReversesRecent`: samme nabo-`ref`, motsatt `pos`)
+  blokkeres til dra-senteret har KRYSSET naboens senter med en margin
+  (`SWAP_HYST` × naboens størrelse langs aksen) — ikke bare tangert det.
+  `layoutRect` gir naboens FLIP-fratrukne (relokerte) senter, så dødsonen følger
+  geometrien: parkering på grensen er **helt stabilt** (0 bytter uansett hvor lenge
+  man står), mens en bevisst tilbakeføring (dra forbi senteret) virker straks.
+  Aksen velges etter hvor nabo og dra-senter er mest adskilt (vertikale lister →
+  Y; horisontal kort-rad → X). `recordSwap` lagrer bare `{refId, pos}`, nullstilles
+  per drag (`drag.recentSwap`), og gjelder kort/element/gruppe/univers (kategori-
+  plasseringen er ren senterbasert og flimrer ikke).
 - **Kolonne** = kort med ≥ 50 % horisontal overlapp; kryss-kolonne plasseres etter
   vertikal senterposisjon. For elementer = overføring til annen `.items-container`.
 - **FLIP-animasjon (150 ms)** ved hver placeholder-flytting og ved slipp.
@@ -43,22 +58,44 @@ Bytte utløses av **overlapp**, ikke av et punkt:
   gapet mellom sonene (ligger i begge samtidig), avgjør pekerens halvdel retningen.
 - Kun én drag om gangen (`if (drag.active) return`); `finishDrag()` feier bort
   evt. foreldreløse placeholdere.
-- Håndtak (`.drag-handle`) har `touch-action: none`; draging starter kun fra
-  håndtaket. `pointercapture` brukes så draging ikke mister eventer. Placeholder
-  lever kun under draging; `finishDrag()` har sikkerhetsnett.
-- **Alle håndtak er tre vertikale prikker** tegnet i CSS (`::before` + to
-  prikker via `box-shadow` — ingen glyf/SVG i templatene), og er alltid
-  nøyaktig vertikalt midtstilt i raden sin (`align-self: stretch` +
-  grid-sentrering). **Alle placeholders deler én stil** (felles regel for
-  `.card-/.item-/.group-placeholder`): 1px stiplet kant med lav opacity, svakt
-  mørknet flate og en subtil inset-skygge («hull som skal fylles») — kun
-  radius/margens varierer per type.
-- **Tastatur-reordering**: håndtakene er `<button>` (fokuserbare). Piltaster
-  opp/ned (+ venstre/høyre for gruppe-rader) flytter det fokuserte objektet ett
-  hakk blant sine synlige søsken — `arrowDir()` + `neighborPos()` gir en ny
-  fraksjons-`pos` mellom de nye naboene, samme kirurgiske pos-stempling som
-  peker-draging, så fokus følger med til det flyttede objektet. Gjelder
-  element/kort/gruppe/univers. Redusert bevegelse hopper over FLIP-tweenen.
+- **Trykk-og-hold starter draging** (`attachHoldDrag`, `HOLD_MS` = 200 ms). Dra-
+  håndtakene er FJERNET; i stedet inviteres draging ved å trykke og holde på
+  objektets navn-/tittelsone — men ikke på knappene (`except`-selektoren, med
+  `closest`) og heller ikke på interaktive/redigerbare etterkommere som ligger i
+  sonen (`HOLD_SKIP` = `.edit-input` (inline omdøping — et hold ville blokkert
+  caret/markering) + `.meta-chip` (egne hurtigredigerings-knapper — et tregt
+  trykk skal åpne dem, ikke løfte kortet)). Soner/unntak: **univers-/gruppe-rad**
+  = hele chip-en unntatt
+  ×-knappen; **liste** = hele korthodet (`.card-head`) unntatt tannhjul + ×;
+  **element** = hele `.item` unntatt avmerkingsboks + tannhjul + ×; **kategori**
+  = hele overskriftslinjen (`.cat-head`) unntatt tannhjul + oppløs-knapp.
+  `attachHoldDrag(zone, dragEl, startDrag, canDrag, except)` gir `startXxxDrag`
+  et syntetisk event med pekerinfoen fra `pointerdown` (fingeren er fortsatt nede
+  når timeren løser ut, så `pointerId`-en er aktiv → `setPointerCapture` på
+  `dragEl` virker). Et kort trykk gjør fortsatt det klikket pleide (omdøp/bytt/
+  kryss av); ved et fullført hold undertrykkes det påfølgende klikket (capture +
+  `stopImmediatePropagation`). Beveger pekeren seg > `HOLD_MOVE` (10 px) før
+  holdet er fullført, avbrytes det (scroll/sveip) og siden scroller nativt —
+  sonene har normal `touch-action`. `pointercancel` avbryter også. Avbrudds-
+  lytterne (`pointermove`/`pointerup`/`pointercancel`) sitter på **window** mens
+  man venter (ikke på `zone`): før holdet er ferdig er ikke pekeren fanget, så
+  flyttes/slippes den utenfor sonen ville zone-lyttere aldri fyre og timeren
+  startet et drag etter at knappen alt var sluppet. En synk-
+  rebuild kan bytte ut noden mens man holder → timeren dropper draget om
+  `dragEl` ikke lenger er `isConnected`. `canDrag` gater på frossen/mount/`done`.
+  Under et pågående drag blokkeres native scroll av en ikke-passiv `touchmove`-
+  lytter (`preventTouchScroll`, av/på i `beginDragCommon`/`finishDrag`). Mens
+  holdet registreres får `dragEl` et lite «press» (`.drag-hold`, scale) —
+  hoppes over ved `prefers-reduced-motion`. `pointercapture` brukes så draging
+  ikke mister eventer. Placeholder lever kun under draging; `finishDrag()` har
+  sikkerhetsnett.
+- **Alle placeholders deler én stil** (felles regel for `.card-/.item-/.group-
+  placeholder`): 1px stiplet kant med lav opacity, svakt mørknet flate og en
+  subtil inset-skygge («hull som skal fylles») — kun radius/margens varierer per
+  type.
+- **Tastatur-reordering er fjernet** sammen med håndtakene (den bodde på håndtak-
+  knappene, som var det eneste fokuserbare inngangspunktet). Trykk-og-hold er en
+  ren peker-gest; det finnes ikke lenger en tastatur-vei til omrokkering.
 - **Posisjonsbasert farge reindekseres alltid ved en fullført omrokkering**
   (ikke bare ved add/slett): `onCardUp`/`onGroupUp`/`onUniverseUp` kaller hhv.
   `reindexCardColors()`/`reindexGroupColors()`/`reindexUniverseColors()` etter
@@ -107,7 +144,7 @@ fordypning («hylle», se `docs/design-system.md`).
 
 ## Univers- og gruppe-rader (i sine modaler)
 
-Samme håndtak + placeholder + FLIP-motor som listekortene, men kun i én
+Samme trykk-og-hold + placeholder + FLIP-motor som listekortene, men kun i én
 variant: både `uni-list` (univers-modalen) og `group-list` (gruppe-modalen) er
 alltid vertikale kolonner, så `updateUniversePlacement`/`updateGroupPlacement`
 er transponerte kopier av kort-kolonelogikken (den gamle H-varianten for

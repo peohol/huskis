@@ -189,7 +189,19 @@ Ansvarlig kan byttes fritt mens forrige valg er i lufta (LWW tar siste), søppel
 kan gjenopprettes/tømmes UNDER buffring, og del-modalen åpner umiddelbart. Se
 `docs/accounts.md` (opQueue) og `docs/trash.md`.
 
-**Ny navigasjon (siste runde)**: gruppemenyen (sidebar/topp-panel), listemeny-
+**Trykk-og-hold-draging (siste runde)**: alle dra-håndtak er FJERNET. Draging
+inviteres nå ved å trykke og holde (200 ms) på et objekts navn-/tittelsone —
+ikke på knappene: univers-/gruppe-rad = hele chip-en unntatt ×; liste = hele
+korthodet unntatt tannhjul + ×; element = hele raden unntatt avmerkingsboks +
+tannhjul + ×; kategori = hele overskriftslinjen unntatt tannhjul + oppløs.
+Felles `attachHoldDrag`-hjelper (syntetisk pointer-event → de eksisterende
+`startXxxDrag`); et kort trykk gjør fortsatt det klikket pleide (omdøp/bytt/
+kryss), et fullført hold undertrykker det påfølgende klikket. Bevegelse >10 px
+før holdet er ferdig = scroll/sveip (avbrytes, siden scroller nativt); native
+scroll blokkeres kun MENS draget pågår. **Tastatur-reordering er fjernet** (den
+bodde på håndtakene). Ingen DB-migrering. Se `docs/drag-and-drop.md`.
+
+**Ny navigasjon (forrige runde)**: gruppemenyen (sidebar/topp-panel), listemeny-
 overskriften, univers-/gruppebytterne og meny-modalen (☰) er erstattet av én
 **toppmeny med breadcrumb** (🌐 univers › 📁 gruppe — knappene åpner hver sin
 modal der ALT av navigering/redigering/deling for nivået skjer: «Du er i»-blokk

@@ -179,22 +179,6 @@
   }
   function maxPos(arr) { return arr.reduce((m, e) => Math.max(m, e.pos || 0), 0); }
 
-  // Tastatur-reordering: ny pos-verdi når objektet på indeks i i den sorterte,
-  // synlige lista flyttes ett hakk (dir −1 opp / +1 ned) — mellom de nye naboene.
-  function neighborPos(sorted, i, dir) {
-    if (dir < 0) return between(i - 2 >= 0 ? sorted[i - 2].pos : null, sorted[i - 1].pos);
-    return between(sorted[i + 1].pos, i + 2 < sorted.length ? sorted[i + 2].pos : null);
-  }
-  // Piltast → retning. horizontal=true tar også med venstre/høyre (gruppe-rader
-  // kan ligge horisontalt på mobil).
-  function arrowDir(ev, horizontal) {
-    if (ev.key === 'ArrowUp') return -1;
-    if (ev.key === 'ArrowDown') return 1;
-    if (horizontal && ev.key === 'ArrowLeft') return -1;
-    if (horizontal && ev.key === 'ArrowRight') return 1;
-    return 0;
-  }
-
   /* ---------------- State ---------------- */
   function makeItem(text, homeId) {
     return {
@@ -792,13 +776,13 @@
     };
 
     el.addEventListener('click', (ev) => {
-      if (ev.target.closest('.group-handle') || ev.target.closest('.group-delete')) return;
+      if (ev.target.closest('.group-delete')) return;
       activate();
     });
     // Tastatur: raden er role="tab" (tabindex=0). Enter/Mellomrom aktiverer den
     // (bytt gruppe / omdøp den aktive).
     el.addEventListener('keydown', (ev) => {
-      if (ev.target !== el) return; // slett/håndtak har egen tastaturoppførsel
+      if (ev.target !== el) return; // slett-knappen har egen tastaturoppførsel
       if (ev.key === 'Enter' || ev.key === ' ' || ev.key === 'Spacebar') {
         ev.preventDefault();
         activate();
@@ -812,27 +796,9 @@
       gDelBtn.addEventListener('click', (ev) => { ev.stopPropagation(); deleteGroup(groupData); });
     }
 
-    const gHandle = el.querySelector('.group-handle');
-    if (!gCanEdit && !groupData._mount) {
-      gHandle.style.visibility = 'hidden';
-    } else {
-      gHandle.addEventListener('pointerdown', (ev) => startGroupDrag(ev, el));
-      // Tastatur-reordering: piltaster opp/ned flytter gruppen i modallista.
-      gHandle.addEventListener('keydown', (ev) => {
-        const dir = arrowDir(ev, false);
-        if (!dir) return;
-        ev.preventDefault();
-        const sorted = visibleGroups();
-        const i = sorted.indexOf(groupData);
-        if (i < 0 || i + dir < 0 || i + dir >= sorted.length) return;
-        const np = neighborPos(sorted, i, dir);
-        if (groupData._mount) { groupData.pos = np; groupData._mount.pos = np; cloudMountUpdate('group', groupData.id, { pos: np }); }
-        else { groupData.pos = np; stampPos(groupData); }
-        render(); save();
-        const h = groupList.querySelector('.group-card[data-id="' + groupData.id + '"] .group-handle');
-        if (h) h.focus();
-      });
-    }
+    // Draging: trykk-og-hold hvor som helst på raden unntatt ×-knappen.
+    attachHoldDrag(el, el, startGroupDrag,
+      () => gCanEdit || !!groupData._mount, '.group-delete');
     return el;
   }
 
@@ -975,28 +941,11 @@
       });
     }
 
-    // Håndtak for kort-draging. Frosset (låst av andre) og ikke egen mount → skjul.
-    const cardHandle = el.querySelector('.card-handle');
-    if (!canEdit && !cardData._mount) {
-      cardHandle.style.visibility = 'hidden';
-    } else {
-      cardHandle.addEventListener('pointerdown', (ev) => startCardDrag(ev, el));
-      // Tastatur-reordering: piltaster opp/ned flytter kortet blant de synlige.
-      cardHandle.addEventListener('keydown', (ev) => {
-        const dir = arrowDir(ev, false);
-        if (!dir) return;
-        ev.preventDefault();
-        const sorted = activeCards().filter(cardMatchesFilter);
-        const i = sorted.indexOf(cardData);
-        if (i < 0 || i + dir < 0 || i + dir >= sorted.length) return;
-        const np = neighborPos(sorted, i, dir);
-        if (cardData._mount) { cardData.pos = np; cardData._mount.pos = np; cloudMountUpdate('card', cardData.id, { pos: np }); }
-        else { cardData.pos = np; stampPos(cardData); }
-        render(); save();
-        const h = board.querySelector('.card[data-id="' + cardData.id + '"] .card-handle');
-        if (h) h.focus();
-      });
-    }
+    // Kort-draging: trykk-og-hold på korthodet (tittel-delen) unntatt de to
+    // knappene til høyre (tannhjul + ×). Frosset (låst av andre) og ikke egen
+    // mount → ingen draging.
+    attachHoldDrag(el.querySelector('.card-head'), el, startCardDrag,
+      () => canEdit || !!cardData._mount, '.card-cog, .card-delete');
 
     // Elementer (kun ikke-slettede; sortert på posisjon). To nivåer: nivå 1 er
     // kortets direkte rader — ukategoriserte elementer OG kategorier, om
@@ -1373,10 +1322,8 @@
     // Slett element → legg i kortets element-søppelkasse (trashed-flagg;
     // gjenopprettbar). Permanent sletting (gravstein) skjer først ved tømming.
     const itemDel = el.querySelector('.item-delete');
-    const itemHandle = el.querySelector('.item-handle');
     if (!canEdit) {
       itemDel.hidden = true;
-      itemHandle.style.visibility = 'hidden';
     } else {
       itemDel.addEventListener('click', () => {
         const owner = ownerCardOf(el) || cardData;
@@ -1389,33 +1336,11 @@
           '.card[data-id="' + owner.id + '"] .item-trash-btn'));
         pushDeleteToast('item', it.id, it.text);
       });
-      // Avkryssede elementer dras/reorderes ikke (de ligger i «Utført»).
-      itemHandle.addEventListener('pointerdown', (ev) => { if (itemData.done) return; startItemDrag(ev, el); });
-      // Tastatur-reordering: piltaster opp/ned flytter det fokuserte elementet.
-      itemHandle.addEventListener('keydown', (ev) => {
-        if (itemData.done) return;
-        const dir = arrowDir(ev, false);
-        if (!dir) return;
-        ev.preventDefault();
-        const owner = ownerCardOf(el) || cardData;
-        // Flytt blant SØSKEN i samme nivå: inne i en kategori kun kategoriens
-        // egne elementer; ellers nivå-1-rader (ukategoriserte + kategorier).
-        const cids = new Set(owner.items.filter((x) => x.isCat).map((x) => x.id));
-        const inCat = itemData.cat && cids.has(itemData.cat);
-        const sorted = owner.items.filter((it) => !it.trashed && !it.done && !it._pendingDelete &&
-          (inCat ? (it.cat === itemData.cat && !it.isCat) : (it.isCat || !it.cat || !cids.has(it.cat)))).sort(posCmp);
-        const i = sorted.indexOf(itemData);
-        if (i < 0 || i + dir < 0 || i + dir >= sorted.length) return;
-        itemData.home = owner.id;
-        itemData.pos = neighborPos(sorted, i, dir);
-        stampPos(itemData);
-        refreshCard(owner);
-        save();
-        const h = board.querySelector('.card[data-id="' + owner.id +
-          '"] .item[data-id="' + itemData.id + '"] .item-handle');
-        if (h) h.focus();
-      });
     }
+    // Draging: trykk-og-hold på elementet unntatt avmerkingsboksen + de to
+    // knappene (tannhjul + ×). Avkryssede elementer dras ikke (ligger i «Utført»).
+    attachHoldDrag(el, el, startItemDrag,
+      () => canEdit && !itemData.done, '.item-check, .item-cog, .item-delete');
 
     // Tannhjulet åpner elementets innstillingsmodal (navn/ansvarlig/tidsplan).
     const cogBtn = el.querySelector('.item-cog');
@@ -1469,28 +1394,10 @@
     if (!canEdit) dissolve.disabled = true;
     else dissolve.addEventListener('click', () => dissolveCategory(catData, cardData));
 
-    const handle = el.querySelector('.cat-handle');
-    if (!canEdit) {
-      handle.style.visibility = 'hidden';
-    } else {
-      handle.addEventListener('pointerdown', (ev) => startCategoryDrag(ev, el));
-      // Tastatur-reordering: piltaster flytter kategorien blant nivå-1-radene.
-      handle.addEventListener('keydown', (ev) => {
-        const dir = arrowDir(ev, false);
-        if (!dir) return;
-        ev.preventDefault();
-        const sorted = cardData.items.filter((it) => !it.trashed && !it._pendingDelete && !it.done && !it.cat).sort(posCmp);
-        const i = sorted.findIndex((o) => o.id === catData.id);
-        if (i < 0 || i + dir < 0 || i + dir >= sorted.length) return;
-        catData.pos = neighborPos(sorted, i, dir);
-        stampPos(catData);
-        refreshCard(cardData);
-        save();
-        const h = board.querySelector('.card[data-id="' + cardData.id +
-          '"] .category[data-id="' + catData.id + '"] .cat-handle');
-        if (h) h.focus();
-      });
-    }
+    // Draging: trykk-og-hold på overskriftslinjen unntatt de to knappene
+    // (tannhjul + oppløs).
+    attachHoldDrag(el.querySelector('.cat-head'), el, startCategoryDrag,
+      () => canEdit, '.cat-cog, .cat-dissolve');
 
     fillMetaRow(el.querySelector('.cat-meta'),
       { kind: 'category', obj: catData, card: cardData }, canEdit);
@@ -1937,6 +1844,13 @@
 
   const SWAP_RATIO = 0.2; // 20 % høydeoverlapp utløser bytte
   const FLIP_MS = 150;
+  // Anti-flimring via POSISJONS-HYSTERESE: rett etter et bytte ligger geometrien
+  // ofte slik at det motsatte byttet straks trigges igjen (naboen har nettopp
+  // relokert via FLIP, og 20 %-overlapp-terskelen er lav) → objektene hopper frem
+  // og tilbake. Vi krever derfor at det OMVENDTE av forrige bytte først kan utløses
+  // når dra-senteret har KRYSSET naboens senter med en margin — ikke bare tangert
+  // det med 20 % overlapp. Margin som andel av naboens størrelse langs aksen.
+  const SWAP_HYST = 0.15;
 
   const drag = { active: false };
 
@@ -2034,6 +1948,83 @@
   }
 
   /* ------- Felles start / bevegelse / slutt ------- */
+  /* ---------------- Trykk-og-hold → dra-og-slipp ----------------
+     Dra-håndtakene er fjernet. I stedet inviteres draging ved å trykke og holde
+     (HOLD_MS) på objektets navn-/tittelsone — men ikke på knappene (`except`-
+     selektoren). Et kort trykk gjør fortsatt det klikket pleide (omdøp/bytt/kryss
+     av); et fullført hold løfter objektet. Beveger pekeren seg mer enn HOLD_MOVE
+     px før holdet er fullført, tolkes det som scrolling/sveip og holdet avbrytes
+     (siden scroller da nativt — sonene beholder normal `touch-action`). Ved et
+     fullført hold undertrykkes det påfølgende klikket så det ikke også omdøper.
+     `startDrag` er den vanlige peker-drag-starteren; vi gir den et syntetisk
+     event med pekerinfoen fra pointerdown (fingeren er fortsatt nede når timeren
+     løser ut, så pointerId-en er aktiv → setPointerCapture i beginDragCommon
+     virker på `dragEl`). */
+  const HOLD_MS = 200;
+  const HOLD_MOVE = 10;
+  // Interaktive/redigerbare etterkommere som ALDRI skal starte et drag, selv om
+  // de ligger i dra-sonen (i tillegg til per-sone-`except`): den inline
+  // redigereren (`editText` → `.edit-input`, hvor et hold ville blokkert caret-
+  // plassering/markering) og meta-chipene (`fillMetaRow` → `.meta-chip`, egne
+  // hurtigredigerings-knapper — et tregt trykk skal åpne dem, ikke løfte kortet).
+  const HOLD_SKIP = '.edit-input, .meta-chip';
+  function attachHoldDrag(zone, dragEl, startDrag, canDrag, except) {
+    let timer = null, held = false, sx = 0, sy = 0, pid = null;
+    function disarm() {
+      if (timer) { clearTimeout(timer); timer = null; }
+      dragEl.classList.remove('drag-hold');
+      window.removeEventListener('pointermove', onMove);
+      window.removeEventListener('pointerup', onUp);
+      window.removeEventListener('pointercancel', onUp);
+    }
+    function onMove(ev) {
+      if (ev.pointerId !== pid) return;
+      if (Math.abs(ev.clientX - sx) > HOLD_MOVE || Math.abs(ev.clientY - sy) > HOLD_MOVE) disarm();
+    }
+    function onUp(ev) { if (ev.pointerId === pid) disarm(); }
+    zone.addEventListener('pointerdown', (ev) => {
+      held = false;
+      if (ev.button != null && ev.button !== 0) return;
+      if (!canDrag()) return;
+      if (ev.target.closest(HOLD_SKIP)) return;
+      if (except && ev.target.closest(except)) return;
+      ev.preventDefault(); // ingen tekstmarkering/fokus mens man holder
+      sx = ev.clientX; sy = ev.clientY; pid = ev.pointerId;
+      dragEl.classList.add('drag-hold');
+      // Lytt på WINDOW (ikke bare zone): før holdet er ferdig har vi ikke fanget
+      // pekeren, så flyttes/slippes den UTENFOR sonen ville zone-lytterne aldri
+      // fyre — og timeren startet et drag etter at knappen alt var sluppet
+      // (kortet ble hengende i `.dragging`). Fjernes idet holdet avbrytes/utløser.
+      window.addEventListener('pointermove', onMove);
+      window.addEventListener('pointerup', onUp);
+      window.addEventListener('pointercancel', onUp);
+      timer = setTimeout(() => {
+        timer = null;
+        window.removeEventListener('pointermove', onMove);
+        window.removeEventListener('pointerup', onUp);
+        window.removeEventListener('pointercancel', onUp);
+        dragEl.classList.remove('drag-hold');
+        // En synk-rebuild kan ha byttet ut noden mens man holdt → ikke start et
+        // drag på en frakoblet node (peker-lytterne sitter på den nye noden).
+        if (!dragEl.isConnected) return;
+        held = true;
+        startDrag({ button: 0, clientX: sx, clientY: sy, pointerId: pid,
+          target: dragEl, preventDefault() {} }, dragEl);
+      }, HOLD_MS);
+    });
+    // Undertrykk klikket (omdøp/bytt/kryss) som ellers ville fulgt et fullført
+    // hold. Capture + stopImmediatePropagation stopper også lyttere på samme
+    // element (f.eks. rad-aktivering på gruppe-/univers-radene).
+    zone.addEventListener('click', (ev) => {
+      if (held) { ev.stopImmediatePropagation(); ev.preventDefault(); held = false; }
+    }, true);
+  }
+
+  // Blokkér native scroll mens et drag pågår (fingeren startet på en sone med
+  // normal touch-action, så vi kan ikke la nettleseren panorere når draget først
+  // er i gang). Ikke-passiv, så preventDefault faktisk stopper scrollingen.
+  function preventTouchScroll(e) { if (drag.active && e.cancelable) e.preventDefault(); }
+
   function beginDragCommon(ev, el) {
     ev.preventDefault();
     const rect = el.getBoundingClientRect();
@@ -2046,8 +2037,10 @@
     drag.lastX = ev.clientX;
     drag.lastY = ev.clientY;
     drag.active = true;
+    drag.recentSwap = null; // anti-flimring-hysterese nullstilles per drag (se SWAP_HYST)
     try { ev.target.setPointerCapture(ev.pointerId); } catch (e) {}
     document.body.classList.add('is-dragging');
+    window.addEventListener('touchmove', preventTouchScroll, { passive: false });
   }
 
   // Posisjonen dra-elementet skal få via style.left/top.
@@ -2108,6 +2101,33 @@
     else container.insertBefore(ph, refEl.nextElementSibling);
   }
 
+  // Anti-flimring (se SWAP_HYST): et bytte plasserer placeholderen foran/bak et
+  // nabo-element; det direkte omvendte er samme nabo med motsatt side. Vanlige
+  // (fremover) bytter beholder den ivrige 20 %-terskelen, men REVERSERINGEN av det
+  // siste byttet blokkeres til dra-senteret har krysset naboens senter (med margin)
+  // i mål-retningen. `layoutRect` gir naboens relokerte (FLIP-fratrukne) posisjon,
+  // så dødsonen følger geometrien: parkering på grensen er stabilt, mens en bevisst
+  // tilbakeføring (dra forbi senteret) virker straks. Aksen velges etter hvor nabo
+  // og dra-senter er mest adskilt (vertikale lister → Y; horisontal kort-rad → X).
+  function swapReversesRecent(action) {
+    const rs = drag.recentSwap;
+    if (!rs || !action.ref || action.ref.dataset.id !== rs.refId) return false;
+    const isReverse = (action.pos === 'before' && rs.pos === 'after') ||
+                      (action.pos === 'after' && rs.pos === 'before');
+    if (!isReverse) return false;
+    const dr = draggedRect(), nr = layoutRect(action.ref);
+    const dCy = dr.top + dr.height / 2, dCx = dr.left + dr.width / 2;
+    const nCy = nr.top + nr.height / 2, nCx = nr.left + nr.width / 2;
+    const vertical = Math.abs(nCy - dCy) >= Math.abs(nCx - dCx);
+    const dc = vertical ? dCy : dCx, nc = vertical ? nCy : nCx;
+    const margin = SWAP_HYST * (vertical ? nr.height : nr.width);
+    // Blokkér til senteret har krysset naboens senter med margin i mål-retningen.
+    return action.pos === 'before' ? dc > nc - margin : dc < nc + margin;
+  }
+  function recordSwap(action) {
+    drag.recentSwap = { refId: action.ref ? action.ref.dataset.id : null, pos: action.pos };
+  }
+
   // Animer dra-elementet fra flytende posisjon inn i placeholder-sloten.
   // rot = grader kortet skal starte rotert i (0/false for elementer → ingen spin).
   function dropIntoPlaceholder(el, rot) {
@@ -2149,6 +2169,7 @@
     stopGroupAutoScroll();
     stopUniverseAutoScroll();
     document.body.classList.remove('is-dragging');
+    window.removeEventListener('touchmove', preventTouchScroll, { passive: false });
   }
 
   /* ------- Auto-scroll når dra-kortet nærmer seg topp/bunn av vinduet -------
@@ -2400,9 +2421,11 @@
     }
 
     if (!action || !wouldMove(ph, action.ref, action.pos)) return;
+    if (swapReversesRecent(action)) return;
     const snap = snapshotRects(cards);
     placePlaceholder(board, ph, action.ref, action.pos);
     flipFrom(snap, FLIP_MS);
+    recordSwap(action);
   }
 
   function onCardUp(ev) {
@@ -2590,11 +2613,13 @@
       ? targetCont.lastElementChild !== ph
       : wouldMove(ph, action.ref, action.pos);
     if (!willMove) return;
+    if (swapReversesRecent(action)) return;
 
     const snap = snapshotRects(flipEls);
     if (action.pos === 'append') targetCont.appendChild(ph);
     else placePlaceholder(targetCont, ph, action.ref, action.pos);
     flipFrom(snap, FLIP_MS);
+    recordSwap(action);
   }
 
   function onItemUp() {
@@ -2869,9 +2894,11 @@
       if (best) action = { ref: best, pos: 'before' };
     }
     if (!action || !wouldMove(ph, action.ref, action.pos)) return;
+    if (swapReversesRecent(action)) return;
     const snap = snapshotRects(cards);
     placePlaceholder(groupList, ph, action.ref, action.pos); // 'after' siste rad → foran «＋»
     flipFrom(snap, FLIP_MS);
+    recordSwap(action);
   }
 
   // Delt slipp-håndtering for de to «kolonne»-nivåene (grupper og universer):
@@ -3022,9 +3049,11 @@
       if (best) action = { ref: best, pos: 'before' };
     }
     if (!action || !wouldMove(ph, action.ref, action.pos)) return;
+    if (swapReversesRecent(action)) return;
     const snap = snapshotRects(rows);
     placePlaceholder(uniList, ph, action.ref, action.pos); // 'after' siste rad → foran «＋ Univers»
     flipFrom(snap, FLIP_MS);
+    recordSwap(action);
   }
 
   function onUniverseUp() {
@@ -4276,7 +4305,7 @@
       }
     };
     el.addEventListener('click', (ev) => {
-      if (ev.target.closest('.uni-delete') || ev.target.closest('.group-handle')) return;
+      if (ev.target.closest('.uni-delete')) return;
       activate();
     });
     el.addEventListener('keydown', (ev) => {
@@ -4293,27 +4322,9 @@
       uDelBtn.addEventListener('click', (ev) => { ev.stopPropagation(); deleteUniverse(u); });
     }
 
-    const uHandle = el.querySelector('.group-handle');
-    if (!uCanEdit && !u._mount) {
-      uHandle.style.visibility = 'hidden';
-    } else {
-      uHandle.addEventListener('pointerdown', (ev) => startUniverseDrag(ev, el));
-      // Tastatur-reordering: piltaster opp/ned flytter universet i menylista.
-      uHandle.addEventListener('keydown', (ev) => {
-        const dir = arrowDir(ev, false);
-        if (!dir) return;
-        ev.preventDefault();
-        const sorted = visibleUniverses();
-        const i = sorted.indexOf(u);
-        if (i < 0 || i + dir < 0 || i + dir >= sorted.length) return;
-        const np = neighborPos(sorted, i, dir);
-        if (u._mount) { u.pos = np; u._mount.pos = np; cloudMountUpdate('universe', u.id, { pos: np }); }
-        else { u.pos = np; stampPos(u); }
-        renderUniverses(); save();
-        const h = uniList.querySelector('.uni-row[data-id="' + u.id + '"] .group-handle');
-        if (h) h.focus();
-      });
-    }
+    // Draging: trykk-og-hold hvor som helst på kortet unntatt ×-knappen.
+    attachHoldDrag(el, el, startUniverseDrag,
+      () => uCanEdit || !!u._mount, '.uni-delete');
     return el;
   }
 

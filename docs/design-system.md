@@ -15,7 +15,7 @@ større, mer lesbare og lettere treffbare elementer i et fortsatt kompakt UI.
 
 Univers-rader, gruppe-rader og listekort har **identisk tittel-typografi**
 (20px/600: `.chip-name` og `.card-title`) og identisk størrelse på ekvivalente
-ikoner (delt-merke, slett-✕, håndtak).
+ikoner (delt-merke, slett-✕).
 
 Tekststørrelsene er tokens (`--fs-xs` 15 / `--fs-sm` 17 / `--fs-md` 18 /
 `--fs-base` 19 (brødtekst) / `--fs-lg` 20 (titler) / `--fs-xl` 24
@@ -96,8 +96,9 @@ knappene arver `.icon-btn`-fargen (`--ink-soft`).
   auth-heading-ikonet, sveipefelt-søppelkassen, antall-pillene, element-
   søppelknappen, tom-tilstander) bygges fra `window.ICONS` (`icons.js`, lastet
   før `app.js`) via `el.innerHTML = ICONS.xxx`.
-- Dra-håndtakene tegnes i ren CSS (`.drag-handle::before` — prikk + kopier
-  via `box-shadow`), i samme tynne, avrundede stil som ikonsettet.
+- Dra-håndtakene er fjernet: draging inviteres ved trykk-og-hold på et objekts
+  navn-/tittelsone (`attachHoldDrag`, se `docs/drag-and-drop.md`). Under holdet
+  får det objektet som skal løftes et lite «press» (`.drag-hold`, scale).
 - **Logo (`favicon.svg` + brand-mark på innloggingsskjermen)**: tre stablede
   lister — samme motiv som `list`-ikonet, men tegnet som tre avrundede kort
   forskjøvet nedover/til høyre; kun det fremste kortet har de tre listepunktene
@@ -165,11 +166,9 @@ Størrelse/form kommer fra egne klasser: `.btn` (modaler), `.btn-small`,
   deler det AKTIVE universet/gruppen; flate-mønster; kun kontomodus).
   Delt-merket (`.share-badge`) brukes av gruppe-/univers-chips; listekortets
   delt-status vises som chip i meta-raden (`docs/scheduling.md`).
-- Håndtak (`.drag-handle`): tre vertikale prikker (CSS `::before` +
-  box-shadow), alltid **mørkere enn flaten sin** (`--card-accent`/`--g-accent`)
-  og alltid nøyaktig vertikalt midtstilt (`align-self: stretch` +
-  grid-sentrering). Tastatur: piltaster på et fokusert håndtak flytter objektet
-  (se `docs/drag-and-drop.md`).
+- Draging (ingen håndtak): trykk-og-hold på et objekts navn-/tittelsone løfter
+  det (`attachHoldDrag`); under holdet får `dragEl` et lite scale-press
+  (`.drag-hold`). Se `docs/drag-and-drop.md` for soner/unntak og mekanikk.
 - Placeholders: én delt stil for `.card-/.item-/.group-placeholder` — se
   `docs/drag-and-drop.md`. Ingen kant (kun mørknet flate + innover-skygge);
   den stiplede kanten er fjernet.
@@ -198,8 +197,9 @@ Størrelse/form kommer fra egne klasser: `.btn` (modaler), `.btn-small`,
   knappene (liste/gruppe/univers) beholder `.btn-add .icon`-størrelsen (19px);
   kun de kvadratiske icon-only-knappene skaleres opp til 34px (se over).
 - **Kategorier** (`.category` / `.cat-head` / `.cat-title` / `.cat-cog` /
-  `.cat-dissolve` / `.cat-items`): en nivå-1-rad med en header (håndtak +
-  tittel/meta + tannhjul + oppløs-knapp) over en nøstet elementliste. Kondensert:
+  `.cat-dissolve` / `.cat-items`): en nivå-1-rad med en header (tittel/meta +
+  tannhjul + oppløs-knapp) over en nøstet elementliste. Overskriftslinjen (unntatt
+  de to knappene) er trykk-og-hold-sonen for kategori-draging. Kondensert:
   samme 8px-luft som mellom elementer, både over overskriften og mellom
   overskriften og elementene (`.category` gap 8px; `.cat-items` uten vertikal
   padding). `.cat-title` er **hvit m/ tekst-skygge** (som `.card-title`) —
@@ -207,7 +207,7 @@ Størrelse/form kommer fra egne klasser: `.btn` (modaler), `.btn-small`,
   flate-knappestilen fra `.card-cog`** (svakt hvit flate + ring, lysner ved
   hover) så de er synlige mot den fargede listeflaten; tannhjul (innstillinger)
   til venstre for oppløs-knappen (boble-sprekk-ikonet `ICONS.bubbleBurst`).
-  `.cat-head`s 6px sidepolstring stiller håndtak/knapper i **samme kolonner** som
+  `.cat-head`s 6px sidepolstring stiller tittel/knapper i **samme kolonner** som
   elementenes (som har 6px boks-padding) og kort-hodets — hele lista leser som
   felles kolonner. **«Hylle i veggen»-metafor:** overskriften står på veggen
   (listeflaten), og `.cat-items` er en **fordypning** rett under (4px gap) — litt
@@ -244,7 +244,7 @@ Størrelse/form kommer fra egne klasser: `.btn` (modaler), `.btn-small`,
   hake-fyll (`.item.done`) + gjennomstreket tekst + lavere bakgrunn. Avkryssede
   elementer flyttes med FLIP til en egen **«Utført»-seksjon** (`.items-done`,
   skilt med `.done-divider`) nederst i kortet; `done` er datamodell (se
-  `docs/data-model.md`). Håndtaket er inaktivt for avkryssede rader.
+  `docs/data-model.md`). Avkryssede rader kan ikke dras (`canDrag` gater på `done`).
 - Ingen lasteindikatorer/spinnere: operasjoner utføres optimistisk og
   serialiseres i en bakgrunnskø (se `docs/accounts.md`) — UI-et venter aldri
   synlig på at noe skal lande. (Den gamle `.spinner`-klassen er fjernet.)
@@ -302,7 +302,7 @@ side-margin som kansellerer den omsluttende paddingen.
   et `@media (prefers-reduced-motion: reduce)`-blokk nøytraliserer CSS-
   transisjoner/animasjoner. Respekter dette i nye animasjoner.
 - Ingen `user-scalable=no` (brukere skal kunne zoome). Kontroller er minst
-  ~29–49px høye for touch. Fargede ✕/håndtak er hvite m/ tekst-skygge på farge.
+  ~29–49px høye for touch. Fargede ✕ er hvite m/ tekst-skygge på farge.
 
 ## Fargesystem (HSL, posisjonsbasert) + filter
 
