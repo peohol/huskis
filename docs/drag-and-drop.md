@@ -126,20 +126,24 @@ Bytte utløses av **overlapp**, ikke av et punkt:
   gjenopprettes hver liste til sin lagrede lukketilstand (animert utvidelse for de
   som skal være åpne) — robust mot en samtidig synk-rebuild, som uansett bygger
   kortene fra `card.collapsed`. Se listekollaps i `docs/design-system.md`.
-  - **Anker-scroll under kollapsen** (`anchorScrollDuringCollapse`): kollapser en
-    HØY liste OVER den dratte, blir board-et brått kortere enn scroll-posisjonen.
-    Uten mottiltak justerer nettleseren scroll-posisjonen selv (scroll-anchoring/
-    -klemme) — det løftede kortet «drifter» langt bort fra placeholderen, og på
-    Chrome for Android avbrytes hele draget (man sitter igjen med markert tekst).
-    Derfor: (1) `overflowAnchor='none'` på `<html>` mens draget pågår (av/på i
-    `beginDragCommon`/`finishDrag`) slår av nettleserens auto-justering; (2) en
-    RAF-loop gjennom kollaps-animasjonen scroller så placeholderen står i ro i
-    viewporten og flytter det løftede kortet med (`moveElement`) → fingeren beholder
-    både kortet og slotten under seg. Scrollingen skjer gradvis (som auto-scroll,
-    trygt på mobil) i stedet for nettleserens brå hopp. `drag.anchoring` stopper
-    loopen straks brukeren faktisk drar (`onCardMove` > 2 px) så den ikke kjemper mot
-    omrokkeringen; ellers stopper den når animasjonen er ferdig. Ved redusert
-    bevegelse (momentan kollaps) holder én korreksjon.
+  - **Utsatt kollaps på touch** (mot spontant DnD-avbrudd på mobil): kollapser en
+    HØY liste OVER den dratte, blir board-et brått kortere enn scroll-posisjonen, og
+    nettleseren tvinger en window-scroll (klemme/scroll-anchoring). En window-scroll
+    mens fingeren står STILLE avbryter touch-en på Chrome for Android (man ender med
+    markert tekst) — verst for det NEDERSTE kortet (størst tvungen opp-scroll). Fiks:
+    på touch UTSETTES `collapseCardsForDrag` til første faktiske bevegelse (`drag.
+    pendingCollapse`, utløst i `onCardMove` ved > 2 px). Da skjer kollapsen (og en
+    evt. scroll) mens et `touchmove` fyrer — draget er «etablert» og avbrytes ikke
+    (nettopp derfor virket det å bevege noen få piksler). Under et rent stille hold
+    skjer INGEN scroll. På mus kollapses umiddelbart (ingen slik konflikt på desktop;
+    `ev.pointerType` fra det syntetiske start-eventet skiller). Støttetiltak:
+    (a) `beginDragCommon` måler dra-boksen med transformen nøytralisert, ellers ga
+    `.drag-hold`-skalaen (touch-trykk-feedback) en ~10 px for lav placeholder →
+    board-et krympet ved løft → en 10 px scroll-klemme selv under stille hold;
+    (b) `overflowAnchor='none'` på `<html>` under draget (av/på i `beginDragCommon`/
+    `finishDrag`); (c) en passiv `scroll`-lytter (`onDragScroll`) reposisjonerer det
+    løftede kortet under fingeren om nettleseren selv scroller — den scroller ALDRI
+    selv (det ville gjeninnført avbruddet).
 - **Alle placeholders deler én stil** (felles regel for `.card-/.item-/.group-
   placeholder`): 1px stiplet kant med lav opacity, svakt mørknet flate og en
   subtil inset-skygge («hull som skal fylles») — kun radius/margens varierer per

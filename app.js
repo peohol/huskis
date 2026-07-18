@@ -2074,7 +2074,7 @@
       if (!dragEl.isConnected) return;
       held = true;
       startDrag({ button: 0, clientX: sx, clientY: sy, pointerId: pid,
-        target: dragEl, preventDefault() {} }, dragEl);
+        pointerType: mouse ? 'mouse' : 'touch', target: dragEl, preventDefault() {} }, dragEl);
     }
     function onMove(ev) {
       if (ev.pointerId !== pid) return;
@@ -2122,7 +2122,18 @@
 
   function beginDragCommon(ev, el) {
     ev.preventDefault();
+    // Mål boksen UTEN en evt. `.drag-hold`-skalering: på touch legges en liten
+    // trykk-feedback-skala (scale .98) på under holdet, og den kan fortsatt tone ut
+    // idet draget starter. En skalert getBoundingClientRect ga en placeholder ~10 px
+    // for lav → board-et krympet ved løft → en 10 px scroll-klemme (som på mobil kan
+    // avbryte touch-en). Nøytraliser transformen for selve målingen og gjenopprett
+    // etterpå (start*Drag setter drag-transformen straks etter uansett).
+    const prevT = el.style.transform, prevTr = el.style.transition;
+    el.style.transition = 'none';
+    el.style.transform = 'none';
     const rect = el.getBoundingClientRect();
+    el.style.transform = prevT;
+    el.style.transition = prevTr;
     drag.el = el;
     drag.width = rect.width;
     drag.height = rect.height;
@@ -2132,13 +2143,12 @@
     drag.lastX = ev.clientX;
     drag.lastY = ev.clientY;
     drag.active = true;
-    drag.anchoring = false; // anker-scroll under liste-kollaps (se anchorScrollDuringCollapse)
+    drag.pendingCollapse = false; // touch: liste-kollaps utsettes til første bevegelse (se startCardDrag)
     drag.recentSwap = null; // anti-flimring nullstilles per drag (se SWAP_LOCK_MS/SWAP_REV_RATIO)
     try { ev.target.setPointerCapture(ev.pointerId); } catch (e) {}
     document.body.classList.add('is-dragging');
     // Slå av nettleserens scroll-anchoring mens draget pågår: den ville ellers
-    // justert scroll-posisjonen brått når board-et krymper (liste-kollaps) og
-    // avbrutt touch-en på Chrome for Android. Vår egen anker-scroll styrer i stedet.
+    // justert scroll-posisjonen brått når board-et krymper (liste-kollaps).
     document.documentElement.style.overflowAnchor = 'none';
     window.addEventListener('touchmove', preventTouchScroll, { passive: false });
   }
@@ -2255,7 +2265,8 @@
 
   function finishDrag() {
     drag.active = false;
-    drag.anchoring = false;
+    drag.pendingCollapse = false;
+    window.removeEventListener('scroll', onDragScroll);
     document.documentElement.style.overflowAnchor = ''; // gjenopprett scroll-anchoring
     // Sikkerhetsnett: en placeholder skal kun eksistere mens draging pågår.
     // Fjern den aktive om den fortsatt henger i DOM, og fei bort evt. foreldreløse
@@ -2372,13 +2383,26 @@
     liftElement();
     // Kollaps ALLE lister (den dratte + de andre) mens draget pågår → kortere
     // avstand å dra. Tilstanden gjenopprettes ved slipp (fra `card.collapsed`).
-    // Måles FØR rotasjonen settes (en rotert boks ville blåst opp høyden).
-    collapseCardsForDrag(drag.el, ph);
+    // MEN på touch UTSETTES kollapsen til første faktiske bevegelse (se onCardMove):
+    // kollapsen krymper board-et, og hvis man løftet en liste under en HØY liste
+    // (spesielt den nederste) ville nettleseren tvinge en scroll idet board-et ble
+    // kortere enn scroll-posisjonen — og en window-scroll mens fingeren står STILLE
+    // avbryter touch-en på Chrome for Android (man ender med markert tekst). Ved å
+    // vente til fingeren beveger seg skjer scrollen mens et touchmove fyrer (draget
+    // er «etablert») og avbrytes ikke. På mus er det ingen slik konflikt → kollaps
+    // umiddelbart (uendret desktop-oppførsel). Måles FØR rotasjonen settes.
+    if (ev.pointerType === 'mouse') collapseCardsForDrag(drag.el, ph);
+    else drag.pendingCollapse = true;
     drag.el.style.transform = `rotate(${cardRotation()}deg) scale(1.02)`;
     window.addEventListener('pointermove', onCardMove);
     window.addEventListener('pointerup', onCardUp);
     window.addEventListener('pointercancel', onCardUp);
+    // Hold det løftede kortet under fingeren om nettleseren selv scroller (kollaps-
+    // klemme/momentum) mens draget pågår — uten at VI scroller (som ville avbrutt
+    // touch-en). Ren reaksjon på scroll: reposisjonering, ikke scrolling.
+    window.addEventListener('scroll', onDragScroll, { passive: true });
   }
+  function onDragScroll() { if (drag.active && drag.kind === 'card') moveElement(); }
 
   /* ------- Midlertidig kollaps av alle lister under et liste-drag -------
      Den dratte lista følger den kollapsende body-en (ingen fast høyde, som
@@ -2387,8 +2411,10 @@
      man ikke trenger dra langt for å omrokkere. `card.collapsed` røres ikke, så
      `restoreCardsAfterDrag()` bare gjenoppretter den lagrede tilstanden. */
   function collapseCardsForDrag(draggedEl, ph) {
-    const headH = draggedEl.querySelector('.card-head').getBoundingClientRect().height;
-    const anchorTop = ph.getBoundingClientRect().top; // placeholderens skjermposisjon = fingeren
+    // offsetHeight (ikke getBoundingClientRect): på touch kalles denne fra onCardMove
+    // ETTER at dra-rotasjonen er satt, og en rotert bred header ville blåst opp
+    // getBoundingClientRect-høyden (som for kategorien). offsetHeight er transform-fri.
+    const headH = draggedEl.querySelector('.card-head').offsetHeight;
     draggedEl.style.height = ''; // slipp fast høyde → kortet følger body-kollapsen
     if (!draggedEl.classList.contains('collapsed')) collapseCardBody(draggedEl, true);
     drag.height = headH; // treffdeteksjon + placeholder bruker den kollapsede boksen
@@ -2401,36 +2427,6 @@
     board.querySelectorAll('.card:not(.dragging)').forEach((cEl) => {
       if (!cEl.classList.contains('collapsed')) collapseCardBody(cEl, true);
     });
-    anchorScrollDuringCollapse(ph, anchorTop);
-  }
-
-  /* ------- Hold placeholderen (og fingeren) i ro mens board-et kollapser -------
-     En HØY liste OVER den dratte krymper når alle lister kollapser; da flytter
-     placeholderens plass seg oppover og board-et blir kortere enn scroll-
-     posisjonen. Uten mottiltak justerer nettleseren scroll-posisjonen brått midt
-     i touch-en (scroll-anchoring/-klemme) → det løftede kortet «drifter» langt
-     bort fra placeholderen, OG på Chrome for Android avbrytes hele draget (man
-     sitter igjen med markert tekst). Vi tar derfor kontroll: hver frame under
-     kollaps-animasjonen scroller vi så placeholderen blir stående på samme sted i
-     viewporten, og flytter det løftede kortet med (moveElement) så det blir under
-     fingeren. Scrollingen skjer gradvis (som auto-scroll, som er trygt på mobil)
-     i stedet for nettleserens brå hopp. Stopper når brukeren faktisk drar
-     (onCardMove) eller animasjonen er ferdig. Scroll-anchoring slås av under
-     draget (beginDragCommon) så vår scrolling er enerådende. */
-  function anchorScrollDuringCollapse(ph, anchorTop) {
-    drag.anchoring = true;
-    // Ved redusert bevegelse kollapser listene momentant → én korreksjon holder;
-    // ellers korrigerer vi hver frame gjennom animasjonen.
-    const dur = prefersReducedMotion() ? 0 : CARD_COLLAPSE_MS;
-    const start = performance.now();
-    const step = () => {
-      if (!drag.active || !drag.anchoring) return;
-      const drift = ph.getBoundingClientRect().top - anchorTop;
-      if (Math.abs(drift) >= 1) { window.scrollBy(0, drift); moveElement(); }
-      if (performance.now() - start < dur + 100) requestAnimationFrame(step);
-      else drag.anchoring = false;
-    };
-    requestAnimationFrame(step);
   }
   // Ved slipp: gjenopprett hver liste til sin lagrede lukketilstand (animert
   // utvidelse for de som skal være åpne). Robust mot en samtidig synk-rebuild,
@@ -2512,9 +2508,14 @@
     const dy = ev.clientY - drag.lastY;
     drag.lastX = ev.clientX;
     drag.lastY = ev.clientY;
-    // Brukeren drar nå på ordentlig → slutt å anker-scrolle kollaps-fasen (ellers
-    // ville anker-loopen kjempet mot den bevisste omrokkeringen).
-    if (drag.anchoring && (Math.abs(dx) > 2 || Math.abs(dy) > 2)) drag.anchoring = false;
+    // Touch: kollapsen ble utsatt til nå (se startCardDrag) — utfør den ved første
+    // faktiske bevegelse, mens et touchmove fyrer, så en evt. scroll ikke avbryter
+    // touch-en (headeren måles med offsetHeight i collapseCardsForDrag, upåvirket av
+    // at dra-rotasjonen alt er satt her).
+    if (drag.pendingCollapse && (Math.abs(dx) > 2 || Math.abs(dy) > 2)) {
+      drag.pendingCollapse = false;
+      collapseCardsForDrag(drag.el, drag.ph);
+    }
     moveElement();
     drag.el.style.transform = `rotate(${cardRotation()}deg) scale(1.02)`;
 
