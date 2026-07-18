@@ -252,22 +252,26 @@ umiddelbart (uendret desktop). Ingen DB-migrering. Se `docs/drag-and-drop.md` og
 `docs/design-system.md`. **(Punkt 3 er senere erstattet — se neste avsnitt: den
 utsatte kollapsen løste IKKE avbruddet, den bare gjorde det mindre konsekvent.)**
 
-**DnD på touch: ingen kollaps av dokumentflyten + ekte `pointercancel`-rollback
+**DnD på touch: dokumenthøyde-lås beholder kollapsen + ekte `pointercancel`-rollback
 (siste runde)**: den utsatte liste-kollapsen over løste ikke mobil-avbruddet — en
 finger beveger seg lett > 2 px straks etter løftet, så den samme layout-krympingen
 skjedde fortsatt helt i starten av draget, og Android Chromes scroll-klemme mot en
-raskt synkende maks-scroll avbrøt touch-en (`pointercancel`). **Nå kollapser vi
-IKKE i det hele tatt på touch/pen** (verken den dratte lista eller de andre;
-placeholderen beholder full høyde) — `collapseCardsForDrag` gates på
-`ev.pointerType === 'mouse'` i `startCardDrag`, og `drag.pendingCollapse` er borte.
-Dokumenthøyden reduseres dermed aldri mens touch-pekeren er aktiv, så klemmen kan
-ikke oppstå; auto-scroll dekker de lengre dra-avstandene. Mus beholder den kompakte
-kollapsen uendret. I tillegg: **`pointercancel` er skilt fra et normalt slipp** —
-tidligere delte det handler med `pointerup` (`onCardUp`) og fullførte/lagret droppet;
-nå fører egne `onCardCancel`/`onItemCancel`/`onCategoryCancel`/`cancelColumnDrop`
-elementet tilbake til opprinnelig slot (`restoreDraggedToOrigin`, origin registrert i
-`beginDragCommon`) uten å beregne `pos`, stampe, reindeksere farge, kalle `save`
-eller åpne flyttevelgeren. Ingen DB-migrering. Se `docs/drag-and-drop.md`.
+raskt synkende maks-scroll avbrøt touch-en (`pointercancel`). **Kollapsen av alle
+lister under DnD er beholdt (også på touch)**; i stedet LÅSES dokumenthøyden på
+touch/pen FØR kollapsen: `lockDocHeight` pinner `<html>` sin `min-height` til dagens
+fulle `scrollHeight`, så siden ikke kan bli kortere mens fingeren er nede → ingen
+klemme, intet avbrudd. Innholdet kollapser som før (kompakt board); den tomme luften
+under er inert (native scroll er blokkert). `unlockDocHeight` slipper låsen i
+`finishDrag`, men på en `setTimeout(CARD_COLLAPSE_MS+40)` så listene rekker å folde
+seg ut igjen før `min-height` fjernes (ellers et scroll-hopp ved slipp). Mus trenger
+ingen lås → uendret desktop (`ev.pointerType` skiller). `drag.pendingCollapse` er
+fjernet (den utsatte kollapsen). I tillegg: **`pointercancel` er skilt fra et normalt
+slipp** — tidligere delte det handler med `pointerup` (`onCardUp`) og fullførte/lagret
+droppet; nå fører egne `onCardCancel`/`onItemCancel`/`onCategoryCancel`/
+`cancelColumnDrop` elementet tilbake til opprinnelig slot (`restoreDraggedToOrigin`,
+origin registrert i `beginDragCommon`) uten å beregne `pos`, stampe, reindeksere
+farge, kalle `save` eller åpne flyttevelgeren. Ingen DB-migrering. Se
+`docs/drag-and-drop.md`.
 
 Verifisert i nettleser (Playwright) mot en hermetisk in-memory-backend
 (`mock-backend.js`, aktiveres med `?mock=1`) som etterligner Supabase-

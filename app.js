@@ -2268,8 +2268,31 @@
     });
   }
 
+  // Låser dokumentets scrollhøyde mens en liste dras på touch/pen, så kollapsen
+  // av listene ikke krymper siden under scroll-posisjonen (Android Chrome ville
+  // ellers klemt scrollY → pointercancel). Pinner `<html>` sin min-height til
+  // dagens fulle scrollHøyde: siden kan da ikke bli kortere mens fingeren er nede.
+  let docHeightLocked = false;
+  function lockDocHeight() {
+    docHeightLocked = true;
+    document.documentElement.style.minHeight = document.documentElement.scrollHeight + 'px';
+  }
+  function unlockDocHeight() {
+    if (!docHeightLocked) return;
+    docHeightLocked = false;
+    const html = document.documentElement;
+    // Slipp låsen FØRST når listene har foldet seg ut igjen (restoreCardsAfterDrag
+    // animerer over CARD_COLLAPSE_MS): da er innholdet igjen fullhøyt, så å fjerne
+    // min-height endrer ingenting → ingen brå scroll-klemme akkurat ved slipp.
+    // (Pekeren er uansett sluppet her, så en evt. klemme ville ikke avbrutt noe —
+    // dette er kun for å unngå et synlig hopp.) Guard mot at et nytt drag rakk å
+    // låse på nytt i mellomtiden.
+    setTimeout(() => { if (!docHeightLocked) html.style.minHeight = ''; }, CARD_COLLAPSE_MS + 40);
+  }
+
   function finishDrag() {
     drag.active = false;
+    unlockDocHeight();
     window.removeEventListener('scroll', onDragScroll);
     document.documentElement.style.overflowAnchor = ''; // gjenopprett scroll-anchoring
     // Sikkerhetsnett: en placeholder skal kun eksistere mens draging pågår.
@@ -2404,18 +2427,22 @@
     drag.ph = ph;
 
     liftElement();
-    // KUN på mus: kollaps ALLE lister (den dratte + de andre) mens draget pågår →
-    // kortere avstand å dra. Tilstanden gjenopprettes ved slipp (fra `card.collapsed`).
-    // På TOUCH/PEN kollapser vi IKKE — verken den dratte lista eller de andre —
-    // og placeholderen beholder listas fulle høyde gjennom hele draget. Grunn:
-    // kollapsen krymper dokumentet, og løfter man den nederste lista under en HØY,
-    // åpen liste, faller sidens maks-scroll brått under gjeldende scrollY. Android
-    // Chrome klemmer da scrollY oppover mens pekeren er aktiv, og en slik scroll-
-    // klemme avbryter touch-en (pointercancel → draget dør nesten umiddelbart).
-    // Ved å la dokumentets høyde stå uendret på touch unngås klemmen helt. Auto-
-    // scroll (allerede på plass) gjør lengre dra-avstander håndterbare. Mus har
-    // ingen slik konflikt → kompakt kollaps beholdes uendret på desktop.
-    if (ev.pointerType === 'mouse') collapseCardsForDrag(drag.el, ph);
+    // Kollaps ALLE lister (den dratte + de andre) mens draget pågår → kortere
+    // avstand å dra. Tilstanden gjenopprettes ved slipp (fra `card.collapsed`).
+    //
+    // På TOUCH/PEN LÅSER vi FØRST dokumenthøyden (`lockDocHeight`): kollapsen
+    // krymper board-ets innhold, og løfter man den nederste lista under en HØY,
+    // åpen liste, ville sidens maks-scroll ellers falt brått under gjeldende
+    // scrollY — da klemmer Android Chrome scrollY oppover mens pekeren er aktiv,
+    // og en slik scroll-klemme avbryter touch-en (pointercancel → draget dør).
+    // Ved å pinne `<html>` sin min-height til dokumentets fulle scrollHøyde FØR
+    // kollapsen, kan ikke sidehøyden synke mens fingeren er nede → ingen klemme,
+    // intet avbrudd. Selve kollapsen (kompakt board, korte dra-avstander) skjer
+    // som før; den tomme luften under holdes av min-height og er inert mens native
+    // scroll uansett er blokkert. Låsen slippes i `finishDrag`. Mus trenger ingen
+    // lås (musedrag avbrytes ikke av en scroll-justering) → uendret desktop.
+    if (ev.pointerType !== 'mouse') lockDocHeight();
+    collapseCardsForDrag(drag.el, ph);
     drag.el.style.transform = `rotate(${cardRotation()}deg) scale(1.02)`;
     window.addEventListener('pointermove', onCardMove);
     window.addEventListener('pointerup', onCardUp);
