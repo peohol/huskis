@@ -2268,31 +2268,71 @@
     });
   }
 
-  // Låser dokumentets scrollhøyde mens en liste dras på touch/pen, så kollapsen
-  // av listene ikke krymper siden under scroll-posisjonen (Android Chrome ville
-  // ellers klemt scrollY → pointercancel). Pinner `<html>` sin min-height til
-  // dagens fulle scrollHøyde: siden kan da ikke bli kortere mens fingeren er nede.
-  let docHeightLocked = false;
-  function lockDocHeight() {
-    docHeightLocked = true;
-    document.documentElement.style.minHeight = document.documentElement.scrollHeight + 'px';
+  /* ------- Normal-flow-vakt rundt board-et under liste-DnD på touch/pen -------
+     Kollapsen av alle lister krymper board-INNHOLDET. Løfter man den nederste
+     lista (siden nær maks scroll), ville board-bunnen — og dermed dokumentets
+     maks-scroll — falt brått under gjeldende scrollY, og Android Chrome klemte
+     scrollY oppover mens pekeren var nede → pointercancel. Vakten holder BÅDE
+     dokumenthøyden og den dratte listas viewport-posisjon fast:
+       1. Frys board sin min-height til høyden FØR kollaps → board-bunnen (og
+          dermed dokumentets scrollHeight + maxScroll) kan ikke synke.
+       2. Kompensér med padding-top = summen av body-høyder som fjernes for
+          listene OVER den dratte (board bruker multi-column, så en padding-top
+          skyver alle kolonner likt — et spacer-BARN ville i stedet flytt inn i
+          kolonneflyten). Da beholder den dratte lista samme viewport-Y gjennom
+          kollapsen, og de kompakte overskriftene bunkes rett over den — nær
+          fingeren, ikke rullet vekk.
+     Kun touch/pen (mus avbrytes ikke av en scroll-justering → uendret desktop). */
+  let boardGuard = null;
+  function clearBoardGuardStyles() {
+    board.style.transition = '';
+    board.style.minHeight = '';
+    board.style.paddingTop = '';
   }
-  function unlockDocHeight() {
-    if (!docHeightLocked) return;
-    docHeightLocked = false;
-    const html = document.documentElement;
-    // Slipp låsen FØRST når listene har foldet seg ut igjen (restoreCardsAfterDrag
-    // animerer over CARD_COLLAPSE_MS): da er innholdet igjen fullhøyt, så å fjerne
-    // min-height endrer ingenting → ingen brå scroll-klemme akkurat ved slipp.
-    // (Pekeren er uansett sluppet her, så en evt. klemme ville ikke avbrutt noe —
-    // dette er kun for å unngå et synlig hopp.) Guard mot at et nytt drag rakk å
-    // låse på nytt i mellomtiden.
-    setTimeout(() => { if (!docHeightLocked) html.style.minHeight = ''; }, CARD_COLLAPSE_MS + 40);
+  function freezeBoardForDrag(ph) {
+    if (boardGuard) clearBoardGuardStyles(); // rydd evt. rest fra et avbrutt drag
+    const boardH = board.getBoundingClientRect().height;
+    // Body-høyde som forsvinner for hver ÅPEN liste OVER den dratte (før ph i DOM).
+    let removedAbove = 0;
+    for (const child of board.children) {
+      if (child === ph) break;
+      if (child.classList.contains('card') && !child.classList.contains('collapsed')) {
+        const body = child.querySelector('.card-body');
+        if (body) removedAbove += body.getBoundingClientRect().height;
+      }
+    }
+    const basePad = parseFloat(getComputedStyle(board).paddingTop) || 0;
+    board.style.minHeight = boardH + 'px';
+    board.style.paddingTop = (basePad + removedAbove) + 'px';
+    boardGuard = { basePad, removedAbove };
+  }
+  // Ved slipp/kansellering: utvid listene (restoreCardsAfterDrag, animert) OG
+  // krymp padding-top-kompensasjonen i takt (utvidelsen legger tilbake nøyaktig
+  // den høyden padding-top-en holdt, så total høyde er konstant → intet hopp).
+  // min-height + padding-top ryddes FØRST når utvidelsen er ferdig (transitionend
+  // på padding, ikke en antatt timeout; timeout kun som sikkerhetsnett hvis
+  // transitionen aldri fyrer, f.eks. ved prefers-reduced-motion / ingen endring).
+  function releaseBoardAfterDrag() {
+    if (!boardGuard) return;
+    const g = boardGuard; boardGuard = null;
+    let done = false;
+    const finish = () => { if (done) return; done = true; clearBoardGuardStyles(); };
+    if (g.removedAbove > 0 && !prefersReducedMotion()) {
+      board.style.transition = 'padding ' + CARD_COLLAPSE_MS + 'ms ease';
+      requestAnimationFrame(() => { board.style.paddingTop = g.basePad + 'px'; });
+      board.addEventListener('transitionend', function te(e) {
+        if (e.target !== board || e.propertyName.indexOf('padding') !== 0) return;
+        board.removeEventListener('transitionend', te);
+        finish();
+      });
+      setTimeout(finish, CARD_COLLAPSE_MS + 80); // sikkerhetsnett
+    } else {
+      finish();
+    }
   }
 
   function finishDrag() {
     drag.active = false;
-    unlockDocHeight();
     window.removeEventListener('scroll', onDragScroll);
     document.documentElement.style.overflowAnchor = ''; // gjenopprett scroll-anchoring
     // Sikkerhetsnett: en placeholder skal kun eksistere mens draging pågår.
@@ -2395,7 +2435,13 @@
         // ekte innholdsenden — uavhengig av kortet vi drar.
         const vh = window.innerHeight || document.documentElement.clientHeight || 0;
         const maxScroll = Math.max(0, board.getBoundingClientRect().bottom + window.scrollY - vh);
-        delta = Math.min(delta, maxScroll - window.scrollY);
+        // Tillatt nedover-avstand er ALLTID ikke-negativ. Ligger den kompakte board-
+        // bunnen OVER gjeldende scrollY (f.eks. etter at alle lister kollapset mens
+        // dokumenthøyden holdes kunstig høy), blir (maxScroll - scrollY) negativ — en
+        // positiv nedover-scroll skulle da STOPPE, ikke snus til et stort hopp OPPOVER
+        // (som på mobil kan utløse pointercancel). Klem derfor til >= 0: en positiv
+        // autoScrollSpeed reduserer aldri scrollY.
+        delta = Math.min(delta, Math.max(0, maxScroll - window.scrollY));
       }
       const before = window.scrollY;
       if (delta !== 0) window.scrollBy(0, delta);
@@ -2429,20 +2475,19 @@
     liftElement();
     // Kollaps ALLE lister (den dratte + de andre) mens draget pågår → kortere
     // avstand å dra. Tilstanden gjenopprettes ved slipp (fra `card.collapsed`).
-    //
-    // På TOUCH/PEN LÅSER vi FØRST dokumenthøyden (`lockDocHeight`): kollapsen
-    // krymper board-ets innhold, og løfter man den nederste lista under en HØY,
-    // åpen liste, ville sidens maks-scroll ellers falt brått under gjeldende
-    // scrollY — da klemmer Android Chrome scrollY oppover mens pekeren er aktiv,
-    // og en slik scroll-klemme avbryter touch-en (pointercancel → draget dør).
-    // Ved å pinne `<html>` sin min-height til dokumentets fulle scrollHøyde FØR
-    // kollapsen, kan ikke sidehøyden synke mens fingeren er nede → ingen klemme,
-    // intet avbrudd. Selve kollapsen (kompakt board, korte dra-avstander) skjer
-    // som før; den tomme luften under holdes av min-height og er inert mens native
-    // scroll uansett er blokkert. Låsen slippes i `finishDrag`. Mus trenger ingen
-    // lås (musedrag avbrytes ikke av en scroll-justering) → uendret desktop.
-    if (ev.pointerType !== 'mouse') lockDocHeight();
-    collapseCardsForDrag(drag.el, ph);
+    // MUS (desktop): animert kollaps som før — et musedrag avbrytes ikke av en
+    // scroll-justering, så vi trenger ingen vakt. TOUCH/PEN: legg normal-flow-
+    // vakten (`freezeBoardForDrag`) rundt board-et FØR kollapsen (frys board-
+    // høyden + padding-top-kompensér, se der), og kollaps så MOMENTANT (`true`)
+    // i samme oppgave — da males aldri en mellomtilstand der board-bunnen har
+    // sunket, og verken dokumenthøyden eller den dratte listas viewport-Y endres
+    // mens fingeren er nede. Vakten slippes i `onCardUp`/`onCardCancel`.
+    if (ev.pointerType === 'mouse') {
+      collapseCardsForDrag(drag.el, ph);
+    } else {
+      freezeBoardForDrag(ph);
+      collapseCardsForDrag(drag.el, ph, true);
+    }
     drag.el.style.transform = `rotate(${cardRotation()}deg) scale(1.02)`;
     window.addEventListener('pointermove', onCardMove);
     window.addEventListener('pointerup', onCardUp);
@@ -2460,22 +2505,24 @@
      De andre listene kollapser body-en sin animert → board-et blir kompakt, så
      man ikke trenger dra langt for å omrokkere. `card.collapsed` røres ikke, så
      `restoreCardsAfterDrag()` bare gjenoppretter den lagrede tilstanden. */
-  function collapseCardsForDrag(draggedEl, ph) {
-    // offsetHeight (ikke getBoundingClientRect): på touch kalles denne fra onCardMove
-    // ETTER at dra-rotasjonen er satt, og en rotert bred header ville blåst opp
-    // getBoundingClientRect-høyden (som for kategorien). offsetHeight er transform-fri.
+  function collapseCardsForDrag(draggedEl, ph, instant) {
+    // offsetHeight (ikke getBoundingClientRect): en rotert bred header ville blåst
+    // opp getBoundingClientRect-høyden (som for kategorien). offsetHeight er
+    // transform-fri. `instant` (touch, se startCardDrag): kollaps momentant uten
+    // animasjon, så normal-flow-vakten ikke maler en mellomtilstand.
+    const anim = !instant;
     const headH = draggedEl.querySelector('.card-head').offsetHeight;
     draggedEl.style.height = ''; // slipp fast høyde → kortet følger body-kollapsen
-    if (!draggedEl.classList.contains('collapsed')) collapseCardBody(draggedEl, true);
+    if (!draggedEl.classList.contains('collapsed')) collapseCardBody(draggedEl, anim);
     drag.height = headH; // treffdeteksjon + placeholder bruker den kollapsede boksen
-    if (prefersReducedMotion()) {
+    if (instant || prefersReducedMotion()) {
       ph.style.height = headH + 'px';
     } else {
       ph.style.transition = 'height ' + CARD_COLLAPSE_MS + 'ms ease';
       requestAnimationFrame(() => { ph.style.height = headH + 'px'; });
     }
     board.querySelectorAll('.card:not(.dragging)').forEach((cEl) => {
-      if (!cEl.classList.contains('collapsed')) collapseCardBody(cEl, true);
+      if (!cEl.classList.contains('collapsed')) collapseCardBody(cEl, anim);
     });
   }
   // Ved slipp: gjenopprett hver liste til sin lagrede lukketilstand (animert
@@ -2683,7 +2730,8 @@
     drag.ph.remove();
     dropIntoPlaceholder(el, rot);
     finishDrag();
-    restoreCardsAfterDrag(); // fold listene tilbake til lagret lukketilstand
+    restoreCardsAfterDrag();  // fold listene tilbake til lagret lukketilstand
+    releaseBoardAfterDrag();  // slipp touch-vakten i takt med utvidelsen (no-op på mus)
 
     // Ny rekkefølge: gi kortet en pos mellom DOM-naboene. Kirurgisk – kun
     // dette kortets posisjonsregister endres, så samtidige endringer på
@@ -2714,7 +2762,7 @@
 
   // pointercancel under et liste-drag: rull tilbake til utgangspunktet uten å
   // beregne pos, stampe, oppdatere farge/mount eller lagre — og uten å åpne
-  // gruppe-flyttevelgeren. Desktop-kollapsen (kun mus) foldes tilbake.
+  // gruppe-flyttevelgeren. Kollapsen foldes tilbake og touch-vakten slippes.
   function onCardCancel() {
     if (!drag.active) return;
     window.removeEventListener('pointermove', onCardMove);
@@ -2724,6 +2772,7 @@
     restoreDraggedToOrigin();
     finishDrag();
     restoreCardsAfterDrag();
+    releaseBoardAfterDrag();
   }
 
   // Fargene er posisjonsbaserte (colorForIndex): en omrokkering endrer alle

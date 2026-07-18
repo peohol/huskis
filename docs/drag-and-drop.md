@@ -126,30 +126,46 @@ Bytte utløses av **overlapp**, ikke av et punkt:
   hver liste til sin lagrede lukketilstand (animert utvidelse for de som skal være
   åpne) — robust mot en samtidig synk-rebuild, som uansett bygger kortene fra
   `card.collapsed`. Se listekollaps i `docs/design-system.md`.
-  - **Dokumenthøyde-lås på touch/pen** (`lockDocHeight`/`unlockDocHeight`, mot
-    spontant DnD-avbrudd på mobil): kollapser en HØY liste OVER den dratte, krymper
-    board-ets INNHOLD, og løfter man den NEDERSTE lista, ville sidens maks-scroll
-    ellers falt brått under gjeldende `scrollY`. Android Chrome klemmer da `scrollY`
-    oppover mens pekeren er aktiv, og en slik scroll-klemme avbryter touch-en
-    (`pointercancel` → draget dør nesten umiddelbart). En TIDLIGERE fiks bare UTSATTE
-    kollapsen til første pekerbevegelse (> 2 px); det gjorde problemet mindre
-    konsekvent, men en finger beveger seg lett forbi straks etter løftet, så den
-    samme layout-krympingen skjedde fortsatt helt i starten. **Løsning:** på touch/pen
-    LÅSES dokumenthøyden FØR kollapsen — `lockDocHeight` pinner `<html>` sin
-    `min-height` til dagens fulle `scrollHeight`, så siden ikke kan bli kortere mens
-    fingeren er nede. Innholdet kollapser som før (kompakt board, korte dra-avstander),
-    men dokumentets scroll-høyde står fast → ingen klemme, intet avbrudd. Den tomme
-    luften under er inert (native scroll er uansett blokkert av `preventTouchScroll`).
-    Låsen slippes i `finishDrag` via `unlockDocHeight`, men FØRST på en `setTimeout`
-    (`CARD_COLLAPSE_MS + 40`) så listene rekker å folde seg ut igjen før `min-height`
-    fjernes — ellers ga slippet et synlig scroll-hopp. Mus trenger ingen lås (et
-    musedrag avbrytes ikke av en scroll-justering) → uendret desktop; `ev.pointerType`
-    fra det syntetiske start-eventet skiller. Øvrige støttetiltak (beholdt):
-    `beginDragCommon` måler dra-boksen med transformen nøytralisert (så `.drag-hold`-
-    skalaen ikke gir en for lav placeholder); `overflowAnchor='none'` på `<html>`
-    under draget; en passiv `scroll`-lytter (`onDragScroll`) reposisjonerer det
-    løftede kortet under fingeren om nettleseren selv skulle scrolle — den scroller
-    ALDRI selv.
+  - **Normal-flow-vakt rundt board-et på touch/pen** (`freezeBoardForDrag`/
+    `releaseBoardAfterDrag`, mot spontant DnD-avbrudd på mobil): kollapser en HØY
+    liste OVER den dratte, krymper board-ets INNHOLD, og løfter man den NEDERSTE
+    lista, ville board-bunnen — og dermed sidens maks-scroll — falt brått under
+    gjeldende `scrollY`. Android Chrome klemmer da `scrollY` oppover mens pekeren er
+    aktiv, og en slik scroll-klemme avbryter touch-en (`pointercancel` → draget dør).
+    Tidligere fikser (utsatt kollaps til > 2 px; deretter en `<html>`-`min-height`-lås)
+    hjalp bare delvis: den utsatte kollapsen skjedde fortsatt straks etter løftet, og
+    `<html>`-låsen holdt dokumentet høyt mens BOARD-et krympet — det ga en NY feil der
+    auto-scrollens `maxScroll` (målt fra board-bunnen) kunne havne UNDER `scrollY` (se
+    auto-scroll-punktet under). **Løsning:** legg vakten rundt SELVE board-et FØR
+    kollapsen. `freezeBoardForDrag` (1) fryser `board.style.minHeight` til board-høyden
+    før kollaps → board-bunnen (og dermed dokumentets `scrollHeight` + `maxScroll`) kan
+    ikke synke mens fingeren er nede; (2) legger på `padding-top` =
+    summen av body-høyder som fjernes for listene OVER den dratte, så den dratte lista
+    beholder samme viewport-Y og de kompakte overskriftene bunkes rett over den —
+    nær fingeren, ikke rullet vekk. (Board bruker CSS multi-column, så en `padding-top`
+    skyver alle kolonner likt; et spacer-BARN ville i stedet flytt inn i kolonneflyten.)
+    På touch kollapses MOMENTANT (`collapseCardsForDrag(…, true)`) i samme oppgave som
+    vakten settes, så ingen mellomtilstand med sunket board-bunn males. `releaseBoardAfterDrag`
+    (kalt fra `onCardUp`/`onCardCancel` ETTER `restoreCardsAfterDrag`) krymper
+    `padding-top` tilbake i takt med at listene folder seg ut (samme høyde legges
+    tilbake → total høyde konstant, intet hopp), og fjerner `min-height` + `padding-top`
+    FØRST på `transitionend` for `padding` (ikke en antatt timeout; en `setTimeout` er
+    kun sikkerhetsnett hvis transitionen aldri fyrer, f.eks. ved `prefers-reduced-motion`).
+    Mus trenger ingen vakt (et musedrag avbrytes ikke av en scroll-justering) → uendret
+    desktop, animert kollaps som før; `ev.pointerType` fra det syntetiske start-eventet
+    skiller. Øvrige støttetiltak (beholdt): `beginDragCommon` måler dra-boksen med
+    transformen nøytralisert; `overflowAnchor='none'` på `<html>` under draget; en
+    passiv `scroll`-lytter (`onDragScroll`) reposisjonerer det løftede kortet under
+    fingeren om nettleseren selv skulle scrolle — den scroller ALDRI selv.
+  - **Auto-scroll kan aldri bytte fortegn** (`startAutoScroll`): den tillatte
+    nedover-avstanden klemmes til `Math.min(delta, Math.max(0, maxScroll - scrollY))`.
+    Ligger board-bunnen (den kompakte, kollapsede) OVER `scrollY` — slik den kunne med
+    den gamle `<html>`-låsen — blir `maxScroll - scrollY` negativ; UTEN `Math.max(0, …)`
+    ville en positiv nedover-`autoScrollSpeed` blitt til en stor NEGATIV `delta` og
+    hoppet siden langt OPPOVER i én frame (og kunne utløst `pointercancel`). En positiv
+    `autoScrollSpeed` reduserer nå aldri `scrollY`; nedover-scroll STOPPER i stedet for
+    å snu. (Med board-vakten over holdes board-bunnen uansett stabil, men klemmen er et
+    selvstendig sikkerhetsnett.)
 - **`pointercancel` ruller tilbake, det er ikke et slipp** (`onCardCancel` m.fl.):
   en kansellert pekersekvens må ALDRI behandles som et vellykket drop. Tidligere delte
   `pointercancel` handler med `pointerup` (`onCardUp`), så et avbrudd fullførte og
