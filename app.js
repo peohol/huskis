@@ -1054,7 +1054,7 @@
     }
 
     // Gjenopprett lagret lukketilstand (uten animasjon) etter en (re)bygging.
-    if (cardData.collapsed) collapseCardBody(el, false);
+    if (cardData.collapsed) collapseCardBody(el);
 
     return el;
   }
@@ -1066,58 +1066,30 @@
      reload og synkes mellom enheter — uten synlig forsinkelse (optimistisk UI).
      overflow settes kun inline mens/når kollapset: et permanent overflow:hidden
      ville klippet et løftet element under draging. */
-  const CARD_COLLAPSE_MS = 260;
-  function collapseCardBody(el, animate) {
+  // Åpning/lukking av lister er MOMENTAN (ingen animasjon) — både rullgardinen
+  // (klikk på korthodet) og kollaps-alle under DnD. En rullgardin-animasjon gjorde
+  // systemet tregere uten å tilføre noe; momentan veksling er like tydelig.
+  function collapseCardBody(el) {
     const body = el.querySelector('.card-body');
     if (!body) return;
     el.classList.add('collapsed');
-    const setClosed = () => {
-      body.style.overflow = 'hidden';
-      body.style.height = '0px'; body.style.opacity = '0';
-      body.style.paddingTop = '0'; body.style.paddingBottom = '0';
-    };
-    if (!animate || prefersReducedMotion()) { setClosed(); return; }
-    const startH = body.getBoundingClientRect().height;
     body.style.overflow = 'hidden';
-    body.style.height = startH + 'px';
-    void body.offsetWidth; // registrer starttilstanden
-    body.style.transition = 'height ' + CARD_COLLAPSE_MS + 'ms ease, opacity ' + CARD_COLLAPSE_MS + 'ms ease, padding ' + CARD_COLLAPSE_MS + 'ms ease';
-    requestAnimationFrame(setClosed);
+    body.style.height = '0px'; body.style.opacity = '0';
+    body.style.paddingTop = '0'; body.style.paddingBottom = '0';
   }
-  function expandCardBody(el, animate) {
+  function expandCardBody(el) {
     const body = el.querySelector('.card-body');
     if (!body) return;
     el.classList.remove('collapsed');
-    const clear = () => {
-      body.style.transition = ''; body.style.height = ''; body.style.opacity = '';
-      body.style.overflow = ''; body.style.paddingTop = ''; body.style.paddingBottom = '';
-    };
-    if (!animate || prefersReducedMotion()) { clear(); return; }
-    body.style.overflow = 'hidden';
-    body.style.transition = 'none';
-    body.style.height = 'auto'; body.style.opacity = '1';
-    body.style.paddingTop = ''; body.style.paddingBottom = '';
-    const full = body.getBoundingClientRect().height;
-    body.style.height = '0px'; body.style.opacity = '0';
-    body.style.paddingTop = '0'; body.style.paddingBottom = '0';
-    void body.offsetWidth;
-    body.style.transition = 'height ' + CARD_COLLAPSE_MS + 'ms ease, opacity ' + CARD_COLLAPSE_MS + 'ms ease, padding ' + CARD_COLLAPSE_MS + 'ms ease';
-    requestAnimationFrame(() => {
-      body.style.height = full + 'px'; body.style.opacity = '1';
-      body.style.paddingTop = ''; body.style.paddingBottom = '';
-    });
-    body.addEventListener('transitionend', function te(e) {
-      if (e.propertyName !== 'height') return;
-      clear();
-      body.removeEventListener('transitionend', te);
-    });
+    body.style.transition = ''; body.style.height = ''; body.style.opacity = '';
+    body.style.overflow = ''; body.style.paddingTop = ''; body.style.paddingBottom = '';
   }
   // Veksle lukketilstand + lagre. Tillates alltid (en visnings-preferanse); for et
   // frosset (låst av andre) kort skrives den ikke — serveren ville avvist innholds-
   // endringen — men den lokale visningen veksler uansett.
   function toggleCardCollapsed(el, cardData) {
     const nowCollapsed = !el.classList.contains('collapsed');
-    if (nowCollapsed) collapseCardBody(el, true); else expandCardBody(el, true);
+    if (nowCollapsed) collapseCardBody(el); else expandCardBody(el);
     cardData.collapsed = nowCollapsed;
     if (!frozen(cardData)) { stampContent(cardData); save(); }
   }
@@ -2306,29 +2278,14 @@
     board.style.paddingTop = (basePad + removedAbove) + 'px';
     boardGuard = { basePad, removedAbove };
   }
-  // Ved slipp/kansellering: utvid listene (restoreCardsAfterDrag, animert) OG
-  // krymp padding-top-kompensasjonen i takt (utvidelsen legger tilbake nøyaktig
-  // den høyden padding-top-en holdt, så total høyde er konstant → intet hopp).
-  // min-height + padding-top ryddes FØRST når utvidelsen er ferdig (transitionend
-  // på padding, ikke en antatt timeout; timeout kun som sikkerhetsnett hvis
-  // transitionen aldri fyrer, f.eks. ved prefers-reduced-motion / ingen endring).
+  // Ved slipp/kansellering: fjern min-height + padding-top-kompensasjonen. Kalles
+  // MOMENTANT rett etter restoreCardsAfterDrag (som utvider listene momentant) i
+  // samme oppgave → én reflow maler den ferdige, naturlige layouten uten et
+  // mellomsteg (der padding-top + utvidede bodyer ville gitt et hopp).
   function releaseBoardAfterDrag() {
     if (!boardGuard) return;
-    const g = boardGuard; boardGuard = null;
-    let done = false;
-    const finish = () => { if (done) return; done = true; clearBoardGuardStyles(); };
-    if (g.removedAbove > 0 && !prefersReducedMotion()) {
-      board.style.transition = 'padding ' + CARD_COLLAPSE_MS + 'ms ease';
-      requestAnimationFrame(() => { board.style.paddingTop = g.basePad + 'px'; });
-      board.addEventListener('transitionend', function te(e) {
-        if (e.target !== board || e.propertyName.indexOf('padding') !== 0) return;
-        board.removeEventListener('transitionend', te);
-        finish();
-      });
-      setTimeout(finish, CARD_COLLAPSE_MS + 80); // sikkerhetsnett
-    } else {
-      finish();
-    }
+    boardGuard = null;
+    clearBoardGuardStyles();
   }
 
   function finishDrag() {
@@ -2474,20 +2431,16 @@
 
     liftElement();
     // Kollaps ALLE lister (den dratte + de andre) mens draget pågår → kortere
-    // avstand å dra. Tilstanden gjenopprettes ved slipp (fra `card.collapsed`).
-    // MUS (desktop): animert kollaps som før — et musedrag avbrytes ikke av en
-    // scroll-justering, så vi trenger ingen vakt. TOUCH/PEN: legg normal-flow-
-    // vakten (`freezeBoardForDrag`) rundt board-et FØR kollapsen (frys board-
-    // høyden + padding-top-kompensér, se der), og kollaps så MOMENTANT (`true`)
-    // i samme oppgave — da males aldri en mellomtilstand der board-bunnen har
-    // sunket, og verken dokumenthøyden eller den dratte listas viewport-Y endres
-    // mens fingeren er nede. Vakten slippes i `onCardUp`/`onCardCancel`.
-    if (ev.pointerType === 'mouse') {
-      collapseCardsForDrag(drag.el, ph);
-    } else {
-      freezeBoardForDrag(ph);
-      collapseCardsForDrag(drag.el, ph, true);
-    }
+    // avstand å dra. Momentant (ingen animasjon). Tilstanden gjenopprettes ved
+    // slipp (fra `card.collapsed`). MUS (desktop): bare kollaps — board-et krymper
+    // og siden justerer scroll naturlig (et musedrag avbrytes ikke av det), som i
+    // main. TOUCH/PEN: legg FØRST normal-flow-vakten (`freezeBoardForDrag`) rundt
+    // board-et (frys board-høyden + padding-top-kompensér, se der) i SAMME oppgave
+    // som kollapsen, så verken dokumenthøyden eller den dratte listas viewport-Y
+    // endres mens fingeren er nede (Android Chrome ville ellers klemt scrollY →
+    // pointercancel). Vakten slippes i `onCardUp`/`onCardCancel`.
+    if (ev.pointerType !== 'mouse') freezeBoardForDrag(ph);
+    collapseCardsForDrag(drag.el, ph);
     drag.el.style.transform = `rotate(${cardRotation()}deg) scale(1.02)`;
     window.addEventListener('pointermove', onCardMove);
     window.addEventListener('pointerup', onCardUp);
@@ -2500,41 +2453,33 @@
   function onDragScroll() { if (drag.active && drag.kind === 'card') moveElement(); }
 
   /* ------- Midlertidig kollaps av alle lister under et liste-drag -------
-     Den dratte lista følger den kollapsende body-en (ingen fast høyde, som
-     liftCategory); placeholderen krymper i takt (mirror av collapseCategory).
-     De andre listene kollapser body-en sin animert → board-et blir kompakt, så
-     man ikke trenger dra langt for å omrokkere. `card.collapsed` røres ikke, så
-     `restoreCardsAfterDrag()` bare gjenoppretter den lagrede tilstanden. */
-  function collapseCardsForDrag(draggedEl, ph, instant) {
+     Alle lister (den dratte + de andre) kollapses til bare korthodet → board-et
+     blir kompakt, så man ikke trenger dra langt for å omrokkere. MOMENTANT (ingen
+     animasjon, se collapseCardBody). Den dratte lista slipper sin faste høyde og
+     følger body-kollapsen; placeholderen settes til header-høyden. `card.collapsed`
+     røres ikke, så `restoreCardsAfterDrag()` bare gjenoppretter lagret tilstand. */
+  function collapseCardsForDrag(draggedEl, ph) {
     // offsetHeight (ikke getBoundingClientRect): en rotert bred header ville blåst
-    // opp getBoundingClientRect-høyden (som for kategorien). offsetHeight er
-    // transform-fri. `instant` (touch, se startCardDrag): kollaps momentant uten
-    // animasjon, så normal-flow-vakten ikke maler en mellomtilstand.
-    const anim = !instant;
+    // opp getBoundingClientRect-høyden (som for kategorien). offsetHeight er transform-fri.
     const headH = draggedEl.querySelector('.card-head').offsetHeight;
     draggedEl.style.height = ''; // slipp fast høyde → kortet følger body-kollapsen
-    if (!draggedEl.classList.contains('collapsed')) collapseCardBody(draggedEl, anim);
+    if (!draggedEl.classList.contains('collapsed')) collapseCardBody(draggedEl);
     drag.height = headH; // treffdeteksjon + placeholder bruker den kollapsede boksen
-    if (instant || prefersReducedMotion()) {
-      ph.style.height = headH + 'px';
-    } else {
-      ph.style.transition = 'height ' + CARD_COLLAPSE_MS + 'ms ease';
-      requestAnimationFrame(() => { ph.style.height = headH + 'px'; });
-    }
+    ph.style.height = headH + 'px';
     board.querySelectorAll('.card:not(.dragging)').forEach((cEl) => {
-      if (!cEl.classList.contains('collapsed')) collapseCardBody(cEl, anim);
+      if (!cEl.classList.contains('collapsed')) collapseCardBody(cEl);
     });
   }
-  // Ved slipp: gjenopprett hver liste til sin lagrede lukketilstand (animert
-  // utvidelse for de som skal være åpne). Robust mot en samtidig synk-rebuild,
-  // som uansett ville bygget kortene fra `card.collapsed`.
+  // Ved slipp: gjenopprett hver liste til sin lagrede lukketilstand (momentant).
+  // Robust mot en samtidig synk-rebuild, som uansett bygger kortene fra
+  // `card.collapsed`.
   function restoreCardsAfterDrag() {
     board.querySelectorAll('.card').forEach((cEl) => {
       const cd = findCard(cEl.dataset.id);
       const want = cd ? !!cd.collapsed : false;
       const isCollapsed = cEl.classList.contains('collapsed');
-      if (want && !isCollapsed) collapseCardBody(cEl, false);
-      else if (!want && isCollapsed) expandCardBody(cEl, true);
+      if (want && !isCollapsed) collapseCardBody(cEl);
+      else if (!want && isCollapsed) expandCardBody(cEl);
     });
   }
 
@@ -2728,10 +2673,9 @@
     const rot = cardRotation();
     board.insertBefore(el, drag.ph);
     drag.ph.remove();
-    dropIntoPlaceholder(el, rot);
     finishDrag();
-    restoreCardsAfterDrag();  // fold listene tilbake til lagret lukketilstand
-    releaseBoardAfterDrag();  // slipp touch-vakten i takt med utvidelsen (no-op på mus)
+    restoreCardsAfterDrag();  // fold listene tilbake til lagret lukketilstand (momentant)
+    releaseBoardAfterDrag();  // slipp touch-vakten momentant (no-op på mus) → layout satt
 
     // Ny rekkefølge: gi kortet en pos mellom DOM-naboene. Kirurgisk – kun
     // dette kortets posisjonsregister endres, så samtidige endringer på
@@ -2754,10 +2698,33 @@
     reindexCardColors();
     save();
 
+    // Visuell plassering (etter at layouten er satt av restore/release over): legg
+    // kortet i normal flyt, mål slot-en, fly det inn fra slipp-punktet, og scroll
+    // så den slupne lista inn i visning (endring 2). slotDocTop måles UTEN dra-
+    // transformen (dropIntoPlaceholder setter den etterpå), og i DOKUMENT-koordinat
+    // så den er upåvirket av selve scrollingen.
+    el.classList.remove('dragging');
+    el.style.left = el.style.top = el.style.width = el.style.height = '';
+    el.style.transform = '';
+    const slotDocTop = el.getBoundingClientRect().top + window.scrollY;
+    dropIntoPlaceholder(el, rot);
+    if (!onCrumb) scrollDroppedIntoView(slotDocTop);
+
     // Slipp på 📁-breadcrumben: kortet er lagt normalt tilbake på board-et
     // (posisjonen over), og flytte-velgeren åpnes — avbrytes den, blir lista
     // stående der den lå.
     if (onCrumb && cardObj) askCardMove(cardObj);
+  }
+
+  // Endring 2: etter et fullført liste-drag, scroll siden så den slupne lista
+  // kommer til syne — toppen like under den faste toppmenyen. Smooth (med mindre
+  // redusert bevegelse er ønsket). `cardDocTop` er dokument-Y for kortets topp.
+  function scrollDroppedIntoView(cardDocTop) {
+    const topbarH = topbarEl.getBoundingClientRect().height;
+    const gap = parseFloat(getComputedStyle(board).columnGap) || 16;
+    const maxScroll = Math.max(0, document.documentElement.scrollHeight - window.innerHeight);
+    const target = Math.max(0, Math.min(cardDocTop - topbarH - gap, maxScroll));
+    window.scrollTo({ top: target, behavior: prefersReducedMotion() ? 'auto' : 'smooth' });
   }
 
   // pointercancel under et liste-drag: rull tilbake til utgangspunktet uten å

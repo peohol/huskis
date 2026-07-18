@@ -250,9 +250,10 @@ Størrelse/form kommer fra egne klasser: `.btn` (modaler), `.btn-small`,
   rgba(0,0,0,.12)` på `.card-title`/`.cat-title`/`.item-text`/`.uni-name`/
   `.group-name` ved hover) — når man ser den, vet man at klikk redigerer.
 - **Listekollaps (rullgardin)**: klikk på korthodet (`.card-head`, ikke på
-  tittel/tannhjul/×/meta-chip) folder `.card-body` sammen med en høyde/opacity/
-  padding-animasjon (`collapseCardBody`/`expandCardBody`, samme mekanikk som
-  kategorienes `.cat-items`). Kortet blir da nøyaktig header-høyt, og kortets
+  tittel/tannhjul/×/meta-chip) folder `.card-body` sammen MOMENTANT (ingen
+  animasjon — `collapseCardBody`/`expandCardBody` setter/fjerner bare høyde/opacity/
+  padding; en animasjon gjorde systemet tregere uten å tilføre klarhet). Kortet blir
+  da nøyaktig header-høyt, og kortets
   `overflow: hidden` + `border-radius` runder alle fire hjørnene — også nederst på
   headeren. `overflow` settes KUN inline mens/når kollapset (et permanent
   `overflow:hidden` ville klippet et løftet listepunkt under draging). Lukke-

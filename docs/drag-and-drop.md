@@ -119,13 +119,14 @@ Bytte utløses av **overlapp**, ikke av et punkt:
 - **Lister kollapser mens en liste dras** (`collapseCardsForDrag`/
   `restoreCardsAfterDrag`): idet et liste-drag starter, kollapses BÅDE den dratte
   lista og alle de andre til bare korthodet (som kategorienes kollaps under drag)
-  → board-et blir kompakt og dra-avstanden kort. Den dratte lista slipper sin faste
-  høyde (følger den kollapsende body-en, som `liftCategory`), placeholderen krymper
-  i takt til header-høyden, og `drag.height` settes til header-høyden for
-  treffdeteksjon. `card.collapsed` røres IKKE under draget; ved slipp gjenopprettes
-  hver liste til sin lagrede lukketilstand (animert utvidelse for de som skal være
-  åpne) — robust mot en samtidig synk-rebuild, som uansett bygger kortene fra
-  `card.collapsed`. Se listekollaps i `docs/design-system.md`.
+  → board-et blir kompakt og dra-avstanden kort. MOMENTANT, ingen animasjon (samme
+  som rullgardinen, se `collapseCardBody`/`expandCardBody` i `docs/design-system.md`
+  — en kollaps-animasjon gjorde systemet tregere uten å tilføre klarhet). Den dratte
+  lista slipper sin faste høyde og følger body-kollapsen; placeholderen settes til
+  header-høyden, og `drag.height` settes til header-høyden for treffdeteksjon.
+  `card.collapsed` røres IKKE under draget; ved slipp gjenopprettes hver liste til sin
+  lagrede lukketilstand — robust mot en samtidig synk-rebuild, som uansett bygger
+  kortene fra `card.collapsed`.
   - **Normal-flow-vakt rundt board-et på touch/pen** (`freezeBoardForDrag`/
     `releaseBoardAfterDrag`, mot spontant DnD-avbrudd på mobil): kollapser en HØY
     liste OVER den dratte, krymper board-ets INNHOLD, og løfter man den NEDERSTE
@@ -144,19 +145,26 @@ Bytte utløses av **overlapp**, ikke av et punkt:
     beholder samme viewport-Y og de kompakte overskriftene bunkes rett over den —
     nær fingeren, ikke rullet vekk. (Board bruker CSS multi-column, så en `padding-top`
     skyver alle kolonner likt; et spacer-BARN ville i stedet flytt inn i kolonneflyten.)
-    På touch kollapses MOMENTANT (`collapseCardsForDrag(…, true)`) i samme oppgave som
-    vakten settes, så ingen mellomtilstand med sunket board-bunn males. `releaseBoardAfterDrag`
-    (kalt fra `onCardUp`/`onCardCancel` ETTER `restoreCardsAfterDrag`) krymper
-    `padding-top` tilbake i takt med at listene folder seg ut (samme høyde legges
-    tilbake → total høyde konstant, intet hopp), og fjerner `min-height` + `padding-top`
-    FØRST på `transitionend` for `padding` (ikke en antatt timeout; en `setTimeout` er
-    kun sikkerhetsnett hvis transitionen aldri fyrer, f.eks. ved `prefers-reduced-motion`).
-    Mus trenger ingen vakt (et musedrag avbrytes ikke av en scroll-justering) → uendret
-    desktop, animert kollaps som før; `ev.pointerType` fra det syntetiske start-eventet
-    skiller. Øvrige støttetiltak (beholdt): `beginDragCommon` måler dra-boksen med
-    transformen nøytralisert; `overflowAnchor='none'` på `<html>` under draget; en
-    passiv `scroll`-lytter (`onDragScroll`) reposisjonerer det løftede kortet under
-    fingeren om nettleseren selv skulle scrolle — den scroller ALDRI selv.
+    Kollapsen skjer i SAMME oppgave som vakten settes (og er momentan), så ingen
+    mellomtilstand med sunket board-bunn males. `releaseBoardAfterDrag` (kalt fra
+    `onCardUp`/`onCardCancel` MOMENTANT rett etter `restoreCardsAfterDrag`, som utvider
+    listene momentant) fjerner `min-height` + `padding-top` i samme oppgave → én reflow
+    maler den ferdige, naturlige layouten uten et mellomsteg (der padding-top + utvidede
+    bodyer ville gitt et hopp). Mus trenger ingen vakt (et musedrag avbrytes ikke av en
+    scroll-justering) → uendret desktop: bare kollaps, board-et krymper og siden justerer
+    scroll naturlig, som i main. `ev.pointerType` fra det syntetiske start-eventet skiller.
+    Øvrige støttetiltak (beholdt): `beginDragCommon` måler dra-boksen med transformen
+    nøytralisert; `overflowAnchor='none'` på `<html>` under draget; en passiv
+    `scroll`-lytter (`onDragScroll`) reposisjonerer det løftede kortet under fingeren om
+    nettleseren selv skulle scrolle — den scroller ALDRI selv.
+  - **Scroll til den slupne lista** (`scrollDroppedIntoView`, kalt fra `onCardUp`):
+    etter et fullført liste-drag scrolles siden så den slupne lista kommer til syne med
+    toppen like under den faste toppmenyen (`behavior: 'smooth'`, `'auto'` ved
+    `prefers-reduced-motion`). Kalles ETTER at layouten er satt (restore/release) og
+    kortet er lagt i normal flyt; `slotDocTop` måles i DOKUMENT-koordinat (upåvirket av
+    selve scrollingen) FØR `dropIntoPlaceholder` setter fly-inn-transformen. Hoppes over
+    når lista slippes på 📁-breadcrumben (flyttes til en annen gruppe → forsvinner fra
+    board-et). Gjelder både touch og mus.
   - **Auto-scroll kan aldri bytte fortegn** (`startAutoScroll`): den tillatte
     nedover-avstanden klemmes til `Math.min(delta, Math.max(0, maxScroll - scrollY))`.
     Ligger board-bunnen (den kompakte, kollapsede) OVER `scrollY` — slik den kunne med

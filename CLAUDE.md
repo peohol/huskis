@@ -269,11 +269,23 @@ den dratte lista beholder viewport-Y og de kompakte overskriftene bunkes rett ov
 den — nær fingeren, ikke rullet vekk (board bruker multi-column → `padding-top`, ikke
 et spacer-barn). Touch kollapser MOMENTANT (`collapseCardsForDrag(…, true)`) i samme
 oppgave, så ingen mellomtilstand males. Vakten slippes i `onCardUp`/`onCardCancel`
-etter `restoreCardsAfterDrag`: `padding-top` krymper i takt med utfoldingen og ryddes
-på `transitionend` (timeout kun som sikkerhetsnett). Mus uendret (animert kollaps, ingen
-vakt). `lockDocHeight`/`unlockDocHeight`/`drag.pendingCollapse` er borte. **`pointercancel`-
+momentant rett etter `restoreCardsAfterDrag` (én reflow, intet hopp). Mus uendret fra
+main (bare kollaps, siden justerer scroll naturlig, ingen vakt).
+`lockDocHeight`/`unlockDocHeight`/`drag.pendingCollapse` er borte. **`pointercancel`-
 rollbacken fra forrige runde er uendret** (`onCardCancel` m.fl. → `restoreDraggedToOrigin`,
 ingen `pos`/`save`). Ingen DB-migrering. Se `docs/drag-and-drop.md`.
+
+**Momentan liste-kollaps + scroll-til-slupt-liste (siste runde)**: (1) All
+åpne/lukke-animasjon for lister er FJERNET — `collapseCardBody`/`expandCardBody` setter/
+fjerner bare høyde/opacity/padding momentant (gjelder både rullgardinen (klikk på
+korthodet) og kollaps-alle under DnD, mobil OG desktop). Animasjonen gjorde systemet
+tregere uten å tilføre klarhet; `CARD_COLLAPSE_MS` er borte. Board-vaktens release ble
+dermed også momentan (ingen `padding`-transition/`transitionend`). (2) Etter et fullført
+liste-drag scroller siden til den slupne lista (`scrollDroppedIntoView`, `onCardUp`):
+toppen legges like under den faste toppmenyen (smooth; `auto` ved reduced-motion), målt i
+dokument-koordinat før fly-inn-transformen. Hoppes over ved slipp på 📁-breadcrumben.
+Splittet desktop=main / mobil=board-vakt er beholdt. Ingen DB-migrering. Se
+`docs/drag-and-drop.md` og `docs/design-system.md`.
 
 Verifisert i nettleser (Playwright) mot en hermetisk in-memory-backend
 (`mock-backend.js`, aktiveres med `?mock=1`) som etterligner Supabase-
