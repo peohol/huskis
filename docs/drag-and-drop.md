@@ -116,34 +116,51 @@ Bytte utløses av **overlapp**, ikke av et punkt:
   mus (draget starter der umiddelbart på bevegelse). `pointercapture` brukes så
   draging ikke mister eventer. Placeholder lever kun under draging; `finishDrag()`
   har sikkerhetsnett.
-- **Lister kollapser mens en liste dras** (`collapseCardsForDrag`/
-  `restoreCardsAfterDrag`): idet et liste-drag starter, kollapses BÅDE den dratte
-  lista og alle de andre til bare korthodet (som kategorienes kollaps under drag)
-  → board-et blir kompakt og dra-avstanden kort. Den dratte lista slipper sin
-  faste høyde (følger den kollapsende body-en, som `liftCategory`), placeholderen
-  krymper i takt til header-høyden, og `drag.height` settes til header-høyden for
-  treffdeteksjon. `card.collapsed` røres IKKE under draget; ved slipp
-  gjenopprettes hver liste til sin lagrede lukketilstand (animert utvidelse for de
-  som skal være åpne) — robust mot en samtidig synk-rebuild, som uansett bygger
-  kortene fra `card.collapsed`. Se listekollaps i `docs/design-system.md`.
-  - **Utsatt kollaps på touch** (mot spontant DnD-avbrudd på mobil): kollapser en
+- **Lister kollapser mens en liste dras — KUN på mus** (`collapseCardsForDrag`/
+  `restoreCardsAfterDrag`): på DESKTOP (mus) kollapses BÅDE den dratte lista og
+  alle de andre til bare korthodet idet et liste-drag starter (som kategorienes
+  kollaps under drag) → board-et blir kompakt og dra-avstanden kort. Den dratte
+  lista slipper sin faste høyde (følger den kollapsende body-en, som
+  `liftCategory`), placeholderen krymper i takt til header-høyden, og `drag.height`
+  settes til header-høyden for treffdeteksjon. `card.collapsed` røres IKKE under
+  draget; ved slipp gjenopprettes hver liste til sin lagrede lukketilstand (animert
+  utvidelse for de som skal være åpne) — robust mot en samtidig synk-rebuild, som
+  uansett bygger kortene fra `card.collapsed`. Se listekollaps i
+  `docs/design-system.md`.
+  - **Touch/pen kollapser IKKE** (mot spontant DnD-avbrudd på mobil): kollapser en
     HØY liste OVER den dratte, blir board-et brått kortere enn scroll-posisjonen, og
-    nettleseren tvinger en window-scroll (klemme/scroll-anchoring). En window-scroll
-    mens fingeren står STILLE avbryter touch-en på Chrome for Android (man ender med
-    markert tekst) — verst for det NEDERSTE kortet (størst tvungen opp-scroll). Fiks:
-    på touch UTSETTES `collapseCardsForDrag` til første faktiske bevegelse (`drag.
-    pendingCollapse`, utløst i `onCardMove` ved > 2 px). Da skjer kollapsen (og en
-    evt. scroll) mens et `touchmove` fyrer — draget er «etablert» og avbrytes ikke
-    (nettopp derfor virket det å bevege noen få piksler). Under et rent stille hold
-    skjer INGEN scroll. På mus kollapses umiddelbart (ingen slik konflikt på desktop;
-    `ev.pointerType` fra det syntetiske start-eventet skiller). Støttetiltak:
-    (a) `beginDragCommon` måler dra-boksen med transformen nøytralisert, ellers ga
-    `.drag-hold`-skalaen (touch-trykk-feedback) en ~10 px for lav placeholder →
-    board-et krympet ved løft → en 10 px scroll-klemme selv under stille hold;
-    (b) `overflowAnchor='none'` på `<html>` under draget (av/på i `beginDragCommon`/
-    `finishDrag`); (c) en passiv `scroll`-lytter (`onDragScroll`) reposisjonerer det
-    løftede kortet under fingeren om nettleseren selv scroller — den scroller ALDRI
-    selv (det ville gjeninnført avbruddet).
+    nettleseren klemmer window-scroll oppover mot en raskt synkende maks-scroll. En
+    slik scroll-klemme mens touch-pekeren er aktiv avbryter touch-en på Chrome for
+    Android (`pointercancel` → draget dør nesten umiddelbart) — verst for det
+    NEDERSTE kortet under en høy, åpen liste. En TIDLIGERE fiks bare UTSATTE kollapsen
+    til første pekerbevegelse; det gjorde problemet mindre konsekvent, men en finger
+    beveger seg lett > 2 px straks etter løftet, så den samme risikable layout-
+    endringen skjedde fortsatt helt i starten. **Nå kollapser vi ikke i det hele tatt
+    på touch/pen**: verken den dratte lista eller de andre, og placeholderen beholder
+    listas FULLE høyde gjennom hele draget (`ev.pointerType === 'mouse'` gater
+    `collapseCardsForDrag` i `startCardDrag`). Dermed reduseres aldri dokumentets
+    høyde mens touch-pekeren er aktiv, og klemmen kan ikke oppstå. Auto-scroll
+    (`windowScrollDrag`/`updateAutoScroll`) håndterer de lengre dra-avstandene. Vil
+    man senere ha den løftede lista visuelt kompakt på mobil, må det gjøres UTEN å
+    endre normalflytens høyde (egen drag-overlay/klone). Gjenværende støttetiltak
+    (harmløse, beholdt): `beginDragCommon` måler dra-boksen med transformen
+    nøytralisert (så `.drag-hold`-skalaen ikke gir en for lav placeholder);
+    `overflowAnchor='none'` på `<html>` under draget; en passiv `scroll`-lytter
+    (`onDragScroll`) reposisjonerer det løftede kortet under fingeren om nettleseren
+    selv skulle scrolle — den scroller ALDRI selv.
+- **`pointercancel` ruller tilbake, det er ikke et slipp** (`onCardCancel` m.fl.):
+  en kansellert pekersekvens må ALDRI behandles som et vellykket drop. Tidligere delte
+  `pointercancel` handler med `pointerup` (`onCardUp`), så et avbrudd fullførte og
+  lagret droppet. Nå har hvert nivå en egen kanselleringsflyt (`onCardCancel`,
+  `onItemCancel`, `onCategoryCancel`, `onGroup-/onUniverseCancel` via
+  `cancelColumnDrop`) registrert på `pointercancel`: den fjerner draglytterne, stopper
+  auto-scroll, fører elementet tilbake til den opprinnelige DOM-sloten
+  (`restoreDraggedToOrigin` — `drag.origParent`/`origNext` registreres i
+  `beginDragCommon` FØR placeholderen settes inn), fjerner placeholderen, rydder
+  dragstiler/global dragtilstand og gjenoppretter evt. desktop-kollaps
+  (`restoreCardsAfterDrag`). Den beregner IKKE ny `pos`, kaller ikke `stampPos`/
+  `cloudMountUpdate`/`reindex*Colors`/`save`, og åpner ikke gruppe-flyttevelgeren.
+  `pointerup` bruker fortsatt den vanlige drop-flyten.
 - **Alle placeholders deler én stil** (felles regel for `.card-/.item-/.group-
   placeholder`): 1px stiplet kant med lav opacity, svakt mørknet flate og en
   subtil inset-skygge («hull som skal fylles») — kun radius/margens varierer per
