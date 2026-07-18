@@ -231,6 +231,26 @@ kommentarer er urørt — nettopp for å skille brukerbegrepet fra det tekniske)
 Se `docs/drag-and-drop.md`, `docs/design-system.md`, `docs/data-model.md`,
 `docs/menus.md`.
 
+**DnD-fikser: kategori-utseende, auto-scroll, mobil-kollaps (siste runde)**: (1)
+Løftet kategori (`.category.dragging`) leser nå som en kompakt rad, ikke et stort
+felt — kategori-ikon (`.cat-drag-icon`) til venstre for tittelen, svart tittel
+uten skygge (var hvit-på-hvit), tannhjul/oppløs + skillelinjer skjult, høyde =
+et listepunkt (`collapseCategory` måler headeren med `offsetHeight` så dra-
+rotasjonen ikke blåser opp placeholderen). (2) Auto-scroll ved viewport-kanten
+gjelder nå listepunkter og kategorier, ikke bare lister (`windowScrollDrag()` +
+`reapplyPlacement`); kategoriens `grabY` måles fra `.cat-head`. (3) Mobil: å
+løfte en liste (særlig den NEDERSTE) under en HØY liste som kollapser krympet
+board-et under scroll-posisjonen → nettleseren tvang en window-scroll, og en
+scroll mens fingeren står stille avbryter touch-en på Chrome for Android (markert
+tekst). Nå UTSETTES liste-kollapsen på touch til første faktiske bevegelse
+(`drag.pendingCollapse` → `onCardMove`), så scrollen skjer mens et touchmove fyrer
+(draget «etablert») i stedet for under et stille hold; `beginDragCommon` måler
+dra-boksen med transformen nøytralisert (så `.drag-hold`-trykkskalaen ikke gir en
+for lav placeholder → 10 px scroll-klemme); `overflowAnchor='none'` + en passiv
+`scroll`-lytter holder kortet under fingeren uten at VI scroller. Mus kollapser
+umiddelbart (uendret desktop). Ingen DB-migrering. Se `docs/drag-and-drop.md` og
+`docs/design-system.md`.
+
 Verifisert i nettleser (Playwright) mot en hermetisk in-memory-backend
 (`mock-backend.js`, aktiveres med `?mock=1`) som etterligner Supabase-
 klienten og deler «server» mellom faner via localStorage — kjør to faner for

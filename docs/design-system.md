@@ -223,7 +223,13 @@ Størrelse/form kommer fra egne klasser: `.btn` (modaler), `.btn-small`,
   venstre-innrykk, så listepunktene blir som «bøker» i en hylle som går inn i veggen
   (dette erstattet den tidligere grupperingsstreken). `.category.dragging` er et
   løftet, hvitt chip UTEN fast høyde (følger den kollapsende `.cat-items`-høyden
-  under draging — se `docs/drag-and-drop.md`). Subtile skillelinjer
+  under draging — se `docs/drag-and-drop.md`) som skal lese som en **kompakt rad,
+  ikke et felt**: kategori-ikonet (`.cat-drag-icon`, skjult i hvile) vises til
+  venstre for tittelen, tittelen blir **svart uten skygge** (hvit-på-hvit var
+  uleselig mot den hvite flaten), tannhjul + oppløs skjules (`display:none`) og
+  skillelinjene (`::before`/`::after`) males ikke på det løftede kortet. Polstring/
+  radius = et listepunkt (6px / 10px) + `gap:0` → **samme høyde som et listepunkt
+  under DnD**. Subtile skillelinjer
   (`rgba(0,0,0,.15)`) rammer en kategori mot nabo-radene på nivå 1: **under**
   kategorien (`.category:not(:last-child)::after`) mot det påfølgende listepunktet/
   kategorien — men **ikke** når kategorien er siste rad (`:not(:last-child)`

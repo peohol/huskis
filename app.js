@@ -1447,6 +1447,11 @@
     el.dataset.id = catData.id;
     const canEdit = !frozen(cardData);
 
+    // Kategori-ikon — kun synlig mens kategorien dras (venstre for tittelen, se
+    // .category.dragging i styles.css), så det løftede kortet leser som en
+    // kategori mot den hvite dra-flaten.
+    el.querySelector('.cat-drag-icon').innerHTML = ICONS.category;
+
     const titleEl = el.querySelector('.cat-title');
     titleEl.textContent = catData.text || 'Kategori';
     titleEl.addEventListener('click', () => {
@@ -2069,7 +2074,7 @@
       if (!dragEl.isConnected) return;
       held = true;
       startDrag({ button: 0, clientX: sx, clientY: sy, pointerId: pid,
-        target: dragEl, preventDefault() {} }, dragEl);
+        pointerType: mouse ? 'mouse' : 'touch', target: dragEl, preventDefault() {} }, dragEl);
     }
     function onMove(ev) {
       if (ev.pointerId !== pid) return;
@@ -2117,7 +2122,18 @@
 
   function beginDragCommon(ev, el) {
     ev.preventDefault();
+    // Mål boksen UTEN en evt. `.drag-hold`-skalering: på touch legges en liten
+    // trykk-feedback-skala (scale .98) på under holdet, og den kan fortsatt tone ut
+    // idet draget starter. En skalert getBoundingClientRect ga en placeholder ~10 px
+    // for lav → board-et krympet ved løft → en 10 px scroll-klemme (som på mobil kan
+    // avbryte touch-en). Nøytraliser transformen for selve målingen og gjenopprett
+    // etterpå (start*Drag setter drag-transformen straks etter uansett).
+    const prevT = el.style.transform, prevTr = el.style.transition;
+    el.style.transition = 'none';
+    el.style.transform = 'none';
     const rect = el.getBoundingClientRect();
+    el.style.transform = prevT;
+    el.style.transition = prevTr;
     drag.el = el;
     drag.width = rect.width;
     drag.height = rect.height;
@@ -2127,9 +2143,13 @@
     drag.lastX = ev.clientX;
     drag.lastY = ev.clientY;
     drag.active = true;
+    drag.pendingCollapse = false; // touch: liste-kollaps utsettes til første bevegelse (se startCardDrag)
     drag.recentSwap = null; // anti-flimring nullstilles per drag (se SWAP_LOCK_MS/SWAP_REV_RATIO)
     try { ev.target.setPointerCapture(ev.pointerId); } catch (e) {}
     document.body.classList.add('is-dragging');
+    // Slå av nettleserens scroll-anchoring mens draget pågår: den ville ellers
+    // justert scroll-posisjonen brått når board-et krymper (liste-kollaps).
+    document.documentElement.style.overflowAnchor = 'none';
     window.addEventListener('touchmove', preventTouchScroll, { passive: false });
   }
 
@@ -2245,6 +2265,9 @@
 
   function finishDrag() {
     drag.active = false;
+    drag.pendingCollapse = false;
+    window.removeEventListener('scroll', onDragScroll);
+    document.documentElement.style.overflowAnchor = ''; // gjenopprett scroll-anchoring
     // Sikkerhetsnett: en placeholder skal kun eksistere mens draging pågår.
     // Fjern den aktive om den fortsatt henger i DOM, og fei bort evt. foreldreløse
     // (f.eks. hvis en drag ble avbrutt uvanlig) så ingen blir stående etter slipp.
@@ -2273,8 +2296,24 @@
     if (p <= 1) return MIN + (MAX - MIN) * p;
     return MAX + (BEYOND - MAX) * Math.min(1, p - 1);
   }
+  // Kort-, listepunkt- OG kategori-drag scroller vinduet ved kanten (alle tre dras
+  // på board-et med dokument-koordinater). Gruppe/univers dras i en modal og har
+  // egen auto-scroll (stopGroupAutoScroll/stopUniverseAutoScroll).
+  function windowScrollDrag() {
+    return drag.kind === 'card' || drag.kind === 'item' || drag.kind === 'category';
+  }
+  // Re-evaluer plasseringen etter en auto-scroll-frame (pekeren står stille, så vi
+  // bruker siste kjente pekerposisjon + rulleretningen som «drag-retning»).
+  function reapplyPlacement(dir) {
+    if (drag.kind === 'card') updateCardPlacement(0, dir);
+    else if (drag.kind === 'item') updateItemPlacement(drag.lastX, drag.lastY, dir);
+    else if (drag.kind === 'category') {
+      const cont = drag.card && drag.card.querySelector('.items-container');
+      if (cont) placeRowPlaceholder(cont);
+    }
+  }
   function updateAutoScroll() {
-    if (!drag.active || drag.kind !== 'card') { stopAutoScroll(); return; }
+    if (!drag.active || !windowScrollDrag()) { stopAutoScroll(); return; }
     const r = draggedRect();
     const vh = window.innerHeight || document.documentElement.clientHeight || 1;
     const ZONE = 120;
@@ -2317,7 +2356,7 @@
       // Kortet er `position: absolute` (dokument-koordinater) → flytt det med den
       // nye scroll-posisjonen så det blir liggende under fingeren, og re-evaluer
       // de andre kortenes plassering med rulleretningen som «drag-retning».
-      if (window.scrollY !== before) { moveElement(); updateCardPlacement(0, autoScrollSpeed > 0 ? 1 : -1); }
+      if (window.scrollY !== before) { moveElement(); reapplyPlacement(autoScrollSpeed > 0 ? 1 : -1); }
       autoScrollRAF = requestAnimationFrame(step);
     };
     autoScrollRAF = requestAnimationFrame(step);
@@ -2344,13 +2383,26 @@
     liftElement();
     // Kollaps ALLE lister (den dratte + de andre) mens draget pågår → kortere
     // avstand å dra. Tilstanden gjenopprettes ved slipp (fra `card.collapsed`).
-    // Måles FØR rotasjonen settes (en rotert boks ville blåst opp høyden).
-    collapseCardsForDrag(drag.el, ph);
+    // MEN på touch UTSETTES kollapsen til første faktiske bevegelse (se onCardMove):
+    // kollapsen krymper board-et, og hvis man løftet en liste under en HØY liste
+    // (spesielt den nederste) ville nettleseren tvinge en scroll idet board-et ble
+    // kortere enn scroll-posisjonen — og en window-scroll mens fingeren står STILLE
+    // avbryter touch-en på Chrome for Android (man ender med markert tekst). Ved å
+    // vente til fingeren beveger seg skjer scrollen mens et touchmove fyrer (draget
+    // er «etablert») og avbrytes ikke. På mus er det ingen slik konflikt → kollaps
+    // umiddelbart (uendret desktop-oppførsel). Måles FØR rotasjonen settes.
+    if (ev.pointerType === 'mouse') collapseCardsForDrag(drag.el, ph);
+    else drag.pendingCollapse = true;
     drag.el.style.transform = `rotate(${cardRotation()}deg) scale(1.02)`;
     window.addEventListener('pointermove', onCardMove);
     window.addEventListener('pointerup', onCardUp);
     window.addEventListener('pointercancel', onCardUp);
+    // Hold det løftede kortet under fingeren om nettleseren selv scroller (kollaps-
+    // klemme/momentum) mens draget pågår — uten at VI scroller (som ville avbrutt
+    // touch-en). Ren reaksjon på scroll: reposisjonering, ikke scrolling.
+    window.addEventListener('scroll', onDragScroll, { passive: true });
   }
+  function onDragScroll() { if (drag.active && drag.kind === 'card') moveElement(); }
 
   /* ------- Midlertidig kollaps av alle lister under et liste-drag -------
      Den dratte lista følger den kollapsende body-en (ingen fast høyde, som
@@ -2359,7 +2411,10 @@
      man ikke trenger dra langt for å omrokkere. `card.collapsed` røres ikke, så
      `restoreCardsAfterDrag()` bare gjenoppretter den lagrede tilstanden. */
   function collapseCardsForDrag(draggedEl, ph) {
-    const headH = draggedEl.querySelector('.card-head').getBoundingClientRect().height;
+    // offsetHeight (ikke getBoundingClientRect): på touch kalles denne fra onCardMove
+    // ETTER at dra-rotasjonen er satt, og en rotert bred header ville blåst opp
+    // getBoundingClientRect-høyden (som for kategorien). offsetHeight er transform-fri.
+    const headH = draggedEl.querySelector('.card-head').offsetHeight;
     draggedEl.style.height = ''; // slipp fast høyde → kortet følger body-kollapsen
     if (!draggedEl.classList.contains('collapsed')) collapseCardBody(draggedEl, true);
     drag.height = headH; // treffdeteksjon + placeholder bruker den kollapsede boksen
@@ -2453,6 +2508,14 @@
     const dy = ev.clientY - drag.lastY;
     drag.lastX = ev.clientX;
     drag.lastY = ev.clientY;
+    // Touch: kollapsen ble utsatt til nå (se startCardDrag) — utfør den ved første
+    // faktiske bevegelse, mens et touchmove fyrer, så en evt. scroll ikke avbryter
+    // touch-en (headeren måles med offsetHeight i collapseCardsForDrag, upåvirket av
+    // at dra-rotasjonen alt er satt her).
+    if (drag.pendingCollapse && (Math.abs(dx) > 2 || Math.abs(dy) > 2)) {
+      drag.pendingCollapse = false;
+      collapseCardsForDrag(drag.el, drag.ph);
+    }
     moveElement();
     drag.el.style.transform = `rotate(${cardRotation()}deg) scale(1.02)`;
 
@@ -2666,7 +2729,15 @@
     drag.lastY = ev.clientY;
     moveElement();
     drag.el.style.transform = `rotate(${cardRotation()}deg) scale(1.03)`;
+    updateAutoScroll();
+    updateItemPlacement(drag.lastX, drag.lastY, dy);
+  }
 
+  // Finn og utfør evt. placeholder-flytting for et listepunkt-drag. px/py =
+  // pekerposisjon (viewport), dy = retning (peker-delta eller rulleretning fra
+  // auto-scroll). Kalles fra onItemMove og fra auto-scroll-loopen (stille peker).
+  function updateItemPlacement(px, py, dy) {
+    if (!drag.active || drag.kind !== 'item') return;
     const dragRect = draggedRect();
     const flipEls = [...document.querySelectorAll('.item:not(.dragging), .category:not(.dragging)')];
 
@@ -2675,7 +2746,7 @@
     let targetCont = null;
     for (const cat of document.querySelectorAll('.category:not(.dragging)')) {
       const r = cat.getBoundingClientRect();
-      if (ev.clientX >= r.left && ev.clientX <= r.right && ev.clientY >= r.top && ev.clientY <= r.bottom) {
+      if (px >= r.left && px <= r.right && py >= r.top && py <= r.bottom) {
         targetCont = cat.querySelector('.cat-items'); break;
       }
     }
@@ -2684,14 +2755,14 @@
       const containers = [...document.querySelectorAll('.items-container')];
       for (const cont of containers) {
         const r = cont.getBoundingClientRect();
-        if (ev.clientX >= r.left && ev.clientX <= r.right && ev.clientY >= r.top - 12 && ev.clientY <= r.bottom + 12) {
+        if (px >= r.left && px <= r.right && py >= r.top - 12 && py <= r.bottom + 12) {
           targetCont = cont; break;
         }
       }
       if (!targetCont) {
         for (const cont of containers) {
           const cr = cont.closest('.card').getBoundingClientRect();
-          if (ev.clientX >= cr.left && ev.clientX <= cr.right && ev.clientY >= cr.top && ev.clientY <= cr.bottom) {
+          if (px >= cr.left && px <= cr.right && py >= cr.top && py <= cr.bottom) {
             targetCont = cont; break;
           }
         }
@@ -2851,8 +2922,10 @@
   }
   function collapseCategory(catEl, ph) {
     const catItems = catEl.querySelector('.cat-items');
-    const headH = catEl.querySelector('.cat-head').getBoundingClientRect().height;
-    const collapsedH = headH + 8; // header + kategoriens dra-padding (.category.dragging)
+    // offsetHeight (ikke getBoundingClientRect): sistnevnte ville inkludert dra-
+    // rotasjonen (som blåser opp en bred, lav header kraftig) → for høy placeholder.
+    const headH = catEl.querySelector('.cat-head').offsetHeight;
+    const collapsedH = headH + 12; // header + .category.dragging-polstring (6px topp/bunn, gap:0)
     drag.height = collapsedH;      // treffdeteksjon bruker den kollapsede boksen
     if (prefersReducedMotion()) {
       catItems.style.overflow = 'hidden';
@@ -2918,6 +2991,12 @@
     beginDragCommon(ev, catEl);
     drag.kind = 'category';
     drag.card = catEl.closest('.card'); // kategorier flyttes kun innen egen liste
+    // Grep-punktet måles relativt til OVERSKRIFTEN, ikke hele (u-kollapsede)
+    // kategori-boksen: kategorien kollapser til bare overskriften under draging,
+    // og en evt. ::before-skillelinje over headeren gjorde ellers grabY større
+    // enn den kollapsede høyden → fingeren havnet utenfor boksen (skjev
+    // plassering + auto-scroll ved kanten slo ikke inn).
+    drag.grabY = ev.clientY - catEl.querySelector('.cat-head').getBoundingClientRect().top;
 
     const ph = document.createElement('li');
     ph.className = 'item-placeholder cat-placeholder';
@@ -2938,6 +3017,7 @@
     drag.lastY = ev.clientY;
     moveElement();
     drag.el.style.transform = `rotate(${cardRotation()}deg) scale(1.03)`;
+    updateAutoScroll();
     const cont = drag.card && drag.card.querySelector('.items-container');
     if (cont) placeRowPlaceholder(cont);
   }
