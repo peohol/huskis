@@ -30,6 +30,7 @@ oppdater det aktuelle dokumentet der (ikke dump alt tilbake i denne fila).
 | `docs/trash.md` | slette/gjenopprette/tømme på ethvert nivå |
 | `docs/colors-and-labels.md` | HSL-fargesystem, Mine/Delte-filter |
 | `docs/scheduling.md` | innstillingsmodalen (tannhjul), tidsplan (start/frist), indikator-chips |
+| `docs/rettigheter-og-deling.md` | HVEM får gjøre HVA: oppretter/eier-hierarki, arvet lås + unntak, posisjon-vs-innhold, tretilstands invitasjonspolicy — den autoritative rettighetsmodellen |
 | `docs/arkitektur-brukere-deling.md` | brukerkontoer (Supabase Auth), eierskap, deling/mounts, lås, e-postvarsel — databasesiden |
 | `docs/accounts.md` | KLIENTEN: auth-UI, synk-motor (get_my_doc/rad-CRUD), mount-rendring, delings-UI, e-postvarsel/innboks, mock-backend for testing |
 
@@ -300,6 +301,25 @@ Beslutningen lagres implisitt via `boardGuard`. De andre PR-endringene (momentan
 `pointercancel`-rollback, auto-scroll-fortegnsklemme, scroll-til-slupt-liste) er uendret.
 Ny test `tests/dnd-layout-modes.test.js` (bl.a. bred touch = flerkolonne → ingen vakt,
 ekte `page.mouse`, layoutgrensen 560/561 px). Ingen DB-migrering. Se `docs/drag-and-drop.md`.
+
+**Hierarkiske rettigheter (siste runde)**: autorisasjonen er generalisert fra
+«kun eieren» til et **oppretter/eier-hierarki** — se `docs/rettigheter-og-deling.md`
+(ny, autoritativ). En **privilegert administrator** av et objekt = universeieren
++ objektets oppretter (`owner_id`) + oppretteren av hvert superobjekt; disse kan
+alltid redigere/dele/låse, også under en lås. Redigeringslås arves med
+nærmeste-eksplisitt-semantikk; **unntak** fra en arvet lås styres kun av
+universeieren eller oppretteren av det låsende superobjektet (`set_unlocked` →
+`can_manage_lock_exception`). **Posisjon er skilt fra innholdslås**
+(`can_reorder_in_parent` = innholdsrett på superobjektet) og håndheves feltspesifikt
+i `*_before_update`-vaktene. **Invitasjonsrett** har fått en **tretilstands dynamisk
+arv** (`invite_policy` = `inherit`/`allow`/`deny`): vanlige medlemmer kan invitere
+når effektiv policy tillater det (`can_invite_to`), styrt av en avmerkingsboks under
+e-postfeltet (`set_invite_policy`, kun interaktiv for `can_manage_invite_policy`).
+Alt håndheves serverside (RLS + vakter + SECURITY DEFINER-hjelpere); klienten
+gate-r kontroller via `get_members.viewer`-flagg + lokalt anslag. Krever en DB-
+migrering i kontomodus (`invite_policy`-kolonner + omskrevne funksjoner) — se
+`TODO.md`. Ny SQL-test `supabase/tests/test-permissions.sql` (fire brukere) og
+nettlesertest `tests/permissions-ui.test.js` (mock, desktop + mobil).
 
 Verifisert i nettleser (Playwright) mot en hermetisk in-memory-backend
 (`mock-backend.js`, aktiveres med `?mock=1`) som etterligner Supabase-

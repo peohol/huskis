@@ -144,6 +144,35 @@ nettleser (mock-backend, desktop + mobil).
       kontomodus-synken for lister brytes — kjør den FØR denne runden merges til
       produksjon (samme lærdom som kategori-migreringen).
 
+## Skjema-/logikk-endring: hierarkiske rettigheter + invitasjonspolicy (`invite_policy`)
+
+Rettighetsrunden (se `docs/rettigheter-og-deling.md`) generaliserte «eier» til
+**oppretter/eier-hierarki** (privilegerte administratorer), skilte **posisjon** fra
+**innholdslås**, og innførte en **tretilstands invitasjonspolicy**. `supabase/users-
+and-sharing.sql` er oppdatert idempotent:
+
+- Ny kolonne `invite_policy text not null default 'inherit'` (+ CHECK) på
+  universes/groups/cards. Eksisterende rader får `inherit` ved kolonne-tillegg →
+  effektiv **tillat** (dagens oppførsel bevares).
+- Nye/omskrevne SECURITY DEFINER-hjelpere (`can_admin_resource`, `can_edit_content`,
+  `can_reorder_in_parent`, `effective_lock_source`, `can_manage_lock_exception`,
+  `effective_invite_policy`, `can_invite_to`, `can_manage_invite_policy` m.fl.),
+  omskrevne `*_before_update`-vakter (feltnivå-autorisasjon), oppdaterte RLS-
+  `update`-policyer (innhold ELLER posisjon), oppdaterte RPC-er
+  (`create_share_invite`/`revoke_share_invite`/`revoke_share`/`set_locked`/
+  `set_unlocked`), ny RPC `set_invite_policy`, `get_members` med `viewer`-flagg +
+  policy + per-invitasjon `by`/`by_name`/`mine`, og `get_my_doc` som eksponerer
+  `invitePolicy`. Mock-backenden speiler alt; klient-UI + tester er på plass.
+
+- [ ] **Kjør «Supabase DB-oppsett»-workflowen** slik at `invite_policy`-kolonnene
+      (+ de omskrevne funksjonene/policyene/vaktene) kommer på ekte Supabase. Uten
+      den avviser PostgREST hver universe-/gruppe-/liste-insert/-update som refererer
+      `invite_policy` (manglende kolonne), og delings-/policy-UI-et bryter — kjør den
+      FØR denne runden merges til produksjon (samme lærdom som kategori- og
+      `collapsed`-migreringene). Migreringen er idempotent (testet med dobbel
+      kjøring) og bevarer alle eksisterende data (opprettere, låser, delinger,
+      mounts) samt gir effektiv invitasjonspolicy «tillat».
+
 ## Manuelle steg (krever dashboard-tilgang — Peder)
 
 - [x] ~~GitHub → Settings → Secrets and variables → Actions: legg inn

@@ -4341,8 +4341,11 @@
       const sec = settingsSection(ICONS.people, 'Deling');
       const shareWrap = document.createElement('div');
       shareWrap.className = 'share-body settings-share-body';
-      if (obj._mine === false) renderShareRecipient('card', obj.id, obj, shareWrap, closeSettings);
-      else renderShareOwner('card', obj.id, obj, shareWrap);
+      if (obj._mine !== false || localIsAdmin(obj) || localCanInvite('card', obj)) {
+        renderShareOwner('card', obj.id, obj, shareWrap, closeSettings);
+      } else {
+        renderShareRecipient('card', obj.id, obj, shareWrap, closeSettings);
+      }
       sec.appendChild(shareWrap);
       settingsBody.appendChild(sec);
     }
@@ -5170,12 +5173,26 @@
   // gruppe/liste som er gjort til unntak (redigerbar), og en unntaksgruppe kan i
   // sin tur ha en liste som er låst på nytt.
   function frozen(o) {
+    if (localIsAdmin(o)) return false; // opprettere/eier fryses aldri av en lås
     let n = o;
     while (n) {
       if (!n._mine) {
         if (n._unlocked) return false;
         if (n._locked) return true;
       }
+      n = n._parent;
+    }
+    return false;
+  }
+  // Er JEG privilegert administrator av objektet? — eier objektet ELLER et
+  // superobjekt oppover mot roten. Stopper ved en MOUNT-grense: over en montert rot
+  // er _parent MIN plassering (ikke en ekte kanonisk forelder), så den teller ikke.
+  // Lokalt anslag (serveren håndhever); get_members.viewer.can_admin er autoritativ.
+  function localIsAdmin(o) {
+    let n = o;
+    while (n) {
+      if (n._mine) return true;
+      if (n._mount) break;
       n = n._parent;
     }
     return false;
@@ -5197,6 +5214,51 @@
     return null;
   }
   const isMine = (o) => !o || o._mine !== false; // lokalt nye (uten meta) er «mine»
+
+  // ---- Lokale (optimistiske) rettighets-anslag for del-UI-et. Serveren håndhever
+  // alltid; get_members.viewer-flaggene er autoritative og overstyrer disse når de
+  // lander. Nyttige for umiddelbar visning (og for objekter i eget/synlig tre).
+  const myId = () => authUser && authUser.id;
+  // Universets eier (rot-owner) hvis synlig i treet (stopper ved mount-grense).
+  function universeOwnerLocal(obj) {
+    let n = obj;
+    while (n && n._parent && !n._mount) n = n._parent;
+    return n ? n._owner : null;
+  }
+  // Nærmeste eksplisitte invitasjonspolicy fra objektet og oppover. true = tillat.
+  function effInvitePolicyLocal(obj) {
+    let n = obj;
+    while (n) {
+      if (n._invitePolicy === 'allow') return true;
+      if (n._invitePolicy === 'deny') return false;
+      if (n._mount) break;
+      n = n._parent;
+    }
+    return true; // rot-standard: tillat
+  }
+  // Nærmeste eksplisitte policy blant STRENGE superobjekter (til unntaks-autoritet).
+  function inheritedInviteSourceLocal(type, obj) {
+    for (const a of ancestorChain(type, obj)) {
+      if (a.obj._invitePolicy === 'allow' || a.obj._invitePolicy === 'deny') return a;
+      if (a.obj._mount) break;
+    }
+    return null;
+  }
+  function localCanInvite(type, obj) { return localIsAdmin(obj) || effInvitePolicyLocal(obj); }
+  function localCanManageInvitePolicy(type, obj) {
+    const src = inheritedInviteSourceLocal(type, obj);
+    if (src && src.obj._invitePolicy === 'deny') {
+      return universeOwnerLocal(obj) === myId() || src.obj._owner === myId();
+    }
+    return localIsAdmin(obj);
+  }
+  // Hvem kan styre et UNNTAK fra en ARVET lås: universets eier ELLER oppretteren
+  // av det nærmeste låsende superobjektet (inheritedLockInfo).
+  function localCanManageLockException(type, obj) {
+    if (universeOwnerLocal(obj) === myId()) return true;
+    const src = inheritedLockInfo(type, obj);
+    return !!(src && src.obj._owner === myId());
+  }
 
   /* ---------------- get_my_doc → kanonisk innholds-doc + metadata ---------------- */
   // Optimistisk forlatte delinger (leave_share i kø, se suppressedRows): filtrer
@@ -5226,6 +5288,7 @@
     const add = (list, type) => (list || []).forEach((r) => meta.set(r.id, {
       type, owner: r.owner, mine: r.mine !== false, locked: !!r.locked,
       unlocked: !!r.unlocked, shared: !!r.shared, mount: r.mount || null,
+      invitePolicy: r.invitePolicy || 'inherit',
     }));
     add(my.universes, 'universe');
     add(my.groups, 'group');
@@ -5328,6 +5391,9 @@
         // Unntak fra en arvet lås («gjør redigerbar likevel»). Egen overlay, samme
         // mønster som _locked, så en køet set_unlocked ikke hopper tilbake ved pull.
         obj._unlocked = unlockOverrides.has(id) ? !!unlockOverrides.get(id) : (m ? m.unlocked : false);
+        // Invitasjonspolicy (tretilstand): egen overlay, samme mønster som _locked,
+        // så en køet set_invite_policy ikke hopper tilbake ved en mellomliggende pull.
+        obj._invitePolicy = policyOverrides.has(id) ? policyOverrides.get(id) : (m && m.invitePolicy ? m.invitePolicy : 'inherit');
         obj._shared = m ? m.shared : false;
         obj._mount = m && m.mount ? Object.assign({}, m.mount, mountOverrides.get(id) || null) : null;
         if (obj._mount) {
@@ -5575,6 +5641,7 @@
      onDone/onError (når køen ikke har flere operasjoner for samme nøkkel). */
   const lockOverrides = new Map();  // id → ønsket locked-verdi (set_locked i kø)
   const unlockOverrides = new Map(); // id → ønsket unntak-verdi (set_unlocked i kø)
+  const policyOverrides = new Map(); // id → ønsket invite_policy (set_invite_policy i kø)
   const mountOverrides = new Map(); // id → { pos?, trashed?, parent? } (membership-patch i kø)
   const suppressedRows = new Set(); // share-rot-id-er fjernet lokalt (leave_share i kø)
 
@@ -6144,8 +6211,16 @@
     // Åpne UMIDDELBART — eierskapet (_mine) kjenner vi synkront, så riktig
     // visning tegnes med en gang. Medlemslisten/eier-informasjonen hentes i
     // bakgrunnen og fylles inn når den lander (se renderShareOwner/-Recipient).
-    if (obj._mine === false) renderShareRecipient(type, id, obj, shareBody, closeShare);
-    else renderShareOwner(type, id, obj, shareBody);
+    // Ny modell: ikke bare eieren får den fulle visningen. En som kan ADMINISTRERE
+    // (oppretter/superobjekt-oppretter) eller INVITERE (policy tillater det) får
+    // del-/inviter-visningen (permission-gated); en ren mottaker uten inviterett
+    // får «Forlat deling» + forklaring. Anslås lokalt for umiddelbar visning;
+    // get_members.viewer er autoritativ og finjusterer.
+    if (obj._mine !== false || localIsAdmin(obj) || localCanInvite(type, obj)) {
+      renderShareOwner(type, id, obj, shareBody, closeShare);
+    } else {
+      renderShareRecipient(type, id, obj, shareBody, closeShare);
+    }
   }
 
   // Avatar for en person i del-modalen: rund sirkel med initialer (navn hvis
@@ -6173,8 +6248,18 @@
   }
   // Tegner eier-visningen inn i `body` — brukes både av del-modalen (univers/
   // gruppe) og av listers innstillingsmodal (deling-seksjonen).
-  function renderShareOwner(type, id, obj, body) {
+  function renderShareOwner(type, id, obj, body, closeFn) {
     body.innerHTML = '';
+    const TYPE_WORD = { universe: 'universet', group: 'gruppen', card: 'listen' };
+    // Betrakterens rettigheter — lokalt anslag straks (umiddelbar visning),
+    // autoritativt fra get_members.viewer når det lander (se refreshMembers).
+    const perm = {
+      canInvite: obj._mine !== false || localCanInvite(type, obj),
+      canAdmin: obj._mine !== false || localIsAdmin(obj),
+      canManagePolicy: obj._mine !== false || localCanManageInvitePolicy(type, obj),
+      canException: localCanManageLockException(type, obj),
+      inviteEffective: effInvitePolicyLocal(obj),
+    };
     // Inviter på e-post
     const form = document.createElement('form');
     form.className = 'share-invite-form';
@@ -6184,8 +6269,59 @@
     const btn = document.createElement('button');
     btn.className = 'btn btn-solid btn-green btn-small'; btn.type = 'submit'; btn.textContent = 'Inviter';
     form.append(input, btn);
+    // Invitasjonspolicy (under e-postfeltet): la ANDRE med tilgang invitere flere.
+    // Interaktiv kun for autoriserte (perm.canManagePolicy); ellers lesbar status.
+    const policyRow = document.createElement('div');
+    policyRow.className = 'share-policy-row';
+    const policyLabel = document.createElement('label');
+    policyLabel.className = 'share-policy-label';
+    const policyCb = document.createElement('input');
+    policyCb.type = 'checkbox';
+    const policyTxt = document.createElement('span');
+    policyTxt.textContent = 'Tillat andre å invitere folk til ' + (TYPE_WORD[type] || 'objektet');
+    policyLabel.append(policyCb, policyTxt);
+    const policyNote = document.createElement('p');
+    policyNote.className = 'share-policy-note'; policyNote.hidden = true;
+    policyRow.append(policyLabel, policyNote);
     const msg = document.createElement('p');
     msg.className = 'share-msg'; msg.hidden = true;
+    // Viser/skjuler og aktiverer kontroller ut fra perm (kalles ved oppdatering).
+    function applyPerm() {
+      form.hidden = !perm.canInvite;
+      policyRow.hidden = !perm.canInvite;           // relevant kun når man kan invitere
+      if (!policyOverrides.has(id)) policyCb.checked = !!perm.inviteEffective;
+      policyCb.disabled = !perm.canManagePolicy;
+      policyNote.hidden = perm.canManagePolicy || policyRow.hidden;
+      if (!policyNote.hidden) {
+        policyNote.textContent = perm.inviteEffective
+          ? 'Andre med tilgang kan invitere folk hit.'
+          : 'Bare administratorer kan invitere folk hit.';
+      }
+    }
+    // Optimistisk endring av policyen (koalescert kø-skriving, egen overlay).
+    policyCb.addEventListener('change', () => {
+      const prev = obj._invitePolicy || 'inherit';
+      const want = policyCb.checked ? 'allow' : 'deny';
+      obj._invitePolicy = want; perm.inviteEffective = policyCb.checked;
+      policyOverrides.set(id, want);
+      const key = 'policy:' + type + ':' + id;
+      opQueue.enqueue({
+        key,
+        waitFor: () => rowKnownToServer(id),
+        run: async () => {
+          const w = policyOverrides.has(id) ? policyOverrides.get(id) : want;
+          const { error } = await acli().rpc('set_invite_policy', { p_type: type, p_id: id, p_policy: w });
+          if (error) throw error;
+        },
+        onDone: () => { if (!opQueue.hasPending(key)) { policyOverrides.delete(id); scheduleCloud(0); } },
+        onError: (e) => {
+          policyOverrides.delete(id);
+          obj._invitePolicy = prev; perm.inviteEffective = effInvitePolicyLocal(obj);
+          if (policyCb.isConnected) applyPerm();
+          showToast(friendlyAuthError(e)); scheduleCloud(0);
+        },
+      });
+    });
     // Lås/unntak. To moduser:
     //  (a) Ingen arvet lås → vanlig av/på-lås på dette objektet (som før):
     //      overskrift+ikon og hint bytter mellom låst/åpen, knappen beskriver
@@ -6203,7 +6339,6 @@
     const lockIcon = lockRow.querySelector('.share-lock-icon');
     const lockLabel = lockRow.querySelector('.share-lock-label');
     const lockHint = lockRow.querySelector('.share-lock-hint');
-    const TYPE_WORD = { universe: 'universet', group: 'gruppen', card: 'listen' };
     // Nærmeste eksplisitt tilstand vinner: en EGEN lås på objektet (obj._locked)
     // går foran en arvet lås, så vi viser den vanlige av/på-låsen (ikke unntaks-
     // grenen, som ville nullstilt den egne låsen ved «Gjør unntak»).
@@ -6216,6 +6351,7 @@
         lockLabel.textContent = obj._locked ? 'Låst for redigering' : 'Åpent for redigering';
         lockHint.textContent = obj._locked ? 'Andre kan se, men ikke redigere' : 'Alle kan se og redigere';
         lockBtn.textContent = obj._locked ? 'Åpne nå' : 'Lås nå';
+        lockBtn.hidden = !perm.canAdmin;   // vanlig lås: kun administratorer
         return;
       }
       // Arvet lås: hint viser «… [ikon] [navn] er låst» (navnet som trygg tekst).
@@ -6233,6 +6369,9 @@
       lockHint.appendChild(document.createTextNode(' ' + (anc.obj.name || anc.obj.title || '')));
       lockHint.appendChild(document.createTextNode(ex ? ' er låst — denne er unntatt' : ' er låst'));
       lockBtn.textContent = ex ? 'Fjern unntak' : 'Gjør unntak';
+      // Unntaks-kontrollen er kun for autoriserte (universets eier / oppretteren av
+      // det låsende superobjektet). Andre ser forklaringen, men ingen aktiv knapp.
+      lockBtn.hidden = !perm.canException;
     };
     paintLock();
     lockRow.appendChild(lockBtn);
@@ -6267,21 +6406,26 @@
         const box = document.createElement('div'); box.className = 'member-info';
         box.innerHTML = '<span class="member-name"></span><span class="member-role">Medlem</span>';
         box.querySelector('.member-name').textContent = personName(mbr);
-        const kick = document.createElement('button');
-        kick.className = 'btn btn-solid btn-red btn-small'; kick.type = 'button'; kick.textContent = 'Kast ut';
-        kick.addEventListener('click', async () => {
-          if (!await askConfirm({ title: 'Kaste ut', message: 'Fjerne ' + mbr.email + ' fra delingen?', okLabel: 'Kast ut' })) return;
-          row.remove(); // optimistisk — refreshMembers gjenoppretter hvis serveren avviser
-          opQueue.enqueue({
-            run: async () => {
-              const { error } = await acli().rpc('revoke_share', { p_type: type, p_id: id, p_user: mbr.id });
-              if (error) throw error;
-            },
-            onDone: () => { refreshMembers(); scheduleCloud(0); },
-            onError: (e) => { showToast(friendlyAuthError(e)); refreshMembers(); },
+        row.append(avatarFor(mbr, false), box);
+        // «Kast ut» kun for administratorer (perm.canAdmin). Vanlige inviterere ser
+        // medlemmene, men uten administrative kontroller.
+        if (perm.canAdmin) {
+          const kick = document.createElement('button');
+          kick.className = 'btn btn-solid btn-red btn-small'; kick.type = 'button'; kick.textContent = 'Kast ut';
+          kick.addEventListener('click', async () => {
+            if (!await askConfirm({ title: 'Kaste ut', message: 'Fjerne ' + mbr.email + ' fra delingen?', okLabel: 'Kast ut' })) return;
+            row.remove(); // optimistisk — refreshMembers gjenoppretter hvis serveren avviser
+            opQueue.enqueue({
+              run: async () => {
+                const { error } = await acli().rpc('revoke_share', { p_type: type, p_id: id, p_user: mbr.id });
+                if (error) throw error;
+              },
+              onDone: () => { refreshMembers(); scheduleCloud(0); },
+              onError: (e) => { showToast(friendlyAuthError(e)); refreshMembers(); },
+            });
           });
-        });
-        row.append(avatarFor(mbr, false), box, kick);
+          row.appendChild(kick);
+        }
         membersWrap.appendChild(row);
       });
       (inf.pending_invites || []).forEach((inv) => {
@@ -6290,20 +6434,24 @@
         const box = document.createElement('div'); box.className = 'member-info';
         box.innerHTML = '<span class="member-name"></span><span class="member-role">Venter på svar</span>';
         box.querySelector('.member-name').textContent = inv.email;
-        const cancel = document.createElement('button');
-        cancel.className = 'btn btn-small btn-ghost'; cancel.type = 'button'; cancel.textContent = 'Trekk tilbake';
-        cancel.addEventListener('click', () => {
-          row.remove(); // optimistisk
-          opQueue.enqueue({
-            run: async () => {
-              const { error } = await acli().rpc('revoke_share_invite', { p_invite: inv.id });
-              if (error) throw error;
-            },
-            onDone: refreshMembers,
-            onError: (e) => { showToast(friendlyAuthError(e)); refreshMembers(); },
+        row.append(avatarFor({ email: inv.email }, false), box);
+        // «Trekk tilbake» kun på egne invitasjoner (inv.mine) eller for admin.
+        if (perm.canAdmin || inv.mine) {
+          const cancel = document.createElement('button');
+          cancel.className = 'btn btn-small btn-ghost'; cancel.type = 'button'; cancel.textContent = 'Trekk tilbake';
+          cancel.addEventListener('click', () => {
+            row.remove(); // optimistisk
+            opQueue.enqueue({
+              run: async () => {
+                const { error } = await acli().rpc('revoke_share_invite', { p_invite: inv.id });
+                if (error) throw error;
+              },
+              onDone: refreshMembers,
+              onError: (e) => { showToast(friendlyAuthError(e)); refreshMembers(); },
+            });
           });
-        });
-        row.append(avatarFor({ email: inv.email }, false), box, cancel);
+          row.appendChild(cancel);
+        }
         membersWrap.appendChild(row);
       });
       optimisticRows.forEach((r) => membersWrap.appendChild(r));
@@ -6352,7 +6500,18 @@
     async function refreshMembers() {
       try {
         const { data } = await acli().rpc('get_members', { p_type: type, p_id: id });
-        if (data) { renderMembers(data); refreshInherited(); }
+        if (data) {
+          // Autoritative rettigheter fra serveren finjusterer det lokale anslaget.
+          if (data.viewer) {
+            perm.canInvite = !!data.viewer.can_invite;
+            perm.canAdmin = !!data.viewer.can_admin;
+            perm.canManagePolicy = !!data.viewer.can_manage_policy;
+          }
+          // Ikke la en pull overstyre avmerkingsboksen mens en policy-endring er i lufta.
+          if (!policyOverrides.has(id) && 'invite_effective' in data) perm.inviteEffective = !!data.invite_effective;
+          applyPerm();
+          renderMembers(data); refreshInherited();
+        }
       } catch (e) { /* behold forrige */ }
     }
 
@@ -6468,10 +6627,25 @@
       });
     });
 
-    body.append(form, msg, title, membersWrap, inheritedWrap, lockRow);
+    body.append(form, policyRow, msg, title, membersWrap, inheritedWrap, lockRow);
+    // Mottakere (montert objekt) beholder «Forlat deling» selv om de kan invitere.
+    if (obj._mount && closeFn) {
+      const leave = document.createElement('button');
+      leave.className = 'btn btn-solid btn-red share-leave'; leave.type = 'button'; leave.textContent = 'Forlat deling';
+      leave.addEventListener('click', async () => {
+        if (!await askConfirm({ title: 'Forlat deling', message: 'Forlate denne delingen? Den forsvinner fra dine lister.', okLabel: 'Forlat' })) return;
+        closeFn();
+        removeMountLocally(id);
+        cloudLeave(type, id);
+        render();
+        save();
+      });
+      body.appendChild(leave);
+    }
+    applyPerm();                  // gate kontroller ut fra det lokale anslaget
     renderMembers(myOwnerInfo()); // eieren (deg) vises straks
     refreshInherited();           // arvede medlemmer hentes i bakgrunnen
-    refreshMembers();             // medlemmer/ventende fylles inn når de lander
+    refreshMembers();             // medlemmer/ventende + autoritative rettigheter fylles inn
   }
   // Mottaker-visningen («Delt av …» + Forlat deling) inn i `body`; closeFn
   // lukker den omsluttende modalen (del-modalen eller innstillingsmodalen).
@@ -6488,6 +6662,13 @@
     inf.querySelector('.member-name').textContent = ownerLabel ? ('Delt av ' + ownerLabel) : 'Delt med deg';
     line.appendChild(inf);
     body.appendChild(line);
+    // Denne visningen er for en ren mottaker UTEN inviterett: kort forklaring på at
+    // videreinvitasjon er deaktivert (ingen aktiv invitasjonskontroll). Får mottakeren
+    // senere inviterett (via en policy-endring over), viser openShare inviter-feltet.
+    const noInvite = document.createElement('p');
+    noInvite.className = 'share-policy-note share-noinvite';
+    noInvite.textContent = 'Videreinvitasjon er deaktivert her — bare administratorer kan invitere folk.';
+    body.appendChild(noInvite);
     const leave = document.createElement('button');
     leave.className = 'btn btn-solid btn-red share-leave'; leave.type = 'button'; leave.textContent = 'Forlat deling';
     leave.addEventListener('click', async () => {
@@ -6562,7 +6743,7 @@
     // Køede operasjoner tilhører den utloggede sesjonen — dropp dem (de ville
     // uansett blitt avvist uten sesjon) og nullstill de optimistiske overlayene.
     opQueue.clear();
-    lockOverrides.clear(); unlockOverrides.clear(); mountOverrides.clear(); suppressedRows.clear();
+    lockOverrides.clear(); unlockOverrides.clear(); policyOverrides.clear(); mountOverrides.clear(); suppressedRows.clear();
     suppressedInvites.clear();
     authUser = null;
     state.universes = [];

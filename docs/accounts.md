@@ -151,6 +151,16 @@ rekkefølge + egen søppel) ligger i en membership-rad («mount»). I `applyMyDo
 
 ## Delings-UI
 
+> Rettighetsmodellen (hvem ser hvilke kontroller) er definert i
+> [`rettigheter-og-deling.md`](rettigheter-og-deling.md). Del-UI-et er nå
+> **permission-gated** ut fra `get_members.viewer`-flaggene (`can_admin`,
+> `can_invite`, `can_manage_policy`) med et lokalt anslag for umiddelbar visning
+> (`localIsAdmin`/`localCanInvite`/`localCanManageInvitePolicy`/
+> `localCanManageLockException`, som stopper ved mount-grenser). Ikke bare eieren
+> får den fulle visningen: en administrator (oppretter/superobjekt-oppretter)
+> eller et vanlig medlem med inviterett får inviter-/medlemsvisningen; en ren
+> mottaker uten inviterett får «Forlat deling» + forklaring.
+
 - **Åpning av delings-UI-et**: for LISTER ligger delingen som egen seksjon i
   innstillingsmodalen (tannhjulet `.card-cog`, se `docs/scheduling.md`) —
   `renderShareOwner`/`renderShareRecipient` tar en `body`-container og deles
@@ -169,20 +179,29 @@ rekkefølge + egen søppel) ligger i en membership-rad («mount»). I `applyMyDo
   tegnes uten «Laster …»; eieren selv vises straks fra kontoens egne data
   (`myOwnerInfo`), og medlemmer/ventende fylles inn når `get_members` lander.
   Alle handlingene er optimistiske med selve RPC-en i operasjonskøen:
-  - **Inviter** (`create_share_invite`): raden («Venter på svar») vises og
-    feltet tømmes straks; flere invitasjoner køes etter hverandre. Feiler den
-    (ugyldig/duplikat/ikke synket), fjernes raden og feilen vises. «Trekk
-    tilbake» på en ennå-ikke-landet rad avbryter/kjeder (se opQueue).
-  - **Lås/åpne** (`set_locked`): knappen vender straks; spam koalesceres til
-    én skriving med sluttilstanden.
-  - **Unntak fra arvet lås** (`set_unlocked`, egen overlay `unlockOverrides`):
-    når objektet har en **arvet lås** (en forelder er låst — `inheritedLockInfo`
-    finner den nærmeste, et `_unlocked` på veien opp bryter arven), viser lås-
-    feltet i stedet «Automatisk låst … Fordi [ikon][navn] er låst» og knappen
-    «Gjør unntak» → objektet (og alt under, med mindre et lavere nivå låses på
-    nytt) kan redigeres av andre likevel. Samme optimistiske kø-mønster som
-    `set_locked`. `locked`/`unlocked` er gjensidig utelukkende (RPC-ene holder
-    dem det). `frozen()` bruker nærmeste-eksplisitt-tilstand oppover `_parent`.
+  - **Inviter** (`create_share_invite`): inviter-feltet vises for den som kan
+    invitere (admin ELLER effektiv policy tillater). Raden («Venter på svar») vises
+    og feltet tømmes straks; flere invitasjoner køes. Feiler den (ugyldig/duplikat/
+    redundant/ikke synket), fjernes raden og feilen vises.
+  - **Invitasjonspolicy** (`set_invite_policy`, egen overlay `policyOverrides`,
+    nøkkel `policy:<type>:<id>`): en avmerkingsboks UNDER e-postfeltet — «Tillat
+    andre å invitere folk til {universet/gruppen/listen}». Viser den EFFEKTIVE
+    tilstanden, er interaktiv kun for `can_manage_policy`, ellers en lesbar status
+    (`.share-policy-note`). Optimistisk + koalescert; en køet endring overstyrer
+    ikke en mellomliggende pull (`policyOverrides` foran serververdi i `applyPerm`/
+    `attachMeta`). Nye rader er `inherit` → effektiv tillat (dynamisk arv).
+  - **Lås/åpne** (`set_locked`): knappen vender straks; spam koalesceres. Vises kun
+    for administratorer (`perm.canAdmin`).
+  - **Unntak fra arvet lås** (`set_unlocked`, `unlockOverrides`): når objektet har
+    en **arvet lås** (`inheritedLockInfo` finner den nærmeste låsende forelderen),
+    viser lås-feltet «Automatisk låst … Fordi [ikon][navn] er låst» og knappen «Gjør
+    unntak». Knappen er nå kun synlig for **autoriserte** (`localCanManageLockException`
+    = universeier ELLER oppretter av den låsende forelderen); en subobjekt-oppretter
+    uten rett ser forklaringen, men ingen aktiv kontroll. Samme kø-mønster som
+    `set_locked`. `frozen()` er admin-bevisst (opprettere fryses aldri av en lås).
+  - **Medlemslisten** vises for alle med visningen, men administrative kontroller
+    («Kast ut») kun for `perm.canAdmin`; «Trekk tilbake» kun på egne ventende
+    invitasjoner (`inv.mine`) eller for admin.
   - **Arvede medlemmer** (`refreshInherited`): under de direkte medlemmene vises
     en «Arvet fra deling over»-seksjon med personene forfedrenes delinger gir
     tilgang (henter `get_members` for hver DELT forelder, deduplisert mot eier +

@@ -163,9 +163,16 @@ select public.t_fails('owner_id kan ikke endres',
   format('update public.groups set owner_id = %L where id = %L', :'bob', :'g1'));
 select public.t_fails('bare eier kan låse',
   format('select public.set_locked(''group'', %L, true)', :'g1'));
-select public.t_fails('bare eier kan dele videre',
-  format('select public.create_share_invite(''group'', %L, ''carol@example.com'')', :'g1'));
-select public.t_fails('bare eier kan kaste ut',
+-- Ny modell: et vanlig medlem KAN invitere når effektiv policy tillater det
+-- (standard). Men det kan ikke ENDRE policyen eller kaste ut andre (admin-handling).
+select public.t_check('vanlig medlem kan invitere når policy tillater (standard)',
+  public.create_share_invite('group', :'g1', 'ekstra@example.com') ->> 'id' is not null);
+select public.revoke_share_invite(
+  (select id from public.share_invites where group_id = :'g1'
+     and lower(invitee_email) = 'ekstra@example.com' and status = 'pending'));  -- rydd opp (egen invitasjon)
+select public.t_fails('vanlig medlem kan ikke endre invitasjonspolicy',
+  format('select public.set_invite_policy(''group'', %L, ''deny'')', :'g1'));
+select public.t_fails('vanlig medlem kan ikke kaste ut',
   format('select public.revoke_share(''group'', %L, %L)', :'g1', :'alice'));
 
 -- lås: eieren fryser redigering for andre
