@@ -164,14 +164,15 @@ and-sharing.sql` er oppdatert idempotent:
   policy + per-invitasjon `by`/`by_name`/`mine`, og `get_my_doc` som eksponerer
   `invitePolicy`. Mock-backenden speiler alt; klient-UI + tester er på plass.
 
-- [ ] **Kjør «Supabase DB-oppsett»-workflowen** slik at `invite_policy`-kolonnene
-      (+ de omskrevne funksjonene/policyene/vaktene) kommer på ekte Supabase. Uten
-      den avviser PostgREST hver universe-/gruppe-/liste-insert/-update som refererer
-      `invite_policy` (manglende kolonne), og delings-/policy-UI-et bryter — kjør den
-      FØR denne runden merges til produksjon (samme lærdom som kategori- og
-      `collapsed`-migreringene). Migreringen er idempotent (testet med dobbel
-      kjøring) og bevarer alle eksisterende data (opprettere, låser, delinger,
-      mounts) samt gir effektiv invitasjonspolicy «tillat».
+- [x] **«Supabase DB-oppsett»-workflowen kjørt** (run 29703783105,
+      workflow_dispatch på grenen `claude/hierarchical-permissions-sharing-3hzg61`,
+      conclusion `success`, 2026-07-19) — `invite_policy`-kolonnene + de omskrevne
+      funksjonene/policyene/vaktene er nå på ekte Supabase. Migreringen er idempotent
+      (testet med dobbel kjøring) og bakoverkompatibel: den bevarer alle eksisterende
+      data (opprettere, låser, delinger, mounts), gir effektiv invitasjonspolicy
+      «tillat», og den gamle klienten på `main` er upåvirket (sender ikke
+      `invite_policy`/`locked`/`unlocked` i rad-oppdateringer). Kjørt FØR merge, som
+      for kategori-/`collapsed`-migreringene.
 
 ## Manuelle steg (krever dashboard-tilgang — Peder)
 
