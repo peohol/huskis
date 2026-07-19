@@ -119,31 +119,86 @@ Bytte utløses av **overlapp**, ikke av et punkt:
 - **Lister kollapser mens en liste dras** (`collapseCardsForDrag`/
   `restoreCardsAfterDrag`): idet et liste-drag starter, kollapses BÅDE den dratte
   lista og alle de andre til bare korthodet (som kategorienes kollaps under drag)
-  → board-et blir kompakt og dra-avstanden kort. Den dratte lista slipper sin
-  faste høyde (følger den kollapsende body-en, som `liftCategory`), placeholderen
-  krymper i takt til header-høyden, og `drag.height` settes til header-høyden for
-  treffdeteksjon. `card.collapsed` røres IKKE under draget; ved slipp
-  gjenopprettes hver liste til sin lagrede lukketilstand (animert utvidelse for de
-  som skal være åpne) — robust mot en samtidig synk-rebuild, som uansett bygger
-  kortene fra `card.collapsed`. Se listekollaps i `docs/design-system.md`.
-  - **Utsatt kollaps på touch** (mot spontant DnD-avbrudd på mobil): kollapser en
-    HØY liste OVER den dratte, blir board-et brått kortere enn scroll-posisjonen, og
-    nettleseren tvinger en window-scroll (klemme/scroll-anchoring). En window-scroll
-    mens fingeren står STILLE avbryter touch-en på Chrome for Android (man ender med
-    markert tekst) — verst for det NEDERSTE kortet (størst tvungen opp-scroll). Fiks:
-    på touch UTSETTES `collapseCardsForDrag` til første faktiske bevegelse (`drag.
-    pendingCollapse`, utløst i `onCardMove` ved > 2 px). Da skjer kollapsen (og en
-    evt. scroll) mens et `touchmove` fyrer — draget er «etablert» og avbrytes ikke
-    (nettopp derfor virket det å bevege noen få piksler). Under et rent stille hold
-    skjer INGEN scroll. På mus kollapses umiddelbart (ingen slik konflikt på desktop;
-    `ev.pointerType` fra det syntetiske start-eventet skiller). Støttetiltak:
-    (a) `beginDragCommon` måler dra-boksen med transformen nøytralisert, ellers ga
-    `.drag-hold`-skalaen (touch-trykk-feedback) en ~10 px for lav placeholder →
-    board-et krympet ved løft → en 10 px scroll-klemme selv under stille hold;
-    (b) `overflowAnchor='none'` på `<html>` under draget (av/på i `beginDragCommon`/
-    `finishDrag`); (c) en passiv `scroll`-lytter (`onDragScroll`) reposisjonerer det
-    løftede kortet under fingeren om nettleseren selv scroller — den scroller ALDRI
-    selv (det ville gjeninnført avbruddet).
+  → board-et blir kompakt og dra-avstanden kort. MOMENTANT, ingen animasjon (samme
+  som rullgardinen, se `collapseCardBody`/`expandCardBody` i `docs/design-system.md`
+  — en kollaps-animasjon gjorde systemet tregere uten å tilføre klarhet). Den dratte
+  lista slipper sin faste høyde og følger body-kollapsen; placeholderen settes til
+  header-høyden, og `drag.height` settes til header-høyden for treffdeteksjon.
+  `card.collapsed` røres IKKE under draget; ved slipp gjenopprettes hver liste til sin
+  lagrede lukketilstand — robust mot en samtidig synk-rebuild, som uansett bygger
+  kortene fra `card.collapsed`.
+  - **DnD-modus følger board-LAYOUTEN, ikke bare `pointerType`** (`boardUsesSingleColumnLayout`):
+    normal-flow-vakten (under) aktiveres KUN når (a) input er touch/pen OG (b) board-et
+    er i ÉNKOLONNE-layout. Tre tilfeller:
+    - **Énkolonne + touch/pen** → normal-flow-vakt (mobil-fiksen).
+    - **Flerkolonne** (bredt vindu, inkl. Androids «Side for datamaskin» på touch) →
+      desktop-oppførsel UANSETT inputtype: bare kollaps, board-et krymper naturlig, INGEN
+      vakt (verken `min-height` eller `padding-top`), som i main. En vakt her ga en stor,
+      stygg `padding-top` og fikk overskriftene til å flokke seg rundt den dratte lista i
+      stedet for å følge kolonneflyten.
+    - **Énkolonne + mus** → ingen vakt (et musedrag rammes ikke av mobilens
+      `pointercancel`-problem).
+    Kilden til sannhet er CSS-layouten, ikke enhet/UA: `--mobile-dnd-flow-guard` settes
+    til `1` KUN i mobil-media-regelen (`column-count: 1`, `styles.css`) og leses av
+    `boardUsesSingleColumnLayout()` — terskelen finnes dermed ett sted (CSS). Beslutningen
+    tas ved dragstart og lagres implisitt via `boardGuard` (satt bare når vakten aktiveres,
+    sjekket i release), så samme modus brukes gjennom hele pekersekvensen selv om vinduet
+    endres midt i draget.
+  - **Normal-flow-vakt rundt board-et** (`freezeBoardForDrag`/`releaseBoardAfterDrag`,
+    mot spontant DnD-avbrudd i énkolonne på touch/pen): kollapser en HØY liste OVER den
+    dratte, krymper board-ets INNHOLD, og løfter man den NEDERSTE lista, ville board-bunnen
+    — og dermed sidens maks-scroll — falt brått under gjeldende `scrollY`. Android Chrome
+    klemmer da `scrollY` oppover mens pekeren er aktiv, og en slik scroll-klemme avbryter
+    touch-en (`pointercancel` → draget dør). Tidligere fikser (utsatt kollaps til > 2 px;
+    deretter en `<html>`-`min-height`-lås) hjalp bare delvis: den utsatte kollapsen skjedde
+    fortsatt straks etter løftet, og `<html>`-låsen holdt dokumentet høyt mens BOARD-et
+    krympet — det ga en NY feil der auto-scrollens `maxScroll` (målt fra board-bunnen)
+    kunne havne UNDER `scrollY` (se auto-scroll-punktet under). **Løsning:** legg vakten
+    rundt SELVE board-et FØR kollapsen. `freezeBoardForDrag` (1) fryser `board.style.minHeight`
+    til board-høyden før kollaps → board-bunnen (og dermed dokumentets `scrollHeight` +
+    `maxScroll`) kan ikke synke mens fingeren er nede; (2) legger på `padding-top` = summen
+    av body-høyder som fjernes for listene OVER den dratte, så den dratte lista beholder
+    samme viewport-Y og de kompakte overskriftene bunkes rett over den — nær fingeren, ikke
+    rullet vekk. (Board bruker CSS multi-column, så en `padding-top` skyver alle kolonner
+    likt; et spacer-BARN ville i stedet flytt inn i kolonneflyten.) Kollapsen skjer i SAMME
+    oppgave som vakten settes (og er momentan), så ingen mellomtilstand med sunket board-bunn
+    males. `releaseBoardAfterDrag` (kalt fra `onCardUp`/`onCardCancel` MOMENTANT rett etter
+    `restoreCardsAfterDrag`, som utvider listene momentant) fjerner `min-height` + `padding-top`
+    i samme oppgave → én reflow maler den ferdige, naturlige layouten uten et mellomsteg (der
+    padding-top + utvidede bodyer ville gitt et hopp). Øvrige støttetiltak (beholdt):
+    `beginDragCommon` måler dra-boksen med transformen nøytralisert; `overflowAnchor='none'`
+    på `<html>` under draget; en passiv `scroll`-lytter (`onDragScroll`) reposisjonerer det
+    løftede kortet under fingeren om nettleseren selv skulle scrolle — den scroller ALDRI selv.
+  - **Scroll til den slupne lista** (`scrollDroppedIntoView`, kalt fra `onCardUp`):
+    etter et fullført liste-drag scrolles siden så den slupne lista kommer til syne med
+    toppen like under den faste toppmenyen (`behavior: 'smooth'`, `'auto'` ved
+    `prefers-reduced-motion`). Kalles ETTER at layouten er satt (restore/release) og
+    kortet er lagt i normal flyt; `slotDocTop` måles i DOKUMENT-koordinat (upåvirket av
+    selve scrollingen) FØR `dropIntoPlaceholder` setter fly-inn-transformen. Hoppes over
+    når lista slippes på 📁-breadcrumben (flyttes til en annen gruppe → forsvinner fra
+    board-et). Gjelder både touch og mus.
+  - **Auto-scroll kan aldri bytte fortegn** (`startAutoScroll`): den tillatte
+    nedover-avstanden klemmes til `Math.min(delta, Math.max(0, maxScroll - scrollY))`.
+    Ligger board-bunnen (den kompakte, kollapsede) OVER `scrollY` — slik den kunne med
+    den gamle `<html>`-låsen — blir `maxScroll - scrollY` negativ; UTEN `Math.max(0, …)`
+    ville en positiv nedover-`autoScrollSpeed` blitt til en stor NEGATIV `delta` og
+    hoppet siden langt OPPOVER i én frame (og kunne utløst `pointercancel`). En positiv
+    `autoScrollSpeed` reduserer nå aldri `scrollY`; nedover-scroll STOPPER i stedet for
+    å snu. (Med board-vakten over holdes board-bunnen uansett stabil, men klemmen er et
+    selvstendig sikkerhetsnett.)
+- **`pointercancel` ruller tilbake, det er ikke et slipp** (`onCardCancel` m.fl.):
+  en kansellert pekersekvens må ALDRI behandles som et vellykket drop. Tidligere delte
+  `pointercancel` handler med `pointerup` (`onCardUp`), så et avbrudd fullførte og
+  lagret droppet. Nå har hvert nivå en egen kanselleringsflyt (`onCardCancel`,
+  `onItemCancel`, `onCategoryCancel`, `onGroup-/onUniverseCancel` via
+  `cancelColumnDrop`) registrert på `pointercancel`: den fjerner draglytterne, stopper
+  auto-scroll, fører elementet tilbake til den opprinnelige DOM-sloten
+  (`restoreDraggedToOrigin` — `drag.origParent`/`origNext` registreres i
+  `beginDragCommon` FØR placeholderen settes inn), fjerner placeholderen, rydder
+  dragstiler/global dragtilstand og gjenoppretter evt. desktop-kollaps
+  (`restoreCardsAfterDrag`). Den beregner IKKE ny `pos`, kaller ikke `stampPos`/
+  `cloudMountUpdate`/`reindex*Colors`/`save`, og åpner ikke gruppe-flyttevelgeren.
+  `pointerup` bruker fortsatt den vanlige drop-flyten.
 - **Alle placeholders deler én stil** (felles regel for `.card-/.item-/.group-
   placeholder`): 1px stiplet kant med lav opacity, svakt mørknet flate og en
   subtil inset-skygge («hull som skal fylles») — kun radius/margens varierer per

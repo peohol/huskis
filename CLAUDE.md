@@ -249,7 +249,57 @@ dra-boksen med transformen nøytralisert (så `.drag-hold`-trykkskalaen ikke gir
 for lav placeholder → 10 px scroll-klemme); `overflowAnchor='none'` + en passiv
 `scroll`-lytter holder kortet under fingeren uten at VI scroller. Mus kollapser
 umiddelbart (uendret desktop). Ingen DB-migrering. Se `docs/drag-and-drop.md` og
-`docs/design-system.md`.
+`docs/design-system.md`. **(Punkt 3 er senere erstattet — se neste avsnitt: den
+utsatte kollapsen løste IKKE avbruddet, den bare gjorde det mindre konsekvent.)**
+
+**DnD på touch: normal-flow-vakt rundt board-et + auto-scroll-fortegnsklemme
+(siste runde)**: forrige runde beholdt kollaps-alle på touch ved å pinne `<html>`
+sin `min-height` (dokumenthøyde-lås). Det holdt DOKUMENTET høyt mens BOARD-et
+krympet — og introduserte en NY feil: auto-scrollens `maxScroll` (målt fra board-
+bunnen) kunne havne UNDER `scrollY`, så `maxScroll - scrollY` ble negativ og en
+positiv nedover-`autoScrollSpeed` snudde til et stort hopp OPPOVER i én frame (kunne
+utløse `pointercancel`). **To endringer:** (1) **Auto-scroll kan aldri bytte fortegn**
+— nedover-avstanden klemmes til `Math.min(delta, Math.max(0, maxScroll - scrollY))`,
+så en positiv fart aldri reduserer `scrollY` (nedover-scroll STOPPER i stedet for å
+snu). (2) **`<html>`-låsen erstattet av en normal-flow-vakt rundt board-et**
+(`freezeBoardForDrag`/`releaseBoardAfterDrag`): fryser `board.style.minHeight` til
+høyden før kollaps (board-bunnen + dermed dokumenthøyde/`maxScroll` kan ikke synke),
+og legger på `padding-top` = body-høyden som fjernes for listene OVER den dratte, så
+den dratte lista beholder viewport-Y og de kompakte overskriftene bunkes rett over
+den — nær fingeren, ikke rullet vekk (board bruker multi-column → `padding-top`, ikke
+et spacer-barn). Touch kollapser MOMENTANT (`collapseCardsForDrag(…, true)`) i samme
+oppgave, så ingen mellomtilstand males. Vakten slippes i `onCardUp`/`onCardCancel`
+momentant rett etter `restoreCardsAfterDrag` (én reflow, intet hopp). Mus uendret fra
+main (bare kollaps, siden justerer scroll naturlig, ingen vakt).
+`lockDocHeight`/`unlockDocHeight`/`drag.pendingCollapse` er borte. **`pointercancel`-
+rollbacken fra forrige runde er uendret** (`onCardCancel` m.fl. → `restoreDraggedToOrigin`,
+ingen `pos`/`save`). Ingen DB-migrering. Se `docs/drag-and-drop.md`.
+
+**Momentan liste-kollaps + scroll-til-slupt-liste (siste runde)**: (1) All
+åpne/lukke-animasjon for lister er FJERNET — `collapseCardBody`/`expandCardBody` setter/
+fjerner bare høyde/opacity/padding momentant (gjelder både rullgardinen (klikk på
+korthodet) og kollaps-alle under DnD, mobil OG desktop). Animasjonen gjorde systemet
+tregere uten å tilføre klarhet; `CARD_COLLAPSE_MS` er borte. Board-vaktens release ble
+dermed også momentan (ingen `padding`-transition/`transitionend`). (2) Etter et fullført
+liste-drag scroller siden til den slupne lista (`scrollDroppedIntoView`, `onCardUp`):
+toppen legges like under den faste toppmenyen (smooth; `auto` ved reduced-motion), målt i
+dokument-koordinat før fly-inn-transformen. Hoppes over ved slipp på 📁-breadcrumben.
+Ingen DB-migrering. Se `docs/drag-and-drop.md` og `docs/design-system.md`.
+
+**DnD-modus følger board-layouten, ikke `pointerType` (siste runde)**: normal-flow-
+vakten (`freezeBoardForDrag`) aktiveres nå KUN når input er touch/pen OG board-et er i
+ÉNKOLONNE-layout. Før var skillet bare `ev.pointerType !== 'mouse'`, så Androids «Side
+for datamaskin» (flerkolonne + touch) fikk vakten og en stor, stygg `padding-top` der
+overskriftene flokket seg rundt den dratte lista. Nå: **flerkolonne** (bredt vindu,
+uansett mus/touch/pen) → desktop-oppførsel som main (bare kollaps, board krymper naturlig,
+ingen vakt); **énkolonne + touch/pen** → vakt (mobil-fiksen); **énkolonne + mus** → ingen
+vakt. Kilde til sannhet = CSS-layouten: `--mobile-dnd-flow-guard` settes til `1` KUN i
+mobil-media-regelen (`column-count: 1`) og leses av `boardUsesSingleColumnLayout()`, så
+terskelen finnes ett sted (`styles.css`). Ingen UA-/enhets-/`maxTouchPoints`-sniffing.
+Beslutningen lagres implisitt via `boardGuard`. De andre PR-endringene (momentan kollaps,
+`pointercancel`-rollback, auto-scroll-fortegnsklemme, scroll-til-slupt-liste) er uendret.
+Ny test `tests/dnd-layout-modes.test.js` (bl.a. bred touch = flerkolonne → ingen vakt,
+ekte `page.mouse`, layoutgrensen 560/561 px). Ingen DB-migrering. Se `docs/drag-and-drop.md`.
 
 Verifisert i nettleser (Playwright) mot en hermetisk in-memory-backend
 (`mock-backend.js`, aktiveres med `?mock=1`) som etterligner Supabase-
