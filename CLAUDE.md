@@ -284,8 +284,22 @@ dermed også momentan (ingen `padding`-transition/`transitionend`). (2) Etter et
 liste-drag scroller siden til den slupne lista (`scrollDroppedIntoView`, `onCardUp`):
 toppen legges like under den faste toppmenyen (smooth; `auto` ved reduced-motion), målt i
 dokument-koordinat før fly-inn-transformen. Hoppes over ved slipp på 📁-breadcrumben.
-Splittet desktop=main / mobil=board-vakt er beholdt. Ingen DB-migrering. Se
-`docs/drag-and-drop.md` og `docs/design-system.md`.
+Ingen DB-migrering. Se `docs/drag-and-drop.md` og `docs/design-system.md`.
+
+**DnD-modus følger board-layouten, ikke `pointerType` (siste runde)**: normal-flow-
+vakten (`freezeBoardForDrag`) aktiveres nå KUN når input er touch/pen OG board-et er i
+ÉNKOLONNE-layout. Før var skillet bare `ev.pointerType !== 'mouse'`, så Androids «Side
+for datamaskin» (flerkolonne + touch) fikk vakten og en stor, stygg `padding-top` der
+overskriftene flokket seg rundt den dratte lista. Nå: **flerkolonne** (bredt vindu,
+uansett mus/touch/pen) → desktop-oppførsel som main (bare kollaps, board krymper naturlig,
+ingen vakt); **énkolonne + touch/pen** → vakt (mobil-fiksen); **énkolonne + mus** → ingen
+vakt. Kilde til sannhet = CSS-layouten: `--mobile-dnd-flow-guard` settes til `1` KUN i
+mobil-media-regelen (`column-count: 1`) og leses av `boardUsesSingleColumnLayout()`, så
+terskelen finnes ett sted (`styles.css`). Ingen UA-/enhets-/`maxTouchPoints`-sniffing.
+Beslutningen lagres implisitt via `boardGuard`. De andre PR-endringene (momentan kollaps,
+`pointercancel`-rollback, auto-scroll-fortegnsklemme, scroll-til-slupt-liste) er uendret.
+Ny test `tests/dnd-layout-modes.test.js` (bl.a. bred touch = flerkolonne → ingen vakt,
+ekte `page.mouse`, layoutgrensen 560/561 px). Ingen DB-migrering. Se `docs/drag-and-drop.md`.
 
 Verifisert i nettleser (Playwright) mot en hermetisk in-memory-backend
 (`mock-backend.js`, aktiveres med `?mock=1`) som etterligner Supabase-

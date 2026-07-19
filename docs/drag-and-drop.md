@@ -127,36 +127,48 @@ Bytte utløses av **overlapp**, ikke av et punkt:
   `card.collapsed` røres IKKE under draget; ved slipp gjenopprettes hver liste til sin
   lagrede lukketilstand — robust mot en samtidig synk-rebuild, som uansett bygger
   kortene fra `card.collapsed`.
-  - **Normal-flow-vakt rundt board-et på touch/pen** (`freezeBoardForDrag`/
-    `releaseBoardAfterDrag`, mot spontant DnD-avbrudd på mobil): kollapser en HØY
-    liste OVER den dratte, krymper board-ets INNHOLD, og løfter man den NEDERSTE
-    lista, ville board-bunnen — og dermed sidens maks-scroll — falt brått under
-    gjeldende `scrollY`. Android Chrome klemmer da `scrollY` oppover mens pekeren er
-    aktiv, og en slik scroll-klemme avbryter touch-en (`pointercancel` → draget dør).
-    Tidligere fikser (utsatt kollaps til > 2 px; deretter en `<html>`-`min-height`-lås)
-    hjalp bare delvis: den utsatte kollapsen skjedde fortsatt straks etter løftet, og
-    `<html>`-låsen holdt dokumentet høyt mens BOARD-et krympet — det ga en NY feil der
-    auto-scrollens `maxScroll` (målt fra board-bunnen) kunne havne UNDER `scrollY` (se
-    auto-scroll-punktet under). **Løsning:** legg vakten rundt SELVE board-et FØR
-    kollapsen. `freezeBoardForDrag` (1) fryser `board.style.minHeight` til board-høyden
-    før kollaps → board-bunnen (og dermed dokumentets `scrollHeight` + `maxScroll`) kan
-    ikke synke mens fingeren er nede; (2) legger på `padding-top` =
-    summen av body-høyder som fjernes for listene OVER den dratte, så den dratte lista
-    beholder samme viewport-Y og de kompakte overskriftene bunkes rett over den —
-    nær fingeren, ikke rullet vekk. (Board bruker CSS multi-column, så en `padding-top`
-    skyver alle kolonner likt; et spacer-BARN ville i stedet flytt inn i kolonneflyten.)
-    Kollapsen skjer i SAMME oppgave som vakten settes (og er momentan), så ingen
-    mellomtilstand med sunket board-bunn males. `releaseBoardAfterDrag` (kalt fra
-    `onCardUp`/`onCardCancel` MOMENTANT rett etter `restoreCardsAfterDrag`, som utvider
-    listene momentant) fjerner `min-height` + `padding-top` i samme oppgave → én reflow
-    maler den ferdige, naturlige layouten uten et mellomsteg (der padding-top + utvidede
-    bodyer ville gitt et hopp). Mus trenger ingen vakt (et musedrag avbrytes ikke av en
-    scroll-justering) → uendret desktop: bare kollaps, board-et krymper og siden justerer
-    scroll naturlig, som i main. `ev.pointerType` fra det syntetiske start-eventet skiller.
-    Øvrige støttetiltak (beholdt): `beginDragCommon` måler dra-boksen med transformen
-    nøytralisert; `overflowAnchor='none'` på `<html>` under draget; en passiv
-    `scroll`-lytter (`onDragScroll`) reposisjonerer det løftede kortet under fingeren om
-    nettleseren selv skulle scrolle — den scroller ALDRI selv.
+  - **DnD-modus følger board-LAYOUTEN, ikke bare `pointerType`** (`boardUsesSingleColumnLayout`):
+    normal-flow-vakten (under) aktiveres KUN når (a) input er touch/pen OG (b) board-et
+    er i ÉNKOLONNE-layout. Tre tilfeller:
+    - **Énkolonne + touch/pen** → normal-flow-vakt (mobil-fiksen).
+    - **Flerkolonne** (bredt vindu, inkl. Androids «Side for datamaskin» på touch) →
+      desktop-oppførsel UANSETT inputtype: bare kollaps, board-et krymper naturlig, INGEN
+      vakt (verken `min-height` eller `padding-top`), som i main. En vakt her ga en stor,
+      stygg `padding-top` og fikk overskriftene til å flokke seg rundt den dratte lista i
+      stedet for å følge kolonneflyten.
+    - **Énkolonne + mus** → ingen vakt (et musedrag rammes ikke av mobilens
+      `pointercancel`-problem).
+    Kilden til sannhet er CSS-layouten, ikke enhet/UA: `--mobile-dnd-flow-guard` settes
+    til `1` KUN i mobil-media-regelen (`column-count: 1`, `styles.css`) og leses av
+    `boardUsesSingleColumnLayout()` — terskelen finnes dermed ett sted (CSS). Beslutningen
+    tas ved dragstart og lagres implisitt via `boardGuard` (satt bare når vakten aktiveres,
+    sjekket i release), så samme modus brukes gjennom hele pekersekvensen selv om vinduet
+    endres midt i draget.
+  - **Normal-flow-vakt rundt board-et** (`freezeBoardForDrag`/`releaseBoardAfterDrag`,
+    mot spontant DnD-avbrudd i énkolonne på touch/pen): kollapser en HØY liste OVER den
+    dratte, krymper board-ets INNHOLD, og løfter man den NEDERSTE lista, ville board-bunnen
+    — og dermed sidens maks-scroll — falt brått under gjeldende `scrollY`. Android Chrome
+    klemmer da `scrollY` oppover mens pekeren er aktiv, og en slik scroll-klemme avbryter
+    touch-en (`pointercancel` → draget dør). Tidligere fikser (utsatt kollaps til > 2 px;
+    deretter en `<html>`-`min-height`-lås) hjalp bare delvis: den utsatte kollapsen skjedde
+    fortsatt straks etter løftet, og `<html>`-låsen holdt dokumentet høyt mens BOARD-et
+    krympet — det ga en NY feil der auto-scrollens `maxScroll` (målt fra board-bunnen)
+    kunne havne UNDER `scrollY` (se auto-scroll-punktet under). **Løsning:** legg vakten
+    rundt SELVE board-et FØR kollapsen. `freezeBoardForDrag` (1) fryser `board.style.minHeight`
+    til board-høyden før kollaps → board-bunnen (og dermed dokumentets `scrollHeight` +
+    `maxScroll`) kan ikke synke mens fingeren er nede; (2) legger på `padding-top` = summen
+    av body-høyder som fjernes for listene OVER den dratte, så den dratte lista beholder
+    samme viewport-Y og de kompakte overskriftene bunkes rett over den — nær fingeren, ikke
+    rullet vekk. (Board bruker CSS multi-column, så en `padding-top` skyver alle kolonner
+    likt; et spacer-BARN ville i stedet flytt inn i kolonneflyten.) Kollapsen skjer i SAMME
+    oppgave som vakten settes (og er momentan), så ingen mellomtilstand med sunket board-bunn
+    males. `releaseBoardAfterDrag` (kalt fra `onCardUp`/`onCardCancel` MOMENTANT rett etter
+    `restoreCardsAfterDrag`, som utvider listene momentant) fjerner `min-height` + `padding-top`
+    i samme oppgave → én reflow maler den ferdige, naturlige layouten uten et mellomsteg (der
+    padding-top + utvidede bodyer ville gitt et hopp). Øvrige støttetiltak (beholdt):
+    `beginDragCommon` måler dra-boksen med transformen nøytralisert; `overflowAnchor='none'`
+    på `<html>` under draget; en passiv `scroll`-lytter (`onDragScroll`) reposisjonerer det
+    løftede kortet under fingeren om nettleseren selv skulle scrolle — den scroller ALDRI selv.
   - **Scroll til den slupne lista** (`scrollDroppedIntoView`, kalt fra `onCardUp`):
     etter et fullført liste-drag scrolles siden så den slupne lista kommer til syne med
     toppen like under den faste toppmenyen (`behavior: 'smooth'`, `'auto'` ved

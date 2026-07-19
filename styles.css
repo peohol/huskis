@@ -702,6 +702,10 @@ body {
 .board {
   column-width: 380px;
   column-gap: var(--board-gap);
+  /* Flagg for JS: skal DnD bruke mobilens normal-flow-vakt? Kun i énkolonne-
+     layouten (mobil-media-regelen under) — les fra `boardUsesSingleColumnLayout()`.
+     Bor sammen med kolonne-breakpointen så terskelen finnes ÉN plass (CSS). */
+  --mobile-dnd-flow-guard: 0;
   /* Bunn-luft etter siste kort: satt i JS (fixBoardBottomGap), IKKE en fast
      verdi her. Ved ujevnt balanserte kolonner (column-fill: balance, default)
      kan nettlesere se bort fra siste korts EGEN margin-bottom når de regner ut
@@ -1578,7 +1582,7 @@ body.modal-open { overflow: hidden; }
      er ikke en gyldig lengde for column-width og blir ignorert av nettlesere).
      Kortene (width:100%, base-regel) fyller da hele kolonnen → jevn luft på
      alle sider, siden --board-gap uansett brukes for padding/margin. */
-  .board { column-count: 1; }
+  .board { column-count: 1; --mobile-dnd-flow-guard: 1; }
 
   /* Litt tettere breadcrumb så navnene får plass ved siden av kontoknappen. */
   .crumb-btn { font-size: var(--fs-md); padding: 0 10px; gap: 6px; }

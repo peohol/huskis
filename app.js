@@ -2254,8 +2254,19 @@
           kolonneflyten). Da beholder den dratte lista samme viewport-Y gjennom
           kollapsen, og de kompakte overskriftene bunkes rett over den — nær
           fingeren, ikke rullet vekk.
-     Kun touch/pen (mus avbrytes ikke av en scroll-justering → uendret desktop). */
+     Aktiveres KUN når (a) input er touch/pen (mus avbrytes ikke av en scroll-
+     justering) OG (b) board-et er i ÉNKOLONNE-layout. I FLERKOLONNE-layout (bredt
+     vindu, inkl. Androids «Side for datamaskin») får DnD desktop-oppførsel uansett
+     inputtype: board-et krymper naturlig, ingen vakt — ellers ville padding-top-
+     kompensasjonen blitt stor og stygg, og overskriftene flokket seg rundt den
+     dratte lista i stedet for å følge kolonneflyten. Se `boardUsesSingleColumnLayout`. */
   let boardGuard = null;
+  // Kilde til sannhet for én/flerkolonne = CSS-layouten, ikke enhet/pointerType.
+  // `--mobile-dnd-flow-guard` settes til 1 KUN i mobil-media-regelen (column-count:1),
+  // 0 ellers → terskelen finnes bare ett sted (styles.css). Se .board i styles.css.
+  function boardUsesSingleColumnLayout() {
+    return getComputedStyle(board).getPropertyValue('--mobile-dnd-flow-guard').trim() === '1';
+  }
   function clearBoardGuardStyles() {
     board.style.transition = '';
     board.style.minHeight = '';
@@ -2432,14 +2443,19 @@
     liftElement();
     // Kollaps ALLE lister (den dratte + de andre) mens draget pågår → kortere
     // avstand å dra. Momentant (ingen animasjon). Tilstanden gjenopprettes ved
-    // slipp (fra `card.collapsed`). MUS (desktop): bare kollaps — board-et krymper
-    // og siden justerer scroll naturlig (et musedrag avbrytes ikke av det), som i
-    // main. TOUCH/PEN: legg FØRST normal-flow-vakten (`freezeBoardForDrag`) rundt
-    // board-et (frys board-høyden + padding-top-kompensér, se der) i SAMME oppgave
-    // som kollapsen, så verken dokumenthøyden eller den dratte listas viewport-Y
-    // endres mens fingeren er nede (Android Chrome ville ellers klemt scrollY →
-    // pointercancel). Vakten slippes i `onCardUp`/`onCardCancel`.
-    if (ev.pointerType !== 'mouse') freezeBoardForDrag(ph);
+    // slipp (fra `card.collapsed`).
+    //
+    // Normal-flow-vakten (`freezeBoardForDrag`, se der) brukes KUN når input er
+    // touch/pen OG board-et er i ÉNKOLONNE-layout — beslutningen følger CSS-
+    // layouten, ikke bare `pointerType`. I FLERKOLONNE-layout (bredt vindu, inkl.
+    // Androids «Side for datamaskin» på touch) får DnD desktop-oppførsel: bare
+    // kollaps, board-et krymper og siden justerer scroll naturlig, ingen vakt —
+    // som i main. Mus i énkolonne trenger heller ingen vakt (et musedrag avbrytes
+    // ikke av mobilens pointercancel-problem). Vakten (når aktiv) legges FØR
+    // kollapsen i SAMME oppgave, så verken dokumenthøyden eller den dratte listas
+    // viewport-Y endres mens fingeren er nede. Slippes i `onCardUp`/`onCardCancel`.
+    const useMobileFlowGuard = ev.pointerType !== 'mouse' && boardUsesSingleColumnLayout();
+    if (useMobileFlowGuard) freezeBoardForDrag(ph);
     collapseCardsForDrag(drag.el, ph);
     drag.el.style.transform = `rotate(${cardRotation()}deg) scale(1.02)`;
     window.addEventListener('pointermove', onCardMove);
