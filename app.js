@@ -6509,6 +6509,15 @@
           }
           // Ikke la en pull overstyre avmerkingsboksen mens en policy-endring er i lufta.
           if (!policyOverrides.has(id) && 'invite_effective' in data) perm.inviteEffective = !!data.invite_effective;
+          // Direkte delt objekt (mount) der serveren autoritativt sier at betrakteren
+          // verken kan invitere eller administrere: det lokale anslaget stoppet ved
+          // mount-grensen (kanoniske forfedre — og en arvet `deny` — er ikke i doc-et),
+          // så vi valgte eier-visningen optimistisk. Bytt nå til mottaker-visningen så
+          // «videreinvitasjon er deaktivert»-forklaringen + «Forlat deling» vises.
+          if (closeFn && obj._mount && !perm.canInvite && !perm.canAdmin) {
+            renderShareRecipient(type, id, obj, body, closeFn);
+            return;
+          }
           applyPerm();
           renderMembers(data); refreshInherited();
         }

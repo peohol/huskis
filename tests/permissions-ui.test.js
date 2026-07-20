@@ -50,6 +50,37 @@ function buildDB(opts) {
   };
 }
 
+// DIREKTE delt liste: D har card-mount under sin EGEN gruppe; de kanoniske
+// forfedrene (A sin gruppe m/ `deny`) er IKKE i D sitt doc. Tester at klienten
+// bytter til mottaker-visningen når serveren autoritativt sier can_invite=false.
+function buildDirectShareDB(opts) {
+  opts = opts || {};
+  const uA = 'uA', uD = 'uD';
+  const UA = U(), GA = U(), LA = U(), UD = U(), GD = U();
+  const base = (extra) => Object.assign({ trashed: false, locked: false, unlocked: false,
+    invite_policy: 'inherit', ts: 1, org: 'a', pos: 0, pos_ts: 0, pos_org: '' }, extra);
+  return {
+    ids: { uA, uD, UA, GA, LA, UD, GD },
+    db: {
+      profiles: [
+        { id: uA, email: 'a@x.no', display_name: 'Alice Eier', user_metadata: {} },
+        { id: uD, email: 'd@x.no', display_name: 'Dag Medlem', user_metadata: {} },
+      ],
+      passwords: { 'a@x.no': 'x', 'd@x.no': 'x' },
+      universes: [base({ id: UA, owner_id: uA, name: 'A-univers' }),
+                  base({ id: UD, owner_id: uD, name: 'D-univers', org: 'd' })],
+      groups: [base({ id: GA, owner_id: uA, universe_id: UA, name: 'A-gruppe',
+                      invite_policy: opts.grpPolicy || 'deny' }),
+               base({ id: GD, owner_id: uD, universe_id: UD, name: 'D-gruppe', org: 'd' })],
+      cards: [base({ id: LA, owner_id: uA, group_id: GA, title: 'Delt liste', k: true, p: true, lab_ts: 0, lab_org: '' })],
+      items: [],
+      memberships: [{ id: U(), user_id: uD, universe_id: null, group_id: null, card_id: LA,
+        parent_universe_id: null, parent_group_id: GD, pos: 0, trashed: false, created_at: 1 }],
+      share_invites: [], tombstones: [],
+    },
+  };
+}
+
 async function load(page, db, asEmail, viewport) {
   await page.setViewportSize(viewport);
   await page.goto(BASE + '/?mock=1');
@@ -174,6 +205,23 @@ async function scenario(page, viewport, label) {
     check('XSS: ingen onerror kjørte', r.xss === false);
     check('XSS: intet <img> injisert i DOM', r.injectedImg === false);
     check('XSS: navnet vises som ren tekst', r.literal === true);
+  }
+
+  // 6b) DIREKTE delt liste m/ arvet nekt (kanonisk forfar ikke i doc-et): det lokale
+  //     anslaget stopper ved mount-grensen → eier-visning velges optimistisk, men når
+  //     get_members sier can_invite=false byttes det til mottaker-visningen.
+  {
+    const s = buildDirectShareDB({ grpPolicy: 'deny' });
+    await load(page, Object.assign(s.db, { _PL: s.ids.LA }), 'd@x.no', viewport);
+    await openShareFor(page, 'card', s.ids.LA);
+    const r = await page.evaluate(() => ({
+      noInvite: !!document.querySelector('.share-noinvite'),
+      form: !!document.querySelector('.share-invite-form'),
+      leave: !!document.querySelector('.share-leave'),
+    }));
+    check('direkte delt liste m/ arvet nekt: bytter til mottaker-visning', r.noInvite === true);
+    check('direkte delt liste m/ arvet nekt: intet inviter-felt', r.form === false);
+    check('direkte delt liste: «Forlat deling» finnes', r.leave === true);
   }
 
   // 7) Optimistisk policy-endring (eier) uten flimmer + koalescering.
