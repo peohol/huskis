@@ -306,12 +306,15 @@
         <button class="cat-cog" type="button" title="Innstillinger for kategorien" aria-label="Innstillinger for kategorien"></button>
         <button class="cat-dissolve" type="button" title="Oppløs kategorien" aria-label="Oppløs kategorien"></button>
       </div>
-      <ul class="cat-items"></ul>
-      <!-- Grønn ＋-knapp nederst i kategorien: legger til et nytt listepunkt
-           direkte i kategorien (navneinputen blank + fokusert straks). -->
-      <div class="cat-add">
-        <button class="cat-add-btn btn-add btn-solid btn-green icon-only" type="button" title="Legg til listepunkt i kategorien" aria-label="Legg til listepunkt i kategorien"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="#111" stroke-width="1.05" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 4.5v15"></path><path d="M4.5 12h15"></path></svg></button>
-      </div>
+      <ul class="cat-items">
+        <!-- Grønn ＋-knapp: legger til et nytt listepunkt direkte i kategorien
+             (navneinputen blank + fokusert straks). Ligger INNI hylle-fordypningen
+             (samme flate som listepunktene), flyttet til sist i buildCategory() så
+             den alltid havner under det siste listepunktet. -->
+        <li class="cat-add">
+          <button class="cat-add-btn btn-add btn-solid btn-green icon-only" type="button" title="Legg til listepunkt i kategorien" aria-label="Legg til listepunkt i kategorien"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="#111" stroke-width="1.05" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 4.5v15"></path><path d="M4.5 12h15"></path></svg></button>
+        </li>
+      </ul>
     </li>
   </template>
 

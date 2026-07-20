@@ -1161,7 +1161,7 @@
     stampPos(it);
     cardData.items.push(it);
     const itemEl = buildItem(it, cardData);
-    catEl.querySelector('.cat-items').appendChild(itemEl);
+    appendToItemsEnd(catEl.querySelector('.cat-items'), itemEl);
     save();
     // Åpne navneredigereren straks (blank felt, fokusert).
     itemEl.querySelector('.item-text').click();
@@ -1542,13 +1542,15 @@
       { kind: 'category', obj: catData, card: cardData }, canEdit);
 
     const inner = el.querySelector('.cat-items');
+    const addWrap = el.querySelector('.cat-add');
     const members = cardData.items.filter((it) => !it.trashed && !it._pendingDelete &&
       !it.done && !it.isCat && it.cat === catData.id).sort(posCmp);
     members.forEach((it) => inner.appendChild(buildItem(it, cardData)));
+    inner.appendChild(addWrap); // flytt ＋-knappen til sist, under det siste listepunktet
 
-    // Grønn ＋-knapp nederst i kategorien: nytt listepunkt direkte i kategorien.
+    // Grønn ＋-knapp inni hylle-fordypningen: nytt listepunkt direkte i kategorien.
     const addBtn = el.querySelector('.cat-add-btn');
-    if (!canEdit) el.querySelector('.cat-add').hidden = true;
+    if (!canEdit) addWrap.hidden = true;
     else addBtn.addEventListener('click', () => addItemToCategory(catData, cardData, el));
 
     // Gjenopprett lagret lukketilstand (uten animasjon) etter en (re)bygging.
@@ -1557,6 +1559,23 @@
       setCollapseCount(el.querySelector('.cat-head'), members.length, true);
     }
     return el;
+  }
+
+  // «Slutten» av en items-container: rett FØR den grønne ＋-knappen for en
+  // `.cat-items` (som selv ligger sist i containeren), ellers null (containerens
+  // faktiske siste barn, f.eks. `.items-container`).
+  function itemsEndAnchor(cont) {
+    return cont.classList.contains('cat-items') ? cont.querySelector('.cat-add') : null;
+  }
+  // Legg `node` sist blant listepunktene, uten å havne etter en ev. ＋-knapp.
+  function appendToItemsEnd(cont, node) {
+    const anchor = itemsEndAnchor(cont);
+    if (anchor) cont.insertBefore(node, anchor); else cont.appendChild(node);
+  }
+  // Er `node` allerede på siste plass blant listepunktene (samme forbehold)?
+  function isAtItemsEnd(cont, node) {
+    const anchor = itemsEndAnchor(cont);
+    return anchor ? anchor.previousElementSibling === node : cont.lastElementChild === node;
   }
 
   // Oppløs en kategori: elementene beholder rekkefølge og «arver» kategoriens
@@ -1630,7 +1649,7 @@
       const sd = cardData.items.find((it) => it.id === s.dataset.id);
       if (sd && sd.pos > itemData.pos) { ref = s; break; }
     }
-    if (ref) destUl.insertBefore(itemEl, ref); else destUl.appendChild(itemEl);
+    if (ref) destUl.insertBefore(itemEl, ref); else appendToItemsEnd(destUl, itemEl);
 
     // Skjul seksjonen igjen hvis den ble tom (siste element reaktivert).
     if (!doneUl.querySelector('.item')) doneWrap.hidden = true;
@@ -3000,13 +3019,13 @@
 
     if (!action) return;
     const willMove = action.pos === 'append'
-      ? targetCont.lastElementChild !== ph
+      ? !isAtItemsEnd(targetCont, ph)
       : wouldMove(ph, action.ref, action.pos);
     if (!willMove) return;
     if (swapReversesRecent(action)) return;
 
     const snap = snapshotRects(flipEls);
-    if (action.pos === 'append') targetCont.appendChild(ph);
+    if (action.pos === 'append') appendToItemsEnd(targetCont, ph);
     else placePlaceholder(targetCont, ph, action.ref, action.pos);
     flipFrom(snap, FLIP_MS);
     recordSwap(action);
