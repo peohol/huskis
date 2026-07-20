@@ -1093,10 +1093,11 @@ body {
               inset 0 0 0 1px rgba(0, 0, 0, 0.05);
 }
 
-/* Grønn ＋-knapp nederst i kategorien (nytt listepunkt direkte i kategorien).
-   Midtstilt under hylla; skjules når kategorien er kollapset. */
-.cat-add { display: flex; justify-content: center; padding-top: 2px; }
-.category.collapsed .cat-add { display: none; }
+/* Grønn ＋-knapp (nytt listepunkt direkte i kategorien). Ligger som siste rad
+   INNI hylle-fordypningen (.cat-items), flyttet dit sist i buildCategory() —
+   alltid rett under det siste listepunktet, samme gap som mellom listepunktene.
+   Kollapses sammen med resten av hylla (.cat-items height:0) automatisk. */
+.cat-add { display: flex; justify-content: center; }
 .cat-add-btn.btn-add.icon-only {
   width: 34px;
   height: 34px;
