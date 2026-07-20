@@ -295,6 +295,13 @@ gir den nye lista en `pos` mellom placeholderens board-naboer.
 - Under auto-scroll re-evalueres modus/plassering via `reapplyPlacement` →
   `updateCategoryPlacement`/`updateItemPlacement` (samme som peker-bevegelsen), så
   ekstrahering virker også når man drar mot vindus-kanten.
+- **Modus re-evalueres ved `pointerup`** (`onItemUp(ev)`/`onCategoryUp(ev)`): siste
+  `pointermove` kan være koalescert eller helt utelatt, så `drag.phMode` kan være
+  foreldet — slippes objektet tilbake OVER et kort etter å ha vært i board-luften,
+  ville et foreldet `extract` ellers laget en ny liste. Vi setter derfor
+  `drag.lastX/Y` fra slipp-eventet og kjører placeringsfunksjonen på nytt FØR vi
+  velger extract vs. reorder (samme fort/koalescert-peker-mønster som `onCardUp`
+  bruker for 📁-breadcrumben).
 - **Avkryssing**: et avkrysset listepunkt (også i en kategori) flyttes til kortets
   felles «Utført»-seksjon; reaktivering ruter det tilbake INN i kategorien sin
   (om den finnes), ellers til nivå 1 (se `toggleItemDone`).

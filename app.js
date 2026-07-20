@@ -3012,11 +3012,20 @@
     recordSwap(action);
   }
 
-  function onItemUp() {
+  function onItemUp(ev) {
     if (!drag.active) return;
     window.removeEventListener('pointermove', onItemMove);
     window.removeEventListener('pointerup', onItemUp);
     window.removeEventListener('pointercancel', onItemCancel);
+
+    // Re-evaluer modus/plassering fra de FAKTISKE slipp-koordinatene før vi
+    // avgjør extract vs. reorder: siste pointermove kan være koalescert eller
+    // helt utelatt, så `drag.phMode`/placeholderen kan være foreldet (samme
+    // fort/koalescert-peker-tilfelle som onCardUp håndterer for breadcrumben).
+    if (ev && typeof ev.clientX === 'number') {
+      drag.lastX = ev.clientX; drag.lastY = ev.clientY;
+      updateItemPlacement(drag.lastX, drag.lastY, 0);
+    }
 
     if (drag.phMode === 'extract') { extractItemToNewList(); return; }
 
@@ -3363,11 +3372,20 @@
       placeNewListPlaceholder();
     }
   }
-  function onCategoryUp() {
+  function onCategoryUp(ev) {
     if (!drag.active) return;
     window.removeEventListener('pointermove', onCategoryMove);
     window.removeEventListener('pointerup', onCategoryUp);
     window.removeEventListener('pointercancel', onCategoryCancel);
+
+    // Re-evaluer modus/plassering fra de FAKTISKE slipp-koordinatene før vi
+    // avgjør extract vs. reorder: siste pointermove kan være koalescert eller
+    // utelatt, så `drag.phMode`/placeholderen kan være foreldet (samme
+    // fort/koalescert-peker-tilfelle som onCardUp håndterer for breadcrumben).
+    if (ev && typeof ev.clientX === 'number') {
+      drag.lastX = ev.clientX; drag.lastY = ev.clientY;
+      updateCategoryPlacement();
+    }
 
     if (drag.phMode === 'extract') { extractCategoryToNewList(); return; }
 
