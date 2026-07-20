@@ -241,7 +241,13 @@ Størrelse/form kommer fra egne klasser: `.btn` (modaler), `.btn-small`,
   hver — margin-verdiene (`::after` 12/8, `::before` 8/12) er ulike fordi de
   kompenserer for forskjellige omkringliggende flex-gap (`.category`s 4px
   topp/bunn vs. `.items-container`s 8px mellom rader), men summerer til samme
-  16px på begge sider.
+  16px på begge sider. **Kollaps + ＋-knapp:** en kategori kan **kollapses** som en
+  rullgardin (klikk på overskriftslinjen, ikke tittel/tannhjul/oppløs/meta) —
+  `.cat-items` (og `.cat-add`) foldes MOMENTANT (`collapseCatBody`/`expandCatBody`,
+  som listekollapsen). Nederst i kategorien sitter en **grønn ＋-knapp** (`.cat-add` /
+  `.cat-add-btn`, `.btn-add.btn-green.icon-only`, midtstilt) som legger til et nytt
+  (tomt, straks-fokusert) listepunkt direkte i kategorien; skjules når kategorien er
+  kollapset.
 - **Tittel-redigering (global affordans)**: klikk på en tittel starter inline
   omdøping på ALLE objekt-typer. To delte signaler, likt overalt: (1) klikkflaten
   følger teksten (`align-self: flex-start`) — kun tittelen, ikke hele raden,
@@ -258,7 +264,15 @@ Størrelse/form kommer fra egne klasser: `.btn` (modaler), `.btn-small`,
   headeren. `overflow` settes KUN inline mens/når kollapset (et permanent
   `overflow:hidden` ville klippet et løftet listepunkt under draging). Lukke-
   tilstanden (`card.collapsed`) lagres i DB (`docs/data-model.md`), og alle lister
-  kollapser midlertidig mens en liste dras (`docs/drag-and-drop.md`).
+  kollapser midlertidig mens en liste dras (`docs/drag-and-drop.md`). En **kollapset
+  liste/kategori viser antall listepunkter «(N)»** til høyre for navnet (`.title-line`
+  omslutter tittel + `.collapse-count`; telleren vises kun kollapset,
+  `setCollapseCount`). Liste: alle aktive leaf-elementer, kategorier ikke medregnet
+  (`cardLeafCount`). Kategori: dens synlige medlemmer (`catMemberCount`).
+- **Ny-liste-placeholder** (`.new-list-placeholder`, kategori-/listepunkt-
+  ekstrahering, `docs/drag-and-drop.md`): en kort-formet slot med et hvitt **＋-ikon**
+  i midten (stiplet-hvit inset-ring over den delte placeholder-flaten) som
+  signaliserer at slipp oppretter en NY liste.
 - **Univers-/gruppe-chips i modalene** (`.uni-row`/`.modal-list .group-card`):
   slett-✕ ligger i en 36px `.icon-btn` helt til høyre, så det sentrerte ikonet
   står lengre fra kanten enn tittelen gjør til venstre. `padding-left: calc(6px +

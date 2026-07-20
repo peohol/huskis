@@ -144,6 +144,25 @@ nettleser (mock-backend, desktop + mobil).
       kontomodus-synken for lister brytes — kjør den FØR denne runden merges til
       produksjon (samme lærdom som kategori-migreringen).
 
+## Skjema-endring: lukketilstand for kategorier (`items.collapsed`)
+
+Kategori-ekstraherings-runden (se `docs/drag-and-drop.md` + `docs/design-system.md`)
+la til **rullgardin-kollaps av kategorier** (samme som lister). En kategori lagres
+som et element, så feltet bor på `items.collapsed` (boolean; kun meningsfullt for
+`is_cat`-rader — leaf-elementer holder det false). Rir på innholds-registeret
+(`ts`/`org`), som `is_cat`/`lock_times`. `supabase/users-and-sharing.sql` er
+oppdatert idempotent (`add column if not exists collapsed …` på `items`, item-LWW-
+triggeren, `get_my_doc`, `import_doc`); mock-backenden speiler det; klienten pusher/
+leser feltet via samme rad-CRUD (`cleanItem`/`mergeItem`/`insertPayload`/
+`updatePayload`). Implementert og verifisert i nettleser (mock-backend, desktop +
+mobil).
+
+- [ ] **Kjør «Supabase DB-oppsett»-workflowen** slik at `items.collapsed`-kolonnen
+      (+ item-LWW-trigger/`get_my_doc`/`import_doc`) kommer på ekte Supabase. Uten
+      den avviser PostgREST hver element-insert/-update (manglende kolonne) og
+      kontomodus-synken for elementer brytes — kjør den FØR denne runden merges til
+      produksjon (samme lærdom som kategori-/`cards.collapsed`-migreringene).
+
 ## Skjema-/logikk-endring: hierarkiske rettigheter + invitasjonspolicy (`invite_policy`)
 
 Rettighetsrunden (se `docs/rettigheter-og-deling.md`) generaliserte «eier» til

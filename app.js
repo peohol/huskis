@@ -198,6 +198,7 @@
     const c = makeItem(name, homeId);
     c.isCat = true;
     c.lockTimes = false;
+    c.collapsed = false; // rullgardin-kollaps av kategorien (som lister)
     return c;
   }
 
@@ -536,6 +537,23 @@
   // Kategori-objektet et element ligger i (eller null for ukategorisert / ukjent).
   function catOf(cardData, catId) {
     return catId ? cardData.items.find((x) => x.id === catId && x.isCat) || null : null;
+  }
+  // Antall listepunkter i en kollapset liste (alle aktive leaf-elementer, uansett
+  // kategori eller avkryssing — kategorier telles IKKE).
+  function cardLeafCount(cardData) {
+    return cardData.items.filter((it) => !it.trashed && !it._pendingDelete && !it.isCat).length;
+  }
+  // Antall listepunkter i en kollapset kategori (dens synlige medlemmer på nivå 2).
+  function catMemberCount(cardData, catId) {
+    return cardData.items.filter((it) => !it.trashed && !it._pendingDelete &&
+      !it.done && !it.isCat && it.cat === catId).length;
+  }
+  // Sett «(N)»-teksten på en kollaps-teller og vis/skjul den etter kollaps-tilstand.
+  function setCollapseCount(headEl, n, collapsed) {
+    const c = headEl && headEl.querySelector('.collapse-count');
+    if (!c) return;
+    c.textContent = '(' + n + ')';
+    c.hidden = !collapsed;
   }
 
   // Aktiv gruppe settes alltid via denne, så per-univers-minnet (activeGroups)
@@ -1054,7 +1072,10 @@
     }
 
     // Gjenopprett lagret lukketilstand (uten animasjon) etter en (re)bygging.
-    if (cardData.collapsed) collapseCardBody(el);
+    if (cardData.collapsed) {
+      collapseCardBody(el);
+      setCollapseCount(el.querySelector('.card-head'), cardLeafCount(cardData), true);
+    }
 
     return el;
   }
@@ -1090,8 +1111,64 @@
   function toggleCardCollapsed(el, cardData) {
     const nowCollapsed = !el.classList.contains('collapsed');
     if (nowCollapsed) collapseCardBody(el); else expandCardBody(el);
+    // Kollapset liste viser antall listepunkter «(N)» til høyre for navnet.
+    setCollapseCount(el.querySelector('.card-head'), cardLeafCount(cardData), nowCollapsed);
     cardData.collapsed = nowCollapsed;
     if (!frozen(cardData)) { stampContent(cardData); save(); }
+  }
+
+  /* ---------------- Kategori-kollaps (rullgardin) ----------------
+     Kategorier kan kollapses/gjenåpnes på samme måte som lister: klikk på
+     overskriftslinjen (ikke tittel/tannhjul/oppløs/＋) folder `.cat-items` (og
+     ＋-knappen) sammen. MOMENTANT (ingen animasjon, som liste-rullgardinen).
+     Lukketilstanden (`cat.collapsed`, et element-felt) lagres/synkes i DB.
+     `collapseCategory`/`expandCategory` (lenger nede) er en EGEN, animert variant
+     som brukes UNDER kategori-draging — ikke å forveksle med disse. */
+  function collapseCatBody(catEl) {
+    const inner = catEl.querySelector('.cat-items');
+    if (!inner) return;
+    catEl.classList.add('collapsed');
+    inner.style.overflow = 'hidden';
+    inner.style.height = '0px'; inner.style.opacity = '0';
+    inner.style.paddingTop = '0'; inner.style.paddingBottom = '0';
+  }
+  function expandCatBody(catEl) {
+    const inner = catEl.querySelector('.cat-items');
+    if (!inner) return;
+    catEl.classList.remove('collapsed');
+    inner.style.transition = ''; inner.style.height = ''; inner.style.opacity = '';
+    inner.style.overflow = ''; inner.style.paddingTop = ''; inner.style.paddingBottom = '';
+  }
+  function toggleCatCollapsed(catEl, catData, cardData) {
+    const nowCollapsed = !catEl.classList.contains('collapsed');
+    if (nowCollapsed) collapseCatBody(catEl); else expandCatBody(catEl);
+    // Kollapset kategori viser antall (skjulte) listepunkter «(N)» ved navnet.
+    setCollapseCount(catEl.querySelector('.cat-head'), catMemberCount(cardData, catData.id), nowCollapsed);
+    catData.collapsed = nowCollapsed;
+    if (!frozen(cardData)) { stampContent(catData); save(); }
+  }
+
+  // Legg til et nytt listepunkt direkte i en kategori (grønn ＋-knapp nederst i
+  // kategorien). Ingen «Legg til …»-input: elementet opprettes tomt og går straks
+  // i navneredigering (blank + fokusert) så det kan navngis med en gang.
+  function addItemToCategory(catData, cardData, catEl) {
+    if (frozen(cardData)) return;
+    if (catEl.classList.contains('collapsed')) { expandCatBody(catEl); catData.collapsed = false; }
+    const it = makeItem('', cardData.id);
+    it.cat = catData.id;
+    it.pos = (catMemberMaxPos(cardData, catData.id)) + 1;
+    stampContent(it);
+    stampPos(it);
+    cardData.items.push(it);
+    const itemEl = buildItem(it, cardData);
+    catEl.querySelector('.cat-items').appendChild(itemEl);
+    save();
+    // Åpne navneredigereren straks (blank felt, fokusert).
+    itemEl.querySelector('.item-text').click();
+  }
+  // Største pos blant en kategoris aktive medlemmer (for å legge et nytt bakerst).
+  function catMemberMaxPos(cardData, catId) {
+    return maxPos(cardData.items.filter((it) => !it.trashed && !it._pendingDelete && it.cat === catId));
   }
 
   // Bygg ett kort på nytt i DOM (etter element-endringer: slett/gjenopprett/tøm).
@@ -1453,6 +1530,14 @@
     attachHoldDrag(el.querySelector('.cat-head'), el, startCategoryDrag,
       () => canEdit, '.cat-cog, .cat-dissolve');
 
+    // Klikk på overskriftslinjen (ikke tittel/tannhjul/oppløs/meta) kollapser/
+    // utvider kategorien med en rullgardin (som lister). Et fullført hold løfter i
+    // stedet kategorien — attachHoldDrag undertrykker da klikket.
+    el.querySelector('.cat-head').addEventListener('click', (ev) => {
+      if (ev.target.closest('.cat-title, .cat-cog, .cat-dissolve, .meta-chip, .edit-input')) return;
+      toggleCatCollapsed(el, catData, cardData);
+    });
+
     fillMetaRow(el.querySelector('.cat-meta'),
       { kind: 'category', obj: catData, card: cardData }, canEdit);
 
@@ -1460,6 +1545,17 @@
     const members = cardData.items.filter((it) => !it.trashed && !it._pendingDelete &&
       !it.done && !it.isCat && it.cat === catData.id).sort(posCmp);
     members.forEach((it) => inner.appendChild(buildItem(it, cardData)));
+
+    // Grønn ＋-knapp nederst i kategorien: nytt listepunkt direkte i kategorien.
+    const addBtn = el.querySelector('.cat-add-btn');
+    if (!canEdit) el.querySelector('.cat-add').hidden = true;
+    else addBtn.addEventListener('click', () => addItemToCategory(catData, cardData, el));
+
+    // Gjenopprett lagret lukketilstand (uten animasjon) etter en (re)bygging.
+    if (catData.collapsed) {
+      collapseCatBody(el);
+      setCollapseCount(el.querySelector('.cat-head'), members.length, true);
+    }
     return el;
   }
 
@@ -2361,10 +2457,7 @@
   function reapplyPlacement(dir) {
     if (drag.kind === 'card') updateCardPlacement(0, dir);
     else if (drag.kind === 'item') updateItemPlacement(drag.lastX, drag.lastY, dir);
-    else if (drag.kind === 'category') {
-      const cont = drag.card && drag.card.querySelector('.items-container');
-      if (cont) placeRowPlaceholder(cont);
-    }
+    else if (drag.kind === 'category') updateCategoryPlacement();
   }
   function updateAutoScroll() {
     if (!drag.active || !windowScrollDrag()) { stopAutoScroll(); return; }
@@ -2779,6 +2872,7 @@
     if (drag.active) return; // ignorer ny drag mens en pågår (unngår foreldreløs placeholder)
     beginDragCommon(ev, itemEl);
     drag.kind = 'item';
+    drag.phMode = 'reorder';
 
     const ph = document.createElement('li');
     ph.className = 'item-placeholder';
@@ -2826,6 +2920,14 @@
   // auto-scroll). Kalles fra onItemMove og fra auto-scroll-loopen (stille peker).
   function updateItemPlacement(px, py, dy) {
     if (!drag.active || drag.kind !== 'item') return;
+    // Utenfor alle lister (board-luft mellom/utenfor listene) → ny-liste-
+    // placeholder (ekstrahering til en ny liste med bare dette listepunktet).
+    if (!pointerOverAnyCard(px, py)) {
+      setExtractMode();
+      placeNewListPlaceholder();
+      return;
+    }
+    setReorderMode();
     const dragRect = draggedRect();
     const flipEls = [...document.querySelectorAll('.item:not(.dragging), .category:not(.dragging)')];
 
@@ -2910,11 +3012,22 @@
     recordSwap(action);
   }
 
-  function onItemUp() {
+  function onItemUp(ev) {
     if (!drag.active) return;
     window.removeEventListener('pointermove', onItemMove);
     window.removeEventListener('pointerup', onItemUp);
     window.removeEventListener('pointercancel', onItemCancel);
+
+    // Re-evaluer modus/plassering fra de FAKTISKE slipp-koordinatene før vi
+    // avgjør extract vs. reorder: siste pointermove kan være koalescert eller
+    // helt utelatt, så `drag.phMode`/placeholderen kan være foreldet (samme
+    // fort/koalescert-peker-tilfelle som onCardUp håndterer for breadcrumben).
+    if (ev && typeof ev.clientX === 'number') {
+      drag.lastX = ev.clientX; drag.lastY = ev.clientY;
+      updateItemPlacement(drag.lastX, drag.lastY, 0);
+    }
+
+    if (drag.phMode === 'extract') { extractItemToNewList(); return; }
 
     const el = drag.el;
     const rot = cardRotation();
@@ -2957,6 +3070,36 @@
     window.removeEventListener('pointercancel', onItemCancel);
     restoreDraggedToOrigin();
     finishDrag();
+  }
+  // Slipp i ny-liste-placeholderen: opprett en ny liste med bare dette listepunktet
+  // (ukategorisert), og fokusér den nye listas navn (blank input) straks.
+  function extractItemToNewList() {
+    const el = drag.el;
+    const g = activeGroupObj();
+    const moved = findItemById(el.dataset.id);
+    const srcCard = moved ? findCard(moved.home) : null;
+    if (!g || !moved || !srcCard) { // uventet → rull tilbake
+      restoreDraggedToOrigin();
+      finishDrag();
+      return;
+    }
+    const np = extractionPos();
+    const nc = card('', [], g.id); // blank tittel → fokuseres straks; eid av meg ved push
+    nc.pos = np; stampContent(nc); stampPos(nc);
+    g.cards.push(nc);
+
+    const si = srcCard.items.indexOf(moved);
+    if (si > -1) srcCard.items.splice(si, 1);
+    moved.home = nc.id; moved.cat = null; moved.pos = 0;
+    stampPos(moved);
+    nc.items.push(moved);
+
+    finishDrag();
+    render();
+    save();
+    // Fokuser navnet på den nye lista (blank input) så den kan navngis straks.
+    const t = board.querySelector('.card[data-id="' + nc.id + '"] .card-title');
+    if (t) t.click();
   }
 
   // Alle elementer på tvers av kortene i aktiv gruppe, oppslag på id.
@@ -3044,6 +3187,22 @@
       ph.style.height = collapsedH + 'px';
     });
   }
+  // Etter et kategori-drag (slipp/kansellering): fold ut igjen MED MINDRE kategorien
+  // er klikk-kollapset (rullgardin, `cat.collapsed`) — da beholdes den kollapset.
+  function settleCategoryAfterDrag(catEl) {
+    const catObj = findItemById(catEl.dataset.id);
+    if (catObj && catObj.collapsed) {
+      const inner = catEl.querySelector('.cat-items');
+      if (inner) {
+        inner.style.transition = ''; inner.style.overflow = 'hidden';
+        inner.style.height = '0px'; inner.style.opacity = '0';
+        inner.style.paddingTop = '0'; inner.style.paddingBottom = '0';
+      }
+      catEl.classList.add('collapsed');
+    } else {
+      expandCategory(catEl);
+    }
+  }
   function expandCategory(catEl) {
     const catItems = catEl.querySelector('.cat-items');
     const clear = () => {
@@ -3083,11 +3242,92 @@
     else placePlaceholder(cont, ph, action.ref, 'before');
     flipFrom(snap, FLIP_MS);
   }
+  /* ---------------- Ekstrahering til ny liste (kategori/listepunkt → nytt kort) ----------------
+     Drar man en kategori (eller et listepunkt) UT av listene og holder den over,
+     under eller mellom dem, dukker en KORT-formet placeholder med et ＋-ikon opp på
+     board-et — slipp der oppretter en NY liste. En kategori blir en liste med samme
+     tittel og sine (ukategoriserte) listepunkter; et listepunkt blir en liste med
+     bare seg selv (navneinputen blank + fokusert straks). Den som ekstraherer blir
+     OPPRETTER (owner) av den nye lista: den lages lokalt med ny id og pushes som en
+     ny rad eid av gjeldende bruker (insertPayload → owner_id = meg), uansett hvem som
+     opprettet kilde-lista. Ekstrahering fra en LÅST (frosset) liste er umulig — selve
+     draget er da avskrudd (attachHoldDrag canDrag = !frozen). `drag.phMode`
+     ('reorder' | 'extract') styrer hvilken placeholder som er aktiv. */
+  function pointerInRect(r, x, y) { return x >= r.left && x <= r.right && y >= r.top && y <= r.bottom; }
+  // Kortet pekeren er over (INNENFOR en liste), ellers null (board-luft mellom/
+  // utenfor listene — der ekstraheringen slår inn).
+  function pointerOverAnyCard(x, y) {
+    for (const c of board.querySelectorAll('.card')) {
+      if (pointerInRect(c.getBoundingClientRect(), x, y)) return c;
+    }
+    return null;
+  }
+  function makeNewListPlaceholder(height) {
+    const ph = document.createElement('div');
+    ph.className = 'card-placeholder new-list-placeholder';
+    ph.style.height = height + 'px';
+    ph.innerHTML = '<span class="new-list-plus" aria-hidden="true">' + ICONS.plus + '</span>';
+    return ph;
+  }
+  // Bytt til ekstraherings-placeholderen (kort-formet, ＋, på board-et).
+  function setExtractMode() {
+    if (drag.phMode === 'extract') return;
+    drag.phMode = 'extract';
+    if (drag.ph && drag.ph.parentNode) drag.ph.remove();
+    drag.ph = makeNewListPlaceholder(Math.max(72, drag.height));
+    board.appendChild(drag.ph);
+  }
+  // Bytt tilbake til reorder-placeholderen (element-/kategori-placeholder i lista).
+  function setReorderMode() {
+    if (drag.phMode === 'reorder') return;
+    drag.phMode = 'reorder';
+    if (drag.ph && drag.ph.parentNode) drag.ph.remove();
+    const ph = document.createElement('li');
+    ph.className = drag.kind === 'category' ? 'item-placeholder cat-placeholder' : 'item-placeholder';
+    ph.style.height = drag.height + 'px';
+    drag.ph = ph;
+    // Legg den midlertidig i utgangs-containeren; plasseringslogikken flytter den
+    // straks til rett container/plass (updateItemPlacement / placeRowPlaceholder).
+    const home = drag.origParent || (drag.card && drag.card.querySelector('.items-container')) || board;
+    home.appendChild(ph);
+  }
+  // Plassér ny-liste-placeholderen blant board-ets kort etter pekerposisjon.
+  function placeNewListPlaceholder() {
+    const ph = drag.ph;
+    const px = drag.lastX, py = drag.lastY;
+    const cards = [...board.querySelectorAll('.card')];
+    if (!cards.length) { if (board.lastElementChild !== ph) board.appendChild(ph); return; }
+    // Kolonne = kort hvis horisontale bånd pekeren er i (±8 px slingring). Ingen
+    // treff (énkolonne, eller pekeren i et kolonnegap) → alle kort, sortert på topp.
+    let col = cards.filter((c) => { const r = c.getBoundingClientRect(); return px >= r.left - 8 && px <= r.right + 8; });
+    if (!col.length) col = cards.slice();
+    col.sort((a, b) => a.getBoundingClientRect().top - b.getBoundingClientRect().top);
+    let ref = null;
+    for (const c of col) { const r = c.getBoundingClientRect(); if (py < r.top + r.height / 2) { ref = c; break; } }
+    if (ref) {
+      if (ref.previousElementSibling === ph) return;
+      const snap = snapshotRects(cards); board.insertBefore(ph, ref); flipFrom(snap, FLIP_MS);
+    } else {
+      if (board.lastElementChild === ph) return;
+      const snap = snapshotRects(cards); board.appendChild(ph); flipFrom(snap, FLIP_MS);
+    }
+  }
+  // Ny pos for den ekstraherte lista, mellom placeholderens board-naboer.
+  function extractionPos() {
+    const ph = drag.ph;
+    const prev = ph && ph.previousElementSibling;
+    const next = ph && ph.nextElementSibling;
+    const pPrev = prev && prev.classList.contains('card') ? (findCard(prev.dataset.id) || {}).pos : null;
+    const pNext = next && next.classList.contains('card') ? (findCard(next.dataset.id) || {}).pos : null;
+    return between(pPrev == null ? null : pPrev, pNext == null ? null : pNext);
+  }
+
   function startCategoryDrag(ev, catEl) {
     if (ev.button != null && ev.button !== 0) return;
     if (drag.active) return; // ignorer ny drag mens en pågår
     beginDragCommon(ev, catEl);
     drag.kind = 'category';
+    drag.phMode = 'reorder';
     drag.card = catEl.closest('.card'); // kategorier flyttes kun innen egen liste
     // Grep-punktet måles relativt til OVERSKRIFTEN, ikke hele (u-kollapsede)
     // kategori-boksen: kategorien kollapser til bare overskriften under draging,
@@ -3116,27 +3356,88 @@
     moveElement();
     drag.el.style.transform = `rotate(${cardRotation()}deg) scale(1.03)`;
     updateAutoScroll();
-    const cont = drag.card && drag.card.querySelector('.items-container');
-    if (cont) placeRowPlaceholder(cont);
+    updateCategoryPlacement();
   }
-  function onCategoryUp() {
+  // Innenfor kildelisten → reorder på nivå 1; ellers (over/mellom/utenfor listene)
+  // → ny-liste-placeholder (ekstrahering).
+  function updateCategoryPlacement() {
+    if (!drag.active || drag.kind !== 'category') return;
+    const inSource = drag.card && pointerInRect(drag.card.getBoundingClientRect(), drag.lastX, drag.lastY);
+    if (inSource) {
+      setReorderMode();
+      const cont = drag.card.querySelector('.items-container');
+      if (cont) placeRowPlaceholder(cont);
+    } else {
+      setExtractMode();
+      placeNewListPlaceholder();
+    }
+  }
+  function onCategoryUp(ev) {
     if (!drag.active) return;
     window.removeEventListener('pointermove', onCategoryMove);
     window.removeEventListener('pointerup', onCategoryUp);
     window.removeEventListener('pointercancel', onCategoryCancel);
+
+    // Re-evaluer modus/plassering fra de FAKTISKE slipp-koordinatene før vi
+    // avgjør extract vs. reorder: siste pointermove kan være koalescert eller
+    // utelatt, så `drag.phMode`/placeholderen kan være foreldet (samme
+    // fort/koalescert-peker-tilfelle som onCardUp håndterer for breadcrumben).
+    if (ev && typeof ev.clientX === 'number') {
+      drag.lastX = ev.clientX; drag.lastY = ev.clientY;
+      updateCategoryPlacement();
+    }
+
+    if (drag.phMode === 'extract') { extractCategoryToNewList(); return; }
 
     const el = drag.el;
     const cont = drag.ph.parentNode;
     cont.insertBefore(el, drag.ph);
     drag.ph.remove();
     dropIntoPlaceholder(el, false); // fly inn i sloten (kollapset) …
-    expandCategory(el);             // … og fold ut igjen (reversert animasjon)
+    settleCategoryAfterDrag(el);    // … og fold ut igjen (med mindre klikk-kollapset)
     finishDrag();
 
     const prev = el.previousElementSibling;
     const next = el.nextElementSibling;
     const cat = findItemById(el.dataset.id);
     if (cat) { cat.pos = between(rowPos(prev), rowPos(next)); stampPos(cat); }
+    save();
+  }
+  // Slipp i ny-liste-placeholderen: gjør kategorien til en ny liste (samme tittel),
+  // medlemmene blir ukategoriserte listepunkter i den. Selve kategori-raden slettes.
+  function extractCategoryToNewList() {
+    const el = drag.el;
+    const catId = el.dataset.id;
+    const g = activeGroupObj();
+    const srcCard = drag.card && findCard(drag.card.dataset.id);
+    const cat = srcCard && srcCard.items.find((x) => x.id === catId && x.isCat);
+    if (!g || !srcCard || !cat) { // uventet → rull tilbake
+      restoreDraggedToOrigin();
+      if (el) expandCategory(el);
+      finishDrag();
+      return;
+    }
+    const np = extractionPos();
+    const nc = card(cat.text || 'Uten navn', [], g.id); // ny liste, eid av meg ved push
+    nc.pos = np; stampContent(nc); stampPos(nc);
+    g.cards.push(nc);
+
+    // Flytt medlemmene inn i den nye lista (ukategorisert). Aktive medlemmer får
+    // pos 0..n i bevart rekkefølge; avkryssede/slettede løsnes bare fra kategorien.
+    const memberObjs = srcCard.items.filter((it) => it.cat === catId && !it.isCat);
+    const memberIds = new Set(memberObjs.map((it) => it.id));
+    const active = memberObjs.filter((it) => !it.trashed && !it._pendingDelete && !it.done).sort(posCmp);
+    active.forEach((it, i) => { it.pos = i; });
+    memberObjs.forEach((it) => { it.home = nc.id; it.cat = null; stampPos(it); });
+    nc.items.push(...memberObjs);
+
+    // Fjern kategori-raden (gravstein hindrer gjenoppstand ved synk) + medlemmene
+    // fra kilde-lista.
+    tombSubtree(cat, 'item');
+    srcCard.items = srcCard.items.filter((it) => it.id !== catId && !memberIds.has(it.id));
+
+    finishDrag();
+    render(); // rebygg board-et rent (ny liste + oppdatert kilde-liste)
     save();
   }
   // pointercancel under et kategori-drag: rull tilbake uten pos/lagre og fold
@@ -3148,7 +3449,7 @@
     window.removeEventListener('pointercancel', onCategoryCancel);
     const el = drag.el;
     restoreDraggedToOrigin();
-    if (el) expandCategory(el);
+    if (el) settleCategoryAfterDrag(el);
     finishDrag();
   }
 
@@ -4767,7 +5068,7 @@
   function cleanItem(it, homeId) {
     return {
       id: it.id, text: it.text, home: it.home || homeId, cat: it.cat || null,
-      isCat: !!it.isCat, lockTimes: !!it.lockTimes,
+      isCat: !!it.isCat, lockTimes: !!it.lockTimes, collapsed: !!it.collapsed,
       trashed: !!it.trashed, done: !!it.done,
       responsible: it.responsible || null,
       start: it.start || null, due: it.due || null,
@@ -4840,7 +5141,7 @@
     const posw = newer(a.posTs, a.posOrg, b.posTs, b.posOrg) ? a : b;
     return {
       id: a.id, text: content.text, trashed: !!content.trashed, done: !!content.done,
-      isCat: !!content.isCat, lockTimes: !!content.lockTimes, // innhold: kategori-markør + tidslås
+      isCat: !!content.isCat, lockTimes: !!content.lockTimes, collapsed: !!content.collapsed, // innhold: kategori-markør + tidslås + kollaps
       responsible: content.responsible || null,
       start: content.start || null, due: content.due || null,
       ts: content.ts || 0, org: content.org || '',
@@ -5475,7 +5776,7 @@
       start_at: row.start || null, due_at: row.due || null, lock_times: !!row.lockTimes,
       collapsed: !!row.collapsed });
     return Object.assign(base, { text: row.text || '', card_id: row.home, cat_id: row.cat || null,
-      is_cat: !!row.isCat, lock_times: !!row.lockTimes, done: !!row.done,
+      is_cat: !!row.isCat, lock_times: !!row.lockTimes, done: !!row.done, collapsed: !!row.collapsed,
       responsible: row.responsible || null,
       start_at: row.start || null, due_at: row.due || null });
   }
@@ -5490,7 +5791,7 @@
       start_at: row.start || null, due_at: row.due || null, lock_times: !!row.lockTimes,
       collapsed: !!row.collapsed });
     return Object.assign(base, { text: row.text || '', card_id: row.home, cat_id: row.cat || null,
-      is_cat: !!row.isCat, lock_times: !!row.lockTimes, done: !!row.done,
+      is_cat: !!row.isCat, lock_times: !!row.lockTimes, done: !!row.done, collapsed: !!row.collapsed,
       responsible: row.responsible || null,
       start_at: row.start || null, due_at: row.due || null });
   }
