@@ -321,6 +321,24 @@ migrering i kontomodus (`invite_policy`-kolonner + omskrevne funksjoner) — se
 `TODO.md`. Ny SQL-test `supabase/tests/test-permissions.sql` (fire brukere) og
 nettlesertest `tests/permissions-ui.test.js` (mock, desktop + mobil).
 
+**Kategori-/listepunkt-ekstrahering + kategori-kollaps (siste runde)**: (1) Drar
+man en **kategori** eller et **listepunkt** UT av listene og holder det i board-
+luften (over/under/mellom dem), dukker en kort-formet placeholder med et **＋-ikon**
+opp (`.new-list-placeholder`) — slipp der oppretter en NY liste: kategori →
+samme tittel + medlemmene ukategorisert; listepunkt → bare seg selv med blank,
+straks-fokusert tittel. Den som ekstraherer blir **oppretter** (`owner_id`) av
+den nye lista, uansett hvem som eide kilde-lista. Umulig fra en LÅST liste (draget
+er da avskrudd). `drag.phMode` (`reorder`/`extract`) + `pointerOverAnyCard` styrer
+modus; `setExtractMode`/`setReorderMode` bytter placeholder. (2) Kategorier kan nå
+**kollapses** som lister (klikk på overskriftslinjen, `item.collapsed`, momentan
+`collapseCatBody`); en **grønn ＋-knapp nederst i kategorien** legger til et nytt
+(tomt, straks-fokusert) listepunkt direkte i den (ingen «Legg til …»-input). (3)
+En **kollapset liste/kategori viser antall listepunkter «(N)»** ved navnet
+(`.collapse-count`; liste = alle leaf-elementer, kategorier ikke medregnet;
+kategori = dens medlemmer). Krever en DB-migrering i kontomodus (`items.collapsed`)
+— se `TODO.md`. Se `docs/drag-and-drop.md`, `docs/data-model.md`,
+`docs/design-system.md`.
+
 Verifisert i nettleser (Playwright) mot en hermetisk in-memory-backend
 (`mock-backend.js`, aktiveres med `?mock=1`) som etterligner Supabase-
 klienten og deler «server» mellom faner via localStorage — kjør to faner for

@@ -233,6 +233,11 @@ alter table public.cards     add column if not exists unlocked boolean not null 
 -- (ts/org), som lock_times/responsible. Idempotent for eldre databaser.
 alter table public.cards     add column if not exists collapsed boolean not null default false;
 
+-- Lukketilstand for kategorier (samme rullgardin-kollaps som lister). En kategori
+-- lagres som et element, så feltet bor på `items` (kun meningsfullt for is_cat-rader;
+-- leaf-elementer holder det false). Rir på innholds-registeret (ts/org).
+alter table public.items     add column if not exists collapsed boolean not null default false;
+
 -- Invitasjonspolicy (tretilstand: 'inherit' | 'allow' | 'deny') — styrer om
 -- VANLIGE medlemmer (ikke opprettere/eier) kan invitere flere til objektet.
 -- DYNAMISK ARV: den effektive tilstanden er den NÆRMESTE eksplisitte ('allow'/
@@ -955,7 +960,7 @@ begin
     new.text := old.text; new.trashed := old.trashed; new.done := old.done;
     new.responsible := old.responsible;
     new.start_at := old.start_at; new.due_at := old.due_at;
-    new.is_cat := old.is_cat; new.lock_times := old.lock_times;
+    new.is_cat := old.is_cat; new.lock_times := old.lock_times; new.collapsed := old.collapsed;
     new.ts := old.ts; new.org := old.org;
   end if;
   if (uid is not null and not can_reorder)
@@ -1847,6 +1852,7 @@ begin
     'items', coalesce((select jsonb_agg(jsonb_build_object(
         'id', i.id, 'owner', i.owner_id, 'mine', i.owner_id = uid,
         'home', i.card_id, 'cat', i.cat_id, 'isCat', i.is_cat, 'lockTimes', i.lock_times,
+        'collapsed', i.collapsed,
         'text', i.text, 'trashed', i.trashed, 'done', i.done,
         'responsible', i.responsible,
         'start', i.start_at, 'due', i.due_at,
@@ -1971,11 +1977,12 @@ begin
     continue when not exists (
       select 1 from public.cards c
       where c.id = public.legacy_uuid(uid, r ->> 'home') and c.owner_id = uid);
-    insert into public.items as t (id, owner_id, card_id, cat_id, is_cat, lock_times, text, trashed, done,
+    insert into public.items as t (id, owner_id, card_id, cat_id, is_cat, lock_times, collapsed, text, trashed, done,
                                    start_at, due_at, ts, org, pos, pos_ts, pos_org)
     values (public.legacy_uuid(uid, r ->> 'id'), uid, public.legacy_uuid(uid, r ->> 'home'),
             case when r ->> 'cat' is null then null else public.legacy_uuid(uid, r ->> 'cat') end,
             coalesce((r ->> 'isCat')::boolean, false), coalesce((r ->> 'lockTimes')::boolean, false),
+            coalesce((r ->> 'collapsed')::boolean, false),
             coalesce(r ->> 'text', ''), coalesce((r ->> 'trashed')::boolean, false),
             coalesce((r ->> 'done')::boolean, false),
             r ->> 'start', r ->> 'due',
@@ -1984,7 +1991,8 @@ begin
             coalesce((r ->> 'posTs')::bigint, 0), coalesce(r ->> 'posOrg', ''))
     on conflict (id) do update
       set card_id = excluded.card_id, cat_id = excluded.cat_id,
-          is_cat = excluded.is_cat, lock_times = excluded.lock_times, text = excluded.text,
+          is_cat = excluded.is_cat, lock_times = excluded.lock_times, collapsed = excluded.collapsed,
+          text = excluded.text,
           trashed = excluded.trashed, done = excluded.done,
           start_at = excluded.start_at, due_at = excluded.due_at,
           ts = excluded.ts, org = excluded.org,

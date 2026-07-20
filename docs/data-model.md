@@ -105,7 +105,20 @@ osv.), så kryss-univers-flytting er umulig i UI-et.
   posisjonsregisteret (som `home`); `isCat`/`lockTimes` på innholds-registeret.
   Opprettes via en egen **gul kategori-knapp** ved siden av ＋-knappen; se
   `docs/drag-and-drop.md` for nivå-2-dra-og-slipp og `docs/scheduling.md` for
-  kategori-innstillingsmodalen.
+  kategori-innstillingsmodalen. En kategori kan **kollapses** som en rullgardin
+  (klikk på overskriftslinjen, `item.collapsed` — som `card.collapsed`); en grønn
+  **＋-knapp nederst i kategorien** legger til et nytt (tomt, straks-fokusert)
+  listepunkt direkte i den. Se `docs/design-system.md`.
+- **Ekstrahering til ny liste** (`docs/drag-and-drop.md`): drar man en kategori
+  eller et listepunkt UT av listene og slipper det i board-luften, opprettes en NY
+  liste (kategori → samme tittel + medlemmene ukategorisert; listepunkt → bare seg
+  selv, blank straks-fokusert tittel). Den som ekstraherer blir **oppretter**
+  (`owner_id`) av den nye lista — den lages lokalt med ny id og pushes som en ny rad
+  eid av gjeldende bruker, uansett hvem som eide kilde-lista. Umulig fra en låst
+  (frosset) liste (selve draget er da avskrudd).
+- **Lukketilstand for kategorier** (`item.collapsed`): rir på innholds-registeret
+  (`ts`/`org`, som `isCat`/`lockTimes`). Kun meningsfullt for `isCat`-rader. I
+  kontomodus egen kolonne (`items.collapsed`, se `TODO.md`).
 
 Gotcha: «＋ Gruppe» skal alltid bare virke, selv uten univers — standard-universet
 opprettes i farten (`ensureUniverse`). Dette bruker en NY tilfeldig id, ikke den

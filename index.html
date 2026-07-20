@@ -250,7 +250,10 @@
     <article class="card" tabindex="-1">
       <header class="card-head">
         <div class="card-title-wrap">
-          <h2 class="card-title" title="Klikk for å endre navn"></h2>
+          <div class="title-line">
+            <h2 class="card-title" title="Klikk for å endre navn"></h2>
+            <span class="collapse-count" aria-hidden="true" hidden></span>
+          </div>
           <div class="meta-row card-meta" hidden></div>
         </div>
         <button class="card-cog" type="button" title="Innstillinger for listen" aria-label="Innstillinger for listen"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="#111" stroke-width="1.05" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10.56 5.76 L10.44 3.14 L13.56 3.14 L13.44 5.76 A6.4 6.4 0 0 1 15.39 6.57 L17.16 4.63 L19.37 6.84 L17.43 8.61 A6.4 6.4 0 0 1 18.24 10.56 L20.86 10.44 L20.86 13.56 L18.24 13.44 A6.4 6.4 0 0 1 17.43 15.39 L19.37 17.16 L17.16 19.37 L15.39 17.43 A6.4 6.4 0 0 1 13.44 18.24 L13.56 20.86 L10.44 20.86 L10.56 18.24 A6.4 6.4 0 0 1 8.61 17.43 L6.84 19.37 L4.63 17.16 L6.57 15.39 A6.4 6.4 0 0 1 5.76 13.44 L3.14 13.56 L3.14 10.44 L5.76 10.56 A6.4 6.4 0 0 1 6.57 8.61 L4.63 6.84 L6.84 4.63 L8.61 6.57 A6.4 6.4 0 0 1 10.56 5.76 Z M8.8 12a3.2 3.2 0 1 0 6.4 0 3.2 3.2 0 1 0 -6.4 0Z" fill="#c0c4c9" fill-rule="evenodd"></path></svg></button>
@@ -294,13 +297,21 @@
       <div class="cat-head">
         <span class="cat-drag-icon" aria-hidden="true"></span>
         <div class="cat-title-wrap">
-          <h3 class="cat-title" title="Klikk for å endre navn"></h3>
+          <div class="title-line">
+            <h3 class="cat-title" title="Klikk for å endre navn"></h3>
+            <span class="collapse-count" aria-hidden="true" hidden></span>
+          </div>
           <div class="meta-row cat-meta" hidden></div>
         </div>
         <button class="cat-cog" type="button" title="Innstillinger for kategorien" aria-label="Innstillinger for kategorien"></button>
         <button class="cat-dissolve" type="button" title="Oppløs kategorien" aria-label="Oppløs kategorien"></button>
       </div>
       <ul class="cat-items"></ul>
+      <!-- Grønn ＋-knapp nederst i kategorien: legger til et nytt listepunkt
+           direkte i kategorien (navneinputen blank + fokusert straks). -->
+      <div class="cat-add">
+        <button class="cat-add-btn btn-add btn-solid btn-green icon-only" type="button" title="Legg til listepunkt i kategorien" aria-label="Legg til listepunkt i kategorien"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="#111" stroke-width="1.05" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 4.5v15"></path><path d="M4.5 12h15"></path></svg></button>
+      </div>
     </li>
   </template>
 

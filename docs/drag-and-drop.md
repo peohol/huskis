@@ -243,7 +243,11 @@ fordypning («hylle», se `docs/design-system.md`).
   slipp folder den seg ut igjen (`expandCategory`, reversert animasjon).
   `liftCategory` setter ingen fast høyde (så det løftede elementet følger den
   kollapsende høyden). Innsetting er senterbasert (`placeRowPlaceholder`) blant
-  nivå-1-radene. `prefers-reduced-motion` hopper over kollaps/utvidelse.
+  nivå-1-radene. `prefers-reduced-motion` hopper over kollaps/utvidelse. Ved slipp/
+  kansellering folder `settleCategoryAfterDrag` ut igjen — MED MINDRE kategorien er
+  klikk-kollapset (rullgardin, `item.collapsed`), da beholdes den kollapset. NB:
+  dette (drag-kollapsen) er en EGEN, animert mekanikk fra rullgardin-kollapsen
+  (`collapseCatBody`/`expandCatBody`, momentan — se `docs/design-system.md`).
   - **Utseende under draging** (`.category.dragging`): det løftede kortet skal lese
     som en kompakt rad, ikke et stort felt. Kategori-ikonet (`.cat-drag-icon`,
     `ICONS.category`, skjult i hvile) vises til venstre for tittelen; tittelen blir
@@ -258,6 +262,39 @@ fordypning («hylle», se `docs/design-system.md`).
   ukategoriserte og «arver» kategoriens plass i nivå-1-lista (fordeles jevnt i
   pos-gapet mellom kategorien og neste nivå-1-rad, rekkefølge bevart), og selve
   kategori-raden tombstones + fjernes.
+
+## Ekstrahering til ny liste (kategori/listepunkt → nytt kort)
+
+Drar man en **kategori** eller et **listepunkt** UT av listene og holder det over,
+under eller mellom dem (dvs. i board-luften, ikke over noe kort), dukker en KORT-
+formet placeholder med et **＋-ikon** i midten opp (`.new-list-placeholder`) —
+slipp der oppretter en NY liste. `drag.phMode` (`'reorder'` | `'extract'`) styrer
+hvilken placeholder som er aktiv; `setExtractMode`/`setReorderMode` bytter den ut
+(fjerner den gamle, lager riktig type i riktig container). `pointerOverAnyCard(x,y)`
+avgjør modus hver frame: over et kort → reorder (kategori: nivå-1-reorder innen
+kilde-lista via `pointerInRect(drag.card…)`; listepunkt: eksisterende container-
+logikk), ellers → extract. `placeNewListPlaceholder` plasserer kort-placeholderen
+blant board-ets kort etter pekerposisjon (kolonne på x med ±8 px slingring, plass
+på y-senter; ingen kolonnetreff → alle kort sortert på topp). `extractionPos`
+gir den nye lista en `pos` mellom placeholderens board-naboer.
+
+- **Kategori → liste** (`extractCategoryToNewList`, `onCategoryUp` når `phMode` er
+  `extract`): ny liste med samme tittel; medlemmene flyttes inn ukategorisert
+  (`cat = null`, `home` = ny liste), aktive får `pos` 0..n i bevart rekkefølge,
+  avkryssede/slettede løsnes bare fra kategorien. Kategori-raden tombstones +
+  fjernes fra kilde-lista. `render()` rebygger board-et rent.
+- **Listepunkt → liste** (`extractItemToNewList`, `onItemUp` når `phMode` er
+  `extract`): ny liste med BARE dette listepunktet (`cat = null`), tittelen **blank
+  og straks fokusert** (`.card-title`.click()) så den kan navngis med en gang.
+- **Oppretter = den som ekstraherer**: den nye lista lages lokalt med ny id og
+  pushes som en ny rad eid av gjeldende bruker (`insertPayload` → `owner_id` = meg),
+  uansett hvem som eide kilde-lista.
+- **Låst kilde-liste**: umulig — selve draget er avskrudd (`attachHoldDrag` sin
+  `canDrag = !frozen(cardData)` for både listepunkt og kategori), så ingen egen
+  vakt trengs i drop-flyten.
+- Under auto-scroll re-evalueres modus/plassering via `reapplyPlacement` →
+  `updateCategoryPlacement`/`updateItemPlacement` (samme som peker-bevegelsen), så
+  ekstrahering virker også når man drar mot vindus-kanten.
 - **Avkryssing**: et avkrysset listepunkt (også i en kategori) flyttes til kortets
   felles «Utført»-seksjon; reaktivering ruter det tilbake INN i kategorien sin
   (om den finnes), ellers til nivå 1 (se `toggleItemDone`).
