@@ -1869,6 +1869,15 @@ body.no-auth #account-btn { display: none; }
 .share-body { display: flex; flex-direction: column; gap: 10px; }
 .share-invite-form { display: flex; gap: 8px; }
 .share-invite-form .field { flex: 1; min-width: 0; }
+/* Invitasjonspolicy-avmerking (under e-postfeltet): la andre invitere folk.
+   Interaktiv kun for autoriserte; ellers lesbar status via .share-policy-note. */
+.share-policy-row { margin: 2px 0 2px; }
+.share-policy-label { display: flex; align-items: center; gap: 8px; cursor: pointer;
+  font-size: var(--fs-sm); font-weight: 600; color: var(--ink); }
+.share-policy-label input[type="checkbox"] { width: 18px; height: 18px; flex: none; cursor: pointer; }
+.share-policy-label input[type="checkbox"]:disabled { cursor: default; }
+.share-policy-note { margin: 4px 0 0; font-size: var(--fs-xs); color: var(--ink-soft); font-weight: 500; }
+.share-noinvite { margin: 8px 0 2px; }
 .share-section-title { font-size: var(--fs-xs); font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; color: var(--ink-soft); margin: 2px 0; }
 .member-row {
   display: flex; align-items: center; gap: 10px;

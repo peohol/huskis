@@ -233,6 +233,31 @@ alter table public.cards     add column if not exists unlocked boolean not null 
 -- (ts/org), som lock_times/responsible. Idempotent for eldre databaser.
 alter table public.cards     add column if not exists collapsed boolean not null default false;
 
+-- Invitasjonspolicy (tretilstand: 'inherit' | 'allow' | 'deny') — styrer om
+-- VANLIGE medlemmer (ikke opprettere/eier) kan invitere flere til objektet.
+-- DYNAMISK ARV: den effektive tilstanden er den NÆRMESTE eksplisitte ('allow'/
+-- 'deny') fra objektet og oppover; ingen eksplisitt → arv videre; ingen noe sted
+-- → et rot-univers tillater som standard (grupper/lister arver dermed 'tillat').
+-- Nye rader opprettes med 'inherit' (kolonne-standard), så en policy-endring på et
+-- univers slår straks gjennom på alle arvende subobjekter. Eksisterende rader får
+-- 'inherit' ved kolonne-tillegg → effektiv 'tillat' (dagens oppførsel bevares).
+-- Se `docs/rettigheter-og-deling.md`. Idempotent for eldre databaser.
+do $$ begin
+  alter table public.universes add column if not exists invite_policy text not null default 'inherit';
+  alter table public.groups    add column if not exists invite_policy text not null default 'inherit';
+  alter table public.cards     add column if not exists invite_policy text not null default 'inherit';
+exception when others then null;
+end $$;
+do $$ begin
+  alter table public.universes add constraint universes_invite_policy_chk check (invite_policy in ('inherit','allow','deny'));
+exception when duplicate_object then null; end $$;
+do $$ begin
+  alter table public.groups    add constraint groups_invite_policy_chk    check (invite_policy in ('inherit','allow','deny'));
+exception when duplicate_object then null; end $$;
+do $$ begin
+  alter table public.cards     add constraint cards_invite_policy_chk     check (invite_policy in ('inherit','allow','deny'));
+exception when duplicate_object then null; end $$;
+
 create index if not exists universes_owner_idx on public.universes (owner_id);
 create index if not exists groups_owner_idx    on public.groups (owner_id);
 create index if not exists groups_universe_idx on public.groups (universe_id);
@@ -377,22 +402,36 @@ create trigger items_tombstone after delete on public.items
 --    brukeren: eieren av et låst objekt kan alltid redigere selv.
 -- ------------------------------------------------------------
 
+-- ============================================================================
+-- TERMINOLOGI (se docs/rettigheter-og-deling.md for full modell):
+--   * OPPRETTER  = raden som skapte objektet = objektets `owner_id`. Kolonnenavnet
+--                  `owner_id` er beholdt teknisk, men betyr «oppretter» på ALLE
+--                  objektrader. Oppretteren har full myndighet over objektet og
+--                  ALT under det (alle subnivåer), men ingenting over.
+--   * EIER       = universets eier = `owner_id` på ROT-universet. Eieren har full
+--                  myndighet over hele universet, uten unntak.
+--   * SUPEROBJEKT = objektet i det umiddelbare supernivået (liste→gruppe→univers).
+--   * PRIVILEGERT ADMINISTRATOR av et objekt = universets eier ELLER objektets
+--                  egen oppretter ELLER oppretteren av et hvilket som helst
+--                  superobjekt mellom objektet og universet (`can_admin_resource`).
+-- Autorisasjon deles i separate konsepter, håndhevet SERVERSIDE (RLS + BEFORE
+-- UPDATE-vakter), aldri kun i klienten:
+--   * can_read              — lese objektet
+--   * can_admin_resource    — full myndighet (privilegert administrator)
+--   * can_edit_content      — endre objektets innhold (respekterer arvet lås)
+--   * can_reorder_in_parent — endre objektets posisjon i superobjektet (skilt fra
+--                             innholdslåsen — posisjon tilhører superobjektets
+--                             organisering)
+--   * effektiv lås / unntak — `effective_lock_source` (nærmeste eksplisitte),
+--                             `can_manage_lock_exception` (hvem åpner en arvet lås)
+--   * invitasjonspolicy     — `effective_invite_policy` (tretilstands dynamisk arv),
+--                             `can_invite_to`, `can_manage_invite_policy`
+-- ============================================================================
+
 create or replace function public.can_read_universe(p_id uuid, p_uid uuid)
 returns boolean language sql stable security definer set search_path = public as $$
   select exists (select 1 from public.universes u where u.id = p_id and u.owner_id = p_uid)
       or exists (select 1 from public.memberships m where m.universe_id = p_id and m.user_id = p_uid);
-$$;
-
-create or replace function public.can_edit_universe(p_id uuid, p_uid uuid)
-returns boolean language sql stable security definer set search_path = public as $$
-  select exists (
-    select 1 from public.universes u
-    where u.id = p_id
-      and (u.owner_id = p_uid
-           or (not u.locked
-               and exists (select 1 from public.memberships m
-                           where m.universe_id = u.id and m.user_id = p_uid)))
-  );
 $$;
 
 create or replace function public.can_read_group(p_id uuid, p_uid uuid)
@@ -404,27 +443,6 @@ returns boolean language sql stable security definer set search_path = public as
            or exists (select 1 from public.memberships m
                       where m.group_id = g.id and m.user_id = p_uid)
            or public.can_read_universe(g.universe_id, p_uid))
-  );
-$$;
-
--- Redigering: nærmeste nivå (objektet, så oppover) med en eksplisitt lås-
--- tilstand satt av en ANNEN avgjør — et unntak (unlocked) åpner grenen, en lås
--- (locked) fryser den. Egne låser/unntak blokkerer aldri en selv.
-create or replace function public.can_edit_group(p_id uuid, p_uid uuid)
-returns boolean language sql stable security definer set search_path = public as $$
-  select exists (
-    select 1
-    from public.groups g
-    join public.universes u on u.id = g.universe_id
-    where g.id = p_id
-      and public.can_read_group(g.id, p_uid)
-      and case
-            when g.owner_id <> p_uid and g.locked   then false
-            when g.owner_id <> p_uid and g.unlocked then true
-            when u.owner_id <> p_uid and u.locked   then false
-            when u.owner_id <> p_uid and u.unlocked then true
-            else true
-          end
   );
 $$;
 
@@ -440,34 +458,254 @@ returns boolean language sql stable security definer set search_path = public as
   );
 $$;
 
-create or replace function public.can_edit_card(p_id uuid, p_uid uuid)
+-- Enhetlig lese-tilgang på tvers av typer (items følger sin liste).
+create or replace function public.can_read(p_type text, p_id uuid, p_uid uuid)
 returns boolean language sql stable security definer set search_path = public as $$
-  select exists (
-    select 1
-    from public.cards c
-    join public.groups g on g.id = c.group_id
-    join public.universes u on u.id = g.universe_id
-    where c.id = p_id
-      and public.can_read_card(c.id, p_uid)
-      and case
-            when c.owner_id <> p_uid and c.locked   then false
-            when c.owner_id <> p_uid and c.unlocked then true
-            when g.owner_id <> p_uid and g.locked   then false
-            when g.owner_id <> p_uid and g.unlocked then true
-            when u.owner_id <> p_uid and u.locked   then false
-            when u.owner_id <> p_uid and u.unlocked then true
-            else true
-          end
-  );
+  select case p_type
+    when 'universe' then public.can_read_universe(p_id, p_uid)
+    when 'group'    then public.can_read_group(p_id, p_uid)
+    when 'card'     then public.can_read_card(p_id, p_uid)
+    when 'item'     then public.can_read_card((select card_id from public.items where id = p_id), p_uid)
+  end;
 $$;
 
--- Eier-oppslag på tvers av typer (for deling/kasting/låsing).
-create or replace function public.resource_owner(p_type text, p_id uuid)
+-- Oppretter (owner_id) på tvers av typer. `resource_owner` beholdes som synonym
+-- for bakoverkompatibilitet (eldre kallsteder); begge betyr «objektets oppretter».
+create or replace function public.resource_creator(p_type text, p_id uuid)
 returns uuid language sql stable security definer set search_path = public as $$
   select case p_type
     when 'universe' then (select owner_id from public.universes where id = p_id)
     when 'group'    then (select owner_id from public.groups    where id = p_id)
     when 'card'     then (select owner_id from public.cards     where id = p_id)
+    when 'item'     then (select owner_id from public.items     where id = p_id)
+  end;
+$$;
+
+create or replace function public.resource_owner(p_type text, p_id uuid)
+returns uuid language sql stable security definer set search_path = public as $$
+  select public.resource_creator(p_type, p_id);
+$$;
+
+-- Universets eier (owner_id på rot-universet) for et objekt av enhver type.
+create or replace function public.resource_universe_owner(p_type text, p_id uuid)
+returns uuid language sql stable security definer set search_path = public as $$
+  select case p_type
+    when 'universe' then (select owner_id from public.universes where id = p_id)
+    when 'group'    then (select u.owner_id from public.groups g
+                          join public.universes u on u.id = g.universe_id where g.id = p_id)
+    when 'card'     then (select u.owner_id from public.cards c
+                          join public.groups g on g.id = c.group_id
+                          join public.universes u on u.id = g.universe_id where c.id = p_id)
+    when 'item'     then (select u.owner_id from public.items i
+                          join public.cards c on c.id = i.card_id
+                          join public.groups g on g.id = c.group_id
+                          join public.universes u on u.id = g.universe_id where i.id = p_id)
+  end;
+$$;
+
+-- PRIVILEGERT ADMINISTRATOR: universets eier ELLER oppretteren av objektet eller
+-- et hvilket som helst superobjekt oppover mot universet. Dette er «full myndighet»:
+-- redigering, deling, låsing, utkastelse, sletting m.m. — også når objektet eller
+-- et superobjekt er låst (en lås begrenser kun vanlige medlemmer).
+create or replace function public.can_admin_resource(p_type text, p_id uuid, p_uid uuid)
+returns boolean language sql stable security definer set search_path = public as $$
+  select case p_type
+    when 'universe' then exists (select 1 from public.universes u where u.id = p_id and u.owner_id = p_uid)
+    when 'group' then exists (
+      select 1 from public.groups g join public.universes u on u.id = g.universe_id
+      where g.id = p_id and (g.owner_id = p_uid or u.owner_id = p_uid))
+    when 'card' then exists (
+      select 1 from public.cards c join public.groups g on g.id = c.group_id
+      join public.universes u on u.id = g.universe_id
+      where c.id = p_id and (c.owner_id = p_uid or g.owner_id = p_uid or u.owner_id = p_uid))
+    when 'item' then exists (
+      select 1 from public.items i join public.cards c on c.id = i.card_id
+      join public.groups g on g.id = c.group_id join public.universes u on u.id = g.universe_id
+      where i.id = p_id and (i.owner_id = p_uid or c.owner_id = p_uid or g.owner_id = p_uid or u.owner_id = p_uid))
+  end;
+$$;
+
+-- Nærmeste eksplisitte lås-/unntaks-tilstand fra objektet og oppover (objektet
+-- selv, så superobjektene). Returnerer 0 rader = ingen eksplisitt tilstand = åpen.
+-- `is_locked` = tilstanden er en LÅS (ellers et unntak). `src_creator` = oppretteren
+-- av noden som innfører tilstanden (til unntaks-autorisasjon + klient-melding).
+-- Items har ingen egen lås → følger sin liste (chain starter på listen).
+create or replace function public.effective_lock_source(p_type text, p_id uuid)
+returns table(src_type text, src_id uuid, is_locked boolean, src_creator uuid)
+language plpgsql stable security definer set search_path = public as $$
+declare
+  v_card uuid; v_group uuid; v_universe uuid;
+  r record; vlocked boolean; vunlocked boolean; vcreator uuid;
+begin
+  if p_type = 'item' then select card_id into v_card from public.items where id = p_id;
+  elsif p_type = 'card' then v_card := p_id;
+  elsif p_type = 'group' then v_group := p_id;
+  elsif p_type = 'universe' then v_universe := p_id;
+  end if;
+  if v_card is not null then select group_id into v_group from public.cards where id = v_card; end if;
+  if v_group is not null then select universe_id into v_universe from public.groups where id = v_group; end if;
+
+  for r in
+    select * from (values (1, 'card', v_card), (2, 'group', v_group), (3, 'universe', v_universe))
+      as ch(depth, t, id)
+    where ch.id is not null order by ch.depth
+  loop
+    if r.t = 'card' then select locked, unlocked, owner_id into vlocked, vunlocked, vcreator from public.cards where id = r.id;
+    elsif r.t = 'group' then select locked, unlocked, owner_id into vlocked, vunlocked, vcreator from public.groups where id = r.id;
+    else select locked, unlocked, owner_id into vlocked, vunlocked, vcreator from public.universes where id = r.id;
+    end if;
+    if vlocked or vunlocked then
+      src_type := r.t; src_id := r.id; is_locked := vlocked; src_creator := vcreator;
+      return next; return;
+    end if;
+  end loop;
+  return;
+end;
+$$;
+
+create or replace function public.is_effectively_locked(p_type text, p_id uuid)
+returns boolean language sql stable security definer set search_path = public as $$
+  select coalesce((select s.is_locked from public.effective_lock_source(p_type, p_id) s), false);
+$$;
+
+-- Nærmeste eksplisitte lås blant objektets STRENGE superobjekter (forelderens
+-- effektive kilde). Brukes til «hvem kan gjøre unntak fra en ARVET lås».
+create or replace function public.inherited_lock_source(p_type text, p_id uuid)
+returns table(src_type text, src_id uuid, is_locked boolean, src_creator uuid)
+language plpgsql stable security definer set search_path = public as $$
+declare v_pt text; v_pid uuid;
+begin
+  if p_type = 'card' then v_pt := 'group'; select group_id into v_pid from public.cards where id = p_id;
+  elsif p_type = 'group' then v_pt := 'universe'; select universe_id into v_pid from public.groups where id = p_id;
+  elsif p_type = 'item' then v_pt := 'card'; select card_id into v_pid from public.items where id = p_id;
+  else return; end if;
+  return query select * from public.effective_lock_source(v_pt, v_pid);
+end;
+$$;
+
+-- Hvem kan opprette/fjerne et UNNTAK fra en ARVET lås på objektet: universets eier
+-- ELLER oppretteren av det nærmeste superobjektet som faktisk innfører den
+-- effektive låsen. (En lavere oppretter kan IKKE åpne grenen for andre i strid med
+-- en lås satt høyere av en annen oppretter.)
+create or replace function public.can_manage_lock_exception(p_type text, p_id uuid, p_uid uuid)
+returns boolean language sql stable security definer set search_path = public as $$
+  select public.resource_universe_owner(p_type, p_id) = p_uid
+      or exists (select 1 from public.inherited_lock_source(p_type, p_id) s
+                 where s.is_locked and s.src_creator = p_uid);
+$$;
+
+-- Rett til å endre objektets INNHOLD: lese-tilgang OG (privilegert administrator
+-- ELLER ikke effektivt låst). Universets eier og relevante opprettere kan alltid
+-- redigere, uavhengig av lås.
+create or replace function public.can_edit_content(p_type text, p_id uuid, p_uid uuid)
+returns boolean language sql stable security definer set search_path = public as $$
+  select public.can_read(p_type, p_id, p_uid)
+     and (public.can_admin_resource(p_type, p_id, p_uid)
+          or not public.is_effectively_locked(p_type, p_id));
+$$;
+
+-- Bakoverkompatible synonymer (eldre kallsteder): «kan redigere innhold».
+create or replace function public.can_edit_universe(p_id uuid, p_uid uuid)
+returns boolean language sql stable security definer set search_path = public as $$
+  select public.can_edit_content('universe', p_id, p_uid);
+$$;
+create or replace function public.can_edit_group(p_id uuid, p_uid uuid)
+returns boolean language sql stable security definer set search_path = public as $$
+  select public.can_edit_content('group', p_id, p_uid);
+$$;
+create or replace function public.can_edit_card(p_id uuid, p_uid uuid)
+returns boolean language sql stable security definer set search_path = public as $$
+  select public.can_edit_content('card', p_id, p_uid);
+$$;
+
+-- Rett til å endre objektets POSISJON i superobjektet (skilt fra innholdslåsen):
+-- posisjonen tilhører superobjektets organisering, så den styres av retten til å
+-- redigere SUPEROBJEKTETS innhold. En låst liste kan dermed flyttes blant søsken
+-- hvis gruppen er åpen; er gruppen låst, kan den ikke flyttes. Universets kanoniske
+-- posisjon tilhører kun eieren (mottakere ordner sin egen mount).
+create or replace function public.can_reorder_in_parent(p_type text, p_id uuid, p_uid uuid)
+returns boolean language sql stable security definer set search_path = public as $$
+  select case p_type
+    when 'universe' then exists (select 1 from public.universes u where u.id = p_id and u.owner_id = p_uid)
+    when 'group'    then public.can_edit_content('universe', (select universe_id from public.groups where id = p_id), p_uid)
+    when 'card'     then public.can_edit_content('group',    (select group_id    from public.cards  where id = p_id), p_uid)
+    when 'item'     then public.can_edit_content('card',     (select card_id     from public.items  where id = p_id), p_uid)
+  end;
+$$;
+
+-- INVITASJONSPOLICY (tretilstands dynamisk arv). Nærmeste eksplisitte ('allow'/
+-- 'deny') fra objektet og oppover; ingen eksplisitt noe sted → tillat (rot-
+-- standard). Kun universes/groups/cards (items deles ikke).
+create or replace function public.effective_invite_source(p_type text, p_id uuid)
+returns table(src_type text, src_id uuid, pol text, src_creator uuid)
+language plpgsql stable security definer set search_path = public as $$
+declare
+  v_card uuid; v_group uuid; v_universe uuid;
+  r record; vpol text; vcreator uuid;
+begin
+  if p_type = 'card' then v_card := p_id;
+  elsif p_type = 'group' then v_group := p_id;
+  elsif p_type = 'universe' then v_universe := p_id;
+  else return; end if;
+  if v_card is not null then select group_id into v_group from public.cards where id = v_card; end if;
+  if v_group is not null then select universe_id into v_universe from public.groups where id = v_group; end if;
+
+  for r in
+    select * from (values (1, 'card', v_card), (2, 'group', v_group), (3, 'universe', v_universe))
+      as ch(depth, t, id)
+    where ch.id is not null order by ch.depth
+  loop
+    if r.t = 'card' then select invite_policy, owner_id into vpol, vcreator from public.cards where id = r.id;
+    elsif r.t = 'group' then select invite_policy, owner_id into vpol, vcreator from public.groups where id = r.id;
+    else select invite_policy, owner_id into vpol, vcreator from public.universes where id = r.id;
+    end if;
+    if vpol in ('allow', 'deny') then
+      src_type := r.t; src_id := r.id; pol := vpol; src_creator := vcreator; return next; return;
+    end if;
+  end loop;
+  return;
+end;
+$$;
+
+create or replace function public.effective_invite_policy(p_type text, p_id uuid)
+returns boolean language sql stable security definer set search_path = public as $$
+  select coalesce((select s.pol = 'allow' from public.effective_invite_source(p_type, p_id) s), true);
+$$;
+
+-- Nærmeste eksplisitte policy blant STRENGE superobjekter (forelderens effektive
+-- kilde) — til «hvem kan gjøre unntak fra en arvet sperre».
+create or replace function public.inherited_invite_source(p_type text, p_id uuid)
+returns table(src_type text, src_id uuid, pol text, src_creator uuid)
+language plpgsql stable security definer set search_path = public as $$
+declare v_pt text; v_pid uuid;
+begin
+  if p_type = 'card' then v_pt := 'group'; select group_id into v_pid from public.cards where id = p_id;
+  elsif p_type = 'group' then v_pt := 'universe'; select universe_id into v_pid from public.groups where id = p_id;
+  else return; end if;
+  return query select * from public.effective_invite_source(v_pt, v_pid);
+end;
+$$;
+
+-- Hvem kan invitere DIREKTE til objektet: privilegert administrator (eier/oppretter/
+-- superobjekt-oppretter) ELLER en med lese-tilgang når effektiv policy tillater det.
+create or replace function public.can_invite_to(p_type text, p_id uuid, p_uid uuid)
+returns boolean language sql stable security definer set search_path = public as $$
+  select public.can_admin_resource(p_type, p_id, p_uid)
+      or (public.can_read(p_type, p_id, p_uid) and public.effective_invite_policy(p_type, p_id));
+$$;
+
+-- Hvem kan ENDRE objektets eksplisitte invitasjonspolicy. Uten arvet sperre:
+-- privilegert administrator. Med en arvet 'deny' på et superobjekt kan et 'allow'-
+-- unntak kun styres av universets eier ELLER oppretteren av det nærmeste
+-- superobjektet som innfører sperren (parallelt med lås-unntak).
+create or replace function public.can_manage_invite_policy(p_type text, p_id uuid, p_uid uuid)
+returns boolean language sql stable security definer set search_path = public as $$
+  select case
+    when exists (select 1 from public.inherited_invite_source(p_type, p_id) s where s.pol = 'deny')
+      then public.resource_universe_owner(p_type, p_id) = p_uid
+           or exists (select 1 from public.inherited_invite_source(p_type, p_id) s
+                      where s.pol = 'deny' and s.src_creator = p_uid)
+    else public.can_admin_resource(p_type, p_id, p_uid)
   end;
 $$;
 
@@ -486,18 +724,43 @@ returns boolean language sql immutable as $$
       or (coalesce(a_ts, 0) = coalesce(b_ts, 0) and coalesce(a_org, '') > coalesce(b_org, ''));
 $$;
 
+-- Felt-nivå autorisasjon + LWW. Prinsipp (samme i alle fire vakter):
+--   * owner_id (oppretter) er uforanderlig.
+--   * locked/unlocked/invite_policy er priviligerte kolonner — endres kun av rette
+--     autoritet (can_admin_resource / can_manage_lock_exception /
+--     can_manage_invite_policy), ellers RAISES (aldri via rå PostgREST av uvedkommende).
+--   * INNHOLDS-felt reverteres hvis brukeren mangler can_edit_content ELLER
+--     register-stempelet er eldre (LWW). Slik kan et vanlig medlem ALDRI endre låst
+--     innhold selv om klienten sender feltene.
+--   * POSISJON (pos + forelder-peker) reverteres hvis brukeren mangler
+--     can_reorder_in_parent ELLER pos-registeret er eldre. Posisjon er dermed skilt
+--     fra innholdslåsen: en låst liste kan flyttes blant søsken når gruppen er åpen.
+--   * Flytting til ny forelder krever rettigheter i BÅDE kilde og mål (RAISES).
+--   * auth.uid() is null = admin/psql (vedlikehold) → hopper over autorisasjon
+--     (kun LWW gjelder).
+
 create or replace function public.universes_before_update()
 returns trigger language plpgsql security definer set search_path = public as $$
-declare uid uuid := auth.uid();
+declare uid uuid := auth.uid(); can_content boolean := true; can_reorder boolean := true;
 begin
   if new.owner_id is distinct from old.owner_id then
-    raise exception 'owner_id kan ikke endres';
+    raise exception 'owner_id (oppretter) kan ikke endres';
   end if;
-  if new.locked is distinct from old.locked and uid is not null and uid <> old.owner_id then
-    raise exception 'kun eieren kan låse/åpne';
+  if uid is not null then
+    can_content := public.can_edit_content('universe', old.id, uid);
+    can_reorder := public.can_reorder_in_parent('universe', old.id, uid);
   end if;
-  if new.unlocked is distinct from old.unlocked and uid is not null and uid <> old.owner_id then
-    raise exception 'kun eieren kan endre unntak';
+  if new.locked is distinct from old.locked and uid is not null
+     and not public.can_admin_resource('universe', old.id, uid) then
+    raise exception 'mangler myndighet til å låse/åpne';
+  end if;
+  if new.unlocked is distinct from old.unlocked and uid is not null
+     and not public.can_manage_lock_exception('universe', old.id, uid) then
+    raise exception 'mangler myndighet til å endre unntak';
+  end if;
+  if new.invite_policy is distinct from old.invite_policy and uid is not null
+     and not public.can_manage_invite_policy('universe', old.id, uid) then
+    raise exception 'mangler myndighet til å endre invitasjonspolicy';
   end if;
   -- En mottaker kan ALDRI slette/gjenopprette selve det delte universet
   -- (trashed er felles). Deres «fjern fra mitt syn» er leave_share (mount).
@@ -505,11 +768,13 @@ begin
   if new.trashed is distinct from old.trashed and uid is not null and uid <> old.owner_id then
     raise exception 'mottakere kan ikke slette et delt univers (bruk leave_share)';
   end if;
-  if not public.reg_newer(new.ts, new.org, old.ts, old.org) then
+  if (uid is not null and not can_content)
+     or not public.reg_newer(new.ts, new.org, old.ts, old.org) then
     new.name := old.name; new.trashed := old.trashed;
     new.ts := old.ts; new.org := old.org;
   end if;
-  if not public.reg_newer(new.pos_ts, new.pos_org, old.pos_ts, old.pos_org) then
+  if (uid is not null and not can_reorder)
+     or not public.reg_newer(new.pos_ts, new.pos_org, old.pos_ts, old.pos_org) then
     new.pos := old.pos; new.pos_ts := old.pos_ts; new.pos_org := old.pos_org;
   end if;
   new.updated_at := now();
@@ -523,16 +788,26 @@ create trigger universes_guard before update on public.universes
 
 create or replace function public.groups_before_update()
 returns trigger language plpgsql security definer set search_path = public as $$
-declare uid uuid := auth.uid();
+declare uid uuid := auth.uid(); can_content boolean := true; can_reorder boolean := true;
 begin
   if new.owner_id is distinct from old.owner_id then
-    raise exception 'owner_id kan ikke endres';
+    raise exception 'owner_id (oppretter) kan ikke endres';
   end if;
-  if new.locked is distinct from old.locked and uid is not null and uid <> old.owner_id then
-    raise exception 'kun eieren kan låse/åpne';
+  if uid is not null then
+    can_content := public.can_edit_content('group', old.id, uid);
+    can_reorder := public.can_reorder_in_parent('group', old.id, uid);
   end if;
-  if new.unlocked is distinct from old.unlocked and uid is not null and uid <> old.owner_id then
-    raise exception 'kun eieren kan endre unntak';
+  if new.locked is distinct from old.locked and uid is not null
+     and not public.can_admin_resource('group', old.id, uid) then
+    raise exception 'mangler myndighet til å låse/åpne';
+  end if;
+  if new.unlocked is distinct from old.unlocked and uid is not null
+     and not public.can_manage_lock_exception('group', old.id, uid) then
+    raise exception 'mangler myndighet til å endre unntak';
+  end if;
+  if new.invite_policy is distinct from old.invite_policy and uid is not null
+     and not public.can_manage_invite_policy('group', old.id, uid) then
+    raise exception 'mangler myndighet til å endre invitasjonspolicy';
   end if;
   -- Mottaker av en DIREKTE gruppe-deling kan ikke slette/gjenopprette selve
   -- gruppen (bruk leave_share). Innhold under gruppen — og en gruppe man kun
@@ -552,15 +827,21 @@ begin
     ) then
       raise exception 'delte objekter flyttes via egen plassering (mount)';
     end if;
-    if not public.can_edit_universe(new.universe_id, uid) then
+    -- Flytting krever rettigheter i BÅDE kilde- og mål-univers.
+    if not public.can_edit_content('universe', old.universe_id, uid) then
+      raise exception 'mangler tilgang til kilde-universet';
+    end if;
+    if not public.can_edit_content('universe', new.universe_id, uid) then
       raise exception 'mangler tilgang til mål-universet';
     end if;
   end if;
-  if not public.reg_newer(new.ts, new.org, old.ts, old.org) then
+  if (uid is not null and not can_content)
+     or not public.reg_newer(new.ts, new.org, old.ts, old.org) then
     new.name := old.name; new.trashed := old.trashed;
     new.ts := old.ts; new.org := old.org;
   end if;
-  if not public.reg_newer(new.pos_ts, new.pos_org, old.pos_ts, old.pos_org) then
+  if (uid is not null and not can_reorder)
+     or not public.reg_newer(new.pos_ts, new.pos_org, old.pos_ts, old.pos_org) then
     new.universe_id := old.universe_id;   -- forelder følger posisjonsregisteret
     new.pos := old.pos; new.pos_ts := old.pos_ts; new.pos_org := old.pos_org;
   end if;
@@ -575,16 +856,26 @@ create trigger groups_guard before update on public.groups
 
 create or replace function public.cards_before_update()
 returns trigger language plpgsql security definer set search_path = public as $$
-declare uid uuid := auth.uid();
+declare uid uuid := auth.uid(); can_content boolean := true; can_reorder boolean := true;
 begin
   if new.owner_id is distinct from old.owner_id then
-    raise exception 'owner_id kan ikke endres';
+    raise exception 'owner_id (oppretter) kan ikke endres';
   end if;
-  if new.locked is distinct from old.locked and uid is not null and uid <> old.owner_id then
-    raise exception 'kun eieren kan låse/åpne';
+  if uid is not null then
+    can_content := public.can_edit_content('card', old.id, uid);
+    can_reorder := public.can_reorder_in_parent('card', old.id, uid);
   end if;
-  if new.unlocked is distinct from old.unlocked and uid is not null and uid <> old.owner_id then
-    raise exception 'kun eieren kan endre unntak';
+  if new.locked is distinct from old.locked and uid is not null
+     and not public.can_admin_resource('card', old.id, uid) then
+    raise exception 'mangler myndighet til å låse/åpne';
+  end if;
+  if new.unlocked is distinct from old.unlocked and uid is not null
+     and not public.can_manage_lock_exception('card', old.id, uid) then
+    raise exception 'mangler myndighet til å endre unntak';
+  end if;
+  if new.invite_policy is distinct from old.invite_policy and uid is not null
+     and not public.can_manage_invite_policy('card', old.id, uid) then
+    raise exception 'mangler myndighet til å endre invitasjonspolicy';
   end if;
   -- Mottaker av en DIREKTE liste-deling kan ikke slette/gjenopprette selve
   -- listen (bruk leave_share). Elementer i listen — og en liste man kun når
@@ -604,22 +895,29 @@ begin
     ) then
       raise exception 'delte objekter flyttes via egen plassering (mount)';
     end if;
-    if not public.can_edit_group(new.group_id, uid) then
+    -- Flytting krever rettigheter i BÅDE kilde- og mål-gruppe.
+    if not public.can_edit_content('group', old.group_id, uid) then
+      raise exception 'mangler tilgang til kilde-gruppen';
+    end if;
+    if not public.can_edit_content('group', new.group_id, uid) then
       raise exception 'mangler tilgang til mål-gruppen';
     end if;
   end if;
-  if not public.reg_newer(new.ts, new.org, old.ts, old.org) then
+  if (uid is not null and not can_content)
+     or not public.reg_newer(new.ts, new.org, old.ts, old.org) then
     new.title := old.title; new.trashed := old.trashed;
     new.responsible := old.responsible;
     new.start_at := old.start_at; new.due_at := old.due_at; new.lock_times := old.lock_times;
     new.collapsed := old.collapsed;
     new.ts := old.ts; new.org := old.org;
   end if;
-  if not public.reg_newer(new.lab_ts, new.lab_org, old.lab_ts, old.lab_org) then
+  if (uid is not null and not can_content)
+     or not public.reg_newer(new.lab_ts, new.lab_org, old.lab_ts, old.lab_org) then
     new.k := old.k; new.p := old.p;
     new.lab_ts := old.lab_ts; new.lab_org := old.lab_org;
   end if;
-  if not public.reg_newer(new.pos_ts, new.pos_org, old.pos_ts, old.pos_org) then
+  if (uid is not null and not can_reorder)
+     or not public.reg_newer(new.pos_ts, new.pos_org, old.pos_ts, old.pos_org) then
     new.group_id := old.group_id;
     new.pos := old.pos; new.pos_ts := old.pos_ts; new.pos_org := old.pos_org;
   end if;
@@ -634,24 +932,34 @@ create trigger cards_guard before update on public.cards
 
 create or replace function public.items_before_update()
 returns trigger language plpgsql security definer set search_path = public as $$
-declare uid uuid := auth.uid();
+declare uid uuid := auth.uid(); can_content boolean := true; can_reorder boolean := true;
 begin
   if new.owner_id is distinct from old.owner_id then
-    raise exception 'owner_id kan ikke endres';
+    raise exception 'owner_id (oppretter) kan ikke endres';
   end if;
-  if new.card_id is distinct from old.card_id
-     and uid is not null
-     and not public.can_edit_card(new.card_id, uid) then
-    raise exception 'mangler tilgang til mål-listen';
+  if uid is not null then
+    can_content := public.can_edit_content('item', old.id, uid);
+    can_reorder := public.can_reorder_in_parent('item', old.id, uid);
   end if;
-  if not public.reg_newer(new.ts, new.org, old.ts, old.org) then
+  if new.card_id is distinct from old.card_id and uid is not null then
+    -- Flytting til ny liste krever rettigheter i BÅDE kilde- og mål-liste.
+    if not public.can_edit_content('card', old.card_id, uid) then
+      raise exception 'mangler tilgang til kilde-listen';
+    end if;
+    if not public.can_edit_content('card', new.card_id, uid) then
+      raise exception 'mangler tilgang til mål-listen';
+    end if;
+  end if;
+  if (uid is not null and not can_content)
+     or not public.reg_newer(new.ts, new.org, old.ts, old.org) then
     new.text := old.text; new.trashed := old.trashed; new.done := old.done;
     new.responsible := old.responsible;
     new.start_at := old.start_at; new.due_at := old.due_at;
     new.is_cat := old.is_cat; new.lock_times := old.lock_times;
     new.ts := old.ts; new.org := old.org;
   end if;
-  if not public.reg_newer(new.pos_ts, new.pos_org, old.pos_ts, old.pos_org) then
+  if (uid is not null and not can_reorder)
+     or not public.reg_newer(new.pos_ts, new.pos_org, old.pos_ts, old.pos_org) then
     new.card_id := old.card_id; new.cat_id := old.cat_id;
     new.pos := old.pos; new.pos_ts := old.pos_ts; new.pos_org := old.pos_org;
   end if;
@@ -702,9 +1010,14 @@ drop policy if exists groups_insert on public.groups;
 create policy groups_insert on public.groups
   for insert with check (owner_id = auth.uid()
                          and public.can_edit_universe(universe_id, auth.uid()));
+-- Oppdatering tillates når brukeren kan endre INNHOLD ELLER bare POSISJON
+-- (reorder). Vakten (groups_before_update) håndhever så feltnivået: innhold
+-- reverteres uten can_edit_content, posisjon uten can_reorder_in_parent — så en
+-- reorder-only-tilgang ikke kan snike inn låste innholdsfelt.
 drop policy if exists groups_update on public.groups;
 create policy groups_update on public.groups
-  for update using (public.can_edit_group(id, auth.uid()));
+  for update using (public.can_edit_content('group', id, auth.uid())
+                    or public.can_reorder_in_parent('group', id, auth.uid()));
 drop policy if exists groups_delete on public.groups;
 create policy groups_delete on public.groups
   for delete using (
@@ -724,7 +1037,8 @@ create policy cards_insert on public.cards
                          and public.can_edit_group(group_id, auth.uid()));
 drop policy if exists cards_update on public.cards;
 create policy cards_update on public.cards
-  for update using (public.can_edit_card(id, auth.uid()));
+  for update using (public.can_edit_content('card', id, auth.uid())
+                    or public.can_reorder_in_parent('card', id, auth.uid()));
 drop policy if exists cards_delete on public.cards;
 create policy cards_delete on public.cards
   for delete using (
@@ -744,21 +1058,24 @@ create policy items_insert on public.items
                          and public.can_edit_card(card_id, auth.uid()));
 drop policy if exists items_update on public.items;
 create policy items_update on public.items
-  for update using (public.can_edit_card(card_id, auth.uid()));
+  for update using (public.can_edit_content('item', id, auth.uid())
+                    or public.can_reorder_in_parent('item', id, auth.uid()));
 drop policy if exists items_delete on public.items;
 create policy items_delete on public.items
   for delete using (owner_id = auth.uid() or public.can_edit_card(card_id, auth.uid()));
 
 -- memberships: egen rad (mottaker) kan leses/justeres/slettes (forlate);
--- eieren av objektet ser radene og kan slette dem (kaste ut).
+-- PRIVILEGERTE ADMINISTRATORER (eier/oppretter/superobjekt-oppretter) ser radene
+-- og kan slette dem (kaste ut direkte medlemmer). Utkastelse skjer normalt via
+-- revoke_share (security definer); policyen er backstop for direkte PostgREST.
 -- Opprettelse skjer KUN via accept_share_invite (security definer).
 drop policy if exists memberships_select on public.memberships;
 create policy memberships_select on public.memberships
   for select using (
     user_id = auth.uid()
-    or coalesce(public.resource_owner('universe', universe_id),
-                public.resource_owner('group', group_id),
-                public.resource_owner('card', card_id)) = auth.uid()
+    or public.can_admin_resource('universe', universe_id, auth.uid())
+    or public.can_admin_resource('group', group_id, auth.uid())
+    or public.can_admin_resource('card', card_id, auth.uid())
   );
 drop policy if exists memberships_update on public.memberships;
 create policy memberships_update on public.memberships
@@ -767,9 +1084,9 @@ drop policy if exists memberships_delete on public.memberships;
 create policy memberships_delete on public.memberships
   for delete using (
     user_id = auth.uid()
-    or coalesce(public.resource_owner('universe', universe_id),
-                public.resource_owner('group', group_id),
-                public.resource_owner('card', card_id)) = auth.uid()
+    or public.can_admin_resource('universe', universe_id, auth.uid())
+    or public.can_admin_resource('group', group_id, auth.uid())
+    or public.can_admin_resource('card', card_id, auth.uid())
   );
 
 -- Mottakeren kan bare endre sin egen plassering/rekkefølge/søppel —
@@ -828,8 +1145,10 @@ create policy tombstones_select on public.tombstones
 -- 8. DELINGS-RPC-ER (security definer)
 -- ------------------------------------------------------------
 
--- Eieren inviterer en e-postadresse til et univers / en gruppe / en
--- liste. Mottakeren trenger ikke ha konto ennå. Returnerer invitasjonen.
+-- Inviterer en e-postadresse til et univers / en gruppe / en liste. Kan gjøres av
+-- en PRIVILEGERT ADMINISTRATOR (eier/oppretter/superobjekt-oppretter) uavhengig av
+-- policy, ELLER av en med lese-tilgang når effektiv invitasjonspolicy tillater
+-- videreinvitasjon (`can_invite_to`). Mottakeren trenger ikke ha konto ennå.
 create or replace function public.create_share_invite(p_type text, p_id uuid, p_email text)
 returns jsonb language plpgsql security definer set search_path = public as $$
 declare
@@ -845,8 +1164,8 @@ begin
   if em = '' or position('@' in em) = 0 then
     raise exception 'ugyldig e-postadresse';
   end if;
-  if public.resource_owner(p_type, p_id) is distinct from uid then
-    raise exception 'kun eieren kan dele';
+  if not public.can_invite_to(p_type, p_id, uid) then
+    raise exception 'mangler myndighet til å invitere til dette objektet';
   end if;
   if em = (select lower(email) from public.profiles where id = uid) then
     raise exception 'kan ikke dele med deg selv';
@@ -854,13 +1173,9 @@ begin
 
   select id into target from public.profiles where lower(email) = em;
 
-  if target is not null and exists (
-    select 1 from public.memberships m
-    where m.user_id = target
-      and ((p_type = 'universe' and m.universe_id = p_id)
-        or (p_type = 'group'    and m.group_id    = p_id)
-        or (p_type = 'card'     and m.card_id     = p_id))
-  ) then
+  -- Avvis redundant invitasjon: mottakeren har allerede EFFEKTIV tilgang (direkte
+  -- ELLER arvet fra et delt superobjekt) eller er selv oppretter/eier i grenen.
+  if target is not null and public.can_read(p_type, p_id, target) then
     raise exception 'brukeren har allerede tilgang';
   end if;
 
@@ -1264,27 +1579,38 @@ begin
 end;
 $$;
 
--- Eieren trekker tilbake en ventende invitasjon.
+-- Trekker tilbake en ventende invitasjon. En VANLIG bruker kan kun trekke tilbake
+-- SINE EGNE; en PRIVILEGERT ADMINISTRATOR på objektet kan trekke tilbake ALLE
+-- ventende invitasjoner i sitt myndighetsområde.
 create or replace function public.revoke_share_invite(p_invite uuid)
 returns void language plpgsql security definer set search_path = public as $$
+declare uid uuid := auth.uid(); inv public.share_invites;
 begin
-  update public.share_invites
-     set status = 'revoked', responded_at = now()
-   where id = p_invite and inviter_id = auth.uid() and status = 'pending';
-  if not found then raise exception 'fant ingen ventende invitasjon'; end if;
+  if uid is null then raise exception 'ikke innlogget'; end if;
+  select * into inv from public.share_invites where id = p_invite and status = 'pending' for update;
+  if inv.id is null then raise exception 'fant ingen ventende invitasjon'; end if;
+  if inv.inviter_id <> uid
+     and not public.can_admin_resource(
+       case when inv.universe_id is not null then 'universe'
+            when inv.group_id    is not null then 'group' else 'card' end,
+       coalesce(inv.universe_id, inv.group_id, inv.card_id), uid) then
+    raise exception 'mangler myndighet til å trekke tilbake denne invitasjonen';
+  end if;
+  update public.share_invites set status = 'revoked', responded_at = now() where id = inv.id;
 end;
 $$;
 
--- Eieren kaster ut en annen bruker (sletter medlemskapet + ev.
--- ventende invitasjoner). Eieren selv har aldri medlemskap og kan
--- derfor aldri kastes ut.
+-- En PRIVILEGERT ADMINISTRATOR kaster ut et DIREKTE medlem (sletter medlemskapet +
+-- ev. ventende invitasjoner). Eieren selv har aldri medlemskap og kan derfor aldri
+-- kastes ut. Arvede medlemmer (tilgang kun via et superobjekt) har ingen
+-- medlemskapsrad her → sletting no-op-er (de fjernes der delingen faktisk finnes).
 create or replace function public.revoke_share(p_type text, p_id uuid, p_user uuid)
 returns void language plpgsql security definer set search_path = public as $$
 declare uid uuid := auth.uid();
 begin
   if uid is null then raise exception 'ikke innlogget'; end if;
-  if public.resource_owner(p_type, p_id) is distinct from uid then
-    raise exception 'kun eieren kan kaste ut andre';
+  if not public.can_admin_resource(p_type, p_id, uid) then
+    raise exception 'mangler myndighet til å kaste ut andre';
   end if;
   delete from public.memberships m
    where m.user_id = p_user
@@ -1317,14 +1643,16 @@ begin
 end;
 $$;
 
--- Eieren låser/åpner et delt objekt for redigering av andre.
+-- En PRIVILEGERT ADMINISTRATOR (eier/oppretter/superobjekt-oppretter) låser/åpner
+-- objektet for vanlige medlemmer. En lavere eksplisitt lås vinner over et høyere
+-- unntak (håndteres av nærmeste-eksplisitt-semantikken).
 create or replace function public.set_locked(p_type text, p_id uuid, p_locked boolean)
 returns void language plpgsql security definer set search_path = public as $$
 declare uid uuid := auth.uid();
 begin
   if uid is null then raise exception 'ikke innlogget'; end if;
-  if public.resource_owner(p_type, p_id) is distinct from uid then
-    raise exception 'kun eieren kan låse/åpne';
+  if not public.can_admin_resource(p_type, p_id, uid) then
+    raise exception 'mangler myndighet til å låse/åpne';
   end if;
   -- locked og unlocked er gjensidig utelukkende: å låse fjerner et ev. unntak.
   if p_type = 'universe' then update public.universes set locked = p_locked, unlocked = (unlocked and not p_locked) where id = p_id;
@@ -1335,21 +1663,44 @@ begin
 end;
 $$;
 
--- Eieren gjør/opphever et UNNTAK fra en arvet lås for et objekt: `unlocked`
--- åpner grenen for andre selv om en forelder er låst. Gjensidig utelukkende med
--- objektets egen `locked` (å sette unntak fjerner en ev. egen lås).
+-- Gjør/opphever et UNNTAK fra en ARVET lås: `unlocked` åpner grenen for andre selv
+-- om et superobjekt er låst. Kun universets eier ELLER oppretteren av det nærmeste
+-- superobjektet som innfører den effektive låsen kan styre unntaket
+-- (`can_manage_lock_exception`) — en lavere oppretter kan ikke åpne grenen for alle
+-- i strid med en høyere lås. Gjensidig utelukkende med objektets egen `locked`.
 create or replace function public.set_unlocked(p_type text, p_id uuid, p_unlocked boolean)
 returns void language plpgsql security definer set search_path = public as $$
 declare uid uuid := auth.uid();
 begin
   if uid is null then raise exception 'ikke innlogget'; end if;
-  if public.resource_owner(p_type, p_id) is distinct from uid then
-    raise exception 'kun eieren kan endre unntak';
+  if not public.can_manage_lock_exception(p_type, p_id, uid) then
+    raise exception 'mangler myndighet til å endre unntak';
   end if;
   if p_type = 'universe' then update public.universes set unlocked = p_unlocked, locked = (locked and not p_unlocked) where id = p_id;
   elsif p_type = 'group' then update public.groups set unlocked = p_unlocked, locked = (locked and not p_unlocked) where id = p_id;
   elsif p_type = 'card'  then update public.cards  set unlocked = p_unlocked, locked = (locked and not p_unlocked) where id = p_id;
   else raise exception 'ugyldig type: %', p_type;
+  end if;
+end;
+$$;
+
+-- Setter objektets eksplisitte INVITASJONSPOLICY (tretilstand). Uten arvet sperre:
+-- en privilegert administrator. Med en arvet 'deny' kan et 'allow'-unntak kun styres
+-- av universets eier eller oppretteren av det nærmeste superobjektet som innfører
+-- sperren (`can_manage_invite_policy`).
+create or replace function public.set_invite_policy(p_type text, p_id uuid, p_policy text)
+returns void language plpgsql security definer set search_path = public as $$
+declare uid uuid := auth.uid();
+begin
+  if uid is null then raise exception 'ikke innlogget'; end if;
+  if p_type not in ('universe', 'group', 'card') then raise exception 'ugyldig type: %', p_type; end if;
+  if p_policy not in ('inherit', 'allow', 'deny') then raise exception 'ugyldig policy: %', p_policy; end if;
+  if not public.can_manage_invite_policy(p_type, p_id, uid) then
+    raise exception 'mangler myndighet til å endre invitasjonspolicy';
+  end if;
+  if p_type = 'universe' then update public.universes set invite_policy = p_policy where id = p_id;
+  elsif p_type = 'group' then update public.groups set invite_policy = p_policy where id = p_id;
+  elsif p_type = 'card'  then update public.cards  set invite_policy = p_policy where id = p_id;
   end if;
 end;
 $$;
@@ -1375,6 +1726,20 @@ begin
       select jsonb_build_object('id', pr.id, 'email', pr.email, 'display_name', pr.display_name)
       from public.profiles pr where pr.id = public.resource_owner(p_type, p_id)
     ),
+    -- Betrakterens EFFEKTIVE rettigheter (serverautoritativt) — klienten viser
+    -- invitasjonsfelt/administrative kontroller ut fra disse, ikke ut fra gjetting.
+    'viewer', jsonb_build_object(
+      'id', uid,
+      'can_admin', public.can_admin_resource(p_type, p_id, uid),
+      'can_invite', public.can_invite_to(p_type, p_id, uid),
+      'can_manage_policy', public.can_manage_invite_policy(p_type, p_id, uid)
+    ),
+    -- Objektets egen eksplisitte invitasjonspolicy + den effektive (etter arv).
+    'invite_policy', case p_type
+      when 'universe' then (select invite_policy from public.universes where id = p_id)
+      when 'group'    then (select invite_policy from public.groups    where id = p_id)
+      when 'card'     then (select invite_policy from public.cards     where id = p_id) end,
+    'invite_effective', public.effective_invite_policy(p_type, p_id),
     'members', coalesce((
       select jsonb_agg(jsonb_build_object(
                'id', pr.id, 'email', pr.email, 'display_name', pr.display_name,
@@ -1385,10 +1750,14 @@ begin
          or (p_type = 'group'    and m.group_id    = p_id)
          or (p_type = 'card'     and m.card_id     = p_id)
     ), '[]'::jsonb),
+    -- Ventende invitasjoner med hvem som inviterte (til «egen vs andres»-visning:
+    -- en vanlig bruker kan bare trekke tilbake sine egne, en admin alle).
     'pending_invites', coalesce((
       select jsonb_agg(jsonb_build_object(
-               'id', s.id, 'email', s.invitee_email, 'created_at', s.created_at)
-             order by s.created_at)
+               'id', s.id, 'email', s.invitee_email, 'created_at', s.created_at,
+               'by', s.inviter_id,
+               'by_name', (select display_name from public.profiles where id = s.inviter_id),
+               'mine', s.inviter_id = uid) order by s.created_at)
       from public.share_invites s
       where s.status = 'pending'
         and ((p_type = 'universe' and s.universe_id = p_id)
@@ -1445,6 +1814,7 @@ begin
     'universes', coalesce((select jsonb_agg(jsonb_build_object(
         'id', u.id, 'owner', u.owner_id, 'mine', u.owner_id = uid,
         'name', u.name, 'trashed', u.trashed, 'locked', u.locked, 'unlocked', u.unlocked,
+        'invitePolicy', u.invite_policy,
         'ts', u.ts, 'org', u.org,
         'pos', u.pos, 'posTs', u.pos_ts, 'posOrg', u.pos_org,
         'shared', exists (select 1 from public.memberships mm where mm.universe_id = u.id),
@@ -1454,6 +1824,7 @@ begin
         'id', g.id, 'owner', g.owner_id, 'mine', g.owner_id = uid,
         'uni', g.universe_id,
         'name', g.name, 'trashed', g.trashed, 'locked', g.locked, 'unlocked', g.unlocked,
+        'invitePolicy', g.invite_policy,
         'ts', g.ts, 'org', g.org,
         'pos', g.pos, 'posTs', g.pos_ts, 'posOrg', g.pos_org,
         'shared', exists (select 1 from public.memberships mm where mm.group_id = g.id),
@@ -1463,6 +1834,7 @@ begin
         'id', c.id, 'owner', c.owner_id, 'mine', c.owner_id = uid,
         'group', c.group_id,
         'title', c.title, 'trashed', c.trashed, 'locked', c.locked, 'unlocked', c.unlocked,
+        'invitePolicy', c.invite_policy,
         'k', c.k, 'p', c.p, 'labTs', c.lab_ts, 'labOrg', c.lab_org,
         'responsible', c.responsible,
         'start', c.start_at, 'due', c.due_at, 'lockTimes', c.lock_times,
@@ -1660,6 +2032,7 @@ begin
     'public.leave_share(text, uuid)',
     'public.set_locked(text, uuid, boolean)',
     'public.set_unlocked(text, uuid, boolean)',
+    'public.set_invite_policy(text, uuid, text)',
     'public.get_members(text, uuid)',
     'public.get_my_doc()',
     'public.import_doc(jsonb)'

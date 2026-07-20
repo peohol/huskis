@@ -19,6 +19,7 @@ $PSQL -f tests/local-stub.sql
 $PSQL -f users-and-sharing.sql
 $PSQL -f users-and-sharing.sql   # idempotens: må tåle re-kjøring
 $PSQL --no-psqlrc --echo-errors -f tests/test-users-and-sharing.sql
+$PSQL --no-psqlrc --echo-errors -f tests/test-permissions.sql
 $PSQL --no-psqlrc --echo-errors -f tests/test-email-sharing.sql
 
-echo "✅ Alle tester grønne (inkl. dobbel kjøring av migreringen + e-postvarsel)."
+echo "✅ Alle tester grønne (inkl. dobbel kjøring av migreringen + e-postvarsel + rettigheter)."

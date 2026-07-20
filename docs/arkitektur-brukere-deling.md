@@ -43,10 +43,14 @@ har ingen v1-kode igjen.
 Fire objekttabeller — `universes` > `groups` > `cards` (= «lister» i UI-et)
 > `items` — med `on delete cascade` nedover. Hver rad har:
 
-- `owner_id` — skaperen; kan aldri endres (trigger-vakt).
+- `owner_id` — **oppretteren** av raden; kan aldri endres (trigger-vakt). NB:
+  betyr «oppretter», ikke universeier — universeieren er `owner_id` på rot-
+  universet. Se [`rettigheter-og-deling.md`](rettigheter-og-deling.md).
 - `trashed` — søppelkasseflagget, **felles** for alle med tilgang
   (innholds-søppel; jf. dagens modell).
-- `locked` (ikke på items) — eier-lås, se «Låsing».
+- `locked`/`unlocked` (ikke på items) — lås/unntak, se «Låsing».
+- `invite_policy` (ikke på items) — `inherit`/`allow`/`deny`, se
+  «Invitasjonspolicy».
 - LWW-registre som i dagens synk-doc: `ts`/`org` (innhold),
   `pos_ts`/`pos_org` (posisjon + forelder-peker), `lab_ts`/`lab_org`
   (K/P på cards). **Håndheves nå på serveren**: BEFORE UPDATE-triggere
@@ -84,9 +88,18 @@ listen — se `docs/accounts.md`.
 
 ## Deling (invitasjon → aksept → mount)
 
-1. **Eieren** (og kun eieren) inviterer en e-postadresse:
-   `create_share_invite(type, id, email)`. Mottakeren trenger ikke ha
-   konto — invitasjonen kobles ved registrering.
+> **Autorisasjonsmodellen er utvidet — se
+> [`rettigheter-og-deling.md`](rettigheter-og-deling.md) for den autoritative
+> definisjonen.** Kort: «eieren» nedenfor er generalisert til **privilegerte
+> administratorer** (universeier + oppretteren av objektet + oppretteren av hvert
+> superobjekt), og et **vanlig medlem kan invitere** når den effektive
+> invitasjonspolicyen tillater det. Formuleringer som «kun eieren» er utdaterte.
+
+1. En **privilegert administrator** — ELLER et vanlig medlem når den effektive
+   invitasjonspolicyen tillater videreinvitasjon (`can_invite_to`) — inviterer en
+   e-postadresse: `create_share_invite(type, id, email)`. Mottakeren trenger ikke
+   ha konto — invitasjonen kobles ved registrering. En invitasjon avvises hvis
+   mottakeren allerede har **effektiv** tilgang (også arvet fra et superobjekt).
 2. Mottakeren ser invitasjonen i appen (`get_my_doc().invites_in`) og
    aksepterer med `accept_share_invite(invite, parent, pos)`:
    - **Univers**: ingen plassering (dukker opp blant mottakerens universer).
@@ -100,8 +113,13 @@ listen — se `docs/accounts.md`.
 Viktige egenskaper:
 
 - **Eieren har aldri membership-rad** → kan strukturelt aldri kastes ut.
-- **Kaste ut**: `revoke_share(type, id, user)` (kun eier) sletter
-  medlemskapet + ev. ventende invitasjoner for brukeren.
+- **Kaste ut**: `revoke_share(type, id, user)` (en privilegert administrator,
+  `can_admin_resource`) sletter det **direkte** medlemskapet + ev. ventende
+  invitasjoner for brukeren. Arvede medlemmer (tilgang kun via et superobjekt)
+  administreres der delingen faktisk finnes.
+- **Invitere / trekke tilbake**: en administrator kan trekke tilbake ALLE ventende
+  invitasjoner i sitt myndighetsområde; et vanlig medlem med inviterett kan bare
+  trekke tilbake sine egne (`revoke_share_invite`, `get_members` gir `mine`).
 - **Sletteregelen for en mottaker** (samme mønster på alle tre nivåer):
   mottakeren kan **ikke slette selve det delte objektet** (share-roten) —
   hverken legge det i søppel (`trashed`) *eller* hardslette det. Å fjerne
@@ -149,22 +167,40 @@ slettes fritt.
 
 ## Låsing (med unntak for arvet lås)
 
-`locked` og `unlocked` på universes/groups/cards settes/fjernes av **eieren** via
-`set_locked(type, id, bool)` og `set_unlocked(type, id, bool)`. De er **gjensidig
-utelukkende** per rad (å låse fjerner et ev. unntak og omvendt), så hver node har
-én av tre tilstander: *låst*, *unntak (åpnet)*, eller *arv* (ingen av delene).
+> Full modell + autorisasjon: [`rettigheter-og-deling.md`](rettigheter-og-deling.md).
 
-Semantikk (`can_edit_*`): et objekt kan redigeres av en bruker hvis brukeren har
-lesetilgang OG det **nærmeste nivået** — objektet selv, så oppover mot rot-
-universet — som har en eksplisitt tilstand satt *av noen andre* er et **unntak**
-(ikke en lås). Egne låser/unntak blokkerer aldri en selv, og eieren kan alltid
-redigere. Lesing påvirkes aldri av lås.
+`locked`/`unlocked` på universes/groups/cards er **gjensidig utelukkende** per rad,
+så hver node har én av tre tilstander: *låst*, *unntak (åpnet)*, eller *arv*.
+`set_locked` kan settes av en **privilegert administrator** (`can_admin_resource`);
+`set_unlocked` (unntak fra en ARVET lås) kun av universeieren ELLER oppretteren av
+det nærmeste superobjektet som innfører den effektive låsen
+(`can_manage_lock_exception`) — en lavere oppretter kan ikke åpne en gren i strid
+med en høyere lås.
 
-Følger: lås på et univers fryser alt under for alle unntatt eieren, MEN eieren kan
-gjøre et **unntak** for en konkret gruppe/liste under (`unlocked = true`) så
-nettopp den (og alt under den) likevel kan redigeres — og et enda lavere nivå kan
-låses på nytt inni et unntak. Nærmeste-eksplisitt-regelen håndterer vilkårlig
-nøsting av lås/unntak/lås.
+Effektiv redigeringsstatus for et **vanlig medlem** = den nærmeste eksplisitte
+tilstanden fra objektet og oppover (`effective_lock_source`). Universeieren og
+relevante opprettere kan **alltid** redigere (`can_edit_content =
+can_admin_resource OR NOT is_effectively_locked`). Lesing påvirkes aldri av lås.
+
+**Posisjon er skilt fra innholdslås**: retten til å endre et objekts rekkefølge i
+superobjektet styres av `can_reorder_in_parent` (= innholdsredigering på
+superobjektet), ikke av objektets egen lås. En låst liste kan dermed flyttes blant
+søsken når gruppen er åpen. Vaktene (`*_before_update`) håndhever dette
+feltspesifikt.
+
+Følger: lås på et univers fryser alt under for vanlige medlemmer, MEN en autorisert
+bruker kan gjøre et **unntak** for en konkret gruppe/liste under (`unlocked =
+true`), og et enda lavere nivå kan låses på nytt inni et unntak.
+Nærmeste-eksplisitt-regelen håndterer vilkårlig nøsting.
+
+## Invitasjonspolicy (tretilstands dynamisk arv)
+
+`invite_policy` (`inherit`/`allow`/`deny`) på universes/groups/cards styrer om
+**vanlige medlemmer** kan invitere flere. Effektiv verdi = nærmeste eksplisitte fra
+objektet og oppover; ingen eksplisitt noe sted → tillat. Nye rader er `inherit`
+(dynamisk arv). `set_invite_policy` styres av `can_manage_invite_policy` (parallelt
+med lås-unntak). Migreringen gir eksisterende rader `inherit` → effektiv tillat.
+Full modell: [`rettigheter-og-deling.md`](rettigheter-og-deling.md).
 
 ## Sletting, søppel og gravsteiner
 
@@ -184,8 +220,8 @@ nøsting av lås/unntak/lås.
 | `get_my_doc()` | hele brukerens datasett som ETT flatt jsonb-doc (universes/groups/cards/items + `mount`-info + invitasjoner) — samme fasong som dagens synk-doc, så `applyDoc`-maskineriet gjenbrukes |
 | vanlige `insert/update/delete` på tabellene | CRUD med RLS + server-side LWW; klienten stempler `ts/org`-registrene som i dag |
 | `import_doc(doc)` | engangs-migrering av lokalt/legacy doc til egne data (deterministiske id-er per bruker, idempotent) |
-| `create_share_invite` / `accept_share_invite` / `decline_share_invite` / `revoke_share_invite` | delingsflyt |
-| `revoke_share` / `leave_share` / `set_locked` / `set_unlocked` / `get_members` | administrasjon av delinger (låsing + unntak fra arvet lås) |
+| `create_share_invite` / `accept_share_invite` / `decline_share_invite` / `revoke_share_invite` | delingsflyt (invitasjon fra admin ELLER medlem m/ inviterett) |
+| `revoke_share` / `leave_share` / `set_locked` / `set_unlocked` / `set_invite_policy` / `get_members` | administrasjon (låsing + unntak + invitasjonspolicy; `get_members` gir `viewer`-rettigheter) |
 | Realtime `postgres_changes` på tabellene | live-oppdatering (tabellene ligger i `supabase_realtime`-publikasjonen) |
 
 ## Migrering fra dagens modell
