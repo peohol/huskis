@@ -171,6 +171,28 @@ mobil).
       listepunkt-skriving ble avvist og innhold lagt inn på én enhet synket aldri
       til de andre.
 
+## Herding mot at migreringer henger etter deployen (`db-setup` auto + skjema-varsel)
+
+Tre ganger nå har en kolonne-migrering hengt etter en merget klient (kategorier,
+`cards.collapsed`, `items.collapsed`) og brutt kontomodus-synken stille. To grep
+lukker klassen:
+
+- [x] **`db-setup.yml` kjøres automatisk ved push til `main`** (path-filtrert til
+      de to SQL-filene + selve workflowen; `workflow_dispatch` beholdt for manuell
+      kjøring). `main` auto-deployes til produksjon (Vercel), så migreringen og
+      klient-deployen skjer nå omtrent samtidig i stedet for at migreringen kan bli
+      glemt i dagevis. Kolonnene er additive (`add column if not exists`) og rører
+      ikke den gamle klienten; skulle deployen så vidt lede, lykkes skrivingene på
+      neste synk-runde. `concurrency`-gruppe serialiserer kjøringer. Krever ingen
+      ny secret (bruker eksisterende `SUPABASE_DB_URL`).
+- [x] **Klienten overflater skjema-avvik** i stedet for å svelge dem. `pushOps`
+      leser nå `result.error`; `isSchemaMismatch`/`reportWriteResult` fanger KUN
+      ukjent-kolonne/-tabell (`PGRST204`/`PGRST205`/`42703`) og viser én bruker-
+      toast + `console.error` (deduplisert) — forventede RLS-/konflikt-/nettverks-
+      feil forblir stille som før. Så et framtidig avvik blir synlig umiddelbart i
+      stedet for en usynlig, total synk-stopp. Verifisert i nettleser
+      (`tests/sync-schema-error.test.js`, desktop + mobil). Se `docs/accounts.md`.
+
 ## Skjema-/logikk-endring: hierarkiske rettigheter + invitasjonspolicy (`invite_policy`)
 
 Rettighetsrunden (se `docs/rettigheter-og-deling.md`) generaliserte «eier» til

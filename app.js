@@ -5814,6 +5814,40 @@
       responsible: row.responsible || null,
       start_at: row.start || null, due_at: row.due || null });
   }
+  /* ---------------- Synk-skrivefeil: overflate skjema-avvik ----------------
+     Supabase-klienten KASTER ikke på en avvist skriving — feilen kommer i
+     result.error (try/catch her fanger bare nettverksfeil). De aller fleste
+     feilene skal forbli stille: RLS-avvisninger (en mottaker prøver å skrive på
+     eierens rad) og transiente konflikter/FK er forventet og selv-legende. Men
+     et SKJEMA-avvik — appen sender en kolonne databasen ikke har fordi en
+     migrering henger etter deployen — får PostgREST til å avvise HVER insert/
+     update for den radtypen, usynlig. Det stoppet all synk for lister/
+     listepunkter uten ett eneste signal (nettopp cards/items.collapsed-
+     hendelsen). Vi overflater derfor KUN den klassen: logg detaljene
+     (deduplisert per tabell+kolonne) og si fra til brukeren én gang at
+     endringene ligger trygt lokalt, men ikke nådde skyen. */
+  let schemaMismatchWarned = false;
+  const schemaMismatchLogged = new Set();
+  function isSchemaMismatch(error) {
+    if (!error) return false;
+    const code = String(error.code || '');
+    if (code === 'PGRST204' || code === 'PGRST205' || code === '42703') return true; // ukjent kolonne/tabell
+    return /could not find the .*column|schema cache|column .* does not exist/i.test(String(error.message || ''));
+  }
+  function reportWriteResult(t, res) {
+    const error = res && res.error;
+    if (!isSchemaMismatch(error)) return; // nettverk/RLS/konflikt: stille som før
+    const sig = t + ':' + (error.code || '') + ':' + (error.message || '');
+    if (!schemaMismatchLogged.has(sig)) {
+      schemaMismatchLogged.add(sig);
+      console.error('[huskis] Synk avvist – databasen mangler en kolonne appen sender (tabell «' +
+        (TABLE[t] || t) + '»). Kjør «Supabase DB-oppsett»-migreringen.', error);
+    }
+    if (!schemaMismatchWarned) {
+      schemaMismatchWarned = true;
+      showToast('Endringene dine er lagret på denne enheten, men kunne ikke synkes til skyen ennå.');
+    }
+  }
   async function pushOps(ops) {
     const client = acli();
     if (!client || !authUser) return;
@@ -5824,13 +5858,13 @@
     const upd = ops.filter((o) => o.op === 'update').sort((a, b) => order[a.t] - order[b.t]);
     const del = ops.filter((o) => o.op === 'delete').sort((a, b) => order[b.t] - order[a.t]);
     for (const o of ins) {
-      try { await client.from(TABLE[o.t]).insert(insertPayload(o.t, o.row, uid)); } catch (e) { /* RLS/konflikt */ }
+      try { reportWriteResult(o.t, await client.from(TABLE[o.t]).insert(insertPayload(o.t, o.row, uid))); } catch (e) { /* nettverk – poll/realtime prøver igjen */ }
     }
     for (const o of upd) {
-      try { await client.from(TABLE[o.t]).update(updatePayload(o.t, o.row)).eq('id', o.row.id); } catch (e) { /* ignore */ }
+      try { reportWriteResult(o.t, await client.from(TABLE[o.t]).update(updatePayload(o.t, o.row)).eq('id', o.row.id)); } catch (e) { /* nettverk */ }
     }
     for (const o of del) {
-      try { await client.from(TABLE[o.t]).delete().eq('id', o.id); } catch (e) { /* ignore */ }
+      try { reportWriteResult(o.t, await client.from(TABLE[o.t]).delete().eq('id', o.id)); } catch (e) { /* nettverk */ }
     }
   }
 
@@ -7074,6 +7108,9 @@
     opQueue.clear();
     lockOverrides.clear(); unlockOverrides.clear(); policyOverrides.clear(); mountOverrides.clear(); suppressedRows.clear();
     suppressedInvites.clear();
+    // Skjema-avvik-varselet gjaldt den utloggede sesjonen — la en ny sesjon
+    // varsle på nytt hvis databasen fortsatt henger etter.
+    schemaMismatchWarned = false; schemaMismatchLogged.clear();
     authUser = null;
     state.universes = [];
     document.body.classList.add('no-auth');
@@ -7148,9 +7185,11 @@
     openUniModal, closeUniModal, openGroupModal, closeGroupModal,
     openAccount, closeAccount,
     canonical, reconcile, docFromMyState, contentDocFromMy, applyMyDoc, cloudCycle,
+    isSchemaMismatch,
     openShare, openSettings,
     get authUser() { return authUser; },
     get lastMy() { return lastMy; },
     get pendingPlacements() { return pendingPlacements; },
+    get client() { return aclient; },
   };
 })();

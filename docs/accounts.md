@@ -59,6 +59,22 @@ samme nested `state` som før; synken går slik (`cloudCycle`):
    bekreftelses-pull (`cloudAgain = true`) — den frisker opp `lastMy`, så
    køede delings-operasjoner som venter på en nypushet rad
    (`rowKnownToServer`) slipper å vente på neste poll.
+
+   **Skrivefeil forblir bevisst stille — UNNTATT skjema-avvik.** Supabase-
+   klienten kaster ikke på en avvist skriving; feilen kommer i `result.error`.
+   De aller fleste er forventet og skal ikke støye: RLS-avvisninger (en mottaker
+   skriver på eierens rad) og transiente konflikter/FK er selv-legende. Men et
+   **skjema-avvik** — appen sender en kolonne databasen ikke har fordi en
+   migrering henger etter deployen — får PostgREST til å avvise HVER insert/
+   update for radtypen. Det stoppet en gang all liste-/listepunkt-synk usynlig
+   (cards/items.collapsed-hendelsen). `reportWriteResult`/`isSchemaMismatch`
+   (i `pushOps`) fanger derfor KUN den klassen (`PGRST204`/`PGRST205`/`42703` +
+   «could not find … column»/«schema cache»/«column … does not exist»): logger
+   detaljene deduplisert og viser brukeren ÉN toast om at endringen ligger trygt
+   lokalt men ikke nådde skyen (`schemaMismatchWarned`, nullstilles ved
+   utlogging). For å hindre at en migrering i det hele tatt henger etter kjøres
+   «Supabase DB-oppsett»-workflowen nå automatisk ved push til `main` — se
+   `.github/workflows/db-setup.yml` og `TODO.md`.
 4. **Realtime** `postgres_changes` på de seks tabellene + poll (5 s) +
    `visibilitychange`/`focus`/`online` → `scheduleCloud`.
 
