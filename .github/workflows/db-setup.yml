@@ -2,7 +2,19 @@ name: Supabase DB-oppsett
 
 # Kjører supabase/setup.sql + supabase/users-and-sharing.sql mot
 # Supabase-databasen (begge er idempotente).
-# Startes manuelt fra fanen «Actions» → «Supabase DB-oppsett» → «Run workflow».
+#
+# Kjøres AUTOMATISK ved push til main når en av SQL-filene (eller denne
+# workflowen) endres — så en skjema-migrering aldri kan henge etter den
+# deployede klienten. Det var nettopp det som brøt lister/listepunkt-synken:
+# klienten sendte cards/items.collapsed før kolonnene fantes i produksjon, og
+# PostgREST avviste hver skriving. Kan også startes manuelt fra fanen «Actions»
+# → «Supabase DB-oppsett» → «Run workflow».
+#
+# Merk: main auto-deployes til produksjon (Vercel), så migreringen og klient-
+# deployen skjer omtrent samtidig. Kolonnene legges til additivt («add column if
+# not exists»), som ikke rører den gamle klienten; skulle deployen så vidt lede,
+# lykkes skrivingene på neste synk-runde (5 s poll / realtime). concurrency-
+# gruppen serialiserer kjøringene så to raske merger ikke kolliderer på DB-låser.
 #
 # Krever én repository-secret:
 #   SUPABASE_DB_URL = tilkoblingsstrengen fra Supabase
@@ -13,6 +25,16 @@ name: Supabase DB-oppsett
 
 on:
   workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - 'supabase/setup.sql'
+      - 'supabase/users-and-sharing.sql'
+      - '.github/workflows/db-setup.yml'
+
+concurrency:
+  group: db-setup
+  cancel-in-progress: false
 
 jobs:
   apply-sql:

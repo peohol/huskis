@@ -339,6 +339,19 @@ kategori = dens medlemmer). Krever en DB-migrering i kontomodus (`items.collapse
 — se `TODO.md`. Se `docs/drag-and-drop.md`, `docs/data-model.md`,
 `docs/design-system.md`.
 
+**Synk-herding: migrering-følger-deploy + skjema-varsel (siste runde)**: en
+kontomodus-synkfeil (listepunkter lagt inn på mobil dukket ikke opp på PC) skyldtes
+at `cards.collapsed`/`items.collapsed` manglet i produksjon mens den deployede
+klienten sendte `collapsed` i hver kort-/listepunkt-skriving — PostgREST avviste
+alle, og `pushOps` svelget feilen stille. Migreringen er kjørt (kolonnene finnes nå),
+og to grep hindrer gjentakelse: (1) **`db-setup.yml` kjøres automatisk ved push til
+`main`** (path-filtrert til SQL-filene) så en migrering ikke lenger kan henge etter
+klienten; (2) **klienten overflater skjema-avvik** — `pushOps` leser `result.error`,
+og `isSchemaMismatch`/`reportWriteResult` fanger KUN ukjent-kolonne/-tabell
+(`PGRST204`/`PGRST205`/`42703`) med én bruker-toast + `console.error` (dedup), mens
+forventede RLS-/nettverksfeil forblir stille. Ny test `tests/sync-schema-error.test.js`.
+Ingen DB-migrering (kun kjøring av en allerede-eksisterende). Se `docs/accounts.md` og `TODO.md`.
+
 Verifisert i nettleser (Playwright) mot en hermetisk in-memory-backend
 (`mock-backend.js`, aktiveres med `?mock=1`) som etterligner Supabase-
 klienten og deler «server» mellom faner via localStorage — kjør to faner for
