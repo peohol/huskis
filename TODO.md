@@ -138,11 +138,17 @@ speiler det; klienten pusher/leser feltet via samme rad-CRUD (`cleanCard`/
 `mergeCardScalar`/`insertPayload`/`updatePayload`). Implementert og verifisert i
 nettleser (mock-backend, desktop + mobil).
 
-- [ ] **Kjør «Supabase DB-oppsett»-workflowen** slik at `cards.collapsed`-kolonnen
-      (+ LWW-trigger/`get_my_doc`/`import_doc`) kommer på ekte Supabase. Uten den
-      avviser PostgREST hver kort-insert/-update (manglende kolonne) og
-      kontomodus-synken for lister brytes — kjør den FØR denne runden merges til
-      produksjon (samme lærdom som kategori-migreringen).
+- [x] **«Supabase DB-oppsett»-workflowen kjørt** (run 29823782053,
+      workflow_dispatch mot `main`, conclusion `success`, 2026-07-21) —
+      `cards.collapsed`-kolonnen (+ LWW-trigger/`get_my_doc`/`import_doc`) er nå på
+      ekte Supabase. Denne migreringen (og `items.collapsed` under) sto igjen mens
+      de deployede feature-ene (#47/#52) allerede sendte `collapsed` i HVER kort-/
+      element-insert/-update, så PostgREST avviste alle (`pushOps` svelger feilen
+      stille) og kontomodus-synken for lister/listepunkter var brutt: nye
+      listepunkter nådde aldri serveren, så de dukket ikke opp på andre enheter.
+      Samme feilmodus som kategori-migreringen (over). Kjørt etter at synk-feilen
+      ble diagnostisert (ikke FØR merge denne gangen — feature-ene lå allerede i
+      produksjon).
 
 ## Skjema-endring: lukketilstand for kategorier (`items.collapsed`)
 
@@ -157,11 +163,13 @@ leser feltet via samme rad-CRUD (`cleanItem`/`mergeItem`/`insertPayload`/
 `updatePayload`). Implementert og verifisert i nettleser (mock-backend, desktop +
 mobil).
 
-- [ ] **Kjør «Supabase DB-oppsett»-workflowen** slik at `items.collapsed`-kolonnen
-      (+ item-LWW-trigger/`get_my_doc`/`import_doc`) kommer på ekte Supabase. Uten
-      den avviser PostgREST hver element-insert/-update (manglende kolonne) og
-      kontomodus-synken for elementer brytes — kjør den FØR denne runden merges til
-      produksjon (samme lærdom som kategori-/`cards.collapsed`-migreringene).
+- [x] **«Supabase DB-oppsett»-workflowen kjørt** (run 29823782053,
+      workflow_dispatch mot `main`, conclusion `success`, 2026-07-21) —
+      `items.collapsed`-kolonnen (+ item-LWW-trigger/`get_my_doc`/`import_doc`) er nå
+      på ekte Supabase. Kjørt i samme run som `cards.collapsed` (over) etter at
+      synk-feilen ble diagnostisert: begge kolonnene manglet i produksjon, så hver
+      listepunkt-skriving ble avvist og innhold lagt inn på én enhet synket aldri
+      til de andre.
 
 ## Skjema-/logikk-endring: hierarkiske rettigheter + invitasjonspolicy (`invite_policy`)
 
