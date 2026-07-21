@@ -170,6 +170,11 @@ Størrelse/form kommer fra egne klasser: `.btn` (modaler), `.btn-small`,
   deler det AKTIVE universet/gruppen; flate-mønster; kun kontomodus).
   Delt-merket (`.share-badge`) brukes av gruppe-/univers-chips; listekortets
   delt-status vises som chip i meta-raden (`docs/scheduling.md`).
+- Checkboxes i modaler: rendres alltid som en pille-formet toggle-switch, ren
+  CSS på selve `<input type="checkbox">` (`appearance: none` + `::before`-
+  håndtak, ingen ekstra DOM/JS). Av = grå spor, på = `--grad-green` (samme
+  grønn som `.btn-green`). Delt regel på tvers av `.time-lock input` (tidslås)
+  og `.share-policy-label input` (invitasjonspolicy) i `styles.css`.
 - Draging (ingen håndtak): på et objekts navn-/tittelsone (`attachHoldDrag`). På
   **touch** løftes det med trykk-og-hold (200 ms; press-scale `.drag-hold`); på
   **mus/desktop** starter draget umiddelbart på bevegelse (ingen delay). **Cursor:**

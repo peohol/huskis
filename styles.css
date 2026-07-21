@@ -1927,8 +1927,7 @@ body.no-auth #account-btn { display: none; }
 .share-policy-row { margin: 2px 0 2px; }
 .share-policy-label { display: flex; align-items: center; gap: 8px; cursor: pointer;
   font-size: var(--fs-sm); font-weight: 600; color: var(--ink); }
-.share-policy-label input[type="checkbox"] { width: 18px; height: 18px; flex: none; cursor: pointer; }
-.share-policy-label input[type="checkbox"]:disabled { cursor: default; }
+.share-policy-label input[type="checkbox"] { flex: none; }
 .share-policy-note { margin: 4px 0 0; font-size: var(--fs-xs); color: var(--ink-soft); font-weight: 500; }
 .share-noinvite { margin: 8px 0 2px; }
 .share-section-title { font-size: var(--fs-xs); font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; color: var(--ink-soft); margin: 2px 0; }
@@ -2185,12 +2184,56 @@ body.no-auth #account-btn { display: none; }
   font-weight: 600;
   color: var(--ink);
 }
-.time-lock input {
-  width: 21px;
-  height: 21px;
+.time-lock input { flex: none; }
+
+/* ---------------- Toggle-switcher (egendefinerte checkboxes) ----------------
+   Alle checkboxes i modaler rendres som en pille-formet av/på-bryter (ren CSS,
+   inputen selv er kontrollen — appearance:none + ::before-håndtak; ingen ekstra
+   DOM). Av = grå spor, på = grønn (samme --grad-green som .btn-green). */
+.time-lock input[type="checkbox"],
+.share-policy-label input[type="checkbox"] {
+  -webkit-appearance: none;
+  appearance: none;
+  position: relative;
+  width: 42px;
+  height: 25px;
+  border-radius: 999px;
+  background: #cfccd6;
   margin: 0;
-  accent-color: var(--primary);
   cursor: pointer;
+  flex: none;
+  transition: background-color 0.16s ease;
+}
+.time-lock input[type="checkbox"]::before,
+.share-policy-label input[type="checkbox"]::before {
+  content: '';
+  position: absolute;
+  top: 2.5px;
+  left: 2.5px;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 1px 3px rgba(35, 45, 55, 0.35);
+  transition: transform 0.16s ease;
+}
+.time-lock input[type="checkbox"]:checked,
+.share-policy-label input[type="checkbox"]:checked {
+  background: var(--grad-green);
+}
+.time-lock input[type="checkbox"]:checked::before,
+.share-policy-label input[type="checkbox"]:checked::before {
+  transform: translateX(17px);
+}
+.time-lock input[type="checkbox"]:focus-visible,
+.share-policy-label input[type="checkbox"]:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+}
+.time-lock input[type="checkbox"]:disabled,
+.share-policy-label input[type="checkbox"]:disabled {
+  opacity: 0.5;
+  cursor: default;
 }
 @media (max-width: 560px) {
   .time-row { gap: 6px; }
