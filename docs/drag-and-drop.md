@@ -235,9 +235,11 @@ fordypning («hylle», se `docs/design-system.md`).
   kortets `items` fra HELE DOM-treet (nivå 1 + hver kategoris `.cat-items`) og
   setter `it.cat`; ved slipp stemples kun det flyttede listepunktets `home`/`cat`/
   `pos` (kirurgisk, `cat` på posisjonsregisteret som `home`).
-- **Kategori-draging** (`startCategoryDrag`) flytter en kategori KUN innen sin
-  egen liste på nivå 1; den kan ikke nøstes i en annen kategori (slipp på en
-  annen kategori = vanlig bytte-plass). Idet draget starter **kollapser**
+- **Kategori-draging** (`startCategoryDrag`) reorderer en kategori på nivå 1 i
+  sin egen liste, ELLER flytter den (med alle medlemmene) INN i en annen liste —
+  se «Kategori → en annen liste» under. Den kan ikke nøstes i en annen kategori
+  (slipp på en annen kategori = vanlig bytte-plass på nivå 1). Idet draget starter
+  **kollapser**
   kategorien (`CAT_COLLAPSE_MS` = 300 ms) til bare overskriften — `.cat-items`
   animeres til høyde/opacity 0 og placeholderen krymper til header-høyden; ved
   slipp folder den seg ut igjen (`expandCategory`, reversert animasjon).
@@ -305,6 +307,51 @@ gir den nye lista en `pos` mellom placeholderens board-naboer.
 - **Avkryssing**: et avkrysset listepunkt (også i en kategori) flyttes til kortets
   felles «Utført»-seksjon; reaktivering ruter det tilbake INN i kategorien sin
   (om den finnes), ellers til nivå 1 (se `toggleItemDone`).
+
+## Kategori → en annen liste (`moveCategoryToCard`)
+
+En kategori kan dras INN i en annen eksisterende liste (ikke bare reorderes i sin
+egen eller ekstraheres til en helt ny). `updateCategoryPlacement` er tre-veis: over
+KILDE-lista → reorder på nivå 1; over en ANNEN liste (`pointerOverAnyCard`, ≠ kilde)
+→ placeholder på nivå 1 der (kategorier nøstes aldri, så alltid `.items-container`,
+ikke en `.cat-items`); board-luft → ekstraher til ny liste. Ved slipp i en annen
+liste (`onCategoryUp`, mål-kort ≠ kilde-kort) flytter `moveCategoryToCard` kategorien
+OG alle medlemmene (aktive + avkryssede + slettede) til mål-kortet: medlemmene beholder
+`cat`-pekeren, både kategori og medlemmer får ny `home` (= mål-kortet) og stemples
+(`home` rir på posisjonsregisteret), kategoriens `pos` settes mellom slipp-naboene.
+Board-et rebygges rent med `render()` (ikke kirurgisk, som ekstraheringen), så
+«Utført»-medlemmer i andre DOM-seksjoner følger korrekt med. Reorder INNEN kilde-lista
+bruker fortsatt den kirurgiske drop-flyten (`dropIntoPlaceholder` + `settleCategoryAfterDrag`).
+
+## Peek-åpning av kollapsede dra-mål (`updatePeek`, `PEEK_MS` = 200 ms)
+
+Drar man et **listepunkt** over en KOLLAPSET liste eller kategori — eller en hel
+**kategori** over en kollapset liste — og BLIR VÆRENDE der i `PEEK_MS`, åpnes målet
+MIDLERTIDIG (peek) så man ser hvor objektet vil lande. Flytter man videre uten å
+slippe, kollapses målet tilbake til sin opprinnelige lille tilstand. Peek er ren
+forhåndsvisning: den rører IKKE `card.collapsed`/`item.collapsed` og lagrer ikke.
+
+- **To lag samtidig** (`drag.peekCard` + `drag.peekCat`, kun kategori-laget for
+  listepunkt-drag): «listen OG/ELLER kategorien» åpnes progressivt — først lista, så
+  en kollapset kategori inne i den. Hvert lag har en 200 ms-timer (`setPeekLayer`); et
+  allerede peek-åpnet mål (ikke lenger `.collapsed`) beholdes så lenge pekeren er i det.
+  `peekExpand`/`peekCollapse` bruker de momentane body-veksel-funksjonene
+  (`expandCardBody`/`collapseCardBody`, `expandCatBody`/`collapseCatBody`) + skjuler/viser
+  «(N)»-telleren (`peekChip`). `updatePeek` kalles fra `onItemMove`/`onCategoryMove`.
+- **Stabilitets-vakt** (`commit`-parameteren i `updateItemPlacement`/`updateCategoryPlacement`):
+  MENS et kollapset mål (ennå ikke peek-åpnet) hoveres, blir placeholderen der den er
+  — flyttet vi den inn nå, ville kildekortet krympet og målet (særlig en liste UNDER
+  kilden i énkolonne) stukket vekk under pekeren, så 200 ms-timeren aldri rakk å løpe
+  ut. Ved selve slippet kaller `onItemUp`/`onCategoryUp` med `commit=true` så et rask
+  slipp (før peek rakk) fortsatt lander i det kollapsede målet.
+- **Ved slipp** (`resolvePeekOnDrop`): et peek-åpnet mål slippet LANDET i forblir åpent
+  (persisteres `collapsed=false` + stemples), et peek-åpnet mål man IKKE landet i
+  kollapses tilbake. Kategori-slipp INN i en annen liste rebygger med `render()` og
+  setter mål-listas `collapsed=false` når den var peek-åpnet. `refreshAllCollapseCounts`
+  oppdaterer «(N)» på lister/kategorier som fikk et rask slipp uten peek.
+- **Opprydding**: `clearAllPeeks(recollapse)` river ned begge lag (kalt av `finishDrag`
+  som sikkerhetsnett → kollapser tilbake ved avbrudd/`pointercancel`); `beginDragCommon`
+  nullstiller `drag.peekCard`/`peekCat` per drag.
 
 ## Univers- og gruppe-rader (i sine modaler)
 

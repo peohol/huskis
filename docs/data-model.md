@@ -116,6 +116,10 @@ osv.), så kryss-univers-flytting er umulig i UI-et.
   (`owner_id`) av den nye lista — den lages lokalt med ny id og pushes som en ny rad
   eid av gjeldende bruker, uansett hvem som eide kilde-lista. Umulig fra en låst
   (frosset) liste (selve draget er da avskrudd).
+- **Kategori inn i en annen liste** (`moveCategoryToCard`, `docs/drag-and-drop.md`):
+  en kategori kan dras inn i en annen eksisterende liste — den blir en nivå-1-kategori
+  der (nøstes aldri), og medlemmene følger med (`cat` bevart, ny `home` = mål-lista).
+  Dette er den ENESTE måten en kategori bytter liste på (utover ekstrahering til en ny).
 - **Lukketilstand for kategorier** (`item.collapsed`): rir på innholds-registeret
   (`ts`/`org`, som `isCat`/`lockTimes`). Kun meningsfullt for `isCat`-rader. I
   kontomodus egen kolonne (`items.collapsed`, se `TODO.md`).
