@@ -254,6 +254,37 @@ const log = (n, ok, x = '') => { results.push(ok); console.log((ok ? 'PASS' : 'F
     await p.close();
   }
 
+  /* ============ 6) Kategori → LÅST mål-liste: rulles tilbake (ikke optimistisk snap) ============
+     DB-guarden krever redigering på både gammelt og nytt card_id, så en flytting inn i
+     en låst liste ville blitt avvist og snappet tilbake ved synk. Vi ruller derfor
+     tilbake med en gang og sier fra. Låst mål peek-åpnes heller ikke. */
+  {
+    const p = await b.newPage({ viewport: { width: 1200, height: 900 }, hasTouch: true });
+    const errs = []; p.on('pageerror', (e) => errs.push(e.message));
+    await register(p); await seed(p);
+    // Marker B som låst FOR MEG (ikke min, låst, mount-grense så localIsAdmin=false).
+    await p.evaluate(() => {
+      const H = window.__huskis, st = H.state;
+      const g = st.universes.find((u) => u.id === st.activeUniverse).groups.find((x) => x.id === st.activeGroup);
+      const B = g.cards.find((c) => c.id === 'card-B'); B._mine = false; B._locked = true; B._mount = true;
+    });
+    const src = await centerOf(p, '.category[data-id="cat-1"] .cat-head');
+    const bHead = await centerOf(p, '.card[data-id="card-B"] .card-head');
+    await touch(p, 'pointerdown', src.x, src.y); await p.waitForTimeout(240);
+    await touch(p, 'pointermove', src.x + 4, src.y + 4); await p.waitForTimeout(40);
+    await touch(p, 'pointermove', bHead.x, bHead.y); await p.waitForTimeout(60);
+    await touch(p, 'pointermove', bHead.x + 1, bHead.y + 4); await p.waitForTimeout(60);
+    await touch(p, 'pointerup', bHead.x + 1, bHead.y + 4); await p.waitForTimeout(400);
+    const st = await state(p);
+    const catStaysInA = st['card-A'].items.some((it) => it.id === 'cat-1');
+    const notInB = !st['card-B'].items.some((it) => it.id === 'cat-1');
+    const toastMsg = await p.evaluate(() => { const t = document.getElementById('toast'); return t ? t.textContent : ''; });
+    log('6 kategorien ble IKKE flyttet inn i låst B', catStaysInA && notInB, JSON.stringify({ A: st['card-A'].items.map((x) => x.id), B: st['card-B'].items.map((x) => x.id) }));
+    log('6 toast «Lista er låst» vist', /låst/i.test(toastMsg), 'toast=' + toastMsg);
+    log('6 ingen JS-feil', errs.length === 0, errs.join(' | '));
+    await p.close();
+  }
+
   await b.close();
   const failed = results.filter((x) => !x).length;
   console.log('\n==== ' + (results.length - failed) + '/' + results.length + ' PASS ====');

@@ -3359,21 +3359,28 @@
   // Kalles hver pekerbevegelse: finn kollapset liste/kategori under pekeren og
   // styr peek-lagene. Et allerede peek-åpnet mål (ikke lenger `.collapsed`) beholdes
   // så lenge pekeren er innenfor det.
+  // Er lista/kategorien LÅST for meg? (En kategori arver kortets låsestatus.) Låste
+  // mål peek-åpnes ikke — et slipp der ville uansett blitt avvist av serveren.
+  function cardElFrozen(cardEl) {
+    const cd = cardEl && findCard(cardEl.dataset.id);
+    return cd ? frozen(cd) : false;
+  }
   function updatePeek(x, y) {
     if (drag.kind !== 'item' && drag.kind !== 'category') return;
     // Liste-laget (begge dra-typer): behold gjeldende peek-liste om pekeren fortsatt
-    // er i den; ellers første kollapsede liste under pekeren (ikke kildekortet).
+    // er i den; ellers første KOLLAPSEDE, IKKE-LÅSTE liste under pekeren (ikke kildekortet).
     let cardTarget = null;
     if (drag.peekCard && drag.peekCard.el.isConnected &&
         pointerInRect(drag.peekCard.el.getBoundingClientRect(), x, y)) {
       cardTarget = drag.peekCard.el;
     } else {
       for (const c of board.querySelectorAll('.card.collapsed')) {
-        if (c !== drag.card && pointerInRect(c.getBoundingClientRect(), x, y)) { cardTarget = c; break; }
+        if (c !== drag.card && !cardElFrozen(c) && pointerInRect(c.getBoundingClientRect(), x, y)) { cardTarget = c; break; }
       }
     }
     setPeekLayer('peekCard', 'card', cardTarget);
-    // Kategori-laget (kun listepunkt-drag): tilsvarende for en kollapset kategori.
+    // Kategori-laget (kun listepunkt-drag): tilsvarende for en kollapset kategori i
+    // en ikke-låst liste.
     let catTarget = null;
     if (drag.kind === 'item') {
       if (drag.peekCat && drag.peekCat.el.isConnected &&
@@ -3381,7 +3388,7 @@
         catTarget = drag.peekCat.el;
       } else {
         for (const cat of board.querySelectorAll('.category.collapsed')) {
-          if (pointerInRect(cat.getBoundingClientRect(), x, y)) { catTarget = cat; break; }
+          if (!cardElFrozen(cat.closest('.card')) && pointerInRect(cat.getBoundingClientRect(), x, y)) { catTarget = cat; break; }
         }
       }
     }
@@ -3599,6 +3606,17 @@
     // rebygges med render(), så peek-DOM-en forkastes — rydd peek-slotene uten
     // re-kollaps. Et peek-åpnet mål slippet landet i forblir åpent (collapsed=false).
     if (targetCardId && targetCardId !== sourceCardId) {
+      // Mål-lista LÅST for meg? DB-guarden krever redigering på BÅDE gammelt og nytt
+      // card_id, så en flytting ville blitt avvist og snappet tilbake ved neste synk.
+      // Rull tilbake som et avbrutt drag i stedet (og si fra).
+      const tcCheck = findCard(targetCardId);
+      if (tcCheck && frozen(tcCheck)) {
+        restoreDraggedToOrigin();
+        settleCategoryAfterDrag(el);
+        finishDrag(); // rydder + clearAllPeeks(true) kollapser evt. peek-åpnet mål tilbake
+        showToast('Lista er låst');
+        return;
+      }
       const keepOpen = !!(drag.peekCard && drag.peekCard.expanded && drag.peekCard.el === targetCardEl);
       const prevPos = rowPos(drag.ph.previousElementSibling);
       const nextPos = rowPos(drag.ph.nextElementSibling);
