@@ -352,6 +352,23 @@ og `isSchemaMismatch`/`reportWriteResult` fanger KUN ukjent-kolonne/-tabell
 forventede RLS-/nettverksfeil forblir stille. Ny test `tests/sync-schema-error.test.js`.
 Ingen DB-migrering (kun kjøring av en allerede-eksisterende). Se `docs/accounts.md` og `TODO.md`.
 
+**Peek-åpning av kollapsede dra-mål + kategori-til-annen-liste (siste runde)**: drar
+man et **listepunkt** over en KOLLAPSET liste/kategori — eller en hel **kategori** over
+en kollapset liste — og blir værende i **200 ms** (`PEEK_MS`), åpnes målet MIDLERTIDIG
+(`updatePeek`, peek) så man ser hvor det vil lande; flytter man videre uten å slippe,
+kollapses det tilbake. Peek er ren forhåndsvisning (rører ikke `card.collapsed`/
+`item.collapsed`); to lag (`drag.peekCard` + `drag.peekCat`) åpner «listen OG/ELLER
+kategorien». En **stabilitets-vakt** (`commit`-param i `updateItemPlacement`/
+`updateCategoryPlacement`) holder placeholderen i ro mens et ennå-ikke-åpnet kollapset
+mål hoveres (ellers krymper kildekortet og målet stikker vekk under pekeren → timeren
+rakk aldri å løpe ut); ved selve slippet lander objektet i målet uansett. Slipp INN i et
+peek-åpnet mål holder det åpent (`resolvePeekOnDrop`, `collapsed=false` lagres); ellers
+kollapses det tilbake. **Ny kapasitet:** en kategori kan nå dras INN i en annen
+eksisterende liste (`moveCategoryToCard` — kategori + medlemmer flytter, `home` oppdateres,
+`render()` rebygger); `updateCategoryPlacement` er tre-veis (kilde-reorder / inn i annen
+liste / ekstraher til ny). Ny test `tests/dnd-peek-collapsed.test.js`. Ingen DB-migrering.
+Se `docs/drag-and-drop.md` og `docs/data-model.md`.
+
 Verifisert i nettleser (Playwright) mot en hermetisk in-memory-backend
 (`mock-backend.js`, aktiveres med `?mock=1`) som etterligner Supabase-
 klienten og deler «server» mellom faner via localStorage — kjør to faner for
