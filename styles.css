@@ -1023,6 +1023,33 @@ body {
 }
 .category:not(:last-child)::after { margin: 12px -10px 8px; }
 .item + .category::before { margin: 8px -10px 12px; }
+
+/* Forhåndsvisning av skillelinjene under DnD (se applyDragSeparators i app.js).
+   Mens et listepunkt eller en kategori dras, tar JS over linjene i containerne
+   draget berører: reglene over kjenner hverken placeholderen (den kommende
+   plassen) eller det løftede objektet (som er ute av flyten), så de slås av her,
+   og hver rad som skal ha en linje OVER seg får `.sep-above`.
+   Samme geometri som i hvile, men uttrykt fra den NEDRE raden: 25px margin-top
+   (8 + 1 + 8 rundt linja + 8px containergap som allerede finnes = 33px total luft,
+   linja midt i med 16px på hver side), og selve linja males absolutt 16px over
+   raden — kant-til-kant (-10px) som ellers. Absolutt posisjonering (ikke en
+   flex-linje) fordi den skal virke likt på listepunkter, kategorier OG
+   placeholderen, uten å endre radenes DOM-naboskap. */
+.items-container.seps-managed > .category::after,
+.items-container.seps-managed > .category:not(.sep-above)::before { content: none; }
+/* Kun radene som faktisk har en linje posisjoneres (aldri det løftede objektet —
+   det er `position: absolute` og skal bli det). */
+.items-container.seps-managed > .sep-above { position: relative; margin-top: 25px; }
+.items-container.seps-managed > .sep-above::before {
+  content: '';
+  position: absolute;
+  left: -10px;
+  right: -10px;
+  top: -17px;
+  height: 1px;
+  margin: 0;                          /* nullstill hvile-regelens marger på .category::before */
+  background: rgba(0, 0, 0, 0.15);    /* samme linje som i hvile */
+}
 .cat-head { display: flex; align-items: center; gap: 6px; padding: 0 6px; }
 /* Kategori-ikon: skjult i hvile, vist til venstre for tittelen KUN mens
    kategorien dras (se .category.dragging). Svarte streker (ICONS.category) mot

@@ -369,6 +369,19 @@ eksisterende liste (`moveCategoryToCard` — kategori + medlemmer flytter, `home
 liste / ekstraher til ny). Ny test `tests/dnd-peek-collapsed.test.js`. Ingen DB-migrering.
 Se `docs/drag-and-drop.md` og `docs/data-model.md`.
 
+**Skillelinje-forhåndsvisning under DnD (siste runde)**: kategorienes horisontale
+skillelinjer vises nå ALLEREDE mens man drar, slik de blir hvis man slipper der
+placeholderen står — linjer rundt kategori-placeholderen når en kategori dras, og
+en linje der et listepunkts placeholder er nærmeste nabo til en kategori over/under.
+Hvile-reglene (`.category::before/::after`) kjenner hverken placeholderen eller at
+det løftede objektet er ute av flyten (ga fantom-linjer), så JS overtar linjene i
+containerne draget berører: `.seps-managed` slår av pseudo-reglene, og hver rad som
+skal ha en linje over seg får `.sep-above` (klasser, ikke innsatte elementer — DOM-
+naboskapet brukes av plasserings-/pos-logikken). Identisk geometri i hvile og
+forhåndsvisning (33 px luft, linja midt i), så slippet er uten hopp. Ny test
+`tests/dnd-separators-preview.test.js`. Ingen DB-migrering. Se
+`docs/drag-and-drop.md` og `docs/design-system.md`.
+
 Verifisert i nettleser (Playwright) mot en hermetisk in-memory-backend
 (`mock-backend.js`, aktiveres med `?mock=1`) som etterligner Supabase-
 klienten og deler «server» mellom faner via localStorage — kjør to faner for
