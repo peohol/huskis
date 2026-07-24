@@ -260,6 +260,31 @@ fordypning («hylle», se `docs/design-system.md`).
     måler header-høyden med `offsetHeight` (IKKE `getBoundingClientRect`, som ville
     inkludert dra-rotasjonen og blåst opp en bred, lav header) → `collapsedH = headH
     + 12` gir riktig placeholder-/treff-høyde.
+- **Skillelinjene forhåndsvises under draget** (`applyDragSeparators`). I hvile
+  males linjene rundt en kategoris hylle av pseudo-elementer på selve kategorien
+  (`.category::before/::after`, se `docs/design-system.md`): en linje mellom to
+  nabo-rader på nivå 1 når minst én av dem er en kategori. De reglene holder ikke
+  under et drag — de kjenner ikke **placeholderen** (den kommende plassen), og de
+  teller det **løftede** objektet som nabo selv om det er `position:absolute` og
+  ute av flyten (som ga fantom-linjer). Under listepunkt- og kategori-draging tar
+  JS derfor over linjene i de nivå-1-containerne draget berører (kildens
+  `.items-container` + placeholderens): containeren får `.seps-managed` (slår av
+  pseudo-reglene) og hver rad som skal ha en linje OVER seg får `.sep-above`.
+  Placeholderen teller som den raden den representerer — kategori-placeholderen
+  (`.cat-placeholder`) som en kategori — så en dratt kategori får linjer rundt
+  placeholderen sin, og et dratt listepunkt får en linje der placeholderen er
+  nærmeste nabo til en kategori over og/eller under.
+  - Linjene uttrykkes som **klasser på radene**, ikke innsatte linje-elementer:
+    radenes DOM-naboskap brukes av plasserings- og pos-logikken (`wouldMove`,
+    `rowPos`), og et element mellom radene ville forstyrret den.
+  - Kalles ved dragstart (ETTER `liftElement`/`liftCategory`, så det dratte alt er
+    ute av flyten), ved modusbytte (`setExtractMode`/`setReorderMode`) og etter hver
+    placeholder-flytting — alltid FØR `flipFrom`, så FLIP-en måler den nye layouten
+    og linjene glir på plass sammen med radene.
+  - Ryddes (`clearAllDragSeparators`) i `finishDrag`, og i `onItemUp`/`onCategoryUp`
+    rett etter at objektet har erstattet placeholderen — FØR `dropIntoPlaceholder`
+    måler hvileposisjonen. Geometrien er identisk i hvile og forhåndsvisning (33px
+    total luft, linja midt i), så byttet er usynlig.
 - **Oppløs kategori** (`dissolveCategory`, boble-sprekk-knappen): listepunktene blir
   ukategoriserte og «arver» kategoriens plass i nivå-1-lista (fordeles jevnt i
   pos-gapet mellom kategorien og neste nivå-1-rad, rekkefølge bevart), og selve

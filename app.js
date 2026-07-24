@@ -2424,6 +2424,7 @@
 
   function finishDrag() {
     drag.active = false;
+    clearAllDragSeparators(); // tilbake til hvile-reglene (pseudo-linjene på .category)
     clearAllPeeks(true); // sikkerhetsnett: kollaps evt. peek-åpnede mål tilbake (no-op om alt alt er løst)
     window.removeEventListener('scroll', onDragScroll);
     document.documentElement.style.overflowAnchor = ''; // gjenopprett scroll-anchoring
@@ -2909,6 +2910,7 @@
     drag.ph = ph;
 
     liftElement();
+    applyDragSeparators(); // etter løftet: det dratte er da ute av flyten (ingen nabo)
     drag.el.style.transform = `rotate(${cardRotation()}deg) scale(1.03)`; // dynamisk rotasjon (globalt)
     window.addEventListener('pointermove', onItemMove);
     window.addEventListener('pointerup', onItemUp);
@@ -2930,6 +2932,63 @@
     if (!sib || !(sib.classList.contains('item') || sib.classList.contains('category'))) return null;
     const o = findItemById(sib.dataset.id);
     return o ? (o.pos || 0) : null;
+  }
+
+  /* ---------------- Skillelinjer under DnD (forhåndsvisning) ----------------
+     I hvile males skillelinjene rundt en kategoris hylle av pseudo-elementer på
+     selve kategorien (.category::before/::after i styles.css): en linje mellom to
+     nabo-rader på nivå 1 når minst én av dem er en kategori. Under et listepunkt-
+     eller kategori-drag holder ikke de reglene: de kjenner ikke PLACEHOLDEREN (som
+     er den kommende plassen), og de teller det LØFTEDE objektet som nabo selv om
+     det er absolutt posisjonert og ute av flyten. Da tar JS over i containerne
+     draget berører — `.seps-managed` slår av pseudo-linjene, og hver rad som skal
+     ha en linje OVER seg får `.sep-above` (margin + en absolutt posisjonert linje
+     med samme geometri som i hvile). Placeholderen teller som den raden den
+     representerer (kategori-placeholderen som en kategori), så man ser
+     skillelinjene slik de BLIR hvis man slipper der den står. Klasser (ikke
+     innsatte linje-elementer) nettopp fordi radenes DOM-naboskap brukes av
+     plasserings- og pos-logikken (wouldMove/rowPos). */
+  const sepConts = new Set();
+  // Radene i en nivå-1-container som deltar: listepunkter, kategorier og
+  // placeholderen. Det dratte objektet er ute av flyten og er ingen nabo.
+  function sepRows(cont) {
+    return [...cont.children].filter((c) => !c.classList.contains('dragging') &&
+      (c.classList.contains('item') || c.classList.contains('category') ||
+       c.classList.contains('item-placeholder')));
+  }
+  function isCatRow(el) {
+    return el.classList.contains('category') || el.classList.contains('cat-placeholder');
+  }
+  function clearSepsIn(cont) {
+    cont.classList.remove('seps-managed');
+    [...cont.children].forEach((c) => c.classList.remove('sep-above'));
+    sepConts.delete(cont);
+  }
+  // Kalles ved dragstart og etter hver placeholder-flytting — FØR FLIP-en måler
+  // den nye layouten, så linjene som dukker opp/forsvinner animeres med radene.
+  function applyDragSeparators() {
+    const level1 = (n) => (n && n.classList && n.classList.contains('items-container')) ? n : null;
+    const conts = new Set();
+    const src = level1(drag.origParent);   // kilden: det løftede objektet er ikke lenger en nabo
+    if (src) conts.add(src);
+    const dst = drag.ph && level1(drag.ph.parentNode); // målet: placeholderen er en ny nabo
+    if (dst) conts.add(dst);
+    for (const cont of [...sepConts]) if (!conts.has(cont)) clearSepsIn(cont);
+    for (const cont of conts) {
+      cont.classList.add('seps-managed');
+      sepConts.add(cont);
+      // Nullstill ALLE barn først (ikke bare radene): det løftede objektet kan ha
+      // fått en linje mens det ennå lå i flyten, og skal ikke bære den med seg.
+      [...cont.children].forEach((c) => c.classList.remove('sep-above'));
+      const rows = sepRows(cont);
+      rows.forEach((row, i) => {
+        const prev = i > 0 ? rows[i - 1] : null;
+        if (prev && (isCatRow(prev) || isCatRow(row))) row.classList.add('sep-above');
+      });
+    }
+  }
+  function clearAllDragSeparators() {
+    for (const cont of [...sepConts]) clearSepsIn(cont);
   }
 
   function onItemMove(ev) {
@@ -3047,6 +3106,7 @@
     const snap = snapshotRects(flipEls);
     if (action.pos === 'append') appendToItemsEnd(targetCont, ph);
     else placePlaceholder(targetCont, ph, action.ref, action.pos);
+    applyDragSeparators();
     flipFrom(snap, FLIP_MS);
     recordSwap(action);
   }
@@ -3074,6 +3134,9 @@
     const targetContainer = drag.ph.parentNode;
     targetContainer.insertBefore(el, drag.ph);
     drag.ph.remove();
+    // Tilbake til hvile-skillelinjene FØR dropIntoPlaceholder måler hvileposisjonen
+    // (ellers måles den uten en evt. linje over det slupne objektet → et hopp).
+    clearAllDragSeparators();
     // Peek-oppgjør FØR finishDrag: et peek-åpnet mål elementet landet i forblir åpent,
     // andre peek-åpnede mål kollapses tilbake (finishDrag sitt sikkerhetsnett blir no-op).
     resolvePeekOnDrop(el.closest('.card'), el.closest('.category'));
@@ -3285,6 +3348,7 @@
     const snap = snapshotRects(rows);
     if (action.pos === 'append') cont.appendChild(ph);
     else placePlaceholder(cont, ph, action.ref, 'before');
+    applyDragSeparators();
     flipFrom(snap, FLIP_MS);
   }
   /* ---------------- Ekstrahering til ny liste (kategori/listepunkt → nytt kort) ----------------
@@ -3453,6 +3517,7 @@
     if (drag.ph && drag.ph.parentNode) drag.ph.remove();
     drag.ph = makeNewListPlaceholder(Math.max(72, drag.height));
     board.appendChild(drag.ph);
+    applyDragSeparators(); // placeholderen forlot lista → linjene der uten den
   }
   // Bytt tilbake til reorder-placeholderen (element-/kategori-placeholder i lista).
   function setReorderMode() {
@@ -3467,6 +3532,7 @@
     // straks til rett container/plass (updateItemPlacement / placeRowPlaceholder).
     const home = drag.origParent || (drag.card && drag.card.querySelector('.items-container')) || board;
     home.appendChild(ph);
+    applyDragSeparators();
   }
   // Plassér ny-liste-placeholderen blant board-ets kort etter pekerposisjon.
   function placeNewListPlaceholder() {
@@ -3520,6 +3586,7 @@
     drag.ph = ph;
 
     liftCategory();
+    applyDragSeparators(); // etter løftet: det dratte er da ute av flyten (ingen nabo)
     drag.el.style.transform = `rotate(${cardRotation()}deg) scale(1.03)`; // dynamisk rotasjon (globalt)
     collapseCategory(catEl, ph);
     window.addEventListener('pointermove', onCategoryMove);
@@ -3635,6 +3702,7 @@
     // Samme liste: reorder på nivå 1.
     cont.insertBefore(el, drag.ph);
     drag.ph.remove();
+    clearAllDragSeparators(); // hvile-linjene tilbake før hvileposisjonen måles
     dropIntoPlaceholder(el, false); // fly inn i sloten (kollapset) …
     settleCategoryAfterDrag(el);    // … og fold ut igjen (med mindre klikk-kollapset)
     finishDrag();
