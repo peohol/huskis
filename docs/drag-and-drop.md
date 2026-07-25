@@ -341,26 +341,51 @@ den). `extractionPos` gir den nye lista en `pos` mellom placeholderens board-nab
 Grensen mellom lister avgjøres av det LØFTEDE OBJEKTETS boks (`draggedRect()`,
 uklemt), ikke av pekeren. Pekeren sitter der man tok tak, så et pekerbasert svar
 gjorde ny-liste-placeholderen mye lettere å få frem oppover enn nedover (og
-motsatt inn i den neste lista). Fire terskler, symmetriske hver vei — «1/3 har
-passert» = 1/3-linja ligger på andre siden av kanten:
+motsatt inn i den neste lista).
+
+Referanselinjene er listas **innholdssone** — fra **listetittelens** (korthodets)
+nedre kant til **+-knappenes** (`.add-item-row`) øvre kant — de SAMME linjene inn
+og ut. Kortets ytterkanter brukes ikke: tittelraden og knapperaden er rammen rundt
+innholdet, og et objekt som ligger oppå dem hører ikke til lista. «1/3 har passert»
+= 1/3-linja ligger på andre siden av referanselinja:
 
 | Bevegelse | Placeholderen skifter når … |
 |---|---|
-| UT av lista, oppover | objektets **øvre 1/3** har passert listens **øvre kant** |
-| UT av lista, nedover | objektets **nedre 1/3** har passert listens **nedre kant** |
-| INN i en liste, nedover | objektets **nedre 1/3** har passert **listetittelens** (korthodets) nedre kant |
-| INN i en liste, oppover | objektets **øvre 1/3** har passert **+-knappenes** (`.add-item-row`) øvre kant |
+| INN, nedover | objektets **øvre 1/3** har passert **tittelens** nedre kant |
+| UT, oppover | objektets **øvre 1/3** har passert **tittelens** nedre kant |
+| INN, oppover | objektets **nedre 1/3** har passert **+-knappenes** øvre kant |
+| UT, nedover | objektets **nedre 1/3** har passert **+-knappenes** øvre kant |
 
-Inn-tersklene ligger dypere inne i lista enn ut-tersklene → hysterese, ingen
-flimring i overgangen (en monoton bevegelse gir nøyaktig `reorder(A)` → `extract`
-→ `reorder(B)`). Implementasjonen er to predikater: `stay(kort)` (ut-tersklene,
-+ pekerens x innenfor kortet) og `enter(kort)` (`cardEnterBand`: korthodets bunn
-… +-knappenes topp; en KOLLAPSET liste har ingen av delene, der er hele kortet
-inn-sone, og en LÅST liste har ingen +-knapper → kortets bunn). Valget henger igjen
-i `drag.overCard` til `stay` brytes; et NYTT kort må oppfylle både `enter` og
-`stay`, så det aldri velges et kort man er «utenfor» i samme frame. Reglene er rent
-loddrette — **flerkolonne** (desktop) håndteres av pekerens x i `stay`, som før.
-Innenfor en liste er det fortsatt PEKEREN som velger rad/kategori.
+Det er altså én regel: **objektet er i lista når dets midtre 1/3 ligger innenfor
+sonen** (`cardBand` + `inCard` i `dragOverCard`). Reglene er rent loddrette —
+**flerkolonne** (desktop) håndteres av pekerens x, som før. Innenfor en liste er
+det fortsatt PEKEREN som velger rad/kategori. Valget henger igjen i
+`drag.overCard`; er flere kort aktuelle, vinner det man alt er i.
+
+Ingen dødbånd mellom inn og ut — hysteresen kommer av LAYOUTEN: idet man går inn,
+forsvinner ny-liste-placeholderen fra board-et og reorder-placeholderen legges inn
+i lista (sonen vokser med en radhøyde), og motsatt når man går ut. Begge deler
+flytter geometrien i «bli der du er»-retning, så en monoton bevegelse gir nøyaktig
+`reorder(A)` → `extract` → `reorder(B)`.
+
+To spesialtilfeller i `cardBand`:
+- **Kollapset eller peek-åpnet liste** → hele kortet er sonen. En kollapset liste
+  har ingen innholdssone i det hele tatt, og en peek-åpnet liste ble åpnet nettopp
+  fordi objektet siktet på den (over overskriften, det eneste som fantes) — den
+  skal ikke miste objektet i det den folder seg ut.
+- **For liten sone** (tom eller nesten tom liste) → hele kortet. Sonen måles da som
+  om reorder-placeholderen ikke lå der; ellers ville samme liste hatt en romsligere
+  sone UTE enn INNE, og objektet ville gått inn, falt ut igjen og flimret.
+  `MIN_BAND_SLACK` (48 px) må dekke at lista rykker oppover mot objektet idet
+  ny-liste-placeholderen (≥ 72 px) byttes mot en radhøyde inne i lista.
+
+Bieffekt verdt å kjenne til: å legge et objekt SIST i en liste er den trangeste
+plassen (objektets senter må forbi siste rads senter, mens nedre 1/3 må holde seg
+over knapperaden). For en KATEGORI som slippes sist i en liste med kategorier blir
+vinduet ekstra smalt, fordi lista samtidig krymper ~25 px (skillelinja under
+placeholderen forsvinner når den blir siste rad). Overskyter man, dukker ny-liste-
+placeholderen opp, og man kommer inn igjen med en liten bevegelse oppover
+(re-inngangsvinduet er ~25 px, se `tests/dnd-separators-preview.test.js`).
 
 Peek-åpning av kollapsede mål (under) bruker samme `dragOverCard`, ellers kunne
 placeholderen stå og vente på en peek som aldri startet fordi pekeren ennå ikke var

@@ -3398,49 +3398,67 @@
   /* Hvilken liste «er» det løftede objektet i? (null = board-luft → ekstrahering.)
      Avgjøres av OBJEKTETS EGEN BOKS, ikke pekeren: pekeren sitter der man tok tak,
      så med et pekerbasert svar dukket ny-liste-placeholderen opp mye senere på vei
-     nedover ut av en liste enn oppover (og motsatt inn i den neste). Terskler
-     (1/3 av objektets høyde, symmetriske hver vei):
-     - UT av lista: når objektets øvre 1/3 har passert listens ØVRE kant (på vei
-       opp), eller nedre 1/3 har passert listens NEDRE kant (på vei ned).
-     - INN i en liste: når nedre 1/3 har passert listetittelens (korthodets) nedre
-       kant (på vei ned), eller øvre 1/3 har passert +-knappenes øvre kant (på vei
-       opp).
-     Inn-tersklene ligger dypere inne i lista enn ut-tersklene → hysterese, ingen
-     flimring i overgangen. Vannrett (flerkolonne på desktop) avgjør pekerens
-     kolonne som før; 1/3-reglene er rent loddrette. Valget henger igjen i
-     `drag.overCard` til en ut-terskel passeres. */
-  function cardEnterBand(cardEl) {
+     nedover ut av en liste enn oppover (og motsatt inn i den neste).
+
+     Referanselinjene er listas INNHOLDSSONE — fra listetittelens (korthodets)
+     nedre kant til +-knappenes øvre kant — begge veier, både inn og ut. Kortets
+     ytterkanter brukes ikke: tittelraden og knapperaden er «rammen», og et objekt
+     som ligger oppå dem hører ikke til innholdet. Terskelen er den samme linja
+     hver vei, og det er alltid 1/3 av objektet som passerer den:
+     - INN/UT ved TITTELEN: objektets ØVRE 1/3 har passert tittelens nedre kant
+       (nedover = inn, oppover = ut).
+     - INN/UT ved KNAPPENE: objektets NEDRE 1/3 har passert +-knappenes øvre kant
+       (oppover = inn, nedover = ut).
+     Det er én regel: objektet er i lista når dets MIDTRE 1/3 ligger innenfor
+     sonen. Vannrett (flerkolonne på desktop) avgjør pekerens kolonne som før;
+     1/3-reglene er rent loddrette. Valget henger igjen i `drag.overCard`. */
+  // Minste innholdssone vi tør sikte på (utover objektets midtre 1/3). Må dekke
+  // layout-hoppet man får idet man går INN i en liste: ny-liste-placeholderen
+  // (≥ 72 px) forsvinner fra board-et samtidig som reorder-placeholderen (én
+  // radhøyde) legges inn i lista, så lista rykker et stykke oppover mot objektet.
+  // Er sonen mindre enn dette, ville objektet falt ut igjen i samme bevegelse.
+  const MIN_BAND_SLACK = 48;
+  function cardBand(cardEl, third) {
     const r = cardEl.getBoundingClientRect();
-    // En kollapset liste har hverken tittelrad å passere eller +-knapper — hele
-    // (header-høye) kortet er inn-sonen.
-    if (cardEl.classList.contains('collapsed')) return { top: r.top, bottom: r.bottom };
+    const collapsed = cardEl.classList.contains('collapsed');
+    // En KOLLAPSET liste har ingen innholdssone å sikte på — der er hele det
+    // (header-høye) kortet sonen. Det samme gjelder en PEEK-ÅPNET liste: den ble
+    // åpnet nettopp fordi objektet siktet på den (over overskriften, det eneste
+    // som fantes), og skal ikke falle ut av lista i det den folder seg ut.
+    const peeked = drag.peekCard && drag.peekCard.el === cardEl && drag.peekCard.expanded;
+    if (collapsed || peeked) return { top: r.top, bottom: r.bottom };
     const head = cardEl.querySelector('.card-head');
     const add = cardEl.querySelector('.add-item-row');
     const ar = add && !add.hidden ? add.getBoundingClientRect() : null;
-    return {
-      top: head ? head.getBoundingClientRect().bottom : r.top,
-      bottom: ar && ar.height ? ar.top : r.bottom, // låst liste: ingen +-knapper
-    };
+    // En LÅST liste har ingen +-knapper → kortets bunn.
+    const top = head ? head.getBoundingClientRect().bottom : r.top;
+    const bottom = ar && ar.height ? ar.top : r.bottom;
+    // Er sonen for liten til å sikte på — en TOM (eller nesten tom) liste har bare
+    // noen få piksler mellom tittelen og +-knappene — gjelder hele kortet i stedet,
+    // som for en kollapset liste. Størrelsen måles som om reorder-placeholderen
+    // IKKE lå der: den ligger inne i lista man ER i, og uten korreksjonen ville
+    // samme liste hatt en romsligere sone ute enn inne — objektet ville da gått inn,
+    // falt ut igjen og flimret.
+    const ph = drag.ph;
+    const phH = ph && ph.parentNode && cardEl.contains(ph) ? ph.getBoundingClientRect().height + 8 : 0;
+    if (bottom - top - phH < third + MIN_BAND_SLACK) return { top: r.top, bottom: r.bottom };
+    return { top, bottom };
   }
   function dragOverCard() {
     const d = draggedRect(); // UKLEMT: pekerens intensjon (som treffdeteksjonen ellers)
     const third = d.height / 3;
-    const topThird = d.top + third;     // «øvre 1/3 har passert» = denne linja over kanten
-    const botThird = d.bottom - third;  // «nedre 1/3 har passert» = denne linja under kanten
-    const px = drag.lastX;
-    const stay = (el) => {
+    const topThird = d.top + third;     // «øvre 1/3 har passert» = denne linja over linja
+    const botThird = d.bottom - third;  // «nedre 1/3 har passert» = denne linja under linja
+    const inCard = (el) => {
       const r = el.getBoundingClientRect();
-      return px >= r.left && px <= r.right && topThird >= r.top && botThird <= r.bottom;
-    };
-    const enter = (el) => {
-      const b = cardEnterBand(el);
-      return botThird > b.top && topThird < b.bottom;
+      if (drag.lastX < r.left || drag.lastX > r.right) return false; // kolonnen (flerkolonne)
+      const b = cardBand(el, third);
+      return topThird >= b.top && botThird <= b.bottom;
     };
     const cur = drag.overCard;
-    if (cur && cur.isConnected && stay(cur)) return cur;
+    if (cur && cur.isConnected && inCard(cur)) return cur;
     for (const c of board.querySelectorAll('.card')) {
-      // `stay` også ved inngang: da kan et nytt valg aldri være «utenfor» med én gang.
-      if (stay(c) && enter(c)) { drag.overCard = c; return c; }
+      if (inCard(c)) { drag.overCard = c; return c; }
     }
     drag.overCard = null;
     return null;

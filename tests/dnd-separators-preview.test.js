@@ -133,11 +133,21 @@ const log = (n, ok, x = '') => { results.push(ok); console.log((ok ? 'PASS' : 'F
 
     // Nederst INNE i lista (ikke ut i board-lufta — der ville draget blitt en
     // ekstrahering til en ny liste i stedet for en reorder).
-    const end = await p.evaluate(() => {
-      const r = document.querySelector('.card[data-id="card-A"] .items-container').getBoundingClientRect();
-      return { x: Math.round(r.left + r.width / 2), y: Math.round(r.bottom - 6) };
+    // Nederst INNE i lista: rett under siste rad, men over +-knappene (lista
+    // slutter der for draget — se dragOverCard i app.js). Måles i to trinn, som en
+    // bruker ville gjort: layouten flytter seg mens man drar (placeholderen bytter
+    // plass, og skillelinjene med den), så siktepunktet regnes ut på nytt etter den
+    // grove bevegelsen.
+    const belowLastRow = () => p.evaluate(() => {
+      const c = document.querySelector('.card[data-id="card-A"]');
+      const r = c.querySelector('.items-container').getBoundingClientRect();
+      const last = c.querySelector('.item[data-id="bunn"]').getBoundingClientRect();
+      return { x: Math.round(r.left + r.width / 2), y: Math.round(last.top + last.height / 2 + 12) };
     });
+    let end = await belowLastRow();
     await p.mouse.move(end.x, end.y, { steps: 8 }); await p.waitForTimeout(200);
+    end = await belowLastRow();
+    await p.mouse.move(end.x, end.y); await p.waitForTimeout(200);
     const moved = sig(await rows(p));
     log('1 dratt nederst: linje kun over placeholderen (ingen etter siste rad)',
       moved === 'topp|midt|bunn—cat-ph', moved);
