@@ -3,14 +3,20 @@
   et listepunkt dratt UT av en kategori forblir synlig.
 
   (A) Terskler (dragOverCard i app.js): hvilken liste det løftede objektet «er i»
-      avgjøres av OBJEKTETS boks, ikke pekeren:
-      - UT av lista når øvre 1/3 har passert listens øvre kant (opp) / nedre 1/3
-        har passert listens nedre kant (ned).
-      - INN i en liste når nedre 1/3 har passert listetittelens nedre kant (ned) /
-        øvre 1/3 har passert +-knappenes øvre kant (opp).
+      avgjøres av OBJEKTETS boks, ikke pekeren, og av listas INNHOLDSSONE
+      (midt i tittelraden … midt i +-knapperaden), ikke kortets ytterkanter — de
+      samme linjene både inn og ut:
+      - Ved TITTELEN: objektets øvre 1/3 passerer tittelradens midtlinje (ned =
+        inn, opp = ut).
+      - Ved KNAPPENE: objektets nedre 1/3 passerer knapperadens midtlinje (opp =
+        inn, ned = ut).
+      Halve rammeraden er slark hver vei, så FØRSTE og SISTE plass i lista er like
+      lett å treffe som plassene mellom radene.
+      Dvs. objektet er i lista når dets midtre 1/3 ligger innenfor sonen.
       Symmetrisk begge veier (før dukket placeholderen opp mye lettere oppover enn
       nedover), og uten flimring i overgangen. Gjelder både énkolonne (mobil) og
-      flerkolonne (desktop).
+      flerkolonne (desktop). En TOM liste har ingen sone å sikte på — der gjelder
+      hele kortet (som for en kollapset liste).
 
   (B) Et listepunkt dratt ut av en kategori til nivå 1 i SAMME liste ble usynlig:
       skillelinje-forhåndsvisningen ga kategorien `position: relative`, og siden
@@ -45,7 +51,8 @@ async function register(p) {
 
 // n lister med 2 listepunkter hver. `withCat` gir liste A en kategori med to
 // medlemmer (for (B)-testen).
-async function seed(p, n, withCat) {
+async function seed(p, n, withCat, sizes) {
+  if (sizes) await p.evaluate((s) => { window.__seedSizes = s; }, sizes);
   await p.evaluate(() => { window.__huskis.addUniverse(); }); await p.waitForTimeout(150);
   await p.keyboard.press('Escape'); await p.waitForTimeout(150);
   await p.evaluate(() => { window.__huskis.addGroup(); }); await p.waitForTimeout(150);
@@ -61,8 +68,10 @@ async function seed(p, n, withCat) {
     for (let i = 0; i < n; i++) {
       const id = 'card-' + i;
       const c = mkCard(id, 'Liste ' + i, i);
-      c.items.push(mkI(id + '-a', 'Punkt A', id, { pos: 0 }));
-      c.items.push(mkI(id + '-b', 'Punkt B', id, { pos: 1 }));
+      // `sizes` (valgfri) gir antall listepunkter per liste — 0 = tom liste.
+      const count = window.__seedSizes ? window.__seedSizes[i] : 2;
+      if (count > 0) c.items.push(mkI(id + '-a', 'Punkt A', id, { pos: 0 }));
+      if (count > 1) c.items.push(mkI(id + '-b', 'Punkt B', id, { pos: 1 }));
       if (withCat && i === 0) {
         c.items.push(mkI('cat-1', 'Kategori', id, { isCat: true, pos: 2 }));
         c.items.push(mkI('m-1', 'Medlem 1', id, { cat: 'cat-1', pos: 0 }));
@@ -113,6 +122,11 @@ const probe = (p) => p.evaluate(() => {
     cards,
   };
 });
+
+// Nedre referanselinje: MIDT i +-knapperaden (slark, se cardBand i app.js).
+const addLine = (c) => (c.add.top + c.add.bottom) / 2;
+// Øvre referanselinje: MIDT i tittelraden (samme slark, se cardBand i app.js).
+const headLine = (c) => (c.head.top + c.head.bottom) / 2;
 
 const results = [];
 const log = (n, ok, x = '') => { results.push(ok); console.log((ok ? 'PASS' : 'FAIL') + ' — ' + n + (x ? '  [' + x + ']' : '')); };
@@ -180,8 +194,8 @@ function firstWhere(samples, pred) {
     const hit = firstWhere(s, (x) => x.mode === 'extract');
     if (hit) {
       const h = hit.at.drag.height;
-      // «nedre 1/3 har passert listens nedre kant» = (bunn − h/3) > kortets bunn
-      downOvershoot = (hit.at.drag.bottom - h / 3) - hit.before.cards['card-0'].rect.bottom;
+      // «nedre 1/3 har passert +-knappenes øvre kant» = (bunn − h/3) > knapperaden
+      downOvershoot = (hit.at.drag.bottom - h / 3) - addLine(hit.before.cards['card-0']);
       // Pekeren skal fortsatt være innenfor kildekortet på det tidspunktet —
       // det var umulig med den gamle, pekerbaserte regelen.
       log('A1 nedover: extract slår inn MENS pekeren ennå er over kildelista',
@@ -196,8 +210,8 @@ function firstWhere(samples, pred) {
     const hit2 = firstWhere(s2, (x) => x.mode === 'extract');
     if (hit2) {
       const h = hit2.at.drag.height;
-      // «øvre 1/3 har passert listens øvre kant» = (topp + h/3) < kortets topp
-      upOvershoot = hit2.before.cards['card-1'].rect.top - (hit2.at.drag.top + h / 3);
+      // «øvre 1/3 har passert listetittelens nedre kant» = (topp + h/3) < tittelbunn
+      upOvershoot = headLine(hit2.before.cards['card-1']) - (hit2.at.drag.top + h / 3);
       log('A2 oppover: extract slår inn MENS pekeren ennå er over kildelista',
         hit2.at.y >= hit2.before.cards['card-1'].rect.top,
         'peker=' + Math.round(hit2.at.y) + ' korttopp=' + Math.round(hit2.before.cards['card-1'].rect.top));
@@ -205,9 +219,9 @@ function firstWhere(samples, pred) {
     await ptr(p, 'pointercancel', z2.x, z2.y, 'touch'); await p.waitForTimeout(200);
 
     const sym = downOvershoot != null && upOvershoot != null && Math.abs(downOvershoot - upOvershoot) <= 8;
-    log('A3 SYMMETRI: like langt forbi kanten opp som ned (≤ 8 px forskjell)', sym,
+    log('A3 SYMMETRI: like langt forbi sonen opp som ned (≤ 8 px forskjell)', sym,
       'ned=' + (downOvershoot == null ? '-' : downOvershoot.toFixed(1)) + ' opp=' + (upOvershoot == null ? '-' : upOvershoot.toFixed(1)));
-    log('A4 terskelen treffer 1/3-linja (0..steglengde forbi kanten)',
+    log('A4 terskelen treffer 1/3-linja (0..steglengde forbi sonen)',
       downOvershoot != null && downOvershoot >= 0 && downOvershoot <= 8 &&
       upOvershoot != null && upOvershoot >= 0 && upOvershoot <= 8,
       'ned=' + (downOvershoot == null ? '-' : downOvershoot.toFixed(1)) + ' opp=' + (upOvershoot == null ? '-' : upOvershoot.toFixed(1)));
@@ -228,10 +242,11 @@ function firstWhere(samples, pred) {
     const inNext = firstWhere(s, (x) => x.mode === 'reorder' && x.phCard === 'card-1');
     if (inNext) {
       const h = inNext.at.drag.height;
-      // «nedre 1/3 har passert nedre kant av listetittelen»
-      const over = (inNext.at.drag.bottom - h / 3) - inNext.before.cards['card-1'].head.bottom;
-      log('B1 inn i neste liste nedover: nedre 1/3 har akkurat passert listetittelen',
-        over >= 0 && over <= 8, 'forbi tittelbunn=' + over.toFixed(1));
+      // «øvre 1/3 har passert nedre kant av listetittelen» (samme linje som ut-
+      // terskelen oppover — det er midtre 1/3 som skal ligge innenfor sonen)
+      const over = (inNext.at.drag.top + h / 3) - headLine(inNext.before.cards['card-1']);
+      log('B1 inn i neste liste nedover: øvre 1/3 har akkurat passert tittelradens midtlinje',
+        over >= 0 && over <= 8, 'forbi tittelmidten=' + over.toFixed(1));
     } else log('B1 inn i neste liste nedover: placeholderen havnet i liste 1', false, JSON.stringify(s.map((x) => x.mode + '/' + x.phCard)));
 
     // Monoton bevegelse → nøyaktig sekvensen reorder(0) → extract → reorder(1)
@@ -249,9 +264,9 @@ function firstWhere(samples, pred) {
     const inPrev = firstWhere(s2, (x) => x.mode === 'reorder' && x.phCard === 'card-0');
     if (inPrev) {
       const h = inPrev.at.drag.height;
-      const over = inPrev.before.cards['card-0'].add.top - (inPrev.at.drag.top + h / 3);
-      log('B3 inn i forrige liste oppover: øvre 1/3 har akkurat passert +-knappene',
-        over >= 0 && over <= 8, 'forbi +-knappenes topp=' + over.toFixed(1));
+      const over = addLine(inPrev.before.cards['card-0']) - (inPrev.at.drag.bottom - h / 3);
+      log('B3 inn i forrige liste oppover: nedre 1/3 har akkurat passert knapperadens midtlinje',
+        over >= 0 && over <= 8, 'forbi knappemidten=' + over.toFixed(1));
     } else log('B3 inn i forrige liste oppover: placeholderen havnet i liste 0', false, JSON.stringify(s2.map((x) => x.mode + '/' + x.phCard)));
     const seq2 = modeSeq(s2, 'reorder:card-0');
     log('B4 ingen flimring oppover',
@@ -280,25 +295,210 @@ function firstWhere(samples, pred) {
     log('C0 forutsetning: to kort i samme kolonne', !!pair, JSON.stringify(pair));
     if (pair) {
       const z = await liftItem(p, '.item[data-id="' + pair.top + '-b"]', 'mouse');
-      const s = await sweep(p, z.x, z.y + 4, 6, 40, 'mouse');
+      // Nok steg til å nå HELT ned i kortet under: ny-liste-placeholderen legger
+      // seg mellom kortene og skyver det nedre kortet et stykke ned underveis.
+      const s = await sweep(p, z.x, z.y + 4, 6, 90, 'mouse');
       const out = firstWhere(s, (x) => x.mode === 'extract');
       const into = firstWhere(s, (x) => x.mode === 'reorder' && x.phCard === pair.bottom);
       if (out) {
         const h = out.at.drag.height;
-        const over = (out.at.drag.bottom - h / 3) - out.before.cards[pair.top].rect.bottom;
-        log('C1 desktop: ut-terskelen er nedre 1/3 forbi kortets bunn', over >= 0 && over <= 8, 'forbi=' + over.toFixed(1));
+        const over = (out.at.drag.bottom - h / 3) - addLine(out.before.cards[pair.top]);
+        log('C1 desktop: ut-terskelen er nedre 1/3 forbi knapperadens midtlinje', over >= 0 && over <= 8, 'forbi=' + over.toFixed(1));
         log('C2 desktop: extract mens pekeren ennå er over kildelista',
           out.at.y <= out.before.cards[pair.top].rect.bottom,
           'peker=' + Math.round(out.at.y) + ' kortbunn=' + Math.round(out.before.cards[pair.top].rect.bottom));
       } else log('C1 desktop: extract slo inn', false, JSON.stringify(s.map((x) => x.mode)));
       if (into) {
         const h = into.at.drag.height;
-        const over = (into.at.drag.bottom - h / 3) - into.before.cards[pair.bottom].head.bottom;
-        log('C3 desktop: inn-terskelen er nedre 1/3 forbi listetittelen', over >= 0 && over <= 8, 'forbi=' + over.toFixed(1));
+        const over = (into.at.drag.top + h / 3) - headLine(into.before.cards[pair.bottom]);
+        log('C3 desktop: inn-terskelen er øvre 1/3 forbi tittelradens midtlinje', over >= 0 && over <= 8, 'forbi=' + over.toFixed(1));
+        log('C4 desktop: ingen flimring i kolonnen', (() => {
+          const q = modeSeq(s, 'reorder:' + pair.bottom);
+          return q.length === 3 && q[1] === 'extract:-';
+        })(), modeSeq(s, 'reorder:' + pair.bottom).join(' → '));
       } else log('C3 desktop: placeholderen havnet i kortet under', false, JSON.stringify(s.map((x) => x.mode + '/' + x.phCard)));
       await ptr(p, 'pointercancel', z.x, z.y, 'mouse'); await p.waitForTimeout(200);
     }
     log('C ingen JS-feil', errs.length === 0, errs.join(' | '));
+    await p.close();
+  }
+
+  /* ============ E) Små lister: tom og ettradig liste er fortsatt treffbare ============
+     En tom liste har nesten ingen innholdssone mellom tittelen og +-knappene; da
+     gjelder hele kortet (cardBand). Uten det ville sonen vært umulig å treffe — og
+     verre: idet man går inn, forsvinner ny-liste-placeholderen og lista hopper opp
+     mot objektet, så et for smalt vindu ville sluppet objektet ut igjen (flimring). */
+  {
+    const p = await b.newPage({ viewport: mobil, hasTouch: true });
+    const errs = []; p.on('pageerror', (e) => errs.push(e.message));
+    await register(p); await seed(p, 3, false, [2, 0, 1]); // liste 1 TOM, liste 2 med ett listepunkt
+    const z = await liftItem(p, '.item[data-id="card-0-b"]', 'touch');
+    const s = await sweep(p, z.x, z.y + 4, 6, 90, 'touch');
+    const seq = modeSeq(s, 'reorder:card-2');
+    log('E1 tom liste: objektet kommer INN i den', s.some((x) => x.phCard === 'card-1'),
+      seq.join(' → '));
+    log('E2 ettradig liste under: objektet kommer inn der også', s.some((x) => x.phCard === 'card-2'),
+      seq.join(' → '));
+    // Ingen liste skal besøkes to ganger (extract mellom hvert kort er riktig).
+    const dedup = s.map((x) => x.mode + ':' + (x.phCard || '-')).filter((v, i, a) => i === 0 || v !== a[i - 1]);
+    const visits = dedup.filter((v) => v.startsWith('reorder:'));
+    log('E3 ingen flimring gjennom tom + ettradig liste', new Set(visits).size === visits.length, dedup.join(' → '));
+    await ptr(p, 'pointercancel', z.x, z.y, 'touch'); await p.waitForTimeout(200);
+    log('E ingen JS-feil', errs.length === 0, errs.join(' | '));
+    await p.close();
+  }
+
+  /* ============ F) Slipp NEDERST i en liste (siste plass) ============
+     Den trangeste plassen etter innstrammingen: sonen slutter ved +-knappene, og
+     for å havne SIST må objektets senter forbi siste rads senter. Slippet skal
+     lande i lista — ikke lage en ny. */
+  {
+    const p = await b.newPage({ viewport: mobil, hasTouch: true });
+    const errs = []; p.on('pageerror', (e) => errs.push(e.message));
+    await register(p); await seed(p, 2);
+    const z = await liftItem(p, '.item[data-id="card-0-a"]', 'touch');
+    // Grovt inn i liste 1, deretter rett under siste rad der (måles på nytt).
+    const mid = await centerOf(p, '.card[data-id="card-1"] .items-container');
+    await ptr(p, 'pointermove', mid.x, mid.y, 'touch'); await p.waitForTimeout(120);
+    const belowLast = await p.evaluate(() => {
+      const c = document.querySelector('.card[data-id="card-1"]');
+      const rows = [...c.querySelectorAll('.items-container > .item')];
+      const last = rows[rows.length - 1].getBoundingClientRect();
+      // Siste rads senter: der bytter det løftede listepunktet plass med raden
+      // (overlapp-regelen krever at objektets topp har nådd radens topp), og det er
+      // fortsatt godt innenfor sonen (som slutter ved +-knappene).
+      return { x: Math.round(last.left + last.width / 2), y: Math.round(last.top + last.height / 2) };
+    });
+    await ptr(p, 'pointermove', belowLast.x, belowLast.y - 10, 'touch'); await p.waitForTimeout(80);
+    // Anti-flimringen (SWAP_LOCK_MS = 300 ms) blokkerer det motsatte byttet rett
+    // etter innsettingen i lista — vent den ut før den siste nudgen.
+    await p.waitForTimeout(350);
+    await ptr(p, 'pointermove', belowLast.x, belowLast.y, 'touch'); await p.waitForTimeout(150);
+    const modeBefore = (await probe(p)).mode;
+    await ptr(p, 'pointerup', belowLast.x, belowLast.y, 'touch'); await p.waitForTimeout(400);
+    const st = await p.evaluate(() => {
+      const H = window.__huskis;
+      const g = H.state.universes.find((u) => u.id === H.state.activeUniverse).groups.find((x) => x.id === H.state.activeGroup);
+      return g.cards.map((c) => ({ id: c.id, items: c.items.filter((i) => !i.trashed).sort((a, b) => a.pos - b.pos).map((i) => i.id) }));
+    });
+    const c1 = st.find((c) => c.id === 'card-1');
+    log('F1 slipp nederst i lista: landet SIST i liste 1 (ingen ny liste)',
+      st.length === 2 && c1 && c1.items[c1.items.length - 1] === 'card-0-a',
+      'modus før slipp=' + modeBefore + ' ' + JSON.stringify(st));
+    log('F ingen JS-feil', errs.length === 0, errs.join(' | '));
+    await p.close();
+  }
+
+  /* ============ F2) Kategori slippes SIST i sin egen liste ============
+     Den aller trangeste plassen: lista krymper ~25 px i samme øyeblikk som
+     kategori-placeholderen blir siste rad (skillelinja under den forsvinner), så
+     nedre grense kommer opp mot objektet mens man sikter. Slarken i cardBand
+     (halve knapperaden) skal gjøre dette til en helt vanlig bevegelse. */
+  {
+    const p = await b.newPage({ viewport: mobil, hasTouch: true });
+    const errs = []; p.on('pageerror', (e) => errs.push(e.message));
+    await register(p); await seed(p, 2, true);
+    await p.evaluate(() => { // kategorien ØVERST, så den faktisk må flyttes ned
+      const H = window.__huskis, st = H.state;
+      const g = st.universes.find((u) => u.id === st.activeUniverse).groups.find((x) => x.id === st.activeGroup);
+      g.cards.find((c) => c.id === 'card-0').items.find((i) => i.id === 'cat-1').pos = -1;
+      H.render();
+    });
+    await p.waitForTimeout(300);
+    const z = await centerOf(p, '.category[data-id="cat-1"] .cat-head');
+    await ptr(p, 'pointerdown', z.x, z.y, 'touch'); await p.waitForTimeout(250);
+    await ptr(p, 'pointermove', z.x, z.y + 6, 'touch'); await p.waitForTimeout(400); // la kategorien kollapse ferdig
+    const bottom = await p.evaluate(() => {
+      const r = document.querySelector('.card[data-id="card-0"] .items-container').getBoundingClientRect();
+      return { x: Math.round(r.left + r.width / 2), y: Math.round(r.bottom - 6) };
+    });
+    for (let i = 1; i <= 6; i++) {
+      await ptr(p, 'pointermove', bottom.x, Math.round(z.y + (bottom.y - z.y) * i / 6), 'touch');
+      await p.waitForTimeout(60);
+    }
+    // Siste nudge under siste rads senter (kategori-plassering er senterbasert).
+    // Måles på nytt: lista vokser/krymper ~25 px mens placeholderen flytter seg,
+    // fordi skillelinjene rundt den kommer og går.
+    const past = await p.evaluate(() => {
+      const rows = [...document.querySelectorAll('.card[data-id="card-0"] .items-container > .item')];
+      const last = rows[rows.length - 1].getBoundingClientRect();
+      return Math.round(last.top + last.height / 2 + 10);
+    });
+    await ptr(p, 'pointermove', bottom.x, past, 'touch'); await p.waitForTimeout(120);
+    bottom.y = past;
+    const modeBefore = (await probe(p)).mode;
+    await ptr(p, 'pointerup', bottom.x, bottom.y, 'touch'); await p.waitForTimeout(500);
+    const st2 = await p.evaluate(() => {
+      const H = window.__huskis;
+      const g = H.state.universes.find((u) => u.id === H.state.activeUniverse).groups.find((x) => x.id === H.state.activeGroup);
+      return g.cards.map((c) => ({
+        id: c.id,
+        level1: c.items.filter((i) => !i.trashed && !i.cat).sort((a, b) => a.pos - b.pos).map((i) => i.id),
+      }));
+    });
+    const c0 = st2.find((c) => c.id === 'card-0');
+    log('F2 kategori sluppet nederst: ble SISTE rad i sin egen liste (ingen ny liste)',
+      st2.length === 2 && c0 && c0.level1[c0.level1.length - 1] === 'cat-1',
+      'modus før slipp=' + modeBefore + ' ' + JSON.stringify(st2));
+    log('F2 ingen JS-feil', errs.length === 0, errs.join(' | '));
+    await p.close();
+  }
+
+  /* ============ G) Listepunkt OVER en kategori som ligger ØVERST i lista ============
+     Kategoriens overkant ligger bare ~10 px under tittelraden, og pekeren må være
+     der (over kategorien) for å treffe nivå 1 i stedet for inne i kategorien. Uten
+     slarken i tittelraden var vinduet 0 px — placeholderen gikk rett fra «inne i
+     kategorien» til «ny liste». */
+  {
+    const p = await b.newPage({ viewport: mobil, hasTouch: true });
+    const errs = []; p.on('pageerror', (e) => errs.push(e.message));
+    await register(p); await seed(p, 2, true);
+    await p.evaluate(() => { // kategorien ØVERST
+      const H = window.__huskis, st = H.state;
+      const g = st.universes.find((u) => u.id === st.activeUniverse).groups.find((x) => x.id === st.activeGroup);
+      g.cards.find((c) => c.id === 'card-0').items.find((i) => i.id === 'cat-1').pos = -1;
+      H.render();
+    });
+    await p.waitForTimeout(300);
+    const headTop = await p.evaluate(() => Math.round(document.querySelector('.card[data-id="card-0"] .card-head').getBoundingClientRect().top));
+    // Hvor står placeholderen? nivå 1 øverst / inne i kategorien / ny liste.
+    const slot = () => p.evaluate(() => {
+      const ph = document.querySelector('.item-placeholder, .card-placeholder');
+      if (!ph) return 'ingen';
+      if (ph.classList.contains('new-list-placeholder')) return 'ny-liste';
+      if (ph.closest('.cat-items')) return 'i-kategorien';
+      const rows = [...ph.parentNode.children].filter((c) => c.classList.contains('item') || c.classList.contains('category') || c === ph);
+      return 'niva1@' + rows.indexOf(ph);
+    });
+    const z = await liftItem(p, '.item[data-id="card-0-b"]', 'touch');
+    let window20 = 0, lastTop = null;
+    for (let y = z.y - 8; y > headTop - 20; y -= 3) {
+      await ptr(p, 'pointermove', z.x, y, 'touch'); await p.waitForTimeout(45);
+      if (await slot() === 'niva1@0') { window20 += 3; lastTop = y; }
+    }
+    log('G1 det FINNES et vindu for «over kategorien øverst» (≥ 20 px)', window20 >= 20, 'vindu=' + window20 + ' px');
+    // Sveipet endte over lista (ny-liste-modus, layouten har flyttet seg). Kom
+    // tilbake ned i lista og kryp oppover til placeholderen står øverst — som en
+    // bruker som ser hvor den lander — og slipp der.
+    void lastTop;
+    const back = await centerOf(p, '.card[data-id="card-0"] .items-container');
+    await ptr(p, 'pointermove', z.x, back.y, 'touch'); await p.waitForTimeout(120);
+    let dropY = null;
+    for (let y = back.y; y > headTop - 10; y -= 3) {
+      await ptr(p, 'pointermove', z.x, y, 'touch'); await p.waitForTimeout(45);
+      if (await slot() === 'niva1@0') { dropY = y; break; }
+    }
+    if (dropY != null) { await ptr(p, 'pointerup', z.x, dropY, 'touch'); await p.waitForTimeout(400); }
+    else { await ptr(p, 'pointercancel', z.x, z.y, 'touch'); await p.waitForTimeout(200); }
+    const st = await p.evaluate(() => {
+      const H = window.__huskis;
+      const g = H.state.universes.find((u) => u.id === H.state.activeUniverse).groups.find((x) => x.id === H.state.activeGroup);
+      const c = g.cards.find((c) => c.id === 'card-0');
+      return { cards: g.cards.length, level1: c.items.filter((i) => !i.trashed && !i.cat).sort((a, b) => a.pos - b.pos).map((i) => i.id) };
+    });
+    log('G2 slippet der landet ØVERST på nivå 1, over kategorien',
+      st.cards === 2 && st.level1[0] === 'card-0-b' && st.level1[1] === 'cat-1', JSON.stringify(st));
+    log('G ingen JS-feil', errs.length === 0, errs.join(' | '));
     await p.close();
   }
 

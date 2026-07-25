@@ -403,11 +403,13 @@ DB-migrering. Se `docs/drag-and-drop.md` og `docs/design-system.md`.
 
 **1/3-terskler for ny-liste-placeholderen + synlig listepunkt ut av kategori (siste
 runde)**: (1) Hvilken liste et løftet listepunkt/en kategori «er i» avgjøres nå av
-OBJEKTETS boks, ikke pekeren (`dragOverCard`): UT av lista når øvre/nedre 1/3 har
-passert listens øvre/nedre kant, INN i en liste når nedre 1/3 har passert
-listetittelens nedre kant (nedover) eller øvre 1/3 har passert +-knappenes øvre kant
-(oppover). Inn-tersklene ligger dypere enn ut-tersklene → hysterese, ingen flimring;
-`pointerOverAnyCard` er borte. Ny-liste-placeholderen dukker dermed opp like lett
+OBJEKTETS boks, ikke pekeren (`dragOverCard`), og av listas INNHOLDSSONE
+(midt i listetittelen … midt i +-knapperaden — halve rammeraden er slark, så
+første/siste plass i lista er like lett å treffe) — de samme linjene inn og ut:
+objektet er i lista når dets MIDTRE 1/3 ligger innenfor sonen. Kollapset/peek-åpnet
+liste, og lister med for liten sone (tomme), bruker hele kortet. Hysteresen kommer av
+layouten (placeholderne bytter plass), ikke av et dødbånd; `pointerOverAnyCard` er
+borte. Ny-liste-placeholderen dukker dermed opp like lett
 nedover som oppover (før måtte PEKEREN forlate kortet), og plasseres etter objektets
 y-senter. Flerkolonne (desktop) styres av pekerens x som før. (2) Et listepunkt dratt
 UT av en kategori til nivå 1 i SAMME liste **forsvant**: skillelinje-forhåndsvisningen

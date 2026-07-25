@@ -133,6 +133,10 @@ const log = (n, ok, x = '') => { results.push(ok); console.log((ok ? 'PASS' : 'F
 
     // Nederst INNE i lista (ikke ut i board-lufta — der ville draget blitt en
     // ekstrahering til en ny liste i stedet for en reorder).
+    // Nederst INNE i lista (ikke ut i board-lufta — der ville draget blitt en
+    // ekstrahering til en ny liste i stedet for en reorder). Helt nede ved kanten
+    // av listepunkt-området: det er den trangeste plassen etter at lista slutter
+    // ved knapperaden, og skal fortsatt være en reorder (se slarken i cardBand).
     const end = await p.evaluate(() => {
       const r = document.querySelector('.card[data-id="card-A"] .items-container').getBoundingClientRect();
       return { x: Math.round(r.left + r.width / 2), y: Math.round(r.bottom - 6) };
