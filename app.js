@@ -994,54 +994,34 @@
     doneItems.forEach((it) => doneList.appendChild(buildItem(it, cardData)));
     doneWrap.hidden = doneItems.length === 0;
 
-    // Legg til element / kategori. ＋-knappen (grønn) legger til et element; den
-    // gule kategori-knappen ved siden av oppretter i stedet en kategori med det
-    // innskrevne navnet. Begge er disablet (dempet) til feltet har tekst.
-    const form = el.querySelector('.add-item-form');
-    const input = form.querySelector('.add-item-input');
-    const addBtn = form.querySelector('.add-item-btn');
-    const addCatBtn = form.querySelector('.add-cat-btn');
-    if (!canEdit) form.hidden = true;
-    const syncAddBtn = () => {
-      const empty = !input.value.trim();
-      addBtn.disabled = empty;
-      addCatBtn.disabled = empty;
-    };
-    syncAddBtn();
-    input.addEventListener('input', syncAddBtn);
+    // Legg til listepunkt / kategori: to midtstilte knapper, ingen navnefelt.
+    // Knappen oppretter objektet med én gang og åpner navneredigereren på det
+    // (samme mønster som ＋-knappen inne i en kategori). Avsluttes navngivingen
+    // uten tekst, fjernes objektet igjen — se nameNewRow().
+    const addRow = el.querySelector('.add-item-row');
+    const addBtn = addRow.querySelector('.add-item-btn');
+    const addCatBtn = addRow.querySelector('.add-cat-btn');
+    if (!canEdit) addRow.hidden = true;
 
-    const addItemNow = () => {
-      if (!canEdit) return;
-      const text = input.value.trim();
-      if (!text) return;
-      const it = makeItem(text, cardData.id);
-      it.pos = level1MaxPos(cardData) + 1;
-      stampContent(it);
-      stampPos(it);
-      cardData.items.push(it);
-      list.appendChild(buildItem(it, cardData));
-      input.value = '';
-      syncAddBtn();
-      input.focus();
+    const addRowNow = (obj, rowEl, titleSel) => {
+      obj.pos = level1MaxPos(cardData) + 1;
+      stampContent(obj);
+      stampPos(obj);
+      cardData.items.push(obj);
+      list.appendChild(rowEl);
       save();
+      nameNewRow(obj, cardData, rowEl, rowEl.querySelector(titleSel));
     };
-    const addCategoryNow = () => {
+    addBtn.addEventListener('click', () => {
       if (!canEdit) return;
-      const name = input.value.trim();
-      if (!name) return;
-      const cat = makeCategory(name, cardData.id);
-      cat.pos = level1MaxPos(cardData) + 1;
-      stampContent(cat);
-      stampPos(cat);
-      cardData.items.push(cat);
-      list.appendChild(buildCategory(cat, cardData));
-      input.value = '';
-      syncAddBtn();
-      input.focus();
-      save();
-    };
-    form.addEventListener('submit', (ev) => { ev.preventDefault(); addItemNow(); });
-    addCatBtn.addEventListener('click', addCategoryNow);
+      const it = makeItem('', cardData.id);
+      addRowNow(it, buildItem(it, cardData), '.item-text');
+    });
+    addCatBtn.addEventListener('click', () => {
+      if (!canEdit) return;
+      const cat = makeCategory('', cardData.id);
+      addRowNow(cat, buildCategory(cat, cardData), '.cat-title');
+    });
 
     // Element-søppelkasse: midtstilt nederst i kortet, kun når det ligger
     // slettede elementer i kortet. Emoji + antall (ingen tekst-etikett).
@@ -1149,8 +1129,9 @@
   }
 
   // Legg til et nytt listepunkt direkte i en kategori (grønn ＋-knapp nederst i
-  // kategorien). Ingen «Legg til …»-input: elementet opprettes tomt og går straks
-  // i navneredigering (blank + fokusert) så det kan navngis med en gang.
+  // kategorien): elementet opprettes tomt og går straks i navneredigering (blank
+  // + fokusert) så det kan navngis med en gang. Avsluttes navngivingen uten navn,
+  // fjernes elementet igjen (nameNewRow).
   function addItemToCategory(catData, cardData, catEl) {
     if (frozen(cardData)) return;
     if (catEl.classList.contains('collapsed')) { expandCatBody(catEl); catData.collapsed = false; }
@@ -1164,7 +1145,7 @@
     appendToItemsEnd(catEl.querySelector('.cat-items'), itemEl);
     save();
     // Åpne navneredigereren straks (blank felt, fokusert).
-    itemEl.querySelector('.item-text').click();
+    nameNewRow(it, cardData, itemEl, itemEl.querySelector('.item-text'));
   }
   // Største pos blant en kategoris aktive medlemmer (for å legge et nytt bakerst).
   function catMemberMaxPos(cardData, catId) {
@@ -1964,6 +1945,8 @@
   /* ---------------- Inline-redigering ---------------- */
   // opts.cls: ekstra klasse på input. opts.autosize: la input vokse med innholdet
   // (brukes til gruppenavn i headeren, som ikke skal ta full bredde).
+  // opts.onCancel: kalles ved Escape (avbrutt redigering) — brukes av nameNewRow
+  // for å fjerne et nyopprettet objekt som aldri fikk noe navn.
   function editText(displayEl, current, onSave, opts) {
     opts = opts || {};
     if (displayEl.dataset.editing === '1') return;
@@ -1989,12 +1972,35 @@
       input.replaceWith(displayEl);
       delete displayEl.dataset.editing;
       if (commit) onSave(val);
+      else if (opts.onCancel) opts.onCancel();
     };
     input.addEventListener('blur', () => finish(true));
     input.addEventListener('keydown', (e) => {
       if (e.key === 'Enter') { e.preventDefault(); finish(true); }
       else if (e.key === 'Escape') { e.preventDefault(); finish(false); }
     });
+  }
+
+  // Navngi et NYOPPRETTET listepunkt/kategori: raden er allerede lagt inn (tom),
+  // og navneredigereren åpnes straks på den. Avsluttes navngivingen uten tekst —
+  // Enter på et tomt felt, klikk ut, eller Escape — fjernes raden igjen
+  // (gravstein + ut av state), for et navnløst objekt er ingenting verdt og skal
+  // ikke bli liggende igjen. Brukes av ＋-knappene i lista og i en kategori.
+  function nameNewRow(obj, cardData, rowEl, displayEl) {
+    const discard = () => {
+      tombSubtree(obj, 'item');
+      const i = cardData.items.indexOf(obj);
+      if (i > -1) cardData.items.splice(i, 1);
+      rowEl.remove();
+      save();
+    };
+    editText(displayEl, '', (val) => {
+      if (!val) { discard(); return; }
+      obj.text = val;
+      displayEl.textContent = val;
+      stampContent(obj);
+      save();
+    }, { onCancel: discard });
   }
 
   /* ============================================================
@@ -2104,6 +2110,15 @@
     if (prefersReducedMotion()) return;   // hopp over FLIP-tween (snap på plass)
     prev.forEach((old, el) => {
       if (!el.isConnected) return;
+      // ALDRI FLIP en FORFAR til det løftede objektet: et transformert element
+      // blir containing block for sine absolutt posisjonerte etterkommere, så
+      // dra-elementets dokument-koordinater (dragPos*) ville plutselig blitt
+      // tolket relativt til forfaren — objektet hopper vekk fra fingeren og
+      // langt ut til siden (helt ut av viewporten når kortet står i en høyre
+      // kolonne). Skjer f.eks. når et listepunkt dras ut i board-lufta:
+      // ny-liste-placeholderen omrokkerer kortene, og kilde-kortet er en forfar.
+      // Slike forfedre snapper på plass uten tween i stedet.
+      if (drag.active && drag.el && el !== drag.el && el.contains(drag.el)) return;
       const now = el.getBoundingClientRect();
       const dx = old.left - now.left;
       const dy = old.top - now.top;
@@ -2264,26 +2279,46 @@
   function dragUsesPageCoords() {
     return drag.kind !== 'group' && drag.kind !== 'universe';
   }
+  // Skalaen det løftede objektet males med (start*Drag/on*Move setter
+  // `rotate(…) scale(…)`, og CSS setter samme verdi i hvile-regelen): lister
+  // 1.02, listepunkt/kategori 1.03, gruppe/univers 1.05.
+  function dragScale() {
+    if (drag.kind === 'card') return 1.02;
+    return dragUsesPageCoords() ? 1.03 : 1.05;
+  }
+  // Halvparten av den FAKTISK RENDREDE boksen (skala + maks rotasjon) langs hver
+  // akse — transformen maler noen piksler utenfor layout-boksen.
+  function dragRenderedHalf() {
+    const rad = MAX_ROT * Math.PI / 180, s = dragScale();
+    const c = Math.cos(rad), sn = Math.sin(rad);
+    return {
+      x: s * ((drag.width / 2) * c + (drag.height / 2) * sn),
+      y: s * ((drag.width / 2) * sn + (drag.height / 2) * c),
+    };
+  }
+  // Klem en akse slik at hele den rendrede boksen holder seg innenfor viewporten
+  // (0..extent). Er objektet større enn viewporten langs aksen, sentreres det.
+  function clampToViewport(base, size, half, extent) {
+    const lo = half - size / 2;             // objektets kant treffer 0
+    const hi = extent - size / 2 - half;    // objektets kant treffer `extent`
+    return hi > lo ? Math.max(lo, Math.min(base, hi)) : (lo + hi) / 2;
+  }
+  // Det løftede objektet holdes ALLTID innenfor viewporten på begge akser: det
+  // finnes ingen grunn til å dra noe utenfor skjermen, og et objekt som stikker ut
+  // utvider sidens scroll-område (horisontal scrollbar — og på iOS WebKit forskyves
+  // da høyre-forankrede `position: fixed`-elementer som kontoknappen). Klemmen slår
+  // kun inn helt ute ved kanten, så den er usynlig for vanlig reorder/kolonnebytte.
   function dragPosLeft() {
-    const base = drag.lastX - drag.grabX;
-    if (!dragUsesPageCoords()) return base; // gruppe/univers: fixed, viewport-koordinater
-    // Board-drag er `position: absolute`: klem den horisontale plasseringen innenfor
-    // viewporten så det løftede kortet ikke stikker ut til siden og utvider sidens
-    // scroll-bredde. Ellers dukker en horisontal scrollbar opp, og på iOS WebKit
-    // forskyves høyre-forankrede `position: fixed`-elementer (kontoknappen). Vi klemmer
-    // mot kortets FAKTISK RENDREDE boks (skala + maks rotasjon), ikke bare layout-
-    // boksen, siden transformen maler noen piksler utenfor. Klemmen slår kun inn helt
-    // ute ved kanten, så den er usynlig for vanlig reorder/kolonnebytte.
     const vw = window.innerWidth || document.documentElement.clientWidth || 0;
-    const rad = MAX_ROT * Math.PI / 180;
-    const halfW = 1.02 * ((drag.width / 2) * Math.cos(rad) + (drag.height / 2) * Math.sin(rad));
-    const lo = halfW - drag.width / 2;               // venstre kant treffer 0
-    const hi = vw - drag.width / 2 - halfW;           // høyre kant treffer vw
-    const clamped = hi > lo ? Math.max(lo, Math.min(base, hi)) : (lo + hi) / 2; // for stor → sentrer
-    return clamped + window.scrollX;
+    const half = dragRenderedHalf().x;
+    const left = clampToViewport(drag.lastX - drag.grabX, drag.width, half, vw);
+    return left + (dragUsesPageCoords() ? window.scrollX : 0);
   }
   function dragPosTop() {
-    return (drag.lastY - drag.grabY) + (dragUsesPageCoords() ? window.scrollY : 0);
+    const vh = window.innerHeight || document.documentElement.clientHeight || 0;
+    const half = dragRenderedHalf().y;
+    const top = clampToViewport(drag.lastY - drag.grabY, drag.height, half, vh);
+    return top + (dragUsesPageCoords() ? window.scrollY : 0);
   }
 
   function liftElement() {
@@ -5501,11 +5536,10 @@
   function isBusyEditing() {
     if (drag.active) return true;
     const ae = document.activeElement;
+    // Navneredigereren (`.edit-input`) dekker også nyopprettede, ennå navnløse
+    // listepunkter/kategorier: en synk-rebuild midt i ville revet ned raden og
+    // stjålet fokuset før man rakk å skrive noe.
     if (ae && ae.classList && ae.classList.contains('edit-input')) return true;
-    // Fokusert «legg til element»-felt regnes som aktiv redigering selv når det er
-    // TOMT — ellers river neste synk-runde ned board-et og stjeler fokuset før man
-    // rekker å skrive noe.
-    if (ae && ae.classList && ae.classList.contains('add-item-input')) return true;
     return false;
   }
   /* ---------- Lett, forbigående varsel (ingen fast statusindikator) ---------- */

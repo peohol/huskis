@@ -50,12 +50,29 @@ Bytte utløses av **overlapp**, ikke av et punkt:
   modal der window-scroll aldri endres og er derfor fortsatt `fixed` (viewport-
   koordinater — `dragUsesPageCoords()` skiller på `drag.kind`). Fordi et absolutt-
   posisjonert barn teller i sidens scroll-område (et `fixed` gjorde ikke det),
-  klemmes to nye ting: (1) nedover-auto-scroll stopper ved board-ets faktiske bunn
-  (ellers uendelig scroll ut i blankt), og (2) `dragPosLeft` klemmer kortets
-  horisontale plassering (mot dets FAKTISK RENDREDE boks: skala + maks rotasjon)
-  innenfor viewporten, ellers ville et kort dratt mot siden gitt horisontal
-  scrollbar og — på iOS WebKit — forskjøvet høyre-forankrede `fixed`-elementer
-  (kontoknappen). Klemmen slår kun inn helt ute ved kanten.
+  klemmes nedover-auto-scroll ved board-ets faktiske bunn (ellers uendelig scroll
+  ut i blankt).
+- **Det løftede objektet holdes ALLTID innenfor viewporten** (`dragPosLeft`/
+  `dragPosTop` → `clampToViewport`, begge akser, alle objekt-typer). Det finnes
+  ingen grunn til å dra noe utenfor skjermen, og et board-drag er `position:
+  absolute`, så et objekt som stikker ut utvider sidens scroll-område: horisontal
+  scrollbar, og på mobil/iOS WebKit forskyves da høyre-forankrede `position:
+  fixed`-elementer (kontoknappen, toppmenyen) ut av viewporten. Klemmen måler den
+  FAKTISK RENDREDE boksen (`dragRenderedHalf` = skala × maks rotasjon, og
+  `dragScale()` gir riktig skala per type: liste 1.02, listepunkt/kategori 1.03,
+  gruppe/univers 1.05 — en for lav skala her ga noen få piksler overflow, nok til
+  en scrollbar). Er objektet større enn viewporten langs en akse, sentreres det.
+  Klemmen slår kun inn helt ute ved kanten, så den er usynlig for vanlig reorder/
+  kolonnebytte. `draggedRect()` er bevisst UKLEMT — den er pekerens *intensjon* og
+  driver treffdeteksjon/auto-scroll.
+- **FLIP-en rører aldri en FORFAR til det løftede objektet** (`flipFrom`): et
+  transformert element blir containing block for sine absolutt posisjonerte
+  etterkommere, så dra-elementets dokument-koordinater ville plutselig bli tolket
+  relativt til forfaren — objektet hopper vekk fra fingeren, ofte helt ut av
+  viewporten (og drar da headeren med seg, se punktet over). Det skjedde når et
+  listepunkt/en kategori ble dratt ut i board-lufta: ny-liste-placeholderen
+  omrokkerer board-ets kort, og kilde-kortet er en forfar til det løftede
+  objektet. Slike forfedre snapper på plass uten tween i stedet.
 - **Auto-scrollens ankerpunkt** (`updateAutoScroll`): symmetrisk og kant-
   forankret. OPPOVER måles kortets ØVRE kant mot toppen av området rett UNDER den
   faste headeren (`topbarEl`-bunn + `ZONE`), ikke mot viewportens øvre kant — ellers
