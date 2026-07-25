@@ -344,7 +344,7 @@ gjorde ny-liste-placeholderen mye lettere å få frem oppover enn nedover (og
 motsatt inn i den neste lista).
 
 Referanselinjene er listas **innholdssone** — fra **listetittelens** (korthodets)
-nedre kant til **+-knappenes** (`.add-item-row`) øvre kant — de SAMME linjene inn
+nedre kant til **midt i +-knapperaden** (`.add-item-row`) — de SAMME linjene inn
 og ut. Kortets ytterkanter brukes ikke: tittelraden og knapperaden er rammen rundt
 innholdet, og et objekt som ligger oppå dem hører ikke til lista. «1/3 har passert»
 = 1/3-linja ligger på andre siden av referanselinja:
@@ -353,8 +353,8 @@ innholdet, og et objekt som ligger oppå dem hører ikke til lista. «1/3 har pa
 |---|---|
 | INN, nedover | objektets **øvre 1/3** har passert **tittelens** nedre kant |
 | UT, oppover | objektets **øvre 1/3** har passert **tittelens** nedre kant |
-| INN, oppover | objektets **nedre 1/3** har passert **+-knappenes** øvre kant |
-| UT, nedover | objektets **nedre 1/3** har passert **+-knappenes** øvre kant |
+| INN, oppover | objektets **nedre 1/3** har passert **knapperadens midtlinje** |
+| UT, nedover | objektets **nedre 1/3** har passert **knapperadens midtlinje** |
 
 Det er altså én regel: **objektet er i lista når dets midtre 1/3 ligger innenfor
 sonen** (`cardBand` + `inCard` i `dragOverCard`). Reglene er rent loddrette —
@@ -379,13 +379,18 @@ To spesialtilfeller i `cardBand`:
   `MIN_BAND_SLACK` (48 px) må dekke at lista rykker oppover mot objektet idet
   ny-liste-placeholderen (≥ 72 px) byttes mot en radhøyde inne i lista.
 
-Bieffekt verdt å kjenne til: å legge et objekt SIST i en liste er den trangeste
-plassen (objektets senter må forbi siste rads senter, mens nedre 1/3 må holde seg
-over knapperaden). For en KATEGORI som slippes sist i en liste med kategorier blir
-vinduet ekstra smalt, fordi lista samtidig krymper ~25 px (skillelinja under
-placeholderen forsvinner når den blir siste rad). Overskyter man, dukker ny-liste-
-placeholderen opp, og man kommer inn igjen med en liten bevegelse oppover
-(re-inngangsvinduet er ~25 px, se `tests/dnd-separators-preview.test.js`).
+**Hvorfor nedre linje går MIDT i knapperaden og ikke over den** (slark kun i
+bunn): å legge et objekt SIST i en liste er den trangeste plassen — objektets
+senter må forbi siste rads senter, og da stikker nedre 1/3 nesten ned i
+knapperaden. Slippes en KATEGORI sist i en liste med kategorier, krymper lista i
+tillegg ~25 px i samme øyeblikk (skillelinja under placeholderen forsvinner når
+den blir siste rad), så linja kommer opp mot objektet mens man sikter — uten
+slarken var vinduet ~2 px. Halve knapperaden gjør siste plass like lett å treffe
+som de andre, og ut-terskelen er fortsatt ~30 px tidligere enn kortets nedre kant.
+Øvre linje trenger ikke det samme: den ligger i korthodet, som ikke flytter seg
+når placeholderen legger seg øverst. Dekket av `F1`/`F2` i
+`tests/dnd-extract-thresholds.test.js` og av «dratt nederst» i
+`tests/dnd-separators-preview.test.js`.
 
 Peek-åpning av kollapsede mål (under) bruker samme `dragOverCard`, ellers kunne
 placeholderen stå og vente på en peek som aldri startet fordi pekeren ennå ikke var

@@ -3401,14 +3401,14 @@
      nedover ut av en liste enn oppover (og motsatt inn i den neste).
 
      Referanselinjene er listas INNHOLDSSONE — fra listetittelens (korthodets)
-     nedre kant til +-knappenes øvre kant — begge veier, både inn og ut. Kortets
+     nedre kant til midt i +-knapperaden — begge veier, både inn og ut. Kortets
      ytterkanter brukes ikke: tittelraden og knapperaden er «rammen», og et objekt
      som ligger oppå dem hører ikke til innholdet. Terskelen er den samme linja
      hver vei, og det er alltid 1/3 av objektet som passerer den:
      - INN/UT ved TITTELEN: objektets ØVRE 1/3 har passert tittelens nedre kant
        (nedover = inn, oppover = ut).
-     - INN/UT ved KNAPPENE: objektets NEDRE 1/3 har passert +-knappenes øvre kant
-       (oppover = inn, nedover = ut).
+     - INN/UT ved KNAPPENE: objektets NEDRE 1/3 har passert midtlinja i
+       +-knapperaden (oppover = inn, nedover = ut).
      Det er én regel: objektet er i lista når dets MIDTRE 1/3 ligger innenfor
      sonen. Vannrett (flerkolonne på desktop) avgjør pekerens kolonne som før;
      1/3-reglene er rent loddrette. Valget henger igjen i `drag.overCard`. */
@@ -3430,9 +3430,18 @@
     const head = cardEl.querySelector('.card-head');
     const add = cardEl.querySelector('.add-item-row');
     const ar = add && !add.hidden ? add.getBoundingClientRect() : null;
+    // Nedre linje går gjennom MIDTEN av knapperaden, ikke over den: siste plass i
+    // en liste er ellers den trangeste å treffe. For å havne sist må objektets
+    // senter forbi siste rads senter, og da stikker nedre 1/3 nesten ned i
+    // knapperaden — og lander man en KATEGORI sist, krymper lista samtidig ~25 px
+    // (skillelinja under placeholderen forsvinner når den blir siste rad), så
+    // linja kommer opp mot objektet i samme bevegelse. Halve knapperaden er nok
+    // slark til at siste plass er like lett å treffe som de andre.
+    // Øvre linje trenger ikke det samme: den ligger i korthodet, som ikke flytter
+    // seg når placeholderen legger seg øverst.
     // En LÅST liste har ingen +-knapper → kortets bunn.
     const top = head ? head.getBoundingClientRect().bottom : r.top;
-    const bottom = ar && ar.height ? ar.top : r.bottom;
+    const bottom = ar && ar.height ? ar.top + ar.height / 2 : r.bottom;
     // Er sonen for liten til å sikte på — en TOM (eller nesten tom) liste har bare
     // noen få piksler mellom tittelen og +-knappene — gjelder hele kortet i stedet,
     // som for en kollapset liste. Størrelsen måles som om reorder-placeholderen
