@@ -417,6 +417,18 @@ det absolutt posisjonerte dra-elementet (koordinatene tolkes relativt til den, k
 (`.sep-below`) når raden under linja er en forfar. Ny test
 `tests/dnd-extract-thresholds.test.js`. Ingen DB-migrering. Se `docs/drag-and-drop.md`.
 
+**Toast: glassflate + sveip-til-lukk (siste runde)**: toasten har fått en mer
+gjennomsiktig flate (`rgba(45,38,70,0.62)`) med `backdrop-filter: blur(14px)`, og
+hele flaten kan **sveipes/dras til høyre for å lukke den umiddelbart** — man
+slipper å vente ut timeren (`attachToastSwipe`; terskel 30 % av bredden, minst
+56 px, kun høyre-retning, vertikal bevegelse gir gesten til siden så den ruller
+nativt). Toasten er `pointer-events: auto` mens den vises (klikk-gjennom i hvile),
+og et fullført sveip svelger klikket etterpå så «Angre» ikke fyrer. Nytt
+`showToast`-alternativ `opts.onDismiss`: slette-toasten committer slettingen
+straks ved sveip (`commitDeleteToastNow`, delt med timeren). Ny test
+`tests/toast-swipe.test.js`. Ingen DB-migrering. Se `docs/design-system.md` og
+`docs/trash.md`.
+
 Verifisert i nettleser (Playwright) mot en hermetisk in-memory-backend
 (`mock-backend.js`, aktiveres med `?mock=1`) som etterligner Supabase-
 klienten og deler «server» mellom faner via localStorage — kjør to faner for

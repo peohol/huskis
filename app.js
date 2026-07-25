@@ -1815,7 +1815,7 @@
     } else {
       // Oppdater antallet i toasten (uten å restarte commit-timeren).
       showToast(deleteMsg(deleteToast.kind, deleteToast.ids, deleteToast.lastName),
-        deleteToastAction(), { sticky: true });
+        deleteToastAction(), { sticky: true, onDismiss: commitDeleteToastNow });
     }
   }
   // «Gjenopprett» på en buffret (ennå ikke committet) sletting: bare angre
@@ -1895,15 +1895,23 @@
     const w = kind === 'item' ? itemWord : kind === 'card' ? listWord : kind === 'group' ? groupWord : uniWord;
     return 'Slettet ' + w(ids.length);
   }
+  // Committer gruppen i toasten nå (angre-vinduet er over — timeren utløp, en ny
+  // kategori slettes, eller brukeren sveipet toasten bort). Skjuler ikke toasten:
+  // kalleren styrer det (timeren skjuler, sveipet har allerede kastet den ut).
+  function commitDeleteToastNow() {
+    if (!deleteToast) return;
+    const g = deleteToast; deleteToast = null;
+    clearTimeout(g.timer);
+    const committed = g.ids.map(commitDeleteOne);
+    save();
+    refreshTrashBadgesAfterCommit(committed);
+    if (!trashModal.hidden) renderTrashModalBody();
+  }
   function armDeleteTimer() {
     clearTimeout(deleteToast.timer);
     deleteToast.timer = setTimeout(() => {
-      const g = deleteToast; deleteToast = null;
-      const committed = g.ids.map(commitDeleteOne);
-      save();
-      refreshTrashBadgesAfterCommit(committed);
+      commitDeleteToastNow();
       hideToast();
-      if (!trashModal.hidden) renderTrashModalBody();
     }, DELETE_BUFFER_MS);
   }
   // Angre-knappen i samle-toasten (deles med pruneDeleteToast, som maler toasten
@@ -1924,14 +1932,7 @@
   }
   function pushDeleteToast(kind, id, name) {
     // Ny kategori → commit den forrige gruppen straks (ikke lenger angrbar).
-    if (deleteToast && deleteToast.kind !== kind) {
-      const old = deleteToast; deleteToast = null;
-      clearTimeout(old.timer);
-      const committed = old.ids.map(commitDeleteOne);
-      save();
-      refreshTrashBadgesAfterCommit(committed);
-      if (!trashModal.hidden) renderTrashModalBody();
-    }
+    if (deleteToast && deleteToast.kind !== kind) commitDeleteToastNow();
     if (deleteToast && deleteToast.kind === kind) {
       deleteToast.ids.push(id);
       deleteToast.lastName = name;
@@ -1939,7 +1940,8 @@
       deleteToast = { kind, ids: [id], lastName: name, timer: null };
     }
     armDeleteTimer();
-    showToast(deleteMsg(kind, deleteToast.ids, deleteToast.lastName), deleteToastAction(), { sticky: true });
+    showToast(deleteMsg(kind, deleteToast.ids, deleteToast.lastName), deleteToastAction(),
+      { sticky: true, onDismiss: commitDeleteToastNow });
   }
 
   /* ---------------- Inline-redigering ---------------- */
@@ -5581,14 +5583,23 @@
   }
   /* ---------- Lett, forbigående varsel (ingen fast statusindikator) ---------- */
   let toastTimer = null;
+  let toastDismiss = null; // onDismiss for toasten som vises nå (se showToast)
   // action (valgfri): { label, fn } → knapp i toasten (f.eks. «Angre»). Med
   // handling står toasten lenger (5 s) siden brukeren skal rekke å trykke.
   // opts.sticky: ikke auto-skjul — kalleren styrer skjuling selv (samle-toasten
   // for slettinger, der en felles timer styrer både commit og skjuling).
+  // opts.onDismiss: kjøres når brukeren sveiper toasten bort — «jeg er ferdig
+  // med denne, ikke vent på timeren». Slette-toasten committer da slettingen
+  // med en gang (samme utfall som når timeren utløper).
   function showToast(msg, action, opts) {
     opts = opts || {};
     let t = document.getElementById('toast');
-    if (!t) { t = document.createElement('div'); t.id = 'toast'; t.className = 'toast'; document.body.appendChild(t); }
+    if (!t) {
+      t = document.createElement('div'); t.id = 'toast'; t.className = 'toast';
+      document.body.appendChild(t);
+      attachToastSwipe(t);
+    }
+    resetToastTransform(t);
     t.innerHTML = '';
     const span = document.createElement('span');
     span.className = 'toast-msg';
@@ -5602,14 +5613,101 @@
       btn.addEventListener('click', () => { action.fn(); });
       t.appendChild(btn);
     }
+    toastDismiss = typeof opts.onDismiss === 'function' ? opts.onDismiss : null;
     t.classList.add('show');
     clearTimeout(toastTimer);
     if (!opts.sticky) toastTimer = setTimeout(() => t.classList.remove('show'), action ? 5000 : 2200);
   }
   function hideToast() {
     const t = document.getElementById('toast');
-    if (t) t.classList.remove('show');
+    if (t) { t.classList.remove('show'); resetToastTransform(t); }
+    toastDismiss = null;
     clearTimeout(toastTimer);
+  }
+  // Nullstill sveipe-sporene, så CSS-en (.toast/.toast.show) igjen eier
+  // plasseringen og neste visning glir inn fra riktig sted.
+  function resetToastTransform(t) {
+    t.classList.remove('toast-dragging', 'toast-swipe-out');
+    t.style.transform = '';
+    t.style.opacity = '';
+  }
+
+  /* ---------- Sveip toasten til høyre for å lukke ----------
+     Toasten er sentrert med `translate(-50%, …)`, så draget legges inn i den
+     samme transformen (`calc(-50% + Npx)`). Kun høyre-retning: venstre drag
+     stopper på 0, og en overveiende vertikal bevegelse gir opp gesten så siden
+     ruller nativt. Passerer draget terskelen kastes toasten ut og lukkes
+     umiddelbart — timeren ventes ikke ut. */
+  const TOAST_SWIPE_START_PX = 8;   // slark før draget «tar tak»
+  const TOAST_SWIPE_OUT_MS = 180;   // matcher .toast-swipe-out-transisjonen
+  function attachToastSwipe(t) {
+    let sw = null;            // { id, x0, y0, dx, active }
+    let swallowClick = false; // et fullført drag skal ikke også trykke «Angre»
+    const threshold = () => Math.max(56, t.offsetWidth * 0.3);
+    // Som de andre dra-motorene: move/up lyttes på window mens draget pågår, og
+    // pekerfangsten holder eventene i gang om fingeren forlater toasten.
+    function end() {
+      window.removeEventListener('pointermove', onMove);
+      window.removeEventListener('pointerup', onUp);
+      window.removeEventListener('pointercancel', onCancel);
+      sw = null;
+    }
+    function onMove(ev) {
+      if (!sw || ev.pointerId !== sw.id) return;
+      const dx = ev.clientX - sw.x0, dy = ev.clientY - sw.y0;
+      if (!sw.active) {
+        // Overveiende vertikalt = scroll på siden → gi gesten fra oss.
+        if (Math.abs(dy) > Math.abs(dx) && Math.abs(dy) > TOAST_SWIPE_START_PX) { end(); return; }
+        if (dx < TOAST_SWIPE_START_PX) return;
+        sw.active = true;
+        t.classList.add('toast-dragging');
+        try { t.setPointerCapture(sw.id); } catch (e) { /* ikke-aktiv peker */ }
+      }
+      sw.dx = Math.max(0, dx);   // kun høyre: venstre drag står stille på 0
+      t.style.transform = 'translate(calc(-50% + ' + sw.dx + 'px), 0)';
+      // Toner svakt ut underveis, men holder seg godt synlig til slippet avgjør.
+      t.style.opacity = String(Math.max(0.35, 1 - sw.dx / (threshold() * 3)));
+    }
+    function onUp(ev) {
+      if (!sw || ev.pointerId !== sw.id) return;
+      const past = sw.active && sw.dx >= threshold();
+      swallowClick = sw.active;
+      end();
+      if (past) swipeToastOut(t);
+      else resetToastTransform(t);
+    }
+    function onCancel(ev) {
+      if (!sw || ev.pointerId !== sw.id) return;
+      end();
+      resetToastTransform(t);
+    }
+    t.addEventListener('pointerdown', (ev) => {
+      if (sw || ev.button > 0 || !t.classList.contains('show')) return;
+      swallowClick = false;
+      sw = { id: ev.pointerId, x0: ev.clientX, y0: ev.clientY, dx: 0, active: false };
+      window.addEventListener('pointermove', onMove);
+      window.addEventListener('pointerup', onUp);
+      window.addEventListener('pointercancel', onCancel);
+    });
+    // Klikket som følger et drag må stanses — ellers ville «Angre» fyre av på
+    // slippet (draget kan godt starte oppå knappen).
+    t.addEventListener('click', (ev) => {
+      if (!swallowClick) return;
+      swallowClick = false;
+      ev.preventDefault(); ev.stopPropagation();
+    }, true);
+  }
+  // Kast toasten ut av skjermen til høyre og lukk den. `toastDismiss` får si sitt
+  // først (slette-toasten committer slettingen), deretter ryddes toasten.
+  function swipeToastOut(t) {
+    const dismiss = toastDismiss;
+    t.classList.remove('toast-dragging');
+    t.classList.add('toast-swipe-out');
+    t.style.transform = 'translate(calc(-50% + ' + (window.innerWidth + 40) + 'px), 0)';
+    t.style.opacity = '0';
+    if (dismiss) dismiss();
+    // Ikke rydd inline-stilene før utkastet er malt (ellers spretter den tilbake).
+    setTimeout(() => { if (t.classList.contains('toast-swipe-out')) hideToast(); }, TOAST_SWIPE_OUT_MS);
   }
 
   /* ---------- Logg ut (i konto-modalen) ----------
@@ -7548,7 +7646,7 @@
     openAccount, closeAccount,
     canonical, reconcile, docFromMyState, contentDocFromMy, applyMyDoc, cloudCycle,
     isSchemaMismatch,
-    openShare, openSettings,
+    openShare, openSettings, showToast,
     get authUser() { return authUser; },
     get lastMy() { return lastMy; },
     get pendingPlacements() { return pendingPlacements; },
