@@ -70,6 +70,11 @@ bygget treet på nytt) og dermed ikke virket før noen sekunder hadde gått.
   `undoDeleteOne` gjør én-objekt-jobben uten å tegne board-et på nytt (commit er
   visuelt en no-op siden objektet allerede var skjult); gruppe-angre tegner én
   gang til slutt.
+- **Sveipes toasten bort** (til høyre, se `docs/design-system.md`) er det et
+  «jeg er ferdig med denne»: `onDismiss: commitDeleteToastNow` committer gruppen
+  **umiddelbart** — samme utfall som når timeren utløper, bare uten ventingen.
+  `commitDeleteToastNow` er den delte commit-veien (timeren, kategori-byttet i
+  `pushDeleteToast` og sveipet bruker alle den).
 
 «Angre» (og «Gjenopprett» for committede) bruker de delte
 `restoreUniverse/Group/Card/Item`-hjelperne (samme kode begge steder). Også

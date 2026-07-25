@@ -376,6 +376,18 @@ side-margin som kansellerer den omsluttende paddingen.
   knapp: `showToast(msg, { label, fn })`. Slettinger bruker dette (5 s) sammen
   med fly-i-søpla-animasjonen; gjenopprett-logikken deles med søppel-modalen
   (`restoreUniverse/Group/Card/Item`).
+- **Toast** (`.toast`, `showToast`/`hideToast`): halvgjennomsiktig mørk flate
+  (`rgba(45,38,70,0.62)`) med `backdrop-filter: blur(14px) saturate(1.3)` og en
+  hårfin lys kant — innholdet under skinner gjennom, hvit tekst holder seg
+  lesbar. Toasten er `pointer-events: none` i hvile (klikk-gjennom) og `auto`
+  mens den vises, slik at hele flaten kan **sveipes til høyre for å lukke den
+  med en gang** (`attachToastSwipe`): kun høyre-retning (venstre står stille),
+  overveiende vertikal bevegelse gir gesten til siden så den ruller nativt
+  (`touch-action: pan-y`), og forbi terskelen (30 % av bredden, minst 56 px)
+  kastes toasten ut (`.toast-swipe-out`). Et fullført sveip svelger klikket
+  etterpå, så et drag som startet oppå «Angre» ikke også trykker «Angre».
+  `opts.onDismiss` lar kalleren gjøre ferdig arbeidet timeren ellers ville gjort
+  — slette-toasten committer slettingen (se `docs/trash.md`).
 
 ## Bevegelse og tilgjengelighet
 
