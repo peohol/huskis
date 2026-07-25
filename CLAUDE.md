@@ -404,7 +404,8 @@ DB-migrering. Se `docs/drag-and-drop.md` og `docs/design-system.md`.
 **1/3-terskler for ny-liste-placeholderen + synlig listepunkt ut av kategori (siste
 runde)**: (1) Hvilken liste et løftet listepunkt/en kategori «er i» avgjøres nå av
 OBJEKTETS boks, ikke pekeren (`dragOverCard`), og av listas INNHOLDSSONE
-(listetittelens nedre kant … midt i +-knapperaden) — de samme linjene inn og ut:
+(midt i listetittelen … midt i +-knapperaden — halve rammeraden er slark, så
+første/siste plass i lista er like lett å treffe) — de samme linjene inn og ut:
 objektet er i lista når dets MIDTRE 1/3 ligger innenfor sonen. Kollapset/peek-åpnet
 liste, og lister med for liten sone (tomme), bruker hele kortet. Hysteresen kommer av
 layouten (placeholderne bytter plass), ikke av et dødbånd; `pointerOverAnyCard` er

@@ -3430,17 +3430,20 @@
     const head = cardEl.querySelector('.card-head');
     const add = cardEl.querySelector('.add-item-row');
     const ar = add && !add.hidden ? add.getBoundingClientRect() : null;
-    // Nedre linje går gjennom MIDTEN av knapperaden, ikke over den: siste plass i
-    // en liste er ellers den trangeste å treffe. For å havne sist må objektets
-    // senter forbi siste rads senter, og da stikker nedre 1/3 nesten ned i
-    // knapperaden — og lander man en KATEGORI sist, krymper lista samtidig ~25 px
-    // (skillelinja under placeholderen forsvinner når den blir siste rad), så
-    // linja kommer opp mot objektet i samme bevegelse. Halve knapperaden er nok
-    // slark til at siste plass er like lett å treffe som de andre.
-    // Øvre linje trenger ikke det samme: den ligger i korthodet, som ikke flytter
-    // seg når placeholderen legger seg øverst.
+    // Linjene går gjennom MIDTEN av rammeradene, ikke langs innerkantene deres:
+    // halve tittelraden og halve knapperaden er slark, så FØRSTE og SISTE plass i
+    // lista er like lett å treffe som plassene mellom radene.
+    // - Nederst: for å havne sist må objektets senter forbi siste rads senter, og
+    //   da stikker nedre 1/3 nesten ned i knapperaden. Lander man en KATEGORI sist,
+    //   krymper lista samtidig ~25 px (skillelinja under placeholderen forsvinner
+    //   når den blir siste rad), så linja kommer opp mot objektet mens man sikter.
+    // - Øverst: ligger en KATEGORI først i lista, er det bare ~10 px mellom
+    //   tittelraden og kategorien — og pekeren må være der for å treffe nivå 1 i
+    //   stedet for inne i kategorien. Uten slarken var «over en kategori øverst»
+    //   umulig (målt: 0 px vindu, mot 63 px over et vanlig listepunkt øverst).
     // En LÅST liste har ingen +-knapper → kortets bunn.
-    const top = head ? head.getBoundingClientRect().bottom : r.top;
+    const hr = head ? head.getBoundingClientRect() : null;
+    const top = hr ? hr.top + hr.height / 2 : r.top;
     const bottom = ar && ar.height ? ar.top + ar.height / 2 : r.bottom;
     // Er sonen for liten til å sikte på — en TOM (eller nesten tom) liste har bare
     // noen få piksler mellom tittelen og +-knappene — gjelder hele kortet i stedet,

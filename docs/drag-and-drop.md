@@ -343,16 +343,16 @@ uklemt), ikke av pekeren. Pekeren sitter der man tok tak, så et pekerbasert sva
 gjorde ny-liste-placeholderen mye lettere å få frem oppover enn nedover (og
 motsatt inn i den neste lista).
 
-Referanselinjene er listas **innholdssone** — fra **listetittelens** (korthodets)
-nedre kant til **midt i +-knapperaden** (`.add-item-row`) — de SAMME linjene inn
+Referanselinjene er listas **innholdssone** — fra **midt i listetittelen**
+(korthodet) til **midt i +-knapperaden** (`.add-item-row`) — de SAMME linjene inn
 og ut. Kortets ytterkanter brukes ikke: tittelraden og knapperaden er rammen rundt
-innholdet, og et objekt som ligger oppå dem hører ikke til lista. «1/3 har passert»
-= 1/3-linja ligger på andre siden av referanselinja:
+innholdet, og halve rammeraden regnes som lista (se slark-punktet under). «1/3 har
+passert» = 1/3-linja ligger på andre siden av referanselinja:
 
 | Bevegelse | Placeholderen skifter når … |
 |---|---|
-| INN, nedover | objektets **øvre 1/3** har passert **tittelens** nedre kant |
-| UT, oppover | objektets **øvre 1/3** har passert **tittelens** nedre kant |
+| INN, nedover | objektets **øvre 1/3** har passert **tittelradens midtlinje** |
+| UT, oppover | objektets **øvre 1/3** har passert **tittelradens midtlinje** |
 | INN, oppover | objektets **nedre 1/3** har passert **knapperadens midtlinje** |
 | UT, nedover | objektets **nedre 1/3** har passert **knapperadens midtlinje** |
 
@@ -379,18 +379,26 @@ To spesialtilfeller i `cardBand`:
   `MIN_BAND_SLACK` (48 px) må dekke at lista rykker oppover mot objektet idet
   ny-liste-placeholderen (≥ 72 px) byttes mot en radhøyde inne i lista.
 
-**Hvorfor nedre linje går MIDT i knapperaden og ikke over den** (slark kun i
-bunn): å legge et objekt SIST i en liste er den trangeste plassen — objektets
-senter må forbi siste rads senter, og da stikker nedre 1/3 nesten ned i
-knapperaden. Slippes en KATEGORI sist i en liste med kategorier, krymper lista i
-tillegg ~25 px i samme øyeblikk (skillelinja under placeholderen forsvinner når
-den blir siste rad), så linja kommer opp mot objektet mens man sikter — uten
-slarken var vinduet ~2 px. Halve knapperaden gjør siste plass like lett å treffe
-som de andre, og ut-terskelen er fortsatt ~30 px tidligere enn kortets nedre kant.
-Øvre linje trenger ikke det samme: den ligger i korthodet, som ikke flytter seg
-når placeholderen legger seg øverst. Dekket av `F1`/`F2` i
-`tests/dnd-extract-thresholds.test.js` og av «dratt nederst» i
-`tests/dnd-separators-preview.test.js`.
+**Hvorfor linjene går MIDT i rammeradene og ikke langs innerkantene**: første og
+siste plass i lista er de trangeste å treffe, og halve rammeraden er slarken som
+gjør dem like lette som plassene mellom radene.
+- **Nederst**: for å havne sist må objektets senter forbi siste rads senter, og da
+  stikker nedre 1/3 nesten ned i knapperaden. Slippes en KATEGORI sist i en liste
+  med kategorier, krymper lista i tillegg ~25 px i samme øyeblikk (skillelinja
+  under placeholderen forsvinner når den blir siste rad), så linja kommer opp mot
+  objektet mens man sikter — uten slarken var vinduet ~2 px. Dekket av `F1`/`F2` i
+  `tests/dnd-extract-thresholds.test.js` og «dratt nederst» i
+  `tests/dnd-separators-preview.test.js`.
+- **Øverst**: ligger en KATEGORI først i lista, er det bare ~10 px mellom
+  tittelraden og kategorien — og pekeren må være nettopp DER for å treffe nivå 1 i
+  stedet for inne i kategorien (`updateItemPlacement` steg 1 ruter pekeren inn i
+  kategorien den er over). Uten slarken var «over en kategori øverst» umulig: målt
+  0 px vindu, mot 63 px over et vanlig listepunkt øverst; med slarken 30 px (og
+  93 px over et listepunkt). Dekket av `G1`/`G2` i
+  `tests/dnd-extract-thresholds.test.js`.
+
+Ut-tersklene ligger fortsatt ~20-30 px innenfor kortets ytterkanter, så
+ny-liste-placeholderen dukker opp tidligere enn med kortkantene som grense.
 
 Peek-åpning av kollapsede mål (under) bruker samme `dragOverCard`, ellers kunne
 placeholderen stå og vente på en peek som aldri startet fordi pekeren ennå ikke var
