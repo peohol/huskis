@@ -294,6 +294,18 @@ fordypning («hylle», se `docs/design-system.md`).
   - Linjene uttrykkes som **klasser på radene**, ikke innsatte linje-elementer:
     radenes DOM-naboskap brukes av plasserings- og pos-logikken (`wouldMove`,
     `rowPos`), og et element mellom radene ville forstyrret den.
+  - **En rad som er FORFAR til det løftede objektet får aldri `.sep-above`** —
+    linja males i stedet speilvendt fra raden OVER (`.sep-below`, `margin-bottom:
+    25px` + linja 16px under raden; identisk geometri). Grunnen er den samme som
+    for `flipFrom`: `.sep-above` setter `position: relative`, og en posisjonert
+    forfar blir containing block for det absolutt posisjonerte dra-elementet →
+    dokument-koordinatene tolkes plutselig relativt til raden, og kortets
+    `overflow: hidden` klipper objektet bort. Symptomet var at et listepunkt dratt
+    UT av en kategori til nivå 1 i SAMME liste **forsvant** (kategorien er da
+    forfar OG en nivå-1-rad som skal ha linje); dro man videre til en annen
+    kategori eller en annen liste dukket det opp igjen, fordi kilde-kategorien da
+    ikke lenger var en rad JS styrte linjer for. Raden over er aldri en forfar
+    (det løftede objektet hører til nøyaktig én nivå-1-rad), så byttet er trygt.
   - Kalles ved dragstart (ETTER `liftElement`/`liftCategory`, så det dratte alt er
     ute av flyten), ved modusbytte (`setExtractMode`/`setReorderMode`) og etter hver
     placeholder-flytting — alltid FØR `flipFrom`, så FLIP-en måler den nye layouten
@@ -314,13 +326,45 @@ under eller mellom dem (dvs. i board-luften, ikke over noe kort), dukker en KORT
 formet placeholder med et **＋-ikon** i midten opp (`.new-list-placeholder`) —
 slipp der oppretter en NY liste. `drag.phMode` (`'reorder'` | `'extract'`) styrer
 hvilken placeholder som er aktiv; `setExtractMode`/`setReorderMode` bytter den ut
-(fjerner den gamle, lager riktig type i riktig container). `pointerOverAnyCard(x,y)`
-avgjør modus hver frame: over et kort → reorder (kategori: nivå-1-reorder innen
-kilde-lista via `pointerInRect(drag.card…)`; listepunkt: eksisterende container-
-logikk), ellers → extract. `placeNewListPlaceholder` plasserer kort-placeholderen
-blant board-ets kort etter pekerposisjon (kolonne på x med ±8 px slingring, plass
-på y-senter; ingen kolonnetreff → alle kort sortert på topp). `extractionPos`
-gir den nye lista en `pos` mellom placeholderens board-naboer.
+(fjerner den gamle, lager riktig type i riktig container). `dragOverCard()` avgjør
+modus hver frame: er objektet «i» en liste → reorder (kategori: nivå-1-reorder når
+lista er kilde-lista, ellers inn i den andre lista; listepunkt: container-logikken
+under), ingen liste → extract. `placeNewListPlaceholder` plasserer kort-
+placeholderen blant board-ets kort: kolonnen etter pekerens x (±8 px slingring;
+ingen kolonnetreff → alle kort sortert på topp), plassen i kolonnen etter det
+LØFTEDE OBJEKTETS y-senter (ut-terskelen slår inn mens pekeren fortsatt kan være
+inne i lista man forlot — et pekerbasert y-valg la da placeholderen på feil side av
+den). `extractionPos` gir den nye lista en `pos` mellom placeholderens board-naboer.
+
+### «Hvilken liste er objektet i?» — 1/3-terskler (`dragOverCard`)
+
+Grensen mellom lister avgjøres av det LØFTEDE OBJEKTETS boks (`draggedRect()`,
+uklemt), ikke av pekeren. Pekeren sitter der man tok tak, så et pekerbasert svar
+gjorde ny-liste-placeholderen mye lettere å få frem oppover enn nedover (og
+motsatt inn i den neste lista). Fire terskler, symmetriske hver vei — «1/3 har
+passert» = 1/3-linja ligger på andre siden av kanten:
+
+| Bevegelse | Placeholderen skifter når … |
+|---|---|
+| UT av lista, oppover | objektets **øvre 1/3** har passert listens **øvre kant** |
+| UT av lista, nedover | objektets **nedre 1/3** har passert listens **nedre kant** |
+| INN i en liste, nedover | objektets **nedre 1/3** har passert **listetittelens** (korthodets) nedre kant |
+| INN i en liste, oppover | objektets **øvre 1/3** har passert **+-knappenes** (`.add-item-row`) øvre kant |
+
+Inn-tersklene ligger dypere inne i lista enn ut-tersklene → hysterese, ingen
+flimring i overgangen (en monoton bevegelse gir nøyaktig `reorder(A)` → `extract`
+→ `reorder(B)`). Implementasjonen er to predikater: `stay(kort)` (ut-tersklene,
++ pekerens x innenfor kortet) og `enter(kort)` (`cardEnterBand`: korthodets bunn
+… +-knappenes topp; en KOLLAPSET liste har ingen av delene, der er hele kortet
+inn-sone, og en LÅST liste har ingen +-knapper → kortets bunn). Valget henger igjen
+i `drag.overCard` til `stay` brytes; et NYTT kort må oppfylle både `enter` og
+`stay`, så det aldri velges et kort man er «utenfor» i samme frame. Reglene er rent
+loddrette — **flerkolonne** (desktop) håndteres av pekerens x i `stay`, som før.
+Innenfor en liste er det fortsatt PEKEREN som velger rad/kategori.
+
+Peek-åpning av kollapsede mål (under) bruker samme `dragOverCard`, ellers kunne
+placeholderen stå og vente på en peek som aldri startet fordi pekeren ennå ikke var
+inne i kortet.
 
 - **Kategori → liste** (`extractCategoryToNewList`, `onCategoryUp` når `phMode` er
   `extract`): ny liste med samme tittel; medlemmene flyttes inn ukategorisert
@@ -353,9 +397,9 @@ gir den nye lista en `pos` mellom placeholderens board-naboer.
 ## Kategori → en annen liste (`moveCategoryToCard`)
 
 En kategori kan dras INN i en annen eksisterende liste (ikke bare reorderes i sin
-egen eller ekstraheres til en helt ny). `updateCategoryPlacement` er tre-veis: over
-KILDE-lista → reorder på nivå 1; over en ANNEN liste (`pointerOverAnyCard`, ≠ kilde)
-→ placeholder på nivå 1 der (kategorier nøstes aldri, så alltid `.items-container`,
+egen eller ekstraheres til en helt ny). `updateCategoryPlacement` er tre-veis (mål-
+lista fra `dragOverCard`, se 1/3-tersklene over): KILDE-lista → reorder på nivå 1;
+en ANNEN liste → placeholder på nivå 1 der (kategorier nøstes aldri, så alltid `.items-container`,
 ikke en `.cat-items`); board-luft → ekstraher til ny liste. Ved slipp i en annen
 liste (`onCategoryUp`, mål-kort ≠ kilde-kort) flytter `moveCategoryToCard` kategorien
 OG alle medlemmene (aktive + avkryssede + slettede) til mål-kortet: medlemmene beholder
@@ -376,7 +420,10 @@ forhåndsvisning: den rører IKKE `card.collapsed`/`item.collapsed` og lagrer ik
 - **To lag samtidig** (`drag.peekCard` + `drag.peekCat`, kun kategori-laget for
   listepunkt-drag): «listen OG/ELLER kategorien» åpnes progressivt — først lista, så
   en kollapset kategori inne i den. Hvert lag har en 200 ms-timer (`setPeekLayer`); et
-  allerede peek-åpnet mål (ikke lenger `.collapsed`) beholdes så lenge pekeren er i det.
+  allerede peek-åpnet mål (ikke lenger `.collapsed`) beholdes så lenge det er målet.
+  Liste-laget bruker `dragOverCard()` (samme 1/3-terskler som plasseringen — ellers
+  kunne placeholderen stå og vente på en peek som aldri startet); kategori-laget
+  velges av pekeren, som all annen plassering innenfor en liste.
   `peekExpand`/`peekCollapse` bruker de momentane body-veksel-funksjonene
   (`expandCardBody`/`collapseCardBody`, `expandCatBody`/`collapseCatBody`) + skjuler/viser
   «(N)»-telleren (`peekChip`). `updatePeek` kalles fra `onItemMove`/`onCategoryMove`.
