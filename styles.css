@@ -328,7 +328,7 @@ body {
   padding: 10px;
   cursor: default;
 }
-.current-chip .icon { font-size: var(--fs-base); filter: drop-shadow(var(--text-shadow)); }
+.current-chip .icon { font-size: var(--fs-base); }
 .current-chip .chip-name { cursor: inherit; }
 
 /* ---------------- Fargede knapper (.btn-solid) ----------------
@@ -344,7 +344,6 @@ body {
 .btn-solid:hover { box-shadow: var(--shadow-md); filter: brightness(1.09) saturate(1.05); }
 .btn-solid:active { transform: translateY(1px); filter: brightness(0.98); }
 .btn-solid:disabled { opacity: 0.45; cursor: not-allowed; box-shadow: none; filter: none; }
-.btn-solid .icon { filter: drop-shadow(var(--text-shadow)); }
 .btn-green { background: var(--grad-green); }
 .btn-red { background: var(--grad-red); }
 .btn-yellow { background: var(--grad-yellow); }
@@ -694,9 +693,6 @@ body {
   box-shadow: var(--shadow-sm);
 }
 .filter-switches .switch.on:hover { filter: brightness(1.09) saturate(1.05); box-shadow: var(--shadow-md); }
-.filter-switches .switch.on .icon {
-  filter: drop-shadow(var(--text-shadow));
-}
 
 /* ---------------- Board (kolonner) ---------------- */
 .board {
@@ -886,7 +882,7 @@ body {
   background: var(--grad-green);
   border-color: transparent;
 }
-.item.done .item-check .icon { opacity: 1; filter: drop-shadow(var(--text-shadow)); }
+.item.done .item-check .icon { opacity: 1; }
 
 /* Innstillingsknapp (tannhjul) på elementer: dempet i hvile, tydelig ved
    hover/fokus — samme plass som den gamle ansvarsknappen (venstre for ✕). */
@@ -1116,7 +1112,7 @@ body {
   box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.35);
   transition: background 0.15s, transform 0.1s;
 }
-.cat-cog .icon, .cat-dissolve .icon { width: 1em; height: 1em; font-size: 21px; filter: drop-shadow(var(--text-shadow)); }
+.cat-cog .icon, .cat-dissolve .icon { width: 1em; height: 1em; font-size: 21px; }
 .cat-cog:hover, .cat-dissolve:hover { background: rgba(255, 255, 255, 0.34); }
 .cat-cog:active, .cat-dissolve:active { transform: scale(0.92); }
 .cat-cog:focus-visible, .cat-dissolve:focus-visible { outline: 2.5px solid #fff; outline-offset: 2px; }
@@ -1356,7 +1352,6 @@ body {
   stroke: #fff;
   stroke-width: 2;
   opacity: 0.9;
-  filter: drop-shadow(var(--text-shadow));
 }
 .item-placeholder {
   list-style: none;
@@ -2011,7 +2006,6 @@ body.no-auth #account-btn { display: none; }
   flex: 0 0 auto;
   font-size: var(--fs-lg);
   line-height: 1;
-  filter: drop-shadow(var(--text-shadow));
 }
 .share-badge[hidden] { display: none; }
 /* Innstillingsknappen på listekort (`.card-cog`, tannhjul — erstatter den
@@ -2042,7 +2036,6 @@ body.no-auth #account-btn { display: none; }
   background: rgba(255, 255, 255, 0.34);
 }
 .card-cog:focus-visible { outline: 2.5px solid #fff; outline-offset: 2px; }
-.card-cog .icon { filter: drop-shadow(var(--text-shadow)); }
 /* Delt liste-kort: en tydelig men diskret kant-markør. */
 .card.is-shared { box-shadow: var(--shadow-sm), inset 0 0 0 2px rgba(255,255,255,0.55); }
 .card.is-locked .card-title { opacity: 0.9; }
