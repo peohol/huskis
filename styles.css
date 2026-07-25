@@ -1035,7 +1035,7 @@ body {
    raden — kant-til-kant (-10px) som ellers. Absolutt posisjonering (ikke en
    flex-linje) fordi den skal virke likt på listepunkter, kategorier OG
    placeholderen, uten å endre radenes DOM-naboskap. */
-.items-container.seps-managed > .category::after,
+.items-container.seps-managed > .category:not(.sep-below)::after,
 .items-container.seps-managed > .category:not(.sep-above)::before { content: none; }
 /* Kun radene som faktisk har en linje posisjoneres (aldri det løftede objektet —
    det er `position: absolute` og skal bli det). */
@@ -1049,6 +1049,23 @@ body {
   height: 1px;
   margin: 0;                          /* nullstill hvile-regelens marger på .category::before */
   background: rgba(0, 0, 0, 0.15);    /* samme linje som i hvile */
+}
+/* Samme linje, men malt fra raden OVER. Brukes når raden UNDER linja er forfar
+   til det løftede objektet (et listepunkt dratt ut av en kategori): en `position:
+   relative` der ville gjort raden til containing block for det absolutt
+   posisjonerte dra-elementet, som da havner på feil sted og klippes bort av
+   kortets `overflow: hidden`. Geometrien er speilvendt og identisk. */
+.items-container.seps-managed > .sep-below { position: relative; margin-bottom: 25px; }
+.items-container.seps-managed > .sep-below::after {
+  content: '';
+  position: absolute;
+  left: -10px;
+  right: -10px;
+  bottom: -17px;
+  height: 1px;
+  margin: 0;                          /* nullstill hvile-regelens marger på .category::after */
+  background: rgba(0, 0, 0, 0.15);
+  display: block;
 }
 .cat-head { display: flex; align-items: center; gap: 6px; padding: 0 6px; }
 /* Kategori-ikon: skjult i hvile, vist til venstre for tittelen KUN mens

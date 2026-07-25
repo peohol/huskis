@@ -2260,6 +2260,7 @@
                             // stale kategori-verdi ikke lekker inn i et påfølgende listepunkt-drag
     drag.peekCard = null;   // midlertidig peek-åpnet liste under draget (se peek-blokken)
     drag.peekCat = null;    // midlertidig peek-åpnet kategori under draget
+    drag.overCard = el.closest('.card'); // lista objektet «er i» (1/3-hysterese, se dragOverCard)
     try { ev.target.setPointerCapture(ev.pointerId); } catch (e) {}
     document.body.classList.add('is-dragging');
     // Slå av nettleserens scroll-anchoring mens draget pågår: den ville ellers
@@ -2996,7 +2997,7 @@
   }
   function clearSepsIn(cont) {
     cont.classList.remove('seps-managed');
-    [...cont.children].forEach((c) => c.classList.remove('sep-above'));
+    [...cont.children].forEach((c) => c.classList.remove('sep-above', 'sep-below'));
     sepConts.delete(cont);
   }
   // Kalles ved dragstart og etter hver placeholder-flytting — FØR FLIP-en måler
@@ -3014,11 +3015,21 @@
       sepConts.add(cont);
       // Nullstill ALLE barn først (ikke bare radene): det løftede objektet kan ha
       // fått en linje mens det ennå lå i flyten, og skal ikke bære den med seg.
-      [...cont.children].forEach((c) => c.classList.remove('sep-above'));
+      [...cont.children].forEach((c) => c.classList.remove('sep-above', 'sep-below'));
       const rows = sepRows(cont);
       rows.forEach((row, i) => {
         const prev = i > 0 ? rows[i - 1] : null;
-        if (prev && (isCatRow(prev) || isCatRow(row))) row.classList.add('sep-above');
+        if (!prev || !(isCatRow(prev) || isCatRow(row))) return;
+        // En rad som er FORFAR til det løftede objektet må ALDRI posisjoneres:
+        // `.sep-above` setter `position: relative`, og da blir raden containing
+        // block for det absolutt posisjonerte dra-elementet — dets dokument-
+        // koordinater tolkes plutselig relativt til raden, og kortets
+        // `overflow: hidden` klipper det bort (et listepunkt dratt UT av en
+        // kategori til nivå 1 i samme liste «forsvant»). Samme fallgruve som
+        // flipFrom unngår. Linja males da fra raden OVER i stedet
+        // (`.sep-below`, identisk geometri) — den er aldri en forfar.
+        if (drag.el && row.contains(drag.el)) prev.classList.add('sep-below');
+        else row.classList.add('sep-above');
       });
     }
   }
@@ -3045,7 +3056,8 @@
     if (!drag.active || drag.kind !== 'item') return;
     // Utenfor alle lister (board-luft mellom/utenfor listene) → ny-liste-
     // placeholder (ekstrahering til en ny liste med bare dette listepunktet).
-    if (!pointerOverAnyCard(px, py)) {
+    const overCard = dragOverCard();
+    if (!overCard) {
       setExtractMode();
       placeNewListPlaceholder();
       return;
@@ -3054,33 +3066,18 @@
     const dragRect = draggedRect();
     const flipEls = [...document.querySelectorAll('.item:not(.dragging), .category:not(.dragging)')];
 
-    // 1) Nivå 2 først: er pekeren inne i en kategori? → kategoriens .cat-items
-    //    (slipp på overskriften ELLER blant elementene legger elementet i den).
+    // 1) Nivå 2 først: er pekeren inne i en kategori i lista? → kategoriens
+    //    .cat-items (slipp på overskriften ELLER blant listepunktene legger
+    //    listepunktet i kategorien). Innenfor lista er det fortsatt PEKEREN som
+    //    velger rad/kategori — 1/3-reglene gjelder kun grensen mellom lister.
     let targetCont = null;
-    for (const cat of document.querySelectorAll('.category:not(.dragging)')) {
-      const r = cat.getBoundingClientRect();
-      if (px >= r.left && px <= r.right && py >= r.top && py <= r.bottom) {
+    for (const cat of overCard.querySelectorAll('.category:not(.dragging)')) {
+      if (pointerInRect(cat.getBoundingClientRect(), px, py)) {
         targetCont = cat.querySelector('.cat-items'); break;
       }
     }
     // 2) Nivå 1: kortets .items-container (håndterer overføring mellom kort).
-    if (!targetCont) {
-      const containers = [...document.querySelectorAll('.items-container')];
-      for (const cont of containers) {
-        const r = cont.getBoundingClientRect();
-        if (px >= r.left && px <= r.right && py >= r.top - 12 && py <= r.bottom + 12) {
-          targetCont = cont; break;
-        }
-      }
-      if (!targetCont) {
-        for (const cont of containers) {
-          const cr = cont.closest('.card').getBoundingClientRect();
-          if (px >= cr.left && px <= cr.right && py >= cr.top && py <= cr.bottom) {
-            targetCont = cont; break;
-          }
-        }
-      }
-    }
+    if (!targetCont) targetCont = overCard.querySelector('.items-container');
     if (!targetCont) return;
 
     // Er målet en KOLLAPSET (ennå ikke peek-åpnet) liste eller kategori? La
@@ -3398,12 +3395,54 @@
      draget er da avskrudd (attachHoldDrag canDrag = !frozen). `drag.phMode`
      ('reorder' | 'extract') styrer hvilken placeholder som er aktiv. */
   function pointerInRect(r, x, y) { return x >= r.left && x <= r.right && y >= r.top && y <= r.bottom; }
-  // Kortet pekeren er over (INNENFOR en liste), ellers null (board-luft mellom/
-  // utenfor listene — der ekstraheringen slår inn).
-  function pointerOverAnyCard(x, y) {
+  /* Hvilken liste «er» det løftede objektet i? (null = board-luft → ekstrahering.)
+     Avgjøres av OBJEKTETS EGEN BOKS, ikke pekeren: pekeren sitter der man tok tak,
+     så med et pekerbasert svar dukket ny-liste-placeholderen opp mye senere på vei
+     nedover ut av en liste enn oppover (og motsatt inn i den neste). Terskler
+     (1/3 av objektets høyde, symmetriske hver vei):
+     - UT av lista: når objektets øvre 1/3 har passert listens ØVRE kant (på vei
+       opp), eller nedre 1/3 har passert listens NEDRE kant (på vei ned).
+     - INN i en liste: når nedre 1/3 har passert listetittelens (korthodets) nedre
+       kant (på vei ned), eller øvre 1/3 har passert +-knappenes øvre kant (på vei
+       opp).
+     Inn-tersklene ligger dypere inne i lista enn ut-tersklene → hysterese, ingen
+     flimring i overgangen. Vannrett (flerkolonne på desktop) avgjør pekerens
+     kolonne som før; 1/3-reglene er rent loddrette. Valget henger igjen i
+     `drag.overCard` til en ut-terskel passeres. */
+  function cardEnterBand(cardEl) {
+    const r = cardEl.getBoundingClientRect();
+    // En kollapset liste har hverken tittelrad å passere eller +-knapper — hele
+    // (header-høye) kortet er inn-sonen.
+    if (cardEl.classList.contains('collapsed')) return { top: r.top, bottom: r.bottom };
+    const head = cardEl.querySelector('.card-head');
+    const add = cardEl.querySelector('.add-item-row');
+    const ar = add && !add.hidden ? add.getBoundingClientRect() : null;
+    return {
+      top: head ? head.getBoundingClientRect().bottom : r.top,
+      bottom: ar && ar.height ? ar.top : r.bottom, // låst liste: ingen +-knapper
+    };
+  }
+  function dragOverCard() {
+    const d = draggedRect(); // UKLEMT: pekerens intensjon (som treffdeteksjonen ellers)
+    const third = d.height / 3;
+    const topThird = d.top + third;     // «øvre 1/3 har passert» = denne linja over kanten
+    const botThird = d.bottom - third;  // «nedre 1/3 har passert» = denne linja under kanten
+    const px = drag.lastX;
+    const stay = (el) => {
+      const r = el.getBoundingClientRect();
+      return px >= r.left && px <= r.right && topThird >= r.top && botThird <= r.bottom;
+    };
+    const enter = (el) => {
+      const b = cardEnterBand(el);
+      return botThird > b.top && topThird < b.bottom;
+    };
+    const cur = drag.overCard;
+    if (cur && cur.isConnected && stay(cur)) return cur;
     for (const c of board.querySelectorAll('.card')) {
-      if (pointerInRect(c.getBoundingClientRect(), x, y)) return c;
+      // `stay` også ved inngang: da kan et nytt valg aldri være «utenfor» med én gang.
+      if (stay(c) && enter(c)) { drag.overCard = c; return c; }
     }
+    drag.overCard = null;
     return null;
   }
   /* ---------------- Peek-åpning av kollapsede mål under draging ----------------
@@ -3466,28 +3505,28 @@
   }
   function updatePeek(x, y) {
     if (drag.kind !== 'item' && drag.kind !== 'category') return;
-    // Liste-laget (begge dra-typer): behold gjeldende peek-liste om pekeren fortsatt
-    // er i den; ellers første KOLLAPSEDE, IKKE-LÅSTE liste under pekeren (ikke kildekortet).
+    // Liste-laget (begge dra-typer): lista objektet er «i» (samme 1/3-vurdering som
+    // plasseringen bruker — ellers kunne placeholderen stå og vente på en peek som
+    // aldri startet fordi pekeren ennå ikke var inne i kortet). Et allerede peek-
+    // åpnet mål er ikke lenger `.collapsed`, så det beholdes eksplisitt.
+    const over = dragOverCard();
     let cardTarget = null;
-    if (drag.peekCard && drag.peekCard.el.isConnected &&
-        pointerInRect(drag.peekCard.el.getBoundingClientRect(), x, y)) {
+    if (drag.peekCard && drag.peekCard.el.isConnected && over === drag.peekCard.el) {
       cardTarget = drag.peekCard.el;
-    } else {
-      for (const c of board.querySelectorAll('.card.collapsed')) {
-        if (c !== drag.card && !cardElFrozen(c) && pointerInRect(c.getBoundingClientRect(), x, y)) { cardTarget = c; break; }
-      }
+    } else if (over && over !== drag.card && over.classList.contains('collapsed') && !cardElFrozen(over)) {
+      cardTarget = over;
     }
     setPeekLayer('peekCard', 'card', cardTarget);
     // Kategori-laget (kun listepunkt-drag): tilsvarende for en kollapset kategori i
-    // en ikke-låst liste.
+    // lista — der velger pekeren som ellers innenfor en liste.
     let catTarget = null;
-    if (drag.kind === 'item') {
+    if (drag.kind === 'item' && over && !cardElFrozen(over)) {
       if (drag.peekCat && drag.peekCat.el.isConnected &&
           pointerInRect(drag.peekCat.el.getBoundingClientRect(), x, y)) {
         catTarget = drag.peekCat.el;
       } else {
-        for (const cat of board.querySelectorAll('.category.collapsed')) {
-          if (!cardElFrozen(cat.closest('.card')) && pointerInRect(cat.getBoundingClientRect(), x, y)) { catTarget = cat; break; }
+        for (const cat of over.querySelectorAll('.category.collapsed')) {
+          if (pointerInRect(cat.getBoundingClientRect(), x, y)) { catTarget = cat; break; }
         }
       }
     }
@@ -3572,7 +3611,11 @@
   // Plassér ny-liste-placeholderen blant board-ets kort etter pekerposisjon.
   function placeNewListPlaceholder() {
     const ph = drag.ph;
-    const px = drag.lastX, py = drag.lastY;
+    // Kolonnen velges av pekeren (som ellers vannrett), men PLASSEN i kolonnen av
+    // objektets eget senter: ut-tersklene (1/3, se dragOverCard) slår inn mens
+    // pekeren fortsatt kan være godt inne i lista man forlot — da ville et
+    // pekerbasert y-valg lagt placeholderen på feil side av den.
+    const px = drag.lastX, py = draggedRect().top + drag.height / 2;
     const cards = [...board.querySelectorAll('.card')];
     if (!cards.length) { if (board.lastElementChild !== ph) board.appendChild(ph); return; }
     // Kolonne = kort hvis horisontale bånd pekeren er i (±8 px slingring). Ingen
@@ -3643,25 +3686,19 @@
   // listene) → ny-liste-placeholder (ekstrahering).
   function updateCategoryPlacement(commit) {
     if (!drag.active || drag.kind !== 'category') return;
-    if (drag.card && pointerInRect(drag.card.getBoundingClientRect(), drag.lastX, drag.lastY)) {
-      setReorderMode();
-      const cont = drag.card.querySelector('.items-container');
-      if (cont) placeRowPlaceholder(cont);
+    const overCard = dragOverCard();
+    if (!overCard) {
+      setExtractMode();
+      placeNewListPlaceholder();
       return;
     }
-    const overCard = pointerOverAnyCard(drag.lastX, drag.lastY);
-    if (overCard && overCard !== drag.card) {
-      setReorderMode();
-      // Kollapset (ennå ikke peek-åpnet) mål-liste: la placeholderen bli der den er
-      // mens peek-timeren løper (se updateItemPlacement). `commit` (fra onCategoryUp)
-      // overstyrer så kategorien lander i den kollapsede lista ved selve slippet.
-      if (!commit && overCard.classList.contains('collapsed')) return;
-      const cont = overCard.querySelector('.items-container');
-      if (cont) placeRowPlaceholder(cont);
-      return;
-    }
-    setExtractMode();
-    placeNewListPlaceholder();
+    setReorderMode();
+    // Kollapset (ennå ikke peek-åpnet) mål-liste: la placeholderen bli der den er
+    // mens peek-timeren løper (se updateItemPlacement). `commit` (fra onCategoryUp)
+    // overstyrer så kategorien lander i den kollapsede lista ved selve slippet.
+    if (overCard !== drag.card && !commit && overCard.classList.contains('collapsed')) return;
+    const cont = overCard.querySelector('.items-container');
+    if (cont) placeRowPlaceholder(cont);
   }
   // Flytt en kategori (med alle medlemmene) fra kilde-lista til en annen liste på
   // nivå 1. Medlemmene beholder sin `cat`-peker; både kategori og medlemmer får ny

@@ -270,11 +270,14 @@ const log = (n, ok, x = '') => { results.push(ok); console.log((ok ? 'PASS' : 'F
     });
     const src = await centerOf(p, '.category[data-id="cat-1"] .cat-head');
     const bHead = await centerOf(p, '.card[data-id="card-B"] .card-head');
+    // B er ÅPEN her: slippet må ligge nede i listepunkt-området, ikke på tittelen
+    // (inn-terskelen er nedre kant av listetittelen — se dragOverCard i app.js).
+    const bItems = await centerOf(p, '.card[data-id="card-B"] .items-container');
     await touch(p, 'pointerdown', src.x, src.y); await p.waitForTimeout(240);
     await touch(p, 'pointermove', src.x + 4, src.y + 4); await p.waitForTimeout(40);
     await touch(p, 'pointermove', bHead.x, bHead.y); await p.waitForTimeout(60);
-    await touch(p, 'pointermove', bHead.x + 1, bHead.y + 4); await p.waitForTimeout(60);
-    await touch(p, 'pointerup', bHead.x + 1, bHead.y + 4); await p.waitForTimeout(400);
+    await touch(p, 'pointermove', bItems.x, bItems.y); await p.waitForTimeout(60);
+    await touch(p, 'pointerup', bItems.x, bItems.y); await p.waitForTimeout(400);
     const st = await state(p);
     const catStaysInA = st['card-A'].items.some((it) => it.id === 'cat-1');
     const notInB = !st['card-B'].items.some((it) => it.id === 'cat-1');

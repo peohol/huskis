@@ -401,6 +401,22 @@ slettes det nyopprettede objektet igjen (`nameNewRow`). Nye tester
 `tests/dnd-viewport-clamp.test.js` og `tests/item-creation.test.js`. Ingen
 DB-migrering. Se `docs/drag-and-drop.md` og `docs/design-system.md`.
 
+**1/3-terskler for ny-liste-placeholderen + synlig listepunkt ut av kategori (siste
+runde)**: (1) Hvilken liste et løftet listepunkt/en kategori «er i» avgjøres nå av
+OBJEKTETS boks, ikke pekeren (`dragOverCard`): UT av lista når øvre/nedre 1/3 har
+passert listens øvre/nedre kant, INN i en liste når nedre 1/3 har passert
+listetittelens nedre kant (nedover) eller øvre 1/3 har passert +-knappenes øvre kant
+(oppover). Inn-tersklene ligger dypere enn ut-tersklene → hysterese, ingen flimring;
+`pointerOverAnyCard` er borte. Ny-liste-placeholderen dukker dermed opp like lett
+nedover som oppover (før måtte PEKEREN forlate kortet), og plasseres etter objektets
+y-senter. Flerkolonne (desktop) styres av pekerens x som før. (2) Et listepunkt dratt
+UT av en kategori til nivå 1 i SAMME liste **forsvant**: skillelinje-forhåndsvisningen
+ga kategorien `position: relative`, og en posisjonert FORFAR blir containing block for
+det absolutt posisjonerte dra-elementet (koordinatene tolkes relativt til den, kortets
+`overflow: hidden` klipper det bort). Linja males nå speilvendt fra raden over
+(`.sep-below`) når raden under linja er en forfar. Ny test
+`tests/dnd-extract-thresholds.test.js`. Ingen DB-migrering. Se `docs/drag-and-drop.md`.
+
 Verifisert i nettleser (Playwright) mot en hermetisk in-memory-backend
 (`mock-backend.js`, aktiveres med `?mock=1`) som etterligner Supabase-
 klienten og deler «server» mellom faner via localStorage — kjør to faner for

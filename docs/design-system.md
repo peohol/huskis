@@ -246,7 +246,9 @@ Størrelse/form kommer fra egne klasser: `.btn` (modaler), `.btn-small`,
   berører, så man ser hvordan de BLIR ved slipp — `.seps-managed` slår av
   pseudo-reglene over, og hver rad som skal ha en linje over seg får `.sep-above`
   (25px margin-top + en absolutt posisjonert linje 16px over raden = nøyaktig
-  samme geometri som i hvile). Se `docs/drag-and-drop.md`. **Kollaps + ＋-knapp:** en kategori kan **kollapses** som en
+  samme geometri som i hvile) — eller, når raden UNDER linja er forfar til det
+  løftede objektet, males den speilvendt fra raden over (`.sep-below`, se
+  `docs/drag-and-drop.md`). Se `docs/drag-and-drop.md`. **Kollaps + ＋-knapp:** en kategori kan **kollapses** som en
   rullgardin (klikk på overskriftslinjen, ikke tittel/tannhjul/oppløs/meta) —
   `.cat-items` (og `.cat-add`) foldes MOMENTANT (`collapseCatBody`/`expandCatBody`,
   som listekollapsen). Nederst i kategorien sitter en **grønn ＋-knapp** (`.cat-add` /
