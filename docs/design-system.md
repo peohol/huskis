@@ -246,7 +246,11 @@ Størrelse/form kommer fra egne klasser: `.btn` (modaler), `.btn-small`,
   hver — margin-verdiene (`::after` 12/8, `::before` 8/12) er ulike fordi de
   kompenserer for forskjellige omkringliggende flex-gap (`.category`s 4px
   topp/bunn vs. `.items-container`s 8px mellom rader), men summerer til samme
-  16px på begge sider. **Kollaps + ＋-knapp:** en kategori kan **kollapses** som en
+  16px på begge sider. **Under DnD** overtar JS linjene i containerne draget
+  berører, så man ser hvordan de BLIR ved slipp — `.seps-managed` slår av
+  pseudo-reglene over, og hver rad som skal ha en linje over seg får `.sep-above`
+  (25px margin-top + en absolutt posisjonert linje 16px over raden = nøyaktig
+  samme geometri som i hvile). Se `docs/drag-and-drop.md`. **Kollaps + ＋-knapp:** en kategori kan **kollapses** som en
   rullgardin (klikk på overskriftslinjen, ikke tittel/tannhjul/oppløs/meta) —
   `.cat-items` (og `.cat-add`) foldes MOMENTANT (`collapseCatBody`/`expandCatBody`,
   som listekollapsen). Nederst i kategorien sitter en **grønn ＋-knapp** (`.cat-add` /
