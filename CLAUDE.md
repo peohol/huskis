@@ -419,7 +419,7 @@ det absolutt posisjonerte dra-elementet (koordinatene tolkes relativt til den, k
 (`.sep-below`) når raden under linja er en forfar. Ny test
 `tests/dnd-extract-thresholds.test.js`. Ingen DB-migrering. Se `docs/drag-and-drop.md`.
 
-**Toast: glassflate + sveip-til-lukk (siste runde)**: toasten har fått en mer
+**Toast: glassflate + sveip-til-lukk (forrige runde)**: toasten har fått en mer
 gjennomsiktig flate (`rgba(45,38,70,0.62)`) med `backdrop-filter: blur(14px)`, og
 hele flaten kan **sveipes/dras til høyre for å lukke den umiddelbart** — man
 slipper å vente ut timeren (`attachToastSwipe`; terskel 30 % av bredden, minst
@@ -430,6 +430,20 @@ og et fullført sveip svelger klikket etterpå så «Angre» ikke fyrer. Nytt
 straks ved sveip (`commitDeleteToastNow`, delt med timeren). Ny test
 `tests/toast-swipe.test.js`. Ingen DB-migrering. Se `docs/design-system.md` og
 `docs/trash.md`.
+
+**Vertikal justering i kollapsede lister/kategorier (siste runde)**: (1) «(N)»-telleren
+leste som hevet skrift ved siden av navnet — `align-self: flex-start` på `.card-title`/
+`.cat-title` koblet ut `.title-line`s `align-items: baseline`, så tittel og teller ble
+topp-justert i stedet for å stå på samme skriftlinje. `align-self` er fjernet (klikk-
+flaten følger fortsatt teksten: titlene er flex-elementer i `.title-line`). (2) En
+kollapset kategori hadde 4px mer luft under overskriften enn over (tydeligst rundt
+knappene og mot skillelinjene): den nullhøye `.cat-items` lå fortsatt som en flex-rad
+mellom to av `.category`s 4px-gap. `.category.collapsed:not(.dragging) > .cat-items`
+har nå `margin-top: -4px` → lik luft (16px) over og under, som en kollapset liste er
+nøyaktig header-høy (`.dragging` er utelatt: den har allerede `gap: 0`, og `collapsedH`
+i `collapseCategory` regner med det). Ny test `tests/collapsed-alignment.test.js`
+(baseline + sentrering + symmetri, desktop og mobil). Ingen DB-migrering. Se
+`docs/design-system.md`.
 
 Verifisert i nettleser (Playwright) mot en hermetisk in-memory-backend
 (`mock-backend.js`, aktiveres med `?mock=1`) som etterligner Supabase-

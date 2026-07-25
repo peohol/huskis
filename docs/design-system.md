@@ -286,7 +286,20 @@ Størrelse/form kommer fra egne klasser: `.btn` (modaler), `.btn-small`,
   liste/kategori viser antall listepunkter «(N)»** til høyre for navnet (`.title-line`
   omslutter tittel + `.collapse-count`; telleren vises kun kollapset,
   `setCollapseCount`). Liste: alle aktive leaf-elementer, kategorier ikke medregnet
-  (`cardLeafCount`). Kategori: dens synlige medlemmer (`catMemberCount`).
+  (`cardLeafCount`). Kategori: dens synlige medlemmer (`catMemberCount`). Telleren har
+  mindre skrift enn tittelen og står på SAMME skriftlinje via `.title-line`s
+  `align-items: baseline` — derfor må verken `.card-title` eller `.cat-title` sette
+  `align-self` (det koblet ut baseline-justeringen og la dem topp-justert, så «(N)»
+  leste som hevet skrift). Bredden på klikkflaten følger fortsatt teksten: titlene er
+  flex-elementer i `.title-line`.
+- **Kollapset kategori = nøyaktig overskriftslinjen**: `.cat-items` har høyde 0 når
+  kategorien er kollapset, men lå fortsatt som en flex-rad mellom to av `.category`s
+  4px-gap — luften under overskriften ble 4px større enn over (tydeligst rundt
+  knappene og mot skillelinjene). `.category.collapsed:not(.dragging) > .cat-items`
+  har derfor `margin-top: -4px`, som spiser det ene gapet: lik luft (16px) til
+  skillelinja over og under, slik en kollapset liste er nøyaktig header-høy.
+  `.dragging` er utelatt fordi den allerede har `gap: 0` (og `collapsedH` i
+  `collapseCategory` regner med det).
 - **Ny-liste-placeholder** (`.new-list-placeholder`, kategori-/listepunkt-
   ekstrahering, `docs/drag-and-drop.md`): en kort-formet slot med et hvitt **＋-ikon**
   i midten (stiplet-hvit inset-ring over den delte placeholder-flaten) som
