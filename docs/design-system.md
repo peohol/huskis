@@ -184,16 +184,12 @@ Størrelse/form kommer fra egne klasser: `.btn` (modaler), `.btn-small`,
 - Placeholders: én delt stil for `.card-/.item-/.group-placeholder` — se
   `docs/drag-and-drop.md`. Ingen kant (kun mørknet flate + innover-skygge);
   den stiplede kanten er fjernet.
-- `.add-item-input`: ingen synlig kant i hvile (`border: 1.5px solid
-  transparent` — usynlig, men holder boksens bredde stabil via
-  `box-sizing: border-box`) og dempet (`opacity: 0.62`) så den tydelig skiller
-  seg fra de eksisterende listepunktene. Fokus gir full opacity + synlig kant
-  (`--card-accent`), som før.
+- `.add-item-row`: de to «legg til»-knappene nederst i en liste, **midtstilt**
+  (`justify-content: center`). Det er ingen navne-input her — objektet opprettes
+  tomt og navngis på plassen sin (se «Opprettelse …» under).
 - `.add-item-btn` (grønn ＋) og `.add-cat-btn` (gul, kategori-ikon):
-  begge er **disablet (`opacity: .45`)** når feltet er tomt (`syncAddBtn`
-  toggler `disabled` på begge ved input-event) — ingen hover-oppløfting da.
-  ＋ legger til et listepunkt (`type=submit`); kategori-knappen (`type=button`,
-  til høyre for ＋) oppretter i stedet en kategori med det innskrevne navnet.
+  ＋ oppretter et listepunkt, kategori-knappen en kategori — begge umiddelbart,
+  begge alltid trykkbare (ingen disabled-tilstand).
   Kategori-knappens ikon er `ICONS.category`-tegningen limt inn direkte i
   `index.html` med `stroke/fill="#111"` — svart som resten av ikonsettet, også
   på den gule flaten (ikke lenger et `currentColor`-unntak). Begge de
@@ -257,6 +253,17 @@ Størrelse/form kommer fra egne klasser: `.btn` (modaler), `.btn-small`,
   `.cat-add-btn`, `.btn-add.btn-green.icon-only`, midtstilt) som legger til et nytt
   (tomt, straks-fokusert) listepunkt direkte i kategorien; skjules når kategorien er
   kollapset.
+- **Opprettelse av listepunkter og kategorier — «lag først, navngi på plassen»**:
+  det finnes ikke lenger et navnefelt man skriver i før man trykker. Alle tre
+  ＋-inngangene (`.add-item-btn`, `.add-cat-btn`, `.cat-add-btn`) legger objektet
+  inn MED ÉN GANG, tomt, og åpner navneredigereren på det (blank, fokusert) —
+  samme mønster overalt. Avsluttes navngivingen uten tekst (Enter på tomt felt,
+  Escape, eller klikk ut), **fjernes det nyopprettede objektet igjen**; et navnløst
+  listepunkt er ingenting verdt og skal ikke bli liggende. Alt ligger i
+  `nameNewRow()` (app.js), som også tar gravsteinen. Merk: klikk på en dra-sone
+  (f.eks. et korthode) `preventDefault`-er pointerdown og flytter derfor ikke
+  fokus — da blir navneredigereren stående åpen i stedet, som ved all annen
+  inline-redigering.
 - **Tittel-redigering (global affordans)**: klikk på en tittel starter inline
   omdøping på ALLE objekt-typer. To delte signaler, likt overalt: (1) klikkflaten
   følger teksten (`align-self: flex-start`) — kun tittelen, ikke hele raden,

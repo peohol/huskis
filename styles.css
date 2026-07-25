@@ -1131,40 +1131,16 @@ body {
 }
 .cat-add-btn.btn-add.icon-only .icon { font-size: 26px; }
 
-/* ---------------- Add item ---------------- */
-.add-item-form {
+/* ---------------- Add item ----------------
+   To midtstilte knapper nederst i lista: grønn ＋ (nytt listepunkt) og gul
+   (ny kategori). Ingen navnefelt — objektet opprettes tomt og navngis på
+   plassen sin (samme mønster som ＋-knappen inne i en kategori, .cat-add). */
+.add-item-row {
   display: flex;
+  justify-content: center;
   gap: 8px;
   padding: 0 10px;
 }
-
-.add-item-input {
-  flex: 1;
-  min-width: 0;
-  height: var(--control-h);
-  font-family: inherit;
-  font-size: var(--fs-base);
-  font-weight: 500;
-  color: var(--ink);
-  border: 1.5px solid transparent; /* usynlig i hvile (se :focus); border-box holder bredden stabil */
-  background: rgba(255, 255, 255, 0.5);
-  border-radius: 10px;
-  padding: 0 12px;
-  outline: none;
-  opacity: 0.62; /* dempet i hvile, så den tydelig skiller seg fra de eksisterende elementene */
-  transition: border-color 0.15s, background 0.15s, opacity 0.15s;
-}
-.add-item-input::placeholder { color: rgba(60, 55, 80, 0.5); }
-.add-item-input:focus {
-  border-color: var(--card-accent);
-  background: rgba(255, 255, 255, 0.85);
-  opacity: 1;
-}
-
-/* ＋-knappen (element) og kategori-knappen (gul) er disablet (dempet) til
-   feltet har tekst; ingen hover-oppløfting da. */
-.add-item-btn:disabled, .add-cat-btn:disabled { opacity: 0.45; cursor: default; filter: none; box-shadow: var(--shadow-sm); }
-.add-item-btn:disabled:hover, .add-cat-btn:disabled:hover { filter: none; }
 
 /* ---------------- Trykk-og-hold-sone (draging) ----------------
    Dra-håndtakene er fjernet; draging inviteres ved å trykke og holde på et
@@ -1394,7 +1370,7 @@ body.is-dragging * { cursor: grabbing !important; }
 
 /* Litt luft rundt kortene under draging så de ikke oppleves «låst» */
 .card, .item { -webkit-user-select: none; user-select: none; }
-.item-text, .card-title, .add-item-input, .edit-input { -webkit-user-select: text; user-select: text; }
+.item-text, .card-title, .edit-input { -webkit-user-select: text; user-select: text; }
 
 /* ---------------- Slette-animasjon («pakk sammen og fly i søpla») ----------------
    En klone av det slettede kortet/elementet krymper til en sirkel og svever

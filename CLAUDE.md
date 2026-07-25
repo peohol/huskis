@@ -149,8 +149,8 @@ PÅ). Krever manuell Supabase-konfig (Resend-nøkkel i `app_config` + pg_net) �
 ukategoriserte listepunkter OG kategorier (om hverandre, kan omrokkeres), nivå 2 er
 listepunktene inne i hver kategori. En kategori lagres SOM et listepunkt (`item.isCat`),
 leaf-listepunkter peker på den via `item.cat`; kategorier nøstes aldri. Opprettes
-ved **klikk-og-hold** (400 ms) på ＋-knappen (som ellers legger til et listepunkt;
-knappen er disablet til feltet har tekst). Dra-og-slipp: listepunkter flyttes mellom
+med den gule kategori-knappen nederst i lista (se «Opprettelse …» nederst).
+Dra-og-slipp: listepunkter flyttes mellom
 nivå 1 / kategorier / lister (slipp på kategori-overskriften eller blant
 listepunktene legger det i kategorien); kategori-håndtak reorderer på nivå 1 med en
 rask kollaps-til-overskrift-animasjon under draging + utvidelse ved slipp; slipp
@@ -381,6 +381,25 @@ naboskapet brukes av plasserings-/pos-logikken). Identisk geometri i hvile og
 forhåndsvisning (33 px luft, linja midt i), så slippet er uten hopp. Ny test
 `tests/dnd-separators-preview.test.js`. Ingen DB-migrering. Se
 `docs/drag-and-drop.md` og `docs/design-system.md`.
+
+**Viewport-klemme under DnD + «lag først, navngi på plassen» (siste runde)**: (1)
+Det løftede objektet holdes nå innenfor viewporten på BEGGE akser og for ALLE
+objekt-typer (`clampToViewport` i `dragPosLeft`/`dragPosTop`, mot den faktisk
+rendrede boksen — `dragScale()` gir riktig skala per type). Hovedårsaken til at
+det stakk utenfor var likevel en annen: `flipFrom` animerte kilde-KORTET når et
+listepunkt/en kategori ble dratt ut i board-lufta (ny-liste-placeholderen
+omrokkerer kortene), og et transformert element blir containing block for sine
+absolutt posisjonerte etterkommere — dra-elementets dokument-koordinater ble
+plutselig tolket relativt til kortet, så det hoppet langt ut til høyre, ga
+horisontal overflow og skjøv kontoknappen/toppmenyen ut av viewporten på mobil.
+`flipFrom` hopper nå over enhver FORFAR til det løftede objektet. (2)
+Listepunkter og kategorier opprettes nå som i en kategori: «Legg til …»-inputen er
+FJERNET, de to knappene (grønn ＋ = listepunkt, gul = kategori) står midtstilt
+nederst i lista, og objektet legges inn med én gang med navnefeltet blankt og
+fokusert. Bekreftes navngivingen uten tekst (Enter på tomt felt, Escape, klikk ut),
+slettes det nyopprettede objektet igjen (`nameNewRow`). Nye tester
+`tests/dnd-viewport-clamp.test.js` og `tests/item-creation.test.js`. Ingen
+DB-migrering. Se `docs/drag-and-drop.md` og `docs/design-system.md`.
 
 Verifisert i nettleser (Playwright) mot en hermetisk in-memory-backend
 (`mock-backend.js`, aktiveres med `?mock=1`) som etterligner Supabase-
