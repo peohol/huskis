@@ -3038,9 +3038,11 @@
     el.classList.remove('dragging');
     el.style.left = el.style.top = el.style.width = el.style.height = '';
     el.style.transform = '';
-    const slotDocTop = el.getBoundingClientRect().top + window.scrollY;
+    const slotRect = el.getBoundingClientRect();
+    const slotDocTop = slotRect.top + window.scrollY;
+    const slotH = slotRect.height;
     dropIntoPlaceholder(el, rot, fromRect);
-    if (!onCrumb) scrollDroppedIntoView(slotDocTop);
+    if (!onCrumb) scrollDroppedIntoView(slotDocTop, slotH);
 
     // Slipp på 📁-breadcrumben: kortet er lagt normalt tilbake på board-et
     // (posisjonen over), og flytte-velgeren åpnes — avbrytes den, blir lista
@@ -3048,14 +3050,31 @@
     if (onCrumb && cardObj) askCardMove(cardObj);
   }
 
-  // Endring 2: etter et fullført liste-drag, scroll siden så den slupne lista
-  // kommer til syne — toppen like under den faste toppmenyen. Smooth (med mindre
-  // redusert bevegelse er ønsket). `cardDocTop` er dokument-Y for kortets topp.
-  function scrollDroppedIntoView(cardDocTop) {
+  // Etter et fullført liste-drag: sørg for at den slupne lista er synlig — men så
+  // lite påtrengende som mulig. Ligger den allerede komfortabelt i det trygge
+  // området (mellom toppmenyen og viewportbunnen), gjør vi INGENTING; ellers
+  // scroller vi den KORTEST MULIGE avstanden inn i det området i stedet for alltid
+  // å toppjustere den. En liste som var synlig hele tiden skal ikke rykke rundt
+  // bare fordi den ble omrokkert. `cardDocTop`/`cardH` = dokument-Y og høyde for
+  // kortets hvileposisjon (målt FØR fly-inn-transformen).
+  function scrollDroppedIntoView(cardDocTop, cardH) {
     const topbarH = topbarEl.getBoundingClientRect().height;
     const gap = parseFloat(getComputedStyle(board).columnGap) || 16;
-    const maxScroll = Math.max(0, document.documentElement.scrollHeight - window.innerHeight);
-    const target = Math.max(0, Math.min(cardDocTop - topbarH - gap, maxScroll));
+    const vh = window.innerHeight || document.documentElement.clientHeight || 0;
+    const safeTop = topbarH + gap;   // øverste synlige linje (rett under toppmenyen)
+    const safeBottom = vh - gap;
+    const y = window.scrollY;
+    const top = cardDocTop - y;      // kortets viewport-Y akkurat nå
+    let target = y;
+    if (top < safeTop) target = cardDocTop - safeTop;                 // ligger (delvis) bak toppmenyen
+    else if (top + cardH > safeBottom) {
+      // Stikker under viewportbunnen: scroll ned akkurat nok — men aldri så langt
+      // at toppen forsvinner bak toppmenyen (høye lister prioriterer toppen).
+      target = y + Math.min(top + cardH - safeBottom, top - safeTop);
+    }
+    const maxScroll = Math.max(0, document.documentElement.scrollHeight - vh);
+    target = Math.max(0, Math.min(target, maxScroll));
+    if (Math.abs(target - y) < 1) return; // allerede komfortabelt synlig → ikke rør viewporten
     window.scrollTo({ top: target, behavior: prefersReducedMotion() ? 'auto' : 'smooth' });
   }
 

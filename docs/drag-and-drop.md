@@ -255,13 +255,20 @@ Bytte utløses av **overlapp**, ikke av et punkt:
     `beginDragCommon` måler dra-boksen med transformen nøytralisert; `overflowAnchor='none'`
     på `<html>` under draget; en passiv `scroll`-lytter (`onDragScroll`) reposisjonerer det
     løftede kortet under fingeren om nettleseren selv skulle scrolle — den scroller ALDRI selv.
-  - **Scroll til den slupne lista** (`scrollDroppedIntoView`, kalt fra `onCardUp`):
-    etter et fullført liste-drag scrolles siden så den slupne lista kommer til syne med
-    toppen like under den faste toppmenyen (`behavior: 'smooth'`, `'auto'` ved
-    `prefers-reduced-motion`). Kalles ETTER at layouten er satt (restore/release) og
-    kortet er lagt i normal flyt; `slotDocTop` måles i DOKUMENT-koordinat (upåvirket av
-    selve scrollingen) FØR `dropIntoPlaceholder` setter fly-inn-transformen. Hoppes over
-    når lista slippes på 📁-breadcrumben (flyttes til en annen gruppe → forsvinner fra
+  - **Scroll til den slupne lista — så lite påtrengende som mulig**
+    (`scrollDroppedIntoView`, kalt fra `onCardUp`): det trygge området er mellom
+    toppmenyen (+ board-gapet) og viewportbunnen (− gapet). Ligger lista allerede
+    HELT innenfor det, er funksjonen en **no-op** — en liste som var synlig hele
+    tiden skal ikke rykke rundt bare fordi den ble omrokkert. Ellers scrolles den
+    KORTEST MULIGE avstanden inn i området: ligger den (delvis) bak toppmenyen,
+    legges toppen på `safeTop`; stikker den under viewportbunnen, scrolles det bare
+    så langt at nedre kant kommer inn — men aldri så langt at toppen forsvinner bak
+    toppmenyen (en liste høyere enn området prioriterer altså toppen).
+    `behavior: 'smooth'`, `'auto'` ved `prefers-reduced-motion`. Kalles ETTER at
+    layouten er satt (restore/release) og kortet er lagt i normal flyt;
+    `slotDocTop`/`slotH` måles i DOKUMENT-koordinat (upåvirket av selve scrollingen)
+    FØR `dropIntoPlaceholder` setter fly-inn-transformen. Hoppes over når lista
+    slippes på 📁-breadcrumben (flyttes til en annen gruppe → forsvinner fra
     board-et). Gjelder både touch og mus.
   - **Auto-scroll kan aldri bytte fortegn** (`startAutoScroll`): den tillatte
     nedover-avstanden klemmes til `Math.min(delta, Math.max(0, maxScroll - scrollY))`.

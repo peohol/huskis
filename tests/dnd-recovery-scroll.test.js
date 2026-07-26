@@ -1,5 +1,6 @@
 /*
-  Regresjonstest: AUTO-SCROLL-TAKT, AVBRUDDS-SIKKERHETSNETT og EKSTERN SCROLL.
+  Regresjonstest: AUTO-SCROLL-TAKT, AVBRUDDS-SIKKERHETSNETT, EKSTERN SCROLL og
+  SCROLL ETTER LISTE-SLIPP.
 
   7.  Auto-scrollen normaliseres mot faktisk forløpt tid: like lang simulert tid
       ved 60 og 120 RAF-steg gir tilnærmet lik scrollavstand, og et diger `dt`
@@ -8,6 +9,9 @@
       placeholder, auto-scroll, global cursor eller inline-posisjonsstil blir igjen.
   9.  Manuelt window-scroll under listepunkt-/kategori-drag holder objektet under
       pekeren (før: bare lister ble reposisjonert).
+  10. Et liste-slipp som allerede er fullt synlig flytter ikke viewporten.
+  11. Er lista skjult etter gjenutvidelsen, scrolles det bare så langt som trengs
+      (nedre kant inn i syne) — ikke helt til toppjustering.
 
   Kjør:
     python3 -m http.server 8000                    # fra repo-roten, i egen terminal
@@ -223,6 +227,67 @@ const log = (n, ok, x = '') => { results.push(ok); console.log((ok ? 'PASS' : 'F
       Math.abs(off2 - off1) < 3, 'off1=' + off1.toFixed(1) + ' off2=' + off2.toFixed(1));
     await pointer(p, 'pointerup', src.x, src.y + 6); await p.waitForTimeout(500);
     log('9 ' + K.n + ': ingen JS-feil', errs.length === 0, errs.join(' | '));
+    await p.close();
+  }
+
+  /* ===== 10/11) Scroll etter liste-slipp ===== */
+  {
+    const p = await b.newPage({ viewport: { width: 500, height: 900 }, hasTouch: true, isMobile: true });
+    const errs = []; p.on('pageerror', (e) => errs.push(e.message));
+    await register(p); await seed(p, [['A', 4], ['B', 4], ['C', 4], ['D', 4], ['E', 4]]);
+
+    const geom = () => p.evaluate(() => {
+      const bd = document.querySelector('.board');
+      const gap = parseFloat(getComputedStyle(bd).columnGap) || 16;
+      const tb = document.getElementById('topbar').getBoundingClientRect().height;
+      return { gap, safeTop: tb + gap, safeBottom: window.innerHeight - gap, vh: window.innerHeight, y: Math.round(window.scrollY) };
+    });
+
+    /* --- 10) Allerede fullt synlig → viewporten står stille --- */
+    await p.evaluate(() => window.scrollTo(0, 0)); await p.waitForTimeout(200);
+    const g0 = await geom();
+    let h = await centerOf(p, '.card[data-id="card-A"] .card-head');
+    await pointer(p, 'pointerdown', h.x, h.y); await p.waitForTimeout(260);
+    const bHead = await centerOf(p, '.card[data-id="card-B"] .card-head'); // etter kollapsen
+    await pointer(p, 'pointermove', h.x, bHead.y + 6); await p.waitForTimeout(120);
+    await pointer(p, 'pointerup', h.x, bHead.y + 6); await p.waitForTimeout(900);
+    const after10 = await p.evaluate(() => {
+      const r = document.querySelector('.card[data-id="card-A"]').getBoundingClientRect();
+      return {
+        y: Math.round(window.scrollY), top: Math.round(r.top), bottom: Math.round(r.bottom),
+        second: [...document.querySelectorAll('.board .card')].map((c) => c.dataset.id)[1] === 'card-A',
+      };
+    });
+    log('10 lista byttet plass (forutsetningen: den ligger nå som nummer to)', after10.second === true);
+    log('10 lista er fullt synlig etter slippet',
+      after10.top >= g0.safeTop - 2 && after10.bottom <= g0.safeBottom + 2,
+      JSON.stringify(after10) + ' safe=' + Math.round(g0.safeTop) + '..' + Math.round(g0.safeBottom));
+    log('10 viewporten står stille når lista allerede er synlig',
+      Math.abs(after10.y - g0.y) < 2, 'før=' + g0.y + ' etter=' + after10.y);
+
+    /* --- 11) Skjult etter gjenutvidelsen → kortest mulige scroll --- */
+    await p.evaluate(() => window.scrollTo(0, 0)); await p.waitForTimeout(250);
+    const g1 = await geom();
+    h = await centerOf(p, '.board .card:first-of-type .card-head');
+    const firstId = await p.evaluate(() => document.querySelector('.board .card').dataset.id);
+    await pointer(p, 'pointerdown', h.x, h.y); await p.waitForTimeout(260);
+    const heads = await p.evaluate(() => [...document.querySelectorAll('.board .card .card-head')]
+      .map((e) => { const r = e.getBoundingClientRect(); return r.top + r.height / 2; }));
+    const lastHead = heads[heads.length - 1];
+    await pointer(p, 'pointermove', h.x, lastHead + 10); await p.waitForTimeout(120);
+    await pointer(p, 'pointerup', h.x, lastHead + 10); await p.waitForTimeout(1100);
+    const after11 = await p.evaluate((id) => {
+      const r = document.querySelector('.card[data-id="' + id + '"]').getBoundingClientRect();
+      const cards = [...document.querySelectorAll('.board .card')].map((c) => c.dataset.id);
+      return { y: Math.round(window.scrollY), top: Math.round(r.top), bottom: Math.round(r.bottom), last: cards[cards.length - 1] === id };
+    }, firstId);
+    log('11 lista havnet nederst (forutsetningen for testen)', after11.last === true);
+    log('11 lista er synlig etter slippet', after11.top >= g1.safeTop - 2 && after11.bottom <= g1.safeBottom + 4,
+      JSON.stringify(after11) + ' safe=' + Math.round(g1.safeTop) + '..' + Math.round(g1.safeBottom));
+    log('11 scrollet KORTEST mulig (nedre kant i syne, ikke toppjustert)',
+      Math.abs(after11.bottom - g1.safeBottom) < 10 && after11.top > g1.safeTop + 50,
+      'bottom=' + after11.bottom + ' safeBottom=' + Math.round(g1.safeBottom) + ' top=' + after11.top);
+    log('10/11 ingen JS-feil', errs.length === 0, errs.join(' | '));
     await p.close();
   }
 
