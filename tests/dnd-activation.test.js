@@ -1,0 +1,242 @@
+/*
+  Regresjonstest: AKTIVERING av draget + AUTORITATIV SLUTTPLASSERING.
+
+  1. Draget starter ved AKTUELL pekerposisjon (ikke pointerdown-punktet), så
+     objektet ikke rykker tilbake til nedtrykkspunktet ved første bevegelse.
+  2. Liten touch-drift FØR holdet er ferdig gir ikke et offset ved løft.
+  3. En sekundær peker (isPrimary === false) starter aldri et drag.
+  4. Et raskt `pointerup` på en NY plass — uten en siste `pointermove` — lander
+     der det ble sluppet, for liste, listepunkt, gruppe OG univers.
+
+  Kjør:
+    python3 -m http.server 8000                    # fra repo-roten, i egen terminal
+    NODE_PATH=$(npm root -g) node tests/dnd-activation.test.js
+*/
+const { chromium } = require('playwright');
+
+const BASE = process.env.HUSKIS_URL || 'http://localhost:8000';
+
+async function register(p) {
+  await p.goto(BASE + '/?mock=1');
+  await p.waitForTimeout(500);
+  const email = 'u' + Math.floor(Math.random() * 1e9) + '@test.no';
+  await p.getByText('Registrer deg').click(); await p.waitForTimeout(300);
+  await p.locator('#auth-first-name').fill('Test');
+  await p.locator('#auth-last-name').fill('Bruker');
+  await p.locator('#auth-email').fill(email);
+  await p.locator('#auth-password').fill('passord123');
+  await p.locator('#auth-submit').click(); await p.waitForTimeout(700);
+  await p.getByText('Tilbake til innlogging').click(); await p.waitForTimeout(300);
+  await p.locator('#auth-email').fill(email);
+  await p.locator('#auth-password').fill('passord123');
+  await p.locator('#auth-submit').click(); await p.waitForTimeout(1600);
+}
+
+// cards = [[tittel, antall listepunkter], …]
+async function seed(p, cards) {
+  await p.evaluate(() => { window.__huskis.addUniverse(); }); await p.waitForTimeout(150);
+  await p.keyboard.press('Escape'); await p.waitForTimeout(150);
+  await p.evaluate(() => { window.__huskis.addGroup(); }); await p.waitForTimeout(150);
+  await p.keyboard.press('Escape'); await p.waitForTimeout(150);
+  await p.evaluate((cards) => {
+    const H = window.__huskis, st = H.state;
+    const u = st.universes.find((x) => x.id === st.activeUniverse);
+    const g = u.groups.find((x) => x.id === st.activeGroup);
+    const mk = () => ({ ts: 0, org: 't', pos: 0, posTs: 0, posOrg: 't' });
+    g.cards = cards.map(([title, n], pos) => {
+      const id = 'card-' + title;
+      const c = Object.assign({ id, group: g.id, title, trashed: false, k: true, p: true, labTs: 0, labOrg: 't', items: [] }, mk());
+      c.pos = pos;
+      for (let i = 0; i < n; i++) {
+        const it = Object.assign({ id: 'it-' + title + '-' + i, text: title + ' ' + i, home: id, cat: null, trashed: false, done: false }, mk());
+        it.pos = i; c.items.push(it);
+      }
+      return c;
+    });
+    H.render();
+  }, cards);
+  await p.waitForTimeout(300);
+}
+
+// Syntetisk peker (samme mønster som de øvrige DnD-testene).
+async function pointer(p, type, x, y, opts = {}) {
+  await p.evaluate(({ type, x, y, opts }) => {
+    const ev = new PointerEvent(type, Object.assign({
+      bubbles: true, cancelable: true, composed: true, clientX: x, clientY: y,
+      pointerId: 7, pointerType: 'touch', button: 0, isPrimary: true,
+    }, opts));
+    (type === 'pointerdown' ? (document.elementFromPoint(x, y) || document.body) : window).dispatchEvent(ev);
+  }, { type, x, y, opts });
+}
+
+const centerOf = (p, sel) => p.evaluate((sel) => {
+  const r = document.querySelector(sel).getBoundingClientRect();
+  return { x: r.left + r.width / 2, y: r.top + r.height / 2, top: r.top, bottom: r.bottom, h: r.height };
+}, sel);
+
+// Avstanden fra pekeren til det løftede objektets SENTER. Senteret er upåvirket
+// av rotate/scale (de skjer om senteret), så dette er grepets faktiske offset.
+const grabOffset = (p, sel, py) => p.evaluate(({ sel, py }) => {
+  const r = document.querySelector(sel).getBoundingClientRect();
+  return py - (r.top + r.height / 2);
+}, { sel, py });
+
+const cardOrder = (p) => p.evaluate(() => [...document.querySelectorAll('.board .card')].map((c) => c.dataset.id));
+const itemOrder = (p, cardId) => p.evaluate((id) => [...document.querySelectorAll('.card[data-id="' + id + '"] .items-container > .item')].map((i) => i.dataset.id), cardId);
+
+const results = [];
+const log = (n, ok, x = '') => { results.push(ok); console.log((ok ? 'PASS' : 'FAIL') + ' — ' + n + (x ? '  [' + x + ']' : '')); };
+
+(async () => {
+  const b = await chromium.launch();
+
+  /* ===== 1) Mus: draget starter der pekeren ER, ikke der den ble trykket ned ===== */
+  {
+    const p = await b.newPage({ viewport: { width: 1200, height: 900 } });
+    const errs = []; p.on('pageerror', (e) => errs.push(e.message));
+    await register(p); await seed(p, [['A', 6], ['B', 6]]);
+
+    const src = await centerOf(p, '.item[data-id="it-A-3"]');
+    await p.mouse.move(src.x, src.y);
+    await p.mouse.down();
+    // ETT stort hopp: draget starter i dette punktet (terskel 5 px for mus).
+    await p.mouse.move(src.x, src.y - 40); await p.waitForTimeout(80);
+    const lifted = await p.evaluate(() => document.querySelectorAll('.item.dragging').length);
+    const off1 = await grabOffset(p, '.item.dragging', src.y - 40);
+    // Én piksel videre: med gammelt grep (målt fra pointerdown) ville objektet
+    // hoppet ~39 px her; med nytt grep følger det pekeren.
+    await p.mouse.move(src.x, src.y - 41); await p.waitForTimeout(60);
+    const off2 = await grabOffset(p, '.item.dragging', src.y - 41);
+    log('1 mus: draget er i gang', lifted === 1, 'dragging=' + lifted);
+    log('1 mus: ingen rykk tilbake til pointerdown-punktet (grepet er stabilt)',
+      Math.abs(off2 - off1) < 2, 'off1=' + off1.toFixed(1) + ' off2=' + off2.toFixed(1));
+    await p.mouse.up(); await p.waitForTimeout(400);
+    log('1 mus: ingen JS-feil', errs.length === 0, errs.join(' | '));
+    await p.close();
+  }
+
+  /* ===== 2) Touch: drift under holdet gir ikke offset ved løft ===== */
+  {
+    const p = await b.newPage({ viewport: { width: 420, height: 820 }, hasTouch: true, isMobile: true });
+    const errs = []; p.on('pageerror', (e) => errs.push(e.message));
+    await register(p); await seed(p, [['A', 6]]);
+
+    const src = await centerOf(p, '.item[data-id="it-A-3"]');
+    await pointer(p, 'pointerdown', src.x, src.y);
+    // 8 px drift — under HOLD_MOVE (10), så holdet overlever.
+    await pointer(p, 'pointermove', src.x, src.y - 8); await p.waitForTimeout(280);
+    const lifted = await p.evaluate(() => document.querySelectorAll('.item.dragging').length);
+    const off1 = await grabOffset(p, '.item.dragging', src.y - 8);
+    await pointer(p, 'pointermove', src.x, src.y - 9); await p.waitForTimeout(60);
+    const off2 = await grabOffset(p, '.item.dragging', src.y - 9);
+    log('2 touch: holdet overlevde driften og løftet objektet', lifted === 1, 'dragging=' + lifted);
+    log('2 touch: ingen offset ved løft (grepet følger fingeren)',
+      Math.abs(off2 - off1) < 2, 'off1=' + off1.toFixed(1) + ' off2=' + off2.toFixed(1));
+    await pointer(p, 'pointerup', src.x, src.y - 9); await p.waitForTimeout(400);
+    log('2 touch: ingen JS-feil', errs.length === 0, errs.join(' | '));
+    await p.close();
+  }
+
+  /* ===== 3) Sekundær peker (multitouch) starter aldri et drag ===== */
+  {
+    const p = await b.newPage({ viewport: { width: 420, height: 820 }, hasTouch: true, isMobile: true });
+    const errs = []; p.on('pageerror', (e) => errs.push(e.message));
+    await register(p); await seed(p, [['A', 6]]);
+
+    const src = await centerOf(p, '.item[data-id="it-A-2"]');
+    await pointer(p, 'pointerdown', src.x, src.y, { pointerId: 9, isPrimary: false });
+    await p.waitForTimeout(320); // godt forbi HOLD_MS
+    const state = await p.evaluate(() => ({
+      dragging: document.querySelectorAll('.dragging').length,
+      hold: document.querySelectorAll('.drag-hold').length,
+      ph: document.querySelectorAll('.item-placeholder, .card-placeholder, .group-placeholder').length,
+    }));
+    log('3 sekundær peker: ingen drag, ingen press-feedback, ingen placeholder',
+      state.dragging === 0 && state.hold === 0 && state.ph === 0, JSON.stringify(state));
+    await pointer(p, 'pointerup', src.x, src.y, { pointerId: 9, isPrimary: false });
+    await p.waitForTimeout(150);
+    log('3 ingen JS-feil', errs.length === 0, errs.join(' | '));
+    await p.close();
+  }
+
+  /* ===== 4) Raskt slipp på en ny plass UTEN en siste pointermove ===== */
+  for (const M of [{ n: 'desktop', vw: 1000, vh: 900, mob: false }, { n: 'mobil', vw: 420, vh: 820, mob: true }]) {
+    const p = await b.newPage({ viewport: { width: M.vw, height: M.vh }, hasTouch: true, isMobile: M.mob });
+    const errs = []; p.on('pageerror', (e) => errs.push(e.message));
+    await register(p);
+
+    /* --- 4a) LISTEPUNKT: løft, så rett pointerup nede på et annet punkt --- */
+    await seed(p, [['A', 6]]);
+    const before = await itemOrder(p, 'card-A');
+    const src = await centerOf(p, '.item[data-id="it-A-0"]');
+    await pointer(p, 'pointerdown', src.x, src.y);
+    await p.waitForTimeout(260); // holdet fullføres → draget starter i nedtrykkspunktet
+    const dst = await centerOf(p, '.item[data-id="it-A-4"]');
+    await pointer(p, 'pointerup', src.x, dst.y + 4); // INGEN pointermove imellom
+    await p.waitForTimeout(500);
+    const after = await itemOrder(p, 'card-A');
+    log('4 ' + M.n + ' listepunkt: raskt slipp flyttet punktet ned forbi it-A-4',
+      after.indexOf('it-A-0') > after.indexOf('it-A-4') && after.length === before.length,
+      before.join(',') + ' → ' + after.join(','));
+
+    /* --- 4b) LISTE --- */
+    await seed(p, [['P', 3], ['Q', 3], ['R', 3]]);
+    const cBefore = await cardOrder(p);
+    const h = await centerOf(p, '.card[data-id="card-P"] .card-head');
+    await pointer(p, 'pointerdown', h.x, h.y);
+    await p.waitForTimeout(260); // hold → draget starter, ALLE lister kollapser
+    // Mål mål-listas hode ETTER kollapsen (layouten er en annen nå).
+    const target = await centerOf(p, '.card[data-id="card-R"] .card-head');
+    await pointer(p, 'pointerup', target.x, target.y + 4); // INGEN pointermove
+    await p.waitForTimeout(900);
+    const cAfter = await cardOrder(p);
+    log('4 ' + M.n + ' liste: raskt slipp flyttet lista forbi card-R',
+      cAfter.indexOf('card-P') > cAfter.indexOf('card-R') && cAfter.length === cBefore.length,
+      cBefore.join(',') + ' → ' + cAfter.join(','));
+
+    /* --- 4c) GRUPPE (i gruppe-modalen) --- */
+    for (let i = 0; i < 2; i++) {
+      await p.evaluate(() => { window.__huskis.addGroup(); }); await p.waitForTimeout(200);
+      await p.keyboard.press('Escape'); await p.waitForTimeout(180);
+    }
+    await p.evaluate(() => { window.__huskis.openGroupModal(); }); await p.waitForTimeout(400);
+    const gIds = await p.evaluate(() => [...document.querySelectorAll('#group-list .group-card')].map((g) => g.dataset.id));
+    const g1 = await centerOf(p, '#group-list .group-card[data-id="' + gIds[0] + '"]');
+    const g3 = await centerOf(p, '#group-list .group-card[data-id="' + gIds[2] + '"]');
+    await pointer(p, 'pointerdown', g1.x, g1.y);
+    await p.waitForTimeout(260);
+    await pointer(p, 'pointerup', g1.x, g3.y + 4); // INGEN pointermove
+    await p.waitForTimeout(500);
+    const gAfter = await p.evaluate(() => [...document.querySelectorAll('#group-list .group-card')].map((g) => g.dataset.id));
+    log('4 ' + M.n + ' gruppe: raskt slipp flyttet raden forbi den tredje',
+      gAfter.indexOf(gIds[0]) > gAfter.indexOf(gIds[2]) && gAfter.length === gIds.length,
+      gIds.join(',') + ' → ' + gAfter.join(','));
+    await p.evaluate(() => { window.__huskis.closeGroupModal(); }); await p.waitForTimeout(250);
+
+    /* --- 4d) UNIVERS (i univers-modalen) --- */
+    for (let i = 0; i < 2; i++) {
+      await p.evaluate(() => { window.__huskis.addUniverse(); }); await p.waitForTimeout(200);
+      await p.keyboard.press('Escape'); await p.waitForTimeout(180);
+    }
+    await p.evaluate(() => { window.__huskis.openUniModal(); }); await p.waitForTimeout(400);
+    const uIds = await p.evaluate(() => [...document.querySelectorAll('#uni-list .uni-row')].map((u) => u.dataset.id));
+    const u1 = await centerOf(p, '#uni-list .uni-row[data-id="' + uIds[0] + '"]');
+    const u3 = await centerOf(p, '#uni-list .uni-row[data-id="' + uIds[2] + '"]');
+    await pointer(p, 'pointerdown', u1.x, u1.y);
+    await p.waitForTimeout(260);
+    await pointer(p, 'pointerup', u1.x, u3.y + 4); // INGEN pointermove
+    await p.waitForTimeout(500);
+    const uAfter = await p.evaluate(() => [...document.querySelectorAll('#uni-list .uni-row')].map((u) => u.dataset.id));
+    log('4 ' + M.n + ' univers: raskt slipp flyttet raden forbi den tredje',
+      uAfter.indexOf(uIds[0]) > uAfter.indexOf(uIds[2]) && uAfter.length === uIds.length,
+      uIds.join(',') + ' → ' + uAfter.join(','));
+
+    log('4 ' + M.n + ': ingen JS-feil', errs.length === 0, errs.join(' | '));
+    await p.close();
+  }
+
+  await b.close();
+  const failed = results.filter((x) => !x).length;
+  console.log('\n==== ' + (results.length - failed) + '/' + results.length + ' PASS ====');
+  process.exit(failed ? 1 : 0);
+})();
