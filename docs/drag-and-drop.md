@@ -125,16 +125,26 @@ Bytte utløses av **overlapp**, ikke av et punkt:
   (`rest`, ±1 px) tas med til neste frame så en lav fart ikke forsvinner på
   120 Hz. Gjelder alle tre loopene: vindus-, gruppe- og univers-auto-scroll.
   Soner, retning, board-bunngrense og fortegnsklemmen er uendret.
-- **Et drag som mister pekeren avbrytes** (`cancelActiveDrag`): draget lever av
-  `pointermove`/`pointerup` på window + pointer capture. Blir capture-en tatt fra
-  oss (`lostpointercapture` — f.eks. når en synk-rebuild bytter ut noden), mister
-  vinduet fokus (`blur`), eller blir fanen skjult (`visibilitychange`), kommer det
-  ALDRI en `pointerup`/`pointercancel`, og draget ble hengende: objektet limt til
-  pekeren, placeholder i DOM, auto-scroll i gang. `cancelActiveDrag` kjører den
-  nivå-riktige kanselleringsflyten (`on*Cancel` → rollback, ingen pos/lagring) og
-  er idempotent — hver `on*Cancel` returnerer straks når `drag.active` er false,
-  så et vanlig slipp rydder fortsatt nøyaktig én gang (lyttene er globale, ikke
-  per drag).
+- **Et drag som mister OBJEKTET SITT avbrytes** (`cancelActiveDrag` +
+  `dragElDetached`): draget lever av `pointermove`/`pointerup` på window, og de
+  lytterne overlever alt annet enn at selve noden forsvinner. Rives `drag.el` ut
+  av DOM, kan draget aldri fullføres — objektet ville blitt hengende limt til
+  pekeren med placeholder i DOM og auto-scroll i gang. `dragElDetached()` sjekkes
+  derfor øverst i hver `on*Move` (rydd med én gang) og hver `on*Up`/
+  `finishColumnDrop` (ikke commit et drop på en død node), og `cancelActiveDrag`
+  kjører den nivå-riktige kanselleringsflyten (`on*Cancel` → rollback, ingen
+  pos/lagring). Den er idempotent: hver `on*Cancel` returnerer straks når
+  `drag.active` er false. `restoreDraggedToOrigin` setter en frakoblet node IKKE
+  inn igjen — DOM-en har gått videre uten den, og en re-innsetting ville gitt et
+  spøkelses-duplikat ved siden av de ferske nodene.
+  **Ikke bruk hendelses-utløsere her.** `window.blur`/`visibilitychange` sier
+  ingenting om gesten (fokus flytter seg av grunner som ikke rører pekeren — en
+  innebygd iframe/verktøylinje, OS-nivå fokusbytte, nettleser-UI), og å avbryte
+  på dem fikk lister/listepunkter/kategorier til å «glippe» rett etter løft — mens
+  gruppe-/univers-rader, som dras i en modal over siden, ikke ble rammet.
+  `lostpointercapture` duger heller ikke: den fyrer også når alt er i orden, og
+  når noden faktisk rives ut, dispatches den på en node som ikke lenger er i
+  dokumentet — så den når uansett ikke en lytter på `document`.
 - **Ekstern window-scroll reposisjonerer ALLE dokument-koordinat-drag**
   (`onDragScroll`, registrert i `beginDragCommon`): kort, listepunkt OG kategori
   ligger i dokument-koordinater, så scroller siden uten at vi gjorde det

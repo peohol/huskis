@@ -5,8 +5,11 @@
   7.  Auto-scrollen normaliseres mot faktisk forløpt tid: like lang simulert tid
       ved 60 og 120 RAF-steg gir tilnærmet lik scrollavstand, og et diger `dt`
       (bakgrunnsfane/pause) klemmes så scrollen ikke hopper.
-  8.  `lostpointercapture` og `blur` avbryter et hengende drag: ingen `.dragging`,
-      placeholder, auto-scroll, global cursor eller inline-posisjonsstil blir igjen.
+  8a. Draget «glipper» ALDRI av seg selv: verken fokustap (`blur`/
+      `visibilitychange`) eller en capture-slipp der objektet står i DOM avbryter
+      gesten — for liste, listepunkt OG kategori.
+  8b. Rives objektet UT av DOM (synk-rebuild), ryddes draget opp: ingen
+      `.dragging`, placeholder, auto-scroll, global cursor eller board-vakt igjen.
   9.  Manuelt window-scroll under listepunkt-/kategori-drag holder objektet under
       pekeren (før: bare lister ble reposisjonert).
   10. Et liste-slipp som allerede er fullt synlig flytter ikke viewporten.
@@ -163,12 +166,53 @@ const log = (n, ok, x = '') => { results.push(ok); console.log((ok ? 'PASS' : 'F
     await p.close();
   }
 
-  /* ===== 8) lostpointercapture / blur avbryter et hengende drag ===== */
-  for (const C of [{ n: 'lostpointercapture', fire: (p) => p.evaluate(() => {
-      const el = document.querySelector('.dragging') || document.body;
-      el.dispatchEvent(new PointerEvent('lostpointercapture', { bubbles: true, composed: true, pointerId: 7, pointerType: 'touch' }));
-    }) },
-    { n: 'window blur', fire: (p) => p.evaluate(() => window.dispatchEvent(new Event('blur'))) }]) {
+  /* ===== 8a) Draget skal IKKE glippe av seg selv =====
+     Sikkerhetsnettet er smalt med vilje. Verken et fokustap (`window.blur`/
+     `visibilitychange`) eller en capture-slipp der objektet fortsatt henger i DOM
+     skal avbryte gesten: window-lytterne lever videre, og et bredere nett fikk
+     lister/listepunkter/kategorier til å «glippe» rett etter løft. */
+  for (const K of [{ n: 'liste', sel: '.card[data-id="card-A"] .card-head', drag: '.card.dragging' },
+    { n: 'listepunkt', sel: '.item[data-id="it-B-2"]', drag: '.item.dragging' },
+    { n: 'kategori', sel: '.category[data-id="cat-A"] .cat-head', drag: '.category.dragging' }]) {
+    const p = await b.newPage({ viewport: { width: 420, height: 820 }, hasTouch: true, isMobile: true });
+    const errs = []; p.on('pageerror', (e) => errs.push(e.message));
+    await register(p); await seed(p, [['A', 8, 3], ['B', 8]]);
+    await p.evaluate((sel) => document.querySelector(sel).scrollIntoView({ block: 'center' }), K.sel);
+    await p.waitForTimeout(250);
+
+    const c = await centerOf(p, K.sel);
+    await pointer(p, 'pointerdown', c.x, c.y); await p.waitForTimeout(260);
+    await pointer(p, 'pointermove', c.x, c.y - 20); await p.waitForTimeout(150);
+    const alive0 = await p.evaluate((s) => document.querySelectorAll(s).length, K.drag);
+    log('8a ' + K.n + ': draget er i gang', alive0 === 1, 'dragging=' + alive0);
+
+    // Fokustap + capture-slipp mens objektet står i DOM — draget skal overleve begge.
+    await p.evaluate(() => {
+      window.dispatchEvent(new Event('blur'));
+      document.dispatchEvent(new Event('visibilitychange'));
+      const el = document.querySelector('.dragging');
+      if (el) el.dispatchEvent(new PointerEvent('lostpointercapture', { bubbles: true, composed: true, pointerId: 7, pointerType: 'touch' }));
+    });
+    await p.waitForTimeout(250);
+    const alive1 = await p.evaluate((s) => document.querySelectorAll(s).length, K.drag);
+    log('8a ' + K.n + ': fokustap + capture-slipp avbryter IKKE draget', alive1 === 1, 'dragging=' + alive1);
+
+    // … og gesten er fortsatt brukbar: objektet følger pekeren videre.
+    const before = await dragTopOffset(p, K.drag, c.y - 20);
+    await pointer(p, 'pointermove', c.x, c.y - 60); await p.waitForTimeout(120);
+    const after = await dragTopOffset(p, K.drag, c.y - 60);
+    log('8a ' + K.n + ': objektet følger fortsatt pekeren etterpå',
+      Math.abs(after - before) < 3, 'før=' + before.toFixed(1) + ' etter=' + after.toFixed(1));
+
+    await pointer(p, 'pointerup', c.x, c.y - 60); await p.waitForTimeout(500);
+    const r = await residue(p);
+    log('8a ' + K.n + ': vanlig slipp rydder opp', r.dragging === 0 && r.ph === 0, JSON.stringify(r));
+    log('8a ' + K.n + ': ingen JS-feil', errs.length === 0, errs.join(' | '));
+    await p.close();
+  }
+
+  /* ===== 8b) Rives objektet UT av DOM, ryddes draget opp ===== */
+  {
     const p = await b.newPage({ viewport: { width: 420, height: 820 }, hasTouch: true, isMobile: true });
     const errs = []; p.on('pageerror', (e) => errs.push(e.message));
     await register(p); await seed(p, [['A', 8], ['B', 8], ['C', 8]]);
@@ -178,27 +222,36 @@ const log = (n, ok, x = '') => { results.push(ok); console.log((ok ? 'PASS' : 'F
     await pointer(p, 'pointerdown', h.x, h.y); await p.waitForTimeout(260);
     await pointer(p, 'pointermove', h.x, 790); await p.waitForTimeout(200); // auto-scroll i gang
     const lifted = await p.evaluate(() => document.querySelectorAll('.card.dragging').length);
-    log('8 ' + C.n + ': draget var aktivt før avbruddet', lifted === 1, 'dragging=' + lifted);
+    log('8b draget var aktivt før noden ble revet ut', lifted === 1, 'dragging=' + lifted);
 
-    await C.fire(p); await p.waitForTimeout(200);
+    // Slik en synk-rebuild ville gjort det: noden ut av DOM. Draget kan da aldri
+    // fullføres — første bevegelse etterpå skal rydde alt.
+    await p.evaluate(() => { document.querySelector('.card.dragging').remove(); });
+    await pointer(p, 'pointermove', h.x, 700);
+    await p.waitForTimeout(250);
     const r = await residue(p);
-    log('8 ' + C.n + ': ingen .dragging / placeholder igjen', r.dragging === 0 && r.ph === 0, JSON.stringify(r));
-    log('8 ' + C.n + ': global dra-cursor fjernet', r.isDragging === false && r.cursor !== 'grabbing', 'cursor=' + r.cursor);
-    log('8 ' + C.n + ': ingen inline-posisjonsstil igjen på objektet',
-      !/left:|top:|width:|height:/.test(r.inlinePos), 'style=' + r.inlinePos);
-    log('8 ' + C.n + ': board-vakt + overflowAnchor ryddet',
+    log('8b ingen .dragging / placeholder igjen', r.dragging === 0 && r.ph === 0, JSON.stringify(r));
+    log('8b global dra-cursor fjernet', r.isDragging === false && r.cursor !== 'grabbing', 'cursor=' + r.cursor);
+    log('8b board-vakt + overflowAnchor ryddet',
       r.boardGuard === '|' && r.overflowAnchor === '', 'guard=' + r.boardGuard + ' anchor=' + r.overflowAnchor);
 
     // Auto-scrollen skal være stoppet: scroll-posisjonen står stille etterpå.
     const y1 = await p.evaluate(() => window.scrollY);
     await p.waitForTimeout(400);
     const y2 = await p.evaluate(() => window.scrollY);
-    log('8 ' + C.n + ': auto-scroll stoppet', Math.abs(y2 - y1) < 2, 'y1=' + y1 + ' y2=' + y2);
+    log('8b auto-scroll stoppet', Math.abs(y2 - y1) < 2, 'y1=' + y1 + ' y2=' + y2);
 
     const order1 = await p.evaluate(() => [...document.querySelectorAll('.board .card')].map((c) => c.dataset.id));
-    log('8 ' + C.n + ': avbrutt drag lagret ingen ny rekkefølge',
-      JSON.stringify(order1) === JSON.stringify(order0), order0.join(',') + ' → ' + order1.join(','));
-    log('8 ' + C.n + ': ingen JS-feil', errs.length === 0, errs.join(' | '));
+    log('8b avbrutt drag lagret ingen ny rekkefølge for de gjenværende',
+      JSON.stringify(order1) === JSON.stringify(order0.filter((id) => id !== 'card-A')),
+      order0.join(',') + ' → ' + order1.join(','));
+    // Den døde noden settes ikke inn igjen (ville gitt et spøkelses-duplikat), og
+    // et etterfølgende slipp committer ingenting.
+    await pointer(p, 'pointerup', h.x, 700); await p.waitForTimeout(300);
+    const order2 = await p.evaluate(() => [...document.querySelectorAll('.board .card')].map((c) => c.dataset.id));
+    log('8b slipp etter at noden forsvant gjenoppliver den ikke',
+      JSON.stringify(order2) === JSON.stringify(order1), order2.join(','));
+    log('8b ingen JS-feil', errs.length === 0, errs.join(' | '));
     await p.close();
   }
 

@@ -2578,7 +2578,10 @@
   function restoreDraggedToOrigin() {
     const el = drag.el;
     if (!el) return;
-    if (drag.origParent) drag.origParent.insertBefore(el, drag.origNext);
+    // Er noden allerede ute av dokumentet, har DOM-en gått videre uten den (en
+    // rebuild har satt inn ferske noder). Å sette den inn igjen ville gitt et
+    // spøkelses-duplikat — vi rydder bare dra-stilene og lar den ligge død.
+    if (el.isConnected && drag.origParent) drag.origParent.insertBefore(el, drag.origNext);
     el.classList.remove('dragging');
     el.classList.remove('to-group');
     el.style.left = el.style.top = el.style.width = el.style.height = '';
@@ -2586,16 +2589,27 @@
     el.style.transition = '';
   }
 
-  /* ------- Sikkerhetsnett: avbryt et drag som mistet pekeren -------
-     Et drag lever av `pointermove`/`pointerup` på window + pointer capture. Blir
-     capture-en tatt fra oss (noden fjernet av en synk-rebuild, nettleseren tar
-     over gesten), mister vinduet fokus, eller blir fanen skjult, kommer det
-     ALDRI en `pointerup`/`pointercancel` — draget ville blitt hengende: objektet
-     limt til pekeren, placeholder i DOM, auto-scroll i gang. `cancelActiveDrag`
-     kjører den nivå-riktige kanselleringsflyten (rollback, ingen pos/lagring) og
-     er idempotent: hver on*Cancel returnerer straks når `drag.active` er false,
-     og finishDrag setter den false. Et vanlig `pointerup`/`pointercancel` har
-     dermed allerede ryddet når disse nettene evt. fyrer etterpå. */
+  /* ------- Sikkerhetsnett: avbryt et drag som mistet OBJEKTET SITT -------
+     Draget lever av `pointermove`/`pointerup` på WINDOW. De lytterne overlever
+     alt annet enn at selve objektet forsvinner: rives noden ut av DOM (en synk-
+     rebuild bytter den ut), får vi aldri et brukbart slipp — objektet blir
+     hengende limt til pekeren, med placeholder i DOM og auto-scroll i gang.
+     `cancelActiveDrag` kjører da den nivå-riktige kanselleringsflyten (rollback,
+     ingen pos/lagring) og er idempotent: hver on*Cancel returnerer straks når
+     `drag.active` er false, og finishDrag setter den false. Et vanlig
+     `pointerup`/`pointercancel` har dermed allerede ryddet om nettet fyrer etterpå.
+
+     VIKTIG — nettet henger på ÉN tilstand: at `drag.el` er frakoblet. Vi har
+     bevisst IKKE hendelses-utløsere:
+     - `window.blur`/`visibilitychange` sier ingenting om gesten. Fokus flytter
+       seg av mange grunner (en innebygd iframe/verktøylinje som stjeler fokus,
+       OS-nivå fokusbytte, nettleser-UI), pekeren er upåvirket, og å avbryte på
+       dem fikk lister/listepunkter/kategorier til å «glippe» rett etter løft.
+     - `lostpointercapture` fyrer også når alt er i orden, OG — når noden faktisk
+       rives ut — dispatches den på en node som ikke lenger er i dokumentet, så
+       den når uansett ikke en lytter på `document`. Ubrukelig i begge retninger.
+     Derfor sjekker vi tilstanden der den betyr noe: ved neste bevegelse (rydd
+     opp med én gang) og ved slippet (ikke commit et drop på en død node). */
   function cancelActiveDrag() {
     if (!drag.active) return;
     if (drag.kind === 'card') onCardCancel();
@@ -2605,11 +2619,12 @@
     else if (drag.kind === 'universe') onUniverseCancel();
     else finishDrag();
   }
-  document.addEventListener('lostpointercapture', (ev) => {
-    if (drag.active && ev.pointerId === drag.pointerId) cancelActiveDrag();
-  }, true);
-  window.addEventListener('blur', () => cancelActiveDrag());
-  document.addEventListener('visibilitychange', () => { if (document.hidden) cancelActiveDrag(); });
+  // Sant når det løftede objektet er borte fra dokumentet — da rydder vi og
+  // avbryter i stedet for å drive draget videre (eller committe et drop) på en
+  // node ingen ser.
+  function dragElDetached() {
+    return drag.active && (!drag.el || !drag.el.isConnected);
+  }
 
   /* ------- Auto-scroll når dra-kortet nærmer seg topp/bunn av vinduet -------
      Sakte når kortet nærmer seg kanten, raskere jo lengre ut i sonen — og
@@ -2849,6 +2864,7 @@
 
   function onCardMove(ev) {
     if (!drag.active) return;
+    if (dragElDetached()) { cancelActiveDrag(); return; }
     const dx = ev.clientX - drag.lastX;
     const dy = ev.clientY - drag.lastY;
     drag.lastX = ev.clientX;
@@ -2977,6 +2993,7 @@
 
   function onCardUp(ev) {
     if (!drag.active) return;
+    if (dragElDetached()) { cancelActiveDrag(); return; }
     window.removeEventListener('pointermove', onCardMove);
     window.removeEventListener('pointerup', onCardUp);
     window.removeEventListener('pointercancel', onCardCancel);
@@ -3216,6 +3233,7 @@
 
   function onItemMove(ev) {
     if (!drag.active) return;
+    if (dragElDetached()) { cancelActiveDrag(); return; }
     const dy = ev.clientY - drag.lastY;
     drag.lastX = ev.clientX;
     drag.lastY = ev.clientY;
@@ -3326,6 +3344,7 @@
 
   function onItemUp(ev) {
     if (!drag.active) return;
+    if (dragElDetached()) { cancelActiveDrag(); return; }
     window.removeEventListener('pointermove', onItemMove);
     window.removeEventListener('pointerup', onItemUp);
     window.removeEventListener('pointercancel', onItemCancel);
@@ -3889,6 +3908,7 @@
   }
   function onCategoryMove(ev) {
     if (!drag.active) return;
+    if (dragElDetached()) { cancelActiveDrag(); return; }
     drag.lastX = ev.clientX;
     drag.lastY = ev.clientY;
     moveElement();
@@ -3935,6 +3955,7 @@
   }
   function onCategoryUp(ev) {
     if (!drag.active) return;
+    if (dragElDetached()) { cancelActiveDrag(); return; }
     window.removeEventListener('pointermove', onCategoryMove);
     window.removeEventListener('pointerup', onCategoryUp);
     window.removeEventListener('pointercancel', onCategoryCancel);
@@ -4078,6 +4099,7 @@
 
   function onGroupMove(ev) {
     if (!drag.active) return;
+    if (dragElDetached()) { cancelActiveDrag(); return; }
     const dy = ev.clientY - drag.lastY;
     drag.lastX = ev.clientX;
     drag.lastY = ev.clientY;
@@ -4129,6 +4151,7 @@
   // mellom DOM-naboene; montert rad speiler rekkefølgen i membership-raden.
   function finishColumnDrop(o, ev) {
     if (!drag.active) return;
+    if (dragElDetached()) { cancelActiveDrag(); return; }
     window.removeEventListener('pointermove', o.move);
     window.removeEventListener('pointerup', o.up);
     window.removeEventListener('pointercancel', o.cancel);
@@ -4260,6 +4283,7 @@
 
   function onUniverseMove(ev) {
     if (!drag.active) return;
+    if (dragElDetached()) { cancelActiveDrag(); return; }
     const dy = ev.clientY - drag.lastY;
     drag.lastX = ev.clientX;
     drag.lastY = ev.clientY;
