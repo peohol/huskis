@@ -2079,6 +2079,20 @@
     }
     return r;
   }
+  // Elementets FAKTISKE layout-boks (posisjon + størrelse) uten en evt. egen
+  // transform. `getBoundingClientRect` på et rotert/skalert element gir den
+  // ROTERTE omslutningsboksen — bredere og høyere enn boksen elementet ligger i —
+  // så en måling under draging (dra-rotasjon) eller under en `.drag-hold`-
+  // trykkskala må nøytralisere transformen først.
+  function untransformedRect(el) {
+    const prevT = el.style.transform, prevTr = el.style.transition;
+    el.style.transition = 'none';
+    el.style.transform = 'none';
+    const r = el.getBoundingClientRect();
+    el.style.transform = prevT;
+    el.style.transition = prevTr;
+    return r;
+  }
   // Dra-elementets logiske boks ut fra pekerposisjon (urørt av rotasjon/skala).
   function draggedRect() {
     const left = drag.lastX - drag.grabX;
@@ -2150,16 +2164,24 @@
        scroll/sveip og holdet avbrytes (siden scroller da nativt). Nødvendig for
        å skille draging fra scrolling på en berøringsskjerm.
      - **Mus (desktop)**: INGEN delay — draget starter idet pekeren beveger seg
-       forbi HOLD_MOVE px med knappen nede (klassisk desktop-drag). På desktop er
-       det ingen konflikt mellom scroll og drag, så et hold trengs ikke.
+       forbi HOLD_MOVE_MOUSE px med knappen nede (klassisk desktop-drag). På
+       desktop er det ingen konflikt mellom scroll og drag, så et hold trengs ikke.
+     Avstanden måles EUKLIDSK fra nedtrykkspunktet (kvadrert, ingen rot), så en
+     diagonal bevegelse teller like mye som en akse-parallell.
      Et rent klikk (ingen bevegelse) gjør fortsatt det klikket pleide (omdøp/
      bytt/kryss/kollaps); et fullført drag undertrykker det påfølgende klikket.
      `startDrag` er den vanlige peker-drag-starteren; vi gir den et syntetisk
      event med pekerinfoen fra pointerdown (knappen er fortsatt nede, så
      pointerId-en er aktiv → setPointerCapture i beginDragCommon virker på
-     `dragEl`). */
+     `dragEl`) — men med SISTE kjente koordinater, ikke pointerdown-punktet, så
+     objektet ikke rykker tilbake dit idet det løftes. */
   const HOLD_MS = 200;
+  // Aktiveringsterskel (euklidsk avstand fra pointerdown). Touch/pen trenger
+  // slark for at et hold ikke skal avbrytes av fingerens naturlige vandring;
+  // mus har ingen slik vandring, så en lavere terskel gir et mer umiddelbart
+  // desktop-drag uten å gjøre et vanlig klikk til et drag.
   const HOLD_MOVE = 10;
+  const HOLD_MOVE_MOUSE = 5;
   // Interaktive/redigerbare etterkommere som ALDRI skal starte et drag, selv om
   // de ligger i dra-sonen (i tillegg til per-sone-`except`): den inline
   // redigereren (`editText` → `.edit-input`, hvor et hold ville blokkert caret-
@@ -2168,6 +2190,12 @@
   const HOLD_SKIP = '.edit-input, .meta-chip';
   function attachHoldDrag(zone, dragEl, startDrag, canDrag, except) {
     let timer = null, held = false, sx = 0, sy = 0, pid = null, mouse = false;
+    // Siste kjente pekerposisjon/-tilstand MENS aktiveringen er armert. Draget
+    // starter her, ikke i pointerdown-punktet: på touch rekker fingeren å vandre
+    // i løpet av holdet, og på mus har pekeren pr. definisjon flyttet seg forbi
+    // terskelen. Startet vi i nedtrykkspunktet, ville objektet rykke tilbake dit
+    // idet det løftes (grabX/grabY måles mot start-koordinatene).
+    let cx = 0, cy = 0, primary = true;
     function disarm() {
       if (timer) { clearTimeout(timer); timer = null; }
       dragEl.classList.remove('drag-hold');
@@ -2177,17 +2205,26 @@
     }
     function startNow() {
       disarm();
-      // En synk-rebuild kan ha byttet ut noden mens man holdt/trykket → ikke start
-      // et drag på en frakoblet node (peker-lytterne sitter på den nye noden).
-      if (!dragEl.isConnected) return;
+      // Sjekk forutsetningene på nytt AKKURAT nå — mellom pointerdown og dette
+      // øyeblikket kan alt ha endret seg: en synk-rebuild kan ha byttet ut noden
+      // (peker-lytterne sitter da på den nye), objektet kan ha blitt låst/flyttet
+      // (canDrag), et annet drag kan ha startet, eller pekeren kan ha blitt
+      // sekundær (multitouch).
+      if (!dragEl.isConnected || !canDrag() || drag.active || !primary) return;
       held = true;
-      startDrag({ button: 0, clientX: sx, clientY: sy, pointerId: pid,
+      startDrag({ button: 0, clientX: cx, clientY: cy, pointerId: pid,
         pointerType: mouse ? 'mouse' : 'touch', target: dragEl, preventDefault() {} }, dragEl);
     }
     function onMove(ev) {
       if (ev.pointerId !== pid) return;
-      const moved = Math.abs(ev.clientX - sx) > HOLD_MOVE || Math.abs(ev.clientY - sy) > HOLD_MOVE;
-      if (!moved) return;
+      cx = ev.clientX; cy = ev.clientY;
+      if (ev.isPrimary === false) primary = false;
+      // Euklidsk avstand (kvadrert — ingen rot nødvendig): en diagonal bevegelse
+      // skal telle like mye som en akse-parallell, ikke kreve terskelen på hver
+      // akse hver for seg.
+      const lim = mouse ? HOLD_MOVE_MOUSE : HOLD_MOVE;
+      const dx = cx - sx, dy = cy - sy;
+      if (dx * dx + dy * dy <= lim * lim) return;
       // Mus: bevegelse forbi terskelen STARTER draget (ingen delay). Touch/pen:
       // bevegelse FØR holdet er fullført = scroll/sveip → avbryt.
       if (mouse) startNow(); else disarm();
@@ -2196,11 +2233,13 @@
     zone.addEventListener('pointerdown', (ev) => {
       held = false;
       if (ev.button != null && ev.button !== 0) return;
+      if (ev.isPrimary === false) return; // sekundær peker (multitouch) starter aldri et drag
       if (!canDrag()) return;
       if (ev.target.closest(HOLD_SKIP)) return;
       if (except && ev.target.closest(except)) return;
       ev.preventDefault(); // ingen tekstmarkering/fokus mens man holder/drar
-      sx = ev.clientX; sy = ev.clientY; pid = ev.pointerId;
+      sx = cx = ev.clientX; sy = cy = ev.clientY; pid = ev.pointerId;
+      primary = true;
       mouse = ev.pointerType === 'mouse';
       // Press-feedback (scale) kun på touch/pen der holdet faktisk tar tid; på
       // mus starter draget umiddelbart på bevegelse, så et press-blink ved hvert
@@ -2236,12 +2275,7 @@
     // for lav → board-et krympet ved løft → en 10 px scroll-klemme (som på mobil kan
     // avbryte touch-en). Nøytraliser transformen for selve målingen og gjenopprett
     // etterpå (start*Drag setter drag-transformen straks etter uansett).
-    const prevT = el.style.transform, prevTr = el.style.transition;
-    el.style.transition = 'none';
-    el.style.transform = 'none';
-    const rect = el.getBoundingClientRect();
-    el.style.transform = prevT;
-    el.style.transition = prevTr;
+    const rect = untransformedRect(el);
     drag.el = el;
     drag.width = rect.width;
     drag.height = rect.height;
@@ -2269,6 +2303,19 @@
     // justert scroll-posisjonen brått når board-et krymper (liste-kollaps).
     document.documentElement.style.overflowAnchor = 'none';
     window.addEventListener('touchmove', preventTouchScroll, { passive: false });
+    // Hold det løftede objektet under pekeren om SIDEN scroller uten at vi gjorde
+    // det (momentum, kollaps-klemme, tastatur, en synk-rebuild som endrer høyden).
+    // Gjelder alle dokument-koordinat-drag (kort/listepunkt/kategori) — gruppe/
+    // univers dras `fixed` i en modal og påvirkes ikke av window-scroll.
+    // Reagerer KUN (reposisjonerer); den scroller aldri selv.
+    window.addEventListener('scroll', onDragScroll, { passive: true });
+  }
+  // Ren reposisjonering (to style-skrivinger, ingen layout-lesing) → trygg å kjøre
+  // synkront per scroll-event. Plasseringen re-evalueres IKKE her: pekeren har
+  // ikke flyttet seg, og auto-scroll-loopen gjør allerede den jobben én gang per
+  // animasjonsframe når det er VI som scroller.
+  function onDragScroll() {
+    if (drag.active && drag.el && dragUsesPageCoords()) moveElement();
   }
 
   // Posisjonen dra-elementet skal få via style.left/top.
@@ -2374,20 +2421,59 @@
     drag.recentSwap = { refId: action.ref ? action.ref.dataset.id : null, pos: action.pos, t: performance.now() };
   }
 
+  /* ------- Autoritativ SLUTTPLASSERING ved pointerup -------
+     Den løpende plasseringen er retningsstyrt (20 %-overlapp + anti-reverserings-
+     lås) og drives av `pointermove`. Men den siste bevegelsen før et slipp kan
+     være koalescert bort eller helt utelatt (rask gest, eller en peker som bare
+     hoppet fra nedtrykk til slipp), så placeholderen kan stå igjen fra NEST siste
+     bevegelse. Ved slippet kjører vi derfor én siste, REN SENTERBASERT
+     plassering fra de faktiske slipp-koordinatene: ingen retning (det finnes
+     ingen ved et hopp), ingen 20 %-terskel og ingen anti-reverseringslås —
+     slipp-punktet ER brukerens tydelige sluttintensjon, og et raskt slipp skal
+     lande der og ikke ett hakk unna. */
+  function centerPlaceRows(container, rows, rects, horizontal) {
+    const ph = drag.ph;
+    if (!ph || !rows.length) return;
+    const d = draggedRect();
+    const c = horizontal ? d.left + d.width / 2 : d.top + d.height / 2;
+    const key = (r) => (horizontal ? r.left + r.width / 2 : r.top + r.height / 2);
+    const sorted = rows.slice().sort((a, b) => key(rects.get(a)) - key(rects.get(b)));
+    let ref = null;
+    for (const el of sorted) if (c < key(rects.get(el))) { ref = el; break; }
+    const action = ref ? { ref, pos: 'before' } : { ref: sorted[sorted.length - 1], pos: 'after' };
+    if (!wouldMove(ph, action.ref, action.pos)) return;
+    const snap = snapshotRects(rows);
+    placePlaceholder(container, ph, action.ref, action.pos);
+    flipFrom(snap, FLIP_MS);
+    recordSwap(action);
+  }
+
   // Animer dra-elementet fra flytende posisjon inn i placeholder-sloten.
-  // rot = grader kortet skal starte rotert i (0/false for elementer → ingen spin).
-  function dropIntoPlaceholder(el, rot) {
-    const floatLeft = drag.lastX - drag.grabX;
-    const floatTop = drag.lastY - drag.grabY;
+  // rot = grader kortet skal starte rotert i (0/false for kategorier → ingen
+  // spin/skala, se under).
+  // `fromRect` = allerede målt dra-boks (for kallere som må rydde dra-stilene
+  // før de kaller hit — onCardUp måler slot-posisjonen sin i mellomtiden).
+  function dropIntoPlaceholder(el, rot, fromRect) {
+    const reduced = prefersReducedMotion();
+    // Startpunktet er objektets FAKTISKE boks der det står malt, mens det fortsatt
+    // er `.dragging` — ikke den uklemte `drag.lastX - grabX`/`lastY - grabY`. Den
+    // uklemte posisjonen ligger utenfor viewporten så snart klemmen
+    // (clampToViewport) har slått inn, og animasjonen startet da et sted objektet
+    // aldri var malt → et synlig hopp idet man slapp ved/utenfor kanten.
+    const from = reduced ? null : (fromRect || untransformedRect(el));
+    const scale = dragScale();
     el.classList.remove('dragging');
     el.style.left = el.style.top = el.style.width = el.style.height = '';
     el.style.transform = ''; // fjern evt. dynamisk drag-rotasjon før vi måler hvileposisjonen
-    if (prefersReducedMotion()) return;   // ingen drop-tween ved redusert bevegelse
+    if (reduced) return;   // ingen drop-tween ved redusert bevegelse
     const now = el.getBoundingClientRect();
-    const dx = floatLeft - now.left;
-    const dy = floatTop - now.top;
+    const dx = from.left - now.left;
+    const dy = from.top - now.top;
     el.style.transition = 'none';
-    el.style.transform = `translate(${dx}px, ${dy}px)${rot ? ` rotate(${rot}deg) scale(1.02)` : ''}`;
+    // Skalaen følger objekttypen (dragScale: liste 1.02, listepunkt 1.03,
+    // gruppe/univers 1.05) — en hardkodet 1.02 ga et synlig krymp i starten av
+    // drop-animasjonen for alt annet enn lister.
+    el.style.transform = `translate(${dx}px, ${dy}px)${rot ? ` rotate(${rot}deg) scale(${scale})` : ''}`;
     void el.offsetWidth;
     requestAnimationFrame(() => {
       el.style.transition = `transform ${FLIP_MS}ms cubic-bezier(.2,.75,.3,1)`;
@@ -2500,11 +2586,51 @@
     el.style.transition = '';
   }
 
+  /* ------- Sikkerhetsnett: avbryt et drag som mistet pekeren -------
+     Et drag lever av `pointermove`/`pointerup` på window + pointer capture. Blir
+     capture-en tatt fra oss (noden fjernet av en synk-rebuild, nettleseren tar
+     over gesten), mister vinduet fokus, eller blir fanen skjult, kommer det
+     ALDRI en `pointerup`/`pointercancel` — draget ville blitt hengende: objektet
+     limt til pekeren, placeholder i DOM, auto-scroll i gang. `cancelActiveDrag`
+     kjører den nivå-riktige kanselleringsflyten (rollback, ingen pos/lagring) og
+     er idempotent: hver on*Cancel returnerer straks når `drag.active` er false,
+     og finishDrag setter den false. Et vanlig `pointerup`/`pointercancel` har
+     dermed allerede ryddet når disse nettene evt. fyrer etterpå. */
+  function cancelActiveDrag() {
+    if (!drag.active) return;
+    if (drag.kind === 'card') onCardCancel();
+    else if (drag.kind === 'item') onItemCancel();
+    else if (drag.kind === 'category') onCategoryCancel();
+    else if (drag.kind === 'group') onGroupCancel();
+    else if (drag.kind === 'universe') onUniverseCancel();
+    else finishDrag();
+  }
+  document.addEventListener('lostpointercapture', (ev) => {
+    if (drag.active && ev.pointerId === drag.pointerId) cancelActiveDrag();
+  }, true);
+  window.addEventListener('blur', () => cancelActiveDrag());
+  document.addEventListener('visibilitychange', () => { if (document.hidden) cancelActiveDrag(); });
+
   /* ------- Auto-scroll når dra-kortet nærmer seg topp/bunn av vinduet -------
      Sakte når kortet nærmer seg kanten, raskere jo lengre ut i sonen — og
      raskest når det holdes forbi selve kanten. Fungerer begge veier. */
   let autoScrollRAF = null;
   let autoScrollSpeed = 0;
+
+  /* Auto-scroll-fartene er px PER 60 Hz-FRAME. Uten normalisering scroller en
+     120 Hz-skjerm dobbelt så fort som en 60 Hz-skjerm for samme fysiske tid (og
+     en travel frame gir et hopp). `frameSteps` gjør om tiden siden forrige
+     RAF-kall til antall 60 Hz-frames, klemt oppad: etter en bakgrunnsfane/pause
+     kan dt være hundrevis av ms, og et ukjemmet dt ville rykket siden langt av
+     gårde i én frame. Første frame (ingen forrige tid) teller som én. */
+  const FRAME_MS = 1000 / 60;
+  const MAX_FRAME_MS = 50;
+  function frameSteps(prevTs, ts) {
+    if (prevTs == null) return 1;
+    const now = typeof ts === 'number' ? ts : performance.now();
+    return Math.max(0, Math.min(MAX_FRAME_MS, now - prevTs)) / FRAME_MS;
+  }
+  const frameNow = (ts) => (typeof ts === 'number' ? ts : performance.now());
 
   function edgeSpeed(p) {
     // p: 0 ved sonens indre kant, 1 ved vinduskanten, >1 forbi kanten.
@@ -2551,9 +2677,11 @@
   }
   function startAutoScroll() {
     if (autoScrollRAF != null) return;
-    const step = () => {
+    let prevTs = null, rest = 0; // `rest` = ubrukt sub-piksel-avstand, tas med neste frame
+    const step = (ts) => {
       if (!drag.active || autoScrollSpeed === 0) { autoScrollRAF = null; return; }
-      let delta = autoScrollSpeed;
+      let delta = autoScrollSpeed * frameSteps(prevTs, ts) + rest;
+      prevTs = frameNow(ts);
       if (delta > 0) {
         // Det løftede kortet er `position: absolute`, så dets dokument-posisjon
         // (scrollY + peker) ville selv utvidet sidens scroll-område hver frame og
@@ -2573,6 +2701,10 @@
       }
       const before = window.scrollY;
       if (delta !== 0) window.scrollBy(0, delta);
+      // Ta vare på avstanden nettleseren ikke brukte (avrunding til hele piksler),
+      // så en lav fart per frame på 120 Hz ikke forsvinner i avrundingen. Klemt til
+      // ±1 px så den ikke hoper seg opp når scrollen står i en ende.
+      rest = Math.max(-1, Math.min(1, delta - (window.scrollY - before)));
       // Kortet er `position: absolute` (dokument-koordinater) → flytt det med den
       // nye scroll-posisjonen så det blir liggende under fingeren, og re-evaluer
       // de andre kortenes plassering med rulleretningen som «drag-retning».
@@ -2621,12 +2753,7 @@
     window.addEventListener('pointermove', onCardMove);
     window.addEventListener('pointerup', onCardUp);
     window.addEventListener('pointercancel', onCardCancel);
-    // Hold det løftede kortet under fingeren om nettleseren selv scroller (kollaps-
-    // klemme/momentum) mens draget pågår — uten at VI scroller (som ville avbrutt
-    // touch-en). Ren reaksjon på scroll: reposisjonering, ikke scrolling.
-    window.addEventListener('scroll', onDragScroll, { passive: true });
   }
-  function onDragScroll() { if (drag.active && drag.kind === 'card') moveElement(); }
 
   /* ------- Midlertidig kollaps av alle lister under et liste-drag -------
      Alle lister (den dratte + de andre) kollapses til bare korthodet → board-et
@@ -2827,6 +2954,27 @@
     recordSwap(action);
   }
 
+  // Sluttplassering ved slipp (se centerPlaceRows): rent senterbasert, slik at et
+  // raskt slipp lander der kortet faktisk ble sluppet — også når det hoppet over
+  // flere plasser siden forrige pointermove.
+  function commitCardPlacement() {
+    if (!drag.active || drag.kind !== 'card') return;
+    const dragRect = draggedRect();
+    const cards = [...board.querySelectorAll('.card:not(.dragging)')];
+    if (!cards.length) return;
+    const rects = new Map(cards.map((c) => [c, layoutRect(c)]));
+    const restRects = cards.map((c) => rects.get(c)).concat([layoutRect(drag.ph)]);
+    if (isSingleRowLayout(restRects)) { // én horisontal rad → senter langs X
+      centerPlaceRows(board, cards, rects, true);
+      return;
+    }
+    // Flerkolonne/kolonne: kortene som deler spor med dra-kortet, senter langs Y.
+    // Ligger dra-kortet i et kolonnegap, lar vi placeholderen stå (den løpende
+    // plasseringen har allerede valgt kolonne).
+    const col = cards.filter((c) => hOverlapFrac(dragRect, rects.get(c)) >= 0.5);
+    if (col.length) centerPlaceRows(board, col, rects, false);
+  }
+
   function onCardUp(ev) {
     if (!drag.active) return;
     window.removeEventListener('pointermove', onCardMove);
@@ -2834,13 +2982,18 @@
     window.removeEventListener('pointercancel', onCardCancel);
 
     const el = drag.el;
-    // Bestem drop-mål ut fra de FAKTISKE slipp-koordinatene, ikke det som lå
-    // mellomlagret fra siste pointermove: slippes lista like utenfor knappen
-    // (rask/koalescerte bevegelse, eller pointercancel), skal velgeren ikke
-    // åpnes. Faller tilbake på siste peker-posisjon bare hvis hendelsen
-    // mangler koordinater.
-    const relX = ev && typeof ev.clientX === 'number' ? ev.clientX : drag.lastX;
-    const relY = ev && typeof ev.clientY === 'number' ? ev.clientY : drag.lastY;
+    // Bestem drop-mål OG sluttplassering ut fra de FAKTISKE slipp-koordinatene,
+    // ikke det som lå mellomlagret fra siste pointermove: den kan være koalescert
+    // bort eller helt utelatt (rask gest), så både breadcrumb-treffet og
+    // placeholderen kunne blitt hentet fra nest siste bevegelse.
+    if (ev && typeof ev.clientX === 'number') {
+      drag.lastX = ev.clientX; drag.lastY = ev.clientY;
+      // (Kortet flyttes IKKE hit visuelt: drop-tweenen starter fra der det faktisk
+      // står malt, se dropIntoPlaceholder — et snapp hit først ville gitt et rykk.)
+      if (!pointerInTopbar(drag.lastX, drag.lastY)) commitCardPlacement();
+    }
+    const relX = drag.lastX;
+    const relY = drag.lastY;
     const cardObj = findCard(el.dataset.id);
     const onCrumb = pointerOnGroupCrumb(relX, relY) &&
       moveTargetGroups(cardObj).length > 0;
@@ -2879,11 +3032,14 @@
     // så den slupne lista inn i visning (endring 2). slotDocTop måles UTEN dra-
     // transformen (dropIntoPlaceholder setter den etterpå), og i DOKUMENT-koordinat
     // så den er upåvirket av selve scrollingen.
+    // Mål den faktiske dra-boksen (uten dra-rotasjonen) før stilene ryddes —
+    // drop-tweenen skal starte der kortet står malt (dropIntoPlaceholder).
+    const fromRect = untransformedRect(el);
     el.classList.remove('dragging');
     el.style.left = el.style.top = el.style.width = el.style.height = '';
     el.style.transform = '';
     const slotDocTop = el.getBoundingClientRect().top + window.scrollY;
-    dropIntoPlaceholder(el, rot);
+    dropIntoPlaceholder(el, rot, fromRect);
     if (!onCrumb) scrollDroppedIntoView(slotDocTop);
 
     // Slipp på 📁-breadcrumben: kortet er lagt normalt tilbake på board-et
@@ -3099,10 +3255,12 @@
 
     let action = null; // {pos:'before'|'after'|'append', ref?}
 
-    if (!phInCont || hasCat) {
+    if (!phInCont || hasCat || commit) {
       // Overføring til en annen container, ELLER nivå 1 med kategorier (blandede
-      // radhøyder): senterbasert innsetting — robust der overlapp-hysteresen
-      // ellers ville feilet mot en høy kategori-blokk.
+      // radhøyder), ELLER sluttplasseringen ved slipp: senterbasert innsetting —
+      // robust der overlapp-hysteresen ellers ville feilet mot en høy kategori-
+      // blokk, og ved slipp finnes det ingen retning å styre etter (siste
+      // pointermove kan mangle helt, se centerPlaceRows).
       const cy = dragRect.top + dragRect.height / 2;
       let ref = null;
       for (const it of rows) {
@@ -3135,7 +3293,9 @@
       ? !isAtItemsEnd(targetCont, ph)
       : wouldMove(ph, action.ref, action.pos);
     if (!willMove) return;
-    if (swapReversesRecent(action)) return;
+    // Anti-reverseringslåsen skal aldri overstyre slippet: den finnes for å dempe
+    // flimring under bevegelse, mens slipp-punktet er en tydelig sluttintensjon.
+    if (!commit && swapReversesRecent(action)) return;
 
     const snap = snapshotRects(flipEls);
     if (action.pos === 'append') appendToItemsEnd(targetCont, ph);
@@ -3155,9 +3315,14 @@
     // avgjør extract vs. reorder: siste pointermove kan være koalescert eller
     // helt utelatt, så `drag.phMode`/placeholderen kan være foreldet (samme
     // fort/koalescert-peker-tilfelle som onCardUp håndterer for breadcrumben).
+    // Retningen (dy) regnes FØR drag.lastY overskrives; med commit=true er
+    // plasseringen uansett senterbasert, så et slipp uten forutgående bevegelse
+    // (dy = 0) lander riktig også i en homogen liste — der den retningsstyrte
+    // varianten tidligere ikke gjorde noe i det hele tatt.
     if (ev && typeof ev.clientX === 'number') {
+      const dy = ev.clientY - drag.lastY;
       drag.lastX = ev.clientX; drag.lastY = ev.clientY;
-      updateItemPlacement(drag.lastX, drag.lastY, 0, true); // commit: lande i kollapset mål om peek ikke rakk
+      updateItemPlacement(drag.lastX, drag.lastY, dy, true); // commit: lande i kollapset mål om peek ikke rakk
     }
 
     if (drag.phMode === 'extract') { extractItemToNewList(); return; }
@@ -3943,11 +4108,20 @@
   // til kort/element), så eneste forskjell er beholder/søsken-klasse/id-oppslag/
   // mount-kind/reindeks + hvilke move/up-lyttere som skal kobles fra. Ny pos =
   // mellom DOM-naboene; montert rad speiler rekkefølgen i membership-raden.
-  function finishColumnDrop(o) {
+  function finishColumnDrop(o, ev) {
     if (!drag.active) return;
     window.removeEventListener('pointermove', o.move);
     window.removeEventListener('pointerup', o.up);
     window.removeEventListener('pointercancel', o.cancel);
+
+    // Autoritativ sluttplassering fra de faktiske slipp-koordinatene (se
+    // centerPlaceRows): et raskt slipp uten en siste pointermove skal lande der
+    // raden ble sluppet, ikke der nest siste bevegelse etterlot placeholderen.
+    if (ev && typeof ev.clientX === 'number') {
+      drag.lastX = ev.clientX; drag.lastY = ev.clientY;
+      const rows = [...o.container.querySelectorAll('.' + o.siblingClass + ':not(.dragging)')];
+      centerPlaceRows(o.container, rows, new Map(rows.map((r) => [r, layoutRect(r)])), false);
+    }
 
     const el = drag.el;
     const rot = cardRotation();
@@ -3979,9 +4153,9 @@
     restoreDraggedToOrigin();
     finishDrag();
   }
-  function onGroupUp() {
+  function onGroupUp(ev) {
     finishColumnDrop({ container: groupList, siblingClass: 'group-card', find: findGroup,
-      kind: 'group', reindex: reindexGroupColors, move: onGroupMove, up: onGroupUp, cancel: onGroupCancel });
+      kind: 'group', reindex: reindexGroupColors, move: onGroupMove, up: onGroupUp, cancel: onGroupCancel }, ev);
   }
   function onGroupCancel() {
     cancelColumnDrop({ move: onGroupMove, up: onGroupUp, cancel: onGroupCancel });
@@ -4019,12 +4193,17 @@
   }
   function startGroupAutoScroll(scroller) {
     if (groupScrollRAF != null) return;
-    const step = () => {
+    let prevTs = null, rest = 0;
+    const step = (ts) => {
       if (!drag.active || groupScrollSpeed === 0) { groupScrollRAF = null; return; }
       // Radene flytter seg når feltet ruller → re-evaluer med rulleretningen
-      // som syntetisk drag-retning (som kort-auto-scroll).
+      // som syntetisk drag-retning (som kort-auto-scroll). Farten er px per
+      // 60 Hz-frame og normaliseres mot faktisk forløpt tid (frameSteps).
+      const delta = groupScrollSpeed * frameSteps(prevTs, ts) + rest;
+      prevTs = frameNow(ts);
       const before = scroller.scrollTop;
-      scroller.scrollTop += groupScrollSpeed;
+      scroller.scrollTop += delta;
+      rest = Math.max(-1, Math.min(1, delta - (scroller.scrollTop - before)));
       if (scroller.scrollTop !== before) updateGroupPlacement(groupScrollSpeed > 0 ? 1 : -1);
       groupScrollRAF = requestAnimationFrame(step);
     };
@@ -4106,9 +4285,9 @@
     recordSwap(action);
   }
 
-  function onUniverseUp() {
+  function onUniverseUp(ev) {
     finishColumnDrop({ container: uniList, siblingClass: 'uni-row', find: findUniverse,
-      kind: 'universe', reindex: reindexUniverseColors, move: onUniverseMove, up: onUniverseUp, cancel: onUniverseCancel });
+      kind: 'universe', reindex: reindexUniverseColors, move: onUniverseMove, up: onUniverseUp, cancel: onUniverseCancel }, ev);
   }
   function onUniverseCancel() {
     cancelColumnDrop({ move: onUniverseMove, up: onUniverseUp, cancel: onUniverseCancel });
@@ -4132,10 +4311,14 @@
   }
   function startUniverseAutoScroll(scroller) {
     if (uniScrollRAF != null) return;
-    const step = () => {
+    let prevTs = null, rest = 0;
+    const step = (ts) => {
       if (!drag.active || uniScrollSpeed === 0) { uniScrollRAF = null; return; }
+      const delta = uniScrollSpeed * frameSteps(prevTs, ts) + rest; // px per 60 Hz-frame → faktisk tid
+      prevTs = frameNow(ts);
       const before = scroller.scrollTop;
-      scroller.scrollTop += uniScrollSpeed;
+      scroller.scrollTop += delta;
+      rest = Math.max(-1, Math.min(1, delta - (scroller.scrollTop - before)));
       if (scroller.scrollTop !== before) updateUniversePlacement(uniScrollSpeed > 0 ? 1 : -1);
       uniScrollRAF = requestAnimationFrame(step);
     };

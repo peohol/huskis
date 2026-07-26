@@ -90,6 +90,59 @@ Bytte utløses av **overlapp**, ikke av et punkt:
   aldri scroll-sonen.
 - Kun én drag om gangen (`if (drag.active) return`); `finishDrag()` feier bort
   evt. foreldreløse placeholdere.
+- **Sluttplasseringen er autoritativ** (`centerPlaceRows` + `commitCardPlacement`,
+  `updateItemPlacement(..., commit)`, `updateCategoryPlacement(commit)`,
+  `finishColumnDrop(o, ev)`): den løpende plasseringen er retningsstyrt og drives
+  av `pointermove`, men den SISTE bevegelsen før et slipp kan være koalescert bort
+  eller helt utelatt (rask gest, eller en peker som bare hoppet fra nedtrykk til
+  slipp) — placeholderen kunne da bli stående fra NEST siste bevegelse. Ved
+  `pointerup` kjøres derfor én siste plassering fra de FAKTISKE slipp-
+  koordinatene, for ALLE fem nivåene (liste/listepunkt/kategori/gruppe/univers).
+  Den er **ren senterbasert**: ingen retning (det finnes ingen ved et hopp), ingen
+  20 %-terskel og ingen anti-reverseringslås — slipp-punktet ER brukerens tydelige
+  sluttintensjon, og et raskt slipp skal lande der, ikke ett hakk unna. Retningen
+  (`dy`) regnes alltid FØR `drag.lastX/Y` overskrives. Slippes lista over
+  toppmenyen (📁-breadcrumben), hoppes sluttplasseringen over — board-et ligger da
+  bevisst i ro.
+- **Drop-animasjonen starter der objektet FAKTISK står malt**
+  (`dropIntoPlaceholder`): startpunktet måles med `untransformedRect(el)` mens
+  elementet fortsatt er `.dragging` (transformen nøytraliseres, ellers ville den
+  roterte omslutningsboksen blitt målt), ikke regnet ut fra den UKLEMTE
+  `drag.lastX - grabX`/`lastY - grabY`. Så snart `clampToViewport` har slått inn
+  (slipp ved eller utenfor viewportkanten) ligger den uklemte posisjonen utenfor
+  skjermen, og animasjonen startet et sted objektet aldri var malt → et synlig
+  hopp. `onCardUp` måler boksen selv (den må rydde dra-stilene før den måler
+  slot-posisjonen) og sender den inn som `fromRect`. Startskalaen kommer fra
+  `dragScale()` (liste 1.02, listepunkt 1.03, gruppe/univers 1.05) — en hardkodet
+  1.02 ga et synlig krymp for alt annet enn lister. Kategorien sender fortsatt
+  `rot = false` (ingen rotate/scale i drop-transformen), siden en transform der
+  ville forstyrret utfoldings-høydeanimasjonen (`expandCategory`).
+- **Auto-scrollen er oppfriskningsuavhengig** (`frameSteps`): fartene er px per
+  60 Hz-frame, og hver frame skaleres med FAKTISK forløpt tid siden forrige
+  RAF-kall (`dt / 16.67`). Uten dette scrollet en 120 Hz-skjerm dobbelt så fort
+  som en 60 Hz-skjerm på samme fysiske tid. `dt` klemmes til 50 ms (3 frames) så
+  en bakgrunnsfane/pause ikke gir et hopp, og resten som avrundingen spiser
+  (`rest`, ±1 px) tas med til neste frame så en lav fart ikke forsvinner på
+  120 Hz. Gjelder alle tre loopene: vindus-, gruppe- og univers-auto-scroll.
+  Soner, retning, board-bunngrense og fortegnsklemmen er uendret.
+- **Et drag som mister pekeren avbrytes** (`cancelActiveDrag`): draget lever av
+  `pointermove`/`pointerup` på window + pointer capture. Blir capture-en tatt fra
+  oss (`lostpointercapture` — f.eks. når en synk-rebuild bytter ut noden), mister
+  vinduet fokus (`blur`), eller blir fanen skjult (`visibilitychange`), kommer det
+  ALDRI en `pointerup`/`pointercancel`, og draget ble hengende: objektet limt til
+  pekeren, placeholder i DOM, auto-scroll i gang. `cancelActiveDrag` kjører den
+  nivå-riktige kanselleringsflyten (`on*Cancel` → rollback, ingen pos/lagring) og
+  er idempotent — hver `on*Cancel` returnerer straks når `drag.active` er false,
+  så et vanlig slipp rydder fortsatt nøyaktig én gang (lyttene er globale, ikke
+  per drag).
+- **Ekstern window-scroll reposisjonerer ALLE dokument-koordinat-drag**
+  (`onDragScroll`, registrert i `beginDragCommon`): kort, listepunkt OG kategori
+  ligger i dokument-koordinater, så scroller siden uten at vi gjorde det
+  (momentum, kollaps-klemme, tastatur), må det løftede objektet flyttes for å bli
+  liggende under pekeren. Før gjaldt dette kun lister. Lytteren REAGERER bare —
+  den scroller aldri selv — og gjør ingen plasseringsevaluering (pekeren har ikke
+  flyttet seg; auto-scroll-loopen gjør den jobben én gang per frame når det er VI
+  som scroller).
 - **Draging startes ulikt på touch og mus** (`attachHoldDrag`). Dra-håndtakene er
   FJERNET; draging inviteres på objektets navn-/tittelsone — men ikke på knappene
   (`except`-selektoren, med `closest`) og heller ikke på interaktive/redigerbare
@@ -102,9 +155,25 @@ Bytte utløses av **overlapp**, ikke av et punkt:
     `HOLD_MOVE` (10 px) FØR holdet er ferdig, tolkes det som scroll/sveip og
     avbrytes (siden scroller da nativt — sonene har normal `touch-action`).
   - **Mus (desktop)**: INGEN delay — draget starter idet pekeren beveger seg >
-    `HOLD_MOVE` px med knappen nede (klassisk desktop-drag). På desktop er det
-    ingen konflikt mellom scroll og drag, så et hold trengs ikke. Et rent klikk
-    (ingen bevegelse) forblir et klikk.
+    `HOLD_MOVE_MOUSE` (5 px) med knappen nede (klassisk desktop-drag). En mus har
+    ikke fingerens naturlige vandring, så terskelen kan være lavere enn touch sin
+    uten at et vanlig klikk blir et drag. På desktop er det ingen konflikt mellom
+    scroll og drag, så et hold trengs ikke. Et rent klikk (ingen bevegelse) forblir
+    et klikk.
+  - Avstanden måles **euklidsk** fra nedtrykkspunktet (kvadrert, ingen rot), så en
+    diagonal bevegelse teller like mye som en akse-parallell — før måtte terskelen
+    passeres på én enkelt akse.
+  - **Draget starter i AKTUELL pekerposisjon**, ikke i `pointerdown`-punktet: siste
+    koordinater oppdateres mens aktiveringen er armert (`cx`/`cy`) og brukes i det
+    syntetiske start-eventet. Grepet (`grabX`/`grabY`) måles dermed mot der
+    pekeren faktisk er, og objektet rykker ikke tilbake til nedtrykkspunktet ved
+    første bevegelse — det gjaldt både musas terskelbevegelse og fingerens drift
+    under holdet.
+  - **Forutsetningene sjekkes på nytt akkurat når draget skal starte**: `canDrag()`
+    (låst/mount/`done`), `dragEl.isConnected` (en synk-rebuild kan ha byttet ut
+    noden), `drag.active` (et annet drag rakk å starte) og at pekeren fortsatt er
+    primær. En `pointerdown` med `isPrimary === false` (sekundær multitouch-peker)
+    ignoreres helt.
 
   Soner/unntak: **univers-/gruppe-rad** = hele chip-en unntatt ×-knappen; **liste**
   = hele korthodet (`.card-head`) unntatt tannhjul + × (klikk ellers på headeren
@@ -208,7 +277,8 @@ Bytte utløses av **overlapp**, ikke av et punkt:
   `pointercancel` handler med `pointerup` (`onCardUp`), så et avbrudd fullførte og
   lagret droppet. Nå har hvert nivå en egen kanselleringsflyt (`onCardCancel`,
   `onItemCancel`, `onCategoryCancel`, `onGroup-/onUniverseCancel` via
-  `cancelColumnDrop`) registrert på `pointercancel`: den fjerner draglytterne, stopper
+  `cancelColumnDrop`) registrert på `pointercancel` (og gjenbrukt av
+  `cancelActiveDrag`, se sikkerhetsnett-punktet over): den fjerner draglytterne, stopper
   auto-scroll, fører elementet tilbake til den opprinnelige DOM-sloten
   (`restoreDraggedToOrigin` — `drag.origParent`/`origNext` registreres i
   `beginDragCommon` FØR placeholderen settes inn), fjerner placeholderen, rydder
@@ -425,9 +495,13 @@ inne i kortet.
   `pointermove` kan være koalescert eller helt utelatt, så `drag.phMode` kan være
   foreldet — slippes objektet tilbake OVER et kort etter å ha vært i board-luften,
   ville et foreldet `extract` ellers laget en ny liste. Vi setter derfor
-  `drag.lastX/Y` fra slipp-eventet og kjører placeringsfunksjonen på nytt FØR vi
-  velger extract vs. reorder (samme fort/koalescert-peker-mønster som `onCardUp`
-  bruker for 📁-breadcrumben).
+  `drag.lastX/Y` fra slipp-eventet og kjører placeringsfunksjonen på nytt med
+  `commit = true` FØR vi velger extract vs. reorder — samme autoritative
+  sluttplassering som alle de andre nivåene gjør (se «Sluttplasseringen er
+  autoritativ» over). Retningen (`dy`) regnes FØR `drag.lastY` overskrives, men
+  med `commit` er innsettingen uansett senterbasert: den retningsstyrte varianten
+  gjorde tidligere INGENTING ved et slipp i en homogen liste (`dy` ble sendt inn
+  som 0, og hverken oppover- eller nedover-grenen traff).
 - **Avkryssing**: et avkrysset listepunkt (også i en kategori) flyttes til kortets
   felles «Utført»-seksjon; reaktivering ruter det tilbake INN i kategorien sin
   (om den finnes), ellers til nivå 1 (se `toggleItemDone`).

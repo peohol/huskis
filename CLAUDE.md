@@ -104,7 +104,9 @@ slette-animasjon inn i søppelknappen) — se `docs/design-system.md` og
 `docs/trash.md`. En påfølgende runde la til: typografi-tokens (`--fs-*`),
 avkryssing av listepunkter (`item.done`), angre-toast + delte gjenopprett-hjelpere,
 felles bekreftelses-modal (`askConfirm`, erstatter native `confirm()`),
-tastatur-reordering på håndtakene, `prefers-reduced-motion`-støtte, delte
+tastatur-reordering på håndtakene (SENERE FJERNET sammen med håndtakene — se
+«Trykk-og-hold-draging» under og `docs/drag-and-drop.md`),
+`prefers-reduced-motion`-støtte, delte
 `.field`/avatar-klasser, hvit ✕ på fargede flater, og flytting av univers-/
 gruppe-deling fra kortene til egne `.share-btn` i menyene (ved «＋ Gruppe» / «＋
 Liste»). `item.done` krever en DB-migrering i kontomodus — se `TODO.md`.

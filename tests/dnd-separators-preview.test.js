@@ -198,7 +198,10 @@ const log = (n, ok, x = '') => { results.push(ok); console.log((ok ? 'PASS' : 'F
     await p.mouse.down();
     await p.mouse.move(src.x, src.y - 20, { steps: 4 }); await p.waitForTimeout(100);
     const topp = await centerOf(p, '.item[data-id="topp"]');
-    await p.mouse.move(topp.x, topp.y - 6, { steps: 10 }); await p.waitForTimeout(250);
+    // Draget starter nå ved AKTUELL pekerposisjon (ikke pointerdown-punktet), så
+    // grepet sitter der fingeren/musa faktisk er: dra-boksen følger pekeren uten
+    // det gamle offsettet. Sikt derfor tydelig over «topp» sitt senter.
+    await p.mouse.move(topp.x, topp.y - 24, { steps: 10 }); await p.waitForTimeout(250);
     const s = sig(await rows(p));
     log('3 placeholder øverst: linje over kategorien og under den (mot bunn)',
       s === 'item-ph|topp—cat-1—bunn', s);
