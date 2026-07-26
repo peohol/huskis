@@ -211,9 +211,9 @@ window.ICONS = {
   //     ferdige banen: +44.00° / −44.01°), altså speilsymmetrisk om den.
   // Endres noe av dette, regn ut punktene på nytt — ikke flytt dem for hånd.
   //
-  // Ren funksjons-glyf uten fyll (som bubbleBurst), men i currentColor slik at
-  // CSS styrer fargen (svart i hvile, grønn ved hover — se .done-restore).
-  restoreArrow: '<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.05" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
+  // Ren funksjons-glyf uten fyll (som bubbleBurst), med SVART strek (#111) som
+  // resten av ikonsettet — knappen har sin egen hvite flate (se .done-restore).
+  restoreArrow: '<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="#111" stroke-width="1.05" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
     '<path d="M13.569 4.469 16.248 6.563A6.9 6.9 0 1 1 6.348 8.042"></path>' +
     '<path d="M14 7.539 13.569 4.469 16.652 4.145"></path>' +
     '</svg>',

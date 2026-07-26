@@ -980,21 +980,15 @@ body {
   height: 1px;
   background: rgba(0, 0, 0, 0.15);
 }
-/* «Gjenopprett alle utførte» (⟲): samme .icon-btn-flate som ×-knappene, helt til
-   HØYRE på «Utført»-linja — altså etter skillelinja. Linja er divider-ens
-   ::after og ligger derfor sist i flex-rekkefølgen; `order: 1` på knappen (som
-   står før pseudo-elementet i DOM-en) flytter den forbi den. Knappen står i
-   samme 36px-kolonne som listepunktenes ×: begge containere har 10px
-   sidepolstring, og `margin-right: 6px` legger til .item-ens egen polstring, så
-   ikonene står nøyaktig over hverandre. Den negative vertikale margen holder
-   linja like høy som før knappen kom (36px-flaten er ren trykkflate). Svart i
-   hvile som de andre listepunkt-knappene, grønn ved hover/aktivering
-   (gjenopprett = den grønne handlingen, jf. søppel-modalen). */
-.done-restore { order: 1; color: #111; margin: -6px 6px -6px 0; }
-.done-restore:hover, .done-restore:active {
-  color: var(--primary);
-  background: var(--primary-soft);
-}
+/* «Gjenopprett alle utførte» (⟲) står helt til HØYRE på «Utført»-linja — altså
+   etter skillelinja. Linja er divider-ens ::after og ligger derfor sist i
+   flex-rekkefølgen; `order: 1` på knappen (som står før pseudo-elementet i
+   DOM-en) flytter den forbi den. Knappen står i samme 36px-kolonne som
+   listepunktenes ×: begge containere har 10px sidepolstring, og `margin-right:
+   6px` legger til .item-ens egen polstring, så ikonene står nøyaktig over
+   hverandre. Selve knappeflaten er den delte hvite flate-knappen — se
+   `.cat-cog, .cat-dissolve, .done-restore` lenger nede. */
+.done-restore { order: 1; margin-right: 6px; }
 .items-done {
   list-style: none;
   display: flex;
@@ -1108,10 +1102,13 @@ body {
   letter-spacing: 0.01em;
 }
 
-/* Tannhjul + oppløs-knapp: samme hvite flate-knapp som .card-cog (svakt hvit
-   flate + ring, lysner ved hover) — synlige mot den fargede listeflaten og på
-   linje med kort-hodets og elementenes knapper. */
-.cat-cog, .cat-dissolve {
+/* Den hvite flate-knappen på LISTEFLATEN: kategoriens tannhjul + oppløs-knapp og
+   ⟲-knappen på «Utført»-linja. Samme uttrykk som .card-cog (svakt hvit flate +
+   ring, lysner ved hover) — synlige mot den fargede listeflaten og på linje med
+   kort-hodets og listepunktenes knapper. Ikonene har svart strek i seg selv
+   (ICONS-settets regel), så `color` styrer ikke dem. Ett felles sett regler så de
+   tre knappene ikke kan gli fra hverandre. */
+.cat-cog, .cat-dissolve, .done-restore {
   flex: 0 0 auto;
   align-self: center;
   appearance: none;
@@ -1129,11 +1126,11 @@ body {
   box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.35);
   transition: background 0.15s, transform 0.1s;
 }
-.cat-cog .icon, .cat-dissolve .icon { width: 1em; height: 1em; font-size: 21px; }
-.cat-cog:hover, .cat-dissolve:hover { background: rgba(255, 255, 255, 0.34); }
-.cat-cog:active, .cat-dissolve:active { transform: scale(0.92); }
-.cat-cog:focus-visible, .cat-dissolve:focus-visible { outline: 2.5px solid #fff; outline-offset: 2px; }
-.cat-cog:disabled, .cat-dissolve:disabled { cursor: default; opacity: 0.4; }
+.cat-cog .icon, .cat-dissolve .icon, .done-restore .icon { width: 1em; height: 1em; font-size: 21px; }
+.cat-cog:hover, .cat-dissolve:hover, .done-restore:hover { background: rgba(255, 255, 255, 0.34); }
+.cat-cog:active, .cat-dissolve:active, .done-restore:active { transform: scale(0.92); }
+.cat-cog:focus-visible, .cat-dissolve:focus-visible, .done-restore:focus-visible { outline: 2.5px solid #fff; outline-offset: 2px; }
+.cat-cog:disabled, .cat-dissolve:disabled, .done-restore:disabled { cursor: default; opacity: 0.4; }
 
 .cat-items {
   list-style: none;
