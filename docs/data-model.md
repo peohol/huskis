@@ -72,7 +72,10 @@ osv.), så kryss-univers-flytting er umulig i UI-et.
   (med FLIP, se `toggleItemDone`) til en egen **«Utført»-seksjon** nederst i kortet
   (skilt med en linje), med lavere bakgrunns-opacity + gjennomstreking. `pos`
   endres IKKE, så et reaktivert listepunkt sorterer tilbake til nøyaktig sin gamle
-  plass blant de aktive (og skyver den som nå står der, ett hakk ned). I kontomodus
+  plass blant de aktive (og skyver den som nå står der, ett hakk ned). ⟲-knappen
+  på «Utført»-linja (`restoreAllDone`) gjør det samme for ALLE utførte i lista på
+  én gang — samme semantikk per listepunkt (`pos` urørt, kategoriserte tilbake INN
+  i kategorien sin via `placeItemBySection`), men i én felles FLIP. I kontomodus
   er `done` en egen kolonne (`items.done`, se `supabase/users-and-sharing.sql` +
   TODO.md for påkrevd DB-migrering).
 - **Ansvarlig** (`item.responsible` og `card.responsible`): bruker-id-en til den

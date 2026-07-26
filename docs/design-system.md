@@ -326,6 +326,20 @@ Størrelse/form kommer fra egne klasser: `.btn` (modaler), `.btn-small`,
   listepunkter flyttes med FLIP til en egen **«Utført»-seksjon** (`.items-done`,
   skilt med `.done-divider`) nederst i kortet; `done` er datamodell (se
   `docs/data-model.md`). Avkryssede rader kan ikke dras (`canDrag` gater på `done`).
+- `.done-restore`: ⟲-knappen helt til HØYRE på «Utført»-linja (`ICONS.restoreArrow`
+  — sirkel med et 93°-gap som retter seg ut i en tangent og ender i en pilspiss
+  mot klokka) som reaktiverer ALLE utførte listepunkter i lista på én gang
+  (`restoreAllDone`, én felles FLIP). Den deler flate-knappen på listeflaten med
+  kategoriens tannhjul og oppløs-knapp (`.cat-cog, .cat-dissolve, .done-restore`
+  — ett felles regelsett, så de ikke kan gli fra hverandre): svakt hvit flate +
+  ring som lysner ved hover, 36×36. Ikonet har svart strek (#111) i seg selv, som
+  resten av ikonsettet — knappen bruker IKKE `.icon-btn` (den setter
+  `color: var(--ink-soft)` senere i fila og vant over et lokalt `color: #111`,
+  som gjorde ikonet blekt). Skillelinja er divider-ens `::after` og ligger derfor
+  sist i flex-rekkefølgen, så knappen får `order: 1` for å havne etter den, og
+  `margin-right: 6px` (listepunktenes egen polstring) stiller den i samme kolonne
+  som radenes ×. Skjult i en frosset liste, som avmerkingsboksene er deaktiverte
+  der.
 - Ingen lasteindikatorer/spinnere: operasjoner utføres optimistisk og
   serialiseres i en bakgrunnskø (se `docs/accounts.md`) — UI-et venter aldri
   synlig på at noe skal lande. (Den gamle `.spinner`-klassen er fjernet.)

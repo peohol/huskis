@@ -196,6 +196,28 @@ window.ICONS = {
     '<path d="M15 16h4.5"></path>' +
     '</svg>',
 
+  // Gjenopprett alle utførte (⟲): en åpen sirkel som retter seg ut i en rett
+  // tangent og ender i en pilspiss som peker mot klokka — «rull tilbake».
+  //
+  // GEOMETRIEN (r=6.9 om (12,12); buen går fra θ=38° med klokka rundt til θ=305°,
+  // altså et gap på 93°; θ måles med klokka fra toppen):
+  //   - Sirkelen KUTTES ved θ=38° → (16.248, 6.563).
+  //   - Derfra går et rett stykke på 3.4 langs TANGENTEN (38.01°) ut til spissen
+  //     (13.569, 4.469). Stubben er nødvendig: legger man spissen rett på buen,
+  //     vokser den indre haken ut av selve buen (klaring 0.74 mot en strek på
+  //     1.05 — de smelter sammen), og hodet leser som skjevt uansett hvor
+  //     symmetrisk det er regnet ut. Med stubben står begge hakene fritt.
+  //   - Hakene er 3.1 lange og står på NØYAKTIG ±44° fra tangenten (målt på den
+  //     ferdige banen: +44.00° / −44.01°), altså speilsymmetrisk om den.
+  // Endres noe av dette, regn ut punktene på nytt — ikke flytt dem for hånd.
+  //
+  // Ren funksjons-glyf uten fyll (som bubbleBurst), med SVART strek (#111) som
+  // resten av ikonsettet — knappen har sin egen hvite flate (se .done-restore).
+  restoreArrow: '<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="#111" stroke-width="1.05" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
+    '<path d="M13.569 4.469 16.248 6.563A6.9 6.9 0 1 1 6.348 8.042"></path>' +
+    '<path d="M14 7.539 13.569 4.469 16.652 4.145"></path>' +
+    '</svg>',
+
   // Oppløs kategori: en enkel sirkel med stiplet kant (boble som er i ferd med å
   // briste) — ingen stråler ut fra midten (unngår sol-uttrykket). Ingen fyll.
   bubbleBurst: '<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="#111" stroke-width="1.05" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +

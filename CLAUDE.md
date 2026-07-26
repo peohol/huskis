@@ -447,6 +447,18 @@ i `collapseCategory` regner med det). Ny test `tests/collapsed-alignment.test.js
 (baseline + sentrering + symmetri, desktop og mobil). Ingen DB-migrering. Se
 `docs/design-system.md`.
 
+**Gjenopprett alle utførte (siste runde)**: en **⟲-knapp** (`ICONS.restoreArrow`,
+`.done-restore`) står helt til HØYRE på «Utført»-linja — etter skillelinja, i samme
+kolonne som listepunktenes ×. Den reaktiverer ALLE avkryssede listepunkter i lista
+på én gang (`restoreAllDone`): `done = false` + `stampContent` på hver, radene
+flyttes tilbake til plassene sine (`pos` urørt, kategoriserte tilbake INN i
+kategorien sin) i ÉN felles FLIP, og «Utført»-seksjonen skjules. Plasseringen
+etter skillelinja kommer av `order: 1` (linja er divider-ens `::after` og ligger
+sist i flex-rekkefølgen). Skjult i en frosset liste. Plasseringslogikken er
+trukket ut av `toggleItemDone` til `placeItemBySection`, som begge bruker. Ny test
+`tests/restore-all-done.test.js`. Ingen DB-migrering. Se `docs/design-system.md`
+og `docs/data-model.md`.
+
 Verifisert i nettleser (Playwright) mot en hermetisk in-memory-backend
 (`mock-backend.js`, aktiveres med `?mock=1`) som etterligner Supabase-
 klienten og deler «server» mellom faner via localStorage — kjør to faner for
