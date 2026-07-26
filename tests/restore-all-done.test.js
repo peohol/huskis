@@ -180,9 +180,85 @@ async function run(label, vp, mobile) {
   await b.close();
 }
 
+/*
+  Kantsituasjoner rundt selve innsettingen (`placeItemBySection`), med en
+  kategori på nivå 1:
+   - Kategoriens medlemmer er ETTERKOMMERE av .items-container. Et
+     etterkommer-søk etter innsettingspunktet kunne plukke et nivå-2-listepunkt
+     som `ref`, og insertBefore kastet da NotFoundError midt i løkka — altså
+     etter at noen rader alt var endret, men før save().
+   - Kategori-radene opptar sine egne pos-plasser på nivå 1: hoppes de over,
+     havner en gjenopprettet rad på feil side av en kategori med høyere pos.
+   - En KOLLAPSET kategori teller kun sine ikke-utførte medlemmer, så «(N)» må
+     oppdateres når medlemmene blir utførte igjen.
+*/
+async function runEdgeCases(label, vp, mobile) {
+  const b = await chromium.launch();
+  const p = await b.newPage({ viewport: vp, isMobile: mobile, hasTouch: mobile });
+  const errs = []; p.on('pageerror', (e) => errs.push(e.message));
+  console.log('\n== ' + label + ' (kategori-kanter) ==');
+  await register(p);
+  await p.evaluate(() => { window.__huskis.addUniverse(); }); await p.waitForTimeout(150);
+  await p.keyboard.press('Escape'); await p.waitForTimeout(150);
+  await p.evaluate(() => { window.__huskis.addGroup(); }); await p.waitForTimeout(150);
+  await p.keyboard.press('Escape'); await p.waitForTimeout(200);
+  // Nivå 1: A(0) · kategori C(1) m/ medlem M(5) · B(10). Utført: X(0.5) og Y(7)
+  // — X skal lande MELLOM A og C, Y MELLOM C og B.
+  await p.evaluate(() => {
+    const H = window.__huskis, st = H.state;
+    const u = st.universes.find((x) => x.id === st.activeUniverse);
+    const g = u.groups.find((x) => x.id === st.activeGroup);
+    const mk = (pos) => ({ ts: 0, org: 't', pos, posTs: 0, posOrg: 't' });
+    const c = Object.assign({ id: 'card-A', group: g.id, title: 'A', trashed: false, k: true, p: true, labTs: 0, labOrg: 't', items: [] }, mk(0));
+    const it = (id, pos, extra) => Object.assign({ id, text: id, home: 'card-A', cat: null, trashed: false, done: false }, mk(pos), extra || {});
+    c.items.push(it('A', 0), it('C', 1, { isCat: true }), it('M', 5, { cat: 'C' }),
+      it('B', 10), it('X', 0.5, { done: true }), it('Y', 7, { done: true }));
+    g.cards = [c]; H.render();
+  });
+  await p.waitForTimeout(300);
+
+  await p.locator('.done-restore').click(); await p.waitForTimeout(500);
+  const r = await p.evaluate(() => {
+    const c = document.querySelector('.card[data-id="card-A"]');
+    return {
+      level1: [...c.querySelectorAll(':scope > .card-body > .items-container > :is(.item,.category)')].map((e) => e.dataset.id),
+      inCat: [...c.querySelectorAll('.category[data-id="C"] .cat-items > .item')].map((e) => e.dataset.id),
+      done: c.querySelectorAll('.items-done > .item').length,
+    };
+  });
+  log(label + ' 7: ingen JS-feil (insertBefore mot et nivå-2-listepunkt)',
+    errs.length === 0, errs.join(' | '));
+  log(label + ' 7: gjenopprettede rader lander på riktig side av kategorien',
+    JSON.stringify(r.level1) === JSON.stringify(['A', 'X', 'C', 'Y', 'B']), JSON.stringify(r.level1));
+  log(label + ' 7: kategorien er urørt, «Utført» er tømt',
+    JSON.stringify(r.inCat) === JSON.stringify(['M']) && r.done === 0, JSON.stringify(r));
+
+  /* ---------- 8) Kollapset kategori: «(N)» oppdateres av gjenopprettingen ---------- */
+  await p.evaluate(() => {
+    const H = window.__huskis, st = H.state;
+    const c = st.universes.flatMap((u) => u.groups).flatMap((g) => g.cards).find((x) => x.id === 'card-A');
+    c.items.find((i) => i.id === 'M').done = true;       // eneste medlem er utført …
+    c.items.find((i) => i.id === 'C').collapsed = true;  // … og kategorien er lukket
+    H.render();
+  });
+  await p.waitForTimeout(300);
+  const before = await p.textContent('.category[data-id="C"] .collapse-count');
+  await p.locator('.done-restore').click(); await p.waitForTimeout(80);   // FØR neste synk-render
+  const after = await p.textContent('.category[data-id="C"] .collapse-count');
+  log(label + ' 8: kollapset kategori teller kun ikke-utførte før gjenopprettingen',
+    before.trim() === '(0)', before);
+  log(label + ' 8: telleren er oppdatert med én gang etter ⟲ (ikke først ved neste render)',
+    after.trim() === '(1)', after);
+
+  await p.close();
+  await b.close();
+}
+
 (async () => {
   await run('desktop', { width: 1200, height: 900 }, false);
   await run('mobil', { width: 390, height: 780 }, true);
+  await runEdgeCases('desktop', { width: 1200, height: 900 }, false);
+  await runEdgeCases('mobil', { width: 390, height: 780 }, true);
   const failed = results.filter((x) => !x).length;
   console.log('\n==== ' + (results.length - failed) + '/' + results.length + ' PASS ====');
   process.exit(failed ? 1 : 0);

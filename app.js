@@ -1629,6 +1629,10 @@
     // Skjul seksjonen igjen hvis den ble tom (siste element reaktivert).
     if (!doneUl.querySelector('.item')) doneWrap.hidden = true;
 
+    // En KOLLAPSET kategori teller bare sine ikke-utførte medlemmer, så «(N)» blir
+    // stående feil når et medlem krysses av/reaktiveres mens kategorien er lukket.
+    refreshAllCollapseCounts();
+
     if (!reduce) flipFrom(snap, DONE_FLIP_MS);
     save();
   }
@@ -1640,8 +1644,13 @@
     const destUl = itemData.done ? cardEl.querySelector('.items-done')
       : ((itemData.cat && cardEl.querySelector('.category[data-id="' + itemData.cat + '"] .cat-items'))
         || cardEl.querySelector('.items-container'));
+    // Kun DIREKTE barn, og kategori-radene teller med: en kategoris medlemmer er
+    // ETTERKOMMERE av .items-container, så et etterkommer-søk kunne plukke et
+    // nivå-2-listepunkt som `ref` (insertBefore hadde da kastet NotFoundError),
+    // og kategoriene opptar sine egne pos-plasser på nivå 1 — hopper man over
+    // dem, havner raden på feil side av en kategori med høyere pos.
     let ref = null;
-    for (const s of destUl.querySelectorAll('.item')) {
+    for (const s of destUl.querySelectorAll(':scope > .item, :scope > .category')) {
       if (s === itemEl) continue;
       const sd = cardData.items.find((it) => it.id === s.dataset.id);
       if (sd && sd.pos > itemData.pos) { ref = s; break; }
@@ -1671,6 +1680,7 @@
       placeItemBySection(cardEl, cardData, rowEl, d);
     });
     doneWrap.hidden = true;
+    refreshAllCollapseCounts();   // se toggleItemDone: kollapsede kategorier teller kun ikke-utførte
 
     if (!reduce) flipFrom(snap, DONE_FLIP_MS);
     save();
