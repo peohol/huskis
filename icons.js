@@ -196,6 +196,17 @@ window.ICONS = {
     '<path d="M15 16h4.5"></path>' +
     '</svg>',
 
+  // Gjenopprett alle utførte (⟲): en åpen sirkel med et bredt gap øverst og en
+  // pilspiss i den HØYRE gap-enden (kl. 1) som peker opp/mot venstre — altså mot
+  // klokka, «rull tilbake». Ren funksjons-glyf uten fyll (som bubbleBurst), men i
+  // currentColor slik at CSS styrer fargen (svart i hvile, grønn ved hover — se
+  // .done-restore). Gapet er bevisst stort (75°) så både retningen og at sirkelen
+  // er åpen leses på 17px, som er størrelsen den faktisk brukes i.
+  restoreArrow: '<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.05" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
+    '<path d="M15.6 5.77A7.2 7.2 0 1 1 6.91 6.91"></path>' +
+    '<path d="M16.83 9.15 15.6 5.77 19.14 5.14"></path>' +
+    '</svg>',
+
   // Oppløs kategori: en enkel sirkel med stiplet kant (boble som er i ferd med å
   // briste) — ingen stråler ut fra midten (unngår sol-uttrykket). Ingen fyll.
   bubbleBurst: '<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="#111" stroke-width="1.05" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +

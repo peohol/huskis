@@ -994,6 +994,12 @@
     doneItems.forEach((it) => doneList.appendChild(buildItem(it, cardData)));
     doneWrap.hidden = doneItems.length === 0;
 
+    // ⟲ helt til høyre på «Utført»-linja: reaktiverer alle utførte på én gang.
+    // Skjult i en frosset (låst) liste, som avmerkingsboksene ellers.
+    const restoreDoneBtn = el.querySelector('.done-restore');
+    if (!canEdit) restoreDoneBtn.hidden = true;
+    else restoreDoneBtn.addEventListener('click', () => restoreAllDone(el, cardData));
+
     // Legg til listepunkt / kategori: to midtstilte knapper, ingen navnefelt.
     // Knappen oppretter objektet med én gang og åpner navneredigereren på det
     // (samme mønster som ＋-knappen inne i en kategori). Avsluttes navngivingen
@@ -1601,7 +1607,6 @@
   function toggleItemDone(itemEl, itemData, cardData) {
     const cardEl = itemEl.closest('.card');
     if (!cardEl) return;
-    const activeUl = cardEl.querySelector('.items-container');
     const doneWrap = cardEl.querySelector('.items-done-wrap');
     const doneUl = cardEl.querySelector('.items-done');
     const toDone = !itemData.done;
@@ -1619,11 +1624,22 @@
     // Vis «Utført»-seksjonen så den kan ta imot elementet (og måles i FLIP-en).
     if (toDone) doneWrap.hidden = false;
 
-    // Flytt elementet til riktig seksjon, innsatt på pos-sortert plass. Ved
-    // reaktivering av et kategorisert element går det tilbake INN i kategorien
-    // sin (om den fortsatt finnes), ellers til nivå 1.
-    const destUl = toDone ? doneUl
-      : ((itemData.cat && cardEl.querySelector('.category[data-id="' + itemData.cat + '"] .cat-items')) || activeUl);
+    placeItemBySection(cardEl, cardData, itemEl, itemData);
+
+    // Skjul seksjonen igjen hvis den ble tom (siste element reaktivert).
+    if (!doneUl.querySelector('.item')) doneWrap.hidden = true;
+
+    if (!reduce) flipFrom(snap, DONE_FLIP_MS);
+    save();
+  }
+
+  // Flytt en element-rad til seksjonen `done` tilsier, innsatt på pos-sortert
+  // plass. Ved reaktivering av et kategorisert element går det tilbake INN i
+  // kategorien sin (om den fortsatt finnes), ellers til nivå 1.
+  function placeItemBySection(cardEl, cardData, itemEl, itemData) {
+    const destUl = itemData.done ? cardEl.querySelector('.items-done')
+      : ((itemData.cat && cardEl.querySelector('.category[data-id="' + itemData.cat + '"] .cat-items'))
+        || cardEl.querySelector('.items-container'));
     let ref = null;
     for (const s of destUl.querySelectorAll('.item')) {
       if (s === itemEl) continue;
@@ -1631,9 +1647,30 @@
       if (sd && sd.pos > itemData.pos) { ref = s; break; }
     }
     if (ref) destUl.insertBefore(itemEl, ref); else appendToItemsEnd(destUl, itemEl);
+  }
 
-    // Skjul seksjonen igjen hvis den ble tom (siste element reaktivert).
-    if (!doneUl.querySelector('.item')) doneWrap.hidden = true;
+  // ⟲-knappen på «Utført»-linja: reaktiver ALLE utførte listepunkter i lista på
+  // én gang. Samme semantikk som å krysse av hvert enkelt (pos røres ikke, kun
+  // innholds-registeret stemples), og hele flyttingen skjer i ÉN FLIP så radene
+  // glir samlet tilbake på plassene sine.
+  function restoreAllDone(cardEl, cardData) {
+    const doneWrap = cardEl.querySelector('.items-done-wrap');
+    const rows = [...cardEl.querySelectorAll('.items-done > .item')];
+    if (!rows.length) return;
+    const reduce = prefersReducedMotion();
+    const snap = reduce ? null : snapshotRects([...cardEl.querySelectorAll('.item')]);
+
+    rows.forEach((rowEl) => {
+      const d = cardData.items.find((it) => it.id === rowEl.dataset.id);
+      if (!d) return;
+      d.done = false;
+      stampContent(d);
+      rowEl.classList.remove('done');
+      const chk = rowEl.querySelector('.item-check');
+      if (chk) chk.setAttribute('aria-pressed', 'false');
+      placeItemBySection(cardEl, cardData, rowEl, d);
+    });
+    doneWrap.hidden = true;
 
     if (!reduce) flipFrom(snap, DONE_FLIP_MS);
     save();

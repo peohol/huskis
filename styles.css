@@ -980,6 +980,21 @@ body {
   height: 1px;
   background: rgba(0, 0, 0, 0.15);
 }
+/* «Gjenopprett alle utførte» (⟲): samme .icon-btn-flate som ×-knappene, helt til
+   HØYRE på «Utført»-linja — altså etter skillelinja. Linja er divider-ens
+   ::after og ligger derfor sist i flex-rekkefølgen; `order: 1` på knappen (som
+   står før pseudo-elementet i DOM-en) flytter den forbi den. Knappen står i
+   samme 36px-kolonne som listepunktenes ×: begge containere har 10px
+   sidepolstring, og `margin-right: 6px` legger til .item-ens egen polstring, så
+   ikonene står nøyaktig over hverandre. Den negative vertikale margen holder
+   linja like høy som før knappen kom (36px-flaten er ren trykkflate). Svart i
+   hvile som de andre listepunkt-knappene, grønn ved hover/aktivering
+   (gjenopprett = den grønne handlingen, jf. søppel-modalen). */
+.done-restore { order: 1; color: #111; margin: -6px 6px -6px 0; }
+.done-restore:hover, .done-restore:active {
+  color: var(--primary);
+  background: var(--primary-soft);
+}
 .items-done {
   list-style: none;
   display: flex;
