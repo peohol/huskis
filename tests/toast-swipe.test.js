@@ -21,6 +21,14 @@ const { chromium } = require('playwright');
 
 const BASE = process.env.HUSKIS_URL || 'http://localhost:8000';
 
+// Mocken avviser id-er som ikke er UUID-er (som ekte Postgres). Siden en skriving
+// som avvises gjentatte ganger nå gir en synlig advarsel-toast, må seed-radene
+// bruke ekte UUID-er — ellers ville testen målt vår egen feilmelding.
+const CARD = 'aaaaaaaa-0000-4000-8000-00000000000a';
+const IT = ['bbbbbbbb-0000-4000-8000-00000000000b',
+            'cccccccc-0000-4000-8000-00000000000c',
+            'dddddddd-0000-4000-8000-00000000000d'];
+
 async function register(p) {
   await p.goto(BASE + '/?mock=1');
   await p.waitForTimeout(500);
@@ -42,18 +50,18 @@ async function seed(p) {
   await p.keyboard.press('Escape'); await p.waitForTimeout(150);
   await p.evaluate(() => { window.__huskis.addGroup(); }); await p.waitForTimeout(150);
   await p.keyboard.press('Escape'); await p.waitForTimeout(150);
-  await p.evaluate(() => {
+  await p.evaluate((ids) => {
     const H = window.__huskis, st = H.state;
     const u = st.universes.find((x) => x.id === st.activeUniverse);
     const g = u.groups.find((x) => x.id === st.activeGroup);
     const mk = () => ({ ts: 0, org: 't', pos: 0, posTs: 0, posOrg: 't' });
-    const c = Object.assign({ id: 'card-A', group: g.id, title: 'A', trashed: false, k: true, p: true, labTs: 0, labOrg: 't', items: [] }, mk());
+    const c = Object.assign({ id: ids.CARD, group: g.id, title: 'A', trashed: false, k: true, p: true, labTs: 0, labOrg: 't', items: [] }, mk());
     ['Punkt 1', 'Punkt 2', 'Punkt 3'].forEach((text, i) => {
-      c.items.push(Object.assign({ id: 'it-' + i, text, home: 'card-A', cat: null, trashed: false, done: false }, mk(), { pos: i }));
+      c.items.push(Object.assign({ id: ids.IT[i], text, home: ids.CARD, cat: null, trashed: false, done: false }, mk(), { pos: i }));
     });
     g.cards = [c];
     H.render();
-  });
+  }, { CARD, IT });
   await p.waitForTimeout(300);
 }
 
@@ -64,13 +72,13 @@ async function deleteItem(p, id) {
 }
 
 // Tilstanden til ett listepunkt: buffret (angrbar) vs committet (i søpla).
-const itemState = (p, id) => p.evaluate((iid) => {
+const itemState = (p, id) => p.evaluate(({ iid, cardId }) => {
   const H = window.__huskis, st = H.state;
   const u = st.universes.find((x) => x.id === st.activeUniverse);
   const g = u.groups.find((x) => x.id === st.activeGroup);
-  const it = g.cards.find((x) => x.id === 'card-A').items.find((i) => i.id === iid);
+  const it = g.cards.find((x) => x.id === cardId).items.find((i) => i.id === iid);
   return { pending: !!it._pendingDelete, trashed: !!it.trashed };
-}, id);
+}, { iid: id, cardId: CARD });
 
 const toastInfo = (p) => p.evaluate(() => {
   const t = document.getElementById('toast');
@@ -136,7 +144,7 @@ async function run(label, vp, mobile) {
   await seed(p);
 
   /* ---------- 1) Utseende: gjennomsiktig flate + backdrop-blur ---------- */
-  await deleteItem(p, 'it-0');
+  await deleteItem(p, IT[0]);
   let t = await toastInfo(p);
   log(label + ' 1: toasten vises', t.exists && t.shown, JSON.stringify({ shown: t.shown }));
   log(label + ' 1: bakgrunnen er gjennomsiktig (alfa < 0.8)', alpha(t.bg) > 0 && alpha(t.bg) < 0.8, 'bg=' + t.bg);
@@ -147,7 +155,7 @@ async function run(label, vp, mobile) {
   const startLeft = t.left;
   await swipe(p, 24, 0, kind);
   t = await toastInfo(p);
-  let st = await itemState(p, 'it-0');
+  let st = await itemState(p, IT[0]);
   log(label + ' 2: kort sveip → toasten står igjen', t.shown && t.left === startLeft,
     JSON.stringify({ shown: t.shown, left: t.left, start: startLeft }));
   log(label + ' 2: slettingen er fortsatt buffret (angrbar)', st.pending && !st.trashed, JSON.stringify(st));
@@ -173,7 +181,7 @@ async function run(label, vp, mobile) {
 
   /* ---------- 6) Fullført sveip lukker OG committer slettingen straks ---------- */
   t = await toastInfo(p);
-  st = await itemState(p, 'it-0');
+  st = await itemState(p, IT[0]);
   log(label + ' 6: toasten er lukket etter sveipet', !t.shown, JSON.stringify({ shown: t.shown }));
   log(label + ' 6: slettingen ble committet umiddelbart (i søpla, ikke buffret)',
     st.trashed && !st.pending, JSON.stringify(st));
@@ -183,7 +191,7 @@ async function run(label, vp, mobile) {
   log(label + ' 6: ikke-interaktiv i hvile (klikk-gjennom)', t.pe === 'none', 'pointer-events=' + t.pe);
 
   /* ---------- 7) Ny toast vises på normal plass etter et sveip ---------- */
-  await deleteItem(p, 'it-1');
+  await deleteItem(p, IT[1]);
   t = await toastInfo(p);
   log(label + ' 7: neste toast dukker opp sentrert som før', t.shown && t.left === startLeft,
     JSON.stringify({ shown: t.shown, left: t.left, start: startLeft }));
@@ -194,15 +202,15 @@ async function run(label, vp, mobile) {
     return { x: Math.round(r.left + r.width / 2), y: Math.round(r.top + r.height / 2) };
   });
   await swipe(p, 260, 0, kind, { fromX: btn.x, fromY: btn.y });
-  st = await itemState(p, 'it-1');
+  st = await itemState(p, IT[1]);
   t = await toastInfo(p);
   log(label + ' 8: sveip fra «Angre»-knappen lukker og committer (ingen angring)',
     !t.shown && st.trashed && !st.pending, JSON.stringify(st) + ' shown=' + t.shown);
 
   /* ---------- 9) «Angre» virker fortsatt på et rent klikk ---------- */
-  await deleteItem(p, 'it-2');
+  await deleteItem(p, IT[2]);
   await p.locator('#toast .toast-action').click(); await p.waitForTimeout(300);
-  st = await itemState(p, 'it-2');
+  st = await itemState(p, IT[2]);
   t = await toastInfo(p);
   log(label + ' 9: klikk på «Angre» gjenoppretter listepunktet', !st.trashed && !st.pending, JSON.stringify(st));
   log(label + ' 9: toasten lukkes av angringen', !t.shown, 'shown=' + t.shown);

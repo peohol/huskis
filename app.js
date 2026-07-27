@@ -6672,7 +6672,9 @@
   function docFromMyState() {
     // canonRow(o, type) ignorerer parent-argumentet flattenNested sender med;
     // element-grenen gir cleanItem(it, it.home) som før.
-    return flattenNested(state, canonRow);
+    // pruneDanglingCats: en `cat` som ikke treffer en kategori er uskrivbar
+    // (FK) og ville låst synken — se kommentaren der.
+    return pruneDanglingCats(flattenNested(state, canonRow));
   }
 
   /* ---------------- 3-veis fletting (base/lokal/fjern) → merged + push-ops ----------------
@@ -6862,38 +6864,107 @@
     if (code === 'PGRST204' || code === 'PGRST205' || code === '42703') return true; // ukjent kolonne/tabell
     return /could not find the .*column|schema cache|column .* does not exist/i.test(String(error.message || ''));
   }
-  function reportWriteResult(t, res) {
-    const error = res && res.error;
-    if (!isSchemaMismatch(error)) return; // nettverk/RLS/konflikt: stille som før
-    const sig = t + ':' + (error.code || '') + ':' + (error.message || '');
-    if (!schemaMismatchLogged.has(sig)) {
-      schemaMismatchLogged.add(sig);
-      console.error('[huskis] Synk avvist – databasen mangler en kolonne appen sender (tabell «' +
-        (TABLE[t] || t) + '»). Kjør «Supabase DB-oppsett»-migreringen.', error);
-    }
-    if (!schemaMismatchWarned) {
-      schemaMismatchWarned = true;
-      showToast('Endringene dine er lagret på denne enheten, men kunne ikke synkes til skyen ennå.');
-    }
+  /* En skriving som avvises om og om igjen med SAMME feil er ikke transient —
+     den kommer aldri til å lande av seg selv. Vi teller per (tabell, rad, kode)
+     og sier fra én gang når terskelen er nådd, slik at en gift op ikke lenger
+     kan blokkere synken i det stille (se PERSISTENT_REJECTS-kommentaren i
+     pushOps). Telleren nullstilles så snart raden går gjennom. */
+  const PERSISTENT_REJECTS = 3;
+  const rejectCounts = new Map();
+  let persistentWarned = false;
+  const rejectKey = (t, id) => t + ':' + id;
+  function noteReject(t, id, error) {
+    const key = rejectKey(t, id);
+    const n = (rejectCounts.get(key) || 0) + 1;
+    rejectCounts.set(key, n);
+    if (n !== PERSISTENT_REJECTS) return;
+    console.error('[huskis] Synk avvist gjentatte ganger (tabell «' + (TABLE[t] || t) +
+      '», rad ' + id + '). Endringen ligger lokalt, men serveren nekter å ta imot den.', error);
+    if (persistentWarned) return;
+    persistentWarned = true;
+    showToast('Én endring kunne ikke synkes til skyen. Resten er lagret som normalt.');
   }
+  function reportWriteResult(t, res, id) {
+    const error = res && res.error;
+    if (!error) { if (id) rejectCounts.delete(rejectKey(t, id)); return true; }
+    if (isSchemaMismatch(error)) {
+      const sig = t + ':' + (error.code || '') + ':' + (error.message || '');
+      if (!schemaMismatchLogged.has(sig)) {
+        schemaMismatchLogged.add(sig);
+        console.error('[huskis] Synk avvist – databasen mangler en kolonne appen sender (tabell «' +
+          (TABLE[t] || t) + '»). Kjør «Supabase DB-oppsett»-migreringen.', error);
+      }
+      if (!schemaMismatchWarned) {
+        schemaMismatchWarned = true;
+        showToast('Endringene dine er lagret på denne enheten, men kunne ikke synkes til skyen ennå.');
+      }
+    } else if (id) {
+      noteReject(t, id, error); // RLS/FK/konflikt: stille til den gjentar seg
+    }
+    return false;
+  }
+  /* ---------------- Kategori-referanser: rekkefølge + selvheling ----------------
+     `items.cat_id`/`groups.cat_id` er fremmednøkler til SIN EGEN tabell, så en
+     rad kan ikke skrives før kategorien den peker på finnes på serveren. To ting
+     må derfor stemme, og begge har brutt synken i praksis:
+
+       1. REKKEFØLGE. `pushOps` sorterte bare på radtype, og en kategori og
+          medlemmene er samme type. Lå medlemmet først i state-arrayen ble det
+          sendt først → FK-brudd.
+       2. HENGENDE PEKER. Peker `cat` på en kategori som ikke finnes i doc-en i
+          det hele tatt (f.eks. slettet på en annen enhet mens medlemmet levde
+          videre her), er raden umulig å skrive — for alltid.
+
+     (2) er det farlige: den avviste op-en regenereres hver runde, og
+     `cloudCycle` planla en ny runde etter hver push → en varm løkke som hamret
+     get_my_doc + den samme 409-en ~1 gang i sekundet uten et eneste signal.
+     Vi løser (1) ved å sende kategoriene først og (2) ved å sende `cat: null`
+     når kategorien ikke finnes: raden lander på nivå 1 i lista si, synlig og
+     flyttbar, i stedet for å bli borte i en usynlig retry-løkke. */
+  // Nuller `cat`-pekere som ikke treffer en kategori i doc-en. Kjøres på VÅR
+  // side av flettingen (docFromMyState), ikke bare på payloaden: gjorde vi det
+  // bare i payloaden, ville lokal state fortsatt påstå den døde kategorien,
+  // fletteren ville sett en forskjell mot serveren hver runde og sendt den
+  // samme oppdateringen i det uendelige. Visningen behandler allerede en
+  // hengende `cat` som nivå 1, så dette er å skrive ned det brukeren ser.
+  function pruneDanglingCats(doc) {
+    ['items', 'groups'].forEach((key) => {
+      const rows = doc[key] || [];
+      const cats = new Set(rows.filter((r) => r.isCat).map((r) => r.id));
+      rows.forEach((r) => { if (r.cat && !cats.has(r.cat)) r.cat = null; });
+    });
+    return doc;
+  }
+  // Returnerer antall ops som ble avvist (0 = alt landet).
   async function pushOps(ops) {
     const client = acli();
-    if (!client || !authUser) return;
+    if (!client || !authUser) return 0;
     const uid = authUser.id;
     const order = { universe: 0, group: 1, card: 2, item: 3 };
-    // Insert/oppdater ovenfra-ned (foreldre først), slett nedenfra-opp.
-    const ins = ops.filter((o) => o.op === 'insert').sort((a, b) => order[a.t] - order[b.t]);
-    const upd = ops.filter((o) => o.op === 'update').sort((a, b) => order[a.t] - order[b.t]);
+    // Ovenfra-ned (foreldre først) på type, og INNEN en type: kategorier før
+    // medlemmene sine. Kategorier nøstes aldri, så ett nivå er nok.
+    const byParentFirst = (a, b) => (order[a.t] - order[b.t]) ||
+      ((b.row.isCat ? 1 : 0) - (a.row.isCat ? 1 : 0));
+    const ins = ops.filter((o) => o.op === 'insert').sort(byParentFirst);
+    const upd = ops.filter((o) => o.op === 'update').sort(byParentFirst);
     const del = ops.filter((o) => o.op === 'delete').sort((a, b) => order[b.t] - order[a.t]);
+    let failed = 0;
     for (const o of ins) {
-      try { reportWriteResult(o.t, await client.from(TABLE[o.t]).insert(insertPayload(o.t, o.row, uid))); } catch (e) { /* nettverk – poll/realtime prøver igjen */ }
+      try {
+        if (!reportWriteResult(o.t, await client.from(TABLE[o.t]).insert(insertPayload(o.t, o.row, uid)), o.row.id)) failed++;
+      } catch (e) { failed++; /* nettverk – poll/realtime prøver igjen */ }
     }
     for (const o of upd) {
-      try { reportWriteResult(o.t, await client.from(TABLE[o.t]).update(updatePayload(o.t, o.row)).eq('id', o.row.id)); } catch (e) { /* nettverk */ }
+      try {
+        if (!reportWriteResult(o.t, await client.from(TABLE[o.t]).update(updatePayload(o.t, o.row)).eq('id', o.row.id), o.row.id)) failed++;
+      } catch (e) { failed++; /* nettverk */ }
     }
     for (const o of del) {
-      try { reportWriteResult(o.t, await client.from(TABLE[o.t]).delete().eq('id', o.id)); } catch (e) { /* nettverk */ }
+      try {
+        if (!reportWriteResult(o.t, await client.from(TABLE[o.t]).delete().eq('id', o.id), o.id)) failed++;
+      } catch (e) { failed++; /* nettverk */ }
     }
+    return failed;
   }
 
   /* ---------------- Bakgrunns-operasjonskø (RPC-operasjoner) ----------------
@@ -7172,12 +7243,15 @@
         cloudAgain = true; // utsatt visnings-endring → tegn på nytt når redigeringen er ferdig
       }
       if (ops.length) {
-        await pushOps(ops);
+        const failed = await pushOps(ops);
         // Bekreftelses-pull straks etter push: lastMy/metadata friskes opp, så
         // køede operasjoner som venter på en nypushet rad (rowKnownToServer)
-        // slipper å vente på neste poll. Løper ikke løpsk: neste runde ser
-        // remote == lokal → ingen nye ops → ingen ny runde.
-        cloudAgain = true;
+        // slipper å vente på neste poll. Landet ALT, ser neste runde remote ==
+        // lokal → ingen nye ops → ingen ny runde. Ble noe avvist, ville den
+        // samme op-en blitt regenerert og planlagt på nytt om 150 ms i det
+        // uendelige (en varm løkke mot serveren) — da lar vi det vanlige
+        // pollet/realtime prøve igjen i stedet.
+        if (!failed) cloudAgain = true;
       }
       updateInbox(my);
       maybeOfferMigration(my);
@@ -8136,9 +8210,12 @@
     opQueue.clear();
     lockOverrides.clear(); unlockOverrides.clear(); policyOverrides.clear(); mountOverrides.clear(); suppressedRows.clear();
     suppressedInvites.clear();
-    // Skjema-avvik-varselet gjaldt den utloggede sesjonen — la en ny sesjon
-    // varsle på nytt hvis databasen fortsatt henger etter.
+    // Skrivefeil-varslene gjaldt den utloggede sesjonen — la en ny sesjon varsle
+    // på nytt hvis databasen fortsatt henger etter. Avvisnings-tellerne er
+    // per rad, og en ny konto kan ha helt andre rettigheter på samme rad, så de
+    // nullstilles også (ellers ville terskelen kunne nås for tidlig).
     schemaMismatchWarned = false; schemaMismatchLogged.clear();
+    persistentWarned = false; rejectCounts.clear();
     authUser = null;
     state.universes = [];
     document.body.classList.add('no-auth');
