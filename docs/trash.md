@@ -6,8 +6,9 @@ hvilket som helst av de fire nivåene.
 Fire nivåer, samme knapp (`.trashcan`: hvit beholder, søppelkasse-SVG + antall i
 grå sirkel) og samme oppførsel; **alle vises kun når de har innhold** (`hidden`):
 
-- **Universer**: i univers-modalen, ved siden av «＋ [univers-ikon]».
-- **Grupper**: i gruppe-modalens knapperad (per aktivt univers).
+- **Universer**: nederst i nav-modalen, ved siden av «＋ [univers-ikon]».
+- **Grupper**: i hvert UNIVERS-KORT i nav-modalen (`.group-trash-btn`) — akkurat
+  som listepunkt-søppelkassen ligger i lista si. Én kasse per univers.
 - **Lister**: i toppmenyens listefunksjons-rad (per aktiv gruppe).
 - **Listepunkter**: midtstilt nederst i hvert listekort (`ICONS.trash`, samme
   SVG som de statiske knappene — aldri emoji).

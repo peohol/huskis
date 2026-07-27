@@ -289,6 +289,7 @@
         var m = membershipFor(db, uid, 'universe', u.id);
         return {
           id: u.id, owner: u.owner_id, mine: u.owner_id === uid, name: u.name,
+          collapsed: !!u.collapsed,
           trashed: !!u.trashed, locked: !!u.locked, unlocked: !!u.unlocked,
           invitePolicy: u.invite_policy || 'inherit', ts: u.ts, org: u.org,
           pos: u.pos, posTs: u.pos_ts, posOrg: u.pos_org,
@@ -299,6 +300,7 @@
         var m = membershipFor(db, uid, 'group', g.id);
         return {
           id: g.id, owner: g.owner_id, mine: g.owner_id === uid, uni: g.universe_id, name: g.name,
+          cat: g.cat_id || null, isCat: !!g.is_cat, collapsed: !!g.collapsed,
           trashed: !!g.trashed, locked: !!g.locked, unlocked: !!g.unlocked,
           invitePolicy: g.invite_policy || 'inherit', ts: g.ts, org: g.org,
           pos: g.pos, posTs: g.pos_ts, posOrg: g.pos_org,
@@ -507,10 +509,12 @@
         }
         up(doc.universes, 'universes', function (r, id) {
           return { id: id, owner_id: uid, name: r.name || '', trashed: !!r.trashed, locked: false, invite_policy: 'inherit',
+            collapsed: !!r.collapsed,
             ts: r.ts || 0, org: r.org || '', pos: r.pos || 0, pos_ts: r.posTs || 0, pos_org: r.posOrg || '' };
         });
         up(doc.groups, 'groups', function (r, id) {
           return { id: id, owner_id: uid, universe_id: legacyId(uid, r.uni), name: r.name || '', trashed: !!r.trashed,
+            cat_id: r.cat ? legacyId(uid, r.cat) : null, is_cat: !!r.isCat, collapsed: !!r.collapsed,
             locked: false, invite_policy: 'inherit', ts: r.ts || 0, org: r.org || '', pos: r.pos || 0, pos_ts: r.posTs || 0, pos_org: r.posOrg || '' };
         });
         up(doc.cards, 'cards', function (r, id) {

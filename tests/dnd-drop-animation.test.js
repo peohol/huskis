@@ -158,34 +158,35 @@ const log = (n, ok, x = '') => { results.push(ok); console.log((ok ? 'PASS' : 'F
     log('6 listepunkt: startskala 1.03', scaleIn(rItem.transform) === 1.03, 'transform=' + rItem.transform);
     await p.waitForTimeout(600);
 
-    // GRUPPE → 1.05
+    // GRUPPE (rad i et univers-kort) → samme skala som et listepunkt (1.03)
     for (let i = 0; i < 2; i++) {
       await p.evaluate(() => { window.__huskis.addGroup(); }); await p.waitForTimeout(200);
-      await p.keyboard.press('Escape'); await p.waitForTimeout(180);
     }
-    await p.evaluate(() => { window.__huskis.openGroupModal(); }); await p.waitForTimeout(400);
-    const gIds = await p.evaluate(() => [...document.querySelectorAll('#group-list .group-card')].map((g) => g.dataset.id));
-    const g0 = await centerOf(p, '#group-list .group-card[data-id="' + gIds[0] + '"]');
+    await p.evaluate(() => { window.__huskis.openNavModal(); }); await p.waitForTimeout(400);
+    const uSel = '#nav-board .card[data-id="' + await p.evaluate(() => window.__huskis.state.activeUniverse) + '"]';
+    const gIds = await p.evaluate((sel) => [...document.querySelectorAll(sel + ' .items-container > .item')].map((g) => g.dataset.id), uSel);
+    const g0 = await centerOf(p, uSel + ' .item[data-id="' + gIds[0] + '"]');
     await pointer(p, 'pointerdown', g0.x, g0.y); await p.waitForTimeout(260);
     // Til venstre, så dra-rotasjonen (og dermed rotate/scale-suffikset) ikke blir 0.
     await pointer(p, 'pointermove', g0.x - 90, g0.y + 30); await p.waitForTimeout(120);
-    const rGroup = await dropAndMeasure(p, '#group-list .group-card.dragging', g0.x - 90, g0.y + 30);
-    log('6 gruppe: startskala 1.05', scaleIn(rGroup.transform) === 1.05, 'transform=' + rGroup.transform);
+    const rGroup = await dropAndMeasure(p, '#nav-board .item.dragging', g0.x - 90, g0.y + 30);
+    log('6 gruppe: startskala 1.03', scaleIn(rGroup.transform) === 1.03, 'transform=' + rGroup.transform);
     await p.waitForTimeout(600);
-    await p.evaluate(() => { window.__huskis.closeGroupModal(); }); await p.waitForTimeout(250);
 
-    // UNIVERS → 1.05
+    // UNIVERS (kort) → samme skala som en liste (1.02)
     for (let i = 0; i < 2; i++) {
       await p.evaluate(() => { window.__huskis.addUniverse(); }); await p.waitForTimeout(200);
       await p.keyboard.press('Escape'); await p.waitForTimeout(180);
     }
-    await p.evaluate(() => { window.__huskis.openUniModal(); }); await p.waitForTimeout(400);
-    const uIds = await p.evaluate(() => [...document.querySelectorAll('#uni-list .uni-row')].map((u) => u.dataset.id));
-    const u0 = await centerOf(p, '#uni-list .uni-row[data-id="' + uIds[0] + '"]');
+    await p.evaluate(() => { window.__huskis.openNavModal(); }); await p.waitForTimeout(400);
+    await p.evaluate(() => { document.querySelector('#nav-modal .menu-body').scrollTop = 0; });
+    await p.waitForTimeout(150);
+    const uIds = await p.evaluate(() => [...document.querySelectorAll('#nav-board .card')].map((u) => u.dataset.id));
+    const u0 = await centerOf(p, '#nav-board .card[data-id="' + uIds[0] + '"] .card-head');
     await pointer(p, 'pointerdown', u0.x, u0.y); await p.waitForTimeout(260);
     await pointer(p, 'pointermove', u0.x - 90, u0.y + 30); await p.waitForTimeout(120);
-    const rUni = await dropAndMeasure(p, '#uni-list .uni-row.dragging', u0.x - 90, u0.y + 30);
-    log('6 univers: startskala 1.05', scaleIn(rUni.transform) === 1.05, 'transform=' + rUni.transform);
+    const rUni = await dropAndMeasure(p, '#nav-board .card.dragging', u0.x - 90, u0.y + 30);
+    log('6 univers: startskala 1.02', scaleIn(rUni.transform) === 1.02, 'transform=' + rUni.transform);
     await p.waitForTimeout(600);
 
     log('6 ingen JS-feil', errs.length === 0, errs.join(' | '));

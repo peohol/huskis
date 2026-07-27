@@ -196,6 +196,18 @@ window.ICONS = {
     '<path d="M15 16h4.5"></path>' +
     '</svg>',
 
+  // Gruppekategori (nav-modalen): samme venstre-klamme som `category`, men med
+  // MAPPE-ikonet (gruppe) i stedet for lista — «en klamme rundt grupper». Mappa
+  // er den samme tegningen som `folder`, skalert ned og skjøvet inn i klammen
+  // med en <g transform>; stroke-width kompenseres (1.05 / 0.55 = 1.909) så
+  // streken blir like tykk som resten av ikonsettet etter skaleringen.
+  groupCategory: '<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="#111" stroke-width="1.05" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
+    '<path d="M8.5 4.5H6.5a2 2 0 0 0-2 2v11a2 2 0 0 0 2 2H8.5"></path>' +
+    '<g transform="translate(8.5 5) scale(0.55)" stroke-width="1.909">' +
+    '<path d="M3.5 19V6.5a2 2 0 0 1 2-2h3.3a2 2 0 0 1 1.6.8l1.1 1.5a2 2 0 0 0 1.6.8H19a2 2 0 0 1 2 2V19a2 2 0 0 1-2 2H5.5a2 2 0 0 1-2-2Z" fill="#adad85"></path>' +
+    '</g>' +
+    '</svg>',
+
   // Gjenopprett alle utførte (⟲): en åpen sirkel som retter seg ut i en rett
   // tangent og ender i en pilspiss som peker mot klokka — «rull tilbake».
   //

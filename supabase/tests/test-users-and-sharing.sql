@@ -432,6 +432,65 @@ select public.import_doc('{
 select public.t_check('import er idempotent (ingen duplikater ved re-kjøring)',
   (select count(*) from public.universes) = :'uni_before');
 
+-- ---------- H2. gruppekategorier + kollaps (groups.cat_id/is_cat/collapsed,
+--                universes.collapsed) ----------
+-- Universer og grupper bruker samme oppsett som lister og listepunkter: et
+-- univers kan kollapses, og gruppene i det kan ligge i GRUPPEKATEGORIER (en
+-- gruppe med is_cat = true). `cat_id` følger POSISJONS-registeret (som
+-- universe_id); `is_cat`/`collapsed` innholds-registeret (som name).
+-- (Faste id-er + rene INSERT-er, som resten av fila: `insert … returning` ville
+-- brutt på RLS — SELECT-policyen slår inn på RETURNING, og can_read leser
+-- tabellen med kommandoens egen, eldre snapshot.)
+\set unav   '10000000-0000-0000-0000-000000000009'
+\set gkat   '20000000-0000-0000-0000-000000000009'
+\set gmed   '20000000-0000-0000-0000-00000000000a'
+reset role;
+select set_config('request.jwt.claim.sub', :'alice', false);
+set role authenticated;
+insert into public.universes (id, owner_id, name, ts, org, pos, pos_ts, pos_org)
+  values (:'unav', :'alice', 'Nav-univers', 1, 'a', 0, 1, 'a');
+insert into public.groups (id, owner_id, universe_id, name, is_cat, ts, org, pos, pos_ts, pos_org)
+  values (:'gkat', :'alice', :'unav', 'Prosjekter', true, 1, 'a', 0, 1, 'a');
+insert into public.groups (id, owner_id, universe_id, cat_id, name, ts, org, pos, pos_ts, pos_org)
+  values (:'gmed', :'alice', :'unav', :'gkat', 'Hagen', 1, 'a', 1, 1, 'a');
+
+select public.t_check('gruppekategori + medlem lagret (is_cat/cat_id)',
+  (select is_cat from public.groups where id = :'gkat') = true
+  and (select cat_id from public.groups where id = :'gmed') = :'gkat');
+
+-- get_my_doc leverer feltene klienten trenger for å bygge nivå 1 / nivå 2.
+select public.t_check('get_my_doc gir cat/isCat på grupper og collapsed på begge nivåer',
+  (select (g ->> 'isCat')::boolean from jsonb_array_elements(public.get_my_doc() -> 'groups') g
+     where g ->> 'id' = :'gkat') = true
+  and (select g ->> 'cat' from jsonb_array_elements(public.get_my_doc() -> 'groups') g
+     where g ->> 'id' = :'gmed') = :'gkat'
+  and (select (g -> 'collapsed') is not null from jsonb_array_elements(public.get_my_doc() -> 'groups') g
+     where g ->> 'id' = :'gkat')
+  and (select (u -> 'collapsed') is not null from jsonb_array_elements(public.get_my_doc() -> 'universes') u
+     where u ->> 'id' = :'unav'));
+
+-- Kollaps rir på innholds-registeret (LWW), som name/trashed.
+update public.universes set collapsed = true, ts = 50, org = 'a' where id = :'unav';
+update public.groups set collapsed = true, ts = 50, org = 'a' where id = :'gkat';
+select public.t_check('kollaps lagret på univers og gruppekategori',
+  (select collapsed from public.universes where id = :'unav') = true
+  and (select collapsed from public.groups where id = :'gkat') = true);
+update public.universes set collapsed = false, ts = 2, org = 'a' where id = :'unav';
+update public.groups set is_cat = false, collapsed = false, ts = 2, org = 'a' where id = :'gkat';
+select public.t_check('utdatert innholds-skriving taper for collapsed/is_cat (LWW)',
+  (select collapsed from public.universes where id = :'unav') = true
+  and (select collapsed and is_cat from public.groups where id = :'gkat') = true);
+
+-- cat_id følger POSISJONS-registeret: en utdatert pos-skriving reverteres.
+update public.groups set cat_id = null, pos_ts = 0, pos_org = 'a' where id = :'gmed';
+select public.t_check('utdatert posisjons-skriving taper for cat_id (LWW)',
+  (select cat_id from public.groups where id = :'gmed') = :'gkat');
+update public.groups set cat_id = null, pos_ts = 60, pos_org = 'a' where id = :'gmed';
+select public.t_check('nyere posisjons-skriving flytter gruppen ut av kategorien',
+  (select cat_id from public.groups where id = :'gmed') is null);
+
+delete from public.universes where id = :'unav';   -- rydd opp før slette-testene
+
 -- ---------- I. hard sletting + gravsteiner ----------
 reset role;
 select set_config('request.jwt.claim.sub', :'carol', false);

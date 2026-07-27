@@ -194,39 +194,42 @@ const log = (n, ok, x = '') => { results.push(ok); console.log((ok ? 'PASS' : 'F
       cAfter.indexOf('card-P') > cAfter.indexOf('card-R') && cAfter.length === cBefore.length,
       cBefore.join(',') + ' → ' + cAfter.join(','));
 
-    /* --- 4c) GRUPPE (i gruppe-modalen) --- */
+    /* --- 4c) GRUPPE (rad i et univers-kort i nav-modalen) --- */
     for (let i = 0; i < 2; i++) {
       await p.evaluate(() => { window.__huskis.addGroup(); }); await p.waitForTimeout(200);
-      await p.keyboard.press('Escape'); await p.waitForTimeout(180);
     }
-    await p.evaluate(() => { window.__huskis.openGroupModal(); }); await p.waitForTimeout(400);
-    const gIds = await p.evaluate(() => [...document.querySelectorAll('#group-list .group-card')].map((g) => g.dataset.id));
-    const g1 = await centerOf(p, '#group-list .group-card[data-id="' + gIds[0] + '"]');
-    const g3 = await centerOf(p, '#group-list .group-card[data-id="' + gIds[2] + '"]');
+    await p.evaluate(() => { window.__huskis.openNavModal(); }); await p.waitForTimeout(400);
+    const uSel = '#nav-board .card[data-id="' + await p.evaluate(() => window.__huskis.state.activeUniverse) + '"]';
+    const gIds = await p.evaluate((sel) => [...document.querySelectorAll(sel + ' .items-container > .item')].map((g) => g.dataset.id), uSel);
+    const g1 = await centerOf(p, uSel + ' .item[data-id="' + gIds[0] + '"]');
+    const g3 = await centerOf(p, uSel + ' .item[data-id="' + gIds[2] + '"]');
     await pointer(p, 'pointerdown', g1.x, g1.y);
     await p.waitForTimeout(260);
     await pointer(p, 'pointerup', g1.x, g3.y + 4); // INGEN pointermove
     await p.waitForTimeout(500);
-    const gAfter = await p.evaluate(() => [...document.querySelectorAll('#group-list .group-card')].map((g) => g.dataset.id));
+    const gAfter = await p.evaluate((sel) => [...document.querySelectorAll(sel + ' .items-container > .item')].map((g) => g.dataset.id), uSel);
     log('4 ' + M.n + ' gruppe: raskt slipp flyttet raden forbi den tredje',
       gAfter.indexOf(gIds[0]) > gAfter.indexOf(gIds[2]) && gAfter.length === gIds.length,
       gIds.join(',') + ' → ' + gAfter.join(','));
-    await p.evaluate(() => { window.__huskis.closeGroupModal(); }); await p.waitForTimeout(250);
 
-    /* --- 4d) UNIVERS (i univers-modalen) --- */
+    /* --- 4d) UNIVERS (kort i nav-modalen) --- */
     for (let i = 0; i < 2; i++) {
       await p.evaluate(() => { window.__huskis.addUniverse(); }); await p.waitForTimeout(200);
       await p.keyboard.press('Escape'); await p.waitForTimeout(180);
     }
-    await p.evaluate(() => { window.__huskis.openUniModal(); }); await p.waitForTimeout(400);
-    const uIds = await p.evaluate(() => [...document.querySelectorAll('#uni-list .uni-row')].map((u) => u.dataset.id));
-    const u1 = await centerOf(p, '#uni-list .uni-row[data-id="' + uIds[0] + '"]');
-    const u3 = await centerOf(p, '#uni-list .uni-row[data-id="' + uIds[2] + '"]');
+    await p.evaluate(() => { window.__huskis.openNavModal(); }); await p.waitForTimeout(400);
+    // «＋ Univers» ruller det nye (siste) universet inn i syne — rull tilbake til
+    // toppen så de to kortene vi sikter på faktisk ligger i modalens synlige felt.
+    await p.evaluate(() => { document.querySelector('#nav-modal .menu-body').scrollTop = 0; });
+    await p.waitForTimeout(150);
+    const uIds = await p.evaluate(() => [...document.querySelectorAll('#nav-board .card')].map((u) => u.dataset.id));
+    const u1 = await centerOf(p, '#nav-board .card[data-id="' + uIds[0] + '"] .card-head');
+    const u3 = await centerOf(p, '#nav-board .card[data-id="' + uIds[2] + '"] .card-head');
     await pointer(p, 'pointerdown', u1.x, u1.y);
     await p.waitForTimeout(260);
     await pointer(p, 'pointerup', u1.x, u3.y + 4); // INGEN pointermove
     await p.waitForTimeout(500);
-    const uAfter = await p.evaluate(() => [...document.querySelectorAll('#uni-list .uni-row')].map((u) => u.dataset.id));
+    const uAfter = await p.evaluate(() => [...document.querySelectorAll('#nav-board .card')].map((u) => u.dataset.id));
     log('4 ' + M.n + ' univers: raskt slipp flyttet raden forbi den tredje',
       uAfter.indexOf(uIds[0]) > uAfter.indexOf(uIds[2]) && uAfter.length === uIds.length,
       uIds.join(',') + ' → ' + uAfter.join(','));

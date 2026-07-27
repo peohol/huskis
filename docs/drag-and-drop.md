@@ -114,7 +114,7 @@ Bytte utløses av **overlapp**, ikke av et punkt:
   20 %-terskel og ingen anti-reverseringslås — slipp-punktet ER brukerens tydelige
   sluttintensjon, og et raskt slipp skal lande der, ikke ett hakk unna. Retningen
   (`dy`) regnes alltid FØR `drag.lastX/Y` overskrives. Slippes lista over
-  toppmenyen (📁-breadcrumben), hoppes sluttplasseringen over — board-et ligger da
+  toppmenyen (nav-knappen), hoppes sluttplasseringen over — board-et ligger da
   bevisst i ro.
 - **Drop-animasjonen starter der objektet FAKTISK står malt**
   (`dropIntoPlaceholder`): startpunktet måles med `untransformedRect(el)` mens
@@ -290,8 +290,9 @@ Bytte utløses av **overlapp**, ikke av et punkt:
     layouten er satt (restore/release) og kortet er lagt i normal flyt;
     `slotDocTop`/`slotH` måles i DOKUMENT-koordinat (upåvirket av selve scrollingen)
     FØR `dropIntoPlaceholder` setter fly-inn-transformen. Hoppes over når lista
-    slippes på 📁-breadcrumben (flyttes til en annen gruppe → forsvinner fra
-    board-et). Gjelder både touch og mus.
+    slippes på nav-knappen (flyttes til en annen gruppe → forsvinner fra
+    board-et). Gjelder både touch og mus. Kun i `boardScope` — nav-modalen har
+    ingen window-scroll å justere.
   - **Auto-scroll kan aldri bytte fortegn** (`startAutoScroll`): den tillatte
     nedover-avstanden klemmes til `Math.min(delta, Math.max(0, maxScroll - scrollY))`.
     Ligger board-bunnen (den kompakte, kollapsede) OVER `scrollY` — slik den kunne med
@@ -623,20 +624,54 @@ forhåndsvisning: den rører IKKE `card.collapsed`/`item.collapsed` og lagrer ik
   som sikkerhetsnett → kollapser tilbake ved avbrudd/`pointercancel`); `beginDragCommon`
   nullstiller `drag.peekCard`/`peekCat` per drag.
 
-## Univers- og gruppe-rader (i sine modaler)
+## Universer og grupper (nav-modalen)
 
-Samme trykk-og-hold + placeholder + FLIP-motor som listekortene, men kun i én
-variant: både `uni-list` (univers-modalen) og `group-list` (gruppe-modalen) er
-alltid vertikale kolonner, så `updateUniversePlacement`/`updateGroupPlacement`
-er transponerte kopier av kort-kolonelogikken (den gamle H-varianten for
-mobil-gruppeRADEN er fjernet sammen med raden). Auto-scroll under draging
-ruller modalens `.menu-body` (`overflow-y: auto`-containeren), ikke selve
-listene — de har ingen egen scroll.
+Egen kode for disse to nivåene finnes ikke lenger: `startGroupDrag`/
+`startUniverseDrag`/`updateGroupPlacement`/`updateUniversePlacement`/
+`finishColumnDrop`/`cancelColumnDrop` + de to auto-scroll-loopene er FJERNET og
+erstattet av `navScope` (se toppen av dokumentet). Universer dras som lister
+(`startCardDrag`), grupper som listepunkter (`startItemDrag`), gruppekategorier
+som kategorier (`startCategoryDrag`).
+
+Det som er verdt å merke seg:
+
+- **Alltid én kolonne**: `navScope.singleColumn` gjør at `relayoutBoard` lager
+  nøyaktig én `.board-col` (samme kolonnemaskineri som hovedsiden, se
+  `docs/board-layout.md`), så kort-draget aldri møter flerkolonne-logikken
+  (`isSingleRowLayout` slår aldri inn — kortene ligger over hverandre).
+- **Auto-scroll ruller modalens `.menu-body`** (`updateModalAutoScroll`,
+  `startModalAutoScroll`) og re-evaluerer plasseringen per frame med
+  `reapplyPlacement`, som vindus-auto-scrollen.
+- **Kollaps-alle under draget** gjelder også her (universkortene foldes til
+  overskriften mens ett dras), men uten normal-flow-vakten — den finnes for
+  window-scroll-klemmen på mobil, og modalen scroller i sin egen container.
+- **Delte (monterte) grupper**: en gruppe som er delt MED meg flyttes via MIN
+  plassering (`memberships.parent_universe_id`), ikke ved å skrive på eierens rad
+  — `onItemUp` går derfor via `cloudMountUpdate(S.rowKind, …, S.mountParentPatch(…))`.
+  Mount-plasseringen har ingen kategori-kolonne, så en delt gruppe kan foreløpig
+  bare ligge på nivå 1; slippes den i en gruppekategori, lander den på nivå 1 og
+  en toast sier fra. Se `docs/rettigheter-og-deling.md`.
+- **Den aktive gruppen følger med** når den bytter univers (dratt dit, ekstrahert
+  til et nytt, eller båret med av en gruppekategori): `followActiveGroup()` kalles
+  først i `renderBoard()` og flytter `state.activeUniverse` etter gruppa.
+  `activeGroupObj()` leter bare i det aktive universet, så uten dette falt
+  hovedsiden til «Ingen grupper ennå.» med gruppa fortsatt i behold. Den bor i
+  render-veien nettopp for å dekke ALLE veiene inn med ett sted.
+
+### Slipp i en LÅST mål-container avvises med en gang
+
+DB-vaktene (`*_before_update`) krever redigeringsrett på BÅDE gammel og ny
+forelder. Uten en klient-sjekk ville et slipp inn i en frossen liste/et frossen
+univers sett ut til å lykkes og så blitt snappet tilbake ved neste synk. Både
+`onItemUp` og `onCategoryUp` sjekker derfor mål-containeren FØR de rører state:
+er den `frozen()`, kjøres `restoreDraggedToOrigin()` + `finishDrag()` (som et
+avbrutt drag) og en toast sier fra — `S.lockedTargetMsg`, «Lista er låst» på
+board-et og «Universet er låst» i nav-modalen.
 
 ## Flytting av lister til en annen gruppe (innen samme univers)
 
-Gruppene ligger ikke lenger som kort på hovedsiden. Dra i stedet lista opp på
-**📁-breadcrumben** i toppmenyen: knappen markeres (`.drop-target`, kun når
+Gruppene ligger ikke på hovedsiden. Dra i stedet lista opp på
+**nav-knappen** i toppmenyen: knappen markeres (`.drop-target`, kun når
 det finnes andre grupper), dra-kortet blir gjennomskinnelig (`.to-group`), og
 board-et fryses mens man sikter (ingen reorder over toppmenyen). Slipp legger
 kortet normalt tilbake på board-et og åpner en velger («Flytt … til:», i
@@ -646,5 +681,6 @@ stemples — mounts flytter membershipen) + toast. Avbrytes velgeren blir lista
 liggende. `moveCardToGroup` slår opp det LEVENDE kortet på id — en
 synk-rebuild kan ha byttet ut objektet mens velgeren sto åpen.
 
-Kun mulig innen samme univers — velgeren viser kun det aktive universets
-grupper, se `docs/data-model.md`.
+Velgeren viser gruppene i det AKTIVE universet (gruppekategorier er overskrifter
+og listes ikke). Vil man flytte lista lenger — til en gruppe i et annet univers —
+flytter man i stedet GRUPPEN i nav-modalen. Se `docs/data-model.md`.

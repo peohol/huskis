@@ -1,31 +1,33 @@
-# Menyer: toppmeny (breadcrumb), univers-/gruppe-modal, kontoknapp/-modal
+# Menyer: toppmeny (nav-knapp), navigasjonsmodalen, kontoknapp/-modal
 
-Les denne når oppgaven berører toppmenyen, breadcrumb-navigasjonen,
-univers-/gruppe-modalene eller kontoknappen/konto-modalen.
+Les denne når oppgaven berører toppmenyen, navigasjonsknappen/-modalen (universer
+og grupper) eller kontoknappen/konto-modalen.
 
-Prinsipp: **all navigering, redigering og deling av universer og grupper skjer
-i deres respektive modaler** — hovedsiden har kun breadcrumben (hvor er jeg) og
-listefunksjonene. Gruppene ligger IKKE lenger som kort på hovedsiden.
+Prinsipp: **all navigering, redigering, omrokkering og deling av universer og
+grupper skjer i ÉN felles modal** — hovedsiden har kun nav-knappen (hvor er jeg)
+og listefunksjonene.
+
+Nøkkelidé: **universer og grupper bruker nøyaktig samme oppsett som lister og
+listepunkter.** Et univers er et `.card`, en gruppe en `.item`-rad, en
+gruppekategori en `.category`. Dermed arves hele kort-/rad-designet OG hele
+dra-og-slipp-motoren — se `docs/drag-and-drop.md` («Nav-scopet»).
 
 ## Toppmenyen (`.topbar`)
 
 Ett fast panel øverst (`position: fixed`, full bredde, samme DOM på mobil og
-desktop — ingen sidebar/media-query-veksling lenger). To rader:
+desktop). To rader:
 
-1. **Breadcrumb** (`.breadcrumb`): `🌐 [universnavn] › 📁 [gruppenavn]` — to
-   knapper (`.crumb-btn`, `#uni-crumb`/`#group-crumb`) med nivå-ikon + navnet
-   på gjeldende univers/gruppe (`updateCrumbs()` i `render()`; fallback
-   «Univers»/«Gruppe» når ingenting finnes). Klikk åpner univers-/gruppe-
-   modalen. Navnene kappes med ellipsis; raden holder avstand til kontoknappen
-   med `padding-right`. På mobil krympes fonten litt (media-query).
+1. **Navigasjonsknappen** (`.crumb-btn.nav-crumb`, `#nav-crumb`): ÉN knapp som
+   viser hele lokasjonen som en breadcrumb — `🌐 [universnavn] › 📁 [gruppenavn]`
+   (`updateCrumbs()`; fallback «Univers»/«Gruppe» når ingenting finnes). Klikk
+   åpner nav-modalen. Navnene kappes med ellipsis; raden holder avstand til
+   kontoknappen med `padding-right`. På mobil krympes fonten litt (media-query).
 2. **Listefunksjonene** (`.panel-actions.toolbar`): «＋ Liste»
    (`#add-card-btn`), liste-søppelkassen (`#trash-btn`) og filterkortet
-   (👁️ Mine/Delte, se `docs/colors-and-labels.md`). Kun listefunksjoner her —
-   ingen gruppe-/univers-knapper.
+   (👁️ Mine/Delte, se `docs/colors-and-labels.md`).
 
 Board-ets padding-top settes i JS (`syncHeaderHeight`: målt topbar-høyde +
-`--board-gap`, samme verdi på alle skjermstørrelser) — se
-`docs/board-layout.md`.
+`--board-gap`) — se `docs/board-layout.md`.
 
 ## Kontoknappen (`.account-btn`, `#account-btn`)
 
@@ -35,49 +37,89 @@ panelet (30) men under modaler (200). Person-ikon + rød badge
 (`#account-badge`) med antall ventende invitasjoner. Åpner konto-modalen.
 Skjules før innlogging (`body.no-auth`).
 
-## Univers-modalen (`#uni-modal`, åpnes fra 🌐-breadcrumben)
+## Navigasjonsmodalen (`#nav-modal`, åpnes fra nav-knappen)
 
-- **Øverst «Du er i»** (`.modal-current`): navnet på det aktive universet på
-  en chip-farget flate (`#uni-current-chip`, ikke klikkbar) og **del-univers-
-  knappen** (`.share-btn`, `#share-uni-btn`, kun kontomodus/eier-eller-mount)
-  rett under. Del-knappen lukker univers-modalen og åpner del-modalen med
-  tilbakeknapp (se «Del-modalens tilbakeknapp» under).
-- **«Alle universer»**: univers-rader (`.uni-row.chip` — farget, aktiv m/ ring,
-  antall-pill med gruppe-ikon + antall grupper (`.chip-count`), ✕ helt til
-  høyre), «＋ [univers-ikon]» og univers-søppelkassen (se `docs/trash.md`).
-- Klikk på **tittelen** (`.uni-name`) = **omdøp** — uansett om universet er
-  aktivt eller ikke (før navigerte et klikk på et annet universs navn dit i
-  stedet for å redigere). Klikk **ellers** på raden (unntatt ×) = **bytt univers +
-  lukk modalen**. Opprettelse holder modalen åpen (navnet redigeres inline).
-  `setActiveUniverse` gjenoppretter sist aktive gruppe i universet
-  (`activeGroups`, se `docs/data-model.md`).
-- **Rekkefølge**: trykk-og-hold hvor som helst på raden (unntatt ×-knappen) for
-  å dra (placeholder + FLIP); auto-scroll ruller modalens `.menu-body`. Se
-  `docs/drag-and-drop.md`.
+Overskrift: **«[univers-ikon] Universer og [gruppe-ikon] grupper»**. Innholdet er
+ett `.board` (`#nav-board`, klassen `.nav-board`) med ett kort per univers, og
+under det en knapperad med «＋ [globus]» og univers-søppelkassen.
 
-## Gruppe-modalen (`#group-modal`, åpnes fra 📁-breadcrumben)
+- **Alltid ÉN kolonne**, uansett skjermbredde — i motsetning til hovedsidens
+  board. Kolonnene lages av det samme `relayoutBoard`-maskineriet
+  (`docs/board-layout.md`), men nav-scopet setter `singleColumn`.
+- **Bygges bare når modalen er åpen** (`renderNav()` returnerer tidlig når
+  `navModal.hidden`): en usett DOM-kopi av alle universer/grupper koster ved hver
+  render, og ville dessuten gitt doble treff for `.card`/`.item` på tvers av de to
+  board-ene. `openNavModal()` setter derfor `hidden = false` FØR den kaller
+  `renderNav()`.
 
-Nøyaktig samme oppbygning som univers-modalen, for gruppene i det AKTIVE
-universet: «Du er i»-blokk med aktiv gruppe + del-gruppe-knapp
-(`#share-group-btn`), «Alle grupper i 🌐 [universets navn]»
-(`#group-modal-uni-name` settes i `refreshModalCurrents`; etiketten brytes
-ikke, navnet får ellipsis — `.panel-title-text`/`.panel-title-name`) med
-`.group-card.chip`-rader i `#group-list` (antall-pill = liste-ikon + antall
-lister), «＋ Gruppe» og
-gruppe-søppelkassen. Klikk på **tittelen** (`.group-name`) = omdøp (uansett aktiv
-eller ei); klikk **ellers** på raden (unntatt ×) = bytt gruppe + lukk modalen;
-«＋ Gruppe» holder modalen åpen med inline-omdøping. Gruppe-radene er
-alltid én vertikal kolonne (V-varianten av dra-logikken — H-varianten fra den
-gamle mobil-raden er fjernet).
+### Univers-kortet (`.card.uni-card`, `#uni-card-template`)
 
-Gotcha: bytte av gruppe/univers lukker modalen (bytt kontekst og gå), men
-**sletting lukker den IKKE** — brukeren skal kunne angre fra søppelkassen med
-én gang (søppelkasse-modalen ligger over, samme z-index men senere i DOM).
+Samme oppbygning som et listekort (`.card-head` + `.card-body`), med disse
+forskjellene:
 
-`refreshModalCurrents()` (kalles i `render()` og ved åpning) holder «Du er
-i»-blokkene og del-knappenes synlighet i takt.
+| Listekort | Univers-kort |
+|---|---|
+| tannhjul (`.card-cog`) → innstillingsmodal | **del-knapp** (`.uni-share`, samme knappestil) → del-modalen |
+| «(N)» ved navnet når kollapset | **[gruppe-ikon] + antall** (`.collapse-count.uni-count`) |
+| «Utført»-seksjon + ⟲ | — (grupper krysses ikke av) |
+| ＋ listepunkt / gul kategori-knapp | **＋ gruppe / gul gruppekategori-knapp** (`ICONS.groupCategory`) |
+| listepunkt-søppelkasse i body-en | **gruppe-søppelkasse** i body-en (`.group-trash-btn`) |
 
-## Konto-modalen (`#account-modal`, erstatter den gamle meny-modalen/☰)
+- Klikk på **tittelen** = omdøp inline. Klikk **ellers på korthodet** (ikke
+  tittel/del/×) = kollaps/utvid (`card.collapsed` ⇒ `universe.collapsed`, lagres
+  og synkes). Trykk-og-hold (touch) / dra (mus) på korthodet = flytt universet.
+- Det AKTIVE universet markeres med den grønne brand-ringen (`.card.active`).
+- **Tastatur:** korthodet er `role="button" tabindex="0"` med `aria-expanded`, og
+  Enter/Mellomrom gjør det samme som et klikk der — kollapser/utvider.
+  `toggleCardCollapsed` oppdaterer `aria-expanded` når attributtet finnes
+  (listekortene på hovedsidens board har ingen tastaturrolle, så der er det no-op).
+
+### Gruppe-raden (`.item.group-row`, `#group-row-template`)
+
+Samme rad som et listepunkt, men **uten avmerkingsboks** (grupper krysses ikke
+av) og med **del-knapp** (`.group-share`) i stedet for tannhjul.
+
+- Klikk på **navnet** (`.item-text`) = omdøp inline.
+- Klikk **ellers på raden** (ikke navn/del/×) = **gå til gruppen** (setter aktivt
+  univers + gruppe, `goToGroup`) og **lukk modalen**.
+- Den AKTIVE gruppen markeres med brand-ringen (`.item.active`).
+- **Tastatur:** raden er `role="button" tabindex="0"`. Navnet er ikke
+  fokuserbart, så Enter/Mellomrom **omdøper når man allerede står i gruppen**
+  (ellers ville et Enter der bare lukket modalen) og **navigerer** ellers — samme
+  kompromiss som chip-radene hadde før nav-modalen. `ev.target !== el`-vakten
+  lar del-/slett-knappene beholde sin egen tastaturoppførsel.
+
+### Type-ikon og delt-merke foran navnet
+
+Både universkortet og grupperaden innleder med **[type-ikon]([delt-ikon])Navn** —
+`.kind-icon` (`ICONS.globe` / `ICONS.folder`, samme ikoner som breadcrumben)
+først, så `.share-badge` når objektet er delt, så navnet. Rekkefølgen ligger i
+malene; byggerne fyller bare ikonet.
+
+Universkortet får derfor **ikke** den lyse innerkanten delte listekort har
+(`.nav-board .card.is-shared` nullstiller den): `.card-body` er gjennomsiktig, så
+ringen lyste gjennom nederst og leste som en ramme rundt gruppelista. Delt-merket
+ved navnet sier det samme uten kanten.
+
+### Gruppekategorien (`.category.group-cat`, `#group-cat-template`)
+
+Samme kategori-rad som i en liste (overskrift på universflaten + en innrykket
+«hylle» med gruppene), men **uten innstillinger og uten deling** — kun
+**oppløs-knappen** (`.cat-dissolve`) og den grønne ＋-knappen nederst i hylla.
+Klikk på overskriftslinjen kollapser/utvider; klikk på tittelen omdøper.
+
+### Søppelkassene
+
+- **Gruppe-søppelkassen ligger i universkortet** — akkurat som listepunkt-
+  søppelkassen ligger i lista si. Vises kun når universet har slettede grupper.
+- **Univers-søppelkassen ligger nederst i modalen**, i knapperaden ved siden av
+  «＋ [globus]». Vises kun når den har innhold.
+
+Gotcha: å bytte gruppe lukker modalen (bytt kontekst og gå), men **sletting
+lukker den IKKE** — brukeren skal kunne angre fra søppelkassen med én gang
+(søppelkasse-modalen ligger over, samme z-index men senere i DOM).
+
+## Konto-modalen (`#account-modal`, kontoknappen)
 
 Innhold (ovenfra og ned):
 
@@ -102,29 +144,28 @@ tekstflyt: ikonet ligger inline i direkte tilknytning til navnet
 (`.share-title-obj`), ikke som egen flex-kolonne til venstre for overskriften.
 
 `openShare(type, id, obj, backTo)`: `backTo` (valgfri funksjon) gjenåpner
-modalen del-modalen ble åpnet fra — satt av del-knappene i univers-/gruppe-
-modalen (`openUniModal`/`openGroupModal`). Når satt vises `#share-back`
-(pil-venstre) først i `modal-head`; klikk lukker del-modalen og kaller
-`backTo`. **✕/overlay/Escape lukker helt** — da havner man på hovedsiden,
-ikke i modalen bak (bevisst: lukk = ferdig). Listers deling (fra
-innstillingsmodalen) sender ingen `backTo` og har dermed ingen tilbakeknapp.
+modalen del-modalen ble åpnet fra — satt av del-knappene på univers-kortene og
+gruppe-radene (`openNavModal`). Når satt vises `#share-back` (pil-venstre) først
+i `modal-head`; klikk lukker del-modalen og kaller `backTo`. **✕/overlay/Escape
+lukker helt** — da havner man på hovedsiden, ikke i modalen bak (bevisst: lukk =
+ferdig). Listers deling (fra innstillingsmodalen) sender ingen `backTo` og har
+dermed ingen tilbakeknapp.
 
-## Flytt liste til annen gruppe (uten gruppekort på hovedsiden)
+## Flytt liste til annen gruppe
 
-Dra en liste (trykk-og-hold på korthodet) opp på **📁-breadcrumben**: knappen markeres
-(`.drop-target`) når det finnes andre grupper å flytte til; slipp legger
+Dra en liste (trykk-og-hold på korthodet) opp på **nav-knappen**: knappen
+markeres (`.drop-target`) når det finnes andre grupper å flytte til; slipp legger
 kortet normalt tilbake på board-et og åpner en velger («Flytt … til:») i
-plasserings-modal-skallet (`openPicker`). Avbrytes velgeren skjer ingenting.
-Se `docs/drag-and-drop.md`.
+plasserings-modal-skallet (`openPicker`). Velgeren viser gruppene i det AKTIVE
+universet (gruppekategorier er overskrifter og listes ikke). Avbrytes velgeren
+skjer ingenting. Se `docs/drag-and-drop.md`.
 
 ## Modal-infrastruktur
 
-- `updateModalOpenClass()` samler alle modalene (uni/gruppe/konto/søppel/del/
-  plasser/bekreft/innstillinger/popovere) → `body.modal-open` (scroll-lås).
+- `updateModalOpenClass()` samler alle modalene (nav/konto/søppel/del/plasser/
+  bekreft/innstillinger/popovere) → `body.modal-open` (scroll-lås).
 - Escape lukker øverste lag først: tids-popover → ansvarlig-velger →
   bekreftelses-modal → plasser → del (helt) → innstillinger → søppel →
-  univers/gruppe/konto-modal.
+  nav-/konto-modal.
 - `.switcher-overlay`/`.switcher-panel`-skallet (popover på desktop, sentrert
-  modal på mobil) brukes nå kun av ansvarlig-velgeren og tids-popoveren —
-  univers-/gruppebytterne (panel-title-knappene) er fjernet; breadcrumb-
-  modalene er den ene måten å navigere på.
+  modal på mobil) brukes av ansvarlig-velgeren og tids-popoveren.

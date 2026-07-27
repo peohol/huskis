@@ -39,6 +39,14 @@ fortsatt hadde masse plass.
 listepunkter inn/ut, tekst som brytes om). Den skriver bare når fordelingen
 faktisk endrer seg, så observatøren kan ikke gå i løkke med seg selv.
 
+**Nav-modalens board** (`#nav-board`, universer som kort — se `docs/menus.md`)
+bruker det SAMME maskineriet, bare med `navScope.singleColumn = true`: alltid én
+`.board-col`, uansett bredde. Da kan en høyde-endring aldri endre fordelingen, så
+det scopet observeres ikke (`observeBoardRows` hopper over det) — `renderNav()`
+kaller `relayoutBoard(navScope)` selv når den bygger kortene. Kolonnebudsjettet/
+`fixBoardBottomGap` gjelder kun hovedsidens board; i modalen er det modalens egen
+padding som er bunn-luften.
+
 `observeBoardRows` holder observatørens mål i takt med kortene som faktisk står på
 board-et: `render()` river alle kortnodene og `refreshCard()` bytter ut enkeltnoder,
 så uten opprydding ville observasjonene av de frakoblede nodene hopet seg opp for
