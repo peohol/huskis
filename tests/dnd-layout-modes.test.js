@@ -64,9 +64,12 @@ const guardStyles = (p) => p.evaluate(() => {
   const bd = document.querySelector('.board');
   return { minH: bd.style.minHeight || '', pad: bd.style.paddingTop || '' };
 });
+// `single` = CSS-flagget som slår på normal-flow-vakten; `colCount` = antall
+// FAKTISKE kolonner. Kolonnene er egne containere (`.board-col`, fordelt av
+// `relayoutBoard`), ikke CSS multi-column — se docs/board-layout.md.
 const colMode = (p) => p.evaluate(() => ({
   single: getComputedStyle(document.querySelector('.board')).getPropertyValue('--mobile-dnd-flow-guard').trim() === '1',
-  colCount: getComputedStyle(document.querySelector('.board')).columnCount,
+  colCount: String(document.querySelectorAll('.board > .board-col').length),
 }));
 const headRectOf = (p, id) => p.evaluate((id) => {
   const r = document.querySelector('.card[data-id="' + id + '"] .card-head').getBoundingClientRect();

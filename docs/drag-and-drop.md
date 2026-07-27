@@ -25,6 +25,18 @@ Bytte utløses av **overlapp**, ikke av et punkt:
   overlapp; horisontal kort-rad → X-overlapp).
 - **Kolonne** = kort med ≥ 50 % horisontal overlapp; kryss-kolonne plasseres etter
   vertikal senterposisjon. For listepunkter = overføring til annen `.items-container`.
+- **Board-ets kolonner er ekte containere** (`.board-col`, se
+  `docs/board-layout.md`), og fordelingen er FROSSET mens et drag pågår. Det er en
+  DnD-forutsetning, ikke bare layout: med CSS multi-column kunne en placeholder lagt
+  i én kolonne dytte et kort over i en annen, og siden svaret på «hvilken liste er
+  objektet i?» (`dragOverCard`) leses av nettopp den layouten placeholderen former,
+  vekslet plasseringen frem og tilbake for hver piksel. En placeholder påvirker nå
+  kun sin egen kolonne, og alltid slik at nabokortene skyves BORT fra objektet —
+  altså i «bli der du er»-retning. `placePlaceholder` legger derfor placeholderen i
+  REFERANSERADENS container (kolonnen ref ligger i), ikke i en fast container.
+  Rekkefølgen på board-nivå (`pos` ved slipp, `extractionPos`) leses med
+  `boardRows()`/`boardRowSibling()`: naboen over den øverste raden i en kolonne
+  ligger nederst i kolonnen FØR, ikke i samme container.
 - **FLIP-animasjon (150 ms)** ved hver placeholder-flytting og ved slipp.
   `layoutRect()` trekker fra pågående FLIP-transform → stabil treffdeteksjon.
 - Under draging manipuleres DOM direkte; state bygges fra DOM ved slipp (kirurgisk:
@@ -416,12 +428,32 @@ hvilken placeholder som er aktiv; `setExtractMode`/`setReorderMode` bytter den u
 (fjerner den gamle, lager riktig type i riktig container). `dragOverCard()` avgjør
 modus hver frame: er objektet «i» en liste → reorder (kategori: nivå-1-reorder når
 lista er kilde-lista, ellers inn i den andre lista; listepunkt: container-logikken
-under), ingen liste → extract. `placeNewListPlaceholder` plasserer kort-
-placeholderen blant board-ets kort: kolonnen etter pekerens x (±8 px slingring;
-ingen kolonnetreff → alle kort sortert på topp), plassen i kolonnen etter det
-LØFTEDE OBJEKTETS y-senter (ut-terskelen slår inn mens pekeren fortsatt kan være
-inne i lista man forlot — et pekerbasert y-valg la da placeholderen på feil side av
-den). `extractionPos` gir den nye lista en `pos` mellom placeholderens board-naboer.
+under), ingen liste → extract. `extractionPos` gir den nye lista en `pos` mellom
+placeholderens naboer i leserekkefølge.
+
+`placeNewListPlaceholder` plasserer kort-placeholderen:
+
+- **KOLONNEN** etter pekerens x (±8 px slingring). Ingen kolonnetreff (pekeren i et
+  kolonnegap) → behold kolonnen placeholderen alt står i. Klemmes til siste kolonne
+  som har kort: en tom kolonne lenger til høyre finnes bare fordi vinduet er bredt,
+  og en ny liste havner aldri der før kolonnene til venstre er fulle
+  (`docs/board-layout.md`).
+- **PLASSEN i kolonnen** etter det LØFTEDE OBJEKTETS y-senter — ikke pekerens:
+  ut-terskelen (1/3, se under) slår inn mens pekeren fortsatt kan være inne i lista
+  man forlot, og et pekerbasert y-valg la da placeholderen på feil side av den.
+  Målt mot den layouten man SER; den er selvstabiliserende, siden et kort
+  placeholderen passerer samtidig glir en placeholderhøyde bort i samme retning.
+
+**To veier til samme plass:** bunnen av kolonne k og toppen av kolonne k+1 er samme
+plass i rekkefølgen, men to ulike containere. Sikter man under siste liste i
+kolonne k, havner placeholderen der; sikter man over første liste i kolonne k+1,
+havner den der. Sluttresultatet er identisk — brukeren kan ikke overstyre hvordan
+listene organiseres, det finnes bare to steder å sikte. Dekket av punkt 4 i
+`tests/board-columns.test.js`.
+
+Tidligere ble placeholderen lagt med `appendChild` på et flatt board når objektet
+lå under alle kortene i pekerens kolonne. Siste plass i DOM er bunnen av SISTE
+kolonne, så «under liste 1 i kolonne 1» ga en placeholder under liste 3 i kolonne 3.
 
 ### «Hvilken liste er objektet i?» — 1/3-terskler (`dragOverCard`)
 
@@ -454,6 +486,19 @@ forsvinner ny-liste-placeholderen fra board-et og reorder-placeholderen legges i
 i lista (sonen vokser med en radhøyde), og motsatt når man går ut. Begge deler
 flytter geometrien i «bli der du er»-retning, så en monoton bevegelse gir nøyaktig
 `reorder(A)` → `extract` → `reorder(B)`.
+
+**Unntaket: en KORT sone under placeholderen** (`noteOverShift`/`drag.overGrace`).
+Selve modusbyttet rykker alt som lå under ny-liste-placeholderen i kolonnen
+OPPOVER. Har lista en høy sone, betyr det bare at sonen kommer objektet i møte —
+«bli der du er». Men en **kollapset** liste (hele det lille kortet er sonen), eller
+en tom der `MIN_BAND_SLACK` gjør hele kortet til sone, er kortere enn hoppet: sonen
+rekker forbi objektet, som faller ut igjen, som legger placeholderen tilbake, som
+dytter lista ned igjen — én runde per piksel. Vi MÅLER derfor hvor langt lista
+faktisk flyttet seg av byttet og lar stickiness-en i `dragOverCard` beholde den
+gjennom akkurat det hoppet (`grace` legges bare på det kortet man ALLEREDE er i;
+grensen for å gå INN er uendret, så 1/3-tersklene måles som før). Å forlate lista
+krever da en tydelig bevegelse ut — ikke bare at gulvet flyttet seg under objektet.
+Dekket av punkt 6 i `tests/board-columns.test.js`.
 
 To spesialtilfeller i `cardBand`:
 - **Kollapset eller peek-åpnet liste** → hele kortet er sonen. En kollapset liste
