@@ -54,6 +54,41 @@ async function register(p) {
   return email;
 }
 
+// Registrerer HVILKE id-er klienten forsøker å sette inn. En avvist insert (PK-
+// konflikt fordi eierens rad fortsatt finnes, eller insert-vakten) etterlater
+// ingen spor på «serveren», så forsøket i seg selv må observeres: mot en database
+// UTEN insert-vakten er det nettopp det forsøket som ville lyktes og gjort
+// mottakeren til oppretter av eierens innhold.
+function recordInsertAttempts(page) {
+  return page.addInitScript(() => {
+    window.__insertAttempts = [];
+    let real;
+    Object.defineProperty(window, 'HK_MOCK', {
+      configurable: true,
+      get() { return real; },
+      set(v) {
+        const origCreate = v.createClient;
+        v.createClient = function () {
+          const c = origCreate.apply(this, arguments);
+          const origFrom = c.from.bind(c);
+          c.from = function (t) {
+            const q = origFrom(t);
+            const origInsert = q.insert.bind(q);
+            q.insert = function (payload) {
+              [].concat(payload).forEach((r) => window.__insertAttempts.push(t + ':' + r.id));
+              return origInsert(payload);
+            };
+            return q;
+          };
+          return c;
+        };
+        real = v;
+      },
+    });
+  });
+}
+const insertAttempts = (p) => p.evaluate(() => window.__insertAttempts.slice());
+
 const serverCards = (p) => p.evaluate(() => {
   const db = JSON.parse(localStorage.getItem('hk-mock-db') || '{}');
   return (db.cards || []).map((c) => ({ id: c.id, owner_id: c.owner_id, title: c.title }));
@@ -106,6 +141,7 @@ async function run(label, vp, mobile) {
   const ownerId = await owner.evaluate(() => window.__huskis.authUser.id);
 
   const recip = await ctx.newPage();
+  await recordInsertAttempts(recip);
   recip.on('pageerror', (e) => errs.push('mottaker: ' + e.message));
   const recipEmail = await register(recip);
   await recip.evaluate(() => window.__huskis.addGroup());
@@ -206,6 +242,21 @@ async function run(label, vp, mobile) {
     !!revoked && revoked.owner_id !== recipId);
   log(label + ' 4: … og listen er borte fra mottakerens visning',
     !await localCard(recip, ID.revoked));
+  // Kjernen i fellen: den tilbaketrukne listen er FREMMED, mens listepunktet
+  // under den er «mitt» og dermed en uavklart rad som utløser en ANDRE fletting
+  // etter gravsteins-oppslaget. Leses «fremmed» av et da-tømt tvilssett i den
+  // andre runden, glir listen gjennom som en lokal nyopprettelse. Den skal
+  // fortsatt være droppet — og ingen skriving skal ha blitt forsøkt på den.
+  await settle(recip, 3);
+  log(label + ' 4: den blir ikke merget inn igjen av den andre flettingen',
+    !await localCard(recip, ID.revoked));
+  const stillOwner = await cardOnServer(recip, ID.revoked);
+  log(label + ' 4: … og eieren står urørt etter flere runder',
+    !!stillOwner && stillOwner.owner_id === ownerId, JSON.stringify(stillOwner));
+  const tried = await insertAttempts(recip);
+  log(label + ' 4: ingen skriving ble i det hele tatt FORSØKT på de fremmede listene',
+    !tried.includes('cards:' + ID.revoked) && !tried.includes('cards:' + ID.shared),
+    tried.filter((x) => x.startsWith('cards:')).join(',') || 'ingen');
 
   /* ---------- 5) Eierens eget innhold er urørt ---------- */
   await settle(owner, 3);

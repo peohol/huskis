@@ -553,13 +553,16 @@ hadde, inkludert permanent slettede objekter, med seg selv som `owner_id`.
 `state._tomb` og `tombstones`-tabellen fantes begge, men ingen av dem ble
 konsultert. Fem lag: (1) **basen overlever omstart** — lagres versjonert
 (`_base`/`_baseV`, `BASE_VERSION`) i SAMME localStorage-post som innholdet, og
-rykker kun fram når fletteresultatet faktisk er tatt i bruk i `state`; (2)
-**manglende base = ukjent historikk** (`opts.baseKnown`) — «lokal, ikke fjern»-rader
-pushes ikke, de slås først opp mot serverens `tombstones` (direkte tabell-select,
-porsjoner à 100, kun når basen mangler OG det finnes tvilstilfeller); (3)
+rykker kun fram når fletteresultatet faktisk er tatt i bruk i `state` — og skrives
+IKKE som en gyldig base til disk mens historikken er uavklart; (2)
+**manglende base = ukjent historikk** (`unknownHistory` = id-ene fra en cache uten
+base) — de radene pushes ikke, de slås først opp mot serverens `tombstones`
+(direkte tabell-select, porsjoner à 100, kun når det finnes tvilstilfeller), mens
+alt brukeren lager etterpå skrives som før; (3)
 **gravsteiner konsulteres begge veier** (`opts.tombs`) — aldri insert, og en
 gravlagt rad som fortsatt ligger på serveren får en `delete`; (4) **fremmede rader
-gjenskapes aldri** (`opts.foreign` = `_mine === false`), så en gammel kopi av
+gjenskapes aldri** (`opts.foreign` = tvilsomme rader med `_mine === false`, frosset
+for hele runden så den ANDRE flettingen tar samme avgjørelse), så en gammel kopi av
 andres delte objekt ikke kan settes inn med OSS som oppretter; (5) **databasen er
 autoritativ** — `guard_object_insert` (BEFORE INSERT på alle fire tabellene)
 avviser en gravlagt id (`PT409`, «gravlagt: …») og validerer `owner_id`, også for

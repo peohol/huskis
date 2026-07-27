@@ -125,23 +125,32 @@ fantes begge, men ingen av dem ble konsultert. Fire lag løser det:
    framtidig endring av doc-fasongen forkaster gamle baser i stedet for å
    mistolke dem. Basen rykker fram KUN når fletteresultatet faktisk er tatt i
    bruk i `state` — ellers ville den beskrevet rader staten ikke har, og neste
-   runde lest dem som «slettet lokalt» → push `DELETE` på gyldige rader.
-2. **Manglende base = ukjent historikk, ikke nyopprettelse** (`opts.baseKnown`).
-   Uten base samles «lokal, ikke fjern»-radene i `unverified` i stedet for å bli
-   pushet. Klienten slår dem opp mot serverens `tombstones` (direkte
-   tabell-select på `resource_id in (…)`, i porsjoner à 100, RLS: lesbar for
-   innloggede), gravlegger treffene lokalt og fletter på nytt. De som overlever
-   er ekte lokale nyopprettelser og pushes i samme runde — så en genuint ny
-   liste blir ikke forsinket. Oppslaget skjer kun når basen mangler OG det
-   finnes tvilstilfeller, altså aldri i steady state.
+   runde lest dem som «slettet lokalt» → push `DELETE` på gyldige rader. Og så
+   lenge historikken er UAVKLART (se 2), skrives ingen gyldig base til disk i det
+   hele tatt: tvilen lever bare i minnet, så en gyldig base på disk ville fått
+   neste oppstart til å tro at den visste hva serveren hadde.
+2. **Manglende base = ukjent historikk, ikke nyopprettelse** (`unknownHistory`,
+   satt av `loadCache` til id-ene i en cache uten gyldig base). Bare DE radene er
+   tvilsomme; de samles i `unverified` i stedet for å bli pushet. Klienten slår
+   dem opp mot serverens `tombstones` (direkte tabell-select på
+   `resource_id in (…)`, i porsjoner à 100, RLS: lesbar for innloggede),
+   gravlegger treffene lokalt og fletter på nytt. De som overlever er ekte lokale
+   nyopprettelser og pushes i samme runde — så en genuint ny liste blir ikke
+   forsinket. Oppslaget skjer kun når det finnes tvilstilfeller, altså aldri i
+   steady state. Alt brukeren lager ETTER at cachen ble lest er utvilsomt nytt og
+   skrives som før, så et midlertidig feilende oppslag ikke kan stoppe vanlig
+   bruk.
 3. **Gravsteiner konsulteres i begge retninger** (`opts.tombs` = `tombIds()`,
    union av `state._tomb`). En gravlagt id havner aldri i `merged` og får aldri
    en insert; ligger den fortsatt på serveren, sendes en `delete` i stedet.
-4. **Fremmede rader gjenskapes aldri** (`opts.foreign` = id-er der cachen sier
-   `_mine === false`). Forsvinner en slik rad fra serveren, er delingen opphørt
-   eller eieren har slettet den — begge veier skal den slippes, for
-   `insertPayload` ville satt OSS som `owner_id` og dermed gjort en gammel kopi
-   av andres innhold til vår.
+4. **Fremmede rader gjenskapes aldri** (`opts.foreign`): tvilsomme rader der
+   cachen sier `_mine === false`. Forsvinner en slik rad fra serveren, er
+   delingen opphørt eller eieren har slettet den — begge veier skal den slippes,
+   for `insertPayload` ville satt OSS som `owner_id` og dermed gjort en gammel
+   kopi av andres innhold til vår. Settet fryses for HELE runden (`doubted` i
+   `cloudCycle`): den andre flettingen, etter gravsteins-oppslaget, må ta samme
+   avgjørelse som den første — leste den `foreign` av det da-tømte tvilssettet,
+   ville en tilbaketrukket deling glidd gjennom som en «lokal nyopprettelse».
 
 Siste forsvarslag ligger i databasen: `guard_object_insert` avviser en insert
 med gravlagt id (`PT409`, «gravlagt: …»). `pushOps` kjenner igjen svaret

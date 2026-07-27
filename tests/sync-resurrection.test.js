@@ -320,6 +320,23 @@ async function run(label, vp, mobile) {
   await addCard(p, ID.proof, [], 'Går videre');
   log(label + ' 9: … og resten av synken går som normalt (tvilen gjelder kun cachens id-er)',
     await waitForServerRow(p, 'cards', ID.proof));
+  // Tvilen lever bare i minnet. Skrives en GYLDIG base til disk mens den står
+  // uavklart, ville neste oppstart lest basen som «vi vet hva serveren hadde»,
+  // mistet tvilen, og skrevet radene som nyopprettelser — mot en database uten
+  // insert-vakten ville det gjenopplivet dem. Basen skal derfor være ugyldig på
+  // disk så lenge historikken er uavklart …
+  const baseOnDisk = await p.evaluate((pfx) => {
+    const s = JSON.parse(localStorage.getItem(pfx + window.__huskis.authUser.id) || '{}');
+    return { base: s._base, v: s._baseV };
+  }, CACHE_PREFIX);
+  log(label + ' 9: uavklart historikk gir ingen gyldig base på disk',
+    baseOnDisk.v !== 1 && !baseOnDisk.base, JSON.stringify(baseOnDisk));
+  // … og en reload MENS oppslaget fortsatt er nede må derfor holde igjen på nytt.
+  await p.reload();
+  await p.waitForTimeout(2500);
+  await settle(p, 3);
+  log(label + ' 9: en reload med oppslaget fortsatt nede gjenoppliver ingenting',
+    !await serverHas(p, 'cards', ID.second));
   await setTombMode(p, 'real');
   await settle(p, 3);
   log(label + ' 9: når oppslaget svarer igjen, avklares raden uten et eneste skriveforsøk',

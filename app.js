@@ -6766,14 +6766,12 @@
                         skrives ikke før de er sjekket mot serverens gravsteiner
                         (cloudCycle). Alt som er laget ETTER cachen ble lest, er
                         utvilsomt nytt og skrives som før.
-       • `foreign`    — id-er vi VET tilhører noen andre (`_mine === false` fra
-                        forrige synk). Er en slik rad borte fra serveren, er
-                        delingen opphørt eller objektet slettet; å sette den inn
-                        igjen ville gjort OSS til oppretter av andres innhold.
-                        Gjelder kun rader i `unknown`: har vi base, sier den
-                        allerede at raden er fjern-slettet, og en `_mine`-verdi
-                        satt lokalt i denne økten er ikke noe serveren har
-                        bekreftet. */
+       • `foreign`    — id-er som ALDRI skal gjenskapes: rader cachen sier
+                        tilhører noen andre (`_mine === false`). Er en slik rad
+                        borte fra serveren, er delingen opphørt eller objektet
+                        slettet; å sette den inn igjen ville gjort OSS til
+                        oppretter av andres innhold. Hvem som havner i settet
+                        bestemmes av kalleren (cloudCycle) — se der. */
   const NO_IDS = new Set();
   function emptyDoc() { return { universes: [], groups: [], cards: [], items: [] }; }
   function reconcile(base, local, remote, opts) {
@@ -6808,10 +6806,9 @@
           if (canonical(m) !== canonical(R)) ops.push({ op: 'update', t, row: m });
         } else if (L && !R) {
           if (B) return;                 // fjern-slettet → dropp (ingen op)
-          if (!unknown.has(id)) { merged[key].push(L); ops.push({ op: 'insert', t, row: L }); return; }
-          // Ukjent historikk: raden kom fra en cache uten base.
           if (foreign.has(id)) return;   // andres rad, borte fra serveren → aldri gjenskap som vår
-          merged[key].push(L);
+          if (!unknown.has(id)) { merged[key].push(L); ops.push({ op: 'insert', t, row: L }); return; }
+          merged[key].push(L);           // ukjent historikk: behold synlig, men ikke skriv
           unverified.push({ t, id });
         } else if (!L && R) {
           if (B) ops.push({ op: 'delete', t, id });
@@ -7332,6 +7329,18 @@
      historikken er avklart (oppslaget svarte, eller ingen av radene er i tvil). */
   let unknownHistory = new Set();
   function persistBase(remote) {
+    // Uavklart historikk (gravsteins-oppslaget har ikke svart ennå): basen må
+    // IKKE gjøres gyldig på disk. Tvilen lever bare i minnet
+    // (`unknownHistory`), så en reload ville lest en gyldig base som «vi vet hva
+    // serveren hadde», mistet tvilen, og skrevet de uavklarte radene som
+    // nyopprettelser. Vi merker basen ugyldig i stedet, så neste oppstart spør
+    // på nytt.
+    if (unknownHistory.size) {
+      if (state._base === null && state._baseV === 0) return;
+      state._base = null; state._baseV = 0; persistedBaseSig = null;
+      saveLocal();
+      return;
+    }
     const sig = canonical(remote);
     if (sig === persistedBaseSig) return; // uendret siden sist skriving
     persistedBaseSig = sig;
@@ -7412,7 +7421,20 @@
       // `unknownHistory` er ikke-tom når cachen ble lest uten en gyldig base (kald
       // start, eller et domene som aldri har synket): de radene mangler kanskje på
       // serveren fordi de er slettet der, ikke fordi de er nye her.
-      const opts = () => ({ tombs: tombIds(), foreign: foreignIds(), unknown: unknownHistory });
+      //
+      // `doubted` fryser settet for HELE runden. Den andre flettingen (etter
+      // gravsteins-oppslaget) må nemlig ta den SAMME avgjørelsen om fremmede
+      // rader som den første: leste vi `foreign` av det da-tømte
+      // `unknownHistory`, ville en tilbaketrukket deling — droppet i runde 1 —
+      // sklidd gjennom som en «lokal nyopprettelse» i runde 2 og blitt skrevet
+      // med OSS som oppretter.
+      const doubted = new Set(unknownHistory);
+      const doubtedForeign = () => {
+        const f = new Set();
+        foreignIds().forEach((id) => { if (doubted.has(id)) f.add(id); });
+        return f;
+      };
+      const opts = () => ({ tombs: tombIds(), foreign: doubtedForeign(), unknown: unknownHistory });
       let r = reconcile(cloudBase || emptyDoc(), docFromMyState(), remote, opts());
       if (unknownHistory.size) {
         if (!r.unverified.length) {
