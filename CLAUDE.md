@@ -525,3 +525,20 @@ og snappet den tilbake ved neste synk. (4) Universkort og grupperader innleder m
 **[type-ikon]([delt-ikon])Navn**, og delte universkort har ikke lenger den lyse
 innerkanten (den lyste gjennom den gjennomsiktige `.card-body` og leste som en
 ramme rundt gruppelista).
+
+**Synk-fiks: én avvist skriving låste hele synken (siste runde)**: endringer
+sluttet å nå databasen fordi ETT listepunkt pekte på en kategori serveren ikke
+hadde. `items.cat_id`/`groups.cat_id` er fremmednøkler til sin egen tabell, og
+raden var dermed umulig å skrive — men `cloudCycle` planla en ny runde etter
+HVER push, uansett utfall, så den samme op-en ble regenerert og avvist ~1 gang i
+sekundet i det stille (bekreftet i Supabase-loggene: `get_my_doc` 200 /
+`POST /items` 409, i minuttevis). Tre grep: (1) `pushOps` sender kategorier FØR
+medlemmene sine innen samme tabell; (2) `docFromMyState` kjører
+`pruneDanglingCats` — en `cat` som ikke treffer en kategori nulles på VÅR side
+av flettingen (ikke bare i payloaden, ellers konvergerer aldri lokal og fjern),
+så raden lander på nivå 1 der visningen allerede viser den; (3) `pushOps`
+returnerer antall avviste ops, og bekreftelses-pullen (`cloudAgain`) planlegges
+kun når alt landet — pluss `noteReject`, som logger og gir én toast når SAMME rad
+avvises tre ganger på rad. Mock-backenden håndhever nå kategori-FK-en så testene
+er ekte. Ny test `tests/sync-dangling-category.test.js`. Ingen DB-migrering. Se
+`docs/accounts.md`.

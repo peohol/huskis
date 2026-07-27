@@ -353,6 +353,19 @@
 
   /* ---------------- Tabell-CRUD (med server-side LWW + vakter) ---------------- */
   var UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+  // `items.cat_id`/`groups.cat_id` er fremmednøkler til sin egen tabell. Ekte
+  // Postgres avviser en rad som peker på en kategori som ikke finnes — og det
+  // er nettopp den avvisningen som en gang låste synken i en usynlig
+  // retry-løkke, så mocken må håndheve den for at testene skal være ekte.
+  function catFkError(db, table, payload) {
+    if (table !== 'items' && table !== 'groups') return null;
+    var cat = payload && payload.cat_id;
+    if (!cat) return null;
+    var rows = db[table] || [];
+    for (var i = 0; i < rows.length; i++) if (rows[i].id === cat) return null;
+    return { code: '23503', message: 'insert or update on table "' + table +
+      '" violates foreign key constraint "' + table + '_cat_id_fkey"' };
+  }
   function applyInsert(db, table, uid, payload) {
     var rows = Array.isArray(payload) ? payload : [payload];
     // Objekt-tabellene har uuid-kolonner (som ekte Postgres): avvis ugyldige
@@ -776,14 +789,20 @@
           insert: function (payload) {
             return thenable(function () {
               var u = getSess(); if (!u) return { data: null, error: { message: 'ikke innlogget' } };
-              var db = loadDB(); applyInsert(db, table, u.id, payload); saveDB(db);
+              var db = loadDB();
+              var fk = catFkError(db, table, payload);
+              if (fk) return { data: null, error: fk };
+              applyInsert(db, table, u.id, payload); saveDB(db);
               return { data: null, error: null };
             });
           },
           update: function (payload) {
             return thenable(function (filters) {
               var u = getSess(); if (!u) return { data: null, error: { message: 'ikke innlogget' } };
-              var db = loadDB(); applyUpdate(db, table, u.id, clone(payload), filters); saveDB(db);
+              var db = loadDB();
+              var fk = catFkError(db, table, payload);
+              if (fk) return { data: null, error: fk };
+              applyUpdate(db, table, u.id, clone(payload), filters); saveDB(db);
               return { data: null, error: null };
             });
           },

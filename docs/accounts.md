@@ -58,7 +58,23 @@ samme nested `state` som før; synken går slik (`cloudCycle`):
    avvise utdaterte/uautoriserte skrivinger. Etter en push kjøres straks en
    bekreftelses-pull (`cloudAgain = true`) — den frisker opp `lastMy`, så
    køede delings-operasjoner som venter på en nypushet rad
-   (`rowKnownToServer`) slipper å vente på neste poll.
+   (`rowKnownToServer`) slipper å vente på neste poll. Bekreftelses-pullen
+   planlegges KUN når hele pushen landet (`pushOps` returnerer antall avviste
+   ops): en skriving som avvises permanent regenereres av reconcile hver runde,
+   og med en ubetinget `cloudAgain` ble det en varm løkke som hamret
+   `get_my_doc` + den samme avvisningen ~1 gang i sekundet. Blir noe avvist,
+   overlates neste forsøk til det vanlige pollet.
+
+   **Rekkefølge innen en tabell**: `items.cat_id`/`groups.cat_id` er
+   fremmednøkler til SIN EGEN tabell, så `pushOps` sorterer kategorier FØR
+   medlemmene sine (i tillegg til foreldre-før-barn på radtype). Kategorier
+   nøstes aldri, så ett nivå holder. `docFromMyState` kjører i tillegg
+   `pruneDanglingCats`: en `cat` som ikke treffer en kategori i doc-en nulles,
+   for en slik rad er umulig å skrive (FK) og ville låst synken for godt.
+   Prunet skjer på VÅR side av flettingen, ikke bare i payloaden — ellers ville
+   lokal state fortsatt påstått den døde kategorien, og fletteren sett en
+   forskjell mot serveren hver runde. Visningen behandler allerede en hengende
+   `cat` som nivå 1, så dette skriver bare ned det brukeren ser.
 
    **Skrivefeil forblir bevisst stille — UNNTATT skjema-avvik.** Supabase-
    klienten kaster ikke på en avvist skriving; feilen kommer i `result.error`.
@@ -75,6 +91,15 @@ samme nested `state` som før; synken går slik (`cloudCycle`):
    utlogging). For å hindre at en migrering i det hele tatt henger etter kjøres
    «Supabase DB-oppsett»-workflowen nå automatisk ved push til `main` — se
    `.github/workflows/db-setup.yml` og `TODO.md`.
+
+   De øvrige feilene er fortsatt stille, men ikke lenger *usynlige*: avviser
+   serveren SAMME rad `PERSISTENT_REJECTS` (3) ganger på rad, logges detaljene
+   og brukeren får én toast om at én endring ikke nådde skyen (`noteReject`).
+   Telleren nullstilles så snart raden går gjennom, så en forbigående konflikt
+   aldri når terskelen. Det var nettopp en usynlig, evig avvist skriving (et
+   listepunkt som pekte på en kategori serveren ikke hadde) som låste synken i
+   praksis — se rekkefølge-/prune-avsnittet over og
+   `tests/sync-dangling-category.test.js`.
 4. **Realtime** `postgres_changes` på de seks tabellene + poll (5 s) +
    `visibilitychange`/`focus`/`online` → `scheduleCloud`.
 
@@ -332,6 +357,12 @@ med en «database» delt mellom faner via `localStorage` og realtime simulert me
 brukere. Nok fidelitet til å kjøre hele delingsflyten, server-LWW, lås og
 forlat/utkast, uten ekte backend eller e-postbekreftelse. Ikke en full RLS-
 implementasjon; produksjon bruker ekte Supabase.
+
+To skranker mocken håndhever bevisst, fordi begge har brutt synken i praksis og
+en slapp mock ville sluppet regresjonen gjennom: **id-er må være UUID-er**
+(`UUID_RE` i `applyInsert` — testrader trenger derfor ekte UUID-er, ikke
+`'card-1'`), og **`items.cat_id`/`groups.cat_id` må peke på en kategori som
+finnes** (`catFkError`, avviser med `23503` som ekte Postgres).
 
 `?mock=1&lag=800` legger en kunstig «server»-forsinkelse (ms) på alle RPC-/
 tabell-kall (ikke auth) — brukes til å bevise at UI-et er umiddelbart og at
