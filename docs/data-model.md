@@ -27,9 +27,17 @@ state = {
               collapsed,                              // rullgardin-kollaps av lista (innholds-register, se docs/design-system.md)
               items: [ { id, text, trashed, done, responsible, start, due, home, cat, isCat, lockTimes } ] } ] } ] } // done: avkrysset; responsible: ansvarlig bruker-id (delte lister); start/due: tidsplan; cat/isCat/lockTimes: kategorier (se under)
   ],
-  _tomb: { universes:{}, groups:{}, cards:{}, items:{} }, // gravsteiner: id → ts
+  _tomb: { universes:{}, groups:{}, cards:{}, items:{} }, // gravsteiner: id → ts (permanent slettet)
+  _base: { universes:[], groups:[], cards:[], items:[] }, // synk-base: forrige serverkjente doc
+  _baseV: 1,                                              // basens versjon (BASE_VERSION)
 }
 ```
+
+`_tomb` og `_base`/`_baseV` er de eneste `_`-feltene (utenom `_hlc`/`_mine`) som
+lagres i cachen — de hører til synken, ikke til visningen. `_base` MÅ ligge i
+samme localStorage-post som innholdet, ellers kan de to komme i utakt og
+fletteren lese basens rader som «slettet lokalt». Se «Gjenoppstandelse» i
+`docs/accounts.md` og `docs/trash.md`.
 
 Forelder-peker på hvert nivå: `listepunkt.home → kort`, `kort.group → gruppe`,
 `gruppe.uni → univers`. Aktiv gruppe settes ALLTID via `setActiveGroup()` /

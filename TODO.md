@@ -250,6 +250,55 @@ rad-CRUD (`cleanGroup`/`cleanUniverse`/`mergeGroupScalar`/`mergeUniverseScalar`/
       PostgREST hver gruppe-/univers-skriving; klienten sier nå fra med én toast
       (`isSchemaMismatch`) i stedet for å svelge feilen stille.
 
+## Skjema-/logikk-endring: gravsteinene håndheves (`guard_object_insert`)
+
+Synk-runden mot **gjenoppstandelse av slettede objekter** (se `docs/trash.md`,
+`docs/accounts.md`, `docs/arkitektur-brukere-deling.md`). `tombstones`-tabellen
+ble skrevet ved sletting, men aldri konsultert — verken av klienten eller av
+databasen. Kombinert med at synk-basen (`cloudBase`) bare levde i minnet, betydde
+det at en klient med utdatert lokal cache (en annen enhet, det andre domenet, en
+gammel fane) satte inn igjen permanent slettede objekter ved neste synk — og med
+seg selv som `owner_id`.
+
+Databasesiden (alt i `supabase/users-and-sharing.sql`, idempotent og additivt —
+ingen eksisterende rader røres):
+
+- `guard_object_insert()` + BEFORE INSERT-triggere på `universes`/`groups`/
+  `cards`/`items`: avviser en insert med en gravlagt id (SQLSTATE `PT409`,
+  melding «gravlagt: …») og validerer at `owner_id` er den innloggede brukeren.
+- `tombstones_resource_idx` (indeks på `resource_id`) — klienten slår opp «er
+  disse id-ene gravlagt?» på id alene.
+- `import_doc` fjerner gravsteinene for nøyaktig de id-ene importen skriver
+  (utledet av brukerens egen uid via `legacy_uuid`), ellers ville vakten
+  blokkert en re-import for en bruker som har slettet noe permanent.
+
+Klientsiden er bakoverkompatibel: gravsteins-oppslaget leser `tombstones`-
+tabellen direkte (den har eksistert siden fase 1), så appen virker også mot en
+database som ennå ikke har fått denne migreringen — den mister bare det siste
+forsvarslaget til migreringen er kjørt.
+
+- [ ] **«Supabase DB-oppsett»-workflowen må kjøres** (går automatisk ved push til
+      `main` siden `supabase/users-and-sharing.sql` er endret — bekreft at runen
+      ble grønn) så insert-vakten finnes i produksjon. Ingen nye kolonner, kun
+      funksjoner/triggere/indeks, så det finnes ingen «klienten er foran
+      databasen»-vindu her.
+- [ ] Rydding av gravsteiner: **ikke innfør automatisk utløp.** En enhet som har
+      ligget ubrukt i et år har fortsatt sin gamle kopi. Skulle tabellen en gang
+      bli et volumproblem, må en sikker mekanisme dokumenteres først (f.eks. en
+      garantert øvre grense for hvor gammel en klients tilstand kan være).
+- [ ] **Rader som ALLEREDE er gjenoppstått** rydder migreringen bevisst IKKE opp
+      i: å slette rader i en migrering er irreversibelt, og en av dem kan være
+      noe brukeren har begynt å bruke igjen. De ligger der som vanlige rader —
+      slett dem på nytt i appen, og denne gangen blir de borte. Finn dem med:
+      `select t.resource_type, t.resource_id from public.tombstones t
+        where (t.resource_type = 'universe' and exists (select 1 from public.universes x where x.id = t.resource_id))
+           or (t.resource_type = 'group'    and exists (select 1 from public.groups    x where x.id = t.resource_id))
+           or (t.resource_type = 'card'     and exists (select 1 from public.cards     x where x.id = t.resource_id))
+           or (t.resource_type = 'item'     and exists (select 1 from public.items     x where x.id = t.resource_id));`
+- [ ] Engangs-diagnostikk hvis noe føles «gjenoppstått» i produksjon:
+      `select resource_type, resource_id, deleted_at from public.tombstones
+       order by deleted_at desc limit 50;`
+
 ## Manuelle steg (krever dashboard-tilgang — Peder)
 
 - [x] ~~GitHub → Settings → Secrets and variables → Actions: legg inn

@@ -542,3 +542,33 @@ kun når alt landet — pluss `noteReject`, som logger og gir én toast når SAM
 avvises tre ganger på rad. Mock-backenden håndhever nå kategori-FK-en så testene
 er ekte. Ny test `tests/sync-dangling-category.test.js`. Ingen DB-migrering. Se
 `docs/accounts.md`.
+
+**Synk-fiks: slettede objekter gjenoppsto fra en gammel lokal cache (siste
+runde)**: `cloudBase` (3-veis-flettingens base) levde bare i minnet, så hver
+oppstart begynte med en TOM base — og «finnes lokalt, ikke på serveren, ikke i
+base» leses som en LOKAL NYOPPRETTELSE. En klient med utdatert cache (en annen
+enhet, en gammel fane, eller `huskis.vercel.app` vs `www.huskis.no` — hvert domene
+har sin egen localStorage) satte derfor inn igjen alt den hadde som serveren ikke
+hadde, inkludert permanent slettede objekter, med seg selv som `owner_id`.
+`state._tomb` og `tombstones`-tabellen fantes begge, men ingen av dem ble
+konsultert. Fem lag: (1) **basen overlever omstart** — lagres versjonert
+(`_base`/`_baseV`, `BASE_VERSION`) i SAMME localStorage-post som innholdet, og
+rykker kun fram når fletteresultatet faktisk er tatt i bruk i `state`; (2)
+**manglende base = ukjent historikk** (`opts.baseKnown`) — «lokal, ikke fjern»-rader
+pushes ikke, de slås først opp mot serverens `tombstones` (direkte tabell-select,
+porsjoner à 100, kun når basen mangler OG det finnes tvilstilfeller); (3)
+**gravsteiner konsulteres begge veier** (`opts.tombs`) — aldri insert, og en
+gravlagt rad som fortsatt ligger på serveren får en `delete`; (4) **fremmede rader
+gjenskapes aldri** (`opts.foreign` = `_mine === false`), så en gammel kopi av
+andres delte objekt ikke kan settes inn med OSS som oppretter; (5) **databasen er
+autoritativ** — `guard_object_insert` (BEFORE INSERT på alle fire tabellene)
+avviser en gravlagt id (`PT409`, «gravlagt: …») og validerer `owner_id`, også for
+gamle klienter og rå `INSERT`. Klienten kjenner igjen avvisningen
+(`isTombstoneReject`), gravlegger raden lokalt og slutter å prøve. Utlogging tømmer
+innhold + gravsteiner + base sammen (`resetLocalSync`); innlogging leser alle tre
+fra den nye brukerens egen cache-post. Gravsteiner utløper ALDRI (eneste
+automatiske opprydding er `import_doc`, for sine egne id-er). Krever en DB-migrering
+i kontomodus (kun funksjoner/triggere/indeks — ingen nye kolonner) — se `TODO.md`.
+Nye tester: `tests/sync-resurrection.test.js`, `tests/sync-shared-resurrection.test.js`
+og `supabase/tests/test-tombstones.sql`. Se `docs/trash.md`, `docs/accounts.md`,
+`docs/arkitektur-brukere-deling.md`, `docs/data-model.md`.

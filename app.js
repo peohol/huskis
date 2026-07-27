@@ -312,10 +312,20 @@
   // beholdes. _mine (en ren boolsk verdi, ingen sirkulær referanse) beholdes også,
   // slik at Mine/Delte-filteret har et riktig eierskaps-signal fra cachet state
   // på kalde reloads/offline — før en vellykket get_my_doc overskriver den friskt.
+  // _base/_baseV er synk-basen (forrige serverkjente doc, se cloudCycle): den MÅ
+  // ligge i den samme localStorage-posten som innholdet, slik at basen og staten
+  // den ble flettet mot alltid lagres i én og samme skriving. Havnet de i hver
+  // sin post kunne den ene lande og den andre feile (kvote) — og en base som
+  // beskriver rader staten ikke har, leses av fletteren som «slettet lokalt» og
+  // ville pushet DELETE på gyldige rader.
+  const CACHED_META = new Set(['_tomb', '_hlc', '_mine', '_base', '_baseV']);
   function stateReplacer(k, v) {
-    return (k && k[0] === '_' && k !== '_tomb' && k !== '_hlc' && k !== '_mine') ? undefined : v;
+    return (k && k[0] === '_' && !CACHED_META.has(k)) ? undefined : v;
   }
-  function save() {
+  // Selve skrivingen (debouncet). Nøkkelen fanges når skrivingen bestilles, ikke
+  // når den utføres, så en utlogging midt i vinduet ikke flytter en brukers data
+  // over i en annen post.
+  function scheduleCacheWrite() {
     clearTimeout(saveTimer);
     const key = authUser ? (STORAGE_KEY + ':' + authUser.id) : STORAGE_KEY;
     saveTimer = setTimeout(() => {
@@ -326,9 +336,16 @@
         /* ignore quota */
       }
     }, 120);
+  }
+  function save() {
+    scheduleCacheWrite();
     if (applyingRemote) return;
     if (authUser) scheduleCloud();
   }
+  // Som save(), men uten å planlegge en synk-runde: brukes av synken selv når
+  // den skriver ned resultatet sitt (innhold + base) og altså nettopp har vært
+  // hos serveren.
+  function saveLocal() { scheduleCacheWrite(); }
 
   // Første gang (ingen lokal state): start tom når sky-synk er konfigurert
   // (skyen fyller på / tom-tilstanden veileder), ellers med eksempeldata.
@@ -2230,6 +2247,36 @@
     if (kind === 'universe') (o.groups || []).forEach((g) => tombSubtree(g, 'group'));
     else if (kind === 'group') (o.cards || []).forEach((c) => tombSubtree(c, 'card'));
     else if (kind === 'card') (o.items || []).forEach((it) => tombSubtree(it, 'item'));
+  }
+  /* ---------------- Gravsteiner: oppslag og påføring fra serveren ----------------
+     `state._tomb` er registeret over id-er DENNE brukeren har slettet permanent
+     («tøm søppelkassen»), og speiler serverens `tombstones`-tabell. Registeret
+     ble tidligere skrevet, men aldri lest — så en utdatert lokal kopi kunne
+     sette en permanent slettet rad inn igjen ved neste synk. Nå konsulterer
+     synk-motoren det i BEGGE retninger (se reconcile): en gravlagt id settes
+     aldri inn, og ligger den fortsatt på serveren, fullføres slettingen.
+     Gravsteiner utløper aldri — en klient som har ligget i skuffen i et år må
+     fortsatt møte dem. */
+  function emptyTomb() { return { universes: {}, groups: {}, cards: {}, items: {} }; }
+  const TOMB_BUCKET = { universe: 'universes', group: 'groups', card: 'cards', item: 'items' };
+  // Alle gravlagte id-er som ett flatt oppslag (id-ene er UUID-er, altså unike
+  // på tvers av nivåene).
+  function tombIds() {
+    const s = new Set();
+    Object.keys(TOMB_BUCKET).forEach((type) => {
+      Object.keys(state._tomb[TOMB_BUCKET[type]] || {}).forEach((id) => s.add(id));
+    });
+    return s;
+  }
+  // Gravlegg en id serveren har bekreftet som permanent slettet (funnet i
+  // `tombstones`, eller avvist av insert-vakten). Finnes objektet fortsatt i det
+  // lokale treet, gravlegges hele undertreet: serveren kaskade-slettet barna
+  // sammen med forelderen, så de er like døde.
+  function tombFromServer(type, id) {
+    const f = findAnyById(id);
+    if (f) { tombSubtree(f.obj, f.kind === 'category' ? 'item' : f.kind); return; }
+    const bucket = TOMB_BUCKET[type];
+    if (bucket) state._tomb[bucket][id] = tick();
   }
   // Alle fire gjenopprett-hjelperne slår opp objektet på nytt via id FØR de
   // muterer det — aldri den (potensielt foreldede) referansen som ble sendt inn.
@@ -6676,19 +6723,67 @@
     // (FK) og ville låst synken — se kommentaren der.
     return pruneDanglingCats(flattenNested(state, canonRow));
   }
+  // Rader den cachede staten sier tilhører NOEN ANDRE (`_mine === false`, satt
+  // av forrige `applyMyDoc` og bevart i cachen). Forsvinner en slik rad fra
+  // serveren, er delingen opphørt eller eieren har slettet den — begge veier
+  // skal vi la den gå, aldri sette den inn på nytt (`insertPayload` ville satt
+  // OSS som `owner_id`, altså gjort en gammel kopi av andres innhold til vår).
+  // Listepunkter er utelatt med vilje: de er aldri delings-røtter, og et
+  // listepunkt man selv har laget i en delt liste er reelt sett ens eget.
+  function foreignIds() {
+    const s = new Set();
+    state.universes.forEach((u) => {
+      if (u._mine === false) s.add(u.id);
+      (u.groups || []).forEach((g) => {
+        if (g._mine === false) s.add(g.id);
+        (g.cards || []).forEach((c) => { if (c._mine === false) s.add(c.id); });
+      });
+    });
+    return s;
+  }
 
   /* ---------------- 3-veis fletting (base/lokal/fjern) → merged + push-ops ----------------
      base = forrige serverkjente doc. For hver rad:
-       lokal & fjern  → felt-LWW; push oppdatering hvis vår vant på et register
+       gravlagt (uansett)  → aldri i merged; ligger den på serveren, push delete
+       lokal & fjern       → felt-LWW; push oppdatering hvis vår vant på et register
        lokal, !fjern, base → fjern-slettet → droppes
        lokal, !fjern, !base → lokalt ny → beholdes + push insert
+                              … MEN ukjent historikk holdes tilbake (se `unknown`)
        !lokal, fjern, base → lokalt slettet → droppes + push delete
        !lokal, fjern, !base → fjern-ny → legges til
-     Innhold-LWW gjenbruker merge*Scalar/mergeItem fra synk v1. */
+     Innhold-LWW gjenbruker merge*Scalar/mergeItem fra synk v1.
+
+     `opts`:
+       • `tombs`      — gravlagte id-er (state._tomb + det serveren har bekreftet).
+       • `unknown`    — id-er med UKJENT HISTORIKK: radene som ble lest fra en
+                        lokal cache uten gyldig synk-base. For dem er «finnes
+                        lokalt, ikke på serveren» tvetydig — de kan være laget her
+                        offline, eller slettet på en annen enhet. Det var nettopp
+                        den forvekslingen som lot en utdatert cache gjenopplive
+                        slettede objekter: uten base ble ALT lokalt lest som
+                        «laget her nå» og pushet som insert. Slike rader samles i
+                        `unverified` i stedet — de blir stående lokalt, men
+                        skrives ikke før de er sjekket mot serverens gravsteiner
+                        (cloudCycle). Alt som er laget ETTER cachen ble lest, er
+                        utvilsomt nytt og skrives som før.
+       • `foreign`    — id-er vi VET tilhører noen andre (`_mine === false` fra
+                        forrige synk). Er en slik rad borte fra serveren, er
+                        delingen opphørt eller objektet slettet; å sette den inn
+                        igjen ville gjort OSS til oppretter av andres innhold.
+                        Gjelder kun rader i `unknown`: har vi base, sier den
+                        allerede at raden er fjern-slettet, og en `_mine`-verdi
+                        satt lokalt i denne økten er ikke noe serveren har
+                        bekreftet. */
+  const NO_IDS = new Set();
   function emptyDoc() { return { universes: [], groups: [], cards: [], items: [] }; }
-  function reconcile(base, local, remote) {
+  function reconcile(base, local, remote, opts) {
+    opts = opts || {};
+    const tombs = opts.tombs || NO_IDS;
+    const foreign = opts.foreign || NO_IDS;
+    const unknown = opts.unknown || NO_IDS;
     const merged = { universes: [], groups: [], cards: [], items: [] };
     const ops = [];
+    const unverified = [];
     const TYPES = [
       { key: 'universes', t: 'universe', merge: mergeUniverseScalar },
       { key: 'groups', t: 'group', merge: mergeGroupScalar },
@@ -6702,22 +6797,29 @@
       const ids = new Set([...lMap.keys(), ...rMap.keys()]);
       ids.forEach((id) => {
         const L = lMap.get(id), R = rMap.get(id), B = bMap.get(id);
+        // GRAVLAGT: permanent slettet er endelig. Raden skal verken settes inn
+        // igjen eller vises — og ligger den fortsatt på serveren (slettingen
+        // rakk aldri fram, eller basen gikk tapt før den ble pushet), fullfører
+        // vi den nå i stedet for å la fjern-raden gjenopplive den lokalt.
+        if (tombs.has(id)) { if (R) ops.push({ op: 'delete', t, id }); return; }
         if (L && R) {
           const m = merge(L, R);
           merged[key].push(m);
           if (canonical(m) !== canonical(R)) ops.push({ op: 'update', t, row: m });
-        } else if (L && !R && !B) {
+        } else if (L && !R) {
+          if (B) return;                 // fjern-slettet → dropp (ingen op)
+          if (!unknown.has(id)) { merged[key].push(L); ops.push({ op: 'insert', t, row: L }); return; }
+          // Ukjent historikk: raden kom fra en cache uten base.
+          if (foreign.has(id)) return;   // andres rad, borte fra serveren → aldri gjenskap som vår
           merged[key].push(L);
-          ops.push({ op: 'insert', t, row: L });
-        } else if (!L && R && B) {
-          ops.push({ op: 'delete', t, id });
-        } else if (!L && R && !B) {
-          merged[key].push(R);
+          unverified.push({ t, id });
+        } else if (!L && R) {
+          if (B) ops.push({ op: 'delete', t, id });
+          else merged[key].push(R);
         }
-        // L && !R && B  → fjern-slettet → dropp (ingen op)
       });
     });
-    return { merged, ops };
+    return { merged, ops, unverified };
   }
 
   /* ---------------- merged (kanonisk) + metadata → nested state ----------------
@@ -6864,6 +6966,16 @@
     if (code === 'PGRST204' || code === 'PGRST205' || code === '42703') return true; // ukjent kolonne/tabell
     return /could not find the .*column|schema cache|column .* does not exist/i.test(String(error.message || ''));
   }
+  /* Insert-vakten i databasen avviser en id som har gravstein (permanent
+     slettet). Det er ikke en feil å varsle om — det er serveren som forteller
+     oss noe vi ikke visste: raden er borte for godt. Vi gravlegger den lokalt
+     også, så fletteren aldri prøver igjen. Siste forsvarslag: det fanger både
+     en klient som ikke rakk å hente gravsteinen, og kappløpet der en annen
+     enhet sletter i samme øyeblikk som vi skriver. */
+  function isTombstoneReject(error) {
+    if (!error) return false;
+    return String(error.code || '') === 'PT409' || /\bgravlagt\b/i.test(String(error.message || ''));
+  }
   /* En skriving som avvises om og om igjen med SAMME feil er ikke transient —
      den kommer aldri til å lande av seg selv. Vi teller per (tabell, rad, kode)
      og sier fra én gang når terskelen er nådd, slik at en gift op ikke lenger
@@ -6949,11 +7061,24 @@
     const upd = ops.filter((o) => o.op === 'update').sort(byParentFirst);
     const del = ops.filter((o) => o.op === 'delete').sort((a, b) => order[b.t] - order[a.t]);
     let failed = 0;
+    let tombed = false;
     for (const o of ins) {
       try {
-        if (!reportWriteResult(o.t, await client.from(TABLE[o.t]).insert(insertPayload(o.t, o.row, uid)), o.row.id)) failed++;
+        const res = await client.from(TABLE[o.t]).insert(insertPayload(o.t, o.row, uid));
+        // Avvist fordi id-en er gravlagt: serveren har rett, og saken er
+        // avgjort. Gravlegg den lokalt også (raden forsvinner fra fletteren og
+        // dermed fra visningen ved neste applyMyDoc) og regn IKKE dette som en
+        // feilet skriving — da hadde bekreftelses-pullen uteblitt og raden blitt
+        // hengende til neste poll.
+        if (res && res.error && isTombstoneReject(res.error)) {
+          tombFromServer(o.t, o.row.id);
+          tombed = true;
+          continue;
+        }
+        if (!reportWriteResult(o.t, res, o.row.id)) failed++;
       } catch (e) { failed++; /* nettverk – poll/realtime prøver igjen */ }
     }
+    if (tombed) saveLocal();
     for (const o of upd) {
       try {
         if (!reportWriteResult(o.t, await client.from(TABLE[o.t]).update(updatePayload(o.t, o.row)).eq('id', o.row.id), o.row.id)) failed++;
@@ -7183,7 +7308,37 @@
   }
 
   /* ---------------- Synk-syklus v2 ---------------- */
+  /* `cloudBase` er forrige serverkjente doc — 3-veis-flettingens base. Den
+     OVERLEVER nå en omstart: uten den startet hver økt med en tom base, og
+     kombinasjonen «finnes lokalt, ikke på serveren, ikke i base» ble lest som en
+     lokal nyopprettelse. En utdatert cache satte da inn igjen alt den hadde som
+     serveren ikke lenger hadde — inkludert permanent slettede objekter.
+
+     Basen lagres i den BRUKERSPESIFIKKE cachen (`mine-lister-v1:<uid>`), i
+     samme localStorage-post som innholdet, med et versjonsnummer så en framtidig
+     endring av doc-fasongen forkaster gamle baser i stedet for å mistolke dem.
+     To domener (www.huskis.no og huskis.vercel.app) har hver sin post og dermed
+     hver sin base — det er riktig: basen beskriver nettopp hva DENNE klienten
+     sist så. Mangler den, faller vi tilbake på gravsteins-oppslaget i
+     cloudCycle. */
+  const BASE_VERSION = 1;
   let cloudBase = null;
+  let persistedBaseSig = null;
+  /* Id-ene som ble lest fra en cache UTEN gyldig base — radene med ukjent
+     historikk. Bare for DEM er «finnes lokalt, ikke på serveren» tvetydig, og
+     bare de holdes tilbake til serverens gravsteiner har svart. Alt brukeren
+     lager etterpå er utvilsomt nytt og skrives som før, så en midlertidig feil i
+     gravsteins-oppslaget aldri kan stoppe vanlig bruk. Tømmes så snart
+     historikken er avklart (oppslaget svarte, eller ingen av radene er i tvil). */
+  let unknownHistory = new Set();
+  function persistBase(remote) {
+    const sig = canonical(remote);
+    if (sig === persistedBaseSig) return; // uendret siden sist skriving
+    persistedBaseSig = sig;
+    state._base = remote;
+    state._baseV = BASE_VERSION;
+    saveLocal();
+  }
   let cloudRunning = false, cloudAgain = false;
   let cloudDebounce = null, cloudPoll = null, cloudChan = null, cloudRt = false;
   let lastMy = null;
@@ -7220,6 +7375,30 @@
     if (error) throw error;
     return data || null;
   }
+  /* ---------------- Server-gravsteiner: sjekk av ukjent historikk ----------------
+     Uten en base kan ikke fletteren vite om en rad som finnes lokalt men ikke på
+     serveren er ny her eller slettet der. Serveren vet: `tombstones` har en rad
+     per permanent slettet objekt (skrevet av AFTER DELETE-triggerne, uten
+     utløp). Vi spør derfor rett ut — men bare om de id-ene det faktisk er tvil
+     om, og bare når basen mangler, så steady state ikke får en ekstra rundtur.
+
+     Tabellen leses direkte (RLS: lesbar for innloggede) i stedet for via en ny
+     RPC, med vilje: den har ligget der siden første versjon av skjemaet, så
+     klienten virker også mot en database som ennå ikke har fått denne rundens
+     migrering. Id-ene sendes i porsjoner så URL-en holder seg kort. */
+  const TOMB_LOOKUP_CHUNK = 100;
+  async function fetchServerTombs(ids) {
+    const client = acli();
+    const hits = [];
+    for (let i = 0; i < ids.length; i += TOMB_LOOKUP_CHUNK) {
+      const { data, error } = await client.from('tombstones')
+        .select('resource_type,resource_id')
+        .in('resource_id', ids.slice(i, i + TOMB_LOOKUP_CHUNK));
+      if (error) throw error; // nettverk/tilgang → hele runden prøves igjen
+      (data || []).forEach((r) => hits.push(r));
+    }
+    return hits;
+  }
   async function cloudCycle() {
     if (!authUser || !acli()) return;
     if (cloudRunning) { cloudAgain = true; return; }
@@ -7230,15 +7409,48 @@
       lastMy = my;
       const remote = contentDocFromMy(my);
       const meta = metaFromMy(my);
-      const local = docFromMyState();
-      const { merged, ops } = reconcile(cloudBase || emptyDoc(), local, remote);
-      cloudBase = remote;
+      // `unknownHistory` er ikke-tom når cachen ble lest uten en gyldig base (kald
+      // start, eller et domene som aldri har synket): de radene mangler kanskje på
+      // serveren fordi de er slettet der, ikke fordi de er nye her.
+      const opts = () => ({ tombs: tombIds(), foreign: foreignIds(), unknown: unknownHistory });
+      let r = reconcile(cloudBase || emptyDoc(), docFromMyState(), remote, opts());
+      if (unknownHistory.size) {
+        if (!r.unverified.length) {
+          unknownHistory.clear(); // ingen av dem er i tvil lenger
+        } else {
+          // Spør serveren hvilke av dem som er gravlagt, gravlegg dem lokalt
+          // også, og flett på nytt: de døde faller ut, resten er ekte lokale
+          // nyopprettelser og pushes i samme runde.
+          try {
+            const hits = await fetchServerTombs(r.unverified.map((x) => x.id));
+            if (hits.length) {
+              hits.forEach((h) => tombFromServer(h.resource_type, h.resource_id));
+              saveLocal();
+            }
+            unknownHistory.clear();
+            r = reconcile(cloudBase || emptyDoc(), docFromMyState(), remote, opts());
+          } catch (e) {
+            // Fikk ikke svar (offline, eller en database uten lesetilgang til
+            // tabellen). Radene det gjelder blir STÅENDE lokalt uten å skrives,
+            // og vi spør igjen neste runde. Resten av runden — oppdateringer,
+            // slettinger, fjern-nye rader OG alt brukeren lager nå — går som
+            // normalt: tvilen gjelder bare de id-ene som kom fra cachen.
+          }
+        }
+      }
+      const { merged, ops } = r;
       // Bruk fletteresultatet lokalt — men ikke avbryt aktiv redigering/draging,
       // og bare når visningen faktisk endrer seg (ellers tegner hvert poll / hver
       // runde i en push-retry-løkke board-et på nytt → hover-flimmer).
       const sig = viewSignature(merged, meta);
       if (!isBusyEditing()) {
         if (sig !== lastViewSig) { applyMyDoc(merged, meta); lastViewSig = sig; }
+        // Basen rykker fram KUN når fletteresultatet faktisk er tatt i bruk i
+        // `state`. Ellers ville basen beskrevet rader staten ikke har, og neste
+        // runde lest dem som «slettet lokalt» → push DELETE på gyldige rader
+        // (en fjern-opprettet rad som kom mens brukeren skrev, f.eks.).
+        cloudBase = remote;
+        persistBase(remote);
       } else if (sig !== lastViewSig) {
         cloudAgain = true; // utsatt visnings-endring → tegn på nytt når redigeringen er ferdig
       }
@@ -7326,7 +7538,7 @@
       if (error) throw error;
       localStorage.setItem(flag, '1');
       showToast('Lokale lister importert');
-      cloudBase = null;
+      cloudBase = null; persistedBaseSig = null; // importen endret serveren under oss
       scheduleCloud(0);
     } catch (e) {
       migrationChecked = false; // la brukeren prøve igjen senere
@@ -8162,6 +8374,35 @@
 
   /* ---------------- Start/stopp av kontomodus ---------------- */
   function cacheKey() { return authUser ? STORAGE_KEY + ':' + authUser.id : STORAGE_KEY; }
+  // ALL lokal synk-tilstand nullstilles sammen: innhold, gravsteiner OG basen.
+  // De hører til én og samme bruker, og en base fra forrige konto ville fått
+  // fletteren til å tro at den nye kontoens manglende rader var slettet.
+  function resetLocalSync() {
+    state.universes = [];
+    state._tomb = emptyTomb();
+    state._base = null;
+    state._baseV = 0;
+    cloudBase = null;
+    persistedBaseSig = null;
+    unknownHistory = new Set();
+    validateActive(state);
+  }
+  // Alle id-ene i et (nestet) state-tre — brukes til å merke hvilke rader som
+  // kom fra en cache uten base, altså har ukjent historikk.
+  function allStateIds(s) {
+    const set = new Set();
+    (s.universes || []).forEach((u) => {
+      set.add(u.id);
+      (u.groups || []).forEach((g) => {
+        set.add(g.id);
+        (g.cards || []).forEach((c) => {
+          set.add(c.id);
+          (c.items || []).forEach((it) => set.add(it.id));
+        });
+      });
+    });
+    return set;
+  }
   function loadCache() {
     try {
       const raw = localStorage.getItem(cacheKey());
@@ -8170,27 +8411,45 @@
       if (!s || !Array.isArray(s.universes)) return false;
       normalize(s);
       state.universes = s.universes;
-      state._tomb = s._tomb || state._tomb;
+      // Gravsteinene og basen tas ALLTID fra den lastede posten (ikke «|| det vi
+      // hadde»): faller vi tilbake på det som lå i minnet, arver en ny konto
+      // forrige brukers gravsteiner.
+      state._tomb = s._tomb && typeof s._tomb === 'object' ? s._tomb : emptyTomb();
+      ['universes', 'groups', 'cards', 'items'].forEach((k) => {
+        if (!state._tomb[k] || typeof state._tomb[k] !== 'object') state._tomb[k] = {};
+      });
       state._hlc = s._hlc || 0;
+      // Basen brukes kun hvis versjonen stemmer OG den ser ut som et doc — en
+      // base vi ikke stoler på skal gi «ukjent historikk», ikke gjetning.
+      const base = (s._baseV === BASE_VERSION && s._base && Array.isArray(s._base.universes)) ? s._base : null;
+      cloudBase = base;
+      state._base = base;
+      state._baseV = base ? BASE_VERSION : 0;
+      persistedBaseSig = base ? canonical(base) : null;
+      // Uten base vet vi ikke om disse radene er laget her eller slettet et
+      // annet sted — de må sjekkes mot serverens gravsteiner før de skrives.
+      unknownHistory = base ? new Set() : allStateIds(state);
       validateActive(state);
       return true;
     } catch (e) { return false; }
   }
 
-  let cloudStarted = false;
+  // Hvilken bruker den lokale synk-tilstanden er lastet FOR (ikke bare «er den
+  // lastet»): Supabase kan gå rett fra én innlogget bruker til en annen uten en
+  // SIGNED_OUT imellom, og da må innhold, gravsteiner og base byttes ut — ellers
+  // ville den nye kontoen arvet forrige brukers historikk.
+  let cloudStartedFor = null;
   async function cloudStart() {
     document.body.classList.remove('no-auth');
     authScreen.hidden = true;
-    if (!cloudStarted) {
-      cloudStarted = true;
-      if (!loadCache()) {           // ingen buffer for denne brukeren → start tomt (ikke vis annen brukers data)
-        state.universes = [];
-        state._tomb = { universes: {}, groups: {}, cards: {}, items: {} };
-        validateActive(state);
-      }
+    if (cloudStartedFor !== authUser.id) {
+      cloudStartedFor = authUser.id;
+      // Nullstill FØRST, last så denne brukerens egen post: uten buffer starter
+      // vi helt tomt (og med ukjent historikk), aldri på noe fra en annen konto.
+      resetLocalSync();
+      loadCache();
       render();
     }
-    cloudBase = null;
     lastViewSig = null; // tving en full første render ved (ny) innlogging
     migrationChecked = false;
     navRestored = false; // gjenopprett husket posisjon ved neste (første) pull
@@ -8202,8 +8461,8 @@
     clearInterval(cloudPoll);
     clearTimeout(cloudDebounce);
     if (cloudChan && aclient) { try { aclient.removeChannel(cloudChan); } catch (e) {} }
-    cloudChan = null; cloudRt = false; cloudBase = null; lastMy = null; lastViewSig = null;
-    cloudStarted = false;
+    cloudChan = null; cloudRt = false; lastMy = null; lastViewSig = null;
+    cloudStartedFor = null;
     shareGroupCache.clear(); shareGroupLoading.clear();
     // Køede operasjoner tilhører den utloggede sesjonen — dropp dem (de ville
     // uansett blitt avvist uten sesjon) og nullstill de optimistiske overlayene.
@@ -8217,7 +8476,11 @@
     schemaMismatchWarned = false; schemaMismatchLogged.clear();
     persistentWarned = false; rejectCounts.clear();
     authUser = null;
-    state.universes = [];
+    // Innhold, gravsteiner og base tømmes SAMMEN. Cachen på disken er nøklet
+    // per bruker og røres ikke (samme konto får sitt igjen ved neste innlogging)
+    // — men ingenting av forrige brukers synk-tilstand skal ligge igjen i minnet
+    // og bli lest som historikk for den neste som logger inn.
+    resetLocalSync();
     document.body.classList.add('no-auth');
     authScreen.hidden = false;
     setAuthMode('login');
@@ -8287,10 +8550,12 @@
   window.__huskis = {
     state, render, logout, addGroup, deleteGroup,
     addUniverse, deleteUniverse, setActiveUniverse, setActiveGroup,
+    emptyUniversesTrash, emptyGroupsTrash, emptyCardsTrash, emptyItemsTrash,
     openNavModal, closeNavModal,
     openAccount, closeAccount,
-    canonical, reconcile, docFromMyState, contentDocFromMy, applyMyDoc, cloudCycle,
-    isSchemaMismatch,
+    canonical, reconcile, emptyDoc, docFromMyState, contentDocFromMy, applyMyDoc, cloudCycle,
+    isSchemaMismatch, isTombstoneReject, tombIds,
+    get cloudBase() { return cloudBase; },
     openShare, openSettings, showToast,
     get authUser() { return authUser; },
     get lastMy() { return lastMy; },

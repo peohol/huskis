@@ -363,6 +363,20 @@ async function run(label, vp, mobile) {
   // DB-guarden krever redigeringsrett på BÅDE gammel og ny forelder, så en
   // flytting inn i et frosset univers ville blitt avvist og snappet tilbake ved
   // neste synk. Klienten må avvise den med en gang i stedet.
+  //
+  // Fikstur: «delt med meg og låst av eieren» settes direkte på state-objektet
+  // (`_mine`/`_mount`/`_locked`). De feltene EIER synken — `applyMyDoc` bygger dem
+  // fra serverens metadata ved hver runde som endrer visningen, og ville nullstilt
+  // dem midt i scenarioet. Testradene her har dessuten ikke UUID-er og finnes
+  // derfor aldri på «serveren». Vi pauser pullen mens 9 og 10 spilles ut: begge
+  // handler om DnD/rendring, ikke om synken (som `sync-*`-testene dekker).
+  await p.evaluate(() => {
+    const c = window.__huskis.client;
+    window.__navRealRpc = c.rpc.bind(c);
+    c.rpc = (name, params) => (name === 'get_my_doc'
+      ? Promise.resolve({ data: null, error: { message: 'pull pauset i test' } })
+      : window.__navRealRpc(name, params));
+  });
   await seed(p);
   await p.evaluate(() => {
     const u = window.__huskis.state.universes.find((x) => x.id === 'uni-B');
@@ -413,6 +427,7 @@ async function run(label, vp, mobile) {
     marks.rad.join() === 'kind-icon,share-badge,item-main' && marks.gruppeIkon === 1);
   log(label + ' 10: delt univers har ingen lys innerkant rundt gruppelista',
     marks.innerkant === false);
+  await p.evaluate(() => { window.__huskis.client.rpc = window.__navRealRpc; }); // pullen i gang igjen
 
   /* ---------- 11) Søppelkassene ---------- */
   // Frisk state: dra-testene over har flyttet gruppene rundt (og laget nye

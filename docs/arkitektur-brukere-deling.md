@@ -209,8 +209,35 @@ Full modell: [`rettigheter-og-deling.md`](rettigheter-og-deling.md).
   kun for selve mounten er den per mottaker. Share-roten kan mottakeren
   ikke trashe i det hele tatt (se «Deling»).
 - Tømming = hard `DELETE`. AFTER DELETE-triggere skriver **gravsteiner**
-  (`tombstones(resource_type, resource_id, ts)`) slik at en klient som
-  var offline ikke gjenoppliver slettede objekter ved neste synk.
+  (`tombstones(resource_type, resource_id, ts)`) — én rad per slettet objekt,
+  også for barna, siden `on delete cascade` sletter dem rad for rad og deres
+  egne triggere fyrer.
+- **Gravsteinene håndheves av databasen** (`guard_object_insert`, BEFORE INSERT
+  på alle fire objekttabellene): en id med gravstein kan ikke settes inn igjen.
+  Avvisningen har en distinkt SQLSTATE, `PT409`, med meldingen «gravlagt: …»,
+  så klienten kan skille den fra andre feil og gravlegge raden lokalt i stedet
+  for å prøve igjen. Dette er hele poenget med at regelen ligger i databasen:
+  den gjelder også for en gammel klientversjon, en modifisert klient og en rå
+  `INSERT`/`UPSERT` mot PostgREST. (Fram til denne runden ble tabellen skrevet,
+  men aldri konsultert — en klient med utdatert lokal cache kunne sende en helt
+  ordinær insert og få det slettede objektet tilbake.)
+- Samme vakt validerer at **`owner_id` er den innloggede brukeren**. RLS krever
+  det samme ved insert, men her ligger regelen i selve skrive-veien, uavhengig
+  av policy-oppsettet: en gammel kopi av andres delte objekt kan verken
+  gjenopplives eller settes inn med avsenderen som ny oppretter.
+- **Gravsteinene utløper aldri.** En klient som har ligget ubrukt i et år (en
+  gammel telefon, en annen nettleser, det andre domenet) har fortsatt sin gamle
+  lokale kopi og skal møte gravsteinen når den endelig synker igjen. Rydding må
+  ikke innføres uten en dokumentert, sikker mekanisme.
+- **Eneste automatiske opprydding**: `import_doc` fjerner gravsteinene for
+  nøyaktig de id-ene importen skriver (utledet av brukerens egen uid via
+  `legacy_uuid`). Uten det ville insert-vakten blokkert en re-import for en
+  bruker som tidligere har slettet noe permanent. En administrator som bevisst
+  vil gjenopprette noe (f.eks. fra sikkerhetskopi) må slette gravsteinen manuelt
+  først: `delete from public.tombstones where resource_id = '<id>';`
+- Klienten leser tabellen direkte (`select resource_type, resource_id where
+  resource_id in (…)`, RLS: lesbar for innloggede) når den mangler synk-base og
+  må avgjøre om en lokal rad er ny eller slettet — se `docs/accounts.md`.
 
 ## Klient-API (fase 2 bygger på dette)
 

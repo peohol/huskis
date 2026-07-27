@@ -154,10 +154,32 @@ tilsvarende.
 
 Tømming setter **gravsteiner** rekursivt (univers → grupper → lister →
 listepunkter: `emptyUniversesTrash`/`emptyGroupsTrash`/`emptyCardsTrash`/
-`emptyItemsTrash`). Destruktivt er alltid reversibelt frem til tømming. På
-serveren skriver AFTER DELETE-triggere gravsteiner (`tombstones`-tabellen) som
-hindrer at en offline klient gjenoppliver et slettet objekt — se
-`docs/arkitektur-brukere-deling.md`.
+`emptyItemsTrash`). Destruktivt er alltid reversibelt frem til tømming.
+
+### Gravsteiner: hva de faktisk gjør
+
+Gravsteinene finnes to steder, og BEGGE håndheves nå (fram til denne runden ble
+de skrevet, men aldri konsultert — derfor kunne en klient med utdatert lokal
+cache gjenopplive et permanent slettet objekt ved neste synk):
+
+- **Lokalt** (`state._tomb`, id → tidsstempel, per bruker i cachen). Synk-motoren
+  slår opp i det i BEGGE retninger: en gravlagt id settes aldri inn, og ligger
+  raden fortsatt på serveren (slettingen rakk aldri fram, eller synk-basen gikk
+  tapt før den ble pushet) fullføres slettingen i stedet for at fjern-raden får
+  gjenopplive den lokalt. Se `reconcile` i `docs/accounts.md`.
+- **På serveren** (`tombstones`-tabellen). AFTER DELETE-triggere skriver dem, og
+  en BEFORE INSERT-vakt (`guard_object_insert`) AVVISER en insert med en
+  gravlagt id — også fra en gammel klientversjon eller en rå `INSERT` mot
+  PostgREST. Klienten kjenner igjen avvisningen (`PT409`, «gravlagt: …»),
+  gravlegger raden lokalt og slutter å prøve. Se
+  `docs/arkitektur-brukere-deling.md`.
+
+Gravsteiner **utløper aldri**: en enhet som har ligget ubrukt i et år har
+fortsatt sin gamle kopi. Den eneste automatiske oppryddingen er `import_doc`,
+som fjerner gravsteinene for nøyaktig de id-ene importen skriver.
+
+Vanlig sletting til papirkurven setter derimot INGEN gravstein — den er bare et
+`trashed`-flagg, og «Gjenopprett» er en helt vanlig innholds-endring.
 
 Alle tekster/titler sier «hold og sveip for å tømme» (ikke «hold i 3
 sekunder»).

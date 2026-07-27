@@ -372,6 +372,20 @@ alter table public.share_invites enable row level security;
 -- ------------------------------------------------------------
 -- 4. GRAVSTEINER — hindrer at offline-klienter gjenoppliver
 --    hardslettede objekter ved neste synk.
+--
+--    Gravsteinene er AUTORITATIVE og håndheves av databasen selv
+--    (guard_object_insert under): en permanent slettet id kan ikke
+--    settes inn igjen — heller ikke av en gammel klientversjon, en
+--    modifisert klient eller en rå INSERT/UPSERT mot PostgREST.
+--    Klientens egen filtrering er et lag over dette, ikke i stedet
+--    for det.
+--
+--    De UTLØPER ALDRI. En klient som har ligget ubrukt i et år (en
+--    gammel telefon, en annen nettleser, det andre domenet) har
+--    fortsatt sin gamle lokale kopi, og skal møte gravsteinen når
+--    den endelig synker igjen. Rydding må derfor ikke innføres uten
+--    en dokumentert, sikker mekanisme (f.eks. at ingen klient kan
+--    ha eldre tilstand enn X) — se docs/trash.md.
 -- ------------------------------------------------------------
 
 create table if not exists public.tombstones (
@@ -381,6 +395,10 @@ create table if not exists public.tombstones (
   deleted_at    timestamptz not null default now(),
   primary key (resource_type, resource_id)
 );
+
+-- Klienten slår opp «er disse id-ene gravlagt?» på resource_id alene
+-- (den kjenner ikke nivået til en rad den bare har lokalt).
+create index if not exists tombstones_resource_idx on public.tombstones (resource_id);
 
 alter table public.tombstones enable row level security;
 
@@ -414,6 +432,68 @@ create trigger cards_tombstone after delete on public.cards
 drop trigger if exists items_tombstone on public.items;
 create trigger items_tombstone after delete on public.items
   for each row execute function public.write_tombstone();
+
+-- BEFORE INSERT-vakt på de fire objekttabellene. To ting, og begge må ligge i
+-- DATABASEN for å være noe verdt — en klient kan byttes ut, databasen ikke:
+--
+--   1. GJENOPPLIVING. Har id-en gravstein, avvises innsettingen. Det var
+--      nettopp dette som manglet: `tombstones` ble skrevet, men aldri
+--      konsultert, så en klient med utdatert lokal cache kunne sende en helt
+--      vanlig INSERT og få det permanent slettede objektet tilbake i basen.
+--      Vi avviser i stedet for å svelge stille: en stille no-op ville fått
+--      klienten til å tro at raden landet, og la den prøve igjen i det
+--      uendelige. Feilkoden (PT409) er distinkt, så klienten kan gravlegge
+--      raden lokalt og slutte å prøve.
+--   2. OPPRETTER. `owner_id` valideres mot den innloggede brukeren. RLS krever
+--      det samme (`with check (owner_id = auth.uid())`), men den sjekken kan
+--      slås av eller endres per tabell; her ligger regelen i selve
+--      skrive-veien, uavhengig av policy-oppsettet. Sammen med (1) betyr det at
+--      en gammel kopi av andres delte objekt verken kan gjenopplives eller
+--      settes inn med avsenderen som ny eier.
+--
+-- auth.uid() is null = psql/vedlikehold: owner_id sjekkes ikke, men gravsteinen
+-- gjelder også der. Skal en administrator bevisst gjenopprette et slettet
+-- objekt (f.eks. fra sikkerhetskopi), må gravsteinen fjernes først:
+--   delete from public.tombstones where resource_id = '<id>';
+create or replace function public.guard_object_insert()
+returns trigger language plpgsql security definer set search_path = public as $$
+declare
+  uid uuid := auth.uid();
+  rtype text := case tg_table_name
+                  when 'universes' then 'universe'
+                  when 'groups'    then 'group'
+                  when 'cards'     then 'card'
+                  when 'items'     then 'item'
+                end;
+begin
+  if exists (select 1 from public.tombstones t
+              where t.resource_type = rtype and t.resource_id = new.id) then
+    raise exception using
+      errcode = 'PT409',
+      message = 'gravlagt: ' || rtype || ' ' || new.id || ' er permanent slettet',
+      hint    = 'Objektet er slettet for godt. En utdatert klient kan ikke sette det inn igjen.';
+  end if;
+  if uid is not null and new.owner_id is distinct from uid then
+    raise exception using
+      errcode = '42501',
+      message = 'oppretter (owner_id) må være den innloggede brukeren';
+  end if;
+  return new;
+end;
+$$;
+
+drop trigger if exists universes_insert_guard on public.universes;
+create trigger universes_insert_guard before insert on public.universes
+  for each row execute function public.guard_object_insert();
+drop trigger if exists groups_insert_guard on public.groups;
+create trigger groups_insert_guard before insert on public.groups
+  for each row execute function public.guard_object_insert();
+drop trigger if exists cards_insert_guard on public.cards;
+create trigger cards_insert_guard before insert on public.cards
+  for each row execute function public.guard_object_insert();
+drop trigger if exists items_insert_guard on public.items;
+create trigger items_insert_guard before insert on public.items
+  for each row execute function public.guard_object_insert();
 
 -- ------------------------------------------------------------
 -- 5. TILGANGSFUNKSJONER (security definer => omgår RLS internt,
@@ -1934,6 +2014,28 @@ declare
   n_uni int := 0; n_grp int := 0; n_card int := 0; n_item int := 0;
 begin
   if uid is null then raise exception 'ikke innlogget'; end if;
+
+  -- Importen er en EKSPLISITT handling fra brukeren selv, på id-er som er
+  -- utledet av brukerens egen uid (legacy_uuid) — altså ingen andres data. Har
+  -- brukeren tidligere slettet noe av dette permanent, ville insert-vakten
+  -- blokkert hele importen; vi fjerner derfor gravsteinene for nøyaktig de
+  -- id-ene importen skriver, og bare dem. (Dette er den ENESTE veien en
+  -- gravstein fjernes automatisk — synken kan det aldri.)
+  delete from public.tombstones t
+   using (
+     select public.legacy_uuid(uid, x ->> 'id') as id
+       from jsonb_array_elements(coalesce(p_doc -> 'universes', '[]'::jsonb)) x
+     union all
+     select public.legacy_uuid(uid, x ->> 'id')
+       from jsonb_array_elements(coalesce(p_doc -> 'groups', '[]'::jsonb)) x
+     union all
+     select public.legacy_uuid(uid, x ->> 'id')
+       from jsonb_array_elements(coalesce(p_doc -> 'cards', '[]'::jsonb)) x
+     union all
+     select public.legacy_uuid(uid, x ->> 'id')
+       from jsonb_array_elements(coalesce(p_doc -> 'items', '[]'::jsonb)) x
+   ) imported
+   where t.resource_id = imported.id;
 
   for r in select * from jsonb_array_elements(coalesce(p_doc -> 'universes', '[]'::jsonb)) loop
     insert into public.universes as t (id, owner_id, name, trashed, collapsed, ts, org, pos, pos_ts, pos_org)
