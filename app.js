@@ -8210,9 +8210,12 @@
     opQueue.clear();
     lockOverrides.clear(); unlockOverrides.clear(); policyOverrides.clear(); mountOverrides.clear(); suppressedRows.clear();
     suppressedInvites.clear();
-    // Skjema-avvik-varselet gjaldt den utloggede sesjonen — la en ny sesjon
-    // varsle på nytt hvis databasen fortsatt henger etter.
+    // Skrivefeil-varslene gjaldt den utloggede sesjonen — la en ny sesjon varsle
+    // på nytt hvis databasen fortsatt henger etter. Avvisnings-tellerne er
+    // per rad, og en ny konto kan ha helt andre rettigheter på samme rad, så de
+    // nullstilles også (ellers ville terskelen kunne nås for tidlig).
     schemaMismatchWarned = false; schemaMismatchLogged.clear();
+    persistentWarned = false; rejectCounts.clear();
     authUser = null;
     state.universes = [];
     document.body.classList.add('no-auth');
