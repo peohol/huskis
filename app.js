@@ -690,9 +690,30 @@
     if (relayoutRAF != null) return;
     relayoutRAF = requestAnimationFrame(() => { relayoutRAF = null; relayoutBoard(); });
   }
+  // Hold observatørens mål i takt med kortene som faktisk står på board-et.
+  // `render()` river alle kortnodene (`board.innerHTML = ''`) og `refreshCard()`
+  // bytter ut enkeltnoder — uten dette ville observasjonene av de gamle nodene
+  // blitt liggende og hopet seg opp for hver render (denne appen re-rendrer ved
+  // hver synk). Å `observe()` et mål som allerede observeres er en no-op per spec,
+  // så re-observeringen kan ikke gi en ny runde med callbacks.
+  const boardObserved = new Set();
+  function observeBoardRows(rows) {
+    if (!boardRO) return;
+    const now = new Set(rows);
+    boardObserved.forEach((el) => {
+      if (now.has(el)) return;
+      boardRO.unobserve(el);
+      boardObserved.delete(el);
+    });
+    rows.forEach((el) => {
+      if (boardObserved.has(el)) return;
+      boardRO.observe(el);
+      boardObserved.add(el);
+    });
+  }
   function relayoutBoard() {
     if (drag.active) return;                            // frosset under draging
-    if (board.classList.contains('empty')) return;
+    if (board.classList.contains('empty')) { observeBoardRows([]); return; }
     // En node som flyttes i DOM mister fokus (og markøren i et navnefelt). Er
     // man midt i å skrive, venter vi til feltet forlates (`focusout` under).
     const focused = document.activeElement;
@@ -718,6 +739,7 @@
       if (rows.length) cols[0].append(...rows);
     }
     const rows = boardRows();
+    observeBoardRows(rows);
     if (!rows.length) return;
     const gap = boardGap();
     const heights = rows.map((el) => el.offsetHeight);
@@ -730,11 +752,11 @@
       if (cur.length === next.length && next.every((el, k) => cur[k] === el)) return;
       col.append(...next);
     });
-    if (boardRO) rows.forEach((el) => boardRO.observe(el));
   }
   // Korthøyder endres av mye (kollaps, listepunkter inn/ut, tekst som brytes om) —
   // én observatør fanger alt. Fordelingen skrives bare når den faktisk endrer seg,
-  // så observatøren kan ikke gå i løkke med seg selv.
+  // så observatøren kan ikke gå i løkke med seg selv. Board-et selv observeres
+  // permanent (bredde-endringer); kortene reconciles av `observeBoardRows`.
   const boardRO = typeof ResizeObserver === 'function' ? new ResizeObserver(scheduleRelayout) : null;
   if (boardRO) boardRO.observe(board);
   board.addEventListener('focusout', () => { if (relayoutPending) scheduleRelayout(); });
@@ -3877,7 +3899,12 @@
       return topThird >= b.top - grace && botThird <= b.bottom + grace;
     };
     const cur = drag.overCard;
-    if (cur && cur.isConnected && inCard(cur, drag.overGrace || 0)) return cur;
+    if (cur && cur.isConnected) {
+      // Slarken skal dekke ETT layout-hopp, ikke bli liggende: er objektet inne i
+      // sonen på egen hånd, er hoppet passert og slarken forbrukt (se noteOverShift).
+      if (inCard(cur, 0)) { drag.overGrace = 0; return cur; }
+      if (inCard(cur, drag.overGrace || 0)) return cur;
+    }
     for (const c of board.querySelectorAll('.card')) {
       if (inCard(c, 0)) { drag.overCard = c; drag.overGrace = 0; return c; }
     }
@@ -3898,7 +3925,12 @@
      stickiness-en i `dragOverCard` beholde den gjennom akkurat det hoppet. Å
      forlate lista krever da en tydelig bevegelse ut — ikke bare at gulvet flyttet
      seg under objektet. Grensen for å gå INN er uendret (`grace` er 0 til man er
-     inne), så 1/3-tersklene måles som før. */
+     inne), så 1/3-tersklene måles som før.
+
+     Slarken FORBRUKES så snart objektet ligger inne i sonen på egen hånd
+     (`dragOverCard`): den er kompensasjon for ett hopp, ikke en varig utvidelse av
+     lista. I det vanlige tilfellet (en fylt liste, høy sone) er den derfor borte
+     allerede ved neste bevegelse, og ut-tersklene er nøyaktig de dokumenterte. */
   function noteOverShift(cardEl, beforeTop) {
     if (!cardEl || drag.overCard !== cardEl) return;
     drag.overGrace = Math.max(drag.overGrace || 0,

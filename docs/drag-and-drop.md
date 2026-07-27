@@ -498,7 +498,14 @@ faktisk flyttet seg av byttet og lar stickiness-en i `dragOverCard` beholde den
 gjennom akkurat det hoppet (`grace` legges bare på det kortet man ALLEREDE er i;
 grensen for å gå INN er uendret, så 1/3-tersklene måles som før). Å forlate lista
 krever da en tydelig bevegelse ut — ikke bare at gulvet flyttet seg under objektet.
-Dekket av punkt 6 i `tests/board-columns.test.js`.
+
+Slarken **forbrukes** så snart objektet ligger inne i sonen på egen hånd
+(`inCard(cur, 0)`): den er kompensasjon for ETT hopp, ikke en varig utvidelse av
+lista. Blir den liggende, må man dra en placeholderhøyde EKSTRA for å komme ut igjen,
+og et slipp rett under lista havner i den i stedet for i en ny liste (målt: 57 px
+forbi terskelen, mot 0,5 px når den forbrukes). I det vanlige tilfellet — en fylt
+liste med høy sone — er slarken borte allerede ved neste bevegelse.
+Dekket av punkt 6 og 7 i `tests/board-columns.test.js`.
 
 To spesialtilfeller i `cardBand`:
 - **Kollapset eller peek-åpnet liste** → hele kortet er sonen. En kollapset liste

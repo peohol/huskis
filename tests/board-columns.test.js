@@ -278,6 +278,95 @@ async function lift(p, sel) {
     await p.close();
   }
 
+  /* ============ 7) Slarken forbrukes — ut-terskelen er den dokumenterte ============
+     `drag.overGrace` er kompensasjon for ETT layout-hopp (punkt 6), ikke en varig
+     utvidelse av lista. Blir den liggende, må man dra en placeholderhøyde EKSTRA
+     for å komme ut igjen av en liste man gikk inn i underveis — og et slipp rett
+     under lista havner i den i stedet for i en ny liste. */
+  {
+    const p = await b.newPage({ viewport: { width: 1400, height: 900 } });
+    const errs = []; p.on('pageerror', (e) => errs.push(e.message));
+    await register(p);
+    await seed(p, [3, 3, 3]); // L1 og L2 i kolonne 1
+    const z = await lift(p, '.card[data-id="card-0"] .item');
+    // Dra nedover gjennom board-lufta, INN i L2, og videre ut under den.
+    let entered = null, left = null, prev = null;
+    for (let i = 0; i < 200; i++) {
+      await ptr(p, 'pointermove', z.cx, z.cy + 8 + i * 3);
+      const s = await p.evaluate(() => {
+        const d = document.querySelector('.item.dragging');
+        const ph = document.querySelector('.item-placeholder');
+        const ar = document.querySelector('.card[data-id="card-1"] .add-item-row');
+        const top = parseFloat(d.style.top) - window.scrollY, h = parseFloat(d.style.height);
+        const r = ar && ar.getBoundingClientRect();
+        return {
+          mode: document.querySelector('.new-list-placeholder') ? 'extract' : (ph ? 'reorder' : '-'),
+          phCard: ph && ph.closest('.card') ? ph.closest('.card').dataset.id : null,
+          botThird: top + h - h / 3,
+          addMid: r ? (r.top + r.bottom) / 2 : null,
+        };
+      });
+      if (!entered && s.mode === 'reorder' && s.phCard === 'card-1') entered = s;
+      // Geometrien MÅ leses fra prøven FØR overgangen: i extract-modus har
+      // reorder-placeholderen alt forlatt lista, så knapperaden har rykket opp.
+      if (entered && s.mode === 'extract') { left = { botThird: s.botThird, addMid: prev.addMid }; break; }
+      prev = s;
+    }
+    await ptr(p, 'pointercancel', z.cx, z.cy);
+    await p.waitForTimeout(300);
+    log('7 objektet gikk inn i L2 og ut igjen', !!entered && !!left);
+    if (left) {
+      const over = left.botThird - left.addMid;
+      log('7 ut-terskelen er nedre 1/3 forbi knapperadens midtlinje (slarken forbrukt)',
+        over >= 0 && over <= 12, 'forbi=' + over.toFixed(1) + ' px');
+    }
+    log('7 ingen JS-feil', errs.length === 0, errs.join(' | '));
+    await p.close();
+  }
+
+  /* ============ 8) ResizeObserver-målene hoper seg ikke opp ============
+     `relayoutBoard` observerer kortene for å fange høydeendringer, men `render()`
+     river alle kortnodene (og appen re-rendrer ved hver synk). Uten opprydding
+     ville observasjonene av de frakoblede nodene blitt liggende og vokst i det
+     uendelige. */
+  {
+    const p = await b.newPage({ viewport: { width: 1400, height: 900 } });
+    const errs = []; p.on('pageerror', (e) => errs.push(e.message));
+    await p.addInitScript(() => {
+      const RO = window.ResizeObserver;
+      window.__roLive = new Set();
+      window.ResizeObserver = class extends RO {
+        observe(t, o) { window.__roLive.add(t); return super.observe(t, o); }
+        unobserve(t) { window.__roLive.delete(t); return super.unobserve(t); }
+        disconnect() { window.__roLive.clear(); return super.disconnect(); }
+      };
+    });
+    await register(p);
+    await seed(p, [3, 3, 3]);
+    const live = () => p.evaluate(() => ({
+      total: window.__roLive.size,
+      detached: [...window.__roLive].filter((t) => !t.isConnected).length,
+    }));
+    const first = await live();
+    for (let i = 0; i < 15; i++) await p.evaluate(() => window.__huskis.render());
+    await p.waitForTimeout(400);
+    const after = await live();
+    log('8 antall observerte mål er uendret etter 15 re-rendringer',
+      after.total === first.total, JSON.stringify({ first, after }));
+    log('8 ingen frakoblede noder blir liggende og observeres', after.detached === 0, JSON.stringify(after));
+    // Tom gruppe: kortene slippes, kun de to permanente (board + toppmeny) står igjen.
+    await p.evaluate(() => {
+      const H = window.__huskis, st = H.state;
+      const g = st.universes.find((u) => u.id === st.activeUniverse).groups.find((x) => x.id === st.activeGroup);
+      g.cards = []; H.render();
+    });
+    await p.waitForTimeout(400);
+    const empty = await live();
+    log('8 tom gruppe slipper alle kort-observasjoner', empty.total <= 2 && empty.detached === 0, JSON.stringify(empty));
+    log('8 ingen JS-feil', errs.length === 0, errs.join(' | '));
+    await p.close();
+  }
+
   await b.close();
   const ok = results.filter(Boolean).length;
   console.log('\n==== ' + ok + '/' + results.length + (ok === results.length ? ' PASS ====' : ' — NOEN FEILET ===='));

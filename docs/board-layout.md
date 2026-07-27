@@ -37,8 +37,15 @@ fortsatt hadde masse plass.
 **Når kjøres fordelingen?** Etter `render()`, ved vindus-resize, og ellers av en
 `ResizeObserver` på board-et og hvert kort (korthøyder endres av kollaps,
 listepunkter inn/ut, tekst som brytes om). Den skriver bare når fordelingen
-faktisk endrer seg, så observatøren kan ikke gå i løkke med seg selv. To ting den
-IKKE gjør:
+faktisk endrer seg, så observatøren kan ikke gå i løkke med seg selv.
+
+`observeBoardRows` holder observatørens mål i takt med kortene som faktisk står på
+board-et: `render()` river alle kortnodene og `refreshCard()` bytter ut enkeltnoder,
+så uten opprydding ville observasjonene av de frakoblede nodene hopet seg opp for
+hver eneste re-render (appen re-rendrer ved hver synk). Board-et selv observeres
+permanent — det er bredde-endringene som avgjør kolonneantallet.
+
+To ting relayouten IKKE gjør:
 
 - **Ikke under et drag** (`drag.active`) — kortene skal ligge i ro under fingeren,
   og en omfordeling midt i et drag ville gitt tilbake nettopp den tilbakekoblingen
