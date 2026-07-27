@@ -47,11 +47,12 @@ samme nested `state` som før; synken går slik (`cloudCycle`):
    (`suppressedRows`, se operasjonskøen under) filtreres bort — inkludert hele
    undertreet — i `contentDocFromMy`, så reconcile verken gjenoppliver dem
    lokalt eller pusher delete på eierens rader mens `leave_share` er underveis.
-2. **3-veis fletting** (`reconcile(base, local, remote)`) mot en base-snapshot
-   (forrige serverkjente doc): felt-nivå LWW (gjenbruker `merge*Scalar`/
-   `mergeItem` fra v1) for rader som finnes begge steder; eksistens avgjøres
-   3-veis (base skiller «lokalt slettet» fra «fjern-opprettet», så ingen
-   gravsteiner trengs i pull-en).
+2. **3-veis fletting** (`reconcile(base, local, remote, opts)`) mot en
+   base-snapshot (forrige serverkjente doc): felt-nivå LWW (gjenbruker
+   `merge*Scalar`/`mergeItem` fra v1) for rader som finnes begge steder;
+   eksistens avgjøres 3-veis (base skiller «lokalt slettet» fra
+   «fjern-opprettet»). `opts` bærer de tre vaktene under (gravsteiner, kjent
+   base, fremmede rader).
 3. **Push**: rad-CRUD (`insert`/`update`/`delete`) mot tabellene for radene der
    vår tilstand vant. Serveren håndhever RLS + felt-LWW (BEFORE UPDATE-
    triggere), så klienten stempler bare registrene som før og lar serveren
@@ -103,9 +104,66 @@ samme nested `state` som før; synken går slik (`cloudCycle`):
 4. **Realtime** `postgres_changes` på de seks tabellene + poll (5 s) +
    `visibilitychange`/`focus`/`online` → `scheduleCloud`.
 
-`cloudBase` settes til fjern-doc'et hver runde (basen for neste 3-veis).
 Offline-buffer: `state` caches per bruker (`mine-lister-v1:<uid>`), uten intern
-metadata (`stateReplacer` hopper over `_`-felt for å unngå sykliske refs).
+metadata (`stateReplacer` hopper over `_`-felt for å unngå sykliske refs — med
+unntak av `_mine`, `_tomb`, `_hlc` og `_base`/`_baseV`).
+
+### Gjenoppstandelse: hvorfor basen lagres og gravsteinene håndheves
+
+`cloudBase` levde tidligere bare i minnet. Hver oppstart begynte derfor med en
+TOM base, og første synk var i praksis `reconcile(emptyDoc(), local, remote)` —
+der kombinasjonen «finnes lokalt, ikke på serveren, ikke i base» leses som en
+**lokal nyopprettelse**. En klient med utdatert cache (en annen enhet, en gammel
+fane, eller det andre domenet — `huskis.vercel.app` og `www.huskis.no` har hver
+sin localStorage) satte da inn igjen alt den hadde og serveren ikke hadde,
+inkludert permanent slettede objekter. `state._tomb` og `tombstones`-tabellen
+fantes begge, men ingen av dem ble konsultert. Fire lag løser det:
+
+1. **Basen overlever omstart.** Den lagres i den brukerspesifikke cachen, i
+   SAMME `localStorage`-post som innholdet (én skriving → base og innhold kan
+   ikke komme i utakt), med et versjonsnummer (`_baseV`, `BASE_VERSION`) så en
+   framtidig endring av doc-fasongen forkaster gamle baser i stedet for å
+   mistolke dem. Basen rykker fram KUN når fletteresultatet faktisk er tatt i
+   bruk i `state` — ellers ville den beskrevet rader staten ikke har, og neste
+   runde lest dem som «slettet lokalt» → push `DELETE` på gyldige rader. Og så
+   lenge historikken er UAVKLART (se 2), skrives ingen gyldig base til disk i det
+   hele tatt: tvilen lever bare i minnet, så en gyldig base på disk ville fått
+   neste oppstart til å tro at den visste hva serveren hadde.
+2. **Manglende base = ukjent historikk, ikke nyopprettelse** (`unknownHistory`,
+   satt av `loadCache` til id-ene i en cache uten gyldig base). Bare DE radene er
+   tvilsomme; de samles i `unverified` i stedet for å bli pushet. Klienten slår
+   dem opp mot serverens `tombstones` (direkte tabell-select på
+   `resource_id in (…)`, i porsjoner à 100, RLS: lesbar for innloggede),
+   gravlegger treffene lokalt og fletter på nytt. De som overlever er ekte lokale
+   nyopprettelser og pushes i samme runde — så en genuint ny liste blir ikke
+   forsinket. Oppslaget skjer kun når det finnes tvilstilfeller, altså aldri i
+   steady state. Alt brukeren lager ETTER at cachen ble lest er utvilsomt nytt og
+   skrives som før, så et midlertidig feilende oppslag ikke kan stoppe vanlig
+   bruk.
+3. **Gravsteiner konsulteres i begge retninger** (`opts.tombs` = `tombIds()`,
+   union av `state._tomb`). En gravlagt id havner aldri i `merged` og får aldri
+   en insert; ligger den fortsatt på serveren, sendes en `delete` i stedet.
+4. **Fremmede rader gjenskapes aldri** (`opts.foreign`): tvilsomme rader der
+   cachen sier `_mine === false`. Forsvinner en slik rad fra serveren, er
+   delingen opphørt eller eieren har slettet den — begge veier skal den slippes,
+   for `insertPayload` ville satt OSS som `owner_id` og dermed gjort en gammel
+   kopi av andres innhold til vår. Settet fryses for HELE runden (`doubted` i
+   `cloudCycle`): den andre flettingen, etter gravsteins-oppslaget, må ta samme
+   avgjørelse som den første — leste den `foreign` av det da-tømte tvilssettet,
+   ville en tilbaketrukket deling glidd gjennom som en «lokal nyopprettelse».
+
+Siste forsvarslag ligger i databasen: `guard_object_insert` avviser en insert
+med gravlagt id (`PT409`, «gravlagt: …»). `pushOps` kjenner igjen svaret
+(`isTombstoneReject`), gravlegger raden lokalt og regner det IKKE som en feilet
+skriving — så bekreftelses-pullen går som normalt og raden forsvinner fra
+visningen med det samme. Det fanger både en klient som ikke rakk å hente
+gravsteinen og kappløpet der en annen enhet sletter i samme øyeblikk som vi
+skriver. Se `docs/arkitektur-brukere-deling.md` og `docs/trash.md`.
+
+Ved **utlogging** tømmes innhold, gravsteiner og base sammen (`resetLocalSync`),
+og ved **innlogging** leses alle tre fra den nye brukerens egen cache-post (eller
+nullstilles hvis den ikke finnes) — ingen del av forrige brukers synk-tilstand
+kan leses som historikk for den neste.
 
 **Render-vakt (`viewSignature`/`lastViewSig`)**: `applyMyDoc` river ned og
 bygger hele board-DOM-en (`render()`). `cloudCycle` kaller den derfor KUN når
@@ -117,6 +175,13 @@ mangler i basen så PostgREST avviser hver insert), genererer reconcile samme
 op hver runde → `cloudAgain` → en rask retry-løkke som uten vakta ga konstant
 flimmer. Motstykket til v1-synkens `mergedCanon !== localCanon`. Nullstilles ved
 inn-/utlogging så en fersk sesjon alltid tegner første gang.
+
+Vakta har en konsekvens for BASEN: blir fletteresultatet ikke tatt i bruk (aktiv
+redigering/draging), rykker `cloudBase` heller ikke fram. Ellers ville basen
+beskrevet rader `state` ikke har, og neste runde lest dem som «slettet lokalt» —
+en liste en annen enhet nettopp opprettet ville blitt SLETTET på serveren fordi
+den kom mens brukeren skrev. Basen er per definisjon «fjern-doc'et vi har flettet
+mot», og skal bare oppdateres når vi faktisk har flettet mot det.
 
 ## Bakgrunns-operasjonskøen (`opQueue`)
 
@@ -358,11 +423,15 @@ brukere. Nok fidelitet til å kjøre hele delingsflyten, server-LWW, lås og
 forlat/utkast, uten ekte backend eller e-postbekreftelse. Ikke en full RLS-
 implementasjon; produksjon bruker ekte Supabase.
 
-To skranker mocken håndhever bevisst, fordi begge har brutt synken i praksis og
-en slapp mock ville sluppet regresjonen gjennom: **id-er må være UUID-er**
-(`UUID_RE` i `applyInsert` — testrader trenger derfor ekte UUID-er, ikke
-`'card-1'`), og **`items.cat_id`/`groups.cat_id` må peke på en kategori som
-finnes** (`catFkError`, avviser med `23503` som ekte Postgres).
+Fire skranker håndhever mocken bevisst, fordi en slapp mock ville sluppet
+regresjonene gjennom: **id-er må være UUID-er** (`UUID_RE` i `applyInsert` —
+testrader trenger derfor ekte UUID-er, ikke `'card-1'`), **`items.cat_id`/
+`groups.cat_id` må peke på en kategori som finnes** (`catFkError`, avviser med
+`23503` som ekte Postgres), **samme id kan ikke settes inn to ganger**
+(primærnøkkel), og **gravsteiner blokkerer gjeninnsetting** (`tombstoneError`,
+avviser med `PT409` som `guard_object_insert`). Kaskade-sletting skriver
+gravstein for HVER slettet rad, ikke bare toppen — akkurat som `on delete
+cascade` + AFTER DELETE-triggerne i Postgres.
 
 `?mock=1&lag=800` legger en kunstig «server»-forsinkelse (ms) på alle RPC-/
 tabell-kall (ikke auth) — brukes til å bevise at UI-et er umiddelbart og at

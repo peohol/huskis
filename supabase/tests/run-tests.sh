@@ -21,5 +21,6 @@ $PSQL -f users-and-sharing.sql   # idempotens: må tåle re-kjøring
 $PSQL --no-psqlrc --echo-errors -f tests/test-users-and-sharing.sql
 $PSQL --no-psqlrc --echo-errors -f tests/test-permissions.sql
 $PSQL --no-psqlrc --echo-errors -f tests/test-email-sharing.sql
+$PSQL --no-psqlrc --echo-errors -f tests/test-tombstones.sql
 
-echo "✅ Alle tester grønne (inkl. dobbel kjøring av migreringen + e-postvarsel + rettigheter)."
+echo "✅ Alle tester grønne (inkl. dobbel kjøring av migreringen + e-postvarsel + rettigheter + gravsteiner)."

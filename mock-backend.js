@@ -352,6 +352,16 @@
   }
 
   /* ---------------- Tabell-CRUD (med server-side LWW + vakter) ---------------- */
+  // Ett sted for «passer raden filtrene?», så .eq() og .in() oppfører seg likt
+  // i update, delete og select.
+  function matches(row, filters) {
+    for (var k in filters) {
+      var f = filters[k];
+      if (f.op === 'in') { if (f.val.indexOf(row[k]) === -1) return false; }
+      else if (row[k] !== f.val) return false;
+    }
+    return true;
+  }
   var UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
   // `items.cat_id`/`groups.cat_id` er fremmednøkler til sin egen tabell. Ekte
   // Postgres avviser en rad som peker på en kategori som ikke finnes — og det
@@ -366,6 +376,23 @@
     return { code: '23503', message: 'insert or update on table "' + table +
       '" violates foreign key constraint "' + table + '_cat_id_fkey"' };
   }
+  var TYPE_OF_TABLE = { universes: 'universe', groups: 'group', cards: 'card', items: 'item' };
+  // Speiler guard_object_insert: en gravlagt id kan ikke settes inn igjen.
+  // Returneres som en feil (ikke et kast), med samme distinkte kode som
+  // PostgREST gir for PT409, slik at klientens isTombstoneReject treffer.
+  function tombstoneError(db, table, payload) {
+    var type = TYPE_OF_TABLE[table];
+    if (!type) return null;
+    var rows = Array.isArray(payload) ? payload : [payload];
+    for (var i = 0; i < rows.length; i++) {
+      for (var j = 0; j < db.tombstones.length; j++) {
+        if (db.tombstones[j].resource_type === type && db.tombstones[j].resource_id === rows[i].id) {
+          return { code: 'PT409', message: 'gravlagt: ' + type + ' ' + rows[i].id + ' er permanent slettet' };
+        }
+      }
+    }
+    return null;
+  }
   function applyInsert(db, table, uid, payload) {
     var rows = Array.isArray(payload) ? payload : [payload];
     // Objekt-tabellene har uuid-kolonner (som ekte Postgres): avvis ugyldige
@@ -375,6 +402,12 @@
       for (var i = 0; i < rows.length; i++) {
         if (!UUID_RE.test(String(rows[i].id || ''))) {
           throw new Error('invalid input syntax for type uuid: "' + rows[i].id + '"');
+        }
+        // Primærnøkkel: samme id kan ikke settes inn to ganger.
+        for (var k = 0; k < db[table].length; k++) {
+          if (db[table][k].id === rows[i].id) {
+            throw new Error('duplicate key value violates unique constraint "' + table + '_pkey"');
+          }
         }
       }
     }
@@ -397,7 +430,7 @@
   function applyUpdate(db, table, uid, patch, filters) {
     var list = db[table];
     list.forEach(function (row) {
-      for (var k in filters) if (row[k] !== filters[k]) return;
+      if (!matches(row, filters)) return;
       if (table === 'profiles') {
         // Som RLS-policyen: kun egen rad, og kun display_name kan endres
         // (e-post går via auth.updateUser).
@@ -468,10 +501,20 @@
       }
     });
   }
+  // Gravstein (write_tombstone-triggeren). Idempotent, som `on conflict do update`.
+  function writeTombstone(db, type, id) {
+    for (var i = 0; i < db.tombstones.length; i++) {
+      if (db.tombstones[i].resource_type === type && db.tombstones[i].resource_id === id) {
+        db.tombstones[i].ts = Date.now();
+        return;
+      }
+    }
+    db.tombstones.push({ resource_type: type, resource_id: id, ts: Date.now() });
+  }
   function applyDelete(db, table, uid, filters) {
     var type = table === 'universes' ? 'universe' : table === 'groups' ? 'group' : table === 'cards' ? 'card' : 'item';
     db[table] = db[table].filter(function (row) {
-      for (var k in filters) if (row[k] !== filters[k]) return true;
+      if (!matches(row, filters)) return true;
       var isOwner = row.owner_id === uid;
       // Vakter: universe kun eier; group/card eier ELLER (kan-redigere UTEN direkte medlemskap).
       var direct = type === 'universe' ? membershipFor(db, uid, 'universe', row.id)
@@ -483,20 +526,32 @@
       else allowed = isOwner || (!direct && canEditContent(db, type, row.id, uid));  // felles tømming, ikke share-rot
       if (!allowed) return true; // behold (blokkert)
       // gravstein + kaskade
-      db.tombstones.push({ resource_type: type, resource_id: row.id, ts: Date.now() });
+      writeTombstone(db, type, row.id);
       cascadeDelete(db, type, row.id);
       return false;
     });
   }
+  // `on delete cascade` i ekte Postgres sletter barna RAD FOR RAD, så deres egen
+  // AFTER DELETE-trigger fyrer og skriver gravstein for hvert enkelt barn. Uten
+  // det samme her ville et slettet undertre sett gjenopplivbart ut i mocken.
   function cascadeDelete(db, type, id) {
     if (type === 'universe') {
       db.groups.filter(function (g) { return g.universe_id === id; }).forEach(function (g) { cascadeDelete(db, 'group', g.id); });
-      db.groups = db.groups.filter(function (g) { return g.universe_id !== id; });
+      db.groups = db.groups.filter(function (g) {
+        if (g.universe_id !== id) return true;
+        writeTombstone(db, 'group', g.id); return false;
+      });
     } else if (type === 'group') {
       db.cards.filter(function (c) { return c.group_id === id; }).forEach(function (c) { cascadeDelete(db, 'card', c.id); });
-      db.cards = db.cards.filter(function (c) { return c.group_id !== id; });
+      db.cards = db.cards.filter(function (c) {
+        if (c.group_id !== id) return true;
+        writeTombstone(db, 'card', c.id); return false;
+      });
     } else if (type === 'card') {
-      db.items = db.items.filter(function (i) { return i.card_id !== id; });
+      db.items = db.items.filter(function (i) {
+        if (i.card_id !== id) return true;
+        writeTombstone(db, 'item', i.id); return false;
+      });
     }
     db.memberships = db.memberships.filter(function (m) {
       return !((type === 'universe' && m.universe_id === id) ||
@@ -511,6 +566,14 @@
       get_my_doc: function () { return getMyDoc(db, uid); },
       import_doc: function (p) {
         var doc = p.p_doc || {};
+        // Som import_doc i SQL: importen er brukerens egen, eksplisitte handling
+        // på id-er utledet av brukerens uid — gravsteiner for nøyaktig DE id-ene
+        // fjernes, ellers ville insert-vakten blokkert hele importen.
+        var imported = {};
+        ['universes', 'groups', 'cards', 'items'].forEach(function (k) {
+          (doc[k] || []).forEach(function (r) { imported[legacyId(uid, r.id)] = 1; });
+        });
+        db.tombstones = db.tombstones.filter(function (t) { return !imported[t.resource_id]; });
         function up(list, table, mapRow) {
           (list || []).forEach(function (r) {
             var id = legacyId(uid, r.id);
@@ -693,10 +756,12 @@
 
     function thenable(fn) {
       // Awaitbar builder som utfører fn() ved await (etter ev. ?lag=-forsinkelse);
-      // .eq() kjeder filtre.
+      // .eq()/.in() kjeder filtre (.in = «kolonnen er én av disse verdiene»,
+      // brukt av gravsteins-oppslaget i synken).
       var filters = {};
       var builder = {
-        eq: function (col, val) { filters[col] = val; return builder; },
+        eq: function (col, val) { filters[col] = { op: 'eq', val: val }; return builder; },
+        in: function (col, vals) { filters[col] = { op: 'in', val: vals || [] }; return builder; },
         then: function (resolve, reject) {
           return serverCall(function () { return fn(filters); }).then(resolve, reject);
         },
@@ -790,6 +855,8 @@
             return thenable(function () {
               var u = getSess(); if (!u) return { data: null, error: { message: 'ikke innlogget' } };
               var db = loadDB();
+              var tomb = tombstoneError(db, table, payload);
+              if (tomb) return { data: null, error: tomb };
               var fk = catFkError(db, table, payload);
               if (fk) return { data: null, error: fk };
               applyInsert(db, table, u.id, payload); saveDB(db);
@@ -816,7 +883,7 @@
           select: function () {
             return thenable(function (filters) {
               var db = loadDB(); var rows = db[table].filter(function (r) {
-                for (var k in filters) if (r[k] !== filters[k]) return false; return true;
+                return matches(r, filters);
               });
               return { data: clone(rows), error: null };
             });
