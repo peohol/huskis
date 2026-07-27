@@ -447,7 +447,27 @@ i `collapseCategory` regner med det). Ny test `tests/collapsed-alignment.test.js
 (baseline + sentrering + symmetri, desktop og mobil). Ingen DB-migrering. Se
 `docs/design-system.md`.
 
-**Gjenopprett alle utførte (siste runde)**: en **⟲-knapp** (`ICONS.restoreArrow`,
+**Board-kolonner: fyll venstre først + stabil DnD (siste runde)**: board-et bruker
+ikke lenger CSS multi-column. Kolonnene er **ekte containere** (`.board-col`), og JS
+fordeler kortene **grådig** (`relayoutBoard`): kolonne 1 fylles til kolonnebudsjettet
+(skjermhøyden under toppmenyen) er brukt opp, så kolonne 2 osv. Får ikke alt plass i
+kolonnene vinduet har rom til, økes budsjettet til det minste som holder — kolonnene
+blir høyere, siden scroller, og den øverste lista i kolonne 2 glir ned som den nederste
+i kolonne 1. Multi-column BALANSERTE (tre lister → tre kolonner med én hver). Ekte
+kolonner fjerner samtidig **flimringen** brukeren rapporterte: en placeholder kunne før
+dytte et kort over i en annen kolonne, og siden `dragOverCard` leser nettopp den
+layouten placeholderen former, vekslet plasseringen frem og tilbake for hver piksel.
+`placeNewListPlaceholder` legger nå placeholderen i den KOLONNEN man sikter på (før:
+`appendChild` = bunnen av SISTE kolonne), og «bunnen av kolonne k» / «toppen av kolonne
+k+1» er to steder å sikte med samme sluttresultat. `placePlaceholder` bruker
+referanseradens egen container; `pos` på board-nivå leses med `boardRows()`/
+`boardRowSibling()` (naboen over øverste rad i en kolonne ligger nederst i kolonnen før).
+En **kort sone under placeholderen** (kollapset/tom liste) flimret også fra før:
+modusbyttet rykker lista forbi objektet. `noteOverShift`/`drag.overGrace` måler hoppet og
+lar stickiness-en holde lista gjennom det. Ny test `tests/board-columns.test.js`. Ingen
+DB-migrering. Se `docs/board-layout.md` og `docs/drag-and-drop.md`.
+
+**Gjenopprett alle utførte (forrige runde)**: en **⟲-knapp** (`ICONS.restoreArrow`,
 `.done-restore`) står helt til HØYRE på «Utført»-linja — etter skillelinja, i samme
 kolonne som listepunktenes ×. Den reaktiverer ALLE avkryssede listepunkter i lista
 på én gang (`restoreAllDone`): `done = false` + `stampContent` på hver, radene

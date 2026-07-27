@@ -207,7 +207,12 @@ const log = (n, ok, x = '') => { results.push(ok); console.log((ok ? 'PASS' : 'F
     await touch(p, 'pointerdown', src.x, src.y); await p.waitForTimeout(240);
     await touch(p, 'pointermove', src.x + 4, src.y + 4); await p.waitForTimeout(40);
     await touch(p, 'pointermove', bHead.x, bHead.y); await p.waitForTimeout(60);
-    await touch(p, 'pointermove', bHead.x + 1, bHead.y + 10); await p.waitForTimeout(320);
+    // B ligger nå UNDER A i samme kolonne (board-et fyller venstre kolonne først,
+    // se docs/board-layout.md), og ny-liste-placeholderen dytter den et stykke ned
+    // mens man sikter. Sikt derfor på der B FAKTISK står nå — det er det en bruker
+    // gjør når kortet flytter seg.
+    const bNow = await centerOf(p, '.card[data-id="card-B"] .card-head');
+    await touch(p, 'pointermove', bNow.x + 1, bNow.y); await p.waitForTimeout(320);
     let openPeek = await isCollapsedDom(p, 'card-B', 'card');
     log('4 B PEEK-ÅPNET under kategori-drag', openPeek === false, 'collapsed=' + openPeek);
     const drop = await centerOf(p, '.card[data-id="card-B"] .items-container');
@@ -277,7 +282,11 @@ const log = (n, ok, x = '') => { results.push(ok); console.log((ok ? 'PASS' : 'F
     await touch(p, 'pointermove', src.x + 4, src.y + 4); await p.waitForTimeout(40);
     await touch(p, 'pointermove', bHead.x, bHead.y); await p.waitForTimeout(60);
     await touch(p, 'pointermove', bItems.x, bItems.y); await p.waitForTimeout(60);
-    await touch(p, 'pointerup', bItems.x, bItems.y); await p.waitForTimeout(400);
+    // B ligger under A i samme kolonne, og ny-liste-placeholderen dytter den ned
+    // mens man sikter → sikt på der listepunkt-området FAKTISK er nå (se test 4).
+    const bItemsNow = await centerOf(p, '.card[data-id="card-B"] .items-container');
+    await touch(p, 'pointermove', bItemsNow.x, bItemsNow.y); await p.waitForTimeout(60);
+    await touch(p, 'pointerup', bItemsNow.x, bItemsNow.y); await p.waitForTimeout(400);
     const st = await state(p);
     const catStaysInA = st['card-A'].items.some((it) => it.id === 'cat-1');
     const notInB = !st['card-B'].items.some((it) => it.id === 'cat-1');

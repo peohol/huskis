@@ -610,6 +610,157 @@
   // Lister-søppelkassen vises kun når den har innhold (samme logikk som de andre).
   function updateTrashCount() { updateTrashBadge(trashedCards, trashCount, trashBtn); }
 
+  /* ---------------- Board-kolonner: fyll venstre kolonne først ----------------
+     Kolonnene er ekte containere (`.board-col`), og JS fordeler kortene i dem.
+     Regelen er grådig og rent leserekkefølge-basert: fyll kolonne 1 til
+     kolonnebudsjettet er brukt opp, så kolonne 2, osv. En ny kolonne oppstår
+     altså først når den forrige er full — ikke som CSS multi-column, som
+     BALANSERER (tre lister → tre kolonner med én liste hver).
+
+     Budsjettet er skjermhøyden under toppmenyen. Får ikke alt plass i de
+     kolonnene vinduet har rom til, økes budsjettet til det minste som holder
+     (binærsøk) — kolonnene blir høyere, siden scroller, og den øverste lista i
+     kolonne 2 glir ned som den nederste i kolonne 1.
+
+     For DnD er dette ikke bare kosmetikk: med ekte kolonner kan en placeholder
+     lagt i én kolonne ikke lenger dytte kort over i en annen. Med multi-column
+     gjorde den det, og siden svaret på «hvilken liste er objektet i?»
+     (`dragOverCard`) leses av den layouten placeholderen selv former, vekslet
+     plasseringen frem og tilbake for hver piksel. Se `docs/drag-and-drop.md`.
+
+     Fordelingen er FROSSET mens et drag pågår: kortene skal ligge i ro under
+     fingeren, og en omfordeling midt i et drag ville gitt tilbake nettopp den
+     tilbakekoblingen vi ble kvitt. Den kjøres på nytt ved slipp. */
+  const BOARD_COL_MIN = 380;   // minste kolonnebredde (var `.board { column-width }`)
+  const BOARD_COL_MIN_H = 240; // nedre grense for kolonnebudsjettet (svært lav skjerm)
+
+  const boardGap = () => parseFloat(getComputedStyle(board).columnGap) || 0;
+  const boardColumns = () => [...board.children].filter((c) => c.classList.contains('board-col'));
+  // Alle board-rader (kort + evt. ny-liste-placeholder) i LESEREKKEFØLGE:
+  // kolonne 1 topp→bunn, så kolonne 2 … . DOM-rekkefølgen ER leserekkefølgen,
+  // så `pos` kan fortsatt regnes fra naboene — men naboen over den første raden
+  // i en kolonne ligger i kolonnen FØR, ikke i samme container.
+  function boardRows() {
+    const out = [];
+    for (const col of boardColumns()) out.push(...col.children);
+    return out;
+  }
+  function boardRowSibling(el, dir) {
+    const rows = boardRows();
+    const i = rows.indexOf(el);
+    return i < 0 ? null : (rows[i + dir] || null);
+  }
+  // Hvor mange kolonner får plass? Samme terskel som den gamle `column-width`.
+  function boardColumnCount() {
+    const gap = boardGap();
+    return Math.max(1, Math.floor((board.clientWidth + gap) / (BOARD_COL_MIN + gap)));
+  }
+  // Grådig fordeling: neste rad blir liggende i gjeldende kolonne så lenge den
+  // får plass innenfor budsjettet. Avstanden mellom radene er kortenes egen
+  // margin-bottom (= --board-gap).
+  function packBoardColumns(heights, gap, budget) {
+    const cols = [[]];
+    let used = 0;
+    heights.forEach((h, i) => {
+      const cur = cols[cols.length - 1];
+      if (cur.length && used + gap + h > budget) { cols.push([i]); used = h; return; }
+      used += (cur.length ? gap : 0) + h;
+      cur.push(i);
+    });
+    return cols;
+  }
+  function boardColumnBudget(heights, gap, n) {
+    const vh = window.innerHeight || document.documentElement.clientHeight || 0;
+    const screen = Math.max(BOARD_COL_MIN_H,
+      Math.round(vh - topbarEl.getBoundingClientRect().height - 2 * gap));
+    if (packBoardColumns(heights, gap, screen).length <= n) return screen;
+    // Alt får ikke plass på én skjermhøyde per kolonne → finn den minste høyden
+    // som gjør det (monotont: større budsjett gir aldri flere kolonner).
+    let lo = screen;
+    let hi = heights.reduce((a, h) => a + h, 0) + gap * Math.max(0, heights.length - 1);
+    while (lo < hi) {
+      const mid = Math.floor((lo + hi) / 2);
+      if (packBoardColumns(heights, gap, mid).length <= n) hi = mid; else lo = mid + 1;
+    }
+    return lo;
+  }
+  let relayoutPending = false;
+  let relayoutRAF = null;
+  function scheduleRelayout() {
+    if (relayoutRAF != null) return;
+    relayoutRAF = requestAnimationFrame(() => { relayoutRAF = null; relayoutBoard(); });
+  }
+  // Hold observatørens mål i takt med kortene som faktisk står på board-et.
+  // `render()` river alle kortnodene (`board.innerHTML = ''`) og `refreshCard()`
+  // bytter ut enkeltnoder — uten dette ville observasjonene av de gamle nodene
+  // blitt liggende og hopet seg opp for hver render (denne appen re-rendrer ved
+  // hver synk). Å `observe()` et mål som allerede observeres er en no-op per spec,
+  // så re-observeringen kan ikke gi en ny runde med callbacks.
+  const boardObserved = new Set();
+  function observeBoardRows(rows) {
+    if (!boardRO) return;
+    const now = new Set(rows);
+    boardObserved.forEach((el) => {
+      if (now.has(el)) return;
+      boardRO.unobserve(el);
+      boardObserved.delete(el);
+    });
+    rows.forEach((el) => {
+      if (boardObserved.has(el)) return;
+      boardRO.observe(el);
+      boardObserved.add(el);
+    });
+  }
+  function relayoutBoard() {
+    if (drag.active) return;                            // frosset under draging
+    if (board.classList.contains('empty')) { observeBoardRows([]); return; }
+    // En node som flyttes i DOM mister fokus (og markøren i et navnefelt). Er
+    // man midt i å skrive, venter vi til feltet forlates (`focusout` under).
+    const focused = document.activeElement;
+    if (focused && board.contains(focused) &&
+        (focused.tagName === 'INPUT' || focused.tagName === 'TEXTAREA' || focused.isContentEditable)) {
+      relayoutPending = true;
+      return;
+    }
+    relayoutPending = false;
+    const want = boardColumnCount();
+    let cols = boardColumns();
+    // Riktig antall kolonner FØRST: kolonnebredden — og dermed korthøydene vi
+    // straks måler — avhenger av antallet.
+    if (cols.length !== want) {
+      const rows = boardRows();
+      while (cols.length > want) cols.pop().remove();
+      while (cols.length < want) {
+        const c = document.createElement('div');
+        c.className = 'board-col';
+        board.appendChild(c);
+        cols.push(c);
+      }
+      if (rows.length) cols[0].append(...rows);
+    }
+    const rows = boardRows();
+    observeBoardRows(rows);
+    if (!rows.length) return;
+    const gap = boardGap();
+    const heights = rows.map((el) => el.offsetHeight);
+    const plan = packBoardColumns(heights, gap, boardColumnBudget(heights, gap, cols.length));
+    cols.forEach((col, j) => {
+      const next = (plan[j] || []).map((i) => rows[i]);
+      const cur = [...col.children];
+      // Skriv bare kolonner som faktisk endrer innhold — ellers ville hver
+      // ResizeObserver-runde flyttet noder (og drept fokus/animasjoner) uten grunn.
+      if (cur.length === next.length && next.every((el, k) => cur[k] === el)) return;
+      col.append(...next);
+    });
+  }
+  // Korthøyder endres av mye (kollaps, listepunkter inn/ut, tekst som brytes om) —
+  // én observatør fanger alt. Fordelingen skrives bare når den faktisk endrer seg,
+  // så observatøren kan ikke gå i løkke med seg selv. Board-et selv observeres
+  // permanent (bredde-endringer); kortene reconciles av `observeBoardRows`.
+  const boardRO = typeof ResizeObserver === 'function' ? new ResizeObserver(scheduleRelayout) : null;
+  if (boardRO) boardRO.observe(board);
+  board.addEventListener('focusout', () => { if (relayoutPending) scheduleRelayout(); });
+
   function render() {
     renderGroups();
     renderUniverses();
@@ -663,7 +814,13 @@
     }
 
     board.classList.remove('empty');
-    cards.forEach((c) => board.appendChild(buildCard(c)));
+    // Alle kortene i leserekkefølge i én kolonne; `relayoutBoard` måler høydene
+    // og fordeler dem utover kolonnene vinduet har plass til.
+    const col = document.createElement('div');
+    col.className = 'board-col';
+    cards.forEach((c) => col.appendChild(buildCard(c)));
+    board.appendChild(col);
+    relayoutBoard();
     fixBoardBottomGap();
     save();
   }
@@ -1159,10 +1316,13 @@
   }
 
   // Bygg ett kort på nytt i DOM (etter element-endringer: slett/gjenopprett/tøm).
-  // Beholder kolonnelayouten; kun det ene kortet erstattes.
+  // Kun det ene kortet erstattes — de andre står; kolonnefordelingen justeres
+  // etterpå fordi det nye kortet kan ha fått en annen høyde.
   function refreshCard(cardData) {
     const oldEl = board.querySelector('.card[data-id="' + cardData.id + '"]');
-    if (oldEl) oldEl.replaceWith(buildCard(cardData));
+    if (!oldEl) return;
+    oldEl.replaceWith(buildCard(cardData));
+    scheduleRelayout(); // ny node → ny høyde, og den gamle observasjonen døde med den
   }
 
   // Tøm kortets element-søppelkasse permanent: gravstein per slettet element.
@@ -2344,6 +2504,7 @@
     drag.peekCard = null;   // midlertidig peek-åpnet liste under draget (se peek-blokken)
     drag.peekCat = null;    // midlertidig peek-åpnet kategori under draget
     drag.overCard = el.closest('.card'); // lista objektet «er i» (1/3-hysterese, se dragOverCard)
+    drag.overGrace = 0;     // slark for stickiness-en, satt av selve modusbyttet (noteOverShift)
     try { ev.target.setPointerCapture(ev.pointerId); } catch (e) {}
     document.body.classList.add('is-dragging');
     // Slå av nettleserens scroll-anchoring mens draget pågår: den ville ellers
@@ -2438,9 +2599,14 @@
     if (pos === 'before') return refEl.previousElementSibling !== ph;
     return refEl.nextElementSibling !== ph; // 'after'
   }
-  function placePlaceholder(container, ph, refEl, pos) {
-    if (pos === 'before') container.insertBefore(ph, refEl);
-    else container.insertBefore(ph, refEl.nextElementSibling);
+  // Placeholderen legges alltid i REFERANSERADENS egen container. På board-et er
+  // det kolonnen ref ligger i — «nederst i kolonne 1» og «øverst i kolonne 2» er
+  // samme plass i rekkefølgen, men to ulike containere, og placeholderen skal
+  // vises der man faktisk siktet.
+  function placePlaceholder(ph, refEl, pos) {
+    const cont = refEl.parentNode;
+    if (pos === 'before') cont.insertBefore(ph, refEl);
+    else cont.insertBefore(ph, refEl.nextElementSibling);
   }
 
   // Anti-flimring (se SWAP_LOCK_MS/SWAP_REV_RATIO): et bytte plasserer
@@ -2478,7 +2644,7 @@
      ingen ved et hopp), ingen 20 %-terskel og ingen anti-reverseringslås —
      slipp-punktet ER brukerens tydelige sluttintensjon, og et raskt slipp skal
      lande der og ikke ett hakk unna. */
-  function centerPlaceRows(container, rows, rects, horizontal) {
+  function centerPlaceRows(rows, rects, horizontal) {
     const ph = drag.ph;
     if (!ph || !rows.length) return;
     const d = draggedRect();
@@ -2490,7 +2656,7 @@
     const action = ref ? { ref, pos: 'before' } : { ref: sorted[sorted.length - 1], pos: 'after' };
     if (!wouldMove(ph, action.ref, action.pos)) return;
     const snap = snapshotRects(rows);
-    placePlaceholder(container, ph, action.ref, action.pos);
+    placePlaceholder(ph, action.ref, action.pos);
     flipFrom(snap, FLIP_MS);
     recordSwap(action);
   }
@@ -2569,12 +2735,14 @@
   function freezeBoardForDrag(ph) {
     if (boardGuard) clearBoardGuardStyles(); // rydd evt. rest fra et avbrutt drag
     const boardH = board.getBoundingClientRect().height;
-    // Body-høyde som forsvinner for hver ÅPEN liste OVER den dratte (før ph i DOM).
+    // Body-høyde som forsvinner for hver ÅPEN liste OVER den dratte (før ph i
+    // leserekkefølgen). Vakten brukes kun i énkolonne-layout, så «over» = før i
+    // kolonnen — men `boardRows()` er uansett den riktige rekkefølgen.
     let removedAbove = 0;
-    for (const child of board.children) {
-      if (child === ph) break;
-      if (child.classList.contains('card') && !child.classList.contains('collapsed')) {
-        const body = child.querySelector('.card-body');
+    for (const row of boardRows()) {
+      if (row === ph) break;
+      if (row.classList.contains('card') && !row.classList.contains('collapsed')) {
+        const body = row.querySelector('.card-body');
         if (body) removedAbove += body.getBoundingClientRect().height;
       }
     }
@@ -2612,6 +2780,11 @@
     stopUniverseAutoScroll();
     document.body.classList.remove('is-dragging');
     window.removeEventListener('touchmove', preventTouchScroll, { passive: false });
+    // Kolonnefordelingen har vært frosset gjennom draget (og korthøydene kan ha
+    // endret seg — et listepunkt flyttet mellom to lister). Kjør den på nytt nå
+    // som draget er over; `onCardUp` har alt gjort det synkront (drop-tweenen må
+    // sikte på den endelige sloten), så der blir dette en no-op.
+    scheduleRelayout();
   }
 
   /* ------- Avbrutt drag (pointercancel) -------
@@ -2791,7 +2964,7 @@
     const ph = document.createElement('div');
     ph.className = 'card-placeholder';
     ph.style.height = drag.height + 'px';
-    board.insertBefore(ph, cardEl);
+    cardEl.parentNode.insertBefore(ph, cardEl); // kortets egen kolonne
     drag.ph = ph;
 
     liftElement();
@@ -3012,7 +3185,7 @@
     if (!action || !wouldMove(ph, action.ref, action.pos)) return;
     if (swapReversesRecent(action)) return;
     const snap = snapshotRects(cards);
-    placePlaceholder(board, ph, action.ref, action.pos);
+    placePlaceholder(ph, action.ref, action.pos);
     flipFrom(snap, FLIP_MS);
     recordSwap(action);
   }
@@ -3028,14 +3201,14 @@
     const rects = new Map(cards.map((c) => [c, layoutRect(c)]));
     const restRects = cards.map((c) => rects.get(c)).concat([layoutRect(drag.ph)]);
     if (isSingleRowLayout(restRects)) { // én horisontal rad → senter langs X
-      centerPlaceRows(board, cards, rects, true);
+      centerPlaceRows(cards, rects, true);
       return;
     }
     // Flerkolonne/kolonne: kortene som deler spor med dra-kortet, senter langs Y.
     // Ligger dra-kortet i et kolonnegap, lar vi placeholderen stå (den løpende
     // plasseringen har allerede valgt kolonne).
     const col = cards.filter((c) => hOverlapFrac(dragRect, rects.get(c)) >= 0.5);
-    if (col.length) centerPlaceRows(board, col, rects, false);
+    if (col.length) centerPlaceRows(col, rects, false);
   }
 
   function onCardUp(ev) {
@@ -3064,17 +3237,18 @@
     setCardCrumbTarget(false); // fjern evt. highlight uansett utfall
 
     const rot = cardRotation();
-    board.insertBefore(el, drag.ph);
+    drag.ph.parentNode.insertBefore(el, drag.ph); // placeholderens kolonne
     drag.ph.remove();
     finishDrag();
     restoreCardsAfterDrag();  // fold listene tilbake til lagret lukketilstand (momentant)
     releaseBoardAfterDrag();  // slipp touch-vakten momentant (no-op på mus) → layout satt
 
-    // Ny rekkefølge: gi kortet en pos mellom DOM-naboene. Kirurgisk – kun
-    // dette kortets posisjonsregister endres, så samtidige endringer på
-    // andre kort/enheter flettes uten konflikt.
-    const prev = el.previousElementSibling;
-    const next = el.nextElementSibling;
+    // Ny rekkefølge: gi kortet en pos mellom naboene i LESEREKKEFØLGE (naboen
+    // over den øverste raden i en kolonne ligger nederst i kolonnen før).
+    // Kirurgisk – kun dette kortets posisjonsregister endres, så samtidige
+    // endringer på andre kort/enheter flettes uten konflikt.
+    const prev = boardRowSibling(el, -1);
+    const next = boardRowSibling(el, 1);
     const c = findCard(el.dataset.id);
     if (c) {
       const pPrev = prev && prev.classList.contains('card') ? (findCard(prev.dataset.id) || {}).pos : null;
@@ -3102,6 +3276,9 @@
     el.classList.remove('dragging');
     el.style.left = el.style.top = el.style.width = el.style.height = '';
     el.style.transform = '';
+    // Kortene er tilbake i normal flyt (og utvidet igjen) → fordel kolonnene på
+    // nytt FØR vi måler sloten, så drop-tweenen sikter på den endelige plassen.
+    relayoutBoard();
     const slotRect = el.getBoundingClientRect();
     const slotDocTop = slotRect.top + window.scrollY;
     const slotH = slotRect.height;
@@ -3304,7 +3481,9 @@
       placeNewListPlaceholder();
       return;
     }
+    const beforeTop = overCard.getBoundingClientRect().top;
     setReorderMode();
+    noteOverShift(overCard, beforeTop); // modusbyttet rykker lista — se noteOverShift
     const dragRect = draggedRect();
     const flipEls = [...document.querySelectorAll('.item:not(.dragging), .category:not(.dragging)')];
 
@@ -3383,7 +3562,7 @@
 
     const snap = snapshotRects(flipEls);
     if (action.pos === 'append') appendToItemsEnd(targetCont, ph);
-    else placePlaceholder(targetCont, ph, action.ref, action.pos);
+    else placePlaceholder(ph, action.ref, action.pos);
     applyDragSeparators();
     flipFrom(snap, FLIP_MS);
     recordSwap(action);
@@ -3631,7 +3810,7 @@
     if (!willMove) return;
     const snap = snapshotRects(rows);
     if (action.pos === 'append') cont.appendChild(ph);
-    else placePlaceholder(cont, ph, action.ref, 'before');
+    else placePlaceholder(ph, action.ref, 'before');
     applyDragSeparators();
     flipFrom(snap, FLIP_MS);
   }
@@ -3713,19 +3892,49 @@
     const third = d.height / 3;
     const topThird = d.top + third;     // «øvre 1/3 har passert» = denne linja over linja
     const botThird = d.bottom - third;  // «nedre 1/3 har passert» = denne linja under linja
-    const inCard = (el) => {
+    const inCard = (el, grace) => {
       const r = el.getBoundingClientRect();
       if (drag.lastX < r.left || drag.lastX > r.right) return false; // kolonnen (flerkolonne)
       const b = cardBand(el, third);
-      return topThird >= b.top && botThird <= b.bottom;
+      return topThird >= b.top - grace && botThird <= b.bottom + grace;
     };
     const cur = drag.overCard;
-    if (cur && cur.isConnected && inCard(cur)) return cur;
+    if (cur && cur.isConnected) {
+      // Slarken skal dekke ETT layout-hopp, ikke bli liggende: er objektet inne i
+      // sonen på egen hånd, er hoppet passert og slarken forbrukt (se noteOverShift).
+      if (inCard(cur, 0)) { drag.overGrace = 0; return cur; }
+      if (inCard(cur, drag.overGrace || 0)) return cur;
+    }
     for (const c of board.querySelectorAll('.card')) {
-      if (inCard(c)) { drag.overCard = c; return c; }
+      if (inCard(c, 0)) { drag.overCard = c; drag.overGrace = 0; return c; }
     }
     drag.overCard = null;
+    drag.overGrace = 0;
     return null;
+  }
+  /* Selve modusbyttet flytter kortet man nettopp gikk INN i (`drag.overGrace`).
+     Går man fra board-luft inn i en liste, forsvinner ny-liste-placeholderen fra
+     kolonnen og reorder-placeholderen legges inn i lista: alt under den gamle
+     plassen rykker OPP. Har lista en høy sone (en vanlig, fylt liste), betyr det
+     bare at sonen kommer objektet i møte. Har den en KORT sone — en kollapset
+     liste, eller en tom der `MIN_BAND_SLACK` gjør hele kortet til sone — rekker
+     hoppet å legge sonen forbi objektet, som dermed faller ut igjen, som legger
+     placeholderen tilbake, som dytter lista ned igjen: én runde per piksel.
+
+     Vi måler derfor hvor langt lista faktisk flyttet seg av byttet og lar
+     stickiness-en i `dragOverCard` beholde den gjennom akkurat det hoppet. Å
+     forlate lista krever da en tydelig bevegelse ut — ikke bare at gulvet flyttet
+     seg under objektet. Grensen for å gå INN er uendret (`grace` er 0 til man er
+     inne), så 1/3-tersklene måles som før.
+
+     Slarken FORBRUKES så snart objektet ligger inne i sonen på egen hånd
+     (`dragOverCard`): den er kompensasjon for ett hopp, ikke en varig utvidelse av
+     lista. I det vanlige tilfellet (en fylt liste, høy sone) er den derfor borte
+     allerede ved neste bevegelse, og ut-tersklene er nøyaktig de dokumenterte. */
+  function noteOverShift(cardEl, beforeTop) {
+    if (!cardEl || drag.overCard !== cardEl) return;
+    drag.overGrace = Math.max(drag.overGrace || 0,
+      Math.abs(cardEl.getBoundingClientRect().top - beforeTop));
   }
   /* ---------------- Peek-åpning av kollapsede mål under draging ----------------
      Drar man et listepunkt over en KOLLAPSET liste eller kategori (eller en hel
@@ -3872,7 +4081,10 @@
     drag.phMode = 'extract';
     if (drag.ph && drag.ph.parentNode) drag.ph.remove();
     drag.ph = makeNewListPlaceholder(Math.max(72, drag.height));
-    board.appendChild(drag.ph);
+    // Midlertidig sist i siste kolonne; `placeNewListPlaceholder` flytter den
+    // straks til kolonnen/plassen man faktisk sikter på.
+    const cols = boardColumns();
+    (cols[cols.length - 1] || board).appendChild(drag.ph);
     applyDragSeparators(); // placeholderen forlot lista → linjene der uten den
   }
   // Bytt tilbake til reorder-placeholderen (element-/kategori-placeholder i lista).
@@ -3890,36 +4102,61 @@
     home.appendChild(ph);
     applyDragSeparators();
   }
-  // Plassér ny-liste-placeholderen blant board-ets kort etter pekerposisjon.
+  /* Plassér ny-liste-placeholderen blant board-ets kort.
+
+     KOLONNEN velges av pekeren (som ellers vannrett), PLASSEN i kolonnen av
+     objektets eget senter: ut-tersklene (1/3, se dragOverCard) slår inn mens
+     pekeren fortsatt kan være godt inne i lista man forlot — da ville et
+     pekerbasert y-valg lagt placeholderen på feil side av den.
+
+     Plassen leses av den layouten man SER (kortenes faktiske bokser). Den er
+     selvstabiliserende: flytter placeholderen seg forbi et kort, glir kortet
+     samtidig en placeholderhøyde bort i samme retning, så vilkåret som utløste
+     flyttingen holder seg oppfylt. Hysteresen er altså gratis — og «gå tilbake»
+     krever en tydelig bevegelse den andre veien.
+
+     Siden kolonnene er egne containere, kan en placeholder lagt i én kolonne
+     ikke lenger dytte kort over i en annen. Det var nettopp DET som flimret før:
+     et kort som skiftet kolonne endret svaret på «hvilken liste er objektet i?»,
+     som flyttet placeholderen tilbake, som flyttet kortet tilbake … én runde per
+     piksel. */
   function placeNewListPlaceholder() {
     const ph = drag.ph;
-    // Kolonnen velges av pekeren (som ellers vannrett), men PLASSEN i kolonnen av
-    // objektets eget senter: ut-tersklene (1/3, se dragOverCard) slår inn mens
-    // pekeren fortsatt kan være godt inne i lista man forlot — da ville et
-    // pekerbasert y-valg lagt placeholderen på feil side av den.
+    const cols = boardColumns();
+    if (!cols.length) return;
     const px = drag.lastX, py = draggedRect().top + drag.height / 2;
-    const cards = [...board.querySelectorAll('.card')];
-    if (!cards.length) { if (board.lastElementChild !== ph) board.appendChild(ph); return; }
-    // Kolonne = kort hvis horisontale bånd pekeren er i (±8 px slingring). Ingen
-    // treff (énkolonne, eller pekeren i et kolonnegap) → alle kort, sortert på topp.
-    let col = cards.filter((c) => { const r = c.getBoundingClientRect(); return px >= r.left - 8 && px <= r.right + 8; });
-    if (!col.length) col = cards.slice();
-    col.sort((a, b) => a.getBoundingClientRect().top - b.getBoundingClientRect().top);
+    // Kolonnen pekeren er i (±8 px slingring). Ingen treff (pekeren i et
+    // kolonnegap) → behold den kolonnen placeholderen alt står i, ellers den
+    // første. Klemmes til siste kolonne som har kort: en tom kolonne lenger til
+    // høyre finnes bare fordi vinduet er bredt, og en ny liste havner aldri der
+    // før kolonnene til venstre er fulle (`relayoutBoard` fyller fra venstre).
+    let last = 0;
+    cols.forEach((c, i) => { if (c.querySelector('.card')) last = i; });
+    let ci = cols.findIndex((c) => {
+      const r = c.getBoundingClientRect();
+      return px >= r.left - 8 && px <= r.right + 8;
+    });
+    if (ci < 0) ci = ph.parentNode ? cols.indexOf(ph.parentNode) : 0;
+    ci = Math.min(Math.max(ci, 0), last);
+    const col = cols[ci];
     let ref = null;
-    for (const c of col) { const r = c.getBoundingClientRect(); if (py < r.top + r.height / 2) { ref = c; break; } }
-    if (ref) {
-      if (ref.previousElementSibling === ph) return;
-      const snap = snapshotRects(cards); board.insertBefore(ph, ref); flipFrom(snap, FLIP_MS);
-    } else {
-      if (board.lastElementChild === ph) return;
-      const snap = snapshotRects(cards); board.appendChild(ph); flipFrom(snap, FLIP_MS);
+    for (const row of col.children) {
+      if (row === ph) continue;
+      const r = layoutRect(row);
+      if (py < r.top + r.height / 2) { ref = row; break; }
     }
+    if (ref ? ref.previousElementSibling === ph : col.lastElementChild === ph) return;
+    const snap = snapshotRects([...board.querySelectorAll('.card')]);
+    if (ref) col.insertBefore(ph, ref); else col.appendChild(ph);
+    flipFrom(snap, FLIP_MS);
   }
-  // Ny pos for den ekstraherte lista, mellom placeholderens board-naboer.
+  // Ny pos for den ekstraherte lista, mellom placeholderens naboer i
+  // LESEREKKEFØLGE (naboen over en placeholder øverst i en kolonne ligger
+  // nederst i kolonnen før).
   function extractionPos() {
     const ph = drag.ph;
-    const prev = ph && ph.previousElementSibling;
-    const next = ph && ph.nextElementSibling;
+    const prev = ph && boardRowSibling(ph, -1);
+    const next = ph && boardRowSibling(ph, 1);
     const pPrev = prev && prev.classList.contains('card') ? (findCard(prev.dataset.id) || {}).pos : null;
     const pNext = next && next.classList.contains('card') ? (findCard(next.dataset.id) || {}).pos : null;
     return between(pPrev == null ? null : pPrev, pNext == null ? null : pNext);
@@ -3975,7 +4212,9 @@
       placeNewListPlaceholder();
       return;
     }
+    const beforeTop = overCard.getBoundingClientRect().top;
     setReorderMode();
+    noteOverShift(overCard, beforeTop); // modusbyttet rykker lista — se noteOverShift
     // Kollapset (ennå ikke peek-åpnet) mål-liste: la placeholderen bli der den er
     // mens peek-timeren løper (se updateItemPlacement). `commit` (fra onCategoryUp)
     // overstyrer så kategorien lander i den kollapsede lista ved selve slippet.
@@ -4186,7 +4425,7 @@
     if (!action || !wouldMove(ph, action.ref, action.pos)) return;
     if (swapReversesRecent(action)) return;
     const snap = snapshotRects(cards);
-    placePlaceholder(groupList, ph, action.ref, action.pos); // 'after' siste rad → foran «＋»
+    placePlaceholder(ph, action.ref, action.pos); // 'after' siste rad → foran «＋»
     flipFrom(snap, FLIP_MS);
     recordSwap(action);
   }
@@ -4209,7 +4448,7 @@
     if (ev && typeof ev.clientX === 'number') {
       drag.lastX = ev.clientX; drag.lastY = ev.clientY;
       const rows = [...o.container.querySelectorAll('.' + o.siblingClass + ':not(.dragging)')];
-      centerPlaceRows(o.container, rows, new Map(rows.map((r) => [r, layoutRect(r)])), false);
+      centerPlaceRows(rows, new Map(rows.map((r) => [r, layoutRect(r)])), false);
     }
 
     const el = drag.el;
@@ -4370,7 +4609,7 @@
     if (!action || !wouldMove(ph, action.ref, action.pos)) return;
     if (swapReversesRecent(action)) return;
     const snap = snapshotRects(rows);
-    placePlaceholder(uniList, ph, action.ref, action.pos); // 'after' siste rad → foran «＋ Univers»
+    placePlaceholder(ph, action.ref, action.pos); // 'after' siste rad → foran «＋ Univers»
     flipFrom(snap, FLIP_MS);
     recordSwap(action);
   }
@@ -4436,16 +4675,20 @@
     const ro = new ResizeObserver(syncHeaderHeight);
     ro.observe(topbarEl);
   }
-  window.addEventListener('resize', () => { syncHeaderHeight(); fixBoardBottomGap(); });
+  // Kolonneantallet følger vindusbredden og budsjettet skjermhøyden — begge deler
+  // endres her. (ResizeObserver-en på board-et fanger bredde-endringer, men ikke
+  // en ren HØYDE-endring der board-innholdet blir stående like stort.)
+  window.addEventListener('resize', () => { syncHeaderHeight(); relayoutBoard(); fixBoardBottomGap(); });
 
   // Bunn-luft etter siste kort — uansett hvilken kolonne som ender opp høyest.
-  // Kortenes EGEN margin-bottom (--board-gap) er upålitelig her: ved balanserte
-  // kolonner (column-fill: balance, default) kan nettlesere se helt bort fra
-  // siste korts margin når board-ets auto-høyde regnes ut (bidrar 0 i noen
-  // kolonnefordelinger, hele verdien i andre — f.eks. når alt havner i én
-  // kolonne). Vi måler derfor det FAKTISKE utfallet (nullstill → tving reflow →
-  // les av) og legger PÅ akkurat nok padding til at totalen alltid blir
-  // nøyaktig --board-gap, aldri mer og aldri mindre.
+  // Med flex-kolonner ER siste korts EGEN margin-bottom (--board-gap) bunn-luften
+  // (marginer kollapser ikke ut av en flex-container), så dette er i praksis en
+  // no-op. Vi måler likevel det FAKTISKE utfallet (nullstill → tving reflow →
+  // les av) og legger PÅ akkurat nok padding til at totalen alltid blir nøyaktig
+  // --board-gap: målingen er billig, og den fanger opp avrunding. Den ble skrevet
+  // mot en multi-column-kvirk (`column-fill: balance` kunne se helt bort fra siste
+  // korts margin ved ujevnt balanserte kolonner) — den layouten er borte, men
+  // sikkerhetsnettet er beholdt.
   function fixBoardBottomGap() {
     const cards = board.querySelectorAll('.card');
     if (!cards.length) { board.style.paddingBottom = '0px'; return; }
