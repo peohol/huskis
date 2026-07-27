@@ -221,23 +221,34 @@
   }
 
   // En gruppe er nivå to (Univers > Gruppe > Liste > Element). Den har innholds-
-  // register (navn) og posisjonsregister (rekkefølge + univers-forelder), og
-  // eier sine lister.
+  // register (navn) og posisjonsregister (rekkefølge + univers-forelder + `cat`),
+  // og eier sine lister. `cat`/`isCat` speiler listepunktenes kategori-modell:
+  // en GRUPPEKATEGORI lagres som en gruppe med `isCat: true`, og vanlige grupper
+  // peker på den via `cat` (null = ukategorisert, nivå 1 i universet).
   function makeGroup(name, id, uniId) {
     return {
       id: id || uid(), uni: uniId || null, name, trashed: false,
-      ts: 0, org: deviceId,               // innholdsregister (navn/trashed)
-      pos: 0, posTs: 0, posOrg: deviceId, // posisjonsregister (rekkefølge + univers)
+      cat: null, isCat: false, collapsed: false,
+      _mine: true,                        // lokalt opprettet → mitt (synken bekrefter)
+      ts: 0, org: deviceId,               // innholdsregister (navn/trashed/isCat/collapsed)
+      pos: 0, posTs: 0, posOrg: deviceId, // posisjonsregister (rekkefølge + univers + cat)
       cards: [],
     };
   }
+  // Gruppekategori: nivå-1-rad i et univers som grupperer grupper under en
+  // felles overskrift — nøyaktig samme mønster som listepunkt-kategorier.
+  function makeGroupCategory(name, uniId) {
+    const g = makeGroup(name, null, uniId);
+    g.isCat = true;
+    return g;
+  }
 
-  // Et univers er øverste nivå — et helt uavhengig område med egne grupper.
-  // Grupper kan aldri flyttes på tvers av universer.
+  // Et univers er øverste nivå — et område med egne grupper (og gruppekategorier).
   function makeUniverse(name, id) {
     return {
-      id: id || uid(), name, trashed: false,
-      ts: 0, org: deviceId,               // innholdsregister (navn/trashed)
+      id: id || uid(), name, trashed: false, collapsed: false,
+      _mine: true,                        // lokalt opprettet → mitt (synken bekrefter)
+      ts: 0, org: deviceId,               // innholdsregister (navn/trashed/collapsed)
       pos: 0, posTs: 0, posOrg: deviceId, // posisjonsregister (rekkefølge)
       groups: [],
     };
@@ -385,6 +396,9 @@
     if (!g.uni) g.uni = uniId || null;
     if (typeof g.name !== 'string') g.name = 'Uten navn';
     if (typeof g.trashed !== 'boolean') g.trashed = false;
+    if (typeof g.isCat !== 'boolean') g.isCat = false;
+    if (typeof g.collapsed !== 'boolean') g.collapsed = false;
+    if (g.cat === undefined) g.cat = null;
     if (typeof g.ts !== 'number') g.ts = 0;
     if (!g.org) g.org = deviceId;
     if (typeof g.pos !== 'number') g.pos = i;
@@ -397,6 +411,7 @@
     if (!u.id) u.id = uid();
     if (typeof u.name !== 'string') u.name = 'Uten navn';
     if (typeof u.trashed !== 'boolean') u.trashed = false;
+    if (typeof u.collapsed !== 'boolean') u.collapsed = false;
     if (typeof u.ts !== 'number') u.ts = 0;
     if (!u.org) u.org = deviceId;
     if (typeof u.pos !== 'number') u.pos = i;
@@ -415,7 +430,8 @@
       s.activeUniverse = first ? first.id : null;
     }
     const uni = s.universes.find((u) => u.id === s.activeUniverse && !u.trashed) || null;
-    const groups = uni ? uni.groups.filter((g) => !g.trashed) : [];
+    // Gruppekategorier er overskrifter, ikke steder man kan stå.
+    const groups = uni ? uni.groups.filter((g) => !g.trashed && !g.isCat) : [];
     const ok = (id) => id && groups.some((g) => g.id === id);
     if (!ok(s.activeGroup)) {
       const remembered = uni ? s.activeGroups[uni.id] : null;
@@ -445,23 +461,20 @@
   /* ---------------- DOM-referanser ---------------- */
   const board = document.getElementById('board');
   const topbarEl = document.getElementById('topbar');
-  // Breadcrumb-knappene i toppmenyen (🌐 univers › 📁 gruppe) åpner hver sin modal.
-  const uniCrumbBtn = document.getElementById('uni-crumb');
-  const groupCrumbBtn = document.getElementById('group-crumb');
+  // ÉN navigasjonsknapp i toppmenyen (🌐 univers › 📁 gruppe) → nav-modalen.
+  const navCrumbBtn = document.getElementById('nav-crumb');
   const crumbUniName = document.getElementById('crumb-uni-name');
   const crumbGroupName = document.getElementById('crumb-group-name');
-  const addGroupBtn = document.getElementById('add-group-btn');
   const respSwitcherOverlay = document.getElementById('resp-switcher');
   const respSwitcherPanel = document.getElementById('resp-switcher-panel');
   const addCardBtn = document.getElementById('add-card-btn');
-  const shareUniBtn = document.getElementById('share-uni-btn');
-  const shareGroupBtn = document.getElementById('share-group-btn');
   const filterSwitchesEl = document.getElementById('filter-switches');
-  const groupTpl = document.getElementById('group-template');
-  const uniTpl = document.getElementById('uni-template');
   const cardTpl = document.getElementById('card-template');
   const itemTpl = document.getElementById('item-template');
   const catTpl = document.getElementById('category-template');
+  const uniCardTpl = document.getElementById('uni-card-template');
+  const groupRowTpl = document.getElementById('group-row-template');
+  const groupCatTpl = document.getElementById('group-cat-template');
 
   const trashBtn = document.getElementById('trash-btn');
   const trashCount = document.getElementById('trash-count');
@@ -472,29 +485,14 @@
   const trashEmptyBtn = document.getElementById('trash-empty');
   const modalNote = document.getElementById('trash-note');
 
-  // Gruppe-søppelkasse: i knapperaden i gruppe-modalen, ved siden av «＋ Gruppe».
-  const groupsTrashBtn = document.getElementById('groups-trash-btn');
-  const groupsTrashCount = document.getElementById('groups-trash-count');
-
-  // Univers-modal (🌐-breadcrumben): aktuelt univers + deling + alle universene.
-  const uniModal = document.getElementById('uni-modal');
-  const uniModalClose = document.getElementById('uni-modal-close');
-  const uniCurrentWrap = document.getElementById('uni-current');
-  const uniCurrentChip = document.getElementById('uni-current-chip');
-  const uniCurrentName = document.getElementById('uni-current-name');
-  const uniList = document.getElementById('uni-list');
+  // Navigasjonsmodal (nav-knappen): universer som kort med gruppene sine som
+  // rader — samme oppsett og samme dra-og-slipp-motor som lister/listepunkter.
+  const navModal = document.getElementById('nav-modal');
+  const navModalClose = document.getElementById('nav-modal-close');
+  const navBoard = document.getElementById('nav-board');
   const addUniBtn = document.getElementById('add-uni-btn');
   const uniTrashBtn = document.getElementById('uni-trash-btn');
   const uniTrashCount = document.getElementById('uni-trash-count');
-
-  // Gruppe-modal (📁-breadcrumben): aktuell gruppe + deling + alle gruppene.
-  const groupModal = document.getElementById('group-modal');
-  const groupModalClose = document.getElementById('group-modal-close');
-  const groupCurrentWrap = document.getElementById('group-current');
-  const groupCurrentChip = document.getElementById('group-current-chip');
-  const groupCurrentName = document.getElementById('group-current-name');
-  const groupModalUniName = document.getElementById('group-modal-uni-name');
-  const groupList = document.getElementById('group-list');
 
   // Konto-modal (kontoknappen øverst til høyre).
   const accountBtn = document.getElementById('account-btn');
@@ -502,28 +500,40 @@
   const accountClose = document.getElementById('account-close');
 
   const posCmp = (a, b) => (a.pos - b.pos) || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0);
-  // Univers-scope: «aktive» grupper gjelder alltid det aktive universet, og
-  // «aktive» kort/elementer den aktive gruppen. Universer er helt uavhengige
-  // områder — alt gruppe-UI (header, søppelkasse, DnD) er scopet hit.
+  // «Aktive» kort/listepunkter gjelder alltid den aktive gruppen; universene og
+  // gruppene deres lever i nav-modalen (alle universer vises samtidig, som
+  // listekortene på board-et).
   // `_pendingDelete` (buffret sletting, se DELETE-BUFFER lenger nede): objektet
   // er skjult fra de synlige listene og vist i søppel-visningen,
   // men er ENNÅ ikke `trashed` i state og skrives ikke til databasen — det skjer
   // først når toasten utløper (eller committes ved unload). Derfor teller det som
   // «i søppel» for visning, men ikke som aktivt.
-  const activeUniverseObj = () => state.universes.find((u) => u.id === state.activeUniverse && !u.trashed && !u._pendingDelete) || null;
-  const visibleUniverses = () => state.universes.filter((u) => !u.trashed && !u._pendingDelete).sort(posCmp); // i meny-modalen
-  const trashedUniverses = () => state.universes.filter((u) => u.trashed || u._pendingDelete);               // i univers-søppelkassen
+  const live = (o) => !o.trashed && !o._pendingDelete;
+  const activeUniverseObj = () => state.universes.find((u) => u.id === state.activeUniverse && live(u)) || null;
+  const visibleUniverses = () => state.universes.filter(live).sort(posCmp); // kortene i nav-modalen
+  const trashedUniverses = () => state.universes.filter((u) => !live(u));   // i univers-søppelkassen
   const findUniverse = (id) => state.universes.find((u) => u.id === id) || null;
   const allGroups = () => { const u = activeUniverseObj(); return u ? u.groups : []; };
-  const activeGroupObj = () => allGroups().find((g) => g.id === state.activeGroup && !g.trashed && !g._pendingDelete) || null;
-  const visibleGroups = () => allGroups().filter((g) => !g.trashed && !g._pendingDelete).sort(posCmp); // vist i gruppemenyen
-  const trashedGroups = () => allGroups().filter((g) => g.trashed || g._pendingDelete);               // i gruppe-søppelkassen
+  const activeGroupObj = () => allGroups().find((g) => g.id === state.activeGroup && live(g) && !g.isCat) || null;
+  // Gruppene i ETT univers (nav-modalen tegner alle universene samtidig).
+  const groupsOf = (u) => (u && u.groups) || [];
+  const visibleGroupsOf = (u) => groupsOf(u).filter(live).sort(posCmp);
+  const trashedGroupsOf = (u) => groupsOf(u).filter((g) => !live(g));
   const findGroup = (id) => allGroups().find((g) => g.id === id) || null;
+  // Grupper på tvers av ALLE universer (nav-scopet: en gruppe kan dras hvor
+  // som helst, så oppslag kan ikke være scopet til det aktive universet).
+  function findGroupAnywhere(id) {
+    for (const u of state.universes) {
+      const g = u.groups.find((x) => x.id === id);
+      if (g) return g;
+    }
+    return null;
+  }
   const allCards = () => { const g = activeGroupObj(); return g ? g.cards : []; };
-  const activeCards = () => allCards().filter((c) => !c.trashed && !c._pendingDelete).sort(posCmp);
-  const trashedCards = () => allCards().filter((c) => c.trashed || c._pendingDelete);
+  const activeCards = () => allCards().filter(live).sort(posCmp);
+  const trashedCards = () => allCards().filter((c) => !live(c));
   const findCard = (id) => allCards().find((c) => c.id === id);
-  const trashedItemsOf = (cardData) => (cardData.items || []).filter((it) => it.trashed || it._pendingDelete);
+  const trashedItemsOf = (cardData) => (cardData.items || []).filter((it) => !live(it));
   function findItemById(id) {
     for (const c of allCards()) {
       const it = c.items.find((x) => x.id === id);
@@ -533,26 +543,28 @@
   }
   // Kategorier og ukategoriserte elementer deler nivå-1-posisjonsrommet (begge
   // har `cat` falsy); en ny nivå-1-rad legges bakerst der.
-  function level1MaxPos(cardData) { return maxPos(cardData.items.filter((it) => !it.cat)); }
+  function level1MaxPos(rows) { return maxPos(rows.filter((it) => !it.cat)); }
   // Kategori-objektet et element ligger i (eller null for ukategorisert / ukjent).
   function catOf(cardData, catId) {
     return catId ? cardData.items.find((x) => x.id === catId && x.isCat) || null : null;
   }
   // Antall listepunkter i en kollapset liste (alle aktive leaf-elementer, uansett
-  // kategori eller avkryssing — kategorier telles IKKE).
-  function cardLeafCount(cardData) {
-    return cardData.items.filter((it) => !it.trashed && !it._pendingDelete && !it.isCat).length;
+  // kategori eller avkryssing — kategorier telles IKKE). Samme regnestykke for
+  // et univers (aktive grupper, gruppekategorier ikke medregnet).
+  function leafCount(rows) {
+    return rows.filter((it) => live(it) && !it.isCat).length;
   }
-  // Antall listepunkter i en kollapset kategori (dens synlige medlemmer på nivå 2).
-  function catMemberCount(cardData, catId) {
-    return cardData.items.filter((it) => !it.trashed && !it._pendingDelete &&
-      !it.done && !it.isCat && it.cat === catId).length;
+  // Antall rader i en kollapset kategori (dens synlige medlemmer på nivå 2).
+  function catMemberCount(rows, catId) {
+    return rows.filter((it) => live(it) && !it.done && !it.isCat && it.cat === catId).length;
   }
-  // Sett «(N)»-teksten på en kollaps-teller og vis/skjul den etter kollaps-tilstand.
-  function setCollapseCount(headEl, n, collapsed) {
+  // Sett kollaps-tellerens tekst og vis/skjul den etter kollaps-tilstand. Lister/
+  // listepunkt-kategorier viser «(N)»; universer viser [gruppe-ikon] N (`icon`).
+  function setCollapseCount(headEl, n, collapsed, icon) {
     const c = headEl && headEl.querySelector('.collapse-count');
     if (!c) return;
-    c.textContent = '(' + n + ')';
+    if (icon) c.innerHTML = icon + '<span>' + n + '</span>';
+    else c.textContent = '(' + n + ')';
     c.hidden = !collapsed;
   }
 
@@ -565,12 +577,113 @@
   }
   function setActiveUniverse(id) {
     state.activeUniverse = id || null;
-    const vis = visibleGroups();
+    // Gruppekategorier er overskrifter, ikke steder man kan stå.
+    const vis = visibleGroupsOf(activeUniverseObj()).filter((g) => !g.isCat);
     const remembered = id ? state.activeGroups[id] : null;
     setActiveGroup(remembered && vis.some((g) => g.id === remembered)
       ? remembered
       : (vis[0] ? vis[0].id : null));
   }
+  // Naviger til en gruppe uansett hvilket univers den ligger i (nav-modalen viser
+  // alle universene samtidig, så et gruppevalg kan bytte univers også).
+  function goToGroup(g) {
+    if (!g || g.isCat) return;
+    state.activeUniverse = g.uni || state.activeUniverse;
+    setActiveGroup(g.id);
+  }
+
+  /* ---------------- Dra-og-slipp-scope: hovedsidens board vs. nav-modalen ----------------
+     Universer og grupper bruker NØYAKTIG samme oppsett — og dermed nøyaktig
+     samme dra-og-slipp-motor — som lister og listepunkter: et univers er et
+     «kort» (`.card`), en gruppe en rad (`.item`) og en gruppekategori en
+     `.category`. `drag.kind` er derfor fortsatt 'card'/'item'/'category' i begge
+     scopene; det eneste som skiller dem er hvilket state-tre man slår opp i, hva
+     forelder-/navnefeltene heter, og hvor draget foregår (hovedsidens board med
+     dokument-koordinater + window-scroll, vs. nav-modalens board med viewport-
+     koordinater + modal-scroll). Alt det bor her; `drag.scope` velges ved
+     dragstart ut fra hvilket board det løftede elementet ligger i. */
+  const boardScope = {
+    key: 'board',
+    contKind: 'card', rowKind: 'item',
+    pageCoords: true,                 // absolutt posisjonering i dokument-koordinater
+    get root() { return board; },
+    containers: () => activeCards(),
+    findContainer: (id) => findCard(id) || null,
+    findRow: (id) => findItemById(id),
+    rowsOf: (c) => c.items,
+    setRows: (c, rows) => { c.items = rows; },
+    rowParent: (r) => r.home,
+    setRowParent: (r, id) => { r.home = id; },
+    rowName: (r) => r.text,
+    setRowName: (r, v) => { r.text = v; },
+    rowPool: () => {
+      const p = {};
+      allCards().forEach((c) => c.items.forEach((it) => { p[it.id] = it; }));
+      return p;
+    },
+    // Ny container ved ekstrahering (listepunkt/kategori → ny liste).
+    createContainer: (title) => {
+      const g = activeGroupObj();
+      if (!g) return null;
+      const nc = card(title, [], g.id);
+      g.cards.push(nc);
+      return nc;
+    },
+    countIcon: null,                  // «(N)»
+    refreshContainer: (c) => refreshCard(c),
+    // Mount-patch når en DELT rad flyttes (listepunkter monteres aldri, så denne
+    // brukes i praksis bare av nav-scopet).
+    mountParentPatch: (parentId, pos) => ({ pos }),
+    // Full re-rendring etter en strukturendring (ekstrahering/kryss-flytting).
+    render: () => render(),
+    // Overflate-oppdatering etter et kirurgisk drop (ingen rebuild av scopet).
+    afterDrop: () => { /* board-et er allerede riktig */ },
+    reindexColors: () => reindexContainerColors(boardScope),
+  };
+  const navScope = {
+    key: 'nav',
+    contKind: 'universe', rowKind: 'group',
+    pageCoords: false,                // fast posisjonering (modalen scroller, ikke vinduet)
+    get root() { return navBoard; },
+    singleColumn: true,               // nav-modalen har alltid én kolonne
+    containers: () => visibleUniverses(),
+    findContainer: (id) => findUniverse(id),
+    findRow: (id) => findGroupAnywhere(id),
+    rowsOf: (u) => u.groups,
+    setRows: (u, rows) => { u.groups = rows; },
+    rowParent: (r) => r.uni,
+    setRowParent: (r, id) => { r.uni = id; },
+    rowName: (r) => r.name,
+    setRowName: (r, v) => { r.name = v; },
+    rowPool: () => {
+      const p = {};
+      state.universes.forEach((u) => u.groups.forEach((g) => { p[g.id] = g; }));
+      return p;
+    },
+    // Ny container ved ekstrahering (gruppe/gruppekategori → nytt univers).
+    createContainer: (name) => {
+      const nu = makeUniverse(name);
+      state.universes.push(nu);
+      return nu;
+    },
+    get countIcon() { return ICONS.folder; }, // [mappe] N i stedet for «(N)»
+    refreshContainer: (u) => {
+      // Erstattes på plass i den ene kolonnen; ingen omfordeling å gjøre
+      // (nav-scopet er alltid énkolonne), og scopet observeres ikke.
+      const oldEl = navBoard.querySelector('.card[data-id="' + u.id + '"]');
+      if (oldEl) oldEl.replaceWith(buildUniverseCard(u));
+    },
+    mountParentPatch: (parentId, pos) => ({ parent_universe_id: parentId, pos }),
+    render: () => render(),
+    // Et gruppe-drag kan ha flyttet den AKTIVE gruppen til et annet univers (eller
+    // inn i/ut av en kategori) — hovedsidens board og breadcrumben må følge med.
+    // renderNav() kalles bevisst IKKE: nav-DOM-en er allerede kirurgisk oppdatert,
+    // og en rebuild ville revet ned kortet midt i drop-animasjonen.
+    afterDrop: () => { updateCrumbs(); renderBoard(); },
+    reindexColors: () => reindexContainerColors(navScope),
+  };
+  const scopeForEl = (el) => (el && navBoard.contains(el) ? navScope : boardScope);
+  const dragScope = () => drag.scope || boardScope;
 
   /* ---------------- Filter (Mine / Delte) ----------------
      Per enhet (ikke synket). To uavhengige brytere: «Mine» (lister du selv har
@@ -630,30 +743,37 @@
 
      Fordelingen er FROSSET mens et drag pågår: kortene skal ligge i ro under
      fingeren, og en omfordeling midt i et drag ville gitt tilbake nettopp den
-     tilbakekoblingen vi ble kvitt. Den kjøres på nytt ved slipp. */
+     tilbakekoblingen vi ble kvitt. Den kjøres på nytt ved slipp.
+
+     Maskineriet er SCOPE-BEVISST (`boardScope`/`navScope`): nav-modalens board
+     bruker det samme, bare med `singleColumn` — én kolonne uansett bredde. */
   const BOARD_COL_MIN = 380;   // minste kolonnebredde (var `.board { column-width }`)
   const BOARD_COL_MIN_H = 240; // nedre grense for kolonnebudsjettet (svært lav skjerm)
 
-  const boardGap = () => parseFloat(getComputedStyle(board).columnGap) || 0;
-  const boardColumns = () => [...board.children].filter((c) => c.classList.contains('board-col'));
+  const boardGap = (root) => parseFloat(getComputedStyle(root || board).columnGap) || 0;
+  const boardColumns = (root) => [...(root || board).children].filter((c) => c.classList.contains('board-col'));
+  // Board-et et element hører til (hovedsiden eller nav-modalen).
+  const boardRootOf = (el) => (el && el.closest('.board')) || board;
   // Alle board-rader (kort + evt. ny-liste-placeholder) i LESEREKKEFØLGE:
   // kolonne 1 topp→bunn, så kolonne 2 … . DOM-rekkefølgen ER leserekkefølgen,
   // så `pos` kan fortsatt regnes fra naboene — men naboen over den første raden
   // i en kolonne ligger i kolonnen FØR, ikke i samme container.
-  function boardRows() {
+  function boardRows(root) {
     const out = [];
-    for (const col of boardColumns()) out.push(...col.children);
+    for (const col of boardColumns(root)) out.push(...col.children);
     return out;
   }
   function boardRowSibling(el, dir) {
-    const rows = boardRows();
+    const rows = boardRows(boardRootOf(el));
     const i = rows.indexOf(el);
     return i < 0 ? null : (rows[i + dir] || null);
   }
   // Hvor mange kolonner får plass? Samme terskel som den gamle `column-width`.
-  function boardColumnCount() {
-    const gap = boardGap();
-    return Math.max(1, Math.floor((board.clientWidth + gap) / (BOARD_COL_MIN + gap)));
+  // Nav-modalen er alltid én kolonne (`S.singleColumn`).
+  function boardColumnCount(S) {
+    if (S.singleColumn) return 1;
+    const gap = boardGap(S.root);
+    return Math.max(1, Math.floor((S.root.clientWidth + gap) / (BOARD_COL_MIN + gap)));
   }
   // Grådig fordeling: neste rad blir liggende i gjeldende kolonne så lenge den
   // får plass innenfor budsjettet. Avstanden mellom radene er kortenes egen
@@ -670,6 +790,7 @@
     return cols;
   }
   function boardColumnBudget(heights, gap, n) {
+    if (n <= 1) return Infinity; // én kolonne: alt havner der uansett
     const vh = window.innerHeight || document.documentElement.clientHeight || 0;
     const screen = Math.max(BOARD_COL_MIN_H,
       Math.round(vh - topbarEl.getBoundingClientRect().height - 2 * gap));
@@ -688,60 +809,64 @@
   let relayoutRAF = null;
   function scheduleRelayout() {
     if (relayoutRAF != null) return;
-    relayoutRAF = requestAnimationFrame(() => { relayoutRAF = null; relayoutBoard(); });
+    relayoutRAF = requestAnimationFrame(() => { relayoutRAF = null; relayoutBoard(boardScope); });
   }
   // Hold observatørens mål i takt med kortene som faktisk står på board-et.
   // `render()` river alle kortnodene (`board.innerHTML = ''`) og `refreshCard()`
   // bytter ut enkeltnoder — uten dette ville observasjonene av de gamle nodene
   // blitt liggende og hopet seg opp for hver render (denne appen re-rendrer ved
   // hver synk). Å `observe()` et mål som allerede observeres er en no-op per spec,
-  // så re-observeringen kan ikke gi en ny runde med callbacks.
-  const boardObserved = new Set();
-  function observeBoardRows(rows) {
-    if (!boardRO) return;
+  // så re-observeringen kan ikke gi en ny runde med callbacks. Settet er PER SCOPE.
+  // Et ÉNKOLONNE-scope (nav-modalen) observeres ikke i det hele tatt: fordelingen
+  // kan aldri endre seg av en høyde-endring når det bare finnes én kolonne, og
+  // `renderNav()` kaller `relayoutBoard` selv når den bygger kortene.
+  function observeBoardRows(S, rows) {
+    if (!boardRO || S.singleColumn) return;
+    const seen = S._observed || (S._observed = new Set());
     const now = new Set(rows);
-    boardObserved.forEach((el) => {
+    seen.forEach((el) => {
       if (now.has(el)) return;
       boardRO.unobserve(el);
-      boardObserved.delete(el);
+      seen.delete(el);
     });
     rows.forEach((el) => {
-      if (boardObserved.has(el)) return;
+      if (seen.has(el)) return;
       boardRO.observe(el);
-      boardObserved.add(el);
+      seen.add(el);
     });
   }
-  function relayoutBoard() {
+  function relayoutBoard(scope) {
+    const S = scope || boardScope;
     if (drag.active) return;                            // frosset under draging
-    if (board.classList.contains('empty')) { observeBoardRows([]); return; }
+    if (S.root.classList.contains('empty')) { observeBoardRows(S, []); return; }
     // En node som flyttes i DOM mister fokus (og markøren i et navnefelt). Er
     // man midt i å skrive, venter vi til feltet forlates (`focusout` under).
     const focused = document.activeElement;
-    if (focused && board.contains(focused) &&
+    if (focused && S.root.contains(focused) &&
         (focused.tagName === 'INPUT' || focused.tagName === 'TEXTAREA' || focused.isContentEditable)) {
       relayoutPending = true;
       return;
     }
     relayoutPending = false;
-    const want = boardColumnCount();
-    let cols = boardColumns();
+    const want = boardColumnCount(S);
+    let cols = boardColumns(S.root);
     // Riktig antall kolonner FØRST: kolonnebredden — og dermed korthøydene vi
     // straks måler — avhenger av antallet.
     if (cols.length !== want) {
-      const rows = boardRows();
+      const rows = boardRows(S.root);
       while (cols.length > want) cols.pop().remove();
       while (cols.length < want) {
         const c = document.createElement('div');
         c.className = 'board-col';
-        board.appendChild(c);
+        S.root.appendChild(c);
         cols.push(c);
       }
       if (rows.length) cols[0].append(...rows);
     }
-    const rows = boardRows();
-    observeBoardRows(rows);
+    const rows = boardRows(S.root);
+    observeBoardRows(S, rows);
     if (!rows.length) return;
-    const gap = boardGap();
+    const gap = boardGap(S.root);
     const heights = rows.map((el) => el.offsetHeight);
     const plan = packBoardColumns(heights, gap, boardColumnBudget(heights, gap, cols.length));
     cols.forEach((col, j) => {
@@ -755,23 +880,30 @@
   }
   // Korthøyder endres av mye (kollaps, listepunkter inn/ut, tekst som brytes om) —
   // én observatør fanger alt. Fordelingen skrives bare når den faktisk endrer seg,
-  // så observatøren kan ikke gå i løkke med seg selv. Board-et selv observeres
+  // så observatøren kan ikke gå i løkke med seg selv. Board-ene selv observeres
   // permanent (bredde-endringer); kortene reconciles av `observeBoardRows`.
   const boardRO = typeof ResizeObserver === 'function' ? new ResizeObserver(scheduleRelayout) : null;
   if (boardRO) boardRO.observe(board);
   board.addEventListener('focusout', () => { if (relayoutPending) scheduleRelayout(); });
 
+  // Full re-rendring: nav-modalen (universer/grupper) + hovedsidens board.
   function render() {
-    renderGroups();
-    renderUniverses();
+    renderNav();
+    renderBoard();
+  }
+
+  // Kun hovedsidens board (+ toppmeny/filter/søppelkasse). Brukes etter et drag
+  // i nav-modalen: DOM-en der er allerede kirurgisk oppdatert av dra-motoren, og
+  // en full renderNav() ville revet ned det nettopp slupne kortet midt i
+  // drop-animasjonen.
+  function renderBoard() {
     updateTrashCount();
     renderFilterSwitches();
     updateToolbarState();
-    refreshModalCurrents();
 
     board.innerHTML = '';
     const group = activeGroupObj();
-    updateCrumbs(group);
+    updateCrumbs();
 
     // Ingen aktiv gruppe (evt. heller ikke noe univers — «＋ Gruppe» ordner begge).
     if (!group) {
@@ -779,8 +911,8 @@
       const es = document.createElement('div');
       es.className = 'empty-state';
       es.innerHTML = '<div class="big">' + ICONS.folder + '</div><p>Ingen grupper ennå.</p>' +
-        '<p>Trykk <span class="hint-chip">' + ICONS.folder + '</span> øverst og deretter ' +
-        '<span class="hint-chip">' + ICONS.plus + ' ' + ICONS.folder + '</span> for å komme i gang.</p>';
+        '<p>Trykk <span class="hint-chip">' + ICONS.globe + ' › ' + ICONS.folder + '</span> øverst og deretter ' +
+        '<span class="hint-chip">' + ICONS.plus + '</span> i et univers for å komme i gang.</p>';
       board.appendChild(es);
       fixBoardBottomGap();
       save();
@@ -831,79 +963,19 @@
     addCardBtn.disabled = !activeGroupObj();
   }
 
-  // «Du er i»-blokkene øverst i univers-/gruppe-modalen: navnet på gjeldende
-  // univers/gruppe (chip-farget) + del-knappen rett under. Del-knappen vises
-  // kun når objektet er ens eget eller montert — samme vilkår som før.
-  // Klikk-handlere er koblet én gang (leser aktivt objekt ved klikk).
-  function refreshModalCurrents() {
+  // Breadcrumben (nav-knappen) viser navnet på gjeldende univers og gruppe, ikke
+  // bare nivånavnet — så man alltid ser hvor i hierarkiet man er.
+  function updateCrumbs() {
     const uni = activeUniverseObj();
-    uniCurrentWrap.hidden = !uni;
-    // Gruppelistas overskrift: «Alle grupper i 🌐 [universets navn]».
-    groupModalUniName.textContent = uni ? uni.name : 'universet';
-    if (uni) {
-      uniCurrentName.textContent = uni.name;
-      applyChipColor(uniCurrentChip, uni);
-      shareUniBtn.hidden = !(uni._mine || uni._mount);
-    }
-    const grp = activeGroupObj();
-    groupCurrentWrap.hidden = !grp;
-    if (grp) {
-      groupCurrentName.textContent = grp.name;
-      applyChipColor(groupCurrentChip, grp);
-      shareGroupBtn.hidden = !(grp._mine || grp._mount);
-    }
-  }
-  // Del-knappen sender videre til dele-modalen; tilbakeknappen der navigerer
-  // tilbake til univers-/gruppe-modalen (lukk = rett til hovedsiden).
-  shareUniBtn.addEventListener('click', () => {
-    const u = activeUniverseObj();
-    if (!u) return;
-    closeUniModal();
-    openShare('universe', u.id, u, openUniModal);
-  });
-  shareGroupBtn.addEventListener('click', () => {
-    const g = activeGroupObj();
-    if (!g) return;
-    closeGroupModal();
-    openShare('group', g.id, g, openGroupModal);
-  });
-
-  // Breadcrumben viser navnet på gjeldende univers/gruppe, ikke bare
-  // nivånavnet — så man alltid ser hvor i hierarkiet man er.
-  function updateCrumbs(group) {
-    const uni = activeUniverseObj();
+    const group = activeGroupObj();
     crumbUniName.textContent = uni ? uni.name : 'Univers';
     crumbGroupName.textContent = group ? group.name : 'Gruppe';
   }
 
-  /* ---------------- Grupper (gruppe-modalen) ---------------- */
-  // Tegn gruppe-radene til det aktive universet inn i gruppelista i modalen.
-  // Kun ikke-slettede grupper vises; slettede ligger i gruppe-søppelkassen
-  // (i knapperaden under radene).
-  function renderGroups() {
-    [...groupList.querySelectorAll('.group-card')].forEach((el) => el.remove());
-    const vis = visibleGroups();
-    // Gruppe-rader får farge etter samme posisjonssystem som listekort.
-    vis.forEach((g, i) => { g.color = colorForIndex(i); });
-    vis.forEach((g) => groupList.appendChild(buildGroupCard(g)));
-    updateGroupsTrash();
-  }
-
-  // Gruppe-søppelkassen (per univers): vises kun når det ligger grupper i den.
-  function updateGroupsTrash() { updateTrashBadge(trashedGroups, groupsTrashCount, groupsTrashBtn); }
-
-  // Chip-farge (gruppe- og univers-rader): posisjonsfarge --g-bg + mørkere
-  // --g-accent. Listekort bruker egne --card-*-variabler (se buildCard), så de
-  // deler ikke denne.
-  function applyChipColor(el, obj) {
-    const base = obj.color || colorForId(obj.id);
-    el.style.setProperty('--g-bg', base);
-    el.style.setProperty('--g-accent', darken(base, 0.34));
-  }
   // Delings-/låse-status (kontomodus): toggler .is-shared og fyller .share-badge
   // (lås hvis frosset av andre, ellers «people»-ikon). Returnerer {shared, canEdit}
-  // som byggerne gjenbruker — canEdit gater redigering; buildCard toggler dessuten
-  // .is-locked selv (kun listekort har den).
+  // som byggerne gjenbruker — canEdit gater redigering; kort-byggerne toggler
+  // dessuten .is-locked selv.
   function applyShareBadge(el, obj) {
     const shared = obj._shared || obj._mount;
     const canEdit = !frozen(obj);
@@ -917,84 +989,261 @@
     return { shared, canEdit };
   }
 
-  function buildGroupCard(groupData) {
-    const el = groupTpl.content.firstElementChild.cloneNode(true);
-    el.dataset.id = groupData.id;
-    const isActive = groupData.id === state.activeGroup;
-    el.classList.toggle('active', isActive);
-    el.setAttribute('aria-selected', isActive ? 'true' : 'false');
+  /* ============================================================
+     NAV-MODALEN: universer som kort, grupper som rader
+     ------------------------------------------------------------
+     Nøyaktig samme oppsett som hovedsidens board — bare alltid i én kolonne:
+     hvert univers er et `.card` (kan kollapses, viser da [mappe] N), gruppene
+     er `.item`-rader i kortets `.items-container`, og gruppekategorier er
+     `.category`-rader med sin egen hylle. Dermed gjelder også hele dra-og-
+     slipp-motoren (reorder, flytt mellom universer, ekstraher til nytt
+     univers, peek-åpning, skillelinjer) uten en eneste egen kodelinje —
+     se `navScope` over. */
+  function renderNav() {
+    updateUniversesTrash();
+    updateCrumbs();
+    navBoard.innerHTML = '';
+    // Bygg kortene bare når modalen faktisk er åpen: en usett DOM-kopi av alle
+    // universer/grupper koster ved hver render, og ville dessuten gitt doble
+    // treff for `.card`/`.item` på tvers av de to board-ene.
+    if (navModal.hidden) return;
+    const vis = visibleUniverses();
+    // Samme posisjonsbaserte fargesystem som listekortene.
+    vis.forEach((u, i) => { u.color = colorForIndex(i); });
+    if (!vis.length) {
+      navBoard.classList.add('empty');
+      const es = document.createElement('div');
+      es.className = 'empty-state';
+      es.innerHTML = '<div class="big">' + ICONS.globe + '</div><p>Ingen universer ennå.</p>' +
+        '<p>Trykk <span class="hint-chip">' + ICONS.plus + ' ' + ICONS.globe + '</span> nedenfor.</p>';
+      navBoard.appendChild(es);
+      return;
+    }
+    navBoard.classList.remove('empty');
+    // Samme kolonne-container som hovedsidens board (`relayoutBoard`), bare at
+    // nav-scopet alltid holder seg til ÉN kolonne (`singleColumn`).
+    const col = document.createElement('div');
+    col.className = 'board-col';
+    vis.forEach((u) => col.appendChild(buildUniverseCard(u)));
+    navBoard.appendChild(col);
+    relayoutBoard(navScope);
+  }
 
-    // Farge etter posisjon (samme system som listekort); aksent = mørkere variant.
-    applyChipColor(el, groupData);
-    // Delings-/låse-status (kontomodus).
-    const gCanEdit = applyShareBadge(el, groupData).canEdit;
-    const nameEl = el.querySelector('.group-name');
-    nameEl.textContent = groupData.name;
+  function buildUniverseCard(u) {
+    const el = uniCardTpl.content.firstElementChild.cloneNode(true);
+    el.dataset.id = u.id;
 
-    // Antall lister i gruppen (ikke papirkurv): liten pill med liste-ikon + tall.
-    const countEl = el.querySelector('.group-count');
-    const gListN = groupData.cards.filter((c) => !c.trashed).length;
-    countEl.innerHTML = ICONS.list + '<span>' + gListN + '</span>';
-    countEl.title = listWord(gListN);
+    const base = u.color || colorForId(u.id);
+    el.style.setProperty('--card-bg', base);
+    el.style.setProperty('--card-head', darken(base, 0.08));
+    el.style.setProperty('--card-accent', darken(base, 0.32));
 
-    // Klikk på TITTELEN = rediger navnet (uansett om gruppen er aktiv eller
-    // ikke); klikk ELLERS på raden = bytt gruppe og lukk modalen. (Før navigerte
-    // et klikk på en annen gruppes navn dit i stedet for å redigere.)
-    const navigate = () => {
-      if (nameEl.dataset.editing === '1') return;
-      if (groupData.id !== state.activeGroup) {
-        setActiveGroup(groupData.id);
-        render();
-      }
-      closeGroupModal(); // bytt kontekst og gå (allerede aktiv → bare lukk)
+    const canEdit = applyShareBadge(el, u).canEdit;
+    el.classList.toggle('is-locked', !canEdit);
+    el.classList.toggle('active', u.id === state.activeUniverse);
+
+    const titleEl = el.querySelector('.card-title');
+    titleEl.textContent = u.name;
+    titleEl.addEventListener('click', () => {
+      if (!canEdit) return;
+      editText(titleEl, u.name, (val) => {
+        u.name = val || 'Uten navn';
+        titleEl.textContent = u.name;
+        stampContent(u);
+        save();
+        updateCrumbs();
+      });
+    });
+
+    // Universer og grupper har ingen innstillingsmodal — kun en del-knapp.
+    const shareBtn = el.querySelector('.uni-share');
+    if (!(u._mine || u._mount)) shareBtn.hidden = true;
+    else shareBtn.addEventListener('click', () => {
+      closeNavModal();
+      openShare('universe', u.id, u, openNavModal);
+    });
+
+    const delBtn = el.querySelector('.uni-delete');
+    if (!canEdit && !u._mount) delBtn.hidden = true;
+    else delBtn.addEventListener('click', () => deleteUniverse(u));
+
+    // Draging + rullgardin-kollaps: nøyaktig som et listekort.
+    const head = el.querySelector('.card-head');
+    attachHoldDrag(head, el, startCardDrag,
+      () => canEdit || !!u._mount, '.uni-share, .uni-delete');
+    head.addEventListener('click', (ev) => {
+      if (ev.target.closest('.card-title, .uni-share, .uni-delete, .edit-input')) return;
+      toggleCardCollapsed(el, u, navScope);
+    });
+
+    // Gruppene: nivå 1 (ukategoriserte + gruppekategorier om hverandre), nivå 2
+    // inne i hver gruppekategori. Samme regler som listepunkter i en liste.
+    const list = el.querySelector('.items-container');
+    const active = u.groups.filter(live);
+    const catIds = new Set(active.filter((g) => g.isCat).map((g) => g.id));
+    const level1 = active.filter((g) => g.isCat || !g.cat || !catIds.has(g.cat)).sort(posCmp);
+    level1.forEach((g) => list.appendChild(g.isCat ? buildGroupCategory(g, u) : buildGroupRow(g, u)));
+
+    // ＋ = ny gruppe, gul knapp = ny gruppekategori. Begge oppretter objektet med
+    // én gang og åpner navneredigereren på det (som i en liste).
+    const addRow = el.querySelector('.add-item-row');
+    if (!canEdit) addRow.hidden = true;
+    const addRowNow = (obj, rowEl, titleSel) => {
+      obj.pos = level1MaxPos(u.groups) + 1;
+      stampContent(obj);
+      stampPos(obj);
+      u.groups.push(obj);
+      list.appendChild(rowEl);
+      save();
+      nameNewRow(obj, u, rowEl, rowEl.querySelector(titleSel), navScope);
     };
-
-    el.addEventListener('click', (ev) => {
-      if (ev.target.closest('.group-delete') || ev.target.closest('.edit-input')) return;
-      if (gCanEdit && ev.target.closest('.group-name')) { startGroupRename(nameEl, groupData); return; }
-      navigate();
+    addRow.querySelector('.add-item-btn').addEventListener('click', () => {
+      if (!canEdit) return;
+      const g = makeGroup('', null, u.id);
+      addRowNow(g, buildGroupRow(g, u), '.item-text');
     });
-    // Tastatur: raden (role="tab", tabindex=0) er det eneste fokuserbare punktet
-    // — tittelen er ikke fokuserbar. For å beholde en tastatur-vei til omdøping
-    // redigerer Enter/Mellomrom navnet når raden ALLEREDE er aktiv (som det gamle
-    // «klikk på det aktive navnet»); ellers bytter det gruppe.
-    el.addEventListener('keydown', (ev) => {
-      if (ev.target !== el) return; // slett-knappen har egen tastaturoppførsel
-      if (ev.key === 'Enter' || ev.key === ' ' || ev.key === 'Spacebar') {
-        ev.preventDefault();
-        if (gCanEdit && groupData.id === state.activeGroup) startGroupRename(nameEl, groupData);
-        else navigate();
-      }
+    addRow.querySelector('.add-cat-btn').addEventListener('click', () => {
+      if (!canEdit) return;
+      const gc = makeGroupCategory('', u.id);
+      addRowNow(gc, buildGroupCategory(gc, u), '.cat-title');
     });
 
-    const gDelBtn = el.querySelector('.group-delete');
-    if (!gCanEdit && !groupData._mount) {
-      gDelBtn.hidden = true;
-    } else {
-      gDelBtn.addEventListener('click', (ev) => { ev.stopPropagation(); deleteGroup(groupData); });
+    // Gruppe-søppelkassen: i universet sitt, akkurat som listepunkt-søppelkassen
+    // ligger i lista si (univers-søppelkassen ligger nederst i modalen).
+    const trashed = trashedGroupsOf(u);
+    if (trashed.length) {
+      const wrap = document.createElement('div');
+      wrap.className = 'item-trash';
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'trashcan group-trash-btn';
+      btn.title = 'Slettede grupper – trykk for å åpne, hold og sveip for å tømme';
+      btn.setAttribute('aria-label', 'Slettede grupper');
+      const icon = document.createElement('span');
+      icon.className = 'trashcan-icon';
+      icon.setAttribute('aria-hidden', 'true');
+      icon.innerHTML = ICONS.trash;
+      const count = document.createElement('span');
+      count.className = 'trashcan-count';
+      count.textContent = trashed.length;
+      btn.append(icon, count);
+      attachTrashHold(btn, {
+        count: () => trashedGroupsOf(findUniverse(u.id) || u).length,
+        open: () => openGroupsTrash(u.id),
+        empty: () => emptyGroupsTrash(u.id),
+      });
+      wrap.appendChild(btn);
+      el.querySelector('.card-body').appendChild(wrap);
     }
 
-    // Draging: trykk-og-hold hvor som helst på raden unntatt ×-knappen.
-    attachHoldDrag(el, el, startGroupDrag,
-      () => gCanEdit || !!groupData._mount, '.group-delete');
+    if (u.collapsed) {
+      collapseCardBody(el);
+      setCollapseCount(head, leafCount(u.groups), true, ICONS.folder);
+    }
     return el;
   }
 
-  function startGroupRename(nameEl, groupData) {
-    editText(nameEl, groupData.name, (val) => {
-      groupData.name = val || 'Uten navn';
-      nameEl.textContent = groupData.name;
-      stampContent(groupData);
-      save();
-      renderGroups(); // bredde/overflow kan endre seg med navnet
-      refreshModalCurrents(); // navnet kan stå i «Du er i»-blokken
-      updateCrumbs(activeGroupObj()); // … og i breadcrumben
-    }, { cls: 'group-edit', autosize: true });
+  // En gruppe er en rad som et listepunkt — men uten avmerkingsboks (grupper
+  // krysses ikke av) og med del-knapp i stedet for tannhjul.
+  function buildGroupRow(g, u) {
+    const el = groupRowTpl.content.firstElementChild.cloneNode(true);
+    el.dataset.id = g.id;
+    const canEdit = !frozen(g);
+    el.classList.toggle('active', g.id === state.activeGroup);
+    applyShareBadge(el, g);
+
+    const textEl = el.querySelector('.item-text');
+    textEl.textContent = g.name;
+    textEl.addEventListener('click', () => {
+      if (!canEdit) return;
+      editText(textEl, g.name, (val) => {
+        g.name = val || 'Uten navn';
+        textEl.textContent = g.name;
+        stampContent(g);
+        save();
+        updateCrumbs();
+      });
+    });
+
+    // Klikk ellers på raden (ikke navn/knapper) = gå til gruppen og lukk modalen.
+    el.addEventListener('click', (ev) => {
+      if (ev.target.closest('.item-text, .group-share, .group-delete, .edit-input')) return;
+      goToGroup(g);
+      renderNav();     // aktiv-markeringen flytter seg
+      renderBoard();
+      closeNavModal();
+    });
+
+    const shareBtn = el.querySelector('.group-share');
+    if (!(g._mine || g._mount)) shareBtn.hidden = true;
+    else shareBtn.addEventListener('click', (ev) => {
+      ev.stopPropagation();
+      closeNavModal();
+      openShare('group', g.id, g, openNavModal);
+    });
+
+    const delBtn = el.querySelector('.group-delete');
+    if (!canEdit && !g._mount) delBtn.hidden = true;
+    else delBtn.addEventListener('click', (ev) => { ev.stopPropagation(); deleteGroup(g); });
+
+    attachHoldDrag(el, el, startItemDrag,
+      () => canEdit || !!g._mount, '.group-share, .group-delete');
+    return el;
+  }
+
+  // Gruppekategori: samme kategori-rad som i en liste, men uten innstillinger og
+  // uten deling — kun oppløs-knappen (og ＋ for en ny gruppe rett i kategorien).
+  function buildGroupCategory(catData, u) {
+    const el = groupCatTpl.content.firstElementChild.cloneNode(true);
+    el.dataset.id = catData.id;
+    const canEdit = !frozen(catData);
+
+    el.querySelector('.cat-drag-icon').innerHTML = ICONS.groupCategory;
+
+    const titleEl = el.querySelector('.cat-title');
+    titleEl.textContent = catData.name || 'Kategori';
+    titleEl.addEventListener('click', () => {
+      if (!canEdit) return;
+      editText(titleEl, catData.name, (val) => {
+        catData.name = val || 'Kategori';
+        titleEl.textContent = catData.name;
+        stampContent(catData);
+        save();
+      });
+    });
+
+    const dissolve = el.querySelector('.cat-dissolve');
+    dissolve.innerHTML = ICONS.bubbleBurst;
+    if (!canEdit) dissolve.disabled = true;
+    else dissolve.addEventListener('click', () => dissolveCategory(catData, u, navScope));
+
+    attachHoldDrag(el.querySelector('.cat-head'), el, startCategoryDrag,
+      () => canEdit, '.cat-dissolve');
+    el.querySelector('.cat-head').addEventListener('click', (ev) => {
+      if (ev.target.closest('.cat-title, .cat-dissolve, .edit-input')) return;
+      toggleCatCollapsed(el, catData, u, navScope);
+    });
+
+    const inner = el.querySelector('.cat-items');
+    const addWrap = el.querySelector('.cat-add');
+    const members = u.groups.filter((g) => live(g) && !g.isCat && g.cat === catData.id).sort(posCmp);
+    members.forEach((g) => inner.appendChild(buildGroupRow(g, u)));
+    inner.appendChild(addWrap); // ＋-knappen sist, under siste gruppe
+
+    const addBtn = el.querySelector('.cat-add-btn');
+    if (!canEdit) addWrap.hidden = true;
+    else addBtn.addEventListener('click', () => addRowToCategory(catData, u, el, navScope));
+
+    if (catData.collapsed) {
+      collapseCatBody(el);
+      setCollapseCount(el.querySelector('.cat-head'), members.length, true);
+    }
+    return el;
   }
 
   // Finnes ikke noe aktivt univers (helt fersk / alt slettet), opprettes et nytt
-  // standard-univers i farten — «＋ Gruppe» skal alltid bare virke. (Ny tilfeldig
-  // id, ikke den faste migrerings-id-en, så en evt. gravstein ikke dreper det.)
+  // standard-univers i farten. (Ny tilfeldig id, ikke den faste migrerings-id-en,
+  // så en evt. gravstein ikke dreper det.)
   function ensureUniverse() {
     let u = activeUniverseObj();
     if (u) return u;
@@ -1007,46 +1256,44 @@
     return u;
   }
 
+  // Programmatisk «ny gruppe» (feilsøking/tester + tom-tilstanden): oppretter en
+  // gruppe med standardnavn i det aktive universet. UI-veien er ＋-knappen i
+  // universkortet, som i stedet oppretter tomt og navngir på plassen.
   function addGroup() {
     const u = ensureUniverse();
     const g = makeGroup('Ny gruppe', null, u.id);
-    g.pos = u.groups.length ? maxPos(u.groups) + 1 : 0;
+    g.pos = level1MaxPos(u.groups) + 1;
     stampContent(g);
     stampPos(g);
     u.groups.push(g);
     setActiveGroup(g.id);
     render();
-    // Rull den nye gruppen inn i syne (modalen forblir åpen) og start
-    // redigering av navnet.
-    const el = groupList.querySelector('.group-card[data-id="' + g.id + '"]');
-    if (el) {
-      try { el.scrollIntoView({ block: 'nearest' }); } catch (e) { /* ignore */ }
-      startGroupRename(el.querySelector('.group-name'), g);
-    }
+    return g;
   }
 
-  // Slett en gruppe → legg i gruppe-søppelkassen (trashed-flagg; gjenopprettbar).
-  // Permanent sletting (med gravsteiner) skjer først når søppelkassen tømmes.
+  // Slett en gruppe → legg i universets gruppe-søppelkasse (trashed-flagg;
+  // gjenopprettbar). Permanent sletting skjer først når søppelkassen tømmes.
   function deleteGroup(groupData) {
-    const ghost = ghostFrom(
-      groupList.querySelector('.group-card[data-id="' + groupData.id + '"]'));
+    const uni = findUniverse(groupData.uni) || activeUniverseObj();
+    const ghost = ghostFrom(navBoard.querySelector('.item[data-id="' + groupData.id + '"]'));
     bufferDelete(groupData, 'group', (g) => setTrashed(g, 'group', true));
     if (state.activeGroup === groupData.id) {
-      const first = visibleGroups()[0]; // ekskluderer nå den buffer-slettede
+      const first = visibleGroupsOf(activeUniverseObj()).filter((g) => !g.isCat)[0];
       setActiveGroup(first ? first.id : null);
     }
     render(); // gruppe-søppelkassen blir synlig FØR animasjonen starter
-    flyGhost(ghost, groupsTrashBtn);
+    flyGhost(ghost, uni ? navBoard.querySelector(
+      '.card[data-id="' + uni.id + '"] .group-trash-btn') : null);
     pushDeleteToast('group', groupData.id, groupData.name);
   }
 
-  // Tøm gruppe-søppelkassen (aktivt univers) permanent: gravsteiner for hver
-  // slettet gruppe + alle dens lister + elementer (hindrer gjenoppstandelse).
-  function emptyGroupsTrash() {
-    const u = activeUniverseObj();
+  // Tøm ett universs gruppe-søppelkasse permanent: gravsteiner for hver slettet
+  // gruppe + alle dens lister + elementer (hindrer gjenoppstandelse).
+  function emptyGroupsTrash(uniId) {
+    const u = findUniverse(uniId);
     if (!u) return;
-    commitBufferedFor(trashedGroups().map((g) => g.id));
-    const trash = trashedGroups();
+    commitBufferedFor(trashedGroupsOf(u).map((g) => g.id));
+    const trash = trashedGroupsOf(u);
     if (!trash.length) return;
     trash.forEach((g) => {
       const idx = u.groups.indexOf(g);
@@ -1167,13 +1414,13 @@
     if (!canEdit) addRow.hidden = true;
 
     const addRowNow = (obj, rowEl, titleSel) => {
-      obj.pos = level1MaxPos(cardData) + 1;
+      obj.pos = level1MaxPos(cardData.items) + 1;
       stampContent(obj);
       stampPos(obj);
       cardData.items.push(obj);
       list.appendChild(rowEl);
       save();
-      nameNewRow(obj, cardData, rowEl, rowEl.querySelector(titleSel));
+      nameNewRow(obj, cardData, rowEl, rowEl.querySelector(titleSel), boardScope);
     };
     addBtn.addEventListener('click', () => {
       if (!canEdit) return;
@@ -1217,7 +1464,7 @@
     // Gjenopprett lagret lukketilstand (uten animasjon) etter en (re)bygging.
     if (cardData.collapsed) {
       collapseCardBody(el);
-      setCollapseCount(el.querySelector('.card-head'), cardLeafCount(cardData), true);
+      setCollapseCount(el.querySelector('.card-head'), leafCount(cardData.items), true);
     }
 
     return el;
@@ -1251,11 +1498,14 @@
   // Veksle lukketilstand + lagre. Tillates alltid (en visnings-preferanse); for et
   // frosset (låst av andre) kort skrives den ikke — serveren ville avvist innholds-
   // endringen — men den lokale visningen veksler uansett.
-  function toggleCardCollapsed(el, cardData) {
+  function toggleCardCollapsed(el, cardData, scope) {
+    const S = scope || boardScope;
     const nowCollapsed = !el.classList.contains('collapsed');
     if (nowCollapsed) collapseCardBody(el); else expandCardBody(el);
-    // Kollapset liste viser antall listepunkter «(N)» til høyre for navnet.
-    setCollapseCount(el.querySelector('.card-head'), cardLeafCount(cardData), nowCollapsed);
+    // Kollapset liste viser antall listepunkter «(N)» til høyre for navnet; et
+    // kollapset univers viser [mappe] + antall grupper (S.countIcon).
+    setCollapseCount(el.querySelector('.card-head'), leafCount(S.rowsOf(cardData)),
+      nowCollapsed, S.countIcon);
     cardData.collapsed = nowCollapsed;
     if (!frozen(cardData)) { stampContent(cardData); save(); }
   }
@@ -1282,37 +1532,42 @@
     inner.style.transition = ''; inner.style.height = ''; inner.style.opacity = '';
     inner.style.overflow = ''; inner.style.paddingTop = ''; inner.style.paddingBottom = '';
   }
-  function toggleCatCollapsed(catEl, catData, cardData) {
+  function toggleCatCollapsed(catEl, catData, cont, scope) {
+    const S = scope || boardScope;
     const nowCollapsed = !catEl.classList.contains('collapsed');
     if (nowCollapsed) collapseCatBody(catEl); else expandCatBody(catEl);
-    // Kollapset kategori viser antall (skjulte) listepunkter «(N)» ved navnet.
-    setCollapseCount(catEl.querySelector('.cat-head'), catMemberCount(cardData, catData.id), nowCollapsed);
+    // Kollapset kategori viser antall (skjulte) rader «(N)» ved navnet.
+    setCollapseCount(catEl.querySelector('.cat-head'),
+      catMemberCount(S.rowsOf(cont), catData.id), nowCollapsed);
     catData.collapsed = nowCollapsed;
-    if (!frozen(cardData)) { stampContent(catData); save(); }
+    if (!frozen(cont)) { stampContent(catData); save(); }
   }
 
-  // Legg til et nytt listepunkt direkte i en kategori (grønn ＋-knapp nederst i
-  // kategorien): elementet opprettes tomt og går straks i navneredigering (blank
-  // + fokusert) så det kan navngis med en gang. Avsluttes navngivingen uten navn,
-  // fjernes elementet igjen (nameNewRow).
-  function addItemToCategory(catData, cardData, catEl) {
-    if (frozen(cardData)) return;
+  // Legg til en ny rad direkte i en kategori (grønn ＋-knapp nederst i kategorien):
+  // raden opprettes tom og går straks i navneredigering (blank + fokusert) så den
+  // kan navngis med en gang. Avsluttes navngivingen uten navn, fjernes raden igjen
+  // (nameNewRow). Samme knapp/oppførsel for listepunkter i en listekategori og
+  // grupper i en gruppekategori.
+  function addRowToCategory(catData, cont, catEl, scope) {
+    const S = scope || boardScope;
+    if (frozen(cont)) return;
     if (catEl.classList.contains('collapsed')) { expandCatBody(catEl); catData.collapsed = false; }
-    const it = makeItem('', cardData.id);
-    it.cat = catData.id;
-    it.pos = (catMemberMaxPos(cardData, catData.id)) + 1;
-    stampContent(it);
-    stampPos(it);
-    cardData.items.push(it);
-    const itemEl = buildItem(it, cardData);
-    appendToItemsEnd(catEl.querySelector('.cat-items'), itemEl);
+    const rows = S.rowsOf(cont);
+    const row = S === navScope ? makeGroup('', null, cont.id) : makeItem('', cont.id);
+    row.cat = catData.id;
+    row.pos = catMemberMaxPos(rows, catData.id) + 1;
+    stampContent(row);
+    stampPos(row);
+    rows.push(row);
+    const rowEl = S === navScope ? buildGroupRow(row, cont) : buildItem(row, cont);
+    appendToItemsEnd(catEl.querySelector('.cat-items'), rowEl);
     save();
     // Åpne navneredigereren straks (blank felt, fokusert).
-    nameNewRow(it, cardData, itemEl, itemEl.querySelector('.item-text'));
+    nameNewRow(row, cont, rowEl, rowEl.querySelector('.item-text'), S);
   }
   // Største pos blant en kategoris aktive medlemmer (for å legge et nytt bakerst).
-  function catMemberMaxPos(cardData, catId) {
-    return maxPos(cardData.items.filter((it) => !it.trashed && !it._pendingDelete && it.cat === catId));
+  function catMemberMaxPos(rows, catId) {
+    return maxPos(rows.filter((r) => live(r) && r.cat === catId));
   }
 
   // Bygg ett kort på nytt i DOM (etter element-endringer: slett/gjenopprett/tøm).
@@ -1670,7 +1925,7 @@
     const dissolve = el.querySelector('.cat-dissolve');
     dissolve.innerHTML = ICONS.bubbleBurst;
     if (!canEdit) dissolve.disabled = true;
-    else dissolve.addEventListener('click', () => dissolveCategory(catData, cardData));
+    else dissolve.addEventListener('click', () => dissolveCategory(catData, cardData, boardScope));
 
     // Draging: trykk-og-hold på overskriftslinjen unntatt de to knappene
     // (tannhjul + oppløs).
@@ -1682,7 +1937,7 @@
     // stedet kategorien — attachHoldDrag undertrykker da klikket.
     el.querySelector('.cat-head').addEventListener('click', (ev) => {
       if (ev.target.closest('.cat-title, .cat-cog, .cat-dissolve, .meta-chip, .edit-input')) return;
-      toggleCatCollapsed(el, catData, cardData);
+      toggleCatCollapsed(el, catData, cardData, boardScope);
     });
 
     fillMetaRow(el.querySelector('.cat-meta'),
@@ -1698,7 +1953,7 @@
     // Grønn ＋-knapp inni hylle-fordypningen: nytt listepunkt direkte i kategorien.
     const addBtn = el.querySelector('.cat-add-btn');
     if (!canEdit) addWrap.hidden = true;
-    else addBtn.addEventListener('click', () => addItemToCategory(catData, cardData, el));
+    else addBtn.addEventListener('click', () => addRowToCategory(catData, cardData, el, boardScope));
 
     // Gjenopprett lagret lukketilstand (uten animasjon) etter en (re)bygging.
     if (catData.collapsed) {
@@ -1725,33 +1980,36 @@
     return anchor ? anchor.previousElementSibling === node : cont.lastElementChild === node;
   }
 
-  // Oppløs en kategori: elementene beholder rekkefølge og «arver» kategoriens
-  // plass i nivå-1-lista (fordeles jevnt i pos-gapet mellom kategorien og neste
-  // nivå-1-rad), blir ukategoriserte, og selve kategorien tombstones + fjernes.
-  function dissolveCategory(catData, cardData) {
-    const cat = cardData.items.find((x) => x.id === catData.id && x.isCat);
+  // Oppløs en kategori: radene beholder rekkefølge og «arver» kategoriens plass i
+  // nivå-1-lista (fordeles jevnt i pos-gapet mellom kategorien og neste nivå-1-rad),
+  // blir ukategoriserte, og selve kategori-raden tombstones + fjernes. Samme
+  // regnestykke for listekategorier og gruppekategorier (scope gir rad-lista).
+  function dissolveCategory(catData, cont, scope) {
+    const S = scope || boardScope;
+    const rows = S.rowsOf(cont);
+    const cat = rows.find((x) => x.id === catData.id && x.isCat);
     if (!cat) return;
-    const level1 = cardData.items.filter((it) => !it.trashed && !it._pendingDelete && !it.done && !it.cat).sort(posCmp);
+    const level1 = rows.filter((r) => live(r) && !r.done && !r.cat).sort(posCmp);
     const idx = level1.findIndex((o) => o.id === cat.id);
     const startP = cat.pos || 0;
     const nextP = idx > -1 && idx + 1 < level1.length ? level1[idx + 1].pos : null;
-    const members = cardData.items.filter((it) => it.cat === cat.id && !it.isCat);
-    const active = members.filter((it) => !it.trashed && !it._pendingDelete && !it.done).sort(posCmp);
+    const members = rows.filter((r) => r.cat === cat.id && !r.isCat);
+    const active = members.filter((r) => live(r) && !r.done).sort(posCmp);
     const n = active.length;
-    active.forEach((it, i) => {
-      it.cat = null;
-      it.pos = nextP == null ? startP + (i + 1) : startP + (nextP - startP) * ((i + 1) / (n + 1));
-      stampPos(it);
+    active.forEach((r, i) => {
+      r.cat = null;
+      r.pos = nextP == null ? startP + (i + 1) : startP + (nextP - startP) * ((i + 1) / (n + 1));
+      stampPos(r);
     });
     // Avkryssede/slettede medlemmer: bare løsne fra kategorien (beholder pos).
-    members.filter((it) => it.trashed || it._pendingDelete || it.done).forEach((it) => {
-      it.cat = null;
-      stampPos(it);
+    members.filter((r) => !live(r) || r.done).forEach((r) => {
+      r.cat = null;
+      stampPos(r);
     });
-    tombSubtree(cat, 'item'); // gravstein hindrer at kategorien gjenoppstår ved synk
-    const ci = cardData.items.indexOf(cat);
-    if (ci > -1) cardData.items.splice(ci, 1);
-    refreshCard(cardData);
+    tombSubtree(cat, S.rowKind); // gravstein hindrer at kategorien gjenoppstår ved synk
+    const ci = rows.indexOf(cat);
+    if (ci > -1) rows.splice(ci, 1);
+    S.refreshContainer(cont);
     save();
   }
 
@@ -2055,16 +2313,24 @@
   // sted i UI-et). `committed` er resultatene fra commitDeleteOne (kan inneholde
   // null for allerede fjernede/ukjente id-er).
   function refreshTrashBadgesAfterCommit(committed) {
-    const kinds = new Set(), cards = new Set();
+    const kinds = new Set(), cards = new Set(), unis = new Set();
     committed.forEach((f) => {
       if (!f) return;
       kinds.add(f.kind);
       if (f.kind === 'item' && f.card) cards.add(f.card);
+      // Gruppe-søppelkassen ligger i universkortet (som listepunkt-kassen i lista).
+      if (f.kind === 'group') { const u = findUniverse(f.obj.uni); if (u) unis.add(u); }
     });
     if (kinds.has('universe')) updateUniversesTrash();
-    if (kinds.has('group')) updateGroupsTrash();
     if (kinds.has('card')) updateTrashCount();
     cards.forEach(updateItemsTrashBadge);
+    unis.forEach(updateGroupsTrashBadge);
+  }
+  // Antallet i ETT universs gruppe-søppelkasse (uten å bygge kortet på nytt).
+  function updateGroupsTrashBadge(u) {
+    const count = navBoard.querySelector('.card[data-id="' + u.id + '"] .group-trash-btn .trashcan-count');
+    if (!count) return;
+    count.textContent = trashedGroupsOf(u).length;
   }
   function commitAllPending() {
     if (deleteToast) { clearTimeout(deleteToast.timer); deleteToast = null; hideToast(); }
@@ -2195,20 +2461,23 @@
   // Enter på et tomt felt, klikk ut, eller Escape — fjernes raden igjen
   // (gravstein + ut av state), for et navnløst objekt er ingenting verdt og skal
   // ikke bli liggende igjen. Brukes av ＋-knappene i lista og i en kategori.
-  function nameNewRow(obj, cardData, rowEl, displayEl) {
+  function nameNewRow(obj, cont, rowEl, displayEl, scope) {
+    const S = scope || boardScope;
+    const rows = S.rowsOf(cont);
     const discard = () => {
-      tombSubtree(obj, 'item');
-      const i = cardData.items.indexOf(obj);
-      if (i > -1) cardData.items.splice(i, 1);
+      tombSubtree(obj, S.rowKind);
+      const i = rows.indexOf(obj);
+      if (i > -1) rows.splice(i, 1);
       rowEl.remove();
       save();
     };
     editText(displayEl, '', (val) => {
       if (!val) { discard(); return; }
-      obj.text = val;
+      S.setRowName(obj, val);
       displayEl.textContent = val;
       stampContent(obj);
       save();
+      if (S === navScope) updateCrumbs();
     }, { onCancel: discard });
   }
 
@@ -2483,6 +2752,7 @@
     // avbryte touch-en). Nøytraliser transformen for selve målingen og gjenopprett
     // etterpå (start*Drag setter drag-transformen straks etter uansett).
     const rect = untransformedRect(el);
+    drag.scope = scopeForEl(el); // hovedsidens board eller nav-modalens board
     drag.el = el;
     drag.width = rect.width;
     drag.height = rect.height;
@@ -2535,14 +2805,13 @@
   // modal og er fortsatt `position: fixed` (viewport-koordinater) — der endres
   // aldri window-scroll mens draget pågår, så de rammes ikke av buggen.
   function dragUsesPageCoords() {
-    return drag.kind !== 'group' && drag.kind !== 'universe';
+    return dragScope().pageCoords;
   }
   // Skalaen det løftede objektet males med (start*Drag/on*Move setter
   // `rotate(…) scale(…)`, og CSS setter samme verdi i hvile-regelen): lister
   // 1.02, listepunkt/kategori 1.03, gruppe/univers 1.05.
   function dragScale() {
-    if (drag.kind === 'card') return 1.02;
-    return dragUsesPageCoords() ? 1.03 : 1.05;
+    return drag.kind === 'card' ? 1.02 : 1.03;
   }
   // Halvparten av den FAKTISK RENDREDE boksen (skala + maks rotasjon) langs hver
   // akse — transformen maler noen piksler utenfor layout-boksen.
@@ -2773,11 +3042,10 @@
     if (drag.ph && drag.ph.parentNode) drag.ph.remove();
     drag.el = null;
     drag.ph = null;
-    document.querySelectorAll('.group-placeholder, .card-placeholder, .item-placeholder')
+    document.querySelectorAll('.card-placeholder, .item-placeholder')
       .forEach((el) => el.remove());
     stopAutoScroll();
-    stopGroupAutoScroll();
-    stopUniverseAutoScroll();
+    stopModalAutoScroll();
     document.body.classList.remove('is-dragging');
     window.removeEventListener('touchmove', preventTouchScroll, { passive: false });
     // Kolonnefordelingen har vært frosset gjennom draget (og korthøydene kan ha
@@ -2835,8 +3103,6 @@
     if (drag.kind === 'card') onCardCancel();
     else if (drag.kind === 'item') onItemCancel();
     else if (drag.kind === 'category') onCategoryCancel();
-    else if (drag.kind === 'group') onGroupCancel();
-    else if (drag.kind === 'universe') onUniverseCancel();
     else finishDrag();
   }
   // Sant når det løftede objektet er borte fra dokumentet — da rydder vi og
@@ -2874,11 +3140,11 @@
     if (p <= 1) return MIN + (MAX - MIN) * p;
     return MAX + (BEYOND - MAX) * Math.min(1, p - 1);
   }
-  // Kort-, listepunkt- OG kategori-drag scroller vinduet ved kanten (alle tre dras
-  // på board-et med dokument-koordinater). Gruppe/univers dras i en modal og har
-  // egen auto-scroll (stopGroupAutoScroll/stopUniverseAutoScroll).
+  // Drag på hovedsidens board scroller VINDUET ved kanten (dokument-koordinater);
+  // drag i nav-modalen scroller modalens `.menu-body` i stedet (se
+  // updateModalAutoScroll). Skillet følger scopet, ikke nivået.
   function windowScrollDrag() {
-    return drag.kind === 'card' || drag.kind === 'item' || drag.kind === 'category';
+    return dragScope().pageCoords;
   }
   // Re-evaluer plasseringen etter en auto-scroll-frame (pekeren står stille, så vi
   // bruker siste kjente pekerposisjon + rulleretningen som «drag-retning»).
@@ -2888,7 +3154,9 @@
     else if (drag.kind === 'category') updateCategoryPlacement();
   }
   function updateAutoScroll() {
-    if (!drag.active || !windowScrollDrag()) { stopAutoScroll(); return; }
+    if (!drag.active) { stopAutoScroll(); stopModalAutoScroll(); return; }
+    if (!windowScrollDrag()) { stopAutoScroll(); updateModalAutoScroll(); return; }
+    stopModalAutoScroll();
     const r = draggedRect();
     const vh = window.innerHeight || document.documentElement.clientHeight || 1;
     const ZONE = 120;
@@ -2961,6 +3229,7 @@
     drag.kind = 'card';
     drag.crumbTarget = false; // sikter lista på 📁-breadcrumben? (flytt til annen gruppe)
 
+    const S = dragScope();
     const ph = document.createElement('div');
     ph.className = 'card-placeholder';
     ph.style.height = drag.height + 'px';
@@ -2981,7 +3250,10 @@
     // ikke av mobilens pointercancel-problem). Vakten (når aktiv) legges FØR
     // kollapsen i SAMME oppgave, så verken dokumenthøyden eller den dratte listas
     // viewport-Y endres mens fingeren er nede. Slippes i `onCardUp`/`onCardCancel`.
-    const useMobileFlowGuard = ev.pointerType !== 'mouse' && boardUsesSingleColumnLayout();
+    // Vakten gjelder KUN hovedsidens board (nav-modalen scroller i sin egen
+    // container og rammes ikke av window-scroll-klemmen).
+    const useMobileFlowGuard = S === boardScope &&
+      ev.pointerType !== 'mouse' && boardUsesSingleColumnLayout();
     if (useMobileFlowGuard) freezeBoardForDrag(ph);
     collapseCardsForDrag(drag.el, ph);
     drag.el.style.transform = `rotate(${cardRotation()}deg) scale(1.02)`;
@@ -3004,7 +3276,7 @@
     if (!draggedEl.classList.contains('collapsed')) collapseCardBody(draggedEl);
     drag.height = headH; // treffdeteksjon + placeholder bruker den kollapsede boksen
     ph.style.height = headH + 'px';
-    board.querySelectorAll('.card:not(.dragging)').forEach((cEl) => {
+    dragScope().root.querySelectorAll('.card:not(.dragging)').forEach((cEl) => {
       if (!cEl.classList.contains('collapsed')) collapseCardBody(cEl);
     });
   }
@@ -3012,8 +3284,9 @@
   // Robust mot en samtidig synk-rebuild, som uansett bygger kortene fra
   // `card.collapsed`.
   function restoreCardsAfterDrag() {
-    board.querySelectorAll('.card').forEach((cEl) => {
-      const cd = findCard(cEl.dataset.id);
+    const S = dragScope();
+    S.root.querySelectorAll('.card').forEach((cEl) => {
+      const cd = S.findContainer(cEl.dataset.id);
       const want = cd ? !!cd.collapsed : false;
       const isCollapsed = cEl.classList.contains('collapsed');
       if (want && !isCollapsed) collapseCardBody(cEl);
@@ -3027,11 +3300,11 @@
      slipp åpnes en velger («Flytt … til:») med de andre gruppene i universet
      (samme modal-skall som plasseringsvalget). */
   function moveTargetGroups(c) {
-    return visibleGroups().filter((g) =>
-      g.id !== state.activeGroup && g.id !== (c && c._mount && c._mount.parent));
+    return visibleGroupsOf(activeUniverseObj()).filter((g) =>
+      !g.isCat && g.id !== state.activeGroup && g.id !== (c && c._mount && c._mount.parent));
   }
-  function pointerOnGroupCrumb(x, y) {
-    const r = groupCrumbBtn.getBoundingClientRect();
+  function pointerOnNavCrumb(x, y) {
+    const r = navCrumbBtn.getBoundingClientRect();
     return x >= r.left && x <= r.right && y >= r.top && y <= r.bottom;
   }
   function pointerInTopbar(x, y) {
@@ -3044,7 +3317,7 @@
     on = !!on;
     if (drag.crumbTarget === on) return;
     drag.crumbTarget = on;
-    groupCrumbBtn.classList.toggle('drop-target', on);
+    navCrumbBtn.classList.toggle('drop-target', on);
     if (drag.el) drag.el.classList.toggle('to-group', on);
   }
   // Velgeren ved slipp på 📁-breadcrumben: de andre gruppene i universet.
@@ -3095,8 +3368,8 @@
     // Over toppmenyen sikter vi på 📁-breadcrumben (flytt til annen gruppe) i
     // stedet for å omorganisere board-et: marker knappen, og la board-et +
     // siden ligge i ro så lista ikke bytter plass mens man løfter den opp.
-    if (pointerInTopbar(ev.clientX, ev.clientY)) {
-      setCardCrumbTarget(pointerOnGroupCrumb(ev.clientX, ev.clientY) &&
+    if (dragScope() === boardScope && pointerInTopbar(ev.clientX, ev.clientY)) {
+      setCardCrumbTarget(pointerOnNavCrumb(ev.clientX, ev.clientY) &&
         moveTargetGroups(findCard(drag.el.dataset.id)).length > 0);
       stopAutoScroll();
       return;
@@ -3111,7 +3384,8 @@
   function updateCardPlacement(dx, dy) {
     if (!drag.active || drag.kind !== 'card') return;
     const dragRect = draggedRect();
-    const cards = [...board.querySelectorAll('.card:not(.dragging)')];
+    const root = dragScope().root;
+    const cards = [...root.querySelectorAll('.card:not(.dragging)')];
     if (!cards.length) return;
     const rects = new Map(cards.map((c) => [c, layoutRect(c)]));
     const ph = drag.ph;
@@ -3196,7 +3470,8 @@
   function commitCardPlacement() {
     if (!drag.active || drag.kind !== 'card') return;
     const dragRect = draggedRect();
-    const cards = [...board.querySelectorAll('.card:not(.dragging)')];
+    const root = dragScope().root;
+    const cards = [...root.querySelectorAll('.card:not(.dragging)')];
     if (!cards.length) return;
     const rects = new Map(cards.map((c) => [c, layoutRect(c)]));
     const restRects = cards.map((c) => rects.get(c)).concat([layoutRect(drag.ph)]);
@@ -3218,7 +3493,9 @@
     window.removeEventListener('pointerup', onCardUp);
     window.removeEventListener('pointercancel', onCardCancel);
 
+    const S = dragScope();
     const el = drag.el;
+    const onBoard = S === boardScope;
     // Bestem drop-mål OG sluttplassering ut fra de FAKTISKE slipp-koordinatene,
     // ikke det som lå mellomlagret fra siste pointermove: den kan være koalescert
     // bort eller helt utelatt (rask gest), så både breadcrumb-treffet og
@@ -3227,12 +3504,12 @@
       drag.lastX = ev.clientX; drag.lastY = ev.clientY;
       // (Kortet flyttes IKKE hit visuelt: drop-tweenen starter fra der det faktisk
       // står malt, se dropIntoPlaceholder — et snapp hit først ville gitt et rykk.)
-      if (!pointerInTopbar(drag.lastX, drag.lastY)) commitCardPlacement();
+      if (!(onBoard && pointerInTopbar(drag.lastX, drag.lastY))) commitCardPlacement();
     }
     const relX = drag.lastX;
     const relY = drag.lastY;
-    const cardObj = findCard(el.dataset.id);
-    const onCrumb = pointerOnGroupCrumb(relX, relY) &&
+    const cardObj = S.findContainer(el.dataset.id);
+    const onCrumb = onBoard && pointerOnNavCrumb(relX, relY) &&
       moveTargetGroups(cardObj).length > 0;
     setCardCrumbTarget(false); // fjern evt. highlight uansett utfall
 
@@ -3249,20 +3526,20 @@
     // endringer på andre kort/enheter flettes uten konflikt.
     const prev = boardRowSibling(el, -1);
     const next = boardRowSibling(el, 1);
-    const c = findCard(el.dataset.id);
+    const c = S.findContainer(el.dataset.id);
     if (c) {
-      const pPrev = prev && prev.classList.contains('card') ? (findCard(prev.dataset.id) || {}).pos : null;
-      const pNext = next && next.classList.contains('card') ? (findCard(next.dataset.id) || {}).pos : null;
+      const pPrev = prev && prev.classList.contains('card') ? (S.findContainer(prev.dataset.id) || {}).pos : null;
+      const pNext = next && next.classList.contains('card') ? (S.findContainer(next.dataset.id) || {}).pos : null;
       const np = between(pPrev == null ? null : pPrev, pNext == null ? null : pNext);
       if (c._mount) {
         c.pos = np; c._mount.pos = np;
-        cloudMountUpdate('card', c.id, { pos: np });
+        cloudMountUpdate(S.contKind, c.id, { pos: np });
       } else {
         c.pos = np;
         stampPos(c);
       }
     }
-    reindexCardColors();
+    S.reindexColors();
     save();
 
     // Visuell plassering (etter at layouten er satt av restore/release over): legg
@@ -3278,12 +3555,13 @@
     el.style.transform = '';
     // Kortene er tilbake i normal flyt (og utvidet igjen) → fordel kolonnene på
     // nytt FØR vi måler sloten, så drop-tweenen sikter på den endelige plassen.
-    relayoutBoard();
+    relayoutBoard(S);
     const slotRect = el.getBoundingClientRect();
     const slotDocTop = slotRect.top + window.scrollY;
     const slotH = slotRect.height;
     dropIntoPlaceholder(el, rot, fromRect);
-    if (!onCrumb) scrollDroppedIntoView(slotDocTop, slotH);
+    // Scroll-til-slupt gjelder vindus-scrollen, altså kun hovedsidens board.
+    if (onBoard && !onCrumb) scrollDroppedIntoView(slotDocTop, slotH);
 
     // Slipp på 📁-breadcrumben: kortet er lagt normalt tilbake på board-et
     // (posisjonen over), og flytte-velgeren åpnes — avbrytes den, blir lista
@@ -3338,10 +3616,11 @@
   // kortenes posisjon i den sorterte lista, ikke bare det flyttede kortets —
   // reindekser derfor alltid samtlige (kirurgisk: kun CSS-variabler på
   // eksisterende DOM-noder, ingen full re-rendring av board-et).
-  function reindexCardColors() {
-    activeCards().forEach((c, i) => {
+  function reindexContainerColors(scope) {
+    const S = scope || boardScope;
+    S.containers().forEach((c, i) => {
       c.color = colorForIndex(i);
-      const el = board.querySelector('.card[data-id="' + c.id + '"]');
+      const el = S.root.querySelector('.card[data-id="' + c.id + '"]');
       if (!el) return;
       el.style.setProperty('--card-bg', c.color);
       el.style.setProperty('--card-head', darken(c.color, 0.08));
@@ -3384,7 +3663,7 @@
   // Pos-en til en DOM-rad (element ELLER kategori) via state-oppslaget.
   function rowPos(sib) {
     if (!sib || !(sib.classList.contains('item') || sib.classList.contains('category'))) return null;
-    const o = findItemById(sib.dataset.id);
+    const o = dragScope().findRow(sib.dataset.id);
     return o ? (o.pos || 0) : null;
   }
 
@@ -3485,7 +3764,7 @@
     setReorderMode();
     noteOverShift(overCard, beforeTop); // modusbyttet rykker lista — se noteOverShift
     const dragRect = draggedRect();
-    const flipEls = [...document.querySelectorAll('.item:not(.dragging), .category:not(.dragging)')];
+    const flipEls = [...dragScope().root.querySelectorAll('.item:not(.dragging), .category:not(.dragging)')];
 
     // 1) Nivå 2 først: er pekeren inne i en kategori i lista? → kategoriens
     //    .cat-items (slipp på overskriften ELLER blant listepunktene legger
@@ -3589,8 +3868,9 @@
       updateItemPlacement(drag.lastX, drag.lastY, dy, true); // commit: lande i kollapset mål om peek ikke rakk
     }
 
-    if (drag.phMode === 'extract') { extractItemToNewList(); return; }
+    if (drag.phMode === 'extract') { extractRowToNewContainer(); return; }
 
+    const S = dragScope();
     const el = drag.el;
     const rot = cardRotation();
     const sourceCardId = el.closest('.card') ? el.closest('.card').dataset.id : null;
@@ -3611,26 +3891,46 @@
     const prev = el.previousElementSibling;
     const next = el.nextElementSibling;
 
-    // Ta et øyeblikksbilde av alle elementer FØR reconcile: ved overføring til et
-    // annet kort må mål-kortet finne det flyttede elementet selv om kilde-kortet
-    // reconciles først (ellers droppes det fra pool-en før målet ser det).
-    const pool = itemPool();
-    reconcileItems(sourceCardId, pool);
-    if (targetCardId !== sourceCardId) reconcileItems(targetCardId, pool);
+    // Ta et øyeblikksbilde av alle rader FØR reconcile: ved overføring til en
+    // annen container må mål-containeren finne den flyttede raden selv om kilden
+    // reconciles først (ellers droppes den fra pool-en før målet ser den).
+    const pool = S.rowPool();
+    reconcileRows(S, sourceCardId, pool);
+    if (targetCardId !== sourceCardId) reconcileRows(S, targetCardId, pool);
 
-    // Kirurgisk: sett kun det flyttede elementets forelder (home), kategori (cat)
-    // og posisjon. `cat` rir på posisjonsregisteret (som `home`).
-    const moved = findItemById(el.dataset.id);
+    // Kirurgisk: sett kun den flyttede radens forelder (home/uni), kategori (cat)
+    // og posisjon. `cat` rir på posisjonsregisteret (som forelderen).
+    const moved = S.findRow(el.dataset.id);
+    let mountedIntoCat = false;
     if (moved) {
-      moved.home = targetCardId;
-      moved.cat = catEl ? catEl.dataset.id : null;
-      moved.pos = between(rowPos(prev), rowPos(next));
-      stampPos(moved);
+      const np = between(rowPos(prev), rowPos(next));
+      if (moved._mount) {
+        // En rad som er DELT MED MEG flyttes via MIN plassering (mount), ikke via
+        // eierens rad. Mount-plasseringen har ingen kategori-kolonne, så en delt
+        // gruppe kan foreløpig bare ligge på nivå 1 i universet (se
+        // docs/rettigheter-og-deling.md — plasseringsreglene for delt innhold
+        // utvides i en senere runde).
+        mountedIntoCat = !!catEl;
+        moved.cat = null;
+        moved.pos = np; moved._mount.pos = np; moved._mount.parent = targetCardId;
+        cloudMountUpdate(S.rowKind, moved.id, S.mountParentPatch(targetCardId, np));
+      } else {
+        S.setRowParent(moved, targetCardId);
+        moved.cat = catEl ? catEl.dataset.id : null;
+        moved.pos = np;
+        stampPos(moved);
+      }
     }
     // Et slipp inn i en fortsatt kollapset liste/kategori (rask slipp uten peek) har
     // endret leaf-antallet → oppdater «(N)»-tellerne.
     refreshAllCollapseCounts();
     save();
+    if (mountedIntoCat) {
+      S.render(); // raden hører hjemme på nivå 1 — mal den riktige tilstanden
+      showToast('Delt innhold kan ikke ligge i en kategori ennå');
+      return;
+    }
+    S.afterDrop();
   }
 
   // pointercancel under et listepunkt-drag: rull tilbake uten reconcile/pos/lagre.
@@ -3642,55 +3942,48 @@
     restoreDraggedToOrigin();
     finishDrag();
   }
-  // Slipp i ny-liste-placeholderen: opprett en ny liste med bare dette listepunktet
-  // (ukategorisert), og fokusér den nye listas navn (blank input) straks.
-  function extractItemToNewList() {
+  // Slipp i ny-container-placeholderen: opprett en ny liste (board) / et nytt
+  // univers (nav) med bare denne raden, og fokusér navnet (blank input) straks.
+  function extractRowToNewContainer() {
+    const S = dragScope();
     const el = drag.el;
-    const g = activeGroupObj();
-    const moved = findItemById(el.dataset.id);
-    const srcCard = moved ? findCard(moved.home) : null;
-    if (!g || !moved || !srcCard) { // uventet → rull tilbake
+    const moved = S.findRow(el.dataset.id);
+    const srcCont = moved ? S.findContainer(S.rowParent(moved)) : null;
+    const np = extractionPos();
+    const nc = moved && srcCont ? S.createContainer('') : null; // blank navn → fokuseres straks
+    if (!nc) { // uventet (f.eks. ingen aktiv gruppe) → rull tilbake
       restoreDraggedToOrigin();
       finishDrag();
       return;
     }
-    const np = extractionPos();
-    const nc = card('', [], g.id); // blank tittel → fokuseres straks; eid av meg ved push
     nc.pos = np; stampContent(nc); stampPos(nc);
-    g.cards.push(nc);
 
-    const si = srcCard.items.indexOf(moved);
-    if (si > -1) srcCard.items.splice(si, 1);
-    moved.home = nc.id; moved.cat = null; moved.pos = 0;
+    const srcRows = S.rowsOf(srcCont);
+    const si = srcRows.indexOf(moved);
+    if (si > -1) srcRows.splice(si, 1);
+    S.setRowParent(moved, nc.id); moved.cat = null; moved.pos = 0;
     stampPos(moved);
-    nc.items.push(moved);
+    S.rowsOf(nc).push(moved);
 
     finishDrag();
-    render();
+    S.render();
     save();
-    // Fokuser navnet på den nye lista (blank input) så den kan navngis straks.
-    const t = board.querySelector('.card[data-id="' + nc.id + '"] .card-title');
+    // Fokuser navnet på den nye containeren (blank input) så den kan navngis straks.
+    const t = S.root.querySelector('.card[data-id="' + nc.id + '"] .card-title');
     if (t) t.click();
   }
 
-  // Alle elementer på tvers av kortene i aktiv gruppe, oppslag på id.
-  function itemPool() {
-    const pool = {};
-    allCards().forEach((c) => c.items.forEach((it) => { pool[it.id] = it; }));
-    return pool;
-  }
-
-  // Bygg items-array for et kort ut fra gjeldende DOM (medlemskap OG kategori):
-  // nivå-1-rader leses fra `.items-container` (ukategoriserte + kategorier), og
-  // hver kategoris elementer fra dens `.cat-items` (setter `it.cat`). `pool` =
-  // felles øyeblikksbilde av alle elementer (så en overføring ikke faller ut
+  // Bygg rad-arrayet for en container ut fra gjeldende DOM (medlemskap OG
+  // kategori): nivå-1-rader leses fra `.items-container` (ukategoriserte +
+  // kategorier), og hver kategoris rader fra dens `.cat-items` (setter `cat`).
+  // `pool` = felles øyeblikksbilde av alle rader (så en overføring ikke faller ut
   // mellom kilde- og mål-reconcile); bygges her hvis ikke gitt.
-  function reconcileItems(cardId, pool) {
-    const cardData = findCard(cardId);
+  function reconcileRows(S, contId, pool) {
+    const cardData = S.findContainer(contId);
     if (!cardData) return;
-    const cardEl = board.querySelector('.card[data-id="' + cardId + '"]');
+    const cardEl = S.root.querySelector('.card[data-id="' + contId + '"]');
     if (!cardEl) return;
-    pool = pool || itemPool();
+    pool = pool || S.rowPool();
     const level1 = cardEl.querySelector('.items-container');
     const result = [];
     const seen = new Set();
@@ -3715,8 +4008,8 @@
     // Bevar rader UTENFOR nivå-1-containeren: slettede (søppel), avkryssede
     // («Utført»-seksjonen) og buffer-slettede. Kategori-medlemskapet (cat) deres
     // beholdes urørt (de er ikke i DOM-en her). Rekkefølgen bevares av pos.
-    const preserved = cardData.items.filter((it) => !seen.has(it.id) && (it.trashed || it.done || it._pendingDelete));
-    cardData.items = result.concat(preserved);
+    const preserved = S.rowsOf(cardData).filter((r) => !seen.has(r.id) && (r.trashed || r.done || r._pendingDelete));
+    S.setRows(cardData, result.concat(preserved));
   }
 
   /* ---------------- KATEGORI-DRAGING (nivå-1-rad) ----------------
@@ -3761,7 +4054,7 @@
   // Etter et kategori-drag (slipp/kansellering): fold ut igjen MED MINDRE kategorien
   // er klikk-kollapset (rullgardin, `cat.collapsed`) — da beholdes den kollapset.
   function settleCategoryAfterDrag(catEl) {
-    const catObj = findItemById(catEl.dataset.id);
+    const catObj = dragScope().findRow(catEl.dataset.id);
     if (catObj && catObj.collapsed) {
       const inner = catEl.querySelector('.cat-items');
       if (inner) {
@@ -3905,7 +4198,7 @@
       if (inCard(cur, 0)) { drag.overGrace = 0; return cur; }
       if (inCard(cur, drag.overGrace || 0)) return cur;
     }
-    for (const c of board.querySelectorAll('.card')) {
+    for (const c of dragScope().root.querySelectorAll('.card')) {
       if (inCard(c, 0)) { drag.overCard = c; drag.overGrace = 0; return c; }
     }
     drag.overCard = null;
@@ -3991,7 +4284,7 @@
   // Er lista/kategorien LÅST for meg? (En kategori arver kortets låsestatus.) Låste
   // mål peek-åpnes ikke — et slipp der ville uansett blitt avvist av serveren.
   function cardElFrozen(cardEl) {
-    const cd = cardEl && findCard(cardEl.dataset.id);
+    const cd = cardEl && dragScope().findContainer(cardEl.dataset.id);
     return cd ? frozen(cd) : false;
   }
   function updatePeek(x, y) {
@@ -4043,9 +4336,10 @@
       if (!cur) return;
       if (cur.timer) clearTimeout(cur.timer);
       if (cur.expanded && cur.el === landedEl && cur.el.isConnected) {
+        const S = dragScope();
         const cardEl = kind === 'category' ? cur.el.closest('.card') : cur.el;
-        const cardData = cardEl && findCard(cardEl.dataset.id);
-        const obj = kind === 'category' ? findItemById(cur.el.dataset.id) : cardData;
+        const cardData = cardEl && S.findContainer(cardEl.dataset.id);
+        const obj = kind === 'category' ? S.findRow(cur.el.dataset.id) : cardData;
         if (obj) { obj.collapsed = false; if (cardData && !frozen(cardData)) stampContent(obj); }
       } else if (cur.expanded && cur.el && cur.el.isConnected) {
         peekCollapse(cur.el, kind);
@@ -4058,14 +4352,15 @@
   // Oppdater «(N)»-tellerne på alle kollapsede lister/kategorier (leaf-antallet kan
   // ha endret seg av et slipp inn i en kollapset liste man ikke peek-åpnet).
   function refreshAllCollapseCounts() {
-    board.querySelectorAll('.card.collapsed').forEach((cardEl) => {
-      const cd = findCard(cardEl.dataset.id);
-      if (cd) setCollapseCount(cardEl.querySelector('.card-head'), cardLeafCount(cd), true);
+    const S = dragScope();
+    S.root.querySelectorAll('.card.collapsed').forEach((cardEl) => {
+      const cd = S.findContainer(cardEl.dataset.id);
+      if (cd) setCollapseCount(cardEl.querySelector('.card-head'), leafCount(S.rowsOf(cd)), true, S.countIcon);
     });
-    board.querySelectorAll('.category.collapsed').forEach((catEl) => {
+    S.root.querySelectorAll('.category.collapsed').forEach((catEl) => {
       const cardEl = catEl.closest('.card');
-      const cd = cardEl && findCard(cardEl.dataset.id);
-      if (cd) setCollapseCount(catEl.querySelector('.cat-head'), catMemberCount(cd, catEl.dataset.id), true);
+      const cd = cardEl && S.findContainer(cardEl.dataset.id);
+      if (cd) setCollapseCount(catEl.querySelector('.cat-head'), catMemberCount(S.rowsOf(cd), catEl.dataset.id), true);
     });
   }
   function makeNewListPlaceholder(height) {
@@ -4083,8 +4378,9 @@
     drag.ph = makeNewListPlaceholder(Math.max(72, drag.height));
     // Midlertidig sist i siste kolonne; `placeNewListPlaceholder` flytter den
     // straks til kolonnen/plassen man faktisk sikter på.
-    const cols = boardColumns();
-    (cols[cols.length - 1] || board).appendChild(drag.ph);
+    const root = dragScope().root;
+    const cols = boardColumns(root);
+    (cols[cols.length - 1] || root).appendChild(drag.ph);
     applyDragSeparators(); // placeholderen forlot lista → linjene der uten den
   }
   // Bytt tilbake til reorder-placeholderen (element-/kategori-placeholder i lista).
@@ -4098,7 +4394,7 @@
     drag.ph = ph;
     // Legg den midlertidig i utgangs-containeren; plasseringslogikken flytter den
     // straks til rett container/plass (updateItemPlacement / placeRowPlaceholder).
-    const home = drag.origParent || (drag.card && drag.card.querySelector('.items-container')) || board;
+    const home = drag.origParent || (drag.card && drag.card.querySelector('.items-container')) || dragScope().root;
     home.appendChild(ph);
     applyDragSeparators();
   }
@@ -4122,7 +4418,8 @@
      piksel. */
   function placeNewListPlaceholder() {
     const ph = drag.ph;
-    const cols = boardColumns();
+    const root = dragScope().root;
+    const cols = boardColumns(root);
     if (!cols.length) return;
     const px = drag.lastX, py = draggedRect().top + drag.height / 2;
     // Kolonnen pekeren er i (±8 px slingring). Ingen treff (pekeren i et
@@ -4146,7 +4443,7 @@
       if (py < r.top + r.height / 2) { ref = row; break; }
     }
     if (ref ? ref.previousElementSibling === ph : col.lastElementChild === ph) return;
-    const snap = snapshotRects([...board.querySelectorAll('.card')]);
+    const snap = snapshotRects([...root.querySelectorAll('.card')]);
     if (ref) col.insertBefore(ph, ref); else col.appendChild(ph);
     flipFrom(snap, FLIP_MS);
   }
@@ -4154,11 +4451,12 @@
   // LESEREKKEFØLGE (naboen over en placeholder øverst i en kolonne ligger
   // nederst i kolonnen før).
   function extractionPos() {
+    const S = dragScope();
     const ph = drag.ph;
     const prev = ph && boardRowSibling(ph, -1);
     const next = ph && boardRowSibling(ph, 1);
-    const pPrev = prev && prev.classList.contains('card') ? (findCard(prev.dataset.id) || {}).pos : null;
-    const pNext = next && next.classList.contains('card') ? (findCard(next.dataset.id) || {}).pos : null;
+    const pPrev = prev && prev.classList.contains('card') ? (S.findContainer(prev.dataset.id) || {}).pos : null;
+    const pNext = next && next.classList.contains('card') ? (S.findContainer(next.dataset.id) || {}).pos : null;
     return between(pPrev == null ? null : pPrev, pNext == null ? null : pNext);
   }
 
@@ -4226,17 +4524,18 @@
   // nivå 1. Medlemmene beholder sin `cat`-peker; både kategori og medlemmer får ny
   // `home` (= mål-kortet) og stemples (home rir på posisjonsregisteret). Kategoriens
   // pos settes mellom slipp-naboene. Rebygges rent med render() etterpå.
-  function moveCategoryToCard(catId, sourceCardId, targetCardId, prevPos, nextPos) {
-    const srcCard = findCard(sourceCardId);
-    const tCard = findCard(targetCardId);
-    const cat = srcCard && srcCard.items.find((x) => x.id === catId && x.isCat);
+  function moveCategoryToCard(S, catId, sourceCardId, targetCardId, prevPos, nextPos) {
+    const srcCard = S.findContainer(sourceCardId);
+    const tCard = S.findContainer(targetCardId);
+    const srcRows = srcCard ? S.rowsOf(srcCard) : null;
+    const cat = srcRows && srcRows.find((x) => x.id === catId && x.isCat);
     if (!srcCard || !tCard || !cat) return false;
-    const members = srcCard.items.filter((it) => it.cat === catId && !it.isCat); // aktive + done + trashed
-    const memberIds = new Set(members.map((it) => it.id));
-    cat.home = targetCardId; cat.pos = between(prevPos, nextPos); stampPos(cat);
-    members.forEach((it) => { it.home = targetCardId; stampPos(it); });
-    srcCard.items = srcCard.items.filter((it) => it.id !== catId && !memberIds.has(it.id));
-    tCard.items.push(cat, ...members);
+    const members = srcRows.filter((r) => r.cat === catId && !r.isCat); // aktive + done + trashed
+    const memberIds = new Set(members.map((r) => r.id));
+    S.setRowParent(cat, targetCardId); cat.pos = between(prevPos, nextPos); stampPos(cat);
+    members.forEach((r) => { S.setRowParent(r, targetCardId); stampPos(r); });
+    S.setRows(srcCard, srcRows.filter((r) => r.id !== catId && !memberIds.has(r.id)));
+    S.rowsOf(tCard).push(cat, ...members);
     return true;
   }
   function onCategoryUp(ev) {
@@ -4255,8 +4554,9 @@
       updateCategoryPlacement(true); // commit: lande i kollapset mål-liste om peek ikke rakk
     }
 
-    if (drag.phMode === 'extract') { extractCategoryToNewList(); return; }
+    if (drag.phMode === 'extract') { extractCategoryToNewContainer(); return; }
 
+    const S = dragScope();
     const el = drag.el;
     const cont = drag.ph.parentNode;
     const targetCardEl = cont.closest('.card');
@@ -4271,7 +4571,7 @@
       // Mål-lista LÅST for meg? DB-guarden krever redigering på BÅDE gammelt og nytt
       // card_id, så en flytting ville blitt avvist og snappet tilbake ved neste synk.
       // Rull tilbake som et avbrutt drag i stedet (og si fra).
-      const tcCheck = findCard(targetCardId);
+      const tcCheck = S.findContainer(targetCardId);
       if (tcCheck && frozen(tcCheck)) {
         restoreDraggedToOrigin();
         settleCategoryAfterDrag(el);
@@ -4285,11 +4585,11 @@
       clearAllPeeks(false);
       finishDrag();
       if (keepOpen) {
-        const tc = findCard(targetCardId);
+        const tc = S.findContainer(targetCardId);
         if (tc) { tc.collapsed = false; if (!frozen(tc)) stampContent(tc); }
       }
-      moveCategoryToCard(el.dataset.id, sourceCardId, targetCardId, prevPos, nextPos);
-      render();
+      moveCategoryToCard(S, el.dataset.id, sourceCardId, targetCardId, prevPos, nextPos);
+      S.render();
       save();
       return;
     }
@@ -4304,45 +4604,46 @@
 
     const prev = el.previousElementSibling;
     const next = el.nextElementSibling;
-    const cat = findItemById(el.dataset.id);
+    const cat = S.findRow(el.dataset.id);
     if (cat) { cat.pos = between(rowPos(prev), rowPos(next)); stampPos(cat); }
     save();
+    S.afterDrop();
   }
   // Slipp i ny-liste-placeholderen: gjør kategorien til en ny liste (samme tittel),
   // medlemmene blir ukategoriserte listepunkter i den. Selve kategori-raden slettes.
-  function extractCategoryToNewList() {
+  function extractCategoryToNewContainer() {
+    const S = dragScope();
     const el = drag.el;
     const catId = el.dataset.id;
-    const g = activeGroupObj();
-    const srcCard = drag.card && findCard(drag.card.dataset.id);
-    const cat = srcCard && srcCard.items.find((x) => x.id === catId && x.isCat);
-    if (!g || !srcCard || !cat) { // uventet → rull tilbake
+    const srcCard = drag.card && S.findContainer(drag.card.dataset.id);
+    const srcRows = srcCard ? S.rowsOf(srcCard) : null;
+    const cat = srcRows && srcRows.find((x) => x.id === catId && x.isCat);
+    const np = extractionPos();
+    const nc = cat ? S.createContainer(S.rowName(cat) || 'Uten navn') : null;
+    if (!nc) { // uventet → rull tilbake
       restoreDraggedToOrigin();
       if (el) expandCategory(el);
       finishDrag();
       return;
     }
-    const np = extractionPos();
-    const nc = card(cat.text || 'Uten navn', [], g.id); // ny liste, eid av meg ved push
     nc.pos = np; stampContent(nc); stampPos(nc);
-    g.cards.push(nc);
 
-    // Flytt medlemmene inn i den nye lista (ukategorisert). Aktive medlemmer får
-    // pos 0..n i bevart rekkefølge; avkryssede/slettede løsnes bare fra kategorien.
-    const memberObjs = srcCard.items.filter((it) => it.cat === catId && !it.isCat);
-    const memberIds = new Set(memberObjs.map((it) => it.id));
-    const active = memberObjs.filter((it) => !it.trashed && !it._pendingDelete && !it.done).sort(posCmp);
-    active.forEach((it, i) => { it.pos = i; });
-    memberObjs.forEach((it) => { it.home = nc.id; it.cat = null; stampPos(it); });
-    nc.items.push(...memberObjs);
+    // Flytt medlemmene inn i den nye containeren (ukategorisert). Aktive medlemmer
+    // får pos 0..n i bevart rekkefølge; avkryssede/slettede løsnes bare fra kategorien.
+    const memberObjs = srcRows.filter((r) => r.cat === catId && !r.isCat);
+    const memberIds = new Set(memberObjs.map((r) => r.id));
+    const active = memberObjs.filter((r) => live(r) && !r.done).sort(posCmp);
+    active.forEach((r, i) => { r.pos = i; });
+    memberObjs.forEach((r) => { S.setRowParent(r, nc.id); r.cat = null; stampPos(r); });
+    S.rowsOf(nc).push(...memberObjs);
 
     // Fjern kategori-raden (gravstein hindrer gjenoppstand ved synk) + medlemmene
-    // fra kilde-lista.
-    tombSubtree(cat, 'item');
-    srcCard.items = srcCard.items.filter((it) => it.id !== catId && !memberIds.has(it.id));
+    // fra kilde-containeren.
+    tombSubtree(cat, S.rowKind);
+    S.setRows(srcCard, srcRows.filter((r) => r.id !== catId && !memberIds.has(r.id)));
 
     finishDrag();
-    render(); // rebygg board-et rent (ny liste + oppdatert kilde-liste)
+    S.render(); // rebygg rent (ny container + oppdatert kilde)
     save();
   }
   // pointercancel under et kategori-drag: rull tilbake uten pos/lagre og fold
@@ -4358,304 +4659,46 @@
     finishDrag();
   }
 
-  /* ---------------- GRUPPE-DRAGING (gruppe-modalen) ----------------
-     Gruppe-radene ligger alltid i én vertikal kolonne i group-list (som
-     univers-radene i sin modal). Rekkefølgen endres med samme placeholder +
-     FLIP-oppførsel som kort/elementer: bytt med raden over/under ut fra
-     dra-retningen når de overlapper >= 20 % i høyden. */
-  function startGroupDrag(ev, groupEl) {
-    if (ev.button != null && ev.button !== 0) return;
-    if (drag.active) return; // ignorer ny drag mens en pågår (unngår foreldreløs placeholder)
-    beginDragCommon(ev, groupEl);
-    drag.kind = 'group';
-
-    const ph = document.createElement('div');
-    ph.className = 'group-placeholder';
-    ph.style.width = drag.width + 'px';
-    ph.style.height = drag.height + 'px';
-    groupList.insertBefore(ph, groupEl);
-    drag.ph = ph;
-
-    liftElement();
-    drag.el.style.transform = `rotate(${cardRotation()}deg) scale(1.05)`;
-    window.addEventListener('pointermove', onGroupMove);
-    window.addEventListener('pointerup', onGroupUp);
-    window.addEventListener('pointercancel', onGroupCancel);
+  /* ------- Auto-scroll av nav-modalen under draging -------
+     Universer/grupper dras i en modal der VINDUET aldri scroller; scroll-
+     containeren er modalens `.menu-body`. Samme sonelogikk/fart som vindus-
+     auto-scrollen, og etter hver frame re-evalueres plasseringen (radene har
+     flyttet seg mens pekeren står stille) — nøyaktig som `reapplyPlacement`
+     gjør for board-et. */
+  let modalScrollRAF = null, modalScrollSpeed = 0;
+  function modalScroller() {
+    return navModal.querySelector('.menu-body');
   }
-
-  function onGroupMove(ev) {
-    if (!drag.active) return;
-    if (dragElDetached()) { cancelActiveDrag(); return; }
-    const dy = ev.clientY - drag.lastY;
-    drag.lastX = ev.clientX;
-    drag.lastY = ev.clientY;
-    moveElement();
-    drag.el.style.transform = `rotate(${cardRotation()}deg) scale(1.05)`;
-    updateGroupAutoScroll(ev);
-    updateGroupPlacement(dy);
-  }
-
-  function updateGroupPlacement(dy) {
-    if (!drag.active || drag.kind !== 'group') return;
-    const dragRect = draggedRect();
-    const cards = [...groupList.querySelectorAll('.group-card:not(.dragging)')];
-    if (!cards.length) return;
-    const rects = new Map(cards.map((c) => [c, layoutRect(c)]));
-    const ph = drag.ph;
-    let action = null;
-    if (dy > 0) {
-      let best = null, bestTop = Infinity;
-      for (const c of cards) {
-        const r = rects.get(c);
-        if (r.top >= dragRect.top && vOverlap(dragRect, r) >= SWAP_RATIO * r.height && r.top < bestTop) {
-          bestTop = r.top; best = c;
-        }
-      }
-      if (best) action = { ref: best, pos: 'after' };
-    } else if (dy < 0) {
-      let best = null, bestTop = -Infinity;
-      for (const c of cards) {
-        const r = rects.get(c);
-        if (r.top <= dragRect.top && vOverlap(dragRect, r) >= SWAP_RATIO * r.height && r.top > bestTop) {
-          bestTop = r.top; best = c;
-        }
-      }
-      if (best) action = { ref: best, pos: 'before' };
-    }
-    if (!action || !wouldMove(ph, action.ref, action.pos)) return;
-    if (swapReversesRecent(action)) return;
-    const snap = snapshotRects(cards);
-    placePlaceholder(ph, action.ref, action.pos); // 'after' siste rad → foran «＋»
-    flipFrom(snap, FLIP_MS);
-    recordSwap(action);
-  }
-
-  // Delt slipp-håndtering for de to «kolonne»-nivåene (grupper og universer):
-  // begge er rene vertikale lister uten kryss-kolonne-overføring (i motsetning
-  // til kort/element), så eneste forskjell er beholder/søsken-klasse/id-oppslag/
-  // mount-kind/reindeks + hvilke move/up-lyttere som skal kobles fra. Ny pos =
-  // mellom DOM-naboene; montert rad speiler rekkefølgen i membership-raden.
-  function finishColumnDrop(o, ev) {
-    if (!drag.active) return;
-    if (dragElDetached()) { cancelActiveDrag(); return; }
-    window.removeEventListener('pointermove', o.move);
-    window.removeEventListener('pointerup', o.up);
-    window.removeEventListener('pointercancel', o.cancel);
-
-    // Autoritativ sluttplassering fra de faktiske slipp-koordinatene (se
-    // centerPlaceRows): et raskt slipp uten en siste pointermove skal lande der
-    // raden ble sluppet, ikke der nest siste bevegelse etterlot placeholderen.
-    if (ev && typeof ev.clientX === 'number') {
-      drag.lastX = ev.clientX; drag.lastY = ev.clientY;
-      const rows = [...o.container.querySelectorAll('.' + o.siblingClass + ':not(.dragging)')];
-      centerPlaceRows(rows, new Map(rows.map((r) => [r, layoutRect(r)])), false);
-    }
-
-    const el = drag.el;
-    const rot = cardRotation();
-    o.container.insertBefore(el, drag.ph);
-    drag.ph.remove();
-    dropIntoPlaceholder(el, rot);
-    finishDrag();
-
-    const prev = el.previousElementSibling;
-    const next = el.nextElementSibling;
-    const obj = o.find(el.dataset.id);
-    if (obj) {
-      const prevO = prev && prev.classList.contains(o.siblingClass) ? o.find(prev.dataset.id) : null;
-      const nextO = next && next.classList.contains(o.siblingClass) ? o.find(next.dataset.id) : null;
-      const np = between(prevO ? prevO.pos : null, nextO ? nextO.pos : null);
-      if (obj._mount) { obj.pos = np; obj._mount.pos = np; cloudMountUpdate(o.kind, obj.id, { pos: np }); }
-      else { obj.pos = np; stampPos(obj); }
-    }
-    o.reindex();
-    save();
-  }
-  // pointercancel for kolonne-nivåene (gruppe/univers): rull raden tilbake til
-  // utgangspunktet uten å beregne pos, reindeksere farge eller lagre.
-  function cancelColumnDrop(o) {
-    if (!drag.active) return;
-    window.removeEventListener('pointermove', o.move);
-    window.removeEventListener('pointerup', o.up);
-    window.removeEventListener('pointercancel', o.cancel);
-    restoreDraggedToOrigin();
-    finishDrag();
-  }
-  function onGroupUp(ev) {
-    finishColumnDrop({ container: groupList, siblingClass: 'group-card', find: findGroup,
-      kind: 'group', reindex: reindexGroupColors, move: onGroupMove, up: onGroupUp, cancel: onGroupCancel }, ev);
-  }
-  function onGroupCancel() {
-    cancelColumnDrop({ move: onGroupMove, up: onGroupUp, cancel: onGroupCancel });
-  }
-
-  // Posisjonsbasert farge: en omrokkering påvirker flere korts farge, ikke bare
-  // det flyttede. Delt av gruppe- og univers-nivået — begge bruker --g-bg/
-  // --g-accent + colorForIndex/darken(…, 0.34). Kort er egne (--card-*), se
-  // reindexCardColors.
-  function reindexColors(list, container, cls) {
-    list().forEach((o, i) => {
-      o.color = colorForIndex(i);
-      const el = container.querySelector('.' + cls + '[data-id="' + o.id + '"]');
-      if (!el) return;
-      el.style.setProperty('--g-bg', o.color);
-      el.style.setProperty('--g-accent', darken(o.color, 0.34));
-    });
-  }
-  function reindexGroupColors() { reindexColors(visibleGroups, groupList, 'group-card'); }
-
-  /* ------- Auto-scroll av gruppelista under draging (alltid vertikal —
-     modalens scroll-container er .menu-body, ikke selve group-list). ------- */
-  let groupScrollRAF = null, groupScrollSpeed = 0;
-  function updateGroupAutoScroll(ev) {
-    const scroller = groupModal.querySelector('.menu-body');
-    if (!drag.active || drag.kind !== 'group' || !scroller) { stopGroupAutoScroll(); return; }
+  function updateModalAutoScroll() {
+    const scroller = modalScroller();
+    if (!drag.active || !scroller) { stopModalAutoScroll(); return; }
     const r = scroller.getBoundingClientRect();
     const EDGE = 52;
+    const y = drag.lastY;
     let speed = 0;
-    const y = ev.clientY;
     if (y < r.top + EDGE) speed = -Math.ceil(((r.top + EDGE - y) / EDGE) * 16);
     else if (y > r.bottom - EDGE) speed = Math.ceil(((y - (r.bottom - EDGE)) / EDGE) * 16);
-    groupScrollSpeed = speed;
-    if (speed !== 0) startGroupAutoScroll(scroller); else stopGroupAutoScroll();
+    modalScrollSpeed = speed;
+    if (speed !== 0) startModalAutoScroll(scroller); else stopModalAutoScroll();
   }
-  function startGroupAutoScroll(scroller) {
-    if (groupScrollRAF != null) return;
+  function startModalAutoScroll(scroller) {
+    if (modalScrollRAF != null) return;
     let prevTs = null, rest = 0;
     const step = (ts) => {
-      if (!drag.active || groupScrollSpeed === 0) { groupScrollRAF = null; return; }
-      // Radene flytter seg når feltet ruller → re-evaluer med rulleretningen
-      // som syntetisk drag-retning (som kort-auto-scroll). Farten er px per
-      // 60 Hz-frame og normaliseres mot faktisk forløpt tid (frameSteps).
-      const delta = groupScrollSpeed * frameSteps(prevTs, ts) + rest;
+      if (!drag.active || modalScrollSpeed === 0) { modalScrollRAF = null; return; }
+      const delta = modalScrollSpeed * frameSteps(prevTs, ts) + rest; // px per 60 Hz-frame
       prevTs = frameNow(ts);
       const before = scroller.scrollTop;
       scroller.scrollTop += delta;
       rest = Math.max(-1, Math.min(1, delta - (scroller.scrollTop - before)));
-      if (scroller.scrollTop !== before) updateGroupPlacement(groupScrollSpeed > 0 ? 1 : -1);
-      groupScrollRAF = requestAnimationFrame(step);
+      if (scroller.scrollTop !== before) reapplyPlacement(modalScrollSpeed > 0 ? 1 : -1);
+      modalScrollRAF = requestAnimationFrame(step);
     };
-    groupScrollRAF = requestAnimationFrame(step);
+    modalScrollRAF = requestAnimationFrame(step);
   }
-  function stopGroupAutoScroll() {
-    if (groupScrollRAF != null) { cancelAnimationFrame(groupScrollRAF); groupScrollRAF = null; }
-    groupScrollSpeed = 0;
-  }
-
-  /* ---------------- UNIVERS-DRAGING (meny-modalen) ----------------
-     Univers-radene ligger alltid i én vertikal kolonne i uni-list (ingen
-     mobil/desktop-veksling som gruppelista) — samme placeholder + FLIP-mønster
-     og samme retningsstyrte bytte-logikk som gruppekortenes desktop-variant
-     (updateGroupPlacementV), bare transponert til uni-list/.uni-row. */
-  function startUniverseDrag(ev, uniEl) {
-    if (ev.button != null && ev.button !== 0) return;
-    if (drag.active) return; // ignorer ny drag mens en pågår (unngår foreldreløs placeholder)
-    beginDragCommon(ev, uniEl);
-    drag.kind = 'universe';
-
-    const ph = document.createElement('div');
-    ph.className = 'group-placeholder';
-    ph.style.width = drag.width + 'px';
-    ph.style.height = drag.height + 'px';
-    uniList.insertBefore(ph, uniEl);
-    drag.ph = ph;
-
-    liftElement();
-    drag.el.style.transform = `rotate(${cardRotation()}deg) scale(1.05)`;
-    window.addEventListener('pointermove', onUniverseMove);
-    window.addEventListener('pointerup', onUniverseUp);
-    window.addEventListener('pointercancel', onUniverseCancel);
-  }
-
-  function onUniverseMove(ev) {
-    if (!drag.active) return;
-    if (dragElDetached()) { cancelActiveDrag(); return; }
-    const dy = ev.clientY - drag.lastY;
-    drag.lastX = ev.clientX;
-    drag.lastY = ev.clientY;
-    moveElement();
-    drag.el.style.transform = `rotate(${cardRotation()}deg) scale(1.05)`;
-    updateUniverseAutoScroll(ev);
-    updateUniversePlacement(dy);
-  }
-
-  function updateUniversePlacement(dy) {
-    if (!drag.active || drag.kind !== 'universe') return;
-    const dragRect = draggedRect();
-    const rows = [...uniList.querySelectorAll('.uni-row:not(.dragging)')];
-    if (!rows.length) return;
-    const rects = new Map(rows.map((r) => [r, layoutRect(r)]));
-    const ph = drag.ph;
-    let action = null;
-    if (dy > 0) {
-      let best = null, bestTop = Infinity;
-      for (const r of rows) {
-        const rc = rects.get(r);
-        if (rc.top >= dragRect.top && vOverlap(dragRect, rc) >= SWAP_RATIO * rc.height && rc.top < bestTop) {
-          bestTop = rc.top; best = r;
-        }
-      }
-      if (best) action = { ref: best, pos: 'after' };
-    } else if (dy < 0) {
-      let best = null, bestTop = -Infinity;
-      for (const r of rows) {
-        const rc = rects.get(r);
-        if (rc.top <= dragRect.top && vOverlap(dragRect, rc) >= SWAP_RATIO * rc.height && rc.top > bestTop) {
-          bestTop = rc.top; best = r;
-        }
-      }
-      if (best) action = { ref: best, pos: 'before' };
-    }
-    if (!action || !wouldMove(ph, action.ref, action.pos)) return;
-    if (swapReversesRecent(action)) return;
-    const snap = snapshotRects(rows);
-    placePlaceholder(ph, action.ref, action.pos); // 'after' siste rad → foran «＋ Univers»
-    flipFrom(snap, FLIP_MS);
-    recordSwap(action);
-  }
-
-  function onUniverseUp(ev) {
-    finishColumnDrop({ container: uniList, siblingClass: 'uni-row', find: findUniverse,
-      kind: 'universe', reindex: reindexUniverseColors, move: onUniverseMove, up: onUniverseUp, cancel: onUniverseCancel }, ev);
-  }
-  function onUniverseCancel() {
-    cancelColumnDrop({ move: onUniverseMove, up: onUniverseUp, cancel: onUniverseCancel });
-  }
-  function reindexUniverseColors() { reindexColors(visibleUniverses, uniList, 'uni-row'); }
-
-  /* ------- Auto-scroll av uni-list under draging (alltid vertikal — modalens
-     scroll-container er .menu-body, ikke selve uni-list). ------- */
-  let uniScrollRAF = null, uniScrollSpeed = 0;
-  function updateUniverseAutoScroll(ev) {
-    const scroller = uniModal.querySelector('.menu-body');
-    if (!drag.active || drag.kind !== 'universe' || !scroller) { stopUniverseAutoScroll(); return; }
-    const r = scroller.getBoundingClientRect();
-    const EDGE = 52;
-    let speed = 0;
-    const y = ev.clientY;
-    if (y < r.top + EDGE) speed = -Math.ceil(((r.top + EDGE - y) / EDGE) * 16);
-    else if (y > r.bottom - EDGE) speed = Math.ceil(((y - (r.bottom - EDGE)) / EDGE) * 16);
-    uniScrollSpeed = speed;
-    if (speed !== 0) startUniverseAutoScroll(scroller); else stopUniverseAutoScroll();
-  }
-  function startUniverseAutoScroll(scroller) {
-    if (uniScrollRAF != null) return;
-    let prevTs = null, rest = 0;
-    const step = (ts) => {
-      if (!drag.active || uniScrollSpeed === 0) { uniScrollRAF = null; return; }
-      const delta = uniScrollSpeed * frameSteps(prevTs, ts) + rest; // px per 60 Hz-frame → faktisk tid
-      prevTs = frameNow(ts);
-      const before = scroller.scrollTop;
-      scroller.scrollTop += delta;
-      rest = Math.max(-1, Math.min(1, delta - (scroller.scrollTop - before)));
-      if (scroller.scrollTop !== before) updateUniversePlacement(uniScrollSpeed > 0 ? 1 : -1);
-      uniScrollRAF = requestAnimationFrame(step);
-    };
-    uniScrollRAF = requestAnimationFrame(step);
-  }
-  function stopUniverseAutoScroll() {
-    if (uniScrollRAF != null) { cancelAnimationFrame(uniScrollRAF); uniScrollRAF = null; }
-    uniScrollSpeed = 0;
+  function stopModalAutoScroll() {
+    if (modalScrollRAF != null) { cancelAnimationFrame(modalScrollRAF); modalScrollRAF = null; }
+    modalScrollSpeed = 0;
   }
 
   // Den faste (position: fixed) toppmenyen er ute av flyten, så board-et må få
@@ -4702,8 +4745,6 @@
   }
 
   /* ---------------- Topp-knapper ---------------- */
-  addGroupBtn.addEventListener('click', addGroup);
-
   addCardBtn.addEventListener('click', () => {
     const g = activeGroupObj();
     if (!g) return;
@@ -4784,7 +4825,7 @@
     const settings = document.getElementById('settings-modal');
     const timeSw = document.getElementById('time-switcher');
     document.body.classList.toggle('modal-open',
-      !trashModal.hidden || !uniModal.hidden || !groupModal.hidden ||
+      !trashModal.hidden || !navModal.hidden ||
       !accountModal.hidden ||
       (share && !share.hidden) || (place && !place.hidden) ||
       (confirmEl && !confirmEl.hidden) || (settings && !settings.hidden) ||
@@ -4907,7 +4948,7 @@
         id: u.id,
         color: u.color || colorForId(u.id),
         name: u.name,
-        meta: groupWord(u.groups.filter((g) => !g.trashed).length),
+        meta: groupWord(u.groups.filter((g) => !g.trashed && !g.isCat).length),
         pending: !!u._pendingDelete,
         restore: () => restoreUniverse(u),
       })),
@@ -4915,20 +4956,27 @@
     });
   }
 
-  function openGroupsTrash() {
+  // Gruppe-søppelkassen ligger i hvert univers-kort (som listepunkt-søppelkassen
+  // i en liste) — universet slås derfor opp ferskt på id ved hver rows()-kall, så
+  // en synk-rebuild ikke etterlater en foreldreløs referanse.
+  function openGroupsTrash(uniId) {
+    const liveUni = () => findUniverse(uniId);
+    const u0 = liveUni();
     showTrashModal({
-      title: 'Slettede grupper',
+      title: 'Slettede grupper – ' + (u0 ? u0.name : ''),
       note: TRASH_NOTE,
       emptyMsg: 'Ingen slettede grupper.',
-      rows: () => trashedGroups().sort(posCmp).map((g) => ({
-        id: g.id,
-        color: g.color || colorForId(g.id),
-        name: g.name,
-        meta: listWord(g.cards.filter((c) => !c.trashed).length),
-        pending: !!g._pendingDelete,
-        restore: () => restoreGroup(g),
-      })),
-      empty: emptyGroupsTrash,
+      rows: () => {
+        const u = liveUni();
+        return u ? trashedGroupsOf(u).sort(posCmp).map((g) => ({
+          id: g.id,
+          name: g.name,
+          meta: g.isCat ? 'Gruppekategori' : listWord(g.cards.filter((c) => !c.trashed).length),
+          pending: !!g._pendingDelete,
+          restore: () => restoreGroup(g),
+        })) : [];
+      },
+      empty: () => emptyGroupsTrash(uniId),
     });
   }
 
@@ -4953,7 +5001,7 @@
 
   function openItemsTrash(cardData) {
     // De tre andre søppelkassene leser ferskt fra `state` i hver `rows()`-kall
-    // (`trashedGroups()`/…); elementmodalen må gjøre det samme via id-oppslag i
+    // (`trashedGroupsOf(u)`/…); elementmodalen må gjøre det samme via id-oppslag i
     // stedet for å fange `cardData` én gang — ellers peker den på et foreldreløst
     // kort etter at synken har bygget treet på nytt («Gjenopprett» som ikke
     // fester seg). Se restore-hjelperne over.
@@ -5223,11 +5271,6 @@
     open: openCardsTrash,
     empty: emptyCardsTrash,
   });
-  attachTrashHold(groupsTrashBtn, {
-    count: () => trashedGroups().length,
-    open: openGroupsTrash,
-    empty: emptyGroupsTrash,
-  });
   attachTrashHold(uniTrashBtn, {
     count: () => trashedUniverses().length,
     open: openUniversesTrash,
@@ -5256,8 +5299,7 @@
     else if (share && !share.hidden) closeShare(); // helt lukk — tilbake til hovedsiden
     else if (settingsModal && !settingsModal.hidden) closeSettings();
     else if (!trashModal.hidden) closeTrash();
-    else if (!uniModal.hidden) closeUniModal();
-    else if (!groupModal.hidden) closeGroupModal();
+    else if (!navModal.hidden) closeNavModal();
     else if (!accountModal.hidden) closeAccount();
   });
   // Ingen ekstra bekreftelse: sveipe-tømming har heller ingen, og tømming er
@@ -5269,31 +5311,18 @@
   });
 
   /* ============================================================
-     UNIVERS-, GRUPPE- OG KONTO-MODALENE
+     NAV- OG KONTO-MODALEN
      ------------------------------------------------------------
-     Breadcrumb-knappene i toppmenyen åpner univers-/gruppe-modalen: der byttes,
-     opprettes, omdøpes, slettes og deles universer/grupper (egen søppelkasse i
-     hver, samme oppførsel som de andre). Universer er helt uavhengige områder
-     (Univers > Gruppe > Liste > Element); grupper kan aldri flyttes på tvers
-     av universer. Kontoknappen (øverst til høyre) åpner konto-modalen. */
-  function openUniModal() {
-    renderUniverses();
-    refreshModalCurrents();
-    uniModal.hidden = false;
+     Nav-knappen i toppmenyen åpner ÉN felles modal for universer og grupper:
+     der byttes, opprettes, omdøpes, slettes, omrokkeres og deles begge nivåer.
+     Kontoknappen (øverst til høyre) åpner konto-modalen. */
+  function openNavModal() {
+    navModal.hidden = false;   // renderNav() bygger kun når modalen er åpen
+    renderNav();
     updateModalOpenClass();
   }
-  function closeUniModal() {
-    uniModal.hidden = true;
-    updateModalOpenClass();
-  }
-  function openGroupModal() {
-    renderGroups();
-    refreshModalCurrents();
-    groupModal.hidden = false;
-    updateModalOpenClass();
-  }
-  function closeGroupModal() {
-    groupModal.hidden = true;
+  function closeNavModal() {
+    navModal.hidden = true;
     updateModalOpenClass();
   }
   function openAccount() {
@@ -5305,14 +5334,11 @@
     accountModal.hidden = true;
     updateModalOpenClass();
   }
-  uniCrumbBtn.addEventListener('click', openUniModal);
-  groupCrumbBtn.addEventListener('click', openGroupModal);
+  navCrumbBtn.addEventListener('click', openNavModal);
   accountBtn.addEventListener('click', openAccount);
-  uniModalClose.addEventListener('click', closeUniModal);
-  groupModalClose.addEventListener('click', closeGroupModal);
+  navModalClose.addEventListener('click', closeNavModal);
   accountClose.addEventListener('click', closeAccount);
-  uniModal.addEventListener('click', (ev) => { if (ev.target === uniModal) closeUniModal(); });
-  groupModal.addEventListener('click', (ev) => { if (ev.target === groupModal) closeGroupModal(); });
+  navModal.addEventListener('click', (ev) => { if (ev.target === navModal) closeNavModal(); });
   accountModal.addEventListener('click', (ev) => { if (ev.target === accountModal) closeAccount(); });
 
   // Plasser popoveren (ansvarlig-velger/tids-popover) rett til høyre for
@@ -5828,93 +5854,6 @@
   // Univers-søppelkassen (i menyen): vises kun når den har innhold.
   function updateUniversesTrash() { updateTrashBadge(trashedUniverses, uniTrashCount, uniTrashBtn); }
 
-  // Tegn univers-radene i menyen. Kalles fra render() (så fjern-endringer
-  // reflekteres straks også mens menyen er åpen) og ved åpning av menyen.
-  function renderUniverses() {
-    updateUniversesTrash();
-    uniList.innerHTML = '';
-    const vis = visibleUniverses();
-    // Samme posisjonsbaserte fargesystem som gruppe-/listekort.
-    vis.forEach((u, i) => { u.color = colorForIndex(i); });
-    if (!vis.length) {
-      const p = document.createElement('p');
-      p.className = 'uni-empty';
-      p.textContent = 'Ingen universer ennå.';
-      uniList.appendChild(p);
-      return;
-    }
-    vis.forEach((u) => uniList.appendChild(buildUniverseRow(u)));
-  }
-
-  function buildUniverseRow(u) {
-    const el = uniTpl.content.firstElementChild.cloneNode(true);
-    el.dataset.id = u.id;
-    const isActive = u.id === state.activeUniverse;
-    el.classList.toggle('active', isActive);
-    el.setAttribute('aria-pressed', isActive ? 'true' : 'false');
-
-    applyChipColor(el, u);
-    const uCanEdit = applyShareBadge(el, u).canEdit;
-    const nameEl = el.querySelector('.uni-name');
-    nameEl.textContent = u.name;
-    // Antall grupper i universet: liten pill med gruppe-ikon (mappe) + tall.
-    const uCountEl = el.querySelector('.uni-count');
-    const uGroupN = u.groups.filter((g) => !g.trashed).length;
-    uCountEl.innerHTML = ICONS.folder + '<span>' + uGroupN + '</span>';
-    uCountEl.title = groupWord(uGroupN);
-
-    // Klikk på TITTELEN = rediger navnet (uansett om universet er aktivt eller
-    // ikke); klikk ELLERS på raden = bytt univers og lukk modalen. (Før navigerte
-    // et klikk på et annet universs navn dit i stedet for å redigere.)
-    const navigate = () => {
-      if (nameEl.dataset.editing === '1') return;
-      if (u.id !== state.activeUniverse) {
-        setActiveUniverse(u.id);
-        render();
-        save();
-      }
-      closeUniModal(); // bytt kontekst og gå (allerede aktivt → bare lukk)
-    };
-    el.addEventListener('click', (ev) => {
-      if (ev.target.closest('.uni-delete') || ev.target.closest('.edit-input')) return;
-      if (uCanEdit && ev.target.closest('.uni-name')) { startUniverseRename(nameEl, u); return; }
-      navigate();
-    });
-    // Tastatur: raden er eneste fokuserbare punkt (tittelen er ikke fokuserbar),
-    // så Enter/Mellomrom redigerer navnet når universet ALLEREDE er aktivt (behold
-    // en tastatur-vei til omdøping); ellers bytter det univers.
-    el.addEventListener('keydown', (ev) => {
-      if (ev.target !== el) return;
-      if (ev.key === 'Enter' || ev.key === ' ' || ev.key === 'Spacebar') {
-        ev.preventDefault();
-        if (uCanEdit && u.id === state.activeUniverse) startUniverseRename(nameEl, u);
-        else navigate();
-      }
-    });
-    const uDelBtn = el.querySelector('.uni-delete');
-    if (!uCanEdit && !u._mount) {
-      uDelBtn.hidden = true;
-    } else {
-      uDelBtn.addEventListener('click', (ev) => { ev.stopPropagation(); deleteUniverse(u); });
-    }
-
-    // Draging: trykk-og-hold hvor som helst på kortet unntatt ×-knappen.
-    attachHoldDrag(el, el, startUniverseDrag,
-      () => uCanEdit || !!u._mount, '.uni-delete');
-    return el;
-  }
-
-  function startUniverseRename(nameEl, u) {
-    editText(nameEl, u.name, (val) => {
-      u.name = val || 'Uten navn';
-      stampContent(u);
-      save();
-      renderUniverses();
-      refreshModalCurrents(); // navnet kan stå i «Du er i»-blokken
-      updateCrumbs(activeGroupObj()); // … og i breadcrumben
-    }, { cls: 'chip-edit', autosize: true });
-  }
-
   function addUniverse() {
     const u = makeUniverse('Nytt univers');
     u.pos = state.universes.length ? maxPos(state.universes) + 1 : 0;
@@ -5922,16 +5861,23 @@
     stampPos(u);
     state.universes.push(u);
     setActiveUniverse(u.id);
-    render(); // tegner også univers-radene (nytt univers er tomt → tomt board)
-    const nameEl = uniList.querySelector('.uni-row[data-id="' + u.id + '"] .uni-name');
-    if (nameEl) startUniverseRename(nameEl, u);
+    render(); // tegner nav-modalen på nytt (nytt univers er tomt → tomt board)
+    // Rull det nye universet inn i syne og start navneredigering (kun når
+    // modalen er åpen — den programmatiske veien lar navnet stå som standard).
+    const el = navBoard.querySelector('.card[data-id="' + u.id + '"]');
+    if (el) {
+      try { el.scrollIntoView({ block: 'nearest' }); } catch (e) { /* ignore */ }
+      const t = el.querySelector('.card-title');
+      if (t) t.click();
+    }
+    return u;
   }
   addUniBtn.addEventListener('click', addUniverse);
 
   // Slett et univers → legg i univers-søppelkassen (trashed-flagg; gjenopprettbar).
   // Permanent sletting (med gravsteiner) skjer først når søppelkassen tømmes.
   function deleteUniverse(u) {
-    const ghost = ghostFrom(uniList.querySelector('.uni-row[data-id="' + u.id + '"]'));
+    const ghost = ghostFrom(navBoard.querySelector('.card[data-id="' + u.id + '"]'));
     // Mottaker (montert): «slett» = legg mounten i egen søppel (kan forlates ved
     // tømming) — håndteres av setTrashed sin mount-gren.
     bufferDelete(u, 'universe', (x) => setTrashed(x, 'universe', true));
@@ -6022,13 +5968,14 @@
   function cleanGroup(g) {
     return {
       id: g.id, uni: g.uni || null, name: g.name, trashed: !!g.trashed,
+      cat: g.cat || null, isCat: !!g.isCat, collapsed: !!g.collapsed,
       ts: g.ts || 0, org: g.org || '',
       pos: g.pos || 0, posTs: g.posTs || 0, posOrg: g.posOrg || '',
     };
   }
   function cleanUniverse(u) {
     return {
-      id: u.id, name: u.name, trashed: !!u.trashed,
+      id: u.id, name: u.name, trashed: !!u.trashed, collapsed: !!u.collapsed,
       ts: u.ts || 0, org: u.org || '',
       pos: u.pos || 0, posTs: u.posTs || 0, posOrg: u.posOrg || '',
     };
@@ -6103,7 +6050,11 @@
     return {
       id: a.id,
       uni: posw.uni != null ? posw.uni : (a.uni || b.uni || null), // forelder følger posisjon
+      // `cat` (gruppekategori-medlemskap) er en forelder-endring → posisjonsregisteret,
+      // som `uni`. `isCat`/`collapsed` er innhold, som `name`.
+      cat: posw.cat || null,
       name: content.name, trashed: !!content.trashed,
+      isCat: !!content.isCat, collapsed: !!content.collapsed,
       ts: content.ts || 0, org: content.org || '',
       pos: posw.pos || 0, posTs: posw.posTs || 0, posOrg: posw.posOrg || '',
     };
@@ -6113,6 +6064,7 @@
     const posw = newer(a.posTs, a.posOrg, b.posTs, b.posOrg) ? a : b;
     return {
       id: a.id, name: content.name, trashed: !!content.trashed,
+      collapsed: !!content.collapsed,
       ts: content.ts || 0, org: content.org || '',
       pos: posw.pos || 0, posTs: posw.posTs || 0, posOrg: posw.posOrg || '',
     };
@@ -6634,8 +6586,13 @@
         id: o.id, ts: o.ts || 0, org: o.org || '',
         trashed: !!c.trashed, pos: c.pos || 0, posTs: c.posTs || 0, posOrg: c.posOrg || '',
       };
-      if (type === 'universe') return Object.assign(base, { name: o.name });
-      if (type === 'group') return Object.assign(base, { name: o.name, uni: c.parent });
+      if (type === 'universe') return Object.assign(base, { name: o.name, collapsed: !!o.collapsed });
+      // En MONTERT gruppe ligger alltid på nivå 1 i universet den er montert i
+      // (mount-plasseringen har ingen kategori-kolonne) — `cat` skrives derfor ikke
+      // tilbake på eierens rad. Se docs/rettigheter-og-deling.md.
+      if (type === 'group') return Object.assign(base, {
+        name: o.name, uni: c.parent, cat: null, isCat: !!o.isCat, collapsed: !!o.collapsed,
+      });
       if (type === 'card') return Object.assign(base, {
         title: o.title, group: c.parent, k: o.k !== false, p: o.p !== false,
         responsible: o.responsible || null,
@@ -6793,8 +6750,9 @@
   function insertPayload(t, row, uid) {
     const base = { id: row.id, owner_id: uid, trashed: !!row.trashed,
       ts: row.ts || 0, org: row.org || '', pos: row.pos || 0, pos_ts: row.posTs || 0, pos_org: row.posOrg || '' };
-    if (t === 'universe') return Object.assign(base, { name: row.name || '' });
-    if (t === 'group') return Object.assign(base, { name: row.name || '', universe_id: row.uni });
+    if (t === 'universe') return Object.assign(base, { name: row.name || '', collapsed: !!row.collapsed });
+    if (t === 'group') return Object.assign(base, { name: row.name || '', universe_id: row.uni,
+      cat_id: row.cat || null, is_cat: !!row.isCat, collapsed: !!row.collapsed });
     if (t === 'card') return Object.assign(base, { title: row.title || '', group_id: row.group,
       k: row.k !== false, p: row.p !== false, lab_ts: row.labTs || 0, lab_org: row.labOrg || '',
       responsible: row.responsible || null,
@@ -6808,8 +6766,9 @@
   function updatePayload(t, row) {
     const base = { trashed: !!row.trashed, ts: row.ts || 0, org: row.org || '',
       pos: row.pos || 0, pos_ts: row.posTs || 0, pos_org: row.posOrg || '' };
-    if (t === 'universe') return Object.assign(base, { name: row.name || '' });
-    if (t === 'group') return Object.assign(base, { name: row.name || '', universe_id: row.uni });
+    if (t === 'universe') return Object.assign(base, { name: row.name || '', collapsed: !!row.collapsed });
+    if (t === 'group') return Object.assign(base, { name: row.name || '', universe_id: row.uni,
+      cat_id: row.cat || null, is_cat: !!row.isCat, collapsed: !!row.collapsed });
     if (t === 'card') return Object.assign(base, { title: row.title || '', group_id: row.group,
       k: row.k !== false, p: row.p !== false, lab_ts: row.labTs || 0, lab_org: row.labOrg || '',
       responsible: row.responsible || null,
@@ -7450,7 +7409,7 @@
         options.push({ id: u.id, label: u.name }));
     } else {
       state.universes.filter((u) => !u.trashed).forEach((u) => {
-        (u.groups || []).filter((g) => !effTrashed(g)).forEach((g) =>
+        (u.groups || []).filter((g) => !effTrashed(g) && !g.isCat).forEach((g) =>
           options.push({ id: g.id, label: u.name + ' › ' + g.name }));
       });
     }
@@ -8129,7 +8088,7 @@
     accountEdit.hidden = true;
     setAccountMsg('');
     // Lukk evt. åpne modaler — de tilhørte den utloggede sesjonen.
-    closeUniModal(); closeGroupModal(); closeAccount();
+    closeNavModal(); closeAccount();
   }
 
   // Dyplenke fra en delings-e-post til en UREGISTRERT mottaker: ?signup=<e-post>
@@ -8188,7 +8147,7 @@
   window.__huskis = {
     state, render, logout, addGroup, deleteGroup,
     addUniverse, deleteUniverse, setActiveUniverse, setActiveGroup,
-    openUniModal, closeUniModal, openGroupModal, closeGroupModal,
+    openNavModal, closeNavModal,
     openAccount, closeAccount,
     canonical, reconcile, docFromMyState, contentDocFromMy, applyMyDoc, cloudCycle,
     isSchemaMismatch,

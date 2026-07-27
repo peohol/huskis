@@ -1,8 +1,9 @@
 # CLAUDE.md — Huskis
 
-Statisk app: **Univers > Gruppe > Liste > Listepunkt**. Universer er helt
-uavhengige områder — grupper flyttes aldri på tvers av dem. Ingen byggesteg —
-ren `index.html` + `styles.css` + `app.js` (vanilla JS), persistens i
+Statisk app: **Univers > Gruppe > Liste > Listepunkt**. De to øverste nivåene
+speiler de to nederste: et univers ER et kort og en gruppe ER en rad, med samme
+design og samme dra-og-slipp-motor (grupper kan flyttes mellom universer). Ingen
+byggesteg — ren `index.html` + `styles.css` + `app.js` (vanilla JS), persistens i
 `localStorage` + sanntids-synk via Supabase.
 
 ## Kjøre appen
@@ -24,7 +25,7 @@ oppdater det aktuelle dokumentet der (ikke dump alt tilbake i denne fila).
 |---|---|
 | `docs/data-model.md` | state-form, foreldre-pekere, univers/gruppe/liste/listepunkt-hierarkiet |
 | `docs/design-system.md` | styles.css, nye knapper/kontroller, delte klasser, UX-mønstre |
-| `docs/menus.md` | toppmenyen (breadcrumb), univers-/gruppe-modalen, kontoknappen/-modalen |
+| `docs/menus.md` | toppmenyens nav-knapp, navigasjonsmodalen (universer + grupper), kontoknappen/-modalen |
 | `docs/board-layout.md` | avstander/padding/gap i selve listevisningen |
 | `docs/drag-and-drop.md` | reorder, dra-og-slipp-motoren, overføring mellom lister/grupper |
 | `docs/trash.md` | slette/gjenopprette/tømme på ethvert nivå |
@@ -447,7 +448,7 @@ i `collapseCategory` regner med det). Ny test `tests/collapsed-alignment.test.js
 (baseline + sentrering + symmetri, desktop og mobil). Ingen DB-migrering. Se
 `docs/design-system.md`.
 
-**Board-kolonner: fyll venstre først + stabil DnD (siste runde)**: board-et bruker
+**Board-kolonner: fyll venstre først + stabil DnD (forrige runde)**: board-et bruker
 ikke lenger CSS multi-column. Kolonnene er **ekte containere** (`.board-col`), og JS
 fordeler kortene **grådig** (`relayoutBoard`): kolonne 1 fylles til kolonnebudsjettet
 (skjermhøyden under toppmenyen) er brukt opp, så kolonne 2 osv. Får ikke alt plass i
@@ -484,3 +485,30 @@ Verifisert i nettleser (Playwright) mot en hermetisk in-memory-backend
 klienten og deler «server» mellom faner via localStorage — kjør to faner for
 å teste deling mellom to brukere uten ekte backend/e-postbekreftelse.
 `&lag=800` gir kunstig serverforsinkelse for å teste kø-/optimisme-oppførselen.
+
+**Ny navigasjon: ÉN modal for universer og grupper (siste runde)**: de to
+breadcrumb-knappene og de to modalene er erstattet av **én nav-knapp**
+(`🌐 univers › 📁 gruppe`) som åpner **én modal** med tittelen «[globus] Universer
+og [mappe] grupper». Der bruker universer og grupper **nøyaktig samme oppsett som
+lister og listepunkter**: et univers er et `.card` (kan kollapses — viser da
+[mappe] + antall grupper i stedet for «(N)»), gruppene er `.item`-rader (uten
+avmerkingsboks), og **gruppekategorier** er `.category`-rader (`group.isCat`/
+`group.cat`, ny gul knapp + nytt `ICONS.groupCategory`). Board-et
+(`#nav-board`) er et vanlig `.board` (samme `relayoutBoard`-kolonnemaskineri som
+hovedsiden), men nav-scopet setter `singleColumn` → alltid ÉN `.board-col`. Universer/grupper har ingen innstillingsmodal
+— kun **del-knapper** (`.uni-share`/`.group-share`); gruppekategorier har kun
+oppløs. Klikk på en gruppe (utenom navnet/knappene) navigerer og lukker modalen.
+Gruppe-søppelkassen ligger i universkortet (som listepunkt-kassen i lista);
+univers-søppelkassen nederst i modalen. **Dra-og-slipp er den SAMME motoren**: hele
+kort-/rad-/kategori-maskineriet kjører nå i to scope (`boardScope`/`navScope`,
+valgt av `scopeForEl` ved dragstart) — grupper flyttes mellom universer, ut i
+lufta for å lage et NYTT univers, inn i/ut av gruppekategorier, med peek, 1/3-
+terskler, skillelinjer og `pointercancel`-rollback gratis. `startGroupDrag`/
+`startUniverseDrag`/`finishColumnDrop` + de to gamle auto-scroll-loopene er
+FJERNET (nav-scopet bruker viewport-koordinater + modal-scroll). Delt (montert)
+innhold kan foreløpig ikke ligge i en gruppekategori (mount-plasseringen har
+ingen kategori-kolonne) — slipp der lander på nivå 1 med en toast. Krever en
+DB-migrering i kontomodus (`groups.cat_id`/`is_cat`/`collapsed`,
+`universes.collapsed`) — se `TODO.md`. Ny test `tests/nav-modal.test.js`. Se
+`docs/menus.md`, `docs/drag-and-drop.md`, `docs/data-model.md`,
+`docs/design-system.md`, `docs/trash.md`.

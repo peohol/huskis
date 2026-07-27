@@ -238,6 +238,24 @@ alter table public.cards     add column if not exists collapsed boolean not null
 -- leaf-elementer holder det false). Rir på innholds-registeret (ts/org).
 alter table public.items     add column if not exists collapsed boolean not null default false;
 
+-- Universer og grupper vises nå med NØYAKTIG samme oppsett som lister og
+-- listepunkter (navigasjonsmodalen): et univers er et kort som kan kollapses, og
+-- gruppene i det er rader som kan ligge i GRUPPEKATEGORIER. Speiler derfor
+-- kategori-modellen fra `items`:
+--   * `groups.cat_id`  — gruppekategorien gruppen ligger i (null = nivå 1).
+--                        `on delete set null` løsner gruppene om kategori-raden
+--                        slettes; `deferrable initially deferred` fordi import_doc
+--                        kan sette inn en gruppe FØR kategori-raden den peker på.
+--                        Følger POSISJONS-registeret (som universe_id).
+--   * `groups.is_cat`  — raden ER en gruppekategori (innholds-registeret).
+--   * `groups.collapsed` / `universes.collapsed` — rullgardin-kollaps
+--                        (innholds-registeret, som cards/items.collapsed).
+-- Idempotent for eldre databaser.
+alter table public.groups    add column if not exists cat_id uuid references public.groups (id) on delete set null deferrable initially deferred;
+alter table public.groups    add column if not exists is_cat boolean not null default false;
+alter table public.groups    add column if not exists collapsed boolean not null default false;
+alter table public.universes add column if not exists collapsed boolean not null default false;
+
 -- Invitasjonspolicy (tretilstand: 'inherit' | 'allow' | 'deny') — styrer om
 -- VANLIGE medlemmer (ikke opprettere/eier) kan invitere flere til objektet.
 -- DYNAMISK ARV: den effektive tilstanden er den NÆRMESTE eksplisitte ('allow'/
@@ -776,6 +794,7 @@ begin
   if (uid is not null and not can_content)
      or not public.reg_newer(new.ts, new.org, old.ts, old.org) then
     new.name := old.name; new.trashed := old.trashed;
+    new.collapsed := old.collapsed;
     new.ts := old.ts; new.org := old.org;
   end if;
   if (uid is not null and not can_reorder)
@@ -843,11 +862,13 @@ begin
   if (uid is not null and not can_content)
      or not public.reg_newer(new.ts, new.org, old.ts, old.org) then
     new.name := old.name; new.trashed := old.trashed;
+    new.is_cat := old.is_cat; new.collapsed := old.collapsed;
     new.ts := old.ts; new.org := old.org;
   end if;
   if (uid is not null and not can_reorder)
      or not public.reg_newer(new.pos_ts, new.pos_org, old.pos_ts, old.pos_org) then
     new.universe_id := old.universe_id;   -- forelder følger posisjonsregisteret
+    new.cat_id := old.cat_id;             -- … og gruppekategori-medlemskapet
     new.pos := old.pos; new.pos_ts := old.pos_ts; new.pos_org := old.pos_org;
   end if;
   new.updated_at := now();
@@ -1819,6 +1840,7 @@ begin
     'universes', coalesce((select jsonb_agg(jsonb_build_object(
         'id', u.id, 'owner', u.owner_id, 'mine', u.owner_id = uid,
         'name', u.name, 'trashed', u.trashed, 'locked', u.locked, 'unlocked', u.unlocked,
+        'collapsed', u.collapsed,
         'invitePolicy', u.invite_policy,
         'ts', u.ts, 'org', u.org,
         'pos', u.pos, 'posTs', u.pos_ts, 'posOrg', u.pos_org,
@@ -1829,6 +1851,7 @@ begin
         'id', g.id, 'owner', g.owner_id, 'mine', g.owner_id = uid,
         'uni', g.universe_id,
         'name', g.name, 'trashed', g.trashed, 'locked', g.locked, 'unlocked', g.unlocked,
+        'cat', g.cat_id, 'isCat', g.is_cat, 'collapsed', g.collapsed,
         'invitePolicy', g.invite_policy,
         'ts', g.ts, 'org', g.org,
         'pos', g.pos, 'posTs', g.pos_ts, 'posOrg', g.pos_org,
@@ -1913,14 +1936,15 @@ begin
   if uid is null then raise exception 'ikke innlogget'; end if;
 
   for r in select * from jsonb_array_elements(coalesce(p_doc -> 'universes', '[]'::jsonb)) loop
-    insert into public.universes as t (id, owner_id, name, trashed, ts, org, pos, pos_ts, pos_org)
+    insert into public.universes as t (id, owner_id, name, trashed, collapsed, ts, org, pos, pos_ts, pos_org)
     values (public.legacy_uuid(uid, r ->> 'id'), uid,
             coalesce(r ->> 'name', ''), coalesce((r ->> 'trashed')::boolean, false),
+            coalesce((r ->> 'collapsed')::boolean, false),
             coalesce((r ->> 'ts')::bigint, 0), coalesce(r ->> 'org', ''),
             coalesce((r ->> 'pos')::double precision, 0),
             coalesce((r ->> 'posTs')::bigint, 0), coalesce(r ->> 'posOrg', ''))
     on conflict (id) do update
-      set name = excluded.name, trashed = excluded.trashed,
+      set name = excluded.name, trashed = excluded.trashed, collapsed = excluded.collapsed,
           ts = excluded.ts, org = excluded.org,
           pos = excluded.pos, pos_ts = excluded.pos_ts, pos_org = excluded.pos_org
       where t.owner_id = uid;
@@ -1931,15 +1955,21 @@ begin
     continue when not exists (
       select 1 from public.universes u
       where u.id = public.legacy_uuid(uid, r ->> 'uni') and u.owner_id = uid);
-    insert into public.groups as t (id, owner_id, universe_id, name, trashed, ts, org, pos, pos_ts, pos_org)
+    insert into public.groups as t (id, owner_id, universe_id, cat_id, is_cat, name, trashed,
+                                    collapsed, ts, org, pos, pos_ts, pos_org)
     values (public.legacy_uuid(uid, r ->> 'id'), uid, public.legacy_uuid(uid, r ->> 'uni'),
+            case when r ->> 'cat' is null then null else public.legacy_uuid(uid, r ->> 'cat') end,
+            coalesce((r ->> 'isCat')::boolean, false),
             coalesce(r ->> 'name', ''), coalesce((r ->> 'trashed')::boolean, false),
+            coalesce((r ->> 'collapsed')::boolean, false),
             coalesce((r ->> 'ts')::bigint, 0), coalesce(r ->> 'org', ''),
             coalesce((r ->> 'pos')::double precision, 0),
             coalesce((r ->> 'posTs')::bigint, 0), coalesce(r ->> 'posOrg', ''))
     on conflict (id) do update
-      set universe_id = excluded.universe_id, name = excluded.name,
-          trashed = excluded.trashed, ts = excluded.ts, org = excluded.org,
+      set universe_id = excluded.universe_id, cat_id = excluded.cat_id,
+          is_cat = excluded.is_cat, name = excluded.name,
+          trashed = excluded.trashed, collapsed = excluded.collapsed,
+          ts = excluded.ts, org = excluded.org,
           pos = excluded.pos, pos_ts = excluded.pos_ts, pos_org = excluded.pos_org
       where t.owner_id = uid;
     n_grp := n_grp + 1;

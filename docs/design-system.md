@@ -13,9 +13,10 @@ knapper, kontroller) er skalert opp ~30 % i forhold til det opprinnelige
 designet, mens padding/margin/gap IKKE er skalert tilsvarende — bevisst valg:
 større, mer lesbare og lettere treffbare listepunkter i et fortsatt kompakt UI.
 
-Univers-rader, gruppe-rader og listekort har **identisk tittel-typografi**
-(20px/600: `.chip-name` og `.card-title`) og identisk størrelse på ekvivalente
-ikoner (delt-merke, slett-✕).
+Universer, grupper, lister og listepunkter deler **identisk oppsett**: et univers
+ER et listekort (`.card`) og en gruppe ER en listepunkt-rad (`.item`), bare i
+nav-modalen (`docs/menus.md`). Dermed er tittel-typografi (20px/600 `.card-title`),
+radhøyder, luft og ikonstørrelser like på alle nivåer uten egne regler.
 
 Tekststørrelsene er tokens (`--fs-xs` 15 / `--fs-sm` 17 / `--fs-md` 18 /
 `--fs-base` 19 (brødtekst) / `--fs-lg` 20 (titler) / `--fs-xl` 24
@@ -75,6 +76,7 @@ grå = `#c0c4c9`):
 | Tre personer (delte) | hver person farge 1 / 2 / 3 |
 | Brev (e-postvarsel) | hvit |
 | Tannhjul (innstillinger) | grå kogg med FYLTE, brede tenner (⚙️-stil) — senterhullet gjennomsiktig (even-odd) |
+| Gruppekategori (groupCategory) | venstre klamme (svart) + mappa fra `folder` (farge 2), nedskalert inn i klammen |
 | Oppløs (bubbleBurst) | ingen fyllflate — kun svarte streker |
 | Dør inn (login) | dørfeltet hvitt |
 | Hengelås | låst = farge 1, åpen = farge 3 |
@@ -143,32 +145,31 @@ Størrelse/form kommer fra egne klasser: `.btn` (modaler), `.btn-small`,
   UNIVERSER»/«INVITASJONER» osv., uppercase via CSS) på egen linje + knapperad
   under. Brukes i univers-/gruppe-/konto-modalen og toppmenyens
   listefunksjons-rad.
-- `.crumb-btn`: breadcrumb-knappene i toppmenyen (nivå-ikon + navn på
-  flate-mønsteret, `.crumb-name` med ellipsis); `.crumb-sep` er ›-skilletegnet.
+- `.crumb-btn`: navigasjonsknappen i toppmenyen — ÉN knapp med begge nivåene
+  (nivå-ikon + navn på flate-mønsteret, `.crumb-name` med ellipsis);
+  `.crumb-sep` er ›-skilletegnet mellom dem.
 - `.trashcan`: ALLE søppelkasse-knapper — hvit avrundet beholder, antall i grå
   sirkel (`.trashcan-count`), **skjult (`hidden`) når tom**.
 - `.account-btn`: kontoknappen (person-ikon, fast i øvre høyre hjørne, med
   `.menu-badge` som invitasjons-teller).
-- `.modal-current` + `.current-chip`: «Du er i»-blokken øverst i univers-/
-  gruppe-modalen (etikett + chip-farget navn + del-knapp under).
 - `.account-form` (+ `-label`/`-row`) og `.account-msg`: endre navn/e-post i
   konto-modalen (etikett over felt, Lagre-knapp på samme rad).
-- `.chip` / `.chip-name` / `.chip-count`: fargede kort med hvit skrift — deles
-  av gruppe-/univers-rader (i modalene) og «Du er i»-chipen. Aktiv = grønn brand-ring (`outline
-  --primary`). `.chip-count` er en liten, subtil **pill med nivå-ikon +
-  antall** (univers-rad: mappe + antall grupper; gruppe-rad: liste-ikon +
-  antall lister), med litt avstand fra navnet.
-- Sletteknapper: felles regel (dempet ✕ → rød ved hover). På chips ligger
-  **del-knappen alltid rett til venstre for ✕** (auto-margen flytter seg til
-  del-knappen når den er synlig). Listepunkt-✕ alltid synlig, dempet
-  (`opacity .55`).
+- `.nav-board`: nav-modalens board (universkort + grupperader). Alltid ÉN
+  kolonne; ellers arves `.card`/`.item`/`.category` uendret fra listedesignet.
+  Aktivt univers / aktiv gruppe = grønn brand-ring trukket innover
+  (`outline-offset: -2px`). `.uni-count` er en liten, subtil **pill med
+  gruppe-ikon + antall grupper** som erstatter «(N)» på et kollapset univers.
+- Sletteknapper: felles regel (dempet ✕ → rød ved hover), samme `.card-delete`/
+  `.item-delete` på alle fire nivåene. Listepunkt-/gruppe-✕ alltid synlig, dempet
+  (`opacity .6`).
 - Innstillings-/del-knapper: listekort har `.card-cog` (tannhjul, svakt hvit
   flate + ring, lysner ved hover) som åpner innstillingsmodalen — **deling av
   lister ligger DER** (`docs/scheduling.md`), ikke i en egen kortknapp.
-  **Univers og grupper deles fra menyenes egne `.share-btn`** (del-univers =
-  [del]+[globus] ved «＋ Gruppe», del-gruppe = [del]+[mappe] ved «＋ Liste» —
-  deler det AKTIVE universet/gruppen; flate-mønster; kun kontomodus).
-  Delt-merket (`.share-badge`) brukes av gruppe-/univers-chips; listekortets
+  **Universer og grupper har INGEN innstillingsmodal — de har i stedet en
+  del-knapp på samme plass**: `.uni-share` i universkortets header (bruker
+  `.card-cog`-stilen) og `.group-share` på grupperaden (bruker `.item-cog`-stilen).
+  Gruppekategorier har hverken innstillinger eller deling — kun oppløs-knappen.
+  Delt-merket (`.share-badge`) brukes av universkort og grupperader; listekortets
   delt-status vises som chip i meta-raden (`docs/scheduling.md`).
 - Checkboxes i modaler: rendres alltid som en pille-formet toggle-switch, ren
   CSS på selve `<input type="checkbox">` (`appearance: none` + `::before`-
@@ -304,11 +305,6 @@ Størrelse/form kommer fra egne klasser: `.btn` (modaler), `.btn-small`,
   ekstrahering, `docs/drag-and-drop.md`): en kort-formet slot med et hvitt **＋-ikon**
   i midten (stiplet-hvit inset-ring over den delte placeholder-flaten) som
   signaliserer at slipp oppretter en NY liste.
-- **Univers-/gruppe-chips i modalene** (`.uni-row`/`.modal-list .group-card`):
-  slett-✕ ligger i en 36px `.icon-btn` helt til høyre, så det sentrerte ikonet
-  står lengre fra kanten enn tittelen gjør til venstre. `padding-left: calc(6px +
-  (36px - var(--fs-base)) / 2)` legger samme luft til venstre → lik TILSYNELATENDE
-  padding på begge sider (`--fs-base` = ikonstørrelsen, 36px = knappebredden).
 - `.field`: felles tekstfelt (auth-input + inviter-input) — solid kant, myk
   bakgrunn, grønn fokus-ring. Nye felt trenger bare klassen `.field`.
 - `.account-avatar` / `.member-avatar`: felles avatar-form (rund, sentrert hvit

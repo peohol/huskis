@@ -18,9 +18,9 @@ state = {
   activeGroup: <groupId>,      // aktiv posisjon (se under)
   activeGroups: { uniId: groupId }, // per enhet: sist aktive gruppe per univers
   universes: [
-    { id, name, trashed, pos,  // + registre: ts/org (innhold), posTs/posOrg (rekkefølge)
+    { id, name, trashed, collapsed, pos,  // + registre: ts/org (innhold), posTs/posOrg (rekkefølge)
       groups: [
-        { id, uni, name, trashed, pos,   // uni = univers-forelder
+        { id, uni, name, trashed, pos, cat, isCat, collapsed,  // uni = univers-forelder; cat/isCat = gruppekategori
           cards: [                        // «lister»
             { id, group, title, color, trashed, k, p, // k/p: legacy, se docs/colors-and-labels.md
               responsible, start, due, lockTimes,     // ansvarlig + tidsplan for hele listen (docs/scheduling.md)
@@ -33,7 +33,9 @@ state = {
 
 Forelder-peker på hvert nivå: `listepunkt.home → kort`, `kort.group → gruppe`,
 `gruppe.uni → univers`. Aktiv gruppe settes ALLTID via `setActiveGroup()` /
-`setActiveUniverse()` så per-univers-minnet (`activeGroups`) holdes i takt.
+`setActiveUniverse()` / `goToGroup()` så per-univers-minnet (`activeGroups`)
+holdes i takt (`goToGroup` brukes fra nav-modalen, der et gruppevalg også kan
+bytte univers).
 
 **Aktiv posisjon huskes på kontoen (kontomodus).** `activeUniverse`/`activeGroup`
 lagres på selve brukerkontoen (Supabase Auth `user_metadata.nav = {u,g}`), ikke i
@@ -46,12 +48,24 @@ sin gruppe. `activeGroups`-minnet er alltid per enhet (synkes aldri).
 
 ## Hierarkiet: Univers > Gruppe > Liste > Listepunkt
 
-Universer er **helt uavhengige områder** — grupper kan ALDRI flyttes på tvers av
-universer. Alt gruppe-/liste-UI er scopet til det aktive universet (`allGroups()`
-osv.), så kryss-univers-flytting er umulig i UI-et.
+De to øverste nivåene speiler de to nederste: **et univers oppfører seg som en
+liste og en gruppe som et listepunkt** — samme rendring, samme kategori-modell og
+samme dra-og-slipp-motor (se `docs/menus.md` og `docs/drag-and-drop.md`). Grupper
+kan derfor flyttes fritt mellom universer, og en gruppe sluppet utenfor alle
+universer oppretter et NYTT univers (som listepunkt-ekstrahering lager en ny liste).
+Alt liste-/listepunkt-UI er fortsatt scopet til den AKTIVE gruppen.
 
-- **Universer**: bytt/opprett/omdøp/slett i univers-modalen (🌐-breadcrumben). Se `docs/menus.md`.
-- **Grupper** (gruppe-modalen, 📁-breadcrumben): opprett/slett/omdøp/dra-rekkefølge. Se `docs/menus.md`.
+- **Universer**: bytt/opprett/omdøp/slett/omrokkér i nav-modalen. Se `docs/menus.md`.
+- **Grupper** (samme modal, som rader i universkortet): samme CRUD + dra-og-slipp,
+  inkl. overføring til et annet univers og til/fra gruppekategorier. Se `docs/menus.md`.
+- **Gruppekategorier** (`group.isCat` / `group.cat`): et univers har TO nivåer,
+  nøyaktig som en liste. En gruppekategori lagres SOM en gruppe (markert
+  `isCat: true`, med `cards: []`), og vanlige grupper peker på den via `cat`
+  (null = ukategorisert, nivå 1). Reglene er identiske med listepunkt-kategoriene
+  under: nøstes aldri, `cat` rir på posisjonsregisteret (som `uni`), `isCat`/
+  `collapsed` på innholds-registeret, og en gruppe hvis `cat` peker på en
+  kategori som ikke finnes rendres som ukategorisert. En gruppekategori er ingen
+  navigerbar plassering — `activeGroup`/`validateActive` hopper over `isCat`.
 - **Lister** («kort», tidl. «kategorier») i hver gruppe: samme CRUD + dra-og-slipp,
   inkl. overføring til annen gruppe. Se `docs/drag-and-drop.md`.
 - **Listepunkter** i hvert kort: samme CRUD + dra-og-slipp, inkl. overføring mellom
@@ -66,6 +80,9 @@ osv.), så kryss-univers-flytting er umulig i UI-et.
   registeret (`ts`/`org`, som `lockTimes`); lagres og synkes i DB via `save()`
   (optimistisk, ingen synlig forsinkelse). I kontomodus egen kolonne
   (`cards.collapsed`, se `TODO.md`). Se `docs/design-system.md`.
+  **Universer og gruppekategorier har det samme feltet** (`universe.collapsed` /
+  `group.collapsed`, kolonnene `universes.collapsed`/`groups.collapsed`) — et
+  kollapset univers viser [gruppe-ikon] + antall grupper i stedet for «(N)».
 - Søppelkasse på alle fire nivåer (`trashed`-flagg) — se `docs/trash.md`.
 - **Avkryssing av listepunkter** (`item.done`): rir på innholds-registeret (`ts`/`org`,
   som `text`/`trashed`) — LWW ved samtidig endring. Avkryssede listepunkter flyttes
@@ -127,6 +144,9 @@ osv.), så kryss-univers-flytting er umulig i UI-et.
   (`ts`/`org`, som `isCat`/`lockTimes`). Kun meningsfullt for `isCat`-rader. I
   kontomodus egen kolonne (`items.collapsed`, se `TODO.md`).
 
-Gotcha: «＋ Gruppe» skal alltid bare virke, selv uten univers — standard-universet
-opprettes i farten (`ensureUniverse`). Dette bruker en NY tilfeldig id, ikke den
-faste `uni-standard`-id-en (som kan ha gravstein fra migrering).
+Gotcha: den programmatiske `addGroup()` (feilsøking/tester) skal alltid bare
+virke, selv uten univers — standard-universet opprettes i farten
+(`ensureUniverse`). Dette bruker en NY tilfeldig id, ikke den faste
+`uni-standard`-id-en (som kan ha gravstein fra migrering). UI-veien er ＋-knappen
+i universkortet, som i stedet oppretter gruppen tom og navngir den på plassen
+(`nameNewRow`, som listepunkter).

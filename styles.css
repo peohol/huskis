@@ -11,8 +11,7 @@
      knapper. Aldri egne ad hoc-gradienter.
    • Delte klasser: .panel-head/.panel-title/.panel-actions (menyoverskrift +
      knapperad), .btn-add (grønn ＋), .trashcan (hvit søppelkasse), .account-btn
-     (kontoknapp), .crumb-btn (breadcrumb-knapp), .chip (farget gruppe-/univers-
-     kort), .chip-count (antall-pill med ikon), delte sletteknapp-, placeholder-
+     (kontoknapp), .crumb-btn (navigasjonsknappen), delte sletteknapp-, placeholder-
      og håndtak-regler.
    • Flate-mønster: halvgjennomsiktig hvit (--control-bg) som hviletilstand,
      helt ugjennomsiktig (#fff) ved hover.
@@ -70,7 +69,7 @@
   --fs-sm: 17px;   /* små knapper, hint */
   --fs-md: 18px;   /* navn, sekundær tekst */
   --fs-base: 19px; /* brødtekst: element/kort/input */
-  --fs-lg: 20px;   /* titler (chip/kort) */
+  --fs-lg: 20px;   /* titler (kort/rader) */
   --fs-xl: 24px;   /* modal-overskrifter */
 
   --radius: 18px;
@@ -234,103 +233,6 @@ body {
   box-shadow: 0 4px 12px rgba(102, 136, 102, 0.4);
 }
 
-/* ---------------- Chip (delt av gruppekort og univers-rader) ----------------
-   Som et liste-element: navn, antall-pill, del, slett — på posisjonsbasert farge
-   med hvit skrift m/ skygge. */
-.chip {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  padding: 6px;
-  border-radius: var(--control-radius);
-  background: var(--g-bg, #fff);   /* posisjonsbasert farge (samme system som kort) */
-  color: #fff;                     /* hvit skrift m/ skygge for lesbarhet på fargene */
-  text-shadow: var(--text-shadow);
-  /* Tett skygge (ikke shadow-md): må få plass i panel-luften uten å klippes av
-     kortradens overflow på mobil. */
-  box-shadow: 0 1px 4px rgba(35, 45, 55, 0.18);
-  cursor: pointer;
-  transition: box-shadow 0.18s, transform 0.12s, outline-color 0.18s;
-}
-.chip:hover { box-shadow: 0 2px 7px rgba(35, 45, 55, 0.26); }
-/* Aktiv chip: grønn brand-ring rundt den fargede flaten. */
-.chip.active {
-  box-shadow: 0 2px 8px rgba(35, 45, 55, 0.3);
-  outline: 2.5px solid var(--primary);
-  outline-offset: 2px;
-}
-.chip-name {
-  font-weight: 600;
-  font-size: var(--fs-lg);
-  line-height: 1.2;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  padding: 2px;
-  border-radius: 6px;
-  cursor: text;
-}
-/* Antall (lister/grupper): liten, subtil pill med nivå-ikon + antall —
-   visuelt distinkt felt, med litt avstand fra navnet. */
-.chip-count {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  flex: 0 0 auto;
-  margin-left: 6px;
-  padding: 5px;
-  border-radius: 999px;
-  background: rgba(0, 0, 0, 0.16);
-  font-weight: 700;
-  font-size: var(--fs-xs);
-  line-height: 1;
-  opacity: 0.85;
-  font-variant-numeric: tabular-nums;
-  white-space: nowrap;
-}
-.chip-count .icon { font-size: var(--fs-xs); }
-.chip.active .chip-count { opacity: 1; }
-
-/* Univers-/gruppe-rader (i sine modaler): full bredde. Slett-✕ ligger i en 36px
-   .icon-btn helt til høyre; ikonet (1em) er sentrert, så det står ~(36−1em)/2 fra
-   høyre kant — mer luft enn tittelen har til venstre. Legg samme mengde til
-   padding-left så den TILSYNELATENDE paddingen blir lik på begge sider. */
-.uni-row, .modal-list .group-card {
-  width: 100%;
-  padding-left: calc(6px + (36px - var(--fs-base)) / 2);
-}
-.uni-row .chip-name, .modal-list .group-card .chip-name { min-width: 0; }
-.uni-empty {
-  margin: 2px 0;
-  color: var(--ink-soft);
-  font-weight: 500;
-  font-size: var(--fs-md);
-}
-
-/* «Du er i»-blokken øverst i univers-/gruppe-modalen: etikett, navnet på en
-   chip-farget flate (ikke klikkbar) og del-knappen rett under. */
-.modal-current {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 10px;
-}
-.current-label {
-  font-size: var(--fs-xs);
-  font-weight: 700;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
-  color: var(--ink-soft);
-}
-.current-chip {
-  align-self: stretch;
-  gap: 8px;
-  padding: 10px;
-  cursor: default;
-}
-.current-chip .icon { font-size: var(--fs-base); }
-.current-chip .chip-name { cursor: inherit; }
-
 /* ---------------- Fargede knapper (.btn-solid) ----------------
    ÉN felles stil for alle grønne/røde/gule knapper: gradient-flate, hvit
    skrift m/ tekst-skygge, og samme hover-feedback overalt — flaten lysner
@@ -379,30 +281,6 @@ body {
    detaljene (klammer/prikker/linjer), og ＋-en matcher det visuelt. */
 .btn-add.icon-only .icon { font-size: 34px; }
 
-/* ---------------- Del-knapper i menyene (del-univers / del-gruppe) ----------------
-   Del det AKTIVE universet (ved siden av «＋ Gruppe») / den AKTIVE gruppen (ved
-   siden av «＋ Liste»). To ikoner: del-ikon + nivå-ikon. Samme flate-mønster som
-   søppelkasse/filter/☰ (halvgjennomsiktig hvit → hvit ved hover). Kun kontomodus. */
-.share-btn {
-  flex: 0 0 auto;
-  appearance: none;
-  border: none;
-  cursor: pointer;
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  height: var(--control-h);
-  padding: 0 13px;
-  border-radius: var(--control-radius);
-  background: var(--control-bg);
-  color: var(--ink-soft);
-  box-shadow: var(--shadow-sm);
-  transition: background 0.18s, box-shadow 0.18s, color 0.18s, transform 0.12s;
-}
-.share-btn:hover { background: #fff; color: var(--ink); box-shadow: var(--shadow-md); }
-.share-btn:active { transform: translateY(1px); }
-.share-btn:focus-visible { outline: 2.5px solid var(--primary); outline-offset: 2px; }
-.share-btn .icon { font-size: var(--fs-base); }
 
 /* ---------------- Kontoknapp ----------------
    Fast i øvre høyre hjørne av VIEWPORTET, utenfor toppmenyens flyt — z-index
@@ -846,9 +724,7 @@ body {
    affordansen er den samme overalt i appen. */
 .card-title:hover,
 .cat-title:hover,
-.item-text:hover,
-.uni-row .uni-name:hover,
-.group-card .group-name:hover { background: rgba(0, 0, 0, 0.12); }
+.item-text:hover { background: rgba(0, 0, 0, 0.12); }
 
 /* ---------------- Items ---------------- */
 .items-container {
@@ -1232,28 +1108,26 @@ body {
 }
 .icon-btn:hover { background: rgba(0, 0, 0, 0.07); color: var(--ink); }
 
-/* Sletteknapper (liste/element/gruppe/univers): SVG-× (ICONS.xmark, samme strek
-   som ikonsettet) — SVARTE globalt, RØDE ved hover/aktivering. Gjelder også på
-   fargede flater (chip + korthode); svart leser fint på de lyse kortfargene.
-   Gruppe-/univers-× ligger helt til høyre. */
-.card-delete, .item-delete, .group-delete, .uni-delete { color: #111; }
-.card-delete:hover, .item-delete:hover, .group-delete:hover, .uni-delete:hover,
-.card-delete:active, .item-delete:active, .group-delete:active, .uni-delete:active {
+/* Sletteknapper (liste/listepunkt — og dermed også univers/gruppe, som bruker
+   nøyaktig samme kort-/rad-oppsett): SVG-× (ICONS.xmark, samme strek som
+   ikonsettet) — SVARTE globalt, RØDE ved hover/aktivering. Gjelder også på
+   fargede flater (korthode); svart leser fint på de lyse kortfargene. */
+.card-delete, .item-delete { color: #111; }
+.card-delete:hover, .item-delete:hover,
+.card-delete:active, .item-delete:active {
   color: var(--danger);
   background: rgba(239, 107, 125, 0.12);
 }
-.group-delete, .uni-delete { margin-left: auto; }
 /* Element-× alltid synlig, men diskré; full styrke ved hover/fokus. */
 .item-delete { opacity: 0.6; }
 .item:hover .item-delete,
 .item:focus-within .item-delete,
 .item-delete:focus-visible { opacity: 1; }
 
-/* Synlig tastaturfokus på kontrollene (samme brand-ring som aktiv chip). */
+/* Synlig tastaturfokus på kontrollene (samme brand-ring som aktivt kort). */
 .btn-add:focus-visible,
 .trashcan:focus-visible,
 .account-btn:focus-visible,
-.chip:focus-visible,
 .switch:focus-visible,
 .icon-btn:focus-visible {
   outline: 2.5px solid var(--primary);
@@ -1273,17 +1147,6 @@ body {
   padding: 2px 6px;
   width: 100%;
 }
-/* Chip-navn-redigering (gruppe/univers): bredden følger innholdet (settes
-   inline i JS), ikke 100 %. */
-.edit-input.group-edit,
-.edit-input.chip-edit {
-  width: auto;
-  min-width: 60px;
-  font-weight: 600;
-  font-size: var(--fs-lg);
-  outline: 2px solid var(--primary);
-}
-
 /* ---------------- Drag & drop states ----------------
    Kort/element/kategori dras på selve board-et og er `position: absolute`
    (dokument-koordinater, se dragPos* i app.js) — IKKE `fixed`. Et `fixed`-
@@ -1359,8 +1222,7 @@ body {
    mørknet flate og en subtil INNOVER-skygge som gir inntrykk av et «hull» som
    skal fylles (ingen kant). Kun radius/margens følger elementtypen. */
 .card-placeholder,
-.item-placeholder,
-.group-placeholder {
+.item-placeholder {
   background: rgba(0, 0, 0, 0.12);
   box-shadow: inset 0 2px 10px rgba(0, 0, 0, 0.22);
 }
@@ -1394,25 +1256,6 @@ body {
 .item-placeholder {
   list-style: none;
   border-radius: 10px;
-}
-.group-placeholder {
-  flex: 0 0 auto;
-  align-self: stretch;
-  border-radius: var(--control-radius);
-}
-
-/* Gruppe-/univers-draging: løftet chip følger pekeren; placeholder viser
-   landingsplass. Samme mønster/klasser for begge (uni-list er alltid en
-   vertikal kolonne, som gruppelista på desktop). */
-.group-card.dragging, .uni-row.dragging {
-  position: fixed;
-  z-index: 100;
-  margin: 0;
-  box-shadow: var(--shadow-lg);
-  transform: scale(1.05); /* rotasjon settes dynamisk i JS */
-  cursor: grabbing;
-  pointer-events: none;
-  will-change: left, top, transform;
 }
 
 body.is-dragging { cursor: grabbing; user-select: none; -webkit-user-select: none; }
@@ -1506,14 +1349,70 @@ body.is-dragging * { cursor: grabbing !important; }
   border-bottom: 1px solid var(--line);
   margin: 5px -20px;
 }
-/* Univers-/gruppe-radene i modalene: én vertikal kolonne. */
-.modal-list {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
 .menu-body .panel-head { min-height: 0; }
 .menu-body .panel-actions { margin-top: 2px; }
+
+/* ---------------- Navigasjonsmodalen (universer + grupper) ----------------
+   Universer og grupper bruker NØYAKTIG samme oppsett som lister og listepunkter:
+   `#nav-board` er et vanlig `.board` med `.card`/`.item`/`.category` inni, bare
+   alltid i ÉN kolonne. Derfor arves hele kort-/rad-/kategori-designet (og hele
+   dra-og-slipp-motoren) uten egne kopier — det som står her er kun forskjellene:
+   énkolonne, litt mer plass i modalen, fast (viewport-)posisjonering under
+   draging, og de nivå-spesifikke knappene/markørene. */
+.nav-modal { width: min(560px, 100%); }
+/* Overskriften er «[globus] Universer og [mappe] grupper» — la den brekke MELLOM
+   de to leddene, aldri midt i et ord. */
+.nav-modal .modal-head h2 { flex-wrap: wrap; }
+.nav-modal .modal-head h2 span { white-space: nowrap; }
+.nav-body { gap: 14px; }
+/* Kolonnene lages av `relayoutBoard` (samme maskineri som hovedsidens board),
+   men nav-scopet setter `singleColumn` → alltid ÉN `.board-col`. */
+.nav-board {
+  /* Nav-board-et bor i en modal med EGEN scroll-container — window-scroll endres
+     aldri her, så mobil-vaktens normal-flow-triks (se app.js) gjelder ikke. */
+  --mobile-dnd-flow-guard: 0;
+}
+/* Board-gapet er en vw-basert clamp for hovedsiden; i modalen vil vi ha en fast,
+   litt tettere luft mellom universkortene. Siste kort har ingen margin: modalens
+   egen padding er bunn-luften der (hovedsidens board bruker i stedet siste korts
+   margin, se fixBoardBottomGap). */
+.nav-board .card { margin-bottom: 12px; }
+.nav-board .board-col > .card:last-child { margin-bottom: 0; }
+.nav-board.empty { min-height: 0; padding: 18px 0; }
+.nav-board .empty-state { color: var(--ink-soft); }
+.nav-board .empty-state .big { font-size: 46px; }
+.nav-board .hint-chip { background: rgba(0, 0, 0, 0.07); }
+
+/* Under draging ligger det løftede objektet i VIEWPORT-koordinater (modalen
+   scroller, ikke vinduet) — se dragUsesPageCoords()/navScope i app.js. */
+.nav-board .card.dragging,
+.nav-board .item.dragging,
+.nav-board .category.dragging { position: fixed; }
+
+/* Aktivt univers / aktiv gruppe: samme grønne brand-ring som resten av appen,
+   trukket innover så den ikke kolliderer med nabokortet. */
+.nav-board .card.active { outline: 2.5px solid var(--primary); outline-offset: -2px; }
+.nav-board .item.active { outline: 2.5px solid var(--primary); outline-offset: -2px; }
+
+/* Klikk er primærhandlingen på begge nivåer (gå til gruppen / kollaps universet),
+   så pekende hånd — ikke den åpne hånden listepunkter/kategorier har. */
+.nav-board .card:not(.is-locked) .item,
+.nav-board .card:not(.is-locked) .cat-head { cursor: pointer; }
+
+/* Kollapset univers: [mappe] + antall grupper i stedet for «(N)» — samme lille,
+   subtile pill som antall-merket ellers i appen. */
+.uni-count {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 6px;
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.16);
+  font-size: var(--fs-xs);
+  font-variant-numeric: tabular-nums;
+  align-self: center;
+}
+.uni-count .icon { font-size: var(--fs-xs); }
 
 .trash-row {
   display: flex;
@@ -1704,6 +1603,10 @@ body.modal-open { overflow: hidden; }
 
   /* Litt tettere breadcrumb så navnene får plass ved siden av kontoknappen. */
   .crumb-btn { font-size: var(--fs-md); padding: 0 10px; gap: 6px; }
+
+  /* Nav-modalens overskrift er lang (to nivåer med hvert sitt ikon) — mindre
+     skrift så den får plass på én linje ved siden av lukkeknappen. */
+  .nav-modal .modal-head h2 { font-size: var(--fs-md); gap: 6px; }
 
   /* Ansvarlig-velgeren/tids-popoveren: sentrert modal med intern scroll i
      stedet for en popover ved siden av knappen — mobilskjermen har ikke
@@ -2061,7 +1964,8 @@ body.no-auth #account-btn { display: none; }
 /* Innstillingsknappen på listekort (`.card-cog`, tannhjul — erstatter den
    gamle del-knappen): egen svakt markert flate som lysner ved hover (samme
    idé som flate-mønsteret, på farget bakgrunn). Univers/gruppe deles fortsatt
-   fra menyenes egne del-knapper (`.share-btn`). */
+   Universer/grupper bruker samme knappestil for sin DEL-knapp (`.uni-share`/
+   `.group-share`) — de har ingen innstillingsmodal. */
 .card-cog {
   flex: 0 0 auto;
   align-self: center;
@@ -2089,7 +1993,6 @@ body.no-auth #account-btn { display: none; }
 /* Delt liste-kort: en tydelig men diskret kant-markør. */
 .card.is-shared { box-shadow: var(--shadow-sm), inset 0 0 0 2px rgba(255,255,255,0.55); }
 .card.is-locked .card-title { opacity: 0.9; }
-.chip.is-shared { box-shadow: 0 2px 7px rgba(35,45,55,0.2), inset 0 0 0 1.5px rgba(255,255,255,0.6); }
 
 /* ---------------- Indikator-chips (meta-raden under navn) ----------------
    Rad under liste-/elementnavnet med chips for innstillinger som ER satt:

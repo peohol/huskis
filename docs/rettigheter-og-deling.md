@@ -134,6 +134,13 @@ objektets egen innholdslås. Retten styres av `can_reorder_in_parent`, som =
   målstruktur (`can_edit_content` på begge foreldre).
 - Personlig plassering av direkte delte røtter går fortsatt via mount-semantikken
   (`memberships`), uendret.
+- **Gjeldende begrensning — delt innhold og kategorier**: mount-plasseringen har
+  kolonner for foreldrenivået (`memberships.parent_universe_id`/
+  `parent_group_id`), men ingen for KATEGORI. En gruppe som er delt med meg kan
+  derfor ikke ligge i en av MINE gruppekategorier: klienten lander den på nivå 1
+  i universet og sier fra med en toast (`onItemUp`, se `docs/drag-and-drop.md`).
+  Samme gjelder ikke for eget innhold. Plasseringsreglene for delt innhold tas
+  opp i en egen runde.
 
 Serverside håndheves dette feltspesifikt: RLS `update`-policyen slipper gjennom
 den som kan endre **innhold ELLER posisjon**, og `*_before_update`-vaktene

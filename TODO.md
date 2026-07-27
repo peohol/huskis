@@ -223,6 +223,33 @@ and-sharing.sql` er oppdatert idempotent:
       `invite_policy`/`locked`/`unlocked` i rad-oppdateringer). Kjørt FØR merge, som
       for kategori-/`collapsed`-migreringene.
 
+## Skjema-endring: navigasjonsmodalen — gruppekategorier + kollaps (`groups.cat_id`/`is_cat`/`collapsed`, `universes.collapsed`)
+
+Navigasjonsrunden (se `docs/menus.md`) gjorde universer og grupper til nøyaktig
+samme oppsett som lister og listepunkter: et univers er et KORT som kan kollapses,
+og gruppene i det er RADER som kan ligge i **gruppekategorier**. Kategori-modellen
+fra `items` er speilet på `groups`:
+
+- `groups.cat_id` (uuid → `groups(id)`, `on delete set null`, `deferrable initially
+  deferred`) — gruppekategorien gruppen ligger i (null = nivå 1). Følger
+  POSISJONS-registeret (som `universe_id`).
+- `groups.is_cat` (boolean) — raden ER en gruppekategori. Innholds-registeret.
+- `groups.collapsed` + `universes.collapsed` (boolean) — rullgardin-kollaps, som
+  `cards.collapsed`/`items.collapsed`. Innholds-registeret.
+
+`supabase/users-and-sharing.sql` er oppdatert idempotent (`add column if not
+exists` × 4, `groups_before_update`/`universes_before_update`-vaktene, `get_my_doc`,
+`import_doc`); mock-backenden speiler det; klienten pusher/leser feltene via samme
+rad-CRUD (`cleanGroup`/`cleanUniverse`/`mergeGroupScalar`/`mergeUniverseScalar`/
+`insertPayload`/`updatePayload`). Implementert og verifisert i nettleser
+(mock-backend, desktop + mobil, `tests/nav-modal.test.js`).
+
+- [ ] **«Supabase DB-oppsett»-workflowen må kjøres** (går automatisk ved push til
+      `main` siden `supabase/users-and-sharing.sql` er endret — bekreft at runen
+      ble grønn) så de fire kolonnene finnes i produksjon. Til de gjør det, avviser
+      PostgREST hver gruppe-/univers-skriving; klienten sier nå fra med én toast
+      (`isSchemaMismatch`) i stedet for å svelge feilen stille.
+
 ## Manuelle steg (krever dashboard-tilgang — Peder)
 
 - [x] ~~GitHub → Settings → Secrets and variables → Actions: legg inn

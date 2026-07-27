@@ -180,10 +180,12 @@ rekkefølge + egen søppel) ligger i en membership-rad («mount»). I `applyMyDo
 - **Åpning av delings-UI-et**: for LISTER ligger delingen som egen seksjon i
   innstillingsmodalen (tannhjulet `.card-cog`, se `docs/scheduling.md`) —
   `renderShareOwner`/`renderShareRecipient` tar en `body`-container og deles
-  med del-modalen. Univers og grupper deles fra menyenes `.share-btn`
-  (del-univers ved «＋ Gruppe», del-gruppe ved «＋ Liste» — de deler det AKTIVE
-  universet/gruppen). `updateShareButtons()` (i `render()`) toggler synlighet
-  ut fra `_mine`/`_mount`; klikk-handlerne leser aktivt objekt.
+  med del-modalen. Univers og grupper deles fra del-knappene i nav-modalen
+  (`.uni-share` på universkortet, `.group-share` på grupperaden) — hvert objekt
+  har sin egen knapp, så man deler nøyaktig det man peker på. Knappene bygges av
+  `buildUniverseCard`/`buildGroupRow` og vises kun når objektet er mitt eller
+  montert (`_mine`/`_mount`); begge sender `openNavModal` som `backTo` så
+  tilbakeknappen i del-modalen fører rett tilbake.
 - **`item.done`** (avkryssing) synker via samme rad-CRUD som resten (innholds-
   register `ts`/`org`). Krever `items.done`-kolonnen — se `TODO.md`.
 - **Sletting er buffret** (`docs/trash.md`): den skrives ikke til DB før toast-
