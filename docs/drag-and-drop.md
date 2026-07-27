@@ -651,6 +651,22 @@ Det som er verdt å merke seg:
   Mount-plasseringen har ingen kategori-kolonne, så en delt gruppe kan foreløpig
   bare ligge på nivå 1; slippes den i en gruppekategori, lander den på nivå 1 og
   en toast sier fra. Se `docs/rettigheter-og-deling.md`.
+- **Den aktive gruppen følger med** når den bytter univers (dratt dit, ekstrahert
+  til et nytt, eller båret med av en gruppekategori): `followActiveGroup()` kalles
+  først i `renderBoard()` og flytter `state.activeUniverse` etter gruppa.
+  `activeGroupObj()` leter bare i det aktive universet, så uten dette falt
+  hovedsiden til «Ingen grupper ennå.» med gruppa fortsatt i behold. Den bor i
+  render-veien nettopp for å dekke ALLE veiene inn med ett sted.
+
+### Slipp i en LÅST mål-container avvises med en gang
+
+DB-vaktene (`*_before_update`) krever redigeringsrett på BÅDE gammel og ny
+forelder. Uten en klient-sjekk ville et slipp inn i en frossen liste/et frossen
+univers sett ut til å lykkes og så blitt snappet tilbake ved neste synk. Både
+`onItemUp` og `onCategoryUp` sjekker derfor mål-containeren FØR de rører state:
+er den `frozen()`, kjøres `restoreDraggedToOrigin()` + `finishDrag()` (som et
+avbrutt drag) og en toast sier fra — `S.lockedTargetMsg`, «Lista er låst» på
+board-et og «Universet er låst» i nav-modalen.
 
 ## Flytting av lister til en annen gruppe (innen samme univers)
 

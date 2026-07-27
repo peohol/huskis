@@ -1399,6 +1399,27 @@ body.is-dragging * { cursor: grabbing !important; }
 .nav-board .card:not(.is-locked) .item,
 .nav-board .card:not(.is-locked) .cat-head { cursor: pointer; }
 
+/* Tastatur: korthodet (univers) og grupperaden er fokuserbare knapper — de er de
+   eneste veiene inn til navigering uten peker, så de må vises tydelig. */
+.nav-board .card-head:focus-visible,
+.nav-board .item.group-row:focus-visible { outline: 2.5px solid var(--primary); outline-offset: -2px; }
+
+/* Type-ikon foran navnet: [globus] univers, [mappe] gruppe — samme ikoner som
+   breadcrumben, så modalen og toppmenyen leser likt. Er objektet delt, ligger
+   delt-merket MELLOM ikonet og navnet ([ikon][delt]Navn). */
+.nav-board .kind-icon {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  font-size: var(--fs-lg);
+  line-height: 1;
+}
+/* Universkortet skal ikke ha den lyse innerkanten delte lister har: på et kort
+   der body-en er gjennomsiktig lyser ringen gjennom nederst og leser som en
+   ramme rundt gruppelista. Delt-merket ved navnet sier alt som trengs. */
+.nav-board .card.is-shared { box-shadow: var(--shadow-sm); }
+.nav-board .card.is-shared:hover { box-shadow: var(--shadow-md); }
+
 /* Kollapset univers: [mappe] + antall grupper i stedet for «(N)» — samme lille,
    subtile pill som antall-merket ellers i appen. */
 .uni-count {

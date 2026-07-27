@@ -512,3 +512,16 @@ DB-migrering i kontomodus (`groups.cat_id`/`is_cat`/`collapsed`,
 `universes.collapsed`) — se `TODO.md`. Ny test `tests/nav-modal.test.js`. Se
 `docs/menus.md`, `docs/drag-and-drop.md`, `docs/data-model.md`,
 `docs/design-system.md`, `docs/trash.md`.
+
+Samme runde, etter tilbakemelding: (1) **den aktive gruppen følger med** når den
+bytter univers (`followActiveGroup()` først i `renderBoard()`) — før falt
+hovedsiden til «Ingen grupper ennå.» fordi `activeGroupObj()` bare leter i det
+aktive universet. (2) **Tastatur** tilbake på begge nivåene: korthodet og
+grupperaden er `role="button" tabindex="0"` (Enter/Mellomrom = kollaps på
+universet; omdøp når man står i gruppa, ellers naviger). (3) **Slipp i en LÅST
+mål-container avvises med en gang** i `onItemUp` (som `onCategoryUp` alt gjorde),
+med scope-tilpasset toast (`S.lockedTargetMsg`) — DB-vakten ville avvist skrivingen
+og snappet den tilbake ved neste synk. (4) Universkort og grupperader innleder med
+**[type-ikon]([delt-ikon])Navn**, og delte universkort har ikke lenger den lyse
+innerkanten (den lyste gjennom den gjennomsiktige `.card-body` og leste som en
+ramme rundt gruppelista).

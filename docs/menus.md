@@ -69,6 +69,10 @@ forskjellene:
   tittel/del/×) = kollaps/utvid (`card.collapsed` ⇒ `universe.collapsed`, lagres
   og synkes). Trykk-og-hold (touch) / dra (mus) på korthodet = flytt universet.
 - Det AKTIVE universet markeres med den grønne brand-ringen (`.card.active`).
+- **Tastatur:** korthodet er `role="button" tabindex="0"` med `aria-expanded`, og
+  Enter/Mellomrom gjør det samme som et klikk der — kollapser/utvider.
+  `toggleCardCollapsed` oppdaterer `aria-expanded` når attributtet finnes
+  (listekortene på hovedsidens board har ingen tastaturrolle, så der er det no-op).
 
 ### Gruppe-raden (`.item.group-row`, `#group-row-template`)
 
@@ -79,6 +83,23 @@ av) og med **del-knapp** (`.group-share`) i stedet for tannhjul.
 - Klikk **ellers på raden** (ikke navn/del/×) = **gå til gruppen** (setter aktivt
   univers + gruppe, `goToGroup`) og **lukk modalen**.
 - Den AKTIVE gruppen markeres med brand-ringen (`.item.active`).
+- **Tastatur:** raden er `role="button" tabindex="0"`. Navnet er ikke
+  fokuserbart, så Enter/Mellomrom **omdøper når man allerede står i gruppen**
+  (ellers ville et Enter der bare lukket modalen) og **navigerer** ellers — samme
+  kompromiss som chip-radene hadde før nav-modalen. `ev.target !== el`-vakten
+  lar del-/slett-knappene beholde sin egen tastaturoppførsel.
+
+### Type-ikon og delt-merke foran navnet
+
+Både universkortet og grupperaden innleder med **[type-ikon]([delt-ikon])Navn** —
+`.kind-icon` (`ICONS.globe` / `ICONS.folder`, samme ikoner som breadcrumben)
+først, så `.share-badge` når objektet er delt, så navnet. Rekkefølgen ligger i
+malene; byggerne fyller bare ikonet.
+
+Universkortet får derfor **ikke** den lyse innerkanten delte listekort har
+(`.nav-board .card.is-shared` nullstiller den): `.card-body` er gjennomsiktig, så
+ringen lyste gjennom nederst og leste som en ramme rundt gruppelista. Delt-merket
+ved navnet sier det samme uten kanten.
 
 ### Gruppekategorien (`.category.group-cat`, `#group-cat-template`)
 

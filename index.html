@@ -190,14 +190,15 @@
        gruppekategori. -->
   <template id="uni-card-template">
     <article class="card uni-card" tabindex="-1">
-      <header class="card-head">
+      <header class="card-head" role="button" tabindex="0" aria-expanded="true">
+        <span class="kind-icon uni-icon" aria-hidden="true"></span>
+        <span class="share-badge" hidden aria-hidden="true"></span>
         <div class="card-title-wrap">
           <div class="title-line">
             <h2 class="card-title" title="Klikk for å endre navn"></h2>
             <span class="collapse-count uni-count" aria-hidden="true" hidden></span>
           </div>
         </div>
-        <span class="share-badge" hidden aria-hidden="true"></span>
         <button class="card-cog uni-share" type="button" title="Del universet" aria-label="Del universet"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="#111" stroke-width="1.05" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="6.5" cy="12" r="3.2" fill="#ad8585"></circle><circle cx="17.5" cy="6" r="2.3" fill="#adad85"></circle><circle cx="17.5" cy="18" r="2.3" fill="#85ad85"></circle><path d="m9.4 10.4 5.3-3"></path><path d="m9.4 13.6 5.3 3"></path></svg></button>
         <button class="icon-btn card-delete uni-delete" title="Slett univers" aria-label="Slett univers"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.05" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6.5 6.5 17.5 17.5"></path><path d="M17.5 6.5 6.5 17.5"></path></svg></button>
       </header>
@@ -215,11 +216,12 @@
        avmerkingsboks (grupper krysses ikke av) og med del-knapp i stedet for
        tannhjul. Klikk på navnet redigerer; klikk ellers på raden navigerer. -->
   <template id="group-row-template">
-    <li class="item group-row">
+    <li class="item group-row" role="button" tabindex="0">
+      <span class="kind-icon group-icon" aria-hidden="true"></span>
+      <span class="share-badge" hidden aria-hidden="true"></span>
       <div class="item-main">
         <span class="item-text" title="Klikk for å endre navn"></span>
       </div>
-      <span class="share-badge" hidden aria-hidden="true"></span>
       <button class="item-cog group-share" type="button" title="Del gruppen" aria-label="Del gruppen"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="#111" stroke-width="1.05" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="6.5" cy="12" r="3.2" fill="#ad8585"></circle><circle cx="17.5" cy="6" r="2.3" fill="#adad85"></circle><circle cx="17.5" cy="18" r="2.3" fill="#85ad85"></circle><path d="m9.4 10.4 5.3-3"></path><path d="m9.4 13.6 5.3 3"></path></svg></button>
       <button class="icon-btn item-delete group-delete" title="Slett gruppe" aria-label="Slett gruppe"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.05" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6.5 6.5 17.5 17.5"></path><path d="M17.5 6.5 6.5 17.5"></path></svg></button>
     </li>

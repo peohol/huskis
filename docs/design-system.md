@@ -171,6 +171,17 @@ Størrelse/form kommer fra egne klasser: `.btn` (modaler), `.btn-small`,
   Gruppekategorier har hverken innstillinger eller deling — kun oppløs-knappen.
   Delt-merket (`.share-badge`) brukes av universkort og grupperader; listekortets
   delt-status vises som chip i meta-raden (`docs/scheduling.md`).
+- **Type-ikon foran navnet i nav-modalen**: universkortet og grupperaden
+  innleder med `[type-ikon]([delt-ikon])Navn` — `.kind-icon` (globus/mappe, samme
+  ikoner som breadcrumben), så `.share-badge` når objektet er delt, så navnet.
+  Delte universkort får derfor IKKE den lyse innerkanten delte listekort har
+  (`.nav-board .card.is-shared` nullstiller box-shadow-ringen): `.card-body` er
+  gjennomsiktig, så ringen lyste gjennom nederst og leste som en ramme rundt
+  gruppelista.
+- **Tastatur i nav-modalen**: universkortets `.card-head` og grupperaden er
+  `role="button" tabindex="0"` (`:focus-visible` = brand-ringen). De er de eneste
+  veiene inn til navigering uten peker; hodet har i tillegg `aria-expanded`. Se
+  `docs/menus.md` for hva Enter/Mellomrom gjør på hvert nivå.
 - Checkboxes i modaler: rendres alltid som en pille-formet toggle-switch, ren
   CSS på selve `<input type="checkbox">` (`appearance: none` + `::before`-
   håndtak, ingen ekstra DOM/JS). Av = grå spor, på = `--grad-green` (samme

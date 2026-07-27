@@ -15,7 +15,11 @@
     5. Klikk på gruppenavnet redigerer; klikk ellers på raden navigerer + lukker.
     6. DnD: gruppe mellom universer, gruppe ut i «lufta» → nytt univers,
        gruppe inn i en gruppekategori.
-    7. Gruppe-søppelkassen ligger i universkortet; univers-søppelkassen nederst.
+    7. Drar man gruppa man STÅR i til et annet univers, følger lokasjonen med.
+    8. Tastatur: Enter/Mellomrom navigerer, omdøper og kollapser uten peker.
+    9. Slipp i et LÅST univers rulles tilbake (DB-guarden ville avvist det).
+   10. [univers-/gruppe-ikon][delt-ikon]Navn, og ingen lys innerkant på kortet.
+   11. Gruppe-søppelkassen ligger i universkortet; univers-søppelkassen nederst.
 
   Kjør:
     python3 -m http.server 8000                  # fra repo-roten, i egen terminal
@@ -279,7 +283,138 @@ async function run(label, vp, mobile) {
     catOut.nytt.endsWith('|Prosjekter:Hagen') && !catOut.nytt.startsWith('uni-A|') &&
     catOut.kvar === 'Ukesplan', JSON.stringify(catOut));
 
-  /* ---------- 7) Søppelkassene ---------- */
+  /* ---------- 7) Den aktive gruppen følger med når den bytter univers ---------- */
+  // Står man I gruppa man drar til et annet univers, må hovedsiden og
+  // breadcrumben følge etter — ellers leter activeGroupObj() i det gamle
+  // universet og board-et faller til «Ingen grupper ennå.».
+  await seed(p);
+  await open(p);
+  await drag(p, '#nav-board .card[data-id="uni-A"] .item[data-id="g-a1"]', async () => {
+    const t = await p.locator('#nav-board .card[data-id="uni-B"] .item[data-id="g-b1"]').boundingBox();
+    return { x: t.x + t.width / 2, y: t.y + t.height / 2 + 6 };
+  });
+  const follow = await p.evaluate(() => {
+    const H = window.__huskis, st = H.state;
+    H.closeNavModal();
+    const g = st.universes.flatMap((u) => u.groups).find((x) => x.id === 'g-a1');
+    return {
+      gUni: g ? g.uni : 'BORTE',
+      aktivtUnivers: st.activeUniverse,
+      aktivGruppe: st.activeGroup,
+      crumb: document.getElementById('nav-crumb').innerText.replace(/\s+/g, ' ').trim(),
+      // «Ingen grupper ennå.» = board-et fant ikke gruppa (den gamle feilen).
+      // Gruppa er tom for lister, så list-nivåets tomtilstand er RIKTIG her.
+      board: (document.querySelector('#board .empty-state') || document.body).innerText
+        .replace(/\s+/g, ' ').trim().slice(0, 40),
+    };
+  });
+  log(label + ' 7: den aktive gruppen tar med seg lokasjonen til det nye universet',
+    follow.gUni === 'uni-B' && follow.aktivtUnivers === 'uni-B' && follow.aktivGruppe === 'g-a1' &&
+    follow.crumb === 'Jobb › Ukesplan' && follow.board.startsWith('Ingen lister i «Ukesplan»'),
+    JSON.stringify(follow));
+
+  /* ---------- 8) Tastatur: navigering uten peker ---------- */
+  await seed(p);
+  await open(p);
+  // Enter på en ANNEN gruppes rad = naviger dit (og lukk modalen), som et klikk.
+  await p.locator('#nav-board .card[data-id="uni-B"] .item[data-id="g-b1"]').focus();
+  await p.keyboard.press('Enter');
+  await p.waitForTimeout(400);
+  const kbNav = await p.evaluate(() => ({
+    lukket: document.getElementById('nav-modal').hidden,
+    u: window.__huskis.state.activeUniverse,
+    g: window.__huskis.state.activeGroup,
+  }));
+  log(label + ' 8: Enter på en grupperad navigerer dit og lukker modalen',
+    kbNav.lukket === true && kbNav.u === 'uni-B' && kbNav.g === 'g-b1', JSON.stringify(kbNav));
+
+  // Enter på raden man ALLEREDE står i redigerer navnet (ellers ville Enter der
+  // bare lukket modalen — det var slik chip-radene oppførte seg før).
+  await open(p);
+  await p.locator('#nav-board .card[data-id="uni-B"] .item[data-id="g-b1"]').focus();
+  await p.keyboard.press('Enter');
+  await p.waitForTimeout(300);
+  const kbRename = await p.evaluate(() => ({
+    input: !!document.querySelector('#nav-board .item[data-id="g-b1"] .edit-input'),
+    apen: !document.getElementById('nav-modal').hidden,
+  }));
+  log(label + ' 8: Enter på den aktive gruppa åpner navneredigering',
+    kbRename.input === true && kbRename.apen === true, JSON.stringify(kbRename));
+  await p.keyboard.press('Escape');
+  await p.waitForTimeout(250);
+
+  // Mellomrom på univershodet kollapser/utvider — det klikk der gjør.
+  await p.locator('#nav-board .card[data-id="uni-A"] .card-head').focus();
+  await p.keyboard.press(' ');
+  await p.waitForTimeout(300);
+  const kbCollapse = await p.evaluate(() => {
+    const c = document.querySelector('#nav-board .card[data-id="uni-A"]');
+    return {
+      kollapset: c.classList.contains('collapsed'),
+      lagret: window.__huskis.state.universes.find((u) => u.id === 'uni-A').collapsed,
+      aria: c.querySelector('.card-head').getAttribute('aria-expanded'),
+    };
+  });
+  log(label + ' 8: Mellomrom på univershodet kollapser universet',
+    kbCollapse.kollapset === true && kbCollapse.lagret === true && kbCollapse.aria === 'false',
+    JSON.stringify(kbCollapse));
+
+  /* ---------- 9) Slipp i et LÅST univers rulles tilbake ---------- */
+  // DB-guarden krever redigeringsrett på BÅDE gammel og ny forelder, så en
+  // flytting inn i et frosset univers ville blitt avvist og snappet tilbake ved
+  // neste synk. Klienten må avvise den med en gang i stedet.
+  await seed(p);
+  await p.evaluate(() => {
+    const u = window.__huskis.state.universes.find((x) => x.id === 'uni-B');
+    u._mine = false; u._mount = { pos: 1 }; u._locked = true; // delt med meg, låst av eier
+    window.__huskis.render();
+  });
+  await open(p);
+  await drag(p, '#nav-board .card[data-id="uni-A"] .item[data-id="g-a1"]', async () => {
+    const t = await p.locator('#nav-board .card[data-id="uni-B"] .item[data-id="g-b1"]').boundingBox();
+    return { x: t.x + t.width / 2, y: t.y + t.height / 2 + 6 };
+  });
+  const locked = await p.evaluate(() => ({
+    uni: window.__huskis.state.universes.flatMap((u) => u.groups).find((g) => g.id === 'g-a1').uni,
+    iKildekortet: !!document.querySelector('#nav-board .card[data-id="uni-A"] .item[data-id="g-a1"]'),
+    toast: (document.querySelector('.toast') || {}).textContent || '',
+  }));
+  log(label + ' 9: gruppe sluppet i et låst univers rulles tilbake med beskjed',
+    locked.uni === 'uni-A' && locked.iKildekortet === true && /låst/i.test(locked.toast),
+    JSON.stringify(locked));
+
+  /* ---------- 10) Type-ikon + delt-merke foran navnet ---------- */
+  await seed(p);
+  await p.evaluate(() => {
+    const u = window.__huskis.state.universes.find((x) => x.id === 'uni-A');
+    u._shared = true;
+    u.groups.find((g) => g.id === 'g-a1')._shared = true;
+    window.__huskis.openNavModal();
+  });
+  await p.waitForTimeout(350);
+  const marks = await p.evaluate(() => {
+    const card = document.querySelector('#nav-board .card[data-id="uni-A"]');
+    const row = card.querySelector('.item[data-id="g-a1"]');
+    const kids = (el) => [...el.children].map((c) => c.className.split(' ')[0]);
+    return {
+      hode: kids(card.querySelector('.card-head')).slice(0, 3),
+      rad: kids(row).slice(0, 3),
+      uniIkon: card.querySelectorAll(':scope > .card-head > .uni-icon svg').length,
+      gruppeIkon: row.querySelectorAll(':scope > .group-icon svg').length,
+      delt: !card.querySelector(':scope > .card-head > .share-badge').hidden,
+      // Den lyse innerkanten («border» rundt gruppelista) skal være borte.
+      innerkant: getComputedStyle(card).boxShadow.includes('inset'),
+    };
+  });
+  log(label + ' 10: [univers-ikon][delt-ikon]Navn på universkortet',
+    marks.hode.join() === 'kind-icon,share-badge,card-title-wrap' &&
+    marks.uniIkon === 1 && marks.delt === true, JSON.stringify(marks));
+  log(label + ' 10: [gruppe-ikon][delt-ikon]Navn på grupperaden',
+    marks.rad.join() === 'kind-icon,share-badge,item-main' && marks.gruppeIkon === 1);
+  log(label + ' 10: delt univers har ingen lys innerkant rundt gruppelista',
+    marks.innerkant === false);
+
+  /* ---------- 11) Søppelkassene ---------- */
   // Frisk state: dra-testene over har flyttet gruppene rundt (og laget nye
   // universer), så søppel-sjekkene får sitt eget kjente utgangspunkt.
   await seed(p);
@@ -293,9 +428,9 @@ async function run(label, vp, mobile) {
     uniTrashHidden: document.getElementById('uni-trash-btn').hidden,
     uniTrashInModalFooter: !!document.querySelector('#nav-modal .nav-actions #uni-trash-btn'),
   }));
-  log(label + ' 7: gruppe-søppelkassen ligger i universkortet gruppa hørte til',
+  log(label + ' 11: gruppe-søppelkassen ligger i universkortet gruppa hørte til',
     trash.inUniCard === true && trash.count === '1' && trash.otherUni === false, JSON.stringify(trash));
-  log(label + ' 7: univers-søppelkassen ligger nederst i modalen (skjult når tom)',
+  log(label + ' 11: univers-søppelkassen ligger nederst i modalen (skjult når tom)',
     trash.uniTrashInModalFooter === true && trash.uniTrashHidden === true);
 
   await p.locator('#nav-board .card[data-id="uni-A"] .uni-delete').click();
@@ -304,7 +439,7 @@ async function run(label, vp, mobile) {
     hidden: document.getElementById('uni-trash-btn').hidden,
     count: document.getElementById('uni-trash-count').textContent,
   }));
-  log(label + ' 7: univers-søppelkassen dukker opp med antall',
+  log(label + ' 11: univers-søppelkassen dukker opp med antall',
     uniTrash.hidden === false && uniTrash.count === '1', JSON.stringify(uniTrash));
 
   log(label + ': ingen JS-feil', errs.length === 0, errs.join(' | '));
@@ -319,3 +454,4 @@ async function run(label, vp, mobile) {
   console.log('\n==== ' + (results.length - failed) + '/' + results.length + ' PASS ====');
   process.exit(failed ? 1 : 0);
 })();
+

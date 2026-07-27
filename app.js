@@ -591,6 +591,18 @@
     state.activeUniverse = g.uni || state.activeUniverse;
     setActiveGroup(g.id);
   }
+  // Den aktive gruppen kan ha byttet univers mens man stod i den: dratt til et
+  // annet univers, ekstrahert til et nytt, eller båret med av en gruppekategori.
+  // `activeGroupObj()` leter bare i det aktive universet, så uten dette ville
+  // hovedsiden vist «Ingen grupper ennå.» selv om gruppen fortsatt finnes.
+  // Kalles fra renderBoard() slik at alle veiene inn dekkes av ett sted.
+  function followActiveGroup() {
+    if (!state.activeGroup) return;
+    const g = findGroupAnywhere(state.activeGroup);
+    if (!g || g.isCat || !live(g) || !g.uni || g.uni === state.activeUniverse) return;
+    state.activeUniverse = g.uni;
+    setActiveGroup(g.id);
+  }
 
   /* ---------------- Dra-og-slipp-scope: hovedsidens board vs. nav-modalen ----------------
      Universer og grupper bruker NØYAKTIG samme oppsett — og dermed nøyaktig
@@ -639,6 +651,7 @@
     // Overflate-oppdatering etter et kirurgisk drop (ingen rebuild av scopet).
     afterDrop: () => { /* board-et er allerede riktig */ },
     reindexColors: () => reindexContainerColors(boardScope),
+    lockedTargetMsg: 'Lista er låst',  // avvist slipp i en frossen mål-container
   };
   const navScope = {
     key: 'nav',
@@ -681,6 +694,7 @@
     // og en rebuild ville revet ned kortet midt i drop-animasjonen.
     afterDrop: () => { updateCrumbs(); renderBoard(); },
     reindexColors: () => reindexContainerColors(navScope),
+    lockedTargetMsg: 'Universet er låst',
   };
   const scopeForEl = (el) => (el && navBoard.contains(el) ? navScope : boardScope);
   const dragScope = () => drag.scope || boardScope;
@@ -897,6 +911,7 @@
   // en full renderNav() ville revet ned det nettopp slupne kortet midt i
   // drop-animasjonen.
   function renderBoard() {
+    followActiveGroup();
     updateTrashCount();
     renderFilterSwitches();
     updateToolbarState();
@@ -1041,6 +1056,8 @@
     const canEdit = applyShareBadge(el, u).canEdit;
     el.classList.toggle('is-locked', !canEdit);
     el.classList.toggle('active', u.id === state.activeUniverse);
+    // [univers-ikon]([delt-ikon])Navn — samme rekkefølge som breadcrumben.
+    el.querySelector('.uni-icon').innerHTML = ICONS.globe;
 
     const titleEl = el.querySelector('.card-title');
     titleEl.textContent = u.name;
@@ -1069,10 +1086,20 @@
 
     // Draging + rullgardin-kollaps: nøyaktig som et listekort.
     const head = el.querySelector('.card-head');
+    head.setAttribute('aria-expanded', u.collapsed ? 'false' : 'true');
+    head.setAttribute('aria-label', 'Universet ' + u.name);
     attachHoldDrag(head, el, startCardDrag,
       () => canEdit || !!u._mount, '.uni-share, .uni-delete');
     head.addEventListener('click', (ev) => {
       if (ev.target.closest('.card-title, .uni-share, .uni-delete, .edit-input')) return;
+      toggleCardCollapsed(el, u, navScope);
+    });
+    // Tastatur: korthodet er fokuserbart (tittelen er det ikke), så Enter/
+    // Mellomrom gjør det samme som et klikk på hodet — åpner/lukker universet.
+    head.addEventListener('keydown', (ev) => {
+      if (ev.target !== head) return; // del-/slett-knappene har egen tastaturoppførsel
+      if (ev.key !== 'Enter' && ev.key !== ' ' && ev.key !== 'Spacebar') return;
+      ev.preventDefault();
       toggleCardCollapsed(el, u, navScope);
     });
 
@@ -1151,27 +1178,44 @@
     const canEdit = !frozen(g);
     el.classList.toggle('active', g.id === state.activeGroup);
     applyShareBadge(el, g);
+    el.querySelector('.group-icon').innerHTML = ICONS.folder; // [mappe]([delt])Navn
 
     const textEl = el.querySelector('.item-text');
     textEl.textContent = g.name;
-    textEl.addEventListener('click', () => {
+    el.setAttribute('aria-label', 'Gruppen ' + (g.name || 'Uten navn'));
+    const rename = () => {
       if (!canEdit) return;
       editText(textEl, g.name, (val) => {
         g.name = val || 'Uten navn';
         textEl.textContent = g.name;
+        el.setAttribute('aria-label', 'Gruppen ' + g.name);
         stampContent(g);
         save();
         updateCrumbs();
       });
-    });
-
-    // Klikk ellers på raden (ikke navn/knapper) = gå til gruppen og lukk modalen.
-    el.addEventListener('click', (ev) => {
-      if (ev.target.closest('.item-text, .group-share, .group-delete, .edit-input')) return;
+    };
+    const navigate = () => {
       goToGroup(g);
       renderNav();     // aktiv-markeringen flytter seg
       renderBoard();
       closeNavModal();
+    };
+    textEl.addEventListener('click', rename);
+
+    // Klikk ellers på raden (ikke navn/knapper) = gå til gruppen og lukk modalen.
+    el.addEventListener('click', (ev) => {
+      if (ev.target.closest('.item-text, .group-share, .group-delete, .edit-input')) return;
+      navigate();
+    });
+    // Tastatur: raden er eneste fokuserbare punkt (navnet er ikke fokuserbart),
+    // så Enter/Mellomrom redigerer navnet når man ALLEREDE står i gruppen —
+    // ellers ville et Enter der bare lukket modalen — og navigerer dit ellers.
+    el.addEventListener('keydown', (ev) => {
+      if (ev.target !== el) return; // del-/slett-knappene har egen tastaturoppførsel
+      if (ev.key !== 'Enter' && ev.key !== ' ' && ev.key !== 'Spacebar') return;
+      ev.preventDefault();
+      if (canEdit && g.id === state.activeGroup) rename();
+      else navigate();
     });
 
     const shareBtn = el.querySelector('.group-share');
@@ -1504,8 +1548,11 @@
     if (nowCollapsed) collapseCardBody(el); else expandCardBody(el);
     // Kollapset liste viser antall listepunkter «(N)» til høyre for navnet; et
     // kollapset univers viser [mappe] + antall grupper (S.countIcon).
-    setCollapseCount(el.querySelector('.card-head'), leafCount(S.rowsOf(cardData)),
-      nowCollapsed, S.countIcon);
+    const head = el.querySelector('.card-head');
+    setCollapseCount(head, leafCount(S.rowsOf(cardData)), nowCollapsed, S.countIcon);
+    // Nav-modalens korthoder er fokuserbare knapper (universer); listekortene på
+    // board-et har ingen tastaturrolle, og da står det ingen aria-expanded der.
+    if (head.hasAttribute('aria-expanded')) head.setAttribute('aria-expanded', nowCollapsed ? 'false' : 'true');
     cardData.collapsed = nowCollapsed;
     if (!frozen(cardData)) { stampContent(cardData); save(); }
   }
@@ -3875,6 +3922,22 @@
     const rot = cardRotation();
     const sourceCardId = el.closest('.card') ? el.closest('.card').dataset.id : null;
     const targetContainer = drag.ph.parentNode;
+
+    // Mål-containeren LÅST for meg? DB-guarden krever redigering på BÅDE gammel og
+    // ny forelder, så en overføring dit ville blitt avvist og snappet tilbake ved
+    // neste synk. Rull tilbake som et avbrutt drag i stedet (og si fra) — samme
+    // sjekk som kryss-liste-flyttingen i onCategoryUp gjør.
+    const targetHead = targetContainer.closest('.card');
+    if (targetHead && targetHead.dataset.id !== sourceCardId) {
+      const tc = S.findContainer(targetHead.dataset.id);
+      if (tc && frozen(tc)) {
+        restoreDraggedToOrigin();
+        finishDrag(); // rydder placeholder/skillelinjer + kollapser evt. peek-åpnet mål
+        showToast(S.lockedTargetMsg);
+        return;
+      }
+    }
+
     targetContainer.insertBefore(el, drag.ph);
     drag.ph.remove();
     // Tilbake til hvile-skillelinjene FØR dropIntoPlaceholder måler hvileposisjonen
@@ -4576,7 +4639,7 @@
         restoreDraggedToOrigin();
         settleCategoryAfterDrag(el);
         finishDrag(); // rydder + clearAllPeeks(true) kollapser evt. peek-åpnet mål tilbake
-        showToast('Lista er låst');
+        showToast(S.lockedTargetMsg);
         return;
       }
       const keepOpen = !!(drag.peekCard && drag.peekCard.expanded && drag.peekCard.el === targetCardEl);
