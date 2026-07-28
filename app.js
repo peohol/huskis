@@ -329,6 +329,7 @@
     clearTimeout(saveTimer);
     const key = authUser ? (STORAGE_KEY + ':' + authUser.id) : STORAGE_KEY;
     saveTimer = setTimeout(() => {
+      saveTimer = null; // «ingen skriving venter» — leses av updateSafety()
       try {
         state._hlc = hlc;
         localStorage.setItem(key, JSON.stringify(state, stateReplacer));
@@ -337,10 +338,15 @@
       }
     }, 120);
   }
+  // Teller lokale endringer som skal til skyen. `syncedSeq` rykker fram til den
+  // verdien `saveSeq` hadde da en synk-runde leste staten — men KUN når runden
+  // fikk pushet alt. Er de ulike, ligger det lokale endringer serveren ikke har
+  // fått ennå (se updateSafety(): da er en automatisk reload ikke trygg).
+  let saveSeq = 0, syncedSeq = 0;
   function save() {
     scheduleCacheWrite();
     if (applyingRemote) return;
-    if (authUser) scheduleCloud();
+    if (authUser) { saveSeq++; scheduleCloud(); }
   }
   // Som save(), men uten å planlegge en synk-runde: brukes av synken selv når
   // den skriver ned resultatet sitt (innhold + base) og altså nettopp har vært
@@ -7205,8 +7211,12 @@
       clearTimeout(retryTimer);
       retryDelay = 1000;
     }
+    // Er det noe på gang i det hele tatt? (kjørende operasjon eller kø som
+    // venter/retryer) — updateSafety() bruker den til å la være å reloade midt
+    // i en delings-/lås-skriving.
+    function busy() { return !!running || queue.length > 0; }
     window.addEventListener('online', () => { clearTimeout(retryTimer); retryDelay = 1000; pump(); });
-    return { enqueue, cancel, clear, hasPending };
+    return { enqueue, cancel, clear, hasPending, busy };
   })();
 
   /* ---------------- Optimistiske overlays (til operasjonen har landet) ----------------
@@ -7375,7 +7385,8 @@
 
   function scheduleCloud(delay) {
     clearTimeout(cloudDebounce);
-    cloudDebounce = setTimeout(cloudCycle, delay == null ? 300 : delay);
+    // Nulles når den fyrer, så updateSafety() kan se om en runde står i kø.
+    cloudDebounce = setTimeout(() => { cloudDebounce = null; cloudCycle(); }, delay == null ? 300 : delay);
   }
   async function rpcMyDoc() {
     const client = acli();
@@ -7435,6 +7446,9 @@
         return f;
       };
       const opts = () => ({ tombs: tombIds(), foreign: doubtedForeign(), unknown: unknownHistory });
+      // Fanges FØR staten leses: en endring som kommer mens runden pågår teller
+      // som usynket (fail closed — heller «vent» enn en reload som mister den).
+      const seq = saveSeq;
       let r = reconcile(cloudBase || emptyDoc(), docFromMyState(), remote, opts());
       if (unknownHistory.size) {
         if (!r.unverified.length) {
@@ -7476,6 +7490,7 @@
       } else if (sig !== lastViewSig) {
         cloudAgain = true; // utsatt visnings-endring → tegn på nytt når redigeringen er ferdig
       }
+      let allPushed = true;
       if (ops.length) {
         const failed = await pushOps(ops);
         // Bekreftelses-pull straks etter push: lastMy/metadata friskes opp, så
@@ -7485,8 +7500,10 @@
         // samme op-en blitt regenerert og planlagt på nytt om 150 ms i det
         // uendelige (en varm løkke mot serveren) — da lar vi det vanlige
         // pollet/realtime prøve igjen i stedet.
-        if (!failed) cloudAgain = true;
+        if (!failed) cloudAgain = true; else allPushed = false;
       }
+      // Alt lokalt som fantes da staten ble lest, ligger nå på serveren.
+      if (allPushed) syncedSeq = seq;
       updateInbox(my);
       maybeOfferMigration(my);
     } catch (e) {
@@ -8481,7 +8498,7 @@
   }
   function cloudStop() {
     clearInterval(cloudPoll);
-    clearTimeout(cloudDebounce);
+    clearTimeout(cloudDebounce); cloudDebounce = null;
     if (cloudChan && aclient) { try { aclient.removeChannel(cloudChan); } catch (e) {} }
     cloudChan = null; cloudRt = false; lastMy = null; lastViewSig = null;
     cloudStartedFor = null;
@@ -8565,6 +8582,51 @@
     } catch (e) { /* ingen sesjon */ }
   }
 
+  /* ---------------- «Er det trygt å laste siden på nytt nå?» ----------------
+     Ett samlet signal, satt sammen av de tilstandene appen ALLEREDE fører — ikke
+     av gjetting på DOM-en (et fokusert input-felt sier for lite og for mye på én
+     gang). Brukes av den automatiske klient-oppdateringen (update-check.js):
+     en reload midt i en usynket endring ville kastet den, så vi svarer «nei»
+     med mindre vi positivt vet at alt er landet.
+
+     FAIL CLOSED: alt vi ikke kan fastslå regnes som utrygt.
+
+     Utrygt når:
+       • enheten er offline (endringer kan ikke ha nådd serveren)
+       • et drag pågår, eller et navn/listepunkt redigeres inline (isBusyEditing)
+       • en modal/velger står åpen (brukeren er midt i noe, og reload lukker den)
+       • innloggingsskjemaet har tekst i seg (halvutfylt registrering/innlogging)
+       • en sletting ligger i angre-bufferet (ennå ikke skrevet til databasen)
+       • den debouncede localStorage-skrivingen ikke har kjørt ennå
+       • operasjonskøen (deling/lås/mount) har noe på gang
+       • en synk-runde kjører, er planlagt, eller ba om en ny runde
+       • det finnes lokale endringer serveren ikke har kvittert for (saveSeq)
+       • vi er innlogget uten å ha fått ett eneste svar fra serveren ennå */
+  const SAFETY_MODALS = () => [navModal, accountModal, trashModal, settingsModal,
+    shareModal, placeModal, confirmModalEl, respSwitcherOverlay, timeSwitcherOverlay];
+  function authFormDirty() {
+    if (authScreen.hidden) return false;
+    return [authEmail, authFirstName, authLastName, authPassword]
+      .some((el) => el && !el.hidden && el.value.trim() !== '');
+  }
+  function updateSafety() {
+    const no = (reason) => ({ safe: false, reason });
+    if (typeof navigator !== 'undefined' && navigator.onLine === false) return no('offline');
+    if (drag.active) return no('drag');
+    if (isBusyEditing()) return no('editing');
+    if (SAFETY_MODALS().some((el) => el && !el.hidden)) return no('modal');
+    if (authFormDirty()) return no('auth-form');
+    if (pendingDeletes.size || deleteToast) return no('pending-delete');
+    if (saveTimer) return no('unsaved');
+    if (opQueue.busy()) return no('queue');
+    if (authUser) {
+      if (!lastMy) return no('sync-unknown');
+      if (cloudRunning || cloudAgain || cloudDebounce) return no('syncing');
+      if (saveSeq !== syncedSeq) return no('unsynced');
+    }
+    return { safe: true, reason: '' };
+  }
+
   /* ---------------- Start ---------------- */
   initAccounts();
 
@@ -8578,7 +8640,7 @@
     canonical, reconcile, emptyDoc, docFromMyState, contentDocFromMy, applyMyDoc, cloudCycle,
     isSchemaMismatch, isTombstoneReject, tombIds,
     get cloudBase() { return cloudBase; },
-    openShare, openSettings, showToast,
+    openShare, openSettings, showToast, updateSafety,
     get authUser() { return authUser; },
     get lastMy() { return lastMy; },
     get pendingPlacements() { return pendingPlacements; },

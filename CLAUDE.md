@@ -3,8 +3,9 @@
 Statisk app: **Univers > Gruppe > Liste > Listepunkt**. De to øverste nivåene
 speiler de to nederste: et univers ER et kort og en gruppe ER en rad, med samme
 design og samme dra-og-slipp-motor (grupper kan flyttes mellom universer). Ingen
-byggesteg — ren `index.html` + `styles.css` + `app.js` (vanilla JS), persistens i
-`localStorage` + sanntids-synk via Supabase.
+bundler — ren `index.html` + `styles.css` + `app.js` (vanilla JS), persistens i
+`localStorage` + sanntids-synk via Supabase. Produksjonsdeployen har ett lite
+byggesteg (`build.js`), som kun stempler en build-ID inn i filene.
 
 ## Kjøre appen
 
@@ -13,6 +14,10 @@ cd /home/user/huskis
 python3 -m http.server 8000
 # åpne http://localhost:8000
 ```
+
+Kildekoden kjører uendret — det eneste byggesteget er `node build.js`, som
+Vercel kjører for PRODUKSJON (stempler build-ID inn i `index.html` +
+`/version.json` og legger resultatet i `dist/`). Se `docs/auto-update.md`.
 
 ## Dokumentkart — les ved behov, ikke i utgangspunktet
 
@@ -34,6 +39,7 @@ oppdater det aktuelle dokumentet der (ikke dump alt tilbake i denne fila).
 | `docs/rettigheter-og-deling.md` | HVEM får gjøre HVA: oppretter/eier-hierarki, arvet lås + unntak, posisjon-vs-innhold, tretilstands invitasjonspolicy — den autoritative rettighetsmodellen |
 | `docs/arkitektur-brukere-deling.md` | brukerkontoer (Supabase Auth), eierskap, deling/mounts, lås, e-postvarsel — databasesiden |
 | `docs/accounts.md` | KLIENTEN: auth-UI, synk-motor (get_my_doc/rad-CRUD), mount-rendring, delings-UI, e-postvarsel/innboks, mock-backend for testing |
+| `docs/auto-update.md` | build-ID/`/version.json`, cache-headere i `vercel.json`, automatisk reload av åpne faner, `updateSafety()` |
 
 ## Verifisering (påkrevd før du sier deg ferdig)
 
@@ -575,3 +581,29 @@ i kontomodus (kun funksjoner/triggere/indeks — ingen nye kolonner) — se `TOD
 Nye tester: `tests/sync-resurrection.test.js`, `tests/sync-shared-resurrection.test.js`
 og `supabase/tests/test-tombstones.sql`. Se `docs/trash.md`, `docs/accounts.md`,
 `docs/arkitektur-brukere-deling.md`, `docs/data-model.md`.
+
+**Automatisk klient-oppdatering (siste runde)**: en fane som har stått åpen lenge
+oppdager nå en nyere produksjonsdeploy og laster den nye koden selv. Mekanikken er
+en **unik build-ID per deploy** (Vercels `VERCEL_DEPLOYMENT_ID`, ellers commit-SHA +
+tidsstempel — IKKE SemVer), generert én gang i det nye `build.js` og stemplet inn to
+steder med samme verdi: `<meta name="huskis-build">` i `index.html` og `/version.json`.
+`update-check.js` henter `/version.json` fra SITT EGET origin (`www.huskis.no` og
+`huskis.vercel.app` kan ligge på hver sin deploy et øyeblikk) med `cache: 'no-store'`
++ cache-buster — ved oppstart, ved synlighet/fokus/`pageshow`/`online`, og hvert 10.
+minutt mens fanen er synlig; samtidige kontroller deles, og offline/nettverksfeil/
+ugyldig JSON håndteres stille. ID-er sammenlignes som IDENTITET, aldri rangert.
+Reload skjer kun når `__huskis.updateSafety()` (ny, samlet **fail closed**-abstraksjon
+over online, drag, inline-redigering, åpne modaler, skittent innloggingsskjema,
+buffret sletting, uskrevet cache, `opQueue`, pågående/planlagt synk og usynkede
+endringer via `saveSeq`/`syncedSeq`) sier ja: skjult fane → straks; synlig fane →
+etter 60 s uten brukeraktivitet; ellers står et vedvarende, ikke-modalt banner
+(`.update-banner`, toastens formspråk, `role="status"`/`aria-live="polite"`, «Oppdater
+nå») som forklarer at siden oppdateres når endringene er lagret. `sessionStorage`
+tillater maks ETT automatisk forsøk per mål-build per fane (ingen reload-løkke), og en
+`BroadcastChannel` deler funnet mellom faner på samme origin. Nytt `vercel.json`
+(`buildCommand: node build.js`, `outputDirectory: dist`): `no-store` på
+`/version.json`, `must-revalidate` på HTML-en, `immutable` på de `?b=`-versjonerte
+JS/CSS-filene. Lokal utvikling er upåvirket (meta-taggen står på `dev` → modulen
+starter ikke). Nye tester: `tests/build-version.test.js` (node) og
+`tests/auto-update.test.js` (nettleser, falsk klokke/fetch/reload + integrasjon mot
+ekte `updateSafety()`). Ingen DB-migrering. Se `docs/auto-update.md`.
