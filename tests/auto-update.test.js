@@ -122,7 +122,8 @@ async function engineScenario(page) {
         initialDelayMs: 0,
       }, o.extra || {});
       // 'real' = ikke sett feltet, så modulen bruker ekte sessionStorage.
-      if (o.storage !== 'real') cfg.storage = o.storage || mkStore();
+      // (`storage: null` slippes gjennom som null — «ingen lagring».)
+      if (o.storage !== 'real') cfg.storage = ('storage' in o) ? o.storage : mkStore();
       return { inst: H.create(cfg), clock, fetchImpl, rl };
     }
 
@@ -268,6 +269,22 @@ async function engineScenario(page) {
       out.newTargetNewAttempt = e.rl.n === 2 && sessionStorage.getItem('huskis:auto-reload-build') === 'C';
       e.inst.stop();
       sessionStorage.removeItem('huskis:auto-reload-build');
+
+      // Uten lagring (privat modus/blokkert/full kvote) kan ett-forsøk-regelen
+      // ikke garanteres → ingen AUTOMATISK reload i det hele tatt, men banneret
+      // og «Oppdater nå» står.
+      const blocked = { getItem: () => { throw new Error('blocked'); }, setItem: () => { throw new Error('blocked'); } };
+      for (const store of [null, blocked]) {
+        const q = mk({ hidden: () => true, safe: () => true, storage: store });
+        q.inst.start(); q.clock.advance(1); await flush();
+        q.clock.advance(60000); await flush();
+        const key = store === null ? 'noStorage' : 'throwingStorage';
+        const btn = document.querySelector('#update-banner .update-banner-btn');
+        out[key + 'NoAutoReload'] = q.rl.n === 0 && !!btn;
+        btn.click(); await flush();
+        out[key + 'ManualWorks'] = q.rl.n === 1;
+        q.inst.stop();
+      }
     }
 
     /* 11) Når kontrollene fyres: pageshow, synlighet, fokus, online, poll. */
@@ -465,6 +482,10 @@ async function scenario(page, viewport, label) {
   check('A: ingen reload-løkke når klienten fortsatt er gammel', a.attemptNoLoop);
   check('A: banneret står igjen etter et brukt forsøk', a.attemptBannerStays);
   check('A: en ny mål-build får sitt eget ene forsøk', a.newTargetNewAttempt);
+  check('A: uten sessionStorage: ingen automatisk reload', a.noStorageNoAutoReload);
+  check('A: uten sessionStorage: «Oppdater nå» virker fortsatt', a.noStorageManualWorks);
+  check('A: sessionStorage som kaster: ingen automatisk reload', a.throwingStorageNoAutoReload);
+  check('A: sessionStorage som kaster: «Oppdater nå» virker fortsatt', a.throwingStorageManualWorks);
   check('A: pageshow (inkl. bfcache) kontrollerer', a.pageshowChecks);
   check('A: online kontrollerer', a.onlineChecks);
   check('A: fokus kontrollerer', a.focusChecks);

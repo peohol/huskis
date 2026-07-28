@@ -149,13 +149,18 @@
       if (!storage) return false;
       try { return storage.getItem(STORAGE_KEY) === id; } catch (e) { return false; }
     }
+    // Registrerer forsøket OG bekrefter at det faktisk ble lagret. Uten lagring
+    // (privat modus, blokkert, full kvote) kan vi ikke garantere ett-forsøk-
+    // regelen — og en automatisk reload ville da kunne gjenta seg i det
+    // uendelige mot en klient som blir gammel.
     function markAttempt(id) {
-      if (!storage) return;
-      try { storage.setItem(STORAGE_KEY, id); } catch (e) { /* full/blokkert */ }
+      if (!storage) return false;
+      try { storage.setItem(STORAGE_KEY, id); return storage.getItem(STORAGE_KEY) === id; }
+      catch (e) { return false; }
     }
     function autoReload() {
       if (attempted(target)) return;
-      markAttempt(target);
+      if (!markAttempt(target)) return;  // ingen vakt → kun banneret/«Oppdater nå»
       reloads++;
       reload();
     }

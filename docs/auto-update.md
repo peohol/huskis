@@ -124,6 +124,12 @@ fane: kjører den gamle klienten fortsatt etterpå (cache-glipp, forsinket deplo
 et domene som ligger bak), blir det med banneret — brukeren kan trykke selv.
 En NY mål-build får sitt eget ene forsøk.
 
+Forsøket skrives **før** reloaden, og skrivingen leses tilbake. Lar den seg ikke
+lagre (privat modus, blokkert eller full `sessionStorage`), kan regelen ikke
+garanteres — da gjøres ingen automatisk reload i det hele tatt, og banneret med
+«Oppdater nå» er eneste vei videre. Fail closed også her: en fane uten vakt skal
+ikke kunne havne i en reload-løkke.
+
 ## Avgrensning
 
 Dette er et tillegg til, ikke en erstatning for, synk- og slettesikringen. En
