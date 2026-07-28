@@ -1,0 +1,148 @@
+# Automatisk oppdatering av åpne klienter
+
+En fane som har stått åpen i dagevis kjører fortsatt koden fra den deployen den
+ble lastet med. Denne mekanikken oppdager at produksjonen har fått en nyere
+build, og laster siden på nytt — men **bare når det ikke kan koste brukeren
+noe**. Filene: `build.js`, `vercel.json`, `update-check.js`,
+`__huskis.updateSafety()` i `app.js`, `.update-banner` i `styles.css`.
+
+## Build-ID (ikke SemVer)
+
+SemVer sier ingenting om hvilken deploy som kjører — to deployer av samme
+versjon er forskjellige klienter. Derfor brukes en **unik build-ID per deploy**,
+generert ÉN gang i `build.js` og skrevet til to steder med nøyaktig samme verdi:
+
+| Sted | Hvordan |
+|---|---|
+| Den kjørende klienten | `<meta name="huskis-build" content="…">` i `index.html` |
+| Fila klienten spør mot | `/version.json` |
+
+```json
+{ "buildId": "dpl_…", "version": null, "builtAt": "2026-07-28T02:51:02.609Z", "commit": "a92b9a9…" }
+```
+
+`buildId` = Vercels `VERCEL_DEPLOYMENT_ID` når den finnes (unik per deploy, ingen
+konfigurasjon), ellers `<commit-sha[0..12]>-<buildtidspunkt i base36>`. `version`
+leses fra `package.json` hvis repoet noen gang får en — repoet har ingen i dag,
+og SemVer skal uansett ikke måtte økes per PR. Ingen andre miljøvariabler leses,
+og ingenting hemmelig havner i fila.
+
+ID-ene sammenlignes som **identitet**, aldri som rangering: en commit-SHA eller
+en deploy-ID er ikke «større» eller «mindre» enn en annen.
+
+## Build og cache-headere
+
+Appen har fortsatt ingen bundler. `build.js` gjør tre ting: kopierer de statiske
+filene til `dist/` (uten `tests/`, `docs/`, `supabase/`, `*.md`), skriver
+`version.json`, og stempler `index.html` — meta-taggen + `?b=<build-ID>` på
+`app.js`, `icons.js`, `config.js`, `update-check.js` og `styles.css`.
+
+`vercel.json` (`buildCommand: node build.js`, `outputDirectory: dist`) setter:
+
+* `/version.json` → `no-store` (+ `CDN-Cache-Control: no-store`)
+* `/` og `/index.html` → `max-age=0, must-revalidate`, så en vanlig
+  `location.reload()` alltid henter ny HTML — og dermed nye `?b=`-URL-er.
+  (`location.reload(true)` brukes ikke; parameteren er avviklet.)
+* JS/CSS → `max-age=31536000, immutable`. Trygt fordi URL-en inneholder
+  build-ID-en: nytt innhold ⇒ ny URL.
+
+**I lokal utvikling** står meta-taggen på `dev`. `update-check.js` starter da
+ikke — `python3 -m http.server` og nettlesertestene er urørt. Testene lager sine
+egne instanser med injiserte avhengigheter.
+
+Det finnes ingen service worker i appen, og denne funksjonen innfører ingen.
+
+## Når det kontrolleres
+
+`update-check.js` henter `/version.json` fra **samme origin som fanen kjører på**
+(rot-relativ URL) — `www.huskis.no` og `huskis.vercel.app` kan ha ulike deployer
+et øyeblikk, og hver fane skal forholde seg til sitt eget domene. Alltid med
+`cache: 'no-store'` og en cache-bustende parameter.
+
+* ~1,5 s etter oppstart
+* når fanen blir synlig igjen, og ved `focus`
+* ved `pageshow` (inkludert retur fra bfcache)
+* når nettet kommer tilbake (`online`)
+* hvert 10. minutt mens fanen er **synlig** (skjult fane poller ikke)
+
+Samtidige kontroller deles (én forespørsel i lufta om gangen). Offline hoppes
+over uten forespørsel. Nettverksfeil, HTTP-feil og ugyldig JSON håndteres helt
+stille og prøves igjen ved neste naturlige anledning. Svaret valideres før
+sammenligning: objekt, `buildId` som ikke-tom streng ≤ 200 tegn.
+
+En `BroadcastChannel` (`huskis-update`) melder fra til andre faner på samme
+origin at en ny build finnes, så de slipper å vente på sitt eget poll. Kanalen er
+allerede origin-avgrenset, så domenene forblir uavhengige.
+
+## «Trygt å oppdatere» — den konkrete definisjonen
+
+`__huskis.updateSafety()` i `app.js` returnerer `{ safe, reason }` og er bygget på
+tilstandene appen **allerede fører** — ikke på leting etter fokuserte
+input-felter i DOM-en. Den er **fail closed**: alt vi ikke kan fastslå er utrygt.
+
+| `reason` | Utrygt fordi |
+|---|---|
+| `offline` | `navigator.onLine === false` — endringer kan ikke ha nådd serveren |
+| `drag` | `drag.active` (dra-og-slipp pågår, i begge scope) |
+| `editing` | `isBusyEditing()` — inline navneredigering (`.edit-input`) |
+| `modal` | nav-/konto-/søppel-/innstillings-/delings-/plasserings-/bekreftelses-modal eller en velger er åpen |
+| `auth-form` | innloggingsskjermen vises og har tekst i et felt |
+| `pending-delete` | en sletting ligger i angre-bufferet (`pendingDeletes`/`deleteToast`) — ennå ikke skrevet til databasen |
+| `unsaved` | den debouncede localStorage-skrivingen har ikke kjørt ennå |
+| `queue` | `opQueue` har en operasjon i lufta eller i kø (deling, lås, mount) |
+| `sync-unknown` | innlogget, men ingen `get_my_doc` har lykkes ennå |
+| `syncing` | en synk-runde kjører, er planlagt (`cloudDebounce`) eller ba om en ny |
+| `unsynced` | `saveSeq !== syncedSeq` — lokale endringer serveren ikke har kvittert for |
+
+`saveSeq` telles opp i `save()`; `syncedSeq` rykker fram til den verdien
+`saveSeq` hadde da synk-runden leste staten, og **kun når runden fikk pushet
+alt**. En avvist skriving holder altså fanen «utrygt» til den lykkes — heller
+vente enn å reloade bort en endring.
+
+## Hva som skjer når en nyere build oppdages
+
+1. **Skjult fane + trygt** → last på nytt med en gang.
+2. **Synlig fane** → et diskret, vedvarende, ikke-modalt banner nederst
+   (`.update-banner`, samme glassflate som toasten): «En ny versjon av Huskis er
+   tilgjengelig.» + knappen «Oppdater nå». `role="status"` + `aria-live="polite"`
+   leser meldingen uten å flytte fokus; knappen er en vanlig `<button>` og kan
+   fokuseres/aktiveres med tastatur. Banneret er sitt eget element, ikke toasten:
+   toasten er forbigående og deles av angre-/feilmeldinger.
+3. **Synlig + trygt + minst 60 s uten brukeraktivitet** → last på nytt.
+   Tastatur, peker, berøring, scroll, hjul og input nullstiller inaktiviteten.
+4. **Ikke trygt** → banneret får en ekstra linje: «Siden oppdateres når endringene
+   dine er lagret.» En trygghets-tikk hvert 5. sekund gjennomfører reloaden
+   automatisk senere, når tilstanden blir trygg og fanen er skjult eller har
+   ligget lenge i ro.
+5. «Oppdater nå» laster alltid — brukeren har bedt om det selv.
+
+## Ingen reload-løkker
+
+`sessionStorage['huskis:auto-reload-build']` holder hvilken **mål-build** fanen
+allerede har forsøkt en automatisk reload for. Maks ett forsøk per mål-build per
+fane: kjører den gamle klienten fortsatt etterpå (cache-glipp, forsinket deploy,
+et domene som ligger bak), blir det med banneret — brukeren kan trykke selv.
+En NY mål-build får sitt eget ene forsøk.
+
+Forsøket skrives **før** reloaden, og skrivingen leses tilbake. Lar den seg ikke
+lagre (privat modus, blokkert eller full `sessionStorage`), kan regelen ikke
+garanteres — da gjøres ingen automatisk reload i det hele tatt, og banneret med
+«Oppdater nå» er eneste vei videre. Fail closed også her: en fane uten vakt skal
+ikke kunne havne i en reload-løkke.
+
+## Avgrensning
+
+Dette er et tillegg til, ikke en erstatning for, synk- og slettesikringen. En
+gammel klient kan fortsatt ikke gjenopprette slettede objekter eller overskrive
+nyere autoritativ tilstand — det håndheves av gravsteiner, `guard_object_insert`
+og felt-LWW på serveren (se `docs/trash.md` og `docs/accounts.md`).
+
+Kjente begrensninger:
+
+* Et delt (montert) objekt påvirker ikke trygghetsvurderingen utover det
+  `opQueue`/synken allerede sier.
+* Trygghets-tikken er 5 s, så en automatisk reload kan komme inntil 5 s etter at
+  tilstanden faktisk ble trygg.
+* Poll-intervallet er bundet til at fanen er synlig; en fane som ligger skjult i
+  ukevis oppdager først den nye builden når den vises igjen (eller får beskjed
+  fra en annen fane).

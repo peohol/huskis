@@ -4,6 +4,10 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <meta name="theme-color" content="#667788" />
+  <!-- Unik ID for denne produksjonsbuilden. Byttes ut av build.js (samme verdi
+       som i /version.json) og leses av update-check.js. «dev» = ubygget
+       kildekode → den automatiske oppdateringen er avslått. -->
+  <meta name="huskis-build" content="dev" />
   <title>Huskis</title>
   <link rel="icon" type="image/svg+xml" href="favicon.svg" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
@@ -445,5 +449,8 @@
   </script>
   <script src="icons.js"></script>
   <script src="app.js"></script>
+  <!-- Oppdager en nyere produksjonsdeploy og laster klienten på nytt når det er
+       trygt (app.js → __huskis.updateSafety()). Avslått uten en ekte build-ID. -->
+  <script src="update-check.js"></script>
 </body>
 </html>
