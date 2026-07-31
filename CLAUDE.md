@@ -607,3 +607,26 @@ JS/CSS-filene. Lokal utvikling er upåvirket (meta-taggen står på `dev` → mo
 starter ikke). Nye tester: `tests/build-version.test.js` (node) og
 `tests/auto-update.test.js` (nettleser, falsk klokke/fetch/reload + integrasjon mot
 ekte `updateSafety()`). Ingen DB-migrering. Se `docs/auto-update.md`.
+
+**Passord og profilbilde (siste runde)**: (1) **Vis passordet** — hvert
+passordfelt har en øye-knapp inni seg (`.pass-wrap`/`.pass-toggle`,
+`data-pass-toggle="<felt-id>"`, `ICONS.eyeOff` når det vises) som bytter
+`input.type`; én delt handler kobler alle, og `clearPassFields()` tømmer + skjuler
+igjen. (2) **Bytt passord i konto-modalen** (`#account-pass-form`): nåværende +
+nytt passord. Det nåværende bekreftes med en ny `signInWithPassword` før
+`auth.updateUser({ password })` — samme bruker-id, så `onAuthStateChange` lar appen
+stå. (3) **Profilbilde**: valgt bilde åpner en **bilderedigerer** (`#avatar-modal`)
+der scenen ER det kvadratiske utsnittet som lagres og sirkelmasken over viser hva
+appen faktisk tegner (dra = flytt, knip/hjul/glidebryter = zoom, glidebryter +
+«roter 90°» = rotasjon). Samme `drawAvatar` tegner forhåndsvisningen og resultatet,
+og to geometriske regler garanterer at utsnittet aldri får tomme hjørner: minste
+zoom = `|cos θ|+|sin θ|`, og forskyvningen klemmes i bildets eget roterte
+koordinatsystem. Lagres som **256×256 JPEG data-URI** i `profiles.avatar` (typisk
+10–35 kB), hentet med et EGET kall ved innlogging (ikke via det 5-sekunders-pollede
+`get_my_doc`); andres bilder følger `get_members`. `paintAvatar` fyller alle tre
+avatar-sirklene (konto/medlem/ansvarlig) med bilde når det finnes, ellers
+initialene. Konto-avataren er selv knappen som velger bilde (kamera-merke), og
+«Fjern bilde» går via `askConfirm`. Krever en DB-migrering i kontomodus
+(`profiles.avatar` + `get_members`) — se `TODO.md`. Ny test
+`tests/account-password-avatar.test.js`. Se `docs/accounts.md`,
+`docs/design-system.md`, `docs/menus.md`.

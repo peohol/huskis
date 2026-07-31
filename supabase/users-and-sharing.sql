@@ -58,6 +58,16 @@ create table if not exists public.profiles (
   updated_at   timestamptz not null default now()
 );
 
+-- Profilbilde: det ferdig beskårne, kvadratiske bildet som en data-URI
+-- (256x256 JPEG fra klientens bilderedigering — noen få titalls kB). Lagres
+-- her, ikke i Storage: raden er allerede den vi henter personen fra, og
+-- get_members kan levere den sammen med navn/e-post. Størrelsen er en
+-- systemgrense (klienten kan sende hva som helst), så den håndheves her.
+alter table public.profiles add column if not exists avatar text;
+alter table public.profiles drop constraint if exists profiles_avatar_size;
+alter table public.profiles add constraint profiles_avatar_size
+  check (avatar is null or length(avatar) <= 200000);
+
 create unique index if not exists profiles_email_key on public.profiles (lower(email));
 
 alter table public.profiles enable row level security;
@@ -1829,7 +1839,8 @@ begin
 
   return jsonb_build_object(
     'owner', (
-      select jsonb_build_object('id', pr.id, 'email', pr.email, 'display_name', pr.display_name)
+      select jsonb_build_object('id', pr.id, 'email', pr.email, 'display_name', pr.display_name,
+                                'avatar', pr.avatar)
       from public.profiles pr where pr.id = public.resource_owner(p_type, p_id)
     ),
     -- Betrakterens EFFEKTIVE rettigheter (serverautoritativt) — klienten viser
@@ -1849,7 +1860,7 @@ begin
     'members', coalesce((
       select jsonb_agg(jsonb_build_object(
                'id', pr.id, 'email', pr.email, 'display_name', pr.display_name,
-               'since', m.created_at) order by m.created_at)
+               'avatar', pr.avatar, 'since', m.created_at) order by m.created_at)
       from public.memberships m
       join public.profiles pr on pr.id = m.user_id
       where (p_type = 'universe' and m.universe_id = p_id)
@@ -2150,10 +2161,10 @@ revoke all on public.profiles, public.universes, public.groups, public.cards,
 -- profiles: e-posten speiles KUN fra auth.users (triggerne over) og er
 -- skrivebeskyttet for klienter — ellers kunne en bruker kapre ventende
 -- invitasjoner (aksept sammenligner mot profiles.email) eller blokkere
--- andres registrering via unik-indeksen. Kun display_name kan endres.
+-- andres registrering via unik-indeksen. Kun display_name og avatar kan endres.
 grant select on public.profiles to authenticated;
 revoke update on public.profiles from authenticated;
-grant update (display_name) on public.profiles to authenticated;
+grant update (display_name, avatar) on public.profiles to authenticated;
 grant select, insert, update, delete on public.universes, public.groups,
                                         public.cards, public.items to authenticated;
 grant select, update, delete on public.memberships to authenticated;
