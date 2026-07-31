@@ -432,10 +432,11 @@
     list.forEach(function (row) {
       if (!matches(row, filters)) return;
       if (table === 'profiles') {
-        // Som RLS-policyen: kun egen rad, og kun display_name kan endres
+        // Som RLS-policyen: kun egen rad, og kun display_name/avatar kan endres
         // (e-post går via auth.updateUser).
         if (row.id !== uid) return;
         if ('display_name' in patch) row.display_name = patch.display_name;
+        if ('avatar' in patch) row.avatar = patch.avatar;
         return;
       }
       if (table === 'memberships') {
@@ -718,7 +719,8 @@
         var col = p.p_type === 'universe' ? 'universe_id' : p.p_type === 'group' ? 'group_id' : 'card_id';
         var self = p.p_type === 'universe' ? findU(db, p.p_id) : p.p_type === 'group' ? findG(db, p.p_id) : findC(db, p.p_id);
         return {
-          owner: ownerP ? { id: ownerP.id, email: ownerP.email, display_name: ownerP.display_name } : null,
+          owner: ownerP ? { id: ownerP.id, email: ownerP.email, display_name: ownerP.display_name,
+            avatar: ownerP.avatar || null } : null,
           viewer: {
             id: uid,
             can_admin: canAdminResource(db, p.p_type, p.p_id, uid),
@@ -729,7 +731,8 @@
           invite_effective: effectiveInvitePolicy(db, p.p_type, p.p_id),
           members: db.memberships.filter(function (m) { return m[col] === p.p_id; }).map(function (m) {
             var pr = db.profiles.find(function (x) { return x.id === m.user_id; }) || {};
-            return { id: pr.id, email: pr.email, display_name: pr.display_name, since: m.created_at };
+            return { id: pr.id, email: pr.email, display_name: pr.display_name,
+              avatar: pr.avatar || null, since: m.created_at };
           }),
           pending_invites: db.share_invites.filter(function (s) {
             return s.status === 'pending' && s[col] === p.p_id;

@@ -23,6 +23,23 @@ Ett skjema (`#auth-screen`) med tre modi (`login`/`register`/`forgot`):
   e-postlenken gir en `PASSWORD_RECOVERY`-hendelse → prompt om nytt passord.
 - **Logg ut**: `signOut` (i konto-modalen).
 
+**«Vis passordet»**: hvert passordfelt har en øye-knapp inni seg
+(`.pass-wrap` + `.pass-toggle`, `data-pass-toggle="<felt-id>"`) som bytter
+`input.type` mellom `password` og `text` — øyet i hvile, øyet med strek
+(`ICONS.eyeOff`) når passordet vises. Én delt handler i app.js kobler alle
+knappene ved oppstart, så et nytt passordfelt trenger bare markupen.
+`clearPassFields()` tømmer OG skjuler igjen (konto-modalen åpnes, endring
+lagret, utlogging).
+
+**Bytte passord** (konto-modalen, `#account-pass-form`): to felt — nåværende og
+nytt. Det nåværende bekreftes med en ny `signInWithPassword` FØR
+`auth.updateUser({ password })`; samme bruker-id, så `onAuthStateChange` lar
+appen stå (`authUser.id === user.id` → returnerer tidlig) og ingenting lastes
+på nytt. Uten den sjekken kunne hvem som helst med tilgang til en åpen fane
+overtatt kontoen. Feltet har ikke `minlength` — lengdekravet meldes i skjemaets
+egen melding (`#account-msg`), ikke i en native valideringsboble som ville
+blokkert submit-hendelsen.
+
 Sesjonen styres av `supabase.auth.onAuthStateChange` (erstatter
 `mine-lister-auth`): `SIGNED_IN` → `cloudStart()`, `SIGNED_OUT` →
 `cloudStop()`. En eksisterende sesjon hentes ved oppstart med `getSession()`.
@@ -362,14 +379,54 @@ Mottakeren varsles på to måter når noe deles med hen:
   registrerte mottakere. Mock-backenden speiler `user_metadata` (samme vei som
   `nav`), så toggelen persisterer på tvers av «faner» i test.
 
+## Profilbilde
+
+Bildet lagres i `profiles.avatar` som en **data-URI**: ett kvadratisk JPEG på
+**256×256** (`AVATAR_SIZE`, kvalitet 0.82) — nok til at den største sirkelen i
+appen (56 px) er skarp også på 3x-skjermer, lite nok til at raden blir noen få
+titalls kB. Ikke Supabase Storage: raden er allerede den vi henter personen fra,
+og `get_members` kan levere bildet sammen med navn/e-post. Størrelsen håndheves
+i databasen (`profiles_avatar_size`, ≤ 200 000 tegn) fordi klienten er en
+systemgrense; `grant update (display_name, avatar)` er utvidet tilsvarende.
+
+- **Henting**: eget kall (`loadMyAvatar`, `select avatar from profiles` ved
+  `cloudStart`), IKKE via `get_my_doc` — doc-et pollet hvert 5. sekund skal ikke
+  bære et bilde. Andres bilder kommer med `get_members` (lat + cachet i
+  `shareGroupCache`).
+- **Visning**: `paintAvatar(el, avatar, initialer)` fyller enhver avatar-sirkel
+  med et `<img>` når personen har bilde, ellers initialene — delt av
+  `paintAccountAvatar` (konto-modalen), `avatarFor` (delings-medlemmer) og
+  `respAvatar` (ansvarssirkler). `paintAccountAvatar` maler kun når (bilde,
+  initialer) faktisk er endret, siden `updateInbox` kjører hver synk-runde.
+- **Skriving** (`storeAvatar`): optimistisk — sirklene viser det nye med en
+  gang, `shareGroupCache` tømmes så andres visninger hentes på nytt, og
+  serveravvisning ruller tilbake. «Fjern bilde» er samme sti med `null`, bak en
+  `askConfirm`.
+- **Bilderedigereren** (`#avatar-modal`): scenen ER det kvadratiske utsnittet
+  som lagres, og sirkelmasken over den viser hva appen faktisk tegner.
+  Tilstanden er tre tall (`avEdit`): zoom (1 = bildets korteste side fyller
+  utsnittet), rotasjon og forskyvning i andeler av utsnittets side. Samme
+  `drawAvatar` tegner både forhåndsvisningen og det lagrede bildet — bare ulik
+  oppløsning, så det man ser er det man får. To geometriske regler holder
+  utsnittet helt dekket: minste zoom = `|cos θ| + |sin θ|` (en akse-justert
+  firkant trenger så mye av et rotert bilde), og forskyvningen klemmes i
+  BILDETS eget roterte koordinatsystem (`clampAvatarOffset`) — så det kan aldri
+  bli tomme hjørner. Gester: dra = flytt, knip = zoom, hjul = zoom, pluss
+  glidebrytere for zoom/rotasjon og en «roter 90°»-knapp (neste kvarte
+  omdreining, retter samtidig opp en skjev vinkel). Filen dekodes med
+  `createImageBitmap(..., { imageOrientation: 'from-image' })` så EXIF-rotasjon
+  fra mobilkameraer følger med (`<img>` er reserven for eldre nettlesere).
+
 ## Navn, initialer og ansvarlig
 
 - **Navn/initialer**: `display_name` = «Fornavn Etternavn». `initialsFromName`
   gir initialene (første bokstav i fornavn + etternavn), `personName` gir
   navnet (faller tilbake på e-post for uregistrerte/ventende invitasjoner).
-  Del-modalen viser en initial-sirkel + navn for eier og hvert medlem
+  Del-modalen viser en avatar-sirkel + navn for eier og hvert medlem
   (`avatarFor`, eier grønn / medlem grå — samme roller som før). Konto-modalens
-  konto-avatar bruker samme navn/initialer (`my.user.display_name`).
+  konto-avatar bruker samme navn/initialer (`my.user.display_name`). Har
+  personen et profilbilde, viser sirkelen bildet i stedet for initialene (se
+  over).
 - **Ansvarlig** (`item.responsible` OG `card.responsible`): objekter i delt
   kontekst (delt liste, eller liste under en delt gruppe/univers —
   `shareRootFor`) kan få en ansvarlig — både hvert listepunkt og hele listen.
