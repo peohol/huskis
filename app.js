@@ -1703,6 +1703,10 @@
   // get_members; personens indeks gir paletten (colorForIndex).
   const shareGroupCache = new Map();
   const shareGroupLoading = new Set();
+  // Bumpes når det cachede persondataet er blitt foreldet (nytt profilbilde).
+  // En henting som allerede var i lufta da det skjedde, kan bære det gamle
+  // bildet — den skal ikke få lov til å fylle den nettopp tømte cachen.
+  let shareGroupEpoch = 0;
   function rootKey(type, id) { return type + ':' + id; }
   function personEntry(p) {
     return { id: p.id, email: p.email, name: personName(p), avatar: p.avatar || null,
@@ -1728,9 +1732,11 @@
     const key = rootKey(type, id);
     if (shareGroupCache.has(key) || shareGroupLoading.has(key)) return;
     shareGroupLoading.add(key);
+    const epoch = shareGroupEpoch;
     fetchShareGroup(type, id).then((g) => {
-      shareGroupCache.set(key, g);
       shareGroupLoading.delete(key);
+      if (epoch !== shareGroupEpoch) return; // svaret rakk å bli foreldet
+      shareGroupCache.set(key, g);
       render();
     }).catch(() => { shareGroupLoading.delete(key); });
   }
@@ -7817,12 +7823,13 @@
     accountAvatar.appendChild(cam);
     avatarRemoveBtn.hidden = !myAvatar;
   }
-  // Bildet vises tre steder: konto-modalen, delings-medlemslistene og
-  // ansvarssirklene. De to siste males fra get_members-cachen, som må hentes på
-  // nytt for at en endring skal slå gjennom der.
-  function applyMyAvatar() {
-    if (lastMy && lastMy.user) lastMy.user.avatar = myAvatar;
+  // Bildet vises tre steder: konto-modalen (males direkte fra `myAvatar`) og
+  // delings-medlemslistene + ansvarssirklene (males fra get_members-cachen).
+  // Cachen må derfor tømmes og hentes på nytt for at en endring skal slå
+  // gjennom der — men FØRST når skrivingen har landet (se storeAvatar).
+  function refreshAvatarViews() {
     paintAccountAvatar();
+    shareGroupEpoch++;
     shareGroupCache.clear();
     shareGroupLoading.clear();
     render();
@@ -7836,24 +7843,27 @@
       const found = (data && data[0] && data[0].avatar) || null;
       if (found === myAvatar) { paintAccountAvatar(); return; }
       myAvatar = found;
-      applyMyAvatar();
+      refreshAvatarViews();
     } catch (e) { /* uten bilde vises initialene — hentes igjen ved neste innlogging */ }
   }
-  // Skriv (eller fjern) bildet på egen profil-rad. Optimistisk: sirklene viser
-  // det nye med en gang, og rulles tilbake hvis skrivingen avvises.
+  // Skriv (eller fjern) bildet på egen profil-rad. Konto-sirkelen males
+  // umiddelbart (der brukeren ser etter), mens get_members-cachen først tømmes
+  // NÅR skrivingen har landet: en render før det ville startet en get_members
+  // som kappløper med skrivingen, og et svar med det GAMLE bildet ville blitt
+  // liggende i cachen til neste innlogging.
   async function storeAvatar(value, okMsg) {
     const prev = myAvatar;
     myAvatar = value;
-    applyMyAvatar();
+    paintAccountAvatar();
     try {
       const { error } = await acli().from('profiles').update({ avatar: value }).eq('id', authUser.id);
       if (error) throw error;
       setAccountMsg(okMsg);
     } catch (e) {
       myAvatar = prev;
-      applyMyAvatar();
       setAccountMsg(friendlyAuthError(e), true);
     }
+    refreshAvatarViews();
   }
 
   /* ---------------- Bilderedigering (zoom/forskyv/roter) ----------------
@@ -8828,6 +8838,10 @@
   async function cloudStart() {
     document.body.classList.remove('no-auth');
     authScreen.hidden = true;
+    // Passordet har gjort jobben sin. La det ikke bli stående i feltet — med
+    // «vis passordet» slått på ville det ellers ligget i klartekst på
+    // innloggingsskjermen neste gang den vises (etter utlogging).
+    clearPassFields([authPassword]);
     if (cloudStartedFor !== authUser.id) {
       cloudStartedFor = authUser.id;
       // Nullstill FØRST, last så denne brukerens egen post: uten buffer starter

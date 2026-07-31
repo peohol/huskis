@@ -398,10 +398,15 @@ systemgrense; `grant update (display_name, avatar)` er utvidet tilsvarende.
   `paintAccountAvatar` (konto-modalen), `avatarFor` (delings-medlemmer) og
   `respAvatar` (ansvarssirkler). `paintAccountAvatar` maler kun når (bilde,
   initialer) faktisk er endret, siden `updateInbox` kjører hver synk-runde.
-- **Skriving** (`storeAvatar`): optimistisk — sirklene viser det nye med en
-  gang, `shareGroupCache` tømmes så andres visninger hentes på nytt, og
-  serveravvisning ruller tilbake. «Fjern bilde» er samme sti med `null`, bak en
-  `askConfirm`.
+- **Skriving** (`storeAvatar`): konto-sirkelen males umiddelbart (den males
+  direkte fra `myAvatar`, ikke fra cachen), og serveravvisning ruller tilbake.
+  `shareGroupCache` tømmes derimot FØRST når skrivingen har landet
+  (`refreshAvatarViews`): en render før det ville startet en `get_members` som
+  kappløper med skrivingen, og et svar med det GAMLE bildet ville blitt liggende
+  i cachen til neste innlogging. En henting som allerede var i lufta fanges av
+  `shareGroupEpoch` — den bumpes ved tømming, og et svar fra en eldre epoke
+  forkastes i stedet for å fylle den nettopp tømte cachen. «Fjern bilde» er
+  samme sti med `null`, bak en `askConfirm`.
 - **Bilderedigereren** (`#avatar-modal`): scenen ER det kvadratiske utsnittet
   som lagres, og sirkelmasken over den viser hva appen faktisk tegner.
   Tilstanden er tre tall (`avEdit`): zoom (1 = bildets korteste side fyller

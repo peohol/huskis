@@ -137,8 +137,20 @@ async function run(label, vp, mobile) {
   }));
   log(label + ' A: knappen skjuler det igjen', st.type === 'password' && st.pressed === 'false', JSON.stringify(st));
 
-  await signIn(p, email, 'passord123');
+  await p.locator('#auth-password').fill('passord123');
+  await authToggle.click(); await p.waitForTimeout(120); // logg inn med passordet SYNLIG
+  await p.locator('#auth-email').fill(email);
+  await p.locator('#auth-submit').click(); await p.waitForTimeout(1600);
   log(label + ' A: innlogget', await p.evaluate(() => !!window.__huskis.authUser));
+  // Passordfeltet skal ikke bære passordet videre — og slett ikke i klartekst,
+  // som ville stått synlig på innloggingsskjermen etter neste utlogging.
+  st = await p.evaluate(() => ({
+    value: document.getElementById('auth-password').value,
+    type: document.getElementById('auth-password').type,
+    pressed: document.querySelector('.pass-toggle[data-pass-toggle="auth-password"]').getAttribute('aria-pressed'),
+  }));
+  log(label + ' A: passordfeltet tømmes og skjules ved innlogging',
+    st.value === '' && st.type === 'password' && st.pressed === 'false', JSON.stringify(st));
 
   /* ================= B) Bytte passord ================= */
   await openAccount(p);
@@ -171,6 +183,8 @@ async function run(label, vp, mobile) {
   // Ut og inn: det gamle passordet virker ikke, det nye gjør det.
   await p.locator('#logout-btn').click(); await p.waitForTimeout(300);
   await p.locator('#confirm-ok').click(); await p.waitForTimeout(900);
+  const afterLogout = await p.evaluate(() => document.getElementById('auth-password').value);
+  log(label + ' B: innloggingsskjermen viser ikke forrige passord', afterLogout === '', afterLogout);
   await signIn(p, email, 'passord123');
   const stillOut = await p.evaluate(() => !window.__huskis.authUser && !document.getElementById('auth-screen').hidden);
   log(label + ' B: gammelt passord virker ikke lenger', stillOut);
@@ -333,14 +347,30 @@ async function run(label, vp, mobile) {
     localStorage.setItem('hk-mock-db', JSON.stringify(db));
     sessionStorage.setItem('hk-mock-session', JSON.stringify(sess));
   }, { db: seed.db, sess: { id: seed.ids.uA, email: 'a@x.no', user_metadata: {} } });
-  await p.goto(BASE + '/?mock=1');
-  await p.waitForTimeout(2500); // innlogging + get_my_doc + lat get_members
+  // `lag` gir «serveren» en merkbar forsinkelse, så en get_members startet av en
+  // for tidlig render rekker å kappløpe med skrivingen (se neste sjekk).
+  await p.goto(BASE + '/?mock=1&lag=300');
+  await p.waitForTimeout(3500); // innlogging + get_my_doc + lat get_members
   const resp = await p.evaluate(() => {
     const av = document.querySelector('.item .resp-avatar');
-    const acc = document.querySelector('#account-btn');
-    return { found: !!av, img: !!(av && av.querySelector('img')), acc: !!acc };
+    const im = av && av.querySelector('img');
+    return { found: !!av, img: !!im, src: im ? im.src.slice(0, 15) : '' };
   });
   log(label + ' E: ansvarssirkelen viser profilbildet', resp.found && resp.img, JSON.stringify(resp));
+
+  // Nytt bilde MENS ansvarssirkelen står på skjermen: get_members-cachen skal
+  // ikke kunne fylles med det GAMLE bildet av en henting som kappløper med
+  // skrivingen (den ble ellers liggende til neste innlogging).
+  await openAccount(p);
+  await upload(p); await p.waitForTimeout(900);
+  await p.locator('#avatar-save').click(); await p.waitForTimeout(2500);
+  const respNew = await p.evaluate(() => {
+    const im = document.querySelector('.item .resp-avatar img');
+    return im ? im.src.slice(0, 15) : null;
+  });
+  log(label + ' E: ansvarssirkelen bytter til det NYE bildet (ingen foreldet cache)',
+    resp.src === 'data:image/png;' && respNew === 'data:image/jpeg',
+    'før=' + resp.src + ' etter=' + respNew);
 
   log(label + ': ingen JS-feil', errs.length === 0, errs.join(' | '));
   await p.close();
