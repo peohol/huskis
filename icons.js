@@ -76,6 +76,21 @@ window.ICONS = {
     '<circle cx="12" cy="12" r="3"></circle>' +
     '</svg>',
 
+  // Øye med skråstrek (Skjul): samme øye som over + en strek tvers over.
+  // Brukes av passord-knappen når passordet vises («trykk for å skjule»).
+  eyeOff: '<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="#111" stroke-width="1.05" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
+    '<path d="M2.5 12S6 5.5 12 5.5 21.5 12 21.5 12 18 18.5 12 18.5 2.5 12 2.5 12Z" fill="#ffffff"></path>' +
+    '<circle cx="12" cy="12" r="3" fill="#111" stroke="none"></circle>' +
+    '<circle cx="12" cy="12" r="3"></circle>' +
+    '<path d="M4.4 19.6 19.6 4.4"></path>' +
+    '</svg>',
+
+  // Fotoapparat (profilbilde): huset hvitt, linsa farge 4 (som person-ikonet).
+  camera: '<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="#111" stroke-width="1.05" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
+    '<path d="M8.8 7.4 9.9 5.3h4.2l1.1 2.1h4.3a2.2 2.2 0 0 1 2.2 2.2v7.2a2.2 2.2 0 0 1-2.2 2.2H4.5a2.2 2.2 0 0 1-2.2-2.2V9.6a2.2 2.2 0 0 1 2.2-2.2Z" fill="#ffffff"></path>' +
+    '<circle cx="12" cy="13.4" r="3.7" fill="#85adad"></circle>' +
+    '</svg>',
+
   // Dør + pil inn (logg inn): dørfeltet hvitt, pila svart.
   login: '<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="#111" stroke-width="1.05" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
     '<path d="M15 3h3a2.5 2.5 0 0 1 2.5 2.5v13A2.5 2.5 0 0 1 18 21h-3" fill="#ffffff"></path>' +

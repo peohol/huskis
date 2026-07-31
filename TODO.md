@@ -299,6 +299,33 @@ forsvarslaget til migreringen er kjørt.
       `select resource_type, resource_id, deleted_at from public.tombstones
        order by deleted_at desc limit 50;`
 
+## Skjema-endring: profilbilde (`profiles.avatar`)
+
+Konto-runden (passord + profilbilde, se `docs/accounts.md`) la til ÉN ny kolonne:
+
+- `profiles.avatar` (text) — det ferdig beskårne, kvadratiske bildet som en
+  data-URI (256×256 JPEG fra klientens bilderedigering, typisk 10–35 kB).
+  Constraint `profiles_avatar_size` (≤ 200 000 tegn) er systemgrensen mot en
+  klient som sender hva som helst.
+- `grant update (display_name, avatar) on public.profiles` — kolonnen må være
+  skrivbar for eieren av raden (RLS-policyen `profiles_update` gjelder som før:
+  kun egen rad).
+- `get_members` returnerer `avatar` for eier og hvert medlem, så delings-
+  medlemslister og ansvarssirkler viser bildet. `get_my_doc` er BEVISST ikke
+  endret — det pollet hvert 5. sekund skal ikke bære et bilde; klienten henter
+  sitt eget bilde med et eget `select` ved innlogging.
+
+`supabase/users-and-sharing.sql` er oppdatert idempotent (`add column if not
+exists` + `drop/add constraint`); mock-backenden speiler kolonnen (profil-update
++ `get_members`). Implementert og verifisert i nettleser (mock-backend, desktop
++ mobil, `tests/account-password-avatar.test.js`).
+
+- [ ] **«Supabase DB-oppsett»-workflowen må kjøres** (går automatisk ved push til
+      `main` siden `supabase/users-and-sharing.sql` er endret — bekreft at runen
+      ble grønn) så kolonnen finnes i produksjon. Til den gjør det, feiler kun
+      opplasting av profilbilde (feilmelding i konto-modalen); resten av appen er
+      upåvirket, siden ingen annen skriving nevner kolonnen.
+
 ## Skjema-/logikk-endring: ROLLER, kun univers-/gruppedeling, `move_group`
 
 Den store omleggingen av deling, medlemskap og eierskap (se

@@ -537,6 +537,7 @@
       var lastOwner = type === 'universe' && b.role === 'owner' && ownerCount <= 1;
       return {
         id: b.user_id, email: pr.email, display_name: pr.display_name,
+        avatar: pr.avatar || null,
         category: b.category, role: b.role, source: b.source, direct: b.direct,
         removable: b.direct && canManage && !lastOwner,
         removeHint: !b.direct ? 'Har tilgang via universet og må fjernes der'
@@ -672,9 +673,11 @@
     list.forEach(function (row) {
       if (!matches(row, filters)) return;
       if (table === 'profiles') {
-        // Som RLS-policyen: kun egen rad, og kun display_name kan endres.
+        // Som RLS-policyen: kun egen rad, og kun display_name/avatar kan endres
+        // (e-post går via auth.updateUser).
         if (row.id !== uid) return;
         if ('display_name' in patch) row.display_name = patch.display_name;
+        if ('avatar' in patch) row.avatar = patch.avatar;
         return;
       }
       if (table === 'memberships') {

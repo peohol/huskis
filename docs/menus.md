@@ -146,7 +146,10 @@ lukker den IKKE** — brukeren skal kunne angre fra søppelkassen med én gang
 
 Innhold (ovenfra og ned):
 
-- **Profil-linje**: initial-avatar + navn (`#menu-account`).
+- **Profil-linje** (`#menu-account`): avatar (profilbilde, ellers initialene) +
+  navn + knappene «Endre bilde»/«Fjern bilde». Selve avataren er OGSÅ knappen
+  som velger bilde (kamera-merke nederst til høyre); valget åpner
+  bilderedigereren (`#avatar-modal`). Se `docs/accounts.md`.
 - **Endre navn** (`#account-name-form`): ett felt for hele navnet →
   `profiles.display_name` (RLS: kun egen rad) + `user_metadata.display_name`
   (fallback før første pull). Se `docs/accounts.md`.
@@ -154,6 +157,8 @@ Innhold (ovenfra og ned):
   ekte Supabase sender bekreftelseslenke (meldingen sier «sjekk innboksen»);
   mock-backenden endrer direkte. `handle_user_email_change`-triggeren
   speiler til `profiles.email` etter bekreftelse.
+- **Endre passord** (`#account-pass-form`): nåværende + nytt passord (begge med
+  «vis passordet»-knapp). Se `docs/accounts.md`.
 - **E-postvarsel-toggle** (`#email-pref-toggle`, se `docs/accounts.md`).
 - **«Invitasjoner»-innboksen** (`#menu-invites`, vises kun med innhold).
 - **«Logg ut»** nederst (rød knapp, med bekreftelse), over en delelinje

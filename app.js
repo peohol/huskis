@@ -1803,9 +1803,14 @@
   // gir paletten (colorForIndex).
   const shareGroupCache = new Map();
   const shareGroupLoading = new Set();
+  // Bumpes når det cachede persondataet er blitt foreldet (nytt profilbilde).
+  // En henting som allerede var i lufta da det skjedde, kan bære det gamle
+  // bildet — den skal ikke få lov til å fylle den nettopp tømte cachen.
+  let shareGroupEpoch = 0;
   function rootKey(type, id) { return type + ':' + id; }
   function personEntry(p) {
-    return { id: p.id, email: p.email, name: personName(p), initials: initialsFromName(p.display_name, p.email) };
+    return { id: p.id, email: p.email, name: personName(p), avatar: p.avatar || null,
+      initials: initialsFromName(p.display_name, p.email) };
   }
   function buildShareGroup(info) {
     const people = (info.members || []).map(personEntry);
@@ -1825,9 +1830,11 @@
     const key = rootKey(type, id);
     if (shareGroupCache.has(key) || shareGroupLoading.has(key)) return;
     shareGroupLoading.add(key);
+    const epoch = shareGroupEpoch;
     fetchShareGroup(type, id).then((g) => {
-      shareGroupCache.set(key, g);
       shareGroupLoading.delete(key);
+      if (epoch !== shareGroupEpoch) return; // svaret rakk å bli foreldet
+      shareGroupCache.set(key, g);
       render();
     }).catch(() => { shareGroupLoading.delete(key); });
   }
@@ -1837,7 +1844,7 @@
   function respAvatar(person, index) {
     const s = document.createElement('span');
     s.className = 'resp-avatar';
-    s.textContent = person ? person.initials : '?';
+    paintAvatar(s, person && person.avatar, person ? person.initials : '?');
     const color = index != null && index >= 0 ? colorForIndex(index)
       : (person ? colorForId(person.id) : '#8496a6');
     s.style.background = color;
@@ -5151,12 +5158,13 @@
     const confirmEl = document.getElementById('confirm-modal');
     const settings = document.getElementById('settings-modal');
     const timeSw = document.getElementById('time-switcher');
+    const avatarEd = document.getElementById('avatar-modal');
     document.body.classList.toggle('modal-open',
       !trashModal.hidden || !navModal.hidden ||
       !accountModal.hidden ||
       (share && !share.hidden) || (place && !place.hidden) ||
       (confirmEl && !confirmEl.hidden) || (settings && !settings.hidden) ||
-      (timeSw && !timeSw.hidden) || respOpen);
+      (timeSw && !timeSw.hidden) || (avatarEd && !avatarEd.hidden) || respOpen);
   }
 
   /* ---------- Felles bekreftelses-modal (erstatter native confirm()) ----------
@@ -5617,6 +5625,7 @@
     if (timeQuickOpen) { closeTimeQuick(); return; } // tids-popoveren ligger øverst
     if (respOpen) { closeResponsible(); return; } // ansvarlig-velgeren ligger øverst
     if (confirmModalEl && !confirmModalEl.hidden) { closeConfirm(false); return; } // øverst
+    if (avatarModal && !avatarModal.hidden) { closeAvatarEditor(); return; } // over konto-modalen
     const share = document.getElementById('share-modal');
     const place = document.getElementById('place-modal');
     if (place && !place.hidden) { place.hidden = true; updateModalOpenClass(); }
@@ -6679,12 +6688,46 @@
       { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]
     ));
   }
+  /* ---------------- Vis passordet mens du skriver ----------------
+     Hvert passordfelt har en øye-knapp inni seg (`data-pass-toggle="<felt-id>"`)
+     som bytter input-typen mellom `password` og `text`. Ikonet er øyet i hvile
+     og øyet med strek når passordet vises. Delt av auth-skjermen og
+     konto-modalens passordbytte. */
+  function paintPassToggle(btn, shown) {
+    btn.innerHTML = shown ? ICONS.eyeOff : ICONS.eye;
+    btn.setAttribute('aria-pressed', shown ? 'true' : 'false');
+    const label = shown ? 'Skjul passordet' : 'Vis passordet';
+    btn.title = label;
+    btn.setAttribute('aria-label', label);
+  }
+  document.querySelectorAll('.pass-toggle').forEach((btn) => {
+    const input = document.getElementById(btn.dataset.passToggle);
+    paintPassToggle(btn, false);
+    btn.addEventListener('click', () => {
+      const show = input.type === 'password';
+      input.type = show ? 'text' : 'password';
+      paintPassToggle(btn, show);
+      input.focus();
+    });
+  });
+  // Tøm passordfelt og skjul dem igjen (konto-modalen åpnes, endring lagret,
+  // utlogging) — et skrevet passord skal ikke bli stående synlig i DOM-en.
+  function clearPassFields(inputs) {
+    inputs.forEach((el) => {
+      el.value = '';
+      el.type = 'password';
+      const btn = document.querySelector('.pass-toggle[data-pass-toggle="' + el.id + '"]');
+      if (btn) paintPassToggle(btn, false);
+    });
+  }
+
   function friendlyAuthError(err) {
     const msg = (err && err.message) || String(err || 'Noe gikk galt');
     if (/invalid login credentials/i.test(msg)) return 'Feil e-post eller passord.';
     if (/email not confirmed/i.test(msg)) return 'E-posten er ikke bekreftet ennå – sjekk innboksen.';
     if (/already registered|already exists|user already/i.test(msg)) return 'Denne e-posten er allerede registrert.';
     if (/password should be at least|weak password/i.test(msg)) return 'Passordet må ha minst 6 tegn.';
+    if (/should be different from the old password/i.test(msg)) return 'Det nye passordet må være et annet enn det gamle.';
     if (/rate limit|too many/i.test(msg)) return 'For mange forsøk – vent litt og prøv igjen.';
     return msg;
   }
@@ -7830,13 +7873,16 @@
   const accountNameInput = document.getElementById('account-name-input');
   const accountEmailForm = document.getElementById('account-email-form');
   const accountEmailInput = document.getElementById('account-email-input');
+  const accountPassForm = document.getElementById('account-pass-form');
+  const accountPassCurrent = document.getElementById('account-pass-current');
+  const accountPassNew = document.getElementById('account-pass-new');
   const accountMsgEl = document.getElementById('account-msg');
 
-  /* ---------------- Endre navn og e-post ----------------
+  /* ---------------- Endre navn, e-post og passord ----------------
      Navnet (display_name) ligger i profiles-tabellen (RLS: kun egen rad) og
-     speiles i user_metadata (fallback i myOwnerInfo); e-posten endres via
-     Supabase Auth (`updateUser({ email })` — bekreftes via lenke på e-post,
-     mock-backenden oppdaterer direkte). */
+     speiles i user_metadata (fallback i myOwnerInfo); e-post og passord endres
+     via Supabase Auth (`updateUser({ email })` — bekreftes via lenke på e-post,
+     mock-backenden oppdaterer direkte — og `updateUser({ password })`). */
   function setAccountMsg(msg, isError) {
     accountMsgEl.textContent = msg || '';
     accountMsgEl.hidden = !msg;
@@ -7855,6 +7901,8 @@
     if (force || document.activeElement !== accountEmailInput) {
       accountEmailInput.value = authUser.email || '';
     }
+    // Passordfeltene fylles aldri fra kontoen — de tømmes hver gang modalen åpnes.
+    if (force) clearPassFields([accountPassCurrent, accountPassNew]);
   }
   accountNameForm.addEventListener('submit', async (ev) => {
     ev.preventDefault();
@@ -7899,6 +7947,30 @@
       setAccountMsg(friendlyAuthError(e), true);
     }
   });
+  // Bytte passord: det nåværende passordet må skrives inn — vi bekrefter det med
+  // en ny innlogging (samme bruker, så onAuthStateChange lar appen stå) før
+  // Supabase Auth får det nye. Uten den sjekken kunne hvem som helst med en åpen
+  // fane overtatt kontoen.
+  accountPassForm.addEventListener('submit', async (ev) => {
+    ev.preventDefault();
+    if (!authUser) return;
+    const current = accountPassCurrent.value;
+    const next = accountPassNew.value;
+    if (!current) { setAccountMsg('Skriv inn det nåværende passordet.', true); return; }
+    if (next.length < 6) { setAccountMsg('Det nye passordet må ha minst 6 tegn.', true); return; }
+    if (next === current) { setAccountMsg('Det nye passordet må være et annet enn det gamle.', true); return; }
+    setAccountMsg('');
+    try {
+      const check = await acli().auth.signInWithPassword({ email: authUser.email, password: current });
+      if (check.error) { setAccountMsg('Feil nåværende passord.', true); return; }
+      const { error } = await acli().auth.updateUser({ password: next });
+      if (error) throw error;
+      clearPassFields([accountPassCurrent, accountPassNew]);
+      setAccountMsg('Passordet er oppdatert.');
+    } catch (e) {
+      setAccountMsg(friendlyAuthError(e), true);
+    }
+  });
 
   // E-postvarsel-innstillingen ligger på kontoen (user_metadata.email_notifications).
   // Standard PÅ (ny bruker uten flagget → true). Endres optimistisk; skrivingen
@@ -7926,6 +7998,289 @@
     }
   });
 
+  /* ============================================================
+     PROFILBILDE
+     ------------------------------------------------------------
+     Bildet lagres som en data-URI i `profiles.avatar`: ett kvadratisk JPEG på
+     AVATAR_SIZE px — nok til at den største sirkelen i appen (56 px) er skarp
+     også på 3x-skjermer, lite nok til at raden blir noen få titalls kB.
+     Det hentes med et EGET kall (ikke via get_my_doc): doc-et pollet hvert 5.
+     sekund skal ikke bære et bilde. Andres bilder kommer med get_members, som
+     hentes lat og caches (`shareGroupCache`). */
+  const AVATAR_SIZE = 256;
+  const AVATAR_QUALITY = 0.82;
+  const AVATAR_MAX_ZOOM = 5;
+  const avatarModal = document.getElementById('avatar-modal');
+  const avatarStage = document.getElementById('avatar-stage');
+  const avatarCanvas = document.getElementById('avatar-canvas');
+  const avatarZoomEl = document.getElementById('avatar-zoom');
+  const avatarRotEl = document.getElementById('avatar-rot');
+  const avatarRot90 = document.getElementById('avatar-rot90');
+  const avatarSaveBtn = document.getElementById('avatar-save');
+  const avatarCancelBtn = document.getElementById('avatar-cancel');
+  const avatarCloseBtn = document.getElementById('avatar-close');
+  const avatarFileInput = document.getElementById('avatar-file');
+  const avatarPickBtn = document.getElementById('avatar-pick');
+  const avatarRemoveBtn = document.getElementById('avatar-remove');
+  let myAvatar = null;
+  let avatarPainted = null; // (bilde|initialer) sist malt — updateInbox kjører hvert poll
+
+  // Fyll en avatar-sirkel: bildet hvis personen har ett, ellers initialene.
+  // Formen/fargen ligger i CSS (`.account-avatar`/`.member-avatar`/`.resp-avatar`).
+  function paintAvatar(el, avatar, initials) {
+    el.innerHTML = '';
+    if (avatar) {
+      const img = document.createElement('img');
+      img.src = avatar;
+      img.alt = '';
+      el.appendChild(img);
+    } else {
+      el.textContent = initials;
+    }
+  }
+  function paintAccountAvatar() {
+    const prof = (lastMy && lastMy.user) || {};
+    const initials = initialsFromName(
+      prof.display_name || (authUser && authUser.meta && authUser.meta.display_name),
+      authUser && authUser.email);
+    const key = (myAvatar || '') + '|' + initials;
+    if (key === avatarPainted) return; // ikke bygg <img> på nytt hvert poll
+    avatarPainted = key;
+    paintAvatar(accountAvatar, myAvatar, initials);
+    const cam = document.createElement('span');
+    cam.className = 'avatar-cam';
+    cam.setAttribute('aria-hidden', 'true');
+    cam.innerHTML = ICONS.camera;
+    accountAvatar.appendChild(cam);
+    avatarRemoveBtn.hidden = !myAvatar;
+  }
+  // Bildet vises tre steder: konto-modalen (males direkte fra `myAvatar`) og
+  // delings-medlemslistene + ansvarssirklene (males fra get_members-cachen).
+  // Cachen må derfor tømmes og hentes på nytt for at en endring skal slå
+  // gjennom der — men FØRST når skrivingen har landet (se storeAvatar).
+  function refreshAvatarViews() {
+    paintAccountAvatar();
+    shareGroupEpoch++;
+    shareGroupCache.clear();
+    shareGroupLoading.clear();
+    render();
+  }
+  async function loadMyAvatar() {
+    const uid = authUser && authUser.id;
+    try {
+      const { data, error } = await acli().from('profiles').select('avatar').eq('id', uid);
+      if (error) throw error;
+      if (!authUser || authUser.id !== uid) return; // byttet konto imens
+      const found = (data && data[0] && data[0].avatar) || null;
+      if (found === myAvatar) { paintAccountAvatar(); return; }
+      myAvatar = found;
+      refreshAvatarViews();
+    } catch (e) { /* uten bilde vises initialene — hentes igjen ved neste innlogging */ }
+  }
+  // Skriv (eller fjern) bildet på egen profil-rad. Konto-sirkelen males
+  // umiddelbart (der brukeren ser etter), mens get_members-cachen først tømmes
+  // NÅR skrivingen har landet: en render før det ville startet en get_members
+  // som kappløper med skrivingen, og et svar med det GAMLE bildet ville blitt
+  // liggende i cachen til neste innlogging.
+  async function storeAvatar(value, okMsg) {
+    const prev = myAvatar;
+    myAvatar = value;
+    paintAccountAvatar();
+    try {
+      const { error } = await acli().from('profiles').update({ avatar: value }).eq('id', authUser.id);
+      if (error) throw error;
+      setAccountMsg(okMsg);
+    } catch (e) {
+      myAvatar = prev;
+      setAccountMsg(friendlyAuthError(e), true);
+    }
+    refreshAvatarViews();
+  }
+
+  /* ---------------- Bilderedigering (zoom/forskyv/roter) ----------------
+     Scenen er nøyaktig det kvadratiske utsnittet som lagres, og sirkelmasken
+     over den viser hva appen faktisk tegner — forhåndsvisningen ER utsnittet.
+     Tilstanden er tre tall: zoom (1 = bildets korteste side fyller utsnittet),
+     rotasjon, og utsnittets forskyvning i andeler av utsnittets side. */
+  const avEdit = { img: null, scale: 1, rot: 0, ox: 0, oy: 0 };
+  const avPointers = new Map();
+  let avPinch = null;
+
+  // Minste zoom som fyller HELE utsnittet ved denne vinkelen: en akse-justert
+  // firkant trenger |cos|+|sin| ganger sin egen side inni et rotert bilde.
+  function avatarCover(rot) { return Math.abs(Math.cos(rot)) + Math.abs(Math.sin(rot)); }
+  // Hold utsnittet innenfor bildet: uttrykk utsnittets senter i bildets eget
+  // (roterte) koordinatsystem, klem det der, og roter tilbake.
+  function clampAvatarOffset() {
+    const im = avEdit.img;
+    if (!im) return;
+    const c = Math.cos(avEdit.rot), s = Math.sin(avEdit.rot);
+    const k = avEdit.scale / Math.min(im.width, im.height); // utsnittets side = 1
+    const half = 0.5 * avatarCover(avEdit.rot);
+    const maxX = Math.max(0, im.width * k / 2 - half);
+    const maxY = Math.max(0, im.height * k / 2 - half);
+    const x = -avEdit.ox, y = -avEdit.oy;
+    let ix = x * c + y * s, iy = -x * s + y * c;
+    ix = Math.min(maxX, Math.max(-maxX, ix));
+    iy = Math.min(maxY, Math.max(-maxY, iy));
+    avEdit.ox = -(ix * c - iy * s);
+    avEdit.oy = -(ix * s + iy * c);
+  }
+  // Samme tegning til forhåndsvisning og lagring — bare ulik oppløsning.
+  function drawAvatar(ctx, size) {
+    const im = avEdit.img;
+    ctx.clearRect(0, 0, size, size);
+    if (!im) return;
+    const k = size * avEdit.scale / Math.min(im.width, im.height);
+    ctx.save();
+    ctx.imageSmoothingQuality = 'high';
+    ctx.translate(size / 2 + avEdit.ox * size, size / 2 + avEdit.oy * size);
+    ctx.rotate(avEdit.rot);
+    ctx.drawImage(im, -im.width * k / 2, -im.height * k / 2, im.width * k, im.height * k);
+    ctx.restore();
+  }
+  function renderAvatarPreview() {
+    const box = avatarStage.getBoundingClientRect();
+    const size = Math.round(box.width * Math.min(window.devicePixelRatio || 1, 3));
+    if (!size) return;
+    if (avatarCanvas.width !== size) { avatarCanvas.width = size; avatarCanvas.height = size; }
+    drawAvatar(avatarCanvas.getContext('2d'), size);
+  }
+  function setAvatarZoom(v) {
+    const min = avatarCover(avEdit.rot);
+    avEdit.scale = Math.min(AVATAR_MAX_ZOOM, Math.max(min, v || min));
+    avatarZoomEl.value = String(avEdit.scale);
+    clampAvatarOffset();
+    renderAvatarPreview();
+  }
+  function setAvatarRotation(deg) {
+    avatarRotEl.value = String(deg);
+    avEdit.rot = deg * Math.PI / 180;
+    // Rotasjon krever mer zoom for å fylle utsnittet — skyv bunnen i brytern opp
+    // og dra verdien med hvis den havnet under.
+    const min = avatarCover(avEdit.rot);
+    avatarZoomEl.min = min.toFixed(3);
+    setAvatarZoom(Math.max(avEdit.scale, min));
+  }
+  // Dekod filen til noe drawImage kan tegne. createImageBitmap tar EXIF-
+  // orienteringen (mobilbilder) med seg; <img> er reserven.
+  async function loadEditableImage(file) {
+    if (window.createImageBitmap) {
+      try { return await createImageBitmap(file, { imageOrientation: 'from-image' }); }
+      catch (e) { /* eldre nettlesere kjenner ikke valget — fall tilbake på <img> */ }
+    }
+    return await new Promise((resolve, reject) => {
+      const url = URL.createObjectURL(file);
+      const im = new Image();
+      im.onload = () => { URL.revokeObjectURL(url); resolve(im); };
+      im.onerror = () => { URL.revokeObjectURL(url); reject(new Error('kunne ikke lese bildet')); };
+      im.src = url;
+    });
+  }
+  async function openAvatarEditor(file) {
+    let im;
+    try { im = await loadEditableImage(file); }
+    catch (e) { showToast('Kunne ikke lese bildefilen'); return; }
+    avEdit.img = im;
+    avEdit.scale = 1; avEdit.rot = 0; avEdit.ox = 0; avEdit.oy = 0;
+    avatarZoomEl.min = '1'; avatarZoomEl.value = '1';
+    avatarRotEl.value = '0';
+    avatarModal.hidden = false;   // scenen må være synlig før den kan måles
+    updateModalOpenClass();
+    renderAvatarPreview();
+  }
+  function closeAvatarEditor() {
+    avatarModal.hidden = true;
+    if (avEdit.img && avEdit.img.close) avEdit.img.close(); // frigi ImageBitmap
+    avEdit.img = null;
+    avPointers.clear();
+    avPinch = null;
+    avatarStage.classList.remove('is-panning');
+    updateModalOpenClass();
+  }
+  function avPointerSpan() {
+    const p = [...avPointers.values()];
+    return Math.hypot(p[0].x - p[1].x, p[0].y - p[1].y);
+  }
+  avatarStage.addEventListener('pointerdown', (ev) => {
+    if (!avEdit.img) return;
+    avatarStage.setPointerCapture(ev.pointerId);
+    avPointers.set(ev.pointerId, { x: ev.clientX, y: ev.clientY });
+    avatarStage.classList.add('is-panning');
+    if (avPointers.size === 2) avPinch = { span: avPointerSpan(), scale: avEdit.scale };
+  });
+  avatarStage.addEventListener('pointermove', (ev) => {
+    const prev = avPointers.get(ev.pointerId);
+    if (!prev) return;
+    const side = avatarStage.getBoundingClientRect().width || 1;
+    const dx = ev.clientX - prev.x, dy = ev.clientY - prev.y;
+    avPointers.set(ev.pointerId, { x: ev.clientX, y: ev.clientY });
+    if (avPinch && avPointers.size >= 2) {
+      // Knip: avstanden mellom fingrene styrer zoom, snittbevegelsen panorerer.
+      const span = avPointerSpan();
+      if (span > 0 && avPinch.span > 0) setAvatarZoom(avPinch.scale * span / avPinch.span);
+      avEdit.ox += dx / side / 2; avEdit.oy += dy / side / 2;
+    } else {
+      avEdit.ox += dx / side; avEdit.oy += dy / side;
+    }
+    clampAvatarOffset();
+    renderAvatarPreview();
+  });
+  const avPointerEnd = (ev) => {
+    avPointers.delete(ev.pointerId);
+    if (avPointers.size < 2) avPinch = null;
+    if (!avPointers.size) avatarStage.classList.remove('is-panning');
+  };
+  avatarStage.addEventListener('pointerup', avPointerEnd);
+  avatarStage.addEventListener('pointercancel', avPointerEnd);
+  avatarStage.addEventListener('wheel', (ev) => {
+    if (!avEdit.img) return;
+    ev.preventDefault();
+    setAvatarZoom(avEdit.scale * (ev.deltaY < 0 ? 1.12 : 1 / 1.12));
+  }, { passive: false });
+  avatarZoomEl.addEventListener('input', () => setAvatarZoom(parseFloat(avatarZoomEl.value)));
+  avatarRotEl.addEventListener('input', () => setAvatarRotation(parseFloat(avatarRotEl.value) || 0));
+  avatarRot90.addEventListener('click', () => {
+    // Neste kvarte omdreining: retter samtidig opp en skjev vinkel, og lander
+    // alltid på et multiplum av 90 (−180..180).
+    let deg = Math.floor((parseFloat(avatarRotEl.value) || 0) / 90 + 1e-9) * 90 + 90;
+    if (deg > 180) deg -= 360;
+    setAvatarRotation(deg);
+  });
+  avatarRot90.innerHTML = ICONS.restoreArrow;
+  window.addEventListener('resize', () => { if (!avatarModal.hidden) renderAvatarPreview(); });
+  avatarSaveBtn.addEventListener('click', async () => {
+    if (!avEdit.img) return;
+    const c = document.createElement('canvas');
+    c.width = AVATAR_SIZE; c.height = AVATAR_SIZE;
+    drawAvatar(c.getContext('2d'), AVATAR_SIZE);
+    const dataUrl = c.toDataURL('image/jpeg', AVATAR_QUALITY);
+    closeAvatarEditor();
+    await storeAvatar(dataUrl, 'Profilbildet er oppdatert.');
+  });
+  avatarCancelBtn.addEventListener('click', closeAvatarEditor);
+  avatarCloseBtn.addEventListener('click', closeAvatarEditor);
+  avatarModal.addEventListener('click', (ev) => { if (ev.target === avatarModal) closeAvatarEditor(); });
+
+  const pickAvatarFile = () => avatarFileInput.click();
+  avatarPickBtn.addEventListener('click', pickAvatarFile);
+  accountAvatar.addEventListener('click', pickAvatarFile);
+  avatarFileInput.addEventListener('change', () => {
+    const f = avatarFileInput.files && avatarFileInput.files[0];
+    avatarFileInput.value = ''; // samme fil skal kunne velges to ganger på rad
+    if (f) openAvatarEditor(f);
+  });
+  avatarRemoveBtn.addEventListener('click', async () => {
+    if (!myAvatar) return;
+    const ok = await askConfirm({
+      title: 'Fjern profilbilde',
+      message: 'Bildet slettes fra kontoen din, og initialene vises igjen.',
+      okLabel: 'Fjern',
+    });
+    if (!ok) return;
+    await storeAvatar(null, 'Profilbildet er fjernet.');
+  });
+
   function updateInbox(my) {
     const invites = ((my && my.invites_in) || []).filter((inv) => !suppressedInvites.has(inv.id));
     const total = invites.length;
@@ -7939,7 +8294,7 @@
       paintAccountForms(false);
       const prof = (my && my.user) || {};
       accountEmail.textContent = personName(prof) || authUser.email || '';
-      accountAvatar.textContent = initialsFromName(prof.display_name, authUser.email);
+      paintAccountAvatar();
     }
     if (!total) { menuInvites.hidden = true; inviteListEl.innerHTML = ''; return; }
     menuInvites.hidden = false;
@@ -8097,7 +8452,8 @@
   function avatarFor(person, owner) {
     const s = document.createElement('span');
     s.className = 'member-avatar' + (owner ? ' owner' : '');
-    s.textContent = initialsFromName(person && person.display_name, person && person.email);
+    paintAvatar(s, person && person.avatar,
+      initialsFromName(person && person.display_name, person && person.email));
     return s;
   }
   // Meg selv, fra kontoens egne data — så medlemslisten kan tegnes UMIDDELBART
@@ -8117,6 +8473,7 @@
         id: authUser && authUser.id,
         email: prof.email || (authUser && authUser.email),
         display_name: prof.display_name || (authUser && authUser.meta && authUser.meta.display_name),
+        avatar: myAvatar,
         category: cat, role, direct: true, removable: false, demotable: false,
       }],
       pendingInvites: [],
@@ -8637,10 +8994,17 @@
   async function cloudStart() {
     document.body.classList.remove('no-auth');
     authScreen.hidden = true;
+    // Passordet har gjort jobben sin. La det ikke bli stående i feltet — med
+    // «vis passordet» slått på ville det ellers ligget i klartekst på
+    // innloggingsskjermen neste gang den vises (etter utlogging).
+    clearPassFields([authPassword]);
     if (cloudStartedFor !== authUser.id) {
       cloudStartedFor = authUser.id;
       // Nullstill FØRST, last så denne brukerens egen post: uten buffer starter
       // vi helt tomt (og med ukjent historikk), aldri på noe fra en annen konto.
+      // (Supabase kan gå rett fra én bruker til en annen uten SIGNED_OUT, så
+      // profilbildet må nullstilles her og ikke bare i cloudStop.)
+      myAvatar = null; avatarPainted = null;
       resetLocalSync();
       loadCache();
       render();
@@ -8648,6 +9012,7 @@
     lastViewSig = null; // tving en full første render ved (ny) innlogging
     migrationChecked = false;
     navRestored = false; // gjenopprett husket posisjon ved neste (første) pull
+    loadMyAvatar();      // eget kall: bildet ligger ikke i det pollede doc-et
     startCloudRealtime();
     startCloudPoll();
     await cloudCycle();
@@ -8686,8 +9051,11 @@
     accountBadge.hidden = true;
     accountEdit.hidden = true;
     setAccountMsg('');
+    // Profilbildet og et evt. skrevet passord tilhørte den utloggede kontoen.
+    myAvatar = null; avatarPainted = null;
+    clearPassFields([accountPassCurrent, accountPassNew]);
     // Lukk evt. åpne modaler — de tilhørte den utloggede sesjonen.
-    closeNavModal(); closeAccount();
+    closeNavModal(); closeAccount(); closeAvatarEditor();
   }
 
   // Dyplenke fra en delings-e-post til en UREGISTRERT mottaker: ?signup=<e-post>
@@ -8760,7 +9128,7 @@
        • det finnes lokale endringer serveren ikke har kvittert for (saveSeq)
        • vi er innlogget uten å ha fått ett eneste svar fra serveren ennå */
   const SAFETY_MODALS = () => [navModal, accountModal, trashModal, settingsModal,
-    shareModal, placeModal, confirmModalEl, respSwitcherOverlay, timeSwitcherOverlay];
+    shareModal, placeModal, confirmModalEl, avatarModal, respSwitcherOverlay, timeSwitcherOverlay];
   function authFormDirty() {
     if (authScreen.hidden) return false;
     return [authEmail, authFirstName, authLastName, authPassword]

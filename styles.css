@@ -1799,6 +1799,30 @@ body.no-auth #account-btn { display: none; }
   border-color: var(--primary);
   box-shadow: 0 0 0 3px var(--primary-soft);
 }
+/* Passordfelt med «vis passordet»-knapp: øyet ligger INNI feltet (høyre kant),
+   feltet får plass til det. Samme .icon-btn som ellers, litt dempet i hvile. */
+.pass-wrap {
+  position: relative;
+  display: flex;
+  flex: 1;
+  min-width: 0;
+}
+.pass-wrap .field {
+  flex: 1;
+  min-width: 0;
+  padding-right: 46px;
+}
+.pass-toggle {
+  position: absolute;
+  top: 50%;
+  right: 4px;
+  transform: translateY(-50%);
+  width: 34px;
+  height: 34px;
+  opacity: 0.65;
+}
+.pass-toggle:hover, .pass-toggle:focus-visible { opacity: 1; background: transparent; }
+.pass-toggle .icon { width: 22px; height: 22px; }
 .auth-msg {
   margin: 0;
   min-height: 22px;
@@ -1840,10 +1864,12 @@ body.no-auth #account-btn { display: none; }
 .menu-account {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 14px;   /* kamera-merket henger 2px utenfor sirkelen — hold det klar av teksten */
   padding: 2px 0;
 }
 .menu-account[hidden] { display: none; }
+.account-ident { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.account-photo-actions { display: flex; flex-wrap: wrap; gap: 6px; }
 /* Endre navn / e-post: etikett over felt + Lagre-knapp på samme rad. */
 .account-edit {
   display: flex;
@@ -1881,7 +1907,42 @@ body.no-auth #account-btn { display: none; }
   text-transform: uppercase;
   background: linear-gradient(135deg, var(--primary), var(--primary-dark));
 }
-.account-avatar { width: 44px; height: 44px; font-size: var(--fs-base); }
+/* Profilbilde: fyller sirkelen i stedet for initialene (samme form overalt). */
+.account-avatar img, .member-avatar img, .resp-avatar img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  border-radius: 50%;
+  object-fit: cover;
+}
+/* Konto-avataren er SELV knappen som endrer bildet (kamera-merke nederst). */
+.account-avatar {
+  position: relative;
+  width: 56px;
+  height: 56px;
+  font-size: var(--fs-lg);
+  appearance: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  transition: filter 0.15s, transform 0.1s;
+}
+.account-avatar:hover { filter: brightness(1.09); }
+.account-avatar:active { transform: scale(0.96); }
+.account-avatar:focus-visible { outline: 2.5px solid var(--primary); outline-offset: 2px; }
+.avatar-cam {
+  position: absolute;
+  right: -2px;
+  bottom: -2px;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: var(--shadow-sm);
+  display: grid;
+  place-items: center;
+}
+.avatar-cam .icon { width: 16px; height: 16px; }
 .account-email { font-weight: 600; font-size: var(--fs-md); color: var(--ink); word-break: break-all; }
 
 .menu-badge {
@@ -1937,6 +1998,88 @@ body.no-auth #account-btn { display: none; }
 .toggle-switch[aria-checked="true"] { background: var(--primary); }
 .toggle-switch[aria-checked="true"] .toggle-knob { transform: translateX(22px); }
 .toggle-switch:focus-visible { outline: 2.5px solid var(--primary); outline-offset: 2px; }
+
+/* ---------------- Bilderedigering (profilbilde) ----------------
+   Scenen er nøyaktig det kvadratiske utsnittet som lagres; sirkelmasken viser
+   hva appen faktisk tegner. Alt utenfor sirkelen dempes (men lagres), så det
+   er tydelig både HVA som blir bildet og HVORDAN det vil se ut. */
+.avatar-modal { width: min(420px, 100%); }
+.avatar-body { display: flex; flex-direction: column; gap: 14px; }
+.avatar-hint {
+  margin: 0;
+  font-size: var(--fs-sm);
+  font-weight: 500;
+  color: var(--ink-soft);
+  text-align: center;
+}
+.avatar-stage {
+  position: relative;
+  width: 100%;
+  max-width: 320px;
+  aspect-ratio: 1 / 1;
+  margin: 0 auto;
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+  background: #2d2646;
+  box-shadow: var(--shadow-sm);
+  cursor: grab;
+  touch-action: none;   /* dra/knip er våre gester, ikke sidens scroll */
+}
+.avatar-stage.is-panning { cursor: grabbing; }
+.avatar-canvas { display: block; width: 100%; height: 100%; }
+.avatar-mask {
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  pointer-events: none;
+  box-shadow: 0 0 0 9999px rgba(45, 38, 70, 0.55), inset 0 0 0 2px rgba(255, 255, 255, 0.85);
+}
+.avatar-controls { display: flex; flex-direction: column; gap: 10px; }
+.avatar-slider { display: flex; align-items: center; gap: 10px; }
+.avatar-slider-label {
+  flex: 0 0 auto;
+  width: 84px;
+  font-size: var(--fs-sm);
+  font-weight: 600;
+  color: var(--ink-soft);
+}
+/* Glidebrytere: appens grønne håndtak på et nøytralt spor (ingen native look). */
+.avatar-slider input[type="range"] {
+  flex: 1;
+  min-width: 0;
+  appearance: none;
+  -webkit-appearance: none;
+  height: 26px;
+  background: transparent;
+  cursor: pointer;
+}
+.avatar-slider input[type="range"]::-webkit-slider-runnable-track {
+  height: 6px; border-radius: 999px; background: var(--line);
+}
+.avatar-slider input[type="range"]::-moz-range-track {
+  height: 6px; border-radius: 999px; background: var(--line);
+}
+.avatar-slider input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 22px; height: 22px;
+  margin-top: -8px;
+  border: none; border-radius: 50%;
+  background: var(--grad-green);
+  box-shadow: var(--shadow-sm);
+}
+.avatar-slider input[type="range"]::-moz-range-thumb {
+  width: 22px; height: 22px;
+  border: none; border-radius: 50%;
+  background: var(--primary);
+  box-shadow: var(--shadow-sm);
+}
+.avatar-slider input[type="range"]:focus-visible { outline: 2.5px solid var(--primary); outline-offset: 2px; }
+/* «Roter 90°» gjenbruker den sirkulære pila (ICONS.restoreArrow), speilvendt så
+   den peker MED klokka — samme vei som knappen faktisk roterer. */
+.avatar-rot90 .icon { transform: scaleX(-1); }
+.avatar-foot { justify-content: flex-end; }
+/* Lave vinduer (mobil i landskap o.l.): mindre scene så alt får plass uten scroll. */
+@media (max-height: 720px) { .avatar-stage { max-width: 236px; } }
 
 /* ---------------- Invitasjons-innboks ---------------- */
 .menu-invites[hidden] { display: none; }

@@ -318,9 +318,25 @@ Størrelse/form kommer fra egne klasser: `.btn` (modaler), `.btn-small`,
   signaliserer at slipp oppretter en NY liste.
 - `.field`: felles tekstfelt (auth-input + inviter-input) — solid kant, myk
   bakgrunn, grønn fokus-ring. Nye felt trenger bare klassen `.field`.
-- `.account-avatar` / `.member-avatar`: felles avatar-form (rund, sentrert hvit
-  initial på gradient) via delt selektor; størrelse/farge per bruk. Initialene
-  kommer fra `display_name` (`initialsFromName`) — se `docs/accounts.md`.
+- `.pass-wrap` + `.pass-toggle`: passordfelt med «vis passordet»-knapp. Øyet
+  (`.icon-btn`, dempet i hvile) ligger INNI feltet ved høyre kant; feltet får
+  plass med `padding-right`. Ett nytt passordfelt trenger bare wrapperen +
+  knappen med `data-pass-toggle="<felt-id>"` — app.js kobler alle ved oppstart.
+- `.account-avatar` / `.member-avatar` / `.resp-avatar`: felles avatar-form
+  (rund, sentrert hvit initial på gradient/palettfarge); størrelse/farge per
+  bruk. Initialene kommer fra `display_name` (`initialsFromName`). Har personen
+  et **profilbilde**, fyller et `<img>` (`object-fit: cover`) sirkelen i stedet
+  — samme delte regel for alle tre. Konto-avataren er i tillegg selv en KNAPP
+  (kamera-merke `.avatar-cam` nederst til høyre) som velger nytt bilde. Se
+  `docs/accounts.md`.
+- **Bilderedigereren** (`.avatar-modal`/`.avatar-stage`/`.avatar-mask`/
+  `.avatar-slider`): scenen er kvadratisk (`aspect-ratio: 1/1`) og er nøyaktig
+  det utsnittet som lagres; `.avatar-mask` er en sirkel med en enorm
+  `box-shadow`-spredning som demper ALT utenfor + en hårfin hvit innerring — så
+  man ser både hva som blir bildet og hvordan det vil se ut i appen.
+  Glidebryterne er stilt manuelt (`appearance: none`, nøytralt spor + grønt
+  `--grad-green`-håndtak) i stedet for native kontroller, som de eneste
+  `input[type=range]` i appen.
 - `.item-cog` / `.card-cog`: tannhjul-knappene som åpner innstillingsmodalen
   (listepunkt: dempet ikon ved slette-✕; liste: flate-knapp i kort-headeren).
   `.meta-row` + `.meta-chip`: indikator-chipene under navnet (delt/ansvarlig/

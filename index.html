@@ -110,12 +110,20 @@
         <button class="icon-btn" id="account-close" type="button" title="Lukk" aria-label="Lukk"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.05" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6.5 6.5 17.5 17.5"></path><path d="M17.5 6.5 6.5 17.5"></path></svg></button>
       </header>
       <div class="modal-body menu-body">
+        <!-- Profil: bildet/initialene er selv knappen som velger nytt bilde. -->
         <div class="menu-account" id="menu-account" hidden>
-          <span class="account-avatar" id="account-avatar" aria-hidden="true"></span>
-          <span class="account-email" id="account-email"></span>
+          <button class="account-avatar" id="account-avatar" type="button" title="Endre profilbilde" aria-label="Endre profilbilde"></button>
+          <div class="account-ident">
+            <span class="account-email" id="account-email"></span>
+            <div class="account-photo-actions">
+              <button class="btn btn-ghost btn-small" id="avatar-pick" type="button">Endre bilde</button>
+              <button class="btn btn-ghost btn-small" id="avatar-remove" type="button" hidden>Fjern bilde</button>
+            </div>
+          </div>
+          <input id="avatar-file" type="file" accept="image/*" hidden />
         </div>
 
-        <!-- Endre navn / e-post (lagres på kontoen; ny e-post bekreftes per e-post). -->
+        <!-- Endre navn / e-post / passord (lagres på kontoen; ny e-post bekreftes per e-post). -->
         <section class="account-edit" id="account-edit" hidden>
           <form class="account-form" id="account-name-form">
             <label class="account-form-label" for="account-name-input">Navn</label>
@@ -128,6 +136,26 @@
             <label class="account-form-label" for="account-email-input">E-post</label>
             <div class="account-form-row">
               <input class="field" id="account-email-input" type="email" autocomplete="email" placeholder="deg@eksempel.no" />
+              <button class="btn btn-solid btn-green btn-small" type="submit">Lagre</button>
+            </div>
+          </form>
+          <form class="account-form" id="account-pass-form">
+            <label class="account-form-label" for="account-pass-new">Passord</label>
+            <div class="account-form-row">
+              <span class="pass-wrap">
+                <input class="field" id="account-pass-current" type="password" autocomplete="current-password" placeholder="Nåværende passord" />
+                <button class="icon-btn pass-toggle" type="button" data-pass-toggle="account-pass-current"
+                        aria-pressed="false" title="Vis passordet" aria-label="Vis passordet"></button>
+              </span>
+            </div>
+            <div class="account-form-row">
+              <span class="pass-wrap">
+                <!-- Ingen minlength: lengden meldes i skjemaets egen melding
+                     (#account-msg), ikke i en native valideringsboble. -->
+                <input class="field" id="account-pass-new" type="password" autocomplete="new-password" placeholder="Nytt passord (minst 6 tegn)" />
+                <button class="icon-btn pass-toggle" type="button" data-pass-toggle="account-pass-new"
+                        aria-pressed="false" title="Vis passordet" aria-label="Vis passordet"></button>
+              </span>
               <button class="btn btn-solid btn-green btn-small" type="submit">Lagre</button>
             </div>
           </form>
@@ -160,6 +188,40 @@
           Logg ut
         </button>
       </div>
+    </div>
+  </div>
+
+  <!-- Bilderedigering for profilbildet: zoom/forskyv/roter med sirkelen som
+       fasit (den lyse flaten er nøyaktig det som vises i appen). Det lagrede
+       bildet er hele det kvadratiske utsnittet. -->
+  <div class="modal-overlay" id="avatar-modal" hidden>
+    <div class="modal avatar-modal" role="dialog" aria-modal="true" aria-labelledby="avatar-title">
+      <header class="modal-head">
+        <h2 id="avatar-title"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="#111" stroke-width="1.05" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8.8 7.4 9.9 5.3h4.2l1.1 2.1h4.3a2.2 2.2 0 0 1 2.2 2.2v7.2a2.2 2.2 0 0 1-2.2 2.2H4.5a2.2 2.2 0 0 1-2.2-2.2V9.6a2.2 2.2 0 0 1 2.2-2.2Z" fill="#ffffff"></path><circle cx="12" cy="13.4" r="3.7" fill="#85adad"></circle></svg><span>Profilbilde</span></h2>
+        <button class="icon-btn" id="avatar-close" type="button" title="Lukk" aria-label="Lukk"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.05" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6.5 6.5 17.5 17.5"></path><path d="M17.5 6.5 6.5 17.5"></path></svg></button>
+      </header>
+      <div class="modal-body avatar-body">
+        <p class="avatar-hint">Dra bildet for å flytte det. Sirkelen viser hvordan det blir seende ut.</p>
+        <div class="avatar-stage" id="avatar-stage">
+          <canvas class="avatar-canvas" id="avatar-canvas"></canvas>
+          <span class="avatar-mask" aria-hidden="true"></span>
+        </div>
+        <div class="avatar-controls">
+          <label class="avatar-slider">
+            <span class="avatar-slider-label">Zoom</span>
+            <input type="range" id="avatar-zoom" min="1" max="5" step="0.01" value="1" aria-label="Zoom" />
+          </label>
+          <label class="avatar-slider">
+            <span class="avatar-slider-label">Rotasjon</span>
+            <input type="range" id="avatar-rot" min="-180" max="180" step="1" value="0" aria-label="Rotasjon" />
+            <button class="icon-btn avatar-rot90" id="avatar-rot90" type="button" title="Roter 90°" aria-label="Roter 90°"></button>
+          </label>
+        </div>
+      </div>
+      <footer class="modal-foot avatar-foot">
+        <button class="btn btn-ghost" id="avatar-cancel" type="button">Avbryt</button>
+        <button class="btn btn-solid btn-green" id="avatar-save" type="button">Bruk bildet</button>
+      </footer>
     </div>
   </div>
 
@@ -426,8 +488,14 @@
         </label>
         <label class="auth-field" id="auth-pass-field">
           <span>Passord</span>
-          <input class="field" type="password" id="auth-password" autocomplete="current-password"
-                 minlength="6" placeholder="Minst 6 tegn" />
+          <!-- .pass-wrap + .pass-toggle: øye-knappen viser passordet mens man
+               skriver det (app.js bytter type/ikon). -->
+          <span class="pass-wrap">
+            <input class="field" type="password" id="auth-password" autocomplete="current-password"
+                   minlength="6" placeholder="Minst 6 tegn" />
+            <button class="icon-btn pass-toggle" type="button" data-pass-toggle="auth-password"
+                    aria-pressed="false" title="Vis passordet" aria-label="Vis passordet"></button>
+          </span>
         </label>
         <p class="auth-msg" id="auth-msg" role="status"></p>
         <button class="btn btn-solid btn-green auth-submit" id="auth-submit" type="submit">Logg inn</button>

@@ -74,6 +74,16 @@ create table if not exists public.profiles (
   updated_at   timestamptz not null default now()
 );
 
+-- Profilbilde: det ferdig beskårne, kvadratiske bildet som en data-URI
+-- (256x256 JPEG fra klientens bilderedigering — noen få titalls kB). Lagres
+-- her, ikke i Storage: raden er allerede den vi henter personen fra, og
+-- get_members kan levere den sammen med navn/e-post. Størrelsen er en
+-- systemgrense (klienten kan sende hva som helst), så den håndheves her.
+alter table public.profiles add column if not exists avatar text;
+alter table public.profiles drop constraint if exists profiles_avatar_size;
+alter table public.profiles add constraint profiles_avatar_size
+  check (avatar is null or length(avatar) <= 200000);
+
 create unique index if not exists profiles_email_key on public.profiles (lower(email));
 
 alter table public.profiles enable row level security;
@@ -2147,6 +2157,7 @@ begin
   )
   select coalesce(jsonb_agg(jsonb_build_object(
            'id', pr.id, 'email', pr.email, 'display_name', pr.display_name,
+           'avatar', pr.avatar,
            'category', b.category, 'role', b.role, 'source', b.source,
            'direct', b.direct,
            -- Kan denne brukeren fjernes HER? Arvede universmedlemmer i en
@@ -2176,6 +2187,8 @@ begin
                               where m.group_id = p_id and m.role = 'owner') end,
     'memberCount', case when p_type = 'universe' then public.universe_member_count(p_id)
                         else public.group_member_count(p_id) end,
+    -- Betrakterens EFFEKTIVE rettigheter (serverautoritativt) — klienten viser
+    -- invitasjonsfelt/administrative kontroller ut fra disse, ikke ut fra gjetting.
     'viewer', jsonb_build_object(
       'id', uid,
       'role', case when p_type = 'universe' then public.universe_role(p_id, uid)
@@ -2828,10 +2841,10 @@ revoke all on public.profiles, public.universes, public.groups, public.cards,
 -- profiles: e-posten speiles KUN fra auth.users (triggerne over) og er
 -- skrivebeskyttet for klienter — ellers kunne en bruker kapre ventende
 -- invitasjoner (aksept sammenligner mot profiles.email) eller blokkere
--- andres registrering via unik-indeksen. Kun display_name kan endres.
+-- andres registrering via unik-indeksen. Kun display_name og avatar kan endres.
 grant select on public.profiles to authenticated;
 revoke update on public.profiles from authenticated;
-grant update (display_name) on public.profiles to authenticated;
+grant update (display_name, avatar) on public.profiles to authenticated;
 grant select, insert, update, delete on public.universes, public.groups,
                                         public.cards, public.items to authenticated;
 -- INSERT på memberships er BEVISST utelatt: roller opprettes kun av
