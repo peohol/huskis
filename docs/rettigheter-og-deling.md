@@ -539,10 +539,13 @@ invitasjoner:
 1. Beregn den effektive tilgangen før migreringen.
 2. **Redundante** listetilganger (mottakeren har allerede gruppetilgang) fjernes;
    listen blir liggende.
-3. Inneholder foreldregruppen bare denne ene aktive listen: mottakerne
+3. Finnes det ingen ANDRE aktive lister i foreldregruppen: mottakerne
    **promoteres** til direkte gruppemedlemmer, ventende listeinvitasjoner blir
-   gruppeinvitasjoner, og listedelingene fjernes.
-4. Inneholder gruppen flere aktive lister: en **ny søskengruppe** opprettes i
+   gruppeinvitasjoner, og listedelingene fjernes. (Kriteriet er «ingen annen
+   aktiv liste», ikke «antall aktive lister ≤ 1» — ligger den delte lista selv i
+   søpla mens en søskenliste er aktiv, ville promotering gitt mottakerne tilgang
+   til nettopp den søskenlista.)
+4. Finnes det andre aktive lister: en **ny søskengruppe** opprettes i
    samme univers (listetittelen som navn, «Delt liste» ved tom tittel,
    deterministisk kollisjonshåndtering med « (2)»), plassert ved siden av den
    gamle i samme gruppekategori. Listen flyttes dit med uendrede id-er. Alle som

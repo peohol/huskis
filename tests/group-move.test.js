@@ -10,6 +10,9 @@
        gruppen forsvinner fra visningen, og gravlegger de gamle id-ene
     5. En gruppe kan ikke slippes i et univers man ikke kan opprette i
     6. `groups.universe_id` kan ikke skrives direkte (databasen avviser det)
+    7. Et eierskifte hos ANDRE (som ikke endrer innhold, capabilities, rolle,
+       `shared`, medlemstall eller eiertall) når likevel fram, så neste flytting
+       ikke leser to ULIKE eierskapsdomener som like og hopper over bekreftelsen
 
   Kjør:
     python3 -m http.server 8000
@@ -29,29 +32,37 @@ const U = () => 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
    Gruppen G ligger i U1 med én liste og ett listepunkt.
    U4 eies av B alene — A er ikke medlem og kan ikke opprette der. */
 function buildDB() {
-  const uA = 'uA', uB = 'uB';
-  const U1 = U(), U2 = U(), U3 = U(), U4 = U(), G = U(), L = U(), I = U();
+  const uA = 'uA', uB = 'uB', uC = 'uC';
+  const U1 = U(), U2 = U(), U3 = U(), U4 = U(), U5 = U(), U6 = U();
+  const G = U(), L = U(), I = U(), GX = U();
   const base = (x) => Object.assign({ trashed: false, locked: false, unlocked: false,
     invite_policy: 'inherit', collapsed: false, is_cat: false, cat_id: null,
     ts: 1, org: 'a', pos: 0, pos_ts: 1, pos_org: 'a' }, x);
   const mem = (user, on, role, pos) => Object.assign(
     { id: U(), user_id: user, universe_id: null, group_id: null, role, pos: pos || 0, created_at: 1 }, on);
   return {
-    ids: { uA, uB, U1, U2, U3, U4, G, L, I },
+    ids: { uA, uB, uC, U1, U2, U3, U4, U5, U6, G, GX, L, I },
     db: {
       _rolesBackfilled: true,
       profiles: [
         { id: uA, email: 'a@x.no', display_name: 'Alice', user_metadata: {} },
         { id: uB, email: 'b@x.no', display_name: 'Bo', user_metadata: {} },
+        { id: uC, email: 'c@x.no', display_name: 'Cato', user_metadata: {} },
       ],
-      passwords: { 'a@x.no': 'x', 'b@x.no': 'x' },
+      passwords: { 'a@x.no': 'x', 'b@x.no': 'x', 'c@x.no': 'x' },
       universes: [
         base({ id: U1, owner_id: uA, name: 'Mitt ett', pos: 0 }),
         base({ id: U3, owner_id: uA, name: 'Mitt to', pos: 1 }),
         base({ id: U2, owner_id: uA, name: 'Delt med Bo', pos: 2 }),
         base({ id: U4, owner_id: uB, name: 'Bo sitt', pos: 3 }),
+        // U5 og U6 har BEGGE eiersettet {A,C} → samme domene. B er medlem av U6.
+        base({ id: U5, owner_id: uA, name: 'Med Cato I', pos: 4 }),
+        base({ id: U6, owner_id: uA, name: 'Med Cato II', pos: 5 }),
       ],
-      groups: [base({ id: G, owner_id: uA, universe_id: U1, name: 'Flyttbar' })],
+      groups: [
+        base({ id: G, owner_id: uA, universe_id: U1, name: 'Flyttbar' }),
+        base({ id: GX, owner_id: uA, universe_id: U5, name: 'Domenetest' }),
+      ],
       cards: [base({ id: L, owner_id: uA, group_id: G, title: 'Innhold', k: true, p: true, lab_ts: 0, lab_org: '' })],
       items: [base({ id: I, owner_id: uA, card_id: L, text: 'Punkt' })],
       memberships: [
@@ -60,6 +71,11 @@ function buildDB() {
         mem(uA, { universe_id: U2 }, 'owner', 2),
         mem(uB, { universe_id: U2 }, 'owner', 0),
         mem(uB, { universe_id: U4 }, 'owner', 1),
+        mem(uA, { universe_id: U5 }, 'owner', 3),
+        mem(uC, { universe_id: U5 }, 'owner', 0),
+        mem(uA, { universe_id: U6 }, 'owner', 4),
+        mem(uC, { universe_id: U6 }, 'owner', 1),
+        mem(uB, { universe_id: U6 }, 'member', 3),
       ],
       share_invites: [], tombstones: [],
     },
@@ -82,12 +98,17 @@ const openNav = async (p) => { await p.evaluate(() => window.__huskis.openNavMod
 
 // Dra en grupperad til midten av et annet universkorts innholdssone.
 async function dragGroupTo(p, groupId, uniId) {
+  // Modalen kan være høyere enn mobilskjermen, så raden man drar fra kan ligge
+  // delvis under modal-headeren. Rull den fram først; auto-scrollen i modalen
+  // henter målet inn mens draget pågår.
+  await p.locator('#nav-board .item[data-id="' + groupId + '"]').scrollIntoViewIfNeeded();
+  await p.waitForTimeout(150);
   const a = await p.locator('#nav-board .item[data-id="' + groupId + '"]').boundingBox();
   await p.mouse.move(a.x + a.width / 2, a.y + a.height / 2);
   await p.mouse.down();
   await p.mouse.move(a.x + a.width / 2 + 8, a.y + a.height / 2 + 8, { steps: 3 });
   await p.waitForTimeout(90);
-  for (let i = 0; i < 8; i++) {
+  for (let i = 0; i < 14; i++) {
     const t = await p.locator('#nav-board .card[data-id="' + uniId + '"] .add-item-row').boundingBox();
     await p.mouse.move(t.x + t.width / 2, t.y + 2, { steps: 5 });
     await p.waitForTimeout(80);
@@ -195,6 +216,53 @@ async function run(label, viewport, mobile) {
   }, { gid: inU2.id, uid: ids.U1 });
   log(label + ' 6: rå skriving av groups.universe_id avvises (move_group eier flyttingen)',
     !!rawWrite && /move_group/i.test(rawWrite), String(rawWrite));
+
+  /* ---------- 7) Et eierskifte hos ANDRE må nå fram før neste flytting ----------
+     U5 og U6 har begge eiersettet {A,C}, så en flytting mellom dem spør ikke.
+     Byttes så B og C om på rolle i U6 (utenfor denne fanen), endres verken
+     innholdet, mine capabilities, min rolle, `shared`, medlemstallet ELLER
+     eiertallet — bare selve eiersettet. Blir ikke det plukket opp, ville neste
+     flytting lest to ULIKE domener som like og hoppet over den destruktive
+     bekreftelsen. */
+  await loadAs(p, db, ids.uA, 'a@x.no', viewport);
+  const keyOf = (x) => p.evaluate((id) => {
+    const u = window.__huskis.state.universes.find((z) => z.id === id) || {};
+    return { key: u._ownerKey, owners: u._ownerCount, members: u._memberCount, caps: JSON.stringify(u._caps) };
+  }, x);
+  const u5Before = await keyOf(ids.U5), u6Before = await keyOf(ids.U6);
+  log(label + ' 7: U5 og U6 er i SAMME eierskapsdomene før byttet',
+    !!u5Before.key && u5Before.key === u6Before.key, JSON.stringify({ u5: u5Before.key, u6: u6Before.key }));
+  await openNav(p);
+  await dragGroupTo(p, ids.GX, ids.U6);
+  await p.waitForTimeout(300);
+  log(label + ' 7: … så flyttingen dit spør ikke',
+    await p.evaluate(() => !!document.getElementById('confirm-modal').hidden) === true);
+  await p.waitForTimeout(1200);
+
+  // B og C bytter rolle i U6: eiersettet blir {A,B} i stedet for {A,C}.
+  await p.evaluate(async ({ b, c, u6 }) => {
+    const db = window.HK_MOCK._loadDB();
+    db.memberships.find((m) => m.user_id === b && m.universe_id === u6).role = 'owner';
+    db.memberships.find((m) => m.user_id === c && m.universe_id === u6).role = 'member';
+    window.HK_MOCK._saveDB(db);
+    return window.__huskis.cloudCycle();
+  }, { b: ids.uB, c: ids.uC, u6: ids.U6 });
+  await p.waitForTimeout(1400);
+  const u6After = await keyOf(ids.U6);
+  log(label + ' 7: byttet endret INGENTING annet enn eiersettet',
+    u6After.owners === u6Before.owners && u6After.members === u6Before.members &&
+    u6After.caps === u6Before.caps,
+    JSON.stringify({ before: u6Before, after: u6After }));
+  log(label + ' 7: … og eierskiftet nådde likevel fram til klienten',
+    !!u6After.key && u6After.key !== u6Before.key, JSON.stringify({ før: u6Before.key, etter: u6After.key }));
+
+  await openNav(p);
+  await dragGroupTo(p, ids.GX, ids.U5);
+  await p.waitForTimeout(300);
+  log(label + ' 7: flytting tilbake krever nå bekreftelse (domenene er ulike)',
+    await p.evaluate(() => !document.getElementById('confirm-modal').hidden) === true);
+  await p.locator('#confirm-cancel').click();
+  await p.waitForTimeout(600);
 
   log(label + ': ingen JS-feil', errs.length === 0, errs.slice(0, 3).join(' | '));
   await browser.close();

@@ -7593,10 +7593,17 @@
   // `mergedCanon !== localCanon`-vakt.
   function viewSignature(mergedDoc, meta) {
     const metaArr = [];
+    // `ownerKey`/`ownerCount` MÅ være med: et eierskifte hos NOEN ANDRE endrer
+    // verken innholdet, mine capabilities, min rolle eller `shared` — men det
+    // flytter eierskapsdomenet. Uten dem ville `_ownerKey` blitt stående utdatert,
+    // og en senere gruppeflytting lest to nå ULIKE domener som like, hoppet over
+    // den destruktive-flytting-bekreftelsen og latt serveren kopiere-og-slette.
     meta.forEach((m, id) => metaArr.push(
       id + ':' + (m.role || '-') + (m.free ? 'F' : '') + (m.locked ? 1 : 0) +
       (m.unlocked ? 1 : 0) + (m.shared ? 1 : 0) + ':' + (m.personalPos == null ? '' : m.personalPos) +
-      ':' + (m.caps ? canonical(m.caps) : '') + ':' + (m.creator || '')
+      ':' + (m.caps ? canonical(m.caps) : '') + ':' + (m.creator || '') +
+      ':' + (m.ownerKey == null ? '' : m.ownerKey) + ':' + (m.ownerCount || 0) +
+      ':' + (m.memberCount || 0)
     ));
     metaArr.sort();
     const lo = []; lockOverrides.forEach((v, k) => lo.push(k + '=' + (v ? 1 : 0))); lo.sort();

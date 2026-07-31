@@ -2714,17 +2714,22 @@ begin
       continue;
     end if;
 
-    select count(*) into n_active from public.cards where group_id = g.id and not trashed;
+    -- Finnes det en ANNEN aktiv liste i gruppen? Det — ikke antallet aktive
+    -- lister — avgjør om promotering er trygt: er `c` selv i søpla mens en annen
+    -- liste er aktiv, ville promotering gitt mottakerne tilgang til nettopp den
+    -- søskenlista de ikke kunne lese før.
+    select count(*) into n_active
+      from public.cards where group_id = g.id and not trashed and id <> c.id;
 
-    if n_active <= 1 then
-      -- (3) Gruppen har bare denne aktive lista: løft mottakerne til DIREKTE
+    if n_active = 0 then
+      -- (3) Ingen andre aktive lister i gruppen: løft mottakerne til DIREKTE
       --     gruppemedlemmer. Lista blir liggende, og framtidige lister i gruppen
       --     deles etter den nye modellen med de samme folkene.
       target := g.id;
     else
-      -- (4) Flere aktive lister: splitt ut en ny søskengruppe for NØYAKTIG denne
-      --     lista, så mottakerne ikke får se søsknene. Samme univers, samme
-      --     gruppekategori, plassert rett ved siden av den gamle gruppen.
+      -- (4) Det finnes andre aktive lister: splitt ut en ny søskengruppe for
+      --     NØYAKTIG denne lista, så mottakerne ikke får se søsknene. Samme
+      --     univers, samme gruppekategori, rett ved siden av den gamle gruppen.
       base_nm := coalesce(nullif(btrim(c.title), ''), 'Delt liste');
       nm := base_nm; k := 1;
       while exists (select 1 from public.groups x

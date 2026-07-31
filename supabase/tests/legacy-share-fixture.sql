@@ -125,6 +125,9 @@ create table public.share_invites (
 --   X  = direkte LISTE-mottaker (én-liste-gruppe)   → skal bli gruppemedlem
 --   Y  = direkte LISTE-mottaker (flerliste-gruppe)  → skal få en NY gruppe
 --   W  = direkte GRUPPE-medlem i flerliste-gruppen  → skal følge med til den nye
+--   Z  = direkte LISTE-mottaker av en TRASHET liste, i en gruppe som har en
+--        ANNEN aktiv liste → må IKKE promoteres inn i gruppen (da ville Z fått
+--        se søskenlista); lista skal splittes ut som før.
 -- ------------------------------------------------------------
 
 insert into auth.users (id, email) values
@@ -132,7 +135,8 @@ insert into auth.users (id, email) values
   ('01000000-3333-0000-0000-00000000000b', 'mig-m@example.com'),
   ('01000000-3333-0000-0000-00000000000c', 'mig-x@example.com'),
   ('01000000-3333-0000-0000-00000000000d', 'mig-y@example.com'),
-  ('01000000-3333-0000-0000-00000000000e', 'mig-w@example.com');
+  ('01000000-3333-0000-0000-00000000000e', 'mig-w@example.com'),
+  ('01000000-3333-0000-0000-00000000000f', 'mig-z@example.com');
 insert into public.profiles (id, email, display_name)
   select id, email, split_part(email, '@', 1) from auth.users;
 
@@ -145,7 +149,10 @@ insert into public.groups (id, owner_id, universe_id, name, pos) values
    '11000000-3333-0000-0000-000000000001', 'Én liste', 1),
   -- G2: TO lister; den ene delt med Y, den andre delt med M (redundant)
   ('12000000-3333-0000-0000-000000000002', '01000000-3333-0000-0000-00000000000a',
-   '11000000-3333-0000-0000-000000000001', 'Flere lister', 2);
+   '11000000-3333-0000-0000-000000000001', 'Flere lister', 2),
+  -- G3: en TRASHET delt liste + en aktiv søskenliste
+  ('12000000-3333-0000-0000-000000000003', '01000000-3333-0000-0000-00000000000a',
+   '11000000-3333-0000-0000-000000000001', 'Med søppel', 3);
 
 insert into public.cards (id, owner_id, group_id, title, pos) values
   ('13000000-3333-0000-0000-000000000001', '01000000-3333-0000-0000-00000000000a',
@@ -153,7 +160,12 @@ insert into public.cards (id, owner_id, group_id, title, pos) values
   ('13000000-3333-0000-0000-000000000002', '01000000-3333-0000-0000-00000000000a',
    '12000000-3333-0000-0000-000000000002', 'Y-lista', 1),
   ('13000000-3333-0000-0000-000000000003', '01000000-3333-0000-0000-00000000000a',
-   '12000000-3333-0000-0000-000000000002', 'Søskenlista', 2);
+   '12000000-3333-0000-0000-000000000002', 'Søskenlista', 2),
+  ('13000000-3333-0000-0000-000000000005', '01000000-3333-0000-0000-00000000000a',
+   '12000000-3333-0000-0000-000000000003', 'Z sin aktive søsken', 2);
+insert into public.cards (id, owner_id, group_id, title, pos, trashed) values
+  ('13000000-3333-0000-0000-000000000004', '01000000-3333-0000-0000-00000000000a',
+   '12000000-3333-0000-0000-000000000003', 'Z-lista (i søpla)', 1, true);
 
 insert into public.items (id, owner_id, card_id, text, pos) values
   ('14000000-3333-0000-0000-000000000001', '01000000-3333-0000-0000-00000000000a',
@@ -171,7 +183,9 @@ insert into public.memberships (user_id, group_id, pos) values
 insert into public.memberships (user_id, card_id, pos) values
   ('01000000-3333-0000-0000-00000000000c', '13000000-3333-0000-0000-000000000001', 1),
   ('01000000-3333-0000-0000-00000000000d', '13000000-3333-0000-0000-000000000002', 2),
-  ('01000000-3333-0000-0000-00000000000b', '13000000-3333-0000-0000-000000000003', 3);
+  ('01000000-3333-0000-0000-00000000000b', '13000000-3333-0000-0000-000000000003', 3),
+  -- Z er mottaker av den TRASHEDE lista
+  ('01000000-3333-0000-0000-00000000000f', '13000000-3333-0000-0000-000000000004', 4);
 
 -- Ventende invitasjon på Y-lista til en adresse uten konto ennå
 insert into public.share_invites (inviter_id, invitee_email, card_id, status) values
