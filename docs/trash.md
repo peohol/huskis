@@ -35,7 +35,8 @@ doc'et) og en **angre-toast** («Slettet «X» — Angre», 5 s). Angrer man inn
 vinduet (`undoDelete(id)`), fjernes flagget lokalt — **ingen databasetrafikk,
 umiddelbart**. Ellers committes slettingen når timeren (`DELETE_BUFFER_MS`,
 5 s) utløper — eller når fanen skjules (`visibilitychange`/`pagehide`) —:
-`trashed = true` + stempling/mount-push (`commitDelete`).
+`trashed = true` + stempling (`commitDelete`). Søpla er FELLES for alle med
+tilgang.
 
 Mens objektet er buffret:
 - Det er **skjult** fra board/menyer (`activeCards`/`visibleGroups`/… ekskluderer
@@ -220,13 +221,14 @@ returnerer hva slags objekt som ble committet (`{ kind, obj, card? }`), og
 hvis den står åpen (`renderTrashModalBody()`), så radene alltid speiler
 faktisk tilstand.
 
-**Delte mounts i tømming**: for en mottaker er «tøm» på en montert share-rot =
-forlat delingen. `emptyXTrash` splicer objektet lokalt og kaller `cloudLeave`,
-som legger `leave_share` i bakgrunns-operasjonskøen og undertrykker raden fra
-synk-pullene til den har landet (`suppressedRows`, se `docs/accounts.md`) — så
-den verken gjenoppstår lokalt eller trigger delete-push mot eierens rader.
-(Tidligere ble hele `cloudBase` nullstilt i stedet; det kunne kortvarig
-gjenopplive andre, egne rader som ble tømt i samme runde.)
+**Forlate i stedet for å tømme**: kan man ikke slette objektet for alle
+(`cap(obj, 'delete')` er usann — f.eks. et univers man bare er medlem av, eller
+en fri gruppe man er vanlig medlem i), betyr «tøm» at man FORLATER det.
+`emptyXTrash` splicer objektet lokalt og kaller `cloudLeave`, som legger
+`leave_share` i bakgrunns-operasjonskøen og undertrykker raden fra synk-pullene
+til den har landet (`suppressedRows`, se `docs/accounts.md`) — så den verken
+gjenoppstår lokalt eller trigger delete-push mot andres rader. Forlatelse rører
+ALDRI innholdet; det består for de andre.
 
 ## Knappen svarer alltid på et lite bevegelig trykk
 

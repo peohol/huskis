@@ -39,9 +39,32 @@ Skjules før innlogging (`body.no-auth`).
 
 ## Navigasjonsmodalen (`#nav-modal`, åpnes fra nav-knappen)
 
+Modalen har **tre seksjoner**, hver med overskrift (`.nav-section-head`) og en
+skillelinje over (unntatt den første):
+
+| # | Overskrift | Innhold |
+|---|---|---|
+| 1 | `[globus][konto] Mine universer` | universer der jeg har rollen `owner` — pluss ＋-knappen «Nytt univers» (`.nav-add-uni`), som finnes KUN her |
+| 2 | `[globus][personer] Universer delt med meg` | universer der jeg er `member` |
+| 3 | `[mappe][personer] Grupper delt med meg` | grupper jeg har en DIREKTE rolle i uten å ha noen rolle i deres kanoniske univers |
+
+Seksjon 1 og 2 vises alltid (tomme får en `.nav-section-empty`-linje); seksjon 3
+kun når man faktisk har frie grupper. Klassifiseringen følger **nåværende rolle**,
+ikke hvem som opprettet objektet — se `docs/rettigheter-og-deling.md`.
+
+Seksjon 3 tegnes som ett **virtuelt universkort** (`.free-groups-card`,
+`FREE_UNI_ID`) uten del-/slett-knapp og uten ＋-rad: gruppene i det har allerede
+et kanonisk univers, og beholderen finnes ikke i databasen.
+
+Alle tre seksjonene ligger i den SAMME `.board-col` som universkortene, som egne
+rader. Dra-og-slipp-motoren hopper over dem (`boardRows` filtrerer på
+`.card`/`.card-placeholder`), så de kan stå der uten å bli dra-mål, og
+`relayoutBoard` returnerer tidlig for énkolonne-scopet slik at kortene aldri
+flyttes bort fra overskriften sin.
+
 Overskrift: **«[univers-ikon] Universer og [gruppe-ikon] grupper»**. Innholdet er
 ett `.board` (`#nav-board`, klassen `.nav-board`) med ett kort per univers, og
-under det en knapperad med «＋ [globus]» og univers-søppelkassen.
+under det univers-søppelkassen. («＋ [globus]» ligger inne i seksjon 1.)
 
 - **Alltid ÉN kolonne**, uansett skjermbredde — i motsetning til hovedsidens
   board. Kolonnene lages av det samme `relayoutBoard`-maskineriet

@@ -229,7 +229,7 @@
     return {
       id: id || uid(), uni: uniId || null, name, trashed: false,
       cat: null, isCat: false, collapsed: false,
-      _mine: true,                        // lokalt opprettet → mitt (synken bekrefter)
+      _type: 'group', _role: 'owner', _createdByMe: true, // lokalt opprettet (synken bekrefter)
       ts: 0, org: deviceId,               // innholdsregister (navn/trashed/isCat/collapsed)
       pos: 0, posTs: 0, posOrg: deviceId, // posisjonsregister (rekkefølge + univers + cat)
       cards: [],
@@ -247,7 +247,7 @@
   function makeUniverse(name, id) {
     return {
       id: id || uid(), name, trashed: false, collapsed: false,
-      _mine: true,                        // lokalt opprettet → mitt (synken bekrefter)
+      _type: 'universe', _role: 'owner', _createdByMe: true, // lokalt opprettet (synken bekrefter)
       ts: 0, org: deviceId,               // innholdsregister (navn/trashed/collapsed)
       pos: 0, posTs: 0, posOrg: deviceId, // posisjonsregister (rekkefølge)
       groups: [],
@@ -307,18 +307,18 @@
   }
 
   let saveTimer = null;
-  // Serialisering hopper over intern backend-metadata (_parent/_mount/_canon/…),
+  // Serialisering hopper over intern backend-metadata (_parent/_canon/_caps/…),
   // som ellers ville gitt sykliske referanser i kontomodus. State-nivå _tomb/_hlc
-  // beholdes. _mine (en ren boolsk verdi, ingen sirkulær referanse) beholdes også,
-  // slik at Mine/Delte-filteret har et riktig eierskaps-signal fra cachet state
-  // på kalde reloads/offline — før en vellykket get_my_doc overskriver den friskt.
+  // beholdes. _createdByMe (en ren boolsk verdi, ingen sirkulær referanse) beholdes
+  // også, slik at Mine/Delte-filteret har et riktig signal fra cachet state på
+  // kalde reloads/offline — før en vellykket get_my_doc overskriver den friskt.
   // _base/_baseV er synk-basen (forrige serverkjente doc, se cloudCycle): den MÅ
   // ligge i den samme localStorage-posten som innholdet, slik at basen og staten
   // den ble flettet mot alltid lagres i én og samme skriving. Havnet de i hver
   // sin post kunne den ene lande og den andre feile (kvote) — og en base som
   // beskriver rader staten ikke har, leses av fletteren som «slettet lokalt» og
   // ville pushet DELETE på gyldige rader.
-  const CACHED_META = new Set(['_tomb', '_hlc', '_mine', '_base', '_baseV']);
+  const CACHED_META = new Set(['_tomb', '_hlc', '_createdByMe', '_base', '_baseV']);
   function stateReplacer(k, v) {
     return (k && k[0] === '_' && !CACHED_META.has(k)) ? undefined : v;
   }
@@ -488,6 +488,10 @@
   const navCrumbBtn = document.getElementById('nav-crumb');
   const crumbUniName = document.getElementById('crumb-uni-name');
   const crumbGroupName = document.getElementById('crumb-group-name');
+  const crumbUniIcon = document.getElementById('crumb-uni-icon');
+  const crumbGroupIcon = document.getElementById('crumb-group-icon');
+  const crumbUniShared = document.getElementById('crumb-uni-shared');
+  const crumbGroupShared = document.getElementById('crumb-group-shared');
   const respSwitcherOverlay = document.getElementById('resp-switcher');
   const respSwitcherPanel = document.getElementById('resp-switcher-panel');
   const addCardBtn = document.getElementById('add-card-btn');
@@ -513,7 +517,6 @@
   const navModal = document.getElementById('nav-modal');
   const navModalClose = document.getElementById('nav-modal-close');
   const navBoard = document.getElementById('nav-board');
-  const addUniBtn = document.getElementById('add-uni-btn');
   const uniTrashBtn = document.getElementById('uni-trash-btn');
   const uniTrashCount = document.getElementById('uni-trash-count');
 
@@ -533,8 +536,12 @@
   // «i søppel» for visning, men ikke som aktivt.
   const live = (o) => !o.trashed && !o._pendingDelete;
   const activeUniverseObj = () => state.universes.find((u) => u.id === state.activeUniverse && live(u)) || null;
-  const visibleUniverses = () => state.universes.filter(live).sort(posCmp); // kortene i nav-modalen
-  const trashedUniverses = () => state.universes.filter((u) => !live(u));   // i univers-søppelkassen
+  // Kortene i nav-modalen, i seksjonsrekkefølge (mine → delte → frie grupper) og
+  // med personlig posisjon innenfor hver seksjon.
+  const visibleUniverses = () => state.universes.filter(live)
+    .sort((a, b) => (sectionRank(a) - sectionRank(b)) || posCmp(a, b));
+  // Den virtuelle fri-gruppe-beholderen kan aldri slettes, så den holdes utenfor.
+  const trashedUniverses = () => state.universes.filter((u) => !live(u) && !u._virtual);
   const findUniverse = (id) => state.universes.find((u) => u.id === id) || null;
   const allGroups = () => { const u = activeUniverseObj(); return u ? u.groups : []; };
   const activeGroupObj = () => allGroups().find((g) => g.id === state.activeGroup && live(g) && !g.isCat) || null;
@@ -609,9 +616,10 @@
   }
   // Naviger til en gruppe uansett hvilket univers den ligger i (nav-modalen viser
   // alle universene samtidig, så et gruppevalg kan bytte univers også).
+  const containerIdOf = (g) => (g && g._free ? FREE_UNI_ID : (g && g.uni) || null);
   function goToGroup(g) {
     if (!g || g.isCat) return;
-    state.activeUniverse = g.uni || state.activeUniverse;
+    state.activeUniverse = containerIdOf(g) || state.activeUniverse;
     setActiveGroup(g.id);
   }
   // Den aktive gruppen kan ha byttet univers mens man stod i den: dratt til et
@@ -622,8 +630,9 @@
   function followActiveGroup() {
     if (!state.activeGroup) return;
     const g = findGroupAnywhere(state.activeGroup);
-    if (!g || g.isCat || !live(g) || !g.uni || g.uni === state.activeUniverse) return;
-    state.activeUniverse = g.uni;
+    const cont = containerIdOf(g);
+    if (!g || g.isCat || !live(g) || !cont || cont === state.activeUniverse) return;
+    state.activeUniverse = cont;
     setActiveGroup(g.id);
   }
 
@@ -666,9 +675,6 @@
     },
     countIcon: null,                  // «(N)»
     refreshContainer: (c) => refreshCard(c),
-    // Mount-patch når en DELT rad flyttes (listepunkter monteres aldri, så denne
-    // brukes i praksis bare av nav-scopet).
-    mountParentPatch: (parentId, pos) => ({ pos }),
     // Full re-rendring etter en strukturendring (ekstrahering/kryss-flytting).
     render: () => render(),
     // Overflate-oppdatering etter et kirurgisk drop (ingen rebuild av scopet).
@@ -709,7 +715,6 @@
       const oldEl = navBoard.querySelector('.card[data-id="' + u.id + '"]');
       if (oldEl) oldEl.replaceWith(buildUniverseCard(u));
     },
-    mountParentPatch: (parentId, pos) => ({ parent_universe_id: parentId, pos }),
     render: () => render(),
     // Et gruppe-drag kan ha flyttet den AKTIVE gruppen til et annet univers (eller
     // inn i/ut av en kategori) — hovedsidens board og breadcrumben må følge med.
@@ -742,8 +747,8 @@
   function saveFilter() {
     try { localStorage.setItem(FILTER_KEY, JSON.stringify(filter)); } catch (e) { /* ignore */ }
   }
-  // Er kortet delt med meg av noen andre? (Utenfor kontomodus er alt «mine».)
-  function cardIsShared(c) { return c._mine === false; }
+  // Er lista laget av noen andre? («Delte» i filteret; «Mine» = laget av meg.)
+  function cardIsShared(c) { return c._createdByMe === false; }
   function cardMatchesFilter(c) {
     return cardIsShared(c) ? filter.delt : filter.mine;
   }
@@ -795,9 +800,14 @@
   // kolonne 1 topp→bunn, så kolonne 2 … . DOM-rekkefølgen ER leserekkefølgen,
   // så `pos` kan fortsatt regnes fra naboene — men naboen over den første raden
   // i en kolonne ligger i kolonnen FØR, ikke i samme container.
+  // En «board-rad» er et kort eller kortets placeholder under draging — ikke
+  // nav-modalens seksjonsoverskrifter/tom-tilstander, som ligger i den samme
+  // kolonnen men aldri er dra-mål.
+  const isBoardRow = (el) => el.classList.contains('card') || el.classList.contains('card-placeholder');
   function boardRows(root) {
     const out = [];
-    for (const col of boardColumns(root)) out.push(...col.children);
+    // Seksjonsoverskrifter/tom-tilstander i nav-modalen er ikke dra-rader.
+    for (const col of boardColumns(root)) out.push(...[...col.children].filter(isBoardRow));
     return out;
   }
   function boardRowSibling(el, dir) {
@@ -875,6 +885,10 @@
   function relayoutBoard(scope) {
     const S = scope || boardScope;
     if (drag.active) return;                            // frosset under draging
+    // Ett scope med bare én kolonne har ingenting å fordele — og i nav-modalen
+    // ligger seksjonsoverskriftene i den samme kolonnen, så en omfordeling
+    // ville flyttet kortene bort fra overskriften sin.
+    if (S.singleColumn) return;
     if (S.root.classList.contains('empty')) { observeBoardRows(S, []); return; }
     // En node som flyttes i DOM mister fokus (og markøren i et navnefelt). Er
     // man midt i å skrive, venter vi til feltet forlates (`focusout` under).
@@ -1003,11 +1017,29 @@
 
   // Breadcrumben (nav-knappen) viser navnet på gjeldende univers og gruppe, ikke
   // bare nivånavnet — så man alltid ser hvor i hierarkiet man er.
+  // Breadcrumben følger den faste ikonrekkefølgen
+  // `[ressursikon][delt-ikon ved behov] Ressursnavn`, aldri med gruppeikonet to
+  // ganger. En FRI gruppe (delt direkte med meg, uten tilgang til det kanoniske
+  // universet) får en virtuell rot: `[delt-ikon] Delte grupper` — ingen
+  // universikon, siden det ikke er noe univers jeg kan se.
+  function setCrumbShared(el, on, label) {
+    el.hidden = !on;
+    el.innerHTML = on ? ICONS.people : '';
+    if (on) el.title = label;
+    el.setAttribute('aria-hidden', on ? 'false' : 'true');
+    if (on) el.setAttribute('aria-label', label); else el.removeAttribute('aria-label');
+  }
   function updateCrumbs() {
     const uni = activeUniverseObj();
     const group = activeGroupObj();
-    crumbUniName.textContent = uni ? uni.name : 'Univers';
+    const free = !!(group && group._free);
+    crumbUniIcon.innerHTML = free ? '' : ICONS.globe;
+    crumbUniName.textContent = free ? S_TEXT.freeSection : (uni ? uni.name : 'Univers');
+    setCrumbShared(crumbUniShared, free || !!(uni && uni._shared),
+      free ? 'Grupper delt med deg' : 'Universet er delt');
+    crumbGroupIcon.innerHTML = ICONS.folder;
     crumbGroupName.textContent = group ? group.name : 'Gruppe';
+    setCrumbShared(crumbGroupShared, !!(group && group._shared), 'Gruppen er delt');
   }
 
   // Delings-/låse-status (kontomodus): toggler .is-shared og fyller .share-badge
@@ -1015,14 +1047,16 @@
   // som byggerne gjenbruker — canEdit gater redigering; kort-byggerne toggler
   // dessuten .is-locked selv.
   function applyShareBadge(el, obj) {
-    const shared = obj._shared || obj._mount;
+    // AKTIVT delt = mer enn én bruker har effektiv tilgang. Ventende
+    // invitasjoner teller ikke (serveren regner ut `shared` slik).
+    const shared = !!obj._shared;
     const canEdit = !frozen(obj);
-    el.classList.toggle('is-shared', !!shared);
+    el.classList.toggle('is-shared', shared);
     if (shared) {
       const badge = el.querySelector('.share-badge');
       badge.hidden = false;
       badge.innerHTML = !canEdit ? ICONS.lock : ICONS.people;
-      badge.title = obj._mount ? 'Delt med deg' : 'Delt med andre';
+      badge.title = obj._role === 'owner' ? 'Delt med andre' : 'Delt med deg';
     }
     return { shared, canEdit };
   }
@@ -1037,6 +1071,22 @@
      slipp-motoren (reorder, flytt mellom universer, ekstraher til nytt
      univers, peek-åpning, skillelinjer) uten en eneste egen kodelinje —
      se `navScope` over. */
+  // Overskriften til én av de tre seksjonene: [ikon][ikon] Tittel.
+  function navSectionHead(rank) {
+    const h = document.createElement('h3');
+    h.className = 'nav-section-head';
+    h.dataset.section = String(rank);
+    const icons = document.createElement('span');
+    icons.className = 'nav-section-icons';
+    icons.setAttribute('aria-hidden', 'true');
+    if (rank === SECTION_OWNED) icons.innerHTML = ICONS.globe + ICONS.profile;
+    else if (rank === SECTION_SHARED) icons.innerHTML = ICONS.globe + ICONS.people;
+    else icons.innerHTML = ICONS.folder + ICONS.people;
+    const txt = document.createElement('span');
+    txt.textContent = S_TEXT.sections[rank];
+    h.append(icons, txt);
+    return h;
+  }
   function renderNav() {
     updateUniversesTrash();
     updateCrumbs();
@@ -1046,75 +1096,116 @@
     // treff for `.card`/`.item` på tvers av de to board-ene.
     if (navModal.hidden) return;
     const vis = visibleUniverses();
-    // Samme posisjonsbaserte fargesystem som listekortene.
-    vis.forEach((u, i) => { u.color = colorForIndex(i); });
-    if (!vis.length) {
-      navBoard.classList.add('empty');
-      const es = document.createElement('div');
-      es.className = 'empty-state';
-      es.innerHTML = '<div class="big">' + ICONS.globe + '</div><p>Ingen universer ennå.</p>' +
-        '<p>Trykk <span class="hint-chip">' + ICONS.plus + ' ' + ICONS.globe + '</span> nedenfor.</p>';
-      navBoard.appendChild(es);
-      return;
-    }
-    navBoard.classList.remove('empty');
-    // Samme kolonne-container som hovedsidens board (`relayoutBoard`), bare at
-    // nav-scopet alltid holder seg til ÉN kolonne (`singleColumn`).
+    // Samme posisjonsbaserte fargesystem som listekortene (den virtuelle
+    // fri-beholderen teller ikke med — den har ingen egen farge).
+    vis.filter((u) => !u._virtual).forEach((u, i) => { u.color = colorForIndex(i); });
+    navBoard.classList.toggle('empty', !vis.length);
+    // Samme kolonne-container som hovedsidens board, bare at nav-scopet alltid
+    // holder seg til ÉN kolonne (`singleColumn`). Seksjonsoverskriftene ligger
+    // som egne rader i kolonnen — DnD-motoren hopper over dem (se `boardRows`).
     const col = document.createElement('div');
     col.className = 'board-col';
-    vis.forEach((u) => col.appendChild(buildUniverseCard(u)));
+    // De to universseksjonene vises alltid (også tomme, med tom-tilstand);
+    // fri-seksjonen kun når man faktisk har direkte delte grupper.
+    [SECTION_OWNED, SECTION_SHARED, SECTION_FREE].forEach((rank) => {
+      const inSection = vis.filter((u) => sectionRank(u) === rank);
+      if (rank === SECTION_FREE && !inSection.length) return;
+      col.appendChild(navSectionHead(rank));
+      if (!inSection.length) {
+        const es = document.createElement('p');
+        es.className = 'nav-section-empty';
+        es.textContent = rank === SECTION_OWNED
+          ? 'Ingen egne universer ennå.'
+          : 'Ingen universer er delt med deg.';
+        col.appendChild(es);
+      }
+      inSection.forEach((u) => col.appendChild(buildUniverseCard(u)));
+      // «Nytt univers» hører KUN hjemme i «Mine universer».
+      if (rank === SECTION_OWNED) col.appendChild(navAddUniverseRow());
+    });
     navBoard.appendChild(col);
     relayoutBoard(navScope);
+  }
+  // ＋-knappen for et nytt univers, plassert nederst i «Mine universer».
+  function navAddUniverseRow() {
+    const wrap = document.createElement('div');
+    wrap.className = 'nav-add-uni';
+    const b = document.createElement('button');
+    b.className = 'btn-add btn-solid btn-green'; b.type = 'button';
+    b.title = 'Nytt univers'; b.setAttribute('aria-label', 'Nytt univers');
+    b.innerHTML = ICONS.plus + ' ' + ICONS.globe;
+    b.addEventListener('click', () => addUniverse());
+    wrap.appendChild(b);
+    return wrap;
   }
 
   function buildUniverseCard(u) {
     const el = uniCardTpl.content.firstElementChild.cloneNode(true);
     el.dataset.id = u.id;
 
-    const base = u.color || colorForId(u.id);
-    el.style.setProperty('--card-bg', base);
-    el.style.setProperty('--card-head', darken(base, 0.08));
-    el.style.setProperty('--card-accent', darken(base, 0.32));
+    // Den virtuelle fri-beholderen får ingen posisjonsfarge — den er en seksjon,
+    // ikke et univers (den nøytrale flaten kommer fra `.free-groups-card`).
+    if (!u._virtual) {
+      const base = u.color || colorForId(u.id);
+      el.style.setProperty('--card-bg', base);
+      el.style.setProperty('--card-head', darken(base, 0.08));
+      el.style.setProperty('--card-accent', darken(base, 0.32));
+    }
 
-    const canEdit = applyShareBadge(el, u).canEdit;
-    el.classList.toggle('is-locked', !canEdit);
+    const isFree = !!u._virtual;   // «Grupper delt med meg» — ikke et ekte univers
+    el.classList.toggle('free-groups-card', isFree);
+    const canEdit = applyShareBadge(el, u).canEdit && !isFree;
+    el.classList.toggle('is-locked', !canEdit && !isFree);
     el.classList.toggle('active', u.id === state.activeUniverse);
-    // [univers-ikon]([delt-ikon])Navn — samme rekkefølge som breadcrumben.
-    el.querySelector('.uni-icon').innerHTML = ICONS.globe;
+    // [ressursikon]([delt-ikon])Navn — samme rekkefølge som breadcrumben.
+    el.querySelector('.uni-icon').innerHTML = isFree ? ICONS.people : ICONS.globe;
 
     const titleEl = el.querySelector('.card-title');
     titleEl.textContent = u.name;
-    titleEl.addEventListener('click', () => {
-      if (!canEdit) return;
-      editText(titleEl, u.name, (val) => {
-        u.name = val || 'Uten navn';
-        titleEl.textContent = u.name;
-        stampContent(u);
-        save();
-        updateCrumbs();
+    if (canEdit && cap(u, 'editContent')) {
+      titleEl.addEventListener('click', () => {
+        editText(titleEl, u.name, (val) => {
+          u.name = val || 'Uten navn';
+          titleEl.textContent = u.name;
+          stampContent(u);
+          save();
+          updateCrumbs();
+        });
       });
-    });
+    } else {
+      titleEl.removeAttribute('title');
+    }
 
     // Universer og grupper har ingen innstillingsmodal — kun en del-knapp.
+    // Den er synlig for ALLE med tilgang: medlemslisten skal kunne ses av alle,
+    // mens invitasjonsfelt og administrasjon gates av capabilities inne i modalen.
     const shareBtn = el.querySelector('.uni-share');
-    if (!(u._mine || u._mount)) shareBtn.hidden = true;
+    if (isFree) shareBtn.hidden = true;
     else shareBtn.addEventListener('click', () => {
       closeNavModal();
       openShare('universe', u.id, u, openNavModal);
     });
 
     const delBtn = el.querySelector('.uni-delete');
-    if (!canEdit && !u._mount) delBtn.hidden = true;
+    if (isFree || !cap(u, 'delete')) delBtn.hidden = true;
     else delBtn.addEventListener('click', () => deleteUniverse(u));
+
+    const leaveBtn = el.querySelector('.uni-leave');
+    if (isFree || !cap(u, 'leave', false)) leaveBtn.hidden = true;
+    else leaveBtn.addEventListener('click', () => leaveObject('universe', u));
 
     // Draging + rullgardin-kollaps: nøyaktig som et listekort.
     const head = el.querySelector('.card-head');
     head.setAttribute('aria-expanded', u.collapsed ? 'false' : 'true');
-    head.setAttribute('aria-label', 'Universet ' + u.name);
-    attachHoldDrag(head, el, startCardDrag,
-      () => canEdit || !!u._mount, '.uni-share, .uni-delete');
+    head.setAttribute('aria-label', (isFree ? '' : 'Universet ') + u.name);
+    // Universenes rekkefølge er PERSONLIG — alle medlemmer kan dra dem. Den
+    // virtuelle fri-beholderen står i ro.
+    if (!isFree) {
+      attachHoldDrag(head, el, startCardDrag, () => true,
+        '.uni-share, .uni-delete, .uni-leave');
+    }
     head.addEventListener('click', (ev) => {
-      if (ev.target.closest('.card-title, .uni-share, .uni-delete, .edit-input')) return;
+      if (ev.target.closest('.card-title, .uni-share, .uni-delete, .uni-leave, .edit-input')) return;
       toggleCardCollapsed(el, u, navScope);
     });
     // Tastatur: korthodet er fokuserbart (tittelen er det ikke), så Enter/
@@ -1137,7 +1228,9 @@
     // ＋ = ny gruppe, gul knapp = ny gruppekategori. Begge oppretter objektet med
     // én gang og åpner navneredigereren på det (som i en liste).
     const addRow = el.querySelector('.add-item-row');
-    if (!canEdit) addRow.hidden = true;
+    // Grupper og gruppekategorier opprettes kun der man har opprettelsesrett —
+    // aldri i fri-seksjonen (de gruppene har allerede et kanonisk univers).
+    if (isFree || !cap(u, 'createGroup', canEdit)) addRow.hidden = true;
     const addRowNow = (obj, rowEl, titleSel) => {
       obj.pos = level1MaxPos(u.groups) + 1;
       stampContent(obj);
@@ -1148,19 +1241,19 @@
       nameNewRow(obj, u, rowEl, rowEl.querySelector(titleSel), navScope);
     };
     addRow.querySelector('.add-item-btn').addEventListener('click', () => {
-      if (!canEdit) return;
+      if (addRow.hidden) return;
       const g = makeGroup('', null, u.id);
       addRowNow(g, buildGroupRow(g, u), '.item-text');
     });
     addRow.querySelector('.add-cat-btn').addEventListener('click', () => {
-      if (!canEdit) return;
+      if (addRow.hidden) return;
       const gc = makeGroupCategory('', u.id);
       addRowNow(gc, buildGroupCategory(gc, u), '.cat-title');
     });
 
     // Gruppe-søppelkassen: i universet sitt, akkurat som listepunkt-søppelkassen
     // ligger i lista si (univers-søppelkassen ligger nederst i modalen).
-    const trashed = trashedGroupsOf(u);
+    const trashed = isFree ? [] : trashedGroupsOf(u);
     if (trashed.length) {
       const wrap = document.createElement('div');
       wrap.className = 'item-trash';
@@ -1227,7 +1320,7 @@
 
     // Klikk ellers på raden (ikke navn/knapper) = gå til gruppen og lukk modalen.
     el.addEventListener('click', (ev) => {
-      if (ev.target.closest('.item-text, .group-share, .group-delete, .edit-input')) return;
+      if (ev.target.closest('.item-text, .group-share, .group-delete, .group-leave, .edit-input')) return;
       navigate();
     });
     // Tastatur: raden er eneste fokuserbare punkt (navnet er ikke fokuserbart),
@@ -1241,20 +1334,28 @@
       else navigate();
     });
 
+    // Del-knappen er synlig for alle med tilgang (medlemslisten er åpen);
+    // administrasjonen inne i modalen gates av capabilities.
     const shareBtn = el.querySelector('.group-share');
-    if (!(g._mine || g._mount)) shareBtn.hidden = true;
-    else shareBtn.addEventListener('click', (ev) => {
+    shareBtn.addEventListener('click', (ev) => {
       ev.stopPropagation();
       closeNavModal();
       openShare('group', g.id, g, openNavModal);
     });
 
     const delBtn = el.querySelector('.group-delete');
-    if (!canEdit && !g._mount) delBtn.hidden = true;
+    if (!cap(g, 'delete', canEdit)) delBtn.hidden = true;
     else delBtn.addEventListener('click', (ev) => { ev.stopPropagation(); deleteGroup(g); });
 
+    const leaveBtn = el.querySelector('.group-leave');
+    if (!cap(g, 'leave', false)) leaveBtn.hidden = true;
+    else leaveBtn.addEventListener('click', (ev) => { ev.stopPropagation(); leaveObject('group', g); });
+
+    // En fri gruppe ordnes PERSONLIG (alltid dragbar); en gruppe i et univers
+    // krever rett til å endre universets struktur.
     attachHoldDrag(el, el, startItemDrag,
-      () => canEdit || !!g._mount, '.group-share, .group-delete');
+      () => (u && u._virtual) || cap(g, 'reorderInParent', canEdit) || cap(g, 'move', false),
+      '.group-share, .group-delete, .group-leave');
     return el;
   }
 
@@ -1338,6 +1439,22 @@
     return g;
   }
 
+  // Forlat et univers eller en gruppe: fjerner KUN min egen tilgang, aldri
+  // innholdet. Optimistisk — objektet forsvinner straks, RPC-en ligger i køen.
+  async function leaveObject(type, obj) {
+    const word = type === 'universe' ? 'universet' : 'gruppen';
+    if (!await askConfirm({
+      title: 'Forlat ' + word,
+      message: 'Du mister tilgangen til «' + (obj.name || 'objektet') +
+        '», men innholdet består for de andre.',
+      okLabel: 'Forlat',
+    })) return;
+    removeSharedLocally(obj.id);
+    cloudLeave(type, obj.id);
+    render();
+    save();
+  }
+
   // Slett en gruppe → legg i universets gruppe-søppelkasse (trashed-flagg;
   // gjenopprettbar). Permanent sletting skjer først når søppelkassen tømmes.
   function deleteGroup(groupData) {
@@ -1364,9 +1481,8 @@
     if (!trash.length) return;
     trash.forEach((g) => {
       const idx = u.groups.indexOf(g);
-      if (g._mount) {
-        // Mottaker forlater delingen (rører ikke eierens innhold). cloudLeave
-        // undertrykker raden fra pull-ene til forlatelsen har landet.
+      // En gruppe man ikke kan slette for alle, forlater man i stedet.
+      if (!cap(g, 'delete', true)) {
         if (idx > -1) u.groups.splice(idx, 1);
         cloudLeave('group', g.id);
         return;
@@ -1389,11 +1505,12 @@
     el.style.setProperty('--card-head', darken(base, 0.08));
     el.style.setProperty('--card-accent', darken(base, 0.32));
 
-    // Delings-/låse-status (kontomodus). canEdit=false fryser redigering, men en
-    // montert liste-rot (mottakerens egen) kan alltid dras/legges i egen søppel.
-    // Delt-indikatoren ligger i meta-raden under tittelen (fillMetaRow), ikke
-    // som badge i headeren; .is-locked (egen kant-styling) settes her.
-    const shared = cardData._shared || cardData._mount;
+    // Delings-/låse-status (kontomodus). En liste arver delingen fra gruppen —
+    // den har ingen egen medlemsliste. Delt-indikatoren ligger i meta-raden
+    // under tittelen (fillMetaRow), ikke som badge i headeren; .is-locked
+    // (egen kant-styling) settes her.
+    const grp = nodeOfType(cardData, 'group');
+    const shared = !!(grp && grp._shared);
     const canEdit = !frozen(cardData);
     el.classList.toggle('is-shared', !!shared);
     el.classList.toggle('is-locked', !canEdit);
@@ -1418,10 +1535,10 @@
       });
     });
 
-    // Slett kategori -> legg i papirkurv (trashed-flagg; permanent først ved «Tøm papirkurv»).
-    // Frosset (låst av andre) og ikke egen mount → ingen slett-knapp.
+    // Slett liste -> legg i felles papirkurv (trashed-flagg; permanent først ved
+    // «Tøm papirkurv»). Frosset (låst for meg) → ingen slett-knapp.
     const cardDelBtn = el.querySelector('.card-delete');
-    if (!canEdit && !cardData._mount) {
+    if (!canEdit) {
       cardDelBtn.hidden = true;
     } else {
       cardDelBtn.addEventListener('click', () => {
@@ -1434,10 +1551,9 @@
     }
 
     // Kort-draging: trykk-og-hold på korthodet (tittel-delen) unntatt de to
-    // knappene til høyre (tannhjul + ×). Frosset (låst av andre) og ikke egen
-    // mount → ingen draging.
+    // knappene til høyre (tannhjul + ×). Frosset (låst for meg) → ingen draging.
     attachHoldDrag(el.querySelector('.card-head'), el, startCardDrag,
-      () => canEdit || !!cardData._mount, '.card-cog, .card-delete');
+      () => canEdit, '.card-cog, .card-delete');
 
     // Klikk på korthodet (ikke tittel/tannhjul/×/meta-chip) kollapser/utvider
     // kortet med en rullgardin-animasjon (et fullført hold løfter i stedet kortet
@@ -1676,31 +1792,15 @@
 
   // Nivåtype ut fra formen på state-objektet (kort har items, gruppe har cards,
   // univers har groups).
-  function nodeType(n) {
-    if (!n) return null;
-    if (n.items) return 'card';
-    if (n.cards) return 'group';
-    return 'universe';
-  }
-  // Nærmeste forelder (eller objektet selv) som er en ekte delings-rot: enten
-  // delt av meg (`_shared` = har medlemmer) eller montert av meg som mottaker
-  // (`_mount`). MERK: et ikke-eid *barn* av en delt gruppe/univers har også
-  // `_mine === false`, men er IKKE selv delings-roten (ingen egen medlemsliste)
-  // — derfor stopper vi kun på `_shared`/`_mount`, ikke på `_mine === false`,
-  // ellers ville ansvars-velgeren hentet get_members for feil (medlemsløst)
-  // objekt for arvede delinger. Null for private objekter.
-  function shareRootFor(node) {
-    let n = node;
-    while (n) {
-      if (n._shared || n._mount) return n;
-      n = n._parent;
-    }
-    return null;
-  }
+  // DELEGRUPPEN til et objekt = GRUPPEN det ligger i. Lister, kategorier og
+  // listepunkter deles aldri selv — de arver hele gruppens effektive medlemsliste
+  // (universeiere + universmedlemmer + eksplisitte gruppeeiere + direkte
+  // gruppemedlemmer, deduplisert). Ansvarlig-velgeren bruker nøyaktig den lista.
+  function shareRootFor(node) { return nodeOfType(node, 'group'); }
 
-  // Cache av delegrupper per delte forelder: rootKey → sortert personliste
-  // (eier + medlemmer, alfabetisk på navn) + id→indeks-oppslag. Fylles lat via
-  // get_members; personens indeks gir paletten (colorForIndex).
+  // Cache av delegrupper per gruppe: rootKey → sortert personliste (alfabetisk
+  // på navn) + id→indeks-oppslag. Fylles lat via get_members; personens indeks
+  // gir paletten (colorForIndex).
   const shareGroupCache = new Map();
   const shareGroupLoading = new Set();
   function rootKey(type, id) { return type + ':' + id; }
@@ -1708,9 +1808,7 @@
     return { id: p.id, email: p.email, name: personName(p), initials: initialsFromName(p.display_name, p.email) };
   }
   function buildShareGroup(info) {
-    const people = [];
-    if (info.owner) people.push(personEntry(info.owner));
-    (info.members || []).forEach((m) => people.push(personEntry(m)));
+    const people = (info.members || []).map(personEntry);
     people.sort((a, b) => a.name.localeCompare(b.name, 'nb'));
     const byId = new Map();
     people.forEach((p, i) => byId.set(p.id, { person: p, index: i }));
@@ -1853,17 +1951,20 @@
     row.innerHTML = '';
     const obj = target.obj;
     const isCard = target.kind === 'card';
-    if (isCard && (obj._shared || obj._mount)) {
+    // Lister deles ikke selv — chipen viser at GRUPPEN er delt, og åpner
+    // gruppens delingsinnstillinger.
+    const grp = nodeOfType(obj, 'group');
+    if (isCard && grp && grp._shared) {
       const chip = metaChipEl('meta-shared');
       chip.innerHTML = !canEdit ? ICONS.lock : ICONS.people;
-      chip.title = obj._mount ? 'Delt med deg' : 'Delt med andre';
+      chip.title = grp._role === 'owner' ? 'Gruppen er delt med andre' : 'Gruppen er delt med deg';
       chip.setAttribute('aria-label', chip.title + '. Trykk for delingsinnstillinger');
-      chip.addEventListener('click', (ev) => { ev.stopPropagation(); openSettings(target.kind, obj.id, target.card.id); });
+      chip.addEventListener('click', (ev) => { ev.stopPropagation(); openShare('group', grp.id, grp); });
       row.appendChild(chip);
     }
     if (obj.responsible) {
       const shareRoot = shareRootFor(target.card);
-      const rType = shareRoot ? nodeType(shareRoot) : null;
+      const rType = 'group';
       const group = shareRoot ? shareGroupCache.get(rootKey(rType, shareRoot.id)) : null;
       if (shareRoot && !group) ensureShareGroup(rType, shareRoot.id);
       const entry = group ? group.byId.get(obj.responsible) : null;
@@ -2233,19 +2334,12 @@
   }
 
   /* ---------------- Gjenopprett-hjelpere (delt av søppel-modal + angre-toast) ----------------
-     Ett sted for «trashed = false»-logikken per nivå (håndterer også monterte
-     delinger via mount-oppdatering), så både «Gjenopprett» i søppel-modalen og
-     «Angre» i slette-toasten bruker nøyaktig samme kode. */
-  // Sett `trashed`-flagget på ett objekt. Én kilde for mount/else-splitten som
-  // både sletting (commit-callback, `trashed = true`) og gjenoppretting
-  // (`trashed = false`) trenger: en montert deling speiler flagget i
-  // montasjepunktet + pusher til skyen, en egen-eid rad stemples lokalt.
-  // Elementer monteres aldri (kun univers/gruppe/liste kan være share-røtter),
-  // så else-grenen kjører alltid for `kind === 'item'`.
-  function setTrashed(o, kind, val) {
-    if (o._mount) { o.trashed = val; o._mount.trashed = val; cloudMountUpdate(kind, o.id, { trashed: val }); }
-    else { o.trashed = val; stampContent(o); }
-  }
+     Ett sted for «trashed = false»-logikken per nivå, så både «Gjenopprett» i
+     søppel-modalen og «Angre» i slette-toasten bruker nøyaktig samme kode.
+     Søpla er FELLES for alle med tilgang: `trashed` er et vanlig innholdsfelt
+     som synkes som alt annet. Å FORLATE en deling er noe annet — det rører
+     aldri innholdet, bare egen tilgang (se cloudLeave). */
+  function setTrashed(o, kind, val) { o.trashed = val; stampContent(o); }
   // Sett gravstein på objektet + hele undertreet (lokal per-enhet-markør).
   // Delt av alle fire «tøm permanent»-funksjonene.
   function tombSubtree(o, kind) {
@@ -3401,7 +3495,7 @@
      (samme modal-skall som plasseringsvalget). */
   function moveTargetGroups(c) {
     return visibleGroupsOf(activeUniverseObj()).filter((g) =>
-      !g.isCat && g.id !== state.activeGroup && g.id !== (c && c._mount && c._mount.parent));
+      !g.isCat && g.id !== state.activeGroup && cap(g, 'createList', !frozen(g)));
   }
   function pointerOnNavCrumb(x, y) {
     const r = navCrumbBtn.getBoundingClientRect();
@@ -3439,16 +3533,10 @@
     const i = src.cards.indexOf(c);
     if (i > -1) src.cards.splice(i, 1);
     const np = maxPos(dest.cards) + 1; // legg bakerst i mål-gruppen
-    if (c._mount) {
-      // Montert liste: flytt mottakerens mount til ny gruppe (ikke eierens plassering).
-      c._mount.parent = dest.id; c._mount.pos = np; c.pos = np;
-      c._parent = dest;
-      cloudMountUpdate('card', c.id, { parent_group_id: dest.id, pos: np });
-    } else {
-      c.group = dest.id;
-      c.pos = np;
-      stampPos(c);
-    }
+    c.group = dest.id;
+    c.pos = np;
+    c._parent = dest;
+    stampPos(c);
     dest.cards.push(c);
     save();
     render(); // lista forsvinner fra dette board-et
@@ -3631,9 +3719,11 @@
       const pPrev = prev && prev.classList.contains('card') ? (S.findContainer(prev.dataset.id) || {}).pos : null;
       const pNext = next && next.classList.contains('card') ? (S.findContainer(next.dataset.id) || {}).pos : null;
       const np = between(pPrev == null ? null : pPrev, pNext == null ? null : pNext);
-      if (c._mount) {
-        c.pos = np; c._mount.pos = np;
-        cloudMountUpdate(S.contKind, c.id, { pos: np });
+      if (c._canon) {
+        // Universer (og frie grupper) ordnes PERSONLIG — posisjonen ligger på
+        // min egen medlemskapsrad og endrer aldri hva andre ser.
+        c.pos = np;
+        cloudPersonalPos(S.contKind, c.id, np);
       } else {
         c.pos = np;
         stampPos(c);
@@ -3983,10 +4073,19 @@
     const targetHead = targetContainer.closest('.card');
     if (targetHead && targetHead.dataset.id !== sourceCardId) {
       const tc = S.findContainer(targetHead.dataset.id);
-      if (tc && frozen(tc)) {
+      // Ugyldig mål avvises MED EN GANG. Serveren ville uansett avvist skrivingen
+      // og snappet objektet tilbake ved neste synk; her rulles draget tilbake som
+      // et avbrutt drag, med en forklaring.
+      let reason = null;
+      if (tc && frozen(tc)) reason = S.lockedTargetMsg;
+      else if (tc && tc._virtual) reason = 'En gruppe kan ikke flyttes hit — den må ligge i et univers';
+      else if (tc && S.rowKind === 'group' && !cap(tc, 'createGroup', !frozen(tc))) {
+        reason = 'Du kan ikke opprette grupper i dette universet';
+      }
+      if (reason) {
         restoreDraggedToOrigin();
         finishDrag(); // rydder placeholder/skillelinjer + kollapser evt. peek-åpnet mål
-        showToast(S.lockedTargetMsg);
+        showToast(reason);
         return;
       }
     }
@@ -4017,19 +4116,24 @@
     // Kirurgisk: sett kun den flyttede radens forelder (home/uni), kategori (cat)
     // og posisjon. `cat` rir på posisjonsregisteret (som forelderen).
     const moved = S.findRow(el.dataset.id);
-    let mountedIntoCat = false;
+    let groupMove = null;
     if (moved) {
       const np = between(rowPos(prev), rowPos(next));
-      if (moved._mount) {
-        // En rad som er DELT MED MEG flyttes via MIN plassering (mount), ikke via
-        // eierens rad. Mount-plasseringen har ingen kategori-kolonne, så en delt
-        // gruppe kan foreløpig bare ligge på nivå 1 i universet (se
-        // docs/rettigheter-og-deling.md — plasseringsreglene for delt innhold
-        // utvides i en senere runde).
-        mountedIntoCat = !!catEl;
+      const fromCont = S.rowParent(moved);
+      if (S.rowKind === 'group' && targetCardId !== fromCont) {
+        // En GRUPPE som bytter univers går gjennom move_group-RPC-en (databasen
+        // avviser en direkte `universe_id`-skriving). Vi flytter den optimistisk
+        // her og lar RPC-en avgjøre reparenting vs. kopier-og-slett.
+        groupMove = { from: fromCont, to: targetCardId, cat: catEl ? catEl.dataset.id : null, pos: np };
+        S.setRowParent(moved, targetCardId);
+        moved._parent = S.findContainer(targetCardId) || moved._parent;
+        moved.cat = groupMove.cat;
+        moved.pos = np;
+      } else if (moved._canon) {
+        // Fri gruppe omrokkert i sin egen seksjon: PERSONLIG rekkefølge.
         moved.cat = null;
-        moved.pos = np; moved._mount.pos = np; moved._mount.parent = targetCardId;
-        cloudMountUpdate(S.rowKind, moved.id, S.mountParentPatch(targetCardId, np));
+        moved.pos = np;
+        cloudPersonalPos(S.rowKind, moved.id, np);
       } else {
         S.setRowParent(moved, targetCardId);
         moved.cat = catEl ? catEl.dataset.id : null;
@@ -4041,12 +4145,114 @@
     // endret leaf-antallet → oppdater «(N)»-tellerne.
     refreshAllCollapseCounts();
     save();
-    if (mountedIntoCat) {
-      S.render(); // raden hører hjemme på nivå 1 — mal den riktige tilstanden
-      showToast('Delt innhold kan ikke ligge i en kategori ennå');
-      return;
-    }
     S.afterDrop();
+    if (groupMove) commitGroupMove(moved, groupMove.from, groupMove.to, groupMove.cat, groupMove.pos);
+  }
+
+  /* ---------------- Gruppeflytting mellom universer (move_group) ----------------
+     Én atomisk server-operasjon eier flyttingen: samme EIERSKAPSDOMENE (identisk
+     sett universeiere) gir ekte reparenting med alle id-er, roller og medlemmer i
+     behold; ULIKT domene behandles som «slett hos de gamle, opprett hos de nye» —
+     serveren kopierer undertreet med NYE id-er og gravlegger de gamle. Derfor
+     bekreftelsen: medlemskretsen endres, og de gamle mister tilgangen.
+
+     Klienten viser flyttingen optimistisk (pendingGroupMoves) og holder gruppens
+     doc-rad på den GAMLE plasseringen til RPC-en har landet — ellers ville
+     doc-synken forsøkt en skriving databasen uansett avviser. */
+  // Eierskapsdomenet som sammenlignbar nøkkel. Et univers som ennå ikke er
+  // synket (nyopprettet lokalt) har ingen serververdi — men da er JEG eneste
+  // eier, så nøkkelen er min egen id. Slik slipper «flytt gruppen til et nytt
+  // univers» en unødig «dette bytter eierskap»-bekreftelse.
+  const ownerKeyOf = (u) => {
+    if (!u) return null;
+    if (u._ownerKey != null) return u._ownerKey;
+    return (u._role === 'owner' && !u._caps) ? myId() : null;
+  };
+  async function commitGroupMove(g, fromUni, toUni, toCat, toPos) {
+    const src = findUniverse(fromUni);
+    const dst = findUniverse(toUni);
+    const canon = g._canon || {};
+    const from = {
+      fromUni: canon.parent != null ? canon.parent : fromUni,
+      fromCat: canon.cat != null ? canon.cat : null,
+      fromPos: canon.pos != null ? canon.pos : g.pos,
+    };
+    // Ukjent kilde-domene (fri gruppe: kilde-universet er ikke lesbart) regnes
+    // som en domenekryssing — serveren avgjør uansett.
+    const srcKey = ownerKeyOf(src), dstKey = ownerKeyOf(dst);
+    const crossDomain = !srcKey || !dstKey || srcKey !== dstKey;
+    if (crossDomain) {
+      const ok = await askConfirm({
+        title: 'Flytte gruppen til et annet eierskap?',
+        message: '«' + (g.name || 'Gruppen') + '» flyttes til et univers med andre eiere. ' +
+          'De som har tilgang i dag mister den — direkte gruppemedlemmer og medeiere ' +
+          'følger ikke med, og medlemmene i måluniverset får tilgang. Dette er ikke en ' +
+          'vanlig omplassering: gruppen opprettes på nytt der.',
+        okLabel: 'Flytt likevel',
+      });
+      if (!ok) { revertGroupMove(g, from); return; }
+    }
+    pendingGroupMoves.set(g.id, Object.assign({}, from, { toUni, toCat, toPos }));
+    const key = 'move:' + g.id;
+    opQueue.enqueue({
+      key,
+      waitFor: () => rowKnownToServer(g.id) && rowKnownToServer(toUni),
+      run: async () => {
+        const { data, error } = await acli().rpc('move_group',
+          { p_group: g.id, p_universe: toUni, p_cat: toCat, p_pos: toPos });
+        if (error) throw error;
+        return data;
+      },
+      onDone: (res) => {
+        pendingGroupMoves.delete(g.id);
+        // Kryssdomene: serveren laget et NYTT undertre. Bytt id-ene lokalt med
+        // den returnerte mappingen, så den optimistiske visningen glir over uten
+        // flimmer, og gravlegg de gamle (serveren har allerede gjort det).
+        if (res && res.mode === 'copy' && res.mapping) applyIdMapping(res.mapping);
+        cloudBase = null;
+        scheduleCloud(0);
+      },
+      onError: (e) => {
+        pendingGroupMoves.delete(g.id);
+        revertGroupMove(g, from);
+        showToast(friendlyAuthError(e));
+        scheduleCloud(0); // server-sannheten gjenoppretter visningen
+      },
+    });
+  }
+  function revertGroupMove(g, from) {
+    const live = findGroupAnywhere(g.id) || g;
+    const src = findUniverse(from.fromUni);
+    // Fjern raden fra ALLE beholdere først: den optimistiske flyttingen bygde
+    // om rad-arrayene, så `_parent` er ikke nødvendigvis der raden faktisk står.
+    state.universes.forEach((u) => {
+      const i = (u.groups || []).indexOf(live);
+      if (i > -1) u.groups.splice(i, 1);
+    });
+    live.uni = from.fromUni; live.cat = from.fromCat; live.pos = from.fromPos;
+    if (src) { live._parent = src; src.groups.push(live); }
+    render();
+    save();
+  }
+  // Bytt gamle id-er mot nye i hele det lokale treet, og gravlegg de gamle.
+  function applyIdMapping(mapping) {
+    const remap = (o) => (o && mapping[o] ? mapping[o] : o);
+    state.universes.forEach((u) => (u.groups || []).forEach((g) => {
+      if (mapping[g.id]) { state._tomb.groups[g.id] = tick(); g.id = mapping[g.id]; }
+      if (g.cat) g.cat = remap(g.cat);
+      (g.cards || []).forEach((c) => {
+        if (mapping[c.id]) { state._tomb.cards[c.id] = tick(); c.id = mapping[c.id]; }
+        c.group = g.id;
+        (c.items || []).forEach((it) => {
+          if (mapping[it.id]) { state._tomb.items[it.id] = tick(); it.id = mapping[it.id]; }
+          it.home = c.id;
+          if (it.cat) it.cat = remap(it.cat);
+        });
+      });
+    }));
+    if (state.activeGroup && mapping[state.activeGroup]) state.activeGroup = mapping[state.activeGroup];
+    render();
+    save();
   }
 
   // pointercancel under et listepunkt-drag: rull tilbake uten reconcile/pos/lagre.
@@ -4074,16 +4280,21 @@
     }
     nc.pos = np; stampContent(nc); stampPos(nc);
 
+    const fromCont = S.rowParent(moved);
     const srcRows = S.rowsOf(srcCont);
     const si = srcRows.indexOf(moved);
     if (si > -1) srcRows.splice(si, 1);
     S.setRowParent(moved, nc.id); moved.cat = null; moved.pos = 0;
-    stampPos(moved);
+    if (S.rowKind !== 'group') stampPos(moved);
     S.rowsOf(nc).push(moved);
+    moved._parent = nc;
 
     finishDrag();
     S.render();
     save();
+    // En gruppe som havner i et NYTT univers krysser alltid et eierskapsdomene
+    // (det nye universet har bare meg som eier) → move_group avgjør og bekrefter.
+    if (S.rowKind === 'group') commitGroupMove(moved, fromCont, nc.id, null, 0);
     // Fokuser navnet på den nye containeren (blank input) så den kan navngis straks.
     const t = S.root.querySelector('.card[data-id="' + nc.id + '"] .card-title');
     if (t) t.click();
@@ -5149,11 +5360,6 @@
     const arr = allCards();
     trash.forEach((c) => {
       const i = arr.indexOf(c);
-      if (c._mount) {
-        if (i > -1) arr.splice(i, 1);
-        cloudLeave('card', c.id);
-        return;
-      }
       tombSubtree(c, 'card'); // permanent gravstein hindrer gjenoppstandelse
       if (i > -1) arr.splice(i, 1);
     });
@@ -5169,7 +5375,9 @@
     if (!trash.length) return;
     trash.forEach((u) => {
       const i = state.universes.indexOf(u);
-      if (u._mount) {
+      if (u._virtual) return;
+      // Et univers man bare er MEDLEM av kan man forlate, ikke slette.
+      if (!cap(u, 'delete', true)) {
         if (i > -1) state.universes.splice(i, 1);
         cloudLeave('universe', u.id);
         return;
@@ -5706,28 +5914,13 @@
     nameWrap.appendChild(nameInput);
     settingsBody.appendChild(nameWrap);
 
-    // 2) Deling (kun lister; eget eller montert objekt, kontomodus). Samme
-    //    innhold som del-modalen — invitasjoner/lås/utkast går via opQueue.
-    //    isMine (ikke _mine): en NYOPPRETTET liste mangler metadata til første
-    //    pull, men er min — delingen skal ikke mangle rett etter opprettelse.
-    if (isCard && (isMine(obj) || obj._mount)) {
-      const sec = settingsSection(ICONS.people, 'Deling');
-      const shareWrap = document.createElement('div');
-      shareWrap.className = 'share-body settings-share-body';
-      if (obj._mine !== false || localIsAdmin(obj) || localCanInvite('card', obj)) {
-        renderShareOwner('card', obj.id, obj, shareWrap, closeSettings);
-      } else {
-        renderShareRecipient('card', obj.id, obj, shareWrap, closeSettings);
-      }
-      sec.appendChild(shareWrap);
-      settingsBody.appendChild(sec);
-    }
-
-    // 3) Ansvarlig (delt kontekst — også for HELE listen): rad med nåværende
-    //    ansvarlig; klikk åpner ansvarlig-velgeren forankret i raden.
+    // 2) Ansvarlig: rad med nåværende ansvarlig; klikk åpner ansvarlig-velgeren
+    //    forankret i raden. Kandidatene er GRUPPENS effektive medlemsliste —
+    //    lister har ingen egen deling (tilgangen arves), så det finnes ingen
+    //    delings-seksjon her lenger. Vises kun når gruppen faktisk er delt.
     const shareRoot = shareRootFor(t.card);
-    if (shareRoot) {
-      const rType = nodeType(shareRoot);
+    if (shareRoot && shareRoot._shared) {
+      const rType = 'group';
       ensureShareGroup(rType, shareRoot.id);
       const sec = settingsSection(ICONS.handRaise, 'Ansvarlig');
       const respBtn = document.createElement('button');
@@ -5988,14 +6181,12 @@
     }
     return u;
   }
-  addUniBtn.addEventListener('click', addUniverse);
 
   // Slett et univers → legg i univers-søppelkassen (trashed-flagg; gjenopprettbar).
   // Permanent sletting (med gravsteiner) skjer først når søppelkassen tømmes.
   function deleteUniverse(u) {
+    if (u._virtual) return;
     const ghost = ghostFrom(navBoard.querySelector('.card[data-id="' + u.id + '"]'));
-    // Mottaker (montert): «slett» = legg mounten i egen søppel (kan forlates ved
-    // tømming) — håndteres av setTrashed sin mount-gren.
     bufferDelete(u, 'universe', (x) => setTrashed(x, 'universe', true));
     if (state.activeUniverse === u.id) {
       const first = visibleUniverses()[0]; // ekskluderer nå den buffer-slettede
@@ -6108,7 +6299,10 @@
   function flattenNested(s, rowFn) {
     const universes = [], groups = [], cards = [], items = [];
     (s.universes || []).forEach((u) => {
-      universes.push(rowFn(u, 'universe', null));
+      // «Grupper delt med meg» er en VIRTUELL beholder — den finnes ikke i
+      // databasen og skal aldri pushes. Gruppene i den skrives som vanlig
+      // (canonRow beholder deres kanoniske univers).
+      if (!u._virtual) universes.push(rowFn(u, 'universe', null));
       (u.groups || []).forEach((g) => {
         groups.push(rowFn(g, 'group', u));
         (g.cards || []).forEach((c) => {
@@ -6554,105 +6748,88 @@
     } catch (e) { showToast(friendlyAuthError(e)); }
   }
 
-  /* ---------------- Backend-metadata på state-objektene ----------------
-     Hvert nested objekt får (utenfor synk-doc'et): _owner/_mine/_locked/
-     _shared/_mount/_parent. _mount finnes kun på en «share-rot» mottakeren
-     har montert; da speiler objektets .pos/.trashed montasjepunktet (per
-     bruker), mens de kanoniske verdiene ligger i _canon (til push). */
-  function effTrashed(o) { return o && o._mount ? !!o._mount.trashed : !!(o && o.trashed); }
-  // Frosset = redigering er sperret for MEG. Vi går oppover fra objektet og lar
-  // det NÆRMESTE nivået (objektet selv eller en forelder) som har en eksplisitt
-  // lås-tilstand satt av en annen enn meg avgjøre: et unntak (_unlocked) åpner
-  // grenen igjen, en lås (_locked) fryser den. Slik kan et låst univers ha en
-  // gruppe/liste som er gjort til unntak (redigerbar), og en unntaksgruppe kan i
-  // sin tur ha en liste som er låst på nytt.
+  /* ---------------- Rolle- og capability-metadata på state-objektene ----------------
+     Hvert nested objekt får (utenfor synk-doc'et): _type/_parent/_creator/
+     _locked/_unlocked/_shared/_caps. Universer og grupper får i tillegg _role
+     ('owner' | 'member' | null) og — for universer og FRIE grupper — en
+     PERSONLIG posisjon i `.pos`, mens den kanoniske ligger i `_canon`.
+
+     Myndighet kommer utelukkende fra ROLLER. `_creator` (objektets `owner_id`)
+     er ren historikk og gir ingenting. Serverens `_caps` er autoritative;
+     funksjonene under er lokale anslag for umiddelbar, optimistisk visning. */
+
+  // Den virtuelle beholderen for «Grupper delt med meg»: grupper man har en
+  // DIREKTE rolle i, men ingen rolle i det kanoniske universet. Den er ikke et
+  // ekte univers — den pushes aldri, og har ingen delings-/opprettelseskontroller.
+  const FREE_UNI_ID = '__free__';
+  // Hvilken av de tre seksjonene et toppnivå-objekt hører til.
+  const SECTION_OWNED = 0, SECTION_SHARED = 1, SECTION_FREE = 2;
+  const sectionRank = (u) => (u._virtual ? SECTION_FREE
+    : (u._role === 'owner' ? SECTION_OWNED : SECTION_SHARED));
+  // Brukervendte tekster som gjenbrukes i flere visninger.
+  const S_TEXT = {
+    freeSection: 'Delte grupper',
+    sections: ['Mine universer', 'Universer delt med meg', 'Grupper delt med meg'],
+  };
+
+  function effTrashed(o) { return !!(o && o.trashed); }
+
+  // Nærmeste forfar (eller objektet selv) av en gitt type.
+  function nodeOfType(o, type) {
+    let n = o;
+    while (n && n._type !== type) n = n._parent;
+    return n && !n._virtual ? n : null;
+  }
+  // Er JEG eier på nivået som styrer objektet? Universeier for et univers;
+  // gruppeeier (eksplisitt ELLER universeier) for gruppe/liste/listepunkt.
+  // Privilegerte påvirkes aldri av en lås for egen redigering. Lokalt anslag —
+  // serverens `_caps` er autoritative.
+  function privilegedLocal(o) {
+    if (!o) return false;
+    if (o._type === 'universe') return o._role === 'owner';
+    const g = nodeOfType(o, 'group');
+    if (g && g._role === 'owner') return true;
+    const u = nodeOfType(o, 'universe');
+    return !!(u && u._role === 'owner');
+  }
+  // Frosset = redigering er sperret for MEG. Nærmeste eksplisitte tilstand
+  // oppover avgjør: et unntak (_unlocked) åpner grenen, en lås (_locked) fryser
+  // den. Eiere på nivået omgår låsen helt.
   function frozen(o) {
-    if (localIsAdmin(o)) return false; // opprettere/eier fryses aldri av en lås
+    if (privilegedLocal(o)) return false;
     let n = o;
-    while (n) {
-      if (!n._mine) {
-        if (n._unlocked) return false;
-        if (n._locked) return true;
-      }
+    while (n && !n._virtual) {
+      if (n._unlocked) return false;
+      if (n._locked) return true;
       n = n._parent;
     }
     return false;
   }
-  // Er JEG privilegert administrator av objektet? — eier objektet ELLER et
-  // superobjekt oppover mot roten. Stopper ved en MOUNT-grense: over en montert rot
-  // er _parent MIN plassering (ikke en ekte kanonisk forelder), så den teller ikke.
-  // Lokalt anslag (serveren håndhever); get_members.viewer.can_admin er autoritativ.
-  function localIsAdmin(o) {
-    let n = o;
-    while (n) {
-      if (n._mine) return true;
-      if (n._mount) break;
-      n = n._parent;
-    }
-    return false;
+  // Serverens capability for objektet. Universer og grupper får dem fra
+  // get_my_doc; for lokalt nyopprettede objekter (ennå ikke synket) faller vi
+  // tilbake på `fallback` — brukeren laget dem nettopp selv.
+  function cap(o, name, fallback) {
+    const c = o && o._caps;
+    if (c && name in c) return !!c[name];
+    return fallback !== undefined ? fallback : true;
   }
-  // Forfedrene til et objekt, nærmeste først, med type. Univers har ingen.
+  // Forfedrene til et objekt, nærmeste først, med type.
   const PARENT_TYPE = { card: 'group', group: 'universe', universe: null };
   function ancestorChain(type, obj) {
     const out = [];
     let t = PARENT_TYPE[type], n = obj && obj._parent;
-    while (t && n) { out.push({ type: t, id: n.id, obj: n }); t = PARENT_TYPE[t]; n = n._parent; }
+    while (t && n && !n._virtual) { out.push({ type: t, id: n.id, obj: n }); t = PARENT_TYPE[t]; n = n._parent; }
     return out;
   }
   // Forelderen (m/ type) hvis lås faktisk gjelder for objektet — dvs. arvet
-  // låsing. Et unntak (_unlocked) på veien opp bryter arven. Uavhengig av _mine,
-  // så eieren (som ser sine egne låser) også får riktig svar i del-UI-et.
+  // låsing. Et unntak (_unlocked) på veien opp bryter arven.
   function inheritedLockInfo(type, obj) {
     const chain = ancestorChain(type, obj);
     for (const a of chain) { if (a.obj._unlocked) return null; if (a.obj._locked) return a; }
     return null;
   }
-  const isMine = (o) => !o || o._mine !== false; // lokalt nye (uten meta) er «mine»
-
-  // ---- Lokale (optimistiske) rettighets-anslag for del-UI-et. Serveren håndhever
-  // alltid; get_members.viewer-flaggene er autoritative og overstyrer disse når de
-  // lander. Nyttige for umiddelbar visning (og for objekter i eget/synlig tre).
   const myId = () => authUser && authUser.id;
-  // Universets eier (rot-owner) hvis synlig i treet (stopper ved mount-grense).
-  function universeOwnerLocal(obj) {
-    let n = obj;
-    while (n && n._parent && !n._mount) n = n._parent;
-    return n ? n._owner : null;
-  }
-  // Nærmeste eksplisitte invitasjonspolicy fra objektet og oppover. true = tillat.
-  function effInvitePolicyLocal(obj) {
-    let n = obj;
-    while (n) {
-      if (n._invitePolicy === 'allow') return true;
-      if (n._invitePolicy === 'deny') return false;
-      if (n._mount) break;
-      n = n._parent;
-    }
-    return true; // rot-standard: tillat
-  }
-  // Nærmeste eksplisitte policy blant STRENGE superobjekter (til unntaks-autoritet).
-  function inheritedInviteSourceLocal(type, obj) {
-    for (const a of ancestorChain(type, obj)) {
-      if (a.obj._invitePolicy === 'allow' || a.obj._invitePolicy === 'deny') return a;
-      if (a.obj._mount) break;
-    }
-    return null;
-  }
-  function localCanInvite(type, obj) { return localIsAdmin(obj) || effInvitePolicyLocal(obj); }
-  function localCanManageInvitePolicy(type, obj) {
-    const src = inheritedInviteSourceLocal(type, obj);
-    if (src && src.obj._invitePolicy === 'deny') {
-      return universeOwnerLocal(obj) === myId() || src.obj._owner === myId();
-    }
-    return localIsAdmin(obj);
-  }
-  // Hvem kan styre et UNNTAK fra en ARVET lås: universets eier ELLER oppretteren
-  // av det nærmeste låsende superobjektet (inheritedLockInfo).
-  function localCanManageLockException(type, obj) {
-    if (universeOwnerLocal(obj) === myId()) return true;
-    const src = inheritedLockInfo(type, obj);
-    return !!(src && src.obj._owner === myId());
-  }
+
 
   /* ---------------- get_my_doc → kanonisk innholds-doc + metadata ---------------- */
   // Optimistisk forlatte delinger (leave_share i kø, se suppressedRows): filtrer
@@ -6680,8 +6857,12 @@
   function metaFromMy(my) {
     const meta = new Map();
     const add = (list, type) => (list || []).forEach((r) => meta.set(r.id, {
-      type, owner: r.owner, mine: r.mine !== false, locked: !!r.locked,
-      unlocked: !!r.unlocked, shared: !!r.shared, mount: r.mount || null,
+      type, creator: r.creator, createdByMe: r.createdByMe !== false,
+      role: r.role || null, free: !!r.free,
+      personalPos: r.personalPos, caps: r.caps || null,
+      ownerCount: r.ownerCount || 0, memberCount: r.memberCount || 0,
+      ownerKey: r.ownerKey == null ? null : r.ownerKey,
+      locked: !!r.locked, unlocked: !!r.unlocked, shared: !!r.shared,
       invitePolicy: r.invitePolicy || 'inherit',
     }));
     add(my.universes, 'universe');
@@ -6692,33 +6873,34 @@
   }
 
   /* ---------------- Lokal state → kanonisk innholds-doc (for push) ----------------
-     For monterte røtter brukes kanoniske verdier (fra _canon) for pos/
-     forelder/trashed, mens innhold (navn/tekst/k/p) leses live (kan være
-     redigert). For alt annet leses alt live. */
+     PERSONLIG rekkefølge (universer på toppnivå, frie grupper) ligger på
+     medlemskapsraden, ikke på objektet — `.pos` i state er da den personlige
+     verdien, og den KANONISKE står i `_canon`. Den kanoniske skrives tilbake
+     uendret, så en personlig omrokkering aldri kan endre hva andre ser. */
   function canonRow(o, type) {
-    if (o._mount && o._canon) {
+    if (o._canon) {
       const c = o._canon;
       const base = {
         id: o.id, ts: o.ts || 0, org: o.org || '',
-        trashed: !!c.trashed, pos: c.pos || 0, posTs: c.posTs || 0, posOrg: c.posOrg || '',
+        trashed: !!o.trashed, pos: c.pos || 0, posTs: c.posTs || 0, posOrg: c.posOrg || '',
       };
       if (type === 'universe') return Object.assign(base, { name: o.name, collapsed: !!o.collapsed });
-      // En MONTERT gruppe ligger alltid på nivå 1 i universet den er montert i
-      // (mount-plasseringen har ingen kategori-kolonne) — `cat` skrives derfor ikke
-      // tilbake på eierens rad. Se docs/rettigheter-og-deling.md.
+      // En FRI gruppe (delt direkte med meg) har sin kanoniske plassering i et
+      // univers jeg ikke ser — den skrives tilbake uendret.
       if (type === 'group') return Object.assign(base, {
-        name: o.name, uni: c.parent, cat: null, isCat: !!o.isCat, collapsed: !!o.collapsed,
-      });
-      if (type === 'card') return Object.assign(base, {
-        title: o.title, group: c.parent, k: o.k !== false, p: o.p !== false,
-        responsible: o.responsible || null,
-        start: o.start || null, due: o.due || null, lockTimes: !!o.lockTimes,
-        collapsed: !!o.collapsed,
-        labTs: o.labTs || 0, labOrg: o.labOrg || '',
+        name: o.name, uni: c.parent, cat: c.cat || null, isCat: !!o.isCat, collapsed: !!o.collapsed,
       });
     }
     if (type === 'universe') return cleanUniverse(o);
-    if (type === 'group') return cleanGroup(o);
+    if (type === 'group') {
+      const r = cleanGroup(o);
+      // En gruppe som venter på move_group beholder sin GAMLE forelder i doc-et:
+      // `groups.universe_id` kan ikke skrives direkte (databasen avviser det),
+      // og RPC-en eier plasseringen til den har landet.
+      const mv = pendingGroupMoves.get(o.id);
+      if (mv) { r.uni = mv.fromUni; r.cat = mv.fromCat; r.pos = mv.fromPos; }
+      return r;
+    }
     if (type === 'card') return cleanCard(o);
     return cleanItem(o, o.home);
   }
@@ -6729,20 +6911,21 @@
     // (FK) og ville låst synken — se kommentaren der.
     return pruneDanglingCats(flattenNested(state, canonRow));
   }
-  // Rader den cachede staten sier tilhører NOEN ANDRE (`_mine === false`, satt
-  // av forrige `applyMyDoc` og bevart i cachen). Forsvinner en slik rad fra
-  // serveren, er delingen opphørt eller eieren har slettet den — begge veier
-  // skal vi la den gå, aldri sette den inn på nytt (`insertPayload` ville satt
-  // OSS som `owner_id`, altså gjort en gammel kopi av andres innhold til vår).
-  // Listepunkter er utelatt med vilje: de er aldri delings-røtter, og et
-  // listepunkt man selv har laget i en delt liste er reelt sett ens eget.
+  // Rader den cachede staten sier er opprettet av NOEN ANDRE (`_createdByMe ===
+  // false`). Forsvinner en slik rad fra serveren, er tilgangen opphørt eller
+  // objektet slettet — begge veier skal vi la den gå, aldri sette den inn på nytt
+  // (`insertPayload` ville satt OSS som oppretter, altså gjort en gammel kopi av
+  // andres innhold til vår).
+  // Listepunkter er utelatt med vilje: et listepunkt man selv har laget i en
+  // delt liste er reelt sett ens eget.
   function foreignIds() {
     const s = new Set();
     state.universes.forEach((u) => {
-      if (u._mine === false) s.add(u.id);
+      if (u._virtual) return;
+      if (u._createdByMe === false) s.add(u.id);
       (u.groups || []).forEach((g) => {
-        if (g._mine === false) s.add(g.id);
-        (g.cards || []).forEach((c) => { if (c._mine === false) s.add(c.id); });
+        if (g._createdByMe === false) s.add(g.id);
+        (g.cards || []).forEach((c) => { if (c._createdByMe === false) s.add(c.id); });
       });
     });
     return s;
@@ -6773,7 +6956,7 @@
                         (cloudCycle). Alt som er laget ETTER cachen ble lest, er
                         utvilsomt nytt og skrives som før.
        • `foreign`    — id-er som ALDRI skal gjenskapes: rader cachen sier
-                        tilhører noen andre (`_mine === false`). Er en slik rad
+                        er opprettet av noen andre. Er en slik rad
                         borte fra serveren, er delingen opphørt eller objektet
                         slettet; å sette den inn igjen ville gjort OSS til
                         oppretter av andres innhold. Hvem som havner i settet
@@ -6826,50 +7009,74 @@
   }
 
   /* ---------------- merged (kanonisk) + metadata → nested state ----------------
-     Monterte røtter re-foreldres til montasjepunktet (mount.parent); .pos/
-     .trashed speiler mounten (per bruker), kanoniske verdier i _canon.
-     «Umonterte» delinger (mount uten parent) samles til plassering. */
-  let pendingPlacements = [];
+     Tre seksjoner (se docs/rettigheter-og-deling.md):
+       1. «Mine universer»          — rolle 'owner'
+       2. «Universer delt med meg»  — rolle 'member'
+       3. «Grupper delt med meg»    — grupper med DIREKTE rolle og ingen rolle i
+                                      det kanoniske universet (`free`). De samles
+                                      i én VIRTUELL beholder som aldri pushes.
+     Universer og frie grupper ordnes PERSONLIG: `.pos` er medlemskapsradens
+     posisjon, den kanoniske ligger i `_canon` (skrives tilbake uendret). */
   function applyMyDoc(doc, meta) {
     applyingRemote = true;
     try {
-      pendingPlacements = [];
-      const attachMeta = (obj, id, canonParent) => {
+      const attachMeta = (obj, id, type, canonParent, canonCat) => {
         const m = meta.get(id);
-        obj._mine = m ? m.mine : true;
-        obj._owner = m ? m.owner : (authUser && authUser.id);
-        // Optimistiske overlays: en køet set_locked/membership-patch skal ikke
+        obj._type = type;
+        obj._creator = m ? m.creator : (authUser && authUser.id);
+        obj._createdByMe = m ? m.createdByMe !== false : true;
+        obj._role = m ? (m.role || null) : (type === 'universe' || type === 'group' ? 'owner' : null);
+        // Optimistiske overlays: en køet set_locked/-policy-skriving skal ikke
         // visuelt «hoppe tilbake» hvis en pull rekker å kjøre før den lander.
         obj._locked = lockOverrides.has(id) ? !!lockOverrides.get(id) : (m ? m.locked : false);
-        // Unntak fra en arvet lås («gjør redigerbar likevel»). Egen overlay, samme
-        // mønster som _locked, så en køet set_unlocked ikke hopper tilbake ved pull.
         obj._unlocked = unlockOverrides.has(id) ? !!unlockOverrides.get(id) : (m ? m.unlocked : false);
-        // Invitasjonspolicy (tretilstand): egen overlay, samme mønster som _locked,
-        // så en køet set_invite_policy ikke hopper tilbake ved en mellomliggende pull.
         obj._invitePolicy = policyOverrides.has(id) ? policyOverrides.get(id) : (m && m.invitePolicy ? m.invitePolicy : 'inherit');
         obj._shared = m ? m.shared : false;
-        obj._mount = m && m.mount ? Object.assign({}, m.mount, mountOverrides.get(id) || null) : null;
-        if (obj._mount) {
-          obj._canon = { parent: canonParent, pos: obj.pos, posTs: obj.posTs, posOrg: obj.posOrg, trashed: obj.trashed };
-          obj.pos = obj._mount.pos || 0;
-          obj.trashed = !!obj._mount.trashed;
+        obj._memberCount = m ? m.memberCount : 1;
+        obj._ownerCount = m ? m.ownerCount : 1;
+        obj._ownerKey = m ? m.ownerKey : null;
+        obj._caps = m && m.caps ? m.caps : null;
+        obj._free = !!(m && m.free);
+        // Personlig posisjon (universer + frie grupper): den kanoniske tas vare
+        // på i _canon, og `.pos` blir brukerens egen.
+        const personal = m && m.personalPos != null &&
+          (type === 'universe' || (type === 'group' && m.free));
+        if (personal) {
+          obj._canon = { parent: canonParent, cat: canonCat, pos: obj.pos, posTs: obj.posTs, posOrg: obj.posOrg };
+          obj.pos = posOverrides.has(id) ? posOverrides.get(id) : (m.personalPos || 0);
         }
       };
 
       const universes = (doc.universes || []).map((u) => Object.assign(cleanUniverse(u), { groups: [] }));
-      universes.forEach((u) => attachMeta(u, u.id, null));
+      universes.forEach((u) => attachMeta(u, u.id, 'universe', null, null));
       const uById = new Map(universes.map((u) => [u.id, u]));
+
+      // Den virtuelle beholderen for direkte delte grupper. Opprettes bare når
+      // det finnes slike grupper, og legges alltid sist (egen seksjon i UI-et).
+      let freeUni = null;
+      const ensureFreeUni = () => {
+        if (freeUni) return freeUni;
+        freeUni = {
+          id: FREE_UNI_ID, name: S_TEXT.freeSection, groups: [], pos: Infinity,
+          _virtual: true, _type: 'universe', _role: null, _caps: {},
+          _shared: false, _locked: false, _unlocked: false, _createdByMe: false,
+        };
+        universes.push(freeUni);
+        return freeUni;
+      };
 
       const gById = new Map();
       (doc.groups || []).forEach((raw) => {
         const g = Object.assign(cleanGroup(raw), { cards: [] });
-        attachMeta(g, g.id, g.uni);
-        const parentId = g._mount ? g._mount.parent : g.uni;
-        const parent = parentId != null ? uById.get(parentId) : null;
-        if (!parent) {
-          if (g._mount) { pendingPlacements.push({ type: 'group', id: g.id, name: g.name, obj: g }); }
-          return; // foreldreløs / umontert
-        }
+        const m = meta.get(g.id);
+        const mv = pendingGroupMoves.get(g.id);
+        attachMeta(g, g.id, 'group', g.uni, g.cat);
+        // En gruppe som venter på move_group vises OPTIMISTISK der brukeren slapp
+        // den, selv om serveren fortsatt svarer med den gamle plasseringen.
+        if (mv) { g.uni = mv.toUni; g.cat = mv.toCat; g.pos = mv.toPos; g._free = false; }
+        const parent = g._free ? ensureFreeUni() : (g.uni != null ? uById.get(g.uni) : null);
+        if (!parent) return; // foreldreløs (kanonisk univers ikke lesbart og ikke fri)
+        if (g._free) g.cat = null;   // fri seksjon har ingen gruppekategorier
         g._parent = parent;
         gById.set(g.id, g);
         parent.groups.push(g);
@@ -6878,13 +7085,9 @@
       const cById = new Map();
       (doc.cards || []).forEach((raw) => {
         const c = Object.assign(cleanCard(raw), { items: [] });
-        attachMeta(c, c.id, c.group);
-        const parentId = c._mount ? c._mount.parent : c.group;
-        const parent = parentId != null ? gById.get(parentId) : null;
-        if (!parent) {
-          if (c._mount) { pendingPlacements.push({ type: 'card', id: c.id, name: c.title, obj: c }); }
-          return;
-        }
+        attachMeta(c, c.id, 'card', c.group, null);
+        const parent = c.group != null ? gById.get(c.group) : null;
+        if (!parent) return;
         c._parent = parent;
         cById.set(c.id, c);
         parent.cards.push(c);
@@ -6893,19 +7096,28 @@
       (doc.items || []).forEach((raw) => {
         const it = cleanItem(raw, raw.home);
         const parent = cById.get(it.home);
-        if (parent) { it._parent = parent; it._mine = true; parent.items.push(it); }
+        if (parent) { it._parent = parent; it._type = 'item'; parent.items.push(it); }
       });
 
-      universes.sort(posCmp);
+      // Seksjonsrekkefølge først, personlig posisjon innenfor hver seksjon.
+      universes.sort((a, b) => (sectionRank(a) - sectionRank(b)) || posCmp(a, b));
       universes.forEach((u) => {
         u.groups.sort(posCmp);
         u.groups.forEach((g) => { g.cards.sort(posCmp); g.cards.forEach((c) => c.items.sort(posCmp)); });
       });
 
+      // Tap av tilgang (slettet, flyttet, kastet ut, rollen endret): naviger ut
+      // av den ugyldige visningen i stedet for å la en gammel lokal kopi bli
+      // stående redigerbar.
+      const hadGroup = state.activeGroup && !!findGroupAnywhere(state.activeGroup);
+      const hadUni = state.activeUniverse && !!findUniverse(state.activeUniverse);
       state.universes = universes;
       state._hlc = doc.hlc || state._hlc || 0;
       observeTs(doc.hlc);
+      const lostGroup = hadGroup && state.activeGroup && !findGroupAnywhere(state.activeGroup);
+      const lostUni = hadUni && state.activeUniverse && !findUniverse(state.activeUniverse);
       validateActive(state);
+      if (lostGroup || lostUni) noteAccessLoss(lostGroup ? 'group' : 'universe');
       // Første pull etter innlogging: land på posisjonen kontoen husker.
       if (!navRestored) { navRestored = true; restoreNavPref(); }
       reapplyPendingDeletes(); // hold buffer-slettede skjult etter rebuild
@@ -6913,6 +7125,20 @@
     } finally {
       applyingRemote = false;
     }
+  }
+
+  /* ---------------- Tap av tilgang ----------------
+     Objektet man står i kan forsvinne under føttene: det ble slettet for alle,
+     flyttet til et annet eierskapsdomene, eller man ble kastet ut / degradert.
+     Da lukkes visningen (og enhver åpen modal som peker på det), vi lander på
+     nærmeste gyldige fallback (validateActive), og sier nøkternt fra. */
+  function noteAccessLoss(kind) {
+    if (!shareModal.hidden) closeShare();
+    if (!settingsModal.hidden) closeSettings();
+    closeResponsible();
+    showToast(kind === 'group'
+      ? 'Gruppen er slettet, flyttet eller ikke lenger delt med deg'
+      : 'Universet er slettet eller ikke lenger delt med deg');
   }
 
   /* ---------------- Push: rad-CRUD mot tabellene ---------------- */
@@ -7122,7 +7348,7 @@
          kø til kort-raden finnes på serveren). Gir opp med onError etter en
          romslig frist, så en rad som aldri dukker opp ikke låser køen evig.
      Optimistisk lokal visning holdes stabil over synk-rebuilds med overlayene
-     under (lockOverrides/mountOverrides/suppressedRows) til operasjonen har
+     under (lockOverrides/posOverrides/suppressedRows) til operasjonen har
      landet — se applyMyDoc/contentDocFromMy. */
   const opQueue = (() => {
     const queue = [];
@@ -7227,59 +7453,56 @@
   const lockOverrides = new Map();  // id → ønsket locked-verdi (set_locked i kø)
   const unlockOverrides = new Map(); // id → ønsket unntak-verdi (set_unlocked i kø)
   const policyOverrides = new Map(); // id → ønsket invite_policy (set_invite_policy i kø)
-  const mountOverrides = new Map(); // id → { pos?, trashed?, parent? } (membership-patch i kø)
-  const suppressedRows = new Set(); // share-rot-id-er fjernet lokalt (leave_share i kø)
+  const posOverrides = new Map();    // id → ønsket PERSONLIG pos (membership-skriving i kø)
+  const suppressedRows = new Set();  // id-er fjernet lokalt (leave_share i kø)
+  // Gruppeflyttinger som venter på move_group-RPC-en: id → { fromUni, fromCat,
+  // fromPos, toUni, toCat, toPos }. Så lenge en flytting står her vises gruppen
+  // OPTIMISTISK på det nye stedet, mens doc-synken skriver den GAMLE plasseringen
+  // (databasen avviser en direkte `universe_id`-skriving — RPC-en eier flyttingen).
+  const pendingGroupMoves = new Map();
 
-  // Er raden (share-roten) kjent på serveren ennå? Delings-RPC-er mot et NYTT
-  // objekt (inviter/lås rett etter opprettelse) må vente i køen til doc-synken
-  // har fått pushet raden — ellers avviser serveren dem («finnes ikke»).
-  // lastMy er forrige pull; cloudCycle kjører en bekreftelses-pull etter hver
-  // push, så ventetiden er kort.
+  // Er raden kjent på serveren ennå? Delings-/flytte-RPC-er mot et NYTT objekt
+  // (inviter/lås/flytt rett etter opprettelse) må vente i køen til doc-synken har
+  // fått pushet raden — ellers avviser serveren dem («finnes ikke»).
   function rowKnownToServer(id) {
     if (!lastMy) return false;
     const has = (list) => (list || []).some((r) => r.id === id);
     return has(lastMy.universes) || has(lastMy.groups) || has(lastMy.cards);
   }
 
-  /* ---------------- Mount-skrivinger (membership) ---------------- */
-  // Patch-kolonner → overlay-felt (samme fasong som meta.mount i applyMyDoc).
-  function mountOverrideFrom(patch) {
-    const o = {};
-    if ('pos' in patch) o.pos = patch.pos;
-    if ('trashed' in patch) o.trashed = patch.trashed;
-    if ('parent_universe_id' in patch) o.parent = patch.parent_universe_id;
-    if ('parent_group_id' in patch) o.parent = patch.parent_group_id;
-    return o;
-  }
-  function cloudMountUpdate(type, id, patch) {
-    mountOverrides.set(id, Object.assign(mountOverrides.get(id) || {}, mountOverrideFrom(patch)));
-    const key = 'mount:' + id;
-    const col = type === 'universe' ? 'universe_id' : type === 'group' ? 'group_id' : 'card_id';
+  /* ---------------- Personlig rekkefølge (medlemskapsraden) ----------------
+     Universenes rekkefølge på toppnivå og de frie gruppenes rekkefølge er
+     PERSONLIGE: de ligger på brukerens egen medlemskapsrad og endrer aldri hva
+     andre ser. Skrivingen koalesceres i køen (rask omrokkering blir én skriving). */
+  function cloudPersonalPos(type, id, pos) {
+    posOverrides.set(id, pos);
+    const key = 'pos:' + id;
+    const col = type === 'universe' ? 'universe_id' : 'group_id';
     const op = {
       key,
-      patch: Object.assign({}, patch),
-      merge: (next) => { Object.assign(op.patch, next.patch); },
+      pos,
+      merge: (next) => { op.pos = next.pos; },
       run: async () => {
         const client = acli();
         if (!client || !authUser) return;
-        const { error } = await client.from('memberships').update(op.patch)
+        const { error } = await client.from('memberships').update({ pos: op.pos })
           .eq('user_id', authUser.id).eq(col, id);
         if (error) throw error;
       },
       onDone: () => {
-        if (!opQueue.hasPending(key)) { mountOverrides.delete(id); scheduleCloud(0); }
+        if (!opQueue.hasPending(key)) { posOverrides.delete(id); scheduleCloud(0); }
       },
       onError: () => {
-        mountOverrides.delete(id);
-        showToast('Kunne ikke lagre endringen av delt innhold');
+        posOverrides.delete(id);
+        showToast('Kunne ikke lagre rekkefølgen');
         scheduleCloud(0); // server-sannheten gjenoppretter visningen
       },
     };
     opQueue.enqueue(op);
   }
-  // Forlat en deling: share-roten er allerede fjernet lokalt (optimistisk);
-  // undertrykkes fra pull-ene til leave har landet, så den verken gjenoppstår
-  // lokalt eller (verre) får reconcile til å pushe delete på eierens rader.
+  // Forlat en deling: objektet er allerede fjernet lokalt (optimistisk);
+  // undertrykkes fra pull-ene til leave har landet, så det verken gjenoppstår
+  // lokalt eller (verre) får reconcile til å pushe delete på andres rader.
   function cloudLeave(type, id) {
     suppressedRows.add(id);
     const key = 'leave:' + type + ':' + id;
@@ -7296,13 +7519,12 @@
       onError: (e) => {
         suppressedRows.delete(id);
         showToast(friendlyAuthError(e));
-        scheduleCloud(0); // objektet kommer tilbake fra serveren hvis vi fortsatt er medlem
+        scheduleCloud(0); // objektet kommer tilbake fra serveren hvis vi fortsatt har tilgang
       },
     });
   }
-  // Fjern en montert share-rot fra det lokale treet (optimistisk «forlat» fra
-  // del-modalen — motstykket til splice-ene i emptyXTrash-stiene).
-  function removeMountLocally(id) {
+  // Fjern et objekt fra det lokale treet (optimistisk «forlat»).
+  function removeSharedLocally(id) {
     const f = findAnyById(id);
     if (!f) return;
     const arr = f.kind === 'universe' ? state.universes
@@ -7311,7 +7533,7 @@
     if (!arr) return;
     const i = arr.indexOf(f.obj);
     if (i > -1) arr.splice(i, 1);
-    validateActive(state); // delingen kan ha vært aktivt univers/gruppe
+    validateActive(state); // objektet kan ha vært aktivt univers/gruppe
   }
 
   /* ---------------- Synk-syklus v2 ---------------- */
@@ -7372,15 +7594,17 @@
   function viewSignature(mergedDoc, meta) {
     const metaArr = [];
     meta.forEach((m, id) => metaArr.push(
-      id + ':' + (m.mine ? 1 : 0) + (m.locked ? 1 : 0) + (m.shared ? 1 : 0) +
-      (m.mount ? canonical(m.mount) : '') + ':' + (m.owner || '')
+      id + ':' + (m.role || '-') + (m.free ? 'F' : '') + (m.locked ? 1 : 0) +
+      (m.unlocked ? 1 : 0) + (m.shared ? 1 : 0) + ':' + (m.personalPos == null ? '' : m.personalPos) +
+      ':' + (m.caps ? canonical(m.caps) : '') + ':' + (m.creator || '')
     ));
     metaArr.sort();
     const lo = []; lockOverrides.forEach((v, k) => lo.push(k + '=' + (v ? 1 : 0))); lo.sort();
-    const mo = []; mountOverrides.forEach((v, k) => mo.push(k + '=' + canonical(v))); mo.sort();
+    const po = []; posOverrides.forEach((v, k) => po.push(k + '=' + v)); po.sort();
+    const gm = []; pendingGroupMoves.forEach((v, k) => gm.push(k + '=' + canonical(v))); gm.sort();
     const sr = [...suppressedRows].sort();
     return canonical(mergedDoc) + '||' + metaArr.join(',') + '||' +
-      lo.join(',') + '||' + mo.join(',') + '||' + sr.join(',');
+      lo.join(',') + '||' + po.join(',') + '||' + gm.join(',') + '||' + sr.join(',');
   }
 
   function scheduleCloud(delay) {
@@ -7697,8 +7921,7 @@
 
   function updateInbox(my) {
     const invites = ((my && my.invites_in) || []).filter((inv) => !suppressedInvites.has(inv.id));
-    const placements = pendingPlacements || [];
-    const total = invites.length + placements.length;
+    const total = invites.length;
     accountBadge.textContent = String(total);
     accountBadge.hidden = total === 0;
     if (authUser) {
@@ -7714,7 +7937,7 @@
     if (!total) { menuInvites.hidden = true; inviteListEl.innerHTML = ''; return; }
     menuInvites.hidden = false;
     inviteListEl.innerHTML = '';
-    const typeLabel = { universe: 'Univers', group: 'Gruppe', card: 'Liste' };
+    const typeLabel = { universe: 'Univers', group: 'Gruppe' };
     invites.forEach((inv) => {
       const row = document.createElement('div');
       row.className = 'invite-row';
@@ -7723,7 +7946,9 @@
       info.innerHTML = '<span class="invite-type-tag">' + (typeLabel[inv.type] || '') + '</span> ' +
         '<span class="invite-name"></span><span class="invite-from"></span>';
       info.querySelector('.invite-name').textContent = inv.name || '(uten navn)';
-      info.querySelector('.invite-from').textContent = 'fra ' + (inv.from_name || inv.from || '');
+      // Eierskaps-invitasjoner sier det tydelig — de gir full myndighet.
+      info.querySelector('.invite-from').textContent =
+        (inv.role === 'owner' ? 'som medeier, fra ' : 'fra ') + (inv.from_name || inv.from || '');
       const actions = document.createElement('div');
       actions.className = 'invite-actions';
       const acc = document.createElement('button');
@@ -7736,26 +7961,9 @@
       row.append(info, actions);
       inviteListEl.appendChild(row);
     });
-    placements.forEach((pl) => {
-      const row = document.createElement('div');
-      row.className = 'invite-row';
-      const info = document.createElement('div');
-      info.className = 'invite-info';
-      info.innerHTML = '<span class="invite-type-tag">' + (typeLabel[pl.type] || '') + '</span> ' +
-        '<span class="invite-name"></span><span class="invite-from">uten plassering</span>';
-      info.querySelector('.invite-name').textContent = pl.name || '(uten navn)';
-      const actions = document.createElement('div');
-      actions.className = 'invite-actions';
-      const place = document.createElement('button');
-      place.className = 'btn btn-solid btn-green btn-small'; place.type = 'button'; place.textContent = 'Plasser';
-      place.addEventListener('click', () => placeMount(pl));
-      actions.append(place);
-      row.append(info, actions);
-      inviteListEl.appendChild(row);
-    });
   }
 
-  /* ---------------- Plasseringsvalg (aksept / remount) ---------------- */
+  /* ---------------- Velger-modal (flytting av lister/grupper) ---------------- */
   const placeModal = document.getElementById('place-modal');
   const placeBody = document.getElementById('place-body');
   const placeClose = document.getElementById('place-close');
@@ -7763,9 +7971,8 @@
   placeClose && placeClose.addEventListener('click', closePlace);
   placeModal && placeModal.addEventListener('click', (ev) => { if (ev.target === placeModal) closePlace(); });
   function updateModalOpenClass2() { updateModalOpenClass(); }
-  // Generisk liste-velger i plasserings-modalen: hint + klikkbare rader.
-  // Brukes av plasseringsvalget (delinger) og flytt-liste-velgeren (DnD på
-  // 📁-breadcrumben).
+  // Generisk liste-velger: hint + klikkbare rader. Brukes av flytt-liste-velgeren
+  // (DnD på 📁-breadcrumben).
   function openPicker(hintText, options, emptyMsg, onPick) {
     placeBody.innerHTML = '';
     const hint = document.createElement('p');
@@ -7787,58 +7994,32 @@
     placeModal.hidden = false;
     updateModalOpenClass2();
   }
-  // Velg forelder for et delt objekt: univers-deling → ingen; gruppe → et av
-  // mine universer; liste → en av mine grupper (på tvers av universer).
-  function askPlacement(type, name, onPick) {
-    if (type === 'universe') { onPick(null); return; }
-    const options = [];
-    if (type === 'group') {
-      visibleUniverses().filter((u) => isMine(u) || !u._mount).forEach((u) =>
-        options.push({ id: u.id, label: u.name }));
-    } else {
-      state.universes.filter((u) => !u.trashed).forEach((u) => {
-        (u.groups || []).filter((g) => !effTrashed(g) && !g.isCat).forEach((g) =>
-          options.push({ id: g.id, label: u.name + ' › ' + g.name }));
-      });
-    }
-    openPicker(
-      type === 'group'
-        ? 'Velg hvilket univers «' + name + '» skal ligge i:'
-        : 'Velg hvilken gruppe «' + name + '» skal ligge i:',
-      options,
-      type === 'group'
-        ? 'Du har ingen universer ennå – opprett ett først.'
-        : 'Du har ingen grupper ennå – opprett en først.',
-      onPick);
-  }
 
   // Optimistisk besvarte invitasjoner (svar-RPC-en ligger i køen): raden holdes
   // ute av innboksen så en synk-pull ikke gjenoppliver den før svaret har landet.
   const suppressedInvites = new Set();
+  // Aksept krever INGEN plassering: et univers havner i «Mine universer» eller
+  // «Universer delt med meg» etter rolle, og en gruppe enten inne i universet
+  // (hvis man er universmedlem) eller i «Grupper delt med meg».
   function acceptInvite(inv) {
-    askPlacement(inv.type, inv.name, (parent) => {
-      // Optimistisk: raden forsvinner straks; selve aksepten ligger i køen.
-      // Innholdet dukker opp når neste pull ser det nye medlemskapet.
-      suppressedInvites.add(inv.id);
-      updateInbox(lastMy);
-      showToast('Deling godtatt');
-      opQueue.enqueue({
-        run: async () => {
-          const { error } = await acli().rpc('accept_share_invite',
-            { p_invite: inv.id, p_parent: parent, p_pos: Date.now() });
-          if (error) throw error;
-        },
-        onDone: () => {
-          suppressedInvites.delete(inv.id);
-          cloudBase = null;
-          scheduleCloud(0);
-        },
-        onError: (e) => {
-          suppressedInvites.delete(inv.id);
-          updateInbox(lastMy); // raden kommer tilbake
-          showToast(friendlyAuthError(e));
-        },
-      });
+    suppressedInvites.add(inv.id);
+    updateInbox(lastMy);
+    showToast(inv.role === 'owner' ? 'Eierskap godtatt' : 'Deling godtatt');
+    opQueue.enqueue({
+      run: async () => {
+        const { error } = await acli().rpc('accept_share_invite', { p_invite: inv.id });
+        if (error) throw error;
+      },
+      onDone: () => {
+        suppressedInvites.delete(inv.id);
+        cloudBase = null;
+        scheduleCloud(0);
+      },
+      onError: (e) => {
+        suppressedInvites.delete(inv.id);
+        updateInbox(lastMy); // raden kommer tilbake
+        showToast(friendlyAuthError(e));
+      },
     });
   }
   function declineInvite(inv) {
@@ -7857,28 +8038,19 @@
       },
     });
   }
-  function placeMount(pl) {
-    askPlacement(pl.type, pl.name, (parent) => {
-      // Optimistisk: raden forsvinner straks; mount-patchen ligger i køen, og
-      // mount-overlayet gjør at neste pull monterer objektet lokalt også før
-      // patchen har landet.
-      const patch = pl.type === 'group'
-        ? { parent_universe_id: parent } : { parent_group_id: parent };
-      cloudMountUpdate(pl.type, pl.id, patch);
-      pendingPlacements = pendingPlacements.filter((p) => p.id !== pl.id);
-      updateInbox(lastMy);
-      scheduleCloud(0);
-    });
-  }
 
-  /* ---------------- Del-modal (eier: inviter/medlemmer/lås; mottaker: forlat) ---------------- */
+  /* ---------------- Del-modal (univers/gruppe) ----------------
+     ÉN visning for alle: medlemslisten er synlig for enhver med tilgang, mens
+     invitasjonsfelt, rolle- og medlemsadministrasjon, lås, «Forlat» og «Slett»
+     vises etter serverens capabilities (get_members.viewer.caps). Lister,
+     kategorier og listepunkter deles aldri — de arver gruppens tilgang. */
   const shareModal = document.getElementById('share-modal');
   const shareBody = document.getElementById('share-body');
   const shareTitle = document.getElementById('share-title');
   const shareClose = document.getElementById('share-close');
   const shareBackBtn = document.getElementById('share-back');
-  let shareCtx = null; // { type, id, obj }
-  let shareBackTo = null; // gjenåpner modalen del-modalen ble åpnet fra (univers/gruppe)
+  let shareCtx = null;    // { type, id, obj }
+  let shareBackTo = null; // gjenåpner modalen del-modalen ble åpnet fra
   function closeShare() {
     shareModal.hidden = true;
     shareCtx = null;
@@ -7887,21 +8059,16 @@
   }
   shareClose && shareClose.addEventListener('click', closeShare);
   shareModal && shareModal.addEventListener('click', (ev) => { if (ev.target === shareModal) closeShare(); });
-  // Tilbake: lukk del-modalen og gjenåpne univers-/gruppe-modalen. (✕/overlay/
-  // Escape lukker helt — da havner man på hovedsiden, ikke i modalen bak.)
+  // Tilbake: lukk del-modalen og gjenåpne nav-modalen. (✕/overlay/Escape lukker
+  // helt — da havner man på hovedsiden, ikke i modalen bak.)
   shareBackBtn && shareBackBtn.addEventListener('click', () => {
     const back = shareBackTo;
     closeShare();
     if (back) back();
   });
 
-  // Overskrift: «[objekttype-ikon][navn] — Innstillinger for deling» — gir
-  // mening både for eier og mottaker (mottaker kan ikke dele videre, men har
-  // fortsatt innstillinger her). Ikonet står INLINE i tekstflyten, i direkte
-  // tilknytning til navnet (.share-title-obj holder dem sammen) — ikke som
-  // egen flex-kolonne til venstre for hele overskriften. Navnet settes som
-  // tekstnode (aldri innerHTML).
-  const SHARE_TYPE_ICON = { universe: 'globe', group: 'folder', card: 'list' };
+  const SHARE_TYPE_ICON = { universe: 'globe', group: 'folder' };
+  const TYPE_WORD = { universe: 'universet', group: 'gruppen' };
   function openShare(type, id, obj, backTo) {
     shareCtx = { type, id, obj };
     shareBackTo = backTo || null;
@@ -7915,69 +8082,85 @@
     shareTitle.appendChild(document.createTextNode(' — Innstillinger for deling'));
     shareModal.hidden = false;
     updateModalOpenClass2();
-    // Åpne UMIDDELBART — eierskapet (_mine) kjenner vi synkront, så riktig
-    // visning tegnes med en gang. Medlemslisten/eier-informasjonen hentes i
-    // bakgrunnen og fylles inn når den lander (se renderShareOwner/-Recipient).
-    // Ny modell: ikke bare eieren får den fulle visningen. En som kan ADMINISTRERE
-    // (oppretter/superobjekt-oppretter) eller INVITERE (policy tillater det) får
-    // del-/inviter-visningen (permission-gated); en ren mottaker uten inviterett
-    // får «Forlat deling» + forklaring. Anslås lokalt for umiddelbar visning;
-    // get_members.viewer er autoritativ og finjusterer.
-    if (obj._mine !== false || localIsAdmin(obj) || localCanInvite(type, obj)) {
-      renderShareOwner(type, id, obj, shareBody, closeShare);
-    } else {
-      renderShareRecipient(type, id, obj, shareBody, closeShare);
-    }
+    renderShareModal(type, id, obj, shareBody, closeShare);
   }
 
-  // Avatar for en person i del-modalen: rund sirkel med initialer (navn hvis
-  // satt, ellers e-post). Eieren beholder den grønne markeringen; øvrige den
-  // nøytrale grå. Navn/e-post vises som tekst ved siden av (kallstedet).
+  // Avatar for en person: rund sirkel med initialer. Eiere beholder den grønne
+  // markeringen; øvrige den nøytrale grå.
   function avatarFor(person, owner) {
     const s = document.createElement('span');
     s.className = 'member-avatar' + (owner ? ' owner' : '');
     s.textContent = initialsFromName(person && person.display_name, person && person.email);
     return s;
   }
-  // Eieren selv, fra kontoens egne data — så medlemslisten kan tegnes UMIDDELBART
-  // (uten å vente på get_members); medlemmer/ventende invitasjoner fylles inn
-  // når hentingen lander.
-  function myOwnerInfo() {
+  // Meg selv, fra kontoens egne data — så medlemslisten kan tegnes UMIDDELBART
+  // (uten å vente på get_members); resten fylles inn når hentingen lander.
+  function mySelfInfo(type, id, obj) {
     const prof = (lastMy && lastMy.user) || {};
+    const role = obj._role || 'member';
+    const cat = type === 'universe'
+      ? (role === 'owner' ? 'universeOwner' : 'universeMember')
+      : (role === 'owner' ? 'groupOwner' : 'groupMember');
     return {
-      owner: {
+      type,
+      ownerCount: obj._ownerCount || 1,
+      viewer: { id: authUser && authUser.id, role, caps: obj._caps || {} },
+      inviteEffective: (obj._invitePolicy || 'inherit') !== 'deny',
+      members: [{
         id: authUser && authUser.id,
         email: prof.email || (authUser && authUser.email),
         display_name: prof.display_name || (authUser && authUser.meta && authUser.meta.display_name),
-      },
-      members: [], pending_invites: [],
+        category: cat, role, direct: true, removable: false, demotable: false,
+      }],
+      pendingInvites: [],
     };
   }
-  // Tegner eier-visningen inn i `body` — brukes både av del-modalen (univers/
-  // gruppe) og av listers innstillingsmodal (deling-seksjonen).
-  function renderShareOwner(type, id, obj, body, closeFn) {
+
+  // Overskriftene for hver medlemskategori. «Eier» blir «Medeiere» når det er
+  // flere — samme backend-rolle, bare et annet visningsnavn.
+  function memberCategoryTitle(type, category, count) {
+    const many = count > 1;
+    if (type === 'universe') {
+      return category === 'universeOwner' ? (many ? 'Medeiere' : 'Eier') : 'Medlemmer';
+    }
+    if (category === 'universeOwner') return many ? 'Medeiere av universet' : 'Eier av universet';
+    if (category === 'groupOwner') return many ? 'Medeiere av gruppen' : 'Eier av gruppen';
+    if (category === 'universeMember') return 'Medlemmer av universet';
+    return 'Medlemmer av gruppen';
+  }
+  const MEMBER_CATEGORY_ORDER = ['universeOwner', 'groupOwner', 'universeMember', 'groupMember'];
+
+  function renderShareModal(type, id, obj, body, closeFn) {
     body.innerHTML = '';
-    const TYPE_WORD = { universe: 'universet', group: 'gruppen', card: 'listen' };
-    // Betrakterens rettigheter — lokalt anslag straks (umiddelbar visning),
-    // autoritativt fra get_members.viewer når det lander (se refreshMembers).
-    const perm = {
-      canInvite: obj._mine !== false || localCanInvite(type, obj),
-      canAdmin: obj._mine !== false || localIsAdmin(obj),
-      canManagePolicy: obj._mine !== false || localCanManageInvitePolicy(type, obj),
-      canException: localCanManageLockException(type, obj),
-      inviteEffective: effInvitePolicyLocal(obj),
-    };
-    // Inviter på e-post
+    // Lokalt anslag straks (umiddelbar visning); serverens capabilities er
+    // autoritative og overstyrer når get_members lander.
+    let caps = Object.assign({}, obj._caps || {
+      invite: true, inviteOwner: true, manageMembers: true, manageOwners: true,
+      manageLock: true, managePolicy: true, lockException: true,
+      delete: true, leave: false,
+    });
+
+    /* --- Inviter på e-post (medlem eller eier) --- */
     const form = document.createElement('form');
     form.className = 'share-invite-form';
     const input = document.createElement('input');
     input.className = 'field';
     input.type = 'email'; input.placeholder = 'E-post å invitere'; input.required = true;
+    input.setAttribute('aria-label', 'E-postadresse å invitere');
+    const roleSel = document.createElement('select');
+    roleSel.className = 'field share-role-select';
+    roleSel.setAttribute('aria-label', 'Rolle for den inviterte');
+    [['member', 'Som medlem'], ['owner', type === 'universe' ? 'Som medeier' : 'Som medeier av gruppen']]
+      .forEach(([v, label]) => {
+        const o = document.createElement('option');
+        o.value = v; o.textContent = label;
+        roleSel.appendChild(o);
+      });
     const btn = document.createElement('button');
     btn.className = 'btn btn-solid btn-green btn-small'; btn.type = 'submit'; btn.textContent = 'Inviter';
-    form.append(input, btn);
-    // Invitasjonspolicy (under e-postfeltet): la ANDRE med tilgang invitere flere.
-    // Interaktiv kun for autoriserte (perm.canManagePolicy); ellers lesbar status.
+    form.append(input, roleSel, btn);
+
+    /* --- Invitasjonspolicy: la vanlige medlemmer invitere flere --- */
     const policyRow = document.createElement('div');
     policyRow.className = 'share-policy-row';
     const policyLabel = document.createElement('label');
@@ -7985,31 +8168,33 @@
     const policyCb = document.createElement('input');
     policyCb.type = 'checkbox';
     const policyTxt = document.createElement('span');
-    policyTxt.textContent = 'Tillat andre å invitere folk til ' + (TYPE_WORD[type] || 'objektet');
+    policyTxt.textContent = 'Tillat andre medlemmer å invitere folk til ' + (TYPE_WORD[type] || 'objektet');
     policyLabel.append(policyCb, policyTxt);
     const policyNote = document.createElement('p');
     policyNote.className = 'share-policy-note'; policyNote.hidden = true;
     policyRow.append(policyLabel, policyNote);
     const msg = document.createElement('p');
     msg.className = 'share-msg'; msg.hidden = true;
-    // Viser/skjuler og aktiverer kontroller ut fra perm (kalles ved oppdatering).
+
+    let inviteEffective = (obj._invitePolicy || 'inherit') !== 'deny';
     function applyPerm() {
-      form.hidden = !perm.canInvite;
-      policyRow.hidden = !perm.canInvite;           // relevant kun når man kan invitere
-      if (!policyOverrides.has(id)) policyCb.checked = !!perm.inviteEffective;
-      policyCb.disabled = !perm.canManagePolicy;
-      policyNote.hidden = perm.canManagePolicy || policyRow.hidden;
+      form.hidden = !(caps.invite || caps.inviteOwner);
+      roleSel.hidden = !caps.inviteOwner;
+      if (!caps.inviteOwner) roleSel.value = 'member';
+      policyRow.hidden = !(caps.invite || caps.inviteOwner);
+      if (!policyOverrides.has(id)) policyCb.checked = !!inviteEffective;
+      policyCb.disabled = !caps.managePolicy;
+      policyNote.hidden = caps.managePolicy || policyRow.hidden;
       if (!policyNote.hidden) {
-        policyNote.textContent = perm.inviteEffective
-          ? 'Andre med tilgang kan invitere folk hit.'
-          : 'Bare administratorer kan invitere folk hit.';
+        policyNote.textContent = inviteEffective
+          ? 'Andre medlemmer kan invitere folk hit.'
+          : 'Bare eiere kan invitere folk hit.';
       }
     }
-    // Optimistisk endring av policyen (koalescert kø-skriving, egen overlay).
     policyCb.addEventListener('change', () => {
       const prev = obj._invitePolicy || 'inherit';
       const want = policyCb.checked ? 'allow' : 'deny';
-      obj._invitePolicy = want; perm.inviteEffective = policyCb.checked;
+      obj._invitePolicy = want; inviteEffective = policyCb.checked;
       policyOverrides.set(id, want);
       const key = 'policy:' + type + ':' + id;
       opQueue.enqueue({
@@ -8023,19 +8208,14 @@
         onDone: () => { if (!opQueue.hasPending(key)) { policyOverrides.delete(id); scheduleCloud(0); } },
         onError: (e) => {
           policyOverrides.delete(id);
-          obj._invitePolicy = prev; perm.inviteEffective = effInvitePolicyLocal(obj);
+          obj._invitePolicy = prev; inviteEffective = prev !== 'deny';
           if (policyCb.isConnected) applyPerm();
           showToast(friendlyAuthError(e)); scheduleCloud(0);
         },
       });
     });
-    // Lås/unntak. To moduser:
-    //  (a) Ingen arvet lås → vanlig av/på-lås på dette objektet (som før):
-    //      overskrift+ikon og hint bytter mellom låst/åpen, knappen beskriver
-    //      handlingen et klikk utfører.
-    //  (b) En forelder er låst → objektet er AUTOMATISK låst. Feltet informerer
-    //      om hvilket objekt over som låser (ikon + navn), og tilbyr et UNNTAK
-    //      for nettopp dette objektet (la andre redigere det likevel).
+
+    /* --- Lås / unntak --- */
     const lockRow = document.createElement('div');
     lockRow.className = 'share-lock-row';
     const lockBtn = document.createElement('button');
@@ -8046,9 +8226,8 @@
     const lockIcon = lockRow.querySelector('.share-lock-icon');
     const lockLabel = lockRow.querySelector('.share-lock-label');
     const lockHint = lockRow.querySelector('.share-lock-hint');
-    // Nærmeste eksplisitt tilstand vinner: en EGEN lås på objektet (obj._locked)
-    // går foran en arvet lås, så vi viser den vanlige av/på-låsen (ikke unntaks-
-    // grenen, som ville nullstilt den egne låsen ved «Gjør unntak»).
+    // Nærmeste eksplisitte tilstand vinner: en EGEN lås på objektet går foran en
+    // arvet lås, så vi viser den vanlige av/på-låsen (ikke unntaks-grenen).
     const effInheritedLock = () => (obj._locked ? null : inheritedLockInfo(type, obj));
     const paintLock = () => {
       const anc = effInheritedLock();
@@ -8056,12 +8235,11 @@
       if (!anc) {
         lockIcon.innerHTML = obj._locked ? ICONS.lock : ICONS.unlock;
         lockLabel.textContent = obj._locked ? 'Låst for redigering' : 'Åpent for redigering';
-        lockHint.textContent = obj._locked ? 'Andre kan se, men ikke redigere' : 'Alle kan se og redigere';
+        lockHint.textContent = obj._locked ? 'Andre kan se, men ikke redigere' : 'Alle med tilgang kan redigere';
         lockBtn.textContent = obj._locked ? 'Åpne nå' : 'Lås nå';
-        lockBtn.hidden = !perm.canAdmin;   // vanlig lås: kun administratorer
+        lockBtn.hidden = !caps.manageLock;
         return;
       }
-      // Arvet lås: hint viser «… [ikon] [navn] er låst» (navnet som trygg tekst).
       const ex = !!obj._unlocked;
       lockIcon.innerHTML = ex ? ICONS.unlock : ICONS.lock;
       lockLabel.textContent = ex
@@ -8076,224 +8254,10 @@
       lockHint.appendChild(document.createTextNode(' ' + (anc.obj.name || anc.obj.title || '')));
       lockHint.appendChild(document.createTextNode(ex ? ' er låst — denne er unntatt' : ' er låst'));
       lockBtn.textContent = ex ? 'Fjern unntak' : 'Gjør unntak';
-      // Unntaks-kontrollen er kun for autoriserte (universets eier / oppretteren av
-      // det låsende superobjektet). Andre ser forklaringen, men ingen aktiv knapp.
-      lockBtn.hidden = !perm.canException;
+      lockBtn.hidden = !caps.lockException;
     };
-    paintLock();
     lockRow.appendChild(lockBtn);
-    // Arvede medlemmer (delt via en forelder): vises som en egen seksjon under
-    // de direkte medlemmene, uten «Kast ut» (fjernes der de faktisk ble delt).
-    const inheritedWrap = document.createElement('div');
-    let directIds = new Set();
-    // Medlemsliste (egen beholder → oppdateres uten å nullstille skjema/melding)
-    const title = document.createElement('div');
-    title.className = 'share-section-title'; title.textContent = 'Medlemmer';
-    const membersWrap = document.createElement('div');
-    // Optimistiske «Venter på svar»-rader (invitasjoner som ligger i køen):
-    // renderMembers tegner medlemslisten fra serverens svar og henger disse på
-    // etterpå, så en oppdatering for én invitasjon ikke sluker en annen som
-    // fortsatt er underveis.
-    const optimisticRows = new Set();
-
-    function renderMembers(inf) {
-      membersWrap.innerHTML = '';
-      if (inf.owner) {
-        const row = document.createElement('div');
-        row.className = 'member-row';
-        const box = document.createElement('div'); box.className = 'member-info';
-        box.innerHTML = '<span class="member-name"></span><span class="member-role">Eier (deg)</span>';
-        box.querySelector('.member-name').textContent = personName(inf.owner);
-        row.append(avatarFor(inf.owner, true), box);
-        membersWrap.appendChild(row);
-      }
-      (inf.members || []).forEach((mbr) => {
-        const row = document.createElement('div');
-        row.className = 'member-row';
-        const box = document.createElement('div'); box.className = 'member-info';
-        box.innerHTML = '<span class="member-name"></span><span class="member-role">Medlem</span>';
-        box.querySelector('.member-name').textContent = personName(mbr);
-        row.append(avatarFor(mbr, false), box);
-        // «Kast ut» kun for administratorer (perm.canAdmin). Vanlige inviterere ser
-        // medlemmene, men uten administrative kontroller.
-        if (perm.canAdmin) {
-          const kick = document.createElement('button');
-          kick.className = 'btn btn-solid btn-red btn-small'; kick.type = 'button'; kick.textContent = 'Kast ut';
-          kick.addEventListener('click', async () => {
-            if (!await askConfirm({ title: 'Kaste ut', message: 'Fjerne ' + mbr.email + ' fra delingen?', okLabel: 'Kast ut' })) return;
-            row.remove(); // optimistisk — refreshMembers gjenoppretter hvis serveren avviser
-            opQueue.enqueue({
-              run: async () => {
-                const { error } = await acli().rpc('revoke_share', { p_type: type, p_id: id, p_user: mbr.id });
-                if (error) throw error;
-              },
-              onDone: () => { refreshMembers(); scheduleCloud(0); },
-              onError: (e) => { showToast(friendlyAuthError(e)); refreshMembers(); },
-            });
-          });
-          row.appendChild(kick);
-        }
-        membersWrap.appendChild(row);
-      });
-      (inf.pending_invites || []).forEach((inv) => {
-        const row = document.createElement('div');
-        row.className = 'member-row member-pending';
-        const box = document.createElement('div'); box.className = 'member-info';
-        box.innerHTML = '<span class="member-name"></span><span class="member-role">Venter på svar</span>';
-        box.querySelector('.member-name').textContent = inv.email;
-        row.append(avatarFor({ email: inv.email }, false), box);
-        // «Trekk tilbake» kun på egne invitasjoner (inv.mine) eller for admin.
-        if (perm.canAdmin || inv.mine) {
-          const cancel = document.createElement('button');
-          cancel.className = 'btn btn-small btn-ghost'; cancel.type = 'button'; cancel.textContent = 'Trekk tilbake';
-          cancel.addEventListener('click', () => {
-            row.remove(); // optimistisk
-            opQueue.enqueue({
-              run: async () => {
-                const { error } = await acli().rpc('revoke_share_invite', { p_invite: inv.id });
-                if (error) throw error;
-              },
-              onDone: refreshMembers,
-              onError: (e) => { showToast(friendlyAuthError(e)); refreshMembers(); },
-            });
-          });
-          row.appendChild(cancel);
-        }
-        membersWrap.appendChild(row);
-      });
-      optimisticRows.forEach((r) => membersWrap.appendChild(r));
-      directIds = new Set((inf.members || []).map((m) => m.id));
-    }
-    // Arvede medlemmer: gå oppover til hver DELT forelder, hent medlemmene og vis
-    // dem her (uten duplikater av eier/direkte medlemmer). Slik ser man på en
-    // liste/gruppe også de personene som delingen over gir tilgang.
-    // Kalles fra flere steder (åpning + hver medlems-refresh); en generasjons-
-    // teller sørger for at BARE den nyeste kjøringen skriver til DOM-en — ellers
-    // kunne to overlappende async-kall begge rukket å legge til hver sin «Arvet
-    // fra deling over»-seksjon (dobbel visning). Vi bygger radene først og
-    // committer (tømmer + fyller) samlet til slutt, så det heller ikke flimrer.
-    let inheritedGen = 0;
-    async function refreshInherited() {
-      const gen = ++inheritedGen;
-      const chain = ancestorChain(type, obj).filter((a) => a.obj._shared);
-      const seen = new Set(directIds);
-      if (authUser) seen.add(authUser.id);
-      const rows = [];
-      for (const a of chain) {
-        let data;
-        try { ({ data } = await acli().rpc('get_members', { p_type: a.type, p_id: a.id })); }
-        catch (e) { continue; }
-        (data && data.members || []).forEach((mbr) => {
-          if (!mbr || seen.has(mbr.id)) return;
-          seen.add(mbr.id);
-          const row = document.createElement('div');
-          row.className = 'member-row member-inherited';
-          const box = document.createElement('div'); box.className = 'member-info';
-          box.innerHTML = '<span class="member-name"></span><span class="member-role"></span>';
-          box.querySelector('.member-name').textContent = personName(mbr);
-          box.querySelector('.member-role').textContent = 'Deles via ' + (a.obj.name || a.obj.title || 'et objekt over');
-          row.append(avatarFor(mbr, false), box);
-          rows.push(row);
-        });
-      }
-      if (gen !== inheritedGen || !inheritedWrap.isConnected) return; // en nyere kjøring vant
-      inheritedWrap.innerHTML = '';
-      if (!rows.length) return;
-      const t = document.createElement('div');
-      t.className = 'share-section-title'; t.textContent = 'Arvet fra deling over';
-      inheritedWrap.appendChild(t);
-      rows.forEach((r) => inheritedWrap.appendChild(r));
-    }
-    async function refreshMembers() {
-      try {
-        const { data } = await acli().rpc('get_members', { p_type: type, p_id: id });
-        if (data) {
-          // Autoritative rettigheter fra serveren finjusterer det lokale anslaget.
-          if (data.viewer) {
-            perm.canInvite = !!data.viewer.can_invite;
-            perm.canAdmin = !!data.viewer.can_admin;
-            perm.canManagePolicy = !!data.viewer.can_manage_policy;
-          }
-          // Ikke la en pull overstyre avmerkingsboksen mens en policy-endring er i lufta.
-          if (!policyOverrides.has(id) && 'invite_effective' in data) perm.inviteEffective = !!data.invite_effective;
-          // Direkte delt objekt (mount) der serveren autoritativt sier at betrakteren
-          // verken kan invitere eller administrere: det lokale anslaget stoppet ved
-          // mount-grensen (kanoniske forfedre — og en arvet `deny` — er ikke i doc-et),
-          // så vi valgte eier-visningen optimistisk. Bytt nå til mottaker-visningen så
-          // «videreinvitasjon er deaktivert»-forklaringen + «Forlat deling» vises.
-          if (closeFn && obj._mount && !perm.canInvite && !perm.canAdmin) {
-            renderShareRecipient(type, id, obj, body, closeFn);
-            return;
-          }
-          applyPerm();
-          renderMembers(data); refreshInherited();
-        }
-      } catch (e) { /* behold forrige */ }
-    }
-
-    form.addEventListener('submit', (ev) => {
-      ev.preventDefault();
-      const email = input.value.trim().toLowerCase();
-      if (!email) return;
-      input.value = '';
-      msg.textContent = ''; msg.classList.remove('ok'); msg.hidden = true;
-      // Optimistisk: raden vises straks, feltet er klart for neste e-post —
-      // selve invitasjonen ligger i køen (flere invitasjoner køes etter hverandre).
-      const row = document.createElement('div');
-      row.className = 'member-row member-pending';
-      const box = document.createElement('div'); box.className = 'member-info';
-      box.innerHTML = '<span class="member-name"></span><span class="member-role">Venter på svar</span>';
-      box.querySelector('.member-name').textContent = email;
-      const cancel = document.createElement('button');
-      cancel.className = 'btn btn-small btn-ghost'; cancel.type = 'button'; cancel.textContent = 'Trekk tilbake';
-      row.append(avatarFor({ email }, false), box, cancel);
-      optimisticRows.add(row);
-      membersWrap.appendChild(row);
-      const op = opQueue.enqueue({
-        waitFor: () => rowKnownToServer(id), // et nyopprettet objekt må først være pushet
-        run: async () => {
-          const { data, error } = await acli().rpc('create_share_invite',
-            { p_type: type, p_id: id, p_email: email });
-          if (error) throw error;
-          return data;
-        },
-        onDone: () => {
-          // La raden stå til refreshMembers tegner den ekte (ingen blink-lucke).
-          optimisticRows.delete(row);
-          msg.textContent = 'Invitasjon sendt til ' + email; msg.classList.add('ok'); msg.hidden = false;
-          refreshMembers();
-        },
-        onError: (e) => {
-          optimisticRows.delete(row);
-          row.remove();
-          msg.textContent = friendlyAuthError(e); msg.hidden = false;
-        },
-      });
-      // «Trekk tilbake» på en optimistisk rad: avbryt kontrollert — fjernes fra
-      // køen hvis opprettelsen ikke har startet; ellers køes en tilbaketrekking
-      // som (pga. seriell kø) først kjører når opprettelsen har landet, og
-      // bruker invitasjons-id-en fra dens resultat.
-      cancel.addEventListener('click', () => {
-        optimisticRows.delete(row);
-        row.remove();
-        if (opQueue.cancel(op)) return;
-        opQueue.enqueue({
-          run: async () => {
-            const inv = op.value;
-            if (!inv || !inv.id) return; // opprettelsen feilet → ingenting å trekke tilbake
-            const { error } = await acli().rpc('revoke_share_invite', { p_invite: inv.id });
-            if (error) throw error;
-          },
-          onDone: refreshMembers,
-          onError: (e) => { showToast(friendlyAuthError(e)); refreshMembers(); },
-        });
-      });
-    });
     lockBtn.addEventListener('click', () => {
-      // Under en arvet lås (og UTEN egen lås) styrer knappen UNNTAKET
-      // (set_unlocked); ellers den vanlige låsen (set_locked). Begge er
-      // optimistiske med koalescert kø-skriving (rask av/på blir én skriving
-      // med sluttilstanden).
       if (effInheritedLock()) {
         obj._unlocked = !obj._unlocked;
         unlockOverrides.set(id, obj._unlocked);
@@ -8324,91 +8288,276 @@
       const key = 'lock:' + type + ':' + id;
       opQueue.enqueue({
         key,
-        waitFor: () => rowKnownToServer(id), // et nyopprettet objekt må først være pushet
+        waitFor: () => rowKnownToServer(id),
         run: async () => {
           const want = lockOverrides.has(id) ? lockOverrides.get(id) : obj._locked;
           const { error } = await acli().rpc('set_locked', { p_type: type, p_id: id, p_locked: want });
           if (error) throw error;
         },
-        onDone: () => {
-          if (!opQueue.hasPending(key)) { lockOverrides.delete(id); scheduleCloud(0); }
-        },
+        onDone: () => { if (!opQueue.hasPending(key)) { lockOverrides.delete(id); scheduleCloud(0); } },
         onError: (e) => {
           lockOverrides.delete(id);
           obj._locked = !obj._locked;
-          if (lockBtn.isConnected) paintLock(); // visningen kan ha byttet objekt
+          if (lockBtn.isConnected) paintLock();
           showToast(friendlyAuthError(e));
-          scheduleCloud(0); // server-sannheten gjenoppretter visningen
+          scheduleCloud(0);
         },
       });
     });
 
-    body.append(form, policyRow, msg, title, membersWrap, inheritedWrap, lockRow);
-    // Mottakere (montert objekt) beholder «Forlat deling» selv om de kan invitere.
-    if (obj._mount && closeFn) {
-      const leave = document.createElement('button');
-      leave.className = 'btn btn-solid btn-red share-leave'; leave.type = 'button'; leave.textContent = 'Forlat deling';
-      leave.addEventListener('click', async () => {
-        if (!await askConfirm({ title: 'Forlat deling', message: 'Forlate denne delingen? Den forsvinner fra dine lister.', okLabel: 'Forlat' })) return;
-        closeFn();
-        removeMountLocally(id);
-        cloudLeave(type, id);
-        render();
-        save();
+    /* --- Medlemsliste + ventende invitasjoner --- */
+    const membersWrap = document.createElement('div');
+    membersWrap.className = 'share-members';
+    const optimisticRows = new Set(); // «Venter på svar» mens invitasjonen ligger i køen
+    const actionsWrap = document.createElement('div');
+    actionsWrap.className = 'share-actions';
+
+    function memberRow(mbr) {
+      const row = document.createElement('div');
+      row.className = 'member-row';
+      const box = document.createElement('div'); box.className = 'member-info';
+      box.innerHTML = '<span class="member-name"></span><span class="member-role"></span>';
+      const me = authUser && mbr.id === authUser.id;
+      box.querySelector('.member-name').textContent = personName(mbr) + (me ? ' (deg)' : '');
+      box.querySelector('.member-role').textContent = mbr.role === 'owner' ? 'Eier' : 'Medlem';
+      // Forklar hvorfor en bruker ikke kan fjernes HER — men bare for den som
+      // faktisk administrerer medlemmer, og aldri om seg selv.
+      if (mbr.removeHint && caps.manageMembers && !me) {
+        const hint = document.createElement('span');
+        hint.className = 'member-hint';
+        hint.textContent = mbr.removeHint;
+        box.appendChild(hint);
+      }
+      row.classList.toggle('is-inherited', mbr.direct === false);
+      row.append(avatarFor(mbr, mbr.role === 'owner'), box);
+      // Degradering: eierskap NEDOVER er en direkte handling (rolleløft krever
+      // alltid en invitasjon mottakeren må godta).
+      if (mbr.demotable) {
+        const demote = document.createElement('button');
+        demote.className = 'btn btn-small btn-ghost'; demote.type = 'button';
+        demote.textContent = 'Gjør til medlem';
+        demote.addEventListener('click', async () => {
+          if (!await askConfirm({
+            title: 'Fjerne medeierskap',
+            message: personName(mbr) + ' blir vanlig medlem og mister eier-rettighetene.',
+            okLabel: 'Gjør til medlem',
+          })) return;
+          opQueue.enqueue({
+            run: async () => {
+              const { error } = await acli().rpc('set_member_role',
+                { p_type: type, p_id: id, p_user: mbr.id, p_role: 'member' });
+              if (error) throw error;
+            },
+            onDone: () => { refreshMembers(); scheduleCloud(0); },
+            onError: (e) => { showToast(friendlyAuthError(e)); refreshMembers(); },
+          });
+        });
+        row.appendChild(demote);
+      }
+      if (mbr.removable) {
+        const kick = document.createElement('button');
+        kick.className = 'btn btn-solid btn-red btn-small'; kick.type = 'button'; kick.textContent = 'Fjern';
+        kick.addEventListener('click', async () => {
+          if (!await askConfirm({
+            title: 'Fjerne medlem',
+            message: 'Fjerne ' + personName(mbr) + ' fra ' + (TYPE_WORD[type] || 'objektet') +
+              '? All tilgang under det forsvinner også.',
+            okLabel: 'Fjern',
+          })) return;
+          row.remove(); // optimistisk — refreshMembers gjenoppretter hvis serveren avviser
+          opQueue.enqueue({
+            run: async () => {
+              const { error } = await acli().rpc('revoke_share', { p_type: type, p_id: id, p_user: mbr.id });
+              if (error) throw error;
+            },
+            onDone: () => { refreshMembers(); scheduleCloud(0); },
+            onError: (e) => { showToast(friendlyAuthError(e)); refreshMembers(); },
+          });
+        });
+        row.appendChild(kick);
+      }
+      return row;
+    }
+
+    function renderMembers(inf) {
+      membersWrap.innerHTML = '';
+      const byCat = new Map();
+      (inf.members || []).forEach((m) => {
+        if (!byCat.has(m.category)) byCat.set(m.category, []);
+        byCat.get(m.category).push(m);
       });
-      body.appendChild(leave);
+      MEMBER_CATEGORY_ORDER.forEach((catKey) => {
+        const list = byCat.get(catKey);
+        if (!list || !list.length) return;   // tomme kategorier utelates
+        const t = document.createElement('div');
+        t.className = 'share-section-title';
+        t.textContent = memberCategoryTitle(type, catKey, list.length);
+        membersWrap.appendChild(t);
+        list.forEach((m) => membersWrap.appendChild(memberRow(m)));
+      });
+      const pending = (inf.pendingInvites || []);
+      if (pending.length || optimisticRows.size) {
+        const t = document.createElement('div');
+        t.className = 'share-section-title'; t.textContent = 'Ventende invitasjoner';
+        membersWrap.appendChild(t);
+      }
+      pending.forEach((inv) => {
+        const row = document.createElement('div');
+        row.className = 'member-row member-pending';
+        const box = document.createElement('div'); box.className = 'member-info';
+        box.innerHTML = '<span class="member-name"></span><span class="member-role"></span>';
+        box.querySelector('.member-name').textContent = inv.email;
+        box.querySelector('.member-role').textContent =
+          inv.role === 'owner' ? 'Invitert som medeier' : 'Invitert som medlem';
+        row.append(avatarFor({ email: inv.email }, false), box);
+        if (caps.manageMembers || inv.mine) {
+          const cancel = document.createElement('button');
+          cancel.className = 'btn btn-small btn-ghost'; cancel.type = 'button'; cancel.textContent = 'Trekk tilbake';
+          cancel.addEventListener('click', () => {
+            row.remove(); // optimistisk
+            opQueue.enqueue({
+              run: async () => {
+                const { error } = await acli().rpc('revoke_share_invite', { p_invite: inv.id });
+                if (error) throw error;
+              },
+              onDone: refreshMembers,
+              onError: (e) => { showToast(friendlyAuthError(e)); refreshMembers(); },
+            });
+          });
+          row.appendChild(cancel);
+        }
+        membersWrap.appendChild(row);
+      });
+      optimisticRows.forEach((r) => membersWrap.appendChild(r));
     }
-    applyPerm();                  // gate kontroller ut fra det lokale anslaget
-    renderMembers(myOwnerInfo()); // eieren (deg) vises straks
-    refreshInherited();           // arvede medlemmer hentes i bakgrunnen
-    refreshMembers();             // medlemmer/ventende + autoritative rettigheter fylles inn
-  }
-  // Mottaker-visningen («Delt av …» + Forlat deling) inn i `body`; closeFn
-  // lukker den omsluttende modalen (del-modalen eller innstillingsmodalen).
-  function renderShareRecipient(type, id, obj, body, closeFn) {
-    body.innerHTML = '';
-    const line = document.createElement('div');
-    line.className = 'owner-line';
-    const ownerPerson = { display_name: obj._ownerName, email: obj._ownerEmail };
-    line.append(avatarFor(ownerPerson, true));
-    const inf = document.createElement('div'); inf.className = 'member-info';
-    const ownerLabel = personName(ownerPerson);
-    inf.innerHTML = '<span class="member-name"></span>' +
-      '<span class="member-role">' + (frozen(obj) ? 'Skrivebeskyttet' : 'Du kan redigere') + '</span>';
-    inf.querySelector('.member-name').textContent = ownerLabel ? ('Delt av ' + ownerLabel) : 'Delt med deg';
-    line.appendChild(inf);
-    body.appendChild(line);
-    // Denne visningen er for en ren mottaker UTEN inviterett: kort forklaring på at
-    // videreinvitasjon er deaktivert (ingen aktiv invitasjonskontroll). Får mottakeren
-    // senere inviterett (via en policy-endring over), viser openShare inviter-feltet.
-    const noInvite = document.createElement('p');
-    noInvite.className = 'share-policy-note share-noinvite';
-    noInvite.textContent = 'Videreinvitasjon er deaktivert her — bare administratorer kan invitere folk.';
-    body.appendChild(noInvite);
-    const leave = document.createElement('button');
-    leave.className = 'btn btn-solid btn-red share-leave'; leave.type = 'button'; leave.textContent = 'Forlat deling';
-    leave.addEventListener('click', async () => {
-      if (!await askConfirm({ title: 'Forlat deling', message: 'Forlate denne delingen? Den forsvinner fra dine lister.', okLabel: 'Forlat' })) return;
-      closeFn();
-      // Optimistisk: delingen forsvinner fra treet straks; leave_share ligger i
-      // køen (cloudLeave undertrykker raden fra pull-ene til den har landet).
-      removeMountLocally(id);
-      cloudLeave(type, id);
-      render();
-      save();
+
+    /* --- Forlat / slett --- */
+    function renderActions() {
+      actionsWrap.innerHTML = '';
+      if (caps.leave) {
+        const leave = document.createElement('button');
+        // Samme ikon som «logg ut», men med korrekt tilgjengelig navn.
+        leave.className = 'btn btn-solid btn-red share-leave'; leave.type = 'button';
+        leave.innerHTML = ICONS.logout || '';
+        leave.appendChild(document.createTextNode(' Forlat ' + (TYPE_WORD[type] || 'objektet')));
+        leave.setAttribute('aria-label', 'Forlat ' + (TYPE_WORD[type] || 'objektet'));
+        leave.addEventListener('click', async () => {
+          if (!await askConfirm({
+            title: 'Forlat ' + (TYPE_WORD[type] || 'objektet'),
+            message: 'Du mister tilgangen, men innholdet består for de andre.',
+            okLabel: 'Forlat',
+          })) return;
+          if (closeFn) closeFn();
+          removeSharedLocally(id);
+          cloudLeave(type, id);
+          render();
+          save();
+        });
+        actionsWrap.appendChild(leave);
+      }
+      if (caps.delete) {
+        const del = document.createElement('button');
+        del.className = 'btn btn-solid btn-red share-delete'; del.type = 'button';
+        del.textContent = 'Slett ' + (TYPE_WORD[type] || 'objektet') + ' for alle';
+        del.addEventListener('click', async () => {
+          if (!await askConfirm({
+            title: 'Slett for alle',
+            message: 'Dette sletter ' + (TYPE_WORD[type] || 'objektet') +
+              ' og alt innholdet for ALLE med tilgang.',
+            okLabel: 'Slett for alle',
+          })) return;
+          if (closeFn) closeFn();
+          const live = findAnyById(id);
+          if (!live) return;
+          if (type === 'universe') deleteUniverse(live.obj);
+          else deleteGroup(live.obj);
+        });
+        actionsWrap.appendChild(del);
+      }
+      // Én forklarende linje når man verken kan forlate eller slette.
+      if (!caps.leave && !caps.delete && obj._role === 'owner' && type === 'universe') {
+        const note = document.createElement('p');
+        note.className = 'share-policy-note';
+        note.textContent = 'Du er eneste eier. Gi eierskap til noen andre før du kan forlate universet.';
+        actionsWrap.appendChild(note);
+      }
+    }
+
+    async function refreshMembers() {
+      try {
+        const { data } = await acli().rpc('get_members', { p_type: type, p_id: id });
+        if (!data) return;
+        if (data.viewer && data.viewer.caps) caps = data.viewer.caps;
+        if (!policyOverrides.has(id) && 'inviteEffective' in data) inviteEffective = !!data.inviteEffective;
+        applyPerm();
+        paintLock();
+        renderMembers(data);
+        renderActions();
+      } catch (e) { /* behold forrige */ }
+    }
+
+    form.addEventListener('submit', (ev) => {
+      ev.preventDefault();
+      const email = input.value.trim().toLowerCase();
+      if (!email) return;
+      const role = roleSel.value === 'owner' ? 'owner' : 'member';
+      input.value = '';
+      msg.textContent = ''; msg.classList.remove('ok'); msg.hidden = true;
+      // Optimistisk: raden vises straks, feltet er klart for neste e-post.
+      const row = document.createElement('div');
+      row.className = 'member-row member-pending';
+      const box = document.createElement('div'); box.className = 'member-info';
+      box.innerHTML = '<span class="member-name"></span><span class="member-role"></span>';
+      box.querySelector('.member-name').textContent = email;
+      box.querySelector('.member-role').textContent =
+        role === 'owner' ? 'Invitert som medeier' : 'Invitert som medlem';
+      const cancel = document.createElement('button');
+      cancel.className = 'btn btn-small btn-ghost'; cancel.type = 'button'; cancel.textContent = 'Trekk tilbake';
+      row.append(avatarFor({ email }, false), box, cancel);
+      optimisticRows.add(row);
+      membersWrap.appendChild(row);
+      const op = opQueue.enqueue({
+        waitFor: () => rowKnownToServer(id), // et nyopprettet objekt må først være pushet
+        run: async () => {
+          const { data, error } = await acli().rpc('create_share_invite',
+            { p_type: type, p_id: id, p_email: email, p_role: role });
+          if (error) throw error;
+          return data;
+        },
+        onDone: () => {
+          optimisticRows.delete(row);
+          msg.textContent = 'Invitasjon sendt til ' + email; msg.classList.add('ok'); msg.hidden = false;
+          refreshMembers();
+        },
+        onError: (e) => {
+          optimisticRows.delete(row);
+          row.remove();
+          msg.textContent = friendlyAuthError(e); msg.hidden = false;
+        },
+      });
+      cancel.addEventListener('click', () => {
+        optimisticRows.delete(row);
+        row.remove();
+        if (opQueue.cancel(op)) return;
+        opQueue.enqueue({
+          run: async () => {
+            const inv = op.value;
+            if (!inv || !inv.id) return; // opprettelsen feilet → ingenting å trekke tilbake
+            const { error } = await acli().rpc('revoke_share_invite', { p_invite: inv.id });
+            if (error) throw error;
+          },
+          onDone: refreshMembers,
+          onError: (e) => { showToast(friendlyAuthError(e)); refreshMembers(); },
+        });
+      });
     });
-    body.appendChild(leave);
-    // Eier-navnet hentes i bakgrunnen første gang (og huskes på objektet);
-    // visningen over er komplett uten det («Delt med deg»). Tegn kun på nytt
-    // hvis akkurat denne visningen fortsatt står i DOM-en.
-    if (!obj._ownerName && !obj._ownerEmail) {
-      acli().rpc('get_members', { p_type: type, p_id: id }).then(({ data }) => {
-        if (!data || !data.owner) return;
-        obj._ownerEmail = data.owner.email;
-        obj._ownerName = data.owner.display_name;
-        if (line.isConnected) renderShareRecipient(type, id, obj, body, closeFn);
-      }).catch(() => { /* behold «Delt med deg» */ });
-    }
+
+    body.append(form, policyRow, msg, membersWrap, lockRow, actionsWrap);
+    applyPerm();
+    paintLock();
+    renderMembers(mySelfInfo(type, id, obj)); // deg selv vises straks
+    renderActions();
+    refreshMembers();                          // resten + autoritative capabilities
   }
 
   /* ---------------- Start/stopp av kontomodus ---------------- */
@@ -8506,7 +8655,8 @@
     // Køede operasjoner tilhører den utloggede sesjonen — dropp dem (de ville
     // uansett blitt avvist uten sesjon) og nullstill de optimistiske overlayene.
     opQueue.clear();
-    lockOverrides.clear(); unlockOverrides.clear(); policyOverrides.clear(); mountOverrides.clear(); suppressedRows.clear();
+    lockOverrides.clear(); unlockOverrides.clear(); policyOverrides.clear();
+    posOverrides.clear(); pendingGroupMoves.clear(); suppressedRows.clear();
     suppressedInvites.clear();
     // Skrivefeil-varslene gjaldt den utloggede sesjonen — la en ny sesjon varsle
     // på nytt hvis databasen fortsatt henger etter. Avvisnings-tellerne er
@@ -8643,7 +8793,6 @@
     openShare, openSettings, showToast, updateSafety,
     get authUser() { return authUser; },
     get lastMy() { return lastMy; },
-    get pendingPlacements() { return pendingPlacements; },
     get client() { return aclient; },
   };
 })();

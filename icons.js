@@ -235,4 +235,11 @@ window.ICONS = {
   bubbleBurst: '<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="#111" stroke-width="1.05" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
     '<circle cx="12" cy="12" r="8.5" stroke-dasharray="2 4"></circle>' +
     '</svg>',
+  // «Forlat deling» bruker samme dør-ut-ikon som «Logg ut» (samme handling for
+  // brukeren: gå ut av noe). Det TILGJENGELIGE navnet settes på knappen, så
+  // skjermlesere aldri forveksler de to.
+  logout: '<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.05" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
+    '<path d="M9 3H6a2.5 2.5 0 0 0-2.5 2.5v13A2.5 2.5 0 0 0 6 21h3"></path>' +
+    '<path d="M21 12H10"></path><path d="M17.5 8.5 21 12l-3.5 3.5"></path>' +
+    '</svg>',
 };

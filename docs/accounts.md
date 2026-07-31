@@ -1,7 +1,7 @@
 # Brukerkontoer og deling — klienten
 
 Les denne når oppgaven berører innlogging med e-post/passord, synk mot de
-relasjonelle tabellene, mount-rendring av delt innhold, delings-UI, e-postvarsel
+relasjonelle tabellene, rolle-/capability-rendring, delings-UI, e-postvarsel
 eller innboks. Databasesiden: `docs/arkitektur-brukere-deling.md`. All koden
 ligger i `app.js`, seksjonen «BRUKERKONTOER OG DELING».
 
@@ -42,7 +42,8 @@ Kanonisk innhold ligger nå relasjonelt (ikke ett jsonb-doc). Klienten holder
 samme nested `state` som før; synken går slik (`cloudCycle`):
 
 1. **Pull**: `get_my_doc()` → ett flatt doc (universes/groups/cards/items), med
-   ekstra felt per rad: `owner`/`mine`/`locked`/`shared`/`mount`, samt
+   ekstra felt per rad: `creator`/`role`/`free`/`caps`/`locked`/`shared`/
+   `personalPos`/`ownerKey`, samt
    `invites_in`/`invites_out`. Rader med en optimistisk forlatt deling
    (`suppressedRows`, se operasjonskøen under) filtreres bort — inkludert hele
    undertreet — i `contentDocFromMy`, så reconcile verken gjenoppliver dem
@@ -106,7 +107,7 @@ samme nested `state` som før; synken går slik (`cloudCycle`):
 
 Offline-buffer: `state` caches per bruker (`mine-lister-v1:<uid>`), uten intern
 metadata (`stateReplacer` hopper over `_`-felt for å unngå sykliske refs — med
-unntak av `_mine`, `_tomb`, `_hlc` og `_base`/`_baseV`).
+unntak av `_createdByMe`, `_tomb`, `_hlc` og `_base`/`_baseV`).
 
 ### Gjenoppstandelse: hvorfor basen lagres og gravsteinene håndheves
 
@@ -144,7 +145,7 @@ fantes begge, men ingen av dem ble konsultert. Fire lag løser det:
    union av `state._tomb`). En gravlagt id havner aldri i `merged` og får aldri
    en insert; ligger den fortsatt på serveren, sendes en `delete` i stedet.
 4. **Fremmede rader gjenskapes aldri** (`opts.foreign`): tvilsomme rader der
-   cachen sier `_mine === false`. Forsvinner en slik rad fra serveren, er
+   cachen sier `_createdByMe === false`. Forsvinner en slik rad fra serveren, er
    delingen opphørt eller eieren har slettet den — begge veier skal den slippes,
    for `insertPayload` ville satt OSS som `owner_id` og dermed gjort en gammel
    kopi av andres innhold til vår. Settet fryses for HELE runden (`doubted` i
@@ -194,7 +195,7 @@ kan alltid gjøre neste operasjon umiddelbart, uansett hvor treg forrige er:
   skrivinger på samme rad aldri lander i feil rekkefølge.
 - **Koalescering** (`key` + `merge`): en operasjon med samme nøkkel som en som
   VENTER i køen slås sammen med den (siste tilstand vinner) — lås-spam blir én
-  `set_locked` med sluttilstanden, gjentatte mount-flytt én membership-patch.
+  `set_locked` med sluttilstanden, gjentatt omrokkering én `memberships.pos`-skriving.
 - **Kjeding** (`op.value`): resultatet av en ferdig operasjon er tilgjengelig
   for senere køede — «Trekk tilbake» på en invitasjon som ennå ikke er
   opprettet, køes bak opprettelsen og bruker invitasjons-id-en fra dens svar.
@@ -220,8 +221,8 @@ kan alltid gjøre neste operasjon umiddelbart, uansett hvor treg forrige er:
 **Optimistiske overlays** holder lokal visning stabil over synk-rebuilds til
 operasjonen har landet (applyMyDoc bygger ellers fra serverens metadata, som
 ennå ikke vet om endringen): `lockOverrides` (ønsket lås-status),
-`mountOverrides` (pos/trashed/parent for membership-patcher i kø — brukes også
-av «Plasser»-flyten, så objektet monteres lokalt på første pull selv før
+`posOverrides` (personlig posisjon i kø) og `pendingGroupMoves` (gruppeflytting
+i kø — gruppen vises optimistisk på det nye stedet selv før
 patchen har landet), `suppressedRows` (forlatte delinger, filtreres fra pull),
 `suppressedInvites` (besvarte invitasjoner, filtreres fra innboksen). Ryddes
 av operasjonens onDone/onError når køen ikke har flere operasjoner for samme
@@ -232,103 +233,93 @@ er den borte (samme vindu som et vanlig RPC-kall hadde; doc-synkede endringer
 overlever derimot via localStorage-cachen). Operasjoner committes ikke ved
 `pagehide` — det finnes ingen synkron flush for autentiserte RPC-er.
 
-## Mount-rendring (delt innhold)
+## Rolle- og capability-rendring (delt innhold)
 
-Delte objekter er felles innhold, men **mottakerens plassering** (forelder +
-rekkefølge + egen søppel) ligger i en membership-rad («mount»). I `applyMyDoc`:
+Delt innhold er FELLES; det som er per bruker er **rollen** og den **personlige
+rekkefølgen** — begge på medlemskapsraden. I `applyMyDoc`:
 
-- En rad med `mount` re-foreldres til `mount.parent` (mottakerens valgte
-  univers/gruppe) i stedet for eierens kanoniske forelder. Objektets `.pos`/
-  `.trashed` speiler mounten (per bruker); de kanoniske verdiene tas vare på i
-  `_canon` (til push, så innhold flettes kanonisk mens plassering ikke gjør
-  det).
-- Metadata legges på objektene: `_owner`/`_mine`/`_locked`/`_shared`/`_mount`/
-  `_parent`. `frozen(obj)` = objektet selv eller en forelder er låst av noen
-  andre → redigering deaktiveres i UI (serveren blokkerer uansett).
-  `attachMeta` legger de optimistiske overlayene (`lockOverrides`/
-  `mountOverrides`) OVER serverens metadata, så en endring med skrivingen
-  fortsatt i kø ikke visuelt hopper tilbake når en pull rekker å kjøre først.
-- Mount-endringer (flytt/rekkefølge/søppel) skrives til `memberships` via
-  operasjonskøen (`cloudMountUpdate`: koalescert per objekt + overlay), ikke
-  via reconcile. Reorder/flytt-håndtererne (`onGroup Up`/`onCardUp`) og
-  slett/gjenopprett-stiene forgrener på `obj._mount`.
-- «Umonterte» delinger (mount uten forelder, f.eks. valgt forelder slettet)
-  havner i `pendingPlacements` og vises som «Plasser»-rader i innboksen.
+- Metadata legges på objektene: `_type`/`_parent`/`_creator`/`_createdByMe`/
+  `_role`/`_free`/`_caps`/`_shared`/`_locked`/`_unlocked`/`_invitePolicy`/
+  `_ownerKey`/`_memberCount`/`_ownerCount`.
+- **Personlig posisjon**: for universer (alltid) og FRIE grupper settes `.pos` fra
+  medlemskapsraden, mens den kanoniske verdien tas vare på i `_canon` og skrives
+  tilbake uendret (`canonRow`). En personlig omrokkering kan dermed aldri endre
+  hva andre ser. Skrivingen går via `cloudPersonalPos` (koalescert kø-operasjon
+  mot `memberships.pos`, med `posOverrides` som optimistisk overlay).
+- **Tre seksjoner**: universer med `_role === 'owner'` → «Mine universer»;
+  `'member'` → «Universer delt med meg»; grupper med `free = true` samles i en
+  **virtuell beholder** (`FREE_UNI_ID`, `_virtual: true`) → «Grupper delt med
+  meg». Beholderen pushes aldri (`flattenNested` hopper over den), og gruppene i
+  den beholder sitt kanoniske `uni` i doc-et.
+- `frozen(obj)` = nærmeste eksplisitte lås-tilstand oppover sier låst, og jeg er
+  ikke eier på nivået (`privilegedLocal`). Serveren blokkerer uansett.
+- `cap(obj, navn, fallback)` leser serverens `_caps`; et lokalt nyopprettet
+  objekt (ennå ikke synket) faller tilbake på `fallback` — brukeren laget det
+  nettopp selv.
+- `attachMeta` legger de optimistiske overlayene (`lockOverrides`/
+  `unlockOverrides`/`policyOverrides`/`posOverrides`/`pendingGroupMoves`) OVER
+  serverens metadata, så en endring med skrivingen fortsatt i kø ikke visuelt
+  hopper tilbake når en pull rekker å kjøre først.
+- **Tap av tilgang**: forsvinner det aktive universet/gruppen fra doc-et, lukker
+  `noteAccessLoss` åpne modaler, `validateActive` velger nærmeste gyldige
+  fallback, og en toast forklarer hva som skjedde.
+
+### Gruppeflytting (`move_group`)
+
+`groups.universe_id` kan ikke skrives direkte — databasen avviser det. En gruppe
+som dras til et annet univers flyttes optimistisk lokalt og registreres i
+`pendingGroupMoves`; doc-et beholder den GAMLE plasseringen til RPC-en har
+landet, så synken aldri forsøker en skriving serveren uansett avviser.
+
+`commitGroupMove` sammenligner universenes `ownerKey` (eierskapsdomenet). Er de
+ulike, vises en eksplisitt bekreftelse først — flyttingen er da semantisk «slett
+hos de gamle, opprett hos de nye». Avbryter brukeren, ruller `revertGroupMove`
+gruppen tilbake. Lander RPC-en med `mode: 'copy'`, bytter `applyIdMapping` de
+gamle id-ene mot de nye i hele det lokale treet og gravlegger de gamle, så
+visningen glir over uten flimmer.
 
 ## Delings-UI
 
 > Rettighetsmodellen (hvem ser hvilke kontroller) er definert i
-> [`rettigheter-og-deling.md`](rettigheter-og-deling.md). Del-UI-et er nå
-> **permission-gated** ut fra `get_members.viewer`-flaggene (`can_admin`,
-> `can_invite`, `can_manage_policy`) med et lokalt anslag for umiddelbar visning
-> (`localIsAdmin`/`localCanInvite`/`localCanManageInvitePolicy`/
-> `localCanManageLockException`, som stopper ved mount-grenser). Ikke bare eieren
-> får den fulle visningen: en administrator (oppretter/superobjekt-oppretter)
-> eller et vanlig medlem med inviterett får inviter-/medlemsvisningen; en ren
-> mottaker uten inviterett får «Forlat deling» + forklaring.
+> [`rettigheter-og-deling.md`](rettigheter-og-deling.md). Del-UI-et er
+> **capability-gated** ut fra `get_members().viewer.caps`, med `obj._caps` fra
+> `get_my_doc` som umiddelbart anslag.
 
-- **Åpning av delings-UI-et**: for LISTER ligger delingen som egen seksjon i
-  innstillingsmodalen (tannhjulet `.card-cog`, se `docs/scheduling.md`) —
-  `renderShareOwner`/`renderShareRecipient` tar en `body`-container og deles
-  med del-modalen. Univers og grupper deles fra del-knappene i nav-modalen
-  (`.uni-share` på universkortet, `.group-share` på grupperaden) — hvert objekt
-  har sin egen knapp, så man deler nøyaktig det man peker på. Knappene bygges av
-  `buildUniverseCard`/`buildGroupRow` og vises kun når objektet er mitt eller
-  montert (`_mine`/`_mount`); begge sender `openNavModal` som `backTo` så
-  tilbakeknappen i del-modalen fører rett tilbake.
-- **`item.done`** (avkryssing) synker via samme rad-CRUD som resten (innholds-
-  register `ts`/`org`). Krever `items.done`-kolonnen — se `TODO.md`.
-- **Sletting er buffret** (`docs/trash.md`): den skrives ikke til DB før toast-
-  vinduet utløper (eller fanen skjules). Angre innen vinduet gir null DB-trafikk.
-  Buffer-flagget (`_pendingDelete`) gjenpåføres etter hver `applyMyDoc`
-  (`reapplyPendingDeletes`), så en samtidig synk-runde ikke «angrer» skjulingen.
-- **Del-modal** (på univers/gruppe/liste, kun for eier eller mottaker): åpner
-  UMIDDELBART — eierskapet (`_mine`) kjennes synkront, så riktig visning
-  tegnes uten «Laster …»; eieren selv vises straks fra kontoens egne data
-  (`myOwnerInfo`), og medlemmer/ventende fylles inn når `get_members` lander.
-  Alle handlingene er optimistiske med selve RPC-en i operasjonskøen:
-  - **Inviter** (`create_share_invite`): inviter-feltet vises for den som kan
-    invitere (admin ELLER effektiv policy tillater). Raden («Venter på svar») vises
-    og feltet tømmes straks; flere invitasjoner køes. Feiler den (ugyldig/duplikat/
-    redundant/ikke synket), fjernes raden og feilen vises.
-  - **Invitasjonspolicy** (`set_invite_policy`, egen overlay `policyOverrides`,
-    nøkkel `policy:<type>:<id>`): en avmerkingsboks UNDER e-postfeltet — «Tillat
-    andre å invitere folk til {universet/gruppen/listen}». Viser den EFFEKTIVE
-    tilstanden, er interaktiv kun for `can_manage_policy`, ellers en lesbar status
-    (`.share-policy-note`). Optimistisk + koalescert; en køet endring overstyrer
-    ikke en mellomliggende pull (`policyOverrides` foran serververdi i `applyPerm`/
-    `attachMeta`). Nye rader er `inherit` → effektiv tillat (dynamisk arv).
-  - **Lås/åpne** (`set_locked`): knappen vender straks; spam koalesceres. Vises kun
-    for administratorer (`perm.canAdmin`).
-  - **Unntak fra arvet lås** (`set_unlocked`, `unlockOverrides`): når objektet har
-    en **arvet lås** (`inheritedLockInfo` finner den nærmeste låsende forelderen),
-    viser lås-feltet «Automatisk låst … Fordi [ikon][navn] er låst» og knappen «Gjør
-    unntak». Knappen er nå kun synlig for **autoriserte** (`localCanManageLockException`
-    = universeier ELLER oppretter av den låsende forelderen); en subobjekt-oppretter
-    uten rett ser forklaringen, men ingen aktiv kontroll. Samme kø-mønster som
-    `set_locked`. `frozen()` er admin-bevisst (opprettere fryses aldri av en lås).
-  - **Medlemslisten** vises for alle med visningen, men administrative kontroller
-    («Kast ut») kun for `perm.canAdmin`; «Trekk tilbake» kun på egne ventende
-    invitasjoner (`inv.mine`) eller for admin.
-  - **Arvede medlemmer** (`refreshInherited`): under de direkte medlemmene vises
-    en «Arvet fra deling over»-seksjon med personene forfedrenes delinger gir
-    tilgang (henter `get_members` for hver DELT forelder, deduplisert mot eier +
-    direkte medlemmer, «Deles via [navn]», uten «Kast ut» — de fjernes der de
-    faktisk ble delt). Deling lenger ned kan legge til FLERE personer (egen
-    invitasjon på gruppen/listen) uten å røre forelderens delegruppe.
-  - **Kast ut** (`revoke_share`) / **trekk tilbake** (`revoke_share_invite`):
-    raden forsvinner straks; `refreshMembers` gjenoppretter ved avvisning.
-  - **Forlat deling** (mottaker, `leave_share`): objektet fjernes fra treet og
-    modalen lukkes straks (`removeMountLocally` + `cloudLeave` med
-    undertrykking). Mottakerens eier-navn hentes i bakgrunnen («Delt med deg»
-    til det lander).
-- **Innboks** (i konto-modalen, badge på kontoknappen): godta (med plasseringsvalg,
-  `accept_share_invite`), avslå (`decline_share_invite`) og «Plasser»
-  (mount-patch) fjerner raden umiddelbart (`suppressedInvites`/
-  `pendingPlacements`-filtrering) med RPC-en i køen; innholdet dukker opp når
-  neste pull ser medlemskapet. Ved avvisning kommer raden tilbake + feil-toast.
-  Hver invitasjonsrad viser **inviterendes navn** (`invites_in[].from_name` =
-  `display_name`), ikke e-posten — `updateInbox` bruker `from_name || from`.
+- **Én visning for alle.** `renderShareModal` erstatter det gamle eier/mottaker-
+  skillet: medlemslisten er synlig for enhver med tilgang, mens invitasjonsfelt,
+  rollevelger, medlemsadministrasjon, lås, «Forlat» og «Slett for alle» vises
+  etter capabilities.
+- **Åpning**: universer og grupper deles fra `.uni-share`/`.group-share` i
+  nav-modalen — knappene er synlige for ALLE med tilgang (medlemslisten er åpen).
+  Begge sender `openNavModal` som `backTo`. **Lister har ingen deling** lenger;
+  chipen i listas meta-rad åpner GRUPPENS delingsinnstillinger.
+- **Medlemslisten** grupperes etter kategori med overskrifter («Eier»/«Medeiere»,
+  «Eier av gruppen»/«Medeiere av gruppen», «Medlemmer av universet»,
+  «Medlemmer av gruppen»); tomme kategorier utelates. Hver rad viser rollen, og
+  for den som administrerer medlemmer også en forklaring når brukeren ikke kan
+  fjernes her («Har tilgang via universet og må fjernes der» / «Siste eier kan
+  ikke fjernes»). Ventende invitasjoner står i en egen seksjon.
+- **Inviter** (`create_share_invite`): e-postfelt + rollevelger («Som medlem» /
+  «Som medeier»). Velgeren vises kun ved `caps.inviteOwner`. Raden («Invitert
+  som …») vises straks og feltet tømmes; flere invitasjoner køes. Feiler den,
+  fjernes raden og feilen vises.
+- **Degradering** (`set_member_role`): «Gjør til medlem» på en medeier, med
+  bekreftelse. Rolleløft finnes ikke som knapp — det krever en invitasjon.
+- **Fjern** (`revoke_share`) / **Trekk tilbake** (`revoke_share_invite`): raden
+  forsvinner straks; `refreshMembers` gjenoppretter ved avvisning.
+- **Invitasjonspolicy** (`set_invite_policy`, overlay `policyOverrides`): en
+  avmerkingsboks under e-postfeltet, interaktiv kun ved `caps.managePolicy`,
+  ellers en lesbar status.
+- **Lås/åpne** (`set_locked`) og **unntak fra arvet lås** (`set_unlocked`):
+  som før, men gatet av `caps.manageLock` / `caps.lockException`.
+- **Forlat** (`caps.leave`, `leave_share`) og **Slett for alle** (`caps.delete`)
+  står sammen nederst — begge kan være aktuelle samtidig for en medeier. Er man
+  eneste eier, forklarer en linje hvorfor «Forlat» mangler.
+- **Innboks** (i konto-modalen, badge på kontoknappen): godta
+  (`accept_share_invite` — **ingen plassering å velge**) eller avslå fjerner raden
+  umiddelbart (`suppressedInvites`) med RPC-en i køen; innholdet dukker opp når
+  neste pull ser rollen. Eierskaps-invitasjoner merkes «som medeier, fra …».
+  Hver rad viser inviterendes **navn**, ikke e-posten.
 
 ## Varsling ved deling (i appen + e-post)
 
@@ -336,7 +327,7 @@ Mottakeren varsles på to måter når noe deles med hen:
 
 - **I appen (alltid)**: `updateInbox(my)` (kalt hver `cloudCycle`) setter en rød
   ring med antall (`#account-badge`) på kontoknappen — summen av `invites_in` (ikke
-  besvarte) + `pendingPlacements` — og fyller «Invitasjoner»-innboksen i konto-
+  besvarte) — og fyller «Invitasjoner»-innboksen i konto-
   modalen. Dette dekker **registrerte** mottakere fullt ut (de trenger ikke
   e-post).
 - **På e-post (valgfritt)**: en `share_invites`-insert-trigger i databasen
@@ -399,13 +390,13 @@ Mottakeren varsles på to måter når noe deles med hen:
 
 ## Søppel-semantikk for delinger
 
-For en mottaker er «slett» på selve share-roten = legg mounten i egen søppel
-(`membership.trashed`); tømming = `leave_share` (forlat, rører ikke eierens
-innhold — går via operasjonskøen med `suppressedRows`-undertrykking, se
-`docs/trash.md`). Innhold UNDER en deling slettes som vanlig (felles
-`trashed`, gjelder alle). Håndteres i delete-/empty-/restore-stiene ved å
-forgrene på `obj._mount`. Serveren håndhever reglene uansett (RLS +
-trashed-vakter).
+Søpla er **felles**: `trashed` er et vanlig innholdsfelt som gjelder for alle med
+tilgang. Å **forlate** er noe helt annet — det rører aldri innholdet, bare egen
+tilgang (`leave_share` via operasjonskøen med `suppressedRows`-undertrykking, se
+`docs/trash.md`). Delete-/empty-stiene forgrener derfor på CAPABILITY, ikke på
+eierskap: kan man ikke slette objektet for alle (`cap(obj, 'delete')`), forlater
+man det i stedet. Serveren håndhever reglene uansett (RLS + `can_delete_object`
+i `*_before_update`).
 
 ## Migreringsflyt
 
@@ -438,10 +429,11 @@ tabell-kall (ikke auth) — brukes til å bevise at UI-et er umiddelbart og at
 operasjonskøen serialiserer riktig når operasjonene er trege.
 
 Verifisert med Playwright: registrering→«sjekk innboksen»→innlogging, CRUD +
-buffer over reload, to-bruker-deling (inviter→godta m/plassering→mount→kryss-
-bruker-synk→lås/frys→forlat), migrering, og desktop+mobil. Operasjonskøen er
-verifisert med `lag=800`: umiddelbar del-modal, køede invitasjoner m/
-tilbaketrekking, lås-spam→koalescert sluttilstand, umiddelbar aksept,
-fritt ansvars-bytte med LWW-sluttilstand, gjenopprett/tøm under buffret
-sletting, mount-sletting uten gjenoppstandelse under pull, og forlat uten
-resurrect-blink.
+buffer over reload, to-bruker-deling (inviter→godta uten plassering→kryss-
+bruker-synk→lås/frys→forlat), rollemodellen og de tre seksjonene
+(`tests/roles-and-sections.test.js`), gruppeflytting med bekreftelse og
+id-mapping (`tests/group-move.test.js`), migrering, og desktop+mobil.
+Operasjonskøen er verifisert med `lag=800`: umiddelbar del-modal, køede
+invitasjoner m/ tilbaketrekking, lås-spam→koalescert sluttilstand, umiddelbar
+aksept, fritt ansvars-bytte med LWW-sluttilstand, gjenopprett/tøm under buffret
+sletting, og forlat uten resurrect-blink.

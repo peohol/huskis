@@ -2,8 +2,8 @@
 
 Grunnmuren for brukerkontoer og deling i Huskis. Databasesiden er
 implementert i [`supabase/users-and-sharing.sql`](../supabase/users-and-sharing.sql)
-(idempotent, kjøres av Actionen «Supabase DB-oppsett»). UI-/klientsiden er
-**ikke** implementert ennå — se [TODO.md](../TODO.md).
+(idempotent, kjøres av Actionen «Supabase DB-oppsett»). Klientsiden er beskrevet
+i [`accounts.md`](accounts.md).
 
 ## Oversikt
 
@@ -11,30 +11,32 @@ implementert i [`supabase/users-and-sharing.sql`](../supabase/users-and-sharing.
 Supabase Auth (e-post + passord, bekreftelseslenke)
         │ 1:1 (trigger)
    profiles ──────────────┐
-        │ owner_id på alt │
+        │ owner_id = created_by (ren historikk, ingen rettigheter)
    universes ─ groups ─ cards («lister») ─ items      ← kanonisk innhold
-        ▲          ▲          ▲
-        └──────────┴──────────┴── memberships (mounts) ← andres tilgang + DERES plassering
-                                  share_invites        ← invitasjoner på e-post
-                                  tombstones           ← mot gjenoppliving offline
+        ▲          ▲
+        └──────────┴── memberships (ROLLER: owner | member) ← all myndighet
+                       share_invites (m/ rolle)             ← invitasjoner på e-post
+                       tombstones                           ← mot gjenoppliving offline
 ```
 
-Den gamle éndoc-modellen (`public.lists` + `get_list`/`save_list`, mønster-lås)
-er **pensjonert** — `supabase/setup.sql` dropper tabellen + RPC-ene, og klienten
-har ingen v1-kode igjen.
+Deling finnes **kun på universer og grupper**. Lister, kategorier og listepunkter
+arver tilgangen. `supabase/setup.sql` dropper den gamle éndoc-modellen
+(`public.lists` + `get_list`/`save_list`).
+
+Den autoritative rettighetsmodellen står i
+[`rettigheter-og-deling.md`](rettigheter-og-deling.md); dette dokumentet
+beskriver databasesiden.
 
 ## Identitet og registrering
 
 - **Supabase Auth** med e-post + passord (`supabase.auth.signUp`). Med
   «Confirm email» PÅ (standard) sender Supabase bekreftelses-e-posten med
   lenke automatisk, og brukeren kan ikke logge inn før e-posten er bekreftet.
-  Ingen egen e-postinfrastruktur trengs.
 - `public.profiles` speiler `auth.users` via trigger (`handle_new_user`):
   opprettes ved registrering, e-post holdes synkron (lowercase). `display_name`
-  = «Fornavn Etternavn» (fanges fra `raw_user_meta_data->>'display_name'`, som
-  klienten sender ved registrering; ellers e-post-prefiksen). Triggeren kobler
-  også **ventende invitasjoner** sendt til e-posten før kontoen fantes.
-  Klienten kan kun endre `display_name` (kolonne-grant), aldri e-posten.
+  = «Fornavn Etternavn» (fanges fra `raw_user_meta_data->>'display_name'`).
+  Triggeren kobler også **ventende invitasjoner** sendt til e-posten før kontoen
+  fantes. Klienten kan kun endre `display_name` (kolonne-grant), aldri e-posten.
 - RLS: hver bruker ser kun sin egen profil. Medlemslister hentes via
   `get_members()` (som krever tilgang til objektet).
 
@@ -43,127 +45,92 @@ har ingen v1-kode igjen.
 Fire objekttabeller — `universes` > `groups` > `cards` (= «lister» i UI-et)
 > `items` — med `on delete cascade` nedover. Hver rad har:
 
-- `owner_id` — **oppretteren** av raden; kan aldri endres (trigger-vakt). NB:
-  betyr «oppretter», ikke universeier — universeieren er `owner_id` på rot-
-  universet. Se [`rettigheter-og-deling.md`](rettigheter-og-deling.md).
-- `trashed` — søppelkasseflagget, **felles** for alle med tilgang
-  (innholds-søppel; jf. dagens modell).
+- `owner_id` — **oppretteren** (`created_by`). Uforanderlig (trigger-vakt), og
+  gir **ingen** rettigheter. Kolonnenavnet er beholdt av migreringshensyn.
+- `trashed` — søppelkasseflagget, **felles** for alle med tilgang.
 - `locked`/`unlocked` (ikke på items) — lås/unntak, se «Låsing».
-- `invite_policy` (ikke på items) — `inherit`/`allow`/`deny`, se
-  «Invitasjonspolicy».
-- LWW-registre som i dagens synk-doc: `ts`/`org` (innhold),
-  `pos_ts`/`pos_org` (posisjon + forelder-peker), `lab_ts`/`lab_org`
-  (K/P på cards). **Håndheves nå på serveren**: BEFORE UPDATE-triggere
-  lar en skriving med eldre register-stempel tape mot dataene som står
-  (per register — samme semantikk som klientens `mergeStates`).
-  Klienten MÅ derfor stemple registrene ved endring, ellers biter ikke
-  skrivingen.
-- Id-er er `uuid` og kan genereres på klienten (`crypto.randomUUID()`)
-  for offline-first-oppførsel.
-- `items.responsible` (FK til `profiles`, `on delete set null`): ansvarlig
-  bruker for et listepunkt i en delt liste. Rir på innholds-registeret (`ts`/`org`,
-  som `text`/`done`/`trashed`) — server-LWW som resten. Klienten viser/endrer
-  den kun for listepunkter i delt kontekst (`docs/accounts.md`).
+- `invite_policy` (kun universes/groups) — `inherit`/`allow`/`deny`.
+- LWW-registre: `ts`/`org` (innhold), `pos_ts`/`pos_org` (posisjon +
+  forelder-peker), `lab_ts`/`lab_org` (K/P på cards). **Håndheves på serveren**:
+  BEFORE UPDATE-triggere lar en skriving med eldre register-stempel tape mot
+  dataene som står. Klienten MÅ stemple registrene ved endring.
+- Id-er er `uuid` og kan genereres på klienten (`crypto.randomUUID()`).
+- `cards.responsible` / `items.responsible` (FK til `profiles`,
+  `on delete set null`): ansvarlig bruker. Kandidatene er gruppens **effektive**
+  medlemsliste. Rir på innholds-registeret.
+
+### Roller (`memberships`)
+
+Én rad = én brukers ROLLE på ETT delbart objekt (univers **eller** gruppe):
+
+| Kolonne | Betydning |
+|---|---|
+| `user_id` | brukeren |
+| `universe_id` / `group_id` | nøyaktig én er satt (CHECK) |
+| `role` | `'owner'` \| `'member'` |
+| `pos` | brukerens **personlige** rekkefølge (toppnivå-universer, frie grupper) |
+
+* Eiere **har** en rad — det er nettopp den som gjør eierskapet mutabelt.
+* `card_id` er pensjonert: kolonnen står igjen for migreringens skyld, men en
+  CHECK holder den `null`. Det samme gjelder `share_invites.card_id`.
+* Mount-kolonnene (`parent_universe_id`, `parent_group_id`, `trashed`) er
+  **droppet** — mottakeren velger ikke lenger sin egen forelder.
+* `INSERT` er ikke gitt til `authenticated`: roller opprettes kun av
+  SECURITY DEFINER-veiene (`accept_share_invite` og opprettelses-triggerne
+  `universes_after_insert` / `groups_after_insert`).
+
+**Siste-eier-invarianten** håndheves av `memberships_before_update` og
+`memberships_before_delete` (feilkode `PT422`), altså også mot rå SQL. Kaskader
+(universet eller brukeren slettes) hoppes over.
 
 ## Tilgangsmodell
 
-Lesetilgang til et objekt = én av:
+* `can_read_universe` = brukeren har en universrolle. Et univers leses **aldri**
+  av en direkte gruppemottaker — navn og medlemsliste lekkes ikke.
+* `can_read_group` = **effektivt** gruppemedlemskap: direkte grupperolle ELLER
+  en hvilken som helst universrolle på gruppens kanoniske univers.
+* `can_read_card` / listepunkter følger gruppen.
 
-1. Du eier det (`owner_id`).
-2. Du har **medlemskap** på det (direkte deling).
-3. Du har medlemskap på en **forelder** (univers-deling gir alt under;
-   gruppe-deling gir lister + listepunkter; liste-deling gir listepunkter).
+Alt håndheves med RLS-policyer bygget på SECURITY DEFINER-funksjoner (ingen
+policy-rekursjon). `anon` har null tilgang.
 
-Alt håndheves med RLS-policyer bygget på `can_read_*`/`can_edit_*`
-(SECURITY DEFINER-funksjoner — ingen policy-rekursjon). `anon`-rollen har
-null tilgang til de nye tabellene; alt krever innlogget bruker.
+Capabilities beregnes av `universe_caps()` / `group_caps()` og returneres til
+klienten i `get_my_doc()` og `get_members().viewer.caps`.
 
-**Nedovergående deling er automatisk og additiv.** Å dele et univers deler
-*hele* universet — alle grupper/lister/listepunkter arver tilgangen. Man kan i
-tillegg dele et objekt lenger ned med **flere** enn forelderen er delt med (egen
-membership-rad på gruppen/listen); de nye får bare den grenen, ikke søsken. Så en
-liste kan være delt med 6 i en gruppe delt med 4 i et univers delt med 2.
-Klienten viser arvede medlemmer (fra forfedre) sammen med de direkte i delings-
-listen — se `docs/accounts.md`.
+## Deling (invitasjon → aksept → rolle)
 
-## Deling (invitasjon → aksept → mount)
-
-> **Autorisasjonsmodellen er utvidet — se
-> [`rettigheter-og-deling.md`](rettigheter-og-deling.md) for den autoritative
-> definisjonen.** Kort: «eieren» nedenfor er generalisert til **privilegerte
-> administratorer** (universeier + oppretteren av objektet + oppretteren av hvert
-> superobjekt), og et **vanlig medlem kan invitere** når den effektive
-> invitasjonspolicyen tillater det. Formuleringer som «kun eieren» er utdaterte.
-
-1. En **privilegert administrator** — ELLER et vanlig medlem når den effektive
-   invitasjonspolicyen tillater videreinvitasjon (`can_invite_to`) — inviterer en
-   e-postadresse: `create_share_invite(type, id, email)`. Mottakeren trenger ikke
-   ha konto — invitasjonen kobles ved registrering. En invitasjon avvises hvis
-   mottakeren allerede har **effektiv** tilgang (også arvet fra et superobjekt).
-2. Mottakeren ser invitasjonen i appen (`get_my_doc().invites_in`) og
-   aksepterer med `accept_share_invite(invite, parent, pos)`:
-   - **Univers**: ingen plassering (dukker opp blant mottakerens universer).
-   - **Gruppe**: mottakeren velger hvilket av **sine** universer gruppen
-     legges i (`parent_universe_id`).
-   - **Liste**: mottakeren velger gruppe (`parent_group_id`).
-3. Aksepten oppretter en **membership-rad** = mottakerens *mount*:
-   tilgang + mottakerens egen plassering (forelder + `pos`) av det delte
-   objektet. **Innholdet er felles; kun montasjepunktet er per bruker.**
+1. `create_share_invite(type, id, email, role)` — `type` er `'universe'` eller
+   `'group'`; `role` er `'member'` eller `'owner'`. Medlemsinvitasjoner krever
+   `can_invite_to` (eier på nivået, eller et medlem når policyen tillater det);
+   **eierskaps**-invitasjoner krever `can_invite_owner` (kun eiere). Mottakeren
+   trenger ikke ha konto — invitasjonen kobles ved registrering. Redundante
+   medlemsinvitasjoner avvises; en eierskaps-invitasjon til en som allerede har
+   tilgang er gyldig (det er rolleløftet).
+2. Mottakeren ser invitasjonen i `get_my_doc().invites_in` og aksepterer med
+   `accept_share_invite(invite)`. **Ingen plassering velges.** Universet havner
+   i «Mine universer» / «Universer delt med meg» etter rolle; en gruppe vises
+   inne i universet hvis mottakeren er universmedlem, ellers i «Grupper delt med
+   meg».
+3. Aksepten oppretter (eller løfter) medlemskapsraden og legger objektet bakerst
+   i mottakerens personlige rekkefølge. For en universinvitasjon ryddes samtidig
+   redundante ordinære direkte gruppemedlemskap i universet.
 
 Viktige egenskaper:
 
-- **Eieren har aldri membership-rad** → kan strukturelt aldri kastes ut.
-- **Kaste ut**: `revoke_share(type, id, user)` (en privilegert administrator,
-  `can_admin_resource`) sletter det **direkte** medlemskapet + ev. ventende
-  invitasjoner for brukeren. Arvede medlemmer (tilgang kun via et superobjekt)
-  administreres der delingen faktisk finnes.
-- **Invitere / trekke tilbake**: en administrator kan trekke tilbake ALLE ventende
-  invitasjoner i sitt myndighetsområde; et vanlig medlem med inviterett kan bare
-  trekke tilbake sine egne (`revoke_share_invite`, `get_members` gir `mine`).
-- **Sletteregelen for en mottaker** (samme mønster på alle tre nivåer):
-  mottakeren kan **ikke slette selve det delte objektet** (share-roten) —
-  hverken legge det i søppel (`trashed`) *eller* hardslette det. Å fjerne
-  det fra sitt eget syn gjøres i stedet via mounten (`membership.trashed`
-  → tømming = `leave_share()`), som aldri rører innholdet.
-  - Delt **univers** → mottakeren kan ikke slette universet, men kan slette
-    grupper/lister/listepunkter **i** det.
-  - Delt **gruppe** → kan ikke slette gruppen, men kan slette lister/
-    listepunkter i den.
-  - Delt **liste** → kan ikke slette listen, men kan slette listepunktene i den.
-- **Sletting og gjenoppretting av delt *innhold* gjelder for alle.**
-  `trashed` er et **felles** felt på selve raden, så når en mottaker legger
-  en gruppe/liste/listepunkt i søppel (eller henter den ut igjen), ser eieren
-  og alle andre med tilgang nøyaktig samme tilstand. Det finnes ingen
-  per-bruker søppelkasse for delt innhold — kun for selve mounten.
-- **Eierens sletting er reell** (trashed → tømming = hard delete med
-  kaskade); da forsvinner objektet for alle. Eieren kan i stedet kaste
-  ut de andre hvis bare delingen skal opphøre.
-- Slettes *mottakerens* valgte forelder (f.eks. universet mounten pekte
-  på), settes mount-pekeren til `null` («umontert») — delingen består,
-  og UI-et kan be om ny plassering.
-- Mottakere av en **direkte** deling kan ikke flytte objektets *kanoniske*
-  forelder (eierens plassering) — de flytter sin egen mount. Innen et delt
-  univers/gruppe kan medlemmer derimot dra lister/listepunkter fritt (felles
-  struktur).
-
-Håndhevingen ligger på to steder: RLS `*_delete`-policyene sperrer
-hardsletting av en share-rot for alle med direkte medlemskap på objektet
-(universe-sletting er dessuten eier-only), og BEFORE UPDATE-triggerne
-sperrer `trashed`-endring på en share-rot fra en mottaker (et univers kan
-ingen ikke-eier trashe; en gruppe/liste kan ikke trashes av en med direkte
-medlemskap *på den*, men gjerne av et univers-/gruppemedlem over den).
-Innhold uten eget medlemskap (barn) faller alltid utenfor sperren og kan
-slettes fritt.
-- `profiles.email` er **skrivebeskyttet for klienter** (kolonne-grant: kun
-  `display_name`) og speiles utelukkende fra `auth.users` — ellers kunne en
-  bruker kapre invitasjoner sendt til uregistrerte adresser (aksept
-  sammenligner mot `profiles.email`) eller blokkere andres registrering
-  via unik-indeksen på e-post.
-- `profiles.email` er **skrivebeskyttet for klienter** (kolonne-grant: kun
-  `display_name`) og speiles utelukkende fra `auth.users` — ellers kunne en
-  bruker kapre invitasjoner sendt til uregistrerte adresser (aksept
-  sammenligner mot `profiles.email`) eller blokkere andres registrering
-  via unik-indeksen på e-post.
+- **`set_member_role`** degraderer (eier → medlem). Rolleløft går alltid gjennom
+  en invitasjon mottakeren må godta.
+- **`revoke_share(type, id, user)`** krever `can_manage_members`. For et univers
+  fjerner den ALL underliggende direkte tilgang (`purge_universe_access`); for en
+  gruppe kun den direkte grupperollen. En universarvet bruker kan ikke fjernes
+  fra én enkelt gruppe — RPC-en avviser med `PT409` og en forklaring.
+- **`leave_share(type, id)`** er brukerens egen utgang, med samme opprydding.
+  Siste universeier blokkeres (`PT422`).
+- Begge nullstiller `responsible`-referanser som mister effektiv tilgang, med et
+  ferskt innholds-register (`org = 'server'`) så LWW slipper endringen gjennom.
+- **`move_group(group, universe, cat, pos)`** er den ENESTE veien en gruppe
+  bytter univers. Se `rettigheter-og-deling.md` del 11 for semantikken
+  (reorder / reparent / copy) — og merk at `groups_before_update` avviser en
+  direkte skriving av `universe_id`.
 
 ## Låsing (med unntak for arvet lås)
 
@@ -171,16 +138,16 @@ slettes fritt.
 
 `locked`/`unlocked` på universes/groups/cards er **gjensidig utelukkende** per rad,
 så hver node har én av tre tilstander: *låst*, *unntak (åpnet)*, eller *arv*.
-`set_locked` kan settes av en **privilegert administrator** (`can_admin_resource`);
-`set_unlocked` (unntak fra en ARVET lås) kun av universeieren ELLER oppretteren av
-det nærmeste superobjektet som innfører den effektive låsen
-(`can_manage_lock_exception`) — en lavere oppretter kan ikke åpne en gren i strid
-med en høyere lås.
+`set_locked` styres av `can_manage_lock` (= `is_privileged`: universeier for et
+univers, gruppeeier for gruppe/liste). `set_unlocked` (unntak fra en ARVET lås)
+styres av `can_manage_lock_exception`: universeiere alltid, og — når den arvede
+låsen er satt på en GRUPPE — også en eksplisitt gruppeeier der. En gruppeeier kan
+altså ikke åpne en gren i strid med en universlås.
 
 Effektiv redigeringsstatus for et **vanlig medlem** = den nærmeste eksplisitte
-tilstanden fra objektet og oppover (`effective_lock_source`). Universeieren og
-relevante opprettere kan **alltid** redigere (`can_edit_content =
-can_admin_resource OR NOT is_effectively_locked`). Lesing påvirkes aldri av lås.
+tilstanden fra objektet og oppover (`effective_lock_source`). Eiere på nivået kan
+**alltid** redigere (`can_edit_content = is_privileged OR NOT
+is_effectively_locked`). Lesing påvirkes aldri av lås.
 
 **Posisjon er skilt fra innholdslås**: retten til å endre et objekts rekkefølge i
 superobjektet styres av `can_reorder_in_parent` (= innholdsredigering på
@@ -191,23 +158,29 @@ feltspesifikt.
 Følger: lås på et univers fryser alt under for vanlige medlemmer, MEN en autorisert
 bruker kan gjøre et **unntak** for en konkret gruppe/liste under (`unlocked =
 true`), og et enda lavere nivå kan låses på nytt inni et unntak.
-Nærmeste-eksplisitt-regelen håndterer vilkårlig nøsting.
+Nærmeste-eksplisitt-regelen håndterer vilkårlig nøsting. Finnes det ingen arvet
+lås, er «unntak» en overflødig flaggverdi — da kan den som ellers styrer objektets
+lås rydde den bort.
 
 ## Invitasjonspolicy (tretilstands dynamisk arv)
 
-`invite_policy` (`inherit`/`allow`/`deny`) på universes/groups/cards styrer om
-**vanlige medlemmer** kan invitere flere. Effektiv verdi = nærmeste eksplisitte fra
+`invite_policy` (`inherit`/`allow`/`deny`) på **universes og groups** styrer om
+vanlige medlemmer kan invitere flere. Effektiv verdi = nærmeste eksplisitte fra
 objektet og oppover; ingen eksplisitt noe sted → tillat. Nye rader er `inherit`
-(dynamisk arv). `set_invite_policy` styres av `can_manage_invite_policy` (parallelt
-med lås-unntak). Migreringen gir eksisterende rader `inherit` → effektiv tillat.
+(dynamisk arv). `set_invite_policy` styres av `can_manage_invite_policy`: eiere på
+nivået, men under en arvet `deny` fra universet kun universeiere. Listespesifikk
+policy er fjernet — `cards.invite_policy` er pensjonert og leses aldri.
+Policyen gir **aldri** rett til å invitere eiere.
 Full modell: [`rettigheter-og-deling.md`](rettigheter-og-deling.md).
 
 ## Sletting, søppel og gravsteiner
 
-- `trashed`-flagg = søppelkasse (reversibel), som i dag. For delt innhold
-  er den **felles** (sletting/gjenoppretting gjelder for alle med tilgang);
-  kun for selve mounten er den per mottaker. Share-roten kan mottakeren
-  ikke trashe i det hele tatt (se «Deling»).
+- `trashed`-flagg = søppelkasse (reversibel). Den er **felles** for alle med
+  tilgang — det finnes ingen egen mottaker-søppelkasse lenger. Hvem som kan sette
+  den styres av `can_delete_object` (håndhevet i `*_before_update`): for et
+  univers kun eiere, for en gruppe eiere eller et universmedlem når gruppen er
+  effektivt åpen. Å **forlate** en deling er noe annet — det rører aldri
+  innholdet, bare egen tilgang.
 - Tømming = hard `DELETE`. AFTER DELETE-triggere skriver **gravsteiner**
   (`tombstones(resource_type, resource_id, ts)`) — én rad per slettet objekt,
   også for barna, siden `on delete cascade` sletter dem rad for rad og deres
@@ -244,11 +217,13 @@ Full modell: [`rettigheter-og-deling.md`](rettigheter-og-deling.md).
 | Kall | Rolle |
 |---|---|
 | `supabase.auth.signUp/signInWithPassword/…` | registrering/innlogging (bekreftelses-e-post håndteres av Supabase) |
-| `get_my_doc()` | hele brukerens datasett som ETT flatt jsonb-doc (universes/groups/cards/items + `mount`-info + invitasjoner) — samme fasong som dagens synk-doc, så `applyDoc`-maskineriet gjenbrukes |
+| `get_my_doc()` | hele brukerens datasett som ETT flatt jsonb-doc: universes/groups/cards/items + `role`, `free`, `personalPos`, `ownerKey`, `shared` og `caps` + invitasjoner |
 | vanlige `insert/update/delete` på tabellene | CRUD med RLS + server-side LWW; klienten stempler `ts/org`-registrene som i dag |
 | `import_doc(doc)` | engangs-migrering av lokalt/legacy doc til egne data (deterministiske id-er per bruker, idempotent) |
-| `create_share_invite` / `accept_share_invite` / `decline_share_invite` / `revoke_share_invite` | delingsflyt (invitasjon fra admin ELLER medlem m/ inviterett) |
-| `revoke_share` / `leave_share` / `set_locked` / `set_unlocked` / `set_invite_policy` / `get_members` | administrasjon (låsing + unntak + invitasjonspolicy; `get_members` gir `viewer`-rettigheter) |
+| `create_share_invite(type, id, email, role)` / `accept_share_invite(invite)` / `decline_share_invite` / `revoke_share_invite` | delingsflyt, medlem eller eierskap; aksept krever ingen plassering |
+| `revoke_share` / `set_member_role` / `leave_share` / `set_locked` / `set_unlocked` / `set_invite_policy` / `get_members` | administrasjon (roller, låsing + unntak, invitasjonspolicy; `get_members` gir `viewer.caps`) |
+| `move_group(group, universe, cat, pos)` | ATOMISK gruppeflytting: reorder / reparent / kopier-og-slett med id-mapping |
+| `update memberships set pos` (egen rad) | personlig rekkefølge (toppnivå-universer + frie grupper) |
 | Realtime `postgres_changes` på tabellene | live-oppdatering (tabellene ligger i `supabase_realtime`-publikasjonen) |
 
 ## Migrering fra dagens modell
@@ -263,6 +238,9 @@ Full modell: [`rettigheter-og-deling.md`](rettigheter-og-deling.md).
    eksplisitt med den nye delingsmodellen).
 4. Den gamle `lists`-tabellen + mønster-låsen er pensjonert (`setup.sql`
    dropper dem); migrering av lokale data skjer ved første innlogging.
+5. **Rolle-backfill + migrering av gamle listedelinger** kjøres én gang av
+   `users-and-sharing.sql` (markert i `public.migration_log`). Se
+   `rettigheter-og-deling.md` del 13.
 
 ## Testing
 
@@ -275,11 +253,17 @@ Supabase-miljøet stubbes med `local-stub.sql` — samme
 PGHOST=... PGPORT=5433 PGUSER=postgres PGDATABASE=hk_test supabase/tests/run-tests.sh
 ```
 
-Suiten kjører migreringen **to ganger** (idempotens) og dekker: profil-
-trigger, RLS-isolasjon mellom brukere, hele delingsflyten for alle tre
-nivåer, mount-plassering og -søppel, låsing (inkl. arv fra univers),
-utkastelse/forlating, eierskapsvakter, server-side LWW, import
-(determinisme + idempotens + foreldreløse), gravsteiner og anon-avvisning.
+Suiten har **to løp**: ett vanlig (nytt skjema, migreringen kjørt to ganger for
+idempotens) og ett **oppgraderingsløp** der `tests/legacy-share-fixture.sql`
+legger inn den GAMLE databasefasongen med data før migreringen kjøres.
+
+Dekning: profil-trigger, RLS-isolasjon, rollemodellen (eiere/medeiere,
+siste-eier-invarianten, degradering, capabilities), effektivt gruppemedlemskap og
+medlemslistens kategorier, invitasjoner (medlem + eierskap + avviste liste-
+invitasjoner), låser og unntak, sletting/forlatelse med opprydding av ansvar,
+personlig rekkefølge, gruppeflytting (reorder/reparent/kopier-og-slett med
+gravsteiner), server-side LWW, import (determinisme + idempotens + foreldreløse),
+gravsteiner, anon-avvisning og hele migreringen av gamle listedelinger.
 
 ## Manuelle steg (utenfor SQL — én gang, i Supabase-dashboardet)
 

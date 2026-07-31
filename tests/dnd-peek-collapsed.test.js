@@ -267,11 +267,14 @@ const log = (n, ok, x = '') => { results.push(ok); console.log((ok ? 'PASS' : 'F
     const p = await b.newPage({ viewport: { width: 1200, height: 900 }, hasTouch: true });
     const errs = []; p.on('pageerror', (e) => errs.push(e.message));
     await register(p); await seed(p);
-    // Marker B som låst FOR MEG (ikke min, låst, mount-grense så localIsAdmin=false).
+    // Marker B som låst FOR MEG. Eiere omgår alle låser, så testbrukeren må være
+    // et VANLIG universmedlem — ellers gjelder ikke låsen for hen.
     await p.evaluate(() => {
       const H = window.__huskis, st = H.state;
-      const g = st.universes.find((u) => u.id === st.activeUniverse).groups.find((x) => x.id === st.activeGroup);
-      const B = g.cards.find((c) => c.id === 'card-B'); B._mine = false; B._locked = true; B._mount = true;
+      const u = st.universes.find((x) => x.id === st.activeUniverse);
+      const g = u.groups.find((x) => x.id === st.activeGroup);
+      u._role = 'member'; g._role = null;
+      const B = g.cards.find((c) => c.id === 'card-B'); B._locked = true;
     });
     const src = await centerOf(p, '.category[data-id="cat-1"] .cat-head');
     const bHead = await centerOf(p, '.card[data-id="card-B"] .card-head');
