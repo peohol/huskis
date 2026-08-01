@@ -445,13 +445,21 @@ utenfor auth-skjemaet er `on delete cascade`, og ingen universer står uten eier
 - [x] ~~GitHub → Settings → Secrets and variables → Actions: legg inn
       secreten `SUPABASE_DB_URL`~~ — gjort (se merknad over ang. pooler-
       adresse vs. direct connection)
-- [ ] Supabase → Authentication → URL Configuration: sett **Site URL** +
-      **Redirect URLs** til appens adresse (bekreftelseslenken peker dit)
+- [x] ~~Supabase → Authentication → URL Configuration: sett **Site URL** +
+      **Redirect URLs** til appens adresse~~ — gjort (peker til `huskis.no`).
+      Klienten sender uansett en eksplisitt, betrodd `redirectTo`/
+      `emailRedirectTo` på hvert kall (`authRedirectUrl()`, se
+      `docs/domains-and-urls.md`) — Site URL er kun fallback/allowlist.
 - [ ] Verifiser at **Confirm email** står PÅ (Authentication → Sign In / Up;
       det er standard)
 - [ ] (Før reell bruk) egen **SMTP**-avsender — innebygd utsending er
       ratebegrenset til utviklingsbruk
-- [ ] (Valgfritt) tilpass e-postmalen for bekreftelse (norsk tekst)
+- [ ] Auth-e-postmalene (Confirm signup/Reset password/Change email) —
+      sjekkliste + et ferdig, likt-stilt utkast for Confirm signup:
+      se «Auth-e-postmalene» i `docs/domains-and-urls.md` og
+      `supabase/email-templates/confirm-signup.html`. Ikke bekreftet
+      herfra — ingen tilgjengelig verktøy kunne lese/skrive
+      Dashboard-malene i denne runden.
 
 ## E-postvarsel ved deling (siste runde) — manuell konfig gjenstår
 
@@ -493,9 +501,11 @@ Gjenstår manuelt:
       ```sql
       insert into public.app_config(key, value) values
         ('email_from', 'Huskis <noreply@huskis.no>'),
-        ('app_url',    'https://www.huskis.no/')
+        ('app_url',    'https://huskis.no/')
       on conflict (key) do update set value = excluded.value;
       ```
+      (`app_url` er kanonisk, UTEN `www` — se `docs/domains-and-urls.md`.
+      Produksjonsraden er allerede oppdatert til denne verdien.)
       Triggeren leser nøkkelen fra Vault først; app_config-nøkkelen er KUN en
       fallback for det lokale, hermetiske test-miljøet (som ikke har Vault) —
       legg derfor IKKE `resend_api_key` i app_config i produksjon. Uten en
@@ -518,6 +528,26 @@ Gjenstår manuelt:
         pg_net rydder denne tabellen etter en stund, så det er kortvarig
         diagnostikk. For varig leveringsstatus: sjekk Resend-dashbordet (eller
         vurder Resend-webhooks som en senere forbedring).
+
+## Domeneopprydding: det pensjonerte `huskekurv.vercel.app` (siste runde)
+
+En registrering ble sendt til det gamle domenet fordi klienten brukte
+`location.origin` som auth-returadresse. Full detaljer, rotårsak og hva som
+er rettet: `docs/domains-and-urls.md` (autoritativ). Kort:
+
+- [x] Frontend/backend sentralisert på `https://huskis.no` (`config.js` →
+      `window.HUSKIS_CONFIG`, `app.js` → `authRedirectUrl()`, alle tre
+      Supabase Auth-kallene, `send_invite_email()`, produksjonens
+      `app_config.app_url`)
+- [x] `vercel.json`: permanent redirect-regel klar for `huskekurv.vercel.app`
+      → `https://huskis.no`
+- [ ] **Vercel (Peder)**: koble selve domenet `huskekurv.vercel.app` til
+      `huskis`-prosjektet — verifisert IKKE koblet dit i dag, og redirect-
+      regelen over virker først når det er gjort. Se «Det gamle domenet» i
+      `docs/domains-and-urls.md` for eksakt kommando og alternativer.
+- [ ] **Supabase Auth-e-postmalene (Peder)**: ikke bekreftet gjennom
+      tilgjengelig verktøy denne runden — sjekkliste i
+      `docs/domains-and-urls.md` («Auth-e-postmalene»).
 
 ## Fase 2 — klient/UI (✅ implementert — se `docs/accounts.md`)
 
@@ -548,8 +578,8 @@ og synk-doc v1 er fjernet (setup.sql pensjonerer `lists`/`get_list`/`save_list`)
 
 ### Gjenstår før produksjon (Peder / manuelt)
 
-- [ ] Supabase → Authentication → URL Configuration: Site URL + Redirect URLs
-      (jf. de manuelle stegene over)
+- [x] ~~Supabase → Authentication → URL Configuration: Site URL + Redirect URLs~~
+      (jf. de manuelle stegene over — gjort)
 - [ ] Verifiser «Confirm email» PÅ; ev. egen SMTP
 - [ ] Kjør **«Supabase DB-oppsett»**-workflowen på nytt slik at setup.sql (v1-
       pensjonering) og e-post-triggeren i users-and-sharing.sql kommer på ekte

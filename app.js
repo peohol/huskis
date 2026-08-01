@@ -6904,6 +6904,28 @@
     });
   }
 
+  /* ---------------- Betrodd app-URL for auth-redirects ----------------
+     Supabase Auth trenger en returadresse for bekreftelses-/gjenopprettings-
+     lenker (signUp/resetPasswordForEmail/e-postendring). Den kan ALDRI komme
+     ukritisk fra location.origin — en gammel fane, et pensjonert domene eller
+     en ukjent host ville da endt opp i selve auth-lenken (se historikken i
+     docs/domains-and-urls.md). authRedirectUrl() bruker i stedet den sentrale,
+     betrodde adressen i window.HUSKIS_CONFIG; kun localhost (lokal
+     utvikling, `python3 -m http.server`) beholder sin egen origin.
+     `origin`-parameteren finnes kun for testing — appen kaller alltid uten
+     den, og bruker da location.origin. Se docs/domains-and-urls.md. */
+  function canonicalAppUrl() {
+    const raw = (window.HUSKIS_CONFIG && window.HUSKIS_CONFIG.canonicalAppUrl) || 'https://huskis.no';
+    return raw.replace(/\/+$/, '') + '/';
+  }
+  function isLocalDevOrigin(origin) {
+    return /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(origin);
+  }
+  function authRedirectUrl(origin) {
+    const o = (origin != null ? origin : location.origin).replace(/\/+$/, '');
+    return isLocalDevOrigin(o) ? o + '/' : canonicalAppUrl();
+  }
+
   function friendlyAuthError(err) {
     const msg = (err && err.message) || String(err || 'Noe gikk galt');
     if (/invalid login credentials/i.test(msg)) return 'Feil e-post eller passord.';
@@ -6938,7 +6960,7 @@
         const { data, error } = await client.auth.signUp({
           email, password,
           options: {
-            emailRedirectTo: location.origin + location.pathname,
+            emailRedirectTo: authRedirectUrl(),
             data: { display_name: displayName },
           },
         });
@@ -6951,7 +6973,7 @@
         }
       } else if (authModeCur === 'forgot') {
         const { error } = await client.auth.resetPasswordForEmail(email, {
-          redirectTo: location.origin + location.pathname,
+          redirectTo: authRedirectUrl(),
         });
         if (error) throw error;
         showAuthSent('Hvis <strong>' + escapeHtml(email) + '</strong> har en konto, har vi sendt en ' +
@@ -8124,7 +8146,7 @@
     if (!email || email === (authUser.email || '').toLowerCase()) return;
     setAccountMsg('');
     try {
-      const { error } = await acli().auth.updateUser({ email });
+      const { error } = await acli().auth.updateUser({ email }, { emailRedirectTo: authRedirectUrl() });
       if (error) throw error;
       if (useMock()) {
         // Mock-backenden endrer direkte (ingen e-postbekreftelse i test).
@@ -9400,6 +9422,7 @@
     openAccount, closeAccount,
     canonical, reconcile, emptyDoc, docFromMyState, contentDocFromMy, applyMyDoc, cloudCycle,
     isSchemaMismatch, isTombstoneReject, tombIds,
+    canonicalAppUrl, authRedirectUrl,
     get cloudBase() { return cloudBase; },
     openShare, openSettings, showToast, updateSafety,
     get authUser() { return authUser; },

@@ -2,6 +2,14 @@
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "buildCommand": "node build.js",
   "outputDirectory": "dist",
+  "redirects": [
+    {
+      "source": "/:path*",
+      "has": [{ "type": "host", "value": "huskekurv.vercel.app" }],
+      "destination": "https://huskis.no/:path*",
+      "permanent": true
+    }
+  ],
   "headers": [
     {
       "source": "/version.json",
