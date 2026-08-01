@@ -1542,11 +1542,17 @@
     const canEdit = !frozen(cardData);
     el.classList.toggle('is-shared', !!shared);
     el.classList.toggle('is-locked', !canEdit);
+    // Badgen er en knapp (ikke bare en indikator som universer/grupper har):
+    // lister har ingen egen del-knapp i korthodet, så den er fortsatt den
+    // direkte, tastaturtilgjengelige veien inn til gruppens delingsinnstillinger.
     const shareBadge = el.querySelector('.share-badge');
     shareBadge.hidden = !shared;
+    shareBadge.onclick = null;
     if (shared) {
       shareBadge.innerHTML = !canEdit ? ICONS.lock : ICONS.people;
       shareBadge.title = grp._role === 'owner' ? 'Gruppen er delt med andre' : 'Gruppen er delt med deg';
+      shareBadge.setAttribute('aria-label', shareBadge.title + '. Trykk for delingsinnstillinger');
+      shareBadge.onclick = (ev) => { ev.stopPropagation(); openShare('group', grp.id, grp); };
     }
 
     // Tannhjulet åpner listens innstillingsmodal (navn/deling/ansvarlig/tidsplan).
@@ -1593,13 +1599,13 @@
     // aktive gruppens lister, så den slås opp der — ikke via `_parent`, som en
     // nyopprettet liste ennå ikke har.
     attachHoldDrag(el.querySelector('.card-head'), el, startCardDrag,
-      () => canEdit && canAddList(activeGroupObj()), '.card-cog, .card-delete');
+      () => canEdit && canAddList(activeGroupObj()), '.card-cog, .card-delete, .share-badge');
 
     // Klikk på korthodet (ikke tittel/tannhjul/×/meta-chip) kollapser/utvider
     // kortet med en rullgardin-animasjon (et fullført hold løfter i stedet kortet
     // — attachHoldDrag undertrykker da klikket). Lukketilstanden lagres i DB.
     el.querySelector('.card-head').addEventListener('click', (ev) => {
-      if (ev.target.closest('.card-title, .card-cog, .card-delete, .meta-chip, .edit-input')) return;
+      if (ev.target.closest('.card-title, .card-cog, .card-delete, .meta-chip, .share-badge, .edit-input')) return;
       toggleCardCollapsed(el, cardData);
     });
 
