@@ -1112,7 +1112,7 @@ body {
    nøyaktig samme kort-/rad-oppsett): SVG-× (ICONS.xmark, samme strek som
    ikonsettet) — SVARTE globalt, RØDE ved hover/aktivering. Gjelder også på
    fargede flater (korthode); svart leser fint på de lyse kortfargene. */
-.card-delete, .item-delete { color: #111; }
+.card-delete, .item-delete, .uni-leave, .group-leave { color: #111; }
 .card-delete:hover, .item-delete:hover,
 .card-delete:active, .item-delete:active {
   color: var(--danger);
@@ -2208,6 +2208,19 @@ body.no-auth #account-btn { display: none; }
   line-height: 1;
 }
 .share-badge[hidden] { display: none; }
+/* Listekortets badge er en ekte <button> (ingen egen del-knapp i korthodet
+   ellers) — nullstill knappe-kromet så den ser ut som universers/gruppers
+   rene indikator-span. */
+button.share-badge {
+  appearance: none;
+  border: none;
+  background: transparent;
+  padding: 0;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+button.share-badge:focus-visible { outline: 2.5px solid #fff; outline-offset: 2px; border-radius: 4px; }
 /* Innstillingsknappen på listekort (`.card-cog`, tannhjul — erstatter den
    gamle del-knappen): egen svakt markert flate som lysner ved hover (samme
    idé som flate-mønsteret, på farget bakgrunn). Univers/gruppe deles fortsatt
@@ -2237,8 +2250,6 @@ body.no-auth #account-btn { display: none; }
   background: rgba(255, 255, 255, 0.34);
 }
 .card-cog:focus-visible { outline: 2.5px solid #fff; outline-offset: 2px; }
-/* Delt liste-kort: en tydelig men diskret kant-markør. */
-.card.is-shared { box-shadow: var(--shadow-sm), inset 0 0 0 2px rgba(255,255,255,0.55); }
 .card.is-locked .card-title { opacity: 0.9; }
 
 /* ---------------- Indikator-chips (meta-raden under navn) ----------------

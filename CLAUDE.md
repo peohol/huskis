@@ -689,6 +689,29 @@ ikke på egen rad** — å fjerne seg selv er å forlate, og den knappen finnes
 allerede. Ingen ny DB-migrering (kun endrede funksjoner). Se
 `docs/rettigheter-og-deling.md` og `TODO.md`.
 
+**Opprettelse og plassering spør FORELDEREN (forrige runde)**: et vanlig medlem kunne
+gå inn i en LÅST gruppe og trykke «＋ Liste». RLS avviste skrivingen i det stille,
+og siden lista arvet gruppelåsen ble den umulig å redigere ELLER slette igjen — et
+spøkelse i localStorage. Årsaken var at klienten spurte `frozen(objekt)` («kan jeg
+redigere DETTE?») der myndigheten ligger på forelderen; «＋ Liste» spurte ikke i det
+hele tatt, bare om det fantes en aktiv gruppe. Ett spørsmål nå — `canAddList(g)` =
+`cap(g, 'createList', !frozen(g))` — brukt av knappen, klikk-handleren,
+tomtilstandens tekst (som forklarer låsen i stedet for å be om et trykk),
+gruppevelgeren ved slipp på 📁-breadcrumben, **ekstrahering til ny liste**
+(`S.canExtract`: board-scopet krever opprettelsesrett i gruppen, nav-scopet
+`cap(row,'move')` — placeholderen dukker ikke opp, og et slipp i board-lufta legger
+objektet tilbake) og **listedraging** (rekkefølgen blant søskenlistene er gruppens
+struktur, som grupperadenes `reorderInParent`). Forskjellen er ikke akademisk: et
+**lås-unntak** på én liste i en låst gruppe er nettopp der «kan redigeres» og «kan
+opprettes/flyttes» spriker. Samme klasse i SØPLA: «Gjenopprett» skriver
+`trashed = false` og krever samme myndighet som å slette, og «Tøm» sletter permanent —
+begge er nå gatet per rad (`manage`/`purge`), tømming hopper over det låste med en
+toast, og forlat-veien krever at man faktisk kan forlate (en lås gir ingen rolle å gi
+fra seg). Serveren var aldri feil (verifisert mot produksjon: `cards_insert` →
+`can_create_child`), så ingen DB-migrering. Ny test
+`tests/locked-group-creation.test.js`. Se `docs/rettigheter-og-deling.md`
+(autoritativ), `docs/trash.md`, `docs/drag-and-drop.md`, `docs/menus.md`.
+
 **Domeneaudit: kanonisk `huskis.no` + auth-redirects rettet (siste runde)**: en
 registrering ble sendt til det pensjonerte domenet `huskekurv.vercel.app` fordi
 `auth.signUp`/`resetPasswordForEmail` sendte `location.origin + location.pathname`

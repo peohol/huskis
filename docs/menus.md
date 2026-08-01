@@ -24,7 +24,11 @@ desktop). To rader:
    kontoknappen med `padding-right`. På mobil krympes fonten litt (media-query).
 2. **Listefunksjonene** (`.panel-actions.toolbar`): «＋ Liste»
    (`#add-card-btn`), liste-søppelkassen (`#trash-btn`) og filterkortet
-   (👁️ Mine/Delte, se `docs/colors-and-labels.md`).
+   (👁️ Mine/Delte, se `docs/colors-and-labels.md`). «＋ Liste» er avskrudd uten
+   en aktiv gruppe man kan opprette lister i (`canAddList`, `updateToolbarState`)
+   — en LÅST gruppe gir ingen knapp å trykke på, akkurat som «＋ Gruppe» i et
+   låst univers. Se `docs/rettigheter-og-deling.md` («Å opprette og å plassere
+   spør FORELDEREN»).
 
 Board-ets padding-top settes i JS (`syncHeaderHeight`: målt topbar-høyde +
 `--board-gap`) — se `docs/board-layout.md`.

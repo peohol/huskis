@@ -143,6 +143,38 @@ universeier for et univers, gruppeeier (eksplisitt eller universeier) for
 gruppe/liste/listepunkt. Privilegerte påvirkes aldri av en lås for **egen**
 redigering.
 
+### Å opprette og å plassere spør FORELDEREN
+
+Tre av capabilityene handler ikke om objektet foran deg, men om **forelderen**:
+
+| Handling | Myndigheten ligger på | Klientens spørsmål |
+|---|---|---|
+| opprette en liste i en gruppe | gruppen | `canAddList(g)` |
+| omrokkere/flytte en liste | gruppen | `canAddList(g)` |
+| opprette et listepunkt/en kategori | listen | `!frozen(kort)` |
+| omrokkere et listepunkt | listen | `!frozen(kort)` |
+| opprette/omrokkere en gruppe | universet | `caps.createGroup` / `caps.reorderInParent` |
+
+`frozen(objekt)` svarer bare på ÉN ting: kan jeg redigere dette objektet selv.
+Den er derfor **feil spørsmål** for opprettelse og plassering, og forskjellen er
+ikke akademisk — et **lås-unntak** («Gjør unntak» på én liste i en låst gruppe)
+er nettopp tilfellet der de to spriker: lista kan redigeres, men det gir ingen
+rett til å lage en ny liste ved siden av den eller flytte den.
+
+Feilen dette rettet opp: «＋ Liste» spurte kun om det fantes en aktiv gruppe. Et
+vanlig medlem kunne gå inn i en låst gruppe og opprette en liste; RLS
+(`cards_insert` → `can_create_child('group', …)`) avviste skrivingen i det
+stille, og siden lista arvet gruppelåsen ble den umulig å redigere ELLER slette
+igjen — et spøkelse som bare forsvant ved å tømme localStorage. `canAddList(g)`
+(= `cap(g, 'createList', !frozen(g))`) er nå ett spørsmål, brukt av alle veiene
+inn til den samme myndigheten: knappen, klikk-handleren, tomtilstandens tekst,
+ekstrahering til ny liste (`S.canExtract`), listedraging og gruppevelgeren ved
+slipp på 📁-breadcrumben.
+
+Å **gjenopprette** fra søpla er å skrive `trashed = false` og krever derfor
+nøyaktig samme myndighet som å slette (`can_delete_object`) — se
+[`trash.md`](trash.md).
+
 ### Universeier
 
 * full lese-, redigerings- og administrasjonsmyndighet over universet og alle subobjekter
