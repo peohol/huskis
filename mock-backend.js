@@ -316,7 +316,12 @@
       var r = universeRole(db, id, uid);
       return r !== null && (r !== 'owner' || universeOwnerCount(db, id) > 1);
     }
-    if (type === 'group') return groupRole(db, id, uid) !== null;
+    // En direkte grupperolle gir bare forlat-rett når den er ENESTE vei inn:
+    // med en universrolle i tillegg forlater man i universet (se can_leave).
+    if (type === 'group') {
+      return groupRole(db, id, uid) !== null &&
+        universeRole(db, groupUniverse(db, id), uid) === null;
+    }
     return false;
   }
   function canManageMembers(db, type, id, uid) {
@@ -1020,7 +1025,7 @@
             throw new Error('du er siste eier — gi eierskap til noen andre først');
           purgeUniverseAccess(db, p.p_id, uid);
         } else {
-          if (groupRole(db, p.p_id, uid) === null) {
+          if (!canLeave(db, 'group', p.p_id, uid)) {
             if (isGroupMember(db, p.p_id, uid))
               throw new Error('du har tilgang via universet — forlat universet i stedet');
             throw new Error('du er ikke medlem av denne gruppen');

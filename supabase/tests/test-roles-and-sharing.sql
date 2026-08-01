@@ -414,6 +414,8 @@ reset role; select set_config('request.jwt.claim.sub', :'B', false); set role au
 select public.create_share_invite('group', :'GE', 'role-d@example.com', 'owner') ->> 'id' as inv_d4 \gset
 reset role; select set_config('request.jwt.claim.sub', :'D', false); set role authenticated;
 select public.accept_share_invite(:'inv_d4'::uuid);
+select public.t_check('en gruppeeierrolle ved siden av universmedlemskap gir ingen forlat-rett',
+  public.group_role(:'GE', :'D') = 'owner' and not public.can_leave('group', :'GE', :'D'));
 reset role; select set_config('request.jwt.claim.sub', :'B', false); set role authenticated;
 select public.revoke_share('universe', :'U', :'D');
 select public.t_check('utkastelse fra universet fjerner ALL direkte tilgang under det',
@@ -436,6 +438,29 @@ select public.t_check('… og DELETE treffer ingen rader (RLS)',
   (select count(*) from public.groups where id = :'G') = 1);
 reset role; select set_config('request.jwt.claim.sub', :'A', false); set role authenticated;
 select public.set_locked('group', :'G', false);
+
+-- ---------- 14. Overflødig grupperolle under et univers man er MEDEIER av ----------
+-- Produksjonsformen: rolle-backfill-en gjorde gruppens oppretter til eksplisitt
+-- gruppeeier, og et SENERE medeierskap i universet gjorde raden overflødig uten
+-- å fjerne forlat-knappen. Å forlate gruppen hadde ikke fjernet noen tilgang —
+-- den kommer også fra universet — så capability-en skal være av.
+reset role; select set_config('request.jwt.claim.sub', :'A', false); set role authenticated;
+select public.create_share_invite('universe', :'U', 'role-e@example.com', 'owner') ->> 'id' as inv_e \gset
+reset role; select set_config('request.jwt.claim.sub', :'E', false); set role authenticated;
+select public.accept_share_invite(:'inv_e'::uuid);
+select public.t_check('medeierskap i universet beholder den eksplisitte gruppeeierrollen',
+  public.universe_role(:'U', :'E') = 'owner' and public.group_role(:'GE', :'E') = 'owner');
+select public.t_check('… men medeieren kan ikke «forlate» en gruppe i sitt eget univers',
+  not public.can_leave('group', :'GE', :'E')
+  and not (public.group_caps(:'GE', :'E') -> 'leave')::boolean);
+select public.t_fails('… og RPC-en avviser forlatelsen i stedet for å slette raden',
+  format('select public.leave_share(''group'', %L)', :'GE'));
+select public.t_check('rollen består etter det avviste forsøket',
+  public.group_role(:'GE', :'E') = 'owner');
+-- Veien ut av en overflødig gruppeeierrolle er å tre av som medeier av gruppen.
+select public.set_member_role('group', :'GE', :'E', 'member');
+select public.t_check('«tre av som medeier» fjerner den overflødige raden, tilgangen består',
+  public.group_role(:'GE', :'E') is null and public.is_group_member(:'GE', :'E'));
 
 reset role;
 select 'ALLE ROLLE- OG DELINGSTESTER GRØNNE' as resultat;

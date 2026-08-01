@@ -867,14 +867,23 @@ $$;
 
 -- Forlate objektet (fjerner KUN egen tilgang, aldri innhold).
 --   * univers: må ha en rolle; siste eier kan ikke forlate
---   * gruppe:  må ha en DIREKTE grupperolle (arvet universtilgang forlates i
---              universet, ikke i gruppen)
+--   * gruppe:  den direkte grupperollen må være ENESTE vei inn. Har man i
+--              tillegg en rolle i gruppens univers, mister man ingen tilgang av
+--              å gi fra seg grupperaden — universtilgangen forlates i UNIVERSET,
+--              ikke i gruppen, og en overflødig gruppeeierrolle gis fra seg med
+--              «Tre av som medeier» i gruppens delemodal. Uten dette leddet fikk
+--              en universeier med en gammel eksplisitt gruppeeierrad (f.eks. fra
+--              rolle-backfill-en, som gjorde gruppens oppretter til gruppeeier
+--              før vedkommende ble universeier) en forlat-knapp som ikke
+--              forlot noe: raden ble slettet, tilgangen besto, og gruppen kom
+--              rett tilbake ved neste synk.
 create or replace function public.can_leave(p_type text, p_id uuid, p_uid uuid)
 returns boolean language sql stable security definer set search_path = public as $$
   select case p_type
     when 'universe' then public.universe_role(p_id, p_uid) is not null
       and (public.universe_role(p_id, p_uid) <> 'owner' or public.universe_owner_count(p_id) > 1)
     when 'group' then public.group_role(p_id, p_uid) is not null
+      and public.universe_role(public.group_universe(p_id), p_uid) is null
     else false
   end;
 $$;
@@ -1770,7 +1779,11 @@ begin
     perform set_config('huskis.privileged_op', '1', true);
     perform public.purge_universe_access(p_id, uid);
   else
-    if public.group_role(p_id, uid) is null then
+    -- Samme svar enten grupperaden mangler eller bare er overflødig ved siden av
+    -- en universrolle: tilgangen kommer fra universet, og det er der man
+    -- forlater. Å slette den overflødige raden ville sett ut som en forlatelse
+    -- uten å være det.
+    if not public.can_leave('group', p_id, uid) then
       if public.is_group_member(p_id, uid) then
         raise exception using
           errcode = 'PT409',

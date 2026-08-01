@@ -124,7 +124,10 @@ Viktige egenskaper:
   gruppe kun den direkte grupperollen. En universarvet bruker kan ikke fjernes
   fra én enkelt gruppe — RPC-en avviser med `PT409` og en forklaring.
 - **`leave_share(type, id)`** er brukerens egen utgang, med samme opprydding.
-  Siste universeier blokkeres (`PT422`).
+  Siste universeier blokkeres (`PT422`). For en gruppe kreves at den direkte
+  grupperollen er ENESTE vei inn: har man også en rolle i gruppens univers,
+  avvises kallet med `PT409` og en peker til universet (`can_leave`) — å slette
+  den overflødige raden ville sett ut som en forlatelse uten å fjerne tilgang.
 - Begge nullstiller `responsible`-referanser som mister effektiv tilgang, med et
   ferskt innholds-register (`org = 'server'`) så LWW slipper endringen gjennom.
 - **`move_group(group, universe, cat, pos)`** er den ENESTE veien en gruppe

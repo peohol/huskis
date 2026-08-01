@@ -259,7 +259,10 @@ gruppen ble låst, eller et delt univers eieren har slettet for alle. Både
 Forlat-veien krever i tillegg at man FAKTISK kan forlate (`cap(obj, 'leave')`).
 Er grunnen til at man ikke kan slette en LÅS — ikke at objektet er andres —
 finnes det ingen rolle å gi fra seg, og raden blir stående i kassen i stedet for
-å bli fjernet lokalt av en `leave_share` serveren ville avvist.
+å bli fjernet lokalt av en `leave_share` serveren ville avvist. Det samme gjelder
+en gruppe der den direkte grupperollen bare er overflødig ved siden av en
+universrolle: da forlater man i universet, ikke i gruppen (se
+`docs/rettigheter-og-deling.md`).
 
 **Filtreringen må skje FØR `commitBufferedFor`.** Buffrede slettinger ligger i
 kassen som vanlige rader (`live()` teller `_pendingDelete` som slettet), så en

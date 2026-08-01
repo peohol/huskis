@@ -66,6 +66,10 @@ function buildDB() {
         mem(uB, { universe_id: UA }, 'owner', 0),
         mem(uC, { universe_id: UA }, 'member', 0),
         mem(uD, { group_id: GB }, 'member', 0),
+        // B har i tillegg en GAMMEL eksplisitt gruppeeierrolle i GA — slik
+        // rolle-backfill-en satte den for gruppens oppretter, før B ble medeier
+        // av universet. Raden er overflødig ved siden av universrollen (se 11).
+        mem(uB, { group_id: GA }, 'owner', 0),
       ],
       share_invites: [], tombstones: [],
     },
@@ -364,6 +368,34 @@ async function run(label, viewport, mobile) {
     !capless.some((t) => /Slett .* for alle/.test(t)), JSON.stringify(capless));
   log(label + ' 10: forlat-knappen er derimot tilgjengelig',
     capless.some((t) => /Forlat/.test(t)), JSON.stringify(capless));
+  await p.keyboard.press('Escape'); await p.waitForTimeout(200);
+
+  /* ---------- 11) Medeier med en overflødig eksplisitt gruppeeierrolle ----------
+     Rolle-backfill-en gjorde gruppens oppretter til eksplisitt gruppeeier. Blir
+     vedkommende SENERE medeier av universet, er raden overflødig — og en
+     forlat-knapp på gruppen ville løyet: den sletter raden uten å fjerne noen
+     tilgang, så gruppen kommer rett tilbake ved neste synk. */
+  await loadAs(p, db, ids.uB, 'b@x.no', viewport);
+  await openNav(p);
+  log(label + ' 11: medeieren har fortsatt den eksplisitte gruppeeierrollen',
+    await p.evaluate((g) => (window.__huskis.state.universes.flatMap((u) => u.groups)
+      .find((x) => x.id === g) || {})._role === 'owner', ids.GA));
+  log(label + ' 11: medeieren kan forlate UNIVERSET …',
+    await p.locator('#nav-board .uni-leave:visible').count() === 1);
+  log(label + ' 11: … men ingen av gruppene i det',
+    await p.locator('#nav-board .group-leave:visible').count() === 0);
+  await p.locator('#nav-board .item.group-row .group-share').first().click();
+  await p.waitForTimeout(700);
+  log(label + ' 11: gruppens delemodal har heller ingen «Forlat gruppen»',
+    await p.locator('#share-body .share-leave').count() === 0);
+  // Serveren er autoritativ og avviser også et rått kall — med en forklaring
+  // som peker på universet, der tilgangen faktisk ligger.
+  const leaveErr = await p.evaluate(async (id) => {
+    const r = await window.__huskis.client.rpc('leave_share', { p_type: 'group', p_id: id });
+    return r.error ? r.error.message : null;
+  }, ids.GA);
+  log(label + ' 11: rå RPC avvises og peker på universet',
+    !!leaveErr && /via universet/i.test(leaveErr), String(leaveErr));
   await p.keyboard.press('Escape'); await p.waitForTimeout(200);
 
   log(label + ': ingen JS-feil', errs.length === 0, errs.slice(0, 3).join(' | '));
