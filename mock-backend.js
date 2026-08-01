@@ -900,8 +900,12 @@
           return s.status === 'pending' && String(s.invitee_email).toLowerCase() === em && s[col] === p.p_id;
         });
         if (dup) {
+          // Avsenderen overtas bare når kalleren selv er autorisert for rollen
+          // invitasjonen ender opp med — `inviter_id` gir rett til å trekke den
+          // tilbake, og den retten skal ikke kunne kapres med en
+          // medlemsinvitasjon til en ventende eierinvitasjon.
+          if (role === 'owner' || dup.role !== 'owner') dup.inviter_id = uid;
           if (role === 'owner') dup.role = 'owner';
-          dup.inviter_id = uid;
           if (target) dup.invitee_id = target;
           return dup;
         }

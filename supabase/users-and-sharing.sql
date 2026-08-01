@@ -1535,13 +1535,23 @@ begin
   -- personen kan allerede ha en ventende medlemsinvitasjon liggende. Vi lar
   -- rollen bare gå OPP (member → owner), så en ny medlemsinvitasjon ikke
   -- stille degraderer en eierinvitasjon som ligger og venter.
+  -- `inviter_id` er ikke bare sporingsdata: den gir rett til å trekke tilbake
+  -- invitasjonen (`revoke_share_invite`, og delete-policyen på tabellen). Et
+  -- vanlig medlem som har lov til å invitere MEDLEMMER skal derfor ikke kunne
+  -- overta en ventende EIER-invitasjon ved å sende en medlemsinvitasjon til den
+  -- samme adressen — da ville det fått makt over en invitasjon det aldri kunne
+  -- opprettet. Avsenderen overtas bare når kalleren selv er autorisert for
+  -- rollen invitasjonen ender opp med.
   if p_type = 'universe' then
     insert into public.share_invites (inviter_id, invitee_email, invitee_id, universe_id, role)
     values (uid, em, target, p_id, p_role)
     on conflict (universe_id, lower(invitee_email)) where status = 'pending' and universe_id is not null
       do update set role = case when excluded.role = 'owner' then 'owner'
                                 else public.share_invites.role end,
-                    inviter_id = excluded.inviter_id,
+                    inviter_id = case
+                      when excluded.role = 'owner' or public.share_invites.role <> 'owner'
+                        then excluded.inviter_id
+                      else public.share_invites.inviter_id end,
                     invitee_id = coalesce(excluded.invitee_id, public.share_invites.invitee_id)
     returning * into inv;
   else
@@ -1550,7 +1560,10 @@ begin
     on conflict (group_id, lower(invitee_email)) where status = 'pending' and group_id is not null
       do update set role = case when excluded.role = 'owner' then 'owner'
                                 else public.share_invites.role end,
-                    inviter_id = excluded.inviter_id,
+                    inviter_id = case
+                      when excluded.role = 'owner' or public.share_invites.role <> 'owner'
+                        then excluded.inviter_id
+                      else public.share_invites.inviter_id end,
                     invitee_id = coalesce(excluded.invitee_id, public.share_invites.invitee_id)
     returning * into inv;
   end if;

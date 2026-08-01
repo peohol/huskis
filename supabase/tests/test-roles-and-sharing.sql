@@ -245,6 +245,36 @@ select public.t_check('rolleendring flytter C mellom kategoriene i gruppens medl
   (select m ->> 'category' from jsonb_array_elements(public.get_members('group', :'G') -> 'members') m
     where m ->> 'id' = :'C') = 'groupOwner');
 
+-- ---------- 8b. En medlemsinvitasjon kan ikke kapre en ventende EIER-invitasjon ----------
+-- `inviter_id` gir rett til å trekke invitasjonen tilbake. Sender et vanlig
+-- medlem en MEDLEMS-invitasjon til en adresse som alt har en ventende EIER-
+-- invitasjon, skal avsenderen stå urørt — ellers ville medlemmet fått makt over
+-- en invitasjon det aldri kunne opprettet.
+reset role; select set_config('request.jwt.claim.sub', :'A', false); set role authenticated;
+select public.create_share_invite('universe', :'U', 'kapring@example.com', 'owner') ->> 'id' as inv_hj \gset
+select public.t_check('eieren står som avsender av eierinvitasjonen',
+  (select inviter_id from public.share_invites where id = :'inv_hj'::uuid) = :'A'::uuid);
+reset role; select set_config('request.jwt.claim.sub', :'C', false); set role authenticated;
+select public.t_check('et vanlig medlem har lov til å invitere medlemmer',
+  public.can_invite_to('universe', :'U', :'C'));
+select public.create_share_invite('universe', :'U', 'kapring@example.com');  -- samme adresse, som MEDLEM
+select public.t_fails('medlemmet kan ikke trekke tilbake eierinvitasjonen',
+  format('select public.revoke_share_invite(%L)', :'inv_hj'));
+delete from public.share_invites where id = :'inv_hj'::uuid;   -- filtreres bort av RLS
+-- Selve raden inspiseres uten RLS (medlemmet får uansett ikke se den).
+reset role;
+select public.t_check('rollen står fortsatt som eier',
+  (select role from public.share_invites where id = :'inv_hj'::uuid) = 'owner');
+select public.t_check('… og avsenderen er IKKE overtatt av medlemmet',
+  (select inviter_id from public.share_invites where id = :'inv_hj'::uuid) = :'A'::uuid);
+select public.t_check('… og raden ble ikke slettet av medlemmet',
+  (select status from public.share_invites where id = :'inv_hj'::uuid) = 'pending');
+-- Eieren beholder retten, og en NY eierinvitasjon fra en annen eier overtar som før.
+reset role; select set_config('request.jwt.claim.sub', :'A', false); set role authenticated;
+select public.revoke_share_invite(:'inv_hj'::uuid);
+select public.t_check('eieren kan trekke den tilbake',
+  (select status from public.share_invites where id = :'inv_hj'::uuid) = 'revoked');
+
 -- ---------- 9. Siste-eier-invarianten ----------
 reset role; select set_config('request.jwt.claim.sub', :'B', false); set role authenticated;
 select public.leave_share('universe', :'U');   -- OK: A er igjen som eier
