@@ -40,6 +40,7 @@ oppdater det aktuelle dokumentet der (ikke dump alt tilbake i denne fila).
 | `docs/arkitektur-brukere-deling.md` | brukerkontoer (Supabase Auth), eierskap, deling/mounts, lås, e-postvarsel — databasesiden |
 | `docs/accounts.md` | KLIENTEN: auth-UI, synk-motor (get_my_doc/rad-CRUD), mount-rendring, delings-UI, e-postvarsel/innboks, mock-backend for testing |
 | `docs/auto-update.md` | build-ID/`/version.json`, cache-headere i `vercel.json`, automatisk reload av åpne faner, `updateSafety()` |
+| `docs/domains-and-urls.md` | produksjonsdomener, auth-redirect-URL-er (`authRedirectUrl()`), Resend-mailenes base-URL, Supabase Auth-e-postmalene, det pensjonerte domenet |
 
 ## Verifisering (påkrevd før du sier deg ferdig)
 
@@ -687,3 +688,29 @@ invitasjon i stedet for å feile, og rollen kan bare gå OPP; (4) **«Fjern» vi
 ikke på egen rad** — å fjerne seg selv er å forlate, og den knappen finnes
 allerede. Ingen ny DB-migrering (kun endrede funksjoner). Se
 `docs/rettigheter-og-deling.md` og `TODO.md`.
+
+**Domeneaudit: kanonisk `huskis.no` + auth-redirects rettet (siste runde)**: en
+registrering ble sendt til det pensjonerte domenet `huskekurv.vercel.app` fordi
+`auth.signUp`/`resetPasswordForEmail` sendte `location.origin + location.pathname`
+som returadresse — en gammel fane, et utdatert domene eller en ukjent host ble
+dermed videreført ukritisk inn i selve auth-lenken. Rettet med én kilde:
+`config.js` → `window.HUSKIS_CONFIG` (`canonicalAppUrl` + `allowedProductionOrigins`),
+og `app.js` → `canonicalAppUrl()`/`authRedirectUrl()` (localhost beholder sin egen
+origin til lokal utvikling; **alt** annet — kjente produksjonsdomener, det gamle
+domenet og ukjente hosts — normaliseres til `https://huskis.no/`). Brukes nå av
+alle tre Supabase Auth-kallene som tar en returadresse, inkludert `updateUser({
+email })` som tidligere ikke sendte noen. Samme opprydding i Resend-siden
+(`send_invite_email()` i `supabase/users-and-sharing.sql`): logo-URL og
+`app_url`-fallback er kanonisk `huskis.no` (uten `www`); produksjonens
+`app_config.app_url`-rad er oppdatert til samme verdi. Et nytt, likt-stilt utkast
+for Supabase Auths «Confirm signup»-mal ligger i
+`supabase/email-templates/confirm-signup.html` (fortsatt sendt av Supabase Auth,
+ikke Resend — limes manuelt inn i Dashboard, ikke bekreftet herfra). `vercel.json`
+har en permanent redirect-regel for `huskekurv.vercel.app`, men domenet er
+verifisert IKKE koblet til `huskis`-prosjektet i dag — regelen trer først i kraft
+når noen (Peder) kobler det til manuelt via Vercel. Ny nettlesertest
+`tests/auth-redirect.test.js` (kravtabellen + at kallene faktisk sender riktig
+verdi) og en repo-vid tekstvakt `tests/no-legacy-domain.test.js` som feiler
+dersom det gamle domenet dukker opp utenfor en eksplisitt unntaksliste. Ingen
+DB-migrering (kun en datarad oppdatert). Se `docs/domains-and-urls.md`
+(autoritativ) og `TODO.md`.

@@ -1947,8 +1947,9 @@ returns trigger language plpgsql security definer
 set search_path = public, extensions, net as $$
 declare
   -- Fast produksjons-URL for logoen (PNG i repoet, serveres statisk). Ikke
-  -- brukerstyrt → trenger ingen escaping.
-  logo_url    constant text := 'https://www.huskis.no/assets/email/huskis-logo.png';
+  -- brukerstyrt → trenger ingen escaping. Kanonisk domene (uten www) — se
+  -- docs/domains-and-urls.md.
+  logo_url    constant text := 'https://huskis.no/assets/email/huskis-logo.png';
   api_key     text;
   from_addr   text;
   app_url     text;
@@ -1984,7 +1985,7 @@ begin
   select value into from_addr from public.app_config where key = 'email_from';
   from_addr := coalesce(nullif(from_addr, ''), 'Huskis <noreply@huskis.no>');
   select value into app_url from public.app_config where key = 'app_url';
-  app_url := coalesce(nullif(app_url, ''), 'https://www.huskis.no/');
+  app_url := coalesce(nullif(app_url, ''), 'https://huskis.no/');
 
   select display_name into inviter from public.profiles where id = new.inviter_id;
   inviter := coalesce(inviter, 'Noen');
@@ -2029,7 +2030,7 @@ begin
     action_text || ': ' || link || E'\n\n' ||
     'Denne meldingen ble sendt automatisk fordi noen delte innhold med deg i ' ||
     'Huskis. Du kan ikke svare på denne adressen.' || E'\n\n' ||
-    'Huskis — https://www.huskis.no/';
+    'Huskis — https://huskis.no/';
 
   -- Tabellbasert, inline-stylet HTML for e-postklienter (Outlook m/ bgcolor).
   -- Trygg fontstakk (ingen webfont), maks 600px, avrundede flater, ingen JS.

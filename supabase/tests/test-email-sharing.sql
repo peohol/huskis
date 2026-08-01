@@ -72,7 +72,7 @@ create view vault.decrypted_secrets as select name, decrypted_secret from vault.
 insert into public.app_config(key, value) values
   ('resend_api_key', 're_APPCONFIG'),
   ('email_from',     'Huskis <noreply@huskis.no>'),
-  ('app_url',        'https://www.huskis.no/')
+  ('app_url',        'https://huskis.no/')
 on conflict (key) do update set value = excluded.value;
 
 -- testbrukere (distinkte id-er/e-poster) + ett univers med "farlig" navn.
@@ -125,9 +125,9 @@ select public.t_check('A: objektnavn escapet i HTML',
     like '%Fam &lt;x&gt; &amp; &quot;y&quot; &#39; z%');
 select public.t_check('A: ingen rå <script i HTML',
   (select body->>'html' from net._sent where body->>'to' = 'ny+bruker@example.com') not like '%<script%');
-select public.t_check('A: logo-PNG med absolutt produksjons-URL',
+select public.t_check('A: logo-PNG med absolutt produksjons-URL (kanonisk, uten www)',
   (select body->>'html' from net._sent where body->>'to' = 'ny+bruker@example.com')
-    like '%https://www.huskis.no/assets/email/huskis-logo.png%');
+    like '%https://huskis.no/assets/email/huskis-logo.png%');
 
 -- signup-lenken er korrekt prosentkodet (+ → %2B, @ → %40) i HTML og text.
 select public.t_check('A: signup-lenke prosentkodet i HTML',
@@ -135,7 +135,17 @@ select public.t_check('A: signup-lenke prosentkodet i HTML',
     like '%signup=ny%2Bbruker%40example.com%');
 select public.t_check('A: signup-lenke prosentkodet i text',
   (select body->>'text' from net._sent where body->>'to' = 'ny+bruker@example.com')
-    like '%https://www.huskis.no/?signup=ny%2Bbruker%40example.com%');
+    like '%https://huskis.no/?signup=ny%2Bbruker%40example.com%');
+
+-- Regresjon: det pensjonerte domenet skal ALDRI dukke opp i en generert e-post
+-- (verken HTML eller text/plain), og alle lenker skal peke til det kanoniske
+-- huskis.no — ikke www.huskis.no. Se docs/domains-and-urls.md.
+select public.t_check('A: ingen referanse til det gamle domenet i HTML',
+  (select body->>'html' from net._sent where body->>'to' = 'ny+bruker@example.com') not ilike '%huskekurv%');
+select public.t_check('A: ingen referanse til det gamle domenet i text',
+  (select body->>'text' from net._sent where body->>'to' = 'ny+bruker@example.com') not ilike '%huskekurv%');
+select public.t_check('A: ingen www.huskis.no i HTML (kanonisk uten www)',
+  (select body->>'html' from net._sent where body->>'to' = 'ny+bruker@example.com') not like '%www.huskis.no%');
 
 -- text/plain beholder LESBAR råtekst (ikke escapet), med reell CTA.
 select public.t_check('A: text beholder lesbar råtekst (ikke HTML-escapet)',
@@ -152,6 +162,8 @@ select public.t_check('B: e-post kølagt til registrert bruker',
 select public.t_check('B: heading «… er delt med deg» + CTA «Åpne Huskis»',
   (select body->>'html' from net._sent where body->>'to' = 'reg@example.com') like '%er delt med deg%'
   and (select body->>'html' from net._sent where body->>'to' = 'reg@example.com') like '%Åpne Huskis%');
+select public.t_check('B: «Åpne Huskis»-lenken peker til kanonisk huskis.no (ikke www)',
+  (select body->>'html' from net._sent where body->>'to' = 'reg@example.com') like '%href="https://huskis.no/"%');
 select public.t_check('B: ingen signup-lenke for registrert bruker',
   (select body->>'html' from net._sent where body->>'to' = 'reg@example.com') not like '%?signup=%');
 select public.t_check('B: text-variant er med',

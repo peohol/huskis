@@ -23,6 +23,12 @@ Ett skjema (`#auth-screen`) med tre modi (`login`/`register`/`forgot`):
   e-postlenken gir en `PASSWORD_RECOVERY`-hendelse → prompt om nytt passord.
 - **Logg ut**: `signOut` (i konto-modalen).
 
+Alle tre Supabase Auth-kall som tar en returadresse (`signUp`,
+`resetPasswordForEmail`, og `updateUser({ email })` i konto-modalen) sender
+`authRedirectUrl()` — ALDRI `location.origin` direkte. Se
+`docs/domains-and-urls.md` (autoritativ for domener/URL-generering) for
+hvorfor og hvordan.
+
 **«Vis passordet»**: hvert passordfelt har en øye-knapp inni seg
 (`.pass-wrap` + `.pass-toggle`, `data-pass-toggle="<felt-id>"`) som bytter
 `input.type` mellom `password` og `text` — øyet i hvile, øyet med strek
