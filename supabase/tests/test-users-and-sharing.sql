@@ -100,7 +100,7 @@ select public.t_check('display_name kan endres av brukeren selv',
 insert into public.universes (id, owner_id, name, ts, org) values (:'ub', :'bob', 'Bobs univers', 1, 'bob');
 insert into public.groups (id, owner_id, universe_id, name, ts, org) values (:'gb', :'bob', :'ub', 'Bobs gruppe', 1, 'bob');
 
--- ---------- D. gruppe-deling: Alice -> Bob ----------
+-- ---------- D. gruppedeling: Alice -> Bob (direkte gruppemedlem) ----------
 reset role;
 select set_config('request.jwt.claim.sub', :'alice', false);
 set role authenticated;
@@ -118,166 +118,41 @@ set role authenticated;
 
 select public.t_check('bob ser invitasjonen i get_my_doc',
   jsonb_array_length(public.get_my_doc() -> 'invites_in') = 1);
-select public.t_fails('gruppe-deling krever valg av univers',
-  format('select public.accept_share_invite(%L)', :'inv1'));
-select public.t_fails('kan ikke montere i univers uten tilgang',
-  format('select public.accept_share_invite(%L, %L)', :'inv1', :'u1'));
-
-select public.accept_share_invite(:'inv1'::uuid, :'ub'::uuid, 5) is not null as ok \gset
-select public.t_check('bob aksepterte med plassering i eget univers', :'ok');
+select public.accept_share_invite(:'inv1'::uuid) is not null as ok \gset
+select public.t_check('gruppeinvitasjon godtas UTEN å velge forelder', :'ok');
 select public.t_check('bob ser den delte gruppen', (select count(*) from public.groups where id = :'g1') = 1);
 select public.t_check('bob ser listen i den delte gruppen', (select count(*) from public.cards where id = :'c1') = 1);
-select public.t_check('bob ser elementene', (select count(*) from public.items where id = :'i1') = 1);
-select public.t_check('mount peker på bobs univers',
-  (select jsonb_path_query_first(public.get_my_doc(), '$.groups[*] ? (@.id == $gid).mount.parent',
-     jsonb_build_object('gid', :'g1'::text)) = to_jsonb(:'ub'::text)));
+select public.t_check('bob ser listepunktene', (select count(*) from public.items where id = :'i1') = 1);
+select public.t_check('bob ser IKKE universet gruppen ligger i',
+  (select count(*) from public.universes where id = :'u1') = 0);
+select public.t_check('gruppen er FRI for bob (Grupper delt med meg)',
+  (select (g -> 'free')::boolean from jsonb_array_elements(public.get_my_doc() -> 'groups') g
+    where g ->> 'id' = :'g1') = true);
 
--- mottakerens «sletting» av share-roten er sperret på begge måter:
--- hardsletting (RLS) OG å legge den i felles søppel (trashed).
-delete from public.groups where id = :'g1';   -- RLS: 0 rader (direkte medlemskap)
-select public.t_check('direkte delt gruppe kan ikke hardslettes av mottakeren',
+-- Et direkte gruppemedlem kan redigere åpent innhold, men ikke slette gruppen.
+update public.items set text = 'Bob endret', ts = 500, org = 'bob' where id = :'i1';
+select public.t_check('bob kan redigere listepunkt i den delte gruppen',
+  (select text from public.items where id = :'i1') = 'Bob endret');
+delete from public.groups where id = :'g1';   -- RLS: 0 rader
+select public.t_check('bob kan ikke hardslette gruppen',
   (select count(*) from public.groups where id = :'g1') = 1);
-select public.t_fails('mottaker kan ikke legge delt gruppe i søppel (share-rot)',
-  format('update public.groups set trashed = true, ts = 500, org = ''bob'' where id = %L', :'g1'));
+select public.t_fails('bob kan ikke legge gruppen i felles søppel',
+  format('update public.groups set trashed = true, ts = 700, org = ''bob'' where id = %L', :'g1'));
+select public.t_fails('bob kan ikke flytte gruppen',
+  format('update public.groups set universe_id = %L, pos_ts = 999, pos_org = ''bob'' where id = %L', :'ub', :'g1'));
 
--- ...men mottakeren KAN slette innhold NEDE i den delte gruppen (felles søppel).
--- (Lave ts her: c1s innholds-register er fortsatt 1 på dette punktet, så en
--- senere eier-redigering med ts=300 skal fortsatt vinne LWW.)
-update public.cards set trashed = true, ts = 2, org = 'bob' where id = :'c1';
-select public.t_check('mottaker kan slette (trashe) liste inne i delt gruppe',
-  (select trashed from public.cards where id = :'c1') = true);
-update public.cards set trashed = false, ts = 3, org = 'bob' where id = :'c1';  -- gjenopprett
-select public.t_check('mottaker kan gjenopprette listen igjen',
-  (select trashed from public.cards where id = :'c1') = false);
-
--- redigering + felt-nivå LWW
-update public.items set text = 'Melk og brød', ts = 100, org = 'bob' where id = :'i1';
-select public.t_check('bob kan redigere delt innhold',
-  (select text from public.items where id = :'i1') = 'Melk og brød');
-
-update public.items set text = 'GAMMEL', ts = 5, org = 'bob' where id = :'i1';
-select public.t_check('utdatert skriving taper (LWW beholder nyeste)',
-  (select text || ':' || ts from public.items where id = :'i1') = 'Melk og brød:100');
-
-select public.t_fails('owner_id kan ikke endres',
-  format('update public.groups set owner_id = %L where id = %L', :'bob', :'g1'));
-select public.t_fails('bare eier kan låse',
-  format('select public.set_locked(''group'', %L, true)', :'g1'));
--- Ny modell: et vanlig medlem KAN invitere når effektiv policy tillater det
--- (standard). Men det kan ikke ENDRE policyen eller kaste ut andre (admin-handling).
-select public.t_check('vanlig medlem kan invitere når policy tillater (standard)',
-  public.create_share_invite('group', :'g1', 'ekstra@example.com') ->> 'id' is not null);
-select public.revoke_share_invite(
-  (select id from public.share_invites where group_id = :'g1'
-     and lower(invitee_email) = 'ekstra@example.com' and status = 'pending'));  -- rydd opp (egen invitasjon)
-select public.t_fails('vanlig medlem kan ikke endre invitasjonspolicy',
-  format('select public.set_invite_policy(''group'', %L, ''deny'')', :'g1'));
-select public.t_fails('vanlig medlem kan ikke kaste ut',
-  format('select public.revoke_share(''group'', %L, %L)', :'g1', :'alice'));
-
--- lås: eieren fryser redigering for andre
+-- Utkastelse: alice fjerner bob fra gruppen.
 reset role;
 select set_config('request.jwt.claim.sub', :'alice', false);
 set role authenticated;
-select public.set_locked('group', :'g1', true);
-
-reset role;
-select set_config('request.jwt.claim.sub', :'bob', false);
-set role authenticated;
-update public.cards set title = 'HACK', ts = 200, org = 'bob' where id = :'c1';
-select public.t_check('låst gruppe: bobs redigering biter ikke',
-  (select title from public.cards where id = :'c1') = 'Handleliste');
-select public.t_fails('låst gruppe: bob kan ikke legge til element',
-  format('insert into public.items (owner_id, card_id, text) values (%L, %L, ''nei'')', :'bob', :'c1'));
-select public.t_check('låst gruppe: bob kan fortsatt LESE',
-  (select count(*) from public.cards where id = :'c1') = 1);
-
-reset role;
-select set_config('request.jwt.claim.sub', :'alice', false);
-set role authenticated;
-update public.cards set title = 'Handleliste 2', ts = 300, org = 'alice' where id = :'c1';
-select public.t_check('eieren kan redigere selv om låst',
-  (select title from public.cards where id = :'c1') = 'Handleliste 2');
-select public.set_locked('group', :'g1', false);
-select public.set_locked('universe', :'u1', true);   -- lås på forelder gjelder nedover
-
-reset role;
-select set_config('request.jwt.claim.sub', :'bob', false);
-set role authenticated;
-update public.items set text = 'HACK', ts = 400, org = 'bob' where id = :'i1';
-select public.t_check('låst UNIVERS fryser også delt gruppe under',
-  (select text from public.items where id = :'i1') = 'Melk og brød');
-
--- unntak fra arvet lås: eieren åpner gruppen igjen selv om universet er låst
-reset role;
-select set_config('request.jwt.claim.sub', :'alice', false);
-set role authenticated;
-select public.set_unlocked('group', :'g1', true);
-
-reset role;
-select set_config('request.jwt.claim.sub', :'bob', false);
-set role authenticated;
-update public.items set text = 'Via unntak', ts = 500, org = 'bob' where id = :'i1';
-select public.t_check('unntak på gruppe: bob kan redigere selv om universet er låst',
-  (select text from public.items where id = :'i1') = 'Via unntak');
-
--- lås på nytt på et lavere nivå (kortet) inni unntaket → fryser igjen
-reset role;
-select set_config('request.jwt.claim.sub', :'alice', false);
-set role authenticated;
-select public.set_locked('card', :'c1', true);
-
-reset role;
-select set_config('request.jwt.claim.sub', :'bob', false);
-set role authenticated;
-update public.items set text = 'HACK2', ts = 600, org = 'bob' where id = :'i1';
-select public.t_check('re-lås på kort inni unntak fryser igjen',
-  (select text from public.items where id = :'i1') = 'Via unntak');
-select public.t_fails('bare eier kan sette unntak',
-  format('select public.set_unlocked(''card'', %L, true)', :'c1'));
-
--- rydd opp: fjern kort-lås + gruppe-unntak, lås opp universet
-reset role;
-select set_config('request.jwt.claim.sub', :'alice', false);
-set role authenticated;
-select public.set_locked('card', :'c1', false);
-select public.set_unlocked('group', :'g1', false);
-select public.set_locked('universe', :'u1', false);
-
--- mottakeren forlater (= «slett» hos mottakeren) — eierens data består
-reset role;
-select set_config('request.jwt.claim.sub', :'bob', false);
-set role authenticated;
-select public.leave_share('group', :'g1');
-select public.t_check('etter leave: bob ser ikke gruppen lenger',
-  (select count(*) from public.groups where id = :'g1') = 0);
-
-reset role;
-select set_config('request.jwt.claim.sub', :'alice', false);
-set role authenticated;
-select public.t_check('etter leave: alices gruppe består urørt',
-  (select count(*) from public.groups where id = :'g1') = 1);
-
--- eieren kaster ut (revoke)
-select public.create_share_invite('group', :'g1', 'bob@example.com') ->> 'id' as inv2 \gset
-reset role;
-select set_config('request.jwt.claim.sub', :'bob', false);
-set role authenticated;
-select public.accept_share_invite(:'inv2'::uuid, :'ub'::uuid);
-select public.t_check('bob er inne igjen', (select count(*) from public.groups where id = :'g1') = 1);
-
-reset role;
-select set_config('request.jwt.claim.sub', :'alice', false);
-set role authenticated;
-select public.revoke_share('group', :'g1', :'bob');
-
+select public.revoke_share('group', :'g1', :'bob'::uuid);
 reset role;
 select set_config('request.jwt.claim.sub', :'bob', false);
 set role authenticated;
 select public.t_check('etter utkastelse: bob ser ikke gruppen',
   (select count(*) from public.groups where id = :'g1') = 0);
 
--- ---------- E. univers-deling: Alice -> Carol ----------
+-- ---------- E. universdeling: Alice -> Carol ----------
 reset role;
 select set_config('request.jwt.claim.sub', :'alice', false);
 set role authenticated;
@@ -287,106 +162,28 @@ reset role;
 select set_config('request.jwt.claim.sub', :'carol', false);
 set role authenticated;
 select public.accept_share_invite(:'inv3'::uuid);
-select public.t_check('carol ser hele universet (gruppe/liste/element)',
+select public.t_check('carol ser hele universet (gruppe/liste/listepunkt)',
   (select count(*) from public.groups where id = :'g1') = 1
   and (select count(*) from public.cards where id = :'c1') = 1
   and (select count(*) from public.items where id = :'i1') = 1);
 
 insert into public.groups (id, owner_id, universe_id, name, ts, org)
   values (:'gcarol', :'carol', :'u1', 'Carols gruppe', 1, 'carol');
-select public.t_check('carol kan opprette gruppe i delt univers',
-  (select count(*) from public.groups where id = :'gcarol') = 1);
-
--- felles søppel-tømming INNE i delt univers er derimot lov (ikke share-rot)
-reset role;
-select set_config('request.jwt.claim.sub', :'alice', false);
-set role authenticated;
-insert into public.groups (id, owner_id, universe_id, name, ts, org)
-  values (:'g2', :'alice', :'u1', 'Midlertidig', 1, 'alice');
-
-reset role;
-select set_config('request.jwt.claim.sub', :'carol', false);
-set role authenticated;
-delete from public.groups where id = :'g2';
-select public.t_check('univers-medlem kan hardslette gruppe UTEN direkte medlemskap (felles tømming)',
-  (select count(*) from public.groups where id = :'g2') = 0);
-
--- delt UNIVERS: mottakeren kan IKKE slette selve universet ...
-select public.t_fails('mottaker kan ikke legge delt univers i søppel (share-rot)',
-  format('update public.universes set trashed = true, ts = 600, org = ''carol'' where id = %L', :'u1'));
--- ... men KAN slette innhold i det (her: alices gruppe g1), og det gjelder for ALLE
-update public.groups set trashed = true, ts = 600, org = 'carol' where id = :'g1';
-select public.t_check('mottaker av delt univers kan slette gruppe i universet',
-  (select trashed from public.groups where id = :'g1') = true);
+select public.t_check('carol kan opprette gruppe i delt univers og blir gruppeeier',
+  (select count(*) from public.groups where id = :'gcarol') = 1
+  and public.group_role(:'gcarol', :'carol') = 'owner');
+select public.t_check('carol er IKKE eier av universet',
+  public.universe_role(:'u1', :'carol') = 'member'
+  and not (public.universe_caps(:'u1', :'carol') -> 'delete')::boolean);
 
 reset role;
 select set_config('request.jwt.claim.sub', :'alice', false);
 set role authenticated;
-select public.t_check('sletting av delt innhold gjelder for alle (eieren ser trashed)',
-  (select trashed from public.groups where id = :'g1') = true);
-
-reset role;
-select set_config('request.jwt.claim.sub', :'carol', false);
-set role authenticated;
-update public.groups set trashed = false, ts = 601, org = 'carol' where id = :'g1';   -- gjenopprett
-
-reset role;
-select set_config('request.jwt.claim.sub', :'alice', false);
-set role authenticated;
-select public.t_check('gjenoppretting av delt innhold gjelder for alle (eieren ser gjenopprettet)',
-  (select trashed from public.groups where id = :'g1') = false);
-
-reset role;
-select set_config('request.jwt.claim.sub', :'carol', false);
-set role authenticated;
-update public.memberships set trashed = true where user_id = :'carol' and universe_id = :'u1';
-select public.t_check('carols mount kan legges i HENNES søppelkasse',
-  (select jsonb_path_query_first(public.get_my_doc(), '$.universes[*] ? (@.id == $uid).mount.trashed',
-     jsonb_build_object('uid', :'u1'::text)) = 'true'::jsonb));
-update public.memberships set trashed = false where user_id = :'carol' and universe_id = :'u1';
-
-reset role;
-select set_config('request.jwt.claim.sub', :'alice', false);
-set role authenticated;
-select public.t_check('alice ser carols gruppe i sitt univers',
-  (select count(*) from public.groups where universe_id = :'u1') = 2);
-select public.t_check('alice ser medlemslisten',
-  jsonb_array_length(public.get_members('universe', :'u1') -> 'members') = 1);
-
--- ---------- F. liste-deling: Alice -> Bob (direkte kort) ----------
-select public.create_share_invite('card', :'c1', 'bob@example.com') ->> 'id' as inv4 \gset
-
-reset role;
-select set_config('request.jwt.claim.sub', :'bob', false);
-set role authenticated;
-select public.accept_share_invite(:'inv4'::uuid, :'gb'::uuid, 2);
-select public.t_check('bob ser den delte listen + elementer, men IKKE gruppen dens',
-  (select count(*) from public.cards where id = :'c1') = 1
-  and (select count(*) from public.items where id = :'i1') = 1
-  and (select count(*) from public.groups where id = :'g1') = 0);
-
-delete from public.cards where id = :'c1';   -- RLS: 0 rader (direkte medlemskap)
-select public.t_check('direkte delt liste kan ikke hardslettes av mottakeren',
-  (select count(*) from public.cards where id = :'c1') = 1);
-select public.t_fails('mottaker kan ikke legge delt liste i søppel (share-rot)',
-  format('update public.cards set trashed = true, ts = 700, org = ''bob'' where id = %L', :'c1'));
-
--- ...men mottakeren KAN slette elementer i den delte listen (felles søppel)
-update public.items set trashed = true, ts = 700, org = 'bob' where id = :'i1';
-select public.t_check('mottaker kan slette element i delt liste',
-  (select trashed from public.items where id = :'i1') = true);
-update public.items set trashed = false, ts = 701, org = 'bob' where id = :'i1';  -- gjenopprett
-
-select public.t_fails('mottaker kan ikke flytte kanonisk forelder (må bruke mount)',
-  format('update public.cards set group_id = %L, pos_ts = 999, pos_org = ''bob'' where id = %L', :'gb', :'c1'));
-select public.t_fails('mount kan ikke flyttes til gruppe uten tilgang',
-  format('update public.memberships set parent_group_id = %L where card_id = %L and user_id = %L', :'g1', :'c1', :'bob'));
-
--- slettes mottakerens forelder, blir mounten «umontert» (ikke slettet)
-delete from public.groups where id = :'gb';
-select public.t_check('mount overlever at forelderen slettes (parent = null)',
-  (select parent_group_id is null from public.memberships where card_id = :'c1' and user_id = :'bob')
-  and (select count(*) from public.cards where id = :'c1') = 1);
+select public.t_check('alice ser medlemslisten (eier + medlem)',
+  jsonb_array_length(public.get_members('universe', :'u1') -> 'members') = 2);
+select public.t_check('universet er nå markert som delt i get_my_doc',
+  (select (u -> 'shared')::boolean from jsonb_array_elements(public.get_my_doc() -> 'universes') u
+    where u ->> 'id' = :'u1') = true);
 
 -- ---------- G. invitasjon før konto finnes (kobles ved registrering) ----------
 reset role;

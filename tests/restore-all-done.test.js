@@ -166,7 +166,7 @@ async function run(label, vp, mobile) {
     // samme tilstand som en delt, låst liste. Flaggene settes på nytt ved neste
     // pull, så knappen leses av med én gang, i samme oppgave som render().
     const c = g.cards.find((x) => x.id === 'card-A');
-    u._mine = false; g._mine = false; c._mine = false; c._locked = true;
+    u._role = 'member'; g._role = null; c._locked = true;
     H.render();
     const el = document.querySelector('.card[data-id="card-A"] .done-restore');
     return { hidden: !!el.hidden, checkDisabled: !!document.querySelector('.card[data-id="card-A"] .items-done .item-check').disabled };

@@ -33,14 +33,34 @@ state = {
 }
 ```
 
-`_tomb` og `_base`/`_baseV` er de eneste `_`-feltene (utenom `_hlc`/`_mine`) som
+`_tomb` og `_base`/`_baseV` er de eneste `_`-feltene (utenom `_hlc`/`_createdByMe`) som
 lagres i cachen — de hører til synken, ikke til visningen. `_base` MÅ ligge i
 samme localStorage-post som innholdet, ellers kan de to komme i utakt og
 fletteren lese basens rader som «slettet lokalt». Se «Gjenoppstandelse» i
 `docs/accounts.md` og `docs/trash.md`.
 
 Forelder-peker på hvert nivå: `listepunkt.home → kort`, `kort.group → gruppe`,
-`gruppe.uni → univers`. Aktiv gruppe settes ALLTID via `setActiveGroup()` /
+`gruppe.uni → univers`.
+
+**Rolle- og capability-metadata (kontomodus)** legges på objektene av
+`applyMyDoc`, utenfor synk-doc'et: `_type`, `_parent`, `_creator`,
+`_createdByMe`, `_role` (`'owner'`/`'member'`/`null` — kun universer og grupper),
+`_free`, `_caps`, `_shared`, `_locked`, `_unlocked`, `_invitePolicy`,
+`_ownerKey`, `_memberCount`, `_ownerCount`. Myndighet kommer fra `_role`/`_caps`
+— `_creator` er ren historikk. Se `docs/rettigheter-og-deling.md`.
+
+**Personlig vs. kanonisk `pos`.** For universer (alltid) og FRIE grupper er
+`.pos` brukerens PERSONLIGE rekkefølge (fra medlemskapsraden), mens den kanoniske
+verdien ligger i `_canon` og skrives tilbake uendret. For alt annet er `.pos` den
+delte, kanoniske posisjonen.
+
+**Den virtuelle fri-beholderen.** Grupper som er delt direkte med meg uten at jeg
+har noen rolle i deres kanoniske univers (`_free`) samles i ett syntetisk
+«univers» med id `'__free__'` (`FREE_UNI_ID`, `_virtual: true`). Det finnes ikke i
+databasen, pushes aldri (`flattenNested` hopper over det), og gruppene i det
+beholder sitt kanoniske `uni` i doc-et — universets navn lekkes aldri.
+
+Aktiv gruppe settes ALLTID via `setActiveGroup()` /
 `setActiveUniverse()` / `goToGroup()` så per-univers-minnet (`activeGroups`)
 holdes i takt (`goToGroup` brukes fra nav-modalen, der et gruppevalg også kan
 bytte univers).
@@ -60,7 +80,9 @@ De to øverste nivåene speiler de to nederste: **et univers oppfører seg som e
 liste og en gruppe som et listepunkt** — samme rendring, samme kategori-modell og
 samme dra-og-slipp-motor (se `docs/menus.md` og `docs/drag-and-drop.md`). Grupper
 kan derfor flyttes fritt mellom universer, og en gruppe sluppet utenfor alle
-universer oppretter et NYTT univers (som listepunkt-ekstrahering lager en ny liste).
+universer oppretter et NYTT univers (som listepunkt-ekstrahering lager en ny
+liste) — og gruppen flyttes dit med `move_group`, ikke ved å skrive
+`universe_id` direkte.
 Alt liste-/listepunkt-UI er fortsatt scopet til den AKTIVE gruppen.
 
 - **Universer**: bytt/opprett/omdøp/slett/omrokkér i nav-modalen. Se `docs/menus.md`.

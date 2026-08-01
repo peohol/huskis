@@ -61,9 +61,6 @@ grant execute on function public.t_fails_with(text, text, text) to public;
 \set KI '4a000000-bbbb-0000-0000-000000000002'
 -- Et helt nytt objekt opprettet etter slettingen.
 \set NC '3a000000-bbbb-0000-0000-000000000003'
--- Mottakerens eget tre (en delt liste monteres i en av mottakerens grupper).
-\set SU '1a000000-bbbb-0000-0000-000000000002'
-\set SG '2a000000-bbbb-0000-0000-000000000002'
 
 -- ---------- 0. brukere + tre ----------
 insert into auth.users (id, email) values
@@ -78,13 +75,11 @@ insert into public.items  (id, owner_id, card_id, text, ts, org) values (:'TI', 
 insert into public.cards  (id, owner_id, group_id, title, ts, org) values (:'KC', :'T', :'TG', 'Beholdes', 1, 't');
 insert into public.items  (id, owner_id, card_id, text, ts, org) values (:'KI', :'T', :'KC', 'Brød', 1, 't');
 
--- S blir mottaker av den delte listen (og har dermed en lokal kopi av den).
--- En delt LISTE monteres i en av mottakerens egne grupper, så S trenger et eget tre.
-select public.create_share_invite('card', :'TC', 'tomb-mottaker@example.com') ->> 'id' as inv \gset
+-- S blir DIREKTE gruppemedlem (lister deles ikke lenger — tilgangen arves fra
+-- gruppen) og har dermed en lokal kopi av listen.
+select public.create_share_invite('group', :'TG', 'tomb-mottaker@example.com') ->> 'id' as inv \gset
 reset role; select set_config('request.jwt.claim.sub', :'S', false); set role authenticated;
-insert into public.universes (id, owner_id, name, ts, org) values (:'SU', :'S', 'S sitt', 1, 's');
-insert into public.groups (id, owner_id, universe_id, name, ts, org) values (:'SG', :'S', :'SU', 'S sin gruppe', 1, 's');
-select public.accept_share_invite(:'inv'::uuid, :'SG'::uuid, 0);
+select public.accept_share_invite(:'inv'::uuid);
 select public.t_check('mottakeren ser den delte listen før slettingen',
   (select count(*) from public.cards where id = :'TC') = 1);
 

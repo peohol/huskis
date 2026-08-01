@@ -49,7 +49,7 @@ async function register(p) {
 async function seed(p) {
   await p.evaluate(() => {
     const H = window.__huskis, st = H.state;
-    const mk = (o) => Object.assign({ ts: 1, org: 't', pos: 0, posTs: 1, posOrg: 't', trashed: false, _mine: true }, o);
+    const mk = (o) => Object.assign({ ts: 1, org: 't', pos: 0, posTs: 1, posOrg: 't', trashed: false, _role: 'owner' }, o);
     st.universes.length = 0;
     const uA = mk({ id: 'uni-A', name: 'Hjemme', collapsed: false, groups: [] });
     const uB = mk({ id: 'uni-B', name: 'Jobb', collapsed: false, groups: [], pos: 1 });
@@ -80,6 +80,11 @@ const open = async (p) => { await p.evaluate(() => window.__huskis.openNavModal(
 // Musedrag (desktop starter draget umiddelbart på bevegelse). `to` kan være en
 // funksjon som måler målet på nytt underveis — layouten flytter seg mens man drar.
 async function drag(p, fromSel, to, rounds = 8) {
+  // Modalen er høyere enn mobilskjermen (tre seksjoner), så raden man drar fra
+  // kan ligge delvis under modal-headeren. Rull den fram først — ellers treffer
+  // pointerdown headeren i stedet for raden.
+  await p.locator(fromSel).scrollIntoViewIfNeeded();
+  await p.waitForTimeout(120);
   const a = await p.locator(fromSel).boundingBox();
   await p.mouse.move(a.x + a.width / 2, a.y + a.height / 2);
   await p.mouse.down();
@@ -219,6 +224,22 @@ async function run(label, vp, mobile) {
   log(label + ' 5: klikk ellers på raden navigerer til gruppen og lukker modalen',
     navigated.closed === true && navigated.u === 'uni-B' && navigated.g === 'g-b1' &&
     navigated.crumb === 'Jobb › Møter', JSON.stringify(navigated));
+
+  /* ---------- 6-10) DnD og rendring: pull + gruppeflytting stubbes ----------
+     Fikstur-radene har ikke UUID-er og finnes derfor ALDRI på «serveren». En
+     pull ville nullstilt dem midt i scenarioet, og `move_group`-RPC-en (som en
+     gruppe som bytter univers går gjennom) ville ventet forgjeves på at raden
+     dukket opp. Begge deler hører til synken, som `sync-*`-testene dekker; her
+     handler alt om dra-og-slipp og rendring. */
+  await p.evaluate(() => {
+    const c = window.__huskis.client;
+    window.__navRealRpc = c.rpc.bind(c);
+    c.rpc = (name, params) => {
+      if (name === 'get_my_doc') return Promise.resolve({ data: null, error: { message: 'pull pauset i test' } });
+      if (name === 'move_group') return Promise.resolve({ data: { mode: 'reparent', group: params.p_group, mapping: {} }, error: null });
+      return window.__navRealRpc(name, params);
+    };
+  });
 
   /* ---------- 6) DnD: samme motor som lister/listepunkter ---------- */
   await open(p);
@@ -364,23 +385,14 @@ async function run(label, vp, mobile) {
   // flytting inn i et frosset univers ville blitt avvist og snappet tilbake ved
   // neste synk. Klienten må avvise den med en gang i stedet.
   //
-  // Fikstur: «delt med meg og låst av eieren» settes direkte på state-objektet
-  // (`_mine`/`_mount`/`_locked`). De feltene EIER synken — `applyMyDoc` bygger dem
-  // fra serverens metadata ved hver runde som endrer visningen, og ville nullstilt
-  // dem midt i scenarioet. Testradene her har dessuten ikke UUID-er og finnes
-  // derfor aldri på «serveren». Vi pauser pullen mens 9 og 10 spilles ut: begge
-  // handler om DnD/rendring, ikke om synken (som `sync-*`-testene dekker).
-  await p.evaluate(() => {
-    const c = window.__huskis.client;
-    window.__navRealRpc = c.rpc.bind(c);
-    c.rpc = (name, params) => (name === 'get_my_doc'
-      ? Promise.resolve({ data: null, error: { message: 'pull pauset i test' } })
-      : window.__navRealRpc(name, params));
-  });
+  // Fikstur: «vanlig medlem av et låst univers» settes direkte på state-objektet
+  // (`_role`/`_locked`/`_caps`). Pullen er allerede pauset (se 6-10 over).
   await seed(p);
   await p.evaluate(() => {
     const u = window.__huskis.state.universes.find((x) => x.id === 'uni-B');
-    u._mine = false; u._mount = { pos: 1 }; u._locked = true; // delt med meg, låst av eier
+    // Vanlig medlem (ikke eier) av et låst univers: låsen gjelder for meg.
+    u._role = 'member'; u._locked = true;
+    u._caps = { editContent: false, createGroup: false, delete: false, leave: true };
     window.__huskis.render();
   });
   await open(p);

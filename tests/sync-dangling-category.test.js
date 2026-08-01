@@ -70,7 +70,7 @@ const server = (p, table) => p.evaluate((t) => {
 const addItems = (p, rows, cardId) => p.evaluate(({ specs, cardId }) => {
   const H = window.__huskis, st = H.state;
   const now = Date.now();
-  const mk = (o) => Object.assign({ ts: now, org: 'test', pos: 0, posTs: now, posOrg: 'test', trashed: false, _mine: true }, o);
+  const mk = (o) => Object.assign({ ts: now, org: 'test', pos: 0, posTs: now, posOrg: 'test', trashed: false, _role: 'owner' }, o);
   let c = st.universes[0].groups[0].cards.find((x) => x.id === cardId);
   if (!c) {
     c = mk({ id: cardId, group: st.universes[0].groups[0].id, title: 'Handleliste', collapsed: false, items: [] });
@@ -166,7 +166,7 @@ async function run(label, vp, mobile) {
     const now = Date.now();
     const c = st.universes[0].groups[0].cards.find((x) => x.id === ID.card);
     c.items.push({ id: ID.avvist, home: ID.card, text: 'Nekt', cat: null, isCat: false, done: false,
-      trashed: false, _mine: true, ts: now, org: 'test', pos: 9, posTs: now, posOrg: 'test' });
+      trashed: false, _role: 'owner', ts: now, org: 'test', pos: 9, posTs: now, posOrg: 'test' });
     await H.cloudCycle();
     const after = cycles;
     await new Promise((r) => setTimeout(r, 3000)); // 3 s ≈ under ett poll-intervall (5 s)

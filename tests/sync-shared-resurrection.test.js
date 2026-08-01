@@ -32,6 +32,10 @@ const ID = {
   sharedItem: 'a1000000-0000-4000-8000-000000000002',
   revoked: 'a2000000-0000-4000-8000-000000000001', // deles, delingen trekkes tilbake
   revokedItem: 'a2000000-0000-4000-8000-000000000002',
+  // Deling skjer på GRUPPE-nivå: lister arver tilgangen fra gruppen sin, så hver
+  // av de to listene ligger i sin egen delte gruppe.
+  gShared: 'b1000000-0000-4000-8000-000000000001',
+  gRevoked: 'b2000000-0000-4000-8000-000000000001',
 };
 
 const results = [];
@@ -96,15 +100,19 @@ const serverCards = (p) => p.evaluate(() => {
 const cardOnServer = async (p, id) => (await serverCards(p)).find((c) => c.id === id) || null;
 const localCard = (p, id) => p.evaluate((x) => !!window.__huskis.docFromMyState().cards.find((c) => c.id === x), id);
 
-const addCard = (p, cardId, itemId, title) => p.evaluate(({ cardId, itemId, title }) => {
-  const H = window.__huskis, now = Date.now();
-  const mk = (o) => Object.assign({ ts: now, org: 'test', pos: 0, posTs: now, posOrg: 'test', trashed: false, _mine: true }, o);
-  const g = H.state.universes[0].groups[0];
-  const c = mk({ id: cardId, group: g.id, title: title, collapsed: false, k: true, p: true, items: [] });
-  c.items.push(mk({ id: itemId, home: cardId, text: 'Punkt', done: false, cat: null, isCat: false }));
-  g.cards.push(c);
-  H.render();
-}, { cardId, itemId, title });
+// Én gruppe med én liste i — gruppen er delings-enheten.
+const addGroupWithCard = (p, groupId, cardId, itemId, title) =>
+  p.evaluate(({ groupId, cardId, itemId, title }) => {
+    const H = window.__huskis, now = Date.now();
+    const mk = (o) => Object.assign({ ts: now, org: 'test', pos: 0, posTs: now, posOrg: 'test', trashed: false, _role: 'owner' }, o);
+    const u = H.state.universes[0];
+    const g = mk({ id: groupId, uni: u.id, name: title, cat: null, isCat: false, collapsed: false, cards: [] });
+    const c = mk({ id: cardId, group: groupId, title: title, collapsed: false, k: true, p: true, items: [] });
+    c.items.push(mk({ id: itemId, home: cardId, text: 'Punkt', done: false, cat: null, isCat: false }));
+    g.cards.push(c);
+    u.groups.push(g);
+    H.render();
+  }, { groupId, cardId, itemId, title });
 
 async function settle(p, rounds = 3) {
   for (let i = 0; i < rounds; i++) {
@@ -134,8 +142,8 @@ async function run(label, vp, mobile) {
   await register(owner);
   await owner.evaluate(() => window.__huskis.addGroup());
   await owner.waitForTimeout(900);
-  await addCard(owner, ID.shared, ID.sharedItem, 'Delt liste');
-  await addCard(owner, ID.revoked, ID.revokedItem, 'Trukket tilbake');
+  await addGroupWithCard(owner, ID.gShared, ID.shared, ID.sharedItem, 'Delt liste');
+  await addGroupWithCard(owner, ID.gRevoked, ID.revoked, ID.revokedItem, 'Trukket tilbake');
   await waitForServerRow(owner, ID.shared);
   await waitForServerRow(owner, ID.revoked);
   const ownerId = await owner.evaluate(() => window.__huskis.authUser.id);
@@ -148,26 +156,26 @@ async function run(label, vp, mobile) {
   await recip.waitForTimeout(900);
   const recipId = await recip.evaluate(() => window.__huskis.authUser.id);
 
-  // Eieren inviterer til begge listene; mottakeren godtar og monterer dem i sin
-  // egen gruppe (RPC-ene direkte — UI-flyten er dekket av andre tester).
+  // Eieren inviterer til begge GRUPPENE; mottakeren godtar (uten å velge noen
+  // forelder — de havner i «Grupper delt med meg»). RPC-ene kalles direkte;
+  // UI-flyten er dekket av andre tester.
   const invites = await owner.evaluate(async ({ email, a, c }) => {
     const H = window.__huskis;
-    const one = await H.client.rpc('create_share_invite', { p_type: 'card', p_id: a, p_email: email });
-    const two = await H.client.rpc('create_share_invite', { p_type: 'card', p_id: c, p_email: email });
+    const one = await H.client.rpc('create_share_invite', { p_type: 'group', p_id: a, p_email: email });
+    const two = await H.client.rpc('create_share_invite', { p_type: 'group', p_id: c, p_email: email });
     return [one.data && one.data.id, two.data && two.data.id];
-  }, { email: recipEmail, a: ID.shared, c: ID.revoked });
+  }, { email: recipEmail, a: ID.gShared, c: ID.gRevoked });
   await recip.evaluate(async (ids) => {
     const H = window.__huskis;
-    const g = H.state.universes[0].groups[0];
-    for (const id of ids) await H.client.rpc('accept_share_invite', { p_invite: id, p_parent: g.id, p_pos: 0 });
+    for (const id of ids) await H.client.rpc('accept_share_invite', { p_invite: id });
   }, invites);
   await settle(recip);
   log(label + ' 0: mottakeren ser begge de delte listene',
     await localCard(recip, ID.shared) && await localCard(recip, ID.revoked));
-  log(label + ' 0: … og vet at de tilhører en annen (_mine = false)',
+  log(label + ' 0: … og vet at de tilhører en annen (_createdByMe = false)',
     await recip.evaluate((id) => {
       const c = window.__huskis.state.universes.flatMap((u) => u.groups).flatMap((g) => g.cards).find((x) => x.id === id);
-      return !!c && c._mine === false;
+      return !!c && c._createdByMe === false;
     }, ID.shared));
 
   // Mottakerens cache slik den er NÅ — «den gamle kopien».
@@ -176,11 +184,17 @@ async function run(label, vp, mobile) {
   /* ---------- 1) To samtidige klienter: eieren sletter permanent ---------- */
   await owner.evaluate((id) => {
     const H = window.__huskis;
-    const c = H.state.universes[0].groups[0].cards.find((x) => x.id === id);
+    const c = H.state.universes.flatMap((u) => u.groups).flatMap((g) => g.cards).find((x) => x.id === id);
     c.trashed = true; c.ts = Date.now(); c.org = 'test';
     H.render();
   }, ID.shared);
   await settle(owner);
+  await owner.evaluate((gid) => {
+    // «Tøm papirkurv» gjelder den AKTIVE gruppen — stå i den delte gruppen først.
+    window.__huskis.state.activeGroup = gid;
+    window.__huskis.render();
+  }, ID.gShared);
+  await owner.waitForTimeout(200);
   await owner.evaluate(() => window.__huskis.emptyCardsTrash());
   await settle(owner);
   log(label + ' 1: eieren slettet den delte listen permanent', !await cardOnServer(owner, ID.shared));
@@ -206,15 +220,14 @@ async function run(label, vp, mobile) {
   log(label + ' 2: … heller ikke lokalt', !await localCard(recip, ID.shared));
 
   /* ---------- 3) Rå INSERT fra mottakeren ---------- */
-  const raw = await recip.evaluate(async ({ id, uid }) => {
+  const raw = await recip.evaluate(async ({ id, uid, gid }) => {
     const H = window.__huskis;
-    const g = H.state.universes[0].groups[0];
     const res = await H.client.from('cards').insert({
-      id: id, owner_id: uid, group_id: g.id, title: 'Kapret', trashed: false,
+      id: id, owner_id: uid, group_id: gid, title: 'Kapret', trashed: false,
       ts: Date.now(), org: 'raw', pos: 0, pos_ts: Date.now(), pos_org: 'raw',
     });
     return { err: res && res.error ? { code: res.error.code, message: res.error.message } : null };
-  }, { id: ID.shared, uid: recipId });
+  }, { id: ID.shared, uid: recipId, gid: ID.gShared });
   log(label + ' 3: mottakerens rå INSERT med gravlagt id avvises',
     !!raw.err && raw.err.code === 'PT409', JSON.stringify(raw.err));
   log(label + ' 3: … og ingen rad med mottakeren som eier dukket opp',
@@ -222,8 +235,8 @@ async function run(label, vp, mobile) {
 
   /* ---------- 4) Tilbaketrukket deling (objektet LEVER hos eieren) ---------- */
   await owner.evaluate(async ({ id, user }) => {
-    await window.__huskis.client.rpc('revoke_share', { p_type: 'card', p_id: id, p_user: user });
-  }, { id: ID.revoked, user: recipId });
+    await window.__huskis.client.rpc('revoke_share', { p_type: 'group', p_id: id, p_user: user });
+  }, { id: ID.gRevoked, user: recipId });
   await settle(owner);
   // Mottakerens cache husker fortsatt listen (som en annens). Den skal slippes,
   // ikke settes inn på nytt med mottakeren som oppretter.

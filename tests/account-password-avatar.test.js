@@ -265,6 +265,7 @@ async function run(label, vp, mobile) {
   log(label + ' D: «Fjern bilde» dukker opp når det finnes et bilde', shown.remove);
 
   // Del-modalen: eier-raden er meg — sirkelen skal vise bildet, ikke initialene.
+  // Bare universer og grupper deles, så det er gruppens del-visning vi åpner.
   await p.evaluate(() => {
     const H = window.__huskis;
     H.closeAccount();
@@ -273,24 +274,13 @@ async function run(label, vp, mobile) {
   await p.keyboard.press('Escape'); await p.waitForTimeout(200);
   await p.evaluate(() => window.__huskis.addGroup()); await p.waitForTimeout(200);
   await p.keyboard.press('Escape'); await p.waitForTimeout(200);
-  const cardId = await p.evaluate(() => {
+  await p.waitForTimeout(1200); // la gruppen nå «serveren» før del-visningen åpnes
+  await p.evaluate(() => {
     const H = window.__huskis, st = H.state;
     const u = st.universes.find((x) => x.id === st.activeUniverse);
     const g = u.groups.find((x) => x.id === st.activeGroup);
-    const mk = () => ({ ts: 0, org: 't', pos: 0, posTs: 0, posOrg: 't' });
-    const id = crypto.randomUUID();
-    g.cards = [Object.assign({ id, group: g.id, title: 'Liste', trashed: false, k: true, p: true,
-      labTs: 0, labOrg: 't', items: [] }, mk())];
-    H.render();
-    return id;
+    H.openShare('group', g.id, g, null);
   });
-  await p.waitForTimeout(1200); // la lista nå «serveren» før del-visningen åpnes
-  await p.evaluate((id) => {
-    const H = window.__huskis, st = H.state;
-    const u = st.universes.find((x) => x.id === st.activeUniverse);
-    const g = u.groups.find((x) => x.id === st.activeGroup);
-    H.openShare('card', id, g.cards.find((c) => c.id === id), null);
-  }, cardId);
   await p.waitForTimeout(700);
   const ownerAvatar = await p.evaluate(() => {
     const row = document.querySelector('#share-body .member-row .member-avatar');

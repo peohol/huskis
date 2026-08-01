@@ -326,6 +326,69 @@ exists` + `drop/add constraint`); mock-backenden speiler kolonnen (profil-update
       opplasting av profilbilde (feilmelding i konto-modalen); resten av appen er
       upåvirket, siden ingen annen skriving nevner kolonnen.
 
+## Skjema-/logikk-endring: ROLLER, kun univers-/gruppedeling, `move_group`
+
+Den store omleggingen av deling, medlemskap og eierskap (se
+`docs/rettigheter-og-deling.md` — autoritativ). Alt ligger i
+`supabase/users-and-sharing.sql` og er idempotent.
+
+**Nye/endrede kolonner**
+
+- `memberships.role` (`'owner'`/`'member'`, standard `'member'`) — mutabel rolle.
+  Eiere HAR nå en rad; det er den som gjør eierskapet mutabelt.
+- `share_invites.role` — medlems- vs. **eierskaps**-invitasjon.
+- **Droppet**: `memberships.parent_universe_id`, `.parent_group_id`, `.trashed`
+  (mount-modellen er borte — mottakeren velger ikke lenger egen forelder, og
+  søpla er felles).
+- **Låst**: CHECK `card_id is null` på både `memberships` og `share_invites` —
+  databasen avviser nye medlemskap/invitasjoner på listenivå, også fra en gammel
+  klient eller et rått PostgREST-kall. (Kolonnen står igjen så migreringen under
+  er re-kjørbar.)
+- `public.migration_log` — markerer engangs-jobber.
+
+**Engangs-migreringer (kjøres av samme fil)**
+
+1. **Rolle-backfill** (markert `roles_backfill_v1`): universets oppretter blir
+   universeier, gruppens oppretter blir eksplisitt gruppeeier (med mindre rollen
+   alt er arvet), eksisterende direkte medlemskap blir vanlige roller, og
+   redundante rader dedupliseres. Kjøres ALDRI på nytt — en rolle som senere er
+   fjernet med vilje skal ikke komme tilbake.
+2. **Migrering av direkte listedelinger** → gruppetilgang, etter reglene i
+   `docs/rettigheter-og-deling.md` del 13 (redundant fjernes / én-liste-gruppe
+   promoterer / flerliste-gruppe splittes i en ny søskengruppe). Naturlig
+   idempotent.
+
+**Nye/omskrevne funksjoner**: `universe_role`, `group_role`, `is_universe_owner/
+member`, `is_group_owner/member`, `universe_owner_set`, `is_privileged`,
+`can_read*`, `can_edit_content`, `can_create_child`, `can_reorder_in_parent`,
+`can_delete_object`, `can_leave`, `can_manage_members`, `can_invite_to`,
+`can_invite_owner`, `can_manage_lock`, `can_manage_lock_exception`,
+`can_manage_invite_policy`, `can_move_group`, `universe_caps`, `group_caps`,
+`purge_universe_access`, `purge_group_access`, `set_member_role`, `move_group`,
+`get_members` (ny fasong), `get_my_doc` (ny fasong). **Fjernet**:
+`can_admin_resource`, `resource_owner`, `resource_creator`,
+`resource_universe_owner`, `can_edit_universe/group/card`, og den gamle
+3-argumentsvarianten av `create_share_invite`.
+
+- [ ] **«Supabase DB-oppsett»-workflowen må kjøres** (går automatisk ved push til
+      `main` siden `supabase/users-and-sharing.sql` er endret — bekreft at runen
+      ble grønn). Migreringen legger til kolonner additivt og fyller roller FØR
+      de nye funksjonene/policyene tas i bruk, så rekkefølgen i filen er viktig:
+      ikke splitt den opp.
+- [ ] **Klienten er avhengig av migreringen.** Uten `memberships.role` ser
+      `get_my_doc` ingen universer i det hele tatt (tilgang kommer fra roller).
+      Deployen av `main` kjører workflowen automatisk; skulle klient-deployen så
+      vidt lede, retter neste synk-runde det opp.
+- [ ] Etter kjøring: kontroller at hvert univers har minst én eier —
+      `select u.id, u.name from public.universes u
+        where not exists (select 1 from public.memberships m
+                          where m.universe_id = u.id and m.role = 'owner');`
+      (skal gi 0 rader).
+- [ ] Etter kjøring: kontroller at listedelingene er borte —
+      `select count(*) from public.memberships where card_id is not null;`
+      og `select count(*) from public.share_invites where card_id is not null;`
+      (begge skal gi 0).
+
 ## Manuelle steg (krever dashboard-tilgang — Peder)
 
 - [x] ~~GitHub → Settings → Secrets and variables → Actions: legg inn

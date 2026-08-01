@@ -16,8 +16,9 @@ og grønne knapper.
 
 Filterkortet (👁️ Mine/Delte) i toppmenyens listefunksjons-rad (se `docs/menus.md`), per enhet
 (`mine-lister-filter`, ikke synket). To uavhengige brytere — «Mine» (lister du
-selv eier, `isMine(c)`/`c._mine !== false`) og «Delte» (lister andre har delt
-med deg — `c._mine === false`). Begge kan stå på (alt vises) eller av (alt
+selv har OPPRETTET, `c._createdByMe !== false`) og «Delte» (lister andre har
+opprettet — `c._createdByMe === false`). Filteret handler kun om hvem som laget
+lista; tilgangen styres av roller. Begge kan stå på (alt vises) eller av (alt
 skjules). Kort trykk =
 uavhengig toggle; hold en bryter i 250 ms (`FILTER_HOLD_MS`) → aktiverer kun
 den (skrur av den andre). På-tilstanden bruker samme grønne knappestil

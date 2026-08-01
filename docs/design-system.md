@@ -373,6 +373,27 @@ Størrelse/form kommer fra egne klasser: `.btn` (modaler), `.btn-small`,
   (avrundet, tabular-nums) men har ulike roller; å tvinge dem inn i én `.pill`
   ville vært prematur abstraksjon.
 
+## Seksjoner i nav-modalen (`.nav-section-head`)
+
+De tre seksjonene («Mine universer», «Universer delt med meg», «Grupper delt med
+meg») får hver en overskriftsrad med to ikoner foran navnet
+(`[ressursikon][kontekstikon]`) og en skillelinje over (`border-top`, ikke for
+den første). Tom seksjon får en dempet `.nav-section-empty`-linje i stedet for
+kort. «＋ Nytt univers» (`.nav-add-uni`) står nederst i seksjon 1 og bare der.
+Den virtuelle beholderen for frie grupper (`.free-groups-card`) har en nøytral
+grå kortfarge og ingen del-/slett-/＋-kontroller. Se `docs/menus.md`.
+
+## Del-modalen: én visning, capability-gatede kontroller
+
+Del-modalen har ikke lenger et eier/mottaker-skille. Medlemslisten vises for
+alle med tilgang, gruppert etter rollekategori med `.share-section-title`;
+`.member-hint` forklarer hvorfor en rad ikke kan fjernes her. Rollevelgeren ved
+siden av e-postfeltet (`.share-role-select`) vises kun for den som kan invitere
+eiere. «Forlat» og «Slett for alle» ligger sammen i `.share-actions` — begge kan
+være aktuelle samtidig. «Forlat» bruker det samme dør-ut-ikonet som «Logg ut»
+(`ICONS.logout`), men med sitt eget `aria-label`, så skjermlesere aldri
+forveksler de to.
+
 ## Flate-mønsteret
 
 Hvile = halvgjennomsiktig hvit (`--control-bg`), hover = helt ugjennomsiktig

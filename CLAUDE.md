@@ -608,7 +608,7 @@ starter ikke). Nye tester: `tests/build-version.test.js` (node) og
 `tests/auto-update.test.js` (nettleser, falsk klokke/fetch/reload + integrasjon mot
 ekte `updateSafety()`). Ingen DB-migrering. Se `docs/auto-update.md`.
 
-**Passord og profilbilde (siste runde)**: (1) **Vis passordet** — hvert
+**Passord og profilbilde (forrige runde)**: (1) **Vis passordet** — hvert
 passordfelt har en øye-knapp inni seg (`.pass-wrap`/`.pass-toggle`,
 `data-pass-toggle="<felt-id>"`, `ICONS.eyeOff` når det vises) som bytter
 `input.type`; én delt handler kobler alle, og `clearPassFields()` tømmer + skjuler
@@ -630,3 +630,38 @@ initialene. Konto-avataren er selv knappen som velger bilde (kamera-merke), og
 (`profiles.avatar` + `get_members`) — se `TODO.md`. Ny test
 `tests/account-password-avatar.test.js`. Se `docs/accounts.md`,
 `docs/design-system.md`, `docs/menus.md`.
+
+**Omlegging av deling, medlemskap og eierskap (siste runde)**: myndighet kommer nå
+utelukkende fra **mutable roller** (`memberships.role` = `owner`/`member` på univers
+ELLER gruppe). `owner_id` på objektradene betyr `created_by` — ren historikk, uten
+rettigheter — og «administrator» finnes ikke lenger som begrep. **Bare universer og
+grupper kan deles**; lister/kategorier/listepunkter arver tilgangen (deling er fjernet
+fra listers innstillingsmodal, og serveren avviser liste-invitasjoner og
+liste-medlemskap). Alle universeiere er likestilte («Eier» / «Medeiere» etter antall)
+og er dynamiske supereiere av alle grupper i universet; et univers har ALLTID minst én
+eier (invarianten håndheves av DB-triggere, ikke bare RPC-ene). Autorisasjonen er
+**capability-basert**: serveren regner ut `caps` per univers/gruppe (`universe_caps`/
+`group_caps`) og returnerer dem i `get_my_doc` + `get_members().viewer`, og klienten
+gate-r hver kontroll på dem. Nav-modalen har fått **tre seksjoner** med overskrift og
+skillelinje — «Mine universer» (rolle `owner`, eneste sted med ＋-knappen), «Universer
+delt med meg» (rolle `member`) og «Grupper delt med meg» (direkte grupperolle uten
+universrolle, samlet i en VIRTUELL beholder som aldri pushes). Rekkefølgen på toppnivå
+og for frie grupper er **personlig** (`memberships.pos`, også for eiere); grupper/
+lister/listepunkter er felles. Invitasjoner tar ingen plassering lenger, og eierskap
+gis alltid via en **rolleinvitasjon mottakeren må godta** (`set_member_role` kan bare
+degradere). En gruppe bytter univers KUN gjennom `move_group()` — samme eierskapsdomene
+(identisk sett universeiere) gir ekte reparenting, ulikt domene gir atomisk
+kopier-og-slett med nye id-er, gravsteiner for de gamle og en deterministisk
+id-mapping klienten bruker til å bytte visningen uten flimmer (med eksplisitt
+bekreftelse først). «Forlat» rører aldri innhold; «Slett» er felles for alle med
+tilgang; begge kan være tilgjengelige samtidig. Mount-modellen er borte
+(`parent_universe_id`/`parent_group_id`/`memberships.trashed` droppet), og mistet
+tilgang navigerer brukeren ut av visningen med en nøktern melding. Krever en
+DB-migrering i kontomodus (rolle-backfill + migrering av gamle listedelinger) — se
+`TODO.md`. Nye tester: `supabase/tests/test-roles-and-sharing.sql`,
+`test-group-moves.sql`, `test-list-share-migration.sql` (+ `legacy-share-fixture.sql`),
+`tests/roles-and-sections.test.js`, `tests/group-move.test.js` — de to siste
+erstatter `supabase/tests/test-permissions.sql` og `tests/permissions-ui.test.js`,
+som er slettet (de testet administrator-modellen). Se
+`docs/rettigheter-og-deling.md` (autoritativ), `docs/arkitektur-brukere-deling.md`,
+`docs/accounts.md`, `docs/data-model.md`, `docs/menus.md`, `docs/trash.md`.

@@ -17,13 +17,11 @@ listepunktene i kategorien (`category.lockTimes`). Seksjoner, i rekkefølge:
    fortløpende per tastetrykk (stampContent + save; board-DOM oppdateres
    direkte uten full render, full render skjer ved lukking). Tomt felt
    committes ikke og gjenopprettes ved blur.
-2. **Deling** (kun lister, kontomodus, `isMine(obj) || obj._mount` — MERK
-   `isMine`, ikke `_mine`: en nyopprettet liste mangler metadata til første
-   pull men er min): samme innhold som del-modalen. `renderShareOwner`/
-   `renderShareRecipient` tar nå en `body`-container og gjenbrukes av både
-   del-modalen (univers/gruppe) og denne seksjonen. Alle handlinger går via
-   operasjonskøen som før (`docs/accounts.md`).
-3. **Ansvarlig** (delt kontekst, `shareRootFor` — gjelder nå OGSÅ hele
+2. ~~Deling~~ — **FJERNET**. Lister kan aldri deles direkte; tilgangen arves fra
+   gruppen (se `docs/rettigheter-og-deling.md`). Delingsinnstillinger ligger nå
+   kun på universer og grupper, i del-modalen fra nav-modalen. Chipen «delt» i
+   listas meta-rad åpner GRUPPENS delingsinnstillinger.
+3. **Ansvarlig** (vises når GRUPPEN er delt, `shareRootFor` → gruppen — gjelder OGSÅ hele
    listen, `card.responsible`): rad med nåværende ansvarlig (initial-sirkel +
    navn) → åpner ansvarlig-velgeren. Velgeren er generalisert til targets
    (`{ kind: 'card'|'item', obj, card }`); `setResponsible(target, userId)`.
@@ -100,7 +98,7 @@ Doc-radene har `start`/`due` (listepunkt + liste + kategori) og `lockTimes`/
 (`items.is_cat`, `items.cat_id` → self-FK, `items.lock_times`) — se
 `docs/data-model.md`.
 Oppdatert hele veien: `cleanItem`/`cleanCard`, `mergeItem`/`mergeCardScalar`,
-`canonRow` (mount-grenen), `insert-`/`updatePayload`, mock-backend,
+`canonRow` (`_canon`-grenen), `insert-`/`updatePayload`, mock-backend,
 `supabase/users-and-sharing.sql` (idempotente `add column if not exists`,
 LWW-triggere, `get_my_doc`, `import_doc`). Kontomodus mot ekte Supabase
 krever at db-setup-workflowen kjøres — se `TODO.md`.

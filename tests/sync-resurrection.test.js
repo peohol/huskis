@@ -130,7 +130,7 @@ const localHas = (p, id) => p.evaluate((x) => !!window.__huskis.docFromMyState()
 const addCard = (p, cardId, itemIds, title) => p.evaluate(({ cardId, itemIds, title }) => {
   const H = window.__huskis, st = H.state;
   const now = Date.now();
-  const mk = (o) => Object.assign({ ts: now, org: 'test', pos: 0, posTs: now, posOrg: 'test', trashed: false, _mine: true }, o);
+  const mk = (o) => Object.assign({ ts: now, org: 'test', pos: 0, posTs: now, posOrg: 'test', trashed: false, _role: 'owner' }, o);
   const g = st.universes[0].groups[0];
   const c = mk({ id: cardId, group: g.id, title: title, collapsed: false, k: true, p: true, items: [] });
   itemIds.forEach((id, i) => c.items.push(mk({ id, home: cardId, text: 'Punkt ' + (i + 1), done: false, cat: null, isCat: false, pos: i })));

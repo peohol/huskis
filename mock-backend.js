@@ -7,9 +7,11 @@
    simuleres med `storage`-hendelser. Sesjonen er PER FANE
    (sessionStorage), så to faner = to innloggede brukere.
 
-   Fidelitet: nok til å kjøre delingsflyten (invitasjon → aksept →
-   mount), server-side felt-LWW, lås, forlat/utkast, og get_my_doc-
-   synligheten. IKKE en full RLS-implementasjon.
+   Fidelitet: nok til å kjøre hele rolle-/delingsmodellen (invitasjon →
+   aksept → rolle, medeierskap, capabilities, effektivt gruppemedlemskap,
+   låser, forlat/utkast, gruppeflytting med reparenting og kryssdomene-
+   kopiering) + server-side felt-LWW og get_my_doc-synligheten.
+   IKKE en full RLS-implementasjon.
    ============================================================ */
 (function () {
   'use strict';
@@ -36,15 +38,60 @@
   }
 
   function loadDB() {
+    var db = null;
     try {
       var raw = localStorage.getItem(DB_KEY);
-      if (raw) return JSON.parse(raw);
+      if (raw) db = JSON.parse(raw);
     } catch (e) {}
-    return {
-      profiles: [], passwords: {},
-      universes: [], groups: [], cards: [], items: [],
-      memberships: [], share_invites: [], tombstones: [],
+    if (!db) {
+      db = {
+        profiles: [], passwords: {},
+        universes: [], groups: [], cards: [], items: [],
+        memberships: [], share_invites: [], tombstones: [],
+      };
+    }
+    return migrateRoles(db);
+  }
+  // Speiler rolle-backfillen i users-and-sharing.sql: en database fra FØR
+  // rolle-omleggingen har objekter uten roller (og kanskje medlemskap/
+  // invitasjoner på listenivå). Vi utleder rollene av oppretteren én gang og
+  // markerer det, så en senere fjernet rolle aldri kommer tilbake.
+  function migrateRoles(db) {
+    db.memberships = db.memberships || [];
+    db.share_invites = db.share_invites || [];
+    if (db._rolesBackfilled) return db;
+    db._rolesBackfilled = true;
+    var has = function (uid, col, id) {
+      return db.memberships.some(function (m) { return m.user_id === uid && m[col] === id; });
     };
+    (db.universes || []).forEach(function (u) {
+      var row = db.memberships.find(function (m) { return m.user_id === u.owner_id && m.universe_id === u.id; });
+      if (row) row.role = 'owner';
+      else db.memberships.push({ id: newId('mem'), user_id: u.owner_id, universe_id: u.id,
+        group_id: null, role: 'owner', pos: u.pos || 0, created_at: Date.now() });
+    });
+    (db.groups || []).forEach(function (g) {
+      var isUniOwner = db.memberships.some(function (m) {
+        return m.user_id === g.owner_id && m.universe_id === g.universe_id && m.role === 'owner';
+      });
+      if (isUniOwner) return;
+      var row = db.memberships.find(function (m) { return m.user_id === g.owner_id && m.group_id === g.id; });
+      if (row) row.role = 'owner';
+      else db.memberships.push({ id: newId('mem'), user_id: g.owner_id, group_id: g.id,
+        universe_id: null, role: 'owner', pos: g.pos || 0, created_at: Date.now() });
+    });
+    // Eksisterende medlemskap uten rolle er vanlige medlemmer; dedupliser dem
+    // som allerede har arvet tilgang via universet.
+    db.memberships.forEach(function (m) { if (!m.role) m.role = 'member'; });
+    db.memberships = db.memberships.filter(function (m) {
+      if (m.card_id) return false;                 // lister deles ikke lenger
+      if (!m.group_id || m.role !== 'member') return true;
+      var g = (db.groups || []).find(function (x) { return x.id === m.group_id; });
+      return !(g && has(m.user_id, 'universe_id', g.universe_id));
+    });
+    db.share_invites = db.share_invites.filter(function (s) { return !s.card_id; });
+    db.share_invites.forEach(function (s) { if (!s.role) s.role = 'member'; });
+    return db;
   }
   function saveDB(db) {
     localStorage.setItem(DB_KEY, JSON.stringify(db));
@@ -59,6 +106,14 @@
   }
   function uidFor(email) { return 'u-' + hash('user:' + String(email).toLowerCase()); }
   function newId(pfx) { return (pfx || 'id') + '-' + Math.random().toString(36).slice(2, 10) + Math.random().toString(36).slice(2, 6); }
+  // Objekt-id-er må være ekte UUID-er (som i Postgres) — brukes av move_group.
+  function newUuid() {
+    if (window.crypto && window.crypto.randomUUID) return window.crypto.randomUUID();
+    return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function (ch) {
+      var r = (Math.random() * 16) | 0;
+      return (ch === 'x' ? r : ((r & 0x3) | 0x8)).toString(16);
+    });
+  }
   function legacyId(uid, old) { return 'imp-' + hash(uid + ':' + old); }
 
   function regNewer(aTs, aOrg, bTs, bOrg) {
@@ -77,90 +132,86 @@
     else sessionStorage.removeItem(SESS_KEY);
   }
 
-  /* ---------------- Tilgangshjelpere (get_my_doc) ---------------- */
-  function membershipFor(db, uid, type, id) {
-    return db.memberships.find(function (m) {
-      return m.user_id === uid &&
-        ((type === 'universe' && m.universe_id === id) ||
-         (type === 'group' && m.group_id === id) ||
-         (type === 'card' && m.card_id === id));
-    }) || null;
-  }
-  function canReadUniverse(db, id, uid) {
-    var u = db.universes.find(function (x) { return x.id === id; });
-    if (!u) return false;
-    return u.owner_id === uid || !!membershipFor(db, uid, 'universe', id);
-  }
-  function canReadGroup(db, id, uid) {
-    var g = db.groups.find(function (x) { return x.id === id; });
-    if (!g) return false;
-    return g.owner_id === uid || !!membershipFor(db, uid, 'group', id) || canReadUniverse(db, g.universe_id, uid);
-  }
-  function canReadCard(db, id, uid) {
-    var c = db.cards.find(function (x) { return x.id === id; });
-    if (!c) return false;
-    return c.owner_id === uid || !!membershipFor(db, uid, 'card', id) || canReadGroup(db, c.group_id, uid);
-  }
-  function lockedAncestor(db, obj, type, uid) {
-    // Redigering blokkeres hvis nærmeste nivå (objektet selv eller en forelder)
-    // med eksplisitt lås-tilstand satt av en ANNEN er låst. Et unntak (unlocked)
-    // åpner grenen igjen. Nærmeste-først: objektet, så oppover.
-    var chain = [];
-    if (type === 'universe') { chain = [obj]; }
-    else if (type === 'group') {
-      chain = [obj, db.universes.find(function (x) { return x.id === obj.universe_id; })];
-    } else { // card
-      var g = db.groups.find(function (x) { return x.id === obj.group_id; });
-      var u = g && db.universes.find(function (x) { return x.id === g.universe_id; });
-      chain = [obj, g, u];
-    }
-    for (var i = 0; i < chain.length; i++) {
-      var n = chain[i];
-      if (!n || n.owner_id === uid) continue; // egne låser/unntak blokkerer ikke meg selv
-      if (n.unlocked) return false;
-      if (n.locked) return true;
-    }
-    return false;
-  }
-  function ownerOf(db, type, id) {
-    var t = type === 'universe' ? db.universes : type === 'group' ? db.groups : db.cards;
-    var r = t.find(function (x) { return x.id === id; });
-    return r ? r.owner_id : null;
-  }
-  function emailOf(db, uid) {
-    var p = db.profiles.find(function (x) { return x.id === uid; });
-    return p ? p.email : null;
-  }
-  function nameOf(db, uid) {
-    var p = db.profiles.find(function (x) { return x.id === uid; });
-    return p ? (p.display_name || null) : null;
-  }
-
-  /* ---- Hierarkisk rettighetsmodell (speiler users-and-sharing.sql) ---- */
+  /* ---------------- Rolle- og tilgangsmodell (speiler users-and-sharing.sql) ----------------
+     Deling finnes KUN på universer og grupper. Myndighet kommer fra MUTABLE
+     ROLLER i `memberships` (role 'owner' | 'member'); `owner_id` på objektradene
+     er ren oppretter-historikk uten rettigheter. Universeiere er dynamiske
+     supereiere av alle grupper i universet. */
   function findU(db, id) { return db.universes.find(function (x) { return x.id === id; }) || null; }
   function findG(db, id) { return db.groups.find(function (x) { return x.id === id; }) || null; }
   function findC(db, id) { return db.cards.find(function (x) { return x.id === id; }) || null; }
   function findI(db, id) { return db.items.find(function (x) { return x.id === id; }) || null; }
 
-  // Universets eier (owner_id på rot-universet) for et objekt av enhver type.
-  function universeOwnerOf(db, type, id) {
-    var u = null, g, c, i;
-    if (type === 'universe') u = findU(db, id);
-    else if (type === 'group') { g = findG(db, id); u = g && findU(db, g.universe_id); }
-    else if (type === 'card') { c = findC(db, id); g = c && findG(db, c.group_id); u = g && findU(db, g.universe_id); }
-    else if (type === 'item') { i = findI(db, id); c = i && findC(db, i.card_id); g = c && findG(db, c.group_id); u = g && findU(db, g.universe_id); }
-    return u ? u.owner_id : null;
+  function uniMembership(db, uid, id) {
+    return db.memberships.find(function (m) { return m.user_id === uid && m.universe_id === id; }) || null;
   }
-  // Privilegert administrator: eier objektet ELLER et hvilket som helst superobjekt.
-  function canAdminResource(db, type, id, uid) {
-    var u, g, c, i;
-    if (type === 'universe') { u = findU(db, id); return !!u && u.owner_id === uid; }
-    if (type === 'group') { g = findG(db, id); if (!g) return false; u = findU(db, g.universe_id); return g.owner_id === uid || !!(u && u.owner_id === uid); }
-    if (type === 'card') { c = findC(db, id); if (!c) return false; g = findG(db, c.group_id); u = g && findU(db, g.universe_id); return c.owner_id === uid || !!(g && g.owner_id === uid) || !!(u && u.owner_id === uid); }
-    if (type === 'item') { i = findI(db, id); if (!i) return false; c = findC(db, i.card_id); g = c && findG(db, c.group_id); u = g && findU(db, g.universe_id); return i.owner_id === uid || !!(c && c.owner_id === uid) || !!(g && g.owner_id === uid) || !!(u && u.owner_id === uid); }
+  function grpMembership(db, uid, id) {
+    return db.memberships.find(function (m) { return m.user_id === uid && m.group_id === id; }) || null;
+  }
+  function universeRole(db, id, uid) { var m = uniMembership(db, uid, id); return m ? m.role : null; }
+  function groupRole(db, id, uid) { var m = grpMembership(db, uid, id); return m ? m.role : null; }
+  function groupUniverse(db, id) { var g = findG(db, id); return g ? g.universe_id : null; }
+  function isUniverseOwner(db, id, uid) { return universeRole(db, id, uid) === 'owner'; }
+  function isUniverseMember(db, id, uid) { return universeRole(db, id, uid) !== null; }
+  function isGroupOwner(db, id, uid) {
+    return groupRole(db, id, uid) === 'owner' || isUniverseOwner(db, groupUniverse(db, id), uid);
+  }
+  function isGroupMember(db, id, uid) {
+    return groupRole(db, id, uid) !== null || isUniverseMember(db, groupUniverse(db, id), uid);
+  }
+  function universeOwnerCount(db, id) {
+    return db.memberships.filter(function (m) { return m.universe_id === id && m.role === 'owner'; }).length;
+  }
+  function universeOwnerSet(db, id) {
+    return db.memberships.filter(function (m) { return m.universe_id === id && m.role === 'owner'; })
+      .map(function (m) { return m.user_id; }).sort().join(',');
+  }
+  function universeMemberCount(db, id) {
+    return db.memberships.filter(function (m) { return m.universe_id === id; }).length;
+  }
+  function groupMemberCount(db, id) {
+    var seen = {};
+    db.memberships.forEach(function (m) {
+      if (m.universe_id && m.universe_id === groupUniverse(db, id)) seen[m.user_id] = 1;
+      if (m.group_id === id) seen[m.user_id] = 1;
+    });
+    return Object.keys(seen).length;
+  }
+
+  // Universet leses KUN av universmedlemmer — en direkte gruppemottaker skal
+  // aldri se universets navn eller medlemsliste.
+  function canReadUniverse(db, id, uid) { return isUniverseMember(db, id, uid); }
+  function canReadGroup(db, id, uid) { return !!findG(db, id) && isGroupMember(db, id, uid); }
+  function canReadCard(db, id, uid) {
+    var c = findC(db, id);
+    return !!c && canReadGroup(db, c.group_id, uid);
+  }
+  function canReadAny(db, type, id, uid) {
+    if (type === 'universe') return canReadUniverse(db, id, uid);
+    if (type === 'group') return canReadGroup(db, id, uid);
+    if (type === 'card') return canReadCard(db, id, uid);
+    if (type === 'item') { var i = findI(db, id); return !!i && canReadCard(db, i.card_id, uid); }
     return false;
   }
-  // Ordnet kjede nærmeste-først [liste?, gruppe?, univers?] (item → sin listes kjede).
+  function resourceGroup(db, type, id) {
+    if (type === 'group') return id;
+    if (type === 'card') { var c = findC(db, id); return c ? c.group_id : null; }
+    if (type === 'item') { var i = findI(db, id); var c2 = i && findC(db, i.card_id); return c2 ? c2.group_id : null; }
+    return null;
+  }
+  function resourceUniverse(db, type, id) {
+    if (type === 'universe') return id;
+    return groupUniverse(db, resourceGroup(db, type, id));
+  }
+  // PRIVILEGERT = eier på nivået som styrer objektet. Privilegerte påvirkes
+  // aldri av en lås for egen redigering.
+  function isPrivileged(db, type, id, uid) {
+    if (type === 'universe') return isUniverseOwner(db, id, uid);
+    var g = resourceGroup(db, type, id);
+    return !!g && isGroupOwner(db, g, uid);
+  }
+
+  // Ordnet kjede nærmeste-først [liste?, gruppe?, univers?].
   function lockChain(db, type, id) {
     var vCard = null, vGroup = null, vUniverse = null, r, chain = [];
     if (type === 'item') { r = findI(db, id); vCard = r ? r.card_id : null; }
@@ -178,7 +229,7 @@
     var chain = lockChain(db, type, id);
     for (var k = 0; k < chain.length; k++) {
       var n = chain[k].row;
-      if (n.locked || n.unlocked) return { type: chain[k].type, id: n.id, isLocked: !!n.locked, creator: n.owner_id };
+      if (n.locked || n.unlocked) return { type: chain[k].type, id: n.id, isLocked: !!n.locked };
     }
     return null;
   }
@@ -191,139 +242,247 @@
     else return null;
     return pid ? effectiveLockSource(db, pt, pid) : null;
   }
+  // Unntak fra en ARVET lås: universeiere alltid; er låsen satt på en GRUPPE,
+  // også en EKSPLISITT gruppeeier der. Uten arvet lås er «unntak» bare en
+  // overflødig flaggverdi som objektets lås-eier kan rydde bort.
   function canManageLockException(db, type, id, uid) {
-    if (universeOwnerOf(db, type, id) === uid) return true;
+    if (isUniverseOwner(db, resourceUniverse(db, type, id), uid)) return true;
     var s = inheritedLockSource(db, type, id);
-    return !!(s && s.isLocked && s.creator === uid);
-  }
-  function canReadAny(db, type, id, uid) {
-    if (type === 'universe') return canReadUniverse(db, id, uid);
-    if (type === 'group') return canReadGroup(db, id, uid);
-    if (type === 'card') return canReadCard(db, id, uid);
-    if (type === 'item') { var i = findI(db, id); return !!i && canReadCard(db, i.card_id, uid); }
+    if (s && s.isLocked && s.type === 'group') return groupRole(db, s.id, uid) === 'owner';
+    if (!(s && s.isLocked)) return isPrivileged(db, type, id, uid);
     return false;
   }
-  function canEditContent(db, type, id, uid) {
-    return canReadAny(db, type, id, uid) && (canAdminResource(db, type, id, uid) || !isEffectivelyLocked(db, type, id));
+
+  // Invitasjonspolicy (tretilstand med dynamisk arv) — kun univers og gruppe.
+  function effectiveInviteSource(db, type, id) {
+    var chain = [], r;
+    if (type === 'group') {
+      r = findG(db, id); if (r) chain.push({ type: 'group', row: r });
+      var u = r && findU(db, r.universe_id); if (u) chain.push({ type: 'universe', row: u });
+    } else if (type === 'universe') {
+      r = findU(db, id); if (r) chain.push({ type: 'universe', row: r });
+    }
+    for (var k = 0; k < chain.length; k++) {
+      var pol = chain[k].row.invite_policy;
+      if (pol === 'allow' || pol === 'deny') return { type: chain[k].type, id: chain[k].row.id, pol: pol };
+    }
+    return null;
   }
-  // Posisjon styres av superobjektets innhold (skilt fra objektets innholdslås).
+  function effectiveInvitePolicy(db, type, id) {
+    var s = effectiveInviteSource(db, type, id); return s ? s.pol === 'allow' : true;
+  }
+  function inheritedInviteSource(db, type, id) {
+    if (type !== 'group') return null;
+    var g = findG(db, id);
+    return g ? effectiveInviteSource(db, 'universe', g.universe_id) : null;
+  }
+
+  /* ---- Capabilities ---- */
+  function canEditContent(db, type, id, uid) {
+    return canReadAny(db, type, id, uid) &&
+      (isPrivileged(db, type, id, uid) || !isEffectivelyLocked(db, type, id));
+  }
+  function canCreateChild(db, type, id, uid) { return canEditContent(db, type, id, uid); }
+  // Posisjonen tilhører FORELDERENS organisering. Universets toppnivåposisjon
+  // er PERSONLIG (memberships.pos) og krever bare medlemskap.
   function canReorderInParent(db, type, id, uid) {
     var r;
-    if (type === 'universe') { r = findU(db, id); return !!r && r.owner_id === uid; }
+    if (type === 'universe') return isUniverseMember(db, id, uid);
     if (type === 'group') { r = findG(db, id); return !!r && canEditContent(db, 'universe', r.universe_id, uid); }
     if (type === 'card') { r = findC(db, id); return !!r && canEditContent(db, 'group', r.group_id, uid); }
     if (type === 'item') { r = findI(db, id); return !!r && canEditContent(db, 'card', r.card_id, uid); }
     return false;
   }
-  // Invitasjonspolicy (tretilstand med dynamisk arv).
-  function inviteChain(db, type, id) {
-    var vCard = null, vGroup = null, vUniverse = null, r, chain = [];
-    if (type === 'card') vCard = id; else if (type === 'group') vGroup = id;
-    else if (type === 'universe') vUniverse = id; else return [];
-    if (vCard) { r = findC(db, vCard); vGroup = r ? r.group_id : null; }
-    if (vGroup) { r = findG(db, vGroup); vUniverse = r ? r.universe_id : null; }
-    if (vCard) { r = findC(db, vCard); if (r) chain.push({ row: r }); }
-    if (vGroup) { r = findG(db, vGroup); if (r) chain.push({ row: r }); }
-    if (vUniverse) { r = findU(db, vUniverse); if (r) chain.push({ row: r }); }
-    return chain;
-  }
-  function effectiveInviteSource(db, type, id) {
-    var chain = inviteChain(db, type, id);
-    for (var k = 0; k < chain.length; k++) {
-      var pol = chain[k].row.invite_policy;
-      if (pol === 'allow' || pol === 'deny') return { pol: pol, creator: chain[k].row.owner_id };
+  function canDeleteObject(db, type, id, uid) {
+    if (type === 'universe') return isUniverseOwner(db, id, uid);
+    if (type === 'group') {
+      return isGroupOwner(db, id, uid) ||
+        (isUniverseMember(db, groupUniverse(db, id), uid) && !isEffectivelyLocked(db, 'group', id));
     }
-    return null;
+    return isPrivileged(db, type, id, uid) ||
+      (canReadAny(db, type, id, uid) && !isEffectivelyLocked(db, type, id));
   }
-  function effectiveInvitePolicy(db, type, id) { var s = effectiveInviteSource(db, type, id); return s ? s.pol === 'allow' : true; }
-  function inheritedInviteSource(db, type, id) {
-    var pt = null, pid = null, r;
-    if (type === 'card') { pt = 'group'; r = findC(db, id); pid = r ? r.group_id : null; }
-    else if (type === 'group') { pt = 'universe'; r = findG(db, id); pid = r ? r.universe_id : null; }
-    else return null;
-    return pid ? effectiveInviteSource(db, pt, pid) : null;
+  function canLeave(db, type, id, uid) {
+    if (type === 'universe') {
+      var r = universeRole(db, id, uid);
+      return r !== null && (r !== 'owner' || universeOwnerCount(db, id) > 1);
+    }
+    if (type === 'group') return groupRole(db, id, uid) !== null;
+    return false;
+  }
+  function canManageMembers(db, type, id, uid) {
+    if (type === 'universe') return isUniverseOwner(db, id, uid);
+    if (type === 'group') return isGroupOwner(db, id, uid);
+    return false;
   }
   function canInviteTo(db, type, id, uid) {
-    return canAdminResource(db, type, id, uid) || (canReadAny(db, type, id, uid) && effectiveInvitePolicy(db, type, id));
+    return canManageMembers(db, type, id, uid) ||
+      (canReadAny(db, type, id, uid) && (type === 'universe' || type === 'group') &&
+       effectiveInvitePolicy(db, type, id));
   }
+  function canInviteOwner(db, type, id, uid) { return canManageMembers(db, type, id, uid); }
+  function canManageLock(db, type, id, uid) { return isPrivileged(db, type, id, uid); }
   function canManageInvitePolicy(db, type, id, uid) {
     var s = inheritedInviteSource(db, type, id);
-    if (s && s.pol === 'deny') return universeOwnerOf(db, type, id) === uid || s.creator === uid;
-    return canAdminResource(db, type, id, uid);
+    if (s && s.pol === 'deny') return isUniverseOwner(db, resourceUniverse(db, type, id), uid);
+    return canManageMembers(db, type, id, uid);
+  }
+  function canMoveGroup(db, id, uid) { return canDeleteObject(db, 'group', id, uid); }
+
+  function universeCaps(db, id, uid) {
+    return {
+      read: canReadUniverse(db, id, uid),
+      editContent: canEditContent(db, 'universe', id, uid),
+      createGroup: canCreateChild(db, 'universe', id, uid),
+      reorderGroups: canEditContent(db, 'universe', id, uid),
+      manageSettings: canManageMembers(db, 'universe', id, uid),
+      delete: canDeleteObject(db, 'universe', id, uid),
+      leave: canLeave(db, 'universe', id, uid),
+      invite: canInviteTo(db, 'universe', id, uid),
+      inviteOwner: canInviteOwner(db, 'universe', id, uid),
+      manageMembers: canManageMembers(db, 'universe', id, uid),
+      manageOwners: canManageMembers(db, 'universe', id, uid),
+      manageLock: canManageLock(db, 'universe', id, uid),
+      lockException: canManageLockException(db, 'universe', id, uid),
+      managePolicy: canManageInvitePolicy(db, 'universe', id, uid),
+      locked: isEffectivelyLocked(db, 'universe', id),
+    };
+  }
+  function groupCaps(db, id, uid) {
+    return {
+      read: canReadGroup(db, id, uid),
+      editContent: canEditContent(db, 'group', id, uid),
+      createList: canCreateChild(db, 'group', id, uid),
+      reorderInParent: canReorderInParent(db, 'group', id, uid),
+      manageSettings: canManageMembers(db, 'group', id, uid),
+      delete: canDeleteObject(db, 'group', id, uid),
+      move: canMoveGroup(db, id, uid),
+      leave: canLeave(db, 'group', id, uid),
+      invite: canInviteTo(db, 'group', id, uid),
+      inviteOwner: canInviteOwner(db, 'group', id, uid),
+      manageMembers: canManageMembers(db, 'group', id, uid),
+      manageOwners: canManageMembers(db, 'group', id, uid),
+      manageLock: canManageLock(db, 'group', id, uid),
+      lockException: canManageLockException(db, 'group', id, uid),
+      managePolicy: canManageInvitePolicy(db, 'group', id, uid),
+      locked: isEffectivelyLocked(db, 'group', id),
+    };
+  }
+
+  function emailOf(db, uid) {
+    var p = db.profiles.find(function (x) { return x.id === uid; });
+    return p ? p.email : null;
+  }
+  function nameOf(db, uid) {
+    var p = db.profiles.find(function (x) { return x.id === uid; });
+    return p ? (p.display_name || null) : null;
+  }
+
+  /* ---- Opprydding ved forlat/utkast (purge_*_access i SQL) ---- */
+  function purgeUniverseAccess(db, uniId, userId) {
+    var groupIds = db.groups.filter(function (g) { return g.universe_id === uniId; })
+      .map(function (g) { return g.id; });
+    db.memberships = db.memberships.filter(function (m) {
+      if (m.user_id !== userId) return true;
+      if (m.universe_id === uniId) return false;
+      return groupIds.indexOf(m.group_id) === -1;
+    });
+    var em = emailOf(db, userId);
+    db.share_invites.forEach(function (s) {
+      if (s.status !== 'pending') return;
+      var mine = s.invitee_id === userId || (em && String(s.invitee_email).toLowerCase() === em);
+      if (!mine) return;
+      if (s.universe_id === uniId || groupIds.indexOf(s.group_id) > -1) s.status = 'revoked';
+    });
+    var cardIds = db.cards.filter(function (c) { return groupIds.indexOf(c.group_id) > -1; })
+      .map(function (c) { return c.id; });
+    db.cards.forEach(function (c) {
+      if (c.responsible === userId && groupIds.indexOf(c.group_id) > -1) { c.responsible = null; c.ts = Date.now(); c.org = 'server'; }
+    });
+    db.items.forEach(function (i) {
+      if (i.responsible === userId && cardIds.indexOf(i.card_id) > -1) { i.responsible = null; i.ts = Date.now(); i.org = 'server'; }
+    });
+  }
+  function purgeGroupAccess(db, gid, userId) {
+    db.memberships = db.memberships.filter(function (m) {
+      return !(m.user_id === userId && m.group_id === gid);
+    });
+    var em = emailOf(db, userId);
+    db.share_invites.forEach(function (s) {
+      if (s.status === 'pending' && s.group_id === gid &&
+          (s.invitee_id === userId || (em && String(s.invitee_email).toLowerCase() === em))) s.status = 'revoked';
+    });
+    if (isGroupMember(db, gid, userId)) return;
+    var cardIds = db.cards.filter(function (c) { return c.group_id === gid; }).map(function (c) { return c.id; });
+    db.cards.forEach(function (c) {
+      if (c.responsible === userId && c.group_id === gid) { c.responsible = null; c.ts = Date.now(); c.org = 'server'; }
+    });
+    db.items.forEach(function (i) {
+      if (i.responsible === userId && cardIds.indexOf(i.card_id) > -1) { i.responsible = null; i.ts = Date.now(); i.org = 'server'; }
+    });
   }
 
   function getMyDoc(db, uid) {
-    var myUni = db.universes.filter(function (u) {
-      return u.owner_id === uid || membershipFor(db, uid, 'universe', u.id);
-    });
+    var myUni = db.universes.filter(function (u) { return isUniverseMember(db, u.id, uid); });
     var myUniIds = {}; myUni.forEach(function (u) { myUniIds[u.id] = 1; });
     var myGroups = db.groups.filter(function (g) {
-      return g.owner_id === uid || membershipFor(db, uid, 'group', g.id) || myUniIds[g.universe_id];
+      return myUniIds[g.universe_id] || grpMembership(db, uid, g.id);
     });
     var myGroupIds = {}; myGroups.forEach(function (g) { myGroupIds[g.id] = 1; });
-    var myCards = db.cards.filter(function (c) {
-      return c.owner_id === uid || membershipFor(db, uid, 'card', c.id) || myGroupIds[c.group_id];
-    });
+    var myCards = db.cards.filter(function (c) { return myGroupIds[c.group_id]; });
     var myCardIds = {}; myCards.forEach(function (c) { myCardIds[c.id] = 1; });
     var myItems = db.items.filter(function (i) { return myCardIds[i.card_id]; });
-
-    function mountObj(m, withParent) {
-      if (!m) return null;
-      var o = { pos: m.pos, trashed: !!m.trashed };
-      // Gruppe-mount forelder = parent_universe_id; liste-mount = parent_group_id.
-      if (withParent) o.parent = m.group_id ? m.parent_universe_id : m.parent_group_id;
-      return o;
-    }
-    var sharedU = {}, sharedG = {}, sharedC = {};
-    db.memberships.forEach(function (m) {
-      if (m.universe_id) sharedU[m.universe_id] = 1;
-      if (m.group_id) sharedG[m.group_id] = 1;
-      if (m.card_id) sharedC[m.card_id] = 1;
-    });
 
     var email = emailOf(db, uid);
     var selfProf = db.profiles.find(function (x) { return x.id === uid; }) || {};
     return {
       user: { id: uid, email: email, display_name: selfProf.display_name || (email || '').split('@')[0] },
       universes: myUni.map(function (u) {
-        var m = membershipFor(db, uid, 'universe', u.id);
+        var m = uniMembership(db, uid, u.id);
         return {
-          id: u.id, owner: u.owner_id, mine: u.owner_id === uid, name: u.name,
-          collapsed: !!u.collapsed,
+          id: u.id, creator: u.owner_id, createdByMe: u.owner_id === uid,
+          role: m ? m.role : null, personalPos: m ? m.pos : 0,
+          name: u.name, collapsed: !!u.collapsed,
           trashed: !!u.trashed, locked: !!u.locked, unlocked: !!u.unlocked,
           invitePolicy: u.invite_policy || 'inherit', ts: u.ts, org: u.org,
           pos: u.pos, posTs: u.pos_ts, posOrg: u.pos_org,
-          shared: !!sharedU[u.id], mount: mountObj(m, false),
+          ownerCount: universeOwnerCount(db, u.id),
+          ownerKey: universeOwnerSet(db, u.id),
+          memberCount: universeMemberCount(db, u.id),
+          shared: universeMemberCount(db, u.id) > 1,
+          caps: universeCaps(db, u.id, uid),
         };
       }),
       groups: myGroups.map(function (g) {
-        var m = membershipFor(db, uid, 'group', g.id);
+        var m = grpMembership(db, uid, g.id);
         return {
-          id: g.id, owner: g.owner_id, mine: g.owner_id === uid, uni: g.universe_id, name: g.name,
-          cat: g.cat_id || null, isCat: !!g.is_cat, collapsed: !!g.collapsed,
+          id: g.id, creator: g.owner_id, createdByMe: g.owner_id === uid,
+          uni: g.universe_id, free: !myUniIds[g.universe_id],
+          role: m ? m.role : null, personalPos: m ? m.pos : 0,
+          name: g.name, cat: g.cat_id || null, isCat: !!g.is_cat, collapsed: !!g.collapsed,
           trashed: !!g.trashed, locked: !!g.locked, unlocked: !!g.unlocked,
           invitePolicy: g.invite_policy || 'inherit', ts: g.ts, org: g.org,
           pos: g.pos, posTs: g.pos_ts, posOrg: g.pos_org,
-          shared: !!sharedG[g.id], mount: mountObj(m, true),
+          memberCount: groupMemberCount(db, g.id),
+          shared: groupMemberCount(db, g.id) > 1,
+          caps: groupCaps(db, g.id, uid),
         };
       }),
       cards: myCards.map(function (c) {
-        var m = membershipFor(db, uid, 'card', c.id);
         return {
-          id: c.id, owner: c.owner_id, mine: c.owner_id === uid, group: c.group_id, title: c.title,
+          id: c.id, creator: c.owner_id, createdByMe: c.owner_id === uid, group: c.group_id, title: c.title,
           trashed: !!c.trashed, locked: !!c.locked, unlocked: !!c.unlocked,
-          invitePolicy: c.invite_policy || 'inherit', k: c.k !== false, p: c.p !== false,
+          k: c.k !== false, p: c.p !== false,
           responsible: c.responsible || null,
           start: c.start_at || null, due: c.due_at || null, lockTimes: !!c.lock_times,
           collapsed: !!c.collapsed,
           labTs: c.lab_ts, labOrg: c.lab_org, ts: c.ts, org: c.org,
           pos: c.pos, posTs: c.pos_ts, posOrg: c.pos_org,
-          shared: !!sharedC[c.id], mount: mountObj(m, true),
         };
       }),
       items: myItems.map(function (i) {
         return {
-          id: i.id, owner: i.owner_id, mine: i.owner_id === uid, home: i.card_id, text: i.text,
+          id: i.id, creator: i.owner_id, createdByMe: i.owner_id === uid, home: i.card_id, text: i.text,
           cat: i.cat_id || null, isCat: !!i.is_cat, lockTimes: !!i.lock_times, collapsed: !!i.collapsed,
           trashed: !!i.trashed, done: !!i.done, responsible: i.responsible || null,
           start: i.start_at || null, due: i.due_at || null,
@@ -331,22 +490,85 @@
         };
       }),
       invites_in: db.share_invites.filter(function (s) {
-        return s.status === 'pending' && (s.invitee_id === uid ||
+        return s.status === 'pending' && (s.universe_id || s.group_id) && (s.invitee_id === uid ||
           (email && String(s.invitee_email).toLowerCase() === email.toLowerCase()));
       }).map(function (s) {
-        var type = s.universe_id ? 'universe' : s.group_id ? 'group' : 'card';
-        var name = s.universe_id ? (db.universes.find(function (x) { return x.id === s.universe_id; }) || {}).name :
-                   s.group_id ? (db.groups.find(function (x) { return x.id === s.group_id; }) || {}).name :
-                   (db.cards.find(function (x) { return x.id === s.card_id; }) || {}).title;
-        return { id: s.id, type: type, name: name, from: emailOf(db, s.inviter_id),
-                 from_name: nameOf(db, s.inviter_id), created_at: s.created_at };
+        var type = s.universe_id ? 'universe' : 'group';
+        var name = s.universe_id ? (findU(db, s.universe_id) || {}).name : (findG(db, s.group_id) || {}).name;
+        return { id: s.id, type: type, role: s.role || 'member', name: name,
+                 from: emailOf(db, s.inviter_id), from_name: nameOf(db, s.inviter_id),
+                 created_at: s.created_at };
       }),
       invites_out: db.share_invites.filter(function (s) {
-        return s.status === 'pending' && s.inviter_id === uid;
+        return s.status === 'pending' && s.inviter_id === uid && (s.universe_id || s.group_id);
       }).map(function (s) {
-        var type = s.universe_id ? 'universe' : s.group_id ? 'group' : 'card';
-        return { id: s.id, type: type, target_id: s.universe_id || s.group_id || s.card_id,
+        return { id: s.id, type: s.universe_id ? 'universe' : 'group', role: s.role || 'member',
+                 target_id: s.universe_id || s.group_id,
                  email: s.invitee_email, created_at: s.created_at };
+      }),
+    };
+  }
+
+  // Deduplisert, kategorisert medlemsliste. Presedens:
+  //   1 universeier  2 eksplisitt gruppeeier  3 universmedlem  4 gruppemedlem
+  function getMembers(db, type, id, uid) {
+    if (!canReadAny(db, type, id, uid)) throw new Error('ingen tilgang');
+    var uni = resourceUniverse(db, type, id);
+    var acc = [];
+    db.memberships.forEach(function (m) {
+      if (m.universe_id && m.universe_id === uni) {
+        acc.push({ user_id: m.user_id, prec: m.role === 'owner' ? 1 : 3,
+          category: m.role === 'owner' ? 'universeOwner' : 'universeMember',
+          role: m.role, source: 'universe', direct: type === 'universe' });
+      }
+      if (type === 'group' && m.group_id === id) {
+        acc.push({ user_id: m.user_id, prec: m.role === 'owner' ? 2 : 4,
+          category: m.role === 'owner' ? 'groupOwner' : 'groupMember',
+          role: m.role, source: 'group', direct: true });
+      }
+    });
+    var best = {};
+    acc.forEach(function (a) { if (!best[a.user_id] || a.prec < best[a.user_id].prec) best[a.user_id] = a; });
+    var canManage = canManageMembers(db, type, id, uid);
+    var ownerCount = type === 'universe' ? universeOwnerCount(db, id)
+      : db.memberships.filter(function (m) { return m.group_id === id && m.role === 'owner'; }).length;
+    var members = Object.keys(best).map(function (k) { return best[k]; }).map(function (b) {
+      var pr = db.profiles.find(function (x) { return x.id === b.user_id; }) || {};
+      var lastOwner = type === 'universe' && b.role === 'owner' && ownerCount <= 1;
+      return {
+        id: b.user_id, email: pr.email, display_name: pr.display_name,
+        avatar: pr.avatar || null,
+        category: b.category, role: b.role, source: b.source, direct: b.direct,
+        removable: b.direct && canManage && !lastOwner,
+        removeHint: !b.direct ? 'Har tilgang via universet og må fjernes der'
+          : (lastOwner ? 'Siste eier kan ikke fjernes' : null),
+        demotable: b.direct && b.role === 'owner' && canManage && !lastOwner,
+        prec: b.prec,
+      };
+    }).sort(function (a, b) {
+      if (a.prec !== b.prec) return a.prec - b.prec;
+      return String(a.display_name || a.email || '').toLowerCase()
+        .localeCompare(String(b.display_name || b.email || '').toLowerCase());
+    });
+    var self = type === 'universe' ? findU(db, id) : findG(db, id);
+    return {
+      type: type,
+      ownerCount: ownerCount,
+      memberCount: type === 'universe' ? universeMemberCount(db, id) : groupMemberCount(db, id),
+      viewer: {
+        id: uid,
+        role: type === 'universe' ? universeRole(db, id, uid) : groupRole(db, id, uid),
+        caps: type === 'universe' ? universeCaps(db, id, uid) : groupCaps(db, id, uid),
+      },
+      invitePolicy: (self && self.invite_policy) || 'inherit',
+      inviteEffective: effectiveInvitePolicy(db, type, id),
+      members: members,
+      pendingInvites: db.share_invites.filter(function (s) {
+        return s.status === 'pending' &&
+          ((type === 'universe' && s.universe_id === id) || (type === 'group' && s.group_id === id));
+      }).map(function (s) {
+        return { id: s.id, email: s.invitee_email, role: s.role || 'member', created_at: s.created_at,
+          by: s.inviter_id, by_name: nameOf(db, s.inviter_id), mine: s.inviter_id === uid };
       }),
     };
   }
@@ -396,14 +618,13 @@
   function applyInsert(db, table, uid, payload) {
     var rows = Array.isArray(payload) ? payload : [payload];
     // Objekt-tabellene har uuid-kolonner (som ekte Postgres): avvis ugyldige
-    // id-er slik at klienten faktisk må generere UUID-er (fanger P1-regresjon).
+    // id-er slik at klienten faktisk må generere UUID-er.
     var OBJ = { universes: 1, groups: 1, cards: 1, items: 1 };
     if (OBJ[table]) {
       for (var i = 0; i < rows.length; i++) {
         if (!UUID_RE.test(String(rows[i].id || ''))) {
           throw new Error('invalid input syntax for type uuid: "' + rows[i].id + '"');
         }
-        // Primærnøkkel: samme id kan ikke settes inn to ganger.
         for (var k = 0; k < db[table].length; k++) {
           if (db[table][k].id === rows[i].id) {
             throw new Error('duplicate key value violates unique constraint "' + table + '_pkey"');
@@ -411,22 +632,42 @@
         }
       }
     }
+    // Roller opprettes KUN av SECURITY DEFINER-veiene (aksept av invitasjon +
+    // opprettelses-triggerne) — klienten har ingen INSERT-rett på memberships.
+    if (table === 'memberships') throw new Error('permission denied for table memberships');
     rows.forEach(function (r) {
       var row = clone(r);
-      if (table !== 'memberships') row.owner_id = uid;
-      // Opprettelse av subobjekt krever redigeringstilgang i forelderen (speiler
-      // *_insert-policyene): et vanlig medlem kan ikke opprette i en låst gren.
-      if (table === 'groups' && findU(db, row.universe_id) && !canEditContent(db, 'universe', row.universe_id, uid))
+      row.owner_id = uid;
+      // Opprettelse av subobjekt krever opprettelsesrett i forelderen.
+      if (table === 'groups' && findU(db, row.universe_id) && !canCreateChild(db, 'universe', row.universe_id, uid))
         throw new Error('mangler tilgang til universet');
-      if (table === 'cards' && findG(db, row.group_id) && !canEditContent(db, 'group', row.group_id, uid))
+      if (table === 'cards' && findG(db, row.group_id) && !canCreateChild(db, 'group', row.group_id, uid))
         throw new Error('mangler tilgang til gruppen');
-      if (table === 'items' && findC(db, row.card_id) && !canEditContent(db, 'card', row.card_id, uid))
+      if (table === 'items' && findC(db, row.card_id) && !canCreateChild(db, 'card', row.card_id, uid))
         throw new Error('mangler tilgang til listen');
       // Nye objekter arver invitasjonspolicy dynamisk → lagres som 'inherit'.
-      if (table !== 'memberships' && table !== 'items' && !row.invite_policy) row.invite_policy = 'inherit';
+      if (table === 'universes' || table === 'groups') { if (!row.invite_policy) row.invite_policy = 'inherit'; }
       db[table].push(row);
+      // Opprettelses-triggerne: universoppretteren blir universeier, gruppe-
+      // oppretteren eksplisitt gruppeeier (med mindre rollen alt er arvet).
+      if (table === 'universes') seedRole(db, uid, { universe_id: row.id }, row.pos);
+      if (table === 'groups' && !isUniverseOwner(db, row.universe_id, uid))
+        seedRole(db, uid, { group_id: row.id }, row.pos);
     });
   }
+  function seedRole(db, uid, target, pos) {
+    var dup = db.memberships.find(function (m) {
+      return m.user_id === uid && m.universe_id === (target.universe_id || null) &&
+             m.group_id === (target.group_id || null);
+    });
+    if (dup) return;
+    db.memberships.push({
+      id: newId('mem'), user_id: uid,
+      universe_id: target.universe_id || null, group_id: target.group_id || null,
+      role: 'owner', pos: pos || 0, created_at: Date.now(),
+    });
+  }
+
   function applyUpdate(db, table, uid, patch, filters) {
     var list = db[table];
     list.forEach(function (row) {
@@ -440,36 +681,35 @@
         return;
       }
       if (table === 'memberships') {
+        // Kun egen rad, og kun den PERSONLIGE posisjonen. Roller endres via RPC.
         if (row.user_id !== uid) return;
-        ['pos', 'trashed', 'parent_universe_id', 'parent_group_id'].forEach(function (f) {
-          if (f in patch) row[f] = patch[f];
-        });
+        if ('role' in patch && patch.role !== row.role) throw new Error('roller endres kun via set_member_role()');
+        if ('pos' in patch) row.pos = patch.pos;
         return;
       }
-      // objekt-tabeller: feltnivå-autorisasjon + felt-LWW (speiler *_before_update).
-      var isOwner = row.owner_id === uid;
-      var direct = table === 'universes' ? membershipFor(db, uid, 'universe', row.id)
-                 : table === 'groups' ? membershipFor(db, uid, 'group', row.id)
-                 : table === 'cards' ? membershipFor(db, uid, 'card', row.id) : null;
-      var type = table === 'universes' ? 'universe' : table === 'groups' ? 'group' : table === 'cards' ? 'card' : 'item';
+      var type = table === 'universes' ? 'universe' : table === 'groups' ? 'group'
+               : table === 'cards' ? 'card' : 'item';
       var canContent = canEditContent(db, type, row.id, uid);
       var canReorder = canReorderInParent(db, type, row.id, uid);
-      // Oppretter (owner_id) er uforanderlig.
+      // Oppretter (owner_id) er uforanderlig og gir ingen rettigheter.
       if ('owner_id' in patch && patch.owner_id !== row.owner_id) throw new Error('owner_id (oppretter) kan ikke endres');
-      // Priviligerte kolonner — endres kun av rett autoritet (ellers avvist).
-      if ('locked' in patch && patch.locked !== row.locked && !canAdminResource(db, type, row.id, uid)) throw new Error('mangler myndighet til å låse/åpne');
+      // Priviligerte kolonner — endres kun av rett autoritet.
+      if ('locked' in patch && patch.locked !== row.locked && !canManageLock(db, type, row.id, uid)) throw new Error('mangler myndighet til å låse/åpne');
       if ('unlocked' in patch && patch.unlocked !== row.unlocked && !canManageLockException(db, type, row.id, uid)) throw new Error('mangler myndighet til å endre unntak');
       if ('invite_policy' in patch && patch.invite_policy !== row.invite_policy && !canManageInvitePolicy(db, type, row.id, uid)) throw new Error('mangler myndighet til å endre invitasjonspolicy');
-      // Flytting til ny forelder: rettigheter i BÅDE kilde og mål.
-      var pcol = type === 'group' ? 'universe_id' : type === 'card' ? 'group_id' : type === 'item' ? 'card_id' : null;
-      var ptype = type === 'group' ? 'universe' : type === 'card' ? 'group' : type === 'item' ? 'card' : null;
+      // Sletting til felles søppel krever destruktiv myndighet.
+      if ('trashed' in patch && patch.trashed !== row.trashed && !canDeleteObject(db, type, row.id, uid))
+        throw new Error('mangler myndighet til å slette objektet');
+      // Gruppen bytter univers KUN via move_group().
+      if (type === 'group' && 'universe_id' in patch && patch.universe_id !== row.universe_id)
+        throw new Error('grupper flyttes mellom universer med move_group()');
+      // Flytting av liste/listepunkt til ny forelder: rettigheter i BÅDE kilde og mål.
+      var pcol = type === 'card' ? 'group_id' : type === 'item' ? 'card_id' : null;
+      var ptype = type === 'card' ? 'group' : type === 'item' ? 'card' : null;
       if (pcol && pcol in patch && patch[pcol] !== row[pcol]) {
-        if (!isOwner && direct) throw new Error('delte objekter flyttes via egen plassering (mount)');
         if (!canEditContent(db, ptype, row[pcol], uid)) throw new Error('mangler tilgang til kilde-' + ptype);
-        if (!canEditContent(db, ptype, patch[pcol], uid)) throw new Error('mangler tilgang til mål-' + ptype);
+        if (!canCreateChild(db, ptype, patch[pcol], uid)) throw new Error('mangler tilgang til mål-' + ptype);
       }
-      // trashed-vakt: mottaker med direkte medlemskap kan ikke endre trashed på share-roten
-      var blockTrashed = (!isOwner && direct && (type === 'universe' || type === 'group' || type === 'card'));
       // content-register: kun ved can_edit_content OG nyere register.
       if (canContent && regNewer(patch.ts, patch.org, row.ts, row.org)) {
         if ('name' in patch) row.name = patch.name;
@@ -482,7 +722,7 @@
         if ('lock_times' in patch) row.lock_times = patch.lock_times;
         if ('collapsed' in patch) row.collapsed = patch.collapsed;
         if ('is_cat' in patch) row.is_cat = patch.is_cat;
-        if ('trashed' in patch && !blockTrashed) row.trashed = patch.trashed;
+        if ('trashed' in patch) row.trashed = patch.trashed;
         row.ts = patch.ts; row.org = patch.org;
       }
       // label-register (cards): også innhold → can_edit_content.
@@ -494,7 +734,6 @@
       // pos-register (+ forelder følger posisjon): kun ved can_reorder OG nyere.
       if (canReorder && regNewer(patch.pos_ts, patch.pos_org, row.pos_ts, row.pos_org)) {
         if ('pos' in patch) row.pos = patch.pos;
-        if ('universe_id' in patch) row.universe_id = patch.universe_id;
         if ('group_id' in patch) row.group_id = patch.group_id;
         if ('card_id' in patch) row.card_id = patch.card_id;
         if ('cat_id' in patch) row.cat_id = patch.cat_id;
@@ -514,27 +753,29 @@
   }
   function applyDelete(db, table, uid, filters) {
     var type = table === 'universes' ? 'universe' : table === 'groups' ? 'group' : table === 'cards' ? 'card' : 'item';
+    if (table === 'memberships') {
+      db.memberships = db.memberships.filter(function (row) {
+        if (!matches(row, filters)) return true;
+        var mayManage = row.universe_id ? canManageMembers(db, 'universe', row.universe_id, uid)
+                      : canManageMembers(db, 'group', row.group_id, uid);
+        if (row.user_id !== uid && !mayManage) return true;
+        // Siste-eier-invarianten gjelder også en rå sletting.
+        if (row.universe_id && row.role === 'owner' && universeOwnerCount(db, row.universe_id) <= 1)
+          throw new Error('universet må ha minst én eier');
+        return false;
+      });
+      return;
+    }
     db[table] = db[table].filter(function (row) {
       if (!matches(row, filters)) return true;
-      var isOwner = row.owner_id === uid;
-      // Vakter: universe kun eier; group/card eier ELLER (kan-redigere UTEN direkte medlemskap).
-      var direct = type === 'universe' ? membershipFor(db, uid, 'universe', row.id)
-                 : type === 'group' ? membershipFor(db, uid, 'group', row.id)
-                 : type === 'card' ? membershipFor(db, uid, 'card', row.id) : null;
-      var allowed;
-      if (type === 'universe') allowed = isOwner;                       // kun eier hardsletter
-      else if (type === 'item') allowed = isOwner || canEditContent(db, 'item', row.id, uid);
-      else allowed = isOwner || (!direct && canEditContent(db, type, row.id, uid));  // felles tømming, ikke share-rot
-      if (!allowed) return true; // behold (blokkert)
-      // gravstein + kaskade
+      if (!canDeleteObject(db, type, row.id, uid)) return true; // behold (blokkert)
       writeTombstone(db, type, row.id);
       cascadeDelete(db, type, row.id);
       return false;
     });
   }
   // `on delete cascade` i ekte Postgres sletter barna RAD FOR RAD, så deres egen
-  // AFTER DELETE-trigger fyrer og skriver gravstein for hvert enkelt barn. Uten
-  // det samme her ville et slettet undertre sett gjenopplivbart ut i mocken.
+  // AFTER DELETE-trigger fyrer og skriver gravstein for hvert enkelt barn.
   function cascadeDelete(db, type, id) {
     if (type === 'universe') {
       db.groups.filter(function (g) { return g.universe_id === id; }).forEach(function (g) { cascadeDelete(db, 'group', g.id); });
@@ -555,21 +796,24 @@
       });
     }
     db.memberships = db.memberships.filter(function (m) {
-      return !((type === 'universe' && m.universe_id === id) ||
-               (type === 'group' && m.group_id === id) ||
-               (type === 'card' && m.card_id === id));
+      return !((type === 'universe' && m.universe_id === id) || (type === 'group' && m.group_id === id));
+    });
+    db.share_invites = db.share_invites.filter(function (s) {
+      return !((type === 'universe' && s.universe_id === id) || (type === 'group' && s.group_id === id));
     });
   }
 
   /* ---------------- RPC-er ---------------- */
+  function nextPersonalPos(db, uid) {
+    return db.memberships.filter(function (m) { return m.user_id === uid; })
+      .reduce(function (a, m) { return Math.max(a, m.pos || 0); }, 0) + 1;
+  }
+
   function rpcHandlers(db, uid) {
     return {
       get_my_doc: function () { return getMyDoc(db, uid); },
       import_doc: function (p) {
         var doc = p.p_doc || {};
-        // Som import_doc i SQL: importen er brukerens egen, eksplisitte handling
-        // på id-er utledet av brukerens uid — gravsteiner for nøyaktig DE id-ene
-        // fjernes, ellers ville insert-vakten blokkert hele importen.
         var imported = {};
         ['universes', 'groups', 'cards', 'items'].forEach(function (k) {
           (doc[k] || []).forEach(function (r) { imported[legacyId(uid, r.id)] = 1; });
@@ -581,7 +825,12 @@
             var existing = db[table].find(function (x) { return x.id === id && x.owner_id === uid; });
             var row = mapRow(r, id);
             if (existing) Object.assign(existing, row);
-            else db[table].push(row);
+            else {
+              db[table].push(row);
+              if (table === 'universes') seedRole(db, uid, { universe_id: id }, row.pos);
+              if (table === 'groups' && !isUniverseOwner(db, row.universe_id, uid))
+                seedRole(db, uid, { group_id: id }, row.pos);
+            }
           });
         }
         up(doc.universes, 'universes', function (r, id) {
@@ -596,7 +845,7 @@
         });
         up(doc.cards, 'cards', function (r, id) {
           return { id: id, owner_id: uid, group_id: legacyId(uid, r.group), title: r.title || '', trashed: !!r.trashed,
-            locked: false, invite_policy: 'inherit', k: r.k !== false, p: r.p !== false, lab_ts: r.labTs || 0, lab_org: r.labOrg || '',
+            locked: false, k: r.k !== false, p: r.p !== false, lab_ts: r.labTs || 0, lab_org: r.labOrg || '',
             responsible: r.responsible || null,
             start_at: r.start || null, due_at: r.due || null, lock_times: !!r.lockTimes,
             collapsed: !!r.collapsed,
@@ -615,40 +864,71 @@
                  cards: (doc.cards || []).length, items: (doc.items || []).length };
       },
       create_share_invite: function (p) {
-        if (!canInviteTo(db, p.p_type, p.p_id, uid)) throw new Error('mangler myndighet til å invitere til dette objektet');
+        var role = p.p_role || 'member';
+        if (['universe', 'group'].indexOf(p.p_type) < 0)
+          throw new Error('kun universer og grupper kan deles (fikk: ' + p.p_type + ')');
+        if (['member', 'owner'].indexOf(role) < 0) throw new Error('ugyldig rolle: ' + role);
         var em = String(p.p_email).toLowerCase().trim();
         if (em === '' || em.indexOf('@') < 0) throw new Error('ugyldig e-postadresse');
+        if (role === 'owner') {
+          if (!canInviteOwner(db, p.p_type, p.p_id, uid)) throw new Error('bare eiere kan invitere til eierskap');
+        } else if (!canInviteTo(db, p.p_type, p.p_id, uid)) {
+          throw new Error('mangler myndighet til å invitere til dette objektet');
+        }
         if (em === emailOf(db, uid)) throw new Error('kan ikke dele med deg selv');
         var target = (db.profiles.find(function (x) { return x.email === em; }) || {}).id || null;
-        // Avvis redundant invitasjon: mottakeren har allerede EFFEKTIV tilgang (også arvet).
-        if (target && canReadAny(db, p.p_type, p.p_id, target)) throw new Error('brukeren har allerede tilgang');
+        if (target) {
+          if (role === 'member' && canReadAny(db, p.p_type, p.p_id, target))
+            throw new Error('brukeren har allerede tilgang');
+          if (role === 'owner' &&
+              ((p.p_type === 'universe' && isUniverseOwner(db, p.p_id, target)) ||
+               (p.p_type === 'group' && isGroupOwner(db, p.p_id, target))))
+            throw new Error('brukeren er allerede eier');
+        }
+        var col = p.p_type === 'universe' ? 'universe_id' : 'group_id';
         var dup = db.share_invites.find(function (s) {
-          return s.status === 'pending' && String(s.invitee_email).toLowerCase() === em &&
-            s[p.p_type === 'universe' ? 'universe_id' : p.p_type === 'group' ? 'group_id' : 'card_id'] === p.p_id;
+          return s.status === 'pending' && String(s.invitee_email).toLowerCase() === em && s[col] === p.p_id;
         });
         if (dup) throw new Error('det finnes allerede en ventende invitasjon til ' + em);
         var inv = { id: newId('inv'), inviter_id: uid, invitee_email: em, invitee_id: target,
           universe_id: p.p_type === 'universe' ? p.p_id : null,
           group_id: p.p_type === 'group' ? p.p_id : null,
-          card_id: p.p_type === 'card' ? p.p_id : null,
-          status: 'pending', created_at: Date.now() };
+          role: role, status: 'pending', created_at: Date.now() };
         db.share_invites.push(inv);
         return inv;
       },
       accept_share_invite: function (p) {
         var inv = db.share_invites.find(function (s) { return s.id === p.p_invite; });
         if (!inv || inv.status !== 'pending') throw new Error('invitasjonen er ikke lenger åpen');
-        var m = { id: newId('mem'), user_id: uid, universe_id: inv.universe_id, group_id: inv.group_id,
-          card_id: inv.card_id, parent_universe_id: null, parent_group_id: null, pos: p.p_pos || 0, trashed: false };
-        if (inv.group_id) m.parent_universe_id = p.p_parent;
-        if (inv.card_id) m.parent_group_id = p.p_parent;
-        // dedupe
-        db.memberships = db.memberships.filter(function (x) {
-          return !(x.user_id === uid && x.universe_id === inv.universe_id && x.group_id === inv.group_id && x.card_id === inv.card_id);
-        });
-        db.memberships.push(m);
+        var em = emailOf(db, uid);
+        if (inv.invitee_id && inv.invitee_id !== uid) throw new Error('invitasjonen er ikke til deg');
+        if (!inv.invitee_id && String(inv.invitee_email).toLowerCase() !== String(em).toLowerCase())
+          throw new Error('invitasjonen er ikke til deg');
+        var role = inv.role || 'member';
+        var col = inv.universe_id ? 'universe_id' : 'group_id';
+        var targetId = inv.universe_id || inv.group_id;
+        var existing = db.memberships.find(function (m) { return m.user_id === uid && m[col] === targetId; });
+        var mem;
+        if (existing) {
+          if (role === 'owner') existing.role = 'owner';
+          mem = existing;
+        } else {
+          mem = { id: newId('mem'), user_id: uid, universe_id: inv.universe_id || null,
+            group_id: inv.group_id || null, role: role,
+            pos: p.p_pos != null ? p.p_pos : nextPersonalPos(db, uid), created_at: Date.now() };
+          db.memberships.push(mem);
+        }
+        if (inv.universe_id) {
+          // Universmedlemskapet gjør ordinære DIREKTE gruppemedlemskap i
+          // universet redundante; eksplisitte gruppeeierroller beholdes.
+          var gids = db.groups.filter(function (g) { return g.universe_id === inv.universe_id; })
+            .map(function (g) { return g.id; });
+          db.memberships = db.memberships.filter(function (m) {
+            return !(m.user_id === uid && m.role === 'member' && gids.indexOf(m.group_id) > -1);
+          });
+        }
         inv.status = 'accepted'; inv.invitee_id = uid;
-        return m;
+        return mem;
       },
       decline_share_invite: function (p) {
         var inv = db.share_invites.find(function (s) { return s.id === p.p_invite; });
@@ -658,46 +938,79 @@
       revoke_share_invite: function (p) {
         var inv = db.share_invites.find(function (s) { return s.id === p.p_invite && s.status === 'pending'; });
         if (!inv) throw new Error('fant ingen ventende invitasjon');
-        var it = inv.universe_id ? 'universe' : inv.group_id ? 'group' : 'card';
-        var iid = inv.universe_id || inv.group_id || inv.card_id;
-        // Egen invitasjon ELLER en administrator på objektet.
-        if (inv.inviter_id !== uid && !canAdminResource(db, it, iid, uid))
+        var it = inv.universe_id ? 'universe' : 'group';
+        var iid = inv.universe_id || inv.group_id;
+        if (inv.inviter_id !== uid && !canManageMembers(db, it, iid, uid))
           throw new Error('mangler myndighet til å trekke tilbake denne invitasjonen');
         inv.status = 'revoked';
         return null;
       },
       revoke_share: function (p) {
-        if (!canAdminResource(db, p.p_type, p.p_id, uid)) throw new Error('mangler myndighet til å kaste ut andre');
-        db.memberships = db.memberships.filter(function (m) {
-          return !(m.user_id === p.p_user &&
-            m[p.p_type === 'universe' ? 'universe_id' : p.p_type === 'group' ? 'group_id' : 'card_id'] === p.p_id);
-        });
-        db.share_invites.forEach(function (s) {
-          if (s.status === 'pending' && s[p.p_type === 'universe' ? 'universe_id' : p.p_type === 'group' ? 'group_id' : 'card_id'] === p.p_id &&
-              (s.invitee_id === p.p_user)) s.status = 'revoked';
-        });
+        if (['universe', 'group'].indexOf(p.p_type) < 0) throw new Error('ugyldig type: ' + p.p_type);
+        if (!canManageMembers(db, p.p_type, p.p_id, uid)) throw new Error('mangler myndighet til å fjerne medlemmer');
+        if (p.p_type === 'universe') {
+          if (universeRole(db, p.p_id, p.p_user) === null) throw new Error('brukeren er ikke medlem av universet');
+          if (universeRole(db, p.p_id, p.p_user) === 'owner' && universeOwnerCount(db, p.p_id) <= 1)
+            throw new Error('universet må ha minst én eier');
+          purgeUniverseAccess(db, p.p_id, p.p_user);
+        } else {
+          if (groupRole(db, p.p_id, p.p_user) === null) {
+            if (isGroupMember(db, p.p_id, p.p_user))
+              throw new Error('brukeren har tilgang via universet og må fjernes der');
+            throw new Error('brukeren er ikke medlem av gruppen');
+          }
+          purgeGroupAccess(db, p.p_id, p.p_user);
+        }
+        return null;
+      },
+      set_member_role: function (p) {
+        if (['universe', 'group'].indexOf(p.p_type) < 0) throw new Error('ugyldig type: ' + p.p_type);
+        if (['member', 'owner'].indexOf(p.p_role) < 0) throw new Error('ugyldig rolle: ' + p.p_role);
+        if (!canManageMembers(db, p.p_type, p.p_id, uid)) throw new Error('mangler myndighet til å endre roller');
+        var cur = p.p_type === 'universe' ? universeRole(db, p.p_id, p.p_user) : groupRole(db, p.p_id, p.p_user);
+        if (cur === null) throw new Error('brukeren har ingen rolle her');
+        if (p.p_role === 'owner' && cur !== 'owner')
+          throw new Error('eierskap gis via en eierskapsinvitasjon mottakeren må godta');
+        if (cur === p.p_role) return null;
+        if (p.p_type === 'universe') {
+          if (universeOwnerCount(db, p.p_id) <= 1) throw new Error('universet må ha minst én eier');
+          uniMembership(db, p.p_user, p.p_id).role = p.p_role;
+        } else if (isUniverseMember(db, groupUniverse(db, p.p_id), p.p_user)) {
+          db.memberships = db.memberships.filter(function (m) {
+            return !(m.user_id === p.p_user && m.group_id === p.p_id);
+          });
+        } else {
+          grpMembership(db, p.p_user, p.p_id).role = p.p_role;
+        }
         return null;
       },
       leave_share: function (p) {
-        var before = db.memberships.length;
-        db.memberships = db.memberships.filter(function (m) {
-          return !(m.user_id === uid &&
-            m[p.p_type === 'universe' ? 'universe_id' : p.p_type === 'group' ? 'group_id' : 'card_id'] === p.p_id);
-        });
-        if (db.memberships.length === before) throw new Error('du er ikke medlem av dette objektet');
+        if (['universe', 'group'].indexOf(p.p_type) < 0) throw new Error('ugyldig type: ' + p.p_type);
+        if (p.p_type === 'universe') {
+          if (universeRole(db, p.p_id, uid) === null) throw new Error('du er ikke medlem av dette universet');
+          if (!canLeave(db, 'universe', p.p_id, uid))
+            throw new Error('du er siste eier — gi eierskap til noen andre først');
+          purgeUniverseAccess(db, p.p_id, uid);
+        } else {
+          if (groupRole(db, p.p_id, uid) === null) {
+            if (isGroupMember(db, p.p_id, uid))
+              throw new Error('du har tilgang via universet — forlat universet i stedet');
+            throw new Error('du er ikke medlem av denne gruppen');
+          }
+          purgeGroupAccess(db, p.p_id, uid);
+        }
         return null;
       },
       set_locked: function (p) {
-        if (!canAdminResource(db, p.p_type, p.p_id, uid)) throw new Error('mangler myndighet til å låse/åpne');
+        if (['universe', 'group', 'card'].indexOf(p.p_type) < 0) throw new Error('ugyldig type: ' + p.p_type);
+        if (!canManageLock(db, p.p_type, p.p_id, uid)) throw new Error('mangler myndighet til å låse/åpne');
         var t = p.p_type === 'universe' ? db.universes : p.p_type === 'group' ? db.groups : db.cards;
         var r = t.find(function (x) { return x.id === p.p_id; });
-        // locked og unlocked er gjensidig utelukkende: å låse fjerner et ev. unntak.
         if (r) { r.locked = p.p_locked; if (p.p_locked) r.unlocked = false; }
         return null;
       },
       set_unlocked: function (p) {
-        // Unntak fra en ARVET lås: kun universets eier ELLER oppretteren av det
-        // nærmeste superobjektet som innfører låsen (can_manage_lock_exception).
+        if (['universe', 'group', 'card'].indexOf(p.p_type) < 0) throw new Error('ugyldig type: ' + p.p_type);
         if (!canManageLockException(db, p.p_type, p.p_id, uid)) throw new Error('mangler myndighet til å endre unntak');
         var t = p.p_type === 'universe' ? db.universes : p.p_type === 'group' ? db.groups : db.cards;
         var r = t.find(function (x) { return x.id === p.p_id; });
@@ -705,42 +1018,90 @@
         return null;
       },
       set_invite_policy: function (p) {
+        if (['universe', 'group'].indexOf(p.p_type) < 0) throw new Error('ugyldig type: ' + p.p_type);
         if (['inherit', 'allow', 'deny'].indexOf(p.p_policy) < 0) throw new Error('ugyldig policy');
         if (!canManageInvitePolicy(db, p.p_type, p.p_id, uid)) throw new Error('mangler myndighet til å endre invitasjonspolicy');
-        var t = p.p_type === 'universe' ? db.universes : p.p_type === 'group' ? db.groups : db.cards;
+        var t = p.p_type === 'universe' ? db.universes : db.groups;
         var r = t.find(function (x) { return x.id === p.p_id; });
         if (r) r.invite_policy = p.p_policy;
         return null;
       },
-      get_members: function (p) {
-        if (!canReadAny(db, p.p_type, p.p_id, uid)) throw new Error('ingen tilgang');
-        var ownerId = ownerOf(db, p.p_type, p.p_id);
-        var ownerP = db.profiles.find(function (x) { return x.id === ownerId; });
-        var col = p.p_type === 'universe' ? 'universe_id' : p.p_type === 'group' ? 'group_id' : 'card_id';
-        var self = p.p_type === 'universe' ? findU(db, p.p_id) : p.p_type === 'group' ? findG(db, p.p_id) : findC(db, p.p_id);
-        return {
-          owner: ownerP ? { id: ownerP.id, email: ownerP.email, display_name: ownerP.display_name,
-            avatar: ownerP.avatar || null } : null,
-          viewer: {
-            id: uid,
-            can_admin: canAdminResource(db, p.p_type, p.p_id, uid),
-            can_invite: canInviteTo(db, p.p_type, p.p_id, uid),
-            can_manage_policy: canManageInvitePolicy(db, p.p_type, p.p_id, uid),
-          },
-          invite_policy: (self && self.invite_policy) || 'inherit',
-          invite_effective: effectiveInvitePolicy(db, p.p_type, p.p_id),
-          members: db.memberships.filter(function (m) { return m[col] === p.p_id; }).map(function (m) {
-            var pr = db.profiles.find(function (x) { return x.id === m.user_id; }) || {};
-            return { id: pr.id, email: pr.email, display_name: pr.display_name,
-              avatar: pr.avatar || null, since: m.created_at };
-          }),
-          pending_invites: db.share_invites.filter(function (s) {
-            return s.status === 'pending' && s[col] === p.p_id;
-          }).map(function (s) {
-            return { id: s.id, email: s.invitee_email, created_at: s.created_at,
-              by: s.inviter_id, by_name: nameOf(db, s.inviter_id), mine: s.inviter_id === uid };
-          }),
-        };
+      get_members: function (p) { return getMembers(db, p.p_type, p.p_id, uid); },
+      // Den ENESTE veien en gruppe bytter univers. Samme domene → reparenting;
+      // ulikt domene → kopier-og-slett med nye id-er + gravsteiner.
+      move_group: function (p) {
+        var g = findG(db, p.p_group);
+        if (!g) throw new Error('gruppen finnes ikke');
+        if (g.is_cat) throw new Error('en gruppekategori kan ikke flyttes til et annet univers');
+        if (!findU(db, p.p_universe)) throw new Error('måluniverset finnes ikke');
+        var cat = p.p_cat || null;
+        if (cat) {
+          var cg = findG(db, cat);
+          if (!cg || !cg.is_cat || cg.universe_id !== p.p_universe)
+            throw new Error('ugyldig gruppekategori for måluniverset');
+        }
+        var now = Date.now();
+        var mapping = {};
+        if (g.universe_id === p.p_universe) {
+          if (!canReorderInParent(db, 'group', p.p_group, uid))
+            throw new Error('mangler myndighet til å endre rekkefølgen i universet');
+          g.cat_id = cat; g.pos = p.p_pos || 0; g.pos_ts = now; g.pos_org = 'server';
+          return { mode: 'reorder', group: p.p_group, mapping: mapping };
+        }
+        if (!canMoveGroup(db, p.p_group, uid))
+          throw new Error('mangler myndighet til å flytte gruppen ut av universet');
+        if (!canCreateChild(db, 'universe', p.p_universe, uid))
+          throw new Error('mangler myndighet til å opprette grupper i måluniverset');
+
+        if (universeOwnerSet(db, g.universe_id) === universeOwnerSet(db, p.p_universe)) {
+          g.universe_id = p.p_universe; g.cat_id = cat;
+          g.pos = p.p_pos || 0; g.pos_ts = now; g.pos_org = 'server';
+          db.cards.filter(function (c) { return c.group_id === g.id; }).forEach(function (c) {
+            if (c.responsible && !isGroupMember(db, g.id, c.responsible)) { c.responsible = null; c.ts = now; c.org = 'server'; }
+            db.items.filter(function (i) { return i.card_id === c.id; }).forEach(function (i) {
+              if (i.responsible && !isGroupMember(db, g.id, i.responsible)) { i.responsible = null; i.ts = now; i.org = 'server'; }
+            });
+          });
+          return { mode: 'reparent', group: p.p_group, mapping: mapping };
+        }
+
+        // Kryssdomene: nytt undertre med nye id-er, aktøren som oppretter/eier,
+        // og det gamle treet permanent slettet (gravsteiner) i samme operasjon.
+        var newG = newUuid();
+        mapping[g.id] = newG;
+        db.groups.push({
+          id: newG, owner_id: uid, universe_id: p.p_universe, cat_id: cat, is_cat: false,
+          name: g.name, trashed: !!g.trashed, locked: !!g.locked, unlocked: !!g.unlocked,
+          collapsed: !!g.collapsed, invite_policy: g.invite_policy || 'inherit',
+          ts: now, org: 'server', pos: p.p_pos || 0, pos_ts: now, pos_org: 'server',
+        });
+        if (!isUniverseOwner(db, p.p_universe, uid)) seedRole(db, uid, { group_id: newG }, p.p_pos || 0);
+        var srcCards = db.cards.filter(function (c) { return c.group_id === g.id; });
+        srcCards.forEach(function (c) {
+          var nc = newUuid();
+          mapping[c.id] = nc;
+          db.cards.push(Object.assign({}, c, {
+            id: nc, owner_id: uid, group_id: newG, ts: now, org: 'server',
+            lab_ts: now, lab_org: 'server', pos_ts: now, pos_org: 'server',
+            responsible: c.responsible && isGroupMember(db, newG, c.responsible) ? c.responsible : null,
+          }));
+        });
+        var srcItems = db.items.filter(function (i) { return mapping[i.card_id]; })
+          .slice().sort(function (a, b) { return (b.is_cat ? 1 : 0) - (a.is_cat ? 1 : 0); });
+        srcItems.forEach(function (i) {
+          var ni = newUuid();
+          mapping[i.id] = ni;
+          db.items.push(Object.assign({}, i, {
+            id: ni, owner_id: uid, card_id: mapping[i.card_id],
+            cat_id: i.cat_id ? mapping[i.cat_id] : null,
+            ts: now, org: 'server', pos_ts: now, pos_org: 'server',
+            responsible: i.responsible && isGroupMember(db, newG, i.responsible) ? i.responsible : null,
+          }));
+        });
+        writeTombstone(db, 'group', g.id);
+        cascadeDelete(db, 'group', g.id);
+        db.groups = db.groups.filter(function (x) { return x.id !== g.id; });
+        return { mode: 'copy', group: newG, mapping: mapping };
       },
     };
   }

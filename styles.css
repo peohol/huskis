@@ -2129,6 +2129,17 @@ body.no-auth #account-btn { display: none; }
 .share-policy-label input[type="checkbox"] { flex: none; }
 .share-policy-note { margin: 4px 0 0; font-size: var(--fs-xs); color: var(--ink-soft); font-weight: 500; }
 .share-noinvite { margin: 8px 0 2px; }
+/* Rollevelgeren ved siden av e-postfeltet (medlem vs. medeier). Vises kun for
+   den som faktisk kan invitere til eierskap. */
+.share-role-select { flex: none; width: auto; padding-right: 26px; }
+.share-members { display: flex; flex-direction: column; }
+/* Forklaringen under navnet når en bruker ikke kan fjernes her (arvet fra
+   universet) eller er siste eier. */
+.member-hint { display: block; font-size: var(--fs-xs); color: var(--ink-soft); font-weight: 500; font-style: italic; }
+/* «Forlat» og «Slett for alle» står sammen nederst: begge kan være aktuelle
+   samtidig (en medeier kan både forlate og slette). */
+.share-actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.share-leave .icon { vertical-align: -0.15em; margin-right: 2px; }
 .share-section-title { font-size: var(--fs-xs); font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; color: var(--ink-soft); margin: 2px 0; }
 .member-row {
   display: flex; align-items: center; gap: 10px;
@@ -2163,11 +2174,9 @@ body.no-auth #account-btn { display: none; }
 .share-lock-row.is-inherited { background: #fff7ed; }
 .share-lock-anc-icon { display: inline-flex; vertical-align: -3px; font-size: 15px; color: var(--ink); }
 .share-lock-anc-icon svg { width: 15px; height: 15px; }
-/* Arvet medlem (delt via en forelder): svakere, uten «Kast ut» her. */
-.member-inherited { opacity: 0.85; }
-.member-inherited .member-avatar { background: linear-gradient(135deg, #b0bcc7, #8a97a3); }
-.share-leave { align-self: flex-start; }
-.owner-line { display: flex; align-items: center; gap: 10px; }
+/* Arvet medlem (tilgang via universet): svakere, og uten «Fjern» her. */
+.member-row.is-inherited { opacity: 0.85; }
+.member-row.is-inherited .member-avatar { background: linear-gradient(135deg, #b0bcc7, #8a97a3); }
 
 /* ---------------- Plasserings-modal ---------------- */
 #place-body { display: flex; flex-direction: column; gap: 8px; }
@@ -2461,3 +2470,41 @@ body.no-auth #account-btn { display: none; }
     scroll-behavior: auto !important;
   }
 }
+
+
+/* ---------------- Nav-modalen: de tre seksjonene ----------------
+   «Mine universer», «Universer delt med meg» og «Grupper delt med meg» ligger
+   i SAMME ene board-kolonne som universkortene, som egne rader. DnD-motoren
+   hopper over dem (`boardRows` filtrerer på `.card`), så de kan stå der uten å
+   bli dra-mål. Skillelinjen over hver overskrift (unntatt den første) markerer
+   seksjonsgrensen. */
+.nav-section-head {
+  display: flex; align-items: center; gap: 8px;
+  margin: 0 0 10px;
+  font-size: var(--fs-md); font-weight: 700; color: var(--ink);
+}
+.nav-section-head[data-section="1"],
+.nav-section-head[data-section="2"] {
+  margin-top: 18px; padding-top: 16px;
+  border-top: 1px solid var(--line);
+}
+.nav-section-icons { display: inline-flex; align-items: center; gap: 2px; flex: none; }
+.nav-section-icons .icon { width: 20px; height: 20px; }
+.nav-section-empty {
+  margin: 0 0 10px; padding: 0 2px;
+  font-size: var(--fs-sm); font-weight: 500; color: var(--ink-soft);
+}
+.nav-add-uni { display: flex; justify-content: center; margin: 4px 0 2px; }
+/* «Grupper delt med meg» er en VIRTUELL beholder — den har ingen egen farge,
+   ingen del-/slett-knapp og ingen ＋-rad; bare gruppene. */
+.free-groups-card { --card-bg: #eef0f6; --card-head: #dfe3ee; --card-accent: #9aa3b8; }
+/* Tittelen står på en LYS flate her (ikke en mettet kortfarge), så den hvite
+   skriften med skygge ville blitt uleselig — bruk vanlig blekk uten skygge.
+   Navnet er heller ikke redigerbart: beholderen finnes ikke i databasen. */
+.free-groups-card .card-title { color: var(--ink); text-shadow: none; cursor: default; }
+.free-groups-card .card-title:hover { background: none; }
+
+/* Breadcrumb-ikonene fylles av updateCrumbs(): [ressursikon][delt-ikon]Navn. */
+.crumb-icon, .crumb-shared { display: inline-flex; align-items: center; flex: none; }
+.crumb-icon .icon, .crumb-shared .icon { width: 19px; height: 19px; }
+.crumb-shared[hidden] { display: none; }

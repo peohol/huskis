@@ -192,7 +192,7 @@ Bytte utløses av **overlapp**, ikke av et punkt:
     første bevegelse — det gjaldt både musas terskelbevegelse og fingerens drift
     under holdet.
   - **Forutsetningene sjekkes på nytt akkurat når draget skal starte**: `canDrag()`
-    (låst/mount/`done`), `dragEl.isConnected` (en synk-rebuild kan ha byttet ut
+    (låst/`done`), `dragEl.isConnected` (en synk-rebuild kan ha byttet ut
     noden), `drag.active` (et annet drag rakk å starte) og at pekeren fortsatt er
     primær. En `pointerdown` med `isPrimary === false` (sekundær multitouch-peker)
     ignoreres helt.
@@ -216,7 +216,7 @@ Bytte utløses av **overlapp**, ikke av et punkt:
   flyttes/slippes den utenfor sonen ville zone-lyttere aldri fyre og timeren
   startet et drag etter at knappen alt var sluppet. En synk-
   rebuild kan bytte ut noden mens man holder → timeren dropper draget om
-  `dragEl` ikke lenger er `isConnected`. `canDrag` gater på frossen/mount/`done`.
+  `dragEl` ikke lenger er `isConnected`. `canDrag` gater på frossen/capability/`done`.
   Under et pågående drag blokkeres native scroll av en ikke-passiv `touchmove`-
   lytter (`preventTouchScroll`, av/på i `beginDragCommon`/`finishDrag`). Mens
   holdet registreres (KUN touch/pen, der holdet tar tid) får `dragEl` et lite
@@ -314,7 +314,7 @@ Bytte utløses av **overlapp**, ikke av et punkt:
   `beginDragCommon` FØR placeholderen settes inn), fjerner placeholderen, rydder
   dragstiler/global dragtilstand og gjenoppretter evt. desktop-kollaps
   (`restoreCardsAfterDrag`). Den beregner IKKE ny `pos`, kaller ikke `stampPos`/
-  `cloudMountUpdate`/`reindex*Colors`/`save`, og åpner ikke gruppe-flyttevelgeren.
+  `cloudPersonalPos`/`reindex*Colors`/`save`, og åpner ikke gruppe-flyttevelgeren.
   `pointerup` bruker fortsatt den vanlige drop-flyten.
 - **Alle placeholders deler én stil** (felles regel for `.card-/.item-/.group-
   placeholder`): 1px stiplet kant med lav opacity, svakt mørknet flate og en
@@ -645,12 +645,21 @@ Det som er verdt å merke seg:
 - **Kollaps-alle under draget** gjelder også her (universkortene foldes til
   overskriften mens ett dras), men uten normal-flow-vakten — den finnes for
   window-scroll-klemmen på mobil, og modalen scroller i sin egen container.
-- **Delte (monterte) grupper**: en gruppe som er delt MED meg flyttes via MIN
-  plassering (`memberships.parent_universe_id`), ikke ved å skrive på eierens rad
-  — `onItemUp` går derfor via `cloudMountUpdate(S.rowKind, …, S.mountParentPatch(…))`.
-  Mount-plasseringen har ingen kategori-kolonne, så en delt gruppe kan foreløpig
-  bare ligge på nivå 1; slippes den i en gruppekategori, lander den på nivå 1 og
-  en toast sier fra. Se `docs/rettigheter-og-deling.md`.
+- **En gruppe som bytter univers går gjennom `move_group`-RPC-en**
+  (`commitGroupMove`) — databasen avviser en direkte skriving av
+  `groups.universe_id`. Flyttingen vises optimistisk lokalt og holdes i
+  `pendingGroupMoves` til RPC-en har landet (doc-et beholder den GAMLE
+  plasseringen så lenge). Krysser flyttingen et **eierskapsdomene** (ulikt sett
+  universeiere), vises en eksplisitt bekreftelse først, og serveren svarer med en
+  id-mapping som `applyIdMapping` bruker til å bytte det lokale treet uten
+  flimmer. Avbrutt bekreftelse ruller tilbake (`revertGroupMove`).
+- **Fri gruppe** («Grupper delt med meg») omrokkert i sin egen seksjon skriver kun
+  PERSONLIG rekkefølge (`cloudPersonalPos` → `memberships.pos`) — det andre ser
+  endres aldri. Det samme gjelder universene på toppnivå. Se
+  `docs/rettigheter-og-deling.md` del 11 og 12.
+- **Seksjonsoverskriftene** i nav-modalen ligger i den samme `.board-col` som
+  kortene, men `boardRows` filtrerer på `.card`/`.card-placeholder`, så de er
+  aldri dra-mål.
 - **Den aktive gruppen følger med** når den bytter univers (dratt dit, ekstrahert
   til et nytt, eller båret med av en gruppekategori): `followActiveGroup()` kalles
   først i `renderBoard()` og flytter `state.activeUniverse` etter gruppa.
@@ -677,10 +686,10 @@ board-et fryses mens man sikter (ingen reorder over toppmenyen). Slipp legger
 kortet normalt tilbake på board-et og åpner en velger («Flytt … til:», i
 plasserings-modal-skallet via `openPicker`); valget gjør en kirurgisk flytting
 (`moveCardToGroup`: `card.group` + `pos` bakerst, kun posisjonsregisteret
-stemples — mounts flytter membershipen) + toast. Avbrytes velgeren blir lista
+stemples) + toast. Avbrytes velgeren blir lista
 liggende. `moveCardToGroup` slår opp det LEVENDE kortet på id — en
 synk-rebuild kan ha byttet ut objektet mens velgeren sto åpen.
 
-Velgeren viser gruppene i det AKTIVE universet (gruppekategorier er overskrifter
-og listes ikke). Vil man flytte lista lenger — til en gruppe i et annet univers —
+Velgeren viser gruppene i det AKTIVE universet der man faktisk kan opprette
+lister (`cap(g, 'createList')`; gruppekategorier er overskrifter og listes ikke). Vil man flytte lista lenger — til en gruppe i et annet univers —
 flytter man i stedet GRUPPEN i nav-modalen. Se `docs/data-model.md`.
