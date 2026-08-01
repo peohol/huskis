@@ -287,6 +287,53 @@ select public.accept_share_invite(:'inv_a2'::uuid);
 select public.t_check('A er eier igjen etter en ny eierskapsinvitasjon',
   public.universe_role(:'U', :'A') = 'owner');
 
+-- ---------- 10b. Rolleløft av et EKSISTERENDE medlem ----------
+-- Et medlem som allerede er inne skal kunne løftes til eier — men aldri ved at
+-- rollen skrives direkte: den gis via en invitasjon mottakeren må godta.
+reset role; select set_config('request.jwt.claim.sub', :'C', false); set role authenticated;
+select public.t_check('C er vanlig medlem av universet',
+  public.universe_role(:'U', :'C') = 'member');
+reset role; select set_config('request.jwt.claim.sub', :'A', false); set role authenticated;
+select public.t_check('eieren ser C som promotable i medlemslisten',
+  (select (m -> 'promotable')::boolean from jsonb_array_elements(public.get_members('universe', :'U') -> 'members') m
+    where m ->> 'id' = :'C') = true);
+select public.t_fails('rollen kan ikke løftes direkte med set_member_role',
+  format('select public.set_member_role(''universe'', %L, %L, ''owner'')', :'U', :'C'));
+select public.t_check('… og medlemmet er fortsatt bare medlem',
+  public.universe_role(:'U', :'C') = 'member');
+-- Invitasjonen: C har alt tilgang, så «brukeren har allerede tilgang» skal IKKE
+-- slå inn for en EIER-invitasjon.
+select public.create_share_invite('universe', :'U', 'role-c@example.com', 'owner') ->> 'id' as inv_c2 \gset
+select public.t_check('en eierinvitasjon til et eksisterende medlem er tillatt',
+  (select role from public.share_invites where id = :'inv_c2'::uuid) = 'owner');
+select public.t_check('promotable er av mens eierinvitasjonen ligger og venter',
+  (select (m -> 'promotable')::boolean from jsonb_array_elements(public.get_members('universe', :'U') -> 'members') m
+    where m ->> 'id' = :'C') = false);
+select public.t_check('C er fortsatt bare medlem før invitasjonen er godtatt',
+  public.universe_role(:'U', :'C') = 'member');
+select public.universe_owner_count(:'U') as eiere_for \gset
+-- En ny invitasjon til samme person kolliderer ikke: den oppdateres.
+select public.create_share_invite('universe', :'U', 'role-c@example.com', 'owner') ->> 'id' as inv_c3 \gset
+select public.t_check('ny invitasjon til samme person oppdaterer den ventende',
+  :'inv_c2' = :'inv_c3'
+  and (select count(*) from public.share_invites
+        where universe_id = :'U' and lower(invitee_email) = 'role-c@example.com'
+          and status = 'pending') = 1);
+reset role; select set_config('request.jwt.claim.sub', :'C', false); set role authenticated;
+select public.accept_share_invite(:'inv_c2'::uuid);
+select public.t_check('etter aksept er C medeier med full myndighet',
+  public.universe_role(:'U', :'C') = 'owner'
+  and (public.universe_caps(:'U', :'C') -> 'manageSettings')::boolean
+  and (public.universe_caps(:'U', :'C') -> 'delete')::boolean);
+select public.t_check('… og universet har fått nøyaktig én eier til',
+  public.universe_owner_count(:'U') = :eiere_for + 1);
+-- Tilbake til utgangspunktet, så senere seksjoner ser samme tilstand.
+reset role; select set_config('request.jwt.claim.sub', :'A', false); set role authenticated;
+select public.set_member_role('universe', :'U', :'C', 'member');
+select public.t_check('C er degradert til medlem igjen',
+  public.universe_role(:'U', :'C') = 'member'
+  and public.universe_owner_count(:'U') = :eiere_for);
+
 -- ---------- 11. Personlig rekkefølge ----------
 reset role; select set_config('request.jwt.claim.sub', :'C', false); set role authenticated;
 update public.memberships set pos = 99 where universe_id = :'U' and user_id = :'C';

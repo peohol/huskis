@@ -265,6 +265,107 @@ async function run(label, viewport, mobile) {
   log(label + ' 8: brukeren navigeres ut og får beskjed',
     after.active !== ids.GB && /ikke lenger delt|slettet|flyttet/i.test(after.toast), after.toast);
 
+  /* ---------- 9) Rolleendring på et EKSISTERENDE medlem ---------- */
+  await loadAs(p, db, ids.uA, 'a@x.no', viewport);
+  const openUniShare = async () => {
+    await p.evaluate(() => {
+      const H = window.__huskis, u = H.state.universes.find((x) => !x._virtual);
+      H.openShare('universe', u.id, u, null);
+    });
+    await p.waitForTimeout(900);
+  };
+  // Radene, med knappetekstene sine.
+  const memberRows = () => p.evaluate(() => [...document.querySelectorAll('#share-body .member-row')].map((r) => ({
+    name: (r.querySelector('.member-name') || {}).textContent || '',
+    role: (r.querySelector('.member-role') || {}).textContent || '',
+    btns: [...r.querySelectorAll('button')].map((b) => b.textContent.trim()),
+  })));
+  await openUniShare();
+  let rows = await memberRows();
+  const rowFor = (list, frag) => list.find((r) => r.name.indexOf(frag) === 0) || { btns: [], role: '' };
+  log(label + ' 9: et vanlig medlem kan løftes til medeier',
+    rowFor(rows, 'Cato').btns.includes('Gjør til medeier'), JSON.stringify(rowFor(rows, 'Cato')));
+  log(label + ' 9: en som alt er medeier tilbys degradering, ikke løft',
+    rowFor(rows, 'Bo').btns.includes('Gjør til medlem') &&
+    !rowFor(rows, 'Bo').btns.includes('Gjør til medeier'), JSON.stringify(rowFor(rows, 'Bo')));
+  // Egen rad: å tre av som medeier er en ekte handling («Forlat» beholder ikke
+  // tilgangen), men «Fjern» på seg selv er bare «Forlat» med feil merkelapp.
+  log(label + ' 9: man kan tre av som medeier på egen rad',
+    rowFor(rows, 'Alice').btns.includes('Tre av som medeier'), JSON.stringify(rowFor(rows, 'Alice')));
+  log(label + ' 9: men ikke «Fjern» seg selv',
+    !rowFor(rows, 'Alice').btns.includes('Fjern'), JSON.stringify(rowFor(rows, 'Alice')));
+
+  // Løftet sendes som en INVITASJON — rollen endres ikke før den er godtatt.
+  await p.evaluate(() => {
+    const r = [...document.querySelectorAll('#share-body .member-row')]
+      .find((x) => /^Cato/.test((x.querySelector('.member-name') || {}).textContent || ''));
+    [...r.querySelectorAll('button')].find((b) => b.textContent.trim() === 'Gjør til medeier').click();
+  });
+  await p.waitForTimeout(300);
+  await p.locator('#confirm-ok').click();
+  await p.waitForTimeout(1400);
+  const afterInvite = await p.evaluate(() => ({
+    pending: [...document.querySelectorAll('#share-body .member-pending')].map((r) => r.textContent.replace(/\s+/g, ' ').trim()),
+    invites: window.HK_MOCK._loadDB().share_invites.map((s) => s.invitee_email + ':' + s.role + ':' + s.status),
+    roles: window.HK_MOCK._loadDB().memberships.filter((m) => m.user_id === 'uC').map((m) => m.role),
+  }));
+  log(label + ' 9: løftet sendes som en eierinvitasjon',
+    afterInvite.invites.some((x) => x === 'c@x.no:owner:pending'), JSON.stringify(afterInvite.invites));
+  log(label + ' 9: rollen er UENDRET til invitasjonen er godtatt',
+    afterInvite.roles.join() === 'member', JSON.stringify(afterInvite.roles));
+  log(label + ' 9: invitasjonen vises som ventende medeier-invitasjon',
+    afterInvite.pending.some((t) => /Invitert som medeier/.test(t)), JSON.stringify(afterInvite.pending));
+  rows = await memberRows();
+  log(label + ' 9: løft-knappen forsvinner mens invitasjonen ligger og venter',
+    !rowFor(rows, 'Cato').btns.includes('Gjør til medeier'), JSON.stringify(rowFor(rows, 'Cato')));
+
+  // C godtar → blir medeier, og eieren kan nå degradere igjen. `loadAs` sår
+  // fiksturen på nytt, så vi må ta med «serveren» slik den ser ut NÅ (med
+  // invitasjonen i) inn i neste innlogging.
+  const dbWithInvite = await p.evaluate(() => window.HK_MOCK._loadDB());
+  await loadAs(p, dbWithInvite, ids.uC, 'c@x.no', viewport);
+  await p.waitForFunction(
+    () => ((window.__huskis.lastMy || {}).invites_in || []).length > 0, { timeout: 8000 });
+  await p.evaluate(async () => {
+    const H = window.__huskis;
+    const inv = H.lastMy.invites_in[0];
+    await H.client.rpc('accept_share_invite', { p_invite: inv.id });
+    await H.cloudCycle();
+  });
+  await p.waitForTimeout(1200);
+  log(label + ' 9: etter aksept er medlemmet medeier med eier-rettigheter',
+    await p.evaluate(() => {
+      const u = window.__huskis.state.universes.find((x) => !x._virtual);
+      return !!u && u._role === 'owner' && !!(u._caps && u._caps.manageMembers && u._caps.delete);
+    }));
+  const dbAfterAccept = await p.evaluate(() => window.HK_MOCK._loadDB());
+  await loadAs(p, dbAfterAccept, ids.uA, 'a@x.no', viewport);
+  await openUniShare();
+  rows = await memberRows();
+  log(label + ' 9: den nye medeieren kan degraderes igjen',
+    rowFor(rows, 'Cato').role === 'Eier' && rowFor(rows, 'Cato').btns.includes('Gjør til medlem'),
+    JSON.stringify(rowFor(rows, 'Cato')));
+
+  /* ---------- 10) Uten capabilities fra serveren feiles det LUKKET ----------
+     En database der migreringen ikke har kjørt ennå svarer uten `caps`. Da skal
+     et vanlig medlem ikke se eier-kontroller det uansett ville blitt avvist på. */
+  await loadAs(p, db, ids.uC, 'c@x.no', viewport);
+  const capless = await p.evaluate(() => {
+    const H = window.__huskis, u = H.state.universes.find((x) => !x._virtual);
+    delete u._caps;                    // som et svar fra en før-migrering-server
+    H.openShare('universe', u.id, u, null);
+    const vis = [...document.querySelectorAll('#share-body button')]
+      .filter((b) => !b.hidden).map((b) => b.textContent.trim());
+    return vis;
+  });
+  log(label + ' 10: ingen lås-knapp uten capabilities',
+    !capless.some((t) => /Lås nå|Åpne nå/.test(t)), JSON.stringify(capless));
+  log(label + ' 10: ingen slett-for-alle uten capabilities',
+    !capless.some((t) => /Slett .* for alle/.test(t)), JSON.stringify(capless));
+  log(label + ' 10: forlat-knappen er derimot tilgjengelig',
+    capless.some((t) => /Forlat/.test(t)), JSON.stringify(capless));
+  await p.keyboard.press('Escape'); await p.waitForTimeout(200);
+
   log(label + ': ingen JS-feil', errs.length === 0, errs.slice(0, 3).join(' | '));
   await browser.close();
 }

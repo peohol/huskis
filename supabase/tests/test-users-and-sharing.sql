@@ -107,8 +107,24 @@ set role authenticated;
 
 select public.create_share_invite('group', :'g1', 'bob@example.com') ->> 'id' as inv1 \gset
 
-select public.t_fails('duplikat ventende invitasjon avvises',
-  format('select public.create_share_invite(''group'', %L, ''bob@example.com'')', :'g1'));
+-- En ny invitasjon til samme person OPPDATERER den ventende i stedet for å
+-- feile (det er slik et medlem løftes til eier), og lager aldri en duplikat.
+select public.create_share_invite('group', :'g1', 'bob@example.com') ->> 'id' as inv1b \gset
+select public.t_check('ny invitasjon til samme person oppdaterer den ventende',
+  :'inv1' = :'inv1b'
+  and (select count(*) from public.share_invites
+        where group_id = :'g1' and lower(invitee_email) = 'bob@example.com'
+          and status = 'pending') = 1);
+select public.t_check('rollen kan gå OPP på en ventende invitasjon',
+  (public.create_share_invite('group', :'g1', 'bob@example.com', 'owner') ->> 'role') = 'owner');
+select public.t_check('… men ikke NED igjen',
+  (public.create_share_invite('group', :'g1', 'bob@example.com', 'member') ->> 'role') = 'owner');
+-- Tilbake til en medlemsinvitasjon for resten av seksjonen (rollen kan ikke
+-- settes ned via RPC-en, og klienter har ingen UPDATE-rett på tabellen).
+reset role;
+update public.share_invites set role = 'member' where id = :'inv1'::uuid;
+select set_config('request.jwt.claim.sub', :'alice', false);
+set role authenticated;
 select public.t_fails('kan ikke dele med seg selv',
   format('select public.create_share_invite(''group'', %L, ''alice@example.com'')', :'g1'));
 

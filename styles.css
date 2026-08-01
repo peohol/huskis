@@ -2141,21 +2141,28 @@ body.no-auth #account-btn { display: none; }
 .share-actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
 .share-leave .icon { vertical-align: -0.15em; margin-right: 2px; }
 .share-section-title { font-size: var(--fs-xs); font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; color: var(--ink-soft); margin: 2px 0; }
+/* Raden har navn + inntil to rollehandlinger. Blir det for trangt (mobil), skal
+   knappene falle ned på egen linje — ikke presse navnet ned til én bokstav per
+   linje. Derfor: navnet får lov å ta plassen den trenger (flex-basis), knappene
+   krymper aldri, og raden brytes. */
 .member-row {
   display: flex; align-items: center; gap: 10px;
+  flex-wrap: wrap;
   padding: 10px 4px;
   border-bottom: 1px solid var(--line);
 }
+.member-row > button { flex: none; }
+.member-row > button:nth-of-type(1) { margin-left: auto; }
 .member-row:last-child { border-bottom: none; }
 /* Medlems-avatar: felles form fra .account-avatar, .member-avatar over; her kun
    størrelse + grå standard-gradient (eier får den grønne igjen). */
 .member-avatar {
-  width: 39px; height: 39px;
+  width: 39px; height: 39px; flex: none;
   font-size: var(--fs-sm);
   background: linear-gradient(135deg, #8496a6, #5f6f7d);
 }
 .member-avatar.owner { background: linear-gradient(135deg, var(--primary), var(--primary-dark)); }
-.member-info { flex: 1; min-width: 0; }
+.member-info { flex: 1 1 9em; min-width: 0; }
 .member-name { font-weight: 600; font-size: var(--fs-md); color: var(--ink); word-break: break-word; }
 .member-role { display: block; font-size: var(--fs-xs); color: var(--ink-soft); font-weight: 500; }
 .member-pending .member-name { color: var(--ink-soft); font-style: italic; }

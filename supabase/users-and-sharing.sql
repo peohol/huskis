@@ -1529,18 +1529,33 @@ begin
     end if;
   end if;
 
-  insert into public.share_invites (inviter_id, invitee_email, invitee_id,
-                                    universe_id, group_id, role)
-  values (uid, em, target,
-          case when p_type = 'universe' then p_id end,
-          case when p_type = 'group'    then p_id end,
-          p_role)
-  returning * into inv;
+  -- Finnes det alt en VENTENDE invitasjon til samme person og objekt, er den
+  -- riktige handlingen å oppdatere den, ikke å feile: å invitere et vanlig
+  -- medlem til eierskap går nettopp via en (ny) invitasjon, og den samme
+  -- personen kan allerede ha en ventende medlemsinvitasjon liggende. Vi lar
+  -- rollen bare gå OPP (member → owner), så en ny medlemsinvitasjon ikke
+  -- stille degraderer en eierinvitasjon som ligger og venter.
+  if p_type = 'universe' then
+    insert into public.share_invites (inviter_id, invitee_email, invitee_id, universe_id, role)
+    values (uid, em, target, p_id, p_role)
+    on conflict (universe_id, lower(invitee_email)) where status = 'pending' and universe_id is not null
+      do update set role = case when excluded.role = 'owner' then 'owner'
+                                else public.share_invites.role end,
+                    inviter_id = excluded.inviter_id,
+                    invitee_id = coalesce(excluded.invitee_id, public.share_invites.invitee_id)
+    returning * into inv;
+  else
+    insert into public.share_invites (inviter_id, invitee_email, invitee_id, group_id, role)
+    values (uid, em, target, p_id, p_role)
+    on conflict (group_id, lower(invitee_email)) where status = 'pending' and group_id is not null
+      do update set role = case when excluded.role = 'owner' then 'owner'
+                                else public.share_invites.role end,
+                    inviter_id = excluded.inviter_id,
+                    invitee_id = coalesce(excluded.invitee_id, public.share_invites.invitee_id)
+    returning * into inv;
+  end if;
 
   return to_jsonb(inv);
-exception
-  when unique_violation then
-    raise exception 'det finnes allerede en ventende invitasjon til %', em;
 end;
 $$;
 
@@ -2175,7 +2190,17 @@ begin
            -- Kan degraderes fra eier til vanlig medlem?
            'demotable', b.direct and b.role = 'owner'
              and public.can_manage_members(p_type, p_id, uid)
-             and not (p_type = 'universe' and public.universe_owner_count(p_id) <= 1)
+             and not (p_type = 'universe' and public.universe_owner_count(p_id) <= 1),
+           -- Kan LØFTES til eier? Rolleløft settes aldri direkte — det går via
+           -- en invitasjon mottakeren må godta — så flagget speiler retten til
+           -- å invitere til eierskap, ikke retten til å skrive rollen.
+           'promotable', b.direct and b.role = 'member'
+             and public.can_invite_owner(p_type, p_id, uid)
+             and not exists (select 1 from public.share_invites s
+                              where s.status = 'pending' and s.role = 'owner'
+                                and lower(s.invitee_email) = lower(pr.email)
+                                and ((p_type = 'universe' and s.universe_id = p_id)
+                                  or (p_type = 'group'    and s.group_id    = p_id)))
          ) order by b.prec, lower(coalesce(pr.display_name, pr.email))), '[]'::jsonb)
     into rows
     from best b join public.profiles pr on pr.id = b.user_id;

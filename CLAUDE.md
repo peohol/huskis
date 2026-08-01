@@ -665,3 +665,25 @@ erstatter `supabase/tests/test-permissions.sql` og `tests/permissions-ui.test.js
 som er slettet (de testet administrator-modellen). Se
 `docs/rettigheter-og-deling.md` (autoritativ), `docs/arkitektur-brukere-deling.md`,
 `docs/accounts.md`, `docs/data-model.md`, `docs/menus.md`, `docs/trash.md`.
+
+**Rolleendring, feil-lukket capability-anslag og en halvmigrert produksjon
+(siste runde)**: rollemodellens migrering (#73) døde midt i filen med
+`deadlock detected` — appen poller `get_my_doc` hvert 5. sekund, og lesningen
+havnet i en låsesyklus med DDL-en. Produksjonen ble stående **halvmigrert**
+(`memberships.role` ja, `universe_caps`/`move_group` nei) mens den nye klienten
+alt var deployet, og det ga fire symptomer på én gang: egne universer havnet
+under «Universer delt med meg» (ingen `role` i svaret), medlemslistene var tomme
+(gammel `get_members`-fasong), eier-knapper viste seg for vanlige medlemmer og
+«Forlat» manglet (ingen `caps`). Migreringen er kjørt ferdig, og fire ting er
+endret: (1) **`db-setup.yml` prøver på nytt** (`lock_timeout=15s`, tre forsøk) —
+filene er idempotente, så et nytt forsøk er alltid trygt; (2) **det lokale
+capability-anslaget feiler LUKKET** — mangler `caps`, følger anslaget
+`privilegedLocal` i stedet for «alt er lov», så en kontroll brukeren ikke har lov
+til å bruke aldri vises; (3) **rolleendring av et eksisterende medlem finnes nå i
+UI-et**: «Gjør til medeier» sender en eierinvitasjon (rollen endres først ved
+aksept, serverside-flagget `promotable`), «Gjør til medlem» degraderer, og på egen
+rad står «Tre av som medeier»; `create_share_invite` **oppdaterer** en ventende
+invitasjon i stedet for å feile, og rollen kan bare gå OPP; (4) **«Fjern» vises
+ikke på egen rad** — å fjerne seg selv er å forlate, og den knappen finnes
+allerede. Ingen ny DB-migrering (kun endrede funksjoner). Se
+`docs/rettigheter-og-deling.md` og `TODO.md`.
