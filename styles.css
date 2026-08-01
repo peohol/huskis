@@ -1112,7 +1112,7 @@ body {
    nøyaktig samme kort-/rad-oppsett): SVG-× (ICONS.xmark, samme strek som
    ikonsettet) — SVARTE globalt, RØDE ved hover/aktivering. Gjelder også på
    fargede flater (korthode); svart leser fint på de lyse kortfargene. */
-.card-delete, .item-delete { color: #111; }
+.card-delete, .item-delete, .uni-leave, .group-leave { color: #111; }
 .card-delete:hover, .item-delete:hover,
 .card-delete:active, .item-delete:active {
   color: var(--danger);
