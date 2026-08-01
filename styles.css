@@ -36,6 +36,9 @@
   --primary-soft: rgba(102, 136, 102, 0.14);
   --primary-soft-hover: rgba(102, 136, 102, 0.24);
   --danger: #ef6b7d;
+  /* Samme par som --primary-soft*, men i faresonen (sveip-for-å-slette-kontoen). */
+  --danger-soft: rgba(239, 107, 125, 0.16);
+  --danger-soft-hover: rgba(239, 107, 125, 0.30);
 
   /* Fargede knapper (.btn-solid): én gradient per farge, gjenbrukt overalt. */
   --grad-green: linear-gradient(135deg, var(--primary), #7fa77f);
@@ -112,7 +115,7 @@ body {
    ikke lenger currentColor) og flatene fylles med hvit + palettfarger der
    motivet tilsier det (fargekart i icons.js / docs/design-system.md). Størrelse
    arves fortsatt fra font-size på forelder. Unntak som beholder currentColor:
-   utloggings-glyfen (.logout-icon, hvit på rød knapp) og avkryssings-haken
+   knappe-glyfene (.btn-glyph, hvite på massiv fargeknapp) og avkryssings-haken
    (.item-check .icon), begge rene glyfer på massive fargeknapper. */
 .icon {
   display: block;
@@ -1287,8 +1290,19 @@ body.is-dragging * { cursor: grabbing !important; }
   align-items: stretch;
   gap: 10px;
 }
-.menu-logout { align-self: flex-start; }
-.logout-icon { font-size: var(--fs-lg); line-height: 1; }
+/* Konto-modalens bunnrad: «Logg ut» (gul) i venstre ende, «Slett konto» (rød) i
+   høyre. Hver i sin ende — begge er lette å finne, ingen av dem ligger der
+   fingeren treffer den andre. Wrap-er på smale skjermer. */
+.menu-account-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+/* Rene glyfer på massive fargeknapper (dør-ut på «Logg ut», søppelkasse på
+   «Slett konto»): hvite streker (currentColor), litt større enn brødteksten. */
+.btn-glyph { font-size: var(--fs-lg); line-height: 1; }
 .menu-divider {
   border: none;
   border-bottom: 1px solid var(--line);
@@ -1408,6 +1422,62 @@ body.is-dragging * { cursor: grabbing !important; }
 .confirm-modal { width: min(430px, 100%); }
 .confirm-msg { margin: 0; font-size: var(--fs-base); line-height: 1.5; color: var(--ink); font-weight: 500; }
 .confirm-foot { justify-content: flex-end; }
+
+/* ---------------- Slett konto (advarsel + sveip for å bekrefte) ----------------
+   Samme formspråk som søppelkassenes sveipefelt (.swipe-field): ikon til
+   venstre, etikett, pil som fyller resten, og en fylling som følger sveipet —
+   men i faresonens farger, og som et fast felt i modalen (ingen knapp å vokse
+   ut av). Bekreftelsen ER gesten: modalen har ingen OK-knapp, for slettingen
+   kan ikke angres. Tastatur når det samme med piltastene (role="slider"). */
+.delete-account-body { display: flex; flex-direction: column; gap: 14px; }
+.danger-list {
+  margin: 0;
+  padding-left: 22px;
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  font-size: var(--fs-md);
+  line-height: 1.45;
+  color: var(--ink-soft);
+  font-weight: 500;
+}
+.delete-account-hint {
+  margin: 0;
+  font-size: var(--fs-sm);
+  font-weight: 700;
+  color: var(--danger);
+}
+.confirm-swipe {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  height: var(--control-h);
+  padding: 0 14px;
+  border-radius: var(--control-radius);
+  background: #fff;
+  box-shadow: inset 0 0 0 1.5px var(--danger-soft-hover), var(--shadow-sm);
+  overflow: hidden;
+  white-space: nowrap;
+  cursor: grab;
+  touch-action: none;                   /* sveipet er vårt, ikke sidens scroll */
+  -webkit-user-select: none;
+  user-select: none;
+}
+.confirm-swipe:active { cursor: grabbing; }
+.confirm-swipe:focus-visible { outline: 2.5px solid var(--danger); outline-offset: 2px; }
+.confirm-swipe::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: linear-gradient(90deg, var(--danger-soft), var(--danger-soft-hover));
+  transform: scaleX(var(--p, 0));
+  transform-origin: left center;
+  pointer-events: none;
+}
+.confirm-swipe .swipe-label { color: var(--danger); }
+.confirm-swipe .swipe-arrow { color: var(--danger); }
 
 body.modal-open { overflow: hidden; }
 

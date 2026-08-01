@@ -5139,12 +5139,14 @@
     const settings = document.getElementById('settings-modal');
     const timeSw = document.getElementById('time-switcher');
     const avatarEd = document.getElementById('avatar-modal');
+    const delAcc = document.getElementById('delete-account-modal');
     document.body.classList.toggle('modal-open',
       !trashModal.hidden || !navModal.hidden ||
       !accountModal.hidden ||
       (share && !share.hidden) || (place && !place.hidden) ||
       (confirmEl && !confirmEl.hidden) || (settings && !settings.hidden) ||
-      (timeSw && !timeSw.hidden) || (avatarEd && !avatarEd.hidden) || respOpen);
+      (timeSw && !timeSw.hidden) || (avatarEd && !avatarEd.hidden) ||
+      (delAcc && !delAcc.hidden) || respOpen);
   }
 
   /* ---------- Felles bekreftelses-modal (erstatter native confirm()) ----------
@@ -5657,6 +5659,8 @@
     if (timeQuickOpen) { closeTimeQuick(); return; } // tids-popoveren ligger øverst
     if (respOpen) { closeResponsible(); return; } // ansvarlig-velgeren ligger øverst
     if (confirmModalEl && !confirmModalEl.hidden) { closeConfirm(false); return; } // øverst
+    const delAcc = document.getElementById('delete-account-modal');
+    if (delAcc && !delAcc.hidden) { closeDeleteAccount(); return; } // over konto-modalen
     if (avatarModal && !avatarModal.hidden) { closeAvatarEditor(); return; } // over konto-modalen
     const share = document.getElementById('share-modal');
     const place = document.getElementById('place-modal');
@@ -6574,6 +6578,146 @@
     if (client) { try { client.auth.signOut(); } catch (e) { /* ignore */ } }
   }
 
+  /* ---------- Slett konto (i konto-modalen) ----------
+     Endelig og uopprettelig, så bekreftelsen er en GEST, ikke en knapp:
+     advarselen forklarer hva som forsvinner (og hva som blir stående hos
+     andre), og feltet må sveipes helt til høyre. Formspråket er søppelkassenes
+     sveipefelt (ikon som roterer, fylling som følger sveipet), her i faresonens
+     farger og som et fast felt i modalen. Tastatur kommer til det samme med
+     piltastene (role="slider").
+     Selve slettingen skjer serverside i én transaksjon (`delete_account`, se
+     docs/rettigheter-og-deling.md); klienten rydder bare sine egne lokale spor
+     og lander på innloggingssiden. */
+  const delAccountBtn = document.getElementById('delete-account-btn');
+  const delAccountModal = document.getElementById('delete-account-modal');
+  const delAccountSwipe = document.getElementById('delete-account-swipe');
+  const delAccountErrorEl = document.getElementById('delete-account-error');
+  delAccountSwipe.innerHTML =
+    ICONS.trashSwipe +
+    '<span class="swipe-label">Slett kontoen</span>' +
+    '<span class="swipe-arrow" aria-hidden="true"></span>';
+  const delSwipeIcon = delAccountSwipe.querySelector('.swipe-icon');
+  const delSwipeLid = delAccountSwipe.querySelector('.swipe-icon-lid');
+  const DEL_SWIPE_MIN = 120;   // minste strekk (px) et sveip må dekke
+  const DEL_KEY_STEP = 0.2;    // ett piltast-trykk (fem trykk = bekreftet)
+  let delDrag = null;          // { id, x0, span } mens fingeren er nede
+  let deletingAccount = false; // sant fra bekreftet gest til utfallet er kjent
+
+  function paintDeleteProgress(p) {
+    const v = Math.min(1, Math.max(0, p));
+    delAccountSwipe.style.setProperty('--p', v.toFixed(3));
+    delSwipeIcon.style.transform = 'rotate(' + (v * 180) + 'deg)';
+    // Lokket svinger opp gjennom hele sveipet — som i søppelkassenes felt.
+    delSwipeLid.style.transform = 'rotate(' + (-95 * v) + 'deg)';
+    delAccountSwipe.setAttribute('aria-valuenow', String(Math.round(v * 100)));
+  }
+  // Ett sted for «hvor langt er sveipet kommet»: helt fremme = slett.
+  function advanceDelete(p) {
+    if (deletingAccount) return;
+    paintDeleteProgress(p);
+    if (p >= 1) fireDeleteAccount();
+  }
+  function openDeleteAccount() {
+    delAccountErrorEl.hidden = true;
+    delAccountErrorEl.textContent = '';
+    deletingAccount = false;
+    delSwipeIcon.classList.remove('shake');
+    paintDeleteProgress(0);
+    delAccountModal.hidden = false;
+    updateModalOpenClass();
+    // Fokus på selve feltet: det er handlingen modalen finnes for, og
+    // skjermlesere leser opp hvordan den bekreftes (aria-label).
+    delAccountSwipe.focus();
+  }
+  function closeDeleteAccount() {
+    delAccountModal.hidden = true;
+    endDelDrag();
+    updateModalOpenClass();
+  }
+  delAccountBtn.addEventListener('click', openDeleteAccount);
+  document.getElementById('delete-account-cancel').addEventListener('click', closeDeleteAccount);
+  document.getElementById('delete-account-close').addEventListener('click', closeDeleteAccount);
+  delAccountModal.addEventListener('click', (ev) => {
+    if (ev.target === delAccountModal) closeDeleteAccount();
+  });
+
+  // Sveipet måles fra der fingeren gikk NED (ikke fra feltets venstrekant): et
+  // trykk i høyre ende skal ikke i seg selv være en bekreftelse. Strekket er
+  // feltets brukbare bredde, så et sveip som starter der ikonet står ender
+  // nøyaktig ved pilspissen. Som de andre dra-motorene lyttes move/up på window
+  // mens gesten pågår, så den ikke mistes om fingeren forlater feltet.
+  function onDelMove(ev) {
+    if (!delDrag || ev.pointerId !== delDrag.id) return;
+    advanceDelete((ev.clientX - delDrag.x0) / delDrag.span);
+  }
+  function onDelUp(ev) {
+    if (!delDrag || ev.pointerId !== delDrag.id) return;
+    endDelDrag();
+    if (!deletingAccount) paintDeleteProgress(0); // sluppet for tidlig → tilbake
+  }
+  function endDelDrag() {
+    window.removeEventListener('pointermove', onDelMove);
+    window.removeEventListener('pointerup', onDelUp);
+    window.removeEventListener('pointercancel', onDelUp);
+    delDrag = null;
+  }
+  delAccountSwipe.addEventListener('pointerdown', (ev) => {
+    if (delDrag || deletingAccount || (ev.button != null && ev.button > 0)) return;
+    ev.preventDefault();
+    const r = delAccountSwipe.getBoundingClientRect();
+    const ir = delSwipeIcon.getBoundingClientRect();
+    delDrag = { id: ev.pointerId, x0: ev.clientX,
+                span: Math.max(DEL_SWIPE_MIN, r.right - 18 - (ir.left + ir.width / 2)) };
+    try { delAccountSwipe.setPointerCapture(ev.pointerId); } catch (e) { /* ikke-aktiv peker */ }
+    window.addEventListener('pointermove', onDelMove);
+    window.addEventListener('pointerup', onDelUp);
+    window.addEventListener('pointercancel', onDelUp);
+  });
+  // Tastatur: samme friksjon, uten peker. Enter/mellomrom gjør bevisst ingenting.
+  delAccountSwipe.addEventListener('keydown', (ev) => {
+    if (deletingAccount) return;
+    const cur = parseFloat(delAccountSwipe.getAttribute('aria-valuenow') || '0') / 100;
+    if (ev.key === 'ArrowRight' || ev.key === 'ArrowUp') advanceDelete(cur + DEL_KEY_STEP);
+    else if (ev.key === 'ArrowLeft' || ev.key === 'ArrowDown') advanceDelete(cur - DEL_KEY_STEP);
+    else if (ev.key === 'End') advanceDelete(1);
+    else if (ev.key === 'Home') advanceDelete(0);
+    else return;
+    ev.preventDefault();
+  });
+
+  async function fireDeleteAccount() {
+    if (deletingAccount || !authUser) return;
+    deletingAccount = true;
+    paintDeleteProgress(1);
+    delSwipeIcon.classList.add('shake');
+    const uid = authUser.id;
+    const cache = cacheKey();
+    const { error } = await acli().rpc('delete_account');
+    if (error) {
+      // Kontoen står — vis hvorfor, og la feltet kunne sveipes på nytt.
+      deletingAccount = false;
+      delSwipeIcon.classList.remove('shake');
+      paintDeleteProgress(0);
+      delAccountErrorEl.textContent = friendlyAuthError(error);
+      delAccountErrorEl.hidden = false;
+      return;
+    }
+    closeDeleteAccount();
+    // Kvitteringen hører hjemme på innloggingssiden, ikke i en toast: toasten
+    // ligger UNDER auth-skjermen (z-index 300 mot 400), og det er hit brukeren
+    // nettopp er sendt. Settes FØR utloggingen — den maler skjermen selv.
+    authNotice = 'Kontoen din er slettet.';
+    logout(); // stopper synken, tømmer minnet og viser innloggingssiden
+    // Ingen lokale spor heller. En cache-skriving som allerede var bestilt ville
+    // ellers ha skrevet posten inn igjen 120 ms senere (nøkkelen fanges når
+    // skrivingen bestilles), så den avbestilles først.
+    clearTimeout(saveTimer); saveTimer = null;
+    try {
+      localStorage.removeItem(cache);
+      localStorage.removeItem('hk-migrated:' + uid);
+    } catch (e) { /* ignore */ }
+  }
+
   /* ============================================================
      BRUKERKONTOER OG DELING (klient)
      ------------------------------------------------------------
@@ -6675,6 +6819,12 @@
     register: { title: 'Registrer deg',  submit: 'Opprett konto',   pass: true,  icon: 'profile' },
     forgot:   { title: 'Glemt passord',  submit: 'Send lenke',      pass: false, icon: 'lock' },
   };
+  // Melding som skal bli STÅENDE på innloggingssiden etter at appen selv har
+  // logget ut (kontosletting). Å sette den etter `logout()` holder ikke:
+  // utloggingen gir TO runder med `setAuthMode('login')` — én synkron og én fra
+  // `SIGNED_OUT`-hendelsen — og hver av dem tømmer meldingsfeltet. Den males
+  // derfor av `setAuthMode` helt til brukeren selv gjør noe på skjermen.
+  let authNotice = null;
   function setAuthMode(mode) {
     authModeCur = mode;
     const m = AUTH_MODES[mode];
@@ -6689,7 +6839,7 @@
     authFirstName.required = reg;
     authLastName.required = reg;
     authPassword.autocomplete = mode === 'register' ? 'new-password' : 'current-password';
-    authMsg('');
+    authMsg(authNotice || '', !!authNotice);
     authForm.hidden = false;
     authSent.hidden = true;
     // Lenkene bytter ut fra modus.
@@ -6697,7 +6847,8 @@
     const link = (label, target) => {
       const b = document.createElement('button');
       b.type = 'button'; b.className = 'auth-link'; b.dataset.mode = target; b.textContent = label;
-      b.addEventListener('click', () => setAuthMode(target));
+      // Brukeren tar over skjermen → beskjeden fra forrige økt har gjort sitt.
+      b.addEventListener('click', () => { authNotice = null; setAuthMode(target); });
       authLinks.appendChild(b);
     };
     if (mode === 'login') { link('Ny bruker? Registrer deg', 'register'); link('Glemt passord?', 'forgot'); }
@@ -6772,6 +6923,7 @@
     const password = authPassword.value;
     if (!email) { authMsg('Skriv inn e-postadressen din.'); return; }
     authSubmit.disabled = true;
+    authNotice = null; // brukeren er i gang selv — beskjeden har gjort sitt
     authMsg('');
     try {
       if (authModeCur === 'login') {
@@ -9211,7 +9363,8 @@
        • det finnes lokale endringer serveren ikke har kvittert for (saveSeq)
        • vi er innlogget uten å ha fått ett eneste svar fra serveren ennå */
   const SAFETY_MODALS = () => [navModal, accountModal, trashModal, settingsModal,
-    shareModal, placeModal, confirmModalEl, avatarModal, respSwitcherOverlay, timeSwitcherOverlay];
+    shareModal, placeModal, confirmModalEl, avatarModal, delAccountModal,
+    respSwitcherOverlay, timeSwitcherOverlay];
   function authFormDirty() {
     if (authScreen.hidden) return false;
     return [authEmail, authFirstName, authLastName, authPassword]
