@@ -1089,12 +1089,15 @@
           var c = findC(db, i.card_id);
           i.owner_id = heir(c ? groupUniverse(db, c.group_id) : null);
         });
-        // 4. ansvarstildelinger (nytt innholds-stempel) + rollene mine
+        // 4. ansvarstildelinger + rollene mine. Stempelet slår radens EGET
+        //    register, ikke bare klokka (som i SQL-en: en rad fra en enhet med
+        //    klokka foran serverens ville ellers vunnet LWW-en tilbake).
+        var stamp = function (r) { r.ts = Math.max(now, (r.ts || 0) + 1); r.org = 'server'; };
         db.cards.forEach(function (c) {
-          if (c.responsible === uid) { c.responsible = null; c.ts = now; c.org = 'server'; }
+          if (c.responsible === uid) { c.responsible = null; stamp(c); }
         });
         db.items.forEach(function (i) {
-          if (i.responsible === uid) { i.responsible = null; i.ts = now; i.org = 'server'; }
+          if (i.responsible === uid) { i.responsible = null; stamp(i); }
         });
         db.memberships = db.memberships.filter(function (m) { return m.user_id !== uid; });
         // 5. profilen og selve kontoen (mocken har ingen auth.users-tabell —

@@ -91,9 +91,13 @@ select public.create_share_invite('universe', :'MU', 'slett-meg@example.com') ->
 reset role; select set_config('request.jwt.claim.sub', :'D', false); set role authenticated;
 select public.accept_share_invite(:'inv_m'::uuid);
 insert into public.items (id, owner_id, card_id, text, ts, org) values (:'MI', :'D', :'MC', 'Ost', 1, 'd');
--- D er ansvarlig for både listen og sitt eget listepunkt.
+-- D er ansvarlig for både listen og sitt eget listepunkt. Listepunktet får et
+-- stempel LANGT foran serverklokka (en enhet med klokka i forkant): vaktene
+-- hopper aldri over `reg_newer`, så et stempel basert på klokka alene ville
+-- blitt rullet tilbake — og FK-ens `on delete set null` hadde nullet feltet uten
+-- nytt stempel, hvorpå den gamle verdien vant LWW-en igjen.
 update public.cards set responsible = :'D', ts = 5, org = 'd' where id = :'MC';
-update public.items set responsible = :'D', ts = 5, org = 'd' where id = :'MI';
+update public.items set responsible = :'D', ts = 99999999999999, org = 'z' where id = :'MI';
 
 -- ---------- 4. invitasjoner begge veier + C sitt urørte univers ----------
 -- D har invitert C (ubesvart), og A har invitert D til en gruppe (ubesvart).
@@ -166,8 +170,12 @@ select public.t_check('A sin liste og D sitt listepunkt i den står igjen',
 select public.t_check('ansvaret som pekte på D er nullet med et NYTT innholds-stempel',
   (select responsible from public.cards where id = :'MC') is null
   and (select responsible from public.items where id = :'MI') is null
-  and (select ts from public.cards where id = :'MC') > 5
-  and (select ts from public.items where id = :'MI') > 5);
+  and (select ts from public.cards where id = :'MC') > 5);
+-- Radens eget register lå foran serverklokka: stempelet må likevel være nyere,
+-- ellers ville vakten rullet skrivingen tilbake og den gamle verdien vunnet.
+select public.t_check('… også når raden allerede har et stempel foran serverklokka',
+  (select ts from public.items where id = :'MI') > 99999999999999
+  and (select org from public.items where id = :'MI') = 'server');
 select public.t_check('C sitt univers er helt urørt',
   (select count(*) from public.universes where id = :'CU') = 1
   and (select owner_id from public.universes where id = :'CU') = :'C'::uuid);

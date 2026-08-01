@@ -2159,10 +2159,11 @@ create trigger on_share_invite_created
 --     `on delete cascade` — uten arven ville profilslettingen revet vekk
 --     innhold i andres delte universer (et listepunkt jeg la inn i en felles
 --     liste er de andres innhold like mye som mitt).
---   * `responsible` som peker på meg nulles med et NYTT innholds-stempel.
---     `on delete set null` alene ville ikke holdt: en annen enhet med det
---     gamle valget i cachen ville vunnet LWW-en og skrevet den slettede
---     brukeren tilbake — en rad som deretter er umulig å skrive (FK).
+--   * `responsible` som peker på meg nulles med et stempel som er nyere enn
+--     BÅDE klokka og radens eget register. `on delete set null` alene ville
+--     ikke holdt: en annen enhet med det gamle valget i cachen ville vunnet
+--     LWW-en og skrevet den slettede brukeren tilbake — en rad som deretter er
+--     umulig å skrive (FK).
 --
 -- I tillegg: invitasjoner begge veier (også de som bare er adressert til
 -- e-postadressen min), e-postloggen for dem, rollene mine, profilraden og til
@@ -2230,8 +2231,17 @@ begin
    where i.owner_id = uid;
 
   -- 4. Ansvarstildelinger som peker på meg, og rollene mine.
-  update public.cards set responsible = null, ts = now_ms, org = 'server' where responsible = uid;
-  update public.items set responsible = null, ts = now_ms, org = 'server' where responsible = uid;
+  --    Stempelet må slå radens EGET register, ikke bare klokka: vaktene
+  --    (`*_before_update`) hopper over autorisasjonen under en privilegert
+  --    operasjon, men ALDRI over `reg_newer`. En rad skrevet av en enhet med
+  --    klokka foran serverens ville derfor rullet skrivingen tilbake, og
+  --    FK-ens `on delete set null` hadde nullet feltet UTEN nytt stempel —
+  --    hvorpå den gamle verdien vinner LWW-en ved neste synk og gjør raden
+  --    uskrivbar (FK-en peker på en slettet profil).
+  update public.cards set responsible = null, ts = greatest(now_ms, ts + 1), org = 'server'
+   where responsible = uid;
+  update public.items set responsible = null, ts = greatest(now_ms, ts + 1), org = 'server'
+   where responsible = uid;
   delete from public.memberships where user_id = uid;
 
   -- 5. Profilen og selve kontoen.
