@@ -688,7 +688,29 @@ ikke på egen rad** — å fjerne seg selv er å forlate, og den knappen finnes
 allerede. Ingen ny DB-migrering (kun endrede funksjoner). Se
 `docs/rettigheter-og-deling.md` og `TODO.md`.
 
-**Opprettelse og plassering spør FORELDEREN (siste runde)**: et vanlig medlem kunne
+**Slett egen konto (siste runde)**: konto-modalens bunnrad har fått en rød
+**«Slett konto»** i høyre ende, og **«Logg ut» er gjort GUL** — det reversible og
+det endelige skal ikke se like ut. Slett-knappen åpner en advarsel som lister hva
+som forsvinner, og som ikke har noen OK-knapp: bekreftelsen er et **sveipefelt**
+som må dras helt til høyre (`.confirm-swipe`, søppelkassenes sveipe-formspråk i
+faresonens farger; sveipet måles fra der fingeren gikk ned, og `role="slider"` +
+piltastene gir tastaturbrukere samme vei inn). Alt arbeidet skjer serverside i én
+transaksjon (`delete_account()`): universer som står UTEN EIER når brukeren er
+borte slettes helt (kaskade + gravsteiner, også for dem det var delt med),
+`owner_id` på det som overlever ARVES av en gjenværende universeier (feltet gir
+ingen rettigheter, men FK-en er `on delete cascade` — uten arven ville
+profilslettingen revet vekk innhold i ANDRES delte universer), `responsible`
+nulles med nytt stempel, og roller, invitasjoner begge veier, e-postlogg,
+profilrad og `auth.users`-raden slettes. Klienten rydder i tillegg sin egen cache
++ `hk-migrated:<uid>` og lander på innloggingssiden. `universes/cards/items_before_update`
+slipper nå gjennom en `owner_id`-endring under `in_privileged_op()` (som
+`groups_before_update` alt gjorde). Krever en DB-migrering i kontomodus (kun
+funksjoner, ingen nye kolonner) — se `TODO.md`. Nye tester:
+`supabase/tests/test-account-deletion.sql` og `tests/delete-account.test.js`. Se
+`docs/rettigheter-og-deling.md` (autoritativ), `docs/accounts.md`, `docs/menus.md`,
+`docs/design-system.md`, `docs/trash.md`.
+
+**Opprettelse og plassering spør FORELDEREN (forrige runde)**: et vanlig medlem kunne
 gå inn i en LÅST gruppe og trykke «＋ Liste». RLS avviste skrivingen i det stille,
 og siden lista arvet gruppelåsen ble den umulig å redigere ELLER slette igjen — et
 spøkelse i localStorage. Årsaken var at klienten spurte `frozen(objekt)` («kan jeg

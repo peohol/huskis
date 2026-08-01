@@ -165,9 +165,13 @@ Innhold (ovenfra og ned):
   «vis passordet»-knapp). Se `docs/accounts.md`.
 - **E-postvarsel-toggle** (`#email-pref-toggle`, se `docs/accounts.md`).
 - **«Invitasjoner»-innboksen** (`#menu-invites`, vises kun med innhold).
-- **«Logg ut»** nederst (rød knapp, med bekreftelse), over en delelinje
-  (`.menu-divider`) i samme stil som `.modal-head` — se
-  `docs/design-system.md` («Delelinjer i modaler»).
+- **Bunnraden** (`.menu-account-actions`, under en delelinje `.menu-divider` i
+  samme stil som `.modal-head` — se `docs/design-system.md` («Delelinjer i
+  modaler»)): **«Logg ut»** (GUL, med bekreftelse) i venstre ende og **«Slett
+  konto»** (RØD, med søppelkasse-ikon) i høyre. Fargene skiller det reversible
+  fra det endelige; avstanden hindrer feiltrykk. Slett-knappen åpner
+  `#delete-account-modal` (advarsel + sveip-for-å-bekrefte) — se
+  `docs/accounts.md`.
 
 ## Del-modalens tilbakeknapp
 

@@ -182,6 +182,13 @@ som fjerner gravsteinene for nøyaktig de id-ene importen skriver.
 Vanlig sletting til papirkurven setter derimot INGEN gravstein — den er bare et
 `trashed`-flagg, og «Gjenopprett» er en helt vanlig innholds-endring.
 
+**Kontosletting** går utenom papirkurven: `delete_account()` sletter universene
+brukeren var eneste eier av permanent med en gang (kaskade + gravstein for hver
+rad, akkurat som en tømming), for det finnes ingen konto igjen til å angre fra.
+Gravsteinene fra en slettet konto blir stående som alle andre — de er id-er uten
+personopplysninger, og de er nettopp det som hindrer at en annen enhet med gammel
+cache legger innholdet inn igjen. Se `docs/rettigheter-og-deling.md` del 10.
+
 Alle tekster/titler sier «hold og sveip for å tømme» (ikke «hold i 3
 sekunder»).
 

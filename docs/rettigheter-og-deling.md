@@ -487,6 +487,37 @@ rolleendring), lukkes visningen, appen navigerer til nærmeste gyldige fallback,
 og en nøktern melding forklarer hva som skjedde (`noteAccessLoss`). En gammel
 lokal kopi blir aldri stående redigerbar.
 
+### Slette hele kontoen
+
+`delete_account()` (SECURITY DEFINER, én transaksjon) er «forlat alt + slett
+mitt eget» i én operasjon. Regelen er den samme som ellers i modellen: **det som
+blir stående uten eier når jeg er borte, er mitt og følger med.**
+
+| Objektet | Hva skjer |
+|---|---|
+| Univers jeg er eneste eier av | slettes helt, med hele undertreet og gravstein for hver rad — også for dem jeg har delt med |
+| Univers med andre eiere | står igjen; jeg fjernes som medlem (som «Forlat») |
+| Univers jeg bare er medlem av | urørt; jeg fjernes som medlem |
+| Gruppe jeg er eneste eksplisitte gruppeeier av | står igjen — universeierne er dynamiske supereiere |
+| Innhold jeg har OPPRETTET i noe som overlever | står igjen; oppretteren arves av en gjenværende universeier |
+| `responsible` som peker på meg | nulles, med nytt innholds-stempel |
+| Roller, invitasjoner (begge veier), e-postlogg, profil, auth-bruker | slettes |
+| Gravsteiner | blir stående (id-er uten personopplysninger — de er nettopp det som hindrer gjenoppstandelse) |
+
+Oppretter-arven er ikke en omskriving av historien for moro skyld: `owner_id` gir
+ingen rettigheter, men FK-en er `on delete cascade`. Uten arven ville
+profilslettingen revet vekk innhold i andres delte universer — et listepunkt jeg
+la inn i en felles liste er de andres innhold like mye som mitt. Arvingen er
+deterministisk (`surviving_universe_owner`: eldste eiermedlemskap først).
+
+Rekkefølgen i funksjonen er ikke tilfeldig: invitasjonene ryddes FØR universene,
+for et univers som slettes tar sine egne invitasjoner med i kaskaden, og da ville
+e-postlogg-radene deres ikke lenger vært mulige å finne.
+
+Klienten kaller RPC-en fra konto-modalen bak en advarsel som må **sveipes** til
+høyre (se `docs/accounts.md`), rydder sine lokale spor og lander på
+innloggingssiden.
+
 ---
 
 ## 11. Flytting av grupper
@@ -640,5 +671,9 @@ på nytt — en rolle som senere er fjernet med vilje skal ikke komme tilbake.
   — oppgraderingsløpet fra den gamle databasefasongen.
 * `supabase/tests/test-users-and-sharing.sql` — grunnflyten (registrering, RLS,
   deling, import, gravsteiner, anon-sperre).
+* `supabase/tests/test-account-deletion.sql` — kontosletting: hva som slettes,
+  hva som overlever, oppretter-arven, ansvaret, restene (fire brukere).
+* `tests/delete-account.test.js` — knapperaden, advarselen, sveipet (for kort /
+  fullt / tastatur) og utfallet i «databasen» (desktop + mobil).
 * `tests/roles-and-sections.test.js` — de tre seksjonene, capability-styrte
   knapper, medlemskategorier, breadcrumbs, tap av tilgang (desktop + mobil).

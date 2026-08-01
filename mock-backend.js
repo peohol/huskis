@@ -162,6 +162,15 @@
   function universeOwnerCount(db, id) {
     return db.memberships.filter(function (m) { return m.universe_id === id && m.role === 'owner'; }).length;
   }
+  // En gjenværende eier av universet (aldri uid) — speiler
+  // public.surviving_universe_owner(). Null = universet står uten eier når
+  // brukeren er borte, og skal slettes med kontoen (se delete_account).
+  function survivingOwner(db, id, uid) {
+    var m = db.memberships.filter(function (x) {
+      return x.universe_id === id && x.role === 'owner' && x.user_id !== uid;
+    }).sort(function (a, b) { return (a.created_at || 0) - (b.created_at || 0); })[0];
+    return m ? m.user_id : null;
+  }
   function universeOwnerSet(db, id) {
     return db.memberships.filter(function (m) { return m.universe_id === id && m.role === 'owner'; })
       .map(function (m) { return m.user_id; }).sort().join(',');
@@ -1046,6 +1055,54 @@
         return null;
       },
       get_members: function (p) { return getMembers(db, p.p_type, p.p_id, uid); },
+      // Sletter kontoen og alle spor av den — speiler public.delete_account()
+      // steg for steg (rekkefølgen betyr noe: invitasjonene ryddes FØR
+      // universene, som ellers ville tatt dem med i kaskaden).
+      delete_account: function () {
+        var me = db.profiles.find(function (x) { return x.id === uid; });
+        if (!me) throw new Error('fant ingen profil for kontoen');
+        var em = String(me.email).toLowerCase();
+        var now = Date.now();
+        var heir = function (uni) { return survivingOwner(db, uni, uid); };
+
+        // 1. invitasjoner begge veier (også de som bare er adressert til e-posten)
+        db.share_invites = db.share_invites.filter(function (s) {
+          return !(s.inviter_id === uid || s.invitee_id === uid ||
+                   String(s.invitee_email).toLowerCase() === em);
+        });
+        // 2. universer jeg er knyttet til som står uten eier etter meg
+        db.universes.filter(function (u) {
+          return heir(u.id) === null && (u.owner_id === uid || isUniverseMember(db, u.id, uid));
+        }).map(function (u) { return u.id; }).forEach(function (id) {
+          writeTombstone(db, 'universe', id);
+          cascadeDelete(db, 'universe', id);
+          db.universes = db.universes.filter(function (x) { return x.id !== id; });
+        });
+        // 3. oppretter-arv på alt som overlever
+        db.universes.forEach(function (u) { if (u.owner_id === uid) u.owner_id = heir(u.id); });
+        db.groups.forEach(function (g) { if (g.owner_id === uid) g.owner_id = heir(g.universe_id); });
+        db.cards.forEach(function (c) {
+          if (c.owner_id === uid) c.owner_id = heir(groupUniverse(db, c.group_id));
+        });
+        db.items.forEach(function (i) {
+          if (i.owner_id !== uid) return;
+          var c = findC(db, i.card_id);
+          i.owner_id = heir(c ? groupUniverse(db, c.group_id) : null);
+        });
+        // 4. ansvarstildelinger (nytt innholds-stempel) + rollene mine
+        db.cards.forEach(function (c) {
+          if (c.responsible === uid) { c.responsible = null; c.ts = now; c.org = 'server'; }
+        });
+        db.items.forEach(function (i) {
+          if (i.responsible === uid) { i.responsible = null; i.ts = now; i.org = 'server'; }
+        });
+        db.memberships = db.memberships.filter(function (m) { return m.user_id !== uid; });
+        // 5. profilen og selve kontoen (mocken har ingen auth.users-tabell —
+        //    profilen + passordet ER kontoen her)
+        db.profiles = db.profiles.filter(function (x) { return x.id !== uid; });
+        delete db.passwords[em];
+        return null;
+      },
       // Den ENESTE veien en gruppe bytter univers. Samme domene → reparenting;
       // ulikt domene → kopier-og-slett med nye id-er + gravsteiner.
       move_group: function (p) {
