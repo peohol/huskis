@@ -33,7 +33,7 @@ Nye kontroller skal bruke disse — aldri egne ad hoc-verdier. Endres et token,
 skal hele appen følge med.
 
 Alle knapper i samme knapperad har identisk høyde/radius/flate (`--control-h`
-/ `--control-radius`). Gjelder ＋-knapper, søppelkasser, filterkortet, breadcrumb-knappene og kontoknappen.
+/ `--control-radius`). Gjelder ＋-knapper, søppelkasser, breadcrumb-knappene og kontoknappen.
 
 ## Luft-regler (padding/margin/gap)
 
@@ -397,7 +397,7 @@ forveksler de to.
 ## Flate-mønsteret
 
 Hvile = halvgjennomsiktig hvit (`--control-bg`), hover = helt ugjennomsiktig
-hvit. Gjelder søppelkasser, filterkortet, breadcrumb-knappene og kontoknappen.
+hvit. Gjelder søppelkasser, breadcrumb-knappene og kontoknappen.
 
 ## `[hidden]`-regelen
 

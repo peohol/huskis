@@ -1,7 +1,6 @@
-# Fargesystem og filter
+# Fargesystem og gamle merkelapper
 
-Les denne når oppgaven berører fargelegging av kort/rader, eller
-Mine/Delte-filteret.
+Les denne når oppgaven berører fargelegging av kort/rader.
 
 ## Fargesystem (HSL, posisjonsbasert)
 
@@ -12,19 +11,10 @@ stabil reserve i søppelkasse-modalen). Gjelder gruppe-rader, listekort OG
 univers-radene i menyen. Hvit skrift m/ `--text-shadow` på alle fargede flater
 og grønne knapper.
 
-## Filter (Mine/Delte)
+## Legacy: K/P-felter
 
-Filterkortet (👁️ Mine/Delte) i toppmenyens listefunksjons-rad (se `docs/menus.md`), per enhet
-(`mine-lister-filter`, ikke synket). To uavhengige brytere — «Mine» (lister du
-selv har OPPRETTET, `c._createdByMe !== false`) og «Delte» (lister andre har
-opprettet — `c._createdByMe === false`). Filteret handler kun om hvem som laget
-lista; tilgangen styres av roller. Begge kan stå på (alt vises) eller av (alt
-skjules). Kort trykk =
-uavhengig toggle; hold en bryter i 250 ms (`FILTER_HOLD_MS`) → aktiverer kun
-den (skrur av den andre). På-tilstanden bruker samme grønne knappestil
-(`--grad-green` + lys-opp-hover) som resten av de grønne knappene.
-
-Erstatter det gamle K/P-merkelapp-systemet (per-kort K/P-brytere + KP-filter).
-`k`/`p`/`labTs`/`labOrg`-feltene lever videre i datamodellen og synk-laget
+`k`/`p`/`labTs`/`labOrg` på lister er rester av et tidligere merkelapp-/
+filter-system (per-kort K/P-brytere + et KP-filter, senere en Mine/Delte-
+filterknapp) som er fjernet. Feltene lever videre i datamodellen og synk-laget
 (`docs/data-model.md`, `docs/accounts.md`) for bakoverkompatibilitet med
-allerede synkede data, men er ikke lenger synlige eller redigerbare i UI-et.
+allerede synkede data, men er ikke synlige eller redigerbare i UI-et.

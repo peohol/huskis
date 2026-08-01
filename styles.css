@@ -518,60 +518,6 @@ body {
   padding: 0 10px;
 }
 
-/* ---------------- Filter-brytere ---------------- */
-.switch {
-  appearance: none;
-  border: none;
-  cursor: pointer;
-  padding: 0;
-  width: 29px;
-  height: 29px;
-  border-radius: 50%;
-  display: grid;
-  place-items: center;
-  font-family: inherit;
-  font-weight: 700;
-  font-size: 16px;
-  line-height: 1;
-  transition: background 0.15s, color 0.15s, opacity 0.15s, transform 0.08s, filter 0.18s, box-shadow 0.18s;
-}
-.switch:active { transform: scale(0.88); }
-
-/* Filter (øye + Mine/Delte-ikoner) i verktøylinja: samme flate-mønster som
-   søppelkassene — halvgjennomsiktig hvit → hvit ved hover; samme høyde/radius
-   som resten av raden. */
-.filter-switches {
-  flex: 0 0 auto;
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  height: var(--control-h);
-  padding: 0 10px;
-  background: var(--control-bg);
-  border-radius: var(--control-radius);
-  box-shadow: var(--shadow-sm);
-  transition: background 0.18s, box-shadow 0.18s;
-}
-.filter-switches:hover { background: #fff; box-shadow: var(--shadow-md); }
-.filter-label {
-  font-size: var(--fs-base);
-  line-height: 1;
-  color: var(--ink-soft);
-  margin-right: 2px;
-}
-.filter-switches .switch {
-  font-size: var(--fs-sm);
-  background: #e6ece6;
-  color: var(--ink-soft);
-}
-/* På-tilstand: samme grønne stil/feedback som alle andre grønne knapper. */
-.filter-switches .switch.on {
-  background: var(--grad-green);
-  color: #fff;
-  box-shadow: var(--shadow-sm);
-}
-.filter-switches .switch.on:hover { filter: brightness(1.09) saturate(1.05); box-shadow: var(--shadow-md); }
-
 /* ---------------- Board (kolonner) ----------------
    Kolonnene er EKTE containere (`.board-col`), ikke CSS multi-column. Grunnen er
    fyllrekkefølgen: multi-column balanserer (n lister → n kolonner med én hver),
@@ -1128,7 +1074,6 @@ body {
 .btn-add:focus-visible,
 .trashcan:focus-visible,
 .account-btn:focus-visible,
-.switch:focus-visible,
 .icon-btn:focus-visible {
   outline: 2.5px solid var(--primary);
   outline-offset: 2px;
