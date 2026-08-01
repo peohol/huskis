@@ -230,6 +230,34 @@ til den har landet (`suppressedRows`, se `docs/accounts.md`) — så den verken
 gjenoppstår lokalt eller trigger delete-push mot andres rader. Forlatelse rører
 ALDRI innholdet; det består for de andre.
 
+## Søpla er felles, myndigheten er personlig
+
+En søppelkasse kan inneholde objekter man ikke rår over: en liste slettet FØR
+gruppen ble låst, eller et delt univers eieren har slettet for alle. Både
+«Gjenopprett» og «Tøm» er derfor gatet per rad (`manage` / `purge` i
+`showTrashModal`-konfigurasjonen):
+
+- **`manage` → «Gjenopprett».** Å gjenopprette er å skrive `trashed = false`, og
+  vakten krever nøyaktig samme myndighet som å slette (`can_delete_object`).
+  Universer/grupper bruker serverens `caps.delete`; lister og listepunkter har
+  ingen egne caps, og der er `!frozen(obj)` samme regel. Uten myndighet er
+  knappen **avskrudd** med en forklarende tooltip, ikke skjult — raden skal
+  fortsatt kunne ses og forstås.
+- **`purge` → «Tøm permanent».** Samme svar, men et univers/en gruppe man kan
+  FORLATE teller også med (se over). Er ingenting i kassen tømbart, er knappen
+  avskrudd; er kassen blandet, tømmes det tømbare og en toast sier fra om resten
+  («Låst innhold kan ikke slettes permanent»). Sveipefeltet går utenom modalen,
+  så toasten er nødvendig der.
+
+Forlat-veien krever i tillegg at man FAKTISK kan forlate (`cap(obj, 'leave')`).
+Er grunnen til at man ikke kan slette en LÅS — ikke at objektet er andres —
+finnes det ingen rolle å gi fra seg, og raden blir stående i kassen i stedet for
+å bli fjernet lokalt av en `leave_share` serveren ville avvist.
+
+Uten disse sjekkene forsvant objektet lokalt (permanent gravstein) mens raden
+levde videre for alle andre, og klienten forsøkte en `DELETE` RLS filtrerte bort
+ved hver eneste synk-runde.
+
 ## Knappen svarer alltid på et lite bevegelig trykk
 
 `openField()` kan avvise et sveipeforsøk FØR `mode` rekker å bli `'swiping'`

@@ -216,7 +216,12 @@ Bytte utløses av **overlapp**, ikke av et punkt:
   flyttes/slippes den utenfor sonen ville zone-lyttere aldri fyre og timeren
   startet et drag etter at knappen alt var sluppet. En synk-
   rebuild kan bytte ut noden mens man holder → timeren dropper draget om
-  `dragEl` ikke lenger er `isConnected`. `canDrag` gater på frossen/capability/`done`.
+  `dragEl` ikke lenger er `isConnected`. `canDrag` gater på frossen/capability/`done`
+  — og på FORELDERENS myndighet der plasseringen tilhører den: et listekort krever
+  i tillegg `canAddList(activeGroupObj())` (rekkefølgen blant søskenlistene er
+  gruppens struktur, akkurat som grupperadene krever `reorderInParent` på
+  universet). Uten det kunne en liste med lås-unntak i en låst gruppe dras rundt
+  mens serveren forkastet hver posisjons-skriving.
   Under et pågående drag blokkeres native scroll av en ikke-passiv `touchmove`-
   lytter (`preventTouchScroll`, av/på i `beginDragCommon`/`finishDrag`). Mens
   holdet registreres (KUN touch/pen, der holdet tar tid) får `dragEl` et lite
@@ -558,6 +563,17 @@ inne i kortet.
 - **Låst kilde-liste**: umulig — selve draget er avskrudd (`attachHoldDrag` sin
   `canDrag = !frozen(cardData)` for både listepunkt og kategori), så ingen egen
   vakt trengs i drop-flyten.
+- **Opprettelsesrett i gruppen** (`S.canExtract(row)`, sjekket via
+  `canExtractDragged()` i `updateItemPlacement`/`updateCategoryPlacement`):
+  ekstrahering LAGER en liste, og den myndigheten ligger på GRUPPEN, ikke på det
+  løftede objektet. Board-scopet spør derfor `canAddList(activeGroupObj())`.
+  Uten den dukker ny-liste-placeholderen aldri opp — `setReorderMode()` beholder
+  reorder-placeholderen der den står, og et slipp i board-luften legger objektet
+  tilbake der det kom fra. Det er ikke bare teoretisk: et **lås-unntak** på én
+  liste i en låst gruppe gjør nettopp at objektet kan dras (lista er redigerbar)
+  uten at en ny søskenliste kan opprettes. Nav-scopet svarer `cap(row, 'move')` —
+  det NYE universet blir alltid mitt, men å ta gruppen UT av det gamle er en
+  flytting `move_group` krever destruktiv myndighet i kilden for.
 - Under auto-scroll re-evalueres modus/plassering via `reapplyPlacement` →
   `updateCategoryPlacement`/`updateItemPlacement` (samme som peker-bevegelsen), så
   ekstrahering virker også når man drar mot vindus-kanten.
