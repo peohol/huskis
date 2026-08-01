@@ -310,8 +310,8 @@
   // Serialisering hopper over intern backend-metadata (_parent/_canon/_caps/…),
   // som ellers ville gitt sykliske referanser i kontomodus. State-nivå _tomb/_hlc
   // beholdes. _createdByMe (en ren boolsk verdi, ingen sirkulær referanse) beholdes
-  // også, slik at Mine/Delte-filteret har et riktig signal fra cachet state på
-  // kalde reloads/offline — før en vellykket get_my_doc overskriver den friskt.
+  // også, slik at foreignIds() har et riktig signal fra cachet state på kalde
+  // reloads/offline (se der) — før en vellykket get_my_doc overskriver den friskt.
   // _base/_baseV er synk-basen (forrige serverkjente doc, se cloudCycle): den MÅ
   // ligge i den samme localStorage-posten som innholdet, slik at basen og staten
   // den ble flettet mot alltid lagres i én og samme skriving. Havnet de i hver
@@ -495,7 +495,6 @@
   const respSwitcherOverlay = document.getElementById('resp-switcher');
   const respSwitcherPanel = document.getElementById('resp-switcher-panel');
   const addCardBtn = document.getElementById('add-card-btn');
-  const filterSwitchesEl = document.getElementById('filter-switches');
   const cardTpl = document.getElementById('card-template');
   const itemTpl = document.getElementById('item-template');
   const catTpl = document.getElementById('category-template');
@@ -733,32 +732,6 @@
   const scopeForEl = (el) => (el && navBoard.contains(el) ? navScope : boardScope);
   const dragScope = () => drag.scope || boardScope;
 
-  /* ---------------- Filter (Mine / Delte) ----------------
-     Per enhet (ikke synket). To uavhengige brytere: «Mine» (lister du selv har
-     opprettet) og «Delte» (lister andre har delt med deg — kun kontomodus;
-     alltid tomt utenfor kontomodus siden deling ikke finnes der). Begge kan stå
-     på samtidig (viser alt), eller begge av (skjuler alt). Kort trykk på en
-     bryter = vanlig toggle; hold i FILTER_HOLD_MS → aktiver kun den bryteren
-     (skru av den andre) — se klikk-/hold-håndteringen ved filterSwitchesEl. */
-  const FILTER_KEY = 'mine-lister-filter';
-  const FILTERS = ['mine', 'delt'];
-  function loadFilter() {
-    try {
-      const f = JSON.parse(localStorage.getItem(FILTER_KEY));
-      if (f && typeof f === 'object') return { mine: f.mine !== false, delt: f.delt !== false };
-    } catch (e) { /* ignore */ }
-    return { mine: true, delt: true };
-  }
-  const filter = loadFilter();
-  function saveFilter() {
-    try { localStorage.setItem(FILTER_KEY, JSON.stringify(filter)); } catch (e) { /* ignore */ }
-  }
-  // Er lista laget av noen andre? («Delte» i filteret; «Mine» = laget av meg.)
-  function cardIsShared(c) { return c._createdByMe === false; }
-  function cardMatchesFilter(c) {
-    return cardIsShared(c) ? filter.delt : filter.mine;
-  }
-
   /* ---------------- Render ---------------- */
   // Søppelkasse-badgen (univers/gruppe/liste): antall, og knappen skjules når
   // kassen er tom. Delt av de tre faste knappene (element-nivået er annerledes
@@ -956,7 +929,6 @@
   function renderBoard() {
     followActiveGroup();
     updateTrashCount();
-    renderFilterSwitches();
     updateToolbarState();
 
     board.innerHTML = '';
@@ -979,31 +951,26 @@
 
     const active = activeCards();
     // Posisjonsbasert farge: kortene re-fargelegges her (etter add/slett/omrokkering)
-    // ut fra sin indeks i den synlige, sorterte lista — uavhengig av filteret.
+    // ut fra sin indeks i den synlige, sorterte lista.
     active.forEach((c, i) => { c.color = colorForIndex(i); });
-    const cards = active.filter(cardMatchesFilter);
+    const cards = active;
 
     if (cards.length === 0) {
       board.classList.add('empty');
       const es = document.createElement('div');
       es.className = 'empty-state';
-      if (active.length === 0) {
-        const big = document.createElement('div'); big.className = 'big'; big.innerHTML = ICONS.list;
-        const p1 = document.createElement('p'); p1.textContent = 'Ingen lister i «' + group.name + '» ennå.';
-        const p2 = document.createElement('p');
-        // «＋ Liste» er skrudd av i en låst gruppe — da skal tomtilstanden si
-        // hvorfor, ikke be om et trykk som ikke fører noe sted.
-        if (canAddList(group)) {
-          p2.innerHTML = 'Trykk <span class="hint-chip">' + ICONS.plus + ' ' + ICONS.list + '</span> for å komme i gang.';
-        } else {
-          big.innerHTML = ICONS.lock;
-          p2.textContent = 'Gruppen er låst, så du kan ikke opprette lister i den.';
-        }
-        es.append(big, p1, p2);
+      const big = document.createElement('div'); big.className = 'big'; big.innerHTML = ICONS.list;
+      const p1 = document.createElement('p'); p1.textContent = 'Ingen lister i «' + group.name + '» ennå.';
+      const p2 = document.createElement('p');
+      // «＋ Liste» er skrudd av i en låst gruppe — da skal tomtilstanden si
+      // hvorfor, ikke be om et trykk som ikke fører noe sted.
+      if (canAddList(group)) {
+        p2.innerHTML = 'Trykk <span class="hint-chip">' + ICONS.plus + ' ' + ICONS.list + '</span> for å komme i gang.';
       } else {
-        es.innerHTML = '<div class="big">' + ICONS.eye + '</div><p>Ingen lister passer filteret.</p>' +
-          '<p>Skru på Mine eller Delte for å se flere.</p>';
+        big.innerHTML = ICONS.lock;
+        p2.textContent = 'Gruppen er låst, så du kan ikke opprette lister i den.';
       }
+      es.append(big, p1, p2);
       board.appendChild(es);
       fixBoardBottomGap();
       save();
@@ -5144,46 +5111,6 @@
     // Fokuser den nye tittelen for redigering
     const el = board.querySelector('.card[data-id="' + c.id + '"] .card-title');
     if (el) el.click();
-  });
-
-  /* ---------------- Filter-brytere (verktøylinja) ----------------
-     Kort trykk = uavhengig toggle. Hold i FILTER_HOLD_MS → aktiver kun den
-     bryteren man holder (skru av den andre) — samme pointerdown/-up/-move-mønster
-     som `attachTrashHold`, uten sveipefeltet. */
-  function renderFilterSwitches() {
-    filterSwitchesEl.querySelectorAll('.switch').forEach((sw) => {
-      const on = filter[sw.dataset.flag] !== false;
-      sw.classList.toggle('on', on);
-      sw.setAttribute('aria-pressed', on ? 'true' : 'false');
-    });
-  }
-  const FILTER_HOLD_MS = 250;
-  filterSwitchesEl.querySelectorAll('.switch').forEach((sw) => {
-    const flag = sw.dataset.flag;
-    const other = FILTERS.find((f) => f !== flag);
-    let holdTimer = null, held = false;
-    sw.addEventListener('pointerdown', (ev) => {
-      if (ev.button != null && ev.button > 0) return;
-      held = false;
-      clearTimeout(holdTimer);
-      holdTimer = setTimeout(() => {
-        held = true;
-        filter[flag] = true;
-        filter[other] = false;
-        saveFilter();
-        render();
-      }, FILTER_HOLD_MS);
-    });
-    const cancelHold = () => { clearTimeout(holdTimer); holdTimer = null; };
-    sw.addEventListener('pointerup', cancelHold);
-    sw.addEventListener('pointercancel', cancelHold);
-    sw.addEventListener('pointerleave', cancelHold);
-    sw.addEventListener('click', () => {
-      if (held) { held = false; return; } // allerede håndtert av holdet
-      filter[flag] = !filter[flag];
-      saveFilter();
-      render(); // tegner også bryterne på nytt via renderFilterSwitches()
-    });
   });
 
   /* ============================================================

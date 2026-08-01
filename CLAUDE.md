@@ -34,7 +34,7 @@ oppdater det aktuelle dokumentet der (ikke dump alt tilbake i denne fila).
 | `docs/board-layout.md` | avstander/padding/gap i selve listevisningen |
 | `docs/drag-and-drop.md` | reorder, dra-og-slipp-motoren, overføring mellom lister/grupper |
 | `docs/trash.md` | slette/gjenopprette/tømme på ethvert nivå |
-| `docs/colors-and-labels.md` | HSL-fargesystem, Mine/Delte-filter |
+| `docs/colors-and-labels.md` | HSL-fargesystem, gamle K/P-felter |
 | `docs/scheduling.md` | innstillingsmodalen (tannhjul), tidsplan (start/frist), indikator-chips |
 | `docs/rettigheter-og-deling.md` | HVEM får gjøre HVA: oppretter/eier-hierarki, arvet lås + unntak, posisjon-vs-innhold, tretilstands invitasjonspolicy — den autoritative rettighetsmodellen |
 | `docs/arkitektur-brukere-deling.md` | brukerkontoer (Supabase Auth), eierskap, deling/mounts, lås, e-postvarsel — databasesiden |
@@ -710,3 +710,12 @@ fra seg). Serveren var aldri feil (verifisert mot produksjon: `cards_insert` →
 `can_create_child`), så ingen DB-migrering. Ny test
 `tests/locked-group-creation.test.js`. Se `docs/rettigheter-og-deling.md`
 (autoritativ), `docs/trash.md`, `docs/drag-and-drop.md`, `docs/menus.md`.
+
+**Fjernet: Mine/Delte-filterknappen (siste runde)**: øye-ikonet + de to grønne
+sirkelknappene i listefunksjons-raden (filtrerte listene på hvem som opprettet
+dem) er fjernet i sin helhet — HTML (`.filter-switches`), JS (`renderBoard()`
+viser nå alle aktive lister uten `cardMatchesFilter`) og CSS (`.switch`). Feltet
+den lente seg på (`c._createdByMe`) beholdes uendret — det brukes fortsatt av
+synk-laget (`foreignIds()`) til å hindre at gammel delt-innhold gjenoppstår med
+feil oppretter. Ingen DB-migrering. Se `docs/colors-and-labels.md`,
+`docs/menus.md`, `docs/design-system.md`.
