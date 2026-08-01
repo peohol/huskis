@@ -26,6 +26,7 @@ $PSQL --no-psqlrc --echo-errors -f tests/test-roles-and-sharing.sql
 $PSQL --no-psqlrc --echo-errors -f tests/test-group-moves.sql
 $PSQL --no-psqlrc --echo-errors -f tests/test-email-sharing.sql
 $PSQL --no-psqlrc --echo-errors -f tests/test-tombstones.sql
+$PSQL --no-psqlrc --echo-errors -f tests/test-account-deletion.sql
 
 # ---- 2. Oppgraderingsløp: den GAMLE databasefasongen med data, migrert ----
 fresh_schema
@@ -35,4 +36,4 @@ $PSQL -f users-and-sharing.sql   # idempotens også på migreringen av gamle dat
 $PSQL --no-psqlrc --echo-errors -f tests/test-list-share-migration.sql
 
 echo "✅ Alle SQL-tester grønne (roller, capabilities, gruppeflytting, e-postvarsel,"
-echo "   gravsteiner og migrering av gamle listedelinger — begge løp)."
+echo "   gravsteiner, kontosletting og migrering av gamle listedelinger — begge løp)."

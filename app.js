@@ -310,8 +310,8 @@
   // Serialisering hopper over intern backend-metadata (_parent/_canon/_caps/…),
   // som ellers ville gitt sykliske referanser i kontomodus. State-nivå _tomb/_hlc
   // beholdes. _createdByMe (en ren boolsk verdi, ingen sirkulær referanse) beholdes
-  // også, slik at Mine/Delte-filteret har et riktig signal fra cachet state på
-  // kalde reloads/offline — før en vellykket get_my_doc overskriver den friskt.
+  // også, slik at foreignIds() har et riktig signal fra cachet state på kalde
+  // reloads/offline (se der) — før en vellykket get_my_doc overskriver den friskt.
   // _base/_baseV er synk-basen (forrige serverkjente doc, se cloudCycle): den MÅ
   // ligge i den samme localStorage-posten som innholdet, slik at basen og staten
   // den ble flettet mot alltid lagres i én og samme skriving. Havnet de i hver
@@ -495,7 +495,6 @@
   const respSwitcherOverlay = document.getElementById('resp-switcher');
   const respSwitcherPanel = document.getElementById('resp-switcher-panel');
   const addCardBtn = document.getElementById('add-card-btn');
-  const filterSwitchesEl = document.getElementById('filter-switches');
   const cardTpl = document.getElementById('card-template');
   const itemTpl = document.getElementById('item-template');
   const catTpl = document.getElementById('category-template');
@@ -733,32 +732,6 @@
   const scopeForEl = (el) => (el && navBoard.contains(el) ? navScope : boardScope);
   const dragScope = () => drag.scope || boardScope;
 
-  /* ---------------- Filter (Mine / Delte) ----------------
-     Per enhet (ikke synket). To uavhengige brytere: «Mine» (lister du selv har
-     opprettet) og «Delte» (lister andre har delt med deg — kun kontomodus;
-     alltid tomt utenfor kontomodus siden deling ikke finnes der). Begge kan stå
-     på samtidig (viser alt), eller begge av (skjuler alt). Kort trykk på en
-     bryter = vanlig toggle; hold i FILTER_HOLD_MS → aktiver kun den bryteren
-     (skru av den andre) — se klikk-/hold-håndteringen ved filterSwitchesEl. */
-  const FILTER_KEY = 'mine-lister-filter';
-  const FILTERS = ['mine', 'delt'];
-  function loadFilter() {
-    try {
-      const f = JSON.parse(localStorage.getItem(FILTER_KEY));
-      if (f && typeof f === 'object') return { mine: f.mine !== false, delt: f.delt !== false };
-    } catch (e) { /* ignore */ }
-    return { mine: true, delt: true };
-  }
-  const filter = loadFilter();
-  function saveFilter() {
-    try { localStorage.setItem(FILTER_KEY, JSON.stringify(filter)); } catch (e) { /* ignore */ }
-  }
-  // Er lista laget av noen andre? («Delte» i filteret; «Mine» = laget av meg.)
-  function cardIsShared(c) { return c._createdByMe === false; }
-  function cardMatchesFilter(c) {
-    return cardIsShared(c) ? filter.delt : filter.mine;
-  }
-
   /* ---------------- Render ---------------- */
   // Søppelkasse-badgen (univers/gruppe/liste): antall, og knappen skjules når
   // kassen er tom. Delt av de tre faste knappene (element-nivået er annerledes
@@ -956,7 +929,6 @@
   function renderBoard() {
     followActiveGroup();
     updateTrashCount();
-    renderFilterSwitches();
     updateToolbarState();
 
     board.innerHTML = '';
@@ -979,31 +951,26 @@
 
     const active = activeCards();
     // Posisjonsbasert farge: kortene re-fargelegges her (etter add/slett/omrokkering)
-    // ut fra sin indeks i den synlige, sorterte lista — uavhengig av filteret.
+    // ut fra sin indeks i den synlige, sorterte lista.
     active.forEach((c, i) => { c.color = colorForIndex(i); });
-    const cards = active.filter(cardMatchesFilter);
+    const cards = active;
 
     if (cards.length === 0) {
       board.classList.add('empty');
       const es = document.createElement('div');
       es.className = 'empty-state';
-      if (active.length === 0) {
-        const big = document.createElement('div'); big.className = 'big'; big.innerHTML = ICONS.list;
-        const p1 = document.createElement('p'); p1.textContent = 'Ingen lister i «' + group.name + '» ennå.';
-        const p2 = document.createElement('p');
-        // «＋ Liste» er skrudd av i en låst gruppe — da skal tomtilstanden si
-        // hvorfor, ikke be om et trykk som ikke fører noe sted.
-        if (canAddList(group)) {
-          p2.innerHTML = 'Trykk <span class="hint-chip">' + ICONS.plus + ' ' + ICONS.list + '</span> for å komme i gang.';
-        } else {
-          big.innerHTML = ICONS.lock;
-          p2.textContent = 'Gruppen er låst, så du kan ikke opprette lister i den.';
-        }
-        es.append(big, p1, p2);
+      const big = document.createElement('div'); big.className = 'big'; big.innerHTML = ICONS.list;
+      const p1 = document.createElement('p'); p1.textContent = 'Ingen lister i «' + group.name + '» ennå.';
+      const p2 = document.createElement('p');
+      // «＋ Liste» er skrudd av i en låst gruppe — da skal tomtilstanden si
+      // hvorfor, ikke be om et trykk som ikke fører noe sted.
+      if (canAddList(group)) {
+        p2.innerHTML = 'Trykk <span class="hint-chip">' + ICONS.plus + ' ' + ICONS.list + '</span> for å komme i gang.';
       } else {
-        es.innerHTML = '<div class="big">' + ICONS.eye + '</div><p>Ingen lister passer filteret.</p>' +
-          '<p>Skru på Mine eller Delte for å se flere.</p>';
+        big.innerHTML = ICONS.lock;
+        p2.textContent = 'Gruppen er låst, så du kan ikke opprette lister i den.';
       }
+      es.append(big, p1, p2);
       board.appendChild(es);
       fixBoardBottomGap();
       save();
@@ -5146,46 +5113,6 @@
     if (el) el.click();
   });
 
-  /* ---------------- Filter-brytere (verktøylinja) ----------------
-     Kort trykk = uavhengig toggle. Hold i FILTER_HOLD_MS → aktiver kun den
-     bryteren man holder (skru av den andre) — samme pointerdown/-up/-move-mønster
-     som `attachTrashHold`, uten sveipefeltet. */
-  function renderFilterSwitches() {
-    filterSwitchesEl.querySelectorAll('.switch').forEach((sw) => {
-      const on = filter[sw.dataset.flag] !== false;
-      sw.classList.toggle('on', on);
-      sw.setAttribute('aria-pressed', on ? 'true' : 'false');
-    });
-  }
-  const FILTER_HOLD_MS = 250;
-  filterSwitchesEl.querySelectorAll('.switch').forEach((sw) => {
-    const flag = sw.dataset.flag;
-    const other = FILTERS.find((f) => f !== flag);
-    let holdTimer = null, held = false;
-    sw.addEventListener('pointerdown', (ev) => {
-      if (ev.button != null && ev.button > 0) return;
-      held = false;
-      clearTimeout(holdTimer);
-      holdTimer = setTimeout(() => {
-        held = true;
-        filter[flag] = true;
-        filter[other] = false;
-        saveFilter();
-        render();
-      }, FILTER_HOLD_MS);
-    });
-    const cancelHold = () => { clearTimeout(holdTimer); holdTimer = null; };
-    sw.addEventListener('pointerup', cancelHold);
-    sw.addEventListener('pointercancel', cancelHold);
-    sw.addEventListener('pointerleave', cancelHold);
-    sw.addEventListener('click', () => {
-      if (held) { held = false; return; } // allerede håndtert av holdet
-      filter[flag] = !filter[flag];
-      saveFilter();
-      render(); // tegner også bryterne på nytt via renderFilterSwitches()
-    });
-  });
-
   /* ============================================================
      SØPPELKASSER (universer / grupper / lister / elementer)
      ------------------------------------------------------------
@@ -5212,12 +5139,14 @@
     const settings = document.getElementById('settings-modal');
     const timeSw = document.getElementById('time-switcher');
     const avatarEd = document.getElementById('avatar-modal');
+    const delAcc = document.getElementById('delete-account-modal');
     document.body.classList.toggle('modal-open',
       !trashModal.hidden || !navModal.hidden ||
       !accountModal.hidden ||
       (share && !share.hidden) || (place && !place.hidden) ||
       (confirmEl && !confirmEl.hidden) || (settings && !settings.hidden) ||
-      (timeSw && !timeSw.hidden) || (avatarEd && !avatarEd.hidden) || respOpen);
+      (timeSw && !timeSw.hidden) || (avatarEd && !avatarEd.hidden) ||
+      (delAcc && !delAcc.hidden) || respOpen);
   }
 
   /* ---------- Felles bekreftelses-modal (erstatter native confirm()) ----------
@@ -5730,6 +5659,8 @@
     if (timeQuickOpen) { closeTimeQuick(); return; } // tids-popoveren ligger øverst
     if (respOpen) { closeResponsible(); return; } // ansvarlig-velgeren ligger øverst
     if (confirmModalEl && !confirmModalEl.hidden) { closeConfirm(false); return; } // øverst
+    const delAcc = document.getElementById('delete-account-modal');
+    if (delAcc && !delAcc.hidden) { closeDeleteAccount(); return; } // over konto-modalen
     if (avatarModal && !avatarModal.hidden) { closeAvatarEditor(); return; } // over konto-modalen
     const share = document.getElementById('share-modal');
     const place = document.getElementById('place-modal');
@@ -6647,6 +6578,146 @@
     if (client) { try { client.auth.signOut(); } catch (e) { /* ignore */ } }
   }
 
+  /* ---------- Slett konto (i konto-modalen) ----------
+     Endelig og uopprettelig, så bekreftelsen er en GEST, ikke en knapp:
+     advarselen forklarer hva som forsvinner (og hva som blir stående hos
+     andre), og feltet må sveipes helt til høyre. Formspråket er søppelkassenes
+     sveipefelt (ikon som roterer, fylling som følger sveipet), her i faresonens
+     farger og som et fast felt i modalen. Tastatur kommer til det samme med
+     piltastene (role="slider").
+     Selve slettingen skjer serverside i én transaksjon (`delete_account`, se
+     docs/rettigheter-og-deling.md); klienten rydder bare sine egne lokale spor
+     og lander på innloggingssiden. */
+  const delAccountBtn = document.getElementById('delete-account-btn');
+  const delAccountModal = document.getElementById('delete-account-modal');
+  const delAccountSwipe = document.getElementById('delete-account-swipe');
+  const delAccountErrorEl = document.getElementById('delete-account-error');
+  delAccountSwipe.innerHTML =
+    ICONS.trashSwipe +
+    '<span class="swipe-label">Slett kontoen</span>' +
+    '<span class="swipe-arrow" aria-hidden="true"></span>';
+  const delSwipeIcon = delAccountSwipe.querySelector('.swipe-icon');
+  const delSwipeLid = delAccountSwipe.querySelector('.swipe-icon-lid');
+  const DEL_SWIPE_MIN = 120;   // minste strekk (px) et sveip må dekke
+  const DEL_KEY_STEP = 0.2;    // ett piltast-trykk (fem trykk = bekreftet)
+  let delDrag = null;          // { id, x0, span } mens fingeren er nede
+  let deletingAccount = false; // sant fra bekreftet gest til utfallet er kjent
+
+  function paintDeleteProgress(p) {
+    const v = Math.min(1, Math.max(0, p));
+    delAccountSwipe.style.setProperty('--p', v.toFixed(3));
+    delSwipeIcon.style.transform = 'rotate(' + (v * 180) + 'deg)';
+    // Lokket svinger opp gjennom hele sveipet — som i søppelkassenes felt.
+    delSwipeLid.style.transform = 'rotate(' + (-95 * v) + 'deg)';
+    delAccountSwipe.setAttribute('aria-valuenow', String(Math.round(v * 100)));
+  }
+  // Ett sted for «hvor langt er sveipet kommet»: helt fremme = slett.
+  function advanceDelete(p) {
+    if (deletingAccount) return;
+    paintDeleteProgress(p);
+    if (p >= 1) fireDeleteAccount();
+  }
+  function openDeleteAccount() {
+    delAccountErrorEl.hidden = true;
+    delAccountErrorEl.textContent = '';
+    deletingAccount = false;
+    delSwipeIcon.classList.remove('shake');
+    paintDeleteProgress(0);
+    delAccountModal.hidden = false;
+    updateModalOpenClass();
+    // Fokus på selve feltet: det er handlingen modalen finnes for, og
+    // skjermlesere leser opp hvordan den bekreftes (aria-label).
+    delAccountSwipe.focus();
+  }
+  function closeDeleteAccount() {
+    delAccountModal.hidden = true;
+    endDelDrag();
+    updateModalOpenClass();
+  }
+  delAccountBtn.addEventListener('click', openDeleteAccount);
+  document.getElementById('delete-account-cancel').addEventListener('click', closeDeleteAccount);
+  document.getElementById('delete-account-close').addEventListener('click', closeDeleteAccount);
+  delAccountModal.addEventListener('click', (ev) => {
+    if (ev.target === delAccountModal) closeDeleteAccount();
+  });
+
+  // Sveipet måles fra der fingeren gikk NED (ikke fra feltets venstrekant): et
+  // trykk i høyre ende skal ikke i seg selv være en bekreftelse. Strekket er
+  // feltets brukbare bredde, så et sveip som starter der ikonet står ender
+  // nøyaktig ved pilspissen. Som de andre dra-motorene lyttes move/up på window
+  // mens gesten pågår, så den ikke mistes om fingeren forlater feltet.
+  function onDelMove(ev) {
+    if (!delDrag || ev.pointerId !== delDrag.id) return;
+    advanceDelete((ev.clientX - delDrag.x0) / delDrag.span);
+  }
+  function onDelUp(ev) {
+    if (!delDrag || ev.pointerId !== delDrag.id) return;
+    endDelDrag();
+    if (!deletingAccount) paintDeleteProgress(0); // sluppet for tidlig → tilbake
+  }
+  function endDelDrag() {
+    window.removeEventListener('pointermove', onDelMove);
+    window.removeEventListener('pointerup', onDelUp);
+    window.removeEventListener('pointercancel', onDelUp);
+    delDrag = null;
+  }
+  delAccountSwipe.addEventListener('pointerdown', (ev) => {
+    if (delDrag || deletingAccount || (ev.button != null && ev.button > 0)) return;
+    ev.preventDefault();
+    const r = delAccountSwipe.getBoundingClientRect();
+    const ir = delSwipeIcon.getBoundingClientRect();
+    delDrag = { id: ev.pointerId, x0: ev.clientX,
+                span: Math.max(DEL_SWIPE_MIN, r.right - 18 - (ir.left + ir.width / 2)) };
+    try { delAccountSwipe.setPointerCapture(ev.pointerId); } catch (e) { /* ikke-aktiv peker */ }
+    window.addEventListener('pointermove', onDelMove);
+    window.addEventListener('pointerup', onDelUp);
+    window.addEventListener('pointercancel', onDelUp);
+  });
+  // Tastatur: samme friksjon, uten peker. Enter/mellomrom gjør bevisst ingenting.
+  delAccountSwipe.addEventListener('keydown', (ev) => {
+    if (deletingAccount) return;
+    const cur = parseFloat(delAccountSwipe.getAttribute('aria-valuenow') || '0') / 100;
+    if (ev.key === 'ArrowRight' || ev.key === 'ArrowUp') advanceDelete(cur + DEL_KEY_STEP);
+    else if (ev.key === 'ArrowLeft' || ev.key === 'ArrowDown') advanceDelete(cur - DEL_KEY_STEP);
+    else if (ev.key === 'End') advanceDelete(1);
+    else if (ev.key === 'Home') advanceDelete(0);
+    else return;
+    ev.preventDefault();
+  });
+
+  async function fireDeleteAccount() {
+    if (deletingAccount || !authUser) return;
+    deletingAccount = true;
+    paintDeleteProgress(1);
+    delSwipeIcon.classList.add('shake');
+    const uid = authUser.id;
+    const cache = cacheKey();
+    const { error } = await acli().rpc('delete_account');
+    if (error) {
+      // Kontoen står — vis hvorfor, og la feltet kunne sveipes på nytt.
+      deletingAccount = false;
+      delSwipeIcon.classList.remove('shake');
+      paintDeleteProgress(0);
+      delAccountErrorEl.textContent = friendlyAuthError(error);
+      delAccountErrorEl.hidden = false;
+      return;
+    }
+    closeDeleteAccount();
+    // Kvitteringen hører hjemme på innloggingssiden, ikke i en toast: toasten
+    // ligger UNDER auth-skjermen (z-index 300 mot 400), og det er hit brukeren
+    // nettopp er sendt. Settes FØR utloggingen — den maler skjermen selv.
+    authNotice = 'Kontoen din er slettet.';
+    logout(); // stopper synken, tømmer minnet og viser innloggingssiden
+    // Ingen lokale spor heller. En cache-skriving som allerede var bestilt ville
+    // ellers ha skrevet posten inn igjen 120 ms senere (nøkkelen fanges når
+    // skrivingen bestilles), så den avbestilles først.
+    clearTimeout(saveTimer); saveTimer = null;
+    try {
+      localStorage.removeItem(cache);
+      localStorage.removeItem('hk-migrated:' + uid);
+    } catch (e) { /* ignore */ }
+  }
+
   /* ============================================================
      BRUKERKONTOER OG DELING (klient)
      ------------------------------------------------------------
@@ -6748,6 +6819,12 @@
     register: { title: 'Registrer deg',  submit: 'Opprett konto',   pass: true,  icon: 'profile' },
     forgot:   { title: 'Glemt passord',  submit: 'Send lenke',      pass: false, icon: 'lock' },
   };
+  // Melding som skal bli STÅENDE på innloggingssiden etter at appen selv har
+  // logget ut (kontosletting). Å sette den etter `logout()` holder ikke:
+  // utloggingen gir TO runder med `setAuthMode('login')` — én synkron og én fra
+  // `SIGNED_OUT`-hendelsen — og hver av dem tømmer meldingsfeltet. Den males
+  // derfor av `setAuthMode` helt til brukeren selv gjør noe på skjermen.
+  let authNotice = null;
   function setAuthMode(mode) {
     authModeCur = mode;
     const m = AUTH_MODES[mode];
@@ -6762,7 +6839,7 @@
     authFirstName.required = reg;
     authLastName.required = reg;
     authPassword.autocomplete = mode === 'register' ? 'new-password' : 'current-password';
-    authMsg('');
+    authMsg(authNotice || '', !!authNotice);
     authForm.hidden = false;
     authSent.hidden = true;
     // Lenkene bytter ut fra modus.
@@ -6770,7 +6847,8 @@
     const link = (label, target) => {
       const b = document.createElement('button');
       b.type = 'button'; b.className = 'auth-link'; b.dataset.mode = target; b.textContent = label;
-      b.addEventListener('click', () => setAuthMode(target));
+      // Brukeren tar over skjermen → beskjeden fra forrige økt har gjort sitt.
+      b.addEventListener('click', () => { authNotice = null; setAuthMode(target); });
       authLinks.appendChild(b);
     };
     if (mode === 'login') { link('Ny bruker? Registrer deg', 'register'); link('Glemt passord?', 'forgot'); }
@@ -6867,6 +6945,7 @@
     const password = authPassword.value;
     if (!email) { authMsg('Skriv inn e-postadressen din.'); return; }
     authSubmit.disabled = true;
+    authNotice = null; // brukeren er i gang selv — beskjeden har gjort sitt
     authMsg('');
     try {
       if (authModeCur === 'login') {
@@ -9306,7 +9385,8 @@
        • det finnes lokale endringer serveren ikke har kvittert for (saveSeq)
        • vi er innlogget uten å ha fått ett eneste svar fra serveren ennå */
   const SAFETY_MODALS = () => [navModal, accountModal, trashModal, settingsModal,
-    shareModal, placeModal, confirmModalEl, avatarModal, respSwitcherOverlay, timeSwitcherOverlay];
+    shareModal, placeModal, confirmModalEl, avatarModal, delAccountModal,
+    respSwitcherOverlay, timeSwitcherOverlay];
   function authFormDirty() {
     if (authScreen.hidden) return false;
     return [authEmail, authFirstName, authLastName, authPassword]

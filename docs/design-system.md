@@ -33,7 +33,7 @@ Nye kontroller skal bruke disse — aldri egne ad hoc-verdier. Endres et token,
 skal hele appen følge med.
 
 Alle knapper i samme knapperad har identisk høyde/radius/flate (`--control-h`
-/ `--control-radius`). Gjelder ＋-knapper, søppelkasser, filterkortet, breadcrumb-knappene og kontoknappen.
+/ `--control-radius`). Gjelder ＋-knapper, søppelkasser, breadcrumb-knappene og kontoknappen.
 
 ## Luft-regler (padding/margin/gap)
 
@@ -84,7 +84,8 @@ grå = `#c0c4c9`):
 | Hånd-opp (ansvarlig) | person farge 4 |
 
 Unntak som beholder `currentColor` (rene glyfer på massive fargeknapper):
-utlogging (`.logout-icon`, hvit på rød) og avkryssings-haken (`.item-check`).
+`.btn-glyph` (dør-ut på «Logg ut», søppelkasse på «Slett konto») og
+avkryssings-haken (`.item-check`).
 ＋-ikonet og kategori-knappens ikon (`.add-cat-btn`) er IKKE unntak — begge er
 svarte (`#111`) som resten av settet, også på de fargede knappene.
 
@@ -132,8 +133,10 @@ knappene arver `.icon-btn`-fargen (`--ink-soft`).
   Inviter, Gjenopprett, Godta, Plasser, auth-submit, filter-brytere i
   på-tilstand.
 - `.btn-red` (`--grad-red`): destruktive handlinger — Tøm permanent, Forlat
-  deling, Kast ut, Logg ut.
-- `.btn-yellow` (`--grad-yellow`): lås-knappene i del-modalen.
+  deling, Kast ut, Slett konto.
+- `.btn-yellow` (`--grad-yellow`): lås-knappene i del-modalen, og **Logg ut**
+  (som er reversibel — den lå tidligere på rødt, men da så den ut som
+  «Slett konto» rett ved siden av; se `docs/menus.md`).
 
 Størrelse/form kommer fra egne klasser: `.btn` (modaler), `.btn-small`,
 `.btn-add` (knapperadene, + `.icon-only` for kvadratisk ＋), `.switch`.
@@ -397,7 +400,7 @@ forveksler de to.
 ## Flate-mønsteret
 
 Hvile = halvgjennomsiktig hvit (`--control-bg`), hover = helt ugjennomsiktig
-hvit. Gjelder søppelkasser, filterkortet, breadcrumb-knappene og kontoknappen.
+hvit. Gjelder søppelkasser, breadcrumb-knappene og kontoknappen.
 
 ## `[hidden]`-regelen
 
@@ -430,6 +433,15 @@ side-margin som kansellerer den omsluttende paddingen.
 - **Bekreftelse**: bruk `askConfirm({title, message, okLabel, danger})` (Promise
   → boolean, app-stilt `#confirm-modal`), ALDRI native `confirm()`. `danger`
   (standard) gir rød OK; `danger:false` grønn. Stables øverst blant modalene.
+- **Sveip for å bekrefte** (`.confirm-swipe`): når en handling verken kan angres
+  eller gjenopprettes, er bekreftelsen en GEST i stedet for en OK-knapp.
+  Foreløpig én bruk: «Slett konto» (`docs/accounts.md`). Feltet gjenbruker
+  søppelkassenes sveipe-formspråk — `ICONS.trashSwipe` som roterer 0→180°,
+  `.swipe-label`, `.swipe-arrow` og en `--p`-drevet fylling — men i faresonens
+  farger (`--danger-soft`/`--danger-soft-hover`) og som et fast felt i modalen,
+  ikke en knapp som vokser ut. Sveipet måles fra der fingeren gikk NED (et trykk
+  i høyre ende er ikke en bekreftelse), og `role="slider"` + piltastene gir
+  tastaturbrukere den samme friksjonen.
 - **Angre**: destruktive handlinger som kan angres viser en toast med «Angre»-
   knapp: `showToast(msg, { label, fn })`. Slettinger bruker dette (5 s) sammen
   med fly-i-søpla-animasjonen; gjenopprett-logikken deles med søppel-modalen

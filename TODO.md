@@ -402,6 +402,44 @@ member`, `is_group_owner/member`, `universe_owner_set`, `is_privileged`,
       og `select count(*) from public.share_invites where card_id is not null;`
       (begge skal gi 0).
 
+## Logikk-endring: slett egen konto (`delete_account`)
+
+Kontosletting fra konto-modalen (rød «Slett konto» ved siden av den nå GULE
+«Logg ut», advarsel + sveip-for-å-bekrefte). Alt ligger i
+`supabase/users-and-sharing.sql` og er idempotent — **ingen nye kolonner**, kun
+funksjoner:
+
+- `public.delete_account()` (SECURITY DEFINER, én transaksjon): sletter
+  universer som står uten eier når brukeren er borte (kaskade + gravsteiner),
+  lar en gjenværende universeier ARVE `owner_id` på det som overlever, nuller
+  `responsible`, og fjerner roller, invitasjoner (begge veier), e-postlogg,
+  profilrad og `auth.users`-raden. Se `docs/rettigheter-og-deling.md` del 10.
+- `public.surviving_universe_owner(uuid, uuid)` — arvingen, deterministisk.
+- `universes/cards/items_before_update` slipper nå gjennom en `owner_id`-endring
+  når `in_privileged_op()` er satt (som `groups_before_update` alt gjorde).
+  Uten det ville arven vært umulig, og profilslettingens `on delete cascade`
+  hadde revet vekk innhold i ANDRES delte universer.
+- Grant: `delete_account()` er lagt til i EXECUTE-loopen for `authenticated`.
+
+Forutsetninger verifisert mot produksjon (lesninger, ingen endring): funksjonene
+i filen eies av `postgres`, `postgres` har DELETE på `auth.users` og
+`rolbypassrls = true` (auth.users har RLS på), alle FK-er til `auth.users`
+utenfor auth-skjemaet er `on delete cascade`, og ingen universer står uten eier
+(arvingen finnes alltid).
+
+- [ ] **«Supabase DB-oppsett»-workflowen må kjøres** (går automatisk ved push til
+      `main` siden `supabase/users-and-sharing.sql` er endret — bekreft at runen
+      ble grønn). Til den er kjørt, feiler KUN kontosletting (RPC-en finnes ikke;
+      feilen vises i modalen). Resten av appen er upåvirket — ingen andre kall
+      nevner de nye funksjonene.
+- [ ] Etter kjøring, stikkprøve på at ingenting henger igjen etter en sletting:
+      `select count(*) from public.memberships m
+        where not exists (select 1 from public.profiles p where p.id = m.user_id);`
+      og `select count(*) from public.universes u
+            where not exists (select 1 from public.memberships m
+                              where m.universe_id = u.id and m.role = 'owner');`
+      (begge skal gi 0).
+
 ## Manuelle steg (krever dashboard-tilgang — Peder)
 
 - [x] ~~GitHub → Settings → Secrets and variables → Actions: legg inn

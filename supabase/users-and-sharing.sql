@@ -1055,7 +1055,10 @@ create or replace function public.universes_before_update()
 returns trigger language plpgsql security definer set search_path = public as $$
 declare uid uuid := auth.uid(); can_content boolean := true; can_reorder boolean := true;
 begin
-  if new.owner_id is distinct from old.owner_id then
+  -- Oppretteren er uforanderlig for klienter. Unntaket er en privilegert
+  -- operasjon: kontosletting lar en gjenværende eier ARVE oppretterfeltet, for
+  -- FK-en er `on delete cascade` og ville ellers tatt andres innhold med seg.
+  if new.owner_id is distinct from old.owner_id and not public.in_privileged_op() then
     raise exception 'owner_id (oppretter) kan ikke endres';
   end if;
   if uid is not null then
@@ -1159,7 +1162,8 @@ create or replace function public.cards_before_update()
 returns trigger language plpgsql security definer set search_path = public as $$
 declare uid uuid := auth.uid(); can_content boolean := true; can_reorder boolean := true;
 begin
-  if new.owner_id is distinct from old.owner_id then
+  -- Se universes_before_update: kun kontosletting arver oppretterfeltet.
+  if new.owner_id is distinct from old.owner_id and not public.in_privileged_op() then
     raise exception 'owner_id (oppretter) kan ikke endres';
   end if;
   if uid is not null then
@@ -1214,7 +1218,8 @@ create or replace function public.items_before_update()
 returns trigger language plpgsql security definer set search_path = public as $$
 declare uid uuid := auth.uid(); can_content boolean := true; can_reorder boolean := true;
 begin
-  if new.owner_id is distinct from old.owner_id then
+  -- Se universes_before_update: kun kontosletting arver oppretterfeltet.
+  if new.owner_id is distinct from old.owner_id and not public.in_privileged_op() then
     raise exception 'owner_id (oppretter) kan ikke endres';
   end if;
   if uid is not null then
@@ -2138,6 +2143,116 @@ create trigger on_share_invite_created
   after insert on public.share_invites
   for each row execute function public.send_invite_email();
 
+-- ------------------------------------------------------------
+-- 8c. SLETT EGEN KONTO
+--
+-- `delete_account()` sletter kontoen og alle spor av den i ÉN transaksjon.
+-- Det vanskelige er ikke slettingen, men grensen mot ANDRES innhold:
+--
+--   * Universer som blir stående UTEN EIER når jeg er borte (typisk: der jeg
+--     er eneste eier) slettes HELT — kaskaden tar grupper/lister/listepunkter,
+--     og AFTER DELETE-triggerne skriver gravstein for hver rad. Også for dem
+--     jeg har delt med: innholdet er mitt, og det følger kontoen.
+--   * Universer/grupper med andre eiere står igjen; jeg fjernes bare som
+--     medlem, nøyaktig som «Forlat».
+--   * `owner_id` (OPPRETTER) på rader som overlever ARVES av en gjenværende
+--     universeier. Feltet er ren historikk uten rettigheter, men FK-en er
+--     `on delete cascade` — uten arven ville profilslettingen revet vekk
+--     innhold i andres delte universer (et listepunkt jeg la inn i en felles
+--     liste er de andres innhold like mye som mitt).
+--   * `responsible` som peker på meg nulles med et stempel som er nyere enn
+--     BÅDE klokka og radens eget register. `on delete set null` alene ville
+--     ikke holdt: en annen enhet med det gamle valget i cachen ville vunnet
+--     LWW-en og skrevet den slettede brukeren tilbake — en rad som deretter er
+--     umulig å skrive (FK).
+--
+-- I tillegg: invitasjoner begge veier (også de som bare er adressert til
+-- e-postadressen min), e-postloggen for dem, rollene mine, profilraden og til
+-- slutt selve auth-brukeren. Gravsteinene blir stående — de er id-er uten
+-- personopplysninger, og de er nettopp det som hindrer at en gammel klient
+-- legger innholdet inn igjen ved neste synk (docs/trash.md).
+--
+-- Alt skjer i én transaksjon: feiler siste steg, rulles ALT tilbake. En konto
+-- uten data hadde vært verre enn en sletting som ikke gikk gjennom.
+-- ------------------------------------------------------------
+
+-- En gjenværende eier av universet (aldri p_uid). Deterministisk — eldste
+-- medlemskap først — så arven blir den samme hver gang.
+create or replace function public.surviving_universe_owner(p_universe uuid, p_uid uuid)
+returns uuid language sql stable security definer set search_path = public as $$
+  select m.user_id from public.memberships m
+   where m.universe_id = p_universe and m.role = 'owner' and m.user_id <> p_uid
+   order by m.created_at, m.user_id
+   limit 1;
+$$;
+
+create or replace function public.delete_account()
+returns void language plpgsql security definer set search_path = public as $$
+declare
+  uid    uuid := auth.uid();
+  em     text;
+  now_ms bigint := (extract(epoch from now()) * 1000)::bigint;
+begin
+  if uid is null then raise exception 'ikke innlogget'; end if;
+  select lower(p.email) into em from public.profiles p where p.id = uid;
+  if em is null then raise exception 'fant ingen profil for kontoen'; end if;
+
+  perform set_config('huskis.privileged_op', '1', true);
+
+  -- 1. Invitasjoner begge veier (også de som bare er adressert til e-posten min)
+  --    og e-postloggen for dem. FØRST, fordi en invitasjon til et univers som
+  --    slettes i neste steg forsvinner med kaskaden — da ville loggraden dens
+  --    ikke lenger vært mulig å finne.
+  delete from public.email_send_log l
+   where l.invite_id in (select s.id from public.share_invites s
+                          where s.inviter_id = uid or s.invitee_id = uid
+                             or lower(s.invitee_email) = em);
+  delete from public.share_invites s
+   where s.inviter_id = uid or s.invitee_id = uid or lower(s.invitee_email) = em;
+
+  -- 2. Universer jeg er knyttet til som ikke har noen eier igjen etter meg.
+  delete from public.universes u
+   where public.surviving_universe_owner(u.id, uid) is null
+     and (u.owner_id = uid
+          or exists (select 1 from public.memberships m
+                      where m.universe_id = u.id and m.user_id = uid));
+
+  -- 3. Oppretter-arv på alt som overlever (universet har nå alltid en eier).
+  update public.universes u
+     set owner_id = public.surviving_universe_owner(u.id, uid)
+   where u.owner_id = uid;
+  update public.groups g
+     set owner_id = public.surviving_universe_owner(g.universe_id, uid)
+   where g.owner_id = uid;
+  update public.cards c
+     set owner_id = public.surviving_universe_owner(public.resource_universe('card', c.id), uid)
+   where c.owner_id = uid;
+  update public.items i
+     set owner_id = public.surviving_universe_owner(public.resource_universe('item', i.id), uid)
+   where i.owner_id = uid;
+
+  -- 4. Ansvarstildelinger som peker på meg, og rollene mine.
+  --    Stempelet må slå radens EGET register, ikke bare klokka: vaktene
+  --    (`*_before_update`) hopper over autorisasjonen under en privilegert
+  --    operasjon, men ALDRI over `reg_newer`. En rad skrevet av en enhet med
+  --    klokka foran serverens ville derfor rullet skrivingen tilbake, og
+  --    FK-ens `on delete set null` hadde nullet feltet UTEN nytt stempel —
+  --    hvorpå den gamle verdien vinner LWW-en ved neste synk og gjør raden
+  --    uskrivbar (FK-en peker på en slettet profil).
+  update public.cards set responsible = null, ts = greatest(now_ms, ts + 1), org = 'server'
+   where responsible = uid;
+  update public.items set responsible = null, ts = greatest(now_ms, ts + 1), org = 'server'
+   where responsible = uid;
+  delete from public.memberships where user_id = uid;
+
+  -- 5. Profilen og selve kontoen.
+  delete from public.profiles where id = uid;
+  delete from auth.users where id = uid;
+
+  perform set_config('huskis.privileged_op', '', true);
+end;
+$$;
+
 
 -- ------------------------------------------------------------
 -- 9. MEDLEMSLISTE — deduplisert, kategorisert og med capabilities
@@ -2909,7 +3024,8 @@ begin
     'public.get_members(text, uuid)',
     'public.get_my_doc()',
     'public.move_group(uuid, uuid, uuid, double precision)',
-    'public.import_doc(jsonb)'
+    'public.import_doc(jsonb)',
+    'public.delete_account()'
   ] loop
     execute format('revoke execute on function %s from public, anon', fn);
     execute format('grant execute on function %s to authenticated', fn);

@@ -23,8 +23,7 @@ desktop). To rader:
    åpner nav-modalen. Navnene kappes med ellipsis; raden holder avstand til
    kontoknappen med `padding-right`. På mobil krympes fonten litt (media-query).
 2. **Listefunksjonene** (`.panel-actions.toolbar`): «＋ Liste»
-   (`#add-card-btn`), liste-søppelkassen (`#trash-btn`) og filterkortet
-   (👁️ Mine/Delte, se `docs/colors-and-labels.md`). «＋ Liste» er avskrudd uten
+   (`#add-card-btn`) og liste-søppelkassen (`#trash-btn`). «＋ Liste» er avskrudd uten
    en aktiv gruppe man kan opprette lister i (`canAddList`, `updateToolbarState`)
    — en LÅST gruppe gir ingen knapp å trykke på, akkurat som «＋ Gruppe» i et
    låst univers. Se `docs/rettigheter-og-deling.md` («Å opprette og å plassere
@@ -165,9 +164,13 @@ Innhold (ovenfra og ned):
   «vis passordet»-knapp). Se `docs/accounts.md`.
 - **E-postvarsel-toggle** (`#email-pref-toggle`, se `docs/accounts.md`).
 - **«Invitasjoner»-innboksen** (`#menu-invites`, vises kun med innhold).
-- **«Logg ut»** nederst (rød knapp, med bekreftelse), over en delelinje
-  (`.menu-divider`) i samme stil som `.modal-head` — se
-  `docs/design-system.md` («Delelinjer i modaler»).
+- **Bunnraden** (`.menu-account-actions`, under en delelinje `.menu-divider` i
+  samme stil som `.modal-head` — se `docs/design-system.md` («Delelinjer i
+  modaler»)): **«Logg ut»** (GUL, med bekreftelse) i venstre ende og **«Slett
+  konto»** (RØD, med søppelkasse-ikon) i høyre. Fargene skiller det reversible
+  fra det endelige; avstanden hindrer feiltrykk. Slett-knappen åpner
+  `#delete-account-modal` (advarsel + sveip-for-å-bekrefte) — se
+  `docs/accounts.md`.
 
 ## Del-modalens tilbakeknapp
 

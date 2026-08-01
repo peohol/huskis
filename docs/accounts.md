@@ -46,6 +46,34 @@ overtatt kontoen. Feltet har ikke `minlength` — lengdekravet meldes i skjemaet
 egen melding (`#account-msg`), ikke i en native valideringsboble som ville
 blokkert submit-hendelsen.
 
+**Slette kontoen** (konto-modalen, `#delete-account-btn` → `#delete-account-modal`):
+den røde knappen står i høyre ende av samme linje som «Logg ut», som er GUL — to
+handlinger med helt ulik konsekvens skal ikke se like ut.
+
+Slettingen er endelig, så bekreftelsen er en **gest**, ikke en knapp: modalen
+lister hva som forsvinner (og hva som blir stående hos andre, se
+`docs/rettigheter-og-deling.md` del 10) og har ingen OK-knapp — bare «Avbryt» og
+et sveipefelt som må dras helt til høyre. Feltet (`.confirm-swipe`) gjenbruker
+søppelkassenes sveipe-formspråk (roterende kasse, fylling som følger sveipet) i
+faresonens farger. Sveipet måles fra der fingeren gikk NED, ikke fra feltets
+venstrekant: et trykk i høyre ende skal ikke i seg selv være en bekreftelse.
+`role="slider"` + piltastene gir tastaturbrukere samme vei inn (fem trykk på pil
+høyre), Home nullstiller.
+
+Selve slettingen er ett RPC-kall (`delete_account`) som gjør alt serverside i én
+transaksjon. Klienten gjør etterpå bare sitt eget: avbestiller en ventende
+cache-skriving (nøkkelen fanges når skrivingen bestilles, så en skriving i lufta
+ville lagt posten inn igjen 120 ms senere), fjerner brukerens cache-post og
+`hk-migrated:<uid>`, og kaller `logout()` → innloggingssiden. Feiler RPC-en står
+kontoen som før, og feilen vises i modalen så feltet kan sveipes på nytt.
+
+Kvitteringen («Kontoen din er slettet.») settes i `authNotice` FØR utloggingen,
+ikke som en toast: toasten ligger under auth-skjermen (z-index 300 mot 400).
+`authNotice` males av `setAuthMode` i stedet for det vanlige `authMsg('')`, fordi
+en utlogging gir TO runder med `setAuthMode('login')` — én synkron fra `logout()`
+og én fra `SIGNED_OUT`-hendelsen — som begge ville tømt feltet. Den nullstilles
+så snart brukeren gjør noe selv (bytter modus eller sender skjemaet).
+
 Sesjonen styres av `supabase.auth.onAuthStateChange` (erstatter
 `mine-lister-auth`): `SIGNED_IN` → `cloudStart()`, `SIGNED_OUT` →
 `cloudStop()`. En eksisterende sesjon hentes ved oppstart med `getSession()`.

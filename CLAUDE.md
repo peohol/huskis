@@ -34,7 +34,7 @@ oppdater det aktuelle dokumentet der (ikke dump alt tilbake i denne fila).
 | `docs/board-layout.md` | avstander/padding/gap i selve listevisningen |
 | `docs/drag-and-drop.md` | reorder, dra-og-slipp-motoren, overføring mellom lister/grupper |
 | `docs/trash.md` | slette/gjenopprette/tømme på ethvert nivå |
-| `docs/colors-and-labels.md` | HSL-fargesystem, Mine/Delte-filter |
+| `docs/colors-and-labels.md` | HSL-fargesystem, gamle K/P-felter |
 | `docs/scheduling.md` | innstillingsmodalen (tannhjul), tidsplan (start/frist), indikator-chips |
 | `docs/rettigheter-og-deling.md` | HVEM får gjøre HVA: oppretter/eier-hierarki, arvet lås + unntak, posisjon-vs-innhold, tretilstands invitasjonspolicy — den autoritative rettighetsmodellen |
 | `docs/arkitektur-brukere-deling.md` | brukerkontoer (Supabase Auth), eierskap, deling/mounts, lås, e-postvarsel — databasesiden |
@@ -711,6 +711,37 @@ fra seg). Serveren var aldri feil (verifisert mot produksjon: `cards_insert` →
 `can_create_child`), så ingen DB-migrering. Ny test
 `tests/locked-group-creation.test.js`. Se `docs/rettigheter-og-deling.md`
 (autoritativ), `docs/trash.md`, `docs/drag-and-drop.md`, `docs/menus.md`.
+
+**Fjernet: Mine/Delte-filterknappen (forrige runde)**: øye-ikonet + de to grønne
+sirkelknappene i listefunksjons-raden (filtrerte listene på hvem som opprettet
+dem) er fjernet i sin helhet — HTML (`.filter-switches`), JS (`renderBoard()`
+viser nå alle aktive lister uten `cardMatchesFilter`) og CSS (`.switch`). Feltet
+den lente seg på (`c._createdByMe`) beholdes uendret — det brukes fortsatt av
+synk-laget (`foreignIds()`) til å hindre at gammel delt-innhold gjenoppstår med
+feil oppretter. Ingen DB-migrering. Se `docs/colors-and-labels.md`,
+`docs/menus.md`, `docs/design-system.md`.
+
+**Slett egen konto (forrige runde)**: konto-modalens bunnrad har fått en rød
+**«Slett konto»** i høyre ende, og **«Logg ut» er gjort GUL** — det reversible og
+det endelige skal ikke se like ut. Slett-knappen åpner en advarsel som lister hva
+som forsvinner, og som ikke har noen OK-knapp: bekreftelsen er et **sveipefelt**
+som må dras helt til høyre (`.confirm-swipe`, søppelkassenes sveipe-formspråk i
+faresonens farger; sveipet måles fra der fingeren gikk ned, og `role="slider"` +
+piltastene gir tastaturbrukere samme vei inn). Alt arbeidet skjer serverside i én
+transaksjon (`delete_account()`): universer som står UTEN EIER når brukeren er
+borte slettes helt (kaskade + gravsteiner, også for dem det var delt med),
+`owner_id` på det som overlever ARVES av en gjenværende universeier (feltet gir
+ingen rettigheter, men FK-en er `on delete cascade` — uten arven ville
+profilslettingen revet vekk innhold i ANDRES delte universer), `responsible`
+nulles med nytt stempel, og roller, invitasjoner begge veier, e-postlogg,
+profilrad og `auth.users`-raden slettes. Klienten rydder i tillegg sin egen cache
++ `hk-migrated:<uid>` og lander på innloggingssiden. `universes/cards/items_before_update`
+slipper nå gjennom en `owner_id`-endring under `in_privileged_op()` (som
+`groups_before_update` alt gjorde). Krever en DB-migrering i kontomodus (kun
+funksjoner, ingen nye kolonner) — se `TODO.md`. Nye tester:
+`supabase/tests/test-account-deletion.sql` og `tests/delete-account.test.js`. Se
+`docs/rettigheter-og-deling.md` (autoritativ), `docs/accounts.md`, `docs/menus.md`,
+`docs/design-system.md`, `docs/trash.md`.
 
 **Domeneaudit: kanonisk `huskis.no` + auth-redirects rettet (siste runde)**: en
 registrering ble sendt til det pensjonerte domenet `huskekurv.vercel.app` fordi
