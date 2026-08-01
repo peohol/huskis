@@ -1491,18 +1491,23 @@
   function emptyGroupsTrash(uniId) {
     const u = findUniverse(uniId);
     if (!u) return;
-    commitBufferedFor(trashedGroupsOf(u).map((g) => g.id));
+    // Rader jeg ikke rår over utelates ALLEREDE fra commitBufferedFor: en buffret
+    // sletting som rekker å bli låst i angre-vinduet (en annen eier låser gruppen
+    // mens toasten står) skal ikke committes til en `trashed = true` serveren
+    // avviser — det ville kastet angre-muligheten og lagt igjen en skriving som
+    // ble forsøkt på nytt ved hver synk-runde.
+    commitBufferedFor(trashedGroupsOf(u).filter(canPurgeGroup).map((g) => g.id));
     const trash = trashedGroupsOf(u);
     if (!trash.length) return;
     let skipped = 0;
     trash.forEach((g) => {
-      const idx = u.groups.indexOf(g);
       // En gruppe man ikke kan slette for alle, forlater man i stedet — men bare
       // hvis man FAKTISK kan forlate den (en direkte grupperolle). Er grunnen til
       // at man ikke kan slette en LÅS, finnes det ingen rolle å gi fra seg: da
       // ville «forlat» både blitt avvist av serveren og fjernet gruppen lokalt.
+      if (!canPurgeGroup(g)) { skipped++; return; }
+      const idx = u.groups.indexOf(g);
       if (!canDeleteGroup(g)) {
-        if (!cap(g, 'leave', false)) { skipped++; return; }
         if (idx > -1) u.groups.splice(idx, 1);
         cloudLeave('group', g.id);
         return;
@@ -5351,6 +5356,8 @@
      ingen egne caps, og der er låse-anslaget (`frozen`) nøyaktig samme regel. */
   function canDeleteUniverse(u) { return cap(u, 'delete', true); }
   function canDeleteGroup(g) { return cap(g, 'delete', !frozen(g)); }
+  function canPurgeUniverse(u) { return canDeleteUniverse(u) || cap(u, 'leave', false); }
+  function canPurgeGroup(g) { return canDeleteGroup(g) || cap(g, 'leave', false); }
   function openUniversesTrash() {
     showTrashModal({
       title: 'Slettede universer',
@@ -5363,7 +5370,7 @@
         meta: groupWord(u.groups.filter((g) => !g.trashed && !g.isCat).length),
         pending: !!u._pendingDelete,
         manage: canDeleteUniverse(u),
-        purge: canDeleteUniverse(u) || cap(u, 'leave', false),
+        purge: canPurgeUniverse(u),
         restore: () => restoreUniverse(u),
       })),
       empty: emptyUniversesTrash,
@@ -5388,7 +5395,7 @@
           meta: g.isCat ? 'Gruppekategori' : listWord(g.cards.filter((c) => !c.trashed).length),
           pending: !!g._pendingDelete,
           manage: canDeleteGroup(g),
-          purge: canDeleteGroup(g) || cap(g, 'leave', false),
+          purge: canPurgeGroup(g),
           restore: () => restoreGroup(g),
         })) : [];
       },
@@ -5465,7 +5472,8 @@
   // Tøm univers-søppelkassen permanent: gravsteiner for hvert slettet univers +
   // alle dets grupper, lister og elementer (hindrer gjenoppstandelse).
   function emptyUniversesTrash() {
-    commitBufferedFor(trashedUniverses().map((u) => u.id));
+    // Som i emptyGroupsTrash: rader jeg ikke rår over holdes utenfor commit-en også.
+    commitBufferedFor(trashedUniverses().filter(canPurgeUniverse).map((u) => u.id));
     const trash = trashedUniverses();
     if (!trash.length) return;
     let skipped = 0;
@@ -5475,8 +5483,8 @@
       // Et univers man bare er MEDLEM av kan man forlate, ikke slette. Kan man
       // ingen av delene, blir universet stående i kassen — bedre enn å forsvinne
       // lokalt mens serveren avviser både slettingen og forlatelsen.
+      if (!canPurgeUniverse(u)) { skipped++; return; }
       if (!canDeleteUniverse(u)) {
-        if (!cap(u, 'leave', false)) { skipped++; return; }
         if (i > -1) state.universes.splice(i, 1);
         cloudLeave('universe', u.id);
         return;

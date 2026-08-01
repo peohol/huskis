@@ -254,6 +254,17 @@ Er grunnen til at man ikke kan slette en LÅS — ikke at objektet er andres —
 finnes det ingen rolle å gi fra seg, og raden blir stående i kassen i stedet for
 å bli fjernet lokalt av en `leave_share` serveren ville avvist.
 
+**Filtreringen må skje FØR `commitBufferedFor`.** Buffrede slettinger ligger i
+kassen som vanlige rader (`live()` teller `_pendingDelete` som slettet), så en
+naiv `commitBufferedFor(alle.map(id))` committer også raden tømmingen straks
+etter hopper over. Rekker en gruppe å bli låst inne i angre-vinduet (en annen
+eier låser den mens toasten står), ville commit-en stemplet en `trashed = true`
+serveren avviser — og samtidig kastet angre-muligheten. Alle fire
+`emptyXTrash` filtrerer derfor med samme predikat de senere hopper over på
+(`canPurgeGroup`/`canPurgeUniverse`/`!frozen`), og `emptyItemsTrash` returnerer
+før commit-en når hele lista er frossen. Dekket av punkt 7b i
+`tests/locked-group-creation.test.js`.
+
 Uten disse sjekkene forsvant objektet lokalt (permanent gravstein) mens raden
 levde videre for alle andre, og klienten forsøkte en `DELETE` RLS filtrerte bort
 ved hver eneste synk-runde.

@@ -277,6 +277,32 @@ async function run(label, viewport, mobile) {
   log(label + ' 7: databasen har fått nøyaktig den ene lovlige nye lista',
     await dbCardCount(p) === cardsBefore + 1, 'før ' + cardsBefore + ', nå ' + await dbCardCount(p));
 
+  /* 7b) Kappløpet: en BUFFRET sletting som blir låst i angre-vinduet.
+     Sletter jeg en åpen gruppe og en annen eier låser den før angre-toasten er
+     ute, skal en «Tøm» ikke committe den buffrede slettingen — det ville stemplet
+     en `trashed = true` serveren avviser OG kastet angre-muligheten. Låsen settes
+     her rett på state-objektet (`_locked` + `_caps`), nøyaktig slik synken skriver
+     den, så testen slipper å kappløpe to 5-sekunders-timere mot hverandre. */
+  await p.evaluate((gid) => {
+    const H = window.__huskis;
+    const g = H.state.universes.flatMap((u) => u.groups).find((x) => x.id === gid);
+    H.deleteGroup(g);                                   // buffret sletting + angre-toast
+    g._locked = true;                                   // … og så låser noen andre gruppen
+    if (g._caps) { g._caps.delete = false; g._caps.leave = false; g._caps.editContent = false; }
+  }, ids.GO);
+  await p.waitForTimeout(200);
+  await p.evaluate((uid) => window.__huskis.emptyGroupsTrash(uid), ids.UA);
+  await p.waitForTimeout(400);
+  const raced = await p.evaluate((gid) => {
+    const g = window.__huskis.state.universes.flatMap((u) => u.groups).find((x) => x.id === gid);
+    const row = JSON.parse(localStorage.getItem('hk-mock-db')).groups.find((x) => x.id === gid);
+    return { found: !!g, pending: !!(g && g._pendingDelete), trashed: !!(g && g.trashed),
+      dbTrashed: !!(row && row.trashed) };
+  }, ids.GO);
+  log(label + ' 7b: en buffret sletting som blir låst committes ikke av «Tøm»',
+    raced.found && raced.pending === true && raced.trashed === false && raced.dbTrashed === false,
+    JSON.stringify(raced));
+
   /* ---------- Eieren: låsen gjelder aldri for henne ---------- */
   await loadAs(p, db, ids.uA, 'a@x.no', viewport);
   await goTo(p, ids.GL);
