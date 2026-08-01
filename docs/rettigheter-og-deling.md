@@ -112,6 +112,14 @@ Serveren regner ut capabilities og returnerer dem til klienten
 `get_members().viewer.caps`). Klienten kan bruke lokale anslag for umiddelbar
 visning, men **serverens capabilities og RLS/RPC-ene er alltid autoritative**.
 
+Det lokale anslaget **feiler lukket**: mangler `caps` helt, følger anslaget den
+lokale rollen (`privilegedLocal`) — ikke «alt er lov». Det er ikke en teoretisk
+finesse: en database der migreringen ennå ikke har kjørt svarer uten `caps`, og
+et optimistisk «alt er lov» viste da eier-kontroller («Lås nå», «Slett … for
+alle») til vanlige medlemmer, som deretter fikk avslag fra serveren. En kontroll
+brukeren ikke har lov til å bruke skal ikke være synlig; det motsatte er en
+feilmelding forkledd som en knapp.
+
 | Capability | SQL-funksjon |
 |---|---|
 | lese objekt | `can_read` |
@@ -272,7 +280,31 @@ medlem); rolleløft må gå gjennom en invitasjon.
 
 Redundante **medlems**-invitasjoner avvises (mottakeren har allerede effektiv
 tilgang). En **eierskaps**-invitasjon til samme person er derimot gyldig — det
-er nettopp rolleløftet, og UI-et tilbyr den i stedet.
+er nettopp rolleløftet.
+
+I medlemslisten har hver rad derfor opptil to rollehandlinger:
+
+| Rad | Knapp | Hva den gjør |
+|---|---|---|
+| vanlig medlem, `promotable` | «Gjør til medeier» | sender en **eierinvitasjon**; rollen endres først ved aksept |
+| eier, `demotable` | «Gjør til medlem» | `set_member_role` — trer i kraft med en gang |
+| min egen rad, `demotable` | «Tre av som medeier» | samme kall på meg selv; jeg beholder tilgangen |
+
+`promotable` regnes ut serverside: raden må være **direkte** på objektet, ha
+rollen `member`, betrakteren må ha `can_invite_owner`, og det må ikke allerede
+ligge en ventende eierinvitasjon til den e-postadressen (ellers ville knappen
+bare gjentatt seg selv). Den ventende invitasjonen vises i stedet under
+«Ventende invitasjoner» som «Invitert som medeier».
+
+Fordi rolleløftet er en invitasjon, kan den samme personen allerede ha en
+ventende medlemsinvitasjon liggende. `create_share_invite` **oppdaterer** derfor
+en ventende invitasjon i stedet for å feile på unik-indeksen, og rollen kan bare
+gå **opp** (`member` → `owner`) — en ny medlemsinvitasjon skal ikke stille
+degradere en eierinvitasjon som ligger og venter.
+
+**«Fjern» gjelder aldri meg selv.** Å fjerne seg selv er å forlate, og den
+handlingen har sin egen knapp; to knapper for det samme, der den ene er
+feilmerket, er verre enn én.
 
 ### Fjerning fra univers
 

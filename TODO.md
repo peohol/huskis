@@ -192,6 +192,19 @@ lukker klassen:
       feil forblir stille som før. Så et framtidig avvik blir synlig umiddelbart i
       stedet for en usynlig, total synk-stopp. Verifisert i nettleser
       (`tests/sync-schema-error.test.js`, desktop + mobil). Se `docs/accounts.md`.
+- [x] **`db-setup` prøver på nytt ved låsekonflikt.** Rollemodell-migreringen
+      (#73) døde midt i filen med `deadlock detected`: appen poller `get_my_doc`
+      hvert 5. sekund, og en slik lesning havnet i en låsesyklus med DDL-en.
+      Produksjonen ble stående **halvmigrert** — `memberships.role` og
+      `migration_log` på plass, men verken `universe_caps` eller `move_group` —
+      og siden klienten allerede var deployet, så alle universer ut som «delt med
+      meg», medlemslistene var tomme og eier-knappene virket ikke. Workflowen
+      kjører nå hver fil med `lock_timeout=15s` og inntil tre forsøk (10/20 s
+      pause). Begge filene er idempotente, så et nytt forsøk er alltid trygt —
+      det var nettopp det som til slutt fikk migreringen i havn manuelt.
+      **Lærdom:** en rød migrering er ikke bare «kjør den igjen senere» — mellom
+      feilen og reparasjonen kjører brukerne en klient som forutsetter et skjema
+      som ikke finnes. Sjekk alltid at runen ble grønn, ikke bare at den startet.
 
 ## Skjema-/logikk-endring: hierarkiske rettigheter + invitasjonspolicy (`invite_policy`)
 

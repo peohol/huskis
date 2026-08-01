@@ -543,6 +543,14 @@
         removeHint: !b.direct ? 'Har tilgang via universet og må fjernes der'
           : (lastOwner ? 'Siste eier kan ikke fjernes' : null),
         demotable: b.direct && b.role === 'owner' && canManage && !lastOwner,
+        // Rolleløft går via en invitasjon mottakeren må godta — flagget speiler
+        // retten til å invitere til eierskap, ikke retten til å skrive rollen.
+        promotable: b.direct && b.role === 'member' && canInviteOwner(db, type, id, uid) &&
+          !db.share_invites.some(function (s) {
+            return s.status === 'pending' && s.role === 'owner' &&
+              String(s.invitee_email).toLowerCase() === String(pr.email || '').toLowerCase() &&
+              ((type === 'universe' && s.universe_id === id) || (type === 'group' && s.group_id === id));
+          }),
         prec: b.prec,
       };
     }).sort(function (a, b) {
@@ -886,10 +894,21 @@
             throw new Error('brukeren er allerede eier');
         }
         var col = p.p_type === 'universe' ? 'universe_id' : 'group_id';
+        // Som serveren: en ventende invitasjon oppdateres i stedet for å feile,
+        // og rollen kan bare gå OPP (member → owner).
         var dup = db.share_invites.find(function (s) {
           return s.status === 'pending' && String(s.invitee_email).toLowerCase() === em && s[col] === p.p_id;
         });
-        if (dup) throw new Error('det finnes allerede en ventende invitasjon til ' + em);
+        if (dup) {
+          // Avsenderen overtas bare når kalleren selv er autorisert for rollen
+          // invitasjonen ender opp med — `inviter_id` gir rett til å trekke den
+          // tilbake, og den retten skal ikke kunne kapres med en
+          // medlemsinvitasjon til en ventende eierinvitasjon.
+          if (role === 'owner' || dup.role !== 'owner') dup.inviter_id = uid;
+          if (role === 'owner') dup.role = 'owner';
+          if (target) dup.invitee_id = target;
+          return dup;
+        }
         var inv = { id: newId('inv'), inviter_id: uid, invitee_email: em, invitee_id: target,
           universe_id: p.p_type === 'universe' ? p.p_id : null,
           group_id: p.p_type === 'group' ? p.p_id : null,

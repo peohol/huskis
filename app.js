@@ -8497,11 +8497,16 @@
   function renderShareModal(type, id, obj, body, closeFn) {
     body.innerHTML = '';
     // Lokalt anslag straks (umiddelbar visning); serverens capabilities er
-    // autoritative og overstyrer når get_members lander.
+    // autoritative og overstyrer når get_members lander. Anslaget følger den
+    // LOKALE rollen — aldri «alt er lov». Svarer serveren uten capabilities
+    // (en eldre server, eller en database der migreringen ikke har kjørt
+    // ennå), skal et vanlig medlem ikke se eier-kontroller det uansett ville
+    // blitt avvist på: vi feiler heller lukket og lar serveren åpne opp.
+    const mine = privilegedLocal(obj);
     let caps = Object.assign({}, obj._caps || {
-      invite: true, inviteOwner: true, manageMembers: true, manageOwners: true,
-      manageLock: true, managePolicy: true, lockException: true,
-      delete: true, leave: false,
+      invite: true, inviteOwner: mine, manageMembers: mine, manageOwners: mine,
+      manageLock: mine, managePolicy: mine, lockException: mine,
+      delete: mine, leave: !mine,
     });
 
     /* --- Inviter på e-post (medlem eller eier) --- */
@@ -8694,17 +8699,52 @@
       }
       row.classList.toggle('is-inherited', mbr.direct === false);
       row.append(avatarFor(mbr, mbr.role === 'owner'), box);
+      // Rolleløft: eierskap kan ikke settes på noen — det gis alltid via en
+      // invitasjon mottakeren må godta. Knappen sender derfor en EIER-
+      // invitasjon til et medlem som allerede er inne, og raden havner under
+      // «Ventende invitasjoner» til den er godtatt.
+      if (mbr.promotable) {
+        const promote = document.createElement('button');
+        promote.className = 'btn btn-small btn-ghost'; promote.type = 'button';
+        promote.textContent = 'Gjør til medeier';
+        promote.addEventListener('click', async () => {
+          if (!await askConfirm({
+            title: 'Invitere til medeierskap',
+            message: personName(mbr) + ' får en invitasjon til å bli medeier av ' +
+              (TYPE_WORD[type] || 'objektet') + '. Eierskapet gjelder først når ' +
+              'invitasjonen er godtatt, og en medeier har de samme rettighetene som deg.',
+            okLabel: 'Send invitasjon',
+          })) return;
+          promote.disabled = true;
+          opQueue.enqueue({
+            run: async () => {
+              const { error } = await acli().rpc('create_share_invite',
+                { p_type: type, p_id: id, p_email: mbr.email, p_role: 'owner' });
+              if (error) throw error;
+            },
+            onDone: () => {
+              showToast('Invitasjon til medeierskap sendt til ' + personName(mbr) + '.');
+              refreshMembers();
+            },
+            onError: (e) => { showToast(friendlyAuthError(e)); refreshMembers(); },
+          });
+        });
+        row.appendChild(promote);
+      }
       // Degradering: eierskap NEDOVER er en direkte handling (rolleløft krever
       // alltid en invitasjon mottakeren må godta).
       if (mbr.demotable) {
         const demote = document.createElement('button');
         demote.className = 'btn btn-small btn-ghost'; demote.type = 'button';
-        demote.textContent = 'Gjør til medlem';
+        demote.textContent = me ? 'Tre av som medeier' : 'Gjør til medlem';
         demote.addEventListener('click', async () => {
           if (!await askConfirm({
-            title: 'Fjerne medeierskap',
-            message: personName(mbr) + ' blir vanlig medlem og mister eier-rettighetene.',
-            okLabel: 'Gjør til medlem',
+            title: me ? 'Tre av som medeier' : 'Fjerne medeierskap',
+            message: me
+              ? 'Du blir vanlig medlem og mister eier-rettighetene. Du beholder tilgangen, ' +
+                'men kan ikke lenger administrere medlemmer, lås eller sletting.'
+              : personName(mbr) + ' blir vanlig medlem og mister eier-rettighetene.',
+            okLabel: me ? 'Tre av' : 'Gjør til medlem',
           })) return;
           opQueue.enqueue({
             run: async () => {
@@ -8718,7 +8758,10 @@
         });
         row.appendChild(demote);
       }
-      if (mbr.removable) {
+      // «Fjern» gjelder ANDRE. Å fjerne seg selv er å forlate, og den
+      // handlingen har sin egen knapp lenger nede — to knapper for det samme,
+      // der den ene er feilmerket, er verre enn én.
+      if (mbr.removable && !me) {
         const kick = document.createElement('button');
         kick.className = 'btn btn-solid btn-red btn-small'; kick.type = 'button'; kick.textContent = 'Fjern';
         kick.addEventListener('click', async () => {

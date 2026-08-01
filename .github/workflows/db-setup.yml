@@ -51,6 +51,29 @@ jobs:
             echo "::error::Mangler secret SUPABASE_DB_URL. Legg den til under Settings → Secrets and variables → Actions."
             exit 1
           fi
-          psql "$SUPABASE_DB_URL" -v ON_ERROR_STOP=1 -f supabase/setup.sql
-          psql "$SUPABASE_DB_URL" -v ON_ERROR_STOP=1 -f supabase/users-and-sharing.sql
+          # Migreringen kjører mot en LEVENDE database: appen poller get_my_doc
+          # hvert 5. sekund, og en slik lesning kan havne i en låsesyklus med
+          # DDL-en (som tar AccessExclusiveLock). Det skjedde 2026-08-01 —
+          # «deadlock detected» midt i filen, og produksjonen ble stående
+          # halvmigrert (roller på plass, capabilities-funksjonene ikke).
+          #
+          # Begge filene er idempotente, så den riktige responsen er å prøve på
+          # nytt, ikke å stoppe halvveis. `lock_timeout` gjør at en DDL som blir
+          # stående og vente gir opp raskt i stedet for å holde på låsene sine
+          # mens køen bygger seg opp bak.
+          export PGOPTIONS='-c lock_timeout=15s'
+          run_sql() {
+            local fil="$1" forsok=1
+            until psql "$SUPABASE_DB_URL" -v ON_ERROR_STOP=1 -f "$fil"; do
+              if [ "$forsok" -ge 3 ]; then
+                echo "::error::$fil feilet etter $forsok forsøk."
+                return 1
+              fi
+              echo "::warning::$fil feilet (forsøk $forsok) — prøver igjen om $((forsok * 10)) s."
+              sleep $((forsok * 10))
+              forsok=$((forsok + 1))
+            done
+          }
+          run_sql supabase/setup.sql
+          run_sql supabase/users-and-sharing.sql
           echo "✅ Databasen er satt opp (legacy-synk + brukere/deling)."
