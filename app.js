@@ -1532,14 +1532,28 @@
     el.style.setProperty('--card-accent', darken(base, 0.32));
 
     // Delings-/låse-status (kontomodus). En liste arver delingen fra gruppen —
-    // den har ingen egen medlemsliste. Delt-indikatoren ligger i meta-raden
-    // under tittelen (fillMetaRow), ikke som badge i headeren; .is-locked
-    // (egen kant-styling) settes her.
+    // den har ingen egen medlemsliste. Delt-indikatoren er en badge i
+    // headeren, rett foran tittelen (som universer/grupper), ikke lenger en
+    // chip i meta-raden. `.is-shared` styrer ikke lenger noen kant-styling —
+    // lista skal se ut som en ikke-delt liste; kun `.is-locked` gir egen
+    // kant-styling.
     const grp = nodeOfType(cardData, 'group');
     const shared = !!(grp && grp._shared);
     const canEdit = !frozen(cardData);
     el.classList.toggle('is-shared', !!shared);
     el.classList.toggle('is-locked', !canEdit);
+    // Badgen er en knapp (ikke bare en indikator som universer/grupper har):
+    // lister har ingen egen del-knapp i korthodet, så den er fortsatt den
+    // direkte, tastaturtilgjengelige veien inn til gruppens delingsinnstillinger.
+    const shareBadge = el.querySelector('.share-badge');
+    shareBadge.hidden = !shared;
+    shareBadge.onclick = null;
+    if (shared) {
+      shareBadge.innerHTML = !canEdit ? ICONS.lock : ICONS.people;
+      shareBadge.title = grp._role === 'owner' ? 'Gruppen er delt med andre' : 'Gruppen er delt med deg';
+      shareBadge.setAttribute('aria-label', shareBadge.title + '. Trykk for delingsinnstillinger');
+      shareBadge.onclick = (ev) => { ev.stopPropagation(); openShare('group', grp.id, grp); };
+    }
 
     // Tannhjulet åpner listens innstillingsmodal (navn/deling/ansvarlig/tidsplan).
     el.querySelector('.card-cog').addEventListener('click', () =>
@@ -1585,13 +1599,13 @@
     // aktive gruppens lister, så den slås opp der — ikke via `_parent`, som en
     // nyopprettet liste ennå ikke har.
     attachHoldDrag(el.querySelector('.card-head'), el, startCardDrag,
-      () => canEdit && canAddList(activeGroupObj()), '.card-cog, .card-delete');
+      () => canEdit && canAddList(activeGroupObj()), '.card-cog, .card-delete, .share-badge');
 
     // Klikk på korthodet (ikke tittel/tannhjul/×/meta-chip) kollapser/utvider
     // kortet med en rullgardin-animasjon (et fullført hold løfter i stedet kortet
     // — attachHoldDrag undertrykker da klikket). Lukketilstanden lagres i DB.
     el.querySelector('.card-head').addEventListener('click', (ev) => {
-      if (ev.target.closest('.card-title, .card-cog, .card-delete, .meta-chip, .edit-input')) return;
+      if (ev.target.closest('.card-title, .card-cog, .card-delete, .meta-chip, .share-badge, .edit-input')) return;
       toggleCardCollapsed(el, cardData);
     });
 
@@ -1993,17 +2007,8 @@
     row.innerHTML = '';
     const obj = target.obj;
     const isCard = target.kind === 'card';
-    // Lister deles ikke selv — chipen viser at GRUPPEN er delt, og åpner
-    // gruppens delingsinnstillinger.
-    const grp = nodeOfType(obj, 'group');
-    if (isCard && grp && grp._shared) {
-      const chip = metaChipEl('meta-shared');
-      chip.innerHTML = !canEdit ? ICONS.lock : ICONS.people;
-      chip.title = grp._role === 'owner' ? 'Gruppen er delt med andre' : 'Gruppen er delt med deg';
-      chip.setAttribute('aria-label', chip.title + '. Trykk for delingsinnstillinger');
-      chip.addEventListener('click', (ev) => { ev.stopPropagation(); openShare('group', grp.id, grp); });
-      row.appendChild(chip);
-    }
+    // Delt-indikatoren for lister ligger i korthodet (badge foran tittelen,
+    // som universer/grupper), ikke lenger her.
     if (obj.responsible) {
       const shareRoot = shareRootFor(target.card);
       const rType = 'group';
