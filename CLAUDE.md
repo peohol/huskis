@@ -743,7 +743,26 @@ funksjoner, ingen nye kolonner) — se `TODO.md`. Nye tester:
 `docs/rettigheter-og-deling.md` (autoritativ), `docs/accounts.md`, `docs/menus.md`,
 `docs/design-system.md`, `docs/trash.md`.
 
-**Domeneaudit: kanonisk `huskis.no` + auth-redirects rettet (siste runde)**: en
+**«Forlat gruppe» krever at grupperollen er ENESTE vei inn (siste runde)**: en
+medeier så en forlat-knapp på grupper INNE i et univers hen er medeier av. Årsak:
+`can_leave('group', …)` spurte bare om det fantes en direkte grupperolle. Rolle-
+backfill-en (#73) gjorde gruppens **oppretter** til eksplisitt gruppeeier, og ble
+vedkommende SENERE medeier av universet, ble raden overflødig — men beholdt
+(dokumentert: `accept_share_invite` rydder bare `member`-rader). Knappen løy:
+`leave_share` slettet raden, tilgangen besto via universet, og gruppen kom rett
+tilbake ved neste synk (klienten fjerner den optimistisk). Nå krever
+`can_leave('group', …)` også at brukeren **ikke** har en rolle i gruppens univers,
+og `leave_share` avviser med den feilmeldingen som alt fantes for arvet tilgang
+(«du har tilgang via universet — forlat universet i stedet»). Veien ut av en
+overflødig gruppeeierrolle er «Tre av som medeier» i gruppens delemodal, som
+allerede fjerner raden helt for universmedlemmer. Ingen data røres — de gamle
+radene blir liggende og er virkningsløse under et universeierskap. Ingen
+skjemaendring (kun to funksjoner), så `db-setup.yml` tar den ved merge til main.
+Nye sjekker i `supabase/tests/test-roles-and-sharing.sql` (del 14) og
+`tests/roles-and-sections.test.js` (del 11). Se `docs/rettigheter-og-deling.md`
+(autoritativ), `docs/arkitektur-brukere-deling.md`, `docs/trash.md`.
+
+**Domeneaudit: kanonisk `huskis.no` + auth-redirects rettet (forrige runde)**: en
 registrering ble sendt til det pensjonerte domenet `huskekurv.vercel.app` fordi
 `auth.signUp`/`resetPasswordForEmail` sendte `location.origin + location.pathname`
 som returadresse — en gammel fane, et utdatert domene eller en ukjent host ble

@@ -364,6 +364,29 @@ faktisk forsvant), og universmedlemskap røres ikke.
 En universarvet bruker kan ikke fjernes fra gruppen alene — RPC-en avviser
 forsøket med en forklarende feil i stedet for å bli en stille no-op.
 
+### «Forlat gruppe» krever at grupperollen er ENESTE vei inn
+
+`can_leave('group', …)` er sann bare når brukeren har en direkte grupperolle
+**og ingen rolle i gruppens univers**. Har man begge deler, fjerner ikke
+gruppens forlat-knapp noen tilgang — den kommer også fra universet — så knappen
+vises ikke, og `leave_share` avviser kallet med «du har tilgang via universet —
+forlat universet i stedet» i stedet for å slette den overflødige raden. Uten det
+leddet oppførte knappen seg som en løgn: raden forsvant, tilgangen besto, og
+gruppen kom rett tilbake ved neste synk (klienten fjerner den optimistisk).
+
+Den kombinasjonen oppstår helt lovlig og er ikke feil i seg selv:
+
+* rolle-backfill-en gjorde **gruppens oppretter** til eksplisitt gruppeeier, og
+  vedkommende kunne SENERE bli medeier av universet (den historiske formen — de
+  som opprettet grupper i andres univers før medeierskap fantes);
+* noen kan bli gjort til gruppeeier først og inviteres til hele universet etterpå.
+
+Veien ut av en overflødig **gruppeeierrolle** er «Tre av som medeier» i gruppens
+delemodal (`set_member_role`), som fjerner raden helt når brukeren er
+universmedlem — ikke «Forlat». Er man universEIER, er raden uansett virkningsløs
+(universeiere er dynamiske supereiere av alle grupper i universet), og den
+ryddes automatisk hvis man forlater eller kastes ut av universet.
+
 ---
 
 ## 7. De tre seksjonene i «Universer og grupper»
@@ -405,7 +428,8 @@ Får en direkte gruppemottaker senere universmedlemskap, forsvinner gruppen fra
 denne seksjonen og vises inne i universet — og redundante ordinære direkte
 gruppemedlemskap i universet ryddes ved aksept (eksplisitte gruppeeierroller
 beholdes, men fjernes hvis brukeren senere forlater eller kastes ut av
-universet).
+universet). En beholdt gruppeeierrolle gir ingen forlat-knapp inne i universet;
+se «Forlat gruppe krever at grupperollen er ENESTE vei inn» i del 6.
 
 Klienten samler seksjon 3 i én **virtuell beholder** (`FREE_UNI_ID`) som aldri
 pushes; gruppene beholder sitt kanoniske `uni` i doc-et, og universets navn/
@@ -474,9 +498,10 @@ effektive medlemsliste.
 | Siste eier | nei | ja |
 | Vanlig direkte medlem av fri gruppe | ja | nei |
 | Gruppeeier av fri gruppe | ja | ja |
+| Direkte grupperolle i et univers man også har rolle i | nei (forlat universet) | etter rolle |
 
 Er gruppeeieren også universmedlem, er gruppen ikke fri, og universreglene
-gjelder for tilgangen.
+gjelder for tilgangen — inkludert hvor man forlater (se «Forlat gruppe» over).
 
 Bekreftelsesdialog kreves for handlinger som påvirker andre: slette univers eller
 gruppe for alle, fjerne medeier, flytte en gruppe slik at medlemskretsen endres,

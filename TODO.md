@@ -549,6 +549,21 @@ er rettet: `docs/domains-and-urls.md` (autoritativ). Kort:
       tilgjengelig verktøy denne runden — sjekkliste i
       `docs/domains-and-urls.md` («Auth-e-postmalene»).
 
+## Forlat-knapp på grupper i eget univers (siste runde)
+
+`can_leave('group', …)` krevde bare en direkte grupperolle, så en medeier med en
+gammel eksplisitt gruppeeierrad (rolle-backfill-en gjorde gruppens oppretter til
+gruppeeier) fikk en forlat-knapp som ikke forlot noe. Rettet i
+`supabase/users-and-sharing.sql` (`can_leave` + `leave_share`) og speilet i
+`mock-backend.js`. Full begrunnelse: `docs/rettigheter-og-deling.md`.
+
+- [x] Verifisert mot produksjon (read-only): de to gruppene i det aktuelle
+      universet ga `can_leave = true` før, `false` etter den nye regelen; ingen
+      andre grupper påvirkes
+- [ ] **Kjøres av «Supabase DB-oppsett» ved merge til `main`** — kun to
+      `create or replace function`, ingen skjemaendring og ingen datamigrering.
+      Bekreft at workflow-kjøringen ble grønn etter merge.
+
 ## Fase 2 — klient/UI (✅ implementert — se `docs/accounts.md`)
 
 Alt under er implementert i `app.js` og verifisert i nettleser (Playwright) mot
