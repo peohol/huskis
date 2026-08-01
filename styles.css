@@ -2237,8 +2237,6 @@ body.no-auth #account-btn { display: none; }
   background: rgba(255, 255, 255, 0.34);
 }
 .card-cog:focus-visible { outline: 2.5px solid #fff; outline-offset: 2px; }
-/* Delt liste-kort: en tydelig men diskret kant-markør. */
-.card.is-shared { box-shadow: var(--shadow-sm), inset 0 0 0 2px rgba(255,255,255,0.55); }
 .card.is-locked .card-title { opacity: 0.9; }
 
 /* ---------------- Indikator-chips (meta-raden under navn) ----------------
