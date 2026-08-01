@@ -665,10 +665,12 @@
       allCards().forEach((c) => c.items.forEach((it) => { p[it.id] = it; }));
       return p;
     },
-    // Ny container ved ekstrahering (listepunkt/kategori → ny liste).
+    // Ny container ved ekstrahering (listepunkt/kategori → ny liste). Krever
+    // opprettelsesrett i gruppen — se canExtract.
+    canExtract: () => canAddList(activeGroupObj()),   // `row` er uten betydning her
     createContainer: (title) => {
       const g = activeGroupObj();
-      if (!g) return null;
+      if (!canAddList(g)) return null;
       const nc = card(title, [], g.id);
       g.cards.push(nc);
       return nc;
@@ -702,7 +704,11 @@
       state.universes.forEach((u) => u.groups.forEach((g) => { p[g.id] = g; }));
       return p;
     },
-    // Ny container ved ekstrahering (gruppe/gruppekategori → nytt univers).
+    // Ny container ved ekstrahering (gruppe/gruppekategori → nytt univers). Det
+    // NYE universet blir alltid mitt, men å ta gruppen UT av det gamle er en
+    // flytting: `move_group` krever destruktiv myndighet i kilden. En låst gruppe
+    // kan altså omrokkeres i universet sitt, men ikke løftes ut av det.
+    canExtract: (row) => !!row && cap(row, 'move', !frozen(row)),
     createContainer: (name) => {
       const nu = makeUniverse(name);
       state.universes.push(nu);
@@ -985,7 +991,14 @@
         const big = document.createElement('div'); big.className = 'big'; big.innerHTML = ICONS.list;
         const p1 = document.createElement('p'); p1.textContent = 'Ingen lister i «' + group.name + '» ennå.';
         const p2 = document.createElement('p');
-        p2.innerHTML = 'Trykk <span class="hint-chip">' + ICONS.plus + ' ' + ICONS.list + '</span> for å komme i gang.';
+        // «＋ Liste» er skrudd av i en låst gruppe — da skal tomtilstanden si
+        // hvorfor, ikke be om et trykk som ikke fører noe sted.
+        if (canAddList(group)) {
+          p2.innerHTML = 'Trykk <span class="hint-chip">' + ICONS.plus + ' ' + ICONS.list + '</span> for å komme i gang.';
+        } else {
+          big.innerHTML = ICONS.lock;
+          p2.textContent = 'Gruppen er låst, så du kan ikke opprette lister i den.';
+        }
         es.append(big, p1, p2);
       } else {
         es.innerHTML = '<div class="big">' + ICONS.eye + '</div><p>Ingen lister passer filteret.</p>' +
@@ -1009,10 +1022,12 @@
     save();
   }
 
-  // «＋ Liste» gir bare mening med en aktiv gruppe. («＋ Gruppe» virker alltid:
-  // finnes ikke noe univers, opprettes standard-universet i farten.)
+  // «＋ Liste» krever en aktiv gruppe man faktisk kan opprette lister i: i en
+  // LÅST gruppe avviser serveren opprettelsen, og en lokalt opprettet liste ble
+  // stående som et spøkelse — låst av gruppelåsen, altså umulig å redigere eller
+  // slette igjen. Knappen skrus av i stedet, som «＋ Gruppe» i et låst univers.
   function updateToolbarState() {
-    addCardBtn.disabled = !activeGroupObj();
+    addCardBtn.disabled = !canAddList(activeGroupObj());
   }
 
   // Breadcrumben (nav-knappen) viser navnet på gjeldende univers og gruppe, ikke
@@ -1476,13 +1491,23 @@
   function emptyGroupsTrash(uniId) {
     const u = findUniverse(uniId);
     if (!u) return;
-    commitBufferedFor(trashedGroupsOf(u).map((g) => g.id));
+    // Rader jeg ikke rår over utelates ALLEREDE fra commitBufferedFor: en buffret
+    // sletting som rekker å bli låst i angre-vinduet (en annen eier låser gruppen
+    // mens toasten står) skal ikke committes til en `trashed = true` serveren
+    // avviser — det ville kastet angre-muligheten og lagt igjen en skriving som
+    // ble forsøkt på nytt ved hver synk-runde.
+    commitBufferedFor(trashedGroupsOf(u).filter(canPurgeGroup).map((g) => g.id));
     const trash = trashedGroupsOf(u);
     if (!trash.length) return;
+    let skipped = 0;
     trash.forEach((g) => {
+      // En gruppe man ikke kan slette for alle, forlater man i stedet — men bare
+      // hvis man FAKTISK kan forlate den (en direkte grupperolle). Er grunnen til
+      // at man ikke kan slette en LÅS, finnes det ingen rolle å gi fra seg: da
+      // ville «forlat» både blitt avvist av serveren og fjernet gruppen lokalt.
+      if (!canPurgeGroup(g)) { skipped++; return; }
       const idx = u.groups.indexOf(g);
-      // En gruppe man ikke kan slette for alle, forlater man i stedet.
-      if (!cap(g, 'delete', true)) {
+      if (!canDeleteGroup(g)) {
         if (idx > -1) u.groups.splice(idx, 1);
         cloudLeave('group', g.id);
         return;
@@ -1490,6 +1515,7 @@
       tombSubtree(g, 'group');
       if (idx > -1) u.groups.splice(idx, 1);
     });
+    if (skipped) showToast(LOCKED_PURGE_MSG);
     render();
     save();
   }
@@ -1552,8 +1578,14 @@
 
     // Kort-draging: trykk-og-hold på korthodet (tittel-delen) unntatt de to
     // knappene til høyre (tannhjul + ×). Frosset (låst for meg) → ingen draging.
+    // Plasseringen blant søsknene tilhører GRUPPEN, så den krever i tillegg rett
+    // til å endre gruppens innhold: under et lås-unntak på lista alene kan man
+    // redigere den, men ikke omrokkere eller flytte den (grupperadene i
+    // nav-modalen bruker `reorderInParent` på samme måte). Board-et viser kun den
+    // aktive gruppens lister, så den slås opp der — ikke via `_parent`, som en
+    // nyopprettet liste ennå ikke har.
     attachHoldDrag(el.querySelector('.card-head'), el, startCardDrag,
-      () => canEdit, '.card-cog, .card-delete');
+      () => canEdit && canAddList(activeGroupObj()), '.card-cog, .card-delete');
 
     // Klikk på korthodet (ikke tittel/tannhjul/×/meta-chip) kollapser/utvider
     // kortet med en rullgardin-animasjon (et fullført hold løfter i stedet kortet
@@ -1769,6 +1801,9 @@
   // Tøm kortets element-søppelkasse permanent: gravstein per slettet element.
   // Buffrede slettinger committes først, så tømming aldri venter på angre-vinduet.
   function emptyItemsTrash(cardData) {
+    // Låst liste → serveren avviser slettingen, og en lokal gravstein ville bare
+    // skjult listepunktene for meg mens de levde videre for alle andre.
+    if (frozen(cardData)) { showToast(LOCKED_PURGE_MSG); return; }
     commitBufferedFor(trashedItemsOf(cardData).map((it) => it.id));
     const trash = trashedItemsOf(cardData);
     if (!trash.length) return;
@@ -3502,7 +3537,7 @@
      (samme modal-skall som plasseringsvalget). */
   function moveTargetGroups(c) {
     return visibleGroupsOf(activeUniverseObj()).filter((g) =>
-      !g.isCat && g.id !== state.activeGroup && cap(g, 'createList', !frozen(g)));
+      !g.isCat && g.id !== state.activeGroup && canAddList(g));
   }
   function pointerOnNavCrumb(x, y) {
     const r = navCrumbBtn.getBoundingClientRect();
@@ -3953,6 +3988,10 @@
     // placeholder (ekstrahering til en ny liste med bare dette listepunktet).
     const overCard = dragOverCard();
     if (!overCard) {
+      // Uten opprettelsesrett i gruppen finnes ingen ny liste å slippe i: da blir
+      // reorder-placeholderen stående der den var, og et slipp i board-lufta
+      // legger objektet tilbake der det kom fra.
+      if (!canExtractDragged()) { setReorderMode(); return; }
       setExtractMode();
       placeNewListPlaceholder();
       return;
@@ -4452,6 +4491,14 @@
      opprettet kilde-lista. Ekstrahering fra en LÅST (frosset) liste er umulig — selve
      draget er da avskrudd (attachHoldDrag canDrag = !frozen). `drag.phMode`
      ('reorder' | 'extract') styrer hvilken placeholder som er aktiv. */
+  // Får det LØFTEDE objektet i det hele tatt bli sin egen container? Board-scopet
+  // spør gruppen om opprettelsesrett, nav-scopet spør gruppen om den kan flyttes
+  // ut av universet sitt. Er svaret nei, dukker ny-liste-placeholderen aldri opp
+  // (i stedet for å tilby en flytting serveren avviser).
+  function canExtractDragged() {
+    const S = dragScope();
+    return !!S.canExtract(drag.el ? S.findRow(drag.el.dataset.id) : null);
+  }
   function pointerInRect(r, x, y) { return x >= r.left && x <= r.right && y >= r.top && y <= r.bottom; }
   /* Hvilken liste «er» det løftede objektet i? (null = board-luft → ekstrahering.)
      Avgjøres av OBJEKTETS EGEN BOKS, ikke pekeren: pekeren sitter der man tok tak,
@@ -4840,6 +4887,7 @@
     if (!drag.active || drag.kind !== 'category') return;
     const overCard = dragOverCard();
     if (!overCard) {
+      if (!canExtractDragged()) { setReorderMode(); return; } // se updateItemPlacement
       setExtractMode();
       placeNewListPlaceholder();
       return;
@@ -5081,7 +5129,7 @@
   /* ---------------- Topp-knapper ---------------- */
   addCardBtn.addEventListener('click', () => {
     const g = activeGroupObj();
-    if (!g) return;
+    if (!canAddList(g)) return;
     const c = card('Ny liste', [], g.id);
     c.pos = maxPos(g.cards) + 1;
     stampContent(c);
@@ -5224,7 +5272,12 @@
       trashEmptyBtn.disabled = true;
       return;
     }
-    trashEmptyBtn.disabled = false;
+    // «Tøm» sletter permanent — like destruktivt som å slette. Er alt i kassen
+    // låst for meg, kan ingenting tømmes, og knappen skal ikke se ut som den
+    // virker (serveren ville avvist skrivingen, mens den lokale kopien forsvant).
+    // `purge` skiller seg fra `manage` kun for universer/grupper, der «Tøm» også
+    // kan bety å FORLATE; ellers er det samme svar.
+    trashEmptyBtn.disabled = !rows.some((r) => (r.purge !== undefined ? r.purge : r.manage) !== false);
     rows.forEach((r) => {
       const row = document.createElement('div');
       row.className = 'trash-row';
@@ -5248,6 +5301,16 @@
       restore.className = 'btn btn-solid btn-green btn-small';
       restore.type = 'button';
       restore.textContent = 'Gjenopprett';
+      // Å gjenopprette er å skrive `trashed = false`, og det krever samme
+      // myndighet som å slette (`can_delete_object`). Er objektet låst for meg,
+      // avviser serveren skrivingen — da skal knappen være tydelig avskrudd i
+      // stedet for å legge igjen en lokal kopi som aldri kommer fram.
+      // (En BUFFRET sletting angres alltid: den er ren lokal tilstand, og den
+      // som buffret den hadde myndigheten da knappen ble trykket.)
+      if (r.manage === false && !r.pending) {
+        restore.disabled = true;
+        restore.title = 'Låst — du kan ikke gjenopprette dette';
+      }
       // Buffret (ennå ikke committet) sletting gjenopprettes ved å angre
       // bufferet — umiddelbart og uten databasetrafikk; committede rader
       // gjenopprettes som før (trashed=false).
@@ -5268,12 +5331,33 @@
 
   const TRASH_NOTE = 'Gjenopprett enkeltvis, eller tøm for å slette permanent. ' +
     'Tips: hold inne søppelkasse-knappen og sveip mot høyre for å tømme direkte.';
+  // Sveipefeltet på søppelkasse-knappen går utenom modalen, så tømmingen må si
+  // fra selv når den lot noe bli liggende.
+  const LOCKED_PURGE_MSG = 'Låst innhold kan ikke slettes permanent';
   const groupWord = (n) => n + ' ' + (n === 1 ? 'gruppe' : 'grupper');
   const listWord = (n) => n + ' ' + (n === 1 ? 'liste' : 'lister');
   const itemWord = (n) => n + ' ' + (n === 1 ? 'listepunkt' : 'listepunkter');
   const uniWord = (n) => n + ' ' + (n === 1 ? 'univers' : 'universer');
 
-  /* ---------- De fire søppelkassene ---------- */
+  /* ---------- De fire søppelkassene ----------
+     Søpla er FELLES, så en kasse kan godt inneholde objekter jeg ikke rår over:
+     en liste som ble slettet FØR gruppen ble låst, eller et delt univers eieren
+     har slettet for alle. Hver rad sier derfor hva jeg får gjøre med den:
+
+       manage — «Gjenopprett» (skriver `trashed = false`, og krever nøyaktig
+                samme myndighet som å slette: `can_delete_object`)
+       purge  — teller med når «Tøm» skal være aktiv: enten kan jeg slette
+                permanent, eller så kan jeg FORLATE objektet (universer/grupper
+                jeg bare er medlem av — se emptyUniversesTrash)
+
+     Uten sjekkene ble skrivingen avvist av serveren mens den lokale kopien
+     forsvant (tømming) eller ble stående som et spøkelse (gjenoppretting).
+     Universer og grupper har serverens capabilities; lister og listepunkter har
+     ingen egne caps, og der er låse-anslaget (`frozen`) nøyaktig samme regel. */
+  function canDeleteUniverse(u) { return cap(u, 'delete', true); }
+  function canDeleteGroup(g) { return cap(g, 'delete', !frozen(g)); }
+  function canPurgeUniverse(u) { return canDeleteUniverse(u) || cap(u, 'leave', false); }
+  function canPurgeGroup(g) { return canDeleteGroup(g) || cap(g, 'leave', false); }
   function openUniversesTrash() {
     showTrashModal({
       title: 'Slettede universer',
@@ -5285,6 +5369,8 @@
         name: u.name,
         meta: groupWord(u.groups.filter((g) => !g.trashed && !g.isCat).length),
         pending: !!u._pendingDelete,
+        manage: canDeleteUniverse(u),
+        purge: canPurgeUniverse(u),
         restore: () => restoreUniverse(u),
       })),
       empty: emptyUniversesTrash,
@@ -5308,6 +5394,8 @@
           name: g.name,
           meta: g.isCat ? 'Gruppekategori' : listWord(g.cards.filter((c) => !c.trashed).length),
           pending: !!g._pendingDelete,
+          manage: canDeleteGroup(g),
+          purge: canPurgeGroup(g),
           restore: () => restoreGroup(g),
         })) : [];
       },
@@ -5328,6 +5416,7 @@
         name: c.title,
         meta: itemWord(c.items.filter((it) => !it.trashed).length),
         pending: !!c._pendingDelete,
+        manage: !frozen(c),
         restore: () => restoreCard(c),
       })),
       empty: emptyCardsTrash,
@@ -5352,6 +5441,7 @@
           id: it.id,
           name: it.text,
           pending: !!it._pendingDelete,
+          manage: !frozen(c),   // listepunkter har ingen egen lås — listens gjelder
           restore: () => restoreItem(it),
         })) : [];
       },
@@ -5362,8 +5452,12 @@
   // Tøm lister-søppelkassen (aktiv gruppe) permanent: gravstein per liste + element.
   // Buffrede slettinger committes først, så tømming aldri venter på angre-vinduet.
   function emptyCardsTrash() {
-    commitBufferedFor(trashedCards().map((c) => c.id));
-    const trash = trashedCards();
+    // Låste lister hoppes over (samme grunn som i emptyItemsTrash). En liste kan
+    // ha havnet i søpla FØR gruppen ble låst, så kassen kan godt være blandet.
+    const all = trashedCards();
+    commitBufferedFor(all.filter((c) => !frozen(c)).map((c) => c.id));
+    const trash = trashedCards().filter((c) => !frozen(c)); // commit kan ha endret lista
+    if (trash.length < all.length) showToast(LOCKED_PURGE_MSG);
     if (!trash.length) return;
     const arr = allCards();
     trash.forEach((c) => {
@@ -5378,14 +5472,19 @@
   // Tøm univers-søppelkassen permanent: gravsteiner for hvert slettet univers +
   // alle dets grupper, lister og elementer (hindrer gjenoppstandelse).
   function emptyUniversesTrash() {
-    commitBufferedFor(trashedUniverses().map((u) => u.id));
+    // Som i emptyGroupsTrash: rader jeg ikke rår over holdes utenfor commit-en også.
+    commitBufferedFor(trashedUniverses().filter(canPurgeUniverse).map((u) => u.id));
     const trash = trashedUniverses();
     if (!trash.length) return;
+    let skipped = 0;
     trash.forEach((u) => {
       const i = state.universes.indexOf(u);
       if (u._virtual) return;
-      // Et univers man bare er MEDLEM av kan man forlate, ikke slette.
-      if (!cap(u, 'delete', true)) {
+      // Et univers man bare er MEDLEM av kan man forlate, ikke slette. Kan man
+      // ingen av delene, blir universet stående i kassen — bedre enn å forsvinne
+      // lokalt mens serveren avviser både slettingen og forlatelsen.
+      if (!canPurgeUniverse(u)) { skipped++; return; }
+      if (!canDeleteUniverse(u)) {
         if (i > -1) state.universes.splice(i, 1);
         cloudLeave('universe', u.id);
         return;
@@ -5393,6 +5492,7 @@
       tombSubtree(u, 'universe');
       if (i > -1) state.universes.splice(i, 1);
     });
+    if (skipped) showToast(LOCKED_PURGE_MSG);
     render();
     save();
   }
@@ -6856,6 +6956,14 @@
     if (c && name in c) return !!c[name];
     return fallback !== undefined ? fallback : true;
   }
+  // Kan jeg endre GRUPPENS innhold — altså opprette lister i den, og omrokkere/
+  // flytte listene den inneholder? Den myndigheten ligger på GRUPPEN, ikke på
+  // lista: `frozen(liste)` svarer bare på om jeg kan redigere lista SELV. Under
+  // et lås-unntak («Gjør unntak» på én liste i en låst gruppe) spriker de to —
+  // lista kan redigeres, men verken få en ny søskenliste eller flytte på seg.
+  // Serverens capability er autoritativ (`createList` = `can_create_child` =
+  // `can_edit_content` på gruppen); mangler den, brukes det lokale låse-anslaget.
+  function canAddList(g) { return !!g && cap(g, 'createList', !frozen(g)); }
   // Forfedrene til et objekt, nærmeste først, med type.
   const PARENT_TYPE = { card: 'group', group: 'universe', universe: null };
   function ancestorChain(type, obj) {
