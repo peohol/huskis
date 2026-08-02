@@ -191,33 +191,39 @@ jobs:
 
       - run: npm install -g vercel@latest
 
-      # `vercel pull` ble bevisst fjernet. Den henter prosjektinnstillinger OG
-      # miljøvariabler for `production`, og det siste krever mer enn et
-      # project-scoped token — den feilet med Vercels generiske
-      # «Could not retrieve Project Settings». Vi trenger den heller ikke:
-      # Huskis er en ren statisk app uten miljøvariabler i Vercel, og
-      # `vercel.json` sier allerede `buildCommand` + `outputDirectory`. Det
-      # eneste `pull` faktisk ga oss var denne fila, som vi kan skrive selv.
+      # Peker CLI-en på riktig prosjekt. `vercel deploy` trenger bare disse to
+      # ID-ene; det er `vercel build` som i tillegg krever en `settings`-blokk
+      # som kun `vercel pull` skriver — og derfor bygger vi ikke lokalt.
       - name: Lenk prosjektet
         run: |
           mkdir -p .vercel
           printf '{"projectId":"%s","orgId":"%s"}\n' \
             "$VERCEL_PROJECT_ID" "$VERCEL_ORG_ID" > .vercel/project.json
 
-      - name: Bygg
-        # VERCEL_GIT_COMMIT_SHA gir build.js en stabil commit å stemple build-ID
-        # og /version.json med (den finnes ikke når `vercel build` kjøres
-        # utenfor Vercels egne byggere).
-        run: vercel build --prod --token="$VERCEL_TOKEN"
-        env:
-          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
-          VERCEL_GIT_COMMIT_SHA: ${{ github.sha }}
-
-      - name: Publiser til produksjon
+      # Builden kjører HOS Vercel, ikke her — altså nøyaktig som da
+      # git-integrasjonen deployet main, bare startet fra denne jobben i stedet.
+      # Det er med vilje: `vercel pull` + `vercel build --prebuilt` krever at
+      # runneren har hele prosjektkonfigurasjonen liggende lokalt, og å gjette
+      # den fasongen selv er en kilde til feil vi ikke trenger. Vercel kjenner
+      # sine egne innstillinger, og `vercel.json` i det opplastede treet gir
+      # `buildCommand: node build.js` + `outputDirectory: dist`.
+      #
+      # Porten står like fast: jobben ligger bak `needs: smoke`, så
+      # opplastingen skjer først etter at migreringen er verifisert.
+      #
+      # `--build-env GITHUB_SHA`: build.js leser den som fallback for `commit` i
+      # /version.json. Uten den har Vercel-builden ingen git-metadata å stemple
+      # med, siden treet lastes opp fra CLI-en og ikke hentes fra GitHub.
+      - name: Bygg og publiser til produksjon
         run: |
-          url=$(vercel deploy --prebuilt --prod --token="$VERCEL_TOKEN")
+          url=$(vercel deploy --prod \
+            --build-env "GITHUB_SHA=$GITHUB_SHA" \
+            --token="$VERCEL_TOKEN")
           echo "✅ Produksjonsdeploy: $url"
-          echo "### Produksjonsdeploy" >> "$GITHUB_STEP_SUMMARY"
-          echo "$url" >> "$GITHUB_STEP_SUMMARY"
+          {
+            echo "### Produksjonsdeploy"
+            echo "$url"
+          } >> "$GITHUB_STEP_SUMMARY"
         env:
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          GITHUB_SHA: ${{ github.sha }}

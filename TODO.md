@@ -80,26 +80,6 @@ både i `tombstones` (slettet 2026-07-27) og som aktiv rad.
 
 ## Vercel
 
-- [ ] **Legg inn deploy-secretene** (Settings → Secrets and variables → Actions).
-      Uten dem stopper `deploy`-jobben i «Release» med en eksplisitt feil, og
-      ingenting når produksjon — Vercels egen git-deploy for `main` er slått av
-      i `vercel.json` med vilje, slik at deploy og migrering ikke kan kjøre
-      parallelt.
-
-      | Secret | Hentes fra |
-      |---|---|
-      | `VERCEL_TOKEN` | Vercel → Account Settings → Tokens |
-      | `VERCEL_ORG_ID` | `.vercel/project.json` etter `vercel link` |
-      | `VERCEL_PROJECT_ID` | samme fil |
-
-      ```bash
-      npx vercel login && npx vercel link      # skriver .vercel/project.json
-      cat .vercel/project.json                 # orgId + projectId
-      ```
-
-      `.vercel/` er gitignorert; verdiene er ID-er, ikke hemmeligheter, men
-      `VERCEL_TOKEN` skal ALDRI skrives til Git, PR-er, logger eller chat.
-
 - [ ] Koble domenet `huskekurv.vercel.app` til `huskis`-prosjektet. Redirect-
       regelen i `vercel.json` er klar, men trer først i kraft når domenet faktisk
       peker hit — det gjør det ikke i dag. Kommando og alternativer: «Det gamle

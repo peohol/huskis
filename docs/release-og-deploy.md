@@ -28,8 +28,13 @@ service-container. Den har ikke tilgang til `SUPABASE_DB_URL`.
                                           tre forsøk med økende pause)
 3. smoke       psql: supabase/smoke-test.sql
                  ↓ needs                 (read-only transaksjon mot produksjon)
-4. deploy      vercel pull → vercel build --prod → vercel deploy --prebuilt --prod
+4. deploy      preflight mot Vercels API → vercel deploy --prod
 ```
+
+Builden i ledd 4 kjører HOS Vercel, ikke på runneren — altså som da
+git-integrasjonen deployet `main`, bare startet fra denne jobben i stedet.
+Porten er uendret: jobben ligger bak `needs: smoke`, så opplastingen skjer
+først etter at migreringen er verifisert.
 
 Hvert ledd er en egen jobb med `needs` på det forrige. Stopper ledd 2 eller 3,
 kjøres ledd 4 aldri — produksjon fortsetter å servere den forrige frontenden.
@@ -138,11 +143,12 @@ prosjektet, 404 = `VERCEL_PROJECT_ID` og `VERCEL_ORG_ID` hører ikke sammen.
 Bare statuskoden og Vercels egen feilmelding logges; tokenet forlater aldri
 runneren.
 
-Jobben kjører bevisst IKKE `vercel pull`. Den henter miljøvariabler i tillegg
-til prosjektinnstillinger, og det krever bredere tilgang enn et project-scoped
-token. Huskis er en ren statisk app uten miljøvariabler i Vercel, og
-`vercel.json` sier allerede `buildCommand` + `outputDirectory` — så jobben
-skriver `.vercel/project.json` selv og går rett på `vercel build --prod`.
+Jobben kjører bevisst verken `vercel pull` eller `vercel build`. Begge krever at
+runneren har hele prosjektkonfigurasjonen liggende lokalt — `vercel build`
+avviser med «No Project Settings found locally» uten `settings`-blokken som kun
+`vercel pull` skriver. Å gjette den fasongen selv er en unødvendig feilkilde.
+Vercel kjenner sine egne innstillinger, så jobben skriver bare
+`.vercel/project.json` med de to ID-ene og lar Vercel bygge.
 
 **Rollback av frontenden**: rull tilbake i Vercel (Deployments → den forrige
 produksjonsdeployen → «Promote to Production», eller `vercel rollback`). Det er
