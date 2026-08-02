@@ -111,6 +111,18 @@ check('index.html: guarden ER dokumentets første <script>',
 check('index.html: <meta charset> ligger innenfor de første 1024 bytene',
   html.indexOf('<meta charset') > -1 && html.indexOf('<meta charset') < 1024,
   html.indexOf('<meta charset'));
+// index.html står i ALLOWLIST i tests/no-legacy-domain.test.js fordi guardens
+// hostliste MÅ navngi det pensjonerte domenet. Den fritagelsen skal ikke gi
+// resten av fila fritt leide: navnet får kun stå inne i guarden — som
+// redirect-KILDE, aldri som en lenke i markupen.
+const guardEnd = html.indexOf('</script>', firstScript);
+const legacyAt = [];
+for (let i = html.toLowerCase().indexOf('huskekurv'); i > -1; i = html.toLowerCase().indexOf('huskekurv', i + 1)) legacyAt.push(i);
+check('index.html: det pensjonerte domenet nevnes KUN inne i guarden',
+  legacyAt.length > 0 && legacyAt.every((i) => i > firstScript && i < guardEnd),
+  { treff: legacyAt, guard: [firstScript, guardEnd] });
+check('index.html: guardens hostliste inneholder det pensjonerte domenet',
+  /REDIRECT_HOSTS\s*=\s*\[[^\]]*huskekurv\.vercel\.app/.test(html));
 
 (async () => {
   const browser = await chromium.launch();
@@ -123,11 +135,19 @@ check('index.html: <meta charset> ligger innenfor de første 1024 bytene',
   await page.waitForFunction(() => window.__huskisCanonical && typeof window.__huskisCanonical.redirectUrlFor === 'function');
 
   // ---------- 3) De to lagene navngir de samme domenene ----------
+  // De to lagene skal dekke NØYAKTIG de samme hostene: en host bare på kanten
+  // slipper unna i en fane som aldri møter 308-en, og en host bare i guarden
+  // ville vært en redirect vi ikke faktisk har.
   const guardHosts = await page.evaluate(() => window.__huskisCanonical.redirectHosts);
-  check('guarden dekker www.huskis.no og huskis.vercel.app', Array.isArray(guardHosts) &&
-    ['www.huskis.no', 'huskis.vercel.app'].every((h) => guardHosts.includes(h)), guardHosts);
-  check('hver host guarden dekker har også en 308-regel i vercel.json',
-    Array.isArray(guardHosts) && guardHosts.every((h) => byHost.has(h)), guardHosts);
+  const edgeHosts = [...byHost.keys()];
+  check('guarden og vercel.json dekker nøyaktig de samme hostene',
+    Array.isArray(guardHosts) && guardHosts.length === edgeHosts.length &&
+    edgeHosts.every((h) => guardHosts.includes(h)),
+    { guardHosts, edgeHosts });
+  check('begge lagene dekker de alternative produksjonsdomenene',
+    Array.isArray(guardHosts) &&
+    ['www.huskis.no', 'huskis.vercel.app'].every((h) => guardHosts.includes(h) && byHost.has(h)),
+    guardHosts);
   const guardOrigin = await page.evaluate(() => window.__huskisCanonical.origin);
   check('guardens kanoniske origin === ' + CANONICAL, guardOrigin === CANONICAL, guardOrigin);
 
@@ -137,6 +157,8 @@ check('index.html: <meta charset> ligger innenfor de første 1024 bytene',
     ['https://www.huskis.no/', CANONICAL + '/'],
     ['https://huskis.vercel.app/', CANONICAL + '/'],
     ['https://www.huskis.no/index.html', CANONICAL + '/index.html'],
+    // det pensjonerte domenet: en fane som fortsatt kjører der skal også hjem
+    ['https://huskekurv.vercel.app/?code=abc', CANONICAL + '/?code=abc'],
     // path + query
     ['https://www.huskis.no/en/under/side?a=1&b=to%20ord',
       CANONICAL + '/en/under/side?a=1&b=to%20ord'],

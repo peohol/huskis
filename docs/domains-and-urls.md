@@ -18,7 +18,7 @@ kjører på, og det eneste Huskis selv genererer URL-er til.
 | `https://huskis.no` | **Kanonisk.** Appen kjører her; alt Huskis genererer (auth-redirects, Resend-lenker) peker hit |
 | `https://www.huskis.no` | Svarer **308** til `https://huskis.no` — kjører aldri appen |
 | `https://huskis.vercel.app` | Svarer **308** til `https://huskis.no` — kjører aldri appen |
-| `https://huskekurv.vercel.app` | **Pensjonert.** Svarer 308 som de to over. Skal ALDRI genereres av aktiv kode. Se «Det gamle domenet» |
+| `https://huskekurv.vercel.app` | **Pensjonert.** Svarer 308 som de to over, og står i begge redirect-lagene som KILDE. Skal ALDRI genereres av aktiv kode. Se «Det gamle domenet» |
 | `https://huskis-*-peohols-projects.vercel.app` | Vercels egne deploy-/preview-adresser. **Urørt** — en preview skal testes der den ligger |
 
 ## Redirect til det kanoniske originet
@@ -51,7 +51,9 @@ ikke.
 - Skjer FØR noe av appen lastes — 308-en er svaret på selve
   dokumentforespørselen.
 
-**2. Guarden øverst i `index.html` → `location.replace()`.** Første kode som
+**2. Guarden øverst i `index.html` → `location.replace()`.** Dekker NØYAKTIG de
+samme hostene som 308-reglene (også det pensjonerte domenet — en fane som
+fortsatt kjører der skal også hentes hjem). Første kode som
 kjører i dokumentet (kun `<meta charset>` står foran, den må ligge innenfor
 de første 1024 bytene) — altså før stilark, før `config.js`/`app.js`, før noe
 leser `localStorage` eller registrerer en service worker. Den fanger den ene
@@ -259,4 +261,7 @@ utgående HTTPS-kall er sperret i dette kjøremiljøet.
   domenet.
 - `tests/no-legacy-domain.test.js` — repo-vid tekstvakt: feiler dersom
   `huskekurv` dukker opp utenfor en eksplisitt, begrunnet unntaksliste
-  (negative tester, denne fila, `TODO.md`, `vercel.json`s redirect-regel).
+  (negative tester, denne fila, `TODO.md`, og de to redirect-kildene
+  `vercel.json` + `index.html`). At navnet i `index.html` kun står inne i
+  guardens hostliste — som redirect-kilde, aldri som en lenke — sjekkes av
+  `tests/canonical-origin.test.js`.

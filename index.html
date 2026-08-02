@@ -16,7 +16,11 @@
     (function () {
       'use strict';
       var CANONICAL_ORIGIN = 'https://huskis.no';
-      var REDIRECT_HOSTS = ['www.huskis.no', 'huskis.vercel.app'];
+      // Nøyaktig de samme hostene som 308-reglene i vercel.json. Det
+      // pensjonerte huskekurv.vercel.app er med av samme grunn som de andre:
+      // en fane som fortsatt kjører DERFRA skal også hentes hjem. Navnet står
+      // her som redirect-KILDE, aldri som en adresse Huskis genererer.
+      var REDIRECT_HOSTS = ['www.huskis.no', 'huskis.vercel.app', 'huskekurv.vercel.app'];
       // → URL-en denne adressen hører hjemme på, eller null når den allerede
       //   er kanonisk (eller er en host vi ikke skal røre).
       function redirectUrlFor(href) {
