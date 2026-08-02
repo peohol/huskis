@@ -112,8 +112,10 @@ samme nested `state` som før; synken går slik (`cloudCycle`):
    bekreftelses-pull (`cloudAgain = true`) — den frisker opp `lastMy`, så
    køede delings-operasjoner som venter på en nypushet rad
    (`rowKnownToServer`) slipper å vente på neste poll. Bekreftelses-pullen
-   planlegges KUN når hele pushen landet (`pushOps` returnerer antall avviste
-   ops): en skriving som avvises permanent regenereres av reconcile hver runde,
+   planlegges KUN når hele pushen landet (`pushOps` returnerer
+   `{ rejected, netFailed }` — antall ops som ikke landet, og om minst én av
+   dem aldri kom fram): en skriving som avvises permanent regenereres av
+   reconcile hver runde,
    og med en ubetinget `cloudAgain` ble det en varm løkke som hamret
    `get_my_doc` + den samme avvisningen ~1 gang i sekundet. Blir noe avvist,
    overlates neste forsøk til det vanlige pollet.
@@ -173,14 +175,14 @@ faktiske operasjonstilstanden hver gang den males, av tre uavhengige signaler:
 |---|---|---|
 | **ventende** (`pending`) | den debouncede cache-skrivingen venter, `opQueue` har noe på gang, serveren ikke har svart én eneste gang (`!lastMy`), eller `saveSeq !== syncedSeq` | «Lagrer …» |
 | **frakoblet** (`offline`) | `navigator.onLine === false`, eller `OFFLINE_AFTER_FAILURES` (2) kall på rad som aldri nådde fram (`isNetworkError`) | «Frakoblet – endringene lagres på denne enheten» |
-| **avvist** (`rejected`) | serveren SVARTE nei: skjema-avvik (per tabell) eller en rad avvist `PERSISTENT_REJECTS` ganger | «Noen endringer kunne ikke lagres» + «Prøv igjen» |
+| **avvist** (`rejected`) | en skriving ble sagt nei til. Serverside: skjema-avvik (per tabell) eller en rad avvist `PERSISTENT_REJECTS` ganger. Lokalt: `localStorage.setItem` som kaster (full kvote, blokkerte nettsteddata) — `kind: 'cache'` | «Noen endringer kunne ikke lagres» + «Prøv igjen» |
 
 Rekkefølgen er **avvist → frakoblet → ventende → lagret**: en avvisning er et
 uløst problem selv om vi akkurat nå også er frakoblet, og skal ikke skjules av
 en tilstand som løser seg selv. Er alle tre tomme — og først da — står det
 «Lagret».
 
-Fire ting følger av at statusen skal være til å stole på:
+Seks ting følger av at statusen skal være til å stole på:
 
 - **En synk-RUNDE er ikke «ventende arbeid».** Runder kjører hele tiden (poll
   hvert 5. sekund, hver realtime-hendelse fra en annen enhet). Teller vi dem,
@@ -188,14 +190,30 @@ Fire ting følger av at statusen skal være til å stole på:
   brukeren har gjort noe. `saveSeq !== syncedSeq` fanger uansett enhver lokal
   endring en runde ikke har fått pushet — det er det påstanden gjelder.
 - **Terskelen på 2 for «frakoblet»** gjør at ett enkelt nettverksglipp ikke
-  blinker; pollet henter det inn igjen. Enhver runde som får svar fra serveren
+  blinker; pollet henter det inn igjen. En runde som får svar fra serveren
   nullstiller tellingen (`noteReachable`), også når svaret er en feil — da er vi
   jo tilkoblet.
+- **Verdikten om å ha nådd fram felles per RUNDE, ikke når pull-en er ferdig.**
+  `pushOps` returnerer `{ rejected, netFailed }`, og `cloudCycle` holder
+  `reached` åpen til `finally`. Meldte vi «tilkoblet» straks `get_my_doc` gikk
+  gjennom, ville en runde der pull-en lykkes men hver SKRIVING dør i
+  transporten nullstilt tellingen hver gang: terskelen ble aldri nådd, og
+  statusen sto på «Lagrer …» i det uendelige i stedet for å si at endringene
+  ikke kommer fram. `netFailed` er boolsk og ikke en teller — ti rader som ikke
+  kom fram i samme runde er ÉN nettverksfeil, ellers er terskelen meningsløs.
 - **Avvisninger tømmes aldri på antakelse.** Enten kvitterer serveren for
   nettopp den raden/tabellen (`reportWriteResult`), eller så finner fletteren
   ingen divergens igjen (`ops.length === 0` i `cloudCycle`) — altså ligger alt
   vi har lokalt også på serveren. Derfor sier UI-et heller aldri at «resten er
-  lagret»: det er ikke verifisert.
+  lagret»: det er ikke verifisert. Buffer-avvisningen (`kind: 'cache'`) er
+  unntatt fra den siste veien (`clearServerRejections`): at vi er i takt med
+  serveren sier ingenting om hvorvidt `localStorage` tok imot, så den ryddes
+  kun av en skriving som faktisk gikk gjennom.
+- **En feilet lokal buffer-skriving svelges ikke.** Kaster `setItem` (kvote
+  full, privat modus, blokkerte nettsteddata), ligger endringene bare i minnet i
+  denne fanen — da ville både «Lagret» og «endringene lagres på denne enheten»
+  vært løgn. Feilen logges og meldes som en avvisning, og «Prøv igjen»
+  bestiller en ny skriving.
 - **«Prøv igjen»** (`retrySyncNow`) napper `opQueue` og synk-runden i gang med
   én gang — backoffen ventes ikke ut, men fjernes ikke: den automatiske retryen
   går som før. Knappen rører ikke avvisningslisten. Mens forsøket pågår står

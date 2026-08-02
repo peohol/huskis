@@ -322,6 +322,9 @@
   function stateReplacer(k, v) {
     return (k && k[0] === '_' && !CACHED_META.has(k)) ? undefined : v;
   }
+  // Nøkkelen den lokale bufferens skrivefeil meldes under i lagringsstatusen.
+  // Én felles nøkkel: det er én buffer, og gjentatte feil er samme problem.
+  const CACHE_REJECT_KEY = 'cache';
   // Selve skrivingen (debouncet). Nøkkelen fanges når skrivingen bestilles, ikke
   // når den utføres, så en utlogging midt i vinduet ikke flytter en brukers data
   // over i en annen post.
@@ -333,9 +336,20 @@
       try {
         state._hlc = hlc;
         localStorage.setItem(key, JSON.stringify(state, stateReplacer));
+        syncStatus.clearRejected(CACHE_REJECT_KEY);
       } catch (e) {
-        /* ignore quota */
+        // Full kvote, eller localStorage utilgjengelig (privat modus, blokkerte
+        // nettsteddata). Da ligger endringene KUN i minnet, og både «Lagret» og
+        // «endringene lagres på denne enheten» ville vært løgn — så dette må
+        // meldes, ikke svelges. Statusen står til en skriving faktisk går
+        // gjennom; «Prøv igjen» bestiller en ny.
+        console.error('[huskis] Kunne ikke skrive den lokale bufferen — ' +
+          'endringene ligger bare i minnet i denne fanen.', e);
+        syncStatus.noteRejected(CACHE_REJECT_KEY, {
+          kind: 'cache', message: String((e && e.message) || e),
+        });
       }
+      syncStatus.refresh();
     }, 120);
   }
   // Teller lokale endringer som skal til skyen. `syncedSeq` rykker fram til den
@@ -7545,10 +7559,15 @@
     });
     return doc;
   }
-  // Returnerer antall ops som ble avvist (0 = alt landet).
+  /* Returnerer `{ rejected, netFailed }`: hvor mange ops som ikke landet, og om
+     minst én av dem feilet fordi kallet ALDRI kom fram. De to må skilles av
+     runden som kaller: en avvist skriving betyr at vi er tilkoblet, en skriving
+     som aldri kom fram betyr det motsatte. `netFailed` er en boolsk verdi og
+     ikke en teller med vilje — en runde der ti rader ikke kom fram er ÉN
+     nettverksfeil, ikke ti, ellers ville terskelen på to blitt meningsløs. */
   async function pushOps(ops) {
     const client = acli();
-    if (!client || !authUser) return 0;
+    if (!client || !authUser) return { rejected: 0, netFailed: false };
     const uid = authUser.id;
     const order = { universe: 0, group: 1, card: 2, item: 3 };
     // Ovenfra-ned (foreldre først) på type, og INNEN en type: kategorier før
@@ -7559,7 +7578,10 @@
     const upd = ops.filter((o) => o.op === 'update').sort(byParentFirst);
     const del = ops.filter((o) => o.op === 'delete').sort((a, b) => order[b.t] - order[a.t]);
     let failed = 0;
+    let netFailed = false;
     let tombed = false;
+    // Et kall som kastet er transport, ikke svar: skill det fra en avvisning.
+    const noteThrow = (e) => { failed++; if (isNetworkError(e)) netFailed = true; };
     for (const o of ins) {
       try {
         const res = await client.from(TABLE[o.t]).insert(insertPayload(o.t, o.row, uid));
@@ -7574,20 +7596,20 @@
           continue;
         }
         if (!reportWriteResult(o.t, res, o.row.id)) failed++;
-      } catch (e) { failed++; /* nettverk – poll/realtime prøver igjen */ }
+      } catch (e) { noteThrow(e); /* nettverk – poll/realtime prøver igjen */ }
     }
     if (tombed) saveLocal();
     for (const o of upd) {
       try {
         if (!reportWriteResult(o.t, await client.from(TABLE[o.t]).update(updatePayload(o.t, o.row)).eq('id', o.row.id), o.row.id)) failed++;
-      } catch (e) { failed++; /* nettverk */ }
+      } catch (e) { noteThrow(e); /* nettverk */ }
     }
     for (const o of del) {
       try {
         if (!reportWriteResult(o.t, await client.from(TABLE[o.t]).delete().eq('id', o.id), o.id)) failed++;
-      } catch (e) { failed++; /* nettverk */ }
+      } catch (e) { noteThrow(e); /* nettverk */ }
     }
-    return failed;
+    return { rejected: failed, netFailed };
   }
 
   /* ---------------- Nådde vi serveren i det hele tatt? ----------------
@@ -7615,9 +7637,12 @@
          `OFFLINE_AFTER_FAILURES` kall på rad som aldri nådde fram. Terskelen
          gjør at ett enkelt glipp ikke blinker «Frakoblet» — pollet henter det
          inn igjen. Endringene ligger trygt lokalt, og retryen fortsetter.
-       • AVVIST    (`rejected`): serveren SVARTE, og svaret var nei. Skjema-
-         avvik (per tabell) og rader som avvises gjentatte ganger (se
-         `noteReject`). Disse forsvinner ikke av seg selv — derfor «Prøv igjen».
+       • AVVIST    (`rejected`): en skriving ble sagt nei til. Serverside:
+         skjema-avvik (per tabell) og rader som avvises gjentatte ganger (se
+         `noteReject`). Lokalt: den debouncede localStorage-skrivingen som
+         feiler (full kvote, blokkerte nettsteddata) — da ligger endringene bare
+         i minnet, og verken «Lagret» eller «lagres på denne enheten» ville vært
+         sant. Ingen av dem forsvinner av seg selv — derfor «Prøv igjen».
 
      Rekkefølgen er avvist → frakoblet → ventende → lagret: en avvisning er et
      uløst problem selv om vi akkurat nå også er frakoblet, og skal ikke skjules
@@ -7626,9 +7651,11 @@
      «Lagret» påstås KUN når alle tre er tomme. Avvisninger tømmes aldri på
      antakelse: enten kvitterer serveren for nettopp den raden
      (`reportWriteResult`), eller så finner fletteren ingen divergens igjen —
-     altså ligger alt vi har også på serveren (`clearAllRejected` i
-     `cloudCycle`). Teknikken (tabell, rad, feilkode) går kun til konsollen og
-     `__huskis.syncStatus.snapshot()`. */
+     altså ligger alt vi har også på serveren (`clearServerRejections` i
+     `cloudCycle`). Den lokale bufferens skrivefeil (`kind: 'cache'`) er unntatt
+     der: serveren vet ingenting om localStorage, så den ryddes kun av en
+     vellykket skriving. Teknikken (tabell, rad, feilkode) går kun til konsollen
+     og `__huskis.syncStatus.snapshot()`. */
   const syncStatus = (() => {
     const el = document.getElementById('sync-status');
     const textEl = document.getElementById('sync-status-text');
@@ -7698,7 +7725,14 @@
     function noteNetworkFailure() { netFailures++; paint(); }
     function noteRejected(key, detail) { rejected.set(key, Object.assign({ key }, detail)); paint(); }
     function clearRejected(key) { if (rejected.delete(key)) paint(); }
-    function clearAllRejected() { if (rejected.size) { rejected.clear(); paint(); } }
+    // Tømmer avvisningene SERVEREN eier. Den lokale bufferens skrivefeil får bli
+    // stående: at fletteren ikke finner divergens mot serveren sier ingenting om
+    // hvorvidt localStorage tok imot — den ryddes kun av en vellykket skriving.
+    function clearServerRejections() {
+      let changed = false;
+      rejected.forEach((v, k) => { if (v.kind !== 'cache') { rejected.delete(k); changed = true; } });
+      if (changed) paint();
+    }
     function beginRetry() {
       retrying = true;
       clearTimeout(retryGuard);
@@ -7736,7 +7770,7 @@
     window.addEventListener('online', () => { netFailures = 0; paint(); scheduleCloud(0); });
     window.addEventListener('offline', paint);
     return { refresh: paint, noteReachable, noteNetworkFailure, noteRejected,
-      clearRejected, clearAllRejected, beginRetry, endRetry, snapshot, start, stop };
+      clearRejected, clearServerRejections, beginRetry, endRetry, snapshot, start, stop };
   })();
 
   /* «Prøv igjen»: napper både operasjonskøen og synk-runden i gang MED ÉN GANG
@@ -7746,6 +7780,7 @@
      avvisningen tilbake av seg selv. */
   function retrySyncNow() {
     syncStatus.beginRetry();
+    scheduleCacheWrite(); // en feilet buffer-skriving skal også prøves på nytt
     opQueue.retryNow();
     scheduleCloud(0);
   }
@@ -8097,9 +8132,15 @@
     if (cloudRunning) { cloudAgain = true; return; }
     cloudRunning = true;
     syncStatus.refresh();
+    // Nådde HELE runden fram? null = ikke avgjort ennå. Verdikten felles først i
+    // `finally`, aldri når pull-en er ferdig: en pull som går gjennom mens hver
+    // SKRIVING dør i transporten ville ellers nullstilt frakoblet-tellingen
+    // hver runde, og statusen ville stått på «Lagrer …» for alltid i stedet for
+    // å si fra at endringene ikke kommer fram.
+    let reached = null;
     try {
       const my = await rpcMyDoc();
-      syncStatus.noteReachable(); // serveren svarte → vi er ikke frakoblet
+      reached = true; // pull-en kom fram — skrivingene er ikke prøvd ennå
       if (!my) return;
       lastMy = my;
       const remote = contentDocFromMy(my);
@@ -8167,7 +8208,8 @@
       }
       let allPushed = true;
       if (ops.length) {
-        const failed = await pushOps(ops);
+        const { rejected: failed, netFailed } = await pushOps(ops);
+        if (netFailed) reached = false; // skrivingene kom ikke fram
         // Bekreftelses-pull straks etter push: lastMy/metadata friskes opp, så
         // køede operasjoner som venter på en nypushet rad (rowKnownToServer)
         // slipper å vente på neste poll. Landet ALT, ser neste runde remote ==
@@ -8179,9 +8221,9 @@
       } else {
         // Fletteren fant INGEN divergens: alt vi har lokalt ligger også på
         // serveren. Det er den eneste verifiserte grunnen til å blanke
-        // avvisningene i ett jafs — en avvist rad som fortsatt divergerer
-        // ville gitt en op her.
-        syncStatus.clearAllRejected();
+        // server-avvisningene i ett jafs — en avvist rad som fortsatt
+        // divergerer ville gitt en op her.
+        syncStatus.clearServerRejections();
       }
       // Alt lokalt som fantes da staten ble lest, ligger nå på serveren.
       if (allPushed) syncedSeq = seq;
@@ -8191,9 +8233,11 @@
       // Nådde vi ikke fram, er dette en FRAKOBLET-tilstand (poll/realtime
       // prøver igjen). Svarte serveren med en feil, er vi tilkoblet — da er det
       // skrivingenes egne avvisninger som eier statusen.
-      if (isNetworkError(e)) syncStatus.noteNetworkFailure();
-      else syncStatus.noteReachable();
+      reached = !isNetworkError(e);
     } finally {
+      // Én verdikt per runde: ti rader som ikke kom fram er én nettverksfeil.
+      if (reached === true) syncStatus.noteReachable();
+      else if (reached === false) syncStatus.noteNetworkFailure();
       cloudRunning = false;
       if (cloudAgain) { cloudAgain = false; scheduleCloud(150); }
       else syncStatus.endRetry(); // ingen flere runder i kø → forsøket er avgjort

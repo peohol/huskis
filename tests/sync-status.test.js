@@ -25,6 +25,14 @@
        den tredje melder seg som avvist.
     8. Tilstandene skilles fra hverandre i diagnostikken (offline/pending/
        rejected er tre uavhengige felt).
+    9. Regresjon: en SKRIVE-only nettverksfeil (pull-en går gjennom, hver
+       insert/update dør i transporten) må nå frakoblet-terskelen. Verdikten
+       felles per runde, ikke når pull-en er ferdig — ellers nullstilte hver
+       runde tellingen og statusen sto på «Lagrer …» for alltid.
+   10. Regresjon: en feilet localStorage-skriving (full kvote) meldes som
+       avvist. «Lagret»/«lagres på denne enheten» skal ikke påstås når
+       endringene bare ligger i minnet, og en synk-runde uten divergens skal
+       ikke kunne blanke den (serveren vet ingenting om localStorage).
   Kjøres på BÅDE desktop- og mobil-viewport (pillen er fast plassert og skal
   holde seg innenfor viewporten på begge).
 
@@ -157,6 +165,9 @@ const cycle = (page) => page.evaluate(() => window.__huskis.cloudCycle());
 // etter i stedet for å anta at ett kall = én ferdig runde.
 const waitState = (page, want) => page.waitForFunction(
   (w) => document.getElementById('sync-status').dataset.state === w, want, { timeout: 8000 });
+// Der DET Å NÅ tilstanden er selve påstanden: uten dette kaster ventingen, og
+// en regresjon ville avbrutt hele filen i stedet for å skrive en lesbar FAIL.
+const softWait = (page, want) => waitState(page, want).catch(() => {});
 const serverItemText = (page) => page.evaluate(() => (JSON.parse(localStorage.getItem('hk-mock-db')).items || [])[0].text);
 const cachedItemText = (page) => page.evaluate(() => {
   const s = JSON.parse(localStorage.getItem('mine-lister-v1:uMe') || '{}');
@@ -366,6 +377,92 @@ async function scenario(page, viewport, label) {
       r[2].rejected[0].kind === 'reject' && r[2].rejected[0].table === 'items', r[2]);
     const s3 = await readStatus(page);
     check('terskel: ingen toast underveis', s3.toastShows === 0, s3.toastShows);
+  }
+
+  /* 9) Regresjon: SKRIVE-only nettverksfeil må nå frakoblet-terskelen.
+        Pull-en går gjennom, hver skriving dør i transporten. Feltes verdikten
+        når pull-en er ferdig, nullstiller hver runde tellingen og statusen står
+        på «Lagrer …» i det uendelige i stedet for å si «Frakoblet». */
+  {
+    await load(page, buildDB().db, viewport);
+    await waitState(page, 'saved');
+    const r = await page.evaluate(async () => {
+      const h = window.__huskis;
+      const client = h.client;
+      await new Promise((r) => setTimeout(r, 400)); // la en ev. runde i lufta bli ferdig
+      // KUN skrivingene dør — `rpc` (get_my_doc) og `select` går som normalt.
+      window.__realFrom = client.from.bind(client);
+      const boom = () => { throw new TypeError('Failed to fetch'); };
+      client.from = function (table) {
+        const real = window.__realFrom(table);
+        return {
+          insert: boom,
+          update: () => ({ eq: boom }),
+          delete: () => ({ eq: boom }),
+          select: real.select.bind(real),
+        };
+      };
+      let it = null;
+      for (const u of h.state.universes) for (const g of (u.groups || [])) for (const c of (g.cards || [])) for (const x of (c.items || [])) { if (!it) it = x; }
+      it.text = 'Skriving dør'; it.ts = 8e15; it.org = 'zzz';
+      h.save();
+      const snaps = [];
+      for (let i = 0; i < 2; i++) { await h.cloudCycle(); snaps.push(h.syncStatus.snapshot()); }
+      client.from = window.__realFrom;
+      return snaps;
+    });
+    check('skrive-only: første runde teller ÉN nettverksfeil (ikke én per rad)',
+      r[0].netFailures === 1 && r[0].offline === false, r[0]);
+    check('skrive-only: to runder på rad gir «Frakoblet» — pull-en nullstiller ikke tellingen',
+      r[1].netFailures === 2 && r[1].offline === true && r[1].state === 'offline', r[1]);
+    await softWait(page, 'saved');
+    check('skrive-only: statusen kommer tilbake til «Lagret» når skrivingene går igjen',
+      (await readStatus(page)).snapshot.netFailures === 0);
+    check('skrive-only: endringen landet til slutt',
+      await serverItemText(page) === 'Skriving dør', await serverItemText(page));
+  }
+
+  /* 10) Regresjon: feilet localStorage-skriving skal ikke skjules. */
+  {
+    await load(page, buildDB().db, viewport);
+    await waitState(page, 'saved');
+    // Kvoten er full: setItem kaster for appens egen buffer-nøkkel (mock-basen
+    // og sesjonen må fortsatt kunne skrives, ellers faller backenden sammen).
+    await page.evaluate(() => {
+      const real = Storage.prototype.setItem;
+      window.__realSetItem = real;
+      Storage.prototype.setItem = function (k, v) {
+        if (/^mine-lister-v1:/.test(k)) { const e = new Error('QuotaExceededError'); e.name = 'QuotaExceededError'; throw e; }
+        return real.call(this, k, v);
+      };
+    });
+    await editFirstItem(page, 'Får ikke plass');
+    await softWait(page, 'rejected');
+    const s = await readStatus(page);
+    check('buffer: en feilet localStorage-skriving meldes som avvist',
+      s.state === 'rejected' && s.text === 'Noen endringer kunne ikke lagres', s);
+    check('buffer: diagnostikken sier at det er BUFFEREN, ikke serveren',
+      s.snapshot.rejected.length === 1 && s.snapshot.rejected[0].kind === 'cache', s.snapshot.rejected);
+    check('buffer: ingen toast', s.toastShows === 0, s.toastShows);
+
+    // Synken lykkes fint mot serveren — men det sier ingenting om localStorage,
+    // så runden uten divergens skal IKKE blanke buffer-avvisningen.
+    await cycle(page); await cycle(page);
+    const s2 = await readStatus(page);
+    check('buffer: en synk-runde uten divergens blanker ikke buffer-avvisningen',
+      s2.state === 'rejected' && s2.snapshot.rejected.length === 1, s2.snapshot);
+    check('buffer: endringen nådde likevel serveren (den lever i minnet)',
+      await serverItemText(page) === 'Får ikke plass', await serverItemText(page));
+
+    // Plass igjen → «Prøv igjen» bestiller en ny buffer-skriving, som rydder.
+    await page.evaluate(() => { Storage.prototype.setItem = window.__realSetItem; });
+    await page.click('#sync-retry-btn');
+    await softWait(page, 'saved');
+    const s3 = await readStatus(page);
+    check('buffer: «Prøv igjen» rydder først når skrivingen faktisk gikk gjennom',
+      s3.text === 'Lagret' && s3.snapshot.rejected.length === 0, s3.snapshot);
+    check('buffer: endringen ligger nå i den lokale bufferen',
+      await cachedItemText(page) === 'Får ikke plass', await cachedItemText(page));
   }
 }
 
