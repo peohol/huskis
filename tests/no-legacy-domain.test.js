@@ -3,9 +3,9 @@
   huskekurv.vercel.app) gjeninnføres i aktiv kode/konfig. Ingen nettleser —
   et rent tekstsøk gjennom repoet.
 
-  Historiske forklaringer og bevisste negative regresjonstester (tabellen i
-  tests/auth-redirect.test.js, det gjenstående manuelle Vercel-steget i TODO.md
-  og den autoritative domenedokumentasjonen) får nevne domenet — se ALLOWLIST.
+  De to redirect-KILDENE (vercel.json og guarden i index.html), bevisste
+  negative regresjonstester (tabellen i tests/auth-redirect.test.js) og den
+  autoritative domenedokumentasjonen får nevne domenet — se ALLOWLIST.
   Ethvert ANNET treff er en regresjon: enten en hardkodet lenke som er kommet
   tilbake, eller en ny fil som burde vært lagt til denne listen bevisst (ikke
   ved et uhell).
@@ -30,7 +30,6 @@ const ALLOWLIST = new Set([
                                                   //   — at treffet KUN står der, sjekkes av
                                                   //   tests/canonical-origin.test.js
   'docs/domains-and-urls.md',                     // historisk forklaring + redirect-status (autoritativ)
-  'TODO.md',                                      // manuelt gjenstående Vercel-steg nevner domenet ved navn
 ]);
 
 const SKIP_DIRS = new Set(['.git']);
