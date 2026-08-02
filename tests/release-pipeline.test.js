@@ -20,6 +20,8 @@
         Vercel deployet parallelt med migreringen)
      6. ingen ANNEN workflow migrerer databasen eller deployer til produksjon
      7. ci.yml kjører både JS- og SQL-suiten, og gjenbrukes av release.yml
+     8. deployjobben sjekker Vercel-tilgangen FØR den bygger, forklarer 401/403/
+        404 hver for seg, og logger aldri tokenet — og bruker ikke `vercel pull`
 
    Ren node-test — ingen server, ingen nettleser.
 
@@ -42,6 +44,13 @@ function check(navn, ok, evidens) {
 const release = fs.readFileSync(path.join(WF, 'release.yml'), 'utf8');
 const ci = fs.readFileSync(path.join(WF, 'ci.yml'), 'utf8');
 const vercel = JSON.parse(fs.readFileSync(path.join(ROOT, 'vercel.json'), 'utf8'));
+
+/* «Denne workflowen gjør IKKE X»-sjekkene må lese det som faktisk kjører.
+   En kommentar som forklarer hvorfor X ble fjernet inneholder jo X, og ville
+   ellers få vakten til å slå ut på sin egen begrunnelse. */
+function utenKommentarer(yaml) {
+  return yaml.split('\n').filter((l) => !/^\s*#/.test(l)).join('\n');
+}
 
 /* Deler `jobs:`-blokken i én tekstbit per jobb (jobbnavn står på to
    mellomrom). Nok struktur til å svare på «hva står i DENNE jobben», uten en
@@ -117,6 +126,42 @@ check('deployjobben bygger med `vercel build --prod` før den publiserer',
   !!relJobs.deploy && relJobs.deploy.indexOf('vercel build --prod') > -1
     && relJobs.deploy.indexOf('vercel build --prod') < relJobs.deploy.indexOf('vercel deploy'));
 
+/* Preflighten er der for at en feil skal si HVA som er galt i stedet for
+   Vercels generiske «Could not retrieve Project Settings». Den må kjøre før
+   builden, ellers er den verdiløs — da har CLI-en allerede feilet. */
+check('deployjobben sjekker Vercel-tilgangen før den bygger',
+  !!relJobs.deploy && /api\.vercel\.com\/v9\/projects/.test(relJobs.deploy)
+    && relJobs.deploy.indexOf('api.vercel.com') < relJobs.deploy.indexOf('vercel build'));
+for (const kode of ['401', '403', '404']) {
+  check('preflighten forklarer HTTP ' + kode + ' konkret',
+    !!relJobs.deploy && new RegExp('^\\s*' + kode + '\\)', 'm').test(relJobs.deploy));
+}
+/* Uten tidsgrenser henger curl i det ene tilfellet 000-grenen finnes for: et
+   API som tar imot forbindelsen og så tier. Da spises jobbens timeout og
+   diagnostikken sier ingenting. */
+check('preflighten har tidsgrense på både oppkobling og overføring',
+  !!relJobs.deploy && /--connect-timeout\s+\d+/.test(relJobs.deploy)
+    && /--max-time\s+\d+/.test(relJobs.deploy));
+check('tidsgrensene er kortere enn jobbens timeout',
+  !!relJobs.deploy
+    && Number((relJobs.deploy.match(/--max-time\s+(\d+)/) || [])[1]) * 3
+       < Number((relJobs.deploy.match(/timeout-minutes:\s*(\d+)/) || [])[1]) * 60,
+  'max-time=' + (relJobs.deploy.match(/--max-time\s+(\d+)/) || [])[1] + 's, '
+    + 'jobb-timeout=' + (relJobs.deploy.match(/timeout-minutes:\s*(\d+)/) || [])[1] + 'min');
+
+check('preflighten logger aldri selve tokenet',
+  !!relJobs.deploy && !/echo[^\n]*\$VERCEL_TOKEN/.test(utenKommentarer(relJobs.deploy))
+    && !/cat \/tmp\/vc\.json/.test(utenKommentarer(relJobs.deploy)));
+
+/* `vercel pull` henter miljøvariabler og krever bredere tilgang enn et
+   project-scoped token. Appen er statisk og trenger ingen, så steget er ute —
+   og `.vercel/project.json` skrives i stedet. Kommer `pull` tilbake, ryker
+   deployen igjen for den som bruker minste-rettighet-token. */
+check('deployjobben bruker ikke `vercel pull`',
+  !!relJobs.deploy && !/vercel pull/.test(utenKommentarer(relJobs.deploy)));
+check('deployjobben lenker prosjektet via .vercel/project.json',
+  !!relJobs.deploy && /\.vercel\/project\.json/.test(relJobs.deploy));
+
 /* ---- 5. Vercels egen git-deploy for main er av ---- */
 check('vercel.json slår av git-deploy for main',
   vercel.git && vercel.git.deploymentEnabled
@@ -133,9 +178,9 @@ const andre = fs.readdirSync(WF)
 for (const f of andre) {
   const tekst = fs.readFileSync(path.join(WF, f), 'utf8');
   check(f + ' migrerer ikke databasen utenom release-kjeden',
-    !/users-and-sharing\.sql/.test(tekst));
+    !/users-and-sharing\.sql/.test(utenKommentarer(tekst)));
   check(f + ' deployer ikke til produksjon utenom release-kjeden',
-    !/vercel\s+deploy[^\n]*--prod/.test(tekst));
+    !/vercel\s+deploy[^\n]*--prod/.test(utenKommentarer(tekst)));
 }
 check('ingen egen db-setup-workflow ved siden av release-kjeden',
   !fs.existsSync(path.join(WF, 'db-setup.yml')));
@@ -148,9 +193,9 @@ check('ci.yml kjører JS-suiten', /tests\/run-all\.sh/.test(ci));
 check('ci.yml kjører SQL-suiten', /supabase\/tests\/run-tests\.sh/.test(ci));
 check('ci.yml bygger produksjonsbuilden', /node build\.js/.test(ci));
 check('ci.yml rører ikke produksjonsdatabasen',
-  !/SUPABASE_DB_URL/.test(ci));
+  !/SUPABASE_DB_URL/.test(utenKommentarer(ci)));
 check('ci.yml deployer ikke',
-  !/vercel\s+deploy/.test(ci));
+  !/vercel\s+deploy/.test(utenKommentarer(ci)));
 
 /* SQL-suiten må faktisk kjøre smoke-testen, ellers kan den være ødelagt uten
    at noen ser det før den blokkerer en release. */

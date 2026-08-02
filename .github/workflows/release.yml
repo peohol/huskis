@@ -156,12 +156,53 @@ jobs:
         env:
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
 
-      - run: npm install -g vercel@latest
-
-      - name: Hent prosjektinnstillingene
-        run: vercel pull --yes --environment=production --token="$VERCEL_TOKEN"
+      # Vercel svarer «Could not retrieve Project Settings» på ALT som går galt
+      # her — ugyldig token, token uten tilgang, feil prosjekt-ID. Vi spør API-et
+      # selv først, slik at feilen sier hva som faktisk er i veien. Kun
+      # HTTP-statusen og en feilmelding fra Vercel logges; tokenet forlater
+      # aldri runneren.
+      - name: Preflight — når tokenet prosjektet?
         env:
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+        run: |
+          # `|| status=000`: steget kjører med `bash -e`, så en curl som feiler
+          # på nettverket ville avbrutt her — før case-blokken fikk forklart
+          # noe. Da får vi heller 000 og går i nettverksgrenen med en melding.
+          #
+          # Tidsgrensene er en del av den samme sikringen: curl har INGEN
+          # standard grense for selve overføringen, så et API som tar imot
+          # forbindelsen og deretter tier ville hengt til jobbens timeout på 15
+          # minutter — og aldri nådd 000-grenen. Da hadde diagnostikken
+          # avvæpnet seg selv i nettopp det tilfellet den finnes for.
+          status=$(curl -sS --connect-timeout 10 --max-time 30 \
+            -o /tmp/vc.json -w '%{http_code}' \
+            -H "Authorization: Bearer $VERCEL_TOKEN" \
+            "https://api.vercel.com/v9/projects/$VERCEL_PROJECT_ID?teamId=$VERCEL_ORG_ID") \
+            || status=000
+          melding=$(jq -r '.error.message // empty' /tmp/vc.json 2>/dev/null || true)
+          case "$status" in
+            200) echo "✅ Tokenet leser prosjektet «$(jq -r .name /tmp/vc.json)»." ;;
+            000) echo "::error::Fikk ikke kontakt med api.vercel.com. Nettverksfeil på runneren — kjør jobben på nytt."; exit 1 ;;
+            401) echo "::error::VERCEL_TOKEN er ugyldig eller utløpt (401). Lag et nytt på https://vercel.com/account/settings/tokens og oppdater secreten. ${melding}"; exit 1 ;;
+            403) echo "::error::VERCEL_TOKEN har ikke tilgang til dette prosjektet (403). Tokenets scope må dekke prosjektet «huskis» — enten team-scope (peohols-projects) eller project-scope (peohols-projects/huskis). ${melding}"; exit 1 ;;
+            404) echo "::error::Fant ikke prosjektet (404). VERCEL_PROJECT_ID og VERCEL_ORG_ID hører ikke sammen, eller peker på noe som ikke finnes. ${melding}"; exit 1 ;;
+            *)   echo "::error::Uventet svar fra Vercel ($status). ${melding}"; exit 1 ;;
+          esac
+
+      - run: npm install -g vercel@latest
+
+      # `vercel pull` ble bevisst fjernet. Den henter prosjektinnstillinger OG
+      # miljøvariabler for `production`, og det siste krever mer enn et
+      # project-scoped token — den feilet med Vercels generiske
+      # «Could not retrieve Project Settings». Vi trenger den heller ikke:
+      # Huskis er en ren statisk app uten miljøvariabler i Vercel, og
+      # `vercel.json` sier allerede `buildCommand` + `outputDirectory`. Det
+      # eneste `pull` faktisk ga oss var denne fila, som vi kan skrive selv.
+      - name: Lenk prosjektet
+        run: |
+          mkdir -p .vercel
+          printf '{"projectId":"%s","orgId":"%s"}\n' \
+            "$VERCEL_PROJECT_ID" "$VERCEL_ORG_ID" > .vercel/project.json
 
       - name: Bygg
         # VERCEL_GIT_COMMIT_SHA gir build.js en stabil commit å stemple build-ID

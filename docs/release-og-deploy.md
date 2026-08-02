@@ -130,6 +130,20 @@ legger kolonnen/funksjonen inn, ikke å hoppe over porten.
 frontenden ble ikke publisert. Produksjon serverer fortsatt den forrige, som
 virker mot det migrerte skjemaet. Kjør `deploy`-jobben på nytt.
 
+Jobben starter med et preflight-kall mot Vercels API, fordi CLI-en svarer
+«Could not retrieve Project Settings» på alt som går galt — ugyldig token,
+token uten tilgang og feil prosjekt-ID gir samme setning. Preflighten skiller
+dem: 401 = tokenet er ugyldig eller utløpt, 403 = tokenets scope dekker ikke
+prosjektet, 404 = `VERCEL_PROJECT_ID` og `VERCEL_ORG_ID` hører ikke sammen.
+Bare statuskoden og Vercels egen feilmelding logges; tokenet forlater aldri
+runneren.
+
+Jobben kjører bevisst IKKE `vercel pull`. Den henter miljøvariabler i tillegg
+til prosjektinnstillinger, og det krever bredere tilgang enn et project-scoped
+token. Huskis er en ren statisk app uten miljøvariabler i Vercel, og
+`vercel.json` sier allerede `buildCommand` + `outputDirectory` — så jobben
+skriver `.vercel/project.json` selv og går rett på `vercel build --prod`.
+
 **Rollback av frontenden**: rull tilbake i Vercel (Deployments → den forrige
 produksjonsdeployen → «Promote to Production», eller `vercel rollback`). Det er
 trygt fordi skjemaendringer er additive: den forrige klienten skriver et
@@ -152,7 +166,7 @@ pågående release.
 | Secret | Hvor den hentes | Brukes av |
 |---|---|---|
 | `SUPABASE_DB_URL` | Supabase → Project Settings → Database → Connection string → URI, med passordet satt inn | migrering + smoke |
-| `VERCEL_TOKEN` | Vercel → Account Settings → Tokens | deploy |
+| `VERCEL_TOKEN` | Vercel → Account Settings → Tokens. Scope kan være teamet (`peohols-projects`) ELLER bare prosjektet (`peohols-projects/huskis`) — deployjobben er bygget for at project-scope skal holde | deploy |
 | `VERCEL_ORG_ID` | `.vercel/project.json` etter `vercel link` | deploy |
 | `VERCEL_PROJECT_ID` | samme fil | deploy |
 
