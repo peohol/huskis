@@ -28,9 +28,10 @@ står fortsatt som px.
 
 `--control-h` (49px), `--control-radius` (14px), `--control-bg`
 (rgba(255,255,255,.75)), `--toolbar-pad`, `--text-shadow`,
-`--grad-green/-red/-yellow` (knappe-gradienter), skygge- og radius-variablene.
-Nye kontroller skal bruke disse — aldri egne ad hoc-verdier. Endres et token,
-skal hele appen følge med.
+`--grad-green/-red/-yellow` (knappe-gradienter), `--danger`/`--warn`
+(fare/advarsel som flate- og signalfarge), skygge- og radius-variablene. Nye
+kontroller skal bruke disse — aldri egne ad hoc-verdier. Endres et token, skal
+hele appen følge med.
 
 Alle knapper i samme knapperad har identisk høyde/radius/flate (`--control-h`
 / `--control-radius`). Gjelder ＋-knapper, søppelkasser, breadcrumb-knappene og kontoknappen.
@@ -458,6 +459,27 @@ side-margin som kansellerer den omsluttende paddingen.
   etterpå, så et drag som startet oppå «Angre» ikke også trykker «Angre».
   `opts.onDismiss` lar kalleren gjøre ferdig arbeidet timeren ellers ville gjort
   — slette-toasten committer slettingen (se `docs/trash.md`).
+- **Toast eller status?** En toast er en HENDELSE som nettopp skjedde og som
+  det er greit å gå glipp av. En TILSTAND som varer — og som brukeren må kunne
+  finne igjen etterpå — hører hjemme i lagringsstatusen (under), aldri i en
+  toast. Et langvarig problem som melder seg som gjentatte toaster er en feil.
+- **Lagringsstatus** (`.sync-status`, `#sync-status`): én diskret, vedvarende
+  pille fast nede til venstre som forteller hva som faktisk har skjedd med
+  endringene — «Lagret», «Lagrer …», «Frakoblet – endringene lagres på denne
+  enheten» eller «Noen endringer kunne ikke lagres» med en «Prøv igjen»-knapp.
+  Semantikken (hva som utløser hvilken tilstand) er `docs/accounts.md`.
+  Formspråket er flate-mønsteret (`--control-bg` + blur), ikke toastens mørke
+  flate: statusen er bakgrunnsinformasjon, ikke en melding som krever
+  oppmerksomhet. Prikken bærer alvoret (grå i ro, gul ved venting/frakobling,
+  `--danger` ved avvisning) og teksten sier det samme i klartekst. Pillen er
+  `pointer-events: none` slik at den aldri kommer i veien for board-et — kun
+  «Prøv igjen» tar imot klikk. «Lagret» krymper til bare prikken etter noen
+  sekunder (`.is-quiet`); de tre andre tilstandene står uendret til problemet
+  er borte, og INGEN av dem skjules helt. `role="status"` + `aria-live="polite"`
+  melder hver tilstandsendring, og DOM-en røres kun når tilstanden faktisk
+  endrer seg (ellers ville hjerteslaget lest opp det samme hvert sekund).
+  Teknisk informasjon (tabell, feilkode) vises aldri her — den ligger i
+  konsollen og i `__huskis.syncStatus.snapshot()`.
 
 ## Bevegelse og tilgjengelighet
 

@@ -36,6 +36,9 @@
   --primary-soft: rgba(102, 136, 102, 0.14);
   --primary-soft-hover: rgba(102, 136, 102, 0.24);
   --danger: #ef6b7d;
+  /* Advarsel (noe pågår / venter), ikke fare: den mørke enden av den gule
+     knappegradienten, så statuslinjens gule er nøyaktig appens gule. */
+  --warn: #c99a2e;
   /* Samme par som --primary-soft*, men i faresonen (sveip-for-å-slette-kontoen). */
   --danger-soft: rgba(239, 107, 125, 0.16);
   --danger-soft-hover: rgba(239, 107, 125, 0.30);
@@ -43,7 +46,7 @@
   /* Fargede knapper (.btn-solid): én gradient per farge, gjenbrukt overalt. */
   --grad-green: linear-gradient(135deg, var(--primary), #7fa77f);
   --grad-red: linear-gradient(135deg, #f4788a, var(--danger));
-  --grad-yellow: linear-gradient(135deg, #dfaf46, #c99a2e);
+  --grad-yellow: linear-gradient(135deg, #dfaf46, var(--warn));
 
   /* Sidepolstring i toppmenyen — viewport-relativ. Kontoknappen (fast i
      viewportets hjørne) bruker samme token, så den flukter med toppmenyens
@@ -1604,6 +1607,94 @@ body.modal-open { overflow: hidden; }
 }
 .toast-action:hover { background: rgba(255, 255, 255, 0.3); }
 .toast-action:focus-visible { outline: 2px solid rgba(255,255,255,0.7); outline-offset: 2px; }
+
+/* ---------------- Lagringsstatus (diskret, vedvarende) ----------------
+   Motstykket til toasten: der toasten er et FORBIGÅENDE varsel om noe som
+   nettopp skjedde, er dette en TILSTAND som blir stående så lenge den gjelder.
+   Derfor er den også plassert utenfor toastens/bannerets midtstilte «varsel-
+   sone» — nede i venstre hjørne, fast, uten å røre toppmenyens høyde.
+
+   Formspråket er flate-mønsteret (halvgjennomsiktig hvit + blur), ikke toastens
+   mørke flate: statusen er bakgrunnsinformasjon, ikke en melding som krever
+   oppmerksomhet. Fargen på prikken bærer alvoret (grå = i ro, gul = venter/
+   frakoblet, rød = avvist), og teksten sier det samme i klartekst.
+
+   Pillen er `pointer-events: none` slik at den aldri kommer i veien for board-et
+   under; kun «Prøv igjen»-knappen tar imot klikk. */
+.sync-status {
+  position: fixed;
+  left: 12px;
+  bottom: 16px;
+  z-index: 290;                      /* under toasten (300) og banneret (410) */
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+  /* Frakoblet-teksten er den lengste, og hele den må få plass: en avkortet
+     «Frakoblet – endringene lagre…» skjuler nettopp det som beroliger. Derfor
+     nesten full bredde på små skjermer, og ombrekking (med mykere hjørner) i
+     stedet for ellipse hvis den likevel ikke rekker. */
+  max-width: calc(100vw - 24px);
+  padding: 7px 13px;
+  border-radius: 999px;
+  background: var(--control-bg);
+  -webkit-backdrop-filter: blur(12px) saturate(1.2);
+  backdrop-filter: blur(12px) saturate(1.2);
+  border: 1px solid var(--line);
+  color: var(--ink-soft);
+  font-size: var(--fs-xs);
+  font-weight: 600;
+  box-shadow: var(--shadow-sm);
+  pointer-events: none;              /* klikk skal gå gjennom til board-et … */
+  transition: opacity 0.25s ease, padding 0.25s ease, background 0.25s ease, transform 0.25s ease;
+}
+.sync-status-text { min-width: 0; }
+/* Brekker teksten, blir pillen for høy for 999px — samme grep som bannerets. */
+@media (max-width: 460px) { .sync-status { border-radius: 18px; } }
+/* På smale skjermer spenner toasten og oppdateringsbanneret over hele bunnen og
+   ville lagt seg oppå statusen (og over «Prøv igjen»). Da løftes statusen over
+   dem — samme `:has()`-grep som banneret bruker mot toasten, og av samme grunn:
+   hvem som havnet først i <body> avhenger av rekkefølgen de dukket opp i. */
+@media (max-width: 560px) {
+  body:has(.toast.show) .sync-status { transform: translateY(-62px); }
+  body:has(.update-banner.show) .sync-status { transform: translateY(-70px); }
+  body:has(.toast.show):has(.update-banner.show) .sync-status { transform: translateY(-132px); }
+}
+.sync-status-dot {
+  flex: 0 0 auto;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: var(--ink-soft);
+  opacity: 0.55;
+}
+/* Alvorsgrad: samme tre nivåer som teksten sier i klartekst. */
+.sync-status[data-state="saving"] .sync-status-dot { background: var(--warn); opacity: 1; }
+.sync-status[data-state="offline"] .sync-status-dot { background: var(--warn); opacity: 1; }
+.sync-status[data-state="rejected"] .sync-status-dot { background: var(--danger); opacity: 1; }
+.sync-status[data-state="rejected"] { color: var(--ink); border-color: var(--danger-soft-hover); }
+/* «Lagret» er en kvittering, ikke en tilstand å stirre på: etter noen sekunder
+   krymper pillen til bare prikken. Den forsvinner ALDRI helt — problemene skal
+   ikke kunne forveksles med «ingenting vist». */
+.sync-status.is-quiet { padding: 7px; opacity: 0.5; }
+.sync-status.is-quiet .sync-status-text { display: none; }
+/* … men «Prøv igjen» må kunne trykkes. */
+.sync-status-action {
+  flex: 0 0 auto;
+  pointer-events: auto;
+  appearance: none;
+  border: none;
+  cursor: pointer;
+  background: var(--danger-soft);
+  color: var(--ink);
+  font-family: inherit;
+  font-weight: 700;
+  font-size: var(--fs-xs);
+  padding: 5px 11px;
+  border-radius: 999px;
+  transition: background 0.15s;
+}
+.sync-status-action:hover { background: var(--danger-soft-hover); }
+.sync-status-action:focus-visible { outline: 2px solid var(--danger); outline-offset: 2px; }
 
 /* ---------------- Oppdateringsbanner (ny klientversjon) ----------------
    Samme glassflate og pilleform som toasten, men VEDVARENDE: det står til

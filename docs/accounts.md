@@ -139,28 +139,73 @@ samme nested `state` som før; synken går slik (`cloudCycle`):
    (cards/items.collapsed-hendelsen). `reportWriteResult`/`isSchemaMismatch`
    (i `pushOps`) fanger derfor KUN den klassen (`PGRST204`/`PGRST205`/`42703` +
    «could not find … column»/«schema cache»/«column … does not exist»): logger
-   detaljene deduplisert og viser brukeren ÉN toast om at endringen ligger trygt
-   lokalt men ikke nådde skyen (`schemaMismatchWarned`, nullstilles ved
-   utlogging). At en migrering i det hele tatt KAN henge etter, er lukket i
-   releaseprosessen: ved merge til `main` kjøres migreringen og en smoke-test
-   FØR frontenden publiseres, og Vercels egen git-deploy for `main` er slått av
-   så de to ikke kan løpe om kapp — se
+   detaljene deduplisert i konsollen og melder tabellen inn som en AVVISNING i
+   lagringsstatusen (under). At en migrering i det hele tatt KAN henge etter, er
+   lukket i releaseprosessen: ved merge til `main` kjøres migreringen og en
+   smoke-test FØR frontenden publiseres, og Vercels egen git-deploy for `main`
+   er slått av så de to ikke kan løpe om kapp — se
    [`release-og-deploy.md`](release-og-deploy.md).
 
    De øvrige feilene er fortsatt stille, men ikke lenger *usynlige*: avviser
    serveren SAMME rad `PERSISTENT_REJECTS` (3) ganger på rad, logges detaljene
-   og brukeren får én toast om at én endring ikke nådde skyen (`noteReject`).
-   Telleren nullstilles så snart raden går gjennom, så en forbigående konflikt
-   aldri når terskelen. Det var nettopp en usynlig, evig avvist skriving (et
-   listepunkt som pekte på en kategori serveren ikke hadde) som låste synken i
-   praksis — se rekkefølge-/prune-avsnittet over og
-   `tests/sync-dangling-category.test.js`.
+   og raden meldes inn i lagringsstatusen (`noteReject`). Telleren nullstilles
+   så snart raden går gjennom, så en forbigående konflikt aldri når terskelen.
+   Det var nettopp en usynlig, evig avvist skriving (et listepunkt som pekte på
+   en kategori serveren ikke hadde) som låste synken i praksis — se
+   rekkefølge-/prune-avsnittet over og `tests/sync-dangling-category.test.js`.
 4. **Realtime** `postgres_changes` på de seks tabellene + poll (5 s) +
    `visibilitychange`/`focus`/`online` → `scheduleCloud`.
 
 Offline-buffer: `state` caches per bruker (`mine-lister-v1:<uid>`), uten intern
 metadata (`stateReplacer` hopper over `_`-felt for å unngå sykliske refs — med
 unntak av `_createdByMe`, `_tomb`, `_hlc` og `_base`/`_baseV`).
+
+### Lagringsstatus (`syncStatus`, `#sync-status`)
+
+Én diskret, **vedvarende** status nede til venstre er alt brukeren får se om
+synken — ingen forbigående synk-toaster. Formen er beskrevet i
+[`design-system.md`](design-system.md); her ligger semantikken.
+
+Statusen har ingen egen «tror vi er lagret»-variabel: den regnes ut av den
+faktiske operasjonstilstanden hver gang den males, av tre uavhengige signaler:
+
+| Signal | Sant når | Vises som |
+|---|---|---|
+| **ventende** (`pending`) | den debouncede cache-skrivingen venter, `opQueue` har noe på gang, serveren ikke har svart én eneste gang (`!lastMy`), eller `saveSeq !== syncedSeq` | «Lagrer …» |
+| **frakoblet** (`offline`) | `navigator.onLine === false`, eller `OFFLINE_AFTER_FAILURES` (2) kall på rad som aldri nådde fram (`isNetworkError`) | «Frakoblet – endringene lagres på denne enheten» |
+| **avvist** (`rejected`) | serveren SVARTE nei: skjema-avvik (per tabell) eller en rad avvist `PERSISTENT_REJECTS` ganger | «Noen endringer kunne ikke lagres» + «Prøv igjen» |
+
+Rekkefølgen er **avvist → frakoblet → ventende → lagret**: en avvisning er et
+uløst problem selv om vi akkurat nå også er frakoblet, og skal ikke skjules av
+en tilstand som løser seg selv. Er alle tre tomme — og først da — står det
+«Lagret».
+
+Fire ting følger av at statusen skal være til å stole på:
+
+- **En synk-RUNDE er ikke «ventende arbeid».** Runder kjører hele tiden (poll
+  hvert 5. sekund, hver realtime-hendelse fra en annen enhet). Teller vi dem,
+  blinker statusen mellom «Lagrer …» og «Lagret» i det uendelige uten at
+  brukeren har gjort noe. `saveSeq !== syncedSeq` fanger uansett enhver lokal
+  endring en runde ikke har fått pushet — det er det påstanden gjelder.
+- **Terskelen på 2 for «frakoblet»** gjør at ett enkelt nettverksglipp ikke
+  blinker; pollet henter det inn igjen. Enhver runde som får svar fra serveren
+  nullstiller tellingen (`noteReachable`), også når svaret er en feil — da er vi
+  jo tilkoblet.
+- **Avvisninger tømmes aldri på antakelse.** Enten kvitterer serveren for
+  nettopp den raden/tabellen (`reportWriteResult`), eller så finner fletteren
+  ingen divergens igjen (`ops.length === 0` i `cloudCycle`) — altså ligger alt
+  vi har lokalt også på serveren. Derfor sier UI-et heller aldri at «resten er
+  lagret»: det er ikke verifisert.
+- **«Prøv igjen»** (`retrySyncNow`) napper `opQueue` og synk-runden i gang med
+  én gang — backoffen ventes ikke ut, men fjernes ikke: den automatiske retryen
+  går som før. Knappen rører ikke avvisningslisten. Mens forsøket pågår står
+  statusen på «Lagrer …»; feiler det, kommer avvisningen tilbake av seg selv.
+
+Teknikken (tabell, rad, feilkode, meldingstekst) går KUN til konsollen og til
+`__huskis.syncStatus.snapshot()` — aldri inn i statusteksten. Ved utlogging
+tømmes hele statusen (`syncStatus.stop()`): den skal ikke stå igjen og påstå noe
+om en konto som ikke er logget inn lenger. Dekkes av
+`tests/sync-status.test.js`.
 
 ### Gjenoppstandelse: hvorfor basen lagres og gravsteinene håndheves
 
@@ -260,11 +305,15 @@ kan alltid gjøre neste operasjon umiddelbart, uansett hvor treg forrige er:
   Gir opp med rollback etter ~60 s, så en rad som aldri dukker opp ikke låser
   køen evig.
 - **Nettverksfeil** (offline): operasjonen legges fremst igjen og prøves med
-  backoff (maks 15 s); `online`-hendelsen napper køen i gang. Rekkefølgen
-  bevares — alt bak venter, akkurat som doc-synken selv.
+  backoff (maks 15 s); `online`-hendelsen og «Prøv igjen» napper køen i gang
+  (`retryNow`, som også nullstiller backoffen). Rekkefølgen bevares — alt bak
+  venter, akkurat som doc-synken selv. Feilen meldes som FRAKOBLET til
+  lagringsstatusen, ikke som en avvisning.
 - **Serveravvisning**: operasjonens `onError` ruller UI-et tilbake (fjerner den
   optimistiske raden / resynker) og viser feilen — sluttilstanden blir som om
-  operasjonen aldri var mulig.
+  operasjonen aldri var mulig. Teknikken logges (`console.warn`). Slike
+  operasjoner havner IKKE i lagringsstatusens avvisningsliste: de er rullet
+  tilbake, så det finnes ingenting igjen å prøve om igjen.
 - Ved utlogging (`cloudStop`) tømmes køen og overlayene (operasjonene tilhørte
   den gamle sesjonen). En operasjon som allerede er I LUFTA kan ikke avbrytes,
   men en epoke-teller gjør at resultatet forkastes når den lander — ingen
