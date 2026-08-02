@@ -3016,6 +3016,13 @@ grant select, insert, update, delete on public.universes, public.groups,
                                         public.cards, public.items to authenticated;
 -- INSERT på memberships er BEVISST utelatt: roller opprettes kun av
 -- SECURITY DEFINER-veiene (aksept av invitasjon + opprettelses-triggerne).
+-- Å UTELATE en grant er ikke nok i Supabase: prosjektet har
+-- `alter default privileges in schema public grant all on tables to anon,
+-- authenticated`, så en ny tabell får ALL — inkludert INSERT — i det den
+-- opprettes. Den må trekkes tilbake eksplisitt, ellers står intensjonen over
+-- her bare i en kommentar. (RLS avviser innsettingen uansett — memberships har
+-- ingen insert-policy — men grant-en er laget som skal si nei først.)
+revoke insert on public.memberships from authenticated;
 grant select, update, delete on public.memberships to authenticated;
 grant select, delete on public.share_invites to authenticated;
 grant select on public.tombstones to authenticated;

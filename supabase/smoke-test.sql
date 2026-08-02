@@ -38,6 +38,12 @@ set local lock_timeout = '5s';
 -- Feil samles opp underveis (i en session-GUC, siden en read-only-transaksjon
 -- ikke får lage temp-tabeller) og rapporteres SAMLET til slutt. Én runde skal
 -- vise alt som mangler, ikke bare det første.
+--
+-- Oppsamlingen bruker `array_append(feil, …)`, ALDRI `feil || '…'`: mot en
+-- `text[]` er `||` tvetydig, og PostgreSQL velger `anyarray || anyarray` for en
+-- bar strengliteral — den prøver da å tolke meldingen som en array-literal og
+-- kaster «malformed array literal». Feilen ville bare vist seg i det øyeblikket
+-- en sjekk FAKTISK feilet, altså nøyaktig når testen trengs.
 select set_config('huskis.smoke_feil', '', false);
 
 \echo '──────── 1. Tabeller ────────'
@@ -52,7 +58,7 @@ begin
     'migration_log', 'app_config', 'email_send_log'
   ] loop
     if to_regclass('public.' || t) is null then
-      feil := feil || ('tabell public.' || t || ' mangler');
+      feil := array_append(feil, 'tabell public.' || t || ' mangler');
     else
       raise notice '  ✓ public.%', t;
     end if;
@@ -112,7 +118,7 @@ begin
     select count(*) into n from information_schema.columns
      where table_schema = 'public' and table_name = tbl and column_name = col;
     if n = 0 then
-      feil := feil || ('kolonne public.' || tbl || '.' || col || ' mangler');
+      feil := array_append(feil, 'kolonne public.' || tbl || '.' || col || ' mangler');
     end if;
   end loop;
   if array_length(feil, 1) > 0 then
@@ -137,7 +143,7 @@ begin
     select relrowsecurity into paa from pg_class
      where oid = to_regclass('public.' || t);
     if paa is distinct from true then
-      feil := feil || ('RLS er IKKE på for public.' || t);
+      feil := array_append(feil, 'RLS er IKKE på for public.' || t);
     end if;
   end loop;
   if array_length(feil, 1) > 0 then
@@ -174,7 +180,7 @@ begin
        and tablename = split_part(p, ':', 1)
        and policyname = split_part(p, ':', 2);
     if n = 0 then
-      feil := feil || ('policy ' || split_part(p, ':', 2) || ' mangler på public.' || split_part(p, ':', 1));
+      feil := array_append(feil, 'policy ' || split_part(p, ':', 2) || ' mangler på public.' || split_part(p, ':', 1));
     end if;
   end loop;
   if array_length(feil, 1) > 0 then
@@ -212,13 +218,13 @@ begin
   ] loop
     oid_ := to_regprocedure(fn);
     if oid_ is null then
-      feil := feil || ('RPC ' || fn || ' mangler');
+      feil := array_append(feil, 'RPC ' || fn || ' mangler');
     else
       if not has_function_privilege('authenticated', oid_, 'EXECUTE') then
-        feil := feil || ('RPC ' || fn || ': authenticated mangler EXECUTE');
+        feil := array_append(feil, 'RPC ' || fn || ': authenticated mangler EXECUTE');
       end if;
       if has_function_privilege('anon', oid_, 'EXECUTE') then
-        feil := feil || ('RPC ' || fn || ': anon HAR EXECUTE (skal være trukket tilbake)');
+        feil := array_append(feil, 'RPC ' || fn || ': anon HAR EXECUTE (skal være trukket tilbake)');
       end if;
     end if;
   end loop;
@@ -253,7 +259,7 @@ begin
     'public.handle_new_user()', 'public.send_invite_email()'
   ] loop
     oid_ := to_regprocedure(fn);
-    if oid_ is null then feil := feil || ('funksjon ' || fn || ' mangler'); end if;
+    if oid_ is null then feil := array_append(feil, 'funksjon ' || fn || ' mangler'); end if;
   end loop;
 
   -- Interne hjelpere skal IKKE kunne kalles som RPC.
@@ -263,9 +269,9 @@ begin
   ] loop
     oid_ := to_regprocedure(fn);
     if oid_ is null then
-      feil := feil || ('funksjon ' || fn || ' mangler');
+      feil := array_append(feil, 'funksjon ' || fn || ' mangler');
     elsif has_function_privilege('authenticated', oid_, 'EXECUTE') then
-      feil := feil || (fn || ' er eksponert for authenticated (skal være intern)');
+      feil := array_append(feil, fn || ' er eksponert for authenticated (skal være intern)');
     end if;
   end loop;
 
@@ -287,7 +293,7 @@ begin
        and tgname = split_part(tg, ':', 2)
        and not tgisinternal;
     if n = 0 then
-      feil := feil || ('trigger ' || split_part(tg, ':', 2) || ' mangler på public.' || split_part(tg, ':', 1));
+      feil := array_append(feil, 'trigger ' || split_part(tg, ':', 2) || ' mangler på public.' || split_part(tg, ':', 1));
     end if;
   end loop;
 
@@ -307,20 +313,20 @@ declare
 begin
   foreach t in array array['universes', 'groups', 'cards', 'items'] loop
     if not has_table_privilege('authenticated', 'public.' || t, 'SELECT, INSERT, UPDATE, DELETE') then
-      feil := feil || ('authenticated mangler CRUD på public.' || t);
+      feil := array_append(feil, 'authenticated mangler CRUD på public.' || t);
     end if;
   end loop;
   if not has_table_privilege('authenticated', 'public.profiles', 'SELECT') then
-    feil := feil || 'authenticated mangler SELECT på public.profiles';
+    feil := array_append(feil, 'authenticated mangler SELECT på public.profiles');
   end if;
   if not has_column_privilege('authenticated', 'public.profiles', 'display_name', 'UPDATE') then
-    feil := feil || 'authenticated mangler UPDATE(display_name) på public.profiles';
+    feil := array_append(feil, 'authenticated mangler UPDATE(display_name) på public.profiles');
   end if;
   if has_column_privilege('authenticated', 'public.profiles', 'email', 'UPDATE') then
-    feil := feil || 'authenticated KAN skrive profiles.email (skal være speilet fra auth)';
+    feil := array_append(feil, 'authenticated KAN skrive profiles.email (skal være speilet fra auth)');
   end if;
   if has_table_privilege('authenticated', 'public.memberships', 'INSERT') then
-    feil := feil || 'authenticated KAN sette inn i memberships (roller skal kun lages av RPC-ene)';
+    feil := array_append(feil, 'authenticated KAN sette inn i memberships (roller skal kun lages av RPC-ene)');
   end if;
 
   -- anon skal ikke se noe som helst.
@@ -329,7 +335,7 @@ begin
     'memberships', 'share_invites', 'tombstones'
   ] loop
     if has_table_privilege('anon', 'public.' || t, 'SELECT') then
-      feil := feil || ('anon har SELECT på public.' || t);
+      feil := array_append(feil, 'anon har SELECT på public.' || t);
     end if;
   end loop;
 
@@ -360,7 +366,7 @@ begin
     select count(*) into n from pg_publication_tables
      where pubname = 'supabase_realtime' and schemaname = 'public' and tablename = t;
     if n = 0 then
-      feil := feil || ('public.' || t || ' er ikke med i supabase_realtime');
+      feil := array_append(feil, 'public.' || t || ' er ikke med i supabase_realtime');
     end if;
   end loop;
   if array_length(feil, 1) > 0 then
@@ -395,25 +401,25 @@ begin
 
   foreach k in array array['user', 'universes', 'groups', 'cards', 'items',
                            'invites_in', 'invites_out'] loop
-    if not (doc ? k) then feil := feil || ('get_my_doc(): mangler nøkkelen «' || k || '»'); end if;
+    if not (doc ? k) then feil := array_append(feil, 'get_my_doc(): mangler nøkkelen «' || k || '»'); end if;
   end loop;
 
   -- En ukjent bruker skal få et TOMT doc. Får den rader, lekker RLS/joinene.
   foreach k in array array['universes', 'groups', 'cards', 'items',
                            'invites_in', 'invites_out'] loop
     if jsonb_array_length(coalesce(doc -> k, '[]'::jsonb)) <> 0 then
-      feil := feil || ('get_my_doc(): «' || k || '» er ikke tom for en ukjent bruker — LEKKASJE');
+      feil := array_append(feil, 'get_my_doc(): «' || k || '» er ikke tom for en ukjent bruker — LEKKASJE');
     end if;
   end loop;
 
   -- Capability-funksjonene svarer uten å kaste (get_my_doc kaller dem per rad).
   if public.universe_caps('00000000-0000-0000-0000-000000000000',
                           '00000000-0000-0000-0000-000000000000') is null then
-    feil := feil || 'universe_caps() returnerte null';
+    feil := array_append(feil, 'universe_caps() returnerte null');
   end if;
   if public.group_caps('00000000-0000-0000-0000-000000000000',
                        '00000000-0000-0000-0000-000000000000') is null then
-    feil := feil || 'group_caps() returnerte null';
+    feil := array_append(feil, 'group_caps() returnerte null');
   end if;
 
   if array_length(feil, 1) > 0 then
@@ -433,17 +439,17 @@ declare feil text[] := '{}';
 begin
   begin
     perform 1 from public.universes limit 1;
-    feil := feil || 'anon fikk lese public.universes';
+    feil := array_append(feil, 'anon fikk lese public.universes');
   exception when insufficient_privilege then null;
   end;
   begin
     perform 1 from public.profiles limit 1;
-    feil := feil || 'anon fikk lese public.profiles';
+    feil := array_append(feil, 'anon fikk lese public.profiles');
   exception when insufficient_privilege then null;
   end;
   begin
     perform public.get_my_doc();
-    feil := feil || 'anon fikk kalle get_my_doc()';
+    feil := array_append(feil, 'anon fikk kalle get_my_doc()');
   exception when insufficient_privilege then null;
            when others then null;  -- «ikke innlogget» er også avvisning
   end;
