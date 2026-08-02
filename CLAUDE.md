@@ -1,789 +1,98 @@
 # CLAUDE.md — Huskis
 
-Statisk app: **Univers > Gruppe > Liste > Listepunkt**. De to øverste nivåene
-speiler de to nederste: et univers ER et kort og en gruppe ER en rad, med samme
-design og samme dra-og-slipp-motor (grupper kan flyttes mellom universer). Ingen
-bundler — ren `index.html` + `styles.css` + `app.js` (vanilla JS), persistens i
-`localStorage` + sanntids-synk via Supabase. Produksjonsdeployen har ett lite
-byggesteg (`build.js`), som kun stempler en build-ID inn i filene.
+## Prosjekt
 
-## Kjøre appen
+Huskis er en statisk vanilla-JS-app uten bundler, rammeverk eller
+klientavhengigheter. Innholdet er hierarkisk: **Univers > Gruppe > Liste >
+Listepunkt**, der en liste i tillegg kan ha ett nivå med **kategorier**.
+
+De to øverste nivåene er bygget av nøyaktig samme komponenter og samme
+dra-og-slipp-motor som de to nederste: et univers ER et kort, en gruppe ER en
+rad. Motoren kjører i to scope — `boardScope` (listevisningen) og `navScope`
+(navigasjonsmodalen) — så en endring i den treffer begge nivåene.
+
+**Kildekode** (det som deployes): `index.html`, `styles.css`, `app.js`,
+`icons.js`, `config.js`, `update-check.js`, `assets/`. `mock-backend.js` blir
+med i deployen, men lastes kun med `?mock=1`.
+
+**Generert output**: `dist/`, laget av `node build.js` — ikke sjekket inn, og
+ingenting skal redigeres der. Byggesteget kopierer kildefilene og stempler en
+build-ID inn i `index.html` + `version.json`; i repoet står build-ID-en på `dev`
+med vilje, slik at lokal utvikling ikke trigger auto-oppdatering.
+
+**Serversiden** er `supabase/users-and-sharing.sql` — én idempotent fil med
+tabeller, RLS, triggere og RPC-er, kjørt av `.github/workflows/db-setup.yml`.
+
+Tilstanden ligger i `localStorage` per konto og synkes mot Supabase (Auth +
+relasjonelle tabeller med RLS). Appen har ingen anonym modus.
+
+Autoritativt for hvem som får gjøre hva: `docs/rettigheter-og-deling.md`. Kart
+over resten av dokumentasjonen: `docs/README.md`.
+
+## Kommandoer
 
 ```bash
-cd /home/user/huskis
-python3 -m http.server 8000
-# åpne http://localhost:8000
+python3 -m http.server 8000   # kjør appen: http://localhost:8000
+node build.js                 # produksjonsbuild → dist/ (samme steg som Vercel kjører)
 ```
 
-Kildekoden kjører uendret — det eneste byggesteget er `node build.js`, som
-Vercel kjører for PRODUKSJON (stempler build-ID inn i `index.html` +
-`/version.json` og legger resultatet i `dist/`). Se `docs/auto-update.md`.
+- `?mock=1` bytter Supabase-klienten mot den hermetiske mock-backenden;
+  `&lag=800` legger på kunstig serverforsinkelse.
+- Tester: se `tests/CLAUDE.md` (nettleser + node) og `supabase/CLAUDE.md` (SQL).
 
-## Dokumentkart — les ved behov, ikke i utgangspunktet
+## Før du endrer kode
 
-Denne fila lastes hver økt og holdes bevisst kort. Detaljene lever i egne
-dokumenter i `docs/` — les det som er relevant for oppgaven, ignorer resten.
-Tar du en designbeslutning som bør holde seg for fremtidige agenter,
-oppdater det aktuelle dokumentet der (ikke dump alt tilbake i denne fila).
+- Finn eksisterende implementasjon og eventuell test først. `app.js` er stor og
+  seksjonsinndelt — søk i den før du antar at noe ikke finnes.
+- Les kun dokumentene oppgaven faktisk berører; `docs/README.md` sier hvilke.
+- Trenger du å vite HVORFOR koden er som den er, bruk git-historikken
+  (`git log -S '<symbol>'`, `git log -p <fil>`). Dokumentene beskriver
+  nåtilstanden, ikke veien dit.
 
-| Fil | Les når oppgaven gjelder |
+## Implementering
+
+- Gjør den minste sammenhengende endringen som løser oppgaven. Ingen
+  uvedkommende refaktorering, abstraksjon eller feature flags.
+- Klient og database endres SAMMEN: et felt klienten skriver må finnes i
+  `supabase/users-and-sharing.sql`, ellers avviser PostgREST hver skriving og
+  synken stopper. Se `supabase/CLAUDE.md`.
+- All autorisasjon håndheves serverside. Klientens gating er kun UX, og skal
+  feile LUKKET: mangler capabilities fra serveren, skjul kontrollen.
+- Opprettelse og flytting spør FORELDEREN om lov, ikke objektet selv —
+  myndigheten ligger på nivået over (`docs/rettigheter-og-deling.md`).
+- Endringer i univers-/gruppe-UI-et treffer liste-/listepunkt-UI-et og omvendt
+  (delte klasser, delt DnD-motor). Sjekk begge.
+- Valider ved systemgrensene (brukerinput, svar fra Supabase), ikke internt.
+- Endrer du en invariant, oppdater det autoritative dokumentet i `docs/` i samme
+  endring. Skriv nåtilstanden, ikke endringshistorikk («siste runde» o.l.) —
+  historikken hører hjemme i git og PR-en.
+- Jobb autonomt når kravene kan utledes av repoet. Spør bare når det som mangler
+  påvirker korrekthet, sikkerhet, destruktive handlinger eller oppgavens reelle
+  omfang.
+
+## Verifisering
+
+Kjør den minste verifikasjonen som gir troverdig evidens for endringen:
+
+| Endringen gjelder | Verifisering |
 |---|---|
-| `docs/data-model.md` | state-form, foreldre-pekere, univers/gruppe/liste/listepunkt-hierarkiet |
-| `docs/design-system.md` | styles.css, nye knapper/kontroller, delte klasser, UX-mønstre |
-| `docs/menus.md` | toppmenyens nav-knapp, navigasjonsmodalen (universer + grupper), kontoknappen/-modalen |
-| `docs/board-layout.md` | avstander/padding/gap i selve listevisningen |
-| `docs/drag-and-drop.md` | reorder, dra-og-slipp-motoren, overføring mellom lister/grupper |
-| `docs/trash.md` | slette/gjenopprette/tømme på ethvert nivå |
-| `docs/colors-and-labels.md` | HSL-fargesystem, gamle K/P-felter |
-| `docs/scheduling.md` | innstillingsmodalen (tannhjul), tidsplan (start/frist), indikator-chips |
-| `docs/rettigheter-og-deling.md` | HVEM får gjøre HVA: oppretter/eier-hierarki, arvet lås + unntak, posisjon-vs-innhold, tretilstands invitasjonspolicy — den autoritative rettighetsmodellen |
-| `docs/arkitektur-brukere-deling.md` | brukerkontoer (Supabase Auth), eierskap, deling/mounts, lås, e-postvarsel — databasesiden |
-| `docs/accounts.md` | KLIENTEN: auth-UI, synk-motor (get_my_doc/rad-CRUD), mount-rendring, delings-UI, e-postvarsel/innboks, mock-backend for testing |
-| `docs/auto-update.md` | build-ID/`/version.json`, cache-headere i `vercel.json`, automatisk reload av åpne faner, `updateSafety()` |
-| `docs/domains-and-urls.md` | produksjonsdomener, auth-redirect-URL-er (`authRedirectUrl()`), Resend-mailenes base-URL, Supabase Auth-e-postmalene, det pensjonerte domenet |
+| Dokumentasjon/kommentarer | ingen nettlesertest |
+| SQL i `supabase/` | SQL-testsuiten — `supabase/CLAUDE.md` |
+| Avgrenset klientlogikk | de(n) relevante testen(e) i `tests/` |
+| Brukerrettet UI | ekte nettleser (Playwright), + skjermbilde ved visuell endring |
+| Responsiv eller pekeravhengig oppførsel | både desktop- og mobil-viewport |
+| Auth, synk eller deling | mock-backend (`?mock=1`) + den relevante flerbrukerflyten |
+| Deploy, caching, build-output | `node build.js` og `node tests/build-version.test.js` |
 
-## Verifisering (påkrevd før du sier deg ferdig)
+Retter du en feil, skal en test fange den — ny test, eller en ny sjekk i den
+filen som allerede dekker området.
 
-Verifiser alltid i ekte nettleser (Playwright mot `python3 -m http.server`,
-desktop- OG mobil-viewport, blokker eksterne kall for hermetikk) — funksjonelt
-(CRUD/DnD/synk/deling/migrering) og visuelt (screenshots). Bruk `?mock=1` (mock-
-backend) for å teste innlogging og to-bruker-deling uten ekte Supabase. Ikke
-rapporter en oppgave som ferdig uten denne verifiseringen.
+Rapporter nøyaktig hvilke kommandoer og tester som ble kjørt, og hva de ga. Si
+eksplisitt fra om noe ikke er verifisert; ikke påstå at noe er verifisert uten
+et faktisk resultat fra økten.
 
-## GitHub-arbeidsflyt
+## PR-er
 
-- Hand-off-prompter: skriv dem i kopierbart format, og ikke ta med informasjon
-  enhver agent uansett har tilgang til (f.eks. det som allerede står i denne
-  fila).
-- Når en PR er opprettet: send lenken til PR-en.
-- Sjekk-inn-timer etter opprettet PR: sett den til maks 5 minutter — det tar
-  sjelden lenger før tester er ferdige og reviewere har fått sett på den.
-
-## Arbeidsstil
-
-- Jobb autonomt; ikke still oppfølgingsspørsmål — bruk beste skjønn og
-  dokumentér valg i riktig fil (se dokumentkartet over).
-- Handle når du har nok informasjon. Ikke utled på nytt fakta som allerede er
-  fastslått i samtalen, ikke ta opp igjen en beslutning brukeren allerede har
-  tatt, og ikke ramse opp alternativer du uansett ikke velger i brukervendte
-  meldinger — gi en anbefaling, ikke en fullstendig oversikt. Gjelder ikke
-  tenke-blokker.
-- Ikke legg til funksjonalitet, refaktorer eller abstraksjoner utover det
-  oppgaven krever. En bugfix trenger ikke opprydding rundt seg, og en
-  engangsoperasjon trenger sjelden en hjelpefunksjon. Ikke design for
-  hypotetiske fremtidige behov — gjør det enkleste som fungerer godt. Unngå
-  prematur abstraksjon og halvferdige implementasjoner. Ikke legg til
-  feilhåndtering, fallbacks eller validering for scenarioer som ikke kan
-  inntreffe — stol på interne garantier og valider kun ved systemgrenser
-  (brukerinput, eksterne API-er). Ikke bruk feature flags eller
-  bakoverkompatible snarveier når du bare kan endre koden direkte.
-- Stopp opp for brukeren kun når arbeidet faktisk krever det: en destruktiv
-  eller irreversibel handling, en reell endring av omfang, eller informasjon
-  bare brukeren kan gi. Møter du på et av disse, spør — og avslutt runden der,
-  fremfor å avslutte med et løfte om å gjøre det senere.
-- Før du rapporterer fremgang: sjekk hver påstand mot et faktisk
-  verktøyresultat fra denne økten. Rapporter kun det du har belegg for, og si
-  eksplisitt fra om noe ikke er verifisert ennå. Rapporter utfall ærlig: vis
-  output hvis tester feiler, si fra hvis et steg ble hoppet over, og si rett ut
-  at noe er ferdig og verifisert når det er det — uten unødvendige forbehold.
-- Start svaret med resultatet. Første setning skal svare på «hva skjedde» eller
-  «hva ble funnet» — det brukeren ville spurt om med «bare gi meg
-  kortversjonen». Detaljer og resonnement kommer etterpå.
-- Hold svar korte ved å velge bort det som ikke endrer hva leseren gjør videre
-  — ikke ved å komprimere teksten til fragmenter, forkortelser, pil-kjeder
-  («A → B → feiler») eller sjargong.
-- Har du jobbet en stund uten at brukeren har fulgt med (over natten, gjennom
-  mange verktøykall, siden de sist sa noe), er sluttmeldingen din deres første
-  innblikk i det hele. Skriv den som en re-orientering, ikke en fortsettelse av
-  tankestrømmen din: resultatet først, så det ene-to du eventuelt trenger fra
-  dem, hver forklart som om det er nytt. Ordbruken du bygde opp underveis er
-  din, ikke brukerens — legg den bak deg med mindre du introduserer den på
-  nytt.
-
-## Status
-
-Alt i oppgavebeskrivelsen (universer, designsystem, søppelkasser på alle
-nivåer, luft-system i board-et, dra-rekkefølge for universer i menyen) er
-implementert og verifisert i nettleser — se git-historikk for detaljer.
-Designsystemet er senere overhalt (Atkinson Hyperlegible Next, ~30 % større
-listepunkter m/ tynnere ikonstreker, felles `.btn-solid`-knappesystem,
-prikke-håndtak, delt placeholder-stil, knapp-til-sveipefelt-morf,
-slette-animasjon inn i søppelknappen) — se `docs/design-system.md` og
-`docs/trash.md`. En påfølgende runde la til: typografi-tokens (`--fs-*`),
-avkryssing av listepunkter (`item.done`), angre-toast + delte gjenopprett-hjelpere,
-felles bekreftelses-modal (`askConfirm`, erstatter native `confirm()`),
-tastatur-reordering på håndtakene (SENERE FJERNET sammen med håndtakene — se
-«Trykk-og-hold-draging» under og `docs/drag-and-drop.md`),
-`prefers-reduced-motion`-støtte, delte
-`.field`/avatar-klasser, hvit ✕ på fargede flater, og flytting av univers-/
-gruppe-deling fra kortene til egne `.share-btn` i menyene (ved «＋ Gruppe» / «＋
-Liste»). `item.done` krever en DB-migrering i kontomodus — se `TODO.md`.
-Posisjonsbasert farge reindekseres alltid ved omrokkering (ikke bare
-add/slett) for grupper, lister og universer — se `docs/drag-and-drop.md`.
-En runde la til: **buffret sletting** (`_pendingDelete` + `DELETE_BUFFER_MS`) —
-sletting skrives ikke til DB før angre-vinduet utløper, angre er umiddelbart
-(`docs/trash.md`); **«Utført»-seksjon** for avkryssede listepunkter (FLIP,
-posisjonsminne via uendret `pos`); liste-del-chip og liste-ikon oppdatert;
-sveipefeltet sier «Tøm» + pil.
-
-**Navn og ansvarlig** (siste runde): registrering krever fornavn + etternavn
-(→ `profiles.display_name`); del-modalen viser initial-sirkel + navn for eier/
-medlemmer; listepunkter i delte lister har en **ansvarsknapp** (hånd-opp-ikon →
-popover/modal med delegruppen alfabetisk som fargede initial-sirkler + navn →
-valgt ansvarlig vises som farget initial-sirkel, `item.responsible`). Krever en
-DB-migrering + navne-seed i kontomodus — se `TODO.md`. Se `docs/accounts.md`.
-
-**Brukere og deling**: appen kjører nå KUN på ekte kontoer (Supabase Auth,
-e-post/passord) + relasjonelle tabeller med RLS og server-side felt-LWW —
-auth-UI (registrering/innlogging/glemt passord), synk-motor (`get_my_doc` →
-3-veis fletting → rad-CRUD), mount-rendring av delt innhold, delings-UI
-(inviter/medlemmer/lås/innboks), søppel-semantikk for delinger (forlat) og
-migreringsflyt. Se `docs/accounts.md` og `docs/arkitektur-brukere-deling.md`.
-**Mønster-låsen og synk-doc v1 er fjernet** (setup.sql pensjonerer `lists`-
-tabellen + `get_list`/`save_list`). `?mock=1` kjører mot en hermetisk
-in-memory-backend for to-bruker-testing.
-
-**E-postvarsel + i-app-varsel ved deling (siste runde)**: mottakeren varsles på
-to måter. (1) **I appen**: en rød ring med antall på kontoknappen + en «Invitasjoner»-
-innboks i konto-modalen (godta/avslå) — invitasjonen viser inviterendes **navn**
-(ikke e-post). (2) **På e-post** (valgfritt, krever konfig): en `share_invites`-
-insert-trigger (`send_invite_email`, pg_net → Resend) e-poster mottakeren —
-uregistrerte får en `?signup=<e-post>`-lenke som åpner registreringssiden med
-e-posten utfylt (invitasjonen kobles på ved registrering); registrerte får en
-åpne-appen-lenke, men kun hvis de har e-postvarsel PÅ. Registrerte kan slå
-e-postvarsel av/på i konto-modalen (`user_metadata.email_notifications`, standard
-PÅ). Krever manuell Supabase-konfig (Resend-nøkkel i `app_config` + pg_net) — se
-`TODO.md`. Se `docs/accounts.md`.
-
-**Kategorier (siste runde)**: lister har nå TO nivåer — nivå 1 rommer
-ukategoriserte listepunkter OG kategorier (om hverandre, kan omrokkeres), nivå 2 er
-listepunktene inne i hver kategori. En kategori lagres SOM et listepunkt (`item.isCat`),
-leaf-listepunkter peker på den via `item.cat`; kategorier nøstes aldri. Opprettes
-med den gule kategori-knappen nederst i lista (se «Opprettelse …» nederst).
-Dra-og-slipp: listepunkter flyttes mellom
-nivå 1 / kategorier / lister (slipp på kategori-overskriften eller blant
-listepunktene legger det i kategorien); kategori-håndtak reorderer på nivå 1 med en
-rask kollaps-til-overskrift-animasjon under draging + utvidelse ved slipp; slipp
-på en annen kategori nøster ikke (vanlig bytte-plass). Kategori-overskriften har
-en innstillingsknapp (tannhjul → felles innstillingsmodal, `kind:'category'`,
-med tidslås som liste-modalen) og en oppløs-knapp (boble-sprekk-ikon → listepunktene
-blir ukategoriserte på samme plass). Kategoriens listepunkter ligger i en innrykket
-fordypning («hylle i veggen»); overskriften står på listeflaten over. Krever en DB-migrering i kontomodus (`items.cat_id`/`is_cat`/
-`lock_times`) — se `TODO.md`. Se `docs/data-model.md`, `docs/drag-and-drop.md`,
-`docs/scheduling.md`, `docs/design-system.md`.
-
-**Hierarkisk deling og lås (siste runde)**: å dele et objekt deler automatisk
-*hele* undertreet med de samme folkene, og delings-listen viser nå de arvede
-personene («Arvet fra deling over», `refreshInherited`) sammen med de direkte.
-Man kan dele lenger ned med FLERE (additivt — egen invitasjon på gruppen/listen).
-Lås arves nedover, MEN eieren kan gjøre et **unntak** for en konkret gruppe/liste
-under et låst objekt («Gjør unntak» → `set_unlocked`/`unlocked`): lås-feltet viser
-da «Automatisk låst … Fordi [ikon][navn] er låst». `frozen()`/`can_edit_*` bruker
-nærmeste-eksplisitt-tilstand oppover. Krever DB-migrering i kontomodus
-(`unlocked`-kolonner + `set_unlocked`) — se `TODO.md`. Se
-`docs/arkitektur-brukere-deling.md` og `docs/accounts.md`.
-
-**Innstillinger + tidsplan (forrige runde)**: tannhjul-knapper på lister
-(erstattet del-knappen) og listepunkter (erstattet ansvarsknappen) åpner en
-felles innstillingsmodal (navn / deling (lister) / ansvarlig — nå også for
-hele listen, `card.responsible` / tidsplan). Tidsplan: `start`/`due` på
-begge nivåer + `card.lockTimes`; indikator-chips under navnet (delt/
-ansvarlig/start/frist, farge etter status) som selv er hurtigredigerings-
-knapper. Krever DB-migrering i kontomodus — se `TODO.md`. Alt i
-`docs/scheduling.md`.
-
-**Ventefri UX**: all blokkerende venting/lasteindikatorer er
-erstattet med optimistisk UI + en seriell bakgrunns-operasjonskø for delings-
-RPC-ene (`opQueue`: koalescering, venting på nypushede rader, offline-retry,
-rollback ved avvisning) og optimistiske overlays som overlever synk-rebuilds.
-Ansvarlig kan byttes fritt mens forrige valg er i lufta (LWW tar siste), søppel
-kan gjenopprettes/tømmes UNDER buffring, og del-modalen åpner umiddelbart. Se
-`docs/accounts.md` (opQueue) og `docs/trash.md`.
-
-**Trykk-og-hold-draging (siste runde)**: alle dra-håndtak er FJERNET. Draging
-inviteres nå ved å trykke og holde (200 ms) på et objekts navn-/tittelsone —
-ikke på knappene: univers-/gruppe-rad = hele chip-en unntatt ×; liste = hele
-korthodet unntatt tannhjul + ×; listepunkt = hele raden unntatt avmerkingsboks +
-tannhjul + ×; kategori = hele overskriftslinjen unntatt tannhjul + oppløs.
-Felles `attachHoldDrag`-hjelper (syntetisk pointer-event → de eksisterende
-`startXxxDrag`); et kort trykk gjør fortsatt det klikket pleide (omdøp/bytt/
-kryss), et fullført hold undertrykker det påfølgende klikket. Bevegelse >10 px
-før holdet er ferdig = scroll/sveip (avbrytes, siden scroller nativt); native
-scroll blokkeres kun MENS draget pågår. **Tastatur-reordering er fjernet** (den
-bodde på håndtakene). Ingen DB-migrering. Se `docs/drag-and-drop.md`.
-
-**Ny navigasjon (forrige runde)**: gruppemenyen (sidebar/topp-panel), listemeny-
-overskriften, univers-/gruppebytterne og meny-modalen (☰) er erstattet av én
-**toppmeny med breadcrumb** (🌐 univers › 📁 gruppe — knappene åpner hver sin
-modal der ALT av navigering/redigering/deling for nivået skjer: «Du er i»-blokk
-med del-knapp, alle rader m/ omdøp/slett/rekkefølge, ＋ og søppelkasse) +
-listefunksjonene (＋ Liste/søppel/filter) på raden under. Del-modalen har
-tilbakeknapp når den åpnes derfra (lukk = hovedsiden). ☰ er blitt en
-**kontoknapp** → konto-modal (profil, endre navn (profiles.display_name) og
-e-post (auth.updateUser), e-postvarsel, innboks, logg ut — ingen DB-migrering
-nødvendig). Lister flyttes mellom grupper ved å slippe dem på 📁-breadcrumben
-(velger-modal). Se `docs/menus.md`.
-
-**Listekollaps, global DnD-rotasjon, desktop-drag + fikser (siste runde)**:
-Lister kan **kollapses** som en rullgardin (klikk på korthodet, ikke tittel/
-tannhjul/×); `.card-body`-wrapper animeres til høyde 0 (kortet blir header-høyt,
-alle hjørner rundet), lukketilstanden `card.collapsed` lagres i DB (innholds-
-register, ny `cards.collapsed`-kolonne — se `TODO.md`). Alle lister kollapser
-midlertidig mens en liste dras (kortere dra-avstand). **DnD-rotasjonen gjelder nå
-globalt** — også listepunkter og kategorier roterer (før bare kort/gruppe/
-univers). **Desktop-drag** starter umiddelbart på musebevegelse (0 ms; touch
-beholder 200 ms-holdet); listepunkt-/kategori-dra-soner får åpen-hånd-cursor,
-univers/gruppe/liste pekende hånd. Fikser: univers-/gruppe-modalene redigerer
-navnet på tittel-klikk (navigerer ved klikk ellers); listepunkter redigeres kun
-på tittelen (som andre typer) med global hover-affordans; symmetrisk padding på
-univers-/gruppe-chips. **«Elementer» heter nå «listepunkter»** i UI og
-dokumentasjon (kode-identifikatorer som `item`/`items` og DOM-«element» i
-kommentarer er urørt — nettopp for å skille brukerbegrepet fra det tekniske).
-Se `docs/drag-and-drop.md`, `docs/design-system.md`, `docs/data-model.md`,
-`docs/menus.md`.
-
-**DnD-fikser: kategori-utseende, auto-scroll, mobil-kollaps (siste runde)**: (1)
-Løftet kategori (`.category.dragging`) leser nå som en kompakt rad, ikke et stort
-felt — kategori-ikon (`.cat-drag-icon`) til venstre for tittelen, svart tittel
-uten skygge (var hvit-på-hvit), tannhjul/oppløs + skillelinjer skjult, høyde =
-et listepunkt (`collapseCategory` måler headeren med `offsetHeight` så dra-
-rotasjonen ikke blåser opp placeholderen). (2) Auto-scroll ved viewport-kanten
-gjelder nå listepunkter og kategorier, ikke bare lister (`windowScrollDrag()` +
-`reapplyPlacement`); kategoriens `grabY` måles fra `.cat-head`. (3) Mobil: å
-løfte en liste (særlig den NEDERSTE) under en HØY liste som kollapser krympet
-board-et under scroll-posisjonen → nettleseren tvang en window-scroll, og en
-scroll mens fingeren står stille avbryter touch-en på Chrome for Android (markert
-tekst). Nå UTSETTES liste-kollapsen på touch til første faktiske bevegelse
-(`drag.pendingCollapse` → `onCardMove`), så scrollen skjer mens et touchmove fyrer
-(draget «etablert») i stedet for under et stille hold; `beginDragCommon` måler
-dra-boksen med transformen nøytralisert (så `.drag-hold`-trykkskalaen ikke gir en
-for lav placeholder → 10 px scroll-klemme); `overflowAnchor='none'` + en passiv
-`scroll`-lytter holder kortet under fingeren uten at VI scroller. Mus kollapser
-umiddelbart (uendret desktop). Ingen DB-migrering. Se `docs/drag-and-drop.md` og
-`docs/design-system.md`. **(Punkt 3 er senere erstattet — se neste avsnitt: den
-utsatte kollapsen løste IKKE avbruddet, den bare gjorde det mindre konsekvent.)**
-
-**DnD på touch: normal-flow-vakt rundt board-et + auto-scroll-fortegnsklemme
-(siste runde)**: forrige runde beholdt kollaps-alle på touch ved å pinne `<html>`
-sin `min-height` (dokumenthøyde-lås). Det holdt DOKUMENTET høyt mens BOARD-et
-krympet — og introduserte en NY feil: auto-scrollens `maxScroll` (målt fra board-
-bunnen) kunne havne UNDER `scrollY`, så `maxScroll - scrollY` ble negativ og en
-positiv nedover-`autoScrollSpeed` snudde til et stort hopp OPPOVER i én frame (kunne
-utløse `pointercancel`). **To endringer:** (1) **Auto-scroll kan aldri bytte fortegn**
-— nedover-avstanden klemmes til `Math.min(delta, Math.max(0, maxScroll - scrollY))`,
-så en positiv fart aldri reduserer `scrollY` (nedover-scroll STOPPER i stedet for å
-snu). (2) **`<html>`-låsen erstattet av en normal-flow-vakt rundt board-et**
-(`freezeBoardForDrag`/`releaseBoardAfterDrag`): fryser `board.style.minHeight` til
-høyden før kollaps (board-bunnen + dermed dokumenthøyde/`maxScroll` kan ikke synke),
-og legger på `padding-top` = body-høyden som fjernes for listene OVER den dratte, så
-den dratte lista beholder viewport-Y og de kompakte overskriftene bunkes rett over
-den — nær fingeren, ikke rullet vekk (board bruker multi-column → `padding-top`, ikke
-et spacer-barn). Touch kollapser MOMENTANT (`collapseCardsForDrag(…, true)`) i samme
-oppgave, så ingen mellomtilstand males. Vakten slippes i `onCardUp`/`onCardCancel`
-momentant rett etter `restoreCardsAfterDrag` (én reflow, intet hopp). Mus uendret fra
-main (bare kollaps, siden justerer scroll naturlig, ingen vakt).
-`lockDocHeight`/`unlockDocHeight`/`drag.pendingCollapse` er borte. **`pointercancel`-
-rollbacken fra forrige runde er uendret** (`onCardCancel` m.fl. → `restoreDraggedToOrigin`,
-ingen `pos`/`save`). Ingen DB-migrering. Se `docs/drag-and-drop.md`.
-
-**Momentan liste-kollaps + scroll-til-slupt-liste (siste runde)**: (1) All
-åpne/lukke-animasjon for lister er FJERNET — `collapseCardBody`/`expandCardBody` setter/
-fjerner bare høyde/opacity/padding momentant (gjelder både rullgardinen (klikk på
-korthodet) og kollaps-alle under DnD, mobil OG desktop). Animasjonen gjorde systemet
-tregere uten å tilføre klarhet; `CARD_COLLAPSE_MS` er borte. Board-vaktens release ble
-dermed også momentan (ingen `padding`-transition/`transitionend`). (2) Etter et fullført
-liste-drag scroller siden til den slupne lista (`scrollDroppedIntoView`, `onCardUp`):
-toppen legges like under den faste toppmenyen (smooth; `auto` ved reduced-motion), målt i
-dokument-koordinat før fly-inn-transformen. Hoppes over ved slipp på 📁-breadcrumben.
-Ingen DB-migrering. Se `docs/drag-and-drop.md` og `docs/design-system.md`.
-
-**DnD-modus følger board-layouten, ikke `pointerType` (siste runde)**: normal-flow-
-vakten (`freezeBoardForDrag`) aktiveres nå KUN når input er touch/pen OG board-et er i
-ÉNKOLONNE-layout. Før var skillet bare `ev.pointerType !== 'mouse'`, så Androids «Side
-for datamaskin» (flerkolonne + touch) fikk vakten og en stor, stygg `padding-top` der
-overskriftene flokket seg rundt den dratte lista. Nå: **flerkolonne** (bredt vindu,
-uansett mus/touch/pen) → desktop-oppførsel som main (bare kollaps, board krymper naturlig,
-ingen vakt); **énkolonne + touch/pen** → vakt (mobil-fiksen); **énkolonne + mus** → ingen
-vakt. Kilde til sannhet = CSS-layouten: `--mobile-dnd-flow-guard` settes til `1` KUN i
-mobil-media-regelen (`column-count: 1`) og leses av `boardUsesSingleColumnLayout()`, så
-terskelen finnes ett sted (`styles.css`). Ingen UA-/enhets-/`maxTouchPoints`-sniffing.
-Beslutningen lagres implisitt via `boardGuard`. De andre PR-endringene (momentan kollaps,
-`pointercancel`-rollback, auto-scroll-fortegnsklemme, scroll-til-slupt-liste) er uendret.
-Ny test `tests/dnd-layout-modes.test.js` (bl.a. bred touch = flerkolonne → ingen vakt,
-ekte `page.mouse`, layoutgrensen 560/561 px). Ingen DB-migrering. Se `docs/drag-and-drop.md`.
-
-**Hierarkiske rettigheter (siste runde)**: autorisasjonen er generalisert fra
-«kun eieren» til et **oppretter/eier-hierarki** — se `docs/rettigheter-og-deling.md`
-(ny, autoritativ). En **privilegert administrator** av et objekt = universeieren
-+ objektets oppretter (`owner_id`) + oppretteren av hvert superobjekt; disse kan
-alltid redigere/dele/låse, også under en lås. Redigeringslås arves med
-nærmeste-eksplisitt-semantikk; **unntak** fra en arvet lås styres kun av
-universeieren eller oppretteren av det låsende superobjektet (`set_unlocked` →
-`can_manage_lock_exception`). **Posisjon er skilt fra innholdslås**
-(`can_reorder_in_parent` = innholdsrett på superobjektet) og håndheves feltspesifikt
-i `*_before_update`-vaktene. **Invitasjonsrett** har fått en **tretilstands dynamisk
-arv** (`invite_policy` = `inherit`/`allow`/`deny`): vanlige medlemmer kan invitere
-når effektiv policy tillater det (`can_invite_to`), styrt av en avmerkingsboks under
-e-postfeltet (`set_invite_policy`, kun interaktiv for `can_manage_invite_policy`).
-Alt håndheves serverside (RLS + vakter + SECURITY DEFINER-hjelpere); klienten
-gate-r kontroller via `get_members.viewer`-flagg + lokalt anslag. Krever en DB-
-migrering i kontomodus (`invite_policy`-kolonner + omskrevne funksjoner) — se
-`TODO.md`. Ny SQL-test `supabase/tests/test-permissions.sql` (fire brukere) og
-nettlesertest `tests/permissions-ui.test.js` (mock, desktop + mobil).
-
-**Kategori-/listepunkt-ekstrahering + kategori-kollaps (siste runde)**: (1) Drar
-man en **kategori** eller et **listepunkt** UT av listene og holder det i board-
-luften (over/under/mellom dem), dukker en kort-formet placeholder med et **＋-ikon**
-opp (`.new-list-placeholder`) — slipp der oppretter en NY liste: kategori →
-samme tittel + medlemmene ukategorisert; listepunkt → bare seg selv med blank,
-straks-fokusert tittel. Den som ekstraherer blir **oppretter** (`owner_id`) av
-den nye lista, uansett hvem som eide kilde-lista. Umulig fra en LÅST liste (draget
-er da avskrudd). `drag.phMode` (`reorder`/`extract`) + `pointerOverAnyCard` styrer
-modus; `setExtractMode`/`setReorderMode` bytter placeholder. (2) Kategorier kan nå
-**kollapses** som lister (klikk på overskriftslinjen, `item.collapsed`, momentan
-`collapseCatBody`); en **grønn ＋-knapp nederst i kategorien** legger til et nytt
-(tomt, straks-fokusert) listepunkt direkte i den (ingen «Legg til …»-input). (3)
-En **kollapset liste/kategori viser antall listepunkter «(N)»** ved navnet
-(`.collapse-count`; liste = alle leaf-elementer, kategorier ikke medregnet;
-kategori = dens medlemmer). Krever en DB-migrering i kontomodus (`items.collapsed`)
-— se `TODO.md`. Se `docs/drag-and-drop.md`, `docs/data-model.md`,
-`docs/design-system.md`.
-
-**Synk-herding: migrering-følger-deploy + skjema-varsel (siste runde)**: en
-kontomodus-synkfeil (listepunkter lagt inn på mobil dukket ikke opp på PC) skyldtes
-at `cards.collapsed`/`items.collapsed` manglet i produksjon mens den deployede
-klienten sendte `collapsed` i hver kort-/listepunkt-skriving — PostgREST avviste
-alle, og `pushOps` svelget feilen stille. Migreringen er kjørt (kolonnene finnes nå),
-og to grep hindrer gjentakelse: (1) **`db-setup.yml` kjøres automatisk ved push til
-`main`** (path-filtrert til SQL-filene) så en migrering ikke lenger kan henge etter
-klienten; (2) **klienten overflater skjema-avvik** — `pushOps` leser `result.error`,
-og `isSchemaMismatch`/`reportWriteResult` fanger KUN ukjent-kolonne/-tabell
-(`PGRST204`/`PGRST205`/`42703`) med én bruker-toast + `console.error` (dedup), mens
-forventede RLS-/nettverksfeil forblir stille. Ny test `tests/sync-schema-error.test.js`.
-Ingen DB-migrering (kun kjøring av en allerede-eksisterende). Se `docs/accounts.md` og `TODO.md`.
-
-**Peek-åpning av kollapsede dra-mål + kategori-til-annen-liste (siste runde)**: drar
-man et **listepunkt** over en KOLLAPSET liste/kategori — eller en hel **kategori** over
-en kollapset liste — og blir værende i **200 ms** (`PEEK_MS`), åpnes målet MIDLERTIDIG
-(`updatePeek`, peek) så man ser hvor det vil lande; flytter man videre uten å slippe,
-kollapses det tilbake. Peek er ren forhåndsvisning (rører ikke `card.collapsed`/
-`item.collapsed`); to lag (`drag.peekCard` + `drag.peekCat`) åpner «listen OG/ELLER
-kategorien». En **stabilitets-vakt** (`commit`-param i `updateItemPlacement`/
-`updateCategoryPlacement`) holder placeholderen i ro mens et ennå-ikke-åpnet kollapset
-mål hoveres (ellers krymper kildekortet og målet stikker vekk under pekeren → timeren
-rakk aldri å løpe ut); ved selve slippet lander objektet i målet uansett. Slipp INN i et
-peek-åpnet mål holder det åpent (`resolvePeekOnDrop`, `collapsed=false` lagres); ellers
-kollapses det tilbake. **Ny kapasitet:** en kategori kan nå dras INN i en annen
-eksisterende liste (`moveCategoryToCard` — kategori + medlemmer flytter, `home` oppdateres,
-`render()` rebygger); `updateCategoryPlacement` er tre-veis (kilde-reorder / inn i annen
-liste / ekstraher til ny). Ny test `tests/dnd-peek-collapsed.test.js`. Ingen DB-migrering.
-Se `docs/drag-and-drop.md` og `docs/data-model.md`.
-
-**Skillelinje-forhåndsvisning under DnD (siste runde)**: kategorienes horisontale
-skillelinjer vises nå ALLEREDE mens man drar, slik de blir hvis man slipper der
-placeholderen står — linjer rundt kategori-placeholderen når en kategori dras, og
-en linje der et listepunkts placeholder er nærmeste nabo til en kategori over/under.
-Hvile-reglene (`.category::before/::after`) kjenner hverken placeholderen eller at
-det løftede objektet er ute av flyten (ga fantom-linjer), så JS overtar linjene i
-containerne draget berører: `.seps-managed` slår av pseudo-reglene, og hver rad som
-skal ha en linje over seg får `.sep-above` (klasser, ikke innsatte elementer — DOM-
-naboskapet brukes av plasserings-/pos-logikken). Identisk geometri i hvile og
-forhåndsvisning (33 px luft, linja midt i), så slippet er uten hopp. Ny test
-`tests/dnd-separators-preview.test.js`. Ingen DB-migrering. Se
-`docs/drag-and-drop.md` og `docs/design-system.md`.
-
-**Viewport-klemme under DnD + «lag først, navngi på plassen» (siste runde)**: (1)
-Det løftede objektet holdes nå innenfor viewporten på BEGGE akser og for ALLE
-objekt-typer (`clampToViewport` i `dragPosLeft`/`dragPosTop`, mot den faktisk
-rendrede boksen — `dragScale()` gir riktig skala per type). Hovedårsaken til at
-det stakk utenfor var likevel en annen: `flipFrom` animerte kilde-KORTET når et
-listepunkt/en kategori ble dratt ut i board-lufta (ny-liste-placeholderen
-omrokkerer kortene), og et transformert element blir containing block for sine
-absolutt posisjonerte etterkommere — dra-elementets dokument-koordinater ble
-plutselig tolket relativt til kortet, så det hoppet langt ut til høyre, ga
-horisontal overflow og skjøv kontoknappen/toppmenyen ut av viewporten på mobil.
-`flipFrom` hopper nå over enhver FORFAR til det løftede objektet. (2)
-Listepunkter og kategorier opprettes nå som i en kategori: «Legg til …»-inputen er
-FJERNET, de to knappene (grønn ＋ = listepunkt, gul = kategori) står midtstilt
-nederst i lista, og objektet legges inn med én gang med navnefeltet blankt og
-fokusert. Bekreftes navngivingen uten tekst (Enter på tomt felt, Escape, klikk ut),
-slettes det nyopprettede objektet igjen (`nameNewRow`). Nye tester
-`tests/dnd-viewport-clamp.test.js` og `tests/item-creation.test.js`. Ingen
-DB-migrering. Se `docs/drag-and-drop.md` og `docs/design-system.md`.
-
-**1/3-terskler for ny-liste-placeholderen + synlig listepunkt ut av kategori (siste
-runde)**: (1) Hvilken liste et løftet listepunkt/en kategori «er i» avgjøres nå av
-OBJEKTETS boks, ikke pekeren (`dragOverCard`), og av listas INNHOLDSSONE
-(midt i listetittelen … midt i +-knapperaden — halve rammeraden er slark, så
-første/siste plass i lista er like lett å treffe) — de samme linjene inn og ut:
-objektet er i lista når dets MIDTRE 1/3 ligger innenfor sonen. Kollapset/peek-åpnet
-liste, og lister med for liten sone (tomme), bruker hele kortet. Hysteresen kommer av
-layouten (placeholderne bytter plass), ikke av et dødbånd; `pointerOverAnyCard` er
-borte. Ny-liste-placeholderen dukker dermed opp like lett
-nedover som oppover (før måtte PEKEREN forlate kortet), og plasseres etter objektets
-y-senter. Flerkolonne (desktop) styres av pekerens x som før. (2) Et listepunkt dratt
-UT av en kategori til nivå 1 i SAMME liste **forsvant**: skillelinje-forhåndsvisningen
-ga kategorien `position: relative`, og en posisjonert FORFAR blir containing block for
-det absolutt posisjonerte dra-elementet (koordinatene tolkes relativt til den, kortets
-`overflow: hidden` klipper det bort). Linja males nå speilvendt fra raden over
-(`.sep-below`) når raden under linja er en forfar. Ny test
-`tests/dnd-extract-thresholds.test.js`. Ingen DB-migrering. Se `docs/drag-and-drop.md`.
-
-**Toast: glassflate + sveip-til-lukk (forrige runde)**: toasten har fått en mer
-gjennomsiktig flate (`rgba(45,38,70,0.62)`) med `backdrop-filter: blur(14px)`, og
-hele flaten kan **sveipes/dras til høyre for å lukke den umiddelbart** — man
-slipper å vente ut timeren (`attachToastSwipe`; terskel 30 % av bredden, minst
-56 px, kun høyre-retning, vertikal bevegelse gir gesten til siden så den ruller
-nativt). Toasten er `pointer-events: auto` mens den vises (klikk-gjennom i hvile),
-og et fullført sveip svelger klikket etterpå så «Angre» ikke fyrer. Nytt
-`showToast`-alternativ `opts.onDismiss`: slette-toasten committer slettingen
-straks ved sveip (`commitDeleteToastNow`, delt med timeren). Ny test
-`tests/toast-swipe.test.js`. Ingen DB-migrering. Se `docs/design-system.md` og
-`docs/trash.md`.
-
-**Vertikal justering i kollapsede lister/kategorier (siste runde)**: (1) «(N)»-telleren
-leste som hevet skrift ved siden av navnet — `align-self: flex-start` på `.card-title`/
-`.cat-title` koblet ut `.title-line`s `align-items: baseline`, så tittel og teller ble
-topp-justert i stedet for å stå på samme skriftlinje. `align-self` er fjernet (klikk-
-flaten følger fortsatt teksten: titlene er flex-elementer i `.title-line`). (2) En
-kollapset kategori hadde 4px mer luft under overskriften enn over (tydeligst rundt
-knappene og mot skillelinjene): den nullhøye `.cat-items` lå fortsatt som en flex-rad
-mellom to av `.category`s 4px-gap. `.category.collapsed:not(.dragging) > .cat-items`
-har nå `margin-top: -4px` → lik luft (16px) over og under, som en kollapset liste er
-nøyaktig header-høy (`.dragging` er utelatt: den har allerede `gap: 0`, og `collapsedH`
-i `collapseCategory` regner med det). Ny test `tests/collapsed-alignment.test.js`
-(baseline + sentrering + symmetri, desktop og mobil). Ingen DB-migrering. Se
-`docs/design-system.md`.
-
-**Board-kolonner: fyll venstre først + stabil DnD (forrige runde)**: board-et bruker
-ikke lenger CSS multi-column. Kolonnene er **ekte containere** (`.board-col`), og JS
-fordeler kortene **grådig** (`relayoutBoard`): kolonne 1 fylles til kolonnebudsjettet
-(skjermhøyden under toppmenyen) er brukt opp, så kolonne 2 osv. Får ikke alt plass i
-kolonnene vinduet har rom til, økes budsjettet til det minste som holder — kolonnene
-blir høyere, siden scroller, og den øverste lista i kolonne 2 glir ned som den nederste
-i kolonne 1. Multi-column BALANSERTE (tre lister → tre kolonner med én hver). Ekte
-kolonner fjerner samtidig **flimringen** brukeren rapporterte: en placeholder kunne før
-dytte et kort over i en annen kolonne, og siden `dragOverCard` leser nettopp den
-layouten placeholderen former, vekslet plasseringen frem og tilbake for hver piksel.
-`placeNewListPlaceholder` legger nå placeholderen i den KOLONNEN man sikter på (før:
-`appendChild` = bunnen av SISTE kolonne), og «bunnen av kolonne k» / «toppen av kolonne
-k+1» er to steder å sikte med samme sluttresultat. `placePlaceholder` bruker
-referanseradens egen container; `pos` på board-nivå leses med `boardRows()`/
-`boardRowSibling()` (naboen over øverste rad i en kolonne ligger nederst i kolonnen før).
-En **kort sone under placeholderen** (kollapset/tom liste) flimret også fra før:
-modusbyttet rykker lista forbi objektet. `noteOverShift`/`drag.overGrace` måler hoppet og
-lar stickiness-en holde lista gjennom det. Ny test `tests/board-columns.test.js`. Ingen
-DB-migrering. Se `docs/board-layout.md` og `docs/drag-and-drop.md`.
-
-**Gjenopprett alle utførte (forrige runde)**: en **⟲-knapp** (`ICONS.restoreArrow`,
-`.done-restore`) står helt til HØYRE på «Utført»-linja — etter skillelinja, i samme
-kolonne som listepunktenes ×. Den reaktiverer ALLE avkryssede listepunkter i lista
-på én gang (`restoreAllDone`): `done = false` + `stampContent` på hver, radene
-flyttes tilbake til plassene sine (`pos` urørt, kategoriserte tilbake INN i
-kategorien sin) i ÉN felles FLIP, og «Utført»-seksjonen skjules. Plasseringen
-etter skillelinja kommer av `order: 1` (linja er divider-ens `::after` og ligger
-sist i flex-rekkefølgen). Skjult i en frosset liste. Plasseringslogikken er
-trukket ut av `toggleItemDone` til `placeItemBySection`, som begge bruker. Ny test
-`tests/restore-all-done.test.js`. Ingen DB-migrering. Se `docs/design-system.md`
-og `docs/data-model.md`.
-
-Verifisert i nettleser (Playwright) mot en hermetisk in-memory-backend
-(`mock-backend.js`, aktiveres med `?mock=1`) som etterligner Supabase-
-klienten og deler «server» mellom faner via localStorage — kjør to faner for
-å teste deling mellom to brukere uten ekte backend/e-postbekreftelse.
-`&lag=800` gir kunstig serverforsinkelse for å teste kø-/optimisme-oppførselen.
-
-**Ny navigasjon: ÉN modal for universer og grupper (siste runde)**: de to
-breadcrumb-knappene og de to modalene er erstattet av **én nav-knapp**
-(`🌐 univers › 📁 gruppe`) som åpner **én modal** med tittelen «[globus] Universer
-og [mappe] grupper». Der bruker universer og grupper **nøyaktig samme oppsett som
-lister og listepunkter**: et univers er et `.card` (kan kollapses — viser da
-[mappe] + antall grupper i stedet for «(N)»), gruppene er `.item`-rader (uten
-avmerkingsboks), og **gruppekategorier** er `.category`-rader (`group.isCat`/
-`group.cat`, ny gul knapp + nytt `ICONS.groupCategory`). Board-et
-(`#nav-board`) er et vanlig `.board` (samme `relayoutBoard`-kolonnemaskineri som
-hovedsiden), men nav-scopet setter `singleColumn` → alltid ÉN `.board-col`. Universer/grupper har ingen innstillingsmodal
-— kun **del-knapper** (`.uni-share`/`.group-share`); gruppekategorier har kun
-oppløs. Klikk på en gruppe (utenom navnet/knappene) navigerer og lukker modalen.
-Gruppe-søppelkassen ligger i universkortet (som listepunkt-kassen i lista);
-univers-søppelkassen nederst i modalen. **Dra-og-slipp er den SAMME motoren**: hele
-kort-/rad-/kategori-maskineriet kjører nå i to scope (`boardScope`/`navScope`,
-valgt av `scopeForEl` ved dragstart) — grupper flyttes mellom universer, ut i
-lufta for å lage et NYTT univers, inn i/ut av gruppekategorier, med peek, 1/3-
-terskler, skillelinjer og `pointercancel`-rollback gratis. `startGroupDrag`/
-`startUniverseDrag`/`finishColumnDrop` + de to gamle auto-scroll-loopene er
-FJERNET (nav-scopet bruker viewport-koordinater + modal-scroll). Delt (montert)
-innhold kan foreløpig ikke ligge i en gruppekategori (mount-plasseringen har
-ingen kategori-kolonne) — slipp der lander på nivå 1 med en toast. Krever en
-DB-migrering i kontomodus (`groups.cat_id`/`is_cat`/`collapsed`,
-`universes.collapsed`) — se `TODO.md`. Ny test `tests/nav-modal.test.js`. Se
-`docs/menus.md`, `docs/drag-and-drop.md`, `docs/data-model.md`,
-`docs/design-system.md`, `docs/trash.md`.
-
-Samme runde, etter tilbakemelding: (1) **den aktive gruppen følger med** når den
-bytter univers (`followActiveGroup()` først i `renderBoard()`) — før falt
-hovedsiden til «Ingen grupper ennå.» fordi `activeGroupObj()` bare leter i det
-aktive universet. (2) **Tastatur** tilbake på begge nivåene: korthodet og
-grupperaden er `role="button" tabindex="0"` (Enter/Mellomrom = kollaps på
-universet; omdøp når man står i gruppa, ellers naviger). (3) **Slipp i en LÅST
-mål-container avvises med en gang** i `onItemUp` (som `onCategoryUp` alt gjorde),
-med scope-tilpasset toast (`S.lockedTargetMsg`) — DB-vakten ville avvist skrivingen
-og snappet den tilbake ved neste synk. (4) Universkort og grupperader innleder med
-**[type-ikon]([delt-ikon])Navn**, og delte universkort har ikke lenger den lyse
-innerkanten (den lyste gjennom den gjennomsiktige `.card-body` og leste som en
-ramme rundt gruppelista).
-
-**Synk-fiks: én avvist skriving låste hele synken (siste runde)**: endringer
-sluttet å nå databasen fordi ETT listepunkt pekte på en kategori serveren ikke
-hadde. `items.cat_id`/`groups.cat_id` er fremmednøkler til sin egen tabell, og
-raden var dermed umulig å skrive — men `cloudCycle` planla en ny runde etter
-HVER push, uansett utfall, så den samme op-en ble regenerert og avvist ~1 gang i
-sekundet i det stille (bekreftet i Supabase-loggene: `get_my_doc` 200 /
-`POST /items` 409, i minuttevis). Tre grep: (1) `pushOps` sender kategorier FØR
-medlemmene sine innen samme tabell; (2) `docFromMyState` kjører
-`pruneDanglingCats` — en `cat` som ikke treffer en kategori nulles på VÅR side
-av flettingen (ikke bare i payloaden, ellers konvergerer aldri lokal og fjern),
-så raden lander på nivå 1 der visningen allerede viser den; (3) `pushOps`
-returnerer antall avviste ops, og bekreftelses-pullen (`cloudAgain`) planlegges
-kun når alt landet — pluss `noteReject`, som logger og gir én toast når SAMME rad
-avvises tre ganger på rad. Mock-backenden håndhever nå kategori-FK-en så testene
-er ekte. Ny test `tests/sync-dangling-category.test.js`. Ingen DB-migrering. Se
-`docs/accounts.md`.
-
-**Synk-fiks: slettede objekter gjenoppsto fra en gammel lokal cache (siste
-runde)**: `cloudBase` (3-veis-flettingens base) levde bare i minnet, så hver
-oppstart begynte med en TOM base — og «finnes lokalt, ikke på serveren, ikke i
-base» leses som en LOKAL NYOPPRETTELSE. En klient med utdatert cache (en annen
-enhet, en gammel fane, eller `huskis.vercel.app` vs `www.huskis.no` — hvert domene
-har sin egen localStorage) satte derfor inn igjen alt den hadde som serveren ikke
-hadde, inkludert permanent slettede objekter, med seg selv som `owner_id`.
-`state._tomb` og `tombstones`-tabellen fantes begge, men ingen av dem ble
-konsultert. Fem lag: (1) **basen overlever omstart** — lagres versjonert
-(`_base`/`_baseV`, `BASE_VERSION`) i SAMME localStorage-post som innholdet, og
-rykker kun fram når fletteresultatet faktisk er tatt i bruk i `state` — og skrives
-IKKE som en gyldig base til disk mens historikken er uavklart; (2)
-**manglende base = ukjent historikk** (`unknownHistory` = id-ene fra en cache uten
-base) — de radene pushes ikke, de slås først opp mot serverens `tombstones`
-(direkte tabell-select, porsjoner à 100, kun når det finnes tvilstilfeller), mens
-alt brukeren lager etterpå skrives som før; (3)
-**gravsteiner konsulteres begge veier** (`opts.tombs`) — aldri insert, og en
-gravlagt rad som fortsatt ligger på serveren får en `delete`; (4) **fremmede rader
-gjenskapes aldri** (`opts.foreign` = tvilsomme rader med `_mine === false`, frosset
-for hele runden så den ANDRE flettingen tar samme avgjørelse), så en gammel kopi av
-andres delte objekt ikke kan settes inn med OSS som oppretter; (5) **databasen er
-autoritativ** — `guard_object_insert` (BEFORE INSERT på alle fire tabellene)
-avviser en gravlagt id (`PT409`, «gravlagt: …») og validerer `owner_id`, også for
-gamle klienter og rå `INSERT`. Klienten kjenner igjen avvisningen
-(`isTombstoneReject`), gravlegger raden lokalt og slutter å prøve. Utlogging tømmer
-innhold + gravsteiner + base sammen (`resetLocalSync`); innlogging leser alle tre
-fra den nye brukerens egen cache-post. Gravsteiner utløper ALDRI (eneste
-automatiske opprydding er `import_doc`, for sine egne id-er). Krever en DB-migrering
-i kontomodus (kun funksjoner/triggere/indeks — ingen nye kolonner) — se `TODO.md`.
-Nye tester: `tests/sync-resurrection.test.js`, `tests/sync-shared-resurrection.test.js`
-og `supabase/tests/test-tombstones.sql`. Se `docs/trash.md`, `docs/accounts.md`,
-`docs/arkitektur-brukere-deling.md`, `docs/data-model.md`.
-
-**Automatisk klient-oppdatering (siste runde)**: en fane som har stått åpen lenge
-oppdager nå en nyere produksjonsdeploy og laster den nye koden selv. Mekanikken er
-en **unik build-ID per deploy** (Vercels `VERCEL_DEPLOYMENT_ID`, ellers commit-SHA +
-tidsstempel — IKKE SemVer), generert én gang i det nye `build.js` og stemplet inn to
-steder med samme verdi: `<meta name="huskis-build">` i `index.html` og `/version.json`.
-`update-check.js` henter `/version.json` fra SITT EGET origin (`www.huskis.no` og
-`huskis.vercel.app` kan ligge på hver sin deploy et øyeblikk) med `cache: 'no-store'`
-+ cache-buster — ved oppstart, ved synlighet/fokus/`pageshow`/`online`, og hvert 10.
-minutt mens fanen er synlig; samtidige kontroller deles, og offline/nettverksfeil/
-ugyldig JSON håndteres stille. ID-er sammenlignes som IDENTITET, aldri rangert.
-Reload skjer kun når `__huskis.updateSafety()` (ny, samlet **fail closed**-abstraksjon
-over online, drag, inline-redigering, åpne modaler, skittent innloggingsskjema,
-buffret sletting, uskrevet cache, `opQueue`, pågående/planlagt synk og usynkede
-endringer via `saveSeq`/`syncedSeq`) sier ja: skjult fane → straks; synlig fane →
-etter 60 s uten brukeraktivitet; ellers står et vedvarende, ikke-modalt banner
-(`.update-banner`, toastens formspråk, `role="status"`/`aria-live="polite"`, «Oppdater
-nå») som forklarer at siden oppdateres når endringene er lagret. `sessionStorage`
-tillater maks ETT automatisk forsøk per mål-build per fane (ingen reload-løkke), og en
-`BroadcastChannel` deler funnet mellom faner på samme origin. Nytt `vercel.json`
-(`buildCommand: node build.js`, `outputDirectory: dist`): `no-store` på
-`/version.json`, `must-revalidate` på HTML-en, `immutable` på de `?b=`-versjonerte
-JS/CSS-filene. Lokal utvikling er upåvirket (meta-taggen står på `dev` → modulen
-starter ikke). Nye tester: `tests/build-version.test.js` (node) og
-`tests/auto-update.test.js` (nettleser, falsk klokke/fetch/reload + integrasjon mot
-ekte `updateSafety()`). Ingen DB-migrering. Se `docs/auto-update.md`.
-
-**Passord og profilbilde (forrige runde)**: (1) **Vis passordet** — hvert
-passordfelt har en øye-knapp inni seg (`.pass-wrap`/`.pass-toggle`,
-`data-pass-toggle="<felt-id>"`, `ICONS.eyeOff` når det vises) som bytter
-`input.type`; én delt handler kobler alle, og `clearPassFields()` tømmer + skjuler
-igjen. (2) **Bytt passord i konto-modalen** (`#account-pass-form`): nåværende +
-nytt passord. Det nåværende bekreftes med en ny `signInWithPassword` før
-`auth.updateUser({ password })` — samme bruker-id, så `onAuthStateChange` lar appen
-stå. (3) **Profilbilde**: valgt bilde åpner en **bilderedigerer** (`#avatar-modal`)
-der scenen ER det kvadratiske utsnittet som lagres og sirkelmasken over viser hva
-appen faktisk tegner (dra = flytt, knip/hjul/glidebryter = zoom, glidebryter +
-«roter 90°» = rotasjon). Samme `drawAvatar` tegner forhåndsvisningen og resultatet,
-og to geometriske regler garanterer at utsnittet aldri får tomme hjørner: minste
-zoom = `|cos θ|+|sin θ|`, og forskyvningen klemmes i bildets eget roterte
-koordinatsystem. Lagres som **256×256 JPEG data-URI** i `profiles.avatar` (typisk
-10–35 kB), hentet med et EGET kall ved innlogging (ikke via det 5-sekunders-pollede
-`get_my_doc`); andres bilder følger `get_members`. `paintAvatar` fyller alle tre
-avatar-sirklene (konto/medlem/ansvarlig) med bilde når det finnes, ellers
-initialene. Konto-avataren er selv knappen som velger bilde (kamera-merke), og
-«Fjern bilde» går via `askConfirm`. Krever en DB-migrering i kontomodus
-(`profiles.avatar` + `get_members`) — se `TODO.md`. Ny test
-`tests/account-password-avatar.test.js`. Se `docs/accounts.md`,
-`docs/design-system.md`, `docs/menus.md`.
-
-**Omlegging av deling, medlemskap og eierskap (siste runde)**: myndighet kommer nå
-utelukkende fra **mutable roller** (`memberships.role` = `owner`/`member` på univers
-ELLER gruppe). `owner_id` på objektradene betyr `created_by` — ren historikk, uten
-rettigheter — og «administrator» finnes ikke lenger som begrep. **Bare universer og
-grupper kan deles**; lister/kategorier/listepunkter arver tilgangen (deling er fjernet
-fra listers innstillingsmodal, og serveren avviser liste-invitasjoner og
-liste-medlemskap). Alle universeiere er likestilte («Eier» / «Medeiere» etter antall)
-og er dynamiske supereiere av alle grupper i universet; et univers har ALLTID minst én
-eier (invarianten håndheves av DB-triggere, ikke bare RPC-ene). Autorisasjonen er
-**capability-basert**: serveren regner ut `caps` per univers/gruppe (`universe_caps`/
-`group_caps`) og returnerer dem i `get_my_doc` + `get_members().viewer`, og klienten
-gate-r hver kontroll på dem. Nav-modalen har fått **tre seksjoner** med overskrift og
-skillelinje — «Mine universer» (rolle `owner`, eneste sted med ＋-knappen), «Universer
-delt med meg» (rolle `member`) og «Grupper delt med meg» (direkte grupperolle uten
-universrolle, samlet i en VIRTUELL beholder som aldri pushes). Rekkefølgen på toppnivå
-og for frie grupper er **personlig** (`memberships.pos`, også for eiere); grupper/
-lister/listepunkter er felles. Invitasjoner tar ingen plassering lenger, og eierskap
-gis alltid via en **rolleinvitasjon mottakeren må godta** (`set_member_role` kan bare
-degradere). En gruppe bytter univers KUN gjennom `move_group()` — samme eierskapsdomene
-(identisk sett universeiere) gir ekte reparenting, ulikt domene gir atomisk
-kopier-og-slett med nye id-er, gravsteiner for de gamle og en deterministisk
-id-mapping klienten bruker til å bytte visningen uten flimmer (med eksplisitt
-bekreftelse først). «Forlat» rører aldri innhold; «Slett» er felles for alle med
-tilgang; begge kan være tilgjengelige samtidig. Mount-modellen er borte
-(`parent_universe_id`/`parent_group_id`/`memberships.trashed` droppet), og mistet
-tilgang navigerer brukeren ut av visningen med en nøktern melding. Krever en
-DB-migrering i kontomodus (rolle-backfill + migrering av gamle listedelinger) — se
-`TODO.md`. Nye tester: `supabase/tests/test-roles-and-sharing.sql`,
-`test-group-moves.sql`, `test-list-share-migration.sql` (+ `legacy-share-fixture.sql`),
-`tests/roles-and-sections.test.js`, `tests/group-move.test.js` — de to siste
-erstatter `supabase/tests/test-permissions.sql` og `tests/permissions-ui.test.js`,
-som er slettet (de testet administrator-modellen). Se
-`docs/rettigheter-og-deling.md` (autoritativ), `docs/arkitektur-brukere-deling.md`,
-`docs/accounts.md`, `docs/data-model.md`, `docs/menus.md`, `docs/trash.md`.
-
-**Rolleendring, feil-lukket capability-anslag og en halvmigrert produksjon
-(siste runde)**: rollemodellens migrering (#73) døde midt i filen med
-`deadlock detected` — appen poller `get_my_doc` hvert 5. sekund, og lesningen
-havnet i en låsesyklus med DDL-en. Produksjonen ble stående **halvmigrert**
-(`memberships.role` ja, `universe_caps`/`move_group` nei) mens den nye klienten
-alt var deployet, og det ga fire symptomer på én gang: egne universer havnet
-under «Universer delt med meg» (ingen `role` i svaret), medlemslistene var tomme
-(gammel `get_members`-fasong), eier-knapper viste seg for vanlige medlemmer og
-«Forlat» manglet (ingen `caps`). Migreringen er kjørt ferdig, og fire ting er
-endret: (1) **`db-setup.yml` prøver på nytt** (`lock_timeout=15s`, tre forsøk) —
-filene er idempotente, så et nytt forsøk er alltid trygt; (2) **det lokale
-capability-anslaget feiler LUKKET** — mangler `caps`, følger anslaget
-`privilegedLocal` i stedet for «alt er lov», så en kontroll brukeren ikke har lov
-til å bruke aldri vises; (3) **rolleendring av et eksisterende medlem finnes nå i
-UI-et**: «Gjør til medeier» sender en eierinvitasjon (rollen endres først ved
-aksept, serverside-flagget `promotable`), «Gjør til medlem» degraderer, og på egen
-rad står «Tre av som medeier»; `create_share_invite` **oppdaterer** en ventende
-invitasjon i stedet for å feile, og rollen kan bare gå OPP; (4) **«Fjern» vises
-ikke på egen rad** — å fjerne seg selv er å forlate, og den knappen finnes
-allerede. Ingen ny DB-migrering (kun endrede funksjoner). Se
-`docs/rettigheter-og-deling.md` og `TODO.md`.
-
-**Opprettelse og plassering spør FORELDEREN (forrige runde)**: et vanlig medlem kunne
-gå inn i en LÅST gruppe og trykke «＋ Liste». RLS avviste skrivingen i det stille,
-og siden lista arvet gruppelåsen ble den umulig å redigere ELLER slette igjen — et
-spøkelse i localStorage. Årsaken var at klienten spurte `frozen(objekt)` («kan jeg
-redigere DETTE?») der myndigheten ligger på forelderen; «＋ Liste» spurte ikke i det
-hele tatt, bare om det fantes en aktiv gruppe. Ett spørsmål nå — `canAddList(g)` =
-`cap(g, 'createList', !frozen(g))` — brukt av knappen, klikk-handleren,
-tomtilstandens tekst (som forklarer låsen i stedet for å be om et trykk),
-gruppevelgeren ved slipp på 📁-breadcrumben, **ekstrahering til ny liste**
-(`S.canExtract`: board-scopet krever opprettelsesrett i gruppen, nav-scopet
-`cap(row,'move')` — placeholderen dukker ikke opp, og et slipp i board-lufta legger
-objektet tilbake) og **listedraging** (rekkefølgen blant søskenlistene er gruppens
-struktur, som grupperadenes `reorderInParent`). Forskjellen er ikke akademisk: et
-**lås-unntak** på én liste i en låst gruppe er nettopp der «kan redigeres» og «kan
-opprettes/flyttes» spriker. Samme klasse i SØPLA: «Gjenopprett» skriver
-`trashed = false` og krever samme myndighet som å slette, og «Tøm» sletter permanent —
-begge er nå gatet per rad (`manage`/`purge`), tømming hopper over det låste med en
-toast, og forlat-veien krever at man faktisk kan forlate (en lås gir ingen rolle å gi
-fra seg). Serveren var aldri feil (verifisert mot produksjon: `cards_insert` →
-`can_create_child`), så ingen DB-migrering. Ny test
-`tests/locked-group-creation.test.js`. Se `docs/rettigheter-og-deling.md`
-(autoritativ), `docs/trash.md`, `docs/drag-and-drop.md`, `docs/menus.md`.
-
-**Fjernet: Mine/Delte-filterknappen (forrige runde)**: øye-ikonet + de to grønne
-sirkelknappene i listefunksjons-raden (filtrerte listene på hvem som opprettet
-dem) er fjernet i sin helhet — HTML (`.filter-switches`), JS (`renderBoard()`
-viser nå alle aktive lister uten `cardMatchesFilter`) og CSS (`.switch`). Feltet
-den lente seg på (`c._createdByMe`) beholdes uendret — det brukes fortsatt av
-synk-laget (`foreignIds()`) til å hindre at gammel delt-innhold gjenoppstår med
-feil oppretter. Ingen DB-migrering. Se `docs/colors-and-labels.md`,
-`docs/menus.md`, `docs/design-system.md`.
-
-**Slett egen konto (forrige runde)**: konto-modalens bunnrad har fått en rød
-**«Slett konto»** i høyre ende, og **«Logg ut» er gjort GUL** — det reversible og
-det endelige skal ikke se like ut. Slett-knappen åpner en advarsel som lister hva
-som forsvinner, og som ikke har noen OK-knapp: bekreftelsen er et **sveipefelt**
-som må dras helt til høyre (`.confirm-swipe`, søppelkassenes sveipe-formspråk i
-faresonens farger; sveipet måles fra der fingeren gikk ned, og `role="slider"` +
-piltastene gir tastaturbrukere samme vei inn). Alt arbeidet skjer serverside i én
-transaksjon (`delete_account()`): universer som står UTEN EIER når brukeren er
-borte slettes helt (kaskade + gravsteiner, også for dem det var delt med),
-`owner_id` på det som overlever ARVES av en gjenværende universeier (feltet gir
-ingen rettigheter, men FK-en er `on delete cascade` — uten arven ville
-profilslettingen revet vekk innhold i ANDRES delte universer), `responsible`
-nulles med nytt stempel, og roller, invitasjoner begge veier, e-postlogg,
-profilrad og `auth.users`-raden slettes. Klienten rydder i tillegg sin egen cache
-+ `hk-migrated:<uid>` og lander på innloggingssiden. `universes/cards/items_before_update`
-slipper nå gjennom en `owner_id`-endring under `in_privileged_op()` (som
-`groups_before_update` alt gjorde). Krever en DB-migrering i kontomodus (kun
-funksjoner, ingen nye kolonner) — se `TODO.md`. Nye tester:
-`supabase/tests/test-account-deletion.sql` og `tests/delete-account.test.js`. Se
-`docs/rettigheter-og-deling.md` (autoritativ), `docs/accounts.md`, `docs/menus.md`,
-`docs/design-system.md`, `docs/trash.md`.
-
-**«Forlat gruppe» krever at grupperollen er ENESTE vei inn (siste runde)**: en
-medeier så en forlat-knapp på grupper INNE i et univers hen er medeier av. Årsak:
-`can_leave('group', …)` spurte bare om det fantes en direkte grupperolle. Rolle-
-backfill-en (#73) gjorde gruppens **oppretter** til eksplisitt gruppeeier, og ble
-vedkommende SENERE medeier av universet, ble raden overflødig — men beholdt
-(dokumentert: `accept_share_invite` rydder bare `member`-rader). Knappen løy:
-`leave_share` slettet raden, tilgangen besto via universet, og gruppen kom rett
-tilbake ved neste synk (klienten fjerner den optimistisk). Nå krever
-`can_leave('group', …)` også at brukeren **ikke** har en rolle i gruppens univers,
-og `leave_share` avviser med den feilmeldingen som alt fantes for arvet tilgang
-(«du har tilgang via universet — forlat universet i stedet»). Veien ut av en
-overflødig gruppeeierrolle er «Tre av som medeier» i gruppens delemodal, som
-allerede fjerner raden helt for universmedlemmer. Ingen data røres — de gamle
-radene blir liggende og er virkningsløse under et universeierskap. Ingen
-skjemaendring (kun to funksjoner), så `db-setup.yml` tar den ved merge til main.
-Nye sjekker i `supabase/tests/test-roles-and-sharing.sql` (del 14) og
-`tests/roles-and-sections.test.js` (del 11). Se `docs/rettigheter-og-deling.md`
-(autoritativ), `docs/arkitektur-brukere-deling.md`, `docs/trash.md`.
-
-**Domeneaudit: kanonisk `huskis.no` + auth-redirects rettet (forrige runde)**: en
-registrering ble sendt til det pensjonerte domenet `huskekurv.vercel.app` fordi
-`auth.signUp`/`resetPasswordForEmail` sendte `location.origin + location.pathname`
-som returadresse — en gammel fane, et utdatert domene eller en ukjent host ble
-dermed videreført ukritisk inn i selve auth-lenken. Rettet med én kilde:
-`config.js` → `window.HUSKIS_CONFIG` (`canonicalAppUrl` + `allowedProductionOrigins`),
-og `app.js` → `canonicalAppUrl()`/`authRedirectUrl()` (localhost beholder sin egen
-origin til lokal utvikling; **alt** annet — kjente produksjonsdomener, det gamle
-domenet og ukjente hosts — normaliseres til `https://huskis.no/`). Brukes nå av
-alle tre Supabase Auth-kallene som tar en returadresse, inkludert `updateUser({
-email })` som tidligere ikke sendte noen. Samme opprydding i Resend-siden
-(`send_invite_email()` i `supabase/users-and-sharing.sql`): logo-URL og
-`app_url`-fallback er kanonisk `huskis.no` (uten `www`); produksjonens
-`app_config.app_url`-rad er oppdatert til samme verdi. Et nytt, likt-stilt utkast
-for Supabase Auths «Confirm signup»-mal ligger i
-`supabase/email-templates/confirm-signup.html` (fortsatt sendt av Supabase Auth,
-ikke Resend — limes manuelt inn i Dashboard, ikke bekreftet herfra). `vercel.json`
-har en permanent redirect-regel for `huskekurv.vercel.app`, men domenet er
-verifisert IKKE koblet til `huskis`-prosjektet i dag — regelen trer først i kraft
-når noen (Peder) kobler det til manuelt via Vercel. Ny nettlesertest
-`tests/auth-redirect.test.js` (kravtabellen + at kallene faktisk sender riktig
-verdi) og en repo-vid tekstvakt `tests/no-legacy-domain.test.js` som feiler
-dersom det gamle domenet dukker opp utenfor en eksplisitt unntaksliste. Ingen
-DB-migrering (kun en datarad oppdatert). Se `docs/domains-and-urls.md`
-(autoritativ) og `TODO.md`.
+- Utvikle på egen gren, og send lenken til PR-en når den er opprettet.
+- Sjekk-inn-timer etter opprettet PR: maks 5 minutter — det tar sjelden lenger
+  før tester er ferdige og reviewere har sett på den.

@@ -189,5 +189,4 @@ det bør dokumenteres som sådan fremfor å late som den er løst.
   domenet.
 - `tests/no-legacy-domain.test.js` — repo-vid tekstvakt: feiler dersom
   `huskekurv` dukker opp utenfor en eksplisitt, begrunnet unntaksliste
-  (negative tester, denne fila, `TODO.md`, `CLAUDE.md`, `vercel.json`s
-  redirect-regel).
+  (negative tester, denne fila, `TODO.md`, `vercel.json`s redirect-regel).

@@ -142,8 +142,8 @@ samme nested `state` som før; synken går slik (`cloudCycle`):
    detaljene deduplisert og viser brukeren ÉN toast om at endringen ligger trygt
    lokalt men ikke nådde skyen (`schemaMismatchWarned`, nullstilles ved
    utlogging). For å hindre at en migrering i det hele tatt henger etter kjøres
-   «Supabase DB-oppsett»-workflowen nå automatisk ved push til `main` — se
-   `.github/workflows/db-setup.yml` og `TODO.md`.
+   «Supabase DB-oppsett»-workflowen automatisk ved push til `main` — se
+   `.github/workflows/db-setup.yml`.
 
    De øvrige feilene er fortsatt stille, men ikke lenger *usynlige*: avviser
    serveren SAMME rad `PERSISTENT_REJECTS` (3) ganger på rad, logges detaljene

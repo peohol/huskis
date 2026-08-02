@@ -1,0 +1,93 @@
+# CLAUDE.md — tester
+
+Testene er frittstående Node-skript, ikke et testrammeverk: ingen
+`package.json`, ingen runner, ingen `npm test`. Hver fil kjøres direkte, skriver
+`PASS`/`FAIL`-linjer med evidens, avslutter med `==== n/m PASS ====` og setter
+exit-kode 0/1.
+
+## Kjøre testene
+
+Nettlesertester (Playwright + Chromium; serveren må kjøre i en egen terminal):
+
+```bash
+python3 -m http.server 8000                        # fra repo-roten
+NODE_PATH=$(npm root -g) node tests/<navn>.test.js
+```
+
+Rene node-tester (ingen server, ingen nettleser):
+
+```bash
+node tests/build-version.test.js      # build.js + vercel.json
+node tests/no-legacy-domain.test.js   # repo-vid vakt mot det pensjonerte domenet
+```
+
+- `NODE_PATH=$(npm root -g)` trengs fordi Playwright er installert globalt.
+- `HUSKIS_URL` overstyrer `http://localhost:8000` hvis serveren kjører et annet
+  sted.
+- Kjør de testene endringen berører — hele mappen tar lang tid, og en full runde
+  er sjelden det som gir evidensen.
+
+## Hermetikk: `?mock=1`
+
+Nettlesertestene laster appen med `?mock=1`, som bytter Supabase-klienten mot
+`mock-backend.js`: en in-memory-«database» i `localStorage` (`hk-mock-db`) med
+sesjon per fane i `sessionStorage` (`hk-mock-session`). Det er dette
+backend-byttet som gjør testene hermetiske — det finnes ingen ruteblokkering av
+nettverkskall, og testene stubber ikke fetch.
+
+`&lag=800` gir kunstig serverforsinkelse og brukes til å vise at UI-et er
+umiddelbart og at operasjonskøen serialiserer riktig.
+
+To måter å komme inn i appen på:
+
+1. **Kjør registreringen i UI-et** (som `nav-modal.test.js`) — dekker
+   auth-flyten, men er treg.
+2. **Seed databasen direkte** (som `roles-and-sections.test.js`): skriv
+   `hk-mock-db` + `hk-mock-session` og last siden på nytt. Dette er måten
+   flerbrukerscenarioer settes opp på — roller, medeierskap, invitasjoner, låser
+   og delt innhold seedes ferdig i stedet for at to faner klikker seg gjennom
+   flyten. Test som en annen bruker ved å seede en annen `hk-mock-session`.
+
+Mock-backenden speiler serverens regler (roller, capabilities, felt-LWW,
+fremmednøkler, gravsteiner), men er ikke en full RLS-implementasjon. Endrer du
+en regel i `supabase/users-and-sharing.sql`, må mock-backenden oppdateres i
+samme endring — ellers tester nettlesertestene noe annet enn produksjon.
+
+`window.__huskis` eksponerer state og et utvalg funksjoner (`openNavModal`,
+`openSettings`, `cloudCycle`, `updateSafety`, `authUser`, `showToast` …). Bruk
+dem til oppsett og inspeksjon; klikk deg gjennom UI-et der klikkene ER det som
+testes.
+
+## Viewport
+
+Testfilene kjører vanligvis samme sjekker to ganger:
+
+```js
+await run('desktop', { width: 1200, height: 900 }, false);
+await run('mobil',   { width: 390,  height: 780 }, true);   // isMobile + hasTouch
+```
+
+Begge kreves når oppførselen avhenger av layout eller pekertype: dra-og-slipp,
+board-kolonner (grensen mellom én og flere kolonner går ved 560/561 px), scroll,
+trykk-og-hold, plassering og visuell justering. Ett viewport holder for logikk
+som ikke avhenger av noe av dette (synk, rettighetsgating, tilstandsendringer).
+
+## Konvensjoner i testfilene
+
+- Kommentarblokk øverst: nummerert liste over hva filen dekker, og en
+  `Kjør:`-blokk med den faktiske kommandoen.
+- Samle `page.on('pageerror')` og avslutt hvert løp med en sjekk på at ingen
+  JS-feil oppsto.
+- Assertions tar med den faktiske verdien som evidens, slik at en feilende linje
+  er lesbar uten å kjøre testen på nytt.
+- Én fil per tema eller regresjon, navngitt etter oppførselen
+  (`dnd-peek-collapsed`, `sync-resurrection`) — aldri etter PR-nummer eller dato.
+- En bugfiks skal ha en sjekk som feiler uten fiksen. Legg den i den filen som
+  allerede dekker området hvis det finnes en.
+- Skjermbilder tas kun der det visuelle ER påstanden (se
+  `dnd-extract-thresholds.test.js`), ikke rutinemessig.
+
+## Rapportering
+
+Oppgi hvilke testfiler som ble kjørt og resultatlinjen deres. Berører endringen
+en test du ikke kjørte, si det eksplisitt.
