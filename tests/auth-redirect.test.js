@@ -10,14 +10,15 @@
 
   Verifiserer:
     1. authRedirectUrl(origin) — den rene funksjonen — for hvert oppgitte
-       origin i kravtabellen: kjente produksjonsdomener (huskis.no,
-       www.huskis.no, huskis.vercel.app), det gamle domenet (negativt
+       origin i kravtabellen: det kanoniske domenet, de alternative domenene
+       (www.huskis.no, huskis.vercel.app), det gamle domenet (negativt
        testtilfelle) og et vilkårlig ukjent origin gir ALLE
        https://huskis.no/; localhost/127.0.0.1 beholder sin egen origin
        (lokal utvikling).
     2. Trailing-slash-normalisering (med og uten avsluttende «/» inn).
-    3. window.HUSKIS_CONFIG har nøyaktig de tre kjente produksjonsdomenene —
-       og IKKE det gamle domenet.
+    3. window.HUSKIS_CONFIG navngir KUN det kanoniske domenet — verken de
+       alternative domenene (de 308-redirectes, se tests/canonical-origin.test.js)
+       eller det gamle.
     4. Reell E2E-kobling: registrering (signUp), glemt passord
        (resetPasswordForEmail) og e-postendring (updateUser({ email }))
        sender FAKTISK authRedirectUrl() som emailRedirectTo/redirectTo — ikke
@@ -75,14 +76,8 @@ function check(name, cond, extra) {
   // ---------- 3) window.HUSKIS_CONFIG ----------
   const cfg = await page.evaluate(() => window.HUSKIS_CONFIG);
   check('HUSKIS_CONFIG.canonicalAppUrl === https://huskis.no', cfg && cfg.canonicalAppUrl === 'https://huskis.no', cfg);
-  check('HUSKIS_CONFIG.allowedProductionOrigins er nøyaktig de tre kjente domenene',
-    !!cfg && Array.isArray(cfg.allowedProductionOrigins) &&
-    cfg.allowedProductionOrigins.length === 3 &&
-    ['https://huskis.no', 'https://www.huskis.no', 'https://huskis.vercel.app']
-      .every((o) => cfg.allowedProductionOrigins.includes(o)),
-    cfg && cfg.allowedProductionOrigins);
-  check('HUSKIS_CONFIG inneholder IKKE det gamle domenet',
-    !!cfg && JSON.stringify(cfg).toLowerCase().indexOf('huskekurv') === -1);
+  check('HUSKIS_CONFIG navngir INGEN andre domener enn det kanoniske',
+    !!cfg && !/www\.huskis\.no|vercel\.app|huskekurv/i.test(JSON.stringify(cfg)), cfg);
 
   // ---------- 4) Faktisk E2E: signUp / resetPasswordForEmail / updateUser({ email }) ----------
   // Monkey-patch den mock-klientens auth-metoder for å fange de FAKTISKE

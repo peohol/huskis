@@ -1,23 +1,74 @@
 # Domener og URL-generering
 
-Les denne når oppgaven berører produksjonsdomener, Supabase Auth-redirects
-(registrering/glemt passord/e-postendring), Resend-e-postenes lenker, eller
-det pensjonerte domenet `huskekurv.vercel.app`. Dette er det **autoritative**
-stedet for domenekonfigurasjon — andre dokumenter (`docs/accounts.md`,
+Les denne når oppgaven berører produksjonsdomener, redirecten til det
+kanoniske originet, Supabase Auth-redirects (registrering/glemt
+passord/e-postendring), Resend-e-postenes lenker, eller det pensjonerte
+domenet `huskekurv.vercel.app`. Dette er det **autoritative** stedet for
+domenekonfigurasjon — andre dokumenter (`docs/accounts.md`,
 `docs/arkitektur-brukere-deling.md`, `docs/auto-update.md`) lenker hit i
 stedet for å gjenta detaljene.
 
 ## Domenene
 
+`https://huskis.no` er det **eneste kanoniske originet**: det eneste appen
+kjører på, og det eneste Huskis selv genererer URL-er til.
+
 | Domene | Rolle |
 |---|---|
-| `https://huskis.no` | **Kanonisk** — alt Huskis selv genererer (auth-redirects, Resend-lenker) bruker denne |
-| `https://www.huskis.no` | Gyldig alternativt produksjonsdomen (innkommende trafikk) |
-| `https://huskis.vercel.app` | Gyldig alternativt produksjonsdomen (Vercels eget domene for prosjektet) |
-| `https://huskekurv.vercel.app` | **Pensjonert.** Appens gamle domene — skal ALDRI genereres av aktiv kode. Se «Det gamle domenet» under. |
+| `https://huskis.no` | **Kanonisk.** Appen kjører her; alt Huskis genererer (auth-redirects, Resend-lenker) peker hit |
+| `https://www.huskis.no` | Svarer **308** til `https://huskis.no` — kjører aldri appen |
+| `https://huskis.vercel.app` | Svarer **308** til `https://huskis.no` — kjører aldri appen |
+| `https://huskekurv.vercel.app` | **Pensjonert.** Svarer 308 som de to over. Skal ALDRI genereres av aktiv kode. Se «Det gamle domenet» |
+| `https://huskis-*-peohols-projects.vercel.app` | Vercels egne deploy-/preview-adresser. **Urørt** — en preview skal testes der den ligger |
 
-Disse tre gyldige domenene er samlet ETT sted i kode:
-`window.HUSKIS_CONFIG.allowedProductionOrigins` i `config.js`.
+## Redirect til det kanoniske originet
+
+To lag, med hvert sitt formål. Begge navngir de alternative domenene
+eksplisitt: alt annet (localhost, preview-deployer, ukjente verter) røres
+ikke.
+
+**1. `vercel.json` → HTTP 308 på Vercels kant.** Den virkelige mekanismen.
+Én regel per domene:
+
+```json
+{
+  "source": "/:path*",
+  "has": [{ "type": "host", "value": "www.huskis.no" }],
+  "destination": "https://huskis.no/:path*",
+  "statusCode": 308
+}
+```
+
+- **308**, ikke 301/302: metode og kropp beholdes, og nettleseren cacher
+  redirecten permanent.
+- `/:path*` → `/:path*` beholder hele pathen, så eksisterende lenker til
+  undersider overlever.
+- Query-parametere videreføres automatisk så lenge destinasjonen ikke selv
+  har en query — derfor står det ingen `?` i `destination`. `#`-fragmentet
+  legger nettleseren på igjen selv. Begge deler er auth-kritisk: PKCE-
+  callbacken kommer som `?code=…`, den eldre implicit-varianten som
+  `#access_token=…&type=recovery`.
+- Skjer FØR noe av appen lastes — 308-en er svaret på selve
+  dokumentforespørselen.
+
+**2. Guarden øverst i `index.html` → `location.replace()`.** Første kode som
+kjører i dokumentet (kun `<meta charset>` står foran, den må ligge innenfor
+de første 1024 bytene) — altså før stilark, før `config.js`/`app.js`, før noe
+leser `localStorage` eller registrerer en service worker. Den fanger den ene
+situasjonen 308-en ikke ser: en fane som ble lastet fra et alternativt domene
+FØR redirecten fantes (bfcache, en HTML-kopi i cache) og derfor aldri sender
+en ny dokumentforespørsel. `location.replace()` fordi det gamle domenet ikke
+skal bli en historikk-oppføring brukeren kan trykke «tilbake» inn i.
+
+Guarden eksponerer `window.__huskisCanonical` (`origin`, `redirectHosts`,
+`redirectUrlFor(href)`) for testing.
+
+**Hvorfor redirecten må ligge før appen:** både `localStorage` og PKCE-
+verifikatoren er origin-avgrensede. Startet en bruker registreringen på
+`www.huskis.no`, ble verifikatoren lagret der — mens e-postlenken alltid
+peker til `huskis.no`, som da ikke fant den. Med 308-en kan ingen bruker
+lenger STARTE en auth-flyt på et alternativt domene, og hele flyten skjer på
+ett origin med én lokal tilstand.
 
 ## To separate e-postsystemer
 
@@ -34,14 +85,14 @@ Huskis sender e-post fra to helt uavhengige systemer — ikke bland dem sammen:
    `docs/arkitektur-brukere-deling.md` og `docs/accounts.md` for
    funksjonaliteten; denne fila dekker kun URL-ene malen bygger inn.
 
-Denne oppgaven migrerer IKKE Auth-e-postene til Resend — de er og blir to
-adskilte systemer.
-
 ## Hvor auth-returadressen konfigureres
 
-`config.js` setter `window.HUSKIS_CONFIG = { canonicalAppUrl, allowedProductionOrigins }`
-— den ENE kilden i frontend som navngir domenene. `app.js` bygger to små,
-testbare hjelpefunksjoner over den (nær auth-koden, søk `authRedirectUrl`):
+`config.js` setter `window.HUSKIS_CONFIG = { canonicalAppUrl }` — den ENE
+kilden i frontend som navngir et Huskis-domene. Det finnes ingen liste over
+sidestilte produksjonsdomener; de alternative domenene er ikke origins appen
+kjører på, kun hoster som redirecter (se over). `app.js` bygger to små,
+testbare hjelpefunksjoner over konfigurasjonen (nær auth-koden, søk
+`authRedirectUrl`):
 
 ```js
 canonicalAppUrl()       // → 'https://huskis.no/' (trailing slash normalisert)
@@ -54,15 +105,11 @@ vilkårlig URL»-funksjon, kun et eksplisitt valg mellom to betrodde utfall:
 
 - `location.origin` er `http(s)://localhost[:port]` eller `http(s)://127.0.0.1[:port]`
   (lokal utvikling, `python3 -m http.server`) → behold den originen.
-- Alt annet — `huskis.no`, `www.huskis.no`, `huskis.vercel.app`, det
-  pensjonerte `huskekurv.vercel.app`, eller en hvilken som helst annen/ukjent
-  host — → **alltid** `canonicalAppUrl()`.
+- Alt annet → **alltid** `canonicalAppUrl()`.
 
-Det finnes altså ingen «tillatt produksjons-liste» å slippe gjennom: selv
-`www.huskis.no` og `huskis.vercel.app` (begge gyldige produksjonsdomener for
-INNKOMMENDE trafikk) normaliseres til det kanoniske `huskis.no` i alt Huskis
-selv GENERERER. `allowedProductionOrigins` er dokumentasjon/ett sted å teste
-mot — ingen kode forgrener på den.
+Regelen feiler altså lukket, og gjør det fortsatt selv om en klient mot
+formodning skulle kjøre på en annen host enn den kanoniske (en gammel fane
+som ennå ikke har møtt redirecten).
 
 Brukes av de tre Supabase Auth-kallene som tar en returadresse:
 
@@ -72,9 +119,10 @@ Brukes av de tre Supabase Auth-kallene som tar en returadresse:
 | `auth.resetPasswordForEmail` | glemt passord | `options` (2. argument) → `redirectTo` |
 | `auth.updateUser({ email })` | endre e-post (konto-modalen) | `options` (2. argument) → `emailRedirectTo` |
 
-Alle tre sendte tidligere `location.origin + location.pathname` — derfor
-kunne en gammel fane, et utdatert domene eller en ukjent host havne direkte i
-auth-lenken. `window.__huskis.authRedirectUrl`/`canonicalAppUrl` er eksponert
+Innlogging (`auth.signInWithPassword`) tar ingen returadresse, og appen
+bruker ikke magic links (`auth.signInWithOtp`) eller
+`auth.admin.inviteUserByEmail` i det hele tatt — de tre kallene over er
+uttømmende. `window.__huskis.authRedirectUrl`/`canonicalAppUrl` er eksponert
 for nettlesertesting (`tests/auth-redirect.test.js`), som også verifiserer at
 alle tre kallene faktisk sender riktig verdi — ikke bare at hjelpefunksjonen
 regner riktig i isolasjon.
@@ -99,13 +147,29 @@ huskis-logo.png`) er en konstant i samme funksjon. Se `docs/arkitektur-
 brukere-deling.md` for resten av e-postoppsettet (Vault, `email_send_log`,
 escaping/prosentkoding).
 
+## Supabase Auth: URL Configuration (Dashboard)
+
+**Authentication → URL Configuration** hører til det kanoniske originet
+alene:
+
+- *Site URL*: `https://huskis.no` — fallback når et kall ikke sender en egen
+  returadresse.
+- *Redirect URLs*: kun `https://huskis.no/**` (+ `http://localhost:8000/**`
+  hvis man tester ekte Supabase-e-post lokalt). Oppføringer for
+  `www.huskis.no` eller `huskis.vercel.app` er unødvendige nå som ingen klient
+  kan kjøre der, og bør fjernes — de utvider bare listen over adresser en
+  auth-lenke kan sendes til.
+
+Dette er dashboard-konfigurasjon; den kan ikke leses eller skrives fra dette
+repoet. Se `TODO.md`.
+
 ## Auth-e-postmalene (Supabase Dashboard)
 
 Selve HTML-malene for **Confirm signup** / **Reset password** / **Change
 email address** ligger KUN i Supabase Dashboard (Authentication → Email
 Templates) — de finnes ikke i dette repoet, og ingen tilgjengelig verktøy
-kunne lese eller skrive dem herfra i denne runden. **De er derfor ikke
-bekreftet** — sjekk manuelt (Peder):
+kunne lese eller skrive dem herfra. **De er derfor ikke bekreftet** — sjekk
+manuelt (Peder):
 
 - [ ] Ingen mal hardkoder `huskekurv.vercel.app` (eller noe annet enn
       `{{ .ConfirmationURL }}`/`{{ .SiteURL }}`) som lenke.
@@ -115,27 +179,54 @@ bekreftet** — sjekk manuelt (Peder):
 - [ ] **Invite user** og **Magic link** er ikke i bruk (appen kaller verken
       `auth.admin.inviteUserByEmail` eller `auth.signInWithOtp` — bekreftet
       ved søk i `app.js`) — disse malene er irrelevante og kan ignoreres.
-- [ ] «Confirm signup» er (denne rundens tillegg) ønsket **stilt likt** de
-      formaterte Resend-e-postene. Et ferdig utkast med samme visuelle
-      utforming (logo, skifer/grønn-palett, kort-layout, knapp) ligger i
+- [ ] «Confirm signup» er ønsket **stilt likt** de formaterte Resend-e-postene.
+      Et ferdig utkast med samme visuelle utforming (logo, skifer/grønn-palett,
+      kort-layout, knapp) ligger i
       `supabase/email-templates/confirm-signup.html`, bygget med
       `{{ .ConfirmationURL }}` — **fortsatt sendt av Supabase Auth, ikke
       Resend**. Lim inn i Dashboard → Authentication → Email Templates →
       Confirm signup for å ta den i bruk; ingen tilgjengelig verktøy kunne
       gjøre dette steget herfra.
 
-Site URL + Redirect URLs (Authentication → URL Configuration) er allerede
-rettet manuelt til `huskis.no` — ikke rør den konfigurasjonen herfra.
+En auth-lenke som mot formodning skulle peke til et alternativt domene, blir
+uansett 308-et videre til `huskis.no` med `?code=`/`#access_token=` i behold
+— redirecten er også et sikkerhetsnett for gamle e-poster i innboksene.
 
 ## Lokal utvikling
 
 `python3 -m http.server 8000` → `location.origin` er `http://localhost:8000`,
-som `authRedirectUrl()` eksplisitt gjenkjenner og beholder (se regelen over).
-Registrerings-/gjenopprettingslenker i en LOKAL Supabase-e-post peker altså
-til den lokale serveren, ikke til `huskis.no` — forutsatt at Supabase-
-prosjektets Redirect URLs også tillater `http://localhost:8000` (kun
-nødvendig hvis man faktisk tester ekte Supabase-e-post lokalt; `?mock=1`
-trenger det ikke, se `docs/accounts.md`).
+som `authRedirectUrl()` eksplisitt gjenkjenner og beholder (se regelen over),
+og som guarden i `index.html` aldri rører. Registrerings-/gjenopprettings-
+lenker i en LOKAL Supabase-e-post peker altså til den lokale serveren, ikke
+til `huskis.no` — forutsatt at Supabase-prosjektets Redirect URLs også
+tillater `http://localhost:8000` (kun nødvendig hvis man faktisk tester ekte
+Supabase-e-post lokalt; `?mock=1` trenger det ikke, se `docs/accounts.md`).
+
+## Vercel-konfigurasjonen
+
+Redirect-reglene er **repo-eid**: de ligger i `vercel.json` og deployes med
+appen, ikke i dashbordet. Endres de, endres de her.
+
+Domenene må være koblet til `huskis`-prosjektet for at reglene skal gjelde —
+en regel i et prosjekts `vercel.json` virker kun for prosjektets egne
+domener. Verifisert mot Vercel-API-et (kontoen `peohols-projects`,
+2026-08-02): prosjektet `huskis` har `huskis.no`, `www.huskis.no`,
+`huskis.vercel.app`, `huskekurv.vercel.app` + to interne
+`-peohols-projects.vercel.app`-aliaser. Alle domenene reglene navngir peker
+altså hit.
+
+Med Vercel CLI (krever `vercel login`; CLI-en kunne ikke installeres eller nå
+Vercel fra dette kjøremiljøet — npm-registeret og utgående HTTPS er sperret):
+
+```bash
+vercel domains ls --scope peohols-projects      # hvilke domener prosjektet har
+vercel deploy --prod                            # deployer vercel.json med appen
+curl -sI https://www.huskis.no/en/side?a=1      # forventer «HTTP/2 308» + Location: https://huskis.no/en/side?a=1
+```
+
+Produksjonsdeployen kjøres normalt ikke manuelt: `.github/workflows/release.yml`
+gjør `vercel deploy --prod` etter migrering + smoke-test
+(`docs/release-og-deploy.md`).
 
 ## Det gamle domenet (`huskekurv.vercel.app`)
 
@@ -144,46 +235,25 @@ senere omdøpt til `huskis`. Et Vercel-prosjekts `<navn>.vercel.app`-alias
 følger gjeldende prosjektnavn — det gamle aliaset frigis normalt ved
 omdøping, det flyttes ikke automatisk.
 
-**Verifisert i denne runden** (Vercel-API, kontoen `peohols-projects`):
-
-- `huskis`-prosjektets domener er nøyaktig: `huskis.no`, `www.huskis.no`,
-  `huskis.vercel.app` + to interne `-peohols-projects.vercel.app`-aliaser.
-  `huskekurv.vercel.app` er IKKE blant dem.
-- Det finnes ingen Vercel-prosjekt ved navn `huskekurv` i kontoen.
-- Hva `huskekurv.vercel.app` faktisk viser i dag er IKKE bekreftet — utgående
-  nettverkskall til vilkårlige HTTPS-verter er blokkert i denne kjøreomgivelsen
-  (bekreftet ved at selv `https://huskis.no` ga nøyaktig samme proxy-403 —
-  altså en miljøbegrensning, ikke et signal om huskekurv-domenets tilstand).
-
-**Klargjort i denne runden:** `vercel.json` har en permanent redirect-regel
-(`has: [{ type: "host", value": "huskekurv.vercel.app" }]` →
-`https://huskis.no/:path*`) som trer i kraft AUTOMATISK dersom domenet noen
-gang kobles til `huskis`-prosjektet — men en redirect-regel i prosjektets
-egen `vercel.json` virker KUN for domener som faktisk er koblet til det
-prosjektet. Den er ikke tilstrekkelig alene.
-
-**Manuelt steg som gjenstår** (Vercel-tilgang, Peder — ingen tilgjengelig
-verktøy i denne runden kunne utføre dette): koble domenet til `huskis`-
-prosjektet, f.eks. via CLI:
-
-```bash
-vercel domains add huskekurv.vercel.app huskis
-```
-
-Hvis kommandoen sier domenet allerede er i bruk et annet sted, sjekk
-Vercel-dashbordet (Domains) for hvilket scope/prosjekt som eier det —
-`vercel domains move huskekurv.vercel.app <scope>` flytter det mellom egne
-scopes. Er det ikke lenger tilgjengelig i det hele tatt (en tredjepart har
-krevd det), er redirecten for akkurat den eksakte hosten ikke oppnåelig, og
-det bør dokumenteres som sådan fremfor å late som den er løst.
+Domenet er nå koblet til `huskis`-prosjektet igjen (bekreftet i
+domenelisten over), så 308-regelen for det er aktiv på samme måte som for de
+to andre. Hva domenet faktisk svarer i dag er ikke bekreftet herfra —
+utgående HTTPS-kall er sperret i dette kjøremiljøet.
 
 ## Testene
 
+- `tests/canonical-origin.test.js` — 308-reglene i `vercel.json` (én per
+  domene, path bevart, ingen løkke, preview-adresser urørt), at guarden i
+  `index.html` står før alt som kjører, at de to lagene navngir de samme
+  domenene, `redirectUrlFor()` for path/query/fragment (inkl. auth-parametere)
+  og en ekte navigasjon fra `www.huskis.no` som lander kanonisk uten
+  historikk-oppføring.
 - `tests/auth-redirect.test.js` — `authRedirectUrl()`/`canonicalAppUrl()`
   for kjente og ukjente origins (inkl. det gamle domenet som negativt
-  testtilfelle), trailing-slash-normalisering, `window.HUSKIS_CONFIG`s
-  innhold, og at `signUp`/`resetPasswordForEmail`/`updateUser({ email })`
-  faktisk sender den beregnede verdien.
+  testtilfelle), trailing-slash-normalisering, at `window.HUSKIS_CONFIG` kun
+  navngir det kanoniske domenet, og at
+  `signUp`/`resetPasswordForEmail`/`updateUser({ email })` faktisk sender den
+  beregnede verdien.
 - `supabase/tests/test-email-sharing.sql` — genererte Resend-e-poster
   bruker kanonisk `huskis.no` (ikke `www`) og inneholder aldri det gamle
   domenet.

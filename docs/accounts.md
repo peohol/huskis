@@ -230,9 +230,9 @@ om en konto som ikke er logget inn lenger. Dekkes av
 `cloudBase` levde tidligere bare i minnet. Hver oppstart begynte derfor med en
 TOM base, og første synk var i praksis `reconcile(emptyDoc(), local, remote)` —
 der kombinasjonen «finnes lokalt, ikke på serveren, ikke i base» leses som en
-**lokal nyopprettelse**. En klient med utdatert cache (en annen enhet, en gammel
-fane, eller det andre domenet — `huskis.vercel.app` og `www.huskis.no` har hver
-sin localStorage) satte da inn igjen alt den hadde og serveren ikke hadde,
+**lokal nyopprettelse**. En klient med utdatert cache (en annen enhet, en annen
+nettleser eller en gammel fane — `localStorage` er per origin og per nettleser)
+satte da inn igjen alt den hadde og serveren ikke hadde,
 inkludert permanent slettede objekter. `state._tomb` og `tombstones`-tabellen
 fantes begge, men ingen av dem ble konsultert. Fire lag løser det:
 

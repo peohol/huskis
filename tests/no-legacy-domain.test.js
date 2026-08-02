@@ -23,6 +23,7 @@ const NEEDLE = /huskekurv/i;
 // Eksplisitte unntak — hver enkelt begrunnet, ikke et fritt mønster.
 const ALLOWLIST = new Set([
   'tests/auth-redirect.test.js',                 // negativt testtilfelle (kravtabellen)
+  'tests/canonical-origin.test.js',               // dekker 308-regelen som navngir domenet
   'supabase/tests/test-email-sharing.sql',        // negativt testtilfelle (Resend-e-post)
   'vercel.json',                                  // redirect-regelen MÅ navngi det gamle domenet
   'docs/domains-and-urls.md',                     // historisk forklaring + redirect-status (autoritativ)

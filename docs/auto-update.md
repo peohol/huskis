@@ -63,11 +63,12 @@ Det finnes ingen service worker i appen, og denne funksjonen innfører ingen.
 ## Når det kontrolleres
 
 `update-check.js` henter `/version.json` fra **samme origin som fanen kjører på**
-(rot-relativ URL) — `www.huskis.no` og `huskis.vercel.app` kan ha ulike deployer
-et øyeblikk, og hver fane skal forholde seg til sitt eget domene. Alltid med
-`cache: 'no-store'` og en cache-bustende parameter. (Domenelisten er
-dokumentert ett sted, `docs/domains-and-urls.md` — denne mekanismen bruker
-rot-relative URL-er og trenger ikke selv navngi domenene.)
+(rot-relativ URL) — en preview-deploy skal måles mot seg selv, ikke mot
+produksjon. Alltid med `cache: 'no-store'` og en cache-bustende parameter.
+(Produksjon har ett origin, `https://huskis.no`; de alternative domenene
+308-redirecter dit og kjører aldri appen. Autoritativt:
+`docs/domains-and-urls.md` — denne mekanismen bruker rot-relative URL-er og
+trenger ikke selv navngi domenene.)
 
 * ~1,5 s etter oppstart
 * når fanen blir synlig igjen, og ved `focus`

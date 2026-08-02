@@ -2,6 +2,40 @@
 <html lang="no">
 <head>
   <meta charset="UTF-8" />
+  <!-- KANONISK ORIGIN — først av alt som KJØRER (kun tegnsett-erklæringen står
+       foran; den MÅ ligge innenfor de første 1024 bytene), altså før stilark,
+       før config.js/app.js og før noe leser localStorage eller registrerer en
+       service worker. Produksjon svarer allerede 308 fra
+       vercel.json, men en fane som ble lastet fra et alternativt domene FØR
+       redirecten fantes (bfcache, en HTML-kopi i cache) kjører fortsatt der.
+       Da flyttes den hit — med path, query og fragment (auth-tokens fra
+       Supabase kommer i begge) — før appen rekker å bygge lokal tilstand på
+       feil origin. Kun de eksplisitt navngitte hostene røres: localhost og
+       preview-deployer skal fortsette som før. Se docs/domains-and-urls.md. -->
+  <script>
+    (function () {
+      'use strict';
+      var CANONICAL_ORIGIN = 'https://huskis.no';
+      var REDIRECT_HOSTS = ['www.huskis.no', 'huskis.vercel.app'];
+      // → URL-en denne adressen hører hjemme på, eller null når den allerede
+      //   er kanonisk (eller er en host vi ikke skal røre).
+      function redirectUrlFor(href) {
+        var u;
+        try { u = new URL(String(href)); } catch (e) { return null; }
+        if (REDIRECT_HOSTS.indexOf(u.host.toLowerCase()) === -1) return null;
+        return CANONICAL_ORIGIN + u.pathname + u.search + u.hash;
+      }
+      window.__huskisCanonical = {
+        origin: CANONICAL_ORIGIN,
+        redirectHosts: REDIRECT_HOSTS,
+        redirectUrlFor: redirectUrlFor,
+      };
+      var target = redirectUrlFor(location.href);
+      // replace(): det alternative domenet skal ikke bli en historikk-oppføring
+      // brukeren kan trykke «tilbake» inn i.
+      if (target) location.replace(target);
+    })();
+  </script>
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <meta name="theme-color" content="#667788" />
   <!-- Unik ID for denne produksjonsbuilden. Byttes ut av build.js (samme verdi
