@@ -5,7 +5,9 @@ per-enhet-minnet for aktiv gruppe/univers.
 
 ## Arkitektur
 
-- **Ren statisk app**: `index.html` + `styles.css` + `app.js`. Ingen byggesteg, ingen rammeverk.
+- **Ren statisk app**: `index.html` + `styles.css` + `app.js`. Ingen bundler og
+  ingen rammeverk; `node build.js` stempler kun en build-ID inn i produksjons-
+  kopien (`docs/auto-update.md`).
 - **Vanilla JS** med egen dra-og-slipp-motor på Pointer Events (mus + touch likt) — se `docs/drag-and-drop.md`.
 - **Persistens** i `localStorage` (offline-buffer per konto); sanntids-synk mot
   Supabase (Auth + relasjonelle tabeller) — se `docs/accounts.md`.
@@ -109,7 +111,7 @@ Alt liste-/listepunkt-UI er fortsatt scopet til den AKTIVE gruppen.
   tittel/tannhjul/×) folder listen sammen som en rullgardin. Rir på innholds-
   registeret (`ts`/`org`, som `lockTimes`); lagres og synkes i DB via `save()`
   (optimistisk, ingen synlig forsinkelse). I kontomodus egen kolonne
-  (`cards.collapsed`, se `TODO.md`). Se `docs/design-system.md`.
+  (`cards.collapsed`). Se `docs/design-system.md`.
   **Universer og gruppekategorier har det samme feltet** (`universe.collapsed` /
   `group.collapsed`, kolonnene `universes.collapsed`/`groups.collapsed`) — et
   kollapset univers viser [gruppe-ikon] + antall grupper i stedet for «(N)».
@@ -123,8 +125,7 @@ Alt liste-/listepunkt-UI er fortsatt scopet til den AKTIVE gruppen.
   på «Utført»-linja (`restoreAllDone`) gjør det samme for ALLE utførte i lista på
   én gang — samme semantikk per listepunkt (`pos` urørt, kategoriserte tilbake INN
   i kategorien sin via `placeItemBySection`), men i én felles FLIP. I kontomodus
-  er `done` en egen kolonne (`items.done`, se `supabase/users-and-sharing.sql` +
-  TODO.md for påkrevd DB-migrering).
+  er `done` en egen kolonne (`items.done`, se `supabase/users-and-sharing.sql`).
 - **Ansvarlig** (`item.responsible` og `card.responsible`): bruker-id-en til den
   som «tar oppgaven» i delt kontekst — nå både per listepunkt og for HELE listen.
   Rir på innholds-registeret (`ts`/`org`, som `text`/`done`) — LWW ved samtidig
@@ -172,7 +173,7 @@ Alt liste-/listepunkt-UI er fortsatt scopet til den AKTIVE gruppen.
   Dette er den ENESTE måten en kategori bytter liste på (utover ekstrahering til en ny).
 - **Lukketilstand for kategorier** (`item.collapsed`): rir på innholds-registeret
   (`ts`/`org`, som `isCat`/`lockTimes`). Kun meningsfullt for `isCat`-rader. I
-  kontomodus egen kolonne (`items.collapsed`, se `TODO.md`).
+  kontomodus egen kolonne (`items.collapsed`).
 
 Gotcha: den programmatiske `addGroup()` (feilsøking/tester) skal alltid bare
 virke, selv uten univers — standard-universet opprettes i farten

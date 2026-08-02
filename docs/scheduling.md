@@ -100,5 +100,5 @@ Doc-radene har `start`/`due` (listepunkt + liste + kategori) og `lockTimes`/
 Oppdatert hele veien: `cleanItem`/`cleanCard`, `mergeItem`/`mergeCardScalar`,
 `canonRow` (`_canon`-grenen), `insert-`/`updatePayload`, mock-backend,
 `supabase/users-and-sharing.sql` (idempotente `add column if not exists`,
-LWW-triggere, `get_my_doc`, `import_doc`). Kontomodus mot ekte Supabase
-krever at db-setup-workflowen kjøres — se `TODO.md`.
+LWW-triggere, `get_my_doc`, `import_doc`). Skjemaet kjøres av
+«Supabase DB-oppsett»-workflowen ved push til `main`.
