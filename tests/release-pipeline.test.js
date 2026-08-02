@@ -122,16 +122,30 @@ check('nøyaktig én jobb kjører `vercel deploy --prod`',
   deployJobber.length === 1, deployJobber.join(', ') || 'ingen');
 check('den jobben er «deploy», som venter på smoke-testen',
   deployJobber[0] === 'deploy');
-check('deployjobben bygger med `vercel build --prod` før den publiserer',
-  !!relJobs.deploy && relJobs.deploy.indexOf('vercel build --prod') > -1
-    && relJobs.deploy.indexOf('vercel build --prod') < relJobs.deploy.indexOf('vercel deploy'));
+/* Builden kjører hos Vercel, ikke på runneren: `--prebuilt` ville krevd at
+   `vercel build` fikk hele prosjektkonfigurasjonen lokalt, og den skrives kun
+   av `vercel pull`. Kommer `--prebuilt` tilbake uten `pull`, feiler deployen
+   med «No Project Settings found locally». */
+check('deployen lar Vercel bygge (ikke --prebuilt)',
+  !!relJobs.deploy && !/--prebuilt/.test(utenKommentarer(relJobs.deploy)));
+check('deployjobben bygger ikke lokalt med `vercel build`',
+  !!relJobs.deploy && !/vercel build/.test(utenKommentarer(relJobs.deploy)));
+/* build.js leser GITHUB_SHA som fallback for `commit` i /version.json. Uten at
+   den sendes inn i Vercel-builden blir feltet null, siden treet lastes opp fra
+   CLI-en og ikke har git-metadata. */
+check('commit-en følger med inn i Vercel-builden',
+  !!relJobs.deploy && /--build-env\s+"?GITHUB_SHA=/.test(relJobs.deploy));
 
 /* Preflighten er der for at en feil skal si HVA som er galt i stedet for
    Vercels generiske «Could not retrieve Project Settings». Den må kjøre før
-   builden, ellers er den verdiløs — da har CLI-en allerede feilet. */
-check('deployjobben sjekker Vercel-tilgangen før den bygger',
-  !!relJobs.deploy && /api\.vercel\.com\/v9\/projects/.test(relJobs.deploy)
-    && relJobs.deploy.indexOf('api.vercel.com') < relJobs.deploy.indexOf('vercel build'));
+   deployen, ellers er den verdiløs — da har CLI-en allerede feilet.
+   Ankeret er `vercel deploy`, som finnes: en indexOf mot et steg som er
+   fjernet ville gitt -1 og snudd sammenligningen til en stille pass. */
+const iPreflight = relJobs.deploy ? relJobs.deploy.indexOf('api.vercel.com') : -1;
+const iDeploy = relJobs.deploy ? relJobs.deploy.indexOf('vercel deploy') : -1;
+check('deployjobben sjekker Vercel-tilgangen før den deployer',
+  iPreflight > -1 && iDeploy > -1 && iPreflight < iDeploy,
+  'preflight@' + iPreflight + ', deploy@' + iDeploy);
 for (const kode of ['401', '403', '404']) {
   check('preflighten forklarer HTTP ' + kode + ' konkret',
     !!relJobs.deploy && new RegExp('^\\s*' + kode + '\\)', 'm').test(relJobs.deploy));
