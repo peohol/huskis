@@ -83,9 +83,10 @@ async function signIn(p, email, password) {
   await p.locator('#auth-password').fill(password);
   await p.locator('#auth-submit').click();
   await p.waitForTimeout(1600);
-  // Introduksjonen (docs/introduksjon.md) starter av seg selv for en ny konto
-  // og legger seg over appen — den er ikke det denne testen handler om.
-  await p.evaluate(() => window.__huskis.tour.end('skipped'));
+  // Introduksjonen (docs/introduksjon.md) møter enhver ny konto: omvisningen
+  // legger seg over appen, og et gest-tips legger seg nederst på skjermen —
+  // ingen av delene er det denne testen handler om.
+  await p.evaluate(() => window.__huskis.tour.skipAll());
   await p.waitForTimeout(150);
 }
 const openAccount = async (p) => { await p.locator('#account-btn').click(); await p.waitForTimeout(400); };
@@ -146,9 +147,10 @@ async function run(label, vp, mobile) {
   await p.locator('#auth-email').fill(email);
   await p.locator('#auth-submit').click(); await p.waitForTimeout(1600);
   log(label + ' A: innlogget', await p.evaluate(() => !!window.__huskis.authUser));
-  // Introduksjonen (docs/introduksjon.md) starter av seg selv for en ny konto
-  // og legger seg over appen — den er ikke det denne testen handler om.
-  await p.evaluate(() => window.__huskis.tour.end('skipped'));
+  // Introduksjonen (docs/introduksjon.md) møter enhver ny konto: omvisningen
+  // legger seg over appen, og et gest-tips legger seg nederst på skjermen —
+  // ingen av delene er det denne testen handler om.
+  await p.evaluate(() => window.__huskis.tour.skipAll());
   await p.waitForTimeout(150);
   // Passordfeltet skal ikke bære passordet videre — og slett ikke i klartekst,
   // som ville stått synlig på innloggingsskjermen etter neste utlogging.
@@ -340,14 +342,14 @@ async function run(label, vp, mobile) {
       },
     };
   })();
-  // Kontoen har sett introduksjonen (docs/introduksjon.md) — omvisningen skal
-  // ikke legge seg over det denne testen faktisk handler om.
+  // Kontoen har sett HELE introduksjonen (docs/introduksjon.md): verken
+  // omvisningen eller et gest-tips skal legge seg over det som testes.
   await p.evaluate(({ db, sess }) => {
     localStorage.clear();
     localStorage.setItem('hk-mock-db', JSON.stringify(db));
     sessionStorage.setItem('hk-mock-session', JSON.stringify(sess));
   }, { db: seed.db, sess: { id: seed.ids.uA, email: 'a@x.no',
-       user_metadata: { onboarding: { v: 1, status: 'done' } } } });
+       user_metadata: { onboarding: { v: 1, status: 'done' }, tips: { drag: true, trash: true, moveList: true } } } });
   // `lag` gir «serveren» en merkbar forsinkelse, så en get_members startet av en
   // for tidlig render rekker å kappløpe med skrivingen (se neste sjekk).
   await p.goto(BASE + '/?mock=1&lag=300');

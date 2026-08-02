@@ -34,9 +34,10 @@ async function register(p) {
   await p.locator('#auth-email').fill(email);
   await p.locator('#auth-password').fill('passord123');
   await p.locator('#auth-submit').click(); await p.waitForTimeout(1600);
-  // Introduksjonen (docs/introduksjon.md) starter av seg selv for en ny konto
-  // og legger seg over appen — den er ikke det denne testen handler om.
-  await p.evaluate(() => window.__huskis.tour.end('skipped'));
+  // Introduksjonen (docs/introduksjon.md) møter enhver ny konto: omvisningen
+  // legger seg over appen, og et gest-tips legger seg nederst på skjermen —
+  // ingen av delene er det denne testen handler om.
+  await p.evaluate(() => window.__huskis.tour.skipAll());
   await p.waitForTimeout(150);
 }
 

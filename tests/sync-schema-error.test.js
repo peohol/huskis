@@ -58,9 +58,9 @@ async function load(page, db, viewport) {
     // uid + origin) og forurenser state.
     localStorage.clear(); sessionStorage.clear();
     localStorage.setItem('hk-mock-db', JSON.stringify(db));
-    // Kontoen har sett introduksjonen (docs/introduksjon.md) — omvisningen
-    // skal ikke legge seg over det denne testen faktisk handler om.
-    sessionStorage.setItem('hk-mock-session', JSON.stringify({ id: 'uMe', email: 'me@x.no', user_metadata: { onboarding: { v: 1, status: 'done' } } }));
+    // Kontoen har sett HELE introduksjonen (docs/introduksjon.md): verken
+    // omvisningen eller et gest-tips skal legge seg over det som testes.
+    sessionStorage.setItem('hk-mock-session', JSON.stringify({ id: 'uMe', email: 'me@x.no', user_metadata: { onboarding: { v: 1, status: 'done' }, tips: { drag: true, trash: true, moveList: true } } }));
   }, db);
   await page.goto(BASE + '/?mock=1');
   await page.waitForFunction(() => window.__huskis && window.__huskis.authUser, { timeout: 5000 });

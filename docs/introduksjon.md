@@ -76,7 +76,11 @@ faktisk er vist**, så et undertrykt tips kommer igjen ved neste anledning.
 
 Toasten får klassen `.toast-tip`, som lar teksten brekke over flere linjer i
 stedet for å kappes med ellipsis. Alt annet er en helt vanlig toast: den fanger
-ikke fokus, dekker ingenting man trenger, og kan sveipes bort.
+ikke fokus og kan sveipes bort.
+
+**Hold tipsene korte.** Toasten står nederst på skjermen, og en lang setning
+brekker til en blokk som på mobil dekker akkurat den nederste lista — der
+fingeren skal ta tak. Én linje er målet, to er taket.
 
 ## Hva som lagres, og hvor
 
@@ -113,4 +117,7 @@ omvisningen peker på appen BAK den — og starter fra steg 1. Det lagrede
 - Flytter eller omdøper du et element et steg peker på (`#nav-crumb`,
   `#add-card-btn`, `.add-item-row`, `.card-head`), faller steget stille tilbake
   til midtstilt — `tests/onboarding.test.js` fanger det.
-- Nye tips skal ha en tydelig «nå er den relevant»-utløser, ikke en timer.
+- Nye tips skal ha en tydelig «nå er den relevant»-utløser, ikke en timer — og
+  en tekst som får plass på én linje (se over). Legg nøkkelen i `TIPS`; den
+  brukes også av `__huskis.tour.skipAll()`, som andre tester slår av HELE
+  introduksjonen med (`tests/CLAUDE.md`).

@@ -134,9 +134,10 @@ function check(name, cond, extra) {
   await page.locator('#auth-password').fill('passord123');
   await page.locator('#auth-submit').click();
   await page.waitForTimeout(1200);
-  // Introduksjonen (docs/introduksjon.md) starter av seg selv for en ny konto
-  // og legger seg over appen — den er ikke det denne testen handler om.
-  await page.evaluate(() => window.__huskis.tour.end('skipped'));
+  // Introduksjonen (docs/introduksjon.md) møter enhver ny konto: omvisningen
+  // legger seg over appen, og et gest-tips legger seg nederst på skjermen —
+  // ingen av delene er det denne testen handler om.
+  await page.evaluate(() => window.__huskis.tour.skipAll());
   await page.waitForTimeout(150);
   await page.locator('#account-btn').click();
   await page.waitForTimeout(300);

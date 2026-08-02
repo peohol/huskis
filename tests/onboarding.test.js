@@ -172,6 +172,17 @@ async function run(label, vp, mobile) {
   const inside = await p.evaluate(() =>
     document.getElementById('tour-card').contains(document.activeElement));
   log(label + ' 5: Tab holdes inne i omvisningskortet', inside, 'aktiv=' + await p.evaluate(() => document.activeElement.id));
+
+  // …også fra kortet SELV, som er der fokuset står rett etter åpning: Shift+Tab
+  // derfra gikk tidligere rett ut av dialogen og ned i appen bak.
+  await p.evaluate(() => document.getElementById('tour-card').focus());
+  await p.keyboard.press('Shift+Tab');
+  const backInside = await p.evaluate(() => ({
+    inne: document.getElementById('tour-card').contains(document.activeElement),
+    id: document.activeElement.id,
+  }));
+  log(label + ' 5a: Shift+Tab fra selve kortet blir i dialogen',
+    backInside.inne && backInside.id === 'tour-close', JSON.stringify(backInside));
   log(label + ' 5b: teksten ligger i et polite live-område', back.live && back.labelledby === 'tour-title');
 
   // Piltast blar, Escape avslutter.
@@ -258,6 +269,22 @@ async function run(label, vp, mobile) {
     return !!t && t.classList.contains('show');
   });
   log(label + ' 10d: det samme tipset kommer ikke igjen', !again, 'toast=' + again);
+
+  /* ---------- 10) …og et tips fortrenger aldri «Angre» ---------- */
+  // En sletting tegner board-et på nytt FØR den viser angre-toasten sin. Uten
+  // vakten ville søppelkasse-tipset blitt vist (og merket sett) i det gapet, og
+  // så straks blitt overskrevet av «Angre» — altså aldri lest.
+  await p.locator('.board .card .card-delete').first().click();
+  await p.waitForTimeout(600);
+  const etterSletting = await p.evaluate(() => {
+    const t = document.getElementById('toast');
+    return { tekst: t ? t.innerText.replace(/\s+/g, ' ').trim() : '', vist: !!t && t.classList.contains('show') };
+  });
+  log(label + ' 10e: angre-toasten står — tipset fortrengte den ikke',
+    etterSletting.vist && /ngre/.test(etterSletting.tekst), etterSletting.tekst);
+  const metaEtter = await accountMeta(p, email);
+  log(label + ' 10f: søppelkasse-tipset er IKKE merket sett ennå',
+    !metaEtter.tips.trash, JSON.stringify(metaEtter.tips));
 
   log(label + ' 11: ingen JS-feil', errs.length === 0, errs.join(' | '));
   await b.close();

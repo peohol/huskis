@@ -9785,13 +9785,22 @@
   // innlogging enn at vi later som den er sett.
   function saveAccountPref(patch, retriesLeft) {
     if (!authUser) return;
+    // Hvem skrivingen gjelder. Supabase kan gå fra én innlogget bruker til en
+    // annen mens forsøket ligger og venter, og da hører verken metadataen eller
+    // det nye forsøket hjemme hos den som overtok — det ville stemplet DERES
+    // introduksjon som sett.
+    const forUser = authUser.id;
     authUser.meta = Object.assign({}, authUser.meta, patch);
     const client = acli();
     if (!client) return;
     client.auth.updateUser({ data: patch })
       .then((res) => { if (res && res.error) throw res.error; })
       .catch(() => {
-        if (retriesLeft > 0) setTimeout(() => saveAccountPref(patch, retriesLeft - 1), 5000);
+        if (!retriesLeft) return;
+        setTimeout(() => {
+          if (!authUser || authUser.id !== forUser) return; // en annen konto har overtatt
+          saveAccountPref(patch, retriesLeft - 1);
+        }, 5000);
       });
   }
 
@@ -9931,8 +9940,12 @@
     const first = f[0];
     const last = f[f.length - 1];
     const cur = document.activeElement;
-    if (!tourCard.contains(cur)) { ev.preventDefault(); (ev.shiftKey ? last : first).focus(); }
-    else if (ev.shiftKey && cur === first) { ev.preventDefault(); last.focus(); }
+    // Kortet SELV er fokusert rett etter åpning (og er ingen av knappene): det
+    // teller som «foran den første», ellers ville Shift+Tab der gått rett ut av
+    // dialogen og ned i appen bak.
+    if (cur === tourCard || !tourCard.contains(cur)) {
+      ev.preventDefault(); (ev.shiftKey ? last : first).focus();
+    } else if (ev.shiftKey && cur === first) { ev.preventDefault(); last.focus(); }
     else if (!ev.shiftKey && cur === last) { ev.preventDefault(); first.focus(); }
   }, true);
 
@@ -9952,10 +9965,12 @@
   }
 
   /* ---------- Kontekstuelle tips for de avanserte gestene ---------- */
+  // Korte, med vilje: toasten ligger nederst på skjermen, og en lang tekst
+  // brekker til en blokk som dekker det brukeren holder på med på mobil.
   const TIPS = {
-    drag: 'Tips: hold på en tittel — eller dra den med musen — for å flytte lister og listepunkter.',
-    trash: 'Tips: hold inne søppelkassen og sveip mot høyre for å tømme den.',
-    moveList: 'Tips: dra en liste opp på navigasjonsknappen øverst for å flytte den til en annen gruppe.',
+    drag: 'Tips: hold på en tittel for å flytte den.',
+    trash: 'Tips: hold på søppelkassen og sveip for å tømme.',
+    moveList: 'Tips: dra en liste opp på navigasjonsknappen.',
   };
   let pendingTip = null;  // ba om et tips mens omvisningen sto på
   let lastTipAt = 0;
@@ -9967,10 +9982,13 @@
     if (!onboardingSeen()) return false;         // introduksjonen kommer først
     if (tourActive) { pendingTip = key; return false; }
     // Aldri i veien: ikke midt i en redigering/et drag, ikke oppå en åpen
-    // modal, og aldri ved å fortrenge en beskjed som allerede står (f.eks.
-    // «Angre» etter en sletting). Tipset er ikke sett før det er VIST, så det
+    // modal, og aldri ved å fortrenge en beskjed som allerede står — eller som
+    // er på vei. En sletting tegner board-et på nytt FØR den viser «Angre»-
+    // toasten sin (se sletteknappene), så en tom toast-flate her betyr ikke at
+    // flaten blir stående tom. Tipset er ikke sett før det er VIST, så det
     // kommer igjen ved neste anledning.
     if (isBusyEditing() || document.body.classList.contains('modal-open')) return false;
+    if (pendingDeletes.size || deleteToast) return false;
     const toastEl = document.getElementById('toast');
     if (toastEl && toastEl.classList.contains('show')) return false;
     if (Date.now() - lastTipAt < TIP_QUIET_MS) return false;
@@ -9985,6 +10003,16 @@
     const key = pendingTip;
     pendingTip = null;
     if (key) showTip(key);
+  }
+  // Merk HELE introduksjonen som sett — omvisningen OG alle tipsene. Finnes for
+  // testene som ikke handler om introduksjonen (`tests/CLAUDE.md`): der er både
+  // omvisningen og en tips-toast i veien for det som faktisk testes, og toasten
+  // ligger nederst på skjermen, akkurat der et mobil-drag tar tak.
+  function skipIntroduction() {
+    const tips = Object.assign({}, accountPref('tips'));
+    Object.keys(TIPS).forEach((k) => { tips[k] = true; });
+    endTour('skipped');
+    saveAccountPref({ tips: tips }, 1);
   }
   // Kalles etter hver board-rendring: hvilke gester er relevante NÅ? Ett tips
   // om gangen — resten kommer neste gang de fortsatt er relevante.
@@ -10020,6 +10048,7 @@
     tour: {
       start: startTour,
       end: endTour,
+      skipAll: skipIntroduction, // omvisning + alle tips (se tests/CLAUDE.md)
       steps: TOUR_STEPS.length,
       get active() { return tourActive; },
       get index() { return tourIndex; },
