@@ -167,8 +167,15 @@ jobs:
         run: |
           # `|| status=000`: steget kjører med `bash -e`, så en curl som feiler
           # på nettverket ville avbrutt her — før case-blokken fikk forklart
-          # noe. Da får vi heller 000 og går i uventet-grenen med en melding.
-          status=$(curl -sS -o /tmp/vc.json -w '%{http_code}' \
+          # noe. Da får vi heller 000 og går i nettverksgrenen med en melding.
+          #
+          # Tidsgrensene er en del av den samme sikringen: curl har INGEN
+          # standard grense for selve overføringen, så et API som tar imot
+          # forbindelsen og deretter tier ville hengt til jobbens timeout på 15
+          # minutter — og aldri nådd 000-grenen. Da hadde diagnostikken
+          # avvæpnet seg selv i nettopp det tilfellet den finnes for.
+          status=$(curl -sS --connect-timeout 10 --max-time 30 \
+            -o /tmp/vc.json -w '%{http_code}' \
             -H "Authorization: Bearer $VERCEL_TOKEN" \
             "https://api.vercel.com/v9/projects/$VERCEL_PROJECT_ID?teamId=$VERCEL_ORG_ID") \
             || status=000

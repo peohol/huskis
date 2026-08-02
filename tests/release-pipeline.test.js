@@ -136,6 +136,19 @@ for (const kode of ['401', '403', '404']) {
   check('preflighten forklarer HTTP ' + kode + ' konkret',
     !!relJobs.deploy && new RegExp('^\\s*' + kode + '\\)', 'm').test(relJobs.deploy));
 }
+/* Uten tidsgrenser henger curl i det ene tilfellet 000-grenen finnes for: et
+   API som tar imot forbindelsen og så tier. Da spises jobbens timeout og
+   diagnostikken sier ingenting. */
+check('preflighten har tidsgrense på både oppkobling og overføring',
+  !!relJobs.deploy && /--connect-timeout\s+\d+/.test(relJobs.deploy)
+    && /--max-time\s+\d+/.test(relJobs.deploy));
+check('tidsgrensene er kortere enn jobbens timeout',
+  !!relJobs.deploy
+    && Number((relJobs.deploy.match(/--max-time\s+(\d+)/) || [])[1]) * 3
+       < Number((relJobs.deploy.match(/timeout-minutes:\s*(\d+)/) || [])[1]) * 60,
+  'max-time=' + (relJobs.deploy.match(/--max-time\s+(\d+)/) || [])[1] + 's, '
+    + 'jobb-timeout=' + (relJobs.deploy.match(/timeout-minutes:\s*(\d+)/) || [])[1] + 'min');
+
 check('preflighten logger aldri selve tokenet',
   !!relJobs.deploy && !/echo[^\n]*\$VERCEL_TOKEN/.test(utenKommentarer(relJobs.deploy))
     && !/cat \/tmp\/vc\.json/.test(utenKommentarer(relJobs.deploy)));
