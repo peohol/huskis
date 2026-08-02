@@ -8023,10 +8023,9 @@
      Basen lagres i den BRUKERSPESIFIKKE cachen (`mine-lister-v1:<uid>`), i
      samme localStorage-post som innholdet, med et versjonsnummer så en framtidig
      endring av doc-fasongen forkaster gamle baser i stedet for å mistolke dem.
-     To domener (www.huskis.no og huskis.vercel.app) har hver sin post og dermed
-     hver sin base — det er riktig: basen beskriver nettopp hva DENNE klienten
-     sist så. Mangler den, faller vi tilbake på gravsteins-oppslaget i
-     cloudCycle. */
+     Hver enhet og hver nettleser har sin egen post og dermed sin egen base —
+     det er riktig: basen beskriver nettopp hva DENNE klienten sist så. Mangler
+     den, faller vi tilbake på gravsteins-oppslaget i cloudCycle. */
   const BASE_VERSION = 1;
   let cloudBase = null;
   let persistedBaseSig = null;

@@ -10,9 +10,21 @@
   "redirects": [
     {
       "source": "/:path*",
+      "has": [{ "type": "host", "value": "www.huskis.no" }],
+      "destination": "https://huskis.no/:path*",
+      "statusCode": 308
+    },
+    {
+      "source": "/:path*",
+      "has": [{ "type": "host", "value": "huskis.vercel.app" }],
+      "destination": "https://huskis.no/:path*",
+      "statusCode": 308
+    },
+    {
+      "source": "/:path*",
       "has": [{ "type": "host", "value": "huskekurv.vercel.app" }],
       "destination": "https://huskis.no/:path*",
-      "permanent": true
+      "statusCode": 308
     }
   ],
   "headers": [

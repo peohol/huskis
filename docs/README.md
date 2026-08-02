@@ -19,7 +19,7 @@ Ved motstrid gjelder det dokumentet som er merket autoritativt for området — 
 | [trash.md](trash.md) | sletting, gjenoppretting og tømming på alle fire nivåene, buffret sletting, angre | **ja** — søppelkassene |
 | [scheduling.md](scheduling.md) | innstillingsmodalen (tannhjulet), start-/fristtider, indikator-chipene | **ja** — tidsplanlegging |
 | [colors-and-labels.md](colors-and-labels.md) | posisjonsbasert HSL-farge på kort/rader, de gamle K/P-feltene | **ja** — fargesystemet |
-| [domains-and-urls.md](domains-and-urls.md) | produksjonsdomener, auth-redirects, lenker i utsendte e-poster | **ja** — domener og URL-generering |
+| [domains-and-urls.md](domains-and-urls.md) | det kanoniske originet og 308-redirecten fra de alternative domenene, auth-redirects, lenker i utsendte e-poster | **ja** — domener og URL-generering |
 | [auto-update.md](auto-update.md) | build-ID, `/version.json`, cache-headerne i `vercel.json`, automatisk reload av åpne faner | **ja** — build og auto-oppdatering |
 | [release-og-deploy.md](release-og-deploy.md) | rekkefølgen fra merge til produksjon: testing på PR, migrering, smoke-test, Vercel-deploy, preview-deploys, feil/retry/rollback | **ja** — releaseprosessen |
 

@@ -9,9 +9,9 @@
      • Hver produksjonsbuild får en unik build-ID (se build.js). Den bygges inn
        to steder med nøyaktig samme verdi: i <meta name="huskis-build"> i den
        kjørende HTML-en, og i /version.json.
-     • Vi henter /version.json fra VÅRT EGET origin (www.huskis.no og
-       huskis.vercel.app kan ha ulike deployer et øyeblikk), uten cache, og
-       sammenligner ID-ene som IDENTITET — aldri «større/mindre».
+     • Vi henter /version.json fra VÅRT EGET origin (rot-relativ URL — også en
+       preview-deploy skal måles mot seg selv), uten cache, og sammenligner
+       ID-ene som IDENTITET — aldri «større/mindre».
      • Er de forskjellige, finnes det en nyere klient. Da venter vi på et trygt
        øyeblikk (se `isSafe` → app.js `updateSafety()`) og laster på nytt.
 
@@ -259,9 +259,8 @@
     }
 
     /* ---------------- Flere faner på samme origin ----------------
-       BroadcastChannel er allerede origin-avgrenset, så en fane på
-       huskis.vercel.app hører ikke www.huskis.no (som skal være to
-       uavhengige kontroller). Kun en beskjed om at en ny build finnes —
+       BroadcastChannel er origin-avgrenset, så en preview-deploy roper aldri
+       inn i en produksjonsfane. Kun en beskjed om at en ny build finnes —
        hver fane avgjør selv når den er trygg å laste. */
     function openChannel() {
       if (!channelName || !win.BroadcastChannel) return;

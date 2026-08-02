@@ -271,11 +271,12 @@ gravsteiner, anon-avvisning og hele migreringen av gamle listedelinger.
 ## Manuelle steg (utenfor SQL — én gang, i Supabase-dashboardet)
 
 1. **Authentication → Sign In / Up**: «Confirm email» skal stå PÅ (standard).
-2. **Authentication → URL Configuration**: sett *Site URL* til
-   `https://huskis.no` og legg samme adresse (+ ev. `www`/Vercel-domenet) i
-   *Redirect URLs* — gjort. Klienten sender uansett alltid en eksplisitt,
-   betrodd `redirectTo`/`emailRedirectTo` (`authRedirectUrl()`, se
-   `docs/domains-and-urls.md` — autoritativ for domener/URL-generering).
+2. **Authentication → URL Configuration**: *Site URL* og *Redirect URLs* skal
+   kun inneholde det kanoniske originet `https://huskis.no` — de alternative
+   domenene 308-redirecter dit og kjører aldri en klient. Klienten sender
+   uansett alltid en eksplisitt, betrodd `redirectTo`/`emailRedirectTo`
+   (`authRedirectUrl()`, se `docs/domains-and-urls.md` — autoritativ for
+   domener/URL-generering).
 3. (Anbefalt før mange brukere) **Authentication → Emails/SMTP**: egen
    SMTP-avsender; Supabase sin innebygde e-postutsending er strengt
    ratebegrenset (~2–4 e-poster/time) og kun ment for utvikling.
