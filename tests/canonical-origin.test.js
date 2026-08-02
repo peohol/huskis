@@ -99,7 +99,7 @@ const guardAt = html.indexOf('__huskisCanonical');
 check('index.html: guarden finnes', guardAt > -1);
 // Alt annet som KJØRER må komme etter den. (Tegnsett-erklæringen står foran —
 // den er en parser-direktiv, ikke kode, og må ligge i de første 1024 bytene.)
-for (const later of ['config.js', 'app.js', 'icons.js', 'mock-backend.js', 'update-check.js', 'styles.css']) {
+for (const later of ['config.js', 'app.js', 'icons.js', 'dev-mock.js', 'update-check.js', 'styles.css']) {
   const at = html.indexOf('"' + later + '"');  // selve taggen, ikke navnet i en kommentar
   check('index.html: guarden står før ' + later, at > -1 && guardAt < at, { guardAt, at });
 }

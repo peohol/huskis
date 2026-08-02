@@ -29,6 +29,22 @@
   ],
   "headers": [
     {
+      "source": "/(.*)",
+      "headers": [
+        {
+          "key": "Content-Security-Policy",
+          "value": "default-src 'none'; base-uri 'none'; object-src 'none'; script-src 'self' 'sha256-6Q3JDVUTmctJuF9ScsOY9kCKBmqaIbjWdZMf/B2lgNc=' https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.111.0/; style-src 'self' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' data: blob:; connect-src 'self' https://bmkynefxgklxzcofflqu.supabase.co wss://bmkynefxgklxzcofflqu.supabase.co; form-action 'self'; frame-ancestors 'none'"
+        },
+        { "key": "X-Content-Type-Options", "value": "nosniff" },
+        { "key": "Referrer-Policy", "value": "no-referrer" },
+        { "key": "X-Frame-Options", "value": "DENY" },
+        {
+          "key": "Permissions-Policy",
+          "value": "accelerometer=(), autoplay=(), browsing-topics=(), camera=(), display-capture=(), encrypted-media=(), gamepad=(), geolocation=(), gyroscope=(), hid=(), idle-detection=(), local-fonts=(), magnetometer=(), microphone=(), midi=(), payment=(), picture-in-picture=(), publickey-credentials-get=(), screen-wake-lock=(), serial=(), usb=(), xr-spatial-tracking=()"
+        }
+      ]
+    },
+    {
       "source": "/version.json",
       "headers": [
         { "key": "Cache-Control", "value": "no-store, max-age=0" },

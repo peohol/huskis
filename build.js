@@ -3,12 +3,15 @@
    Build-steg for produksjonsdeployen (Vercel: `node build.js`).
 
    Appen er fortsatt ren HTML/CSS/JS — det finnes ingen bundler, ingen
-   avhengigheter og ingen transpilering. Dette steget gjør nøyaktig tre ting:
+   avhengigheter og ingen transpilering. Dette steget gjør nøyaktig fire ting:
 
      1. Lager ÉN unik build-ID for deployen.
      2. Kopierer de statiske filene til `dist/` (det som faktisk skal
         publiseres — ikke tester, dokumentasjon eller SQL).
-     3. Bygger build-ID-en inn to steder med samme verdi:
+     3. Fjerner testmodusen (`?mock=1`): både `dev-mock.js`/`mock-backend.js` og
+        `kun-dev`-blokken i `index.html` som laster dem, slik at den ikke finnes
+        i produksjon. Se `docs/sikkerhetsheadere.md`.
+     4. Bygger build-ID-en inn to steder med samme verdi:
           • <meta name="huskis-build"> i dist/index.html (klienten)
           • dist/version.json (det klienten spør mot)
         og hekter `?b=<build-ID>` på JS/CSS-URL-ene, slik at en reload av
@@ -30,9 +33,13 @@ const { execSync } = require('child_process');
 const ROOT = __dirname;
 
 // Filer/mapper som IKKE skal publiseres (kildekode-vedlegg, ikke app).
+// `dev-mock.js` + `mock-backend.js`: testmodusen (`?mock=1`) skal ikke finnes i
+// produksjon i det hele tatt — verken filene eller taggen som laster dem (se
+// stripDevOnly nedenfor og docs/sikkerhetsheadere.md).
 const SKIP = new Set([
   '.git', '.github', '.claude', '.vercel', 'node_modules', 'dist',
   'tests', 'docs', 'supabase', 'build.js', 'vercel.json',
+  'dev-mock.js', 'mock-backend.js',
 ]);
 const SKIP_EXT = new Set(['.md']);
 
@@ -79,13 +86,33 @@ function copyDir(from, to, top, out) {
 }
 function reEscape(s) { return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); }
 
+// Fjerner blokkene som er merket `huskis:kun-dev` — i dag nøyaktig én: taggen
+// som laster testmodusen (`?mock=1`). Filene den peker på ligger allerede i
+// SKIP, så dette lukker det siste sporet av mock-backenden i produksjon.
+// Kaster hvis markørene mangler eller står i feil rekkefølge: en stille
+// no-op her ville deployet testmodusen uten at noe sa fra.
+const DEV_ONLY = /[ \t]*<!--\s*huskis:kun-dev:start[\s\S]*?huskis:kun-dev:slutt\s*-->[ \t]*\r?\n?/g;
+function stripDevOnly(html) {
+  const starts = (html.match(/huskis:kun-dev:start/g) || []).length;
+  const ends = (html.match(/huskis:kun-dev:slutt/g) || []).length;
+  if (!starts || starts !== ends) {
+    throw new Error('Fant ' + starts + ' huskis:kun-dev:start og ' + ends + ' :slutt i index.html');
+  }
+  const out = html.replace(DEV_ONLY, '');
+  if ((out.match(/huskis:kun-dev/g) || []).length) {
+    throw new Error('huskis:kun-dev-blokken lot seg ikke fjerne fra index.html');
+  }
+  return out;
+}
+
 // Bygger build-ID-en inn i HTML-en + versjonerer de lokale JS/CSS-URL-ene.
 function stampHtml(html, buildId) {
-  let out = html.replace(
+  const stripped = stripDevOnly(html);
+  let out = stripped.replace(
     /(<meta\s+name="huskis-build"\s+content=")[^"]*(")/,
     (m, a, b) => a + buildId + b
   );
-  if (out === html) throw new Error('Fant ikke <meta name="huskis-build"> i index.html');
+  if (out === stripped) throw new Error('Fant ikke <meta name="huskis-build"> i index.html');
   for (const f of VERSIONED) {
     const re = new RegExp('((?:src|href)=")' + reEscape(f) + '(")', 'g');
     out = out.replace(re, (m, a, b) => a + f + '?b=' + buildId + b);
@@ -120,4 +147,4 @@ if (require.main === module) {
   console.log('✅ Build ' + v.buildId + ' (' + v.builtAt + ')');
 }
 
-module.exports = { build, makeBuildId, stampHtml, VERSIONED };
+module.exports = { build, makeBuildId, stampHtml, stripDevOnly, VERSIONED };

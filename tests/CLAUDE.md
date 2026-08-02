@@ -21,6 +21,7 @@ node tests/build-version.test.js      # build.js + vercel.json
 node tests/no-legacy-domain.test.js   # repo-vid vakt mot det pensjonerte domenet
 node tests/release-pipeline.test.js   # rekkefølgen migrering → smoke → deploy
 node tests/db-contract.test.js        # smoke-test.sql i takt med app.js
+node tests/security-headers.test.js   # CSP + sikkerhetsheaderne, låst Supabase-versjon
 ```
 
 Hele suiten i én runde (starter en lokal server selv hvis ingen svarer) —
@@ -39,11 +40,18 @@ SHARD_INDEX=1 SHARD_TOTAL=4 tests/run-all.sh   # slik CI deler den opp
 
 ## Hermetikk: `?mock=1`
 
-Nettlesertestene laster appen med `?mock=1`, som bytter Supabase-klienten mot
+Nettlesertestene laster appen med `?mock=1`, som får `dev-mock.js` til å laste
 `mock-backend.js`: en in-memory-«database» i `localStorage` (`hk-mock-db`) med
 sesjon per fane i `sessionStorage` (`hk-mock-session`). Det er dette
 backend-byttet som gjør testene hermetiske — det finnes ingen ruteblokkering av
 nettverkskall, og testene stubber ikke fetch.
+
+Begge filene er **kun kildekode**: `build.js` holder dem utenfor `dist/` og river
+`kun-dev`-blokken ut av `index.html`, så testmodusen ikke finnes i produksjon
+(`docs/sikkerhetsheadere.md`). Alle nettlesertestene kjører dessuten under den
+ekte innholdssikkerhetspolicyen, som ligger i en `<meta>`-tagg i `index.html` —
+en endring som krever nytt inline-script eller en ny tredjepartsvert vil feile
+her før den når produksjon.
 
 `&lag=800` gir kunstig serverforsinkelse og brukes til å vise at UI-et er
 umiddelbart og at operasjonskøen serialiserer riktig.
