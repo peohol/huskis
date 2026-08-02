@@ -4,10 +4,11 @@ Kun oppgaver som ikke er gjort på dagens `main`. Alt annet — hvilke migrering
 som er kjørt, hvilke funksjoner som finnes og hvordan de virker — leses i
 `supabase/users-and-sharing.sql`, `docs/` og git-historikken.
 
-Skjemaet trenger ingen manuell kjøring: «Supabase DB-oppsett»
-(`.github/workflows/db-setup.yml`) kjører `supabase/setup.sql` +
-`supabase/users-and-sharing.sql` mot produksjon ved hver push til `main` som
-rører SQL-filene.
+Skjemaet trenger ingen manuell kjøring: «Release»
+(`.github/workflows/release.yml`) kjører `supabase/setup.sql` +
+`supabase/users-and-sharing.sql` mot produksjon ved hver push til `main`, og
+slipper først frontenden ut på Vercel etter at smoke-testen er grønn. Se
+`docs/release-og-deploy.md`.
 
 ## Supabase Dashboard (krever Peders tilgang)
 
@@ -78,6 +79,26 @@ både i `tombstones` (slettet 2026-07-27) og som aktiv rad.
       ```
 
 ## Vercel
+
+- [ ] **Legg inn deploy-secretene** (Settings → Secrets and variables → Actions).
+      Uten dem stopper `deploy`-jobben i «Release» med en eksplisitt feil, og
+      ingenting når produksjon — Vercels egen git-deploy for `main` er slått av
+      i `vercel.json` med vilje, slik at deploy og migrering ikke kan kjøre
+      parallelt.
+
+      | Secret | Hentes fra |
+      |---|---|
+      | `VERCEL_TOKEN` | Vercel → Account Settings → Tokens |
+      | `VERCEL_ORG_ID` | `.vercel/project.json` etter `vercel link` |
+      | `VERCEL_PROJECT_ID` | samme fil |
+
+      ```bash
+      npx vercel login && npx vercel link      # skriver .vercel/project.json
+      cat .vercel/project.json                 # orgId + projectId
+      ```
+
+      `.vercel/` er gitignorert; verdiene er ID-er, ikke hemmeligheter, men
+      `VERCEL_TOKEN` skal ALDRI skrives til Git, PR-er, logger eller chat.
 
 - [ ] Koble domenet `huskekurv.vercel.app` til `huskis`-prosjektet. Redirect-
       regelen i `vercel.json` er klar, men trer først i kraft når domenet faktisk

@@ -1,0 +1,182 @@
+name: Release
+
+# ============================================================
+# Rekkefølgen som gjør databaseendringer trygge:
+#
+#   1. tester    — hele suiten (JS + SQL), samme jobber som på PR-en
+#   2. migrering — setup.sql + users-and-sharing.sql mot produksjonsdatabasen
+#   3. smoke     — supabase/smoke-test.sql: finnes og VIRKER alt klienten
+#                  trenger (tabeller, kolonner, funksjoner, RPC-er, RLS)?
+#   4. deploy    — FØRST nå bygges og publiseres frontenden på Vercel
+#
+# Hvert ledd `needs` det forrige, så en frontend som avhenger av nye
+# databaseendringer kan ikke nå produksjon før migreringen er fullført OG
+# verifisert. Feiler ledd 2 eller 3, skjer ledd 4 aldri: produksjon fortsetter
+# å servere den forrige frontenden, som fungerer mot det (additivt) migrerte
+# skjemaet.
+#
+# Vercels egen git-deploy for `main` er slått AV i vercel.json
+# (`git.deploymentEnabled.main = false`). Det er DEN mekanismen som hindrer at
+# deploy og migrering kjører parallelt — produksjonsdeployen har bare én vei
+# inn, og den går gjennom denne workflowen. Preview-deploys for andre grener
+# er uberørt.
+#
+# Feil, retry og rollback: se docs/release-og-deploy.md.
+#
+# Krever repository-secrets:
+#   SUPABASE_DB_URL  — Supabase → Project Settings → Database → Connection
+#                      string → URI (med passordet satt inn)
+#   VERCEL_TOKEN     — Vercel → Account Settings → Tokens
+#   VERCEL_ORG_ID    — fra .vercel/project.json etter `vercel link`
+#   VERCEL_PROJECT_ID— samme sted
+# ============================================================
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      hopp_over_deploy:
+        description: 'Kjør kun migrering + smoke-test (ingen produksjonsdeploy)'
+        type: boolean
+        default: false
+
+concurrency:
+  # ÉN release om gangen. Gruppen deles av push og manuell kjøring, så en
+  # migrering aldri kan overlappe med en deploy eller en annen migrering.
+  # `cancel-in-progress: false`: en pågående release får alltid gjøre seg ferdig
+  # — å avbryte midt i en DDL er nettopp det vi vil unngå.
+  group: huskis-release
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  # ---- 1. Tester ------------------------------------------------------
+  tester:
+    name: Tester
+    uses: ./.github/workflows/ci.yml
+
+  # ---- 2. Migrering ---------------------------------------------------
+  migrering:
+    name: Migrering
+    needs: tester
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Kjør SQL-filene mot produksjonsdatabasen
+        env:
+          SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+        run: |
+          if [ -z "$SUPABASE_DB_URL" ]; then
+            echo "::error::Mangler secret SUPABASE_DB_URL. Legg den til under Settings → Secrets and variables → Actions."
+            exit 1
+          fi
+          # Migreringen kjører mot en LEVENDE database: appen poller get_my_doc
+          # hvert 5. sekund, og en slik lesning kan havne i en låsesyklus med
+          # DDL-en (som tar AccessExclusiveLock). Det skjedde 2026-08-01 —
+          # «deadlock detected» midt i filen, og produksjonen ble stående
+          # halvmigrert (roller på plass, capabilities-funksjonene ikke).
+          #
+          # Begge filene er idempotente, så den riktige responsen er å prøve på
+          # nytt, ikke å stoppe halvveis. `lock_timeout` gjør at en DDL som blir
+          # stående og vente gir opp raskt i stedet for å holde på låsene sine
+          # mens køen bygger seg opp bak.
+          export PGOPTIONS='-c lock_timeout=15s'
+          run_sql() {
+            local fil="$1" forsok=1
+            until psql "$SUPABASE_DB_URL" -v ON_ERROR_STOP=1 -f "$fil"; do
+              if [ "$forsok" -ge 3 ]; then
+                echo "::error::$fil feilet etter $forsok forsøk."
+                return 1
+              fi
+              echo "::warning::$fil feilet (forsøk $forsok) — prøver igjen om $((forsok * 10)) s."
+              sleep $((forsok * 10))
+              forsok=$((forsok + 1))
+            done
+          }
+          run_sql supabase/setup.sql
+          run_sql supabase/users-and-sharing.sql
+          echo "✅ Migreringen er kjørt (legacy-synk + brukere/deling)."
+
+  # ---- 3. Smoke-test --------------------------------------------------
+  smoke:
+    name: Smoke-test
+    needs: migrering
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Verifiser at databasen er klar for den nye klienten
+        env:
+          SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+        run: |
+          if [ -z "$SUPABASE_DB_URL" ]; then
+            echo "::error::Mangler secret SUPABASE_DB_URL."
+            exit 1
+          fi
+          # Read-only og transaksjonell (se toppen av smoke-test.sql) — trygg
+          # mot produksjon med brukere innlogget. Ingen retry: enten er skjemaet
+          # riktig, eller så skal deployen stoppe.
+          if ! psql "$SUPABASE_DB_URL" -v ON_ERROR_STOP=1 -f supabase/smoke-test.sql; then
+            echo "::error::Smoke-testen feilet — produksjonsdeployen stoppes. Databasen er ikke klar for denne frontenden. Se docs/release-og-deploy.md."
+            exit 1
+          fi
+
+  # ---- 4. Produksjonsdeploy -------------------------------------------
+  deploy:
+    name: Produksjonsdeploy (Vercel)
+    needs: smoke
+    if: ${{ github.event_name == 'push' || inputs.hopp_over_deploy != true }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment: production
+    env:
+      VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+      VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Sjekk at Vercel-secretene finnes
+        run: |
+          for s in VERCEL_TOKEN VERCEL_ORG_ID VERCEL_PROJECT_ID; do
+            if [ -z "${!s}" ]; then
+              echo "::error::Mangler secret $s. Uten den kan ingenting deployes til produksjon (Vercels git-deploy for main er slått av i vercel.json). Se docs/release-og-deploy.md."
+              exit 1
+            fi
+          done
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+
+      - run: npm install -g vercel@latest
+
+      - name: Hent prosjektinnstillingene
+        run: vercel pull --yes --environment=production --token="$VERCEL_TOKEN"
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+
+      - name: Bygg
+        # VERCEL_GIT_COMMIT_SHA gir build.js en stabil commit å stemple build-ID
+        # og /version.json med (den finnes ikke når `vercel build` kjøres
+        # utenfor Vercels egne byggere).
+        run: vercel build --prod --token="$VERCEL_TOKEN"
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          VERCEL_GIT_COMMIT_SHA: ${{ github.sha }}
+
+      - name: Publiser til produksjon
+        run: |
+          url=$(vercel deploy --prebuilt --prod --token="$VERCEL_TOKEN")
+          echo "✅ Produksjonsdeploy: $url"
+          echo "### Produksjonsdeploy" >> "$GITHUB_STEP_SUMMARY"
+          echo "$url" >> "$GITHUB_STEP_SUMMARY"
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}

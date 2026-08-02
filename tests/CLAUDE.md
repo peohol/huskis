@@ -19,13 +19,23 @@ Rene node-tester (ingen server, ingen nettleser):
 ```bash
 node tests/build-version.test.js      # build.js + vercel.json
 node tests/no-legacy-domain.test.js   # repo-vid vakt mot det pensjonerte domenet
+node tests/release-pipeline.test.js   # rekkefølgen migrering → smoke → deploy
+node tests/db-contract.test.js        # smoke-test.sql i takt med app.js
+```
+
+Hele suiten i én runde (starter en lokal server selv hvis ingen svarer) —
+nøyaktig det CI kjører:
+
+```bash
+tests/run-all.sh
+SHARD_INDEX=1 SHARD_TOTAL=4 tests/run-all.sh   # slik CI deler den opp
 ```
 
 - `NODE_PATH=$(npm root -g)` trengs fordi Playwright er installert globalt.
 - `HUSKIS_URL` overstyrer `http://localhost:8000` hvis serveren kjører et annet
   sted.
 - Kjør de testene endringen berører — hele mappen tar lang tid, og en full runde
-  er sjelden det som gir evidensen.
+  er sjelden det som gir evidensen. CI kjører den fulle runden på hver PR.
 
 ## Hermetikk: `?mock=1`
 

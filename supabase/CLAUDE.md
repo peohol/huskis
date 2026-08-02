@@ -6,9 +6,11 @@ versjonerte migreringsfiler — en endring gjøres på riktig sted i fila, og he
 fila kjøres på nytt. `setup.sql` pensjonerer den gamle v1-modellen og er også
 idempotent.
 
-`.github/workflows/db-setup.yml` kjører begge filene mot produksjon ved push til
-`main` (path-filtrert til SQL-filene) og manuelt fra Actions-fanen. Skjemaet
-migreres altså omtrent samtidig som klienten deployes.
+`.github/workflows/release.yml` kjører begge filene mot produksjon ved hver push
+til `main` — FØR frontenden publiseres, og med `smoke-test.sql` som port mellom
+dem. Vercels git-deploy for `main` er slått av, så migrering og deploy kan ikke
+kjøre parallelt. Hele rekkefølgen, inkludert feil/retry/rollback:
+[`docs/release-og-deploy.md`](../docs/release-og-deploy.md).
 
 ## Regler
 
@@ -21,7 +23,9 @@ migreres altså omtrent samtidig som klienten deployes.
   en kolonne fjernes tidligst en runde etter at klienten sluttet å bruke den.
 - **Skjemaet og klienten må følges ad.** Skriver klienten et felt som ikke
   finnes, avviser PostgREST hver skriving og synken stopper — legg
-  skjemaendringen i SAMME PR som klientendringen som trenger den.
+  skjemaendringen i SAMME PR som klientendringen som trenger den. Nye felter og
+  RPC-er skal også inn i `smoke-test.sql`, som er porten produksjonsdeployen
+  må gjennom; `tests/db-contract.test.js` feiler hvis du glemmer det.
 - **Autorisasjon hører hjemme her.** Vurder RLS-policyer, `BEFORE UPDATE`-vakter,
   capability-funksjonene og RPC-ene som ett hele. En ny `security definer`-
   funksjon omgår RLS og må selv sjekke rettighetene.
@@ -30,7 +34,7 @@ migreres altså omtrent samtidig som klienten deployes.
 - **DDL kjører mot en levende database** som klientene poller hvert 5. sekund.
   Hold transaksjonene korte; unngå unødvendig tunge låser (workflowen setter
   `lock_timeout` og prøver på nytt, men en deadlock kan ellers etterlate
-  produksjonen halvmigrert).
+  produksjonen halvmigrert — smoke-testen fanger det og stopper deployen).
 - Rettighetsmodellen er dokumentert i
   [`docs/rettigheter-og-deling.md`](../docs/rettigheter-og-deling.md)
   (autoritativ) og databasearkitekturen i
@@ -52,3 +56,8 @@ PGHOST=/tmp/hkpg PGPORT=5433 PGUSER=postgres PGDATABASE=hk_test \
 Supabase. En ny serverside-regel skal ha en ny sjekk i den testfilen som dekker
 området (roller/deling, gruppeflytting, gravsteiner, kontosletting,
 e-postvarsel, migrering av gamle listedelinger).
+
+Begge løp avsluttes med `smoke-test.sql` — deploy-porten fra
+`docs/release-og-deploy.md`. Den skal være grønn mot et ferdig migrert skjema;
+er den ikke det lokalt, blokkerer den produksjonsdeployen uten at noe faktisk
+er galt.

@@ -1,0 +1,469 @@
+-- ============================================================
+-- Huskis: SMOKE-TEST etter migrering
+--
+-- Kjøres mot den LEVENDE databasen rett etter at `setup.sql` +
+-- `users-and-sharing.sql` er kjørt, og FØR produksjonsdeployen på Vercel
+-- slippes gjennom (.github/workflows/release.yml). Feiler den, blir den nye
+-- frontenden aldri publisert — det er hele poenget.
+--
+-- Den svarer på ett spørsmål: «finnes og virker alt den deployede klienten
+-- trenger?». Kontrakten er derfor hentet fra klienten, ikke fra skjemafila:
+--
+--   * tabellene i `TABLE`-mappingen og realtime-abonnementet i app.js
+--   * kolonnene `insertPayload()` / `updatePayload()` faktisk sender
+--     (PostgREST avviser HVER skriving for radtypen hvis én mangler — det var
+--     nettopp cards/items.collapsed-hendelsen)
+--   * RPC-ene klienten kaller med `.rpc(...)`, med riktig signatur OG
+--     execute-rettighet for `authenticated`
+--   * at RLS er PÅ, at policyene finnes, og at `anon` ikke kommer til
+--
+-- `tests/db-contract.test.js` holder listene her i takt med app.js.
+--
+-- TRYGGHET: hele fila kjører i ÉN read-only-transaksjon som avsluttes med
+-- rollback. Den kan ikke skrive, ikke låse noe tyngre enn ACCESS SHARE, og
+-- kan derfor kjøres mot produksjon mens brukerne er innlogget.
+--
+-- Kjør:
+--   psql "$SUPABASE_DB_URL" -v ON_ERROR_STOP=1 -f supabase/smoke-test.sql
+-- ============================================================
+
+\set ON_ERROR_STOP on
+\timing off
+
+begin transaction read only;
+
+set local statement_timeout = '60s';
+set local lock_timeout = '5s';
+
+-- Feil samles opp underveis (i en session-GUC, siden en read-only-transaksjon
+-- ikke får lage temp-tabeller) og rapporteres SAMLET til slutt. Én runde skal
+-- vise alt som mangler, ikke bare det første.
+select set_config('huskis.smoke_feil', '', false);
+
+\echo '──────── 1. Tabeller ────────'
+do $$
+declare
+  feil text[] := '{}';
+  t text;
+begin
+  foreach t in array array[
+    'profiles', 'universes', 'groups', 'cards', 'items',
+    'memberships', 'share_invites', 'tombstones',
+    'migration_log', 'app_config', 'email_send_log'
+  ] loop
+    if to_regclass('public.' || t) is null then
+      feil := feil || ('tabell public.' || t || ' mangler');
+    else
+      raise notice '  ✓ public.%', t;
+    end if;
+  end loop;
+  if array_length(feil, 1) > 0 then
+    perform set_config('huskis.smoke_feil',
+      current_setting('huskis.smoke_feil', true) || array_to_string(feil, E'\n') || E'\n', false);
+  end if;
+end $$;
+
+\echo '──────── 2. Kolonner klienten skriver ────────'
+do $$
+declare
+  feil text[] := '{}';
+  spec text; tbl text; col text; n int;
+begin
+  -- Nøyaktig de feltene insertPayload()/updatePayload() i app.js sender, pluss
+  -- feltene get_my_doc() leser tilbake. Mangler én av dem, stopper synken for
+  -- HELE radtypen.
+  foreach spec in array array[
+    'universes:id', 'universes:owner_id', 'universes:name', 'universes:trashed',
+    'universes:locked', 'universes:unlocked', 'universes:collapsed',
+    'universes:invite_policy', 'universes:ts', 'universes:org',
+    'universes:pos', 'universes:pos_ts', 'universes:pos_org',
+
+    'groups:id', 'groups:owner_id', 'groups:universe_id', 'groups:name',
+    'groups:trashed', 'groups:locked', 'groups:unlocked', 'groups:collapsed',
+    'groups:cat_id', 'groups:is_cat', 'groups:invite_policy',
+    'groups:ts', 'groups:org', 'groups:pos', 'groups:pos_ts', 'groups:pos_org',
+
+    'cards:id', 'cards:owner_id', 'cards:group_id', 'cards:title',
+    'cards:trashed', 'cards:locked', 'cards:unlocked', 'cards:collapsed',
+    'cards:k', 'cards:p', 'cards:lab_ts', 'cards:lab_org',
+    'cards:responsible', 'cards:start_at', 'cards:due_at', 'cards:lock_times',
+    'cards:ts', 'cards:org', 'cards:pos', 'cards:pos_ts', 'cards:pos_org',
+
+    'items:id', 'items:owner_id', 'items:card_id', 'items:text',
+    'items:trashed', 'items:done', 'items:collapsed',
+    'items:cat_id', 'items:is_cat', 'items:lock_times',
+    'items:responsible', 'items:start_at', 'items:due_at',
+    'items:ts', 'items:org', 'items:pos', 'items:pos_ts', 'items:pos_org',
+
+    'memberships:id', 'memberships:user_id', 'memberships:universe_id',
+    'memberships:group_id', 'memberships:role', 'memberships:pos',
+
+    'profiles:id', 'profiles:email', 'profiles:display_name', 'profiles:avatar',
+
+    'share_invites:id', 'share_invites:inviter_id', 'share_invites:invitee_id',
+    'share_invites:invitee_email', 'share_invites:universe_id',
+    'share_invites:group_id', 'share_invites:role', 'share_invites:status',
+    'share_invites:created_at',
+
+    'tombstones:resource_type', 'tombstones:resource_id', 'tombstones:ts'
+  ] loop
+    tbl := split_part(spec, ':', 1);
+    col := split_part(spec, ':', 2);
+    select count(*) into n from information_schema.columns
+     where table_schema = 'public' and table_name = tbl and column_name = col;
+    if n = 0 then
+      feil := feil || ('kolonne public.' || tbl || '.' || col || ' mangler');
+    end if;
+  end loop;
+  if array_length(feil, 1) > 0 then
+    perform set_config('huskis.smoke_feil',
+      current_setting('huskis.smoke_feil', true) || array_to_string(feil, E'\n') || E'\n', false);
+  else
+    raise notice '  ✓ alle kolonnene klienten skriver finnes';
+  end if;
+end $$;
+
+\echo '──────── 3. RLS er på ────────'
+do $$
+declare
+  feil text[] := '{}';
+  t text; paa boolean;
+begin
+  foreach t in array array[
+    'profiles', 'universes', 'groups', 'cards', 'items',
+    'memberships', 'share_invites', 'tombstones',
+    'migration_log', 'app_config', 'email_send_log'
+  ] loop
+    select relrowsecurity into paa from pg_class
+     where oid = to_regclass('public.' || t);
+    if paa is distinct from true then
+      feil := feil || ('RLS er IKKE på for public.' || t);
+    end if;
+  end loop;
+  if array_length(feil, 1) > 0 then
+    perform set_config('huskis.smoke_feil',
+      current_setting('huskis.smoke_feil', true) || array_to_string(feil, E'\n') || E'\n', false);
+  else
+    raise notice '  ✓ RLS på alle tabellene';
+  end if;
+end $$;
+
+\echo '──────── 4. RLS-policyer ────────'
+do $$
+declare
+  feil text[] := '{}';
+  p text; n int;
+begin
+  foreach p in array array[
+    'profiles:profiles_select', 'profiles:profiles_update',
+    'universes:universes_select', 'universes:universes_insert',
+    'universes:universes_update', 'universes:universes_delete',
+    'groups:groups_select', 'groups:groups_insert',
+    'groups:groups_update', 'groups:groups_delete',
+    'cards:cards_select', 'cards:cards_insert',
+    'cards:cards_update', 'cards:cards_delete',
+    'items:items_select', 'items:items_insert',
+    'items:items_update', 'items:items_delete',
+    'memberships:memberships_select', 'memberships:memberships_update',
+    'memberships:memberships_delete',
+    'share_invites:share_invites_select', 'share_invites:share_invites_delete',
+    'tombstones:tombstones_select'
+  ] loop
+    select count(*) into n from pg_policies
+     where schemaname = 'public'
+       and tablename = split_part(p, ':', 1)
+       and policyname = split_part(p, ':', 2);
+    if n = 0 then
+      feil := feil || ('policy ' || split_part(p, ':', 2) || ' mangler på public.' || split_part(p, ':', 1));
+    end if;
+  end loop;
+  if array_length(feil, 1) > 0 then
+    perform set_config('huskis.smoke_feil',
+      current_setting('huskis.smoke_feil', true) || array_to_string(feil, E'\n') || E'\n', false);
+  else
+    raise notice '  ✓ alle 24 policyene finnes';
+  end if;
+end $$;
+
+\echo '──────── 5. RPC-er: signatur + execute-rettigheter ────────'
+do $$
+declare
+  feil text[] := '{}';
+  fn text; oid_ oid;
+begin
+  -- Nøyaktig signaturene klienten kaller via .rpc(...). Feil signatur er like
+  -- ille som ingen funksjon: PostgREST finner den ikke.
+  foreach fn in array array[
+    'public.get_my_doc()',
+    'public.import_doc(jsonb)',
+    'public.create_share_invite(text, uuid, text, text)',
+    'public.accept_share_invite(uuid, uuid, double precision)',
+    'public.decline_share_invite(uuid)',
+    'public.revoke_share_invite(uuid)',
+    'public.revoke_share(text, uuid, uuid)',
+    'public.set_member_role(text, uuid, uuid, text)',
+    'public.leave_share(text, uuid)',
+    'public.set_locked(text, uuid, boolean)',
+    'public.set_unlocked(text, uuid, boolean)',
+    'public.set_invite_policy(text, uuid, text)',
+    'public.get_members(text, uuid)',
+    'public.move_group(uuid, uuid, uuid, double precision)',
+    'public.delete_account()'
+  ] loop
+    oid_ := to_regprocedure(fn);
+    if oid_ is null then
+      feil := feil || ('RPC ' || fn || ' mangler');
+    else
+      if not has_function_privilege('authenticated', oid_, 'EXECUTE') then
+        feil := feil || ('RPC ' || fn || ': authenticated mangler EXECUTE');
+      end if;
+      if has_function_privilege('anon', oid_, 'EXECUTE') then
+        feil := feil || ('RPC ' || fn || ': anon HAR EXECUTE (skal være trukket tilbake)');
+      end if;
+    end if;
+  end loop;
+  if array_length(feil, 1) > 0 then
+    perform set_config('huskis.smoke_feil',
+      current_setting('huskis.smoke_feil', true) || array_to_string(feil, E'\n') || E'\n', false);
+  else
+    raise notice '  ✓ alle 15 RPC-ene finnes med riktig signatur og rettigheter';
+  end if;
+end $$;
+
+\echo '──────── 6. Interne funksjoner + triggere ────────'
+do $$
+declare
+  feil text[] := '{}';
+  fn text; oid_ oid; tg text; n int;
+begin
+  -- Capability-funksjonene: get_my_doc() kaller dem for HVER rad. Halvmigrert
+  -- produksjon 2026-08-01 hadde tabellene, men ikke disse.
+  foreach fn in array array[
+    'public.universe_caps(uuid, uuid)', 'public.group_caps(uuid, uuid)',
+    'public.universe_role(uuid, uuid)', 'public.group_role(uuid, uuid)',
+    'public.can_edit_content(text, uuid, uuid)',
+    'public.can_create_child(text, uuid, uuid)',
+    'public.can_delete_object(text, uuid, uuid)',
+    'public.can_move_group(uuid, uuid)',
+    'public.is_effectively_locked(text, uuid)',
+    'public.effective_invite_policy(text, uuid)',
+    'public.universe_member_count(uuid)', 'public.group_member_count(uuid)',
+    'public.universe_owner_count(uuid)', 'public.universe_owner_set(uuid)',
+    'public.write_tombstone()', 'public.guard_object_insert()',
+    'public.handle_new_user()', 'public.send_invite_email()'
+  ] loop
+    oid_ := to_regprocedure(fn);
+    if oid_ is null then feil := feil || ('funksjon ' || fn || ' mangler'); end if;
+  end loop;
+
+  -- Interne hjelpere skal IKKE kunne kalles som RPC.
+  foreach fn in array array[
+    'public.purge_universe_access(uuid, uuid)',
+    'public.purge_group_access(uuid, uuid)'
+  ] loop
+    oid_ := to_regprocedure(fn);
+    if oid_ is null then
+      feil := feil || ('funksjon ' || fn || ' mangler');
+    elsif has_function_privilege('authenticated', oid_, 'EXECUTE') then
+      feil := feil || (fn || ' er eksponert for authenticated (skal være intern)');
+    end if;
+  end loop;
+
+  -- Vaktene og gravsteinstriggerne: uten dem er skjemaet på plass, men
+  -- reglene håndheves ikke.
+  foreach tg in array array[
+    'universes:universes_guard', 'groups:groups_guard',
+    'cards:cards_guard', 'items:items_guard',
+    'universes:universes_tombstone', 'groups:groups_tombstone',
+    'cards:cards_tombstone', 'items:items_tombstone',
+    'universes:universes_insert_guard', 'groups:groups_insert_guard',
+    'cards:cards_insert_guard', 'items:items_insert_guard',
+    'universes:universes_owner_seed', 'groups:groups_owner_seed',
+    'memberships:memberships_guard', 'memberships:memberships_last_owner_guard',
+    'share_invites:on_share_invite_created'
+  ] loop
+    select count(*) into n from pg_trigger
+     where tgrelid = to_regclass('public.' || split_part(tg, ':', 1))
+       and tgname = split_part(tg, ':', 2)
+       and not tgisinternal;
+    if n = 0 then
+      feil := feil || ('trigger ' || split_part(tg, ':', 2) || ' mangler på public.' || split_part(tg, ':', 1));
+    end if;
+  end loop;
+
+  if array_length(feil, 1) > 0 then
+    perform set_config('huskis.smoke_feil',
+      current_setting('huskis.smoke_feil', true) || array_to_string(feil, E'\n') || E'\n', false);
+  else
+    raise notice '  ✓ capability-funksjoner, vakter og triggere på plass';
+  end if;
+end $$;
+
+\echo '──────── 7. Tabellrettigheter ────────'
+do $$
+declare
+  feil text[] := '{}';
+  t text;
+begin
+  foreach t in array array['universes', 'groups', 'cards', 'items'] loop
+    if not has_table_privilege('authenticated', 'public.' || t, 'SELECT, INSERT, UPDATE, DELETE') then
+      feil := feil || ('authenticated mangler CRUD på public.' || t);
+    end if;
+  end loop;
+  if not has_table_privilege('authenticated', 'public.profiles', 'SELECT') then
+    feil := feil || 'authenticated mangler SELECT på public.profiles';
+  end if;
+  if not has_column_privilege('authenticated', 'public.profiles', 'display_name', 'UPDATE') then
+    feil := feil || 'authenticated mangler UPDATE(display_name) på public.profiles';
+  end if;
+  if has_column_privilege('authenticated', 'public.profiles', 'email', 'UPDATE') then
+    feil := feil || 'authenticated KAN skrive profiles.email (skal være speilet fra auth)';
+  end if;
+  if has_table_privilege('authenticated', 'public.memberships', 'INSERT') then
+    feil := feil || 'authenticated KAN sette inn i memberships (roller skal kun lages av RPC-ene)';
+  end if;
+
+  -- anon skal ikke se noe som helst.
+  foreach t in array array[
+    'profiles', 'universes', 'groups', 'cards', 'items',
+    'memberships', 'share_invites', 'tombstones'
+  ] loop
+    if has_table_privilege('anon', 'public.' || t, 'SELECT') then
+      feil := feil || ('anon har SELECT på public.' || t);
+    end if;
+  end loop;
+
+  if array_length(feil, 1) > 0 then
+    perform set_config('huskis.smoke_feil',
+      current_setting('huskis.smoke_feil', true) || array_to_string(feil, E'\n') || E'\n', false);
+  else
+    raise notice '  ✓ rettighetene er som forventet for authenticated og anon';
+  end if;
+end $$;
+
+\echo '──────── 8. Realtime-publikasjon ────────'
+do $$
+declare
+  feil text[] := '{}';
+  t text; n int;
+begin
+  -- Klienten abonnerer på postgres_changes for disse (app.js:
+  -- startCloudRealtime). Utenfor Supabase finnes ikke publikasjonen — da
+  -- hoppes sjekken over, akkurat som i users-and-sharing.sql.
+  if not exists (select 1 from pg_publication where pubname = 'supabase_realtime') then
+    raise notice '  – ingen supabase_realtime-publikasjon (ikke Supabase) — hoppet over';
+    return;
+  end if;
+  foreach t in array array[
+    'universes', 'groups', 'cards', 'items', 'memberships', 'share_invites'
+  ] loop
+    select count(*) into n from pg_publication_tables
+     where pubname = 'supabase_realtime' and schemaname = 'public' and tablename = t;
+    if n = 0 then
+      feil := feil || ('public.' || t || ' er ikke med i supabase_realtime');
+    end if;
+  end loop;
+  if array_length(feil, 1) > 0 then
+    perform set_config('huskis.smoke_feil',
+      current_setting('huskis.smoke_feil', true) || array_to_string(feil, E'\n') || E'\n', false);
+  else
+    raise notice '  ✓ alle seks tabellene er i supabase_realtime';
+  end if;
+end $$;
+
+\echo '──────── 9. Virker det? (get_my_doc som innlogget bruker) ────────'
+-- En uuid som aldri kan tilhøre en ekte konto (auth.users bruker v4).
+-- Kallet er `stable` og leser kun; transaksjonen er read-only.
+select set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-000000000000', true);
+select set_config('request.jwt.claims', '{"sub":"00000000-0000-0000-0000-000000000000"}', true);
+set local role authenticated;
+
+do $$
+declare
+  feil text[] := '{}';
+  doc jsonb;
+  k text;
+begin
+  begin
+    doc := public.get_my_doc();
+  exception when others then
+    perform set_config('huskis.smoke_feil',
+      current_setting('huskis.smoke_feil', true) ||
+      'get_my_doc() KASTET: ' || sqlerrm || E'\n', false);
+    return;
+  end;
+
+  foreach k in array array['user', 'universes', 'groups', 'cards', 'items',
+                           'invites_in', 'invites_out'] loop
+    if not (doc ? k) then feil := feil || ('get_my_doc(): mangler nøkkelen «' || k || '»'); end if;
+  end loop;
+
+  -- En ukjent bruker skal få et TOMT doc. Får den rader, lekker RLS/joinene.
+  foreach k in array array['universes', 'groups', 'cards', 'items',
+                           'invites_in', 'invites_out'] loop
+    if jsonb_array_length(coalesce(doc -> k, '[]'::jsonb)) <> 0 then
+      feil := feil || ('get_my_doc(): «' || k || '» er ikke tom for en ukjent bruker — LEKKASJE');
+    end if;
+  end loop;
+
+  -- Capability-funksjonene svarer uten å kaste (get_my_doc kaller dem per rad).
+  if public.universe_caps('00000000-0000-0000-0000-000000000000',
+                          '00000000-0000-0000-0000-000000000000') is null then
+    feil := feil || 'universe_caps() returnerte null';
+  end if;
+  if public.group_caps('00000000-0000-0000-0000-000000000000',
+                       '00000000-0000-0000-0000-000000000000') is null then
+    feil := feil || 'group_caps() returnerte null';
+  end if;
+
+  if array_length(feil, 1) > 0 then
+    perform set_config('huskis.smoke_feil',
+      current_setting('huskis.smoke_feil', true) || array_to_string(feil, E'\n') || E'\n', false);
+  else
+    raise notice '  ✓ get_my_doc() svarer med et tomt, komplett doc for en ukjent bruker';
+  end if;
+end $$;
+
+reset role;
+
+\echo '──────── 10. Virker RLS? (anon slipper ikke inn) ────────'
+set local role anon;
+do $$
+declare feil text[] := '{}';
+begin
+  begin
+    perform 1 from public.universes limit 1;
+    feil := feil || 'anon fikk lese public.universes';
+  exception when insufficient_privilege then null;
+  end;
+  begin
+    perform 1 from public.profiles limit 1;
+    feil := feil || 'anon fikk lese public.profiles';
+  exception when insufficient_privilege then null;
+  end;
+  begin
+    perform public.get_my_doc();
+    feil := feil || 'anon fikk kalle get_my_doc()';
+  exception when insufficient_privilege then null;
+           when others then null;  -- «ikke innlogget» er også avvisning
+  end;
+  if array_length(feil, 1) > 0 then
+    perform set_config('huskis.smoke_feil',
+      current_setting('huskis.smoke_feil', true) || array_to_string(feil, E'\n') || E'\n', false);
+  else
+    raise notice '  ✓ anon avvises på tabeller og RPC';
+  end if;
+end $$;
+reset role;
+
+\echo '──────── Resultat ────────'
+do $$
+declare f text := coalesce(current_setting('huskis.smoke_feil', true), '');
+begin
+  if f <> '' then
+    raise exception E'Smoke-testen FEILET — databasen er ikke klar for den nye klienten:\n%', f;
+  end if;
+  raise notice '✅ Smoke-test grønn: skjema, rettigheter, policyer, triggere og RPC-er er på plass og svarer.';
+end $$;
+
+rollback;

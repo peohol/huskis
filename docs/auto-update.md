@@ -18,14 +18,19 @@ generert ÉN gang i `build.js` og skrevet til to steder med nøyaktig samme verd
 | Fila klienten spør mot | `/version.json` |
 
 ```json
-{ "buildId": "dpl_…", "version": null, "builtAt": "2026-07-28T02:51:02.609Z", "commit": "a92b9a9…" }
+{ "buildId": "a92b9a9c4d1e-msbg8ebs", "version": null, "builtAt": "2026-07-28T02:51:02.609Z", "commit": "a92b9a9…" }
 ```
 
 `buildId` = Vercels `VERCEL_DEPLOYMENT_ID` når den finnes (unik per deploy, ingen
-konfigurasjon), ellers `<commit-sha[0..12]>-<buildtidspunkt i base36>`. `version`
-leses fra `package.json` hvis repoet noen gang får en — repoet har ingen i dag,
-og SemVer skal uansett ikke måtte økes per PR. Ingen andre miljøvariabler leses,
-og ingenting hemmelig havner i fila.
+konfigurasjon), ellers `<commit-sha[0..12]>-<buildtidspunkt i base36>`. I
+produksjon er det den siste formen som brukes: builden kjøres av
+`vercel build` inne i release-workflowen (se
+[`release-og-deploy.md`](release-og-deploy.md)), og da finnes ikke deploy-ID-en
+ennå. Commit-en kommer fra `VERCEL_GIT_COMMIT_SHA`, som workflowen setter, og
+tidsstempelet gjør at to deployer av samme commit også blir forskjellige.
+`version` leses fra `package.json` hvis repoet noen gang får en — repoet har
+ingen i dag, og SemVer skal uansett ikke måtte økes per PR. Ingen andre
+miljøvariabler leses, og ingenting hemmelig havner i fila.
 
 ID-ene sammenlignes som **identitet**, aldri som rangering: en commit-SHA eller
 en deploy-ID er ikke «større» eller «mindre» enn en annen.
