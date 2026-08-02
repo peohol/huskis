@@ -34,7 +34,7 @@ kjører ikke kode.
 default-src 'none';
 base-uri 'none';
 object-src 'none';
-script-src 'self' 'sha256-…' https://cdn.jsdelivr.net/npm/@supabase/supabase-js@<versjon>/;
+script-src 'self' 'sha256-…';
 style-src 'self' https://fonts.googleapis.com;
 font-src https://fonts.gstatic.com;
 img-src 'self' data: blob:;
@@ -54,7 +54,6 @@ Hvert unntak fra `'self'` står her fordi appen faktisk trenger det:
 | Unntak | Hvorfor | Hva som skal til for å fjerne det |
 |---|---|---|
 | `script-src 'sha256-…'` | Guarden for kanonisk origin i `index.html` MÅ kjøre inline, før alt annet — se [`domains-and-urls.md`](domains-and-urls.md). En ekstern fil ville kostet en rundtur før redirecten. | flytte guarden til en egen fil og godta forsinkelsen |
-| `script-src https://cdn.jsdelivr.net/npm/@supabase/supabase-js@<versjon>/` | Supabase-biblioteket (se under). Stien er med i kilden, så policyen slipper gjennom nøyaktig den ene pakkeversjonen — ikke jsDelivr som helhet. | bundle biblioteket lokalt |
 | `style-src https://fonts.googleapis.com` | Stilarket for Atkinson Hyperlegible Next, appens lesevennlige skrift. | selvhoste `@font-face`-erklæringene |
 | `font-src https://fonts.gstatic.com` | Selve fontfilene stilarket over peker på. | selvhoste fontfilene |
 | `img-src data:` | Avatarbilder lagres som `data:image/jpeg`-URL-er på brukerens profil. | flytte avatarene til Supabase Storage |
@@ -88,41 +87,62 @@ Alle settes på `source: "/(.*)"`, altså på hver eneste respons.
 | Header | Verdi | Hvorfor |
 |---|---|---|
 | `X-Content-Type-Options` | `nosniff` | nettleseren skal aldri gjette innholdstype — en opplastet fil kan ikke bli til et skript |
-| `Referrer-Policy` | `no-referrer` | adressene i appen kan inneholde invitasjons- og auth-parametere; ingenting av det skal følge med til Google Fonts, jsDelivr eller en lenke ut |
+| `Referrer-Policy` | `no-referrer` | adressene i appen kan inneholde invitasjons- og auth-parametere; ingenting av det skal følge med til Google Fonts eller en lenke ut |
 | `Permissions-Policy` | tom allowlist `()` for kamera, mikrofon, posisjon, betaling, USB, MIDI, sensorer m.m. | appen ber aldri om noen av dem; alt som ikke er nevnt beholder nettleserens standard |
 | `X-Frame-Options` | `DENY` | samme vern som `frame-ancestors 'none'`, for nettlesere som ikke kan CSP-en |
 
 Framing er altså umulig: `frame-ancestors 'none'` i CSP-en, med `X-Frame-Options:
 DENY` som reserve. Ingen del av Huskis er ment å vises inne i en annen side.
 
-## Supabase-biblioteket: eksakt versjon
+## Supabase-biblioteket: lokal kopi, eksakt versjon
 
-`index.html` laster biblioteket fra en URL som navngir versjonen i klartekst:
+Biblioteket ligger i repoet, ikke på et CDN:
 
 ```html
-<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.111.0/dist/umd/supabase.js"></script>
+<script src="vendor/supabase-js-2.111.0.js"></script>
 ```
 
-Et flytende `@2` ville hentet ny tredjepartskode inn i produksjon uten en eneste
-commit her — hver deploy, og hver reload hos brukeren, kunne fått en annen
-versjon enn den som ble testet. Adressen er derfor pinnet til én utgivelse, og
-`script-src` gjentar den samme stien, så en annen versjon (eller en helt annen
-pakke fra jsDelivr) blir blokkert av policyen selv om noen skulle bytte
-`<script>`-taggen.
+Filen er en **uendret kopi** av `dist/umd/supabase.js` fra npm-pakken
+`@supabase/supabase-js`, og versjonen står i filnavnet. Det gir tre ting på én
+gang: `script-src` trenger ingen eksterne kilder (`'self'` og guard-hash-en er
+hele direktivet), appen laster like godt om et CDN er nede, og
+tredjepartskoden endrer seg bare i en commit her — et flytende `@2` fra et CDN
+kunne gitt hver deploy, og hver reload hos brukeren, en annen versjon enn den
+som ble testet.
 
-`tests/security-headers.test.js` feiler hvis URL-en igjen blir flytende, eller
-hvis policyen og taggen kommer i utakt.
+`vercel.json` gir `/vendor/(.*)` langtidscache (`immutable`). Filene der får
+ikke `?b=<build-ID>` som resten av JS-en: versjonen står allerede i navnet, så
+URL-en endrer seg av seg selv når innholdet gjør det.
 
-**Oppgradering** er tre samstemte endringer: versjonen i `<script>`-taggen,
-versjonen i `script-src` i meta-taggen, og versjonen i `script-src` i
-`vercel.json`. Kjør deretter testene og verifiser i en preview-deploy at
-`window.supabase.createClient` finnes — en blokkert eller feilstavet URL gir en
-app som ikke kommer forbi innloggingsskjermen.
+`tests/security-headers.test.js` regner ut SHA-384 av den innsjekkede filen og
+sammenligner med sjekksummen for den versjonen. En redigert, byttet eller
+uregistrert kopi feiler i CI. Testen slår også fast at `script-src` ikke har
+noen eksterne kilder, og at `index.html` ikke laster skript fra en fremmed vert.
 
-**Ikke løst ennå:** biblioteket lastes fortsatt fra jsDelivr i stedet for å ligge
-i repoet. En lokal kopi (`vendor/`) ville fjernet det siste eksterne
-skript-originet fra `script-src` og gjort appen uavhengig av at CDN-et er oppe.
-Filen må da hentes én gang, sjekkes inn, og `<script>`-taggen peke på den.
+**Oppgradering** er fire steg:
+
+```bash
+V=2.222.0
+curl -fsSL "https://registry.npmjs.org/@supabase/supabase-js/-/supabase-js-$V.tgz" -o /tmp/sb.tgz
+# Sammenlign med `dist.integrity` fra https://registry.npmjs.org/@supabase/supabase-js/$V
+openssl dgst -sha512 -binary /tmp/sb.tgz | base64 -w0
+tar xzf /tmp/sb.tgz -O package/dist/umd/supabase.js > "vendor/supabase-js-$V.js"
+git rm "vendor/supabase-js-<gammel versjon>.js"
+openssl dgst -sha384 -binary "vendor/supabase-js-$V.js" | base64 -w0   # → VENDOR_SHA384
+```
+
+1. Hent tarballen fra npm og verifiser den mot `dist.integrity` i
+   registeret — kopien skal komme fra kilden, ikke fra en CDN-speiling.
+2. Legg `dist/umd/supabase.js` inn som `vendor/supabase-js-<versjon>.js`, uendret,
+   og slett den gamle.
+3. Pek `<script>`-taggen i `index.html` på den nye filen.
+4. Legg den nye sjekksummen inn i `VENDOR_SHA384` i
+   `tests/security-headers.test.js` (en versjon som mangler der, feiler).
+
+Kjør deretter `node tests/security-headers.test.js` og
+`node tests/csp-enforced.test.js`, og verifiser i en preview-deploy at
+`window.supabase.createClient` finnes — en feilstavet sti gir en app som ikke
+kommer forbi innloggingsskjermen.
 
 ## Testmodus finnes ikke i produksjon
 

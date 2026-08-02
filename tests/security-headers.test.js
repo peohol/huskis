@@ -25,8 +25,10 @@
     7. connect-src dekker Supabase-prosjektet i config.js — både https og wss
        (realtime) — og ingen andre verter. Drift mellom config.js og policyen
        stopper her.
-    8. Supabase-biblioteket lastes fra en EKSAKT versjon (ingen flytende `@2`),
-       og CSP-en slipper kun gjennom nøyaktig den versjonen.
+    8. Supabase-biblioteket ligger i repoet (`vendor/`), på en EKSAKT versjon i
+       filnavnet, og innholdet er byte for byte det npm publiserte — sjekksummen
+       her regnes ut på nytt fra fila. Appen har ingen eksterne skriptkilder i
+       det hele tatt, og produksjonsbygget publiserer kopien.
     9. Testmodusen finnes ikke i produksjonsbygget: verken dev-mock.js,
        mock-backend.js eller taggen som laster dem — og build.js sier tydelig
        fra hvis markørene forsvinner. Preview-deployer (VERCEL_ENV=preview)
@@ -193,20 +195,36 @@ check('style-src tillater Google Fonts-stilarket (dokumentert unntak)',
 check('font-src tillater kun fonts.gstatic.com',
   String(headerCsp['font-src']) === 'https://fonts.gstatic.com', headerCsp['font-src']);
 
-/* ================= 8) Låst Supabase-versjon ================= */
-const cdn = (/<script src="(https:\/\/cdn\.jsdelivr\.net\/[^"]+)"/.exec(html) || [])[1];
-check('index.html laster Supabase-biblioteket fra jsDelivr', !!cdn, cdn);
-check('URL-en er pinnet til en EKSAKT versjon (ikke flytende @2)',
-  !!cdn && /@\d+\.\d+\.\d+\//.test(cdn) && !/@\d+\/|@\d+$/.test(cdn), cdn);
-check('URL-en peker på en eksakt fil, ikke en katalog jsDelivr kan tolke om',
-  !!cdn && /\.js$/.test(cdn), cdn);
-const pinned = cdn ? cdn.slice(0, cdn.indexOf('/dist/') + 1) : null;
-check('script-src slipper gjennom nøyaktig den pinnede versjonen — ikke jsDelivr som helhet',
-  (headerCsp['script-src'] || []).indexOf(pinned) > -1,
-  { pinned, script: headerCsp['script-src'] });
-check('ingen andre eksterne skriptkilder i script-src',
-  (headerCsp['script-src'] || []).filter((s) => /^https?:/.test(s)).length === 1,
+/* ================= 8) Supabase-biblioteket: lokal, låst kopi ================= */
+// Sjekksummen av hver versjon vi har sjekket inn, regnet ut av filen npm
+// publiserte (`@supabase/supabase-js@<versjon>` → `dist/umd/supabase.js`).
+// Oppgraderer du, må den nye versjonen inn her — en ukjent versjon feiler, så
+// en kopi kan verken byttes ut eller redigeres uten at det synes.
+const VENDOR_SHA384 = {
+  '2.111.0': 'sha384-faMlYZUtkJj+Sh6Bmu/L0GzPcraRWN6CW+9RH3GUrK/Z0WS9tgaNNt0tHiLxsbdb',
+};
+
+const lib = (/<script src="(vendor\/[^"]+)"/.exec(html) || [])[1];
+check('index.html laster Supabase-biblioteket fra en lokal kopi i vendor/', !!lib, lib);
+const libVersion = (/-(\d+\.\d+\.\d+)\.js$/.exec(lib || '') || [])[1];
+check('filnavnet oppgir en EKSAKT versjon (ikke flytende @2)', !!libVersion, lib);
+const libPath = lib ? path.join(ROOT, lib) : null;
+check('kopien er sjekket inn i repoet', !!libPath && fs.existsSync(libPath), lib);
+const libSha = libPath && fs.existsSync(libPath)
+  ? 'sha384-' + crypto.createHash('sha384').update(fs.readFileSync(libPath)).digest('base64')
+  : null;
+check('kopien er byte for byte den npm publiserte for denne versjonen',
+  !!libSha && libSha === VENDOR_SHA384[libVersion],
+  { versjon: libVersion, regnet: libSha, forventet: VENDOR_SHA384[libVersion] });
+
+// Hele poenget med den lokale kopien: ingenting utenfor eget origin kan kjøre
+// kode, og appen laster ikke ned noe som helst fra et CDN.
+check('script-src har ingen eksterne kilder i det hele tatt',
+  (headerCsp['script-src'] || []).filter((s) => /^https?:/.test(s)).length === 0,
   headerCsp['script-src']);
+check('index.html laster ingen skript fra en fremmed vert',
+  !/<script[^>]+src="(?:https?:)?\/\//i.test(html),
+  (html.match(/<script[^>]+src="(?:https?:)?\/\/[^"]*"/i) || [])[0]);
 
 /* ================= 9) Testmodus finnes ikke i produksjonsbygget ========= */
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'huskis-sec-'));
@@ -238,6 +256,10 @@ check('resten av HTML-en er urørt (samme antall <script src>)',
   { dist: (built.match(/<script src=/g) || []).length, src: (html.match(/<script src=/g) || []).length });
 check('CSP-meta-taggen er med i produksjonsbygget',
   /<meta\s+http-equiv="Content-Security-Policy"/.test(built));
+// Uten kopien i dist/ ville produksjon stått igjen med en 404 der biblioteket
+// skulle vært — appen kommer da ikke forbi innloggingsskjermen.
+check('produksjonsbygget publiserer den lokale Supabase-kopien',
+  !!lib && fs.existsSync(path.join(out, lib)), lib);
 
 // Vercel setter VERCEL_ENV selv. Produksjonsdeployen skal aldri få testmodusen,
 // uansett hvordan builden startes.
