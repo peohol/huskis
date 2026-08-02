@@ -8,8 +8,11 @@
   Verifiserer:
     1. isSchemaMismatch(): klassifiserer ukjent-kolonne/-tabell som avvik, men
        IKKE RLS-avvisning, konflikt, nettverksfeil eller tom feil.
-    2. E2E: en ekte PGRST204 på items-skrivinger (via patchet mock-klient) gir
-       ÉN bruker-toast + en console.error — og den svelges ikke lenger.
+    2. E2E: en ekte PGRST204 på items-skrivinger (via patchet mock-klient) slår
+       lagringsstatusen over i «avvist» + logger en console.error — og den
+       svelges ikke lenger. (Varselet er en VEDVARENDE status, ikke en toast:
+       et skjema-avvik forsvinner ikke av seg selv og skal ikke kunne rulle
+       forbi. Statuslinjen har sin egen fil, `sync-status.test.js`.)
     3. Regresjon: en normal redigering synker til «server» UTEN skjema-varsel.
   Kjøres på BÅDE desktop- og mobil-viewport.
 
@@ -135,12 +138,23 @@ async function scenario(page, viewport, label) {
       };
     });
     await editFirstItemAndSync(page, 'Endret A');
+    await page.waitForFunction(() => document.getElementById('sync-status').dataset.state === 'rejected', null, { timeout: 6000 }).catch(() => {});
     const r = await page.evaluate(() => {
+      const el = document.getElementById('sync-status');
       const t = document.getElementById('toast');
-      return { shown: !!(t && t.classList.contains('show')), text: t ? t.textContent : '', errCount: (window.__errs || []).filter(m => /mangler en kolonne/.test(m)).length };
+      return {
+        state: el.dataset.state, hidden: el.hidden,
+        text: document.getElementById('sync-status-text').textContent,
+        rejected: window.__huskis.syncStatus.snapshot().rejected,
+        toastShown: !!(t && t.classList.contains('show')),
+        errCount: (window.__errs || []).filter(m => /mangler en kolonne/.test(m)).length,
+      };
     });
-    check('E2E: bruker-toast vises ved skjema-avvik', r.shown === true);
-    check('E2E: toasten sier at endringen ikke nådde skyen', /kunne ikke synkes til skyen/.test(r.text));
+    check('E2E: lagringsstatusen melder avvisningen', r.state === 'rejected' && r.hidden === false);
+    check('E2E: statusteksten sier at noe ikke kunne lagres', r.text === 'Noen endringer kunne ikke lagres');
+    check('E2E: avviket står som et skjema-avvik på items i diagnostikken',
+      r.rejected.length === 1 && r.rejected[0].kind === 'schema' && r.rejected[0].table === 'items');
+    check('E2E: ingen toast — statusen er vedvarende, ikke forbigående', r.toastShown === false);
     check('E2E: console.error logget avviket', r.errCount >= 1);
 
     // Andre runde med samme feil: fortsatt bare ÉN console.error-signatur (dedup),
@@ -156,13 +170,17 @@ async function scenario(page, viewport, label) {
     await load(page, s.db, viewport);
     await editFirstItemAndSync(page, 'Normalt endret');
     const r = await page.evaluate((plid) => {
-      const t = document.getElementById('toast');
       const db = JSON.parse(localStorage.getItem('hk-mock-db'));
       const it = (db.items || []).find(i => i.card_id === plid);
-      return { toastText: t ? t.textContent : '', persisted: it ? it.text : null };
+      return {
+        persisted: it ? it.text : null,
+        rejected: window.__huskis.syncStatus.snapshot().rejected,
+        statusText: document.getElementById('sync-status-text').textContent,
+      };
     }, s.ids.PL);
     check('regresjon: endringen synket til «server»', r.persisted === 'Normalt endret');
-    check('regresjon: INGEN skjema-varsel ved normal synk', !/kunne ikke synkes til skyen/.test(r.toastText));
+    check('regresjon: INGEN skjema-varsel ved normal synk',
+      r.rejected.length === 0 && r.statusText !== 'Noen endringer kunne ikke lagres');
   }
 }
 

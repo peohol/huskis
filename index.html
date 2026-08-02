@@ -550,6 +550,18 @@
     </div>
   </div>
 
+  <!-- Lagringsstatus: én diskret, vedvarende pille nede til venstre som forteller
+       hva som faktisk har skjedd med endringene — «Lagret», «Lagrer …»,
+       «Frakoblet …» eller «Noen endringer kunne ikke lagres» (+ «Prøv igjen»).
+       Den erstatter de forbigående synk-toastene, så et langvarig nettverks-
+       problem melder seg ÉN gang og blir stående til det er løst. Teknikken bak
+       (tabell, rad, feilkode) går KUN til konsollen / __huskis.syncStatus. -->
+  <div class="sync-status" id="sync-status" role="status" aria-live="polite" hidden>
+    <span class="sync-status-dot" aria-hidden="true"></span>
+    <span class="sync-status-text" id="sync-status-text"></span>
+    <button class="sync-status-action" id="sync-retry-btn" type="button" hidden>Prøv igjen</button>
+  </div>
+
   <!-- Sky-synk (Supabase). Biblioteket lastes fra CDN; config.js holder dine verdier. -->
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <script src="config.js"></script>
