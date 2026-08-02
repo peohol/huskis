@@ -29,7 +29,9 @@
        og CSP-en slipper kun gjennom nøyaktig den versjonen.
     9. Testmodusen finnes ikke i produksjonsbygget: verken dev-mock.js,
        mock-backend.js eller taggen som laster dem — og build.js sier tydelig
-       fra hvis markørene forsvinner.
+       fra hvis markørene forsvinner. Preview-deployer (VERCEL_ENV=preview)
+       BEHOLDER den, fordi ?mock=1 er måten å teste en preview uten å røre
+       ekte data på (docs/release-og-deploy.md).
 
   Kjør:
     node tests/security-headers.test.js
@@ -208,18 +210,24 @@ check('ingen andre eksterne skriptkilder i script-src',
 
 /* ================= 9) Testmodus finnes ikke i produksjonsbygget ========= */
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'huskis-sec-'));
-const out = path.join(tmp, 'dist');
-execFileSync(process.execPath, [path.join(ROOT, 'build.js'), '--out', out], {
-  cwd: ROOT,
-  env: Object.assign({}, process.env, { VERCEL_DEPLOYMENT_ID: '', VERCEL_GIT_COMMIT_SHA: '' }),
-  stdio: 'pipe',
-});
-const built = fs.readFileSync(path.join(out, 'index.html'), 'utf8');
-const names = fs.readdirSync(out);
+function runBuild(dir, env) {
+  const dest = path.join(tmp, dir);
+  execFileSync(process.execPath, [path.join(ROOT, 'build.js'), '--out', dest], {
+    cwd: ROOT,
+    env: Object.assign({}, process.env,
+      { VERCEL_DEPLOYMENT_ID: '', VERCEL_GIT_COMMIT_SHA: '', VERCEL_ENV: '' }, env || {}),
+    stdio: 'pipe',
+  });
+  return { html: fs.readFileSync(path.join(dest, 'index.html'), 'utf8'), names: fs.readdirSync(dest) };
+}
+const out = path.join(tmp, 'prod');
+const prod = runBuild('prod');
+const built = prod.html;
+const names = prod.names;
+const TEST_MODE = ['dev-mock.js', 'mock-backend.js'];
 check('kildekoden HAR testmodusen (utvikling og nettlesertester bruker den)',
-  fs.existsSync(path.join(ROOT, 'dev-mock.js')) && fs.existsSync(path.join(ROOT, 'mock-backend.js')) &&
-  html.indexOf('dev-mock.js') > -1);
-['dev-mock.js', 'mock-backend.js'].forEach((f) => {
+  TEST_MODE.every((f) => fs.existsSync(path.join(ROOT, f))) && html.indexOf('dev-mock.js') > -1);
+TEST_MODE.forEach((f) => {
   check('produksjonsbygget publiserer ikke ' + f, names.indexOf(f) === -1, names);
 });
 check('produksjonsbygget nevner ikke mock i det hele tatt', !/mock/i.test(built),
@@ -230,6 +238,26 @@ check('resten av HTML-en er urørt (samme antall <script src>)',
   { dist: (built.match(/<script src=/g) || []).length, src: (html.match(/<script src=/g) || []).length });
 check('CSP-meta-taggen er med i produksjonsbygget',
   /<meta\s+http-equiv="Content-Security-Policy"/.test(built));
+
+// Vercel setter VERCEL_ENV selv. Produksjonsdeployen skal aldri få testmodusen,
+// uansett hvordan builden startes.
+const prodEnv = runBuild('prod-env', { VERCEL_ENV: 'production' });
+check('VERCEL_ENV=production fjerner testmodusen',
+  !/mock/i.test(prodEnv.html) && TEST_MODE.every((f) => prodEnv.names.indexOf(f) === -1),
+  prodEnv.names);
+
+// Preview-deployer peker på det samme Supabase-prosjektet som produksjon, så
+// ?mock=1 ER måten å se en endring uten å røre ekte data (release-og-deploy.md).
+// Uten mock-backenden ville ?mock=1 stille falt tilbake til den ekte databasen.
+const prev = runBuild('preview', { VERCEL_ENV: 'preview' });
+TEST_MODE.forEach((f) => {
+  check('preview-bygget BEHOLDER ' + f, prev.names.indexOf(f) > -1, prev.names);
+});
+check('preview-bygget beholder taggen som laster testmodusen',
+  prev.html.indexOf('dev-mock.js') > -1);
+check('preview-bygget har den samme CSP-en som produksjon',
+  /<meta\s+http-equiv="Content-Security-Policy"/.test(prev.html) &&
+  prev.html.indexOf("script-src 'self'") > -1);
 
 // build.js skal STOPPE hvis markørene forsvinner — en stille no-op ville
 // deployet testmodusen uten at noe sa fra.

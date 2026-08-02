@@ -32,7 +32,10 @@ const ALLOWLIST = new Set([
   'docs/domains-and-urls.md',                     // historisk forklaring + redirect-status (autoritativ)
 ]);
 
-const SKIP_DIRS = new Set(['.git']);
+// `dist/` er generert utdata fra `node build.js` (gitignorert) — en kopi av
+// kildefilene, ikke en kilde i seg selv. Skannes den, arver den unntakene sine
+// fra index.html og gir falske treff.
+const SKIP_DIRS = new Set(['.git', 'dist']);
 const BINARY_EXT = new Set(['.png', '.jpg', '.jpeg', '.gif', '.ico', '.woff', '.woff2', '.ttf']);
 
 const offenders = [];

@@ -76,6 +76,11 @@ som produksjon (`config.js`), så en preview har ikke egne produksjonsdata og
 skal ikke brukes til å teste et skjema som ennå ikke er migrert. Vil du se en
 endring uten å røre ekte data, bruk mock-backenden: `?mock=1`.
 
+Nettopp derfor er preview-deployen det ene bygget som beholder testmodusen:
+`build.js` fjerner den fra alle andre bygg, men lar den stå når Vercel setter
+`VERCEL_ENV=preview` (se [`sikkerhetsheadere.md`](sikkerhetsheadere.md)).
+Produksjonsdeployen har den aldri, så `?mock=1` gjør ingenting på `huskis.no`.
+
 ## Smoke-testen
 
 `supabase/smoke-test.sql` svarer på ett spørsmål: **finnes og virker alt den

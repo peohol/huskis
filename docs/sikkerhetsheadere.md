@@ -131,7 +131,17 @@ uten autorisasjon, laget for testing ([`tests/CLAUDE.md`](../tests/CLAUDE.md)).
 Den skal ikke kunne nås fra produksjon, og gjør det heller ikke: `build.js`
 fjerner den i tre lag.
 
-1. **Filene deployes ikke.** `dev-mock.js` og `mock-backend.js` står i `SKIP` i
+**Unntaket er preview-deployer.** En preview peker på det samme
+Supabase-prosjektet som produksjon, så `?mock=1` er nettopp måten å se en endring
+uten å røre ekte data på ([`release-og-deploy.md`](release-og-deploy.md)). Fjernet
+vi mock-backenden der, ville `?mock=1` stille falt tilbake til den ekte
+databasen — det motsatte av det man ba om. `keepTestMode()` beholder derfor
+testmodusen når `VERCEL_ENV === 'preview'`, og bare da. Regelen er **fail
+closed**: et lokalt `node build.js`, et CI-bygg og enhver deploy uten variabelen
+fjerner testmodusen. Produksjonsdeployen er `VERCEL_ENV=production` og treffer
+aldri unntaket.
+
+1. **Filene deployes ikke.** `dev-mock.js` og `mock-backend.js` hoppes over i
    `build.js` og kopieres aldri til `dist/`.
 2. **Taggen fjernes.** Blokken i `index.html` er merket
    `<!-- huskis:kun-dev:start -->` … `<!-- huskis:kun-dev:slutt -->`, og hele

@@ -43,7 +43,8 @@ en deploy-ID er ikke «større» eller «mindre» enn en annen.
 Appen har fortsatt ingen bundler. `build.js` gjør fire ting: kopierer de statiske
 filene til `dist/` (uten `tests/`, `docs/`, `supabase/`, `*.md`), fjerner
 testmodusen (`dev-mock.js`, `mock-backend.js` og `kun-dev`-blokken i HTML-en —
-se [`sikkerhetsheadere.md`](sikkerhetsheadere.md)), skriver `version.json`, og
+alt unntatt i preview-deployer, se
+[`sikkerhetsheadere.md`](sikkerhetsheadere.md)), skriver `version.json`, og
 stempler `index.html` — meta-taggen + `?b=<build-ID>` på `app.js`, `icons.js`,
 `config.js`, `update-check.js` og `styles.css`.
 
