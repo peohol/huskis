@@ -1590,6 +1590,12 @@ body.modal-open { overflow: hidden; }
 /* Utkast til høyre etter et fullført sveip (JS rydder inline-stilene etterpå). */
 .toast.toast-swipe-out { transition: opacity 0.18s ease, transform 0.18s ease; }
 .toast-msg { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* Kontekstuelt tips (docs/introduksjon.md): en hel setning, ikke en kvittering
+   på tre ord. Teksten må få brekke — ellers kapper `.toast-msg` den med
+   ellipsis. Alt annet (flate, sveip-til-lukk, plassering) er som en vanlig toast:
+   et tips skal aldri kreve mer oppmerksomhet enn en beskjed. */
+.toast.toast-tip { max-width: min(92vw, 540px); }
+.toast.toast-tip .toast-msg { overflow: visible; white-space: normal; text-overflow: clip; }
 /* Angre-knappen (hele toasten er interaktiv mens den vises). */
 .toast-action {
   flex: 0 0 auto;
@@ -1762,6 +1768,73 @@ body:has(.toast.show) .update-banner.show { transform: translateY(-62px); }
 @media (prefers-reduced-motion: reduce) {
   .update-banner { transition: none; }
 }
+
+/* ---------------- Introduksjon for nye brukere (omvisning) ----------------
+   Autoritativt: docs/introduksjon.md.
+
+   Laget ligger over appen og lagringsstatusen (290), men under toasten (300) og
+   oppdateringsbanneret (410) — de to skal kunne nå fram også midt i en
+   omvisning. Flaten tar imot klikk, som en modal-overlay: et bomtrykk på
+   scenen skal ikke utløse noe i appen bak.
+
+   Dempingen tegnes IKKE av en egen flate, men av `.tour-spot` sin enorme
+   box-shadow-spredning (samme grep som bilderedigererens `.avatar-mask`): det
+   som er innenfor ringen står udempet igjen, så «hullet» er det EKTE elementet
+   steget handler om. Derfor heller ingen backdrop-filter her — en uskarphet på
+   laget ville uskarpet også det som skal fremheves. Steg uten et element å peke
+   på (`.no-spot`) demper i stedet hele flaten. */
+.tour {
+  position: fixed;
+  inset: 0;
+  z-index: 295;
+}
+.tour.no-spot { background: rgba(45, 38, 70, 0.5); }
+.tour.no-spot .tour-spot { display: none; }
+.tour-spot {
+  position: fixed;
+  border-radius: var(--control-radius);
+  /* Rekkefølgen betyr alt: den hvite ringen males OVER dempingen (tidligere
+     skygge vinner), så markeringen er synlig mot en mørknet flate. */
+  box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.92),
+              0 0 0 9999px rgba(45, 38, 70, 0.5);
+  pointer-events: none;
+  transition: left 0.2s ease, top 0.2s ease, width 0.2s ease, height 0.2s ease;
+}
+.tour-card {
+  position: fixed;
+  width: min(400px, calc(100vw - 24px));
+  padding: 18px;
+  border-radius: 20px;
+  background: #fff;
+  box-shadow: var(--shadow-lg);
+  animation: pop-in 0.18s cubic-bezier(.2, .75, .3, 1);
+}
+.tour-card:focus-visible { outline: 2px solid var(--primary); outline-offset: 3px; }
+.tour-step {
+  margin: 0 0 4px;
+  font-size: var(--fs-xs);
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--ink-soft);
+}
+.tour-title { margin: 0 0 8px; padding-right: 30px; font-size: var(--fs-lg); font-weight: 700; }
+.tour-text { font-size: var(--fs-md); line-height: 1.45; }
+.tour-text p { margin: 0 0 8px; }
+.tour-text p:last-child { margin-bottom: 0; }
+/* .hint-chip er laget for fargede flater (lys, gjennomsiktig hvit); på det hvite
+   kortet trengs den mørke varianten — samme unntak som i nav-modalen. */
+.tour-text .hint-chip { background: rgba(0, 0, 0, 0.07); }
+.tour-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-top: 16px;
+}
+.tour-nav { display: flex; align-items: center; gap: 8px; }
+.tour-close { position: absolute; top: 10px; right: 10px; }
 
 /* ---------------- Merkevare-logo (innloggingsskjerm) ---------------- */
 /* (app-innhold skjules av `body.no-auth`-regelen i FASE 2-seksjonen under.) */

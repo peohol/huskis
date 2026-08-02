@@ -43,6 +43,10 @@ async function register(p) {
   await p.locator('#auth-email').fill(email);
   await p.locator('#auth-password').fill('passord123');
   await p.locator('#auth-submit').click(); await p.waitForTimeout(1600);
+  // Introduksjonen (docs/introduksjon.md) starter av seg selv for en ny konto
+  // og legger seg over appen — den er ikke det denne testen handler om.
+  await p.evaluate(() => window.__huskis.tour.end('skipped'));
+  await p.waitForTimeout(150);
 }
 
 // `sizes` = antall listepunkter per liste. Listene heter L1, L2, … og har id-ene

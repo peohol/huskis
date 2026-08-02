@@ -66,6 +66,17 @@ To måter å komme inn i appen på:
    og delt innhold seedes ferdig i stedet for at to faner klikker seg gjennom
    flyten. Test som en annen bruker ved å seede en annen `hk-mock-session`.
 
+**Introduksjonen kommer i veien.** En konto som ikke har sett omvisningen får den
+automatisk etter innlogging (`docs/introduksjon.md`), og laget den ligger i
+fanger alle klikk. Tester som ikke handler om den skal derfor rydde den av veien
+med én gang:
+
+- logger testen inn gjennom UI-et: `await p.evaluate(() => window.__huskis.tour.end('skipped'))`
+  sist i innloggingshjelperen (merket lagres, så en runde som er på vei opp
+  heller ikke rekker å starte);
+- seeder testen sesjonen selv: gi den seedede brukeren
+  `user_metadata: { onboarding: { v: 1, status: 'done' } }`.
+
 Mock-backenden speiler serverens regler (roller, capabilities, felt-LWW,
 fremmednøkler, gravsteiner), men er ikke en full RLS-implementasjon. Endrer du
 en regel i `supabase/users-and-sharing.sql`, må mock-backenden oppdateres i

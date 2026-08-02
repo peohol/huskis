@@ -134,6 +134,10 @@ function check(name, cond, extra) {
   await page.locator('#auth-password').fill('passord123');
   await page.locator('#auth-submit').click();
   await page.waitForTimeout(1200);
+  // Introduksjonen (docs/introduksjon.md) starter av seg selv for en ny konto
+  // og legger seg over appen — den er ikke det denne testen handler om.
+  await page.evaluate(() => window.__huskis.tour.end('skipped'));
+  await page.waitForTimeout(150);
   await page.locator('#account-btn').click();
   await page.waitForTimeout(300);
   const newEmail = 'ny' + Math.floor(Math.random() * 1e9) + '@test.no';

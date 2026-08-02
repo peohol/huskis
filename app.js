@@ -987,6 +987,7 @@
       es.append(big, p1, p2);
       board.appendChild(es);
       fixBoardBottomGap();
+      maybeContextualTips(0);
       save();
       return;
     }
@@ -1000,6 +1001,8 @@
     board.appendChild(col);
     relayoutBoard();
     fixBoardBottomGap();
+    // De avanserte gestene introduseres først når de er relevante (INTRODUKSJON).
+    maybeContextualTips(cards.length);
     save();
   }
 
@@ -6458,14 +6461,22 @@
   // opts.onDismiss: kjøres når brukeren sveiper toasten bort — «jeg er ferdig
   // med denne, ikke vent på timeren». Slette-toasten committer da slettingen
   // med en gang (samme utfall som når timeren utløper).
+  // opts.tip: kontekstuelt tips (se INTRODUKSJON) — samme toast, men teksten
+  // får brekke over flere linjer i stedet for å kappes.
   function showToast(msg, action, opts) {
     opts = opts || {};
     let t = document.getElementById('toast');
     if (!t) {
       t = document.createElement('div'); t.id = 'toast'; t.className = 'toast';
+      // Toasten er appens eneste kanal for «dette skjedde nettopp» — også for
+      // de kontekstuelle tipsene. Uten et live-område ville en skjermleser
+      // aldri fått med seg noen av dem.
+      t.setAttribute('role', 'status');
+      t.setAttribute('aria-live', 'polite');
       document.body.appendChild(t);
       attachToastSwipe(t);
     }
+    t.classList.toggle('toast-tip', !!opts.tip); // elementet gjenbrukes
     resetToastTransform(t);
     t.innerHTML = '';
     const span = document.createElement('span');
@@ -8747,6 +8758,7 @@
     if (authUser) {
       menuAccount.hidden = false;
       menuEmailPref.hidden = false;
+      if (menuTour) menuTour.hidden = false;
       accountEdit.hidden = false;
       paintEmailPref();
       paintAccountForms(false);
@@ -9518,6 +9530,10 @@
     startCloudPoll();
     syncStatus.start();
     await cloudCycle();
+    // Introduksjonen kommer FØR pollet rekker en ny runde, men etter at første
+    // pull har malt board-et — så spotlightene peker på kontoens faktiske
+    // innhold. Den vises kun hvis kontoen ikke har sett den (docs/introduksjon.md).
+    maybeStartOnboarding();
   }
   function cloudStop() {
     clearInterval(cloudPoll);
@@ -9552,6 +9568,7 @@
     setAuthMode('login');
     menuAccount.hidden = true;
     menuEmailPref.hidden = true;
+    if (menuTour) menuTour.hidden = true;
     menuInvites.hidden = true;
     accountBadge.hidden = true;
     accountEdit.hidden = true;
@@ -9559,7 +9576,9 @@
     // Profilbildet og et evt. skrevet passord tilhørte den utloggede kontoen.
     myAvatar = null; avatarPainted = null;
     clearPassFields([accountPassCurrent, accountPassNew]);
-    // Lukk evt. åpne modaler — de tilhørte den utloggede sesjonen.
+    // Lukk evt. åpne modaler — de tilhørte den utloggede sesjonen. Omvisningen
+    // avsluttes uten å lagre noe: den hører til kontoen som nettopp logget ut.
+    tourActive = false; tourEl.hidden = true; onboardingWaits = 0;
     closeNavModal(); closeAccount(); closeAvatarEditor();
   }
 
@@ -9634,7 +9653,7 @@
        • vi er innlogget uten å ha fått ett eneste svar fra serveren ennå */
   const SAFETY_MODALS = () => [navModal, accountModal, trashModal, settingsModal,
     shareModal, placeModal, confirmModalEl, avatarModal, delAccountModal,
-    respSwitcherOverlay, timeSwitcherOverlay];
+    respSwitcherOverlay, timeSwitcherOverlay, tourEl];
   function authFormDirty() {
     if (authScreen.hidden) return false;
     return [authEmail, authFirstName, authLastName, authPassword]
@@ -9658,6 +9677,330 @@
     return { safe: true, reason: '' };
   }
 
+  /* ============================================================
+     INTRODUKSJON FOR NYE BRUKERE
+     ------------------------------------------------------------
+     Autoritativt: docs/introduksjon.md.
+
+     To deler, med ulik tyngde:
+
+       1. OMVISNINGEN — fem steg som kjøres én gang, rett etter første
+          vellykkede innlogging. Hvert steg peker på EKTE UI med en spotlight
+          (`.tour-spot`), aldri på en tegning av det. Finnes ikke elementet
+          steget handler om (en fersk konto har verken grupper eller lister),
+          vises steget midtstilt uten spotlight — teksten gjelder likevel, og
+          omvisningen kan tas om igjen fra konto-modalen når innholdet finnes.
+       2. TIPSENE — de avanserte gestene (trykk-og-hold, sveip, dra til
+          navigasjonsknappen) læres bort først når de faktisk er relevante, ett
+          kort tips om gangen, i den vanlige toasten. Et tips fortrenger aldri
+          en melding som allerede står, avbryter aldri en redigering og fanger
+          aldri fokus.
+
+     Begge deler huskes på KONTOEN (`user_metadata`), ikke per enhet — samme
+     mekanikk som den huskede posisjonen (`nav`), så en fullført eller
+     hoppet-over introduksjon ikke dukker opp igjen på neste enhet. */
+  const TOUR_VERSION = 1;   // øk hvis omvisningen skal vises på nytt for alle
+  const TIP_QUIET_MS = 6000; // ro mellom to tips (ett budskap om gangen)
+
+  const tourEl = document.getElementById('tour');
+  const tourSpot = document.getElementById('tour-spot');
+  const tourCard = document.getElementById('tour-card');
+  const tourStepEl = document.getElementById('tour-step');
+  const tourTitleEl = document.getElementById('tour-title');
+  const tourTextEl = document.getElementById('tour-text');
+  const tourPrevBtn = document.getElementById('tour-prev');
+  const tourNextBtn = document.getElementById('tour-next');
+  const tourSkipBtn = document.getElementById('tour-skip');
+  const tourCloseBtn = document.getElementById('tour-close');
+  const tourRestartBtn = document.getElementById('tour-restart');
+  const menuTour = document.getElementById('menu-tour');
+
+  const tourChip = (inner) => '<span class="hint-chip">' + inner + '</span>';
+
+  /* De fem hovedstegene. `target` er en selektor mot ekte UI; er den tom (eller
+     finner ingenting synlig) vises steget uten spotlight. */
+  const TOUR_STEPS = [
+    {
+      title: 'Velkommen til Huskis',
+      html: '<p>Alt du lager ligger i fire nivåer: <b>univers</b> → <b>gruppe</b> → ' +
+        '<b>liste</b> → <b>listepunkt</b>.</p>' +
+        '<p>Et univers samler grupper, en gruppe samler lister, og listepunktene ' +
+        'ligger i listene. Trenger en liste flere avsnitt, samler du listepunktene ' +
+        'i <b>kategorier</b>.</p>',
+    },
+    {
+      title: 'Her ser du hvor du er',
+      target: '#nav-crumb',
+      html: '<p>Knappen øverst viser ' + tourChip(ICONS.globe + ' universet') + ' › ' +
+        tourChip(ICONS.folder + ' gruppen') + ' du står i.</p>' +
+        '<p>Trykk på den for å åpne oversikten — der bytter, oppretter, omdøper, ' +
+        'flytter og deler du universer og grupper.</p>',
+    },
+    {
+      title: 'Lag en liste',
+      target: '#add-card-btn',
+      html: '<p>' + tourChip(ICONS.plus + ' ' + ICONS.list) + ' lager en ny liste i gruppen ' +
+        'du står i.</p>' +
+        '<p>Listen opprettes med én gang og navngis på plassen sin: skriv navnet og ' +
+        'trykk Enter.</p>',
+    },
+    {
+      title: 'Grønn ＋ og gul ＋',
+      target: '.board .card .add-item-row',
+      html: '<p>Nederst i hver liste står to knapper:</p>' +
+        '<p>' + tourChip(ICONS.plus) + ' <b>Grønn ＋</b> legger til et <b>listepunkt</b>.</p>' +
+        '<p>' + tourChip(ICONS.category) + ' <b>Gul ＋</b> legger til en <b>kategori</b> — en ' +
+        'overskrift som samler listepunkter under seg.</p>',
+    },
+    {
+      title: 'Endre navn, flytt og slett',
+      target: '.board .card .card-head',
+      html: '<p>Klikk på et navn for å endre det — det gjelder på alle nivåer.</p>' +
+        '<p>Hold på navnet (eller dra det med musen) for å flytte objektet dit du ' +
+        'vil, og ' + tourChip(ICONS.xmark) + ' legger det i søppelkassen ' +
+        tourChip(ICONS.trash) + ', der du kan hente det tilbake.</p>',
+    },
+  ];
+
+  let tourActive = false;
+  let tourIndex = 0;
+  let tourTarget = null;      // elementet spotlighten står på (kan være null)
+  let tourReturnFocus = null; // fokus tilbake hit når omvisningen lukkes
+  let onboardingWaits = 0;
+
+  /* ---------- Kontoens minne (user_metadata) ---------- */
+  // Ett objekt-felt i user_metadata, alltid som et objekt (aldri null/streng —
+  // metadata er klientskrevet og kan i prinsippet inneholde hva som helst).
+  function accountPref(key) {
+    const v = authUser && authUser.meta && authUser.meta[key];
+    return v && typeof v === 'object' ? v : {};
+  }
+  function onboardingSeen() {
+    const o = accountPref('onboarding');
+    return typeof o.v === 'number' && o.v >= TOUR_VERSION;
+  }
+  // Skriv en metadata-nøkkel: lokalt med én gang (så den ikke gjentas i denne
+  // økten), til kontoen i bakgrunnen. Landet ikke skrivingen, prøver vi igjen
+  // én gang — og gir vi opp, dukker introduksjonen heller opp igjen ved neste
+  // innlogging enn at vi later som den er sett.
+  function saveAccountPref(patch, retriesLeft) {
+    if (!authUser) return;
+    authUser.meta = Object.assign({}, authUser.meta, patch);
+    const client = acli();
+    if (!client) return;
+    client.auth.updateUser({ data: patch })
+      .then((res) => { if (res && res.error) throw res.error; })
+      .catch(() => {
+        if (retriesLeft > 0) setTimeout(() => saveAccountPref(patch, retriesLeft - 1), 5000);
+      });
+  }
+
+  /* ---------- Omvisningen ---------- */
+  function tourFocusables() {
+    return Array.prototype.filter.call(
+      tourCard.querySelectorAll('button'), (b) => !b.disabled && !b.hidden);
+  }
+  // Elementet steget peker på — men bare hvis det faktisk er synlig nå.
+  function tourTargetFor(step) {
+    if (!step.target) return null;
+    const el = document.querySelector(step.target);
+    return el && el.getClientRects().length ? el : null;
+  }
+  // Legg spotlighten på målet og kortet ved siden av det (under hvis det er
+  // plass, ellers over, ellers midt på skjermen). Uten mål: midtstilt kort og
+  // dempet flate.
+  function placeTour() {
+    // Board-et kan ha blitt tegnet på nytt under omvisningen (en synk-runde):
+    // slå opp elementet igjen hvis det vi holdt på er koblet fra DOM-en.
+    if (tourTarget && !tourTarget.isConnected) tourTarget = tourTargetFor(TOUR_STEPS[tourIndex]);
+    const margin = 12;
+    const cw = tourCard.offsetWidth;
+    const ch = tourCard.offsetHeight;
+    const vw = window.innerWidth;
+    const vh = window.innerHeight;
+    if (!tourTarget || !tourTarget.getClientRects().length) {
+      tourEl.classList.add('no-spot');
+      tourCard.style.left = Math.max(margin, (vw - cw) / 2) + 'px';
+      tourCard.style.top = Math.max(margin, (vh - ch) / 2) + 'px';
+      return;
+    }
+    tourEl.classList.remove('no-spot');
+    const pad = 6;
+    const r = tourTarget.getBoundingClientRect();
+    tourSpot.style.left = (r.left - pad) + 'px';
+    tourSpot.style.top = (r.top - pad) + 'px';
+    tourSpot.style.width = (r.width + pad * 2) + 'px';
+    tourSpot.style.height = (r.height + pad * 2) + 'px';
+    const gap = 18;
+    let top = r.bottom + gap;
+    if (top + ch > vh - margin) {
+      const above = r.top - gap - ch;
+      top = above >= margin ? above : Math.max(margin, (vh - ch) / 2);
+    }
+    let left = r.left + r.width / 2 - cw / 2;
+    left = Math.max(margin, Math.min(left, vw - cw - margin));
+    tourCard.style.left = left + 'px';
+    tourCard.style.top = top + 'px';
+  }
+  function paintTourStep() {
+    const step = TOUR_STEPS[tourIndex];
+    const last = tourIndex === TOUR_STEPS.length - 1;
+    tourStepEl.textContent = 'Steg ' + (tourIndex + 1) + ' av ' + TOUR_STEPS.length;
+    tourTitleEl.textContent = step.title;
+    tourTextEl.innerHTML = step.html;
+    tourPrevBtn.disabled = tourIndex === 0;
+    tourNextBtn.textContent = last ? 'Ferdig' : 'Neste';
+    tourTarget = tourTargetFor(step);
+    if (tourTarget) {
+      tourTarget.scrollIntoView({
+        block: 'center', inline: 'nearest',
+        behavior: prefersReducedMotion() ? 'auto' : 'smooth',
+      });
+    }
+    placeTour();
+    // «Tilbake» er avskrudd på første steg — sto fokuset der, ville det gått i
+    // bakken. Ellers blir fokus stående, så Enter-Enter-Enter tar deg gjennom.
+    if (document.activeElement === tourPrevBtn && tourPrevBtn.disabled) tourNextBtn.focus();
+  }
+  function goToTourStep(i) {
+    tourIndex = Math.max(0, Math.min(i, TOUR_STEPS.length - 1));
+    paintTourStep();
+  }
+  // returnTo (valgfri): elementet fokuset skal tilbake til når omvisningen
+  // lukkes — settes av kallere som selv lukker noe først (konto-modalen).
+  function startTour(returnTo) {
+    if (!authUser) return;
+    tourReturnFocus = returnTo || document.activeElement;
+    tourActive = true;
+    tourIndex = 0;
+    tourEl.hidden = false;
+    paintTourStep();
+    tourCard.focus();
+  }
+  // status: 'done' (kom gjennom) | 'skipped' (hoppet over / avsluttet).
+  // Begge betyr «sett» — introduksjonen skal ikke mase igjen på neste enhet.
+  // Merket settes også om omvisningen ikke står åpen: da er dette «jeg vil ikke
+  // ha den», og en runde som er på vei opp skal ikke rekke å starte.
+  function endTour(status) {
+    const wasOpen = tourActive;
+    tourActive = false;
+    tourEl.hidden = true;
+    tourTarget = null;
+    saveAccountPref({ onboarding: { v: TOUR_VERSION, status: status } }, 1);
+    if (!wasOpen) return;
+    if (tourReturnFocus && document.body.contains(tourReturnFocus)) {
+      try { tourReturnFocus.focus(); } catch (e) { /* elementet kan være borte */ }
+    }
+    tourReturnFocus = null;
+    flushPendingTip();
+  }
+  tourNextBtn.addEventListener('click', () => {
+    if (tourIndex === TOUR_STEPS.length - 1) endTour('done');
+    else goToTourStep(tourIndex + 1);
+  });
+  tourPrevBtn.addEventListener('click', () => goToTourStep(tourIndex - 1));
+  tourSkipBtn.addEventListener('click', () => endTour('skipped'));
+  tourCloseBtn.addEventListener('click', () => endTour('skipped'));
+  tourRestartBtn && tourRestartBtn.addEventListener('click', () => {
+    closeAccount();          // omvisningen peker på appen BAK modalen
+    startTour(accountBtn);
+  });
+  // Spotlighten skal følge målet: laget dekker hele viewportet, så et hjul-/
+  // touch-rull treffer siden bak og ville ellers etterlatt ringen i lufta.
+  const tourReflow = () => { if (tourActive) placeTour(); };
+  window.addEventListener('resize', tourReflow);
+  window.addEventListener('scroll', tourReflow, true);
+  // Tastatur: Escape avslutter, piltastene blar, og Tab holdes inne i kortet.
+  // Capture-fasen, så Escape ikke først lukker en modal under omvisningen.
+  document.addEventListener('keydown', (ev) => {
+    if (!tourActive) return;
+    if (ev.key === 'Escape') {
+      ev.preventDefault(); ev.stopPropagation();
+      endTour('skipped');
+      return;
+    }
+    if (ev.key === 'ArrowRight' && tourIndex < TOUR_STEPS.length - 1) {
+      ev.preventDefault(); goToTourStep(tourIndex + 1); return;
+    }
+    if (ev.key === 'ArrowLeft' && tourIndex > 0) {
+      ev.preventDefault(); goToTourStep(tourIndex - 1); return;
+    }
+    if (ev.key !== 'Tab') return;
+    const f = tourFocusables();
+    if (!f.length) return;
+    const first = f[0];
+    const last = f[f.length - 1];
+    const cur = document.activeElement;
+    if (!tourCard.contains(cur)) { ev.preventDefault(); (ev.shiftKey ? last : first).focus(); }
+    else if (ev.shiftKey && cur === first) { ev.preventDefault(); last.focus(); }
+    else if (!ev.shiftKey && cur === last) { ev.preventDefault(); first.focus(); }
+  }, true);
+
+  // Etter første vellykkede innlogging (cloudStart, når første synk-runde er
+  // ferdig og board-et er malt). Står noe annet i veien — importspørsmålet fra
+  // migreringen, en åpen modal, en pågående redigering — venter vi litt i
+  // stedet for å legge oss oppå det.
+  function maybeStartOnboarding() {
+    if (!authUser || tourActive || onboardingSeen()) return;
+    if (document.body.classList.contains('modal-open') || isBusyEditing()) {
+      if (onboardingWaits++ > 20) return; // gir opp for denne økten
+      setTimeout(maybeStartOnboarding, 900);
+      return;
+    }
+    onboardingWaits = 0;
+    startTour();
+  }
+
+  /* ---------- Kontekstuelle tips for de avanserte gestene ---------- */
+  const TIPS = {
+    drag: 'Tips: hold på en tittel — eller dra den med musen — for å flytte lister og listepunkter.',
+    trash: 'Tips: hold inne søppelkassen og sveip mot høyre for å tømme den.',
+    moveList: 'Tips: dra en liste opp på navigasjonsknappen øverst for å flytte den til en annen gruppe.',
+  };
+  let pendingTip = null;  // ba om et tips mens omvisningen sto på
+  let lastTipAt = 0;
+  function tipSeen(key) { return !!accountPref('tips')[key]; }
+  // Viser tipset hvis det er relevant OG det ikke koster brukeren noe akkurat
+  // nå. Returnerer om det ble vist, så kallerne kan nøye seg med ett om gangen.
+  function showTip(key) {
+    if (!authUser || !TIPS[key] || tipSeen(key)) return false;
+    if (!onboardingSeen()) return false;         // introduksjonen kommer først
+    if (tourActive) { pendingTip = key; return false; }
+    // Aldri i veien: ikke midt i en redigering/et drag, ikke oppå en åpen
+    // modal, og aldri ved å fortrenge en beskjed som allerede står (f.eks.
+    // «Angre» etter en sletting). Tipset er ikke sett før det er VIST, så det
+    // kommer igjen ved neste anledning.
+    if (isBusyEditing() || document.body.classList.contains('modal-open')) return false;
+    const toastEl = document.getElementById('toast');
+    if (toastEl && toastEl.classList.contains('show')) return false;
+    if (Date.now() - lastTipAt < TIP_QUIET_MS) return false;
+    lastTipAt = Date.now();
+    const tips = Object.assign({}, accountPref('tips'));
+    tips[key] = true;
+    saveAccountPref({ tips: tips }, 1);
+    showToast(TIPS[key], { label: 'Skjønner', fn: hideToast }, { tip: true });
+    return true;
+  }
+  function flushPendingTip() {
+    const key = pendingTip;
+    pendingTip = null;
+    if (key) showTip(key);
+  }
+  // Kalles etter hver board-rendring: hvilke gester er relevante NÅ? Ett tips
+  // om gangen — resten kommer neste gang de fortsatt er relevante.
+  function maybeContextualTips(cardCount) {
+    if (!trashBtn.hidden && showTip('trash')) return;
+    if (cardCount >= 2 && showTip('drag')) return;
+    if (cardCount >= 1 && groupTargetCount() >= 2) showTip('moveList');
+  }
+  // Antall grupper i det aktive universet man kan flytte en liste til (samme
+  // grunnlag som velgeren DnD på navigasjonsknappen åpner).
+  function groupTargetCount() {
+    const uni = activeUniverseObj();
+    if (!uni) return 0;
+    return uni.groups.filter((g) => !g.isCat && !g.trashed && !g._pendingDelete).length;
+  }
+
   /* ---------------- Start ---------------- */
   initAccounts();
 
@@ -9674,6 +10017,14 @@
     canonicalAppUrl, authRedirectUrl,
     get cloudBase() { return cloudBase; },
     openShare, openSettings, showToast, updateSafety, save,
+    tour: {
+      start: startTour,
+      end: endTour,
+      steps: TOUR_STEPS.length,
+      get active() { return tourActive; },
+      get index() { return tourIndex; },
+      seen: onboardingSeen,
+    },
     get authUser() { return authUser; },
     get lastMy() { return lastMy; },
     get client() { return aclient; },

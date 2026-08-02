@@ -79,6 +79,11 @@ Sesjonen styres av `supabase.auth.onAuthStateChange` (erstatter
 `cloudStop()`. En eksisterende sesjon hentes ved oppstart med `getSession()`.
 `authUser` bærer `{ id, email, meta }` der `meta` = `user.user_metadata`.
 
+**Introduksjonen på kontoen**: at omvisningen er fullført eller hoppet over
+(`user_metadata.onboarding`) og hvilke gest-tips som er vist
+(`user_metadata.tips`) lagres på samme måte som posisjonen under — se
+`docs/introduksjon.md` (autoritativ).
+
 **Aktiv posisjon på kontoen**: hvilket univers/gruppe man står i lagres i
 `user_metadata.nav = {u,g}` via `auth.updateUser({ data })` (debouncet,
 `saveNavPref`), og gjenopprettes ved første pull (`restoreNavPref`). Se
