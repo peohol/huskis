@@ -16,11 +16,6 @@ slipper først frontenden ut på Vercel etter at smoke-testen er grønn. Se
       det er standard).
 - [ ] Egen **SMTP**-avsender før reell bruk; Supabases innebygde utsending er
       ratebegrenset til utviklingsbruk.
-- [ ] **Authentication → URL Configuration**: *Site URL* = `https://huskis.no`,
-      og fjern eventuelle *Redirect URLs* for `www.huskis.no` /
-      `huskis.vercel.app` — de alternative domenene 308-redirecter nå til det
-      kanoniske originet og kjører aldri en klient. Se «Supabase Auth: URL
-      Configuration» i `docs/domains-and-urls.md`.
 - [ ] Auth-e-postmalene (Confirm signup / Reset password / Change email):
       sjekkliste i «Auth-e-postmalene» i `docs/domains-and-urls.md`, og et
       ferdig, likt-stilt utkast i `supabase/email-templates/confirm-signup.html`.
@@ -82,17 +77,3 @@ både i `tombstones` (slettet 2026-07-27) og som aktiv rad.
            or (t.resource_type = 'card'     and exists (select 1 from public.cards     x where x.id = t.resource_id))
            or (t.resource_type = 'item'     and exists (select 1 from public.items     x where x.id = t.resource_id));
       ```
-
-## Vercel
-
-- [ ] Bekreft 308-redirecten mot ekte produksjon etter neste deploy (utgående
-      HTTPS er sperret i utviklingsmiljøet, så den er ikke sjekket live):
-
-      ```bash
-      curl -sI "https://www.huskis.no/en/side?a=1"      # HTTP/2 308 + Location: https://huskis.no/en/side?a=1
-      curl -sI "https://huskis.vercel.app/?code=x"      # HTTP/2 308 + Location: https://huskis.no/?code=x
-      curl -sI "https://huskekurv.vercel.app/"          # HTTP/2 308 + Location: https://huskis.no/
-      ```
-
-      Reglene selv ligger i `vercel.json` og deployes med appen — se
-      «Redirect til det kanoniske originet» i `docs/domains-and-urls.md`.

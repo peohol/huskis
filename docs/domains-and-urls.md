@@ -157,13 +157,17 @@ alene:
 - *Site URL*: `https://huskis.no` — fallback når et kall ikke sender en egen
   returadresse.
 - *Redirect URLs*: kun `https://huskis.no/**` (+ `http://localhost:8000/**`
-  hvis man tester ekte Supabase-e-post lokalt). Oppføringer for
-  `www.huskis.no` eller `huskis.vercel.app` er unødvendige nå som ingen klient
-  kan kjøre der, og bør fjernes — de utvider bare listen over adresser en
-  auth-lenke kan sendes til.
+  hvis man tester ekte Supabase-e-post lokalt). Ingen oppføringer for
+  `www.huskis.no` eller `huskis.vercel.app` — ingen klient kan kjøre der, og
+  hver ekstra oppføring utvider bare listen over adresser en auth-lenke kan
+  sendes til.
 
 Dette er dashboard-konfigurasjon; den kan ikke leses eller skrives fra dette
-repoet. Se `TODO.md`.
+repoet. Hele kjeden er kontrollert mot produksjon 2026-08-02 med en
+midlertidig testbruker: registrering med `emailRedirectTo` → bekreftelses-
+lenken svarer `303` til det kanoniske originet med `#access_token=…` og
+`type=signup` i fragmentet → innlogging gir en gyldig sesjon. Auth-callbacken
+lander altså kanonisk, med tokens i behold.
 
 ## Auth-e-postmalene (Supabase Dashboard)
 
@@ -211,20 +215,50 @@ appen, ikke i dashbordet. Endres de, endres de her.
 
 Domenene må være koblet til `huskis`-prosjektet for at reglene skal gjelde —
 en regel i et prosjekts `vercel.json` virker kun for prosjektets egne
-domener. Verifisert mot Vercel-API-et (kontoen `peohols-projects`,
-2026-08-02): prosjektet `huskis` har `huskis.no`, `www.huskis.no`,
+domener. Prosjektet `huskis` har `huskis.no`, `www.huskis.no`,
 `huskis.vercel.app`, `huskekurv.vercel.app` + to interne
 `-peohols-projects.vercel.app`-aliaser. Alle domenene reglene navngir peker
 altså hit.
 
-Med Vercel CLI (krever `vercel login`; CLI-en kunne ikke installeres eller nå
-Vercel fra dette kjøremiljøet — npm-registeret og utgående HTTPS er sperret):
+### `huskis.no` må servere, ikke redirecte
+
+Vercel har et redirect-lag FORAN deployen: hvert domene i prosjektet kan settes
+opp til å redirecte til et annet (Settings → Domains → *Redirect to*). Det laget
+treffer før `vercel.json` i det hele tatt leses.
+
+**`huskis.no` skal derfor stå på «No Redirect».** Settes apex opp til å
+redirecte til `www.huskis.no` — standardvalget når `www` er primærdomene — får
+man en evig løkke: apex sender til `www` på domenenivå, og `www` sender tilbake
+til apex via regelen i `vercel.json`. Nettleseren gir
+`ERR_TOO_MANY_REDIRECTS`, og HELE appen er nede.
+
+Ingen test kan fange dette: domenekonfigurasjonen ligger i Vercel, ikke i
+repoet. Endrer noen primærdomene, må `www`-regelen i `vercel.json` fjernes i
+samme slengen (eller apex settes tilbake til «No Redirect»). `www` kan gjerne
+stå på «Redirect to huskis.no» i tillegg til regelen her — samme retning,
+ingen løkke.
+
+### Verifisere
+
+Med Vercel CLI (krever `vercel login`):
 
 ```bash
 vercel domains ls --scope peohols-projects      # hvilke domener prosjektet har
 vercel deploy --prod                            # deployer vercel.json med appen
-curl -sI https://www.huskis.no/en/side?a=1      # forventer «HTTP/2 308» + Location: https://huskis.no/en/side?a=1
 ```
+
+Selve redirecten sjekkes med en vanlig HTTP-forespørsel — statuslinjen og
+`location` er hele svaret:
+
+```bash
+curl -sI "https://huskis.no/version.json"           # HTTP/2 200   ← apex SERVERER
+curl -sI "https://www.huskis.no/en/side?a=1"        # HTTP/2 308 → https://huskis.no/en/side?a=1
+curl -sI "https://huskis.vercel.app/?code=x"        # HTTP/2 308 → https://huskis.no/?code=x
+curl -sI "https://huskekurv.vercel.app/"            # HTTP/2 308 → https://huskis.no/
+```
+
+Alle fire er kontrollert mot produksjon 2026-08-02: apex serverer, de tre andre
+svarer 308 med path og query i behold — også `?code=`.
 
 Produksjonsdeployen kjøres normalt ikke manuelt: `.github/workflows/release.yml`
 gjør `vercel deploy --prod` etter migrering + smoke-test
@@ -237,10 +271,10 @@ senere omdøpt til `huskis`. Et Vercel-prosjekts `<navn>.vercel.app`-alias
 følger gjeldende prosjektnavn — det gamle aliaset frigis normalt ved
 omdøping, det flyttes ikke automatisk.
 
-Domenet er nå koblet til `huskis`-prosjektet igjen (bekreftet i
-domenelisten over), så 308-regelen for det er aktiv på samme måte som for de
-to andre. Hva domenet faktisk svarer i dag er ikke bekreftet herfra —
-utgående HTTPS-kall er sperret i dette kjøremiljøet.
+Domenet er koblet til `huskis`-prosjektet igjen, og 308-regelen for det er
+aktiv på samme måte som for de to andre — kontrollert mot produksjon
+2026-08-02: `https://huskekurv.vercel.app/en/liste?code=abc123` svarer 308 til
+`https://huskis.no/en/liste?code=abc123`.
 
 ## Testene
 
