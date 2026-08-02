@@ -58,6 +58,25 @@ Diagnostikk når en invitasjon ikke kommer fram:
   Resend-svaret, korrelert via `net_request_id`. pg_net rydder tabellen etter en
   stund; for varig leveringsstatus, se Resend-dashbordet.
 
+## Gjenoppstått rad i produksjon (én gruppe)
+
+`guard_object_insert()` hindrer NYE innsettinger av en gravlagt id, men rydder
+bevisst ikke i rader som allerede var gjenoppstått da vakten kom — å slette rader
+i en migrering er irreversibelt, og en av dem kan være noe brukeren har tatt i
+bruk igjen. Kontrollert mot produksjon 2026-08-02: **én gruppe** ligger fortsatt
+både i `tombstones` (slettet 2026-07-27) og som aktiv rad.
+
+- [ ] Slett gruppen på nytt i appen — denne gangen blir den borte for godt.
+      Finn kollisjonene med:
+
+      ```sql
+      select t.resource_type, t.resource_id from public.tombstones t
+        where (t.resource_type = 'universe' and exists (select 1 from public.universes x where x.id = t.resource_id))
+           or (t.resource_type = 'group'    and exists (select 1 from public.groups    x where x.id = t.resource_id))
+           or (t.resource_type = 'card'     and exists (select 1 from public.cards     x where x.id = t.resource_id))
+           or (t.resource_type = 'item'     and exists (select 1 from public.items     x where x.id = t.resource_id));
+      ```
+
 ## Vercel
 
 - [ ] Koble domenet `huskekurv.vercel.app` til `huskis`-prosjektet. Redirect-
