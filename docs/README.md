@@ -21,6 +21,7 @@ Ved motstrid gjelder det dokumentet som er merket autoritativt for området — 
 | [colors-and-labels.md](colors-and-labels.md) | posisjonsbasert HSL-farge på kort/rader, de gamle K/P-feltene | **ja** — fargesystemet |
 | [domains-and-urls.md](domains-and-urls.md) | produksjonsdomener, auth-redirects, lenker i utsendte e-poster | **ja** — domener og URL-generering |
 | [auto-update.md](auto-update.md) | build-ID, `/version.json`, cache-headerne i `vercel.json`, automatisk reload av åpne faner | **ja** — build og auto-oppdatering |
+| [release-og-deploy.md](release-og-deploy.md) | rekkefølgen fra merge til produksjon: testing på PR, migrering, smoke-test, Vercel-deploy, preview-deploys, feil/retry/rollback | **ja** — releaseprosessen |
 
 ## Kilder som ikke er dokumenter
 

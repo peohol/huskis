@@ -1,0 +1,95 @@
+name: Tester
+
+# Hele testsuiten — JS (node + nettleser) og SQL. Kjøres på HVER pull request,
+# og gjenbrukes av «Release» (workflow_call) som første ledd før migreringen og
+# produksjonsdeployen slippes løs. Samme kommandoer begge steder, så en grønn
+# PR betyr det samme som en grønn release.
+#
+# Ingenting her rører produksjon: JS-testene kjører mot mock-backenden
+# (`?mock=1`) og SQL-testene mot en fersk PostgreSQL i en service-container.
+
+on:
+  pull_request:
+  workflow_call:
+  workflow_dispatch:
+
+concurrency:
+  # PR-er: en ny push avbryter den forrige runden. Kall fra Release: run_id er
+  # unik, så en release aldri kan avbryte seg selv.
+  group: tester-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  js:
+    name: JS (shard ${{ matrix.shard }}/4)
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3, 4]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      # Playwright er en global installasjon i dette repoet (ingen package.json,
+      # ingen node_modules) — tests/run-all.sh setter NODE_PATH deretter.
+      - name: Installer Playwright + Chromium
+        run: |
+          npm install -g playwright@latest
+          # Samme installasjon som binæren over, så nettleser og bibliotek
+          # garantert er samme versjon.
+          playwright install --with-deps chromium
+
+      - name: Kjør JS-testene
+        env:
+          SHARD_INDEX: ${{ matrix.shard }}
+          SHARD_TOTAL: 4
+        run: tests/run-all.sh
+
+  sql:
+    name: SQL
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: hk_test
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Kjør SQL-testsuiten (begge løp + smoke-testen)
+        env:
+          PGHOST: localhost
+          PGPORT: '5432'
+          PGUSER: postgres
+          PGPASSWORD: postgres
+          PGDATABASE: hk_test
+        run: supabase/tests/run-tests.sh
+
+  build:
+    name: Build
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      # Samme steg som Vercel kjører. Feiler det her, feiler produksjonsbuilden
+      # også — bedre å vite det før migreringen har rørt databasen.
+      - run: node build.js

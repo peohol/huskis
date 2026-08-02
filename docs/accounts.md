@@ -141,9 +141,11 @@ samme nested `state` som før; synken går slik (`cloudCycle`):
    «could not find … column»/«schema cache»/«column … does not exist»): logger
    detaljene deduplisert og viser brukeren ÉN toast om at endringen ligger trygt
    lokalt men ikke nådde skyen (`schemaMismatchWarned`, nullstilles ved
-   utlogging). For å hindre at en migrering i det hele tatt henger etter kjøres
-   «Supabase DB-oppsett»-workflowen automatisk ved push til `main` — se
-   `.github/workflows/db-setup.yml`.
+   utlogging). At en migrering i det hele tatt KAN henge etter, er lukket i
+   releaseprosessen: ved merge til `main` kjøres migreringen og en smoke-test
+   FØR frontenden publiseres, og Vercels egen git-deploy for `main` er slått av
+   så de to ikke kan løpe om kapp — se
+   [`release-og-deploy.md`](release-og-deploy.md).
 
    De øvrige feilene er fortsatt stille, men ikke lenger *usynlige*: avviser
    serveren SAMME rad `PERSISTENT_REJECTS` (3) ganger på rad, logges detaljene

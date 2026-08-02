@@ -95,6 +95,10 @@ const toastInfo = (p) => p.evaluate(() => {
     cls: t.className,
     x: Math.round(r.left + r.width / 2), y: Math.round(r.top + r.height / 2),
     left: Math.round(r.left), width: Math.round(r.width),
+    // Avstand fra viewportets midtlinje. `.toast` er `left: 50%` +
+    // `translateX(-50%)`, så senteret ligger fast uansett hvor bred teksten er
+    // — i motsetning til `left`, som flytter seg med bredden.
+    centerOff: Math.abs((r.left + r.width / 2) - window.innerWidth / 2),
   };
 });
 
@@ -190,11 +194,16 @@ async function run(label, vp, mobile) {
     JSON.stringify(t.inline) + ' cls=' + t.cls);
   log(label + ' 6: ikke-interaktiv i hvile (klikk-gjennom)', t.pe === 'none', 'pointer-events=' + t.pe);
 
-  /* ---------- 7) Ny toast vises på normal plass etter et sveip ---------- */
+  /* ---------- 7) Ny toast vises på normal plass etter et sveip ----------
+     Måles som avstand fra midtlinjen, IKKE mot `startLeft`: dette er en NY
+     toast med en annen tekst, og en bredere/smalere toast har en annen
+     `left` selv når den er perfekt sentrert. Den sammenligningen holdt bare
+     så lenge de to meldingene tilfeldigvis rendret like brede — med andre
+     fontmetrikker (CI) spriker de ett piksel og påstanden falt. */
   await deleteItem(p, IT[1]);
   t = await toastInfo(p);
-  log(label + ' 7: neste toast dukker opp sentrert som før', t.shown && t.left === startLeft,
-    JSON.stringify({ shown: t.shown, left: t.left, start: startLeft }));
+  log(label + ' 7: neste toast dukker opp sentrert som før', t.shown && t.centerOff <= 1,
+    JSON.stringify({ shown: t.shown, left: t.left, senterAvvik: Math.round(t.centerOff * 100) / 100 }));
 
   /* ---------- 8) Sveip som starter oppå «Angre» trykker ikke «Angre» ---------- */
   const btn = await p.evaluate(() => {

@@ -21,7 +21,12 @@ build-ID inn i `index.html` + `version.json`; i repoet står build-ID-en på `de
 med vilje, slik at lokal utvikling ikke trigger auto-oppdatering.
 
 **Serversiden** er `supabase/users-and-sharing.sql` — én idempotent fil med
-tabeller, RLS, triggere og RPC-er, kjørt av `.github/workflows/db-setup.yml`.
+tabeller, RLS, triggere og RPC-er.
+
+**Releaseprosessen**: ved merge til `main` kjører `.github/workflows/release.yml`
+tester → migrering → smoke-test → Vercel-deploy, i den rekkefølgen. Frontenden
+publiseres aldri før skjemaet er migrert og verifisert. Autoritativt:
+`docs/release-og-deploy.md`.
 
 Tilstanden ligger i `localStorage` per konto og synkes mot Supabase (Auth +
 relasjonelle tabeller med RLS). Appen har ingen anonym modus.
@@ -34,6 +39,7 @@ over resten av dokumentasjonen: `docs/README.md`.
 ```bash
 python3 -m http.server 8000   # kjør appen: http://localhost:8000
 node build.js                 # produksjonsbuild → dist/ (samme steg som Vercel kjører)
+tests/run-all.sh              # hele JS-suiten (starter server selv) — samme som CI
 ```
 
 - `?mock=1` bytter Supabase-klienten mot den hermetiske mock-backenden;
@@ -83,6 +89,7 @@ Kjør den minste verifikasjonen som gir troverdig evidens for endringen:
 | Responsiv eller pekeravhengig oppførsel | både desktop- og mobil-viewport |
 | Auth, synk eller deling | mock-backend (`?mock=1`) + den relevante flerbrukerflyten |
 | Deploy, caching, build-output | `node build.js` og `node tests/build-version.test.js` |
+| Releaseprosessen (workflows, `vercel.json`, smoke-test) | `node tests/release-pipeline.test.js` + `node tests/db-contract.test.js`, og SQL-suiten hvis `smoke-test.sql` er endret |
 
 Retter du en feil, skal en test fange den — ny test, eller en ny sjekk i den
 filen som allerede dekker området.

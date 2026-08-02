@@ -28,12 +28,20 @@ $PSQL --no-psqlrc --echo-errors -f tests/test-email-sharing.sql
 $PSQL --no-psqlrc --echo-errors -f tests/test-tombstones.sql
 $PSQL --no-psqlrc --echo-errors -f tests/test-account-deletion.sql
 
+# Smoke-testen som produksjonsdeployen henger på (release.yml) må bevises her:
+# den skal være GRØNN mot et ferdig migrert skjema. Er den det ikke lokalt,
+# blokkerer den deployen i produksjon uten at noe faktisk er galt.
+$PSQL --no-psqlrc --echo-errors -f smoke-test.sql
+
 # ---- 2. Oppgraderingsløp: den GAMLE databasefasongen med data, migrert ----
 fresh_schema
 $PSQL -f tests/legacy-share-fixture.sql
 $PSQL -f users-and-sharing.sql
 $PSQL -f users-and-sharing.sql   # idempotens også på migreringen av gamle data
 $PSQL --no-psqlrc --echo-errors -f tests/test-list-share-migration.sql
+# Også en oppgradert gammel database må tilfredsstille deploy-kontrakten.
+$PSQL --no-psqlrc --echo-errors -f smoke-test.sql
 
 echo "✅ Alle SQL-tester grønne (roller, capabilities, gruppeflytting, e-postvarsel,"
-echo "   gravsteiner, kontosletting og migrering av gamle listedelinger — begge løp)."
+echo "   gravsteiner, kontosletting, migrering av gamle listedelinger og"
+echo "   deploy-smoke-testen — begge løp)."
