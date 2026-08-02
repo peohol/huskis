@@ -6745,14 +6745,16 @@
      ============================================================ */
 
   // ?mock=1 kjører mot en hermetisk in-memory-backend (mock-backend.js)
-  // for to-bruker-testing uten ekte Supabase.
-  function useMock() { return /[?&]mock=1/.test(location.search); }
+  // for to-bruker-testing uten ekte Supabase. Krever at backenden FAKTISK er
+  // lastet: produksjonsbygget inneholder den ikke (build.js), og da skal
+  // `?mock=1` ikke kunne vri appen ut av vanlig modus i det hele tatt.
+  function useMock() { return !!window.HK_MOCK && /[?&]mock=1/.test(location.search); }
 
   let authUser = null;         // innlogget bruker { id, email, meta } | null
   let aclient = null;          // backend-klient (Supabase eller mock)
   function acli() {
     if (aclient) return aclient;
-    if (useMock() && window.HK_MOCK) { aclient = window.HK_MOCK.createClient(); return aclient; }
+    if (useMock()) { aclient = window.HK_MOCK.createClient(); return aclient; }
     aclient = ensureClient();
     return aclient;
   }

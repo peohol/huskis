@@ -21,6 +21,7 @@ Ved motstrid gjelder det dokumentet som er merket autoritativt for området — 
 | [colors-and-labels.md](colors-and-labels.md) | posisjonsbasert HSL-farge på kort/rader, de gamle K/P-feltene | **ja** — fargesystemet |
 | [domains-and-urls.md](domains-and-urls.md) | det kanoniske originet og 308-redirecten fra de alternative domenene, auth-redirects, lenker i utsendte e-poster | **ja** — domener og URL-generering |
 | [auto-update.md](auto-update.md) | build-ID, `/version.json`, cache-headerne i `vercel.json`, automatisk reload av åpne faner | **ja** — build og auto-oppdatering |
+| [sikkerhetsheadere.md](sikkerhetsheadere.md) | innholdssikkerhetspolicyen (CSP) og unntakene i den, de øvrige sikkerhetsheaderne, den låste Supabase-versjonen, hvorfor testmodusen ikke finnes i produksjon | **ja** — responsheadere og CSP |
 | [release-og-deploy.md](release-og-deploy.md) | rekkefølgen fra merge til produksjon: testing på PR, migrering, smoke-test, Vercel-deploy, preview-deploys, feil/retry/rollback | **ja** — releaseprosessen |
 
 ## Kilder som ikke er dokumenter
@@ -28,7 +29,9 @@ Ved motstrid gjelder det dokumentet som er merket autoritativt for området — 
 - `supabase/users-and-sharing.sql` — den faktiske databasen (skjema, RLS,
   triggere, RPC-er). Regler beskrevet i `rettigheter-og-deling.md` håndheves
   her. Arbeidsregler: `supabase/CLAUDE.md`.
-- `mock-backend.js` — speiler serverens regler for testing (`?mock=1`).
+- `mock-backend.js` — speiler serverens regler for testing (`?mock=1`), lastet av
+  `dev-mock.js`. Begge er kun kildekode: `build.js` holder dem utenfor deployen
+  (`sikkerhetsheadere.md`).
 - `tests/` — regresjonstestene; kommentarblokken i hver fil sier hva den dekker.
   Arbeidsregler: `tests/CLAUDE.md`.
 - `TODO.md` — kun det som fortsatt gjenstår, mest manuelle steg i Supabase/Vercel.

@@ -2,8 +2,32 @@
 <html lang="no">
 <head>
   <meta charset="UTF-8" />
-  <!-- KANONISK ORIGIN — først av alt som KJØRER (kun tegnsett-erklæringen står
-       foran; den MÅ ligge innenfor de første 1024 bytene), altså før stilark,
+  <!-- INNHOLDSSIKKERHETSPOLICY — autoritativ beskrivelse og begrunnelse for
+       hvert unntak: docs/sikkerhetsheadere.md.
+
+       Den står her, ikke bare i vercel.json, fordi den lokale utviklings-
+       serveren og nettlesertestene ikke sender HTTP-headere: uten meta-taggen
+       ville policyen først blitt håndhevet i produksjon. Produksjon får BEGGE
+       (identiske, bortsett fra `frame-ancestors`, som kun virker som header) —
+       tests/security-headers.test.js holder dem i takt.
+
+       Hash-en dekker guarden under; den er den ENESTE inline-koden i appen, og
+       testen regner hash-en ut på nytt fra fila, så en endring der uten en
+       oppdatert hash feiler i CI i stedet for i nettleseren. -->
+  <meta http-equiv="Content-Security-Policy" content="
+    default-src 'none';
+    base-uri 'none';
+    object-src 'none';
+    script-src 'self' 'sha256-6Q3JDVUTmctJuF9ScsOY9kCKBmqaIbjWdZMf/B2lgNc=' https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.111.0/;
+    style-src 'self' https://fonts.googleapis.com;
+    font-src https://fonts.gstatic.com;
+    img-src 'self' data: blob:;
+    connect-src 'self' https://bmkynefxgklxzcofflqu.supabase.co wss://bmkynefxgklxzcofflqu.supabase.co;
+    form-action 'self'
+  " />
+  <!-- KANONISK ORIGIN — først av alt som KJØRER (kun tegnsett-erklæringen og
+       policyen over står foran; ingen av dem kjører kode, og tegnsettet MÅ
+       ligge innenfor de første 1024 bytene), altså før stilark,
        før config.js/app.js og før noe leser localStorage eller registrerer en
        service worker. Produksjon svarer allerede 308 fra
        vercel.json, men en fane som ble lastet fra et alternativt domene FØR
@@ -600,13 +624,18 @@
     <button class="sync-status-action" id="sync-retry-btn" type="button" hidden>Prøv igjen</button>
   </div>
 
-  <!-- Sky-synk (Supabase). Biblioteket lastes fra CDN; config.js holder dine verdier. -->
-  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <!-- Sky-synk (Supabase). Biblioteket lastes fra CDN på en EKSAKT, låst versjon
+       — aldri et flytende `@2`, som ville sluppet ny tredjepartskode inn i
+       produksjon uten en eneste commit her. Oppgraderingsrutinen og CSP-en som
+       låser adressen: docs/sikkerhetsheadere.md. config.js holder dine verdier. -->
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.111.0/dist/umd/supabase.js"></script>
   <script src="config.js"></script>
-  <!-- Mock-backend for hermetisk to-bruker-testing: aktiveres kun med ?mock=1. -->
-  <script>
-    if (/[?&]mock=1/.test(location.search)) document.write('<script src="mock-backend.js"><\/script>');
-  </script>
+  <!-- huskis:kun-dev:start — mock-backenden for hermetisk to-bruker-testing
+       (?mock=1). HELE blokken, og begge filene den peker på, fjernes av
+       build.js, så testmodusen ikke finnes i produksjonsbygget i det hele
+       tatt. Se docs/sikkerhetsheadere.md. -->
+  <script src="dev-mock.js"></script>
+  <!-- huskis:kun-dev:slutt -->
   <script src="icons.js"></script>
   <script src="app.js"></script>
   <!-- Oppdager en nyere produksjonsdeploy og laster klienten på nytt når det er

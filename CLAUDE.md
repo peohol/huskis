@@ -12,8 +12,10 @@ rad. Motoren kjører i to scope — `boardScope` (listevisningen) og `navScope`
 (navigasjonsmodalen) — så en endring i den treffer begge nivåene.
 
 **Kildekode** (det som deployes): `index.html`, `styles.css`, `app.js`,
-`icons.js`, `config.js`, `update-check.js`, `assets/`. `mock-backend.js` blir
-med i deployen, men lastes kun med `?mock=1`.
+`icons.js`, `config.js`, `update-check.js`, `assets/`. `dev-mock.js` og
+`mock-backend.js` er testmodus (`?mock=1`) og blir IKKE med i produksjons-
+deployen — `build.js` fjerner både filene og taggen som laster dem. Kun
+preview-deployer beholder dem (`docs/sikkerhetsheadere.md`).
 
 **Generert output**: `dist/`, laget av `node build.js` — ikke sjekket inn, og
 ingenting skal redigeres der. Byggesteget kopierer kildefilene og stempler en
@@ -89,6 +91,7 @@ Kjør den minste verifikasjonen som gir troverdig evidens for endringen:
 | Responsiv eller pekeravhengig oppførsel | både desktop- og mobil-viewport |
 | Auth, synk eller deling | mock-backend (`?mock=1`) + den relevante flerbrukerflyten |
 | Deploy, caching, build-output | `node build.js` og `node tests/build-version.test.js` |
+| Sikkerhetsheadere, CSP, tredjepartsressurser | `node tests/security-headers.test.js` + `node tests/csp-enforced.test.js` |
 | Releaseprosessen (workflows, `vercel.json`, smoke-test) | `node tests/release-pipeline.test.js` + `node tests/db-contract.test.js`, og SQL-suiten hvis `smoke-test.sql` er endret |
 
 Retter du en feil, skal en test fange den — ny test, eller en ny sjekk i den

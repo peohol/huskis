@@ -40,12 +40,17 @@ en deploy-ID er ikke «større» eller «mindre» enn en annen.
 
 ## Build og cache-headere
 
-Appen har fortsatt ingen bundler. `build.js` gjør tre ting: kopierer de statiske
-filene til `dist/` (uten `tests/`, `docs/`, `supabase/`, `*.md`), skriver
-`version.json`, og stempler `index.html` — meta-taggen + `?b=<build-ID>` på
-`app.js`, `icons.js`, `config.js`, `update-check.js` og `styles.css`.
+Appen har fortsatt ingen bundler. `build.js` gjør fire ting: kopierer de statiske
+filene til `dist/` (uten `tests/`, `docs/`, `supabase/`, `*.md`), fjerner
+testmodusen (`dev-mock.js`, `mock-backend.js` og `kun-dev`-blokken i HTML-en —
+alt unntatt i preview-deployer, se
+[`sikkerhetsheadere.md`](sikkerhetsheadere.md)), skriver `version.json`, og
+stempler `index.html` — meta-taggen + `?b=<build-ID>` på `app.js`, `icons.js`,
+`config.js`, `update-check.js` og `styles.css`.
 
-`vercel.json` (`buildCommand: node build.js`, `outputDirectory: dist`) setter:
+`vercel.json` (`buildCommand: node build.js`, `outputDirectory: dist`) setter
+sikkerhetsheaderne på alle adresser ([`sikkerhetsheadere.md`](sikkerhetsheadere.md))
+og i tillegg:
 
 * `/version.json` → `no-store` (+ `CDN-Cache-Control: no-store`)
 * `/` og `/index.html` → `max-age=0, must-revalidate`, så en vanlig
