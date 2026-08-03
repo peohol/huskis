@@ -7,16 +7,15 @@
    som stille aldri kjøres igjen. Derfor sjekkes dekningen her.
 
    Den forrige fordelingen (round-robin over en alfabetisk sortert filliste)
-   hadde i tillegg to konkrete problemer denne testen holder borte: shardene ble
-   ikke jevne, og én ny testfil forskjøv alle filene etter seg alfabetisk til
-   nye shards.
+   ga i tillegg shards som ikke var jevne — 343 s mot 216 s da dette ble målt.
+   Jevnheten er det denne testen holder fast.
 
    Dekker:
      1. hver testfil havner i nøyaktig én shard — ingen utelatt, ingen dobbelt
      2. det gjelder for alle aktuelle shard-antall, også 1 og flere enn filer
      3. fordelingen er deterministisk: samme input gir samme svar
      4. dyre filer spres — shardene blir jevne i målt kostnad
-     5. en ny testfil flytter ikke de eksisterende rundt
+     5. og de forblir jevne når suiten vokser
      6. filer uten måling får medianvekt, ikke null (ellers klumper de seg),
         og durations.json har ikke rotnet bort fra suiten
      7. ci.yml og fordelingen er i takt: SHARD_TOTAL følger matrisestørrelsen
@@ -41,6 +40,10 @@ function check(navn, ok, evidens) {
 
 const ALLE = testfiler();
 const VEKTER = vekter();
+
+const MÅLTE = ALLE.map((f) => VEKTER[f]).filter((n) => typeof n === 'number').sort((a, b) => a - b);
+const MEDIAN_KOST = MÅLTE.length ? MÅLTE[Math.floor(MÅLTE.length / 2)] : 1;
+const DYRESTE = MÅLTE.length ? MÅLTE[MÅLTE.length - 1] : 1;
 
 /* ---- 1+2. Full dekning, uansett shard-antall ---- */
 for (const total of [1, 2, 3, 4, 5, 6, 8, 12, ALLE.length, ALLE.length + 5]) {
@@ -91,24 +94,44 @@ for (const total of [1, 2, 3, 4, 5, 6, 8, 12, ALLE.length, ALLE.length + 5]) {
       (umålte.length ? ': ' + umålte.map((f) => f.replace('tests/', '')).join(', ') : ''));
 }
 
-/* ---- 5. En ny fil flytter ikke de andre ---- */
+/* ---- 5. Balansen holder når suiten vokser ----
+   HVILKEN shard en fil havner i er ikke stabilt, og skal ikke være det: LPT
+   plasserer etter løpende sum, så en ny fil kan flytte mange av de andre. Det
+   er uten betydning her — det finnes ingen cache eller tilstand per shard, hver
+   shard kjører bare lista si. Det som MÅ holde, er at shardene fortsatt er like
+   tunge etterpå, uansett hvor dyr den nye testen er. */
 {
-  const ny = 'tests/zzz-helt-ny.test.js';
-  const før = fordel(ALLE, 4, VEKTER);
-  const etter = fordel(ALLE.concat(ny).sort(), 4, VEKTER);
+  for (const kost of [5, MEDIAN_KOST, DYRESTE]) {
+    const nye = ALLE.concat('tests/zzz-helt-ny.test.js');
+    const vekterMedNy = Object.assign({}, VEKTER, { 'tests/zzz-helt-ny.test.js': kost });
+    const kostnader = fordel(nye, 6, vekterMedNy).map((s) => s.cost);
+    const spredning = Math.max(...kostnader) - Math.min(...kostnader);
+    check(`balansen holder når en ny test på ${kost}s kommer til`,
+      spredning <= Math.max(kost, 30),
+      `shards: ${kostnader.join(', ')} — spredning ${spredning}s`);
+  }
+}
 
-  const plassFør = new Map();
-  før.forEach((s, i) => s.files.forEach((f) => plassFør.set(f, i)));
-  const flyttet = ALLE.filter((f) => {
-    const i = etter.findIndex((s) => s.files.includes(f));
-    return i !== plassFør.get(f);
-  });
+/* ---- 5b. Gratis filer klumper seg ikke ----
+   De rene node-testene måles til 0 s. Velges det bare på kostnad, forblir den
+   første shard-en «lettest» uansett hvor mange den får, og alle havner der —
+   mens shards lenger ute blir stående tomme. */
+{
+  const gratis = ALLE.filter((f) => VEKTER[f] === 0);
+  if (gratis.length >= 2) {
+    const shards = fordel(ALLE, 6, VEKTER);
+    const medGratis = shards.filter((s) => s.files.some((f) => VEKTER[f] === 0)).length;
+    check('gratis node-tester klumper seg ikke i én shard', medGratis >= 2,
+      `${gratis.length} gratis filer fordelt på ${medGratis} shards`);
+  }
 
-  /* Å legge til én fil kan skyve på noen få naboer — det er prisen for at
-     fordelingen faktisk balanserer. Poenget er at det IKKE er en omstokking av
-     hele suiten, slik round-robin over en sortert liste ga. */
-  check('en ny testfil stokker ikke om hele fordelingen', flyttet.length <= Math.ceil(ALLE.length * 0.25),
-    `${flyttet.length} av ${ALLE.length} filer flyttet`);
+  /* Flere shards enn filer skal gi tomme shards, ikke krasj eller tapte filer. */
+  const mange = fordel(ALLE, ALLE.length + 5, VEKTER);
+  const tomme = mange.filter((s) => !s.files.length).length;
+  const plassert = mange.flatMap((s) => s.files).length;
+  check('flere shards enn filer: resten står tomme, ingen fil går tapt',
+    plassert === ALLE.length && tomme === 5,
+    `${plassert} plasserte, ${tomme} tomme shards`);
 }
 
 /* ---- 6. Ukjente filer får medianvekt ---- */

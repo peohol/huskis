@@ -39,7 +39,12 @@ jobs:
         # `strategy.job-total` lenger nede, og tests/run-all.sh fordeler filene
         # etter målt kjøretid (tests/durations.json). Endres listen her, følger
         # resten etter av seg selv.
-        shard: [1, 2, 3, 4]
+        #
+        # Seks er valgt ut fra tallene, ikke på følelsen: suiten er ~1040 s
+        # serielt, så seks balanserte shards lander på ~174 s hver. Flere shards
+        # gir stadig mindre igjen (åtte sparer ~40 s til) mens hver ny jobb
+        # betaler ~25 s oppstart og legger beslag på en samtidighetsplass.
+        shard: [1, 2, 3, 4, 5, 6]
     steps:
       - uses: actions/checkout@v4
 

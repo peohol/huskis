@@ -3,9 +3,15 @@
    Fordeler testfilene på shards, og skriver filene som hører til én av dem.
 
    Fordelingen er kostnadsbasert, ikke alfabetisk: de dyreste filene plasseres
-   først, hver i den shard-en som har minst arbeid så langt (LPT). To ting
-   følger av det — shardene blir jevne, og én ny testfil flytter ikke alle de
-   andre, slik round-robin over en sortert filliste gjorde.
+   først, hver i den shard-en som har minst arbeid så langt (LPT). Round-robin
+   over en sortert filliste ga 343 s på den tyngste shard-en mot 216 s på den
+   letteste; med vekter er spredningen et par sekunder.
+
+   HVILKEN shard en fil havner i er ikke stabilt over tid — legges det til en
+   test, kan mange filer bytte shard, fordi plasseringen følger den løpende
+   summen. Det er uten betydning: det finnes ingen cache eller tilstand per
+   shard, hver shard kjører bare lista si. Det som betyr noe er at de er like
+   tunge.
 
    Vektene er målt kjøretid i sekunder fra tests/durations.json (skrevet av
    tests/measure.sh). Tallene er RELATIVE — de er målt på en annen maskin enn
@@ -38,8 +44,15 @@ function fordel(files, total, known = {}) {
 
   const shards = Array.from({ length: total }, () => ({ cost: 0, files: [] }));
   for (const { file, cost } of sorted) {
+    /* Ved lik kostnad velges den med færrest filer. Uten det ville alle de
+       gratis node-testene (0 s) havnet i samme shard, siden den forblir
+       «lettest» uansett hvor mange den får — og shards lenger ute ble stående
+       tomme. */
     let lightest = 0;
-    for (let i = 1; i < total; i++) if (shards[i].cost < shards[lightest].cost) lightest = i;
+    for (let i = 1; i < total; i++) {
+      const a = shards[i], b = shards[lightest];
+      if (a.cost < b.cost || (a.cost === b.cost && a.files.length < b.files.length)) lightest = i;
+    }
     shards[lightest].files.push(file);
     shards[lightest].cost += cost;
   }

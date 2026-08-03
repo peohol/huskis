@@ -3,9 +3,15 @@
 # Måler kjøretiden til hver testfil og skriver tests/durations.json — tallene
 # tests/run-all.sh fordeler shardene etter.
 #
-# Kjøres sjelden: når fordelingen har blitt skjev, eller når nye testfiler har
-# ligget umålt en stund. Suiten kjøres i sin helhet, serielt, så dette tar like
-# lang tid som en ushardet runde (~15-20 min).
+# MERK: den beste kilden til tall er en CI-runde, ikke denne fila. CI kjører
+# suiten på runnerne fordelingen faktisk gjelder for, og gjør det parallelt på
+# noen få minutter. Hver shard skriver tabellen sin til jobbsammendraget, og
+# tallene i durations.json er hentet derfra. Bruk dette skriptet når du ikke
+# har en CI-runde å hente fra — da kjøres suiten serielt lokalt, og det tar
+# like lang tid som en ushardet runde.
+#
+# Uansett kilde er tallene RELATIVE: fordelingen trenger forholdet mellom
+# filene, ikke absolutt veggklokke.
 #
 #   tests/measure.sh
 #   HUSKIS_URL=http://localhost:8000 tests/measure.sh

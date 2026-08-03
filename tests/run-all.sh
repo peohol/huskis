@@ -56,8 +56,12 @@ fi
 # Kostnadsbasert fordeling etter målt kjøretid — se tests/shard.js.
 mapfile -t FILES < <(node tests/shard.js "$SHARD_INDEX" "$SHARD_TOTAL")
 
+# Flere shards enn testfiler er en gyldig (om enn unyttig) konfigurasjon — da
+# står noen tomme. Det er ikke en feil; at ALLE filene faktisk blir fordelt er
+# det tests/shard-distribution.test.js som vokter.
 if [ ${#FILES[@]} -eq 0 ]; then
-  echo "✗ Ingen testfiler i shard $SHARD_INDEX/$SHARD_TOTAL"; exit 1
+  echo "→ Shard $SHARD_INDEX/$SHARD_TOTAL: ingen testfiler (flere shards enn filer)"
+  exit 0
 fi
 
 echo "→ Shard $SHARD_INDEX/$SHARD_TOTAL: ${#FILES[@]} testfiler mot $HUSKIS_URL"
