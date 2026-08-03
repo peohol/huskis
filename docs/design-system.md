@@ -552,9 +552,14 @@ Det korte som gjelder når du lager en ny kontroll:
 - `prefersReducedMotion()` (app.js) hopper over fly-/FLIP-/drop-animasjonene, og
   et `@media (prefers-reduced-motion: reduce)`-blokk nøytraliserer CSS-
   transisjoner/animasjoner. Respekter dette i nye animasjoner.
-- Ingen `user-scalable=no` (brukere skal kunne zoome). Kontroller er minst
-  ~24–49px høye for touch, og skal aldri krympe — målene er låst i
-  `tests/a11y-runtime.test.js`.
+- Ingen `user-scalable=no` (brukere skal kunne zoome).
+- **Berøringsflate**: ikonknappene TEGNES 34–36px (kompakt UI), men et
+  gjennomsiktig `::after` gir dem 44×44 å treffe på (`--touch`). Utvidelsen er
+  halve luften til naboen, så flatene møtes uten å overlappe — derfor har
+  kontrollradene (`.item`, `.card-head`, `.cat-head`) `gap: 8px`. En ny
+  ikonknapp må inn i selektorlista i `styles.css` og ha 8px til naboen. Målene
+  og fraværet av overlapp er låst i `tests/a11y-runtime.test.js`. Detaljer og
+  unntak: `docs/tilgjengelighet.md`.
 - **Fokusring**: `outline: var(--focus-w) solid var(--focus)` på lyse flater,
   `var(--focus-on-dark)` på de mørke (toast, oppdateringsbanner). Aldri en egen
   farge — en brand-grønn eller hvit ring forsvinner mot halve paletten.
