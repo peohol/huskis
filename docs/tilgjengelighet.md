@@ -155,10 +155,39 @@ alle animasjoner — se `design-system.md`. Ingen `user-scalable=no`.
 
 ## Berøringsflater
 
-Kontrollene skal aldri krympe. `tests/a11y-runtime.test.js` måler dem i
-nettleseren og holder dagens mål som gulv (`.icon-btn`/`.card-cog`/`.cat-cog`
-36px, `.item-cog` 27px, `.item-check` 26px, `.btn-add` 34px, `.crumb-btn` 49px),
-og krever i tillegg WCAG 2.2 «Target Size (Minimum)»: alt ≥ 24×24 px.
+**Ikonknappene tegnes små og treffes store.** De er 34–36 px i UI-et fordi
+listevisningen skal være kompakt, men en finger trenger 44 px (WCAG 2.5.5, og
+det samme tallet i Apples og Googles retningslinjer). De to kravene er ikke i
+konflikt: knappen ser ut som før, mens et gjennomsiktig `::after` strekker det
+KLIKKBARE feltet ut til 44×44 (`--touch` i `styles.css`).
+
+**Ingen to mål får overlappe.** Utvidelsen er nøyaktig halve luften til naboen —
+4 px av en 8 px gap — så to nabo-flater møtes uten å dekke hverandre. Det er
+grunnen til at kontrollradene (`.item`, `.card-head`, `.cat-head`) har
+`gap: 8px` og ikke 6: 8 er tallet som gjør 44 mulig uten overlapp. Overlappende
+mål er ikke en teoretisk innvending — mellom «innstillinger» og «slett» ville et
+trykk i sonen truffet vilkårlig, og den ene av dem er destruktiv.
+
+Avkryssingsboksen er det ene stedet der knappen og det synlige er skilt: knappen
+er 36×36, mens boksen man ser er de samme 26 px som før, tegnet av `::before`.
+Uten det skillet måtte enten boksen blitt like stor som knappen (en 36 px rute
+ved siden av 19 px tekst tar over hele raden), eller berøringsflaten blitt
+liggende igjen på 26.
+
+Unntak, med vilje:
+
+- `.pass-toggle` ligger INNI tekstfeltet. En utvidet flate der ville stjålet
+  klikk fra selve feltet, som er et større og viktigere mål.
+- `.meta-chip` (26 px) og `.item-text` er stablet med 3 px mellom seg inne i
+  raden og kan ikke vokse uten å overlappe hverandre. Begge er over AA-gulvet på
+  24 px, og begge er tekstmål, ikke ikonknapper.
+
+`tests/a11y-runtime.test.js` måler dette i nettleseren, i begge viewporter:
+den FAKTISKE flaten (unionen av knappen og `::after`) må være ≥ 44×44, ingen to
+flater får overlappe — heller ikke mot tekstmålene i samme rad — og ingen
+kontroll får bli mindre enn den er i dag. Legger du til en ny ikonknapp, ta den
+med i selektorlista i `styles.css` og gi den minst 8 px luft til naboen; testen
+sier fra hvis du glemmer det.
 
 ## Manuelle kontrollpunkter
 

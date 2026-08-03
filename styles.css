@@ -103,6 +103,11 @@
      custom property). */
   --board-gap: clamp(12px, 4vw, 40px);
 
+  /* Minste berøringsflate på en ikonknapp. Knappen TEGNES mindre (34–36 px, så
+     listevisningen holder seg kompakt); dette er feltet som tar imot fingeren.
+     Se «Berøringsflate på ikonknappene» lenger nede. */
+  --touch: 44px;
+
   /* Kontroll-tokens: alle knapper/kontroller i knapperadene deler disse. */
   --control-h: 49px;
   --control-radius: 14px;
@@ -193,6 +198,50 @@ body {
   flex: 0 0 auto;
   width: 1em;
   height: 1em;
+}
+
+/* ---------------- Berøringsflate på ikonknappene ----------------
+   Ikonknappene TEGNES små (34–36 px) fordi listevisningen skal være kompakt —
+   men en finger trenger 44 px (WCAG 2.5.5, og både Apple og Material sier det
+   samme). De to kravene er ikke i konflikt: knappen ser ut nøyaktig som før,
+   mens et gjennomsiktig `::after` strekker det KLIKKBARE feltet ut til 44×44.
+
+   Utvidelsen er nøyaktig halve luften til naboen (4 px av en 8 px gap), så to
+   nabo-mål MØTES uten å overlappe. Det er hele poenget med å regne på det: et
+   overlapp ville gjort at et trykk i sonen mellom «innstillinger» og «slett»
+   traff den ene vilkårlig — og av de to er den ene destruktiv. Derfor er
+   kontrollradene (.item, .card-head, .cat-head) satt til `gap: 8px`: det er
+   tallet som gjør 44 mulig uten overlapp.
+
+   Legger du til en ny ikonknapp: ta den med i lista under, og sørg for at den
+   har minst 8 px luft til naboen. tests/a11y-runtime.test.js måler den
+   FAKTISKE flaten på alt som er synlig, så en glemt knapp feiler der.
+
+   Unntak, med vilje:
+   • `.pass-toggle` ligger INNI tekstfeltet. En utvidet flate der ville stjålet
+     klikk fra selve feltet, som er et større og viktigere mål.
+   • `.meta-chip` og `.item-text` er stablet med 3 px mellom seg inne i raden;
+     de kan ikke vokse uten å overlappe hverandre. Begge er over AA-gulvet på
+     24 px, og er tekstmål, ikke ikonknapper. */
+.item-check, .item-cog, .item-delete, .card-cog, .card-delete,
+.cat-cog, .cat-dissolve, .done-restore, .cat-add-btn, .share-badge,
+.icon-btn:not(.pass-toggle) {
+  position: relative;
+}
+.item-check::after, .item-cog::after, .item-delete::after,
+.card-cog::after, .card-delete::after, .cat-cog::after, .cat-dissolve::after,
+.done-restore::after, .cat-add-btn::after, .share-badge::after,
+.icon-btn:not(.pass-toggle)::after {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: var(--touch);
+  height: var(--touch);
+  transform: translate(-50%, -50%);
+  /* Usynlig, men tar imot pekeren. Ligger UNDER knappens eget innhold i
+     malingsrekkefølgen, så ikonet aldri dekkes. */
+  z-index: 0;
 }
 
 /* ---------------- Paneler (modaler) ----------------
@@ -690,7 +739,7 @@ body {
 .card-head {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 8px;
   padding: 10px;
   background: var(--card-head);
   cursor: pointer;             /* klikk = kollaps/utvid (pekende hånd som univers/gruppe) */
@@ -774,7 +823,9 @@ body {
 .item {
   display: flex;
   align-items: center;
-  gap: 6px;
+  /* 8, ikke 6: to nabo-berøringsflater strekker seg 4 px hver — se
+     «Berøringsflate på ikonknappene». */
+  gap: 8px;
   padding: 6px;
   border-radius: 10px;
   background: rgba(255, 255, 255, 0.55);
@@ -784,29 +835,50 @@ body {
 
 /* Avkryssingsboks: rund-firkantet boks; grønt hake-fyll når gjort.
    Haken (SVG) ligger alltid der, men er usynlig til elementet er gjort. */
+/* Avkryssingsboksen: KNAPPEN er 36×36 (og berøringsflaten 44, som de andre),
+   mens den synlige boksen er de samme 26 px som før — den er flyttet til
+   `::before`. Uten det skillet måtte enten boksen blitt like stor som knappen
+   (en 36 px rute ved siden av 19 px tekst tar over hele raden), eller
+   berøringsflaten blitt liggende igjen på 26. */
 .item-check {
   flex: 0 0 auto;
   align-self: center;
   appearance: none;
   cursor: pointer;
-  width: 26px;
-  height: 26px;
+  width: 36px;
+  height: 36px;
   padding: 0;
   display: grid;
   place-items: center;
+  border: none;
+  background: transparent;
+  color: #fff;
+  transition: transform 0.1s;
+}
+.item-check::before {           /* den synlige boksen: 26×26, sentrert i knappen */
+  content: '';
+  position: absolute;
+  inset: 5px;
   border: 2px solid var(--card-accent);
   border-radius: 8px;
   background: rgba(255, 255, 255, 0.55);
-  color: #fff;
-  transition: background 0.15s, border-color 0.15s, transform 0.1s;
+  transition: background 0.15s, border-color 0.15s;
 }
-.item-check .icon { width: 1em; height: 1em; font-size: 16px; opacity: 0; transition: opacity 0.12s; }
-.item-check:hover { border-color: var(--primary); }
+/* Haken males OVER boksen: begge er posisjonert, så tre-rekkefølgen avgjør —
+   uten `position` her ville den absolutt posisjonerte ::before ligget øverst. */
+.item-check .icon {
+  position: relative;
+  z-index: 1;
+  width: 1em; height: 1em; font-size: 16px; opacity: 0; transition: opacity 0.12s;
+}
+.item-check:hover::before { border-color: var(--primary); }
 .item-check:active { transform: scale(0.9); }
-.item-check:focus-visible { outline: var(--focus-w) solid var(--focus); outline-offset: 2px; }
+/* Ringen skal hugge den SYNLIGE boksen, ikke den større knappen. */
+.item-check:focus-visible { outline: none; }
+.item-check:focus-visible::before { outline: var(--focus-w) solid var(--focus); outline-offset: 2px; }
 /* Haken er HVIT, så fyllet må være blågrønt og ikke grønt: den lyse grønnen
    ＋-knappene har, ville gitt 2.7:1 under en hvit glyf. */
-.item.done .item-check {
+.item.done .item-check::before {
   background: var(--grad-accent);
   border-color: transparent;
 }
@@ -819,8 +891,8 @@ body {
   align-self: center;
   appearance: none;
   cursor: pointer;
-  width: 27px;
-  height: 27px;
+  width: 36px;
+  height: 36px;
   padding: 0;
   display: grid;
   place-items: center;
@@ -1000,7 +1072,7 @@ body {
   background: rgba(0, 0, 0, 0.15);
   display: block;
 }
-.cat-head { display: flex; align-items: center; gap: 6px; padding: 0 6px; }
+.cat-head { display: flex; align-items: center; gap: 8px; padding: 0 6px; }
 /* Kategori-ikon: skjult i hvile, vist til venstre for tittelen KUN mens
    kategorien dras (se .category.dragging). Svarte streker (ICONS.category) mot
    den hvite dra-flaten. */

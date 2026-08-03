@@ -24,8 +24,11 @@
     9. Modaler: fokus flyttes inn ved åpning, Tab holdes inne, og fokus går
        tilbake til knappen som åpnet modalen når den lukkes.
    10. Opplesning: flyttinger havner i #a11y-live (role="status").
-   11. Berøringsflater er IKKE blitt mindre: ikonknapper ≥ 36 px, kontroller i
-       knapperadene ≥ 49 px (--control-h), i begge viewporter.
+   11. Berøringsflater: ingen kontroll er blitt mindre enn i dag, hver synlig
+       ikonknapp har en FAKTISK klikkflate på ≥ 44×44 (unionen av knappen og
+       `::after`, WCAG 2.5.5), og ingen to flater overlapper hverandre — heller
+       ikke mot tekstmålene i samme rad. Overlapp er det farlige: mellom
+       «innstillinger» og «slett» ville et trykk i sonen truffet vilkårlig.
    12. Rendret kontrast: den gule knappen bærer mørk tekst uten tekstskygge, og
        fokusringen males i --focus (ikke den gamle brand-grønne).
 
@@ -512,7 +515,7 @@ async function run(label, viewport) {
      kontrolleres WCAG 2.2 «Target Size (Minimum)» (24×24 px) for alt sammen. */
   const FLOOR = {
     '.icon-btn': 36, '.card-cog': 36, '.cat-cog': 36, '.cat-dissolve': 36,
-    '.item-cog': 27, '.item-check': 26, '.btn-add': 34, '.crumb-btn': 49,
+    '.item-cog': 36, '.item-check': 36, '.btn-add': 34, '.crumb-btn': 49,
   };
   const measured = await page.evaluate((sels) => {
     const out = {};
@@ -528,8 +531,67 @@ async function run(label, viewport) {
   const shrunk = Object.keys(FLOOR).filter((s) => measured[s] !== null && measured[s] < FLOOR[s]);
   log(label + ' 11a: ingen kontroll er blitt mindre enn den var', shrunk.length === 0,
     shrunk.length ? shrunk.map((s) => s + ': ' + measured[s] + ' < ' + FLOOR[s]) : measured);
-  const tooSmall = Object.keys(measured).filter((s) => measured[s] !== null && measured[s] < 24);
-  log(label + ' 11b: alle kontroller er minst 24×24 px (WCAG 2.2 AA)', tooSmall.length === 0, tooSmall);
+
+  /* 11b–c. Den FAKTISKE berøringsflaten. Ikonknappene tegnes 34–36 px, men
+     `::after` strekker det klikkbare feltet til 44×44 (WCAG 2.5.5). Testen måler
+     unionen av knappen og pseudoelementet — altså det fingeren faktisk treffer,
+     ikke det øyet ser. Og den sjekker at ingen to mål OVERLAPPER: to flater som
+     dekker hverandre gjør et trykk i sonen mellom dem vilkårlig, og av «slett»
+     og «innstillinger» er den ene destruktiv. */
+  const touch = await page.evaluate(() => {
+    const ICON = '.item-check, .item-cog, .item-delete, .card-cog, .card-delete,'
+      + '.cat-cog, .cat-dissolve, .done-restore, .cat-add-btn, .share-badge,'
+      + '.icon-btn:not(.pass-toggle)';
+    // Kun det som FAKTISK tar imot en finger. `pointer-events` arves, så dette
+    // luker samtidig bort etterkommere av slette-animasjonens `.fly-ghost` —
+    // en ren visuell klone som krymper mens den flyr, og som ellers ville
+    // meldt seg som et bittelite «mål» midt i en måling.
+    const vis = (e) => e.offsetParent && !e.closest('[hidden]')
+      && getComputedStyle(e).pointerEvents !== 'none';
+    const hitBox = (e) => {
+      const r = e.getBoundingClientRect();
+      const a = getComputedStyle(e, '::after');
+      const w = parseFloat(a.width) || 0, h = parseFloat(a.height) || 0;
+      if (!w || !h) return r;
+      const cx = r.left + r.width / 2, cy = r.top + r.height / 2;
+      return {
+        left: Math.min(r.left, cx - w / 2), right: Math.max(r.right, cx + w / 2),
+        top: Math.min(r.top, cy - h / 2), bottom: Math.max(r.bottom, cy + h / 2),
+        width: Math.max(r.width, w), height: Math.max(r.height, h),
+      };
+    };
+    const icons = [].slice.call(document.querySelectorAll(ICON)).filter(vis)
+      .map((e) => ({ navn: (e.className.split(' ').filter((c) => c !== 'icon-btn')[0] || 'icon-btn'), box: hitBox(e), el: e }));
+    // Tekstmålene i samme rad har egne klikk-handlere (omdøping, tidsvelger) og
+    // skal ikke bli spist av en utvidet knappeflate.
+    const tekst = [].slice.call(document.querySelectorAll('.item-text, .card-title, .cat-title, .meta-chip'))
+      .filter(vis).map((e) => ({ navn: '[' + e.className.split(' ')[0] + ']', box: e.getBoundingClientRect(), el: e }));
+    const små = icons.filter((i) => i.box.width < 44 || i.box.height < 44)
+      .map((i) => i.navn + ': ' + Math.round(i.box.width) + 'x' + Math.round(i.box.height));
+    const alle = icons.concat(tekst);
+    const overlapp = [];
+    for (let i = 0; i < alle.length; i++) {
+      for (let j = i + 1; j < alle.length; j++) {
+        const A = alle[i], B = alle[j];
+        if (A.el.contains(B.el) || B.el.contains(A.el)) continue;
+        const w = Math.min(A.box.right, B.box.right) - Math.max(A.box.left, B.box.left);
+        const h = Math.min(A.box.bottom, B.box.bottom) - Math.max(A.box.top, B.box.top);
+        if (w > 0.5 && h > 0.5) {
+          const box = (o) => `${Math.round(o.left)},${Math.round(o.top)} ${Math.round(o.width)}x${Math.round(o.height)}`;
+          const hvor = (e) => (document.getElementById('nav-modal').contains(e) ? 'nav' : 'board')
+            + '/' + ((e.closest('[data-id]') || {}).dataset || {}).id
+            + (e.closest('.cat-items') ? '/i-kategori' : '');
+          overlapp.push(`${A.navn}[${box(A.box)}] × ${B.navn}[${box(B.box)}] = ${w.toFixed(1)}x${h.toFixed(1)}`
+            + ` | ${hvor(B.el)} "${(B.el.textContent || '').trim().slice(0, 24)}"`);
+        }
+      }
+    }
+    return { antall: icons.length, små, overlapp };
+  });
+  log(label + ' 11b: alle synlige ikonknapper har 44×44 berøringsflate (WCAG 2.5.5)',
+    touch.antall > 0 && touch.små.length === 0, touch.små.length ? touch.små : touch.antall + ' knapper');
+  log(label + ' 11c: ingen to berøringsflater overlapper hverandre',
+    touch.overlapp.length === 0, touch.overlapp);
 
   /* ---------- 12. Rendret farge ---------- */
   const yellow = await page.evaluate(() => {
