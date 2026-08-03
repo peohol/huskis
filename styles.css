@@ -222,15 +222,19 @@ body {
      klikk fra selve feltet, som er et større og viktigere mål.
    • `.meta-chip` og `.item-text` er stablet med 3 px mellom seg inne i raden;
      de kan ikke vokse uten å overlappe hverandre. Begge er over AA-gulvet på
-     24 px, og er tekstmål, ikke ikonknapper. */
+     24 px, og er tekstmål, ikke ikonknapper.
+   • `.share-badge` finnes i to former: en ekte <button> på listekortet, og en
+     DEKORATIV <span aria-hidden> på universkort og grupperader. Kun knappen er
+     med (`button.share-badge`) — en treffflate på en span som ikke tar imot
+     klikk ville bare lagt et usynlig teppe over raden bak den. */
 .item-check, .item-cog, .item-delete, .card-cog, .card-delete,
-.cat-cog, .cat-dissolve, .done-restore, .cat-add-btn, .share-badge,
+.cat-cog, .cat-dissolve, .done-restore, .cat-add-btn, button.share-badge,
 .icon-btn:not(.pass-toggle) {
   position: relative;
 }
 .item-check::after, .item-cog::after, .item-delete::after,
 .card-cog::after, .card-delete::after, .cat-cog::after, .cat-dissolve::after,
-.done-restore::after, .cat-add-btn::after, .share-badge::after,
+.done-restore::after, .cat-add-btn::after, button.share-badge::after,
 .icon-btn:not(.pass-toggle)::after {
   content: '';
   position: absolute;
@@ -2636,6 +2640,12 @@ body.no-auth #account-btn { display: none; }
 /* Listekortets badge er en ekte <button> (ingen egen del-knapp i korthodet
    ellers) — nullstill knappe-kromet så den ser ut som universers/gruppers
    rene indikator-span. */
+/* Knappen er 36×36 som de andre kontrollene i korthodet (og får dermed de
+   samme 44 px å treffe på), mens SELVE MERKET holder seg på --fs-lg — samme
+   størrelse som den dekorative spanen universer og grupper har, så de tre ser
+   like ut. Uten en egen størrelse var knappen bare 16×16 (`font: inherit`
+   nullstilte --fs-lg), og en 44 px treffflate sentrert på den strakk seg inn
+   over listetittelen: et trykk ved navnet åpnet deling i stedet for omdøping. */
 button.share-badge {
   appearance: none;
   border: none;
@@ -2644,6 +2654,11 @@ button.share-badge {
   color: inherit;
   font: inherit;
   cursor: pointer;
+  width: 36px;
+  height: 36px;
+  display: grid;
+  place-items: center;
+  font-size: var(--fs-lg);
 }
 button.share-badge:focus-visible { outline: var(--focus-w) solid var(--focus); outline-offset: 2px; border-radius: 4px; }
 /* Innstillingsknappen på listekort (`.card-cog`, tannhjul — erstatter den

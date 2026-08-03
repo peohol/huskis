@@ -113,6 +113,12 @@ function buildDB() {
         { id: U(), user_id: 'uB', universe_id: 'UNI3', group_id: null, role: 'owner', pos: 0, created_at: 1 },
         // A er kun MEDLEM her — låser gjelder derfor for A (eiere omgår dem).
         { id: U(), user_id: uA, universe_id: 'UNI3', group_id: null, role: 'member', pos: 2, created_at: 1 },
+        // B er medlem av GA → gruppen er DELT, og delt-merket dukker opp: som
+        // ekte <button> i listekortets header og som dekorativ <span> på
+        // grupperaden i nav-modalen. Uten en delt gruppe i fiksturen ble de to
+        // aldri målt — og nettopp der lå en for liten knapp og en treffflate
+        // som strakk seg inn over listetittelen.
+        { id: U(), user_id: 'uB', group_id: GA, universe_id: null, role: 'member', pos: 0, created_at: 1 },
       ],
       share_invites: [], tombstones: [],
     },
