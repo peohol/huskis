@@ -38,6 +38,42 @@ SHARD_INDEX=1 SHARD_TOTAL=4 tests/run-all.sh   # slik CI deler den opp
 - Kjør de testene endringen berører — hele mappen tar lang tid, og en full runde
   er sjelden det som gir evidensen. CI kjører den fulle runden på hver PR.
 
+## Sharding
+
+CI kjører suiten parallelt. `tests/shard.js` fordeler filene etter **målt
+kjøretid** fra `tests/durations.json`: dyreste fil først, hver i den shard-en
+som har minst arbeid så langt. Shardene blir dermed like tunge — spredningen er
+et par sekunder, mot 127 s da fordelingen var alfabetisk.
+
+Hvilken shard en enkelt fil havner i er ikke stabilt over tid, og skal ikke
+være det: plasseringen følger den løpende summen, så en ny test kan flytte
+mange filer. Det er uten betydning — ingen cache eller tilstand henger på en
+shard.
+
+Antallet shards står ett sted — `shard:`-matrisen i `.github/workflows/ci.yml`.
+`SHARD_TOTAL` utledes av `strategy.job-total`, så matrisen og fordelingen kan
+ikke komme i utakt.
+
+`run-all.sh` skriver kjøretid per fil til slutt, og i CI også til
+jobbsammendraget. Når fordelingen har blitt skjev, eller nye testfiler har
+ligget umålt en stund, hentes ferske tall.
+
+**Beste kilde er en CI-runde**: den kjører på runnerne fordelingen gjelder for,
+og gjør det parallelt på noen få minutter. Les shard-tabellene fra
+jobbsammendraget og oppdater `durations.json`. Uten en CI-runde å hente fra:
+
+```bash
+tests/measure.sh          # full, ushardet runde lokalt → tests/durations.json
+```
+
+Tallene er **relative** — fordelingen trenger forholdet mellom filene, ikke
+absolutt veggklokke. En fil som mangler i `durations.json` får medianen av de
+målte, så en ny test ikke tvinger fram en ny måling.
+
+`tests/shard-distribution.test.js` er vakten: den sjekker at hver testfil havner
+i nøyaktig én shard for alle aktuelle shard-antall. En fil som faller ut mellom
+to shards gir ellers ingen rød CI — bare en test som stille aldri kjøres igjen.
+
 ## Hermetikk: `?mock=1`
 
 Nettlesertestene laster appen med `?mock=1`, som får `dev-mock.js` til å laste

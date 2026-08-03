@@ -13,8 +13,10 @@
 #   SHARD_INDEX=1 SHARD_TOTAL=4 tests/run-all.sh    # én av fire like biter
 #   HUSKIS_URL=http://localhost:8000 tests/run-all.sh
 #
-# Sharding brukes av CI for å kjøre suiten parallelt. Filene sorteres og
-# fordeles round-robin, så hver shard får en blanding av raske og trege filer.
+# Sharding brukes av CI for å kjøre suiten parallelt. Filene fordeles etter
+# målt kjøretid (tests/shard.js + tests/durations.json), så shardene blir like
+# tunge. Kjøretiden per fil skrives ut til slutt; tests/measure.sh gjør den om
+# til nye tall i durations.json.
 # ============================================================
 set -uo pipefail
 cd "$(dirname "$0")/.."
@@ -51,33 +53,61 @@ if ! curl -sfo /dev/null "$HUSKIS_URL/index.html"; then
 fi
 
 # ---- Fordel filene på shards ----
-FILES=()
-i=0
-for f in $(ls tests/*.test.js | sort); do
-  if [ $(( i % SHARD_TOTAL )) -eq $(( (SHARD_INDEX - 1) % SHARD_TOTAL )) ]; then
-    FILES+=("$f")
-  fi
-  i=$(( i + 1 ))
-done
+# Kostnadsbasert fordeling etter målt kjøretid — se tests/shard.js.
+mapfile -t FILES < <(node tests/shard.js "$SHARD_INDEX" "$SHARD_TOTAL")
 
+# Flere shards enn testfiler er en gyldig (om enn unyttig) konfigurasjon — da
+# står noen tomme. Det er ikke en feil; at ALLE filene faktisk blir fordelt er
+# det tests/shard-distribution.test.js som vokter.
 if [ ${#FILES[@]} -eq 0 ]; then
-  echo "✗ Ingen testfiler i shard $SHARD_INDEX/$SHARD_TOTAL"; exit 1
+  echo "→ Shard $SHARD_INDEX/$SHARD_TOTAL: ingen testfiler (flere shards enn filer)"
+  exit 0
 fi
 
 echo "→ Shard $SHARD_INDEX/$SHARD_TOTAL: ${#FILES[@]} testfiler mot $HUSKIS_URL"
 echo
 
 FAILED=()
+TIMED=()
 for f in "${FILES[@]}"; do
   echo "──────── $f ────────"
+  started=$SECONDS
   if node "$f"; then
     echo "✓ $f"
   else
     echo "✗ $f"
     FAILED+=("$f")
   fi
+  elapsed=$(( SECONDS - started ))
+  TIMED+=("$elapsed	$f")
+  echo "  ⏱  ${elapsed}s"
   echo
 done
+
+# ---- Kjøretid per fil ----
+# Fordelingen over er kostnadsbasert, så tallene her er kilden den leser fra:
+# `tests/measure.sh` slår sammen linjene fra alle shards til durations.json.
+echo "════════ Kjøretid (shard $SHARD_INDEX/$SHARD_TOTAL) ════════"
+printf '%s\n' "${TIMED[@]}" | sort -rn | while IFS=$'\t' read -r secs file; do
+  printf '  %4ds  %s\n' "$secs" "$file"
+done
+echo "  ————"
+printf '  %4ds  til sammen\n' "$SECONDS"
+echo
+
+# I CI havner den samme tabellen i jobbsammendraget, så en shard som løper
+# løpsk er synlig uten å åpne loggen.
+if [ -n "${GITHUB_STEP_SUMMARY:-}" ]; then
+  {
+    echo "### Shard $SHARD_INDEX/$SHARD_TOTAL — ${SECONDS}s totalt"
+    echo
+    echo "| Sekunder | Testfil |"
+    echo "|---:|---|"
+    printf '%s\n' "${TIMED[@]}" | sort -rn | while IFS=$'\t' read -r secs file; do
+      echo "| $secs | \`$file\` |"
+    done
+  } >> "$GITHUB_STEP_SUMMARY"
+fi
 
 echo "════════ Oppsummering (shard $SHARD_INDEX/$SHARD_TOTAL) ════════"
 echo "Kjørte ${#FILES[@]} testfiler, ${#FAILED[@]} feilet."

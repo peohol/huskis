@@ -22,15 +22,29 @@ concurrency:
 permissions:
   contents: read
 
+env:
+  # Pinnet, og brukt både til npm-pakken og til cache-nøkkelen for nettleseren,
+  # så bibliotek og binær aldri kan komme i utakt.
+  PLAYWRIGHT_VERSION: '1.62.1'
+
 jobs:
   js:
-    name: JS (shard ${{ matrix.shard }}/4)
+    name: JS (shard ${{ matrix.shard }}/${{ strategy.job-total }})
     runs-on: ubuntu-latest
     timeout-minutes: 25
     strategy:
       fail-fast: false
       matrix:
-        shard: [1, 2, 3, 4]
+        # Antallet er det eneste som styrer oppdelingen: SHARD_TOTAL leses av
+        # `strategy.job-total` lenger nede, og tests/run-all.sh fordeler filene
+        # etter målt kjøretid (tests/durations.json). Endres listen her, følger
+        # resten etter av seg selv.
+        #
+        # Seks er valgt ut fra tallene, ikke på følelsen: suiten er ~1040 s
+        # serielt, så seks balanserte shards lander på ~174 s hver. Flere shards
+        # gir stadig mindre igjen (åtte sparer ~40 s til) mens hver ny jobb
+        # betaler ~25 s oppstart og legger beslag på en samtidighetsplass.
+        shard: [1, 2, 3, 4, 5, 6]
     steps:
       - uses: actions/checkout@v4
 
@@ -40,17 +54,32 @@ jobs:
 
       # Playwright er en global installasjon i dette repoet (ingen package.json,
       # ingen node_modules) — tests/run-all.sh setter NODE_PATH deretter.
-      - name: Installer Playwright + Chromium
-        run: |
-          npm install -g playwright@latest
-          # Samme installasjon som binæren over, så nettleser og bibliotek
-          # garantert er samme versjon.
-          playwright install --with-deps chromium
+      # Versjonen er pinnet: med `@latest` kunne en ny Playwright-utgivelse
+      # endre CI-oppførselen uten at noe i repoet endret seg, og cache-nøkkelen
+      # under ville ikke hatt noe å feste seg i.
+      - name: Installer Playwright
+        run: npm install -g playwright@${{ env.PLAYWRIGHT_VERSION }}
+
+      # Chromium-nedlastingen er den dyreste delen av oppstarten og er identisk
+      # i alle shards. apt-delen (--with-deps) må kjøre uansett; den er rask.
+      - name: Hent Chromium fra cache
+        id: chromium-cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: ms-playwright-${{ runner.os }}-${{ env.PLAYWRIGHT_VERSION }}
+
+      - name: Installer Chromium
+        if: steps.chromium-cache.outputs.cache-hit != 'true'
+        run: playwright install chromium
+
+      - name: Installer systembibliotekene Chromium trenger
+        run: playwright install-deps chromium
 
       - name: Kjør JS-testene
         env:
           SHARD_INDEX: ${{ matrix.shard }}
-          SHARD_TOTAL: 4
+          SHARD_TOTAL: ${{ strategy.job-total }}
         run: tests/run-all.sh
 
   sql:
