@@ -226,6 +226,16 @@
           </button>
         </div>
 
+        <!-- Introduksjonen kan alltid tas om igjen — den er lagret på kontoen
+             som «sett», ikke som «aldri mer». Se docs/introduksjon.md. -->
+        <div class="menu-setting" id="menu-tour" hidden>
+          <span class="menu-setting-label">
+            <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="#111" stroke-width="1.05" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3.2a5.8 5.8 0 0 0-3.4 10.5c.5.36.8.95.8 1.57v.51h5.2v-.51c0-.62.3-1.21.8-1.57A5.8 5.8 0 0 0 12 3.2Z" fill="#adad85"></path><path d="M9.4 18.2h5.2"></path><path d="M10.6 20.8h2.8"></path></svg>
+            <span>Introduksjon til Huskis</span>
+          </span>
+          <button class="btn btn-ghost btn-small" id="tour-restart" type="button">Vis på nytt</button>
+        </div>
+
         <!-- Innboks: mottatte delings-invitasjoner -->
         <section class="menu-invites" id="menu-invites" hidden>
           <hr class="menu-divider" />
@@ -553,6 +563,38 @@
       <footer class="modal-foot confirm-foot">
         <button class="btn btn-ghost" id="delete-account-cancel" type="button">Avbryt</button>
       </footer>
+    </div>
+  </div>
+
+  <!-- INTRODUKSJON FOR NYE BRUKERE (omvisning med spotlight) — autoritativt:
+       docs/introduksjon.md. Vises én gang etter første vellykkede innlogging og
+       kan startes på nytt fra konto-modalen.
+
+       `.tour-spot` ER sceneteppet: en ramme lagt oppå det elementet steget
+       handler om, med en enorm box-shadow-spredning som demper ALT utenfor
+       (samme grep som bilderedigererens `.avatar-mask`). Hullet er dermed ekte
+       UI, ikke en tegning av det. Steget uten spotlight demper hele flaten via
+       `.tour.no-spot`. Kortet posisjoneres i JS ved siden av hullet. -->
+  <div class="tour" id="tour" hidden>
+    <div class="tour-spot" id="tour-spot" aria-hidden="true"></div>
+    <div class="tour-card" id="tour-card" role="dialog" aria-modal="true"
+         aria-labelledby="tour-title" aria-describedby="tour-text" tabindex="-1">
+      <!-- Hele teksten er ett polite live-område: fokus blir stående på
+           «Neste» når man klikker seg gjennom, og skjermleseren leser likevel
+           opp det nye steget. -->
+      <div class="tour-body" aria-live="polite">
+        <p class="tour-step" id="tour-step"></p>
+        <h2 class="tour-title" id="tour-title"></h2>
+        <div class="tour-text" id="tour-text"></div>
+      </div>
+      <div class="tour-actions">
+        <button class="btn btn-ghost btn-small" id="tour-skip" type="button">Hopp over</button>
+        <div class="tour-nav">
+          <button class="btn btn-ghost btn-small" id="tour-prev" type="button">Tilbake</button>
+          <button class="btn btn-solid btn-green btn-small" id="tour-next" type="button">Neste</button>
+        </div>
+      </div>
+      <button class="icon-btn tour-close" id="tour-close" type="button" title="Avslutt introduksjonen" aria-label="Avslutt introduksjonen"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.05" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6.5 6.5 17.5 17.5"></path><path d="M17.5 6.5 6.5 17.5"></path></svg></button>
     </div>
   </div>
 

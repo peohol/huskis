@@ -13,6 +13,7 @@ Ved motstrid gjelder det dokumentet som er merket autoritativt for området — 
 | [arkitektur-brukere-deling.md](arkitektur-brukere-deling.md) | tabellene, RLS-policyene, triggerne, RPC-ene, LWW-stemplingen, gravsteinene, e-postvarsel-triggeren | **ja** — databasearkitekturen |
 | [accounts.md](accounts.md) | auth-UI, synk-motoren (`get_my_doc` → fletting → rad-CRUD), operasjonskøen, delings-UI, innboks, mock-backenden | **ja** — klientsiden av kontoer og synk |
 | [design-system.md](design-system.md) | `styles.css`, nye knapper/kontroller, delte klasser, toast, modaler, animasjon, tilgjengelighet | **ja** — designsystemet |
+| [introduksjon.md](introduksjon.md) | omvisningen etter første innlogging, spotlight-stegene, «Vis på nytt», de kontekstuelle tipsene om avanserte gester | **ja** — førstegangsopplevelsen |
 | [menus.md](menus.md) | toppmenyen, navigasjonsmodalen (universer + grupper), kontoknappen/-modalen | **ja** — navigasjon og menyer |
 | [drag-and-drop.md](drag-and-drop.md) | reorder, flytting mellom lister/grupper/universer, ekstrahering, peek, auto-scroll, de to dra-scopene | **ja** — dra-og-slipp-motoren |
 | [board-layout.md](board-layout.md) | kolonnefordelingen i listevisningen og avstander/padding/gap der | **ja** — board-layouten |

@@ -114,6 +114,11 @@ async function login(p, email) {
   await p.locator('#auth-password').fill('passord123');
   await p.locator('#auth-submit').click();
   await p.waitForTimeout(1700);
+  // Introduksjonen (docs/introduksjon.md) møter enhver ny konto: omvisningen
+  // legger seg over appen, og et gest-tips legger seg nederst på skjermen —
+  // ingen av delene er det denne testen handler om.
+  await p.evaluate(() => window.__huskis.tour.skipAll());
+  await p.waitForTimeout(150);
 }
 
 // Rader rett fra mock-«serveren» — altså det som FAKTISK ligger i databasen.

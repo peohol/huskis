@@ -83,6 +83,7 @@ grå = `#c0c4c9`):
 | Hengelås | låst = farge 1, åpen = farge 3 |
 | Kalender/klokke | flate hvit |
 | Hånd-opp (ansvarlig) | person farge 4 |
+| Lyspære (introduksjon, konto-modalen) | pæra farge 2, sokkelen kun streker |
 
 Unntak som beholder `currentColor` (rene glyfer på massive fargeknapper):
 `.btn-glyph` (dør-ut på «Logg ut», søppelkasse på «Slett konto») og
@@ -459,6 +460,11 @@ side-margin som kansellerer den omsluttende paddingen.
   etterpå, så et drag som startet oppå «Angre» ikke også trykker «Angre».
   `opts.onDismiss` lar kalleren gjøre ferdig arbeidet timeren ellers ville gjort
   — slette-toasten committer slettingen (se `docs/trash.md`).
+- **Kontekstuelt tips** (`.toast-tip`): samme toast, men teksten får brekke over
+  flere linjer i stedet for å kappes med ellipsis — et tips er en setning, ikke
+  en kvittering på tre ord. Toasten er dessuten et `role="status"`-live-område,
+  så både tips og kvitteringer når skjermlesere. Semantikken (når et tips vises,
+  og alt det aldri skal fortrenge) er `docs/introduksjon.md`.
 - **Toast eller status?** En toast er en HENDELSE som nettopp skjedde og som
   det er greit å gå glipp av. En TILSTAND som varer — og som brukeren må kunne
   finne igjen etterpå — hører hjemme i lagringsstatusen (under), aldri i en
@@ -480,6 +486,20 @@ side-margin som kansellerer den omsluttende paddingen.
   endrer seg (ellers ville hjerteslaget lest opp det samme hvert sekund).
   Teknisk informasjon (tabell, feilkode) vises aldri her — den ligger i
   konsollen og i `__huskis.syncStatus.snapshot()`.
+
+## Introduksjonen: spotlight (`.tour`)
+
+Omvisningen for nye brukere har sitt eget lag (`.tour`, z-index 295 — over
+lagringsstatusen, under toasten og oppdateringsbanneret) som tar imot klikk som
+en modal-overlay. Dempingen tegnes IKKE av en egen flate, men av `.tour-spot`
+sin enorme `box-shadow`-spredning: det som er innenfor ringen står udempet
+igjen, så det uthevede ER det ekte elementet — samme grep som bilderedigererens
+`.avatar-mask`. Derfor heller ingen `backdrop-filter` på laget (den ville
+uskarpet også det som skal fremheves). Steg uten et element å peke på demper i
+stedet hele flaten (`.tour.no-spot`) og midtstiller kortet. `.tour-card` er den
+vanlige hvite modalflaten (radius 20, `--shadow-lg`, `pop-in`) med
+`.hint-chip`-ene i den mørke varianten, som i nav-modalen. Se
+`docs/introduksjon.md`.
 
 ## Bevegelse og tilgjengelighet
 
