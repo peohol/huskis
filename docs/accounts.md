@@ -178,7 +178,7 @@ faktiske operasjonstilstanden hver gang den males, av tre uavhengige signaler:
 
 | Signal | Sant når | Vises som |
 |---|---|---|
-| **ventende** (`pending`) | den debouncede cache-skrivingen venter, `opQueue` har noe på gang, serveren ikke har svart én eneste gang (`!lastMy`), eller `saveSeq !== syncedSeq` | «Lagrer …» |
+| **ventende** (`pending`) | den debouncede cache-skrivingen venter MED BRUKERENS endringer (`cacheDirty`), `opQueue` har noe på gang, serveren ikke har svart én eneste gang (`!lastMy`), eller `saveSeq !== syncedSeq` | «Lagrer …» |
 | **frakoblet** (`offline`) | `navigator.onLine === false`, eller `OFFLINE_AFTER_FAILURES` (2) kall på rad som aldri nådde fram (`isNetworkError`) | «Frakoblet – endringene lagres på denne enheten» |
 | **avvist** (`rejected`) | en skriving ble sagt nei til. Serverside: skjema-avvik (per tabell) eller en rad avvist `PERSISTENT_REJECTS` ganger. Lokalt: `localStorage.setItem` som kaster (full kvote, blokkerte nettsteddata) — `kind: 'cache'` | «Noen endringer kunne ikke lagres på kontoen din.» + «Prøv igjen» |
 
@@ -195,13 +195,24 @@ uløst problem selv om vi akkurat nå også er frakoblet, og skal ikke skjules a
 en tilstand som løser seg selv. Er alle tre tomme — og først da — står det
 «Lagret».
 
-Seks ting følger av at statusen skal være til å stole på:
+Sju ting følger av at statusen skal være til å stole på:
 
 - **En synk-RUNDE er ikke «ventende arbeid».** Runder kjører hele tiden (poll
   hvert 5. sekund, hver realtime-hendelse fra en annen enhet). Teller vi dem,
   blinker statusen mellom «Lagrer …» og «Lagret» i det uendelige uten at
   brukeren har gjort noe. `saveSeq !== syncedSeq` fanger uansett enhver lokal
   endring en runde ikke har fått pushet — det er det påstanden gjelder.
+- **Synkens egne buffer-skrivinger er heller ikke ventende arbeid.** Synken
+  skriver til den samme `localStorage`-bufferen som brukeren, men på vei NED fra
+  serveren: fletteresultatet (`render()` under `applyingRemote`), basen
+  (`persistBase`) og gravsteiner går alle gjennom `saveLocal()`. Bare `save()`
+  setter `cacheDirty`, og bare en `cacheDirty`-skriving teller som ventende.
+  Uten det skillet blinket statusen «Lagrer …» → «Lagret» → «Lagrer …» →
+  «Lagret» etter hver eneste lagring — én ekstra blink per runde som rørte
+  bufferen. Flagget nullstilles først når `setItem` faktisk gikk gjennom: feiler
+  den, ligger endringene fortsatt bare i minnet. Merk at `updateSafety()` (er en
+  automatisk reload trygg?) fortsatt ser på HELE `saveTimer` — der er spørsmålet
+  om bufferen er i takt med minnet, ikke om brukeren har noe utestående.
 - **Terskelen på 2 for «frakoblet»** gjør at ett enkelt nettverksglipp ikke
   blinker; pollet henter det inn igjen. En runde som får svar fra serveren
   nullstiller tellingen (`noteReachable`), også når svaret er en feil — da er vi

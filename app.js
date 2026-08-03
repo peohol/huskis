@@ -325,10 +325,22 @@
   // Nøkkelen den lokale bufferens skrivefeil meldes under i lagringsstatusen.
   // Én felles nøkkel: det er én buffer, og gjentatte feil er samme problem.
   const CACHE_REJECT_KEY = 'cache';
+  /* Bærer den ventende buffer-skrivingen BRUKERENS egne endringer? Synken
+     skriver til den samme bufferen hele tiden på vei NED fra serveren —
+     fletteresultatet (render() under `applyingRemote`), basen (`persistBase`)
+     og gravsteiner — og de skrivingene er bokføring, ikke arbeid som venter på
+     å komme opp. Skiller vi dem ikke, leser lagringsstatusen hver eneste av dem
+     som «ventende» og faller tilbake til «Lagrer …» hvert gang en runde skriver
+     ned resultatet sitt: etter én lagring blinket den «Lagrer …» → «Lagret» →
+     «Lagrer …» → «Lagret», én gang per runde som rørte bufferen.
+     Flagget står til skrivingen faktisk gikk gjennom — feiler den (kvote), er
+     endringene fortsatt bare i minnet, og neste skriving bærer dem igjen. */
+  let cacheDirty = false;
   // Selve skrivingen (debouncet). Nøkkelen fanges når skrivingen bestilles, ikke
   // når den utføres, så en utlogging midt i vinduet ikke flytter en brukers data
   // over i en annen post.
-  function scheduleCacheWrite() {
+  function scheduleCacheWrite(userChange) {
+    if (userChange) cacheDirty = true;
     clearTimeout(saveTimer);
     const key = authUser ? (STORAGE_KEY + ':' + authUser.id) : STORAGE_KEY;
     saveTimer = setTimeout(() => {
@@ -336,6 +348,7 @@
       try {
         state._hlc = hlc;
         localStorage.setItem(key, JSON.stringify(state, stateReplacer));
+        cacheDirty = false; // brukerens endringer ligger nå i bufferen
         syncStatus.clearRejected(CACHE_REJECT_KEY);
       } catch (e) {
         // Full kvote, eller localStorage utilgjengelig (privat modus, blokkerte
@@ -358,14 +371,16 @@
   // fått ennå (se updateSafety(): da er en automatisk reload ikke trygg).
   let saveSeq = 0, syncedSeq = 0;
   function save() {
-    scheduleCacheWrite();
+    // En render UNDER `applyingRemote` kaller også save() (renderBoardInner), og
+    // da er det fletteresultatet som skrives ned — ikke en ny brukerendring.
+    scheduleCacheWrite(!applyingRemote);
     if (applyingRemote) return;
     if (authUser) { saveSeq++; scheduleCloud(); syncStatus.refresh(); }
   }
   // Som save(), men uten å planlegge en synk-runde: brukes av synken selv når
   // den skriver ned resultatet sitt (innhold + base) og altså nettopp har vært
-  // hos serveren.
-  function saveLocal() { scheduleCacheWrite(); }
+  // hos serveren. Skrivingen bærer derfor ingen ny brukerendring.
+  function saveLocal() { scheduleCacheWrite(false); }
 
   // Første gang (ingen lokal state): start tom når sky-synk er konfigurert
   // (skyen fyller på / tom-tilstanden veileder), ellers med eksempeldata.
@@ -7445,7 +7460,7 @@
     // Ingen lokale spor heller. En cache-skriving som allerede var bestilt ville
     // ellers ha skrevet posten inn igjen 120 ms senere (nøkkelen fanges når
     // skrivingen bestilles), så den avbestilles først.
-    clearTimeout(saveTimer); saveTimer = null;
+    clearTimeout(saveTimer); saveTimer = null; cacheDirty = false;
     try {
       localStorage.removeItem(cache);
       localStorage.removeItem('hk-migrated:' + uid);
@@ -8350,11 +8365,13 @@
      leses av den faktiske operasjonstilstanden — ingen egen «tror vi er
      lagret»-variabel som kan komme i utakt med virkeligheten:
 
-       • VENTENDE  (`pending`): en debouncet cache-skriving, en operasjon i
-         `opQueue`, eller lokale endringer serveren ikke har kvittert for
-         (`saveSeq !== syncedSeq`). Ingen svar fra serveren ennå (`!lastMy`)
-         teller også som ventende — vi VET ikke at noe er lagret før serveren
-         har sagt det.
+       • VENTENDE  (`pending`): en debouncet cache-skriving som bærer BRUKERENS
+         endringer (`cacheDirty` — synkens egne skrivinger til den samme
+         bufferen er bokføring på vei ned fra serveren, ikke ventende arbeid),
+         en operasjon i `opQueue`, eller lokale endringer serveren ikke har
+         kvittert for (`saveSeq !== syncedSeq`). Ingen svar fra serveren ennå
+         (`!lastMy`) teller også som ventende — vi VET ikke at noe er lagret før
+         serveren har sagt det.
        • FRAKOBLET (`offline`): `navigator.onLine === false`, eller
          `OFFLINE_AFTER_FAILURES` kall på rad som aldri nådde fram. Terskelen
          gjør at ett enkelt glipp ikke blinker «Frakoblet» — pollet henter det
@@ -8396,7 +8413,7 @@
       rejectedCache: 'Endringene lagres ikke på denne enheten.',
     };
     const OFFLINE_AFTER_FAILURES = 2; // ett glipp er ikke «frakoblet»
-    const QUIET_AFTER_MS = 2600;      // «Lagret» krymper til bare prikken
+    const QUIET_AFTER_MS = 2600;      // «Lagret» fader ut (kun DEN tilstanden)
     const HEARTBEAT_MS = 1000;        // sikkerhetsnett (maler kun ved endring)
     const RETRY_MAX_MS = 15000;       // «Prøver»-vinduet henger aldri fast
 
@@ -8419,7 +8436,7 @@
     // har gjort noe. `saveSeq !== syncedSeq` fanger uansett enhver lokal
     // endring en runde ikke har fått pushet, som er det påstanden gjelder.
     function pending() {
-      if (saveTimer) return true;               // lokal cache-skriving venter
+      if (saveTimer && cacheDirty) return true; // brukerens buffer-skriving venter
       if (opQueue.busy()) return true;          // delings-/lås-/mount-operasjon
       if (!lastMy) return true;                 // ikke ett svar fra serveren ennå
       return saveSeq !== syncedSeq;             // endringer uten kvittering
@@ -8521,7 +8538,9 @@
      avvisningen tilbake av seg selv. */
   function retrySyncNow() {
     syncStatus.beginRetry();
-    scheduleCacheWrite(); // en feilet buffer-skriving skal også prøves på nytt
+    // En feilet buffer-skriving skal også prøves på nytt. Ingen NY brukerendring
+    // her — `cacheDirty` står allerede hvis den forrige skrivingen ikke gikk.
+    scheduleCacheWrite();
     opQueue.retryNow();
     scheduleCloud(0);
   }

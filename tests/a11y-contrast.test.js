@@ -25,6 +25,8 @@
     4. --danger, --warn, --accent og --ink-soft er lovlige TEKSTfarger på hvit
        (4.5:1) — de brukes som det i statuslinja, chip-ene og faresonen.
        --primary er derimot kun ikon-/kantfarge, med 3:1-kravet som følger.
+    4b. Lagringsstatusens trafikklys (grønn/gul/grå/rød prikk) når 3:1 mot
+       pilleflaten — som ikke er hvit, men --control-bg over board-bakgrunnen.
     4. --focus når 3:1 mot ALLE flater ringen kan havne på: hvit, board-
        bakgrunnen, alle seks palettfarger og alle tre knappefarger.
     5. --focus-on-dark (toast + oppdateringsbanner) når 3:1 mot de mørke flatene.
@@ -152,6 +154,30 @@ contrast(`--primary (${token('primary')}) som ikon-/kantfarge på hvit`, token('
 for (const stop of gradientStops('grad-green')) {
   const v = ratio(WHITE, stop);
   check(`hvit tekst på grønt ville vært ulovlig (${v.toFixed(2)}:1) — grønt er kun ikonflate`, v < 4.5, +v.toFixed(2));
+}
+
+/* ---------- 3b. Lagringsstatusens trafikklys ---------- */
+console.log('\n--- Lagringsstatusens trafikklys (.sync-status-dot) ---');
+// Prikken er et grafisk objekt (3:1), og flaten den ligger på er IKKE hvit:
+// pillen er --control-bg (halvgjennomsiktig hvit) over board-bakgrunnen. Det er
+// nettopp derfor det grønne lyset er --primary-dark og ikke --primary — den
+// lyse grønnfargen faller under kravet mot denne blandingen.
+// HVILKEN tilstand som får hvilken farge sjekkes rendret, i
+// tests/sync-status.test.js; her låses at fargene i det hele tatt er lovlige.
+function over(rgba, backdrop) {
+  const m = String(rgba || '').match(/rgba?\(([^)]+)\)/);
+  if (!m) return rgba;
+  const p = m[1].split(',').map((x) => parseFloat(x));
+  const a = p.length > 3 ? p[3] : 1;
+  const b = rgb(backdrop);
+  return '#' + [0, 1, 2]
+    .map((i) => Math.round(p[i] * a + b[i] * (1 - a)).toString(16).padStart(2, '0'))
+    .join('');
+}
+const PILL = over(token('control-bg'), token('bg'));
+for (const [what, t] of [['grønt «Lagret»', 'primary-dark'], ['gult «Lagrer …»', 'warn'],
+  ['grått «Frakoblet»', 'ink-soft'], ['rødt «kunne ikke lagres»', 'danger']]) {
+  contrast(`statusprikk, ${what} = --${t} (${token(t)}) mot pilleflaten (${PILL})`, token(t), PILL, 3);
 }
 
 /* ---------- 4–6. Fokusring og ikonstrek mot alle flater ---------- */
