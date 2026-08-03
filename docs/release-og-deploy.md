@@ -11,7 +11,7 @@ som håndhever det.
 
 | Fil | Kjører når | Gjør |
 |---|---|---|
-| `.github/workflows/ci.yml` | hver pull request (og som ledd 1 i release) | hele testsuiten: JS (node + nettleser, fire shards), SQL (begge løp + smoke-testen) og produksjonsbuilden |
+| `.github/workflows/ci.yml` | hver pull request (og som ledd 1 i release) | hele testsuiten: JS (node + nettleser, delt på shards etter målt kjøretid — `tests/CLAUDE.md`), SQL (begge løp + smoke-testen) og produksjonsbuilden |
 | `.github/workflows/release.yml` | push til `main`, eller manuelt | tester → migrering → smoke-test → produksjonsdeploy |
 
 `ci.yml` rører ingenting utenfor sin egen runner: JS-testene kjører mot

@@ -38,6 +38,33 @@ SHARD_INDEX=1 SHARD_TOTAL=4 tests/run-all.sh   # slik CI deler den opp
 - Kjør de testene endringen berører — hele mappen tar lang tid, og en full runde
   er sjelden det som gir evidensen. CI kjører den fulle runden på hver PR.
 
+## Sharding
+
+CI kjører suiten parallelt. `tests/shard.js` fordeler filene etter **målt
+kjøretid** fra `tests/durations.json`: dyreste fil først, hver i den shard-en
+som har minst arbeid så langt. Shardene blir dermed like tunge, og en ny testfil
+flytter ikke alle de andre.
+
+Antallet shards står ett sted — `shard:`-matrisen i `.github/workflows/ci.yml`.
+`SHARD_TOTAL` utledes av `strategy.job-total`, så matrisen og fordelingen kan
+ikke komme i utakt.
+
+`run-all.sh` skriver kjøretid per fil til slutt (og til jobbsammendraget i CI).
+Når fordelingen har blitt skjev, eller nye testfiler har ligget umålt en stund,
+måles suiten på nytt:
+
+```bash
+tests/measure.sh          # full, ushardet runde → tests/durations.json
+```
+
+Tallene er **relative** — de måles på utviklermaskinen, ikke på CI-runneren, og
+det er forholdet mellom dem fordelingen trenger. En fil som mangler i
+`durations.json` får medianen av de målte.
+
+`tests/shard-distribution.test.js` er vakten: den sjekker at hver testfil havner
+i nøyaktig én shard for alle aktuelle shard-antall. En fil som faller ut mellom
+to shards gir ellers ingen rød CI — bare en test som stille aldri kjøres igjen.
+
 ## Hermetikk: `?mock=1`
 
 Nettlesertestene laster appen med `?mock=1`, som får `dev-mock.js` til å laste
