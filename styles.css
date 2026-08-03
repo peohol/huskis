@@ -1414,12 +1414,19 @@ body.is-dragging * { cursor: grabbing !important; }
   display: flex;
   align-items: center;
   justify-content: space-between;
+  flex-wrap: wrap;                   /* se .modal-note */
   gap: 14px;
   padding: 20px;
   border-top: 1px solid var(--line);
   background: #faf9fe;
 }
-.modal-note { margin: 0; font-size: 16px; color: var(--ink-soft); font-weight: 500; }
+/* Notatet tar hele linjen, knappen linjen under (høyrestilt): tøm-knappen
+   navngir det den faktisk sletter («Slett listepunktene for godt»), og ved
+   siden av notatet ville den presset teksten til en smal søyle — på mobil til
+   én bokstav per linje. Stablet ser de fire søppelkassene dessuten like ut,
+   uansett hvor langt navnet på nivået er. */
+.modal-note { flex: 1 1 100%; margin: 0; font-size: 16px; color: var(--ink-soft); font-weight: 500; }
+.modal-note ~ .btn { flex: 0 0 auto; margin-left: auto; }
 
 /* Felles bekreftelses-modal: smal, melding + Avbryt/OK samlet til høyre. */
 .confirm-modal { width: min(430px, 100%); }
@@ -1563,6 +1570,11 @@ body.modal-open { overflow: hidden; }
   display: flex;
   align-items: center;
   gap: 14px;
+  /* `left: 50%` gjør at en auto-bredde bare kan vokse ut til høyre kant — en
+     toast som brekker teksten ville presset seg ned i en halvbred søyle på
+     mobil. `max-content` lar den bruke hele max-width først, og brekke etter
+     det. */
+  width: max-content;
   max-width: min(90vw, 480px);
   padding: 11px 13px 11px 20px;
   border-radius: 999px;
@@ -1589,13 +1601,28 @@ body.modal-open { overflow: hidden; }
 .toast.toast-dragging { transition: none; cursor: grabbing; }
 /* Utkast til høyre etter et fullført sveip (JS rydder inline-stilene etterpå). */
 .toast.toast-swipe-out { transition: opacity 0.18s ease, transform 0.18s ease; }
-.toast-msg { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* Beskjeden brekker over flere linjer i stedet for å kappes med ellipsis: den
+   sier hva som skjedde med brukerens innhold, og en toast som stopper på
+   «Lagt i søppelkassen: «Ukens gjø…» har mistet nettopp det den skulle si.
+   Ellipsen kappet alt over ~28 tegn på mobil, altså de fleste beskjedene.
+   Linjetaket er ikke pynt: navnet i beskjeden er brukerens egen tekst og kan
+   være vilkårlig langt, og en toast uten tak ville vokst opp over
+   lagringsstatusen (som ligger UNDER den i z-orden) og skjult både feilen og
+   «Prøv igjen». Fire linjer rommer alle appens egne beskjeder og tips; blir
+   det for langt, er det navnet som kappes — poenget står først. */
+.toast-msg {
+  min-width: 0;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 4;
+  line-clamp: 4;
+  overflow: hidden;
+}
 /* Kontekstuelt tips (docs/introduksjon.md): en hel setning, ikke en kvittering
-   på tre ord. Teksten må få brekke — ellers kapper `.toast-msg` den med
-   ellipsis. Alt annet (flate, sveip-til-lukk, plassering) er som en vanlig toast:
-   et tips skal aldri kreve mer oppmerksomhet enn en beskjed. */
+   på tre ord — og den får litt mer bredde å brekke innenfor. Alt annet (flate,
+   sveip-til-lukk, plassering) er som en vanlig toast: et tips skal aldri kreve
+   mer oppmerksomhet enn en beskjed. */
 .toast.toast-tip { max-width: min(92vw, 540px); }
-.toast.toast-tip .toast-msg { overflow: visible; white-space: normal; text-overflow: clip; }
 /* Angre-knappen (hele toasten er interaktiv mens den vises). */
 .toast-action {
   flex: 0 0 auto;
@@ -1635,10 +1662,10 @@ body.modal-open { overflow: hidden; }
   display: inline-flex;
   align-items: center;
   gap: 9px;
-  /* Frakoblet-teksten er den lengste, og hele den må få plass: en avkortet
-     «Frakoblet – endringene lagre…» skjuler nettopp det som beroliger. Derfor
-     nesten full bredde på små skjermer, og ombrekking (med mykere hjørner) i
-     stedet for ellipse hvis den likevel ikke rekker. */
+  /* Statustekstene er hele setninger, og hele setningen må få plass: en
+     avkortet «Frakoblet – endringene lagre…» skjuler nettopp det som
+     beroliger. Derfor nesten full bredde på små skjermer, og ombrekking (med
+     mykere hjørner) i stedet for ellipse hvis den likevel ikke rekker. */
   max-width: calc(100vw - 24px);
   padding: 7px 13px;
   border-radius: 999px;
@@ -1659,11 +1686,16 @@ body.modal-open { overflow: hidden; }
 /* På smale skjermer spenner toasten og oppdateringsbanneret over hele bunnen og
    ville lagt seg oppå statusen (og over «Prøv igjen»). Da løftes statusen over
    dem — samme `:has()`-grep som banneret bruker mot toasten, og av samme grunn:
-   hvem som havnet først i <body> avhenger av rekkefølgen de dukket opp i. */
+   hvem som havnet først i <body> avhenger av rekkefølgen de dukket opp i.
+   Løftene er avstemt mot MAKSHØYDENE på en 390 px skjerm: toasten er kappet
+   til fire linjer (≈108 px, se `.toast-msg`) og banneret er ≈149 px med
+   forklaringslinjen synlig. Uten linjetaket på toasten kunne et langt navn
+   skjøvet den opp over statusen. Står banneret OG en toast, ligger banneret
+   allerede løftet over toasten — statusen må derfor klare summen. */
 @media (max-width: 560px) {
-  body:has(.toast.show) .sync-status { transform: translateY(-62px); }
-  body:has(.update-banner.show) .sync-status { transform: translateY(-70px); }
-  body:has(.toast.show):has(.update-banner.show) .sync-status { transform: translateY(-132px); }
+  body:has(.toast.show) .sync-status { transform: translateY(-128px); }
+  body:has(.update-banner.show) .sync-status { transform: translateY(-165px); }
+  body:has(.toast.show):has(.update-banner.show) .sync-status { transform: translateY(-293px); }
 }
 .sync-status-dot {
   flex: 0 0 auto;
@@ -1742,10 +1774,12 @@ body.modal-open { overflow: hidden; }
    avrunding i stedet, som modalene. */
 .update-banner:has(.update-banner-note:not([hidden])) { border-radius: 22px; }
 .update-banner.show { opacity: 1; transform: translateY(0); }
-/* Står toasten samtidig, løftes banneret over den (toasten er 44–48 px høy).
-   `:has()` i stedet for en søsken-selektor: hvem av de to som ble lagt i
-   <body> først avhenger av rekkefølgen de dukket opp i. */
-body:has(.toast.show) .update-banner.show { transform: translateY(-62px); }
+/* Står toasten samtidig, løftes banneret over den. Beskjedene er hele setninger
+   som brekker over flere linjer på smale skjermer — løftet er avstemt mot
+   toastens makshøyde (fire linjer, ≈108 px, se `.toast-msg`). `:has()` i stedet
+   for en søsken-selektor: hvem av de to som ble lagt i <body> først avhenger av
+   rekkefølgen de dukket opp i. */
+body:has(.toast.show) .update-banner.show { transform: translateY(-128px); }
 .update-banner-text { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
 /* Vises kun når en reload IKKE er trygg ennå (usynkede endringer, drag, modal …). */
 .update-banner-note { font-size: var(--fs-sm); font-weight: 500; opacity: 0.82; }

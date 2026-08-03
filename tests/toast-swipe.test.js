@@ -181,8 +181,13 @@ async function run(label, vp, mobile) {
   log(label + ' 4: vertikalt drag lukker ikke toasten', t.shown && t.left === startLeft,
     JSON.stringify({ shown: t.shown, left: t.left }));
 
-  /* ---------- 5) Draget følger fingeren mens det pågår ---------- */
-  await swipe(p, 100, 0, kind, { hold: true });
+  /* ---------- 5) Draget følger fingeren mens det pågår ----------
+     Strekket regnes ut fra toastens bredde: terskelen er 30 % av den, og
+     `onUp` leser siste `pointermove` — ikke slippunktet — så selve bevegelsen
+     må være lang nok til at 6) faktisk tester et FULLFØRT sveip. Beskjedene er
+     hele setninger, så bredden (og dermed terskelen) varierer med teksten. */
+  const fullSwipe = Math.max(120, Math.round((await toastInfo(p)).width * 0.5));
+  await swipe(p, fullSwipe, 0, kind, { hold: true });
   const during = await toastInfo(p);
   log(label + ' 5: toasten følger fingeren til høyre under draget', during.left > startLeft + 60,
     'left=' + during.left + ' start=' + startLeft);

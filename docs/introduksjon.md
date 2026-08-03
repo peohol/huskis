@@ -63,9 +63,9 @@ ett kort tips i den vanlige toasten, aldri mer enn ett om gangen:
 
 | Nøkkel | Vises når | Innhold |
 |---|---|---|
-| `trash` | liste-søppelkassen er synlig | hold inne søppelkassen og sveip for å tømme |
+| `trash` | liste-søppelkassen er synlig | hold på søppelkassen og sveip for å slette alt i den |
 | `drag` | gruppen har ≥ 2 lister | hold på (eller dra) en tittel for å flytte |
-| `moveList` | gruppen har ≥ 1 liste og universet ≥ 2 grupper | dra en liste opp på navigasjonsknappen |
+| `moveList` | gruppen har ≥ 1 liste og universet ≥ 2 grupper | dra en liste opp på navigasjonsknappen for å flytte den |
 
 `showTip()` viser ingenting hvis det ville kostet brukeren noe: under
 omvisningen (tipset huskes og kommer etterpå), midt i en redigering eller et

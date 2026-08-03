@@ -690,8 +690,9 @@ forelder. Uten en klient-sjekk ville et slipp inn i en frossen liste/et frossen
 univers sett ut til å lykkes og så blitt snappet tilbake ved neste synk. Både
 `onItemUp` og `onCategoryUp` sjekker derfor mål-containeren FØR de rører state:
 er den `frozen()`, kjøres `restoreDraggedToOrigin()` + `finishDrag()` (som et
-avbrutt drag) og en toast sier fra — `S.lockedTargetMsg`, «Lista er låst» på
-board-et og «Universet er låst» i nav-modalen.
+avbrutt drag) og en toast sier fra — `S.lockedTargetMsg`, «Listen er låst – du
+kan ikke flytte noe hit» på board-et og «Universet er låst – du kan ikke flytte
+noe hit» i nav-modalen.
 
 ## Flytting av lister til en annen gruppe (innen samme univers)
 

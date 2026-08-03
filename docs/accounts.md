@@ -180,7 +180,15 @@ faktiske operasjonstilstanden hver gang den males, av tre uavhengige signaler:
 |---|---|---|
 | **ventende** (`pending`) | den debouncede cache-skrivingen venter, `opQueue` har noe på gang, serveren ikke har svart én eneste gang (`!lastMy`), eller `saveSeq !== syncedSeq` | «Lagrer …» |
 | **frakoblet** (`offline`) | `navigator.onLine === false`, eller `OFFLINE_AFTER_FAILURES` (2) kall på rad som aldri nådde fram (`isNetworkError`) | «Frakoblet – endringene lagres på denne enheten» |
-| **avvist** (`rejected`) | en skriving ble sagt nei til. Serverside: skjema-avvik (per tabell) eller en rad avvist `PERSISTENT_REJECTS` ganger. Lokalt: `localStorage.setItem` som kaster (full kvote, blokkerte nettsteddata) — `kind: 'cache'` | «Noen endringer kunne ikke lagres» + «Prøv igjen» |
+| **avvist** (`rejected`) | en skriving ble sagt nei til. Serverside: skjema-avvik (per tabell) eller en rad avvist `PERSISTENT_REJECTS` ganger. Lokalt: `localStorage.setItem` som kaster (full kvote, blokkerte nettsteddata) — `kind: 'cache'` | «Noen endringer kunne ikke lagres på kontoen din.» + «Prøv igjen» |
+
+Avvist har **to tekster**, fordi de to kildene rammer hver sin lagringsplass.
+Er ALLE avvisningene `kind: 'cache'`, sier statusen «Endringene lagres ikke på
+denne enheten.»: serveren kan godt ha tatt imot endringen, det er localStorage
+som ikke tok den. Er én av dem serverside, vinner «Noen endringer kunne ikke
+lagres på kontoen din.» — det er den alvorligste. `data-state` er `rejected` i
+begge tilfeller (rød prikk + «Prøv igjen»), og `state()`/`snapshot()` skiller
+dem via `kind`.
 
 Rekkefølgen er **avvist → frakoblet → ventende → lagret**: en avvisning er et
 uløst problem selv om vi akkurat nå også er frakoblet, og skal ikke skjules av

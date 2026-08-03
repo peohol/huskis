@@ -269,7 +269,7 @@ async function run(label, viewport, mobile) {
   log(label + ' 8: gruppen forsvinner når tilgangen fjernes',
     !after.groups.includes(ids.GB) && before === ids.GB, JSON.stringify(after.groups));
   log(label + ' 8: brukeren navigeres ut og får beskjed',
-    after.active !== ids.GB && /ikke lenger delt|slettet|flyttet/i.test(after.toast), after.toast);
+    after.active !== ids.GB && /ikke lenger tilgang/i.test(after.toast), after.toast);
 
   /* ---------- 9) Rolleendring på et EKSISTERENDE medlem ---------- */
   await loadAs(p, db, ids.uA, 'a@x.no', viewport);
