@@ -94,7 +94,8 @@ forskjellene:
 - Klikk på **tittelen** = omdøp inline. Klikk **ellers på korthodet** (ikke
   tittel/del/×) = kollaps/utvid (`card.collapsed` ⇒ `universe.collapsed`, lagres
   og synkes). Trykk-og-hold (touch) / dra (mus) på korthodet = flytt universet.
-- Det AKTIVE universet markeres med den grønne brand-ringen (`.card.active`).
+- Det AKTIVE universet markeres med ringen i `--focus` (`.card.active`) og med
+  `aria-current`, så tilstanden også finnes for en skjermleser.
 - **Tastatur:** korthodet er `role="button" tabindex="0"` med `aria-expanded`, og
   Enter/Mellomrom gjør det samme som et klikk der — kollapser/utvider.
   `toggleCardCollapsed` oppdaterer `aria-expanded` når attributtet finnes
@@ -108,7 +109,8 @@ av) og med **del-knapp** (`.group-share`) i stedet for tannhjul.
 - Klikk på **navnet** (`.item-text`) = omdøp inline.
 - Klikk **ellers på raden** (ikke navn/del/×) = **gå til gruppen** (setter aktivt
   univers + gruppe, `goToGroup`) og **lukk modalen**.
-- Den AKTIVE gruppen markeres med brand-ringen (`.item.active`).
+- Den AKTIVE gruppen markeres med ringen i `--focus` (`.item.active`) og med
+  `aria-current`. Se `docs/tilgjengelighet.md`.
 - **Tastatur:** raden er `role="button" tabindex="0"`. Navnet er ikke
   fokuserbart, så Enter/Mellomrom **omdøper når man allerede står i gruppen**
   (ellers ville et Enter der bare lukket modalen) og **navigerer** ellers — samme

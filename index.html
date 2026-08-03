@@ -236,6 +236,28 @@
           <button class="btn btn-ghost btn-small" id="tour-restart" type="button">Vis på nytt</button>
         </div>
 
+        <!-- Tastatursnarveier. De ligger HER og ikke i board-et med vilje: en
+             synlig etikett ved hvert ikon ville gjort listevisningen tregere å
+             lese uten å hjelpe noen som allerede kan appen. Konto-modalen er
+             stedet man går for å lære, ikke for å jobbe. Snarveiene virker på
+             det som har fokus — se docs/design-system.md. -->
+        <section class="menu-keys">
+          <hr class="menu-divider" />
+          <div class="panel-head">
+            <span class="panel-title">Tastatur</span>
+          </div>
+          <dl class="key-list">
+            <dt><kbd>Alt</kbd> + <kbd>↑</kbd> <kbd>↓</kbd></dt>
+            <dd>Flytt det valgte objektet ett hakk</dd>
+            <dt><kbd>Alt</kbd> + <kbd>M</kbd></dt>
+            <dd>Flytt til en annen liste, gruppe eller univers</dd>
+            <dt><kbd>F2</kbd></dt>
+            <dd>Endre navn</dd>
+            <dt><kbd>Esc</kbd></dt>
+            <dd>Lukk – eller avbryt en navneendring</dd>
+          </dl>
+        </section>
+
         <!-- Innboks: mottatte delings-invitasjoner -->
         <section class="menu-invites" id="menu-invites" hidden>
           <hr class="menu-divider" />
@@ -394,7 +416,10 @@
   <template id="card-template">
     <article class="card" tabindex="-1">
       <header class="card-head">
-        <button type="button" class="share-badge" hidden title="Deling og medlemmer"></button>
+        <!-- aria-label settes på nytt i buildCard() med rollen («delt med andre»
+             / «delt med deg»); dette er navnet knappen har inntil da, så den
+             aldri kan stå navnløs. -->
+        <button type="button" class="share-badge" hidden title="Deling og medlemmer" aria-label="Deling og medlemmer"></button>
         <div class="card-title-wrap">
           <div class="title-line">
             <h2 class="card-title" title="Klikk for å endre navn"></h2>
@@ -665,6 +690,16 @@
     <span class="sync-status-text" id="sync-status-text"></span>
     <button class="sync-status-action" id="sync-retry-btn" type="button" hidden>Prøv igjen</button>
   </div>
+
+  <!-- Opplesningsområde for skjermlesere (app.js → announce()). Her havner det
+       som skjer UTEN at fokus flytter seg — en tastaturflytting, en sortering —
+       altså nettopp det en seende bruker ser med én gang og en skjermleser-
+       bruker ellers ikke ville fått vite. Toasten er IKKE stedet for dette: den
+       er for hendelser det er greit å gå glipp av, og en flytting man selv
+       nettopp utførte er ikke det. `.visually-hidden` (styles.css) holder den
+       ute av synet, men INNE i tilgjengelighetstreet — `display:none` eller
+       `hidden` ville gjort at ingenting ble lest opp. -->
+  <div id="a11y-live" class="visually-hidden" role="status" aria-live="polite" aria-atomic="true"></div>
 
   <!-- Sky-synk (Supabase). Biblioteket ligger i repoet, ikke på et CDN: filen er
        en uendret kopi av npm-pakken, og versjonen står i filnavnet. Appen har

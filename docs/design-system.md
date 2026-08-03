@@ -126,11 +126,17 @@ knappene arver `.icon-btn`-fargen (`--ink-soft`).
 
 ## Fargede knapper: `.btn-solid` + `.btn-green`/`.btn-red`/`.btn-yellow`
 
-ÉN felles stil for alle fargede knapper — aldri egne ad hoc-gradienter:
+ÉN felles stil for alle fargede knapper — aldri egne ad hoc-gradienter.
+Fargeverdiene er en kontrastkontrakt og er håndhevet av
+`tests/a11y-contrast.test.js` — se `docs/tilgjengelighet.md` før du endrer en av
+dem:
 
 - `.btn-solid`: hvit skrift m/ `--text-shadow`, `--shadow-sm`, og felles
   hover-feedback: flaten **lysner litt** (`filter: brightness(1.09)`) og
   skyggen løftes — tydelig, men ikke dramatisk fargeendring.
+- **Unntaket er `.btn-yellow`**: den bærer **mørk** tekst (`--ink`) uten
+  tekst-skygge. En gul flate som gir 4.5:1 mot hvit tekst er ikke gul lenger,
+  den er oliven — så knappen beholder fargen og bytter teksten i stedet.
 - `.btn-green` (`--grad-green`): alle positive/primære handlinger — ＋-knapper,
   Inviter, Gjenopprett, Godta, Plasser, auth-submit, filter-brytere i
   på-tilstand.
@@ -161,8 +167,12 @@ Størrelse/form kommer fra egne klasser: `.btn` (modaler), `.btn-small`,
   konto-modalen (etikett over felt, Lagre-knapp på samme rad).
 - `.nav-board`: nav-modalens board (universkort + grupperader). Alltid ÉN
   kolonne; ellers arves `.card`/`.item`/`.category` uendret fra listedesignet.
-  Aktivt univers / aktiv gruppe = grønn brand-ring trukket innover
-  (`outline-offset: -2px`). `.uni-count` er en liten, subtil **pill med
+  Aktivt univers / aktiv gruppe = ring i `--focus` trukket innover
+  (`outline-offset: -2px`) + `aria-current` — ringen var brand-grønn, men grønt
+  ligger på 1,5–2,3:1 mot de seks kortfargene og var altså usynlig nettopp der
+  den skulle si hvor man står (`docs/tilgjengelighet.md`). Fokusringen har samme
+  farge, men ligger UTENFOR kanten, så de to kan stå samtidig uten å smelte
+  sammen. `.uni-count` er en liten, subtil **pill med
   gruppe-ikon + antall grupper** som erstatter «(N)» på et kollapset univers.
 - Sletteknapper: felles regel (dempet ✕ → rød ved hover), samme `.card-delete`/
   `.item-delete` på alle fire nivåene. Listepunkt-/gruppe-✕ alltid synlig, dempet
@@ -184,9 +194,12 @@ Størrelse/form kommer fra egne klasser: `.btn` (modaler), `.btn-small`,
   gjennomsiktig, så ringen lyste gjennom nederst og leste som en ramme rundt
   gruppelista.
 - **Tastatur i nav-modalen**: universkortets `.card-head` og grupperaden er
-  `role="button" tabindex="0"` (`:focus-visible` = brand-ringen). De er de eneste
-  veiene inn til navigering uten peker; hodet har i tillegg `aria-expanded`. Se
-  `docs/menus.md` for hva Enter/Mellomrom gjør på hvert nivå.
+  `role="button" tabindex="0"` (`:focus-visible` = `--focus`, lagt utenfor
+  kanten). De er de eneste veiene inn til navigering uten peker; hodet har i
+  tillegg `aria-expanded`. Se `docs/menus.md` for hva Enter/Mellomrom gjør på
+  hvert nivå, og `docs/tilgjengelighet.md` for Alt-snarveiene som ligger på de
+  samme elementene. Listevisningens `.card-head`/`.cat-head` har nå det samme
+  oppsettet, så kollaps og flytting er like tilgjengelige der.
 - Checkboxes i modaler: rendres alltid som en pille-formet toggle-switch, ren
   CSS på selve `<input type="checkbox">` (`appearance: none` + `::before`-
   håndtak, ingen ekstra DOM/JS). Av = grå spor, på = `--grad-green` (samme
@@ -511,11 +524,28 @@ vanlige hvite modalflaten (radius 20, `--shadow-lg`, `pop-in`) med
 
 ## Bevegelse og tilgjengelighet
 
+Autoritativt for kontrast, navn, tastatur og fokus: `docs/tilgjengelighet.md`.
+Det korte som gjelder når du lager en ny kontroll:
+
 - `prefersReducedMotion()` (app.js) hopper over fly-/FLIP-/drop-animasjonene, og
   et `@media (prefers-reduced-motion: reduce)`-blokk nøytraliserer CSS-
   transisjoner/animasjoner. Respekter dette i nye animasjoner.
 - Ingen `user-scalable=no` (brukere skal kunne zoome). Kontroller er minst
-  ~29–49px høye for touch. Fargede ✕ er hvite m/ tekst-skygge på farge.
+  ~24–49px høye for touch, og skal aldri krympe — målene er låst i
+  `tests/a11y-runtime.test.js`.
+- **Fokusring**: `outline: var(--focus-w) solid var(--focus)` på lyse flater,
+  `var(--focus-on-dark)` på de mørke (toast, oppdateringsbanner). Aldri en egen
+  farge — en brand-grønn eller hvit ring forsvinner mot halve paletten.
+- **Ikonknapper**: alltid `aria-label`, og navnet skal inneholde objektets navn
+  (`quoted(navn)`), ikke bare handlingen. `title` er musehjelp i tillegg, aldri
+  i stedet.
+- **Nye rader/kort**: koble `attachKeyHandle` på det SAMME elementet som får
+  `attachHoldDrag`, så det som kan dras også kan flyttes med tastatur.
+- **Nye modaler**: ingenting å gjøre — fokusfellen kobles automatisk på alt som
+  har klassen `.modal-overlay` eller `.switcher-overlay`.
+- `.visually-hidden` er den eneste riktige måten å skjule noe som fortsatt skal
+  leses opp (`#a11y-live`). `hidden`/`display:none` tar elementet ut av
+  tilgjengelighetstreet.
 
 ## Fargesystem (HSL, posisjonsbasert) + filter
 
