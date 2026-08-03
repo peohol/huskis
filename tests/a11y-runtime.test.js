@@ -72,11 +72,18 @@ function buildDB() {
     ids: { uA, UNI, UNI2, GA, GB, GCAT, L1, L2, CAT },
     db: {
       _rolesBackfilled: true,
-      profiles: [{ id: uA, email: 'a@x.no', display_name: 'Alice Eier', user_metadata: {} }],
-      passwords: { 'a@x.no': 'x' },
+      profiles: [
+        { id: uA, email: 'a@x.no', display_name: 'Alice Eier', user_metadata: {} },
+        { id: 'uB', email: 'b@x.no', display_name: 'Bo Annen', user_metadata: {} },
+      ],
+      passwords: { 'a@x.no': 'x', 'b@x.no': 'x' },
       universes: [
         base({ id: UNI, owner_id: uA, name: 'Hjemme', pos: 0 }),
         base({ id: UNI2, owner_id: uA, name: 'Jobb', pos: 1 }),
+        // Eid av en ANNEN → havner i «Universer delt med meg», altså en annen
+        // seksjon i nav-modalen. Gruppen i den er LÅST, så A (som bare er
+        // medlem) verken kan omrokkere eller flytte listene i den.
+        base({ id: 'UNI3', owner_id: 'uB', name: 'Delt univers', pos: 0 }),
       ],
       groups: [
         base({ id: GA, owner_id: uA, universe_id: UNI, name: 'Handel', pos: 0 }),
@@ -85,15 +92,24 @@ function buildDB() {
         // Slettet gruppe → gruppe-søppelkassen dukker opp i universkortet, og
         // gir en modal som kan STABLES over nav-modalen (se 9d).
         base({ id: 'GDEL', owner_id: uA, universe_id: UNI, name: 'Gammelt', trashed: true, pos: 2 }),
+        base({ id: 'GC', owner_id: 'uB', universe_id: 'UNI3', name: 'Låst gruppe', locked: true, pos: 0 }),
+        // En ÅPEN nabogruppe i samme univers: uten kildesjekken finnes det da et
+        // gyldig mål, velgeren åpner seg, og lista flyttes optimistisk ut av den
+        // låste gruppen. Med den finnes målet fortsatt, men kilden sier nei.
+        base({ id: 'GD', owner_id: 'uB', universe_id: 'UNI3', name: 'Åpen gruppe', pos: 1 }),
       ],
       cards: [
         base({ id: L1, owner_id: uA, group_id: GA, title: 'Handleliste', k: true, p: true, lab_ts: 0, lab_org: '' }),
         base({ id: L2, owner_id: uA, group_id: GA, title: 'Huskeliste', k: true, p: true, lab_ts: 0, lab_org: '', pos: 1 }),
+        base({ id: 'LC', owner_id: 'uB', group_id: 'GC', title: 'Låst liste', k: true, p: true, lab_ts: 0, lab_org: '' }),
       ],
       items,
       memberships: [
         { id: U(), user_id: uA, universe_id: UNI, group_id: null, role: 'owner', pos: 0, created_at: 1 },
         { id: U(), user_id: uA, universe_id: UNI2, group_id: null, role: 'owner', pos: 1, created_at: 1 },
+        { id: U(), user_id: 'uB', universe_id: 'UNI3', group_id: null, role: 'owner', pos: 0, created_at: 1 },
+        // A er kun MEDLEM her — låser gjelder derfor for A (eiere omgår dem).
+        { id: U(), user_id: uA, universe_id: 'UNI3', group_id: null, role: 'member', pos: 2, created_at: 1 },
       ],
       share_invites: [], tombstones: [],
     },
@@ -277,6 +293,65 @@ async function run(label, viewport) {
   log(label + ' 2d: Alt+pil flytter et univers i nav-modalen',
     uniAfter[0] === 'UNI2' && uniBefore[0] === 'UNI', { uniBefore, uniAfter });
 
+  // 2e. Sorteringen skal holde seg innenfor SIN seksjon. «Mine universer» og
+  // «Universer delt med meg» er to lister i nav-modalen, og renderNav() sorterer
+  // på seksjon FØR pos — et bytte over grensen ville ikke flyttet noe dit man
+  // ser, bare importert en fremmed pos-verdi og stokket om på resten.
+  const posBefore = await page.evaluate(() => {
+    const m = {};
+    window.__huskis.state.universes.forEach((u) => { m[u.id] = u.pos; });
+    return m;
+  });
+  const lastOwned = uniAfter[uniAfter.length - 1 - (uniAfter.indexOf('UNI3') === uniAfter.length - 1 ? 1 : 0)];
+  await page.locator('.uni-card[data-id="' + lastOwned + '"] > .card-head').focus();
+  await page.keyboard.press('Alt+ArrowDown');
+  await page.waitForTimeout(400);
+  const posAfter = await page.evaluate(() => {
+    const m = {};
+    window.__huskis.state.universes.forEach((u) => { m[u.id] = u.pos; });
+    return m;
+  });
+  const spokenSection = await live(page);
+  log(label + ' 2e: siste univers i en seksjon flyttes ikke over i den neste',
+    posBefore.UNI3 === posAfter.UNI3 && /sist/.test(spokenSection),
+    { lastOwned, spokenSection, UNI3: [posBefore.UNI3, posAfter.UNI3] });
+
+  // 2f. En LÅST gruppe: A er bare medlem, så låsen gjelder. Alt+M skal avvises
+  // på kildesiden — `moveTargetGroups` sjekker bare MÅL-gruppen, så uten en egen
+  // kildesjekk ville lista blitt flyttet optimistisk før serveren rakk å si nei.
+  await page.evaluate(() => {
+    window.__huskis.setActiveUniverse('UNI3');
+    window.__huskis.setActiveGroup('GC');
+    window.__huskis.render();
+  });
+  await page.keyboard.press('Escape');
+  await page.waitForTimeout(500);
+  const lockedHead = page.locator('.card[data-id="LC"] > .card-head');
+  if (await lockedHead.count()) {
+    await lockedHead.focus();
+    await page.keyboard.press('Alt+KeyM');
+    await page.waitForTimeout(400);
+    const refused = await page.evaluate(() => ({
+      picker: !document.getElementById('place-modal').hidden,
+      sagt: document.getElementById('a11y-live').textContent,
+      stillInGC: (window.__huskis.state.universes.find((u) => u.id === 'UNI3')
+        .groups.find((g) => g.id === 'GC').cards || []).some((c) => c.id === 'LC'),
+    }));
+    log(label + ' 2f: Alt+M avvises på en liste jeg ikke kan ta ut av gruppen',
+      !refused.picker && refused.stillInGC && /kan ikke flytte/i.test(refused.sagt), refused);
+  } else {
+    log(label + ' 2f: Alt+M avvises på en liste jeg ikke kan ta ut av gruppen', false,
+      'fant ikke den låste lista — sjekk fiksturen');
+  }
+  // Tilbake til utgangspunktet for resten av sjekkene.
+  await page.evaluate(() => {
+    window.__huskis.setActiveUniverse('UNI');
+    window.__huskis.setActiveGroup('GA');
+    window.__huskis.render();
+  });
+  await page.waitForTimeout(400);
+  await openNav(page);
+
   /* ---------- 9. Modalfokus: inn, fanget, og tilbake ---------- */
   await page.keyboard.press('Escape'); await page.waitForTimeout(350);
   await page.locator('#nav-crumb').focus();
@@ -286,15 +361,30 @@ async function run(label, viewport) {
     !!document.getElementById('nav-modal').contains(document.activeElement));
   log(label + ' 9a: fokus flyttes inn i modalen når den åpnes', focusInModal, await activeInfo(page));
 
-  // Tab rundt hele veien: fokus skal aldri forlate modalen.
-  let escaped = false;
-  for (let i = 0; i < 30; i++) {
-    await page.keyboard.press('Tab');
-    const inside = await page.evaluate(() =>
-      !!document.getElementById('nav-modal').contains(document.activeElement));
-    if (!inside) { escaped = true; break; }
+  // Shift+Tab som FØRSTE tastetrykk etter åpning. Fokus står da på selve
+  // dialogflaten (tabindex="-1"), som ikke er med i lista over fokuserbare —
+  // uten en egen gren i fellen falt fokus bakover, ut til kontrollen foran
+  // modalen i dokumentrekkefølgen.
+  await page.keyboard.press('Shift+Tab');
+  const afterShiftTab = await page.evaluate(() => {
+    const m = document.getElementById('nav-modal');
+    return { inside: m.contains(document.activeElement), cls: document.activeElement.className || document.activeElement.tagName };
+  });
+  log(label + ' 9b1: Shift+Tab rett etter åpning holdes inne i modalen',
+    afterShiftTab.inside, afterShiftTab);
+
+  // Tab rundt hele veien, begge retninger: fokus skal aldri forlate modalen.
+  let escaped = null;
+  for (const key of ['Tab', 'Shift+Tab']) {
+    for (let i = 0; i < 30; i++) {
+      await page.keyboard.press(key);
+      const inside = await page.evaluate(() =>
+        !!document.getElementById('nav-modal').contains(document.activeElement));
+      if (!inside) { escaped = key + ' etter ' + (i + 1) + ' trykk'; break; }
+    }
+    if (escaped) break;
   }
-  log(label + ' 9b: Tab holdes inne i modalen (30 trykk)', !escaped);
+  log(label + ' 9b: Tab og Shift+Tab holdes inne i modalen (30 trykk hver)', !escaped, escaped || '');
 
   // 9d. Stablede modaler: søppelkassen legger seg OVER nav-modalen. Escape skal
   // lukke én om gangen, og fokus skal falle ned i modalen under — ikke ut i
@@ -396,6 +486,7 @@ async function run(label, viewport) {
     log(label + ' 7: fokus etter sletting lander på en nabo, ikke på <body>', false, 'fant ikke slettknappen');
   }
 
+
   /* ---------- 11. Berøringsflater ----------
      Gulvet er DAGENS mål, målt i nettleseren — poenget er at ingenting krymper.
      Tallene er de faktiske størrelsene kontrollene har i dag; en endring som gjør
@@ -461,6 +552,31 @@ async function run(label, viewport) {
   const bad = painted.filter((r) => r.color !== 'rgb(16, 19, 26)' || r.style !== 'solid' || r.width < 2);
   log(label + ' 12c: de nye tastaturhåndtakene maler --focus, ikke nettleserens egen ring',
     painted.length > 0 && bad.length === 0, bad.length ? bad : painted);
+
+  /* ---------- 7b. Den siste lista (DESTRUKTIV — står sist med vilje) ----------
+     renderBoard() returnerer tidlig når board-et blir tomt, så fokusønsket måtte
+     innfris i innpakningen — ellers falt fokus til <body> nettopp i det
+     tilfellet der brukeren trenger et sted å fortsette fra. Sjekken tømmer
+     board-et og må derfor komme etter alt som trenger innhold. */
+  await page.evaluate(() => {
+    const dels = [].slice.call(document.querySelectorAll('.card:not(.uni-card) .card-delete'));
+    dels.slice(0, -1).forEach((b) => b.click());
+  });
+  await page.waitForTimeout(600);
+  const lastDel = await page.$('.card:not(.uni-card) .card-delete');
+  if (lastDel) {
+    await lastDel.click();
+    await page.waitForTimeout(700);
+    const emptied = await page.evaluate(() => ({
+      cards: document.querySelectorAll('.card:not(.uni-card)').length,
+      focus: document.activeElement === document.body
+        ? 'BODY' : (document.activeElement.id || document.activeElement.className),
+    }));
+    log(label + ' 7b: fokus overlever at den SISTE lista slettes (tomt board)',
+      emptied.cards === 0 && emptied.focus !== 'BODY', emptied);
+  } else {
+    log(label + ' 7b: fokus overlever at den SISTE lista slettes (tomt board)', false, 'fant ingen liste å slette');
+  }
 
   log(label + ': ingen JS-feil', errors.length === 0, errors.join(' | '));
   await browser.close();

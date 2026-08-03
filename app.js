@@ -819,6 +819,11 @@
     const first = f[0], last = f[f.length - 1];
     const cur = document.activeElement;
     if (!top.contains(cur)) { ev.preventDefault(); (ev.shiftKey ? last : first).focus(); return; }
+    // Dialogflaten selv (tabindex="-1") er inne i overlayen, men er ikke med i
+    // `f`. Uten denne grenen traff hverken `cur === first` eller `cur === last`,
+    // og et Shift+Tab som FØRSTE tastetrykk etter åpning falt ut bakover til
+    // kontrollen foran modalen i dokumentrekkefølgen.
+    if (f.indexOf(cur) < 0) { ev.preventDefault(); (ev.shiftKey ? last : first).focus(); return; }
     if (ev.shiftKey && cur === first) { ev.preventDefault(); last.focus(); }
     else if (!ev.shiftKey && cur === last) { ev.preventDefault(); first.focus(); }
   }, true);
@@ -945,8 +950,14 @@
     if (kind === 'universe') {
       const obj = findUniverse(id);
       if (!obj) return null;
+      // Kun universene i SAMME seksjon. `visibleUniverses()` sorterer på
+      // sectionRank FØR pos, og renderNav() bygger én seksjon om gangen — et
+      // bytte over en seksjonsgrense ville derfor ikke flyttet noe dit man ser,
+      // bare importert en fremmed pos-verdi inn i seksjonen og stokket om på
+      // resten av den.
+      const rank = sectionRank(obj);
       return { obj, cont: null, S: navScope, name: obj.name,
-        rows: visibleUniverses().filter((u) => !u._virtual) };
+        rows: visibleUniverses().filter((u) => !u._virtual && sectionRank(u) === rank) };
     }
     return null;
   }
@@ -994,6 +1005,15 @@
     if (kind === 'card') {
       const c = findCard(id);
       if (!c) return;
+      // `moveTargetGroups` sjekker bare om jeg kan legge lista i MÅL-gruppen.
+      // Å ta den UT av kildegruppen krever i tillegg myndighet der — nøyaktig
+      // samme gate som draget har (`canEdit && canAddList(activeGroupObj())` i
+      // buildCard). Uten denne kunne Alt+M flytte en frossen liste optimistisk,
+      // og først serveren ville sagt nei.
+      if (!canReorderObj('card', c, activeGroupObj())) {
+        announce('Du kan ikke flytte ' + quoted(c.title) + ' ut av denne gruppen.');
+        return;
+      }
       if (!moveTargetGroups(c).length) {
         announce('Det finnes ingen annen gruppe å flytte ' + quoted(c.title) + ' til.');
         return;
@@ -1439,6 +1459,9 @@
   function render() {
     renderNav();
     renderBoard();
+    // Nav-modalen kan være lukket (renderNav() returnerer da tidlig), og board-et
+    // kan ha vært tomt — siste sjanse til å innfri ønsket før det forkastes.
+    applyFocusIntent();
     focusIntent = null; // begge lagene har hatt sjansen; et ubrukt ønske skal ikke bli liggende
   }
 
@@ -1446,12 +1469,21 @@
   // i nav-modalen: DOM-en der er allerede kirurgisk oppdatert av dra-motoren, og
   // en full renderNav() ville revet ned det nettopp slupne kortet midt i
   // drop-animasjonen.
+  // Fokusønsket må innfris uansett hvilken vei rendringen tar. Innmaten under
+  // har flere tidlige returer (ingen gruppe, ingen lister), og nettopp DA er
+  // ønsket viktigst: sletter man den siste lista, er det den tomme tilstanden
+  // fokus skal lande i — ikke <body>. Derfor ligger applyFocusIntent() her, i
+  // innpakningen, i stedet for på hver enkelt utgang.
   function renderBoard() {
+    captureFocusIn(board); // hvor fokus sto, FØR board-et rives ned
+    renderBoardInner();
+    applyFocusIntent();
+  }
+  function renderBoardInner() {
     followActiveGroup();
     updateTrashCount();
     updateToolbarState();
 
-    captureFocusIn(board); // hvor fokus sto, FØR board-et rives ned
     board.innerHTML = '';
     const group = activeGroupObj();
     updateCrumbs();
@@ -1508,9 +1540,6 @@
     board.appendChild(col);
     relayoutBoard();
     fixBoardBottomGap();
-    // Board-et ble bygget fra bunnen; sett fokus tilbake på den NYE noden hvis
-    // handlingen som utløste rendringen ba om det (se keepFocus).
-    applyFocusIntent();
     // De avanserte gestene introduseres først når de er relevante (INTRODUKSJON).
     maybeContextualTips(cards.length);
     save();
