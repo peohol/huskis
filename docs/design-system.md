@@ -464,7 +464,9 @@ side-margin som kansellerer den omsluttende paddingen.
   som skjedde med brukerens innhold, og en toast som stopper på «Lagt i
   søppelkassen: «Ukens gjø…» har mistet nettopp det den skulle si. Bredden er
   `width: max-content` opp til `max-width`, ellers ville `left: 50%` holdt den
-  igjen i en halvbred søyle på mobil.
+  igjen i en halvbred søyle på mobil. Teksten er kappet til **fire linjer**
+  (`-webkit-line-clamp`): den inneholder brukerens egne navn, og uten tak kunne
+  toasten vokst opp over lagringsstatusen og skjult den.
 - **Kontekstuelt tips** (`.toast-tip`): samme toast, bare litt bredere å brekke
   innenfor — et tips er en setning, ikke en kvittering på tre ord. Toasten er
   dessuten et `role="status"`-live-område, så både tips og kvitteringer når
@@ -477,8 +479,8 @@ side-margin som kansellerer den omsluttende paddingen.
 - **Lagringsstatus** (`.sync-status`, `#sync-status`): én diskret, vedvarende
   pille fast nede til venstre som forteller hva som faktisk har skjedd med
   endringene — «Lagret», «Lagrer …», «Frakoblet – endringene lagres på denne
-  enheten» eller «Noen endringer kunne ikke lagres på kontoen din.» med en
-  «Prøv igjen»-knapp.
+  enheten», «Noen endringer kunne ikke lagres på kontoen din.» eller
+  «Endringene lagres ikke på denne enheten.» med en «Prøv igjen»-knapp.
   Semantikken (hva som utløser hvilken tilstand) er `docs/accounts.md`.
   Formspråket er flate-mønsteret (`--control-bg` + blur), ikke toastens mørke
   flate: statusen er bakgrunnsinformasjon, ikke en melding som krever

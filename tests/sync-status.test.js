@@ -442,7 +442,11 @@ async function scenario(page, viewport, label) {
     await softWait(page, 'rejected');
     const s = await readStatus(page);
     check('buffer: en feilet localStorage-skriving meldes som avvist',
-      s.state === 'rejected' && s.text === 'Noen endringer kunne ikke lagres på kontoen din.', s);
+      s.state === 'rejected', s);
+    // Teksten skal peke på ENHETEN, ikke kontoen: synken kan godt ha fått
+    // endringen fram til serveren samtidig (se sjekken lenger ned).
+    check('buffer: teksten sier at det er DENNE ENHETEN som ikke lagrer',
+      s.text === 'Endringene lagres ikke på denne enheten.', s.text);
     check('buffer: diagnostikken sier at det er BUFFEREN, ikke serveren',
       s.snapshot.rejected.length === 1 && s.snapshot.rejected[0].kind === 'cache', s.snapshot.rejected);
     check('buffer: ingen toast', s.toastShows === 0, s.toastShows);

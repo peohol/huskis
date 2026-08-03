@@ -7684,11 +7684,18 @@
     const el = document.getElementById('sync-status');
     const textEl = document.getElementById('sync-status-text');
     const retryBtn = document.getElementById('sync-retry-btn');
+    /* De to avvisningene rammer HVER SIN lagringsplass, og teksten må si
+       hvilken: en skriving serveren sa nei til nådde aldri kontoen, mens en
+       feilet localStorage-skriving kun gjelder denne enheten — synken kan godt
+       ha fått endringen fram til kontoen samtidig (se `clearServerRejections`).
+       Én felles «kunne ikke lagres på kontoen din» ville løyet i det andre
+       tilfellet. */
     const TEXT = {
       saved: 'Lagret',
       saving: 'Lagrer …',
       offline: 'Frakoblet – endringene lagres på denne enheten',
       rejected: 'Noen endringer kunne ikke lagres på kontoen din.',
+      rejectedCache: 'Endringene lagres ikke på denne enheten.',
     };
     const OFFLINE_AFTER_FAILURES = 2; // ett glipp er ikke «frakoblet»
     const QUIET_AFTER_MS = 2600;      // «Lagret» krymper til bare prikken
@@ -7728,18 +7735,30 @@
       if (pending()) return 'saving';
       return 'saved';
     }
+    // Rammer ALLE avvisningene kun den lokale bufferen? Da er det denne enheten
+    // som ikke lagrer, ikke kontoen. Én serverside-avvisning i miksen er det
+    // alvorligste, og den teksten vinner.
+    function cacheOnly() {
+      if (!rejected.size) return false;
+      for (const v of rejected.values()) if (v.kind !== 'cache') return false;
+      return true;
+    }
     function paint() {
       if (!el) return;
       const s = state();
-      if (s === painted) return;
-      painted = s;
+      // Tilstanden («rejected») styrer farge og «Prøv igjen»; nøkkelen velger
+      // HVILKEN av de to avvisningstekstene som gjelder — og må derfor være
+      // det som sammenlignes, ellers står en gammel tekst igjen.
+      const key = s === 'rejected' && cacheOnly() ? 'rejectedCache' : s;
+      if (key === painted) return;
+      painted = key;
       clearTimeout(quietTimer);
       el.classList.remove('is-quiet');
       if (s === 'idle') { el.hidden = true; return; }
       el.hidden = false;
       el.dataset.state = s;
-      el.title = TEXT[s];
-      textEl.textContent = TEXT[s];
+      el.title = TEXT[key];
+      textEl.textContent = TEXT[key];
       retryBtn.hidden = s !== 'rejected';
       if (s === 'saved') quietTimer = setTimeout(() => el.classList.add('is-quiet'), QUIET_AFTER_MS);
     }

@@ -1604,8 +1604,20 @@ body.modal-open { overflow: hidden; }
 /* Beskjeden brekker over flere linjer i stedet for å kappes med ellipsis: den
    sier hva som skjedde med brukerens innhold, og en toast som stopper på
    «Lagt i søppelkassen: «Ukens gjø…» har mistet nettopp det den skulle si.
-   Ellipsen kappet alt over ~28 tegn på mobil, altså de fleste beskjedene. */
-.toast-msg { min-width: 0; }
+   Ellipsen kappet alt over ~28 tegn på mobil, altså de fleste beskjedene.
+   Linjetaket er ikke pynt: navnet i beskjeden er brukerens egen tekst og kan
+   være vilkårlig langt, og en toast uten tak ville vokst opp over
+   lagringsstatusen (som ligger UNDER den i z-orden) og skjult både feilen og
+   «Prøv igjen». Fire linjer rommer alle appens egne beskjeder og tips; blir
+   det for langt, er det navnet som kappes — poenget står først. */
+.toast-msg {
+  min-width: 0;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 4;
+  line-clamp: 4;
+  overflow: hidden;
+}
 /* Kontekstuelt tips (docs/introduksjon.md): en hel setning, ikke en kvittering
    på tre ord — og den får litt mer bredde å brekke innenfor. Alt annet (flate,
    sveip-til-lukk, plassering) er som en vanlig toast: et tips skal aldri kreve
@@ -1675,17 +1687,15 @@ body.modal-open { overflow: hidden; }
    ville lagt seg oppå statusen (og over «Prøv igjen»). Da løftes statusen over
    dem — samme `:has()`-grep som banneret bruker mot toasten, og av samme grunn:
    hvem som havnet først i <body> avhenger av rekkefølgen de dukket opp i.
-   Løftene er avstemt mot de faktiske høydene på en 390 px skjerm: en toast
-   som brekker til to linjer er ≈66 px, et kontekstuelt tips (bredere, tre
-   linjer) ≈108, og banneret ≈149 med forklaringslinjen synlig. Står banneret
-   OG en toast, ligger banneret allerede løftet over toasten — statusen må
-   derfor klare summen. */
+   Løftene er avstemt mot MAKSHØYDENE på en 390 px skjerm: toasten er kappet
+   til fire linjer (≈108 px, se `.toast-msg`) og banneret er ≈149 px med
+   forklaringslinjen synlig. Uten linjetaket på toasten kunne et langt navn
+   skjøvet den opp over statusen. Står banneret OG en toast, ligger banneret
+   allerede løftet over toasten — statusen må derfor klare summen. */
 @media (max-width: 560px) {
-  body:has(.toast.show) .sync-status { transform: translateY(-86px); }
-  body:has(.toast.toast-tip.show) .sync-status { transform: translateY(-128px); }
+  body:has(.toast.show) .sync-status { transform: translateY(-128px); }
   body:has(.update-banner.show) .sync-status { transform: translateY(-165px); }
-  body:has(.toast.show):has(.update-banner.show) .sync-status { transform: translateY(-251px); }
-  body:has(.toast.toast-tip.show):has(.update-banner.show) .sync-status { transform: translateY(-293px); }
+  body:has(.toast.show):has(.update-banner.show) .sync-status { transform: translateY(-293px); }
 }
 .sync-status-dot {
   flex: 0 0 auto;
@@ -1765,11 +1775,11 @@ body.modal-open { overflow: hidden; }
 .update-banner:has(.update-banner-note:not([hidden])) { border-radius: 22px; }
 .update-banner.show { opacity: 1; transform: translateY(0); }
 /* Står toasten samtidig, løftes banneret over den. Beskjedene er hele setninger
-   som brekker til to linjer på smale skjermer (≈66 px), og et kontekstuelt tips
-   er bredere og kan bli tre. `:has()` i stedet for en søsken-selektor: hvem av
-   de to som ble lagt i <body> først avhenger av rekkefølgen de dukket opp i. */
-body:has(.toast.show) .update-banner.show { transform: translateY(-86px); }
-body:has(.toast.toast-tip.show) .update-banner.show { transform: translateY(-128px); }
+   som brekker over flere linjer på smale skjermer — løftet er avstemt mot
+   toastens makshøyde (fire linjer, ≈108 px, se `.toast-msg`). `:has()` i stedet
+   for en søsken-selektor: hvem av de to som ble lagt i <body> først avhenger av
+   rekkefølgen de dukket opp i. */
+body:has(.toast.show) .update-banner.show { transform: translateY(-128px); }
 .update-banner-text { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
 /* Vises kun når en reload IKKE er trygg ennå (usynkede endringer, drag, modal …). */
 .update-banner-note { font-size: var(--fs-sm); font-weight: 500; opacity: 0.82; }
