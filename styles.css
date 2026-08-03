@@ -123,6 +123,16 @@
    sin inline-flex) — søppelkassene o.l. skjules med `hidden` i JS. */
 [hidden] { display: none !important; }
 
+/* SIKKERHETSNETT FOR TASTATURFOKUS. Alt som kan få fokus tegner den samme
+   ringen — også kontroller ingen har skrevet en egen regel for. Uten denne
+   arver de nettleserens innebygde ring, som verken vi eller
+   tests/a11y-contrast.test.js har noe med å gjøre (Chrome maler den i en
+   plattformavhengig farge, gullaktig på Android). Regelen står HØYT i fila med
+   vilje: alle de spesifikke reglene lenger nede overstyrer den der geometrien
+   krever en annen offset — eller ingen ring i det hele tatt, som på selve
+   dialogflatene. */
+:focus-visible { outline: var(--focus-w) solid var(--focus); outline-offset: 2px; }
+
 /* Usynlig for øyet, men FULLT til stede i tilgjengelighetstreet. Brukes av
    opplesningsområdet (#a11y-live). Verken `display:none`, `visibility:hidden`
    eller `hidden` duger: alle tre tar elementet ut av treet, og da leser ingen

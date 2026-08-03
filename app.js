@@ -640,7 +640,10 @@
         ting å lære — og det koster ingenting for den som bruker peker:
 
           Alt + pil opp/ned       flytt objektet ett hakk (sortering)
-          Alt + pil venstre/høyre samme, langs den andre aksen (kort i kolonner)
+          Alt + pil venstre/høyre nøyaktig det samme — «forrige/neste» i
+                                  leserekkefølgen. Kortene på board-et ligger i
+                                  kolonner, så begge aksene er like naturlige å
+                                  ta etter, og de skal ikke bety hver sin ting.
           Alt + M                 «Flytt til …» (ny forelder)
           F2                      omdøp (Enter gjør det samme på en rad)
 

@@ -167,6 +167,10 @@ while ((m = ruleRe.exec(css))) {
 }
 check('alle :focus-visible-ringer bruker --focus / --focus-on-dark', badRings.length === 0, badRings);
 check('fokusringen er minst 2px bred', parseFloat(token('focus-w')) >= 2, token('focus-w'));
+// Sikkerhetsnettet: uten den bare `:focus-visible`-regelen arver enhver ny
+// kontroll nettleserens egen ring — en farge ingen av testene her kan måle.
+check('det finnes en global :focus-visible-regel som fanger alt annet',
+  /(^|\n)\s*:focus-visible\s*\{[^}]*outline:\s*var\(--focus-w\)\s+solid\s+var\(--focus\)/.test(css));
 void focusRules;
 
 /* ---------- 8. Pensjonerte fargeverdier er borte ---------- */

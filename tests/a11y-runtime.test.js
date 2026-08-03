@@ -432,16 +432,35 @@ async function run(label, viewport) {
   log(label + ' 12a: den gule knappen bærer mørk tekst uten tekstskygge',
     !!yellow && yellow.color === 'rgb(55, 52, 63)' && yellow.shadow === 'none', yellow);
 
-  const ring = await page.evaluate(() => {
-    const el = document.querySelector('.item');
-    if (!el) return null;
-    el.focus();
-    // :focus-visible krever tastaturfokus; les tokenet direkte i stedet, det er
-    // det regelen peker på.
-    return getComputedStyle(document.documentElement).getPropertyValue('--focus').trim();
-  });
+  const ring = await page.evaluate(() =>
+    getComputedStyle(document.documentElement).getPropertyValue('--focus').trim());
   log(label + ' 12b: fokusringen bruker --focus (mørk), ikke den gamle grønne',
     ring === '#10131a', ring);
+
+  // 12c. Den FAKTISK malte ringen. Uten sikkerhetsnettet i styles.css arvet nye
+  // kontroller (som listepunkt-raden) nettleserens innebygde ring — gullaktig på
+  // Android, og utenfor vår kontroll. Fokus MÅ settes med ekte Tab her:
+  // `:focus-visible` slår ikke inn på en programmatisk `.focus()`.
+  await page.evaluate(() => { document.activeElement.blur(); window.scrollTo(0, 0); });
+  const painted = [];
+  for (let i = 0; i < 60; i++) {
+    await page.keyboard.press('Tab');
+    const hit = await page.evaluate(() => {
+      const el = document.activeElement;
+      if (!el || el === document.body || !el.matches(':focus-visible')) return null;
+      const cs = getComputedStyle(el);
+      const what = el.classList.contains('item') ? 'rad'
+        : el.classList.contains('card-head') ? 'korthode'
+          : el.classList.contains('cat-head') ? 'kategorihode' : null;
+      if (!what) return null;
+      return { what, color: cs.outlineColor, style: cs.outlineStyle, width: parseFloat(cs.outlineWidth) };
+    });
+    if (hit) painted.push(hit);
+    if (painted.length >= 3) break;
+  }
+  const bad = painted.filter((r) => r.color !== 'rgb(16, 19, 26)' || r.style !== 'solid' || r.width < 2);
+  log(label + ' 12c: de nye tastaturhåndtakene maler --focus, ikke nettleserens egen ring',
+    painted.length > 0 && bad.length === 0, bad.length ? bad : painted);
 
   log(label + ': ingen JS-feil', errors.length === 0, errors.join(' | '));
   await browser.close();
