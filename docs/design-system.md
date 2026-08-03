@@ -134,8 +134,8 @@ knappene arver `.icon-btn`-fargen (`--ink-soft`).
 - `.btn-green` (`--grad-green`): alle positive/primære handlinger — ＋-knapper,
   Inviter, Gjenopprett, Godta, Plasser, auth-submit, filter-brytere i
   på-tilstand.
-- `.btn-red` (`--grad-red`): destruktive handlinger — Tøm permanent, Forlat
-  deling, Kast ut, Slett konto.
+- `.btn-red` (`--grad-red`): destruktive handlinger — tøm-knappen i
+  søppelkassen, Forlat deling, Kast ut, Slett konto.
 - `.btn-yellow` (`--grad-yellow`): lås-knappene i del-modalen, og **Logg ut**
   (som er reversibel — den lå tidligere på rødt, men da så den ut som
   «Slett konto» rett ved siden av; se `docs/menus.md`).
@@ -426,7 +426,7 @@ side-margin som kansellerer den omsluttende paddingen.
   Sletting animeres («pakk sammen og fly i søpla», se `docs/trash.md`) så
   brukeren ser hvor objektet havnet. Destruktivt er alltid reversibelt frem
   til tømming (gravstein først da) — derfor ingen bekreftelses-dialog på selve
-  slettingen, og heller ikke på «Tøm permanent» i modalen (sveipe-tømming har
+  slettingen, og heller ikke på tøm-knappen i modalen (sveipe-tømming har
   heller ingen).
 - Nytt objekt (univers/gruppe/liste) aktiveres og går rett i navneredigering.
 - Escape lukker øverste modal — men avbryter kun inline-redigering hvis en pågår.
@@ -460,11 +460,16 @@ side-margin som kansellerer den omsluttende paddingen.
   etterpå, så et drag som startet oppå «Angre» ikke også trykker «Angre».
   `opts.onDismiss` lar kalleren gjøre ferdig arbeidet timeren ellers ville gjort
   — slette-toasten committer slettingen (se `docs/trash.md`).
-- **Kontekstuelt tips** (`.toast-tip`): samme toast, men teksten får brekke over
-  flere linjer i stedet for å kappes med ellipsis — et tips er en setning, ikke
-  en kvittering på tre ord. Toasten er dessuten et `role="status"`-live-område,
-  så både tips og kvitteringer når skjermlesere. Semantikken (når et tips vises,
-  og alt det aldri skal fortrenge) er `docs/introduksjon.md`.
+  Teksten brekker over flere linjer i stedet for å kappes: beskjeden sier hva
+  som skjedde med brukerens innhold, og en toast som stopper på «Lagt i
+  søppelkassen: «Ukens gjø…» har mistet nettopp det den skulle si. Bredden er
+  `width: max-content` opp til `max-width`, ellers ville `left: 50%` holdt den
+  igjen i en halvbred søyle på mobil.
+- **Kontekstuelt tips** (`.toast-tip`): samme toast, bare litt bredere å brekke
+  innenfor — et tips er en setning, ikke en kvittering på tre ord. Toasten er
+  dessuten et `role="status"`-live-område, så både tips og kvitteringer når
+  skjermlesere. Semantikken (når et tips vises, og alt det aldri skal
+  fortrenge) er `docs/introduksjon.md`.
 - **Toast eller status?** En toast er en HENDELSE som nettopp skjedde og som
   det er greit å gå glipp av. En TILSTAND som varer — og som brukeren må kunne
   finne igjen etterpå — hører hjemme i lagringsstatusen (under), aldri i en
@@ -472,7 +477,8 @@ side-margin som kansellerer den omsluttende paddingen.
 - **Lagringsstatus** (`.sync-status`, `#sync-status`): én diskret, vedvarende
   pille fast nede til venstre som forteller hva som faktisk har skjedd med
   endringene — «Lagret», «Lagrer …», «Frakoblet – endringene lagres på denne
-  enheten» eller «Noen endringer kunne ikke lagres» med en «Prøv igjen»-knapp.
+  enheten» eller «Noen endringer kunne ikke lagres på kontoen din.» med en
+  «Prøv igjen»-knapp.
   Semantikken (hva som utløser hvilken tilstand) er `docs/accounts.md`.
   Formspråket er flate-mønsteret (`--control-bg` + blur), ikke toastens mørke
   flate: statusen er bakgrunnsinformasjon, ikke en melding som krever

@@ -16,9 +16,9 @@
     4. Nettverksfeil uten offline-flagg: ÉN feilet runde er ikke «frakoblet»
        (terskel = 2), to på rad er det. Ingen toast underveis.
     5. Delvis avvisning: et skjema-avvik på items gir «Noen endringer kunne ikke
-       lagres» + «Prøv igjen», teknikken KUN i konsollen/diagnostikken, ingen
-       toast, ingen påstand om at «resten er lagret» — og statusen forsvinner
-       ikke selv om synken kjører videre.
+       lagres på kontoen din» + «Prøv igjen», teknikken KUN i konsollen/
+       diagnostikken, ingen toast, ingen påstand om at «resten er lagret» —
+       og statusen forsvinner ikke selv om synken kjører videre.
     6. «Prøv igjen» tømmer først avvisningen når serveren faktisk har tatt imot
        skrivingen (avvisningen står så lenge feilen står).
     7. Terskelen for gjentatte radavvisninger: første avvisning er stille,
@@ -300,8 +300,8 @@ async function scenario(page, viewport, label) {
 
     const s = await readStatus(page);
     check('avvist: tilstand = rejected', s.state === 'rejected', s.state);
-    check('avvist: teksten er «Noen endringer kunne ikke lagres»',
-      s.text === 'Noen endringer kunne ikke lagres', s.text);
+    check('avvist: teksten er «Noen endringer kunne ikke lagres på kontoen din.»',
+      s.text === 'Noen endringer kunne ikke lagres på kontoen din.', s.text);
     check('avvist: «Prøv igjen» tilbys', s.retryVisible === true && s.retryLabel === 'Prøv igjen', s);
     check('avvist: INGEN toast', s.toastShows === 0, s.toastShows);
     check('avvist: UI-et påstår ikke at «resten er lagret»',
@@ -442,7 +442,7 @@ async function scenario(page, viewport, label) {
     await softWait(page, 'rejected');
     const s = await readStatus(page);
     check('buffer: en feilet localStorage-skriving meldes som avvist',
-      s.state === 'rejected' && s.text === 'Noen endringer kunne ikke lagres', s);
+      s.state === 'rejected' && s.text === 'Noen endringer kunne ikke lagres på kontoen din.', s);
     check('buffer: diagnostikken sier at det er BUFFEREN, ikke serveren',
       s.snapshot.rejected.length === 1 && s.snapshot.rejected[0].kind === 'cache', s.snapshot.rejected);
     check('buffer: ingen toast', s.toastShows === 0, s.toastShows);

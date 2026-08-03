@@ -31,9 +31,9 @@ Hopper over ved `prefersReducedMotion()`.
 
 Sletting skriver **ikke** til databasen med en gang. Objektet får et lokalt
 `_pendingDelete`-flagg (`_`-prefiks → strippes av `stateReplacer`, ikke i synk-
-doc'et) og en **angre-toast** («Slettet «X» — Angre», 5 s). Angrer man innen
-vinduet (`undoDelete(id)`), fjernes flagget lokalt — **ingen databasetrafikk,
-umiddelbart**. Ellers committes slettingen når timeren (`DELETE_BUFFER_MS`,
+doc'et) og en **angre-toast** («Lagt i søppelkassen: «X» — Angre», 5 s).
+Angrer man innen vinduet (`undoDelete(id)`), fjernes flagget lokalt — **ingen
+databasetrafikk, umiddelbart**. Ellers committes slettingen når timeren (`DELETE_BUFFER_MS`,
 5 s) utløper — eller når fanen skjules (`visibilitychange`/`pagehide`) —:
 `trashed = true` + stempling (`commitDelete`). Søpla er FELLES for alle med
 tilgang.
@@ -47,7 +47,7 @@ Mens objektet er buffret:
     flagget fjernes og raden pilles ut av samle-toasten (`pruneDeleteToast`,
     som oppdaterer antallet i toasten / rydder den når den blir tom) —
     umiddelbart, null databasetrafikk.
-  - «Tøm permanent» / sveipe-tømming committer buffrede rader i sitt omfang
+  - «Slett … for godt» / sveipe-tømming committer buffrede rader i sitt omfang
     FØRST (`commitBufferedFor`) og tømmer så — brukeren merker ingen forskjell
     på en buffret og en committet rad.
 
@@ -104,7 +104,7 @@ universer):
 1. **Spinner som aldri ga seg**: åpnet man modalen rett etter en listepunkt-
    sletting og en rebuild traff mens den sto åpen, ryddet commit `_pendingDelete`
    på det LEVENDE objektet, mens modalens foreldreløse kort beholdt flagget →
-   spinner for alltid, «Tøm permanent» aldri aktiv.
+   spinner for alltid, tøm-knappen aldri aktiv.
 2. **«Gjenopprett» som ikke festet seg**: klikket satte `trashed = false` på den
    foreldreløse kopien → modalen så tom ut, men det levende treet hadde listepunktet
    fortsatt slettet; ved neste åpning var det der igjen.
@@ -117,9 +117,16 @@ gruppe-/univers-gjenoppretting hvis en rebuild treffer mellom render og klikk.
 
 ## Interaksjon (`attachTrashHold`)
 
-Kort trykk → felles modal (`showTrashModal`: gjenopprett enkeltvis / «Tøm
-permanent» — **uten ekstra bekreftelse**, samme som sveipe-tømming; modalen
-åpnes utsatt og ignorerer overlay-klikk de første ~450 ms).
+Kort trykk → felles modal (`showTrashModal`: gjenopprett enkeltvis / tøm alt —
+**uten ekstra bekreftelse**, samme som sveipe-tømming; modalen åpnes utsatt og
+ignorerer overlay-klikk de første ~450 ms).
+
+Tøm-knappen **navngir nivået den sletter** — `cfg.emptyLabel`: «Slett
+universene / gruppene / listene / listepunktene for godt». De fire kassene deler
+én knapp, så uten navnet sa den ingenting om hva som forsvant. Notatet og
+knappen stables i `.modal-foot` (`.modal-note` tar hele linjen): ved siden av
+hverandre ville den lengste knappeteksten presset notatet ned i en smal søyle.
+Sveipefeltet har ikke plass til nivånavnet og sier «Slett alt».
 
 Klikk-og-hold (> `HOLD_EXPAND_MS`) → **sveipefeltet**: feltet starter med
 knappens EKSAKTE geometri (posisjon/størrelse/radius, og ikonet står nøyaktig
@@ -189,8 +196,8 @@ Gravsteinene fra en slettet konto blir stående som alle andre — de er id-er u
 personopplysninger, og de er nettopp det som hindrer at en annen enhet med gammel
 cache legger innholdet inn igjen. Se `docs/rettigheter-og-deling.md` del 10.
 
-Alle tekster/titler sier «hold og sveip for å tømme» (ikke «hold i 3
-sekunder»).
+Alle tekster/titler sier «hold og sveip for å slette dem for godt» (ikke «hold i
+3 sekunder»).
 
 ## Feltet henger igjen hvis knappen forsvinner midt i et sveip
 
@@ -210,8 +217,8 @@ varig `document`-lytter (én per listepunkt-søppelknapp som noensinne bygges).
 `emptyXTrash()` starter med `commitBufferedFor(ids)`: alle buffrede rader i
 tømmingens omfang committes umiddelbart (uten å vente på angre-vinduet) og
 pilles ut av samle-toasten, før selve tømmingen kjører over hele lista.
-Sveipefeltet og «Tøm permanent» er derfor **aldri sperret**; badge-tellerne
-viser bare antallet. (Tidligere var begge deaktivert med spinnere til bufferet
+Sveipefeltet og tøm-knappen er derfor **aldri sperret**; badge-tellerne viser
+bare antallet. (Tidligere var begge deaktivert med spinnere til bufferet
 var committet — det er borte.)
 
 Commit-stedene som treffes av timeren/kategoribyttet (`armDeleteTimer`,
@@ -250,11 +257,11 @@ gruppen ble låst, eller et delt univers eieren har slettet for alle. Både
   ingen egne caps, og der er `!frozen(obj)` samme regel. Uten myndighet er
   knappen **avskrudd** med en forklarende tooltip, ikke skjult — raden skal
   fortsatt kunne ses og forstås.
-- **`purge` → «Tøm permanent».** Samme svar, men et univers/en gruppe man kan
+- **`purge` → tøm-knappen.** Samme svar, men et univers/en gruppe man kan
   FORLATE teller også med (se over). Er ingenting i kassen tømbart, er knappen
   avskrudd; er kassen blandet, tømmes det tømbare og en toast sier fra om resten
-  («Låst innhold kan ikke slettes permanent»). Sveipefeltet går utenom modalen,
-  så toasten er nødvendig der.
+  («Låst innhold ligger fortsatt i søppelkassen»). Sveipefeltet går utenom
+  modalen, så toasten er nødvendig der.
 
 Forlat-veien krever i tillegg at man FAKTISK kan forlate (`cap(obj, 'leave')`).
 Er grunnen til at man ikke kan slette en LÅS — ikke at objektet er andres —

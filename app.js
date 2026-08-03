@@ -695,7 +695,7 @@
     // Overflate-oppdatering etter et kirurgisk drop (ingen rebuild av scopet).
     afterDrop: () => { /* board-et er allerede riktig */ },
     reindexColors: () => reindexContainerColors(boardScope),
-    lockedTargetMsg: 'Lista er låst',  // avvist slipp i en frossen mål-container
+    lockedTargetMsg: 'Listen er låst – du kan ikke flytte noe hit',  // avvist slipp i en frossen mål-container
   };
   const navScope = {
     key: 'nav',
@@ -741,7 +741,7 @@
     // og en rebuild ville revet ned kortet midt i drop-animasjonen.
     afterDrop: () => { updateCrumbs(); renderBoard(); },
     reindexColors: () => reindexContainerColors(navScope),
-    lockedTargetMsg: 'Universet er låst',
+    lockedTargetMsg: 'Universet er låst – du kan ikke flytte noe hit',
   };
   const scopeForEl = (el) => (el && navBoard.contains(el) ? navScope : boardScope);
   const dragScope = () => drag.scope || boardScope;
@@ -1259,7 +1259,7 @@
       const btn = document.createElement('button');
       btn.type = 'button';
       btn.className = 'trashcan group-trash-btn';
-      btn.title = 'Slettede grupper – trykk for å åpne, hold og sveip for å tømme';
+      btn.title = 'Slettede grupper – trykk for å åpne, hold og sveip for å slette dem for godt';
       btn.setAttribute('aria-label', 'Slettede grupper');
       const icon = document.createElement('span');
       icon.className = 'trashcan-icon';
@@ -1655,7 +1655,7 @@
       const btn = document.createElement('button');
       btn.type = 'button';
       btn.className = 'trashcan item-trash-btn';
-      btn.title = 'Slettede listepunkter – trykk for å åpne, hold og sveip for å tømme';
+      btn.title = 'Slettede listepunkter – trykk for å åpne, hold og sveip for å slette dem for godt';
       btn.setAttribute('aria-label', 'Slettede listepunkter');
       const icon = document.createElement('span');
       icon.className = 'trashcan-icon';
@@ -2588,10 +2588,14 @@
      kategorien. Toasten er «sticky» (auto-skjules ikke) — den felles timeren
      styrer både commit og skjuling. */
   let deleteToast = null; // { kind, ids: [], lastName, timer }
+  // Sletting er ikke endelig — objektet ligger i søppelkassen til den tømmes.
+  // Beskjeden sier hvor det ble av, ikke bare at det forsvant, og sier det
+  // FØRST: navnet kan være vilkårlig langt, og det er navnet som skal brekke
+  // nedover i toasten, ikke poenget.
   function deleteMsg(kind, ids, lastName) {
-    if (ids.length === 1) return 'Slettet «' + (lastName || '') + '»';
+    if (ids.length === 1) return 'Lagt i søppelkassen: «' + (lastName || '') + '»';
     const w = kind === 'item' ? itemWord : kind === 'card' ? listWord : kind === 'group' ? groupWord : uniWord;
-    return 'Slettet ' + w(ids.length);
+    return 'Lagt i søppelkassen: ' + w(ids.length);
   }
   // Committer gruppen i toasten nå (angre-vinduet er over — timeren utløp, en ny
   // kategori slettes, eller brukeren sveipet toasten bort). Skjuler ikke toasten:
@@ -3549,7 +3553,7 @@
   function askCardMove(c) {
     const options = moveTargetGroups(c).map((g) => ({ id: g.id, label: g.name }));
     if (!options.length) return;
-    openPicker('Flytt «' + c.title + '» til:', options, '',
+    openPicker('«' + c.title + '» flyttes til gruppen du velger.', options, '',
       (gid) => moveCardToGroup(c.id, gid));
   }
   // Flytt lista: ny forelder (`group`) + posisjon bakerst i mål-gruppen
@@ -4218,11 +4222,10 @@
     const crossDomain = !srcKey || !dstKey || srcKey !== dstKey;
     if (crossDomain) {
       const ok = await askConfirm({
-        title: 'Flytte gruppen til et annet eierskap?',
+        title: 'Flytte gruppen til et univers med andre eiere?',
         message: '«' + (g.name || 'Gruppen') + '» flyttes til et univers med andre eiere. ' +
           'De som har tilgang i dag mister den — direkte gruppemedlemmer og medeiere ' +
-          'følger ikke med, og medlemmene i måluniverset får tilgang. Dette er ikke en ' +
-          'vanlig omplassering: gruppen opprettes på nytt der.',
+          'følger ikke med. Medlemmene i det nye universet får tilgang i stedet.',
         okLabel: 'Flytt likevel',
       });
       if (!ok) { revertGroupMove(g, from); return; }
@@ -5206,6 +5209,9 @@
     modalCfg = cfg;
     trashTitle.textContent = cfg.title;
     modalNote.textContent = cfg.note;
+    // Knappen navngir det den faktisk sletter — «Tøm» sa ingenting om hva som
+    // forsvant, og de fire kassene deler samme knapp.
+    trashEmptyBtn.textContent = cfg.emptyLabel || 'Slett for godt';
     renderTrashModalBody();
     trashModal.hidden = false;
     modalOpenedAt = Date.now();
@@ -5260,7 +5266,7 @@
       // som buffret den hadde myndigheten da knappen ble trykket.)
       if (r.manage === false && !r.pending) {
         restore.disabled = true;
-        restore.title = 'Låst — du kan ikke gjenopprette dette';
+        restore.title = 'Låst – du kan ikke hente dette tilbake';
       }
       // Buffret (ennå ikke committet) sletting gjenopprettes ved å angre
       // bufferet — umiddelbart og uten databasetrafikk; committede rader
@@ -5280,11 +5286,12 @@
     modalCfg = null;
   }
 
-  const TRASH_NOTE = 'Gjenopprett enkeltvis, eller tøm for å slette permanent. ' +
-    'Tips: hold inne søppelkasse-knappen og sveip mot høyre for å tømme direkte.';
+  const TRASH_NOTE = 'Hent tilbake det du vil beholde. Resten kan du slette for godt — ' +
+    'da er det borte. Tips: hold inne søppelkasse-knappen og sveip mot høyre for å ' +
+    'slette alt med én gang.';
   // Sveipefeltet på søppelkasse-knappen går utenom modalen, så tømmingen må si
   // fra selv når den lot noe bli liggende.
-  const LOCKED_PURGE_MSG = 'Låst innhold kan ikke slettes permanent';
+  const LOCKED_PURGE_MSG = 'Låst innhold ligger fortsatt i søppelkassen';
   const groupWord = (n) => n + ' ' + (n === 1 ? 'gruppe' : 'grupper');
   const listWord = (n) => n + ' ' + (n === 1 ? 'liste' : 'lister');
   const itemWord = (n) => n + ' ' + (n === 1 ? 'listepunkt' : 'listepunkter');
@@ -5313,6 +5320,7 @@
     showTrashModal({
       title: 'Slettede universer',
       note: TRASH_NOTE,
+      emptyLabel: 'Slett universene for godt',
       emptyMsg: 'Ingen slettede universer.',
       rows: () => trashedUniverses().sort(posCmp).map((u) => ({
         id: u.id,
@@ -5337,6 +5345,7 @@
     showTrashModal({
       title: 'Slettede grupper – ' + (u0 ? u0.name : ''),
       note: TRASH_NOTE,
+      emptyLabel: 'Slett gruppene for godt',
       emptyMsg: 'Ingen slettede grupper.',
       rows: () => {
         const u = liveUni();
@@ -5360,6 +5369,7 @@
     showTrashModal({
       title: 'Slettede lister – ' + g.name,
       note: TRASH_NOTE,
+      emptyLabel: 'Slett listene for godt',
       emptyMsg: 'Ingen slettede lister.',
       rows: () => trashedCards().map((c) => ({
         id: c.id,
@@ -5385,6 +5395,7 @@
     showTrashModal({
       title: 'Slettede listepunkter – ' + cardData.title,
       note: TRASH_NOTE,
+      emptyLabel: 'Slett listepunktene for godt',
       emptyMsg: 'Ingen slettede listepunkter.',
       rows: () => {
         const c = liveCard();
@@ -5471,7 +5482,7 @@
     swipeEl.className = 'swipe-field';
     swipeEl.innerHTML =
       ICONS.trashSwipe +
-      '<span class="swipe-label">Tøm</span>' +
+      '<span class="swipe-label">Slett alt</span>' +
       '<span class="swipe-arrow" aria-hidden="true"></span>';
     document.body.appendChild(swipeEl);
     swipeIconEl = swipeEl.querySelector('.swipe-icon');
@@ -5857,7 +5868,7 @@
       // Uten cache har vi ingenting å vise → lukk med beskjed (som før).
       if (!shareGroupCache.has(key) && respOpen && token === respToken) {
         closeResponsible();
-        showToast('Kunne ikke hente medlemmer');
+        showToast('Fikk ikke hentet medlemmene – prøv igjen');
       }
     });
   }
@@ -6592,7 +6603,7 @@
      Synken går fortløpende i bakgrunnen; ingen egen synk-knapp trengs.
      Ved fjern-endringer vises et lite «oppdatert»-varsel (showToast). */
   logoutBtn.addEventListener('click', async () => {
-    const q = 'Logge ut? Listene dine ligger trygt i skyen og kommer tilbake når du logger inn igjen.';
+    const q = 'Listene dine beholdes på kontoen når du logger ut.';
     if (await askConfirm({ title: 'Logg ut', message: q, okLabel: 'Logg ut' })) logout();
   });
 
@@ -6967,7 +6978,7 @@
   authForm && authForm.addEventListener('submit', async (ev) => {
     ev.preventDefault();
     const client = acli();
-    if (!client) { authMsg('Sky-synk er ikke konfigurert.'); return; }
+    if (!client) { authMsg('Innlogging er ikke tilgjengelig akkurat nå. Prøv igjen senere.'); return; }
     const email = authEmail.value.trim().toLowerCase();
     const password = authPassword.value;
     if (!email) { authMsg('Skriv inn e-postadressen din.'); return; }
@@ -7421,8 +7432,8 @@
     if (!settingsModal.hidden) closeSettings();
     closeResponsible();
     showToast(kind === 'group'
-      ? 'Gruppen er slettet, flyttet eller ikke lenger delt med deg'
-      : 'Universet er slettet eller ikke lenger delt med deg');
+      ? 'Du har ikke lenger tilgang til gruppen'
+      : 'Du har ikke lenger tilgang til universet');
   }
 
   /* ---------------- Push: rad-CRUD mot tabellene ---------------- */
@@ -7677,7 +7688,7 @@
       saved: 'Lagret',
       saving: 'Lagrer …',
       offline: 'Frakoblet – endringene lagres på denne enheten',
-      rejected: 'Noen endringer kunne ikke lagres',
+      rejected: 'Noen endringer kunne ikke lagres på kontoen din.',
     };
     const OFFLINE_AFTER_FAILURES = 2; // ett glipp er ikke «frakoblet»
     const QUIET_AFTER_MS = 2600;      // «Lagret» krymper til bare prikken
@@ -7856,7 +7867,7 @@
           return;
         }
         queue.shift();
-        try { if (head.onError) head.onError(new Error('Endringen er ikke lagret i skyen ennå — prøv igjen')); }
+        try { if (head.onError) head.onError(new Error('Endringen ble ikke lagret. Sjekk forbindelsen og prøv igjen.')); }
         catch (e) { /* callback-feil skal ikke stoppe køen */ }
         pump();
         return;
@@ -7984,7 +7995,7 @@
       },
       onError: () => {
         posOverrides.delete(id);
-        showToast('Kunne ikke lagre rekkefølgen');
+        showToast('Den nye rekkefølgen ble ikke lagret – prøv igjen');
         scheduleCloud(0); // server-sannheten gjenoppretter visningen
       },
     };
@@ -8310,21 +8321,21 @@
     if (!remoteEmpty || !legacy) { localStorage.setItem(flag, '1'); return; }
     const n = legacy.cards.length;
     if (!await askConfirm({
-      title: 'Importer lokale lister',
-      message: 'Vi fant lokale lister på denne enheten (' + listWord(n) +
-        '). Vil du importere dem til kontoen din?',
-      okLabel: 'Importer', danger: false,
+      title: 'Legg listene til på kontoen din',
+      message: 'Vi fant ' + listWord(n) + ' som ligger lagret på denne enheten. ' +
+        'Vil du legge dem til på kontoen din, så du får dem på alle enhetene dine?',
+      okLabel: 'Legg til', danger: false,
     })) { localStorage.setItem(flag, '1'); return; }
     try {
       const { error } = await acli().rpc('import_doc', { p_doc: legacy });
       if (error) throw error;
       localStorage.setItem(flag, '1');
-      showToast('Lokale lister importert');
+      showToast('Listene ligger nå på kontoen din');
       cloudBase = null; persistedBaseSig = null; // importen endret serveren under oss
       scheduleCloud(0);
     } catch (e) {
       migrationChecked = false; // la brukeren prøve igjen senere
-      showToast('Import feilet – prøv igjen senere');
+      showToast('Listene ble ikke lagt til. Prøv igjen senere.');
     }
   }
 
@@ -9604,7 +9615,7 @@
       document.body.classList.add('no-auth');
       authScreen.hidden = false;
       setAuthMode('login');
-      authMsg('Sky-synk er ikke konfigurert.');
+      authMsg('Innlogging er ikke tilgjengelig akkurat nå. Prøv igjen senere.');
       return;
     }
     document.body.classList.add('no-auth');
@@ -9969,8 +9980,8 @@
   // brekker til en blokk som dekker det brukeren holder på med på mobil.
   const TIPS = {
     drag: 'Tips: hold på en tittel for å flytte den.',
-    trash: 'Tips: hold på søppelkassen og sveip for å tømme.',
-    moveList: 'Tips: dra en liste opp på navigasjonsknappen.',
+    trash: 'Tips: hold på søppelkassen og sveip for å slette alt i den.',
+    moveList: 'Tips: dra en liste opp på navigasjonsknappen for å flytte den.',
   };
   let pendingTip = null;  // ba om et tips mens omvisningen sto på
   let lastTipAt = 0;

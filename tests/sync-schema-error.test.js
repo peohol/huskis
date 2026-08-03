@@ -153,7 +153,7 @@ async function scenario(page, viewport, label) {
       };
     });
     check('E2E: lagringsstatusen melder avvisningen', r.state === 'rejected' && r.hidden === false);
-    check('E2E: statusteksten sier at noe ikke kunne lagres', r.text === 'Noen endringer kunne ikke lagres');
+    check('E2E: statusteksten sier at noe ikke kunne lagres', r.text === 'Noen endringer kunne ikke lagres på kontoen din.');
     check('E2E: avviket står som et skjema-avvik på items i diagnostikken',
       r.rejected.length === 1 && r.rejected[0].kind === 'schema' && r.rejected[0].table === 'items');
     check('E2E: ingen toast — statusen er vedvarende, ikke forbigående', r.toastShown === false);
@@ -182,7 +182,7 @@ async function scenario(page, viewport, label) {
     }, s.ids.PL);
     check('regresjon: endringen synket til «server»', r.persisted === 'Normalt endret');
     check('regresjon: INGEN skjema-varsel ved normal synk',
-      r.rejected.length === 0 && r.statusText !== 'Noen endringer kunne ikke lagres');
+      r.rejected.length === 0 && r.statusText !== 'Noen endringer kunne ikke lagres på kontoen din.');
   }
 }
 
