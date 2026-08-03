@@ -611,6 +611,531 @@
     c.hidden = !collapsed;
   }
 
+  /* ============================================================
+     TILGJENGELIGHET — navn, opplesning, fokus og tastaturflytting
+     ------------------------------------------------------------
+     Fire ting bor her fordi alle fire nivåene deler dem.
+
+     1. NAVN PÅ IKONKNAPPER (`labelBtn`). En skjermleser som går gjennom tjue
+        rader leser «Slett listepunkt» tjue ganger uten å si hvilket. Alle
+        ikonknapper får derfor objektets navn inn i sitt eget navn. `title`
+        settes samtidig, men er aldri alene om jobben: den leses ikke av alle
+        skjermlesere og finnes ikke i det hele tatt på touch.
+
+     2. OPPLESNING (`announce`). Et `aria-live`-område nederst i index.html.
+        Brukes til det som skjer UTEN at fokus flytter seg — en flytting, en
+        sortering — der en seende bruker ser resultatet og en skjermleserbruker
+        ellers ikke ville fått vite noe.
+
+     3. FOKUS SOM OVERLEVER EN RENDRING (`keepFocus`/`applyFocusIntent`).
+        `renderBoard()` bygger board-et fra bunnen (`innerHTML = ''`), så enhver
+        handling som re-rendrer ville sluppet fokus ned til <body>; da mister en
+        tastatur-/skjermleserbruker plassen sin i lista. `keepFocus(sel)` noterer
+        hva som skal ha fokus etterpå, og `applyFocusIntent()` — kalt sist i
+        renderBoard() og renderNav() — setter det på den NYE noden.
+
+     4. TASTATURFLYTTING. Dra-og-slipp er fortsatt den primære hurtigmekanismen;
+        dette er en sidestilt inngang, ikke en erstatning. Håndtaket er nøyaktig
+        den samme sonen musen drar i (objektets navn-/tittelrad), så det er én
+        ting å lære — og det koster ingenting for den som bruker peker:
+
+          Alt + pil opp/ned       flytt objektet ett hakk (sortering)
+          Alt + pil venstre/høyre nøyaktig det samme — «forrige/neste» i
+                                  leserekkefølgen. Kortene på board-et ligger i
+                                  kolonner, så begge aksene er like naturlige å
+                                  ta etter, og de skal ikke bety hver sin ting.
+          Alt + M                 «Flytt til …» (ny forelder)
+          F2                      omdøp (Enter gjør det samme på en rad)
+
+        Sorteringen — den hyppige handlingen — er ett tastetrykk og ligger IKKE
+        i noen meny. Bare flytting til en ny forelder åpner en velger, og det er
+        en sjelden handling som allerede har nøyaktig samme velger fra draget
+        (slipp på 📁-breadcrumben).
+     ============================================================ */
+
+  // Objektnavn i anførselstegn, med en trygg fallback for det navnløse.
+  function quoted(name) {
+    const t = String(name == null ? '' : name).trim();
+    return t ? '«' + t + '»' : 'uten navn';
+  }
+  // aria-label ER navnet på knappen; `title` er kun musehjelp og settes til det
+  // samme med mindre kalleren vil ha en lengre forklaring der.
+  function labelBtn(btn, label, tooltip) {
+    if (!btn) return;
+    btn.setAttribute('aria-label', label);
+    btn.title = tooltip == null ? label : tooltip;
+  }
+
+  const liveRegion = document.getElementById('a11y-live');
+  let liveTimer = null;
+  function announce(msg) {
+    if (!liveRegion || !msg) return;
+    clearTimeout(liveTimer);
+    // Et live-område leser ikke opp igjen en tekst som er identisk med den som
+    // allerede står der. Tøm først, sett rett etterpå — da blir også to like
+    // flyttinger på rad lest opp begge to.
+    liveRegion.textContent = '';
+    liveTimer = setTimeout(() => { liveRegion.textContent = msg; }, 40);
+  }
+
+  let focusIntent = null;
+  function keepFocus(sel) { focusIntent = sel || null; }
+  // Ønsket tømmes KUN når det faktisk ble innfridd. `render()` kjører renderNav()
+  // før renderBoard(), og et ønske om et element på board-et finnes ikke ennå når
+  // nav-modalen er ferdig — tømte vi her, ville board-rendringen etterpå ikke hatt
+  // noe å sette fokus på. `render()` rydder bort det som ikke traff.
+  function applyFocusIntent() {
+    if (!focusIntent) return;
+    let el = null;
+    try { el = document.querySelector(focusIntent); } catch (e) { focusIntent = null; return; }
+    if (!el) return;
+    focusIntent = null;
+    try { el.focus(); } catch (e) { /* noden kan ha rukket å forsvinne */ }
+  }
+  // En selektor som finner IGJEN det fokuserte elementet etter at board-et eller
+  // nav-modalen er bygget på nytt. Ikke bare tastaturflyttinger river ned DOM-en:
+  // hver bakgrunnssynk som lander kaller render(), og uten dette ville fokus falt
+  // til <body> med noen sekunders mellomrom mens man jobber. `data-id` er unik i
+  // hele appen, så den alene identifiserer raden; klassen peker ut hvilken kontroll
+  // inne i raden det gjaldt.
+  function selectorForFocused(el) {
+    if (!el || el === document.body || el === document.documentElement) return null;
+    if (el.id) return '#' + el.id.replace(/["\\]/g, '\\$&');
+    const host = el.closest('[data-id]');
+    if (!host || !host.dataset.id) return null;
+    const hostSel = '[data-id="' + host.dataset.id.replace(/["\\]/g, '\\$&') + '"]';
+    if (el === host) return hostSel;
+    // Klassen må være entydig INNE i raden, ellers ville fokus kunne havne på
+    // søskenraden sin knapp (alle rader har f.eks. .item-delete).
+    const cls = [].slice.call(el.classList)
+      .find((c) => host.querySelectorAll('.' + c).length === 1);
+    return cls ? hostSel + ' .' + cls : hostSel;
+  }
+  // Kalles først i renderBoard()/renderNav(), FØR containeren tømmes.
+  function captureFocusIn(root) {
+    if (focusIntent || !root) return;
+    const a = document.activeElement;
+    if (!a || !root.contains(a)) return;
+    // Et åpent navnefelt overlever ingen rendring uansett — og å sende fokus
+    // tilbake til raden bak ville flyttet markøren bort fra det brukeren skrev.
+    if (a.classList && a.classList.contains('edit-input')) return;
+    keepFocus(selectorForFocused(a));
+  }
+
+  /* ---------------- Fokus i modaler og popovere ----------------
+     Alle overlayene sier `aria-modal="true"`, altså «det bak meg finnes ikke».
+     Det løftet må holdes, ellers tabber man rett ut i board-et bak og skriver i
+     noe man ikke ser. Tre regler, like for alle:
+       1. Fokus flyttes INN når overlayen åpnes.
+       2. Tab holdes INNE så lenge den er åpen (øverste overlay eier tastaturet).
+       3. Fokus går TILBAKE dit det kom fra når den lukkes.
+
+     Koblingen skjer med én MutationObserver per overlay på `hidden`, ikke ved å
+     endre de ni åpne-/lukkefunksjonene: modalene skjules fra mange steder (også
+     rett `hidden = true` i Escape-håndtereren), og en observatør kan ikke gå
+     glipp av en av dem. Omvisningen har sin egen felle (den er ikke en
+     `.modal-overlay`) og røres ikke her. */
+  const FOCUSABLE = 'a[href], button:not([disabled]), input:not([disabled]), ' +
+    'select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
+  function focusablesIn(root) {
+    return [].slice.call(root.querySelectorAll(FOCUSABLE))
+      .filter((el) => !el.closest('[hidden]') && el.offsetParent !== null);
+  }
+  const overlayStack = [];              // åpne overlayer, nederst → øverst
+  // overlay → { el, sel }: både selve noden OG en selektor som finner den igjen.
+  // Selektoren er nødvendig fordi lukkingen ofte re-rendrer board-et (en endret
+  // tid, en flyttet rad), og da er noden vi husket for lengst kastet — uten
+  // selektoren falt fokus til <body> hver gang en popover ble lukket.
+  const overlayReturn = new WeakMap();
+
+  // Siste element som hadde fokus UTENFOR alle åpne overlayer. Vi kan ikke bare
+  // lese `document.activeElement` når en overlay åpner: observatøren er en
+  // mikrotask og kjører FØRST når hele åpne-rutinen er ferdig, og flere av dem
+  // (tids-popoveren, innstillingsmodalen) fokuserer sitt eget felt synkront på
+  // veien. Da ville «hvor kom vi fra» allerede vært inne i overlayen.
+  let lastOutsideFocus = null;
+  document.addEventListener('focusin', (ev) => {
+    const t = ev.target;
+    if (!t || t === document.body) return;
+    if (t.closest && t.closest('.modal-overlay:not([hidden]), .switcher-overlay:not([hidden])')) return;
+    lastOutsideFocus = { el: t, sel: selectorForFocused(t) };
+  }, true);
+
+  function overlayOpened(ov) {
+    if (overlayStack.indexOf(ov) > -1) return;
+    const prev = document.activeElement;
+    const from = (prev && prev !== document.body && !ov.contains(prev))
+      ? { el: prev, sel: selectorForFocused(prev) }
+      : lastOutsideFocus;
+    if (from && from.el && !ov.contains(from.el)) overlayReturn.set(ov, from);
+    overlayStack.push(ov);
+    // Flytt fokus inn — men bare hvis åpne-koden ikke allerede gjorde det selv
+    // (bekreftelsesdialogen fokuserer OK-knappen, «Slett konto» sveipefeltet,
+    // innstillingsmodalen navnefeltet). Panelet, ikke første knapp: da leser
+    // skjermleseren dialogens navn før innholdet, og Tab går videre derfra.
+    requestAnimationFrame(() => {
+      if (ov.hidden || ov.contains(document.activeElement)) return;
+      const panel = ov.querySelector('[role="dialog"], [role="alertdialog"], [role="listbox"]')
+        || ov.querySelector('.modal, .switcher-panel');
+      if (!panel) return;
+      if (!panel.hasAttribute('tabindex')) panel.setAttribute('tabindex', '-1');
+      try { panel.focus(); } catch (e) { /* ignorer */ }
+    });
+  }
+  function overlayClosed(ov) {
+    const i = overlayStack.indexOf(ov);
+    if (i < 0) return;
+    overlayStack.splice(i, 1);
+    const back = overlayReturn.get(ov);
+    overlayReturn.delete(ov);
+    // Ligger det fortsatt en overlay åpen og den har fokus, er vi ferdige —
+    // ellers ville en lukket topp-modal kastet fokus ut av den under.
+    const top = overlayStack[overlayStack.length - 1];
+    if (top && top.contains(document.activeElement)) return;
+    // Lukkingen kan ha utløst en rendring som byttet ut noden vi husket; da
+    // finner selektoren etterfølgeren på samme plass. Ett tick venting, slik at
+    // en synkron render() rekker å bli ferdig først.
+    const restore = () => {
+      if (!back) return false;
+      let el = back.el && back.el.isConnected ? back.el : null;
+      if (!el && back.sel) { try { el = document.querySelector(back.sel); } catch (e) { el = null; } }
+      if (!el || !el.offsetParent) return false;
+      try { el.focus(); } catch (e) { return false; }
+      return true;
+    };
+    if (restore()) return;
+    requestAnimationFrame(() => {
+      if (overlayStack.length) return;   // en ny overlay rakk å åpne seg
+      if (document.activeElement && document.activeElement !== document.body) return;
+      if (!restore() && top) { overlayReturn.delete(top); overlayOpened(top); }
+    });
+  }
+  document.addEventListener('keydown', (ev) => {
+    if (ev.key !== 'Tab' || !overlayStack.length) return;
+    if (tourActive) return; // omvisningen har sin egen felle
+    const top = overlayStack[overlayStack.length - 1];
+    const f = focusablesIn(top);
+    if (!f.length) { ev.preventDefault(); return; }
+    const first = f[0], last = f[f.length - 1];
+    const cur = document.activeElement;
+    if (!top.contains(cur)) { ev.preventDefault(); (ev.shiftKey ? last : first).focus(); return; }
+    // Dialogflaten selv (tabindex="-1") er inne i overlayen, men er ikke med i
+    // `f`. Uten denne grenen traff hverken `cur === first` eller `cur === last`,
+    // og et Shift+Tab som FØRSTE tastetrykk etter åpning falt ut bakover til
+    // kontrollen foran modalen i dokumentrekkefølgen.
+    if (f.indexOf(cur) < 0) { ev.preventDefault(); (ev.shiftKey ? last : first).focus(); return; }
+    if (ev.shiftKey && cur === first) { ev.preventDefault(); last.focus(); }
+    else if (!ev.shiftKey && cur === last) { ev.preventDefault(); first.focus(); }
+  }, true);
+  [].slice.call(document.querySelectorAll('.modal-overlay, .switcher-overlay')).forEach((ov) => {
+    if (!ov.hidden) overlayOpened(ov);
+    new MutationObserver(() => (ov.hidden ? overlayClosed(ov) : overlayOpened(ov)))
+      .observe(ov, { attributes: true, attributeFilter: ['hidden'] });
+  });
+
+  // Tastaturhåndtaket til et objekt — samme sone musen drar i. Brukes både til å
+  // legge fokus tilbake etter en rendring og til å sende fokus videre til en
+  // nabo etter en sletting.
+  function handleSelector(kind, id) {
+    const q = '[data-id="' + String(id).replace(/["\\]/g, '\\$&') + '"]';
+    if (kind === 'item') return '.item' + q;
+    if (kind === 'category' || kind === 'groupcat') return '.category' + q + ' > .cat-head';
+    if (kind === 'card') return '.card:not(.uni-card)' + q + ' > .card-head';
+    if (kind === 'group') return '.item.group-row' + q;
+    if (kind === 'universe') return '.uni-card' + q + ' > .card-head';
+    return null;
+  }
+
+  // Hvor fokus skal lande når et objekt fjernes (slettet, oppløst, flyttet
+  // vekk): naboen under, ellers naboen over, ellers en fornuftig kontroll i
+  // containeren. Må kalles FØR objektet forsvinner ut av state/DOM.
+  function focusTargetAfterRemoval(kind, id, cont) {
+    const ctx = moveCtx(kind, id);
+    const rows = ctx ? ctx.rows : [];
+    const i = rows.findIndex((r) => r.id === id);
+    const nb = i < 0 ? null : (rows[i + 1] || rows[i - 1]);
+    if (nb) return handleSelector(nb.isCat ? (kind === 'group' ? 'groupcat' : 'category') : kind, nb.id);
+    // Tom container: ＋-knappen er det nærmeste stedet det gir mening å stå.
+    const q = (o) => '[data-id="' + String(o.id).replace(/["\\]/g, '\\$&') + '"]';
+    if ((kind === 'item' || kind === 'category') && cont) return '.card' + q(cont) + ' .add-item-btn';
+    if ((kind === 'group' || kind === 'groupcat') && cont) return '.uni-card' + q(cont) + ' .add-item-btn';
+    if (kind === 'card') return '#nav-crumb';
+    if (kind === 'universe') return '.nav-add-uni button';
+    return null;
+  }
+
+  /* ---------------- Rekkefølge og flytting fra tastatur ---------------- */
+
+  // Radene i en container i VISUELL rekkefølge. Samme regnestykke som
+  // buildCard()/buildUniverseCard() bruker når de bygger DOM-en — inkludert at
+  // en rad hvis `cat` peker på en kategori som ikke finnes, regnes som nivå 1.
+  //   'leaf'   → bladradene (listepunkt/gruppe), kategoriene pakket ut
+  //   'level1' → nivå-1-radene (ukategoriserte blad + kategorier om hverandre)
+  function orderedRows(S, cont, mode) {
+    if (!cont) return [];
+    const rows = S.rowsOf(cont).filter(live);
+    const catIds = new Set(rows.filter((r) => r.isCat).map((r) => r.id));
+    const level1 = rows.filter((r) => r.isCat || !r.cat || !catIds.has(r.cat)).sort(posCmp);
+    if (mode === 'level1') return level1;
+    const out = [];
+    level1.forEach((r) => {
+      if (!r.isCat) { if (!r.done) out.push(r); return; }
+      rows.filter((m) => !m.isCat && !m.done && m.cat === r.id).sort(posCmp)
+        .forEach((m) => out.push(m));
+    });
+    return out;
+  }
+
+  // Skriv en ny posisjon med NØYAKTIG den regelen dra-motoren bruker ved slipp:
+  // et objekt med `_canon` (universer og frie grupper) har PERSONLIG rekkefølge
+  // og skrives til min egen medlemskapsrad; alt annet stemples i synk-doc'et.
+  function commitPos(obj, kind, np) {
+    obj.pos = np;
+    if (obj._canon) cloudPersonalPos(kind === 'universe' ? 'universe' : 'group', obj.id, np);
+    else stampPos(obj);
+  }
+
+  // Bytt plass på to naboer. Dette ER dra-motorens egen semantikk («≥ 20 %
+  // overlapp BYTTER plass», docs/drag-and-drop.md), så et tastetrykk og et kort
+  // drag gjør nøyaktig det samme. Containeren (`cat`) byttes sammen med
+  // posisjonen: et listepunkt som passerer en kategorigrense havner INNE i
+  // kategorien, og medlemmet det passerte havner utenfor — de bytter faktisk
+  // plass, i stedet for at den ene forsvinner ut av rekka.
+  function swapSiblings(a, b, kind) {
+    const ap = a.pos, bp = b.pos;
+    const ac = a.cat || null, bc = b.cat || null;
+    if (ac !== bc) { a.cat = bc; b.cat = ac; }
+    commitPos(a, kind, bp);
+    commitPos(b, kind, ap);
+  }
+
+  // Har jeg lov til å endre rekkefølgen på dette objektet? Samme gating som
+  // `canDrag` i attachHoldDrag på hvert nivå — klientens gating er kun UX og
+  // skal feile LUKKET, så en manglende capability betyr «nei».
+  function canReorderObj(kind, obj, cont) {
+    if (kind === 'item') return !frozen(cont) && !obj.done;
+    if (kind === 'category') return !frozen(cont);
+    if (kind === 'card') return !frozen(obj) && canAddList(activeGroupObj());
+    if (kind === 'group' || kind === 'groupcat') {
+      if (cont && cont._virtual) return true;             // fri seksjon: personlig rekkefølge
+      return cap(obj, 'reorderInParent', !frozen(obj)) || cap(obj, 'move', false);
+    }
+    if (kind === 'universe') return true;                 // universrekkefølgen er alltid min egen
+    return false;
+  }
+
+  // Objektet + containeren + søskenrekka et tastaturtrykk skal jobbe på.
+  function moveCtx(kind, id) {
+    if (kind === 'item' || kind === 'category') {
+      const obj = findItemById(id);
+      const cont = obj ? findCard(obj.home) : null;
+      if (!obj || !cont) return null;
+      return { obj, cont, S: boardScope, name: obj.text,
+        rows: orderedRows(boardScope, cont, kind === 'item' ? 'leaf' : 'level1') };
+    }
+    if (kind === 'card') {
+      const obj = findCard(id);
+      const g = activeGroupObj();
+      if (!obj || !g) return null;
+      return { obj, cont: g, S: boardScope, name: obj.title,
+        rows: g.cards.filter(live).sort(posCmp) };
+    }
+    if (kind === 'group' || kind === 'groupcat') {
+      const obj = findGroupAnywhere(id);
+      const cont = obj ? findUniverse(obj.uni) || obj._parent : null;
+      if (!obj || !cont) return null;
+      return { obj, cont, S: navScope, name: obj.name,
+        rows: orderedRows(navScope, cont, kind === 'group' ? 'leaf' : 'level1') };
+    }
+    if (kind === 'universe') {
+      const obj = findUniverse(id);
+      if (!obj) return null;
+      // Kun universene i SAMME seksjon. `visibleUniverses()` sorterer på
+      // sectionRank FØR pos, og renderNav() bygger én seksjon om gangen — et
+      // bytte over en seksjonsgrense ville derfor ikke flyttet noe dit man ser,
+      // bare importert en fremmed pos-verdi inn i seksjonen og stokket om på
+      // resten av den.
+      const rank = sectionRank(obj);
+      return { obj, cont: null, S: navScope, name: obj.name,
+        rows: visibleUniverses().filter((u) => !u._virtual && sectionRank(u) === rank) };
+    }
+    return null;
+  }
+
+  // Ett hakk opp/ned (`step` = −1/+1). Selve sorteringen: ingen modal, ingen
+  // meny, ingen bekreftelse — som et lite drag.
+  function keyboardReorder(kind, id, step) {
+    const ctx = moveCtx(kind, id);
+    if (!ctx) return;
+    if (!canReorderObj(kind, ctx.obj, ctx.cont)) {
+      announce('Kan ikke endre rekkefølgen på ' + quoted(ctx.name) + ' her.');
+      return;
+    }
+    const i = ctx.rows.findIndex((r) => r.id === id);
+    if (i < 0) return;
+    const target = ctx.rows[i + step];
+    if (!target) {
+      announce(quoted(ctx.name) + ' står allerede ' + (step < 0 ? 'først' : 'sist') + '.');
+      return;
+    }
+    if (!canReorderObj(kind, target, ctx.cont)) {
+      announce('Kan ikke bytte plass med ' + quoted(nameOfAny(target)) + '.');
+      return;
+    }
+    swapSiblings(ctx.obj, target, kind);
+    save();
+    keepFocus(handleSelector(kind, id));
+    // Kort og universer får farge etter POSISJON, så de må gjennom en full
+    // rendring; rader trenger bare sin egen container bygget om.
+    if (kind === 'card' || kind === 'universe') render();
+    else if (kind === 'group' || kind === 'groupcat') renderNav();
+    else { refreshCard(ctx.cont); applyFocusIntent(); }
+    announce(quoted(ctx.name) + ' flyttet ' + (step < 0 ? 'opp' : 'ned') +
+      ' til plass ' + (i + step + 1) + ' av ' + ctx.rows.length + '.');
+  }
+
+  // Navnet på et hvilket som helst state-objekt (nivåene bruker ulike felt).
+  function nameOfAny(o) { return o && (o.title || o.text || o.name) || ''; }
+
+  /* ---------------- «Flytt til …» (ny forelder) ----------------
+     Tastaturets motstykke til de to draget har: en liste slept opp på
+     📁-breadcrumben, og et listepunkt/en gruppe slept over i en annen
+     container. Gjenbruker den samme velger-modalen draget åpner. */
+  function keyboardMoveTo(kind, id) {
+    if (kind === 'card') {
+      const c = findCard(id);
+      if (!c) return;
+      // `moveTargetGroups` sjekker bare om jeg kan legge lista i MÅL-gruppen.
+      // Å ta den UT av kildegruppen krever i tillegg myndighet der — nøyaktig
+      // samme gate som draget har (`canEdit && canAddList(activeGroupObj())` i
+      // buildCard). Uten denne kunne Alt+M flytte en frossen liste optimistisk,
+      // og først serveren ville sagt nei.
+      if (!canReorderObj('card', c, activeGroupObj())) {
+        announce('Du kan ikke flytte ' + quoted(c.title) + ' ut av denne gruppen.');
+        return;
+      }
+      if (!moveTargetGroups(c).length) {
+        announce('Det finnes ingen annen gruppe å flytte ' + quoted(c.title) + ' til.');
+        return;
+      }
+      askCardMove(c);
+      return;
+    }
+    if (kind === 'item') {
+      const it = findItemById(id);
+      const from = it ? findCard(it.home) : null;
+      if (!it || !from || it.isCat) return;
+      if (frozen(from)) { announce('Listen er låst.'); return; }
+      // Målene: de andre listene i gruppen, og kategoriene i listen den ligger i
+      // (pluss «utenfor kategori» når den ligger i en). Det dekker begge
+      // overføringene draget kan gjøre med et listepunkt.
+      const g = activeGroupObj();
+      const opts = [];
+      if (it.cat) opts.push({ id: 'lvl1:' + from.id, label: 'Ut av kategorien (i «' + from.title + '»)' });
+      orderedRows(boardScope, from, 'level1')
+        .filter((r) => r.isCat && r.id !== it.cat)
+        .forEach((r) => opts.push({ id: 'cat:' + r.id, label: 'Kategorien «' + r.text + '»' }));
+      (g ? g.cards.filter(live).sort(posCmp) : [])
+        .filter((c) => c.id !== from.id && !frozen(c))
+        .forEach((c) => opts.push({ id: 'card:' + c.id, label: 'Listen «' + c.title + '»' }));
+      if (!opts.length) { announce('Det finnes ingen annen liste eller kategori å flytte til.'); return; }
+      openPicker(quoted(it.text) + ' flyttes dit du velger.', opts, '', (choice) => {
+        const [what, target] = choice.split(':');
+        if (what === 'card') {
+          const dest = findCard(target);
+          if (!dest || frozen(dest)) return;
+          const i = from.items.indexOf(it);
+          if (i > -1) from.items.splice(i, 1);
+          it.home = dest.id; it.cat = null; it._parent = dest;
+          commitPos(it, 'item', level1MaxPos(dest.items) + 1);
+          dest.items.push(it);
+          save(); render();
+          keepFocus(handleSelector('item', it.id)); applyFocusIntent();
+          showToast('Flyttet ' + quoted(it.text) + ' til «' + dest.title + '»');
+          announce('Flyttet ' + quoted(it.text) + ' til listen «' + dest.title + '».');
+          return;
+        }
+        it.cat = what === 'cat' ? target : null;
+        commitPos(it, 'item', what === 'cat'
+          ? catMemberMaxPos(from.items, target) + 1
+          : level1MaxPos(from.items) + 1);
+        save(); refreshCard(from);
+        keepFocus(handleSelector('item', it.id)); applyFocusIntent();
+        announce(what === 'cat'
+          ? 'Flyttet ' + quoted(it.text) + ' inn i en kategori.'
+          : 'Flyttet ' + quoted(it.text) + ' ut av kategorien.');
+      });
+      return;
+    }
+    if (kind === 'group') {
+      const g = findGroupAnywhere(id);
+      if (!g) return;
+      // Å ta gruppen UT av universet sitt er en flytting, ikke en omrokkering:
+      // samme capability som dra-motorens `canExtract` i navScope krever.
+      if (!cap(g, 'move', !frozen(g))) {
+        announce('Du kan ikke flytte ' + quoted(g.name) + ' til et annet univers.');
+        return;
+      }
+      const opts = visibleUniverses()
+        .filter((u) => !u._virtual && u.id !== g.uni && cap(u, 'createGroup', !frozen(u)))
+        .map((u) => ({ id: u.id, label: u.name }));
+      if (!opts.length) { announce('Det finnes ikke noe annet univers å flytte til.'); return; }
+      openPicker(quoted(g.name) + ' flyttes til universet du velger.', opts, '', (uid2) => {
+        const dst = findUniverse(uid2);
+        const from = g.uni;
+        if (!dst) return;
+        // Samme optimistiske skritt som dra-slippet gjør, før move_group-RPC-en
+        // får avgjøre reparenting vs. kopier-og-slett (se commitGroupMove).
+        state.universes.forEach((u) => {
+          const i = (u.groups || []).indexOf(g);
+          if (i > -1) u.groups.splice(i, 1);
+        });
+        const np = level1MaxPos(dst.groups) + 1;
+        g.uni = dst.id; g.cat = null; g.pos = np; g._parent = dst;
+        dst.groups.push(g);
+        save(); render();
+        keepFocus(handleSelector('group', g.id)); applyFocusIntent();
+        announce('Flyttet ' + quoted(g.name) + ' til universet «' + dst.name + '».');
+        commitGroupMove(g, from, dst.id, null, np);
+      });
+      return;
+    }
+    announce(kind === 'universe'
+      ? 'Et univers er øverste nivå og kan ikke flyttes.'
+      : 'En kategori kan ikke flyttes til en annen forelder.');
+  }
+
+  /* ---------------- Tastaturhåndtaket på en rad / et korthode ----------------
+     Kobles på NØYAKTIG samme element som `attachHoldDrag` får: da er «det du
+     drar» og «det du flytter med piltastene» samme sted, og ingen ny kontroll
+     legges i UI-et. `rename` er valgfri — mangler den, er F2 uten virkning der. */
+  function attachKeyHandle(el, kind, getId, opts) {
+    opts = opts || {};
+    el.setAttribute('tabindex', '0');
+    el.setAttribute('aria-keyshortcuts', 'Alt+ArrowUp Alt+ArrowDown Alt+M F2');
+    el.addEventListener('keydown', (ev) => {
+      // Bare når håndtaket SELV har fokus: knappene inni raden har sine egne
+      // taster, og et navnefelt under redigering skal ha alle sine.
+      if (ev.target !== el) return;
+      if (ev.target.classList && ev.target.classList.contains('edit-input')) return;
+      const id = getId();
+      if (!id) return;
+      if (ev.altKey && !ev.ctrlKey && !ev.metaKey) {
+        const step = (ev.key === 'ArrowUp' || ev.key === 'ArrowLeft') ? -1
+          : (ev.key === 'ArrowDown' || ev.key === 'ArrowRight') ? 1 : 0;
+        if (step) { ev.preventDefault(); keyboardReorder(kind, id, step); return; }
+        // ev.code, ikke ev.key: Alt+M gir «µ» på macOS-tastaturer.
+        if (ev.code === 'KeyM') { ev.preventDefault(); keyboardMoveTo(kind, id); return; }
+      }
+      if (ev.key === 'F2' && opts.rename) { ev.preventDefault(); opts.rename(); return; }
+      // Enter på en RAD omdøper (raden har ingen annen handling); på et korthode
+      // er Enter allerede kollaps/utvid, og det beholder den.
+      if (ev.key === 'Enter' && opts.enterRenames && opts.rename) {
+        ev.preventDefault(); opts.rename();
+      }
+    });
+  }
+
   // Aktiv gruppe settes alltid via denne, så per-univers-minnet (activeGroups)
   // holdes i takt og man lander på samme gruppe når man bytter tilbake.
   function setActiveGroup(id) {
@@ -934,13 +1459,27 @@
   function render() {
     renderNav();
     renderBoard();
+    // Nav-modalen kan være lukket (renderNav() returnerer da tidlig), og board-et
+    // kan ha vært tomt — siste sjanse til å innfri ønsket før det forkastes.
+    applyFocusIntent();
+    focusIntent = null; // begge lagene har hatt sjansen; et ubrukt ønske skal ikke bli liggende
   }
 
   // Kun hovedsidens board (+ toppmeny/filter/søppelkasse). Brukes etter et drag
   // i nav-modalen: DOM-en der er allerede kirurgisk oppdatert av dra-motoren, og
   // en full renderNav() ville revet ned det nettopp slupne kortet midt i
   // drop-animasjonen.
+  // Fokusønsket må innfris uansett hvilken vei rendringen tar. Innmaten under
+  // har flere tidlige returer (ingen gruppe, ingen lister), og nettopp DA er
+  // ønsket viktigst: sletter man den siste lista, er det den tomme tilstanden
+  // fokus skal lande i — ikke <body>. Derfor ligger applyFocusIntent() her, i
+  // innpakningen, i stedet for på hver enkelt utgang.
   function renderBoard() {
+    captureFocusIn(board); // hvor fokus sto, FØR board-et rives ned
+    renderBoardInner();
+    applyFocusIntent();
+  }
+  function renderBoardInner() {
     followActiveGroup();
     updateTrashCount();
     updateToolbarState();
@@ -1089,6 +1628,7 @@
   function renderNav() {
     updateUniversesTrash();
     updateCrumbs();
+    captureFocusIn(navBoard); // hvor fokus sto, FØR modalens board rives ned
     navBoard.innerHTML = '';
     // Bygg kortene bare når modalen faktisk er åpen: en usett DOM-kopi av alle
     // universer/grupper koster ved hver render, og ville dessuten gitt doble
@@ -1124,6 +1664,7 @@
     });
     navBoard.appendChild(col);
     relayoutBoard(navScope);
+    applyFocusIntent(); // samme grunn som i renderBoard: modalen bygges fra bunnen
   }
   // ＋-knappen for et nytt univers, plassert nederst i «Mine universer».
   function navAddUniverseRow() {
@@ -1155,25 +1696,30 @@
     el.classList.toggle('free-groups-card', isFree);
     const canEdit = applyShareBadge(el, u).canEdit && !isFree;
     el.classList.toggle('is-locked', !canEdit && !isFree);
-    el.classList.toggle('active', u.id === state.activeUniverse);
+    const isActiveUni = u.id === state.activeUniverse;
+    el.classList.toggle('active', isActiveUni);
+    // Som for grupperaden: ringen alene forteller ikke en skjermleser noe.
+    if (isActiveUni) el.setAttribute('aria-current', 'true');
+    else el.removeAttribute('aria-current');
     // [ressursikon]([delt-ikon])Navn — samme rekkefølge som breadcrumben.
     el.querySelector('.uni-icon').innerHTML = isFree ? ICONS.people : ICONS.globe;
 
     const titleEl = el.querySelector('.card-title');
     titleEl.textContent = u.name;
-    if (canEdit && cap(u, 'editContent')) {
-      titleEl.addEventListener('click', () => {
-        editText(titleEl, u.name, (val) => {
-          u.name = val || 'Uten navn';
-          titleEl.textContent = u.name;
-          stampContent(u);
-          save();
-          updateCrumbs();
-        });
+    const canRename = canEdit && cap(u, 'editContent');
+    const renameUni = () => {
+      if (!canRename) return;
+      editText(titleEl, u.name, (val) => {
+        u.name = val || 'Uten navn';
+        titleEl.textContent = u.name;
+        stampContent(u);
+        save();
+        updateCrumbs();
+        labelUniControls();
       });
-    } else {
-      titleEl.removeAttribute('title');
-    }
+    };
+    if (canRename) titleEl.addEventListener('click', renameUni);
+    else titleEl.removeAttribute('title');
 
     // Universer og grupper har ingen innstillingsmodal — kun en del-knapp.
     // Den er synlig for ALLE med tilgang: medlemslisten skal kunne ses av alle,
@@ -1196,12 +1742,12 @@
     // Draging + rullgardin-kollaps: nøyaktig som et listekort.
     const head = el.querySelector('.card-head');
     head.setAttribute('aria-expanded', u.collapsed ? 'false' : 'true');
-    head.setAttribute('aria-label', (isFree ? '' : 'Universet ') + u.name);
     // Universenes rekkefølge er PERSONLIG — alle medlemmer kan dra dem. Den
     // virtuelle fri-beholderen står i ro.
     if (!isFree) {
       attachHoldDrag(head, el, startCardDrag, () => true,
         '.uni-share, .uni-delete, .uni-leave');
+      attachKeyHandle(head, 'universe', () => u.id, { rename: canRename ? renameUni : null });
     }
     head.addEventListener('click', (ev) => {
       if (ev.target.closest('.card-title, .uni-share, .uni-delete, .uni-leave, .edit-input')) return;
@@ -1260,7 +1806,8 @@
       btn.type = 'button';
       btn.className = 'trashcan group-trash-btn';
       btn.title = 'Slettede grupper – trykk for å åpne, hold og sveip for å slette dem for godt';
-      btn.setAttribute('aria-label', 'Slettede grupper');
+      btn.setAttribute('aria-label',
+        trashed.length + ' slettede grupper i ' + quoted(u.name));
       const icon = document.createElement('span');
       icon.className = 'trashcan-icon';
       icon.setAttribute('aria-hidden', 'true');
@@ -1278,6 +1825,20 @@
       el.querySelector('.card-body').appendChild(wrap);
     }
 
+    // Presise navn på universkortets knapper. «Slett universet for alle» er den
+    // mest inngripende knappen i appen — den skal aldri være anonym.
+    function labelUniControls() {
+      const n = quoted(u.name);
+      head.setAttribute('aria-label', isFree ? u.name : 'Universet ' + n);
+      el.setAttribute('aria-label', isFree ? u.name : 'Universet ' + n); // se buildCard
+      labelBtn(shareBtn, 'Deling og medlemmer i universet ' + n);
+      labelBtn(delBtn, 'Slett universet ' + n + ' for alle');
+      labelBtn(leaveBtn, 'Forlat universet ' + n);
+      labelBtn(addRow.querySelector('.add-item-btn'), 'Legg til gruppe i ' + n);
+      labelBtn(addRow.querySelector('.add-cat-btn'), 'Legg til gruppekategori i ' + n);
+    }
+    labelUniControls();
+
     if (u.collapsed) {
       collapseCardBody(el);
       setCollapseCount(head, leafCount(u.groups), true, ICONS.folder);
@@ -1291,22 +1852,26 @@
     const el = groupRowTpl.content.firstElementChild.cloneNode(true);
     el.dataset.id = g.id;
     const canEdit = !frozen(g);
-    el.classList.toggle('active', g.id === state.activeGroup);
+    const isActive = g.id === state.activeGroup;
+    el.classList.toggle('active', isActive);
+    // Aktiv posisjon var kun en ring — altså usynlig for en skjermleser.
+    // `aria-current` sier det samme uten å legge noe i UI-et.
+    if (isActive) el.setAttribute('aria-current', 'true');
+    else el.removeAttribute('aria-current');
     applyShareBadge(el, g);
     el.querySelector('.group-icon').innerHTML = ICONS.folder; // [mappe]([delt])Navn
 
     const textEl = el.querySelector('.item-text');
     textEl.textContent = g.name;
-    el.setAttribute('aria-label', 'Gruppen ' + (g.name || 'Uten navn'));
     const rename = () => {
       if (!canEdit) return;
       editText(textEl, g.name, (val) => {
         g.name = val || 'Uten navn';
         textEl.textContent = g.name;
-        el.setAttribute('aria-label', 'Gruppen ' + g.name);
         stampContent(g);
         save();
         updateCrumbs();
+        labelGroupControls();
       });
     };
     const navigate = () => {
@@ -1355,6 +1920,21 @@
     attachHoldDrag(el, el, startItemDrag,
       () => (u && u._virtual) || cap(g, 'reorderInParent', canEdit) || cap(g, 'move', false),
       '.group-share, .group-delete, .group-leave');
+    // Raden er også gruppens tastaturhåndtak. Enter/Mellomrom beholder sin
+    // eksisterende betydning (naviger / omdøp i den aktive gruppen) — F2 og
+    // Alt-tastene legger seg ved siden av den.
+    attachKeyHandle(el, 'group', () => g.id, { rename });
+
+    // Presise navn: nav-modalen kan ha mange grupper, og «Slett gruppen for
+    // alle» må si HVILKEN før man trykker.
+    function labelGroupControls() {
+      const n = quoted(g.name);
+      el.setAttribute('aria-label', 'Gruppen ' + n);
+      labelBtn(shareBtn, 'Deling og medlemmer i gruppen ' + n);
+      labelBtn(delBtn, 'Slett gruppen ' + n + ' for alle');
+      labelBtn(leaveBtn, 'Forlat gruppen ' + n);
+    }
+    labelGroupControls();
     return el;
   }
 
@@ -1369,25 +1949,40 @@
 
     const titleEl = el.querySelector('.cat-title');
     titleEl.textContent = catData.name || 'Kategori';
-    titleEl.addEventListener('click', () => {
+    const renameGroupCat = () => {
       if (!canEdit) return;
       editText(titleEl, catData.name, (val) => {
         catData.name = val || 'Kategori';
         titleEl.textContent = catData.name;
         stampContent(catData);
         save();
+        labelGroupCatControls();
       });
-    });
+    };
+    titleEl.addEventListener('click', renameGroupCat);
 
     const dissolve = el.querySelector('.cat-dissolve');
     dissolve.innerHTML = ICONS.bubbleBurst;
     if (!canEdit) dissolve.disabled = true;
-    else dissolve.addEventListener('click', () => dissolveCategory(catData, u, navScope));
+    else dissolve.addEventListener('click', () => {
+      keepFocus(focusTargetAfterRemoval('groupcat', catData.id, u));
+      dissolveCategory(catData, u, navScope);
+      applyFocusIntent();
+    });
 
-    attachHoldDrag(el.querySelector('.cat-head'), el, startCategoryDrag,
-      () => canEdit, '.cat-dissolve');
-    el.querySelector('.cat-head').addEventListener('click', (ev) => {
+    const catHead = el.querySelector('.cat-head');
+    attachHoldDrag(catHead, el, startCategoryDrag, () => canEdit, '.cat-dissolve');
+    catHead.addEventListener('click', (ev) => {
       if (ev.target.closest('.cat-title, .cat-dissolve, .edit-input')) return;
+      toggleCatCollapsed(el, catData, u, navScope);
+    });
+    catHead.setAttribute('role', 'button');
+    catHead.setAttribute('aria-expanded', catData.collapsed ? 'false' : 'true');
+    attachKeyHandle(catHead, 'groupcat', () => catData.id, { rename: renameGroupCat });
+    catHead.addEventListener('keydown', (ev) => {
+      if (ev.target !== catHead) return;
+      if (ev.key !== 'Enter' && ev.key !== ' ' && ev.key !== 'Spacebar') return;
+      ev.preventDefault();
       toggleCatCollapsed(el, catData, u, navScope);
     });
 
@@ -1400,6 +1995,14 @@
     const addBtn = el.querySelector('.cat-add-btn');
     if (!canEdit) addWrap.hidden = true;
     else addBtn.addEventListener('click', () => addRowToCategory(catData, u, el, navScope));
+
+    function labelGroupCatControls() {
+      const n = quoted(catData.name);
+      labelBtn(dissolve, 'Oppløs gruppekategorien ' + n);
+      labelBtn(addBtn, 'Legg til gruppe i kategorien ' + n);
+      catHead.setAttribute('aria-label', 'Gruppekategorien ' + n);
+    }
+    labelGroupCatControls();
 
     if (catData.collapsed) {
       collapseCatBody(el);
@@ -1459,6 +2062,7 @@
   function deleteGroup(groupData) {
     const uni = findUniverse(groupData.uni) || activeUniverseObj();
     const ghost = ghostFrom(navBoard.querySelector('.item[data-id="' + groupData.id + '"]'));
+    keepFocus(focusTargetAfterRemoval('group', groupData.id, uni));
     bufferDelete(groupData, 'group', (g) => setTrashed(g, 'group', true));
     if (state.activeGroup === groupData.id) {
       const first = visibleGroupsOf(activeUniverseObj()).filter((g) => !g.isCat)[0];
@@ -1549,15 +2153,17 @@
 
     const titleEl = el.querySelector('.card-title');
     titleEl.textContent = cardData.title;
-    titleEl.addEventListener('click', () => {
+    const renameCard = () => {
       if (!canEdit) return;
       editText(titleEl, cardData.title, (val) => {
         cardData.title = val || 'Uten navn';
         titleEl.textContent = cardData.title;
         stampContent(cardData);
         save();
+        labelCardControls(); // knappenavnene bærer tittelen — de må følge med
       });
-    });
+    };
+    titleEl.addEventListener('click', renameCard);
 
     // Slett liste -> legg i felles papirkurv (trashed-flagg; permanent først ved
     // «Tøm papirkurv»). Frosset (låst for meg) → ingen slett-knapp.
@@ -1566,6 +2172,7 @@
       cardDelBtn.hidden = true;
     } else {
       cardDelBtn.addEventListener('click', () => {
+        keepFocus(focusTargetAfterRemoval('card', cardData.id, activeGroupObj()));
         const ghost = ghostFrom(el); // klone FØR render (render fjerner kortet)
         bufferDelete(cardData, 'card', (c) => setTrashed(c, 'card', true));
         render(); // søppelkasse-knappen blir synlig FØR animasjonen starter
@@ -1588,8 +2195,21 @@
     // Klikk på korthodet (ikke tittel/tannhjul/×/meta-chip) kollapser/utvider
     // kortet med en rullgardin-animasjon (et fullført hold løfter i stedet kortet
     // — attachHoldDrag undertrykker da klikket). Lukketilstanden lagres i DB.
-    el.querySelector('.card-head').addEventListener('click', (ev) => {
+    const headEl = el.querySelector('.card-head');
+    headEl.addEventListener('click', (ev) => {
       if (ev.target.closest('.card-title, .card-cog, .card-delete, .meta-chip, .share-badge, .edit-input')) return;
+      toggleCardCollapsed(el, cardData);
+    });
+    // Korthodet er kortets tastaturhåndtak — samme element attachHoldDrag drar i,
+    // og samme rolle det allerede har i nav-modalen: Enter/Mellomrom kollapser,
+    // Alt+pil sorterer, Alt+M flytter til en annen gruppe, F2 omdøper.
+    headEl.setAttribute('role', 'button');
+    headEl.setAttribute('aria-expanded', cardData.collapsed ? 'false' : 'true');
+    attachKeyHandle(headEl, 'card', () => cardData.id, { rename: renameCard });
+    headEl.addEventListener('keydown', (ev) => {
+      if (ev.target !== headEl) return;
+      if (ev.key !== 'Enter' && ev.key !== ' ' && ev.key !== 'Spacebar') return;
+      ev.preventDefault();
       toggleCardCollapsed(el, cardData);
     });
 
@@ -1656,7 +2276,8 @@
       btn.type = 'button';
       btn.className = 'trashcan item-trash-btn';
       btn.title = 'Slettede listepunkter – trykk for å åpne, hold og sveip for å slette dem for godt';
-      btn.setAttribute('aria-label', 'Slettede listepunkter');
+      btn.setAttribute('aria-label',
+        trashed.length + ' slettede listepunkter i ' + quoted(cardData.title));
       const icon = document.createElement('span');
       icon.className = 'trashcan-icon';
       icon.setAttribute('aria-hidden', 'true');
@@ -1673,6 +2294,25 @@
       wrap.appendChild(btn);
       el.querySelector('.card-body').appendChild(wrap); // i body-en så den kollapser med resten
     }
+
+    // Presise navn på kortets ikonknapper. Uten listenavnet i navnet blir det
+    // «Innstillinger for listen» én gang per liste på board-et, uten at
+    // skjermleseren sier hvilken. Kalles på nytt etter omdøping.
+    function labelCardControls() {
+      const n = quoted(cardData.title);
+      labelBtn(el.querySelector('.card-cog'), 'Innstillinger for listen ' + n);
+      labelBtn(cardDelBtn, 'Slett listen ' + n);
+      labelBtn(addBtn, 'Legg til listepunkt i ' + n);
+      labelBtn(addCatBtn, 'Legg til kategori i ' + n);
+      labelBtn(restoreDoneBtn, 'Gjenopprett alle utførte listepunkter i ' + n);
+      headEl.setAttribute('aria-label', 'Listen ' + n);
+      // Korthodet er `role="button"`, og en knapp har presentasjonelle barn:
+      // <h2>-en inni blir dermed ikke lenger en overskrift man kan hoppe til.
+      // Det navngitte <article>-et gir strukturnavigeringen tilbake — nå som en
+      // navngitt region i stedet for en overskrift.
+      el.setAttribute('aria-label', 'Listen ' + n);
+    }
+    labelCardControls();
 
     // Gjenopprett lagret lukketilstand (uten animasjon) etter en (re)bygging.
     if (cardData.collapsed) {
@@ -2026,7 +2666,7 @@
 
     const textEl = el.querySelector('.item-text');
     textEl.textContent = itemData.text;
-    textEl.addEventListener('click', () => {
+    const renameItem = () => {
       if (!canEdit) return;
       editText(textEl, itemData.text, (val) => {
         if (!val) return; // tom redigering = ingen endring
@@ -2034,8 +2674,13 @@
         textEl.textContent = val;
         stampContent(itemData);
         save();
+        labelItemControls(); // knappenavnene bærer teksten — de må følge med
       });
-    });
+    };
+    textEl.addEventListener('click', renameItem);
+    // Raden er tastaturets håndtak: samme element attachHoldDrag får under.
+    // Enter omdøper (raden har ingen annen handling), Alt+pil sorterer.
+    attachKeyHandle(el, 'item', () => itemData.id, { rename: renameItem, enterRenames: true });
 
     // Avkryssing (gjort/ikke gjort): rir på innholds-registeret (som tekst/
     // trashed) — LWW ved samtidig endring, som resten. Kun visuell markering
@@ -2059,9 +2704,13 @@
         const owner = ownerCardOf(el) || cardData;
         const it = owner.items.find((i) => i.id === itemData.id);
         if (!it) return;
+        // Fokus MÅ ha et sted å gå før raden forsvinner: uten dette faller det
+        // til <body>, og en skjermleser mister plassen sin i lista.
+        keepFocus(focusTargetAfterRemoval('item', it.id, owner));
         const ghost = ghostFrom(el); // klone FØR refreshCard fjerner raden
         bufferDelete(it, 'item', (x) => setTrashed(x, 'item', true));
         refreshCard(owner); // element-søppelkassen dukker opp FØR animasjonen
+        applyFocusIntent();
         flyGhost(ghost, board.querySelector(
           '.card[data-id="' + owner.id + '"] .item-trash-btn'));
         pushDeleteToast('item', it.id, it.text);
@@ -2076,6 +2725,21 @@
     const cogBtn = el.querySelector('.item-cog');
     if (!canEdit) cogBtn.disabled = true;
     else cogBtn.addEventListener('click', () => openSettings('item', itemData.id, cardData.id));
+
+    // Presise navn: uten teksten med i navnet leser en skjermleser «Slett
+    // listepunkt» like mange ganger som det finnes rader, uten å si hvilken.
+    // Kalles på nytt etter omdøping, så navnene ikke blir stående på gammel tekst.
+    function labelItemControls() {
+      const n = quoted(itemData.text);
+      labelBtn(checkBtn, itemData.done ? 'Fjern merket gjort på ' + n : 'Merk ' + n + ' som gjort');
+      labelBtn(cogBtn, 'Innstillinger for listepunktet ' + n);
+      labelBtn(itemDel, 'Slett listepunktet ' + n);
+      // Raden får bevisst INGEN aria-label: den er et `listitem`, og et navn her
+      // ville erstattet innholdet — da forsvant indikator-chipene (ansvarlig,
+      // start, frist) fra opplesningen når raden får fokus. Teksten i raden ER
+      // navnet.
+    }
+    labelItemControls();
 
     // Indikator-chips (ansvarlig/start/frist) under teksten.
     fillMetaRow(el.querySelector('.item-meta'),
@@ -2107,15 +2771,17 @@
 
     const titleEl = el.querySelector('.cat-title');
     titleEl.textContent = catData.text || 'Kategori';
-    titleEl.addEventListener('click', () => {
+    const renameCat = () => {
       if (!canEdit) return;
       editText(titleEl, catData.text, (val) => {
         catData.text = val || 'Kategori';
         titleEl.textContent = catData.text;
         stampContent(catData);
         save();
+        labelCatControls();
       });
-    });
+    };
+    titleEl.addEventListener('click', renameCat);
 
     // Innstillinger for kategorien (navn/ansvarlig/tidsplan m/ tidslås).
     const cog = el.querySelector('.cat-cog');
@@ -2127,18 +2793,32 @@
     const dissolve = el.querySelector('.cat-dissolve');
     dissolve.innerHTML = ICONS.bubbleBurst;
     if (!canEdit) dissolve.disabled = true;
-    else dissolve.addEventListener('click', () => dissolveCategory(catData, cardData, boardScope));
+    else dissolve.addEventListener('click', () => {
+      keepFocus(focusTargetAfterRemoval('category', catData.id, cardData));
+      dissolveCategory(catData, cardData, boardScope);
+      applyFocusIntent();
+    });
 
     // Draging: trykk-og-hold på overskriftslinjen unntatt de to knappene
     // (tannhjul + oppløs).
-    attachHoldDrag(el.querySelector('.cat-head'), el, startCategoryDrag,
-      () => canEdit, '.cat-cog, .cat-dissolve');
+    const catHead = el.querySelector('.cat-head');
+    attachHoldDrag(catHead, el, startCategoryDrag, () => canEdit, '.cat-cog, .cat-dissolve');
 
     // Klikk på overskriftslinjen (ikke tittel/tannhjul/oppløs/meta) kollapser/
     // utvider kategorien med en rullgardin (som lister). Et fullført hold løfter i
     // stedet kategorien — attachHoldDrag undertrykker da klikket.
-    el.querySelector('.cat-head').addEventListener('click', (ev) => {
+    catHead.addEventListener('click', (ev) => {
       if (ev.target.closest('.cat-title, .cat-cog, .cat-dissolve, .meta-chip, .edit-input')) return;
+      toggleCatCollapsed(el, catData, cardData, boardScope);
+    });
+    // Overskriftslinjen er kategoriens tastaturhåndtak — samme sone som draget.
+    catHead.setAttribute('role', 'button');
+    catHead.setAttribute('aria-expanded', catData.collapsed ? 'false' : 'true');
+    attachKeyHandle(catHead, 'category', () => catData.id, { rename: renameCat });
+    catHead.addEventListener('keydown', (ev) => {
+      if (ev.target !== catHead) return;
+      if (ev.key !== 'Enter' && ev.key !== ' ' && ev.key !== 'Spacebar') return;
+      ev.preventDefault();
       toggleCatCollapsed(el, catData, cardData, boardScope);
     });
 
@@ -2156,6 +2836,17 @@
     const addBtn = el.querySelector('.cat-add-btn');
     if (!canEdit) addWrap.hidden = true;
     else addBtn.addEventListener('click', () => addRowToCategory(catData, cardData, el, boardScope));
+
+    // Presise navn: en liste kan ha flere kategorier, og «Oppløs kategorien» sier
+    // ingenting om hvilken. Kalles på nytt etter omdøping.
+    function labelCatControls() {
+      const n = quoted(catData.text);
+      labelBtn(cog, 'Innstillinger for kategorien ' + n);
+      labelBtn(dissolve, 'Oppløs kategorien ' + n);
+      labelBtn(addBtn, 'Legg til listepunkt i kategorien ' + n);
+      catHead.setAttribute('aria-label', 'Kategorien ' + n);
+    }
+    labelCatControls();
 
     // Gjenopprett lagret lukketilstand (uten animasjon) etter en (re)bygging.
     if (catData.collapsed) {
@@ -5185,7 +5876,7 @@
     confirmOkBtn.textContent = opts.okLabel || 'OK';
     confirmCancelBtn.textContent = opts.cancelLabel || 'Avbryt';
     // Grønn OK når handlingen ikke er destruktiv (danger: false), ellers rød.
-    confirmOkBtn.className = 'btn btn-solid ' + (opts.danger === false ? 'btn-green' : 'btn-red');
+    confirmOkBtn.className = 'btn btn-solid ' + (opts.danger === false ? 'btn-accent' : 'btn-red');
     confirmModalEl.hidden = false;
     updateModalOpenClass();
     return new Promise((resolve) => {
@@ -5255,7 +5946,7 @@
         row.appendChild(meta);
       }
       const restore = document.createElement('button');
-      restore.className = 'btn btn-solid btn-green btn-small';
+      restore.className = 'btn btn-solid btn-accent btn-small';
       restore.type = 'button';
       restore.textContent = 'Gjenopprett';
       // Å gjenopprette er å skrive `trashed = false`, og det krever samme
@@ -5267,6 +5958,12 @@
       if (r.manage === false && !r.pending) {
         restore.disabled = true;
         restore.title = 'Låst – du kan ikke hente dette tilbake';
+        // Grunnen må ligge i NAVNET, ikke bare i title: en skjermleser leser
+        // ikke title, og «Gjenopprett» alene forklarer ikke hvorfor den er av.
+        restore.setAttribute('aria-label', 'Gjenopprett ' + quoted(r.name) +
+          ' – låst, du kan ikke hente dette tilbake');
+      } else {
+        restore.setAttribute('aria-label', 'Gjenopprett ' + quoted(r.name));
       }
       // Buffret (ennå ikke committet) sletting gjenopprettes ved å angre
       // bufferet — umiddelbart og uten databasetrafikk; committede rader
@@ -6260,6 +6957,7 @@
   function deleteUniverse(u) {
     if (u._virtual) return;
     const ghost = ghostFrom(navBoard.querySelector('.card[data-id="' + u.id + '"]'));
+    keepFocus(focusTargetAfterRemoval('universe', u.id, null));
     bufferDelete(u, 'universe', (x) => setTrashed(x, 'universe', true));
     if (state.activeUniverse === u.id) {
       const first = visibleUniverses()[0]; // ekskluderer nå den buffer-slettede
@@ -8814,7 +9512,7 @@
       const actions = document.createElement('div');
       actions.className = 'invite-actions';
       const acc = document.createElement('button');
-      acc.className = 'btn btn-solid btn-green btn-small'; acc.type = 'button'; acc.textContent = 'Godta';
+      acc.className = 'btn btn-solid btn-accent btn-small'; acc.type = 'button'; acc.textContent = 'Godta';
       acc.addEventListener('click', () => acceptInvite(inv));
       const dec = document.createElement('button');
       dec.className = 'btn btn-small btn-ghost'; dec.type = 'button'; dec.textContent = 'Avslå';
@@ -9026,7 +9724,7 @@
         roleSel.appendChild(o);
       });
     const btn = document.createElement('button');
-    btn.className = 'btn btn-solid btn-green btn-small'; btn.type = 'submit'; btn.textContent = 'Inviter';
+    btn.className = 'btn btn-solid btn-accent btn-small'; btn.type = 'submit'; btn.textContent = 'Inviter';
     form.append(input, roleSel, btn);
 
     /* --- Invitasjonspolicy: la vanlige medlemmer invitere flere --- */
@@ -9365,7 +10063,13 @@
       if (caps.delete) {
         const del = document.createElement('button');
         del.className = 'btn btn-solid btn-red share-delete'; del.type = 'button';
-        del.textContent = 'Slett ' + (TYPE_WORD[type] || 'objektet') + ' for alle';
+        // Søppelkasse-glyf + tekst, samme oppsett som «Slett konto» i konto-
+        // modalen: de to mest endelige knappene i appen skal se like ut, så
+        // formen alene sier «dette sletter noe» før man har lest etiketten.
+        const delLabel = 'Slett ' + (TYPE_WORD[type] || 'objektet') + ' for alle';
+        del.innerHTML = ICONS.trashGlyph || '';
+        del.appendChild(document.createTextNode(' ' + delLabel));
+        del.setAttribute('aria-label', delLabel);
         del.addEventListener('click', async () => {
           if (!await askConfirm({
             title: 'Slett for alle',

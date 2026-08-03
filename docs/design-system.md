@@ -86,8 +86,13 @@ grå = `#c0c4c9`):
 | Lyspære (introduksjon, konto-modalen) | pæra farge 2, sokkelen kun streker |
 
 Unntak som beholder `currentColor` (rene glyfer på massive fargeknapper):
-`.btn-glyph` (dør-ut på «Logg ut», søppelkasse på «Slett konto») og
-avkryssings-haken (`.item-check`).
+`.btn-glyph` (dør-ut på «Logg ut» og «Forlat», søppelkasse på «Slett konto» og
+«Slett … for alle») og avkryssings-haken (`.item-check`). Søppelkasse-glyfen
+finnes i to eksemplarer med SAMME tegning: inline i `index.html` for «Slett
+konto» (statisk markup) og som `ICONS.trashGlyph` for del-modalens knapp (bygget
+i JS). Endrer du motivet, endre BEGGE — som for logoen. Merk at glyfen er en
+annen tegning enn `ICONS.trash`: søppelkasse-KNAPPENE har en grå fyllflate,
+glyfen har ingen fyll, bare streker i `currentColor`.
 ＋-ikonet og kategori-knappens ikon (`.add-cat-btn`) er IKKE unntak — begge er
 svarte (`#111`) som resten av settet, også på de fargede knappene.
 
@@ -124,21 +129,42 @@ knappene arver `.icon-btn`-fargen (`--ink-soft`).
   sveipefeltets pil (`.swipe-arrow::before`/`::after`), som tidligere hadde en
   hardkodet, tykkere strek (2.5px).
 
-## Fargede knapper: `.btn-solid` + `.btn-green`/`.btn-red`/`.btn-yellow`
+## Fargede knapper: `.btn-solid` + `.btn-green`/`.btn-accent`/`.btn-red`/`.btn-yellow`
 
-ÉN felles stil for alle fargede knapper — aldri egne ad hoc-gradienter:
+ÉN felles stil for alle fargede knapper — aldri egne ad hoc-gradienter.
+Fargeverdiene er en kontrastkontrakt og er håndhevet av
+`tests/a11y-contrast.test.js` — se `docs/tilgjengelighet.md` før du endrer en av
+dem.
+
+**Fargen følger av HVA SOM LIGGER OPPÅ FLATEN**, ikke av hvor positiv handlingen
+er. Det er derfor det finnes både en grønn og en blågrønn:
+
+| Klasse | Flate | Bærer | Brukes av |
+|---|---|---|---|
+| `.btn-green` | lys grønn | **svart ikon**, aldri tekst | ＋-knappene (ny liste/gruppe/univers/listepunkt/kategori) |
+| `.btn-accent` | blågrønn | **hvit tekst** | Lagre, Inviter, Godta, Gjenopprett, Neste, Logg inn, Bruk bildet, Plasser |
+| `.btn-red` | rød | hvit tekst | tøm-knappen, Forlat deling, Kast ut, Slett … for alle, Slett konto |
+| `.btn-yellow` | gul | **mørk tekst** | lås-knappene i del-modalen, og **Logg ut** |
 
 - `.btn-solid`: hvit skrift m/ `--text-shadow`, `--shadow-sm`, og felles
   hover-feedback: flaten **lysner litt** (`filter: brightness(1.09)`) og
   skyggen løftes — tydelig, men ikke dramatisk fargeendring.
-- `.btn-green` (`--grad-green`): alle positive/primære handlinger — ＋-knapper,
-  Inviter, Gjenopprett, Godta, Plasser, auth-submit, filter-brytere i
-  på-tilstand.
-- `.btn-red` (`--grad-red`): destruktive handlinger — tøm-knappen i
-  søppelkassen, Forlat deling, Kast ut, Slett konto.
-- `.btn-yellow` (`--grad-yellow`): lås-knappene i del-modalen, og **Logg ut**
-  (som er reversibel — den lå tidligere på rødt, men da så den ut som
-  «Slett konto» rett ved siden av; se `docs/menus.md`).
+- **`.btn-green` skal aldri få tekst.** Grønnfargen er LYS med vilje, fordi det
+  eneste som ligger på den er et svart ikon (6.96:1 mot den lyse enden). En
+  grønn mørk nok til hvit tekst presset ikonkontrasten ned mot 3:1-gulvet — og
+  på en ikon-bare knapp ER ikonet hele knappen. Trenger du en grønn knapp med
+  tekst, er svaret `.btn-accent`. Runtime-testen håndhever det.
+- **`.btn-accent`** er kontoikonets egen blågrønne (`#85adad`), mørknet til den
+  bærer hvit tekst (4.84:1). Samme farge brukes av alt annet som har en hvit
+  glyf på seg: bryterne, avkryssings-fyllet, avatarene, glidebryter-håndtakene
+  og `.meta-chip.is-started`.
+- **`.btn-yellow`** bærer **mørk** tekst (`--ink`) uten tekst-skygge. En gul
+  flate som gir 4.5:1 mot hvit tekst er ikke gul lenger, den er oliven — så
+  knappen beholder fargen og bytter teksten i stedet.
+- **`.btn-red`** med tekst innledes med en glyf der handlingen er endelig:
+  «Slett konto» og «Slett … for alle» bruker begge søppelkasse-glyfen
+  (`.btn-glyph` / `ICONS.trashGlyph`), «Forlat» dør-ut-glyfen. Formen sier hva
+  som skjer før etiketten er lest.
 
 Størrelse/form kommer fra egne klasser: `.btn` (modaler), `.btn-small`,
 `.btn-add` (knapperadene, + `.icon-only` for kvadratisk ＋), `.switch`.
@@ -161,8 +187,12 @@ Størrelse/form kommer fra egne klasser: `.btn` (modaler), `.btn-small`,
   konto-modalen (etikett over felt, Lagre-knapp på samme rad).
 - `.nav-board`: nav-modalens board (universkort + grupperader). Alltid ÉN
   kolonne; ellers arves `.card`/`.item`/`.category` uendret fra listedesignet.
-  Aktivt univers / aktiv gruppe = grønn brand-ring trukket innover
-  (`outline-offset: -2px`). `.uni-count` er en liten, subtil **pill med
+  Aktivt univers / aktiv gruppe = ring i `--focus` trukket innover
+  (`outline-offset: -2px`) + `aria-current` — ringen var brand-grønn, men grønt
+  ligger på 1,5–2,3:1 mot de seks kortfargene og var altså usynlig nettopp der
+  den skulle si hvor man står (`docs/tilgjengelighet.md`). Fokusringen har samme
+  farge, men ligger UTENFOR kanten, så de to kan stå samtidig uten å smelte
+  sammen. `.uni-count` er en liten, subtil **pill med
   gruppe-ikon + antall grupper** som erstatter «(N)» på et kollapset univers.
 - Sletteknapper: felles regel (dempet ✕ → rød ved hover), samme `.card-delete`/
   `.item-delete` på alle fire nivåene. Listepunkt-/gruppe-✕ alltid synlig, dempet
@@ -184,9 +214,12 @@ Størrelse/form kommer fra egne klasser: `.btn` (modaler), `.btn-small`,
   gjennomsiktig, så ringen lyste gjennom nederst og leste som en ramme rundt
   gruppelista.
 - **Tastatur i nav-modalen**: universkortets `.card-head` og grupperaden er
-  `role="button" tabindex="0"` (`:focus-visible` = brand-ringen). De er de eneste
-  veiene inn til navigering uten peker; hodet har i tillegg `aria-expanded`. Se
-  `docs/menus.md` for hva Enter/Mellomrom gjør på hvert nivå.
+  `role="button" tabindex="0"` (`:focus-visible` = `--focus`, lagt utenfor
+  kanten). De er de eneste veiene inn til navigering uten peker; hodet har i
+  tillegg `aria-expanded`. Se `docs/menus.md` for hva Enter/Mellomrom gjør på
+  hvert nivå, og `docs/tilgjengelighet.md` for Alt-snarveiene som ligger på de
+  samme elementene. Listevisningens `.card-head`/`.cat-head` har nå det samme
+  oppsettet, så kollaps og flytting er like tilgjengelige der.
 - Checkboxes i modaler: rendres alltid som en pille-formet toggle-switch, ren
   CSS på selve `<input type="checkbox">` (`appearance: none` + `::before`-
   håndtak, ingen ekstra DOM/JS). Av = grå spor, på = `--grad-green` (samme
@@ -395,9 +428,11 @@ alle med tilgang, gruppert etter rollekategori med `.share-section-title`;
 `.member-hint` forklarer hvorfor en rad ikke kan fjernes her. Rollevelgeren ved
 siden av e-postfeltet (`.share-role-select`) vises kun for den som kan invitere
 eiere. «Forlat» og «Slett for alle» ligger sammen i `.share-actions` — begge kan
-være aktuelle samtidig. «Forlat» bruker det samme dør-ut-ikonet som «Logg ut»
-(`ICONS.logout`), men med sitt eget `aria-label`, så skjermlesere aldri
-forveksler de to.
+være aktuelle samtidig. Begge innledes med en glyf, som «Logg ut» og «Slett
+konto» i konto-modalen: «Forlat» bruker dør-ut-ikonet (`ICONS.logout`), «Slett
+… for alle» søppelkassen (`ICONS.trashGlyph`). Hver har sitt eget `aria-label`,
+så skjermlesere aldri forveksler dem — og de fire endelige/reversible
+handlingene i appen får samme form uansett hvilken modal de står i.
 
 ## Flate-mønsteret
 
@@ -511,11 +546,28 @@ vanlige hvite modalflaten (radius 20, `--shadow-lg`, `pop-in`) med
 
 ## Bevegelse og tilgjengelighet
 
+Autoritativt for kontrast, navn, tastatur og fokus: `docs/tilgjengelighet.md`.
+Det korte som gjelder når du lager en ny kontroll:
+
 - `prefersReducedMotion()` (app.js) hopper over fly-/FLIP-/drop-animasjonene, og
   et `@media (prefers-reduced-motion: reduce)`-blokk nøytraliserer CSS-
   transisjoner/animasjoner. Respekter dette i nye animasjoner.
 - Ingen `user-scalable=no` (brukere skal kunne zoome). Kontroller er minst
-  ~29–49px høye for touch. Fargede ✕ er hvite m/ tekst-skygge på farge.
+  ~24–49px høye for touch, og skal aldri krympe — målene er låst i
+  `tests/a11y-runtime.test.js`.
+- **Fokusring**: `outline: var(--focus-w) solid var(--focus)` på lyse flater,
+  `var(--focus-on-dark)` på de mørke (toast, oppdateringsbanner). Aldri en egen
+  farge — en brand-grønn eller hvit ring forsvinner mot halve paletten.
+- **Ikonknapper**: alltid `aria-label`, og navnet skal inneholde objektets navn
+  (`quoted(navn)`), ikke bare handlingen. `title` er musehjelp i tillegg, aldri
+  i stedet.
+- **Nye rader/kort**: koble `attachKeyHandle` på det SAMME elementet som får
+  `attachHoldDrag`, så det som kan dras også kan flyttes med tastatur.
+- **Nye modaler**: ingenting å gjøre — fokusfellen kobles automatisk på alt som
+  har klassen `.modal-overlay` eller `.switcher-overlay`.
+- `.visually-hidden` er den eneste riktige måten å skjule noe som fortsatt skal
+  leses opp (`#a11y-live`). `hidden`/`display:none` tar elementet ut av
+  tilgjengelighetstreet.
 
 ## Fargesystem (HSL, posisjonsbasert) + filter
 
