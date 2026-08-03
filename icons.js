@@ -257,4 +257,14 @@ window.ICONS = {
     '<path d="M9 3H6a2.5 2.5 0 0 0-2.5 2.5v13A2.5 2.5 0 0 0 6 21h3"></path>' +
     '<path d="M21 12H10"></path><path d="M17.5 8.5 21 12l-3.5 3.5"></path>' +
     '</svg>',
+  // Søppelkassen som REN GLYF (.btn-glyph): ingen grå fyllflate, kun streker i
+  // currentColor, så den blir hvit på en massiv fargeknapp. Samme tegning som
+  // «Slett konto» har inline i index.html — endrer du motivet, endre BEGGE.
+  // Brukes av de røde «Slett … for alle»-knappene i del-modalen, som bygges i JS.
+  trashGlyph: '<svg class="icon btn-glyph" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.05" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
+    '<path d="M4.5 7.5h15"></path>' +
+    '<path d="M9.5 7.5V6a2.5 2.5 0 0 1 5 0v1.5"></path>' +
+    '<path d="M6.3 7.5l.9 11a2 2 0 0 0 2 1.9h5.6a2 2 0 0 0 2-1.9l.9-11"></path>' +
+    '<path d="M9.7 11v6"></path><path d="M12 11v6"></path><path d="M14.3 11v6"></path>' +
+    '</svg>',
 };

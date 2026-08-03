@@ -211,6 +211,24 @@ async function run(label, viewport) {
     const missing = await iconButtonsWithoutName(page);
     log(label + ' 1f: alle synlige ikonknapper i ' + navn + ' har aria-label',
       missing.length === 0, missing);
+    if (navn === 'del-modalen') {
+      // «Slett gruppen for alle» skal bære søppelkasse-glyfen, som «Slett
+      // konto»: de to mest endelige knappene i appen har samme form.
+      const del = await page.evaluate(() => {
+        const b = document.querySelector('.share-delete');
+        if (!b) return null;
+        const svg = b.querySelector('svg');
+        return {
+          tekst: (b.textContent || '').trim(),
+          glyf: !!svg && svg.classList.contains('btn-glyph'),
+          streker: svg ? svg.querySelectorAll('path').length : 0,
+          arvetFarge: svg ? svg.getAttribute('stroke') : null,
+        };
+      });
+      log(label + ' 1g: «Slett … for alle» har søppelkasse-glyfen (som «Slett konto»)',
+        !!del && del.glyf && del.streker === 6 && del.arvetFarge === 'currentColor'
+          && /^Slett .+ for alle$/.test(del.tekst), del);
+    }
     await page.keyboard.press('Escape');
     await page.waitForTimeout(350);
   }
@@ -522,6 +540,31 @@ async function run(label, viewport) {
   });
   log(label + ' 12a: den gule knappen bærer mørk tekst uten tekstskygge',
     !!yellow && yellow.color === 'rgb(55, 52, 63)' && yellow.shadow === 'none', yellow);
+
+  // 12d. Rollefordelingen mellom de to grønnaktige fargene. Grønt er flate under
+  // SVARTE ikoner og skal aldri bære tekst — en grønn mørk nok til hvit tekst
+  // gjør ＋-ikonet utydelig. Får en .btn-green tekst, er den på feil farge.
+  const greenWithText = await page.evaluate(() => {
+    const out = [];
+    document.querySelectorAll('.btn-green').forEach((b) => {
+      if (b.closest('[hidden]') || !b.offsetParent) return;
+      const t = (b.textContent || '').replace(/\s+/g, ' ').trim();
+      if (t) out.push({ cls: b.className, text: t });
+    });
+    return out;
+  });
+  log(label + ' 12d: ingen .btn-green bærer tekst (grønt er kun ikonflate)',
+    greenWithText.length === 0, greenWithText);
+
+  // 12e. …og motsatt: knappene med hvit tekst ligger på .btn-accent.
+  const accent = await page.evaluate(() => {
+    const b = document.querySelector('.btn-accent');
+    if (!b) return null;
+    const cs = getComputedStyle(b);
+    return { color: cs.color, hasText: !!(b.textContent || '').trim() };
+  });
+  log(label + ' 12e: .btn-accent finnes og bærer hvit tekst',
+    !!accent && accent.color === 'rgb(255, 255, 255)' && accent.hasText, accent);
 
   const ring = await page.evaluate(() =>
     getComputedStyle(document.documentElement).getPropertyValue('--focus').trim());

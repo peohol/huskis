@@ -11,15 +11,20 @@
 
   Autoritativ beskrivelse av fargesystemet: docs/design-system.md.
 
-  Verifiserer:
-    1. Hvit tekst på .btn-green og .btn-red når 4.5:1 — på BEGGE endene av
+  Verifiserer — merk at KRAVET FØLGER AV HVA SOM LIGGER OPPÅ FLATEN:
+    1. .btn-green bærer bare SVARTE IKONER (＋-knappene), og de når 3:1 mot begge
+       gradientendene. Grønnfargen er derfor bevisst LYS; testen slår også fast
+       at hvit tekst på den ville vært ulovlig, som er hele grunnen til at
+       tekstknappene ligger på .btn-accent i stedet.
+    2. .btn-accent og .btn-red bærer HVIT tekst → 4.5:1 mot BEGGE endene av
        gradienten, ikke bare den mørke.
-    2. .btn-yellow bærer MØRK tekst (en gul flate kan ikke bære hvit tekst og
+    3. .btn-yellow bærer MØRK tekst (en gul flate kan ikke bære hvit tekst og
        fortsatt være gul), og den mørke teksten når 4.5:1 mot begge endene.
        Regelen som setter fargen finnes faktisk i fila, og text-shadow er slått
        av for den (skygge under mørk tekst gjør den bare uskarp).
-    3. --danger, --warn, --primary og --ink-soft er lovlige TEKSTfarger på hvit
+    4. --danger, --warn, --accent og --ink-soft er lovlige TEKSTfarger på hvit
        (4.5:1) — de brukes som det i statuslinja, chip-ene og faresonen.
+       --primary er derimot kun ikon-/kantfarge, med 3:1-kravet som følger.
     4. --focus når 3:1 mot ALLE flater ringen kan havne på: hvit, board-
        bakgrunnen, alle seks palettfarger og alle tre knappefarger.
     5. --focus-on-dark (toast + oppdateringsbanner) når 3:1 mot de mørke flatene.
@@ -96,14 +101,22 @@ const SURFACES = [
   ...PALETTE.map((c, i) => [`palettfarge ${i + 1}`, c]),
   ['grå ikonflate', '#c0c4c9'],
   ['grønn knapp', token('primary')],
+  ['blågrønn knapp', token('accent')],
   ['rød knapp', token('danger')],
   ['gul knapp', gradientStops('grad-yellow')[0]],
 ];
 
 /* ---------- 1–2. Fargede knapper ---------- */
 console.log('\n--- Fargede knapper (.btn-solid) ---');
+// GRØNT bærer bare svarte ikoner (＋-knappene) — kravet er 3:1 for et grafisk
+// objekt. Det er nettopp derfor grønnfargen får være LYS: en grønn mørk nok til
+// hvit tekst presset det svarte ikonet ned mot gulvet.
 for (const [stopI, stop] of gradientStops('grad-green').entries()) {
-  contrast(`hvit tekst på .btn-green, gradientstopp ${stopI + 1} (${stop})`, WHITE, stop, 4.5);
+  contrast(`svart ikon på .btn-green, gradientstopp ${stopI + 1} (${stop})`, '#111111', stop, 3);
+}
+// BLÅGRØNT bærer hvit tekst og hvite glyfer (Lagre, Inviter, bryterne, haken).
+for (const [stopI, stop] of gradientStops('grad-accent').entries()) {
+  contrast(`hvit tekst på .btn-accent, gradientstopp ${stopI + 1} (${stop})`, WHITE, stop, 4.5);
 }
 for (const [stopI, stop] of gradientStops('grad-red').entries()) {
   contrast(`hvit tekst på .btn-red, gradientstopp ${stopI + 1} (${stop})`, WHITE, stop, 4.5);
@@ -126,8 +139,19 @@ for (const stop of yellowStops) {
 
 /* ---------- 3. Tokens brukt som tekstfarge på lys flate ---------- */
 console.log('\n--- Tokens som tekstfarge på hvit ---');
-for (const t of ['danger', 'warn', 'primary', 'primary-dark', 'ink', 'ink-soft']) {
+for (const t of ['danger', 'warn', 'accent', 'accent-dark', 'ink', 'ink-soft']) {
   contrast(`--${t} (${token(t)}) som tekst på hvit`, token(t), WHITE, 4.5);
+}
+// --primary er IKKE en tekstfarge. Den brukes som ikonfarge (.auth-title .icon,
+// .item-cog:hover) og som kantfarge — begge grafiske objekter med 3:1-krav.
+contrast(`--primary (${token('primary')}) som ikon-/kantfarge på hvit`, token('primary'), WHITE, 3);
+
+// Hvit tekst på grønt er nettopp det som IKKE skal skje: da ville grønnfargen
+// måtte mørknes, og det svarte ＋-ikonet blitt utydelig. Runtime-testen sjekker
+// at ingen synlig .btn-green faktisk har tekst; her låser vi begrunnelsen.
+for (const stop of gradientStops('grad-green')) {
+  const v = ratio(WHITE, stop);
+  check(`hvit tekst på grønt ville vært ulovlig (${v.toFixed(2)}:1) — grønt er kun ikonflate`, v < 4.5, +v.toFixed(2));
 }
 
 /* ---------- 4–6. Fokusring og ikonstrek mot alle flater ---------- */
@@ -176,13 +200,10 @@ void focusRules;
 /* ---------- 8. Pensjonerte fargeverdier er borte ---------- */
 console.log('\n--- Gamle fargeverdier finnes ikke lenger ---');
 const RETIRED = {
-  '#668866': 'gammel --primary (hvit tekst 3.98:1)',
-  '#7fa77f': 'gammel lys grønn gradientende (2.71:1)',
   '#ef6b7d': 'gammel --danger (2.97:1)',
   '#f4788a': 'gammel lys rød gradientende (2.66:1)',
   '#dfaf46': 'gammel lys gul gradientende (2.03:1 mot hvit tekst)',
   '#c99a2e': 'gammel --warn (2.58:1)',
-  'rgba(102, 136, 102': 'gammel grønn i rgba-form',
   'rgba(239, 107, 125': 'gammel rød i rgba-form',
 };
 const SRC = ['styles.css', 'index.html', 'app.js', 'icons.js', 'update-check.js']

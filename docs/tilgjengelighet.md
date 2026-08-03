@@ -27,14 +27,27 @@ Fargetokenene i `styles.css` er en **kontrakt**, ikke smaksvalg. Testen leser
 tokenene ut av fila og regner ratioene på nytt, så en endret farge fanges med
 én gang.
 
+**Kravet følger av hva som ligger OPPÅ flaten**, ikke av hvor viktig knappen er:
+
 | Krav | Verdi |
 |---|---|
-| Hvit tekst på `.btn-green` / `.btn-red` | ≥ 4.5:1 mot **begge** gradient-endene |
+| Svart ikon på `.btn-green` | ≥ 3:1 mot **begge** gradient-endene |
+| Hvit tekst på `.btn-accent` / `.btn-red` | ≥ 4.5:1 mot **begge** gradient-endene |
 | `.btn-yellow` | bærer **mørk** tekst (`--ink`), ikke hvit — se under |
-| `--danger` / `--warn` / `--primary` / `--ink-soft` som tekst på hvit | ≥ 4.5:1 |
+| `--danger` / `--warn` / `--accent` / `--ink-soft` som tekst på hvit | ≥ 4.5:1 |
+| `--primary` (kun ikon-/kantfarge) på hvit | ≥ 3:1 |
 | `--focus` mot enhver flate ringen kan havne på | ≥ 3:1 |
 | `--focus-on-dark` mot toast/oppdateringsbanner | ≥ 3:1 |
 | Ikonstreken `#111` mot enhver flate | ≥ 3:1 |
+
+**Hvorfor det finnes to grønnaktige farger.** ＋-knappene har ingen tekst — de er
+et svart ikon på en flate, og da er det IKONET som må leses. En grønn mørk nok
+til hvit tekst presser det svarte ikonet ned mot 3:1-gulvet; en lys grønn gir
+det 6.96:1. Grønt er derfor reservert til ikonflate og bærer aldri tekst, mens
+alt som har hvit tekst eller en hvit glyf ligger på den blågrønne `--accent` —
+kontoikonets egen farge, mørknet til 4.84:1. De to skiller altså to ROLLER, ikke
+to smaksvalg. Runtime-testen håndhever grensen: ingen synlig `.btn-green` får ha
+tekst.
 
 **Hvorfor gult har mørk tekst.** En gul flate som gir 4.5:1 mot hvit tekst er
 ikke gul lenger — den er oliven (`#936e18`). Valget står mellom å miste fargen
@@ -108,11 +121,11 @@ tiden; listevisningen følger nå etter, så de to nivåene oppfører seg likt.
 erstattet av navnet, og da forsvinner indikator-chipene (ansvarlig, start,
 frist) fra opplesningen. Teksten i raden er navnet; knappene inni har sine egne.
 
-**Det svarte ＋-ikonet på de grønne knappene** ligger på 3,5:1 mot den nye,
-mørkere grønnfargen — over kravet på 3:1 for grafiske objekter, men lavere enn
-før. Alternativet var et hvitt ikon (5,4:1), som ville brutt regelen om at hele
-ikonsettet har svart strek (`design-system.md`). Konsistensen vant, kravet er
-oppfylt.
+**To grønnaktige farger i stedet for én.** Én felles grønn kunne ikke tjene både
+et svart ikon og hvit tekst: den ene vil ha en lys flate, den andre en mørk.
+Fargene er derfor delt etter rolle (se over). Prisen er ett token og én klasse
+mer; gevinsten er at begge deler leses godt i stedet for at begge så vidt klarer
+gulvet.
 
 ## Fokus
 

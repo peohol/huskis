@@ -33,23 +33,38 @@
   /* KONTRAST-KONTRAKT (WCAG AA). Verdiene under er ikke smaksvalg — de er målt,
      og `tests/a11y-contrast.test.js` håndhever dem. Endrer du en farge her, kjør
      den testen: den leser tokenene ut av denne fila og regner ratioene på nytt.
-     Reglene:
-       • --primary/--primary-dark og --danger/--danger-dark bærer HVIT tekst
-         (.btn-solid) → begge endene av hver gradient ≥ 4.5:1 mot hvit.
-       • Gult kan ikke bære hvit tekst i det hele tatt (en gul som gir 4.5:1 mot
+
+     HVA SOM LIGGER OPPÅ FLATEN avgjør hvilken farge den kan ha — det er hele
+     grunnen til at det finnes både en grønn og en blågrønn her:
+
+       • GRØNT (--primary) bærer bare SVARTE IKONER, aldri tekst. Det er ＋-
+         knappene. Kravet er 3:1 for et grafisk objekt, og en LYS grønn er best
+         for et svart ikon (6.96:1 mot den lyse enden). En grønn mørk nok til
+         hvit tekst presset ikonkontrasten ned mot gulvet.
+       • BLÅGRØNT (--accent) bærer HVIT tekst og hvite glyfer: Lagre, Inviter,
+         bryterne, hake-fyllet, statuschipene. Fargen er kontoikonets egen
+         (#85adad), mørknet til den bærer hvit tekst (4.84:1). Grønt og blågrønt
+         skiller altså to ROLLER, ikke to smaksvalg.
+       • RØDT (--danger) bærer hvit tekst.
+       • GULT kan ikke bære hvit tekst i det hele tatt (en gul som gir 4.5:1 mot
          hvit er ikke lenger gul, den er oliven). .btn-yellow bruker derfor MØRK
          tekst — se .btn-yellow i knappeseksjonen.
-       • Kontrast er symmetrisk, så de samme grønn-/rødverdiene er samtidig
+       • Kontrast er symmetrisk, så de samme rød-/blågrønnverdiene er samtidig
          lovlige som TEKSTfarge på hvit (--danger brukes begge veier).
-       • --focus er mørk, ikke grønn: en grønn ring forsvant mot både board-
-         bakgrunnen og de grønne palettfargene (1,2:1). Denne gir ≥ 3:1 mot
-         alle flater i appen — hvit, board-bakgrunn, alle seks palettfarger og
-         alle tre knappefarger. */
+       • --focus er mørk, ikke brand-farget: en grønn ring forsvant mot både
+         board-bakgrunnen og de grønne palettfargene (1,2:1). Denne gir ≥ 3:1
+         mot alle flater i appen — hvit, board-bakgrunn, alle seks palettfarger
+         og alle knappefargene. */
   --surface: #ffffff;
-  --primary: #527252;       /* hvit tekst: 5.40:1 */
-  --primary-dark: #3f5c3f;  /* hvit tekst: 7.46:1 */
-  --primary-soft: rgba(82, 114, 82, 0.14);
-  --primary-soft-hover: rgba(82, 114, 82, 0.24);
+  /* Grønn: KUN flate under svarte ikoner (＋-knappene). Aldri hvit tekst. */
+  --primary: #668866;       /* svart ikon: 4.75:1 */
+  --primary-light: #7fa77f; /* svart ikon: 6.96:1 */
+  --primary-dark: #4d664d;
+  --primary-soft: rgba(102, 136, 102, 0.14);
+  --primary-soft-hover: rgba(102, 136, 102, 0.24);
+  /* Blågrønn: flate under HVIT tekst/glyfer. Kontoikonets farge, mørknet. */
+  --accent: #487a7a;        /* hvit tekst: 4.84:1 */
+  --accent-dark: #386262;   /* hvit tekst: 6.60:1 */
   --danger: #c0384d;        /* hvit tekst PÅ den: 5.37:1 — og som tekst på hvit: 5.37:1 */
   --danger-dark: #a82b40;   /* hvit tekst: 6.81:1 */
   /* Advarsel (noe pågår / venter), ikke fare. Frikoblet fra den gule
@@ -69,7 +84,8 @@
   --focus-w: 3px;
 
   /* Fargede knapper (.btn-solid): én gradient per farge, gjenbrukt overalt. */
-  --grad-green: linear-gradient(135deg, var(--primary-dark), var(--primary));
+  --grad-green: linear-gradient(135deg, var(--primary), var(--primary-light));
+  --grad-accent: linear-gradient(135deg, var(--accent-dark), var(--accent));
   --grad-red: linear-gradient(135deg, var(--danger), var(--danger-dark));
   --grad-yellow: linear-gradient(135deg, #e8bb50, #d9a52c);
 
@@ -304,7 +320,14 @@ body {
 .btn-solid:hover { box-shadow: var(--shadow-md); filter: brightness(1.09) saturate(1.05); }
 .btn-solid:active { transform: translateY(1px); filter: brightness(0.98); }
 .btn-solid:disabled { opacity: 0.45; cursor: not-allowed; box-shadow: none; filter: none; }
+/* Grønn = flate under SVARTE IKONER (＋-knappene). Den skal ALDRI bære tekst:
+   en grønn mørk nok til hvit tekst gjør det svarte ikonet utydelig, og det er
+   ikonet som er hele knappen her. Runtime-testen sjekker at ingen synlig
+   .btn-green har synlig tekst. */
 .btn-green { background: var(--grad-green); }
+/* Blågrønn = flate under HVIT TEKST (Lagre, Inviter, Godta, Neste, Logg inn …).
+   Samme rolle .btn-green hadde for tekstknapper før — se kontrastkontrakten. */
+.btn-accent { background: var(--grad-accent); }
 .btn-red { background: var(--grad-red); }
 /* Gult er unntaket fra «hvit skrift på .btn-solid»: en gul flate som gir 4.5:1
    mot hvit tekst er ikke gul lenger, den er oliven. Knappen beholder derfor
@@ -781,8 +804,10 @@ body {
 .item-check:hover { border-color: var(--primary); }
 .item-check:active { transform: scale(0.9); }
 .item-check:focus-visible { outline: var(--focus-w) solid var(--focus); outline-offset: 2px; }
+/* Haken er HVIT, så fyllet må være blågrønt og ikke grønt: den lyse grønnen
+   ＋-knappene har, ville gitt 2.7:1 under en hvit glyf. */
 .item.done .item-check {
-  background: var(--grad-green);
+  background: var(--grad-accent);
   border-color: transparent;
 }
 .item.done .item-check .icon { opacity: 1; }
@@ -2230,7 +2255,9 @@ body.no-auth #account-btn { display: none; }
   font-weight: 700;
   color: #fff;
   text-transform: uppercase;
-  background: linear-gradient(135deg, var(--primary), var(--primary-dark));
+  /* Hvite initialer → blågrønn flate. Grønnfargen er ikonflate og bærer ikke
+     tekst; blågrønt er dessuten kontoikonets egen farge. */
+  background: var(--grad-accent);
 }
 /* Profilbilde: fyller sirkelen i stedet for initialene (samme form overalt). */
 .account-avatar img, .member-avatar img, .resp-avatar img {
@@ -2320,7 +2347,7 @@ body.no-auth #account-btn { display: none; }
   box-shadow: 0 1px 3px rgba(0,0,0,0.28);
   transition: transform 0.16s ease;
 }
-.toggle-switch[aria-checked="true"] { background: var(--primary); }
+.toggle-switch[aria-checked="true"] { background: var(--accent); }
 .toggle-switch[aria-checked="true"] .toggle-knob { transform: translateX(22px); }
 .toggle-switch:focus-visible { outline: var(--focus-w) solid var(--focus); outline-offset: 2px; }
 
@@ -2389,13 +2416,14 @@ body.no-auth #account-btn { display: none; }
   width: 22px; height: 22px;
   margin-top: -8px;
   border: none; border-radius: 50%;
-  background: var(--grad-green);
+  /* Håndtaket måles mot det lyse sporet (--line): lys grønn ga 2.17:1, blågrønn 4.37:1. */
+  background: var(--grad-accent);
   box-shadow: var(--shadow-sm);
 }
 .avatar-slider input[type="range"]::-moz-range-thumb {
   width: 22px; height: 22px;
   border: none; border-radius: 50%;
-  background: var(--primary);
+  background: var(--accent);
   box-shadow: var(--shadow-sm);
 }
 .avatar-slider input[type="range"]:focus-visible { outline: var(--focus-w) solid var(--focus); outline-offset: 2px; }
@@ -2486,7 +2514,7 @@ body.no-auth #account-btn { display: none; }
   font-size: var(--fs-sm);
   background: linear-gradient(135deg, #8496a6, #5f6f7d);
 }
-.member-avatar.owner { background: linear-gradient(135deg, var(--primary), var(--primary-dark)); }
+.member-avatar.owner { background: var(--grad-accent); }
 .member-info { flex: 1 1 9em; min-width: 0; }
 .member-name { font-weight: 600; font-size: var(--fs-md); color: var(--ink); word-break: break-word; }
 .member-role { display: block; font-size: var(--fs-xs); color: var(--ink-soft); font-weight: 500; }
@@ -2622,7 +2650,7 @@ button.share-badge:focus-visible { outline: var(--focus-w) solid var(--focus); o
 .meta-chip.meta-resp { padding: 0 3px; background: transparent; box-shadow: none; }
 .meta-chip .resp-avatar { width: 22px; height: 22px; font-size: 11px; }
 /* Statusfarger (samme gradienter som knappesystemet). */
-.meta-chip.is-started { background: var(--grad-green); color: #fff; text-shadow: var(--text-shadow); }
+.meta-chip.is-started { background: var(--grad-accent); color: #fff; text-shadow: var(--text-shadow); }
 .meta-chip.is-soon { background: var(--grad-yellow); color: #fff; text-shadow: var(--text-shadow); }
 .meta-chip.is-over { background: var(--grad-red); color: #fff; text-shadow: var(--text-shadow); }
 
@@ -2738,7 +2766,8 @@ button.share-badge:focus-visible { outline: var(--focus-w) solid var(--focus); o
 /* ---------------- Toggle-switcher (egendefinerte checkboxes) ----------------
    Alle checkboxes i modaler rendres som en pille-formet av/på-bryter (ren CSS,
    inputen selv er kontrollen — appearance:none + ::before-håndtak; ingen ekstra
-   DOM). Av = grå spor, på = grønn (samme --grad-green som .btn-green). */
+   DOM). Av = grå spor, på = blågrønn (--grad-accent, samme som .btn-accent):
+   håndtaket er HVITT, og det trenger en flate som bærer hvitt. */
 .time-lock input[type="checkbox"],
 .share-policy-label input[type="checkbox"] {
   -webkit-appearance: none;
@@ -2768,7 +2797,7 @@ button.share-badge:focus-visible { outline: var(--focus-w) solid var(--focus); o
 }
 .time-lock input[type="checkbox"]:checked,
 .share-policy-label input[type="checkbox"]:checked {
-  background: var(--grad-green);
+  background: var(--grad-accent);
 }
 .time-lock input[type="checkbox"]:checked::before,
 .share-policy-label input[type="checkbox"]:checked::before {

@@ -86,8 +86,13 @@ grå = `#c0c4c9`):
 | Lyspære (introduksjon, konto-modalen) | pæra farge 2, sokkelen kun streker |
 
 Unntak som beholder `currentColor` (rene glyfer på massive fargeknapper):
-`.btn-glyph` (dør-ut på «Logg ut», søppelkasse på «Slett konto») og
-avkryssings-haken (`.item-check`).
+`.btn-glyph` (dør-ut på «Logg ut» og «Forlat», søppelkasse på «Slett konto» og
+«Slett … for alle») og avkryssings-haken (`.item-check`). Søppelkasse-glyfen
+finnes i to eksemplarer med SAMME tegning: inline i `index.html` for «Slett
+konto» (statisk markup) og som `ICONS.trashGlyph` for del-modalens knapp (bygget
+i JS). Endrer du motivet, endre BEGGE — som for logoen. Merk at glyfen er en
+annen tegning enn `ICONS.trash`: søppelkasse-KNAPPENE har en grå fyllflate,
+glyfen har ingen fyll, bare streker i `currentColor`.
 ＋-ikonet og kategori-knappens ikon (`.add-cat-btn`) er IKKE unntak — begge er
 svarte (`#111`) som resten av settet, også på de fargede knappene.
 
@@ -124,27 +129,42 @@ knappene arver `.icon-btn`-fargen (`--ink-soft`).
   sveipefeltets pil (`.swipe-arrow::before`/`::after`), som tidligere hadde en
   hardkodet, tykkere strek (2.5px).
 
-## Fargede knapper: `.btn-solid` + `.btn-green`/`.btn-red`/`.btn-yellow`
+## Fargede knapper: `.btn-solid` + `.btn-green`/`.btn-accent`/`.btn-red`/`.btn-yellow`
 
 ÉN felles stil for alle fargede knapper — aldri egne ad hoc-gradienter.
 Fargeverdiene er en kontrastkontrakt og er håndhevet av
 `tests/a11y-contrast.test.js` — se `docs/tilgjengelighet.md` før du endrer en av
-dem:
+dem.
+
+**Fargen følger av HVA SOM LIGGER OPPÅ FLATEN**, ikke av hvor positiv handlingen
+er. Det er derfor det finnes både en grønn og en blågrønn:
+
+| Klasse | Flate | Bærer | Brukes av |
+|---|---|---|---|
+| `.btn-green` | lys grønn | **svart ikon**, aldri tekst | ＋-knappene (ny liste/gruppe/univers/listepunkt/kategori) |
+| `.btn-accent` | blågrønn | **hvit tekst** | Lagre, Inviter, Godta, Gjenopprett, Neste, Logg inn, Bruk bildet, Plasser |
+| `.btn-red` | rød | hvit tekst | tøm-knappen, Forlat deling, Kast ut, Slett … for alle, Slett konto |
+| `.btn-yellow` | gul | **mørk tekst** | lås-knappene i del-modalen, og **Logg ut** |
 
 - `.btn-solid`: hvit skrift m/ `--text-shadow`, `--shadow-sm`, og felles
   hover-feedback: flaten **lysner litt** (`filter: brightness(1.09)`) og
   skyggen løftes — tydelig, men ikke dramatisk fargeendring.
-- **Unntaket er `.btn-yellow`**: den bærer **mørk** tekst (`--ink`) uten
-  tekst-skygge. En gul flate som gir 4.5:1 mot hvit tekst er ikke gul lenger,
-  den er oliven — så knappen beholder fargen og bytter teksten i stedet.
-- `.btn-green` (`--grad-green`): alle positive/primære handlinger — ＋-knapper,
-  Inviter, Gjenopprett, Godta, Plasser, auth-submit, filter-brytere i
-  på-tilstand.
-- `.btn-red` (`--grad-red`): destruktive handlinger — tøm-knappen i
-  søppelkassen, Forlat deling, Kast ut, Slett konto.
-- `.btn-yellow` (`--grad-yellow`): lås-knappene i del-modalen, og **Logg ut**
-  (som er reversibel — den lå tidligere på rødt, men da så den ut som
-  «Slett konto» rett ved siden av; se `docs/menus.md`).
+- **`.btn-green` skal aldri få tekst.** Grønnfargen er LYS med vilje, fordi det
+  eneste som ligger på den er et svart ikon (6.96:1 mot den lyse enden). En
+  grønn mørk nok til hvit tekst presset ikonkontrasten ned mot 3:1-gulvet — og
+  på en ikon-bare knapp ER ikonet hele knappen. Trenger du en grønn knapp med
+  tekst, er svaret `.btn-accent`. Runtime-testen håndhever det.
+- **`.btn-accent`** er kontoikonets egen blågrønne (`#85adad`), mørknet til den
+  bærer hvit tekst (4.84:1). Samme farge brukes av alt annet som har en hvit
+  glyf på seg: bryterne, avkryssings-fyllet, avatarene, glidebryter-håndtakene
+  og `.meta-chip.is-started`.
+- **`.btn-yellow`** bærer **mørk** tekst (`--ink`) uten tekst-skygge. En gul
+  flate som gir 4.5:1 mot hvit tekst er ikke gul lenger, den er oliven — så
+  knappen beholder fargen og bytter teksten i stedet.
+- **`.btn-red`** med tekst innledes med en glyf der handlingen er endelig:
+  «Slett konto» og «Slett … for alle» bruker begge søppelkasse-glyfen
+  (`.btn-glyph` / `ICONS.trashGlyph`), «Forlat» dør-ut-glyfen. Formen sier hva
+  som skjer før etiketten er lest.
 
 Størrelse/form kommer fra egne klasser: `.btn` (modaler), `.btn-small`,
 `.btn-add` (knapperadene, + `.icon-only` for kvadratisk ＋), `.switch`.
@@ -408,9 +428,11 @@ alle med tilgang, gruppert etter rollekategori med `.share-section-title`;
 `.member-hint` forklarer hvorfor en rad ikke kan fjernes her. Rollevelgeren ved
 siden av e-postfeltet (`.share-role-select`) vises kun for den som kan invitere
 eiere. «Forlat» og «Slett for alle» ligger sammen i `.share-actions` — begge kan
-være aktuelle samtidig. «Forlat» bruker det samme dør-ut-ikonet som «Logg ut»
-(`ICONS.logout`), men med sitt eget `aria-label`, så skjermlesere aldri
-forveksler de to.
+være aktuelle samtidig. Begge innledes med en glyf, som «Logg ut» og «Slett
+konto» i konto-modalen: «Forlat» bruker dør-ut-ikonet (`ICONS.logout`), «Slett
+… for alle» søppelkassen (`ICONS.trashGlyph`). Hver har sitt eget `aria-label`,
+så skjermlesere aldri forveksler dem — og de fire endelige/reversible
+handlingene i appen får samme form uansett hvilken modal de står i.
 
 ## Flate-mønsteret
 

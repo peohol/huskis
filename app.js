@@ -5876,7 +5876,7 @@
     confirmOkBtn.textContent = opts.okLabel || 'OK';
     confirmCancelBtn.textContent = opts.cancelLabel || 'Avbryt';
     // Grønn OK når handlingen ikke er destruktiv (danger: false), ellers rød.
-    confirmOkBtn.className = 'btn btn-solid ' + (opts.danger === false ? 'btn-green' : 'btn-red');
+    confirmOkBtn.className = 'btn btn-solid ' + (opts.danger === false ? 'btn-accent' : 'btn-red');
     confirmModalEl.hidden = false;
     updateModalOpenClass();
     return new Promise((resolve) => {
@@ -5946,7 +5946,7 @@
         row.appendChild(meta);
       }
       const restore = document.createElement('button');
-      restore.className = 'btn btn-solid btn-green btn-small';
+      restore.className = 'btn btn-solid btn-accent btn-small';
       restore.type = 'button';
       restore.textContent = 'Gjenopprett';
       // Å gjenopprette er å skrive `trashed = false`, og det krever samme
@@ -9512,7 +9512,7 @@
       const actions = document.createElement('div');
       actions.className = 'invite-actions';
       const acc = document.createElement('button');
-      acc.className = 'btn btn-solid btn-green btn-small'; acc.type = 'button'; acc.textContent = 'Godta';
+      acc.className = 'btn btn-solid btn-accent btn-small'; acc.type = 'button'; acc.textContent = 'Godta';
       acc.addEventListener('click', () => acceptInvite(inv));
       const dec = document.createElement('button');
       dec.className = 'btn btn-small btn-ghost'; dec.type = 'button'; dec.textContent = 'Avslå';
@@ -9724,7 +9724,7 @@
         roleSel.appendChild(o);
       });
     const btn = document.createElement('button');
-    btn.className = 'btn btn-solid btn-green btn-small'; btn.type = 'submit'; btn.textContent = 'Inviter';
+    btn.className = 'btn btn-solid btn-accent btn-small'; btn.type = 'submit'; btn.textContent = 'Inviter';
     form.append(input, roleSel, btn);
 
     /* --- Invitasjonspolicy: la vanlige medlemmer invitere flere --- */
@@ -10063,7 +10063,13 @@
       if (caps.delete) {
         const del = document.createElement('button');
         del.className = 'btn btn-solid btn-red share-delete'; del.type = 'button';
-        del.textContent = 'Slett ' + (TYPE_WORD[type] || 'objektet') + ' for alle';
+        // Søppelkasse-glyf + tekst, samme oppsett som «Slett konto» i konto-
+        // modalen: de to mest endelige knappene i appen skal se like ut, så
+        // formen alene sier «dette sletter noe» før man har lest etiketten.
+        const delLabel = 'Slett ' + (TYPE_WORD[type] || 'objektet') + ' for alle';
+        del.innerHTML = ICONS.trashGlyph || '';
+        del.appendChild(document.createTextNode(' ' + delLabel));
+        del.setAttribute('aria-label', delLabel);
         del.addEventListener('click', async () => {
           if (!await askConfirm({
             title: 'Slett for alle',
