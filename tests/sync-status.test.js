@@ -5,7 +5,8 @@
 
   Verifiserer:
     1. Vellykket synk: statusen står på «Lagret», uten «Prøv igjen» og uten
-       toast — og den KRYMPER (is-quiet) i stedet for å forsvinne.
+       toast — og den FADER HELT UT (opacity 0) etter ro-vinduet, uten å
+       forlate DOM-en, så neste aktivitet kan fade den inn igjen.
     2. Frakoblet: `navigator.onLine === false` + en klient som ikke når fram gir
        «Frakoblet – endringene lagres på denne enheten». Endringen ligger
        faktisk i den lokale bufferen (påstanden er sann), den er IKKE på
@@ -33,6 +34,13 @@
        avvist. «Lagret»/«lagres på denne enheten» skal ikke påstås når
        endringene bare ligger i minnet, og en synk-runde uten divergens skal
        ikke kunne blanke den (serveren vet ingenting om localStorage).
+   11. Regresjon: ÉN lagring gir ÉN tilstandsovergang. Statusen skal gå
+       «Lagret» → «Lagrer …» → «Lagret» og bli der — ikke blinke tilbake til
+       «Lagrer …» hver gang synken skriver ned sitt eget resultat i den samme
+       lokale bufferen (fletteresultat, base, gravsteiner).
+   12. Trafikklyset: prikken er grønn ved «Lagret», gul ved «Lagrer …», grå ved
+       «Frakoblet» (lyset er av) og rød ved avvisning — og pillen er synlig i
+       alle tre problem-/aktivitetstilstandene, aldri utfadet.
   Kjøres på BÅDE desktop- og mobil-viewport (pillen er fast plassert og skal
   holde seg innenfor viewporten på begge).
 
@@ -107,17 +115,30 @@ async function load(page, db, viewport) {
   });
 }
 
-// Alt testene trenger å vite om statuslinjen, i ett oppslag.
+// Alt testene trenger å vite om statuslinjen, i ett oppslag. `opacity` og `dot`
+// leses RENDRET (getComputedStyle), ikke som klassenavn: påstanden er at pillen
+// faktisk er usynlig i ro og at prikken faktisk har trafikklysfargen.
 function readStatus(page) {
   return page.evaluate(() => {
     const el = document.getElementById('sync-status');
     const btn = document.getElementById('sync-retry-btn');
+    const dot = document.querySelector('.sync-status-dot');
     const r = el ? el.getBoundingClientRect() : null;
+    // Tokenene i samme form som getComputedStyle gir dem, så en fargesjekk
+    // sammenligner mot paletten i styles.css og ikke mot en kopi her.
+    const rgbToken = (name) => {
+      const h = getComputedStyle(document.documentElement).getPropertyValue(name).trim().replace('#', '');
+      return 'rgb(' + [0, 2, 4].map((i) => parseInt(h.slice(i, i + 2), 16)).join(', ') + ')';
+    };
     return {
       hidden: !el || el.hidden,
       state: el ? el.dataset.state : null,
       text: el ? document.getElementById('sync-status-text').textContent : '',
       quiet: !!(el && el.classList.contains('is-quiet')),
+      opacity: el ? getComputedStyle(el).opacity : null,
+      dot: dot ? getComputedStyle(dot).backgroundColor : null,
+      lights: { green: rgbToken('--primary-dark'), yellow: rgbToken('--warn'),
+        grey: rgbToken('--ink-soft'), red: rgbToken('--danger') },
       retryVisible: !!(btn && !btn.hidden),
       retryLabel: btn ? btn.textContent : '',
       rect: r ? { left: r.left, right: r.right, top: r.top, bottom: r.bottom } : null,
@@ -170,6 +191,14 @@ const waitState = (page, want) => page.waitForFunction(
 // Der DET Å NÅ tilstanden er selve påstanden: uten dette kaster ventingen, og
 // en regresjon ville avbrutt hele filen i stedet for å skrive en lesbar FAIL.
 const softWait = (page, want) => waitState(page, want).catch(() => {});
+// Fader pillen dit vi venter? Ventes FRAM i stedet for å sove ut et tall:
+// ro-vinduet (`QUIET_AFTER_MS`) og overgangstiden er smaksverdier som godt kan
+// justeres, mens påstanden — at pillen faktisk NÅR verdien — står uansett.
+// Mellomverdier under overgangen er brøker («0.53»), så en eksakt «0»/«1»
+// treffer først når fadingen er ferdig.
+const opacityBecomes = (page, want) => page.waitForFunction(
+  (w) => getComputedStyle(document.getElementById('sync-status')).opacity === w,
+  want, { timeout: 5000 }).then(() => true).catch(() => false);
 const serverItemText = (page) => page.evaluate(() => (JSON.parse(localStorage.getItem('hk-mock-db')).items || [])[0].text);
 const cachedItemText = (page) => page.evaluate(() => {
   const s = JSON.parse(localStorage.getItem('mine-lister-v1:uMe') || '{}');
@@ -180,10 +209,14 @@ const cachedItemText = (page) => page.evaluate(() => {
 async function scenario(page, viewport, label) {
   console.log('\n== ' + label + ' ==');
 
-  /* 1) Vellykket synk → «Lagret», og den krymper i stedet for å forsvinne. */
+  /* 1) Vellykket synk → «Lagret», grønt lys, og så fader pillen helt ut. */
   {
     await load(page, buildDB().db, viewport);
     await waitState(page, 'saved');
+    // Synligheten leses FØRST: kvitteringen står bare ro-vinduet ut
+    // (`QUIET_AFTER_MS`, ett sekund) før fadingen begynner. Alt annet under —
+    // tekst, tilstand, farge, plassering — er uendret mens den fader.
+    const shown = await opacityBecomes(page, '1');
     const s = await readStatus(page);
     check('lagret: statusen er synlig', s.hidden === false, s);
     check('lagret: tilstand = saved', s.state === 'saved', s.state);
@@ -192,11 +225,20 @@ async function scenario(page, viewport, label) {
     check('lagret: ingen toast', s.toastShows === 0, s.toastShows);
     check('lagret: pillen ligger innenfor viewporten', s.rect && s.rect.left >= 0 &&
       s.rect.right <= viewport.width && s.rect.bottom <= viewport.height, s.rect);
-    // Etter ro-vinduet krymper pillen til bare prikken — men blir stående.
-    await page.waitForTimeout(3000);
+    check('lagret: grønt lys', s.dot === s.lights.green, { dot: s.dot, vil: s.lights.green });
+    check('lagret: pillen er synlig mens kvitteringen står', shown === true, s.opacity);
+    // Etter ro-vinduet fader pillen HELT ut: ingen aktivitet, ingenting å vise.
+    // Ventes fram i stedet for å sove ut et tall: ro-vinduet (QUIET_AFTER_MS) er
+    // en smaksverdi som kan endres, mens PÅSTANDEN — at den faktisk når 0 — står.
+    const faded = await opacityBecomes(page, '0');
+    check('ro: pillen fader til 100 % gjennomsiktig', faded === true, faded);
     const q = await readStatus(page);
-    check('lagret: krymper (is-quiet) etter ro-vinduet', q.quiet === true, q);
-    check('lagret: men forsvinner IKKE', q.hidden === false, q);
+    check('ro: den blir liggende i DOM-en (kan fade inn igjen)', q.hidden === false && q.quiet === true, q);
+    // … og fader inn igjen ved neste aktivitet, uten en reload.
+    await editFirstItem(page, 'Vekker pillen');
+    const back = await opacityBecomes(page, '1');
+    const w = await readStatus(page);
+    check('aktivitet: pillen fader inn igjen', back === true && w.quiet === false, w);
   }
 
   /* 2) Frakoblet: riktig tekst, endringen ligger lokalt, ikke på serveren,
@@ -226,7 +268,8 @@ async function scenario(page, viewport, label) {
     await cycle(page); await cycle(page); await cycle(page);
     const s2 = await readStatus(page);
     check('offline: statusen står gjennom flere runder', s2.state === 'offline' && s2.hidden === false, s2);
-    check('offline: statusen krymper ikke bort mens problemet varer', s2.quiet === false, s2);
+    check('offline: statusen fader ikke bort mens problemet varer',
+      s2.quiet === false && parseFloat(s2.opacity) === 1, s2);
     check('offline: ingen toast i det hele tatt', s2.toastShows === 0, s2.toastShows);
 
     /* 3) Nettet tilbake → den ventende endringen lander av seg selv. */
@@ -469,6 +512,103 @@ async function scenario(page, viewport, label) {
       s3.text === 'Lagret' && s3.snapshot.rejected.length === 0, s3.snapshot);
     check('buffer: endringen ligger nå i den lokale bufferen',
       await cachedItemText(page) === 'Får ikke plass', await cachedItemText(page));
+  }
+
+  /* 11) Regresjon: ÉN lagring gir ÉN tilstandsovergang.
+        Synken skriver til den samme lokale bufferen som brukeren — flette-
+        resultatet, basen, gravsteiner (`saveLocal`). Telles de skrivingene som
+        ventende brukerarbeid, faller statusen tilbake til «Lagrer …» hver gang
+        en runde skriver ned sitt eget resultat, og blinker «Lagrer …» →
+        «Lagret» → «Lagrer …» → «Lagret» etter hver eneste lagring. */
+  {
+    await load(page, buildDB().db, viewport);
+    await waitState(page, 'saved');
+    await page.waitForTimeout(800); // la oppstartsrundene falle helt til ro
+    await page.evaluate(() => {
+      window.__seq = [];
+      const el = document.getElementById('sync-status');
+      const push = () => {
+        const s = el.dataset.state;
+        if (window.__seq[window.__seq.length - 1] !== s) window.__seq.push(s);
+      };
+      push();
+      window.__seqObs = new MutationObserver(push);
+      window.__seqObs.observe(el, { attributes: true, attributeFilter: ['data-state'] });
+    });
+    await editFirstItem(page, 'Én lagring');
+    // Lenger enn pollet (5 s): bekreftelsesrunden OG en helt vanlig runde til
+    // rekker å skrive ned resultatet sitt mens vi ser på.
+    await page.waitForTimeout(6000);
+    const seq = await page.evaluate(() => { window.__seqObs.disconnect(); return window.__seq; });
+    check('én lagring: forløpet er «Lagret» → «Lagrer …» → «Lagret», og der blir det',
+      seq.join(' → ') === 'saved → saving → saved', seq);
+    check('én lagring: statusen går inn i «Lagrer …» nøyaktig én gang',
+      seq.filter((s) => s === 'saving').length === 1, seq);
+    check('én lagring: endringen landet faktisk på «serveren»',
+      await serverItemText(page) === 'Én lagring', await serverItemText(page));
+  }
+
+  /* 12) Trafikklyset. Fargene leses RENDRET og sammenlignes med tokenene i
+        styles.css, ikke med en kopi her. */
+  {
+    await load(page, buildDB().db, viewport);
+    await waitState(page, 'saved');
+    // «Lagrer …» varer bare et øyeblikk, så fargen fanges i samme øyeblikk
+    // tilstanden settes — ikke ved å prøve å treffe vinduet med en timeout.
+    await page.evaluate(() => {
+      window.__yellow = null;
+      const el = document.getElementById('sync-status');
+      const dot = document.querySelector('.sync-status-dot');
+      window.__lightObs = new MutationObserver(() => {
+        if (el.dataset.state === 'saving' && !window.__yellow) {
+          window.__yellow = getComputedStyle(dot).backgroundColor;
+        }
+      });
+      window.__lightObs.observe(el, { attributes: true, attributeFilter: ['data-state'] });
+    });
+    await editFirstItem(page, 'Gult lys');
+    await page.waitForFunction(() => !!window.__yellow, null, { timeout: 5000 }).catch(() => {});
+    const yellow = await page.evaluate(() => { window.__lightObs.disconnect(); return window.__yellow; });
+    const lights = (await readStatus(page)).lights;
+    check('trafikklys: «Lagrer …» er gult', yellow === lights.yellow, { dot: yellow, vil: lights.yellow });
+
+    // Frakoblet → grått: lyset er «av», vi vet ikke hva serveren har.
+    await softWait(page, 'saved');
+    await goOffline(page);
+    await editFirstItem(page, 'Grått lys');
+    await cycle(page); await cycle(page);
+    await softWait(page, 'offline');
+    const off = await readStatus(page);
+    check('trafikklys: «Frakoblet» er grått', off.dot === off.lights.grey, { dot: off.dot, vil: off.lights.grey });
+    check('trafikklys: pillen er synlig når vi er frakoblet', parseFloat(off.opacity) === 1, off.opacity);
+    await goOnline(page);
+    await softWait(page, 'saved');
+  }
+
+  /* 12b) … og rødt når noe faktisk gikk galt. */
+  {
+    await load(page, buildDB().db, viewport);
+    await waitState(page, 'saved');
+    await page.evaluate(() => {
+      const client = window.__huskis.client;
+      window.__realFrom = client.from.bind(client);
+      const errRes = { data: null, error: { code: 'PGRST204', message: "Could not find the 'collapsed' column of 'items' in the schema cache" } };
+      client.from = function (table) {
+        if (table === 'items') return {
+          insert: () => Promise.resolve(errRes),
+          update: () => ({ eq: () => Promise.resolve(errRes) }),
+          delete: () => ({ eq: () => Promise.resolve(errRes) }),
+          select: window.__realFrom(table).select,
+        };
+        return window.__realFrom(table);
+      };
+    });
+    await editFirstItem(page, 'Rødt lys');
+    await softWait(page, 'rejected');
+    const bad = await readStatus(page);
+    check('trafikklys: en avvisning er rød', bad.dot === bad.lights.red, { dot: bad.dot, vil: bad.lights.red });
+    check('trafikklys: pillen er synlig når noe gikk galt', parseFloat(bad.opacity) === 1, bad.opacity);
+    await page.evaluate(() => { window.__huskis.client.from = window.__realFrom; });
   }
 }
 

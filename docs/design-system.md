@@ -519,16 +519,26 @@ side-margin som kansellerer den omsluttende paddingen.
   Semantikken (hva som utløser hvilken tilstand) er `docs/accounts.md`.
   Formspråket er flate-mønsteret (`--control-bg` + blur), ikke toastens mørke
   flate: statusen er bakgrunnsinformasjon, ikke en melding som krever
-  oppmerksomhet. Prikken bærer alvoret (grå i ro, gul ved venting/frakobling,
-  `--danger` ved avvisning) og teksten sier det samme i klartekst. Pillen er
+  oppmerksomhet. Prikken følger **trafikklyset** — grønn (`--primary-dark`) ved
+  «Lagret», gul (`--warn`) ved «Lagrer …», rød (`--danger`) ved avvisning og grå
+  (`--ink-soft`) ved «Frakoblet», altså «lyset er av»: vi når ikke serveren og
+  vet derfor ikke. Teksten sier det samme i klartekst. Grønnfargen er
+  `--primary-dark` og ikke `--primary`, fordi pilleflaten er halvgjennomsiktig
+  hvit over board-bakgrunnen og den lyse `--primary` faller under 3:1 mot den;
+  `tests/a11y-contrast.test.js` håndhever alle fire. Pillen er
   `pointer-events: none` slik at den aldri kommer i veien for board-et — kun
-  «Prøv igjen» tar imot klikk. «Lagret» krymper til bare prikken etter noen
-  sekunder (`.is-quiet`); de tre andre tilstandene står uendret til problemet
-  er borte, og INGEN av dem skjules helt. `role="status"` + `aria-live="polite"`
-  melder hver tilstandsendring, og DOM-en røres kun når tilstanden faktisk
-  endrer seg (ellers ville hjerteslaget lest opp det samme hvert sekund).
-  Teknisk informasjon (tabell, feilkode) vises aldri her — den ligger i
-  konsollen og i `__huskis.syncStatus.snapshot()`.
+  «Prøv igjen» tar imot klikk. **I ro er pillen usynlig**: «Lagret» fader helt
+  ut ett sekund etter at den kom (`QUIET_AFTER_MS` → `.is-quiet` →
+  `opacity: 0`), og fader inn igjen ved neste aktivitet. En status som alltid
+  står der er visuell støy, og for den som ikke vet hva den er, en gåte —
+  kvitteringen skal rekke å bli sett, ikke bli stående og bli lest. Det gjelder
+  KUN «Lagret» — «Lagrer …», «Frakoblet» og en avvisning står uendret til de er
+  over, så et uløst problem aldri kan forveksles med «ingenting vist». Elementet blir liggende i DOM-en
+  hele tiden (bare gjennomsiktig), så fade-in ikke trenger en ny node.
+  `role="status"` + `aria-live="polite"` melder hver tilstandsendring, og DOM-en
+  røres kun når tilstanden faktisk endrer seg (ellers ville hjerteslaget lest
+  opp det samme hvert sekund). Teknisk informasjon (tabell, feilkode) vises aldri
+  her — den ligger i konsollen og i `__huskis.syncStatus.snapshot()`.
 
 ## Introduksjonen: spotlight (`.tour`)
 

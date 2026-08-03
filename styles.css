@@ -1858,8 +1858,9 @@ body.modal-open { overflow: hidden; }
 
    Formspråket er flate-mønsteret (halvgjennomsiktig hvit + blur), ikke toastens
    mørke flate: statusen er bakgrunnsinformasjon, ikke en melding som krever
-   oppmerksomhet. Fargen på prikken bærer alvoret (grå = i ro, gul = venter/
-   frakoblet, rød = avvist), og teksten sier det samme i klartekst.
+   oppmerksomhet. Prikken følger TRAFIKKLYSET (grønn = lagret, gul = lagrer,
+   rød = noe gikk galt, grå = frakoblet, altså «lyset er av»), og teksten sier
+   det samme i klartekst.
 
    Pillen er `pointer-events: none` slik at den aldri kommer i veien for board-et
    under; kun «Prøv igjen»-knappen tar imot klikk. */
@@ -1887,7 +1888,7 @@ body.modal-open { overflow: hidden; }
   font-weight: 600;
   box-shadow: var(--shadow-sm);
   pointer-events: none;              /* klikk skal gå gjennom til board-et … */
-  transition: opacity 0.25s ease, padding 0.25s ease, background 0.25s ease, transform 0.25s ease;
+  transition: opacity 0.25s ease, background 0.25s ease, transform 0.25s ease;
 }
 .sync-status-text { min-width: 0; }
 /* Brekker teksten, blir pillen for høy for 999px — samme grep som bannerets. */
@@ -1906,24 +1907,30 @@ body.modal-open { overflow: hidden; }
   body:has(.update-banner.show) .sync-status { transform: translateY(-165px); }
   body:has(.toast.show):has(.update-banner.show) .sync-status { transform: translateY(-293px); }
 }
+/* TRAFIKKLYSET. Grønnfargen er --primary-dark, ikke --primary: pilleflaten er
+   halvgjennomsiktig hvit over board-bakgrunnen, og den lyse --primary havner
+   under 3:1 mot den. Grått (--ink-soft) betyr «lyset er av» — vi når ikke
+   serveren, så vi vet ikke. Fargene håndheves av tests/a11y-contrast.test.js. */
 .sync-status-dot {
   flex: 0 0 auto;
   width: 9px;
   height: 9px;
   border-radius: 50%;
-  background: var(--ink-soft);
-  opacity: 0.55;
+  background: var(--primary-dark);   /* lagret */
 }
-/* Alvorsgrad: samme tre nivåer som teksten sier i klartekst. */
-.sync-status[data-state="saving"] .sync-status-dot { background: var(--warn); opacity: 1; }
-.sync-status[data-state="offline"] .sync-status-dot { background: var(--warn); opacity: 1; }
-.sync-status[data-state="rejected"] .sync-status-dot { background: var(--danger); opacity: 1; }
+.sync-status[data-state="saving"] .sync-status-dot { background: var(--warn); }
+.sync-status[data-state="offline"] .sync-status-dot { background: var(--ink-soft); }
+.sync-status[data-state="rejected"] .sync-status-dot { background: var(--danger); }
 .sync-status[data-state="rejected"] { color: var(--ink); border-color: var(--danger-soft-hover); }
-/* «Lagret» er en kvittering, ikke en tilstand å stirre på: etter noen sekunder
-   krymper pillen til bare prikken. Den forsvinner ALDRI helt — problemene skal
-   ikke kunne forveksles med «ingenting vist». */
-.sync-status.is-quiet { padding: 7px; opacity: 0.5; }
-.sync-status.is-quiet .sync-status-text { display: none; }
+/* «Lagret» er en kvittering, ikke en tilstand å stirre på: ett sekund etter at
+   den kom, fader pillen HELT ut. En status som alltid står der er visuell støy
+   — og for den som ikke vet hva den er, en gåte. Kvitteringen skal rekke å bli
+   sett, ikke bli stående og bli lest. Den fader inn igjen ved neste aktivitet.
+   Dette gjelder KUN «Lagret»: `is-quiet` settes bare i den tilstanden (se
+   syncStatus.paint), så «Lagrer …», «Frakoblet» og en avvisning blir stående
+   til de er over — et uløst problem skal aldri kunne forveksles med
+   «ingenting vist». */
+.sync-status.is-quiet { opacity: 0; }
 /* … men «Prøv igjen» må kunne trykkes. */
 .sync-status-action {
   flex: 0 0 auto;
