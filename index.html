@@ -18,7 +18,7 @@
     default-src 'none';
     base-uri 'none';
     object-src 'none';
-    script-src 'self' 'sha256-6Q3JDVUTmctJuF9ScsOY9kCKBmqaIbjWdZMf/B2lgNc=' https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.111.0/;
+    script-src 'self' 'sha256-6Q3JDVUTmctJuF9ScsOY9kCKBmqaIbjWdZMf/B2lgNc=';
     style-src 'self' https://fonts.googleapis.com;
     font-src https://fonts.gstatic.com;
     img-src 'self' data: blob:;
@@ -624,11 +624,12 @@
     <button class="sync-status-action" id="sync-retry-btn" type="button" hidden>Prøv igjen</button>
   </div>
 
-  <!-- Sky-synk (Supabase). Biblioteket lastes fra CDN på en EKSAKT, låst versjon
-       — aldri et flytende `@2`, som ville sluppet ny tredjepartskode inn i
-       produksjon uten en eneste commit her. Oppgraderingsrutinen og CSP-en som
-       låser adressen: docs/sikkerhetsheadere.md. config.js holder dine verdier. -->
-  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.111.0/dist/umd/supabase.js"></script>
+  <!-- Sky-synk (Supabase). Biblioteket ligger i repoet, ikke på et CDN: filen er
+       en uendret kopi av npm-pakken, og versjonen står i filnavnet. Appen har
+       dermed ingen eksterne skriptkilder i det hele tatt — `script-src 'self'`.
+       Oppgraderingsrutinen: docs/sikkerhetsheadere.md. config.js holder dine
+       verdier. -->
+  <script src="vendor/supabase-js-2.111.0.js"></script>
   <script src="config.js"></script>
   <!-- huskis:kun-dev:start — mock-backenden for hermetisk to-bruker-testing
        (?mock=1). HELE blokken, og begge filene den peker på, fjernes av

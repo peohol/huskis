@@ -12,7 +12,9 @@ rad. Motoren kjører i to scope — `boardScope` (listevisningen) og `navScope`
 (navigasjonsmodalen) — så en endring i den treffer begge nivåene.
 
 **Kildekode** (det som deployes): `index.html`, `styles.css`, `app.js`,
-`icons.js`, `config.js`, `update-check.js`, `assets/`. `dev-mock.js` og
+`icons.js`, `config.js`, `update-check.js`, `assets/`, `vendor/`
+(supabase-js som innsjekket, uendret kopi — `docs/sikkerhetsheadere.md`).
+`dev-mock.js` og
 `mock-backend.js` er testmodus (`?mock=1`) og blir IKKE med i produksjons-
 deployen — `build.js` fjerner både filene og taggen som laster dem. Kun
 preview-deployer beholder dem (`docs/sikkerhetsheadere.md`).

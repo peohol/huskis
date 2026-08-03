@@ -82,7 +82,7 @@ check('deploy-ID-en bygges også inn i klienten', metaBuildId(c.html) === c.vers
 const names = fs.readdirSync(outA);
 ['tests', 'docs', 'supabase', 'build.js', 'vercel.json', 'CLAUDE.md', 'TODO.md']
   .forEach((n) => check('publiserer ikke ' + n, names.indexOf(n) === -1));
-['app.js', 'styles.css', 'icons.js', 'config.js', 'update-check.js', 'favicon.svg', 'assets']
+['app.js', 'styles.css', 'icons.js', 'config.js', 'update-check.js', 'favicon.svg', 'assets', 'vendor']
   .forEach((n) => check('publiserer ' + n, names.indexOf(n) > -1));
 
 // 7) Cache-headerne.
@@ -102,6 +102,10 @@ check('HTML-en revalideres (reload henter ny side)',
 ['/app.js', '/icons.js', '/config.js', '/update-check.js', '/styles.css'].forEach((s) => {
   check('langtidscache på ' + s, /immutable/.test(headerFor(s)) && /max-age=31536000/.test(headerFor(s)));
 });
+// vendor/ får ikke ?b=<build-ID>: versjonen står i filnavnet, så URL-en endrer
+// seg av seg selv når innholdet gjør det.
+check('langtidscache på /vendor/(.*)',
+  /immutable/.test(headerFor('/vendor/(.*)')) && /max-age=31536000/.test(headerFor('/vendor/(.*)')));
 
 fs.rmSync(tmp, { recursive: true, force: true });
 console.log(`\n${passed} passed, ${failed} failed`);
