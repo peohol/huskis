@@ -8413,7 +8413,7 @@
       rejectedCache: 'Endringene lagres ikke på denne enheten.',
     };
     const OFFLINE_AFTER_FAILURES = 2; // ett glipp er ikke «frakoblet»
-    const QUIET_AFTER_MS = 2600;      // «Lagret» fader ut (kun DEN tilstanden)
+    const QUIET_AFTER_MS = 1000;      // «Lagret» fader ut (kun DEN tilstanden)
     const HEARTBEAT_MS = 1000;        // sikkerhetsnett (maler kun ved endring)
     const RETRY_MAX_MS = 15000;       // «Prøver»-vinduet henger aldri fast
 

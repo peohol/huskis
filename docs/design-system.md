@@ -528,11 +528,12 @@ side-margin som kansellerer den omsluttende paddingen.
   `tests/a11y-contrast.test.js` håndhever alle fire. Pillen er
   `pointer-events: none` slik at den aldri kommer i veien for board-et — kun
   «Prøv igjen» tar imot klikk. **I ro er pillen usynlig**: «Lagret» fader helt
-  ut etter noen sekunder (`.is-quiet` → `opacity: 0`), og fader inn igjen ved
-  neste aktivitet. En status som alltid står der er visuell støy, og for den som
-  ikke vet hva den er, en gåte. Det gjelder KUN «Lagret» — «Lagrer …»,
-  «Frakoblet» og en avvisning står uendret til de er over, så et uløst problem
-  aldri kan forveksles med «ingenting vist». Elementet blir liggende i DOM-en
+  ut ett sekund etter at den kom (`QUIET_AFTER_MS` → `.is-quiet` →
+  `opacity: 0`), og fader inn igjen ved neste aktivitet. En status som alltid
+  står der er visuell støy, og for den som ikke vet hva den er, en gåte —
+  kvitteringen skal rekke å bli sett, ikke bli stående og bli lest. Det gjelder
+  KUN «Lagret» — «Lagrer …», «Frakoblet» og en avvisning står uendret til de er
+  over, så et uløst problem aldri kan forveksles med «ingenting vist». Elementet blir liggende i DOM-en
   hele tiden (bare gjennomsiktig), så fade-in ikke trenger en ny node.
   `role="status"` + `aria-live="polite"` melder hver tilstandsendring, og DOM-en
   røres kun når tilstanden faktisk endrer seg (ellers ville hjerteslaget lest

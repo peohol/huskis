@@ -1846,9 +1846,10 @@ body.modal-open { overflow: hidden; }
 .sync-status[data-state="offline"] .sync-status-dot { background: var(--ink-soft); }
 .sync-status[data-state="rejected"] .sync-status-dot { background: var(--danger); }
 .sync-status[data-state="rejected"] { color: var(--ink); border-color: var(--danger-soft-hover); }
-/* «Lagret» er en kvittering, ikke en tilstand å stirre på: etter noen sekunder
-   fader pillen HELT ut. En status som alltid står der er visuell støy — og for
-   den som ikke vet hva den er, en gåte. Den fader inn igjen ved neste aktivitet.
+/* «Lagret» er en kvittering, ikke en tilstand å stirre på: ett sekund etter at
+   den kom, fader pillen HELT ut. En status som alltid står der er visuell støy
+   — og for den som ikke vet hva den er, en gåte. Kvitteringen skal rekke å bli
+   sett, ikke bli stående og bli lest. Den fader inn igjen ved neste aktivitet.
    Dette gjelder KUN «Lagret»: `is-quiet` settes bare i den tilstanden (se
    syncStatus.paint), så «Lagrer …», «Frakoblet» og en avvisning blir stående
    til de er over — et uløst problem skal aldri kunne forveksles med

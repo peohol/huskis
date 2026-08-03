@@ -191,6 +191,14 @@ const waitState = (page, want) => page.waitForFunction(
 // Der DET Å NÅ tilstanden er selve påstanden: uten dette kaster ventingen, og
 // en regresjon ville avbrutt hele filen i stedet for å skrive en lesbar FAIL.
 const softWait = (page, want) => waitState(page, want).catch(() => {});
+// Fader pillen dit vi venter? Ventes FRAM i stedet for å sove ut et tall:
+// ro-vinduet (`QUIET_AFTER_MS`) og overgangstiden er smaksverdier som godt kan
+// justeres, mens påstanden — at pillen faktisk NÅR verdien — står uansett.
+// Mellomverdier under overgangen er brøker («0.53»), så en eksakt «0»/«1»
+// treffer først når fadingen er ferdig.
+const opacityBecomes = (page, want) => page.waitForFunction(
+  (w) => getComputedStyle(document.getElementById('sync-status')).opacity === w,
+  want, { timeout: 5000 }).then(() => true).catch(() => false);
 const serverItemText = (page) => page.evaluate(() => (JSON.parse(localStorage.getItem('hk-mock-db')).items || [])[0].text);
 const cachedItemText = (page) => page.evaluate(() => {
   const s = JSON.parse(localStorage.getItem('mine-lister-v1:uMe') || '{}');
@@ -205,6 +213,10 @@ async function scenario(page, viewport, label) {
   {
     await load(page, buildDB().db, viewport);
     await waitState(page, 'saved');
+    // Synligheten leses FØRST: kvitteringen står bare ro-vinduet ut
+    // (`QUIET_AFTER_MS`, ett sekund) før fadingen begynner. Alt annet under —
+    // tekst, tilstand, farge, plassering — er uendret mens den fader.
+    const shown = await opacityBecomes(page, '1');
     const s = await readStatus(page);
     check('lagret: statusen er synlig', s.hidden === false, s);
     check('lagret: tilstand = saved', s.state === 'saved', s.state);
@@ -214,17 +226,19 @@ async function scenario(page, viewport, label) {
     check('lagret: pillen ligger innenfor viewporten', s.rect && s.rect.left >= 0 &&
       s.rect.right <= viewport.width && s.rect.bottom <= viewport.height, s.rect);
     check('lagret: grønt lys', s.dot === s.lights.green, { dot: s.dot, vil: s.lights.green });
-    check('lagret: pillen er synlig mens kvitteringen står', parseFloat(s.opacity) === 1, s.opacity);
+    check('lagret: pillen er synlig mens kvitteringen står', shown === true, s.opacity);
     // Etter ro-vinduet fader pillen HELT ut: ingen aktivitet, ingenting å vise.
-    await page.waitForTimeout(3000);
+    // Ventes fram i stedet for å sove ut et tall: ro-vinduet (QUIET_AFTER_MS) er
+    // en smaksverdi som kan endres, mens PÅSTANDEN — at den faktisk når 0 — står.
+    const faded = await opacityBecomes(page, '0');
+    check('ro: pillen fader til 100 % gjennomsiktig', faded === true, faded);
     const q = await readStatus(page);
-    check('ro: pillen er 100 % gjennomsiktig', parseFloat(q.opacity) === 0, q.opacity);
     check('ro: den blir liggende i DOM-en (kan fade inn igjen)', q.hidden === false && q.quiet === true, q);
     // … og fader inn igjen ved neste aktivitet, uten en reload.
     await editFirstItem(page, 'Vekker pillen');
-    await page.waitForTimeout(400); // fade-in (0,25 s) + litt slark
+    const back = await opacityBecomes(page, '1');
     const w = await readStatus(page);
-    check('aktivitet: pillen fader inn igjen', parseFloat(w.opacity) === 1 && w.quiet === false, w);
+    check('aktivitet: pillen fader inn igjen', back === true && w.quiet === false, w);
   }
 
   /* 2) Frakoblet: riktig tekst, endringen ligger lokalt, ikke på serveren,
