@@ -52,42 +52,6 @@ nettleseren og kontrolleres der.
       *Verifiser:* Resend → API Keys (kolonnen «Permission») og Resend →
       Domains (status «Verified»).
 
-## Gjenoppstått rad i produksjon (én gruppe) — krever en beslutning
-
-Kontrollert mot produksjon 2026-08-04 med kollisjonsspørringen under: det finnes
-fortsatt **nøyaktig én** kollisjon, den samme gruppen som før (gravlagt
-2026-07-27, gjenoppstått seks minutter senere).
-
-**Men raden er tatt i bruk igjen.** Etter gjenoppstandelsen er det opprettet
-fire lister og fem listepunkter i gruppen, alle med innhold, og alt sammen ble
-sist endret 2026-08-03. Dette er altså ikke en tom ghost — det er en uke med
-ekte brukerinnhold, nøyaktig det tilfellet `guard_object_insert()` bevisst lot
-være å rydde i.
-
-Å slette gruppen «på nytt i appen» ville derfor kastet innholdet. Valget er
-brukerens, ikke en agents, og det står mellom to veier:
-
-- **Behold innholdet.** Fjern den foreldede gravsteinen i stedet — da er
-  kollisjonen borte, og raden lever videre som en helt vanlig gruppe:
-  `delete from public.tombstones where resource_type = 'group' and resource_id = '<id>';`
-  Merk at gravsteiner ellers aldri slettes (`docs/trash.md`); dette er et
-  engangsunntak for en rad som beviselig er i bruk.
-- **Slett den likevel.** Gjør det som eieren i appen (søppelkasse → tøm), ikke
-  med en direkte `DELETE` mot produksjon. Innholdet er borte for godt.
-
-Id-en står ikke her — hent den ut selv med spørringen under, så beslutningen
-tas mot ferske tall og ikke mot et notat.
-
-- [ ] Bestem hvilken vei, utfør den, og kjør kollisjonsspørringen på nytt. Den
-      skal gi null rader:
-
-      ```sql
-      select t.resource_type, t.resource_id from public.tombstones t
-        where (t.resource_type = 'universe' and exists (select 1 from public.universes x where x.id = t.resource_id))
-           or (t.resource_type = 'group'    and exists (select 1 from public.groups    x where x.id = t.resource_id))
-           or (t.resource_type = 'card'     and exists (select 1 from public.cards     x where x.id = t.resource_id))
-           or (t.resource_type = 'item'     and exists (select 1 from public.items     x where x.id = t.resource_id));
-      ```
 
 ## Diagnostikk: når en delingsinvitasjon ikke kommer fram
 
