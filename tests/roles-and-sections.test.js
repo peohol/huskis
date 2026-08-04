@@ -87,8 +87,12 @@ async function loadAs(page, db, uid, email, viewport) {
     sessionStorage.setItem('hk-mock-session', JSON.stringify({ id: uid, email, user_metadata: { onboarding: { v: 1, status: 'done' }, tips: { drag: true, trash: true, moveList: true } } }));
   }, { db, uid, email });
   await page.goto(BASE + '/?mock=1');
-  await page.waitForFunction(() => window.__huskis && window.__huskis.authUser, { timeout: 8000 });
-  await page.waitForTimeout(900);
+  // `lastMy` settes først når get_my_doc har svart — da er dokumentet hentet og
+  // det seedede innholdet flettet inn og rendret.
+  await page.waitForFunction(() => {
+    const H = window.__huskis;
+    return H && H.authUser && H.lastMy && H.state.universes.length > 0;
+  }, null, { timeout: 8000, polling: 200 });
 }
 const openNav = async (p) => { await p.evaluate(() => window.__huskis.openNavModal()); await p.waitForTimeout(400); };
 
@@ -260,7 +264,11 @@ async function run(label, viewport, mobile) {
     window.HK_MOCK._saveDB(db);
     return window.__huskis.cloudCycle();
   }, { gid: ids.GB, uid: ids.uD });
-  await p.waitForTimeout(1200);
+  // Utkastelsen er poenget: ferdig når gruppen er borte fra state (uteblir det,
+  // feiler sjekken under med gruppelista som verdi).
+  await p.waitForFunction((gid) =>
+    !window.__huskis.state.universes.flatMap((u) => u.groups).some((g) => g.id === gid),
+    ids.GB, { timeout: 8000, polling: 200 }).catch(() => {});
   const after = await p.evaluate(() => ({
     active: window.__huskis.state.activeGroup,
     toast: (document.querySelector('.toast') || {}).textContent || '',
@@ -278,7 +286,11 @@ async function run(label, viewport, mobile) {
       const H = window.__huskis, u = H.state.universes.find((x) => !x._virtual);
       H.openShare('universe', u.id, u, null);
     });
-    await p.waitForTimeout(900);
+    // Del-visningen viser din egen rad SYNKront («deg selv vises straks»,
+    // app.js) før get_members har svart — én rad beviser altså ingenting.
+    // Fixturen har tre medlemmer i universet (Alice, Bo, Cato): vent på alle.
+    await p.waitForFunction(() => document.querySelectorAll('#share-body .member-row').length >= 3,
+      null, { timeout: 8000 });
   };
   // Radene, med knappetekstene sine.
   const memberRows = () => p.evaluate(() => [...document.querySelectorAll('#share-body .member-row')].map((r) => ({
@@ -309,7 +321,11 @@ async function run(label, viewport, mobile) {
   });
   await p.waitForTimeout(300);
   await p.locator('#confirm-ok').click();
-  await p.waitForTimeout(1400);
+  // Løftet sendes som invitasjon: ferdig når den ligger i databasen (uteblir
+  // den, feiler sjekken under med invitasjonslista som verdi).
+  await p.waitForFunction(() =>
+    window.HK_MOCK._loadDB().share_invites.some((s) => s.role === 'owner' && s.status === 'pending'),
+    null, { timeout: 8000, polling: 200 }).catch(() => {});
   const afterInvite = await p.evaluate(() => ({
     pending: [...document.querySelectorAll('#share-body .member-pending')].map((r) => r.textContent.replace(/\s+/g, ' ').trim()),
     invites: window.HK_MOCK._loadDB().share_invites.map((s) => s.invitee_email + ':' + s.role + ':' + s.status),
@@ -338,7 +354,12 @@ async function run(label, viewport, mobile) {
     await H.client.rpc('accept_share_invite', { p_invite: inv.id });
     await H.cloudCycle();
   });
-  await p.waitForTimeout(1200);
+  // Rolleløftet er poenget: ferdig når rollen faktisk er 'owner' (uteblir det,
+  // feiler sjekken under).
+  await p.waitForFunction(() => {
+    const u = window.__huskis.state.universes.find((x) => !x._virtual);
+    return !!u && u._role === 'owner';
+  }, null, { timeout: 8000, polling: 200 }).catch(() => {});
   log(label + ' 9: etter aksept er medlemmet medeier med eier-rettigheter',
     await p.evaluate(() => {
       const u = window.__huskis.state.universes.find((x) => !x._virtual);

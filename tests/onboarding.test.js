@@ -48,7 +48,12 @@ async function register(p) {
   await p.getByText('Tilbake til innlogging').click(); await p.waitForTimeout(300);
   await p.locator('#auth-email').fill(email);
   await p.locator('#auth-password').fill('passord123');
-  await p.locator('#auth-submit').click(); await p.waitForTimeout(1700);
+  await p.locator('#auth-submit').click();
+  // Fersk konto skal ALLTID få omvisningen: ferdig når den står på skjermen.
+  await p.waitForFunction(() => {
+    const H = window.__huskis;
+    return H && H.authUser && H.lastMy && !document.getElementById('tour').hidden;
+  }, null, { timeout: 10000, polling: 200 });
   return email;
 }
 
@@ -92,7 +97,14 @@ async function loginOnOtherDevice(p, email) {
     }));
   }, email);
   await p.goto(BASE + '/?mock=1');
-  await p.waitForTimeout(1800);
+  // FAST venting med vilje: sjekken etterpå er et fraværsbevis («omvisningen
+  // vises IKKE igjen»), og fravær kan bare påstås etter at den ville rukket å
+  // komme opp. Vent først til kontoen er inne, så fraværsvinduet.
+  await p.waitForFunction(() => {
+    const H = window.__huskis;
+    return H && H.authUser && H.lastMy;
+  }, null, { timeout: 10000, polling: 200 });
+  await p.waitForTimeout(800);
 }
 
 // Rektanglene overlapper i hovedsak (spotlighten har 6px luft rundt målet).

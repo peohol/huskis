@@ -113,13 +113,27 @@ async function login(p, email) {
   await p.locator('#auth-email').fill(email);
   await p.locator('#auth-password').fill('passord123');
   await p.locator('#auth-submit').click();
-  await p.waitForTimeout(1700);
+  // `lastMy` settes først når get_my_doc har svart — da er kontoen innlogget
+  // og dokumentet hentet. (En fersk konto har null universer — board er tomt.)
+  await p.waitForFunction(() => {
+    const H = window.__huskis;
+    return H && H.authUser && H.lastMy;
+  }, null, { timeout: 10000, polling: 200 });
   // Introduksjonen (docs/introduksjon.md) møter enhver ny konto: omvisningen
   // legger seg over appen, og et gest-tips legger seg nederst på skjermen —
   // ingen av delene er det denne testen handler om.
   await p.evaluate(() => window.__huskis.tour.skipAll());
   await p.waitForTimeout(150);
 }
+
+// Den pågående synk-runden er ferdig når pillen ikke lenger sier «Lagrer …».
+// (`cloudCycle` no-op-er hvis en runde alt er i gang, så et rått await på den
+// er ikke et ferdig-signal — pillen er det.) Intervall-polling, ikke rAF:
+// rAF struper i bakgrunnsfaner, og denne fila har flere sider oppe.
+const syncIdle = (p) => p.waitForFunction(() => {
+  const el = document.getElementById('sync-status');
+  return el && el.dataset.state !== 'saving';
+}, null, { timeout: 6000, polling: 200 }).catch(() => {});
 
 // Rader rett fra mock-«serveren» — altså det som FAKTISK ligger i databasen.
 const serverRows = (p, table) => p.evaluate((t) => {
@@ -163,7 +177,7 @@ async function waitForServerGone(p, table, id, ms = 14000) {
 async function settle(p, rounds = 3) {
   for (let i = 0; i < rounds; i++) {
     await p.evaluate(() => window.__huskis.cloudCycle());
-    await p.waitForTimeout(400);
+    await syncIdle(p);
   }
 }
 
@@ -179,7 +193,7 @@ async function run(label, vp, mobile) {
 
   const email = await register(p, BASE);
   await p.evaluate(() => window.__huskis.addGroup());
-  await p.waitForTimeout(1000);
+  await settle(p, 1);
 
   await addCard(p, ID.doomed, [ID.itemA, ID.itemB], 'Skal slettes');
   await addCard(p, ID.keeper, [ID.keepIt], 'Skal beholdes');
@@ -213,7 +227,11 @@ async function run(label, vp, mobile) {
   /* ---------- 1) Enhet B med gammel cache (base i behold) ---------- */
   await p.evaluate(({ pfx, uid, raw }) => localStorage.setItem(pfx + uid, raw), { pfx: CACHE_PREFIX, uid, raw: staleCache });
   await p.reload();
-  await p.waitForTimeout(2500);
+  await p.waitForFunction(() => {
+    const H = window.__huskis;
+    return H && H.authUser && H.lastMy;
+  }, null, { timeout: 10000, polling: 200 });
+  await syncIdle(p);
   await settle(p);
   log(label + ' 2: gammel cache MED base gjenoppliver ikke listen lokalt',
     !await localHas(p, ID.doomed));
@@ -230,7 +248,11 @@ async function run(label, vp, mobile) {
     localStorage.setItem(pfx + uid, JSON.stringify(s));
   }, { pfx: CACHE_PREFIX, uid, raw: staleCache });
   await p.reload();
-  await p.waitForTimeout(2500);
+  await p.waitForFunction(() => {
+    const H = window.__huskis;
+    return H && H.authUser && H.lastMy;
+  }, null, { timeout: 10000, polling: 200 });
+  await syncIdle(p);
   await settle(p);
   log(label + ' 3: cache UTEN base gjenoppliver ikke listen lokalt',
     !await localHas(p, ID.doomed));
@@ -313,7 +335,11 @@ async function run(label, vp, mobile) {
       localStorage.setItem(pfx + uid, JSON.stringify(s));
     }, { pfx: CACHE_PREFIX, uid, raw: staleTwo });
     await p.reload();
-    await p.waitForTimeout(2500);
+    await p.waitForFunction(() => {
+      const H = window.__huskis;
+      return H && H.authUser && H.lastMy;
+    }, null, { timeout: 10000, polling: 200 });
+    await syncIdle(p);
     await settle(p, 3);
   };
 
@@ -338,7 +364,11 @@ async function run(label, vp, mobile) {
     baseOnDisk.v !== 1 && !baseOnDisk.base, JSON.stringify(baseOnDisk));
   // … og en reload MENS oppslaget fortsatt er nede må derfor holde igjen på nytt.
   await p.reload();
-  await p.waitForTimeout(2500);
+  await p.waitForFunction(() => {
+    const H = window.__huskis;
+    return H && H.authUser && H.lastMy;
+  }, null, { timeout: 10000, polling: 200 });
+  await syncIdle(p);
   await settle(p, 3);
   log(label + ' 9: en reload med oppslaget fortsatt nede gjenoppliver ingenting',
     !await serverHas(p, 'cards', ID.second));
@@ -392,7 +422,8 @@ async function run(label, vp, mobile) {
 
   /* ---------- 8) Bytte av bruker ---------- */
   await p.evaluate(() => window.__huskis.logout());
-  await p.waitForTimeout(1200);
+  await p.waitForFunction(() => !window.__huskis.authUser
+    && !document.getElementById('auth-screen').hidden, null, { timeout: 8000, polling: 200 });
   const afterLogout = await p.evaluate(() => ({
     tombs: window.__huskis.tombIds().size,
     base: window.__huskis.cloudBase,

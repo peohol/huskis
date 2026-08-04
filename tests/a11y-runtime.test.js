@@ -140,8 +140,10 @@ async function load(page, viewport) {
     }));
   }, { db, uid: ids.uA });
   await page.goto(BASE + '/?mock=1');
-  await page.waitForFunction(() => window.__huskis && window.__huskis.authUser, { timeout: 8000 });
-  await page.waitForTimeout(900);
+  await page.waitForFunction(() => {
+    const H = window.__huskis;
+    return H && H.authUser && H.lastMy && H.state.universes.length > 0;
+  }, null, { timeout: 8000, polling: 200 });
   return ids;
 }
 

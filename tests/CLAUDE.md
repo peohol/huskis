@@ -138,6 +138,30 @@ board-kolonner (grensen mellom én og flere kolonner går ved 560/561 px), scrol
 trykk-og-hold, plassering og visuell justering. Ett viewport holder for logikk
 som ikke avhenger av noe av dette (synk, rettighetsgating, tilstandsendringer).
 
+## Venting
+
+Vent på TILSTAND, ikke på klokka. Suiten brukte tidligere ~279 s på faste
+`waitForTimeout`-kall; de tilstandsavhengige er byttet mot `waitForFunction`
+på signaler appen faktisk gir:
+
+- **Innlogget og klar**: `window.__huskis.authUser && window.__huskis.lastMy`
+  — `lastMy` settes først når `get_my_doc` har svart, så da er dokumentet
+  hentet, flettet og rendret. Legg på `state.universes.length > 0` når testen
+  trenger innhold.
+- **Synk-runde ferdig**: pillen `#sync-status` med `dataset.state !== 'saving'`
+  (eller `'saved'` når køen skal være tømt). MERK: `cloudCycle()` no-op-er hvis
+  en runde alt er i gang, så et rått `await` på den er IKKE et ferdig-signal.
+- **Serverside-effekt**: les mock-databasen direkte (`window.HK_MOCK._loadDB()`
+  eller `localStorage['hk-mock-db']`) og vent på selve raden.
+- Bruk `{ polling: 200 }` i filer med flere sider/faner — rAF-polling struper i
+  bakgrunnsfaner.
+
+Faste ventinger er fortsatt RIKTIG tre steder, og skal ikke «optimaliseres»
+bort: **fraværsbevis** (noe skal IKKE skje — fravær kan bare påstås etter at
+det ville rukket å skje), **gest- og animasjonsfysikk** (trykk-og-hold,
+smooth-scroll, PEEK_MS), og **tidsvindu-observasjon** (ro-vinduet i
+sync-status). Slike steder har en kommentar som sier hvorfor.
+
 ## Konvensjoner i testfilene
 
 - Kommentarblokk øverst: nummerert liste over hva filen dekker, og en

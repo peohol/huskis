@@ -93,8 +93,12 @@ async function loadAs(page, db, uid, email, viewport) {
     sessionStorage.setItem('hk-mock-session', JSON.stringify({ id: uid, email, user_metadata: { onboarding: { v: 1, status: 'done' }, tips: { drag: true, trash: true, moveList: true } } }));
   }, { db, uid, email });
   await page.goto(BASE + '/?mock=1');
-  await page.waitForFunction(() => window.__huskis && window.__huskis.authUser, { timeout: 8000 });
-  await page.waitForTimeout(1000);
+  // `lastMy` settes først når get_my_doc har svart — da er dokumentet hentet og
+  // det seedede innholdet flettet inn og rendret.
+  await page.waitForFunction(() => {
+    const H = window.__huskis;
+    return H && H.authUser && H.lastMy && H.state.universes.length > 0;
+  }, null, { timeout: 8000, polling: 200 });
 }
 const openNav = async (p) => { await p.evaluate(() => window.__huskis.openNavModal()); await p.waitForTimeout(400); };
 
@@ -145,7 +149,10 @@ async function run(label, viewport, mobile) {
   log(label + ' 1: samme domene spør IKKE om bekreftelse', confirmVisible === false);
   log(label + ' 1: gruppen ligger nå i det andre egne universet',
     await groupUni(p, ids.G) === ids.U3);
-  await p.waitForTimeout(1400);
+  // Vent på selve serverraden (uteblir den, feiler sjekken under med verdien).
+  await p.waitForFunction(({ g, u }) =>
+    (window.HK_MOCK._loadDB().groups.find((x) => x.id === g) || {}).universe_id === u,
+    { g: ids.G, u: ids.U3 }, { timeout: 8000, polling: 200 }).catch(() => {});
   const serverUni = await p.evaluate((g) => (window.HK_MOCK._loadDB().groups.find((x) => x.id === g) || {}).universe_id, ids.G);
   log(label + ' 1: … og serveren har fått den samme flyttingen (samme id)',
     serverUni === ids.U3, String(serverUni));
@@ -177,7 +184,13 @@ async function run(label, viewport, mobile) {
   await dragGroupTo(p, ids.G, ids.U2);
   await p.waitForTimeout(300);
   await p.locator('#confirm-ok').click();
-  await p.waitForTimeout(2200);
+  // Kryssdomene-flytting bytter id: ferdig når den gamle id-en er borte både
+  // lokalt og på serveren (uteblir det, feiler sjekkene under med verdiene).
+  await p.waitForFunction((G) => {
+    const db = window.HK_MOCK._loadDB();
+    return !db.groups.some((x) => x.id === G)
+      && !window.__huskis.state.universes.flatMap((u) => u.groups).some((g) => g.id === G);
+  }, ids.G, { timeout: 10000, polling: 200 }).catch(() => {});
   const after = await groupIds(p);
   const moved = after.find((g) => g.name === 'Flyttbar');
   log(label + ' 4: gruppen står i måluniverset med en NY id',
@@ -239,7 +252,10 @@ async function run(label, viewport, mobile) {
   await p.waitForTimeout(300);
   log(label + ' 7: … så flyttingen dit spør ikke',
     await p.evaluate(() => !!document.getElementById('confirm-modal').hidden) === true);
-  await p.waitForTimeout(1200);
+  // La flyttingen nå serveren før rollebyttet simuleres der.
+  await p.waitForFunction(({ g, u }) =>
+    (window.HK_MOCK._loadDB().groups.find((x) => x.id === g) || {}).universe_id === u,
+    { g: ids.GX, u: ids.U6 }, { timeout: 8000, polling: 200 }).catch(() => {});
 
   // B og C bytter rolle i U6: eiersettet blir {A,B} i stedet for {A,C}.
   await p.evaluate(async ({ b, c, u6 }) => {
@@ -249,7 +265,12 @@ async function run(label, viewport, mobile) {
     window.HK_MOCK._saveDB(db);
     return window.__huskis.cloudCycle();
   }, { b: ids.uB, c: ids.uC, u6: ids.U6 });
-  await p.waitForTimeout(1400);
+  // Eierskiftet er poenget: ferdig når nøkkelen faktisk har endret seg
+  // (uteblir det, feiler sjekken under med før/etter-verdiene).
+  await p.waitForFunction(({ id, was }) => {
+    const u = window.__huskis.state.universes.find((z) => z.id === id) || {};
+    return !!u._ownerKey && u._ownerKey !== was;
+  }, { id: ids.U6, was: u6Before.key }, { timeout: 8000, polling: 200 }).catch(() => {});
   const u6After = await keyOf(ids.U6);
   log(label + ' 7: byttet endret INGENTING annet enn eiersettet',
     u6After.owners === u6Before.owners && u6After.members === u6Before.members &&
