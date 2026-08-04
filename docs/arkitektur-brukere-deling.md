@@ -97,6 +97,31 @@ policy-rekursjon). `anon` har null tilgang.
 Capabilities beregnes av `universe_caps()` / `group_caps()` og returneres til
 klienten i `get_my_doc()` og `get_members().viewer.caps`.
 
+### Tabellrettigheter (minsteprivilegium)
+
+RLS er det innerste laget. Det ytterste er GRANT-en, og den er billigst: en
+skriving klienten ikke har rettighet til avvises før noen policy trenger å
+kjøre. Rettighetene følger klientauditen — hva `app.js` faktisk gjør mot
+PostgREST — og ikke hva som «kunne vært nyttig»:
+
+| Tabell | `authenticated` | Hvem skriver ellers |
+|---|---|---|
+| `universes`, `groups`, `cards`, `items` | SELECT, INSERT, UPDATE, DELETE | rad-CRUD i synk-motoren |
+| `profiles` | SELECT, UPDATE(`display_name`, `avatar`) | e-posten speiles fra `auth.users` av triggerne |
+| `memberships` | SELECT, UPDATE | roller lages/slettes av RPC-ene og opprettelses-triggerne; UPDATE er kun den personlige `pos` |
+| `share_invites` | SELECT | alt går via `create`/`accept`/`decline`/`revoke_share_invite` |
+| `tombstones` | SELECT | skrives kun av `write_tombstone()`-triggerne |
+
+SELECT på `memberships` og `share_invites` trengs også av
+realtime-abonnementet, som lytter på `postgres_changes` for begge.
+
+**Å utelate en GRANT er ikke nok.** Prosjektet har `alter default privileges in
+schema public grant all on tables to anon, authenticated`, så en ny tabell får
+ALL i det den opprettes. Hver rettighet klienten ikke skal ha må trekkes
+tilbake med en eksplisitt `revoke` i `users-and-sharing.sql`. Matrisen står som
+kommentar rett over de setningene, og både smoke-testen og SQL-suiten har
+negative sjekker som slår ut hvis en `revoke` forsvinner.
+
 ## Deling (invitasjon → aksept → rolle)
 
 1. `create_share_invite(type, id, email, role)` — `type` er `'universe'` eller

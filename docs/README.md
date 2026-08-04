@@ -14,7 +14,7 @@ Ved motstrid gjelder det dokumentet som er merket autoritativt for området — 
 | [accounts.md](accounts.md) | auth-UI, synk-motoren (`get_my_doc` → fletting → rad-CRUD), operasjonskøen, delings-UI, innboks, mock-backenden | **ja** — klientsiden av kontoer og synk |
 | [design-system.md](design-system.md) | `styles.css`, nye knapper/kontroller, delte klasser, toast, modaler, animasjon | **ja** — designsystemet |
 | [tilgjengelighet.md](tilgjengelighet.md) | kontrastkravene og fargekontrakten, `aria-label` på ikonknapper, tastatursnarveiene (sortering/flytting/omdøping), fokus i modaler og etter sletting, berøringsflater, de manuelle kontrollpunktene | **ja** — WCAG-kravene |
-| [introduksjon.md](introduksjon.md) | omvisningen etter første innlogging, spotlight-stegene, «Vis på nytt», de kontekstuelle tipsene om avanserte gester | **ja** — førstegangsopplevelsen |
+| [introduksjon.md](introduksjon.md) | den interaktive innføringen etter første innlogging, spotlight-stegene, lagret framdrift, «Vis på nytt», de kontekstuelle tipsene om avanserte gester | **ja** — førstegangsopplevelsen |
 | [menus.md](menus.md) | toppmenyen, navigasjonsmodalen (universer + grupper), kontoknappen/-modalen | **ja** — navigasjon og menyer |
 | [drag-and-drop.md](drag-and-drop.md) | reorder, flytting mellom lister/grupper/universer, ekstrahering, peek, auto-scroll, de to dra-scopene | **ja** — dra-og-slipp-motoren |
 | [board-layout.md](board-layout.md) | kolonnefordelingen i listevisningen og avstander/padding/gap der | **ja** — board-layouten |

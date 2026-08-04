@@ -325,9 +325,35 @@ begin
   if has_column_privilege('authenticated', 'public.profiles', 'email', 'UPDATE') then
     feil := array_append(feil, 'authenticated KAN skrive profiles.email (skal være speilet fra auth)');
   end if;
-  if has_table_privilege('authenticated', 'public.memberships', 'INSERT') then
-    feil := array_append(feil, 'authenticated KAN sette inn i memberships (roller skal kun lages av RPC-ene)');
+  /* MINSTEPRIVILEGIUM. Klienten leser disse tabellene, men muterer dem aldri
+     direkte — roller og invitasjoner går via RPC-ene, gravsteiner skrives av
+     delete-triggerne. Supabases standardprivilegier gir ALL på en ny tabell,
+     så hver av dem må være EKSPLISITT trukket tilbake; en glemt REVOKE gir
+     ingen rød test noe annet sted. Matrisen står i users-and-sharing.sql. */
+  if not has_table_privilege('authenticated', 'public.memberships', 'SELECT, UPDATE') then
+    feil := array_append(feil, 'authenticated mangler SELECT/UPDATE på memberships (personlig rekkefølge + realtime)');
   end if;
+  foreach t in array array['INSERT', 'DELETE'] loop
+    if has_table_privilege('authenticated', 'public.memberships', t) then
+      feil := array_append(feil, 'authenticated KAN ' || t || ' på memberships (roller skal kun endres av RPC-ene)');
+    end if;
+  end loop;
+  if not has_table_privilege('authenticated', 'public.share_invites', 'SELECT') then
+    feil := array_append(feil, 'authenticated mangler SELECT på share_invites (innboksen + realtime)');
+  end if;
+  foreach t in array array['INSERT', 'UPDATE', 'DELETE'] loop
+    if has_table_privilege('authenticated', 'public.share_invites', t) then
+      feil := array_append(feil, 'authenticated KAN ' || t || ' på share_invites (skal kun gå via RPC-ene)');
+    end if;
+  end loop;
+  if not has_table_privilege('authenticated', 'public.tombstones', 'SELECT') then
+    feil := array_append(feil, 'authenticated mangler SELECT på tombstones (fetchServerTombs)');
+  end if;
+  foreach t in array array['INSERT', 'UPDATE', 'DELETE'] loop
+    if has_table_privilege('authenticated', 'public.tombstones', t) then
+      feil := array_append(feil, 'authenticated KAN ' || t || ' på tombstones (skrives kun av delete-triggerne)');
+    end if;
+  end loop;
 
   -- anon skal ikke se noe som helst.
   foreach t in array array[

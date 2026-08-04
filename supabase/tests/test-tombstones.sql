@@ -169,7 +169,30 @@ select public.t_check('re-import etter permanent sletting lykkes (gravsteinene r
   and (select count(*) from public.tombstones
         where resource_id = public.legacy_uuid(:'T', 'legacy-c')) = 0);
 
--- ---------- 9. anon kommer ingen vei ----------
+-- ---------- 9. gravsteiner er LESBARE, aldri skrivbare, for en klient ----------
+-- En klient som selv kunne skrive i tombstones kunne enten gravlegge andres
+-- objekter (ren sabotasje) eller RYDDE BORT sin egen gravstein og deretter
+-- sette inn igjen det som var permanent slettet — nøyaktig hullet vakten
+-- finnes for å tette. Grant-en er det ytterste laget: RLS har uansett ingen
+-- write-policy her, men Supabases standardprivilegier gir ALL på en ny tabell,
+-- så rettigheten må være EKSPLISITT trukket tilbake.
+reset role; select set_config('request.jwt.claim.sub', :'T', false); set role authenticated;
+select public.t_check('authenticated har SELECT på tombstones',
+  has_table_privilege('authenticated', 'public.tombstones', 'SELECT'));
+select public.t_check('authenticated har IKKE INSERT på tombstones',
+  not has_table_privilege('authenticated', 'public.tombstones', 'INSERT'));
+select public.t_check('authenticated har IKKE UPDATE på tombstones',
+  not has_table_privilege('authenticated', 'public.tombstones', 'UPDATE'));
+select public.t_check('authenticated har IKKE DELETE på tombstones',
+  not has_table_privilege('authenticated', 'public.tombstones', 'DELETE'));
+select public.t_fails('en klient kan ikke gravlegge et objekt selv',
+  'insert into public.tombstones (resource_type, resource_id, ts) values (''card'', gen_random_uuid(), 1)');
+select public.t_fails('en klient kan ikke fjerne sin egen gravstein',
+  'delete from public.tombstones where resource_id = ' || quote_literal(:'TC') || '::uuid');
+select public.t_check('gravsteinen står fortsatt etter forsøkene',
+  (select count(*) from public.tombstones where resource_id = :'TC'::uuid) = 1);
+
+-- ---------- 10. anon kommer ingen vei ----------
 reset role; select set_config('request.jwt.claim.sub', '', false); set role anon;
 select public.t_fails('anon kan ikke lese gravsteiner', 'select count(*) from public.tombstones');
 

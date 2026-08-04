@@ -3014,17 +3014,44 @@ revoke update on public.profiles from authenticated;
 grant update (display_name, avatar) on public.profiles to authenticated;
 grant select, insert, update, delete on public.universes, public.groups,
                                         public.cards, public.items to authenticated;
--- INSERT på memberships er BEVISST utelatt: roller opprettes kun av
--- SECURITY DEFINER-veiene (aksept av invitasjon + opprettelses-triggerne).
 -- Å UTELATE en grant er ikke nok i Supabase: prosjektet har
 -- `alter default privileges in schema public grant all on tables to anon,
 -- authenticated`, så en ny tabell får ALL — inkludert INSERT — i det den
--- opprettes. Den må trekkes tilbake eksplisitt, ellers står intensjonen over
--- her bare i en kommentar. (RLS avviser innsettingen uansett — memberships har
--- ingen insert-policy — men grant-en er laget som skal si nei først.)
-revoke insert on public.memberships from authenticated;
-grant select, update, delete on public.memberships to authenticated;
-grant select, delete on public.share_invites to authenticated;
+-- opprettes. Hver rettighet klienten ikke skal ha må trekkes tilbake
+-- EKSPLISITT, ellers står intensjonen bare i en kommentar. RLS ville som
+-- regel avvist skrivingen uansett, men grant-en er laget som skal si nei
+-- først: to lag, og det ytterste er billigst.
+--
+-- MATRISEN under er klientauditen — hva app.js faktisk gjør mot PostgREST:
+--
+--   tabell         | S | I | U | D | hvem som ellers skriver
+--   ---------------+---+---+---+---+---------------------------------------
+--   universes …    | ✓ | ✓ | ✓ | ✓ | rad-CRUD i synk-motoren (opQueue)
+--   items          |   |   |   |   |
+--   profiles       | ✓ | – | ✓*| – | *kun display_name/avatar; e-post speiles
+--                  |   |   |   |   |  fra auth.users av triggerne
+--   memberships    | ✓ | – | ✓*| – | *kun `pos` (personlig rekkefølge).
+--                  |   |   |   |   |  Roller lages/slettes av RPC-ene og
+--                  |   |   |   |   |  opprettelses-triggerne (SECURITY
+--                  |   |   |   |   |  DEFINER). SELECT trengs også av
+--                  |   |   |   |   |  realtime-abonnementet.
+--   share_invites  | ✓ | – | – | – | ALT går via RPC-ene (create/accept/
+--                  |   |   |   |   |  decline/revoke_share_invite). SELECT
+--                  |   |   |   |   |  trengs av realtime-abonnementet.
+--   tombstones     | ✓ | – | – | – | skrives KUN av write_tombstone()-
+--                  |   |   |   |   |  triggerne. Klienten leser dem i
+--                  |   |   |   |   |  fetchServerTombs().
+--
+-- Kolonnene uten ✓ er trukket tilbake under. `tests/db-contract.test.js` og
+-- smoke-testen holder matrisen og virkeligheten i takt.
+revoke insert, delete on public.memberships from authenticated;
+grant select, update on public.memberships to authenticated;
+-- share_invites muteres utelukkende gjennom RPC-ene. `share_invites_delete`-
+-- policyen står igjen som det innerste laget (og for psql/vedlikehold); ingen
+-- klient kommer forbi grant-en til å utløse den.
+revoke insert, update, delete on public.share_invites from authenticated;
+grant select on public.share_invites to authenticated;
+revoke insert, update, delete on public.tombstones from authenticated;
 grant select on public.tombstones to authenticated;
 
 do $$

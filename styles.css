@@ -2059,8 +2059,18 @@ body:has(.toast.show) .update-banner.show { transform: translateY(-128px); }
 
    Laget ligger over appen og lagringsstatusen (290), men under toasten (300) og
    oppdateringsbanneret (410) — de to skal kunne nå fram også midt i en
-   omvisning. Flaten tar imot klikk, som en modal-overlay: et bomtrykk på
-   scenen skal ikke utløse noe i appen bak.
+   omvisning.
+
+   TO MODUSER, og forskjellen er hvem som tar imot pekeren:
+
+   • FORTELLESTEG (`.tour.narrated` — velkomst og avslutning) har ingen
+     handling å utføre. Flaten tar imot klikk som en modal-overlay, så et
+     bomtrykk på scenen ikke utløser noe i appen bak.
+   • HANDLINGSSTEG (`.tour.guided`) skal utføres på det EKTE UI-et. Da må
+     laget slippe pekeren gjennom (`pointer-events: none`) — bare kortet
+     selv tar imot klikk. Det som skal holdes unna er ikke «alt», men det
+     destruktive: `body.tour-guided` slår av slette- og søppelkasse-
+     kontrollene så et bomtrykk ikke kan kaste noe underveis.
 
    Dempingen tegnes IKKE av en egen flate, men av `.tour-spot` sin enorme
    box-shadow-spredning (samme grep som bilderedigererens `.avatar-mask`): det
@@ -2073,8 +2083,23 @@ body:has(.toast.show) .update-banner.show { transform: translateY(-128px); }
   inset: 0;
   z-index: 295;
 }
+.tour.guided { pointer-events: none; }
+.tour.guided .tour-card { pointer-events: auto; }
 .tour.no-spot { background: rgba(45, 38, 70, 0.5); }
 .tour.no-spot .tour-spot { display: none; }
+/* `.tour.guided.no-spot` ville ellers lagt en dempet, gjennomklikkbar flate
+   over alt: dempingen er riktig, men den skal ikke stjele pekeren. */
+.tour.guided.no-spot { pointer-events: none; }
+
+/* Underveis i et handlingssteg er ALT som sletter avskrudd. Brukeren skal
+   kunne bomme uten å miste noe — og et bomtrykk her ville dessuten ofte
+   fjernet nettopp det objektet steget venter på. */
+body.tour-guided .card-delete,
+body.tour-guided .item-delete,
+body.tour-guided .trashcan {
+  pointer-events: none;
+  opacity: 0.35;
+}
 .tour-spot {
   position: fixed;
   border-radius: var(--control-radius);
@@ -2088,6 +2113,11 @@ body:has(.toast.show) .update-banner.show { transform: translateY(-128px); }
 .tour-card {
   position: fixed;
   width: min(400px, calc(100vw - 24px));
+  /* Høyden settes i JS når det ikke er plass til hele kortet ved siden av
+     målet (smal skjerm). Da ruller kortet innvendig i stedet for å legge seg
+     oppå kontrollen brukeren skal trykke på — se placeTour(). */
+  overflow-y: auto;
+  overscroll-behavior: contain;
   padding: 18px;
   border-radius: 20px;
   background: #fff;
@@ -2104,6 +2134,15 @@ body:has(.toast.show) .update-banner.show { transform: translateY(-128px); }
   color: var(--ink-soft);
 }
 .tour-title { margin: 0 0 8px; padding-right: 30px; font-size: var(--fs-lg); font-weight: 700; }
+/* Én linje under teksten: «gjør dette nå»-instruksjonen, eller beskjeden om at
+   handlingen ikke ble fullført (avbrutt navngiving, lagring som ikke landet). */
+.tour-note {
+  margin: 10px 0 0;
+  font-size: var(--fs-sm);
+  font-weight: 600;
+  color: var(--ink-soft);
+}
+.tour-note.is-error { color: var(--danger); }
 .tour-text { font-size: var(--fs-md); line-height: 1.45; }
 .tour-text p { margin: 0 0 8px; }
 .tour-text p:last-child { margin-bottom: 0; }
@@ -2119,7 +2158,10 @@ body:has(.toast.show) .update-banner.show { transform: translateY(-128px); }
   margin-top: 16px;
 }
 .tour-nav { display: flex; align-items: center; gap: 8px; }
-.tour-close { position: absolute; top: 10px; right: 10px; }
+/* To klasser, ikke én: `.icon-btn:not(.pass-toggle)` setter `position:
+   relative` med samme spesifisitet som en enkelt klasse ville hatt, og vant —
+   så ✕-en havnet i flyten nederst i kortet i stedet for i hjørnet. */
+.tour-card .tour-close { position: absolute; top: 10px; right: 10px; }
 
 /* ---------------- Merkevare-logo (innloggingsskjerm) ---------------- */
 /* (app-innhold skjules av `body.no-auth`-regelen i FASE 2-seksjonen under.) */

@@ -22,6 +22,8 @@
      7. ci.yml kjører både JS- og SQL-suiten, og gjenbrukes av release.yml
      8. deployjobben sjekker Vercel-tilgangen FØR den bygger, forklarer 401/403/
         404 hver for seg, og logger aldri tokenet — og bruker ikke `vercel pull`
+     9. Vercel CLI-en er låst til en EKSAKT versjon (aldri `@latest`), definert
+        ett sted og verifisert i jobben
 
    Ren node-test — ingen server, ingen nettleser.
 
@@ -150,6 +152,26 @@ for (const kode of ['401', '403', '404']) {
   check('preflighten forklarer HTTP ' + kode + ' konkret',
     !!relJobs.deploy && new RegExp('^\\s*' + kode + '\\)', 'm').test(relJobs.deploy));
 }
+/* ---- 4b. Vercel CLI-en er låst til en eksakt versjon ----
+   `@latest` gjør deployen ikke-reproduserbar: en ny CLI-utgivelse kan endre
+   oppførselen uten at repoet har endret seg, og utgivelsene kommer tett.
+   Versjonen skal stå ETT sted (workflow-env) og brukes derfra. */
+const cliVersjon = (release.match(/^\s*VERCEL_CLI_VERSION:\s*'([^']+)'/m) || [])[1];
+check('release.yml definerer VERCEL_CLI_VERSION ett sted',
+  !!cliVersjon, cliVersjon || 'mangler');
+check('versjonen er eksakt (ingen ^, ~, x eller «latest»)',
+  !!cliVersjon && /^\d+\.\d+\.\d+$/.test(cliVersjon), cliVersjon || '');
+check('ingenting installerer vercel@latest',
+  !/vercel@latest/.test(utenKommentarer(release)));
+check('installasjonssteget bruker den definerte versjonen',
+  !!relJobs.deploy
+    && /npm install -g "?vercel@\$\{VERCEL_CLI_VERSION\}"?/.test(utenKommentarer(relJobs.deploy)),
+  (utenKommentarer(relJobs.deploy || '').match(/npm install -g[^\n]*/) || [''])[0].trim());
+/* Å installere riktig versjon er ikke det samme som å KJØRE den: en npm-cache
+   eller et forhåndsinstallert globalt CLI på runneren kan legge seg foran. */
+check('deployjobben verifiserer at den låste versjonen faktisk kjører',
+  !!relJobs.deploy && /vercel --version/.test(utenKommentarer(relJobs.deploy)));
+
 /* Uten tidsgrenser henger curl i det ene tilfellet 000-grenen finnes for: et
    API som tar imot forbindelsen og så tier. Da spises jobbens timeout og
    diagnostikken sier ingenting. */

@@ -10317,6 +10317,10 @@
     schemaMismatchLogged.clear();
     rejectCounts.clear();
     syncStatus.stop();
+    // Innføringen tilhørte den utloggede kontoen. Uten dette blir laget,
+    // tidsuret og `body.tour-guided` stående — og den klassen demper slette-
+    // og søppelkassekontrollene, altså for NESTE konto som logger inn.
+    resetTourState();
     authUser = null;
     // Innhold, gravsteiner og base tømmes SAMMEN. Cachen på disken er nøklet
     // per bruker og røres ikke (samme konto får sitt igjen ved neste innlogging)
@@ -10444,12 +10448,14 @@
 
      To deler, med ulik tyngde:
 
-       1. OMVISNINGEN — fem steg som kjøres én gang, rett etter første
-          vellykkede innlogging. Hvert steg peker på EKTE UI med en spotlight
-          (`.tour-spot`), aldri på en tegning av det. Finnes ikke elementet
-          steget handler om (en fersk konto har verken grupper eller lister),
-          vises steget midtstilt uten spotlight — teksten gjelder likevel, og
-          omvisningen kan tas om igjen fra konto-modalen når innholdet finnes.
+       1. INNFØRINGEN — en interaktiv, TILSTANDSBASERT runde der brukeren
+          bygger hele hierarkiet selv: univers → gruppe → liste → listepunkt.
+          Den går ALDRI videre fordi en knapp ble trykket; den går videre når
+          objektet steget ber om faktisk finnes i state, hos riktig forelder,
+          med et navn. Avbrutt navngiving, en lukket modal eller en avvist
+          skriving er derfor ikke et fullført steg — kortet blir stående.
+          Spotlighten peker på EKTE UI, og på et handlingssteg er det ekte
+          UI-et også det brukeren trykker på: laget slipper pekeren gjennom.
        2. TIPSENE — de avanserte gestene (trykk-og-hold, sveip, dra til
           navigasjonsknappen) læres bort først når de faktisk er relevante, ett
           kort tips om gangen, i den vanlige toasten. Et tips fortrenger aldri
@@ -10457,10 +10463,15 @@
           aldri fokus.
 
      Begge deler huskes på KONTOEN (`user_metadata`), ikke per enhet — samme
-     mekanikk som den huskede posisjonen (`nav`), så en fullført eller
-     hoppet-over introduksjon ikke dukker opp igjen på neste enhet. */
-  const TOUR_VERSION = 1;   // øk hvis omvisningen skal vises på nytt for alle
+     mekanikk som den huskede posisjonen (`nav`), så en fullført, hoppet-over
+     eller PÅBEGYNT innføring følger brukeren til neste enhet. */
+  const TOUR_VERSION = 2;    // v1 = den passive omvisningen (se onboardingSeen)
   const TIP_QUIET_MS = 6000; // ro mellom to tips (ett budskap om gangen)
+  /* Steget venter på en TILSTAND, ikke på en hendelse: objektet kan dukke opp
+     fra en inline-navngiving, en synk-runde fra en annen enhet eller en angret
+     sletting. Å lytte på alle veiene dit ville vært en liste som råtner; ett
+     billig intervall som stiller det samme spørsmålet råtner ikke. */
+  const TOUR_POLL_MS = 250;
 
   const tourEl = document.getElementById('tour');
   const tourSpot = document.getElementById('tour-spot');
@@ -10468,65 +10479,189 @@
   const tourStepEl = document.getElementById('tour-step');
   const tourTitleEl = document.getElementById('tour-title');
   const tourTextEl = document.getElementById('tour-text');
-  const tourPrevBtn = document.getElementById('tour-prev');
+  const tourNoteEl = document.getElementById('tour-note');
   const tourNextBtn = document.getElementById('tour-next');
   const tourSkipBtn = document.getElementById('tour-skip');
+  const tourSkipStepBtn = document.getElementById('tour-skip-step');
+  const tourPracticeBtn = document.getElementById('tour-practice');
   const tourCloseBtn = document.getElementById('tour-close');
   const tourRestartBtn = document.getElementById('tour-restart');
   const menuTour = document.getElementById('menu-tour');
 
   const tourChip = (inner) => '<span class="hint-chip">' + inner + '</span>';
+  const tourQ = (id) => '[data-id="' + String(id).replace(/["\\]/g, '\\$&') + '"]';
+  const tourNamed = (o, field) => !!o && String(o[field] || '').trim() !== '';
 
-  /* De fem hovedstegene. `target` er en selektor mot ekte UI; er den tom (eller
-     finner ingenting synlig) vises steget uten spotlight. */
+  /* ---------- Oppslag innføringen bygger på ---------- */
+  // Universene brukeren selv rår over. Fri-gruppe-beholderen er virtuell og
+  // kan verken opprettes eller velges, så den holdes utenfor.
+  const tourUniverses = () => state.universes.filter((u) => live(u) && !u._virtual);
+  const tourUni = () => tourUniverses().find((u) => u.id === tourCtx.universeId) || null;
+  const tourGroups = (u) => (u ? u.groups.filter((g) => live(g) && !g.isCat) : []);
+  const tourGroup = () => tourGroups(tourUni()).find((g) => g.id === tourCtx.groupId) || null;
+  const tourCards = (g) => (g ? g.cards.filter(live) : []);
+  const tourCardObj = () => tourCards(tourGroup()).find((c) => c.id === tourCtx.cardId) || null;
+  const tourItems = (c) => (c ? c.items.filter((it) => live(it) && !it.isCat) : []);
+
+  /* Objektet som ble opprettet I DETTE STEGET — ikke bare «et objekt finnes».
+     `tourBaseline` er id-ene som fantes da steget begynte, så et univers
+     brukeren allerede hadde (eller en synk-runde drar inn fra en annen enhet)
+     ikke kan fullføre steget på vegne av handlingen som aldri ble utført. */
+  const tourFresh = (rows, field) =>
+    rows.find((o) => !tourBaseline.has(o.id) && tourNamed(o, field)) || null;
+
+  /* ---------- Stegene ----------
+     `done()` er hele fasiten for framdrift: den returnerer en context-patch
+     når steget ER utført, ellers null. `review()` er repetisjonsmodusens
+     variant — den peker på det brukeren ALLEREDE har i stedet for å be om et
+     duplikat. `blocked()` sier fra når steget er umulig for denne kontoen
+     (ingen opprettelsesrett), slik at det kan hoppes over i stedet for å bli
+     stående som en oppgave brukeren ikke får lov til å løse. */
   const TOUR_STEPS = [
     {
+      id: 'welcome',
       title: 'Velkommen til Huskis',
       html: '<p>Alt du lager ligger i fire nivåer: <b>univers</b> → <b>gruppe</b> → ' +
         '<b>liste</b> → <b>listepunkt</b>.</p>' +
-        '<p>Et univers samler grupper, en gruppe samler lister, og listepunktene ' +
-        'ligger i listene. Trenger en liste flere avsnitt, samler du listepunktene ' +
-        'i <b>kategorier</b>.</p>',
+        '<p>Nå lager du ett av hvert. Det du oppretter er ekte innhold, og blir ' +
+        'stående når du er ferdig.</p>',
+      cta: 'Kom i gang',
     },
     {
+      id: 'open_nav',
       title: 'Her ser du hvor du er',
       target: '#nav-crumb',
       html: '<p>Knappen øverst viser ' + tourChip(ICONS.globe + ' universet') + ' › ' +
-        tourChip(ICONS.folder + ' gruppen') + ' du står i.</p>' +
-        '<p>Trykk på den for å åpne oversikten — der bytter, oppretter, omdøper, ' +
-        'flytter og deler du universer og grupper.</p>',
+        tourChip(ICONS.folder + ' gruppen') + ' du står i. Oversikten bak den er ' +
+        'stedet universer og grupper lages.</p>',
+      action: 'Trykk på knappen øverst for å åpne oversikten.',
+      done: () => (navModal.hidden ? null : {}),
     },
     {
+      id: 'create_universe',
+      title: 'Lag et univers',
+      needsNav: true,
+      target: '.nav-add-uni button',
+      html: '<p>Et univers er øverste nivå — et eget område med sine egne grupper.</p>' +
+        '<p>' + tourChip(ICONS.plus + ' ' + ICONS.globe) + ' nederst i «Mine universer» ' +
+        'lager et nytt. Skriv navnet og trykk Enter.</p>',
+      action: 'Opprett et univers, og gi det et navn.',
+      done: () => {
+        const u = tourFresh(tourUniverses(), 'name');
+        return u ? { universeId: u.id } : null;
+      },
+      review: () => {
+        const u = tourUniverses().find((x) => tourGroups(x).length) || tourUniverses()[0];
+        return u ? { universeId: u.id } : null;
+      },
+    },
+    {
+      id: 'create_group',
+      title: 'Lag en gruppe i universet',
+      needsNav: true,
+      target: () => navBoard.querySelector(
+        '.uni-card' + tourQ(tourCtx.universeId) + ' .add-item-row .add-item-btn'),
+      html: '<p>En gruppe samler lister som hører sammen — «Hjemme», «Jobb», «Uke 34».</p>' +
+        '<p>' + tourChip(ICONS.plus) + ' i universkortet lager en gruppe. Skriv navnet ' +
+        'og trykk Enter — uten navn blir den ikke stående.</p>',
+      action: 'Opprett en gruppe i universet du nettopp lagde.',
+      blocked: () => {
+        const u = tourUni();
+        if (!u) return '';
+        return cap(u, 'createGroup', u._role === 'owner')
+          ? '' : 'Du kan ikke opprette grupper i dette universet.';
+      },
+      done: () => {
+        const g = tourFresh(tourGroups(tourUni()), 'name');
+        return g ? { groupId: g.id } : null;
+      },
+      review: () => {
+        const g = tourGroups(tourUni()).find((x) => tourCards(x).length) ||
+          tourGroups(tourUni())[0];
+        return g ? { groupId: g.id } : null;
+      },
+    },
+    {
+      id: 'open_group',
+      title: 'Åpne gruppen',
+      needsNav: true,
+      target: () => navBoard.querySelector(
+        '.uni-card' + tourQ(tourCtx.universeId) + ' .item' + tourQ(tourCtx.groupId)),
+      html: '<p>Trykk på gruppen for å gå inn i den. Da lukkes oversikten, og listene ' +
+        'i gruppen fyller skjermen.</p>',
+      action: 'Trykk på gruppen for å åpne den.',
+      done: () => (state.activeGroup === tourCtx.groupId ? {} : null),
+      review: () => (state.activeGroup === tourCtx.groupId ? {} : null),
+    },
+    {
+      id: 'create_card',
       title: 'Lag en liste',
+      needsBoard: true,
       target: '#add-card-btn',
-      html: '<p>' + tourChip(ICONS.plus + ' ' + ICONS.list) + ' lager en ny liste i gruppen ' +
+      html: '<p>' + tourChip(ICONS.plus + ' ' + ICONS.list) + ' lager en liste i gruppen ' +
         'du står i.</p>' +
         '<p>Listen opprettes med én gang og navngis på plassen sin: skriv navnet og ' +
         'trykk Enter.</p>',
+      action: 'Opprett en liste i gruppen.',
+      blocked: () => {
+        const g = tourGroup();
+        if (!g) return '';
+        return canAddList(g) ? '' : 'Du kan ikke opprette lister i denne gruppen.';
+      },
+      done: () => {
+        const c = tourFresh(tourCards(tourGroup()), 'title');
+        return c ? { cardId: c.id } : null;
+      },
+      review: () => {
+        const c = tourCards(tourGroup()).find((x) => tourItems(x).length) ||
+          tourCards(tourGroup())[0];
+        return c ? { cardId: c.id } : null;
+      },
     },
     {
-      title: 'Grønn ＋ og gul ＋',
-      target: '.board .card .add-item-row',
-      html: '<p>Nederst i hver liste står to knapper:</p>' +
-        '<p>' + tourChip(ICONS.plus) + ' <b>Grønn ＋</b> legger til et <b>listepunkt</b>.</p>' +
-        '<p>' + tourChip(ICONS.category) + ' <b>Gul ＋</b> legger til en <b>kategori</b> — en ' +
-        'overskrift som samler listepunkter under seg.</p>',
+      id: 'create_item',
+      title: 'Legg til et listepunkt',
+      needsBoard: true,
+      target: () => board.querySelector(
+        '.card' + tourQ(tourCtx.cardId) + ' .add-item-row .add-item-btn'),
+      html: '<p>Den ' + tourChip(ICONS.plus) + ' <b>grønne ＋</b> nederst i listen legger ' +
+        'til et listepunkt.</p>' +
+        '<p>Skriv teksten og trykk Enter. Et listepunkt uten tekst blir ikke stående.</p>',
+      action: 'Legg til et listepunkt i listen.',
+      done: () => (tourItems(tourCardObj()).some((it) => tourNamed(it, 'text')) ? {} : null),
+      review: () => (tourItems(tourCardObj()).length ? {} : null),
     },
     {
-      title: 'Endre navn, flytt og slett',
-      target: '.board .card .card-head',
-      html: '<p>Klikk på et navn for å endre det — det gjelder på alle nivåer.</p>' +
-        '<p>Hold på navnet (eller dra det med musen) for å flytte objektet dit du ' +
-        'vil, og ' + tourChip(ICONS.xmark) + ' legger det i søppelkassen ' +
-        tourChip(ICONS.trash) + ', der du kan hente det tilbake.</p>',
+      id: 'finish',
+      title: 'Der har du hele Huskis',
+      html: '<p>Du har laget et univers, en gruppe, en liste og et listepunkt — ' +
+        'og det står der fortsatt.</p>' +
+        '<p>Resten finner du når du trenger det: den ' + tourChip(ICONS.category) +
+        ' <b>gule ＋</b> lager en kategori i en liste, klikk på et navn for å endre ' +
+        'det, hold og dra for å flytte, og ' + tourChip(ICONS.people) + ' deler et ' +
+        'univers eller en gruppe med andre.</p>',
+      cta: 'Ferdig',
     },
   ];
+  const TOUR_LAST = TOUR_STEPS.length - 1;
+  const tourRank = (id) => TOUR_STEPS.findIndex((s) => s.id === id);
 
   let tourActive = false;
+  let tourMode = 'practice';  // 'practice' (utfør) | 'review' (se på det som finnes)
   let tourIndex = 0;
-  let tourTarget = null;      // elementet spotlighten står på (kan være null)
-  let tourReturnFocus = null; // fokus tilbake hit når omvisningen lukkes
+  let tourCtx = { universeId: null, groupId: null, cardId: null };
+  let tourBaseline = new Set();  // id-er som fantes da steget begynte
+  let tourTarget = null;         // elementet spotlighten står på (kan være null)
+  let tourReturnFocus = null;    // fokus tilbake hit når innføringen lukkes
+  let tourTick = null;           // tilstandsobservatøren, kun mens den står på
   let onboardingWaits = 0;
+  /* Høyeste steg denne økten har stått på. Framdrift skal ikke gå BAKOVER: en
+     metadatarespons som lander sent (eller en synk-runde som drar inn en eldre
+     lagret tilstand fra en annen enhet) skal ikke kaste brukeren tilbake til et
+     steg hen alt har gjort. */
+  let onboardingFloor = -1;
+  // Billettnummer for framdriftsskrivingene (se saveOnboarding).
+  let onboardingWriteSeq = 0;
 
   /* ---------- Kontoens minne (user_metadata) ---------- */
   // Ett objekt-felt i user_metadata, alltid som et objekt (aldri null/streng —
@@ -10535,15 +10670,41 @@
     const v = authUser && authUser.meta && authUser.meta[key];
     return v && typeof v === 'object' ? v : {};
   }
+  /* Har kontoen gjort seg ferdig med introduksjonen? MIGRERINGSREGELEN ligger
+     her, og den er én linje: et registrert «ferdig» eller «hoppet over» teller,
+     uansett hvilken versjon som registrerte det. Den som kom gjennom v1 blir
+     altså ikke dratt inn i v2 automatisk — men kan hente den fram igjen med
+     «Vis på nytt». Kun en konto UTEN markør regnes som reelt ny. */
   function onboardingSeen() {
     const o = accountPref('onboarding');
-    return typeof o.v === 'number' && o.v >= TOUR_VERSION;
+    if (typeof o.v !== 'number') return false;
+    return o.status === 'done' || o.status === 'skipped';
+  }
+  // Et påbegynt løp på denne (eller en annen) enheten — steg + hvilke objekter
+  // stegene alt har opprettet.
+  function onboardingResumePoint() {
+    const o = accountPref('onboarding');
+    if (o.v !== TOUR_VERSION || o.status !== 'in_progress') return null;
+    const i = tourRank(o.step);
+    if (i < 0) return null;
+    const c = o.context && typeof o.context === 'object' ? o.context : {};
+    return {
+      index: Math.max(i, onboardingFloor),
+      ctx: {
+        universeId: c.universeId || null,
+        groupId: c.groupId || null,
+        cardId: c.cardId || null,
+      },
+    };
   }
   // Skriv en metadata-nøkkel: lokalt med én gang (så den ikke gjentas i denne
   // økten), til kontoen i bakgrunnen. Landet ikke skrivingen, prøver vi igjen
   // én gang — og gir vi opp, dukker introduksjonen heller opp igjen ved neste
   // innlogging enn at vi later som den er sett.
-  function saveAccountPref(patch, retriesLeft) {
+  // stillIfCurrent (valgfri): en vakt som må si ja FØR et nytt forsøk sendes.
+  // Brukes av framdriftsskrivingen, der et gammelt forsøk ellers kunne lande
+  // etter et nyere og skrive tilbake et eldre steg.
+  function saveAccountPref(patch, retriesLeft, stillIfCurrent) {
     if (!authUser) return;
     // Hvem skrivingen gjelder. Supabase kan gå fra én innlogget bruker til en
     // annen mens forsøket ligger og venter, og da hører verken metadataen eller
@@ -10559,29 +10720,70 @@
         if (!retriesLeft) return;
         setTimeout(() => {
           if (!authUser || authUser.id !== forUser) return; // en annen konto har overtatt
-          saveAccountPref(patch, retriesLeft - 1);
+          if (stillIfCurrent && !stillIfCurrent()) return;  // en nyere skriving har overtatt
+          saveAccountPref(patch, retriesLeft - 1, stillIfCurrent);
         }, 5000);
       });
   }
+  /* Lagre framdriften. Går aldri bakover: et steg lavere enn det høyeste denne
+     økten har nådd skrives ikke, så en forsinket runde ikke kan overskrive et
+     ferdig løp med et halvt et. `status` er alltid med, så «pågår» kan skilles
+     fra «ferdig» og «hoppet over» — også på en annen enhet. */
+  function saveOnboarding(status, index, ctx) {
+    const i = index == null ? tourIndex : index;
+    if (status === 'in_progress') {
+      if (i < onboardingFloor) return;
+      onboardingFloor = i;
+    }
+    const step = TOUR_STEPS[Math.max(0, Math.min(i, TOUR_LAST))].id;
+    /* Skrivingene er uavhengige HTTP-kall og kan lande i vilkårlig rekkefølge.
+       Verst er retry-veien: et «pågår»-forsøk som feilet ligger og venter i 5
+       sekunder, og rekker i mellomtiden å bli overhalt av «ferdig» — for så å
+       skrive halvveis-tilstanden tilbake over den. `onboardingFloor` stanser
+       bare NYE eldre skrivinger; billetten her stanser også et forsøk som alt
+       er i kø. Den er én teller: bare den nyeste billetten får prøve igjen. */
+    const ticket = ++onboardingWriteSeq;
+    saveAccountPref({
+      onboarding: {
+        v: TOUR_VERSION,
+        status: status,
+        step: step,
+        context: Object.assign({}, ctx || tourCtx),
+      },
+    }, 1, () => ticket === onboardingWriteSeq);
+  }
 
-  /* ---------- Omvisningen ---------- */
+  /* ---------- Innføringen ---------- */
+  const tourStep = () => TOUR_STEPS[tourIndex] || TOUR_STEPS[TOUR_LAST];
+  // Et FORTELLESTEG har ingen handling å utføre (velkomst, avslutning). Det er
+  // modalt: flaten tar imot klikk, fokus holdes i kortet, og «Neste» driver det
+  // videre. Alt annet er et HANDLINGSSTEG.
+  const tourNarrated = () => !tourStep().done;
   function tourFocusables() {
     return Array.prototype.filter.call(
       tourCard.querySelectorAll('button'), (b) => !b.disabled && !b.hidden);
   }
-  // Elementet steget peker på — men bare hvis det faktisk er synlig nå.
+  // Elementet steget peker på — men bare hvis det faktisk er synlig nå. En
+  // selektor slås opp i dokumentet; en funksjon får finne elementet selv (mål
+  // som avhenger av hva innføringen har opprettet).
   function tourTargetFor(step) {
-    if (!step.target) return null;
-    const el = document.querySelector(step.target);
-    return el && el.getClientRects().length ? el : null;
+    if (!step || !step.target) return null;
+    let el = null;
+    try {
+      el = typeof step.target === 'function' ? step.target() : document.querySelector(step.target);
+    } catch (e) { el = null; }
+    if (!el || !el.getClientRects().length) return null;
+    // Et skjult/avskrudd mål er ikke noe å be brukeren trykke på.
+    if (el.disabled || el.closest('[hidden]')) return null;
+    return el;
   }
   // Legg spotlighten på målet og kortet ved siden av det (under hvis det er
   // plass, ellers over, ellers midt på skjermen). Uten mål: midtstilt kort og
   // dempet flate.
   function placeTour() {
-    // Board-et kan ha blitt tegnet på nytt under omvisningen (en synk-runde):
+    // Board-et kan ha blitt tegnet på nytt under innføringen (en synk-runde):
     // slå opp elementet igjen hvis det vi holdt på er koblet fra DOM-en.
-    if (tourTarget && !tourTarget.isConnected) tourTarget = tourTargetFor(TOUR_STEPS[tourIndex]);
+    if (!tourTarget || !tourTarget.isConnected) tourTarget = tourTargetFor(tourStep());
     const margin = 12;
     const cw = tourCard.offsetWidth;
     const ch = tourCard.offsetHeight;
@@ -10590,7 +10792,20 @@
     if (!tourTarget || !tourTarget.getClientRects().length) {
       tourEl.classList.add('no-spot');
       tourCard.style.left = Math.max(margin, (vw - cw) / 2) + 'px';
-      tourCard.style.top = Math.max(margin, (vh - ch) / 2) + 'px';
+      /* Et FORTELLESTEG er modalt og skal stå midt på. Et HANDLINGSSTEG uten
+         mål er noe helt annet: kontrollen kan være skjult eller avskrudd for
+         denne kontoen, og da må brukeren fortsatt nå appen — for å hoppe over
+         steget, eller for å gjøre det som faktisk er mulig. Et midtstilt kort
+         ville lagt seg tvers over nettopp det. Kortet dokkes derfor nederst,
+         med høyden kappet til under halve skjermen. */
+      if (tourNarrated()) {
+        tourCard.style.maxHeight = '';
+        tourCard.style.top = Math.max(margin, (vh - ch) / 2) + 'px';
+      } else {
+        const tak = Math.max(120, Math.floor(vh * 0.45));
+        tourCard.style.maxHeight = tak + 'px';
+        tourCard.style.top = Math.max(margin, vh - Math.min(ch, tak) - margin) + 'px';
+      }
       return;
     }
     tourEl.classList.remove('no-spot');
@@ -10600,25 +10815,124 @@
     tourSpot.style.top = (r.top - pad) + 'px';
     tourSpot.style.width = (r.width + pad * 2) + 'px';
     tourSpot.style.height = (r.height + pad * 2) + 'px';
+    /* Kortet skal ALDRI legge seg oppå målet. Det er ikke bare stygt: på et
+       handlingssteg er målet det brukeren skal trykke på, og et kort i veien
+       gjør steget umulig (fingeren treffer kortet). På en smal skjerm finnes
+       det ikke alltid plass til et helt kort verken over eller under — da
+       velges den største luften, og kortet kappes til den og ruller
+       innvendig. Midtstilling er derfor ikke lenger et alternativ her. */
     const gap = 18;
-    let top = r.bottom + gap;
-    if (top + ch > vh - margin) {
-      const above = r.top - gap - ch;
-      top = above >= margin ? above : Math.max(margin, (vh - ch) / 2);
-    }
+    const below = vh - r.bottom - gap - margin;
+    const above = r.top - gap - margin;
+    let top;
+    let maxH = '';
+    if (ch <= below) top = r.bottom + gap;
+    else if (ch <= above) top = r.top - gap - ch;
+    else if (below >= above) { top = r.bottom + gap; maxH = Math.max(0, below) + 'px'; }
+    else { top = margin; maxH = Math.max(0, above) + 'px'; }
+    tourCard.style.maxHeight = maxH;
     let left = r.left + r.width / 2 - cw / 2;
     left = Math.max(margin, Math.min(left, vw - cw - margin));
     tourCard.style.left = left + 'px';
     tourCard.style.top = top + 'px';
   }
+  // Én linje under teksten: hva som skal gjøres nå, eller hvorfor steget ennå
+  // ikke er kvittert ut. Settes på hver runde, så den følger tilstanden.
+  function tourNote(text, isError) {
+    tourNoteEl.hidden = !text;
+    tourNoteEl.textContent = text || '';
+    tourNoteEl.classList.toggle('is-error', !!text && !!isError);
+  }
+  /* Hva står i veien akkurat nå? Rekkefølgen er den brukeren møter dem i:
+     først en avvist skriving (da er det ingen vits i å gå videre), så en
+     forutsetning steget selv har (oversikten må være åpen / lukket), så den
+     vanlige instruksjonen. */
+  function tourHint() {
+    const step = tourStep();
+    if (tourWriteBlocked()) {
+      return { text: 'Endringen ble ikke lagret på kontoen din. Prøv igjen fra ' +
+        'lagringsstatusen — steget står til den har landet.', error: true };
+    }
+    const blocked = step.blocked && step.blocked();
+    if (blocked) return { text: blocked, error: true };
+    if (step.needsNav && navModal.hidden) {
+      return { text: 'Åpne oversikten med knappen øverst for å fortsette.', error: false };
+    }
+    if (step.needsBoard && !navModal.hidden) {
+      return { text: 'Lukk oversikten for å komme tilbake til listene.', error: false };
+    }
+    if (step.done && tourEditingOpen()) {
+      return { text: 'Skriv navnet og trykk Enter.', error: false };
+    }
+    return { text: step.action || '', error: false };
+  }
+  /* En skriving serveren har sagt nei til. Da er ikke handlingen lagret på
+     kontoen, og steget skal IKKE kvitteres ut — brukeren ville ellers fått
+     beskjed om at alt gikk bra, mens objektet forsvant ved neste innlogging.
+     Frakoblet er ikke det samme: da ligger endringen trygt lokalt og synker
+     når nettet er tilbake. */
+  function tourWriteBlocked() {
+    try { return syncStatus.snapshot().state === 'rejected'; } catch (e) { return false; }
+  }
+  /* Har den nettopp utførte handlingen fått sin DOM? `tourWriteBlocked()` alene
+     er ikke nok: `save()` debouncer synk-runden 300 ms, og observatøren går
+     hvert 250 ms, så den ville rukket å kvittere ut steget FØR den avvisende
+     forespørselen i det hele tatt startet — og avvisningen ville dukket opp på
+     neste steg, med en lagret kontekst som peker på et objekt serveren nektet.
+     Vi venter derfor til det ikke lenger ligger ukvitterte lokale endringer.
+
+     Frakoblet er IKKE en feil: da ligger endringen trygt lokalt og synker når
+     nettet er tilbake, og innføringen skal ikke stå og vente på nett brukeren
+     ikke har. `offline()` slår inn etter to mislykkede runder, så en server som
+     ikke svarer i det hele tatt låser heller ikke flyten. */
+  function tourAwaitingWrite() {
+    let s;
+    try { s = syncStatus.snapshot(); } catch (e) { return false; }
+    if (s.offline) return false;
+    return !!s.pending;
+  }
+  // Står en inline-navngiving åpen? `isBusyEditing()` ser bare på fokus, og
+  // fokus kan ha gått et annet sted (et klikk utenfor commiter riktignok, men
+  // det skjer i en egen hendelse) — feltet i DOM-en er det sikre svaret.
+  function tourEditingOpen() {
+    return !!document.querySelector('.edit-input');
+  }
+  // Knapperaden følger stegtypen: et handlingssteg har ingen «Neste» (det er
+  // handlingen som teller), men kan hoppes over hvis det er umulig.
+  function paintTourControls() {
+    const step = tourStep();
+    const narrated = tourNarrated();
+    const blocked = !!(step.blocked && step.blocked());
+    tourNextBtn.hidden = !narrated;
+    tourNextBtn.textContent = step.cta || 'Neste';
+    // «Hopp over» hører ikke hjemme på avslutningen: da er det ingenting igjen
+    // å hoppe over. ✕ lukker fortsatt.
+    tourSkipBtn.hidden = tourIndex === TOUR_LAST;
+    /* «Hopp over steget» er en nødutgang, ikke en snarvei. Den finnes to
+       steder: når steget er UMULIG for denne kontoen (ingen opprettelsesrett
+       — da ville det ellers blitt stående som en oppgave brukeren ikke får
+       lov til å løse), og i repetisjonsmodus, som er frivillig hele veien. */
+    tourSkipStepBtn.hidden = narrated || !(blocked || tourMode === 'review');
+    // Repetisjonsmodus kan gjøres om til ekte øving, men bare fra starten —
+    // midt i et løp ville byttet stått igjen med halv kontekst.
+    tourPracticeBtn.hidden = !(tourMode === 'review' && step.id === 'welcome');
+  }
   function paintTourStep() {
-    const step = TOUR_STEPS[tourIndex];
-    const last = tourIndex === TOUR_STEPS.length - 1;
+    const step = tourStep();
     tourStepEl.textContent = 'Steg ' + (tourIndex + 1) + ' av ' + TOUR_STEPS.length;
     tourTitleEl.textContent = step.title;
     tourTextEl.innerHTML = step.html;
-    tourPrevBtn.disabled = tourIndex === 0;
-    tourNextBtn.textContent = last ? 'Ferdig' : 'Neste';
+    const hint = tourHint();
+    tourNote(hint.text, hint.error);
+    paintTourControls();
+    // Modalt = fortellesteg. På et handlingssteg SKAL appen bak være i bruk, og
+    // da er «aria-modal» en løgn overfor skjermleseren.
+    const narrated = tourNarrated();
+    tourEl.classList.toggle('guided', !narrated);
+    tourEl.classList.toggle('narrated', narrated);
+    document.body.classList.toggle('tour-guided', !narrated);
+    if (narrated) tourCard.setAttribute('aria-modal', 'true');
+    else tourCard.removeAttribute('aria-modal');
     tourTarget = tourTargetFor(step);
     if (tourTarget) {
       tourTarget.scrollIntoView({
@@ -10627,35 +10941,157 @@
       });
     }
     placeTour();
-    // «Tilbake» er avskrudd på første steg — sto fokuset der, ville det gått i
-    // bakken. Ellers blir fokus stående, så Enter-Enter-Enter tar deg gjennom.
-    if (document.activeElement === tourPrevBtn && tourPrevBtn.disabled) tourNextBtn.focus();
+    tourFocusStep();
   }
-  function goToTourStep(i) {
-    tourIndex = Math.max(0, Math.min(i, TOUR_STEPS.length - 1));
-    paintTourStep();
-  }
-  // returnTo (valgfri): elementet fokuset skal tilbake til når omvisningen
-  // lukkes — settes av kallere som selv lukker noe først (konto-modalen).
-  function startTour(returnTo) {
-    if (!authUser) return;
-    tourReturnFocus = returnTo || document.activeElement;
-    tourActive = true;
-    tourIndex = 0;
-    tourEl.hidden = false;
-    paintTourStep();
+  /* Fokus. På et fortellesteg står det i kortet (som er modalt). På et
+     handlingssteg flyttes det til den EKTE kontrollen — det er den som skal
+     brukes, og en tastaturbruker skal kunne trykke Enter der uten å lete.
+     Vi rører aldri fokus mens brukeren skriver: en inline-navngiving er
+     nettopp handlingen vi venter på. */
+  function tourFocusStep() {
+    const a = document.activeElement;
+    if (a && (a.tagName === 'INPUT' || a.tagName === 'TEXTAREA' || a.isContentEditable)) return;
+    // Kortet selv, ikke den første knappen: den første er «Hopp over», og en
+    // Enter i vane skal ikke avslutte innføringen før den har begynt.
+    if (tourNarrated()) { tourCard.focus(); return; }
+    if (tourTarget && typeof tourTarget.focus === 'function') {
+      try { tourTarget.focus({ preventScroll: true }); return; } catch (e) { /* ikke fokuserbart */ }
+    }
     tourCard.focus();
   }
+  // Id-ene som finnes NÅ i beholderen steget gjelder — grunnlaget `tourFresh()`
+  // sammenligner mot, så et objekt som alt var der ikke kan kvittere ut steget.
+  function tourSnapshotBaseline() {
+    const step = tourStep();
+    const ids = [];
+    if (step.id === 'create_universe') tourUniverses().forEach((u) => ids.push(u.id));
+    if (step.id === 'create_group') tourGroups(tourUni()).forEach((g) => ids.push(g.id));
+    if (step.id === 'create_card') tourCards(tourGroup()).forEach((c) => ids.push(c.id));
+    tourBaseline = new Set(ids);
+  }
+  function goToTourStep(i) {
+    tourIndex = Math.max(0, Math.min(i, TOUR_LAST));
+    tourSnapshotBaseline();
+    paintTourStep();
+    if (tourIndex > 0 && tourIndex < TOUR_LAST) saveOnboarding('in_progress');
+  }
+  function advanceTour() {
+    if (tourIndex >= TOUR_LAST) { endTour('done'); return; }
+    goToTourStep(tourIndex + 1);
+  }
+  /* Observatøren. Kjøres på tidsur mens innføringen står på, og er hele
+     framdriftsmekanismen: den spør steget «er du utført?» og går videre kun når
+     svaret er ja. Ingen klikkhåndterer kan kvittere ut et steg. */
+  function tourObserve() {
+    if (!tourActive) return;
+    const step = tourStep();
+    const hint = tourHint();
+    tourNote(hint.text, hint.error);
+    paintTourControls();
+    /* Målet kan ha blitt tegnet på nytt (synk-runde), rullet, eller nettopp
+       dukket opp (modalen lukket seg). Byttet det node, følger fokus med —
+       men kun hvis det sto på den GAMLE noden eller ingen steder: står det et
+       tredje sted, er brukeren et ærend vi ikke skal avbryte. */
+    const next = tourTargetFor(step);
+    if (next !== tourTarget) {
+      const a = document.activeElement;
+      const followFocus = !tourNarrated() && next &&
+        (a === tourTarget || a === tourCard || !a || a === document.body);
+      tourTarget = next;
+      placeTour();
+      if (followFocus) tourFocusStep();
+    } else {
+      placeTour();
+    }
+    const check = tourMode === 'review' ? (step.review || step.done) : step.done;
+    if (!check) return;                 // fortellesteg — «Neste» driver det
+    /* En åpen navngiving er handlingen som PÅGÅR, ikke en handling som er
+       utført. Uten denne vakten ville ＋-knappen alene drevet innføringen
+       videre: `addUniverse()`/«＋ Liste» oppretter objektet med et
+       standardnavn og åpner navnefeltet, så objektet finnes allerede idet
+       fingeren slipper knappen. Avbryter brukeren (Escape på et nytt
+       listepunkt eller en ny gruppe fjerner raden igjen), står steget der det
+       sto — som seg hør og bør. */
+    if (tourEditingOpen()) return;
+    let patch = null;
+    try { patch = check(); } catch (e) { patch = null; }
+    if (!patch) return;
+    // Utført lokalt, men ikke kvittert av serveren: la steget stå til dommen
+    // faller. Beskjeden ved en avvisning står alt i `tourHint()`.
+    if (tourWriteBlocked() || tourAwaitingWrite()) return;
+    Object.assign(tourCtx, patch);
+    advanceTour();
+  }
+  /* Fant vi igjen det innføringen holdt på med? Objekter kan være slettet
+     mellom to økter; da faller gjenopptakelsen tilbake til det siste steget
+     hvis forutsetninger fortsatt holder, i stedet for å bli stående og vente på
+     et univers som ikke finnes. */
+  function tourResolveResume(point) {
+    tourCtx = Object.assign({ universeId: null, groupId: null, cardId: null }, point.ctx);
+    let i = point.index;
+    if (i > tourRank('create_universe') && !tourUni()) i = tourRank('create_universe');
+    else if (i > tourRank('create_group') && !tourGroup()) i = tourRank('create_group');
+    else if (i > tourRank('create_card') && !tourCardObj()) i = tourRank('create_card');
+    return Math.max(0, Math.min(i, TOUR_LAST));
+  }
+  /* Har kontoen allerede innhold? Da er «Vis på nytt» en REPETISJON, ikke en
+     øvelse: innføringen peker på det brukeren har i stedet for å be om
+     duplikater, og hvert steg kan hoppes over. En helt tom konto har ingenting
+     å peke på, og øver i stedet. */
+  function tourHasContent() {
+    return tourUniverses().some((u) => tourGroups(u).length > 0);
+  }
+  // returnTo (valgfri): elementet fokuset skal tilbake til når innføringen
+  // lukkes — settes av kallere som selv lukker noe først (konto-modalen).
+  // opts.mode: 'practice' | 'review'. opts.resume: gjenopptakelsespunkt.
+  function startTour(returnTo, opts) {
+    if (!authUser) return;
+    opts = opts || {};
+    tourReturnFocus = returnTo || document.activeElement;
+    tourMode = opts.mode || 'practice';
+    tourActive = true;
+    tourEl.hidden = false;
+    if (opts.resume) {
+      tourIndex = tourResolveResume(opts.resume);
+    } else {
+      tourCtx = { universeId: null, groupId: null, cardId: null };
+      tourIndex = 0;
+    }
+    goToTourStep(tourIndex);
+    clearInterval(tourTick);
+    tourTick = setInterval(tourObserve, TOUR_POLL_MS);
+  }
+  /* Riv ned laget uten å skrive noe. Brukes ved UTLOGGING (`cloudStop`): den
+     halve runden tilhørte kontoen som gikk, og skal verken merkes som sett
+     eller bli stående og gjelde den neste som logger inn. */
+  function resetTourState() {
+    tourActive = false;
+    clearInterval(tourTick); tourTick = null;
+    tourEl.hidden = true;
+    tourEl.classList.remove('guided', 'narrated', 'no-spot');
+    document.body.classList.remove('tour-guided');
+    tourTarget = null;
+    tourReturnFocus = null;
+    tourCtx = { universeId: null, groupId: null, cardId: null };
+    tourBaseline = new Set();
+    tourIndex = 0;
+    onboardingFloor = -1;
+    onboardingWaits = 0;
+  }
   // status: 'done' (kom gjennom) | 'skipped' (hoppet over / avsluttet).
-  // Begge betyr «sett» — introduksjonen skal ikke mase igjen på neste enhet.
-  // Merket settes også om omvisningen ikke står åpen: da er dette «jeg vil ikke
-  // ha den», og en runde som er på vei opp skal ikke rekke å starte.
+  // Begge betyr «ferdig» — innføringen skal ikke mase igjen på neste enhet.
+  // Merket settes også om den ikke står åpen: da er dette «jeg vil ikke ha
+  // den», og et løp som er på vei opp skal ikke rekke å starte.
   function endTour(status) {
     const wasOpen = tourActive;
     tourActive = false;
+    clearInterval(tourTick); tourTick = null;
     tourEl.hidden = true;
+    tourEl.classList.remove('guided', 'narrated', 'no-spot');
+    document.body.classList.remove('tour-guided');
     tourTarget = null;
-    saveAccountPref({ onboarding: { v: TOUR_VERSION, status: status } }, 1);
+    onboardingFloor = TOUR_LAST;   // ferdig er ferdig; ingen vei tilbake
+    saveOnboarding(status, TOUR_LAST);
     if (!wasOpen) return;
     if (tourReturnFocus && document.body.contains(tourReturnFocus)) {
       try { tourReturnFocus.focus(); } catch (e) { /* elementet kan være borte */ }
@@ -10664,37 +11100,44 @@
     flushPendingTip();
   }
   tourNextBtn.addEventListener('click', () => {
-    if (tourIndex === TOUR_STEPS.length - 1) endTour('done');
-    else goToTourStep(tourIndex + 1);
+    if (tourIndex === TOUR_LAST) endTour('done');
+    else advanceTour();
   });
-  tourPrevBtn.addEventListener('click', () => goToTourStep(tourIndex - 1));
+  tourSkipStepBtn.addEventListener('click', () => advanceTour());
+  tourPracticeBtn.addEventListener('click', () => {
+    tourMode = 'practice';
+    tourCtx = { universeId: null, groupId: null, cardId: null };
+    goToTourStep(tourIndex);
+  });
   tourSkipBtn.addEventListener('click', () => endTour('skipped'));
   tourCloseBtn.addEventListener('click', () => endTour('skipped'));
   tourRestartBtn && tourRestartBtn.addEventListener('click', () => {
-    closeAccount();          // omvisningen peker på appen BAK modalen
-    startTour(accountBtn);
+    closeAccount();          // innføringen peker på appen BAK modalen
+    // En etablert konto skal ikke måtte lage duplikater for å se den igjen.
+    startTour(accountBtn, { mode: tourHasContent() ? 'review' : 'practice' });
   });
-  // Spotlighten skal følge målet: laget dekker hele viewportet, så et hjul-/
-  // touch-rull treffer siden bak og ville ellers etterlatt ringen i lufta.
+  // Spotlighten skal følge målet: siden bak ruller fritt under et handlingssteg,
+  // og ville ellers etterlatt ringen i lufta.
   const tourReflow = () => { if (tourActive) placeTour(); };
   window.addEventListener('resize', tourReflow);
   window.addEventListener('scroll', tourReflow, true);
-  // Tastatur: Escape avslutter, piltastene blar, og Tab holdes inne i kortet.
-  // Capture-fasen, så Escape ikke først lukker en modal under omvisningen.
+  /* Tastatur. Escape avslutter innføringen KUN når fokus står i kortet, eller
+     når steget er modalt. Ellers hører Escape hjemme i appen: den avbryter en
+     inline-navngiving (nettopp handlingen et steg venter på) og lukker en
+     modal. En capture-håndterer som slukte Escape uansett ville gjort
+     handlingsstegene umulige å angre seg ut av. */
   document.addEventListener('keydown', (ev) => {
     if (!tourActive) return;
+    const inCard = tourCard.contains(ev.target);
     if (ev.key === 'Escape') {
+      if (!tourNarrated() && !inCard) return;   // appen først
       ev.preventDefault(); ev.stopPropagation();
       endTour('skipped');
       return;
     }
-    if (ev.key === 'ArrowRight' && tourIndex < TOUR_STEPS.length - 1) {
-      ev.preventDefault(); goToTourStep(tourIndex + 1); return;
-    }
-    if (ev.key === 'ArrowLeft' && tourIndex > 0) {
-      ev.preventDefault(); goToTourStep(tourIndex - 1); return;
-    }
-    if (ev.key !== 'Tab') return;
+    if (ev.key !== 'Tab' || !tourNarrated()) return;
+    // Fokusfelle — kun på fortellestegene. På et handlingssteg SKAL Tab kunne
+    // gå ut i appen: det er der handlingen utføres.
     const f = tourFocusables();
     if (!f.length) return;
     const first = f[0];
@@ -10709,19 +11152,21 @@
     else if (!ev.shiftKey && cur === last) { ev.preventDefault(); first.focus(); }
   }, true);
 
-  // Etter første vellykkede innlogging (cloudStart, når første synk-runde er
-  // ferdig og board-et er malt). Står noe annet i veien — importspørsmålet fra
-  // migreringen, en åpen modal, en pågående redigering — venter vi litt i
-  // stedet for å legge oss oppå det.
+  /* Etter første vellykkede innlogging (cloudStart, når første synk-runde er
+     ferdig og board-et er malt). Står noe annet i veien — importspørsmålet fra
+     migreringen, en åpen modal, en pågående redigering — venter vi litt i
+     stedet for å legge oss oppå det. Et påbegynt løp gjenopptas; en konto som
+     er ferdig (eller kom gjennom v1) får ingenting. */
   function maybeStartOnboarding() {
     if (!authUser || tourActive || onboardingSeen()) return;
+    const resume = onboardingResumePoint();
     if (document.body.classList.contains('modal-open') || isBusyEditing()) {
       if (onboardingWaits++ > 20) return; // gir opp for denne økten
       setTimeout(maybeStartOnboarding, 900);
       return;
     }
     onboardingWaits = 0;
-    startTour();
+    startTour(null, { mode: 'practice', resume: resume });
   }
 
   /* ---------- Kontekstuelle tips for de avanserte gestene ---------- */
@@ -10808,10 +11253,16 @@
     tour: {
       start: startTour,
       end: endTour,
-      skipAll: skipIntroduction, // omvisning + alle tips (se tests/CLAUDE.md)
+      skipAll: skipIntroduction, // innføring + alle tips (se tests/CLAUDE.md)
       steps: TOUR_STEPS.length,
+      version: TOUR_VERSION,
+      ids: TOUR_STEPS.map((s) => s.id),
       get active() { return tourActive; },
       get index() { return tourIndex; },
+      get id() { return tourStep().id; },
+      get mode() { return tourMode; },
+      get ctx() { return Object.assign({}, tourCtx); },
+      get narrated() { return tourNarrated(); },
       seen: onboardingSeen,
     },
     get authUser() { return authUser; },

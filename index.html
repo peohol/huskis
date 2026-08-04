@@ -591,32 +591,36 @@
     </div>
   </div>
 
-  <!-- INTRODUKSJON FOR NYE BRUKERE (omvisning med spotlight) — autoritativt:
-       docs/introduksjon.md. Vises én gang etter første vellykkede innlogging og
-       kan startes på nytt fra konto-modalen.
+  <!-- INTRODUKSJON FOR NYE BRUKERE (interaktiv innføring) — autoritativt:
+       docs/introduksjon.md. Starter etter første innlogging på en konto uten
+       onboardingmarkør, og kan startes på nytt fra konto-modalen.
 
        `.tour-spot` ER sceneteppet: en ramme lagt oppå det elementet steget
        handler om, med en enorm box-shadow-spredning som demper ALT utenfor
        (samme grep som bilderedigererens `.avatar-mask`). Hullet er dermed ekte
-       UI, ikke en tegning av det. Steget uten spotlight demper hele flaten via
-       `.tour.no-spot`. Kortet posisjoneres i JS ved siden av hullet. -->
+       UI, ikke en tegning av det — og på et HANDLINGSSTEG er det ekte UI-et
+       også klikkbart: laget slipper pekeren gjennom (`.tour.guided`), så
+       brukeren utfører handlingen på selve kontrollen. Et steg uten mål å peke
+       på demper hele flaten via `.tour.no-spot`. Kortet posisjoneres i JS. -->
   <div class="tour" id="tour" hidden>
     <div class="tour-spot" id="tour-spot" aria-hidden="true"></div>
-    <div class="tour-card" id="tour-card" role="dialog" aria-modal="true"
+    <div class="tour-card" id="tour-card" role="dialog"
          aria-labelledby="tour-title" aria-describedby="tour-text" tabindex="-1">
-      <!-- Hele teksten er ett polite live-område: fokus blir stående på
-           «Neste» når man klikker seg gjennom, og skjermleseren leser likevel
-           opp det nye steget. -->
+      <!-- Hele teksten er ett polite live-område: på et handlingssteg står
+           fokus på den EKTE kontrollen, ikke i kortet, og skjermleseren skal
+           likevel få instruksjonen for det nye steget. -->
       <div class="tour-body" aria-live="polite">
         <p class="tour-step" id="tour-step"></p>
         <h2 class="tour-title" id="tour-title"></h2>
         <div class="tour-text" id="tour-text"></div>
+        <p class="tour-note" id="tour-note" hidden></p>
       </div>
       <div class="tour-actions">
         <button class="btn btn-ghost btn-small" id="tour-skip" type="button">Hopp over</button>
         <div class="tour-nav">
-          <button class="btn btn-ghost btn-small" id="tour-prev" type="button">Tilbake</button>
-          <button class="btn btn-solid btn-accent btn-small" id="tour-next" type="button">Neste</button>
+          <button class="btn btn-ghost btn-small" id="tour-practice" type="button" hidden>Øv med nye</button>
+          <button class="btn btn-ghost btn-small" id="tour-skip-step" type="button" hidden>Hopp over steget</button>
+          <button class="btn btn-solid btn-accent btn-small" id="tour-next" type="button">Kom i gang</button>
         </div>
       </div>
       <button class="icon-btn tour-close" id="tour-close" type="button" title="Avslutt introduksjonen" aria-label="Avslutt introduksjonen"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.05" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6.5 6.5 17.5 17.5"></path><path d="M17.5 6.5 6.5 17.5"></path></svg></button>

@@ -136,8 +136,11 @@ gulvet.
   modalene fra for mange steder til at en av dem kan holdes i synk manuelt.
   Åpne-kode som allerede flytter fokus selv (bekreftelsesdialogen, sveipefeltet,
   innstillingsmodalen) får beholde sitt eget valg.
-- **Omvisningen** har sin egen felle fra før (`docs/introduksjon.md`) og røres
-  ikke av dette; `Tab`-fellen over trekker seg unna mens den er aktiv.
+- **Innføringen** styrer fokus selv (`docs/introduksjon.md`) og røres ikke av
+  dette; `Tab`-fellen over trekker seg unna mens den er aktiv. Merk at den kun
+  har en felle på fortellestegene: på et handlingssteg står fokus på den EKTE
+  kontrollen, og `Tab` skal kunne gå ut i appen — det er der handlingen
+  utføres.
 - **Etter en rendring**: `renderBoard()`/`renderNav()` bygger fra bunnen, så
   `captureFocusIn()` noterer hvor fokus sto FØR nedrivingen og
   `applyFocusIntent()` setter det på den nye noden. Dette gjelder ikke bare

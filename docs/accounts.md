@@ -79,8 +79,9 @@ Sesjonen styres av `supabase.auth.onAuthStateChange` (erstatter
 `cloudStop()`. En eksisterende sesjon hentes ved oppstart med `getSession()`.
 `authUser` bærer `{ id, email, meta }` der `meta` = `user.user_metadata`.
 
-**Introduksjonen på kontoen**: at omvisningen er fullført eller hoppet over
-(`user_metadata.onboarding`) og hvilke gest-tips som er vist
+**Introduksjonen på kontoen**: hvor langt innføringen er kommet — pågår,
+fullført eller hoppet over, med steg og kontekst
+(`user_metadata.onboarding`) — og hvilke gest-tips som er vist
 (`user_metadata.tips`) lagres på samme måte som posisjonen under — se
 `docs/introduksjon.md` (autoritativ).
 
