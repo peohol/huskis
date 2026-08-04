@@ -66,7 +66,10 @@ async function load(page, db, viewport) {
     sessionStorage.setItem('hk-mock-session', JSON.stringify({ id: 'uMe', email: 'me@x.no', user_metadata: { onboarding: { v: 1, status: 'done' }, tips: { drag: true, trash: true, moveList: true } } }));
   }, db);
   await page.goto(BASE + '/?mock=1');
-  await page.waitForTimeout(1400);
+  await page.waitForFunction(() => {
+    const H = window.__huskis;
+    return H && H.authUser && H.lastMy && H.state.universes.length > 0;
+  }, null, { timeout: 8000, polling: 200 });
 }
 
 /* ---------------- Del A: motoren med injiserte avhengigheter ---------------- */

@@ -133,7 +133,8 @@ function check(name, cond, extra) {
   await page.locator('#auth-email').fill(email);
   await page.locator('#auth-password').fill('passord123');
   await page.locator('#auth-submit').click();
-  await page.waitForTimeout(1200);
+  // Stubbet klient: authUser er signalet her (ingen ekte doc-runde å vente på).
+  await page.waitForFunction(() => window.__huskis && window.__huskis.authUser, null, { timeout: 10000 });
   // Introduksjonen (docs/introduksjon.md) møter enhver ny konto: omvisningen
   // legger seg over appen, og et gest-tips legger seg nederst på skjermen —
   // ingen av delene er det denne testen handler om.

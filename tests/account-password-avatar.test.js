@@ -82,7 +82,12 @@ async function signIn(p, email, password) {
   await p.locator('#auth-email').fill(email);
   await p.locator('#auth-password').fill(password);
   await p.locator('#auth-submit').click();
-  await p.waitForTimeout(1600);
+  // Brukes BÅDE for innlogging som skal lykkes og som skal avvises: ferdig når
+  // enten kontoen er inne (authUser + lastMy) eller avvisningen står i #auth-msg.
+  await p.waitForFunction(() => {
+    const H = window.__huskis;
+    return (H && H.authUser && H.lastMy) || !!document.getElementById('auth-msg').textContent;
+  }, null, { timeout: 10000, polling: 200 });
   // Introduksjonen (docs/introduksjon.md) møter enhver ny konto: omvisningen
   // legger seg over appen, og et gest-tips legger seg nederst på skjermen —
   // ingen av delene er det denne testen handler om.
@@ -145,7 +150,11 @@ async function run(label, vp, mobile) {
   await p.locator('#auth-password').fill('passord123');
   await authToggle.click(); await p.waitForTimeout(120); // logg inn med passordet SYNLIG
   await p.locator('#auth-email').fill(email);
-  await p.locator('#auth-submit').click(); await p.waitForTimeout(1600);
+  await p.locator('#auth-submit').click();
+  await p.waitForFunction(() => {
+    const H = window.__huskis;
+    return H && H.authUser && H.lastMy;
+  }, null, { timeout: 10000, polling: 200 });
   log(label + ' A: innlogget', await p.evaluate(() => !!window.__huskis.authUser));
   // Introduksjonen (docs/introduksjon.md) møter enhver ny konto: omvisningen
   // legger seg over appen, og et gest-tips legger seg nederst på skjermen —
@@ -192,7 +201,9 @@ async function run(label, vp, mobile) {
 
   // Ut og inn: det gamle passordet virker ikke, det nye gjør det.
   await p.locator('#logout-btn').click(); await p.waitForTimeout(300);
-  await p.locator('#confirm-ok').click(); await p.waitForTimeout(900);
+  await p.locator('#confirm-ok').click();
+  await p.waitForFunction(() => !window.__huskis.authUser
+    && !document.getElementById('auth-screen').hidden, null, { timeout: 8000, polling: 200 });
   const afterLogout = await p.evaluate(() => document.getElementById('auth-password').value);
   log(label + ' B: innloggingsskjermen viser ikke forrige passord', afterLogout === '', afterLogout);
   await signIn(p, email, 'passord123');
@@ -252,7 +263,9 @@ async function run(label, vp, mobile) {
   // Zoom helt ut igjen (bryteren klemmes til dekningsminimum) og lagre.
   await p.locator('#avatar-zoom').fill('1');
   await p.dispatchEvent('#avatar-zoom', 'input'); await p.waitForTimeout(150);
-  await p.locator('#avatar-save').click(); await p.waitForTimeout(900);
+  await p.locator('#avatar-save').click();
+  await p.waitForFunction(() => document.getElementById('avatar-modal').hidden
+    && !!document.querySelector('#account-avatar img'), null, { timeout: 8000 });
 
   const saved = await sampleSaved(p);
   log(label + ' C: bildet er kvadratisk 256×256', saved && saved.w === 256 && saved.h === 256,
@@ -284,7 +297,12 @@ async function run(label, vp, mobile) {
   await p.keyboard.press('Escape'); await p.waitForTimeout(200);
   await p.evaluate(() => window.__huskis.addGroup()); await p.waitForTimeout(200);
   await p.keyboard.press('Escape'); await p.waitForTimeout(200);
-  await p.waitForTimeout(1200); // la gruppen nå «serveren» før del-visningen åpnes
+  // La gruppen nå «serveren» før del-visningen åpnes — vent på selve raden.
+  await p.waitForFunction(() => {
+    const H = window.__huskis;
+    const db = window.HK_MOCK._loadDB();
+    return H.state.activeGroup && db.groups.some((g) => g.id === H.state.activeGroup);
+  }, null, { timeout: 8000, polling: 200 });
   await p.evaluate(() => {
     const H = window.__huskis, st = H.state;
     const u = st.universes.find((x) => x.id === st.activeUniverse);
@@ -301,13 +319,19 @@ async function run(label, vp, mobile) {
   await p.keyboard.press('Escape'); await p.waitForTimeout(300);
 
   /* ---------- Overlever reload ---------- */
-  await p.reload(); await p.waitForTimeout(2200);
+  await p.reload();
+  await p.waitForFunction(() => {
+    const H = window.__huskis;
+    return H && H.authUser && H.lastMy;
+  }, null, { timeout: 10000, polling: 200 });
   await openAccount(p);
   log(label + ' D: bildet overlever reload', (await p.locator('#account-avatar img').count()) === 1);
 
   /* ---------- Fjern bilde ---------- */
   await p.locator('#avatar-remove').click(); await p.waitForTimeout(300);
-  await p.locator('#confirm-ok').click(); await p.waitForTimeout(800);
+  await p.locator('#confirm-ok').click();
+  await p.waitForFunction(() => !document.querySelector('#account-avatar img'),
+    null, { timeout: 8000 }).catch(() => {});
   const after = await p.evaluate(() => ({
     img: document.querySelectorAll('#account-avatar img').length,
     text: document.getElementById('account-avatar').textContent.trim(),
@@ -353,7 +377,10 @@ async function run(label, vp, mobile) {
   // `lag` gir «serveren» en merkbar forsinkelse, så en get_members startet av en
   // for tidlig render rekker å kappløpe med skrivingen (se neste sjekk).
   await p.goto(BASE + '/?mock=1&lag=300');
-  await p.waitForTimeout(3500); // innlogging + get_my_doc + lat get_members
+  // Innlogging + get_my_doc + lat get_members: ferdig når ansvarssirkelen har
+  // fått bildet sitt (uteblir det, feiler sjekken under med den faktiske verdien).
+  await p.waitForFunction(() => !!document.querySelector('.item .resp-avatar img'),
+    null, { timeout: 12000, polling: 200 }).catch(() => {});
   const resp = await p.evaluate(() => {
     const av = document.querySelector('.item .resp-avatar');
     const im = av && av.querySelector('img');
@@ -365,8 +392,16 @@ async function run(label, vp, mobile) {
   // ikke kunne fylles med det GAMLE bildet av en henting som kappløper med
   // skrivingen (den ble ellers liggende til neste innlogging).
   await openAccount(p);
-  await upload(p); await p.waitForTimeout(900);
-  await p.locator('#avatar-save').click(); await p.waitForTimeout(2500);
+  await upload(p);
+  await p.waitForFunction(() => !document.getElementById('avatar-modal').hidden,
+    null, { timeout: 8000 });
+  await p.locator('#avatar-save').click();
+  // Skrivingen + members-oppfriskningen går med lag=300: ferdig når sirkelen
+  // faktisk viser det NYE bildet (JPEG fra redigereren, ikke seedens PNG).
+  await p.waitForFunction(() => {
+    const im = document.querySelector('.item .resp-avatar img');
+    return !!im && im.src.indexOf('data:image/jpeg') === 0;
+  }, null, { timeout: 12000, polling: 200 }).catch(() => {});
   const respNew = await p.evaluate(() => {
     const im = document.querySelector('.item .resp-avatar img');
     return im ? im.src.slice(0, 15) : null;

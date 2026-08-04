@@ -28,7 +28,13 @@ async function register(p) {
   await p.getByText('Tilbake til innlogging').click(); await p.waitForTimeout(300);
   await p.locator('#auth-email').fill(email);
   await p.locator('#auth-password').fill('passord123');
-  await p.locator('#auth-submit').click(); await p.waitForTimeout(1600);
+  await p.locator('#auth-submit').click();
+  // `lastMy` settes først når get_my_doc har svart — da er kontoen innlogget
+  // og dokumentet hentet. (En fersk konto har null universer — board er tomt.)
+  await p.waitForFunction(() => {
+    const H = window.__huskis;
+    return H && H.authUser && H.lastMy;
+  }, null, { timeout: 10000, polling: 200 });
   // Introduksjonen (docs/introduksjon.md) møter enhver ny konto: omvisningen
   // legger seg over appen, og et gest-tips legger seg nederst på skjermen —
   // ingen av delene er det denne testen handler om.
@@ -166,7 +172,11 @@ async function run(label, vp, mobile) {
     st.length === 4 && st[0].text === 'Finnes fra før', JSON.stringify(st));
 
   /* ---------- 8) Overlever reload (de slettede kommer ikke tilbake) ---------- */
-  await p.reload(); await p.waitForTimeout(2200);
+  await p.reload();
+  await p.waitForFunction(() => {
+    const H = window.__huskis;
+    return H && H.authUser && H.lastMy;
+  }, null, { timeout: 10000, polling: 200 });
   st = await rows(p);
   const texts = st.map((r) => r.text).sort();
   log(label + ' 8: etter reload står nøyaktig de navngitte igjen',

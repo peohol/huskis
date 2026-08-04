@@ -55,7 +55,13 @@ async function register(p) {
   await p.getByText('Tilbake til innlogging').click(); await p.waitForTimeout(300);
   await p.locator('#auth-email').fill(email);
   await p.locator('#auth-password').fill('passord123');
-  await p.locator('#auth-submit').click(); await p.waitForTimeout(1700);
+  await p.locator('#auth-submit').click();
+  // `lastMy` settes først når get_my_doc har svart — da er kontoen innlogget
+  // og dokumentet hentet. (En fersk konto har null universer — board er tomt.)
+  await p.waitForFunction(() => {
+    const H = window.__huskis;
+    return H && H.authUser && H.lastMy;
+  }, null, { timeout: 10000, polling: 200 });
   // Introduksjonen (docs/introduksjon.md) møter enhver ny konto: omvisningen
   // legger seg over appen, og et gest-tips legger seg nederst på skjermen —
   // ingen av delene er det denne testen handler om.
@@ -109,7 +115,12 @@ async function run(label, vp, mobile) {
   // Fersk konto: la appen lage univers + gruppe selv, så vi har et sted å
   // henge kortet vårt (og radene har ekte eier/registre).
   await p.evaluate(() => window.__huskis.addGroup());
-  await p.waitForTimeout(1200);
+  // La gruppen nå «serveren» før kortet henges på den (FK) — vent på raden.
+  await p.waitForFunction(() => {
+    const g = window.__huskis.state.universes[0].groups[0];
+    const db = JSON.parse(localStorage.getItem('hk-mock-db') || '{}');
+    return !!g && (db.groups || []).some((r) => r.id === g.id);
+  }, null, { timeout: 10000, polling: 200 });
 
   /* ---------- 1) Medlemmet ligger FØR kategorien i state ---------- */
   // Nøyaktig rekkefølgen som ga FK-brudd: kategorien må sendes først.

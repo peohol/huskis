@@ -54,7 +54,13 @@ async function register(p) {
   await p.getByText('Tilbake til innlogging').click(); await p.waitForTimeout(300);
   await p.locator('#auth-email').fill(email);
   await p.locator('#auth-password').fill('passord123');
-  await p.locator('#auth-submit').click(); await p.waitForTimeout(1700);
+  await p.locator('#auth-submit').click();
+  // `lastMy` settes først når get_my_doc har svart — da er kontoen innlogget
+  // og dokumentet hentet. (En fersk konto har null universer — board er tomt.)
+  await p.waitForFunction(() => {
+    const H = window.__huskis;
+    return H && H.authUser && H.lastMy;
+  }, null, { timeout: 10000, polling: 200 });
   // Introduksjonen (docs/introduksjon.md) møter enhver ny konto: omvisningen
   // legger seg over appen, og et gest-tips legger seg nederst på skjermen —
   // ingen av delene er det denne testen handler om.
@@ -62,6 +68,15 @@ async function register(p) {
   await p.waitForTimeout(150);
   return email;
 }
+
+// Den pågående synk-runden er ferdig når pillen ikke lenger sier «Lagrer …».
+// (`cloudCycle` no-op-er hvis en runde alt er i gang, så et rått await på den
+// er ikke et ferdig-signal — pillen er det.) Intervall-polling, ikke rAF:
+// rAF struper i bakgrunnsfaner, og denne fila kjører to faner samtidig.
+const syncIdle = (p) => p.waitForFunction(() => {
+  const el = document.getElementById('sync-status');
+  return el && el.dataset.state !== 'saving';
+}, null, { timeout: 6000, polling: 200 }).catch(() => {});
 
 // Registrerer HVILKE id-er klienten forsøker å sette inn. En avvist insert (PK-
 // konflikt fordi eierens rad fortsatt finnes, eller insert-vakten) etterlater
@@ -122,7 +137,7 @@ const addGroupWithCard = (p, groupId, cardId, itemId, title) =>
 async function settle(p, rounds = 3) {
   for (let i = 0; i < rounds; i++) {
     await p.evaluate(() => window.__huskis.cloudCycle());
-    await p.waitForTimeout(400);
+    await syncIdle(p);
   }
 }
 async function waitForServerRow(p, id, ms = 14000) {
@@ -146,7 +161,7 @@ async function run(label, vp, mobile) {
 
   await register(owner);
   await owner.evaluate(() => window.__huskis.addGroup());
-  await owner.waitForTimeout(900);
+  await settle(owner, 1);
   await addGroupWithCard(owner, ID.gShared, ID.shared, ID.sharedItem, 'Delt liste');
   await addGroupWithCard(owner, ID.gRevoked, ID.revoked, ID.revokedItem, 'Trukket tilbake');
   await waitForServerRow(owner, ID.shared);
@@ -158,7 +173,7 @@ async function run(label, vp, mobile) {
   recip.on('pageerror', (e) => errs.push('mottaker: ' + e.message));
   const recipEmail = await register(recip);
   await recip.evaluate(() => window.__huskis.addGroup());
-  await recip.waitForTimeout(900);
+  await settle(recip, 1);
   const recipId = await recip.evaluate(() => window.__huskis.authUser.id);
 
   // Eieren inviterer til begge GRUPPENE; mottakeren godtar (uten å velge noen
@@ -217,7 +232,11 @@ async function run(label, vp, mobile) {
     localStorage.setItem(pfx + uid, JSON.stringify(s));
   }, { pfx: CACHE_PREFIX, uid: recipId, raw: staleCache });
   await recip.reload();
-  await recip.waitForTimeout(2500);
+  await recip.waitForFunction(() => {
+    const H = window.__huskis;
+    return H && H.authUser && H.lastMy;
+  }, null, { timeout: 10000, polling: 200 });
+  await syncIdle(recip);
   await settle(recip, 4);
   const after = await cardOnServer(recip, ID.shared);
   log(label + ' 2: utdatert cache gjenoppliver ikke den slettede delte listen',
@@ -251,7 +270,11 @@ async function run(label, vp, mobile) {
     localStorage.setItem(pfx + uid, JSON.stringify(s));
   }, { pfx: CACHE_PREFIX, uid: recipId, raw: staleCache });
   await recip.reload();
-  await recip.waitForTimeout(2500);
+  await recip.waitForFunction(() => {
+    const H = window.__huskis;
+    return H && H.authUser && H.lastMy;
+  }, null, { timeout: 10000, polling: 200 });
+  await syncIdle(recip);
   await settle(recip, 4);
   const revoked = await cardOnServer(recip, ID.revoked);
   log(label + ' 4: den tilbaketrukne listen finnes fortsatt hos EIEREN',

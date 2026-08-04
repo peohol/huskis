@@ -111,8 +111,10 @@ async function loadAs(page, db, uid, email, viewport) {
     sessionStorage.setItem('hk-mock-session', JSON.stringify({ id: uid, email, user_metadata: { onboarding: { v: 1, status: 'done' }, tips: { drag: true, trash: true, moveList: true } } }));
   }, { db, uid, email });
   await page.goto(BASE + '/?mock=1');
-  await page.waitForFunction(() => window.__huskis && window.__huskis.authUser, { timeout: 8000 });
-  await page.waitForTimeout(900);
+  await page.waitForFunction(() => {
+    const H = window.__huskis;
+    return H && H.authUser && H.lastMy && H.state.universes.length > 0;
+  }, null, { timeout: 8000, polling: 200 });
 }
 
 const goTo = async (p, gid) => {
