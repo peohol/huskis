@@ -260,7 +260,11 @@ select public.t_check('et vanlig medlem har lov til å invitere medlemmer',
 select public.create_share_invite('universe', :'U', 'kapring@example.com');  -- samme adresse, som MEDLEM
 select public.t_fails('medlemmet kan ikke trekke tilbake eierinvitasjonen',
   format('select public.revoke_share_invite(%L)', :'inv_hj'));
-delete from public.share_invites where id = :'inv_hj'::uuid;   -- filtreres bort av RLS
+-- Direkte sletting avvises nå av GRANT-en, før RLS i det hele tatt får
+-- filtrere: invitasjoner muteres kun gjennom RPC-ene. Begge lagene sier nei,
+-- og det ytterste sier det først.
+select public.t_fails('medlemmet kan ikke slette invitasjonsraden direkte heller',
+  format('delete from public.share_invites where id = %L::uuid', :'inv_hj'));
 -- Selve raden inspiseres uten RLS (medlemmet får uansett ikke se den).
 reset role;
 select public.t_check('rollen står fortsatt som eier',
@@ -461,6 +465,46 @@ select public.t_check('rollen består etter det avviste forsøket',
 select public.set_member_role('group', :'GE', :'E', 'member');
 select public.t_check('«tre av som medeier» fjerner den overflødige raden, tilgangen består',
   public.group_role(:'GE', :'E') is null and public.is_group_member(:'GE', :'E'));
+
+-- ---------- 15. MINSTEPRIVILEGIUM på memberships og share_invites ----------
+-- Roller og invitasjoner muteres UTELUKKENDE av RPC-ene (security definer) og
+-- av opprettelses-triggerne. Klienten leser dem (innboksen + realtime) og
+-- skriver bare sin egen personlige rekkefølge (`memberships.pos`). Alt annet
+-- må være eksplisitt trukket tilbake: Supabases standardprivilegier gir ALL på
+-- en ny tabell, så en glemt REVOKE gir en klient som kan gi seg selv en rolle
+-- eller kapre en invitasjon — uten at noen annen test slår ut.
+reset role; select set_config('request.jwt.claim.sub', :'A', false); set role authenticated;
+select public.t_check('authenticated leser memberships (og kan sortere dem selv)',
+  has_table_privilege('authenticated', 'public.memberships', 'SELECT')
+  and has_table_privilege('authenticated', 'public.memberships', 'UPDATE'));
+select public.t_check('authenticated kan IKKE sette inn roller direkte',
+  not has_table_privilege('authenticated', 'public.memberships', 'INSERT'));
+select public.t_check('authenticated kan IKKE slette roller direkte',
+  not has_table_privilege('authenticated', 'public.memberships', 'DELETE'));
+select public.t_fails('en klient kan ikke gi seg selv en rolle',
+  format('insert into public.memberships (user_id, universe_id, role) values (%L, %L, ''owner'')', :'E', :'U'));
+select public.t_fails('en klient kan ikke slette en rolle direkte',
+  format('delete from public.memberships where user_id = %L and universe_id = %L', :'E', :'U'));
+select public.t_check('rollen står fortsatt etter de avviste forsøkene',
+  public.universe_role(:'U', :'E') = 'owner');
+
+select public.t_check('authenticated leser share_invites (innboksen + realtime)',
+  has_table_privilege('authenticated', 'public.share_invites', 'SELECT'));
+select public.t_check('authenticated kan IKKE opprette en invitasjon direkte',
+  not has_table_privilege('authenticated', 'public.share_invites', 'INSERT'));
+select public.t_check('authenticated kan IKKE endre en invitasjon direkte',
+  not has_table_privilege('authenticated', 'public.share_invites', 'UPDATE'));
+select public.t_check('authenticated kan IKKE slette en invitasjon direkte',
+  not has_table_privilege('authenticated', 'public.share_invites', 'DELETE'));
+select public.t_fails('en klient kan ikke skrive en invitasjon til seg selv',
+  format('insert into public.share_invites (universe_id, inviter_id, invitee_email, role) values (%L, %L, ''kapret@example.com'', ''owner'')', :'U', :'A'));
+-- …og RPC-veien virker fortsatt, som den skal.
+select public.create_share_invite('universe', :'U', 'fortsatt-ok@example.com', 'member') ->> 'id' as inv_ok \gset
+select public.t_check('RPC-en oppretter invitasjonen som før',
+  (select count(*) from public.share_invites where id = :'inv_ok'::uuid) = 1);
+select public.revoke_share_invite(:'inv_ok'::uuid);
+select public.t_check('RPC-en trekker den tilbake som før',
+  (select status from public.share_invites where id = :'inv_ok'::uuid) is distinct from 'pending');
 
 reset role;
 select 'ALLE ROLLE- OG DELINGSTESTER GRØNNE' as resultat;
