@@ -1606,17 +1606,52 @@ body.is-dragging * { cursor: grabbing !important; }
 }
 .uni-count .icon { font-size: var(--fs-xs); }
 
+/* Søppel-radene (alle fire kassene): [prikk] [navn (+ metadata)] [Gjenopprett].
+   Navnet er det ENESTE som skal kunne gi etter; prikken, metadataen og knappen
+   har fast bredde. På en smal skjerm er summen av de faste større enn raden er
+   bred, og navnet fikk resten — som var omtrent ingenting. `word-break:
+   break-word` gjorde samtidig navnets min-content-bredde til ETT tegn, så flex
+   hadde ingen nedre grense å stoppe på: navnet ble en loddrett bokstavsøyle,
+   og resten av raden gikk likevel utenfor modalen (knappen havnet utenfor den
+   synlige flaten, og modal-body-en fikk horisontal scroll).
+
+   Løsningen er et GULV i stedet for en fast bredde: navneblokka har en
+   flex-basis, og når den ikke får plass bryter flex linjen i stedet for å
+   presse — knappen faller ned på egen linje (fortsatt høyrestilt), og
+   metadataen legger seg under navnet. Bredere skjermer har plass til alt på én
+   linje og ser ut som før. Ingen breakpoint: gulvet måles mot radens FAKTISKE
+   bredde, som er modalens, ikke vindusbredden. */
 .trash-row {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  gap: 12px;
+  gap: 10px 12px;
   padding: 12px 4px;
   border-bottom: 1px solid var(--line);
 }
 .trash-row:last-child { border-bottom: none; }
 .trash-dot { width: 21px; height: 21px; border-radius: 7px; flex: 0 0 auto; box-shadow: inset 0 0 0 1px rgba(0,0,0,0.06); }
-.trash-name { flex: 1; font-weight: 600; font-size: var(--fs-base); word-break: break-word; }
-.trash-meta { color: var(--ink-soft); font-size: var(--fs-sm); font-weight: 500; white-space: nowrap; }
+/* Navn og metadata hører sammen: samme linje når det er plass, ellers legger
+   metadataen seg UNDER navnet (innrykket forbi prikken, ikke ved siden av den). */
+.trash-main {
+  flex: 1 1 12rem;
+  min-width: 0;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 2px 10px;
+}
+/* `overflow-wrap: break-word`, ikke `word-break`/`anywhere`: et langt navn
+   brekker MELLOM ord når det går, og et enkeltord uten mellomrom brekkes bare
+   når det ellers ville stukket utenfor. */
+.trash-name { flex: 1 1 11rem; min-width: 0; font-weight: 600; font-size: var(--fs-base); overflow-wrap: break-word; }
+/* Metadataen står på én linje så lenge den får plass (flex bryter linjen før den
+   krymper et element), men er ikke `nowrap`: da ville en uventet lang tekst
+   stukket ut av raden i stedet for å brekke. */
+.trash-meta { flex: 0 1 auto; min-width: 0; color: var(--ink-soft); font-size: var(--fs-sm); font-weight: 500; }
+/* Knappen krymper aldri (berøringsflaten er uendret) og holder seg til høyre —
+   også på linja den faller ned på. */
+.trash-row > .btn { flex: 0 0 auto; margin-left: auto; }
 .trash-empty-msg { text-align: center; color: var(--ink-soft); font-weight: 500; font-size: var(--fs-base); padding: 26px 0; margin: 0; }
 
 .modal-foot {
