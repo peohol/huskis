@@ -10767,9 +10767,21 @@
     const vh = window.innerHeight;
     if (!tourTarget || !tourTarget.getClientRects().length) {
       tourEl.classList.add('no-spot');
-      tourCard.style.maxHeight = '';
       tourCard.style.left = Math.max(margin, (vw - cw) / 2) + 'px';
-      tourCard.style.top = Math.max(margin, (vh - ch) / 2) + 'px';
+      /* Et FORTELLESTEG er modalt og skal stå midt på. Et HANDLINGSSTEG uten
+         mål er noe helt annet: kontrollen kan være skjult eller avskrudd for
+         denne kontoen, og da må brukeren fortsatt nå appen — for å hoppe over
+         steget, eller for å gjøre det som faktisk er mulig. Et midtstilt kort
+         ville lagt seg tvers over nettopp det. Kortet dokkes derfor nederst,
+         med høyden kappet til under halve skjermen. */
+      if (tourNarrated()) {
+        tourCard.style.maxHeight = '';
+        tourCard.style.top = Math.max(margin, (vh - ch) / 2) + 'px';
+      } else {
+        const tak = Math.max(120, Math.floor(vh * 0.45));
+        tourCard.style.maxHeight = tak + 'px';
+        tourCard.style.top = Math.max(margin, vh - Math.min(ch, tak) - margin) + 'px';
+      }
       return;
     }
     tourEl.classList.remove('no-spot');
@@ -10852,6 +10864,9 @@
     const blocked = !!(step.blocked && step.blocked());
     tourNextBtn.hidden = !narrated;
     tourNextBtn.textContent = step.cta || 'Neste';
+    // «Hopp over» hører ikke hjemme på avslutningen: da er det ingenting igjen
+    // å hoppe over. ✕ lukker fortsatt.
+    tourSkipBtn.hidden = tourIndex === TOUR_LAST;
     /* «Hopp over steget» er en nødutgang, ikke en snarvei. Den finnes to
        steder: når steget er UMULIG for denne kontoen (ingen opprettelsesrett
        — da ville det ellers blitt stående som en oppgave brukeren ikke får

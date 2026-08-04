@@ -540,12 +540,20 @@ function seedDB(opts) {
     memberships: [], share_invites: [], tombstones: [],
   };
   if (opts.content) {
-    db.universes.push(base({ id: UA, owner_id: uid, name: 'Mitt univers' }));
-    db.groups.push(base({ id: GA, owner_id: uid, universe_id: UA, name: 'Min gruppe',
+    /* `guest: true` gir et DELT univers der seed-brukeren bare er medlem. Sammen
+       med en låst gruppe er det den ekte «uten opprettelsesrett»-situasjonen:
+       en eier kommer forbi sin egen lås (privilegert), et medlem gjør det
+       ikke. */
+    const eier = opts.guest ? inviter : uid;
+    db.universes.push(base({ id: UA, owner_id: eier, name: opts.guest ? 'Delt univers' : 'Mitt univers' }));
+    db.groups.push(base({ id: GA, owner_id: eier, universe_id: UA, name: 'Delt gruppe',
       locked: !!opts.locked }));
-    db.memberships.push({ id: U(), user_id: uid, universe_id: UA, group_id: null, role: 'owner', pos: 0, created_at: 1 });
+    db.memberships.push({ id: U(), user_id: eier, universe_id: UA, group_id: null, role: 'owner', pos: 0, created_at: 1 });
+    if (opts.guest) {
+      db.memberships.push({ id: U(), user_id: uid, universe_id: UA, group_id: null, role: 'member', pos: 0, created_at: 1 });
+    }
     if (opts.card) {
-      db.cards.push(base({ id: LA, owner_id: uid, group_id: GA, title: 'Min liste', k: true, p: true, lab_ts: 0, lab_org: '' }));
+      db.cards.push(base({ id: LA, owner_id: eier, group_id: GA, title: 'Min liste', k: true, p: true, lab_ts: 0, lab_org: '' }));
     }
   }
   if (opts.invite) {
@@ -614,7 +622,8 @@ async function runAccounts() {
   await p.evaluate(() => window.__huskis.tour.end('skipped'));
 
   /* --- uten opprettelsesrett: ingen umulig oppgave --- */
-  const locked = seedDB({ content: true, locked: true, meta: { onboarding: { v: 1, status: 'done' } } });
+  const locked = seedDB({ content: true, guest: true, locked: true,
+    meta: { onboarding: { v: 1, status: 'done' } } });
   await loadSeeded(p, locked.db, locked.uid, 'seed@x.no');
   await p.locator('#account-btn').click();
   await p.locator('#tour-restart').waitFor({ state: 'visible' });
@@ -623,14 +632,18 @@ async function runAccounts() {
   await p.locator('#tour-next').click();
   await waitStep(p, 'open_nav');
   await p.locator('#nav-crumb').click();
-  await waitStep(p, 'create_group');   // universet finnes → repetisjonen hopper hit
-  await p.waitForTimeout(400);
-  const gid = (await tourState(p)).ctx.groupId ||
-    await p.evaluate(() => window.__huskis.state.universes[0].groups[0].id);
-  await p.locator('.uni-card .item[data-id="' + gid + '"]').click();
+  /* Repetisjonen finner universet, gruppen OG at gruppen alt er aktiv, så den
+     løper av seg selv fram til listesteget — der den låste gruppen stopper
+     den. Det er nettopp det som skal testes. */
   await waitStep(p, 'create_card');
-  await p.waitForTimeout(500);
+  await p.waitForFunction(() => /kan ikke opprette/i.test(
+    document.getElementById('tour-note').textContent), null, { timeout: 6000, polling: 100 });
   const blocked = await tourState(p);
+  /* Steget har ingen kontroll å peke på (＋ Liste er avskrudd for en gjest i en
+     låst gruppe), så kortet er uten spotlight. Da skal det IKKE midtstilles:
+     brukeren må fortsatt nå appen bak — her oversikten som står åpen. */
+  log('konto 4a: kortet dekker ikke appen når steget ikke har noe mål',
+    blocked.noSpot && await hittable(p, '.uni-card .item'), 'no-spot=' + blocked.noSpot);
   log('konto 4: en låst gruppe gir en forklaring, ikke en umulig oppgave',
     /kan ikke opprette lister/i.test(blocked.note) && blocked.noteError,
     blocked.note);
@@ -681,9 +694,14 @@ async function runSync() {
 
   /* --- en avvist skriving fullfører ikke steget --- */
   await p.evaluate(() => {
-    // Serveren sier nei til alt som skrives fra nå av (skjemafeil-modusen i
-    // mock-backenden ville krevd reload; en direkte avvisning holder her).
-    window.__huskis.syncStatus.noteRejected(
+    /* Serveren sier vedvarende nei til det som skrives. Oppryddingen settes ut
+       av spill så lenge det varer: en vellykket synk-runde kaller
+       `clearServerRejections()`, og pollet går hvert 5. sekund — uten dette
+       ville testen målt hvem som kom først, ikke oppførselen. */
+    const s = window.__huskis.syncStatus;
+    window.__hkRydd = s.clearServerRejections;
+    s.clearServerRejections = () => {};
+    s.noteRejected('test:groups',
       { kind: 'server', table: 'groups', id: 'x', code: 'PGRST204', message: 'nei' });
   });
   await p.locator('.uni-card .add-item-row .add-item-btn').first().click();
@@ -699,7 +717,11 @@ async function runSync() {
     /ikke lagret på kontoen din/i.test(avvist.note) && avvist.noteError, avvist.note);
 
   // …og når avvisningen er ryddet, går steget videre av seg selv.
-  await p.evaluate(() => window.__huskis.syncStatus.clearServerRejections());
+  await p.evaluate(() => {
+    const s = window.__huskis.syncStatus;
+    s.clearServerRejections = window.__hkRydd;
+    s.clearServerRejections();
+  });
   await waitStep(p, 'open_group');
   log('synk 3: steget går videre når skrivingen er lagret likevel', true);
 

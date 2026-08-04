@@ -165,8 +165,9 @@ Innhold (ovenfra og ned):
 - **Endre passord** (`#account-pass-form`): nåværende + nytt passord (begge med
   «vis passordet»-knapp). Se `docs/accounts.md`.
 - **E-postvarsel-toggle** (`#email-pref-toggle`, se `docs/accounts.md`).
-- **«Introduksjon til Huskis»** (`#menu-tour`): raden som starter omvisningen på
-  nytt (`#tour-restart` → «Vis på nytt»). Samme `.menu-setting`-rad som
+- **«Introduksjon til Huskis»** (`#menu-tour`): raden som starter innføringen på
+  nytt (`#tour-restart` → «Vis på nytt»); på en konto som alt har innhold
+  kjører den i repetisjonsmodus, uten å lage duplikater. Samme `.menu-setting`-rad som
   e-postvarselet, men med en knapp i stedet for en bryter. Se
   `docs/introduksjon.md`.
 - **«Invitasjoner»-innboksen** (`#menu-invites`, vises kun med innhold).

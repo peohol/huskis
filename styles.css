@@ -2123,7 +2123,10 @@ body.tour-guided .trashcan {
   margin-top: 16px;
 }
 .tour-nav { display: flex; align-items: center; gap: 8px; }
-.tour-close { position: absolute; top: 10px; right: 10px; }
+/* To klasser, ikke én: `.icon-btn:not(.pass-toggle)` setter `position:
+   relative` med samme spesifisitet som en enkelt klasse ville hatt, og vant —
+   så ✕-en havnet i flyten nederst i kortet i stedet for i hjørnet. */
+.tour-card .tour-close { position: absolute; top: 10px; right: 10px; }
 
 /* ---------------- Merkevare-logo (innloggingsskjerm) ---------------- */
 /* (app-innhold skjules av `body.no-auth`-regelen i FASE 2-seksjonen under.) */

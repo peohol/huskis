@@ -542,17 +542,28 @@ side-margin som kansellerer den omsluttende paddingen.
 
 ## Introduksjonen: spotlight (`.tour`)
 
-Omvisningen for nye brukere har sitt eget lag (`.tour`, z-index 295 — over
-lagringsstatusen, under toasten og oppdateringsbanneret) som tar imot klikk som
-en modal-overlay. Dempingen tegnes IKKE av en egen flate, men av `.tour-spot`
-sin enorme `box-shadow`-spredning: det som er innenfor ringen står udempet
-igjen, så det uthevede ER det ekte elementet — samme grep som bilderedigererens
-`.avatar-mask`. Derfor heller ingen `backdrop-filter` på laget (den ville
-uskarpet også det som skal fremheves). Steg uten et element å peke på demper i
-stedet hele flaten (`.tour.no-spot`) og midtstiller kortet. `.tour-card` er den
-vanlige hvite modalflaten (radius 20, `--shadow-lg`, `pop-in`) med
-`.hint-chip`-ene i den mørke varianten, som i nav-modalen. Se
-`docs/introduksjon.md`.
+Innføringen for nye brukere har sitt eget lag (`.tour`, z-index 295 — over
+lagringsstatusen, under toasten og oppdateringsbanneret). Dempingen tegnes IKKE
+av en egen flate, men av `.tour-spot` sin enorme `box-shadow`-spredning: det som
+er innenfor ringen står udempet igjen, så det uthevede ER det ekte elementet —
+samme grep som bilderedigererens `.avatar-mask`. Derfor heller ingen
+`backdrop-filter` på laget (den ville uskarpet også det som skal fremheves).
+
+Laget har **to moduser**, og forskjellen er hvem som tar imot pekeren:
+
+- `.tour.narrated` (velkomst/avslutning) tar imot klikk som en modal-overlay.
+- `.tour.guided` slipper pekeren gjennom (`pointer-events: none`; bare kortet
+  tar imot) — handlingen skal utføres på det ekte UI-et. Samtidig demper
+  `body.tour-guided` slette- og søppelkassekontrollene, så et bomtrykk ikke kan
+  kaste noe underveis.
+
+Steg uten et element å peke på demper hele flaten (`.tour.no-spot`). Kortet
+midtstilles da bare på et fortellesteg; på et handlingssteg dokkes det nederst,
+siden et midtstilt kort ville sperret appen brukeren fortsatt må nå.
+`.tour-card` er den vanlige hvite modalflaten (radius 20, `--shadow-lg`,
+`pop-in`) med `.hint-chip`-ene i den mørke varianten, som i nav-modalen. Den
+ruller innvendig når JS kapper høyden (smal skjerm, ingen plass ved siden av
+målet). Se `docs/introduksjon.md`.
 
 ## Bevegelse og tilgjengelighet
 

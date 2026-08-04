@@ -30,10 +30,11 @@ nettleseren og kontrolleres der.
 - [ ] **URL Configuration.** Authentication → URL Configuration.
       *Site URL* skal være `https://huskis.no`, og *Redirect URLs* skal
       inneholde KUN `https://huskis.no/**` (pluss `http://localhost:8000/**`
-      hvis man tester ekte Supabase-e-post lokalt). Ingen oppføringer for
-      `www.huskis.no`, `huskis.vercel.app` eller `huskekurv.vercel.app` — ingen
-      klient kan kjøre der, og hver ekstra oppføring utvider listen over
-      adresser en auth-lenke kan sendes til. Se `docs/domains-and-urls.md`.
+      hvis man tester ekte Supabase-e-post lokalt). Ingen oppføringer for de
+      alternative domenene eller det pensjonerte — ingen klient kan kjøre der,
+      og hver ekstra oppføring utvider listen over adresser en auth-lenke kan
+      sendes til. Fasiten på hvilke verter det gjelder:
+      `docs/domains-and-urls.md`.
       *Verifiser:* feltene leses av på skjermen.
 
 - [ ] **Auth-e-postmalene** (Confirm signup / Reset password / Change email).
