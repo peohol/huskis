@@ -798,7 +798,10 @@ body {
   font-weight: 600;
   line-height: 1.2;
   color: #fff;                 /* hvit skrift m/ skygge for lesbarhet på kortfargen */
-  text-shadow: var(--text-shadow);
+  /* Tynn svart "border" simulert med fire forskjøvne skygger (CSS har ingen
+     ekte tekst-border) — for lesbarhet på de lyseste kortfargene. Den
+     opprinnelige løfte-skyggen beholdes i tillegg. */
+  text-shadow: var(--text-shadow), -1px -1px 0 #000, 1px -1px 0 #000, -1px 1px 0 #000, 1px 1px 0 #000;
   cursor: text;
   padding: 4px;
   border-radius: 8px;
@@ -1095,7 +1098,8 @@ body {
   font-weight: 700;
   line-height: 1.2;
   color: #fff;                 /* hvit m/ skygge — lesbar på enhver listefarge, som kort-tittelen */
-  text-shadow: var(--text-shadow);
+  /* Samme simulerte tekst-border som .card-title, se der for begrunnelse. */
+  text-shadow: var(--text-shadow), -1px -1px 0 #000, 1px -1px 0 #000, -1px 1px 0 #000, 1px 1px 0 #000;
   cursor: text;
   padding: 3px 5px;
   border-radius: 7px;
