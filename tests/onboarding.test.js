@@ -28,11 +28,14 @@
    14. Eksisterende v1-brukere («done»/«skipped») tvinges ikke inn i v2.
    15. «Vis på nytt» på en etablert konto kjører REPETISJON — ingen duplikater.
    16. Bruker uten opprettelsesrett får ikke et umulig steg («Hopp over steget»).
-   17. En synk-avvisning markerer ikke steget som fullført, og sier fra.
+   17. En synk-avvisning markerer ikke steget som fullført, og sier fra; steget
+       venter dessuten på serverens kvittering før det kvitteres ut.
    18. En bakgrunnsrendring/synk-runde river ikke ned innføringen.
-   19. En feilet metadataoppdatering prøves på nytt — mot RIKTIG konto.
-   20. «Reduser bevegelse».
-   21. Kontekstuelle tips (etter at innføringen er ferdig).
+   19. Utlogging midt i et handlingssteg river ned laget OG `body.tour-guided`
+       (som ellers ville dempet slettekontrollene for neste konto).
+   20. En feilet metadataoppdatering prøves på nytt — mot RIKTIG konto.
+   21. «Reduser bevegelse».
+   22. Kontekstuelle tips (etter at innføringen er ferdig).
 
   Kjøres på både desktop- og mobil-viewport.
 
@@ -666,7 +669,7 @@ async function runSync() {
   const p = await b.newPage({ viewport: { width: 1200, height: 900 } });
   const errs = []; p.on('pageerror', (e) => errs.push(e.message));
   console.log('\n== synk under innføringen ==');
-  const email = await register(p);
+  await register(p);
   await p.locator('#tour-next').click();
   await waitStep(p, 'open_nav');
   await p.locator('#nav-crumb').click();
@@ -725,7 +728,26 @@ async function runSync() {
   await waitStep(p, 'open_group');
   log('synk 3: steget går videre når skrivingen er lagret likevel', true);
 
+  /* --- utlogging river ned innføringen, også midt i et steg --- */
+  // Uten dette blir `body.tour-guided` stående, og CSS-en demper slette- og
+  // søppelkassekontrollene for NESTE konto som logger inn.
+  await waitStep(p, 'create_card');
+  const førUtlogging = await p.evaluate(() =>
+    document.body.classList.contains('tour-guided'));
+  await p.evaluate(() => window.__huskis.logout());
+  await p.waitForFunction(() => document.getElementById('tour').hidden,
+    null, { timeout: 8000, polling: 100 });
+  const etterUtlogging = await p.evaluate(() => ({
+    guided: document.body.classList.contains('tour-guided'),
+    aktiv: window.__huskis.tour.active,
+    skjult: document.getElementById('tour').hidden,
+  }));
+  log('synk 3b: utlogging midt i et handlingssteg river ned innføringen',
+    førUtlogging && !etterUtlogging.guided && !etterUtlogging.aktiv &&
+    etterUtlogging.skjult, JSON.stringify(etterUtlogging));
+
   /* --- metadata-retry treffer riktig konto --- */
+  const email2 = await register(p);
   const feil = await p.evaluate(async () => {
     const H = window.__huskis;
     const cli = H.client;
@@ -747,7 +769,7 @@ async function runSync() {
     feil.forsok >= 2, 'forsøk=' + feil.forsok);
   log('synk 4b: begge forsøkene gjelder DEN innloggede kontoen',
     feil.sett.every((id) => id === feil.bruker), JSON.stringify(feil.sett));
-  const lagret = await accountMeta(p, email);
+  const lagret = await accountMeta(p, email2);
   log('synk 4c: merket landet til slutt',
     !!lagret && lagret.onboarding.status === 'skipped',
     JSON.stringify(lagret && lagret.onboarding));

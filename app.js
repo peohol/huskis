@@ -10310,6 +10310,10 @@
     schemaMismatchLogged.clear();
     rejectCounts.clear();
     syncStatus.stop();
+    // Innføringen tilhørte den utloggede kontoen. Uten dette blir laget,
+    // tidsuret og `body.tour-guided` stående — og den klassen demper slette-
+    // og søppelkassekontrollene, altså for NESTE konto som logger inn.
+    resetTourState();
     authUser = null;
     // Innhold, gravsteiner og base tømmes SAMMEN. Cachen på disken er nøklet
     // per bruker og røres ikke (samme konto får sitt igjen ved neste innlogging)
@@ -10649,6 +10653,8 @@
      lagret tilstand fra en annen enhet) skal ikke kaste brukeren tilbake til et
      steg hen alt har gjort. */
   let onboardingFloor = -1;
+  // Billettnummer for framdriftsskrivingene (se saveOnboarding).
+  let onboardingWriteSeq = 0;
 
   /* ---------- Kontoens minne (user_metadata) ---------- */
   // Ett objekt-felt i user_metadata, alltid som et objekt (aldri null/streng —
@@ -10688,7 +10694,10 @@
   // økten), til kontoen i bakgrunnen. Landet ikke skrivingen, prøver vi igjen
   // én gang — og gir vi opp, dukker introduksjonen heller opp igjen ved neste
   // innlogging enn at vi later som den er sett.
-  function saveAccountPref(patch, retriesLeft) {
+  // stillIfCurrent (valgfri): en vakt som må si ja FØR et nytt forsøk sendes.
+  // Brukes av framdriftsskrivingen, der et gammelt forsøk ellers kunne lande
+  // etter et nyere og skrive tilbake et eldre steg.
+  function saveAccountPref(patch, retriesLeft, stillIfCurrent) {
     if (!authUser) return;
     // Hvem skrivingen gjelder. Supabase kan gå fra én innlogget bruker til en
     // annen mens forsøket ligger og venter, og da hører verken metadataen eller
@@ -10704,7 +10713,8 @@
         if (!retriesLeft) return;
         setTimeout(() => {
           if (!authUser || authUser.id !== forUser) return; // en annen konto har overtatt
-          saveAccountPref(patch, retriesLeft - 1);
+          if (stillIfCurrent && !stillIfCurrent()) return;  // en nyere skriving har overtatt
+          saveAccountPref(patch, retriesLeft - 1, stillIfCurrent);
         }, 5000);
       });
   }
@@ -10719,6 +10729,13 @@
       onboardingFloor = i;
     }
     const step = TOUR_STEPS[Math.max(0, Math.min(i, TOUR_LAST))].id;
+    /* Skrivingene er uavhengige HTTP-kall og kan lande i vilkårlig rekkefølge.
+       Verst er retry-veien: et «pågår»-forsøk som feilet ligger og venter i 5
+       sekunder, og rekker i mellomtiden å bli overhalt av «ferdig» — for så å
+       skrive halvveis-tilstanden tilbake over den. `onboardingFloor` stanser
+       bare NYE eldre skrivinger; billetten her stanser også et forsøk som alt
+       er i kø. Den er én teller: bare den nyeste billetten får prøve igjen. */
+    const ticket = ++onboardingWriteSeq;
     saveAccountPref({
       onboarding: {
         v: TOUR_VERSION,
@@ -10726,7 +10743,7 @@
         step: step,
         context: Object.assign({}, ctx || tourCtx),
       },
-    }, 1);
+    }, 1, () => ticket === onboardingWriteSeq);
   }
 
   /* ---------- Innføringen ---------- */
@@ -10849,6 +10866,23 @@
      når nettet er tilbake. */
   function tourWriteBlocked() {
     try { return syncStatus.snapshot().state === 'rejected'; } catch (e) { return false; }
+  }
+  /* Har den nettopp utførte handlingen fått sin DOM? `tourWriteBlocked()` alene
+     er ikke nok: `save()` debouncer synk-runden 300 ms, og observatøren går
+     hvert 250 ms, så den ville rukket å kvittere ut steget FØR den avvisende
+     forespørselen i det hele tatt startet — og avvisningen ville dukket opp på
+     neste steg, med en lagret kontekst som peker på et objekt serveren nektet.
+     Vi venter derfor til det ikke lenger ligger ukvitterte lokale endringer.
+
+     Frakoblet er IKKE en feil: da ligger endringen trygt lokalt og synker når
+     nettet er tilbake, og innføringen skal ikke stå og vente på nett brukeren
+     ikke har. `offline()` slår inn etter to mislykkede runder, så en server som
+     ikke svarer i det hele tatt låser heller ikke flyten. */
+  function tourAwaitingWrite() {
+    let s;
+    try { s = syncStatus.snapshot(); } catch (e) { return false; }
+    if (s.offline) return false;
+    return !!s.pending;
   }
   // Står en inline-navngiving åpen? `isBusyEditing()` ser bare på fokus, og
   // fokus kan ha gått et annet sted (et klikk utenfor commiter riktignok, men
@@ -10975,9 +11009,9 @@
     let patch = null;
     try { patch = check(); } catch (e) { patch = null; }
     if (!patch) return;
-    // Utført lokalt, men ikke lagret på kontoen: la steget stå. Beskjeden står
-    // alt i `tourHint()`.
-    if (tourWriteBlocked()) return;
+    // Utført lokalt, men ikke kvittert av serveren: la steget stå til dommen
+    // faller. Beskjeden ved en avvisning står alt i `tourHint()`.
+    if (tourWriteBlocked() || tourAwaitingWrite()) return;
     Object.assign(tourCtx, patch);
     advanceTour();
   }
@@ -11019,6 +11053,23 @@
     goToTourStep(tourIndex);
     clearInterval(tourTick);
     tourTick = setInterval(tourObserve, TOUR_POLL_MS);
+  }
+  /* Riv ned laget uten å skrive noe. Brukes ved UTLOGGING (`cloudStop`): den
+     halve runden tilhørte kontoen som gikk, og skal verken merkes som sett
+     eller bli stående og gjelde den neste som logger inn. */
+  function resetTourState() {
+    tourActive = false;
+    clearInterval(tourTick); tourTick = null;
+    tourEl.hidden = true;
+    tourEl.classList.remove('guided', 'narrated', 'no-spot');
+    document.body.classList.remove('tour-guided');
+    tourTarget = null;
+    tourReturnFocus = null;
+    tourCtx = { universeId: null, groupId: null, cardId: null };
+    tourBaseline = new Set();
+    tourIndex = 0;
+    onboardingFloor = -1;
+    onboardingWaits = 0;
   }
   // status: 'done' (kom gjennom) | 'skipped' (hoppet over / avsluttet).
   // Begge betyr «ferdig» — innføringen skal ikke mase igjen på neste enhet.
