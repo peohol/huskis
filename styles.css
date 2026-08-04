@@ -6,9 +6,11 @@
    • Kontroll-tokens: --control-h/--control-radius/--control-bg gjelder ALLE
      knapper i knapperadene (＋-knapper, søppelkasser, filter, ☰) → identisk
      høyde/radius/flate i samme rad.
-   • Fargede knapper: .btn-solid + .btn-green/.btn-red/.btn-yellow — ÉN felles
-     stil (gradient, hvit skrift, lys-opp ved hover) for alle grønne/røde/gule
+   • Fargede knapper: .btn-solid + .btn-green/.btn-accent/.btn-red/.btn-yellow —
+     ÉN felles stil (gradient, hvit skrift, lys-opp ved hover) for alle fargede
      knapper. Aldri egne ad hoc-gradienter.
+   • Lysretning: alle flate-gradienter er LODDRETTE med lyseste ende ØVERST —
+     samme lys ovenfra som de nedoverforskjøvne skyggene forutsetter.
    • Delte klasser: .panel-head/.panel-title/.panel-actions (menyoverskrift +
      knapperad), .btn-add (grønn ＋), .trashcan (hvit søppelkasse), .account-btn
      (kontoknapp), .crumb-btn (navigasjonsknappen), delte sletteknapp-, placeholder-
@@ -83,11 +85,17 @@
   --focus-on-dark: #ffffff;
   --focus-w: 3px;
 
-  /* Fargede knapper (.btn-solid): én gradient per farge, gjenbrukt overalt. */
-  --grad-green: linear-gradient(135deg, var(--primary), var(--primary-light));
-  --grad-accent: linear-gradient(135deg, var(--accent-dark), var(--accent));
-  --grad-red: linear-gradient(135deg, var(--danger), var(--danger-dark));
-  --grad-yellow: linear-gradient(135deg, #e8bb50, #d9a52c);
+  /* Fargede knapper (.btn-solid): én gradient per farge, gjenbrukt overalt.
+     LYSRETNINGEN ER FELLES: alle flate-gradienter er LODDRETTE med den lyseste
+     enden ØVERST. Skyggene i appen (--shadow-*) er forskjøvet nedover, altså
+     lys skrått ovenfra; en gradient som lysner nedover ville lyssatt flaten
+     motsatt av sin egen skygge. Loddrett gir dessuten hele fargespranget over
+     knappens korteste akse, så gradienten leses like tydelig på en bred knapp
+     som på en kvadratisk. */
+  --grad-green: linear-gradient(180deg, var(--primary-light), var(--primary));
+  --grad-accent: linear-gradient(180deg, var(--accent), var(--accent-dark));
+  --grad-red: linear-gradient(180deg, var(--danger), var(--danger-dark));
+  --grad-yellow: linear-gradient(180deg, #e8bb50, #d9a52c);
 
   /* Sidepolstring i toppmenyen — viewport-relativ. Kontoknappen (fast i
      viewportets hjørne) bruker samme token, så den flukter med toppmenyens
@@ -361,9 +369,10 @@ body {
 }
 
 /* ---------------- Fargede knapper (.btn-solid) ----------------
-   ÉN felles stil for alle grønne/røde/gule knapper: gradient-flate, hvit
-   skrift m/ tekst-skygge, og samme hover-feedback overalt — flaten lysner
-   litt og skyggen løftes (tydelig, men ikke dramatisk fargeendring). */
+   ÉN felles stil for alle fargede knapper: gradient-flate (loddrett, lyseste
+   ende øverst — se lysretningen ved --grad-*), hvit skrift m/ tekst-skygge, og
+   samme hover-feedback overalt — flaten lysner litt og skyggen løftes
+   (tydelig, men ikke dramatisk fargeendring). */
 .btn-solid {
   color: #fff;
   text-shadow: var(--text-shadow);
@@ -2251,7 +2260,7 @@ body.no-auth #account-btn { display: none; }
   justify-content: center;
   padding: 24px;
   overflow-y: auto;
-  background: linear-gradient(160deg, var(--bg-grad-a), var(--bg-grad-b));
+  background: linear-gradient(180deg, var(--bg-grad-a), var(--bg-grad-b));
 }
 .auth-screen[hidden] { display: none; }
 
@@ -2683,7 +2692,7 @@ body.no-auth #account-btn { display: none; }
 .member-avatar {
   width: 39px; height: 39px; flex: none;
   font-size: var(--fs-sm);
-  background: linear-gradient(135deg, #8496a6, #5f6f7d);
+  background: linear-gradient(180deg, #8496a6, #5f6f7d);
 }
 .member-avatar.owner { background: var(--grad-accent); }
 .member-info { flex: 1 1 9em; min-width: 0; }
@@ -2707,7 +2716,7 @@ body.no-auth #account-btn { display: none; }
 .share-lock-anc-icon svg { width: 15px; height: 15px; }
 /* Arvet medlem (tilgang via universet): svakere, og uten «Fjern» her. */
 .member-row.is-inherited { opacity: 0.85; }
-.member-row.is-inherited .member-avatar { background: linear-gradient(135deg, #b0bcc7, #8a97a3); }
+.member-row.is-inherited .member-avatar { background: linear-gradient(180deg, #b0bcc7, #8a97a3); }
 
 /* ---------------- Plasserings-modal ---------------- */
 #place-body { display: flex; flex-direction: column; gap: 8px; }

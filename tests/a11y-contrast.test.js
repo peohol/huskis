@@ -37,6 +37,11 @@
        på korthodene gjorde.
     8. De pensjonerte fargeverdiene er borte fra hele kildetreet, så en gammel
        hardkodet gul/rød/grønn ikke kan snike seg inn igjen.
+    9. LYSRETNINGEN: alle knappe-gradientene er loddrette (180deg) med den
+       LYSESTE enden først, altså øverst. Skyggene i appen er forskjøvet
+       nedover — lys skrått ovenfra — og en flate som lysner nedover ville
+       lyssatt seg motsatt av sin egen skygge. Regnet ut på samme relative
+       luminans som ratioene over, så «lysest» er målt og ikke øyemål.
 
   Kjør:
     node tests/a11y-contrast.test.js
@@ -238,6 +243,29 @@ for (const [needle, why] of Object.entries(RETIRED)) {
   const hits = SRC.filter(([, body]) => body.toLowerCase().includes(needle.toLowerCase())).map(([f]) => f);
   check(`${needle} (${why}) finnes ikke i kilden`, hits.length === 0, hits);
 }
+
+/* ---------- 9. Lysretning: loddrette gradienter, lysest øverst ---------- */
+console.log('\n--- Knappe-gradientenes lysretning ---');
+for (const g of ['grad-green', 'grad-accent', 'grad-red', 'grad-yellow']) {
+  const raw = token(g) || '';
+  check(`--${g} er loddrett (180deg)`, /linear-gradient\(\s*180deg\s*,/.test(raw), raw);
+  const [top, bottom] = gradientStops(g);
+  check(`--${g} har den lyseste enden ØVERST (${top} → ${bottom})`,
+    top && bottom && lum(top) > lum(bottom),
+    { top, topLum: +lum(top).toFixed(4), bottom, bottomLum: +lum(bottom).toFixed(4) });
+}
+// …og ingen ANNEN gradient i fila får være diagonal heller. Flatene er 180deg;
+// de eneste 90deg-ene er sveipefeltenes fyll, som følger fingeren vannrett og
+// derfor ikke er lyssetting i det hele tatt.
+const diagonals = css.split('\n')
+  .map((l, i) => [i + 1, l])
+  .filter(([, l]) => {
+    const m = l.match(/linear-gradient\(\s*(-?[\d.]+)deg/);
+    return m && Number(m[1]) % 90 !== 0;
+  })
+  .map(([n, l]) => n + ': ' + l.trim());
+check('ingen gradient i styles.css er diagonal (kun 180deg-flater / 90deg-sveipefyll)',
+  diagonals.length === 0, diagonals);
 
 console.log(`\n==== ${passed}/${passed + failed} PASS ====`);
 process.exit(failed ? 1 : 0);
