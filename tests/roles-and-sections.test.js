@@ -286,8 +286,10 @@ async function run(label, viewport, mobile) {
       const H = window.__huskis, u = H.state.universes.find((x) => !x._virtual);
       H.openShare('universe', u.id, u, null);
     });
-    // Del-visningen henter medlemslisten fra serveren — vent på radene.
-    await p.waitForFunction(() => document.querySelectorAll('#share-body .member-row').length > 0,
+    // Del-visningen viser din egen rad SYNKront («deg selv vises straks»,
+    // app.js) før get_members har svart — én rad beviser altså ingenting.
+    // Fixturen har tre medlemmer i universet (Alice, Bo, Cato): vent på alle.
+    await p.waitForFunction(() => document.querySelectorAll('#share-body .member-row').length >= 3,
       null, { timeout: 8000 });
   };
   // Radene, med knappetekstene sine.
