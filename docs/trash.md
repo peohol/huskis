@@ -128,6 +128,28 @@ knappen stables i `.modal-foot` (`.modal-note` tar hele linjen): ved siden av
 hverandre ville den lengste knappeteksten presset notatet ned i en smal søyle.
 Sveipefeltet har ikke plass til nivånavnet og sier «Slett alt».
 
+### Radene: navnet har et gulv, resten bryter rundt det
+
+En rad (`.trash-row`, lik for alle fire nivåene) er `[prikk] [navn (+ metadata)]
+[Gjenopprett]`. Prikken, metadataen og knappen har fast bredde; navnet er det
+eneste som kan gi etter — og på en smal skjerm var «resten» omtrent ingenting.
+Navnet fikk derfor ikke en fast bredde, men et **gulv**: navneblokka
+(`.trash-main` = navn + metadata) har en flex-basis, og når den ikke får plass
+bryter raden i stedet for å presse. Knappen faller ned på sin egen linje
+(fortsatt høyrestilt, uendret berøringsflate), og metadataen legger seg under
+navnet. Er det plass til alt, ligger raden på én linje som før — gulvet måles
+mot radens FAKTISKE bredde, som er modalens, så det trengs ingen breakpoint.
+
+Navnet vises alltid i sin helhet, aldri kappet med ellipsis: raden er nettopp
+der brukeren skal kjenne igjen hva som ble slettet (samme grunn som toasten, se
+`docs/design-system.md`). Det brytes mellom ord der det går
+(`overflow-wrap: break-word`), og bare midt i ordet når ordet alene er bredere
+enn raden. `word-break: break-word` er IKKE det samme: den gjør navnets
+min-content-bredde til ett tegn, og da har flex ingen nedre grense å stoppe på —
+det var årsaken til at et langt navn ble en loddrett bokstavsøyle på mobil mens
+knappen ble dyttet ut av modalen. Geometrien er målt i
+`tests/trash-modal-layout.test.js` (desktop, mobil og smal mobil).
+
 Klikk-og-hold (> `HOLD_EXPAND_MS`) → **sveipefeltet**: feltet starter med
 knappens EKSAKTE geometri (posisjon/størrelse/radius, og ikonet står nøyaktig
 der knappens ikon står — samme visuelle størrelse) mens selve knappen skjules

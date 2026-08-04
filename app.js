@@ -5950,16 +5950,23 @@
         dot.style.background = r.color;
         row.appendChild(dot);
       }
+      // Navn + metadata i én blokk: sammen får de en flex-basis å bryte på, så
+      // navnet ikke kan presses ned til en bokstavsøyle av knappen ved siden av
+      // (se .trash-main i styles.css). Blokka er ren layout — ingen rolle,
+      // ingen tekst, ingenting en skjermleser skal lese.
+      const main = document.createElement('div');
+      main.className = 'trash-main';
       const name = document.createElement('span');
       name.className = 'trash-name';
       name.textContent = r.name;
-      row.appendChild(name);
+      main.appendChild(name);
       if (r.meta != null) {
         const meta = document.createElement('span');
         meta.className = 'trash-meta';
         meta.textContent = r.meta;
-        row.appendChild(meta);
+        main.appendChild(meta);
       }
+      row.appendChild(main);
       const restore = document.createElement('button');
       restore.className = 'btn btn-solid btn-accent btn-small';
       restore.type = 'button';
