@@ -102,17 +102,23 @@ To måter å komme inn i appen på:
    og delt innhold seedes ferdig i stedet for at to faner klikker seg gjennom
    flyten. Test som en annen bruker ved å seede en annen `hk-mock-session`.
 
-**Introduksjonen kommer i veien.** En ny konto får omvisningen automatisk etter
-innlogging (`docs/introduksjon.md`), og laget den ligger i fanger alle klikk.
+**Introduksjonen kommer i veien.** En ny konto får den interaktive innføringen
+automatisk etter innlogging (`docs/introduksjon.md`): et kort med spotlight
+som venter på at brukeren bygger univers → gruppe → liste → listepunkt.
 Gest-tipsene er like mye i veien: de kommer som en toast NEDERST på skjermen —
 nøyaktig der et mobil-drag tar tak i den nederste lista. Tester som ikke handler
 om introduksjonen skal derfor slå av BEGGE deler med én gang:
 
 - logger testen inn gjennom UI-et: `await p.evaluate(() => window.__huskis.tour.skipAll())`
-  sist i innloggingshjelperen (merket lagres med én gang, så en omvisning som er
+  sist i innloggingshjelperen (merket lagres med én gang, så en innføring som er
   på vei opp heller ikke rekker å starte);
 - seeder testen sesjonen selv: gi den seedede brukeren
   `user_metadata: { onboarding: { v: 1, status: 'done' }, tips: { drag: true, trash: true, moveList: true } }`.
+
+`{ v: 1, status: 'done' }` er fortsatt riktig markør å seede med: regelen er at
+et registrert `done`/`skipped` teller uansett versjon, så den korteste formen
+holder. Skal en test derimot HA innføringen, gir `user_metadata: {}` en reelt ny
+konto — det er fraværet av markøren som starter den.
 
 Mock-backenden speiler serverens regler (roller, capabilities, felt-LWW,
 fremmednøkler, gravsteiner), men er ikke en full RLS-implementasjon. Endrer du
