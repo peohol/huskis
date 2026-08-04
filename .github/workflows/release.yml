@@ -52,6 +52,21 @@ concurrency:
 permissions:
   contents: read
 
+env:
+  # Vercel CLI-en er LÅST til en eksakt versjon. Med `@latest` kunne en ny
+  # CLI-utgivelse endre deployen uten at repoet endret seg — og utgivelsene
+  # kommer tett (to hovedversjoner på ti dager sommeren 2026). En deploy skal
+  # være reproduserbar: samme commit inn, samme oppførsel ut.
+  #
+  # OPPGRADERING: bump tallet her, kjør `npm install -g vercel@<ny>` og
+  # kontroller at `vercel deploy --help` fortsatt har `--prod`, `--build-env`
+  # og `--token` (det er alle flaggene denne workflowen bruker). Slipp den
+  # gjennom en PR først: preview-deployen for grenen kjører hos Vercel og
+  # rører ikke denne versjonen, så den ekte prøven er den første releasen
+  # etter merge. Går den i bakken, er rollback å sette tallet tilbake.
+  # `tests/release-pipeline.test.js` vokter at det ER en eksakt versjon.
+  VERCEL_CLI_VERSION: '58.5.1'
+
 jobs:
   # ---- 1. Tester ------------------------------------------------------
   tester:
@@ -189,7 +204,17 @@ jobs:
             *)   echo "::error::Uventet svar fra Vercel ($status). ${melding}"; exit 1 ;;
           esac
 
-      - run: npm install -g vercel@latest
+      - name: Installer den låste Vercel CLI-en
+        run: |
+          npm install -g "vercel@${VERCEL_CLI_VERSION}"
+          # Bevis at det er DEN versjonen som kjører — en npm-cache eller et
+          # forhåndsinstallert globalt CLI kunne ellers gitt en annen.
+          faktisk=$(vercel --version | tail -1 | tr -d '[:space:]')
+          if [ "$faktisk" != "$VERCEL_CLI_VERSION" ]; then
+            echo "::error::Vercel CLI er $faktisk, ikke den låste $VERCEL_CLI_VERSION."
+            exit 1
+          fi
+          echo "✅ Vercel CLI $faktisk (låst)."
 
       # Peker CLI-en på riktig prosjekt. `vercel deploy` trenger bare disse to
       # ID-ene; det er `vercel build` som i tillegg krever en `settings`-blokk
