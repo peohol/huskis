@@ -798,10 +798,11 @@ body {
   font-weight: 600;
   line-height: 1.2;
   color: #fff;                 /* hvit skrift m/ skygge for lesbarhet på kortfargen */
-  /* Tynn svart "border" simulert med fire forskjøvne skygger (CSS har ingen
-     ekte tekst-border) — for lesbarhet på de lyseste kortfargene. Den
-     opprinnelige løfte-skyggen beholdes i tillegg. */
-  text-shadow: var(--text-shadow), -1px -1px 0 rgba(0, 0, 0, 0.55), 1px -1px 0 rgba(0, 0, 0, 0.55), -1px 1px 0 rgba(0, 0, 0, 0.55), 1px 1px 0 rgba(0, 0, 0, 0.55);
+  text-shadow: var(--text-shadow);
+  /* Tynn svart tekst-border for lesbarhet på de lyseste kortfargene (CSS har
+     ingen egen border-egenskap for tekst). Bredt støttet på tvers av
+     nettlesere til tross for -webkit-prefikset. */
+  -webkit-text-stroke: 1px rgba(0, 0, 0, 0.5);
   cursor: text;
   padding: 4px;
   border-radius: 8px;
@@ -1098,8 +1099,9 @@ body {
   font-weight: 700;
   line-height: 1.2;
   color: #fff;                 /* hvit m/ skygge — lesbar på enhver listefarge, som kort-tittelen */
-  /* Samme simulerte tekst-border som .card-title, se der for begrunnelse. */
-  text-shadow: var(--text-shadow), -1px -1px 0 rgba(0, 0, 0, 0.55), 1px -1px 0 rgba(0, 0, 0, 0.55), -1px 1px 0 rgba(0, 0, 0, 0.55), 1px 1px 0 rgba(0, 0, 0, 0.55);
+  text-shadow: var(--text-shadow);
+  /* Samme tekst-border som .card-title, se der for begrunnelse. */
+  -webkit-text-stroke: 1px rgba(0, 0, 0, 0.5);
   cursor: text;
   padding: 3px 5px;
   border-radius: 7px;
@@ -1343,7 +1345,7 @@ body {
    på det løftede kortet (og fra høyde-målingen) så draget leser som en kompakt rad. */
 .category.dragging .cat-add { display: none; }
 /* Svart tittel uten skygge — hvit-på-hvit var uleselig på dra-flaten. */
-.category.dragging .cat-title { color: #111; text-shadow: none; }
+.category.dragging .cat-title { color: #111; text-shadow: none; -webkit-text-stroke: none; }
 .category.dragging .cat-drag-icon { display: inline-flex; }
 
 /* Placeholders (kort/element/gruppe/univers): IDENTISK stil overalt — svakt
@@ -3048,7 +3050,7 @@ button.share-badge:focus-visible { outline: var(--focus-w) solid var(--focus); o
 /* Tittelen står på en LYS flate her (ikke en mettet kortfarge), så den hvite
    skriften med skygge ville blitt uleselig — bruk vanlig blekk uten skygge.
    Navnet er heller ikke redigerbart: beholderen finnes ikke i databasen. */
-.free-groups-card .card-title { color: var(--ink); text-shadow: none; cursor: default; }
+.free-groups-card .card-title { color: var(--ink); text-shadow: none; -webkit-text-stroke: none; cursor: default; }
 .free-groups-card .card-title:hover { background: none; }
 
 /* Breadcrumb-ikonene fylles av updateCrumbs(): [ressursikon][delt-ikon]Navn. */
