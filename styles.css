@@ -799,6 +799,14 @@ body {
   line-height: 1.2;
   color: #fff;                 /* hvit skrift m/ skygge for lesbarhet på kortfargen */
   text-shadow: var(--text-shadow);
+  /* Tynn svart tekst-border for lesbarhet på de lyseste kortfargene (CSS har
+     ingen egen border-egenskap for tekst). `paint-order` er påkrevd: uten den
+     sentreres streken på glyfkanten og spiser innover, så bokstavene blir
+     tynnere og små navn mister klarhet. Med `stroke fill` males fyllet oppå
+     streken, slik at bare den ytre halvdelen synes og glyfen beholder full
+     tykkelse. Faller tilbake til sentrert strek i eldre nettlesere. */
+  -webkit-text-stroke: 1px #000;
+  paint-order: stroke fill;
   cursor: text;
   padding: 4px;
   border-radius: 8px;
@@ -1096,6 +1104,9 @@ body {
   line-height: 1.2;
   color: #fff;                 /* hvit m/ skygge — lesbar på enhver listefarge, som kort-tittelen */
   text-shadow: var(--text-shadow);
+  /* Samme tekst-border som .card-title, se der for begrunnelse. */
+  -webkit-text-stroke: 1px #000;
+  paint-order: stroke fill;
   cursor: text;
   padding: 3px 5px;
   border-radius: 7px;
@@ -1339,7 +1350,7 @@ body {
    på det løftede kortet (og fra høyde-målingen) så draget leser som en kompakt rad. */
 .category.dragging .cat-add { display: none; }
 /* Svart tittel uten skygge — hvit-på-hvit var uleselig på dra-flaten. */
-.category.dragging .cat-title { color: #111; text-shadow: none; }
+.category.dragging .cat-title { color: #111; text-shadow: none; -webkit-text-stroke: none; }
 .category.dragging .cat-drag-icon { display: inline-flex; }
 
 /* Placeholders (kort/element/gruppe/univers): IDENTISK stil overalt — svakt
@@ -3044,7 +3055,7 @@ button.share-badge:focus-visible { outline: var(--focus-w) solid var(--focus); o
 /* Tittelen står på en LYS flate her (ikke en mettet kortfarge), så den hvite
    skriften med skygge ville blitt uleselig — bruk vanlig blekk uten skygge.
    Navnet er heller ikke redigerbart: beholderen finnes ikke i databasen. */
-.free-groups-card .card-title { color: var(--ink); text-shadow: none; cursor: default; }
+.free-groups-card .card-title { color: var(--ink); text-shadow: none; -webkit-text-stroke: none; cursor: default; }
 .free-groups-card .card-title:hover { background: none; }
 
 /* Breadcrumb-ikonene fylles av updateCrumbs(): [ressursikon][delt-ikon]Navn. */
