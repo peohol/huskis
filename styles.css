@@ -800,9 +800,13 @@ body {
   color: #fff;                 /* hvit skrift m/ skygge for lesbarhet på kortfargen */
   text-shadow: var(--text-shadow);
   /* Tynn svart tekst-border for lesbarhet på de lyseste kortfargene (CSS har
-     ingen egen border-egenskap for tekst). Bredt støttet på tvers av
-     nettlesere til tross for -webkit-prefikset. */
+     ingen egen border-egenskap for tekst). `paint-order` er påkrevd: uten den
+     sentreres streken på glyfkanten og spiser innover, så bokstavene blir
+     tynnere og små navn mister klarhet. Med `stroke fill` males fyllet oppå
+     streken, slik at bare den ytre halvdelen synes og glyfen beholder full
+     tykkelse. Faller tilbake til sentrert strek i eldre nettlesere. */
   -webkit-text-stroke: 1px rgba(0, 0, 0, 0.5);
+  paint-order: stroke fill;
   cursor: text;
   padding: 4px;
   border-radius: 8px;
@@ -1102,6 +1106,7 @@ body {
   text-shadow: var(--text-shadow);
   /* Samme tekst-border som .card-title, se der for begrunnelse. */
   -webkit-text-stroke: 1px rgba(0, 0, 0, 0.5);
+  paint-order: stroke fill;
   cursor: text;
   padding: 3px 5px;
   border-radius: 7px;
