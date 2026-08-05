@@ -373,7 +373,7 @@ async function run(label, vp, mobile) {
     localStorage.setItem('hk-mock-db', JSON.stringify(db));
     sessionStorage.setItem('hk-mock-session', JSON.stringify(sess));
   }, { db: seed.db, sess: { id: seed.ids.uA, email: 'a@x.no',
-       user_metadata: { onboarding: { v: 1, status: 'done' }, tips: { drag: true, trash: true, moveList: true } } } });
+       user_metadata: { onboarding: { v: 3, status: 'done' }, tips: { drag: true, trash: true, moveList: true } } } });
   // `lag` gir «serveren» en merkbar forsinkelse, så en get_members startet av en
   // for tidlig render rekker å kappløpe med skrivingen (se neste sjekk).
   await p.goto(BASE + '/?mock=1&lag=300');

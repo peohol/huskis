@@ -307,6 +307,13 @@
   }
 
   let saveTimer = null;
+  /* Sant mens DEMONSTRASJONEN kjører. Den er en SIMULERING: brukerens egne
+     objekter er lagt til side, og alt demoen lager er en kulisse som rives ned
+     igjen. Ingenting av det skal havne i den lokale bufferen eller på kontoen,
+     så de fire veiene ut — bufferen, sky-runden, den huskede posisjonen og
+     bakgrunnskøen — stenges her. Flagget står HER, ikke nede i demoseksjonen,
+     fordi `save()` under leser det. Se DEMONSTRASJONEN FOR NYE BRUKERE. */
+  let demoActive = false;
   // Serialisering hopper over intern backend-metadata (_parent/_canon/_caps/…),
   // som ellers ville gitt sykliske referanser i kontomodus. State-nivå _tomb/_hlc
   // beholdes. _createdByMe (en ren boolsk verdi, ingen sirkulær referanse) beholdes
@@ -371,6 +378,7 @@
   // fått ennå (se updateSafety(): da er en automatisk reload ikke trygg).
   let saveSeq = 0, syncedSeq = 0;
   function save() {
+    if (demoActive) return; // simulering — se demoActive
     // En render UNDER `applyingRemote` kaller også save() (renderBoardInner), og
     // da er det fletteresultatet som skrives ned — ikke en ny brukerendring.
     scheduleCacheWrite(!applyingRemote);
@@ -380,7 +388,7 @@
   // Som save(), men uten å planlegge en synk-runde: brukes av synken selv når
   // den skriver ned resultatet sitt (innhold + base) og altså nettopp har vært
   // hos serveren. Skrivingen bærer derfor ingen ny brukerendring.
-  function saveLocal() { scheduleCacheWrite(false); }
+  function saveLocal() { if (!demoActive) scheduleCacheWrite(false); }
 
   // Første gang (ingen lokal state): start tom når sky-synk er konfigurert
   // (skyen fyller på / tom-tilstanden veileder), ellers med eksempeldata.
@@ -827,7 +835,7 @@
   }
   document.addEventListener('keydown', (ev) => {
     if (ev.key !== 'Tab' || !overlayStack.length) return;
-    if (tourActive) return; // omvisningen har sin egen felle
+    if (demoRunning) return; // demoen styrer selv hva som kan nås
     const top = overlayStack[overlayStack.length - 1];
     const f = focusablesIn(top);
     if (!f.length) { ev.preventDefault(); return; }
@@ -3432,6 +3440,9 @@
 
   const SWAP_RATIO = 0.2; // 20 % høydeoverlapp utløser bytte
   const FLIP_MS = 150;
+  // Teller vellykkede slipp (se finishDrag). Leses av demoen, som har steg der
+  // selve slippet ER handlingen.
+  let dropSeq = 0, dragRolledBack = false;
   // Anti-flimring: rett etter et bytte ligger geometrien ofte slik at det motsatte
   // byttet straks trigges igjen (naboen har nettopp relokert via FLIP) → objektene
   // hopper frem og tilbake. To milde tiltak gjelder KUN reverseringen av forrige
@@ -3966,6 +3977,13 @@
   }
 
   function finishDrag() {
+    /* Et VELLYKKET slipp, i motsetning til et tilbakerullet drag. Demoen har
+       steg som skal kvitteres ut av selve slippet — også når objektet lander på
+       samme plass, der verken pos eller rekkefølge endrer seg og en
+       tilstandssjekk derfor ikke ville sett noe. Rollback-veiene er nøyaktig de
+       som går via restoreDraggedToOrigin(), så flagget settes der. */
+    if (!dragRolledBack) dropSeq++;
+    dragRolledBack = false;
     drag.active = false;
     clearAllDragSeparators(); // tilbake til hvile-reglene (pseudo-linjene på .category)
     clearAllPeeks(true); // sikkerhetsnett: kollaps evt. peek-åpnede mål tilbake (no-op om alt alt er løst)
@@ -3999,6 +4017,7 @@
      re-innsettingen mot `origNext` er et sikkerhetsnett. Kaller IKKE finishDrag
      selv — hver on*Cancel gjør det (etter evt. nivå-spesifikk opprydding). */
   function restoreDraggedToOrigin() {
+    dragRolledBack = true; // ikke et slipp — se finishDrag()
     const el = drag.el;
     if (!el) return;
     // Er noden allerede ute av dokumentet, har DOM-en gått videre uten den (en
@@ -5912,6 +5931,11 @@
   confirmModalEl.addEventListener('click', (ev) => { if (ev.target === confirmModalEl) closeConfirm(false); });
 
   function showTrashModal(cfg) {
+    /* Søppelkasse-knappen gjør TO ting — kort trykk åpner modalen, hold og
+       sveip tømmer. Demoen viser dem i hvert sitt steg, og et bomtrykk på
+       tømme-steget ville ellers lagt modalen oppå kontrollen brukeren skal
+       holde inne. Gjelder kun mens demoen står på. */
+    if (demoActive && !demoAllowsTrashModal()) return;
     modalCfg = cfg;
     trashTitle.textContent = cfg.title;
     modalNote.textContent = cfg.note;
@@ -7517,6 +7541,7 @@
   const navEq = (a, b) => !!a && !!b && a.u === b.u && a.g === b.g;
   function saveNavPref() {
     if (!authUser || applyingRemote || !navRestored) return;
+    if (demoActive) return; // demoens posisjon er en kulisse, ikke brukerens
     const nav = { u: state.activeUniverse || null, g: state.activeGroup || null };
     if (navEq(nav, authUser.meta && authUser.meta.nav) && !navPending) return; // allerede lagret
     if (navEq(nav, navPending)) return; // allerede planlagt
@@ -8748,6 +8773,7 @@
   // undertrykkes fra pull-ene til leave har landet, så det verken gjenoppstår
   // lokalt eller (verre) får reconcile til å pushe delete på andres rader.
   function cloudLeave(type, id) {
+    if (demoActive) return; // simulering — ingen bakgrunnsoperasjoner
     suppressedRows.add(id);
     const key = 'leave:' + type + ':' + id;
     if (opQueue.hasPending(key)) return;
@@ -8858,6 +8884,7 @@
   }
 
   function scheduleCloud(delay) {
+    if (demoActive) return; // simulering — se demoActive
     clearTimeout(cloudDebounce);
     // Nulles når den fyrer, så updateSafety() kan se om en runde står i kø.
     cloudDebounce = setTimeout(() => { cloudDebounce = null; cloudCycle(); }, delay == null ? 300 : delay);
@@ -8895,6 +8922,11 @@
   }
   async function cloudCycle() {
     if (!authUser || !acli()) return;
+    /* Demoen har byttet ut `state` med en kulisse. En runde her ville både
+       pushet kulissen og — verre — skrevet serverens svar inn over den, så
+       brukerens egne objekter dukket opp midt i demoen. Runden tas igjen når
+       demoen er ferdig (endDemo kaller scheduleCloud). */
+    if (demoActive) return;
     if (cloudRunning) { cloudAgain = true; return; }
     cloudRunning = true;
     syncStatus.refresh();
@@ -10290,9 +10322,9 @@
     startCloudPoll();
     syncStatus.start();
     await cloudCycle();
-    // Introduksjonen kommer FØR pollet rekker en ny runde, men etter at første
-    // pull har malt board-et — så spotlightene peker på kontoens faktiske
-    // innhold. Den vises kun hvis kontoen ikke har sett den (docs/introduksjon.md).
+    // Demoen kommer FØR pollet rekker en ny runde, men etter at første pull har
+    // malt board-et — ellers ville en runde landet midt i simuleringen. Den
+    // vises kun hvis kontoen ikke har sett den (docs/introduksjon.md).
     maybeStartOnboarding();
   }
   function cloudStop() {
@@ -10317,9 +10349,11 @@
     schemaMismatchLogged.clear();
     rejectCounts.clear();
     syncStatus.stop();
-    // Innføringen tilhørte den utloggede kontoen. Uten dette blir laget,
-    // tidsuret og `body.tour-guided` stående — og den klassen demper slette-
-    // og søppelkassekontrollene, altså for NESTE konto som logger inn.
+    /* Demoen tilhørte den utloggede kontoen. Uten dette blir laget, tidsuret og
+       `body.tour-demo` stående for NESTE konto som logger inn — og verre:
+       simuleringen ville blitt stående på, så alt den neste gjorde forsvant i
+       stedet for å bli lagret. `resetTourState()` avvikler den uten å skrive
+       noe; den halve runden skal verken merkes som sett eller gjelde noen andre. */
     resetTourState();
     authUser = null;
     // Innhold, gravsteiner og base tømmes SAMMEN. Cachen på disken er nøklet
@@ -10340,9 +10374,9 @@
     // Profilbildet og et evt. skrevet passord tilhørte den utloggede kontoen.
     myAvatar = null; avatarPainted = null;
     clearPassFields([accountPassCurrent, accountPassNew]);
-    // Lukk evt. åpne modaler — de tilhørte den utloggede sesjonen. Omvisningen
+    // Lukk evt. åpne modaler — de tilhørte den utloggede sesjonen. Demoen
     // avsluttes uten å lagre noe: den hører til kontoen som nettopp logget ut.
-    tourActive = false; tourEl.hidden = true; onboardingWaits = 0;
+    resetTourState();
     closeNavModal(); closeAccount(); closeAvatarEditor();
   }
 
@@ -10442,226 +10476,552 @@
   }
 
   /* ============================================================
-     INTRODUKSJON FOR NYE BRUKERE
+     DEMONSTRASJONEN FOR NYE BRUKERE
      ------------------------------------------------------------
      Autoritativt: docs/introduksjon.md.
 
      To deler, med ulik tyngde:
 
-       1. INNFØRINGEN — en interaktiv, TILSTANDSBASERT runde der brukeren
-          bygger hele hierarkiet selv: område → mappe → liste → listepunkt.
-          Den går ALDRI videre fordi en knapp ble trykket; den går videre når
-          objektet steget ber om faktisk finnes i state, hos riktig forelder,
-          med et navn. Avbrutt navngiving, en lukket modal eller en avvist
-          skriving er derfor ikke et fullført steg — kortet blir stående.
-          Spotlighten peker på EKTE UI, og på et handlingssteg er det ekte
-          UI-et også det brukeren trykker på: laget slipper pekeren gjennom.
+       1. DEMOEN — én sammenhengende runde gjennom alt man gjør i Huskis:
+          opprette område → mappe → liste → listepunkter → kategori, prøve
+          dra-og-slipp på begge nivåer, løse opp kategorien, og til slutt
+          slette og tømme seg tilbake til utgangspunktet.
+
+          Den kjører i en SIMULERING. Brukerens egne objekter legges til side
+          (`demoSaved`), `state` får et tomt tre demoen bygger i, og alt rives
+          ned igjen når demoen er over. Ingenting skrives til den lokale
+          bufferen, kontoen eller databasen mens den står på — se `demoActive`
+          og vaktene i save()/saveLocal()/scheduleCloud()/cloudCycle()/
+          saveNavPref()/cloudLeave(). Det gjør demoen lik for alle: en tom
+          konto og en konto med tre hundre lister ser nøyaktig det samme, og
+          ingen kan miste noe på et bomtrykk.
+
+          Hvert steg MÅ utføres. Det finnes ingen «neste» og ingen «hopp over
+          steget»: `demoGate` slipper bare gjennom pekeren og tastene som
+          treffer kontrollen steget faktisk handler om — alt annet svelges, så
+          man verken kan slette når sletting ikke demonstreres, kollapse et
+          kort når kollapsing ikke demonstreres, eller navigere seg bort fra
+          steget. Man kan gå ETT steg tilbake, og da rulles tilstanden tilbake
+          til slik den var da det steget begynte (`demoSnaps`), slik at
+          handlingen kan gjøres om.
+
+          Instruksjonen vises ALDRI før navigasjonen den forrige handlingen
+          utløste er ferdig: `demoReady()` krever at riktig modal er åpen/
+          lukket OG at målet finnes og er synlig, og kortet står skjult til da.
+
        2. TIPSENE — de avanserte gestene (trykk-og-hold, sveip, dra til
           navigasjonsknappen) læres bort først når de faktisk er relevante, ett
           kort tips om gangen, i den vanlige toasten. Et tips fortrenger aldri
           en melding som allerede står, avbryter aldri en redigering og fanger
           aldri fokus.
 
-     Begge deler huskes på KONTOEN (`user_metadata`), ikke per enhet — samme
-     mekanikk som den huskede posisjonen (`nav`), så en fullført, hoppet-over
-     eller PÅBEGYNT innføring følger brukeren til neste enhet. */
-  const TOUR_VERSION = 2;    // v1 = den passive omvisningen (se onboardingSeen)
+     Begge deler huskes på KONTOEN (`user_metadata`), ikke per enhet. */
+  const TOUR_VERSION = 3;    // v1 = passiv omvisning, v2 = innføring i ekte data, v3 = demoen
   const TIP_QUIET_MS = 6000; // ro mellom to tips (ett budskap om gangen)
   /* Steget venter på en TILSTAND, ikke på en hendelse: objektet kan dukke opp
-     fra en inline-navngiving, en synk-runde fra en annen enhet eller en angret
-     sletting. Å lytte på alle veiene dit ville vært en liste som råtner; ett
-     billig intervall som stiller det samme spørsmålet råtner ikke. */
-  const TOUR_POLL_MS = 250;
+     fra en inline-navngiving, et slipp eller en angret sletting. Å lytte på
+     alle veiene dit ville vært en liste som råtner; ett billig intervall som
+     stiller det samme spørsmålet råtner ikke. */
+  const DEMO_POLL_MS = 120;
 
   const tourEl = document.getElementById('tour');
-  const tourSpot = document.getElementById('tour-spot');
+  const tourArrow = document.getElementById('tour-arrow');
   const tourCard = document.getElementById('tour-card');
-  const tourStepEl = document.getElementById('tour-step');
   const tourTitleEl = document.getElementById('tour-title');
   const tourTextEl = document.getElementById('tour-text');
   const tourNoteEl = document.getElementById('tour-note');
+  const tourProgressEl = document.getElementById('tour-progress');
+  const tourProgressFill = document.getElementById('tour-progress-fill');
+  const tourActionsEl = tourCard.querySelector('.tour-actions');
   const tourNextBtn = document.getElementById('tour-next');
-  const tourSkipBtn = document.getElementById('tour-skip');
-  const tourSkipStepBtn = document.getElementById('tour-skip-step');
-  const tourPracticeBtn = document.getElementById('tour-practice');
+  const tourBackBtn = document.getElementById('tour-back');
   const tourCloseBtn = document.getElementById('tour-close');
   const tourRestartBtn = document.getElementById('tour-restart');
   const menuTour = document.getElementById('menu-tour');
 
-  const tourChip = (inner) => '<span class="hint-chip">' + inner + '</span>';
-  const tourQ = (id) => '[data-id="' + String(id).replace(/["\\]/g, '\\$&') + '"]';
-  const tourNamed = (o, field) => !!o && String(o[field] || '').trim() !== '';
+  const demoQ = (id) => '[data-id="' + String(id || '').replace(/["\\]/g, '\\$&') + '"]';
+  const demoNamed = (o, field) => !!o && String(o[field] || '').trim() !== '';
 
-  /* ---------- Oppslag innføringen bygger på ---------- */
-  // Områdene brukeren selv rår over. Fri-mappe-beholderen er virtuell og
-  // kan verken opprettes eller velges, så den holdes utenfor.
-  const tourUniverses = () => state.universes.filter((u) => live(u) && !u._virtual);
-  const tourUni = () => tourUniverses().find((u) => u.id === tourCtx.universeId) || null;
-  const tourGroups = (u) => (u ? u.groups.filter((g) => live(g) && !g.isCat) : []);
-  const tourGroup = () => tourGroups(tourUni()).find((g) => g.id === tourCtx.groupId) || null;
-  const tourCards = (g) => (g ? g.cards.filter(live) : []);
-  const tourCardObj = () => tourCards(tourGroup()).find((c) => c.id === tourCtx.cardId) || null;
-  const tourItems = (c) => (c ? c.items.filter((it) => live(it) && !it.isCat) : []);
+  /* ---------- Kulissen demoen bygger i ---------- */
+  let demoSaved = null;       // brukerens egne objekter mens demoen står på
+  let demoRunning = false;    // den guidede runden (demoActive = simuleringen)
+  let demoIndex = 0;
+  let demoPainted = -1;       // hvilket steg kortet faktisk viser nå
+  let demoCtx = {};           // id-ene demoen har opprettet
+  let demoBase = null;        // tellere ved inngangen til steget
+  let demoSnaps = [];         // tilstanden ved inngangen til hvert steg
+  let demoTimer = null;
+  let demoReturnFocus = null;
+  let demoLiveEl = null;      // kontrollen steget handler om (.tour-live)
+  let onboardingWaits = 0;
 
-  /* Objektet som ble opprettet I DETTE STEGET — ikke bare «et objekt finnes».
-     `tourBaseline` er id-ene som fantes da steget begynte, så et område
-     brukeren allerede hadde (eller en synk-runde drar inn fra en annen enhet)
-     ikke kan fullføre steget på vegne av handlingen som aldri ble utført. */
-  const tourFresh = (rows, field) =>
-    rows.find((o) => !tourBaseline.has(o.id) && tourNamed(o, field)) || null;
+  // `_parent` er den eneste sykliske referansen i treet (synken setter den);
+  // demoens egne objekter har den ikke, men vakten koster ingenting.
+  const demoClone = (v) => JSON.parse(JSON.stringify(v, (k, x) => (k === '_parent' ? undefined : x)));
+
+  /* Legg brukerens objekter til side og gi `state` et tomt tre. Referansen til
+     den gamle arrayen beholdes urørt — demoen får en HELT ny, så ingenting den
+     gjør kan nå brukerens innhold, uansett hvor i appen mutasjonen skjer. */
+  function demoSimStart() {
+    if (demoActive) return;
+    commitAllPending(); // brukerens egne buffrede slettinger hører til før demoen
+    demoSaved = {
+      universes: state.universes,
+      activeUniverse: state.activeUniverse,
+      activeGroup: state.activeGroup,
+      activeGroups: state.activeGroups,
+      tomb: state._tomb,
+    };
+    demoActive = true;
+    state.universes = [];
+    state.activeUniverse = null;
+    state.activeGroup = null;
+    state.activeGroups = {};
+    state._tomb = emptyTomb();
+    closeTrash();
+    closeNavModal();
+    closeAccount();
+    render();
+  }
+  // resync: ta igjen sky-rundene demoen holdt tilbake. Ved utlogging skal vi
+  // ikke det — sesjonen er borte, og køen er allerede tømt.
+  function demoSimStop(resync) {
+    if (!demoActive) return;
+    demoDropDeleteBuffer(); // buffrede slettinger av kulisser skal ikke committes
+    state.universes = demoSaved.universes;
+    state.activeUniverse = demoSaved.activeUniverse;
+    state.activeGroup = demoSaved.activeGroup;
+    state.activeGroups = demoSaved.activeGroups;
+    state._tomb = demoSaved.tomb;
+    demoSaved = null;
+    demoActive = false;
+    closeTrash();
+    closeNavModal();
+    render();
+    if (resync) scheduleCloud(0);
+  }
+  /* Kast angre-bufferet uten å committe. Brukes når kulissen forsvinner (demoen
+     avsluttes, eller et steg rulles tilbake): en timer som fyrer etterpå ville
+     ellers ha lett etter objekter som ikke finnes lenger. */
+  function demoDropDeleteBuffer() {
+    pendingDeletes.forEach((entry, id) => {
+      const f = findAnyById(id);
+      if (f) delete f.obj._pendingDelete;
+    });
+    pendingDeletes.clear();
+    if (deleteToast) { clearTimeout(deleteToast.timer); deleteToast = null; hideToast(); }
+  }
+
+  /* ---------- Oppslag i kulissen ---------- */
+  const demoUnis = () => state.universes.filter((u) => live(u) && !u._virtual);
+  const demoUni = () => demoUnis().find((u) => u.id === demoCtx.uniId) || null;
+  const demoGroups = (u) => (u ? u.groups.filter((g) => live(g) && !g.isCat) : []);
+  const demoGroup = () => demoGroups(demoUni()).find((g) => g.id === demoCtx.groupId) || null;
+  const demoCards = () => { const g = demoGroup(); return g ? g.cards.filter(live) : []; };
+  const demoCardOf = (id) => demoCards().find((c) => c.id === id) || null;
+  const demoCard = () => demoCardOf(demoCtx.cardId);
+  const demoItems = (c) => (c ? c.items.filter((it) => live(it) && !it.isCat) : []);
+  const demoCat = () => {
+    const c = demoCard();
+    return c ? c.items.find((it) => live(it) && it.isCat && it.id === demoCtx.catId) || null : null;
+  };
+  const demoCatMembers = () => demoItems(demoCard()).filter((it) => it.cat === demoCtx.catId);
+  const demoEditing = () => !!document.querySelector('.edit-input');
+
+  // Tellere ved inngangen til et steg: det som ikke kan leses av et objekt
+  // alene (et slipp som landet på samme plass, en tømming som fjernet en rad
+  // som allerede var skjult).
+  function demoCounters() {
+    const g = demoGroup();
+    const c = demoCard();
+    return {
+      drops: dropSeq,
+      itemsAll: c ? c.items.length : 0,
+      cardsAll: g ? g.cards.length : 0,
+      unis: state.universes.length,
+      catMembers: demoCatMembers().length,
+    };
+  }
+
+  /* ---------- DOM-oppslag stegene peker på ---------- */
+  const demoNavCard = () => navBoard.querySelector('.uni-card' + demoQ(demoCtx.uniId));
+  const demoNavRow = () => navBoard.querySelector('.item' + demoQ(demoCtx.groupId));
+  const demoCardEl = (id) => board.querySelector('.card' + demoQ(id));
+  const demoCatEl = () => board.querySelector('.category' + demoQ(demoCtx.catId));
+  // Navnefeltet som står åpent inne i `el` — ellers elementet som åpner det.
+  const demoNameField = (el, fallbackSel) =>
+    (el && (el.querySelector('.edit-input') || el.querySelector(fallbackSel))) || null;
+  // Nivå-1-radene i listen (ikke kategorimedlemmer, ikke utførte).
+  const demoRows = (id) => {
+    const el = demoCardEl(id);
+    return el ? Array.prototype.slice.call(el.querySelectorAll(':scope > .card-body > .items-container > .item')) : [];
+  };
+  // Navnet på den sist opprettede raden — den et navnesteg gjelder.
+  const demoLastRowTitle = (id) => {
+    const r = demoRows(id).slice(-1)[0];
+    return r ? demoNameField(r, '.item-text') : null;
+  };
+  const demoLastCatRowTitle = () => {
+    const el = demoCatEl();
+    if (!el) return null;
+    const rows = el.querySelectorAll('.cat-items > .item');
+    const r = rows[rows.length - 1];
+    return r ? demoNameField(r, '.item-text') : null;
+  };
 
   /* ---------- Stegene ----------
-     `done()` er hele fasiten for framdrift: den returnerer en context-patch
-     når steget ER utført, ellers null. `review()` er repetisjonsmodusens
-     variant — den peker på det brukeren ALLEREDE har i stedet for å be om et
-     duplikat. `blocked()` sier fra når steget er umulig for denne kontoen
-     (ingen opprettelsesrett), slik at det kan hoppes over i stedet for å bli
-     stående som en oppgave brukeren ikke får lov til å løse. */
-  const TOUR_STEPS = [
+     `done()` er hele fasiten for framdrift: sann når steget ER utført. Den
+     leser TILSTAND, aldri et knappetrykk — ＋-knappene oppretter objektet og
+     åpner navnefeltet i samme håndterer, så et klikk sier ingenting om hva
+     brukeren faktisk fullførte.
+
+     `premise()` sier om steget fortsatt gir mening. Faller den, rulles demoen
+     tilbake til `rewind` (og tilstanden med den): en navngiving som avbrytes
+     fjerner raden igjen, og da skal steget som LAGER raden komme tilbake.
+
+     `target()` er kontrollen pilspissen peker på — og samtidig det eneste
+     brukeren får røre (`demoZones`). `allow` legger til det som må være
+     tilgjengelig i tillegg. */
+  const DEMO_STEPS = [
     {
       id: 'welcome',
+      narrated: true,
       title: 'Velkommen til Huskis',
-      html: '<p>Alt du lager ligger i fire nivåer: <b>område</b> → <b>mappe</b> → ' +
-        '<b>liste</b> → <b>listepunkt</b>.</p>' +
-        '<p>Nå lager du ett av hvert. Det du oppretter er ekte innhold, og blir ' +
-        'stående når du er ferdig.</p>',
+      html: '<p>Her kan du lage</p>' +
+        '<ul class="tour-list">' +
+        '<li>' + ICONS.list + '<span><b>huskelister</b> for å holde styr på livet ditt</span></li>' +
+        '<li>' + ICONS.folder + '<span><b>mapper</b> for å holde styr på listene dine</span></li>' +
+        '<li>' + ICONS.globe + '<span><b>områder</b> for å holde styr på mappene dine</span></li>' +
+        '</ul>' +
+        '<p>Innad i listene kan listepunktene sorteres i ' + ICONS.category +
+        ' <b>kategorier</b> – hvis du vil.</p>',
+      // Den ene setningen som ikke er ren instruksjon: en etablert konto ser
+      // sine egne lister forsvinne når demoen starter, og skal vite hvorfor.
+      note: 'Alt skjer i en demo – dine egne områder, mapper og lister er urørt.',
       cta: 'Kom i gang',
     },
     {
       id: 'open_nav',
-      title: 'Her ser du hvor du er',
-      target: '#nav-crumb',
-      html: '<p>Knappen øverst viser ' + tourChip(ICONS.globe + ' området') + ' › ' +
-        tourChip(ICONS.folder + ' mappen') + ' du står i. Oversikten bak den er ' +
-        'stedet områder og mapper lages.</p>',
-      action: 'Trykk på knappen øverst for å åpne oversikten.',
-      done: () => (navModal.hidden ? null : {}),
+      target: () => navCrumbBtn,
+      html: '<p>Denne knappen viser ' + ICONS.globe + ' <b>området</b> og ' +
+        ICONS.folder + ' <b>mappen</b> du er i.</p>' +
+        '<p>Trykk på den for å komme til oversikten der du oppretter områder og mapper.</p>',
+      done: () => !navModal.hidden,
     },
     {
-      id: 'create_universe',
-      title: 'Lag et område',
+      id: 'create_area',
       needsNav: true,
-      target: '.nav-add-uni button',
-      html: '<p>Et område er øverste nivå — et eget område med sine egne mapper.</p>' +
-        '<p>' + tourChip(ICONS.plus + ' ' + ICONS.globe) + ' nederst i «Mine områder» ' +
-        'lager et nytt. Skriv navnet og trykk Enter.</p>',
-      action: 'Opprett et område, og gi det et navn.',
+      target: () => navBoard.querySelector('.nav-add-uni button'),
+      html: '<p>Trykk på denne knappen for å opprette et ' + ICONS.globe + ' <b>område</b>.</p>',
       done: () => {
-        const u = tourFresh(tourUniverses(), 'name');
-        return u ? { universeId: u.id } : null;
-      },
-      review: () => {
-        const u = tourUniverses().find((x) => tourGroups(x).length) || tourUniverses()[0];
-        return u ? { universeId: u.id } : null;
+        const u = demoUnis()[0];
+        if (!u) return false;
+        demoCtx.uniId = u.id;
+        return true;
       },
     },
     {
-      id: 'create_group',
-      title: 'Lag en mappe i området',
+      id: 'name_area',
+      reopen: () => { const c = demoNavCard(); return c && c.querySelector('.card-title'); },
       needsNav: true,
-      target: () => navBoard.querySelector(
-        '.uni-card' + tourQ(tourCtx.universeId) + ' .add-item-row .add-item-btn'),
-      html: '<p>En mappe samler lister som hører sammen — «Hjemme», «Jobb», «Uke 34».</p>' +
-        '<p>' + tourChip(ICONS.plus) + ' i områdekortet lager en mappe. Skriv navnet ' +
-        'og trykk Enter — uten navn blir den ikke stående.</p>',
-      action: 'Opprett en mappe i området du nettopp lagde.',
-      blocked: () => {
-        const u = tourUni();
-        if (!u) return '';
-        return cap(u, 'createGroup', u._role === 'owner')
-          ? '' : 'Du kan ikke opprette mapper i dette området.';
-      },
-      done: () => {
-        const g = tourFresh(tourGroups(tourUni()), 'name');
-        return g ? { groupId: g.id } : null;
-      },
-      review: () => {
-        const g = tourGroups(tourUni()).find((x) => tourCards(x).length) ||
-          tourGroups(tourUni())[0];
-        return g ? { groupId: g.id } : null;
-      },
+      rewind: 'create_area',
+      premise: () => !!demoUni(),
+      target: () => demoNameField(demoNavCard(), '.card-title'),
+      html: '<p>Gi området et navn.</p>' +
+        '<p>Bekreft med <span class="hint-chip">Enter</span>-tasten eller ved å klikke ' +
+        'utenfor navnefeltet.</p>',
+      done: () => !demoEditing() && demoNamed(demoUni(), 'name'),
     },
     {
-      id: 'open_group',
-      title: 'Åpne mappen',
+      id: 'create_folder',
       needsNav: true,
-      target: () => navBoard.querySelector(
-        '.uni-card' + tourQ(tourCtx.universeId) + ' .item' + tourQ(tourCtx.groupId)),
-      html: '<p>Trykk på mappen for å gå inn i den. Da lukkes oversikten, og listene ' +
-        'i mappen fyller skjermen.</p>',
-      action: 'Trykk på mappen for å åpne den.',
-      done: () => (state.activeGroup === tourCtx.groupId ? {} : null),
-      review: () => (state.activeGroup === tourCtx.groupId ? {} : null),
+      rewind: 'create_area',
+      premise: () => !!demoUni(),
+      target: () => { const el = demoNavCard(); return el && el.querySelector('.add-item-row .add-item-btn'); },
+      html: '<p>Trykk på den grønne knappen for å opprette en ' + ICONS.folder + ' <b>mappe</b>.</p>',
+      done: () => {
+        const g = demoGroups(demoUni())[0];
+        if (!g) return false;
+        demoCtx.groupId = g.id;
+        return true;
+      },
     },
     {
-      id: 'create_card',
-      title: 'Lag en liste',
-      needsBoard: true,
-      target: '#add-card-btn',
-      html: '<p>' + tourChip(ICONS.plus + ' ' + ICONS.list) + ' lager en liste i mappen ' +
-        'du står i.</p>' +
-        '<p>Listen opprettes med én gang og navngis på plassen sin: skriv navnet og ' +
-        'trykk Enter.</p>',
-      action: 'Opprett en liste i mappen.',
-      blocked: () => {
-        const g = tourGroup();
-        if (!g) return '';
-        return canAddList(g) ? '' : 'Du kan ikke opprette lister i denne mappen.';
-      },
+      id: 'name_folder',
+      reopen: () => { const r = demoNavRow(); return r && r.querySelector('.item-text'); },
+      needsNav: true,
+      rewind: 'create_folder',
+      premise: () => !!demoGroup(),
+      target: () => demoNameField(demoNavRow(), '.item-text'),
+      html: '<p>Gi mappen et navn.</p>',
+      done: () => !demoEditing() && demoNamed(demoGroup(), 'name'),
+    },
+    {
+      id: 'open_folder',
+      needsNav: true,
+      rewind: 'create_folder',
+      premise: () => !!demoGroup(),
+      target: () => demoNavRow(),
+      html: '<p>Trykk på feltet til mappen du nettopp opprettet for å navigere til mappen.</p>',
+      done: () => state.activeGroup === demoCtx.groupId && navModal.hidden,
+    },
+    {
+      id: 'create_list',
+      target: () => addCardBtn,
+      html: '<p>Trykk her for å opprette en ' + ICONS.list + ' <b>liste</b>.</p>',
       done: () => {
-        const c = tourFresh(tourCards(tourGroup()), 'title');
-        return c ? { cardId: c.id } : null;
+        const c = demoCards()[0];
+        if (!c) return false;
+        demoCtx.cardId = c.id;
+        return true;
       },
-      review: () => {
-        const c = tourCards(tourGroup()).find((x) => tourItems(x).length) ||
-          tourCards(tourGroup())[0];
-        return c ? { cardId: c.id } : null;
-      },
+    },
+    {
+      id: 'name_list',
+      reopen: () => demoNameField(demoCardEl(demoCtx.cardId), '.card-title'),
+      rewind: 'create_list',
+      premise: () => !!demoCard(),
+      target: () => demoNameField(demoCardEl(demoCtx.cardId), '.card-title'),
+      html: '<p>Gi listen et navn.</p>',
+      done: () => !demoEditing() && demoNamed(demoCard(), 'title'),
     },
     {
       id: 'create_item',
-      title: 'Legg til et listepunkt',
-      needsBoard: true,
-      target: () => board.querySelector(
-        '.card' + tourQ(tourCtx.cardId) + ' .add-item-row .add-item-btn'),
-      html: '<p>Den ' + tourChip(ICONS.plus) + ' <b>grønne ＋</b> nederst i listen legger ' +
-        'til et listepunkt.</p>' +
-        '<p>Skriv teksten og trykk Enter. Et listepunkt uten tekst blir ikke stående.</p>',
-      action: 'Legg til et listepunkt i listen.',
-      done: () => (tourItems(tourCardObj()).some((it) => tourNamed(it, 'text')) ? {} : null),
-      review: () => (tourItems(tourCardObj()).length ? {} : null),
+      rewind: 'create_list',
+      premise: () => !!demoCard(),
+      target: () => { const el = demoCardEl(demoCtx.cardId); return el && el.querySelector('.add-item-row .add-item-btn'); },
+      html: '<p>Trykk her for å opprette et <b>listepunkt</b>.</p>',
+      done: () => demoItems(demoCard()).length >= 1,
+    },
+    {
+      id: 'name_item',
+      reopen: () => demoLastRowTitle(demoCtx.cardId),
+      rewind: 'create_item',
+      premise: () => demoItems(demoCard()).length >= 1,
+      target: () => { const el = demoCardEl(demoCtx.cardId); return el && el.querySelector('.edit-input'); },
+      html: '<p>Gi listepunktet et navn.</p>',
+      done: () => !demoEditing() && demoItems(demoCard()).every((it) => demoNamed(it, 'text')),
+    },
+    {
+      id: 'create_item2',
+      target: () => { const el = demoCardEl(demoCtx.cardId); return el && el.querySelector('.add-item-row .add-item-btn'); },
+      html: '<p>Opprett et listepunkt til.</p>',
+      done: () => demoItems(demoCard()).length >= 2,
+    },
+    {
+      id: 'name_item2',
+      reopen: () => demoLastRowTitle(demoCtx.cardId),
+      rewind: 'create_item2',
+      premise: () => demoItems(demoCard()).length >= 2,
+      target: () => { const el = demoCardEl(demoCtx.cardId); return el && el.querySelector('.edit-input'); },
+      html: '<p>Gi listepunktet et navn.</p>',
+      done: () => !demoEditing() && demoItems(demoCard()).every((it) => demoNamed(it, 'text')),
+    },
+    {
+      id: 'drag_item',
+      target: () => demoRows(demoCtx.cardId).slice(-1)[0],
+      html: '<p>Trekk det nederste listepunktet oppover for å endre rekkefølgen på ' +
+        'listepunktene.</p>' +
+        '<p>Hold fingeren (eller museknappen) inne på punktet til det løfter seg, og dra.</p>',
+      done: () => dropSeq > demoBase.drops,
+    },
+    {
+      id: 'create_list2',
+      target: () => addCardBtn,
+      html: '<p>Opprett en liste til.</p>',
+      done: () => {
+        const c = demoCards().find((x) => x.id !== demoCtx.cardId);
+        if (!c) return false;
+        demoCtx.card2Id = c.id;
+        return true;
+      },
+    },
+    {
+      id: 'name_list2',
+      reopen: () => demoNameField(demoCardEl(demoCtx.card2Id), '.card-title'),
+      rewind: 'create_list2',
+      premise: () => !!demoCardOf(demoCtx.card2Id),
+      target: () => demoNameField(demoCardEl(demoCtx.card2Id), '.card-title'),
+      html: '<p>Gi den nye listen et navn.</p>',
+      done: () => !demoEditing() && demoNamed(demoCardOf(demoCtx.card2Id), 'title'),
+    },
+    {
+      id: 'drag_list',
+      target: () => { const el = demoCardEl(demoCtx.card2Id); return el && el.querySelector('.card-head'); },
+      // «Oppover» stemmer bare i én kolonne; på en bred skjerm ligger listene
+      // ved siden av hverandre. «Forbi» er riktig i begge tilfeller.
+      html: '<p>Trekk listen du nettopp lagde forbi den andre for å bytte rekkefølge på ' +
+        'de to listene.</p>' +
+        '<p>Ta tak i listens overskrift, hold inne, og dra.</p>',
+      done: () => dropSeq > demoBase.drops,
+    },
+    {
+      id: 'drag_item2',
+      target: () => demoRows(demoCtx.cardId).slice(-1)[0],
+      html: '<p>Trekk det nederste listepunktet oppover for å endre rekkefølgen på ' +
+        'listepunktene igjen.</p>',
+      done: () => dropSeq > demoBase.drops,
+    },
+    {
+      id: 'create_cat',
+      target: () => { const el = demoCardEl(demoCtx.cardId); return el && el.querySelector('.add-cat-btn'); },
+      html: '<p>Trykk på den gule knappen for å opprette en ' + ICONS.category +
+        ' <b>kategori</b> i listen.</p>',
+      done: () => {
+        const c = demoCard();
+        const cat = c && c.items.find((it) => live(it) && it.isCat);
+        if (!cat) return false;
+        demoCtx.catId = cat.id;
+        return true;
+      },
+    },
+    {
+      id: 'name_cat',
+      reopen: () => { const el = demoCatEl(); return el && el.querySelector('.cat-title'); },
+      rewind: 'create_cat',
+      premise: () => !!demoCat(),
+      target: () => demoNameField(demoCatEl(), '.cat-title'),
+      html: '<p>Gi kategorien et navn.</p>',
+      done: () => !demoEditing() && demoNamed(demoCat(), 'text'),
+    },
+    {
+      id: 'drag_into_cat',
+      rewind: 'create_cat',
+      premise: () => !!demoCat(),
+      target: () => demoRows(demoCtx.cardId).filter((el) => !el.closest('.category'))[0],
+      html: '<p>Trekk et listepunkt inn i kategorien.</p>',
+      done: () => demoCatMembers().length > demoBase.catMembers,
+    },
+    {
+      id: 'create_cat_item',
+      rewind: 'create_cat',
+      premise: () => !!demoCat(),
+      target: () => { const el = demoCatEl(); return el && el.querySelector('.cat-add-btn'); },
+      html: '<p>Opprett et listepunkt direkte i kategorien med ＋-knappen inne i den.</p>',
+      done: () => demoCatMembers().length > demoBase.catMembers,
+    },
+    {
+      id: 'name_cat_item',
+      reopen: () => demoLastCatRowTitle(),
+      rewind: 'create_cat_item',
+      premise: () => demoCatMembers().length > 1,
+      target: () => { const el = demoCatEl(); return el && el.querySelector('.edit-input'); },
+      html: '<p>Gi listepunktet et navn.</p>',
+      done: () => !demoEditing() && demoCatMembers().every((it) => demoNamed(it, 'text')),
+    },
+    {
+      id: 'dissolve_cat',
+      rewind: 'create_cat',
+      premise: () => !!demoCat(),
+      target: () => { const el = demoCatEl(); return el && el.querySelector('.cat-dissolve'); },
+      html: '<p>Løs opp kategorien. Listepunktene blir stående der de er — bare ' +
+        'overskriften forsvinner.</p>',
+      done: () => !demoCat(),
+    },
+    {
+      id: 'delete_item',
+      target: () => { const r = demoRows(demoCtx.cardId)[0]; return r && r.querySelector('.item-delete'); },
+      html: '<p>Slett et listepunkt.</p>',
+      done: () => trashedItemsOf(demoCard()).length >= 1,
+    },
+    {
+      id: 'open_item_trash',
+      rewind: 'delete_item',
+      premise: () => trashedItemsOf(demoCard()).length >= 1,
+      target: () => { const el = demoCardEl(demoCtx.cardId); return el && el.querySelector('.item-trash-btn'); },
+      trashModal: true,
+      html: '<p>Trykk på søppelkassen nederst i listen for å se hva som ligger i den.</p>',
+      done: () => !trashModal.hidden,
+    },
+    {
+      id: 'restore_item',
+      needsTrash: true,
+      rewind: 'delete_item',
+      premise: () => trashedItemsOf(demoCard()).length >= 1 || !trashModal.hidden,
+      target: () => trashList.querySelector('.trash-row button'),
+      trashModal: true,
+      html: '<p>Gjenopprett listepunktet.</p>',
+      done: () => trashedItemsOf(demoCard()).length === 0,
+    },
+    {
+      id: 'close_item_trash',
+      needsTrash: true,
+      target: () => trashClose,
+      trashModal: true,
+      html: '<p>Lukk søppelkassen.</p>',
+      done: () => trashModal.hidden,
+    },
+    {
+      id: 'delete_item2',
+      target: () => { const r = demoRows(demoCtx.cardId)[0]; return r && r.querySelector('.item-delete'); },
+      html: '<p>Slett et listepunkt igjen.</p>',
+      done: () => trashedItemsOf(demoCard()).length >= 1,
+    },
+    {
+      id: 'empty_item_trash',
+      rewind: 'delete_item2',
+      premise: () => trashedItemsOf(demoCard()).length >= 1 || demoCard().items.length < demoBase.itemsAll,
+      target: () => { const el = demoCardEl(demoCtx.cardId); return el && el.querySelector('.item-trash-btn'); },
+      html: '<p>Tøm søppelkassen: hold inne knappen og sveip til høyre.</p>' +
+        '<p>Da er listepunktet borte for godt.</p>',
+      done: () => demoCard().items.length < demoBase.itemsAll,
+    },
+    {
+      id: 'delete_list',
+      target: () => { const el = demoCardEl(demoCtx.cardId); return el && el.querySelector('.card-delete'); },
+      html: '<p>Slett listen.</p>',
+      done: () => !demoCard(),
+    },
+    {
+      id: 'empty_card_trash',
+      rewind: 'delete_list',
+      premise: () => trashedCards().length >= 1 || demoGroup().cards.length < demoBase.cardsAll,
+      target: () => trashBtn,
+      html: '<p>Tøm mappens søppelkasse: hold inne knappen i toppmenyen og sveip til høyre.</p>',
+      done: () => demoGroup().cards.length < demoBase.cardsAll,
+    },
+    {
+      id: 'open_nav2',
+      target: () => navCrumbBtn,
+      html: '<p>Gå til «Områder og mapper».</p>',
+      done: () => !navModal.hidden,
+    },
+    {
+      id: 'delete_area',
+      needsNav: true,
+      target: () => { const el = demoNavCard(); return el && el.querySelector('.card-delete'); },
+      html: '<p>Slett området. Mappen og alt i den følger med.</p>',
+      done: () => !demoUni(),
+    },
+    {
+      id: 'empty_uni_trash',
+      needsNav: true,
+      rewind: 'delete_area',
+      premise: () => trashedUniverses().length >= 1 || state.universes.length < demoBase.unis,
+      target: () => uniTrashBtn,
+      html: '<p>Tøm områdenes søppelkasse: hold inne knappen og sveip til høyre.</p>',
+      done: () => state.universes.length < demoBase.unis,
+    },
+    {
+      id: 'close_nav',
+      needsNav: true,
+      target: () => navModalClose,
+      html: '<p>Da er alt ryddet bort igjen. Lukk oversikten.</p>',
+      done: () => navModal.hidden,
     },
     {
       id: 'finish',
+      target: () => accountBtn,
       title: 'Der har du hele Huskis',
-      html: '<p>Du har laget et område, en mappe, en liste og et listepunkt — ' +
-        'og det står der fortsatt.</p>' +
-        '<p>Resten finner du når du trenger det: den ' + tourChip(ICONS.category) +
-        ' <b>gule ＋</b> lager en kategori i en liste, klikk på et navn for å endre ' +
-        'det, hold og dra for å flytte, og ' + tourChip(ICONS.people) + ' deler et ' +
-        'område eller en mappe med andre.</p>',
+      html: '<p>Her ligger kontoen din — og herfra kan du se denne demonstrasjonen om ' +
+        'igjen når du vil.</p>' +
+        '<p>Nå er du tilbake i din egen Huskis.</p>',
       cta: 'Ferdig',
     },
   ];
-  const TOUR_LAST = TOUR_STEPS.length - 1;
-  const tourRank = (id) => TOUR_STEPS.findIndex((s) => s.id === id);
-
-  let tourActive = false;
-  let tourMode = 'practice';  // 'practice' (utfør) | 'review' (se på det som finnes)
-  let tourIndex = 0;
-  let tourCtx = { universeId: null, groupId: null, cardId: null };
-  let tourBaseline = new Set();  // id-er som fantes da steget begynte
-  let tourTarget = null;         // elementet spotlighten står på (kan være null)
-  let tourReturnFocus = null;    // fokus tilbake hit når innføringen lukkes
-  let tourTick = null;           // tilstandsobservatøren, kun mens den står på
-  let onboardingWaits = 0;
-  /* Høyeste steg denne økten har stått på. Framdrift skal ikke gå BAKOVER: en
-     metadatarespons som lander sent (eller en synk-runde som drar inn en eldre
-     lagret tilstand fra en annen enhet) skal ikke kaste brukeren tilbake til et
-     steg hen alt har gjort. */
-  let onboardingFloor = -1;
-  // Billettnummer for framdriftsskrivingene (se saveOnboarding).
-  let onboardingWriteSeq = 0;
+  const DEMO_LAST = DEMO_STEPS.length - 1;
+  const demoRank = (id) => DEMO_STEPS.findIndex((s) => s.id === id);
+  const demoStep = () => DEMO_STEPS[demoIndex] || DEMO_STEPS[DEMO_LAST];
 
   /* ---------- Kontoens minne (user_metadata) ---------- */
   // Ett objekt-felt i user_metadata, alltid som et objekt (aldri null/streng —
@@ -10670,46 +11030,26 @@
     const v = authUser && authUser.meta && authUser.meta[key];
     return v && typeof v === 'object' ? v : {};
   }
-  /* Har kontoen gjort seg ferdig med introduksjonen? MIGRERINGSREGELEN ligger
-     her, og den er én linje: et registrert «ferdig» eller «hoppet over» teller,
-     uansett hvilken versjon som registrerte det. Den som kom gjennom v1 blir
-     altså ikke dratt inn i v2 automatisk — men kan hente den fram igjen med
-     «Vis på nytt». Kun en konto UTEN markør regnes som reelt ny. */
+  /* Har kontoen sett DEMOEN? Markøren er versjonert, og v3 er demoen. En konto
+     som kom gjennom en tidligere runde (v1s passive omvisning eller v2s
+     innføring i egne data) har ALDRI sett denne, og skal derfor få tilbudet én
+     gang til. Demoen koster dem ingenting: den rører ikke innholdet deres, og
+     ✕ takker nei for godt. */
   function onboardingSeen() {
     const o = accountPref('onboarding');
-    if (typeof o.v !== 'number') return false;
+    if (typeof o.v !== 'number' || o.v < TOUR_VERSION) return false;
     return o.status === 'done' || o.status === 'skipped';
-  }
-  // Et påbegynt løp på denne (eller en annen) enheten — steg + hvilke objekter
-  // stegene alt har opprettet.
-  function onboardingResumePoint() {
-    const o = accountPref('onboarding');
-    if (o.v !== TOUR_VERSION || o.status !== 'in_progress') return null;
-    const i = tourRank(o.step);
-    if (i < 0) return null;
-    const c = o.context && typeof o.context === 'object' ? o.context : {};
-    return {
-      index: Math.max(i, onboardingFloor),
-      ctx: {
-        universeId: c.universeId || null,
-        groupId: c.groupId || null,
-        cardId: c.cardId || null,
-      },
-    };
   }
   // Skriv en metadata-nøkkel: lokalt med én gang (så den ikke gjentas i denne
   // økten), til kontoen i bakgrunnen. Landet ikke skrivingen, prøver vi igjen
-  // én gang — og gir vi opp, dukker introduksjonen heller opp igjen ved neste
+  // én gang — og gir vi opp, dukker demoen heller opp igjen ved neste
   // innlogging enn at vi later som den er sett.
-  // stillIfCurrent (valgfri): en vakt som må si ja FØR et nytt forsøk sendes.
-  // Brukes av framdriftsskrivingen, der et gammelt forsøk ellers kunne lande
-  // etter et nyere og skrive tilbake et eldre steg.
-  function saveAccountPref(patch, retriesLeft, stillIfCurrent) {
+  function saveAccountPref(patch, retriesLeft) {
     if (!authUser) return;
     // Hvem skrivingen gjelder. Supabase kan gå fra én innlogget bruker til en
     // annen mens forsøket ligger og venter, og da hører verken metadataen eller
     // det nye forsøket hjemme hos den som overtok — det ville stemplet DERES
-    // introduksjon som sett.
+    // demo som sett.
     const forUser = authUser.id;
     authUser.meta = Object.assign({}, authUser.meta, patch);
     const client = acli();
@@ -10720,453 +11060,399 @@
         if (!retriesLeft) return;
         setTimeout(() => {
           if (!authUser || authUser.id !== forUser) return; // en annen konto har overtatt
-          if (stillIfCurrent && !stillIfCurrent()) return;  // en nyere skriving har overtatt
-          saveAccountPref(patch, retriesLeft - 1, stillIfCurrent);
+          saveAccountPref(patch, retriesLeft - 1);
         }, 5000);
       });
   }
-  /* Lagre framdriften. Går aldri bakover: et steg lavere enn det høyeste denne
-     økten har nådd skrives ikke, så en forsinket runde ikke kan overskrive et
-     ferdig løp med et halvt et. `status` er alltid med, så «pågår» kan skilles
-     fra «ferdig» og «hoppet over» — også på en annen enhet. */
-  function saveOnboarding(status, index, ctx) {
-    const i = index == null ? tourIndex : index;
-    if (status === 'in_progress') {
-      if (i < onboardingFloor) return;
-      onboardingFloor = i;
-    }
-    const step = TOUR_STEPS[Math.max(0, Math.min(i, TOUR_LAST))].id;
-    /* Skrivingene er uavhengige HTTP-kall og kan lande i vilkårlig rekkefølge.
-       Verst er retry-veien: et «pågår»-forsøk som feilet ligger og venter i 5
-       sekunder, og rekker i mellomtiden å bli overhalt av «ferdig» — for så å
-       skrive halvveis-tilstanden tilbake over den. `onboardingFloor` stanser
-       bare NYE eldre skrivinger; billetten her stanser også et forsøk som alt
-       er i kø. Den er én teller: bare den nyeste billetten får prøve igjen. */
-    const ticket = ++onboardingWriteSeq;
-    saveAccountPref({
-      onboarding: {
-        v: TOUR_VERSION,
-        status: status,
-        step: step,
-        context: Object.assign({}, ctx || tourCtx),
-      },
-    }, 1, () => ticket === onboardingWriteSeq);
+  /* Demoen er en simulering, ikke et arbeid som skal kunne gjenopptas: det
+     finnes ingen halvferdig kulisse å komme tilbake til på en annen enhet.
+     Derfor lagres bare UTFALLET, og bare når runden er over. */
+  function saveOnboarding(status) {
+    saveAccountPref({ onboarding: { v: TOUR_VERSION, status: status } }, 1);
   }
 
-  /* ---------- Innføringen ---------- */
-  const tourStep = () => TOUR_STEPS[tourIndex] || TOUR_STEPS[TOUR_LAST];
-  // Et FORTELLESTEG har ingen handling å utføre (velkomst, avslutning). Det er
-  // modalt: flaten tar imot klikk, fokus holdes i kortet, og «Neste» driver det
-  // videre. Alt annet er et HANDLINGSSTEG.
-  const tourNarrated = () => !tourStep().done;
-  function tourFocusables() {
-    return Array.prototype.filter.call(
-      tourCard.querySelectorAll('button'), (b) => !b.disabled && !b.hidden);
+  /* ---------- Avgrensningen: bare det steget handler om ----------
+     Vakten ligger i JS og ikke i et lag over appen, for laget måtte uansett
+     slippe pekeren gjennom til den ekte kontrollen. Den fanger i
+     WINDOW-CAPTURE, altså før enhver lytter i appen, og svelger hendelsen med
+     stopImmediatePropagation.
+
+     `preventDefault` brukes bevisst IKKE på pointerdown: et klikk utenfor et
+     åpent navnefelt skal fortsatt flytte fokus, for det er sånn man bekrefter
+     navnet. Klikk/tastetrykk får derimot både stopp og preventDefault. */
+  const DEMO_GATE_EVENTS = ['pointerdown', 'mousedown', 'click', 'dblclick', 'contextmenu', 'keydown'];
+  function demoZones() {
+    const step = demoStep();
+    const out = [];
+    const t = demoTarget();
+    if (t) out.push(t);
+    (step.allow || []).forEach((sel) => {
+      document.querySelectorAll(sel).forEach((el) => out.push(el));
+    });
+    return out;
   }
-  // Elementet steget peker på — men bare hvis det faktisk er synlig nå. En
-  // selektor slås opp i dokumentet; en funksjon får finne elementet selv (mål
-  // som avhenger av hva innføringen har opprettet).
-  function tourTargetFor(step) {
-    if (!step || !step.target) return null;
+  /* Kontroller som ligger INNI en tillatt sone uten å være det steget handler
+     om. En listepunkt-rad er hele sonen når den skal dras, men den bærer også
+     avmerking, tannhjul og slette-kryss — og ingen av dem skal virke da. De
+     slippes gjennom kun når de ER målet. */
+  const DEMO_NEVER = '.card-delete, .item-delete, .group-delete, .card-cog, .item-cog,' +
+    ' .cat-cog, .cat-dissolve, .item-check, .share-badge, .uni-share, .group-share,' +
+    ' .uni-leave, .group-leave, .done-restore, .trashcan';
+  function demoLets(node) {
+    if (!node || !node.closest) return false;
+    if (tourEl.contains(node)) return true;          // demokortet selv
+    if (node.closest('.edit-input')) return true;    // navngivingen som pågår
+    const zones = demoZones();
+    if (!zones.some((z) => z && (z === node || z.contains(node)))) return false;
+    const inner = node.closest(DEMO_NEVER);
+    return !inner || zones.some((z) => z === inner);
+  }
+  function demoGate(ev) {
+    if (!demoRunning) return;
+    /* Kun det BRUKEREN gjør skal avgrenses. Appen dispatcher også hendelser
+       selv — `addUniverse()` åpner navnefeltet med et `click()` på tittelen, og
+       et blokkert syntetisk klikk der ville gitt et navnesteg uten navnefelt.
+       `isTrusted` skiller de to, og er ikke noe en bruker kan forfalske. */
+    if (ev.isTrusted === false) return;
+    /* Escape er alltid av. Den ville ellers avbrutt navngivingen (og fjernet
+       raden steget nettopp ba om), lukket modalen steget står i, eller
+       avsluttet demoen bakveien. ✕ i kortet er den ene utgangen. */
+    const escape = ev.type === 'keydown' && ev.key === 'Escape';
+    if (!escape && demoLets(ev.target)) return;
+    ev.stopPropagation();
+    if (ev.stopImmediatePropagation) ev.stopImmediatePropagation();
+    if (ev.type === 'keydown' && ev.key === 'Tab') return; // fokus får flytte seg
+    if (ev.type !== 'pointerdown' && ev.type !== 'mousedown') ev.preventDefault();
+  }
+  DEMO_GATE_EVENTS.forEach((t) => window.addEventListener(t, demoGate, true));
+  // Søppelkasse-knappen gjør to ting; modalen skal bare kunne åpnes i stegene
+  // som handler om den (se showTrashModal).
+  function demoAllowsTrashModal() {
+    return !demoRunning || !!demoStep().trashModal;
+  }
+
+  /* ---------- Kortet ---------- */
+  // Elementet steget peker på — men bare hvis det faktisk er synlig nå.
+  function demoTarget() {
+    const step = demoStep();
+    if (!step.target) return null;
     let el = null;
-    try {
-      el = typeof step.target === 'function' ? step.target() : document.querySelector(step.target);
-    } catch (e) { el = null; }
+    try { el = step.target(); } catch (e) { el = null; }
     if (!el || !el.getClientRects().length) return null;
-    // Et skjult/avskrudd mål er ikke noe å be brukeren trykke på.
     if (el.disabled || el.closest('[hidden]')) return null;
     return el;
   }
-  // Legg spotlighten på målet og kortet ved siden av det (under hvis det er
-  // plass, ellers over, ellers midt på skjermen). Uten mål: midtstilt kort og
-  // dempet flate.
+  // Kontrollen steget handler om står i full styrke; resten er dempet av
+  // `body.tour-demo` (se styles.css).
+  function demoMarkLive(el) {
+    if (demoLiveEl === el) return;
+    if (demoLiveEl) demoLiveEl.classList.remove('tour-live');
+    demoLiveEl = el || null;
+    if (demoLiveEl) demoLiveEl.classList.add('tour-live');
+  }
+  /* Plasser kortet ved siden av målet, med pilspissen mot det. Kortet legger
+     seg ALDRI oppå målet: målet er det brukeren skal treffe, og et kort i veien
+     gjør steget umulig. Får ikke et helt kort plass verken over eller under,
+     velges den største luften og kortet kappes til den og ruller innvendig. */
   function placeTour() {
-    // Board-et kan ha blitt tegnet på nytt under innføringen (en synk-runde):
-    // slå opp elementet igjen hvis det vi holdt på er koblet fra DOM-en.
-    if (!tourTarget || !tourTarget.isConnected) tourTarget = tourTargetFor(tourStep());
-    const margin = 12;
+    const step = demoStep();
+    const el = step.narrated ? null : demoTarget();
+    const margin = 12, gap = 16, half = 7;
     const cw = tourCard.offsetWidth;
     const ch = tourCard.offsetHeight;
     const vw = window.innerWidth;
     const vh = window.innerHeight;
-    if (!tourTarget || !tourTarget.getClientRects().length) {
-      tourEl.classList.add('no-spot');
+    const clamp = (lo, v, hi) => Math.max(lo, Math.min(v, Math.max(lo, hi)));
+    if (!el) {
+      tourArrow.hidden = true;
+      tourCard.style.maxHeight = '';
       tourCard.style.left = Math.max(margin, (vw - cw) / 2) + 'px';
-      /* Et FORTELLESTEG er modalt og skal stå midt på. Et HANDLINGSSTEG uten
-         mål er noe helt annet: kontrollen kan være skjult eller avskrudd for
-         denne kontoen, og da må brukeren fortsatt nå appen — for å hoppe over
-         steget, eller for å gjøre det som faktisk er mulig. Et midtstilt kort
-         ville lagt seg tvers over nettopp det. Kortet dokkes derfor nederst,
-         med høyden kappet til under halve skjermen. */
-      if (tourNarrated()) {
-        tourCard.style.maxHeight = '';
-        tourCard.style.top = Math.max(margin, (vh - ch) / 2) + 'px';
-      } else {
-        const tak = Math.max(120, Math.floor(vh * 0.45));
-        tourCard.style.maxHeight = tak + 'px';
-        tourCard.style.top = Math.max(margin, vh - Math.min(ch, tak) - margin) + 'px';
-      }
+      tourCard.style.top = Math.max(margin, (vh - ch) / 2) + 'px';
       return;
     }
-    tourEl.classList.remove('no-spot');
-    const pad = 6;
-    const r = tourTarget.getBoundingClientRect();
-    tourSpot.style.left = (r.left - pad) + 'px';
-    tourSpot.style.top = (r.top - pad) + 'px';
-    tourSpot.style.width = (r.width + pad * 2) + 'px';
-    tourSpot.style.height = (r.height + pad * 2) + 'px';
-    /* Kortet skal ALDRI legge seg oppå målet. Det er ikke bare stygt: på et
-       handlingssteg er målet det brukeren skal trykke på, og et kort i veien
-       gjør steget umulig (fingeren treffer kortet). På en smal skjerm finnes
-       det ikke alltid plass til et helt kort verken over eller under — da
-       velges den største luften, og kortet kappes til den og ruller
-       innvendig. Midtstilling er derfor ikke lenger et alternativ her. */
-    const gap = 18;
+    const r = el.getBoundingClientRect();
     const below = vh - r.bottom - gap - margin;
     const above = r.top - gap - margin;
-    let top;
-    let maxH = '';
-    if (ch <= below) top = r.bottom + gap;
-    else if (ch <= above) top = r.top - gap - ch;
-    else if (below >= above) { top = r.bottom + gap; maxH = Math.max(0, below) + 'px'; }
-    else { top = margin; maxH = Math.max(0, above) + 'px'; }
+    const right = vw - r.right - gap - margin;
+    const leftRoom = r.left - gap - margin;
+    let side;
+    if (ch <= below) side = 'below';
+    else if (ch <= above) side = 'above';
+    else if (cw <= right) side = 'right';
+    else if (cw <= leftRoom) side = 'left';
+    else side = below >= above ? 'below' : 'above';
+    let top, left, maxH = '';
+    if (side === 'below' || side === 'above') {
+      if (ch > (side === 'below' ? below : above)) {
+        maxH = Math.max(120, side === 'below' ? below : above) + 'px';
+      }
+      const h = maxH ? Math.min(ch, parseFloat(maxH)) : ch;
+      top = side === 'below' ? r.bottom + gap : r.top - gap - h;
+      left = clamp(margin, r.left + r.width / 2 - cw / 2, vw - cw - margin);
+      tourArrow.style.left = clamp(left + 14, r.left + r.width / 2 - half, left + cw - 14 - half * 2) + 'px';
+      tourArrow.style.top = (side === 'below' ? top - half : top + h - half) + 'px';
+    } else {
+      top = clamp(margin, r.top + r.height / 2 - ch / 2, vh - ch - margin);
+      left = side === 'right' ? r.right + gap : r.left - gap - cw;
+      tourArrow.style.top = clamp(top + 14, r.top + r.height / 2 - half, top + ch - 14 - half * 2) + 'px';
+      tourArrow.style.left = (side === 'right' ? left - half : left + cw - half) + 'px';
+    }
     tourCard.style.maxHeight = maxH;
-    let left = r.left + r.width / 2 - cw / 2;
-    left = Math.max(margin, Math.min(left, vw - cw - margin));
     tourCard.style.left = left + 'px';
     tourCard.style.top = top + 'px';
+    tourArrow.hidden = false;
   }
-  // Én linje under teksten: hva som skal gjøres nå, eller hvorfor steget ennå
-  // ikke er kvittert ut. Settes på hver runde, så den følger tilstanden.
-  function tourNote(text, isError) {
+  // Én linje under teksten: hva som står i veien akkurat nå.
+  function demoNote() {
+    const step = demoStep();
+    // En åpen navngiving er handlingen som PÅGÅR, og linjen sier hva som
+    // gjenstår. Demoen skriver aldri noe, så det finnes ingen feiltilstand her.
+    const text = (!step.cta && demoEditing()) ? 'Skriv navnet og trykk Enter.' : (step.note || '');
     tourNoteEl.hidden = !text;
-    tourNoteEl.textContent = text || '';
-    tourNoteEl.classList.toggle('is-error', !!text && !!isError);
+    tourNoteEl.textContent = text;
   }
-  /* Hva står i veien akkurat nå? Rekkefølgen er den brukeren møter dem i:
-     først en avvist skriving (da er det ingen vits i å gå videre), så en
-     forutsetning steget selv har (oversikten må være åpen / lukket), så den
-     vanlige instruksjonen. */
-  function tourHint() {
-    const step = tourStep();
-    if (tourWriteBlocked()) {
-      return { text: 'Endringen ble ikke lagret på kontoen din. Prøv igjen fra ' +
-        'lagringsstatusen — steget står til den har landet.', error: true };
-    }
-    const blocked = step.blocked && step.blocked();
-    if (blocked) return { text: blocked, error: true };
-    if (step.needsNav && navModal.hidden) {
-      return { text: 'Åpne oversikten med knappen øverst for å fortsette.', error: false };
-    }
-    if (step.needsBoard && !navModal.hidden) {
-      return { text: 'Lukk oversikten for å komme tilbake til listene.', error: false };
-    }
-    if (step.done && tourEditingOpen()) {
-      return { text: 'Skriv navnet og trykk Enter.', error: false };
-    }
-    return { text: step.action || '', error: false };
-  }
-  /* En skriving serveren har sagt nei til. Da er ikke handlingen lagret på
-     kontoen, og steget skal IKKE kvitteres ut — brukeren ville ellers fått
-     beskjed om at alt gikk bra, mens objektet forsvant ved neste innlogging.
-     Frakoblet er ikke det samme: da ligger endringen trygt lokalt og synker
-     når nettet er tilbake. */
-  function tourWriteBlocked() {
-    try { return syncStatus.snapshot().state === 'rejected'; } catch (e) { return false; }
-  }
-  /* Har den nettopp utførte handlingen fått sin DOM? `tourWriteBlocked()` alene
-     er ikke nok: `save()` debouncer synk-runden 300 ms, og observatøren går
-     hvert 250 ms, så den ville rukket å kvittere ut steget FØR den avvisende
-     forespørselen i det hele tatt startet — og avvisningen ville dukket opp på
-     neste steg, med en lagret kontekst som peker på et objekt serveren nektet.
-     Vi venter derfor til det ikke lenger ligger ukvitterte lokale endringer.
-
-     Frakoblet er IKKE en feil: da ligger endringen trygt lokalt og synker når
-     nettet er tilbake, og innføringen skal ikke stå og vente på nett brukeren
-     ikke har. `offline()` slår inn etter to mislykkede runder, så en server som
-     ikke svarer i det hele tatt låser heller ikke flyten. */
-  function tourAwaitingWrite() {
-    let s;
-    try { s = syncStatus.snapshot(); } catch (e) { return false; }
-    if (s.offline) return false;
-    return !!s.pending;
-  }
-  // Står en inline-navngiving åpen? `isBusyEditing()` ser bare på fokus, og
-  // fokus kan ha gått et annet sted (et klikk utenfor commiter riktignok, men
-  // det skjer i en egen hendelse) — feltet i DOM-en er det sikre svaret.
-  function tourEditingOpen() {
-    return !!document.querySelector('.edit-input');
-  }
-  // Knapperaden følger stegtypen: et handlingssteg har ingen «Neste» (det er
-  // handlingen som teller), men kan hoppes over hvis det er umulig.
-  function paintTourControls() {
-    const step = tourStep();
-    const narrated = tourNarrated();
-    const blocked = !!(step.blocked && step.blocked());
-    tourNextBtn.hidden = !narrated;
-    tourNextBtn.textContent = step.cta || 'Neste';
-    // «Hopp over» hører ikke hjemme på avslutningen: da er det ingenting igjen
-    // å hoppe over. ✕ lukker fortsatt.
-    tourSkipBtn.hidden = tourIndex === TOUR_LAST;
-    /* «Hopp over steget» er en nødutgang, ikke en snarvei. Den finnes to
-       steder: når steget er UMULIG for denne kontoen (ingen opprettelsesrett
-       — da ville det ellers blitt stående som en oppgave brukeren ikke får
-       lov til å løse), og i repetisjonsmodus, som er frivillig hele veien. */
-    tourSkipStepBtn.hidden = narrated || !(blocked || tourMode === 'review');
-    // Repetisjonsmodus kan gjøres om til ekte øving, men bare fra starten —
-    // midt i et løp ville byttet stått igjen med halv kontekst.
-    tourPracticeBtn.hidden = !(tourMode === 'review' && step.id === 'welcome');
-  }
-  function paintTourStep() {
-    const step = tourStep();
-    tourStepEl.textContent = 'Steg ' + (tourIndex + 1) + ' av ' + TOUR_STEPS.length;
-    tourTitleEl.textContent = step.title;
+  function paintDemoStep() {
+    const step = demoStep();
+    const pct = Math.round((demoIndex / DEMO_LAST) * 100);
+    tourProgressFill.style.width = pct + '%';
+    tourProgressEl.setAttribute('aria-valuenow', String(pct));
+    tourTitleEl.textContent = step.title || '';
+    tourTitleEl.hidden = !step.title;
     tourTextEl.innerHTML = step.html;
-    const hint = tourHint();
-    tourNote(hint.text, hint.error);
-    paintTourControls();
-    // Modalt = fortellesteg. På et handlingssteg SKAL appen bak være i bruk, og
-    // da er «aria-modal» en løgn overfor skjermleseren.
-    const narrated = tourNarrated();
-    tourEl.classList.toggle('guided', !narrated);
-    tourEl.classList.toggle('narrated', narrated);
-    document.body.classList.toggle('tour-guided', !narrated);
-    if (narrated) tourCard.setAttribute('aria-modal', 'true');
+    demoNote();
+    tourNextBtn.hidden = !step.cta;
+    tourNextBtn.textContent = step.cta || 'Neste';
+    tourBackBtn.hidden = demoIndex === 0;
+    tourActionsEl.classList.toggle('is-empty', tourNextBtn.hidden && tourBackBtn.hidden);
+    tourEl.classList.toggle('narrated', !!step.narrated);
+    if (step.narrated) tourCard.setAttribute('aria-modal', 'true');
     else tourCard.removeAttribute('aria-modal');
-    tourTarget = tourTargetFor(step);
-    if (tourTarget) {
-      tourTarget.scrollIntoView({
+    const target = demoTarget();
+    demoMarkLive(step.narrated ? null : target);
+    if (target) {
+      target.scrollIntoView({
         block: 'center', inline: 'nearest',
         behavior: prefersReducedMotion() ? 'auto' : 'smooth',
       });
     }
+    tourCard.hidden = false;
     placeTour();
-    tourFocusStep();
+    demoFocus(target);
+    demoPainted = demoIndex;
   }
-  /* Fokus. På et fortellesteg står det i kortet (som er modalt). På et
-     handlingssteg flyttes det til den EKTE kontrollen — det er den som skal
-     brukes, og en tastaturbruker skal kunne trykke Enter der uten å lete.
-     Vi rører aldri fokus mens brukeren skriver: en inline-navngiving er
-     nettopp handlingen vi venter på. */
-  function tourFocusStep() {
+  /* Fokus. På et steg med en knapp i kortet står det i kortet; ellers på den
+     EKTE kontrollen, så en tastaturbruker kan trykke Enter der uten å lete. Vi
+     rører aldri fokus mens brukeren skriver — en inline-navngiving er nettopp
+     handlingen vi venter på. */
+  function demoFocus(target) {
     const a = document.activeElement;
     if (a && (a.tagName === 'INPUT' || a.tagName === 'TEXTAREA' || a.isContentEditable)) return;
-    // Kortet selv, ikke den første knappen: den første er «Hopp over», og en
-    // Enter i vane skal ikke avslutte innføringen før den har begynt.
-    if (tourNarrated()) { tourCard.focus(); return; }
-    if (tourTarget && typeof tourTarget.focus === 'function') {
-      try { tourTarget.focus({ preventScroll: true }); return; } catch (e) { /* ikke fokuserbart */ }
+    if (demoStep().cta) { tourCard.focus(); return; }
+    if (target && typeof target.focus === 'function') {
+      try { target.focus({ preventScroll: true }); return; } catch (e) { /* ikke fokuserbart */ }
     }
     tourCard.focus();
   }
-  // Id-ene som finnes NÅ i beholderen steget gjelder — grunnlaget `tourFresh()`
-  // sammenligner mot, så et objekt som alt var der ikke kan kvittere ut steget.
-  function tourSnapshotBaseline() {
-    const step = tourStep();
-    const ids = [];
-    if (step.id === 'create_universe') tourUniverses().forEach((u) => ids.push(u.id));
-    if (step.id === 'create_group') tourGroups(tourUni()).forEach((g) => ids.push(g.id));
-    if (step.id === 'create_card') tourCards(tourGroup()).forEach((c) => ids.push(c.id));
-    tourBaseline = new Set(ids);
+  function demoHideCard() {
+    tourCard.hidden = true;
+    tourArrow.hidden = true;
+    demoMarkLive(null);
+    demoPainted = -1;
   }
-  function goToTourStep(i) {
-    tourIndex = Math.max(0, Math.min(i, TOUR_LAST));
-    tourSnapshotBaseline();
-    paintTourStep();
-    if (tourIndex > 0 && tourIndex < TOUR_LAST) saveOnboarding('in_progress');
+
+  /* ---------- Framdrift ---------- */
+  function demoSnapshot() {
+    return {
+      universes: demoClone(state.universes),
+      activeUniverse: state.activeUniverse,
+      activeGroup: state.activeGroup,
+      activeGroups: Object.assign({}, state.activeGroups),
+      tomb: demoClone(state._tomb),
+      ctx: Object.assign({}, demoCtx),
+    };
   }
-  function advanceTour() {
-    if (tourIndex >= TOUR_LAST) { endTour('done'); return; }
-    goToTourStep(tourIndex + 1);
+  function demoApplySnapshot(snap) {
+    demoDropDeleteBuffer();
+    state.universes = demoClone(snap.universes);
+    state.activeUniverse = snap.activeUniverse;
+    state.activeGroup = snap.activeGroup;
+    state.activeGroups = Object.assign({}, snap.activeGroups);
+    state._tomb = demoClone(snap.tomb);
+    demoCtx = Object.assign({}, snap.ctx);
   }
-  /* Observatøren. Kjøres på tidsur mens innføringen står på, og er hele
+  /* Sett opp modalene slik steget forutsetter. Kalles KUN når vi går bakover
+     (eller ruller tilbake): framover er det brukerens egen navigasjon som har
+     ført oss hit, og da skal vi ikke rote i den. */
+  function demoApplyUi(step) {
+    if (step.needsTrash) {
+      closeNavModal();
+      const c = demoCard();
+      if (c) openItemsTrash(c);
+      return;
+    }
+    closeTrash();
+    if (step.needsNav) openNavModal(); else closeNavModal();
+  }
+  // restore: gjenopprett tilstanden slik den var da steget begynte (bakover og
+  // ved tilbakerulling). Framover tas et NYTT øyeblikksbilde.
+  function demoGoTo(i, restore) {
+    demoIndex = Math.max(0, Math.min(i, DEMO_LAST));
+    if (restore && demoSnaps[demoIndex]) {
+      const step = demoStep();
+      demoApplySnapshot(demoSnaps[demoIndex]);
+      demoApplyUi(step);
+      render();
+      /* Et navnesteg må få navnefeltet sitt tilbake. Objektet ble opprettet med
+         et standardnavn av steget FØR, så uten dette ville steget vært oppfylt
+         i det øyeblikk vi kom til det — og «Tilbake» sprettet rett fram igjen. */
+      if (step.reopen) {
+        try { const el = step.reopen(); if (el && el.click) el.click(); } catch (e) { /* borte */ }
+      }
+    } else {
+      demoSnaps[demoIndex] = demoSnapshot();
+      demoSnaps.length = demoIndex + 1;
+    }
+    demoBase = demoCounters(); // regnes ETTER at tilstanden er på plass
+    demoHideCard();
+  }
+  function demoAdvance() {
+    if (demoIndex >= DEMO_LAST) { endTour('done'); return; }
+    demoGoTo(demoIndex + 1, false);
+  }
+  /* Er steget klart til å VISES? Instruksjonen skal aldri stå der før
+     navigasjonen forrige handling utløste er fullført — ellers peker pilen på
+     en knapp som fortsatt ligger bak en modal. Kortet står skjult til da. */
+  function demoReady(step) {
+    if (step.needsNav && navModal.hidden) return false;
+    if (!step.needsNav && !step.trashModal && !navModal.hidden) return false;
+    if (step.needsTrash && trashModal.hidden) return false;
+    if (!step.needsTrash && !step.trashModal && !trashModal.hidden) return false;
+    if (step.narrated) return true;
+    return !!demoTarget();
+  }
+  /* Observatøren. Kjøres på tidsur mens demoen står på, og er hele
      framdriftsmekanismen: den spør steget «er du utført?» og går videre kun når
      svaret er ja. Ingen klikkhåndterer kan kvittere ut et steg. */
-  function tourObserve() {
-    if (!tourActive) return;
-    const step = tourStep();
-    const hint = tourHint();
-    tourNote(hint.text, hint.error);
-    paintTourControls();
-    /* Målet kan ha blitt tegnet på nytt (synk-runde), rullet, eller nettopp
-       dukket opp (modalen lukket seg). Byttet det node, følger fokus med —
-       men kun hvis det sto på den GAMLE noden eller ingen steder: står det et
-       tredje sted, er brukeren et ærend vi ikke skal avbryte. */
-    const next = tourTargetFor(step);
-    if (next !== tourTarget) {
-      const a = document.activeElement;
-      const followFocus = !tourNarrated() && next &&
-        (a === tourTarget || a === tourCard || !a || a === document.body);
-      tourTarget = next;
-      placeTour();
-      if (followFocus) tourFocusStep();
-    } else {
-      placeTour();
+  function demoObserve() {
+    if (!demoRunning) return;
+    const step = demoStep();
+    /* «Utført» spørres FØR «står forutsetningen ennå». Et steg som FJERNER
+       noe — løs opp kategorien, slett listen, tøm kassen — river selv bort sin
+       egen forutsetning i samme øyeblikk som det fullføres, og motsatt
+       rekkefølge ville rullet steget tilbake i stedet for å kvittere det ut.
+       Kortet må ha stått minst ett tidsurslag først, ellers ville et steg som
+       allerede er oppfylt blitt hoppet over uten å vises. */
+    if (demoPainted === demoIndex && step.done) {
+      let done = false;
+      try { done = !!step.done(); } catch (e) { done = false; }
+      if (done) { demoAdvance(); return; }
     }
-    const check = tourMode === 'review' ? (step.review || step.done) : step.done;
-    if (!check) return;                 // fortellesteg — «Neste» driver det
-    /* En åpen navngiving er handlingen som PÅGÅR, ikke en handling som er
-       utført. Uten denne vakten ville ＋-knappen alene drevet innføringen
-       videre: `addUniverse()`/«＋ Liste» oppretter objektet med et
-       standardnavn og åpner navnefeltet, så objektet finnes allerede idet
-       fingeren slipper knappen. Avbryter brukeren (Escape på et nytt
-       listepunkt eller en ny mappe fjerner raden igjen), står steget der det
-       sto — som seg hør og bør. */
-    if (tourEditingOpen()) return;
-    let patch = null;
-    try { patch = check(); } catch (e) { patch = null; }
-    if (!patch) return;
-    // Utført lokalt, men ikke kvittert av serveren: la steget stå til dommen
-    // faller. Beskjeden ved en avvisning står alt i `tourHint()`.
-    if (tourWriteBlocked() || tourAwaitingWrite()) return;
-    Object.assign(tourCtx, patch);
-    advanceTour();
+    // Falt forutsetningen bort? (En avbrutt navngiving fjerner raden igjen.)
+    if (step.premise) {
+      let ok = false;
+      try { ok = !!step.premise(); } catch (e) { ok = false; }
+      if (!ok) { demoGoTo(demoRank(step.rewind), true); return; }
+    }
+    if (demoPainted !== demoIndex) {
+      if (!demoReady(step)) { demoHideCard(); return; }
+      paintDemoStep();
+      return;
+    }
+    demoNote();
+    demoMarkLive(step.narrated ? null : demoTarget());
+    placeTour();
   }
-  /* Fant vi igjen det innføringen holdt på med? Objekter kan være slettet
-     mellom to økter; da faller gjenopptakelsen tilbake til det siste steget
-     hvis forutsetninger fortsatt holder, i stedet for å bli stående og vente på
-     et område som ikke finnes. */
-  function tourResolveResume(point) {
-    tourCtx = Object.assign({ universeId: null, groupId: null, cardId: null }, point.ctx);
-    let i = point.index;
-    if (i > tourRank('create_universe') && !tourUni()) i = tourRank('create_universe');
-    else if (i > tourRank('create_group') && !tourGroup()) i = tourRank('create_group');
-    else if (i > tourRank('create_card') && !tourCardObj()) i = tourRank('create_card');
-    return Math.max(0, Math.min(i, TOUR_LAST));
-  }
-  /* Har kontoen allerede innhold? Da er «Vis på nytt» en REPETISJON, ikke en
-     øvelse: innføringen peker på det brukeren har i stedet for å be om
-     duplikater, og hvert steg kan hoppes over. En helt tom konto har ingenting
-     å peke på, og øver i stedet. */
-  function tourHasContent() {
-    return tourUniverses().some((u) => tourGroups(u).length > 0);
-  }
-  // returnTo (valgfri): elementet fokuset skal tilbake til når innføringen
-  // lukkes — settes av kallere som selv lukker noe først (konto-modalen).
-  // opts.mode: 'practice' | 'review'. opts.resume: gjenopptakelsespunkt.
-  function startTour(returnTo, opts) {
-    if (!authUser) return;
-    opts = opts || {};
-    tourReturnFocus = returnTo || document.activeElement;
-    tourMode = opts.mode || 'practice';
-    tourActive = true;
+
+  /* ---------- Start og slutt ---------- */
+  // returnTo (valgfri): elementet fokuset skal tilbake til når demoen lukkes —
+  // settes av kallere som selv lukker noe først (konto-modalen).
+  function startTour(returnTo) {
+    if (!authUser || demoRunning) return;
+    demoReturnFocus = returnTo || document.activeElement;
+    demoCtx = {};
+    demoSnaps = [];
+    demoIndex = 0;
+    demoPainted = -1;
+    demoRunning = true;
+    document.body.classList.add('tour-demo');
     tourEl.hidden = false;
-    if (opts.resume) {
-      tourIndex = tourResolveResume(opts.resume);
-    } else {
-      tourCtx = { universeId: null, groupId: null, cardId: null };
-      tourIndex = 0;
-    }
-    goToTourStep(tourIndex);
-    clearInterval(tourTick);
-    tourTick = setInterval(tourObserve, TOUR_POLL_MS);
+    tourCard.hidden = true;
+    tourArrow.hidden = true;
+    demoSimStart();
+    demoGoTo(0, false);
+    clearInterval(demoTimer);
+    demoTimer = setInterval(demoObserve, DEMO_POLL_MS);
+    demoObserve();
   }
-  /* Riv ned laget uten å skrive noe. Brukes ved UTLOGGING (`cloudStop`): den
+  /* Riv ned demoen uten å skrive noe. Brukes ved UTLOGGING (`cloudStop`): den
      halve runden tilhørte kontoen som gikk, og skal verken merkes som sett
      eller bli stående og gjelde den neste som logger inn. */
   function resetTourState() {
-    tourActive = false;
-    clearInterval(tourTick); tourTick = null;
-    tourEl.hidden = true;
-    tourEl.classList.remove('guided', 'narrated', 'no-spot');
-    document.body.classList.remove('tour-guided');
-    tourTarget = null;
-    tourReturnFocus = null;
-    tourCtx = { universeId: null, groupId: null, cardId: null };
-    tourBaseline = new Set();
-    tourIndex = 0;
-    onboardingFloor = -1;
+    demoTeardown();
+    demoSimStop(false);
+    demoReturnFocus = null;
     onboardingWaits = 0;
   }
-  // status: 'done' (kom gjennom) | 'skipped' (hoppet over / avsluttet).
-  // Begge betyr «ferdig» — innføringen skal ikke mase igjen på neste enhet.
-  // Merket settes også om den ikke står åpen: da er dette «jeg vil ikke ha
-  // den», og et løp som er på vei opp skal ikke rekke å starte.
-  function endTour(status) {
-    const wasOpen = tourActive;
-    tourActive = false;
-    clearInterval(tourTick); tourTick = null;
+  function demoTeardown() {
+    demoRunning = false;
+    clearInterval(demoTimer); demoTimer = null;
     tourEl.hidden = true;
-    tourEl.classList.remove('guided', 'narrated', 'no-spot');
-    document.body.classList.remove('tour-guided');
-    tourTarget = null;
-    onboardingFloor = TOUR_LAST;   // ferdig er ferdig; ingen vei tilbake
-    saveOnboarding(status, TOUR_LAST);
+    tourEl.classList.remove('narrated');
+    tourCard.hidden = true;
+    tourArrow.hidden = true;
+    demoMarkLive(null);
+    document.body.classList.remove('tour-demo');
+    demoPainted = -1;
+  }
+  // status: 'done' (kom gjennom) | 'skipped' (avsluttet underveis).
+  // Begge betyr «sett» — demoen skal ikke mase igjen på neste enhet. Merket
+  // settes også om den ikke står åpen: da er dette «jeg vil ikke ha den», og en
+  // runde som er på vei opp skal ikke rekke å starte.
+  function endTour(status) {
+    const wasOpen = demoRunning;
+    demoTeardown();
+    demoSimStop(true);
+    saveOnboarding(status);
     if (!wasOpen) return;
-    if (tourReturnFocus && document.body.contains(tourReturnFocus)) {
-      try { tourReturnFocus.focus(); } catch (e) { /* elementet kan være borte */ }
+    if (demoReturnFocus && document.body.contains(demoReturnFocus)) {
+      try { demoReturnFocus.focus(); } catch (e) { /* elementet kan være borte */ }
     }
-    tourReturnFocus = null;
+    demoReturnFocus = null;
     flushPendingTip();
   }
   tourNextBtn.addEventListener('click', () => {
-    if (tourIndex === TOUR_LAST) endTour('done');
-    else advanceTour();
+    if (demoIndex >= DEMO_LAST) endTour('done');
+    else demoAdvance();
   });
-  tourSkipStepBtn.addEventListener('click', () => advanceTour());
-  tourPracticeBtn.addEventListener('click', () => {
-    tourMode = 'practice';
-    tourCtx = { universeId: null, groupId: null, cardId: null };
-    goToTourStep(tourIndex);
+  // Ett steg tilbake NULLSTILLER det man gjorde i det steget, så handlingen kan
+  // gjøres om — ellers ville «Tilbake» stått og bedt om noe som alt er gjort.
+  tourBackBtn.addEventListener('click', () => {
+    if (demoIndex > 0) demoGoTo(demoIndex - 1, true);
   });
-  tourSkipBtn.addEventListener('click', () => endTour('skipped'));
   tourCloseBtn.addEventListener('click', () => endTour('skipped'));
   tourRestartBtn && tourRestartBtn.addEventListener('click', () => {
-    closeAccount();          // innføringen peker på appen BAK modalen
-    // En etablert konto skal ikke måtte lage duplikater for å se den igjen.
-    startTour(accountBtn, { mode: tourHasContent() ? 'review' : 'practice' });
+    closeAccount();          // demoen peker på appen BAK modalen
+    startTour(accountBtn);
   });
-  // Spotlighten skal følge målet: siden bak ruller fritt under et handlingssteg,
-  // og ville ellers etterlatt ringen i lufta.
-  const tourReflow = () => { if (tourActive) placeTour(); };
+  // Pilspissen og kortet skal følge målet: siden bak ruller fritt.
+  const tourReflow = () => { if (demoRunning && demoPainted === demoIndex) placeTour(); };
   window.addEventListener('resize', tourReflow);
   window.addEventListener('scroll', tourReflow, true);
-  /* Tastatur. Escape avslutter innføringen KUN når fokus står i kortet, eller
-     når steget er modalt. Ellers hører Escape hjemme i appen: den avbryter en
-     inline-navngiving (nettopp handlingen et steg venter på) og lukker en
-     modal. En capture-håndterer som slukte Escape uansett ville gjort
-     handlingsstegene umulige å angre seg ut av. */
-  document.addEventListener('keydown', (ev) => {
-    if (!tourActive) return;
-    const inCard = tourCard.contains(ev.target);
-    if (ev.key === 'Escape') {
-      if (!tourNarrated() && !inCard) return;   // appen først
-      ev.preventDefault(); ev.stopPropagation();
-      endTour('skipped');
-      return;
-    }
-    if (ev.key !== 'Tab' || !tourNarrated()) return;
-    // Fokusfelle — kun på fortellestegene. På et handlingssteg SKAL Tab kunne
-    // gå ut i appen: det er der handlingen utføres.
-    const f = tourFocusables();
-    if (!f.length) return;
-    const first = f[0];
-    const last = f[f.length - 1];
-    const cur = document.activeElement;
-    // Kortet SELV er fokusert rett etter åpning (og er ingen av knappene): det
-    // teller som «foran den første», ellers ville Shift+Tab der gått rett ut av
-    // dialogen og ned i appen bak.
-    if (cur === tourCard || !tourCard.contains(cur)) {
-      ev.preventDefault(); (ev.shiftKey ? last : first).focus();
-    } else if (ev.shiftKey && cur === first) { ev.preventDefault(); last.focus(); }
-    else if (!ev.shiftKey && cur === last) { ev.preventDefault(); first.focus(); }
-  }, true);
 
   /* Etter første vellykkede innlogging (cloudStart, når første synk-runde er
      ferdig og board-et er malt). Står noe annet i veien — importspørsmålet fra
      migreringen, en åpen modal, en pågående redigering — venter vi litt i
-     stedet for å legge oss oppå det. Et påbegynt løp gjenopptas; en konto som
-     er ferdig (eller kom gjennom v1) får ingenting. */
+     stedet for å legge oss oppå det. En konto som har sett demoen får
+     ingenting; en konto som bare har sett en TIDLIGERE runde får tilbudet. */
   function maybeStartOnboarding() {
-    if (!authUser || tourActive || onboardingSeen()) return;
-    const resume = onboardingResumePoint();
+    if (!authUser || demoRunning || onboardingSeen()) return;
     if (document.body.classList.contains('modal-open') || isBusyEditing()) {
       if (onboardingWaits++ > 20) return; // gir opp for denne økten
       setTimeout(maybeStartOnboarding, 900);
       return;
     }
     onboardingWaits = 0;
-    startTour(null, { mode: 'practice', resume: resume });
+    startTour(null);
   }
 
   /* ---------- Kontekstuelle tips for de avanserte gestene ---------- */
@@ -11177,15 +11463,15 @@
     trash: 'Tips: hold på søppelkassen og sveip for å slette alt i den.',
     moveList: 'Tips: dra en liste opp på navigasjonsknappen for å flytte den.',
   };
-  let pendingTip = null;  // ba om et tips mens omvisningen sto på
+  let pendingTip = null;  // ba om et tips mens demoen sto på
   let lastTipAt = 0;
   function tipSeen(key) { return !!accountPref('tips')[key]; }
   // Viser tipset hvis det er relevant OG det ikke koster brukeren noe akkurat
   // nå. Returnerer om det ble vist, så kallerne kan nøye seg med ett om gangen.
   function showTip(key) {
     if (!authUser || !TIPS[key] || tipSeen(key)) return false;
-    if (!onboardingSeen()) return false;         // introduksjonen kommer først
-    if (tourActive) { pendingTip = key; return false; }
+    if (!onboardingSeen()) return false;         // demoen kommer først
+    if (demoRunning) { pendingTip = key; return false; }
     // Aldri i veien: ikke midt i en redigering/et drag, ikke oppå en åpen
     // modal, og aldri ved å fortrenge en beskjed som allerede står — eller som
     // er på vei. En sletting tegner board-et på nytt FØR den viser «Angre»-
@@ -11209,9 +11495,9 @@
     pendingTip = null;
     if (key) showTip(key);
   }
-  // Merk HELE introduksjonen som sett — omvisningen OG alle tipsene. Finnes for
+  // Merk HELE introduksjonen som sett — demoen OG alle tipsene. Finnes for
   // testene som ikke handler om introduksjonen (`tests/CLAUDE.md`): der er både
-  // omvisningen og en tips-toast i veien for det som faktisk testes, og toasten
+  // demoen og en tips-toast i veien for det som faktisk testes, og toasten
   // ligger nederst på skjermen, akkurat der et mobil-drag tar tak.
   function skipIntroduction() {
     const tips = Object.assign({}, accountPref('tips'));
@@ -11253,16 +11539,18 @@
     tour: {
       start: startTour,
       end: endTour,
-      skipAll: skipIntroduction, // innføring + alle tips (se tests/CLAUDE.md)
-      steps: TOUR_STEPS.length,
+      skipAll: skipIntroduction, // demoen + alle tips (se tests/CLAUDE.md)
+      back: () => { if (demoRunning && demoIndex > 0) demoGoTo(demoIndex - 1, true); },
+      steps: DEMO_STEPS.length,
       version: TOUR_VERSION,
-      ids: TOUR_STEPS.map((s) => s.id),
-      get active() { return tourActive; },
-      get index() { return tourIndex; },
-      get id() { return tourStep().id; },
-      get mode() { return tourMode; },
-      get ctx() { return Object.assign({}, tourCtx); },
-      get narrated() { return tourNarrated(); },
+      ids: DEMO_STEPS.map((s) => s.id),
+      get active() { return demoRunning; },
+      get sim() { return demoActive; },
+      get index() { return demoIndex; },
+      get id() { return demoStep().id; },
+      get ctx() { return Object.assign({}, demoCtx); },
+      get narrated() { return !!demoStep().narrated; },
+      get shown() { return demoPainted === demoIndex && !tourCard.hidden; },
       seen: onboardingSeen,
     },
     get authUser() { return authUser; },

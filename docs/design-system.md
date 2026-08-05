@@ -550,30 +550,26 @@ side-margin som kansellerer den omsluttende paddingen.
   opp det samme hvert sekund). Teknisk informasjon (tabell, feilkode) vises aldri
   her — den ligger i konsollen og i `__huskis.syncStatus.snapshot()`.
 
-## Introduksjonen: spotlight (`.tour`)
+## Demonstrasjonen: tooltip-kortet (`.tour`)
 
-Innføringen for nye brukere har sitt eget lag (`.tour`, z-index 295 — over
-lagringsstatusen, under toasten og oppdateringsbanneret). Dempingen tegnes IKKE
-av en egen flate, men av `.tour-spot` sin enorme `box-shadow`-spredning: det som
-er innenfor ringen står udempet igjen, så det uthevede ER det ekte elementet —
-samme grep som bilderedigererens `.avatar-mask`. Derfor heller ingen
-`backdrop-filter` på laget (den ville uskarpet også det som skal fremheves).
+Demoen for nye brukere har sitt eget lag (`.tour`, z-index 295 — over
+lagringsstatusen, under toasten og oppdateringsbanneret). Laget er
+`pointer-events: none`: brukeren skal se og bruke HELE appen mens demoen står
+på, så det finnes verken mørklegging, uskarphet eller ring rundt kontrollen —
+bare `#tour-arrow`, en pilspiss (et kvadrat rotert 45°) som peker på den. Bare
+kortet tar imot pekeren.
 
-Laget har **to moduser**, og forskjellen er hvem som tar imot pekeren:
+**Velkomsten er unntaket** (`.tour.narrated`): midtstilt, med både mørklegging
+og `backdrop-filter` på flaten bak. Der er det ingenting å peke på ennå.
 
-- `.tour.narrated` (velkomst/avslutning) tar imot klikk som en modal-overlay.
-- `.tour.guided` slipper pekeren gjennom (`pointer-events: none`; bare kortet
-  tar imot) — handlingen skal utføres på det ekte UI-et. Samtidig demper
-  `body.tour-guided` slette- og søppelkassekontrollene, så et bomtrykk ikke kan
-  kaste noe underveis.
-
-Steg uten et element å peke på demper hele flaten (`.tour.no-spot`). Kortet
-midtstilles da bare på et fortellesteg; på et handlingssteg dokkes det nederst,
-siden et midtstilt kort ville sperret appen brukeren fortsatt må nå.
 `.tour-card` er den vanlige hvite modalflaten (radius 20, `--shadow-lg`,
 `pop-in`) med `.hint-chip`-ene i den mørke varianten, som i nav-modalen. Den
 ruller innvendig når JS kapper høyden (smal skjerm, ingen plass ved siden av
-målet). Se `docs/introduksjon.md`.
+målet). Framdriften er en stolpe (`.tour-progress`), ikke «Steg n av m».
+
+`body.tour-demo` demper kontrollene som ikke er i bruk, med `:not(.tour-live)`
+som hele forskjellen: `.tour-live` står på kontrollen steget handler om. Det er
+ren affordanse — selve avgrensningen håndheves i JS. Se `docs/introduksjon.md`.
 
 ## Bevegelse og tilgjengelighet
 

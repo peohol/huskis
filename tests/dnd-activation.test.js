@@ -43,6 +43,21 @@ async function register(p) {
   await p.waitForTimeout(150);
 }
 
+/* Trykk og hold til objektet FAKTISK er løftet. Klokka duger ikke: lander en
+   synk-runde midt i holdet, tegnes raden på nytt, og hold-timeren fyrer på en
+   node som ikke er i dokumentet lenger — draget starter aldri. En bruker ville
+   tatt tak på nytt; det gjør vi også. INGEN pointermove sendes, så «raskt
+   slipp» er fortsatt nøyaktig det som testes. */
+const lifted = (p) => p.waitForFunction(
+  () => document.body.classList.contains('is-dragging'), null, { timeout: 1200, polling: 30 });
+async function holdOn(p, x, y) {
+  for (let i = 0; i < 4; i++) {
+    await pointer(p, 'pointerdown', x, y);
+    try { await lifted(p); return; } catch (e) { await pointer(p, 'pointercancel', x, y); }
+  }
+  throw new Error('holdet løftet aldri objektet');
+}
+
 // cards = [[tittel, antall listepunkter], …]
 async function seed(p, cards) {
   await p.evaluate(() => { window.__huskis.addUniverse(); }); await p.waitForTimeout(150);
@@ -180,8 +195,7 @@ const log = (n, ok, x = '') => { results.push(ok); console.log((ok ? 'PASS' : 'F
     await seed(p, [['A', 6]]);
     const before = await itemOrder(p, 'card-A');
     const src = await centerOf(p, '.item[data-id="it-A-0"]');
-    await pointer(p, 'pointerdown', src.x, src.y);
-    await p.waitForTimeout(260); // holdet fullføres → draget starter i nedtrykkspunktet
+    await holdOn(p, src.x, src.y); // holdet fullføres → draget starter i nedtrykkspunktet
     const dst = await centerOf(p, '.item[data-id="it-A-4"]');
     await pointer(p, 'pointerup', src.x, dst.y + 4); // INGEN pointermove imellom
     await p.waitForTimeout(500);
@@ -194,8 +208,7 @@ const log = (n, ok, x = '') => { results.push(ok); console.log((ok ? 'PASS' : 'F
     await seed(p, [['P', 3], ['Q', 3], ['R', 3]]);
     const cBefore = await cardOrder(p);
     const h = await centerOf(p, '.card[data-id="card-P"] .card-head');
-    await pointer(p, 'pointerdown', h.x, h.y);
-    await p.waitForTimeout(260); // hold → draget starter, ALLE lister kollapser
+    await holdOn(p, h.x, h.y); // hold → draget starter, ALLE lister kollapser
     // Mål mål-listas hode ETTER kollapsen (layouten er en annen nå).
     const target = await centerOf(p, '.card[data-id="card-R"] .card-head');
     await pointer(p, 'pointerup', target.x, target.y + 4); // INGEN pointermove
@@ -214,8 +227,7 @@ const log = (n, ok, x = '') => { results.push(ok); console.log((ok ? 'PASS' : 'F
     const gIds = await p.evaluate((sel) => [...document.querySelectorAll(sel + ' .items-container > .item')].map((g) => g.dataset.id), uSel);
     const g1 = await centerOf(p, uSel + ' .item[data-id="' + gIds[0] + '"]');
     const g3 = await centerOf(p, uSel + ' .item[data-id="' + gIds[2] + '"]');
-    await pointer(p, 'pointerdown', g1.x, g1.y);
-    await p.waitForTimeout(260);
+    await holdOn(p, g1.x, g1.y);
     await pointer(p, 'pointerup', g1.x, g3.y + 4); // INGEN pointermove
     await p.waitForTimeout(500);
     const gAfter = await p.evaluate((sel) => [...document.querySelectorAll(sel + ' .items-container > .item')].map((g) => g.dataset.id), uSel);
@@ -236,8 +248,7 @@ const log = (n, ok, x = '') => { results.push(ok); console.log((ok ? 'PASS' : 'F
     const uIds = await p.evaluate(() => [...document.querySelectorAll('#nav-board .card')].map((u) => u.dataset.id));
     const u1 = await centerOf(p, '#nav-board .card[data-id="' + uIds[0] + '"] .card-head');
     const u3 = await centerOf(p, '#nav-board .card[data-id="' + uIds[2] + '"] .card-head');
-    await pointer(p, 'pointerdown', u1.x, u1.y);
-    await p.waitForTimeout(260);
+    await holdOn(p, u1.x, u1.y);
     await pointer(p, 'pointerup', u1.x, u3.y + 4); // INGEN pointermove
     await p.waitForTimeout(500);
     const uAfter = await p.evaluate(() => [...document.querySelectorAll('#nav-board .card')].map((u) => u.dataset.id));

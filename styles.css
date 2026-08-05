@@ -2074,61 +2074,78 @@ body:has(.toast.show) .update-banner.show { transform: translateY(-128px); }
   .update-banner { transition: none; }
 }
 
-/* ---------------- Introduksjon for nye brukere (omvisning) ----------------
+/* ---------------- Demonstrasjonen for nye brukere ----------------
    Autoritativt: docs/introduksjon.md.
 
    Laget ligger over appen og lagringsstatusen (290), men under toasten (300) og
-   oppdateringsbanneret (410) — de to skal kunne nå fram også midt i en
-   omvisning.
+   oppdateringsbanneret (410) — de to skal kunne nå fram også midt i demoen.
 
-   TO MODUSER, og forskjellen er hvem som tar imot pekeren:
+   Kortet er en TOOLTIP, ikke en modal. Det er hele poenget: brukeren skal se
+   appen i sin helhet mens hen bruker den, så det finnes verken mørklegging,
+   uskarphet eller ring rundt kontrollen — bare en pilspiss som peker på den.
+   Selve avgrensningen (hva som KAN trykkes på nå) håndheves i JS, ikke av et
+   lag som ligger i veien; CSS-en her demper bare det som ikke er i bruk, slik
+   at det ser avskrudd ut i tillegg til å være det.
 
-   • FORTELLESTEG (`.tour.narrated` — velkomst og avslutning) har ingen
-     handling å utføre. Flaten tar imot klikk som en modal-overlay, så et
-     bomtrykk på scenen ikke utløser noe i appen bak.
-   • HANDLINGSSTEG (`.tour.guided`) skal utføres på det EKTE UI-et. Da må
-     laget slippe pekeren gjennom (`pointer-events: none`) — bare kortet
-     selv tar imot klikk. Det som skal holdes unna er ikke «alt», men det
-     destruktive: `body.tour-guided` slår av slette- og søppelkasse-
-     kontrollene så et bomtrykk ikke kan kaste noe underveis.
-
-   Dempingen tegnes IKKE av en egen flate, men av `.tour-spot` sin enorme
-   box-shadow-spredning (samme grep som bilderedigererens `.avatar-mask`): det
-   som er innenfor ringen står udempet igjen, så «hullet» er det EKTE elementet
-   steget handler om. Derfor heller ingen backdrop-filter her — en uskarphet på
-   laget ville uskarpet også det som skal fremheves. Steg uten et element å peke
-   på (`.no-spot`) demper i stedet hele flaten. */
+   Velkomsten er unntaket: `.tour.narrated` er midtstilt, med både mørklegging
+   og uskarphet på flaten bak. Der er det ingenting å peke på ennå. */
 .tour {
   position: fixed;
   inset: 0;
   z-index: 295;
+  pointer-events: none;  /* laget selv er aldri i veien — kun kortet tar imot */
 }
-.tour.guided { pointer-events: none; }
-.tour.guided .tour-card { pointer-events: auto; }
-.tour.no-spot { background: rgba(45, 38, 70, 0.5); }
-.tour.no-spot .tour-spot { display: none; }
-/* `.tour.guided.no-spot` ville ellers lagt en dempet, gjennomklikkbar flate
-   over alt: dempingen er riktig, men den skal ikke stjele pekeren. */
-.tour.guided.no-spot { pointer-events: none; }
+.tour .tour-card { pointer-events: auto; }
+.tour.narrated {
+  pointer-events: auto;  /* velkomsten er modal: flaten svelger bomtrykk */
+  background: rgba(45, 38, 70, 0.5);
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+}
 
-/* Underveis i et handlingssteg er ALT som sletter avskrudd. Brukeren skal
-   kunne bomme uten å miste noe — og et bomtrykk her ville dessuten ofte
-   fjernet nettopp det objektet steget venter på. */
-body.tour-guided .card-delete,
-body.tour-guided .item-delete,
-body.tour-guided .trashcan {
-  pointer-events: none;
-  opacity: 0.35;
-}
-.tour-spot {
+/* Det som ikke er i bruk i dette steget dempes. `.tour-live` står på kontrollen
+   steget FAKTISK handler om, og `:not(.tour-live)` er hele forskjellen: en rad
+   som er levende (den skal dras) har fortsatt et slette-kryss og et tannhjul som
+   IKKE er i bruk, og de skal bli stående dempet inni den.
+   Blokkeringen ligger i JS (demoGate) — dette er affordansen, ikke vakten. */
+body.tour-demo .card-delete:not(.tour-live),
+body.tour-demo .item-delete:not(.tour-live),
+body.tour-demo .group-delete:not(.tour-live),
+body.tour-demo .card-cog:not(.tour-live),
+body.tour-demo .item-cog:not(.tour-live),
+body.tour-demo .cat-cog:not(.tour-live),
+body.tour-demo .cat-dissolve:not(.tour-live),
+body.tour-demo .item-check:not(.tour-live),
+body.tour-demo .share-badge:not(.tour-live),
+body.tour-demo .uni-share:not(.tour-live),
+body.tour-demo .group-share:not(.tour-live),
+body.tour-demo .uni-leave:not(.tour-live),
+body.tour-demo .group-leave:not(.tour-live),
+body.tour-demo .done-restore:not(.tour-live),
+body.tour-demo .trashcan:not(.tour-live),
+body.tour-demo .add-item-btn:not(.tour-live),
+body.tour-demo .add-cat-btn:not(.tour-live),
+body.tour-demo .cat-add-btn:not(.tour-live),
+body.tour-demo #add-card-btn:not(.tour-live),
+body.tour-demo .nav-add-uni button:not(.tour-live),
+body.tour-demo #account-btn:not(.tour-live),
+body.tour-demo #nav-crumb:not(.tour-live),
+body.tour-demo #nav-modal-close:not(.tour-live),
+body.tour-demo #trash-close:not(.tour-live),
+body.tour-demo #trash-empty:not(.tour-live),
+body.tour-demo .trash-row button:not(.tour-live) { opacity: 0.35; }
+
+/* Pilspissen: et kvadrat rotert 45°, lagt inntil kortkanten. Kortet males etter
+   den i DOM-en, så den halvdelen som stikker inn under kortet blir borte og
+   bare spissen står igjen. Den ligger UTENFOR kortet fordi kortet ruller
+   innvendig når plassen er trang (overflow ville klippet en pil inni det). */
+.tour-arrow {
   position: fixed;
-  border-radius: var(--control-radius);
-  /* Rekkefølgen betyr alt: den hvite ringen males OVER dempingen (tidligere
-     skygge vinner), så markeringen er synlig mot en mørknet flate. */
-  box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.92),
-              0 0 0 9999px rgba(45, 38, 70, 0.5);
-  pointer-events: none;
-  transition: left 0.2s ease, top 0.2s ease, width 0.2s ease, height 0.2s ease;
+  width: 14px;
+  height: 14px;
+  background: #fff;
+  box-shadow: var(--shadow-lg);
+  transform: rotate(45deg);
 }
 .tour-card {
   position: fixed;
@@ -2145,27 +2162,48 @@ body.tour-guided .trashcan {
   animation: pop-in 0.18s cubic-bezier(.2, .75, .3, 1);
 }
 .tour-card:focus-visible { outline: var(--focus-w) solid var(--focus); outline-offset: 3px; }
-.tour-step {
-  margin: 0 0 4px;
-  font-size: var(--fs-xs);
-  font-weight: 700;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-  color: var(--ink-soft);
+
+/* Framdriftsstolpe i stedet for «Steg n av m»: mindre tekst å lese, og like
+   presist om hvor langt igjen det er. */
+.tour-progress {
+  height: 5px;
+  margin: 0 30px 12px 0;
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.1);
+  overflow: hidden;
+}
+.tour-progress-fill {
+  height: 100%;
+  width: 0;
+  border-radius: 999px;
+  background: var(--accent);
+  transition: width 0.25s ease;
 }
 .tour-title { margin: 0 0 8px; padding-right: 30px; font-size: var(--fs-lg); font-weight: 700; }
-/* Én linje under teksten: «gjør dette nå»-instruksjonen, eller beskjeden om at
-   handlingen ikke ble fullført (avbrutt navngiving, lagring som ikke landet). */
+/* Én linje under teksten: det som gjenstår akkurat nå («skriv navnet»), eller
+   det ene forbeholdet velkomsten har (demoen rører ikke innholdet ditt). */
 .tour-note {
   margin: 10px 0 0;
   font-size: var(--fs-sm);
   font-weight: 600;
   color: var(--ink-soft);
 }
-.tour-note.is-error { color: var(--danger); }
 .tour-text { font-size: var(--fs-md); line-height: 1.45; }
+/* Ikoner MIDT i en setning. `.icon` er `display: block` globalt — riktig i
+   knapper og rader, men her ville hvert ikon brutt setningen i to. */
+.tour-text p .icon { display: inline-block; vertical-align: -0.15em; }
 .tour-text p { margin: 0 0 8px; }
 .tour-text p:last-child { margin-bottom: 0; }
+/* Punktlisten i velkomsten: ikon + tekst på samme linje, uten kulepunkt. */
+.tour-list { margin: 8px 0; padding: 0; list-style: none; }
+.tour-list li {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin: 0 0 6px;
+}
+.tour-list li:last-child { margin-bottom: 0; }
+.tour-list .icon { flex: 0 0 auto; margin-top: 2px; }
 /* .hint-chip er laget for fargede flater (lys, gjennomsiktig hvit); på det hvite
    kortet trengs den mørke varianten — samme unntak som i nav-modalen. */
 .tour-text .hint-chip { background: rgba(0, 0, 0, 0.07); }
@@ -2177,11 +2215,17 @@ body.tour-guided .trashcan {
   flex-wrap: wrap;
   margin-top: 16px;
 }
+/* Tom knapperad tar ikke plass: de fleste stegene har verken «Tilbake» eller
+   en knapp som driver dem videre — det er handlingen i appen som gjør det. */
+.tour-actions:empty, .tour-actions.is-empty { display: none; }
 .tour-nav { display: flex; align-items: center; gap: 8px; }
 /* To klasser, ikke én: `.icon-btn:not(.pass-toggle)` setter `position:
    relative` med samme spesifisitet som en enkelt klasse ville hatt, og vant —
    så ✕-en havnet i flyten nederst i kortet i stedet for i hjørnet. */
 .tour-card .tour-close { position: absolute; top: 10px; right: 10px; }
+@media (prefers-reduced-motion: reduce) {
+  .tour-progress-fill { transition: none; }
+}
 
 /* ---------------- Merkevare-logo (innloggingsskjerm) ---------------- */
 /* (app-innhold skjules av `body.no-auth`-regelen i FASE 2-seksjonen under.) */

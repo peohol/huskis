@@ -1,120 +1,211 @@
-# Introduksjon for nye brukere: innføringen og de kontekstuelle tipsene
+# Introduksjon for nye brukere: demonstrasjonen og de kontekstuelle tipsene
 
-Les denne når oppgaven berører førstegangsopplevelsen — den interaktive
-innføringen etter første innlogging, spotlight-stegene, «Vis på nytt» i
-konto-modalen, eller tipsene som lærer bort de avanserte gestene. Koden ligger
-i `app.js`, seksjonen «INTRODUKSJON FOR NYE BRUKERE».
+Les denne når oppgaven berører førstegangsopplevelsen — demonstrasjonen etter
+første innlogging, stegene i den, «Vis på nytt» i konto-modalen, eller tipsene
+som lærer bort de avanserte gestene. Koden ligger i `app.js`, seksjonen
+«DEMONSTRASJONEN FOR NYE BRUKERE».
 
 Prinsippet er todelt, og de to delene har med vilje ulik tyngde:
 
-| | Innføringen | Tipsene |
+| | Demoen | Tipsene |
 |---|---|---|
-| Når | én gang, etter første innlogging på en konto uten onboardingmarkør | første gang gesten er relevant |
-| Hva | brukeren bygger hele hierarkiet selv, ett nivå om gangen | én avansert gest om gangen |
-| Form | kort + spotlight på ekte UI, som brukeren faktisk trykker på | vanlig toast, ikke-modal |
+| Når | én gang, første gang en konto møter DENNE runden | første gang gesten er relevant |
+| Hva | brukeren gjør alt appen kan, i en simulering | én avansert gest om gangen |
+| Form | tooltip med pilspiss på ekte UI, som brukeren faktisk trykker på | vanlig toast, ikke-modal |
 | Går videre av | at TILSTANDEN endret seg — aldri av et knappetrykk | timeren, «Skjønner» eller et sveip |
-| Avsluttes av | Ferdig, Hopp over, ✕ eller Escape | timeren, «Skjønner» eller et sveip |
+| Avsluttes av | «Ferdig» på siste steg, eller ✕ | timeren, «Skjønner» eller et sveip |
+
+## Simuleringen: demoen har sin egen app
+
+Hele runden kjører i en **simulering**. `demoSimStart()` legger brukerens egne
+objekter til side (`demoSaved` holder på `state.universes`, de aktive pekerne og
+`state._tomb`), gir `state` et helt nytt, tomt tre, og `demoSimStop()` gir det
+hele tilbake når demoen er over.
+
+Det løser tre problemer på én gang:
+
+- **Demoen er lik for alle.** En tom konto og en konto med tre hundre lister ser
+  nøyaktig det samme, og hvert steg kan peke på ett bestemt objekt uten å måtte
+  gjette hva brukeren allerede har.
+- **Ingen kan miste noe.** Slettingen, tømmingen og oppløsningen mot slutten er
+  ekte handlinger i ekte UI — men på kulisser.
+- **Runden avsluttes med blanke ark.** De siste stegene rydder bort alt demoen
+  laget, så brukeren står igjen i den samme appen hen kom fra.
+
+Ingenting av kulissen skal nå bufferen, kontoen eller databasen. `demoActive`
+stenger veiene ut, og alle er merket i koden:
+
+| Vei | Vakt |
+|---|---|
+| lokal buffer | `save()`, `saveLocal()` |
+| sky-runden (push OG pull) | `scheduleCloud()`, `cloudCycle()` |
+| husket posisjon på kontoen | `saveNavPref()` |
+| bakgrunnskøen | `cloudLeave()` |
+
+Pull-en er like viktig som pushen: en runde som landet midt i demoen ville
+skrevet brukerens egne objekter inn over kulissen. `demoSimStop()` kaller
+`scheduleCloud(0)`, så runden tas igjen straks demoen er over.
 
 ## Grunnprinsippet: tilstand, ikke klikk
 
-Innføringen går **aldri** videre fordi en knapp ble trykket. Den går videre når
-objektet steget ber om faktisk finnes i `state`, hos riktig forelder, med et
-navn. Det er hele mekanikken, og den ligger i én funksjon: `tourObserve()`,
-som kjøres på et tidsur (`TOUR_POLL_MS`) så lenge innføringen står på. Hvert
-steg svarer på ett spørsmål — `done()` returnerer en context-patch når steget
-ER utført, ellers `null`.
+Demoen går **aldri** videre fordi en knapp ble trykket. Den går videre når
+`done()` sier at handlingen faktisk er utført — objektet finnes hos riktig
+forelder, med et navn; kategorien er borte; søppelkassen er tom. Det er hele
+mekanikken, og den ligger i `demoObserve()`, som kjøres på et tidsur
+(`DEMO_POLL_MS`) så lenge demoen står på.
 
-Et tidsur, ikke hendelseslyttere, er et bevisst valg: objektet kan dukke opp
-fra en inline-navngiving, fra en synk-runde startet på en annen enhet, eller
-fra en angret sletting. En liste over alle veiene dit ville råtnet; ett billig
+Et tidsur, ikke hendelseslyttere, er et bevisst valg: ＋-knappene oppretter
+objektet OG åpner navnefeltet i samme håndterer, så et klikk sier ingenting om
+hva brukeren fullførte. En liste over alle veiene dit ville råtnet; ett billig
 spørsmål stilt om igjen råtner ikke.
 
-Tre ting kan holde et steg tilbake selv om objektet finnes:
+**`done()` spørres før `premise()`.** Et steg som FJERNER noe — løs opp
+kategorien, slett listen, tøm kassen — river bort sin egen forutsetning i samme
+øyeblikk som det fullføres. Motsatt rekkefølge ville rullet steget tilbake i
+stedet for å kvittere det ut.
 
-- **En åpen navngiving** (`.edit-input` i DOM-en) er handlingen som PÅGÅR.
-  Uten den vakten ville ＋-knappen alene drevet innføringen videre:
-  `addUniverse()` og «＋ Liste» oppretter objektet med et standardnavn og åpner
-  navnefeltet, så objektet finnes allerede idet fingeren slipper knappen.
-  Avbryter brukeren, forsvinner et nytt listepunkt/en ny mappe igjen
-  (`nameNewRow`) — og steget står der det sto.
-- **En avvist skriving** (`syncStatus` i tilstanden `rejected`). Handlingen er
-  ikke lagret på kontoen, og skal ikke kvitteres ut: brukeren ville ellers fått
-  beskjed om at alt gikk bra, mens objektet forsvant ved neste innlogging.
-  Frakoblet er ikke det samme — da ligger endringen trygt lokalt.
-- **`tourBaseline`**, id-ene som fantes da steget begynte. Et område brukeren
-  allerede hadde (eller som en synk-runde drar inn fra en annen enhet) kan ikke
-  fullføre steget på vegne av en handling som aldri ble utført.
+**Et drag kvitteres ut av selve slippet**, ikke av at posisjonen endret seg: et
+listepunkt som havner der det var, er et like gyldig drag. `dropSeq` i
+dra-og-slipp-motoren telles opp i `finishDrag()` for hvert VELLYKKET slipp;
+rollback-veiene (`restoreDraggedToOrigin()`) teller ikke.
 
-## Stegene
+## Avgrensningen: bare det steget handler om
 
-Åtte steg. To av dem er **fortellesteg** (ingen handling å utføre), seks er
-**handlingssteg**.
+Brukeren skal ikke kunne lukke eller navigere seg bort fra det pågående steget,
+og ikke bruke andre funksjoner enn den steget demonstrerer. Ingen kollapsing der
+kollapsing ikke er poenget, ingen sletting der sletting ikke er poenget.
 
-| # | Steg (`id`) | Spotlight | Fullføres når |
-|---|---|---|---|
-| 1 | `welcome` | — (midtstilt) | «Kom i gang» |
-| 2 | `open_nav` | `#nav-crumb` | navigasjonsvisningen er åpen |
-| 3 | `create_universe` | `.nav-add-uni button` | et NYTT område med navn finnes |
-| 4 | `create_group` | ＋ i områdekortet | en NY mappe med navn finnes i det området |
-| 5 | `open_group` | mappens rad i oversikten | mappen er `state.activeGroup` |
-| 6 | `create_card` | `#add-card-btn` | en NY liste med tittel finnes i den mappen |
-| 7 | `create_item` | grønn ＋ i den nye listen | et ikke-tomt listepunkt finnes i den listen |
-| 8 | `finish` | — (midtstilt) | «Ferdig» |
+Det håndheves av `demoGate`, som fanger `pointerdown`, `mousedown`, `click`,
+`dblclick`, `contextmenu` og `keydown` i **window-capture** — altså før enhver
+lytter i appen — og svelger dem med `stopImmediatePropagation()`. Tre regler
+gjør den presis:
 
-Steg 8 nevner kort det som IKKE er obligatorisk — gul ＋ (kategori), omdøping,
-flytting, sletting og deling. Ingen av dem er et krav for å fullføre; de læres
-kontekstuelt når de blir relevante (se tipsene under).
+- **`isTrusted` skiller bruker fra app.** Appen dispatcher hendelser selv
+  (`addUniverse()` åpner navnefeltet med et `click()` på tittelen); et blokkert
+  syntetisk klikk der ville gitt et navnesteg uten navnefelt.
+- **`preventDefault` brukes ikke på pointerdown.** Et klikk utenfor et åpent
+  navnefelt skal fortsatt flytte fokus — det er sånn man bekrefter navnet.
+- **En tillatt sone er ikke fritt fram.** En listepunkt-rad er hele sonen når
+  den skal dras, men den bærer også avmerking, tannhjul og slette-kryss.
+  `DEMO_NEVER` slipper dem gjennom kun når de ER målet.
 
-Et steg kan i tillegg si `needsNav`/`needsBoard`: da må oversikten være åpen
-(eller lukket) for at målet skal finnes. Er den ikke det, står instruksjonen om
-å åpne/lukke den i kortet i stedet, og steget venter — det låser seg ikke.
+Escape er av hele veien: den ville ellers avbrutt navngivingen (og fjernet raden
+steget nettopp ba om), lukket modalen steget står i, eller avsluttet demoen
+bakveien. **✕ i kortet er den ene utgangen** — demoen er frivillig, men den
+forlates i sin helhet, ikke steg for steg.
 
-## Interaksjonsmodellen: ekte UI, ikke en kopi
+Søppelkasse-knappen er et særtilfelle: kort trykk åpner modalen, hold og sveip
+tømmer. `showTrashModal()` spør derfor `demoAllowsTrashModal()`, så modalen bare
+kan åpnes i stegene som handler om den.
 
-Spotlighten er den samme som før — `.tour-spot` med en enorm
-`box-shadow`-spredning som demper alt utenfor (samme grep som
-bilderedigererens `.avatar-mask`), så hullet i sceneteppet ER kontrollen. Det
-nye er hvem som tar imot pekeren:
+CSS-en (`body.tour-demo`) demper de samme kontrollene, med `:not(.tour-live)` som
+hele forskjellen: `.tour-live` står på kontrollen steget handler om. Det er
+affordansen, ikke vakten — blokkeringen ligger i JS.
 
-- **Fortellesteg** (`.tour.narrated`) er modale: flaten tar imot klikk som en
-  modal-overlay, kortet har `aria-modal="true"`, Tab holdes inne i kortet, og
-  fokus står på kortet.
-- **Handlingssteg** (`.tour.guided`) er det ikke, og kan ikke være det:
-  handlingen skal utføres på det ekte UI-et. Laget slipper pekeren gjennom
-  (`pointer-events: none`; bare kortet tar imot klikk), `aria-modal` fjernes
-  (det ville vært en løgn overfor skjermleseren), og Tab går fritt ut i appen.
+## Kortet: en tooltip, ikke en modal
 
-Det som holdes unna er ikke «alt», men **det destruktive**: `body.tour-guided`
-slår av slette- og søppelkassekontrollene, så et bomtrykk ikke kan kaste noe
-underveis — og ikke kan fjerne akkurat det objektet steget venter på.
+Poenget er at brukeren skal se hele appen mens hen bruker den. Derfor:
 
-**Tastatur og fokus.** På et handlingssteg flyttes fokus til den EKTE
-kontrollen, så Enter der utfører handlingen uten at brukeren må lete. Fokus
-følger med når målet tegnes på nytt (synk-runde) eller nettopp dukket opp — men
-bare hvis det sto på den gamle noden eller ingen steder, og aldri mens brukeren
-skriver. Teksten ligger i et `aria-live="polite"`-område, og `#tour-note` sier i
-én linje hva som skal gjøres nå (eller hvorfor steget ennå ikke er kvittert ut).
+- **Ingen mørklegging og ingen ring rundt målet.** Bare en pilspiss
+  (`#tour-arrow`) som peker på kontrollen. Laget er `pointer-events: none`;
+  kun kortet tar imot.
+- **Velkomsten er unntaket** (`.tour.narrated`): midtstilt, med både mørklegging
+  og uskarphet på flaten bak. Der er det ingenting å peke på ennå.
+- **Framdrift som stolpe**, ikke «Steg n av m» — mindre tekst å lese, like
+  presist om hvor langt igjen det er (`#tour-progress`, `role="progressbar"`).
+- **Kortet legger seg aldri oppå målet.** `placeTour()` velger under → over →
+  høyre → venstre, og pilspissen følger med til riktig kant. Er det ikke plass
+  til et helt kort noe sted, velges den største luften, og kortet kappes til den
+  og ruller innvendig.
 
-**Escape** avslutter innføringen kun når fokus står i kortet, eller når steget
-er modalt. Ellers hører Escape hjemme i appen: den avbryter en inline-navngiving
-og lukker en modal. En capture-håndterer som slukte Escape uansett ville gjort
-handlingsstegene umulige å angre seg ut av.
+**Instruksjonen vises aldri før navigasjonen er ferdig.** `demoReady()` krever at
+riktig modal er åpen/lukket OG at målet finnes og er synlig; til da står kortet
+skjult (`demoHideCard()`). Uten den regelen dukket neste kort opp mens
+Områder og mapper-modalen fortsatt lukket seg, og pilen pekte på en knapp som lå
+bak modalens uskarphet.
 
-**Plassering.** Kortet legger seg aldri oppå målet — på et handlingssteg ville
-det gjort steget umulig, siden fingeren traff kortet. Er det ikke plass til et
-helt kort verken over eller under (smal skjerm, mål midt på), velges den største
-luften, og kortet kappes til den og ruller innvendig. `placeTour()` slår
-elementet opp på nytt hvis en synk-runde har tegnet board-et om, og
-posisjonerer på nytt ved `resize` og `scroll` (capture).
+**Tastatur og fokus.** Fokus flyttes til den EKTE kontrollen, så Enter der
+utfører handlingen uten at brukeren må lete. Vi rører aldri fokus mens brukeren
+skriver. Teksten ligger i et `aria-live="polite"`-område.
 
 **Reduser bevegelse.** `prefersReducedMotion()` gjør rullingen til målet
 momentan; CSS-transisjonene nøytraliseres av den globale
 `prefers-reduced-motion`-blokken i `styles.css`.
 
 **Laget** ligger på z-index 295 — over lagringsstatusen, under toasten og
-oppdateringsbanneret. `updateSafety()` regner en åpen innføring som «ikke trygt
-å laste på nytt», så den automatiske klient-oppdateringen ikke river den ned
-midt i et steg.
+oppdateringsbanneret. `updateSafety()` regner en åpen demo som «ikke trygt å
+laste på nytt», så den automatiske klient-oppdateringen ikke river den ned midt
+i et steg.
+
+## Å gå tilbake
+
+«Tilbake» går ETT steg tilbake og **nullstiller det man gjorde der**, slik at
+handlingen kan gjøres om. `demoSnaps[i]` er en dyp kopi av kulissen slik den så
+ut da steg `i` begynte (objekter, aktive pekere, gravsteiner og
+demo-konteksten); `demoApplySnapshot()` legger den tilbake, og `demoApplyUi()`
+setter modalene slik steget forutsetter. Tellerne (`demoBase`) regnes på nytt
+etterpå, ellers ville et drag-steg sett et gammelt slipp som sitt eget.
+
+Et navnesteg får i tillegg navnefeltet sitt tilbake (`reopen`). Objektet ble
+opprettet med et standardnavn av steget FØR, så uten det ville steget vært
+oppfylt i det øyeblikk man kom til det — og «Tilbake» sprettet rett fram igjen.
+
+Den samme mekanikken er sikkerhetsnettet: faller `premise()` — typisk fordi en
+navngiving ble avbrutt og raden forsvant igjen — rulles demoen tilbake til
+steget som LAGER raden (`rewind`), med tilstanden fra da.
+
+## Stegene
+
+37 steg. Ett fortellesteg i hver ende (velkomst og avslutning, med en knapp som
+driver dem videre); resten er handlingssteg som må utføres.
+
+| # | Steg (`id`) | Pilspiss | Fullføres når |
+|---|---|---|---|
+| 1 | `welcome` | — (midtstilt, modal) | «Kom i gang» |
+| 2 | `open_nav` | `#nav-crumb` | oversikten er åpen |
+| 3 | `create_area` | `.nav-add-uni button` | et område finnes |
+| 4 | `name_area` | områdets navnefelt | navnet er bekreftet |
+| 5 | `create_folder` | ＋ i områdekortet | en mappe finnes |
+| 6 | `name_folder` | mappens navnefelt | navnet er bekreftet |
+| 7 | `open_folder` | mapperaden | mappen er aktiv OG oversikten lukket |
+| 8 | `create_list` | `#add-card-btn` | en liste finnes |
+| 9 | `name_list` | listens navnefelt | navnet er bekreftet |
+| 10 | `create_item` | grønn ＋ i listen | et listepunkt finnes |
+| 11 | `name_item` | listepunktets navnefelt | navnet er bekreftet |
+| 12 | `create_item2` | grønn ＋ i listen | to listepunkter finnes |
+| 13 | `name_item2` | listepunktets navnefelt | begge har navn |
+| 14 | `drag_item` | nederste listepunkt | et vellykket slipp |
+| 15 | `create_list2` | `#add-card-btn` | liste nummer to finnes |
+| 16 | `name_list2` | listens navnefelt | navnet er bekreftet |
+| 17 | `drag_list` | den nye listens overskrift | et vellykket slipp |
+| 18 | `drag_item2` | nederste listepunkt | et vellykket slipp |
+| 19 | `create_cat` | gul ＋ i listen | en kategori finnes |
+| 20 | `name_cat` | kategoriens navnefelt | navnet er bekreftet |
+| 21 | `drag_into_cat` | et listepunkt | et punkt ligger i kategorien |
+| 22 | `create_cat_item` | ＋ inne i kategorien | ett medlem til |
+| 23 | `name_cat_item` | navnefeltet | alle medlemmer har navn |
+| 24 | `dissolve_cat` | oppløs-knappen | kategorien er borte |
+| 25 | `delete_item` | slette-krysset i raden | noe ligger i søppelkassen |
+| 26 | `open_item_trash` | listens søppelkasse | søppelkasse-modalen er åpen |
+| 27 | `restore_item` | «Gjenopprett» | kassen er tom |
+| 28 | `close_item_trash` | `#trash-close` | modalen er lukket |
+| 29 | `delete_item2` | slette-krysset i raden | noe ligger i søppelkassen |
+| 30 | `empty_item_trash` | listens søppelkasse | listepunktet er borte for godt |
+| 31 | `delete_list` | listens slette-kryss | listen er i søpla |
+| 32 | `empty_card_trash` | `#trash-btn` | listen er borte for godt |
+| 33 | `open_nav2` | `#nav-crumb` | oversikten er åpen |
+| 34 | `delete_area` | områdets slette-kryss | området er i søpla |
+| 35 | `empty_uni_trash` | `#uni-trash-btn` | området er borte for godt |
+| 36 | `close_nav` | `#nav-modal-close` | oversikten er lukket |
+| 37 | `finish` | `#account-btn` | «Ferdig» |
+
+Tre steg (30, 32, 35) demonstrerer **hold-og-sveip**-tømmingen; de sier det i
+klartekst, siden et kort trykk der ville åpnet modalen i stedet. Mappen slettes
+ikke i sitt eget steg: den følger med området i steg 34, og slette-krysset er
+det samme på begge nivåene.
+
+Et steg kan si `needsNav`, `needsTrash` eller `trashModal`: det er
+forutsetningene `demoReady()` og `demoApplyUi()` leser.
 
 ## Hva som lagres, og hvor
 
@@ -122,77 +213,50 @@ På **kontoen**, i `user_metadata` — samme mekanikk som den huskede posisjonen
 (`nav`, se `docs/accounts.md`), og derfor uten en eneste ny kolonne i databasen:
 
 ```js
-user_metadata.onboarding = {
-  v: 2,
-  status: 'in_progress' | 'done' | 'skipped',
-  step: 'create_group',                       // stegets id
-  context: { universeId, groupId, cardId },   // det stegene har opprettet
-}
+user_metadata.onboarding = { v: 3, status: 'done' | 'skipped' }
 user_metadata.tips = { drag: true, trash: true, moveList: true }
 ```
 
-- `status` skiller de tre tilstandene som betyr noe. **Ikke startet** er
-  fraværet av feltet.
-- `step` + `context` er nok til å gjenoppta etter reload, ny innlogging og på
-  en annen enhet.
-- Skrivingen er optimistisk: `authUser.meta` oppdateres først (så ingenting
-  gjentar seg i denne økten), og `auth.updateUser({ data })` går i bakgrunnen
-  med ett nytt forsøk ved feil. Retryen er bundet til **bruker-id-en** den ble
-  startet for: Supabase kan gå fra én innlogget bruker til en annen mens
-  forsøket venter, og da ville merket stemplet DERES introduksjon som sett.
-  Lander skrivingen aldri, dukker innføringen heller opp igjen enn at vi later
-  som den er sett.
-- **Framdriften går aldri bakover.** `onboardingFloor` holder det høyeste steget
-  økten har nådd, og `saveOnboarding()` skriver ikke et lavere. En
-  metadatarespons som lander sent, eller en eldre tilstand fra en annen enhet,
-  kan altså ikke kaste brukeren tilbake til et steg hen alt har gjort.
-- **Slettede referanser låser ikke.** Peker `context` på et område, en mappe
-  eller en liste som ikke finnes lenger, faller `tourResolveResume()` tilbake
-  til det siste steget hvis forutsetninger fortsatt holder.
+Bare utfallet lagres, og bare når runden er over. Demoen er en simulering, ikke
+et arbeid som skal kunne gjenopptas: det finnes ingen halvferdig kulisse å komme
+tilbake til på en annen enhet. Avbryter man midt i (reload, lukket fane), får man
+tilbudet igjen neste gang — det er billigere enn å late som noe ble sett.
+
+Skrivingen er optimistisk: `authUser.meta` oppdateres først (så ingenting gjentar
+seg i denne økten), og `auth.updateUser({ data })` går i bakgrunnen med ett nytt
+forsøk ved feil. Retryen er bundet til **bruker-id-en** den ble startet for:
+Supabase kan gå fra én innlogget bruker til en annen mens forsøket venter, og da
+ville merket stemplet DERES demo som sett.
 
 ## Eksisterende brukere (migreringsregelen)
 
-Regelen er én linje, og den står i `onboardingSeen()`: **et registrert `done`
-eller `skipped` teller, uansett hvilken versjon som registrerte det.**
+Regelen står i `onboardingSeen()`, og den er **versjonert**: markøren teller
+først fra og med `v: 3`.
 
-- Den som kom gjennom v1 (den passive omvisningen) blir altså ikke dratt inn i
-  v2 automatisk — men kan hente den fram igjen med «Vis på nytt».
-- Kun en konto **uten** onboardingmarkør regnes som reelt ny og starter den
-  interaktive flyten av seg selv.
-- En konto med `status: 'in_progress'` på `v: 2` gjenopptar der den slapp.
+- Den som kom gjennom v1 (den passive omvisningen) eller v2 (innføringen i egne
+  data) har aldri sett DENNE runden, og får den tilbudt neste gang hen går inn i
+  appen. Det koster dem ingenting: demoen rører ikke innholdet deres, og ✕ takker
+  nei for godt.
+- Kun en konto med `v: 3` + `done`/`skipped` regnes som ferdig.
 
 `TOUR_VERSION` skal bare økes hvis ALLE — også de som er ferdige — skal gjennom
-en ny runde. Det er ikke det som skjedde ved overgangen fra v1 til v2.
+en ny runde.
 
-## «Vis på nytt» og repetisjonsmodus
+## «Vis på nytt»
 
-Konto-modalen har raden **«Introduksjon til Huskis»** (`#menu-tour`) med knappen
-«Vis på nytt» (`#tour-restart`). Den lukker konto-modalen først — innføringen
-peker på appen BAK den — og starter fra steg 1.
-
-En etablert konto skal ikke måtte lage duplikater for å se innføringen igjen.
-Derfor velges modus etter innholdet (`tourHasContent()`):
-
-| Modus | Når | Hva stegene gjør |
-|---|---|---|
-| `practice` | ny konto, eller «Vis på nytt» på en konto uten mapper | krever at handlingen faktisk utføres |
-| `review` | «Vis på nytt» på en konto som har minst ett område med en mappe | peker på det som ALLEREDE finnes, og oppretter ingenting |
-
-I repetisjonsmodus kan hvert steg hoppes over («Hopp over steget») — runden er
-frivillig hele veien. Velkomsten har i tillegg knappen «Øv med nye», som bytter
-til `practice` for den som faktisk vil gjøre handlingene om igjen.
+Konto-modalen har raden **«Demonstrasjon av Huskis»** (`#menu-tour`) med knappen
+«Vis på nytt» (`#tour-restart`). Den lukker konto-modalen først — demoen peker på
+appen BAK den — og starter fra steg 1. Det finnes ingen egen repetisjonsmodus
+lenger: demoen er den samme for alle, hver gang, fordi den uansett kjører på sine
+egne kulisser.
 
 ## Inviterte og delte kontoer
 
-- Innføringen blokkerer ingenting: laget slipper klikk gjennom, så konto-knappen
-  med invitasjonsbadgen er tilgjengelig hele veien, og en invitasjon kan godtas
-  midt i et steg.
-- Handlingsstegene bygger i brukerens **eget** område, som alle kan opprette.
-  Innføringen ber derfor aldri en gjest om å skrive i noe hen bare kan lese.
-- Er et steg likevel umulig for kontoen — en låst mappe, manglende
-  `createGroup`/`createList` — sier `blocked()` fra i klartekst, og «Hopp over
-  steget» dukker opp. Et steg brukeren ikke har lov til å løse skal ikke bli
-  stående som en oppgave.
+- Demoen bygger i sin egen simulering, som ingen andre har noe med. Den kan
+  derfor ikke havne i en låst mappe eller be en gjest skrive i noe hen bare kan
+  lese — og trenger ingen rettighetssjekk per steg.
+- Konto-knappen (med invitasjonsbadgen) er dempet og avskrudd mens demoen står
+  på, som resten av appen. Invitasjonen ligger der etterpå.
 
 ## Tipsene om de avanserte gestene
 
@@ -205,12 +269,12 @@ ett kort tips i den vanlige toasten, aldri mer enn ett om gangen:
 | `drag` | mappen har ≥ 2 lister | hold på (eller dra) en tittel for å flytte |
 | `moveList` | mappen har ≥ 1 liste og området ≥ 2 mapper | dra en liste opp på navigasjonsknappen for å flytte den |
 
-`showTip()` viser ingenting hvis det ville kostet brukeren noe: før
-introduksjonen er ferdig (tipset huskes og kommer etterpå), midt i en redigering
-eller et drag, mens en modal står åpen, mens en annen melding allerede vises —
-en slette-toast med «Angre» skal aldri fortrenges — eller før det har gått
-`TIP_QUIET_MS` siden forrige tips. **Et tips regnes som sett først når det
-faktisk er vist**, så et undertrykt tips kommer igjen ved neste anledning.
+`showTip()` viser ingenting hvis det ville kostet brukeren noe: før demoen er
+ferdig (tipset huskes og kommer etterpå), midt i en redigering eller et drag,
+mens en modal står åpen, mens en annen melding allerede vises — en slette-toast
+med «Angre» skal aldri fortrenges — eller før det har gått `TIP_QUIET_MS` siden
+forrige tips. **Et tips regnes som sett først når det faktisk er vist**, så et
+undertrykt tips kommer igjen ved neste anledning.
 
 Toasten får klassen `.toast-tip`, som lar teksten brekke over flere linjer i
 stedet for å kappes med ellipsis. Alt annet er en helt vanlig toast: den fanger
@@ -222,16 +286,20 @@ fingeren skal ta tak. Én linje er målet, to er taket.
 
 ## Endrer du noe her
 
-- Endrer du hvilke steg som finnes, eller hva de peker på: `TOUR_STEPS` i
-  `app.js` er hele definisjonen (id, tittel, tekst, mål, `done`, `review`,
-  `blocked`). Oppdater tabellen over i samme endring.
+- Endrer du hvilke steg som finnes, eller hva de peker på: `DEMO_STEPS` i
+  `app.js` er hele definisjonen (`id`, `title`, `html`, `target`, `done`,
+  `premise`, `rewind`, `reopen`, `needsNav`, `needsTrash`, `trashModal`, `cta`).
+  Oppdater tabellen over i samme endring.
 - **Et nytt handlingssteg trenger en `done()` som leser TILSTAND**, ikke en
   klikkhåndterer. Leser den DOM-en i stedet for `state`, har du bygget et
   knappetrykk med ekstra steg.
-- Flytter eller omdøper du et element et steg peker på (`#nav-crumb`,
-  `.nav-add-uni button`, `.add-item-row .add-item-btn`, `#add-card-btn`),
-  faller steget stille tilbake til midtstilt uten spotlight —
-  `tests/onboarding.test.js` fanger det.
+- **Et steg som fjerner noe trenger ingen `premise()` på det det fjerner** — og
+  gir du det en, må `done()` fortsatt være sann i samme øyeblikk.
+- **Et nytt navnesteg trenger en `reopen()`** hvis objektet opprettes med et
+  standardnavn; ellers spretter «Tilbake» rett fram igjen.
+- Flytter eller omdøper du et element et steg peker på, kommer steget aldri i
+  gang: `demoReady()` krever et synlig mål, og kortet blir stående skjult.
+  `tests/onboarding.test.js` kjører hele runden og fanger det.
 - Nye tips skal ha en tydelig «nå er den relevant»-utløser, ikke en timer — og
   en tekst som får plass på én linje (se over). Legg nøkkelen i `TIPS`; den
   brukes også av `__huskis.tour.skipAll()`, som andre tester slår av HELE

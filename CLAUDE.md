@@ -35,6 +35,11 @@ publiseres aldri før skjemaet er migrert og verifisert. Autoritativt:
 Tilstanden ligger i `localStorage` per konto og synkes mot Supabase (Auth +
 relasjonelle tabeller med RLS). Appen har ingen anonym modus.
 
+De norske ordene i UI-et og dokumentasjonen er **område** og **mappe**;
+identifikatorene i koden og databasen heter fortsatt `universe` og `group`
+(kolonner, tabeller, CSS-klasser, funksjonsnavn). Døp dem ikke om — det er
+databasekontrakten.
+
 Autoritativt for hvem som får gjøre hva: `docs/rettigheter-og-deling.md`. Kart
 over resten av dokumentasjonen: `docs/README.md`.
 
