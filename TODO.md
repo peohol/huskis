@@ -17,40 +17,27 @@ Alt her ligger i GoTrue-konfigurasjonen eller i Dashboard-maler. Ingen
 tilgjengelig integrasjon kan lese eller skrive dem, så de må gjøres i
 nettleseren og kontrolleres der.
 
-- [ ] **Egen SMTP-avsender.** Authentication → Emails → SMTP Settings. Supabases
-      innebygde utsending er ratebegrenset til utviklingsbruk og deler
-      avsenderdomene med alle andre prosjekter. Sett en avsender på `huskis.no`
-      (samme adresse som `email_from` i `app_config`:
-      `Huskis <noreply@huskis.no>`), og verifiser SPF/DKIM for domenet hos
-      leverandøren.
-      *Verifiser:* be om «glemt passord» på en testkonto og les
-      `Return-Path`/`DKIM-Signature` i den mottatte meldingen — den skal komme
-      fra `huskis.no`, ikke fra `mail.app.supabase.io`.
+- [ ] **«Change email address» mangler bekreftelseslenken.** Malen inneholder i
+      dag varselteksten «Your email address was changed from … to …» — som
+      hører hjemme i sikkerhetsvarselet «Email address changed», ikke her. To
+      følger: `{{ .OldEmail }}` finnes ikke i denne malen og rendres som tom
+      tekst, og uten `{{ .ConfirmationURL }}` kan **ingen fullføre et
+      adressebytte** — `auth.updateUser({ email })` i konto-modalen lander
+      aldri. Lim inn `supabase/email-templates/change-email-address.html`.
+      *Verifiser:* endre e-post på en testkonto, og se at meldingen har en
+      knapp som lander på `https://huskis.no` med gyldig sesjon, og at den nye
+      adressen faktisk er i bruk etterpå.
 
-- [ ] **URL Configuration.** Authentication → URL Configuration.
-      *Site URL* skal være `https://huskis.no`, og *Redirect URLs* skal
-      inneholde KUN `https://huskis.no/**` (pluss `http://localhost:8000/**`
-      hvis man tester ekte Supabase-e-post lokalt). Ingen oppføringer for de
-      alternative domenene eller det pensjonerte — ingen klient kan kjøre der,
-      og hver ekstra oppføring utvider listen over adresser en auth-lenke kan
-      sendes til. Fasiten på hvilke verter det gjelder:
-      `docs/domains-and-urls.md`.
-      *Verifiser:* feltene leses av på skjermen.
-
-- [ ] **Auth-e-postmalene** (Confirm signup / Reset password / Change email).
-      Authentication → Email Templates. Malene ligger kun i Dashboard.
-      Sjekklisten står i «Auth-e-postmalene» i `docs/domains-and-urls.md`, og et
-      ferdig, likt-stilt utkast i `supabase/email-templates/confirm-signup.html`.
-      *Verifiser:* kjør registrering, «glemt passord» og e-postendring ende til
-      ende på en testkonto, og kontroller at hver lenke peker til
-      `https://huskis.no` og lander med gyldig sesjon.
-
-- [ ] **Resend-nøkkelens omfang.** Nøkkelen ligger riktig (Vault, se under), men
-      Resend-dashbordet er ikke tilgjengelig herfra. Kontroller at nøkkelen har
-      KUN *Sending access* og er begrenset til domenet `huskis.no` — og at
-      domenet står som *Verified* under Domains.
-      *Verifiser:* Resend → API Keys (kolonnen «Permission») og Resend →
-      Domains (status «Verified»).
+- [ ] **Resten av malene stilles likt.** Authentication → Email Templates. Lim
+      inn utkastene fra `supabase/email-templates/` (se README-en der for
+      hvilken fil som hører til hvilket felt):
+      `confirm-signup.html` → Confirm signup,
+      `reset-password.html` → Reset password,
+      `email-changed-notification.html` → Email address changed (kun aktuell
+      hvis sikkerhetsvarsler er slått på).
+      *Verifiser:* kjør registrering og «glemt passord» ende til ende på en
+      testkonto, og kontroller at hver lenke peker til `https://huskis.no` og
+      lander med gyldig sesjon.
 
 
 ## Diagnostikk: når en delingsinvitasjon ikke kommer fram

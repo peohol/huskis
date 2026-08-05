@@ -1,0 +1,85 @@
+<!--
+  Supabase Auth-mal: «Change email address» (Authentication → Email Templates i
+  Supabase Dashboard). IKKE sendt via Resend — sendes av Supabase Auths egen
+  mailer. Denne fila er KUN et utkast for manuell copy-paste inn i
+  Dashboard-feltet. Se sjekklisten i docs/domains-and-urls.md.
+
+  DENNE MALEN MÅ HA {{ .ConfirmationURL }}. Den er en HANDLINGS-e-post: uten
+  lenken kan brukeren aldri bekrefte den nye adressen, og
+  auth.updateUser({ email }) i konto-modalen fullfører aldri. En ren
+  «adressen din ble endret»-tekst hører hjemme i sikkerhetsvarselet
+  «Email address changed» (email-changed-notification.html), som er en ANNEN
+  mal.
+
+  Variabler tilgjengelig HER: {{ .ConfirmationURL }} {{ .Token }}
+  {{ .TokenHash }} {{ .SiteURL }} {{ .Email }} (nåværende adresse)
+  {{ .NewEmail }} (den nye adressen).
+  MERK: {{ .OldEmail }} finnes IKKE i denne malen — kun i
+  «Email address changed». Brukes den her, rendres den som tom tekst.
+
+  Med «Secure email change» påslått sendes denne til BEGGE adressene, og
+  begge må bekreftes. Teksten under er skrevet så den gir mening i begge
+  innboksene.
+-->
+<!DOCTYPE html>
+<html lang="no" xmlns="http://www.w3.org/1999/xhtml">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta http-equiv="X-UA-Compatible" content="IE=edge" />
+  <meta name="color-scheme" content="light only" />
+  <title>Bekreft ny e-postadresse — Huskis</title>
+</head>
+<body style="margin:0;padding:0;background-color:#667788;">
+  <!-- Preheader / forhåndsvisningstekst (skjult, men fanges opp av innboksen). -->
+  <div style="display:none;max-height:0;overflow:hidden;mso-hide:all;font-size:1px;line-height:1px;color:#667788;opacity:0;">
+    Bekreft den nye e-postadressen for Huskis-kontoen din.
+    &nbsp;&zwnj;&nbsp;&zwnj;&nbsp;&zwnj;&nbsp;&zwnj;&nbsp;&zwnj;&nbsp;&zwnj;&nbsp;&zwnj;
+  </div>
+  <table width="100%" cellpadding="0" cellspacing="0" border="0" role="presentation" bgcolor="#667788" style="width:100%;background-color:#667788;">
+    <tr><td align="center" style="padding:28px 14px;">
+      <table width="600" cellpadding="0" cellspacing="0" border="0" role="presentation" style="width:100%;max-width:600px;">
+        <!-- Toppbånd: logo + ordmerke på skifer-bakgrunn. -->
+        <tr><td bgcolor="#667788" style="background-color:#667788;padding:8px 8px 20px 8px;">
+          <table cellpadding="0" cellspacing="0" border="0" role="presentation"><tr>
+            <td width="56" style="width:56px;vertical-align:middle;">
+              <img src="https://huskis.no/assets/email/huskis-logo.png" width="52" height="52" alt="Huskis" border="0" style="display:block;border:0;width:52px;height:52px;" />
+            </td>
+            <td width="12" style="width:12px;font-size:1px;line-height:1px;">&nbsp;</td>
+            <td style="font-family:Arial,Helvetica,sans-serif;font-size:26px;line-height:30px;font-weight:700;color:#ffffff;vertical-align:middle;">Huskis</td>
+          </tr></table>
+        </td></tr>
+        <!-- Hvitt innholdskort. -->
+        <tr><td bgcolor="#ffffff" style="background-color:#ffffff;border-radius:18px;">
+          <table width="100%" cellpadding="0" cellspacing="0" border="0" role="presentation" style="width:100%;">
+            <tr><td style="padding:34px 34px 8px 34px;font-family:Arial,Helvetica,sans-serif;">
+              <p style="margin:0 0 10px 0;font-family:Arial,Helvetica,sans-serif;font-size:13px;line-height:16px;font-weight:700;letter-spacing:1.2px;color:#4d664d;">ENDRE E-POSTADRESSE</p>
+              <h1 style="margin:0 0 18px 0;font-family:Arial,Helvetica,sans-serif;font-size:26px;line-height:33px;font-weight:700;color:#37343f;">Bekreft den nye adressen</h1>
+              <p style="margin:0 0 18px 0;font-family:Arial,Helvetica,sans-serif;font-size:17px;line-height:26px;color:#37343f;">Huskis-kontoen din er i ferd med å bytte e-postadresse. Bekreft endringen for å fullføre den.</p>
+              <!-- Fra/til-boks: gjør det synlig HVA som endres, i begge innboksene. -->
+              <table width="100%" cellpadding="0" cellspacing="0" border="0" role="presentation" style="width:100%;"><tr>
+                <td bgcolor="#f4f6f4" style="background-color:#f4f6f4;border-radius:12px;padding:16px 18px;font-family:Arial,Helvetica,sans-serif;font-size:15px;line-height:24px;color:#37343f;">
+                  <span style="color:#6b6577;">Fra:</span> {{ .Email }}<br />
+                  <span style="color:#6b6577;">Til:</span> <b>{{ .NewEmail }}</b>
+                </td>
+              </tr></table>
+              <!-- Handlingsknapp: stylet <a> på grønn flate (Outlook: bgcolor). -->
+              <table cellpadding="0" cellspacing="0" border="0" role="presentation" style="margin-top:26px;"><tr>
+                <td bgcolor="#4d664d" style="background-color:#4d664d;border-radius:12px;">
+                  <a href="{{ .ConfirmationURL }}" style="display:inline-block;padding:14px 28px;font-family:Arial,Helvetica,sans-serif;font-size:17px;line-height:20px;font-weight:700;color:#ffffff;text-decoration:none;border-radius:12px;">Bekreft endringen</a>
+                </td>
+              </tr></table>
+              <!-- Fallback-lenke for klienter som ikke rendrer knappen. -->
+              <p style="margin:24px 0 0 0;font-family:Arial,Helvetica,sans-serif;font-size:12px;line-height:18px;color:#6b6577;">Virker ikke knappen? Kopier denne adressen:<br /><a href="{{ .ConfirmationURL }}" style="color:#4d664d;text-decoration:underline;word-break:break-all;">{{ .ConfirmationURL }}</a></p>
+            </td></tr>
+            <!-- Bunntekst. -->
+            <tr><td style="padding:22px 34px 30px 34px;font-family:Arial,Helvetica,sans-serif;font-size:12px;line-height:18px;color:#6b6577;border-top:1px solid #e3e7e3;">
+              Har du ikke bedt om denne endringen, skal du IKKE trykke på lenken. Da beholder kontoen adressen den har i dag — men bytt passord for sikkerhets skyld.
+            </td></tr>
+          </table>
+        </td></tr>
+      </table>
+    </td></tr>
+  </table>
+</body>
+</html>

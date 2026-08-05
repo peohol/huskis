@@ -171,28 +171,37 @@ lander altså kanonisk, med tokens i behold.
 
 ## Auth-e-postmalene (Supabase Dashboard)
 
-Selve HTML-malene for **Confirm signup** / **Reset password** / **Change
-email address** ligger KUN i Supabase Dashboard (Authentication → Email
-Templates) — de finnes ikke i dette repoet, og ingen tilgjengelig verktøy
-kunne lese eller skrive dem herfra. **De er derfor ikke bekreftet** — sjekk
-manuelt (Peder):
+Selve HTML-malene ligger KUN i Supabase Dashboard (Authentication → Email
+Templates); ingen tilgjengelig verktøy kan lese eller skrive dem herfra.
+Utkast med riktig utseende og riktige variabler er versjonert i
+`supabase/email-templates/` — se
+[README-en der](../supabase/email-templates/README.md) for hvilken fil som
+hører til hvilket felt, og hvilke variabler hver mal faktisk har. Malene tas i
+bruk ved å lime dem inn, ett felt om gangen.
+
+**Handling og varsel er to forskjellige ting**, og forskjellen er ikke
+kosmetisk:
+
+| Type | Maler | Krav |
+|---|---|---|
+| *Authentication* (noen skal gjøre noe) | Confirm signup, Reset password, Change email address | **må** ha `{{ .ConfirmationURL }}` |
+| *Security notification* (noe har skjedd) | Email address changed m.fl. | ingen lenke; sendes kun hvis sikkerhetsvarsler er på |
+
+Havner varselteksten i en handlings-mal, mister den lenken — og da kan flyten
+ikke fullføres i det hele tatt. Se README-en for detaljene.
+
+Sjekkliste (Peder):
 
 - [ ] Ingen mal hardkoder `huskekurv.vercel.app` (eller noe annet enn
       `{{ .ConfirmationURL }}`/`{{ .SiteURL }}`) som lenke.
-- [ ] Standardlenken i hver mal bruker `{{ .ConfirmationURL }}` — IKKE en
-      manuelt sammensatt `{{ .SiteURL }}«/noe»`, som ville overstyrt den
-      `redirectTo`/`emailRedirectTo` klienten faktisk sender (se over).
+- [ ] Standardlenken i hver *authentication*-mal bruker `{{ .ConfirmationURL }}`
+      — IKKE en manuelt sammensatt `{{ .SiteURL }}«/noe»`, som ville overstyrt
+      den `redirectTo`/`emailRedirectTo` klienten faktisk sender (se over).
 - [ ] **Invite user** og **Magic link** er ikke i bruk (appen kaller verken
       `auth.admin.inviteUserByEmail` eller `auth.signInWithOtp` — bekreftet
       ved søk i `app.js`) — disse malene er irrelevante og kan ignoreres.
-- [ ] «Confirm signup» er ønsket **stilt likt** de formaterte Resend-e-postene.
-      Et ferdig utkast med samme visuelle utforming (logo, skifer/grønn-palett,
-      kort-layout, knapp) ligger i
-      `supabase/email-templates/confirm-signup.html`, bygget med
-      `{{ .ConfirmationURL }}` — **fortsatt sendt av Supabase Auth, ikke
-      Resend**. Lim inn i Dashboard → Authentication → Email Templates →
-      Confirm signup for å ta den i bruk; ingen tilgjengelig verktøy kunne
-      gjøre dette steget herfra.
+- [ ] Alle malene i bruk er **stilt likt** de formaterte Resend-e-postene:
+      lim inn utkastene fra `supabase/email-templates/` i tilsvarende felt.
 
 En auth-lenke som mot formodning skulle peke til et alternativt domene, blir
 uansett 308-et videre til `huskis.no` med `?code=`/`#access_token=` i behold
