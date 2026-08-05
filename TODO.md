@@ -11,35 +11,6 @@ Skjemaet trenger ingen manuell kjøring: «Release»
 slipper først frontenden ut på Vercel etter at smoke-testen er grønn. Se
 `docs/release-og-deploy.md`.
 
-## Supabase Dashboard (krever Peders tilgang)
-
-Alt her ligger i GoTrue-konfigurasjonen eller i Dashboard-maler. Ingen
-tilgjengelig integrasjon kan lese eller skrive dem, så de må gjøres i
-nettleseren og kontrolleres der.
-
-- [ ] **«Change email address» mangler bekreftelseslenken.** Malen inneholder i
-      dag varselteksten «Your email address was changed from … to …» — som
-      hører hjemme i sikkerhetsvarselet «Email address changed», ikke her. To
-      følger: `{{ .OldEmail }}` finnes ikke i denne malen og rendres som tom
-      tekst, og uten `{{ .ConfirmationURL }}` kan **ingen fullføre et
-      adressebytte** — `auth.updateUser({ email })` i konto-modalen lander
-      aldri. Lim inn `supabase/email-templates/change-email-address.html`.
-      *Verifiser:* endre e-post på en testkonto, og se at meldingen har en
-      knapp som lander på `https://huskis.no` med gyldig sesjon, og at den nye
-      adressen faktisk er i bruk etterpå.
-
-- [ ] **Resten av malene stilles likt.** Authentication → Email Templates. Lim
-      inn utkastene fra `supabase/email-templates/` (se README-en der for
-      hvilken fil som hører til hvilket felt):
-      `confirm-signup.html` → Confirm signup,
-      `reset-password.html` → Reset password,
-      `email-changed-notification.html` → Email address changed (kun aktuell
-      hvis sikkerhetsvarsler er slått på).
-      *Verifiser:* kjør registrering og «glemt passord» ende til ende på en
-      testkonto, og kontroller at hver lenke peker til `https://huskis.no` og
-      lander med gyldig sesjon.
-
-
 ## Diagnostikk: når en delingsinvitasjon ikke kommer fram
 
 Oppsettet er verifisert i produksjon (pg_net aktivert, nøkkel i Vault,
