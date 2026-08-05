@@ -28,7 +28,7 @@ står fortsatt som px.
 
 `--control-h` (49px), `--control-radius` (14px), `--control-bg`
 (rgba(255,255,255,.75)), `--toolbar-pad`, `--text-shadow`,
-`--grad-green/-red/-yellow` (knappe-gradienter), `--danger`/`--warn`
+`--grad-green/-accent/-red/-yellow` (knappe-gradienter), `--danger`/`--warn`
 (fare/advarsel som flate- og signalfarge), skygge- og radius-variablene. Nye
 kontroller skal bruke disse — aldri egne ad hoc-verdier. Endres et token, skal
 hele appen følge med.
@@ -149,6 +149,16 @@ er. Det er derfor det finnes både en grønn og en blågrønn:
 - `.btn-solid`: hvit skrift m/ `--text-shadow`, `--shadow-sm`, og felles
   hover-feedback: flaten **lysner litt** (`filter: brightness(1.09)`) og
   skyggen løftes — tydelig, men ikke dramatisk fargeendring.
+- **Lysretning: alle fire gradientene er loddrette (`180deg`) med den lyseste
+  enden ØVERST.** Skyggene i appen er forskjøvet nedover — lyset kommer skrått
+  ovenfra — og en flate som lysner nedover ville lyssatt seg motsatt av sin
+  egen skygge. Loddrett legger dessuten hele fargespranget over knappens
+  korteste akse, så gradienten leses like tydelig på en bred tekstknapp som på
+  en kvadratisk ＋. Samme retning gjelder alle andre flate-gradienter
+  (avatarene, auth-bakgrunnen); de eneste vannrette (`90deg`) er sveipefeltenes
+  fyll, som følger fingeren og ikke er lyssetting.
+  `tests/a11y-contrast.test.js` håndhever både retningen og at den lyseste
+  enden står først.
 - **`.btn-green` skal aldri få tekst.** Grønnfargen er LYS med vilje, fordi det
   eneste som ligger på den er et svart ikon (6.96:1 mot den lyse enden). En
   grønn mørk nok til hvit tekst presset ikonkontrasten ned mot 3:1-gulvet — og
