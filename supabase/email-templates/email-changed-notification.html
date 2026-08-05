@@ -1,0 +1,69 @@
+<!--
+  Supabase-mal: «Email address changed» — et SIKKERHETSVARSEL, ikke en
+  handlings-e-post (Authentication → Email Templates i Supabase Dashboard).
+  Sendes kun hvis sikkerhetsvarsler er slått på for prosjektet, og først ETTER
+  at endringen er gjennomført. Den har derfor med vilje ingen knapp og ingen
+  lenke: det er ingenting å bekrefte her.
+
+  Dette er malen teksten «adressen din ble endret fra … til …» hører hjemme i.
+  Står den i «Change email address» i stedet, har den malen mistet
+  {{ .ConfirmationURL }} — og da kan ingen fullføre et adressebytte.
+
+  Variabler tilgjengelig HER: {{ .OldEmail }} (den gamle adressen) og
+  {{ .Email }} (den nye, som nå gjelder). MERK at {{ .NewEmail }} IKKE finnes i
+  denne malen — den er kun i «Change email address».
+-->
+<!DOCTYPE html>
+<html lang="no" xmlns="http://www.w3.org/1999/xhtml">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta http-equiv="X-UA-Compatible" content="IE=edge" />
+  <meta name="color-scheme" content="light only" />
+  <title>E-postadressen din ble endret — Huskis</title>
+</head>
+<body style="margin:0;padding:0;background-color:#667788;">
+  <!-- Preheader / forhåndsvisningstekst (skjult, men fanges opp av innboksen). -->
+  <div style="display:none;max-height:0;overflow:hidden;mso-hide:all;font-size:1px;line-height:1px;color:#667788;opacity:0;">
+    E-postadressen på Huskis-kontoen din er endret.
+    &nbsp;&zwnj;&nbsp;&zwnj;&nbsp;&zwnj;&nbsp;&zwnj;&nbsp;&zwnj;&nbsp;&zwnj;&nbsp;&zwnj;
+  </div>
+  <table width="100%" cellpadding="0" cellspacing="0" border="0" role="presentation" bgcolor="#667788" style="width:100%;background-color:#667788;">
+    <tr><td align="center" style="padding:28px 14px;">
+      <table width="600" cellpadding="0" cellspacing="0" border="0" role="presentation" style="width:100%;max-width:600px;">
+        <!-- Toppbånd: logo + ordmerke på skifer-bakgrunn. -->
+        <tr><td bgcolor="#667788" style="background-color:#667788;padding:8px 8px 20px 8px;">
+          <table cellpadding="0" cellspacing="0" border="0" role="presentation"><tr>
+            <td width="56" style="width:56px;vertical-align:middle;">
+              <img src="https://huskis.no/assets/email/huskis-logo.png" width="52" height="52" alt="Huskis" border="0" style="display:block;border:0;width:52px;height:52px;" />
+            </td>
+            <td width="12" style="width:12px;font-size:1px;line-height:1px;">&nbsp;</td>
+            <td style="font-family:Arial,Helvetica,sans-serif;font-size:26px;line-height:30px;font-weight:700;color:#ffffff;vertical-align:middle;">Huskis</td>
+          </tr></table>
+        </td></tr>
+        <!-- Hvitt innholdskort. -->
+        <tr><td bgcolor="#ffffff" style="background-color:#ffffff;border-radius:18px;">
+          <table width="100%" cellpadding="0" cellspacing="0" border="0" role="presentation" style="width:100%;">
+            <tr><td style="padding:34px 34px 8px 34px;font-family:Arial,Helvetica,sans-serif;">
+              <p style="margin:0 0 10px 0;font-family:Arial,Helvetica,sans-serif;font-size:13px;line-height:16px;font-weight:700;letter-spacing:1.2px;color:#4d664d;">SIKKERHETSVARSEL</p>
+              <h1 style="margin:0 0 18px 0;font-family:Arial,Helvetica,sans-serif;font-size:26px;line-height:33px;font-weight:700;color:#37343f;">E-postadressen din ble endret</h1>
+              <p style="margin:0 0 18px 0;font-family:Arial,Helvetica,sans-serif;font-size:17px;line-height:26px;color:#37343f;">E-postadressen på Huskis-kontoen din er nå byttet. Du logger inn med den nye adressen fra og med nå.</p>
+              <!-- Fra/til-boks: samme form som i bekreftelsesmalen. -->
+              <table width="100%" cellpadding="0" cellspacing="0" border="0" role="presentation" style="width:100%;"><tr>
+                <td bgcolor="#f4f6f4" style="background-color:#f4f6f4;border-radius:12px;padding:16px 18px;font-family:Arial,Helvetica,sans-serif;font-size:15px;line-height:24px;color:#37343f;">
+                  <span style="color:#6b6577;">Fra:</span> {{ .OldEmail }}<br />
+                  <span style="color:#6b6577;">Til:</span> <b>{{ .Email }}</b>
+                </td>
+              </tr></table>
+            </td></tr>
+            <!-- Bunntekst. Ingen knapp: varselet er informasjon, ikke en handling. -->
+            <tr><td style="padding:22px 34px 30px 34px;font-family:Arial,Helvetica,sans-serif;font-size:12px;line-height:18px;color:#6b6577;border-top:1px solid #e3e7e3;">
+              Var det ikke du som gjorde denne endringen, bør du bytte passord med én gang — bruk «Glemt passord?» på innloggingssiden til <a href="https://huskis.no/" style="color:#4d664d;text-decoration:underline;">huskis.no</a>.
+            </td></tr>
+          </table>
+        </td></tr>
+      </table>
+    </td></tr>
+  </table>
+</body>
+</html>
