@@ -46,6 +46,25 @@ Pull-en er like viktig som pushen: en runde som landet midt i demoen ville
 skrevet brukerens egne objekter inn over kulissen. `demoSimStop()` kaller
 `scheduleCloud(0)`, så runden tas igjen straks demoen er over.
 
+**To ting var allerede i gang da demoen startet, og begge måtte fanges:**
+
+- **Den bestilte bufferskrivingen.** `scheduleCacheWrite()` debouncer 120 ms. En
+  skriving bestilt FØR byttet ville fyrt etterpå og lagret den tomme kulissen
+  sammen med den ekte synk-basen — og en reload midt i demoen leste da en buffer
+  uten brukerens rader og en base som beskriver dem, altså «alt slettet lokalt»
+  → push DELETE på gyldige rader. `demoSimStart()` kaller derfor
+  `flushCacheWrite()`, som fullfører den ventende skrivingen med BRUKERENS state
+  før byttet. Skrivingen bærer brukerens egne endringer, så den skal fullføres,
+  ikke forkastes.
+- **Sky-runden som venter på svar.** Vakten øverst i `cloudCycle()` fanger bare
+  runder som ikke har begynt. En runde som venter på `get_my_doc` når demoen
+  starter, ville gjenopptatt med kulissen i `state`, lest brukerens ekte rader
+  som slettet og pushet DELETE. `cloudCycle()` sjekker derfor `demoActive` på
+  nytt etter HVER await — etter pullen, etter gravsteins-oppslaget og rett før
+  pushen.
+
+Begge er dekket av `tests/onboarding.test.js` (sim 8 og sim 9).
+
 ## Grunnprinsippet: tilstand, ikke klikk
 
 Demoen går **aldri** videre fordi en knapp ble trykket. Den går videre når

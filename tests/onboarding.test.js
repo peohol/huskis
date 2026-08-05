@@ -426,14 +426,17 @@ function seedDB(meta) {
   return { uid, db };
 }
 
-async function loadSeeded(p, db, uid) {
-  await p.goto(BASE + '/?mock=1');
+// lag: kunstig serverforsinkelse (?mock=1&lag=…) — brukes til å holde en
+// synk-runde i lufta mens demoen starter.
+async function loadSeeded(p, db, uid, lag) {
+  const url = BASE + '/?mock=1' + (lag ? '&lag=' + lag : '');
+  await p.goto(url);
   await p.evaluate(({ db, uid, meta }) => {
     localStorage.clear(); sessionStorage.clear();
     localStorage.setItem('hk-mock-db', JSON.stringify(db));
     sessionStorage.setItem('hk-mock-session', JSON.stringify({ id: uid, email: 'seed@x.no', user_metadata: meta }));
   }, { db, uid, meta: (db.profiles.find((x) => x.id === uid) || {}).user_metadata || {} });
-  await p.goto(BASE + '/?mock=1');
+  await p.goto(url);
   await waitReady(p);
 }
 
@@ -536,7 +539,59 @@ async function runSimulation() {
   log('sim 7: en konto som har sett demoen får den ikke automatisk igjen',
     !(await tourState(p)).open);
 
-  log('sim 8: ingen JS-feil', errs.length === 0, errs.join(' | '));
+  /* --- en BESTILT bufferskriving bærer brukerens state, ikke kulissen ---
+     Bufferskrivingen er debouncet 120 ms. Ble den bestilt like før demoen
+     startet, ville den fyrt ETTER byttet og lagret en tom kulisse sammen med
+     den ekte synk-basen — og en reload midt i demoen ville lest det som «alt
+     slettet lokalt». */
+  await p.evaluate(() => {
+    const H = window.__huskis;
+    H.state.universes[0].name = 'Endret rett før demoen';
+    H.save();                 // bestiller en skriving 120 ms fram i tid
+    H.tour.start();           // … og demoen bytter ut state med det samme
+  });
+  await waitStep(p, 'welcome');
+  await p.waitForTimeout(400);  // FAST: la den bestilte skrivingen få fyre
+  const buffer = await p.evaluate(() => {
+    const key = Object.keys(localStorage).find((k) => /^mine-lister-v1:/.test(k));
+    const s = key ? JSON.parse(localStorage.getItem(key)) : null;
+    return s ? (s.universes || []).map((u) => u.name) : null;
+  });
+  log('sim 8: en skriving bestilt før demoen lagrer BRUKERENS state, ikke kulissen',
+    !!buffer && buffer.length === 1 && buffer[0] === 'Endret rett før demoen',
+    JSON.stringify(buffer));
+  await p.evaluate(() => window.__huskis.tour.end('skipped'));
+  await p.waitForFunction(() => document.getElementById('tour').hidden,
+    null, { timeout: 5000, polling: 100 });
+
+  /* --- en synk-runde som ALLEREDE er i lufta pusher ikke kulissen ---
+     Vakten øverst i cloudCycle fanger bare runder som ikke har begynt. En runde
+     som venter på `get_my_doc` når demoen starter, ville gjenopptatt med
+     kulissen i `state` og lest brukerens ekte rader som slettet. */
+  const treg = seedDB({ onboarding: { v: 3, status: 'done' }, tips: {} });
+  await loadSeeded(p, treg.db, treg.uid, 900);
+  await p.evaluate(() => {
+    window.__huskis.cloudCycle();   // runden henger i transporten (lag=900)
+    window.__huskis.tour.start();   // … og demoen bytter ut state mens den venter
+  });
+  await waitStep(p, 'welcome');
+  await p.waitForTimeout(2500);   // FAST: la den hengende runden komme tilbake
+  const serverEtter = await p.evaluate(() => {
+    const db = JSON.parse(localStorage.getItem('hk-mock-db') || '{}');
+    return {
+      områder: (db.universes || []).map((u) => u.name),
+      mapper: (db.groups || []).length,
+      lister: (db.cards || []).length,
+      gravsteiner: (db.tombstones || []).length,
+    };
+  });
+  log('sim 9: en runde som var i lufta da demoen startet rører ikke serveren',
+    serverEtter.områder.length === 1 && serverEtter.områder[0] === 'Mitt område' &&
+    serverEtter.mapper === 1 && serverEtter.lister === 1 && serverEtter.gravsteiner === 0,
+    JSON.stringify(serverEtter));
+  await p.evaluate(() => window.__huskis.tour.end('skipped'));
+
+  log('sim 10: ingen JS-feil', errs.length === 0, errs.join(' | '));
   await b.close();
 }
 

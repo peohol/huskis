@@ -346,31 +346,47 @@
   // Selve skrivingen (debouncet). Nøkkelen fanges når skrivingen bestilles, ikke
   // når den utføres, så en utlogging midt i vinduet ikke flytter en brukers data
   // over i en annen post.
+  let pendingCacheKey = null; // nøkkelen den ventende skrivingen ble bestilt for
+  function writeCacheNow() {
+    saveTimer = null; // «ingen skriving venter» — leses av updateSafety()/syncStatus
+    const key = pendingCacheKey || (authUser ? (STORAGE_KEY + ':' + authUser.id) : STORAGE_KEY);
+    pendingCacheKey = null;
+    try {
+      state._hlc = hlc;
+      localStorage.setItem(key, JSON.stringify(state, stateReplacer));
+      cacheDirty = false; // brukerens endringer ligger nå i bufferen
+      syncStatus.clearRejected(CACHE_REJECT_KEY);
+    } catch (e) {
+      // Full kvote, eller localStorage utilgjengelig (privat modus, blokkerte
+      // nettsteddata). Da ligger endringene KUN i minnet, og både «Lagret» og
+      // «endringene lagres på denne enheten» ville vært løgn — så dette må
+      // meldes, ikke svelges. Statusen står til en skriving faktisk går
+      // gjennom; «Prøv igjen» bestiller en ny.
+      console.error('[huskis] Kunne ikke skrive den lokale bufferen — ' +
+        'endringene ligger bare i minnet i denne fanen.', e);
+      syncStatus.noteRejected(CACHE_REJECT_KEY, {
+        kind: 'cache', message: String((e && e.message) || e),
+      });
+    }
+    syncStatus.refresh();
+  }
   function scheduleCacheWrite(userChange) {
     if (userChange) cacheDirty = true;
     clearTimeout(saveTimer);
-    const key = authUser ? (STORAGE_KEY + ':' + authUser.id) : STORAGE_KEY;
-    saveTimer = setTimeout(() => {
-      saveTimer = null; // «ingen skriving venter» — leses av updateSafety()/syncStatus
-      try {
-        state._hlc = hlc;
-        localStorage.setItem(key, JSON.stringify(state, stateReplacer));
-        cacheDirty = false; // brukerens endringer ligger nå i bufferen
-        syncStatus.clearRejected(CACHE_REJECT_KEY);
-      } catch (e) {
-        // Full kvote, eller localStorage utilgjengelig (privat modus, blokkerte
-        // nettsteddata). Da ligger endringene KUN i minnet, og både «Lagret» og
-        // «endringene lagres på denne enheten» ville vært løgn — så dette må
-        // meldes, ikke svelges. Statusen står til en skriving faktisk går
-        // gjennom; «Prøv igjen» bestiller en ny.
-        console.error('[huskis] Kunne ikke skrive den lokale bufferen — ' +
-          'endringene ligger bare i minnet i denne fanen.', e);
-        syncStatus.noteRejected(CACHE_REJECT_KEY, {
-          kind: 'cache', message: String((e && e.message) || e),
-        });
-      }
-      syncStatus.refresh();
-    }, 120);
+    pendingCacheKey = authUser ? (STORAGE_KEY + ':' + authUser.id) : STORAGE_KEY;
+    saveTimer = setTimeout(writeCacheNow, 120);
+  }
+  /* Skriv en ventende buffer-skriving NÅ. Demoen bytter ut `state` med en
+     kulisse, og en skriving bestilt FØR byttet ville ellers fyrt etterpå og
+     lagret kulissen — sammen med den ekte synk-basen. En reload midt i demoen
+     leste da en buffer uten brukerens rader og en base som beskriver dem, og
+     fletteren ville lest det som «slettet lokalt» og pushet DELETE på gyldige
+     rader. Skrivingen bærer brukerens egne endringer, så den skal fullføres,
+     ikke forkastes. */
+  function flushCacheWrite() {
+    if (!saveTimer) return;
+    clearTimeout(saveTimer);
+    writeCacheNow();
   }
   // Teller lokale endringer som skal til skyen. `syncedSeq` rykker fram til den
   // verdien `saveSeq` hadde da en synk-runde leste staten — men KUN når runden
@@ -8940,6 +8956,13 @@
       const my = await rpcMyDoc();
       reached = true; // pull-en kom fram — skrivingene er ikke prøvd ennå
       if (!my) return;
+      /* Demoen kan ha startet MENS pullen var i lufta. Da peker `state` på
+         kulissen, og alt under — fletting, `applyMyDoc`, push — ville lest den
+         som brukerens innhold: serverens rader ville dukket opp midt i demoen,
+         og fletteren lest brukerens ekte rader som slettet og pushet DELETE.
+         Vakten på toppen fanger bare runder som ikke har begynt; denne fanger
+         den som allerede var i gang. Runden tas igjen når demoen er ferdig. */
+      if (demoActive) return;
       lastMy = my;
       const remote = contentDocFromMy(my);
       const meta = metaFromMy(my);
@@ -8977,6 +9000,7 @@
               hits.forEach((h) => tombFromServer(h.resource_type, h.resource_id));
               saveLocal();
             }
+            if (demoActive) return; // demoen startet mens oppslaget var i lufta
             unknownHistory.clear();
             r = reconcile(cloudBase || emptyDoc(), docFromMyState(), remote, opts());
           } catch (e) {
@@ -9006,6 +9030,7 @@
       }
       let allPushed = true;
       if (ops.length) {
+        if (demoActive) return; // siste sjanse før skrivingene forlater klienten
         const { rejected: failed, netFailed } = await pushOps(ops);
         if (netFailed) reached = false; // skrivingene kom ikke fram
         // Bekreftelses-pull straks etter push: lastMy/metadata friskes opp, så
@@ -10565,6 +10590,7 @@
   function demoSimStart() {
     if (demoActive) return;
     commitAllPending(); // brukerens egne buffrede slettinger hører til før demoen
+    flushCacheWrite();  // en skriving bestilt før byttet skal bære BRUKERENS state
     demoSaved = {
       universes: state.universes,
       activeUniverse: state.activeUniverse,
