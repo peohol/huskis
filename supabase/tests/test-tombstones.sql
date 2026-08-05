@@ -13,7 +13,7 @@
 -- hvilken klientversjon som ringer på.
 --
 -- To brukere:
---   T = eier av universet (deler en liste med S)
+--   T = eier av området (deler en liste med S)
 --   S = mottaker av delingen
 -- ============================================================
 
@@ -69,14 +69,14 @@ on conflict (id) do nothing;
 
 reset role; select set_config('request.jwt.claim.sub', :'T', false); set role authenticated;
 insert into public.universes (id, owner_id, name, ts, org) values (:'TU', :'T', 'Gravtest', 1, 't');
-insert into public.groups (id, owner_id, universe_id, name, ts, org) values (:'TG', :'T', :'TU', 'Gruppe', 1, 't');
+insert into public.groups (id, owner_id, universe_id, name, ts, org) values (:'TG', :'T', :'TU', 'Mappe', 1, 't');
 insert into public.cards  (id, owner_id, group_id, title, ts, org) values (:'TC', :'T', :'TG', 'Delt liste', 1, 't');
 insert into public.items  (id, owner_id, card_id, text, ts, org) values (:'TI', :'T', :'TC', 'Melk', 1, 't');
 insert into public.cards  (id, owner_id, group_id, title, ts, org) values (:'KC', :'T', :'TG', 'Beholdes', 1, 't');
 insert into public.items  (id, owner_id, card_id, text, ts, org) values (:'KI', :'T', :'KC', 'Brød', 1, 't');
 
--- S blir DIREKTE gruppemedlem (lister deles ikke lenger — tilgangen arves fra
--- gruppen) og har dermed en lokal kopi av listen.
+-- S blir DIREKTE mappemedlem (lister deles ikke lenger — tilgangen arves fra
+-- mappen) og har dermed en lokal kopi av listen.
 select public.create_share_invite('group', :'TG', 'tomb-mottaker@example.com') ->> 'id' as inv \gset
 reset role; select set_config('request.jwt.claim.sub', :'S', false); set role authenticated;
 select public.accept_share_invite(:'inv'::uuid);

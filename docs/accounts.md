@@ -85,7 +85,7 @@ fullført eller hoppet over, med steg og kontekst
 (`user_metadata.tips`) lagres på samme måte som posisjonen under — se
 `docs/introduksjon.md` (autoritativ).
 
-**Aktiv posisjon på kontoen**: hvilket univers/gruppe man står i lagres i
+**Aktiv posisjon på kontoen**: hvilket område/mappe man står i lagres i
 `user_metadata.nav = {u,g}` via `auth.updateUser({ data })` (debouncet,
 `saveNavPref`), og gjenopprettes ved første pull (`restoreNavPref`). Se
 `docs/data-model.md` for semantikken. Mock-backenden speiler dette:
@@ -366,8 +366,8 @@ kan alltid gjøre neste operasjon umiddelbart, uansett hvor treg forrige er:
 **Optimistiske overlays** holder lokal visning stabil over synk-rebuilds til
 operasjonen har landet (applyMyDoc bygger ellers fra serverens metadata, som
 ennå ikke vet om endringen): `lockOverrides` (ønsket lås-status),
-`posOverrides` (personlig posisjon i kø) og `pendingGroupMoves` (gruppeflytting
-i kø — gruppen vises optimistisk på det nye stedet selv før
+`posOverrides` (personlig posisjon i kø) og `pendingGroupMoves` (mappeflytting
+i kø — mappen vises optimistisk på det nye stedet selv før
 patchen har landet), `suppressedRows` (forlatte delinger, filtreres fra pull),
 `suppressedInvites` (besvarte invitasjoner, filtreres fra innboksen). Ryddes
 av operasjonens onDone/onError når køen ikke har flere operasjoner for samme
@@ -386,15 +386,15 @@ rekkefølgen** — begge på medlemskapsraden. I `applyMyDoc`:
 - Metadata legges på objektene: `_type`/`_parent`/`_creator`/`_createdByMe`/
   `_role`/`_free`/`_caps`/`_shared`/`_locked`/`_unlocked`/`_invitePolicy`/
   `_ownerKey`/`_memberCount`/`_ownerCount`.
-- **Personlig posisjon**: for universer (alltid) og FRIE grupper settes `.pos` fra
+- **Personlig posisjon**: for områder (alltid) og FRIE mapper settes `.pos` fra
   medlemskapsraden, mens den kanoniske verdien tas vare på i `_canon` og skrives
   tilbake uendret (`canonRow`). En personlig omrokkering kan dermed aldri endre
   hva andre ser. Skrivingen går via `cloudPersonalPos` (koalescert kø-operasjon
   mot `memberships.pos`, med `posOverrides` som optimistisk overlay).
-- **Tre seksjoner**: universer med `_role === 'owner'` → «Mine universer»;
-  `'member'` → «Universer delt med meg»; grupper med `free = true` samles i en
-  **virtuell beholder** (`FREE_UNI_ID`, `_virtual: true`) → «Grupper delt med
-  meg». Beholderen pushes aldri (`flattenNested` hopper over den), og gruppene i
+- **Tre seksjoner**: områder med `_role === 'owner'` → «Mine områder»;
+  `'member'` → «Områder delt med meg»; mapper med `free = true` samles i en
+  **virtuell beholder** (`FREE_UNI_ID`, `_virtual: true`) → «Mapper delt med
+  meg». Beholderen pushes aldri (`flattenNested` hopper over den), og mappene i
   den beholder sitt kanoniske `uni` i doc-et.
 - `frozen(obj)` = nærmeste eksplisitte lås-tilstand oppover sier låst, og jeg er
   ikke eier på nivået (`privilegedLocal`). Serveren blokkerer uansett.
@@ -405,21 +405,21 @@ rekkefølgen** — begge på medlemskapsraden. I `applyMyDoc`:
   `unlockOverrides`/`policyOverrides`/`posOverrides`/`pendingGroupMoves`) OVER
   serverens metadata, så en endring med skrivingen fortsatt i kø ikke visuelt
   hopper tilbake når en pull rekker å kjøre først.
-- **Tap av tilgang**: forsvinner det aktive universet/gruppen fra doc-et, lukker
+- **Tap av tilgang**: forsvinner det aktive området/mappen fra doc-et, lukker
   `noteAccessLoss` åpne modaler, `validateActive` velger nærmeste gyldige
   fallback, og en toast forklarer hva som skjedde.
 
-### Gruppeflytting (`move_group`)
+### Mappeflytting (`move_group`)
 
-`groups.universe_id` kan ikke skrives direkte — databasen avviser det. En gruppe
-som dras til et annet univers flyttes optimistisk lokalt og registreres i
+`groups.universe_id` kan ikke skrives direkte — databasen avviser det. En mappe
+som dras til et annet område flyttes optimistisk lokalt og registreres i
 `pendingGroupMoves`; doc-et beholder den GAMLE plasseringen til RPC-en har
 landet, så synken aldri forsøker en skriving serveren uansett avviser.
 
-`commitGroupMove` sammenligner universenes `ownerKey` (eierskapsdomenet). Er de
+`commitGroupMove` sammenligner områdenes `ownerKey` (eierskapsdomenet). Er de
 ulike, vises en eksplisitt bekreftelse først — flyttingen er da semantisk «slett
 hos de gamle, opprett hos de nye». Avbryter brukeren, ruller `revertGroupMove`
-gruppen tilbake. Lander RPC-en med `mode: 'copy'`, bytter `applyIdMapping` de
+mappen tilbake. Lander RPC-en med `mode: 'copy'`, bytter `applyIdMapping` de
 gamle id-ene mot de nye i hele det lokale treet og gravlegger de gamle, så
 visningen glir over uten flimmer.
 
@@ -434,15 +434,15 @@ visningen glir over uten flimmer.
   skillet: medlemslisten er synlig for enhver med tilgang, mens invitasjonsfelt,
   rollevelger, medlemsadministrasjon, lås, «Forlat» og «Slett for alle» vises
   etter capabilities.
-- **Åpning**: universer og grupper deles fra `.uni-share`/`.group-share` i
+- **Åpning**: områder og mapper deles fra `.uni-share`/`.group-share` i
   nav-modalen — knappene er synlige for ALLE med tilgang (medlemslisten er åpen).
   Begge sender `openNavModal` som `backTo`. **Lister har ingen deling** lenger;
-  chipen i listas meta-rad åpner GRUPPENS delingsinnstillinger.
+  chipen i listas meta-rad åpner MAPPENS delingsinnstillinger.
 - **Medlemslisten** grupperes etter kategori med overskrifter («Eier»/«Medeiere»,
-  «Eier av gruppen»/«Medeiere av gruppen», «Medlemmer av universet»,
-  «Medlemmer av gruppen»); tomme kategorier utelates. Hver rad viser rollen, og
+  «Eier av mappen»/«Medeiere av mappen», «Medlemmer av området»,
+  «Medlemmer av mappen»); tomme kategorier utelates. Hver rad viser rollen, og
   for den som administrerer medlemmer også en forklaring når brukeren ikke kan
-  fjernes her («Har tilgang via universet og må fjernes der» / «Siste eier kan
+  fjernes her («Har tilgang via området og må fjernes der» / «Siste eier kan
   ikke fjernes»). Ventende invitasjoner står i en egen seksjon.
 - **Inviter** (`create_share_invite`): e-postfelt + rollevelger («Som medlem» /
   «Som medeier»). Velgeren vises kun ved `caps.inviteOwner`. Raden («Invitert
@@ -552,8 +552,8 @@ systemgrense; `grant update (display_name, avatar)` er utvidet tilsvarende.
   personen et profilbilde, viser sirkelen bildet i stedet for initialene (se
   over).
 - **Ansvarlig** (`item.responsible` OG `card.responsible`): objekter i delt
-  kontekst (liste under en delt gruppe eller et delt univers — delegruppen er
-  alltid GRUPPEN, `shareRootFor`) kan få en ansvarlig — både hvert listepunkt
+  kontekst (liste under en delt mappe eller et delt område — delegruppen er
+  alltid MAPPEN, `shareRootFor`) kan få en ansvarlig — både hvert listepunkt
   og hele listen.
   Settes fra innstillingsmodalens «Ansvarlig»-rad eller ansvarlig-chipen i
   meta-raden (`docs/scheduling.md`); begge åpner ansvarlig-velgeren
@@ -622,7 +622,7 @@ operasjonskøen serialiserer riktig når operasjonene er trege.
 Verifisert med Playwright: registrering→«sjekk innboksen»→innlogging, CRUD +
 buffer over reload, to-bruker-deling (inviter→godta uten plassering→kryss-
 bruker-synk→lås/frys→forlat), rollemodellen og de tre seksjonene
-(`tests/roles-and-sections.test.js`), gruppeflytting med bekreftelse og
+(`tests/roles-and-sections.test.js`), mappeflytting med bekreftelse og
 id-mapping (`tests/group-move.test.js`), migrering, og desktop+mobil.
 Operasjonskøen er verifisert med `lag=800`: umiddelbar del-modal, køede
 invitasjoner m/ tilbaketrekking, lås-spam→koalescert sluttilstand, umiddelbar

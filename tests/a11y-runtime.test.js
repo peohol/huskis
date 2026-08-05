@@ -12,7 +12,7 @@
        objektets navn i seg, så tjue like rader ikke leses opp likt. `title`
        alene teller ikke: sjekken leser aria-label.
     2. Sortering fra tastatur (Alt+pil) på alle fire nivåene: listepunkt,
-       kategori, liste og gruppe/univers i nav-modalen.
+       kategori, liste og mappe/område i nav-modalen.
     3. Sorteringen bytter plass, akkurat som draget: to trykk fram og tilbake
        lander på den opprinnelige rekkefølgen.
     4. Et listepunkt som passerer en kategorigrense havner INNE i kategorien.
@@ -48,8 +48,8 @@ const log = (n, ok, x = '') => {
 let seq = 0;
 const U = () => 'id' + (++seq);
 
-/* Fikstur: ett univers med to grupper (den ene i en gruppekategori), og en
-   aktiv gruppe med to lister — den første med tre listepunkter, en kategori og
+/* Fikstur: ett område med to mapper (den ene i en mappekategori), og en
+   aktiv mappe med to lister — den første med tre listepunkter, en kategori og
    ett listepunkt inne i kategorien. Dekker alle nivåene i én lasting. */
 function buildDB() {
   seq = 0;
@@ -83,23 +83,23 @@ function buildDB() {
       universes: [
         base({ id: UNI, owner_id: uA, name: 'Hjemme', pos: 0 }),
         base({ id: UNI2, owner_id: uA, name: 'Jobb', pos: 1 }),
-        // Eid av en ANNEN → havner i «Universer delt med meg», altså en annen
-        // seksjon i nav-modalen. Gruppen i den er LÅST, så A (som bare er
+        // Eid av en ANNEN → havner i «Områder delt med meg», altså en annen
+        // seksjon i nav-modalen. Mappen i den er LÅST, så A (som bare er
         // medlem) verken kan omrokkere eller flytte listene i den.
-        base({ id: 'UNI3', owner_id: 'uB', name: 'Delt univers', pos: 0 }),
+        base({ id: 'UNI3', owner_id: 'uB', name: 'Delt område', pos: 0 }),
       ],
       groups: [
         base({ id: GA, owner_id: uA, universe_id: UNI, name: 'Handel', pos: 0 }),
         base({ id: GCAT, owner_id: uA, universe_id: UNI, name: 'Arkiv', is_cat: true, pos: 1 }),
         base({ id: GB, owner_id: uA, universe_id: UNI, name: 'Prosjekt', cat_id: GCAT, pos: 0 }),
-        // Slettet gruppe → gruppe-søppelkassen dukker opp i universkortet, og
+        // Slettet mappe → mappe-søppelkassen dukker opp i områdekortet, og
         // gir en modal som kan STABLES over nav-modalen (se 9d).
         base({ id: 'GDEL', owner_id: uA, universe_id: UNI, name: 'Gammelt', trashed: true, pos: 2 }),
-        base({ id: 'GC', owner_id: 'uB', universe_id: 'UNI3', name: 'Låst gruppe', locked: true, pos: 0 }),
-        // En ÅPEN nabogruppe i samme univers: uten kildesjekken finnes det da et
+        base({ id: 'GC', owner_id: 'uB', universe_id: 'UNI3', name: 'Låst mappe', locked: true, pos: 0 }),
+        // En ÅPEN nabomappe i samme område: uten kildesjekken finnes det da et
         // gyldig mål, velgeren åpner seg, og lista flyttes optimistisk ut av den
-        // låste gruppen. Med den finnes målet fortsatt, men kilden sier nei.
-        base({ id: 'GD', owner_id: 'uB', universe_id: 'UNI3', name: 'Åpen gruppe', pos: 1 }),
+        // låste mappen. Med den finnes målet fortsatt, men kilden sier nei.
+        base({ id: 'GD', owner_id: 'uB', universe_id: 'UNI3', name: 'Åpen mappe', pos: 1 }),
       ],
       cards: [
         base({ id: L1, owner_id: uA, group_id: GA, title: 'Handleliste', k: true, p: true, lab_ts: 0, lab_org: '' }),
@@ -113,9 +113,9 @@ function buildDB() {
         { id: U(), user_id: 'uB', universe_id: 'UNI3', group_id: null, role: 'owner', pos: 0, created_at: 1 },
         // A er kun MEDLEM her — låser gjelder derfor for A (eiere omgår dem).
         { id: U(), user_id: uA, universe_id: 'UNI3', group_id: null, role: 'member', pos: 2, created_at: 1 },
-        // B er medlem av GA → gruppen er DELT, og delt-merket dukker opp: som
+        // B er medlem av GA → mappen er DELT, og delt-merket dukker opp: som
         // ekte <button> i listekortets header og som dekorativ <span> på
-        // grupperaden i nav-modalen. Uten en delt gruppe i fiksturen ble de to
+        // mapperaden i nav-modalen. Uten en delt mappe i fiksturen ble de to
         // aldri målt — og nettopp der lå en for liten knapp og en treffflate
         // som strakk seg inn over listetittelen.
         { id: U(), user_id: 'uB', group_id: GA, universe_id: null, role: 'member', pos: 0, created_at: 1 },
@@ -204,7 +204,7 @@ async function run(label, viewport) {
   const navNameless = await iconButtonsWithoutName(page);
   log(label + ' 1d: alle synlige ikonknapper i nav-modalen har aria-label', navNameless.length === 0, navNameless);
   const uniDel = await page.locator('.uni-card[data-id="UNI"] .uni-delete').getAttribute('aria-label');
-  log(label + ' 1e: «Slett universet» navngir universet', /«Hjemme»/.test(uniDel || ''), uniDel);
+  log(label + ' 1e: «Slett området» navngir området', /«Hjemme»/.test(uniDel || ''), uniDel);
   await page.keyboard.press('Escape'); await page.waitForTimeout(300);
 
   // De tre modalene board-scanningen ikke når: innstillinger, deling og
@@ -223,7 +223,7 @@ async function run(label, viewport) {
     log(label + ' 1f: alle synlige ikonknapper i ' + navn + ' har aria-label',
       missing.length === 0, missing);
     if (navn === 'del-modalen') {
-      // «Slett gruppen for alle» skal bære søppelkasse-glyfen, som «Slett
+      // «Slett mappen for alle» skal bære søppelkasse-glyfen, som «Slett
       // konto»: de to mest endelige knappene i appen har samme form.
       const del = await page.evaluate(() => {
         const b = document.querySelector('.share-delete');
@@ -312,18 +312,18 @@ async function run(label, viewport) {
   log(label + ' 2c: Alt+pil flytter en liste på board-et',
     cardsAfter[0] === 'L2' && cardsBefore[0] === 'L1', { cardsBefore, cardsAfter });
 
-  /* ---------- 2d. Sortering av grupper og universer i nav-modalen ---------- */
+  /* ---------- 2d. Sortering av mapper og områder i nav-modalen ---------- */
   await openNav(page);
   const uniBefore = await page.$$eval('.uni-card', (n) => n.map((x) => x.dataset.id));
   await page.locator('.uni-card[data-id="UNI2"] > .card-head').focus();
   await page.keyboard.press('Alt+ArrowUp');
   await page.waitForTimeout(400);
   const uniAfter = await page.$$eval('.uni-card', (n) => n.map((x) => x.dataset.id));
-  log(label + ' 2d: Alt+pil flytter et univers i nav-modalen',
+  log(label + ' 2d: Alt+pil flytter et område i nav-modalen',
     uniAfter[0] === 'UNI2' && uniBefore[0] === 'UNI', { uniBefore, uniAfter });
 
-  // 2e. Sorteringen skal holde seg innenfor SIN seksjon. «Mine universer» og
-  // «Universer delt med meg» er to lister i nav-modalen, og renderNav() sorterer
+  // 2e. Sorteringen skal holde seg innenfor SIN seksjon. «Mine områder» og
+  // «Områder delt med meg» er to lister i nav-modalen, og renderNav() sorterer
   // på seksjon FØR pos — et bytte over grensen ville ikke flyttet noe dit man
   // ser, bare importert en fremmed pos-verdi og stokket om på resten.
   const posBefore = await page.evaluate(() => {
@@ -341,12 +341,12 @@ async function run(label, viewport) {
     return m;
   });
   const spokenSection = await live(page);
-  log(label + ' 2e: siste univers i en seksjon flyttes ikke over i den neste',
+  log(label + ' 2e: siste område i en seksjon flyttes ikke over i den neste',
     posBefore.UNI3 === posAfter.UNI3 && /sist/.test(spokenSection),
     { lastOwned, spokenSection, UNI3: [posBefore.UNI3, posAfter.UNI3] });
 
-  // 2f. En LÅST gruppe: A er bare medlem, så låsen gjelder. Alt+M skal avvises
-  // på kildesiden — `moveTargetGroups` sjekker bare MÅL-gruppen, så uten en egen
+  // 2f. En LÅST mappe: A er bare medlem, så låsen gjelder. Alt+M skal avvises
+  // på kildesiden — `moveTargetGroups` sjekker bare MÅL-mappen, så uten en egen
   // kildesjekk ville lista blitt flyttet optimistisk før serveren rakk å si nei.
   await page.evaluate(() => {
     window.__huskis.setActiveUniverse('UNI3');
@@ -366,10 +366,10 @@ async function run(label, viewport) {
       stillInGC: (window.__huskis.state.universes.find((u) => u.id === 'UNI3')
         .groups.find((g) => g.id === 'GC').cards || []).some((c) => c.id === 'LC'),
     }));
-    log(label + ' 2f: Alt+M avvises på en liste jeg ikke kan ta ut av gruppen',
+    log(label + ' 2f: Alt+M avvises på en liste jeg ikke kan ta ut av mappen',
       !refused.picker && refused.stillInGC && /kan ikke flytte/i.test(refused.sagt), refused);
   } else {
-    log(label + ' 2f: Alt+M avvises på en liste jeg ikke kan ta ut av gruppen', false,
+    log(label + ' 2f: Alt+M avvises på en liste jeg ikke kan ta ut av mappen', false,
       'fant ikke den låste lista — sjekk fiksturen');
   }
   // Tilbake til utgangspunktet for resten av sjekkene.

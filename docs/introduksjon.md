@@ -35,13 +35,13 @@ Tre ting kan holde et steg tilbake selv om objektet finnes:
   Uten den vakten ville ＋-knappen alene drevet innføringen videre:
   `addUniverse()` og «＋ Liste» oppretter objektet med et standardnavn og åpner
   navnefeltet, så objektet finnes allerede idet fingeren slipper knappen.
-  Avbryter brukeren, forsvinner et nytt listepunkt/en ny gruppe igjen
+  Avbryter brukeren, forsvinner et nytt listepunkt/en ny mappe igjen
   (`nameNewRow`) — og steget står der det sto.
 - **En avvist skriving** (`syncStatus` i tilstanden `rejected`). Handlingen er
   ikke lagret på kontoen, og skal ikke kvitteres ut: brukeren ville ellers fått
   beskjed om at alt gikk bra, mens objektet forsvant ved neste innlogging.
   Frakoblet er ikke det samme — da ligger endringen trygt lokalt.
-- **`tourBaseline`**, id-ene som fantes da steget begynte. Et univers brukeren
+- **`tourBaseline`**, id-ene som fantes da steget begynte. Et område brukeren
   allerede hadde (eller som en synk-runde drar inn fra en annen enhet) kan ikke
   fullføre steget på vegne av en handling som aldri ble utført.
 
@@ -54,10 +54,10 @@ Tre ting kan holde et steg tilbake selv om objektet finnes:
 |---|---|---|---|
 | 1 | `welcome` | — (midtstilt) | «Kom i gang» |
 | 2 | `open_nav` | `#nav-crumb` | navigasjonsvisningen er åpen |
-| 3 | `create_universe` | `.nav-add-uni button` | et NYTT univers med navn finnes |
-| 4 | `create_group` | ＋ i universkortet | en NY gruppe med navn finnes i det universet |
-| 5 | `open_group` | gruppens rad i oversikten | gruppen er `state.activeGroup` |
-| 6 | `create_card` | `#add-card-btn` | en NY liste med tittel finnes i den gruppen |
+| 3 | `create_universe` | `.nav-add-uni button` | et NYTT område med navn finnes |
+| 4 | `create_group` | ＋ i områdekortet | en NY mappe med navn finnes i det området |
+| 5 | `open_group` | mappens rad i oversikten | mappen er `state.activeGroup` |
+| 6 | `create_card` | `#add-card-btn` | en NY liste med tittel finnes i den mappen |
 | 7 | `create_item` | grønn ＋ i den nye listen | et ikke-tomt listepunkt finnes i den listen |
 | 8 | `finish` | — (midtstilt) | «Ferdig» |
 
@@ -146,7 +146,7 @@ user_metadata.tips = { drag: true, trash: true, moveList: true }
   økten har nådd, og `saveOnboarding()` skriver ikke et lavere. En
   metadatarespons som lander sent, eller en eldre tilstand fra en annen enhet,
   kan altså ikke kaste brukeren tilbake til et steg hen alt har gjort.
-- **Slettede referanser låser ikke.** Peker `context` på et univers, en gruppe
+- **Slettede referanser låser ikke.** Peker `context` på et område, en mappe
   eller en liste som ikke finnes lenger, faller `tourResolveResume()` tilbake
   til det siste steget hvis forutsetninger fortsatt holder.
 
@@ -175,8 +175,8 @@ Derfor velges modus etter innholdet (`tourHasContent()`):
 
 | Modus | Når | Hva stegene gjør |
 |---|---|---|
-| `practice` | ny konto, eller «Vis på nytt» på en konto uten grupper | krever at handlingen faktisk utføres |
-| `review` | «Vis på nytt» på en konto som har minst ett univers med en gruppe | peker på det som ALLEREDE finnes, og oppretter ingenting |
+| `practice` | ny konto, eller «Vis på nytt» på en konto uten mapper | krever at handlingen faktisk utføres |
+| `review` | «Vis på nytt» på en konto som har minst ett område med en mappe | peker på det som ALLEREDE finnes, og oppretter ingenting |
 
 I repetisjonsmodus kan hvert steg hoppes over («Hopp over steget») — runden er
 frivillig hele veien. Velkomsten har i tillegg knappen «Øv med nye», som bytter
@@ -187,9 +187,9 @@ til `practice` for den som faktisk vil gjøre handlingene om igjen.
 - Innføringen blokkerer ingenting: laget slipper klikk gjennom, så konto-knappen
   med invitasjonsbadgen er tilgjengelig hele veien, og en invitasjon kan godtas
   midt i et steg.
-- Handlingsstegene bygger i brukerens **eget** univers, som alle kan opprette.
+- Handlingsstegene bygger i brukerens **eget** område, som alle kan opprette.
   Innføringen ber derfor aldri en gjest om å skrive i noe hen bare kan lese.
-- Er et steg likevel umulig for kontoen — en låst gruppe, manglende
+- Er et steg likevel umulig for kontoen — en låst mappe, manglende
   `createGroup`/`createList` — sier `blocked()` fra i klartekst, og «Hopp over
   steget» dukker opp. Et steg brukeren ikke har lov til å løse skal ikke bli
   stående som en oppgave.
@@ -202,8 +202,8 @@ ett kort tips i den vanlige toasten, aldri mer enn ett om gangen:
 | Nøkkel | Vises når | Innhold |
 |---|---|---|
 | `trash` | liste-søppelkassen er synlig | hold på søppelkassen og sveip for å slette alt i den |
-| `drag` | gruppen har ≥ 2 lister | hold på (eller dra) en tittel for å flytte |
-| `moveList` | gruppen har ≥ 1 liste og universet ≥ 2 grupper | dra en liste opp på navigasjonsknappen for å flytte den |
+| `drag` | mappen har ≥ 2 lister | hold på (eller dra) en tittel for å flytte |
+| `moveList` | mappen har ≥ 1 liste og området ≥ 2 mapper | dra en liste opp på navigasjonsknappen for å flytte den |
 
 `showTip()` viser ingenting hvis det ville kostet brukeren noe: før
 introduksjonen er ferdig (tipset huskes og kommer etterpå), midt i en redigering

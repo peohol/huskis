@@ -87,23 +87,23 @@
     <span class="menu-badge" id="account-badge" hidden aria-hidden="true"></span>
   </button>
 
-  <!-- Toppmenyen: ÉN navigasjonsknapp som viser hvor du er (🌐 univers › 📁
-       gruppe) og åpner den felles navigasjonsmodalen, og listefunksjonene
+  <!-- Toppmenyen: ÉN navigasjonsknapp som viser hvor du er (🌐 område › 📁
+       mappe) og åpner den felles navigasjonsmodalen, og listefunksjonene
        («＋ Liste», søppelkasse, filter) på raden under. All navigering/
-       redigering/deling av universer og grupper skjer i nav-modalen, ikke her. -->
+       redigering/deling av områder og mapper skjer i nav-modalen, ikke her. -->
   <header class="topbar" id="topbar">
     <nav class="breadcrumb" aria-label="Du er her">
       <button class="crumb-btn nav-crumb" id="nav-crumb" type="button"
-              title="Universer og grupper – bytt, rediger og del" aria-haspopup="dialog">
+              title="Områder og mapper – bytt, rediger og del" aria-haspopup="dialog">
         <!-- [ressursikon][delt-ikon ved behov] Ressursnavn — ikonene fylles av
              updateCrumbs() (delt-ikonet vises kun når objektet faktisk er delt). -->
         <span class="crumb-icon" id="crumb-uni-icon" aria-hidden="true"></span>
         <span class="crumb-shared" id="crumb-uni-shared" hidden></span>
-        <span class="crumb-name" id="crumb-uni-name">Univers</span>
+        <span class="crumb-name" id="crumb-uni-name">Område</span>
         <span class="crumb-sep" aria-hidden="true">›</span>
         <span class="crumb-icon" id="crumb-group-icon" aria-hidden="true"></span>
         <span class="crumb-shared" id="crumb-group-shared" hidden></span>
-        <span class="crumb-name" id="crumb-group-name">Gruppe</span>
+        <span class="crumb-name" id="crumb-group-name">Mappe</span>
       </button>
     </nav>
     <div class="panel-actions toolbar">
@@ -121,21 +121,21 @@
     <section class="board" id="board" aria-live="polite"></section>
   </main>
 
-  <!-- Navigasjonsmodal (åpnes fra nav-knappen i toppmenyen): universer og
-       grupper i NØYAKTIG samme oppsett som lister og listepunkter — hvert
-       univers er et kort (kan kollapses) med gruppene sine som rader, og
-       gruppene kan dras mellom universer eller ut i «lufta» for å lage et nytt
-       univers. Univers-søppelkassen ligger nederst; gruppe-søppelkassen ligger
-       i hvert univers-kort (som listepunkt-søppelkassen i en liste). Ligger FØR
+  <!-- Navigasjonsmodal (åpnes fra nav-knappen i toppmenyen): områder og
+       mapper i NØYAKTIG samme oppsett som lister og listepunkter — hvert
+       område er et kort (kan kollapses) med mappene sine som rader, og
+       mappene kan dras mellom områder eller ut i «lufta» for å lage et nytt
+       område. Område-søppelkassen ligger nederst; mappe-søppelkassen ligger
+       i hvert område-kort (som listepunkt-søppelkassen i en liste). Ligger FØR
        søppelkasse-modalen i DOM så søppelkassen (lik z-index) tegnes over. -->
   <div class="modal-overlay" id="nav-modal" hidden>
     <div class="modal menu-modal nav-modal" role="dialog" aria-modal="true" aria-labelledby="nav-modal-title">
       <header class="modal-head">
         <h2 id="nav-modal-title">
           <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="#111" stroke-width="1.05" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 12A9 9 0 0 1 12 3A14 14 0 0 0 8.2 12Z" fill="#ad8585" stroke="none"></path><path d="M8.2 12A14 14 0 0 1 12 3A14 14 0 0 1 15.8 12Z" fill="#adad85" stroke="none"></path><path d="M15.8 12A14 14 0 0 0 12 3A9 9 0 0 1 21 12Z" fill="#85ad85" stroke="none"></path><path d="M3 12A9 9 0 0 0 12 21A14 14 0 0 1 8.2 12Z" fill="#85adad" stroke="none"></path><path d="M8.2 12A14 14 0 0 0 12 21A14 14 0 0 0 15.8 12Z" fill="#8585ad" stroke="none"></path><path d="M15.8 12A14 14 0 0 1 12 21A9 9 0 0 0 21 12Z" fill="#ad85ad" stroke="none"></path><circle cx="12" cy="12" r="9"></circle><path d="M3 12h18"></path><path d="M12 3a14 14 0 0 1 3.8 9 14 14 0 0 1-3.8 9 14 14 0 0 1-3.8-9A14 14 0 0 1 12 3Z"></path></svg>
-          <span>Universer og</span>
+          <span>Områder og</span>
           <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="#111" stroke-width="1.05" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3.5 19V6.5a2 2 0 0 1 2-2h3.3a2 2 0 0 1 1.6.8l1.1 1.5a2 2 0 0 0 1.6.8H19a2 2 0 0 1 2 2V19a2 2 0 0 1-2 2H5.5a2 2 0 0 1-2-2Z" fill="#adad85"></path></svg>
-          <span>grupper</span>
+          <span>mapper</span>
         </h2>
         <button class="icon-btn" id="nav-modal-close" type="button" title="Lukk" aria-label="Lukk"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.05" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6.5 6.5 17.5 17.5"></path><path d="M17.5 6.5 6.5 17.5"></path></svg></button>
       </header>
@@ -144,8 +144,8 @@
         <section class="board nav-board" id="nav-board" aria-live="polite"></section>
         <div class="panel-actions nav-actions">
           <button class="trashcan" id="uni-trash-btn" type="button"
-                  title="Slettede universer – trykk for å åpne, hold og sveip for å slette dem for godt"
-                  aria-label="Slettede universer" hidden>
+                  title="Slettede områder – trykk for å åpne, hold og sveip for å slette dem for godt"
+                  aria-label="Slettede områder" hidden>
             <svg class="icon trashcan-icon" viewBox="0 0 24 24" fill="none" stroke="#111" stroke-width="1.05" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6.3 7.5l.9 11a2 2 0 0 0 2 1.9h5.6a2 2 0 0 0 2-1.9l.9-11" fill="#c0c4c9" stroke="none"></path><path d="M4.5 7.5h15"></path><path d="M9.5 7.5V6a2.5 2.5 0 0 1 5 0v1.5"></path><path d="M6.3 7.5l.9 11a2 2 0 0 0 2 1.9h5.6a2 2 0 0 0 2-1.9l.9-11"></path><path d="M9.7 11v6"></path><path d="M12 11v6"></path><path d="M14.3 11v6"></path></svg>
             <span class="trashcan-count" id="uni-trash-count">0</span>
           </button>
@@ -250,7 +250,7 @@
             <dt><kbd>Alt</kbd> + <kbd>↑</kbd> <kbd>↓</kbd></dt>
             <dd>Flytt det valgte objektet ett hakk</dd>
             <dt><kbd>Alt</kbd> + <kbd>M</kbd></dt>
-            <dd>Flytt til en annen liste, gruppe eller univers</dd>
+            <dd>Flytt til en annen liste, mappe eller område</dd>
             <dt><kbd>F2</kbd></dt>
             <dd>Endre navn</dd>
             <dt><kbd>Esc</kbd></dt>
@@ -318,7 +318,7 @@
     </div>
   </div>
 
-  <!-- Søppelkasse-modal (felles for universer/grupper/lister/listepunkter) -->
+  <!-- Søppelkasse-modal (felles for områder/mapper/lister/listepunkter) -->
   <div class="modal-overlay" id="trash-modal" hidden>
     <div class="modal" role="dialog" aria-modal="true" aria-labelledby="trash-title">
       <header class="modal-head">
@@ -337,19 +337,19 @@
   </div>
 
   <!-- Ansvarlig-velger for listepunkter i delte lister: popover (desktop) / modal
-       (mobil), à la univers-/gruppebytteren. Bygges i openResponsible(). -->
+       (mobil), à la område-/mappebytteren. Bygges i openResponsible(). -->
   <div class="switcher-overlay" id="resp-switcher" hidden>
     <div class="switcher-panel resp-panel" id="resp-switcher-panel" role="listbox" aria-label="Velg ansvarlig" tabindex="-1"></div>
   </div>
 
   <!-- Templates -->
 
-  <!-- Univers-kort (nav-modalen): NØYAKTIG samme oppbygning som et listekort —
-       korthode med tittel + kollaps-teller, og en .card-body med gruppene som
+  <!-- Område-kort (nav-modalen): NØYAKTIG samme oppbygning som et listekort —
+       korthode med tittel + kollaps-teller, og en .card-body med mappene som
        rader. Forskjellene mot #card-template: del-knapp i stedet for tannhjul
-       (universer/grupper har ingen innstillingsmodal), teller med gruppe-ikon i
-       stedet for «(N)», ingen «Utført»-seksjon, og ＋-knappene lager gruppe /
-       gruppekategori. -->
+       (områder/mapper har ingen innstillingsmodal), teller med mappe-ikon i
+       stedet for «(N)», ingen «Utført»-seksjon, og ＋-knappene lager mappe /
+       mappekategori. -->
   <template id="uni-card-template">
     <article class="card uni-card" tabindex="-1">
       <header class="card-head" role="button" tabindex="0" aria-expanded="true">
@@ -361,22 +361,22 @@
             <span class="collapse-count uni-count" aria-hidden="true" hidden></span>
           </div>
         </div>
-        <button class="card-cog uni-share" type="button" title="Deling og medlemmer" aria-label="Deling og medlemmer i universet"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="#111" stroke-width="1.05" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="6.5" cy="12" r="3.2" fill="#ad8585"></circle><circle cx="17.5" cy="6" r="2.3" fill="#adad85"></circle><circle cx="17.5" cy="18" r="2.3" fill="#85ad85"></circle><path d="m9.4 10.4 5.3-3"></path><path d="m9.4 13.6 5.3 3"></path></svg></button>
-        <button class="icon-btn uni-leave" type="button" title="Forlat universet" aria-label="Forlat universet"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.05" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 3H6a2.5 2.5 0 0 0-2.5 2.5v13A2.5 2.5 0 0 0 6 21h3"></path><path d="M21 12H10"></path><path d="M17.5 8.5 21 12l-3.5 3.5"></path></svg></button>
-        <button class="icon-btn card-delete uni-delete" title="Slett universet for alle" aria-label="Slett universet for alle"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.05" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6.5 6.5 17.5 17.5"></path><path d="M17.5 6.5 6.5 17.5"></path></svg></button>
+        <button class="card-cog uni-share" type="button" title="Deling og medlemmer" aria-label="Deling og medlemmer i området"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="#111" stroke-width="1.05" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="6.5" cy="12" r="3.2" fill="#ad8585"></circle><circle cx="17.5" cy="6" r="2.3" fill="#adad85"></circle><circle cx="17.5" cy="18" r="2.3" fill="#85ad85"></circle><path d="m9.4 10.4 5.3-3"></path><path d="m9.4 13.6 5.3 3"></path></svg></button>
+        <button class="icon-btn uni-leave" type="button" title="Forlat området" aria-label="Forlat området"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.05" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 3H6a2.5 2.5 0 0 0-2.5 2.5v13A2.5 2.5 0 0 0 6 21h3"></path><path d="M21 12H10"></path><path d="M17.5 8.5 21 12l-3.5 3.5"></path></svg></button>
+        <button class="icon-btn card-delete uni-delete" title="Slett området for alle" aria-label="Slett området for alle"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.05" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6.5 6.5 17.5 17.5"></path><path d="M17.5 6.5 6.5 17.5"></path></svg></button>
       </header>
       <div class="card-body">
         <ul class="items-container"></ul>
         <div class="add-item-row">
-          <button class="btn-add btn-solid btn-green icon-only add-item-btn" type="button" title="Legg til gruppe" aria-label="Legg til gruppe"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="#111" stroke-width="1.05" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 4.5v15"></path><path d="M4.5 12h15"></path></svg></button>
-          <button class="btn-add btn-solid btn-yellow icon-only add-cat-btn" type="button" title="Legg til gruppekategori" aria-label="Legg til gruppekategori"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="#111" stroke-width="1.05" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8.5 4.5H6.5a2 2 0 0 0-2 2v11a2 2 0 0 0 2 2H8.5"></path><g transform="translate(8.5 5) scale(0.55)" stroke-width="1.909"><path d="M3.5 19V6.5a2 2 0 0 1 2-2h3.3a2 2 0 0 1 1.6.8l1.1 1.5a2 2 0 0 0 1.6.8H19a2 2 0 0 1 2 2V19a2 2 0 0 1-2 2H5.5a2 2 0 0 1-2-2Z" fill="#adad85"></path></g></svg></button>
+          <button class="btn-add btn-solid btn-green icon-only add-item-btn" type="button" title="Legg til mappe" aria-label="Legg til mappe"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="#111" stroke-width="1.05" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 4.5v15"></path><path d="M4.5 12h15"></path></svg></button>
+          <button class="btn-add btn-solid btn-yellow icon-only add-cat-btn" type="button" title="Legg til mappekategori" aria-label="Legg til mappekategori"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="#111" stroke-width="1.05" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8.5 4.5H6.5a2 2 0 0 0-2 2v11a2 2 0 0 0 2 2H8.5"></path><g transform="translate(8.5 5) scale(0.55)" stroke-width="1.909"><path d="M3.5 19V6.5a2 2 0 0 1 2-2h3.3a2 2 0 0 1 1.6.8l1.1 1.5a2 2 0 0 0 1.6.8H19a2 2 0 0 1 2 2V19a2 2 0 0 1-2 2H5.5a2 2 0 0 1-2-2Z" fill="#adad85"></path></g></svg></button>
         </div>
       </div>
     </article>
   </template>
 
-  <!-- Grupperad (i et univers-kort): samme rad som et listepunkt, men UTEN
-       avmerkingsboks (grupper krysses ikke av) og med del-knapp i stedet for
+  <!-- Mapperad (i et område-kort): samme rad som et listepunkt, men UTEN
+       avmerkingsboks (mapper krysses ikke av) og med del-knapp i stedet for
        tannhjul. Klikk på navnet redigerer; klikk ellers på raden navigerer. -->
   <template id="group-row-template">
     <li class="item group-row" role="button" tabindex="0">
@@ -385,13 +385,13 @@
       <div class="item-main">
         <span class="item-text" title="Klikk for å endre navn"></span>
       </div>
-      <button class="item-cog group-share" type="button" title="Deling og medlemmer" aria-label="Deling og medlemmer i gruppen"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="#111" stroke-width="1.05" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="6.5" cy="12" r="3.2" fill="#ad8585"></circle><circle cx="17.5" cy="6" r="2.3" fill="#adad85"></circle><circle cx="17.5" cy="18" r="2.3" fill="#85ad85"></circle><path d="m9.4 10.4 5.3-3"></path><path d="m9.4 13.6 5.3 3"></path></svg></button>
-      <button class="icon-btn group-leave" type="button" title="Forlat gruppen" aria-label="Forlat gruppen"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.05" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 3H6a2.5 2.5 0 0 0-2.5 2.5v13A2.5 2.5 0 0 0 6 21h3"></path><path d="M21 12H10"></path><path d="M17.5 8.5 21 12l-3.5 3.5"></path></svg></button>
-      <button class="icon-btn item-delete group-delete" title="Slett gruppen for alle" aria-label="Slett gruppen for alle"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.05" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6.5 6.5 17.5 17.5"></path><path d="M17.5 6.5 6.5 17.5"></path></svg></button>
+      <button class="item-cog group-share" type="button" title="Deling og medlemmer" aria-label="Deling og medlemmer i mappen"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="#111" stroke-width="1.05" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="6.5" cy="12" r="3.2" fill="#ad8585"></circle><circle cx="17.5" cy="6" r="2.3" fill="#adad85"></circle><circle cx="17.5" cy="18" r="2.3" fill="#85ad85"></circle><path d="m9.4 10.4 5.3-3"></path><path d="m9.4 13.6 5.3 3"></path></svg></button>
+      <button class="icon-btn group-leave" type="button" title="Forlat mappen" aria-label="Forlat mappen"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.05" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 3H6a2.5 2.5 0 0 0-2.5 2.5v13A2.5 2.5 0 0 0 6 21h3"></path><path d="M21 12H10"></path><path d="M17.5 8.5 21 12l-3.5 3.5"></path></svg></button>
+      <button class="icon-btn item-delete group-delete" title="Slett mappen for alle" aria-label="Slett mappen for alle"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.05" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6.5 6.5 17.5 17.5"></path><path d="M17.5 6.5 6.5 17.5"></path></svg></button>
     </li>
   </template>
 
-  <!-- Gruppekategori: samme kategori-rad som i en liste, men uten tannhjul
+  <!-- Mappekategori: samme kategori-rad som i en liste, men uten tannhjul
        (ingen innstillinger) og uten deling — kun oppløs-knappen. -->
   <template id="group-cat-template">
     <li class="category group-cat">
@@ -403,11 +403,11 @@
             <span class="collapse-count" aria-hidden="true" hidden></span>
           </div>
         </div>
-        <button class="cat-dissolve" type="button" title="Oppløs gruppekategorien" aria-label="Oppløs gruppekategorien"></button>
+        <button class="cat-dissolve" type="button" title="Oppløs mappekategorien" aria-label="Oppløs mappekategorien"></button>
       </div>
       <ul class="cat-items">
         <li class="cat-add">
-          <button class="cat-add-btn btn-add btn-solid btn-green icon-only" type="button" title="Legg til gruppe i kategorien" aria-label="Legg til gruppe i kategorien"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="#111" stroke-width="1.05" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 4.5v15"></path><path d="M4.5 12h15"></path></svg></button>
+          <button class="cat-add-btn btn-add btn-solid btn-green icon-only" type="button" title="Legg til mappe i kategorien" aria-label="Legg til mappe i kategorien"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="#111" stroke-width="1.05" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 4.5v15"></path><path d="M4.5 12h15"></path></svg></button>
         </li>
       </ul>
     </li>
@@ -512,9 +512,9 @@
   </div>
 
   <!-- Del-modal: eier inviterer, ser medlemmer/ventende, kaster ut, låser (fase 2).
-       Mottaker ser eier + låst-status + «Forlat deling». Brukes for univers/
-       gruppe; listers deling ligger i innstillingsmodalen. Tilbakeknappen
-       (vises kun når modalen ble åpnet fra univers-/gruppe-modalen) navigerer
+       Mottaker ser eier + låst-status + «Forlat deling». Brukes for område/
+       mappe; listers deling ligger i innstillingsmodalen. Tilbakeknappen
+       (vises kun når modalen ble åpnet fra område-/mappe-modalen) navigerer
        tilbake dit; ✕/overlay lukker helt (tilbake til hovedsiden). -->
   <div class="modal-overlay" id="share-modal" hidden>
     <div class="modal share-modal" role="dialog" aria-modal="true" aria-labelledby="share-title">
@@ -527,7 +527,7 @@
     </div>
   </div>
 
-  <!-- Velger-modal: brukes når en liste skal flyttes til en annen gruppe
+  <!-- Velger-modal: brukes når en liste skal flyttes til en annen mappe
        (slipp på 📁-breadcrumben). Delinger krever ingen plassering. -->
   <div class="modal-overlay" id="place-modal" hidden>
     <div class="modal place-modal" role="dialog" aria-modal="true" aria-labelledby="place-title">
@@ -572,10 +572,10 @@
           Dette sletter kontoen din for godt. Det kan ikke angres.
         </p>
         <ul class="danger-list">
-          <li>Universer du er eneste eier av slettes med alt innholdet — også for
+          <li>Områder du er eneste eier av slettes med alt innholdet — også for
               dem du har delt med.</li>
           <li>Du fjernes fra alt som er delt med deg. Innhold du har laget i andres
-              universer blir stående hos dem.</li>
+              områder blir stående hos dem.</li>
           <li>Navnet ditt, e-postadressen, profilbildet og invitasjonene dine
               slettes fra databasen.</li>
         </ul>

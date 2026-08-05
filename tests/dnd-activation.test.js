@@ -6,7 +6,7 @@
   2. Liten touch-drift FØR holdet er ferdig gir ikke et offset ved løft.
   3. En sekundær peker (isPrimary === false) starter aldri et drag.
   4. Et raskt `pointerup` på en NY plass — uten en siste `pointermove` — lander
-     der det ble sluppet, for liste, listepunkt, gruppe OG univers.
+     der det ble sluppet, for liste, listepunkt, mappe OG område.
 
   Kjør:
     python3 -m http.server 8000                    # fra repo-roten, i egen terminal
@@ -31,7 +31,7 @@ async function register(p) {
   await p.locator('#auth-password').fill('passord123');
   await p.locator('#auth-submit').click();
   // `lastMy` settes først når get_my_doc har svart — da er kontoen innlogget
-  // og dokumentet hentet. (En fersk konto har null universer — board er tomt.)
+  // og dokumentet hentet. (En fersk konto har null områder — board er tomt.)
   await p.waitForFunction(() => {
     const H = window.__huskis;
     return H && H.authUser && H.lastMy;
@@ -205,7 +205,7 @@ const log = (n, ok, x = '') => { results.push(ok); console.log((ok ? 'PASS' : 'F
       cAfter.indexOf('card-P') > cAfter.indexOf('card-R') && cAfter.length === cBefore.length,
       cBefore.join(',') + ' → ' + cAfter.join(','));
 
-    /* --- 4c) GRUPPE (rad i et univers-kort i nav-modalen) --- */
+    /* --- 4c) MAPPE (rad i et område-kort i nav-modalen) --- */
     for (let i = 0; i < 2; i++) {
       await p.evaluate(() => { window.__huskis.addGroup(); }); await p.waitForTimeout(200);
     }
@@ -219,17 +219,17 @@ const log = (n, ok, x = '') => { results.push(ok); console.log((ok ? 'PASS' : 'F
     await pointer(p, 'pointerup', g1.x, g3.y + 4); // INGEN pointermove
     await p.waitForTimeout(500);
     const gAfter = await p.evaluate((sel) => [...document.querySelectorAll(sel + ' .items-container > .item')].map((g) => g.dataset.id), uSel);
-    log('4 ' + M.n + ' gruppe: raskt slipp flyttet raden forbi den tredje',
+    log('4 ' + M.n + ' mappe: raskt slipp flyttet raden forbi den tredje',
       gAfter.indexOf(gIds[0]) > gAfter.indexOf(gIds[2]) && gAfter.length === gIds.length,
       gIds.join(',') + ' → ' + gAfter.join(','));
 
-    /* --- 4d) UNIVERS (kort i nav-modalen) --- */
+    /* --- 4d) OMRÅDE (kort i nav-modalen) --- */
     for (let i = 0; i < 2; i++) {
       await p.evaluate(() => { window.__huskis.addUniverse(); }); await p.waitForTimeout(200);
       await p.keyboard.press('Escape'); await p.waitForTimeout(180);
     }
     await p.evaluate(() => { window.__huskis.openNavModal(); }); await p.waitForTimeout(400);
-    // «＋ Univers» ruller det nye (siste) universet inn i syne — rull tilbake til
+    // «＋ Område» ruller det nye (siste) området inn i syne — rull tilbake til
     // toppen så de to kortene vi sikter på faktisk ligger i modalens synlige felt.
     await p.evaluate(() => { document.querySelector('#nav-modal .menu-body').scrollTop = 0; });
     await p.waitForTimeout(150);
@@ -241,7 +241,7 @@ const log = (n, ok, x = '') => { results.push(ok); console.log((ok ? 'PASS' : 'F
     await pointer(p, 'pointerup', u1.x, u3.y + 4); // INGEN pointermove
     await p.waitForTimeout(500);
     const uAfter = await p.evaluate(() => [...document.querySelectorAll('#nav-board .card')].map((u) => u.dataset.id));
-    log('4 ' + M.n + ' univers: raskt slipp flyttet raden forbi den tredje',
+    log('4 ' + M.n + ' område: raskt slipp flyttet raden forbi den tredje',
       uAfter.indexOf(uIds[0]) > uAfter.indexOf(uIds[2]) && uAfter.length === uIds.length,
       uIds.join(',') + ' → ' + uAfter.join(','));
 

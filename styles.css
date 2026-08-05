@@ -138,7 +138,7 @@
   --shadow-md: 0 8px 20px rgba(35, 45, 55, 0.18);
   --shadow-lg: 0 18px 42px rgba(25, 35, 45, 0.34);
 
-  /* Skygge bak hvit skrift så den er lesbar også på lyse kort-/gruppefarger. */
+  /* Skygge bak hvit skrift så den er lesbar også på lyse kort-/mappefarger. */
   --text-shadow: 0 1px 2px rgba(0, 0, 0, 0.42);
 
   /* Samme linjetykkelse som ikonsettets stroke-width (se icons.js/index.html),
@@ -232,7 +232,7 @@ body {
      de kan ikke vokse uten å overlappe hverandre. Begge er over AA-gulvet på
      24 px, og er tekstmål, ikke ikonknapper.
    • `.share-badge` finnes i to former: en ekte <button> på listekortet, og en
-     DEKORATIV <span aria-hidden> på universkort og grupperader. Kun knappen er
+     DEKORATIV <span aria-hidden> på områdekort og mapperader. Kun knappen er
      med (`button.share-badge`) — en treffflate på en span som ikke tar imot
      klikk ville bare lagt et usynlig teppe over raden bak den. */
 .item-check, .item-cog, .item-delete, .card-cog, .card-delete,
@@ -277,7 +277,7 @@ body {
   color: var(--ink-soft);
 }
 .panel-title .icon { font-size: var(--fs-sm); }
-/* Overskrifter med objektnavn («Alle grupper i 🌐 [navn]»): etiketten brytes
+/* Overskrifter med objektnavn («Alle mapper i 🌐 [navn]»): etiketten brytes
    ikke; det er navnet som kappes med ellipsis når plassen er trang. */
 .panel-title { min-width: 0; }
 .panel-title-text { flex: 0 0 auto; white-space: nowrap; }
@@ -296,7 +296,7 @@ body {
 
 /* ---------------- Toppmenyen (breadcrumb + listefunksjoner) ----------------
    Ett fast panel øverst (alle skjermstørrelser): breadcrumb-raden
-   (🌐 univers › 📁 gruppe) og listefunksjonene («＋ Liste», søppelkasse,
+   (🌐 område › 📁 mappe) og listefunksjonene («＋ Liste», søppelkasse,
    filter) på raden under. Kontoknappen er fast i viewportets hjørne (egen
    klasse) og overlapper panelet visuelt øverst til høyre. */
 .topbar {
@@ -359,7 +359,7 @@ body {
   font-weight: 700;
   color: var(--ink-soft);
 }
-/* Mål når man drar en liste opp på 📁-breadcrumben (flytt til annen gruppe):
+/* Mål når man drar en liste opp på 📁-breadcrumben (flytt til annen mappe):
    knappen lyser opp; slipp åpner flytte-velgeren. */
 .crumb-btn.drop-target {
   background: var(--primary-soft);
@@ -400,7 +400,7 @@ body {
 .btn-yellow { background: var(--grad-yellow); }
 .btn-solid.btn-yellow { color: var(--ink); text-shadow: none; }
 
-/* ---------------- «＋»-knapper (felles: gruppe/liste/univers/element) ----------------
+/* ---------------- «＋»-knapper (felles: mappe/liste/område/element) ----------------
    Størrelse/form for knappene i knapperadene; fargen på FLATEN kommer fra
    .btn-solid .btn-green. .icon-only = kvadratisk, med kun ICONS.plus (se
    index.html) — ingen tekst-glyf lenger, så streken matcher resten av
@@ -714,7 +714,7 @@ body {
 .empty-state .big .icon { margin: 0 auto; }
 .empty-state p { margin: 6px 0; font-weight: 500; font-size: var(--fs-base); }
 /* Inline «knapp-hint» i tom-tilstanden: viser ＋ + nivå-ikonet (som knappen),
-   siden knappene ikke lenger har tekst-etikett («＋ Gruppe»/«＋ Liste»). */
+   siden knappene ikke lenger har tekst-etikett («＋ Mappe»/«＋ Liste»). */
 .hint-chip {
   display: inline-flex;
   align-items: center;
@@ -755,7 +755,7 @@ body {
   gap: 8px;
   padding: 10px;
   background: var(--card-head);
-  cursor: pointer;             /* klikk = kollaps/utvid (pekende hånd som univers/gruppe) */
+  cursor: pointer;             /* klikk = kollaps/utvid (pekende hånd som område/mappe) */
 }
 
 /* Alt under headeren: kollapser som en rullgardin (samme mønster som .cat-items).
@@ -824,7 +824,7 @@ body {
 }
 /* Tittel-hover (globalt redigerbarhets-signal): bakgrunnen bak tittelen mørkner
    når man hoverer den, så det er tydelig at et klikk starter navneredigering.
-   Gjelder ALLE objekttyper — liste, kategori, element, univers og gruppe — så
+   Gjelder ALLE objekttyper — liste, kategori, element, område og mappe — så
    affordansen er den samme overalt i appen. */
 .card-title:hover,
 .cat-title:hover,
@@ -1212,8 +1212,8 @@ body {
 }
 
 /* Åpen hånd (grab) på element-/kategori-dra-sonene så det er tydelig at
-   klikk-og-hold (eller klikk-og-dra på desktop) løfter objektet. Universer,
-   grupper og lister bruker i stedet pekende hånd (cursor: pointer) — der er et
+   klikk-og-hold (eller klikk-og-dra på desktop) løfter objektet. Områder,
+   mapper og lister bruker i stedet pekende hånd (cursor: pointer) — der er et
    klikk den primære handlingen. Kun på det som faktisk KAN dras: ikke låste kort,
    ikke avkryssede elementer. Tittelen (.item-text/.cat-title) beholder tekst-
    cursoren og knappene sin egen (mer spesifikke regler vinner). */
@@ -1240,7 +1240,7 @@ body {
 }
 .icon-btn:hover { background: rgba(0, 0, 0, 0.07); color: var(--ink); }
 
-/* Sletteknapper (liste/listepunkt — og dermed også univers/gruppe, som bruker
+/* Sletteknapper (liste/listepunkt — og dermed også område/mappe, som bruker
    nøyaktig samme kort-/rad-oppsett): SVG-× (ICONS.xmark, samme strek som
    ikonsettet) — SVARTE globalt, RØDE ved hover/aktivering. Gjelder også på
    fargede flater (korthode); svart leser fint på de lyse kortfargene. */
@@ -1296,7 +1296,7 @@ body {
    (dokument-koordinater, se dragPos* i app.js) — IKKE `fixed`. Et `fixed`-
    element som har en `transform` (skala/rotasjon under draging) legges på iOS
    WebKit (bl.a. Chrome for iPhone) relativt til dokumentet og «scroller vekk»
-   fra fingeren; absolute unngår dette. Gruppe/univers dras i en modal (der
+   fra fingeren; absolute unngår dette. Mappe/område dras i en modal (der
    window-scroll aldri endres) og er derfor fortsatt `fixed` lenger ned. */
 .card.dragging {
   position: absolute;
@@ -1308,8 +1308,8 @@ body {
   pointer-events: none;
   will-change: left, top, transform;
 }
-/* Lista sikter på et gruppekort (overføring): gjør den gjennomskinnelig så
-   gruppekortet under (med .drop-target-markering) synes gjennom det løftede kortet. */
+/* Lista sikter på et mappekort (overføring): gjør den gjennomskinnelig så
+   mappekortet under (med .drop-target-markering) synes gjennom det løftede kortet. */
 .card.dragging.to-group { opacity: 0.45; }
 
 .item.dragging {
@@ -1362,7 +1362,7 @@ body {
 .category.dragging .cat-title { color: #111; text-shadow: none; -webkit-text-stroke: none; }
 .category.dragging .cat-drag-icon { display: inline-flex; }
 
-/* Placeholders (kort/element/gruppe/univers): IDENTISK stil overalt — svakt
+/* Placeholders (kort/element/mappe/område): IDENTISK stil overalt — svakt
    mørknet flate og en subtil INNOVER-skygge som gir inntrykk av et «hull» som
    skal fylles (ingen kant). Kun radius/margens følger elementtypen. */
 .card-placeholder,
@@ -1475,7 +1475,7 @@ body.is-dragging * { cursor: grabbing !important; }
   overflow-y: auto;
 }
 
-/* Univers-/gruppe-/konto-modalene: seksjoner skilt med en linje i samme stil
+/* Område-/mappe-/konto-modalene: seksjoner skilt med en linje i samme stil
    som modal-head sin border-bottom (samme farge/tykkelse, kant-til-kant).
    .menu-body arver modal-body sin side-padding (20px); negativ side-margin
    kansellerer den så linja når helt ut til modal-kanten, som modal-head sin. */
@@ -1536,15 +1536,15 @@ body.is-dragging * { cursor: grabbing !important; }
   white-space: nowrap;
 }
 
-/* ---------------- Navigasjonsmodalen (universer + grupper) ----------------
-   Universer og grupper bruker NØYAKTIG samme oppsett som lister og listepunkter:
+/* ---------------- Navigasjonsmodalen (områder + mapper) ----------------
+   Områder og mapper bruker NØYAKTIG samme oppsett som lister og listepunkter:
    `#nav-board` er et vanlig `.board` med `.card`/`.item`/`.category` inni, bare
    alltid i ÉN kolonne. Derfor arves hele kort-/rad-/kategori-designet (og hele
    dra-og-slipp-motoren) uten egne kopier — det som står her er kun forskjellene:
    énkolonne, litt mer plass i modalen, fast (viewport-)posisjonering under
    draging, og de nivå-spesifikke knappene/markørene. */
 .nav-modal { width: min(560px, 100%); }
-/* Overskriften er «[globus] Universer og [mappe] grupper» — la den brekke MELLOM
+/* Overskriften er «[globus] Områder og [mappe] mapper» — la den brekke MELLOM
    de to leddene, aldri midt i et ord. */
 .nav-modal .modal-head h2 { flex-wrap: wrap; }
 .nav-modal .modal-head h2 span { white-space: nowrap; }
@@ -1557,7 +1557,7 @@ body.is-dragging * { cursor: grabbing !important; }
   --mobile-dnd-flow-guard: 0;
 }
 /* Board-gapet er en vw-basert clamp for hovedsiden; i modalen vil vi ha en fast,
-   litt tettere luft mellom universkortene. Siste kort har ingen margin: modalens
+   litt tettere luft mellom områdekortene. Siste kort har ingen margin: modalens
    egen padding er bunn-luften der (hovedsidens board bruker i stedet siste korts
    margin, se fixBoardBottomGap). */
 .nav-board .card { margin-bottom: 12px; }
@@ -1573,9 +1573,9 @@ body.is-dragging * { cursor: grabbing !important; }
 .nav-board .item.dragging,
 .nav-board .category.dragging { position: fixed; }
 
-/* Aktivt univers / aktiv gruppe: samme grønne brand-ring som resten av appen,
+/* Aktivt område / aktiv mappe: samme grønne brand-ring som resten av appen,
    trukket innover så den ikke kolliderer med nabokortet. */
-/* AKTIV posisjon (universet/gruppen man står i) — en ring trukket INNOVER.
+/* AKTIV posisjon (området/mappen man står i) — en ring trukket INNOVER.
    Den var brand-grønn, men grønt på de seks kortfargene ligger på 1,5–2,3:1 og
    var altså ikke synlig der den skulle si hvor man er. Mørk ring gir 5,3–8:1 mot
    alle seks. Tilstanden bæres dessuten av `aria-current` (app.js), så den ikke
@@ -1585,17 +1585,17 @@ body.is-dragging * { cursor: grabbing !important; }
 .nav-board .card.active { outline: var(--focus-w) solid var(--focus); outline-offset: -2px; }
 .nav-board .item.active { outline: var(--focus-w) solid var(--focus); outline-offset: -2px; }
 
-/* Klikk er primærhandlingen på begge nivåer (gå til gruppen / kollaps universet),
+/* Klikk er primærhandlingen på begge nivåer (gå til mappen / kollaps området),
    så pekende hånd — ikke den åpne hånden listepunkter/kategorier har. */
 .nav-board .card:not(.is-locked) .item,
 .nav-board .card:not(.is-locked) .cat-head { cursor: pointer; }
 
-/* Tastatur: korthodet (univers) og grupperaden er fokuserbare knapper — de er de
+/* Tastatur: korthodet (område) og mapperaden er fokuserbare knapper — de er de
    eneste veiene inn til navigering uten peker, så de må vises tydelig. */
 .nav-board .card-head:focus-visible,
 .nav-board .item.group-row:focus-visible { outline: var(--focus-w) solid var(--focus); outline-offset: 2px; }
 
-/* Type-ikon foran navnet: [globus] univers, [mappe] gruppe — samme ikoner som
+/* Type-ikon foran navnet: [globus] område, [mappe] mappe — samme ikoner som
    breadcrumben, så modalen og toppmenyen leser likt. Er objektet delt, ligger
    delt-merket MELLOM ikonet og navnet ([ikon][delt]Navn). */
 .nav-board .kind-icon {
@@ -1605,13 +1605,13 @@ body.is-dragging * { cursor: grabbing !important; }
   font-size: var(--fs-lg);
   line-height: 1;
 }
-/* Universkortet skal ikke ha den lyse innerkanten delte lister har: på et kort
+/* Områdekortet skal ikke ha den lyse innerkanten delte lister har: på et kort
    der body-en er gjennomsiktig lyser ringen gjennom nederst og leser som en
-   ramme rundt gruppelista. Delt-merket ved navnet sier alt som trengs. */
+   ramme rundt mappelista. Delt-merket ved navnet sier alt som trengs. */
 .nav-board .card.is-shared { box-shadow: var(--shadow-sm); }
 .nav-board .card.is-shared:hover { box-shadow: var(--shadow-md); }
 
-/* Kollapset univers: [mappe] + antall grupper i stedet for «(N)» — samme lille,
+/* Kollapset område: [mappe] + antall mapper i stedet for «(N)» — samme lille,
    subtile pill som antall-merket ellers i appen. */
 .uni-count {
   display: inline-flex;
@@ -2636,7 +2636,7 @@ body.no-auth #account-btn { display: none; }
 .invite-actions { display: flex; gap: 6px; }
 
 /* ---------------- Del-modal ---------------- */
-/* Tilbakeknappen (vises når del-modalen ble åpnet fra univers-/gruppe-
+/* Tilbakeknappen (vises når del-modalen ble åpnet fra område-/mappe-
    modalen) står før tittelen; tittelen tar resten av bredden. Overskriften
    er vanlig tekstflyt (ikke flex): nivå-ikonet ligger INLINE i direkte
    tilknytning til navnet (.share-title-obj), og bryter sammen med det. */
@@ -2667,7 +2667,7 @@ body.no-auth #account-btn { display: none; }
 .share-role-select { flex: none; width: auto; padding-right: 26px; }
 .share-members { display: flex; flex-direction: column; }
 /* Forklaringen under navnet når en bruker ikke kan fjernes her (arvet fra
-   universet) eller er siste eier. */
+   området) eller er siste eier. */
 .member-hint { display: block; font-size: var(--fs-xs); color: var(--ink-soft); font-weight: 500; font-style: italic; }
 /* «Forlat» og «Slett for alle» står sammen nederst: begge kan være aktuelle
    samtidig (en medeier kan både forlate og slette). */
@@ -2714,7 +2714,7 @@ body.no-auth #account-btn { display: none; }
 .share-lock-row.is-inherited { background: #fff7ed; }
 .share-lock-anc-icon { display: inline-flex; vertical-align: -3px; font-size: 15px; color: var(--ink); }
 .share-lock-anc-icon svg { width: 15px; height: 15px; }
-/* Arvet medlem (tilgang via universet): svakere, og uten «Fjern» her. */
+/* Arvet medlem (tilgang via området): svakere, og uten «Fjern» her. */
 .member-row.is-inherited { opacity: 0.85; }
 .member-row.is-inherited .member-avatar { background: linear-gradient(180deg, #b0bcc7, #8a97a3); }
 
@@ -2742,11 +2742,11 @@ body.no-auth #account-btn { display: none; }
 }
 .share-badge[hidden] { display: none; }
 /* Listekortets badge er en ekte <button> (ingen egen del-knapp i korthodet
-   ellers) — nullstill knappe-kromet så den ser ut som universers/gruppers
+   ellers) — nullstill knappe-kromet så den ser ut som områders/mappers
    rene indikator-span. */
 /* Knappen er 36×36 som de andre kontrollene i korthodet (og får dermed de
    samme 44 px å treffe på), mens SELVE MERKET holder seg på --fs-lg — samme
-   størrelse som den dekorative spanen universer og grupper har, så de tre ser
+   størrelse som den dekorative spanen områder og mapper har, så de tre ser
    like ut. Uten en egen størrelse var knappen bare 16×16 (`font: inherit`
    nullstilte --fs-lg), og en 44 px treffflate sentrert på den strakk seg inn
    over listetittelen: et trykk ved navnet åpnet deling i stedet for omdøping. */
@@ -2767,8 +2767,8 @@ button.share-badge {
 button.share-badge:focus-visible { outline: var(--focus-w) solid var(--focus); outline-offset: 2px; border-radius: 4px; }
 /* Innstillingsknappen på listekort (`.card-cog`, tannhjul — erstatter den
    gamle del-knappen): egen svakt markert flate som lysner ved hover (samme
-   idé som flate-mønsteret, på farget bakgrunn). Univers/gruppe deles fortsatt
-   Universer/grupper bruker samme knappestil for sin DEL-knapp (`.uni-share`/
+   idé som flate-mønsteret, på farget bakgrunn). Område/mappe deles fortsatt
+   Områder/mapper bruker samme knappestil for sin DEL-knapp (`.uni-share`/
    `.group-share`) — de har ingen innstillingsmodal. */
 .card-cog {
   flex: 0 0 auto;
@@ -3024,7 +3024,7 @@ button.share-badge:focus-visible { outline: var(--focus-w) solid var(--focus); o
    Respekterer OS-innstillingen «reduser bevegelse»: nøytraliser animasjoner/
    transisjoner. JS-drevne fly-/FLIP-/drop-animasjoner hoppes uansett over i
    app.js (prefersReducedMotion()); dette dekker de rene CSS-effektene
-   (modal-sprett, gruppe-puls, sveipefelt-morf, hover-løft osv.). */
+   (modal-sprett, mappe-puls, sveipefelt-morf, hover-løft osv.). */
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after {
     animation-duration: 0.001ms !important;
@@ -3036,8 +3036,8 @@ button.share-badge:focus-visible { outline: var(--focus-w) solid var(--focus); o
 
 
 /* ---------------- Nav-modalen: de tre seksjonene ----------------
-   «Mine universer», «Universer delt med meg» og «Grupper delt med meg» ligger
-   i SAMME ene board-kolonne som universkortene, som egne rader. DnD-motoren
+   «Mine områder», «Områder delt med meg» og «Mapper delt med meg» ligger
+   i SAMME ene board-kolonne som områdekortene, som egne rader. DnD-motoren
    hopper over dem (`boardRows` filtrerer på `.card`), så de kan stå der uten å
    bli dra-mål. Skillelinjen over hver overskrift (unntatt den første) markerer
    seksjonsgrensen. */
@@ -3058,8 +3058,8 @@ button.share-badge:focus-visible { outline: var(--focus-w) solid var(--focus); o
   font-size: var(--fs-sm); font-weight: 500; color: var(--ink-soft);
 }
 .nav-add-uni { display: flex; justify-content: center; margin: 4px 0 2px; }
-/* «Grupper delt med meg» er en VIRTUELL beholder — den har ingen egen farge,
-   ingen del-/slett-knapp og ingen ＋-rad; bare gruppene. */
+/* «Mapper delt med meg» er en VIRTUELL beholder — den har ingen egen farge,
+   ingen del-/slett-knapp og ingen ＋-rad; bare mappene. */
 .free-groups-card { --card-bg: #eef0f6; --card-head: #dfe3ee; --card-accent: #9aa3b8; }
 /* Tittelen står på en LYS flate her (ikke en mettet kortfarge), så den hvite
    skriften med skygge ville blitt uleselig — bruk vanlig blekk uten skygge.

@@ -57,7 +57,7 @@ async function register(p) {
   await p.locator('#auth-password').fill('passord123');
   await p.locator('#auth-submit').click();
   // `lastMy` settes først når get_my_doc har svart — da er kontoen innlogget
-  // og dokumentet hentet. (En fersk konto har null universer — board er tomt.)
+  // og dokumentet hentet. (En fersk konto har null områder — board er tomt.)
   await p.waitForFunction(() => {
     const H = window.__huskis;
     return H && H.authUser && H.lastMy;
@@ -112,10 +112,10 @@ async function run(label, vp, mobile) {
   const errs = []; p.on('pageerror', (e) => errs.push(e.message));
   console.log('\n== ' + label + ' ==');
   await register(p);
-  // Fersk konto: la appen lage univers + gruppe selv, så vi har et sted å
+  // Fersk konto: la appen lage område + mappe selv, så vi har et sted å
   // henge kortet vårt (og radene har ekte eier/registre).
   await p.evaluate(() => window.__huskis.addGroup());
-  // La gruppen nå «serveren» før kortet henges på den (FK) — vent på raden.
+  // La mappen nå «serveren» før kortet henges på den (FK) — vent på raden.
   await p.waitForFunction(() => {
     const g = window.__huskis.state.universes[0].groups[0];
     const db = JSON.parse(localStorage.getItem('hk-mock-db') || '{}');

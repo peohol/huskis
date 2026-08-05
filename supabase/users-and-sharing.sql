@@ -9,18 +9,18 @@
 --   * Relasjonelle tabeller per nivå: universes > groups > cards
 --     («lister» i UI-et) > items. Hver rad har `owner_id`, som er
 --     OPPRETTEREN (created_by) — ren historikk, uten myndighet.
---   * DELING skjer KUN på universer og grupper. Lister arver alltid
---     tilgang fra gruppen sin; listepunkter/kategorier fra listen.
+--   * DELING skjer KUN på områder og mapper. Lister arver alltid
+--     tilgang fra mappen sin; listepunkter/kategorier fra listen.
 --   * MYNDIGHET ligger i MUTABLE ROLLER (public.memberships.role):
---       - universe + role 'owner'  → universeier (medeier når flere)
---       - universe + role 'member' → vanlig universmedlem
---       - group    + role 'owner'  → eksplisitt gruppeeier
---       - group    + role 'member' → direkte gruppemedlem
---     Universeiere er DYNAMISKE supereiere av alle grupper/lister i
---     universet og trenger ingen egne grupperader. Effektivt gruppe-
---     medlemskap = deduplisert union av universeiere, eksplisitte
---     gruppeeiere, universmedlemmer og direkte gruppemedlemmer.
---   * INVARIANT: et univers har alltid minst én `owner`. Håndheves i
+--       - universe + role 'owner'  → områdeeier (medeier når flere)
+--       - universe + role 'member' → vanlig områdemedlem
+--       - group    + role 'owner'  → eksplisitt mappeeier
+--       - group    + role 'member' → direkte mappemedlem
+--     Områdeeiere er DYNAMISKE supereiere av alle mapper/lister i
+--     området og trenger ingen egne mapperader. Effektivt mappe-
+--     medlemskap = deduplisert union av områdeeiere, eksplisitte
+--     mappeeiere, områdemedlemmer og direkte mappemedlemmer.
+--   * INVARIANT: et område har alltid minst én `owner`. Håndheves i
 --     databasen (memberships_last_owner_guard) — ikke bare i RPC-ene.
 --   * AUTORISASJON er capability-basert (`*_caps`-funksjonene under),
 --     beregnet serverside og returnert til klienten. RLS + BEFORE
@@ -30,13 +30,13 @@
 --     også på serveren: en utdatert skriving taper mot nyere data.
 --   * Gravsteiner (tombstones) skrives automatisk ved sletting, slik at
 --     offline-klienter ikke gjenoppliver slettede objekter.
---   * PERSONLIG rekkefølge (universer på toppnivå, frie grupper) ligger
+--   * PERSONLIG rekkefølge (områder på toppnivå, frie mapper) ligger
 --     på medlemskapsraden (`memberships.pos`) — også for eiere. Delt
---     rekkefølge (grupper i et univers, lister i en gruppe, listepunkter)
+--     rekkefølge (mapper i et område, lister i en mappe, listepunkter)
 --     ligger på objektraden (`pos`).
 --   * get_my_doc() gir hele brukerens datasett som ETT flatt jsonb-doc
 --     (universes/groups/cards/items + roller + capabilities + invitasjoner).
---   * move_group() er den ENESTE veien en gruppe bytter univers:
+--   * move_group() er den ENESTE veien en mappe bytter område:
 --     samme eierskapsdomene → ekte reparenting; ulikt domene → atomisk
 --     kopier-og-slett med nye id-er + gravsteiner for de gamle.
 --   * import_doc(p_doc) migrerer et lokalt/legacy doc inn som brukerens
@@ -214,7 +214,7 @@ create table if not exists public.items (
 -- (ts/org), som text/trashed. Idempotent for databaser opprettet før feltet.
 alter table public.items add column if not exists done boolean not null default false;
 -- Ansvarlig bruker for et listepunkt (den som «tar oppgaven» i en delt liste).
--- Peker på en profil med effektiv tilgang til gruppen. Rir på innholds-
+-- Peker på en profil med effektiv tilgang til mappen. Rir på innholds-
 -- registeret (ts/org). `on delete set null` så en slettet konto bare nullstiller
 -- ansvaret. Idempotent for eldre databaser.
 alter table public.items add column if not exists responsible uuid references public.profiles (id) on delete set null;
@@ -247,7 +247,7 @@ alter table public.items add column if not exists cat_id uuid references public.
 alter table public.items add column if not exists is_cat boolean not null default false;
 alter table public.items add column if not exists lock_times boolean not null default false;
 
--- Unntak fra arvet lås: et objekt under et låst univers/gruppe er automatisk
+-- Unntak fra arvet lås: et objekt under et låst område/mappe er automatisk
 -- låst for vanlige medlemmer, men rett autoritet kan sette `unlocked = true` for
 -- NETTOPP dette objektet så det likevel kan redigeres (og alt under det, med
 -- mindre et enda lavere nivå låses på nytt). `locked` og `unlocked` er gjensidig
@@ -265,9 +265,9 @@ alter table public.cards     add column if not exists collapsed boolean not null
 -- is_cat-rader). Rir på innholds-registeret (ts/org).
 alter table public.items     add column if not exists collapsed boolean not null default false;
 
--- Universer og grupper vises med NØYAKTIG samme oppsett som lister og
--- listepunkter (navigasjonsmodalen): et univers er et kort som kan kollapses, og
--- gruppene i det er rader som kan ligge i GRUPPEKATEGORIER. Speiler derfor
+-- Områder og mapper vises med NØYAKTIG samme oppsett som lister og
+-- listepunkter (navigasjonsmodalen): et område er et kort som kan kollapses, og
+-- mappene i det er rader som kan ligge i MAPPEKATEGORIER. Speiler derfor
 -- kategori-modellen fra `items`. Idempotent for eldre databaser.
 alter table public.groups    add column if not exists cat_id uuid references public.groups (id) on delete set null deferrable initially deferred;
 alter table public.groups    add column if not exists is_cat boolean not null default false;
@@ -278,7 +278,7 @@ alter table public.universes add column if not exists collapsed boolean not null
 -- VANLIGE medlemmer (ikke eiere) kan invitere flere til objektet. DYNAMISK ARV:
 -- den effektive tilstanden er den NÆRMESTE eksplisitte ('allow'/'deny') fra
 -- objektet og oppover; ingen eksplisitt noe sted → tillat. Finnes KUN på
--- universer og grupper (lister deles ikke). `cards.invite_policy` er pensjonert:
+-- områder og mapper (lister deles ikke). `cards.invite_policy` er pensjonert:
 -- kolonnen beholdes for eldre databaser, men leses aldri.
 do $$ begin
   alter table public.universes add column if not exists invite_policy text not null default 'inherit';
@@ -309,12 +309,12 @@ alter table public.items     enable row level security;
 -- 3. ROLLER/MEDLEMSKAP og INVITASJONER
 -- ------------------------------------------------------------
 
--- Én rad = én brukers ROLLE på ETT delbart objekt (univers eller gruppe).
+-- Én rad = én brukers ROLLE på ETT delbart objekt (område eller mappe).
 -- Nøyaktig én av universe_id/group_id er satt.
---   * role 'owner'  → eier/medeier (universeier hhv. eksplisitt gruppeeier)
---   * role 'member' → vanlig medlem (universmedlem hhv. direkte gruppemedlem)
---   * pos           → brukerens PERSONLIGE rekkefølge (universer på toppnivå,
---                     frie grupper i «Grupper delt med meg»). Endrer aldri
+--   * role 'owner'  → eier/medeier (områdeeier hhv. eksplisitt mappeeier)
+--   * role 'member' → vanlig medlem (områdemedlem hhv. direkte mappemedlem)
+--   * pos           → brukerens PERSONLIGE rekkefølge (områder på toppnivå,
+--                     frie mapper i «Mapper delt med meg»). Endrer aldri
 --                     hva andre ser.
 -- Eiere HAR en rad (i motsetning til den gamle modellen) — det er nettopp
 -- den raden som gjør eierskapet mutabelt (degradering/overføring).
@@ -349,7 +349,7 @@ create index if not exists memberships_group_role_idx on public.memberships (gro
 
 alter table public.memberships enable row level security;
 
--- Invitasjon til et univers eller en gruppe, adressert til en e-post (mottakeren
+-- Invitasjon til et område eller en mappe, adressert til en e-post (mottakeren
 -- trenger ikke ha konto ennå; kobles ved registrering). `role` avgjør om det er
 -- en MEDLEMS- eller EIERSKAPS-invitasjon; begge må aksepteres av mottakeren.
 -- Aksept krever ingen plassering — objektet havner i riktig seksjon av seg selv.
@@ -496,14 +496,14 @@ create trigger items_insert_guard before insert on public.items
 --   * OPPRETTER  = `owner_id` på objektraden. REN HISTORIKK — gir ingen
 --                  rettigheter. (Kolonnenavnet er beholdt teknisk; semantisk
 --                  er det `created_by`.)
---   * UNIVERSEIER = memberships(universe_id, role 'owner'). Flere er likestilte
+--   * OMRÅDEEIER = memberships(universe_id, role 'owner'). Flere er likestilte
 --                  («Medeiere»). Det finnes ALLTID minst én.
---   * GRUPPEEIER = memberships(group_id, role 'owner') — «eksplisitt» —
---                  ELLER en universeier, som er dynamisk supereier av alle
---                  grupper i universet.
---   * EFFEKTIVT GRUPPEMEDLEMSKAP = deduplisert union av universeiere,
---                  eksplisitte gruppeeiere, universmedlemmer og direkte
---                  gruppemedlemmer.
+--   * MAPPEEIER = memberships(group_id, role 'owner') — «eksplisitt» —
+--                  ELLER en områdeeier, som er dynamisk supereier av alle
+--                  mapper i området.
+--   * EFFEKTIVT MAPPEMEDLEMSKAP = deduplisert union av områdeeiere,
+--                  eksplisitte mappeeiere, områdemedlemmer og direkte
+--                  mappemedlemmer.
 -- Autorisasjonen er CAPABILITY-basert; alt håndheves SERVERSIDE (RLS + BEFORE
 -- UPDATE-vakter + SECURITY DEFINER-RPC-er), aldri kun i klienten.
 -- ============================================================================
@@ -550,7 +550,7 @@ drop function if exists public.inherited_invite_source(text, uuid);
 drop function if exists public.create_share_invite(text, uuid, text);
 
 -- Intern «privilegert operasjon»-kontekst: settes KUN av SECURITY DEFINER-
--- RPC-ene under (rolleendring, gruppeflytting, import) og leses av vaktene, så
+-- RPC-ene under (rolleendring, mappeflytting, import) og leses av vaktene, så
 -- kolonner som ellers er uforanderlige for klienter kan skrives der reglene
 -- allerede ER kontrollert. Transaksjonslokal (`set_config(..., true)`), så den
 -- kan ikke lekke til neste forespørsel i samme tilkobling.
@@ -567,7 +567,7 @@ returns text language sql stable security definer set search_path = public as $$
    where m.universe_id = p_universe and m.user_id = p_uid;
 $$;
 
--- DIREKTE rolle på gruppen (arvet universrolle telles ikke med her).
+-- DIREKTE rolle på mappen (arvet områderolle telles ikke med her).
 create or replace function public.group_role(p_group uuid, p_uid uuid)
 returns text language sql stable security definer set search_path = public as $$
   select m.role from public.memberships m
@@ -591,8 +591,8 @@ returns boolean language sql stable security definer set search_path = public as
                   where m.universe_id = p_universe and m.user_id = p_uid);
 $$;
 
--- EFFEKTIV gruppeeier: eksplisitt gruppeeierrolle ELLER universeier (dynamisk
--- supereier — trenger ingen egen grupperad).
+-- EFFEKTIV mappeeier: eksplisitt mappeeierrolle ELLER områdeeier (dynamisk
+-- supereier — trenger ingen egen mapperad).
 create or replace function public.is_group_owner(p_group uuid, p_uid uuid)
 returns boolean language sql stable security definer set search_path = public as $$
   select exists (select 1 from public.memberships m
@@ -600,8 +600,8 @@ returns boolean language sql stable security definer set search_path = public as
       or public.is_universe_owner(public.group_universe(p_group), p_uid);
 $$;
 
--- EFFEKTIVT gruppemedlemskap: direkte grupperolle ELLER en hvilken som helst
--- universrolle på gruppens kanoniske univers.
+-- EFFEKTIVT mappemedlemskap: direkte mapperolle ELLER en hvilken som helst
+-- områderolle på mappens kanoniske område.
 create or replace function public.is_group_member(p_group uuid, p_uid uuid)
 returns boolean language sql stable security definer set search_path = public as $$
   select exists (select 1 from public.memberships m
@@ -609,7 +609,7 @@ returns boolean language sql stable security definer set search_path = public as
       or public.is_universe_member(public.group_universe(p_group), p_uid);
 $$;
 
--- Antall universeiere — grunnlaget for siste-eier-invarianten og for om
+-- Antall områdeeiere — grunnlaget for siste-eier-invarianten og for om
 -- rollen heter «Eier» eller «Medeiere».
 create or replace function public.universe_owner_count(p_universe uuid)
 returns integer language sql stable security definer set search_path = public as $$
@@ -617,8 +617,8 @@ returns integer language sql stable security definer set search_path = public as
    where m.universe_id = p_universe and m.role = 'owner';
 $$;
 
--- Eierskapsdomenet til et univers: det NÅVÆRENDE, dedupliserte settet av
--- universeiere, sortert så to universer kan sammenlignes direkte. To universer
+-- Eierskapsdomenet til et område: det NÅVÆRENDE, dedupliserte settet av
+-- områdeeiere, sortert så to områder kan sammenlignes direkte. To områder
 -- er i samme domene når settene er identiske (se move_group).
 create or replace function public.universe_owner_set(p_universe uuid)
 returns uuid[] language sql stable security definer set search_path = public as $$
@@ -628,8 +628,8 @@ returns uuid[] language sql stable security definer set search_path = public as 
 $$;
 
 -- ---- Lesetilgang ----
--- Universet leses KUN av universmedlemmer: en direkte gruppemottaker uten
--- universrolle skal aldri se universets navn eller medlemsliste.
+-- Området leses KUN av områdemedlemmer: en direkte mappemottaker uten
+-- områderolle skal aldri se områdets navn eller medlemsliste.
 
 create or replace function public.can_read_universe(p_id uuid, p_uid uuid)
 returns boolean language sql stable security definer set search_path = public as $$
@@ -657,7 +657,7 @@ returns boolean language sql stable security definer set search_path = public as
   end, false);
 $$;
 
--- Universet et objekt av vilkårlig type hører til.
+-- Området et objekt av vilkårlig type hører til.
 create or replace function public.resource_universe(p_type text, p_id uuid)
 returns uuid language sql stable security definer set search_path = public as $$
   select case p_type
@@ -671,7 +671,7 @@ returns uuid language sql stable security definer set search_path = public as $$
   end;
 $$;
 
--- Gruppen et objekt av vilkårlig type hører til (null for universer).
+-- Mappen et objekt av vilkårlig type hører til (null for områder).
 create or replace function public.resource_group(p_type text, p_id uuid)
 returns uuid language sql stable security definer set search_path = public as $$
   select case p_type
@@ -682,8 +682,8 @@ returns uuid language sql stable security definer set search_path = public as $$
   end;
 $$;
 
--- PRIVILEGERT = eier på det nivået som styrer objektet: universeier for et
--- univers, gruppeeier (eksplisitt eller universeier) for gruppe/liste/listepunkt.
+-- PRIVILEGERT = eier på det nivået som styrer objektet: områdeeier for et
+-- område, mappeeier (eksplisitt eller områdeeier) for mappe/liste/listepunkt.
 -- Privilegerte påvirkes ALDRI av en lås for egen redigering.
 create or replace function public.is_privileged(p_type text, p_id uuid, p_uid uuid)
 returns boolean language sql stable security definer set search_path = public as $$
@@ -751,10 +751,10 @@ end;
 $$;
 
 -- Hvem kan opprette/fjerne et UNNTAK fra en ARVET lås:
---   * universeiere alltid (også fra en universlås — bare de kan åpne den);
---   * er den arvede låsen satt på en GRUPPE, kan også en EKSPLISITT gruppeeier
---     der styre unntaket for lister under gruppen.
--- En gruppeeier kan altså ikke åpne grenen for andre i strid med en universlås.
+--   * områdeeiere alltid (også fra en områdelås — bare de kan åpne den);
+--   * er den arvede låsen satt på en MAPPE, kan også en EKSPLISITT mappeeier
+--     der styre unntaket for lister under mappen.
+-- En mappeeier kan altså ikke åpne grenen for andre i strid med en områdelås.
 -- Finnes det INGEN arvet lås, er «unntak» bare en overflødig flaggverdi (den
 -- gjør ingenting) — da kan den som ellers styrer objektets lås rydde den bort,
 -- f.eks. etter at låsen over er fjernet.
@@ -769,7 +769,7 @@ returns boolean language sql stable security definer set search_path = public as
           and public.is_privileged(p_type, p_id, p_uid));
 $$;
 
--- ---- Invitasjonspolicy (kun universer og grupper) ----
+-- ---- Invitasjonspolicy (kun områder og mapper) ----
 
 create or replace function public.effective_invite_source(p_type text, p_id uuid)
 returns table(src_type text, src_id uuid, pol text)
@@ -825,7 +825,7 @@ returns boolean language sql stable security definer set search_path = public as
           or not public.is_effectively_locked(p_type, p_id));
 $$;
 
--- Opprette subobjekter (gruppe i univers, liste i gruppe, listepunkt i liste):
+-- Opprette subobjekter (mappe i område, liste i mappe, listepunkt i liste):
 -- samme rett som å endre forelderens innhold.
 create or replace function public.can_create_child(p_type text, p_id uuid, p_uid uuid)
 returns boolean language sql stable security definer set search_path = public as $$
@@ -834,7 +834,7 @@ $$;
 
 -- Endre objektets POSISJON blant søsken. Posisjonen tilhører FORELDERENS
 -- organisering, så den styres av retten til å redigere forelderens innhold —
--- ikke av objektets egen lås. Universets toppnivåposisjon er PERSONLIG
+-- ikke av objektets egen lås. Områdets toppnivåposisjon er PERSONLIG
 -- (memberships.pos) og krever bare medlemskap.
 create or replace function public.can_reorder_in_parent(p_type text, p_id uuid, p_uid uuid)
 returns boolean language sql stable security definer set search_path = public as $$
@@ -847,10 +847,10 @@ returns boolean language sql stable security definer set search_path = public as
 $$;
 
 -- Slette objektet FOR ALLE (felles søppel / permanent tømming).
---   * univers: kun universeiere
---   * gruppe:  gruppeeiere, ELLER et universMEDLEM når gruppen er effektivt åpen
---              (et rent direkte gruppemedlem kan aldri slette gruppen)
---   * liste/listepunkt: gruppeeiere, ELLER enhver med lesetilgang når objektet
+--   * område: kun områdeeiere
+--   * mappe:  mappeeiere, ELLER et områdeMEDLEM når mappen er effektivt åpen
+--              (et rent direkte mappemedlem kan aldri slette mappen)
+--   * liste/listepunkt: mappeeiere, ELLER enhver med lesetilgang når objektet
 --              er effektivt åpent
 create or replace function public.can_delete_object(p_type text, p_id uuid, p_uid uuid)
 returns boolean language sql stable security definer set search_path = public as $$
@@ -866,16 +866,16 @@ returns boolean language sql stable security definer set search_path = public as
 $$;
 
 -- Forlate objektet (fjerner KUN egen tilgang, aldri innhold).
---   * univers: må ha en rolle; siste eier kan ikke forlate
---   * gruppe:  den direkte grupperollen må være ENESTE vei inn. Har man i
---              tillegg en rolle i gruppens univers, mister man ingen tilgang av
---              å gi fra seg grupperaden — universtilgangen forlates i UNIVERSET,
---              ikke i gruppen, og en overflødig gruppeeierrolle gis fra seg med
---              «Tre av som medeier» i gruppens delemodal. Uten dette leddet fikk
---              en universeier med en gammel eksplisitt gruppeeierrad (f.eks. fra
---              rolle-backfill-en, som gjorde gruppens oppretter til gruppeeier
---              før vedkommende ble universeier) en forlat-knapp som ikke
---              forlot noe: raden ble slettet, tilgangen besto, og gruppen kom
+--   * område: må ha en rolle; siste eier kan ikke forlate
+--   * mappe:  den direkte mapperollen må være ENESTE vei inn. Har man i
+--              tillegg en rolle i mappens område, mister man ingen tilgang av
+--              å gi fra seg mapperaden — områdetilgangen forlates i OMRÅDET,
+--              ikke i mappen, og en overflødig mappeeierrolle gis fra seg med
+--              «Tre av som medeier» i mappens delemodal. Uten dette leddet fikk
+--              en områdeeier med en gammel eksplisitt mappeeierrad (f.eks. fra
+--              rolle-backfill-en, som gjorde mappens oppretter til mappeeier
+--              før vedkommende ble områdeeier) en forlat-knapp som ikke
+--              forlot noe: raden ble slettet, tilgangen besto, og mappen kom
 --              rett tilbake ved neste synk.
 create or replace function public.can_leave(p_type text, p_id uuid, p_uid uuid)
 returns boolean language sql stable security definer set search_path = public as $$
@@ -915,15 +915,15 @@ returns boolean language sql stable security definer set search_path = public as
   select public.can_manage_members(p_type, p_id, p_uid);
 $$;
 
--- Låse/åpne objektet for andre. Universet: universeiere. Gruppe/liste:
--- gruppeeiere (eksplisitte + universeiere).
+-- Låse/åpne objektet for andre. Området: områdeeiere. Mappe/liste:
+-- mappeeiere (eksplisitte + områdeeiere).
 create or replace function public.can_manage_lock(p_type text, p_id uuid, p_uid uuid)
 returns boolean language sql stable security definer set search_path = public as $$
   select public.is_privileged(p_type, p_id, p_uid);
 $$;
 
 -- Endre objektets eksplisitte invitasjonspolicy. Under en arvet 'deny' fra
--- universet kan bare universeiere gjøre et 'allow'-unntak på gruppen.
+-- området kan bare områdeeiere gjøre et 'allow'-unntak på mappen.
 create or replace function public.can_manage_invite_policy(p_type text, p_id uuid, p_uid uuid)
 returns boolean language sql stable security definer set search_path = public as $$
   select case
@@ -933,7 +933,7 @@ returns boolean language sql stable security definer set search_path = public as
   end;
 $$;
 
--- Flytte gruppen ut av universet sitt: destruktiv myndighet i KILDEN. Ren
+-- Flytte mappen ut av området sitt: destruktiv myndighet i KILDEN. Ren
 -- redigeringsrett holder ikke (se move_group, som i tillegg krever
 -- opprettelsesrett i MÅLET).
 create or replace function public.can_move_group(p_group uuid, p_uid uuid)
@@ -943,8 +943,8 @@ $$;
 
 -- ---- Delingsstatus ----
 -- «Aktivt delt» = mer enn ÉN bruker har effektiv tilgang. Ventende invitasjoner
--- teller ikke. For en gruppe er det den DEDUPLISERTE unionen av universroller
--- og direkte grupperoller.
+-- teller ikke. For en mappe er det den DEDUPLISERTE unionen av områderoller
+-- og direkte mapperoller.
 
 create or replace function public.universe_member_count(p_universe uuid)
 returns integer language sql stable security definer set search_path = public as $$
@@ -1012,9 +1012,9 @@ $$;
 --    * INNHOLDS-felt reverteres uten can_edit_content ELLER med eldre register.
 --    * POSISJON (pos + forelder-peker) reverteres uten can_reorder_in_parent
 --      ELLER med eldre register — skilt fra innholdslåsen.
---    * `groups.universe_id` kan IKKE endres med en vanlig skriving: gruppeflytting
+--    * `groups.universe_id` kan IKKE endres med en vanlig skriving: mappeflytting
 --      går gjennom move_group() (atomisk, med domenekontroll).
---    * Et univers har alltid minst én eier (memberships-vaktene).
+--    * Et område har alltid minst én eier (memberships-vaktene).
 --    * auth.uid() is null = admin/psql (vedlikehold) → hopper over autorisasjon
 --      (kun LWW gjelder).
 -- ------------------------------------------------------------
@@ -1026,8 +1026,8 @@ returns boolean language sql immutable as $$
 $$;
 
 -- ---- Eierrolle ved opprettelse ----
--- Den som oppretter et univers blir universeier; den som oppretter en gruppe blir
--- eksplisitt gruppeeier — MEN ikke hvis vedkommende allerede er universeier
+-- Den som oppretter et område blir områdeeier; den som oppretter en mappe blir
+-- eksplisitt mappeeier — MEN ikke hvis vedkommende allerede er områdeeier
 -- (da er rollen arvet og en egen rad ville bare duplisert medlemslisten).
 create or replace function public.universes_after_insert()
 returns trigger language plpgsql security definer set search_path = public as $$
@@ -1086,10 +1086,10 @@ begin
      and not public.can_manage_invite_policy('universe', old.id, uid) then
     raise exception 'mangler myndighet til å endre invitasjonspolicy';
   end if;
-  -- Sletting/gjenoppretting av HELE universet (felles søppel) er en eierhandling.
+  -- Sletting/gjenoppretting av HELE området (felles søppel) er en eierhandling.
   if new.trashed is distinct from old.trashed and uid is not null
      and not public.can_delete_object('universe', old.id, uid) then
-    raise exception 'mangler myndighet til å slette universet';
+    raise exception 'mangler myndighet til å slette området';
   end if;
   if (uid is not null and not can_content and not public.in_privileged_op())
      or not public.reg_newer(new.ts, new.org, old.ts, old.org) then
@@ -1133,18 +1133,18 @@ begin
      and not public.can_manage_invite_policy('group', old.id, uid) then
     raise exception 'mangler myndighet til å endre invitasjonspolicy';
   end if;
-  -- Å slette en gruppe FOR ALLE krever destruktiv myndighet (gruppeeier, eller
-  -- et universmedlem når gruppen er effektivt åpen) — ikke bare redigeringsrett.
+  -- Å slette en mappe FOR ALLE krever destruktiv myndighet (mappeeier, eller
+  -- et områdemedlem når mappen er effektivt åpen) — ikke bare redigeringsrett.
   if new.trashed is distinct from old.trashed and uid is not null
      and not public.can_delete_object('group', old.id, uid) then
-    raise exception 'mangler myndighet til å slette gruppen';
+    raise exception 'mangler myndighet til å slette mappen';
   end if;
-  -- Gruppen bytter univers KUN via move_group(): den avgjør eierskapsdomene,
+  -- Mappen bytter område KUN via move_group(): den avgjør eierskapsdomene,
   -- kontrollerer rettigheter i både kilde og mål, og gjør alt i én transaksjon.
   if new.universe_id is distinct from old.universe_id and not public.in_privileged_op() then
     raise exception using
       errcode = '42501',
-      message = 'grupper flyttes mellom universer med move_group()';
+      message = 'mapper flyttes mellom områder med move_group()';
   end if;
   if (uid is not null and not can_content and not public.in_privileged_op())
      or not public.reg_newer(new.ts, new.org, old.ts, old.org) then
@@ -1155,7 +1155,7 @@ begin
   if (uid is not null and not can_reorder and not public.in_privileged_op())
      or not public.reg_newer(new.pos_ts, new.pos_org, old.pos_ts, old.pos_org) then
     new.universe_id := old.universe_id;   -- forelder følger posisjonsregisteret
-    new.cat_id := old.cat_id;             -- … og gruppekategori-medlemskapet
+    new.cat_id := old.cat_id;             -- … og mappekategori-medlemskapet
     new.pos := old.pos; new.pos_ts := old.pos_ts; new.pos_org := old.pos_org;
   end if;
   new.updated_at := now();
@@ -1188,12 +1188,12 @@ begin
     raise exception 'mangler myndighet til å endre unntak';
   end if;
   if new.group_id is distinct from old.group_id and uid is not null then
-    -- Flytting av en liste mellom grupper krever rettigheter i BÅDE kilde og mål.
+    -- Flytting av en liste mellom mapper krever rettigheter i BÅDE kilde og mål.
     if not public.can_edit_content('group', old.group_id, uid) then
-      raise exception 'mangler tilgang til kilde-gruppen';
+      raise exception 'mangler tilgang til kilde-mappen';
     end if;
     if not public.can_create_child('group', new.group_id, uid) then
-      raise exception 'mangler tilgang til mål-gruppen';
+      raise exception 'mangler tilgang til mål-mappen';
     end if;
   end if;
   if (uid is not null and not can_content and not public.in_privileged_op())
@@ -1281,12 +1281,12 @@ begin
     if not public.in_privileged_op() then
       raise exception 'roller endres kun via set_member_role()';
     end if;
-    -- SISTE-EIER-INVARIANTEN: et univers må alltid ha minst én eier.
+    -- SISTE-EIER-INVARIANTEN: et område må alltid ha minst én eier.
     if old.universe_id is not null and old.role = 'owner' and new.role <> 'owner'
        and public.universe_owner_count(old.universe_id) <= 1 then
       raise exception using
         errcode = 'PT422',
-        message = 'universet må ha minst én eier';
+        message = 'området må ha minst én eier';
     end if;
   end if;
   if auth.uid() is not null and not public.in_privileged_op()
@@ -1303,7 +1303,7 @@ create trigger memberships_guard before update on public.memberships
   for each row execute function public.memberships_before_update();
 
 -- Siste-eier-invarianten gjelder også sletting (forlat/kast ut/rå DELETE).
--- Kaskader hoppes over: forsvinner selve universet eller brukeren, er det ingen
+-- Kaskader hoppes over: forsvinner selve området eller brukeren, er det ingen
 -- invariant igjen å beskytte.
 create or replace function public.memberships_before_delete()
 returns trigger language plpgsql security definer set search_path = public as $$
@@ -1314,7 +1314,7 @@ begin
      and public.universe_owner_count(old.universe_id) <= 1 then
     raise exception using
       errcode = 'PT422',
-      message = 'universet må ha minst én eier';
+      message = 'området må ha minst én eier';
   end if;
   return old;
 end;
@@ -1347,7 +1347,7 @@ create policy universes_update on public.universes
 create policy universes_delete on public.universes
   for delete using (public.can_delete_object('universe', id, auth.uid()));
 
--- groups: opprettelse krever opprettelsesrett i universet.
+-- groups: opprettelse krever opprettelsesrett i området.
 create policy groups_select on public.groups
   for select using (public.can_read_group(id, auth.uid()));
 create policy groups_insert on public.groups
@@ -1425,15 +1425,15 @@ create policy tombstones_select on public.tombstones
 
 -- ------------------------------------------------------------
 -- 8. DELINGS-RPC-ER (security definer)
---    Deling finnes KUN på universer og grupper. Alt som gjelder lister,
+--    Deling finnes KUN på områder og mapper. Alt som gjelder lister,
 --    listepunkter og kategorier arves.
 -- ------------------------------------------------------------
 
--- Fjerner ALL tilgang en bruker har UNDER et univers: universrollen, alle
--- direkte grupperoller i universet, ventende invitasjoner til universet og
--- gruppene, og ansvarstildelinger som peker på brukeren. Brukes av både
+-- Fjerner ALL tilgang en bruker har UNDER et område: områderollen, alle
+-- direkte mapperoller i området, ventende invitasjoner til området og
+-- mappene, og ansvarstildelinger som peker på brukeren. Brukes av både
 -- «forlat» og «kast ut» — en bruker skal aldri sitte igjen med skjult tilgang
--- til en enkeltgruppe etter å ha forlatt universet.
+-- til en enkeltmappe etter å ha forlatt området.
 create or replace function public.purge_universe_access(p_universe uuid, p_user uuid)
 returns void language plpgsql security definer set search_path = public as $$
 declare now_ms bigint := (extract(epoch from now()) * 1000)::bigint;
@@ -1466,9 +1466,9 @@ begin
 end;
 $$;
 
--- Fjerner en DIREKTE grupperolle (og ansvarstildelinger, hvis brukeren mister
--- den effektive tilgangen). Rører aldri universmedlemskap: en universarvet
--- bruker kan ikke fjernes fra én enkelt gruppe.
+-- Fjerner en DIREKTE mapperolle (og ansvarstildelinger, hvis brukeren mister
+-- den effektive tilgangen). Rører aldri områdemedlemskap: en områdearvet
+-- bruker kan ikke fjernes fra én enkelt mappe.
 create or replace function public.purge_group_access(p_group uuid, p_user uuid)
 returns void language plpgsql security definer set search_path = public as $$
 declare now_ms bigint := (extract(epoch from now()) * 1000)::bigint;
@@ -1494,7 +1494,7 @@ begin
 end;
 $$;
 
--- Inviterer en e-postadresse til et UNIVERS eller en GRUPPE.
+-- Inviterer en e-postadresse til et OMRÅDE eller en MAPPE.
 --   * p_role = 'member' → vanlig medlemsinvitasjon: eier på nivået, ELLER et
 --     effektivt medlem når invitasjonspolicyen tillater videreinvitasjon.
 --   * p_role = 'owner'  → EIERSKAPS-invitasjon: kun eiere på nivået. En vanlig
@@ -1513,7 +1513,7 @@ declare
 begin
   if uid is null then raise exception 'ikke innlogget'; end if;
   if p_type not in ('universe', 'group') then
-    raise exception 'kun universer og grupper kan deles (fikk: %)', p_type;
+    raise exception 'kun områder og mapper kan deles (fikk: %)', p_type;
   end if;
   if p_role not in ('member', 'owner') then raise exception 'ugyldig rolle: %', p_role; end if;
   if em = '' or position('@' in em) = 0 then
@@ -1586,17 +1586,17 @@ begin
 end;
 $$;
 
--- Neste ledige PERSONLIGE toppnivåposisjon for en bruker (universer og frie
--- grupper deler samme personlige rekkefølgerom-per-seksjon; ny tilgang legges
+-- Neste ledige PERSONLIGE toppnivåposisjon for en bruker (områder og frie
+-- mapper deler samme personlige rekkefølgerom-per-seksjon; ny tilgang legges
 -- alltid bakerst).
 create or replace function public.next_personal_pos(p_user uuid)
 returns double precision language sql stable security definer set search_path = public as $$
   select coalesce(max(m.pos), 0) + 1 from public.memberships m where m.user_id = p_user;
 $$;
 
--- Mottakeren aksepterer. Ingen plassering å velge: et univers havner i «Mine
--- universer»/«Universer delt med meg» etter rolle, og en gruppe enten inne i
--- universet (hvis mottakeren er universmedlem) eller i «Grupper delt med meg».
+-- Mottakeren aksepterer. Ingen plassering å velge: et område havner i «Mine
+-- områder»/«Områder delt med meg» etter rolle, og en mappe enten inne i
+-- området (hvis mottakeren er områdemedlem) eller i «Mapper delt med meg».
 create or replace function public.accept_share_invite(
   p_invite uuid, p_parent uuid default null, p_pos double precision default null)
 returns jsonb language plpgsql security definer set search_path = public as $$
@@ -1627,8 +1627,8 @@ begin
       do update set role = case when excluded.role = 'owner' then 'owner'
                                 else public.memberships.role end
     returning * into mem;
-    -- Universmedlemskapet gjør ordinære DIREKTE gruppemedlemskap i universet
-    -- redundante; eksplisitte gruppeeierroller beholdes (de gir ekstra myndighet).
+    -- Områdemedlemskapet gjør ordinære DIREKTE mappemedlemskap i området
+    -- redundante; eksplisitte mappeeierroller beholdes (de gir ekstra myndighet).
     delete from public.memberships m
      where m.user_id = uid and m.role = 'member'
        and m.group_id in (select g.id from public.groups g where g.universe_id = inv.universe_id);
@@ -1691,9 +1691,9 @@ begin
 end;
 $$;
 
--- Kaster ut et medlem (eller en medeier) fra et univers / en gruppe. Krever
--- eierrolle på nivået. Universeiere og universmedlemmer kan IKKE fjernes fra én
--- enkelt gruppe — de må fjernes fra universet (RPC-en avviser forsøket, så
+-- Kaster ut et medlem (eller en medeier) fra et område / en mappe. Krever
+-- eierrolle på nivået. Områdeeiere og områdemedlemmer kan IKKE fjernes fra én
+-- enkelt mappe — de må fjernes fra området (RPC-en avviser forsøket, så
 -- feilen forklarer hvorfor i stedet for å bli en stille no-op).
 create or replace function public.revoke_share(p_type text, p_id uuid, p_user uuid)
 returns void language plpgsql security definer set search_path = public as $$
@@ -1707,7 +1707,7 @@ begin
   perform set_config('huskis.privileged_op', '1', true);
   if p_type = 'universe' then
     if public.universe_role(p_id, p_user) is null then
-      raise exception 'brukeren er ikke medlem av universet';
+      raise exception 'brukeren er ikke medlem av området';
     end if;
     perform public.purge_universe_access(p_id, p_user);
   else
@@ -1715,9 +1715,9 @@ begin
       if public.is_group_member(p_id, p_user) then
         raise exception using
           errcode = 'PT409',
-          message = 'brukeren har tilgang via universet og må fjernes der';
+          message = 'brukeren har tilgang via området og må fjernes der';
       end if;
-      raise exception 'brukeren er ikke medlem av gruppen';
+      raise exception 'brukeren er ikke medlem av mappen';
     end if;
     perform public.purge_group_access(p_id, p_user);
   end if;
@@ -1748,8 +1748,8 @@ begin
   if p_type = 'universe' then
     update public.memberships set role = p_role where universe_id = p_id and user_id = p_user;
   else
-    -- En degradert gruppeeier som ellers ikke har tilgang, blir vanlig direkte
-    -- gruppemedlem; er vedkommende universmedlem, er raden overflødig.
+    -- En degradert mappeeier som ellers ikke har tilgang, blir vanlig direkte
+    -- mappemedlem; er vedkommende områdemedlem, er raden overflødig.
     if public.is_universe_member(public.group_universe(p_id), p_user) then
       delete from public.memberships where group_id = p_id and user_id = p_user;
     else
@@ -1769,7 +1769,7 @@ begin
   if p_type not in ('universe', 'group') then raise exception 'ugyldig type: %', p_type; end if;
   if p_type = 'universe' then
     if public.universe_role(p_id, uid) is null then
-      raise exception 'du er ikke medlem av dette universet';
+      raise exception 'du er ikke medlem av dette området';
     end if;
     if not public.can_leave('universe', p_id, uid) then
       raise exception using
@@ -1779,17 +1779,17 @@ begin
     perform set_config('huskis.privileged_op', '1', true);
     perform public.purge_universe_access(p_id, uid);
   else
-    -- Samme svar enten grupperaden mangler eller bare er overflødig ved siden av
-    -- en universrolle: tilgangen kommer fra universet, og det er der man
+    -- Samme svar enten mapperaden mangler eller bare er overflødig ved siden av
+    -- en områderolle: tilgangen kommer fra området, og det er der man
     -- forlater. Å slette den overflødige raden ville sett ut som en forlatelse
     -- uten å være det.
     if not public.can_leave('group', p_id, uid) then
       if public.is_group_member(p_id, uid) then
         raise exception using
           errcode = 'PT409',
-          message = 'du har tilgang via universet — forlat universet i stedet';
+          message = 'du har tilgang via området — forlat området i stedet';
       end if;
-      raise exception 'du er ikke medlem av denne gruppen';
+      raise exception 'du er ikke medlem av denne mappen';
     end if;
     perform set_config('huskis.privileged_op', '1', true);
     perform public.purge_group_access(p_id, uid);
@@ -1816,8 +1816,8 @@ begin
 end;
 $$;
 
--- Gjør/opphever et UNNTAK fra en ARVET lås. Kun universeiere (alltid), eller —
--- når den arvede låsen er satt på en GRUPPE — en eksplisitt gruppeeier der.
+-- Gjør/opphever et UNNTAK fra en ARVET lås. Kun områdeeiere (alltid), eller —
+-- når den arvede låsen er satt på en MAPPE — en eksplisitt mappeeier der.
 create or replace function public.set_unlocked(p_type text, p_id uuid, p_unlocked boolean)
 returns void language plpgsql security definer set search_path = public as $$
 declare uid uuid := auth.uid();
@@ -1834,8 +1834,8 @@ begin
 end;
 $$;
 
--- Setter objektets eksplisitte INVITASJONSPOLICY (tretilstand). Kun univers og
--- gruppe — lister deles ikke og har ingen policy.
+-- Setter objektets eksplisitte INVITASJONSPOLICY (tretilstand). Kun område og
+-- mappe — lister deles ikke og har ingen policy.
 create or replace function public.set_invite_policy(p_type text, p_id uuid, p_policy text)
 returns void language plpgsql security definer set search_path = public as $$
 declare uid uuid := auth.uid();
@@ -2162,16 +2162,16 @@ create trigger on_share_invite_created
 -- `delete_account()` sletter kontoen og alle spor av den i ÉN transaksjon.
 -- Det vanskelige er ikke slettingen, men grensen mot ANDRES innhold:
 --
---   * Universer som blir stående UTEN EIER når jeg er borte (typisk: der jeg
---     er eneste eier) slettes HELT — kaskaden tar grupper/lister/listepunkter,
+--   * Områder som blir stående UTEN EIER når jeg er borte (typisk: der jeg
+--     er eneste eier) slettes HELT — kaskaden tar mapper/lister/listepunkter,
 --     og AFTER DELETE-triggerne skriver gravstein for hver rad. Også for dem
 --     jeg har delt med: innholdet er mitt, og det følger kontoen.
---   * Universer/grupper med andre eiere står igjen; jeg fjernes bare som
+--   * Områder/mapper med andre eiere står igjen; jeg fjernes bare som
 --     medlem, nøyaktig som «Forlat».
 --   * `owner_id` (OPPRETTER) på rader som overlever ARVES av en gjenværende
---     universeier. Feltet er ren historikk uten rettigheter, men FK-en er
+--     områdeeier. Feltet er ren historikk uten rettigheter, men FK-en er
 --     `on delete cascade` — uten arven ville profilslettingen revet vekk
---     innhold i andres delte universer (et listepunkt jeg la inn i en felles
+--     innhold i andres delte områder (et listepunkt jeg la inn i en felles
 --     liste er de andres innhold like mye som mitt).
 --   * `responsible` som peker på meg nulles med et stempel som er nyere enn
 --     BÅDE klokka og radens eget register. `on delete set null` alene ville
@@ -2189,7 +2189,7 @@ create trigger on_share_invite_created
 -- uten data hadde vært verre enn en sletting som ikke gikk gjennom.
 -- ------------------------------------------------------------
 
--- En gjenværende eier av universet (aldri p_uid). Deterministisk — eldste
+-- En gjenværende eier av området (aldri p_uid). Deterministisk — eldste
 -- medlemskap først — så arven blir den samme hver gang.
 create or replace function public.surviving_universe_owner(p_universe uuid, p_uid uuid)
 returns uuid language sql stable security definer set search_path = public as $$
@@ -2213,7 +2213,7 @@ begin
   perform set_config('huskis.privileged_op', '1', true);
 
   -- 1. Invitasjoner begge veier (også de som bare er adressert til e-posten min)
-  --    og e-postloggen for dem. FØRST, fordi en invitasjon til et univers som
+  --    og e-postloggen for dem. FØRST, fordi en invitasjon til et område som
   --    slettes i neste steg forsvinner med kaskaden — da ville loggraden dens
   --    ikke lenger vært mulig å finne.
   delete from public.email_send_log l
@@ -2223,14 +2223,14 @@ begin
   delete from public.share_invites s
    where s.inviter_id = uid or s.invitee_id = uid or lower(s.invitee_email) = em;
 
-  -- 2. Universer jeg er knyttet til som ikke har noen eier igjen etter meg.
+  -- 2. Områder jeg er knyttet til som ikke har noen eier igjen etter meg.
   delete from public.universes u
    where public.surviving_universe_owner(u.id, uid) is null
      and (u.owner_id = uid
           or exists (select 1 from public.memberships m
                       where m.universe_id = u.id and m.user_id = uid));
 
-  -- 3. Oppretter-arv på alt som overlever (universet har nå alltid en eier).
+  -- 3. Oppretter-arv på alt som overlever (området har nå alltid en eier).
   update public.universes u
      set owner_id = public.surviving_universe_owner(u.id, uid)
    where u.owner_id = uid;
@@ -2271,10 +2271,10 @@ $$;
 -- 9. MEDLEMSLISTE — deduplisert, kategorisert og med capabilities
 --
 --    Kategori-presedens (en bruker vises ALDRI to ganger):
---      1 universeier  2 eksplisitt gruppeeier  3 universmedlem  4 gruppemedlem
---    Universeiere/-medlemmer vises også i GRUPPERS medlemsliste, men kan ikke
+--      1 områdeeier  2 eksplisitt mappeeier  3 områdemedlem  4 mappemedlem
+--    Områdeeiere/-medlemmer vises også i MAPPERS medlemsliste, men kan ikke
 --    fjernes der (`removable = false` + forklaring) — de må fjernes fra
---    universet. Ventende invitasjoner er en EGEN seksjon og teller ikke som
+--    området. Ventende invitasjoner er en EGEN seksjon og teller ikke som
 --    medlemmer.
 -- ------------------------------------------------------------
 
@@ -2287,7 +2287,7 @@ declare
 begin
   if uid is null then raise exception 'ikke innlogget'; end if;
   if p_type not in ('universe', 'group') then
-    raise exception 'kun universer og grupper har medlemslister (fikk: %)', p_type;
+    raise exception 'kun områder og mapper har medlemslister (fikk: %)', p_type;
   end if;
   if not public.can_read(p_type, p_id, uid) then raise exception 'ingen tilgang'; end if;
   uni := public.resource_universe(p_type, p_id);
@@ -2317,14 +2317,14 @@ begin
            'avatar', pr.avatar,
            'category', b.category, 'role', b.role, 'source', b.source,
            'direct', b.direct,
-           -- Kan denne brukeren fjernes HER? Arvede universmedlemmer i en
-           -- gruppes liste kan det aldri; siste universeier heller ikke.
+           -- Kan denne brukeren fjernes HER? Arvede områdemedlemmer i en
+           -- mappes liste kan det aldri; siste områdeeier heller ikke.
            'removable', b.direct
              and public.can_manage_members(p_type, p_id, uid)
              and not (p_type = 'universe' and b.role = 'owner'
                       and public.universe_owner_count(p_id) <= 1),
            'removeHint', case
-             when not b.direct then 'Har tilgang via universet og må fjernes der'
+             when not b.direct then 'Har tilgang via området og må fjernes der'
              when p_type = 'universe' and b.role = 'owner'
                   and public.universe_owner_count(p_id) <= 1
                then 'Siste eier kan ikke fjernes'
@@ -2384,10 +2384,10 @@ $$;
 
 -- ------------------------------------------------------------
 -- 9b. get_my_doc() — hele brukerens datasett som ett flatt doc
---     * universer brukeren har en rolle i (eier ELLER medlem)
---     * grupper i disse universene PLUSS direkte delte grupper med hele
---       undertreet — også når det kanoniske universet IKKE er lesbart
---       (`free = true`; universets navn/medlemsliste lekkes aldri)
+--     * områder brukeren har en rolle i (eier ELLER medlem)
+--     * mapper i disse områdene PLUSS direkte delte mapper med hele
+--       undertreet — også når det kanoniske området IKKE er lesbart
+--       (`free = true`; områdets navn/medlemsliste lekkes aldri)
 --     * personlig rekkefølge, roller, capabilities og invitasjoner
 -- ------------------------------------------------------------
 
@@ -2432,7 +2432,7 @@ begin
         'pos', u.pos, 'posTs', u.pos_ts, 'posOrg', u.pos_org,
         'ownerCount', public.universe_owner_count(u.id),
         -- Eierskapsdomenet som én sammenlignbar nøkkel: klienten bruker den til å
-        -- vite OM en gruppeflytting krysser domenegrensen (og dermed må bekreftes)
+        -- vite OM en mappeflytting krysser domenegrensen (og dermed må bekreftes)
         -- før den kaller move_group. Ingen ny informasjon — medlemslisten er
         -- allerede synlig for alle med tilgang.
         'ownerKey', array_to_string(public.universe_owner_set(u.id), ','),
@@ -2500,14 +2500,14 @@ end;
 $$;
 
 -- ------------------------------------------------------------
--- 9c. move_group() — ATOMISK flytting av en gruppe
+-- 9c. move_group() — ATOMISK flytting av en mappe
 --
---   * samme univers        → ren omplassering (delt posisjon + gruppekategori)
---   * samme EIERSKAPSDOMENE (identisk sett universeiere) → ekte REPARENTING:
+--   * samme område        → ren omplassering (delt posisjon + mappekategori)
+--   * samme EIERSKAPSDOMENE (identisk sett områdeeiere) → ekte REPARENTING:
 --     alle id-er, roller, direkte medlemmer, invitasjoner, innhold og låser
 --     består; kun universe_id/kategori/posisjon endres.
 --   * ULIKT domene        → KOPIER-OG-SLETT: nytt undertre med NYE id-er i
---     måluniverset (aktøren blir oppretter og eksplisitt gruppeeier), gamle
+--     målområdet (aktøren blir oppretter og eksplisitt mappeeier), gamle
 --     roller/medlemmer/invitasjoner følger IKKE med, og det gamle treet slettes
 --     permanent i samme transaksjon (gravsteiner for hver eneste gamle id).
 --
@@ -2538,27 +2538,27 @@ begin
   if uid is null then raise exception 'ikke innlogget'; end if;
 
   select * into g from public.groups where id = p_group for update;
-  if g.id is null then raise exception 'gruppen finnes ikke'; end if;
-  if g.is_cat then raise exception 'en gruppekategori kan ikke flyttes til et annet univers'; end if;
+  if g.id is null then raise exception 'mappen finnes ikke'; end if;
+  if g.is_cat then raise exception 'en mappekategori kan ikke flyttes til et annet område'; end if;
   src_uni := g.universe_id;
 
   if not exists (select 1 from public.universes where id = p_universe) then
-    raise exception 'måluniverset finnes ikke';
+    raise exception 'målområdet finnes ikke';
   end if;
-  -- Lås begge universene i stabil rekkefølge (unngår vranglås ved to samtidige
+  -- Lås begge områdene i stabil rekkefølge (unngår vranglås ved to samtidige
   -- flyttinger i motsatt retning).
   perform 1 from public.universes u where u.id in (src_uni, p_universe)
     order by u.id for update;
 
   if p_cat is not null and not exists (
     select 1 from public.groups gc where gc.id = p_cat and gc.is_cat and gc.universe_id = p_universe) then
-    raise exception 'ugyldig gruppekategori for måluniverset';
+    raise exception 'ugyldig mappekategori for målområdet';
   end if;
 
-  -- ---- Samme univers: ren omplassering (delt posisjon), ikke en flytting ----
+  -- ---- Samme område: ren omplassering (delt posisjon), ikke en flytting ----
   if src_uni = p_universe then
     if not public.can_reorder_in_parent('group', p_group, uid) then
-      raise exception 'mangler myndighet til å endre rekkefølgen i universet';
+      raise exception 'mangler myndighet til å endre rekkefølgen i området';
     end if;
     update public.groups
        set cat_id = p_cat, pos = p_pos, pos_ts = now_ms, pos_org = 'server'
@@ -2567,10 +2567,10 @@ begin
   end if;
 
   if not public.can_move_group(p_group, uid) then
-    raise exception 'mangler myndighet til å flytte gruppen ut av universet';
+    raise exception 'mangler myndighet til å flytte mappen ut av området';
   end if;
   if not public.can_create_child('universe', p_universe, uid) then
-    raise exception 'mangler myndighet til å opprette grupper i måluniverset';
+    raise exception 'mangler myndighet til å opprette mapper i målområdet';
   end if;
 
   -- ---- Samme eierskapsdomene: ekte reparenting ----
@@ -2806,9 +2806,9 @@ $$;
 -- ------------------------------------------------------------
 -- 11. MIGRERING AV EKSISTERENDE DATA
 --
---   11a. ROLLER: oppretteren av et univers blir universeier; oppretteren av en
---        gruppe blir eksplisitt gruppeeier (med mindre vedkommende allerede er
---        universeier). Eksisterende direkte medlemskap blir vanlige roller.
+--   11a. ROLLER: oppretteren av et område blir områdeeier; oppretteren av en
+--        mappe blir eksplisitt mappeeier (med mindre vedkommende allerede er
+--        områdeeier). Eksisterende direkte medlemskap blir vanlige roller.
 --        Kjøres ÉN gang (migration_log): en re-kjøring ville gjeninnsatt en
 --        rolle som senere er fjernet med vilje.
 --
@@ -2825,14 +2825,14 @@ begin
   if exists (select 1 from public.migration_log where key = 'roles_backfill_v1') then return; end if;
   perform set_config('huskis.privileged_op', '1', true);
 
-  -- Universeier = universets oppretter.
+  -- Områdeeier = områdets oppretter.
   insert into public.memberships (user_id, universe_id, role, pos)
   select u.owner_id, u.id, 'owner', u.pos from public.universes u
   on conflict (universe_id, user_id) where universe_id is not null
     do update set role = 'owner';
 
-  -- Eksplisitt gruppeeier = gruppens oppretter, med mindre rollen alt er arvet
-  -- som universeier (da ville raden bare duplisert medlemslisten).
+  -- Eksplisitt mappeeier = mappens oppretter, med mindre rollen alt er arvet
+  -- som områdeeier (da ville raden bare duplisert medlemslisten).
   insert into public.memberships (user_id, group_id, role, pos)
   select g.owner_id, g.id, 'owner', g.pos from public.groups g
    where not exists (select 1 from public.memberships m
@@ -2841,8 +2841,8 @@ begin
   on conflict (group_id, user_id) where group_id is not null
     do update set role = 'owner';
 
-  -- Dedupliser: et direkte gruppemedlemskap er overflødig når brukeren allerede
-  -- har en universrolle (tilgangen er da arvet).
+  -- Dedupliser: et direkte mappemedlemskap er overflødig når brukeren allerede
+  -- har en områderolle (tilgangen er da arvet).
   delete from public.memberships m
    where m.group_id is not null and m.role = 'member'
      and exists (select 1 from public.memberships um
@@ -2882,7 +2882,7 @@ begin
     continue when g.id is null;
     u := g.universe_id;
 
-    -- (1+2) Redundante listetilganger: mottakeren har allerede gruppetilgang.
+    -- (1+2) Redundante listetilganger: mottakeren har allerede mappetilgang.
     delete from public.memberships m
      where m.card_id = c.id and public.is_group_member(g.id, m.user_id);
     update public.share_invites s set status = 'revoked', responded_at = now()
@@ -2894,7 +2894,7 @@ begin
       continue;
     end if;
 
-    -- Finnes det en ANNEN aktiv liste i gruppen? Det — ikke antallet aktive
+    -- Finnes det en ANNEN aktiv liste i mappen? Det — ikke antallet aktive
     -- lister — avgjør om promotering er trygt: er `c` selv i søpla mens en annen
     -- liste er aktiv, ville promotering gitt mottakerne tilgang til nettopp den
     -- søskenlista de ikke kunne lese før.
@@ -2902,14 +2902,14 @@ begin
       from public.cards where group_id = g.id and not trashed and id <> c.id;
 
     if n_active = 0 then
-      -- (3) Ingen andre aktive lister i gruppen: løft mottakerne til DIREKTE
-      --     gruppemedlemmer. Lista blir liggende, og framtidige lister i gruppen
+      -- (3) Ingen andre aktive lister i mappen: løft mottakerne til DIREKTE
+      --     mappemedlemmer. Lista blir liggende, og framtidige lister i mappen
       --     deles etter den nye modellen med de samme folkene.
       target := g.id;
     else
-      -- (4) Det finnes andre aktive lister: splitt ut en ny søskengruppe for
+      -- (4) Det finnes andre aktive lister: splitt ut en ny søskenmappe for
       --     NØYAKTIG denne lista, så mottakerne ikke får se søsknene. Samme
-      --     univers, samme gruppekategori, rett ved siden av den gamle gruppen.
+      --     område, samme mappekategori, rett ved siden av den gamle mappen.
       base_nm := coalesce(nullif(btrim(c.title), ''), 'Delt liste');
       nm := base_nm; k := 1;
       while exists (select 1 from public.groups x
@@ -2923,7 +2923,7 @@ begin
               now_ms, 'migration', g.pos + 0.5, now_ms, 'migration');
       update public.cards set group_id = new_gid, pos_ts = now_ms, pos_org = 'migration'
        where id = c.id;
-      -- De som hadde tilgang til den gamle gruppen DIREKTE (ikke via universet)
+      -- De som hadde tilgang til den gamle mappen DIREKTE (ikke via området)
       -- beholder tilgangen til lista — med samme rolle som før.
       insert into public.memberships (user_id, group_id, role, pos)
       select m.user_id, new_gid, m.role, m.pos
@@ -2935,14 +2935,14 @@ begin
       target := new_gid;
     end if;
 
-    -- Direkte listemedlemmer → direkte gruppemedlemmer i målgruppen.
+    -- Direkte listemedlemmer → direkte mappemedlemmer i målmappen.
     insert into public.memberships (user_id, group_id, role, pos)
     select m.user_id, target, 'member', m.pos
       from public.memberships m where m.card_id = c.id
     on conflict (group_id, user_id) where group_id is not null do nothing;
 
-    -- Ventende listeinvitasjoner → gruppeinvitasjoner. En adresse som allerede
-    -- har en ventende invitasjon til målgruppen ville brutt unik-indeksen, så
+    -- Ventende listeinvitasjoner → mappeinvitasjoner. En adresse som allerede
+    -- har en ventende invitasjon til målmappen ville brutt unik-indeksen, så
     -- den trekkes tilbake i stedet (invitasjonen finnes jo allerede).
     update public.share_invites s set status = 'revoked', responded_at = now()
      where s.card_id = c.id and s.status = 'pending'
@@ -2956,7 +2956,7 @@ begin
   end loop;
 
   -- Rester: ikke-ventende listeinvitasjoner (avslått/tilbaketrukket/akseptert)
-  -- og eventuelle medlemskap på lister uten gruppe. `card_id` skal være tomt
+  -- og eventuelle medlemskap på lister uten mappe. `card_id` skal være tomt
   -- overalt etter migreringen.
   delete from public.memberships where card_id is not null;
   update public.share_invites
@@ -2969,7 +2969,7 @@ begin
 end $$;
 
 -- Mount-kolonnene er pensjonert: mottakeren velger ikke lenger sin egen
--- forelder for delt innhold (en gruppe har alltid ett kanonisk univers), og
+-- forelder for delt innhold (en mappe har alltid ett kanonisk område), og
 -- «forlat» erstatter mottakerens egen søppelkasse for selve delingen.
 alter table public.memberships drop column if exists parent_universe_id;
 alter table public.memberships drop column if exists parent_group_id;

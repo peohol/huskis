@@ -8,8 +8,8 @@
    (sessionStorage), så to faner = to innloggede brukere.
 
    Fidelitet: nok til å kjøre hele rolle-/delingsmodellen (invitasjon →
-   aksept → rolle, medeierskap, capabilities, effektivt gruppemedlemskap,
-   låser, forlat/utkast, gruppeflytting med reparenting og kryssdomene-
+   aksept → rolle, medeierskap, capabilities, effektivt mappemedlemskap,
+   låser, forlat/utkast, mappeflytting med reparenting og kryssdomene-
    kopiering) + server-side felt-LWW og get_my_doc-synligheten.
    IKKE en full RLS-implementasjon.
    ============================================================ */
@@ -81,7 +81,7 @@
         universe_id: null, role: 'owner', pos: g.pos || 0, created_at: Date.now() });
     });
     // Eksisterende medlemskap uten rolle er vanlige medlemmer; dedupliser dem
-    // som allerede har arvet tilgang via universet.
+    // som allerede har arvet tilgang via området.
     db.memberships.forEach(function (m) { if (!m.role) m.role = 'member'; });
     db.memberships = db.memberships.filter(function (m) {
       if (m.card_id) return false;                 // lister deles ikke lenger
@@ -133,10 +133,10 @@
   }
 
   /* ---------------- Rolle- og tilgangsmodell (speiler users-and-sharing.sql) ----------------
-     Deling finnes KUN på universer og grupper. Myndighet kommer fra MUTABLE
+     Deling finnes KUN på områder og mapper. Myndighet kommer fra MUTABLE
      ROLLER i `memberships` (role 'owner' | 'member'); `owner_id` på objektradene
-     er ren oppretter-historikk uten rettigheter. Universeiere er dynamiske
-     supereiere av alle grupper i universet. */
+     er ren oppretter-historikk uten rettigheter. Områdeeiere er dynamiske
+     supereiere av alle mapper i området. */
   function findU(db, id) { return db.universes.find(function (x) { return x.id === id; }) || null; }
   function findG(db, id) { return db.groups.find(function (x) { return x.id === id; }) || null; }
   function findC(db, id) { return db.cards.find(function (x) { return x.id === id; }) || null; }
@@ -162,8 +162,8 @@
   function universeOwnerCount(db, id) {
     return db.memberships.filter(function (m) { return m.universe_id === id && m.role === 'owner'; }).length;
   }
-  // En gjenværende eier av universet (aldri uid) — speiler
-  // public.surviving_universe_owner(). Null = universet står uten eier når
+  // En gjenværende eier av området (aldri uid) — speiler
+  // public.surviving_universe_owner(). Null = området står uten eier når
   // brukeren er borte, og skal slettes med kontoen (se delete_account).
   function survivingOwner(db, id, uid) {
     var m = db.memberships.filter(function (x) {
@@ -187,8 +187,8 @@
     return Object.keys(seen).length;
   }
 
-  // Universet leses KUN av universmedlemmer — en direkte gruppemottaker skal
-  // aldri se universets navn eller medlemsliste.
+  // Området leses KUN av områdemedlemmer — en direkte mappemottaker skal
+  // aldri se områdets navn eller medlemsliste.
   function canReadUniverse(db, id, uid) { return isUniverseMember(db, id, uid); }
   function canReadGroup(db, id, uid) { return !!findG(db, id) && isGroupMember(db, id, uid); }
   function canReadCard(db, id, uid) {
@@ -220,7 +220,7 @@
     return !!g && isGroupOwner(db, g, uid);
   }
 
-  // Ordnet kjede nærmeste-først [liste?, gruppe?, univers?].
+  // Ordnet kjede nærmeste-først [liste?, mappe?, område?].
   function lockChain(db, type, id) {
     var vCard = null, vGroup = null, vUniverse = null, r, chain = [];
     if (type === 'item') { r = findI(db, id); vCard = r ? r.card_id : null; }
@@ -251,8 +251,8 @@
     else return null;
     return pid ? effectiveLockSource(db, pt, pid) : null;
   }
-  // Unntak fra en ARVET lås: universeiere alltid; er låsen satt på en GRUPPE,
-  // også en EKSPLISITT gruppeeier der. Uten arvet lås er «unntak» bare en
+  // Unntak fra en ARVET lås: områdeeiere alltid; er låsen satt på en MAPPE,
+  // også en EKSPLISITT mappeeier der. Uten arvet lås er «unntak» bare en
   // overflødig flaggverdi som objektets lås-eier kan rydde bort.
   function canManageLockException(db, type, id, uid) {
     if (isUniverseOwner(db, resourceUniverse(db, type, id), uid)) return true;
@@ -262,7 +262,7 @@
     return false;
   }
 
-  // Invitasjonspolicy (tretilstand med dynamisk arv) — kun univers og gruppe.
+  // Invitasjonspolicy (tretilstand med dynamisk arv) — kun område og mappe.
   function effectiveInviteSource(db, type, id) {
     var chain = [], r;
     if (type === 'group') {
@@ -292,7 +292,7 @@
       (isPrivileged(db, type, id, uid) || !isEffectivelyLocked(db, type, id));
   }
   function canCreateChild(db, type, id, uid) { return canEditContent(db, type, id, uid); }
-  // Posisjonen tilhører FORELDERENS organisering. Universets toppnivåposisjon
+  // Posisjonen tilhører FORELDERENS organisering. Områdets toppnivåposisjon
   // er PERSONLIG (memberships.pos) og krever bare medlemskap.
   function canReorderInParent(db, type, id, uid) {
     var r;
@@ -316,8 +316,8 @@
       var r = universeRole(db, id, uid);
       return r !== null && (r !== 'owner' || universeOwnerCount(db, id) > 1);
     }
-    // En direkte grupperolle gir bare forlat-rett når den er ENESTE vei inn:
-    // med en universrolle i tillegg forlater man i universet (se can_leave).
+    // En direkte mapperolle gir bare forlat-rett når den er ENESTE vei inn:
+    // med en områderolle i tillegg forlater man i området (se can_leave).
     if (type === 'group') {
       return groupRole(db, id, uid) !== null &&
         universeRole(db, groupUniverse(db, id), uid) === null;
@@ -524,7 +524,7 @@
   }
 
   // Deduplisert, kategorisert medlemsliste. Presedens:
-  //   1 universeier  2 eksplisitt gruppeeier  3 universmedlem  4 gruppemedlem
+  //   1 områdeeier  2 eksplisitt mappeeier  3 områdemedlem  4 mappemedlem
   function getMembers(db, type, id, uid) {
     if (!canReadAny(db, type, id, uid)) throw new Error('ingen tilgang');
     var uni = resourceUniverse(db, type, id);
@@ -554,7 +554,7 @@
         avatar: pr.avatar || null,
         category: b.category, role: b.role, source: b.source, direct: b.direct,
         removable: b.direct && canManage && !lastOwner,
-        removeHint: !b.direct ? 'Har tilgang via universet og må fjernes der'
+        removeHint: !b.direct ? 'Har tilgang via området og må fjernes der'
           : (lastOwner ? 'Siste eier kan ikke fjernes' : null),
         demotable: b.direct && b.role === 'owner' && canManage && !lastOwner,
         // Rolleløft går via en invitasjon mottakeren må godta — flagget speiler
@@ -662,16 +662,16 @@
       row.owner_id = uid;
       // Opprettelse av subobjekt krever opprettelsesrett i forelderen.
       if (table === 'groups' && findU(db, row.universe_id) && !canCreateChild(db, 'universe', row.universe_id, uid))
-        throw new Error('mangler tilgang til universet');
+        throw new Error('mangler tilgang til området');
       if (table === 'cards' && findG(db, row.group_id) && !canCreateChild(db, 'group', row.group_id, uid))
-        throw new Error('mangler tilgang til gruppen');
+        throw new Error('mangler tilgang til mappen');
       if (table === 'items' && findC(db, row.card_id) && !canCreateChild(db, 'card', row.card_id, uid))
         throw new Error('mangler tilgang til listen');
       // Nye objekter arver invitasjonspolicy dynamisk → lagres som 'inherit'.
       if (table === 'universes' || table === 'groups') { if (!row.invite_policy) row.invite_policy = 'inherit'; }
       db[table].push(row);
-      // Opprettelses-triggerne: universoppretteren blir universeier, gruppe-
-      // oppretteren eksplisitt gruppeeier (med mindre rollen alt er arvet).
+      // Opprettelses-triggerne: områdeoppretteren blir områdeeier, mappe-
+      // oppretteren eksplisitt mappeeier (med mindre rollen alt er arvet).
       if (table === 'universes') seedRole(db, uid, { universe_id: row.id }, row.pos);
       if (table === 'groups' && !isUniverseOwner(db, row.universe_id, uid))
         seedRole(db, uid, { group_id: row.id }, row.pos);
@@ -722,9 +722,9 @@
       // Sletting til felles søppel krever destruktiv myndighet.
       if ('trashed' in patch && patch.trashed !== row.trashed && !canDeleteObject(db, type, row.id, uid))
         throw new Error('mangler myndighet til å slette objektet');
-      // Gruppen bytter univers KUN via move_group().
+      // Mappen bytter område KUN via move_group().
       if (type === 'group' && 'universe_id' in patch && patch.universe_id !== row.universe_id)
-        throw new Error('grupper flyttes mellom universer med move_group()');
+        throw new Error('mapper flyttes mellom områder med move_group()');
       // Flytting av liste/listepunkt til ny forelder: rettigheter i BÅDE kilde og mål.
       var pcol = type === 'card' ? 'group_id' : type === 'item' ? 'card_id' : null;
       var ptype = type === 'card' ? 'group' : type === 'item' ? 'card' : null;
@@ -783,7 +783,7 @@
         if (row.user_id !== uid && !mayManage) return true;
         // Siste-eier-invarianten gjelder også en rå sletting.
         if (row.universe_id && row.role === 'owner' && universeOwnerCount(db, row.universe_id) <= 1)
-          throw new Error('universet må ha minst én eier');
+          throw new Error('området må ha minst én eier');
         return false;
       });
       return;
@@ -888,7 +888,7 @@
       create_share_invite: function (p) {
         var role = p.p_role || 'member';
         if (['universe', 'group'].indexOf(p.p_type) < 0)
-          throw new Error('kun universer og grupper kan deles (fikk: ' + p.p_type + ')');
+          throw new Error('kun områder og mapper kan deles (fikk: ' + p.p_type + ')');
         if (['member', 'owner'].indexOf(role) < 0) throw new Error('ugyldig rolle: ' + role);
         var em = String(p.p_email).toLowerCase().trim();
         if (em === '' || em.indexOf('@') < 0) throw new Error('ugyldig e-postadresse');
@@ -952,8 +952,8 @@
           db.memberships.push(mem);
         }
         if (inv.universe_id) {
-          // Universmedlemskapet gjør ordinære DIREKTE gruppemedlemskap i
-          // universet redundante; eksplisitte gruppeeierroller beholdes.
+          // Områdemedlemskapet gjør ordinære DIREKTE mappemedlemskap i
+          // området redundante; eksplisitte mappeeierroller beholdes.
           var gids = db.groups.filter(function (g) { return g.universe_id === inv.universe_id; })
             .map(function (g) { return g.id; });
           db.memberships = db.memberships.filter(function (m) {
@@ -982,15 +982,15 @@
         if (['universe', 'group'].indexOf(p.p_type) < 0) throw new Error('ugyldig type: ' + p.p_type);
         if (!canManageMembers(db, p.p_type, p.p_id, uid)) throw new Error('mangler myndighet til å fjerne medlemmer');
         if (p.p_type === 'universe') {
-          if (universeRole(db, p.p_id, p.p_user) === null) throw new Error('brukeren er ikke medlem av universet');
+          if (universeRole(db, p.p_id, p.p_user) === null) throw new Error('brukeren er ikke medlem av området');
           if (universeRole(db, p.p_id, p.p_user) === 'owner' && universeOwnerCount(db, p.p_id) <= 1)
-            throw new Error('universet må ha minst én eier');
+            throw new Error('området må ha minst én eier');
           purgeUniverseAccess(db, p.p_id, p.p_user);
         } else {
           if (groupRole(db, p.p_id, p.p_user) === null) {
             if (isGroupMember(db, p.p_id, p.p_user))
-              throw new Error('brukeren har tilgang via universet og må fjernes der');
-            throw new Error('brukeren er ikke medlem av gruppen');
+              throw new Error('brukeren har tilgang via området og må fjernes der');
+            throw new Error('brukeren er ikke medlem av mappen');
           }
           purgeGroupAccess(db, p.p_id, p.p_user);
         }
@@ -1006,7 +1006,7 @@
           throw new Error('eierskap gis via en eierskapsinvitasjon mottakeren må godta');
         if (cur === p.p_role) return null;
         if (p.p_type === 'universe') {
-          if (universeOwnerCount(db, p.p_id) <= 1) throw new Error('universet må ha minst én eier');
+          if (universeOwnerCount(db, p.p_id) <= 1) throw new Error('området må ha minst én eier');
           uniMembership(db, p.p_user, p.p_id).role = p.p_role;
         } else if (isUniverseMember(db, groupUniverse(db, p.p_id), p.p_user)) {
           db.memberships = db.memberships.filter(function (m) {
@@ -1020,15 +1020,15 @@
       leave_share: function (p) {
         if (['universe', 'group'].indexOf(p.p_type) < 0) throw new Error('ugyldig type: ' + p.p_type);
         if (p.p_type === 'universe') {
-          if (universeRole(db, p.p_id, uid) === null) throw new Error('du er ikke medlem av dette universet');
+          if (universeRole(db, p.p_id, uid) === null) throw new Error('du er ikke medlem av dette området');
           if (!canLeave(db, 'universe', p.p_id, uid))
             throw new Error('du er siste eier — gi eierskap til noen andre først');
           purgeUniverseAccess(db, p.p_id, uid);
         } else {
           if (!canLeave(db, 'group', p.p_id, uid)) {
             if (isGroupMember(db, p.p_id, uid))
-              throw new Error('du har tilgang via universet — forlat universet i stedet');
-            throw new Error('du er ikke medlem av denne gruppen');
+              throw new Error('du har tilgang via området — forlat området i stedet');
+            throw new Error('du er ikke medlem av denne mappen');
           }
           purgeGroupAccess(db, p.p_id, uid);
         }
@@ -1062,7 +1062,7 @@
       get_members: function (p) { return getMembers(db, p.p_type, p.p_id, uid); },
       // Sletter kontoen og alle spor av den — speiler public.delete_account()
       // steg for steg (rekkefølgen betyr noe: invitasjonene ryddes FØR
-      // universene, som ellers ville tatt dem med i kaskaden).
+      // områdene, som ellers ville tatt dem med i kaskaden).
       delete_account: function () {
         var me = db.profiles.find(function (x) { return x.id === uid; });
         if (!me) throw new Error('fant ingen profil for kontoen');
@@ -1075,7 +1075,7 @@
           return !(s.inviter_id === uid || s.invitee_id === uid ||
                    String(s.invitee_email).toLowerCase() === em);
         });
-        // 2. universer jeg er knyttet til som står uten eier etter meg
+        // 2. områder jeg er knyttet til som står uten eier etter meg
         db.universes.filter(function (u) {
           return heir(u.id) === null && (u.owner_id === uid || isUniverseMember(db, u.id, uid));
         }).map(function (u) { return u.id; }).forEach(function (id) {
@@ -1111,31 +1111,31 @@
         delete db.passwords[em];
         return null;
       },
-      // Den ENESTE veien en gruppe bytter univers. Samme domene → reparenting;
+      // Den ENESTE veien en mappe bytter område. Samme domene → reparenting;
       // ulikt domene → kopier-og-slett med nye id-er + gravsteiner.
       move_group: function (p) {
         var g = findG(db, p.p_group);
-        if (!g) throw new Error('gruppen finnes ikke');
-        if (g.is_cat) throw new Error('en gruppekategori kan ikke flyttes til et annet univers');
-        if (!findU(db, p.p_universe)) throw new Error('måluniverset finnes ikke');
+        if (!g) throw new Error('mappen finnes ikke');
+        if (g.is_cat) throw new Error('en mappekategori kan ikke flyttes til et annet område');
+        if (!findU(db, p.p_universe)) throw new Error('målområdet finnes ikke');
         var cat = p.p_cat || null;
         if (cat) {
           var cg = findG(db, cat);
           if (!cg || !cg.is_cat || cg.universe_id !== p.p_universe)
-            throw new Error('ugyldig gruppekategori for måluniverset');
+            throw new Error('ugyldig mappekategori for målområdet');
         }
         var now = Date.now();
         var mapping = {};
         if (g.universe_id === p.p_universe) {
           if (!canReorderInParent(db, 'group', p.p_group, uid))
-            throw new Error('mangler myndighet til å endre rekkefølgen i universet');
+            throw new Error('mangler myndighet til å endre rekkefølgen i området');
           g.cat_id = cat; g.pos = p.p_pos || 0; g.pos_ts = now; g.pos_org = 'server';
           return { mode: 'reorder', group: p.p_group, mapping: mapping };
         }
         if (!canMoveGroup(db, p.p_group, uid))
-          throw new Error('mangler myndighet til å flytte gruppen ut av universet');
+          throw new Error('mangler myndighet til å flytte mappen ut av området');
         if (!canCreateChild(db, 'universe', p.p_universe, uid))
-          throw new Error('mangler myndighet til å opprette grupper i måluniverset');
+          throw new Error('mangler myndighet til å opprette mapper i målområdet');
 
         if (universeOwnerSet(db, g.universe_id) === universeOwnerSet(db, p.p_universe)) {
           g.universe_id = p.p_universe; g.cat_id = cat;

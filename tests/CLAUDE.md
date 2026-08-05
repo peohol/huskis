@@ -104,7 +104,7 @@ To måter å komme inn i appen på:
 
 **Introduksjonen kommer i veien.** En ny konto får den interaktive innføringen
 automatisk etter innlogging (`docs/introduksjon.md`): et kort med spotlight
-som venter på at brukeren bygger univers → gruppe → liste → listepunkt.
+som venter på at brukeren bygger område → mappe → liste → listepunkt.
 Gest-tipsene er like mye i veien: de kommer som en toast NEDERST på skjermen —
 nøyaktig der et mobil-drag tar tak i den nederste lista. Tester som ikke handler
 om introduksjonen skal derfor slå av BEGGE deler med én gang:

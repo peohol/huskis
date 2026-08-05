@@ -14,8 +14,8 @@
        objektet og åpner navnefeltet, og innføringen blir stående.
     4. Avbrutt navngiving (Escape) regnes ikke som fullført: raden forsvinner
        igjen, og steget står.
-    5. Hvert nivå må ligge hos RIKTIG forelder (gruppe i universet steget lagde,
-       liste i gruppen, listepunkt i listen).
+    5. Hvert nivå må ligge hos RIKTIG forelder (mappe i området steget lagde,
+       liste i mappen, listepunkt i listen).
     6. Fokus står på den EKTE kontrollen, og Enter der utfører handlingen.
     7. Skjermleser: role=dialog, live-område, aria-modal kun på fortellesteg.
     8. Ventende invitasjon blokkeres ikke — konto-knappen er klikkbar under et
@@ -224,7 +224,7 @@ async function run(label, vp, mobile) {
     s1.open && s1.id === 'welcome' && /Steg 1 av 8/.test(s1.step) && s1.role === 'dialog',
     JSON.stringify({ id: s1.id, step: s1.step, role: s1.role }));
   log(label + ' 1b: velkomsten er kort og sier hva som skal gjøres',
-    /univers/i.test(await p.locator('#tour-text').innerText()) &&
+    /område/i.test(await p.locator('#tour-text').innerText()) &&
     /listepunkt/i.test(await p.locator('#tour-text').innerText()),
     (await p.locator('#tour-text').innerText()).replace(/\s+/g, ' ').slice(0, 70));
   log(label + ' 2: fortellesteget er modalt (aria-modal, fokus i kortet)',
@@ -282,7 +282,7 @@ async function run(label, vp, mobile) {
     const u = window.__huskis.state.universes.find((x) => x.id === id);
     return !!u && !u.trashed && String(u.name).trim() === 'Hjemme';
   }, afterUni.ctx.universeId);
-  log(label + ' 8: universet må finnes (med navn) før gruppesteget begynner',
+  log(label + ' 8: området må finnes (med navn) før mappesteget begynner',
     uniOk && !!afterUni.ctx.universeId, JSON.stringify(afterUni.ctx));
 
   /* ---------- 4) Avbrutt navngiving er ikke en fullført handling ---------- */
@@ -300,7 +300,7 @@ async function run(label, vp, mobile) {
   }, afterUni.ctx.universeId);
   log(label + ' 9: avbrutt navngiving regnes ikke som fullført',
     cancelled.id === 'create_group' && !cancelled.ctx.groupId && groupsNow === 0,
-    JSON.stringify({ id: cancelled.id, grupper: groupsNow }));
+    JSON.stringify({ id: cancelled.id, mapper: groupsNow }));
 
   /* ---------- 5) Riktig forelder på hvert nivå ---------- */
   await doGroup(p, 'Ukesplan');
@@ -311,14 +311,14 @@ async function run(label, vp, mobile) {
     const g = u && u.groups.find((x) => x.id === c.groupId);
     return { funnet: !!g, uni: g ? g.uni : null, navn: g ? g.name : null };
   }, afterGroup.ctx);
-  log(label + ' 10: gruppen ligger i universet innføringen lagde',
+  log(label + ' 10: mappen ligger i området innføringen lagde',
     groupParent.funnet && groupParent.uni === afterGroup.ctx.universeId &&
     groupParent.navn === 'Ukesplan', JSON.stringify(groupParent));
 
   await doOpenGroup(p);
   await waitStep(p, 'create_card');
   const opened = await p.evaluate(() => window.__huskis.state.activeGroup);
-  log(label + ' 11: gruppen er faktisk aktiv før listesteget begynner',
+  log(label + ' 11: mappen er faktisk aktiv før listesteget begynner',
     opened === afterGroup.ctx.groupId, opened);
 
   await doCard(p, 'Handleliste');
@@ -328,10 +328,10 @@ async function run(label, vp, mobile) {
     const u = window.__huskis.state.universes.find((x) => x.id === c.universeId);
     const g = u && u.groups.find((x) => x.id === c.groupId);
     const k = g && g.cards.find((x) => x.id === c.cardId);
-    return { funnet: !!k, gruppe: k ? k.group : null, tittel: k ? k.title : null };
+    return { funnet: !!k, mappe: k ? k.group : null, tittel: k ? k.title : null };
   }, afterCard.ctx);
-  log(label + ' 12: listen ligger i gruppen innføringen lagde',
-    cardParent.funnet && cardParent.gruppe === afterCard.ctx.groupId &&
+  log(label + ' 12: listen ligger i mappen innføringen lagde',
+    cardParent.funnet && cardParent.mappe === afterCard.ctx.groupId &&
     cardParent.tittel === 'Handleliste', JSON.stringify(cardParent));
 
   /* ---------- 6) Invitasjoner blokkeres ikke midt i et steg ---------- */
@@ -407,7 +407,7 @@ async function run(label, vp, mobile) {
   await p.locator('#nav-crumb').click();
   await waitStep(p, 'create_universe');
   const review = await tourState(p);
-  log(label + ' 20: repetisjonen peker på universet som ALLEREDE finnes',
+  log(label + ' 20: repetisjonen peker på området som ALLEREDE finnes',
     review.mode === 'review' && !review.skipStepHidden,
     JSON.stringify({ mode: review.mode, hoppSteg: !review.skipStepHidden }));
   // …og går videre uten at noe nytt ble laget.
@@ -494,7 +494,7 @@ async function runResume() {
     prof.user_metadata = Object.assign({}, prof.user_metadata, {
       onboarding: { v: 2, status: 'in_progress', step: 'create_item', context: c },
     });
-    // Gruppen (og dermed listen) er borte når økten starter neste gang.
+    // Mappen (og dermed listen) er borte når økten starter neste gang.
     db.groups = db.groups.filter((g) => g.id !== c.groupId);
     db.cards = db.cards.filter((k) => k.group_id !== c.groupId);
     db.items = [];
@@ -543,13 +543,13 @@ function seedDB(opts) {
     memberships: [], share_invites: [], tombstones: [],
   };
   if (opts.content) {
-    /* `guest: true` gir et DELT univers der seed-brukeren bare er medlem. Sammen
-       med en låst gruppe er det den ekte «uten opprettelsesrett»-situasjonen:
+    /* `guest: true` gir et DELT område der seed-brukeren bare er medlem. Sammen
+       med en låst mappe er det den ekte «uten opprettelsesrett»-situasjonen:
        en eier kommer forbi sin egen lås (privilegert), et medlem gjør det
        ikke. */
     const eier = opts.guest ? inviter : uid;
-    db.universes.push(base({ id: UA, owner_id: eier, name: opts.guest ? 'Delt univers' : 'Mitt univers' }));
-    db.groups.push(base({ id: GA, owner_id: eier, universe_id: UA, name: 'Delt gruppe',
+    db.universes.push(base({ id: UA, owner_id: eier, name: opts.guest ? 'Delt område' : 'Mitt område' }));
+    db.groups.push(base({ id: GA, owner_id: eier, universe_id: UA, name: 'Delt mappe',
       locked: !!opts.locked }));
     db.memberships.push({ id: U(), user_id: eier, universe_id: UA, group_id: null, role: 'owner', pos: 0, created_at: 1 });
     if (opts.guest) {
@@ -560,10 +560,10 @@ function seedDB(opts) {
     }
   }
   if (opts.invite) {
-    // Invitasjonen gjelder et univers inviteren eier (kolonnenavnene er
+    // Invitasjonen gjelder et område inviteren eier (kolonnenavnene er
     // databasens: invitee_email / inviter_id — se share_invites).
     const UB = U();
-    db.universes.push(base({ id: UB, owner_id: inviter, name: 'Delt univers' }));
+    db.universes.push(base({ id: UB, owner_id: inviter, name: 'Delt område' }));
     db.memberships.push({ id: U(), user_id: inviter, universe_id: UB, group_id: null, role: 'owner', pos: 0, created_at: 1 });
     db.share_invites.push({ id: INV, universe_id: UB, group_id: null,
       invitee_email: 'seed@x.no', invitee_id: null, inviter_id: inviter,
@@ -635,19 +635,19 @@ async function runAccounts() {
   await p.locator('#tour-next').click();
   await waitStep(p, 'open_nav');
   await p.locator('#nav-crumb').click();
-  /* Repetisjonen finner universet, gruppen OG at gruppen alt er aktiv, så den
-     løper av seg selv fram til listesteget — der den låste gruppen stopper
+  /* Repetisjonen finner området, mappen OG at mappen alt er aktiv, så den
+     løper av seg selv fram til listesteget — der den låste mappen stopper
      den. Det er nettopp det som skal testes. */
   await waitStep(p, 'create_card');
   await p.waitForFunction(() => /kan ikke opprette/i.test(
     document.getElementById('tour-note').textContent), null, { timeout: 6000, polling: 100 });
   const blocked = await tourState(p);
   /* Steget har ingen kontroll å peke på (＋ Liste er avskrudd for en gjest i en
-     låst gruppe), så kortet er uten spotlight. Da skal det IKKE midtstilles:
+     låst mappe), så kortet er uten spotlight. Da skal det IKKE midtstilles:
      brukeren må fortsatt nå appen bak — her oversikten som står åpen. */
   log('konto 4a: kortet dekker ikke appen når steget ikke har noe mål',
     blocked.noSpot && await hittable(p, '.uni-card .item'), 'no-spot=' + blocked.noSpot);
-  log('konto 4: en låst gruppe gir en forklaring, ikke en umulig oppgave',
+  log('konto 4: en låst mappe gir en forklaring, ikke en umulig oppgave',
     /kan ikke opprette lister/i.test(blocked.note) && blocked.noteError,
     blocked.note);
   log('konto 4b: steget kan hoppes over når det ikke KAN utføres',
@@ -827,7 +827,7 @@ async function runTips() {
   await p.waitForFunction(() => document.getElementById('tour').hidden,
     null, { timeout: 5000, polling: 100 });
 
-  // To lister i gruppen → flytte-gesten er relevant, og tipset kommer én gang.
+  // To lister i mappen → flytte-gesten er relevant, og tipset kommer én gang.
   await p.evaluate((count) => {
     const H = window.__huskis, st = H.state;
     const mk = (o) => Object.assign({ ts: 1, org: 't', pos: 0, posTs: 1, posOrg: 't', trashed: false, _role: 'owner' }, o);

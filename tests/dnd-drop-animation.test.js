@@ -6,7 +6,7 @@
      `drag.lastX - grabX`, som ligger utenfor skjermen når klemmen har slått inn
      (ga et synlig hopp idet man slapp).
   6. Startskalaen i drop-animasjonen følger objekttypen (dragScale: liste 1.02,
-     listepunkt 1.03, gruppe/univers 1.05) — ikke en hardkodet 1.02 for alt.
+     listepunkt 1.03, mappe/område 1.05) — ikke en hardkodet 1.02 for alt.
 
   Kjør:
     python3 -m http.server 8000                    # fra repo-roten, i egen terminal
@@ -31,7 +31,7 @@ async function register(p) {
   await p.locator('#auth-password').fill('passord123');
   await p.locator('#auth-submit').click();
   // `lastMy` settes først når get_my_doc har svart — da er kontoen innlogget
-  // og dokumentet hentet. (En fersk konto har null universer — board er tomt.)
+  // og dokumentet hentet. (En fersk konto har null områder — board er tomt.)
   await p.waitForFunction(() => {
     const H = window.__huskis;
     return H && H.authUser && H.lastMy;
@@ -169,7 +169,7 @@ const log = (n, ok, x = '') => { results.push(ok); console.log((ok ? 'PASS' : 'F
     log('6 listepunkt: startskala 1.03', scaleIn(rItem.transform) === 1.03, 'transform=' + rItem.transform);
     await p.waitForTimeout(600);
 
-    // GRUPPE (rad i et univers-kort) → samme skala som et listepunkt (1.03)
+    // MAPPE (rad i et område-kort) → samme skala som et listepunkt (1.03)
     for (let i = 0; i < 2; i++) {
       await p.evaluate(() => { window.__huskis.addGroup(); }); await p.waitForTimeout(200);
     }
@@ -181,10 +181,10 @@ const log = (n, ok, x = '') => { results.push(ok); console.log((ok ? 'PASS' : 'F
     // Til venstre, så dra-rotasjonen (og dermed rotate/scale-suffikset) ikke blir 0.
     await pointer(p, 'pointermove', g0.x - 90, g0.y + 30); await p.waitForTimeout(120);
     const rGroup = await dropAndMeasure(p, '#nav-board .item.dragging', g0.x - 90, g0.y + 30);
-    log('6 gruppe: startskala 1.03', scaleIn(rGroup.transform) === 1.03, 'transform=' + rGroup.transform);
+    log('6 mappe: startskala 1.03', scaleIn(rGroup.transform) === 1.03, 'transform=' + rGroup.transform);
     await p.waitForTimeout(600);
 
-    // UNIVERS (kort) → samme skala som en liste (1.02)
+    // OMRÅDE (kort) → samme skala som en liste (1.02)
     for (let i = 0; i < 2; i++) {
       await p.evaluate(() => { window.__huskis.addUniverse(); }); await p.waitForTimeout(200);
       await p.keyboard.press('Escape'); await p.waitForTimeout(180);
@@ -197,7 +197,7 @@ const log = (n, ok, x = '') => { results.push(ok); console.log((ok ? 'PASS' : 'F
     await pointer(p, 'pointerdown', u0.x, u0.y); await p.waitForTimeout(260);
     await pointer(p, 'pointermove', u0.x - 90, u0.y + 30); await p.waitForTimeout(120);
     const rUni = await dropAndMeasure(p, '#nav-board .card.dragging', u0.x - 90, u0.y + 30);
-    log('6 univers: startskala 1.02', scaleIn(rUni.transform) === 1.02, 'transform=' + rUni.transform);
+    log('6 område: startskala 1.02', scaleIn(rUni.transform) === 1.02, 'transform=' + rUni.transform);
     await p.waitForTimeout(600);
 
     log('6 ingen JS-feil', errs.length === 0, errs.join(' | '));

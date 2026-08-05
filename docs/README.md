@@ -1,9 +1,9 @@
 # Dokumentasjonskart
 
 Les det oppgaven berører, ikke mer. Hvert dokument beskriver **nåtilstanden** i
-sitt område; endringshistorikken ligger i git og i PR-ene.
+sitt fagfelt; endringshistorikken ligger i git og i PR-ene.
 
-Ved motstrid gjelder det dokumentet som er merket autoritativt for området — og
+Ved motstrid gjelder det dokumentet som er merket autoritativt for feltet — og
 `rettigheter-og-deling.md` går foran alle andre i rettighetsspørsmål.
 
 | Dokument | Les når oppgaven gjelder | Autoritativ for |
@@ -15,8 +15,8 @@ Ved motstrid gjelder det dokumentet som er merket autoritativt for området — 
 | [design-system.md](design-system.md) | `styles.css`, nye knapper/kontroller, delte klasser, toast, modaler, animasjon | **ja** — designsystemet |
 | [tilgjengelighet.md](tilgjengelighet.md) | kontrastkravene og fargekontrakten, `aria-label` på ikonknapper, tastatursnarveiene (sortering/flytting/omdøping), fokus i modaler og etter sletting, berøringsflater, de manuelle kontrollpunktene | **ja** — WCAG-kravene |
 | [introduksjon.md](introduksjon.md) | den interaktive innføringen etter første innlogging, spotlight-stegene, lagret framdrift, «Vis på nytt», de kontekstuelle tipsene om avanserte gester | **ja** — førstegangsopplevelsen |
-| [menus.md](menus.md) | toppmenyen, navigasjonsmodalen (universer + grupper), kontoknappen/-modalen | **ja** — navigasjon og menyer |
-| [drag-and-drop.md](drag-and-drop.md) | reorder, flytting mellom lister/grupper/universer, ekstrahering, peek, auto-scroll, de to dra-scopene | **ja** — dra-og-slipp-motoren |
+| [menus.md](menus.md) | toppmenyen, navigasjonsmodalen (områder + mapper), kontoknappen/-modalen | **ja** — navigasjon og menyer |
+| [drag-and-drop.md](drag-and-drop.md) | reorder, flytting mellom lister/mapper/områder, ekstrahering, peek, auto-scroll, de to dra-scopene | **ja** — dra-og-slipp-motoren |
 | [board-layout.md](board-layout.md) | kolonnefordelingen i listevisningen og avstander/padding/gap der | **ja** — board-layouten |
 | [trash.md](trash.md) | sletting, gjenoppretting og tømming på alle fire nivåene, buffret sletting, angre | **ja** — søppelkassene |
 | [scheduling.md](scheduling.md) | innstillingsmodalen (tannhjulet), start-/fristtider, indikator-chipene | **ja** — tidsplanlegging |

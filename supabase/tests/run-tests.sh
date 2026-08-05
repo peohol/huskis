@@ -42,6 +42,6 @@ $PSQL --no-psqlrc --echo-errors -f tests/test-list-share-migration.sql
 # Også en oppgradert gammel database må tilfredsstille deploy-kontrakten.
 $PSQL --no-psqlrc --echo-errors -f smoke-test.sql
 
-echo "✅ Alle SQL-tester grønne (roller, capabilities, gruppeflytting, e-postvarsel,"
+echo "✅ Alle SQL-tester grønne (roller, capabilities, mappeflytting, e-postvarsel,"
 echo "   gravsteiner, kontosletting, migrering av gamle listedelinger og"
 echo "   deploy-smoke-testen — begge løp)."

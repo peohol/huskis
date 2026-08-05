@@ -1,4 +1,4 @@
-# Søppelkasser (universer / grupper / lister / listepunkter)
+# Søppelkasser (områder / mapper / lister / listepunkter)
 
 Les denne når oppgaven berører sletting, gjenoppretting, eller tømming på et
 hvilket som helst av de fire nivåene.
@@ -6,16 +6,16 @@ hvilket som helst av de fire nivåene.
 Fire nivåer, samme knapp (`.trashcan`: hvit beholder, søppelkasse-SVG + antall i
 grå sirkel) og samme oppførsel; **alle vises kun når de har innhold** (`hidden`):
 
-- **Universer**: nederst i nav-modalen, ved siden av «＋ [univers-ikon]».
-- **Grupper**: i hvert UNIVERS-KORT i nav-modalen (`.group-trash-btn`) — akkurat
-  som listepunkt-søppelkassen ligger i lista si. Én kasse per univers.
-- **Lister**: i toppmenyens listefunksjons-rad (per aktiv gruppe).
+- **Områder**: nederst i nav-modalen, ved siden av «＋ [område-ikon]».
+- **Mapper**: i hvert OMRÅDE-KORT i nav-modalen (`.group-trash-btn`) — akkurat
+  som listepunkt-søppelkassen ligger i lista si. Én kasse per område.
+- **Lister**: i toppmenyens listefunksjons-rad (per aktiv mappe).
 - **Listepunkter**: midtstilt nederst i hvert listekort (`ICONS.trash`, samme
   SVG som de statiske knappene — aldri emoji).
 
 ## Slette-animasjonen («pakk sammen og fly i søpla»)
 
-Når et objekt slettes (listepunkt/liste/gruppe/univers) kjøres `ghostFrom` +
+Når et objekt slettes (listepunkt/liste/mappe/område) kjøres `ghostFrom` +
 `flyGhost` (app.js): en klone av DOM-elementet tas FØR re-render, deretter
 oppdateres state og `render()`/`refreshCard()` kjøres — slik at søppelkasse-
 knappen **finnes/er synlig FØR animasjonen starter** — og til slutt animeres
@@ -59,21 +59,21 @@ bygget treet på nytt) og dermed ikke virket før noen sekunder hadde gått.
 
 ### Samle-toast (`pushDeleteToast`)
 
-Én felles «Angre»-toast eier timeren for en gruppe slettinger (ikke per objekt):
+Én felles «Angre»-toast eier timeren for en bunke slettinger (ikke per objekt):
 
 - Slettes flere objekter av **samme** kategori mens toasten er åpen, **slås de
   sammen** (`deleteToast.ids`) og timeren startes på nytt — meldingen blir
-  «Slettet N listepunkter/lister/grupper/universer», og én «Angre» angrer alle.
+  «Slettet N listepunkter/lister/mapper/områder», og én «Angre» angrer alle.
 - Slettes et objekt av en **annen** kategori, antas den forrige toasten
-  unødvendig: den forrige gruppen **committes straks**, og en fersk toast
+  unødvendig: den forrige bunken **committes straks**, og en fersk toast
   starter for den nye kategorien.
 - Toasten er «sticky» (`showToast(..., { sticky: true })`) — den felles timeren
   (`armDeleteTimer`) styrer både commit og skjuling. `commitDeleteOne`/
   `undoDeleteOne` gjør én-objekt-jobben uten å tegne board-et på nytt (commit er
-  visuelt en no-op siden objektet allerede var skjult); gruppe-angre tegner én
+  visuelt en no-op siden objektet allerede var skjult); bunke-angre tegner én
   gang til slutt.
 - **Sveipes toasten bort** (til høyre, se `docs/design-system.md`) er det et
-  «jeg er ferdig med denne»: `onDismiss: commitDeleteToastNow` committer gruppen
+  «jeg er ferdig med denne»: `onDismiss: commitDeleteToastNow` committer bunken
   **umiddelbart** — samme utfall som når timeren utløper, bare uten ventingen.
   `commitDeleteToastNow` er den delte commit-veien (timeren, kategori-byttet i
   `pushDeleteToast` og sveipet bruker alle den).
@@ -98,8 +98,8 @@ De tre andre søppelkassene (`openUniversesTrash`/`openGroupsTrash`/
 (`trashedUniverses()`/`trashedGroups()`/`trashedCards()`). **Listepunkt-modalen
 (`openItemsTrash`) gjorde det ikke** — den fanget `cardData` én gang og lot
 `rows()` lese `trashedItemsOf(cardData)` fra den. Etter en tre-rebuild pekte
-den på et foreldreløst kort, som ga to symptomer (kun listepunkter, ikke grupper/
-universer):
+den på et foreldreløst kort, som ga to symptomer (kun listepunkter, ikke mapper/
+områder):
 
 1. **Spinner som aldri ga seg**: åpnet man modalen rett etter en listepunkt-
    sletting og en rebuild traff mens den sto åpen, ryddet commit `_pendingDelete`
@@ -113,7 +113,7 @@ Fiks: `openItemsTrash` slår opp kortet på nytt via `findAnyById(cardId)` i hve
 `rows()`/`empty()`-kall (som de andre gjør mot `state`), og `restore` går via
 `restoreItem(it)` som re-slår opp listepunktet på id. Restore-hjelperne for alle
 fire nivåene er samtidig gjort id-baserte, så samme klasse feil ikke kan ramme
-gruppe-/univers-gjenoppretting hvis en rebuild treffer mellom render og klikk.
+mappe-/område-gjenoppretting hvis en rebuild treffer mellom render og klikk.
 
 ## Interaksjon (`attachTrashHold`)
 
@@ -122,7 +122,7 @@ Kort trykk → felles modal (`showTrashModal`: gjenopprett enkeltvis / tøm alt 
 ignorerer overlay-klikk de første ~450 ms).
 
 Tøm-knappen **navngir nivået den sletter** — `cfg.emptyLabel`: «Slett
-universene / gruppene / listene / listepunktene for godt». De fire kassene deler
+områdene / mappene / listene / listepunktene for godt». De fire kassene deler
 én knapp, så uten navnet sa den ingenting om hva som forsvant. Notatet og
 knappen stables i `.modal-foot` (`.modal-note` tar hele linjen): ved siden av
 hverandre ville den lengste knappeteksten presset notatet ned i en smal søyle.
@@ -182,7 +182,7 @@ transform-origin (hengselet 4.5,7.5) og `SWIPE_ICON_BOX` på nytt. Ikke fjern
 `.swipe-icon-lid`-klassen uten å oppdatere `setProgress`/`collapseField`
 tilsvarende.
 
-Tømming setter **gravsteiner** rekursivt (univers → grupper → lister →
+Tømming setter **gravsteiner** rekursivt (område → mapper → lister →
 listepunkter: `emptyUniversesTrash`/`emptyGroupsTrash`/`emptyCardsTrash`/
 `emptyItemsTrash`). Destruktivt er alltid reversibelt frem til tømming.
 
@@ -211,7 +211,7 @@ som fjerner gravsteinene for nøyaktig de id-ene importen skriver.
 Vanlig sletting til papirkurven setter derimot INGEN gravstein — den er bare et
 `trashed`-flagg, og «Gjenopprett» er en helt vanlig innholds-endring.
 
-**Kontosletting** går utenom papirkurven: `delete_account()` sletter universene
+**Kontosletting** går utenom papirkurven: `delete_account()` sletter områdene
 brukeren var eneste eier av permanent med en gang (kaskade + gravstein for hver
 rad, akkurat som en tømming), for det finnes ingen konto igjen til å angre fra.
 Gravsteinene fra en slettet konto blir stående som alle andre — de er id-er uten
@@ -258,8 +258,8 @@ hvis den står åpen (`renderTrashModalBody()`), så radene alltid speiler
 faktisk tilstand.
 
 **Forlate i stedet for å tømme**: kan man ikke slette objektet for alle
-(`cap(obj, 'delete')` er usann — f.eks. et univers man bare er medlem av, eller
-en fri gruppe man er vanlig medlem i), betyr «tøm» at man FORLATER det.
+(`cap(obj, 'delete')` er usann — f.eks. et område man bare er medlem av, eller
+en fri mappe man er vanlig medlem i), betyr «tøm» at man FORLATER det.
 `emptyXTrash` splicer objektet lokalt og kaller `cloudLeave`, som legger
 `leave_share` i bakgrunns-operasjonskøen og undertrykker raden fra synk-pullene
 til den har landet (`suppressedRows`, se `docs/accounts.md`) — så den verken
@@ -269,17 +269,17 @@ ALDRI innholdet; det består for de andre.
 ## Søpla er felles, myndigheten er personlig
 
 En søppelkasse kan inneholde objekter man ikke rår over: en liste slettet FØR
-gruppen ble låst, eller et delt univers eieren har slettet for alle. Både
+mappen ble låst, eller et delt område eieren har slettet for alle. Både
 «Gjenopprett» og «Tøm» er derfor gatet per rad (`manage` / `purge` i
 `showTrashModal`-konfigurasjonen):
 
 - **`manage` → «Gjenopprett».** Å gjenopprette er å skrive `trashed = false`, og
   vakten krever nøyaktig samme myndighet som å slette (`can_delete_object`).
-  Universer/grupper bruker serverens `caps.delete`; lister og listepunkter har
+  Områder/mapper bruker serverens `caps.delete`; lister og listepunkter har
   ingen egne caps, og der er `!frozen(obj)` samme regel. Uten myndighet er
   knappen **avskrudd** med en forklarende tooltip, ikke skjult — raden skal
   fortsatt kunne ses og forstås.
-- **`purge` → tøm-knappen.** Samme svar, men et univers/en gruppe man kan
+- **`purge` → tøm-knappen.** Samme svar, men et område/en mappe man kan
   FORLATE teller også med (se over). Er ingenting i kassen tømbart, er knappen
   avskrudd; er kassen blandet, tømmes det tømbare og en toast sier fra om resten
   («Låst innhold ligger fortsatt i søppelkassen»). Sveipefeltet går utenom
@@ -289,14 +289,14 @@ Forlat-veien krever i tillegg at man FAKTISK kan forlate (`cap(obj, 'leave')`).
 Er grunnen til at man ikke kan slette en LÅS — ikke at objektet er andres —
 finnes det ingen rolle å gi fra seg, og raden blir stående i kassen i stedet for
 å bli fjernet lokalt av en `leave_share` serveren ville avvist. Det samme gjelder
-en gruppe der den direkte grupperollen bare er overflødig ved siden av en
-universrolle: da forlater man i universet, ikke i gruppen (se
+en mappe der den direkte mapperollen bare er overflødig ved siden av en
+områderolle: da forlater man i området, ikke i mappen (se
 `docs/rettigheter-og-deling.md`).
 
 **Filtreringen må skje FØR `commitBufferedFor`.** Buffrede slettinger ligger i
 kassen som vanlige rader (`live()` teller `_pendingDelete` som slettet), så en
 naiv `commitBufferedFor(alle.map(id))` committer også raden tømmingen straks
-etter hopper over. Rekker en gruppe å bli låst inne i angre-vinduet (en annen
+etter hopper over. Rekker en mappe å bli låst inne i angre-vinduet (en annen
 eier låser den mens toasten står), ville commit-en stemplet en `trashed = true`
 serveren avviser — og samtidig kastet angre-muligheten. Alle fire
 `emptyXTrash` filtrerer derfor med samme predikat de senere hopper over på

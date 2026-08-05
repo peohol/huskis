@@ -32,8 +32,8 @@ const ID = {
   sharedItem: 'a1000000-0000-4000-8000-000000000002',
   revoked: 'a2000000-0000-4000-8000-000000000001', // deles, delingen trekkes tilbake
   revokedItem: 'a2000000-0000-4000-8000-000000000002',
-  // Deling skjer på GRUPPE-nivå: lister arver tilgangen fra gruppen sin, så hver
-  // av de to listene ligger i sin egen delte gruppe.
+  // Deling skjer på MAPPE-nivå: lister arver tilgangen fra mappen sin, så hver
+  // av de to listene ligger i sin egen delte mappe.
   gShared: 'b1000000-0000-4000-8000-000000000001',
   gRevoked: 'b2000000-0000-4000-8000-000000000001',
 };
@@ -56,7 +56,7 @@ async function register(p) {
   await p.locator('#auth-password').fill('passord123');
   await p.locator('#auth-submit').click();
   // `lastMy` settes først når get_my_doc har svart — da er kontoen innlogget
-  // og dokumentet hentet. (En fersk konto har null universer — board er tomt.)
+  // og dokumentet hentet. (En fersk konto har null områder — board er tomt.)
   await p.waitForFunction(() => {
     const H = window.__huskis;
     return H && H.authUser && H.lastMy;
@@ -120,7 +120,7 @@ const serverCards = (p) => p.evaluate(() => {
 const cardOnServer = async (p, id) => (await serverCards(p)).find((c) => c.id === id) || null;
 const localCard = (p, id) => p.evaluate((x) => !!window.__huskis.docFromMyState().cards.find((c) => c.id === x), id);
 
-// Én gruppe med én liste i — gruppen er delings-enheten.
+// Én mappe med én liste i — mappen er delings-enheten.
 const addGroupWithCard = (p, groupId, cardId, itemId, title) =>
   p.evaluate(({ groupId, cardId, itemId, title }) => {
     const H = window.__huskis, now = Date.now();
@@ -176,8 +176,8 @@ async function run(label, vp, mobile) {
   await settle(recip, 1);
   const recipId = await recip.evaluate(() => window.__huskis.authUser.id);
 
-  // Eieren inviterer til begge GRUPPENE; mottakeren godtar (uten å velge noen
-  // forelder — de havner i «Grupper delt med meg»). RPC-ene kalles direkte;
+  // Eieren inviterer til begge MAPPENE; mottakeren godtar (uten å velge noen
+  // forelder — de havner i «Mapper delt med meg»). RPC-ene kalles direkte;
   // UI-flyten er dekket av andre tester.
   const invites = await owner.evaluate(async ({ email, a, c }) => {
     const H = window.__huskis;
@@ -210,7 +210,7 @@ async function run(label, vp, mobile) {
   }, ID.shared);
   await settle(owner);
   await owner.evaluate((gid) => {
-    // «Tøm papirkurv» gjelder den AKTIVE gruppen — stå i den delte gruppen først.
+    // «Tøm papirkurv» gjelder den AKTIVE mappen — stå i den delte mappen først.
     window.__huskis.state.activeGroup = gid;
     window.__huskis.render();
   }, ID.gShared);

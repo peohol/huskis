@@ -3,28 +3,28 @@
   serveren uansett avviser skrivingen.
 
   Bakgrunnen er en rapportert feil: et vanlig medlem kunne gå inn i en LÅST
-  gruppe og trykke «＋ Liste». Lista ble opprettet lokalt, aldri skrevet til
+  mappe og trykke «＋ Liste». Lista ble opprettet lokalt, aldri skrevet til
   databasen (RLS: `cards_insert` krever `can_create_child('group', …)`), og siden
-  den arvet gruppelåsen ble den umulig å redigere ELLER slette igjen — et
+  den arvet mappelåsen ble den umulig å redigere ELLER slette igjen — et
   spøkelse som bare forsvant ved å tømme localStorage.
 
-  Myndigheten til å OPPRETTE en liste ligger på GRUPPEN, ikke på lista: `frozen`
+  Myndigheten til å OPPRETTE en liste ligger på MAPPEN, ikke på lista: `frozen`
   svarer bare på om jeg kan redigere objektet SELV. Testen dekker alle veiene inn
   til den samme myndigheten:
 
     1. «＋ Liste» i toppmenyen (den rapporterte feilen)
     2. Klikk-handleren selv (en gjenaktivert knapp skal fortsatt ikke opprette)
-    3. Tomtilstanden i en låst gruppe forklarer i stedet for å be om et trykk
+    3. Tomtilstanden i en låst mappe forklarer i stedet for å be om et trykk
     4. Ekstrahering: et listepunkt dratt ut i board-lufta lager en NY liste —
        ny-liste-placeholderen skal ikke dukke opp uten opprettelsesrett
-    5. Draging av en liste (posisjon blant søsknene tilhører gruppen)
+    5. Draging av en liste (posisjon blant søsknene tilhører mappen)
     6. Søppelkassene: «Gjenopprett» skriver `trashed = false` og krever samme
        myndighet som å slette — og «Tøm» sletter permanent
 
-  Punkt 4–5 måles i en gruppe med et LÅS-UNNTAK på én liste: der kan lista
+  Punkt 4–5 måles i en mappe med et LÅS-UNNTAK på én liste: der kan lista
   redigeres, men det gir ingen rett til å lage en ny liste ved siden av den eller
   flytte den. Eieren brukes som kontroll overalt (låser gjelder aldri for eiere),
-  og det samme gjør en ÅPEN gruppe i samme univers.
+  og det samme gjør en ÅPEN mappe i samme område.
 
   Kjøres på både desktop- og mobil-viewport, mot mock-backenden (?mock=1), som
   håndhever de samme reglene som Postgres/RLS.
@@ -43,9 +43,9 @@ const U = () => 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
   const r = Math.random() * 16 | 0; return (c === 'x' ? r : (r & 0x3 | 0x8)).toString(16);
 });
 
-/* Fikstur — A eier universet, C er vanlig medlem:
-     GL  låst gruppe           → liste LL (m/ slettet listepunkt), slettet liste LT
-     GO  åpen gruppe           → liste LO, slettet liste LOT   (kontrollgruppe)
+/* Fikstur — A eier området, C er vanlig medlem:
+     GL  låst mappe           → liste LL (m/ slettet listepunkt), slettet liste LT
+     GO  åpen mappe           → liste LO, slettet liste LOT   (kontrollgruppe)
      GE  låst og tom           → tomtilstanden
      GX  låst m/ unntak på LX  → LX kan redigeres, LX2 er fortsatt låst */
 function buildDB() {
@@ -68,10 +68,10 @@ function buildDB() {
         { id: uC, email: 'c@x.no', display_name: 'Cato Medlem', user_metadata: {} },
       ],
       passwords: { 'a@x.no': 'x', 'c@x.no': 'x' },
-      universes: [base({ id: ids.UA, owner_id: uA, name: 'Felles univers' })],
+      universes: [base({ id: ids.UA, owner_id: uA, name: 'Felles område' })],
       groups: [
-        base({ id: ids.GL, owner_id: uA, universe_id: ids.UA, name: 'Låst gruppe', locked: true, pos: 0 }),
-        base({ id: ids.GO, owner_id: uA, universe_id: ids.UA, name: 'Åpen gruppe', pos: 1 }),
+        base({ id: ids.GL, owner_id: uA, universe_id: ids.UA, name: 'Låst mappe', locked: true, pos: 0 }),
+        base({ id: ids.GO, owner_id: uA, universe_id: ids.UA, name: 'Åpen mappe', pos: 1 }),
         base({ id: ids.GE, owner_id: uA, universe_id: ids.UA, name: 'Låst og tom', locked: true, pos: 2 }),
         base({ id: ids.GX, owner_id: uA, universe_id: ids.UA, name: 'Låst med unntak', locked: true, pos: 3 }),
       ],
@@ -191,12 +191,12 @@ async function run(label, viewport, mobile) {
   await loadAs(p, db, ids.uC, 'c@x.no', viewport);
   const cardsBefore = await dbCardCount(p);
 
-  // 1) «＋ Liste» av/på etter gruppens lås
+  // 1) «＋ Liste» av/på etter mappens lås
   await goTo(p, ids.GL);
-  log(label + ' 1: «＋ Liste» er avskrudd i en låst gruppe',
+  log(label + ' 1: «＋ Liste» er avskrudd i en låst mappe',
     await p.locator('#add-card-btn').isDisabled());
   await goTo(p, ids.GO);
-  log(label + ' 1: «＋ Liste» virker i en åpen gruppe i samme univers',
+  log(label + ' 1: «＋ Liste» virker i en åpen mappe i samme område',
     await p.locator('#add-card-btn').isEnabled());
   await goTo(p, ids.GX);
   log(label + ' 1: … og er avskrudd selv når ÉN liste har lås-unntak',
@@ -213,10 +213,10 @@ async function run(label, viewport, mobile) {
     JSON.stringify(await cardTitles(p, ids.GL)) === JSON.stringify(['Liste i låst']),
     JSON.stringify(await cardTitles(p, ids.GL)));
 
-  // 3) Tomtilstanden i en låst gruppe forklarer, i stedet for å be om et trykk
+  // 3) Tomtilstanden i en låst mappe forklarer, i stedet for å be om et trykk
   await goTo(p, ids.GE);
   const emptyTxt = await p.locator('#board .empty-state').textContent();
-  log(label + ' 3: tomtilstanden sier at gruppen er låst, uten «trykk ＋»-hint',
+  log(label + ' 3: tomtilstanden sier at mappen er låst, uten «trykk ＋»-hint',
     /låst/i.test(emptyTxt) && !/Trykk/i.test(emptyTxt), emptyTxt.trim());
 
   // 4) Ekstrahering: ingen ny-liste-placeholder uten opprettelsesrett
@@ -234,20 +234,20 @@ async function run(label, viewport, mobile) {
   log(label + ' 4: … og listepunktet ligger fortsatt i lista si',
     await p.locator('.card[data-id="' + ids.LX + '"] .item[data-id="' + ids.IX1 + '"]').count() === 1);
 
-  // Kontroll: i en ÅPEN gruppe dukker placeholderen opp som før
+  // Kontroll: i en ÅPEN mappe dukker placeholderen opp som før
   await goTo(p, ids.GO);
   air = await airBelowCards(p);
   await liftTo(p, '.item[data-id="' + ids.IO + '"]', air.x, air.y);
-  log(label + ' 4: kontroll — ny-liste-placeholderen finnes i en åpen gruppe',
+  log(label + ' 4: kontroll — ny-liste-placeholderen finnes i en åpen mappe',
     await p.locator('.new-list-placeholder').count() === 1);
   await drop(p, air.x, air.y);
   await p.keyboard.press('Escape'); await p.waitForTimeout(300);
 
-  // 5) Listedraging krever rett til å endre gruppens innhold (posisjonen er gruppens)
+  // 5) Listedraging krever rett til å endre mappens innhold (posisjonen er mappens)
   await goTo(p, ids.GX);
   const cardMid = await rectOf(p, '.card[data-id="' + ids.LX + '"] .card-head');
   await liftTo(p, '.card[data-id="' + ids.LX + '"] .card-head', cardMid.x, cardMid.y + 160);
-  log(label + ' 5: en liste i en låst gruppe lar seg ikke dra, selv med lås-unntak',
+  log(label + ' 5: en liste i en låst mappe lar seg ikke dra, selv med lås-unntak',
     await p.locator('.card.dragging').count() === 0);
   await drop(p, cardMid.x, cardMid.y + 160);
 
@@ -255,7 +255,7 @@ async function run(label, viewport, mobile) {
   await goTo(p, ids.GL);
   await p.locator('#trash-btn').click(); await p.waitForTimeout(400);
   let t = await trashRows(p);
-  log(label + ' 6: «Gjenopprett» er avskrudd for en slettet liste i en låst gruppe',
+  log(label + ' 6: «Gjenopprett» er avskrudd for en slettet liste i en låst mappe',
     t.rows.length === 1 && t.rows[0].restoreDisabled === true, JSON.stringify(t.rows));
   log(label + ' 6: «Tøm» er avskrudd når ingenting i kassen kan slettes permanent',
     t.emptyDisabled === true);
@@ -271,18 +271,18 @@ async function run(label, viewport, mobile) {
   await goTo(p, ids.GO);
   await p.locator('#trash-btn').click(); await p.waitForTimeout(400);
   t = await trashRows(p);
-  log(label + ' 6: kontroll — i en åpen gruppe er begge tilgjengelige',
+  log(label + ' 6: kontroll — i en åpen mappe er begge tilgjengelige',
     t.rows.length === 1 && t.rows[0].restoreDisabled === false && t.emptyDisabled === false,
     JSON.stringify(t));
   await closeTrash(p);
 
   // Ingenting av det ovenfor skal ha nådd databasen (den ene lista fra kontroll-
-  // ekstraheringen i en ÅPEN gruppe er den eneste lovlige nyskapningen).
+  // ekstraheringen i en ÅPEN mappe er den eneste lovlige nyskapningen).
   log(label + ' 7: databasen har fått nøyaktig den ene lovlige nye lista',
     await dbCardCount(p) === cardsBefore + 1, 'før ' + cardsBefore + ', nå ' + await dbCardCount(p));
 
   /* 7b) Kappløpet: en BUFFRET sletting som blir låst i angre-vinduet.
-     Sletter jeg en åpen gruppe og en annen eier låser den før angre-toasten er
+     Sletter jeg en åpen mappe og en annen eier låser den før angre-toasten er
      ute, skal en «Tøm» ikke committe den buffrede slettingen — det ville stemplet
      en `trashed = true` serveren avviser OG kastet angre-muligheten. Låsen settes
      her rett på state-objektet (`_locked` + `_caps`), nøyaktig slik synken skriver
@@ -291,7 +291,7 @@ async function run(label, viewport, mobile) {
     const H = window.__huskis;
     const g = H.state.universes.flatMap((u) => u.groups).find((x) => x.id === gid);
     H.deleteGroup(g);                                   // buffret sletting + angre-toast
-    g._locked = true;                                   // … og så låser noen andre gruppen
+    g._locked = true;                                   // … og så låser noen andre mappen
     if (g._caps) { g._caps.delete = false; g._caps.leave = false; g._caps.editContent = false; }
   }, ids.GO);
   await p.waitForTimeout(200);
@@ -310,7 +310,7 @@ async function run(label, viewport, mobile) {
   /* ---------- Eieren: låsen gjelder aldri for henne ---------- */
   await loadAs(p, db, ids.uA, 'a@x.no', viewport);
   await goTo(p, ids.GL);
-  log(label + ' 8: eieren kan opprette lister i den låste gruppen',
+  log(label + ' 8: eieren kan opprette lister i den låste mappen',
     await p.locator('#add-card-btn').isEnabled());
   await p.locator('#trash-btn').click(); await p.waitForTimeout(400);
   t = await trashRows(p);
@@ -321,7 +321,7 @@ async function run(label, viewport, mobile) {
   await goTo(p, ids.GX);
   const ownerCard = await rectOf(p, '.card[data-id="' + ids.LX + '"] .card-head');
   await liftTo(p, '.card[data-id="' + ids.LX + '"] .card-head', ownerCard.x, ownerCard.y + 160);
-  log(label + ' 8: eieren kan dra listene i den låste gruppen',
+  log(label + ' 8: eieren kan dra listene i den låste mappen',
     await p.locator('.card.dragging').count() === 1);
   await drop(p, ownerCard.x, ownerCard.y + 160);
 

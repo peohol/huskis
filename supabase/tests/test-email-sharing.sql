@@ -75,7 +75,7 @@ insert into public.app_config(key, value) values
   ('app_url',        'https://huskis.no/')
 on conflict (key) do update set value = excluded.value;
 
--- testbrukere (distinkte id-er/e-poster) + ett univers med "farlig" navn.
+-- testbrukere (distinkte id-er/e-poster) + ett område med "farlig" navn.
 \set inviter 'ee111111-0000-0000-0000-000000000001'
 \set reg     'ee222222-0000-0000-0000-000000000002'
 \set off     'ee333333-0000-0000-0000-000000000003'

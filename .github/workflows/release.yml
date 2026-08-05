@@ -42,7 +42,7 @@ on:
         default: false
 
 concurrency:
-  # ÉN release om gangen. Gruppen deles av push og manuell kjøring, så en
+  # ÉN release om gangen. Mappen deles av push og manuell kjøring, så en
   # migrering aldri kan overlappe med en deploy eller en annen migrering.
   # `cancel-in-progress: false`: en pågående release får alltid gjøre seg ferdig
   # — å avbryte midt i en DDL er nettopp det vi vil unngå.
