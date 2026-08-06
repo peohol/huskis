@@ -327,8 +327,6 @@ async function run(label, vp, mobile) {
   await waitStep(p, 'drag_list');
   const c2 = (await tourState(p)).ctx.card2Id;
   await drag(p, '.card[data-id="' + c2 + '"] .card-head', kort + ' .card-head');
-  await waitStep(p, 'drag_item2');
-  await drag(p, rader + ':last-child', rader + ':first-child');
 
   await waitStep(p, 'create_cat');
   await p.locator(kort + ' .add-cat-btn').click();
@@ -373,9 +371,9 @@ async function run(label, vp, mobile) {
   await waitStep(p, 'finish');
   const fin = await tourState(p);
   const kontoKnapp = await p.locator('#account-btn').boundingBox();
-  log(label + ' 12: siste steg peker på kontoknappen og sier at demoen kan tas om igjen',
+  log(label + ' 12: siste steg peker på kontoknappen og sier at turen kan tas igjen',
     !fin.arrowHidden && apart(fin.cardRect, kontoKnapp) &&
-    /om igjen/i.test(await p.locator('#tour-text').innerText()));
+    /kontosiden/i.test(await p.locator('#tour-text').innerText()));
   log(label + ' 12b: framdriften er full på siste steg',
     fin.progress === 100 && fin.index === fin.steps - 1,
     JSON.stringify({ progress: fin.progress, index: fin.index, steps: fin.steps }));

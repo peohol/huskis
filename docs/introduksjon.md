@@ -127,7 +127,8 @@ Poenget er at brukeren skal se hele appen mens hen bruker den. Derfor:
 
 - **Ingen mørklegging og ingen ring rundt målet.** Bare en pilspiss
   (`#tour-arrow`) som peker på kontrollen. Laget er `pointer-events: none`;
-  kun kortet tar imot.
+  kun kortet tar imot. Spissen har en hårfin kontur: uten den forsvant det
+  hvite kvadratet mot alt som er lyst — den hvite modalen bak, en lys side.
 - **Velkomsten er unntaket** (`.tour.narrated`): midtstilt, med både mørklegging
   og uskarphet på flaten bak. Der er det ingenting å peke på ennå.
 - **Framdrift som stolpe**, ikke «Steg n av m» — mindre tekst å lese, like
@@ -136,6 +137,10 @@ Poenget er at brukeren skal se hele appen mens hen bruker den. Derfor:
   høyre → venstre, og pilspissen følger med til riktig kant. Er det ikke plass
   til et helt kort noe sted, velges den største luften, og kortet kappes til den
   og ruller innvendig.
+- **Et drag har også en DESTINASJON**, og et kort oppå den gjør steget like
+  umulig som et kort oppå målet. `clear()` på steget gir det ekstra elementet
+  (kategorien i `drag_into_cat`); plasseringen regnes på rektangelet som rommer
+  begge, mens pilspissen fortsatt peker på det brukeren skal ta tak i.
 
 **Instruksjonen vises aldri før navigasjonen er ferdig.** `demoReady()` krever at
 riktig modal er åpen/lukket OG at målet finnes og er synlig; til da står kortet
@@ -175,7 +180,7 @@ steget som LAGER raden (`rewind`), med tilstanden fra da.
 
 ## Stegene
 
-37 steg. Ett fortellesteg i hver ende (velkomst og avslutning, med en knapp som
+36 steg. Ett fortellesteg i hver ende (velkomst og avslutning, med en knapp som
 driver dem videre); resten er handlingssteg som må utføres.
 
 | # | Steg (`id`) | Pilspiss | Fullføres når |
@@ -197,30 +202,29 @@ driver dem videre); resten er handlingssteg som må utføres.
 | 15 | `create_list2` | `#add-card-btn` | liste nummer to finnes |
 | 16 | `name_list2` | listens navnefelt | navnet er bekreftet |
 | 17 | `drag_list` | den nye listens overskrift | et vellykket slipp |
-| 18 | `drag_item2` | nederste listepunkt | et vellykket slipp |
-| 19 | `create_cat` | gul ＋ i listen | en kategori finnes |
-| 20 | `name_cat` | kategoriens navnefelt | navnet er bekreftet |
-| 21 | `drag_into_cat` | et listepunkt | et punkt ligger i kategorien |
-| 22 | `create_cat_item` | ＋ inne i kategorien | ett medlem til |
-| 23 | `name_cat_item` | navnefeltet | alle medlemmer har navn |
-| 24 | `dissolve_cat` | oppløs-knappen | kategorien er borte |
-| 25 | `delete_item` | slette-krysset i raden | noe ligger i søppelkassen |
-| 26 | `open_item_trash` | listens søppelkasse | søppelkasse-modalen er åpen |
-| 27 | `restore_item` | «Gjenopprett» | kassen er tom |
-| 28 | `close_item_trash` | `#trash-close` | modalen er lukket |
-| 29 | `delete_item2` | slette-krysset i raden | noe ligger i søppelkassen |
-| 30 | `empty_item_trash` | listens søppelkasse | listepunktet er borte for godt |
-| 31 | `delete_list` | listens slette-kryss | listen er i søpla |
-| 32 | `empty_card_trash` | `#trash-btn` | listen er borte for godt |
-| 33 | `open_nav2` | `#nav-crumb` | oversikten er åpen |
-| 34 | `delete_area` | områdets slette-kryss | området er i søpla |
-| 35 | `empty_uni_trash` | `#uni-trash-btn` | området er borte for godt |
-| 36 | `close_nav` | `#nav-modal-close` | oversikten er lukket |
-| 37 | `finish` | `#account-btn` | «Ferdig» |
+| 18 | `create_cat` | gul ＋ i listen | en kategori finnes |
+| 19 | `name_cat` | kategoriens navnefelt | navnet er bekreftet |
+| 20 | `drag_into_cat` | et listepunkt (kortet holder seg unna kategorien) | et punkt ligger i kategorien |
+| 21 | `create_cat_item` | ＋ inne i kategorien | ett medlem til |
+| 22 | `name_cat_item` | navnefeltet | alle medlemmer har navn |
+| 23 | `dissolve_cat` | oppløs-knappen | kategorien er borte |
+| 24 | `delete_item` | slette-krysset i raden | noe ligger i søppelkassen |
+| 25 | `open_item_trash` | listens søppelkasse | søppelkasse-modalen er åpen |
+| 26 | `restore_item` | «Gjenopprett» | kassen er tom |
+| 27 | `close_item_trash` | `#trash-close` | modalen er lukket |
+| 28 | `delete_item2` | slette-krysset i raden | noe ligger i søppelkassen |
+| 29 | `empty_item_trash` | listens søppelkasse | listepunktet er borte for godt |
+| 30 | `delete_list` | listens slette-kryss | listen er i søpla |
+| 31 | `empty_card_trash` | `#trash-btn` | listen er borte for godt |
+| 32 | `open_nav2` | `#nav-crumb` | oversikten er åpen |
+| 33 | `delete_area` | områdets slette-kryss | området er i søpla |
+| 34 | `empty_uni_trash` | `#uni-trash-btn` | området er borte for godt |
+| 35 | `close_nav` | `#nav-modal-close` | oversikten er lukket |
+| 36 | `finish` | `#account-btn` | «Ferdig» |
 
-Tre steg (30, 32, 35) demonstrerer **hold-og-sveip**-tømmingen; de sier det i
+Tre steg (29, 31, 34) demonstrerer **hold-og-sveip**-tømmingen; de sier det i
 klartekst, siden et kort trykk der ville åpnet modalen i stedet. Mappen slettes
-ikke i sitt eget steg: den følger med området i steg 34, og slette-krysset er
+ikke i sitt eget steg: den følger med området i steg 33, og slette-krysset er
 det samme på begge nivåene.
 
 Et steg kan si `needsNav`, `needsTrash` eller `trashModal`: det er
@@ -307,7 +311,8 @@ fingeren skal ta tak. Én linje er målet, to er taket.
 
 - Endrer du hvilke steg som finnes, eller hva de peker på: `DEMO_STEPS` i
   `app.js` er hele definisjonen (`id`, `title`, `html`, `target`, `done`,
-  `premise`, `rewind`, `reopen`, `needsNav`, `needsTrash`, `trashModal`, `cta`).
+  `premise`, `rewind`, `reopen`, `clear`, `needsNav`, `needsTrash`, `trashModal`,
+  `cta`).
   Oppdater tabellen over i samme endring.
 - **Et nytt handlingssteg trenger en `done()` som leser TILSTAND**, ikke en
   klikkhåndterer. Leser den DOM-en i stedet for `state`, har du bygget et

@@ -10721,9 +10721,7 @@
         '</ul>' +
         '<p>Innad i listene kan listepunktene sorteres i ' + ICONS.category +
         ' <b>kategorier</b> – hvis du vil.</p>',
-      // Den ene setningen som ikke er ren instruksjon: en etablert konto ser
-      // sine egne lister forsvinne når demoen starter, og skal vite hvorfor.
-      note: 'Alt skjer i en demo – dine egne områder, mapper og lister er urørt.',
+      note: 'Nå får du en guidet tur gjennom appens viktigste funksjoner.',
       cta: 'Kom i gang',
     },
     {
@@ -10882,13 +10880,6 @@
       done: () => dropSeq > demoBase.drops,
     },
     {
-      id: 'drag_item2',
-      target: () => demoRows(demoCtx.cardId).slice(-1)[0],
-      html: '<p>Trekk det nederste listepunktet oppover for å endre rekkefølgen på ' +
-        'listepunktene igjen.</p>',
-      done: () => dropSeq > demoBase.drops,
-    },
-    {
       id: 'create_cat',
       target: () => { const el = demoCardEl(demoCtx.cardId); return el && el.querySelector('.add-cat-btn'); },
       html: '<p>Trykk på den gule knappen for å opprette en ' + ICONS.category +
@@ -10915,6 +10906,8 @@
       rewind: 'create_cat',
       premise: () => !!demoCat(),
       target: () => demoRows(demoCtx.cardId).filter((el) => !el.closest('.category'))[0],
+      // Kategorien er destinasjonen: et kort oppå den gjør steget umulig.
+      clear: () => demoCatEl(),
       html: '<p>Trekk et listepunkt inn i kategorien.</p>',
       done: () => demoCatMembers().length > demoBase.catMembers,
     },
@@ -11039,9 +11032,8 @@
       id: 'finish',
       target: () => accountBtn,
       title: 'Der har du hele Huskis',
-      html: '<p>Her ligger kontoen din — og herfra kan du se denne demonstrasjonen om ' +
-        'igjen når du vil.</p>' +
-        '<p>Nå er du tilbake i din egen Huskis.</p>',
+      html: '<p>Turen er over, og du er nå i din egen Huskis. Du kan ta turen igjen ' +
+        'ved å gå til kontosiden din.</p>',
       cta: 'Ferdig',
     },
   ];
@@ -11197,12 +11189,34 @@
       return;
     }
     const r = el.getBoundingClientRect();
-    const below = vh - r.bottom - gap - margin;
-    const above = r.top - gap - margin;
-    const right = vw - r.right - gap - margin;
-    const leftRoom = r.left - gap - margin;
+    /* Pilspissen peker på MÅLET, men kortet må holde seg unna mer enn det: et
+       drag har også et DESTINASJON, og et kort som dekker den gjør steget
+       umulig å utføre. `clear()` gir det ekstra elementet, og plasseringen
+       regnes på rektangelet som rommer begge. */
+    let keep = r;
+    if (step.clear) {
+      let ce = null;
+      try { ce = step.clear(); } catch (e) { ce = null; }
+      if (ce && ce.getClientRects().length) {
+        const c = ce.getBoundingClientRect();
+        keep = {
+          left: Math.min(r.left, c.left), right: Math.max(r.right, c.right),
+          top: Math.min(r.top, c.top), bottom: Math.max(r.bottom, c.bottom),
+        };
+      }
+    }
+    const below = vh - keep.bottom - gap - margin;
+    const above = keep.top - gap - margin;
+    const right = vw - keep.right - gap - margin;
+    const leftRoom = keep.left - gap - margin;
+    /* Med et frisone-element velges siden der MÅLET er den nærmeste kanten av
+       rektangelet — ellers ville pilspissen pekt på destinasjonen i stedet for
+       på det brukeren skal ta tak i. */
+    const prefer = keep === r ? null : (r.top <= keep.top + 1 ? 'above' : 'below');
     let side;
-    if (ch <= below) side = 'below';
+    if (prefer === 'above' && ch <= above) side = 'above';
+    else if (prefer === 'below' && ch <= below) side = 'below';
+    else if (ch <= below) side = 'below';
     else if (ch <= above) side = 'above';
     else if (cw <= right) side = 'right';
     else if (cw <= leftRoom) side = 'left';
@@ -11213,13 +11227,13 @@
         maxH = Math.max(120, side === 'below' ? below : above) + 'px';
       }
       const h = maxH ? Math.min(ch, parseFloat(maxH)) : ch;
-      top = side === 'below' ? r.bottom + gap : r.top - gap - h;
+      top = side === 'below' ? keep.bottom + gap : keep.top - gap - h;
       left = clamp(margin, r.left + r.width / 2 - cw / 2, vw - cw - margin);
       tourArrow.style.left = clamp(left + 14, r.left + r.width / 2 - half, left + cw - 14 - half * 2) + 'px';
       tourArrow.style.top = (side === 'below' ? top - half : top + h - half) + 'px';
     } else {
       top = clamp(margin, r.top + r.height / 2 - ch / 2, vh - ch - margin);
-      left = side === 'right' ? r.right + gap : r.left - gap - cw;
+      left = side === 'right' ? keep.right + gap : keep.left - gap - cw;
       tourArrow.style.top = clamp(top + 14, r.top + r.height / 2 - half, top + ch - 14 - half * 2) + 'px';
       tourArrow.style.left = (side === 'right' ? left - half : left + cw - half) + 'px';
     }

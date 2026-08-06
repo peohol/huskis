@@ -2144,6 +2144,11 @@ body.tour-demo .trash-row button:not(.tour-live) { opacity: 0.35; }
   width: 14px;
   height: 14px;
   background: #fff;
+  /* Konturen er det som gjør spissen synlig: uten den forsvinner et hvitt
+     kvadrat mot alt som er lyst — den hvite modalen bak, en lys side. Bare de
+     to YTRE kantene vises (kortet dekker den halvdelen som peker innover), så
+     linjen leses som en spiss, ikke som en firkant. */
+  border: 1px solid var(--line);
   box-shadow: var(--shadow-lg);
   transform: rotate(45deg);
 }
