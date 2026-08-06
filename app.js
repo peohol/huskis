@@ -11031,7 +11031,7 @@
     {
       id: 'finish',
       target: () => accountBtn,
-      title: 'Der har du hele Huskis',
+      title: 'Takk for turen!',
       html: '<p>Turen er over, og du er nå i din egen Huskis. Du kan ta turen igjen ' +
         'ved å gå til kontosiden din.</p>',
       cta: 'Ferdig',
