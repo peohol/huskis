@@ -1,25 +1,25 @@
 /*
-  Regresjonstest: NAVIGASJONSMODALEN (universer + grupper).
+  Regresjonstest: NAVIGASJONSMODALEN (områder + mapper).
 
-  Én nav-knapp i toppmenyen viser hele lokasjonen (🌐 univers › 📁 gruppe) og
-  åpner ÉN modal for begge nivåene. Der er universene KORT og gruppene RADER —
+  Én nav-knapp i toppmenyen viser hele lokasjonen (🌐 område › 📁 mappe) og
+  åpner ÉN modal for begge nivåene. Der er områdene KORT og mappene RADER —
   nøyaktig samme oppsett (og samme dra-og-slipp-motor) som lister og
   listepunkter, bare alltid i én kolonne. Testen dekker:
 
     1. Én nav-knapp; de gamle to modalene finnes ikke lenger.
-    2. Universer rendres som `.card` med gruppene som `.item` i `.items-container`,
+    2. Områder rendres som `.card` med mappene som `.item` i `.items-container`,
        i ÉN kolonne.
-    3. Universer/grupper har KUN del-knapp (ingen tannhjul); gruppekategorier har
+    3. Områder/mapper har KUN del-knapp (ingen tannhjul); mappekategorier har
        kun oppløs-knapp.
-    4. Kollaps av et univers viser [gruppe-ikon] + antall (ikke «(N)»).
-    5. Klikk på gruppenavnet redigerer; klikk ellers på raden navigerer + lukker.
-    6. DnD: gruppe mellom universer, gruppe ut i «lufta» → nytt univers,
-       gruppe inn i en gruppekategori.
-    7. Drar man gruppa man STÅR i til et annet univers, følger lokasjonen med.
+    4. Kollaps av et område viser [mappe-ikon] + antall (ikke «(N)»).
+    5. Klikk på mappenavnet redigerer; klikk ellers på raden navigerer + lukker.
+    6. DnD: mappe mellom områder, mappe ut i «lufta» → nytt område,
+       mappe inn i en mappekategori.
+    7. Drar man mappa man STÅR i til et annet område, følger lokasjonen med.
     8. Tastatur: Enter/Mellomrom navigerer, omdøper og kollapser uten peker.
-    9. Slipp i et LÅST univers rulles tilbake (DB-guarden ville avvist det).
-   10. [univers-/gruppe-ikon][delt-ikon]Navn, og ingen lys innerkant på kortet.
-   11. Gruppe-søppelkassen ligger i universkortet; univers-søppelkassen nederst.
+    9. Slipp i et LÅST område rulles tilbake (DB-guarden ville avvist det).
+   10. [område-/mappe-ikon][delt-ikon]Navn, og ingen lys innerkant på kortet.
+   11. Mappe-søppelkassen ligger i områdekortet; område-søppelkassen nederst.
 
   Kjør:
     python3 -m http.server 8000                  # fra repo-roten, i egen terminal
@@ -44,7 +44,7 @@ async function register(p) {
   await p.locator('#auth-password').fill('passord123');
   await p.locator('#auth-submit').click();
   // `lastMy` settes først når get_my_doc har svart — da er kontoen innlogget
-  // og dokumentet hentet. (En fersk konto har null universer — board er tomt.)
+  // og dokumentet hentet. (En fersk konto har null områder — board er tomt.)
   await p.waitForFunction(() => {
     const H = window.__huskis;
     return H && H.authUser && H.lastMy;
@@ -56,7 +56,7 @@ async function register(p) {
   await p.waitForTimeout(150);
 }
 
-// To universer: «Hjemme» (gruppe + gruppekategori med ett medlem) og «Jobb».
+// To områder: «Hjemme» (mappe + mappekategori med ett medlem) og «Jobb».
 async function seed(p) {
   await p.evaluate(() => {
     const H = window.__huskis, st = H.state;
@@ -75,7 +75,7 @@ async function seed(p) {
   await p.waitForTimeout(300);
 }
 
-// Universene med gruppene sine (nivå 1 + kategorimedlemmer), fra STATE.
+// Områdene med mappene sine (nivå 1 + kategorimedlemmer), fra STATE.
 const model = (p) => p.evaluate(() => window.__huskis.state.universes
   .filter((u) => !u.trashed && !u._pendingDelete)
   .sort((a, b) => a.pos - b.pos)
@@ -129,15 +129,15 @@ async function run(label, vp, mobile) {
   }));
   log(label + ' 1: én navigasjonsknapp med hele lokasjonen',
     nav.crumbs === 1 && nav.text === 'Hjemme › Ukesplan', JSON.stringify(nav));
-  log(label + ' 1: de gamle univers-/gruppe-modalene er borte', nav.oldModals === false);
+  log(label + ' 1: de gamle område-/mappe-modalene er borte', nav.oldModals === false);
 
   await open(p);
   const title = await p.evaluate(() => {
     const h = document.getElementById('nav-modal-title');
     return { text: h.innerText.replace(/\s+/g, ' ').trim(), icons: h.querySelectorAll('svg.icon').length };
   });
-  log(label + ' 1: modaltittelen er «[univers] Universer og [gruppe] grupper»',
-    title.text === 'Universer og grupper' && title.icons === 2, JSON.stringify(title));
+  log(label + ' 1: modaltittelen er «[område] Områder og [mappe] mapper»',
+    title.text === 'Områder og mapper' && title.icons === 2, JSON.stringify(title));
 
   /* ---------- 2) Samme oppsett som lister/listepunkter, én kolonne ---------- */
   const shape = await p.evaluate(() => {
@@ -157,7 +157,7 @@ async function run(label, vp, mobile) {
       columnCount: board.querySelectorAll('.board-col').length,
     };
   });
-  log(label + ' 2: hvert univers er et kort med gruppene som rader',
+  log(label + ' 2: hvert område er et kort med mappene som rader',
     shape.cards.length === 2 &&
     shape.cards[0].title === 'Hjemme' && shape.cards[0].rows.join() === 'Ukesplan' &&
     shape.cards[0].cats.join() === 'Prosjekter' && shape.cards[0].catRows.join() === 'Hagen' &&
@@ -165,7 +165,7 @@ async function run(label, vp, mobile) {
     JSON.stringify(shape.cards));
   log(label + ' 2: alltid ÉN kolonne', shape.singleColumn === true && shape.columnCount === 1,
     'kolonner=' + shape.columnCount);
-  log(label + ' 2: ＋-gruppe og gruppekategori-knapp i hvert univers',
+  log(label + ' 2: ＋-mappe og mappekategori-knapp i hvert område',
     shape.cards.every((c) => c.addBtns === 2));
 
   /* ---------- 3) Kun del-knapper; kategorien har kun oppløs ---------- */
@@ -184,17 +184,17 @@ async function run(label, vp, mobile) {
       catShare: cat.querySelectorAll('.cat-head .group-share').length,
     };
   });
-  log(label + ' 3: universet har del-knapp og ikke tannhjul',
+  log(label + ' 3: området har del-knapp og ikke tannhjul',
     btns.uniShare === true && btns.uniCog === 0, JSON.stringify(btns));
-  log(label + ' 3: gruppa har del-knapp, ingen avmerkingsboks og ikke tannhjul',
+  log(label + ' 3: mappa har del-knapp, ingen avmerkingsboks og ikke tannhjul',
     btns.rowShare === true && btns.rowCheck === 0 && btns.rowCog === 0);
-  log(label + ' 3: gruppekategorien har kun oppløs-knapp',
+  log(label + ' 3: mappekategorien har kun oppløs-knapp',
     btns.catDissolve === true && btns.catCog === 0 && btns.catShare === 0);
 
-  /* ---------- 4) Kollaps viser [gruppe-ikon] + antall ---------- */
+  /* ---------- 4) Kollaps viser [mappe-ikon] + antall ---------- */
   // Treff korthodet MELLOM tittelen og knappene: klikk på tittelen redigerer, og
-  // på knappene deler/sletter — bare «resten» av headeren kollapser universet.
-  // Måles på NYTT hver gang: modalen krymper når et univers kollapser, og siden
+  // på knappene deler/sletter — bare «resten» av headeren kollapser området.
+  // Måles på NYTT hver gang: modalen krymper når et område kollapser, og siden
   // den er vertikalt sentrert flytter kortene seg.
   const headHit = async () => p.evaluate(() => {
     const head = document.querySelector('#nav-board .card[data-id="uni-B"] .card-head');
@@ -211,7 +211,7 @@ async function run(label, vp, mobile) {
     return { hidden: c.hidden, text: c.textContent, icons: c.querySelectorAll('svg.icon').length,
       collapsed: !!window.__huskis.state.universes.find((u) => u.id === 'uni-B').collapsed };
   });
-  log(label + ' 4: kollapset univers viser [gruppe-ikon] + antall (ikke «(N)»)',
+  log(label + ' 4: kollapset område viser [mappe-ikon] + antall (ikke «(N)»)',
     cnt.hidden === false && cnt.text === '1' && cnt.icons === 1 && cnt.collapsed === true,
     JSON.stringify(cnt));
   await clickHead(); // åpne igjen
@@ -221,7 +221,7 @@ async function run(label, vp, mobile) {
   await p.locator('#nav-board .item[data-id="g-b1"] .item-text').click();
   await p.waitForTimeout(250);
   const editing = await p.evaluate(() => !!document.querySelector('#nav-board .item[data-id="g-b1"] .edit-input'));
-  log(label + ' 5: klikk på gruppenavnet åpner navneredigering', editing === true);
+  log(label + ' 5: klikk på mappenavnet åpner navneredigering', editing === true);
   await p.keyboard.press('Escape'); await p.waitForTimeout(250);
 
   const main = await p.locator('#nav-board .item[data-id="g-b1"] .item-main').boundingBox();
@@ -232,14 +232,14 @@ async function run(label, vp, mobile) {
     u: window.__huskis.state.activeUniverse, g: window.__huskis.state.activeGroup,
     crumb: document.getElementById('nav-crumb').innerText.replace(/\s+/g, ' ').trim(),
   }));
-  log(label + ' 5: klikk ellers på raden navigerer til gruppen og lukker modalen',
+  log(label + ' 5: klikk ellers på raden navigerer til mappen og lukker modalen',
     navigated.closed === true && navigated.u === 'uni-B' && navigated.g === 'g-b1' &&
     navigated.crumb === 'Jobb › Møter', JSON.stringify(navigated));
 
-  /* ---------- 6-10) DnD og rendring: pull + gruppeflytting stubbes ----------
+  /* ---------- 6-10) DnD og rendring: pull + mappeflytting stubbes ----------
      Fikstur-radene har ikke UUID-er og finnes derfor ALDRI på «serveren». En
      pull ville nullstilt dem midt i scenarioet, og `move_group`-RPC-en (som en
-     gruppe som bytter univers går gjennom) ville ventet forgjeves på at raden
+     mappe som bytter område går gjennom) ville ventet forgjeves på at raden
      dukket opp. Begge deler hører til synken, som `sync-*`-testene dekker; her
      handler alt om dra-og-slipp og rendring. */
   await p.evaluate(() => {
@@ -254,17 +254,17 @@ async function run(label, vp, mobile) {
 
   /* ---------- 6) DnD: samme motor som lister/listepunkter ---------- */
   await open(p);
-  // 6a) gruppe fra Hjemme → Jobb
+  // 6a) mappe fra Hjemme → Jobb
   await drag(p, '#nav-board .item[data-id="g-a1"]', async () => {
     const t = await p.locator('#nav-board .card[data-id="uni-B"] .items-container').boundingBox();
     return { x: t.x + t.width / 2, y: t.y + t.height / 2 };
   });
   const m6a = await model(p);
-  log(label + ' 6a: gruppa flyttet til et annet univers',
+  log(label + ' 6a: mappa flyttet til et annet område',
     m6a.startsWith('Hjemme[Prosjekter*,Hagen@gc-1] Jobb[') &&
     m6a.includes('Ukesplan') && m6a.includes('Møter'), m6a);
 
-  // 6b) gruppe ut i board-lufta under kortene → nytt univers
+  // 6b) mappe ut i board-lufta under kortene → nytt område
   await open(p);
   await drag(p, '#nav-board .item[data-id="g-b1"]', async () => {
     const t = await p.locator('#nav-board').boundingBox();
@@ -275,11 +275,11 @@ async function run(label, vp, mobile) {
     const nu = st.universes.find((u) => !['uni-A', 'uni-B'].includes(u.id));
     return nu ? nu.groups.map((g) => g.name).join() : 'INGEN';
   });
-  log(label + ' 6b: gruppe sluppet utenfor universene lager et NYTT univers',
+  log(label + ' 6b: mappe sluppet utenfor områdene lager et NYTT område',
     extracted === 'Møter', extracted);
   await p.keyboard.press('Escape'); await p.waitForTimeout(250); // avbryt navngivingen
 
-  // 6c) gruppe inn i en gruppekategori (slipp på overskriften)
+  // 6c) mappe inn i en mappekategori (slipp på overskriften)
   await open(p);
   await drag(p, '#nav-board .item[data-id="g-a1"]', async () => {
     const t = await p.locator('#nav-board .category[data-id="gc-1"] .cat-head').boundingBox();
@@ -289,10 +289,10 @@ async function run(label, vp, mobile) {
     const g = window.__huskis.state.universes.flatMap((u) => u.groups).find((x) => x.id === 'g-a1');
     return g ? (g.uni + '/' + (g.cat || '-')) : 'BORTE';
   });
-  log(label + ' 6c: gruppa ligger i gruppekategorien', inCat === 'uni-A/gc-1', inCat);
+  log(label + ' 6c: mappa ligger i mappekategorien', inCat === 'uni-A/gc-1', inCat);
 
-  // 6d) hele gruppekategorien ut i lufta → nytt univers med medlemmene som grupper.
-  // Frisk state først: 6a–6c har flyttet gruppene rundt, og et kjent utgangspunkt
+  // 6d) hele mappekategorien ut i lufta → nytt område med medlemmene som mapper.
+  // Frisk state først: 6a–6c har flyttet mappene rundt, og et kjent utgangspunkt
   // gjør at «under alle kortene» faktisk er board-luft og ikke det siste kortet.
   await seed(p);
   await open(p);
@@ -310,15 +310,15 @@ async function run(label, vp, mobile) {
     };
   });
   // Kategorien tar navnet sitt med seg; medlemmet «Hagen» blir en UKATEGORISERT
-  // gruppe i det nye universet (ingen «@»), og «Ukesplan» blir igjen i uni-A.
-  log(label + ' 6d: gruppekategori sluppet utenfor universene blir et NYTT univers',
+  // mappe i det nye området (ingen «@»), og «Ukesplan» blir igjen i uni-A.
+  log(label + ' 6d: mappekategori sluppet utenfor områdene blir et NYTT område',
     catOut.nytt.endsWith('|Prosjekter:Hagen') && !catOut.nytt.startsWith('uni-A|') &&
     catOut.kvar === 'Ukesplan', JSON.stringify(catOut));
 
-  /* ---------- 7) Den aktive gruppen følger med når den bytter univers ---------- */
-  // Står man I gruppa man drar til et annet univers, må hovedsiden og
+  /* ---------- 7) Den aktive mappen følger med når den bytter område ---------- */
+  // Står man I mappa man drar til et annet område, må hovedsiden og
   // breadcrumben følge etter — ellers leter activeGroupObj() i det gamle
-  // universet og board-et faller til «Ingen grupper ennå.».
+  // området og board-et faller til «Ingen mapper ennå.».
   await seed(p);
   await open(p);
   await drag(p, '#nav-board .card[data-id="uni-A"] .item[data-id="g-a1"]', async () => {
@@ -331,24 +331,24 @@ async function run(label, vp, mobile) {
     const g = st.universes.flatMap((u) => u.groups).find((x) => x.id === 'g-a1');
     return {
       gUni: g ? g.uni : 'BORTE',
-      aktivtUnivers: st.activeUniverse,
-      aktivGruppe: st.activeGroup,
+      aktivtOmråde: st.activeUniverse,
+      aktivMappe: st.activeGroup,
       crumb: document.getElementById('nav-crumb').innerText.replace(/\s+/g, ' ').trim(),
-      // «Ingen grupper ennå.» = board-et fant ikke gruppa (den gamle feilen).
-      // Gruppa er tom for lister, så list-nivåets tomtilstand er RIKTIG her.
+      // «Ingen mapper ennå.» = board-et fant ikke mappa (den gamle feilen).
+      // Mappa er tom for lister, så list-nivåets tomtilstand er RIKTIG her.
       board: (document.querySelector('#board .empty-state') || document.body).innerText
         .replace(/\s+/g, ' ').trim().slice(0, 40),
     };
   });
-  log(label + ' 7: den aktive gruppen tar med seg lokasjonen til det nye universet',
-    follow.gUni === 'uni-B' && follow.aktivtUnivers === 'uni-B' && follow.aktivGruppe === 'g-a1' &&
+  log(label + ' 7: den aktive mappen tar med seg lokasjonen til det nye området',
+    follow.gUni === 'uni-B' && follow.aktivtOmråde === 'uni-B' && follow.aktivMappe === 'g-a1' &&
     follow.crumb === 'Jobb › Ukesplan' && follow.board.startsWith('Ingen lister i «Ukesplan»'),
     JSON.stringify(follow));
 
   /* ---------- 8) Tastatur: navigering uten peker ---------- */
   await seed(p);
   await open(p);
-  // Enter på en ANNEN gruppes rad = naviger dit (og lukk modalen), som et klikk.
+  // Enter på en ANNEN mappes rad = naviger dit (og lukk modalen), som et klikk.
   await p.locator('#nav-board .card[data-id="uni-B"] .item[data-id="g-b1"]').focus();
   await p.keyboard.press('Enter');
   await p.waitForTimeout(400);
@@ -357,7 +357,7 @@ async function run(label, vp, mobile) {
     u: window.__huskis.state.activeUniverse,
     g: window.__huskis.state.activeGroup,
   }));
-  log(label + ' 8: Enter på en grupperad navigerer dit og lukker modalen',
+  log(label + ' 8: Enter på en mapperad navigerer dit og lukker modalen',
     kbNav.lukket === true && kbNav.u === 'uni-B' && kbNav.g === 'g-b1', JSON.stringify(kbNav));
 
   // Enter på raden man ALLEREDE står i redigerer navnet (ellers ville Enter der
@@ -370,12 +370,12 @@ async function run(label, vp, mobile) {
     input: !!document.querySelector('#nav-board .item[data-id="g-b1"] .edit-input'),
     apen: !document.getElementById('nav-modal').hidden,
   }));
-  log(label + ' 8: Enter på den aktive gruppa åpner navneredigering',
+  log(label + ' 8: Enter på den aktive mappa åpner navneredigering',
     kbRename.input === true && kbRename.apen === true, JSON.stringify(kbRename));
   await p.keyboard.press('Escape');
   await p.waitForTimeout(250);
 
-  // Mellomrom på univershodet kollapser/utvider — det klikk der gjør.
+  // Mellomrom på områdehodet kollapser/utvider — det klikk der gjør.
   await p.locator('#nav-board .card[data-id="uni-A"] .card-head').focus();
   await p.keyboard.press(' ');
   await p.waitForTimeout(300);
@@ -387,21 +387,21 @@ async function run(label, vp, mobile) {
       aria: c.querySelector('.card-head').getAttribute('aria-expanded'),
     };
   });
-  log(label + ' 8: Mellomrom på univershodet kollapser universet',
+  log(label + ' 8: Mellomrom på områdehodet kollapser området',
     kbCollapse.kollapset === true && kbCollapse.lagret === true && kbCollapse.aria === 'false',
     JSON.stringify(kbCollapse));
 
-  /* ---------- 9) Slipp i et LÅST univers rulles tilbake ---------- */
+  /* ---------- 9) Slipp i et LÅST område rulles tilbake ---------- */
   // DB-guarden krever redigeringsrett på BÅDE gammel og ny forelder, så en
-  // flytting inn i et frosset univers ville blitt avvist og snappet tilbake ved
+  // flytting inn i et frosset område ville blitt avvist og snappet tilbake ved
   // neste synk. Klienten må avvise den med en gang i stedet.
   //
-  // Fikstur: «vanlig medlem av et låst univers» settes direkte på state-objektet
+  // Fikstur: «vanlig medlem av et låst område» settes direkte på state-objektet
   // (`_role`/`_locked`/`_caps`). Pullen er allerede pauset (se 6-10 over).
   await seed(p);
   await p.evaluate(() => {
     const u = window.__huskis.state.universes.find((x) => x.id === 'uni-B');
-    // Vanlig medlem (ikke eier) av et låst univers: låsen gjelder for meg.
+    // Vanlig medlem (ikke eier) av et låst område: låsen gjelder for meg.
     u._role = 'member'; u._locked = true;
     u._caps = { editContent: false, createGroup: false, delete: false, leave: true };
     window.__huskis.render();
@@ -416,7 +416,7 @@ async function run(label, vp, mobile) {
     iKildekortet: !!document.querySelector('#nav-board .card[data-id="uni-A"] .item[data-id="g-a1"]'),
     toast: (document.querySelector('.toast') || {}).textContent || '',
   }));
-  log(label + ' 9: gruppe sluppet i et låst univers rulles tilbake med beskjed',
+  log(label + ' 9: mappe sluppet i et låst område rulles tilbake med beskjed',
     locked.uni === 'uni-A' && locked.iKildekortet === true && /låst/i.test(locked.toast),
     JSON.stringify(locked));
 
@@ -437,24 +437,24 @@ async function run(label, vp, mobile) {
       hode: kids(card.querySelector('.card-head')).slice(0, 3),
       rad: kids(row).slice(0, 3),
       uniIkon: card.querySelectorAll(':scope > .card-head > .uni-icon svg').length,
-      gruppeIkon: row.querySelectorAll(':scope > .group-icon svg').length,
+      mappeIkon: row.querySelectorAll(':scope > .group-icon svg').length,
       delt: !card.querySelector(':scope > .card-head > .share-badge').hidden,
-      // Den lyse innerkanten («border» rundt gruppelista) skal være borte.
+      // Den lyse innerkanten («border» rundt mappelista) skal være borte.
       innerkant: getComputedStyle(card).boxShadow.includes('inset'),
     };
   });
-  log(label + ' 10: [univers-ikon][delt-ikon]Navn på universkortet',
+  log(label + ' 10: [område-ikon][delt-ikon]Navn på områdekortet',
     marks.hode.join() === 'kind-icon,share-badge,card-title-wrap' &&
     marks.uniIkon === 1 && marks.delt === true, JSON.stringify(marks));
-  log(label + ' 10: [gruppe-ikon][delt-ikon]Navn på grupperaden',
-    marks.rad.join() === 'kind-icon,share-badge,item-main' && marks.gruppeIkon === 1);
-  log(label + ' 10: delt univers har ingen lys innerkant rundt gruppelista',
+  log(label + ' 10: [mappe-ikon][delt-ikon]Navn på mapperaden',
+    marks.rad.join() === 'kind-icon,share-badge,item-main' && marks.mappeIkon === 1);
+  log(label + ' 10: delt område har ingen lys innerkant rundt mappelista',
     marks.innerkant === false);
   await p.evaluate(() => { window.__huskis.client.rpc = window.__navRealRpc; }); // pullen i gang igjen
 
   /* ---------- 11) Søppelkassene ---------- */
-  // Frisk state: dra-testene over har flyttet gruppene rundt (og laget nye
-  // universer), så søppel-sjekkene får sitt eget kjente utgangspunkt.
+  // Frisk state: dra-testene over har flyttet mappene rundt (og laget nye
+  // områder), så søppel-sjekkene får sitt eget kjente utgangspunkt.
   await seed(p);
   await open(p);
   await p.locator('#nav-board .card[data-id="uni-A"] .item[data-id="g-a2"] .group-delete').click();
@@ -466,9 +466,9 @@ async function run(label, vp, mobile) {
     uniTrashHidden: document.getElementById('uni-trash-btn').hidden,
     uniTrashInModalFooter: !!document.querySelector('#nav-modal .nav-actions #uni-trash-btn'),
   }));
-  log(label + ' 11: gruppe-søppelkassen ligger i universkortet gruppa hørte til',
+  log(label + ' 11: mappe-søppelkassen ligger i områdekortet mappa hørte til',
     trash.inUniCard === true && trash.count === '1' && trash.otherUni === false, JSON.stringify(trash));
-  log(label + ' 11: univers-søppelkassen ligger nederst i modalen (skjult når tom)',
+  log(label + ' 11: område-søppelkassen ligger nederst i modalen (skjult når tom)',
     trash.uniTrashInModalFooter === true && trash.uniTrashHidden === true);
 
   await p.locator('#nav-board .card[data-id="uni-A"] .uni-delete').click();
@@ -477,7 +477,7 @@ async function run(label, vp, mobile) {
     hidden: document.getElementById('uni-trash-btn').hidden,
     count: document.getElementById('uni-trash-count').textContent,
   }));
-  log(label + ' 11: univers-søppelkassen dukker opp med antall',
+  log(label + ' 11: område-søppelkassen dukker opp med antall',
     uniTrash.hidden === false && uniTrash.count === '1', JSON.stringify(uniTrash));
 
   log(label + ': ingen JS-feil', errs.length === 0, errs.join(' | '));

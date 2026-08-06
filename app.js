@@ -8,22 +8,22 @@
   /* ---------------- Konstanter ---------------- */
   const STORAGE_KEY = 'mine-lister-v1';
 
-  // Faste, deterministiske gruppe-id-er brukt ved migrering fra den gamle
+  // Faste, deterministiske mappe-id-er brukt ved migrering fra den gamle
   // to-fane-modellen (Huskelister/Handlelister) og for eksempeldata. Faste id-er
-  // gjør at alle enheter migrerer til de SAMME gruppene → ingen duplisering ved
+  // gjør at alle enheter migrerer til de SAMME mappene → ingen duplisering ved
   // fletting.
   const LEGACY_TABS = [
     { id: 'grp-huskelister', name: 'Huskelister', key: 'huskelister' },
     { id: 'grp-handlelister', name: 'Handlelister', key: 'handlelister' },
   ];
 
-  // Fast, deterministisk id/navn for universet eksisterende data migreres inn i
-  // (Univers > Gruppe > Liste > Element). Fast id → alle enheter migrerer til
-  // det SAMME universet, uten duplisering ved fletting.
+  // Fast, deterministisk id/navn for området eksisterende data migreres inn i
+  // (Område > Mappe > Liste > Element). Fast id → alle enheter migrerer til
+  // det SAMME området, uten duplisering ved fletting.
   const DEFAULT_UNI = { id: 'uni-standard', name: 'Standard' };
 
   /* ---------------- Fargesystem (HSL, posisjonsbasert) ----------------
-     Kort (og gruppekort) får farge ut fra POSISJONEN sin (indeks i den synlige,
+     Kort (og mappekort) får farge ut fra POSISJONEN sin (indeks i den synlige,
      sorterte lista) — ikke en lagret tilfeldig farge. Derfor re-indekseres og
      re-fargelegges de fortløpende når man legger til, sletter eller endrer
      rekkefølge. Målet er maksimal separasjon mellom nabo-kort:
@@ -209,7 +209,7 @@
       id, group: groupId || null, title, trashed: false, k: true, p: true,
       ts: 0, org: deviceId,           // innholdsregister (tittel/farge/trashed)
       labTs: 0, labOrg: deviceId,     // merkelapp-register (k/p) — uavhengig av innhold
-      pos: 0, posTs: 0, posOrg: deviceId, // posisjonsregister (rekkefølge + gruppe-forelder)
+      pos: 0, posTs: 0, posOrg: deviceId, // posisjonsregister (rekkefølge + mappe-forelder)
       items: [],
     };
     (items || []).forEach((t, i) => {
@@ -220,22 +220,22 @@
     return c;
   }
 
-  // En gruppe er nivå to (Univers > Gruppe > Liste > Element). Den har innholds-
-  // register (navn) og posisjonsregister (rekkefølge + univers-forelder + `cat`),
+  // En mappe er nivå to (Område > Mappe > Liste > Element). Den har innholds-
+  // register (navn) og posisjonsregister (rekkefølge + område-forelder + `cat`),
   // og eier sine lister. `cat`/`isCat` speiler listepunktenes kategori-modell:
-  // en GRUPPEKATEGORI lagres som en gruppe med `isCat: true`, og vanlige grupper
-  // peker på den via `cat` (null = ukategorisert, nivå 1 i universet).
+  // en MAPPEKATEGORI lagres som en mappe med `isCat: true`, og vanlige mapper
+  // peker på den via `cat` (null = ukategorisert, nivå 1 i området).
   function makeGroup(name, id, uniId) {
     return {
       id: id || uid(), uni: uniId || null, name, trashed: false,
       cat: null, isCat: false, collapsed: false,
       _type: 'group', _role: 'owner', _createdByMe: true, // lokalt opprettet (synken bekrefter)
       ts: 0, org: deviceId,               // innholdsregister (navn/trashed/isCat/collapsed)
-      pos: 0, posTs: 0, posOrg: deviceId, // posisjonsregister (rekkefølge + univers + cat)
+      pos: 0, posTs: 0, posOrg: deviceId, // posisjonsregister (rekkefølge + område + cat)
       cards: [],
     };
   }
-  // Gruppekategori: nivå-1-rad i et univers som grupperer grupper under en
+  // Mappekategori: nivå-1-rad i et område som grupperer mapper under en
   // felles overskrift — nøyaktig samme mønster som listepunkt-kategorier.
   function makeGroupCategory(name, uniId) {
     const g = makeGroup(name, null, uniId);
@@ -243,7 +243,7 @@
     return g;
   }
 
-  // Et univers er øverste nivå — et område med egne grupper (og gruppekategorier).
+  // Et område er øverste nivå — en beholder med egne mapper (og mappekategorier).
   function makeUniverse(name, id) {
     return {
       id: id || uid(), name, trashed: false, collapsed: false,
@@ -254,8 +254,8 @@
     };
   }
 
-  // Eksempeldata (kun uten sky): to grupper som speiler de gamle fanene,
-  // pakket inn i standard-universet.
+  // Eksempeldata (kun uten sky): to mapper som speiler de gamle fanene,
+  // pakket inn i standard-området.
   function seedUniverses() {
     const u = makeUniverse(DEFAULT_UNI.name, DEFAULT_UNI.id);
     const defs = [
@@ -285,7 +285,7 @@
     return {
       activeUniverse: universes.length ? universes[0].id : null, // per enhet, synkes ikke
       activeGroup: firstGroups.length ? firstGroups[0].id : null, // per enhet, synkes ikke
-      activeGroups: {}, // uniId → sist aktive gruppe der (per enhet, synkes ikke)
+      activeGroups: {}, // uniId → sist aktive mappe der (per enhet, synkes ikke)
       universes,
       _tomb: { universes: {}, groups: {}, cards: {}, items: {} }, // gravsteiner: id → tidsstempel
       _hlc: 0,
@@ -307,6 +307,13 @@
   }
 
   let saveTimer = null;
+  /* Sant mens DEMONSTRASJONEN kjører. Den er en SIMULERING: brukerens egne
+     objekter er lagt til side, og alt demoen lager er en kulisse som rives ned
+     igjen. Ingenting av det skal havne i den lokale bufferen eller på kontoen,
+     så de fire veiene ut — bufferen, sky-runden, den huskede posisjonen og
+     bakgrunnskøen — stenges her. Flagget står HER, ikke nede i demoseksjonen,
+     fordi `save()` under leser det. Se DEMONSTRASJONEN FOR NYE BRUKERE. */
+  let demoActive = false;
   // Serialisering hopper over intern backend-metadata (_parent/_canon/_caps/…),
   // som ellers ville gitt sykliske referanser i kontomodus. State-nivå _tomb/_hlc
   // beholdes. _createdByMe (en ren boolsk verdi, ingen sirkulær referanse) beholdes
@@ -339,31 +346,47 @@
   // Selve skrivingen (debouncet). Nøkkelen fanges når skrivingen bestilles, ikke
   // når den utføres, så en utlogging midt i vinduet ikke flytter en brukers data
   // over i en annen post.
+  let pendingCacheKey = null; // nøkkelen den ventende skrivingen ble bestilt for
+  function writeCacheNow() {
+    saveTimer = null; // «ingen skriving venter» — leses av updateSafety()/syncStatus
+    const key = pendingCacheKey || (authUser ? (STORAGE_KEY + ':' + authUser.id) : STORAGE_KEY);
+    pendingCacheKey = null;
+    try {
+      state._hlc = hlc;
+      localStorage.setItem(key, JSON.stringify(state, stateReplacer));
+      cacheDirty = false; // brukerens endringer ligger nå i bufferen
+      syncStatus.clearRejected(CACHE_REJECT_KEY);
+    } catch (e) {
+      // Full kvote, eller localStorage utilgjengelig (privat modus, blokkerte
+      // nettsteddata). Da ligger endringene KUN i minnet, og både «Lagret» og
+      // «endringene lagres på denne enheten» ville vært løgn — så dette må
+      // meldes, ikke svelges. Statusen står til en skriving faktisk går
+      // gjennom; «Prøv igjen» bestiller en ny.
+      console.error('[huskis] Kunne ikke skrive den lokale bufferen — ' +
+        'endringene ligger bare i minnet i denne fanen.', e);
+      syncStatus.noteRejected(CACHE_REJECT_KEY, {
+        kind: 'cache', message: String((e && e.message) || e),
+      });
+    }
+    syncStatus.refresh();
+  }
   function scheduleCacheWrite(userChange) {
     if (userChange) cacheDirty = true;
     clearTimeout(saveTimer);
-    const key = authUser ? (STORAGE_KEY + ':' + authUser.id) : STORAGE_KEY;
-    saveTimer = setTimeout(() => {
-      saveTimer = null; // «ingen skriving venter» — leses av updateSafety()/syncStatus
-      try {
-        state._hlc = hlc;
-        localStorage.setItem(key, JSON.stringify(state, stateReplacer));
-        cacheDirty = false; // brukerens endringer ligger nå i bufferen
-        syncStatus.clearRejected(CACHE_REJECT_KEY);
-      } catch (e) {
-        // Full kvote, eller localStorage utilgjengelig (privat modus, blokkerte
-        // nettsteddata). Da ligger endringene KUN i minnet, og både «Lagret» og
-        // «endringene lagres på denne enheten» ville vært løgn — så dette må
-        // meldes, ikke svelges. Statusen står til en skriving faktisk går
-        // gjennom; «Prøv igjen» bestiller en ny.
-        console.error('[huskis] Kunne ikke skrive den lokale bufferen — ' +
-          'endringene ligger bare i minnet i denne fanen.', e);
-        syncStatus.noteRejected(CACHE_REJECT_KEY, {
-          kind: 'cache', message: String((e && e.message) || e),
-        });
-      }
-      syncStatus.refresh();
-    }, 120);
+    pendingCacheKey = authUser ? (STORAGE_KEY + ':' + authUser.id) : STORAGE_KEY;
+    saveTimer = setTimeout(writeCacheNow, 120);
+  }
+  /* Skriv en ventende buffer-skriving NÅ. Demoen bytter ut `state` med en
+     kulisse, og en skriving bestilt FØR byttet ville ellers fyrt etterpå og
+     lagret kulissen — sammen med den ekte synk-basen. En reload midt i demoen
+     leste da en buffer uten brukerens rader og en base som beskriver dem, og
+     fletteren ville lest det som «slettet lokalt» og pushet DELETE på gyldige
+     rader. Skrivingen bærer brukerens egne endringer, så den skal fullføres,
+     ikke forkastes. */
+  function flushCacheWrite() {
+    if (!saveTimer) return;
+    clearTimeout(saveTimer);
+    writeCacheNow();
   }
   // Teller lokale endringer som skal til skyen. `syncedSeq` rykker fram til den
   // verdien `saveSeq` hadde da en synk-runde leste staten — men KUN når runden
@@ -371,6 +394,7 @@
   // fått ennå (se updateSafety(): da er en automatisk reload ikke trygg).
   let saveSeq = 0, syncedSeq = 0;
   function save() {
+    if (demoActive) return; // simulering — se demoActive
     // En render UNDER `applyingRemote` kaller også save() (renderBoardInner), og
     // da er det fletteresultatet som skrives ned — ikke en ny brukerendring.
     scheduleCacheWrite(!applyingRemote);
@@ -380,14 +404,14 @@
   // Som save(), men uten å planlegge en synk-runde: brukes av synken selv når
   // den skriver ned resultatet sitt (innhold + base) og altså nettopp har vært
   // hos serveren. Skrivingen bærer derfor ingen ny brukerendring.
-  function saveLocal() { scheduleCacheWrite(false); }
+  function saveLocal() { if (!demoActive) scheduleCacheWrite(false); }
 
   // Første gang (ingen lokal state): start tom når sky-synk er konfigurert
   // (skyen fyller på / tom-tilstanden veileder), ellers med eksempeldata.
   const state = load() || baseState(!cloudConfigured());
 
-  // Migrering (steg 1): gjør om den gamle to-fane-modellen til grupper. To faste
-  // grupper (Huskelister/Handlelister) med deterministiske id-er, slik at alle
+  // Migrering (steg 1): gjør om den gamle to-fane-modellen til mapper. To faste
+  // mapper (Huskelister/Handlelister) med deterministiske id-er, slik at alle
   // enheter migrerer likt. Kjøres på gammel lagret state.
   function migrateTabsToGroups(s) {
     if (Array.isArray(s.universes) || Array.isArray(s.groups) || !s.tabs) return;
@@ -406,7 +430,7 @@
     delete s.activeTab;
   }
 
-  // Migrering (steg 2): pakk en flat gruppe-tilstand inn i standard-universet.
+  // Migrering (steg 2): pakk en flat mappe-tilstand inn i standard-området.
   // Fast id (uni-standard) → alle enheter migrerer likt, ingen duplisering.
   function migrateGroupsToUniverses(s) {
     if (Array.isArray(s.universes) || !Array.isArray(s.groups)) return;
@@ -473,7 +497,7 @@
     u.groups.forEach((g, gi) => normalizeGroup(g, gi, u.id));
   }
   // activeUniverse/activeGroup må peke på eksisterende, ikke-slettede entiteter;
-  // activeGroups-minnet (per univers) brukes som fallback før «første synlige».
+  // activeGroups-minnet (per område) brukes som fallback før «første synlige».
   function validateActive(s) {
     if (!s.activeGroups || typeof s.activeGroups !== 'object') s.activeGroups = {};
     if (!s.universes.some((u) => u.id === s.activeUniverse && !u.trashed)) {
@@ -482,7 +506,7 @@
       s.activeUniverse = first ? first.id : null;
     }
     const uni = s.universes.find((u) => u.id === s.activeUniverse && !u.trashed) || null;
-    // Gruppekategorier er overskrifter, ikke steder man kan stå.
+    // Mappekategorier er overskrifter, ikke steder man kan stå.
     const groups = uni ? uni.groups.filter((g) => !g.trashed && !g.isCat) : [];
     const ok = (id) => id && groups.some((g) => g.id === id);
     if (!ok(s.activeGroup)) {
@@ -513,7 +537,7 @@
   /* ---------------- DOM-referanser ---------------- */
   const board = document.getElementById('board');
   const topbarEl = document.getElementById('topbar');
-  // ÉN navigasjonsknapp i toppmenyen (🌐 univers › 📁 gruppe) → nav-modalen.
+  // ÉN navigasjonsknapp i toppmenyen (🌐 område › 📁 mappe) → nav-modalen.
   const navCrumbBtn = document.getElementById('nav-crumb');
   const crumbUniName = document.getElementById('crumb-uni-name');
   const crumbGroupName = document.getElementById('crumb-group-name');
@@ -540,7 +564,7 @@
   const trashEmptyBtn = document.getElementById('trash-empty');
   const modalNote = document.getElementById('trash-note');
 
-  // Navigasjonsmodal (nav-knappen): universer som kort med gruppene sine som
+  // Navigasjonsmodal (nav-knappen): områder som kort med mappene sine som
   // rader — samme oppsett og samme dra-og-slipp-motor som lister/listepunkter.
   const navModal = document.getElementById('nav-modal');
   const navModalClose = document.getElementById('nav-modal-close');
@@ -554,8 +578,8 @@
   const accountClose = document.getElementById('account-close');
 
   const posCmp = (a, b) => (a.pos - b.pos) || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0);
-  // «Aktive» kort/listepunkter gjelder alltid den aktive gruppen; universene og
-  // gruppene deres lever i nav-modalen (alle universer vises samtidig, som
+  // «Aktive» kort/listepunkter gjelder alltid den aktive mappen; områdene og
+  // mappene deres lever i nav-modalen (alle områder vises samtidig, som
   // listekortene på board-et).
   // `_pendingDelete` (buffret sletting, se DELETE-BUFFER lenger nede): objektet
   // er skjult fra de synlige listene og vist i søppel-visningen,
@@ -564,22 +588,22 @@
   // «i søppel» for visning, men ikke som aktivt.
   const live = (o) => !o.trashed && !o._pendingDelete;
   const activeUniverseObj = () => state.universes.find((u) => u.id === state.activeUniverse && live(u)) || null;
-  // Kortene i nav-modalen, i seksjonsrekkefølge (mine → delte → frie grupper) og
+  // Kortene i nav-modalen, i seksjonsrekkefølge (mine → delte → frie mapper) og
   // med personlig posisjon innenfor hver seksjon.
   const visibleUniverses = () => state.universes.filter(live)
     .sort((a, b) => (sectionRank(a) - sectionRank(b)) || posCmp(a, b));
-  // Den virtuelle fri-gruppe-beholderen kan aldri slettes, så den holdes utenfor.
+  // Den virtuelle fri-mappe-beholderen kan aldri slettes, så den holdes utenfor.
   const trashedUniverses = () => state.universes.filter((u) => !live(u) && !u._virtual);
   const findUniverse = (id) => state.universes.find((u) => u.id === id) || null;
   const allGroups = () => { const u = activeUniverseObj(); return u ? u.groups : []; };
   const activeGroupObj = () => allGroups().find((g) => g.id === state.activeGroup && live(g) && !g.isCat) || null;
-  // Gruppene i ETT univers (nav-modalen tegner alle universene samtidig).
+  // Mappene i ETT område (nav-modalen tegner alle områdene samtidig).
   const groupsOf = (u) => (u && u.groups) || [];
   const visibleGroupsOf = (u) => groupsOf(u).filter(live).sort(posCmp);
   const trashedGroupsOf = (u) => groupsOf(u).filter((g) => !live(g));
   const findGroup = (id) => allGroups().find((g) => g.id === id) || null;
-  // Grupper på tvers av ALLE universer (nav-scopet: en gruppe kan dras hvor
-  // som helst, så oppslag kan ikke være scopet til det aktive universet).
+  // Mapper på tvers av ALLE områder (nav-scopet: en mappe kan dras hvor
+  // som helst, så oppslag kan ikke være scopet til det aktive området).
   function findGroupAnywhere(id) {
     for (const u of state.universes) {
       const g = u.groups.find((x) => x.id === id);
@@ -608,7 +632,7 @@
   }
   // Antall listepunkter i en kollapset liste (alle aktive leaf-elementer, uansett
   // kategori eller avkryssing — kategorier telles IKKE). Samme regnestykke for
-  // et univers (aktive grupper, gruppekategorier ikke medregnet).
+  // et område (aktive mapper, mappekategorier ikke medregnet).
   function leafCount(rows) {
     return rows.filter((it) => live(it) && !it.isCat).length;
   }
@@ -617,7 +641,7 @@
     return rows.filter((it) => live(it) && !it.done && !it.isCat && it.cat === catId).length;
   }
   // Sett kollaps-tellerens tekst og vis/skjul den etter kollaps-tilstand. Lister/
-  // listepunkt-kategorier viser «(N)»; universer viser [gruppe-ikon] N (`icon`).
+  // listepunkt-kategorier viser «(N)»; områder viser [mappe-ikon] N (`icon`).
   function setCollapseCount(headEl, n, collapsed, icon) {
     const c = headEl && headEl.querySelector('.collapse-count');
     if (!c) return;
@@ -827,7 +851,7 @@
   }
   document.addEventListener('keydown', (ev) => {
     if (ev.key !== 'Tab' || !overlayStack.length) return;
-    if (tourActive) return; // omvisningen har sin egen felle
+    if (demoRunning) return; // demoen styrer selv hva som kan nås
     const top = overlayStack[overlayStack.length - 1];
     const f = focusablesIn(top);
     if (!f.length) { ev.preventDefault(); return; }
@@ -884,7 +908,7 @@
   // Radene i en container i VISUELL rekkefølge. Samme regnestykke som
   // buildCard()/buildUniverseCard() bruker når de bygger DOM-en — inkludert at
   // en rad hvis `cat` peker på en kategori som ikke finnes, regnes som nivå 1.
-  //   'leaf'   → bladradene (listepunkt/gruppe), kategoriene pakket ut
+  //   'leaf'   → bladradene (listepunkt/mappe), kategoriene pakket ut
   //   'level1' → nivå-1-radene (ukategoriserte blad + kategorier om hverandre)
   function orderedRows(S, cont, mode) {
     if (!cont) return [];
@@ -902,7 +926,7 @@
   }
 
   // Skriv en ny posisjon med NØYAKTIG den regelen dra-motoren bruker ved slipp:
-  // et objekt med `_canon` (universer og frie grupper) har PERSONLIG rekkefølge
+  // et objekt med `_canon` (områder og frie mapper) har PERSONLIG rekkefølge
   // og skrives til min egen medlemskapsrad; alt annet stemples i synk-doc'et.
   function commitPos(obj, kind, np) {
     obj.pos = np;
@@ -935,7 +959,7 @@
       if (cont && cont._virtual) return true;             // fri seksjon: personlig rekkefølge
       return cap(obj, 'reorderInParent', !frozen(obj)) || cap(obj, 'move', false);
     }
-    if (kind === 'universe') return true;                 // universrekkefølgen er alltid min egen
+    if (kind === 'universe') return true;                 // områderekkefølgen er alltid min egen
     return false;
   }
 
@@ -965,7 +989,7 @@
     if (kind === 'universe') {
       const obj = findUniverse(id);
       if (!obj) return null;
-      // Kun universene i SAMME seksjon. `visibleUniverses()` sorterer på
+      // Kun områdene i SAMME seksjon. `visibleUniverses()` sorterer på
       // sectionRank FØR pos, og renderNav() bygger én seksjon om gangen — et
       // bytte over en seksjonsgrense ville derfor ikke flyttet noe dit man ser,
       // bare importert en fremmed pos-verdi inn i seksjonen og stokket om på
@@ -1000,7 +1024,7 @@
     swapSiblings(ctx.obj, target, kind);
     save();
     keepFocus(handleSelector(kind, id));
-    // Kort og universer får farge etter POSISJON, så de må gjennom en full
+    // Kort og områder får farge etter POSISJON, så de må gjennom en full
     // rendring; rader trenger bare sin egen container bygget om.
     if (kind === 'card' || kind === 'universe') render();
     else if (kind === 'group' || kind === 'groupcat') renderNav();
@@ -1014,23 +1038,23 @@
 
   /* ---------------- «Flytt til …» (ny forelder) ----------------
      Tastaturets motstykke til de to draget har: en liste slept opp på
-     📁-breadcrumben, og et listepunkt/en gruppe slept over i en annen
+     📁-breadcrumben, og et listepunkt/en mappe slept over i en annen
      container. Gjenbruker den samme velger-modalen draget åpner. */
   function keyboardMoveTo(kind, id) {
     if (kind === 'card') {
       const c = findCard(id);
       if (!c) return;
-      // `moveTargetGroups` sjekker bare om jeg kan legge lista i MÅL-gruppen.
-      // Å ta den UT av kildegruppen krever i tillegg myndighet der — nøyaktig
+      // `moveTargetGroups` sjekker bare om jeg kan legge lista i MÅL-mappen.
+      // Å ta den UT av kildemappen krever i tillegg myndighet der — nøyaktig
       // samme gate som draget har (`canEdit && canAddList(activeGroupObj())` i
       // buildCard). Uten denne kunne Alt+M flytte en frossen liste optimistisk,
       // og først serveren ville sagt nei.
       if (!canReorderObj('card', c, activeGroupObj())) {
-        announce('Du kan ikke flytte ' + quoted(c.title) + ' ut av denne gruppen.');
+        announce('Du kan ikke flytte ' + quoted(c.title) + ' ut av denne mappen.');
         return;
       }
       if (!moveTargetGroups(c).length) {
-        announce('Det finnes ingen annen gruppe å flytte ' + quoted(c.title) + ' til.');
+        announce('Det finnes ingen annen mappe å flytte ' + quoted(c.title) + ' til.');
         return;
       }
       askCardMove(c);
@@ -1041,7 +1065,7 @@
       const from = it ? findCard(it.home) : null;
       if (!it || !from || it.isCat) return;
       if (frozen(from)) { announce('Listen er låst.'); return; }
-      // Målene: de andre listene i gruppen, og kategoriene i listen den ligger i
+      // Målene: de andre listene i mappen, og kategoriene i listen den ligger i
       // (pluss «utenfor kategori» når den ligger i en). Det dekker begge
       // overføringene draget kan gjøre med et listepunkt.
       const g = activeGroupObj();
@@ -1085,17 +1109,17 @@
     if (kind === 'group') {
       const g = findGroupAnywhere(id);
       if (!g) return;
-      // Å ta gruppen UT av universet sitt er en flytting, ikke en omrokkering:
+      // Å ta mappen UT av området sitt er en flytting, ikke en omrokkering:
       // samme capability som dra-motorens `canExtract` i navScope krever.
       if (!cap(g, 'move', !frozen(g))) {
-        announce('Du kan ikke flytte ' + quoted(g.name) + ' til et annet univers.');
+        announce('Du kan ikke flytte ' + quoted(g.name) + ' til et annet område.');
         return;
       }
       const opts = visibleUniverses()
         .filter((u) => !u._virtual && u.id !== g.uni && cap(u, 'createGroup', !frozen(u)))
         .map((u) => ({ id: u.id, label: u.name }));
-      if (!opts.length) { announce('Det finnes ikke noe annet univers å flytte til.'); return; }
-      openPicker(quoted(g.name) + ' flyttes til universet du velger.', opts, '', (uid2) => {
+      if (!opts.length) { announce('Det finnes ikke noe annet område å flytte til.'); return; }
+      openPicker(quoted(g.name) + ' flyttes til området du velger.', opts, '', (uid2) => {
         const dst = findUniverse(uid2);
         const from = g.uni;
         if (!dst) return;
@@ -1110,13 +1134,13 @@
         dst.groups.push(g);
         save(); render();
         keepFocus(handleSelector('group', g.id)); applyFocusIntent();
-        announce('Flyttet ' + quoted(g.name) + ' til universet «' + dst.name + '».');
+        announce('Flyttet ' + quoted(g.name) + ' til området «' + dst.name + '».');
         commitGroupMove(g, from, dst.id, null, np);
       });
       return;
     }
     announce(kind === 'universe'
-      ? 'Et univers er øverste nivå og kan ikke flyttes.'
+      ? 'Et område er øverste nivå og kan ikke flyttes.'
       : 'En kategori kan ikke flyttes til en annen forelder.');
   }
 
@@ -1151,8 +1175,8 @@
     });
   }
 
-  // Aktiv gruppe settes alltid via denne, så per-univers-minnet (activeGroups)
-  // holdes i takt og man lander på samme gruppe når man bytter tilbake.
+  // Aktiv mappe settes alltid via denne, så per-område-minnet (activeGroups)
+  // holdes i takt og man lander på samme mappe når man bytter tilbake.
   function setActiveGroup(id) {
     state.activeGroup = id || null;
     if (state.activeUniverse) state.activeGroups[state.activeUniverse] = state.activeGroup;
@@ -1160,25 +1184,25 @@
   }
   function setActiveUniverse(id) {
     state.activeUniverse = id || null;
-    // Gruppekategorier er overskrifter, ikke steder man kan stå.
+    // Mappekategorier er overskrifter, ikke steder man kan stå.
     const vis = visibleGroupsOf(activeUniverseObj()).filter((g) => !g.isCat);
     const remembered = id ? state.activeGroups[id] : null;
     setActiveGroup(remembered && vis.some((g) => g.id === remembered)
       ? remembered
       : (vis[0] ? vis[0].id : null));
   }
-  // Naviger til en gruppe uansett hvilket univers den ligger i (nav-modalen viser
-  // alle universene samtidig, så et gruppevalg kan bytte univers også).
+  // Naviger til en mappe uansett hvilket område den ligger i (nav-modalen viser
+  // alle områdene samtidig, så et mappevalg kan bytte område også).
   const containerIdOf = (g) => (g && g._free ? FREE_UNI_ID : (g && g.uni) || null);
   function goToGroup(g) {
     if (!g || g.isCat) return;
     state.activeUniverse = containerIdOf(g) || state.activeUniverse;
     setActiveGroup(g.id);
   }
-  // Den aktive gruppen kan ha byttet univers mens man stod i den: dratt til et
-  // annet univers, ekstrahert til et nytt, eller båret med av en gruppekategori.
-  // `activeGroupObj()` leter bare i det aktive universet, så uten dette ville
-  // hovedsiden vist «Ingen grupper ennå.» selv om gruppen fortsatt finnes.
+  // Den aktive mappen kan ha byttet område mens man stod i den: dratt til et
+  // annet område, ekstrahert til et nytt, eller båret med av en mappekategori.
+  // `activeGroupObj()` leter bare i det aktive området, så uten dette ville
+  // hovedsiden vist «Ingen mapper ennå.» selv om mappen fortsatt finnes.
   // Kalles fra renderBoard() slik at alle veiene inn dekkes av ett sted.
   function followActiveGroup() {
     if (!state.activeGroup) return;
@@ -1190,9 +1214,9 @@
   }
 
   /* ---------------- Dra-og-slipp-scope: hovedsidens board vs. nav-modalen ----------------
-     Universer og grupper bruker NØYAKTIG samme oppsett — og dermed nøyaktig
-     samme dra-og-slipp-motor — som lister og listepunkter: et univers er et
-     «kort» (`.card`), en gruppe en rad (`.item`) og en gruppekategori en
+     Områder og mapper bruker NØYAKTIG samme oppsett — og dermed nøyaktig
+     samme dra-og-slipp-motor — som lister og listepunkter: et område er et
+     «kort» (`.card`), en mappe en rad (`.item`) og en mappekategori en
      `.category`. `drag.kind` er derfor fortsatt 'card'/'item'/'category' i begge
      scopene; det eneste som skiller dem er hvilket state-tre man slår opp i, hva
      forelder-/navnefeltene heter, og hvor draget foregår (hovedsidens board med
@@ -1219,7 +1243,7 @@
       return p;
     },
     // Ny container ved ekstrahering (listepunkt/kategori → ny liste). Krever
-    // opprettelsesrett i gruppen — se canExtract.
+    // opprettelsesrett i mappen — se canExtract.
     canExtract: () => canAddList(activeGroupObj()),   // `row` er uten betydning her
     createContainer: (title) => {
       const g = activeGroupObj();
@@ -1257,10 +1281,10 @@
       state.universes.forEach((u) => u.groups.forEach((g) => { p[g.id] = g; }));
       return p;
     },
-    // Ny container ved ekstrahering (gruppe/gruppekategori → nytt univers). Det
-    // NYE universet blir alltid mitt, men å ta gruppen UT av det gamle er en
-    // flytting: `move_group` krever destruktiv myndighet i kilden. En låst gruppe
-    // kan altså omrokkeres i universet sitt, men ikke løftes ut av det.
+    // Ny container ved ekstrahering (mappe/mappekategori → nytt område). Det
+    // NYE området blir alltid mitt, men å ta mappen UT av det gamle er en
+    // flytting: `move_group` krever destruktiv myndighet i kilden. En låst mappe
+    // kan altså omrokkeres i området sitt, men ikke løftes ut av det.
     canExtract: (row) => !!row && cap(row, 'move', !frozen(row)),
     createContainer: (name) => {
       const nu = makeUniverse(name);
@@ -1275,19 +1299,19 @@
       if (oldEl) oldEl.replaceWith(buildUniverseCard(u));
     },
     render: () => render(),
-    // Et gruppe-drag kan ha flyttet den AKTIVE gruppen til et annet univers (eller
+    // Et mappe-drag kan ha flyttet den AKTIVE mappen til et annet område (eller
     // inn i/ut av en kategori) — hovedsidens board og breadcrumben må følge med.
     // renderNav() kalles bevisst IKKE: nav-DOM-en er allerede kirurgisk oppdatert,
     // og en rebuild ville revet ned kortet midt i drop-animasjonen.
     afterDrop: () => { updateCrumbs(); renderBoard(); },
     reindexColors: () => reindexContainerColors(navScope),
-    lockedTargetMsg: 'Universet er låst – du kan ikke flytte noe hit',
+    lockedTargetMsg: 'Området er låst – du kan ikke flytte noe hit',
   };
   const scopeForEl = (el) => (el && navBoard.contains(el) ? navScope : boardScope);
   const dragScope = () => drag.scope || boardScope;
 
   /* ---------------- Render ---------------- */
-  // Søppelkasse-badgen (univers/gruppe/liste): antall, og knappen skjules når
+  // Søppelkasse-badgen (område/mappe/liste): antall, og knappen skjules når
   // kassen er tom. Delt av de tre faste knappene (element-nivået er annerledes
   // — se updateItemsTrashBadge, som slår opp badgen i DOM).
   function updateTrashBadge(trashedSel, countEl, btnEl) {
@@ -1470,7 +1494,7 @@
   if (boardRO) boardRO.observe(board);
   board.addEventListener('focusout', () => { if (relayoutPending) scheduleRelayout(); });
 
-  // Full re-rendring: nav-modalen (universer/grupper) + hovedsidens board.
+  // Full re-rendring: nav-modalen (områder/mapper) + hovedsidens board.
   function render() {
     renderNav();
     renderBoard();
@@ -1485,7 +1509,7 @@
   // en full renderNav() ville revet ned det nettopp slupne kortet midt i
   // drop-animasjonen.
   // Fokusønsket må innfris uansett hvilken vei rendringen tar. Innmaten under
-  // har flere tidlige returer (ingen gruppe, ingen lister), og nettopp DA er
+  // har flere tidlige returer (ingen mappe, ingen lister), og nettopp DA er
   // ønsket viktigst: sletter man den siste lista, er det den tomme tilstanden
   // fokus skal lande i — ikke <body>. Derfor ligger applyFocusIntent() her, i
   // innpakningen, i stedet for på hver enkelt utgang.
@@ -1503,14 +1527,14 @@
     const group = activeGroupObj();
     updateCrumbs();
 
-    // Ingen aktiv gruppe (evt. heller ikke noe univers — «＋ Gruppe» ordner begge).
+    // Ingen aktiv mappe (evt. heller ikke noe område — «＋ Mappe» ordner begge).
     if (!group) {
       board.classList.add('empty');
       const es = document.createElement('div');
       es.className = 'empty-state';
-      es.innerHTML = '<div class="big">' + ICONS.folder + '</div><p>Ingen grupper ennå.</p>' +
+      es.innerHTML = '<div class="big">' + ICONS.folder + '</div><p>Ingen mapper ennå.</p>' +
         '<p>Trykk <span class="hint-chip">' + ICONS.globe + ' › ' + ICONS.folder + '</span> øverst og deretter ' +
-        '<span class="hint-chip">' + ICONS.plus + '</span> i et univers for å komme i gang.</p>';
+        '<span class="hint-chip">' + ICONS.plus + '</span> i et område for å komme i gang.</p>';
       board.appendChild(es);
       fixBoardBottomGap();
       save();
@@ -1530,13 +1554,13 @@
       const big = document.createElement('div'); big.className = 'big'; big.innerHTML = ICONS.list;
       const p1 = document.createElement('p'); p1.textContent = 'Ingen lister i «' + group.name + '» ennå.';
       const p2 = document.createElement('p');
-      // «＋ Liste» er skrudd av i en låst gruppe — da skal tomtilstanden si
+      // «＋ Liste» er skrudd av i en låst mappe — da skal tomtilstanden si
       // hvorfor, ikke be om et trykk som ikke fører noe sted.
       if (canAddList(group)) {
         p2.innerHTML = 'Trykk <span class="hint-chip">' + ICONS.plus + ' ' + ICONS.list + '</span> for å komme i gang.';
       } else {
         big.innerHTML = ICONS.lock;
-        p2.textContent = 'Gruppen er låst, så du kan ikke opprette lister i den.';
+        p2.textContent = 'Mappen er låst, så du kan ikke opprette lister i den.';
       }
       es.append(big, p1, p2);
       board.appendChild(es);
@@ -1560,21 +1584,21 @@
     save();
   }
 
-  // «＋ Liste» krever en aktiv gruppe man faktisk kan opprette lister i: i en
-  // LÅST gruppe avviser serveren opprettelsen, og en lokalt opprettet liste ble
-  // stående som et spøkelse — låst av gruppelåsen, altså umulig å redigere eller
-  // slette igjen. Knappen skrus av i stedet, som «＋ Gruppe» i et låst univers.
+  // «＋ Liste» krever en aktiv mappe man faktisk kan opprette lister i: i en
+  // LÅST mappe avviser serveren opprettelsen, og en lokalt opprettet liste ble
+  // stående som et spøkelse — låst av mappelåsen, altså umulig å redigere eller
+  // slette igjen. Knappen skrus av i stedet, som «＋ Mappe» i et låst område.
   function updateToolbarState() {
     addCardBtn.disabled = !canAddList(activeGroupObj());
   }
 
-  // Breadcrumben (nav-knappen) viser navnet på gjeldende univers og gruppe, ikke
+  // Breadcrumben (nav-knappen) viser navnet på gjeldende område og mappe, ikke
   // bare nivånavnet — så man alltid ser hvor i hierarkiet man er.
   // Breadcrumben følger den faste ikonrekkefølgen
-  // `[ressursikon][delt-ikon ved behov] Ressursnavn`, aldri med gruppeikonet to
-  // ganger. En FRI gruppe (delt direkte med meg, uten tilgang til det kanoniske
-  // universet) får en virtuell rot: `[delt-ikon] Delte grupper` — ingen
-  // universikon, siden det ikke er noe univers jeg kan se.
+  // `[ressursikon][delt-ikon ved behov] Ressursnavn`, aldri med mappeikonet to
+  // ganger. En FRI mappe (delt direkte med meg, uten tilgang til det kanoniske
+  // området) får en virtuell rot: `[delt-ikon] Delte mapper` — ingen
+  // områdeikon, siden det ikke er noe område jeg kan se.
   function setCrumbShared(el, on, label) {
     el.hidden = !on;
     el.innerHTML = on ? ICONS.people : '';
@@ -1587,12 +1611,12 @@
     const group = activeGroupObj();
     const free = !!(group && group._free);
     crumbUniIcon.innerHTML = free ? '' : ICONS.globe;
-    crumbUniName.textContent = free ? S_TEXT.freeSection : (uni ? uni.name : 'Univers');
+    crumbUniName.textContent = free ? S_TEXT.freeSection : (uni ? uni.name : 'Område');
     setCrumbShared(crumbUniShared, free || !!(uni && uni._shared),
-      free ? 'Grupper delt med deg' : 'Universet er delt');
+      free ? 'Mapper delt med deg' : 'Området er delt');
     crumbGroupIcon.innerHTML = ICONS.folder;
-    crumbGroupName.textContent = group ? group.name : 'Gruppe';
-    setCrumbShared(crumbGroupShared, !!(group && group._shared), 'Gruppen er delt');
+    crumbGroupName.textContent = group ? group.name : 'Mappe';
+    setCrumbShared(crumbGroupShared, !!(group && group._shared), 'Mappen er delt');
   }
 
   // Delings-/låse-status (kontomodus): toggler .is-shared og fyller .share-badge
@@ -1615,14 +1639,14 @@
   }
 
   /* ============================================================
-     NAV-MODALEN: universer som kort, grupper som rader
+     NAV-MODALEN: områder som kort, mapper som rader
      ------------------------------------------------------------
      Nøyaktig samme oppsett som hovedsidens board — bare alltid i én kolonne:
-     hvert univers er et `.card` (kan kollapses, viser da [mappe] N), gruppene
-     er `.item`-rader i kortets `.items-container`, og gruppekategorier er
+     hvert område er et `.card` (kan kollapses, viser da [mappe] N), mappene
+     er `.item`-rader i kortets `.items-container`, og mappekategorier er
      `.category`-rader med sin egen hylle. Dermed gjelder også hele dra-og-
-     slipp-motoren (reorder, flytt mellom universer, ekstraher til nytt
-     univers, peek-åpning, skillelinjer) uten en eneste egen kodelinje —
+     slipp-motoren (reorder, flytt mellom områder, ekstraher til nytt
+     område, peek-åpning, skillelinjer) uten en eneste egen kodelinje —
      se `navScope` over. */
   // Overskriften til én av de tre seksjonene: [ikon][ikon] Tittel.
   function navSectionHead(rank) {
@@ -1646,7 +1670,7 @@
     captureFocusIn(navBoard); // hvor fokus sto, FØR modalens board rives ned
     navBoard.innerHTML = '';
     // Bygg kortene bare når modalen faktisk er åpen: en usett DOM-kopi av alle
-    // universer/grupper koster ved hver render, og ville dessuten gitt doble
+    // områder/mapper koster ved hver render, og ville dessuten gitt doble
     // treff for `.card`/`.item` på tvers av de to board-ene.
     if (navModal.hidden) return;
     const vis = visibleUniverses();
@@ -1659,8 +1683,8 @@
     // som egne rader i kolonnen — DnD-motoren hopper over dem (se `boardRows`).
     const col = document.createElement('div');
     col.className = 'board-col';
-    // De to universseksjonene vises alltid (også tomme, med tom-tilstand);
-    // fri-seksjonen kun når man faktisk har direkte delte grupper.
+    // De to områdeseksjonene vises alltid (også tomme, med tom-tilstand);
+    // fri-seksjonen kun når man faktisk har direkte delte mapper.
     [SECTION_OWNED, SECTION_SHARED, SECTION_FREE].forEach((rank) => {
       const inSection = vis.filter((u) => sectionRank(u) === rank);
       if (rank === SECTION_FREE && !inSection.length) return;
@@ -1669,25 +1693,25 @@
         const es = document.createElement('p');
         es.className = 'nav-section-empty';
         es.textContent = rank === SECTION_OWNED
-          ? 'Ingen egne universer ennå.'
-          : 'Ingen universer er delt med deg.';
+          ? 'Ingen egne områder ennå.'
+          : 'Ingen områder er delt med deg.';
         col.appendChild(es);
       }
       inSection.forEach((u) => col.appendChild(buildUniverseCard(u)));
-      // «Nytt univers» hører KUN hjemme i «Mine universer».
+      // «Nytt område» hører KUN hjemme i «Mine områder».
       if (rank === SECTION_OWNED) col.appendChild(navAddUniverseRow());
     });
     navBoard.appendChild(col);
     relayoutBoard(navScope);
     applyFocusIntent(); // samme grunn som i renderBoard: modalen bygges fra bunnen
   }
-  // ＋-knappen for et nytt univers, plassert nederst i «Mine universer».
+  // ＋-knappen for et nytt område, plassert nederst i «Mine områder».
   function navAddUniverseRow() {
     const wrap = document.createElement('div');
     wrap.className = 'nav-add-uni';
     const b = document.createElement('button');
     b.className = 'btn-add btn-solid btn-green'; b.type = 'button';
-    b.title = 'Nytt univers'; b.setAttribute('aria-label', 'Nytt univers');
+    b.title = 'Nytt område'; b.setAttribute('aria-label', 'Nytt område');
     b.innerHTML = ICONS.plus + ' ' + ICONS.globe;
     b.addEventListener('click', () => addUniverse());
     wrap.appendChild(b);
@@ -1699,7 +1723,7 @@
     el.dataset.id = u.id;
 
     // Den virtuelle fri-beholderen får ingen posisjonsfarge — den er en seksjon,
-    // ikke et univers (den nøytrale flaten kommer fra `.free-groups-card`).
+    // ikke et område (den nøytrale flaten kommer fra `.free-groups-card`).
     if (!u._virtual) {
       const base = u.color || colorForId(u.id);
       el.style.setProperty('--card-bg', base);
@@ -1707,13 +1731,13 @@
       el.style.setProperty('--card-accent', darken(base, 0.32));
     }
 
-    const isFree = !!u._virtual;   // «Grupper delt med meg» — ikke et ekte univers
+    const isFree = !!u._virtual;   // «Mapper delt med meg» — ikke et ekte område
     el.classList.toggle('free-groups-card', isFree);
     const canEdit = applyShareBadge(el, u).canEdit && !isFree;
     el.classList.toggle('is-locked', !canEdit && !isFree);
     const isActiveUni = u.id === state.activeUniverse;
     el.classList.toggle('active', isActiveUni);
-    // Som for grupperaden: ringen alene forteller ikke en skjermleser noe.
+    // Som for mapperaden: ringen alene forteller ikke en skjermleser noe.
     if (isActiveUni) el.setAttribute('aria-current', 'true');
     else el.removeAttribute('aria-current');
     // [ressursikon]([delt-ikon])Navn — samme rekkefølge som breadcrumben.
@@ -1736,7 +1760,7 @@
     if (canRename) titleEl.addEventListener('click', renameUni);
     else titleEl.removeAttribute('title');
 
-    // Universer og grupper har ingen innstillingsmodal — kun en del-knapp.
+    // Områder og mapper har ingen innstillingsmodal — kun en del-knapp.
     // Den er synlig for ALLE med tilgang: medlemslisten skal kunne ses av alle,
     // mens invitasjonsfelt og administrasjon gates av capabilities inne i modalen.
     const shareBtn = el.querySelector('.uni-share');
@@ -1757,7 +1781,7 @@
     // Draging + rullgardin-kollaps: nøyaktig som et listekort.
     const head = el.querySelector('.card-head');
     head.setAttribute('aria-expanded', u.collapsed ? 'false' : 'true');
-    // Universenes rekkefølge er PERSONLIG — alle medlemmer kan dra dem. Den
+    // Områdenes rekkefølge er PERSONLIG — alle medlemmer kan dra dem. Den
     // virtuelle fri-beholderen står i ro.
     if (!isFree) {
       attachHoldDrag(head, el, startCardDrag, () => true,
@@ -1769,7 +1793,7 @@
       toggleCardCollapsed(el, u, navScope);
     });
     // Tastatur: korthodet er fokuserbart (tittelen er det ikke), så Enter/
-    // Mellomrom gjør det samme som et klikk på hodet — åpner/lukker universet.
+    // Mellomrom gjør det samme som et klikk på hodet — åpner/lukker området.
     head.addEventListener('keydown', (ev) => {
       if (ev.target !== head) return; // del-/slett-knappene har egen tastaturoppførsel
       if (ev.key !== 'Enter' && ev.key !== ' ' && ev.key !== 'Spacebar') return;
@@ -1777,19 +1801,19 @@
       toggleCardCollapsed(el, u, navScope);
     });
 
-    // Gruppene: nivå 1 (ukategoriserte + gruppekategorier om hverandre), nivå 2
-    // inne i hver gruppekategori. Samme regler som listepunkter i en liste.
+    // Mappene: nivå 1 (ukategoriserte + mappekategorier om hverandre), nivå 2
+    // inne i hver mappekategori. Samme regler som listepunkter i en liste.
     const list = el.querySelector('.items-container');
     const active = u.groups.filter(live);
     const catIds = new Set(active.filter((g) => g.isCat).map((g) => g.id));
     const level1 = active.filter((g) => g.isCat || !g.cat || !catIds.has(g.cat)).sort(posCmp);
     level1.forEach((g) => list.appendChild(g.isCat ? buildGroupCategory(g, u) : buildGroupRow(g, u)));
 
-    // ＋ = ny gruppe, gul knapp = ny gruppekategori. Begge oppretter objektet med
+    // ＋ = ny mappe, gul knapp = ny mappekategori. Begge oppretter objektet med
     // én gang og åpner navneredigereren på det (som i en liste).
     const addRow = el.querySelector('.add-item-row');
-    // Grupper og gruppekategorier opprettes kun der man har opprettelsesrett —
-    // aldri i fri-seksjonen (de gruppene har allerede et kanonisk univers).
+    // Mapper og mappekategorier opprettes kun der man har opprettelsesrett —
+    // aldri i fri-seksjonen (de mappene har allerede et kanonisk område).
     if (isFree || !cap(u, 'createGroup', canEdit)) addRow.hidden = true;
     const addRowNow = (obj, rowEl, titleSel) => {
       obj.pos = level1MaxPos(u.groups) + 1;
@@ -1811,8 +1835,8 @@
       addRowNow(gc, buildGroupCategory(gc, u), '.cat-title');
     });
 
-    // Gruppe-søppelkassen: i universet sitt, akkurat som listepunkt-søppelkassen
-    // ligger i lista si (univers-søppelkassen ligger nederst i modalen).
+    // Mappe-søppelkassen: i området sitt, akkurat som listepunkt-søppelkassen
+    // ligger i lista si (område-søppelkassen ligger nederst i modalen).
     const trashed = isFree ? [] : trashedGroupsOf(u);
     if (trashed.length) {
       const wrap = document.createElement('div');
@@ -1820,9 +1844,9 @@
       const btn = document.createElement('button');
       btn.type = 'button';
       btn.className = 'trashcan group-trash-btn';
-      btn.title = 'Slettede grupper – trykk for å åpne, hold og sveip for å slette dem for godt';
+      btn.title = 'Slettede mapper – trykk for å åpne, hold og sveip for å slette dem for godt';
       btn.setAttribute('aria-label',
-        trashed.length + ' slettede grupper i ' + quoted(u.name));
+        trashed.length + ' slettede mapper i ' + quoted(u.name));
       const icon = document.createElement('span');
       icon.className = 'trashcan-icon';
       icon.setAttribute('aria-hidden', 'true');
@@ -1840,17 +1864,17 @@
       el.querySelector('.card-body').appendChild(wrap);
     }
 
-    // Presise navn på universkortets knapper. «Slett universet for alle» er den
+    // Presise navn på områdekortets knapper. «Slett området for alle» er den
     // mest inngripende knappen i appen — den skal aldri være anonym.
     function labelUniControls() {
       const n = quoted(u.name);
-      head.setAttribute('aria-label', isFree ? u.name : 'Universet ' + n);
-      el.setAttribute('aria-label', isFree ? u.name : 'Universet ' + n); // se buildCard
-      labelBtn(shareBtn, 'Deling og medlemmer i universet ' + n);
-      labelBtn(delBtn, 'Slett universet ' + n + ' for alle');
-      labelBtn(leaveBtn, 'Forlat universet ' + n);
-      labelBtn(addRow.querySelector('.add-item-btn'), 'Legg til gruppe i ' + n);
-      labelBtn(addRow.querySelector('.add-cat-btn'), 'Legg til gruppekategori i ' + n);
+      head.setAttribute('aria-label', isFree ? u.name : 'Området ' + n);
+      el.setAttribute('aria-label', isFree ? u.name : 'Området ' + n); // se buildCard
+      labelBtn(shareBtn, 'Deling og medlemmer i området ' + n);
+      labelBtn(delBtn, 'Slett området ' + n + ' for alle');
+      labelBtn(leaveBtn, 'Forlat området ' + n);
+      labelBtn(addRow.querySelector('.add-item-btn'), 'Legg til mappe i ' + n);
+      labelBtn(addRow.querySelector('.add-cat-btn'), 'Legg til mappekategori i ' + n);
     }
     labelUniControls();
 
@@ -1861,7 +1885,7 @@
     return el;
   }
 
-  // En gruppe er en rad som et listepunkt — men uten avmerkingsboks (grupper
+  // En mappe er en rad som et listepunkt — men uten avmerkingsboks (mapper
   // krysses ikke av) og med del-knapp i stedet for tannhjul.
   function buildGroupRow(g, u) {
     const el = groupRowTpl.content.firstElementChild.cloneNode(true);
@@ -1897,13 +1921,13 @@
     };
     textEl.addEventListener('click', rename);
 
-    // Klikk ellers på raden (ikke navn/knapper) = gå til gruppen og lukk modalen.
+    // Klikk ellers på raden (ikke navn/knapper) = gå til mappen og lukk modalen.
     el.addEventListener('click', (ev) => {
       if (ev.target.closest('.item-text, .group-share, .group-delete, .group-leave, .edit-input')) return;
       navigate();
     });
     // Tastatur: raden er eneste fokuserbare punkt (navnet er ikke fokuserbart),
-    // så Enter/Mellomrom redigerer navnet når man ALLEREDE står i gruppen —
+    // så Enter/Mellomrom redigerer navnet når man ALLEREDE står i mappen —
     // ellers ville et Enter der bare lukket modalen — og navigerer dit ellers.
     el.addEventListener('keydown', (ev) => {
       if (ev.target !== el) return; // del-/slett-knappene har egen tastaturoppførsel
@@ -1930,31 +1954,31 @@
     if (!cap(g, 'leave', false)) leaveBtn.hidden = true;
     else leaveBtn.addEventListener('click', (ev) => { ev.stopPropagation(); leaveObject('group', g); });
 
-    // En fri gruppe ordnes PERSONLIG (alltid dragbar); en gruppe i et univers
-    // krever rett til å endre universets struktur.
+    // En fri mappe ordnes PERSONLIG (alltid dragbar); en mappe i et område
+    // krever rett til å endre områdets struktur.
     attachHoldDrag(el, el, startItemDrag,
       () => (u && u._virtual) || cap(g, 'reorderInParent', canEdit) || cap(g, 'move', false),
       '.group-share, .group-delete, .group-leave');
-    // Raden er også gruppens tastaturhåndtak. Enter/Mellomrom beholder sin
-    // eksisterende betydning (naviger / omdøp i den aktive gruppen) — F2 og
+    // Raden er også mappens tastaturhåndtak. Enter/Mellomrom beholder sin
+    // eksisterende betydning (naviger / omdøp i den aktive mappen) — F2 og
     // Alt-tastene legger seg ved siden av den.
     attachKeyHandle(el, 'group', () => g.id, { rename });
 
-    // Presise navn: nav-modalen kan ha mange grupper, og «Slett gruppen for
+    // Presise navn: nav-modalen kan ha mange mapper, og «Slett mappen for
     // alle» må si HVILKEN før man trykker.
     function labelGroupControls() {
       const n = quoted(g.name);
-      el.setAttribute('aria-label', 'Gruppen ' + n);
-      labelBtn(shareBtn, 'Deling og medlemmer i gruppen ' + n);
-      labelBtn(delBtn, 'Slett gruppen ' + n + ' for alle');
-      labelBtn(leaveBtn, 'Forlat gruppen ' + n);
+      el.setAttribute('aria-label', 'Mappen ' + n);
+      labelBtn(shareBtn, 'Deling og medlemmer i mappen ' + n);
+      labelBtn(delBtn, 'Slett mappen ' + n + ' for alle');
+      labelBtn(leaveBtn, 'Forlat mappen ' + n);
     }
     labelGroupControls();
     return el;
   }
 
-  // Gruppekategori: samme kategori-rad som i en liste, men uten innstillinger og
-  // uten deling — kun oppløs-knappen (og ＋ for en ny gruppe rett i kategorien).
+  // Mappekategori: samme kategori-rad som i en liste, men uten innstillinger og
+  // uten deling — kun oppløs-knappen (og ＋ for en ny mappe rett i kategorien).
   function buildGroupCategory(catData, u) {
     const el = groupCatTpl.content.firstElementChild.cloneNode(true);
     el.dataset.id = catData.id;
@@ -2005,7 +2029,7 @@
     const addWrap = el.querySelector('.cat-add');
     const members = u.groups.filter((g) => live(g) && !g.isCat && g.cat === catData.id).sort(posCmp);
     members.forEach((g) => inner.appendChild(buildGroupRow(g, u)));
-    inner.appendChild(addWrap); // ＋-knappen sist, under siste gruppe
+    inner.appendChild(addWrap); // ＋-knappen sist, under siste mappe
 
     const addBtn = el.querySelector('.cat-add-btn');
     if (!canEdit) addWrap.hidden = true;
@@ -2013,9 +2037,9 @@
 
     function labelGroupCatControls() {
       const n = quoted(catData.name);
-      labelBtn(dissolve, 'Oppløs gruppekategorien ' + n);
-      labelBtn(addBtn, 'Legg til gruppe i kategorien ' + n);
-      catHead.setAttribute('aria-label', 'Gruppekategorien ' + n);
+      labelBtn(dissolve, 'Oppløs mappekategorien ' + n);
+      labelBtn(addBtn, 'Legg til mappe i kategorien ' + n);
+      catHead.setAttribute('aria-label', 'Mappekategorien ' + n);
     }
     labelGroupCatControls();
 
@@ -2026,8 +2050,8 @@
     return el;
   }
 
-  // Finnes ikke noe aktivt univers (helt fersk / alt slettet), opprettes et nytt
-  // standard-univers i farten. (Ny tilfeldig id, ikke den faste migrerings-id-en,
+  // Finnes ikke noe aktivt område (helt fersk / alt slettet), opprettes et nytt
+  // standard-område i farten. (Ny tilfeldig id, ikke den faste migrerings-id-en,
   // så en evt. gravstein ikke dreper det.)
   function ensureUniverse() {
     let u = activeUniverseObj();
@@ -2041,12 +2065,12 @@
     return u;
   }
 
-  // Programmatisk «ny gruppe» (feilsøking/tester + tom-tilstanden): oppretter en
-  // gruppe med standardnavn i det aktive universet. UI-veien er ＋-knappen i
-  // universkortet, som i stedet oppretter tomt og navngir på plassen.
+  // Programmatisk «ny mappe» (feilsøking/tester + tom-tilstanden): oppretter en
+  // mappe med standardnavn i det aktive området. UI-veien er ＋-knappen i
+  // områdekortet, som i stedet oppretter tomt og navngir på plassen.
   function addGroup() {
     const u = ensureUniverse();
-    const g = makeGroup('Ny gruppe', null, u.id);
+    const g = makeGroup('Ny mappe', null, u.id);
     g.pos = level1MaxPos(u.groups) + 1;
     stampContent(g);
     stampPos(g);
@@ -2056,10 +2080,10 @@
     return g;
   }
 
-  // Forlat et univers eller en gruppe: fjerner KUN min egen tilgang, aldri
+  // Forlat et område eller en mappe: fjerner KUN min egen tilgang, aldri
   // innholdet. Optimistisk — objektet forsvinner straks, RPC-en ligger i køen.
   async function leaveObject(type, obj) {
-    const word = type === 'universe' ? 'universet' : 'gruppen';
+    const word = type === 'universe' ? 'området' : 'mappen';
     if (!await askConfirm({
       title: 'Forlat ' + word,
       message: 'Du mister tilgangen til «' + (obj.name || 'objektet') +
@@ -2072,7 +2096,7 @@
     save();
   }
 
-  // Slett en gruppe → legg i universets gruppe-søppelkasse (trashed-flagg;
+  // Slett en mappe → legg i områdets mappe-søppelkasse (trashed-flagg;
   // gjenopprettbar). Permanent sletting skjer først når søppelkassen tømmes.
   function deleteGroup(groupData) {
     const uni = findUniverse(groupData.uni) || activeUniverseObj();
@@ -2083,19 +2107,19 @@
       const first = visibleGroupsOf(activeUniverseObj()).filter((g) => !g.isCat)[0];
       setActiveGroup(first ? first.id : null);
     }
-    render(); // gruppe-søppelkassen blir synlig FØR animasjonen starter
+    render(); // mappe-søppelkassen blir synlig FØR animasjonen starter
     flyGhost(ghost, uni ? navBoard.querySelector(
       '.card[data-id="' + uni.id + '"] .group-trash-btn') : null);
     pushDeleteToast('group', groupData.id, groupData.name);
   }
 
-  // Tøm ett universs gruppe-søppelkasse permanent: gravsteiner for hver slettet
-  // gruppe + alle dens lister + elementer (hindrer gjenoppstandelse).
+  // Tøm ett områdes mappe-søppelkasse permanent: gravsteiner for hver slettet
+  // mappe + alle dens lister + elementer (hindrer gjenoppstandelse).
   function emptyGroupsTrash(uniId) {
     const u = findUniverse(uniId);
     if (!u) return;
     // Rader jeg ikke rår over utelates ALLEREDE fra commitBufferedFor: en buffret
-    // sletting som rekker å bli låst i angre-vinduet (en annen eier låser gruppen
+    // sletting som rekker å bli låst i angre-vinduet (en annen eier låser mappen
     // mens toasten står) skal ikke committes til en `trashed = true` serveren
     // avviser — det ville kastet angre-muligheten og lagt igjen en skriving som
     // ble forsøkt på nytt ved hver synk-runde.
@@ -2104,10 +2128,10 @@
     if (!trash.length) return;
     let skipped = 0;
     trash.forEach((g) => {
-      // En gruppe man ikke kan slette for alle, forlater man i stedet — men bare
-      // hvis man FAKTISK kan forlate den (en direkte grupperolle). Er grunnen til
+      // En mappe man ikke kan slette for alle, forlater man i stedet — men bare
+      // hvis man FAKTISK kan forlate den (en direkte mapperolle). Er grunnen til
       // at man ikke kan slette en LÅS, finnes det ingen rolle å gi fra seg: da
-      // ville «forlat» både blitt avvist av serveren og fjernet gruppen lokalt.
+      // ville «forlat» både blitt avvist av serveren og fjernet mappen lokalt.
       if (!canPurgeGroup(g)) { skipped++; return; }
       const idx = u.groups.indexOf(g);
       if (!canDeleteGroup(g)) {
@@ -2134,9 +2158,9 @@
     el.style.setProperty('--card-head', darken(base, 0.08));
     el.style.setProperty('--card-accent', darken(base, 0.32));
 
-    // Delings-/låse-status (kontomodus). En liste arver delingen fra gruppen —
+    // Delings-/låse-status (kontomodus). En liste arver delingen fra mappen —
     // den har ingen egen medlemsliste. Delt-indikatoren er en badge i
-    // headeren, rett foran tittelen (som universer/grupper), ikke lenger en
+    // headeren, rett foran tittelen (som områder/mapper), ikke lenger en
     // chip i meta-raden. `.is-shared` styrer ikke lenger noen kant-styling —
     // lista skal se ut som en ikke-delt liste; kun `.is-locked` gir egen
     // kant-styling.
@@ -2145,15 +2169,15 @@
     const canEdit = !frozen(cardData);
     el.classList.toggle('is-shared', !!shared);
     el.classList.toggle('is-locked', !canEdit);
-    // Badgen er en knapp (ikke bare en indikator som universer/grupper har):
+    // Badgen er en knapp (ikke bare en indikator som områder/mapper har):
     // lister har ingen egen del-knapp i korthodet, så den er fortsatt den
-    // direkte, tastaturtilgjengelige veien inn til gruppens delingsinnstillinger.
+    // direkte, tastaturtilgjengelige veien inn til mappens delingsinnstillinger.
     const shareBadge = el.querySelector('.share-badge');
     shareBadge.hidden = !shared;
     shareBadge.onclick = null;
     if (shared) {
       shareBadge.innerHTML = !canEdit ? ICONS.lock : ICONS.people;
-      shareBadge.title = grp._role === 'owner' ? 'Gruppen er delt med andre' : 'Gruppen er delt med deg';
+      shareBadge.title = grp._role === 'owner' ? 'Mappen er delt med andre' : 'Mappen er delt med deg';
       shareBadge.setAttribute('aria-label', shareBadge.title + '. Trykk for delingsinnstillinger');
       shareBadge.onclick = (ev) => { ev.stopPropagation(); openShare('group', grp.id, grp); };
     }
@@ -2198,11 +2222,11 @@
 
     // Kort-draging: trykk-og-hold på korthodet (tittel-delen) unntatt de to
     // knappene til høyre (tannhjul + ×). Frosset (låst for meg) → ingen draging.
-    // Plasseringen blant søsknene tilhører GRUPPEN, så den krever i tillegg rett
-    // til å endre gruppens innhold: under et lås-unntak på lista alene kan man
-    // redigere den, men ikke omrokkere eller flytte den (grupperadene i
+    // Plasseringen blant søsknene tilhører MAPPEN, så den krever i tillegg rett
+    // til å endre mappens innhold: under et lås-unntak på lista alene kan man
+    // redigere den, men ikke omrokkere eller flytte den (mapperadene i
     // nav-modalen bruker `reorderInParent` på samme måte). Board-et viser kun den
-    // aktive gruppens lister, så den slås opp der — ikke via `_parent`, som en
+    // aktive mappens lister, så den slås opp der — ikke via `_parent`, som en
     // nyopprettet liste ennå ikke har.
     attachHoldDrag(el.querySelector('.card-head'), el, startCardDrag,
       () => canEdit && canAddList(activeGroupObj()), '.card-cog, .card-delete, .share-badge');
@@ -2217,7 +2241,7 @@
     });
     // Korthodet er kortets tastaturhåndtak — samme element attachHoldDrag drar i,
     // og samme rolle det allerede har i nav-modalen: Enter/Mellomrom kollapser,
-    // Alt+pil sorterer, Alt+M flytter til en annen gruppe, F2 omdøper.
+    // Alt+pil sorterer, Alt+M flytter til en annen mappe, F2 omdøper.
     headEl.setAttribute('role', 'button');
     headEl.setAttribute('aria-expanded', cardData.collapsed ? 'false' : 'true');
     attachKeyHandle(headEl, 'card', () => cardData.id, { rename: renameCard });
@@ -2371,10 +2395,10 @@
     const nowCollapsed = !el.classList.contains('collapsed');
     if (nowCollapsed) collapseCardBody(el); else expandCardBody(el);
     // Kollapset liste viser antall listepunkter «(N)» til høyre for navnet; et
-    // kollapset univers viser [mappe] + antall grupper (S.countIcon).
+    // kollapset område viser [mappe] + antall mapper (S.countIcon).
     const head = el.querySelector('.card-head');
     setCollapseCount(head, leafCount(S.rowsOf(cardData)), nowCollapsed, S.countIcon);
-    // Nav-modalens korthoder er fokuserbare knapper (universer); listekortene på
+    // Nav-modalens korthoder er fokuserbare knapper (områder); listekortene på
     // board-et har ingen tastaturrolle, og da står det ingen aria-expanded der.
     if (head.hasAttribute('aria-expanded')) head.setAttribute('aria-expanded', nowCollapsed ? 'false' : 'true');
     cardData.collapsed = nowCollapsed;
@@ -2418,7 +2442,7 @@
   // raden opprettes tom og går straks i navneredigering (blank + fokusert) så den
   // kan navngis med en gang. Avsluttes navngivingen uten navn, fjernes raden igjen
   // (nameNewRow). Samme knapp/oppførsel for listepunkter i en listekategori og
-  // grupper i en gruppekategori.
+  // mapper i en mappekategori.
   function addRowToCategory(catData, cont, catEl, scope) {
     const S = scope || boardScope;
     if (frozen(cont)) return;
@@ -2470,7 +2494,7 @@
   }
 
   /* ---------------- Ansvarlig for elementer i delte lister ----------------
-     Elementer i en delt liste (eller en liste under en delt gruppe/univers) får
+     Elementer i en delt liste (eller en liste under en delt mappe/område) får
      en ansvarsknapp: hånd-opp-ikonet → popover/modal med alle i «delegruppen»
      (eier + medlemmer av nærmeste delte forelder). Velger man en ansvarlig,
      erstattes ikonet med en farget sirkel med initialene deres. Fargen følger
@@ -2478,15 +2502,15 @@
      appen). Ansvaret (`item.responsible`) rir på innholds-registeret og synkes
      som tekst/avkryssing; alle med redigeringstilgang kan endre det. */
 
-  // Nivåtype ut fra formen på state-objektet (kort har items, gruppe har cards,
-  // univers har groups).
-  // DELEGRUPPEN til et objekt = GRUPPEN det ligger i. Lister, kategorier og
-  // listepunkter deles aldri selv — de arver hele gruppens effektive medlemsliste
-  // (universeiere + universmedlemmer + eksplisitte gruppeeiere + direkte
-  // gruppemedlemmer, deduplisert). Ansvarlig-velgeren bruker nøyaktig den lista.
+  // Nivåtype ut fra formen på state-objektet (kort har items, mappe har cards,
+  // område har groups).
+  // DELEGRUPPEN til et objekt = MAPPEN det ligger i. Lister, kategorier og
+  // listepunkter deles aldri selv — de arver hele mappens effektive medlemsliste
+  // (områdeeiere + områdemedlemmer + eksplisitte mappeeiere + direkte
+  // mappemedlemmer, deduplisert). Ansvarlig-velgeren bruker nøyaktig den lista.
   function shareRootFor(node) { return nodeOfType(node, 'group'); }
 
-  // Cache av delegrupper per gruppe: rootKey → sortert personliste (alfabetisk
+  // Cache av delegrupper per mappe: rootKey → sortert personliste (alfabetisk
   // på navn) + id→indeks-oppslag. Fylles lat via get_members; personens indeks
   // gir paletten (colorForIndex).
   const shareGroupCache = new Map();
@@ -2647,7 +2671,7 @@
     const obj = target.obj;
     const isCard = target.kind === 'card';
     // Delt-indikatoren for lister ligger i korthodet (badge foran tittelen,
-    // som universer/grupper), ikke lenger her.
+    // som områder/mapper), ikke lenger her.
     if (obj.responsible) {
       const shareRoot = shareRootFor(target.card);
       const rType = 'group';
@@ -2891,7 +2915,7 @@
   // Oppløs en kategori: radene beholder rekkefølge og «arver» kategoriens plass i
   // nivå-1-lista (fordeles jevnt i pos-gapet mellom kategorien og neste nivå-1-rad),
   // blir ukategoriserte, og selve kategori-raden tombstones + fjernes. Samme
-  // regnestykke for listekategorier og gruppekategorier (scope gir rad-lista).
+  // regnestykke for listekategorier og mappekategorier (scope gir rad-lista).
   function dissolveCategory(catData, cont, scope) {
     const S = scope || boardScope;
     const rows = S.rowsOf(cont);
@@ -3173,7 +3197,7 @@
     return null;
   }
   // Buffrer sletting (skjuler + registrerer), men starter INGEN egen timer —
-  // commit/angre styres av samle-toasten (se pushDeleteToast under), så en gruppe
+  // commit/angre styres av samle-toasten (se pushDeleteToast under), så en mappe
   // slettinger committes samlet når den felles timeren utløper.
   function bufferDelete(obj, kind, commit) {
     obj._pendingDelete = true;
@@ -3200,7 +3224,7 @@
     if (found) delete found.obj._pendingDelete;
   }
   // Fjern id-er fra samle-toasten (etter enkelt-angre/commit utenom timeren);
-  // tom gruppe → toasten og timeren ryddes helt.
+  // tom bunke → toasten og timeren ryddes helt.
   function pruneDeleteToast(ids) {
     if (!deleteToast) return;
     deleteToast.ids = deleteToast.ids.filter((x) => !ids.includes(x));
@@ -3249,7 +3273,7 @@
       if (!f) return;
       kinds.add(f.kind);
       if (f.kind === 'item' && f.card) cards.add(f.card);
-      // Gruppe-søppelkassen ligger i universkortet (som listepunkt-kassen i lista).
+      // Mappe-søppelkassen ligger i områdekortet (som listepunkt-kassen i lista).
       if (f.kind === 'group') { const u = findUniverse(f.obj.uni); if (u) unis.add(u); }
     });
     if (kinds.has('universe')) updateUniversesTrash();
@@ -3257,7 +3281,7 @@
     cards.forEach(updateItemsTrashBadge);
     unis.forEach(updateGroupsTrashBadge);
   }
-  // Antallet i ETT universs gruppe-søppelkasse (uten å bygge kortet på nytt).
+  // Antallet i ETT områdes mappe-søppelkasse (uten å bygge kortet på nytt).
   function updateGroupsTrashBadge(u) {
     const count = navBoard.querySelector('.card[data-id="' + u.id + '"] .group-trash-btn .trashcan-count');
     if (!count) return;
@@ -3290,7 +3314,7 @@
      Slettes flere objekter av SAMME kategori mens toasten er åpen, slås de sammen
      til én toast og timeren startes på nytt (én «Angre» gjelder alle). Slettes et
      objekt av en ANNEN kategori, antas den forrige toasten unødvendig → den
-     forrige gruppen committes straks, og en fersk toast starter for den nye
+     forrige bunken committes straks, og en fersk toast starter for den nye
      kategorien. Toasten er «sticky» (auto-skjules ikke) — den felles timeren
      styrer både commit og skjuling. */
   let deleteToast = null; // { kind, ids: [], lastName, timer }
@@ -3303,7 +3327,7 @@
     const w = kind === 'item' ? itemWord : kind === 'card' ? listWord : kind === 'group' ? groupWord : uniWord;
     return 'Lagt i søppelkassen: ' + w(ids.length);
   }
-  // Committer gruppen i toasten nå (angre-vinduet er over — timeren utløp, en ny
+  // Committer bunken i toasten nå (angre-vinduet er over — timeren utløp, en ny
   // kategori slettes, eller brukeren sveipet toasten bort). Skjuler ikke toasten:
   // kalleren styrer det (timeren skjuler, sveipet har allerede kastet den ut).
   function commitDeleteToastNow() {
@@ -3339,7 +3363,7 @@
     };
   }
   function pushDeleteToast(kind, id, name) {
-    // Ny kategori → commit den forrige gruppen straks (ikke lenger angrbar).
+    // Ny kategori → commit den forrige bunken straks (ikke lenger angrbar).
     if (deleteToast && deleteToast.kind !== kind) commitDeleteToastNow();
     if (deleteToast && deleteToast.kind === kind) {
       deleteToast.ids.push(id);
@@ -3354,7 +3378,7 @@
 
   /* ---------------- Inline-redigering ---------------- */
   // opts.cls: ekstra klasse på input. opts.autosize: la input vokse med innholdet
-  // (brukes til gruppenavn i headeren, som ikke skal ta full bredde).
+  // (brukes til mappenavn i headeren, som ikke skal ta full bredde).
   // opts.onCancel: kalles ved Escape (avbrutt redigering) — brukes av nameNewRow
   // for å fjerne et nyopprettet objekt som aldri fikk noe navn.
   function editText(displayEl, current, onSave, opts) {
@@ -3432,6 +3456,9 @@
 
   const SWAP_RATIO = 0.2; // 20 % høydeoverlapp utløser bytte
   const FLIP_MS = 150;
+  // Teller vellykkede slipp (se finishDrag). Leses av demoen, som har steg der
+  // selve slippet ER handlingen.
+  let dropSeq = 0, dragRolledBack = false;
   // Anti-flimring: rett etter et bytte ligger geometrien ofte slik at det motsatte
   // byttet straks trigges igjen (naboen har nettopp relokert via FLIP) → objektene
   // hopper frem og tilbake. To milde tiltak gjelder KUN reverseringen av forrige
@@ -3667,7 +3694,7 @@
     });
     // Undertrykk klikket (omdøp/bytt/kryss/kollaps) som ellers ville fulgt et
     // fullført drag. Capture + stopImmediatePropagation stopper også lyttere på
-    // samme element (f.eks. rad-aktivering på gruppe-/univers-radene).
+    // samme element (f.eks. rad-aktivering på mappe-/område-radene).
     zone.addEventListener('click', (ev) => {
       if (held) { ev.stopImmediatePropagation(); ev.preventDefault(); held = false; }
     }, true);
@@ -3718,8 +3745,8 @@
     window.addEventListener('touchmove', preventTouchScroll, { passive: false });
     // Hold det løftede objektet under pekeren om SIDEN scroller uten at vi gjorde
     // det (momentum, kollaps-klemme, tastatur, en synk-rebuild som endrer høyden).
-    // Gjelder alle dokument-koordinat-drag (kort/listepunkt/kategori) — gruppe/
-    // univers dras `fixed` i en modal og påvirkes ikke av window-scroll.
+    // Gjelder alle dokument-koordinat-drag (kort/listepunkt/kategori) — mappe/
+    // område dras `fixed` i en modal og påvirkes ikke av window-scroll.
     // Reagerer KUN (reposisjonerer); den scroller aldri selv.
     window.addEventListener('scroll', onDragScroll, { passive: true });
   }
@@ -3736,7 +3763,7 @@
   // er `position: absolute` → DOKUMENT-koordinater (peker + window-scroll). Det
   // unngår en iOS-WebKit-bug der et `position: fixed`-element SOM HAR en transform
   // legges relativt til dokumentet og «scroller vekk» fra fingeren (kortet hopper
-  // rett opp, ofte forbi viewporten, idet man tar tak). Gruppe/univers dras i en
+  // rett opp, ofte forbi viewporten, idet man tar tak). Mappe/område dras i en
   // modal og er fortsatt `position: fixed` (viewport-koordinater) — der endres
   // aldri window-scroll mens draget pågår, så de rammes ikke av buggen.
   function dragUsesPageCoords() {
@@ -3744,7 +3771,7 @@
   }
   // Skalaen det løftede objektet males med (start*Drag/on*Move setter
   // `rotate(…) scale(…)`, og CSS setter samme verdi i hvile-regelen): lister
-  // 1.02, listepunkt/kategori 1.03, gruppe/univers 1.05.
+  // 1.02, listepunkt/kategori 1.03, mappe/område 1.05.
   function dragScale() {
     return drag.kind === 'card' ? 1.02 : 1.03;
   }
@@ -3888,7 +3915,7 @@
     const dy = from.top - now.top;
     el.style.transition = 'none';
     // Skalaen følger objekttypen (dragScale: liste 1.02, listepunkt 1.03,
-    // gruppe/univers 1.05) — en hardkodet 1.02 ga et synlig krymp i starten av
+    // mappe/område 1.05) — en hardkodet 1.02 ga et synlig krymp i starten av
     // drop-animasjonen for alt annet enn lister.
     el.style.transform = `translate(${dx}px, ${dy}px)${rot ? ` rotate(${rot}deg) scale(${scale})` : ''}`;
     void el.offsetWidth;
@@ -3966,6 +3993,13 @@
   }
 
   function finishDrag() {
+    /* Et VELLYKKET slipp, i motsetning til et tilbakerullet drag. Demoen har
+       steg som skal kvitteres ut av selve slippet — også når objektet lander på
+       samme plass, der verken pos eller rekkefølge endrer seg og en
+       tilstandssjekk derfor ikke ville sett noe. Rollback-veiene er nøyaktig de
+       som går via restoreDraggedToOrigin(), så flagget settes der. */
+    if (!dragRolledBack) dropSeq++;
+    dragRolledBack = false;
     drag.active = false;
     clearAllDragSeparators(); // tilbake til hvile-reglene (pseudo-linjene på .category)
     clearAllPeeks(true); // sikkerhetsnett: kollaps evt. peek-åpnede mål tilbake (no-op om alt alt er løst)
@@ -3993,12 +4027,13 @@
   /* ------- Avbrutt drag (pointercancel) -------
      En kansellert pekersekvens (typisk Android Chrome som klemmer scroll-
      posisjonen) er IKKE et vellykket slipp: den skal ikke beregne ny pos,
-     stampe eller lagre, og ikke åpne gruppe-flyttevelgeren. Vi fører elementet
+     stampe eller lagre, og ikke åpne mappe-flyttevelgeren. Vi fører elementet
      tilbake til den registrerte opprinnelige sloten og rydder dra-stilene.
      Elementet står allerede der (kun placeholderen flyttes under draging), men
      re-innsettingen mot `origNext` er et sikkerhetsnett. Kaller IKKE finishDrag
      selv — hver on*Cancel gjør det (etter evt. nivå-spesifikk opprydding). */
   function restoreDraggedToOrigin() {
+    dragRolledBack = true; // ikke et slipp — se finishDrag()
     const el = drag.el;
     if (!el) return;
     // Er noden allerede ute av dokumentet, har DOM-en gått videre uten den (en
@@ -4162,7 +4197,7 @@
     if (drag.active) return; // ignorer ny drag mens en pågår (unngår foreldreløs placeholder)
     beginDragCommon(ev, cardEl);
     drag.kind = 'card';
-    drag.crumbTarget = false; // sikter lista på 📁-breadcrumben? (flytt til annen gruppe)
+    drag.crumbTarget = false; // sikter lista på 📁-breadcrumben? (flytt til annen mappe)
 
     const S = dragScope();
     const ph = document.createElement('div');
@@ -4229,10 +4264,10 @@
     });
   }
 
-  /* ------- Flytting av en liste til en annen gruppe -------
-     Gruppene ligger ikke lenger på hovedsiden — i stedet slippes lista på
+  /* ------- Flytting av en liste til en annen mappe -------
+     Mappene ligger ikke lenger på hovedsiden — i stedet slippes lista på
      📁-breadcrumben i toppmenyen: knappen lyser opp mens man sikter, og ved
-     slipp åpnes en velger («Flytt … til:») med de andre gruppene i universet
+     slipp åpnes en velger («Flytt … til:») med de andre mappene i området
      (samme modal-skall som plasseringsvalget). */
   function moveTargetGroups(c) {
     return visibleGroupsOf(activeUniverseObj()).filter((g) =>
@@ -4255,14 +4290,14 @@
     navCrumbBtn.classList.toggle('drop-target', on);
     if (drag.el) drag.el.classList.toggle('to-group', on);
   }
-  // Velgeren ved slipp på 📁-breadcrumben: de andre gruppene i universet.
+  // Velgeren ved slipp på 📁-breadcrumben: de andre mappene i området.
   function askCardMove(c) {
     const options = moveTargetGroups(c).map((g) => ({ id: g.id, label: g.name }));
     if (!options.length) return;
-    openPicker('«' + c.title + '» flyttes til gruppen du velger.', options, '',
+    openPicker('«' + c.title + '» flyttes til mappen du velger.', options, '',
       (gid) => moveCardToGroup(c.id, gid));
   }
-  // Flytt lista: ny forelder (`group`) + posisjon bakerst i mål-gruppen
+  // Flytt lista: ny forelder (`group`) + posisjon bakerst i mål-mappen
   // (kirurgisk — kun posisjonsregisteret, som «forelder følger posisjon»).
   // Slår opp DET LEVENDE kortet på id — en synk-rebuild kan ha byttet ut
   // objektet mens velgeren sto åpen.
@@ -4273,7 +4308,7 @@
     if (!c || !dest || !src) return;
     const i = src.cards.indexOf(c);
     if (i > -1) src.cards.splice(i, 1);
-    const np = maxPos(dest.cards) + 1; // legg bakerst i mål-gruppen
+    const np = maxPos(dest.cards) + 1; // legg bakerst i mål-mappen
     c.group = dest.id;
     c.pos = np;
     c._parent = dest;
@@ -4294,7 +4329,7 @@
     moveElement();
     drag.el.style.transform = `rotate(${cardRotation()}deg) scale(1.02)`;
 
-    // Over toppmenyen sikter vi på 📁-breadcrumben (flytt til annen gruppe) i
+    // Over toppmenyen sikter vi på 📁-breadcrumben (flytt til annen mappe) i
     // stedet for å omorganisere board-et: marker knappen, og la board-et +
     // siden ligge i ro så lista ikke bytter plass mens man løfter den opp.
     if (dragScope() === boardScope && pointerInTopbar(ev.clientX, ev.clientY)) {
@@ -4461,7 +4496,7 @@
       const pNext = next && next.classList.contains('card') ? (S.findContainer(next.dataset.id) || {}).pos : null;
       const np = between(pPrev == null ? null : pPrev, pNext == null ? null : pNext);
       if (c._canon) {
-        // Universer (og frie grupper) ordnes PERSONLIG — posisjonen ligger på
+        // Områder (og frie mapper) ordnes PERSONLIG — posisjonen ligger på
         // min egen medlemskapsrad og endrer aldri hva andre ser.
         c.pos = np;
         cloudPersonalPos(S.contKind, c.id, np);
@@ -4530,7 +4565,7 @@
 
   // pointercancel under et liste-drag: rull tilbake til utgangspunktet uten å
   // beregne pos, stampe, oppdatere farge/mount eller lagre — og uten å åpne
-  // gruppe-flyttevelgeren. Kollapsen foldes tilbake og touch-vakten slippes.
+  // mappe-flyttevelgeren. Kollapsen foldes tilbake og touch-vakten slippes.
   function onCardCancel() {
     if (!drag.active) return;
     window.removeEventListener('pointermove', onCardMove);
@@ -4687,7 +4722,7 @@
     // placeholder (ekstrahering til en ny liste med bare dette listepunktet).
     const overCard = dragOverCard();
     if (!overCard) {
-      // Uten opprettelsesrett i gruppen finnes ingen ny liste å slippe i: da blir
+      // Uten opprettelsesrett i mappen finnes ingen ny liste å slippe i: da blir
       // reorder-placeholderen stående der den var, og et slipp i board-lufta
       // legger objektet tilbake der det kom fra.
       if (!canExtractDragged()) { setReorderMode(); return; }
@@ -4823,9 +4858,9 @@
       // et avbrutt drag, med en forklaring.
       let reason = null;
       if (tc && frozen(tc)) reason = S.lockedTargetMsg;
-      else if (tc && tc._virtual) reason = 'En gruppe kan ikke flyttes hit — den må ligge i et univers';
+      else if (tc && tc._virtual) reason = 'En mappe kan ikke flyttes hit — den må ligge i et område';
       else if (tc && S.rowKind === 'group' && !cap(tc, 'createGroup', !frozen(tc))) {
-        reason = 'Du kan ikke opprette grupper i dette universet';
+        reason = 'Du kan ikke opprette mapper i dette området';
       }
       if (reason) {
         restoreDraggedToOrigin();
@@ -4866,7 +4901,7 @@
       const np = between(rowPos(prev), rowPos(next));
       const fromCont = S.rowParent(moved);
       if (S.rowKind === 'group' && targetCardId !== fromCont) {
-        // En GRUPPE som bytter univers går gjennom move_group-RPC-en (databasen
+        // En MAPPE som bytter område går gjennom move_group-RPC-en (databasen
         // avviser en direkte `universe_id`-skriving). Vi flytter den optimistisk
         // her og lar RPC-en avgjøre reparenting vs. kopier-og-slett.
         groupMove = { from: fromCont, to: targetCardId, cat: catEl ? catEl.dataset.id : null, pos: np };
@@ -4875,7 +4910,7 @@
         moved.cat = groupMove.cat;
         moved.pos = np;
       } else if (moved._canon) {
-        // Fri gruppe omrokkert i sin egen seksjon: PERSONLIG rekkefølge.
+        // Fri mappe omrokkert i sin egen seksjon: PERSONLIG rekkefølge.
         moved.cat = null;
         moved.pos = np;
         cloudPersonalPos(S.rowKind, moved.id, np);
@@ -4894,20 +4929,20 @@
     if (groupMove) commitGroupMove(moved, groupMove.from, groupMove.to, groupMove.cat, groupMove.pos);
   }
 
-  /* ---------------- Gruppeflytting mellom universer (move_group) ----------------
+  /* ---------------- Mappeflytting mellom områder (move_group) ----------------
      Én atomisk server-operasjon eier flyttingen: samme EIERSKAPSDOMENE (identisk
-     sett universeiere) gir ekte reparenting med alle id-er, roller og medlemmer i
+     sett områdeeiere) gir ekte reparenting med alle id-er, roller og medlemmer i
      behold; ULIKT domene behandles som «slett hos de gamle, opprett hos de nye» —
      serveren kopierer undertreet med NYE id-er og gravlegger de gamle. Derfor
      bekreftelsen: medlemskretsen endres, og de gamle mister tilgangen.
 
-     Klienten viser flyttingen optimistisk (pendingGroupMoves) og holder gruppens
+     Klienten viser flyttingen optimistisk (pendingGroupMoves) og holder mappens
      doc-rad på den GAMLE plasseringen til RPC-en har landet — ellers ville
      doc-synken forsøkt en skriving databasen uansett avviser. */
-  // Eierskapsdomenet som sammenlignbar nøkkel. Et univers som ennå ikke er
+  // Eierskapsdomenet som sammenlignbar nøkkel. Et område som ennå ikke er
   // synket (nyopprettet lokalt) har ingen serververdi — men da er JEG eneste
-  // eier, så nøkkelen er min egen id. Slik slipper «flytt gruppen til et nytt
-  // univers» en unødig «dette bytter eierskap»-bekreftelse.
+  // eier, så nøkkelen er min egen id. Slik slipper «flytt mappen til et nytt
+  // område» en unødig «dette bytter eierskap»-bekreftelse.
   const ownerKeyOf = (u) => {
     if (!u) return null;
     if (u._ownerKey != null) return u._ownerKey;
@@ -4922,16 +4957,16 @@
       fromCat: canon.cat != null ? canon.cat : null,
       fromPos: canon.pos != null ? canon.pos : g.pos,
     };
-    // Ukjent kilde-domene (fri gruppe: kilde-universet er ikke lesbart) regnes
+    // Ukjent kilde-domene (fri mappe: kilde-området er ikke lesbart) regnes
     // som en domenekryssing — serveren avgjør uansett.
     const srcKey = ownerKeyOf(src), dstKey = ownerKeyOf(dst);
     const crossDomain = !srcKey || !dstKey || srcKey !== dstKey;
     if (crossDomain) {
       const ok = await askConfirm({
-        title: 'Flytte gruppen til et univers med andre eiere?',
-        message: '«' + (g.name || 'Gruppen') + '» flyttes til et univers med andre eiere. ' +
-          'De som har tilgang i dag mister den — direkte gruppemedlemmer og medeiere ' +
-          'følger ikke med. Medlemmene i det nye universet får tilgang i stedet.',
+        title: 'Flytte mappen til et område med andre eiere?',
+        message: '«' + (g.name || 'Mappen') + '» flyttes til et område med andre eiere. ' +
+          'De som har tilgang i dag mister den — direkte mappemedlemmer og medeiere ' +
+          'følger ikke med. Medlemmene i det nye området får tilgang i stedet.',
         okLabel: 'Flytt likevel',
       });
       if (!ok) { revertGroupMove(g, from); return; }
@@ -5009,7 +5044,7 @@
     finishDrag();
   }
   // Slipp i ny-container-placeholderen: opprett en ny liste (board) / et nytt
-  // univers (nav) med bare denne raden, og fokusér navnet (blank input) straks.
+  // område (nav) med bare denne raden, og fokusér navnet (blank input) straks.
   function extractRowToNewContainer() {
     const S = dragScope();
     const el = drag.el;
@@ -5017,7 +5052,7 @@
     const srcCont = moved ? S.findContainer(S.rowParent(moved)) : null;
     const np = extractionPos();
     const nc = moved && srcCont ? S.createContainer('') : null; // blank navn → fokuseres straks
-    if (!nc) { // uventet (f.eks. ingen aktiv gruppe) → rull tilbake
+    if (!nc) { // uventet (f.eks. ingen aktiv mappe) → rull tilbake
       restoreDraggedToOrigin();
       finishDrag();
       return;
@@ -5036,8 +5071,8 @@
     finishDrag();
     S.render();
     save();
-    // En gruppe som havner i et NYTT univers krysser alltid et eierskapsdomene
-    // (det nye universet har bare meg som eier) → move_group avgjør og bekrefter.
+    // En mappe som havner i et NYTT område krysser alltid et eierskapsdomene
+    // (det nye området har bare meg som eier) → move_group avgjør og bekrefter.
     if (S.rowKind === 'group') commitGroupMove(moved, fromCont, nc.id, null, 0);
     // Fokuser navnet på den nye containeren (blank input) så den kan navngis straks.
     const t = S.root.querySelector('.card[data-id="' + nc.id + '"] .card-title');
@@ -5190,8 +5225,8 @@
      draget er da avskrudd (attachHoldDrag canDrag = !frozen). `drag.phMode`
      ('reorder' | 'extract') styrer hvilken placeholder som er aktiv. */
   // Får det LØFTEDE objektet i det hele tatt bli sin egen container? Board-scopet
-  // spør gruppen om opprettelsesrett, nav-scopet spør gruppen om den kan flyttes
-  // ut av universet sitt. Er svaret nei, dukker ny-liste-placeholderen aldri opp
+  // spør mappen om opprettelsesrett, nav-scopet spør mappen om den kan flyttes
+  // ut av området sitt. Er svaret nei, dukker ny-liste-placeholderen aldri opp
   // (i stedet for å tilby en flytting serveren avviser).
   function canExtractDragged() {
     const S = dragScope();
@@ -5740,7 +5775,7 @@
   }
 
   /* ------- Auto-scroll av nav-modalen under draging -------
-     Universer/grupper dras i en modal der VINDUET aldri scroller; scroll-
+     Områder/mapper dras i en modal der VINDUET aldri scroller; scroll-
      containeren er modalens `.menu-body`. Samme sonelogikk/fart som vindus-
      auto-scrollen, og etter hver frame re-evalueres plasseringen (radene har
      flyttet seg mens pekeren står stille) — nøyaktig som `reapplyPlacement`
@@ -5840,12 +5875,12 @@
   });
 
   /* ============================================================
-     SØPPELKASSER (universer / grupper / lister / elementer)
+     SØPPELKASSER (områder / mapper / lister / elementer)
      ------------------------------------------------------------
      Fire nivåer, samme knapp (hvit beholder, emoji + antall i grå
      sirkel) og samme oppførsel; alle vises KUN når de har innhold:
-       • universer → i meny-modalen (☰), ved siden av «＋ Univers».
-       • grupper   → i gruppemenyens knapperad, ved siden av «＋ Gruppe».
+       • områder → i meny-modalen (☰), ved siden av «＋ Område».
+       • mapper   → i mappemenyens knapperad, ved siden av «＋ Mappe».
        • lister    → i listemenyens knapperad, ved siden av «＋ Liste».
        • elementer → midtstilt nederst i hvert listekort.
      Interaksjon (attachTrashHold): kort trykk åpner modalen (gjenopprett/tøm
@@ -5856,7 +5891,7 @@
   let modalCfg = null;
   let modalOpenedAt = 0; // tid modalen ble åpnet — ignorér overlay-klikk rett etter
 
-  // To modaler kan være åpne samtidig (søppelkassen over univers-/gruppe-
+  // To modaler kan være åpne samtidig (søppelkassen over område-/mappe-
   // modalen); body låses så lenge minst én er åpen.
   function updateModalOpenClass() {
     const share = document.getElementById('share-modal');
@@ -5912,6 +5947,11 @@
   confirmModalEl.addEventListener('click', (ev) => { if (ev.target === confirmModalEl) closeConfirm(false); });
 
   function showTrashModal(cfg) {
+    /* Søppelkasse-knappen gjør TO ting — kort trykk åpner modalen, hold og
+       sveip tømmer. Demoen viser dem i hvert sitt steg, og et bomtrykk på
+       tømme-steget ville ellers lagt modalen oppå kontrollen brukeren skal
+       holde inne. Gjelder kun mens demoen står på. */
+    if (demoActive && !demoAllowsTrashModal()) return;
     modalCfg = cfg;
     trashTitle.textContent = cfg.title;
     modalNote.textContent = cfg.note;
@@ -5938,7 +5978,7 @@
     // «Tøm» sletter permanent — like destruktivt som å slette. Er alt i kassen
     // låst for meg, kan ingenting tømmes, og knappen skal ikke se ut som den
     // virker (serveren ville avvist skrivingen, mens den lokale kopien forsvant).
-    // `purge` skiller seg fra `manage` kun for universer/grupper, der «Tøm» også
+    // `purge` skiller seg fra `manage` kun for områder/mapper, der «Tøm» også
     // kan bety å FORLATE; ellers er det samme svar.
     trashEmptyBtn.disabled = !rows.some((r) => (r.purge !== undefined ? r.purge : r.manage) !== false);
     rows.forEach((r) => {
@@ -6011,25 +6051,25 @@
   // Sveipefeltet på søppelkasse-knappen går utenom modalen, så tømmingen må si
   // fra selv når den lot noe bli liggende.
   const LOCKED_PURGE_MSG = 'Låst innhold ligger fortsatt i søppelkassen';
-  const groupWord = (n) => n + ' ' + (n === 1 ? 'gruppe' : 'grupper');
+  const groupWord = (n) => n + ' ' + (n === 1 ? 'mappe' : 'mapper');
   const listWord = (n) => n + ' ' + (n === 1 ? 'liste' : 'lister');
   const itemWord = (n) => n + ' ' + (n === 1 ? 'listepunkt' : 'listepunkter');
-  const uniWord = (n) => n + ' ' + (n === 1 ? 'univers' : 'universer');
+  const uniWord = (n) => n + ' ' + (n === 1 ? 'område' : 'områder');
 
   /* ---------- De fire søppelkassene ----------
      Søpla er FELLES, så en kasse kan godt inneholde objekter jeg ikke rår over:
-     en liste som ble slettet FØR gruppen ble låst, eller et delt univers eieren
+     en liste som ble slettet FØR mappen ble låst, eller et delt område eieren
      har slettet for alle. Hver rad sier derfor hva jeg får gjøre med den:
 
        manage — «Gjenopprett» (skriver `trashed = false`, og krever nøyaktig
                 samme myndighet som å slette: `can_delete_object`)
        purge  — teller med når «Tøm» skal være aktiv: enten kan jeg slette
-                permanent, eller så kan jeg FORLATE objektet (universer/grupper
+                permanent, eller så kan jeg FORLATE objektet (områder/mapper
                 jeg bare er medlem av — se emptyUniversesTrash)
 
      Uten sjekkene ble skrivingen avvist av serveren mens den lokale kopien
      forsvant (tømming) eller ble stående som et spøkelse (gjenoppretting).
-     Universer og grupper har serverens capabilities; lister og listepunkter har
+     Områder og mapper har serverens capabilities; lister og listepunkter har
      ingen egne caps, og der er låse-anslaget (`frozen`) nøyaktig samme regel. */
   function canDeleteUniverse(u) { return cap(u, 'delete', true); }
   function canDeleteGroup(g) { return cap(g, 'delete', !frozen(g)); }
@@ -6037,10 +6077,10 @@
   function canPurgeGroup(g) { return canDeleteGroup(g) || cap(g, 'leave', false); }
   function openUniversesTrash() {
     showTrashModal({
-      title: 'Slettede universer',
+      title: 'Slettede områder',
       note: TRASH_NOTE,
-      emptyLabel: 'Slett universene for godt',
-      emptyMsg: 'Ingen slettede universer.',
+      emptyLabel: 'Slett områdene for godt',
+      emptyMsg: 'Ingen slettede områder.',
       rows: () => trashedUniverses().sort(posCmp).map((u) => ({
         id: u.id,
         color: u.color || colorForId(u.id),
@@ -6055,23 +6095,23 @@
     });
   }
 
-  // Gruppe-søppelkassen ligger i hvert univers-kort (som listepunkt-søppelkassen
-  // i en liste) — universet slås derfor opp ferskt på id ved hver rows()-kall, så
+  // Mappe-søppelkassen ligger i hvert område-kort (som listepunkt-søppelkassen
+  // i en liste) — området slås derfor opp ferskt på id ved hver rows()-kall, så
   // en synk-rebuild ikke etterlater en foreldreløs referanse.
   function openGroupsTrash(uniId) {
     const liveUni = () => findUniverse(uniId);
     const u0 = liveUni();
     showTrashModal({
-      title: 'Slettede grupper – ' + (u0 ? u0.name : ''),
+      title: 'Slettede mapper – ' + (u0 ? u0.name : ''),
       note: TRASH_NOTE,
-      emptyLabel: 'Slett gruppene for godt',
-      emptyMsg: 'Ingen slettede grupper.',
+      emptyLabel: 'Slett mappene for godt',
+      emptyMsg: 'Ingen slettede mapper.',
       rows: () => {
         const u = liveUni();
         return u ? trashedGroupsOf(u).sort(posCmp).map((g) => ({
           id: g.id,
           name: g.name,
-          meta: g.isCat ? 'Gruppekategori' : listWord(g.cards.filter((c) => !c.trashed).length),
+          meta: g.isCat ? 'Mappekategori' : listWord(g.cards.filter((c) => !c.trashed).length),
           pending: !!g._pendingDelete,
           manage: canDeleteGroup(g),
           purge: canPurgeGroup(g),
@@ -6084,7 +6124,7 @@
 
   function openCardsTrash() {
     const g = activeGroupObj();
-    if (!g) return; // lister-søppelkassen er per gruppe
+    if (!g) return; // lister-søppelkassen er per mappe
     showTrashModal({
       title: 'Slettede lister – ' + g.name,
       note: TRASH_NOTE,
@@ -6130,11 +6170,11 @@
     });
   }
 
-  // Tøm lister-søppelkassen (aktiv gruppe) permanent: gravstein per liste + element.
+  // Tøm lister-søppelkassen (aktiv mappe) permanent: gravstein per liste + element.
   // Buffrede slettinger committes først, så tømming aldri venter på angre-vinduet.
   function emptyCardsTrash() {
     // Låste lister hoppes over (samme grunn som i emptyItemsTrash). En liste kan
-    // ha havnet i søpla FØR gruppen ble låst, så kassen kan godt være blandet.
+    // ha havnet i søpla FØR mappen ble låst, så kassen kan godt være blandet.
     const all = trashedCards();
     commitBufferedFor(all.filter((c) => !frozen(c)).map((c) => c.id));
     const trash = trashedCards().filter((c) => !frozen(c)); // commit kan ha endret lista
@@ -6150,8 +6190,8 @@
     save();
   }
 
-  // Tøm univers-søppelkassen permanent: gravsteiner for hvert slettet univers +
-  // alle dets grupper, lister og elementer (hindrer gjenoppstandelse).
+  // Tøm område-søppelkassen permanent: gravsteiner for hvert slettet område +
+  // alle dets mapper, lister og elementer (hindrer gjenoppstandelse).
   function emptyUniversesTrash() {
     // Som i emptyGroupsTrash: rader jeg ikke rår over holdes utenfor commit-en også.
     commitBufferedFor(trashedUniverses().filter(canPurgeUniverse).map((u) => u.id));
@@ -6161,8 +6201,8 @@
     trash.forEach((u) => {
       const i = state.universes.indexOf(u);
       if (u._virtual) return;
-      // Et univers man bare er MEDLEM av kan man forlate, ikke slette. Kan man
-      // ingen av delene, blir universet stående i kassen — bedre enn å forsvinne
+      // Et område man bare er MEDLEM av kan man forlate, ikke slette. Kan man
+      // ingen av delene, blir området stående i kassen — bedre enn å forsvinne
       // lokalt mens serveren avviser både slettingen og forlatelsen.
       if (!canPurgeUniverse(u)) { skipped++; return; }
       if (!canDeleteUniverse(u)) {
@@ -6378,7 +6418,7 @@
     });
   }
 
-  /* ---------- Kobling: faste knapper (universer/grupper/lister) + modal-kontroller ---------- */
+  /* ---------- Kobling: faste knapper (områder/mapper/lister) + modal-kontroller ---------- */
   attachTrashHold(trashBtn, {
     count: () => trashedCards().length,
     open: openCardsTrash,
@@ -6393,7 +6433,7 @@
   trashClose.addEventListener('click', closeTrash);
   // Klikk på selve overlay-en (utenfor modal-boksen) lukker — men ignorér det
   // (evt. forsinkede) klikket fra trykket som nettopp ÅPNET modalen. Uten dette
-  // lukket åpnings-trykkets etter-klikk modalen igjen for gruppe-/liste-kurven
+  // lukket åpnings-trykkets etter-klikk modalen igjen for mappe-/liste-kurven
   // (som ligger nær kanten, der etter-klikket treffer overlay-en, ikke modal-boksen).
   trashModal.addEventListener('click', (ev) => {
     if (ev.target === trashModal && Date.now() - modalOpenedAt > 450) closeTrash();
@@ -6429,7 +6469,7 @@
   /* ============================================================
      NAV- OG KONTO-MODALEN
      ------------------------------------------------------------
-     Nav-knappen i toppmenyen åpner ÉN felles modal for universer og grupper:
+     Nav-knappen i toppmenyen åpner ÉN felles modal for områder og mapper:
      der byttes, opprettes, omdøpes, slettes, omrokkeres og deles begge nivåer.
      Kontoknappen (øverst til høyre) åpner konto-modalen. */
   function openNavModal() {
@@ -6707,9 +6747,9 @@
     settingsBody.appendChild(nameWrap);
 
     // 2) Ansvarlig: rad med nåværende ansvarlig; klikk åpner ansvarlig-velgeren
-    //    forankret i raden. Kandidatene er GRUPPENS effektive medlemsliste —
+    //    forankret i raden. Kandidatene er MAPPENS effektive medlemsliste —
     //    lister har ingen egen deling (tilgangen arves), så det finnes ingen
-    //    delings-seksjon her lenger. Vises kun når gruppen faktisk er delt.
+    //    delings-seksjon her lenger. Vises kun når mappen faktisk er delt.
     const shareRoot = shareRootFor(t.card);
     if (shareRoot && shareRoot._shared) {
       const rType = 'group';
@@ -6952,18 +6992,18 @@
   }
   timeSwitcherOverlay.addEventListener('click', (ev) => { if (ev.target === timeSwitcherOverlay) closeTimeQuick(); });
 
-  // Univers-søppelkassen (i menyen): vises kun når den har innhold.
+  // Område-søppelkassen (i menyen): vises kun når den har innhold.
   function updateUniversesTrash() { updateTrashBadge(trashedUniverses, uniTrashCount, uniTrashBtn); }
 
   function addUniverse() {
-    const u = makeUniverse('Nytt univers');
+    const u = makeUniverse('Nytt område');
     u.pos = state.universes.length ? maxPos(state.universes) + 1 : 0;
     stampContent(u);
     stampPos(u);
     state.universes.push(u);
     setActiveUniverse(u.id);
-    render(); // tegner nav-modalen på nytt (nytt univers er tomt → tomt board)
-    // Rull det nye universet inn i syne og start navneredigering (kun når
+    render(); // tegner nav-modalen på nytt (nytt område er tomt → tomt board)
+    // Rull det nye området inn i syne og start navneredigering (kun når
     // modalen er åpen — den programmatiske veien lar navnet stå som standard).
     const el = navBoard.querySelector('.card[data-id="' + u.id + '"]');
     if (el) {
@@ -6974,7 +7014,7 @@
     return u;
   }
 
-  // Slett et univers → legg i univers-søppelkassen (trashed-flagg; gjenopprettbar).
+  // Slett et område → legg i område-søppelkassen (trashed-flagg; gjenopprettbar).
   // Permanent sletting (med gravsteiner) skjer først når søppelkassen tømmes.
   function deleteUniverse(u) {
     if (u._virtual) return;
@@ -6985,7 +7025,7 @@
       const first = visibleUniverses()[0]; // ekskluderer nå den buffer-slettede
       setActiveUniverse(first ? first.id : null);
     }
-    render(); // univers-søppelkassen blir synlig FØR animasjonen starter
+    render(); // område-søppelkassen blir synlig FØR animasjonen starter
     flyGhost(ghost, uniTrashBtn);
     pushDeleteToast('universe', u.id, u.name);
   }
@@ -7080,8 +7120,8 @@
       pos: u.pos || 0, posTs: u.posTs || 0, posOrg: u.posOrg || '',
     };
   }
-  // Synk-doc er flatt: fire parallelle tabeller (universer/grupper/lister/
-  // elementer) med forelder-peker (gruppe.uni, kort.group, element.home).
+  // Synk-doc er flatt: fire parallelle tabeller (områder/mapper/lister/
+  // elementer) med forelder-peker (mappe.uni, kort.group, element.home).
   // Rekkefølge-uavhengig likhet via canonical(); activeUniverse/activeGroup
   // deles ikke (per enhet).
   //
@@ -7092,9 +7132,9 @@
   function flattenNested(s, rowFn) {
     const universes = [], groups = [], cards = [], items = [];
     (s.universes || []).forEach((u) => {
-      // «Grupper delt med meg» er en VIRTUELL beholder — den finnes ikke i
-      // databasen og skal aldri pushes. Gruppene i den skrives som vanlig
-      // (canonRow beholder deres kanoniske univers).
+      // «Mapper delt med meg» er en VIRTUELL beholder — den finnes ikke i
+      // databasen og skal aldri pushes. Mappene i den skrives som vanlig
+      // (canonRow beholder deres kanoniske område).
       if (!u._virtual) universes.push(rowFn(u, 'universe', null));
       (u.groups || []).forEach((g) => {
         groups.push(rowFn(g, 'group', u));
@@ -7153,7 +7193,7 @@
     return {
       id: a.id,
       uni: posw.uni != null ? posw.uni : (a.uni || b.uni || null), // forelder følger posisjon
-      // `cat` (gruppekategori-medlemskap) er en forelder-endring → posisjonsregisteret,
+      // `cat` (mappekategori-medlemskap) er en forelder-endring → posisjonsregisteret,
       // som `uni`. `isCat`/`collapsed` er innhold, som `name`.
       cat: posw.cat || null,
       name: content.name, trashed: !!content.trashed,
@@ -7501,8 +7541,8 @@
     return aclient;
   }
 
-  /* ---------------- Aktiv posisjon (univers/gruppe) på kontoen ----------------
-     Hvilket univers og hvilken gruppe man står i huskes på selve brukerkontoen
+  /* ---------------- Aktiv posisjon (område/mappe) på kontoen ----------------
+     Hvilket område og hvilken mappe man står i huskes på selve brukerkontoen
      (Supabase Auth user_metadata) — så man lander på samme sted når appen lastes
      på nytt, også på tvers av enheter. Gjelder kun kontomodus (uten konto finnes
      ingen konto å lagre på; da holder den gamle per-enhet-oppførselen). Skrives
@@ -7517,6 +7557,7 @@
   const navEq = (a, b) => !!a && !!b && a.u === b.u && a.g === b.g;
   function saveNavPref() {
     if (!authUser || applyingRemote || !navRestored) return;
+    if (demoActive) return; // demoens posisjon er en kulisse, ikke brukerens
     const nav = { u: state.activeUniverse || null, g: state.activeGroup || null };
     if (navEq(nav, authUser.meta && authUser.meta.nav) && !navPending) return; // allerede lagret
     if (navEq(nav, navPending)) return; // allerede planlagt
@@ -7539,7 +7580,7 @@
       navSaveTimer = setTimeout(flushNavPref, 5000); // behold navPending, prøv igjen senere
     }
   }
-  // Sett aktivt univers/gruppe fra kontoens husket posisjon (hvis den fremdeles
+  // Sett aktivt område/mappe fra kontoens husket posisjon (hvis den fremdeles
   // peker på synlige entiteter). Kalles én gang, ved første sky-pull.
   function restoreNavPref() {
     const nav = authUser && authUser.meta && authUser.meta.nav;
@@ -7757,17 +7798,17 @@
 
   /* ---------------- Rolle- og capability-metadata på state-objektene ----------------
      Hvert nested objekt får (utenfor synk-doc'et): _type/_parent/_creator/
-     _locked/_unlocked/_shared/_caps. Universer og grupper får i tillegg _role
-     ('owner' | 'member' | null) og — for universer og FRIE grupper — en
+     _locked/_unlocked/_shared/_caps. Områder og mapper får i tillegg _role
+     ('owner' | 'member' | null) og — for områder og FRIE mapper — en
      PERSONLIG posisjon i `.pos`, mens den kanoniske ligger i `_canon`.
 
      Myndighet kommer utelukkende fra ROLLER. `_creator` (objektets `owner_id`)
      er ren historikk og gir ingenting. Serverens `_caps` er autoritative;
      funksjonene under er lokale anslag for umiddelbar, optimistisk visning. */
 
-  // Den virtuelle beholderen for «Grupper delt med meg»: grupper man har en
-  // DIREKTE rolle i, men ingen rolle i det kanoniske universet. Den er ikke et
-  // ekte univers — den pushes aldri, og har ingen delings-/opprettelseskontroller.
+  // Den virtuelle beholderen for «Mapper delt med meg»: mapper man har en
+  // DIREKTE rolle i, men ingen rolle i det kanoniske området. Den er ikke et
+  // ekte område — den pushes aldri, og har ingen delings-/opprettelseskontroller.
   const FREE_UNI_ID = '__free__';
   // Hvilken av de tre seksjonene et toppnivå-objekt hører til.
   const SECTION_OWNED = 0, SECTION_SHARED = 1, SECTION_FREE = 2;
@@ -7775,8 +7816,8 @@
     : (u._role === 'owner' ? SECTION_OWNED : SECTION_SHARED));
   // Brukervendte tekster som gjenbrukes i flere visninger.
   const S_TEXT = {
-    freeSection: 'Delte grupper',
-    sections: ['Mine universer', 'Universer delt med meg', 'Grupper delt med meg'],
+    freeSection: 'Delte mapper',
+    sections: ['Mine områder', 'Områder delt med meg', 'Mapper delt med meg'],
   };
 
   function effTrashed(o) { return !!(o && o.trashed); }
@@ -7787,8 +7828,8 @@
     while (n && n._type !== type) n = n._parent;
     return n && !n._virtual ? n : null;
   }
-  // Er JEG eier på nivået som styrer objektet? Universeier for et univers;
-  // gruppeeier (eksplisitt ELLER universeier) for gruppe/liste/listepunkt.
+  // Er JEG eier på nivået som styrer objektet? Områdeeier for et område;
+  // mappeeier (eksplisitt ELLER områdeeier) for mappe/liste/listepunkt.
   // Privilegerte påvirkes aldri av en lås for egen redigering. Lokalt anslag —
   // serverens `_caps` er autoritative.
   function privilegedLocal(o) {
@@ -7812,7 +7853,7 @@
     }
     return false;
   }
-  // Serverens capability for objektet. Universer og grupper får dem fra
+  // Serverens capability for objektet. Områder og mapper får dem fra
   // get_my_doc; for lokalt nyopprettede objekter (ennå ikke synket) faller vi
   // tilbake på `fallback` — brukeren laget dem nettopp selv.
   function cap(o, name, fallback) {
@@ -7820,13 +7861,13 @@
     if (c && name in c) return !!c[name];
     return fallback !== undefined ? fallback : true;
   }
-  // Kan jeg endre GRUPPENS innhold — altså opprette lister i den, og omrokkere/
-  // flytte listene den inneholder? Den myndigheten ligger på GRUPPEN, ikke på
+  // Kan jeg endre MAPPENS innhold — altså opprette lister i den, og omrokkere/
+  // flytte listene den inneholder? Den myndigheten ligger på MAPPEN, ikke på
   // lista: `frozen(liste)` svarer bare på om jeg kan redigere lista SELV. Under
-  // et lås-unntak («Gjør unntak» på én liste i en låst gruppe) spriker de to —
+  // et lås-unntak («Gjør unntak» på én liste i en låst mappe) spriker de to —
   // lista kan redigeres, men verken få en ny søskenliste eller flytte på seg.
   // Serverens capability er autoritativ (`createList` = `can_create_child` =
-  // `can_edit_content` på gruppen); mangler den, brukes det lokale låse-anslaget.
+  // `can_edit_content` på mappen); mangler den, brukes det lokale låse-anslaget.
   function canAddList(g) { return !!g && cap(g, 'createList', !frozen(g)); }
   // Forfedrene til et objekt, nærmeste først, med type.
   const PARENT_TYPE = { card: 'group', group: 'universe', universe: null };
@@ -7888,7 +7929,7 @@
   }
 
   /* ---------------- Lokal state → kanonisk innholds-doc (for push) ----------------
-     PERSONLIG rekkefølge (universer på toppnivå, frie grupper) ligger på
+     PERSONLIG rekkefølge (områder på toppnivå, frie mapper) ligger på
      medlemskapsraden, ikke på objektet — `.pos` i state er da den personlige
      verdien, og den KANONISKE står i `_canon`. Den kanoniske skrives tilbake
      uendret, så en personlig omrokkering aldri kan endre hva andre ser. */
@@ -7900,8 +7941,8 @@
         trashed: !!o.trashed, pos: c.pos || 0, posTs: c.posTs || 0, posOrg: c.posOrg || '',
       };
       if (type === 'universe') return Object.assign(base, { name: o.name, collapsed: !!o.collapsed });
-      // En FRI gruppe (delt direkte med meg) har sin kanoniske plassering i et
-      // univers jeg ikke ser — den skrives tilbake uendret.
+      // En FRI mappe (delt direkte med meg) har sin kanoniske plassering i et
+      // område jeg ikke ser — den skrives tilbake uendret.
       if (type === 'group') return Object.assign(base, {
         name: o.name, uni: c.parent, cat: c.cat || null, isCat: !!o.isCat, collapsed: !!o.collapsed,
       });
@@ -7909,7 +7950,7 @@
     if (type === 'universe') return cleanUniverse(o);
     if (type === 'group') {
       const r = cleanGroup(o);
-      // En gruppe som venter på move_group beholder sin GAMLE forelder i doc-et:
+      // En mappe som venter på move_group beholder sin GAMLE forelder i doc-et:
       // `groups.universe_id` kan ikke skrives direkte (databasen avviser det),
       // og RPC-en eier plasseringen til den har landet.
       const mv = pendingGroupMoves.get(o.id);
@@ -8025,12 +8066,12 @@
 
   /* ---------------- merged (kanonisk) + metadata → nested state ----------------
      Tre seksjoner (se docs/rettigheter-og-deling.md):
-       1. «Mine universer»          — rolle 'owner'
-       2. «Universer delt med meg»  — rolle 'member'
-       3. «Grupper delt med meg»    — grupper med DIREKTE rolle og ingen rolle i
-                                      det kanoniske universet (`free`). De samles
+       1. «Mine områder»          — rolle 'owner'
+       2. «Områder delt med meg»  — rolle 'member'
+       3. «Mapper delt med meg»    — mapper med DIREKTE rolle og ingen rolle i
+                                      det kanoniske området (`free`). De samles
                                       i én VIRTUELL beholder som aldri pushes.
-     Universer og frie grupper ordnes PERSONLIG: `.pos` er medlemskapsradens
+     Områder og frie mapper ordnes PERSONLIG: `.pos` er medlemskapsradens
      posisjon, den kanoniske ligger i `_canon` (skrives tilbake uendret). */
   function applyMyDoc(doc, meta) {
     applyingRemote = true;
@@ -8052,7 +8093,7 @@
         obj._ownerKey = m ? m.ownerKey : null;
         obj._caps = m && m.caps ? m.caps : null;
         obj._free = !!(m && m.free);
-        // Personlig posisjon (universer + frie grupper): den kanoniske tas vare
+        // Personlig posisjon (områder + frie mapper): den kanoniske tas vare
         // på i _canon, og `.pos` blir brukerens egen.
         const personal = m && m.personalPos != null &&
           (type === 'universe' || (type === 'group' && m.free));
@@ -8066,8 +8107,8 @@
       universes.forEach((u) => attachMeta(u, u.id, 'universe', null, null));
       const uById = new Map(universes.map((u) => [u.id, u]));
 
-      // Den virtuelle beholderen for direkte delte grupper. Opprettes bare når
-      // det finnes slike grupper, og legges alltid sist (egen seksjon i UI-et).
+      // Den virtuelle beholderen for direkte delte mapper. Opprettes bare når
+      // det finnes slike mapper, og legges alltid sist (egen seksjon i UI-et).
       let freeUni = null;
       const ensureFreeUni = () => {
         if (freeUni) return freeUni;
@@ -8086,12 +8127,12 @@
         const m = meta.get(g.id);
         const mv = pendingGroupMoves.get(g.id);
         attachMeta(g, g.id, 'group', g.uni, g.cat);
-        // En gruppe som venter på move_group vises OPTIMISTISK der brukeren slapp
+        // En mappe som venter på move_group vises OPTIMISTISK der brukeren slapp
         // den, selv om serveren fortsatt svarer med den gamle plasseringen.
         if (mv) { g.uni = mv.toUni; g.cat = mv.toCat; g.pos = mv.toPos; g._free = false; }
         const parent = g._free ? ensureFreeUni() : (g.uni != null ? uById.get(g.uni) : null);
-        if (!parent) return; // foreldreløs (kanonisk univers ikke lesbart og ikke fri)
-        if (g._free) g.cat = null;   // fri seksjon har ingen gruppekategorier
+        if (!parent) return; // foreldreløs (kanonisk område ikke lesbart og ikke fri)
+        if (g._free) g.cat = null;   // fri seksjon har ingen mappekategorier
         g._parent = parent;
         gById.set(g.id, g);
         parent.groups.push(g);
@@ -8152,8 +8193,8 @@
     if (!settingsModal.hidden) closeSettings();
     closeResponsible();
     showToast(kind === 'group'
-      ? 'Du har ikke lenger tilgang til gruppen'
-      : 'Du har ikke lenger tilgang til universet');
+      ? 'Du har ikke lenger tilgang til mappen'
+      : 'Du har ikke lenger tilgang til området');
   }
 
   /* ---------------- Push: rad-CRUD mot tabellene ---------------- */
@@ -8699,8 +8740,8 @@
   const policyOverrides = new Map(); // id → ønsket invite_policy (set_invite_policy i kø)
   const posOverrides = new Map();    // id → ønsket PERSONLIG pos (membership-skriving i kø)
   const suppressedRows = new Set();  // id-er fjernet lokalt (leave_share i kø)
-  // Gruppeflyttinger som venter på move_group-RPC-en: id → { fromUni, fromCat,
-  // fromPos, toUni, toCat, toPos }. Så lenge en flytting står her vises gruppen
+  // Mappeflyttinger som venter på move_group-RPC-en: id → { fromUni, fromCat,
+  // fromPos, toUni, toCat, toPos }. Så lenge en flytting står her vises mappen
   // OPTIMISTISK på det nye stedet, mens doc-synken skriver den GAMLE plasseringen
   // (databasen avviser en direkte `universe_id`-skriving — RPC-en eier flyttingen).
   const pendingGroupMoves = new Map();
@@ -8715,7 +8756,7 @@
   }
 
   /* ---------------- Personlig rekkefølge (medlemskapsraden) ----------------
-     Universenes rekkefølge på toppnivå og de frie gruppenes rekkefølge er
+     Områdenes rekkefølge på toppnivå og de frie mappenes rekkefølge er
      PERSONLIGE: de ligger på brukerens egen medlemskapsrad og endrer aldri hva
      andre ser. Skrivingen koalesceres i køen (rask omrokkering blir én skriving). */
   function cloudPersonalPos(type, id, pos) {
@@ -8748,6 +8789,7 @@
   // undertrykkes fra pull-ene til leave har landet, så det verken gjenoppstår
   // lokalt eller (verre) får reconcile til å pushe delete på andres rader.
   function cloudLeave(type, id) {
+    if (demoActive) return; // simulering — ingen bakgrunnsoperasjoner
     suppressedRows.add(id);
     const key = 'leave:' + type + ':' + id;
     if (opQueue.hasPending(key)) return;
@@ -8777,7 +8819,7 @@
     if (!arr) return;
     const i = arr.indexOf(f.obj);
     if (i > -1) arr.splice(i, 1);
-    validateActive(state); // objektet kan ha vært aktivt univers/gruppe
+    validateActive(state); // objektet kan ha vært aktivt område/mappe
   }
 
   /* ---------------- Synk-syklus v2 ---------------- */
@@ -8839,7 +8881,7 @@
     // `ownerKey`/`ownerCount` MÅ være med: et eierskifte hos NOEN ANDRE endrer
     // verken innholdet, mine capabilities, min rolle eller `shared` — men det
     // flytter eierskapsdomenet. Uten dem ville `_ownerKey` blitt stående utdatert,
-    // og en senere gruppeflytting lest to nå ULIKE domener som like, hoppet over
+    // og en senere mappeflytting lest to nå ULIKE domener som like, hoppet over
     // den destruktive-flytting-bekreftelsen og latt serveren kopiere-og-slette.
     meta.forEach((m, id) => metaArr.push(
       id + ':' + (m.role || '-') + (m.free ? 'F' : '') + (m.locked ? 1 : 0) +
@@ -8858,6 +8900,7 @@
   }
 
   function scheduleCloud(delay) {
+    if (demoActive) return; // simulering — se demoActive
     clearTimeout(cloudDebounce);
     // Nulles når den fyrer, så updateSafety() kan se om en runde står i kø.
     cloudDebounce = setTimeout(() => { cloudDebounce = null; cloudCycle(); }, delay == null ? 300 : delay);
@@ -8895,6 +8938,11 @@
   }
   async function cloudCycle() {
     if (!authUser || !acli()) return;
+    /* Demoen har byttet ut `state` med en kulisse. En runde her ville både
+       pushet kulissen og — verre — skrevet serverens svar inn over den, så
+       brukerens egne objekter dukket opp midt i demoen. Runden tas igjen når
+       demoen er ferdig (endDemo kaller scheduleCloud). */
+    if (demoActive) return;
     if (cloudRunning) { cloudAgain = true; return; }
     cloudRunning = true;
     syncStatus.refresh();
@@ -8908,6 +8956,13 @@
       const my = await rpcMyDoc();
       reached = true; // pull-en kom fram — skrivingene er ikke prøvd ennå
       if (!my) return;
+      /* Demoen kan ha startet MENS pullen var i lufta. Da peker `state` på
+         kulissen, og alt under — fletting, `applyMyDoc`, push — ville lest den
+         som brukerens innhold: serverens rader ville dukket opp midt i demoen,
+         og fletteren lest brukerens ekte rader som slettet og pushet DELETE.
+         Vakten på toppen fanger bare runder som ikke har begynt; denne fanger
+         den som allerede var i gang. Runden tas igjen når demoen er ferdig. */
+      if (demoActive) return;
       lastMy = my;
       const remote = contentDocFromMy(my);
       const meta = metaFromMy(my);
@@ -8945,6 +9000,7 @@
               hits.forEach((h) => tombFromServer(h.resource_type, h.resource_id));
               saveLocal();
             }
+            if (demoActive) return; // demoen startet mens oppslaget var i lufta
             unknownHistory.clear();
             r = reconcile(cloudBase || emptyDoc(), docFromMyState(), remote, opts());
           } catch (e) {
@@ -8974,6 +9030,7 @@
       }
       let allPushed = true;
       if (ops.length) {
+        if (demoActive) return; // siste sjanse før skrivingene forlater klienten
         const { rejected: failed, netFailed } = await pushOps(ops);
         if (netFailed) reached = false; // skrivingene kom ikke fram
         // Bekreftelses-pull straks etter push: lastMy/metadata friskes opp, så
@@ -9523,7 +9580,7 @@
     if (!total) { menuInvites.hidden = true; inviteListEl.innerHTML = ''; return; }
     menuInvites.hidden = false;
     inviteListEl.innerHTML = '';
-    const typeLabel = { universe: 'Univers', group: 'Gruppe' };
+    const typeLabel = { universe: 'Område', group: 'Mappe' };
     invites.forEach((inv) => {
       const row = document.createElement('div');
       row.className = 'invite-row';
@@ -9549,7 +9606,7 @@
     });
   }
 
-  /* ---------------- Velger-modal (flytting av lister/grupper) ---------------- */
+  /* ---------------- Velger-modal (flytting av lister/mapper) ---------------- */
   const placeModal = document.getElementById('place-modal');
   const placeBody = document.getElementById('place-body');
   const placeClose = document.getElementById('place-close');
@@ -9584,9 +9641,9 @@
   // Optimistisk besvarte invitasjoner (svar-RPC-en ligger i køen): raden holdes
   // ute av innboksen så en synk-pull ikke gjenoppliver den før svaret har landet.
   const suppressedInvites = new Set();
-  // Aksept krever INGEN plassering: et univers havner i «Mine universer» eller
-  // «Universer delt med meg» etter rolle, og en gruppe enten inne i universet
-  // (hvis man er universmedlem) eller i «Grupper delt med meg».
+  // Aksept krever INGEN plassering: et område havner i «Mine områder» eller
+  // «Områder delt med meg» etter rolle, og en mappe enten inne i området
+  // (hvis man er områdemedlem) eller i «Mapper delt med meg».
   function acceptInvite(inv) {
     suppressedInvites.add(inv.id);
     updateInbox(lastMy);
@@ -9625,11 +9682,11 @@
     });
   }
 
-  /* ---------------- Del-modal (univers/gruppe) ----------------
+  /* ---------------- Del-modal (område/mappe) ----------------
      ÉN visning for alle: medlemslisten er synlig for enhver med tilgang, mens
      invitasjonsfelt, rolle- og medlemsadministrasjon, lås, «Forlat» og «Slett»
      vises etter serverens capabilities (get_members.viewer.caps). Lister,
-     kategorier og listepunkter deles aldri — de arver gruppens tilgang. */
+     kategorier og listepunkter deles aldri — de arver mappens tilgang. */
   const shareModal = document.getElementById('share-modal');
   const shareBody = document.getElementById('share-body');
   const shareTitle = document.getElementById('share-title');
@@ -9654,7 +9711,7 @@
   });
 
   const SHARE_TYPE_ICON = { universe: 'globe', group: 'folder' };
-  const TYPE_WORD = { universe: 'universet', group: 'gruppen' };
+  const TYPE_WORD = { universe: 'området', group: 'mappen' };
   function openShare(type, id, obj, backTo) {
     shareCtx = { type, id, obj };
     shareBackTo = backTo || null;
@@ -9711,10 +9768,10 @@
     if (type === 'universe') {
       return category === 'universeOwner' ? (many ? 'Medeiere' : 'Eier') : 'Medlemmer';
     }
-    if (category === 'universeOwner') return many ? 'Medeiere av universet' : 'Eier av universet';
-    if (category === 'groupOwner') return many ? 'Medeiere av gruppen' : 'Eier av gruppen';
-    if (category === 'universeMember') return 'Medlemmer av universet';
-    return 'Medlemmer av gruppen';
+    if (category === 'universeOwner') return many ? 'Medeiere av området' : 'Eier av området';
+    if (category === 'groupOwner') return many ? 'Medeiere av mappen' : 'Eier av mappen';
+    if (category === 'universeMember') return 'Medlemmer av området';
+    return 'Medlemmer av mappen';
   }
   const MEMBER_CATEGORY_ORDER = ['universeOwner', 'groupOwner', 'universeMember', 'groupMember'];
 
@@ -9743,7 +9800,7 @@
     const roleSel = document.createElement('select');
     roleSel.className = 'field share-role-select';
     roleSel.setAttribute('aria-label', 'Rolle for den inviterte');
-    [['member', 'Som medlem'], ['owner', type === 'universe' ? 'Som medeier' : 'Som medeier av gruppen']]
+    [['member', 'Som medlem'], ['owner', type === 'universe' ? 'Som medeier' : 'Som medeier av mappen']]
       .forEach(([v, label]) => {
         const o = document.createElement('option');
         o.value = v; o.textContent = label;
@@ -10115,7 +10172,7 @@
       if (!caps.leave && !caps.delete && obj._role === 'owner' && type === 'universe') {
         const note = document.createElement('p');
         note.className = 'share-policy-note';
-        note.textContent = 'Du er eneste eier. Gi eierskap til noen andre før du kan forlate universet.';
+        note.textContent = 'Du er eneste eier. Gi eierskap til noen andre før du kan forlate området.';
         actionsWrap.appendChild(note);
       }
     }
@@ -10290,9 +10347,9 @@
     startCloudPoll();
     syncStatus.start();
     await cloudCycle();
-    // Introduksjonen kommer FØR pollet rekker en ny runde, men etter at første
-    // pull har malt board-et — så spotlightene peker på kontoens faktiske
-    // innhold. Den vises kun hvis kontoen ikke har sett den (docs/introduksjon.md).
+    // Demoen kommer FØR pollet rekker en ny runde, men etter at første pull har
+    // malt board-et — ellers ville en runde landet midt i simuleringen. Den
+    // vises kun hvis kontoen ikke har sett den (docs/introduksjon.md).
     maybeStartOnboarding();
   }
   function cloudStop() {
@@ -10317,9 +10374,11 @@
     schemaMismatchLogged.clear();
     rejectCounts.clear();
     syncStatus.stop();
-    // Innføringen tilhørte den utloggede kontoen. Uten dette blir laget,
-    // tidsuret og `body.tour-guided` stående — og den klassen demper slette-
-    // og søppelkassekontrollene, altså for NESTE konto som logger inn.
+    /* Demoen tilhørte den utloggede kontoen. Uten dette blir laget, tidsuret og
+       `body.tour-demo` stående for NESTE konto som logger inn — og verre:
+       simuleringen ville blitt stående på, så alt den neste gjorde forsvant i
+       stedet for å bli lagret. `resetTourState()` avvikler den uten å skrive
+       noe; den halve runden skal verken merkes som sett eller gjelde noen andre. */
     resetTourState();
     authUser = null;
     // Innhold, gravsteiner og base tømmes SAMMEN. Cachen på disken er nøklet
@@ -10340,9 +10399,9 @@
     // Profilbildet og et evt. skrevet passord tilhørte den utloggede kontoen.
     myAvatar = null; avatarPainted = null;
     clearPassFields([accountPassCurrent, accountPassNew]);
-    // Lukk evt. åpne modaler — de tilhørte den utloggede sesjonen. Omvisningen
+    // Lukk evt. åpne modaler — de tilhørte den utloggede sesjonen. Demoen
     // avsluttes uten å lagre noe: den hører til kontoen som nettopp logget ut.
-    tourActive = false; tourEl.hidden = true; onboardingWaits = 0;
+    resetTourState();
     closeNavModal(); closeAccount(); closeAvatarEditor();
   }
 
@@ -10442,226 +10501,545 @@
   }
 
   /* ============================================================
-     INTRODUKSJON FOR NYE BRUKERE
+     DEMONSTRASJONEN FOR NYE BRUKERE
      ------------------------------------------------------------
      Autoritativt: docs/introduksjon.md.
 
      To deler, med ulik tyngde:
 
-       1. INNFØRINGEN — en interaktiv, TILSTANDSBASERT runde der brukeren
-          bygger hele hierarkiet selv: univers → gruppe → liste → listepunkt.
-          Den går ALDRI videre fordi en knapp ble trykket; den går videre når
-          objektet steget ber om faktisk finnes i state, hos riktig forelder,
-          med et navn. Avbrutt navngiving, en lukket modal eller en avvist
-          skriving er derfor ikke et fullført steg — kortet blir stående.
-          Spotlighten peker på EKTE UI, og på et handlingssteg er det ekte
-          UI-et også det brukeren trykker på: laget slipper pekeren gjennom.
+       1. DEMOEN — én sammenhengende runde gjennom alt man gjør i Huskis:
+          opprette område → mappe → liste → listepunkter → kategori, prøve
+          dra-og-slipp på begge nivåer, løse opp kategorien, og til slutt
+          slette og tømme seg tilbake til utgangspunktet.
+
+          Den kjører i en SIMULERING. Brukerens egne objekter legges til side
+          (`demoSaved`), `state` får et tomt tre demoen bygger i, og alt rives
+          ned igjen når demoen er over. Ingenting skrives til den lokale
+          bufferen, kontoen eller databasen mens den står på — se `demoActive`
+          og vaktene i save()/saveLocal()/scheduleCloud()/cloudCycle()/
+          saveNavPref()/cloudLeave(). Det gjør demoen lik for alle: en tom
+          konto og en konto med tre hundre lister ser nøyaktig det samme, og
+          ingen kan miste noe på et bomtrykk.
+
+          Hvert steg MÅ utføres. Det finnes ingen «neste» og ingen «hopp over
+          steget»: `demoGate` slipper bare gjennom pekeren og tastene som
+          treffer kontrollen steget faktisk handler om — alt annet svelges, så
+          man verken kan slette når sletting ikke demonstreres, kollapse et
+          kort når kollapsing ikke demonstreres, eller navigere seg bort fra
+          steget. Man kan gå ETT steg tilbake, og da rulles tilstanden tilbake
+          til slik den var da det steget begynte (`demoSnaps`), slik at
+          handlingen kan gjøres om.
+
+          Instruksjonen vises ALDRI før navigasjonen den forrige handlingen
+          utløste er ferdig: `demoReady()` krever at riktig modal er åpen/
+          lukket OG at målet finnes og er synlig, og kortet står skjult til da.
+
        2. TIPSENE — de avanserte gestene (trykk-og-hold, sveip, dra til
           navigasjonsknappen) læres bort først når de faktisk er relevante, ett
           kort tips om gangen, i den vanlige toasten. Et tips fortrenger aldri
           en melding som allerede står, avbryter aldri en redigering og fanger
           aldri fokus.
 
-     Begge deler huskes på KONTOEN (`user_metadata`), ikke per enhet — samme
-     mekanikk som den huskede posisjonen (`nav`), så en fullført, hoppet-over
-     eller PÅBEGYNT innføring følger brukeren til neste enhet. */
-  const TOUR_VERSION = 2;    // v1 = den passive omvisningen (se onboardingSeen)
+     Begge deler huskes på KONTOEN (`user_metadata`), ikke per enhet. */
+  const TOUR_VERSION = 3;    // v1 = passiv omvisning, v2 = innføring i ekte data, v3 = demoen
   const TIP_QUIET_MS = 6000; // ro mellom to tips (ett budskap om gangen)
   /* Steget venter på en TILSTAND, ikke på en hendelse: objektet kan dukke opp
-     fra en inline-navngiving, en synk-runde fra en annen enhet eller en angret
-     sletting. Å lytte på alle veiene dit ville vært en liste som råtner; ett
-     billig intervall som stiller det samme spørsmålet råtner ikke. */
-  const TOUR_POLL_MS = 250;
+     fra en inline-navngiving, et slipp eller en angret sletting. Å lytte på
+     alle veiene dit ville vært en liste som råtner; ett billig intervall som
+     stiller det samme spørsmålet råtner ikke. */
+  const DEMO_POLL_MS = 120;
 
   const tourEl = document.getElementById('tour');
-  const tourSpot = document.getElementById('tour-spot');
+  const tourArrow = document.getElementById('tour-arrow');
   const tourCard = document.getElementById('tour-card');
-  const tourStepEl = document.getElementById('tour-step');
   const tourTitleEl = document.getElementById('tour-title');
   const tourTextEl = document.getElementById('tour-text');
   const tourNoteEl = document.getElementById('tour-note');
+  const tourProgressEl = document.getElementById('tour-progress');
+  const tourProgressFill = document.getElementById('tour-progress-fill');
+  const tourActionsEl = tourCard.querySelector('.tour-actions');
   const tourNextBtn = document.getElementById('tour-next');
-  const tourSkipBtn = document.getElementById('tour-skip');
-  const tourSkipStepBtn = document.getElementById('tour-skip-step');
-  const tourPracticeBtn = document.getElementById('tour-practice');
+  const tourBackBtn = document.getElementById('tour-back');
   const tourCloseBtn = document.getElementById('tour-close');
   const tourRestartBtn = document.getElementById('tour-restart');
   const menuTour = document.getElementById('menu-tour');
 
-  const tourChip = (inner) => '<span class="hint-chip">' + inner + '</span>';
-  const tourQ = (id) => '[data-id="' + String(id).replace(/["\\]/g, '\\$&') + '"]';
-  const tourNamed = (o, field) => !!o && String(o[field] || '').trim() !== '';
+  const demoQ = (id) => '[data-id="' + String(id || '').replace(/["\\]/g, '\\$&') + '"]';
+  const demoNamed = (o, field) => !!o && String(o[field] || '').trim() !== '';
 
-  /* ---------- Oppslag innføringen bygger på ---------- */
-  // Universene brukeren selv rår over. Fri-gruppe-beholderen er virtuell og
-  // kan verken opprettes eller velges, så den holdes utenfor.
-  const tourUniverses = () => state.universes.filter((u) => live(u) && !u._virtual);
-  const tourUni = () => tourUniverses().find((u) => u.id === tourCtx.universeId) || null;
-  const tourGroups = (u) => (u ? u.groups.filter((g) => live(g) && !g.isCat) : []);
-  const tourGroup = () => tourGroups(tourUni()).find((g) => g.id === tourCtx.groupId) || null;
-  const tourCards = (g) => (g ? g.cards.filter(live) : []);
-  const tourCardObj = () => tourCards(tourGroup()).find((c) => c.id === tourCtx.cardId) || null;
-  const tourItems = (c) => (c ? c.items.filter((it) => live(it) && !it.isCat) : []);
+  /* ---------- Kulissen demoen bygger i ---------- */
+  let demoSaved = null;       // brukerens egne objekter mens demoen står på
+  let demoRunning = false;    // den guidede runden (demoActive = simuleringen)
+  let demoIndex = 0;
+  let demoPainted = -1;       // hvilket steg kortet faktisk viser nå
+  let demoCtx = {};           // id-ene demoen har opprettet
+  let demoBase = null;        // tellere ved inngangen til steget
+  let demoSnaps = [];         // tilstanden ved inngangen til hvert steg
+  let demoTimer = null;
+  let demoReturnFocus = null;
+  let demoLiveEl = null;      // kontrollen steget handler om (.tour-live)
+  let onboardingWaits = 0;
 
-  /* Objektet som ble opprettet I DETTE STEGET — ikke bare «et objekt finnes».
-     `tourBaseline` er id-ene som fantes da steget begynte, så et univers
-     brukeren allerede hadde (eller en synk-runde drar inn fra en annen enhet)
-     ikke kan fullføre steget på vegne av handlingen som aldri ble utført. */
-  const tourFresh = (rows, field) =>
-    rows.find((o) => !tourBaseline.has(o.id) && tourNamed(o, field)) || null;
+  // `_parent` er den eneste sykliske referansen i treet (synken setter den);
+  // demoens egne objekter har den ikke, men vakten koster ingenting.
+  const demoClone = (v) => JSON.parse(JSON.stringify(v, (k, x) => (k === '_parent' ? undefined : x)));
+
+  /* Legg brukerens objekter til side og gi `state` et tomt tre. Referansen til
+     den gamle arrayen beholdes urørt — demoen får en HELT ny, så ingenting den
+     gjør kan nå brukerens innhold, uansett hvor i appen mutasjonen skjer. */
+  function demoSimStart() {
+    if (demoActive) return;
+    commitAllPending(); // brukerens egne buffrede slettinger hører til før demoen
+    flushCacheWrite();  // en skriving bestilt før byttet skal bære BRUKERENS state
+    demoSaved = {
+      universes: state.universes,
+      activeUniverse: state.activeUniverse,
+      activeGroup: state.activeGroup,
+      activeGroups: state.activeGroups,
+      tomb: state._tomb,
+    };
+    demoActive = true;
+    state.universes = [];
+    state.activeUniverse = null;
+    state.activeGroup = null;
+    state.activeGroups = {};
+    state._tomb = emptyTomb();
+    closeTrash();
+    closeNavModal();
+    closeAccount();
+    render();
+  }
+  // resync: ta igjen sky-rundene demoen holdt tilbake. Ved utlogging skal vi
+  // ikke det — sesjonen er borte, og køen er allerede tømt.
+  function demoSimStop(resync) {
+    if (!demoActive) return;
+    demoDropDeleteBuffer(); // buffrede slettinger av kulisser skal ikke committes
+    state.universes = demoSaved.universes;
+    state.activeUniverse = demoSaved.activeUniverse;
+    state.activeGroup = demoSaved.activeGroup;
+    state.activeGroups = demoSaved.activeGroups;
+    state._tomb = demoSaved.tomb;
+    demoSaved = null;
+    demoActive = false;
+    closeTrash();
+    closeNavModal();
+    render();
+    if (resync) scheduleCloud(0);
+  }
+  /* Kast angre-bufferet uten å committe. Brukes når kulissen forsvinner (demoen
+     avsluttes, eller et steg rulles tilbake): en timer som fyrer etterpå ville
+     ellers ha lett etter objekter som ikke finnes lenger. */
+  function demoDropDeleteBuffer() {
+    pendingDeletes.forEach((entry, id) => {
+      const f = findAnyById(id);
+      if (f) delete f.obj._pendingDelete;
+    });
+    pendingDeletes.clear();
+    if (deleteToast) { clearTimeout(deleteToast.timer); deleteToast = null; hideToast(); }
+  }
+
+  /* ---------- Oppslag i kulissen ---------- */
+  const demoUnis = () => state.universes.filter((u) => live(u) && !u._virtual);
+  const demoUni = () => demoUnis().find((u) => u.id === demoCtx.uniId) || null;
+  const demoGroups = (u) => (u ? u.groups.filter((g) => live(g) && !g.isCat) : []);
+  const demoGroup = () => demoGroups(demoUni()).find((g) => g.id === demoCtx.groupId) || null;
+  const demoCards = () => { const g = demoGroup(); return g ? g.cards.filter(live) : []; };
+  const demoCardOf = (id) => demoCards().find((c) => c.id === id) || null;
+  const demoCard = () => demoCardOf(demoCtx.cardId);
+  const demoItems = (c) => (c ? c.items.filter((it) => live(it) && !it.isCat) : []);
+  const demoCat = () => {
+    const c = demoCard();
+    return c ? c.items.find((it) => live(it) && it.isCat && it.id === demoCtx.catId) || null : null;
+  };
+  const demoCatMembers = () => demoItems(demoCard()).filter((it) => it.cat === demoCtx.catId);
+  const demoEditing = () => !!document.querySelector('.edit-input');
+
+  // Tellere ved inngangen til et steg: det som ikke kan leses av et objekt
+  // alene (et slipp som landet på samme plass, en tømming som fjernet en rad
+  // som allerede var skjult).
+  function demoCounters() {
+    const g = demoGroup();
+    const c = demoCard();
+    return {
+      drops: dropSeq,
+      itemsAll: c ? c.items.length : 0,
+      cardsAll: g ? g.cards.length : 0,
+      unis: state.universes.length,
+      catMembers: demoCatMembers().length,
+    };
+  }
+
+  /* ---------- DOM-oppslag stegene peker på ---------- */
+  const demoNavCard = () => navBoard.querySelector('.uni-card' + demoQ(demoCtx.uniId));
+  const demoNavRow = () => navBoard.querySelector('.item' + demoQ(demoCtx.groupId));
+  const demoCardEl = (id) => board.querySelector('.card' + demoQ(id));
+  const demoCatEl = () => board.querySelector('.category' + demoQ(demoCtx.catId));
+  // Navnefeltet som står åpent inne i `el` — ellers elementet som åpner det.
+  const demoNameField = (el, fallbackSel) =>
+    (el && (el.querySelector('.edit-input') || el.querySelector(fallbackSel))) || null;
+  // Nivå-1-radene i listen (ikke kategorimedlemmer, ikke utførte).
+  const demoRows = (id) => {
+    const el = demoCardEl(id);
+    return el ? Array.prototype.slice.call(el.querySelectorAll(':scope > .card-body > .items-container > .item')) : [];
+  };
+  // Navnet på den sist opprettede raden — den et navnesteg gjelder.
+  const demoLastRowTitle = (id) => {
+    const r = demoRows(id).slice(-1)[0];
+    return r ? demoNameField(r, '.item-text') : null;
+  };
+  const demoLastCatRowTitle = () => {
+    const el = demoCatEl();
+    if (!el) return null;
+    const rows = el.querySelectorAll('.cat-items > .item');
+    const r = rows[rows.length - 1];
+    return r ? demoNameField(r, '.item-text') : null;
+  };
 
   /* ---------- Stegene ----------
-     `done()` er hele fasiten for framdrift: den returnerer en context-patch
-     når steget ER utført, ellers null. `review()` er repetisjonsmodusens
-     variant — den peker på det brukeren ALLEREDE har i stedet for å be om et
-     duplikat. `blocked()` sier fra når steget er umulig for denne kontoen
-     (ingen opprettelsesrett), slik at det kan hoppes over i stedet for å bli
-     stående som en oppgave brukeren ikke får lov til å løse. */
-  const TOUR_STEPS = [
+     `done()` er hele fasiten for framdrift: sann når steget ER utført. Den
+     leser TILSTAND, aldri et knappetrykk — ＋-knappene oppretter objektet og
+     åpner navnefeltet i samme håndterer, så et klikk sier ingenting om hva
+     brukeren faktisk fullførte.
+
+     `premise()` sier om steget fortsatt gir mening. Faller den, rulles demoen
+     tilbake til `rewind` (og tilstanden med den): en navngiving som avbrytes
+     fjerner raden igjen, og da skal steget som LAGER raden komme tilbake.
+
+     `target()` er kontrollen pilspissen peker på — og samtidig det eneste
+     brukeren får røre (`demoZones`). `allow` legger til det som må være
+     tilgjengelig i tillegg. */
+  const DEMO_STEPS = [
     {
       id: 'welcome',
+      narrated: true,
       title: 'Velkommen til Huskis',
-      html: '<p>Alt du lager ligger i fire nivåer: <b>univers</b> → <b>gruppe</b> → ' +
-        '<b>liste</b> → <b>listepunkt</b>.</p>' +
-        '<p>Nå lager du ett av hvert. Det du oppretter er ekte innhold, og blir ' +
-        'stående når du er ferdig.</p>',
+      html: '<p>Her kan du lage</p>' +
+        '<ul class="tour-list">' +
+        '<li>' + ICONS.list + '<span><b>huskelister</b> for å holde styr på livet ditt</span></li>' +
+        '<li>' + ICONS.folder + '<span><b>mapper</b> for å holde styr på listene dine</span></li>' +
+        '<li>' + ICONS.globe + '<span><b>områder</b> for å holde styr på mappene dine</span></li>' +
+        '</ul>' +
+        '<p>Innad i listene kan listepunktene sorteres i ' + ICONS.category +
+        ' <b>kategorier</b> – hvis du vil.</p>',
+      note: 'Nå får du en guidet tur gjennom appens viktigste funksjoner.',
       cta: 'Kom i gang',
     },
     {
       id: 'open_nav',
-      title: 'Her ser du hvor du er',
-      target: '#nav-crumb',
-      html: '<p>Knappen øverst viser ' + tourChip(ICONS.globe + ' universet') + ' › ' +
-        tourChip(ICONS.folder + ' gruppen') + ' du står i. Oversikten bak den er ' +
-        'stedet universer og grupper lages.</p>',
-      action: 'Trykk på knappen øverst for å åpne oversikten.',
-      done: () => (navModal.hidden ? null : {}),
+      target: () => navCrumbBtn,
+      html: '<p>Denne knappen viser ' + ICONS.globe + ' <b>området</b> og ' +
+        ICONS.folder + ' <b>mappen</b> du er i.</p>' +
+        '<p>Trykk på den for å komme til oversikten der du oppretter områder og mapper.</p>',
+      done: () => !navModal.hidden,
     },
     {
-      id: 'create_universe',
-      title: 'Lag et univers',
+      id: 'create_area',
       needsNav: true,
-      target: '.nav-add-uni button',
-      html: '<p>Et univers er øverste nivå — et eget område med sine egne grupper.</p>' +
-        '<p>' + tourChip(ICONS.plus + ' ' + ICONS.globe) + ' nederst i «Mine universer» ' +
-        'lager et nytt. Skriv navnet og trykk Enter.</p>',
-      action: 'Opprett et univers, og gi det et navn.',
+      target: () => navBoard.querySelector('.nav-add-uni button'),
+      html: '<p>Trykk på denne knappen for å opprette et ' + ICONS.globe + ' <b>område</b>.</p>',
       done: () => {
-        const u = tourFresh(tourUniverses(), 'name');
-        return u ? { universeId: u.id } : null;
-      },
-      review: () => {
-        const u = tourUniverses().find((x) => tourGroups(x).length) || tourUniverses()[0];
-        return u ? { universeId: u.id } : null;
+        const u = demoUnis()[0];
+        if (!u) return false;
+        demoCtx.uniId = u.id;
+        return true;
       },
     },
     {
-      id: 'create_group',
-      title: 'Lag en gruppe i universet',
+      id: 'name_area',
+      reopen: () => { const c = demoNavCard(); return c && c.querySelector('.card-title'); },
       needsNav: true,
-      target: () => navBoard.querySelector(
-        '.uni-card' + tourQ(tourCtx.universeId) + ' .add-item-row .add-item-btn'),
-      html: '<p>En gruppe samler lister som hører sammen — «Hjemme», «Jobb», «Uke 34».</p>' +
-        '<p>' + tourChip(ICONS.plus) + ' i universkortet lager en gruppe. Skriv navnet ' +
-        'og trykk Enter — uten navn blir den ikke stående.</p>',
-      action: 'Opprett en gruppe i universet du nettopp lagde.',
-      blocked: () => {
-        const u = tourUni();
-        if (!u) return '';
-        return cap(u, 'createGroup', u._role === 'owner')
-          ? '' : 'Du kan ikke opprette grupper i dette universet.';
-      },
-      done: () => {
-        const g = tourFresh(tourGroups(tourUni()), 'name');
-        return g ? { groupId: g.id } : null;
-      },
-      review: () => {
-        const g = tourGroups(tourUni()).find((x) => tourCards(x).length) ||
-          tourGroups(tourUni())[0];
-        return g ? { groupId: g.id } : null;
-      },
+      rewind: 'create_area',
+      premise: () => !!demoUni(),
+      target: () => demoNameField(demoNavCard(), '.card-title'),
+      html: '<p>Gi området et navn.</p>' +
+        '<p>Bekreft med <span class="hint-chip">Enter</span>-tasten eller ved å klikke ' +
+        'utenfor navnefeltet.</p>',
+      done: () => !demoEditing() && demoNamed(demoUni(), 'name'),
     },
     {
-      id: 'open_group',
-      title: 'Åpne gruppen',
+      id: 'create_folder',
       needsNav: true,
-      target: () => navBoard.querySelector(
-        '.uni-card' + tourQ(tourCtx.universeId) + ' .item' + tourQ(tourCtx.groupId)),
-      html: '<p>Trykk på gruppen for å gå inn i den. Da lukkes oversikten, og listene ' +
-        'i gruppen fyller skjermen.</p>',
-      action: 'Trykk på gruppen for å åpne den.',
-      done: () => (state.activeGroup === tourCtx.groupId ? {} : null),
-      review: () => (state.activeGroup === tourCtx.groupId ? {} : null),
+      rewind: 'create_area',
+      premise: () => !!demoUni(),
+      target: () => { const el = demoNavCard(); return el && el.querySelector('.add-item-row .add-item-btn'); },
+      html: '<p>Trykk på den grønne knappen for å opprette en ' + ICONS.folder + ' <b>mappe</b>.</p>',
+      done: () => {
+        const g = demoGroups(demoUni())[0];
+        if (!g) return false;
+        demoCtx.groupId = g.id;
+        return true;
+      },
     },
     {
-      id: 'create_card',
-      title: 'Lag en liste',
-      needsBoard: true,
-      target: '#add-card-btn',
-      html: '<p>' + tourChip(ICONS.plus + ' ' + ICONS.list) + ' lager en liste i gruppen ' +
-        'du står i.</p>' +
-        '<p>Listen opprettes med én gang og navngis på plassen sin: skriv navnet og ' +
-        'trykk Enter.</p>',
-      action: 'Opprett en liste i gruppen.',
-      blocked: () => {
-        const g = tourGroup();
-        if (!g) return '';
-        return canAddList(g) ? '' : 'Du kan ikke opprette lister i denne gruppen.';
-      },
+      id: 'name_folder',
+      reopen: () => { const r = demoNavRow(); return r && r.querySelector('.item-text'); },
+      needsNav: true,
+      rewind: 'create_folder',
+      premise: () => !!demoGroup(),
+      target: () => demoNameField(demoNavRow(), '.item-text'),
+      html: '<p>Gi mappen et navn.</p>',
+      done: () => !demoEditing() && demoNamed(demoGroup(), 'name'),
+    },
+    {
+      id: 'open_folder',
+      needsNav: true,
+      rewind: 'create_folder',
+      premise: () => !!demoGroup(),
+      target: () => demoNavRow(),
+      html: '<p>Trykk på feltet til mappen du nettopp opprettet for å navigere til mappen.</p>',
+      done: () => state.activeGroup === demoCtx.groupId && navModal.hidden,
+    },
+    {
+      id: 'create_list',
+      target: () => addCardBtn,
+      html: '<p>Trykk her for å opprette en ' + ICONS.list + ' <b>liste</b>.</p>',
       done: () => {
-        const c = tourFresh(tourCards(tourGroup()), 'title');
-        return c ? { cardId: c.id } : null;
+        const c = demoCards()[0];
+        if (!c) return false;
+        demoCtx.cardId = c.id;
+        return true;
       },
-      review: () => {
-        const c = tourCards(tourGroup()).find((x) => tourItems(x).length) ||
-          tourCards(tourGroup())[0];
-        return c ? { cardId: c.id } : null;
-      },
+    },
+    {
+      id: 'name_list',
+      reopen: () => demoNameField(demoCardEl(demoCtx.cardId), '.card-title'),
+      rewind: 'create_list',
+      premise: () => !!demoCard(),
+      target: () => demoNameField(demoCardEl(demoCtx.cardId), '.card-title'),
+      html: '<p>Gi listen et navn.</p>',
+      done: () => !demoEditing() && demoNamed(demoCard(), 'title'),
     },
     {
       id: 'create_item',
-      title: 'Legg til et listepunkt',
-      needsBoard: true,
-      target: () => board.querySelector(
-        '.card' + tourQ(tourCtx.cardId) + ' .add-item-row .add-item-btn'),
-      html: '<p>Den ' + tourChip(ICONS.plus) + ' <b>grønne ＋</b> nederst i listen legger ' +
-        'til et listepunkt.</p>' +
-        '<p>Skriv teksten og trykk Enter. Et listepunkt uten tekst blir ikke stående.</p>',
-      action: 'Legg til et listepunkt i listen.',
-      done: () => (tourItems(tourCardObj()).some((it) => tourNamed(it, 'text')) ? {} : null),
-      review: () => (tourItems(tourCardObj()).length ? {} : null),
+      rewind: 'create_list',
+      premise: () => !!demoCard(),
+      target: () => { const el = demoCardEl(demoCtx.cardId); return el && el.querySelector('.add-item-row .add-item-btn'); },
+      html: '<p>Trykk her for å opprette et <b>listepunkt</b>.</p>',
+      done: () => demoItems(demoCard()).length >= 1,
+    },
+    {
+      id: 'name_item',
+      reopen: () => demoLastRowTitle(demoCtx.cardId),
+      rewind: 'create_item',
+      premise: () => demoItems(demoCard()).length >= 1,
+      target: () => { const el = demoCardEl(demoCtx.cardId); return el && el.querySelector('.edit-input'); },
+      html: '<p>Gi listepunktet et navn.</p>',
+      done: () => !demoEditing() && demoItems(demoCard()).every((it) => demoNamed(it, 'text')),
+    },
+    {
+      id: 'create_item2',
+      target: () => { const el = demoCardEl(demoCtx.cardId); return el && el.querySelector('.add-item-row .add-item-btn'); },
+      html: '<p>Opprett et listepunkt til.</p>',
+      done: () => demoItems(demoCard()).length >= 2,
+    },
+    {
+      id: 'name_item2',
+      reopen: () => demoLastRowTitle(demoCtx.cardId),
+      rewind: 'create_item2',
+      premise: () => demoItems(demoCard()).length >= 2,
+      target: () => { const el = demoCardEl(demoCtx.cardId); return el && el.querySelector('.edit-input'); },
+      html: '<p>Gi listepunktet et navn.</p>',
+      done: () => !demoEditing() && demoItems(demoCard()).every((it) => demoNamed(it, 'text')),
+    },
+    {
+      id: 'drag_item',
+      target: () => demoRows(demoCtx.cardId).slice(-1)[0],
+      html: '<p>Trekk det nederste listepunktet oppover for å endre rekkefølgen på ' +
+        'listepunktene.</p>' +
+        '<p>Hold fingeren (eller museknappen) inne på punktet til det løfter seg, og dra.</p>',
+      done: () => dropSeq > demoBase.drops,
+    },
+    {
+      id: 'create_list2',
+      target: () => addCardBtn,
+      html: '<p>Opprett en liste til.</p>',
+      done: () => {
+        const c = demoCards().find((x) => x.id !== demoCtx.cardId);
+        if (!c) return false;
+        demoCtx.card2Id = c.id;
+        return true;
+      },
+    },
+    {
+      id: 'name_list2',
+      reopen: () => demoNameField(demoCardEl(demoCtx.card2Id), '.card-title'),
+      rewind: 'create_list2',
+      premise: () => !!demoCardOf(demoCtx.card2Id),
+      target: () => demoNameField(demoCardEl(demoCtx.card2Id), '.card-title'),
+      html: '<p>Gi den nye listen et navn.</p>',
+      done: () => !demoEditing() && demoNamed(demoCardOf(demoCtx.card2Id), 'title'),
+    },
+    {
+      id: 'drag_list',
+      target: () => { const el = demoCardEl(demoCtx.card2Id); return el && el.querySelector('.card-head'); },
+      // «Oppover» stemmer bare i én kolonne; på en bred skjerm ligger listene
+      // ved siden av hverandre. «Forbi» er riktig i begge tilfeller.
+      html: '<p>Trekk listen du nettopp lagde forbi den andre for å bytte rekkefølge på ' +
+        'de to listene.</p>' +
+        '<p>Ta tak i listens overskrift, hold inne, og dra.</p>',
+      done: () => dropSeq > demoBase.drops,
+    },
+    {
+      id: 'create_cat',
+      target: () => { const el = demoCardEl(demoCtx.cardId); return el && el.querySelector('.add-cat-btn'); },
+      html: '<p>Trykk på den gule knappen for å opprette en ' + ICONS.category +
+        ' <b>kategori</b> i listen.</p>',
+      done: () => {
+        const c = demoCard();
+        const cat = c && c.items.find((it) => live(it) && it.isCat);
+        if (!cat) return false;
+        demoCtx.catId = cat.id;
+        return true;
+      },
+    },
+    {
+      id: 'name_cat',
+      reopen: () => { const el = demoCatEl(); return el && el.querySelector('.cat-title'); },
+      rewind: 'create_cat',
+      premise: () => !!demoCat(),
+      target: () => demoNameField(demoCatEl(), '.cat-title'),
+      html: '<p>Gi kategorien et navn.</p>',
+      done: () => !demoEditing() && demoNamed(demoCat(), 'text'),
+    },
+    {
+      id: 'drag_into_cat',
+      rewind: 'create_cat',
+      premise: () => !!demoCat(),
+      target: () => demoRows(demoCtx.cardId).filter((el) => !el.closest('.category'))[0],
+      // Kategorien er destinasjonen: et kort oppå den gjør steget umulig.
+      clear: () => demoCatEl(),
+      html: '<p>Trekk et listepunkt inn i kategorien.</p>',
+      done: () => demoCatMembers().length > demoBase.catMembers,
+    },
+    {
+      id: 'create_cat_item',
+      rewind: 'create_cat',
+      premise: () => !!demoCat(),
+      target: () => { const el = demoCatEl(); return el && el.querySelector('.cat-add-btn'); },
+      html: '<p>Opprett et listepunkt direkte i kategorien med ＋-knappen inne i den.</p>',
+      done: () => demoCatMembers().length > demoBase.catMembers,
+    },
+    {
+      id: 'name_cat_item',
+      reopen: () => demoLastCatRowTitle(),
+      rewind: 'create_cat_item',
+      premise: () => demoCatMembers().length > 1,
+      target: () => { const el = demoCatEl(); return el && el.querySelector('.edit-input'); },
+      html: '<p>Gi listepunktet et navn.</p>',
+      done: () => !demoEditing() && demoCatMembers().every((it) => demoNamed(it, 'text')),
+    },
+    {
+      id: 'dissolve_cat',
+      rewind: 'create_cat',
+      premise: () => !!demoCat(),
+      target: () => { const el = demoCatEl(); return el && el.querySelector('.cat-dissolve'); },
+      html: '<p>Løs opp kategorien. Listepunktene blir stående der de er — bare ' +
+        'overskriften forsvinner.</p>',
+      done: () => !demoCat(),
+    },
+    {
+      id: 'delete_item',
+      target: () => { const r = demoRows(demoCtx.cardId)[0]; return r && r.querySelector('.item-delete'); },
+      html: '<p>Slett et listepunkt.</p>',
+      done: () => trashedItemsOf(demoCard()).length >= 1,
+    },
+    {
+      id: 'open_item_trash',
+      rewind: 'delete_item',
+      premise: () => trashedItemsOf(demoCard()).length >= 1,
+      target: () => { const el = demoCardEl(demoCtx.cardId); return el && el.querySelector('.item-trash-btn'); },
+      trashModal: true,
+      html: '<p>Trykk på søppelkassen nederst i listen for å se hva som ligger i den.</p>',
+      done: () => !trashModal.hidden,
+    },
+    {
+      id: 'restore_item',
+      needsTrash: true,
+      rewind: 'delete_item',
+      premise: () => trashedItemsOf(demoCard()).length >= 1 || !trashModal.hidden,
+      target: () => trashList.querySelector('.trash-row button'),
+      trashModal: true,
+      html: '<p>Gjenopprett listepunktet.</p>',
+      done: () => trashedItemsOf(demoCard()).length === 0,
+    },
+    {
+      id: 'close_item_trash',
+      needsTrash: true,
+      target: () => trashClose,
+      trashModal: true,
+      html: '<p>Lukk søppelkassen.</p>',
+      done: () => trashModal.hidden,
+    },
+    {
+      id: 'delete_item2',
+      target: () => { const r = demoRows(demoCtx.cardId)[0]; return r && r.querySelector('.item-delete'); },
+      html: '<p>Slett et listepunkt igjen.</p>',
+      done: () => trashedItemsOf(demoCard()).length >= 1,
+    },
+    {
+      id: 'empty_item_trash',
+      rewind: 'delete_item2',
+      premise: () => trashedItemsOf(demoCard()).length >= 1 || demoCard().items.length < demoBase.itemsAll,
+      target: () => { const el = demoCardEl(demoCtx.cardId); return el && el.querySelector('.item-trash-btn'); },
+      html: '<p>Tøm søppelkassen: hold inne knappen og sveip til høyre.</p>' +
+        '<p>Da er listepunktet borte for godt.</p>',
+      done: () => demoCard().items.length < demoBase.itemsAll,
+    },
+    {
+      id: 'delete_list',
+      target: () => { const el = demoCardEl(demoCtx.cardId); return el && el.querySelector('.card-delete'); },
+      html: '<p>Slett listen.</p>',
+      done: () => !demoCard(),
+    },
+    {
+      id: 'empty_card_trash',
+      rewind: 'delete_list',
+      premise: () => trashedCards().length >= 1 || demoGroup().cards.length < demoBase.cardsAll,
+      target: () => trashBtn,
+      html: '<p>Tøm mappens søppelkasse: hold inne knappen i toppmenyen og sveip til høyre.</p>',
+      done: () => demoGroup().cards.length < demoBase.cardsAll,
+    },
+    {
+      id: 'open_nav2',
+      target: () => navCrumbBtn,
+      html: '<p>Gå til «Områder og mapper».</p>',
+      done: () => !navModal.hidden,
+    },
+    {
+      id: 'delete_area',
+      needsNav: true,
+      target: () => { const el = demoNavCard(); return el && el.querySelector('.card-delete'); },
+      html: '<p>Slett området. Mappen og alt i den følger med.</p>',
+      done: () => !demoUni(),
+    },
+    {
+      id: 'empty_uni_trash',
+      needsNav: true,
+      rewind: 'delete_area',
+      premise: () => trashedUniverses().length >= 1 || state.universes.length < demoBase.unis,
+      target: () => uniTrashBtn,
+      html: '<p>Tøm områdenes søppelkasse: hold inne knappen og sveip til høyre.</p>',
+      done: () => state.universes.length < demoBase.unis,
+    },
+    {
+      id: 'close_nav',
+      needsNav: true,
+      target: () => navModalClose,
+      html: '<p>Da er alt ryddet bort igjen. Lukk oversikten.</p>',
+      done: () => navModal.hidden,
     },
     {
       id: 'finish',
-      title: 'Der har du hele Huskis',
-      html: '<p>Du har laget et univers, en gruppe, en liste og et listepunkt — ' +
-        'og det står der fortsatt.</p>' +
-        '<p>Resten finner du når du trenger det: den ' + tourChip(ICONS.category) +
-        ' <b>gule ＋</b> lager en kategori i en liste, klikk på et navn for å endre ' +
-        'det, hold og dra for å flytte, og ' + tourChip(ICONS.people) + ' deler et ' +
-        'univers eller en gruppe med andre.</p>',
+      target: () => accountBtn,
+      title: 'Takk for turen!',
+      html: '<p>Turen er over, og du er nå i din egen Huskis. Du kan ta turen igjen ' +
+        'ved å gå til kontosiden din.</p>',
       cta: 'Ferdig',
     },
   ];
-  const TOUR_LAST = TOUR_STEPS.length - 1;
-  const tourRank = (id) => TOUR_STEPS.findIndex((s) => s.id === id);
-
-  let tourActive = false;
-  let tourMode = 'practice';  // 'practice' (utfør) | 'review' (se på det som finnes)
-  let tourIndex = 0;
-  let tourCtx = { universeId: null, groupId: null, cardId: null };
-  let tourBaseline = new Set();  // id-er som fantes da steget begynte
-  let tourTarget = null;         // elementet spotlighten står på (kan være null)
-  let tourReturnFocus = null;    // fokus tilbake hit når innføringen lukkes
-  let tourTick = null;           // tilstandsobservatøren, kun mens den står på
-  let onboardingWaits = 0;
-  /* Høyeste steg denne økten har stått på. Framdrift skal ikke gå BAKOVER: en
-     metadatarespons som lander sent (eller en synk-runde som drar inn en eldre
-     lagret tilstand fra en annen enhet) skal ikke kaste brukeren tilbake til et
-     steg hen alt har gjort. */
-  let onboardingFloor = -1;
-  // Billettnummer for framdriftsskrivingene (se saveOnboarding).
-  let onboardingWriteSeq = 0;
+  const DEMO_LAST = DEMO_STEPS.length - 1;
+  const demoRank = (id) => DEMO_STEPS.findIndex((s) => s.id === id);
+  const demoStep = () => DEMO_STEPS[demoIndex] || DEMO_STEPS[DEMO_LAST];
 
   /* ---------- Kontoens minne (user_metadata) ---------- */
   // Ett objekt-felt i user_metadata, alltid som et objekt (aldri null/streng —
@@ -10670,46 +11048,26 @@
     const v = authUser && authUser.meta && authUser.meta[key];
     return v && typeof v === 'object' ? v : {};
   }
-  /* Har kontoen gjort seg ferdig med introduksjonen? MIGRERINGSREGELEN ligger
-     her, og den er én linje: et registrert «ferdig» eller «hoppet over» teller,
-     uansett hvilken versjon som registrerte det. Den som kom gjennom v1 blir
-     altså ikke dratt inn i v2 automatisk — men kan hente den fram igjen med
-     «Vis på nytt». Kun en konto UTEN markør regnes som reelt ny. */
+  /* Har kontoen sett DEMOEN? Markøren er versjonert, og v3 er demoen. En konto
+     som kom gjennom en tidligere runde (v1s passive omvisning eller v2s
+     innføring i egne data) har ALDRI sett denne, og skal derfor få tilbudet én
+     gang til. Demoen koster dem ingenting: den rører ikke innholdet deres, og
+     ✕ takker nei for godt. */
   function onboardingSeen() {
     const o = accountPref('onboarding');
-    if (typeof o.v !== 'number') return false;
+    if (typeof o.v !== 'number' || o.v < TOUR_VERSION) return false;
     return o.status === 'done' || o.status === 'skipped';
-  }
-  // Et påbegynt løp på denne (eller en annen) enheten — steg + hvilke objekter
-  // stegene alt har opprettet.
-  function onboardingResumePoint() {
-    const o = accountPref('onboarding');
-    if (o.v !== TOUR_VERSION || o.status !== 'in_progress') return null;
-    const i = tourRank(o.step);
-    if (i < 0) return null;
-    const c = o.context && typeof o.context === 'object' ? o.context : {};
-    return {
-      index: Math.max(i, onboardingFloor),
-      ctx: {
-        universeId: c.universeId || null,
-        groupId: c.groupId || null,
-        cardId: c.cardId || null,
-      },
-    };
   }
   // Skriv en metadata-nøkkel: lokalt med én gang (så den ikke gjentas i denne
   // økten), til kontoen i bakgrunnen. Landet ikke skrivingen, prøver vi igjen
-  // én gang — og gir vi opp, dukker introduksjonen heller opp igjen ved neste
+  // én gang — og gir vi opp, dukker demoen heller opp igjen ved neste
   // innlogging enn at vi later som den er sett.
-  // stillIfCurrent (valgfri): en vakt som må si ja FØR et nytt forsøk sendes.
-  // Brukes av framdriftsskrivingen, der et gammelt forsøk ellers kunne lande
-  // etter et nyere og skrive tilbake et eldre steg.
-  function saveAccountPref(patch, retriesLeft, stillIfCurrent) {
+  function saveAccountPref(patch, retriesLeft) {
     if (!authUser) return;
     // Hvem skrivingen gjelder. Supabase kan gå fra én innlogget bruker til en
     // annen mens forsøket ligger og venter, og da hører verken metadataen eller
     // det nye forsøket hjemme hos den som overtok — det ville stemplet DERES
-    // introduksjon som sett.
+    // demo som sett.
     const forUser = authUser.id;
     authUser.meta = Object.assign({}, authUser.meta, patch);
     const client = acli();
@@ -10720,453 +11078,421 @@
         if (!retriesLeft) return;
         setTimeout(() => {
           if (!authUser || authUser.id !== forUser) return; // en annen konto har overtatt
-          if (stillIfCurrent && !stillIfCurrent()) return;  // en nyere skriving har overtatt
-          saveAccountPref(patch, retriesLeft - 1, stillIfCurrent);
+          saveAccountPref(patch, retriesLeft - 1);
         }, 5000);
       });
   }
-  /* Lagre framdriften. Går aldri bakover: et steg lavere enn det høyeste denne
-     økten har nådd skrives ikke, så en forsinket runde ikke kan overskrive et
-     ferdig løp med et halvt et. `status` er alltid med, så «pågår» kan skilles
-     fra «ferdig» og «hoppet over» — også på en annen enhet. */
-  function saveOnboarding(status, index, ctx) {
-    const i = index == null ? tourIndex : index;
-    if (status === 'in_progress') {
-      if (i < onboardingFloor) return;
-      onboardingFloor = i;
-    }
-    const step = TOUR_STEPS[Math.max(0, Math.min(i, TOUR_LAST))].id;
-    /* Skrivingene er uavhengige HTTP-kall og kan lande i vilkårlig rekkefølge.
-       Verst er retry-veien: et «pågår»-forsøk som feilet ligger og venter i 5
-       sekunder, og rekker i mellomtiden å bli overhalt av «ferdig» — for så å
-       skrive halvveis-tilstanden tilbake over den. `onboardingFloor` stanser
-       bare NYE eldre skrivinger; billetten her stanser også et forsøk som alt
-       er i kø. Den er én teller: bare den nyeste billetten får prøve igjen. */
-    const ticket = ++onboardingWriteSeq;
-    saveAccountPref({
-      onboarding: {
-        v: TOUR_VERSION,
-        status: status,
-        step: step,
-        context: Object.assign({}, ctx || tourCtx),
-      },
-    }, 1, () => ticket === onboardingWriteSeq);
+  /* Demoen er en simulering, ikke et arbeid som skal kunne gjenopptas: det
+     finnes ingen halvferdig kulisse å komme tilbake til på en annen enhet.
+     Derfor lagres bare UTFALLET, og bare når runden er over. */
+  function saveOnboarding(status) {
+    saveAccountPref({ onboarding: { v: TOUR_VERSION, status: status } }, 1);
   }
 
-  /* ---------- Innføringen ---------- */
-  const tourStep = () => TOUR_STEPS[tourIndex] || TOUR_STEPS[TOUR_LAST];
-  // Et FORTELLESTEG har ingen handling å utføre (velkomst, avslutning). Det er
-  // modalt: flaten tar imot klikk, fokus holdes i kortet, og «Neste» driver det
-  // videre. Alt annet er et HANDLINGSSTEG.
-  const tourNarrated = () => !tourStep().done;
-  function tourFocusables() {
-    return Array.prototype.filter.call(
-      tourCard.querySelectorAll('button'), (b) => !b.disabled && !b.hidden);
+  /* ---------- Avgrensningen: bare det steget handler om ----------
+     Vakten ligger i JS og ikke i et lag over appen, for laget måtte uansett
+     slippe pekeren gjennom til den ekte kontrollen. Den fanger i
+     WINDOW-CAPTURE, altså før enhver lytter i appen, og svelger hendelsen med
+     stopImmediatePropagation.
+
+     `preventDefault` brukes bevisst IKKE på pointerdown: et klikk utenfor et
+     åpent navnefelt skal fortsatt flytte fokus, for det er sånn man bekrefter
+     navnet. Klikk/tastetrykk får derimot både stopp og preventDefault. */
+  const DEMO_GATE_EVENTS = ['pointerdown', 'mousedown', 'click', 'dblclick', 'contextmenu', 'keydown'];
+  function demoZones() {
+    const step = demoStep();
+    const out = [];
+    const t = demoTarget();
+    if (t) out.push(t);
+    (step.allow || []).forEach((sel) => {
+      document.querySelectorAll(sel).forEach((el) => out.push(el));
+    });
+    return out;
   }
-  // Elementet steget peker på — men bare hvis det faktisk er synlig nå. En
-  // selektor slås opp i dokumentet; en funksjon får finne elementet selv (mål
-  // som avhenger av hva innføringen har opprettet).
-  function tourTargetFor(step) {
-    if (!step || !step.target) return null;
+  /* Kontroller som ligger INNI en tillatt sone uten å være det steget handler
+     om. En listepunkt-rad er hele sonen når den skal dras, men den bærer også
+     avmerking, tannhjul og slette-kryss — og ingen av dem skal virke da. De
+     slippes gjennom kun når de ER målet. */
+  const DEMO_NEVER = '.card-delete, .item-delete, .group-delete, .card-cog, .item-cog,' +
+    ' .cat-cog, .cat-dissolve, .item-check, .share-badge, .uni-share, .group-share,' +
+    ' .uni-leave, .group-leave, .done-restore, .trashcan';
+  function demoLets(node) {
+    if (!node || !node.closest) return false;
+    if (tourEl.contains(node)) return true;          // demokortet selv
+    if (node.closest('.edit-input')) return true;    // navngivingen som pågår
+    const zones = demoZones();
+    if (!zones.some((z) => z && (z === node || z.contains(node)))) return false;
+    const inner = node.closest(DEMO_NEVER);
+    return !inner || zones.some((z) => z === inner);
+  }
+  function demoGate(ev) {
+    if (!demoRunning) return;
+    /* Kun det BRUKEREN gjør skal avgrenses. Appen dispatcher også hendelser
+       selv — `addUniverse()` åpner navnefeltet med et `click()` på tittelen, og
+       et blokkert syntetisk klikk der ville gitt et navnesteg uten navnefelt.
+       `isTrusted` skiller de to, og er ikke noe en bruker kan forfalske. */
+    if (ev.isTrusted === false) return;
+    /* Escape er alltid av. Den ville ellers avbrutt navngivingen (og fjernet
+       raden steget nettopp ba om), lukket modalen steget står i, eller
+       avsluttet demoen bakveien. ✕ i kortet er den ene utgangen. */
+    const escape = ev.type === 'keydown' && ev.key === 'Escape';
+    if (!escape && demoLets(ev.target)) return;
+    ev.stopPropagation();
+    if (ev.stopImmediatePropagation) ev.stopImmediatePropagation();
+    if (ev.type === 'keydown' && ev.key === 'Tab') return; // fokus får flytte seg
+    if (ev.type !== 'pointerdown' && ev.type !== 'mousedown') ev.preventDefault();
+  }
+  DEMO_GATE_EVENTS.forEach((t) => window.addEventListener(t, demoGate, true));
+  // Søppelkasse-knappen gjør to ting; modalen skal bare kunne åpnes i stegene
+  // som handler om den (se showTrashModal).
+  function demoAllowsTrashModal() {
+    return !demoRunning || !!demoStep().trashModal;
+  }
+
+  /* ---------- Kortet ---------- */
+  // Elementet steget peker på — men bare hvis det faktisk er synlig nå.
+  function demoTarget() {
+    const step = demoStep();
+    if (!step.target) return null;
     let el = null;
-    try {
-      el = typeof step.target === 'function' ? step.target() : document.querySelector(step.target);
-    } catch (e) { el = null; }
+    try { el = step.target(); } catch (e) { el = null; }
     if (!el || !el.getClientRects().length) return null;
-    // Et skjult/avskrudd mål er ikke noe å be brukeren trykke på.
     if (el.disabled || el.closest('[hidden]')) return null;
     return el;
   }
-  // Legg spotlighten på målet og kortet ved siden av det (under hvis det er
-  // plass, ellers over, ellers midt på skjermen). Uten mål: midtstilt kort og
-  // dempet flate.
+  // Kontrollen steget handler om står i full styrke; resten er dempet av
+  // `body.tour-demo` (se styles.css).
+  function demoMarkLive(el) {
+    if (demoLiveEl === el) return;
+    if (demoLiveEl) demoLiveEl.classList.remove('tour-live');
+    demoLiveEl = el || null;
+    if (demoLiveEl) demoLiveEl.classList.add('tour-live');
+  }
+  /* Plasser kortet ved siden av målet, med pilspissen mot det. Kortet legger
+     seg ALDRI oppå målet: målet er det brukeren skal treffe, og et kort i veien
+     gjør steget umulig. Får ikke et helt kort plass verken over eller under,
+     velges den største luften og kortet kappes til den og ruller innvendig. */
   function placeTour() {
-    // Board-et kan ha blitt tegnet på nytt under innføringen (en synk-runde):
-    // slå opp elementet igjen hvis det vi holdt på er koblet fra DOM-en.
-    if (!tourTarget || !tourTarget.isConnected) tourTarget = tourTargetFor(tourStep());
-    const margin = 12;
+    const step = demoStep();
+    const el = step.narrated ? null : demoTarget();
+    const margin = 12, gap = 16, half = 7;
     const cw = tourCard.offsetWidth;
     const ch = tourCard.offsetHeight;
     const vw = window.innerWidth;
     const vh = window.innerHeight;
-    if (!tourTarget || !tourTarget.getClientRects().length) {
-      tourEl.classList.add('no-spot');
+    const clamp = (lo, v, hi) => Math.max(lo, Math.min(v, Math.max(lo, hi)));
+    if (!el) {
+      tourArrow.hidden = true;
+      tourCard.style.maxHeight = '';
       tourCard.style.left = Math.max(margin, (vw - cw) / 2) + 'px';
-      /* Et FORTELLESTEG er modalt og skal stå midt på. Et HANDLINGSSTEG uten
-         mål er noe helt annet: kontrollen kan være skjult eller avskrudd for
-         denne kontoen, og da må brukeren fortsatt nå appen — for å hoppe over
-         steget, eller for å gjøre det som faktisk er mulig. Et midtstilt kort
-         ville lagt seg tvers over nettopp det. Kortet dokkes derfor nederst,
-         med høyden kappet til under halve skjermen. */
-      if (tourNarrated()) {
-        tourCard.style.maxHeight = '';
-        tourCard.style.top = Math.max(margin, (vh - ch) / 2) + 'px';
-      } else {
-        const tak = Math.max(120, Math.floor(vh * 0.45));
-        tourCard.style.maxHeight = tak + 'px';
-        tourCard.style.top = Math.max(margin, vh - Math.min(ch, tak) - margin) + 'px';
-      }
+      tourCard.style.top = Math.max(margin, (vh - ch) / 2) + 'px';
       return;
     }
-    tourEl.classList.remove('no-spot');
-    const pad = 6;
-    const r = tourTarget.getBoundingClientRect();
-    tourSpot.style.left = (r.left - pad) + 'px';
-    tourSpot.style.top = (r.top - pad) + 'px';
-    tourSpot.style.width = (r.width + pad * 2) + 'px';
-    tourSpot.style.height = (r.height + pad * 2) + 'px';
-    /* Kortet skal ALDRI legge seg oppå målet. Det er ikke bare stygt: på et
-       handlingssteg er målet det brukeren skal trykke på, og et kort i veien
-       gjør steget umulig (fingeren treffer kortet). På en smal skjerm finnes
-       det ikke alltid plass til et helt kort verken over eller under — da
-       velges den største luften, og kortet kappes til den og ruller
-       innvendig. Midtstilling er derfor ikke lenger et alternativ her. */
-    const gap = 18;
-    const below = vh - r.bottom - gap - margin;
-    const above = r.top - gap - margin;
-    let top;
-    let maxH = '';
-    if (ch <= below) top = r.bottom + gap;
-    else if (ch <= above) top = r.top - gap - ch;
-    else if (below >= above) { top = r.bottom + gap; maxH = Math.max(0, below) + 'px'; }
-    else { top = margin; maxH = Math.max(0, above) + 'px'; }
+    const r = el.getBoundingClientRect();
+    /* Pilspissen peker på MÅLET, men kortet må holde seg unna mer enn det: et
+       drag har også et DESTINASJON, og et kort som dekker den gjør steget
+       umulig å utføre. `clear()` gir det ekstra elementet, og plasseringen
+       regnes på rektangelet som rommer begge. */
+    let keep = r;
+    if (step.clear) {
+      let ce = null;
+      try { ce = step.clear(); } catch (e) { ce = null; }
+      if (ce && ce.getClientRects().length) {
+        const c = ce.getBoundingClientRect();
+        keep = {
+          left: Math.min(r.left, c.left), right: Math.max(r.right, c.right),
+          top: Math.min(r.top, c.top), bottom: Math.max(r.bottom, c.bottom),
+        };
+      }
+    }
+    const below = vh - keep.bottom - gap - margin;
+    const above = keep.top - gap - margin;
+    const right = vw - keep.right - gap - margin;
+    const leftRoom = keep.left - gap - margin;
+    /* Med et frisone-element velges siden der MÅLET er den nærmeste kanten av
+       rektangelet — ellers ville pilspissen pekt på destinasjonen i stedet for
+       på det brukeren skal ta tak i. */
+    const prefer = keep === r ? null : (r.top <= keep.top + 1 ? 'above' : 'below');
+    let side;
+    if (prefer === 'above' && ch <= above) side = 'above';
+    else if (prefer === 'below' && ch <= below) side = 'below';
+    else if (ch <= below) side = 'below';
+    else if (ch <= above) side = 'above';
+    else if (cw <= right) side = 'right';
+    else if (cw <= leftRoom) side = 'left';
+    else side = below >= above ? 'below' : 'above';
+    let top, left, maxH = '';
+    if (side === 'below' || side === 'above') {
+      if (ch > (side === 'below' ? below : above)) {
+        maxH = Math.max(120, side === 'below' ? below : above) + 'px';
+      }
+      const h = maxH ? Math.min(ch, parseFloat(maxH)) : ch;
+      top = side === 'below' ? keep.bottom + gap : keep.top - gap - h;
+      left = clamp(margin, r.left + r.width / 2 - cw / 2, vw - cw - margin);
+      tourArrow.style.left = clamp(left + 14, r.left + r.width / 2 - half, left + cw - 14 - half * 2) + 'px';
+      tourArrow.style.top = (side === 'below' ? top - half : top + h - half) + 'px';
+    } else {
+      top = clamp(margin, r.top + r.height / 2 - ch / 2, vh - ch - margin);
+      left = side === 'right' ? keep.right + gap : keep.left - gap - cw;
+      tourArrow.style.top = clamp(top + 14, r.top + r.height / 2 - half, top + ch - 14 - half * 2) + 'px';
+      tourArrow.style.left = (side === 'right' ? left - half : left + cw - half) + 'px';
+    }
     tourCard.style.maxHeight = maxH;
-    let left = r.left + r.width / 2 - cw / 2;
-    left = Math.max(margin, Math.min(left, vw - cw - margin));
     tourCard.style.left = left + 'px';
     tourCard.style.top = top + 'px';
+    tourArrow.hidden = false;
   }
-  // Én linje under teksten: hva som skal gjøres nå, eller hvorfor steget ennå
-  // ikke er kvittert ut. Settes på hver runde, så den følger tilstanden.
-  function tourNote(text, isError) {
+  // Én linje under teksten: hva som står i veien akkurat nå.
+  function demoNote() {
+    const step = demoStep();
+    // En åpen navngiving er handlingen som PÅGÅR, og linjen sier hva som
+    // gjenstår. Demoen skriver aldri noe, så det finnes ingen feiltilstand her.
+    const text = (!step.cta && demoEditing()) ? 'Skriv navnet og trykk Enter.' : (step.note || '');
     tourNoteEl.hidden = !text;
-    tourNoteEl.textContent = text || '';
-    tourNoteEl.classList.toggle('is-error', !!text && !!isError);
+    tourNoteEl.textContent = text;
   }
-  /* Hva står i veien akkurat nå? Rekkefølgen er den brukeren møter dem i:
-     først en avvist skriving (da er det ingen vits i å gå videre), så en
-     forutsetning steget selv har (oversikten må være åpen / lukket), så den
-     vanlige instruksjonen. */
-  function tourHint() {
-    const step = tourStep();
-    if (tourWriteBlocked()) {
-      return { text: 'Endringen ble ikke lagret på kontoen din. Prøv igjen fra ' +
-        'lagringsstatusen — steget står til den har landet.', error: true };
-    }
-    const blocked = step.blocked && step.blocked();
-    if (blocked) return { text: blocked, error: true };
-    if (step.needsNav && navModal.hidden) {
-      return { text: 'Åpne oversikten med knappen øverst for å fortsette.', error: false };
-    }
-    if (step.needsBoard && !navModal.hidden) {
-      return { text: 'Lukk oversikten for å komme tilbake til listene.', error: false };
-    }
-    if (step.done && tourEditingOpen()) {
-      return { text: 'Skriv navnet og trykk Enter.', error: false };
-    }
-    return { text: step.action || '', error: false };
-  }
-  /* En skriving serveren har sagt nei til. Da er ikke handlingen lagret på
-     kontoen, og steget skal IKKE kvitteres ut — brukeren ville ellers fått
-     beskjed om at alt gikk bra, mens objektet forsvant ved neste innlogging.
-     Frakoblet er ikke det samme: da ligger endringen trygt lokalt og synker
-     når nettet er tilbake. */
-  function tourWriteBlocked() {
-    try { return syncStatus.snapshot().state === 'rejected'; } catch (e) { return false; }
-  }
-  /* Har den nettopp utførte handlingen fått sin DOM? `tourWriteBlocked()` alene
-     er ikke nok: `save()` debouncer synk-runden 300 ms, og observatøren går
-     hvert 250 ms, så den ville rukket å kvittere ut steget FØR den avvisende
-     forespørselen i det hele tatt startet — og avvisningen ville dukket opp på
-     neste steg, med en lagret kontekst som peker på et objekt serveren nektet.
-     Vi venter derfor til det ikke lenger ligger ukvitterte lokale endringer.
-
-     Frakoblet er IKKE en feil: da ligger endringen trygt lokalt og synker når
-     nettet er tilbake, og innføringen skal ikke stå og vente på nett brukeren
-     ikke har. `offline()` slår inn etter to mislykkede runder, så en server som
-     ikke svarer i det hele tatt låser heller ikke flyten. */
-  function tourAwaitingWrite() {
-    let s;
-    try { s = syncStatus.snapshot(); } catch (e) { return false; }
-    if (s.offline) return false;
-    return !!s.pending;
-  }
-  // Står en inline-navngiving åpen? `isBusyEditing()` ser bare på fokus, og
-  // fokus kan ha gått et annet sted (et klikk utenfor commiter riktignok, men
-  // det skjer i en egen hendelse) — feltet i DOM-en er det sikre svaret.
-  function tourEditingOpen() {
-    return !!document.querySelector('.edit-input');
-  }
-  // Knapperaden følger stegtypen: et handlingssteg har ingen «Neste» (det er
-  // handlingen som teller), men kan hoppes over hvis det er umulig.
-  function paintTourControls() {
-    const step = tourStep();
-    const narrated = tourNarrated();
-    const blocked = !!(step.blocked && step.blocked());
-    tourNextBtn.hidden = !narrated;
-    tourNextBtn.textContent = step.cta || 'Neste';
-    // «Hopp over» hører ikke hjemme på avslutningen: da er det ingenting igjen
-    // å hoppe over. ✕ lukker fortsatt.
-    tourSkipBtn.hidden = tourIndex === TOUR_LAST;
-    /* «Hopp over steget» er en nødutgang, ikke en snarvei. Den finnes to
-       steder: når steget er UMULIG for denne kontoen (ingen opprettelsesrett
-       — da ville det ellers blitt stående som en oppgave brukeren ikke får
-       lov til å løse), og i repetisjonsmodus, som er frivillig hele veien. */
-    tourSkipStepBtn.hidden = narrated || !(blocked || tourMode === 'review');
-    // Repetisjonsmodus kan gjøres om til ekte øving, men bare fra starten —
-    // midt i et løp ville byttet stått igjen med halv kontekst.
-    tourPracticeBtn.hidden = !(tourMode === 'review' && step.id === 'welcome');
-  }
-  function paintTourStep() {
-    const step = tourStep();
-    tourStepEl.textContent = 'Steg ' + (tourIndex + 1) + ' av ' + TOUR_STEPS.length;
-    tourTitleEl.textContent = step.title;
+  function paintDemoStep() {
+    const step = demoStep();
+    const pct = Math.round((demoIndex / DEMO_LAST) * 100);
+    tourProgressFill.style.width = pct + '%';
+    tourProgressEl.setAttribute('aria-valuenow', String(pct));
+    tourTitleEl.textContent = step.title || '';
+    tourTitleEl.hidden = !step.title;
     tourTextEl.innerHTML = step.html;
-    const hint = tourHint();
-    tourNote(hint.text, hint.error);
-    paintTourControls();
-    // Modalt = fortellesteg. På et handlingssteg SKAL appen bak være i bruk, og
-    // da er «aria-modal» en løgn overfor skjermleseren.
-    const narrated = tourNarrated();
-    tourEl.classList.toggle('guided', !narrated);
-    tourEl.classList.toggle('narrated', narrated);
-    document.body.classList.toggle('tour-guided', !narrated);
-    if (narrated) tourCard.setAttribute('aria-modal', 'true');
+    demoNote();
+    tourNextBtn.hidden = !step.cta;
+    tourNextBtn.textContent = step.cta || 'Neste';
+    tourBackBtn.hidden = demoIndex === 0;
+    tourActionsEl.classList.toggle('is-empty', tourNextBtn.hidden && tourBackBtn.hidden);
+    tourEl.classList.toggle('narrated', !!step.narrated);
+    if (step.narrated) tourCard.setAttribute('aria-modal', 'true');
     else tourCard.removeAttribute('aria-modal');
-    tourTarget = tourTargetFor(step);
-    if (tourTarget) {
-      tourTarget.scrollIntoView({
+    const target = demoTarget();
+    demoMarkLive(step.narrated ? null : target);
+    if (target) {
+      target.scrollIntoView({
         block: 'center', inline: 'nearest',
         behavior: prefersReducedMotion() ? 'auto' : 'smooth',
       });
     }
+    tourCard.hidden = false;
     placeTour();
-    tourFocusStep();
+    demoFocus(target);
+    demoPainted = demoIndex;
   }
-  /* Fokus. På et fortellesteg står det i kortet (som er modalt). På et
-     handlingssteg flyttes det til den EKTE kontrollen — det er den som skal
-     brukes, og en tastaturbruker skal kunne trykke Enter der uten å lete.
-     Vi rører aldri fokus mens brukeren skriver: en inline-navngiving er
-     nettopp handlingen vi venter på. */
-  function tourFocusStep() {
+  /* Fokus. På et steg med en knapp i kortet står det i kortet; ellers på den
+     EKTE kontrollen, så en tastaturbruker kan trykke Enter der uten å lete. Vi
+     rører aldri fokus mens brukeren skriver — en inline-navngiving er nettopp
+     handlingen vi venter på. */
+  function demoFocus(target) {
     const a = document.activeElement;
     if (a && (a.tagName === 'INPUT' || a.tagName === 'TEXTAREA' || a.isContentEditable)) return;
-    // Kortet selv, ikke den første knappen: den første er «Hopp over», og en
-    // Enter i vane skal ikke avslutte innføringen før den har begynt.
-    if (tourNarrated()) { tourCard.focus(); return; }
-    if (tourTarget && typeof tourTarget.focus === 'function') {
-      try { tourTarget.focus({ preventScroll: true }); return; } catch (e) { /* ikke fokuserbart */ }
+    if (demoStep().cta) { tourCard.focus(); return; }
+    if (target && typeof target.focus === 'function') {
+      try { target.focus({ preventScroll: true }); return; } catch (e) { /* ikke fokuserbart */ }
     }
     tourCard.focus();
   }
-  // Id-ene som finnes NÅ i beholderen steget gjelder — grunnlaget `tourFresh()`
-  // sammenligner mot, så et objekt som alt var der ikke kan kvittere ut steget.
-  function tourSnapshotBaseline() {
-    const step = tourStep();
-    const ids = [];
-    if (step.id === 'create_universe') tourUniverses().forEach((u) => ids.push(u.id));
-    if (step.id === 'create_group') tourGroups(tourUni()).forEach((g) => ids.push(g.id));
-    if (step.id === 'create_card') tourCards(tourGroup()).forEach((c) => ids.push(c.id));
-    tourBaseline = new Set(ids);
+  function demoHideCard() {
+    tourCard.hidden = true;
+    tourArrow.hidden = true;
+    demoMarkLive(null);
+    demoPainted = -1;
   }
-  function goToTourStep(i) {
-    tourIndex = Math.max(0, Math.min(i, TOUR_LAST));
-    tourSnapshotBaseline();
-    paintTourStep();
-    if (tourIndex > 0 && tourIndex < TOUR_LAST) saveOnboarding('in_progress');
+
+  /* ---------- Framdrift ---------- */
+  function demoSnapshot() {
+    return {
+      universes: demoClone(state.universes),
+      activeUniverse: state.activeUniverse,
+      activeGroup: state.activeGroup,
+      activeGroups: Object.assign({}, state.activeGroups),
+      tomb: demoClone(state._tomb),
+      ctx: Object.assign({}, demoCtx),
+    };
   }
-  function advanceTour() {
-    if (tourIndex >= TOUR_LAST) { endTour('done'); return; }
-    goToTourStep(tourIndex + 1);
+  function demoApplySnapshot(snap) {
+    demoDropDeleteBuffer();
+    state.universes = demoClone(snap.universes);
+    state.activeUniverse = snap.activeUniverse;
+    state.activeGroup = snap.activeGroup;
+    state.activeGroups = Object.assign({}, snap.activeGroups);
+    state._tomb = demoClone(snap.tomb);
+    demoCtx = Object.assign({}, snap.ctx);
   }
-  /* Observatøren. Kjøres på tidsur mens innføringen står på, og er hele
+  /* Sett opp modalene slik steget forutsetter. Kalles KUN når vi går bakover
+     (eller ruller tilbake): framover er det brukerens egen navigasjon som har
+     ført oss hit, og da skal vi ikke rote i den. */
+  function demoApplyUi(step) {
+    if (step.needsTrash) {
+      closeNavModal();
+      const c = demoCard();
+      if (c) openItemsTrash(c);
+      return;
+    }
+    closeTrash();
+    if (step.needsNav) openNavModal(); else closeNavModal();
+  }
+  // restore: gjenopprett tilstanden slik den var da steget begynte (bakover og
+  // ved tilbakerulling). Framover tas et NYTT øyeblikksbilde.
+  function demoGoTo(i, restore) {
+    demoIndex = Math.max(0, Math.min(i, DEMO_LAST));
+    if (restore && demoSnaps[demoIndex]) {
+      const step = demoStep();
+      demoApplySnapshot(demoSnaps[demoIndex]);
+      demoApplyUi(step);
+      render();
+      /* Et navnesteg må få navnefeltet sitt tilbake. Objektet ble opprettet med
+         et standardnavn av steget FØR, så uten dette ville steget vært oppfylt
+         i det øyeblikk vi kom til det — og «Tilbake» sprettet rett fram igjen. */
+      if (step.reopen) {
+        try { const el = step.reopen(); if (el && el.click) el.click(); } catch (e) { /* borte */ }
+      }
+    } else {
+      demoSnaps[demoIndex] = demoSnapshot();
+      demoSnaps.length = demoIndex + 1;
+    }
+    demoBase = demoCounters(); // regnes ETTER at tilstanden er på plass
+    demoHideCard();
+  }
+  function demoAdvance() {
+    if (demoIndex >= DEMO_LAST) { endTour('done'); return; }
+    demoGoTo(demoIndex + 1, false);
+  }
+  /* Er steget klart til å VISES? Instruksjonen skal aldri stå der før
+     navigasjonen forrige handling utløste er fullført — ellers peker pilen på
+     en knapp som fortsatt ligger bak en modal. Kortet står skjult til da. */
+  function demoReady(step) {
+    if (step.needsNav && navModal.hidden) return false;
+    if (!step.needsNav && !step.trashModal && !navModal.hidden) return false;
+    if (step.needsTrash && trashModal.hidden) return false;
+    if (!step.needsTrash && !step.trashModal && !trashModal.hidden) return false;
+    if (step.narrated) return true;
+    return !!demoTarget();
+  }
+  /* Observatøren. Kjøres på tidsur mens demoen står på, og er hele
      framdriftsmekanismen: den spør steget «er du utført?» og går videre kun når
      svaret er ja. Ingen klikkhåndterer kan kvittere ut et steg. */
-  function tourObserve() {
-    if (!tourActive) return;
-    const step = tourStep();
-    const hint = tourHint();
-    tourNote(hint.text, hint.error);
-    paintTourControls();
-    /* Målet kan ha blitt tegnet på nytt (synk-runde), rullet, eller nettopp
-       dukket opp (modalen lukket seg). Byttet det node, følger fokus med —
-       men kun hvis det sto på den GAMLE noden eller ingen steder: står det et
-       tredje sted, er brukeren et ærend vi ikke skal avbryte. */
-    const next = tourTargetFor(step);
-    if (next !== tourTarget) {
-      const a = document.activeElement;
-      const followFocus = !tourNarrated() && next &&
-        (a === tourTarget || a === tourCard || !a || a === document.body);
-      tourTarget = next;
-      placeTour();
-      if (followFocus) tourFocusStep();
-    } else {
-      placeTour();
+  function demoObserve() {
+    if (!demoRunning) return;
+    const step = demoStep();
+    /* «Utført» spørres FØR «står forutsetningen ennå». Et steg som FJERNER
+       noe — løs opp kategorien, slett listen, tøm kassen — river selv bort sin
+       egen forutsetning i samme øyeblikk som det fullføres, og motsatt
+       rekkefølge ville rullet steget tilbake i stedet for å kvittere det ut.
+       Kortet må ha stått minst ett tidsurslag først, ellers ville et steg som
+       allerede er oppfylt blitt hoppet over uten å vises. */
+    if (demoPainted === demoIndex && step.done) {
+      let done = false;
+      try { done = !!step.done(); } catch (e) { done = false; }
+      if (done) { demoAdvance(); return; }
     }
-    const check = tourMode === 'review' ? (step.review || step.done) : step.done;
-    if (!check) return;                 // fortellesteg — «Neste» driver det
-    /* En åpen navngiving er handlingen som PÅGÅR, ikke en handling som er
-       utført. Uten denne vakten ville ＋-knappen alene drevet innføringen
-       videre: `addUniverse()`/«＋ Liste» oppretter objektet med et
-       standardnavn og åpner navnefeltet, så objektet finnes allerede idet
-       fingeren slipper knappen. Avbryter brukeren (Escape på et nytt
-       listepunkt eller en ny gruppe fjerner raden igjen), står steget der det
-       sto — som seg hør og bør. */
-    if (tourEditingOpen()) return;
-    let patch = null;
-    try { patch = check(); } catch (e) { patch = null; }
-    if (!patch) return;
-    // Utført lokalt, men ikke kvittert av serveren: la steget stå til dommen
-    // faller. Beskjeden ved en avvisning står alt i `tourHint()`.
-    if (tourWriteBlocked() || tourAwaitingWrite()) return;
-    Object.assign(tourCtx, patch);
-    advanceTour();
+    // Falt forutsetningen bort? (En avbrutt navngiving fjerner raden igjen.)
+    if (step.premise) {
+      let ok = false;
+      try { ok = !!step.premise(); } catch (e) { ok = false; }
+      if (!ok) { demoGoTo(demoRank(step.rewind), true); return; }
+    }
+    if (demoPainted !== demoIndex) {
+      if (!demoReady(step)) { demoHideCard(); return; }
+      paintDemoStep();
+      return;
+    }
+    demoNote();
+    demoMarkLive(step.narrated ? null : demoTarget());
+    placeTour();
   }
-  /* Fant vi igjen det innføringen holdt på med? Objekter kan være slettet
-     mellom to økter; da faller gjenopptakelsen tilbake til det siste steget
-     hvis forutsetninger fortsatt holder, i stedet for å bli stående og vente på
-     et univers som ikke finnes. */
-  function tourResolveResume(point) {
-    tourCtx = Object.assign({ universeId: null, groupId: null, cardId: null }, point.ctx);
-    let i = point.index;
-    if (i > tourRank('create_universe') && !tourUni()) i = tourRank('create_universe');
-    else if (i > tourRank('create_group') && !tourGroup()) i = tourRank('create_group');
-    else if (i > tourRank('create_card') && !tourCardObj()) i = tourRank('create_card');
-    return Math.max(0, Math.min(i, TOUR_LAST));
-  }
-  /* Har kontoen allerede innhold? Da er «Vis på nytt» en REPETISJON, ikke en
-     øvelse: innføringen peker på det brukeren har i stedet for å be om
-     duplikater, og hvert steg kan hoppes over. En helt tom konto har ingenting
-     å peke på, og øver i stedet. */
-  function tourHasContent() {
-    return tourUniverses().some((u) => tourGroups(u).length > 0);
-  }
-  // returnTo (valgfri): elementet fokuset skal tilbake til når innføringen
-  // lukkes — settes av kallere som selv lukker noe først (konto-modalen).
-  // opts.mode: 'practice' | 'review'. opts.resume: gjenopptakelsespunkt.
-  function startTour(returnTo, opts) {
-    if (!authUser) return;
-    opts = opts || {};
-    tourReturnFocus = returnTo || document.activeElement;
-    tourMode = opts.mode || 'practice';
-    tourActive = true;
+
+  /* ---------- Start og slutt ---------- */
+  // returnTo (valgfri): elementet fokuset skal tilbake til når demoen lukkes —
+  // settes av kallere som selv lukker noe først (konto-modalen).
+  function startTour(returnTo) {
+    if (!authUser || demoRunning) return;
+    demoReturnFocus = returnTo || document.activeElement;
+    demoCtx = {};
+    demoSnaps = [];
+    demoIndex = 0;
+    demoPainted = -1;
+    demoRunning = true;
+    document.body.classList.add('tour-demo');
     tourEl.hidden = false;
-    if (opts.resume) {
-      tourIndex = tourResolveResume(opts.resume);
-    } else {
-      tourCtx = { universeId: null, groupId: null, cardId: null };
-      tourIndex = 0;
-    }
-    goToTourStep(tourIndex);
-    clearInterval(tourTick);
-    tourTick = setInterval(tourObserve, TOUR_POLL_MS);
+    tourCard.hidden = true;
+    tourArrow.hidden = true;
+    demoSimStart();
+    demoGoTo(0, false);
+    clearInterval(demoTimer);
+    demoTimer = setInterval(demoObserve, DEMO_POLL_MS);
+    demoObserve();
   }
-  /* Riv ned laget uten å skrive noe. Brukes ved UTLOGGING (`cloudStop`): den
+  /* Riv ned demoen uten å skrive noe. Brukes ved UTLOGGING (`cloudStop`): den
      halve runden tilhørte kontoen som gikk, og skal verken merkes som sett
      eller bli stående og gjelde den neste som logger inn. */
   function resetTourState() {
-    tourActive = false;
-    clearInterval(tourTick); tourTick = null;
-    tourEl.hidden = true;
-    tourEl.classList.remove('guided', 'narrated', 'no-spot');
-    document.body.classList.remove('tour-guided');
-    tourTarget = null;
-    tourReturnFocus = null;
-    tourCtx = { universeId: null, groupId: null, cardId: null };
-    tourBaseline = new Set();
-    tourIndex = 0;
-    onboardingFloor = -1;
+    demoTeardown();
+    demoSimStop(false);
+    demoReturnFocus = null;
     onboardingWaits = 0;
   }
-  // status: 'done' (kom gjennom) | 'skipped' (hoppet over / avsluttet).
-  // Begge betyr «ferdig» — innføringen skal ikke mase igjen på neste enhet.
-  // Merket settes også om den ikke står åpen: da er dette «jeg vil ikke ha
-  // den», og et løp som er på vei opp skal ikke rekke å starte.
-  function endTour(status) {
-    const wasOpen = tourActive;
-    tourActive = false;
-    clearInterval(tourTick); tourTick = null;
+  function demoTeardown() {
+    demoRunning = false;
+    clearInterval(demoTimer); demoTimer = null;
     tourEl.hidden = true;
-    tourEl.classList.remove('guided', 'narrated', 'no-spot');
-    document.body.classList.remove('tour-guided');
-    tourTarget = null;
-    onboardingFloor = TOUR_LAST;   // ferdig er ferdig; ingen vei tilbake
-    saveOnboarding(status, TOUR_LAST);
+    tourEl.classList.remove('narrated');
+    tourCard.hidden = true;
+    tourArrow.hidden = true;
+    demoMarkLive(null);
+    document.body.classList.remove('tour-demo');
+    demoPainted = -1;
+  }
+  // status: 'done' (kom gjennom) | 'skipped' (avsluttet underveis).
+  // Begge betyr «sett» — demoen skal ikke mase igjen på neste enhet. Merket
+  // settes også om den ikke står åpen: da er dette «jeg vil ikke ha den», og en
+  // runde som er på vei opp skal ikke rekke å starte.
+  function endTour(status) {
+    const wasOpen = demoRunning;
+    demoTeardown();
+    demoSimStop(true);
+    saveOnboarding(status);
     if (!wasOpen) return;
-    if (tourReturnFocus && document.body.contains(tourReturnFocus)) {
-      try { tourReturnFocus.focus(); } catch (e) { /* elementet kan være borte */ }
+    if (demoReturnFocus && document.body.contains(demoReturnFocus)) {
+      try { demoReturnFocus.focus(); } catch (e) { /* elementet kan være borte */ }
     }
-    tourReturnFocus = null;
+    demoReturnFocus = null;
     flushPendingTip();
   }
   tourNextBtn.addEventListener('click', () => {
-    if (tourIndex === TOUR_LAST) endTour('done');
-    else advanceTour();
+    if (demoIndex >= DEMO_LAST) endTour('done');
+    else demoAdvance();
   });
-  tourSkipStepBtn.addEventListener('click', () => advanceTour());
-  tourPracticeBtn.addEventListener('click', () => {
-    tourMode = 'practice';
-    tourCtx = { universeId: null, groupId: null, cardId: null };
-    goToTourStep(tourIndex);
+  // Ett steg tilbake NULLSTILLER det man gjorde i det steget, så handlingen kan
+  // gjøres om — ellers ville «Tilbake» stått og bedt om noe som alt er gjort.
+  tourBackBtn.addEventListener('click', () => {
+    if (demoIndex > 0) demoGoTo(demoIndex - 1, true);
   });
-  tourSkipBtn.addEventListener('click', () => endTour('skipped'));
   tourCloseBtn.addEventListener('click', () => endTour('skipped'));
   tourRestartBtn && tourRestartBtn.addEventListener('click', () => {
-    closeAccount();          // innføringen peker på appen BAK modalen
-    // En etablert konto skal ikke måtte lage duplikater for å se den igjen.
-    startTour(accountBtn, { mode: tourHasContent() ? 'review' : 'practice' });
+    closeAccount();          // demoen peker på appen BAK modalen
+    startTour(accountBtn);
   });
-  // Spotlighten skal følge målet: siden bak ruller fritt under et handlingssteg,
-  // og ville ellers etterlatt ringen i lufta.
-  const tourReflow = () => { if (tourActive) placeTour(); };
+  // Pilspissen og kortet skal følge målet: siden bak ruller fritt.
+  const tourReflow = () => { if (demoRunning && demoPainted === demoIndex) placeTour(); };
   window.addEventListener('resize', tourReflow);
   window.addEventListener('scroll', tourReflow, true);
-  /* Tastatur. Escape avslutter innføringen KUN når fokus står i kortet, eller
-     når steget er modalt. Ellers hører Escape hjemme i appen: den avbryter en
-     inline-navngiving (nettopp handlingen et steg venter på) og lukker en
-     modal. En capture-håndterer som slukte Escape uansett ville gjort
-     handlingsstegene umulige å angre seg ut av. */
-  document.addEventListener('keydown', (ev) => {
-    if (!tourActive) return;
-    const inCard = tourCard.contains(ev.target);
-    if (ev.key === 'Escape') {
-      if (!tourNarrated() && !inCard) return;   // appen først
-      ev.preventDefault(); ev.stopPropagation();
-      endTour('skipped');
-      return;
-    }
-    if (ev.key !== 'Tab' || !tourNarrated()) return;
-    // Fokusfelle — kun på fortellestegene. På et handlingssteg SKAL Tab kunne
-    // gå ut i appen: det er der handlingen utføres.
-    const f = tourFocusables();
-    if (!f.length) return;
-    const first = f[0];
-    const last = f[f.length - 1];
-    const cur = document.activeElement;
-    // Kortet SELV er fokusert rett etter åpning (og er ingen av knappene): det
-    // teller som «foran den første», ellers ville Shift+Tab der gått rett ut av
-    // dialogen og ned i appen bak.
-    if (cur === tourCard || !tourCard.contains(cur)) {
-      ev.preventDefault(); (ev.shiftKey ? last : first).focus();
-    } else if (ev.shiftKey && cur === first) { ev.preventDefault(); last.focus(); }
-    else if (!ev.shiftKey && cur === last) { ev.preventDefault(); first.focus(); }
-  }, true);
 
   /* Etter første vellykkede innlogging (cloudStart, når første synk-runde er
      ferdig og board-et er malt). Står noe annet i veien — importspørsmålet fra
      migreringen, en åpen modal, en pågående redigering — venter vi litt i
-     stedet for å legge oss oppå det. Et påbegynt løp gjenopptas; en konto som
-     er ferdig (eller kom gjennom v1) får ingenting. */
+     stedet for å legge oss oppå det. En konto som har sett demoen får
+     ingenting; en konto som bare har sett en TIDLIGERE runde får tilbudet. */
   function maybeStartOnboarding() {
-    if (!authUser || tourActive || onboardingSeen()) return;
-    const resume = onboardingResumePoint();
+    if (!authUser || demoRunning || onboardingSeen()) return;
     if (document.body.classList.contains('modal-open') || isBusyEditing()) {
       if (onboardingWaits++ > 20) return; // gir opp for denne økten
       setTimeout(maybeStartOnboarding, 900);
       return;
     }
     onboardingWaits = 0;
-    startTour(null, { mode: 'practice', resume: resume });
+    startTour(null);
   }
 
   /* ---------- Kontekstuelle tips for de avanserte gestene ---------- */
@@ -11177,15 +11503,15 @@
     trash: 'Tips: hold på søppelkassen og sveip for å slette alt i den.',
     moveList: 'Tips: dra en liste opp på navigasjonsknappen for å flytte den.',
   };
-  let pendingTip = null;  // ba om et tips mens omvisningen sto på
+  let pendingTip = null;  // ba om et tips mens demoen sto på
   let lastTipAt = 0;
   function tipSeen(key) { return !!accountPref('tips')[key]; }
   // Viser tipset hvis det er relevant OG det ikke koster brukeren noe akkurat
   // nå. Returnerer om det ble vist, så kallerne kan nøye seg med ett om gangen.
   function showTip(key) {
     if (!authUser || !TIPS[key] || tipSeen(key)) return false;
-    if (!onboardingSeen()) return false;         // introduksjonen kommer først
-    if (tourActive) { pendingTip = key; return false; }
+    if (!onboardingSeen()) return false;         // demoen kommer først
+    if (demoRunning) { pendingTip = key; return false; }
     // Aldri i veien: ikke midt i en redigering/et drag, ikke oppå en åpen
     // modal, og aldri ved å fortrenge en beskjed som allerede står — eller som
     // er på vei. En sletting tegner board-et på nytt FØR den viser «Angre»-
@@ -11209,9 +11535,9 @@
     pendingTip = null;
     if (key) showTip(key);
   }
-  // Merk HELE introduksjonen som sett — omvisningen OG alle tipsene. Finnes for
+  // Merk HELE introduksjonen som sett — demoen OG alle tipsene. Finnes for
   // testene som ikke handler om introduksjonen (`tests/CLAUDE.md`): der er både
-  // omvisningen og en tips-toast i veien for det som faktisk testes, og toasten
+  // demoen og en tips-toast i veien for det som faktisk testes, og toasten
   // ligger nederst på skjermen, akkurat der et mobil-drag tar tak.
   function skipIntroduction() {
     const tips = Object.assign({}, accountPref('tips'));
@@ -11226,7 +11552,7 @@
     if (cardCount >= 2 && showTip('drag')) return;
     if (cardCount >= 1 && groupTargetCount() >= 2) showTip('moveList');
   }
-  // Antall grupper i det aktive universet man kan flytte en liste til (samme
+  // Antall mapper i det aktive området man kan flytte en liste til (samme
   // grunnlag som velgeren DnD på navigasjonsknappen åpner).
   function groupTargetCount() {
     const uni = activeUniverseObj();
@@ -11253,16 +11579,18 @@
     tour: {
       start: startTour,
       end: endTour,
-      skipAll: skipIntroduction, // innføring + alle tips (se tests/CLAUDE.md)
-      steps: TOUR_STEPS.length,
+      skipAll: skipIntroduction, // demoen + alle tips (se tests/CLAUDE.md)
+      back: () => { if (demoRunning && demoIndex > 0) demoGoTo(demoIndex - 1, true); },
+      steps: DEMO_STEPS.length,
       version: TOUR_VERSION,
-      ids: TOUR_STEPS.map((s) => s.id),
-      get active() { return tourActive; },
-      get index() { return tourIndex; },
-      get id() { return tourStep().id; },
-      get mode() { return tourMode; },
-      get ctx() { return Object.assign({}, tourCtx); },
-      get narrated() { return tourNarrated(); },
+      ids: DEMO_STEPS.map((s) => s.id),
+      get active() { return demoRunning; },
+      get sim() { return demoActive; },
+      get index() { return demoIndex; },
+      get id() { return demoStep().id; },
+      get ctx() { return Object.assign({}, demoCtx); },
+      get narrated() { return !!demoStep().narrated; },
+      get shown() { return demoPainted === demoIndex && !tourCard.hidden; },
       seen: onboardingSeen,
     },
     get authUser() { return authUser; },

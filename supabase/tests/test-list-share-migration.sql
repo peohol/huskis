@@ -45,13 +45,13 @@ grant execute on function public.t_fails(text, text) to public;
 \set CZS '13000000-3333-0000-0000-000000000005'
 
 -- ---------- 1. Roller er backfillet fra oppretterne ----------
-select public.t_check('universets oppretter ble universeier',
+select public.t_check('områdets oppretter ble områdeeier',
   public.universe_role(:'U', :'O') = 'owner' and public.universe_owner_count(:'U') = 1);
-select public.t_check('eksisterende direkte universmedlemskap ble rollen member',
+select public.t_check('eksisterende direkte områdemedlemskap ble rollen member',
   public.universe_role(:'U', :'M') = 'member');
-select public.t_check('gruppens oppretter fikk INGEN ekstra rad (allerede universeier)',
+select public.t_check('mappens oppretter fikk INGEN ekstra rad (allerede områdeeier)',
   public.group_role(:'G1', :'O') is null and public.is_group_owner(:'G1', :'O'));
-select public.t_check('eksisterende direkte gruppemedlemskap ble rollen member',
+select public.t_check('eksisterende direkte mappemedlemskap ble rollen member',
   public.group_role(:'G2', :'W') = 'member');
 
 -- ---------- 2. Alle listedelinger er borte, og nye avvises ----------
@@ -65,43 +65,43 @@ select public.t_fails('nye liste-invitasjoner avvises av RPC-en',
   format('select public.create_share_invite(''card'', %L, ''noen@example.com'')', :'C1'));
 
 -- ---------- 3. Redundant listedeling ble bare fjernet ----------
-select public.t_check('M (universmedlem) har ingen egen rad for søskenlista',
+select public.t_check('M (områdemedlem) har ingen egen rad for søskenlista',
   (select count(*) from public.memberships
     where user_id = :'M' and group_id = :'G2') = 0);
-select public.t_check('… men har fortsatt tilgang via universet',
+select public.t_check('… men har fortsatt tilgang via området',
   public.is_group_member(:'G2', :'M') and public.can_read_card(:'CS', :'M'));
 
--- ---------- 4. Én-liste-gruppe: mottakeren ble direkte gruppemedlem ----------
-select public.t_check('X ble direkte gruppemedlem i én-liste-gruppen',
+-- ---------- 4. Én-liste-mappe: mottakeren ble direkte mappemedlem ----------
+select public.t_check('X ble direkte mappemedlem i én-liste-mappen',
   public.group_role(:'G1', :'X') = 'member');
 select public.t_check('lista ble liggende der den var',
   (select group_id from public.cards where id = :'C1') = :'G1'::uuid);
 reset role; select set_config('request.jwt.claim.sub', :'X', false); set role authenticated;
-select public.t_check('X ser lista, men ikke universet',
+select public.t_check('X ser lista, men ikke området',
   (select count(*) from public.cards where id = :'C1') = 1
   and (select count(*) from public.universes where id = :'U') = 0);
-select public.t_check('X ser gruppen som FRI (Grupper delt med meg)',
+select public.t_check('X ser mappen som FRI (Mapper delt med meg)',
   (select (x -> 'free')::boolean from jsonb_array_elements(public.get_my_doc() -> 'groups') x
     where x ->> 'id' = :'G1') = true);
 
--- ---------- 5. Flerliste-gruppe: lista ble splittet ut i en NY søskengruppe ----------
+-- ---------- 5. Flerliste-mappe: lista ble splittet ut i en NY søskenmappe ----------
 reset role; select set_config('request.jwt.claim.sub', :'O', false); set role authenticated;
 select id as newg from public.groups
  where universe_id = :'U' and name = 'Y-lista' and not is_cat \gset
-select public.t_check('en ny søskengruppe med listetittelen ble opprettet i samme univers',
+select public.t_check('en ny søskenmappe med listetittelen ble opprettet i samme område',
   (select count(*) from public.groups where id = :'newg'::uuid) = 1
   and (select universe_id from public.groups where id = :'newg'::uuid) = :'U'::uuid);
 select public.t_check('lista ble flyttet dit med UENDRET id',
   (select group_id from public.cards where id = :'CY') = :'newg'::uuid);
-select public.t_check('søskenlista ble liggende igjen i den gamle gruppen',
+select public.t_check('søskenlista ble liggende igjen i den gamle mappen',
   (select group_id from public.cards where id = :'CS') = :'G2'::uuid);
-select public.t_check('Y ble direkte gruppemedlem i den NYE gruppen — ikke i den gamle',
+select public.t_check('Y ble direkte mappemedlem i den NYE mappen — ikke i den gamle',
   public.group_role(:'newg'::uuid, :'Y') = 'member'
   and public.group_role(:'G2', :'Y') is null);
-select public.t_check('W (direkte gruppemedlem i den gamle gruppen) fulgte med til den nye',
+select public.t_check('W (direkte mappemedlem i den gamle mappen) fulgte med til den nye',
   public.group_role(:'newg'::uuid, :'W') = 'member'
   and public.group_role(:'G2', :'W') = 'member');
-select public.t_check('den ventende listeinvitasjonen ble en gruppeinvitasjon',
+select public.t_check('den ventende listeinvitasjonen ble en mappeinvitasjon',
   (select count(*) from public.share_invites
     where group_id = :'newg'::uuid and status = 'pending'
       and lower(invitee_email) = 'mig-ny@example.com') = 1);
@@ -113,21 +113,21 @@ select public.t_check('Y ser sin liste og innholdet i den',
 select public.t_check('Y får IKKE tilgang til søskenlista',
   (select count(*) from public.cards where id = :'CS') = 0
   and not public.can_read_card(:'CS', :'Y'));
-select public.t_check('Y ser den nye gruppen i «Grupper delt med meg»',
+select public.t_check('Y ser den nye mappen i «Mapper delt med meg»',
   (select (x -> 'free')::boolean from jsonb_array_elements(public.get_my_doc() -> 'groups') x
     where x ->> 'id' = :'newg') = true
   and jsonb_array_length(public.get_my_doc() -> 'universes') = 0);
 
 reset role; select set_config('request.jwt.claim.sub', :'W', false); set role authenticated;
-select public.t_check('W beholder tilgangen til BEGGE gruppene sine lister',
+select public.t_check('W beholder tilgangen til BEGGE mappene sine lister',
   (select count(*) from public.cards where id in (:'CY', :'CS')) = 2);
 
 reset role; select set_config('request.jwt.claim.sub', :'M', false); set role authenticated;
-select public.t_check('universmedlemmet ser alt i universet, inkludert den nye gruppen',
+select public.t_check('områdemedlemmet ser alt i området, inkludert den nye mappen',
   (select count(*) from public.cards where id in (:'C1', :'CY', :'CS')) = 3);
 
 -- ---------- 5b. En TRASHET delt liste promoterer ikke mottakeren ----------
--- Lista selv ligger i søpla, men gruppen har en AKTIV søskenliste. Promotering
+-- Lista selv ligger i søpla, men mappen har en AKTIV søskenliste. Promotering
 -- ville gitt mottakeren tilgang til nettopp den søskenlista.
 reset role; select set_config('request.jwt.claim.sub', :'O', false); set role authenticated;
 select public.t_check('en trashet delt liste ble splittet ut, ikke promotert',
@@ -149,7 +149,7 @@ select public.t_check('ingen dupliserte roller etter dobbel kjøring',
   (select count(*) from (
      select user_id, coalesce(universe_id::text, group_id::text) k, count(*) n
        from public.memberships group by 1, 2 having count(*) > 1) d) = 0);
-select public.t_check('ingen dupliserte grupper etter dobbel kjøring',
+select public.t_check('ingen dupliserte mapper etter dobbel kjøring',
   (select count(*) from public.groups where universe_id = :'U' and name = 'Y-lista') = 1
   and (select count(*) from public.groups where universe_id = :'U') = 5);
 

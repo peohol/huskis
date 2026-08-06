@@ -57,7 +57,7 @@ async function register(p) {
   await p.locator('#auth-password').fill('passord123');
   await p.locator('#auth-submit').click();
   // `lastMy` settes først når get_my_doc har svart — da er kontoen innlogget
-  // og dokumentet hentet. (En fersk konto har null universer — board er tomt.)
+  // og dokumentet hentet. (En fersk konto har null områder — board er tomt.)
   await p.waitForFunction(() => {
     const H = window.__huskis;
     return H && H.authUser && H.lastMy;
@@ -101,7 +101,7 @@ async function register(p) {
     const H = window.__huskis, st = H.state;
     const mk = (o) => Object.assign({ ts: 1, org: 't', pos: 0, posTs: 1, posOrg: 't', trashed: false, _role: 'owner' }, o);
     const u = mk({ id: 'uni-csp', name: 'CSP', collapsed: false, groups: [] });
-    u.groups.push(mk({ id: 'g-csp', uni: 'uni-csp', name: 'Gruppe', cat: null, isCat: false, collapsed: false, cards: [] }));
+    u.groups.push(mk({ id: 'g-csp', uni: 'uni-csp', name: 'Mappe', cat: null, isCat: false, collapsed: false, cards: [] }));
     st.universes.push(u);
     st.activeUniverse = 'uni-csp'; st.activeGroup = 'g-csp';
     H.render();

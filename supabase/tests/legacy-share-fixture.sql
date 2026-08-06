@@ -121,12 +121,12 @@ create table public.share_invites (
 
 -- ------------------------------------------------------------
 -- Data: fire situasjoner fra migreringsregelen
---   O  = eier av universet          M  = universmedlem
---   X  = direkte LISTE-mottaker (én-liste-gruppe)   → skal bli gruppemedlem
---   Y  = direkte LISTE-mottaker (flerliste-gruppe)  → skal få en NY gruppe
---   W  = direkte GRUPPE-medlem i flerliste-gruppen  → skal følge med til den nye
---   Z  = direkte LISTE-mottaker av en TRASHET liste, i en gruppe som har en
---        ANNEN aktiv liste → må IKKE promoteres inn i gruppen (da ville Z fått
+--   O  = eier av området          M  = områdemedlem
+--   X  = direkte LISTE-mottaker (én-liste-mappe)   → skal bli mappemedlem
+--   Y  = direkte LISTE-mottaker (flerliste-mappe)  → skal få en NY mappe
+--   W  = direkte MAPPE-medlem i flerliste-mappen  → skal følge med til den nye
+--   Z  = direkte LISTE-mottaker av en TRASHET liste, i en mappe som har en
+--        ANNEN aktiv liste → må IKKE promoteres inn i mappen (da ville Z fått
 --        se søskenlista); lista skal splittes ut som før.
 -- ------------------------------------------------------------
 
@@ -173,10 +173,10 @@ insert into public.items (id, owner_id, card_id, text, pos) values
   ('14000000-3333-0000-0000-000000000002', '01000000-3333-0000-0000-00000000000a',
    '13000000-3333-0000-0000-000000000003', 'Y skal IKKE se denne', 1);
 
--- M er universmedlem (gammel modell: medlemskapsrad på universet)
+-- M er områdemedlem (gammel modell: medlemskapsrad på området)
 insert into public.memberships (user_id, universe_id, pos) values
   ('01000000-3333-0000-0000-00000000000b', '11000000-3333-0000-0000-000000000001', 1);
--- W er direkte gruppemedlem i flerliste-gruppen, montert i sitt eget syn
+-- W er direkte mappemedlem i flerliste-mappen, montert i sitt eget syn
 insert into public.memberships (user_id, group_id, pos) values
   ('01000000-3333-0000-0000-00000000000e', '12000000-3333-0000-0000-000000000002', 1);
 -- X og Y er direkte LISTE-mottakere; M har en REDUNDANT listedeling

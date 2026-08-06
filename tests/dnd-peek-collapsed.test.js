@@ -32,7 +32,7 @@ async function register(p) {
   await p.locator('#auth-password').fill('passord123');
   await p.locator('#auth-submit').click();
   // `lastMy` settes først når get_my_doc har svart — da er kontoen innlogget
-  // og dokumentet hentet. (En fersk konto har null universer — board er tomt.)
+  // og dokumentet hentet. (En fersk konto har null områder — board er tomt.)
   await p.waitForFunction(() => {
     const H = window.__huskis;
     return H && H.authUser && H.lastMy;
@@ -279,7 +279,7 @@ const log = (n, ok, x = '') => { results.push(ok); console.log((ok ? 'PASS' : 'F
     const errs = []; p.on('pageerror', (e) => errs.push(e.message));
     await register(p); await seed(p);
     // Marker B som låst FOR MEG. Eiere omgår alle låser, så testbrukeren må være
-    // et VANLIG universmedlem — ellers gjelder ikke låsen for hen.
+    // et VANLIG områdemedlem — ellers gjelder ikke låsen for hen.
     await p.evaluate(() => {
       const H = window.__huskis, st = H.state;
       const u = st.universes.find((x) => x.id === st.activeUniverse);

@@ -3,13 +3,13 @@
 
   Dekker den klientvendte oppførselen SQL-testene ikke ser:
     1. De tre seksjonene i nav-modalen (overskrifter + skillelinjer + tomtilstand)
-    2. Klassifisering etter NÅVÆRENDE rolle: eier → «Mine universer»,
-       medlem → «Universer delt med meg», direkte gruppe → «Grupper delt med meg»
+    2. Klassifisering etter NÅVÆRENDE rolle: eier → «Mine områder»,
+       medlem → «Områder delt med meg», direkte mappe → «Mapper delt med meg»
     3. Capability-styrte knapper (del/forlat/slett/opprett) på hvert nivå
     4. Medlemslisten: kategorioverskrifter, «Eier» vs. «Medeiere», deduplisering,
-       forklaring når et arvet universmedlem ikke kan fjernes
+       forklaring når et arvet områdemedlem ikke kan fjernes
     5. Rolleinvitasjon (medeier) — rollevelgeren finnes kun for den som kan det
-    6. Breadcrumbs: [ressursikon][delt-ikon]Navn, og den virtuelle «Delte grupper»-roten
+    6. Breadcrumbs: [ressursikon][delt-ikon]Navn, og den virtuelle «Delte mapper»-roten
     7. Lister har INGEN delings-seksjon i innstillingsmodalen
     8. Tap av tilgang navigerer brukeren ut av den ugyldige visningen
 
@@ -30,10 +30,10 @@ const U = () => 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
 });
 
 /* Fikstur (id-ene er faste per kjøring):
-     A eier universet UA og gruppen GA + GB.
+     A eier området UA og mappen GA + GB.
      B er MEDEIER av UA.
      C er vanlig MEDLEM av UA.
-     D er DIREKTE gruppemedlem i GB — ingen rolle i UA.
+     D er DIREKTE mappemedlem i GB — ingen rolle i UA.
    Alle roller ligger i memberships, slik databasen ville hatt dem. */
 function buildDB() {
   const uA = 'uA', uB = 'uB', uC = 'uC', uD = 'uD';
@@ -51,13 +51,13 @@ function buildDB() {
         { id: uA, email: 'a@x.no', display_name: 'Alice Eier', user_metadata: {} },
         { id: uB, email: 'b@x.no', display_name: 'Bo Medeier', user_metadata: {} },
         { id: uC, email: 'c@x.no', display_name: 'Cato Medlem', user_metadata: {} },
-        { id: uD, email: 'd@x.no', display_name: 'Dina Gruppe', user_metadata: {} },
+        { id: uD, email: 'd@x.no', display_name: 'Dina Mappe', user_metadata: {} },
       ],
       passwords: { 'a@x.no': 'x', 'b@x.no': 'x', 'c@x.no': 'x', 'd@x.no': 'x' },
-      universes: [base({ id: UA, owner_id: uA, name: 'Felles univers' })],
+      universes: [base({ id: UA, owner_id: uA, name: 'Felles område' })],
       groups: [
-        base({ id: GA, owner_id: uA, universe_id: UA, name: 'Gruppe A' }),
-        base({ id: GB, owner_id: uA, universe_id: UA, name: 'Gruppe B', pos: 1 }),
+        base({ id: GA, owner_id: uA, universe_id: UA, name: 'Mappe A' }),
+        base({ id: GB, owner_id: uA, universe_id: UA, name: 'Mappe B', pos: 1 }),
       ],
       cards: [base({ id: LA, owner_id: uA, group_id: GA, title: 'Liste A', k: true, p: true, lab_ts: 0, lab_org: '' })],
       items: [base({ id: IA, owner_id: uA, card_id: LA, text: 'Punkt' })],
@@ -66,9 +66,9 @@ function buildDB() {
         mem(uB, { universe_id: UA }, 'owner', 0),
         mem(uC, { universe_id: UA }, 'member', 0),
         mem(uD, { group_id: GB }, 'member', 0),
-        // B har i tillegg en GAMMEL eksplisitt gruppeeierrolle i GA — slik
-        // rolle-backfill-en satte den for gruppens oppretter, før B ble medeier
-        // av universet. Raden er overflødig ved siden av universrollen (se 11).
+        // B har i tillegg en GAMMEL eksplisitt mappeeierrolle i GA — slik
+        // rolle-backfill-en satte den for mappens oppretter, før B ble medeier
+        // av området. Raden er overflødig ved siden av områderollen (se 11).
         mem(uB, { group_id: GA }, 'owner', 0),
       ],
       share_invites: [], tombstones: [],
@@ -84,7 +84,7 @@ async function loadAs(page, db, uid, email, viewport) {
     localStorage.setItem('hk-mock-db', JSON.stringify(db));
     // Kontoen har sett HELE introduksjonen (docs/introduksjon.md): verken
     // omvisningen eller et gest-tips skal legge seg over det som testes.
-    sessionStorage.setItem('hk-mock-session', JSON.stringify({ id: uid, email, user_metadata: { onboarding: { v: 1, status: 'done' }, tips: { drag: true, trash: true, moveList: true } } }));
+    sessionStorage.setItem('hk-mock-session', JSON.stringify({ id: uid, email, user_metadata: { onboarding: { v: 3, status: 'done' }, tips: { drag: true, trash: true, moveList: true } } }));
   }, { db, uid, email });
   await page.goto(BASE + '/?mock=1');
   // `lastMy` settes først når get_my_doc har svart — da er dokumentet hentet og
@@ -96,7 +96,7 @@ async function loadAs(page, db, uid, email, viewport) {
 }
 const openNav = async (p) => { await p.evaluate(() => window.__huskis.openNavModal()); await p.waitForTimeout(400); };
 
-// Seksjonsoverskrifter + hvilke universkort som ligger under hver av dem.
+// Seksjonsoverskrifter + hvilke områdekort som ligger under hver av dem.
 const sections = (p) => p.evaluate(() => {
   const col = document.querySelector('#nav-board .board-col');
   const out = [];
@@ -119,16 +119,16 @@ async function run(label, viewport, mobile) {
   console.log('\n== ' + label + ' ==');
   const { ids, db } = buildDB();
 
-  /* ---------- 1) Eieren: universet i «Mine universer» ---------- */
+  /* ---------- 1) Eieren: området i «Mine områder» ---------- */
   await loadAs(p, db, ids.uA, 'a@x.no', viewport);
   await openNav(p);
   let s = await sections(p);
   log(label + ' 1: tre overskrifter i riktig rekkefølge',
-    s.length === 2 && /Mine universer/.test(s[0].title) && /Universer delt med meg/.test(s[1].title),
+    s.length === 2 && /Mine områder/.test(s[0].title) && /Områder delt med meg/.test(s[1].title),
     JSON.stringify(s.map((x) => x.title)));
-  log(label + ' 1: eierens univers ligger i «Mine universer»',
-    s[0].cards.includes('Felles univers') && s[1].cards.length === 0 && s[1].empty === true);
-  log(label + ' 1: «Nytt univers» finnes KUN i «Mine universer»',
+  log(label + ' 1: eierens område ligger i «Mine områder»',
+    s[0].cards.includes('Felles område') && s[1].cards.length === 0 && s[1].empty === true);
+  log(label + ' 1: «Nytt område» finnes KUN i «Mine områder»',
     await p.locator('.nav-add-uni').count() === 1);
   log(label + ' 1: seksjonene har skillelinje mellom seg',
     await p.evaluate(() => {
@@ -138,7 +138,7 @@ async function run(label, viewport, mobile) {
   log(label + ' 1: eieren kan slette, men ikke forlate (siste … nei — to eiere)',
     await p.locator('#nav-board .uni-delete:visible').count() === 1 &&
     await p.locator('#nav-board .uni-leave:visible').count() === 1);
-  log(label + ' 1: eieren kan opprette grupper',
+  log(label + ' 1: eieren kan opprette mapper',
     await p.locator('#nav-board .add-item-row:visible').count() === 1);
 
   /* ---------- 2) Medlemslisten: «Medeiere», kategorier, deduplisering ---------- */
@@ -147,7 +147,7 @@ async function run(label, viewport, mobile) {
   const uniTitles = await p.locator('#share-body .share-section-title').allTextContents();
   log(label + ' 2: to eiere gir overskriften «Medeiere»',
     uniTitles.includes('Medeiere') && uniTitles.includes('Medlemmer'), JSON.stringify(uniTitles));
-  log(label + ' 2: medlemslisten viser alle tre med universrolle, ingen dobbelt',
+  log(label + ' 2: medlemslisten viser alle tre med områderolle, ingen dobbelt',
     await p.locator('#share-body .member-row').count() === 3);
   log(label + ' 2: rollevelgeren finnes (eier kan invitere medeiere)',
     await p.locator('#share-body .share-role-select:visible').count() === 1);
@@ -155,38 +155,38 @@ async function run(label, viewport, mobile) {
     await p.locator('#share-body .share-leave').count() === 1 &&
     await p.locator('#share-body .share-delete').count() === 1);
   log(label + ' 2: «Forlat»-knappen har eget tilgjengelig navn (ikke «Logg ut»)',
-    /Forlat universet/i.test(await p.locator('#share-body .share-leave').getAttribute('aria-label') || ''));
+    /Forlat området/i.test(await p.locator('#share-body .share-leave').getAttribute('aria-label') || ''));
   await p.locator('#share-close').click(); await p.waitForTimeout(250);
 
-  /* ---------- 3) Gruppens medlemsliste: arvede + direkte ---------- */
+  /* ---------- 3) Mappens medlemsliste: arvede + direkte ---------- */
   await openNav(p);
   await p.locator('#nav-board .item.group-row .group-share').nth(1).click();
   await p.waitForTimeout(700);
   const grpTitles = await p.locator('#share-body .share-section-title').allTextContents();
-  log(label + ' 3: gruppens kategorier har universprefiks og utelater tomme',
-    grpTitles.includes('Medeiere av universet') && grpTitles.includes('Medlemmer av universet') &&
-    grpTitles.includes('Medlemmer av gruppen') && !grpTitles.includes('Eier av gruppen'),
+  log(label + ' 3: mappens kategorier har områdeprefiks og utelater tomme',
+    grpTitles.includes('Medeiere av området') && grpTitles.includes('Medlemmer av området') &&
+    grpTitles.includes('Medlemmer av mappen') && !grpTitles.includes('Eier av mappen'),
     JSON.stringify(grpTitles));
   log(label + ' 3: fire personer, ingen vist to ganger',
     await p.locator('#share-body .member-row').count() === 4);
   const hints = await p.locator('#share-body .member-hint').allTextContents();
-  log(label + ' 3: arvet universmedlem kan ikke fjernes her, med forklaring',
-    hints.some((h) => /via universet/i.test(h)), JSON.stringify(hints));
-  log(label + ' 3: det DIREKTE gruppemedlemmet kan fjernes',
+  log(label + ' 3: arvet områdemedlem kan ikke fjernes her, med forklaring',
+    hints.some((h) => /via området/i.test(h)), JSON.stringify(hints));
+  log(label + ' 3: det DIREKTE mappemedlemmet kan fjernes',
     await p.evaluate(() => [...document.querySelectorAll('#share-body .member-row')]
       .filter((r) => /Dina/.test(r.textContent)).some((r) => /Fjern/.test(r.textContent))));
   await p.locator('#share-close').click(); await p.waitForTimeout(250);
 
-  /* ---------- 4) Vanlig medlem: universet i «delt med meg» ---------- */
+  /* ---------- 4) Vanlig medlem: området i «delt med meg» ---------- */
   await loadAs(p, db, ids.uC, 'c@x.no', viewport);
   await openNav(p);
   s = await sections(p);
-  log(label + ' 4: medlemmets univers ligger i «Universer delt med meg»',
-    s[0].cards.length === 0 && s[1].cards.includes('Felles univers'), JSON.stringify(s));
+  log(label + ' 4: medlemmets område ligger i «Områder delt med meg»',
+    s[0].cards.length === 0 && s[1].cards.includes('Felles område'), JSON.stringify(s));
   log(label + ' 4: ingen sletteknapp for et vanlig medlem, men forlat finnes',
     await p.locator('#nav-board .uni-delete:visible').count() === 0 &&
     await p.locator('#nav-board .uni-leave:visible').count() === 1);
-  log(label + ' 4: et vanlig medlem kan fortsatt opprette grupper i et åpent univers',
+  log(label + ' 4: et vanlig medlem kan fortsatt opprette mapper i et åpent område',
     await p.locator('#nav-board .add-item-row:visible').count() === 1);
   await p.locator('#nav-board .uni-share').first().click();
   await p.waitForTimeout(700);
@@ -198,12 +198,12 @@ async function run(label, viewport, mobile) {
     await p.locator('#share-body .share-delete').count() === 0);
   await p.locator('#share-close').click(); await p.waitForTimeout(250);
 
-  /* ---------- 5) Direkte gruppemedlem: fri seksjon ---------- */
+  /* ---------- 5) Direkte mappemedlem: fri seksjon ---------- */
   await loadAs(p, db, ids.uD, 'd@x.no', viewport);
   await openNav(p);
   s = await sections(p);
-  log(label + ' 5: tre seksjoner, og gruppen ligger i «Grupper delt med meg»',
-    s.length === 3 && /Grupper delt med meg/.test(s[2].title), JSON.stringify(s.map((x) => x.title)));
+  log(label + ' 5: tre seksjoner, og mappen ligger i «Mapper delt med meg»',
+    s.length === 3 && /Mapper delt med meg/.test(s[2].title), JSON.stringify(s.map((x) => x.title)));
   log(label + ' 5: den frie beholderen har ingen del-/slett-/opprett-knapper',
     await p.evaluate(() => {
       const c = document.querySelector('#nav-board .free-groups-card');
@@ -211,13 +211,13 @@ async function run(label, viewport, mobile) {
       return c.querySelector('.uni-share').hidden && c.querySelector('.uni-delete').hidden &&
              c.querySelector('.add-item-row').hidden;
     }));
-  log(label + ' 5: gruppen vises med forlat-knapp, uten slett',
+  log(label + ' 5: mappen vises med forlat-knapp, uten slett',
     await p.locator('#nav-board .group-leave:visible').count() === 1 &&
     await p.locator('#nav-board .group-delete:visible').count() === 0);
-  log(label + ' 5: universets navn lekkes ikke til den frie mottakeren',
-    !(await p.locator('#nav-board').textContent()).includes('Felles univers'));
+  log(label + ' 5: områdets navn lekkes ikke til den frie mottakeren',
+    !(await p.locator('#nav-board').textContent()).includes('Felles område'));
 
-  /* ---------- 6) Breadcrumb for en fri gruppe ---------- */
+  /* ---------- 6) Breadcrumb for en fri mappe ---------- */
   await p.locator('#nav-board .item.group-row').first().click();
   await p.waitForTimeout(500);
   const crumb = await p.evaluate(() => ({
@@ -228,11 +228,11 @@ async function run(label, viewport, mobile) {
     grpIcon: document.getElementById('crumb-group-icon').innerHTML.length,
     grpShared: !document.getElementById('crumb-group-shared').hidden,
   }));
-  log(label + ' 6: fri gruppe får den virtuelle roten «Delte grupper» UTEN universikon',
-    crumb.uni === 'Delte grupper' && crumb.uniIcon === 0 && crumb.uniShared === true,
+  log(label + ' 6: fri mappe får den virtuelle roten «Delte mapper» UTEN områdeikon',
+    crumb.uni === 'Delte mapper' && crumb.uniIcon === 0 && crumb.uniShared === true,
     JSON.stringify(crumb));
-  log(label + ' 6: gruppeleddet har gruppeikon + delt-ikon (ikke gruppeikon to ganger)',
-    crumb.grp === 'Gruppe B' && crumb.grpIcon > 0 && crumb.grpShared === true);
+  log(label + ' 6: mappeleddet har mappeikon + delt-ikon (ikke mappeikon to ganger)',
+    crumb.grp === 'Mappe B' && crumb.grpIcon > 0 && crumb.grpShared === true);
 
   /* ---------- 7) Lister har ingen deling ---------- */
   await loadAs(p, db, ids.uA, 'a@x.no', viewport);
@@ -251,7 +251,7 @@ async function run(label, viewport, mobile) {
     return r.error ? r.error.message : null;
   }, ids.LA);
   log(label + ' 7: serveren avviser en liste-invitasjon også via rå RPC',
-    !!listShare && /kun universer og grupper/i.test(listShare), String(listShare));
+    !!listShare && /kun områder og mapper/i.test(listShare), String(listShare));
 
   /* ---------- 8) Tap av tilgang navigerer ut ---------- */
   await loadAs(p, db, ids.uD, 'd@x.no', viewport);
@@ -264,8 +264,8 @@ async function run(label, viewport, mobile) {
     window.HK_MOCK._saveDB(db);
     return window.__huskis.cloudCycle();
   }, { gid: ids.GB, uid: ids.uD });
-  // Utkastelsen er poenget: ferdig når gruppen er borte fra state (uteblir det,
-  // feiler sjekken under med gruppelista som verdi).
+  // Utkastelsen er poenget: ferdig når mappen er borte fra state (uteblir det,
+  // feiler sjekken under med mappelista som verdi).
   await p.waitForFunction((gid) =>
     !window.__huskis.state.universes.flatMap((u) => u.groups).some((g) => g.id === gid),
     ids.GB, { timeout: 8000, polling: 200 }).catch(() => {});
@@ -274,7 +274,7 @@ async function run(label, viewport, mobile) {
     toast: (document.querySelector('.toast') || {}).textContent || '',
     groups: window.__huskis.state.universes.flatMap((u) => u.groups).map((g) => g.id),
   }));
-  log(label + ' 8: gruppen forsvinner når tilgangen fjernes',
+  log(label + ' 8: mappen forsvinner når tilgangen fjernes',
     !after.groups.includes(ids.GB) && before === ids.GB, JSON.stringify(after.groups));
   log(label + ' 8: brukeren navigeres ut og får beskjed',
     after.active !== ids.GB && /ikke lenger tilgang/i.test(after.toast), after.toast);
@@ -288,7 +288,7 @@ async function run(label, viewport, mobile) {
     });
     // Del-visningen viser din egen rad SYNKront («deg selv vises straks»,
     // app.js) før get_members har svart — én rad beviser altså ingenting.
-    // Fixturen har tre medlemmer i universet (Alice, Bo, Cato): vent på alle.
+    // Fixturen har tre medlemmer i området (Alice, Bo, Cato): vent på alle.
     await p.waitForFunction(() => document.querySelectorAll('#share-body .member-row').length >= 3,
       null, { timeout: 8000 });
   };
@@ -393,32 +393,32 @@ async function run(label, viewport, mobile) {
     capless.some((t) => /Forlat/.test(t)), JSON.stringify(capless));
   await p.keyboard.press('Escape'); await p.waitForTimeout(200);
 
-  /* ---------- 11) Medeier med en overflødig eksplisitt gruppeeierrolle ----------
-     Rolle-backfill-en gjorde gruppens oppretter til eksplisitt gruppeeier. Blir
-     vedkommende SENERE medeier av universet, er raden overflødig — og en
-     forlat-knapp på gruppen ville løyet: den sletter raden uten å fjerne noen
-     tilgang, så gruppen kommer rett tilbake ved neste synk. */
+  /* ---------- 11) Medeier med en overflødig eksplisitt mappeeierrolle ----------
+     Rolle-backfill-en gjorde mappens oppretter til eksplisitt mappeeier. Blir
+     vedkommende SENERE medeier av området, er raden overflødig — og en
+     forlat-knapp på mappen ville løyet: den sletter raden uten å fjerne noen
+     tilgang, så mappen kommer rett tilbake ved neste synk. */
   await loadAs(p, db, ids.uB, 'b@x.no', viewport);
   await openNav(p);
-  log(label + ' 11: medeieren har fortsatt den eksplisitte gruppeeierrollen',
+  log(label + ' 11: medeieren har fortsatt den eksplisitte mappeeierrollen',
     await p.evaluate((g) => (window.__huskis.state.universes.flatMap((u) => u.groups)
       .find((x) => x.id === g) || {})._role === 'owner', ids.GA));
-  log(label + ' 11: medeieren kan forlate UNIVERSET …',
+  log(label + ' 11: medeieren kan forlate OMRÅDET …',
     await p.locator('#nav-board .uni-leave:visible').count() === 1);
-  log(label + ' 11: … men ingen av gruppene i det',
+  log(label + ' 11: … men ingen av mappene i det',
     await p.locator('#nav-board .group-leave:visible').count() === 0);
   await p.locator('#nav-board .item.group-row .group-share').first().click();
   await p.waitForTimeout(700);
-  log(label + ' 11: gruppens delemodal har heller ingen «Forlat gruppen»',
+  log(label + ' 11: mappens delemodal har heller ingen «Forlat mappen»',
     await p.locator('#share-body .share-leave').count() === 0);
   // Serveren er autoritativ og avviser også et rått kall — med en forklaring
-  // som peker på universet, der tilgangen faktisk ligger.
+  // som peker på området, der tilgangen faktisk ligger.
   const leaveErr = await p.evaluate(async (id) => {
     const r = await window.__huskis.client.rpc('leave_share', { p_type: 'group', p_id: id });
     return r.error ? r.error.message : null;
   }, ids.GA);
-  log(label + ' 11: rå RPC avvises og peker på universet',
-    !!leaveErr && /via universet/i.test(leaveErr), String(leaveErr));
+  log(label + ' 11: rå RPC avvises og peker på området',
+    !!leaveErr && /via området/i.test(leaveErr), String(leaveErr));
   await p.keyboard.press('Escape'); await p.waitForTimeout(200);
 
   log(label + ': ingen JS-feil', errs.length === 0, errs.slice(0, 3).join(' | '));

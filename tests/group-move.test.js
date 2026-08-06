@@ -1,14 +1,14 @@
 /*
-  Nettlesertest for GRUPPEFLYTTING mellom universer (mot mock-backend, ?mock=1).
+  Nettlesertest for MAPPEFLYTTING mellom områder (mot mock-backend, ?mock=1).
 
   Serversemantikken er dekket av supabase/tests/test-group-moves.sql; her testes
   KLIENTEN:
     1. Samme eierskapsdomene → ren reparenting, ingen bekreftelse, samme id-er
     2. Ulikt eierskapsdomene → eksplisitt bekreftelse FØR flyttingen
-    3. Avbrutt bekreftelse ruller gruppen tilbake til kildeuniverset
+    3. Avbrutt bekreftelse ruller mappen tilbake til kildeområdet
     4. Bekreftet kryssdomene-flytting bytter id-ene lokalt (mapping) uten at
-       gruppen forsvinner fra visningen, og gravlegger de gamle id-ene
-    5. En gruppe kan ikke slippes i et univers man ikke kan opprette i
+       mappen forsvinner fra visningen, og gravlegger de gamle id-ene
+    5. En mappe kan ikke slippes i et område man ikke kan opprette i
     6. `groups.universe_id` kan ikke skrives direkte (databasen avviser det)
     7. Et eierskifte hos ANDRE (som ikke endrer innhold, capabilities, rolle,
        `shared`, medlemstall eller eiertall) når likevel fram, så neste flytting
@@ -29,7 +29,7 @@ const U = () => 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
 });
 
 /* A eier U1 og U3 (domene {A}); U2 er co-eid av A og B (domene {A,B}).
-   Gruppen G ligger i U1 med én liste og ett listepunkt.
+   Mappen G ligger i U1 med én liste og ett listepunkt.
    U4 eies av B alene — A er ikke medlem og kan ikke opprette der. */
 function buildDB() {
   const uA = 'uA', uB = 'uB', uC = 'uC';
@@ -90,7 +90,7 @@ async function loadAs(page, db, uid, email, viewport) {
     localStorage.setItem('hk-mock-db', JSON.stringify(db));
     // Kontoen har sett HELE introduksjonen (docs/introduksjon.md): verken
     // omvisningen eller et gest-tips skal legge seg over det som testes.
-    sessionStorage.setItem('hk-mock-session', JSON.stringify({ id: uid, email, user_metadata: { onboarding: { v: 1, status: 'done' }, tips: { drag: true, trash: true, moveList: true } } }));
+    sessionStorage.setItem('hk-mock-session', JSON.stringify({ id: uid, email, user_metadata: { onboarding: { v: 3, status: 'done' }, tips: { drag: true, trash: true, moveList: true } } }));
   }, { db, uid, email });
   await page.goto(BASE + '/?mock=1');
   // `lastMy` settes først når get_my_doc har svart — da er dokumentet hentet og
@@ -102,7 +102,7 @@ async function loadAs(page, db, uid, email, viewport) {
 }
 const openNav = async (p) => { await p.evaluate(() => window.__huskis.openNavModal()); await p.waitForTimeout(400); };
 
-// Dra en grupperad til midten av et annet universkorts innholdssone.
+// Dra en mapperad til midten av et annet områdekorts innholdssone.
 async function dragGroupTo(p, groupId, uniId) {
   // Modalen kan være høyere enn mobilskjermen, så raden man drar fra kan ligge
   // delvis under modal-headeren. Rull den fram først; auto-scrollen i modalen
@@ -147,7 +147,7 @@ async function run(label, viewport, mobile) {
   await p.waitForTimeout(400);
   const confirmVisible = await p.evaluate(() => !document.getElementById('confirm-modal').hidden);
   log(label + ' 1: samme domene spør IKKE om bekreftelse', confirmVisible === false);
-  log(label + ' 1: gruppen ligger nå i det andre egne universet',
+  log(label + ' 1: mappen ligger nå i det andre egne området',
     await groupUni(p, ids.G) === ids.U3);
   // Vent på selve serverraden (uteblir den, feiler sjekken under med verdien).
   await p.waitForFunction(({ g, u }) =>
@@ -176,7 +176,7 @@ async function run(label, viewport, mobile) {
     /mister/i.test(dlg.msg) && /tilgang/i.test(dlg.msg), dlg.msg.slice(0, 90));
   await p.locator('#confirm-cancel').click();
   await p.waitForTimeout(600);
-  log(label + ' 3: avbrutt flytting ruller gruppen tilbake til kildeuniverset',
+  log(label + ' 3: avbrutt flytting ruller mappen tilbake til kildeområdet',
     await groupUni(p, ids.G) === ids.U3);
 
   /* ---------- 4) Bekreftet kryssdomene-flytting bytter id-ene ---------- */
@@ -193,7 +193,7 @@ async function run(label, viewport, mobile) {
   }, ids.G, { timeout: 10000, polling: 200 }).catch(() => {});
   const after = await groupIds(p);
   const moved = after.find((g) => g.name === 'Flyttbar');
-  log(label + ' 4: gruppen står i måluniverset med en NY id',
+  log(label + ' 4: mappen står i målområdet med en NY id',
     !!moved && moved.uni === ids.U2 && moved.id !== ids.G, JSON.stringify(moved));
   log(label + ' 4: den gamle id-en finnes ikke lenger, verken lokalt eller på serveren',
     !after.some((g) => g.id === ids.G) &&
@@ -210,16 +210,16 @@ async function run(label, viewport, mobile) {
       return !!g && g.cards.length === 1 && g.cards[0].items.length === 1;
     }, 'Flyttbar'));
 
-  /* ---------- 5) Ugyldig mål: et univers man ikke kan opprette i ---------- */
+  /* ---------- 5) Ugyldig mål: et område man ikke kan opprette i ---------- */
   const inU2 = (await groupIds(p)).find((g) => g.name === 'Flyttbar');
   const rejected = await p.evaluate(async ({ gid, uid }) => {
     const r = await window.__huskis.client.rpc('move_group',
       { p_group: gid, p_universe: uid, p_cat: null, p_pos: 0 });
     return r.error ? r.error.message : null;
   }, { gid: inU2.id, uid: ids.U4 });
-  log(label + ' 5: serveren avviser flytting til et univers man ikke er medlem av',
+  log(label + ' 5: serveren avviser flytting til et område man ikke er medlem av',
     !!rejected && /myndighet/i.test(rejected), String(rejected));
-  log(label + ' 5: … og gruppen står urørt',
+  log(label + ' 5: … og mappen står urørt',
     await groupUni(p, inU2.id) === ids.U2);
 
   /* ---------- 6) Direkte skriving av universe_id avvises ---------- */

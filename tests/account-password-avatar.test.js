@@ -288,7 +288,7 @@ async function run(label, vp, mobile) {
   log(label + ' D: «Fjern bilde» dukker opp når det finnes et bilde', shown.remove);
 
   // Del-modalen: eier-raden er meg — sirkelen skal vise bildet, ikke initialene.
-  // Bare universer og grupper deles, så det er gruppens del-visning vi åpner.
+  // Bare områder og mapper deles, så det er mappens del-visning vi åpner.
   await p.evaluate(() => {
     const H = window.__huskis;
     H.closeAccount();
@@ -297,7 +297,7 @@ async function run(label, vp, mobile) {
   await p.keyboard.press('Escape'); await p.waitForTimeout(200);
   await p.evaluate(() => window.__huskis.addGroup()); await p.waitForTimeout(200);
   await p.keyboard.press('Escape'); await p.waitForTimeout(200);
-  // La gruppen nå «serveren» før del-visningen åpnes — vent på selve raden.
+  // La mappen nå «serveren» før del-visningen åpnes — vent på selve raden.
   await p.waitForFunction(() => {
     const H = window.__huskis;
     const db = window.HK_MOCK._loadDB();
@@ -341,7 +341,7 @@ async function run(label, vp, mobile) {
     after.img === 0 && after.text === 'KN' && after.remove === true, JSON.stringify(after));
 
   /* ================= E) Ansvarssirkelen (get_members → resp-avatar) =================
-     Seedet «database»: universet er delt, og listepunktets ansvarlige har et
+     Seedet «database»: området er delt, og listepunktets ansvarlige har et
      profilbilde. Sirkelen i meta-raden skal da vise bildet, ikke initialene. */
   await p.evaluate(() => window.__huskis.closeAccount());
   const seed = (() => {
@@ -356,8 +356,8 @@ async function run(label, vp, mobile) {
           { id: uD, email: 'd@x.no', display_name: 'Dag Medlem', user_metadata: {} },
         ],
         passwords: { 'a@x.no': 'x', 'd@x.no': 'x' },
-        universes: [base({ id: PU, owner_id: uA, name: 'Felles univers' })],
-        groups: [base({ id: PG, owner_id: uA, universe_id: PU, name: 'Gruppe' })],
+        universes: [base({ id: PU, owner_id: uA, name: 'Felles område' })],
+        groups: [base({ id: PG, owner_id: uA, universe_id: PU, name: 'Mappe' })],
         cards: [base({ id: PL, owner_id: uA, group_id: PG, title: 'Delt liste', k: true, p: true, lab_ts: 0, lab_org: '' })],
         items: [base({ id: PI, owner_id: uA, card_id: PL, text: 'Punkt', responsible: uA })],
         memberships: [{ id: U(), user_id: uD, universe_id: PU, group_id: null, card_id: null,
@@ -373,7 +373,7 @@ async function run(label, vp, mobile) {
     localStorage.setItem('hk-mock-db', JSON.stringify(db));
     sessionStorage.setItem('hk-mock-session', JSON.stringify(sess));
   }, { db: seed.db, sess: { id: seed.ids.uA, email: 'a@x.no',
-       user_metadata: { onboarding: { v: 1, status: 'done' }, tips: { drag: true, trash: true, moveList: true } } } });
+       user_metadata: { onboarding: { v: 3, status: 'done' }, tips: { drag: true, trash: true, moveList: true } } } });
   // `lag` gir «serveren» en merkbar forsinkelse, så en get_members startet av en
   // for tidlig render rekker å kappløpe med skrivingen (se neste sjekk).
   await p.goto(BASE + '/?mock=1&lag=300');

@@ -54,7 +54,7 @@ window.ICONS = {
     '<path d="M14.3 11v6"></path>' +
     '</svg>',
 
-  // Globus (univers): de seks feltene i kula fylles med palettens seks første
+  // Globus (område): de seks feltene i kula fylles med palettens seks første
   // farger. Feltene er skjæringene mellom ekvatorlinja og meridian-vesicaen —
   // tre soner over (venstre halvmåne / midtlinse / høyre halvmåne) og tre under.
   globe: '<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="#111" stroke-width="1.05" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
@@ -141,7 +141,7 @@ window.ICONS = {
     '<path d="M12 15.8v1.9"></path>' +
     '</svg>',
 
-  // Mappe (Gruppe): fylt med farge 2 (den typiske gulaktige mappefargen).
+  // Mappe: fylt med farge 2 (den typiske gulaktige mappefargen).
   folder: '<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="#111" stroke-width="1.05" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
     '<path d="M3.5 19V6.5a2 2 0 0 1 2-2h3.3a2 2 0 0 1 1.6.8l1.1 1.5a2 2 0 0 0 1.6.8H19a2 2 0 0 1 2 2V19a2 2 0 0 1-2 2H5.5a2 2 0 0 1-2-2Z" fill="#adad85"></path>' +
     '</svg>',
@@ -170,7 +170,7 @@ window.ICONS = {
   xmark: '<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.05" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
     '<path d="M6.5 6.5 17.5 17.5"></path><path d="M17.5 6.5 6.5 17.5"></path></svg>',
 
-  // ＋ for alle «legg til»-knapper (element/liste/gruppe/univers): egen SVG med
+  // ＋ for alle «legg til»-knapper (element/liste/mappe/område): egen SVG med
   // samme strek (1.05) og runde ender som resten av settet, i stedet for
   // tekst-glyfen ＋ (som har annen linjestil/tykkelse enn ikonsettet). Svart
   // strek (#111) som resten av ikonsettet, også på de fargede knappene.
@@ -211,8 +211,8 @@ window.ICONS = {
     '<path d="M15 16h4.5"></path>' +
     '</svg>',
 
-  // Gruppekategori (nav-modalen): samme venstre-klamme som `category`, men med
-  // MAPPE-ikonet (gruppe) i stedet for lista — «en klamme rundt grupper». Mappa
+  // Mappekategori (nav-modalen): samme venstre-klamme som `category`, men med
+  // MAPPE-ikonet (mappe) i stedet for lista — «en klamme rundt mapper». Mappa
   // er den samme tegningen som `folder`, skalert ned og skjøvet inn i klammen
   // med en <g transform>; stroke-width kompenseres (1.05 / 0.55 = 1.909) så
   // streken blir like tykk som resten av ikonsettet etter skaleringen.

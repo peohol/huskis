@@ -18,10 +18,10 @@ listepunktene i kategorien (`category.lockTimes`). Seksjoner, i rekkefølge:
    direkte uten full render, full render skjer ved lukking). Tomt felt
    committes ikke og gjenopprettes ved blur.
 2. ~~Deling~~ — **FJERNET**. Lister kan aldri deles direkte; tilgangen arves fra
-   gruppen (se `docs/rettigheter-og-deling.md`). Delingsinnstillinger ligger nå
-   kun på universer og grupper, i del-modalen fra nav-modalen. Chipen «delt» i
-   listas meta-rad åpner GRUPPENS delingsinnstillinger.
-3. **Ansvarlig** (vises når GRUPPEN er delt, `shareRootFor` → gruppen — gjelder OGSÅ hele
+   mappen (se `docs/rettigheter-og-deling.md`). Delingsinnstillinger ligger nå
+   kun på områder og mapper, i del-modalen fra nav-modalen. Chipen «delt» i
+   listas meta-rad åpner MAPPENS delingsinnstillinger.
+3. **Ansvarlig** (vises når MAPPEN er delt, `shareRootFor` → mappen — gjelder OGSÅ hele
    listen, `card.responsible`): rad med nåværende ansvarlig (initial-sirkel +
    navn) → åpner ansvarlig-velgeren. Velgeren er generalisert til targets
    (`{ kind: 'card'|'item', obj, card }`); `setResponsible(target, userId)`.
@@ -71,7 +71,7 @@ Modalen slår alltid opp det LEVENDE objektet på id per interaksjon
 Chipene er KNAPPER for hurtigendring:
 
 - **Delt** (kun lister): people-/lås-ikon → åpner innstillingsmodalen.
-  (Erstattet kortets gamle `.share-badge` i headeren; grupper/universer
+  (Erstattet kortets gamle `.share-badge` i headeren; mapper/områder
   beholder badge-en via `applyShareBadge`.)
 - **Ansvarlig**: liten initial-sirkel (`respAvatar`, palett fra delegruppen)
   → åpner ansvarlig-velgeren direkte, forankret i chipen.

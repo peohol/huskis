@@ -18,19 +18,19 @@ opQueue).
 
 ## 1. Hva kan deles
 
-Bare **universer** og **grupper**.
+Bare **områder** og **mapper**.
 
-* En **liste** kan aldri deles direkte. Den arver tilgangen fra gruppen sin.
-* **Listepunkter og kategorier** arver fra listen og dermed fra gruppen.
+* En **liste** kan aldri deles direkte. Den arver tilgangen fra mappen sin.
+* **Listepunkter og kategorier** arver fra listen og dermed fra mappen.
 
 Hierarkiet er som før:
 
 ```
-Univers > Gruppe > Liste > Listepunkt/kategori
+Område > Mappe > Liste > Listepunkt/kategori
 ```
 
-Hver gruppe har **alltid ett kanonisk univers**. «Grupper delt med meg» er bare
-en alternativ *visning* av direkte delte grupper — ikke en reell forelder, og
+Hver mappe har **alltid ett kanonisk område**. «Mapper delt med meg» er bare
+en alternativ *visning* av direkte delte mapper — ikke en reell forelder, og
 aldri et gyldig flyttemål.
 
 Serveren avviser ethvert forsøk på å dele en liste — også fra en gammel klient,
@@ -55,45 +55,45 @@ oppretter.
 Det finnes **ingen egen administratorrolle**. Full administrativ myndighet gis
 gjennom eierskap eller medeierskap.
 
-### Roller på universnivå
+### Roller på områdenivå
 
-* `owner` — universeier. Alle universeiere er **helt likestilte**.
-* `member` — vanlig universmedlem.
+* `owner` — områdeeier. Alle områdeeiere er **helt likestilte**.
+* `member` — vanlig områdemedlem.
 
 Visningsnavnet følger antallet: nøyaktig én `owner` → «Eier»; minst to →
 «Medeiere». Backendrollen er den samme.
 
-Den som oppretter et univers får `owner`. Aksepterer noen en eierskaps-
+Den som oppretter et område får `owner`. Aksepterer noen en eierskaps-
 invitasjon, er de likestilt med de andre — den opprinnelige oppretteren har
 ingen særskilt eller uoppsigelig myndighet.
 
-**Siste-eier-invarianten:** et univers har alltid minst én eier.
+**Siste-eier-invarianten:** et område har alltid minst én eier.
 
 * siste eier kan ikke forlate
 * siste eier kan ikke degraderes
 * siste eier kan ikke kastes ut
-* siste eier **kan** slette universet for alle
+* siste eier **kan** slette området for alle
 
 Invarianten håndheves i databasen (`memberships_last_owner_guard` på både
 UPDATE og DELETE), ikke bare i RPC-ene — også en rå `DELETE` blokkeres.
 
-### Roller på gruppenivå
+### Roller på mappenivå
 
-* `owner` — **eksplisitt** gruppeeier/medeier.
-* `member` — direkte gruppemedlem uten medlemskap i universet.
+* `owner` — **eksplisitt** mappeeier/medeier.
+* `member` — direkte mappemedlem uten medlemskap i området.
 
-Den som oppretter en gruppe blir eksplisitt gruppeeier — **med mindre**
-vedkommende allerede er universeier (rollen er da arvet, og en egen rad ville
+Den som oppretter en mappe blir eksplisitt mappeeier — **med mindre**
+vedkommende allerede er områdeeier (rollen er da arvet, og en egen rad ville
 bare duplisert medlemslisten).
 
-Alle universeiere er **dynamiske supereiere** av alle grupper i universet. En
-gruppe kan derfor ha null eksplisitte gruppeeiere; kategorien «Eier(e) av
-gruppen» utelates da fra medlemslisten.
+Alle områdeeiere er **dynamiske supereiere** av alle mapper i området. En
+mappe kan derfor ha null eksplisitte mappeeiere; kategorien «Eier(e) av
+mappen» utelates da fra medlemslisten.
 
-Én eksplisitt gruppeeier → «Eier av gruppen»; flere → «Medeiere av gruppen».
+Én eksplisitt mappeeier → «Eier av mappen»; flere → «Medeiere av mappen».
 
-En bruker kan være eksplisitt gruppeeier og universmedlem samtidig. Rollen gir
-da ekstra myndighet i gruppen, men brukeren vises bare **én gang** i
+En bruker kan være eksplisitt mappeeier og områdemedlem samtidig. Rollen gir
+da ekstra myndighet i mappen, men brukeren vises bare **én gang** i
 medlemslisten (se presedensen i del 5).
 
 ### Ingen roller på liste- eller elementnivå
@@ -128,8 +128,8 @@ feilmelding forkledd som en knapp.
 | endre delt rekkefølge | `can_reorder_in_parent` |
 | slette objektet for alle | `can_delete_object` |
 | forlate objektet | `can_leave` |
-| flytte gruppe ut av et univers | `can_move_group` |
-| opprette gruppe i et målunivers | `can_create_child('universe', …)` |
+| flytte mappe ut av et område | `can_move_group` |
+| opprette mappe i et målområde | `can_create_child('universe', …)` |
 | invitere medlemmer | `can_invite_to` |
 | invitere eiere | `can_invite_owner` |
 | administrere medlemmer, eierskap og innstillinger | `can_manage_members` |
@@ -139,8 +139,8 @@ feilmelding forkledd som en knapp.
 | endre invitasjonspolicy | `can_manage_invite_policy` |
 
 **PRIVILEGERT** (`is_privileged`) = eier på det nivået som styrer objektet:
-universeier for et univers, gruppeeier (eksplisitt eller universeier) for
-gruppe/liste/listepunkt. Privilegerte påvirkes aldri av en lås for **egen**
+områdeeier for et område, mappeeier (eksplisitt eller områdeeier) for
+mappe/liste/listepunkt. Privilegerte påvirkes aldri av en lås for **egen**
 redigering.
 
 ### Å opprette og å plassere spør FORELDEREN
@@ -149,88 +149,88 @@ Tre av capabilityene handler ikke om objektet foran deg, men om **forelderen**:
 
 | Handling | Myndigheten ligger på | Klientens spørsmål |
 |---|---|---|
-| opprette en liste i en gruppe | gruppen | `canAddList(g)` |
-| omrokkere/flytte en liste | gruppen | `canAddList(g)` |
+| opprette en liste i en mappe | mappen | `canAddList(g)` |
+| omrokkere/flytte en liste | mappen | `canAddList(g)` |
 | opprette et listepunkt/en kategori | listen | `!frozen(kort)` |
 | omrokkere et listepunkt | listen | `!frozen(kort)` |
-| opprette/omrokkere en gruppe | universet | `caps.createGroup` / `caps.reorderInParent` |
+| opprette/omrokkere en mappe | området | `caps.createGroup` / `caps.reorderInParent` |
 
 `frozen(objekt)` svarer bare på ÉN ting: kan jeg redigere dette objektet selv.
 Den er derfor **feil spørsmål** for opprettelse og plassering, og forskjellen er
-ikke akademisk — et **lås-unntak** («Gjør unntak» på én liste i en låst gruppe)
+ikke akademisk — et **lås-unntak** («Gjør unntak» på én liste i en låst mappe)
 er nettopp tilfellet der de to spriker: lista kan redigeres, men det gir ingen
 rett til å lage en ny liste ved siden av den eller flytte den.
 
-Feilen dette rettet opp: «＋ Liste» spurte kun om det fantes en aktiv gruppe. Et
-vanlig medlem kunne gå inn i en låst gruppe og opprette en liste; RLS
+Feilen dette rettet opp: «＋ Liste» spurte kun om det fantes en aktiv mappe. Et
+vanlig medlem kunne gå inn i en låst mappe og opprette en liste; RLS
 (`cards_insert` → `can_create_child('group', …)`) avviste skrivingen i det
-stille, og siden lista arvet gruppelåsen ble den umulig å redigere ELLER slette
+stille, og siden lista arvet mappelåsen ble den umulig å redigere ELLER slette
 igjen — et spøkelse som bare forsvant ved å tømme localStorage. `canAddList(g)`
 (= `cap(g, 'createList', !frozen(g))`) er nå ett spørsmål, brukt av alle veiene
 inn til den samme myndigheten: knappen, klikk-handleren, tomtilstandens tekst,
-ekstrahering til ny liste (`S.canExtract`), listedraging og gruppevelgeren ved
+ekstrahering til ny liste (`S.canExtract`), listedraging og mappevelgeren ved
 slipp på 📁-breadcrumben.
 
 Å **gjenopprette** fra søpla er å skrive `trashed = false` og krever derfor
 nøyaktig samme myndighet som å slette (`can_delete_object`) — se
 [`trash.md`](trash.md).
 
-### Universeier
+### Områdeeier
 
-* full lese-, redigerings- og administrasjonsmyndighet over universet og alle subobjekter
-* påvirkes ikke av låser noe sted i universet
-* kan opprette, redigere, flytte, slette, gjenopprette og omrokkere alle grupper, gruppekategorier, lister, listekategorier og listepunkter
-* kan endre universets innstillinger, låse alt, og administrere låsunntak
-* kan invitere universmedlemmer **og** universeiere
-* kan invitere direkte medlemmer og eiere til grupper, og fjerne direkte gruppemedlemmer/-eiere
-* kan kaste ut universmedlemmer, og fjerne/degradere andre universeiere så lenge minst én eier blir igjen
-* kan slette universet for alle, og enhver gruppe eller liste — også andres
+* full lese-, redigerings- og administrasjonsmyndighet over området og alle subobjekter
+* påvirkes ikke av låser noe sted i området
+* kan opprette, redigere, flytte, slette, gjenopprette og omrokkere alle mapper, mappekategorier, lister, listekategorier og listepunkter
+* kan endre områdets innstillinger, låse alt, og administrere låsunntak
+* kan invitere områdemedlemmer **og** områdeeiere
+* kan invitere direkte medlemmer og eiere til mapper, og fjerne direkte mappemedlemmer/-eiere
+* kan kaste ut områdemedlemmer, og fjerne/degradere andre områdeeiere så lenge minst én eier blir igjen
+* kan slette området for alle, og enhver mappe eller liste — også andres
 
-### Eksplisitt gruppeeier
+### Eksplisitt mappeeier
 
-* full myndighet over gruppen og alt innhold i den
-* påvirkes ikke av gruppens eller listenes låser, og kan redigere gruppen selv om **universet** er låst
-* kan administrere gruppens innstillinger, låse gruppen og listene
-* kan invitere direkte gruppemedlemmer og gruppeeiere, og fjerne dem igjen
-* kan slette gruppen for alle, og flytte den når kildekrav + målkrav er oppfylt
+* full myndighet over mappen og alt innhold i den
+* påvirkes ikke av mappens eller listenes låser, og kan redigere mappen selv om **området** er låst
+* kan administrere mappens innstillinger, låse mappen og listene
+* kan invitere direkte mappemedlemmer og mappeeiere, og fjerne dem igjen
+* kan slette mappen for alle, og flytte den når kildekrav + målkrav er oppfylt
 * kan opprette, redigere, slette og flytte lister og listeinnhold
 
-Kan **ikke**: redigere universets innstillinger, invitere til universet, fjerne
-universeiere eller universmedlemmer, ekskludere et universmedlem fra gruppen,
-eller endre gruppens plassering blant søskengrupper i et **låst** univers.
+Kan **ikke**: redigere områdets innstillinger, invitere til området, fjerne
+områdeeiere eller områdemedlemmer, ekskludere et områdemedlem fra mappen,
+eller endre mappens plassering blant søskenmapper i et **låst** område.
 
-> Et objekts posisjon blant grupper tilhører **universets struktur**. Å
-> omrokkere grupper krever derfor rett til å redigere universets innhold — noe
-> annet enn å redigere eller slette selve gruppen.
+> Et objekts posisjon blant mapper tilhører **områdets struktur**. Å
+> omrokkere mapper krever derfor rett til å redigere områdets innhold — noe
+> annet enn å redigere eller slette selve mappen.
 
-### Vanlig universmedlem
+### Vanlig områdemedlem
 
-* er automatisk effektivt medlem av **alle** grupper i universet
-* kan lese hele universet
+* er automatisk effektivt medlem av **alle** mapper i området
+* kan lese hele området
 * kan redigere innhold som er effektivt åpent
-* kan opprette grupper og gruppekategorier når universet er effektivt åpent, og blir eksplisitt gruppeeier av det de selv oppretter
-* kan opprette lister når gruppen er effektivt åpen
-* kan redigere og slette åpne grupper og åpne lister — også andres
-* kan omrokkere grupper når universet er åpent, og lister når gruppen er åpen
+* kan opprette mapper og mappekategorier når området er effektivt åpent, og blir eksplisitt mappeeier av det de selv oppretter
+* kan opprette lister når mappen er effektivt åpen
+* kan redigere og slette åpne mapper og åpne lister — også andres
+* kan omrokkere mapper når området er åpent, og lister når mappen er åpen
 * kan invitere når effektiv invitasjonspolicy tillater det
 
-Kan **ikke**: slette universet, endre administrative innstillinger, låse/låse
+Kan **ikke**: slette området, endre administrative innstillinger, låse/låse
 opp, endre invitasjonspolicy, administrere eierskap, kaste ut medlemmer, eller
-fjerne et annet universmedlem fra en enkelt gruppe.
+fjerne et annet områdemedlem fra en enkelt mappe.
 
 «Redigere» betyr her ordinært innhold: navn, tekst, rekkefølge, tidsplaner og
 tilsvarende. Det omfatter **ikke** medlemskap, roller, lås eller
 invitasjonspolicy.
 
-### Direkte gruppemedlem uten universmedlemskap
+### Direkte mappemedlem uten områdemedlemskap
 
-* kan lese gruppen og alt i den
+* kan lese mappen og alt i den
 * kan redigere åpent innhold
-* kan opprette, redigere, slette og omrokkere lister når gruppen er effektivt åpen
+* kan opprette, redigere, slette og omrokkere lister når mappen er effektivt åpen
 * kan redigere listepunkter og kategorier når nivåene er åpne
-* kan invitere til gruppen når effektiv policy tillater det
+* kan invitere til mappen når effektiv policy tillater det
 
-Kan **ikke**: slette gruppen for alle, flytte gruppen, redigere gruppens
+Kan **ikke**: slette mappen for alle, flytte mappen, redigere mappens
 administrative innstillinger, låse/låse opp, administrere eierskap eller kaste
 ut medlemmer.
 
@@ -242,15 +242,15 @@ Tretilstandsmodellen består: **eksplisitt låst**, **eksplisitt åpnet unntak**
 **arv**. Effektiv lås = den nærmeste eksplisitte tilstanden fra objektet og
 oppover (`effective_lock_source`).
 
-* Universeiere omgår alle låser for egen redigering.
-* Eksplisitte gruppeeiere omgår univers-, gruppe- og listelåser for egen
-  redigering **innenfor sin gruppe**. Det gir dem ikke rett til å åpne gruppen
-  for andre i strid med en universlås.
-* Bare universeiere kan gjøre et allment unntak fra en **universlås**.
-* Universeiere **og** relevant eksplisitt gruppeeier kan administrere unntak fra
-  en **gruppelås** på underliggende lister.
+* Områdeeiere omgår alle låser for egen redigering.
+* Eksplisitte mappeeiere omgår område-, mappe- og listelåser for egen
+  redigering **innenfor sin mappe**. Det gir dem ikke rett til å åpne mappen
+  for andre i strid med en områdelås.
+* Bare områdeeiere kan gjøre et allment unntak fra en **områdelås**.
+* Områdeeiere **og** relevant eksplisitt mappeeier kan administrere unntak fra
+  en **mappelås** på underliggende lister.
 * Ordinære medlemmer kan aldri endre låstilstand.
-* Listelåser påvirker verken gruppeeiere eller universeiere.
+* Listelåser påvirker verken mappeeiere eller områdeeiere.
 * Posisjon blant søsken styres av redigeringsrett på **forelderen**, ikke av
   barnets egen lås.
 
@@ -259,38 +259,38 @@ den som ellers styrer objektets lås rydde den bort (f.eks. etter at låsen over
 er fjernet).
 
 **Invitasjonspolicy** (`inherit | allow | deny`, nærmeste eksplisitte oppover)
-finnes kun på universer og grupper. Listespesifikk policy er fjernet.
+finnes kun på områder og mapper. Listespesifikk policy er fjernet.
 
 ---
 
 ## 5. Effektivt medlemskap
 
-Effektivt medlemskap i en gruppe er den **dedupliserte unionen** av:
+Effektivt medlemskap i en mappe er den **dedupliserte unionen** av:
 
-1. universeiere
-2. eksplisitte gruppeeiere
-3. vanlige universmedlemmer
-4. direkte gruppemedlemmer
+1. områdeeiere
+2. eksplisitte mappeeiere
+3. vanlige områdemedlemmer
+4. direkte mappemedlemmer
 
-Universeiere og universmedlemmer materialiseres **aldri** som gruppemedlems-
+Områdeeiere og områdemedlemmer materialiseres **aldri** som mappemedlems-
 rader — den arvede tilgangen beregnes dynamisk. En rolle gir i seg selv den
-tilgangen den skal: universeierrollen gir universmedlemskap, og en eksplisitt
-gruppeeierrolle gir gruppetilgang selv uten medlemskap i universet.
+tilgangen den skal: områdeeierrollen gir områdemedlemskap, og en eksplisitt
+mappeeierrolle gir mappetilgang selv uten medlemskap i området.
 
 En bruker vises aldri flere ganger i samme medlemsliste. Presedensen er
 rekkefølgen over (1 vinner over 2 osv.).
 
-**Universets medlemsliste:** «Eier»/«Medeiere», så «Medlemmer».
+**Områdets medlemsliste:** «Eier»/«Medeiere», så «Medlemmer».
 
-**Gruppens medlemsliste** (tomme kategorier utelates):
+**Mappens medlemsliste** (tomme kategorier utelates):
 
-1. «Eier av universet» / «Medeiere av universet»
-2. «Eier av gruppen» / «Medeiere av gruppen»
-3. «Medlemmer av universet»
-4. «Medlemmer av gruppen»
+1. «Eier av området» / «Medeiere av området»
+2. «Eier av mappen» / «Medeiere av mappen»
+3. «Medlemmer av området»
+4. «Medlemmer av mappen»
 
-Universeiere og universmedlemmer vises i alle gruppers medlemslister, men kan
-ikke fjernes der (`removable = false` + `removeHint`: «Har tilgang via universet
+Områdeeiere og områdemedlemmer vises i alle mappers medlemslister, men kan
+ikke fjernes der (`removable = false` + `removeHint`: «Har tilgang via området
 og må fjernes der»). Ventende invitasjoner står i en egen seksjon og teller ikke
 som medlemmer.
 
@@ -300,7 +300,7 @@ som medlemmer.
 
 ### Eierskapsinvitasjoner
 
-Å gjøre noen til universeier eller gruppeeier er alltid en **eksplisitt
+Å gjøre noen til områdeeier eller mappeeier er alltid en **eksplisitt
 rolleinvitasjon mottakeren må akseptere** (`create_share_invite(..., 'owner')`).
 Det gjelder både en eksisterende medlem som skal opp i rolle, en som ennå ikke
 er medlem, og en e-postadresse uten konto. Ved aksept opprettes medlemskap og
@@ -338,122 +338,122 @@ degradere en eierinvitasjon som ligger og venter.
 handlingen har sin egen knapp; to knapper for det samme, der den ene er
 feilmerket, er verre enn én.
 
-### Fjerning fra univers
+### Fjerning fra område
 
-Når en bruker forlater eller kastes ut av et univers (`purge_universe_access`):
+Når en bruker forlater eller kastes ut av et område (`purge_universe_access`):
 
-* universrollen fjernes
-* alle direkte gruppemedlemskap i universets grupper fjernes
-* alle eksplisitte gruppeeierroller i universet fjernes
-* ventende rolle- og medlemsinvitasjoner i universet og gruppene trekkes tilbake
-* alle `responsible`-referanser i universet som peker på brukeren nullstilles
+* områderollen fjernes
+* alle direkte mappemedlemskap i områdets mapper fjernes
+* alle eksplisitte mappeeierroller i området fjernes
+* ventende rolle- og medlemsinvitasjoner i området og mappene trekkes tilbake
+* alle `responsible`-referanser i området som peker på brukeren nullstilles
 
-Brukeren skal ikke beholde skjult tilgang til enkeltgrupper — også når det
-direkte gruppemedlemskapet fantes før universmedlemskapet.
+Brukeren skal ikke beholde skjult tilgang til enkeltmapper — også når det
+direkte mappemedlemskapet fantes før områdemedlemskapet.
 
-En eier som **degraderes** til vanlig medlem beholder derimot universmedlemskap,
-og eksplisitte gruppeeierroller består med mindre de fjernes særskilt.
+En eier som **degraderes** til vanlig medlem beholder derimot områdemedlemskap,
+og eksplisitte mappeeierroller består med mindre de fjernes særskilt.
 
-### Fjerning fra gruppe
+### Fjerning fra mappe
 
-Når et direkte gruppemedlem eller en eksplisitt gruppeeier forlater eller
-fjernes (`purge_group_access`): grupperollen fjernes, ansvarstildelinger i
-gruppen som peker på brukeren nullstilles (kun hvis den effektive tilgangen
-faktisk forsvant), og universmedlemskap røres ikke.
+Når et direkte mappemedlem eller en eksplisitt mappeeier forlater eller
+fjernes (`purge_group_access`): mapperollen fjernes, ansvarstildelinger i
+mappen som peker på brukeren nullstilles (kun hvis den effektive tilgangen
+faktisk forsvant), og områdemedlemskap røres ikke.
 
-En universarvet bruker kan ikke fjernes fra gruppen alene — RPC-en avviser
+En områdearvet bruker kan ikke fjernes fra mappen alene — RPC-en avviser
 forsøket med en forklarende feil i stedet for å bli en stille no-op.
 
-### «Forlat gruppe» krever at grupperollen er ENESTE vei inn
+### «Forlat mappe» krever at mapperollen er ENESTE vei inn
 
-`can_leave('group', …)` er sann bare når brukeren har en direkte grupperolle
-**og ingen rolle i gruppens univers**. Har man begge deler, fjerner ikke
-gruppens forlat-knapp noen tilgang — den kommer også fra universet — så knappen
-vises ikke, og `leave_share` avviser kallet med «du har tilgang via universet —
-forlat universet i stedet» i stedet for å slette den overflødige raden. Uten det
+`can_leave('group', …)` er sann bare når brukeren har en direkte mapperolle
+**og ingen rolle i mappens område**. Har man begge deler, fjerner ikke
+mappens forlat-knapp noen tilgang — den kommer også fra området — så knappen
+vises ikke, og `leave_share` avviser kallet med «du har tilgang via området —
+forlat området i stedet» i stedet for å slette den overflødige raden. Uten det
 leddet oppførte knappen seg som en løgn: raden forsvant, tilgangen besto, og
-gruppen kom rett tilbake ved neste synk (klienten fjerner den optimistisk).
+mappen kom rett tilbake ved neste synk (klienten fjerner den optimistisk).
 
 Den kombinasjonen oppstår helt lovlig og er ikke feil i seg selv:
 
-* rolle-backfill-en gjorde **gruppens oppretter** til eksplisitt gruppeeier, og
-  vedkommende kunne SENERE bli medeier av universet (den historiske formen — de
-  som opprettet grupper i andres univers før medeierskap fantes);
-* noen kan bli gjort til gruppeeier først og inviteres til hele universet etterpå.
+* rolle-backfill-en gjorde **mappens oppretter** til eksplisitt mappeeier, og
+  vedkommende kunne SENERE bli medeier av området (den historiske formen — de
+  som opprettet mapper i andres område før medeierskap fantes);
+* noen kan bli gjort til mappeeier først og inviteres til hele området etterpå.
 
-Veien ut av en overflødig **gruppeeierrolle** er «Tre av som medeier» i gruppens
+Veien ut av en overflødig **mappeeierrolle** er «Tre av som medeier» i mappens
 delemodal (`set_member_role`), som fjerner raden helt når brukeren er
-universmedlem — ikke «Forlat». Er man universEIER, er raden uansett virkningsløs
-(universeiere er dynamiske supereiere av alle grupper i universet), og den
-ryddes automatisk hvis man forlater eller kastes ut av universet.
+områdemedlem — ikke «Forlat». Er man områdeEIER, er raden uansett virkningsløs
+(områdeeiere er dynamiske supereiere av alle mapper i området), og den
+ryddes automatisk hvis man forlater eller kastes ut av området.
 
 ---
 
-## 7. De tre seksjonene i «Universer og grupper»
+## 7. De tre seksjonene i «Områder og mapper»
 
 Modalen har tre klart adskilte seksjoner med overskrift og skillelinje. Et
-univers eller en gruppe vises i **nøyaktig én** seksjon for den aktuelle
+område eller en mappe vises i **nøyaktig én** seksjon for den aktuelle
 brukeren.
 
-### 1. `[universikon][kontoikon] Mine universer`
+### 1. `[områdeikon][kontoikon] Mine områder`
 
-Universer der brukeren nå har rollen `owner` — uansett hvem som opprettet dem.
+Områder der brukeren nå har rollen `owner` — uansett hvem som opprettet dem.
 Klassifikasjonen følger **nåværende rolle**, ikke `created_by`: degraderes en
-tidligere oppretter, flyttes universet til seksjon 2.
+tidligere oppretter, flyttes området til seksjon 2.
 
-«Nytt univers»-knappen står her, og bare her.
+«Nytt område»-knappen står her, og bare her.
 
-### 2. `[universikon][delt-ikon] Universer delt med meg`
+### 2. `[områdeikon][delt-ikon] Områder delt med meg`
 
-Universer der brukeren er `member`, men ikke `owner`. Ingen «Nytt univers»-knapp.
+Områder der brukeren er `member`, men ikke `owner`. Ingen «Nytt område»-knapp.
 
 Alle medlemmer kan åpne delemodalen og se medlemslisten; invitasjonskontroller
 vises kun ved `caps.invite`/`caps.inviteOwner`. Forlat-knapp for alle som kan
 forlate, sletteknapp kun ved `caps.delete`, begge når begge er tillatt.
 
-Knapper for å opprette grupper og gruppekategorier vises kun ved
-`caps.createGroup`. Grupperekkefølge, gruppekategorier og gruppeplassering inne
-i universet er felles for alle med tilgang.
+Knapper for å opprette mapper og mappekategorier vises kun ved
+`caps.createGroup`. Mapperekkefølge, mappekategorier og mappeplassering inne
+i området er felles for alle med tilgang.
 
-### 3. `[gruppeikon][delt-ikon] Grupper delt med meg`
+### 3. `[mappeikon][delt-ikon] Mapper delt med meg`
 
-Grupper der brukeren har en direkte gruppe-eier- eller gruppemedlemsrolle **og**
-ingen rolle i gruppens kanoniske univers (`free = true` i `get_my_doc`).
+Mapper der brukeren har en direkte mappe-eier- eller mappemedlemsrolle **og**
+ingen rolle i mappens kanoniske område (`free = true` i `get_my_doc`).
 
-De vises som frie grupper uten univers over seg, kan omordnes med dra-og-slipp
-(personlig rekkefølge), kan ikke organiseres i gruppekategorier, har ingen
+De vises som frie mapper uten område over seg, kan omordnes med dra-og-slipp
+(personlig rekkefølge), kan ikke organiseres i mappekategorier, har ingen
 opprett-knapp, og har deleknapp for alle + forlat/slett etter capabilities.
 
-Får en direkte gruppemottaker senere universmedlemskap, forsvinner gruppen fra
-denne seksjonen og vises inne i universet — og redundante ordinære direkte
-gruppemedlemskap i universet ryddes ved aksept (eksplisitte gruppeeierroller
+Får en direkte mappemottaker senere områdemedlemskap, forsvinner mappen fra
+denne seksjonen og vises inne i området — og redundante ordinære direkte
+mappemedlemskap i området ryddes ved aksept (eksplisitte mappeeierroller
 beholdes, men fjernes hvis brukeren senere forlater eller kastes ut av
-universet). En beholdt gruppeeierrolle gir ingen forlat-knapp inne i universet;
-se «Forlat gruppe krever at grupperollen er ENESTE vei inn» i del 6.
+området). En beholdt mappeeierrolle gir ingen forlat-knapp inne i området;
+se «Forlat mappe krever at mapperollen er ENESTE vei inn» i del 6.
 
 Klienten samler seksjon 3 i én **virtuell beholder** (`FREE_UNI_ID`) som aldri
-pushes; gruppene beholder sitt kanoniske `uni` i doc-et, og universets navn/
-medlemsliste lekkes aldri til en mottaker uten universadgang.
+pushes; mappene beholder sitt kanoniske `uni` i doc-et, og områdets navn/
+medlemsliste lekkes aldri til en mottaker uten områdeadgang.
 
 ---
 
 ## 8. Ikoner og breadcrumbs
 
-Fast rekkefølge: `[ressursikon][delt-ikon ved behov] Ressursnavn`. Gruppeikonet
+Fast rekkefølge: `[ressursikon][delt-ikon ved behov] Ressursnavn`. Mappeikonet
 vises aldri to ganger.
 
 Et objekt er **aktivt delt** når mer enn én bruker har effektiv tilgang.
-Ventende invitasjoner alene utløser ikke delt-ikonet. For en gruppe regnes det
-fra den dedupliserte effektive medlemslisten, inkludert arvede universmedlemmer
+Ventende invitasjoner alene utløser ikke delt-ikonet. For en mappe regnes det
+fra den dedupliserte effektive medlemslisten, inkludert arvede områdemedlemmer
 (`group_member_count`).
 
 ```
-[universikon][delt?] Universnavn  ›  [gruppeikon][delt?] Gruppenavn
-[delt-ikon] Delte grupper         ›  [gruppeikon][delt-ikon] Gruppenavn
+[områdeikon][delt?] Områdenavn  ›  [mappeikon][delt?] Mappenavn
+[delt-ikon] Delte mapper         ›  [mappeikon][delt-ikon] Mappenavn
 ```
 
 Første ledd i den frie varianten er en **virtuell navigasjonsrot** uten
-universikon; den navigerer tilbake til «Grupper delt med meg».
+områdeikon; den navigerer tilbake til «Mapper delt med meg».
 
 Alle ikoner og ikonknapper har tilgjengelige navn og tooltips.
 
@@ -461,24 +461,24 @@ Alle ikoner og ikonknapper har tilgjengelige navn og tooltips.
 
 ## 9. Invitasjonsflyt
 
-**Universinvitasjon.** Ved aksept: rollen fra invitasjonen opprettes, universet
+**Områdeinvitasjon.** Ved aksept: rollen fra invitasjonen opprettes, området
 legges bakerst i mottakerens personlige rekkefølge, ingen forelder velges,
-redundante ordinære direkte gruppemedlemskap i universet fjernes, og eksplisitte
-gruppeeierroller beholdes.
+redundante ordinære direkte mappemedlemskap i området fjernes, og eksplisitte
+mappeeierroller beholdes.
 
-**Gruppeinvitasjon.** Ved aksept: direkte gruppe-eier- eller gruppemedlemsrolle
-opprettes, ingen forelder velges. Gruppen vises under «Grupper delt med meg»
-hvis mottakeren ikke er medlem av det kanoniske universet — ellers inne i
-universet.
+**Mappeinvitasjon.** Ved aksept: direkte mappe-eier- eller mappemedlemsrolle
+opprettes, ingen forelder velges. Mappen vises under «Mapper delt med meg»
+hvis mottakeren ikke er medlem av det kanoniske området — ellers inne i
+området.
 
-**Gruppe i delt univers.** Omfatter alltid minst alle universets medlemmer. Man
-kan invitere flere direkte gruppemedlemmer uten å invitere dem til universet;
-de ser da bare gruppen og dens lister. Det er aldri mulig å ekskludere et
-universmedlem fra en bestemt gruppe.
+**Mappe i delt område.** Omfatter alltid minst alle områdets medlemmer. Man
+kan invitere flere direkte mappemedlemmer uten å invitere dem til området;
+de ser da bare mappen og dens lister. Det er aldri mulig å ekskludere et
+områdemedlem fra en bestemt mappe.
 
 **Liste.** Delingsknapp, medlemsadministrasjon, direkte invitasjoner,
 listemedlemskap, mottakerspesifikke mounts og listespesifikk invitasjonspolicy
-er **fjernet**. Ansvarlig-velgere i lister og listepunkter bruker gruppens
+er **fjernet**. Ansvarlig-velgere i lister og listepunkter bruker mappens
 effektive medlemsliste.
 
 ---
@@ -493,19 +493,19 @@ effektive medlemsliste.
 
 | Situasjon | Forlat | Slett |
 |---|---|---|
-| Vanlig medlem av delt univers | ja | nei |
+| Vanlig medlem av delt område | ja | nei |
 | Medeier (minst én annen eier) | ja | ja |
 | Siste eier | nei | ja |
-| Vanlig direkte medlem av fri gruppe | ja | nei |
-| Gruppeeier av fri gruppe | ja | ja |
-| Direkte grupperolle i et univers man også har rolle i | nei (forlat universet) | etter rolle |
+| Vanlig direkte medlem av fri mappe | ja | nei |
+| Mappeeier av fri mappe | ja | ja |
+| Direkte mapperolle i et område man også har rolle i | nei (forlat området) | etter rolle |
 
-Er gruppeeieren også universmedlem, er gruppen ikke fri, og universreglene
-gjelder for tilgangen — inkludert hvor man forlater (se «Forlat gruppe» over).
+Er mappeeieren også områdemedlem, er mappen ikke fri, og områdereglene
+gjelder for tilgangen — inkludert hvor man forlater (se «Forlat mappe» over).
 
-Bekreftelsesdialog kreves for handlinger som påvirker andre: slette univers eller
-gruppe for alle, fjerne medeier, flytte en gruppe slik at medlemskretsen endres,
-og kaste ut universmedlem.
+Bekreftelsesdialog kreves for handlinger som påvirker andre: slette område eller
+mappe for alle, fjerne medeier, flytte en mappe slik at medlemskretsen endres,
+og kaste ut områdemedlem.
 
 Forsvinner tilgangen mens man står i objektet (sletting, flytting, utkastelse,
 rolleendring), lukkes visningen, appen navigerer til nærmeste gyldige fallback,
@@ -520,23 +520,23 @@ blir stående uten eier når jeg er borte, er mitt og følger med.**
 
 | Objektet | Hva skjer |
 |---|---|
-| Univers jeg er eneste eier av | slettes helt, med hele undertreet og gravstein for hver rad — også for dem jeg har delt med |
-| Univers med andre eiere | står igjen; jeg fjernes som medlem (som «Forlat») |
-| Univers jeg bare er medlem av | urørt; jeg fjernes som medlem |
-| Gruppe jeg er eneste eksplisitte gruppeeier av | står igjen — universeierne er dynamiske supereiere |
-| Innhold jeg har OPPRETTET i noe som overlever | står igjen; oppretteren arves av en gjenværende universeier |
+| Område jeg er eneste eier av | slettes helt, med hele undertreet og gravstein for hver rad — også for dem jeg har delt med |
+| Område med andre eiere | står igjen; jeg fjernes som medlem (som «Forlat») |
+| Område jeg bare er medlem av | urørt; jeg fjernes som medlem |
+| Mappe jeg er eneste eksplisitte mappeeier av | står igjen — områdeeierne er dynamiske supereiere |
+| Innhold jeg har OPPRETTET i noe som overlever | står igjen; oppretteren arves av en gjenværende områdeeier |
 | `responsible` som peker på meg | nulles, med nytt innholds-stempel |
 | Roller, invitasjoner (begge veier), e-postlogg, profil, auth-bruker | slettes |
 | Gravsteiner | blir stående (id-er uten personopplysninger — de er nettopp det som hindrer gjenoppstandelse) |
 
 Oppretter-arven er ikke en omskriving av historien for moro skyld: `owner_id` gir
 ingen rettigheter, men FK-en er `on delete cascade`. Uten arven ville
-profilslettingen revet vekk innhold i andres delte universer — et listepunkt jeg
+profilslettingen revet vekk innhold i andres delte områder — et listepunkt jeg
 la inn i en felles liste er de andres innhold like mye som mitt. Arvingen er
 deterministisk (`surviving_universe_owner`: eldste eiermedlemskap først).
 
-Rekkefølgen i funksjonen er ikke tilfeldig: invitasjonene ryddes FØR universene,
-for et univers som slettes tar sine egne invitasjoner med i kaskaden, og da ville
+Rekkefølgen i funksjonen er ikke tilfeldig: invitasjonene ryddes FØR områdene,
+for et område som slettes tar sine egne invitasjoner med i kaskaden, og da ville
 e-postlogg-radene deres ikke lenger vært mulige å finne.
 
 Klienten kaller RPC-en fra konto-modalen bak en advarsel som må **sveipes** til
@@ -545,9 +545,9 @@ innloggingssiden.
 
 ---
 
-## 11. Flytting av grupper
+## 11. Flytting av mapper
 
-All flytting mellom universer skjer gjennom **én atomisk server-RPC**,
+All flytting mellom områder skjer gjennom **én atomisk server-RPC**,
 `move_group(p_group, p_universe, p_cat, p_pos)`. Klienten gjennomfører den aldri
 som en sekvens av inserts/updates/deletes. RPC-en låser radene (`for update`),
 kontrollerer rettighetene på nytt inne i transaksjonen, og fullfører helt eller
@@ -555,19 +555,19 @@ ruller helt tilbake. En direkte skriving av `groups.universe_id` avvises av
 `groups_before_update`.
 
 **Tillatelser:** `can_move_group` (destruktiv myndighet) i kilden **og**
-`can_create_child` i måluniverset. Ren redigeringsrett holder ikke. Dra-og-slipp
+`can_create_child` i målområdet. Ren redigeringsrett holder ikke. Dra-og-slipp
 viser bare gyldige mål, og serveren håndhever det samme.
 
-### Samme univers
+### Samme område
 
-Vanlig endring av delt posisjon/gruppekategori: alle id-er, roller, medlemskap
-og invitasjoner består; endringen påvirker alle universmedlemmers visning og
-krever rett til å redigere universets struktur. (`mode: 'reorder'`)
+Vanlig endring av delt posisjon/mappekategori: alle id-er, roller, medlemskap
+og invitasjoner består; endringen påvirker alle områdemedlemmers visning og
+krever rett til å redigere områdets struktur. (`mode: 'reorder'`)
 
 ### Eierskapsdomene
 
-Gruppens eierskapsdomene defineres av det **nåværende, dedupliserte settet av
-universeiere** (`universe_owner_set`). To universer er i samme domene bare
+Mappens eierskapsdomene defineres av det **nåværende, dedupliserte settet av
+områdeeiere** (`universe_owner_set`). To områder er i samme domene bare
 dersom settene er identiske i transaksjonsøyeblikket. Det er mer robust enn
 «opprettet av meg» / «delt med meg», som blir ustabilt når eierskap kan endres.
 
@@ -577,50 +577,50 @@ bekreftelsen kommer i riktige tilfeller.
 
 ### Samme domene → ekte reparenting (`mode: 'reparent'`)
 
-Gruppe-, liste-, kategori- og element-id-er består. Eksplisitte gruppeeiere,
-direkte gruppemedlemmer, ventende direkte gruppeinvitasjoner, innhold og
+Mappe-, liste-, kategori- og element-id-er består. Eksplisitte mappeeiere,
+direkte mappemedlemmer, ventende direkte mappeinvitasjoner, innhold og
 eksplisitte låser beholdes. `universe_id`, kategori og delt posisjon settes
 atomisk.
 
-Tilgangsendringer: de som bare arvet tilgang fra kildeuniverset mister den;
-måluniversets medlemmer får den; direkte gruppemedlemmer beholder den (og ser
-gruppen i fri seksjon hvis de ikke er medlem av måluniverset).
+Tilgangsendringer: de som bare arvet tilgang fra kildeområdet mister den;
+målområdets medlemmer får den; direkte mappemedlemmer beholder den (og ser
+mappen i fri seksjon hvis de ikke er medlem av målområdet).
 Ansvarstildelinger til brukere uten effektiv tilgang etter flyttingen nullstilles.
 
 ### Ulikt domene → kopier-og-slett (`mode: 'copy'`)
 
-Semantisk «slett den gamle gruppen for alle i det gamle domenet, og opprett en
+Semantisk «slett den gamle mappen for alle i det gamle domenet, og opprett en
 ny i det nye». Atomisk:
 
-* ny gruppe med ny UUID, og nye UUID-er for alle lister, kategorier og listepunkter
-* aktøren blir `created_by` og eksplisitt gruppeeier
+* ny mappe med ny UUID, og nye UUID-er for alle lister, kategorier og listepunkter
+* aktøren blir `created_by` og eksplisitt mappeeier
 * innhold, rekkefølge, kategorier, listeinnstillinger, tidsplaner, låstilstander og eksplisitt invitasjonspolicy kopieres
-* arv fra måluniverset beregnes på nytt
-* gamle direkte gruppemedlemmer, gruppeeiere og ventende invitasjoner kopieres **ikke**
-* kildeuniversets navn, medlemsliste og historikk eksponeres aldri i måluniverset
+* arv fra målområdet beregnes på nytt
+* gamle direkte mappemedlemmer, mappeeiere og ventende invitasjoner kopieres **ikke**
+* kildeområdets navn, medlemsliste og historikk eksponeres aldri i målområdet
 * ansvarstildelinger kopieres kun når den ansvarlige har effektiv tilgang i måldomenet; ellers `responsible = null`
-* det gamle gruppetreet slettes permanent i samme transaksjon, med gravsteiner for **samtlige** gamle id-er
+* det gamle mappetreet slettes permanent i samme transaksjon, med gravsteiner for **samtlige** gamle id-er
 * en deterministisk `mapping` (gammel id → ny id) returneres, så klientens optimistiske visning kan byttes uten flimring
 
-For de gamle medlemmene forsvinner gruppen helt; gamle offline-klienter møter
+For de gamle medlemmene forsvinner mappen helt; gamle offline-klienter møter
 gravsteiner og kan aldri gjenopplive treet. En eksplisitt bekreftelse vises før
-en slik flytting: de gamle mister tilgang, direkte gruppemedlemmer og medeiere
-følger ikke med, måluniversets medlemmer får tilgang, og det er ikke en ordinær
+en slik flytting: de gamle mister tilgang, direkte mappemedlemmer og medeiere
+følger ikke med, målområdets medlemmer får tilgang, og det er ikke en ordinær
 omplassering.
 
 Kryssdomene-flytting er **ikke** modellert som vanlig LWW — server-RPC-ens
 transaksjon og id-mapping er autoritativ.
 
-### Fra «Grupper delt med meg»
+### Fra «Mapper delt med meg»
 
-Et fritt gruppekort kan slippes på et univers bare når brukeren kan slette/flytte
-gruppen og opprette gruppe i måluniverset. Det er normalt en domenekryssing og
-bruker kopier-og-slett. Et vanlig direkte gruppemedlem kan ikke flytte gruppen.
+Et fritt mappekort kan slippes på et område bare når brukeren kan slette/flytte
+mappen og opprette mappe i målområdet. Det er normalt en domenekryssing og
+bruker kopier-og-slett. Et vanlig direkte mappemedlem kan ikke flytte mappen.
 
 ### Ingen flytting til den virtuelle seksjonen
 
-En kanonisk gruppe kan ikke flyttes «ut av» et univers og inn i «Grupper delt med
-meg». Alle grupper har alltid et kanonisk univers.
+En kanonisk mappe kan ikke flyttes «ut av» et område og inn i «Mapper delt med
+meg». Alle mapper har alltid et kanonisk område.
 
 ---
 
@@ -629,22 +629,22 @@ meg». Alle grupper har alltid et kanonisk univers.
 **Personlig** (per bruker, på medlemskapsraden `memberships.pos` — også for
 eiere):
 
-* universenes rekkefølge i «Mine universer»
-* universenes rekkefølge i «Universer delt med meg»
-* frie gruppers rekkefølge i «Grupper delt med meg»
+* områdenes rekkefølge i «Mine områder»
+* områdenes rekkefølge i «Områder delt med meg»
+* frie mappers rekkefølge i «Mapper delt med meg»
 
 **Felles** (på objektraden `pos`, for alle med tilgang):
 
-* gruppers rekkefølge i et univers
-* gruppekategorier og gruppenes kategoritilhørighet
-* listers rekkefølge i en gruppe
+* mappers rekkefølge i et område
+* mappekategorier og mappenes kategoritilhørighet
+* listers rekkefølge i en mappe
 * listekategorier og listepunkter
 
-Universets kanoniske `pos` brukes ikke som felles toppnivårekkefølge. I klienten
+Områdets kanoniske `pos` brukes ikke som felles toppnivårekkefølge. I klienten
 holder `.pos` den personlige verdien og `_canon` den kanoniske, som skrives
 tilbake uendret.
 
-Ved rolleendring mellom eier og medlem flyttes universet mellom seksjonene, og
+Ved rolleendring mellom eier og medlem flyttes området mellom seksjonene, og
 plasseres sist i den nye seksjonen dersom ingen tidligere personlig posisjon
 finnes der.
 
@@ -657,28 +657,28 @@ ingen rader med `card_id`). For hver liste med direkte medlemskap eller ventende
 invitasjoner:
 
 1. Beregn den effektive tilgangen før migreringen.
-2. **Redundante** listetilganger (mottakeren har allerede gruppetilgang) fjernes;
+2. **Redundante** listetilganger (mottakeren har allerede mappetilgang) fjernes;
    listen blir liggende.
-3. Finnes det ingen ANDRE aktive lister i foreldregruppen: mottakerne
-   **promoteres** til direkte gruppemedlemmer, ventende listeinvitasjoner blir
-   gruppeinvitasjoner, og listedelingene fjernes. (Kriteriet er «ingen annen
+3. Finnes det ingen ANDRE aktive lister i foreldremappen: mottakerne
+   **promoteres** til direkte mappemedlemmer, ventende listeinvitasjoner blir
+   mappeinvitasjoner, og listedelingene fjernes. (Kriteriet er «ingen annen
    aktiv liste», ikke «antall aktive lister ≤ 1» — ligger den delte lista selv i
    søpla mens en søskenliste er aktiv, ville promotering gitt mottakerne tilgang
    til nettopp den søskenlista.)
-4. Finnes det andre aktive lister: en **ny søskengruppe** opprettes i
-   samme univers (listetittelen som navn, «Delt liste» ved tom tittel,
+4. Finnes det andre aktive lister: en **ny søskenmappe** opprettes i
+   samme område (listetittelen som navn, «Delt liste» ved tom tittel,
    deterministisk kollisjonshåndtering med « (2)»), plassert ved siden av den
-   gamle i samme gruppekategori. Listen flyttes dit med uendrede id-er. Alle som
-   hadde tilgang via direkte medlemskap i den gamle gruppen (men ikke universet)
-   eller via listen, får direkte gruppemedlemskap i den nye — med samme rolle
+   gamle i samme mappekategori. Listen flyttes dit med uendrede id-er. Alle som
+   hadde tilgang via direkte medlemskap i den gamle mappen (men ikke området)
+   eller via listen, får direkte mappemedlemskap i den nye — med samme rolle
    som før. Ventende invitasjoner konverteres. Listemedlemskapene fjernes.
 
 Resultatet bevarer den tidligere effektive tilgangen uten at noen får tilgang til
 søskenlister de ikke kunne lese før. En tidligere direkte listemottaker uten
-universmedlemskap ser den nye gruppen under «Grupper delt med meg».
+områdemedlemskap ser den nye mappen under «Mapper delt med meg».
 
-Rollene backfilles i samme kjøring: universets oppretter blir universeier,
-gruppens oppretter blir eksplisitt gruppeeier (med mindre rollen alt er arvet),
+Rollene backfilles i samme kjøring: områdets oppretter blir områdeeier,
+mappens oppretter blir eksplisitt mappeeier (med mindre rollen alt er arvet),
 eksisterende direkte medlemskap blir vanlige roller, og redundante rader
 dedupliseres. Backfillen er markert i `public.migration_log` og kjøres **aldri**
 på nytt — en rolle som senere er fjernet med vilje skal ikke komme tilbake.

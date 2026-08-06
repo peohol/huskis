@@ -1,6 +1,6 @@
 # Dra-og-slipp-logikk
 
-Les denne når oppgaven berører reorder, overføring mellom lister/grupper, eller
+Les denne når oppgaven berører reorder, overføring mellom lister/mapper, eller
 selve dra-motoren i app.js.
 
 Bytte utløses av **overlapp**, ikke av et punkt:
@@ -19,7 +19,7 @@ Bytte utløses av **overlapp**, ikke av et punkt:
   Bevisst dette milde (ikke full senter-kryssing, som overskjøt inn i NESTE
   nabo): det tar unna det meste av flimringen, men en bevisst tilbakeføring er
   fortsatt lett. `recordSwap` lagrer `{refId, pos, t}`, nullstilles per drag
-  (`drag.recentSwap`), og gjelder kort/listepunkt/gruppe/univers (kategori-
+  (`drag.recentSwap`), og gjelder kort/listepunkt/mappe/område (kategori-
   plasseringen er ren senterbasert og flimrer ikke). Aksen for overlapp-målingen
   velges etter hvor nabo og dra-senter er mest adskilt (vertikale lister → Y-
   overlapp; horisontal kort-rad → X-overlapp).
@@ -43,13 +43,13 @@ Bytte utløses av **overlapp**, ikke av et punkt:
   kun det flyttede objektets posisjonsregister stemples).
 - **Dynamisk rotasjon** av det løftede objektet (`cardRotation()`, ±5° ut fra
   horisontal posisjon: −5° inntil venstre kant, +5° inntil høyre). Gjelder
-  **globalt** — ALLE objekt-typer (univers/gruppe/liste/listepunkt/kategori)
+  **globalt** — ALLE objekt-typer (område/mappe/liste/listepunkt/kategori)
   roterer likt under draging (`start*Drag`/`on*Move` setter `rotate(…) scale(…)`)
   og ved slipp (`dropIntoPlaceholder(el, rot)`). Unntak: kategori-slippet folder
   seg ut igjen (`expandCategory`) og hopper derfor over drop-rotasjonen, ellers
   ville en rotert `.cat-items` blåst opp utfoldings-høyde-målingen; rotasjonen
   under selve draging gjelder også kategorier. **Auto-scroll** ved vindus-kant for
-  kort, og av gruppefeltet ved feltets kanter under gruppe-drag.
+  kort, og av mappefeltet ved feltets kanter under mappe-drag.
 - **Posisjonering av det løftede elementet**: kort/listepunkt/kategori dras på selve
   board-et (window kan være scrollet) og er `position: absolute` med DOKUMENT-
   koordinater (`dragPos*` = peker − grep + `window.scroll{X,Y}`). Det er bevisst
@@ -58,7 +58,7 @@ Bytte utløses av **overlapp**, ikke av et punkt:
   dokumentet i stedet for viewporten, så det «scroller vekk» og hopper rett opp —
   ofte forbi viewporten — idet man tar tak. Absolute unngår dette (uendret på
   Android/desktop). Under auto-scroll flyttes kortet hver frame (`moveElement()` i
-  scroll-loopen) så det blir liggende under fingeren. Gruppe/univers dras i en
+  scroll-loopen) så det blir liggende under fingeren. Mappe/område dras i en
   modal der window-scroll aldri endres og er derfor fortsatt `fixed` (viewport-
   koordinater — `dragUsesPageCoords()` skiller på `drag.kind`). Fordi et absolutt-
   posisjonert barn teller i sidens scroll-område (et `fixed` gjorde ikke det),
@@ -72,7 +72,7 @@ Bytte utløses av **overlapp**, ikke av et punkt:
   fixed`-elementer (kontoknappen, toppmenyen) ut av viewporten. Klemmen måler den
   FAKTISK RENDREDE boksen (`dragRenderedHalf` = skala × maks rotasjon, og
   `dragScale()` gir riktig skala per type: liste 1.02, listepunkt/kategori 1.03,
-  gruppe/univers 1.05 — en for lav skala her ga noen få piksler overflow, nok til
+  mappe/område 1.05 — en for lav skala her ga noen få piksler overflow, nok til
   en scrollbar). Er objektet større enn viewporten langs en akse, sentreres det.
   Klemmen slår kun inn helt ute ved kanten, så den er usynlig for vanlig reorder/
   kolonnebytte. `draggedRect()` er bevisst UKLEMT — den er pekerens *intensjon* og
@@ -92,7 +92,7 @@ Bytte utløses av **overlapp**, ikke av et punkt:
   NEDOVER måles kortets NEDRE kant mot viewportens nedre kant. Er kortet høyere enn
   gapet mellom sonene (ligger i begge samtidig), avgjør pekerens halvdel retningen.
   **Gjelder kort, listepunkt OG kategori** (`windowScrollDrag()` — alle tre dras på
-  board-et med dokument-koordinater; gruppe/univers har egen modal-auto-scroll).
+  board-et med dokument-koordinater; mappe/område har egen modal-auto-scroll).
   Etter hver scroll-frame re-evalueres plasseringen via `reapplyPlacement(dir)`
   (kort → `updateCardPlacement`, listepunkt → `updateItemPlacement(lastX, lastY, dir)`,
   kategori → `placeRowPlaceholder`) med rulleretningen som dra-retning siden pekeren
@@ -109,7 +109,7 @@ Bytte utløses av **overlapp**, ikke av et punkt:
   eller helt utelatt (rask gest, eller en peker som bare hoppet fra nedtrykk til
   slipp) — placeholderen kunne da bli stående fra NEST siste bevegelse. Ved
   `pointerup` kjøres derfor én siste plassering fra de FAKTISKE slipp-
-  koordinatene, for ALLE fem nivåene (liste/listepunkt/kategori/gruppe/univers).
+  koordinatene, for ALLE fem nivåene (liste/listepunkt/kategori/mappe/område).
   Den er **ren senterbasert**: ingen retning (det finnes ingen ved et hopp), ingen
   20 %-terskel og ingen anti-reverseringslås — slipp-punktet ER brukerens tydelige
   sluttintensjon, og et raskt slipp skal lande der, ikke ett hakk unna. Retningen
@@ -125,7 +125,7 @@ Bytte utløses av **overlapp**, ikke av et punkt:
   skjermen, og animasjonen startet et sted objektet aldri var malt → et synlig
   hopp. `onCardUp` måler boksen selv (den må rydde dra-stilene før den måler
   slot-posisjonen) og sender den inn som `fromRect`. Startskalaen kommer fra
-  `dragScale()` (liste 1.02, listepunkt 1.03, gruppe/univers 1.05) — en hardkodet
+  `dragScale()` (liste 1.02, listepunkt 1.03, mappe/område 1.05) — en hardkodet
   1.02 ga et synlig krymp for alt annet enn lister. Kategorien sender fortsatt
   `rot = false` (ingen rotate/scale i drop-transformen), siden en transform der
   ville forstyrret utfoldings-høydeanimasjonen (`expandCategory`).
@@ -135,7 +135,7 @@ Bytte utløses av **overlapp**, ikke av et punkt:
   som en 60 Hz-skjerm på samme fysiske tid. `dt` klemmes til 50 ms (3 frames) så
   en bakgrunnsfane/pause ikke gir et hopp, og resten som avrundingen spiser
   (`rest`, ±1 px) tas med til neste frame så en lav fart ikke forsvinner på
-  120 Hz. Gjelder alle tre loopene: vindus-, gruppe- og univers-auto-scroll.
+  120 Hz. Gjelder alle tre loopene: vindus-, mappe- og område-auto-scroll.
   Soner, retning, board-bunngrense og fortegnsklemmen er uendret.
 - **Et drag som mister OBJEKTET SITT avbrytes** (`cancelActiveDrag` +
   `dragElDetached`): draget lever av `pointermove`/`pointerup` på window, og de
@@ -153,7 +153,7 @@ Bytte utløses av **overlapp**, ikke av et punkt:
   ingenting om gesten (fokus flytter seg av grunner som ikke rører pekeren — en
   innebygd iframe/verktøylinje, OS-nivå fokusbytte, nettleser-UI), og å avbryte
   på dem fikk lister/listepunkter/kategorier til å «glippe» rett etter løft — mens
-  gruppe-/univers-rader, som dras i en modal over siden, ikke ble rammet.
+  mappe-/område-rader, som dras i en modal over siden, ikke ble rammet.
   `lostpointercapture` duger heller ikke: den fyrer også når alt er i orden, og
   når noden faktisk rives ut, dispatches den på en node som ikke lenger er i
   dokumentet — så den når uansett ikke en lytter på `document`.
@@ -197,13 +197,13 @@ Bytte utløses av **overlapp**, ikke av et punkt:
     primær. En `pointerdown` med `isPrimary === false` (sekundær multitouch-peker)
     ignoreres helt.
 
-  Soner/unntak: **univers-/gruppe-rad** = hele chip-en unntatt ×-knappen; **liste**
+  Soner/unntak: **område-/mappe-rad** = hele chip-en unntatt ×-knappen; **liste**
   = hele korthodet (`.card-head`) unntatt tannhjul + × (klikk ellers på headeren
   kollapser/utvider lista, se under); **listepunkt** = hele `.item` unntatt
   avmerkingsboks + tannhjul + ×; **kategori** = hele overskriftslinjen
   (`.cat-head`) unntatt tannhjul + oppløs-knapp. **Cursor:** dra-sonene for
   listepunkt/kategori får `cursor: grab` (åpen hånd — «klikk-og-hold/dra drar»),
-  mens univers/gruppe/liste har `cursor: pointer` (pekende hånd — der er klikk den
+  mens område/mappe/liste har `cursor: pointer` (pekende hånd — der er klikk den
   primære handlingen: bytt/kollaps). `attachHoldDrag(zone, dragEl, startDrag,
   canDrag, except)` gir `startXxxDrag` et syntetisk event med pekerinfoen fra
   `pointerdown` (knappen er fortsatt nede når draget starter, så `pointerId`-en er
@@ -219,8 +219,8 @@ Bytte utløses av **overlapp**, ikke av et punkt:
   `dragEl` ikke lenger er `isConnected`. `canDrag` gater på frossen/capability/`done`
   — og på FORELDERENS myndighet der plasseringen tilhører den: et listekort krever
   i tillegg `canAddList(activeGroupObj())` (rekkefølgen blant søskenlistene er
-  gruppens struktur, akkurat som grupperadene krever `reorderInParent` på
-  universet). Uten det kunne en liste med lås-unntak i en låst gruppe dras rundt
+  mappens struktur, akkurat som mapperadene krever `reorderInParent` på
+  området). Uten det kunne en liste med lås-unntak i en låst mappe dras rundt
   mens serveren forkastet hver posisjons-skriving.
   Under et pågående drag blokkeres native scroll av en ikke-passiv `touchmove`-
   lytter (`preventTouchScroll`, av/på i `beginDragCommon`/`finishDrag`). Mens
@@ -295,7 +295,7 @@ Bytte utløses av **overlapp**, ikke av et punkt:
     layouten er satt (restore/release) og kortet er lagt i normal flyt;
     `slotDocTop`/`slotH` måles i DOKUMENT-koordinat (upåvirket av selve scrollingen)
     FØR `dropIntoPlaceholder` setter fly-inn-transformen. Hoppes over når lista
-    slippes på nav-knappen (flyttes til en annen gruppe → forsvinner fra
+    slippes på nav-knappen (flyttes til en annen mappe → forsvinner fra
     board-et). Gjelder både touch og mus. Kun i `boardScope` — nav-modalen har
     ingen window-scroll å justere.
   - **Auto-scroll kan aldri bytte fortegn** (`startAutoScroll`): den tillatte
@@ -319,7 +319,7 @@ Bytte utløses av **overlapp**, ikke av et punkt:
   `beginDragCommon` FØR placeholderen settes inn), fjerner placeholderen, rydder
   dragstiler/global dragtilstand og gjenoppretter evt. desktop-kollaps
   (`restoreCardsAfterDrag`). Den beregner IKKE ny `pos`, kaller ikke `stampPos`/
-  `cloudPersonalPos`/`reindex*Colors`/`save`, og åpner ikke gruppe-flyttevelgeren.
+  `cloudPersonalPos`/`reindex*Colors`/`save`, og åpner ikke mappe-flyttevelgeren.
   `pointerup` bruker fortsatt den vanlige drop-flyten.
 - **Alle placeholders deler én stil** (felles regel for `.card-/.item-/.group-
   placeholder`): 1px stiplet kant med lav opacity, svakt mørknet flate og en
@@ -563,16 +563,16 @@ inne i kortet.
 - **Låst kilde-liste**: umulig — selve draget er avskrudd (`attachHoldDrag` sin
   `canDrag = !frozen(cardData)` for både listepunkt og kategori), så ingen egen
   vakt trengs i drop-flyten.
-- **Opprettelsesrett i gruppen** (`S.canExtract(row)`, sjekket via
+- **Opprettelsesrett i mappen** (`S.canExtract(row)`, sjekket via
   `canExtractDragged()` i `updateItemPlacement`/`updateCategoryPlacement`):
-  ekstrahering LAGER en liste, og den myndigheten ligger på GRUPPEN, ikke på det
+  ekstrahering LAGER en liste, og den myndigheten ligger på MAPPEN, ikke på det
   løftede objektet. Board-scopet spør derfor `canAddList(activeGroupObj())`.
   Uten den dukker ny-liste-placeholderen aldri opp — `setReorderMode()` beholder
   reorder-placeholderen der den står, og et slipp i board-luften legger objektet
   tilbake der det kom fra. Det er ikke bare teoretisk: et **lås-unntak** på én
-  liste i en låst gruppe gjør nettopp at objektet kan dras (lista er redigerbar)
+  liste i en låst mappe gjør nettopp at objektet kan dras (lista er redigerbar)
   uten at en ny søskenliste kan opprettes. Nav-scopet svarer `cap(row, 'move')` —
-  det NYE universet blir alltid mitt, men å ta gruppen UT av det gamle er en
+  det NYE området blir alltid mitt, men å ta mappen UT av det gamle er en
   flytting `move_group` krever destruktiv myndighet i kilden for.
 - Under auto-scroll re-evalueres modus/plassering via `reapplyPlacement` →
   `updateCategoryPlacement`/`updateItemPlacement` (samme som peker-bevegelsen), så
@@ -640,13 +640,13 @@ forhåndsvisning: den rører IKKE `card.collapsed`/`item.collapsed` og lagrer ik
   som sikkerhetsnett → kollapser tilbake ved avbrudd/`pointercancel`); `beginDragCommon`
   nullstiller `drag.peekCard`/`peekCat` per drag.
 
-## Universer og grupper (nav-modalen)
+## Områder og mapper (nav-modalen)
 
 Egen kode for disse to nivåene finnes ikke lenger: `startGroupDrag`/
 `startUniverseDrag`/`updateGroupPlacement`/`updateUniversePlacement`/
 `finishColumnDrop`/`cancelColumnDrop` + de to auto-scroll-loopene er FJERNET og
-erstattet av `navScope` (se toppen av dokumentet). Universer dras som lister
-(`startCardDrag`), grupper som listepunkter (`startItemDrag`), gruppekategorier
+erstattet av `navScope` (se toppen av dokumentet). Områder dras som lister
+(`startCardDrag`), mapper som listepunkter (`startItemDrag`), mappekategorier
 som kategorier (`startCategoryDrag`).
 
 Det som er verdt å merke seg:
@@ -658,47 +658,47 @@ Det som er verdt å merke seg:
 - **Auto-scroll ruller modalens `.menu-body`** (`updateModalAutoScroll`,
   `startModalAutoScroll`) og re-evaluerer plasseringen per frame med
   `reapplyPlacement`, som vindus-auto-scrollen.
-- **Kollaps-alle under draget** gjelder også her (universkortene foldes til
+- **Kollaps-alle under draget** gjelder også her (områdekortene foldes til
   overskriften mens ett dras), men uten normal-flow-vakten — den finnes for
   window-scroll-klemmen på mobil, og modalen scroller i sin egen container.
-- **En gruppe som bytter univers går gjennom `move_group`-RPC-en**
+- **En mappe som bytter område går gjennom `move_group`-RPC-en**
   (`commitGroupMove`) — databasen avviser en direkte skriving av
   `groups.universe_id`. Flyttingen vises optimistisk lokalt og holdes i
   `pendingGroupMoves` til RPC-en har landet (doc-et beholder den GAMLE
   plasseringen så lenge). Krysser flyttingen et **eierskapsdomene** (ulikt sett
-  universeiere), vises en eksplisitt bekreftelse først, og serveren svarer med en
+  områdeeiere), vises en eksplisitt bekreftelse først, og serveren svarer med en
   id-mapping som `applyIdMapping` bruker til å bytte det lokale treet uten
   flimmer. Avbrutt bekreftelse ruller tilbake (`revertGroupMove`).
-- **Fri gruppe** («Grupper delt med meg») omrokkert i sin egen seksjon skriver kun
+- **Fri mappe** («Mapper delt med meg») omrokkert i sin egen seksjon skriver kun
   PERSONLIG rekkefølge (`cloudPersonalPos` → `memberships.pos`) — det andre ser
-  endres aldri. Det samme gjelder universene på toppnivå. Se
+  endres aldri. Det samme gjelder områdene på toppnivå. Se
   `docs/rettigheter-og-deling.md` del 11 og 12.
 - **Seksjonsoverskriftene** i nav-modalen ligger i den samme `.board-col` som
   kortene, men `boardRows` filtrerer på `.card`/`.card-placeholder`, så de er
   aldri dra-mål.
-- **Den aktive gruppen følger med** når den bytter univers (dratt dit, ekstrahert
-  til et nytt, eller båret med av en gruppekategori): `followActiveGroup()` kalles
-  først i `renderBoard()` og flytter `state.activeUniverse` etter gruppa.
-  `activeGroupObj()` leter bare i det aktive universet, så uten dette falt
-  hovedsiden til «Ingen grupper ennå.» med gruppa fortsatt i behold. Den bor i
+- **Den aktive mappen følger med** når den bytter område (dratt dit, ekstrahert
+  til et nytt, eller båret med av en mappekategori): `followActiveGroup()` kalles
+  først i `renderBoard()` og flytter `state.activeUniverse` etter mappa.
+  `activeGroupObj()` leter bare i det aktive området, så uten dette falt
+  hovedsiden til «Ingen mapper ennå.» med mappa fortsatt i behold. Den bor i
   render-veien nettopp for å dekke ALLE veiene inn med ett sted.
 
 ### Slipp i en LÅST mål-container avvises med en gang
 
 DB-vaktene (`*_before_update`) krever redigeringsrett på BÅDE gammel og ny
 forelder. Uten en klient-sjekk ville et slipp inn i en frossen liste/et frossen
-univers sett ut til å lykkes og så blitt snappet tilbake ved neste synk. Både
+område sett ut til å lykkes og så blitt snappet tilbake ved neste synk. Både
 `onItemUp` og `onCategoryUp` sjekker derfor mål-containeren FØR de rører state:
 er den `frozen()`, kjøres `restoreDraggedToOrigin()` + `finishDrag()` (som et
 avbrutt drag) og en toast sier fra — `S.lockedTargetMsg`, «Listen er låst – du
-kan ikke flytte noe hit» på board-et og «Universet er låst – du kan ikke flytte
+kan ikke flytte noe hit» på board-et og «Området er låst – du kan ikke flytte
 noe hit» i nav-modalen.
 
-## Flytting av lister til en annen gruppe (innen samme univers)
+## Flytting av lister til en annen mappe (innen samme område)
 
-Gruppene ligger ikke på hovedsiden. Dra i stedet lista opp på
+Mappene ligger ikke på hovedsiden. Dra i stedet lista opp på
 **nav-knappen** i toppmenyen: knappen markeres (`.drop-target`, kun når
-det finnes andre grupper), dra-kortet blir gjennomskinnelig (`.to-group`), og
+det finnes andre mapper), dra-kortet blir gjennomskinnelig (`.to-group`), og
 board-et fryses mens man sikter (ingen reorder over toppmenyen). Slipp legger
 kortet normalt tilbake på board-et og åpner en velger («Flytt … til:», i
 plasserings-modal-skallet via `openPicker`); valget gjør en kirurgisk flytting
@@ -707,6 +707,6 @@ stemples) + toast. Avbrytes velgeren blir lista
 liggende. `moveCardToGroup` slår opp det LEVENDE kortet på id — en
 synk-rebuild kan ha byttet ut objektet mens velgeren sto åpen.
 
-Velgeren viser gruppene i det AKTIVE universet der man faktisk kan opprette
-lister (`cap(g, 'createList')`; gruppekategorier er overskrifter og listes ikke). Vil man flytte lista lenger — til en gruppe i et annet univers —
-flytter man i stedet GRUPPEN i nav-modalen. Se `docs/data-model.md`.
+Velgeren viser mappene i det AKTIVE området der man faktisk kan opprette
+lister (`cap(g, 'createList')`; mappekategorier er overskrifter og listes ikke). Vil man flytte lista lenger — til en mappe i et annet område —
+flytter man i stedet MAPPEN i nav-modalen. Se `docs/data-model.md`.

@@ -80,7 +80,7 @@ check('release.yml kjører på push til main',
 
 const conc = release.match(/\nconcurrency:\s*\n(?: {2}.*\n|\s*#.*\n)*/);
 check('release.yml har en concurrency-gruppe', !!conc);
-check('concurrency-gruppen er én fast gruppe (ikke per ref)',
+check('concurrency-gruppen er én fast mappe (ikke per ref)',
   !!conc && /group:\s*huskis-release\s*$/m.test(conc[0]),
   conc ? (conc[0].match(/group:.*/) || [''])[0].trim() : '');
 check('en pågående release avbrytes ikke (cancel-in-progress: false)',

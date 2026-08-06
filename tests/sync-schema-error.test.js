@@ -40,8 +40,8 @@ function buildDB() {
       _PL: PL,
       profiles: [{ id: uid, email: 'me@x.no', display_name: 'Meg Selv', user_metadata: {} }],
       passwords: { 'me@x.no': 'x' },
-      universes: [base({ id: PU, owner_id: uid, name: 'Mitt univers' })],
-      groups: [base({ id: PG, owner_id: uid, universe_id: PU, name: 'Min gruppe' })],
+      universes: [base({ id: PU, owner_id: uid, name: 'Mitt område' })],
+      groups: [base({ id: PG, owner_id: uid, universe_id: PU, name: 'Min mappe' })],
       cards: [base({ id: PL, owner_id: uid, group_id: PG, title: 'Min liste', k: true, p: true, lab_ts: 0, lab_org: '' })],
       items: [base({ id: PI, owner_id: uid, card_id: PL, text: 'Punkt' })],
       memberships: [], share_invites: [], tombstones: [],
@@ -60,7 +60,7 @@ async function load(page, db, viewport) {
     localStorage.setItem('hk-mock-db', JSON.stringify(db));
     // Kontoen har sett HELE introduksjonen (docs/introduksjon.md): verken
     // omvisningen eller et gest-tips skal legge seg over det som testes.
-    sessionStorage.setItem('hk-mock-session', JSON.stringify({ id: 'uMe', email: 'me@x.no', user_metadata: { onboarding: { v: 1, status: 'done' }, tips: { drag: true, trash: true, moveList: true } } }));
+    sessionStorage.setItem('hk-mock-session', JSON.stringify({ id: 'uMe', email: 'me@x.no', user_metadata: { onboarding: { v: 3, status: 'done' }, tips: { drag: true, trash: true, moveList: true } } }));
   }, db);
   await page.goto(BASE + '/?mock=1');
   await page.waitForFunction(() => window.__huskis && window.__huskis.authUser, { timeout: 5000 });

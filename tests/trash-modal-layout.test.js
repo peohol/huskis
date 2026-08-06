@@ -27,8 +27,8 @@
 
   Innholdsvariantene ligger i fiksturet: kort navn, langt navn med mange ord og
   norske bokstaver, ett svært langt ord uten mellomrom, manglende metadata
-  (listepunkter), lang metadata («128 listepunkter» / «Gruppekategori»), avskrudd
-  gjenopprettingsknapp (et delt univers jeg bare er medlem av), rader med og uten
+  (listepunkter), lang metadata («128 listepunkter» / «Mappekategori»), avskrudd
+  gjenopprettingsknapp (et delt område jeg bare er medlem av), rader med og uten
   fargeprikk, og flere rader i hver kasse samtidig.
 
   Kjør:
@@ -54,12 +54,12 @@ const NOSPACE = 'Blåbærsyltetøyglassoppskriftsamlingsdokumentasjonsvedleggæ�
 const LONGISH = [SHORT, LONG, NOSPACE];
 
 /* Fikstur — uC er innlogget:
-     UB   eid av uC, aktivt univers
-            G1   gruppe med lista C1 (som har de slettede listepunktene)
-            + tre slettede grupper (én av dem en gruppekategori → lang metadata)
+     UB   eid av uC, aktivt område
+            G1   mappe med lista C1 (som har de slettede listepunktene)
+            + tre slettede mapper (én av dem en mappekategori → lang metadata)
             + tre slettede lister i G1 (én med 128 listepunkter → lang metadata)
-     tre slettede universer: det med det lange navnet er eid av uA, der er uC bare
-     MEDLEM → «Gjenopprett» AVSKRUDD (can_delete_object for et univers er
+     tre slettede områder: det med det lange navnet er eid av uA, der er uC bare
+     MEDLEM → «Gjenopprett» AVSKRUDD (can_delete_object for et område er
      is_universe_owner). De to andre eier uC selv → aktiv knapp. */
 function buildDB() {
   const uA = 'uA', uC = 'uC';
@@ -79,15 +79,15 @@ function buildDB() {
 
   LONGISH.forEach((navn, i) => {
     ids.GT[navn] = U(); ids.CT[navn] = U(); ids.IT[navn] = U(); ids.UT[navn] = U();
-    // Universet med det LANGE navnet eies av uA; uC er bare medlem der og får
+    // Området med det LANGE navnet eies av uA; uC er bare medlem der og får
     // en avskrudd «Gjenopprett». De to andre eier uC selv.
     const delt = navn === LONG;
     universes.push(base({ id: ids.UT[navn], owner_id: delt ? uA : uC, name: navn, trashed: true, pos: i + 1 }));
     if (delt) memberships.push({ id: U(), user_id: uA, universe_id: ids.UT[navn], group_id: null, role: 'owner', pos: 0, created_at: 1 });
     memberships.push({ id: U(), user_id: uC, universe_id: ids.UT[navn], group_id: null,
       role: delt ? 'member' : 'owner', pos: i + 1, created_at: 1 });
-    // Den midterste slettede gruppen er en GRUPPEKATEGORI → metadataen blir
-    // «Gruppekategori» i stedet for «N lister».
+    // Den midterste slettede mappen er en MAPPEKATEGORI → metadataen blir
+    // «Mappekategori» i stedet for «N lister».
     groups.push(base({ id: ids.GT[navn], owner_id: uC, universe_id: ids.UB, name: navn,
       trashed: true, is_cat: i === 1, pos: i + 1 }));
     cards.push(cardRow({ id: ids.CT[navn], owner_id: uC, group_id: ids.G1, title: navn,
@@ -123,7 +123,7 @@ async function loadAs(page, db, viewport) {
     // Kontoen har sett HELE introduksjonen (docs/introduksjon.md): verken
     // omvisningen eller et gest-tips skal legge seg over det som måles.
     sessionStorage.setItem('hk-mock-session', JSON.stringify({ id: 'uC', email: 'c@x.no',
-      user_metadata: { onboarding: { v: 1, status: 'done' }, tips: { drag: true, trash: true, moveList: true } } }));
+      user_metadata: { onboarding: { v: 3, status: 'done' }, tips: { drag: true, trash: true, moveList: true } } }));
   }, db);
   await page.goto(BASE + '/?mock=1');
   await page.waitForFunction(() => {
@@ -148,7 +148,7 @@ async function openTrash(p, kind, ids) {
   } else {
     await p.evaluate(() => window.__huskis.openNavModal());
     await p.waitForSelector('#nav-modal:not([hidden])');
-    if (kind === 'universer') await p.click('#uni-trash-btn');
+    if (kind === 'områder') await p.click('#uni-trash-btn');
     else await p.click('#nav-board .card[data-id="' + ids.UB + '"] .group-trash-btn');
   }
   await settled(p);
@@ -157,7 +157,7 @@ async function openTrash(p, kind, ids) {
 async function closeTrash(p, kind) {
   await p.click('#trash-close');
   await p.waitForFunction(() => document.getElementById('trash-modal').hidden, null, { timeout: 8000, polling: 100 });
-  if (kind === 'universer' || kind === 'grupper') {
+  if (kind === 'områder' || kind === 'mapper') {
     await p.evaluate(() => window.__huskis.closeNavModal());
     await p.waitForFunction(() => document.getElementById('nav-modal').hidden, null, { timeout: 8000, polling: 100 });
   }
@@ -376,7 +376,7 @@ async function run(browser, label, viewport, mobile, ids, db) {
 
   // 7 — alle fire søppelkassetypene måles med de samme kravene
   const snaps = {};
-  for (const kind of ['universer', 'grupper', 'lister', 'listepunkter']) {
+  for (const kind of ['områder', 'mapper', 'lister', 'listepunkter']) {
     await openTrash(p, kind, ids);
     snaps[kind] = await snapshot(p);
     const hits = await hitTest(p);
@@ -388,18 +388,18 @@ async function run(browser, label, viewport, mobile, ids, db) {
     Object.keys(snaps).map((k) => k + '=' + snaps[k].rows.length).join(' '));
 
   // Innholdsvariantene som ikke er navn: prikk, metadata og avskrudd knapp.
-  const dots = { universer: true, lister: true, grupper: false, listepunkter: false };
+  const dots = { områder: true, lister: true, mapper: false, listepunkter: false };
   log(label + ': fargeprikk kun der objektet har farge',
     Object.keys(dots).every((k) => snaps[k].rows.every((r) => r.hasDot === dots[k])),
     Object.keys(dots).map((k) => k + '=' + snaps[k].rows.map((r) => (r.hasDot ? '●' : '–')).join('')).join(' '));
   log(label + ': listepunkter har ingen metadata (og bryter ikke av det)',
     snaps.listepunkter.rows.every((r) => r.meta === null),
     JSON.stringify(snaps.listepunkter.rows.map((r) => r.metaText)));
-  const longMeta = snaps.lister.rows.map((r) => r.metaText).concat(snaps.grupper.rows.map((r) => r.metaText));
+  const longMeta = snaps.lister.rows.map((r) => r.metaText).concat(snaps.mapper.rows.map((r) => r.metaText));
   log(label + ': lang metadata finnes i fiksturet og holdt seg i raden',
-    longMeta.includes('128 listepunkter') && longMeta.includes('Gruppekategori'),
+    longMeta.includes('128 listepunkter') && longMeta.includes('Mappekategori'),
     JSON.stringify(longMeta));
-  const uni = snaps.universer.rows;
+  const uni = snaps.områder.rows;
   log(label + ': avskrudd «Gjenopprett» finnes, og har samme geometri som en aktiv',
     uni.some((r) => r.btnDisabled) && uni.some((r) => !r.btnDisabled)
       && new Set(uni.map((r) => Math.round(r.btn.w) + 'x' + Math.round(r.btn.h))).size === 1,

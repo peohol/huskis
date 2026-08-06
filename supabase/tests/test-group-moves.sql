@@ -1,6 +1,6 @@
 -- ============================================================
--- Testsuite for move_group(): den ENESTE veien en gruppe bytter univers.
---   * samme univers          → ren omplassering (delt posisjon/kategori)
+-- Testsuite for move_group(): den ENESTE veien en mappe bytter område.
+--   * samme område          → ren omplassering (delt posisjon/kategori)
 --   * samme eierskapsdomene  → ekte REPARENTING (id-er, roller og medlemmer består)
 --   * ulikt eierskapsdomene  → KOPIER-OG-SLETT (nye id-er + gravsteiner)
 --
@@ -11,7 +11,7 @@
 --   P = eier av U1 og U3 (eierskapsdomene {P})
 --   Q = MEDEIER av U2 sammen med P (eierskapsdomene {P,Q})
 --   R = vanlig medlem av U1
---   S = DIREKTE gruppemedlem i G (ingen universrolle)
+--   S = DIREKTE mappemedlem i G (ingen områderolle)
 -- ============================================================
 
 \set ON_ERROR_STOP on
@@ -52,7 +52,7 @@ insert into auth.users (id, email) values
   (:'R', 'move-r@example.com'), (:'S', 'move-s@example.com')
 on conflict (id) do nothing;
 
--- ---------- 0. Tre universer, to eierskapsdomener ----------
+-- ---------- 0. Tre områder, to eierskapsdomener ----------
 reset role; select set_config('request.jwt.claim.sub', :'P', false); set role authenticated;
 insert into public.universes (id, owner_id, name, ts, org, pos) values (:'U1', :'P', 'Mitt', 1, 'p', 1);
 insert into public.universes (id, owner_id, name, ts, org, pos) values (:'U2', :'P', 'Delt', 1, 'p', 2);
@@ -80,20 +80,20 @@ select public.t_check('eierskapsdomenene: U1 = U3 = {P}, U2 = {P,Q}',
   public.universe_owner_set(:'U1') = public.universe_owner_set(:'U3')
   and public.universe_owner_set(:'U1') <> public.universe_owner_set(:'U2'));
 
--- ---------- 1. Omplassering i SAMME univers ----------
+-- ---------- 1. Omplassering i SAMME område ----------
 reset role; select set_config('request.jwt.claim.sub', :'P', false); set role authenticated;
 select public.move_group(:'G', :'U1', null, 5) ->> 'mode' as m1 \gset
-select public.t_check('samme univers = ren omplassering (ingen flytting)',
+select public.t_check('samme område = ren omplassering (ingen flytting)',
   :'m1' = 'reorder'
   and (select pos from public.groups where id = :'G') = 5
   and (select universe_id from public.groups where id = :'G') = :'U1'::uuid);
 
 -- ---------- 2. Rettighetskrav ----------
 reset role; select set_config('request.jwt.claim.sub', :'S', false); set role authenticated;
-select public.t_fails('et vanlig direkte gruppemedlem kan ikke flytte gruppen',
+select public.t_fails('et vanlig direkte mappemedlem kan ikke flytte mappen',
   format('select public.move_group(%L, %L)', :'G', :'U3'));
 reset role; select set_config('request.jwt.claim.sub', :'R', false); set role authenticated;
-select public.t_fails('kilde krever destruktiv myndighet — låst gruppe kan ikke flyttes av et medlem',
+select public.t_fails('kilde krever destruktiv myndighet — låst mappe kan ikke flyttes av et medlem',
   format('select public.move_group(%L, %L)', :'GB', :'U2'));
 select public.t_check('… fordi R mangler opprettelsesrett i U2 (og ikke er medlem der)',
   not public.can_create_child('universe', :'U2', :'R'));
@@ -112,16 +112,16 @@ select public.t_check('samme domene → reparenting med samme id',
 select public.t_check('lister, kategorier og listepunkter beholder id-ene sine',
   (select count(*) from public.cards where id = :'L' and group_id = :'G') = 1
   and (select count(*) from public.items where id = :'IT' and cat_id = :'IC') = 1);
-select public.t_check('direkte gruppemedlemmer og roller består',
+select public.t_check('direkte mappemedlemmer og roller består',
   public.group_role(:'G', :'S') = 'member');
 select public.t_check('ansvarstildeling til R nullstilles (R mistet effektiv tilgang)',
   (select responsible from public.items where id = :'IT') is null);
 reset role; select set_config('request.jwt.claim.sub', :'R', false); set role authenticated;
-select public.t_check('kildeuniversets arvede medlem mister tilgang',
+select public.t_check('kildeområdets arvede medlem mister tilgang',
   not public.is_group_member(:'G', :'R')
   and (select count(*) from public.cards where id = :'L') = 0);
 reset role; select set_config('request.jwt.claim.sub', :'S', false); set role authenticated;
-select public.t_check('det direkte gruppemedlemmet beholder tilgang, fortsatt som FRI gruppe',
+select public.t_check('det direkte mappemedlemmet beholder tilgang, fortsatt som FRI mappe',
   (select (x -> 'free')::boolean from jsonb_array_elements(public.get_my_doc() -> 'groups') x
     where x ->> 'id' = :'G') = true);
 
@@ -134,7 +134,7 @@ select ((:'res'::jsonb) -> 'mapping') ->> :'L' as newl \gset
 select ((:'res'::jsonb) -> 'mapping') ->> :'IT' as newit \gset
 select public.t_check('ulikt domene → kopier-og-slett med NYE id-er',
   :'m3' = 'copy' and :'newg' <> :'G' and :'newl' <> :'L' and :'newit' <> :'IT');
-select public.t_check('den nye gruppen ligger i måluniverset, med aktøren som oppretter',
+select public.t_check('den nye mappen ligger i målområdet, med aktøren som oppretter',
   (select universe_id from public.groups where id = :'newg'::uuid) = :'U2'::uuid
   and (select owner_id from public.groups where id = :'newg'::uuid) = :'P'::uuid);
 select public.t_check('innholdet fulgte med (liste + kategori + listepunkt), med bevart nøsting',
@@ -149,11 +149,11 @@ select public.t_check('gravsteiner for hver eneste gamle id',
   (select count(*) from public.tombstones where resource_id in (:'G', :'L', :'IC', :'IT')) = 4);
 select public.t_check('gamle medlemskap/eiere følger IKKE med over domenegrensen',
   (select count(*) from public.memberships where group_id = :'newg'::uuid and user_id = :'S') = 0);
-select public.t_check('aktøren har full myndighet i den nye gruppen',
+select public.t_check('aktøren har full myndighet i den nye mappen',
   public.is_group_owner(:'newg'::uuid, :'P'));
 
 reset role; select set_config('request.jwt.claim.sub', :'S', false); set role authenticated;
-select public.t_check('det gamle gruppemedlemmet mister ALL tilgang',
+select public.t_check('det gamle mappemedlemmet mister ALL tilgang',
   (select count(*) from public.groups where id = :'newg'::uuid) = 0
   and (select count(*) from public.cards where id = :'newl'::uuid) = 0
   and jsonb_array_length(public.get_my_doc() -> 'groups') = 0);
@@ -161,24 +161,24 @@ select public.t_fails('en gammel offline-klient kan ikke gjenopplive det gamle t
   format('insert into public.cards (id, owner_id, group_id, title, ts, org) values (%L, %L, %L, ''Innhold'', 99, ''s'')',
          :'L', :'S', :'G'));
 
--- ---------- 5. Måluniversets medlemmer får tilgang ----------
+-- ---------- 5. Målområdets medlemmer får tilgang ----------
 reset role; select set_config('request.jwt.claim.sub', :'Q', false); set role authenticated;
-select public.t_check('medeieren i måluniverset ser den nye gruppen inne i universet',
+select public.t_check('medeieren i målområdet ser den nye mappen inne i området',
   (select (x -> 'free')::boolean from jsonb_array_elements(public.get_my_doc() -> 'groups') x
     where x ->> 'id' = :'newg') = false
   and (select count(*) from public.cards where id = :'newl'::uuid) = 1);
 
-select public.t_fails('Q kan ikke flytte gruppen til et univers Q ikke er medlem av',
+select public.t_fails('Q kan ikke flytte mappen til et område Q ikke er medlem av',
   format('select public.move_group(%L, %L)', :'newg', :'U1'));
 
--- ---------- 6. Delt → eget univers (også en domenekryssing) ----------
+-- ---------- 6. Delt → eget område (også en domenekryssing) ----------
 reset role; select set_config('request.jwt.claim.sub', :'P', false); set role authenticated;
 select public.move_group(:'newg'::uuid, :'U1', null, 3) as res2 \gset
 select (:'res2'::jsonb) ->> 'mode' as m4 \gset
 select (:'res2'::jsonb) ->> 'group' as newg2 \gset
-select public.t_check('delt → eget univers krysser domenegrensen',
+select public.t_check('delt → eget område krysser domenegrensen',
   :'m4' = 'copy' and :'newg2' <> :'newg');
-select public.t_check('P ser den nye gruppen i U1',
+select public.t_check('P ser den nye mappen i U1',
   (select universe_id from public.groups where id = :'newg2'::uuid) = :'U1'::uuid);
 reset role; select set_config('request.jwt.claim.sub', :'Q', false); set role authenticated;
 select public.t_check('… og Q (som ikke er medlem av U1) mister tilgangen',
@@ -186,19 +186,19 @@ select public.t_check('… og Q (som ikke er medlem av U1) mister tilgangen',
   and (select count(*) from public.groups where id = :'newg'::uuid) = 0);
 reset role; select set_config('request.jwt.claim.sub', :'P', false); set role authenticated;
 
--- ---------- 7. Fri gruppe → univers, og ugyldige mål ----------
-select public.t_fails('en gruppekategori kan ikke flyttes til et annet univers',
+-- ---------- 7. Fri mappe → område, og ugyldige mål ----------
+select public.t_fails('en mappekategori kan ikke flyttes til et annet område',
   format('select public.move_group(%L, %L)', :'GC', :'U1'));
-select public.t_fails('ukjent måluniverset avvises',
+select public.t_fails('ukjent målområdet avvises',
   format('select public.move_group(%L, ''00000000-0000-0000-0000-0000000000ff'')', :'GB'));
-select public.t_fails('en gruppekategori fra et ANNET univers er ugyldig mål-kategori',
+select public.t_fails('en mappekategori fra et ANNET område er ugyldig mål-kategori',
   format('select public.move_group(%L, %L, %L)', :'GB', :'U1', :'GC'));
 select public.t_check('kilden er uendret etter de avviste forsøkene',
   (select universe_id from public.groups where id = :'GB') = :'U1'::uuid
   and (select cat_id from public.groups where id = :'GB') is null);
 
--- En FRI gruppe (mottakeren er ikke medlem av det kanoniske universet) kan
--- flyttes inn i et univers mottakeren kan opprette i — det krysser domenet.
+-- En FRI mappe (mottakeren er ikke medlem av det kanoniske området) kan
+-- flyttes inn i et område mottakeren kan opprette i — det krysser domenet.
 reset role; select set_config('request.jwt.claim.sub', :'P', false); set role authenticated;
 insert into public.groups (id, owner_id, universe_id, name, ts, org, pos)
   values ('20000000-2222-0000-0000-00000000000f', :'P', :'U1', 'Til S', 1, 'p', 9);
@@ -209,11 +209,11 @@ insert into public.universes (id, owner_id, name, ts, org, pos)
   values ('10000000-2222-0000-0000-00000000000f', :'S', 'S sitt', 1, 's', 1);
 select public.move_group('20000000-2222-0000-0000-00000000000f',
                          '10000000-2222-0000-0000-00000000000f', null, 1) ->> 'mode' as m5 \gset
-select public.t_check('fri gruppe → eget univers er en domenekryssing (kopier-og-slett)',
+select public.t_check('fri mappe → eget område er en domenekryssing (kopier-og-slett)',
   :'m5' = 'copy');
-select public.t_check('gruppen vises nå INNE i S sitt univers',
+select public.t_check('mappen vises nå INNE i S sitt område',
   (select count(*) from public.groups where universe_id = '10000000-2222-0000-0000-00000000000f') = 1
   and (select count(*) from public.groups where id = '20000000-2222-0000-0000-00000000000f') = 0);
 
 reset role;
-select 'ALLE GRUPPEFLYTTINGS-TESTER GRØNNE' as resultat;
+select 'ALLE MAPPEFLYTTINGS-TESTER GRØNNE' as resultat;

@@ -114,7 +114,7 @@ async function login(p, email) {
   await p.locator('#auth-password').fill('passord123');
   await p.locator('#auth-submit').click();
   // `lastMy` settes først når get_my_doc har svart — da er kontoen innlogget
-  // og dokumentet hentet. (En fersk konto har null universer — board er tomt.)
+  // og dokumentet hentet. (En fersk konto har null områder — board er tomt.)
   await p.waitForFunction(() => {
     const H = window.__huskis;
     return H && H.authUser && H.lastMy;
@@ -144,7 +144,7 @@ const serverHas = async (p, table, id) => (await serverRows(p, table)).some((r) 
 const localHas = (p, id) => p.evaluate((x) => !!window.__huskis.docFromMyState().cards.find((c) => c.id === x)
   || !!window.__huskis.docFromMyState().items.find((c) => c.id === x), id);
 
-// Legg en liste med to listepunkter i den aktive gruppen (som en vanlig
+// Legg en liste med to listepunkter i den aktive mappen (som en vanlig
 // opprettelse: synken tar den på neste runde).
 const addCard = (p, cardId, itemIds, title) => p.evaluate(({ cardId, itemIds, title }) => {
   const H = window.__huskis, st = H.state;

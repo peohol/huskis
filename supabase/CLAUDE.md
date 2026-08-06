@@ -54,7 +54,7 @@ PGHOST=/tmp/hkpg PGPORT=5433 PGUSER=postgres PGDATABASE=hk_test \
 
 `tests/local-stub.sql` stubber `auth`-skjemaet, så fila kan kjøres helt uten
 Supabase. En ny serverside-regel skal ha en ny sjekk i den testfilen som dekker
-området (roller/deling, gruppeflytting, gravsteiner, kontosletting,
+området (roller/deling, mappeflytting, gravsteiner, kontosletting,
 e-postvarsel, migrering av gamle listedelinger).
 
 Begge løp avsluttes med `smoke-test.sql` — deploy-porten fra

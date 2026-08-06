@@ -88,7 +88,7 @@ oppført i konto-modalen (`.menu-keys`).
 | `Alt` + `↑` / `↓` (og `←` / `→`) | flytt objektet ett hakk — **sortering** |
 | `Alt` + `M` | «Flytt til …» — ny forelder |
 | `F2` | endre navn (`Enter` gjør det samme på en rad) |
-| `Enter` / `Mellomrom` | på et korthode: kollaps/utvid. På en grupperad: naviger |
+| `Enter` / `Mellomrom` | på et korthode: kollaps/utvid. På en mapperad: naviger |
 | `Escape` | lukk øverste modal — eller avbryt en navneendring |
 
 **Sortering = bytt plass.** `Alt`+pil bytter objektet med naboen, som er
@@ -96,7 +96,7 @@ nøyaktig dra-motorens egen semantikk («≥ 20 % overlapp bytter plass»,
 `drag-and-drop.md`). Et listepunkt som passerer en kategorigrense havner derfor
 INNE i kategorien, og medlemmet det passerte havner utenfor — de bytter faktisk
 plass. Posisjonen skrives med samme regel som ved et slipp: objekter med
-`_canon` (universer og frie grupper) har personlig rekkefølge og går via
+`_canon` (områder og frie mapper) har personlig rekkefølge og går via
 `cloudPersonalPos`, alt annet stemples i synk-doc'et.
 
 **Rettigheter gates likt som draget.** `canReorderObj` speiler `canDrag` på hvert
@@ -206,7 +206,7 @@ navigasjon, en ny kontroll, en ny modal eller dra-og-slipp:
    kort, over en grønn knapp og i den gule delen av del-modalen?
 3. Kan du opprette, navngi, krysse av, omdøpe, sortere, flytte og slette et
    listepunkt uten å røre musen?
-4. Kan du gjøre det samme på alle fire nivåene (univers, gruppe, liste,
+4. Kan du gjøre det samme på alle fire nivåene (område, mappe, liste,
    listepunkt)?
 5. Åpne en modal: havner fokus inni? Kommer du deg IKKE ut med `Tab`? Lander
    fokus tilbake på knappen du åpnet fra når du lukker med `Escape` og med ✕?

@@ -19,7 +19,7 @@ Supabase Auth (e-post + passord, bekreftelseslenke)
                        tombstones                           ← mot gjenoppliving offline
 ```
 
-Deling finnes **kun på universer og grupper**. Lister, kategorier og listepunkter
+Deling finnes **kun på områder og mapper**. Lister, kategorier og listepunkter
 arver tilgangen. `supabase/setup.sql` dropper den gamle éndoc-modellen
 (`public.lists` + `get_list`/`save_list`).
 
@@ -56,19 +56,19 @@ Fire objekttabeller — `universes` > `groups` > `cards` (= «lister» i UI-et)
   dataene som står. Klienten MÅ stemple registrene ved endring.
 - Id-er er `uuid` og kan genereres på klienten (`crypto.randomUUID()`).
 - `cards.responsible` / `items.responsible` (FK til `profiles`,
-  `on delete set null`): ansvarlig bruker. Kandidatene er gruppens **effektive**
+  `on delete set null`): ansvarlig bruker. Kandidatene er mappens **effektive**
   medlemsliste. Rir på innholds-registeret.
 
 ### Roller (`memberships`)
 
-Én rad = én brukers ROLLE på ETT delbart objekt (univers **eller** gruppe):
+Én rad = én brukers ROLLE på ETT delbart objekt (område **eller** mappe):
 
 | Kolonne | Betydning |
 |---|---|
 | `user_id` | brukeren |
 | `universe_id` / `group_id` | nøyaktig én er satt (CHECK) |
 | `role` | `'owner'` \| `'member'` |
-| `pos` | brukerens **personlige** rekkefølge (toppnivå-universer, frie grupper) |
+| `pos` | brukerens **personlige** rekkefølge (toppnivå-områder, frie mapper) |
 
 * Eiere **har** en rad — det er nettopp den som gjør eierskapet mutabelt.
 * `card_id` er pensjonert: kolonnen står igjen for migreringens skyld, men en
@@ -81,15 +81,15 @@ Fire objekttabeller — `universes` > `groups` > `cards` (= «lister» i UI-et)
 
 **Siste-eier-invarianten** håndheves av `memberships_before_update` og
 `memberships_before_delete` (feilkode `PT422`), altså også mot rå SQL. Kaskader
-(universet eller brukeren slettes) hoppes over.
+(området eller brukeren slettes) hoppes over.
 
 ## Tilgangsmodell
 
-* `can_read_universe` = brukeren har en universrolle. Et univers leses **aldri**
-  av en direkte gruppemottaker — navn og medlemsliste lekkes ikke.
-* `can_read_group` = **effektivt** gruppemedlemskap: direkte grupperolle ELLER
-  en hvilken som helst universrolle på gruppens kanoniske univers.
-* `can_read_card` / listepunkter følger gruppen.
+* `can_read_universe` = brukeren har en områderolle. Et område leses **aldri**
+  av en direkte mappemottaker — navn og medlemsliste lekkes ikke.
+* `can_read_group` = **effektivt** mappemedlemskap: direkte mapperolle ELLER
+  en hvilken som helst områderolle på mappens kanoniske område.
+* `can_read_card` / listepunkter følger mappen.
 
 Alt håndheves med RLS-policyer bygget på SECURITY DEFINER-funksjoner (ingen
 policy-rekursjon). `anon` har null tilgang.
@@ -132,31 +132,31 @@ negative sjekker som slår ut hvis en `revoke` forsvinner.
    medlemsinvitasjoner avvises; en eierskaps-invitasjon til en som allerede har
    tilgang er gyldig (det er rolleløftet).
 2. Mottakeren ser invitasjonen i `get_my_doc().invites_in` og aksepterer med
-   `accept_share_invite(invite)`. **Ingen plassering velges.** Universet havner
-   i «Mine universer» / «Universer delt med meg» etter rolle; en gruppe vises
-   inne i universet hvis mottakeren er universmedlem, ellers i «Grupper delt med
+   `accept_share_invite(invite)`. **Ingen plassering velges.** Området havner
+   i «Mine områder» / «Områder delt med meg» etter rolle; en mappe vises
+   inne i området hvis mottakeren er områdemedlem, ellers i «Mapper delt med
    meg».
 3. Aksepten oppretter (eller løfter) medlemskapsraden og legger objektet bakerst
-   i mottakerens personlige rekkefølge. For en universinvitasjon ryddes samtidig
-   redundante ordinære direkte gruppemedlemskap i universet.
+   i mottakerens personlige rekkefølge. For en områdeinvitasjon ryddes samtidig
+   redundante ordinære direkte mappemedlemskap i området.
 
 Viktige egenskaper:
 
 - **`set_member_role`** degraderer (eier → medlem). Rolleløft går alltid gjennom
   en invitasjon mottakeren må godta.
-- **`revoke_share(type, id, user)`** krever `can_manage_members`. For et univers
+- **`revoke_share(type, id, user)`** krever `can_manage_members`. For et område
   fjerner den ALL underliggende direkte tilgang (`purge_universe_access`); for en
-  gruppe kun den direkte grupperollen. En universarvet bruker kan ikke fjernes
-  fra én enkelt gruppe — RPC-en avviser med `PT409` og en forklaring.
+  mappe kun den direkte mapperollen. En områdearvet bruker kan ikke fjernes
+  fra én enkelt mappe — RPC-en avviser med `PT409` og en forklaring.
 - **`leave_share(type, id)`** er brukerens egen utgang, med samme opprydding.
-  Siste universeier blokkeres (`PT422`). For en gruppe kreves at den direkte
-  grupperollen er ENESTE vei inn: har man også en rolle i gruppens univers,
-  avvises kallet med `PT409` og en peker til universet (`can_leave`) — å slette
+  Siste områdeeier blokkeres (`PT422`). For en mappe kreves at den direkte
+  mapperollen er ENESTE vei inn: har man også en rolle i mappens område,
+  avvises kallet med `PT409` og en peker til området (`can_leave`) — å slette
   den overflødige raden ville sett ut som en forlatelse uten å fjerne tilgang.
 - Begge nullstiller `responsible`-referanser som mister effektiv tilgang, med et
   ferskt innholds-register (`org = 'server'`) så LWW slipper endringen gjennom.
-- **`move_group(group, universe, cat, pos)`** er den ENESTE veien en gruppe
-  bytter univers. Se `rettigheter-og-deling.md` del 11 for semantikken
+- **`move_group(group, universe, cat, pos)`** er den ENESTE veien en mappe
+  bytter område. Se `rettigheter-og-deling.md` del 11 for semantikken
   (reorder / reparent / copy) — og merk at `groups_before_update` avviser en
   direkte skriving av `universe_id`.
 
@@ -166,11 +166,11 @@ Viktige egenskaper:
 
 `locked`/`unlocked` på universes/groups/cards er **gjensidig utelukkende** per rad,
 så hver node har én av tre tilstander: *låst*, *unntak (åpnet)*, eller *arv*.
-`set_locked` styres av `can_manage_lock` (= `is_privileged`: universeier for et
-univers, gruppeeier for gruppe/liste). `set_unlocked` (unntak fra en ARVET lås)
-styres av `can_manage_lock_exception`: universeiere alltid, og — når den arvede
-låsen er satt på en GRUPPE — også en eksplisitt gruppeeier der. En gruppeeier kan
-altså ikke åpne en gren i strid med en universlås.
+`set_locked` styres av `can_manage_lock` (= `is_privileged`: områdeeier for et
+område, mappeeier for mappe/liste). `set_unlocked` (unntak fra en ARVET lås)
+styres av `can_manage_lock_exception`: områdeeiere alltid, og — når den arvede
+låsen er satt på en MAPPE — også en eksplisitt mappeeier der. En mappeeier kan
+altså ikke åpne en gren i strid med en områdelås.
 
 Effektiv redigeringsstatus for et **vanlig medlem** = den nærmeste eksplisitte
 tilstanden fra objektet og oppover (`effective_lock_source`). Eiere på nivået kan
@@ -180,11 +180,11 @@ is_effectively_locked`). Lesing påvirkes aldri av lås.
 **Posisjon er skilt fra innholdslås**: retten til å endre et objekts rekkefølge i
 superobjektet styres av `can_reorder_in_parent` (= innholdsredigering på
 superobjektet), ikke av objektets egen lås. En låst liste kan dermed flyttes blant
-søsken når gruppen er åpen. Vaktene (`*_before_update`) håndhever dette
+søsken når mappen er åpen. Vaktene (`*_before_update`) håndhever dette
 feltspesifikt.
 
-Følger: lås på et univers fryser alt under for vanlige medlemmer, MEN en autorisert
-bruker kan gjøre et **unntak** for en konkret gruppe/liste under (`unlocked =
+Følger: lås på et område fryser alt under for vanlige medlemmer, MEN en autorisert
+bruker kan gjøre et **unntak** for en konkret mappe/liste under (`unlocked =
 true`), og et enda lavere nivå kan låses på nytt inni et unntak.
 Nærmeste-eksplisitt-regelen håndterer vilkårlig nøsting. Finnes det ingen arvet
 lås, er «unntak» en overflødig flaggverdi — da kan den som ellers styrer objektets
@@ -196,7 +196,7 @@ lås rydde den bort.
 vanlige medlemmer kan invitere flere. Effektiv verdi = nærmeste eksplisitte fra
 objektet og oppover; ingen eksplisitt noe sted → tillat. Nye rader er `inherit`
 (dynamisk arv). `set_invite_policy` styres av `can_manage_invite_policy`: eiere på
-nivået, men under en arvet `deny` fra universet kun universeiere. Listespesifikk
+nivået, men under en arvet `deny` fra området kun områdeeiere. Listespesifikk
 policy er fjernet — `cards.invite_policy` er pensjonert og leses aldri.
 Policyen gir **aldri** rett til å invitere eiere.
 Full modell: [`rettigheter-og-deling.md`](rettigheter-og-deling.md).
@@ -206,7 +206,7 @@ Full modell: [`rettigheter-og-deling.md`](rettigheter-og-deling.md).
 - `trashed`-flagg = søppelkasse (reversibel). Den er **felles** for alle med
   tilgang — det finnes ingen egen mottaker-søppelkasse lenger. Hvem som kan sette
   den styres av `can_delete_object` (håndhevet i `*_before_update`): for et
-  univers kun eiere, for en gruppe eiere eller et universmedlem når gruppen er
+  område kun eiere, for en mappe eiere eller et områdemedlem når mappen er
   effektivt åpen. Å **forlate** en deling er noe annet — det rører aldri
   innholdet, bare egen tilgang.
 - Tømming = hard `DELETE`. AFTER DELETE-triggere skriver **gravsteiner**
@@ -250,8 +250,8 @@ Full modell: [`rettigheter-og-deling.md`](rettigheter-og-deling.md).
 | `import_doc(doc)` | engangs-migrering av lokalt/legacy doc til egne data (deterministiske id-er per bruker, idempotent) |
 | `create_share_invite(type, id, email, role)` / `accept_share_invite(invite)` / `decline_share_invite` / `revoke_share_invite` | delingsflyt, medlem eller eierskap; aksept krever ingen plassering |
 | `revoke_share` / `set_member_role` / `leave_share` / `set_locked` / `set_unlocked` / `set_invite_policy` / `get_members` | administrasjon (roller, låsing + unntak, invitasjonspolicy; `get_members` gir `viewer.caps`) |
-| `move_group(group, universe, cat, pos)` | ATOMISK gruppeflytting: reorder / reparent / kopier-og-slett med id-mapping |
-| `update memberships set pos` (egen rad) | personlig rekkefølge (toppnivå-universer + frie grupper) |
+| `move_group(group, universe, cat, pos)` | ATOMISK mappeflytting: reorder / reparent / kopier-og-slett med id-mapping |
+| `update memberships set pos` (egen rad) | personlig rekkefølge (toppnivå-områder + frie mapper) |
 | Realtime `postgres_changes` på tabellene | live-oppdatering (tabellene ligger i `supabase_realtime`-publikasjonen) |
 
 ## Migrering fra dagens modell
@@ -286,10 +286,10 @@ idempotens) og ett **oppgraderingsløp** der `tests/legacy-share-fixture.sql`
 legger inn den GAMLE databasefasongen med data før migreringen kjøres.
 
 Dekning: profil-trigger, RLS-isolasjon, rollemodellen (eiere/medeiere,
-siste-eier-invarianten, degradering, capabilities), effektivt gruppemedlemskap og
+siste-eier-invarianten, degradering, capabilities), effektivt mappemedlemskap og
 medlemslistens kategorier, invitasjoner (medlem + eierskap + avviste liste-
 invitasjoner), låser og unntak, sletting/forlatelse med opprydding av ansvar,
-personlig rekkefølge, gruppeflytting (reorder/reparent/kopier-og-slett med
+personlig rekkefølge, mappeflytting (reorder/reparent/kopier-og-slett med
 gravsteiner), server-side LWW, import (determinisme + idempotens + foreldreløse),
 gravsteiner, anon-avvisning og hele migreringen av gamle listedelinger.
 

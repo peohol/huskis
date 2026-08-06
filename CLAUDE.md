@@ -3,11 +3,11 @@
 ## Prosjekt
 
 Huskis er en statisk vanilla-JS-app uten bundler, rammeverk eller
-klientavhengigheter. Innholdet er hierarkisk: **Univers > Gruppe > Liste >
+klientavhengigheter. Innholdet er hierarkisk: **Område > Mappe > Liste >
 Listepunkt**, der en liste i tillegg kan ha ett nivå med **kategorier**.
 
 De to øverste nivåene er bygget av nøyaktig samme komponenter og samme
-dra-og-slipp-motor som de to nederste: et univers ER et kort, en gruppe ER en
+dra-og-slipp-motor som de to nederste: et område ER et kort, en mappe ER en
 rad. Motoren kjører i to scope — `boardScope` (listevisningen) og `navScope`
 (navigasjonsmodalen) — så en endring i den treffer begge nivåene.
 
@@ -34,6 +34,11 @@ publiseres aldri før skjemaet er migrert og verifisert. Autoritativt:
 
 Tilstanden ligger i `localStorage` per konto og synkes mot Supabase (Auth +
 relasjonelle tabeller med RLS). Appen har ingen anonym modus.
+
+De norske ordene i UI-et og dokumentasjonen er **område** og **mappe**;
+identifikatorene i koden og databasen heter fortsatt `universe` og `group`
+(kolonner, tabeller, CSS-klasser, funksjonsnavn). Døp dem ikke om — det er
+databasekontrakten.
 
 Autoritativt for hvem som får gjøre hva: `docs/rettigheter-og-deling.md`. Kart
 over resten av dokumentasjonen: `docs/README.md`.
@@ -70,7 +75,7 @@ tests/run-all.sh              # hele JS-suiten (starter server selv) — samme s
   feile LUKKET: mangler capabilities fra serveren, skjul kontrollen.
 - Opprettelse og flytting spør FORELDEREN om lov, ikke objektet selv —
   myndigheten ligger på nivået over (`docs/rettigheter-og-deling.md`).
-- Endringer i univers-/gruppe-UI-et treffer liste-/listepunkt-UI-et og omvendt
+- Endringer i område-/mappe-UI-et treffer liste-/listepunkt-UI-et og omvendt
   (delte klasser, delt DnD-motor). Sjekk begge.
 - Valider ved systemgrensene (brukerinput, svar fra Supabase), ikke internt.
 - Endrer du en invariant, oppdater det autoritative dokumentet i `docs/` i samme

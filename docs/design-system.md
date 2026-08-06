@@ -1,7 +1,7 @@
 # Designsystem og UX-prinsipper
 
 Les denne når oppgaven berører `styles.css`, nye kontroller/knapper, eller
-visuell konsistens på tvers av nivåer (univers/gruppe/liste/listepunkt).
+visuell konsistens på tvers av nivåer (område/mappe/liste/listepunkt).
 
 Appen skal føles **visuelt ryddig, konsistent og forutsigbar**.
 
@@ -13,8 +13,8 @@ knapper, kontroller) er skalert opp ~30 % i forhold til det opprinnelige
 designet, mens padding/margin/gap IKKE er skalert tilsvarende — bevisst valg:
 større, mer lesbare og lettere treffbare listepunkter i et fortsatt kompakt UI.
 
-Universer, grupper, lister og listepunkter deler **identisk oppsett**: et univers
-ER et listekort (`.card`) og en gruppe ER en listepunkt-rad (`.item`), bare i
+Områder, mapper, lister og listepunkter deler **identisk oppsett**: et område
+ER et listekort (`.card`) og en mappe ER en listepunkt-rad (`.item`), bare i
 nav-modalen (`docs/menus.md`). Dermed er tittel-typografi (20px/600 `.card-title`),
 radhøyder, luft og ikonstørrelser like på alle nivåer uten egne regler.
 
@@ -67,17 +67,17 @@ grå = `#c0c4c9`):
 
 | Ikon | Fyll |
 |---|---|
-| Globus (univers) | de seks globusfeltene = palettfarge 1–6 |
+| Globus (område) | de seks globusfeltene = palettfarge 1–6 |
 | Del (share) | stor sirkel farge 1, de to små farge 2 og 3 |
 | Søppelkasse (trash/trashSwipe) | kroppen grå |
-| Mappe (gruppe) | farge 2 (gulaktig mappefarge) |
+| Mappe | farge 2 (gulaktig mappefarge) |
 | Liste | hvit flate, svarte punkter/linjer |
 | Øye (vis) | hornhinne hvit, pupill svart |
 | Person (mine) | hode + kropp farge 4 |
 | Tre personer (delte) | hver person farge 1 / 2 / 3 |
 | Brev (e-postvarsel) | hvit |
 | Tannhjul (innstillinger) | grå kogg med FYLTE, brede tenner (⚙️-stil) — senterhullet gjennomsiktig (even-odd) |
-| Gruppekategori (groupCategory) | venstre klamme (svart) + mappa fra `folder` (farge 2), nedskalert inn i klammen |
+| Mappekategori (groupCategory) | venstre klamme (svart) + mappa fra `folder` (farge 2), nedskalert inn i klammen |
 | Oppløs (bubbleBurst) | ingen fyllflate — kun svarte streker |
 | Dør inn (login) | dørfeltet hvitt |
 | Hengelås | låst = farge 1, åpen = farge 3 |
@@ -141,7 +141,7 @@ er. Det er derfor det finnes både en grønn og en blågrønn:
 
 | Klasse | Flate | Bærer | Brukes av |
 |---|---|---|---|
-| `.btn-green` | lys grønn | **svart ikon**, aldri tekst | ＋-knappene (ny liste/gruppe/univers/listepunkt/kategori) |
+| `.btn-green` | lys grønn | **svart ikon**, aldri tekst | ＋-knappene (ny liste/mappe/område/listepunkt/kategori) |
 | `.btn-accent` | blågrønn | **hvit tekst** | Lagre, Inviter, Godta, Gjenopprett, Neste, Logg inn, Bruk bildet, Plasser |
 | `.btn-red` | rød | hvit tekst | tøm-knappen, Forlat deling, Kast ut, Slett … for alle, Slett konto |
 | `.btn-yellow` | gul | **mørk tekst** | lås-knappene i del-modalen, og **Logg ut** |
@@ -183,8 +183,8 @@ Størrelse/form kommer fra egne klasser: `.btn` (modaler), `.btn-small`,
 ## Delte klasser — gjenbruk før du lager nye
 
 - `.panel-head` + `.panel-title` + `.panel-actions`: overskrift («ALLE
-  UNIVERSER»/«INVITASJONER» osv., uppercase via CSS) på egen linje + knapperad
-  under. Brukes i univers-/gruppe-/konto-modalen og toppmenyens
+  OMRÅDER»/«INVITASJONER» osv., uppercase via CSS) på egen linje + knapperad
+  under. Brukes i område-/mappe-/konto-modalen og toppmenyens
   listefunksjons-rad.
 - `.crumb-btn`: navigasjonsknappen i toppmenyen — ÉN knapp med begge nivåene
   (nivå-ikon + navn på flate-mønsteret, `.crumb-name` med ellipsis);
@@ -195,35 +195,35 @@ Størrelse/form kommer fra egne klasser: `.btn` (modaler), `.btn-small`,
   `.menu-badge` som invitasjons-teller).
 - `.account-form` (+ `-label`/`-row`) og `.account-msg`: endre navn/e-post i
   konto-modalen (etikett over felt, Lagre-knapp på samme rad).
-- `.nav-board`: nav-modalens board (universkort + grupperader). Alltid ÉN
+- `.nav-board`: nav-modalens board (områdekort + mapperader). Alltid ÉN
   kolonne; ellers arves `.card`/`.item`/`.category` uendret fra listedesignet.
-  Aktivt univers / aktiv gruppe = ring i `--focus` trukket innover
+  Aktivt område / aktiv mappe = ring i `--focus` trukket innover
   (`outline-offset: -2px`) + `aria-current` — ringen var brand-grønn, men grønt
   ligger på 1,5–2,3:1 mot de seks kortfargene og var altså usynlig nettopp der
   den skulle si hvor man står (`docs/tilgjengelighet.md`). Fokusringen har samme
   farge, men ligger UTENFOR kanten, så de to kan stå samtidig uten å smelte
   sammen. `.uni-count` er en liten, subtil **pill med
-  gruppe-ikon + antall grupper** som erstatter «(N)» på et kollapset univers.
+  mappe-ikon + antall mapper** som erstatter «(N)» på et kollapset område.
 - Sletteknapper: felles regel (dempet ✕ → rød ved hover), samme `.card-delete`/
-  `.item-delete` på alle fire nivåene. Listepunkt-/gruppe-✕ alltid synlig, dempet
+  `.item-delete` på alle fire nivåene. Listepunkt-/mappe-✕ alltid synlig, dempet
   (`opacity .6`).
 - Innstillings-/del-knapper: listekort har `.card-cog` (tannhjul, svakt hvit
   flate + ring, lysner ved hover) som åpner innstillingsmodalen — **deling av
   lister ligger DER** (`docs/scheduling.md`), ikke i en egen kortknapp.
-  **Universer og grupper har INGEN innstillingsmodal — de har i stedet en
-  del-knapp på samme plass**: `.uni-share` i universkortets header (bruker
-  `.card-cog`-stilen) og `.group-share` på grupperaden (bruker `.item-cog`-stilen).
-  Gruppekategorier har hverken innstillinger eller deling — kun oppløs-knappen.
-  Delt-merket (`.share-badge`) brukes av universkort og grupperader; listekortets
+  **Områder og mapper har INGEN innstillingsmodal — de har i stedet en
+  del-knapp på samme plass**: `.uni-share` i områdekortets header (bruker
+  `.card-cog`-stilen) og `.group-share` på mapperaden (bruker `.item-cog`-stilen).
+  Mappekategorier har hverken innstillinger eller deling — kun oppløs-knappen.
+  Delt-merket (`.share-badge`) brukes av områdekort og mapperader; listekortets
   delt-status vises som chip i meta-raden (`docs/scheduling.md`).
-- **Type-ikon foran navnet i nav-modalen**: universkortet og grupperaden
+- **Type-ikon foran navnet i nav-modalen**: områdekortet og mapperaden
   innleder med `[type-ikon]([delt-ikon])Navn` — `.kind-icon` (globus/mappe, samme
   ikoner som breadcrumben), så `.share-badge` når objektet er delt, så navnet.
-  Delte universkort får derfor IKKE den lyse innerkanten delte listekort har
+  Delte områdekort får derfor IKKE den lyse innerkanten delte listekort har
   (`.nav-board .card.is-shared` nullstiller box-shadow-ringen): `.card-body` er
   gjennomsiktig, så ringen lyste gjennom nederst og leste som en ramme rundt
-  gruppelista.
-- **Tastatur i nav-modalen**: universkortets `.card-head` og grupperaden er
+  mappelista.
+- **Tastatur i nav-modalen**: områdekortets `.card-head` og mapperaden er
   `role="button" tabindex="0"` (`:focus-visible` = `--focus`, lagt utenfor
   kanten). De er de eneste veiene inn til navigering uten peker; hodet har i
   tillegg `aria-expanded`. Se `docs/menus.md` for hva Enter/Mellomrom gjør på
@@ -238,8 +238,8 @@ Størrelse/form kommer fra egne klasser: `.btn` (modaler), `.btn-small`,
 - Draging (ingen håndtak): på et objekts navn-/tittelsone (`attachHoldDrag`). På
   **touch** løftes det med trykk-og-hold (200 ms; press-scale `.drag-hold`); på
   **mus/desktop** starter draget umiddelbart på bevegelse (ingen delay). **Cursor:**
-  listepunkt-/kategori-dra-sonene får `cursor: grab` (åpen hånd), mens univers/
-  gruppe/liste bruker `cursor: pointer` (pekende hånd — klikk er primærhandlingen).
+  listepunkt-/kategori-dra-sonene får `cursor: grab` (åpen hånd), mens område/
+  mappe/liste bruker `cursor: pointer` (pekende hånd — klikk er primærhandlingen).
   Se `docs/drag-and-drop.md` for soner/unntak og mekanikk.
 - Placeholders: én delt stil for `.card-/.item-/.group-placeholder` — se
   `docs/drag-and-drop.md`. Ingen kant (kun mørknet flate + innover-skygge);
@@ -258,12 +258,12 @@ Størrelse/form kommer fra egne klasser: `.btn` (modaler), `.btn-small`,
   ＋-en er like stor som kategori-ikonet (kategori-motivet — klammer/prikker/
   linjer — trenger størrelsen for å lese tydelig, og ＋-en matcher det).
 - **Delt ＋-ikon** (`ICONS.plus`, samt inline-kopier i `index.html`): ALLE
-  «legg til»-knappene (listepunkt/liste/gruppe/univers) bruker nå samme SVG-tegnede
+  «legg til»-knappene (listepunkt/liste/mappe/område) bruker nå samme SVG-tegnede
   ＋ (to rette streker, `stroke-width="1.05"`, runde ender, `stroke="#111"` —
   svart også på de fargede knappene) i stedet for tekst-glyfen ＋ — som har
   annen linjestil/tykkelse enn resten av ikonsettet og dermed brøt den ellers
   konsekvente streken. De tekst+ikon-
-  knappene (liste/gruppe/univers) beholder `.btn-add .icon`-størrelsen (19px);
+  knappene (liste/mappe/område) beholder `.btn-add .icon`-størrelsen (19px);
   kun de kvadratiske icon-only-knappene skaleres opp til 34px (se over).
 - **Kategorier** (`.category` / `.cat-head` / `.cat-title` / `.cat-cog` /
   `.cat-dissolve` / `.cat-items`): en nivå-1-rad med en header (tittel/meta +
@@ -423,12 +423,12 @@ Størrelse/form kommer fra egne klasser: `.btn` (modaler), `.btn-small`,
 
 ## Seksjoner i nav-modalen (`.nav-section-head`)
 
-De tre seksjonene («Mine universer», «Universer delt med meg», «Grupper delt med
+De tre seksjonene («Mine områder», «Områder delt med meg», «Mapper delt med
 meg») får hver en overskriftsrad med to ikoner foran navnet
 (`[ressursikon][kontekstikon]`) og en skillelinje over (`border-top`, ikke for
 den første). Tom seksjon får en dempet `.nav-section-empty`-linje i stedet for
-kort. «＋ Nytt univers» (`.nav-add-uni`) står nederst i seksjon 1 og bare der.
-Den virtuelle beholderen for frie grupper (`.free-groups-card`) har en nøytral
+kort. «＋ Nytt område» (`.nav-add-uni`) står nederst i seksjon 1 og bare der.
+Den virtuelle beholderen for frie mapper (`.free-groups-card`) har en nøytral
 grå kortfarge og ingen del-/slett-/＋-kontroller. Se `docs/menus.md`.
 
 ## Del-modalen: én visning, capability-gatede kontroller
@@ -457,7 +457,7 @@ overstyre `hidden`-attributtet, og tomme søppelkasser ville vises likevel.
 
 ## Delelinjer i modaler
 
-Delelinjer (f.eks. skillene i univers-/gruppe-/konto-modalen) skal se ut som
+Delelinjer (f.eks. skillene i område-/mappe-/konto-modalen) skal se ut som
 `.modal-head`s `border-bottom` — kant-til-kant, IKKE en innrykket `<hr>` med
 vanlig margin (den ville stoppe ved `.modal-body`s side-padding og se kortere
 ut enn linja over). Bruk `border-bottom: 1px solid var(--line)` + negativ
@@ -473,7 +473,7 @@ side-margin som kansellerer den omsluttende paddingen.
   til tømming (gravstein først da) — derfor ingen bekreftelses-dialog på selve
   slettingen, og heller ikke på tøm-knappen i modalen (sveipe-tømming har
   heller ingen).
-- Nytt objekt (univers/gruppe/liste) aktiveres og går rett i navneredigering.
+- Nytt objekt (område/mappe/liste) aktiveres og går rett i navneredigering.
 - Escape lukker øverste modal — men avbryter kun inline-redigering hvis en pågår.
 - Del-modalens overskrift er alltid «[objekttype-ikon] [navn] — Innstillinger
   for deling» (gir mening for både eier og mottaker).
@@ -550,30 +550,26 @@ side-margin som kansellerer den omsluttende paddingen.
   opp det samme hvert sekund). Teknisk informasjon (tabell, feilkode) vises aldri
   her — den ligger i konsollen og i `__huskis.syncStatus.snapshot()`.
 
-## Introduksjonen: spotlight (`.tour`)
+## Demonstrasjonen: tooltip-kortet (`.tour`)
 
-Innføringen for nye brukere har sitt eget lag (`.tour`, z-index 295 — over
-lagringsstatusen, under toasten og oppdateringsbanneret). Dempingen tegnes IKKE
-av en egen flate, men av `.tour-spot` sin enorme `box-shadow`-spredning: det som
-er innenfor ringen står udempet igjen, så det uthevede ER det ekte elementet —
-samme grep som bilderedigererens `.avatar-mask`. Derfor heller ingen
-`backdrop-filter` på laget (den ville uskarpet også det som skal fremheves).
+Demoen for nye brukere har sitt eget lag (`.tour`, z-index 295 — over
+lagringsstatusen, under toasten og oppdateringsbanneret). Laget er
+`pointer-events: none`: brukeren skal se og bruke HELE appen mens demoen står
+på, så det finnes verken mørklegging, uskarphet eller ring rundt kontrollen —
+bare `#tour-arrow`, en pilspiss (et kvadrat rotert 45°) som peker på den. Bare
+kortet tar imot pekeren.
 
-Laget har **to moduser**, og forskjellen er hvem som tar imot pekeren:
+**Velkomsten er unntaket** (`.tour.narrated`): midtstilt, med både mørklegging
+og `backdrop-filter` på flaten bak. Der er det ingenting å peke på ennå.
 
-- `.tour.narrated` (velkomst/avslutning) tar imot klikk som en modal-overlay.
-- `.tour.guided` slipper pekeren gjennom (`pointer-events: none`; bare kortet
-  tar imot) — handlingen skal utføres på det ekte UI-et. Samtidig demper
-  `body.tour-guided` slette- og søppelkassekontrollene, så et bomtrykk ikke kan
-  kaste noe underveis.
-
-Steg uten et element å peke på demper hele flaten (`.tour.no-spot`). Kortet
-midtstilles da bare på et fortellesteg; på et handlingssteg dokkes det nederst,
-siden et midtstilt kort ville sperret appen brukeren fortsatt må nå.
 `.tour-card` er den vanlige hvite modalflaten (radius 20, `--shadow-lg`,
 `pop-in`) med `.hint-chip`-ene i den mørke varianten, som i nav-modalen. Den
 ruller innvendig når JS kapper høyden (smal skjerm, ingen plass ved siden av
-målet). Se `docs/introduksjon.md`.
+målet). Framdriften er en stolpe (`.tour-progress`), ikke «Steg n av m».
+
+`body.tour-demo` demper kontrollene som ikke er i bruk, med `:not(.tour-live)`
+som hele forskjellen: `.tour-live` står på kontrollen steget handler om. Det er
+ren affordanse — selve avgrensningen håndheves i JS. Se `docs/introduksjon.md`.
 
 ## Bevegelse og tilgjengelighet
 

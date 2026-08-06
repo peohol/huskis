@@ -8,8 +8,8 @@
        Avbryt/Escape lukker uten å slette.
     3. Sveipet: et for kort sveip spretter tilbake og sletter INGENTING; et
        fullt sveip til høyre bekrefter. Tastatur (piltastene) når det samme.
-    4. Utfallet i «databasen»: universet brukeren var eneste eier av er borte
-       med hele undertreet (og gravsteiner), fellesuniverset står igjen med den
+    4. Utfallet i «databasen»: området brukeren var eneste eier av er borte
+       med hele undertreet (og gravsteiner), fellesområdet står igjen med den
        andre eieren som ny OPPRETTER av det brukeren hadde laget der, ansvaret
        er nullet, roller/invitasjoner/profil er borte.
     5. Klienten: lokal cache + migreringsflagg fjernet, og siden står på
@@ -30,9 +30,9 @@ const U = () => 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
 });
 
 /* Fikstur:
-     D (den som sletter) eier «Mitt univers» (gruppe + liste + listepunkt) og
+     D (den som sletter) eier «Mitt område» (mappe + liste + listepunkt) og
        har delt det med B som vanlig medlem.
-     A eier «Fellesuniverset»; D er MEDEIER der og har laget en egen gruppe med
+     A eier «Fellesområdet»; D er MEDEIER der og har laget en egen mappe med
        liste og listepunkt inni — og er ansvarlig for begge.
    Etter slettingen skal det første treet være borte for alle, og det andre stå
    igjen med A som oppretter. */
@@ -56,12 +56,12 @@ function buildDB() {
       ],
       passwords: { 'd@x.no': 'x', 'a@x.no': 'x', 'b@x.no': 'x' },
       universes: [
-        base({ id: MINE, owner_id: uD, name: 'Mitt univers' }),
-        base({ id: FELLES, owner_id: uA, name: 'Fellesuniverset', pos: 1 }),
+        base({ id: MINE, owner_id: uD, name: 'Mitt område' }),
+        base({ id: FELLES, owner_id: uA, name: 'Fellesområdet', pos: 1 }),
       ],
       groups: [
-        base({ id: DG, owner_id: uD, universe_id: MINE, name: 'Min gruppe' }),
-        base({ id: FG, owner_id: uD, universe_id: FELLES, name: 'Felles gruppe' }),
+        base({ id: DG, owner_id: uD, universe_id: MINE, name: 'Min mappe' }),
+        base({ id: FG, owner_id: uD, universe_id: FELLES, name: 'Felles mappe' }),
       ],
       cards: [
         base({ id: DC, owner_id: uD, group_id: DG, title: 'Min liste', k: true, p: true, lab_ts: 0, lab_org: '' }),
@@ -93,7 +93,7 @@ async function loadAs(page, db, uid, email, viewport) {
     localStorage.setItem('hk-mock-db', JSON.stringify(db));
     // Kontoen har sett HELE introduksjonen (docs/introduksjon.md): verken
     // omvisningen eller et gest-tips skal legge seg over det som testes.
-    sessionStorage.setItem('hk-mock-session', JSON.stringify({ id: uid, email, user_metadata: { onboarding: { v: 1, status: 'done' }, tips: { drag: true, trash: true, moveList: true } } }));
+    sessionStorage.setItem('hk-mock-session', JSON.stringify({ id: uid, email, user_metadata: { onboarding: { v: 3, status: 'done' }, tips: { drag: true, trash: true, moveList: true } } }));
   }, { db, uid, email });
   await page.goto(BASE + '/?mock=1');
   await page.waitForFunction(() => {
@@ -253,16 +253,16 @@ async function run(label, vp, mobile) {
     /slettet/i.test(await p.locator('#auth-msg').textContent()));
   log(label + ' 6: profilen er borte fra databasen',
     !after.profiles.find((x) => x.id === ids.uD) && after.profiles.length === 2);
-  log(label + ' 6: universet D var eneste eier av er slettet med hele treet',
+  log(label + ' 6: området D var eneste eier av er slettet med hele treet',
     !after.universes.find((u) => u.id === ids.MINE) &&
     !after.groups.find((g) => g.id === ids.DG) &&
     !after.cards.find((c) => c.id === ids.DC) &&
     !after.items.find((i) => i.id === ids.DI));
   log(label + ' 6: hver slettede rad har gravstein (ingen gjenoppstandelse)',
     [ids.MINE, ids.DG, ids.DC, ids.DI].every(tomb));
-  log(label + ' 6: B sitt medlemskap i det slettede universet fulgte med',
+  log(label + ' 6: B sitt medlemskap i det slettede området fulgte med',
     !after.memberships.some((m) => m.universe_id === ids.MINE));
-  log(label + ' 6: fellesuniverset står igjen med A som eneste eier',
+  log(label + ' 6: fellesområdet står igjen med A som eneste eier',
     !!after.universes.find((u) => u.id === ids.FELLES) &&
     after.memberships.filter((m) => m.universe_id === ids.FELLES && m.role === 'owner')
       .map((m) => m.user_id).join() === ids.uA);
@@ -295,8 +295,8 @@ async function run(label, vp, mobile) {
     const st = window.__huskis.state;
     return st.universes.map((u) => u.name).sort();
   });
-  log(label + ' 8: A ser fellesuniverset (og ikke det slettede)',
-    aSees.length === 1 && aSees[0] === 'Fellesuniverset', JSON.stringify(aSees));
+  log(label + ' 8: A ser fellesområdet (og ikke det slettede)',
+    aSees.length === 1 && aSees[0] === 'Fellesområdet', JSON.stringify(aSees));
 
   log(label + ': ingen JS-feil i konsollen', errs.length === 0, errs.join(' | '));
   await browser.close();

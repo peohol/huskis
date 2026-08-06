@@ -44,7 +44,7 @@ async function register(p) {
   await p.locator('#auth-password').fill('passord123');
   await p.locator('#auth-submit').click();
   // `lastMy` settes først når get_my_doc har svart — da er kontoen innlogget
-  // og dokumentet hentet. (En fersk konto har null universer — board er tomt.)
+  // og dokumentet hentet. (En fersk konto har null områder — board er tomt.)
   await p.waitForFunction(() => {
     const H = window.__huskis;
     return H && H.authUser && H.lastMy;
@@ -365,7 +365,7 @@ async function lift(p, sel) {
     log('8 antall observerte mål er uendret etter 15 re-rendringer',
       after.total === first.total, JSON.stringify({ first, after }));
     log('8 ingen frakoblede noder blir liggende og observeres', after.detached === 0, JSON.stringify(after));
-    // Tom gruppe: kortene slippes, kun de to permanente (board + toppmeny) står igjen.
+    // Tom mappe: kortene slippes, kun de to permanente (board + toppmeny) står igjen.
     await p.evaluate(() => {
       const H = window.__huskis, st = H.state;
       const g = st.universes.find((u) => u.id === st.activeUniverse).groups.find((x) => x.id === st.activeGroup);
@@ -373,7 +373,7 @@ async function lift(p, sel) {
     });
     await p.waitForTimeout(400);
     const empty = await live();
-    log('8 tom gruppe slipper alle kort-observasjoner', empty.total <= 2 && empty.detached === 0, JSON.stringify(empty));
+    log('8 tom mappe slipper alle kort-observasjoner', empty.total <= 2 && empty.detached === 0, JSON.stringify(empty));
     log('8 ingen JS-feil', errs.length === 0, errs.join(' | '));
     await p.close();
   }
