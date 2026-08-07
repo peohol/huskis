@@ -78,7 +78,9 @@ async function seed(p) {
 
 // Slett et listepunkt (× på raden) → buffret sletting + sticky angre-toast.
 async function deleteItem(p, id) {
-  await p.locator('.item[data-id="' + id + '"] .item-delete').click();
+  await p.locator('.item[data-id="' + id + '"] .obj-menu-btn').click();
+  await p.waitForTimeout(250);
+  await p.locator('#obj-menu-panel .obj-menu-row', { hasText: 'Slett listepunktet' }).click();
   await p.waitForTimeout(500); // fly-i-søpla-animasjonen
 }
 

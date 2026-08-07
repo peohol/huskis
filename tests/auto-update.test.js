@@ -403,7 +403,9 @@ async function safetyScenario(page, ids) {
   await page.waitForTimeout(400);
 
   // Buffret sletting = utrygt til bufferet er committet og synket.
-  await page.locator('.card .item .item-delete').first().click();
+  await page.locator('.card .item .obj-menu-btn').first().click();
+  await page.waitForTimeout(250);
+  await page.locator('#obj-menu-panel .obj-menu-row', { hasText: 'Slett listepunktet' }).click();
   await page.waitForTimeout(500); // fly-i-søpla-animasjonen
   s = await page.evaluate(() => window.__huskis.updateSafety());
   check('B: buffret sletting = utrygt («pending-delete»)', s.safe === false && s.reason === 'pending-delete');

@@ -128,7 +128,7 @@ en regel i `supabase/users-and-sharing.sql`, må mock-backenden oppdateres i
 samme endring — ellers tester nettlesertestene noe annet enn produksjon.
 
 `window.__huskis` eksponerer state og et utvalg funksjoner (`openNavModal`,
-`openSettings`, `cloudCycle`, `updateSafety`, `authUser`, `showToast` …). Bruk
+`openObjMenu`, `cloudCycle`, `updateSafety`, `authUser`, `showToast` …). Bruk
 dem til oppsett og inspeksjon; klikk deg gjennom UI-et der klikkene ER det som
 testes.
 

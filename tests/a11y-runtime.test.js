@@ -185,8 +185,7 @@ async function run(label, viewport) {
 
   const cardLabels = await page.$$eval('.card:not(.uni-card) button[aria-label]',
     (n) => n.map((x) => x.getAttribute('aria-label')));
-  const needsObjectName = ['Slett listen', 'Innstillinger for listen', 'Slett listepunktet',
-    'Innstillinger for listepunktet', 'Oppløs kategorien'];
+  const needsObjectName = ['Meny for listen', 'Meny for listepunktet', 'Meny for kategorien'];
   const imprecise = needsObjectName.filter((prefix) => {
     const hit = cardLabels.filter((l) => l.startsWith(prefix));
     return hit.length > 0 && hit.some((l) => !/«[^»]+»/.test(l));
@@ -194,23 +193,29 @@ async function run(label, viewport) {
   log(label + ' 1b: objektknappene har objektets navn i aria-label', imprecise.length === 0,
     imprecise.length ? imprecise : cardLabels.slice(0, 4));
 
-  // To listepunkter må ikke få SAMME navn på slettknappen.
-  const delLabels = await page.$$eval('.card:not(.uni-card) .item-delete',
+  // To listepunkter må ikke få SAMME navn på menyknappen.
+  const delLabels = await page.$$eval('.card:not(.uni-card) .item:not(.category) .obj-menu-btn',
     (n) => n.map((x) => x.getAttribute('aria-label')));
-  log(label + ' 1c: sletteknappene skiller radene fra hverandre',
-    new Set(delLabels).size === delLabels.length, delLabels);
+  log(label + ' 1c: menyknappene skiller radene fra hverandre',
+    delLabels.length > 1 && new Set(delLabels).size === delLabels.length, delLabels);
 
   await openNav(page);
   const navNameless = await iconButtonsWithoutName(page);
   log(label + ' 1d: alle synlige ikonknapper i nav-modalen har aria-label', navNameless.length === 0, navNameless);
-  const uniDel = await page.locator('.uni-card[data-id="UNI"] .uni-delete').getAttribute('aria-label');
-  log(label + ' 1e: «Slett området» navngir området', /«Hjemme»/.test(uniDel || ''), uniDel);
+  const uniMenuLabel = await page.locator('.uni-card[data-id="UNI"] .card-head .obj-menu-btn').getAttribute('aria-label');
+  log(label + ' 1e: områdets menyknapp navngir området', /«Hjemme»/.test(uniMenuLabel || ''), uniMenuLabel);
+  // Menyen selv: radene er tekstknapper, men den skal ha et navn på panelet.
+  await page.locator('.uni-card[data-id="UNI"] .card-head .obj-menu-btn').click();
+  await page.waitForTimeout(300);
+  const menuNamed = await page.locator('#obj-menu-panel').getAttribute('aria-label');
+  log(label + ' 1e: objektmenyen har et navn som sier hvilket objekt den gjelder',
+    /«Hjemme»/.test(menuNamed || ''), menuNamed);
+  await page.keyboard.press('Escape'); await page.waitForTimeout(200);
   await page.keyboard.press('Escape'); await page.waitForTimeout(300);
 
-  // De tre modalene board-scanningen ikke når: innstillinger, deling og
-  // søppelkassen. Det er her en ny ikonknapp lettest blir stående uten navn.
+  // Modalene board-scanningen ikke når: deling og søppelkassen. Det er her en
+  // ny ikonknapp lettest blir stående uten navn.
   for (const [navn, open] of [
-    ['innstillingsmodalen', () => window.__huskis.openSettings('card', 'L1', 'L1')],
     ['del-modalen', () => {
       const u = window.__huskis.state.universes.find((x) => x.id === 'UNI');
       const g = u.groups.find((x) => x.id === 'GA');
@@ -504,15 +509,17 @@ async function run(label, viewport) {
 
   /* ---------- 7. Fokus etter sletting ---------- */
   await page.locator('.card[data-id="L1"] .item[data-id="I3"]').waitFor({ state: 'attached' }).catch(() => {});
-  const target = await page.$('.item[data-id="I2"] .item-delete');
+  const target = await page.$('.item[data-id="I2"] .obj-menu-btn');
   if (target) {
     await target.click();
+    await page.waitForTimeout(250);
+    await page.locator('#obj-menu-panel .obj-menu-row', { hasText: 'Slett listepunktet' }).click();
     await page.waitForTimeout(450);
     const after = await activeInfo(page);
     log(label + ' 7: fokus etter sletting lander på en nabo, ikke på <body>',
       after.tag !== 'BODY', after);
   } else {
-    log(label + ' 7: fokus etter sletting lander på en nabo, ikke på <body>', false, 'fant ikke slettknappen');
+    log(label + ' 7: fokus etter sletting lander på en nabo, ikke på <body>', false, 'fant ikke menyknappen');
   }
 
 
@@ -522,7 +529,7 @@ async function run(label, viewport) {
      en av dem mindre skal feile her, ikke oppdages på en telefon. I tillegg
      kontrolleres WCAG 2.2 «Target Size (Minimum)» (24×24 px) for alt sammen. */
   const FLOOR = {
-    '.icon-btn': 36, '.card-cog': 36, '.cat-cog': 36, '.cat-dissolve': 36,
+    '.icon-btn': 36, '.card-cog': 36, '.cat-cog': 36, '.obj-menu-btn': 36,
     '.item-cog': 36, '.item-check': 36, '.btn-add': 34, '.crumb-btn': 49,
   };
   const measured = await page.evaluate((sels) => {
@@ -547,8 +554,8 @@ async function run(label, viewport) {
      dekker hverandre gjør et trykk i sonen mellom dem vilkårlig, og av «slett»
      og «innstillinger» er den ene destruktiv. */
   const touch = await page.evaluate(() => {
-    const ICON = '.item-check, .item-cog, .item-delete, .card-cog, .card-delete,'
-      + '.cat-cog, .cat-dissolve, .done-restore, .cat-add-btn, .share-badge,'
+    const ICON = '.item-check, .item-cog, .card-cog,'
+      + '.cat-cog, .done-restore, .cat-add-btn,'
       + '.icon-btn:not(.pass-toggle)';
     // Kun det som FAKTISK tar imot en finger. `pointer-events` arves, så dette
     // luker samtidig bort etterkommere av slette-animasjonens `.fly-ghost` —
@@ -671,14 +678,20 @@ async function run(label, viewport) {
      innfris i innpakningen — ellers falt fokus til <body> nettopp i det
      tilfellet der brukeren trenger et sted å fortsette fra. Sjekken tømmer
      board-et og må derfor komme etter alt som trenger innhold. */
-  await page.evaluate(() => {
-    const dels = [].slice.call(document.querySelectorAll('.card:not(.uni-card) .card-delete'));
-    dels.slice(0, -1).forEach((b) => b.click());
-  });
-  await page.waitForTimeout(600);
-  const lastDel = await page.$('.card:not(.uni-card) .card-delete');
+  const deleteOneCard = async () => {
+    const btn = await page.$('.card:not(.uni-card) > .card-head > .obj-menu-btn');
+    if (!btn) return false;
+    await btn.click();
+    await page.waitForTimeout(220);
+    await page.locator('#obj-menu-panel .obj-menu-row', { hasText: 'Slett listen' }).click();
+    await page.waitForTimeout(500);
+    return true;
+  };
+  let cardsLeft = await page.evaluate(() => document.querySelectorAll('.card:not(.uni-card)').length);
+  while (cardsLeft > 1) { await deleteOneCard(); cardsLeft--; }
+  const lastDel = await page.$('.card:not(.uni-card) > .card-head > .obj-menu-btn');
   if (lastDel) {
-    await lastDel.click();
+    await deleteOneCard();
     await page.waitForTimeout(700);
     const emptied = await page.evaluate(() => ({
       cards: document.querySelectorAll('.card:not(.uni-card)').length,

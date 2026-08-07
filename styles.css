@@ -225,24 +225,26 @@ body {
    har minst 8 px luft til naboen. tests/a11y-runtime.test.js måler den
    FAKTISKE flaten på alt som er synlig, så en glemt knapp feiler der.
 
+   Objektmenyknappen (`.obj-menu-btn`) bærer klassene `.item-cog`/`.card-cog`/
+   `.cat-cog` etter hvilken flate den står på, og er dermed allerede dekket.
+
    Unntak, med vilje:
    • `.pass-toggle` ligger INNI tekstfeltet. En utvidet flate der ville stjålet
      klikk fra selve feltet, som er et større og viktigere mål.
    • `.meta-chip` og `.item-text` er stablet med 3 px mellom seg inne i raden;
      de kan ikke vokse uten å overlappe hverandre. Begge er over AA-gulvet på
      24 px, og er tekstmål, ikke ikonknapper.
-   • `.share-badge` finnes i to former: en ekte <button> på listekortet, og en
-     DEKORATIV <span aria-hidden> på områdekort og mapperader. Kun knappen er
-     med (`button.share-badge`) — en treffflate på en span som ikke tar imot
-     klikk ville bare lagt et usynlig teppe over raden bak den. */
-.item-check, .item-cog, .item-delete, .card-cog, .card-delete,
-.cat-cog, .cat-dissolve, .done-restore, .cat-add-btn, button.share-badge,
+   • `.share-badge` er en DEKORATIV <span aria-hidden> på alle nivåer — den tar
+     ikke imot klikk, og en treffflate på den ville bare lagt et usynlig teppe
+     over raden bak. */
+.item-check, .item-cog, .card-cog,
+.cat-cog, .done-restore, .cat-add-btn,
 .icon-btn:not(.pass-toggle) {
   position: relative;
 }
-.item-check::after, .item-cog::after, .item-delete::after,
-.card-cog::after, .card-delete::after, .cat-cog::after, .cat-dissolve::after,
-.done-restore::after, .cat-add-btn::after, button.share-badge::after,
+.item-check::after, .item-cog::after,
+.card-cog::after, .cat-cog::after,
+.done-restore::after, .cat-add-btn::after,
 .icon-btn:not(.pass-toggle)::after {
   content: '';
   position: absolute;
@@ -1002,10 +1004,10 @@ body {
    etter skillelinja. Linja er divider-ens ::after og ligger derfor sist i
    flex-rekkefølgen; `order: 1` på knappen (som står før pseudo-elementet i
    DOM-en) flytter den forbi den. Knappen står i samme 36px-kolonne som
-   listepunktenes ×: begge containere har 10px sidepolstring, og `margin-right:
+   listepunktenes menyknapp: begge containere har 10px sidepolstring, og `margin-right:
    6px` legger til .item-ens egen polstring, så ikonene står nøyaktig over
    hverandre. Selve knappeflaten er den delte hvite flate-knappen — se
-   `.cat-cog, .cat-dissolve, .done-restore` lenger nede. */
+   `.cat-cog, .done-restore` lenger nede. */
 .done-restore { order: 1; margin-right: 6px; }
 .items-done {
   list-style: none;
@@ -1017,8 +1019,8 @@ body {
 }
 
 /* ---------------- Kategorier (nivå-1-rad som grupperer elementer) ----------------
-   «Hylle i veggen»-metafor: overskriften (håndtak + tittel/meta + tannhjul +
-   oppløs-knapp) står på VEGGEN (listeflaten), og elementene ligger i en
+   «Hylle i veggen»-metafor: overskriften (håndtak + tittel/meta + menyknapp)
+   står på VEGGEN (listeflaten), og elementene ligger i en
    FORDYPNING rett under — `.cat-items` er en litt mørkere flate med innover-
    skygge, som en hylle som går inn i veggen, og elementene blir som «bøker» i
    hylla. Overskriften ligger tett oppå hylla (4px), så den leser som hyllas
@@ -1128,8 +1130,8 @@ body {
    ring, lysner ved hover) — synlige mot den fargede listeflaten og på linje med
    kort-hodets og listepunktenes knapper. Ikonene har svart strek i seg selv
    (ICONS-settets regel), så `color` styrer ikke dem. Ett felles sett regler så de
-   tre knappene ikke kan gli fra hverandre. */
-.cat-cog, .cat-dissolve, .done-restore {
+   to knappene ikke kan gli fra hverandre. */
+.cat-cog, .done-restore {
   flex: 0 0 auto;
   align-self: center;
   appearance: none;
@@ -1147,11 +1149,11 @@ body {
   box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.35);
   transition: background 0.15s, transform 0.1s;
 }
-.cat-cog .icon, .cat-dissolve .icon, .done-restore .icon { width: 1em; height: 1em; font-size: 21px; }
-.cat-cog:hover, .cat-dissolve:hover, .done-restore:hover { background: rgba(255, 255, 255, 0.34); }
-.cat-cog:active, .cat-dissolve:active, .done-restore:active { transform: scale(0.92); }
-.cat-cog:focus-visible, .cat-dissolve:focus-visible, .done-restore:focus-visible { outline: var(--focus-w) solid var(--focus); outline-offset: 2px; }
-.cat-cog:disabled, .cat-dissolve:disabled, .done-restore:disabled { cursor: default; opacity: 0.4; }
+.cat-cog .icon, .done-restore .icon { width: 1em; height: 1em; font-size: 21px; }
+.cat-cog:hover, .done-restore:hover { background: rgba(255, 255, 255, 0.34); }
+.cat-cog:active, .done-restore:active { transform: scale(0.92); }
+.cat-cog:focus-visible, .done-restore:focus-visible { outline: var(--focus-w) solid var(--focus); outline-offset: 2px; }
+.cat-cog:disabled, .done-restore:disabled { cursor: default; opacity: 0.4; }
 
 .cat-items {
   list-style: none;
@@ -1240,21 +1242,13 @@ body {
 }
 .icon-btn:hover { background: rgba(0, 0, 0, 0.07); color: var(--ink); }
 
-/* Sletteknapper (liste/listepunkt — og dermed også område/mappe, som bruker
-   nøyaktig samme kort-/rad-oppsett): SVG-× (ICONS.xmark, samme strek som
-   ikonsettet) — SVARTE globalt, RØDE ved hover/aktivering. Gjelder også på
-   fargede flater (korthode); svart leser fint på de lyse kortfargene. */
-.card-delete, .item-delete, .uni-leave, .group-leave { color: #111; }
-.card-delete:hover, .item-delete:hover,
-.card-delete:active, .item-delete:active {
-  color: var(--danger);
-  background: var(--danger-soft);
-}
-/* Element-× alltid synlig, men diskré; full styrke ved hover/fokus. */
-.item-delete { opacity: 0.6; }
-.item:hover .item-delete,
-.item:focus-within .item-delete,
-.item-delete:focus-visible { opacity: 1; }
+/* Objektmenyknappen — ÉN knapp per objekt, helt til høyre. Den arver flate og
+   størrelse fra kontrollen den erstattet på hvert nivå (`.card-cog` på
+   korthoder, `.item-cog` på rader, `.cat-cog` på kategorioverskrifter), så
+   ingen ny knappestil er innført. `aria-expanded` markeres mens menyen står
+   åpen, slik at knappen ikke ser «kald» ut under sin egen popover. */
+.obj-menu-btn[aria-expanded='true'] { background: rgba(255, 255, 255, 0.42); opacity: 1; }
+.item-cog.obj-menu-btn[aria-expanded='true'] { background: rgba(0, 0, 0, 0.07); }
 
 /* Synlig tastaturfokus på kontrollene (samme brand-ring som aktivt kort). */
 .btn-add:focus-visible,
@@ -1353,8 +1347,7 @@ body {
 .category.dragging::after { content: none; }
 /* Knappene skjules HELT (ikke bare opacity) så headeren får element-høyde; ikonet
    + svart tittel bærer lesbarheten mot den hvite flaten i stedet. */
-.category.dragging .cat-cog,
-.category.dragging .cat-dissolve { display: none; }
+.category.dragging .obj-menu-btn { display: none; }
 /* ＋-knappen (nytt listepunkt) hører til kategoriens hvile-tilstand — skjul den
    på det løftede kortet (og fra høyde-målingen) så draget leser som en kompakt rad. */
 .category.dragging .cat-add { display: none; }
@@ -2105,22 +2098,12 @@ body:has(.toast.show) .update-banner.show { transform: translateY(-128px); }
 
 /* Det som ikke er i bruk i dette steget dempes. `.tour-live` står på kontrollen
    steget FAKTISK handler om, og `:not(.tour-live)` er hele forskjellen: en rad
-   som er levende (den skal dras) har fortsatt et slette-kryss og et tannhjul som
-   IKKE er i bruk, og de skal bli stående dempet inni den.
+   som er levende (den skal dras) har fortsatt en menyknapp og en avmerkingsboks
+   som IKKE er i bruk, og de skal bli stående dempet inni den.
    Blokkeringen ligger i JS (demoGate) — dette er affordansen, ikke vakten. */
-body.tour-demo .card-delete:not(.tour-live),
-body.tour-demo .item-delete:not(.tour-live),
-body.tour-demo .group-delete:not(.tour-live),
-body.tour-demo .card-cog:not(.tour-live),
-body.tour-demo .item-cog:not(.tour-live),
-body.tour-demo .cat-cog:not(.tour-live),
-body.tour-demo .cat-dissolve:not(.tour-live),
+body.tour-demo .obj-menu-btn:not(.tour-live),
 body.tour-demo .item-check:not(.tour-live),
 body.tour-demo .share-badge:not(.tour-live),
-body.tour-demo .uni-share:not(.tour-live),
-body.tour-demo .group-share:not(.tour-live),
-body.tour-demo .uni-leave:not(.tour-live),
-body.tour-demo .group-leave:not(.tour-live),
 body.tour-demo .done-restore:not(.tour-live),
 body.tour-demo .trashcan:not(.tour-live),
 body.tour-demo .add-item-btn:not(.tour-live),
@@ -2790,35 +2773,9 @@ body.no-auth #account-btn { display: none; }
   line-height: 1;
 }
 .share-badge[hidden] { display: none; }
-/* Listekortets badge er en ekte <button> (ingen egen del-knapp i korthodet
-   ellers) — nullstill knappe-kromet så den ser ut som områders/mappers
-   rene indikator-span. */
-/* Knappen er 36×36 som de andre kontrollene i korthodet (og får dermed de
-   samme 44 px å treffe på), mens SELVE MERKET holder seg på --fs-lg — samme
-   størrelse som den dekorative spanen områder og mapper har, så de tre ser
-   like ut. Uten en egen størrelse var knappen bare 16×16 (`font: inherit`
-   nullstilte --fs-lg), og en 44 px treffflate sentrert på den strakk seg inn
-   over listetittelen: et trykk ved navnet åpnet deling i stedet for omdøping. */
-button.share-badge {
-  appearance: none;
-  border: none;
-  background: transparent;
-  padding: 0;
-  color: inherit;
-  font: inherit;
-  cursor: pointer;
-  width: 36px;
-  height: 36px;
-  display: grid;
-  place-items: center;
-  font-size: var(--fs-lg);
-}
-button.share-badge:focus-visible { outline: var(--focus-w) solid var(--focus); outline-offset: 2px; border-radius: 4px; }
-/* Innstillingsknappen på listekort (`.card-cog`, tannhjul — erstatter den
-   gamle del-knappen): egen svakt markert flate som lysner ved hover (samme
-   idé som flate-mønsteret, på farget bakgrunn). Område/mappe deles fortsatt
-   Områder/mapper bruker samme knappestil for sin DEL-knapp (`.uni-share`/
-   `.group-share`) — de har ingen innstillingsmodal. */
+/* Knappeflaten i et KORTHODE (`.card-cog`): egen svakt markert flate som
+   lysner ved hover (samme idé som flate-mønsteret, på farget bakgrunn).
+   Områdekort og listekort bruker den samme flaten til objektmenyknappen. */
 .card-cog {
   flex: 0 0 auto;
   align-self: center;
@@ -2894,68 +2851,142 @@ button.share-badge:focus-visible { outline: var(--focus-w) solid var(--focus); o
 .meta-chip.is-soon { background: var(--grad-yellow); color: #fff; text-shadow: var(--text-shadow); }
 .meta-chip.is-over { background: var(--grad-red); color: #fff; text-shadow: var(--text-shadow); }
 
-/* ---------------- Innstillingsmodal (liste/element) ---------------- */
-.settings-modal { width: min(520px, 100%); }
-.settings-body { display: flex; flex-direction: column; gap: 16px; }
-.settings-name { display: flex; align-items: center; gap: 10px; }
-.settings-name-icon {
-  flex: 0 0 auto;
-  display: grid;
-  place-items: center;
-  font-size: 26px;
-  color: var(--ink-soft);
+/* ---------------- Objektmenyen (én knapp per objekt) ----------------
+   Popover ved menyknappen på desktop, sentrert ark på mobil — panelet arver
+   `.switcher-panel` (samme skall som ansvarlig-velgeren og tids-popoveren), så
+   posisjonering, maks-høyde og mobil-omleggingen finnes bare ÉN gang i appen.
+   Radene er hele knapper med ikon + etikett (+ evt. et dempet hint), og
+   undermenyene er et TREKKSPILL: kun én skuff åpen om gangen. */
+.obj-menu-panel {
+  gap: 0;
+  padding: 8px;
+  min-width: min(268px, calc(100vw - 20px));
 }
-.settings-name-input { flex: 1; min-width: 0; font-weight: 600; }
-/* Seksjonene skilles med kant-til-kant-linjer (samme stil som modal-head sin
-   border-bottom; negativ side-margin kansellerer modal-body-paddingen). */
-.settings-section {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-  border-top: 1px solid var(--line);
-  margin: 0 -20px;
-  padding: 14px 20px 0;
-}
-.settings-section-title {
+/* Overskrift: hvilket objekt menyen gjelder. På mobil dekker arket raden den
+   kom fra, og uten navnet her ville man ikke se hva man holder på med. */
+.obj-menu-head {
   display: flex;
   align-items: center;
-  gap: 7px;
-  font-size: var(--fs-xs);
+  gap: 8px;
+  padding: 4px 8px 9px;
+  margin-bottom: 5px;
+  border-bottom: 1px solid var(--line);
+  font-size: var(--fs-sm);
   font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
   color: var(--ink-soft);
 }
-.settings-section-title .icon { font-size: 17px; }
-/* Ansvarlig-raden: nåværende valg som sirkel + navn; klikk åpner velgeren. */
-.settings-resp-btn {
+.obj-menu-head-icon { flex: 0 0 auto; display: grid; place-items: center; font-size: 20px; }
+.obj-menu-head-name {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--ink);
+}
+.obj-menu-list { display: flex; flex-direction: column; }
+.obj-menu-row {
   appearance: none;
-  border: 1.5px solid var(--line);
+  border: none;
   cursor: pointer;
   display: flex;
   align-items: center;
   gap: 10px;
+  flex: 0 0 auto;
   width: 100%;
-  padding: 8px 10px;
-  border-radius: var(--radius-sm);
-  background: #fbfbfd;
+  /* 40 px høy rad: over AA-gulvet på 24 px, og radene ligger tett i tett, så
+     de utvider seg ikke som ikonknappene gjør (ingen naboer å møte). */
+  min-height: 40px;
+  padding: 8px 9px;
+  border-radius: var(--control-radius);
+  background: transparent;
+  color: var(--ink);
   font-family: inherit;
   font-weight: 600;
   font-size: var(--fs-md);
-  color: var(--ink);
   text-align: left;
-  transition: border-color 0.15s, background 0.15s;
+  transition: background 0.15s;
 }
-.settings-resp-btn:hover { border-color: var(--primary); background: var(--primary-soft); }
-.settings-resp-btn:focus-visible { outline: var(--focus-w) solid var(--focus); outline-offset: 2px; }
-.settings-resp-btn:disabled { cursor: default; opacity: 0.6; }
-.settings-resp-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.obj-menu-row:hover { background: var(--primary-soft); }
+.obj-menu-row:focus-visible { outline: var(--focus-w) solid var(--focus); outline-offset: -2px; }
+.obj-menu-icon { flex: 0 0 auto; display: grid; place-items: center; font-size: 21px; }
+.obj-menu-label { flex: 1 1 auto; min-width: 0; }
+/* Hintet står under etiketten (lås-radens «Andre kan se, men ikke redigere»). */
+.obj-menu-row .obj-menu-hint {
+  flex: 1 0 100%;
+  order: 3;
+  padding-left: 31px;
+  font-size: var(--fs-xs);
+  font-weight: 500;
+  color: var(--ink-soft);
+}
+.obj-menu-row:has(.obj-menu-hint) { flex-wrap: wrap; }
+/* Sletting/oppløsing: rød etikett bak en skillelinje, alltid nederst. */
+.obj-menu-sep { height: 1px; margin: 5px 4px; background: var(--line); }
+.obj-menu-row.is-danger { color: var(--danger); }
+.obj-menu-row.is-danger:hover { background: var(--danger-soft); }
 
-/* ---------------- Tids-editoren (modalen + popoveren) ---------------- */
+/* Trekkspillet: overskriftsraden får en vinkel til høyre som roterer 90° når
+   skuffen er åpen; skuffen animerer på høyde (og klippes mens den beveger seg). */
+.obj-menu-group { display: flex; flex-direction: column; }
+.obj-menu-chev {
+  flex: 0 0 auto;
+  display: grid;
+  place-items: center;
+  font-size: 16px;
+  color: var(--ink-soft);
+  transition: transform 0.18s;
+}
+.obj-menu-toggle[aria-expanded='true'] { background: var(--primary-soft); }
+.obj-menu-toggle[aria-expanded='true'] .obj-menu-chev { transform: rotate(90deg); }
+.obj-menu-sub {
+  overflow: hidden;
+  transition: height 0.18s ease;
+}
+.obj-menu-sub.is-closed { height: 0; }
+/* Innholdet i en skuff rykkes inn, så nivåene leses uten ekstra kanter. */
+.obj-menu-sub > * { padding: 6px 0 8px 8px; }
+.obj-menu-movebox { display: flex; flex-direction: column; }
+.obj-menu-resp { display: flex; flex-direction: column; gap: 2px; }
+.obj-menu-resp .uni-empty { margin: 4px 2px; font-size: var(--fs-sm); color: var(--ink-soft); }
+/* Tids-editoren i en skuff: samme editor som tids-popoveren bruker. */
+.obj-menu-sub .time-editor { gap: 12px; }
+.obj-menu-sub .time-lock { font-size: var(--fs-sm); }
+
+/* ---------------- Sveip tittelen for å slette ----------------
+   Søppelkassen (eller boble-ikonet for kategorier) ligger til VENSTRE for
+   menyknappen, absolutt plassert i raden. Den er usynlig i hvile; `right`
+   settes i JS ut fra menyknappens faktiske plass, siden de tre radtypene har
+   ulik sidepolstring. Opasiteten følger sveipet. */
+.item, .card-head, .cat-head { position: relative; }
+.swipe-trash {
+  position: absolute;
+  top: 50%;
+  right: 52px;
+  transform: translateY(-50%) scale(0.72);
+  width: 30px;
+  height: 30px;
+  display: grid;
+  place-items: center;
+  font-size: 22px;
+  opacity: 0;
+  pointer-events: none;
+  z-index: 1;
+}
+.swipe-trash.is-armed { filter: drop-shadow(0 0 6px rgba(0, 0, 0, 0.28)); }
+/* Sveipesonen er tittelfeltet. `pan-y` lar siden fortsatt rulles loddrett
+   (og zoomes), mens den VANNRETTE gesten kommer til JS i stedet for å bli
+   spist av nettleserens egen panorering. */
+.swipe-zone { touch-action: pan-y pinch-zoom; }
+.item.swiping, .card-head.swiping, .cat-head.swiping { overflow: hidden; }
+
+
+/* ---------------- Tids-editoren (objektmenyen + tids-popoveren) ---------------- */
 .time-editor { display: flex; flex-direction: column; gap: 14px; }
 /* Feltpar (dato+klokkeslett) med egen overskrift over («Starttid»/«Tidsfrist»
-   + tilhørende ikon) — kun i fullvisningen (modalen); tids-popoveren har sin
-   egen tittel (time-panel-title) og hopper over denne (se opts.only i JS). */
+   + tilhørende ikon) — kun i fullvisningen (menyens tidsplan-skuff);
+   tids-popoveren har sin egen tittel (time-panel-title) og hopper over denne
+   (se opts.only i JS). */
 .time-group { display: flex; flex-direction: column; gap: 6px; }
 .time-group-heading {
   display: flex;

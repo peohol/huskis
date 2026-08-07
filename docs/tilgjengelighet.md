@@ -15,9 +15,12 @@ dokumentet skal gjøre den vanlige arbeidsflyten tregere:
 - Ingen synlige tekstetiketter ved ikonene. Navnet ligger i `aria-label`, som
   koster null piksler. Etiketter ved hvert ikon ville gjort listevisningen mer
   overfylt og tregere å lese for alle andre.
-- Hyppige handlinger ligger ikke i menyer. Sortering er ett tastetrykk
-  (`Alt`+pil), ikke et menyvalg. Kun flytting til en NY forelder åpner en
-  velger — og det er den samme velgeren draget allerede åpner.
+- Hyppige handlinger krever ikke menyen. Sortering er ett tastetrykk
+  (`Alt`+pil), omdøping er `F2`, og flytting til en NY forelder er `Alt`+`M` —
+  som åpner den samme velgeren draget allerede åpner. Alt dette finnes OGSÅ i
+  objektmenyen (`docs/menus.md`), men ingen er nødt til å gå den veien.
+- Alt sveip-for-å-slette gjør, finnes i objektmenyen. Gesten er et TILLEGG for
+  touch, aldri den eneste veien (WCAG 2.5.1 «Pointer Gestures»).
 - Ingen nye kontroller i board-et. Tastaturhåndtaket er nøyaktig den sonen
   musen drar i, så det finnes ingen ekstra knapp å hoppe over.
 
@@ -72,8 +75,9 @@ men teller aldri alene: den leses ikke av alle skjermlesere, og på touch finnes
 den ikke.
 
 Navnet er **presist** — det inneholder objektets navn, ikke bare handlingen.
-«Slett listepunkt» tjue ganger på rad forteller ingenting; «Slett listepunktet
-«Kjøp melk»» gjør det. Navnene settes i `label*Controls()` i hver `build*`-
+«Meny» tjue ganger på rad forteller ingenting; «Meny for listepunktet
+«Kjøp melk»» gjør det. Det samme gjelder selve menypanelet, som får
+`aria-label` med objektets navn når den åpnes. Navnene settes i `label*Controls()` i hver `build*`-
 funksjon (`app.js`) og settes **på nytt etter omdøping**, så de aldri blir
 stående på gammel tekst.
 
@@ -87,8 +91,8 @@ oppført i konto-modalen (`.menu-keys`).
 |---|---|
 | `Alt` + `↑` / `↓` (og `←` / `→`) | flytt objektet ett hakk — **sortering** |
 | `Alt` + `M` | «Flytt til …» — ny forelder |
-| `F2` | endre navn (`Enter` gjør det samme på en rad) |
-| `Enter` / `Mellomrom` | på et korthode: kollaps/utvid. På en mapperad: naviger |
+| `F2` | endre navn — på ALLE nivåer (klikk på navnet omdøper nå bare listepunkter og kategorier) |
+| `Enter` / `Mellomrom` | på et korthode: kollaps/utvid. På en mapperad: naviger. På et listepunkt: endre navn |
 | `Escape` | lukk øverste modal — eller avbryt en navneendring |
 
 **Sortering = bytt plass.** `Alt`+pil bytter objektet med naboen, som er
@@ -135,7 +139,10 @@ gulvet.
   `hidden` — ikke endringer i de ni åpne-/lukkefunksjonene, som skjuler
   modalene fra for mange steder til at en av dem kan holdes i synk manuelt.
   Åpne-kode som allerede flytter fokus selv (bekreftelsesdialogen, sveipefeltet,
-  innstillingsmodalen) får beholde sitt eget valg.
+  objektmenyen — som fokuserer sin første rad) får beholde sitt eget valg.
+  Fly-i-søpla-klonen (`ghostFrom`) strippes for `id`/`data-id`, ellers ville
+  gjenopprettingen funnet KLONEN av det slettede objektet og mistet fokus for
+  godt når den fjernes 600 ms senere.
 - **Innføringen** styrer fokus selv (`docs/introduksjon.md`) og røres ikke av
   dette; `Tab`-fellen over trekker seg unna mens den er aktiv. Merk at den kun
   har en felle på fortellestegene: på et handlingssteg står fokus på den EKTE
@@ -205,7 +212,7 @@ navigasjon, en ny kontroll, en ny modal eller dra-og-slipp:
 2. Er fokusringen synlig på **hver eneste** stopp — også over et fargesterkt
    kort, over en grønn knapp og i den gule delen av del-modalen?
 3. Kan du opprette, navngi, krysse av, omdøpe, sortere, flytte og slette et
-   listepunkt uten å røre musen?
+   listepunkt uten å røre musen — både med snarveiene og via objektmenyen?
 4. Kan du gjøre det samme på alle fire nivåene (område, mappe, liste,
    listepunkt)?
 5. Åpne en modal: havner fokus inni? Kommer du deg IKKE ut med `Tab`? Lander
@@ -219,15 +226,15 @@ navigasjon, en ny kontroll, en ny modal eller dra-og-slipp:
 
 ### Skjermleser (VoiceOver på macOS/iOS, NVDA på Windows, TalkBack på Android)
 
-9. Gå gjennom en liste med tjue rader: sier hver slettknapp HVILKEN rad den
+9. Gå gjennom en liste med tjue rader: sier hver menyknapp HVILKEN rad den
    gjelder, eller høres de like ut?
 10. Omdøp et objekt og gå tilbake til knappene: leses det NYE navnet?
 11. Flytt et objekt med `Alt`+pil: blir flyttingen lest opp, med navn og ny
     plass?
 12. Åpne en modal: leses dialogens overskrift, og oppleves innholdet bak som
     borte?
-13. Er de tre delte ✕-ene (lukk / slett / forlat) mulige å skille fra
-    hverandre på navnet alene?
+13. Åpne objektmenyen på hvert nivå: leses panelets navn (hvilket objekt), og
+    kan du nå «Slett» med piltastene uten å se skjermen?
 14. Er alt som bare er dekorasjon (ikoner inne i en navngitt knapp) `aria-hidden`,
     slik at navnet ikke leses dobbelt?
 

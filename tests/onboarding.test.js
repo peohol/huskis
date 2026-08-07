@@ -39,6 +39,15 @@ const { chromium } = require('playwright');
 
 const BASE = process.env.HUSKIS_URL || 'http://localhost:8000';
 
+// Sletting/oppløsing ligger i objektmenyen. Demoen tillater menypanelet på de
+// stegene den demonstrerer, så gaten slipper begge klikkene gjennom.
+async function pickInMenu(p, hostSel, label) {
+  await p.locator(hostSel + ' .obj-menu-btn').first().click();
+  await p.waitForTimeout(250);
+  await p.locator('#obj-menu-panel .obj-menu-row', { hasText: label }).click();
+  await p.waitForTimeout(250);
+}
+
 const results = [];
 const log = (n, ok, x = '') => { results.push(ok); console.log((ok ? 'PASS' : 'FAIL') + ' — ' + n + (x ? '  [' + x + ']' : '')); };
 
@@ -304,7 +313,7 @@ async function run(label, vp, mobile) {
   await waitStep(p, 'name_item2');
   await typeName(p, 'Brød');
 
-  /* Sletting demonstreres ikke her: slette-krysset i raden svarer ikke, selv om
+  /* Sletting demonstreres ikke her: menyknappen i raden svarer ikke, selv om
      raden ellers er «levende» fordi den skal dras. */
   await waitStep(p, 'drag_item');
   const antall = () => p.evaluate((id) => {
@@ -312,10 +321,10 @@ async function run(label, vp, mobile) {
     return c.items.filter((it) => !it.trashed && !it._pendingDelete).length;
   }, cid);
   const antallFør = await antall();
-  await p.locator(rader + ':last-child .item-delete').click({ force: true });
-  await p.waitForTimeout(400);   // FAST: fraværsbevis (slettingen skal IKKE skje)
+  await p.locator(rader + ':last-child .obj-menu-btn').click({ force: true });
+  await p.waitForTimeout(400);   // FAST: fraværsbevis (menyen skal IKKE åpne seg)
   const antallEtter = await antall();
-  log(label + ' 11: sletting virker ikke når steget ikke demonstrerer sletting',
+  log(label + ' 11: menyen åpner seg ikke når steget ikke demonstrerer sletting',
     antallFør === 2 && antallEtter === 2, antallFør + ' → ' + antallEtter);
 
   await drag(p, rader + ':last-child', rader + ':first-child');
@@ -340,10 +349,10 @@ async function run(label, vp, mobile) {
   await waitStep(p, 'name_cat_item');
   await typeName(p, 'Egg');
   await waitStep(p, 'dissolve_cat');
-  await p.locator('.category[data-id="' + catId + '"] .cat-dissolve').click();
+  await pickInMenu(p, '.category[data-id="' + catId + '"] .cat-head', 'Løs opp kategorien');
 
   await waitStep(p, 'delete_item');
-  await p.locator(rader + ':first-child .item-delete').click();
+  await pickInMenu(p, rader + ':first-child', 'Slett listepunktet');
   await waitStep(p, 'open_item_trash');
   await p.locator(kort + ' .item-trash-btn').click();
   await waitStep(p, 'restore_item');
@@ -351,17 +360,17 @@ async function run(label, vp, mobile) {
   await waitStep(p, 'close_item_trash');
   await p.locator('#trash-close').click();
   await waitStep(p, 'delete_item2');
-  await p.locator(rader + ':first-child .item-delete').click();
+  await pickInMenu(p, rader + ':first-child', 'Slett listepunktet');
   await waitStep(p, 'empty_item_trash');
   await swipeEmpty(p, kort + ' .item-trash-btn');
   await waitStep(p, 'delete_list');
-  await p.locator(kort + ' .card-delete').click();
+  await pickInMenu(p, kort + ' .card-head', 'Slett listen');
   await waitStep(p, 'empty_card_trash');
   await swipeEmpty(p, '#trash-btn');
   await waitStep(p, 'open_nav2');
   await p.locator('#nav-crumb').click();
   await waitStep(p, 'delete_area');
-  await p.locator('.uni-card .card-delete').first().click();
+  await pickInMenu(p, '.uni-card .card-head', 'Slett området for alle');
   await waitStep(p, 'empty_uni_trash');
   await swipeEmpty(p, '#uni-trash-btn');
   await waitStep(p, 'close_nav');

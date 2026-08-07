@@ -347,24 +347,23 @@
 
   <!-- Område-kort (nav-modalen): NØYAKTIG samme oppbygning som et listekort —
        korthode med tittel + kollaps-teller, og en .card-body med mappene som
-       rader. Forskjellene mot #card-template: del-knapp i stedet for tannhjul
-       (områder/mapper har ingen innstillingsmodal), teller med mappe-ikon i
-       stedet for «(N)», ingen «Utført»-seksjon, og ＋-knappene lager mappe /
-       mappekategori. -->
+       rader. Forskjellene mot #card-template: teller med mappe-ikon i stedet
+       for «(N)», ingen «Utført»-seksjon, og ＋-knappene lager mappe /
+       mappekategori. Alle handlinger ligger i objektmenyen (.obj-menu-btn),
+       som på alle andre objekter. -->
   <template id="uni-card-template">
     <article class="card uni-card" tabindex="-1">
       <header class="card-head" role="button" tabindex="0" aria-expanded="true">
         <span class="kind-icon uni-icon" aria-hidden="true"></span>
         <span class="share-badge" hidden aria-hidden="true"></span>
-        <div class="card-title-wrap">
+        <div class="card-title-wrap swipe-zone">
           <div class="title-line">
-            <h2 class="card-title" title="Klikk for å endre navn"></h2>
+            <h2 class="card-title"></h2>
             <span class="collapse-count uni-count" aria-hidden="true" hidden></span>
           </div>
         </div>
-        <button class="card-cog uni-share" type="button" title="Deling og medlemmer" aria-label="Deling og medlemmer i området"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="#111" stroke-width="1.05" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="6.5" cy="12" r="3.2" fill="#ad8585"></circle><circle cx="17.5" cy="6" r="2.3" fill="#adad85"></circle><circle cx="17.5" cy="18" r="2.3" fill="#85ad85"></circle><path d="m9.4 10.4 5.3-3"></path><path d="m9.4 13.6 5.3 3"></path></svg></button>
-        <button class="icon-btn uni-leave" type="button" title="Forlat området" aria-label="Forlat området"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.05" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 3H6a2.5 2.5 0 0 0-2.5 2.5v13A2.5 2.5 0 0 0 6 21h3"></path><path d="M21 12H10"></path><path d="M17.5 8.5 21 12l-3.5 3.5"></path></svg></button>
-        <button class="icon-btn card-delete uni-delete" title="Slett området for alle" aria-label="Slett området for alle"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.05" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6.5 6.5 17.5 17.5"></path><path d="M17.5 6.5 6.5 17.5"></path></svg></button>
+        <span class="swipe-trash" aria-hidden="true"></span>
+        <button class="card-cog obj-menu-btn" type="button" title="Meny" aria-label="Meny for området" aria-haspopup="menu" aria-expanded="false"></button>
       </header>
       <div class="card-body">
         <ul class="items-container"></ul>
@@ -377,34 +376,35 @@
   </template>
 
   <!-- Mapperad (i et område-kort): samme rad som et listepunkt, men UTEN
-       avmerkingsboks (mapper krysses ikke av) og med del-knapp i stedet for
-       tannhjul. Klikk på navnet redigerer; klikk ellers på raden navigerer. -->
+       avmerkingsboks (mapper krysses ikke av). Klikk på raden — navnet
+       inkludert — navigerer; omdøping går via objektmenyen (så navigering og
+       omdøping ikke kjemper om det samme klikket). -->
   <template id="group-row-template">
     <li class="item group-row" role="button" tabindex="0">
       <span class="kind-icon group-icon" aria-hidden="true"></span>
       <span class="share-badge" hidden aria-hidden="true"></span>
-      <div class="item-main">
-        <span class="item-text" title="Klikk for å endre navn"></span>
+      <div class="item-main swipe-zone">
+        <span class="item-text"></span>
       </div>
-      <button class="item-cog group-share" type="button" title="Deling og medlemmer" aria-label="Deling og medlemmer i mappen"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="#111" stroke-width="1.05" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="6.5" cy="12" r="3.2" fill="#ad8585"></circle><circle cx="17.5" cy="6" r="2.3" fill="#adad85"></circle><circle cx="17.5" cy="18" r="2.3" fill="#85ad85"></circle><path d="m9.4 10.4 5.3-3"></path><path d="m9.4 13.6 5.3 3"></path></svg></button>
-      <button class="icon-btn group-leave" type="button" title="Forlat mappen" aria-label="Forlat mappen"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.05" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 3H6a2.5 2.5 0 0 0-2.5 2.5v13A2.5 2.5 0 0 0 6 21h3"></path><path d="M21 12H10"></path><path d="M17.5 8.5 21 12l-3.5 3.5"></path></svg></button>
-      <button class="icon-btn item-delete group-delete" title="Slett mappen for alle" aria-label="Slett mappen for alle"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.05" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6.5 6.5 17.5 17.5"></path><path d="M17.5 6.5 6.5 17.5"></path></svg></button>
+      <span class="swipe-trash" aria-hidden="true"></span>
+      <button class="item-cog obj-menu-btn" type="button" title="Meny" aria-label="Meny for mappen" aria-haspopup="menu" aria-expanded="false"></button>
     </li>
   </template>
 
-  <!-- Mappekategori: samme kategori-rad som i en liste, men uten tannhjul
-       (ingen innstillinger) og uten deling — kun oppløs-knappen. -->
+  <!-- Mappekategori: samme kategori-rad som i en liste. Alle handlinger
+       (omdøp, flytt, løs opp) ligger i objektmenyen. -->
   <template id="group-cat-template">
     <li class="category group-cat">
       <div class="cat-head">
         <span class="cat-drag-icon" aria-hidden="true"></span>
-        <div class="cat-title-wrap">
+        <div class="cat-title-wrap swipe-zone">
           <div class="title-line">
             <h3 class="cat-title" title="Klikk for å endre navn"></h3>
             <span class="collapse-count" aria-hidden="true" hidden></span>
           </div>
         </div>
-        <button class="cat-dissolve" type="button" title="Oppløs mappekategorien" aria-label="Oppløs mappekategorien"></button>
+        <span class="swipe-trash" aria-hidden="true"></span>
+        <button class="cat-cog obj-menu-btn" type="button" title="Meny" aria-label="Meny for mappekategorien" aria-haspopup="menu" aria-expanded="false"></button>
       </div>
       <ul class="cat-items">
         <li class="cat-add">
@@ -417,19 +417,18 @@
   <template id="card-template">
     <article class="card" tabindex="-1">
       <header class="card-head">
-        <!-- aria-label settes på nytt i buildCard() med rollen («delt med andre»
-             / «delt med deg»); dette er navnet knappen har inntil da, så den
-             aldri kan stå navnløs. -->
-        <button type="button" class="share-badge" hidden title="Deling og medlemmer" aria-label="Deling og medlemmer"></button>
-        <div class="card-title-wrap">
+        <!-- Delt-merket er en ren INDIKATOR (som på områdekort og mapperader);
+             veien inn til delingsinnstillingene går via objektmenyen. -->
+        <span class="share-badge" hidden aria-hidden="true"></span>
+        <div class="card-title-wrap swipe-zone">
           <div class="title-line">
-            <h2 class="card-title" title="Klikk for å endre navn"></h2>
+            <h2 class="card-title"></h2>
             <span class="collapse-count" aria-hidden="true" hidden></span>
           </div>
           <div class="meta-row card-meta" hidden></div>
         </div>
-        <button class="card-cog" type="button" title="Innstillinger for listen" aria-label="Innstillinger for listen"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="#111" stroke-width="1.05" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10.56 5.76 L10.44 3.14 L13.56 3.14 L13.44 5.76 A6.4 6.4 0 0 1 15.39 6.57 L17.16 4.63 L19.37 6.84 L17.43 8.61 A6.4 6.4 0 0 1 18.24 10.56 L20.86 10.44 L20.86 13.56 L18.24 13.44 A6.4 6.4 0 0 1 17.43 15.39 L19.37 17.16 L17.16 19.37 L15.39 17.43 A6.4 6.4 0 0 1 13.44 18.24 L13.56 20.86 L10.44 20.86 L10.56 18.24 A6.4 6.4 0 0 1 8.61 17.43 L6.84 19.37 L4.63 17.16 L6.57 15.39 A6.4 6.4 0 0 1 5.76 13.44 L3.14 13.56 L3.14 10.44 L5.76 10.56 A6.4 6.4 0 0 1 6.57 8.61 L4.63 6.84 L6.84 4.63 L8.61 6.57 A6.4 6.4 0 0 1 10.56 5.76 Z M8.8 12a3.2 3.2 0 1 0 6.4 0 3.2 3.2 0 1 0 -6.4 0Z" fill="#c0c4c9" fill-rule="evenodd"></path></svg></button>
-        <button class="icon-btn card-delete" title="Slett liste" aria-label="Slett liste"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.05" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6.5 6.5 17.5 17.5"></path><path d="M17.5 6.5 6.5 17.5"></path></svg></button>
+        <span class="swipe-trash" aria-hidden="true"></span>
+        <button class="card-cog obj-menu-btn" type="button" title="Meny" aria-label="Meny for listen" aria-haspopup="menu" aria-expanded="false"></button>
       </header>
       <!-- Alt under headeren ligger i .card-body så den kan kollapses som en
            rullgardin (samme collapse/expand-mønster som kategorier). -->
@@ -453,32 +452,32 @@
   <template id="item-template">
     <li class="item">
       <button class="item-check" type="button" title="Merk som gjort" aria-label="Merk som gjort" aria-pressed="false"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12.5l4 4L19 6.5"></path></svg></button>
-      <div class="item-main">
+      <div class="item-main swipe-zone">
         <span class="item-text" title="Klikk for å redigere"></span>
         <div class="meta-row item-meta" hidden></div>
       </div>
-      <button class="item-cog" type="button" title="Innstillinger for listepunktet" aria-label="Innstillinger for listepunktet"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="#111" stroke-width="1.05" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10.56 5.76 L10.44 3.14 L13.56 3.14 L13.44 5.76 A6.4 6.4 0 0 1 15.39 6.57 L17.16 4.63 L19.37 6.84 L17.43 8.61 A6.4 6.4 0 0 1 18.24 10.56 L20.86 10.44 L20.86 13.56 L18.24 13.44 A6.4 6.4 0 0 1 17.43 15.39 L19.37 17.16 L17.16 19.37 L15.39 17.43 A6.4 6.4 0 0 1 13.44 18.24 L13.56 20.86 L10.44 20.86 L10.56 18.24 A6.4 6.4 0 0 1 8.61 17.43 L6.84 19.37 L4.63 17.16 L6.57 15.39 A6.4 6.4 0 0 1 5.76 13.44 L3.14 13.56 L3.14 10.44 L5.76 10.56 A6.4 6.4 0 0 1 6.57 8.61 L4.63 6.84 L6.84 4.63 L8.61 6.57 A6.4 6.4 0 0 1 10.56 5.76 Z M8.8 12a3.2 3.2 0 1 0 6.4 0 3.2 3.2 0 1 0 -6.4 0Z" fill="#c0c4c9" fill-rule="evenodd"></path></svg></button>
-      <button class="icon-btn item-delete" title="Slett listepunkt" aria-label="Slett listepunkt"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.05" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6.5 6.5 17.5 17.5"></path><path d="M17.5 6.5 6.5 17.5"></path></svg></button>
+      <span class="swipe-trash" aria-hidden="true"></span>
+      <button class="item-cog obj-menu-btn" type="button" title="Meny" aria-label="Meny for listepunktet" aria-haspopup="menu" aria-expanded="false"></button>
     </li>
   </template>
 
   <!-- Kategori: nivå-1-rad i en liste som grupperer listepunkter (nivå 2) under en
-       felles overskrift. Tittel/meta + innstillinger (tannhjul) + oppløs-knapp i
-       headeren; listepunktene ligger i .cat-items (indent-linje). Overskriftslinjen
-       (unntatt de to knappene) er trykk-og-hold-sonen for kategori-draging. -->
+       felles overskrift. Tittel/meta + objektmenyen i headeren; listepunktene
+       ligger i .cat-items (indent-linje). Overskriftslinjen (unntatt menyknappen)
+       er trykk-og-hold-sonen for kategori-draging. -->
   <template id="category-template">
     <li class="category">
       <div class="cat-head">
         <span class="cat-drag-icon" aria-hidden="true"></span>
-        <div class="cat-title-wrap">
+        <div class="cat-title-wrap swipe-zone">
           <div class="title-line">
             <h3 class="cat-title" title="Klikk for å endre navn"></h3>
             <span class="collapse-count" aria-hidden="true" hidden></span>
           </div>
           <div class="meta-row cat-meta" hidden></div>
         </div>
-        <button class="cat-cog" type="button" title="Innstillinger for kategorien" aria-label="Innstillinger for kategorien"></button>
-        <button class="cat-dissolve" type="button" title="Oppløs kategorien" aria-label="Oppløs kategorien"></button>
+        <span class="swipe-trash" aria-hidden="true"></span>
+        <button class="cat-cog obj-menu-btn" type="button" title="Meny" aria-label="Meny for kategorien" aria-haspopup="menu" aria-expanded="false"></button>
       </div>
       <ul class="cat-items">
         <!-- Grønn ＋-knapp: legger til et nytt listepunkt direkte i kategorien
@@ -492,17 +491,14 @@
     </li>
   </template>
 
-  <!-- Innstillingsmodal (liste/listepunkt): navn, deling (lister), ansvarlig og
-       tidsplan (start/frist). Bygges i openSettings() — alt lagres fortløpende
-       (optimistisk, via doc-synken/operasjonskøen), ingen bekreftelsesknapp. -->
-  <div class="modal-overlay" id="settings-modal" hidden>
-    <div class="modal settings-modal" role="dialog" aria-modal="true" aria-labelledby="settings-title">
-      <header class="modal-head">
-        <h2 id="settings-title">Innstillinger</h2>
-        <button class="icon-btn" id="settings-close" type="button" title="Lukk" aria-label="Lukk"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.05" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6.5 6.5 17.5 17.5"></path><path d="M17.5 6.5 6.5 17.5"></path></svg></button>
-      </header>
-      <div class="modal-body settings-body" id="settings-body"></div>
-    </div>
+  <!-- OBJEKTMENYEN: én meny for ALLE seks objekttypene (område, mappe,
+       mappekategori, liste, listepunkt, kategori). Popover ved menyknappen på
+       desktop, sentrert ark på mobil — samme .switcher-*-skall som ansvarlig-
+       velgeren og tids-popoveren. Radene bygges i openObjMenu(); undermenyene
+       (Flytt / Ansvarlig / Tidsplan) er et trekkspill der kun ÉN er åpen om
+       gangen. Se docs/menus.md. -->
+  <div class="switcher-overlay" id="obj-menu" hidden>
+    <div class="switcher-panel obj-menu-panel" id="obj-menu-panel" role="menu" tabindex="-1"></div>
   </div>
 
   <!-- Tids-popover: rask redigering av start/frist fra indikator-chipene

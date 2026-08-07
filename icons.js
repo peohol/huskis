@@ -13,7 +13,7 @@
    fargekartet og reglene). Rene funksjons-glyfer på massive fargeknapper
    (avkryssing/utlogging) beholder currentColor. Fyllfargene er hardkodet hex
    fordi de speiler palettens seks første farger (HSL S=20 %, L=60 %): farge 1–6
-   = #ad8585 #adad85 #85ad85 #85adad #8585ad #ad85ad; grå (søppel/tannhjul) =
+   = #ad8585 #adad85 #85ad85 #85adad #8585ad #ad85ad; grå (søppel/menyprikker) =
    #c0c4c9. Endrer du palett-konstantene i app.js, oppdater disse tilsvarende.
    Størrelse styres av .icon-klassen i styles.css (width/height: 1em).
 
@@ -157,13 +157,6 @@ window.ICONS = {
     '<path d="M11.5 15.5h5.5"></path>' +
     '</svg>',
 
-  // Tannhjul (innstillinger): grå kogg med FYLTE, brede tenner (som emojien ⚙️) —
-  // én sammensatt bane (koggsilhuett + senterhull, even-odd) så hullet forblir
-  // gjennomsiktig og den svarte streken tegner ytre silhuett + hull.
-  gear: '<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="#111" stroke-width="1.05" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
-    '<path d="M10.56 5.76 L10.44 3.14 L13.56 3.14 L13.44 5.76 A6.4 6.4 0 0 1 15.39 6.57 L17.16 4.63 L19.37 6.84 L17.43 8.61 A6.4 6.4 0 0 1 18.24 10.56 L20.86 10.44 L20.86 13.56 L18.24 13.44 A6.4 6.4 0 0 1 17.43 15.39 L19.37 17.16 L17.16 19.37 L15.39 17.43 A6.4 6.4 0 0 1 13.44 18.24 L13.56 20.86 L10.44 20.86 L10.56 18.24 A6.4 6.4 0 0 1 8.61 17.43 L6.84 19.37 L4.63 17.16 L6.57 15.39 A6.4 6.4 0 0 1 5.76 13.44 L3.14 13.56 L3.14 10.44 L5.76 10.56 A6.4 6.4 0 0 1 6.57 8.61 L4.63 6.84 L6.84 4.63 L8.61 6.57 A6.4 6.4 0 0 1 10.56 5.76 Z M8.8 12a3.2 3.2 0 1 0 6.4 0 3.2 3.2 0 1 0 -6.4 0Z" fill="#c0c4c9" fill-rule="evenodd"></path>' +
-    '</svg>',
-
   // Kryss (×) for lukk-/slett-knapper: egen SVG med samme strek (1.05) og runde
   // ender som resten av settet. Bruker currentColor så CSS styrer farge (svart i
   // hvile, rød ved hover på slett-knappene — se .icon-btn/-delete i styles.css).
@@ -257,6 +250,43 @@ window.ICONS = {
     '<path d="M9 3H6a2.5 2.5 0 0 0-2.5 2.5v13A2.5 2.5 0 0 0 6 21h3"></path>' +
     '<path d="M21 12H10"></path><path d="M17.5 8.5 21 12l-3.5 3.5"></path>' +
     '</svg>',
+  // Objektmenyen (tre prikker loddrett): ÉN knapp per objekt — område, mappe,
+  // mappekategori, liste, listepunkt og kategori — i stedet for tannhjul, ×,
+  // del- og forlat-knapper. Fylte prikker med samme svarte strek som resten av
+  // settet, så knappen leser like tydelig på farget korthode som på listeflaten.
+  menuDots: '<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="#111" stroke-width="1.05" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
+    '<circle cx="12" cy="5.2" r="2.05" fill="#c0c4c9"></circle>' +
+    '<circle cx="12" cy="12" r="2.05" fill="#c0c4c9"></circle>' +
+    '<circle cx="12" cy="18.8" r="2.05" fill="#c0c4c9"></circle>' +
+    '</svg>',
+
+  // Vinkel til høyre — trekkspillets utslagspil i objektmenyen. Roteres 90° av
+  // CSS når undermenyen er åpen, så den peker ned.
+  chevron: '<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
+    '<path d="M9.5 5.5 16 12l-6.5 6.5"></path></svg>',
+
+  // Blyant (endre navn) — skaft med fylt kropp og spiss ned mot venstre.
+  pencil: '<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="#111" stroke-width="1.05" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
+    '<path d="M15.6 4.4a2 2 0 0 1 2.8 0l1.2 1.2a2 2 0 0 1 0 2.8L9 19H5v-4Z" fill="#adad85"></path>' +
+    '<path d="M14.2 5.8 18.2 9.8"></path>' +
+    '<path d="M5 15 9 19"></path>' +
+    '</svg>',
+
+  // Fire piler ut fra midten (flytt) — tastaturets/menyens motstykke til draget.
+  moveArrows: '<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="#111" stroke-width="1.05" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
+    '<path d="M12 3.5v17"></path><path d="M3.5 12h17"></path>' +
+    '<path d="M9.4 6.1 12 3.5l2.6 2.6"></path>' +
+    '<path d="M9.4 17.9 12 20.5l2.6-2.6"></path>' +
+    '<path d="M6.1 9.4 3.5 12l2.6 2.6"></path>' +
+    '<path d="M17.9 9.4 20.5 12l-2.6 2.6"></path>' +
+    '</svg>',
+
+  // Pil opp/ned — «Flytt opp»/«Flytt ned» inne i flytte-undermenyen.
+  arrowUp: '<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="#111" stroke-width="1.05" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
+    '<path d="M12 20V4.5"></path><path d="M6.5 10 12 4.5 17.5 10"></path></svg>',
+  arrowDown: '<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="#111" stroke-width="1.05" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
+    '<path d="M12 4v15.5"></path><path d="M6.5 14 12 19.5 17.5 14"></path></svg>',
+
   // Søppelkassen som REN GLYF (.btn-glyph): ingen grå fyllflate, kun streker i
   // currentColor, så den blir hvit på en massiv fargeknapp. Samme tegning som
   // «Slett konto» har inline i index.html — endrer du motivet, endre BEGGE.

@@ -2,7 +2,7 @@
   Regresjonstest: ⟲-knappen på «Utført»-linja (gjenopprett alle utførte).
 
   Knappen står på SAMME linje som «Utført»-tittelen, helt til HØYRE (etter
-  skillelinja), i samme kolonne som listepunktenes ×. Et klikk reaktiverer ALLE
+  skillelinja), i samme kolonne som listepunktenes menyknapp. Et klikk reaktiverer ALLE
   avkryssede listepunkter i lista på én gang: de går tilbake til plassene sine
   (pos er urørt) — kategoriserte tilbake INN i kategorien sin — «Utført»-
   seksjonen skjules, og endringen overlever reload. I en låst liste er knappen
@@ -120,7 +120,7 @@ async function run(label, vp, mobile) {
     const lbl = div.querySelector('span').getBoundingClientRect();
     const btn = div.querySelector('.done-restore').getBoundingClientRect();
     const dr = div.getBoundingClientRect();
-    const x = c.querySelector('.items-done .item-delete').getBoundingClientRect();
+    const x = c.querySelector('.items-done .obj-menu-btn').getBoundingClientRect();
     return {
       visible: !div.querySelector('.done-restore').hidden,
       overlapY: Math.min(lbl.bottom, btn.bottom) - Math.max(lbl.top, btn.top),
@@ -140,7 +140,7 @@ async function run(label, vp, mobile) {
   log(label + ' 3: ⟲ står til HØYRE for tittelen/skillelinja, ytterst på linja',
     geom.btnLeftOfLabel === true && geom.insideDivider === true && geom.lineWidth > 0,
     JSON.stringify(geom));
-  log(label + ' 3: ⟲ flukter med listepunktenes ×-kolonne',
+  log(label + ' 3: ⟲ flukter med listepunktenes menyknapp-kolonne',
     Math.abs(geom.xCenterDelta) <= 1, 'delta=' + geom.xCenterDelta);
   log(label + ' 3: ⟲ har full trykkflate (36×36)',
     geom.w === 36 && geom.h === 36, geom.w + '×' + geom.h);

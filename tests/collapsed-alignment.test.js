@@ -95,14 +95,14 @@ const geom = (p) => p.evaluate(() => {
       titleBase: baseline(head.querySelector('.card-title')),
       countBase: baseline(head.querySelector('.collapse-count')),
       headMid: mid(head), titleMid: mid(head.querySelector('.card-title')),
-      cogMid: mid(head.querySelector('.card-cog')), delMid: mid(head.querySelector('.card-delete')),
+      menuMid: mid(head.querySelector('.obj-menu-btn')),
     },
     cat: {
       collapsed: cat.classList.contains('collapsed'),
       titleBase: baseline(ch.querySelector('.cat-title')),
       countBase: baseline(ch.querySelector('.collapse-count')),
       headMid: mid(ch), titleMid: mid(ch.querySelector('.cat-title')),
-      cogMid: mid(ch.querySelector('.cat-cog')), disMid: mid(ch.querySelector('.cat-dissolve')),
+      menuMid: mid(ch.querySelector('.obj-menu-btn')),
       // Luft fra kategoriens boks-kant til overskriften: over/under skal være lik
       // (boksen rommer skillelinjene med margene sine).
       above: +(rHead.top - rCat.top).toFixed(2),
@@ -131,8 +131,8 @@ const geom = (p) => p.evaluate(() => {
     log(name + ': lik luft over og under en kollapset kategori', near(g.cat.above, g.cat.below),
       'over=' + g.cat.above + ' under=' + g.cat.below);
     log(name + ': kategori-innholdet er vertikalt sentrert i overskriftslinjen',
-      near(g.cat.titleMid, g.cat.headMid) && near(g.cat.cogMid, g.cat.headMid) && near(g.cat.disMid, g.cat.headMid),
-      'head=' + g.cat.headMid + ' tittel=' + g.cat.titleMid + ' tannhjul=' + g.cat.cogMid + ' oppløs=' + g.cat.disMid);
+      near(g.cat.titleMid, g.cat.headMid) && near(g.cat.menuMid, g.cat.headMid),
+      'head=' + g.cat.headMid + ' tittel=' + g.cat.titleMid + ' meny=' + g.cat.menuMid);
 
     // Kollaps lista (klikk på korthodet).
     await p.locator('.card .card-head').click(); await p.waitForTimeout(400);
@@ -141,8 +141,8 @@ const geom = (p) => p.evaluate(() => {
     log(name + ': «(N)» på samme baseline som listetittelen', near(g.card.titleBase, g.card.countBase),
       'tittel=' + g.card.titleBase + ' teller=' + g.card.countBase);
     log(name + ': liste-innholdet er vertikalt sentrert i korthodet',
-      near(g.card.titleMid, g.card.headMid) && near(g.card.cogMid, g.card.headMid) && near(g.card.delMid, g.card.headMid),
-      'head=' + g.card.headMid + ' tittel=' + g.card.titleMid + ' tannhjul=' + g.card.cogMid + ' ×=' + g.card.delMid);
+      near(g.card.titleMid, g.card.headMid) && near(g.card.menuMid, g.card.headMid),
+      'head=' + g.card.headMid + ' tittel=' + g.card.titleMid + ' meny=' + g.card.menuMid);
 
     log(name + ': ingen JS-feil', errs.length === 0, errs.join(' | '));
     await p.close();

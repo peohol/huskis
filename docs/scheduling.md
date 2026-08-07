@@ -1,42 +1,43 @@
-# Innstillingsmodal og tidsplanlegging (start/frist)
+# Tidsplanlegging (start/frist) og objektmenyens tidsskuff
 
-Les denne når oppgaven gjelder tannhjul-knappene, innstillingsmodalen,
-indikator-chipene under liste-/elementnavn, eller start-/frist-tider.
+Les denne når oppgaven gjelder start-/fristtider, tids-editoren eller
+indikator-chipene under liste-/listepunktnavn.
 
-## Innstillingsmodalen (`#settings-modal`, `openSettings(kind, id)`)
+## Hvor tidene redigeres
 
-Én felles modal for lister, listepunkter OG kategorier (`kind: 'card'|'item'|
-'category'`), åpnet fra **tannhjulet** (`.card-cog` på listekort — erstattet den
-gamle del-knappen; `.item-cog` på listepunkter — erstattet den gamle ansvarsknappen;
-`.cat-cog` på kategori-overskrifter). Kategori-modalen er som listepunkt-modalen
-(navn m/ kategori-ikon + ansvarlig i delt kontekst + tidsplan), men har i tillegg
-– som liste-modalen – en **lås-avkryssing** som låser kategoriens tider til
-listepunktene i kategorien (`category.lockTimes`). Seksjoner, i rekkefølge:
+Den gamle innstillingsmodalen finnes ikke lenger. Tidene ligger nå to steder,
+og begge bygger den SAMME editoren (`buildTimeEditor(getTarget, opts)`):
 
-1. **Navn**: redigerbart `.field` (liste-ikon foran for lister). Lagres
-   fortløpende per tastetrykk (stampContent + save; board-DOM oppdateres
-   direkte uten full render, full render skjer ved lukking). Tomt felt
-   committes ikke og gjenopprettes ved blur.
-2. ~~Deling~~ — **FJERNET**. Lister kan aldri deles direkte; tilgangen arves fra
-   mappen (se `docs/rettigheter-og-deling.md`). Delingsinnstillinger ligger nå
-   kun på områder og mapper, i del-modalen fra nav-modalen. Chipen «delt» i
-   listas meta-rad åpner MAPPENS delingsinnstillinger.
-3. **Ansvarlig** (vises når MAPPEN er delt, `shareRootFor` → mappen — gjelder OGSÅ hele
-   listen, `card.responsible`): rad med nåværende ansvarlig (initial-sirkel +
-   navn) → åpner ansvarlig-velgeren. Velgeren er generalisert til targets
-   (`{ kind: 'card'|'item', obj, card }`); `setResponsible(target, userId)`.
-4. **Tidsplan** (alltid, også utenfor kontomodus): se under. I fullvisningen
-   (modalen) er hvert feltpar (dato + klokkeslett) gruppert under en egen
-   overskrift med ikon — **«Starttid»** (kalender) og **«Tidsfrist»**
-   (kalender-m/-utropstegn) — i stedet for en inline-etikett til venstre;
-   klokkeikonet står som eget listepunkt ved siden av klokkeslett-feltet (ikke inni
-   inputen). «Tidsplan»-seksjonstittelen har ikke eget ikon. Tids-popoveren
-   (fra chipene) viser bare den ene raden og har sin egen tittel, så den hopper
-   over feltpar-overskriften (`opts.only`).
+1. **Objektmenyens «Tidsplan»-skuff** — full visning (start + frist + evt.
+   lås-avkryssing). Gjelder lister, listepunkter og kategorier. Menyen selv er
+   beskrevet i `docs/menus.md`.
+2. **Tids-popoveren** (`openTimeQuick`, `#time-switcher`) — én rad, åpnet fra
+   start-/frist-chipen i meta-raden (`opts.only`).
+
+Kategorier har — som lister — en **lås-avkryssing** som låser kategoriens tider
+til listepunktene i den (`category.lockTimes`).
+
+I fullvisningen er hvert feltpar (dato + klokkeslett) gruppert under en egen
+overskrift med ikon — **«Starttid»** (kalender) og **«Tidsfrist»**
+(kalender-m/-utropstegn); klokkeikonet står som eget element ved siden av
+klokkeslett-feltet (ikke inni inputen). Tids-popoveren har sin egen tittel og
+hopper derfor over feltpar-overskriften.
+
+**Navn** redigeres ikke lenger i et modalfelt: menyens «Endre navn» åpner
+navneredigereren på plassen (`editText` på selve tittelen).
+
+**Ansvarlig** ligger i menyens «Ansvarlig»-skuff, og vises kun når MAPPEN er
+delt (`shareRootFor` → mappen — gjelder OGSÅ hele listen, `card.responsible`).
+Radene er de samme som ansvarlig-velgeren bruker;
+`setResponsible(target, userId)` skriver valget.
+
+**Deling** finnes ikke på lister: tilgangen arves fra mappen (se
+`docs/rettigheter-og-deling.md`). Menyens «Deling og medlemmer» på et listekort
+åpner MAPPENS del-modal.
 
 Ingen bekreftelsesknapp noe sted — alt settes fortløpende og optimistisk.
-Modalen slår alltid opp det LEVENDE objektet på id per interaksjon
-(`liveTarget`/`settingsTarget`), så den tåler synk-rebuilds mens den er åpen.
+Editoren slår alltid opp det LEVENDE objektet på id per interaksjon
+(`liveTarget`), så den tåler synk-rebuilds mens den står åpen.
 
 ## Tidsverdier og semantikk
 
@@ -52,8 +53,8 @@ Modalen slår alltid opp det LEVENDE objektet på id per interaksjon
   låser en containers tider til listepunktene i den. Presedens (`timeController`):
   listen (kort) har forrang for ALLE sine listepunkter (også de i kategorier);
   ellers styrer en kategori med `lockTimes` bare sine egne listepunkter. Er et
-  listepunkt låst, skjules dets egne tids-chips, og tidsfeltene i listepunkt-modalen er
-  disablet og viser containerens tider + notis («Tidene styres av listen/
+  listepunkt låst, skjules dets egne tids-chips, og tidsfeltene i listepunktets
+  tidsskuff er disablet og viser containerens tider + notis («Tidene styres av listen/
   kategorien …»). Elementenes egne verdier beholdes i data (kommer tilbake om
   låsen skrus av). En kategori viser alltid sine EGNE tids-chips (dens
   `lockTimes` gjelder listepunktene, ikke kategorien selv).
@@ -70,9 +71,6 @@ Modalen slår alltid opp det LEVENDE objektet på id per interaksjon
 `.item-main`). Kun innstillinger som faktisk er satt vises; tom rad skjules.
 Chipene er KNAPPER for hurtigendring:
 
-- **Delt** (kun lister): people-/lås-ikon → åpner innstillingsmodalen.
-  (Erstattet kortets gamle `.share-badge` i headeren; mapper/områder
-  beholder badge-en via `applyShareBadge`.)
 - **Ansvarlig**: liten initial-sirkel (`respAvatar`, palett fra delegruppen)
   → åpner ansvarlig-velgeren direkte, forankret i chipen.
 - **Start** (kalenderikon) og **frist** (kalender-med-utropstegn,

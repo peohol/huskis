@@ -197,11 +197,12 @@ Bytte utløses av **overlapp**, ikke av et punkt:
     primær. En `pointerdown` med `isPrimary === false` (sekundær multitouch-peker)
     ignoreres helt.
 
-  Soner/unntak: **område-/mappe-rad** = hele chip-en unntatt ×-knappen; **liste**
-  = hele korthodet (`.card-head`) unntatt tannhjul + × (klikk ellers på headeren
-  kollapser/utvider lista, se under); **listepunkt** = hele `.item` unntatt
-  avmerkingsboks + tannhjul + ×; **kategori** = hele overskriftslinjen
-  (`.cat-head`) unntatt tannhjul + oppløs-knapp. **Cursor:** dra-sonene for
+  Soner/unntak: hvert objekt har nå NØYAKTIG én knapp til høyre
+  (`.obj-menu-btn`, se `docs/menus.md`), så unntaket er det samme overalt —
+  **område/liste** = hele korthodet (`.card-head`) unntatt menyknappen (klikk
+  ellers på headeren kollapser/utvider, se under); **mappe/listepunkt** = hele
+  `.item` unntatt avmerkingsboks + menyknapp; **kategori/mappekategori** = hele
+  overskriftslinjen (`.cat-head`) unntatt menyknappen. **Cursor:** dra-sonene for
   listepunkt/kategori får `cursor: grab` (åpen hånd — «klikk-og-hold/dra drar»),
   mens område/mappe/liste har `cursor: pointer` (pekende hånd — der er klikk den
   primære handlingen: bytt/kollaps). `attachHoldDrag(zone, dragEl, startDrag,
@@ -229,6 +230,13 @@ Bytte utløses av **overlapp**, ikke av et punkt:
   mus (draget starter der umiddelbart på bevegelse). `pointercapture` brukes så
   draging ikke mister eventer. Placeholder lever kun under draging; `finishDrag()`
   har sikkerhetsnett.
+- **Sveip-for-å-slette deler tittelsonen med draget** — og de to kan ikke
+  utløses av samme gest. På touch/pen avlyser en tidlig bevegelse holdet
+  (`disarm()`), så et sveip aldri løfter objektet; sveipet på sin side avbryter
+  seg selv hvis `drag.active` likevel er sant. På MUS er sveipet ikke armert i
+  det hele tatt: der starter draget på 5 px bevegelse uten hold, og et musesveip
+  langs tittelen ville vært nøyaktig samme gest som et kort-drag. Autoritativt:
+  `docs/menus.md` («Sveip tittelen for å slette»).
 - **Lister kollapser mens en liste dras** (`collapseCardsForDrag`/
   `restoreCardsAfterDrag`): idet et liste-drag starter, kollapses BÅDE den dratte
   lista og alle de andre til bare korthodet (som kategorienes kollaps under drag)
@@ -375,8 +383,8 @@ fordypning («hylle», se `docs/design-system.md`).
   - **Utseende under draging** (`.category.dragging`): det løftede kortet skal lese
     som en kompakt rad, ikke et stort felt. Kategori-ikonet (`.cat-drag-icon`,
     `ICONS.category`, skjult i hvile) vises til venstre for tittelen; tittelen blir
-    SVART uten skygge (hvit-på-hvit var uleselig mot den hvite dra-flaten); tannhjul
-    + oppløs skjules `display:none` (ikke bare opacity) så headeren får element-høyde;
+    SVART uten skygge (hvit-på-hvit var uleselig mot den hvite dra-flaten);
+    menyknappen skjules `display:none` (ikke bare opacity) så headeren får element-høyde;
     `::before`/`::after`-skillelinjene skjules (`content:none`) så de ikke males på
     kortet; polstring/radius = et listepunkt (6px / 10px) + `gap:0`. `collapseCategory`
     måler header-høyden med `offsetHeight` (IKKE `getBoundingClientRect`, som ville

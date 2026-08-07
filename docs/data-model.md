@@ -108,7 +108,7 @@ Alt liste-/listepunkt-UI er fortsatt scopet til den AKTIVE mappen.
   som redigerer. I område-/mappe-modalene: tittel-klikk redigerer, klikk ellers
   på raden navigerer (se `docs/menus.md`). Se `docs/design-system.md`.
 - **Lukketilstand for lister** (`card.collapsed`): klikk på korthodet (ikke
-  tittel/tannhjul/×) folder listen sammen som en rullgardin. Rir på innholds-
+  meny/meta-chip) folder listen sammen som en rullgardin. Rir på innholds-
   registeret (`ts`/`org`, som `lockTimes`); lagres og synkes i DB via `save()`
   (optimistisk, ingen synlig forsinkelse). I kontomodus egen kolonne
   (`cards.collapsed`). Se `docs/design-system.md`.
@@ -129,7 +129,7 @@ Alt liste-/listepunkt-UI er fortsatt scopet til den AKTIVE mappen.
 - **Ansvarlig** (`item.responsible` og `card.responsible`): bruker-id-en til den
   som «tar oppgaven» i delt kontekst — nå både per listepunkt og for HELE listen.
   Rir på innholds-registeret (`ts`/`org`, som `text`/`done`) — LWW ved samtidig
-  endring. Settes fra innstillingsmodalen eller ansvarlig-chipen
+  endring. Settes fra objektmenyens «Ansvarlig»-skuff eller ansvarlig-chipen
   (`docs/scheduling.md`); se `docs/accounts.md` for delegruppen. I kontomodus
   egne kolonner (`items.responsible`/`cards.responsible`, FK til `profiles`,
   `on delete set null`).
@@ -156,7 +156,7 @@ Alt liste-/listepunkt-UI er fortsatt scopet til den AKTIVE mappen.
   posisjonsregisteret (som `home`); `isCat`/`lockTimes` på innholds-registeret.
   Opprettes via en egen **gul kategori-knapp** ved siden av ＋-knappen; se
   `docs/drag-and-drop.md` for nivå-2-dra-og-slipp og `docs/scheduling.md` for
-  kategori-innstillingsmodalen. En kategori kan **kollapses** som en rullgardin
+  kategoriens tidsskuff i objektmenyen. En kategori kan **kollapses** som en rullgardin
   (klikk på overskriftslinjen, `item.collapsed` — som `card.collapsed`); en grønn
   **＋-knapp nederst i kategorien** legger til et nytt (tomt, straks-fokusert)
   listepunkt direkte i den. Se `docs/design-system.md`.

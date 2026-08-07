@@ -105,8 +105,9 @@ gjør den presis:
 - **`preventDefault` brukes ikke på pointerdown.** Et klikk utenfor et åpent
   navnefelt skal fortsatt flytte fokus — det er sånn man bekrefter navnet.
 - **En tillatt sone er ikke fritt fram.** En listepunkt-rad er hele sonen når
-  den skal dras, men den bærer også avmerking, tannhjul og slette-kryss.
-  `DEMO_NEVER` slipper dem gjennom kun når de ER målet.
+  den skal dras, men den bærer også avmerking og menyknapp.
+  `DEMO_NEVER` slipper dem gjennom kun når de ER målet. Stegene som handler om
+  menyen lister panelet i `allow`, så radene inni er nåbare.
 
 Escape er av hele veien: den ville ellers avbrutt navngivingen (og fjernet raden
 steget nettopp ba om), lukket modalen steget står i, eller avsluttet demoen
@@ -207,17 +208,17 @@ driver dem videre); resten er handlingssteg som må utføres.
 | 20 | `drag_into_cat` | et listepunkt (kortet holder seg unna kategorien) | et punkt ligger i kategorien |
 | 21 | `create_cat_item` | ＋ inne i kategorien | ett medlem til |
 | 22 | `name_cat_item` | navnefeltet | alle medlemmer har navn |
-| 23 | `dissolve_cat` | oppløs-knappen | kategorien er borte |
-| 24 | `delete_item` | slette-krysset i raden | noe ligger i søppelkassen |
+| 23 | `dissolve_cat` | radens menyknapp → «Løs opp kategorien» | kategorien er borte |
+| 24 | `delete_item` | radens menyknapp → «Slett listepunktet» | noe ligger i søppelkassen |
 | 25 | `open_item_trash` | listens søppelkasse | søppelkasse-modalen er åpen |
 | 26 | `restore_item` | «Gjenopprett» | kassen er tom |
 | 27 | `close_item_trash` | `#trash-close` | modalen er lukket |
-| 28 | `delete_item2` | slette-krysset i raden | noe ligger i søppelkassen |
+| 28 | `delete_item2` | radens menyknapp → «Slett listepunktet» | noe ligger i søppelkassen |
 | 29 | `empty_item_trash` | listens søppelkasse | listepunktet er borte for godt |
-| 30 | `delete_list` | listens slette-kryss | listen er i søpla |
+| 30 | `delete_list` | korthodets menyknapp → «Slett listen» | listen er i søpla |
 | 31 | `empty_card_trash` | `#trash-btn` | listen er borte for godt |
 | 32 | `open_nav2` | `#nav-crumb` | oversikten er åpen |
-| 33 | `delete_area` | områdets slette-kryss | området er i søpla |
+| 33 | `delete_area` | områdekortets menyknapp → «Slett området for alle» | området er i søpla |
 | 34 | `empty_uni_trash` | `#uni-trash-btn` | området er borte for godt |
 | 35 | `close_nav` | `#nav-modal-close` | oversikten er lukket |
 | 36 | `finish` | `#account-btn` | «Ferdig» |
@@ -237,7 +238,7 @@ På **kontoen**, i `user_metadata` — samme mekanikk som den huskede posisjonen
 
 ```js
 user_metadata.onboarding = { v: 3, status: 'done' | 'skipped' }
-user_metadata.tips = { drag: true, trash: true, moveList: true }
+user_metadata.tips = { drag: true, trash: true, moveList: true, swipeDelete: true }
 ```
 
 Bare utfallet lagres, og bare når runden er over. Demoen er en simulering, ikke
@@ -290,7 +291,13 @@ ett kort tips i den vanlige toasten, aldri mer enn ett om gangen:
 |---|---|---|
 | `trash` | liste-søppelkassen er synlig | hold på søppelkassen og sveip for å slette alt i den |
 | `drag` | mappen har ≥ 2 lister | hold på (eller dra) en tittel for å flytte |
+| `swipeDelete` | mappen har ≥ 1 liste OG enheten har grov peker (`pointer: coarse`) | sveip en tittel mot høyre for å slette den |
 | `moveList` | mappen har ≥ 1 liste og området ≥ 2 mapper | dra en liste opp på navigasjonsknappen for å flytte den |
+
+`swipeDelete` er betinget av pekertypen fordi gesten er armert kun for touch og
+pen — se `docs/menus.md` («Sveip tittelen for å slette»). På desktop er
+objektmenyen den raske veien, og et tips om en gest som ikke finnes der ville
+vært direkte misvisende.
 
 `showTip()` viser ingenting hvis det ville kostet brukeren noe: før demoen er
 ferdig (tipset huskes og kommer etterpå), midt i en redigering eller et drag,

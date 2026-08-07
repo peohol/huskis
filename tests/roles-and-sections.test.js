@@ -5,12 +5,12 @@
     1. De tre seksjonene i nav-modalen (overskrifter + skillelinjer + tomtilstand)
     2. Klassifisering etter NÅVÆRENDE rolle: eier → «Mine områder»,
        medlem → «Områder delt med meg», direkte mappe → «Mapper delt med meg»
-    3. Capability-styrte knapper (del/forlat/slett/opprett) på hvert nivå
+    3. Capability-styrte rader (del/forlat/slett) i objektmenyen på hvert nivå
     4. Medlemslisten: kategorioverskrifter, «Eier» vs. «Medeiere», deduplisering,
        forklaring når et arvet områdemedlem ikke kan fjernes
     5. Rolleinvitasjon (medeier) — rollevelgeren finnes kun for den som kan det
     6. Breadcrumbs: [ressursikon][delt-ikon]Navn, og den virtuelle «Delte mapper»-roten
-    7. Lister har INGEN delings-seksjon i innstillingsmodalen
+    7. Lister deles ikke selv: menyens «Deling og medlemmer» åpner MAPPENS modal
     8. Tap av tilgang navigerer brukeren ut av den ugyldige visningen
 
   Kjøres på BÅDE desktop- og mobil-viewport, med tastatur-/skjermleserattributter.
@@ -21,6 +21,23 @@
 */
 const { chromium } = require(require('path').join(process.env.NODE_PATH || require('child_process').execSync('npm root -g').toString().trim(), 'playwright'));
 const BASE = process.env.HUSKIS_URL || 'http://localhost:8000';
+
+// Objektmenyen: én knapp per objekt samler det som før lå på egne ikonknapper
+// (del, forlat, slett, oppløs). Hjelperne åpner den og leser/velger en rad.
+async function menuRows(p, hostSel) {
+  await p.locator(hostSel + ' .obj-menu-btn').first().click();
+  await p.waitForTimeout(250);
+  const rows = await p.locator('#obj-menu-panel .obj-menu-row .obj-menu-label').allTextContents();
+  await p.keyboard.press('Escape');
+  await p.waitForTimeout(200);
+  return rows;
+}
+async function menuPick(p, hostSel, label) {
+  await p.locator(hostSel + ' .obj-menu-btn').first().click();
+  await p.waitForTimeout(250);
+  await p.locator('#obj-menu-panel .obj-menu-row', { hasText: label }).click();
+  await p.waitForTimeout(250);
+}
 
 const results = [];
 const log = (n, ok, x = '') => { results.push(ok); console.log((ok ? 'PASS' : 'FAIL') + ' — ' + n + (x ? '  [' + x + ']' : '')); };
@@ -135,14 +152,15 @@ async function run(label, viewport, mobile) {
       const h = document.querySelectorAll('.nav-section-head')[1];
       return getComputedStyle(h).borderTopWidth !== '0px';
     }));
-  log(label + ' 1: eieren kan slette, men ikke forlate (siste … nei — to eiere)',
-    await p.locator('#nav-board .uni-delete:visible').count() === 1 &&
-    await p.locator('#nav-board .uni-leave:visible').count() === 1);
+  const ownerRows = await menuRows(p, '#nav-board .card:not(.free-groups-card) .card-head');
+  log(label + ' 1: eieren kan slette OG forlate (to eiere) — begge i objektmenyen',
+    ownerRows.some((r) => /Slett området for alle/.test(r)) &&
+    ownerRows.some((r) => /Forlat området/.test(r)), JSON.stringify(ownerRows));
   log(label + ' 1: eieren kan opprette mapper',
     await p.locator('#nav-board .add-item-row:visible').count() === 1);
 
   /* ---------- 2) Medlemslisten: «Medeiere», kategorier, deduplisering ---------- */
-  await p.locator('#nav-board .uni-share').first().click();
+  await menuPick(p, '#nav-board .card:not(.free-groups-card) .card-head', 'Deling og medlemmer');
   await p.waitForTimeout(700);
   const uniTitles = await p.locator('#share-body .share-section-title').allTextContents();
   log(label + ' 2: to eiere gir overskriften «Medeiere»',
@@ -160,7 +178,7 @@ async function run(label, viewport, mobile) {
 
   /* ---------- 3) Mappens medlemsliste: arvede + direkte ---------- */
   await openNav(p);
-  await p.locator('#nav-board .item.group-row .group-share').nth(1).click();
+  await menuPick(p, '#nav-board .item.group-row:nth-of-type(2)', 'Deling og medlemmer');
   await p.waitForTimeout(700);
   const grpTitles = await p.locator('#share-body .share-section-title').allTextContents();
   log(label + ' 3: mappens kategorier har områdeprefiks og utelater tomme',
@@ -183,12 +201,13 @@ async function run(label, viewport, mobile) {
   s = await sections(p);
   log(label + ' 4: medlemmets område ligger i «Områder delt med meg»',
     s[0].cards.length === 0 && s[1].cards.includes('Felles område'), JSON.stringify(s));
-  log(label + ' 4: ingen sletteknapp for et vanlig medlem, men forlat finnes',
-    await p.locator('#nav-board .uni-delete:visible').count() === 0 &&
-    await p.locator('#nav-board .uni-leave:visible').count() === 1);
+  const memberMenu = await menuRows(p, '#nav-board .card:not(.free-groups-card) .card-head');
+  log(label + ' 4: ingen «Slett» for et vanlig medlem, men «Forlat» finnes',
+    !memberMenu.some((r) => /^Slett/.test(r)) && memberMenu.some((r) => /Forlat området/.test(r)),
+    JSON.stringify(memberMenu));
   log(label + ' 4: et vanlig medlem kan fortsatt opprette mapper i et åpent område',
     await p.locator('#nav-board .add-item-row:visible').count() === 1);
-  await p.locator('#nav-board .uni-share').first().click();
+  await menuPick(p, '#nav-board .card:not(.free-groups-card) .card-head', 'Deling og medlemmer');
   await p.waitForTimeout(700);
   log(label + ' 4: medlemmet ser medlemslisten …',
     await p.locator('#share-body .member-row').count() === 3);
@@ -204,16 +223,17 @@ async function run(label, viewport, mobile) {
   s = await sections(p);
   log(label + ' 5: tre seksjoner, og mappen ligger i «Mapper delt med meg»',
     s.length === 3 && /Mapper delt med meg/.test(s[2].title), JSON.stringify(s.map((x) => x.title)));
-  log(label + ' 5: den frie beholderen har ingen del-/slett-/opprett-knapper',
+  log(label + ' 5: den frie beholderen har verken objektmeny eller opprett-knapper',
     await p.evaluate(() => {
       const c = document.querySelector('#nav-board .free-groups-card');
       if (!c) return false;
-      return c.querySelector('.uni-share').hidden && c.querySelector('.uni-delete').hidden &&
+      return c.querySelector('.card-head .obj-menu-btn').hidden &&
              c.querySelector('.add-item-row').hidden;
     }));
-  log(label + ' 5: mappen vises med forlat-knapp, uten slett',
-    await p.locator('#nav-board .group-leave:visible').count() === 1 &&
-    await p.locator('#nav-board .group-delete:visible').count() === 0);
+  const freeRows = await menuRows(p, '#nav-board .item.group-row');
+  log(label + ' 5: mappen kan forlates, men ikke slettes',
+    freeRows.some((r) => /Forlat mappen/.test(r)) && !freeRows.some((r) => /^Slett/.test(r)),
+    JSON.stringify(freeRows));
   log(label + ' 5: områdets navn lekkes ikke til den frie mottakeren',
     !(await p.locator('#nav-board').textContent()).includes('Felles område'));
 
@@ -237,13 +257,15 @@ async function run(label, viewport, mobile) {
   /* ---------- 7) Lister har ingen deling ---------- */
   await loadAs(p, db, ids.uA, 'a@x.no', viewport);
   await p.waitForTimeout(400);
-  await p.evaluate((id) => window.__huskis.openSettings('card', id, id), ids.LA);
-  await p.waitForTimeout(500);
-  const settingsSections = await p.locator('#settings-body .settings-section-label').allTextContents();
-  log(label + ' 7: innstillingsmodalen for en liste har INGEN «Deling»-seksjon',
-    !settingsSections.some((t) => /Deling/i.test(t)), JSON.stringify(settingsSections));
-  log(label + ' 7: … og ingen inviter-felt',
-    await p.locator('#settings-body .share-invite-form').count() === 0);
+  const listMenu = await menuRows(p, '.card[data-id="' + ids.LA + '"] .card-head');
+  log(label + ' 7: listens objektmeny har verken lås eller «Forlat» (lista deles ikke selv)',
+    !listMenu.some((t) => /Lås|Forlat/i.test(t)), JSON.stringify(listMenu));
+  // «Deling og medlemmer» på en liste åpner MAPPENS del-modal — tilgangen arves.
+  await menuPick(p, '.card[data-id="' + ids.LA + '"] .card-head', 'Deling og medlemmer');
+  await p.waitForTimeout(600);
+  const shareTitle = await p.locator('#share-title').textContent();
+  log(label + ' 7: … og «Deling og medlemmer» åpner MAPPENS del-modal',
+    /Mappe A/.test(shareTitle || ''), shareTitle);
   await p.keyboard.press('Escape'); await p.waitForTimeout(250);
   const listShare = await p.evaluate(async (id) => {
     const r = await window.__huskis.client.rpc('create_share_invite',
@@ -404,10 +426,11 @@ async function run(label, viewport, mobile) {
     await p.evaluate((g) => (window.__huskis.state.universes.flatMap((u) => u.groups)
       .find((x) => x.id === g) || {})._role === 'owner', ids.GA));
   log(label + ' 11: medeieren kan forlate OMRÅDET …',
-    await p.locator('#nav-board .uni-leave:visible').count() === 1);
+    (await menuRows(p, '#nav-board .card:not(.free-groups-card) .card-head'))
+      .some((r) => /Forlat området/.test(r)));
   log(label + ' 11: … men ingen av mappene i det',
-    await p.locator('#nav-board .group-leave:visible').count() === 0);
-  await p.locator('#nav-board .item.group-row .group-share').first().click();
+    !(await menuRows(p, '#nav-board .item.group-row')).some((r) => /Forlat mappen/.test(r)));
+  await menuPick(p, '#nav-board .item.group-row', 'Deling og medlemmer');
   await p.waitForTimeout(700);
   log(label + ' 11: mappens delemodal har heller ingen «Forlat mappen»',
     await p.locator('#share-body .share-leave').count() === 0);
