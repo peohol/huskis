@@ -57,6 +57,10 @@ const U = () => 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
 
 /* ---------------- Felles hjelpere ---------------- */
 
+// Siste elementkjede under sveipe-punktet (se swipeEmpty) — evidens når en
+// gest ikke gir utslag.
+let lastSwipeHit = null;
+
 // Vent på at demoen står på ET BESTEMT steg OG at kortet faktisk vises.
 // `shown` er halve poenget: kortet males først når navigasjonen er ferdig.
 const waitStep = (p, id, timeout = 15000) => p.waitForFunction(
@@ -172,6 +176,20 @@ async function drag(p, fromSel, toSel) {
 // Hold inne søppelkassen og sveip til høyre (tømming).
 async function swipeEmpty(p, sel) {
   const b = await p.locator(sel).first().boundingBox();
+  // Hva ligger FAKTISK under pekeren? Trykket går rått via `p.mouse` (gesten
+  // trenger ekte hold + bevegelse), så et element oppå knappen svelger hele
+  // sveipet uten et eneste spor. Noteres for feilmeldingen lenger nede.
+  lastSwipeHit = await p.evaluate(([x, y]) => {
+    const el = document.elementFromPoint(x, y);
+    if (!el) return 'ingenting';
+    const chain = [];
+    for (let n = el; n && n !== document.body; n = n.parentElement) {
+      chain.push(n.tagName.toLowerCase() + (n.id ? '#' + n.id : '') +
+        (n.className && typeof n.className === 'string' ? '.' + n.className.trim().split(/\s+/).join('.') : ''));
+      if (chain.length >= 4) break;
+    }
+    return chain.join(' < ');
+  }, [b.x + b.width / 2, b.y + b.height / 2]);
   await p.mouse.move(b.x + b.width / 2, b.y + b.height / 2);
   await p.mouse.down();
   await p.waitForTimeout(450);   // FAST: gest-fysikk (HOLD_EXPAND_MS)
@@ -375,6 +393,7 @@ async function run(label, vp, mobile) {
       const c = H.state.universes.flatMap((u) => u.groups).flatMap((g) => g.cards)
         .find((x) => x.id === id) || null;
       return {
+        under: null,
         steg: H.tour.id, vist: H.tour.shown,
         søppelmodalÅpen: !document.getElementById('trash-modal').hidden,
         navmodalÅpen: !document.getElementById('nav-modal').hidden,
@@ -384,6 +403,7 @@ async function run(label, vp, mobile) {
         kasseknapp: !!document.querySelector('.card[data-id="' + id + '"] .item-trash-btn'),
       };
     }, cid);
+    why.under = lastSwipeHit;
     console.log('FAIL — ' + label + ' 11b: tømming av element-søppelkassen  [' + JSON.stringify(why) + ']');
     throw e;
   }
