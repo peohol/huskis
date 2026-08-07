@@ -363,7 +363,30 @@ async function run(label, vp, mobile) {
   await pickInMenu(p, rader + ':first-child', 'Slett listepunktet');
   await waitStep(p, 'empty_item_trash');
   await swipeEmpty(p, kort + ' .item-trash-btn');
-  await waitStep(p, 'delete_list');
+  // Hold-og-sveip er gest-fysikk: blir trykket lest som KORT (feltet rakk ikke
+  // å åpne seg), åpner knappen søppelkasse-modalen i stedet for å tømme, og
+  // neste steg stiller seg aldri. Da er tilstanden det eneste som forteller
+  // hvorfor — så den skrives ut før feilen kastes videre.
+  try {
+    await waitStep(p, 'delete_list');
+  } catch (e) {
+    const why = await p.evaluate((id) => {
+      const H = window.__huskis;
+      const c = H.state.universes.flatMap((u) => u.groups).flatMap((g) => g.cards)
+        .find((x) => x.id === id) || null;
+      return {
+        steg: H.tour.id, vist: H.tour.shown,
+        søppelmodalÅpen: !document.getElementById('trash-modal').hidden,
+        navmodalÅpen: !document.getElementById('nav-modal').hidden,
+        objektmenyÅpen: !document.getElementById('obj-menu').hidden,
+        elementer: c ? c.items.length : null,
+        iKassen: c ? c.items.filter((it) => it.trashed || it._pendingDelete).length : null,
+        kasseknapp: !!document.querySelector('.card[data-id="' + id + '"] .item-trash-btn'),
+      };
+    }, cid);
+    console.log('FAIL — ' + label + ' 11b: tømming av element-søppelkassen  [' + JSON.stringify(why) + ']');
+    throw e;
+  }
   await pickInMenu(p, kort + ' .card-head', 'Slett listen');
   await waitStep(p, 'empty_card_trash');
   await swipeEmpty(p, '#trash-btn');

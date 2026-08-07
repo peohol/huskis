@@ -2362,9 +2362,13 @@
       count.textContent = trashed.length;
       btn.append(icon, count);
       attachTrashHold(btn, {
-        count: () => trashedItemsOf(cardData).length,
-        open: () => openItemsTrash(cardData),
-        empty: () => emptyItemsTrash(cardData),
+        // Kortet slås opp LIVE: `cardData` er fanget ved bygging, og en
+        // synk-rebuild bytter ut state-objektene. Med en foreldet referanse
+        // ville `count()` svart 0, sveipefeltet aldri åpnet seg — og det korte
+        // trykket åpnet søppelkasse-modalen i stedet for å tømme den.
+        count: () => trashedItemsOf(findCard(cardData.id) || cardData).length,
+        open: () => openItemsTrash(findCard(cardData.id) || cardData),
+        empty: () => emptyItemsTrash(findCard(cardData.id) || cardData),
       });
       wrap.appendChild(btn);
       el.querySelector('.card-body').appendChild(wrap); // i body-en så den kollapser med resten
