@@ -1774,7 +1774,10 @@
       id: u.id,
       scope: navScope,
       rename: canRename ? renameUni : null,
-      share: isFree ? null : () => { closeNavModal(); openShare('universe', u.id, u, openNavModal); },
+      share: isFree ? null : () => {
+        closeNavModal();
+        openShare('universe', u.id, findUniverse(u.id) || u, openNavModal);
+      },
       remove: canDelUni ? () => deleteUniverse(findUniverse(u.id) || u) : null,
       removeLabel: 'Slett området for alle',
     });
@@ -1948,7 +1951,10 @@
       id: g.id,
       scope: navScope,
       rename: canEdit ? rename : null,
-      share: () => { closeNavModal(); openShare('group', g.id, g, openNavModal); },
+      share: () => {
+        closeNavModal();
+        openShare('group', g.id, findGroupAnywhere(g.id) || g, openNavModal);
+      },
       remove: canDelGroup ? () => deleteGroup(findGroupAnywhere(g.id) || g) : null,
       removeLabel: 'Slett mappen for alle',
     });
@@ -1967,6 +1973,7 @@
     // eksisterende betydning (naviger / omdøp i den aktive mappen) — F2 og
     // Alt-tastene legger seg ved siden av den.
     attachKeyHandle(el, 'group', () => g.id, { rename });
+    setRenameHook(textEl, canEdit ? rename : null);
 
     // Presise navn: nav-modalen kan ha mange mapper, og «Slett mappen for
     // alle» må si HVILKEN før man trykker.
@@ -2001,11 +2008,13 @@
       });
     };
     titleEl.addEventListener('click', renameGroupCat);
+    setRenameHook(titleEl, canEdit ? renameGroupCat : null);
 
     // Å løse opp en mappekategori er dens «sletting»: mappene blir stående.
     const dissolveGroupCat = () => {
-      keepFocus(focusTargetAfterRemoval('groupcat', catData.id, u));
-      dissolveCategory(catData, findUniverse(u.id) || u, navScope);
+      const live = findGroupAnywhere(catData.id) || catData;
+      keepFocus(focusTargetAfterRemoval('groupcat', live.id, u));
+      dissolveCategory(live, findUniverse(u.id) || u, navScope);
       applyFocusIntent();
     };
     const catHead = el.querySelector('.cat-head');
@@ -2234,7 +2243,11 @@
       rename: canEdit ? renameCard : null,
       // Lister har ingen egen medlemsliste — de arver MAPPENS deling, så
       // menyraden åpner mappens del-modal.
-      share: grp ? () => openShare('group', grp.id, grp) : null,
+      share: grp ? () => {
+        const liveCard = findCard(cardData.id);
+        const liveGrp = (liveCard && nodeOfType(liveCard, 'group')) || grp;
+        openShare('group', liveGrp.id, liveGrp);
+      } : null,
       remove: canEdit ? deleteThisCard : null,
       removeLabel: 'Slett listen',
     });
@@ -2739,6 +2752,7 @@
       });
     };
     textEl.addEventListener('click', renameItem);
+    setRenameHook(textEl, canEdit ? renameItem : null);
     // Raden er tastaturets håndtak: samme element attachHoldDrag får under.
     // Enter omdøper (raden har ingen annen handling), Alt+pil sorterer.
     attachKeyHandle(el, 'item', () => itemData.id, { rename: renameItem, enterRenames: true });
@@ -2764,7 +2778,10 @@
       // Fokus MÅ ha et sted å gå før raden forsvinner: uten dette faller det
       // til <body>, og en skjermleser mister plassen sin i lista.
       keepFocus(focusTargetAfterRemoval('item', it.id, owner));
-      const ghost = ghostFrom(el); // klone FØR refreshCard fjerner raden
+      // Raden slås opp på nytt: `el` er fanget ved bygging, og en rendring
+      // mellom da og nå (synk, en åpen meny) ville gjort klonen null-stor.
+      const rowEl = board.querySelector('.item[data-id="' + it.id + '"]') || el;
+      const ghost = ghostFrom(rowEl); // klone FØR refreshCard fjerner raden
       bufferDelete(it, 'item', (x) => setTrashed(x, 'item', true));
       refreshCard(owner); // element-søppelkassen dukker opp FØR animasjonen
       applyFocusIntent();
@@ -2848,13 +2865,15 @@
       });
     };
     titleEl.addEventListener('click', renameCat);
+    setRenameHook(titleEl, canEdit ? renameCat : null);
 
     // Oppløs kategorien: elementene blir stående som ukategoriserte på samme
     // plass. Dette ER kategoriens «sletting» — både i menyen og i sveipet.
     const dissolveThisCat = () => {
       const owner = findCard(cardData.id) || cardData;
-      keepFocus(focusTargetAfterRemoval('category', catData.id, owner));
-      dissolveCategory(catData, owner, boardScope);
+      const live = findItemById(catData.id) || catData;
+      keepFocus(focusTargetAfterRemoval('category', live.id, owner));
+      dissolveCategory(live, owner, boardScope);
       applyFocusIntent();
     };
 
@@ -6749,11 +6768,33 @@
   // rendring (sortering i menyen bygger board-et om) så popoveren kan bli
   // stående forankret i den NYE knappen i stedet for en frakoblet node.
   function objMenuAnchor(spec) {
-    const root = spec.scope === navScope ? navBoard : board;
-    const host = root && root.querySelector('[data-id="' + spec.id + '"]');
+    const host = objMenuHost(spec);
     if (!host) return null;
     return host.querySelector(':scope > .obj-menu-btn, :scope > .card-head > .obj-menu-btn,' +
       ' :scope > .cat-head > .obj-menu-btn');
+  }
+  function objMenuHost(spec) {
+    const root = spec.scope === navScope ? navBoard : board;
+    return (root && root.querySelector('[data-id="' + spec.id + '"]')) || null;
+  }
+  // Tittel-elementet slik det ser ut NÅ. `spec.rename` er en closure fra
+  // byggetidspunktet og holder på tittel-noden fra DEN rendringen; board-et kan
+  // ha blitt bygget om mens menyen sto åpen (ensureShareGroup henter medlemmer
+  // og rendrer når cachen fylles, og enhver synk-pull rendrer også). Da ville
+  // «Endre navn» redigert et frakoblet element — og brukeren fått ingenting.
+  // Omdøpings-hooken på det LEVENDE elementet er alltid den riktige.
+  const OBJ_MENU_TITLE_SEL = {
+    universe: ':scope > .card-head .card-title',
+    card: ':scope > .card-head .card-title',
+    group: ':scope > .item-main > .item-text',
+    item: ':scope > .item-main > .item-text',
+    groupcat: ':scope > .cat-head .cat-title',
+    category: ':scope > .cat-head .cat-title',
+  };
+  function renameFromObjMenu(spec) {
+    const host = objMenuHost(spec);
+    const titleEl = host && host.querySelector(OBJ_MENU_TITLE_SEL[spec.kind]);
+    if (titleEl && titleEl.__rename) titleEl.__rename();
   }
 
   // Fokus tilbake til menyknappen ordnes av den felles fokusfellen
@@ -6768,6 +6809,7 @@
     objMenuCtx = null;
     objMenuReturn = null;
     updateModalOpenClass();
+    if (demoRunning) placeTour(); // demokortet kan legge seg tilbake
   }
   // `aria-expanded` på knappen mens menyen står åpen — og den lille flate-
   // markeringen som følger med, så knappen ikke ser «kald» ut under sin egen
@@ -6969,7 +7011,7 @@
           fortsatt omdøpes ved å klikke rett på navnet. */
     if (spec.rename) {
       list.appendChild(objMenuRow(ICONS.pencil, 'Endre navn',
-        () => closeObjMenuThen(spec.rename)));
+        () => closeObjMenuThen(() => renameFromObjMenu(spec))));
     }
 
     /* 2) Ansvarlig (liste/listepunkt/kategori i delt kontekst) — fra den gamle
@@ -6977,7 +7019,10 @@
     if (kind === 'card' || kind === 'item' || kind === 'category') {
       const target = liveTarget({ kind: kind, obj: { id: spec.id } });
       const shareRoot = target ? shareRootFor(target.card) : null;
-      if (target && shareRoot && shareRoot._shared) {
+      // Frosset (låst for meg) liste → ingen ansvarlig-rader: serveren avviser
+      // innholds-endringen, og en optimistisk visning ville bare blitt rullet
+      // tilbake ved neste synk. Innstillingsknappen var avskrudd på samme vis.
+      if (target && shareRoot && shareRoot._shared && !frozen(target.card)) {
         ensureShareGroup('group', shareRoot.id);
         list.appendChild(objMenuAccordion('resp', ICONS.handRaise, 'Ansvarlig',
           () => buildRespRows(target, shareRoot, 'group'), objMenuCtx.sub === 'resp'));
@@ -7091,6 +7136,7 @@
     if (anchorBtn && anchorBtn.isConnected && objMenuIsPopover()) {
       positionSwitcherPanel(objMenuPanel, anchorBtn);
     }
+    if (demoRunning) placeTour(); // demokortet må vike for popoveren
     const first = objMenuPanel.querySelector('.obj-menu-row');
     (first || objMenuPanel).focus();
   }
@@ -11640,17 +11686,23 @@
        umulig å utføre. `clear()` gir det ekstra elementet, og plasseringen
        regnes på rektangelet som rommer begge. */
     let keep = r;
+    const clearEls = [];
     if (step.clear) {
-      let ce = null;
-      try { ce = step.clear(); } catch (e) { ce = null; }
-      if (ce && ce.getClientRects().length) {
-        const c = ce.getBoundingClientRect();
-        keep = {
-          left: Math.min(r.left, c.left), right: Math.max(r.right, c.right),
-          top: Math.min(r.top, c.top), bottom: Math.max(r.bottom, c.bottom),
-        };
-      }
+      try { const ce = step.clear(); if (ce) clearEls.push(ce); } catch (e) { /* borte */ }
     }
+    /* Objektmenyen åpner seg MENS et steg pågår (målet er menyknappen, men
+       handlingen ligger i en rad inne i popoveren). Den er ikke steg-målet, og
+       kan derfor ikke stå i `clear` — men et kort oppå den gjør steget like
+       umulig. Derfor holdes den alltid fri når den er åpen. */
+    if (!objMenuOverlay.hidden) clearEls.push(objMenuPanel);
+    clearEls.forEach((ce) => {
+      if (!ce.getClientRects || !ce.getClientRects().length) return;
+      const c = ce.getBoundingClientRect();
+      keep = {
+        left: Math.min(keep.left, c.left), right: Math.max(keep.right, c.right),
+        top: Math.min(keep.top, c.top), bottom: Math.max(keep.bottom, c.bottom),
+      };
+    });
     const below = vh - keep.bottom - gap - margin;
     const above = keep.top - gap - margin;
     const right = vw - keep.right - gap - margin;
@@ -11792,7 +11844,15 @@
          et standardnavn av steget FØR, så uten dette ville steget vært oppfylt
          i det øyeblikk vi kom til det — og «Tilbake» sprettet rett fram igjen. */
       if (step.reopen) {
-        try { const el = step.reopen(); if (el && el.click) el.click(); } catch (e) { /* borte */ }
+        try {
+          const el = step.reopen();
+          // Via omdøpings-hooken, ikke et klikk: et klikk på et område-/listenavn
+          // kollapser nå, og på et mappenavn navigerer det (docs/menus.md).
+          // `.click()` er igjen for det ene tilfellet reopen gir et ALLEREDE
+          // åpent navnefelt (`.edit-input`), som ikke har noen hook.
+          if (el && el.__rename) el.__rename();
+          else if (el && el.click) el.click();
+        } catch (e) { /* borte */ }
       }
     } else {
       demoSnaps[demoIndex] = demoSnapshot();

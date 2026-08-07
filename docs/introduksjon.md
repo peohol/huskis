@@ -142,6 +142,10 @@ Poenget er at brukeren skal se hele appen mens hen bruker den. Derfor:
   umulig som et kort oppå målet. `clear()` på steget gir det ekstra elementet
   (kategorien i `drag_into_cat`); plasseringen regnes på rektangelet som rommer
   begge, mens pilspissen fortsatt peker på det brukeren skal ta tak i.
+- **Objektmenyen holdes alltid fri.** Den åpner seg MENS et steg pågår (målet er
+  menyknappen, men handlingen ligger i en rad inne i popoveren), så den kan ikke
+  stå i `clear()`. `placeTour()` legger den derfor inn i frisonen automatisk når
+  den er åpen, og `openObjMenu`/`closeObjMenu` plasserer kortet på nytt.
 
 **Instruksjonen vises aldri før navigasjonen er ferdig.** `demoReady()` krever at
 riktig modal er åpen/lukket OG at målet finnes og er synlig; til da står kortet

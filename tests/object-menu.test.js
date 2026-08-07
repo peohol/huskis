@@ -18,6 +18,10 @@
        sletter, halvt sveip gjør ingenting. Kategorier LØSES OPP.
     8. Sveipet er IKKE armert for mus — der eier dra-og-slipp tittelsonen.
     9. Escape lukker menyen og fokus går tilbake til menyknappen.
+   10. «Endre navn» overlever at board-et rendres mens menyen står åpen
+       (callbacken må slå opp tittelen på nytt, ikke holde på den gamle noden).
+   11. En FROSSEN (låst for meg) liste får ingen «Ansvarlig»-rader — serveren
+       ville avvist ansvaret, og UI-et skal ikke vise noe som rulles tilbake.
 
   Kjør:
     python3 -m http.server 8000                     # fra repo-roten, i egen terminal
@@ -292,6 +296,59 @@ async function run(label, viewport, touchMode) {
   }));
   log(label + ' 9: Escape lukker menyen og fokus går tilbake til menyknappen',
     closed.hidden === true && /I2:.*obj-menu-btn/.test(closed.focus), JSON.stringify(closed));
+
+  /* ---------- 10) «Endre navn» etter en rendring under åpen meny ---------- */
+  // En synk-pull (eller ensureShareGroup når medlemscachen fylles) kaller
+  // render() mens menyen står åpen. Holdt menyen på tittel-noden fra forrige
+  // bygging, ville «Endre navn» redigert et frakoblet element.
+  await openMenu(p, '.item[data-id="I2"]');
+  await p.evaluate(() => window.__huskis.render());
+  await p.waitForTimeout(300);
+  await p.locator('#obj-menu-panel .obj-menu-row', { hasText: 'Endre navn' }).click();
+  await p.waitForTimeout(400);
+  log(label + ' 10: «Endre navn» virker også etter en rendring med menyen åpen',
+    await p.locator('.item[data-id="I2"] .edit-input').count() === 1);
+  await p.keyboard.press('Escape'); await p.waitForTimeout(250);
+
+  /* ---------- 11) «Ansvarlig» finnes i en DELT mappe, men ikke i en LÅST ---------- */
+  // `frozen()` går oppover via `_parent`, som normalt settes av applyMyDoc.
+  // Fiksturen er håndsådd, så lenken må knyttes her for at låsen skal arves.
+  const setGroupShare = (locked) => p.evaluate((l) => {
+    const H = window.__huskis, u = H.state.universes[0], g = u.groups[0];
+    g._parent = u;
+    g.cards.forEach((c) => { c._parent = g; c.items.forEach((it) => { it._parent = c; }); });
+    // `privilegedLocal` omgår låsen for eiere — også via OMRÅDET. Begge
+    // nivåene må derfor være «medlem» for at lista faktisk skal være frossen.
+    u._role = l ? 'member' : 'owner';
+    g._shared = true; g._role = l ? 'member' : 'owner'; g._locked = l;
+    g._caps = l ? { editContent: false, leave: true, delete: false } : null;
+    H.render();
+  }, locked);
+
+  await setGroupShare(false);
+  await p.waitForTimeout(350);
+  await openMenu(p, '.card[data-id="L1"]');
+  const sharedMenu = await menuLabels(p);
+  log(label + ' 11: en liste i en delt mappe FÅR «Ansvarlig»',
+    sharedMenu.includes('Ansvarlig'), JSON.stringify(sharedMenu));
+  await closeMenu(p);
+
+  await setGroupShare(true);
+  await p.waitForTimeout(350);
+  await openMenu(p, '.card[data-id="L1"]');
+  const lockedMenu = await menuLabels(p);
+  log(label + ' 11: en FROSSEN liste får ingen «Ansvarlig»-rad (serveren ville avvist den)',
+    !lockedMenu.includes('Ansvarlig') && !lockedMenu.includes('Endre navn'),
+    JSON.stringify(lockedMenu));
+  await closeMenu(p);
+
+  await p.evaluate(() => {
+    const H = window.__huskis, u = H.state.universes[0], g = u.groups[0];
+    u._role = 'owner';
+    g._shared = false; g._role = 'owner'; g._locked = false; g._caps = null;
+    H.render();
+  });
+  await p.waitForTimeout(350);
 
   /* ---------- 7/8) Sveip ---------- */
   if (touchMode) {
