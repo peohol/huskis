@@ -123,7 +123,7 @@ async function loadAs(page, db, viewport) {
     // Kontoen har sett HELE introduksjonen (docs/introduksjon.md): verken
     // omvisningen eller et gest-tips skal legge seg over det som måles.
     sessionStorage.setItem('hk-mock-session', JSON.stringify({ id: 'uC', email: 'c@x.no',
-      user_metadata: { onboarding: { v: 3, status: 'done' }, tips: { drag: true, trash: true, moveList: true } } }));
+      user_metadata: { onboarding: { v: 3, status: 'done' }, tips: { drag: true, trash: true, moveList: true, dragTrash: true } } }));
   }, db);
   await page.goto(BASE + '/?mock=1');
   await page.waitForFunction(() => {

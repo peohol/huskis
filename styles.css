@@ -2955,7 +2955,11 @@ body.no-auth #account-btn { display: none; }
 .obj-menu-movebox { display: flex; flex-direction: column; }
 .obj-menu-resp { display: flex; flex-direction: column; gap: 2px; }
 .obj-menu-resp .uni-empty { margin: 4px 2px; font-size: var(--fs-sm); color: var(--ink-soft); }
-/* Tids-editoren i en skuff: samme editor som tids-popoveren bruker. */
+/* Tids-editoren i en skuff: samme editor som tids-popoveren bruker. Den har
+   ingen radpolstring av seg selv, så uten det ekstra innrykket her ville den
+   startet lengre til venstre enn radene i de andre skuffene: 8 px fra
+   `.obj-menu-sub > *` + 9 px fra `.obj-menu-row` = samme venstrekant. */
+.obj-menu-sub > .time-editor { padding-left: 17px; }
 .obj-menu-sub .time-editor { gap: 12px; }
 .obj-menu-sub .time-lock { font-size: var(--fs-sm); }
 

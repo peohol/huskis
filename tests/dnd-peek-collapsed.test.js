@@ -129,10 +129,12 @@ const log = (n, ok, x = '') => { results.push(ok); console.log((ok ? 'PASS' : 'F
     log('1 forutsetning: B kollapset', await isCollapsedDom(p, 'card-B', 'card') === true);
 
     const src = await centerOf(p, '.item[data-id="a-free"] .item-title, .item[data-id="a-free"]');
-    const bHead = await centerOf(p, '.card[data-id="card-B"] .card-head');
     // Løft listepunktet (touch-hold), dra over kollapset B, HOLD i > 200 ms.
     await touch(p, 'pointerdown', src.x, src.y); await p.waitForTimeout(240);
     await touch(p, 'pointermove', src.x + 4, src.y + 4); await p.waitForTimeout(40);
+    // MÅL B FØRST NÅ: draget viser fram kildekortets søppelkasse (docs/trash.md),
+    // så A blir høyere og B — som ligger under i samme kolonne — flytter seg ned.
+    const bHead = await centerOf(p, '.card[data-id="card-B"] .card-head');
     await touch(p, 'pointermove', bHead.x, bHead.y); await p.waitForTimeout(60);
     let collapsedDuring = await isCollapsedDom(p, 'card-B', 'card');
     log('1 rett etter ankomst (< 200 ms): B fortsatt kollapset', collapsedDuring === true, 'collapsed=' + collapsedDuring);
@@ -160,9 +162,9 @@ const log = (n, ok, x = '') => { results.push(ok); console.log((ok ? 'PASS' : 'F
     await register(p); await seed(p);
     await collapse(p, "card-B", "card");
     const src = await centerOf(p, '.item[data-id="a-free"]');
-    const bHead = await centerOf(p, '.card[data-id="card-B"] .card-head');
     await touch(p, 'pointerdown', src.x, src.y); await p.waitForTimeout(240);
     await touch(p, 'pointermove', src.x + 4, src.y + 4); await p.waitForTimeout(40);
+    const bHead = await centerOf(p, '.card[data-id="card-B"] .card-head');  // se 1)
     await touch(p, 'pointermove', bHead.x, bHead.y); await p.waitForTimeout(60);
     await touch(p, 'pointermove', bHead.x + 1, bHead.y + 20); await p.waitForTimeout(300); // peek åpner
     let openPeek = await isCollapsedDom(p, 'card-B', 'card');

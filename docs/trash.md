@@ -52,6 +52,12 @@ Detaljer som er lette å bryte:
   avdekket (`data-drag-revealed`).
 - En kasse som draget avdekket er per definisjon tom, så antallet («0») skjules
   mens den er armert — der er den et MÅL, ikke en beholder.
+- **Kassen blir stående i synsfeltet etter slippet** (`keepTrashInView`). Neste
+  steg er som regel å tømme den, og slettingen rendrer på nytt — i nav-modalen
+  har draget dessuten kollapset kortene underveis, så listen krymper og vokser
+  igjen. Uten dette havner man et stykke OVER kassen og må scrolle ned igjen.
+  `renderNav()` bevarer i tillegg scrollposisjonen i modalen over en ombygging,
+  og pinner til bunnen hvis man sto der.
 
 Regresjonstest: `tests/dnd-trash.test.js`.
 

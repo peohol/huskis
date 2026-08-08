@@ -136,7 +136,7 @@ async function load(page, viewport) {
     // gest-tips skal legge seg over det som testes (tests/CLAUDE.md).
     sessionStorage.setItem('hk-mock-session', JSON.stringify({
       id: uid, email: 'a@x.no',
-      user_metadata: { onboarding: { v: 3, status: 'done' }, tips: { drag: true, trash: true, moveList: true } },
+      user_metadata: { onboarding: { v: 3, status: 'done' }, tips: { drag: true, trash: true, moveList: true, dragTrash: true } },
     }));
   }, { db, uid: ids.uA });
   await page.goto(BASE + '/?mock=1');

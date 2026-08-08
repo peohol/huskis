@@ -569,6 +569,7 @@
   const navModal = document.getElementById('nav-modal');
   const navModalClose = document.getElementById('nav-modal-close');
   const navBoard = document.getElementById('nav-board');
+  const navModalBody = document.getElementById('nav-modal-body');
   const uniTrashBtn = document.getElementById('uni-trash-btn');
   const uniTrashCount = document.getElementById('uni-trash-count');
 
@@ -1670,6 +1671,12 @@
     updateUniversesTrash();
     updateCrumbs();
     captureFocusIn(navBoard); // hvor fokus sto, FØR modalens board rives ned
+    // Modalen scroller i `#nav-modal-body`, og å rive board-et ned nullstiller
+    // den. Sletter man et område ved å dra det i kassen, står man NEDERST (der
+    // kassen er) — uten dette ville man blitt kastet til toppen og måtte
+    // scrolle ned igjen for å tømme den. Sto man nederst, skal man BLI nederst
+    // selv om lista ble kortere; ellers holdes den samme avstanden fra toppen.
+    const keepScroll = navScrollState();
     navBoard.innerHTML = '';
     // Bygg kortene bare når modalen faktisk er åpen: en usett DOM-kopi av alle
     // områder/mapper koster ved hver render, og ville dessuten gitt doble
@@ -1706,6 +1713,22 @@
     navBoard.appendChild(col);
     relayoutBoard(navScope);
     applyFocusIntent(); // samme grunn som i renderBoard: modalen bygges fra bunnen
+    // ETTER fokuseringen: `focus()` scroller elementet inn i visningen, og ville
+    // ellers dratt visningen bort fra der brukeren faktisk sto.
+    restoreNavScroll(keepScroll);
+  }
+  // Scrollposisjonen i nav-modalen over en ombygging. `atBottom` skilles ut
+  // fordi en kortere liste har en ny bunn: den samme piksel-verdien ville da
+  // ikke lenger vært nederst.
+  function navScrollState() {
+    if (!navModalBody) return null;
+    const max = navModalBody.scrollHeight - navModalBody.clientHeight;
+    return { top: navModalBody.scrollTop, atBottom: max > 0 && max - navModalBody.scrollTop <= 4 };
+  }
+  function restoreNavScroll(s) {
+    if (!navModalBody || !s) return;
+    if (s.atBottom) navModalBody.scrollTop = navModalBody.scrollHeight;
+    else if (s.top) navModalBody.scrollTop = s.top;
   }
   // ＋-knappen for et nytt område, plassert nederst i «Mine områder».
   function navAddUniverseRow() {
@@ -4431,14 +4454,41 @@
   }
   // Selve slettingen et slipp i kassen betyr. Kalles ETTER at draget er rullet
   // tilbake, så animasjonen og angre-toasten kjører på et board i normal flyt.
+  // Etter en slette-DnD skal kassen fortsatt være innen synsvidde: neste steg
+  // er som regel å tømme den (hold + sveip). Slettingen rendrer på nytt — og i
+  // nav-modalen har draget dessuten kollapset kortene underveis, så listen
+  // krymper og vokser igjen. Uten dette havner man et stykke over kassen.
+  function keepTrashInView(btn) {
+    if (btn && btn.isConnected && !btn.hidden && !btn.closest('[hidden]')) {
+      btn.scrollIntoView({ block: 'nearest' });
+    }
+  }
   function dropIntoTrash(S, kind, id) {
     if (kind === 'card') {
-      if (S === navScope) { const u = findUniverse(id); if (u) deleteUniverse(u); }
-      else { const c = findCard(id); if (c) deleteCard(c); }
+      if (S === navScope) {
+        const u = findUniverse(id);
+        if (!u) return;
+        deleteUniverse(u);
+        keepTrashInView(uniTrashBtn);
+      } else {
+        const c = findCard(id);
+        if (c) deleteCard(c);   // toppmenyens kasse står alltid i synsfeltet
+      }
       return;
     }
-    if (S === navScope) { const g = findGroupAnywhere(id); if (g) deleteGroup(g); }
-    else { const it = findItemById(id); if (it) deleteItem(it); }
+    if (S === navScope) {
+      const g = findGroupAnywhere(id);
+      if (!g) return;
+      const uni = g.uni;
+      deleteGroup(g);
+      keepTrashInView(navBoard.querySelector('.card[data-id="' + uni + '"] .group-trash-btn'));
+    } else {
+      const it = findItemById(id);
+      if (!it) return;
+      const home = it.home;
+      deleteItem(it);
+      keepTrashInView(board.querySelector('.card[data-id="' + home + '"] .item-trash-btn'));
+    }
   }
 
   /* ------- Flytting av en liste til en annen mappe -------

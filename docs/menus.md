@@ -77,6 +77,10 @@ over og under. En fane som kan folde seg ut er en egen blokk, ikke nok en rad i
 rekka. Linjene ligger som `border-top` på selve gruppen (ikke som egne
 elementer), så nabo-faner deler én linje og ingen ekstra luft snik-legges inn.
 
+Innholdet i en skuff er rykket inn, så nivåene leses uten egne rammer. Radene
+(«Flytt opp», ansvarlig-radene) har sin egen polstring og får innrykket gratis;
+tids-editoren har det ikke, og får det derfor eksplisitt — samme venstrekant.
+
 - **Flytt** ▸ «Flytt opp» / «Flytt ned» (`keyboardReorder`, ett hakk per trykk,
   menyen blir stående så flere hakk kan tas etter hverandre) og «Flytt til …»
   (`keyboardMoveTo`, åpner velger-modalen). Dette er dra-og-slippets motstykke

@@ -115,7 +115,7 @@ BEGGE deler med én gang:
   sist i innloggingshjelperen (merket lagres med én gang, så en demo som er på
   vei opp heller ikke rekker å starte);
 - seeder testen sesjonen selv: gi den seedede brukeren
-  `user_metadata: { onboarding: { v: 3, status: 'done' }, tips: { drag: true, trash: true, moveList: true } }`.
+  `user_metadata: { onboarding: { v: 3, status: 'done' }, tips: { drag: true, trash: true, moveList: true, dragTrash: true } }`.
 
 **Versjonen betyr noe nå.** Markøren teller bare fra og med `v: 3` (demoen):
 en konto som kom gjennom en tidligere runde har aldri sett denne, og skal få
