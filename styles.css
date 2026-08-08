@@ -2933,8 +2933,18 @@ body.no-auth #account-btn { display: none; }
    som kan folde seg ut er en egen blokk, ikke nok en rad i rekka. Linjene
    ligger på selve gruppen — ikke som egne elementer — så nabo-faner deler én
    linje og ingen ekstra luft snik-legges inn mellom dem. */
-.obj-menu-list > * + .obj-menu-group,
-.obj-menu-group + .obj-menu-row { border-top: 1px solid var(--line); }
+.obj-menu-list > * + .obj-menu-group { border-top: 1px solid var(--line); }
+/* Raden UNDER en skuff får linjen som eget strøk, ikke som `border-top`: radene
+   er avrundet (`--control-radius`), så en kant på selve raden buer i endene og
+   linjen ville sett annerledes ut enn de flate linjene ellers i menyen. */
+.obj-menu-group + .obj-menu-row { position: relative; }
+.obj-menu-group + .obj-menu-row::before {
+  content: '';
+  position: absolute;
+  inset: 0 0 auto;
+  height: 1px;
+  background: var(--line);
+}
 .obj-menu-chev {
   flex: 0 0 auto;
   display: grid;

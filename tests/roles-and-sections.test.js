@@ -10,7 +10,8 @@
        forklaring når et arvet områdemedlem ikke kan fjernes
     5. Rolleinvitasjon (medeier) — rollevelgeren finnes kun for den som kan det
     6. Breadcrumbs: [ressursikon][delt-ikon]Navn, og den virtuelle «Delte mapper»-roten
-    7. Lister deles ikke selv: menyens «Deling og medlemmer» åpner MAPPENS modal
+    7. Lister deles ikke selv: ingen delerad i listens meny (bare delt-merket),
+       og serveren avviser en liste-invitasjon også via rå RPC
     8. Tap av tilgang navigerer brukeren ut av den ugyldige visningen
 
   Kjøres på BÅDE desktop- og mobil-viewport, med tastatur-/skjermleserattributter.
@@ -260,13 +261,18 @@ async function run(label, viewport, mobile) {
   const listMenu = await menuRows(p, '.card[data-id="' + ids.LA + '"] .card-head');
   log(label + ' 7: listens objektmeny har verken lås eller «Forlat» (lista deles ikke selv)',
     !listMenu.some((t) => /Lås|Forlat/i.test(t)), JSON.stringify(listMenu));
-  // «Deling og medlemmer» på en liste åpner MAPPENS del-modal — tilgangen arves.
-  await menuPick(p, '.card[data-id="' + ids.LA + '"] .card-head', 'Deling og medlemmer');
-  await p.waitForTimeout(600);
-  const shareTitle = await p.locator('#share-title').textContent();
-  log(label + ' 7: … og «Deling og medlemmer» åpner MAPPENS del-modal',
-    /Mappe A/.test(shareTitle || ''), shareTitle);
-  await p.keyboard.press('Escape'); await p.waitForTimeout(250);
+  // … og heller ingen DELERAD: en «Deling og medlemmer» i listens meny leses som
+  // om det er lista man deler. Delingen bor i mappens meny, der myndigheten er.
+  log(label + ' 7: … og ingen delerad — lista arver mappens tilgang',
+    !listMenu.some((t) => /Deling/i.test(t)), JSON.stringify(listMenu));
+  // Delt-status er likevel synlig på kortet, som en ren indikator.
+  const listBadge = await p.evaluate((id) => {
+    const b = document.querySelector('.card[data-id="' + id + '"] .card-head .share-badge');
+    return b ? { finnes: true, synlig: !b.hidden, knapp: b.tagName === 'BUTTON' } : { finnes: false };
+  }, ids.LA);
+  log(label + ' 7: … men delt-merket på kortet viser fortsatt at mappen er delt',
+    listBadge.finnes === true && listBadge.synlig === true && listBadge.knapp === false,
+    JSON.stringify(listBadge));
   const listShare = await p.evaluate(async (id) => {
     const r = await window.__huskis.client.rpc('create_share_invite',
       { p_type: 'card', p_id: id, p_email: 'ny@x.no' });
