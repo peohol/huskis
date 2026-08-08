@@ -14,7 +14,8 @@
     5. «Endre navn» åpner navneredigereren på plassen — på alle nivåer.
     6. Klikk på navnet: listepunkt/kategori omdøper fortsatt, mens område/
        liste kollapser og mappe navigerer (konflikten som ble fjernet).
-    7. Skillelinjer rundt trekkspill-skuffene.
+    7. Skillelinjer rundt trekkspill-skuffene — og at de er FLATE (en linje
+       tegnet som `border-top` på en avrundet rad buer i endene).
     9. Escape lukker menyen og fokus går tilbake til menyknappen.
    10. «Endre navn» overlever at board-et rendres mens menyen står åpen
        (callbacken må slå opp tittelen på nytt, ikke holde på den gamle noden).
@@ -331,14 +332,28 @@ async function run(label, viewport, touchMode) {
   /* ---------- 7) Skillelinjer rundt trekkspill-skuffene ---------- */
   await openMenu(p, '.card[data-id="L1"]');
   const seps = await p.evaluate(() => {
-    const px = (el) => parseFloat(getComputedStyle(el).borderTopWidth) || 0;
+    /* Linjen over et element tegnes enten som `border-top` (skuffene) eller som
+       et eget strøk i ::before (raden under en skuff — radene er avrundet, så en
+       kant på dem ville buet i endene). Begge måles her, og `buet` fanger opp at
+       linjen har arvet radens hjørner i stedet for å ligge flat. */
+    const linje = (el) => {
+      const cs = getComputedStyle(el);
+      if ((parseFloat(cs.borderTopWidth) || 0) > 0) {
+        return { finnes: true, buet: (parseFloat(cs.borderTopLeftRadius) || 0) > 0 };
+      }
+      const b = getComputedStyle(el, '::before');
+      if (b.content !== 'none' && (parseFloat(b.height) || 0) > 0 &&
+          b.backgroundColor !== 'rgba(0, 0, 0, 0)') {
+        return { finnes: true, buet: (parseFloat(b.borderTopLeftRadius) || 0) > 0 };
+      }
+      return { finnes: false, buet: false };
+    };
     const rows = [].slice.call(document.querySelectorAll('#obj-menu-panel .obj-menu-list > *'));
-    return rows.map((el) => ({
+    return rows.map((el) => Object.assign({
       type: el.classList.contains('obj-menu-group') ? 'skuff'
         : el.classList.contains('obj-menu-sep') ? 'linje' : 'rad',
       navn: (el.querySelector('.obj-menu-label') || {}).textContent || '',
-      linjeOver: px(el) > 0,
-    }));
+    }, { linjeOver: linje(el).finnes, buet: linje(el).buet }));
   });
   const tidsplan = seps.find((r) => r.navn === 'Tidsplan');
   const flytt = seps.find((r) => r.navn === 'Flytt');
@@ -347,6 +362,8 @@ async function run(label, viewport, touchMode) {
     !!tidsplan && tidsplan.linjeOver === true &&
     !!flytt && flytt.linjeOver === true &&
     !!etterSkuff && etterSkuff.linjeOver === true, JSON.stringify(seps));
+  log(label + ' 7: alle skillelinjene er flate — ingen arver radenes avrundede hjørner',
+    seps.every((r) => r.buet === false), JSON.stringify(seps.filter((r) => r.buet)));
   await closeMenu(p);
 
   log(label + ': ingen JS-feil', errs.length === 0, errs.join(' | '));

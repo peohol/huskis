@@ -76,6 +76,9 @@ Skuffene er skilt med hårfine linjer — fra hverandre og fra de vanlige radene
 over og under. En fane som kan folde seg ut er en egen blokk, ikke nok en rad i
 rekka. Linjene ligger som `border-top` på selve gruppen (ikke som egne
 elementer), så nabo-faner deler én linje og ingen ekstra luft snik-legges inn.
+Raden UNDER en skuff får linjen som et eget strøk i `::before` i stedet: radene
+er avrundet, og en `border-top` på dem buer i endene. Alle skillelinjene i
+menyen skal være flate.
 
 Innholdet i en skuff er rykket inn, så nivåene leses uten egne rammer. Radene
 («Flytt opp», ansvarlig-radene) har sin egen polstring og får innrykket gratis;
