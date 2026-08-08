@@ -504,12 +504,22 @@ async function run(label, vp, mobile) {
   const trash = await p.evaluate(() => ({
     inUniCard: !!document.querySelector('#nav-board .card[data-id="uni-A"] .group-trash-btn'),
     count: (document.querySelector('#nav-board .card[data-id="uni-A"] .group-trash-btn .trashcan-count') || {}).textContent,
-    otherUni: !!document.querySelector('#nav-board .card[data-id="uni-B"] .group-trash-btn'),
+    // Kassen bygges ALLTID (den vises fram som slippmål under et drag), så det
+    // er synligheten — ikke om noden finnes — som skiller områdene.
+    synligIUniA: (() => {
+      const b = document.querySelector('#nav-board .card[data-id="uni-A"] .group-trash-btn');
+      return !!b && !b.hidden && !b.closest('[hidden]');
+    })(),
+    synligIUniB: (() => {
+      const b = document.querySelector('#nav-board .card[data-id="uni-B"] .group-trash-btn');
+      return !!b && !b.hidden && !b.closest('[hidden]');
+    })(),
     uniTrashHidden: document.getElementById('uni-trash-btn').hidden,
     uniTrashInModalFooter: !!document.querySelector('#nav-modal .nav-actions #uni-trash-btn'),
   }));
   log(label + ' 11: mappe-søppelkassen ligger i områdekortet mappa hørte til',
-    trash.inUniCard === true && trash.count === '1' && trash.otherUni === false, JSON.stringify(trash));
+    trash.inUniCard === true && trash.count === '1' &&
+    trash.synligIUniA === true && trash.synligIUniB === false, JSON.stringify(trash));
   log(label + ' 11: område-søppelkassen ligger nederst i modalen (skjult når tom)',
     trash.uniTrashInModalFooter === true && trash.uniTrashHidden === true);
 

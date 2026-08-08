@@ -19,8 +19,9 @@ dokumentet skal gjøre den vanlige arbeidsflyten tregere:
   (`Alt`+pil), omdøping er `F2`, og flytting til en NY forelder er `Alt`+`M` —
   som åpner den samme velgeren draget allerede åpner. Alt dette finnes OGSÅ i
   objektmenyen (`docs/menus.md`), men ingen er nødt til å gå den veien.
-- Alt sveip-for-å-slette gjør, finnes i objektmenyen. Gesten er et TILLEGG for
-  touch, aldri den eneste veien (WCAG 2.5.1 «Pointer Gestures»).
+- Sletting har to veier, og begge er tastaturuavhengige krav oppfylt: menyens
+  «Slett»-rad (tastatur) og et slipp i søppelkassen (peker). Ingen funksjon
+  finnes KUN som en gest (WCAG 2.5.1 «Pointer Gestures»).
 - Ingen nye kontroller i board-et. Tastaturhåndtaket er nøyaktig den sonen
   musen drar i, så det finnes ingen ekstra knapp å hoppe over.
 

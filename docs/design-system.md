@@ -109,7 +109,7 @@ objektmenyen (`docs/menus.md`).
   `index.html` — ingen build-steg, så det er enklest å holde dem der de brukes.
 - **Dynamiske forekomster** (objektmenyknappen og alle radene i menyen,
   delt/låst-merker, lås-knappen i del-modalen, auth-heading-ikonet,
-  sveipefelt-søppelkassen, sveipe-slett-kassen i radene, antall-pillene,
+  sveipefelt-søppelkassen, søppelkassene i kortene, antall-pillene,
   tom-tilstander) bygges fra `window.ICONS` (`icons.js`, lastet før `app.js`)
   via `el.innerHTML = ICONS.xxx`.
 - Dra-håndtakene er fjernet: draging inviteres ved trykk-og-hold på et objekts
@@ -273,8 +273,8 @@ Størrelse/form kommer fra egne klasser: `.btn` (modaler), `.btn-small`,
   lesbar på enhver listefarge. `.cat-cog` bruker den **hvite flate-knappestilen
   fra `.card-cog`** (svakt hvit flate + ring, lysner ved hover) så menyknappen
   er synlig mot den fargede listeflaten. Å løse opp kategorien
-  (boble-sprekk-ikonet `ICONS.bubbleBurst`) er menyens siste rad — og
-  sveipe-gesten (`docs/menus.md`).
+  (boble-sprekk-ikonet `ICONS.bubbleBurst`) er menyens siste rad — og den ENESTE
+  veien: en kategori slettes ikke, og har derfor ingen søppelkasse å dras i.
   `.cat-head`s 6px sidepolstring stiller tittel/knapper i **samme kolonner** som
   elementenes (som har 6px boks-padding) og kort-hodets — hele lista leser som
   felles kolonner. **«Hylle i veggen»-metafor:** overskriften står på veggen
@@ -393,7 +393,8 @@ Størrelse/form kommer fra egne klasser: `.btn` (modaler), `.btn-small`,
   (`.obj-menu-btn`) bruker — dempet ikon på en rad, flate-knapp i et korthode
   eller på en kategorioverskrift. `.obj-menu-panel` + `.obj-menu-row` +
   `.obj-menu-sub`: selve menyen (popover/ark + rader + trekkspill-skuffer), se
-  `docs/menus.md`. `.swipe-trash` + `.swipe-zone`: sveip-for-å-slette.
+  `docs/menus.md`. `.trashcan.drag-trash` + `.to-trash`: søppelkassen som
+  drop-mål mens et drag pågår (`docs/trash.md`).
   `.meta-row` + `.meta-chip`: indikator-chipene under navnet (delt/ansvarlig/
   start/frist — status-farger via `--grad-*`). `.resp-avatar` / `.resp-row`:
   ansvarlig-sirkler og velger-rader; sirkelfargen settes inline fra paletten
@@ -472,9 +473,14 @@ side-margin som kansellerer den omsluttende paddingen.
 
 ## UX-prinsipper (samme mønster på alle nivåer)
 
-- Klikk = bytt/aktivér; klikk på det **aktive** navnet = omdøp inline (autosize).
-- Slett = `trashed`-flagg → søppelkasse; søppelkasser vises kun med innhold;
-  kort trykk = modal (gjenopprett/tøm), klikk-og-hold = sveipefelt for tømming.
+- Klikk = bytt/aktivér. Omdøping ligger i objektmenyen på område/mappe/liste
+  (der klikket allerede navigerer eller kollapser) og på selve navnet for
+  listepunkter og kategorier — se `docs/menus.md`.
+- Slett = `trashed`-flagg → søppelkasse. To veier inn, likt på alle nivåer:
+  objektmenyens «Slett»-rad, og **å dra objektet i kassen** — kassen vises fram
+  så snart et drag starter (`docs/trash.md`). Søppelkassene er ellers skjult når
+  de er tomme; kort trykk = modal (gjenopprett/tøm), klikk-og-hold = sveipefelt
+  for tømming.
   Sletting animeres («pakk sammen og fly i søpla», se `docs/trash.md`) så
   brukeren ser hvor objektet havnet. Destruktivt er alltid reversibelt frem
   til tømming (gravstein først da) — derfor ingen bekreftelses-dialog på selve

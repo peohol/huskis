@@ -2929,6 +2929,12 @@ body.no-auth #account-btn { display: none; }
 /* Trekkspillet: overskriftsraden får en vinkel til høyre som roterer 90° når
    skuffen er åpen; skuffen animerer på høyde (og klippes mens den beveger seg). */
 .obj-menu-group { display: flex; flex-direction: column; }
+/* Skillelinjer mellom skuffene (og mot de vanlige radene over/under): en fane
+   som kan folde seg ut er en egen blokk, ikke nok en rad i rekka. Linjene
+   ligger på selve gruppen — ikke som egne elementer — så nabo-faner deler én
+   linje og ingen ekstra luft snik-legges inn mellom dem. */
+.obj-menu-list > * + .obj-menu-group,
+.obj-menu-group + .obj-menu-row { border-top: 1px solid var(--line); }
 .obj-menu-chev {
   flex: 0 0 auto;
   display: grid;
@@ -2953,32 +2959,37 @@ body.no-auth #account-btn { display: none; }
 .obj-menu-sub .time-editor { gap: 12px; }
 .obj-menu-sub .time-lock { font-size: var(--fs-sm); }
 
-/* ---------------- Sveip tittelen for å slette ----------------
-   Søppelkassen (eller boble-ikonet for kategorier) ligger til VENSTRE for
-   menyknappen, absolutt plassert i raden. Den er usynlig i hvile; `right`
-   settes i JS ut fra menyknappens faktiske plass, siden de tre radtypene har
-   ulik sidepolstring. Opasiteten følger sveipet. */
-.item, .card-head, .cat-head { position: relative; }
-.swipe-trash {
-  position: absolute;
-  top: 50%;
-  right: 52px;
-  transform: translateY(-50%) scale(0.72);
-  width: 30px;
-  height: 30px;
-  display: grid;
-  place-items: center;
-  font-size: 22px;
-  opacity: 0;
-  pointer-events: none;
-  z-index: 1;
+/* ---------------- Slett ved å dra objektet i søppelkassen ----------------
+   Kassen for nivået man drar på vises fram i det draget starter (`.drag-trash`)
+   og lyser opp når man sikter på den (`.drop-target`, samme markering som
+   📁-breadcrumben). Det løftede objektet blir gjennomskinnelig så kassen synes
+   gjennom det. Se app.js («SLETT VED Å DRA OBJEKTET I SØPPELKASSEN»). */
+.trashcan.drag-trash {
+  outline: 2px dashed var(--danger);
+  outline-offset: 3px;
+  animation: trash-armed 1.4s ease-in-out infinite;
 }
-.swipe-trash.is-armed { filter: drop-shadow(0 0 6px rgba(0, 0, 0, 0.28)); }
-/* Sveipesonen er tittelfeltet. `pan-y` lar siden fortsatt rulles loddrett
-   (og zoomes), mens den VANNRETTE gesten kommer til JS i stedet for å bli
-   spist av nettleserens egen panorering. */
-.swipe-zone { touch-action: pan-y pinch-zoom; }
-.item.swiping, .card-head.swiping, .cat-head.swiping { overflow: hidden; }
+/* En kasse som ble AVDEKKET av draget er per definisjon tom, og «0» der leser
+   som et antall i stedet for et mål. Attributtet settes av armDragTrash — på
+   knappen selv (topplinja) eller på wrapperen rundt den (kort/områdekort). */
+.trashcan.drag-trash[data-drag-revealed] .trashcan-count,
+[data-drag-revealed] .trashcan.drag-trash .trashcan-count { display: none; }
+.trashcan.drag-trash.drop-target {
+  background: var(--danger-soft);
+  outline: 2.5px dashed var(--danger);
+  box-shadow: 0 4px 12px rgba(180, 60, 60, 0.35);
+  transform: scale(1.12);
+  animation: none;
+}
+@keyframes trash-armed {
+  0%, 100% { outline-offset: 3px; }
+  50% { outline-offset: 6px; }
+}
+.card.dragging.to-trash, .item.dragging.to-trash, .category.dragging.to-trash { opacity: 0.45; }
+@media (prefers-reduced-motion: reduce) {
+  .trashcan.drag-trash { animation: none; }
+  .trashcan.drag-trash.drop-target { transform: none; }
+}
 
 
 /* ---------------- Tids-editoren (objektmenyen + tids-popoveren) ---------------- */

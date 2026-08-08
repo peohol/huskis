@@ -4,7 +4,8 @@ Les denne når oppgaven berører sletting, gjenoppretting, eller tømming på et
 hvilket som helst av de fire nivåene.
 
 Fire nivåer, samme knapp (`.trashcan`: hvit beholder, søppelkasse-SVG + antall i
-grå sirkel) og samme oppførsel; **alle vises kun når de har innhold** (`hidden`):
+grå sirkel) og samme oppførsel; **alle vises kun når de har innhold** (`hidden`)
+— ELLER når et drag på det nivået pågår (se under):
 
 - **Områder**: nederst i nav-modalen, ved siden av «＋ [område-ikon]».
 - **Mapper**: i hvert OMRÅDE-KORT i nav-modalen (`.group-trash-btn`) — akkurat
@@ -12,6 +13,47 @@ grå sirkel) og samme oppførsel; **alle vises kun når de har innhold** (`hidde
 - **Lister**: i toppmenyens listefunksjons-rad (per aktiv mappe).
 - **Listepunkter**: midtstilt nederst i hvert listekort (`ICONS.trash`, samme
   SVG som de statiske knappene — aldri emoji).
+
+Kassene på de to nederste nivåene (`.item-trash`-innpakningen i listekortet og i
+områdekortet) **bygges alltid**, men står `hidden` når de er tomme. Noden må
+finnes for at et drag skal kunne vise den fram — se under.
+
+## Slett ved å DRA objektet i kassen
+
+**Dette er den ene slettegesten**, og den er lik på desktop og mobil for alle
+objekttypene som har en kasse:
+
+1. Løft objektet (trykk-og-hold på touch, dra på mus — samme motor som all annen
+   flytting, `docs/drag-and-drop.md`). Kassen for NIVÅET dukker opp med én gang
+   (`armDragTrash`), også når den er tom.
+2. Sikt på den: kassen markeres (`.drop-target`, samme markering som
+   📁-breadcrumben) og det løftede objektet blir gjennomskinnelig (`.to-trash`)
+   så kassen synes gjennom det.
+3. Slipp: objektet havner i kassen — samme vei som objektmenyens «Slett», med
+   fly-i-kassen-animasjonen og den samlende angre-toasten.
+4. Deretter tømmes den SAMME kassen permanent med hold-og-sveip, som før.
+
+Detaljer som er lette å bryte:
+
+- **Kassen er bundet til draget.** For et listepunkt/en mappe er målet kassen i
+  containeren raden kom FRA (`drag.trashHost`), ikke den man tilfeldigvis svever
+  over. Slettingen legger raden i kildens kasse.
+- **Slippet SLETTER, det flytter ikke.** Draget rulles tilbake som et avbrutt
+  drag (ingen ny `pos`, ingen lagring, ingen flytte-velger) før slettingen
+  kjøres, så objektet ikke også blir omrokkert eller overført.
+- **Uten slette-rett vises ingen kasse.** `draggedCanBeTrashed()` bruker de
+  samme capabilities som objektmenyens «Slett»-rad og feiler LUKKET — man kan
+  ikke sikte på noe serveren ville avvist.
+- **KATEGORIER har ingen kasse.** En kategori slettes ikke, den LØSES OPP
+  (listepunktene blir stående), og det gjøres fra objektmenyen. Et kategori-drag
+  armer derfor ingenting.
+- **Kassen skjules igjen** når draget ender uten å treffe den. `finishDrag()`
+  kaller `disarmDragTrash()`, som bare re-skjuler de kassene draget selv
+  avdekket (`data-drag-revealed`).
+- En kasse som draget avdekket er per definisjon tom, så antallet («0») skjules
+  mens den er armert — der er den et MÅL, ikke en beholder.
+
+Regresjonstest: `tests/dnd-trash.test.js`.
 
 ## Slette-animasjonen («pakk sammen og fly i søpla»)
 

@@ -242,7 +242,7 @@ På **kontoen**, i `user_metadata` — samme mekanikk som den huskede posisjonen
 
 ```js
 user_metadata.onboarding = { v: 3, status: 'done' | 'skipped' }
-user_metadata.tips = { drag: true, trash: true, moveList: true, swipeDelete: true }
+user_metadata.tips = { drag: true, trash: true, moveList: true, dragTrash: true }
 ```
 
 Bare utfallet lagres, og bare når runden er over. Demoen er en simulering, ikke
@@ -295,13 +295,12 @@ ett kort tips i den vanlige toasten, aldri mer enn ett om gangen:
 |---|---|---|
 | `trash` | liste-søppelkassen er synlig | hold på søppelkassen og sveip for å slette alt i den |
 | `drag` | mappen har ≥ 2 lister | hold på (eller dra) en tittel for å flytte |
-| `swipeDelete` | mappen har ≥ 1 liste OG enheten har grov peker (`pointer: coarse`) | sveip en tittel mot høyre for å slette den |
+| `dragTrash` | mappen har ≥ 1 liste | dra et objekt i søppelkassen for å slette det |
 | `moveList` | mappen har ≥ 1 liste og området ≥ 2 mapper | dra en liste opp på navigasjonsknappen for å flytte den |
 
-`swipeDelete` er betinget av pekertypen fordi gesten er armert kun for touch og
-pen — se `docs/menus.md` («Sveip tittelen for å slette»). På desktop er
-objektmenyen den raske veien, og et tips om en gest som ikke finnes der ville
-vært direkte misvisende.
+`dragTrash` gjelder alle pekertyper: kassen dukker først opp UNDER et drag, så
+den er ikke selvforklarende — men gesten er den samme på mus og finger. Se
+`docs/trash.md` («Slett ved å dra objektet i kassen»).
 
 `showTip()` viser ingenting hvis det ville kostet brukeren noe: før demoen er
 ferdig (tipset huskes og kommer etterpå), midt i en redigering eller et drag,

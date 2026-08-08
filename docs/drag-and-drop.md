@@ -230,13 +230,14 @@ Bytte utløses av **overlapp**, ikke av et punkt:
   mus (draget starter der umiddelbart på bevegelse). `pointercapture` brukes så
   draging ikke mister eventer. Placeholder lever kun under draging; `finishDrag()`
   har sikkerhetsnett.
-- **Sveip-for-å-slette deler tittelsonen med draget** — og de to kan ikke
-  utløses av samme gest. På touch/pen avlyser en tidlig bevegelse holdet
-  (`disarm()`), så et sveip aldri løfter objektet; sveipet på sin side avbryter
-  seg selv hvis `drag.active` likevel er sant. På MUS er sveipet ikke armert i
-  det hele tatt: der starter draget på 5 px bevegelse uten hold, og et musesveip
-  langs tittelen ville vært nøyaktig samme gest som et kort-drag. Autoritativt:
-  `docs/menus.md` («Sveip tittelen for å slette»).
+- **Søppelkassen er et drop-mål mens draget varer.** Idet et drag starter,
+  vises kassen for nivået fram (`armDragTrash`), den markeres når man sikter på
+  den, og et slipp i den SLETTER objektet i stedet for å flytte det: draget
+  rulles tilbake som et avbrutt drag først, så ingen ny `pos` skrives. Sjekken
+  ligger først i `onCardMove`/`onItemMove` og i de tilsvarende `*Up`-funksjonene,
+  altså FØR plassering og før 📁-breadcrumben — sikter man på kassen, er det
+  slettingen som gjelder. Kategorier har ingen kasse (de løses opp fra menyen).
+  Autoritativt: `docs/trash.md` («Slett ved å dra objektet i kassen»).
 - **Lister kollapser mens en liste dras** (`collapseCardsForDrag`/
   `restoreCardsAfterDrag`): idet et liste-drag starter, kollapses BÅDE den dratte
   lista og alle de andre til bare korthodet (som kategorienes kollaps under drag)

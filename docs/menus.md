@@ -72,6 +72,11 @@ overskriftsrad. **Kun ÉN skuff kan være åpen om gangen** — å åpne en ny l
 den forrige, begge med animert høyde (`slideObjSub`, 180 ms). Uten det ville
 menyen blitt lengre enn skjermen på mobil.
 
+Skuffene er skilt med hårfine linjer — fra hverandre og fra de vanlige radene
+over og under. En fane som kan folde seg ut er en egen blokk, ikke nok en rad i
+rekka. Linjene ligger som `border-top` på selve gruppen (ikke som egne
+elementer), så nabo-faner deler én linje og ingen ekstra luft snik-legges inn.
+
 - **Flytt** ▸ «Flytt opp» / «Flytt ned» (`keyboardReorder`, ett hakk per trykk,
   menyen blir stående så flere hakk kan tas etter hverandre) og «Flytt til …»
   (`keyboardMoveTo`, åpner velger-modalen). Dette er dra-og-slippets motstykke
@@ -88,33 +93,14 @@ sortering fra menyen bygger jo board-et om under den. `repaintObjMenu()` maler
 radene på nytt (etter lås, ansvar, sortering) uten å lukke, og beholder den åpne
 skuffen. Forsvinner objektet, lukker menyen seg.
 
-## Sveip tittelen for å slette
+## Sletting: dra objektet i søppelkassen
 
-Sveip mot **høyre** langs et objekts tittel: et søppelkasseikon (`.swipe-trash`)
-toner inn til venstre for menyknappen og blir stadig mer opakt jo nærmere
-sveipet kommer det. Er man helt fremme ved kassen, slettes objektet.
-**Kategorier og mappekategorier løses opp** i stedet (samme handling som menyens
-siste rad, samme ikon: `ICONS.bubbleBurst`). Slippes fingeren før den er fremme,
-glir tittelen tilbake og ingenting skjer.
+Objektmenyens siste rad er den ene måten, dra-og-slipp den andre: løfter man et
+objekt, dukker søppelkassen for nivået opp, og et slipp i den sletter. Samme
+gest på desktop og mobil, samme motor som all annen flytting.
 
-Sveipesonen er tittelfeltet (`.swipe-zone` = `.card-title-wrap` / `.item-main` /
-`.cat-title-wrap`), som har `touch-action: pan-y pinch-zoom` slik at loddrett
-rulling og zoom fortsatt tilhører nettleseren.
-
-**Sveipet er armert KUN for touch og pen.** Det er løsningen på en ekte konflikt
-med dra-og-slipp:
-
-- På **touch/pen** løfter `attachHoldDrag` først etter et HOLD (`HOLD_MS`) med
-  mindre enn `HOLD_MOVE` px bevegelse. Et sveip er en tidlig bevegelse og
-  avlyser holdet av seg selv — de to gestene kan ikke utløses av samme trykk.
-- På **mus** starter draget etter 5 px bevegelse uten hold. Et musesveip langs
-  tittelen og et kort-drag ville vært nøyaktig samme gest, og tittelen er det
-  primære dra-håndtaket på desktop. Der er menyen den raske veien i stedet: ett
-  klikk åpner den, ett klikk velger.
-
-Sveipet er alltid et TILLEGG: alt det gjør ligger også i menyen, som er
-tastaturbetjent (`docs/tilgjengelighet.md`). Klikket som ellers ville fulgt et
-sveip svelges, så et sveip aldri også omdøper, navigerer eller kollapser.
+Kategorier har ingen kasse — de **løses opp** fra menyen (listepunktene blir
+stående). Autoritativt: `docs/trash.md` («Slett ved å dra objektet i kassen»).
 
 ## Toppmenyen (`.topbar`)
 

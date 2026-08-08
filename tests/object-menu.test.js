@@ -1,5 +1,5 @@
 /*
-  Regresjonstest: OBJEKTMENYEN og SVEIP-FOR-Å-SLETTE.
+  Regresjonstest: OBJEKTMENYEN.
 
   Alle seks objekttypene (område, mappe, mappekategori, liste, listepunkt,
   kategori) har NØYAKTIG én knapp til høyre — objektmenyen. Testen dekker:
@@ -14,9 +14,7 @@
     5. «Endre navn» åpner navneredigereren på plassen — på alle nivåer.
     6. Klikk på navnet: listepunkt/kategori omdøper fortsatt, mens område/
        liste kollapser og mappe navigerer (konflikten som ble fjernet).
-    7. Sveip tittelen mot høyre (touch): søppelkassen toner inn, fullt sveip
-       sletter, halvt sveip gjør ingenting. Kategorier LØSES OPP.
-    8. Sveipet er IKKE armert for mus — der eier dra-og-slipp tittelsonen.
+    7. Skillelinjer rundt trekkspill-skuffene.
     9. Escape lukker menyen og fokus går tilbake til menyknappen.
    10. «Endre navn» overlever at board-et rendres mens menyen står åpen
        (callbacken må slå opp tittelen på nytt, ikke holde på den gamle noden).
@@ -91,27 +89,6 @@ const openMenu = async (p, hostSel) => {
 const menuLabels = (p) => p.locator('#obj-menu-panel .obj-menu-row .obj-menu-label').allTextContents();
 const closeMenu = async (p) => { await p.keyboard.press('Escape'); await p.waitForTimeout(200); };
 
-// Sveip med ekte touch-punkter (CDP): Playwrights touchscreen har ingen
-// «dra»-primitiv, og gesten må gå gjennom pointermove for å bli lest som sveip.
-async function swipe(ctx, p, rowSel, zoneSel, steps, stepPx) {
-  const cdp = await ctx.newCDPSession(p);
-  const box = await p.locator(zoneSel).boundingBox();
-  const zone = box;
-  const y = box.y + Math.min(box.height / 2, 14);
-  const x0 = zone.x + 14;
-  const touch = (type, x) => cdp.send('Input.dispatchTouchEvent',
-    { type, touchPoints: type === 'touchEnd' ? [] : [{ x, y }] });
-  await touch('touchStart', x0);
-  for (let i = 1; i <= steps; i++) { await touch('touchMove', x0 + i * stepPx); await p.waitForTimeout(16); }
-  const mid = await p.evaluate((sel) => {
-    const t = document.querySelector(sel);
-    return t ? +getComputedStyle(t).opacity : null;
-  }, rowSel);
-  await touch('touchEnd', 0);
-  await p.waitForTimeout(450);
-  return mid;
-}
-
 async function run(label, viewport, touchMode) {
   const b = await chromium.launch();
   const ctx = await b.newContext(Object.assign({ viewport }, touchMode ? { hasTouch: true, isMobile: true } : {}));
@@ -138,7 +115,8 @@ async function run(label, viewport, touchMode) {
       // Avmerkingsboksen er den ene ekstra knappen et listepunkt beholder.
       itemCheck: own(item, ':scope > .item-check'),
       legacy: document.querySelectorAll('.card-delete, .item-delete, .cat-dissolve,' +
-        ' .uni-share, .group-share, .uni-leave, .group-leave, #settings-modal').length,
+        ' .uni-share, .group-share, .uni-leave, .group-leave, #settings-modal,' +
+        ' .swipe-zone, .swipe-trash').length,
       badgeIsButton: card.querySelector('.share-badge').tagName === 'BUTTON',
     };
   });
@@ -350,65 +328,26 @@ async function run(label, viewport, touchMode) {
   });
   await p.waitForTimeout(350);
 
-  /* ---------- 7/8) Sveip ---------- */
-  if (touchMode) {
-    // Halvt sveip: kassen toner inn, men ingenting slettes.
-    const midOpacity = await swipe(ctx, p, '.item[data-id="I1"] > .swipe-trash',
-      '.item[data-id="I1"] > .swipe-zone', 5, 10);
-    const halfway = await p.evaluate(() => ({
-      finnes: !!document.querySelector('.item[data-id="I1"]'),
-      trashOpacity: +getComputedStyle(document.querySelector('.item[data-id="I1"] .swipe-trash')).opacity,
+  /* ---------- 7) Skillelinjer rundt trekkspill-skuffene ---------- */
+  await openMenu(p, '.card[data-id="L1"]');
+  const seps = await p.evaluate(() => {
+    const px = (el) => parseFloat(getComputedStyle(el).borderTopWidth) || 0;
+    const rows = [].slice.call(document.querySelectorAll('#obj-menu-panel .obj-menu-list > *'));
+    return rows.map((el) => ({
+      type: el.classList.contains('obj-menu-group') ? 'skuff'
+        : el.classList.contains('obj-menu-sep') ? 'linje' : 'rad',
+      navn: (el.querySelector('.obj-menu-label') || {}).textContent || '',
+      linjeOver: px(el) > 0,
     }));
-    log(label + ' 7: halvt sveip toner inn søppelkassen uten å slette',
-      midOpacity > 0.05 && midOpacity < 1 && halfway.finnes === true && halfway.trashOpacity === 0,
-      'under=' + midOpacity + ' etter=' + JSON.stringify(halfway));
-
-    // Fullt sveip helt til kassen: listepunktet havner i søppelkassen.
-    await swipe(ctx, p, '.item[data-id="I1"] > .swipe-trash',
-      '.item[data-id="I1"] > .swipe-zone', 34, 12);
-    const gone = await p.evaluate(() => {
-      const c = window.__huskis.state.universes[0].groups[0].cards.find((x) => x.id === 'L1');
-      const it = c.items.find((x) => x.id === 'I1');
-      return { iDom: !!document.querySelector('.item[data-id="I1"]'), trashed: !!(it && (it.trashed || it._pendingDelete)) };
-    });
-    log(label + ' 7: fullt sveip legger listepunktet i søppelkassen',
-      gone.iDom === false && gone.trashed === true, JSON.stringify(gone));
-
-    // Et sveip skal ikke ALSO omdøpe (klikket etter gesten svelges).
-    log(label + ' 7: sveipet åpnet ingen navneredigering',
-      await p.locator('.card[data-id="L1"] .edit-input').count() === 0);
-
-    // Kategorien LØSES OPP av det samme sveipet.
-    await swipe(ctx, p, '.category[data-id="C1"] > .cat-head > .swipe-trash',
-      '.category[data-id="C1"] > .cat-head > .swipe-zone', 34, 12);
-    const dissolved = await p.evaluate(() => {
-      const c = window.__huskis.state.universes[0].groups[0].cards.find((x) => x.id === 'L1');
-      return {
-        katFinnes: !!c.items.find((x) => x.id === 'C1'),
-        medlemLever: !!(c.items.find((x) => x.id === 'I3') || {}).id,
-      };
-    });
-    log(label + ' 7: sveip på en kategori LØSER DEN OPP og beholder medlemmene',
-      dissolved.katFinnes === false && dissolved.medlemLever === true, JSON.stringify(dissolved));
-  } else {
-    // Mus: sveipet er ikke armert (dra-og-slipp eier tittelsonen). En vannrett
-    // musedrag langs tittelen skal ikke slette noe.
-    const box = await p.locator('.item[data-id="I2"] .item-main').boundingBox();
-    await p.mouse.move(box.x + 10, box.y + box.height / 2);
-    await p.mouse.down();
-    for (let i = 1; i <= 30; i++) {
-      await p.mouse.move(box.x + 10 + i * 12, box.y + box.height / 2);
-      await p.waitForTimeout(10);
-    }
-    await p.mouse.up();
-    await p.waitForTimeout(500);
-    const stillThere = await p.evaluate(() => {
-      const c = window.__huskis.state.universes[0].groups[0].cards.find((x) => x.id === 'L1');
-      const it = c.items.find((x) => x.id === 'I2');
-      return !!(it && !it.trashed && !it._pendingDelete);
-    });
-    log(label + ' 8: musedrag langs tittelen sletter ingenting (sveip kun for touch)', stillThere);
-  }
+  });
+  const tidsplan = seps.find((r) => r.navn === 'Tidsplan');
+  const flytt = seps.find((r) => r.navn === 'Flytt');
+  const etterSkuff = seps[seps.indexOf(flytt) + 1];
+  log(label + ' 7: skuffene er skilt fra hverandre og fra radene rundt',
+    !!tidsplan && tidsplan.linjeOver === true &&
+    !!flytt && flytt.linjeOver === true &&
+    !!etterSkuff && etterSkuff.linjeOver === true, JSON.stringify(seps));
+  await closeMenu(p);
 
   log(label + ': ingen JS-feil', errs.length === 0, errs.join(' | '));
   await p.close();

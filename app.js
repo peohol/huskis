@@ -1314,10 +1314,12 @@
   // Søppelkasse-badgen (område/mappe/liste): antall, og knappen skjules når
   // kassen er tom. Delt av de tre faste knappene (element-nivået er annerledes
   // — se updateItemsTrashBadge, som slår opp badgen i DOM).
+  // Kassen vises kun når den har innhold — med unntak av et pågående drag som
+  // har avdekket den som slippmål (`data-drag-revealed`, se armDragTrash).
   function updateTrashBadge(trashedSel, countEl, btnEl) {
     const list = trashedSel();
     countEl.textContent = list.length;
-    btnEl.hidden = list.length === 0;
+    if (!btnEl.dataset.dragRevealed) btnEl.hidden = list.length === 0;
   }
   // Lister-søppelkassen vises kun når den har innhold (samme logikk som de andre).
   function updateTrashCount() { updateTrashBadge(trashedCards, trashCount, trashBtn); }
@@ -1781,12 +1783,6 @@
       remove: canDelUni ? () => deleteUniverse(findUniverse(u.id) || u) : null,
       removeLabel: 'Slett området for alle',
     });
-    // Sveip tittelen mot søppelkassen (touch/pen) = samme sletting som i menyen.
-    attachSwipeAction(el.querySelector('.swipe-zone'), head, {
-      can: () => canDelUni,
-      icon: () => ICONS.trash,
-      run: () => deleteUniverse(findUniverse(u.id) || u),
-    });
 
     // Draging + rullgardin-kollaps: nøyaktig som et listekort.
     head.setAttribute('aria-expanded', u.collapsed ? 'false' : 'true');
@@ -1844,32 +1840,35 @@
     });
 
     // Mappe-søppelkassen: i området sitt, akkurat som listepunkt-søppelkassen
-    // ligger i lista si (område-søppelkassen ligger nederst i modalen).
-    const trashed = isFree ? [] : trashedGroupsOf(u);
-    if (trashed.length) {
-      const wrap = document.createElement('div');
-      wrap.className = 'item-trash';
-      const btn = document.createElement('button');
-      btn.type = 'button';
-      btn.className = 'trashcan group-trash-btn';
-      btn.title = 'Slettede mapper – trykk for å åpne, hold og sveip for å slette dem for godt';
-      btn.setAttribute('aria-label',
-        trashed.length + ' slettede mapper i ' + quoted(u.name));
-      const icon = document.createElement('span');
-      icon.className = 'trashcan-icon';
-      icon.setAttribute('aria-hidden', 'true');
-      icon.innerHTML = ICONS.trash;
-      const count = document.createElement('span');
-      count.className = 'trashcan-count';
-      count.textContent = trashed.length;
-      btn.append(icon, count);
-      attachTrashHold(btn, {
+    // ligger i lista si (område-søppelkassen ligger nederst i modalen). Bygges
+    // ALLTID (skjult når tom), så et mappe-drag kan vise den fram som slippmål.
+    // Fri-beholderen er ingen ekte forelder og har ingen kasse.
+    const trashedGroups = isFree ? [] : trashedGroupsOf(u);
+    if (!isFree) {
+      const gTrashWrap = document.createElement('div');
+      gTrashWrap.className = 'item-trash';
+      gTrashWrap.hidden = !trashedGroups.length;
+      const gTrashBtn = document.createElement('button');
+      gTrashBtn.type = 'button';
+      gTrashBtn.className = 'trashcan group-trash-btn';
+      gTrashBtn.title = 'Slettede mapper – trykk for å åpne, hold og sveip for å slette dem for godt';
+      gTrashBtn.setAttribute('aria-label',
+        trashedGroups.length + ' slettede mapper i ' + quoted(u.name));
+      const gIcon = document.createElement('span');
+      gIcon.className = 'trashcan-icon';
+      gIcon.setAttribute('aria-hidden', 'true');
+      gIcon.innerHTML = ICONS.trash;
+      const gCount = document.createElement('span');
+      gCount.className = 'trashcan-count';
+      gCount.textContent = trashedGroups.length;
+      gTrashBtn.append(gIcon, gCount);
+      attachTrashHold(gTrashBtn, {
         count: () => trashedGroupsOf(findUniverse(u.id) || u).length,
         open: () => openGroupsTrash(u.id),
         empty: () => emptyGroupsTrash(u.id),
       });
-      wrap.appendChild(btn);
-      el.querySelector('.card-body').appendChild(wrap);
+      gTrashWrap.appendChild(gTrashBtn);
+      el.querySelector('.card-body').appendChild(gTrashWrap);
     }
 
     // Presise navn på områdekortets knapper. «Slett området for alle» er den
@@ -1958,11 +1957,6 @@
       remove: canDelGroup ? () => deleteGroup(findGroupAnywhere(g.id) || g) : null,
       removeLabel: 'Slett mappen for alle',
     });
-    attachSwipeAction(el.querySelector('.swipe-zone'), el, {
-      can: () => canDelGroup,
-      icon: () => ICONS.trash,
-      run: () => deleteGroup(findGroupAnywhere(g.id) || g),
-    });
 
     // En fri mappe ordnes PERSONLIG (alltid dragbar); en mappe i et område
     // krever rett til å endre områdets struktur.
@@ -2027,11 +2021,6 @@
       remove: canEdit ? dissolveGroupCat : null,
       removeLabel: 'Løs opp mappekategorien',
       removeIcon: ICONS.bubbleBurst,
-    });
-    attachSwipeAction(el.querySelector('.swipe-zone'), catHead, {
-      can: () => canEdit,
-      icon: () => ICONS.bubbleBurst,
-      run: dissolveGroupCat,
     });
 
     attachHoldDrag(catHead, el, startCategoryDrag, () => canEdit, '.obj-menu-btn');
@@ -2171,6 +2160,39 @@
     save();
   }
 
+  /* Slett en liste → felles papirkurv (`trashed`-flagg; permanent først ved
+     «Tøm papirkurv»). Slår opp DET LEVENDE kortet på id, så den tåler at en
+     synk-rebuild har byttet ut objektet. Delt av objektmenyens «Slett listen»
+     og av et slipp i søppelkassen — de to må gjøre nøyaktig det samme. */
+  function deleteCard(cardData) {
+    const live = findCard(cardData.id) || cardData;
+    keepFocus(focusTargetAfterRemoval('card', live.id, activeGroupObj()));
+    const ghost = ghostFrom(board.querySelector('.card[data-id="' + live.id + '"]'));
+    bufferDelete(live, 'card', (c) => setTrashed(c, 'card', true));
+    render(); // søppelkasse-knappen blir synlig FØR animasjonen starter
+    flyGhost(ghost, trashBtn);
+    pushDeleteToast('card', live.id, live.title);
+  }
+
+  /* Slett et listepunkt → kortets element-søppelkasse (gjenopprettbar;
+     gravstein først ved tømming). Samme deling som deleteCard: menyen og
+     slippet i kassen. */
+  function deleteItem(itemData) {
+    const owner = findCard(itemData.home);
+    const it = owner && owner.items.find((i) => i.id === itemData.id);
+    if (!owner || !it) return;
+    // Fokus MÅ ha et sted å gå før raden forsvinner: uten dette faller det til
+    // <body>, og en skjermleser mister plassen sin i lista.
+    keepFocus(focusTargetAfterRemoval('item', it.id, owner));
+    const ghost = ghostFrom(board.querySelector('.item[data-id="' + it.id + '"]'));
+    bufferDelete(it, 'item', (x) => setTrashed(x, 'item', true));
+    refreshCard(owner); // element-søppelkassen dukker opp FØR animasjonen
+    applyFocusIntent();
+    flyGhost(ghost, board.querySelector(
+      '.card[data-id="' + owner.id + '"] .item-trash-btn'));
+    pushDeleteToast('item', it.id, it.text);
+  }
+
   function buildCard(cardData) {
     const el = cardTpl.content.firstElementChild.cloneNode(true);
     el.dataset.id = cardData.id;
@@ -2222,18 +2244,6 @@
     // tittelen kollapser kortet, som ellers på hodet.
     setRenameHook(titleEl, canEdit ? renameCard : null);
 
-    // Slett liste -> legg i felles papirkurv (trashed-flagg; permanent først ved
-    // «Tøm papirkurv»). Frosset (låst for meg) → ingen sletting i menyen.
-    const deleteThisCard = () => {
-      const live = findCard(cardData.id) || cardData;
-      keepFocus(focusTargetAfterRemoval('card', live.id, activeGroupObj()));
-      const ghost = ghostFrom(board.querySelector('.card[data-id="' + live.id + '"]') || el);
-      bufferDelete(live, 'card', (c) => setTrashed(c, 'card', true));
-      render(); // søppelkasse-knappen blir synlig FØR animasjonen starter
-      flyGhost(ghost, trashBtn);
-      pushDeleteToast('card', live.id, live.title);
-    };
-
     const headEl = el.querySelector('.card-head');
     const menuBtn = el.querySelector('.obj-menu-btn');
     attachObjMenu(menuBtn, {
@@ -2248,13 +2258,8 @@
         const liveGrp = (liveCard && nodeOfType(liveCard, 'group')) || grp;
         openShare('group', liveGrp.id, liveGrp);
       } : null,
-      remove: canEdit ? deleteThisCard : null,
+      remove: canEdit ? () => deleteCard(cardData) : null,
       removeLabel: 'Slett listen',
-    });
-    attachSwipeAction(el.querySelector('.swipe-zone'), headEl, {
-      can: () => canEdit,
-      icon: () => ICONS.trash,
-      run: deleteThisCard,
     });
 
     // Kort-draging: trykk-og-hold på korthodet (tittel-delen) unntatt
@@ -2341,38 +2346,38 @@
       addRowNow(cat, buildCategory(cat, cardData), '.cat-title');
     });
 
-    // Element-søppelkasse: midtstilt nederst i kortet, kun når det ligger
-    // slettede elementer i kortet. Emoji + antall (ingen tekst-etikett).
+    // Element-søppelkasse: midtstilt nederst i kortet. Den BYGGES ALLTID, men
+    // står skjult når den er tom — et drag skal kunne vise den fram som
+    // slippmål (se armDragTrash), og da må noden finnes.
     const trashed = trashedItemsOf(cardData);
-    if (trashed.length) {
-      const wrap = document.createElement('div');
-      wrap.className = 'item-trash';
-      const btn = document.createElement('button');
-      btn.type = 'button';
-      btn.className = 'trashcan item-trash-btn';
-      btn.title = 'Slettede listepunkter – trykk for å åpne, hold og sveip for å slette dem for godt';
-      btn.setAttribute('aria-label',
-        trashed.length + ' slettede listepunkter i ' + quoted(cardData.title));
-      const icon = document.createElement('span');
-      icon.className = 'trashcan-icon';
-      icon.setAttribute('aria-hidden', 'true');
-      icon.innerHTML = ICONS.trash;
-      const count = document.createElement('span');
-      count.className = 'trashcan-count';
-      count.textContent = trashed.length;
-      btn.append(icon, count);
-      attachTrashHold(btn, {
-        // Kortet slås opp LIVE: `cardData` er fanget ved bygging, og en
-        // synk-rebuild bytter ut state-objektene. Med en foreldet referanse
-        // ville `count()` svart 0, sveipefeltet aldri åpnet seg — og det korte
-        // trykket åpnet søppelkasse-modalen i stedet for å tømme den.
-        count: () => trashedItemsOf(findCard(cardData.id) || cardData).length,
-        open: () => openItemsTrash(findCard(cardData.id) || cardData),
-        empty: () => emptyItemsTrash(findCard(cardData.id) || cardData),
-      });
-      wrap.appendChild(btn);
-      el.querySelector('.card-body').appendChild(wrap); // i body-en så den kollapser med resten
-    }
+    const trashWrap = document.createElement('div');
+    trashWrap.className = 'item-trash';
+    trashWrap.hidden = !trashed.length;
+    const trashBtnEl = document.createElement('button');
+    trashBtnEl.type = 'button';
+    trashBtnEl.className = 'trashcan item-trash-btn';
+    trashBtnEl.title = 'Slettede listepunkter – trykk for å åpne, hold og sveip for å slette dem for godt';
+    trashBtnEl.setAttribute('aria-label',
+      trashed.length + ' slettede listepunkter i ' + quoted(cardData.title));
+    const trashIcon = document.createElement('span');
+    trashIcon.className = 'trashcan-icon';
+    trashIcon.setAttribute('aria-hidden', 'true');
+    trashIcon.innerHTML = ICONS.trash;
+    const trashCountEl = document.createElement('span');
+    trashCountEl.className = 'trashcan-count';
+    trashCountEl.textContent = trashed.length;
+    trashBtnEl.append(trashIcon, trashCountEl);
+    attachTrashHold(trashBtnEl, {
+      // Kortet slås opp LIVE: `cardData` er fanget ved bygging, og en
+      // synk-rebuild bytter ut state-objektene. Med en foreldet referanse
+      // ville `count()` svart 0, sveipefeltet aldri åpnet seg — og det korte
+      // trykket åpnet søppelkasse-modalen i stedet for å tømme den.
+      count: () => trashedItemsOf(findCard(cardData.id) || cardData).length,
+      open: () => openItemsTrash(findCard(cardData.id) || cardData),
+      empty: () => emptyItemsTrash(findCard(cardData.id) || cardData),
+    });
+    trashWrap.appendChild(trashBtnEl);
+    el.querySelector('.card-body').appendChild(trashWrap); // i body-en så den kollapser med resten
 
     // Presise navn på kortets ikonknapper. Uten listenavnet i navnet blir det
     // «Innstillinger for listen» én gang per liste på board-et, uten at
@@ -2773,27 +2778,6 @@
       checkBtn.addEventListener('click', () => toggleItemDone(el, itemData, cardData));
     }
 
-    // Slett element → legg i kortets element-søppelkasse (trashed-flagg;
-    // gjenopprettbar). Permanent sletting (gravstein) skjer først ved tømming.
-    const deleteThisItem = () => {
-      const owner = ownerCardOf(el) || findCard(itemData.home) || cardData;
-      const it = owner.items.find((i) => i.id === itemData.id);
-      if (!it) return;
-      // Fokus MÅ ha et sted å gå før raden forsvinner: uten dette faller det
-      // til <body>, og en skjermleser mister plassen sin i lista.
-      keepFocus(focusTargetAfterRemoval('item', it.id, owner));
-      // Raden slås opp på nytt: `el` er fanget ved bygging, og en rendring
-      // mellom da og nå (synk, en åpen meny) ville gjort klonen null-stor.
-      const rowEl = board.querySelector('.item[data-id="' + it.id + '"]') || el;
-      const ghost = ghostFrom(rowEl); // klone FØR refreshCard fjerner raden
-      bufferDelete(it, 'item', (x) => setTrashed(x, 'item', true));
-      refreshCard(owner); // element-søppelkassen dukker opp FØR animasjonen
-      applyFocusIntent();
-      flyGhost(ghost, board.querySelector(
-        '.card[data-id="' + owner.id + '"] .item-trash-btn'));
-      pushDeleteToast('item', it.id, it.text);
-    };
-
     // Draging: trykk-og-hold på elementet unntatt avmerkingsboksen og
     // menyknappen. Avkryssede elementer dras ikke (ligger i «Utført»).
     attachHoldDrag(el, el, startItemDrag,
@@ -2805,13 +2789,8 @@
       id: itemData.id,
       scope: boardScope,
       rename: canEdit ? renameItem : null,
-      remove: canEdit ? deleteThisItem : null,
+      remove: canEdit ? () => deleteItem(itemData) : null,
       removeLabel: 'Slett listepunktet',
-    });
-    attachSwipeAction(el.querySelector('.swipe-zone'), el, {
-      can: () => canEdit,
-      icon: () => ICONS.trash,
-      run: deleteThisItem,
     });
 
     // Presise navn: uten teksten med i navnet leser en skjermleser «Meny»
@@ -2891,11 +2870,6 @@
       remove: canEdit ? dissolveThisCat : null,
       removeLabel: 'Løs opp kategorien',
       removeIcon: ICONS.bubbleBurst,
-    });
-    attachSwipeAction(el.querySelector('.swipe-zone'), catHead, {
-      can: () => canEdit,
-      icon: () => ICONS.bubbleBurst,
-      run: dissolveThisCat,
     });
 
     // Draging: trykk-og-hold på overskriftslinjen unntatt menyknappen.
@@ -3322,14 +3296,18 @@
     mine.forEach(commitDeleteOne);
     pruneDeleteToast(mine);
   }
-  // Oppdaterer KUN element-søppel-badgen på ett kort (antallet), uten å bygge
-  // kortet på nytt — så en pågående inline-redigering i samme kort (eller andre
-  // kort) ikke forstyrres. Badgen finnes allerede i DOM-en fra da elementet
-  // ble slettet.
+  // Oppdaterer KUN element-søppel-badgen på ett kort (antallet + om kassen skal
+  // vises), uten å bygge kortet på nytt — så en pågående inline-redigering i
+  // samme kort (eller andre kort) ikke forstyrres. Kassen finnes ALLTID i
+  // DOM-en (den vises fram som slippmål under et drag), så tellingen må styre
+  // synligheten; et pågående drag som har avdekket den, får beholde den.
   function updateItemsTrashBadge(cardData) {
-    const count = board.querySelector('.card[data-id="' + cardData.id + '"] .item-trash-btn .trashcan-count');
-    if (!count) return;
-    count.textContent = trashedItemsOf(cardData).length;
+    const btn = board.querySelector('.card[data-id="' + cardData.id + '"] .item-trash-btn');
+    if (!btn) return;
+    const n = trashedItemsOf(cardData).length;
+    btn.querySelector('.trashcan-count').textContent = n;
+    const wrap = btn.closest('.item-trash');
+    if (wrap && !wrap.dataset.dragRevealed) wrap.hidden = n === 0;
   }
   // Oppdaterer badge-tellerne som hørte til nettopp committede objekter — uten en
   // full render() (som ville revet ned en pågående inline-redigering et annet
@@ -3350,10 +3328,14 @@
     unis.forEach(updateGroupsTrashBadge);
   }
   // Antallet i ETT områdes mappe-søppelkasse (uten å bygge kortet på nytt).
+  // Som listepunkt-kassen: bygget alltid, skjult når tom.
   function updateGroupsTrashBadge(u) {
-    const count = navBoard.querySelector('.card[data-id="' + u.id + '"] .group-trash-btn .trashcan-count');
-    if (!count) return;
-    count.textContent = trashedGroupsOf(u).length;
+    const btn = navBoard.querySelector('.card[data-id="' + u.id + '"] .group-trash-btn');
+    if (!btn) return;
+    const n = trashedGroupsOf(u).length;
+    btn.querySelector('.trashcan-count').textContent = n;
+    const wrap = btn.closest('.item-trash');
+    if (wrap && !wrap.dataset.dragRevealed) wrap.hidden = n === 0;
   }
   function commitAllPending() {
     if (deleteToast) { clearTimeout(deleteToast.timer); deleteToast = null; hideToast(); }
@@ -4076,6 +4058,7 @@
     if (!dragRolledBack) dropSeq++;
     dragRolledBack = false;
     drag.active = false;
+    disarmDragTrash();        // skjul kassen igjen om draget ikke endte i den
     clearAllDragSeparators(); // tilbake til hvile-reglene (pseudo-linjene på .category)
     clearAllPeeks(true); // sikkerhetsnett: kollaps evt. peek-åpnede mål tilbake (no-op om alt alt er løst)
     window.removeEventListener('scroll', onDragScroll);
@@ -4086,6 +4069,7 @@
     if (drag.ph && drag.ph.parentNode) drag.ph.remove();
     drag.el = null;
     drag.ph = null;
+    drag.trashHost = null;
     document.querySelectorAll('.card-placeholder, .item-placeholder')
       .forEach((el) => el.remove());
     stopAutoScroll();
@@ -4116,7 +4100,7 @@
     // spøkelses-duplikat — vi rydder bare dra-stilene og lar den ligge død.
     if (el.isConnected && drag.origParent) drag.origParent.insertBefore(el, drag.origNext);
     el.classList.remove('dragging');
-    el.classList.remove('to-group');
+    el.classList.remove('to-group', 'to-trash');
     el.style.left = el.style.top = el.style.width = el.style.height = '';
     el.style.transform = '';
     el.style.transition = '';
@@ -4305,6 +4289,7 @@
     window.addEventListener('pointermove', onCardMove);
     window.addEventListener('pointerup', onCardUp);
     window.addEventListener('pointercancel', onCardCancel);
+    armDragTrash(); // søppelkassen dukker opp som slippmål mens draget varer
   }
 
   /* ------- Midlertidig kollaps av alle lister under et liste-drag -------
@@ -4337,6 +4322,123 @@
       if (want && !isCollapsed) collapseCardBody(cEl);
       else if (!want && isCollapsed) expandCardBody(cEl);
     });
+  }
+
+  /* ------- SLETT VED Å DRA OBJEKTET I SØPPELKASSEN -------
+     Søppelkassen for NIVÅET man drar på dukker opp i det draget starter (den er
+     ellers skjult når den er tom), lyser opp når man sikter på den, og sletter
+     objektet ved slipp. Etterpå tømmes den samme kassen permanent med det
+     kjente hold-og-sveip-grepet.
+
+     Hvorfor slik: det gir ÉN slettemåte som virker likt på desktop og mobil,
+     for alle objekttypene, med den samme motoren som allerede flytter dem — og
+     uten en egen ✕ på hvert objekt. Slettingen er dessuten det eneste stedet
+     kassen er relevant, så den koster ingen plass i hvile.
+
+     KATEGORIER har ingen kasse. En kategori slettes ikke — den LØSES OPP
+     (listepunktene blir stående), og det gjøres fra objektmenyen. Derfor
+     returnerer `dragTrashBtn()` null for dem, og ingenting armes.
+
+     Kassen er BUNDET til draget: for et listepunkt/en mappe er det kassen i
+     containeren raden kom FRA, ikke den man tilfeldigvis svever over. Slippet
+     ruller draget tilbake som et avbrutt drag (ingen ny posisjon, ingen
+     lagring) og lar slette-funksjonen gjøre resten — samme vei som menyens
+     «Slett», med fly-i-kassen-animasjon og samlende angre-toast. */
+  const DRAG_TRASH_PAD = 12;   // raus treffsone rundt kassen (den er et lite mål)
+
+  // Kassen dette draget kan slippes i — eller null når nivået ikke har en.
+  function dragTrashBtn() {
+    if (!drag.active) return null;
+    const S = dragScope();
+    if (drag.kind === 'card') return S === navScope ? uniTrashBtn : trashBtn;
+    if (drag.kind === 'item') {
+      const host = drag.trashHost;
+      if (!host || !host.isConnected) return null;
+      return host.querySelector(S === navScope ? '.group-trash-btn' : '.item-trash-btn');
+    }
+    return null;
+  }
+  // Har jeg lov til å slette det jeg drar? Samme capabilities som menyens
+  // «Slett»-rad, og feiler LUKKET: uten rett vises ingen kasse i det hele tatt,
+  // så man kan ikke sikte på noe serveren ville avvist.
+  function draggedCanBeTrashed() {
+    const S = dragScope();
+    const id = drag.el && drag.el.dataset.id;
+    if (!id) return false;
+    if (drag.kind === 'card') {
+      if (S === navScope) {
+        const u = findUniverse(id);
+        return !!u && !u._virtual && cap(u, 'delete');
+      }
+      const c = findCard(id);
+      return !!c && !frozen(c);
+    }
+    if (drag.kind === 'item') {
+      if (S === navScope) {
+        const g = findGroupAnywhere(id);
+        return !!g && cap(g, 'delete', !frozen(g));
+      }
+      const it = findItemById(id);
+      const owner = it && findCard(it.home);
+      return !!owner && !frozen(owner);
+    }
+    return false;
+  }
+  // Vis kassen fram for draget. `data-drag-revealed` husker at det var VI som
+  // avdekket den, så den går tilbake til å være skjult om draget ikke endte i
+  // den (og forblir synlig om det gjorde — slettingen rendrer da uansett).
+  function armDragTrash() {
+    drag.overTrash = false;
+    drag.trashArmed = false;
+    if (!draggedCanBeTrashed()) return;
+    const btn = dragTrashBtn();
+    if (!btn) return;
+    drag.trashArmed = true;
+    btn.classList.add('drag-trash');
+    if (btn.hidden) { btn.hidden = false; btn.dataset.dragRevealed = '1'; }
+    const wrap = btn.closest('.item-trash');
+    if (wrap && wrap.hidden) { wrap.hidden = false; wrap.dataset.dragRevealed = '1'; }
+  }
+  // Kalles fra finishDrag — altså på ALLE veier ut av et drag, også avbrudd.
+  function disarmDragTrash() {
+    document.querySelectorAll('.trashcan.drag-trash').forEach((btn) => {
+      btn.classList.remove('drag-trash', 'drop-target');
+      const wrap = btn.closest('.item-trash');
+      if (btn.dataset.dragRevealed) { btn.hidden = true; delete btn.dataset.dragRevealed; }
+      if (wrap && wrap.dataset.dragRevealed) { wrap.hidden = true; delete wrap.dataset.dragRevealed; }
+    });
+    drag.trashArmed = false;
+    drag.overTrash = false;
+  }
+  function pointerOnDragTrash(x, y) {
+    if (!drag.trashArmed) return false;
+    const btn = dragTrashBtn();
+    if (!btn || btn.hidden || !btn.isConnected) return false;
+    const r = btn.getBoundingClientRect();
+    if (!r.width || !r.height) return false;
+    return x >= r.left - DRAG_TRASH_PAD && x <= r.right + DRAG_TRASH_PAD &&
+           y >= r.top - DRAG_TRASH_PAD && y <= r.bottom + DRAG_TRASH_PAD;
+  }
+  // Siktemarkering på kassen + gjennomskinnelig dra-objekt, så kassen synes
+  // gjennom det løftede kortet (samme grep som 📁-breadcrumben bruker).
+  function setDragTrashTarget(on) {
+    on = !!on;
+    if (drag.overTrash === on) return;
+    drag.overTrash = on;
+    const btn = dragTrashBtn();
+    if (btn) btn.classList.toggle('drop-target', on);
+    if (drag.el) drag.el.classList.toggle('to-trash', on);
+  }
+  // Selve slettingen et slipp i kassen betyr. Kalles ETTER at draget er rullet
+  // tilbake, så animasjonen og angre-toasten kjører på et board i normal flyt.
+  function dropIntoTrash(S, kind, id) {
+    if (kind === 'card') {
+      if (S === navScope) { const u = findUniverse(id); if (u) deleteUniverse(u); }
+      else { const c = findCard(id); if (c) deleteCard(c); }
+      return;
+    }
+    if (S === navScope) { const g = findGroupAnywhere(id); if (g) deleteGroup(g); }
+    else { const it = findItemById(id); if (it) deleteItem(it); }
   }
 
   /* ------- Flytting av en liste til en annen mappe -------
@@ -4403,6 +4505,17 @@
     drag.lastY = ev.clientY;
     moveElement();
     drag.el.style.transform = `rotate(${cardRotation()}deg) scale(1.02)`;
+
+    // Sikter man på søppelkassen, er det slettingen som gjelder — verken
+    // omrokkering eller 📁-breadcrumben. (Liste-kassen ligger i toppmenyen,
+    // område-kassen nederst i nav-modalen; sjekken dekker begge.)
+    if (pointerOnDragTrash(ev.clientX, ev.clientY)) {
+      setDragTrashTarget(true);
+      setCardCrumbTarget(false);
+      stopAutoScroll();
+      return;
+    }
+    setDragTrashTarget(false);
 
     // Over toppmenyen sikter vi på 📁-breadcrumben (flytt til annen mappe) i
     // stedet for å omorganisere board-et: marker knappen, og la board-et +
@@ -4541,6 +4654,17 @@
     // placeholderen kunne blitt hentet fra nest siste bevegelse.
     if (ev && typeof ev.clientX === 'number') {
       drag.lastX = ev.clientX; drag.lastY = ev.clientY;
+    }
+    /* Slipp i søppelkassen: draget rulles tilbake som et AVBRUTT drag (ingen ny
+       pos, ingen lagring, ingen flytte-velger), og slettingen tar over. Sjekkes
+       før plasseringen committes — et slipp i kassen skal ikke også omrokkere. */
+    if (pointerOnDragTrash(drag.lastX, drag.lastY)) {
+      const trashedId = el.dataset.id;
+      onCardCancel();
+      dropIntoTrash(S, 'card', trashedId);
+      return;
+    }
+    if (ev && typeof ev.clientX === 'number') {
       // (Kortet flyttes IKKE hit visuelt: drop-tweenen starter fra der det faktisk
       // står malt, se dropIntoPlaceholder — et snapp hit først ville gitt et rykk.)
       if (!(onBoard && pointerInTopbar(drag.lastX, drag.lastY))) commitCardPlacement();
@@ -4676,6 +4800,9 @@
     beginDragCommon(ev, itemEl);
     drag.kind = 'item';
     drag.phMode = 'reorder';
+    // Kassen som gjelder er den i containeren raden kom FRA — ikke den man
+    // tilfeldigvis svever over. Slettingen legger raden i kildens kasse.
+    drag.trashHost = itemEl.closest('.card');
 
     const ph = document.createElement('li');
     ph.className = 'item-placeholder';
@@ -4689,6 +4816,7 @@
     window.addEventListener('pointermove', onItemMove);
     window.addEventListener('pointerup', onItemUp);
     window.addEventListener('pointercancel', onItemCancel);
+    armDragTrash();
   }
 
   // Direkte-barn-rader i en drop-container som deltar i rekkefølgen: elementer
@@ -4783,6 +4911,14 @@
     drag.lastY = ev.clientY;
     moveElement();
     drag.el.style.transform = `rotate(${cardRotation()}deg) scale(1.03)`;
+    // Sikter man på kassen, står placeholderen i ro: slippet sletter, det
+    // flytter ikke. (Se «Slett ved å dra objektet i søppelkassen».)
+    if (pointerOnDragTrash(drag.lastX, drag.lastY)) {
+      setDragTrashTarget(true);
+      stopAutoScroll();
+      return;
+    }
+    setDragTrashTarget(false);
     updateAutoScroll();
     updatePeek(drag.lastX, drag.lastY);
     updateItemPlacement(drag.lastX, drag.lastY, dy);
@@ -4910,6 +5046,16 @@
     if (ev && typeof ev.clientX === 'number') {
       const dy = ev.clientY - drag.lastY;
       drag.lastX = ev.clientX; drag.lastY = ev.clientY;
+      /* Slipp i søppelkassen avgjøres FØR plasseringen re-evalueres: raden skal
+         hverken flyttes eller ekstraheres, bare slettes. Draget rulles tilbake
+         som et avbrutt drag, og slette-funksjonen gjør resten. */
+      if (pointerOnDragTrash(drag.lastX, drag.lastY)) {
+        const trashScope = dragScope();
+        const trashedId = drag.el.dataset.id;
+        onItemCancel();
+        dropIntoTrash(trashScope, 'item', trashedId);
+        return;
+      }
       updateItemPlacement(drag.lastX, drag.lastY, dy, true); // commit: lande i kollapset mål om peek ikke rakk
     }
 
@@ -7167,140 +7313,6 @@
     ev.preventDefault();
     rows[(i + (ev.key === 'ArrowDown' ? 1 : -1) + rows.length) % rows.length].focus();
   });
-
-  /* ============================================================
-     SVEIP TITTELEN FOR Å SLETTE
-     ------------------------------------------------------------
-     Sveip mot høyre langs tittelen: et søppelkasseikon toner inn til VENSTRE
-     for menyknappen og blir stadig mer opakt jo nærmere sveipet kommer det.
-     Er man helt fremme ved kassen, slettes objektet (kategorier LØSES OPP —
-     samme handling som menyens siste rad). Slippes fingeren før den er fremme,
-     glir tittelen tilbake og ingenting skjer.
-
-     KONFLIKTEN MED DRA-OG-SLIPP, og hvordan den er løst:
-     • Touch/pen: `attachHoldDrag` løfter først etter et HOLD på HOLD_MS med
-       mindre enn HOLD_MOVE px bevegelse — beveger fingeren seg før det, avlyser
-       den seg selv. Et sveip ER en tidlig bevegelse, så de to kan ikke utløses
-       av samme gest. Sveipet avbryter dessuten seg selv om et drag likevel er i
-       gang (`drag.active`).
-     • MUS: der starter draget på 5 px bevegelse UTEN hold — et musesveip og et
-       kort-drag ville vært samme gest. Derfor er sveipet armert KUN for touch og
-       pen. På desktop er menyen den raske veien (åpnes med ett klikk), og
-       tittelen forblir dra-håndtaket den alltid har vært.
-
-     Sveipet er en TILLEGGSVEI: alt det gjør ligger også i menyen, som er
-     tastaturbetjent. Se docs/tilgjengelighet.md. */
-  const SWIPE_ENGAGE = 8;      // px vannrett før sveipet tar over
-  const SWIPE_MIN_TRAVEL = 90; // korteste strekk til kassen (smale rader)
-  const SWIPE_BACK_MS = 180;
-
-  function attachSwipeAction(zone, rowEl, api) {
-    if (!zone || !rowEl) return;
-    let pid = null, sx = 0, sy = 0, engaged = false, fired = false;
-    let travel = 0, trashEl = null, maxShift = 0;
-    // Et sveip etterfølges av et peker-generert klikk på tittelen. Det ville
-    // omdøpt listepunktet / navigert til mappen / kollapset kortet — svelges.
-    let swallowClick = false, swallowTimer = null;
-
-    function paint(p) {
-      const c = Math.max(0, Math.min(1, p));
-      if (trashEl) {
-        trashEl.style.opacity = c.toFixed(3);
-        trashEl.style.transform = 'translateY(-50%) scale(' + (0.72 + 0.28 * c).toFixed(3) + ')';
-        trashEl.classList.toggle('is-armed', c >= 1);
-      }
-      zone.style.transform = 'translateX(' + Math.round(Math.min(c * travel, maxShift)) + 'px)';
-    }
-    function cleanup(animate) {
-      window.removeEventListener('pointermove', onMove);
-      window.removeEventListener('pointerup', onUp);
-      window.removeEventListener('pointercancel', onUp);
-      if (engaged) {
-        swallowClick = true;
-        clearTimeout(swallowTimer);
-        swallowTimer = setTimeout(() => { swallowClick = false; }, 400);
-        if (animate) {
-          zone.style.transition = 'transform ' + SWIPE_BACK_MS + 'ms';
-          if (trashEl) trashEl.style.transition = 'opacity ' + SWIPE_BACK_MS + 'ms';
-        }
-        zone.style.transform = '';
-        if (trashEl) { trashEl.style.opacity = ''; trashEl.classList.remove('is-armed'); }
-        const z = zone, t = trashEl;
-        setTimeout(() => {
-          z.style.transition = ''; z.style.transform = '';
-          if (t) { t.style.transition = ''; t.style.transform = ''; t.style.opacity = ''; }
-        }, animate ? SWIPE_BACK_MS : 0);
-        rowEl.classList.remove('swiping');
-      }
-      pid = null; engaged = false;
-    }
-    function engage() {
-      const btn = rowEl.querySelector('.obj-menu-btn');
-      trashEl = rowEl.querySelector('.swipe-trash');
-      if (!btn || !trashEl) return false;
-      const rowRect = rowEl.getBoundingClientRect();
-      const btnRect = btn.getBoundingClientRect();
-      // Kassen står midt mellom tittelen og menyknappen, i rad-ens egen
-      // koordinatramme (målt her, ikke gjettet i CSS: de tre radtypene har
-      // ulik sidepolstring).
-      trashEl.innerHTML = api.icon();
-      trashEl.style.right = Math.round(rowRect.right - btnRect.left + 6) + 'px';
-      trashEl.style.opacity = '0';
-      const trashRect = trashEl.getBoundingClientRect();
-      travel = Math.max(SWIPE_MIN_TRAVEL, (trashRect.left + trashRect.width / 2) - sx);
-      // Tittelen stopper et stykke FØR kassen, så de to aldri overlapper.
-      maxShift = Math.max(0, travel - 46);
-      engaged = true;
-      rowEl.classList.add('swiping');
-      return true;
-    }
-    function onMove(ev) {
-      if (ev.pointerId !== pid) return;
-      if (drag.active) { cleanup(true); return; } // et hold rakk å løfte objektet
-      const dx = ev.clientX - sx, dy = ev.clientY - sy;
-      if (!engaged) {
-        // Loddrett dominans = rulling, ikke sveip. Venstre-sveip gjør ingenting.
-        if (Math.abs(dy) > Math.abs(dx)) { cleanup(false); return; }
-        if (dx < SWIPE_ENGAGE) return;
-        if (!api.can() || !engage()) { cleanup(false); return; }
-      }
-      if (ev.cancelable) ev.preventDefault();
-      const p = dx / travel;
-      paint(p);
-      if (p >= 1 && !fired) {
-        fired = true;
-        const run = api.run;
-        cleanup(false);
-        run();
-        setTimeout(() => { fired = false; }, 400);
-      }
-    }
-    function onUp(ev) {
-      if (ev.pointerId !== pid) return;
-      cleanup(true);
-    }
-    zone.addEventListener('pointerdown', (ev) => {
-      // Kun touch/pen — se konflikt-notatet over.
-      if (ev.pointerType === 'mouse') return;
-      if (ev.isPrimary === false) return;
-      if (ev.target.closest('button, .edit-input, .meta-chip')) return;
-      if (!api.can()) return;
-      pid = ev.pointerId; sx = ev.clientX; sy = ev.clientY;
-      engaged = false;
-      window.addEventListener('pointermove', onMove, { passive: false });
-      window.addEventListener('pointerup', onUp);
-      window.addEventListener('pointercancel', onUp);
-    });
-    // Svelg klikket som ellers ville fulgt et sveip (omdøping på listepunkter/
-    // kategorier, navigering på mapperader, kollaps på kort).
-    zone.addEventListener('click', (ev) => {
-      if (!swallowClick) return;
-      swallowClick = false;
-      clearTimeout(swallowTimer);
-      ev.stopImmediatePropagation();
-      ev.preventDefault();
-    }, true);
-  }
 
   /* ---------------- Tids-editoren (deles av modalen og popoveren) ----------------
      getTarget() slår opp det levende objektet per interaksjon. opts.only
@@ -11435,7 +11447,8 @@
       allow: ['#obj-menu-panel'],
       html: '<p>Hvert objekt har én menyknapp til høyre. Åpne menyen på et ' +
         'listepunkt og velg «Slett listepunktet».</p>' +
-        '<p>På mobil kan du også sveipe navnet mot søppelkassen.</p>',
+        '<p>Du kan også dra objektet rett i søppelkassen — den dukker opp så ' +
+        'snart du løfter noe.</p>',
       done: () => trashedItemsOf(demoCard()).length >= 1,
     },
     {
@@ -12012,7 +12025,7 @@
     drag: 'Tips: hold på en tittel for å flytte den.',
     trash: 'Tips: hold på søppelkassen og sveip for å slette alt i den.',
     moveList: 'Tips: dra en liste opp på navigasjonsknappen for å flytte den.',
-    swipeDelete: 'Tips: sveip en tittel mot høyre for å slette den.',
+    dragTrash: 'Tips: dra et objekt i søppelkassen for å slette det.',
   };
   let pendingTip = null;  // ba om et tips mens demoen sto på
   let lastTipAt = 0;
@@ -12061,10 +12074,9 @@
   function maybeContextualTips(cardCount) {
     if (!trashBtn.hidden && showTip('trash')) return;
     if (cardCount >= 2 && showTip('drag')) return;
-    // Sveip-for-å-slette er armert kun for touch/pen (se attachSwipeAction), så
-    // tipset gis bare der gesten faktisk finnes.
-    if (cardCount >= 1 && window.matchMedia('(pointer: coarse)').matches &&
-        showTip('swipeDelete')) return;
+    // Søppelkassen dukker først opp UNDER et drag, så den er ikke selvforklarende
+    // — men gesten er den samme på mus og finger, og tipset gjelder overalt.
+    if (cardCount >= 1 && showTip('dragTrash')) return;
     if (cardCount >= 1 && groupTargetCount() >= 2) showTip('moveList');
   }
   // Antall mapper i det aktive området man kan flytte en liste til (samme
