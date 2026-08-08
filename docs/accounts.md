@@ -435,8 +435,9 @@ visningen glir over uten flimmer.
   etter capabilities.
 - **Åpning**: områder og mapper deles fra «Deling og medlemmer» i objektmenyen i
   nav-modalen — knappene er synlige for ALLE med tilgang (medlemslisten er åpen).
-  Begge sender `openNavModal` som `backTo`. **Lister har ingen deling** lenger;
-  chipen i listas meta-rad åpner MAPPENS delingsinnstillinger.
+  Begge sender `openNavModal` som `backTo`. **Lister har ingen deling** — og
+  ingen delerad i menyen sin: at mappen er delt vises med `.share-badge` i
+  listekortets hode, og delingen endres fra MAPPENS meny.
 - **Medlemslisten** grupperes etter kategori med overskrifter («Eier»/«Medeiere»,
   «Eier av mappen»/«Medeiere av mappen», «Medlemmer av området»,
   «Medlemmer av mappen»); tomme kategorier utelates. Hver rad viser rollen, og

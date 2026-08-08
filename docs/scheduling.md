@@ -32,8 +32,8 @@ Radene er de samme som ansvarlig-velgeren bruker;
 `setResponsible(target, userId)` skriver valget.
 
 **Deling** finnes ikke på lister: tilgangen arves fra mappen (se
-`docs/rettigheter-og-deling.md`). Menyens «Deling og medlemmer» på et listekort
-åpner MAPPENS del-modal.
+`docs/rettigheter-og-deling.md`), og listens meny har derfor ingen delerad —
+delingen gjøres fra mappens meny.
 
 Ingen bekreftelsesknapp noe sted — alt settes fortløpende og optimistisk.
 Editoren slår alltid opp det LEVENDE objektet på id per interaksjon

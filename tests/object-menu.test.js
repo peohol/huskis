@@ -132,10 +132,14 @@ async function run(label, viewport, touchMode) {
   /* ---------- 2) Radene per type, sletting sist ---------- */
   await openMenu(p, '.card[data-id="L1"]');
   const cardRows = await menuLabels(p);
-  log(label + ' 2: listens meny har navn, tidsplan, flytt, deling og sletting SIST',
+  log(label + ' 2: listens meny har navn, tidsplan, flytt og sletting SIST',
     cardRows[0] === 'Endre navn' && cardRows.includes('Tidsplan') &&
-    cardRows.includes('Flytt') && cardRows.includes('Deling og medlemmer') &&
+    cardRows.includes('Flytt') &&
     cardRows[cardRows.length - 1] === 'Slett listen', JSON.stringify(cardRows));
+  // Bare område og mappe kan deles; en delerad her ville lest som om det er
+  // LISTA man deler (docs/rettigheter-og-deling.md).
+  log(label + ' 2: listens meny har INGEN delerad',
+    !cardRows.some((r) => /Deling/i.test(r)), JSON.stringify(cardRows));
   log(label + ' 2: sletteraden er markert som destruktiv',
     await p.locator('#obj-menu-panel .obj-menu-row.is-danger').count() === 1);
   log(label + ' 2: menyen sier hvilket objekt den gjelder',
@@ -330,12 +334,11 @@ async function run(label, viewport, touchMode) {
   await p.waitForTimeout(350);
 
   /* ---------- 7) Skillelinjer rundt trekkspill-skuffene ---------- */
-  await openMenu(p, '.card[data-id="L1"]');
-  const seps = await p.evaluate(() => {
-    /* Linjen over et element tegnes enten som `border-top` (skuffene) eller som
-       et eget strøk i ::before (raden under en skuff — radene er avrundet, så en
-       kant på dem ville buet i endene). Begge måles her, og `buet` fanger opp at
-       linjen har arvet radens hjørner i stedet for å ligge flat. */
+  /* Linjen over et element tegnes enten som `border-top` (skuffene) eller som et
+     eget strøk i ::before (raden under en skuff — radene er avrundet, så en kant
+     på DEM ville buet i endene). Begge måles her, og `buet` fanger opp at en
+     linje har arvet radens hjørner i stedet for å ligge flat. */
+  const maalLinjer = (pg) => pg.evaluate(() => {
     const linje = (el) => {
       const cs = getComputedStyle(el);
       if ((parseFloat(cs.borderTopWidth) || 0) > 0) {
@@ -355,16 +358,34 @@ async function run(label, viewport, touchMode) {
       navn: (el.querySelector('.obj-menu-label') || {}).textContent || '',
     }, { linjeOver: linje(el).finnes, buet: linje(el).buet }));
   });
+
+  // Listens meny: to skuffer etter hverandre, skilt fra raden over.
+  await openMenu(p, '.card[data-id="L1"]');
+  const seps = await maalLinjer(p);
   const tidsplan = seps.find((r) => r.navn === 'Tidsplan');
   const flytt = seps.find((r) => r.navn === 'Flytt');
-  const etterSkuff = seps[seps.indexOf(flytt) + 1];
-  log(label + ' 7: skuffene er skilt fra hverandre og fra radene rundt',
+  log(label + ' 7: skuffene er skilt fra hverandre og fra raden over',
     !!tidsplan && tidsplan.linjeOver === true &&
-    !!flytt && flytt.linjeOver === true &&
-    !!etterSkuff && etterSkuff.linjeOver === true, JSON.stringify(seps));
-  log(label + ' 7: alle skillelinjene er flate — ingen arver radenes avrundede hjørner',
-    seps.every((r) => r.buet === false), JSON.stringify(seps.filter((r) => r.buet)));
+    !!flytt && flytt.linjeOver === true, JSON.stringify(seps));
   await closeMenu(p);
+
+  /* Raden UNDER en skuff finnes bare på område/mappe — «Deling og medlemmer»,
+     og det er nettopp den raden som fikk buet linje da den lå som `border-top`
+     på en avrundet rad. Området har den, så menyen måles i nav-modalen. */
+  await p.evaluate(() => window.__huskis.openNavModal()); await p.waitForTimeout(400);
+  await openMenu(p, '#nav-board .card[data-id="UNI"]');
+  const uniSeps = await maalLinjer(p);
+  const uniFlytt = uniSeps.find((r) => r.type === 'skuff' && r.navn === 'Flytt');
+  const etterSkuff = uniSeps[uniSeps.indexOf(uniFlytt) + 1];
+  log(label + ' 7: raden under siste skuff har linje over seg',
+    !!uniFlytt && !!etterSkuff && etterSkuff.type === 'rad' &&
+    etterSkuff.linjeOver === true, JSON.stringify(uniSeps));
+  log(label + ' 7: alle skillelinjene er flate — ingen arver radenes avrundede hjørner',
+    seps.concat(uniSeps).every((r) => r.buet === false),
+    JSON.stringify(seps.concat(uniSeps).filter((r) => r.buet)));
+  await closeMenu(p);
+  await p.evaluate(() => { const m = document.getElementById('nav-modal'); if (m) m.hidden = true; });
+  await p.waitForTimeout(200);
 
   log(label + ': ingen JS-feil', errs.length === 0, errs.join(' | '));
   await p.close();

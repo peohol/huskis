@@ -2274,13 +2274,11 @@
       id: cardData.id,
       scope: boardScope,
       rename: canEdit ? renameCard : null,
-      // Lister har ingen egen medlemsliste — de arver MAPPENS deling, så
-      // menyraden åpner mappens del-modal.
-      share: grp ? () => {
-        const liveCard = findCard(cardData.id);
-        const liveGrp = (liveCard && nodeOfType(liveCard, 'group')) || grp;
-        openShare('group', liveGrp.id, liveGrp);
-      } : null,
+      // INGEN delerad. En liste kan ikke deles — den arver tilgangen fra mappen
+      // (docs/rettigheter-og-deling.md), og en «Deling og medlemmer» i LISTENS
+      // meny leses som om det er lista man deler. Delingen hører hjemme der
+      // myndigheten ligger: i mappens meny. Delt-status vises fortsatt på
+      // kortet (`.share-badge`).
       remove: canEdit ? () => deleteCard(cardData) : null,
       removeLabel: 'Slett listen',
     });
@@ -7267,8 +7265,9 @@
       }, objMenuCtx.sub === 'move'));
     }
 
-    /* 5) Deling og medlemmer. Områder/mapper åpner sin egen del-modal; en liste
-          arver MAPPENS deling og åpner derfor mappens. */
+    /* 5) Deling og medlemmer — kun område og mappe. Det er de to nivåene som
+          kan deles; alt under dem arver tilgangen og har ingen egen
+          medlemsliste (docs/rettigheter-og-deling.md). */
     if (spec.share) {
       list.appendChild(objMenuRow(ICONS.people, 'Deling og medlemmer',
         () => closeObjMenuThen(spec.share)));

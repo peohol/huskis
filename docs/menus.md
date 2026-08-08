@@ -52,7 +52,7 @@ knappene brukte, og feiler LUKKET — se `docs/rettigheter-og-deling.md`.
 | 2 | **Ansvarlig** ▸ | liste, listepunkt, kategori i DELT mappe | mappen er delt |
 | 3 | **Tidsplan** ▸ | liste, listepunkt, kategori | — (feltene låses av `timeController`) |
 | 4 | **Flytt** ▸ | alle som kan omrokkeres | `canReorderObj` |
-| 5 | **Deling og medlemmer** | område, mappe, liste | — (medlemslisten er åpen for alle med tilgang) |
+| 5 | **Deling og medlemmer** | område, mappe | — (medlemslisten er åpen for alle med tilgang) |
 | 6 | **Lås / Åpne** (eller **Gjør/Fjern unntak**) | delt område, delt mappe | `manageLock` / `lockException` |
 | 7 | **Forlat …** | delt område, delt mappe | `leave` |
 | 8 | **Slett …** / **Løs opp …** | alle man kan fjerne | `delete` / `!frozen` |
@@ -61,9 +61,12 @@ knappene brukte, og feiler LUKKET — se `docs/rettigheter-og-deling.md`.
 Den er den eneste raden som fjerner noe, og den skal ikke ligge der fingeren
 treffer først når menyen åpner seg.
 
-En **liste** har ingen egen medlemsliste — tilgangen arves fra mappen. «Deling og
-medlemmer» på et listekort åpner derfor MAPPENS del-modal. Listepunkter og
-kategorier har ingen delingsrad i det hele tatt.
+**Bare område og mappe har delingsraden.** Det er de to nivåene som kan deles;
+lister, listepunkter og kategorier arver tilgangen og har ingen egen
+medlemsliste (`docs/rettigheter-og-deling.md`). En delerad i LISTENS meny leses
+som om det er lista man deler, og den finnes derfor ikke — delingen gjøres der
+myndigheten ligger, i mappens meny. At mappen er delt vises fortsatt på
+listekortet med `.share-badge`.
 
 ### Trekkspillet
 
@@ -294,9 +297,10 @@ modalen del-modalen ble åpnet fra — satt av «Deling og medlemmer» i
 objektmenyen på område-kortene og mappe-radene (`openNavModal`). Når satt vises
 `#share-back` (pil-venstre) først i `modal-head`; klikk lukker del-modalen og
 kaller `backTo`. **✕/overlay/Escape lukker helt** — da havner man på
-hovedsiden, ikke i modalen bak (bevisst: lukk = ferdig). En liste som åpner
-mappens deling fra board-et sender ingen `backTo` og har dermed ingen
-tilbakeknapp.
+hovedsiden, ikke i modalen bak (bevisst: lukk = ferdig). Begge veiene inn i
+del-modalen går i dag gjennom nav-modalen og sender derfor `backTo`; uten den
+vises ingen tilbakeknapp (fortsatt tilfellet for programmatiske kall, f.eks.
+fra testene).
 
 ## Flytt liste til annen mappe
 
