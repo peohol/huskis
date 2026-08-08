@@ -76,7 +76,9 @@ grå = `#c0c4c9`):
 | Person (mine) | hode + kropp farge 4 |
 | Tre personer (delte) | hver person farge 1 / 2 / 3 |
 | Brev (e-postvarsel) | hvit |
-| Tannhjul (innstillinger) | grå kogg med FYLTE, brede tenner (⚙️-stil) — senterhullet gjennomsiktig (even-odd) |
+| Objektmeny (menuDots) | tre grå prikker med svart kontur |
+| Blyant (endre navn) | skaftet farge 2 |
+| Flytt (moveArrows) | ingen fyllflate — kun svarte streker |
 | Mappekategori (groupCategory) | venstre klamme (svart) + mappa fra `folder` (farge 2), nedskalert inn i klammen |
 | Oppløs (bubbleBurst) | ingen fyllflate — kun svarte streker |
 | Dør inn (login) | dørfeltet hvitt |
@@ -96,20 +98,20 @@ glyfen har ingen fyll, bare streker i `currentColor`.
 ＋-ikonet og kategori-knappens ikon (`.add-cat-btn`) er IKKE unntak — begge er
 svarte (`#111`) som resten av settet, også på de fargede knappene.
 
-**Kryss-ikonet** (`ICONS.xmark`, samt inline i `index.html`): lukk-/slett-
-knappenes ✕ er nå en egen SVG med samme strek (1.05) og runde ender som resten
-av settet, `stroke="currentColor"` så CSS styrer farge. Slett-knappene
-(`.card-delete`/`.item-delete`/`.group-delete`/`.uni-delete`) er SVARTE i hvile
-(også på fargede chip-/korthode-flater) og RØDE ved hover/aktivering; lukk-
-knappene arver `.icon-btn`-fargen (`--ink-soft`).
+**Kryss-ikonet** (`ICONS.xmark`, samt inline i `index.html`): lukkeknappenes ✕
+er en egen SVG med samme strek (1.05) og runde ender som resten av settet,
+`stroke="currentColor"` så CSS styrer farge; de arver `.icon-btn`-fargen
+(`--ink-soft`). Objektene har ikke lenger noe ✕ — sletting ligger i
+objektmenyen (`docs/menus.md`).
 
 - **Statiske forekomster** (panel-title-ikoner, søppelkasse-knapper,
   del-knapper, logo/brand-mark) limes rett inn som `<svg>`-markup i
   `index.html` — ingen build-steg, så det er enklest å holde dem der de brukes.
-- **Dynamiske forekomster** (delt/låst-merker, lås-knappen i del-modalen,
-  auth-heading-ikonet, sveipefelt-søppelkassen, antall-pillene, listepunkt-
-  søppelknappen, tom-tilstander) bygges fra `window.ICONS` (`icons.js`, lastet
-  før `app.js`) via `el.innerHTML = ICONS.xxx`.
+- **Dynamiske forekomster** (objektmenyknappen og alle radene i menyen,
+  delt/låst-merker, lås-knappen i del-modalen, auth-heading-ikonet,
+  sveipefelt-søppelkassen, søppelkassene i kortene, antall-pillene,
+  tom-tilstander) bygges fra `window.ICONS` (`icons.js`, lastet før `app.js`)
+  via `el.innerHTML = ICONS.xxx`.
 - Dra-håndtakene er fjernet: draging inviteres ved trykk-og-hold på et objekts
   navn-/tittelsone (`attachHoldDrag`, se `docs/drag-and-drop.md`). Under holdet
   får det objektet som skal løftes et lite «press» (`.drag-hold`, scale).
@@ -204,18 +206,14 @@ Størrelse/form kommer fra egne klasser: `.btn` (modaler), `.btn-small`,
   farge, men ligger UTENFOR kanten, så de to kan stå samtidig uten å smelte
   sammen. `.uni-count` er en liten, subtil **pill med
   mappe-ikon + antall mapper** som erstatter «(N)» på et kollapset område.
-- Sletteknapper: felles regel (dempet ✕ → rød ved hover), samme `.card-delete`/
-  `.item-delete` på alle fire nivåene. Listepunkt-/mappe-✕ alltid synlig, dempet
-  (`opacity .6`).
-- Innstillings-/del-knapper: listekort har `.card-cog` (tannhjul, svakt hvit
-  flate + ring, lysner ved hover) som åpner innstillingsmodalen — **deling av
-  lister ligger DER** (`docs/scheduling.md`), ikke i en egen kortknapp.
-  **Områder og mapper har INGEN innstillingsmodal — de har i stedet en
-  del-knapp på samme plass**: `.uni-share` i områdekortets header (bruker
-  `.card-cog`-stilen) og `.group-share` på mapperaden (bruker `.item-cog`-stilen).
-  Mappekategorier har hverken innstillinger eller deling — kun oppløs-knappen.
-  Delt-merket (`.share-badge`) brukes av områdekort og mapperader; listekortets
-  delt-status vises som chip i meta-raden (`docs/scheduling.md`).
+- **Objektmenyknappen (`.obj-menu-btn`) er den ENESTE knappen til høyre på et
+  objekt** — på alle seks nivåene. Den erstattet tannhjulet, ✕, del-, forlat- og
+  oppløs-knappene, og arver flaten til den kontrollen den avløste: `.card-cog`
+  på korthoder, `.item-cog` på rader, `.cat-cog` på kategorioverskrifter. Ingen
+  ny knappestil. Innholdet i menyen er autoritativt beskrevet i
+  `docs/menus.md`.
+- Delt-merket (`.share-badge`) er en ren INDIKATOR på alle nivåer (span,
+  `aria-hidden`) — ikke lenger en knapp på listekortet.
 - **Type-ikon foran navnet i nav-modalen**: områdekortet og mapperaden
   innleder med `[type-ikon]([delt-ikon])Navn` — `.kind-icon` (globus/mappe, samme
   ikoner som breadcrumben), så `.share-badge` når objektet er delt, så navnet.
@@ -266,16 +264,17 @@ Størrelse/form kommer fra egne klasser: `.btn` (modaler), `.btn-small`,
   knappene (liste/mappe/område) beholder `.btn-add .icon`-størrelsen (19px);
   kun de kvadratiske icon-only-knappene skaleres opp til 34px (se over).
 - **Kategorier** (`.category` / `.cat-head` / `.cat-title` / `.cat-cog` /
-  `.cat-dissolve` / `.cat-items`): en nivå-1-rad med en header (tittel/meta +
-  tannhjul + oppløs-knapp) over en nøstet elementliste. Overskriftslinjen (unntatt
-  de to knappene) er trykk-og-hold-sonen for kategori-draging. Kondensert:
+  `.cat-items`): en nivå-1-rad med en header (tittel/meta + objektmenyknapp)
+  over en nøstet elementliste. Overskriftslinjen (unntatt menyknappen) er
+  trykk-og-hold-sonen for kategori-draging. Kondensert:
   samme 8px-luft som mellom listepunkter, både over overskriften og mellom
   overskriften og listepunktene (`.category` gap 8px; `.cat-items` uten vertikal
   padding). `.cat-title` er **hvit m/ tekst-skygge** (som `.card-title`) —
-  lesbar på enhver listefarge. `.cat-cog`/`.cat-dissolve` bruker den **hvite
-  flate-knappestilen fra `.card-cog`** (svakt hvit flate + ring, lysner ved
-  hover) så de er synlige mot den fargede listeflaten; tannhjul (innstillinger)
-  til venstre for oppløs-knappen (boble-sprekk-ikonet `ICONS.bubbleBurst`).
+  lesbar på enhver listefarge. `.cat-cog` bruker den **hvite flate-knappestilen
+  fra `.card-cog`** (svakt hvit flate + ring, lysner ved hover) så menyknappen
+  er synlig mot den fargede listeflaten. Å løse opp kategorien
+  (boble-sprekk-ikonet `ICONS.bubbleBurst`) er menyens siste rad — og den ENESTE
+  veien: en kategori slettes ikke, og har derfor ingen søppelkasse å dras i.
   `.cat-head`s 6px sidepolstring stiller tittel/knapper i **samme kolonner** som
   elementenes (som har 6px boks-padding) og kort-hodets — hele lista leser som
   felles kolonner. **«Hylle i veggen»-metafor:** overskriften står på veggen
@@ -287,7 +286,7 @@ Størrelse/form kommer fra egne klasser: `.btn` (modaler), `.btn-small`,
   under draging — se `docs/drag-and-drop.md`) som skal lese som en **kompakt rad,
   ikke et felt**: kategori-ikonet (`.cat-drag-icon`, skjult i hvile) vises til
   venstre for tittelen, tittelen blir **svart uten skygge** (hvit-på-hvit var
-  uleselig mot den hvite flaten), tannhjul + oppløs skjules (`display:none`) og
+  uleselig mot den hvite flaten), menyknappen skjules (`display:none`) og
   skillelinjene (`::before`/`::after`) males ikke på det løftede kortet. Polstring/
   radius = et listepunkt (6px / 10px) + `gap:0` → **samme høyde som et listepunkt
   under DnD**. Subtile skillelinjer
@@ -309,7 +308,7 @@ Størrelse/form kommer fra egne klasser: `.btn` (modaler), `.btn-small`,
   samme geometri som i hvile) — eller, når raden UNDER linja er forfar til det
   løftede objektet, males den speilvendt fra raden over (`.sep-below`, se
   `docs/drag-and-drop.md`). Se `docs/drag-and-drop.md`. **Kollaps + ＋-knapp:** en kategori kan **kollapses** som en
-  rullgardin (klikk på overskriftslinjen, ikke tittel/tannhjul/oppløs/meta) —
+  rullgardin (klikk på overskriftslinjen, ikke tittel/meny/meta) —
   `.cat-items` (og `.cat-add`) foldes MOMENTANT (`collapseCatBody`/`expandCatBody`,
   som listekollapsen). Nederst i kategorien sitter en **grønn ＋-knapp** (`.cat-add` /
   `.cat-add-btn`, `.btn-add.btn-green.icon-only`, midtstilt) som legger til et nytt
@@ -326,15 +325,20 @@ Størrelse/form kommer fra egne klasser: `.btn` (modaler), `.btn-small`,
   (f.eks. et korthode) `preventDefault`-er pointerdown og flytter derfor ikke
   fokus — da blir navneredigereren stående åpen i stedet, som ved all annen
   inline-redigering.
-- **Tittel-redigering (global affordans)**: klikk på en tittel starter inline
-  omdøping på ALLE objekt-typer. To delte signaler, likt overalt: (1) klikkflaten
-  følger teksten (`align-self: flex-start`) — kun tittelen, ikke hele raden,
-  redigerer (gjaldt før bare `.card-title`/`.cat-title`; nå også `.item-text`); og
-  (2) en **hover-effekt** som mørkner bakgrunnen bak tittelen (`background:
-  rgba(0,0,0,.12)` på `.card-title`/`.cat-title`/`.item-text`/`.uni-name`/
-  `.group-name` ved hover) — når man ser den, vet man at klikk redigerer.
+- **Tittel-redigering ved klikk — kun der den ikke kolliderer**: listepunkter
+  (`.item-text`) og kategorier (`.cat-title`, både i en liste og i et område)
+  omdøpes fortsatt ved å klikke rett på navnet; raske navnebytter er viktigst
+  nettopp der. **Områder, mapper og lister gjør det IKKE lenger**: der
+  navigerer eller kollapser et klikk på navnet, og omdøping ligger i
+  objektmenyen (og på F2). Signalene er de samme som før der klikk-omdøping
+  finnes: klikkflaten følger teksten (`align-self: flex-start`) og en
+  **hover-effekt** mørkner bakgrunnen bak tittelen (`background:
+  rgba(0,0,0,.12)`).
+  Alle tittel-elementene bærer en `__rename`-hook (`setRenameHook`/`startRename`
+  i app.js), slik at menyen, F2 og de programmatiske veiene (ny liste, nytt
+  område, ny container etter et drag) åpner den SAMME navneredigereren.
 - **Listekollaps (rullgardin)**: klikk på korthodet (`.card-head`, ikke på
-  tittel/tannhjul/×/meta-chip) folder `.card-body` sammen MOMENTANT (ingen
+  menyknappen/meta-chip — tittelen kollapser også) folder `.card-body` sammen MOMENTANT (ingen
   animasjon — `collapseCardBody`/`expandCardBody` setter/fjerner bare høyde/opacity/
   padding; en animasjon gjorde systemet tregere uten å tilføre klarhet). Kortet blir
   da nøyaktig header-høyt, og kortets
@@ -385,8 +389,12 @@ Størrelse/form kommer fra egne klasser: `.btn` (modaler), `.btn-small`,
   Glidebryterne er stilt manuelt (`appearance: none`, nøytralt spor + grønt
   `--grad-green`-håndtak) i stedet for native kontroller, som de eneste
   `input[type=range]` i appen.
-- `.item-cog` / `.card-cog`: tannhjul-knappene som åpner innstillingsmodalen
-  (listepunkt: dempet ikon ved slette-✕; liste: flate-knapp i kort-headeren).
+- `.item-cog` / `.card-cog` / `.cat-cog`: de tre flatene objektmenyknappen
+  (`.obj-menu-btn`) bruker — dempet ikon på en rad, flate-knapp i et korthode
+  eller på en kategorioverskrift. `.obj-menu-panel` + `.obj-menu-row` +
+  `.obj-menu-sub`: selve menyen (popover/ark + rader + trekkspill-skuffer), se
+  `docs/menus.md`. `.trashcan.drag-trash` + `.to-trash`: søppelkassen som
+  drop-mål mens et drag pågår (`docs/trash.md`).
   `.meta-row` + `.meta-chip`: indikator-chipene under navnet (delt/ansvarlig/
   start/frist — status-farger via `--grad-*`). `.resp-avatar` / `.resp-row`:
   ansvarlig-sirkler og velger-rader; sirkelfargen settes inline fra paletten
@@ -401,7 +409,7 @@ Størrelse/form kommer fra egne klasser: `.btn` (modaler), `.btn-small`,
   — sirkel med et 93°-gap som retter seg ut i en tangent og ender i en pilspiss
   mot klokka) som reaktiverer ALLE utførte listepunkter i lista på én gang
   (`restoreAllDone`, én felles FLIP). Den deler flate-knappen på listeflaten med
-  kategoriens tannhjul og oppløs-knapp (`.cat-cog, .cat-dissolve, .done-restore`
+  kategoriens menyknapp (`.cat-cog, .done-restore`
   — ett felles regelsett, så de ikke kan gli fra hverandre): svakt hvit flate +
   ring som lysner ved hover, 36×36. Ikonet har svart strek (#111) i seg selv, som
   resten av ikonsettet — knappen bruker IKKE `.icon-btn` (den setter
@@ -409,8 +417,8 @@ Størrelse/form kommer fra egne klasser: `.btn` (modaler), `.btn-small`,
   som gjorde ikonet blekt). Skillelinja er divider-ens `::after` og ligger derfor
   sist i flex-rekkefølgen, så knappen får `order: 1` for å havne etter den, og
   `margin-right: 6px` (listepunktenes egen polstring) stiller den i samme kolonne
-  som radenes ×. Skjult i en frosset liste, som avmerkingsboksene er deaktiverte
-  der.
+  som radenes menyknapp. Skjult i en frosset liste, som avmerkingsboksene er
+  deaktiverte der.
 - Ingen lasteindikatorer/spinnere: operasjoner utføres optimistisk og
   serialiseres i en bakgrunnskø (se `docs/accounts.md`) — UI-et venter aldri
   synlig på at noe skal lande. (Den gamle `.spinner`-klassen er fjernet.)
@@ -465,9 +473,14 @@ side-margin som kansellerer den omsluttende paddingen.
 
 ## UX-prinsipper (samme mønster på alle nivåer)
 
-- Klikk = bytt/aktivér; klikk på det **aktive** navnet = omdøp inline (autosize).
-- Slett = `trashed`-flagg → søppelkasse; søppelkasser vises kun med innhold;
-  kort trykk = modal (gjenopprett/tøm), klikk-og-hold = sveipefelt for tømming.
+- Klikk = bytt/aktivér. Omdøping ligger i objektmenyen på område/mappe/liste
+  (der klikket allerede navigerer eller kollapser) og på selve navnet for
+  listepunkter og kategorier — se `docs/menus.md`.
+- Slett = `trashed`-flagg → søppelkasse. To veier inn, likt på alle nivåer:
+  objektmenyens «Slett»-rad, og **å dra objektet i kassen** — kassen vises fram
+  så snart et drag starter (`docs/trash.md`). Søppelkassene er ellers skjult når
+  de er tomme; kort trykk = modal (gjenopprett/tøm), klikk-og-hold = sveipefelt
+  for tømming.
   Sletting animeres («pakk sammen og fly i søpla», se `docs/trash.md`) så
   brukeren ser hvor objektet havnet. Destruktivt er alltid reversibelt frem
   til tømming (gravstein først da) — derfor ingen bekreftelses-dialog på selve

@@ -197,11 +197,12 @@ Bytte utløses av **overlapp**, ikke av et punkt:
     primær. En `pointerdown` med `isPrimary === false` (sekundær multitouch-peker)
     ignoreres helt.
 
-  Soner/unntak: **område-/mappe-rad** = hele chip-en unntatt ×-knappen; **liste**
-  = hele korthodet (`.card-head`) unntatt tannhjul + × (klikk ellers på headeren
-  kollapser/utvider lista, se under); **listepunkt** = hele `.item` unntatt
-  avmerkingsboks + tannhjul + ×; **kategori** = hele overskriftslinjen
-  (`.cat-head`) unntatt tannhjul + oppløs-knapp. **Cursor:** dra-sonene for
+  Soner/unntak: hvert objekt har nå NØYAKTIG én knapp til høyre
+  (`.obj-menu-btn`, se `docs/menus.md`), så unntaket er det samme overalt —
+  **område/liste** = hele korthodet (`.card-head`) unntatt menyknappen (klikk
+  ellers på headeren kollapser/utvider, se under); **mappe/listepunkt** = hele
+  `.item` unntatt avmerkingsboks + menyknapp; **kategori/mappekategori** = hele
+  overskriftslinjen (`.cat-head`) unntatt menyknappen. **Cursor:** dra-sonene for
   listepunkt/kategori får `cursor: grab` (åpen hånd — «klikk-og-hold/dra drar»),
   mens område/mappe/liste har `cursor: pointer` (pekende hånd — der er klikk den
   primære handlingen: bytt/kollaps). `attachHoldDrag(zone, dragEl, startDrag,
@@ -229,6 +230,14 @@ Bytte utløses av **overlapp**, ikke av et punkt:
   mus (draget starter der umiddelbart på bevegelse). `pointercapture` brukes så
   draging ikke mister eventer. Placeholder lever kun under draging; `finishDrag()`
   har sikkerhetsnett.
+- **Søppelkassen er et drop-mål mens draget varer.** Idet et drag starter,
+  vises kassen for nivået fram (`armDragTrash`), den markeres når man sikter på
+  den, og et slipp i den SLETTER objektet i stedet for å flytte det: draget
+  rulles tilbake som et avbrutt drag først, så ingen ny `pos` skrives. Sjekken
+  ligger først i `onCardMove`/`onItemMove` og i de tilsvarende `*Up`-funksjonene,
+  altså FØR plassering og før 📁-breadcrumben — sikter man på kassen, er det
+  slettingen som gjelder. Kategorier har ingen kasse (de løses opp fra menyen).
+  Autoritativt: `docs/trash.md` («Slett ved å dra objektet i kassen»).
 - **Lister kollapser mens en liste dras** (`collapseCardsForDrag`/
   `restoreCardsAfterDrag`): idet et liste-drag starter, kollapses BÅDE den dratte
   lista og alle de andre til bare korthodet (som kategorienes kollaps under drag)
@@ -375,8 +384,8 @@ fordypning («hylle», se `docs/design-system.md`).
   - **Utseende under draging** (`.category.dragging`): det løftede kortet skal lese
     som en kompakt rad, ikke et stort felt. Kategori-ikonet (`.cat-drag-icon`,
     `ICONS.category`, skjult i hvile) vises til venstre for tittelen; tittelen blir
-    SVART uten skygge (hvit-på-hvit var uleselig mot den hvite dra-flaten); tannhjul
-    + oppløs skjules `display:none` (ikke bare opacity) så headeren får element-høyde;
+    SVART uten skygge (hvit-på-hvit var uleselig mot den hvite dra-flaten);
+    menyknappen skjules `display:none` (ikke bare opacity) så headeren får element-høyde;
     `::before`/`::after`-skillelinjene skjules (`content:none`) så de ikke males på
     kortet; polstring/radius = et listepunkt (6px / 10px) + `gap:0`. `collapseCategory`
     måler header-høyden med `offsetHeight` (IKKE `getBoundingClientRect`, som ville

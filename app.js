@@ -569,6 +569,7 @@
   const navModal = document.getElementById('nav-modal');
   const navModalClose = document.getElementById('nav-modal-close');
   const navBoard = document.getElementById('nav-board');
+  const navModalBody = document.getElementById('nav-modal-body');
   const uniTrashBtn = document.getElementById('uni-trash-btn');
   const uniTrashCount = document.getElementById('uni-trash-count');
 
@@ -745,7 +746,7 @@
     const hostSel = '[data-id="' + host.dataset.id.replace(/["\\]/g, '\\$&') + '"]';
     if (el === host) return hostSel;
     // Klassen må være entydig INNE i raden, ellers ville fokus kunne havne på
-    // søskenraden sin knapp (alle rader har f.eks. .item-delete).
+    // søskenraden sin knapp (alle rader har f.eks. .obj-menu-btn).
     const cls = [].slice.call(el.classList)
       .find((c) => host.querySelectorAll('.' + c).length === 1);
     return cls ? hostSel + ' .' + cls : hostSel;
@@ -1314,10 +1315,12 @@
   // Søppelkasse-badgen (område/mappe/liste): antall, og knappen skjules når
   // kassen er tom. Delt av de tre faste knappene (element-nivået er annerledes
   // — se updateItemsTrashBadge, som slår opp badgen i DOM).
+  // Kassen vises kun når den har innhold — med unntak av et pågående drag som
+  // har avdekket den som slippmål (`data-drag-revealed`, se armDragTrash).
   function updateTrashBadge(trashedSel, countEl, btnEl) {
     const list = trashedSel();
     countEl.textContent = list.length;
-    btnEl.hidden = list.length === 0;
+    if (!btnEl.dataset.dragRevealed) btnEl.hidden = list.length === 0;
   }
   // Lister-søppelkassen vises kun når den har innhold (samme logikk som de andre).
   function updateTrashCount() { updateTrashBadge(trashedCards, trashCount, trashBtn); }
@@ -1668,6 +1671,12 @@
     updateUniversesTrash();
     updateCrumbs();
     captureFocusIn(navBoard); // hvor fokus sto, FØR modalens board rives ned
+    // Modalen scroller i `#nav-modal-body`, og å rive board-et ned nullstiller
+    // den. Sletter man et område ved å dra det i kassen, står man NEDERST (der
+    // kassen er) — uten dette ville man blitt kastet til toppen og måtte
+    // scrolle ned igjen for å tømme den. Sto man nederst, skal man BLI nederst
+    // selv om lista ble kortere; ellers holdes den samme avstanden fra toppen.
+    const keepScroll = navScrollState();
     navBoard.innerHTML = '';
     // Bygg kortene bare når modalen faktisk er åpen: en usett DOM-kopi av alle
     // områder/mapper koster ved hver render, og ville dessuten gitt doble
@@ -1704,6 +1713,22 @@
     navBoard.appendChild(col);
     relayoutBoard(navScope);
     applyFocusIntent(); // samme grunn som i renderBoard: modalen bygges fra bunnen
+    // ETTER fokuseringen: `focus()` scroller elementet inn i visningen, og ville
+    // ellers dratt visningen bort fra der brukeren faktisk sto.
+    restoreNavScroll(keepScroll);
+  }
+  // Scrollposisjonen i nav-modalen over en ombygging. `atBottom` skilles ut
+  // fordi en kortere liste har en ny bunn: den samme piksel-verdien ville da
+  // ikke lenger vært nederst.
+  function navScrollState() {
+    if (!navModalBody) return null;
+    const max = navModalBody.scrollHeight - navModalBody.clientHeight;
+    return { top: navModalBody.scrollTop, atBottom: max > 0 && max - navModalBody.scrollTop <= 4 };
+  }
+  function restoreNavScroll(s) {
+    if (!navModalBody || !s) return;
+    if (s.atBottom) navModalBody.scrollTop = navModalBody.scrollHeight;
+    else if (s.top) navModalBody.scrollTop = s.top;
   }
   // ＋-knappen for et nytt område, plassert nederst i «Mine områder».
   function navAddUniverseRow() {
@@ -1757,39 +1782,41 @@
         labelUniControls();
       });
     };
-    if (canRename) titleEl.addEventListener('click', renameUni);
-    else titleEl.removeAttribute('title');
+    // Navnet omdøpes IKKE lenger ved klikk (menyen gjør det): et klikk på
+    // tittelen kollapser kortet, som et klikk hvor som helst ellers på hodet.
+    setRenameHook(titleEl, canRename ? renameUni : null);
 
-    // Områder og mapper har ingen innstillingsmodal — kun en del-knapp.
-    // Den er synlig for ALLE med tilgang: medlemslisten skal kunne ses av alle,
-    // mens invitasjonsfelt og administrasjon gates av capabilities inne i modalen.
-    const shareBtn = el.querySelector('.uni-share');
-    if (isFree) shareBtn.hidden = true;
-    else shareBtn.addEventListener('click', () => {
-      closeNavModal();
-      openShare('universe', u.id, u, openNavModal);
+    // Én menyknapp erstatter del-/forlat-/slett-knappene. Innholdet i menyen
+    // gates av de samme capabilities som knappene gjorde.
+    const head = el.querySelector('.card-head');
+    const menuBtn = el.querySelector('.obj-menu-btn');
+    const canDelUni = !isFree && cap(u, 'delete');
+    // Fri-beholderen er en SEKSJON, ikke et område: den kan verken omdøpes,
+    // deles, flyttes eller slettes, så den har ingen meny å åpne.
+    if (isFree) menuBtn.hidden = true;
+    attachObjMenu(menuBtn, {
+      kind: 'universe',
+      id: u.id,
+      scope: navScope,
+      rename: canRename ? renameUni : null,
+      share: isFree ? null : () => {
+        closeNavModal();
+        openShare('universe', u.id, findUniverse(u.id) || u, openNavModal);
+      },
+      remove: canDelUni ? () => deleteUniverse(findUniverse(u.id) || u) : null,
+      removeLabel: 'Slett området for alle',
     });
 
-    const delBtn = el.querySelector('.uni-delete');
-    if (isFree || !cap(u, 'delete')) delBtn.hidden = true;
-    else delBtn.addEventListener('click', () => deleteUniverse(u));
-
-    const leaveBtn = el.querySelector('.uni-leave');
-    if (isFree || !cap(u, 'leave', false)) leaveBtn.hidden = true;
-    else leaveBtn.addEventListener('click', () => leaveObject('universe', u));
-
     // Draging + rullgardin-kollaps: nøyaktig som et listekort.
-    const head = el.querySelector('.card-head');
     head.setAttribute('aria-expanded', u.collapsed ? 'false' : 'true');
     // Områdenes rekkefølge er PERSONLIG — alle medlemmer kan dra dem. Den
     // virtuelle fri-beholderen står i ro.
     if (!isFree) {
-      attachHoldDrag(head, el, startCardDrag, () => true,
-        '.uni-share, .uni-delete, .uni-leave');
+      attachHoldDrag(head, el, startCardDrag, () => true, '.obj-menu-btn');
       attachKeyHandle(head, 'universe', () => u.id, { rename: canRename ? renameUni : null });
     }
     head.addEventListener('click', (ev) => {
-      if (ev.target.closest('.card-title, .uni-share, .uni-delete, .uni-leave, .edit-input')) return;
+      if (ev.target.closest('.obj-menu-btn, .edit-input')) return;
       toggleCardCollapsed(el, u, navScope);
     });
     // Tastatur: korthodet er fokuserbart (tittelen er det ikke), så Enter/
@@ -1836,32 +1863,35 @@
     });
 
     // Mappe-søppelkassen: i området sitt, akkurat som listepunkt-søppelkassen
-    // ligger i lista si (område-søppelkassen ligger nederst i modalen).
-    const trashed = isFree ? [] : trashedGroupsOf(u);
-    if (trashed.length) {
-      const wrap = document.createElement('div');
-      wrap.className = 'item-trash';
-      const btn = document.createElement('button');
-      btn.type = 'button';
-      btn.className = 'trashcan group-trash-btn';
-      btn.title = 'Slettede mapper – trykk for å åpne, hold og sveip for å slette dem for godt';
-      btn.setAttribute('aria-label',
-        trashed.length + ' slettede mapper i ' + quoted(u.name));
-      const icon = document.createElement('span');
-      icon.className = 'trashcan-icon';
-      icon.setAttribute('aria-hidden', 'true');
-      icon.innerHTML = ICONS.trash;
-      const count = document.createElement('span');
-      count.className = 'trashcan-count';
-      count.textContent = trashed.length;
-      btn.append(icon, count);
-      attachTrashHold(btn, {
+    // ligger i lista si (område-søppelkassen ligger nederst i modalen). Bygges
+    // ALLTID (skjult når tom), så et mappe-drag kan vise den fram som slippmål.
+    // Fri-beholderen er ingen ekte forelder og har ingen kasse.
+    const trashedGroups = isFree ? [] : trashedGroupsOf(u);
+    if (!isFree) {
+      const gTrashWrap = document.createElement('div');
+      gTrashWrap.className = 'item-trash';
+      gTrashWrap.hidden = !trashedGroups.length;
+      const gTrashBtn = document.createElement('button');
+      gTrashBtn.type = 'button';
+      gTrashBtn.className = 'trashcan group-trash-btn';
+      gTrashBtn.title = 'Slettede mapper – trykk for å åpne, hold og sveip for å slette dem for godt';
+      gTrashBtn.setAttribute('aria-label',
+        trashedGroups.length + ' slettede mapper i ' + quoted(u.name));
+      const gIcon = document.createElement('span');
+      gIcon.className = 'trashcan-icon';
+      gIcon.setAttribute('aria-hidden', 'true');
+      gIcon.innerHTML = ICONS.trash;
+      const gCount = document.createElement('span');
+      gCount.className = 'trashcan-count';
+      gCount.textContent = trashedGroups.length;
+      gTrashBtn.append(gIcon, gCount);
+      attachTrashHold(gTrashBtn, {
         count: () => trashedGroupsOf(findUniverse(u.id) || u).length,
         open: () => openGroupsTrash(u.id),
         empty: () => emptyGroupsTrash(u.id),
       });
-      wrap.appendChild(btn);
-      el.querySelector('.card-body').appendChild(wrap);
+      gTrashWrap.appendChild(gTrashBtn);
+      el.querySelector('.card-body').appendChild(gTrashWrap);
     }
 
     // Presise navn på områdekortets knapper. «Slett området for alle» er den
@@ -1870,9 +1900,7 @@
       const n = quoted(u.name);
       head.setAttribute('aria-label', isFree ? u.name : 'Området ' + n);
       el.setAttribute('aria-label', isFree ? u.name : 'Området ' + n); // se buildCard
-      labelBtn(shareBtn, 'Deling og medlemmer i området ' + n);
-      labelBtn(delBtn, 'Slett området ' + n + ' for alle');
-      labelBtn(leaveBtn, 'Forlat området ' + n);
+      labelBtn(menuBtn, 'Meny for området ' + n);
       labelBtn(addRow.querySelector('.add-item-btn'), 'Legg til mappe i ' + n);
       labelBtn(addRow.querySelector('.add-cat-btn'), 'Legg til mappekategori i ' + n);
     }
@@ -1919,59 +1947,57 @@
       renderBoard();
       closeNavModal();
     };
-    textEl.addEventListener('click', rename);
+    // Navnet omdøpes IKKE lenger ved klikk: omdøping og navigering kjempet om
+    // det samme trykket. Klikk hvor som helst på raden — navnet inkludert —
+    // navigerer nå; omdøping ligger i menyen (og på F2).
 
-    // Klikk ellers på raden (ikke navn/knapper) = gå til mappen og lukk modalen.
+    // Klikk på raden (ikke menyknappen) = gå til mappen og lukk modalen.
     el.addEventListener('click', (ev) => {
-      if (ev.target.closest('.item-text, .group-share, .group-delete, .group-leave, .edit-input')) return;
+      if (ev.target.closest('.obj-menu-btn, .edit-input')) return;
       navigate();
     });
-    // Tastatur: raden er eneste fokuserbare punkt (navnet er ikke fokuserbart),
-    // så Enter/Mellomrom redigerer navnet når man ALLEREDE står i mappen —
-    // ellers ville et Enter der bare lukket modalen — og navigerer dit ellers.
+    // Tastatur: raden er eneste fokuserbare punkt, og Enter/Mellomrom gjør nå
+    // det samme som et klikk — navigerer. (Omdøping: F2, eller menyen.)
     el.addEventListener('keydown', (ev) => {
-      if (ev.target !== el) return; // del-/slett-knappene har egen tastaturoppførsel
+      if (ev.target !== el) return; // menyknappen har egen tastaturoppførsel
       if (ev.key !== 'Enter' && ev.key !== ' ' && ev.key !== 'Spacebar') return;
       ev.preventDefault();
-      if (canEdit && g.id === state.activeGroup) rename();
-      else navigate();
+      navigate();
     });
 
-    // Del-knappen er synlig for alle med tilgang (medlemslisten er åpen);
-    // administrasjonen inne i modalen gates av capabilities.
-    const shareBtn = el.querySelector('.group-share');
-    shareBtn.addEventListener('click', (ev) => {
-      ev.stopPropagation();
-      closeNavModal();
-      openShare('group', g.id, g, openNavModal);
+    // Én menyknapp: deling, lås, forlat, omdøp, flytt og sletting.
+    const menuBtn = el.querySelector('.obj-menu-btn');
+    const canDelGroup = cap(g, 'delete', canEdit);
+    attachObjMenu(menuBtn, {
+      kind: 'group',
+      id: g.id,
+      scope: navScope,
+      rename: canEdit ? rename : null,
+      share: () => {
+        closeNavModal();
+        openShare('group', g.id, findGroupAnywhere(g.id) || g, openNavModal);
+      },
+      remove: canDelGroup ? () => deleteGroup(findGroupAnywhere(g.id) || g) : null,
+      removeLabel: 'Slett mappen for alle',
     });
-
-    const delBtn = el.querySelector('.group-delete');
-    if (!cap(g, 'delete', canEdit)) delBtn.hidden = true;
-    else delBtn.addEventListener('click', (ev) => { ev.stopPropagation(); deleteGroup(g); });
-
-    const leaveBtn = el.querySelector('.group-leave');
-    if (!cap(g, 'leave', false)) leaveBtn.hidden = true;
-    else leaveBtn.addEventListener('click', (ev) => { ev.stopPropagation(); leaveObject('group', g); });
 
     // En fri mappe ordnes PERSONLIG (alltid dragbar); en mappe i et område
     // krever rett til å endre områdets struktur.
     attachHoldDrag(el, el, startItemDrag,
       () => (u && u._virtual) || cap(g, 'reorderInParent', canEdit) || cap(g, 'move', false),
-      '.group-share, .group-delete, .group-leave');
+      '.obj-menu-btn');
     // Raden er også mappens tastaturhåndtak. Enter/Mellomrom beholder sin
     // eksisterende betydning (naviger / omdøp i den aktive mappen) — F2 og
     // Alt-tastene legger seg ved siden av den.
     attachKeyHandle(el, 'group', () => g.id, { rename });
+    setRenameHook(textEl, canEdit ? rename : null);
 
     // Presise navn: nav-modalen kan ha mange mapper, og «Slett mappen for
     // alle» må si HVILKEN før man trykker.
     function labelGroupControls() {
       const n = quoted(g.name);
       el.setAttribute('aria-label', 'Mappen ' + n);
-      labelBtn(shareBtn, 'Deling og medlemmer i mappen ' + n);
-      labelBtn(delBtn, 'Slett mappen ' + n + ' for alle');
-      labelBtn(leaveBtn, 'Forlat mappen ' + n);
+      labelBtn(menuBtn, 'Meny for mappen ' + n);
     }
     labelGroupControls();
     return el;
@@ -1999,20 +2025,30 @@
       });
     };
     titleEl.addEventListener('click', renameGroupCat);
+    setRenameHook(titleEl, canEdit ? renameGroupCat : null);
 
-    const dissolve = el.querySelector('.cat-dissolve');
-    dissolve.innerHTML = ICONS.bubbleBurst;
-    if (!canEdit) dissolve.disabled = true;
-    else dissolve.addEventListener('click', () => {
-      keepFocus(focusTargetAfterRemoval('groupcat', catData.id, u));
-      dissolveCategory(catData, u, navScope);
+    // Å løse opp en mappekategori er dens «sletting»: mappene blir stående.
+    const dissolveGroupCat = () => {
+      const live = findGroupAnywhere(catData.id) || catData;
+      keepFocus(focusTargetAfterRemoval('groupcat', live.id, u));
+      dissolveCategory(live, findUniverse(u.id) || u, navScope);
       applyFocusIntent();
+    };
+    const catHead = el.querySelector('.cat-head');
+    const menuBtn = el.querySelector('.obj-menu-btn');
+    attachObjMenu(menuBtn, {
+      kind: 'groupcat',
+      id: catData.id,
+      scope: navScope,
+      rename: canEdit ? renameGroupCat : null,
+      remove: canEdit ? dissolveGroupCat : null,
+      removeLabel: 'Løs opp mappekategorien',
+      removeIcon: ICONS.bubbleBurst,
     });
 
-    const catHead = el.querySelector('.cat-head');
-    attachHoldDrag(catHead, el, startCategoryDrag, () => canEdit, '.cat-dissolve');
+    attachHoldDrag(catHead, el, startCategoryDrag, () => canEdit, '.obj-menu-btn');
     catHead.addEventListener('click', (ev) => {
-      if (ev.target.closest('.cat-title, .cat-dissolve, .edit-input')) return;
+      if (ev.target.closest('.cat-title, .obj-menu-btn, .edit-input')) return;
       toggleCatCollapsed(el, catData, u, navScope);
     });
     catHead.setAttribute('role', 'button');
@@ -2037,7 +2073,7 @@
 
     function labelGroupCatControls() {
       const n = quoted(catData.name);
-      labelBtn(dissolve, 'Oppløs mappekategorien ' + n);
+      labelBtn(menuBtn, 'Meny for mappekategorien ' + n);
       labelBtn(addBtn, 'Legg til mappe i kategorien ' + n);
       catHead.setAttribute('aria-label', 'Mappekategorien ' + n);
     }
@@ -2147,6 +2183,39 @@
     save();
   }
 
+  /* Slett en liste → felles papirkurv (`trashed`-flagg; permanent først ved
+     «Tøm papirkurv»). Slår opp DET LEVENDE kortet på id, så den tåler at en
+     synk-rebuild har byttet ut objektet. Delt av objektmenyens «Slett listen»
+     og av et slipp i søppelkassen — de to må gjøre nøyaktig det samme. */
+  function deleteCard(cardData) {
+    const live = findCard(cardData.id) || cardData;
+    keepFocus(focusTargetAfterRemoval('card', live.id, activeGroupObj()));
+    const ghost = ghostFrom(board.querySelector('.card[data-id="' + live.id + '"]'));
+    bufferDelete(live, 'card', (c) => setTrashed(c, 'card', true));
+    render(); // søppelkasse-knappen blir synlig FØR animasjonen starter
+    flyGhost(ghost, trashBtn);
+    pushDeleteToast('card', live.id, live.title);
+  }
+
+  /* Slett et listepunkt → kortets element-søppelkasse (gjenopprettbar;
+     gravstein først ved tømming). Samme deling som deleteCard: menyen og
+     slippet i kassen. */
+  function deleteItem(itemData) {
+    const owner = findCard(itemData.home);
+    const it = owner && owner.items.find((i) => i.id === itemData.id);
+    if (!owner || !it) return;
+    // Fokus MÅ ha et sted å gå før raden forsvinner: uten dette faller det til
+    // <body>, og en skjermleser mister plassen sin i lista.
+    keepFocus(focusTargetAfterRemoval('item', it.id, owner));
+    const ghost = ghostFrom(board.querySelector('.item[data-id="' + it.id + '"]'));
+    bufferDelete(it, 'item', (x) => setTrashed(x, 'item', true));
+    refreshCard(owner); // element-søppelkassen dukker opp FØR animasjonen
+    applyFocusIntent();
+    flyGhost(ghost, board.querySelector(
+      '.card[data-id="' + owner.id + '"] .item-trash-btn'));
+    pushDeleteToast('item', it.id, it.text);
+  }
+
   function buildCard(cardData) {
     const el = cardTpl.content.firstElementChild.cloneNode(true);
     el.dataset.id = cardData.id;
@@ -2169,22 +2238,14 @@
     const canEdit = !frozen(cardData);
     el.classList.toggle('is-shared', !!shared);
     el.classList.toggle('is-locked', !canEdit);
-    // Badgen er en knapp (ikke bare en indikator som områder/mapper har):
-    // lister har ingen egen del-knapp i korthodet, så den er fortsatt den
-    // direkte, tastaturtilgjengelige veien inn til mappens delingsinnstillinger.
+    // Badgen er en ren INDIKATOR (som på områdekort og mapperader) — veien inn
+    // til mappens delingsinnstillinger går via objektmenyen.
     const shareBadge = el.querySelector('.share-badge');
     shareBadge.hidden = !shared;
-    shareBadge.onclick = null;
     if (shared) {
       shareBadge.innerHTML = !canEdit ? ICONS.lock : ICONS.people;
       shareBadge.title = grp._role === 'owner' ? 'Mappen er delt med andre' : 'Mappen er delt med deg';
-      shareBadge.setAttribute('aria-label', shareBadge.title + '. Trykk for delingsinnstillinger');
-      shareBadge.onclick = (ev) => { ev.stopPropagation(); openShare('group', grp.id, grp); };
     }
-
-    // Tannhjulet åpner listens innstillingsmodal (navn/deling/ansvarlig/tidsplan).
-    el.querySelector('.card-cog').addEventListener('click', () =>
-      openSettings('card', cardData.id, cardData.id));
 
     // Indikator-chips (delt/ansvarlig/start/frist) under tittelen.
     fillMetaRow(el.querySelector('.card-meta'),
@@ -2202,41 +2263,44 @@
         labelCardControls(); // knappenavnene bærer tittelen — de må følge med
       });
     };
-    titleEl.addEventListener('click', renameCard);
+    // Navnet omdøpes IKKE lenger ved klikk (menyen/F2 gjør det): et klikk på
+    // tittelen kollapser kortet, som ellers på hodet.
+    setRenameHook(titleEl, canEdit ? renameCard : null);
 
-    // Slett liste -> legg i felles papirkurv (trashed-flagg; permanent først ved
-    // «Tøm papirkurv»). Frosset (låst for meg) → ingen slett-knapp.
-    const cardDelBtn = el.querySelector('.card-delete');
-    if (!canEdit) {
-      cardDelBtn.hidden = true;
-    } else {
-      cardDelBtn.addEventListener('click', () => {
-        keepFocus(focusTargetAfterRemoval('card', cardData.id, activeGroupObj()));
-        const ghost = ghostFrom(el); // klone FØR render (render fjerner kortet)
-        bufferDelete(cardData, 'card', (c) => setTrashed(c, 'card', true));
-        render(); // søppelkasse-knappen blir synlig FØR animasjonen starter
-        flyGhost(ghost, trashBtn);
-        pushDeleteToast('card', cardData.id, cardData.title);
-      });
-    }
+    const headEl = el.querySelector('.card-head');
+    const menuBtn = el.querySelector('.obj-menu-btn');
+    attachObjMenu(menuBtn, {
+      kind: 'card',
+      id: cardData.id,
+      scope: boardScope,
+      rename: canEdit ? renameCard : null,
+      // Lister har ingen egen medlemsliste — de arver MAPPENS deling, så
+      // menyraden åpner mappens del-modal.
+      share: grp ? () => {
+        const liveCard = findCard(cardData.id);
+        const liveGrp = (liveCard && nodeOfType(liveCard, 'group')) || grp;
+        openShare('group', liveGrp.id, liveGrp);
+      } : null,
+      remove: canEdit ? () => deleteCard(cardData) : null,
+      removeLabel: 'Slett listen',
+    });
 
-    // Kort-draging: trykk-og-hold på korthodet (tittel-delen) unntatt de to
-    // knappene til høyre (tannhjul + ×). Frosset (låst for meg) → ingen draging.
+    // Kort-draging: trykk-og-hold på korthodet (tittel-delen) unntatt
+    // menyknappen. Frosset (låst for meg) → ingen draging.
     // Plasseringen blant søsknene tilhører MAPPEN, så den krever i tillegg rett
     // til å endre mappens innhold: under et lås-unntak på lista alene kan man
     // redigere den, men ikke omrokkere eller flytte den (mapperadene i
     // nav-modalen bruker `reorderInParent` på samme måte). Board-et viser kun den
     // aktive mappens lister, så den slås opp der — ikke via `_parent`, som en
     // nyopprettet liste ennå ikke har.
-    attachHoldDrag(el.querySelector('.card-head'), el, startCardDrag,
-      () => canEdit && canAddList(activeGroupObj()), '.card-cog, .card-delete, .share-badge');
+    attachHoldDrag(headEl, el, startCardDrag,
+      () => canEdit && canAddList(activeGroupObj()), '.obj-menu-btn');
 
-    // Klikk på korthodet (ikke tittel/tannhjul/×/meta-chip) kollapser/utvider
-    // kortet med en rullgardin-animasjon (et fullført hold løfter i stedet kortet
-    // — attachHoldDrag undertrykker da klikket). Lukketilstanden lagres i DB.
-    const headEl = el.querySelector('.card-head');
+    // Klikk på korthodet (ikke menyknapp/meta-chip) kollapser/utvider kortet med
+    // en rullgardin-animasjon (et fullført hold løfter i stedet kortet —
+    // attachHoldDrag undertrykker da klikket). Lukketilstanden lagres i DB.
     headEl.addEventListener('click', (ev) => {
-      if (ev.target.closest('.card-title, .card-cog, .card-delete, .meta-chip, .share-badge, .edit-input')) return;
+      if (ev.target.closest('.obj-menu-btn, .meta-chip, .edit-input')) return;
       toggleCardCollapsed(el, cardData);
     });
     // Korthodet er kortets tastaturhåndtak — samme element attachHoldDrag drar i,
@@ -2305,42 +2369,45 @@
       addRowNow(cat, buildCategory(cat, cardData), '.cat-title');
     });
 
-    // Element-søppelkasse: midtstilt nederst i kortet, kun når det ligger
-    // slettede elementer i kortet. Emoji + antall (ingen tekst-etikett).
+    // Element-søppelkasse: midtstilt nederst i kortet. Den BYGGES ALLTID, men
+    // står skjult når den er tom — et drag skal kunne vise den fram som
+    // slippmål (se armDragTrash), og da må noden finnes.
     const trashed = trashedItemsOf(cardData);
-    if (trashed.length) {
-      const wrap = document.createElement('div');
-      wrap.className = 'item-trash';
-      const btn = document.createElement('button');
-      btn.type = 'button';
-      btn.className = 'trashcan item-trash-btn';
-      btn.title = 'Slettede listepunkter – trykk for å åpne, hold og sveip for å slette dem for godt';
-      btn.setAttribute('aria-label',
-        trashed.length + ' slettede listepunkter i ' + quoted(cardData.title));
-      const icon = document.createElement('span');
-      icon.className = 'trashcan-icon';
-      icon.setAttribute('aria-hidden', 'true');
-      icon.innerHTML = ICONS.trash;
-      const count = document.createElement('span');
-      count.className = 'trashcan-count';
-      count.textContent = trashed.length;
-      btn.append(icon, count);
-      attachTrashHold(btn, {
-        count: () => trashedItemsOf(cardData).length,
-        open: () => openItemsTrash(cardData),
-        empty: () => emptyItemsTrash(cardData),
-      });
-      wrap.appendChild(btn);
-      el.querySelector('.card-body').appendChild(wrap); // i body-en så den kollapser med resten
-    }
+    const trashWrap = document.createElement('div');
+    trashWrap.className = 'item-trash';
+    trashWrap.hidden = !trashed.length;
+    const trashBtnEl = document.createElement('button');
+    trashBtnEl.type = 'button';
+    trashBtnEl.className = 'trashcan item-trash-btn';
+    trashBtnEl.title = 'Slettede listepunkter – trykk for å åpne, hold og sveip for å slette dem for godt';
+    trashBtnEl.setAttribute('aria-label',
+      trashed.length + ' slettede listepunkter i ' + quoted(cardData.title));
+    const trashIcon = document.createElement('span');
+    trashIcon.className = 'trashcan-icon';
+    trashIcon.setAttribute('aria-hidden', 'true');
+    trashIcon.innerHTML = ICONS.trash;
+    const trashCountEl = document.createElement('span');
+    trashCountEl.className = 'trashcan-count';
+    trashCountEl.textContent = trashed.length;
+    trashBtnEl.append(trashIcon, trashCountEl);
+    attachTrashHold(trashBtnEl, {
+      // Kortet slås opp LIVE: `cardData` er fanget ved bygging, og en
+      // synk-rebuild bytter ut state-objektene. Med en foreldet referanse
+      // ville `count()` svart 0, sveipefeltet aldri åpnet seg — og det korte
+      // trykket åpnet søppelkasse-modalen i stedet for å tømme den.
+      count: () => trashedItemsOf(findCard(cardData.id) || cardData).length,
+      open: () => openItemsTrash(findCard(cardData.id) || cardData),
+      empty: () => emptyItemsTrash(findCard(cardData.id) || cardData),
+    });
+    trashWrap.appendChild(trashBtnEl);
+    el.querySelector('.card-body').appendChild(trashWrap); // i body-en så den kollapser med resten
 
     // Presise navn på kortets ikonknapper. Uten listenavnet i navnet blir det
     // «Innstillinger for listen» én gang per liste på board-et, uten at
     // skjermleseren sier hvilken. Kalles på nytt etter omdøping.
     function labelCardControls() {
       const n = quoted(cardData.title);
-      labelBtn(el.querySelector('.card-cog'), 'Innstillinger for listen ' + n);
-      labelBtn(cardDelBtn, 'Slett listen ' + n);
+      labelBtn(menuBtn, 'Meny for listen ' + n);
       labelBtn(addBtn, 'Legg til listepunkt i ' + n);
       labelBtn(addCatBtn, 'Legg til kategori i ' + n);
       labelBtn(restoreDoneBtn, 'Gjenopprett alle utførte listepunkter i ' + n);
@@ -2717,6 +2784,7 @@
       });
     };
     textEl.addEventListener('click', renameItem);
+    setRenameHook(textEl, canEdit ? renameItem : null);
     // Raden er tastaturets håndtak: samme element attachHoldDrag får under.
     // Enter omdøper (raden har ingen annen handling), Alt+pil sorterer.
     attachKeyHandle(el, 'item', () => itemData.id, { rename: renameItem, enterRenames: true });
@@ -2733,46 +2801,28 @@
       checkBtn.addEventListener('click', () => toggleItemDone(el, itemData, cardData));
     }
 
-    // Slett element → legg i kortets element-søppelkasse (trashed-flagg;
-    // gjenopprettbar). Permanent sletting (gravstein) skjer først ved tømming.
-    const itemDel = el.querySelector('.item-delete');
-    if (!canEdit) {
-      itemDel.hidden = true;
-    } else {
-      itemDel.addEventListener('click', () => {
-        const owner = ownerCardOf(el) || cardData;
-        const it = owner.items.find((i) => i.id === itemData.id);
-        if (!it) return;
-        // Fokus MÅ ha et sted å gå før raden forsvinner: uten dette faller det
-        // til <body>, og en skjermleser mister plassen sin i lista.
-        keepFocus(focusTargetAfterRemoval('item', it.id, owner));
-        const ghost = ghostFrom(el); // klone FØR refreshCard fjerner raden
-        bufferDelete(it, 'item', (x) => setTrashed(x, 'item', true));
-        refreshCard(owner); // element-søppelkassen dukker opp FØR animasjonen
-        applyFocusIntent();
-        flyGhost(ghost, board.querySelector(
-          '.card[data-id="' + owner.id + '"] .item-trash-btn'));
-        pushDeleteToast('item', it.id, it.text);
-      });
-    }
-    // Draging: trykk-og-hold på elementet unntatt avmerkingsboksen + de to
-    // knappene (tannhjul + ×). Avkryssede elementer dras ikke (ligger i «Utført»).
+    // Draging: trykk-og-hold på elementet unntatt avmerkingsboksen og
+    // menyknappen. Avkryssede elementer dras ikke (ligger i «Utført»).
     attachHoldDrag(el, el, startItemDrag,
-      () => canEdit && !itemData.done, '.item-check, .item-cog, .item-delete');
+      () => canEdit && !itemData.done, '.item-check, .obj-menu-btn');
 
-    // Tannhjulet åpner elementets innstillingsmodal (navn/ansvarlig/tidsplan).
-    const cogBtn = el.querySelector('.item-cog');
-    if (!canEdit) cogBtn.disabled = true;
-    else cogBtn.addEventListener('click', () => openSettings('item', itemData.id, cardData.id));
+    const menuBtn = el.querySelector('.obj-menu-btn');
+    attachObjMenu(menuBtn, {
+      kind: 'item',
+      id: itemData.id,
+      scope: boardScope,
+      rename: canEdit ? renameItem : null,
+      remove: canEdit ? () => deleteItem(itemData) : null,
+      removeLabel: 'Slett listepunktet',
+    });
 
-    // Presise navn: uten teksten med i navnet leser en skjermleser «Slett
-    // listepunkt» like mange ganger som det finnes rader, uten å si hvilken.
+    // Presise navn: uten teksten med i navnet leser en skjermleser «Meny»
+    // like mange ganger som det finnes rader, uten å si hvilken.
     // Kalles på nytt etter omdøping, så navnene ikke blir stående på gammel tekst.
     function labelItemControls() {
       const n = quoted(itemData.text);
       labelBtn(checkBtn, itemData.done ? 'Fjern merket gjort på ' + n : 'Merk ' + n + ' som gjort');
-      labelBtn(cogBtn, 'Innstillinger for listepunktet ' + n);
-      labelBtn(itemDel, 'Slett listepunktet ' + n);
+      labelBtn(menuBtn, 'Meny for listepunktet ' + n);
       // Raden får bevisst INGEN aria-label: den er et `listitem`, og et navn her
       // ville erstattet innholdet — da forsvant indikator-chipene (ansvarlig,
       // start, frist) fra opplesningen når raden får fokus. Teksten i raden ER
@@ -2821,33 +2871,38 @@
       });
     };
     titleEl.addEventListener('click', renameCat);
+    setRenameHook(titleEl, canEdit ? renameCat : null);
 
-    // Innstillinger for kategorien (navn/ansvarlig/tidsplan m/ tidslås).
-    const cog = el.querySelector('.cat-cog');
-    cog.innerHTML = ICONS.gear;
-    if (!canEdit) cog.disabled = true;
-    else cog.addEventListener('click', () => openSettings('category', catData.id, cardData.id));
-
-    // Oppløs kategorien: elementene blir stående som ukategoriserte på samme plass.
-    const dissolve = el.querySelector('.cat-dissolve');
-    dissolve.innerHTML = ICONS.bubbleBurst;
-    if (!canEdit) dissolve.disabled = true;
-    else dissolve.addEventListener('click', () => {
-      keepFocus(focusTargetAfterRemoval('category', catData.id, cardData));
-      dissolveCategory(catData, cardData, boardScope);
+    // Oppløs kategorien: elementene blir stående som ukategoriserte på samme
+    // plass. Dette ER kategoriens «sletting» — både i menyen og i sveipet.
+    const dissolveThisCat = () => {
+      const owner = findCard(cardData.id) || cardData;
+      const live = findItemById(catData.id) || catData;
+      keepFocus(focusTargetAfterRemoval('category', live.id, owner));
+      dissolveCategory(live, owner, boardScope);
       applyFocusIntent();
+    };
+
+    const catHead = el.querySelector('.cat-head');
+    const menuBtn = el.querySelector('.obj-menu-btn');
+    attachObjMenu(menuBtn, {
+      kind: 'category',
+      id: catData.id,
+      scope: boardScope,
+      rename: canEdit ? renameCat : null,
+      remove: canEdit ? dissolveThisCat : null,
+      removeLabel: 'Løs opp kategorien',
+      removeIcon: ICONS.bubbleBurst,
     });
 
-    // Draging: trykk-og-hold på overskriftslinjen unntatt de to knappene
-    // (tannhjul + oppløs).
-    const catHead = el.querySelector('.cat-head');
-    attachHoldDrag(catHead, el, startCategoryDrag, () => canEdit, '.cat-cog, .cat-dissolve');
+    // Draging: trykk-og-hold på overskriftslinjen unntatt menyknappen.
+    attachHoldDrag(catHead, el, startCategoryDrag, () => canEdit, '.obj-menu-btn');
 
-    // Klikk på overskriftslinjen (ikke tittel/tannhjul/oppløs/meta) kollapser/
-    // utvider kategorien med en rullgardin (som lister). Et fullført hold løfter i
+    // Klikk på overskriftslinjen (ikke tittel/meny/meta) kollapser/utvider
+    // kategorien med en rullgardin (som lister). Et fullført hold løfter i
     // stedet kategorien — attachHoldDrag undertrykker da klikket.
     catHead.addEventListener('click', (ev) => {
-      if (ev.target.closest('.cat-title, .cat-cog, .cat-dissolve, .meta-chip, .edit-input')) return;
+      if (ev.target.closest('.cat-title, .obj-menu-btn, .meta-chip, .edit-input')) return;
       toggleCatCollapsed(el, catData, cardData, boardScope);
     });
     // Overskriftslinjen er kategoriens tastaturhåndtak — samme sone som draget.
@@ -2880,8 +2935,7 @@
     // ingenting om hvilken. Kalles på nytt etter omdøping.
     function labelCatControls() {
       const n = quoted(catData.text);
-      labelBtn(cog, 'Innstillinger for kategorien ' + n);
-      labelBtn(dissolve, 'Oppløs kategorien ' + n);
+      labelBtn(menuBtn, 'Meny for kategorien ' + n);
       labelBtn(addBtn, 'Legg til listepunkt i kategorien ' + n);
       catHead.setAttribute('aria-label', 'Kategorien ' + n);
     }
@@ -3050,6 +3104,17 @@
     const ghost = el.cloneNode(true);
     const cs = getComputedStyle(el);
     ghost.classList.add('fly-ghost');
+    // Klonen er REN PYNT. Uten dette bærer den `data-id` og `id` til objektet
+    // som nettopp forsvant, og enhver selektor som leter etter det igjen —
+    // fokusgjenopprettingen etter en rendring, fokusfellen når en overlay
+    // lukkes — finner klonen i stedet, fokuserer den, og mister fokus for godt
+    // idet den fjernes 600 ms senere.
+    ghost.removeAttribute('data-id');
+    ghost.removeAttribute('id');
+    ghost.querySelectorAll('[data-id], [id]').forEach((n) => {
+      n.removeAttribute('data-id');
+      n.removeAttribute('id');
+    });
     ghost.style.left = r.left + 'px';
     ghost.style.top = r.top + 'px';
     ghost.style.width = r.width + 'px';
@@ -3254,14 +3319,18 @@
     mine.forEach(commitDeleteOne);
     pruneDeleteToast(mine);
   }
-  // Oppdaterer KUN element-søppel-badgen på ett kort (antallet), uten å bygge
-  // kortet på nytt — så en pågående inline-redigering i samme kort (eller andre
-  // kort) ikke forstyrres. Badgen finnes allerede i DOM-en fra da elementet
-  // ble slettet.
+  // Oppdaterer KUN element-søppel-badgen på ett kort (antallet + om kassen skal
+  // vises), uten å bygge kortet på nytt — så en pågående inline-redigering i
+  // samme kort (eller andre kort) ikke forstyrres. Kassen finnes ALLTID i
+  // DOM-en (den vises fram som slippmål under et drag), så tellingen må styre
+  // synligheten; et pågående drag som har avdekket den, får beholde den.
   function updateItemsTrashBadge(cardData) {
-    const count = board.querySelector('.card[data-id="' + cardData.id + '"] .item-trash-btn .trashcan-count');
-    if (!count) return;
-    count.textContent = trashedItemsOf(cardData).length;
+    const btn = board.querySelector('.card[data-id="' + cardData.id + '"] .item-trash-btn');
+    if (!btn) return;
+    const n = trashedItemsOf(cardData).length;
+    btn.querySelector('.trashcan-count').textContent = n;
+    const wrap = btn.closest('.item-trash');
+    if (wrap && !wrap.dataset.dragRevealed) wrap.hidden = n === 0;
   }
   // Oppdaterer badge-tellerne som hørte til nettopp committede objekter — uten en
   // full render() (som ville revet ned en pågående inline-redigering et annet
@@ -3282,10 +3351,14 @@
     unis.forEach(updateGroupsTrashBadge);
   }
   // Antallet i ETT områdes mappe-søppelkasse (uten å bygge kortet på nytt).
+  // Som listepunkt-kassen: bygget alltid, skjult når tom.
   function updateGroupsTrashBadge(u) {
-    const count = navBoard.querySelector('.card[data-id="' + u.id + '"] .group-trash-btn .trashcan-count');
-    if (!count) return;
-    count.textContent = trashedGroupsOf(u).length;
+    const btn = navBoard.querySelector('.card[data-id="' + u.id + '"] .group-trash-btn');
+    if (!btn) return;
+    const n = trashedGroupsOf(u).length;
+    btn.querySelector('.trashcan-count').textContent = n;
+    const wrap = btn.closest('.item-trash');
+    if (wrap && !wrap.dataset.dragRevealed) wrap.hidden = n === 0;
   }
   function commitAllPending() {
     if (deleteToast) { clearTimeout(deleteToast.timer); deleteToast = null; hideToast(); }
@@ -3377,6 +3450,13 @@
   }
 
   /* ---------------- Inline-redigering ---------------- */
+  // Omdøpingen bor på selve TITTEL-ELEMENTET: menyens «Endre navn», F2 og de
+  // programmatiske veiene (ny liste, nytt område, ny container etter et drag)
+  // kaller den samme funksjonen. Nødvendig fordi et KLIKK på tittelen ikke
+  // lenger omdøper områder, mapper og lister — der navigerer/kollapser det.
+  function setRenameHook(titleEl, fn) { if (titleEl) titleEl.__rename = fn || null; }
+  function startRename(titleEl) { if (titleEl && titleEl.__rename) titleEl.__rename(); }
+
   // opts.cls: ekstra klasse på input. opts.autosize: la input vokse med innholdet
   // (brukes til mappenavn i headeren, som ikke skal ta full bredde).
   // opts.onCancel: kalles ved Escape (avbrutt redigering) — brukes av nameNewRow
@@ -4001,6 +4081,7 @@
     if (!dragRolledBack) dropSeq++;
     dragRolledBack = false;
     drag.active = false;
+    disarmDragTrash();        // skjul kassen igjen om draget ikke endte i den
     clearAllDragSeparators(); // tilbake til hvile-reglene (pseudo-linjene på .category)
     clearAllPeeks(true); // sikkerhetsnett: kollaps evt. peek-åpnede mål tilbake (no-op om alt alt er løst)
     window.removeEventListener('scroll', onDragScroll);
@@ -4011,6 +4092,7 @@
     if (drag.ph && drag.ph.parentNode) drag.ph.remove();
     drag.el = null;
     drag.ph = null;
+    drag.trashHost = null;
     document.querySelectorAll('.card-placeholder, .item-placeholder')
       .forEach((el) => el.remove());
     stopAutoScroll();
@@ -4041,7 +4123,7 @@
     // spøkelses-duplikat — vi rydder bare dra-stilene og lar den ligge død.
     if (el.isConnected && drag.origParent) drag.origParent.insertBefore(el, drag.origNext);
     el.classList.remove('dragging');
-    el.classList.remove('to-group');
+    el.classList.remove('to-group', 'to-trash');
     el.style.left = el.style.top = el.style.width = el.style.height = '';
     el.style.transform = '';
     el.style.transition = '';
@@ -4230,6 +4312,7 @@
     window.addEventListener('pointermove', onCardMove);
     window.addEventListener('pointerup', onCardUp);
     window.addEventListener('pointercancel', onCardCancel);
+    armDragTrash(); // søppelkassen dukker opp som slippmål mens draget varer
   }
 
   /* ------- Midlertidig kollaps av alle lister under et liste-drag -------
@@ -4262,6 +4345,150 @@
       if (want && !isCollapsed) collapseCardBody(cEl);
       else if (!want && isCollapsed) expandCardBody(cEl);
     });
+  }
+
+  /* ------- SLETT VED Å DRA OBJEKTET I SØPPELKASSEN -------
+     Søppelkassen for NIVÅET man drar på dukker opp i det draget starter (den er
+     ellers skjult når den er tom), lyser opp når man sikter på den, og sletter
+     objektet ved slipp. Etterpå tømmes den samme kassen permanent med det
+     kjente hold-og-sveip-grepet.
+
+     Hvorfor slik: det gir ÉN slettemåte som virker likt på desktop og mobil,
+     for alle objekttypene, med den samme motoren som allerede flytter dem — og
+     uten en egen ✕ på hvert objekt. Slettingen er dessuten det eneste stedet
+     kassen er relevant, så den koster ingen plass i hvile.
+
+     KATEGORIER har ingen kasse. En kategori slettes ikke — den LØSES OPP
+     (listepunktene blir stående), og det gjøres fra objektmenyen. Derfor
+     returnerer `dragTrashBtn()` null for dem, og ingenting armes.
+
+     Kassen er BUNDET til draget: for et listepunkt/en mappe er det kassen i
+     containeren raden kom FRA, ikke den man tilfeldigvis svever over. Slippet
+     ruller draget tilbake som et avbrutt drag (ingen ny posisjon, ingen
+     lagring) og lar slette-funksjonen gjøre resten — samme vei som menyens
+     «Slett», med fly-i-kassen-animasjon og samlende angre-toast. */
+  const DRAG_TRASH_PAD = 12;   // raus treffsone rundt kassen (den er et lite mål)
+
+  // Kassen dette draget kan slippes i — eller null når nivået ikke har en.
+  function dragTrashBtn() {
+    if (!drag.active) return null;
+    const S = dragScope();
+    if (drag.kind === 'card') return S === navScope ? uniTrashBtn : trashBtn;
+    if (drag.kind === 'item') {
+      const host = drag.trashHost;
+      if (!host || !host.isConnected) return null;
+      return host.querySelector(S === navScope ? '.group-trash-btn' : '.item-trash-btn');
+    }
+    return null;
+  }
+  // Har jeg lov til å slette det jeg drar? Samme capabilities som menyens
+  // «Slett»-rad, og feiler LUKKET: uten rett vises ingen kasse i det hele tatt,
+  // så man kan ikke sikte på noe serveren ville avvist.
+  function draggedCanBeTrashed() {
+    const S = dragScope();
+    const id = drag.el && drag.el.dataset.id;
+    if (!id) return false;
+    if (drag.kind === 'card') {
+      if (S === navScope) {
+        const u = findUniverse(id);
+        return !!u && !u._virtual && cap(u, 'delete');
+      }
+      const c = findCard(id);
+      return !!c && !frozen(c);
+    }
+    if (drag.kind === 'item') {
+      if (S === navScope) {
+        const g = findGroupAnywhere(id);
+        return !!g && cap(g, 'delete', !frozen(g));
+      }
+      const it = findItemById(id);
+      const owner = it && findCard(it.home);
+      return !!owner && !frozen(owner);
+    }
+    return false;
+  }
+  // Vis kassen fram for draget. `data-drag-revealed` husker at det var VI som
+  // avdekket den, så den går tilbake til å være skjult om draget ikke endte i
+  // den (og forblir synlig om det gjorde — slettingen rendrer da uansett).
+  function armDragTrash() {
+    drag.overTrash = false;
+    drag.trashArmed = false;
+    if (!draggedCanBeTrashed()) return;
+    const btn = dragTrashBtn();
+    if (!btn) return;
+    drag.trashArmed = true;
+    btn.classList.add('drag-trash');
+    if (btn.hidden) { btn.hidden = false; btn.dataset.dragRevealed = '1'; }
+    const wrap = btn.closest('.item-trash');
+    if (wrap && wrap.hidden) { wrap.hidden = false; wrap.dataset.dragRevealed = '1'; }
+  }
+  // Kalles fra finishDrag — altså på ALLE veier ut av et drag, også avbrudd.
+  function disarmDragTrash() {
+    document.querySelectorAll('.trashcan.drag-trash').forEach((btn) => {
+      btn.classList.remove('drag-trash', 'drop-target');
+      const wrap = btn.closest('.item-trash');
+      if (btn.dataset.dragRevealed) { btn.hidden = true; delete btn.dataset.dragRevealed; }
+      if (wrap && wrap.dataset.dragRevealed) { wrap.hidden = true; delete wrap.dataset.dragRevealed; }
+    });
+    drag.trashArmed = false;
+    drag.overTrash = false;
+  }
+  function pointerOnDragTrash(x, y) {
+    if (!drag.trashArmed) return false;
+    const btn = dragTrashBtn();
+    if (!btn || btn.hidden || !btn.isConnected) return false;
+    const r = btn.getBoundingClientRect();
+    if (!r.width || !r.height) return false;
+    return x >= r.left - DRAG_TRASH_PAD && x <= r.right + DRAG_TRASH_PAD &&
+           y >= r.top - DRAG_TRASH_PAD && y <= r.bottom + DRAG_TRASH_PAD;
+  }
+  // Siktemarkering på kassen + gjennomskinnelig dra-objekt, så kassen synes
+  // gjennom det løftede kortet (samme grep som 📁-breadcrumben bruker).
+  function setDragTrashTarget(on) {
+    on = !!on;
+    if (drag.overTrash === on) return;
+    drag.overTrash = on;
+    const btn = dragTrashBtn();
+    if (btn) btn.classList.toggle('drop-target', on);
+    if (drag.el) drag.el.classList.toggle('to-trash', on);
+  }
+  // Selve slettingen et slipp i kassen betyr. Kalles ETTER at draget er rullet
+  // tilbake, så animasjonen og angre-toasten kjører på et board i normal flyt.
+  // Etter en slette-DnD skal kassen fortsatt være innen synsvidde: neste steg
+  // er som regel å tømme den (hold + sveip). Slettingen rendrer på nytt — og i
+  // nav-modalen har draget dessuten kollapset kortene underveis, så listen
+  // krymper og vokser igjen. Uten dette havner man et stykke over kassen.
+  function keepTrashInView(btn) {
+    if (btn && btn.isConnected && !btn.hidden && !btn.closest('[hidden]')) {
+      btn.scrollIntoView({ block: 'nearest' });
+    }
+  }
+  function dropIntoTrash(S, kind, id) {
+    if (kind === 'card') {
+      if (S === navScope) {
+        const u = findUniverse(id);
+        if (!u) return;
+        deleteUniverse(u);
+        keepTrashInView(uniTrashBtn);
+      } else {
+        const c = findCard(id);
+        if (c) deleteCard(c);   // toppmenyens kasse står alltid i synsfeltet
+      }
+      return;
+    }
+    if (S === navScope) {
+      const g = findGroupAnywhere(id);
+      if (!g) return;
+      const uni = g.uni;
+      deleteGroup(g);
+      keepTrashInView(navBoard.querySelector('.card[data-id="' + uni + '"] .group-trash-btn'));
+    } else {
+      const it = findItemById(id);
+      if (!it) return;
+      const home = it.home;
+      deleteItem(it);
+      keepTrashInView(board.querySelector('.card[data-id="' + home + '"] .item-trash-btn'));
+    }
   }
 
   /* ------- Flytting av en liste til en annen mappe -------
@@ -4328,6 +4555,17 @@
     drag.lastY = ev.clientY;
     moveElement();
     drag.el.style.transform = `rotate(${cardRotation()}deg) scale(1.02)`;
+
+    // Sikter man på søppelkassen, er det slettingen som gjelder — verken
+    // omrokkering eller 📁-breadcrumben. (Liste-kassen ligger i toppmenyen,
+    // område-kassen nederst i nav-modalen; sjekken dekker begge.)
+    if (pointerOnDragTrash(ev.clientX, ev.clientY)) {
+      setDragTrashTarget(true);
+      setCardCrumbTarget(false);
+      stopAutoScroll();
+      return;
+    }
+    setDragTrashTarget(false);
 
     // Over toppmenyen sikter vi på 📁-breadcrumben (flytt til annen mappe) i
     // stedet for å omorganisere board-et: marker knappen, og la board-et +
@@ -4466,6 +4704,17 @@
     // placeholderen kunne blitt hentet fra nest siste bevegelse.
     if (ev && typeof ev.clientX === 'number') {
       drag.lastX = ev.clientX; drag.lastY = ev.clientY;
+    }
+    /* Slipp i søppelkassen: draget rulles tilbake som et AVBRUTT drag (ingen ny
+       pos, ingen lagring, ingen flytte-velger), og slettingen tar over. Sjekkes
+       før plasseringen committes — et slipp i kassen skal ikke også omrokkere. */
+    if (pointerOnDragTrash(drag.lastX, drag.lastY)) {
+      const trashedId = el.dataset.id;
+      onCardCancel();
+      dropIntoTrash(S, 'card', trashedId);
+      return;
+    }
+    if (ev && typeof ev.clientX === 'number') {
       // (Kortet flyttes IKKE hit visuelt: drop-tweenen starter fra der det faktisk
       // står malt, se dropIntoPlaceholder — et snapp hit først ville gitt et rykk.)
       if (!(onBoard && pointerInTopbar(drag.lastX, drag.lastY))) commitCardPlacement();
@@ -4601,6 +4850,9 @@
     beginDragCommon(ev, itemEl);
     drag.kind = 'item';
     drag.phMode = 'reorder';
+    // Kassen som gjelder er den i containeren raden kom FRA — ikke den man
+    // tilfeldigvis svever over. Slettingen legger raden i kildens kasse.
+    drag.trashHost = itemEl.closest('.card');
 
     const ph = document.createElement('li');
     ph.className = 'item-placeholder';
@@ -4614,6 +4866,7 @@
     window.addEventListener('pointermove', onItemMove);
     window.addEventListener('pointerup', onItemUp);
     window.addEventListener('pointercancel', onItemCancel);
+    armDragTrash();
   }
 
   // Direkte-barn-rader i en drop-container som deltar i rekkefølgen: elementer
@@ -4708,6 +4961,14 @@
     drag.lastY = ev.clientY;
     moveElement();
     drag.el.style.transform = `rotate(${cardRotation()}deg) scale(1.03)`;
+    // Sikter man på kassen, står placeholderen i ro: slippet sletter, det
+    // flytter ikke. (Se «Slett ved å dra objektet i søppelkassen».)
+    if (pointerOnDragTrash(drag.lastX, drag.lastY)) {
+      setDragTrashTarget(true);
+      stopAutoScroll();
+      return;
+    }
+    setDragTrashTarget(false);
     updateAutoScroll();
     updatePeek(drag.lastX, drag.lastY);
     updateItemPlacement(drag.lastX, drag.lastY, dy);
@@ -4835,6 +5096,16 @@
     if (ev && typeof ev.clientX === 'number') {
       const dy = ev.clientY - drag.lastY;
       drag.lastX = ev.clientX; drag.lastY = ev.clientY;
+      /* Slipp i søppelkassen avgjøres FØR plasseringen re-evalueres: raden skal
+         hverken flyttes eller ekstraheres, bare slettes. Draget rulles tilbake
+         som et avbrutt drag, og slette-funksjonen gjør resten. */
+      if (pointerOnDragTrash(drag.lastX, drag.lastY)) {
+        const trashScope = dragScope();
+        const trashedId = drag.el.dataset.id;
+        onItemCancel();
+        dropIntoTrash(trashScope, 'item', trashedId);
+        return;
+      }
       updateItemPlacement(drag.lastX, drag.lastY, dy, true); // commit: lande i kollapset mål om peek ikke rakk
     }
 
@@ -5075,8 +5346,7 @@
     // (det nye området har bare meg som eier) → move_group avgjør og bekrefter.
     if (S.rowKind === 'group') commitGroupMove(moved, fromCont, nc.id, null, 0);
     // Fokuser navnet på den nye containeren (blank input) så den kan navngis straks.
-    const t = S.root.querySelector('.card[data-id="' + nc.id + '"] .card-title');
-    if (t) t.click();
+    startRename(S.root.querySelector('.card[data-id="' + nc.id + '"] .card-title'));
   }
 
   // Bygg rad-arrayet for en container ut fra gjeldende DOM (medlemskap OG
@@ -5870,8 +6140,7 @@
     g.cards.push(c);
     render();
     // Fokuser den nye tittelen for redigering
-    const el = board.querySelector('.card[data-id="' + c.id + '"] .card-title');
-    if (el) el.click();
+    startRename(board.querySelector('.card[data-id="' + c.id + '"] .card-title'));
   });
 
   /* ============================================================
@@ -5897,7 +6166,7 @@
     const share = document.getElementById('share-modal');
     const place = document.getElementById('place-modal');
     const confirmEl = document.getElementById('confirm-modal');
-    const settings = document.getElementById('settings-modal');
+    const objMenu = document.getElementById('obj-menu');
     const timeSw = document.getElementById('time-switcher');
     const avatarEd = document.getElementById('avatar-modal');
     const delAcc = document.getElementById('delete-account-modal');
@@ -5905,7 +6174,7 @@
       !trashModal.hidden || !navModal.hidden ||
       !accountModal.hidden ||
       (share && !share.hidden) || (place && !place.hidden) ||
-      (confirmEl && !confirmEl.hidden) || (settings && !settings.hidden) ||
+      (confirmEl && !confirmEl.hidden) || (objMenu && !objMenu.hidden) ||
       (timeSw && !timeSw.hidden) || (avatarEd && !avatarEd.hidden) ||
       (delAcc && !delAcc.hidden) || respOpen);
   }
@@ -6453,7 +6722,7 @@
     const place = document.getElementById('place-modal');
     if (place && !place.hidden) { place.hidden = true; updateModalOpenClass(); }
     else if (share && !share.hidden) closeShare(); // helt lukk — tilbake til hovedsiden
-    else if (settingsModal && !settingsModal.hidden) closeSettings();
+    else if (objMenuCtx) closeObjMenu();
     else if (!trashModal.hidden) closeTrash();
     else if (!navModal.hidden) closeNavModal();
     else if (!accountModal.hidden) closeAccount();
@@ -6546,7 +6815,7 @@
     stampContent(obj);
     refreshCard(live.card || findCard(target.card.id) || target.card);
     save();
-    repaintSettings(); // innstillingsmodalen kan stå åpen på samme objekt
+    repaintObjMenu(); // objektmenyen kan stå åpen på samme objekt
   }
   function openResponsible(target, shareRoot, rType, anchorBtn) {
     respSwitcherPanel.innerHTML = '';
@@ -6642,168 +6911,458 @@
   });
 
   /* ============================================================
-     INNSTILLINGSMODAL (liste/element) + TIDSPLAN
+     OBJEKTMENYEN (én knapp per objekt) + SVEIP FOR Å SLETTE
      ------------------------------------------------------------
-     Tannhjulet på et listekort/element åpner én felles innstillingsmodal:
-       1) navn (redigerbart felt, liste-ikon for lister)
-       2) deling (kun lister — samme innhold som del-modalen)
-       3) ansvarlig (delt kontekst — åpner ansvarlig-velgeren)
-       4) tidsplan (start + frist; lister kan låse tidene til elementene)
-     ALT lagres fortløpende uten bekreftelsesknapp: innholds-endringer
-     (navn/tider/ansvar/lås-avkryssing) stemples med stampContent og går
-     gjennom doc-synken (optimistisk, LWW); delings-handlingene ligger i
-     operasjonskøen (opQueue) som før. Modalen slår alltid opp det LEVENDE
-     objektet på id (liveTarget), så den tåler synk-rebuilds mens den er åpen. */
-  const settingsModal = document.getElementById('settings-modal');
-  const settingsBody = document.getElementById('settings-body');
-  const settingsTitleEl = document.getElementById('settings-title');
-  const settingsCloseBtn = document.getElementById('settings-close');
-  let settingsCtx = null;       // { kind: 'card'|'item', id }
-  let settingsRespPaint = null; // repaint-hook for ansvarlig-raden (satt av renderSettings)
+     Alle seks objekttypene — område, mappe, mappekategori, liste, listepunkt og
+     kategori — har NØYAKTIG én knapp til høyre: `.obj-menu-btn`. Den erstatter
+     tannhjulet, ✕, del-knappen, forlat-knappen og oppløs-knappen, og samler alt
+     objektet kan gjøre på ett sted:
 
-  function settingsTarget() {
-    return settingsCtx ? liveTarget({ kind: settingsCtx.kind, obj: { id: settingsCtx.id } }) : null;
+       Endre navn · Ansvarlig · Tidsplan · Flytt · Deling og medlemmer ·
+       Lås/Åpne · Forlat · Slett (eller «Løs opp kategorien»)
+
+     Radene som ikke gjelder objektet utelates helt — en tom rad er verre enn
+     ingen rad. Rettighetene gates av de SAMME capabilities som knappene brukte
+     (`cap(...)`), og feiler lukket: mangler capabilities fra serveren, vises
+     ikke raden. Se docs/rettigheter-og-deling.md.
+
+     FORM: popover forankret i menyknappen på desktop, sentrert ark på mobil —
+     samme `.switcher-*`-skall som ansvarlig-velgeren og tids-popoveren, så det
+     finnes bare ÉN popover-mekanikk i appen. «Flytt», «Ansvarlig» og «Tidsplan»
+     er undermenyer i et TREKKSPILL: å åpne én lukker den andre, med animert
+     høyde, så menyen aldri blir lengre enn skjermen.
+
+     Menyen slår alltid opp det LEVENDE objektet på id, så den tåler en
+     synk-rebuild mens den står åpen; ankeret finnes igjen på nytt etter en
+     rendring (`objMenuAnchor`). */
+  const objMenuOverlay = document.getElementById('obj-menu');
+  const objMenuPanel = document.getElementById('obj-menu-panel');
+  let objMenuCtx = null;    // { spec, sub } mens menyen er åpen
+  let objMenuReturn = null; // knappen fokus skal tilbake til ved lukking
+
+  // Det levende state-objektet + containeren det ligger i, slått opp på id.
+  function objMenuLive(kind, id) {
+    if (kind === 'universe') return findUniverse(id);
+    if (kind === 'group' || kind === 'groupcat') return findGroupAnywhere(id);
+    if (kind === 'card') return findCard(id);
+    return findItemById(id);
   }
-  // Ansvarlig-raden males på nytt etter et valg i velgeren (setResponsible).
-  function repaintSettings() { if (settingsRespPaint) settingsRespPaint(); }
+  function objMenuCont(kind, obj) {
+    if (!obj) return null;
+    if (kind === 'universe') return null;
+    if (kind === 'group' || kind === 'groupcat') return findUniverse(obj.uni) || obj._parent;
+    if (kind === 'card') return activeGroupObj();
+    return findCard(obj.home);
+  }
+  const OBJ_MENU_WORD = {
+    universe: 'området', group: 'mappen', groupcat: 'mappekategorien',
+    card: 'listen', item: 'listepunktet', category: 'kategorien',
+  };
+  // Type-ikonet i menyens overskrift (listepunkter har ingen egen glyf — der er
+  // teksten identifikasjonen).
+  const OBJ_MENU_HEAD_ICON = {
+    universe: 'globe', group: 'folder', groupcat: 'groupCategory',
+    card: 'list', item: null, category: 'category',
+  };
+  // Menyknappen for et objekt, funnet på nytt i DOM-en. Brukes etter en
+  // rendring (sortering i menyen bygger board-et om) så popoveren kan bli
+  // stående forankret i den NYE knappen i stedet for en frakoblet node.
+  function objMenuAnchor(spec) {
+    const host = objMenuHost(spec);
+    if (!host) return null;
+    return host.querySelector(':scope > .obj-menu-btn, :scope > .card-head > .obj-menu-btn,' +
+      ' :scope > .cat-head > .obj-menu-btn');
+  }
+  function objMenuHost(spec) {
+    const root = spec.scope === navScope ? navBoard : board;
+    return (root && root.querySelector('[data-id="' + spec.id + '"]')) || null;
+  }
+  // Tittel-elementet slik det ser ut NÅ. `spec.rename` er en closure fra
+  // byggetidspunktet og holder på tittel-noden fra DEN rendringen; board-et kan
+  // ha blitt bygget om mens menyen sto åpen (ensureShareGroup henter medlemmer
+  // og rendrer når cachen fylles, og enhver synk-pull rendrer også). Da ville
+  // «Endre navn» redigert et frakoblet element — og brukeren fått ingenting.
+  // Omdøpings-hooken på det LEVENDE elementet er alltid den riktige.
+  const OBJ_MENU_TITLE_SEL = {
+    universe: ':scope > .card-head .card-title',
+    card: ':scope > .card-head .card-title',
+    group: ':scope > .item-main > .item-text',
+    item: ':scope > .item-main > .item-text',
+    groupcat: ':scope > .cat-head .cat-title',
+    category: ':scope > .cat-head .cat-title',
+  };
+  function renameFromObjMenu(spec) {
+    const host = objMenuHost(spec);
+    const titleEl = host && host.querySelector(OBJ_MENU_TITLE_SEL[spec.kind]);
+    if (titleEl && titleEl.__rename) titleEl.__rename();
+  }
 
-  function openSettings(kind, id) {
-    settingsCtx = { kind, id };
-    renderSettings();
-    if (!settingsCtx) return; // objektet fantes ikke (renderSettings lukket)
-    settingsModal.hidden = false;
+  // Fokus tilbake til menyknappen ordnes av den felles fokusfellen
+  // (`overlayClosed` observerer `hidden`), ikke her — én mekanikk for alle
+  // overlayer, og den finner knappen igjen med selektor når en rendring har
+  // byttet ut noden.
+  function closeObjMenu() {
+    if (!objMenuCtx) return;
+    markObjMenuAnchor(false);
+    objMenuOverlay.hidden = true;
+    objMenuPanel.innerHTML = '';
+    objMenuCtx = null;
+    objMenuReturn = null;
     updateModalOpenClass();
+    if (demoRunning) placeTour(); // demokortet kan legge seg tilbake
   }
-  function closeSettings() {
-    if (settingsModal.hidden && !settingsCtx) return;
-    settingsModal.hidden = true;
-    settingsCtx = null;
-    settingsRespPaint = null;
-    updateModalOpenClass();
-    render(); // navn/chips kan ha endret seg mens modalen var åpen
-  }
-
-  function settingsSection(icon, label) {
-    const sec = document.createElement('section');
-    sec.className = 'settings-section';
-    const h = document.createElement('div');
-    h.className = 'settings-section-title';
-    h.innerHTML = icon + '<span>' + label + '</span>';
-    sec.appendChild(h);
-    return sec;
-  }
-
-  function renderSettings() {
-    const t = settingsTarget();
-    if (!t) { closeSettings(); return; }
-    const obj = t.obj;
-    const isCard = t.kind === 'card';
-    const isCat = t.kind === 'category';
-    const canEdit = !frozen(isCard ? obj : t.card);
-
-    settingsTitleEl.innerHTML = ICONS.gear;
-    settingsTitleEl.appendChild(document.createTextNode(' Innstillinger'));
-    settingsBody.innerHTML = '';
-    settingsRespPaint = null;
-
-    // 1) Navn — redigeres rett i feltet, lagres fortløpende (tomt felt
-    //    committes ikke og gjenopprettes ved blur). Lister/kategorier har et
-    //    ikon foran; navnet ligger i `title` (lister) eller `text` (element/kat.).
-    const nameWrap = document.createElement('div');
-    nameWrap.className = 'settings-name';
-    if (isCard || isCat) {
-      const ic = document.createElement('span');
-      ic.className = 'settings-name-icon';
-      ic.setAttribute('aria-hidden', 'true');
-      ic.innerHTML = isCard ? ICONS.list : ICONS.category;
-      nameWrap.appendChild(ic);
+  // `aria-expanded` på knappen mens menyen står åpen — og den lille flate-
+  // markeringen som følger med, så knappen ikke ser «kald» ut under sin egen
+  // popover. Ryddes ved lukking, også når en rendring har byttet ut noden.
+  function markObjMenuAnchor(on) {
+    const btn = (objMenuCtx && objMenuAnchor(objMenuCtx.spec)) || objMenuReturn;
+    if (btn) btn.setAttribute('aria-expanded', on ? 'true' : 'false');
+    if (btn && btn !== objMenuReturn && objMenuReturn) {
+      objMenuReturn.setAttribute('aria-expanded', on ? 'true' : 'false');
     }
-    const nameInput = document.createElement('input');
-    nameInput.type = 'text';
-    nameInput.className = 'field settings-name-input';
-    nameInput.value = isCard ? obj.title : obj.text;
-    nameInput.setAttribute('aria-label', isCard ? 'Listens navn' : isCat ? 'Kategoriens navn' : 'Listepunktets tekst');
-    nameInput.disabled = !canEdit;
-    nameInput.addEventListener('input', () => {
-      const live = settingsTarget();
-      const val = nameInput.value.trim();
-      if (!live || !val) return;
-      const sel = isCard ? '.card[data-id="' + live.obj.id + '"] .card-title'
-        : isCat ? '.category[data-id="' + live.obj.id + '"] .cat-title'
-        : '.item[data-id="' + live.obj.id + '"] .item-text';
-      if (isCard) live.obj.title = val; else live.obj.text = val;
-      const dispEl = board.querySelector(sel);
-      if (dispEl) dispEl.textContent = val;
-      stampContent(live.obj);
-      save();
-    });
-    nameInput.addEventListener('blur', () => {
-      const live = settingsTarget();
-      if (live && !nameInput.value.trim()) {
-        nameInput.value = isCard ? live.obj.title : live.obj.text;
-      }
-    });
-    nameWrap.appendChild(nameInput);
-    settingsBody.appendChild(nameWrap);
+  }
+  // Lukk menyen og kjør handlingen ETTERPÅ. Fokusfellen gir fokus tilbake til
+  // menyknappen i en mikrotask (MutationObserver på `hidden`); en handling som
+  // selv tar fokus — «Endre navn» åpner et navnefelt — ville ellers blitt
+  // fratatt det i samme øyeblikk, og navnefeltet lukket seg på blur.
+  function closeObjMenuThen(fn) { closeObjMenu(); setTimeout(fn, 0); }
 
-    // 2) Ansvarlig: rad med nåværende ansvarlig; klikk åpner ansvarlig-velgeren
-    //    forankret i raden. Kandidatene er MAPPENS effektive medlemsliste —
-    //    lister har ingen egen deling (tilgangen arves), så det finnes ingen
-    //    delings-seksjon her lenger. Vises kun når mappen faktisk er delt.
-    const shareRoot = shareRootFor(t.card);
-    if (shareRoot && shareRoot._shared) {
-      const rType = 'group';
-      ensureShareGroup(rType, shareRoot.id);
-      const sec = settingsSection(ICONS.handRaise, 'Ansvarlig');
-      const respBtn = document.createElement('button');
-      respBtn.type = 'button';
-      respBtn.className = 'settings-resp-btn';
-      respBtn.disabled = !canEdit;
-      const nameSpan = (txt) => {
-        const s = document.createElement('span');
-        s.className = 'settings-resp-name';
-        s.textContent = txt;
-        return s;
-      };
-      const paintRespRow = () => {
-        const live = settingsTarget();
-        if (!live) return;
-        const rid = live.obj.responsible || null;
-        const group = shareGroupCache.get(rootKey(rType, shareRoot.id));
-        const entry = rid && group ? group.byId.get(rid) : null;
-        respBtn.innerHTML = '';
-        if (entry) {
-          respBtn.appendChild(respAvatar(entry.person, entry.index));
-          respBtn.appendChild(nameSpan(entry.person.name));
-        } else if (rid) {
-          respBtn.appendChild(respAvatar(null, -1)); // delegruppen ikke lastet ennå
-          respBtn.appendChild(nameSpan('Ansvarlig valgt'));
+  // Bygg radene på nytt uten å lukke (etter lås/ansvar/sortering). Den åpne
+  // trekkspill-fanen beholdes.
+  function repaintObjMenu() {
+    if (!objMenuCtx) return;
+    const spec = objMenuCtx.spec;
+    const sub = objMenuCtx.sub;
+    const btn = objMenuAnchor(spec) || objMenuReturn;
+    if (!objMenuLive(spec.kind, spec.id)) { closeObjMenu(); return; }
+    objMenuReturn = btn && btn.isConnected ? btn : objMenuReturn;
+    paintObjMenu(spec, sub, false);
+    markObjMenuAnchor(true);
+  }
+
+  /* ---------- Byggeklosser ---------- */
+  function objMenuRow(icon, label, onClick, opts) {
+    opts = opts || {};
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.className = 'obj-menu-row' + (opts.danger ? ' is-danger' : '');
+    b.setAttribute('role', 'menuitem');
+    const ic = document.createElement('span');
+    ic.className = 'obj-menu-icon';
+    ic.setAttribute('aria-hidden', 'true');
+    ic.innerHTML = icon || '';
+    const tx = document.createElement('span');
+    tx.className = 'obj-menu-label';
+    tx.textContent = label;
+    b.append(ic, tx);
+    if (opts.hint) {
+      const h = document.createElement('span');
+      h.className = 'obj-menu-hint';
+      h.textContent = opts.hint;
+      b.appendChild(h);
+    }
+    b.addEventListener('click', onClick);
+    return b;
+  }
+  // Trekkspill-fane: overskriftsrad + skuff. Kun ÉN skuff er åpen om gangen —
+  // å åpne en ny lukker den forrige (begge animert).
+  const OBJ_SUB_MS = 180;
+  function objMenuAccordion(key, icon, label, buildBody, openNow) {
+    const wrap = document.createElement('div');
+    wrap.className = 'obj-menu-group';
+    const head = objMenuRow(icon, label, () => toggleObjSub(key), {});
+    head.classList.add('obj-menu-toggle');
+    head.setAttribute('aria-expanded', openNow ? 'true' : 'false');
+    const chev = document.createElement('span');
+    chev.className = 'obj-menu-chev';
+    chev.setAttribute('aria-hidden', 'true');
+    chev.innerHTML = ICONS.chevron;
+    head.appendChild(chev);
+    const sub = document.createElement('div');
+    sub.className = 'obj-menu-sub';
+    sub.dataset.sub = key;
+    sub.appendChild(buildBody());
+    if (!openNow) { sub.style.height = '0px'; sub.classList.add('is-closed'); }
+    wrap.append(head, sub);
+    return wrap;
+  }
+  // Animert åpning/lukking. Høyden måles, settes eksplisitt og ryddes bort
+  // igjen etterpå, så en skuff som vokser (tidsfeltene) ikke blir stående klippet.
+  function slideObjSub(sub, open) {
+    const h = sub.scrollHeight;
+    sub.style.transition = 'none';
+    sub.style.height = (open ? 0 : h) + 'px';
+    void sub.offsetHeight;
+    sub.style.transition = '';
+    sub.classList.toggle('is-closed', !open);
+    sub.style.height = (open ? h : 0) + 'px';
+    if (open) setTimeout(() => { if (!sub.classList.contains('is-closed')) sub.style.height = ''; }, OBJ_SUB_MS);
+  }
+  function toggleObjSub(key) {
+    if (!objMenuCtx) return;
+    const next = objMenuCtx.sub === key ? null : key;
+    objMenuPanel.querySelectorAll('.obj-menu-sub').forEach((sub) => {
+      const want = sub.dataset.sub === next;
+      const isOpen = !sub.classList.contains('is-closed');
+      if (want !== isOpen) slideObjSub(sub, want);
+      const head = sub.previousElementSibling;
+      if (head) head.setAttribute('aria-expanded', want ? 'true' : 'false');
+    });
+    objMenuCtx.sub = next;
+    // Panelet endrer høyde → forankringen på desktop må følge med.
+    if (objMenuIsPopover()) {
+      setTimeout(() => {
+        const a = objMenuAnchor(objMenuCtx ? objMenuCtx.spec : {}) || objMenuReturn;
+        if (objMenuCtx && a && a.isConnected) positionSwitcherPanel(objMenuPanel, a);
+      }, OBJ_SUB_MS);
+    }
+  }
+  function objMenuIsPopover() { return window.matchMedia('(min-width: 561px)').matches; }
+
+  /* ---------- Ansvarlig-skuffen (delt kontekst) ---------- */
+  // Samme rader som ansvarlig-velgeren, men INNE i menyen — en popover oppå en
+  // popover ville lagt to lag over hverandre på samme knapp.
+  function buildRespRows(target, shareRoot, rType) {
+    const wrap = document.createElement('div');
+    wrap.className = 'obj-menu-resp';
+    const key = rootKey(rType, shareRoot.id);
+    const paint = (group) => {
+      const live = liveTarget(target);
+      const cur = ((live || target).obj.responsible) || null;
+      wrap.innerHTML = '';
+      const mkRow = (person, index, isNone) => {
+        const row = document.createElement('button');
+        row.type = 'button';
+        row.className = 'resp-row' + (isNone ? ' resp-row-clear' : '');
+        row.setAttribute('role', 'menuitemradio');
+        const active = isNone ? !cur : cur === person.id;
+        row.setAttribute('aria-checked', active ? 'true' : 'false');
+        row.classList.toggle('active', active);
+        if (isNone) {
+          row.innerHTML = '<span class="resp-avatar resp-avatar-none">' + ICONS.handRaise + '</span>';
         } else {
-          const none = document.createElement('span');
-          none.className = 'resp-avatar resp-avatar-none';
-          none.innerHTML = ICONS.handRaise;
-          respBtn.appendChild(none);
-          respBtn.appendChild(nameSpan('Velg ansvarlig'));
+          row.appendChild(respAvatar(person, index));
         }
+        const nm = document.createElement('span');
+        nm.className = 'resp-row-name';
+        nm.textContent = isNone ? 'Ingen ansvarlig' : person.name;
+        row.appendChild(nm);
+        row.addEventListener('click', () => {
+          setResponsible(target, isNone ? null : person.id);
+          paint(shareGroupCache.get(key) || group);
+        });
+        return row;
       };
-      respBtn.addEventListener('click', () => {
-        const live = settingsTarget();
-        if (live) openResponsible(live, shareRoot, rType, respBtn);
-      });
-      paintRespRow();
-      settingsRespPaint = paintRespRow;
-      sec.appendChild(respBtn);
-      settingsBody.appendChild(sec);
-    }
-
-    // 4) Tidsplan (alltid).
-    const timeSec = settingsSection('', 'Tidsplan');
-    timeSec.appendChild(buildTimeEditor(settingsTarget));
-    settingsBody.appendChild(timeSec);
+      wrap.appendChild(mkRow(null, -1, true));
+      group.people.forEach((p, i) => wrap.appendChild(mkRow(p, i, false)));
+      if (!group.people.length) {
+        const p = document.createElement('p');
+        p.className = 'uni-empty';
+        p.textContent = 'Ingen medlemmer ennå.';
+        wrap.appendChild(p);
+      }
+    };
+    const cached = shareGroupCache.get(key);
+    if (cached) paint(cached);
+    else wrap.innerHTML = '<p class="uni-empty">Henter medlemmer …</p>';
+    fetchShareGroup(rType, shareRoot.id).then((g) => {
+      shareGroupCache.set(key, g);
+      if (wrap.isConnected) paint(g);
+    }).catch(() => { /* behold det som står */ });
+    return wrap;
   }
 
-  settingsCloseBtn.addEventListener('click', closeSettings);
-  settingsModal.addEventListener('click', (ev) => { if (ev.target === settingsModal) closeSettings(); });
+  /* ---------- Selve menyen ---------- */
+  function paintObjMenu(spec, openSub, focusFirst) {
+    const kind = spec.kind;
+    const obj = objMenuLive(kind, spec.id);
+    if (!obj) { closeObjMenu(); return; }
+    const cont = objMenuCont(kind, obj);
+    const shareType = kind === 'universe' ? 'universe' : 'group';
+    objMenuCtx = { spec, sub: openSub || null };
+    objMenuPanel.innerHTML = '';
+
+    // Overskrift: hvilket objekt menyen gjelder. Uten den er en popover som
+    // dekker raden den kom fra umulig å plassere — særlig på mobil.
+    const head = document.createElement('div');
+    head.className = 'obj-menu-head';
+    if (OBJ_MENU_HEAD_ICON[kind]) {
+      const hIcon = document.createElement('span');
+      hIcon.className = 'obj-menu-head-icon';
+      hIcon.setAttribute('aria-hidden', 'true');
+      hIcon.innerHTML = ICONS[OBJ_MENU_HEAD_ICON[kind]];
+      head.appendChild(hIcon);
+    }
+    const hName = document.createElement('span');
+    hName.className = 'obj-menu-head-name';
+    hName.textContent = nameOfAny(obj) || 'Uten navn';
+    head.appendChild(hName);
+    objMenuPanel.appendChild(head);
+    objMenuPanel.setAttribute('aria-label',
+      'Meny for ' + (OBJ_MENU_WORD[kind] || 'objektet') + ' ' + quoted(nameOfAny(obj)));
+
+    const list = document.createElement('div');
+    list.className = 'obj-menu-list';
+    objMenuPanel.appendChild(list);
+
+    /* 1) Endre navn — lukker menyen og åpner navneredigereren på plassen.
+          For områder, mapper og lister er dette den ENESTE veien inn (klikk på
+          navnet der navigerer/kollapser nå); listepunkter og kategorier kan
+          fortsatt omdøpes ved å klikke rett på navnet. */
+    if (spec.rename) {
+      list.appendChild(objMenuRow(ICONS.pencil, 'Endre navn',
+        () => closeObjMenuThen(() => renameFromObjMenu(spec))));
+    }
+
+    /* 2) Ansvarlig (liste/listepunkt/kategori i delt kontekst) — fra den gamle
+          innstillingsmodalen, nå som trekkspill-skuff. */
+    if (kind === 'card' || kind === 'item' || kind === 'category') {
+      const target = liveTarget({ kind: kind, obj: { id: spec.id } });
+      const shareRoot = target ? shareRootFor(target.card) : null;
+      // Frosset (låst for meg) liste → ingen ansvarlig-rader: serveren avviser
+      // innholds-endringen, og en optimistisk visning ville bare blitt rullet
+      // tilbake ved neste synk. Innstillingsknappen var avskrudd på samme vis.
+      if (target && shareRoot && shareRoot._shared && !frozen(target.card)) {
+        ensureShareGroup('group', shareRoot.id);
+        list.appendChild(objMenuAccordion('resp', ICONS.handRaise, 'Ansvarlig',
+          () => buildRespRows(target, shareRoot, 'group'), objMenuCtx.sub === 'resp'));
+      }
+    }
+
+    /* 3) Tidsplan (liste/listepunkt/kategori) — hele tids-editoren fra den gamle
+          innstillingsmodalen, uendret, i en skuff. */
+    if (kind === 'card' || kind === 'item' || kind === 'category') {
+      const getT = () => liveTarget({ kind: kind, obj: { id: spec.id } });
+      if (getT()) {
+        list.appendChild(objMenuAccordion('time', ICONS.calendar, 'Tidsplan',
+          () => buildTimeEditor(getT), objMenuCtx.sub === 'time'));
+      }
+    }
+
+    /* 4) Flytt — tastaturflyttingens knapper, for dem som ikke kan eller vil
+          bruke dra-og-slipp. «Flytt opp/ned» lar menyen stå åpen så flere hakk
+          kan tas etter hverandre; «Flytt til …» åpner velger-modalen. */
+    const canOrder = canReorderObj(kind, obj, cont);
+    const canRehome = kind === 'card' || kind === 'item' || kind === 'group';
+    if (canOrder) {
+      list.appendChild(objMenuAccordion('move', ICONS.moveArrows, 'Flytt', () => {
+        const box = document.createElement('div');
+        box.className = 'obj-menu-movebox';
+        const step = (dir, icon, label) => objMenuRow(icon, label, () => {
+          keyboardReorder(kind, spec.id, dir);
+          repaintObjMenu();
+          const again = objMenuPanel.querySelector('[data-move="' + dir + '"]');
+          if (again) again.focus();
+        });
+        const up = step(-1, ICONS.arrowUp, 'Flytt opp');
+        up.dataset.move = '-1';
+        const down = step(1, ICONS.arrowDown, 'Flytt ned');
+        down.dataset.move = '1';
+        box.append(up, down);
+        if (canRehome) {
+          box.appendChild(objMenuRow(ICONS.folder, 'Flytt til …',
+            () => closeObjMenuThen(() => keyboardMoveTo(kind, spec.id))));
+        }
+        return box;
+      }, objMenuCtx.sub === 'move'));
+    }
+
+    /* 5) Deling og medlemmer. Områder/mapper åpner sin egen del-modal; en liste
+          arver MAPPENS deling og åpner derfor mappens. */
+    if (spec.share) {
+      list.appendChild(objMenuRow(ICONS.people, 'Deling og medlemmer',
+        () => closeObjMenuThen(spec.share)));
+    }
+
+    /* 6) Lås (delte områder/mapper). Nærmeste eksplisitte tilstand vinner: en
+          EGEN lås går foran en arvet, ellers tilbys unntaket. Samme skriving som
+          del-modalens knapp (toggleObjLock) — de kan ikke gli fra hverandre. */
+    if ((kind === 'universe' || kind === 'group') && obj._shared) {
+      const anc = obj._locked ? null : inheritedLockInfo(shareType, obj);
+      const exception = !!anc;
+      const allowed = exception ? cap(obj, 'lockException', false) : cap(obj, 'manageLock', false);
+      if (allowed) {
+        const on = exception ? !!obj._unlocked : !!obj._locked;
+        // Ikonet viser tilstanden raden FØRER TIL, ikke den man står i.
+        const icon = exception ? (on ? ICONS.lock : ICONS.unlock) : (on ? ICONS.unlock : ICONS.lock);
+        const label = exception
+          ? (on ? 'Fjern unntaket fra låsen' : 'Gjør unntak fra låsen')
+          : (on ? 'Åpne for redigering' : 'Lås for redigering');
+        const hint = exception
+          ? (on ? 'Unntatt fra en arvet lås' : 'Låst av en forelder')
+          : (on ? 'Andre kan se, men ikke redigere' : 'Alle med tilgang kan redigere');
+        list.appendChild(objMenuRow(icon, label, () => {
+          toggleObjLock(shareType, spec.id, obj, exception, () => { render(); repaintObjMenu(); });
+        }, { hint: hint }));
+      }
+    }
+
+    /* 7) Forlat (delte områder/mapper) — gir fra seg MIN tilgang, aldri innholdet. */
+    if ((kind === 'universe' || kind === 'group') && cap(obj, 'leave', false)) {
+      list.appendChild(objMenuRow(ICONS.logout, 'Forlat ' + OBJ_MENU_WORD[kind],
+        () => closeObjMenuThen(() => {
+          const live = objMenuLive(kind, spec.id);
+          if (live) leaveObject(kind, live);
+        })));
+    }
+
+    /* 8) Sletting sist, bak en skillelinje og i rødt: den er den eneste raden
+          som fjerner noe, og den skal aldri ligge der fingeren treffer først. */
+    if (spec.remove) {
+      const sep = document.createElement('div');
+      sep.className = 'obj-menu-sep';
+      list.appendChild(sep);
+      list.appendChild(objMenuRow(spec.removeIcon || ICONS.trash,
+        spec.removeLabel || 'Slett',
+        () => closeObjMenuThen(spec.remove), { danger: true }));
+    }
+
+    if (focusFirst) {
+      const first = list.querySelector('.obj-menu-row');
+      (first || objMenuPanel).focus();
+    }
+  }
+
+  function openObjMenu(spec, anchorBtn) {
+    if (objMenuCtx) closeObjMenu();
+    objMenuReturn = anchorBtn || null;
+    objMenuOverlay.hidden = false;
+    objMenuPanel.style.top = '';
+    objMenuPanel.style.left = '';
+    paintObjMenu(spec, null, false);
+    if (!objMenuCtx) { objMenuOverlay.hidden = true; return; } // objektet fantes ikke
+    updateModalOpenClass();
+    markObjMenuAnchor(true);
+    if (anchorBtn && anchorBtn.isConnected && objMenuIsPopover()) {
+      positionSwitcherPanel(objMenuPanel, anchorBtn);
+    }
+    if (demoRunning) placeTour(); // demokortet må vike for popoveren
+    const first = objMenuPanel.querySelector('.obj-menu-row');
+    (first || objMenuPanel).focus();
+  }
+
+  // Kobler menyknappen på et objekt. `spec` beskriver KUN det byggeren vet
+  // (omdøping, deling, sletting); resten utleder menyen selv fra kind + id.
+  function attachObjMenu(btn, spec) {
+    if (!btn) return;
+    btn.innerHTML = ICONS.menuDots;
+    btn.addEventListener('click', (ev) => {
+      ev.stopPropagation();
+      openObjMenu(spec, btn);
+    });
+  }
+
+  objMenuOverlay.addEventListener('click', (ev) => { if (ev.target === objMenuOverlay) closeObjMenu(); });
+  // Piltaster mellom de synlige radene (menyen er en `menu`, ikke et skjema).
+  objMenuPanel.addEventListener('keydown', (ev) => {
+    if (ev.key !== 'ArrowDown' && ev.key !== 'ArrowUp') return;
+    const rows = [...objMenuPanel.querySelectorAll('.obj-menu-row, .resp-row')]
+      .filter((r) => r.offsetParent !== null);
+    const i = rows.indexOf(document.activeElement);
+    if (i < 0) return;
+    ev.preventDefault();
+    rows[(i + (ev.key === 'ArrowDown' ? 1 : -1) + rows.length) % rows.length].focus();
+  });
 
   /* ---------------- Tids-editoren (deles av modalen og popoveren) ----------------
      getTarget() slår opp det levende objektet per interaksjon. opts.only
@@ -7008,8 +7567,7 @@
     const el = navBoard.querySelector('.card[data-id="' + u.id + '"]');
     if (el) {
       try { el.scrollIntoView({ block: 'nearest' }); } catch (e) { /* ignore */ }
-      const t = el.querySelector('.card-title');
-      if (t) t.click();
+      startRename(el.querySelector('.card-title'));
     }
     return u;
   }
@@ -8190,7 +8748,7 @@
      nærmeste gyldige fallback (validateActive), og sier nøkternt fra. */
   function noteAccessLoss(kind) {
     if (!shareModal.hidden) closeShare();
-    if (!settingsModal.hidden) closeSettings();
+    closeObjMenu();
     closeResponsible();
     showToast(kind === 'group'
       ? 'Du har ikke lenger tilgang til mappen'
@@ -8738,6 +9296,44 @@
   const lockOverrides = new Map();  // id → ønsket locked-verdi (set_locked i kø)
   const unlockOverrides = new Map(); // id → ønsket unntak-verdi (set_unlocked i kø)
   const policyOverrides = new Map(); // id → ønsket invite_policy (set_invite_policy i kø)
+
+  /* Lås / lås-unntak på et område eller en mappe. Veksler flagget optimistisk,
+     legger RPC-en i operasjonskøen og ruller tilbake ved feil. DELT av
+     objektmenyens «Lås for redigering» og del-modalens lås-knapp, så de to
+     aldri kan gli fra hverandre — serveren er uansett den som håndhever.
+       isException = true → «gjør/fjern unntak» under en ARVET lås (set_unlocked)
+       isException = false → objektets EGEN lås (set_locked)
+     `repaint` males på nytt både med én gang og etter et evt. tilbakerull. */
+  function toggleObjLock(type, id, obj, isException, repaint) {
+    const field = isException ? '_unlocked' : '_locked';
+    const overrides = isException ? unlockOverrides : lockOverrides;
+    const key = (isException ? 'unlock:' : 'lock:') + type + ':' + id;
+    obj[field] = !obj[field];
+    overrides.set(id, obj[field]);
+    if (repaint) repaint();
+    opQueue.enqueue({
+      key,
+      waitFor: () => rowKnownToServer(id),
+      // RPC-navnene står som LITERALER i begge grenene: db-kontrakt-testen
+      // leser `.rpc('…')` ut av app.js for å holde smoke-testen i takt, og et
+      // navn bygget i en variabel ville vært usynlig for den.
+      run: async () => {
+        const want = overrides.has(id) ? overrides.get(id) : obj[field];
+        const res = isException
+          ? await acli().rpc('set_unlocked', { p_type: type, p_id: id, p_unlocked: want })
+          : await acli().rpc('set_locked', { p_type: type, p_id: id, p_locked: want });
+        if (res.error) throw res.error;
+      },
+      onDone: () => { if (!opQueue.hasPending(key)) { overrides.delete(id); scheduleCloud(0); } },
+      onError: (e) => {
+        overrides.delete(id);
+        obj[field] = !obj[field];
+        if (repaint) repaint();
+        showToast(friendlyAuthError(e));
+        scheduleCloud(0);
+      },
+    });
+  }
   const posOverrides = new Map();    // id → ønsket PERSONLIG pos (membership-skriving i kø)
   const suppressedRows = new Set();  // id-er fjernet lokalt (leave_share i kø)
   // Mappeflyttinger som venter på move_group-RPC-en: id → { fromUni, fromCat,
@@ -9908,51 +10504,8 @@
     };
     lockRow.appendChild(lockBtn);
     lockBtn.addEventListener('click', () => {
-      if (effInheritedLock()) {
-        obj._unlocked = !obj._unlocked;
-        unlockOverrides.set(id, obj._unlocked);
-        paintLock();
-        const key = 'unlock:' + type + ':' + id;
-        opQueue.enqueue({
-          key,
-          waitFor: () => rowKnownToServer(id),
-          run: async () => {
-            const want = unlockOverrides.has(id) ? unlockOverrides.get(id) : obj._unlocked;
-            const { error } = await acli().rpc('set_unlocked', { p_type: type, p_id: id, p_unlocked: want });
-            if (error) throw error;
-          },
-          onDone: () => { if (!opQueue.hasPending(key)) { unlockOverrides.delete(id); scheduleCloud(0); } },
-          onError: (e) => {
-            unlockOverrides.delete(id);
-            obj._unlocked = !obj._unlocked;
-            if (lockBtn.isConnected) paintLock();
-            showToast(friendlyAuthError(e));
-            scheduleCloud(0);
-          },
-        });
-        return;
-      }
-      obj._locked = !obj._locked;
-      lockOverrides.set(id, obj._locked);
-      paintLock();
-      const key = 'lock:' + type + ':' + id;
-      opQueue.enqueue({
-        key,
-        waitFor: () => rowKnownToServer(id),
-        run: async () => {
-          const want = lockOverrides.has(id) ? lockOverrides.get(id) : obj._locked;
-          const { error } = await acli().rpc('set_locked', { p_type: type, p_id: id, p_locked: want });
-          if (error) throw error;
-        },
-        onDone: () => { if (!opQueue.hasPending(key)) { lockOverrides.delete(id); scheduleCloud(0); } },
-        onError: (e) => {
-          lockOverrides.delete(id);
-          obj._locked = !obj._locked;
-          if (lockBtn.isConnected) paintLock();
-          showToast(friendlyAuthError(e));
-          scheduleCloud(0);
-        },
-      });
+      toggleObjLock(type, id, obj, !!effInheritedLock(),
+        () => { if (lockBtn.isConnected) paintLock(); });
     });
 
     /* --- Medlemsliste + ventende invitasjoner --- */
@@ -10474,7 +11027,7 @@
        • en synk-runde kjører, er planlagt, eller ba om en ny runde
        • det finnes lokale endringer serveren ikke har kvittert for (saveSeq)
        • vi er innlogget uten å ha fått ett eneste svar fra serveren ennå */
-  const SAFETY_MODALS = () => [navModal, accountModal, trashModal, settingsModal,
+  const SAFETY_MODALS = () => [navModal, accountModal, trashModal, objMenuOverlay,
     shareModal, placeModal, confirmModalEl, avatarModal, delAccountModal,
     respSwitcherOverlay, timeSwitcherOverlay, tourEl];
   function authFormDirty() {
@@ -10932,15 +11485,20 @@
       id: 'dissolve_cat',
       rewind: 'create_cat',
       premise: () => !!demoCat(),
-      target: () => { const el = demoCatEl(); return el && el.querySelector('.cat-dissolve'); },
-      html: '<p>Løs opp kategorien. Listepunktene blir stående der de er — bare ' +
-        'overskriften forsvinner.</p>',
+      target: () => { const el = demoCatEl(); return el && el.querySelector('.obj-menu-btn'); },
+      allow: ['#obj-menu-panel'],
+      html: '<p>Åpne menyen på kategorien og velg «Løs opp kategorien». ' +
+        'Listepunktene blir stående der de er — bare overskriften forsvinner.</p>',
       done: () => !demoCat(),
     },
     {
       id: 'delete_item',
-      target: () => { const r = demoRows(demoCtx.cardId)[0]; return r && r.querySelector('.item-delete'); },
-      html: '<p>Slett et listepunkt.</p>',
+      target: () => { const r = demoRows(demoCtx.cardId)[0]; return r && r.querySelector('.obj-menu-btn'); },
+      allow: ['#obj-menu-panel'],
+      html: '<p>Hvert objekt har én menyknapp til høyre. Åpne menyen på et ' +
+        'listepunkt og velg «Slett listepunktet».</p>' +
+        '<p>Du kan også dra objektet rett i søppelkassen — den dukker opp så ' +
+        'snart du løfter noe.</p>',
       done: () => trashedItemsOf(demoCard()).length >= 1,
     },
     {
@@ -10972,7 +11530,8 @@
     },
     {
       id: 'delete_item2',
-      target: () => { const r = demoRows(demoCtx.cardId)[0]; return r && r.querySelector('.item-delete'); },
+      target: () => { const r = demoRows(demoCtx.cardId)[0]; return r && r.querySelector('.obj-menu-btn'); },
+      allow: ['#obj-menu-panel'],
       html: '<p>Slett et listepunkt igjen.</p>',
       done: () => trashedItemsOf(demoCard()).length >= 1,
     },
@@ -10987,8 +11546,9 @@
     },
     {
       id: 'delete_list',
-      target: () => { const el = demoCardEl(demoCtx.cardId); return el && el.querySelector('.card-delete'); },
-      html: '<p>Slett listen.</p>',
+      target: () => { const el = demoCardEl(demoCtx.cardId); return el && el.querySelector('.obj-menu-btn'); },
+      allow: ['#obj-menu-panel'],
+      html: '<p>Slett listen fra menyen i korthodet.</p>',
       done: () => !demoCard(),
     },
     {
@@ -11008,8 +11568,9 @@
     {
       id: 'delete_area',
       needsNav: true,
-      target: () => { const el = demoNavCard(); return el && el.querySelector('.card-delete'); },
-      html: '<p>Slett området. Mappen og alt i den følger med.</p>',
+      target: () => { const el = demoNavCard(); return el && el.querySelector('.obj-menu-btn'); },
+      allow: ['#obj-menu-panel'],
+      html: '<p>Slett området fra menyen i korthodet. Mappen og alt i den følger med.</p>',
       done: () => !demoUni(),
     },
     {
@@ -11113,9 +11674,7 @@
      om. En listepunkt-rad er hele sonen når den skal dras, men den bærer også
      avmerking, tannhjul og slette-kryss — og ingen av dem skal virke da. De
      slippes gjennom kun når de ER målet. */
-  const DEMO_NEVER = '.card-delete, .item-delete, .group-delete, .card-cog, .item-cog,' +
-    ' .cat-cog, .cat-dissolve, .item-check, .share-badge, .uni-share, .group-share,' +
-    ' .uni-leave, .group-leave, .done-restore, .trashcan';
+  const DEMO_NEVER = '.obj-menu-btn, .item-check, .done-restore, .trashcan';
   function demoLets(node) {
     if (!node || !node.closest) return false;
     if (tourEl.contains(node)) return true;          // demokortet selv
@@ -11194,17 +11753,23 @@
        umulig å utføre. `clear()` gir det ekstra elementet, og plasseringen
        regnes på rektangelet som rommer begge. */
     let keep = r;
+    const clearEls = [];
     if (step.clear) {
-      let ce = null;
-      try { ce = step.clear(); } catch (e) { ce = null; }
-      if (ce && ce.getClientRects().length) {
-        const c = ce.getBoundingClientRect();
-        keep = {
-          left: Math.min(r.left, c.left), right: Math.max(r.right, c.right),
-          top: Math.min(r.top, c.top), bottom: Math.max(r.bottom, c.bottom),
-        };
-      }
+      try { const ce = step.clear(); if (ce) clearEls.push(ce); } catch (e) { /* borte */ }
     }
+    /* Objektmenyen åpner seg MENS et steg pågår (målet er menyknappen, men
+       handlingen ligger i en rad inne i popoveren). Den er ikke steg-målet, og
+       kan derfor ikke stå i `clear` — men et kort oppå den gjør steget like
+       umulig. Derfor holdes den alltid fri når den er åpen. */
+    if (!objMenuOverlay.hidden) clearEls.push(objMenuPanel);
+    clearEls.forEach((ce) => {
+      if (!ce.getClientRects || !ce.getClientRects().length) return;
+      const c = ce.getBoundingClientRect();
+      keep = {
+        left: Math.min(keep.left, c.left), right: Math.max(keep.right, c.right),
+        top: Math.min(keep.top, c.top), bottom: Math.max(keep.bottom, c.bottom),
+      };
+    });
     const below = vh - keep.bottom - gap - margin;
     const above = keep.top - gap - margin;
     const right = vw - keep.right - gap - margin;
@@ -11346,7 +11911,15 @@
          et standardnavn av steget FØR, så uten dette ville steget vært oppfylt
          i det øyeblikk vi kom til det — og «Tilbake» sprettet rett fram igjen. */
       if (step.reopen) {
-        try { const el = step.reopen(); if (el && el.click) el.click(); } catch (e) { /* borte */ }
+        try {
+          const el = step.reopen();
+          // Via omdøpings-hooken, ikke et klikk: et klikk på et område-/listenavn
+          // kollapser nå, og på et mappenavn navigerer det (docs/menus.md).
+          // `.click()` er igjen for det ene tilfellet reopen gir et ALLEREDE
+          // åpent navnefelt (`.edit-input`), som ikke har noen hook.
+          if (el && el.__rename) el.__rename();
+          else if (el && el.click) el.click();
+        } catch (e) { /* borte */ }
       }
     } else {
       demoSnaps[demoIndex] = demoSnapshot();
@@ -11502,6 +12075,7 @@
     drag: 'Tips: hold på en tittel for å flytte den.',
     trash: 'Tips: hold på søppelkassen og sveip for å slette alt i den.',
     moveList: 'Tips: dra en liste opp på navigasjonsknappen for å flytte den.',
+    dragTrash: 'Tips: dra et objekt i søppelkassen for å slette det.',
   };
   let pendingTip = null;  // ba om et tips mens demoen sto på
   let lastTipAt = 0;
@@ -11550,6 +12124,9 @@
   function maybeContextualTips(cardCount) {
     if (!trashBtn.hidden && showTip('trash')) return;
     if (cardCount >= 2 && showTip('drag')) return;
+    // Søppelkassen dukker først opp UNDER et drag, så den er ikke selvforklarende
+    // — men gesten er den samme på mus og finger, og tipset gjelder overalt.
+    if (cardCount >= 1 && showTip('dragTrash')) return;
     if (cardCount >= 1 && groupTargetCount() >= 2) showTip('moveList');
   }
   // Antall mapper i det aktive området man kan flytte en liste til (samme
@@ -11575,7 +12152,7 @@
     syncStatus, retrySyncNow,
     canonicalAppUrl, authRedirectUrl,
     get cloudBase() { return cloudBase; },
-    openShare, openSettings, showToast, updateSafety, save,
+    openShare, openObjMenu, closeObjMenu, showToast, updateSafety, save,
     tour: {
       start: startTour,
       end: endTour,

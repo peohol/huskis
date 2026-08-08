@@ -105,8 +105,9 @@ gjør den presis:
 - **`preventDefault` brukes ikke på pointerdown.** Et klikk utenfor et åpent
   navnefelt skal fortsatt flytte fokus — det er sånn man bekrefter navnet.
 - **En tillatt sone er ikke fritt fram.** En listepunkt-rad er hele sonen når
-  den skal dras, men den bærer også avmerking, tannhjul og slette-kryss.
-  `DEMO_NEVER` slipper dem gjennom kun når de ER målet.
+  den skal dras, men den bærer også avmerking og menyknapp.
+  `DEMO_NEVER` slipper dem gjennom kun når de ER målet. Stegene som handler om
+  menyen lister panelet i `allow`, så radene inni er nåbare.
 
 Escape er av hele veien: den ville ellers avbrutt navngivingen (og fjernet raden
 steget nettopp ba om), lukket modalen steget står i, eller avsluttet demoen
@@ -141,6 +142,10 @@ Poenget er at brukeren skal se hele appen mens hen bruker den. Derfor:
   umulig som et kort oppå målet. `clear()` på steget gir det ekstra elementet
   (kategorien i `drag_into_cat`); plasseringen regnes på rektangelet som rommer
   begge, mens pilspissen fortsatt peker på det brukeren skal ta tak i.
+- **Objektmenyen holdes alltid fri.** Den åpner seg MENS et steg pågår (målet er
+  menyknappen, men handlingen ligger i en rad inne i popoveren), så den kan ikke
+  stå i `clear()`. `placeTour()` legger den derfor inn i frisonen automatisk når
+  den er åpen, og `openObjMenu`/`closeObjMenu` plasserer kortet på nytt.
 
 **Instruksjonen vises aldri før navigasjonen er ferdig.** `demoReady()` krever at
 riktig modal er åpen/lukket OG at målet finnes og er synlig; til da står kortet
@@ -207,17 +212,17 @@ driver dem videre); resten er handlingssteg som må utføres.
 | 20 | `drag_into_cat` | et listepunkt (kortet holder seg unna kategorien) | et punkt ligger i kategorien |
 | 21 | `create_cat_item` | ＋ inne i kategorien | ett medlem til |
 | 22 | `name_cat_item` | navnefeltet | alle medlemmer har navn |
-| 23 | `dissolve_cat` | oppløs-knappen | kategorien er borte |
-| 24 | `delete_item` | slette-krysset i raden | noe ligger i søppelkassen |
+| 23 | `dissolve_cat` | radens menyknapp → «Løs opp kategorien» | kategorien er borte |
+| 24 | `delete_item` | radens menyknapp → «Slett listepunktet» | noe ligger i søppelkassen |
 | 25 | `open_item_trash` | listens søppelkasse | søppelkasse-modalen er åpen |
 | 26 | `restore_item` | «Gjenopprett» | kassen er tom |
 | 27 | `close_item_trash` | `#trash-close` | modalen er lukket |
-| 28 | `delete_item2` | slette-krysset i raden | noe ligger i søppelkassen |
+| 28 | `delete_item2` | radens menyknapp → «Slett listepunktet» | noe ligger i søppelkassen |
 | 29 | `empty_item_trash` | listens søppelkasse | listepunktet er borte for godt |
-| 30 | `delete_list` | listens slette-kryss | listen er i søpla |
+| 30 | `delete_list` | korthodets menyknapp → «Slett listen» | listen er i søpla |
 | 31 | `empty_card_trash` | `#trash-btn` | listen er borte for godt |
 | 32 | `open_nav2` | `#nav-crumb` | oversikten er åpen |
-| 33 | `delete_area` | områdets slette-kryss | området er i søpla |
+| 33 | `delete_area` | områdekortets menyknapp → «Slett området for alle» | området er i søpla |
 | 34 | `empty_uni_trash` | `#uni-trash-btn` | området er borte for godt |
 | 35 | `close_nav` | `#nav-modal-close` | oversikten er lukket |
 | 36 | `finish` | `#account-btn` | «Ferdig» |
@@ -237,7 +242,7 @@ På **kontoen**, i `user_metadata` — samme mekanikk som den huskede posisjonen
 
 ```js
 user_metadata.onboarding = { v: 3, status: 'done' | 'skipped' }
-user_metadata.tips = { drag: true, trash: true, moveList: true }
+user_metadata.tips = { drag: true, trash: true, moveList: true, dragTrash: true }
 ```
 
 Bare utfallet lagres, og bare når runden er over. Demoen er en simulering, ikke
@@ -290,7 +295,12 @@ ett kort tips i den vanlige toasten, aldri mer enn ett om gangen:
 |---|---|---|
 | `trash` | liste-søppelkassen er synlig | hold på søppelkassen og sveip for å slette alt i den |
 | `drag` | mappen har ≥ 2 lister | hold på (eller dra) en tittel for å flytte |
+| `dragTrash` | mappen har ≥ 1 liste | dra et objekt i søppelkassen for å slette det |
 | `moveList` | mappen har ≥ 1 liste og området ≥ 2 mapper | dra en liste opp på navigasjonsknappen for å flytte den |
+
+`dragTrash` gjelder alle pekertyper: kassen dukker først opp UNDER et drag, så
+den er ikke selvforklarende — men gesten er den samme på mus og finger. Se
+`docs/trash.md` («Slett ved å dra objektet i kassen»).
 
 `showTip()` viser ingenting hvis det ville kostet brukeren noe: før demoen er
 ferdig (tipset huskes og kommer etterpå), midt i en redigering eller et drag,

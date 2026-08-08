@@ -433,7 +433,7 @@ visningen glir over uten flimmer.
   skillet: medlemslisten er synlig for enhver med tilgang, mens invitasjonsfelt,
   rollevelger, medlemsadministrasjon, lås, «Forlat» og «Slett for alle» vises
   etter capabilities.
-- **Åpning**: områder og mapper deles fra `.uni-share`/`.group-share` i
+- **Åpning**: områder og mapper deles fra «Deling og medlemmer» i objektmenyen i
   nav-modalen — knappene er synlige for ALLE med tilgang (medlemslisten er åpen).
   Begge sender `openNavModal` som `backTo`. **Lister har ingen deling** lenger;
   chipen i listas meta-rad åpner MAPPENS delingsinnstillinger.
@@ -554,7 +554,7 @@ systemgrense; `grant update (display_name, avatar)` er utvidet tilsvarende.
   kontekst (liste under en delt mappe eller et delt område — delegruppen er
   alltid MAPPEN, `shareRootFor`) kan få en ansvarlig — både hvert listepunkt
   og hele listen.
-  Settes fra innstillingsmodalens «Ansvarlig»-rad eller ansvarlig-chipen i
+  Settes fra objektmenyens «Ansvarlig»-skuff eller ansvarlig-chipen i
   meta-raden (`docs/scheduling.md`); begge åpner ansvarlig-velgeren
   (`openResponsible(target, …)`, target = `{ kind: 'card'|'item', obj, card }`)
   — popover (desktop) / modal (mobil) på `.switcher-*`-skallet. Radene viser

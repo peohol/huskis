@@ -9,14 +9,15 @@
     1. Én nav-knapp; de gamle to modalene finnes ikke lenger.
     2. Områder rendres som `.card` med mappene som `.item` i `.items-container`,
        i ÉN kolonne.
-    3. Områder/mapper har KUN del-knapp (ingen tannhjul); mappekategorier har
-       kun oppløs-knapp.
+    3. Alle tre nivåene har NØYAKTIG én knapp: objektmenyen (`.obj-menu-btn`).
+       De gamle del-/forlat-/slett-/oppløs-knappene finnes ikke lenger.
     4. Kollaps av et område viser [mappe-ikon] + antall (ikke «(N)»).
-    5. Klikk på mappenavnet redigerer; klikk ellers på raden navigerer + lukker.
+    5. Klikk på raden — navnet inkludert — navigerer og lukker; omdøping
+       ligger i menyen (og på F2).
     6. DnD: mappe mellom områder, mappe ut i «lufta» → nytt område,
        mappe inn i en mappekategori.
     7. Drar man mappa man STÅR i til et annet område, følger lokasjonen med.
-    8. Tastatur: Enter/Mellomrom navigerer, omdøper og kollapser uten peker.
+    8. Tastatur: Enter/Mellomrom navigerer og kollapser uten peker.
     9. Slipp i et LÅST område rulles tilbake (DB-guarden ville avvist det).
    10. [område-/mappe-ikon][delt-ikon]Navn, og ingen lys innerkant på kortet.
    11. Mappe-søppelkassen ligger i områdekortet; område-søppelkassen nederst.
@@ -26,6 +27,15 @@
     NODE_PATH=$(npm root -g) node tests/nav-modal.test.js
 */
 const { chromium } = require('playwright');
+
+// Åpne objektmenyen på et objekt og velg en rad. Alt som før lå på en egen
+// ikonknapp (slett, forlat, del, oppløs) ligger nå her.
+async function menuPick(p, hostSel, label) {
+  await p.locator(hostSel + ' .obj-menu-btn').first().click();
+  await p.waitForTimeout(220);
+  await p.locator('#obj-menu-panel .obj-menu-row', { hasText: label }).click();
+  await p.waitForTimeout(220);
+}
 
 const BASE = process.env.HUSKIS_URL || 'http://localhost:8000';
 
@@ -168,38 +178,55 @@ async function run(label, vp, mobile) {
   log(label + ' 2: ＋-mappe og mappekategori-knapp i hvert område',
     shape.cards.every((c) => c.addBtns === 2));
 
-  /* ---------- 3) Kun del-knapper; kategorien har kun oppløs ---------- */
+  /* ---------- 3) Én knapp per objekt: objektmenyen ---------- */
   const btns = await p.evaluate(() => {
     const card = document.querySelector('#nav-board .card[data-id="uni-A"]');
     const row = card.querySelector('.item[data-id="g-a1"]');
     const cat = card.querySelector('.category[data-id="gc-1"]');
+    const vis = (el) => [].slice.call(el.querySelectorAll(':scope > button'))
+      .filter((b) => !b.hidden).map((b) => b.className);
     return {
-      uniShare: !!card.querySelector('.card-head .uni-share') && !card.querySelector('.card-head .uni-share').hidden,
-      uniCog: card.querySelectorAll('.card-head .card-cog:not(.uni-share)').length,
-      rowShare: !!row.querySelector('.group-share') && !row.querySelector('.group-share').hidden,
+      uniBtns: vis(card.querySelector('.card-head')),
+      rowBtns: vis(row),
+      catBtns: vis(cat.querySelector('.cat-head')),
       rowCheck: row.querySelectorAll('.item-check').length,
-      rowCog: row.querySelectorAll('.item-cog:not(.group-share)').length,
-      catDissolve: !!cat.querySelector('.cat-head .cat-dissolve'),
-      catCog: cat.querySelectorAll('.cat-head .cat-cog').length,
-      catShare: cat.querySelectorAll('.cat-head .group-share').length,
+      legacy: document.querySelectorAll('#nav-board .uni-share, #nav-board .uni-delete,' +
+        ' #nav-board .uni-leave, #nav-board .group-share, #nav-board .group-delete,' +
+        ' #nav-board .group-leave, #nav-board .cat-dissolve').length,
     };
   });
-  log(label + ' 3: området har del-knapp og ikke tannhjul',
-    btns.uniShare === true && btns.uniCog === 0, JSON.stringify(btns));
-  log(label + ' 3: mappa har del-knapp, ingen avmerkingsboks og ikke tannhjul',
-    btns.rowShare === true && btns.rowCheck === 0 && btns.rowCog === 0);
-  log(label + ' 3: mappekategorien har kun oppløs-knapp',
-    btns.catDissolve === true && btns.catCog === 0 && btns.catShare === 0);
+  log(label + ' 3: områdekortet har kun objektmenyknappen',
+    btns.uniBtns.length === 1 && /obj-menu-btn/.test(btns.uniBtns[0]), JSON.stringify(btns));
+  log(label + ' 3: mappa har kun objektmenyknappen og ingen avmerkingsboks',
+    btns.rowBtns.length === 1 && /obj-menu-btn/.test(btns.rowBtns[0]) && btns.rowCheck === 0);
+  log(label + ' 3: mappekategorien har kun objektmenyknappen, og de gamle knappene er borte',
+    btns.catBtns.length === 1 && /obj-menu-btn/.test(btns.catBtns[0]) && btns.legacy === 0);
+
+  // Menyen: én meny for hele nivået, med de handlingene knappene hadde.
+  await p.locator('#nav-board .card[data-id="uni-A"] .card-head .obj-menu-btn').click();
+  await p.waitForTimeout(250);
+  const uniMenu = await p.evaluate(() => ({
+    hidden: document.getElementById('obj-menu').hidden,
+    rows: [].slice.call(document.querySelectorAll('#obj-menu-panel .obj-menu-row'))
+      .map((r) => r.querySelector('.obj-menu-label').textContent),
+    navn: (document.querySelector('#obj-menu-panel .obj-menu-head-name') || {}).textContent,
+  }));
+  log(label + ' 3: menyen har omdøping, flytting, deling og sletting for området',
+    uniMenu.hidden === false && uniMenu.navn === 'Hjemme' &&
+    uniMenu.rows.includes('Endre navn') && uniMenu.rows.includes('Flytt') &&
+    uniMenu.rows.includes('Deling og medlemmer') &&
+    uniMenu.rows.includes('Slett området for alle'), JSON.stringify(uniMenu));
+  await p.keyboard.press('Escape'); await p.waitForTimeout(200);
 
   /* ---------- 4) Kollaps viser [mappe-ikon] + antall ---------- */
-  // Treff korthodet MELLOM tittelen og knappene: klikk på tittelen redigerer, og
-  // på knappene deler/sletter — bare «resten» av headeren kollapser området.
+  // Treff korthodet MELLOM tittelen og menyknappen (klikk på tittelen kollapser
+  // også, men vi vil måle «resten» av headeren).
   // Måles på NYTT hver gang: modalen krymper når et område kollapser, og siden
   // den er vertikalt sentrert flytter kortene seg.
   const headHit = async () => p.evaluate(() => {
     const head = document.querySelector('#nav-board .card[data-id="uni-B"] .card-head');
     const t = head.querySelector('.card-title').getBoundingClientRect();
-    const s = head.querySelector('.uni-share').getBoundingClientRect();
+    const s = head.querySelector('.obj-menu-btn').getBoundingClientRect();
     const r = head.getBoundingClientRect();
     return { x: (t.right + s.left) / 2, y: r.top + r.height / 2 };
   });
@@ -217,11 +244,27 @@ async function run(label, vp, mobile) {
   await clickHead(); // åpne igjen
   await p.waitForTimeout(300);
 
-  /* ---------- 5) Klikk på navnet redigerer, klikk ellers navigerer ---------- */
+  /* ---------- 5) Klikk navigerer overalt; omdøping ligger i menyen ---------- */
+  // Klikk PÅ NAVNET skal ikke lenger omdøpe: omdøping og navigering kjempet om
+  // det samme trykket. Menyen er den ene veien inn.
   await p.locator('#nav-board .item[data-id="g-b1"] .item-text').click();
+  await p.waitForTimeout(300);
+  const nameClick = await p.evaluate(() => ({
+    redigerer: !!document.querySelector('#nav-board .item[data-id="g-b1"] .edit-input'),
+    lukket: document.getElementById('nav-modal').hidden,
+    g: window.__huskis.state.activeGroup,
+  }));
+  log(label + ' 5: klikk på mappenavnet navigerer (omdøper ikke lenger)',
+    nameClick.redigerer === false && nameClick.lukket === true && nameClick.g === 'g-b1',
+    JSON.stringify(nameClick));
+
+  await open(p);
+  await p.locator('#nav-board .item[data-id="g-b1"] .obj-menu-btn').click();
   await p.waitForTimeout(250);
-  const editing = await p.evaluate(() => !!document.querySelector('#nav-board .item[data-id="g-b1"] .edit-input'));
-  log(label + ' 5: klikk på mappenavnet åpner navneredigering', editing === true);
+  await p.locator('#obj-menu-panel .obj-menu-row', { hasText: 'Endre navn' }).click();
+  await p.waitForTimeout(300);
+  log(label + ' 5: «Endre navn» i menyen åpner navneredigering',
+    await p.evaluate(() => !!document.querySelector('#nav-board .item[data-id="g-b1"] .edit-input')));
   await p.keyboard.press('Escape'); await p.waitForTimeout(250);
 
   const main = await p.locator('#nav-board .item[data-id="g-b1"] .item-main').boundingBox();
@@ -360,17 +403,16 @@ async function run(label, vp, mobile) {
   log(label + ' 8: Enter på en mapperad navigerer dit og lukker modalen',
     kbNav.lukket === true && kbNav.u === 'uni-B' && kbNav.g === 'g-b1', JSON.stringify(kbNav));
 
-  // Enter på raden man ALLEREDE står i redigerer navnet (ellers ville Enter der
-  // bare lukket modalen — det var slik chip-radene oppførte seg før).
+  // F2 omdøper — også på mappa man allerede står i. (Enter navigerer overalt nå.)
   await open(p);
   await p.locator('#nav-board .card[data-id="uni-B"] .item[data-id="g-b1"]').focus();
-  await p.keyboard.press('Enter');
+  await p.keyboard.press('F2');
   await p.waitForTimeout(300);
   const kbRename = await p.evaluate(() => ({
     input: !!document.querySelector('#nav-board .item[data-id="g-b1"] .edit-input'),
     apen: !document.getElementById('nav-modal').hidden,
   }));
-  log(label + ' 8: Enter på den aktive mappa åpner navneredigering',
+  log(label + ' 8: F2 på mappa åpner navneredigering',
     kbRename.input === true && kbRename.apen === true, JSON.stringify(kbRename));
   await p.keyboard.press('Escape');
   await p.waitForTimeout(250);
@@ -457,21 +499,31 @@ async function run(label, vp, mobile) {
   // områder), så søppel-sjekkene får sitt eget kjente utgangspunkt.
   await seed(p);
   await open(p);
-  await p.locator('#nav-board .card[data-id="uni-A"] .item[data-id="g-a2"] .group-delete').click();
+  await menuPick(p, '#nav-board .card[data-id="uni-A"] .item[data-id="g-a2"]', 'Slett mappen for alle');
   await p.waitForTimeout(650);
   const trash = await p.evaluate(() => ({
     inUniCard: !!document.querySelector('#nav-board .card[data-id="uni-A"] .group-trash-btn'),
     count: (document.querySelector('#nav-board .card[data-id="uni-A"] .group-trash-btn .trashcan-count') || {}).textContent,
-    otherUni: !!document.querySelector('#nav-board .card[data-id="uni-B"] .group-trash-btn'),
+    // Kassen bygges ALLTID (den vises fram som slippmål under et drag), så det
+    // er synligheten — ikke om noden finnes — som skiller områdene.
+    synligIUniA: (() => {
+      const b = document.querySelector('#nav-board .card[data-id="uni-A"] .group-trash-btn');
+      return !!b && !b.hidden && !b.closest('[hidden]');
+    })(),
+    synligIUniB: (() => {
+      const b = document.querySelector('#nav-board .card[data-id="uni-B"] .group-trash-btn');
+      return !!b && !b.hidden && !b.closest('[hidden]');
+    })(),
     uniTrashHidden: document.getElementById('uni-trash-btn').hidden,
     uniTrashInModalFooter: !!document.querySelector('#nav-modal .nav-actions #uni-trash-btn'),
   }));
   log(label + ' 11: mappe-søppelkassen ligger i områdekortet mappa hørte til',
-    trash.inUniCard === true && trash.count === '1' && trash.otherUni === false, JSON.stringify(trash));
+    trash.inUniCard === true && trash.count === '1' &&
+    trash.synligIUniA === true && trash.synligIUniB === false, JSON.stringify(trash));
   log(label + ' 11: område-søppelkassen ligger nederst i modalen (skjult når tom)',
     trash.uniTrashInModalFooter === true && trash.uniTrashHidden === true);
 
-  await p.locator('#nav-board .card[data-id="uni-A"] .uni-delete').click();
+  await menuPick(p, '#nav-board .card[data-id="uni-A"] .card-head', 'Slett området for alle');
   await p.waitForTimeout(650);
   const uniTrash = await p.evaluate(() => ({
     hidden: document.getElementById('uni-trash-btn').hidden,

@@ -39,6 +39,15 @@ const { chromium } = require('playwright');
 
 const BASE = process.env.HUSKIS_URL || 'http://localhost:8000';
 
+// Sletting/oppløsing ligger i objektmenyen. Demoen tillater menypanelet på de
+// stegene den demonstrerer, så gaten slipper begge klikkene gjennom.
+async function pickInMenu(p, hostSel, label) {
+  await p.locator(hostSel + ' .obj-menu-btn').first().click();
+  await p.waitForTimeout(250);
+  await p.locator('#obj-menu-panel .obj-menu-row', { hasText: label }).click();
+  await p.waitForTimeout(250);
+}
+
 const results = [];
 const log = (n, ok, x = '') => { results.push(ok); console.log((ok ? 'PASS' : 'FAIL') + ' — ' + n + (x ? '  [' + x + ']' : '')); };
 
@@ -47,6 +56,10 @@ const U = () => 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
 });
 
 /* ---------------- Felles hjelpere ---------------- */
+
+// Siste elementkjede under sveipe-punktet (se swipeEmpty) — evidens når en
+// gest ikke gir utslag.
+let lastSwipeHit = null;
 
 // Vent på at demoen står på ET BESTEMT steg OG at kortet faktisk vises.
 // `shown` er halve poenget: kortet males først når navigasjonen er ferdig.
@@ -163,6 +176,20 @@ async function drag(p, fromSel, toSel) {
 // Hold inne søppelkassen og sveip til høyre (tømming).
 async function swipeEmpty(p, sel) {
   const b = await p.locator(sel).first().boundingBox();
+  // Hva ligger FAKTISK under pekeren? Trykket går rått via `p.mouse` (gesten
+  // trenger ekte hold + bevegelse), så et element oppå knappen svelger hele
+  // sveipet uten et eneste spor. Noteres for feilmeldingen lenger nede.
+  lastSwipeHit = await p.evaluate(([x, y]) => {
+    const el = document.elementFromPoint(x, y);
+    if (!el) return 'ingenting';
+    const chain = [];
+    for (let n = el; n && n !== document.body; n = n.parentElement) {
+      chain.push(n.tagName.toLowerCase() + (n.id ? '#' + n.id : '') +
+        (n.className && typeof n.className === 'string' ? '.' + n.className.trim().split(/\s+/).join('.') : ''));
+      if (chain.length >= 4) break;
+    }
+    return chain.join(' < ');
+  }, [b.x + b.width / 2, b.y + b.height / 2]);
   await p.mouse.move(b.x + b.width / 2, b.y + b.height / 2);
   await p.mouse.down();
   await p.waitForTimeout(450);   // FAST: gest-fysikk (HOLD_EXPAND_MS)
@@ -304,7 +331,7 @@ async function run(label, vp, mobile) {
   await waitStep(p, 'name_item2');
   await typeName(p, 'Brød');
 
-  /* Sletting demonstreres ikke her: slette-krysset i raden svarer ikke, selv om
+  /* Sletting demonstreres ikke her: menyknappen i raden svarer ikke, selv om
      raden ellers er «levende» fordi den skal dras. */
   await waitStep(p, 'drag_item');
   const antall = () => p.evaluate((id) => {
@@ -312,10 +339,10 @@ async function run(label, vp, mobile) {
     return c.items.filter((it) => !it.trashed && !it._pendingDelete).length;
   }, cid);
   const antallFør = await antall();
-  await p.locator(rader + ':last-child .item-delete').click({ force: true });
-  await p.waitForTimeout(400);   // FAST: fraværsbevis (slettingen skal IKKE skje)
+  await p.locator(rader + ':last-child .obj-menu-btn').click({ force: true });
+  await p.waitForTimeout(400);   // FAST: fraværsbevis (menyen skal IKKE åpne seg)
   const antallEtter = await antall();
-  log(label + ' 11: sletting virker ikke når steget ikke demonstrerer sletting',
+  log(label + ' 11: menyen åpner seg ikke når steget ikke demonstrerer sletting',
     antallFør === 2 && antallEtter === 2, antallFør + ' → ' + antallEtter);
 
   await drag(p, rader + ':last-child', rader + ':first-child');
@@ -340,10 +367,10 @@ async function run(label, vp, mobile) {
   await waitStep(p, 'name_cat_item');
   await typeName(p, 'Egg');
   await waitStep(p, 'dissolve_cat');
-  await p.locator('.category[data-id="' + catId + '"] .cat-dissolve').click();
+  await pickInMenu(p, '.category[data-id="' + catId + '"] .cat-head', 'Løs opp kategorien');
 
   await waitStep(p, 'delete_item');
-  await p.locator(rader + ':first-child .item-delete').click();
+  await pickInMenu(p, rader + ':first-child', 'Slett listepunktet');
   await waitStep(p, 'open_item_trash');
   await p.locator(kort + ' .item-trash-btn').click();
   await waitStep(p, 'restore_item');
@@ -351,17 +378,42 @@ async function run(label, vp, mobile) {
   await waitStep(p, 'close_item_trash');
   await p.locator('#trash-close').click();
   await waitStep(p, 'delete_item2');
-  await p.locator(rader + ':first-child .item-delete').click();
+  await pickInMenu(p, rader + ':first-child', 'Slett listepunktet');
   await waitStep(p, 'empty_item_trash');
   await swipeEmpty(p, kort + ' .item-trash-btn');
-  await waitStep(p, 'delete_list');
-  await p.locator(kort + ' .card-delete').click();
+  // Hold-og-sveip er gest-fysikk: blir trykket lest som KORT (feltet rakk ikke
+  // å åpne seg), åpner knappen søppelkasse-modalen i stedet for å tømme, og
+  // neste steg stiller seg aldri. Da er tilstanden det eneste som forteller
+  // hvorfor — så den skrives ut før feilen kastes videre.
+  try {
+    await waitStep(p, 'delete_list');
+  } catch (e) {
+    const why = await p.evaluate((id) => {
+      const H = window.__huskis;
+      const c = H.state.universes.flatMap((u) => u.groups).flatMap((g) => g.cards)
+        .find((x) => x.id === id) || null;
+      return {
+        under: null,
+        steg: H.tour.id, vist: H.tour.shown,
+        søppelmodalÅpen: !document.getElementById('trash-modal').hidden,
+        navmodalÅpen: !document.getElementById('nav-modal').hidden,
+        objektmenyÅpen: !document.getElementById('obj-menu').hidden,
+        elementer: c ? c.items.length : null,
+        iKassen: c ? c.items.filter((it) => it.trashed || it._pendingDelete).length : null,
+        kasseknapp: !!document.querySelector('.card[data-id="' + id + '"] .item-trash-btn'),
+      };
+    }, cid);
+    why.under = lastSwipeHit;
+    console.log('FAIL — ' + label + ' 11b: tømming av element-søppelkassen  [' + JSON.stringify(why) + ']');
+    throw e;
+  }
+  await pickInMenu(p, kort + ' .card-head', 'Slett listen');
   await waitStep(p, 'empty_card_trash');
   await swipeEmpty(p, '#trash-btn');
   await waitStep(p, 'open_nav2');
   await p.locator('#nav-crumb').click();
   await waitStep(p, 'delete_area');
-  await p.locator('.uni-card .card-delete').first().click();
+  await pickInMenu(p, '.uni-card .card-head', 'Slett området for alle');
   await waitStep(p, 'empty_uni_trash');
   await swipeEmpty(p, '#uni-trash-btn');
   await waitStep(p, 'close_nav');

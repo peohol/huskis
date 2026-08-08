@@ -63,7 +63,7 @@ async function load(page, db, viewport) {
     localStorage.setItem('hk-mock-db', JSON.stringify(db));
     // Kontoen har sett HELE introduksjonen (docs/introduksjon.md): verken
     // omvisningen eller et gest-tips skal legge seg over det som testes.
-    sessionStorage.setItem('hk-mock-session', JSON.stringify({ id: 'uMe', email: 'me@x.no', user_metadata: { onboarding: { v: 3, status: 'done' }, tips: { drag: true, trash: true, moveList: true } } }));
+    sessionStorage.setItem('hk-mock-session', JSON.stringify({ id: 'uMe', email: 'me@x.no', user_metadata: { onboarding: { v: 3, status: 'done' }, tips: { drag: true, trash: true, moveList: true, dragTrash: true } } }));
   }, db);
   await page.goto(BASE + '/?mock=1');
   await page.waitForFunction(() => {
@@ -403,7 +403,9 @@ async function safetyScenario(page, ids) {
   await page.waitForTimeout(400);
 
   // Buffret sletting = utrygt til bufferet er committet og synket.
-  await page.locator('.card .item .item-delete').first().click();
+  await page.locator('.card .item .obj-menu-btn').first().click();
+  await page.waitForTimeout(250);
+  await page.locator('#obj-menu-panel .obj-menu-row', { hasText: 'Slett listepunktet' }).click();
   await page.waitForTimeout(500); // fly-i-søpla-animasjonen
   s = await page.evaluate(() => window.__huskis.updateSafety());
   check('B: buffret sletting = utrygt («pending-delete»)', s.safe === false && s.reason === 'pending-delete');

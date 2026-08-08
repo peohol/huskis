@@ -12,6 +12,100 @@ listepunkter.** Et område er et `.card`, en mappe en `.item`-rad, en
 mappekategori en `.category`. Dermed arves hele kort-/rad-designet OG hele
 dra-og-slipp-motoren — se `docs/drag-and-drop.md` («Nav-scopet»).
 
+## Objektmenyen (`.obj-menu-btn` → `#obj-menu`)
+
+**Autoritativt for hva et objekt kan gjøre og hvor man finner det.**
+
+Alle seks objekttypene — **område, mappe, mappekategori, liste, listepunkt og
+kategori** — har NØYAKTIG én knapp til høyre: menyknappen (tre prikker,
+`ICONS.menuDots`). Den erstatter tannhjulet, ✕, del-knappen, forlat-knappen og
+oppløs-knappen, og har avviklet den gamle innstillingsmodalen helt. Målet er
+færre synlige knapper og ingen kamp mellom to funksjoner om det samme trykket.
+
+Knappen arver flate og størrelse fra kontrollen den erstattet på hvert nivå, så
+ingen ny knappestil er innført:
+
+| Nivå | Klasser på menyknappen |
+|---|---|
+| Område / liste (korthode) | `.card-cog.obj-menu-btn` |
+| Mappe / listepunkt (rad) | `.item-cog.obj-menu-btn` |
+| Mappekategori / kategori (overskrift) | `.cat-cog.obj-menu-btn` |
+
+### Form
+
+**Popover** forankret i knappen på desktop (`min-width: 561px`), **sentrert ark**
+på mobil — samme `.switcher-overlay`/`.switcher-panel`-skall som ansvarlig-
+velgeren og tids-popoveren, så det finnes bare én popover-mekanikk i appen.
+Panelet innledes med en overskrift som sier hvilket objekt menyen gjelder
+(type-ikon + navn); på mobil dekker arket raden det kom fra, og uten navnet er
+det ikke mulig å se hva man holder på med.
+
+### Radene
+
+Rekkefølgen er fast; rader som ikke gjelder objektet **utelates helt** (en
+avskrudd rad er verre enn ingen rad). Alt gates av de samme capabilities som
+knappene brukte, og feiler LUKKET — se `docs/rettigheter-og-deling.md`.
+
+| # | Rad | Gjelder | Gate |
+|---|---|---|---|
+| 1 | **Endre navn** | alle | `editContent` / `!frozen` |
+| 2 | **Ansvarlig** ▸ | liste, listepunkt, kategori i DELT mappe | mappen er delt |
+| 3 | **Tidsplan** ▸ | liste, listepunkt, kategori | — (feltene låses av `timeController`) |
+| 4 | **Flytt** ▸ | alle som kan omrokkeres | `canReorderObj` |
+| 5 | **Deling og medlemmer** | område, mappe, liste | — (medlemslisten er åpen for alle med tilgang) |
+| 6 | **Lås / Åpne** (eller **Gjør/Fjern unntak**) | delt område, delt mappe | `manageLock` / `lockException` |
+| 7 | **Forlat …** | delt område, delt mappe | `leave` |
+| 8 | **Slett …** / **Løs opp …** | alle man kan fjerne | `delete` / `!frozen` |
+
+**Sletting står SIST**, bak en skillelinje og i rødt (`.obj-menu-row.is-danger`).
+Den er den eneste raden som fjerner noe, og den skal ikke ligge der fingeren
+treffer først når menyen åpner seg.
+
+En **liste** har ingen egen medlemsliste — tilgangen arves fra mappen. «Deling og
+medlemmer» på et listekort åpner derfor MAPPENS del-modal. Listepunkter og
+kategorier har ingen delingsrad i det hele tatt.
+
+### Trekkspillet
+
+«Flytt», «Ansvarlig» og «Tidsplan» er skuffer (`.obj-menu-sub`) under sin
+overskriftsrad. **Kun ÉN skuff kan være åpen om gangen** — å åpne en ny lukker
+den forrige, begge med animert høyde (`slideObjSub`, 180 ms). Uten det ville
+menyen blitt lengre enn skjermen på mobil.
+
+Skuffene er skilt med hårfine linjer — fra hverandre og fra de vanlige radene
+over og under. En fane som kan folde seg ut er en egen blokk, ikke nok en rad i
+rekka. Linjene ligger som `border-top` på selve gruppen (ikke som egne
+elementer), så nabo-faner deler én linje og ingen ekstra luft snik-legges inn.
+
+Innholdet i en skuff er rykket inn, så nivåene leses uten egne rammer. Radene
+(«Flytt opp», ansvarlig-radene) har sin egen polstring og får innrykket gratis;
+tids-editoren har det ikke, og får det derfor eksplisitt — samme venstrekant.
+
+- **Flytt** ▸ «Flytt opp» / «Flytt ned» (`keyboardReorder`, ett hakk per trykk,
+  menyen blir stående så flere hakk kan tas etter hverandre) og «Flytt til …»
+  (`keyboardMoveTo`, åpner velger-modalen). Dette er dra-og-slippets motstykke
+  for den som ikke kan eller vil dra — se `docs/tilgjengelighet.md`.
+- **Ansvarlig** ▸ de samme radene som ansvarlig-velgeren, men inne i menyen: en
+  popover oppå en popover ville lagt to lag over samme knapp.
+- **Tidsplan** ▸ hele tids-editoren (`buildTimeEditor`) — se `docs/scheduling.md`.
+
+### Menyen tåler at DOM-en bygges om
+
+Alt slås opp på id (`objMenuLive`), aldri på en fanget objektreferanse, og
+ankeret finnes igjen med selektor (`objMenuAnchor`) etter en rendring — en
+sortering fra menyen bygger jo board-et om under den. `repaintObjMenu()` maler
+radene på nytt (etter lås, ansvar, sortering) uten å lukke, og beholder den åpne
+skuffen. Forsvinner objektet, lukker menyen seg.
+
+## Sletting: dra objektet i søppelkassen
+
+Objektmenyens siste rad er den ene måten, dra-og-slipp den andre: løfter man et
+objekt, dukker søppelkassen for nivået opp, og et slipp i den sletter. Samme
+gest på desktop og mobil, samme motor som all annen flytting.
+
+Kategorier har ingen kasse — de **løses opp** fra menyen (listepunktene blir
+stående). Autoritativt: `docs/trash.md` («Slett ved å dra objektet i kassen»).
+
 ## Toppmenyen (`.topbar`)
 
 Ett fast panel øverst (`position: fixed`, full bredde, samme DOM på mobil og
@@ -85,37 +179,43 @@ forskjellene:
 
 | Listekort | Område-kort |
 |---|---|
-| tannhjul (`.card-cog`) → innstillingsmodal | **del-knapp** (`.uni-share`, samme knappestil) → del-modalen |
 | «(N)» ved navnet når kollapset | **[mappe-ikon] + antall** (`.collapse-count.uni-count`) |
 | «Utført»-seksjon + ⟲ | — (mapper krysses ikke av) |
 | ＋ listepunkt / gul kategori-knapp | **＋ mappe / gul mappekategori-knapp** (`ICONS.groupCategory`) |
 | listepunkt-søppelkasse i body-en | **mappe-søppelkasse** i body-en (`.group-trash-btn`) |
 
-- Klikk på **tittelen** = omdøp inline. Klikk **ellers på korthodet** (ikke
-  tittel/del/×) = kollaps/utvid (`card.collapsed` ⇒ `universe.collapsed`, lagres
-  og synkes). Trykk-og-hold (touch) / dra (mus) på korthodet = flytt området.
+Begge har den samme ene knappen til høyre: **objektmenyen** (`.obj-menu-btn`,
+se under).
+
+- Klikk **hvor som helst på korthodet** (unntatt menyknappen) = kollaps/utvid
+  (`card.collapsed` ⇒ `universe.collapsed`, lagres og synkes) — også på
+  tittelen. Trykk-og-hold (touch) / dra (mus) på korthodet = flytt området.
+- **Omdøping går via menyen** (eller F2 på korthodet); et klikk på navnet
+  omdøper ikke lenger.
 - Det AKTIVE området markeres med ringen i `--focus` (`.card.active`) og med
   `aria-current`, så tilstanden også finnes for en skjermleser.
 - **Tastatur:** korthodet er `role="button" tabindex="0"` med `aria-expanded`, og
   Enter/Mellomrom gjør det samme som et klikk der — kollapser/utvider.
   `toggleCardCollapsed` oppdaterer `aria-expanded` når attributtet finnes
   (listekortene på hovedsidens board har ingen tastaturrolle, så der er det no-op).
+- Fri-beholderen (`.free-groups-card`) har ingen meny: den er en seksjon, ikke
+  et område, og har ingenting å tilby (`menuBtn.hidden = true`).
 
 ### Mappe-raden (`.item.group-row`, `#group-row-template`)
 
 Samme rad som et listepunkt, men **uten avmerkingsboks** (mapper krysses ikke
-av) og med **del-knapp** (`.group-share`) i stedet for tannhjul.
+av). Én knapp til høyre: objektmenyen.
 
-- Klikk på **navnet** (`.item-text`) = omdøp inline.
-- Klikk **ellers på raden** (ikke navn/del/×) = **gå til mappen** (setter aktivt
-  område + mappe, `goToGroup`) og **lukk modalen**.
+- Klikk **hvor som helst på raden** — navnet inkludert — = **gå til mappen**
+  (setter aktivt område + mappe, `goToGroup`) og **lukk modalen**.
+- **Omdøping går via menyen** (eller F2). Dette er hele grunnen til at klikk på
+  navnet ikke lenger omdøper: omdøping og navigering kjempet om det samme
+  trykket, og navigering er det man gjør ti ganger oftere.
 - Den AKTIVE mappen markeres med ringen i `--focus` (`.item.active`) og med
   `aria-current`. Se `docs/tilgjengelighet.md`.
-- **Tastatur:** raden er `role="button" tabindex="0"`. Navnet er ikke
-  fokuserbart, så Enter/Mellomrom **omdøper når man allerede står i mappen**
-  (ellers ville et Enter der bare lukket modalen) og **navigerer** ellers — samme
-  kompromiss som chip-radene hadde før nav-modalen. `ev.target !== el`-vakten
-  lar del-/slett-knappene beholde sin egen tastaturoppførsel.
+- **Tastatur:** raden er `role="button" tabindex="0"`; Enter/Mellomrom
+  navigerer, F2 omdøper. `ev.target !== el`-vakten lar menyknappen beholde sin
+  egen tastaturoppførsel.
 
 ### Type-ikon og delt-merke foran navnet
 
@@ -132,9 +232,11 @@ ved navnet sier det samme uten kanten.
 ### Mappekategorien (`.category.group-cat`, `#group-cat-template`)
 
 Samme kategori-rad som i en liste (overskrift på områdeflaten + en innrykket
-«hylle» med mappene), men **uten innstillinger og uten deling** — kun
-**oppløs-knappen** (`.cat-dissolve`) og den grønne ＋-knappen nederst i hylla.
-Klikk på overskriftslinjen kollapser/utvider; klikk på tittelen omdøper.
+«hylle» med mappene). Én objektmenyknapp i overskriften (der ligger «Løs opp
+mappekategorien») og den grønne ＋-knappen nederst i hylla. Klikk på
+overskriftslinjen kollapser/utvider; **klikk på tittelen omdøper** — kategorier
+og listepunkter beholder hurtig-omdøpingen, fordi de ikke har noen annen
+handling å kollidere med.
 
 ### Søppelkassene
 
@@ -185,12 +287,13 @@ tekstflyt: ikonet ligger inline i direkte tilknytning til navnet
 (`.share-title-obj`), ikke som egen flex-kolonne til venstre for overskriften.
 
 `openShare(type, id, obj, backTo)`: `backTo` (valgfri funksjon) gjenåpner
-modalen del-modalen ble åpnet fra — satt av del-knappene på område-kortene og
-mappe-radene (`openNavModal`). Når satt vises `#share-back` (pil-venstre) først
-i `modal-head`; klikk lukker del-modalen og kaller `backTo`. **✕/overlay/Escape
-lukker helt** — da havner man på hovedsiden, ikke i modalen bak (bevisst: lukk =
-ferdig). Listers deling (fra innstillingsmodalen) sender ingen `backTo` og har
-dermed ingen tilbakeknapp.
+modalen del-modalen ble åpnet fra — satt av «Deling og medlemmer» i
+objektmenyen på område-kortene og mappe-radene (`openNavModal`). Når satt vises
+`#share-back` (pil-venstre) først i `modal-head`; klikk lukker del-modalen og
+kaller `backTo`. **✕/overlay/Escape lukker helt** — da havner man på
+hovedsiden, ikke i modalen bak (bevisst: lukk = ferdig). En liste som åpner
+mappens deling fra board-et sender ingen `backTo` og har dermed ingen
+tilbakeknapp.
 
 ## Flytt liste til annen mappe
 
@@ -204,9 +307,12 @@ skjer ingenting. Se `docs/drag-and-drop.md`.
 ## Modal-infrastruktur
 
 - `updateModalOpenClass()` samler alle modalene (nav/konto/søppel/del/plasser/
-  bekreft/innstillinger/popovere) → `body.modal-open` (scroll-lås).
+  bekreft/objektmeny/popovere) → `body.modal-open` (scroll-lås).
 - Escape lukker øverste lag først: tids-popover → ansvarlig-velger →
-  bekreftelses-modal → plasser → del (helt) → innstillinger → søppel →
+  bekreftelses-modal → plasser → del (helt) → objektmeny → søppel →
   nav-/konto-modal.
 - `.switcher-overlay`/`.switcher-panel`-skallet (popover på desktop, sentrert
-  modal på mobil) brukes av ansvarlig-velgeren og tids-popoveren.
+  modal på mobil) brukes av objektmenyen, ansvarlig-velgeren og tids-popoveren.
+- Fokus inn/ut av en overlay håndteres av ÉN felles fokusfelle
+  (`overlayOpened`/`overlayClosed`, en MutationObserver på `hidden`) — ingen
+  åpne-/lukkefunksjon fokuserer «tilbake» selv.
