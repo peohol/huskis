@@ -213,7 +213,7 @@ async function run(label, viewport, mobile) {
   }));
   log('3: hele UI-et er engelsk etter byttet',
     enUi.lang === 'en' && enUi.addList === 'New list' &&
-    enUi.crumb === 'Areas and folders – switch, edit and share' &&
+    enUi.crumb === 'Workspaces and folders – switch, edit and share' &&
     enUi.account === 'Open your account' &&
     enUi.cardMenu === 'Menu for the list “Handleliste”' &&
     enUi.addItem === 'Add item to “Handleliste”' &&
