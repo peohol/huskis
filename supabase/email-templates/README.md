@@ -51,6 +51,26 @@ allerede returadressen klienten sendte (`authRedirectUrl()` i `app.js`, satt av
 `emailRedirectTo`/`redirectTo`); bygger man lenken selv, overstyres det
 tiltenkte målet. Se `../../docs/domains-and-urls.md`.
 
+## Språk: malene er TOSPRÅKLIGE
+
+Supabase Auth har ÉN mal per felt for hele prosjektet. Den kan ikke velges per
+mottaker: malen rendres av Supabase sin egen mailer, som verken kjenner
+`user_metadata.lang` eller noe annet om mottakeren utover variablene i tabellen
+over. Det finnes altså ingen måte å sende «samme e-post, på mottakerens språk»
+herfra.
+
+Derfor står **både norsk og engelsk i samme e-post**: norsk seksjon først, en
+tynn skillelinje, så den engelske — og en bunntekst med begge språkene. På
+handlings-e-postene har hver seksjon sin egen knapp, men BEGGE peker på den
+samme `{{ .ConfirmationURL }}`; det er én handling, presentert to ganger.
+
+Delingsinvitasjonene er noe annet: de bygges av `send_invite_email()` i
+`../users-and-sharing.sql`, som leser mottakerens `user_metadata.lang` og
+skriver HELE e-posten på ett språk. Se `../../docs/sprak.md`.
+
+Legger du til en tekst i en av malene her, legg den til på BEGGE språk — en
+seksjon som bare finnes på norsk gir en engelsk leser et hull i meldingen.
+
 ## Utseendet
 
 Alle fire deler samme oppbygning, og en ny mal skal kopiere den:

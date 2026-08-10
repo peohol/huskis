@@ -46,7 +46,7 @@ testmodusen (`dev-mock.js`, `mock-backend.js` og `kun-dev`-blokken i HTML-en —
 alt unntatt i preview-deployer, se
 [`sikkerhetsheadere.md`](sikkerhetsheadere.md)), skriver `version.json`, og
 stempler `index.html` — meta-taggen + `?b=<build-ID>` på `app.js`, `icons.js`,
-`config.js`, `update-check.js` og `styles.css`.
+`i18n.js`, `config.js`, `update-check.js` og `styles.css`.
 
 `vercel.json` (`buildCommand: node build.js`, `outputDirectory: dist`) setter
 sikkerhetsheaderne på alle adresser ([`sikkerhetsheadere.md`](sikkerhetsheadere.md))

@@ -272,6 +272,11 @@ Innhold (ovenfra og ned):
   speiler til `profiles.email` etter bekreftelse.
 - **Endre passord** (`#account-pass-form`): nåværende + nytt passord (begge med
   «vis passordet»-knapp). Se `docs/accounts.md`.
+- **Språk** (`#menu-language`): samme `.menu-setting`-rad som e-postvarselet,
+  med en `<select>` (Norsk/English) i stedet for en bryter. Valget gjelder både
+  UI-et og e-postene appen sender, og et bytte laster appen på nytt. Den samme
+  velgeren finnes nederst på innloggingsskjermen (`#auth-lang-select`) — det
+  eneste stedet språket kan velges før man har en konto. Se `docs/sprak.md`.
 - **E-postvarsel-toggle** (`#email-pref-toggle`, se `docs/accounts.md`).
 - **«Demonstrasjon av Huskis»** (`#menu-tour`): raden som starter demoen på
   nytt (`#tour-restart` → «Vis på nytt»). Den kjører i en simulering og rører

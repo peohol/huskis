@@ -2563,6 +2563,37 @@ body.no-auth #account-btn { display: none; }
 .toggle-switch[aria-checked="true"] .toggle-knob { transform: translateX(22px); }
 .toggle-switch:focus-visible { outline: var(--focus-w) solid var(--focus); outline-offset: 2px; }
 
+/* ---------------- Språkvelger ----------------
+   Samme kontroll to steder: i konto-modalen (en `.menu-setting`-rad som de
+   andre innstillingene) og nederst på innloggingsskjermen, som er det eneste
+   stedet valget kan tas før man har en konto. En <select> og ikke to knapper:
+   den er tastatur- og skjermlestertilgjengelig uten en linje ekstra kode, og
+   den vokser når det kommer et tredje språk. */
+/* Ikonet settes av app.js (ICONS.language), så det må ligge i en beholder som
+   allerede finnes i markupen. `display:flex` fjerner baseline-gapet en inline
+   <span> ellers ville lagt under svg-en. */
+.menu-setting-icon { display: flex; flex: 0 0 auto; }
+.lang-select {
+  flex: 0 0 auto;
+  width: auto;
+  padding: 8px 10px;
+  font-size: var(--fs-sm);
+  font-weight: 600;
+  cursor: pointer;
+}
+.auth-lang {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  margin-top: 4px;
+}
+.auth-lang-label {
+  font-size: var(--fs-sm);
+  font-weight: 600;
+  color: var(--ink-soft);
+}
+
 /* ---------------- Bilderedigering (profilbilde) ----------------
    Scenen er nøyaktig det kvadratiske utsnittet som lagres; sirkelmasken viser
    hva appen faktisk tegner. Alt utenfor sirkelen dempes (men lagres), så det

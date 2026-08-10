@@ -133,6 +133,11 @@ select public.t_check('arvede områdemedlemmer kan ikke fjernes fra mappen',
   (select (m -> 'removable')::boolean from jsonb_array_elements(public.get_members('group', :'G') -> 'members') m where m ->> 'id' = :'C') = false
   and (select m ->> 'removeHint' from jsonb_array_elements(public.get_members('group', :'G') -> 'members') m where m ->> 'id' = :'C')
       = 'Har tilgang via området og må fjernes der');
+-- Klienten oversetter selv, og trenger derfor en SPRÅKNØYTRAL kode ved siden av
+-- den norske teksten (docs/sprak.md). Teksten blir stående for eldre klienter.
+select public.t_check('removeHintCode er språknøytral ved siden av removeHint',
+  (select m ->> 'removeHintCode' from jsonb_array_elements(public.get_members('group', :'G') -> 'members') m where m ->> 'id' = :'C')
+      = 'inherited');
 select public.t_check('direkte mappemedlem KAN fjernes fra mappen',
   (select (m -> 'removable')::boolean from jsonb_array_elements(public.get_members('group', :'G') -> 'members') m where m ->> 'id' = :'D') = true);
 select public.t_fails('en områdearvet bruker kan ikke fjernes fra én enkelt mappe',

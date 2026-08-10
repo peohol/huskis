@@ -81,8 +81,9 @@
   <!-- Kontoknapp: fast i øvre høyre hjørne av VIEWPORTET — utenfor toppmenyens
        flyt, alltid synlig. Åpner konto-modalen; badgen viser ventende
        invitasjoner. -->
-  <button class="account-btn" id="account-btn" type="button" title="Konto"
-          aria-label="Åpne kontoen" aria-haspopup="dialog">
+  <button class="account-btn" id="account-btn" type="button"
+          data-i18n-title="account.title" data-i18n-aria-label="account.open"
+          aria-haspopup="dialog">
     <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="#111" stroke-width="1.05" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="8" r="3.4" fill="#85adad"></circle><path d="M5.5 20a6.5 6.5 0 0 1 13 0" fill="#85adad"></path></svg>
     <span class="menu-badge" id="account-badge" hidden aria-hidden="true"></span>
   </button>
@@ -92,25 +93,25 @@
        («＋ Liste», søppelkasse, filter) på raden under. All navigering/
        redigering/deling av områder og mapper skjer i nav-modalen, ikke her. -->
   <header class="topbar" id="topbar">
-    <nav class="breadcrumb" aria-label="Du er her">
+    <nav class="breadcrumb" data-i18n-aria-label="crumb.youAreHere">
       <button class="crumb-btn nav-crumb" id="nav-crumb" type="button"
-              title="Områder og mapper – bytt, rediger og del" aria-haspopup="dialog">
+              data-i18n-title="crumb.navTitle" aria-haspopup="dialog">
         <!-- [ressursikon][delt-ikon ved behov] Ressursnavn — ikonene fylles av
              updateCrumbs() (delt-ikonet vises kun når objektet faktisk er delt). -->
         <span class="crumb-icon" id="crumb-uni-icon" aria-hidden="true"></span>
         <span class="crumb-shared" id="crumb-uni-shared" hidden></span>
-        <span class="crumb-name" id="crumb-uni-name">Område</span>
+        <span class="crumb-name" id="crumb-uni-name" data-i18n="kind.universe">Område</span>
         <span class="crumb-sep" aria-hidden="true">›</span>
         <span class="crumb-icon" id="crumb-group-icon" aria-hidden="true"></span>
         <span class="crumb-shared" id="crumb-group-shared" hidden></span>
-        <span class="crumb-name" id="crumb-group-name">Mappe</span>
+        <span class="crumb-name" id="crumb-group-name" data-i18n="kind.group">Mappe</span>
       </button>
     </nav>
     <div class="panel-actions toolbar">
-        <button class="btn-add btn-solid btn-green" id="add-card-btn" type="button" title="Ny liste" aria-label="Ny liste"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="#111" stroke-width="1.05" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 4.5v15"></path><path d="M4.5 12h15"></path></svg> <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="#111" stroke-width="1.05" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3" width="18" height="18" rx="4.5" fill="#ffffff"></rect><circle cx="8" cy="8.5" r="0.7" fill="#111" stroke="none"></circle><circle cx="8" cy="12" r="0.7" fill="#111" stroke="none"></circle><circle cx="8" cy="15.5" r="0.7" fill="#111" stroke="none"></circle><path d="M11.5 8.5h5.5"></path><path d="M11.5 12h5.5"></path><path d="M11.5 15.5h5.5"></path></svg></button>
+        <button class="btn-add btn-solid btn-green" id="add-card-btn" type="button" data-i18n-title="board.newList" data-i18n-aria-label="board.newList"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="#111" stroke-width="1.05" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 4.5v15"></path><path d="M4.5 12h15"></path></svg> <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="#111" stroke-width="1.05" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3" width="18" height="18" rx="4.5" fill="#ffffff"></rect><circle cx="8" cy="8.5" r="0.7" fill="#111" stroke="none"></circle><circle cx="8" cy="12" r="0.7" fill="#111" stroke="none"></circle><circle cx="8" cy="15.5" r="0.7" fill="#111" stroke="none"></circle><path d="M11.5 8.5h5.5"></path><path d="M11.5 12h5.5"></path><path d="M11.5 15.5h5.5"></path></svg></button>
         <button class="trashcan" id="trash-btn" type="button"
-                title="Slettede lister – trykk for å åpne, hold og sveip for å slette dem for godt"
-                aria-label="Slettede lister" hidden>
+                data-i18n-title="trash.cardsBtnTitle"
+                data-i18n-aria-label="trash.cards" hidden>
           <svg class="icon trashcan-icon" viewBox="0 0 24 24" fill="none" stroke="#111" stroke-width="1.05" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6.3 7.5l.9 11a2 2 0 0 0 2 1.9h5.6a2 2 0 0 0 2-1.9l.9-11" fill="#c0c4c9" stroke="none"></path><path d="M4.5 7.5h15"></path><path d="M9.5 7.5V6a2.5 2.5 0 0 1 5 0v1.5"></path><path d="M6.3 7.5l.9 11a2 2 0 0 0 2 1.9h5.6a2 2 0 0 0 2-1.9l.9-11"></path><path d="M9.7 11v6"></path><path d="M12 11v6"></path><path d="M14.3 11v6"></path></svg>
           <span class="trashcan-count" id="trash-count">0</span>
         </button>
@@ -133,19 +134,19 @@
       <header class="modal-head">
         <h2 id="nav-modal-title">
           <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="#111" stroke-width="1.05" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 12A9 9 0 0 1 12 3A14 14 0 0 0 8.2 12Z" fill="#ad8585" stroke="none"></path><path d="M8.2 12A14 14 0 0 1 12 3A14 14 0 0 1 15.8 12Z" fill="#adad85" stroke="none"></path><path d="M15.8 12A14 14 0 0 0 12 3A9 9 0 0 1 21 12Z" fill="#85ad85" stroke="none"></path><path d="M3 12A9 9 0 0 0 12 21A14 14 0 0 1 8.2 12Z" fill="#85adad" stroke="none"></path><path d="M8.2 12A14 14 0 0 0 12 21A14 14 0 0 0 15.8 12Z" fill="#8585ad" stroke="none"></path><path d="M15.8 12A14 14 0 0 1 12 21A9 9 0 0 0 21 12Z" fill="#ad85ad" stroke="none"></path><circle cx="12" cy="12" r="9"></circle><path d="M3 12h18"></path><path d="M12 3a14 14 0 0 1 3.8 9 14 14 0 0 1-3.8 9 14 14 0 0 1-3.8-9A14 14 0 0 1 12 3Z"></path></svg>
-          <span>Områder og</span>
+          <span data-i18n="nav.titleA">Områder og</span>
           <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="#111" stroke-width="1.05" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3.5 19V6.5a2 2 0 0 1 2-2h3.3a2 2 0 0 1 1.6.8l1.1 1.5a2 2 0 0 0 1.6.8H19a2 2 0 0 1 2 2V19a2 2 0 0 1-2 2H5.5a2 2 0 0 1-2-2Z" fill="#adad85"></path></svg>
-          <span>mapper</span>
+          <span data-i18n="nav.titleB">mapper</span>
         </h2>
-        <button class="icon-btn" id="nav-modal-close" type="button" title="Lukk" aria-label="Lukk"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.05" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6.5 6.5 17.5 17.5"></path><path d="M17.5 6.5 6.5 17.5"></path></svg></button>
+        <button class="icon-btn" id="nav-modal-close" type="button" data-i18n-title="common.close" data-i18n-aria-label="common.close"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.05" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6.5 6.5 17.5 17.5"></path><path d="M17.5 6.5 6.5 17.5"></path></svg></button>
       </header>
       <div class="modal-body menu-body nav-body" id="nav-modal-body">
         <!-- Samme board-oppsett som hovedsiden, men alltid én kolonne. -->
         <section class="board nav-board" id="nav-board" aria-live="polite"></section>
         <div class="panel-actions nav-actions">
           <button class="trashcan" id="uni-trash-btn" type="button"
-                  title="Slettede områder – trykk for å åpne, hold og sveip for å slette dem for godt"
-                  aria-label="Slettede områder" hidden>
+                  data-i18n-title="trash.universesBtnTitle"
+                  data-i18n-aria-label="trash.universes" hidden>
             <svg class="icon trashcan-icon" viewBox="0 0 24 24" fill="none" stroke="#111" stroke-width="1.05" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6.3 7.5l.9 11a2 2 0 0 0 2 1.9h5.6a2 2 0 0 0 2-1.9l.9-11" fill="#c0c4c9" stroke="none"></path><path d="M4.5 7.5h15"></path><path d="M9.5 7.5V6a2.5 2.5 0 0 1 5 0v1.5"></path><path d="M6.3 7.5l.9 11a2 2 0 0 0 2 1.9h5.6a2 2 0 0 0 2-1.9l.9-11"></path><path d="M9.7 11v6"></path><path d="M12 11v6"></path><path d="M14.3 11v6"></path></svg>
             <span class="trashcan-count" id="uni-trash-count">0</span>
           </button>
@@ -159,18 +160,18 @@
   <div class="modal-overlay" id="account-modal" hidden>
     <div class="modal menu-modal" role="dialog" aria-modal="true" aria-labelledby="account-title">
       <header class="modal-head">
-        <h2 id="account-title"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="#111" stroke-width="1.05" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="8" r="3.4" fill="#85adad"></circle><path d="M5.5 20a6.5 6.5 0 0 1 13 0" fill="#85adad"></path></svg><span>Konto</span></h2>
-        <button class="icon-btn" id="account-close" type="button" title="Lukk" aria-label="Lukk"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.05" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6.5 6.5 17.5 17.5"></path><path d="M17.5 6.5 6.5 17.5"></path></svg></button>
+        <h2 id="account-title"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="#111" stroke-width="1.05" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="8" r="3.4" fill="#85adad"></circle><path d="M5.5 20a6.5 6.5 0 0 1 13 0" fill="#85adad"></path></svg><span data-i18n="account.title">Konto</span></h2>
+        <button class="icon-btn" id="account-close" type="button" data-i18n-title="common.close" data-i18n-aria-label="common.close"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.05" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6.5 6.5 17.5 17.5"></path><path d="M17.5 6.5 6.5 17.5"></path></svg></button>
       </header>
       <div class="modal-body menu-body">
         <!-- Profil: bildet/initialene er selv knappen som velger nytt bilde. -->
         <div class="menu-account" id="menu-account" hidden>
-          <button class="account-avatar" id="account-avatar" type="button" title="Endre profilbilde" aria-label="Endre profilbilde"></button>
+          <button class="account-avatar" id="account-avatar" type="button" data-i18n-title="account.changePhoto" data-i18n-aria-label="account.changePhoto"></button>
           <div class="account-ident">
             <span class="account-email" id="account-email"></span>
             <div class="account-photo-actions">
-              <button class="btn btn-ghost btn-small" id="avatar-pick" type="button">Endre bilde</button>
-              <button class="btn btn-ghost btn-small" id="avatar-remove" type="button" hidden>Fjern bilde</button>
+              <button class="btn btn-ghost btn-small" id="avatar-pick" type="button" data-i18n="account.changePhotoShort">Endre bilde</button>
+              <button class="btn btn-ghost btn-small" id="avatar-remove" type="button" data-i18n="account.removePhotoShort" hidden>Fjern bilde</button>
             </div>
           </div>
           <input id="avatar-file" type="file" accept="image/*" hidden />
@@ -179,49 +180,59 @@
         <!-- Endre navn / e-post / passord (lagres på kontoen; ny e-post bekreftes per e-post). -->
         <section class="account-edit" id="account-edit" hidden>
           <form class="account-form" id="account-name-form">
-            <label class="account-form-label" for="account-name-input">Navn</label>
+            <label class="account-form-label" for="account-name-input" data-i18n="account.name">Navn</label>
             <div class="account-form-row">
-              <input class="field" id="account-name-input" type="text" autocomplete="name" placeholder="Fornavn Etternavn" />
-              <button class="btn btn-solid btn-accent btn-small" type="submit">Lagre</button>
+              <input class="field" id="account-name-input" type="text" autocomplete="name" data-i18n-placeholder="account.namePlaceholder" />
+              <button class="btn btn-solid btn-accent btn-small" type="submit" data-i18n="common.save">Lagre</button>
             </div>
           </form>
           <form class="account-form" id="account-email-form">
-            <label class="account-form-label" for="account-email-input">E-post</label>
+            <label class="account-form-label" for="account-email-input" data-i18n="account.email">E-post</label>
             <div class="account-form-row">
-              <input class="field" id="account-email-input" type="email" autocomplete="email" placeholder="deg@eksempel.no" />
-              <button class="btn btn-solid btn-accent btn-small" type="submit">Lagre</button>
+              <input class="field" id="account-email-input" type="email" autocomplete="email" data-i18n-placeholder="auth.emailPlaceholder" />
+              <button class="btn btn-solid btn-accent btn-small" type="submit" data-i18n="common.save">Lagre</button>
             </div>
           </form>
           <form class="account-form" id="account-pass-form">
-            <label class="account-form-label" for="account-pass-new">Passord</label>
+            <label class="account-form-label" for="account-pass-new" data-i18n="account.password">Passord</label>
             <div class="account-form-row">
               <span class="pass-wrap">
-                <input class="field" id="account-pass-current" type="password" autocomplete="current-password" placeholder="Nåværende passord" />
+                <input class="field" id="account-pass-current" type="password" autocomplete="current-password" data-i18n-placeholder="account.currentPassword" />
                 <button class="icon-btn pass-toggle" type="button" data-pass-toggle="account-pass-current"
-                        aria-pressed="false" title="Vis passordet" aria-label="Vis passordet"></button>
+                        aria-pressed="false" data-i18n-title="auth.showPassword" data-i18n-aria-label="auth.showPassword"></button>
               </span>
             </div>
             <div class="account-form-row">
               <span class="pass-wrap">
                 <!-- Ingen minlength: lengden meldes i skjemaets egen melding
                      (#account-msg), ikke i en native valideringsboble. -->
-                <input class="field" id="account-pass-new" type="password" autocomplete="new-password" placeholder="Nytt passord (minst 6 tegn)" />
+                <input class="field" id="account-pass-new" type="password" autocomplete="new-password" data-i18n-placeholder="account.newPassword" />
                 <button class="icon-btn pass-toggle" type="button" data-pass-toggle="account-pass-new"
-                        aria-pressed="false" title="Vis passordet" aria-label="Vis passordet"></button>
+                        aria-pressed="false" data-i18n-title="auth.showPassword" data-i18n-aria-label="auth.showPassword"></button>
               </span>
-              <button class="btn btn-solid btn-accent btn-small" type="submit">Lagre</button>
+              <button class="btn btn-solid btn-accent btn-small" type="submit" data-i18n="common.save">Lagre</button>
             </div>
           </form>
           <p class="account-msg" id="account-msg" role="status" hidden></p>
         </section>
 
+        <!-- Innstilling: språk (lagres på kontoen, og styrer også e-postene
+             appen sender til deg). Ikonet settes av app.js, som de andre. -->
+        <div class="menu-setting" id="menu-language">
+          <span class="menu-setting-label">
+            <span class="menu-setting-icon" id="language-icon" aria-hidden="true"></span>
+            <span data-i18n="lang.label">Språk</span>
+          </span>
+          <select class="field lang-select" id="lang-select" data-i18n-aria-label="lang.aria"></select>
+        </div>
+
         <!-- Innstilling: e-postvarsel når noe deles med meg (lagres på kontoen). -->
         <div class="menu-setting" id="menu-email-pref" hidden>
           <span class="menu-setting-label">
             <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="#111" stroke-width="1.05" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="5" width="18" height="14" rx="2.5" fill="#ffffff"></rect><path d="m3.5 7 7.2 5.6a2 2 0 0 0 2.6 0L20.5 7"></path></svg>
-            <span>Varsle meg på e-post når noe deles med meg</span>
+            <span data-i18n="account.emailPrefLabel">Varsle meg på e-post når noe deles med meg</span>
           </span>
-          <button class="toggle-switch" id="email-pref-toggle" type="button" role="switch" aria-checked="true" aria-label="E-postvarsler ved deling">
+          <button class="toggle-switch" id="email-pref-toggle" type="button" role="switch" aria-checked="true" data-i18n-aria-label="account.emailPrefAria">
             <span class="toggle-knob" aria-hidden="true"></span>
           </button>
         </div>
@@ -232,9 +243,9 @@
         <div class="menu-setting" id="menu-tour" hidden>
           <span class="menu-setting-label">
             <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="#111" stroke-width="1.05" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3.2a5.8 5.8 0 0 0-3.4 10.5c.5.36.8.95.8 1.57v.51h5.2v-.51c0-.62.3-1.21.8-1.57A5.8 5.8 0 0 0 12 3.2Z" fill="#adad85"></path><path d="M9.4 18.2h5.2"></path><path d="M10.6 20.8h2.8"></path></svg>
-            <span>Demonstrasjon av Huskis</span>
+            <span data-i18n="account.tourLabel">Demonstrasjon av Huskis</span>
           </span>
-          <button class="btn btn-ghost btn-small" id="tour-restart" type="button">Vis på nytt</button>
+          <button class="btn btn-ghost btn-small" id="tour-restart" type="button" data-i18n="account.tourRestart">Vis på nytt</button>
         </div>
 
         <!-- Tastatursnarveier. De ligger HER og ikke i board-et med vilje: en
@@ -245,17 +256,17 @@
         <section class="menu-keys">
           <hr class="menu-divider" />
           <div class="panel-head">
-            <span class="panel-title">Tastatur</span>
+            <span class="panel-title" data-i18n="account.keyboard">Tastatur</span>
           </div>
           <dl class="key-list">
             <dt><kbd>Alt</kbd> + <kbd>↑</kbd> <kbd>↓</kbd></dt>
-            <dd>Flytt det valgte objektet ett hakk</dd>
+            <dd data-i18n="account.keyMove">Flytt det valgte objektet ett hakk</dd>
             <dt><kbd>Alt</kbd> + <kbd>M</kbd></dt>
-            <dd>Flytt til en annen liste, mappe eller område</dd>
+            <dd data-i18n="account.keyMoveTo">Flytt til en annen liste, mappe eller område</dd>
             <dt><kbd>F2</kbd></dt>
-            <dd>Endre navn</dd>
+            <dd data-i18n="menu.rename">Endre navn</dd>
             <dt><kbd>Esc</kbd></dt>
-            <dd>Lukk – eller avbryt en navneendring</dd>
+            <dd data-i18n="account.keyEsc">Lukk – eller avbryt en navneendring</dd>
           </dl>
         </section>
 
@@ -263,7 +274,7 @@
         <section class="menu-invites" id="menu-invites" hidden>
           <hr class="menu-divider" />
           <div class="panel-head">
-            <span class="panel-title">Invitasjoner</span>
+            <span class="panel-title" data-i18n="account.invites">Invitasjoner</span>
           </div>
           <div class="invite-list" id="invite-list"></div>
         </section>
@@ -272,13 +283,13 @@
         <!-- Utlogging (gul: reversibel) og kontosletting (rød: endelig) står på
              samme linje, i hver sin ende — like lette å finne, umulige å forveksle. -->
         <div class="menu-account-actions">
-          <button class="btn btn-solid btn-yellow btn-small menu-logout" id="logout-btn" type="button" title="Logg ut">
+          <button class="btn btn-solid btn-yellow btn-small menu-logout" id="logout-btn" type="button" data-i18n-title="account.logout">
             <svg class="icon btn-glyph" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.05" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 3H6a2.5 2.5 0 0 0-2.5 2.5v13A2.5 2.5 0 0 0 6 21h3"></path><path d="M21 12H10"></path><path d="M17.5 8.5 21 12l-3.5 3.5"></path></svg>
-            Logg ut
+            <span data-i18n="account.logout">Logg ut</span>
           </button>
-          <button class="btn btn-solid btn-red btn-small menu-delete-account" id="delete-account-btn" type="button" title="Slett konto">
+          <button class="btn btn-solid btn-red btn-small menu-delete-account" id="delete-account-btn" type="button" data-i18n-title="account.delete">
             <svg class="icon btn-glyph" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.05" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4.5 7.5h15"></path><path d="M9.5 7.5V6a2.5 2.5 0 0 1 5 0v1.5"></path><path d="M6.3 7.5l.9 11a2 2 0 0 0 2 1.9h5.6a2 2 0 0 0 2-1.9l.9-11"></path><path d="M9.7 11v6"></path><path d="M12 11v6"></path><path d="M14.3 11v6"></path></svg>
-            Slett konto
+            <span data-i18n="account.delete">Slett konto</span>
           </button>
         </div>
       </div>
@@ -291,30 +302,30 @@
   <div class="modal-overlay" id="avatar-modal" hidden>
     <div class="modal avatar-modal" role="dialog" aria-modal="true" aria-labelledby="avatar-title">
       <header class="modal-head">
-        <h2 id="avatar-title"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="#111" stroke-width="1.05" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8.8 7.4 9.9 5.3h4.2l1.1 2.1h4.3a2.2 2.2 0 0 1 2.2 2.2v7.2a2.2 2.2 0 0 1-2.2 2.2H4.5a2.2 2.2 0 0 1-2.2-2.2V9.6a2.2 2.2 0 0 1 2.2-2.2Z" fill="#ffffff"></path><circle cx="12" cy="13.4" r="3.7" fill="#85adad"></circle></svg><span>Profilbilde</span></h2>
-        <button class="icon-btn" id="avatar-close" type="button" title="Lukk" aria-label="Lukk"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.05" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6.5 6.5 17.5 17.5"></path><path d="M17.5 6.5 6.5 17.5"></path></svg></button>
+        <h2 id="avatar-title"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="#111" stroke-width="1.05" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8.8 7.4 9.9 5.3h4.2l1.1 2.1h4.3a2.2 2.2 0 0 1 2.2 2.2v7.2a2.2 2.2 0 0 1-2.2 2.2H4.5a2.2 2.2 0 0 1-2.2-2.2V9.6a2.2 2.2 0 0 1 2.2-2.2Z" fill="#ffffff"></path><circle cx="12" cy="13.4" r="3.7" fill="#85adad"></circle></svg><span data-i18n="avatar.title">Profilbilde</span></h2>
+        <button class="icon-btn" id="avatar-close" type="button" data-i18n-title="common.close" data-i18n-aria-label="common.close"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.05" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6.5 6.5 17.5 17.5"></path><path d="M17.5 6.5 6.5 17.5"></path></svg></button>
       </header>
       <div class="modal-body avatar-body">
-        <p class="avatar-hint">Dra bildet for å flytte det. Sirkelen viser hvordan det blir seende ut.</p>
+        <p class="avatar-hint" data-i18n="avatar.hint">Dra bildet for å flytte det. Sirkelen viser hvordan det blir seende ut.</p>
         <div class="avatar-stage" id="avatar-stage">
           <canvas class="avatar-canvas" id="avatar-canvas"></canvas>
           <span class="avatar-mask" aria-hidden="true"></span>
         </div>
         <div class="avatar-controls">
           <label class="avatar-slider">
-            <span class="avatar-slider-label">Zoom</span>
-            <input type="range" id="avatar-zoom" min="1" max="5" step="0.01" value="1" aria-label="Zoom" />
+            <span class="avatar-slider-label" data-i18n="avatar.zoom">Zoom</span>
+            <input type="range" id="avatar-zoom" min="1" max="5" step="0.01" value="1" data-i18n-aria-label="avatar.zoom" />
           </label>
           <label class="avatar-slider">
-            <span class="avatar-slider-label">Rotasjon</span>
-            <input type="range" id="avatar-rot" min="-180" max="180" step="1" value="0" aria-label="Rotasjon" />
-            <button class="icon-btn avatar-rot90" id="avatar-rot90" type="button" title="Roter 90°" aria-label="Roter 90°"></button>
+            <span class="avatar-slider-label" data-i18n="avatar.rotation">Rotasjon</span>
+            <input type="range" id="avatar-rot" min="-180" max="180" step="1" value="0" data-i18n-aria-label="avatar.rotation" />
+            <button class="icon-btn avatar-rot90" id="avatar-rot90" type="button" data-i18n-title="avatar.rotate90" data-i18n-aria-label="avatar.rotate90"></button>
           </label>
         </div>
       </div>
       <footer class="modal-foot avatar-foot">
-        <button class="btn btn-ghost" id="avatar-cancel" type="button">Avbryt</button>
-        <button class="btn btn-solid btn-accent" id="avatar-save" type="button">Bruk bildet</button>
+        <button class="btn btn-ghost" id="avatar-cancel" type="button" data-i18n="common.cancel">Avbryt</button>
+        <button class="btn btn-solid btn-accent" id="avatar-save" type="button" data-i18n="avatar.use">Bruk bildet</button>
       </footer>
     </div>
   </div>
@@ -325,14 +336,14 @@
       <header class="modal-head">
         <h2 id="trash-title">
           <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="#111" stroke-width="1.05" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6.3 7.5l.9 11a2 2 0 0 0 2 1.9h5.6a2 2 0 0 0 2-1.9l.9-11" fill="#c0c4c9" stroke="none"></path><path d="M4.5 7.5h15"></path><path d="M9.5 7.5V6a2.5 2.5 0 0 1 5 0v1.5"></path><path d="M6.3 7.5l.9 11a2 2 0 0 0 2 1.9h5.6a2 2 0 0 0 2-1.9l.9-11"></path><path d="M9.7 11v6"></path><path d="M12 11v6"></path><path d="M14.3 11v6"></path></svg>
-          <span id="trash-title-text">Søppelkasse</span>
+          <span id="trash-title-text" data-i18n="trash.title">Søppelkasse</span>
         </h2>
-        <button class="icon-btn" id="trash-close" type="button" title="Lukk" aria-label="Lukk"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.05" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6.5 6.5 17.5 17.5"></path><path d="M17.5 6.5 6.5 17.5"></path></svg></button>
+        <button class="icon-btn" id="trash-close" type="button" data-i18n-title="common.close" data-i18n-aria-label="common.close"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.05" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6.5 6.5 17.5 17.5"></path><path d="M17.5 6.5 6.5 17.5"></path></svg></button>
       </header>
       <div class="modal-body" id="trash-list"></div>
       <footer class="modal-foot">
         <p class="modal-note" id="trash-note"></p>
-        <button class="btn btn-solid btn-red" id="trash-empty" type="button">Slett for godt</button>
+        <button class="btn btn-solid btn-red" id="trash-empty" type="button" data-i18n="trash.purge">Slett for godt</button>
       </footer>
     </div>
   </div>
@@ -340,7 +351,7 @@
   <!-- Ansvarlig-velger for listepunkter i delte lister: popover (desktop) / modal
        (mobil), à la område-/mappebytteren. Bygges i openResponsible(). -->
   <div class="switcher-overlay" id="resp-switcher" hidden>
-    <div class="switcher-panel resp-panel" id="resp-switcher-panel" role="listbox" aria-label="Velg ansvarlig" tabindex="-1"></div>
+    <div class="switcher-panel resp-panel" id="resp-switcher-panel" role="listbox" data-i18n-aria-label="resp.pick" tabindex="-1"></div>
   </div>
 
   <!-- Templates -->
@@ -362,13 +373,13 @@
             <span class="collapse-count uni-count" aria-hidden="true" hidden></span>
           </div>
         </div>
-        <button class="card-cog obj-menu-btn" type="button" title="Meny" aria-label="Meny for området" aria-haspopup="menu" aria-expanded="false"></button>
+        <button class="card-cog obj-menu-btn" type="button" data-i18n-title="menu.menu" data-i18n-aria-label="menu.forUniverse" aria-haspopup="menu" aria-expanded="false"></button>
       </header>
       <div class="card-body">
         <ul class="items-container"></ul>
         <div class="add-item-row">
-          <button class="btn-add btn-solid btn-green icon-only add-item-btn" type="button" title="Legg til mappe" aria-label="Legg til mappe"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="#111" stroke-width="1.05" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 4.5v15"></path><path d="M4.5 12h15"></path></svg></button>
-          <button class="btn-add btn-solid btn-yellow icon-only add-cat-btn" type="button" title="Legg til mappekategori" aria-label="Legg til mappekategori"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="#111" stroke-width="1.05" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8.5 4.5H6.5a2 2 0 0 0-2 2v11a2 2 0 0 0 2 2H8.5"></path><g transform="translate(8.5 5) scale(0.55)" stroke-width="1.909"><path d="M3.5 19V6.5a2 2 0 0 1 2-2h3.3a2 2 0 0 1 1.6.8l1.1 1.5a2 2 0 0 0 1.6.8H19a2 2 0 0 1 2 2V19a2 2 0 0 1-2 2H5.5a2 2 0 0 1-2-2Z" fill="#adad85"></path></g></svg></button>
+          <button class="btn-add btn-solid btn-green icon-only add-item-btn" type="button" data-i18n-title="add.group" data-i18n-aria-label="add.group"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="#111" stroke-width="1.05" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 4.5v15"></path><path d="M4.5 12h15"></path></svg></button>
+          <button class="btn-add btn-solid btn-yellow icon-only add-cat-btn" type="button" data-i18n-title="add.groupCat" data-i18n-aria-label="add.groupCat"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="#111" stroke-width="1.05" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8.5 4.5H6.5a2 2 0 0 0-2 2v11a2 2 0 0 0 2 2H8.5"></path><g transform="translate(8.5 5) scale(0.55)" stroke-width="1.909"><path d="M3.5 19V6.5a2 2 0 0 1 2-2h3.3a2 2 0 0 1 1.6.8l1.1 1.5a2 2 0 0 0 1.6.8H19a2 2 0 0 1 2 2V19a2 2 0 0 1-2 2H5.5a2 2 0 0 1-2-2Z" fill="#adad85"></path></g></svg></button>
         </div>
       </div>
     </article>
@@ -385,7 +396,7 @@
       <div class="item-main">
         <span class="item-text"></span>
       </div>
-      <button class="item-cog obj-menu-btn" type="button" title="Meny" aria-label="Meny for mappen" aria-haspopup="menu" aria-expanded="false"></button>
+      <button class="item-cog obj-menu-btn" type="button" data-i18n-title="menu.menu" data-i18n-aria-label="menu.forGroup" aria-haspopup="menu" aria-expanded="false"></button>
     </li>
   </template>
 
@@ -397,15 +408,15 @@
         <span class="cat-drag-icon" aria-hidden="true"></span>
         <div class="cat-title-wrap">
           <div class="title-line">
-            <h3 class="cat-title" title="Klikk for å endre navn"></h3>
+            <h3 class="cat-title" data-i18n-title="edit.clickToRename"></h3>
             <span class="collapse-count" aria-hidden="true" hidden></span>
           </div>
         </div>
-        <button class="cat-cog obj-menu-btn" type="button" title="Meny" aria-label="Meny for mappekategorien" aria-haspopup="menu" aria-expanded="false"></button>
+        <button class="cat-cog obj-menu-btn" type="button" data-i18n-title="menu.menu" data-i18n-aria-label="menu.forGroupCat" aria-haspopup="menu" aria-expanded="false"></button>
       </div>
       <ul class="cat-items">
         <li class="cat-add">
-          <button class="cat-add-btn btn-add btn-solid btn-green icon-only" type="button" title="Legg til mappe i kategorien" aria-label="Legg til mappe i kategorien"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="#111" stroke-width="1.05" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 4.5v15"></path><path d="M4.5 12h15"></path></svg></button>
+          <button class="cat-add-btn btn-add btn-solid btn-green icon-only" type="button" data-i18n-title="add.groupInCat" data-i18n-aria-label="add.groupInCat"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="#111" stroke-width="1.05" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 4.5v15"></path><path d="M4.5 12h15"></path></svg></button>
         </li>
       </ul>
     </li>
@@ -424,22 +435,22 @@
           </div>
           <div class="meta-row card-meta" hidden></div>
         </div>
-        <button class="card-cog obj-menu-btn" type="button" title="Meny" aria-label="Meny for listen" aria-haspopup="menu" aria-expanded="false"></button>
+        <button class="card-cog obj-menu-btn" type="button" data-i18n-title="menu.menu" data-i18n-aria-label="menu.forCard" aria-haspopup="menu" aria-expanded="false"></button>
       </header>
       <!-- Alt under headeren ligger i .card-body så den kan kollapses som en
            rullgardin (samme collapse/expand-mønster som kategorier). -->
       <div class="card-body">
         <ul class="items-container"></ul>
         <div class="items-done-wrap" hidden>
-          <div class="done-divider"><span>Utført</span><button class="done-restore" type="button" title="Gjenopprett alle utførte listepunkter" aria-label="Gjenopprett alle utførte listepunkter"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="#111" stroke-width="1.05" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M13.569 4.469 16.248 6.563A6.9 6.9 0 1 1 6.348 8.042"></path><path d="M14 7.539 13.569 4.469 16.652 4.145"></path></svg></button></div>
+          <div class="done-divider"><span data-i18n="card.done">Utført</span><button class="done-restore" type="button" data-i18n-title="card.restoreAllDone" data-i18n-aria-label="card.restoreAllDone"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="#111" stroke-width="1.05" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M13.569 4.469 16.248 6.563A6.9 6.9 0 1 1 6.348 8.042"></path><path d="M14 7.539 13.569 4.469 16.652 4.145"></path></svg></button></div>
           <ul class="items-done"></ul>
         </div>
         <!-- Legg til: to midtstilte knapper, INGEN navnefelt. Knappen oppretter
              objektet med én gang og åpner navneredigereren på det (samme mønster
              som ＋-knappen inne i en kategori) — se nameNewRow() i app.js. -->
         <div class="add-item-row">
-          <button class="btn-add btn-solid btn-green icon-only add-item-btn" type="button" title="Legg til listepunkt" aria-label="Legg til listepunkt"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="#111" stroke-width="1.05" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 4.5v15"></path><path d="M4.5 12h15"></path></svg></button>
-          <button class="btn-add btn-solid btn-yellow icon-only add-cat-btn" type="button" title="Legg til kategori" aria-label="Legg til kategori"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="#111" stroke-width="1.05" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8.5 4.5H6.5a2 2 0 0 0-2 2v11a2 2 0 0 0 2 2H8.5"></path><circle cx="12.5" cy="8" r="0.8" fill="#111" stroke="none"></circle><path d="M15 8h4.5"></path><circle cx="12.5" cy="12" r="0.8" fill="#111" stroke="none"></circle><path d="M15 12h4.5"></path><circle cx="12.5" cy="16" r="0.8" fill="#111" stroke="none"></circle><path d="M15 16h4.5"></path></svg></button>
+          <button class="btn-add btn-solid btn-green icon-only add-item-btn" type="button" data-i18n-title="add.item" data-i18n-aria-label="add.item"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="#111" stroke-width="1.05" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 4.5v15"></path><path d="M4.5 12h15"></path></svg></button>
+          <button class="btn-add btn-solid btn-yellow icon-only add-cat-btn" type="button" data-i18n-title="add.cat" data-i18n-aria-label="add.cat"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="#111" stroke-width="1.05" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8.5 4.5H6.5a2 2 0 0 0-2 2v11a2 2 0 0 0 2 2H8.5"></path><circle cx="12.5" cy="8" r="0.8" fill="#111" stroke="none"></circle><path d="M15 8h4.5"></path><circle cx="12.5" cy="12" r="0.8" fill="#111" stroke="none"></circle><path d="M15 12h4.5"></path><circle cx="12.5" cy="16" r="0.8" fill="#111" stroke="none"></circle><path d="M15 16h4.5"></path></svg></button>
         </div>
       </div>
     </article>
@@ -447,12 +458,12 @@
 
   <template id="item-template">
     <li class="item">
-      <button class="item-check" type="button" title="Merk som gjort" aria-label="Merk som gjort" aria-pressed="false"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12.5l4 4L19 6.5"></path></svg></button>
+      <button class="item-check" type="button" data-i18n-title="item.markDone" data-i18n-aria-label="item.markDone" aria-pressed="false"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12.5l4 4L19 6.5"></path></svg></button>
       <div class="item-main">
-        <span class="item-text" title="Klikk for å redigere"></span>
+        <span class="item-text" data-i18n-title="edit.clickToEdit"></span>
         <div class="meta-row item-meta" hidden></div>
       </div>
-      <button class="item-cog obj-menu-btn" type="button" title="Meny" aria-label="Meny for listepunktet" aria-haspopup="menu" aria-expanded="false"></button>
+      <button class="item-cog obj-menu-btn" type="button" data-i18n-title="menu.menu" data-i18n-aria-label="menu.forItem" aria-haspopup="menu" aria-expanded="false"></button>
     </li>
   </template>
 
@@ -466,12 +477,12 @@
         <span class="cat-drag-icon" aria-hidden="true"></span>
         <div class="cat-title-wrap">
           <div class="title-line">
-            <h3 class="cat-title" title="Klikk for å endre navn"></h3>
+            <h3 class="cat-title" data-i18n-title="edit.clickToRename"></h3>
             <span class="collapse-count" aria-hidden="true" hidden></span>
           </div>
           <div class="meta-row cat-meta" hidden></div>
         </div>
-        <button class="cat-cog obj-menu-btn" type="button" title="Meny" aria-label="Meny for kategorien" aria-haspopup="menu" aria-expanded="false"></button>
+        <button class="cat-cog obj-menu-btn" type="button" data-i18n-title="menu.menu" data-i18n-aria-label="menu.forCat" aria-haspopup="menu" aria-expanded="false"></button>
       </div>
       <ul class="cat-items">
         <!-- Grønn ＋-knapp: legger til et nytt listepunkt direkte i kategorien
@@ -479,7 +490,7 @@
              (samme flate som listepunktene), flyttet til sist i buildCategory() så
              den alltid havner under det siste listepunktet. -->
         <li class="cat-add">
-          <button class="cat-add-btn btn-add btn-solid btn-green icon-only" type="button" title="Legg til listepunkt i kategorien" aria-label="Legg til listepunkt i kategorien"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="#111" stroke-width="1.05" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 4.5v15"></path><path d="M4.5 12h15"></path></svg></button>
+          <button class="cat-add-btn btn-add btn-solid btn-green icon-only" type="button" data-i18n-title="add.itemInCat" data-i18n-aria-label="add.itemInCat"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="#111" stroke-width="1.05" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 4.5v15"></path><path d="M4.5 12h15"></path></svg></button>
         </li>
       </ul>
     </li>
@@ -499,7 +510,7 @@
        (popover på desktop / sentrert modal på mobil, samme skall som bytterne).
        Bygges i openTimeQuick(). -->
   <div class="switcher-overlay" id="time-switcher" hidden>
-    <div class="switcher-panel time-panel" id="time-switcher-panel" role="dialog" aria-label="Endre tid" tabindex="-1"></div>
+    <div class="switcher-panel time-panel" id="time-switcher-panel" role="dialog" data-i18n-aria-label="time.edit" tabindex="-1"></div>
   </div>
 
   <!-- Del-modal: eier inviterer, ser medlemmer/ventende, kaster ut, låser (fase 2).
@@ -510,9 +521,9 @@
   <div class="modal-overlay" id="share-modal" hidden>
     <div class="modal share-modal" role="dialog" aria-modal="true" aria-labelledby="share-title">
       <header class="modal-head">
-        <button class="icon-btn share-back" id="share-back" type="button" title="Tilbake" aria-label="Tilbake" hidden><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.05" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 12H4.5"></path><path d="M11 5.5 4.5 12l6.5 6.5"></path></svg></button>
-        <h2 id="share-title">Del</h2>
-        <button class="icon-btn" id="share-close" type="button" title="Lukk" aria-label="Lukk"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.05" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6.5 6.5 17.5 17.5"></path><path d="M17.5 6.5 6.5 17.5"></path></svg></button>
+        <button class="icon-btn share-back" id="share-back" type="button" data-i18n-title="common.back" data-i18n-aria-label="common.back" hidden><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.05" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 12H4.5"></path><path d="M11 5.5 4.5 12l6.5 6.5"></path></svg></button>
+        <h2 id="share-title" data-i18n="share.title">Del</h2>
+        <button class="icon-btn" id="share-close" type="button" data-i18n-title="common.close" data-i18n-aria-label="common.close"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.05" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6.5 6.5 17.5 17.5"></path><path d="M17.5 6.5 6.5 17.5"></path></svg></button>
       </header>
       <div class="modal-body share-body" id="share-body"></div>
     </div>
@@ -523,8 +534,8 @@
   <div class="modal-overlay" id="place-modal" hidden>
     <div class="modal place-modal" role="dialog" aria-modal="true" aria-labelledby="place-title">
       <header class="modal-head">
-        <h2 id="place-title">Flytt listen til</h2>
-        <button class="icon-btn" id="place-close" type="button" title="Lukk" aria-label="Lukk"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.05" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6.5 6.5 17.5 17.5"></path><path d="M17.5 6.5 6.5 17.5"></path></svg></button>
+        <h2 id="place-title" data-i18n="place.title">Flytt listen til</h2>
+        <button class="icon-btn" id="place-close" type="button" data-i18n-title="common.close" data-i18n-aria-label="common.close"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.05" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6.5 6.5 17.5 17.5"></path><path d="M17.5 6.5 6.5 17.5"></path></svg></button>
       </header>
       <div class="modal-body" id="place-body"></div>
     </div>
@@ -534,14 +545,14 @@
   <div class="modal-overlay" id="confirm-modal" hidden>
     <div class="modal confirm-modal" role="alertdialog" aria-modal="true" aria-labelledby="confirm-title" aria-describedby="confirm-msg">
       <header class="modal-head">
-        <h2 id="confirm-title">Bekreft</h2>
+        <h2 id="confirm-title" data-i18n="common.confirm">Bekreft</h2>
       </header>
       <div class="modal-body">
         <p class="confirm-msg" id="confirm-msg"></p>
       </div>
       <footer class="modal-foot confirm-foot">
-        <button class="btn btn-ghost" id="confirm-cancel" type="button">Avbryt</button>
-        <button class="btn btn-solid btn-red" id="confirm-ok" type="button">OK</button>
+        <button class="btn btn-ghost" id="confirm-cancel" type="button" data-i18n="common.cancel">Avbryt</button>
+        <button class="btn btn-solid btn-red" id="confirm-ok" type="button" data-i18n="common.ok">OK</button>
       </footer>
     </div>
   </div>
@@ -555,29 +566,29 @@
     <div class="modal confirm-modal" role="alertdialog" aria-modal="true"
          aria-labelledby="delete-account-title" aria-describedby="delete-account-msg">
       <header class="modal-head">
-        <h2 id="delete-account-title">Slett konto</h2>
-        <button class="icon-btn" id="delete-account-close" type="button" title="Lukk" aria-label="Lukk"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.05" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6.5 6.5 17.5 17.5"></path><path d="M17.5 6.5 6.5 17.5"></path></svg></button>
+        <h2 id="delete-account-title" data-i18n="account.delete">Slett konto</h2>
+        <button class="icon-btn" id="delete-account-close" type="button" data-i18n-title="common.close" data-i18n-aria-label="common.close"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.05" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6.5 6.5 17.5 17.5"></path><path d="M17.5 6.5 6.5 17.5"></path></svg></button>
       </header>
       <div class="modal-body delete-account-body">
-        <p class="confirm-msg" id="delete-account-msg">
+        <p class="confirm-msg" id="delete-account-msg" data-i18n="account.deleteMsg">
           Dette sletter kontoen din for godt. Det kan ikke angres.
         </p>
         <ul class="danger-list">
-          <li>Områder du er eneste eier av slettes med alt innholdet — også for
+          <li data-i18n="account.deleteBullet1">Områder du er eneste eier av slettes med alt innholdet — også for
               dem du har delt med.</li>
-          <li>Du fjernes fra alt som er delt med deg. Innhold du har laget i andres
+          <li data-i18n="account.deleteBullet2">Du fjernes fra alt som er delt med deg. Innhold du har laget i andres
               områder blir stående hos dem.</li>
-          <li>Navnet ditt, e-postadressen, profilbildet og invitasjonene dine
+          <li data-i18n="account.deleteBullet3">Navnet ditt, e-postadressen, profilbildet og invitasjonene dine
               slettes fra databasen.</li>
         </ul>
-        <p class="delete-account-hint">Sveip helt til høyre for å bekrefte.</p>
+        <p class="delete-account-hint" data-i18n="account.deleteSwipeHint">Sveip helt til høyre for å bekrefte.</p>
         <div class="confirm-swipe" id="delete-account-swipe" role="slider" tabindex="0"
              aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"
-             aria-label="Sveip helt til høyre for å slette kontoen"></div>
+             data-i18n-aria-label="account.deleteSwipeAria"></div>
         <p class="account-msg error" id="delete-account-error" role="status" hidden></p>
       </div>
       <footer class="modal-foot confirm-foot">
-        <button class="btn btn-ghost" id="delete-account-cancel" type="button">Avbryt</button>
+        <button class="btn btn-ghost" id="delete-account-cancel" type="button" data-i18n="common.cancel">Avbryt</button>
       </footer>
     </div>
   </div>
@@ -600,7 +611,7 @@
     <div class="tour-card" id="tour-card" role="dialog"
          aria-labelledby="tour-title" aria-describedby="tour-text" tabindex="-1">
       <div class="tour-progress" id="tour-progress" role="progressbar"
-           aria-label="Framdrift i demonstrasjonen"
+           data-i18n-aria-label="tour.progress"
            aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
         <div class="tour-progress-fill" id="tour-progress-fill"></div>
       </div>
@@ -613,12 +624,12 @@
         <p class="tour-note" id="tour-note" hidden></p>
       </div>
       <div class="tour-actions">
-        <button class="btn btn-ghost btn-small" id="tour-back" type="button" hidden>Tilbake</button>
+        <button class="btn btn-ghost btn-small" id="tour-back" type="button" data-i18n="common.back" hidden>Tilbake</button>
         <div class="tour-nav">
-          <button class="btn btn-solid btn-accent btn-small" id="tour-next" type="button" hidden>Kom i gang</button>
+          <button class="btn btn-solid btn-accent btn-small" id="tour-next" type="button" data-i18n="tour.start" hidden>Kom i gang</button>
         </div>
       </div>
-      <button class="icon-btn tour-close" id="tour-close" type="button" title="Avslutt demonstrasjonen" aria-label="Avslutt demonstrasjonen"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.05" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6.5 6.5 17.5 17.5"></path><path d="M17.5 6.5 6.5 17.5"></path></svg></button>
+      <button class="icon-btn tour-close" id="tour-close" type="button" data-i18n-title="tour.close" data-i18n-aria-label="tour.close"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.05" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6.5 6.5 17.5 17.5"></path><path d="M17.5 6.5 6.5 17.5"></path></svg></button>
     </div>
   </div>
 
@@ -631,41 +642,41 @@
       <form class="auth-form" id="auth-form" autocomplete="on">
         <h1 class="auth-title">
           <span id="auth-heading-icon"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="#111" stroke-width="1.05" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 3h3a2.5 2.5 0 0 1 2.5 2.5v13A2.5 2.5 0 0 1 18 21h-3" fill="#ffffff"></path><path d="M3 12h11"></path><path d="M10.5 8.5 14 12l-3.5 3.5"></path></svg></span>
-          <span id="auth-heading">Logg inn</span>
+          <span id="auth-heading" data-i18n="auth.login">Logg inn</span>
         </h1>
         <div class="auth-name-row" id="auth-name-fields" hidden>
           <label class="auth-field">
-            <span>Fornavn</span>
+            <span data-i18n="auth.firstName">Fornavn</span>
             <input class="field" type="text" id="auth-first-name" autocomplete="given-name"
-                   placeholder="Fornavn" />
+                   data-i18n-placeholder="auth.firstName" />
           </label>
           <label class="auth-field">
-            <span>Etternavn</span>
+            <span data-i18n="auth.lastName">Etternavn</span>
             <input class="field" type="text" id="auth-last-name" autocomplete="family-name"
-                   placeholder="Etternavn" />
+                   data-i18n-placeholder="auth.lastName" />
           </label>
         </div>
         <label class="auth-field">
-          <span>E-post</span>
+          <span data-i18n="account.email">E-post</span>
           <input class="field" type="email" id="auth-email" autocomplete="email" required
-                 placeholder="deg@eksempel.no" />
+                 data-i18n-placeholder="auth.emailPlaceholder" />
         </label>
         <label class="auth-field" id="auth-pass-field">
-          <span>Passord</span>
+          <span data-i18n="account.password">Passord</span>
           <!-- .pass-wrap + .pass-toggle: øye-knappen viser passordet mens man
                skriver det (app.js bytter type/ikon). -->
           <span class="pass-wrap">
             <input class="field" type="password" id="auth-password" autocomplete="current-password"
-                   minlength="6" placeholder="Minst 6 tegn" />
+                   minlength="6" data-i18n-placeholder="auth.passwordPlaceholder" />
             <button class="icon-btn pass-toggle" type="button" data-pass-toggle="auth-password"
-                    aria-pressed="false" title="Vis passordet" aria-label="Vis passordet"></button>
+                    aria-pressed="false" data-i18n-title="auth.showPassword" data-i18n-aria-label="auth.showPassword"></button>
           </span>
         </label>
         <p class="auth-msg" id="auth-msg" role="status"></p>
-        <button class="btn btn-solid btn-accent auth-submit" id="auth-submit" type="submit">Logg inn</button>
+        <button class="btn btn-solid btn-accent auth-submit" id="auth-submit" type="submit" data-i18n="auth.login">Logg inn</button>
         <div class="auth-links" id="auth-links">
-          <button type="button" class="auth-link" data-mode="register">Ny bruker? Registrer deg</button>
-          <button type="button" class="auth-link" data-mode="forgot">Glemt passord?</button>
+          <button type="button" class="auth-link" data-mode="register" data-i18n="auth.toRegister">Ny bruker? Registrer deg</button>
+          <button type="button" class="auth-link" data-mode="forgot" data-i18n="auth.toForgot">Glemt passord?</button>
         </div>
       </form>
 
@@ -673,7 +684,15 @@
       <div class="auth-sent" id="auth-sent" hidden>
         <div class="auth-sent-icon" aria-hidden="true"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="#111" stroke-width="1.05" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="14" rx="2.5" fill="#ffffff"></rect><path d="m3.5 7 7.2 5.6a2 2 0 0 0 2.6 0L20.5 7"></path></svg></div>
         <p class="auth-sent-msg" id="auth-sent-msg"></p>
-        <button class="btn btn-ghost" id="auth-sent-back" type="button">Tilbake til innlogging</button>
+        <button class="btn btn-ghost" id="auth-sent-back" type="button" data-i18n="auth.backToLogin">Tilbake til innlogging</button>
+      </div>
+
+      <!-- Språkvelger FØR innlogging: en ny bruker skal kunne bytte språk uten
+           å måtte gjette seg gjennom en norsk registrering først. Valget lagres
+           på enheten, og følger med opp på kontoen ved innlogging. -->
+      <div class="auth-lang">
+        <label class="auth-lang-label" for="auth-lang-select" data-i18n="lang.label">Språk</label>
+        <select class="field lang-select" id="auth-lang-select" data-i18n-aria-label="lang.aria"></select>
       </div>
     </div>
   </div>
@@ -687,7 +706,7 @@
   <div class="sync-status" id="sync-status" role="status" aria-live="polite" hidden>
     <span class="sync-status-dot" aria-hidden="true"></span>
     <span class="sync-status-text" id="sync-status-text"></span>
-    <button class="sync-status-action" id="sync-retry-btn" type="button" hidden>Prøv igjen</button>
+    <button class="sync-status-action" id="sync-retry-btn" type="button" data-i18n="common.retry" hidden>Prøv igjen</button>
   </div>
 
   <!-- Opplesningsområde for skjermlesere (app.js → announce()). Her havner det
@@ -714,6 +733,9 @@
   <script src="dev-mock.js"></script>
   <!-- huskis:kun-dev:slutt -->
   <script src="icons.js"></script>
+  <!-- Språket i UI-et (norsk/engelsk): ordbok + `t()`. MÅ lastes før app.js,
+       som slår opp hver eneste brukerrettede tekst der. Se docs/sprak.md. -->
+  <script src="i18n.js"></script>
   <script src="app.js"></script>
   <!-- Oppdager en nyere produksjonsdeploy og laster klienten på nytt når det er
        trygt (app.js → __huskis.updateSafety()). Avslått uten en ekte build-ID. -->
