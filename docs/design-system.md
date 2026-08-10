@@ -197,6 +197,12 @@ Størrelse/form kommer fra egne klasser: `.btn` (modaler), `.btn-small`,
   `.menu-badge` som invitasjons-teller).
 - `.account-form` (+ `-label`/`-row`) og `.account-msg`: endre navn/e-post i
   konto-modalen (etikett over felt, Lagre-knapp på samme rad).
+- `.lang-select`: språkvelgeren, en `.field`-basert `<select>` (Norsk/English).
+  Den finnes to steder med samme klasse — som kontroll i en `.menu-setting`-rad
+  i konto-modalen, og i `.auth-lang` nederst på innloggingsskjermen. En
+  `<select>` og ikke to knapper: den er tastatur- og skjermlestertilgjengelig
+  uten en linje ekstra kode, og den vokser når det kommer et tredje språk. Se
+  `sprak.md`.
 - `.nav-board`: nav-modalens board (områdekort + mapperader). Alltid ÉN
   kolonne; ellers arves `.card`/`.item`/`.category` uendret fra listedesignet.
   Aktivt område / aktiv mappe = ring i `--focus` trukket innover

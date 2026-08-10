@@ -69,6 +69,14 @@ window.ICONS = {
     '<path d="M12 3a14 14 0 0 1 3.8 9 14 14 0 0 1-3.8 9 14 14 0 0 1-3.8-9A14 14 0 0 1 12 3Z"></path>' +
     '</svg>',
 
+  // Språk: en ENSFARGET klode med ekvator og meridian. Bevisst ulik `globe`
+  // (område), som har seks fargefelt — de to skal ikke kunne forveksles.
+  language: '<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="#111" stroke-width="1.05" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
+    '<circle cx="12" cy="12" r="8.5" fill="#85adad"></circle>' +
+    '<path d="M3.5 12h17"></path>' +
+    '<path d="M12 3.5a13 13 0 0 1 3.6 8.5 13 13 0 0 1-3.6 8.5 13 13 0 0 1-3.6-8.5A13 13 0 0 1 12 3.5Z"></path>' +
+    '</svg>',
+
   // Øye (Vis): hornhinnen (mandelen) hvit, pupillen (indre sirkel) svart.
   eye: '<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="#111" stroke-width="1.05" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
     '<path d="M2.5 12S6 5.5 12 5.5 21.5 12 21.5 12 18 18.5 12 18.5 2.5 12 2.5 12Z" fill="#ffffff"></path>' +

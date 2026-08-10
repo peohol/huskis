@@ -324,6 +324,11 @@ fingeren skal ta tak. Én linje er målet, to er taket.
   `premise`, `rewind`, `reopen`, `clear`, `needsNav`, `needsTrash`, `trashModal`,
   `cta`).
   Oppdater tabellen over i samme endring.
+- **Selve TEKSTEN i et steg ligger i ordboken**, ikke i `DEMO_STEPS`: nøklene
+  heter `tour.<steg-id>` (og `tour.<id>Title` der steget har en overskrift) i
+  `i18n.js`, med både norsk og engelsk. Ikonene som står inne i setningene
+  settes inn som `{list}`/`{folder}`/`{globe}`/`{category}`, så de kan flytte
+  seg med ordstillingen. Se `sprak.md`.
 - **Et nytt handlingssteg trenger en `done()` som leser TILSTAND**, ikke en
   klikkhåndterer. Leser den DOM-en i stedet for `state`, har du bygget et
   knappetrykk med ekstra steg.

@@ -82,6 +82,14 @@ Navnet er **presist** — det inneholder objektets navn, ikke bare handlingen.
 funksjon (`app.js`) og settes **på nytt etter omdøping**, så de aldri blir
 stående på gammel tekst.
 
+## Språk
+
+`<html lang>` følger språkvalget (`i18n.js` → `applyHtmlLang()`): en
+skjermleser skal lese engelsk tekst med engelsk uttale, ikke norsk. Alle navn
+på kontroller — `aria-label`, `title`, `placeholder` og opplesningene i
+`announce()` — kommer fra den samme ordboken som resten av UI-et, så et
+språkbytte treffer dem også. Se `sprak.md`.
+
 ## Tastatur
 
 Håndtaket er objektets navn-/tittelsone — samme element `attachHoldDrag` får,

@@ -5,6 +5,20 @@
 (function () {
   'use strict';
 
+  /* ---------------- Språk ----------------
+     Ordboken og kjøretiden ligger i `i18n.js`, som lastes før denne fila.
+     `tr(nøkkel, felt)` er den ENESTE veien til brukerrettet tekst herfra: en
+     norsk streng skrevet rett inn i koden finnes ikke på engelsk, og
+     tests/i18n.test.js stopper den. Autoritativt: docs/sprak.md. */
+  const I18N = window.HUSKIS_I18N;
+  const tr = I18N.t;
+  /* Klon av en <template>. Malenes `data-i18n`-attributter må oversettes på
+     KLONEN: innholdet i et <template> er et eget fragment, som oppstartens
+     `applyStatic(document)` ikke går inn i. */
+  function fromTemplate(tpl) {
+    return I18N.applyStatic(tpl.content.firstElementChild.cloneNode(true));
+  }
+
   /* ---------------- Konstanter ---------------- */
   const STORAGE_KEY = 'mine-lister-v1';
 
@@ -260,14 +274,14 @@
     const u = makeUniverse(DEFAULT_UNI.name, DEFAULT_UNI.id);
     const defs = [
       { g: LEGACY_TABS[0], lists: [
-        ['Ukens gjøremål', ['Rydde garasjen', 'Ringe tannlegen', 'Vanne blomstene']],
-        ['Pakke til tur', ['Regnjakke', 'Ladekabel', 'Drikkeflaske', 'Kart']],
-        ['Ideer', ['Male gjerdet', 'Prøve ny kaffebar']],
+        [tr('seed.chores'), [tr('seed.garage'), tr('seed.dentist'), tr('seed.flowers')]],
+        [tr('seed.packing'), [tr('seed.raincoat'), tr('seed.charger'), tr('seed.bottle'), tr('seed.map')]],
+        [tr('seed.ideas'), [tr('seed.fence'), tr('seed.coffeeBar')]],
       ] },
       { g: LEGACY_TABS[1], lists: [
-        ['Dagligvarer', ['Melk', 'Brød', 'Egg', 'Smør', 'Kaffe']],
-        ['Middag i kveld', ['Kyllingfilet', 'Ris', 'Brokkoli', 'Soyasaus']],
-        ['Apotek', ['Plaster', 'Solkrem']],
+        [tr('seed.groceries'), [tr('seed.milk'), tr('seed.bread'), tr('seed.eggs'), tr('seed.butter'), tr('seed.coffee')]],
+        [tr('seed.dinner'), [tr('seed.chicken'), tr('seed.rice'), tr('seed.broccoli'), tr('seed.soy')]],
+        [tr('seed.pharmacy'), [tr('seed.plaster'), tr('seed.sunscreen')]],
       ] },
     ];
     u.groups = defs.map((d, gi) => {
@@ -470,7 +484,7 @@
   function normalizeGroup(g, i, uniId) {
     if (!g.id) g.id = uid();
     if (!g.uni) g.uni = uniId || null;
-    if (typeof g.name !== 'string') g.name = 'Uten navn';
+    if (typeof g.name !== 'string') g.name = tr('common.noName');
     if (typeof g.trashed !== 'boolean') g.trashed = false;
     if (typeof g.isCat !== 'boolean') g.isCat = false;
     if (typeof g.collapsed !== 'boolean') g.collapsed = false;
@@ -485,7 +499,7 @@
   }
   function normalizeUniverse(u, i) {
     if (!u.id) u.id = uid();
-    if (typeof u.name !== 'string') u.name = 'Uten navn';
+    if (typeof u.name !== 'string') u.name = tr('common.noName');
     if (typeof u.trashed !== 'boolean') u.trashed = false;
     if (typeof u.collapsed !== 'boolean') u.collapsed = false;
     if (typeof u.ts !== 'number') u.ts = 0;
@@ -695,8 +709,8 @@
 
   // Objektnavn i anførselstegn, med en trygg fallback for det navnløse.
   function quoted(name) {
-    const t = String(name == null ? '' : name).trim();
-    return t ? '«' + t + '»' : 'uten navn';
+    const s = String(name == null ? '' : name).trim();
+    return s ? tr('common.quoted', { name: s }) : tr('common.unnamed');
   }
   // aria-label ER navnet på knappen; `title` er kun musehjelp og settes til det
   // samme med mindre kalleren vil ha en lengre forklaring der.
@@ -1008,18 +1022,18 @@
     const ctx = moveCtx(kind, id);
     if (!ctx) return;
     if (!canReorderObj(kind, ctx.obj, ctx.cont)) {
-      announce('Kan ikke endre rekkefølgen på ' + quoted(ctx.name) + ' her.');
+      announce(tr('a11y.cannotReorder', { name: quoted(ctx.name) }));
       return;
     }
     const i = ctx.rows.findIndex((r) => r.id === id);
     if (i < 0) return;
     const target = ctx.rows[i + step];
     if (!target) {
-      announce(quoted(ctx.name) + ' står allerede ' + (step < 0 ? 'først' : 'sist') + '.');
+      announce(tr(step < 0 ? 'a11y.alreadyFirst' : 'a11y.alreadyLast', { name: quoted(ctx.name) }));
       return;
     }
     if (!canReorderObj(kind, target, ctx.cont)) {
-      announce('Kan ikke bytte plass med ' + quoted(nameOfAny(target)) + '.');
+      announce(tr('a11y.cannotSwap', { name: quoted(nameOfAny(target)) }));
       return;
     }
     swapSiblings(ctx.obj, target, kind);
@@ -1030,8 +1044,8 @@
     if (kind === 'card' || kind === 'universe') render();
     else if (kind === 'group' || kind === 'groupcat') renderNav();
     else { refreshCard(ctx.cont); applyFocusIntent(); }
-    announce(quoted(ctx.name) + ' flyttet ' + (step < 0 ? 'opp' : 'ned') +
-      ' til plass ' + (i + step + 1) + ' av ' + ctx.rows.length + '.');
+    announce(tr(step < 0 ? 'a11y.movedUp' : 'a11y.movedDown',
+      { name: quoted(ctx.name), pos: i + step + 1, total: ctx.rows.length }));
   }
 
   // Navnet på et hvilket som helst state-objekt (nivåene bruker ulike felt).
@@ -1051,11 +1065,11 @@
       // buildCard). Uten denne kunne Alt+M flytte en frossen liste optimistisk,
       // og først serveren ville sagt nei.
       if (!canReorderObj('card', c, activeGroupObj())) {
-        announce('Du kan ikke flytte ' + quoted(c.title) + ' ut av denne mappen.');
+        announce(tr('a11y.cannotMoveOutOfGroup', { name: quoted(c.title) }));
         return;
       }
       if (!moveTargetGroups(c).length) {
-        announce('Det finnes ingen annen mappe å flytte ' + quoted(c.title) + ' til.');
+        announce(tr('a11y.noOtherGroup', { name: quoted(c.title) }));
         return;
       }
       askCardMove(c);
@@ -1065,21 +1079,21 @@
       const it = findItemById(id);
       const from = it ? findCard(it.home) : null;
       if (!it || !from || it.isCat) return;
-      if (frozen(from)) { announce('Listen er låst.'); return; }
+      if (frozen(from)) { announce(tr('a11y.listLocked')); return; }
       // Målene: de andre listene i mappen, og kategoriene i listen den ligger i
       // (pluss «utenfor kategori» når den ligger i en). Det dekker begge
       // overføringene draget kan gjøre med et listepunkt.
       const g = activeGroupObj();
       const opts = [];
-      if (it.cat) opts.push({ id: 'lvl1:' + from.id, label: 'Ut av kategorien (i «' + from.title + '»)' });
+      if (it.cat) opts.push({ id: 'lvl1:' + from.id, label: tr('move.outOfCategory', { list: from.title }) });
       orderedRows(boardScope, from, 'level1')
         .filter((r) => r.isCat && r.id !== it.cat)
-        .forEach((r) => opts.push({ id: 'cat:' + r.id, label: 'Kategorien «' + r.text + '»' }));
+        .forEach((r) => opts.push({ id: 'cat:' + r.id, label: tr('move.toCategory', { name: r.text }) }));
       (g ? g.cards.filter(live).sort(posCmp) : [])
         .filter((c) => c.id !== from.id && !frozen(c))
-        .forEach((c) => opts.push({ id: 'card:' + c.id, label: 'Listen «' + c.title + '»' }));
-      if (!opts.length) { announce('Det finnes ingen annen liste eller kategori å flytte til.'); return; }
-      openPicker(quoted(it.text) + ' flyttes dit du velger.', opts, '', (choice) => {
+        .forEach((c) => opts.push({ id: 'card:' + c.id, label: tr('move.toList', { name: c.title }) }));
+      if (!opts.length) { announce(tr('a11y.noOtherListOrCategory')); return; }
+      openPicker(tr('move.itemPrompt', { name: quoted(it.text) }), opts, '', (choice) => {
         const [what, target] = choice.split(':');
         if (what === 'card') {
           const dest = findCard(target);
@@ -1091,8 +1105,8 @@
           dest.items.push(it);
           save(); render();
           keepFocus(handleSelector('item', it.id)); applyFocusIntent();
-          showToast('Flyttet ' + quoted(it.text) + ' til «' + dest.title + '»');
-          announce('Flyttet ' + quoted(it.text) + ' til listen «' + dest.title + '».');
+          showToast(tr('move.movedTo', { name: quoted(it.text), dest: quoted(dest.title) }));
+          announce(tr('a11y.movedToList', { name: quoted(it.text), dest: quoted(dest.title) }));
           return;
         }
         it.cat = what === 'cat' ? target : null;
@@ -1101,9 +1115,8 @@
           : level1MaxPos(from.items) + 1);
         save(); refreshCard(from);
         keepFocus(handleSelector('item', it.id)); applyFocusIntent();
-        announce(what === 'cat'
-          ? 'Flyttet ' + quoted(it.text) + ' inn i en kategori.'
-          : 'Flyttet ' + quoted(it.text) + ' ut av kategorien.');
+        announce(tr(what === 'cat' ? 'a11y.movedIntoCategory' : 'a11y.movedOutOfCategory',
+          { name: quoted(it.text) }));
       });
       return;
     }
@@ -1113,14 +1126,14 @@
       // Å ta mappen UT av området sitt er en flytting, ikke en omrokkering:
       // samme capability som dra-motorens `canExtract` i navScope krever.
       if (!cap(g, 'move', !frozen(g))) {
-        announce('Du kan ikke flytte ' + quoted(g.name) + ' til et annet område.');
+        announce(tr('a11y.cannotMoveToOtherUniverse', { name: quoted(g.name) }));
         return;
       }
       const opts = visibleUniverses()
         .filter((u) => !u._virtual && u.id !== g.uni && cap(u, 'createGroup', !frozen(u)))
         .map((u) => ({ id: u.id, label: u.name }));
-      if (!opts.length) { announce('Det finnes ikke noe annet område å flytte til.'); return; }
-      openPicker(quoted(g.name) + ' flyttes til området du velger.', opts, '', (uid2) => {
+      if (!opts.length) { announce(tr('a11y.noOtherUniverse')); return; }
+      openPicker(tr('move.groupPrompt', { name: quoted(g.name) }), opts, '', (uid2) => {
         const dst = findUniverse(uid2);
         const from = g.uni;
         if (!dst) return;
@@ -1135,14 +1148,12 @@
         dst.groups.push(g);
         save(); render();
         keepFocus(handleSelector('group', g.id)); applyFocusIntent();
-        announce('Flyttet ' + quoted(g.name) + ' til området «' + dst.name + '».');
+        announce(tr('a11y.movedToUniverse', { name: quoted(g.name), dest: quoted(dst.name) }));
         commitGroupMove(g, from, dst.id, null, np);
       });
       return;
     }
-    announce(kind === 'universe'
-      ? 'Et område er øverste nivå og kan ikke flyttes.'
-      : 'En kategori kan ikke flyttes til en annen forelder.');
+    announce(tr(kind === 'universe' ? 'a11y.universeIsTop' : 'a11y.categoryCannotMove'));
   }
 
   /* ---------------- Tastaturhåndtaket på en rad / et korthode ----------------
@@ -1260,7 +1271,7 @@
     // Overflate-oppdatering etter et kirurgisk drop (ingen rebuild av scopet).
     afterDrop: () => { /* board-et er allerede riktig */ },
     reindexColors: () => reindexContainerColors(boardScope),
-    lockedTargetMsg: 'Listen er låst – du kan ikke flytte noe hit',  // avvist slipp i en frossen mål-container
+    lockedTargetMsg: tr('dnd.listLocked'),  // avvist slipp i en frossen mål-container
   };
   const navScope = {
     key: 'nav',
@@ -1306,7 +1317,7 @@
     // og en rebuild ville revet ned kortet midt i drop-animasjonen.
     afterDrop: () => { updateCrumbs(); renderBoard(); },
     reindexColors: () => reindexContainerColors(navScope),
-    lockedTargetMsg: 'Området er låst – du kan ikke flytte noe hit',
+    lockedTargetMsg: tr('dnd.universeLocked'),
   };
   const scopeForEl = (el) => (el && navBoard.contains(el) ? navScope : boardScope);
   const dragScope = () => drag.scope || boardScope;
@@ -1535,9 +1546,11 @@
       board.classList.add('empty');
       const es = document.createElement('div');
       es.className = 'empty-state';
-      es.innerHTML = '<div class="big">' + ICONS.folder + '</div><p>Ingen mapper ennå.</p>' +
-        '<p>Trykk <span class="hint-chip">' + ICONS.globe + ' › ' + ICONS.folder + '</span> øverst og deretter ' +
-        '<span class="hint-chip">' + ICONS.plus + '</span> i et område for å komme i gang.</p>';
+      es.innerHTML = '<div class="big">' + ICONS.folder + '</div><p>' + tr('empty.noGroups') + '</p>' +
+        '<p>' + tr('empty.noGroupsHint', {
+          nav: '<span class="hint-chip">' + ICONS.globe + ' › ' + ICONS.folder + '</span>',
+          plus: '<span class="hint-chip">' + ICONS.plus + '</span>',
+        }) + '</p>';
       board.appendChild(es);
       fixBoardBottomGap();
       save();
@@ -1555,15 +1568,17 @@
       const es = document.createElement('div');
       es.className = 'empty-state';
       const big = document.createElement('div'); big.className = 'big'; big.innerHTML = ICONS.list;
-      const p1 = document.createElement('p'); p1.textContent = 'Ingen lister i «' + group.name + '» ennå.';
+      const p1 = document.createElement('p');
+      p1.textContent = tr('empty.noCards', { name: quoted(group.name) });
       const p2 = document.createElement('p');
       // «＋ Liste» er skrudd av i en låst mappe — da skal tomtilstanden si
       // hvorfor, ikke be om et trykk som ikke fører noe sted.
       if (canAddList(group)) {
-        p2.innerHTML = 'Trykk <span class="hint-chip">' + ICONS.plus + ' ' + ICONS.list + '</span> for å komme i gang.';
+        p2.innerHTML = tr('empty.noCardsHint',
+          { plus: '<span class="hint-chip">' + ICONS.plus + ' ' + ICONS.list + '</span>' });
       } else {
         big.innerHTML = ICONS.lock;
-        p2.textContent = 'Mappen er låst, så du kan ikke opprette lister i den.';
+        p2.textContent = tr('empty.groupLocked');
       }
       es.append(big, p1, p2);
       board.appendChild(es);
@@ -1614,12 +1629,12 @@
     const group = activeGroupObj();
     const free = !!(group && group._free);
     crumbUniIcon.innerHTML = free ? '' : ICONS.globe;
-    crumbUniName.textContent = free ? S_TEXT.freeSection : (uni ? uni.name : 'Område');
+    crumbUniName.textContent = free ? S_TEXT.freeSection : (uni ? uni.name : tr('kind.universe'));
     setCrumbShared(crumbUniShared, free || !!(uni && uni._shared),
-      free ? 'Mapper delt med deg' : 'Området er delt');
+      free ? tr('section.sharedGroups') : tr('crumb.universeShared'));
     crumbGroupIcon.innerHTML = ICONS.folder;
-    crumbGroupName.textContent = group ? group.name : 'Mappe';
-    setCrumbShared(crumbGroupShared, !!(group && group._shared), 'Mappen er delt');
+    crumbGroupName.textContent = group ? group.name : tr('kind.group');
+    setCrumbShared(crumbGroupShared, !!(group && group._shared), tr('crumb.groupShared'));
   }
 
   // Delings-/låse-status (kontomodus): toggler .is-shared og fyller .share-badge
@@ -1636,7 +1651,7 @@
       const badge = el.querySelector('.share-badge');
       badge.hidden = false;
       badge.innerHTML = !canEdit ? ICONS.lock : ICONS.people;
-      badge.title = obj._role === 'owner' ? 'Delt med andre' : 'Delt med deg';
+      badge.title = tr(obj._role === 'owner' ? 'share.withOthers' : 'share.withYou');
     }
     return { shared, canEdit };
   }
@@ -1701,9 +1716,7 @@
       if (!inSection.length) {
         const es = document.createElement('p');
         es.className = 'nav-section-empty';
-        es.textContent = rank === SECTION_OWNED
-          ? 'Ingen egne områder ennå.'
-          : 'Ingen områder er delt med deg.';
+        es.textContent = tr(rank === SECTION_OWNED ? 'empty.noOwnUniverses' : 'empty.noSharedUniverses');
         col.appendChild(es);
       }
       inSection.forEach((u) => col.appendChild(buildUniverseCard(u)));
@@ -1736,7 +1749,7 @@
     wrap.className = 'nav-add-uni';
     const b = document.createElement('button');
     b.className = 'btn-add btn-solid btn-green'; b.type = 'button';
-    b.title = 'Nytt område'; b.setAttribute('aria-label', 'Nytt område');
+    b.title = tr('nav.newUniverse'); b.setAttribute('aria-label', tr('nav.newUniverse'));
     b.innerHTML = ICONS.plus + ' ' + ICONS.globe;
     b.addEventListener('click', () => addUniverse());
     wrap.appendChild(b);
@@ -1744,7 +1757,7 @@
   }
 
   function buildUniverseCard(u) {
-    const el = uniCardTpl.content.firstElementChild.cloneNode(true);
+    const el = fromTemplate(uniCardTpl);
     el.dataset.id = u.id;
 
     // Den virtuelle fri-beholderen får ingen posisjonsfarge — den er en seksjon,
@@ -1774,7 +1787,7 @@
     const renameUni = () => {
       if (!canRename) return;
       editText(titleEl, u.name, (val) => {
-        u.name = val || 'Uten navn';
+        u.name = val || tr('common.noName');
         titleEl.textContent = u.name;
         stampContent(u);
         save();
@@ -1804,7 +1817,7 @@
         openShare('universe', u.id, findUniverse(u.id) || u, openNavModal);
       },
       remove: canDelUni ? () => deleteUniverse(findUniverse(u.id) || u) : null,
-      removeLabel: 'Slett området for alle',
+      removeLabel: tr('menu.deleteUniverseForAll'),
     });
 
     // Draging + rullgardin-kollaps: nøyaktig som et listekort.
@@ -1874,9 +1887,9 @@
       const gTrashBtn = document.createElement('button');
       gTrashBtn.type = 'button';
       gTrashBtn.className = 'trashcan group-trash-btn';
-      gTrashBtn.title = 'Slettede mapper – trykk for å åpne, hold og sveip for å slette dem for godt';
+      gTrashBtn.title = tr('trash.groupsBtnTitle');
       gTrashBtn.setAttribute('aria-label',
-        trashedGroups.length + ' slettede mapper i ' + quoted(u.name));
+        tr('trash.groupsCountIn', { count: trashedGroups.length, name: quoted(u.name) }));
       const gIcon = document.createElement('span');
       gIcon.className = 'trashcan-icon';
       gIcon.setAttribute('aria-hidden', 'true');
@@ -1898,11 +1911,12 @@
     // mest inngripende knappen i appen — den skal aldri være anonym.
     function labelUniControls() {
       const n = quoted(u.name);
-      head.setAttribute('aria-label', isFree ? u.name : 'Området ' + n);
-      el.setAttribute('aria-label', isFree ? u.name : 'Området ' + n); // se buildCard
-      labelBtn(menuBtn, 'Meny for området ' + n);
-      labelBtn(addRow.querySelector('.add-item-btn'), 'Legg til mappe i ' + n);
-      labelBtn(addRow.querySelector('.add-cat-btn'), 'Legg til mappekategori i ' + n);
+      const label = isFree ? u.name : tr('label.universe', { name: n });
+      head.setAttribute('aria-label', label);
+      el.setAttribute('aria-label', label); // se buildCard
+      labelBtn(menuBtn, tr('label.menuUniverse', { name: n }));
+      labelBtn(addRow.querySelector('.add-item-btn'), tr('label.addGroupIn', { name: n }));
+      labelBtn(addRow.querySelector('.add-cat-btn'), tr('label.addGroupCatIn', { name: n }));
     }
     labelUniControls();
 
@@ -1916,7 +1930,7 @@
   // En mappe er en rad som et listepunkt — men uten avmerkingsboks (mapper
   // krysses ikke av) og med del-knapp i stedet for tannhjul.
   function buildGroupRow(g, u) {
-    const el = groupRowTpl.content.firstElementChild.cloneNode(true);
+    const el = fromTemplate(groupRowTpl);
     el.dataset.id = g.id;
     const canEdit = !frozen(g);
     const isActive = g.id === state.activeGroup;
@@ -1933,7 +1947,7 @@
     const rename = () => {
       if (!canEdit) return;
       editText(textEl, g.name, (val) => {
-        g.name = val || 'Uten navn';
+        g.name = val || tr('common.noName');
         textEl.textContent = g.name;
         stampContent(g);
         save();
@@ -1978,7 +1992,7 @@
         openShare('group', g.id, findGroupAnywhere(g.id) || g, openNavModal);
       },
       remove: canDelGroup ? () => deleteGroup(findGroupAnywhere(g.id) || g) : null,
-      removeLabel: 'Slett mappen for alle',
+      removeLabel: tr('menu.deleteGroupForAll'),
     });
 
     // En fri mappe ordnes PERSONLIG (alltid dragbar); en mappe i et område
@@ -1996,8 +2010,8 @@
     // alle» må si HVILKEN før man trykker.
     function labelGroupControls() {
       const n = quoted(g.name);
-      el.setAttribute('aria-label', 'Mappen ' + n);
-      labelBtn(menuBtn, 'Meny for mappen ' + n);
+      el.setAttribute('aria-label', tr('label.group', { name: n }));
+      labelBtn(menuBtn, tr('label.menuGroup', { name: n }));
     }
     labelGroupControls();
     return el;
@@ -2006,18 +2020,18 @@
   // Mappekategori: samme kategori-rad som i en liste, men uten innstillinger og
   // uten deling — kun oppløs-knappen (og ＋ for en ny mappe rett i kategorien).
   function buildGroupCategory(catData, u) {
-    const el = groupCatTpl.content.firstElementChild.cloneNode(true);
+    const el = fromTemplate(groupCatTpl);
     el.dataset.id = catData.id;
     const canEdit = !frozen(catData);
 
     el.querySelector('.cat-drag-icon').innerHTML = ICONS.groupCategory;
 
     const titleEl = el.querySelector('.cat-title');
-    titleEl.textContent = catData.name || 'Kategori';
+    titleEl.textContent = catData.name || tr('kind.category');
     const renameGroupCat = () => {
       if (!canEdit) return;
       editText(titleEl, catData.name, (val) => {
-        catData.name = val || 'Kategori';
+        catData.name = val || tr('kind.category');
         titleEl.textContent = catData.name;
         stampContent(catData);
         save();
@@ -2042,7 +2056,7 @@
       scope: navScope,
       rename: canEdit ? renameGroupCat : null,
       remove: canEdit ? dissolveGroupCat : null,
-      removeLabel: 'Løs opp mappekategorien',
+      removeLabel: tr('menu.dissolveGroupCat'),
       removeIcon: ICONS.bubbleBurst,
     });
 
@@ -2073,9 +2087,9 @@
 
     function labelGroupCatControls() {
       const n = quoted(catData.name);
-      labelBtn(menuBtn, 'Meny for mappekategorien ' + n);
-      labelBtn(addBtn, 'Legg til mappe i kategorien ' + n);
-      catHead.setAttribute('aria-label', 'Mappekategorien ' + n);
+      labelBtn(menuBtn, tr('label.menuGroupCat', { name: n }));
+      labelBtn(addBtn, tr('label.addGroupInCat', { name: n }));
+      catHead.setAttribute('aria-label', tr('label.groupcat', { name: n }));
     }
     labelGroupCatControls();
 
@@ -2106,7 +2120,7 @@
   // områdekortet, som i stedet oppretter tomt og navngir på plassen.
   function addGroup() {
     const u = ensureUniverse();
-    const g = makeGroup('Ny mappe', null, u.id);
+    const g = makeGroup(tr('nav.newGroup'), null, u.id);
     g.pos = level1MaxPos(u.groups) + 1;
     stampContent(g);
     stampPos(g);
@@ -2119,12 +2133,11 @@
   // Forlat et område eller en mappe: fjerner KUN min egen tilgang, aldri
   // innholdet. Optimistisk — objektet forsvinner straks, RPC-en ligger i køen.
   async function leaveObject(type, obj) {
-    const word = type === 'universe' ? 'området' : 'mappen';
+    const word = tr(type === 'universe' ? 'kindDef.universe' : 'kindDef.group');
     if (!await askConfirm({
-      title: 'Forlat ' + word,
-      message: 'Du mister tilgangen til «' + (obj.name || 'objektet') +
-        '», men innholdet består for de andre.',
-      okLabel: 'Forlat',
+      title: tr('leave.title', { kind: word }),
+      message: tr('leave.message', { name: quoted(obj.name || tr('common.theObject')) }),
+      okLabel: tr('leave.ok'),
     })) return;
     removeSharedLocally(obj.id);
     cloudLeave(type, obj.id);
@@ -2217,7 +2230,7 @@
   }
 
   function buildCard(cardData) {
-    const el = cardTpl.content.firstElementChild.cloneNode(true);
+    const el = fromTemplate(cardTpl);
     el.dataset.id = cardData.id;
 
     // Fargen settes normalt av render() (posisjonsbasert); fall tilbake på en
@@ -2244,7 +2257,7 @@
     shareBadge.hidden = !shared;
     if (shared) {
       shareBadge.innerHTML = !canEdit ? ICONS.lock : ICONS.people;
-      shareBadge.title = grp._role === 'owner' ? 'Mappen er delt med andre' : 'Mappen er delt med deg';
+      shareBadge.title = tr(grp._role === 'owner' ? 'share.groupWithOthers' : 'share.groupWithYou');
     }
 
     // Indikator-chips (delt/ansvarlig/start/frist) under tittelen.
@@ -2256,7 +2269,7 @@
     const renameCard = () => {
       if (!canEdit) return;
       editText(titleEl, cardData.title, (val) => {
-        cardData.title = val || 'Uten navn';
+        cardData.title = val || tr('common.noName');
         titleEl.textContent = cardData.title;
         stampContent(cardData);
         save();
@@ -2280,7 +2293,7 @@
       // myndigheten ligger: i mappens meny. Delt-status vises fortsatt på
       // kortet (`.share-badge`).
       remove: canEdit ? () => deleteCard(cardData) : null,
-      removeLabel: 'Slett listen',
+      removeLabel: tr('menu.deleteCard'),
     });
 
     // Kort-draging: trykk-og-hold på korthodet (tittel-delen) unntatt
@@ -2377,9 +2390,9 @@
     const trashBtnEl = document.createElement('button');
     trashBtnEl.type = 'button';
     trashBtnEl.className = 'trashcan item-trash-btn';
-    trashBtnEl.title = 'Slettede listepunkter – trykk for å åpne, hold og sveip for å slette dem for godt';
+    trashBtnEl.title = tr('trash.itemsBtnTitle');
     trashBtnEl.setAttribute('aria-label',
-      trashed.length + ' slettede listepunkter i ' + quoted(cardData.title));
+      tr('trash.itemsCountIn', { count: trashed.length, name: quoted(cardData.title) }));
     const trashIcon = document.createElement('span');
     trashIcon.className = 'trashcan-icon';
     trashIcon.setAttribute('aria-hidden', 'true');
@@ -2405,16 +2418,16 @@
     // skjermleseren sier hvilken. Kalles på nytt etter omdøping.
     function labelCardControls() {
       const n = quoted(cardData.title);
-      labelBtn(menuBtn, 'Meny for listen ' + n);
-      labelBtn(addBtn, 'Legg til listepunkt i ' + n);
-      labelBtn(addCatBtn, 'Legg til kategori i ' + n);
-      labelBtn(restoreDoneBtn, 'Gjenopprett alle utførte listepunkter i ' + n);
-      headEl.setAttribute('aria-label', 'Listen ' + n);
+      labelBtn(menuBtn, tr('label.menuCard', { name: n }));
+      labelBtn(addBtn, tr('label.addItemIn', { name: n }));
+      labelBtn(addCatBtn, tr('label.addCatIn', { name: n }));
+      labelBtn(restoreDoneBtn, tr('label.restoreDoneIn', { name: n }));
+      headEl.setAttribute('aria-label', tr('label.card', { name: n }));
       // Korthodet er `role="button"`, og en knapp har presentasjonelle barn:
       // <h2>-en inni blir dermed ikke lenger en overskrift man kan hoppe til.
       // Det navngitte <article>-et gir strukturnavigeringen tilbake — nå som en
       // navngitt region i stedet for en overskrift.
-      el.setAttribute('aria-label', 'Listen ' + n);
+      el.setAttribute('aria-label', tr('label.card', { name: n }));
     }
     labelCardControls();
 
@@ -2647,15 +2660,20 @@
     const p = dateStr.split('-').map(Number);
     return localDateStr(new Date(p[0], p[1] - 1, p[2] + days));
   }
-  const MONTHS_NO = ['jan', 'feb', 'mar', 'apr', 'mai', 'jun', 'jul', 'aug', 'sep', 'okt', 'nov', 'des'];
+  // Månedsnavn og datoformat er språkavhengige: «12. mai» mot «12 May».
+  // Listen står som én streng i ordboken (mellomrom skiller) — tolv nøkler
+  // per språk ville vært tolv steder å glemme.
+  const monthsShort = () => tr('date.monthsShort').split(' ');
   function fmtDay(dateStr) {
     const p = dateStr.split('-').map(Number);
-    const yr = p[0] !== new Date().getFullYear() ? ' ' + p[0] : '';
-    return p[2] + '. ' + (MONTHS_NO[p[1] - 1] || '') + yr;
+    const yr = p[0] !== new Date().getFullYear() ? String(p[0]) : '';
+    return tr(yr ? 'date.dayMonthYear' : 'date.dayMonth',
+      { d: p[2], mon: monthsShort()[p[1] - 1] || '', y: yr });
   }
   function fmtTimeFull(v) {
     const clock = timeClockPart(v);
-    return fmtDay(timeDatePart(v)) + (clock ? ' kl. ' + clock : '');
+    const day = fmtDay(timeDatePart(v));
+    return clock ? tr('date.at', { date: day, clock: clock }) : day;
   }
   function startStatus(v) { // 'future' | 'started'
     const d = timeDatePart(v);
@@ -2723,8 +2741,8 @@
     const showClock = clock && timeDatePart(v) === todayStr();
     chip.innerHTML = (showClock ? ICONS.clock : (isDue ? ICONS.calendarDue : ICONS.calendar)) +
       '<span>' + (showClock ? clock : fmtDay(timeDatePart(v))) + '</span>';
-    chip.title = (isDue ? 'Frist: ' : 'Start: ') + fmtTimeFull(v);
-    chip.setAttribute('aria-label', chip.title + (canEdit ? '. Trykk for å endre' : ''));
+    chip.title = tr(isDue ? 'time.dueLabel' : 'time.startLabel', { time: fmtTimeFull(v) });
+    chip.setAttribute('aria-label', canEdit ? tr('chip.tapToChange', { text: chip.title }) : chip.title);
     if (canEdit) chip.addEventListener('click', (ev) => { ev.stopPropagation(); openTimeQuick(target, field, chip); });
     else chip.disabled = true;
     row.appendChild(chip);
@@ -2745,8 +2763,8 @@
       const entry = group ? group.byId.get(obj.responsible) : null;
       const chip = metaChipEl('meta-resp');
       chip.appendChild(respAvatar(entry ? entry.person : null, entry ? entry.index : -1));
-      chip.title = entry ? 'Ansvarlig: ' + entry.person.name : 'Ansvarlig valgt';
-      chip.setAttribute('aria-label', chip.title + '. Trykk for å endre');
+      chip.title = entry ? tr('resp.label', { name: entry.person.name }) : tr('resp.chosen');
+      chip.setAttribute('aria-label', tr('chip.tapToChange', { text: chip.title }));
       if (shareRoot && canEdit) {
         chip.addEventListener('click', (ev) => { ev.stopPropagation(); openResponsible(target, shareRoot, rType, chip); });
       } else {
@@ -2764,7 +2782,7 @@
   }
 
   function buildItem(itemData, cardData) {
-    const el = itemTpl.content.firstElementChild.cloneNode(true);
+    const el = fromTemplate(itemTpl);
     el.dataset.id = itemData.id;
     const canEdit = !frozen(cardData);
 
@@ -2811,7 +2829,7 @@
       scope: boardScope,
       rename: canEdit ? renameItem : null,
       remove: canEdit ? () => deleteItem(itemData) : null,
-      removeLabel: 'Slett listepunktet',
+      removeLabel: tr('menu.deleteItem'),
     });
 
     // Presise navn: uten teksten med i navnet leser en skjermleser «Meny»
@@ -2819,8 +2837,8 @@
     // Kalles på nytt etter omdøping, så navnene ikke blir stående på gammel tekst.
     function labelItemControls() {
       const n = quoted(itemData.text);
-      labelBtn(checkBtn, itemData.done ? 'Fjern merket gjort på ' + n : 'Merk ' + n + ' som gjort');
-      labelBtn(menuBtn, 'Meny for listepunktet ' + n);
+      labelBtn(checkBtn, tr(itemData.done ? 'label.unmarkDone' : 'label.markDone', { name: n }));
+      labelBtn(menuBtn, tr('label.menuItem', { name: n }));
       // Raden får bevisst INGEN aria-label: den er et `listitem`, og et navn her
       // ville erstattet innholdet — da forsvant indikator-chipene (ansvarlig,
       // start, frist) fra opplesningen når raden får fokus. Teksten i raden ER
@@ -2847,7 +2865,7 @@
      med kategoriens elementer (nivå 2, indent-linje til venstre). Kategorien er
      et element i kortets `items` (isCat), så den rir på element-synken. */
   function buildCategory(catData, cardData) {
-    const el = catTpl.content.firstElementChild.cloneNode(true);
+    const el = fromTemplate(catTpl);
     el.dataset.id = catData.id;
     const canEdit = !frozen(cardData);
 
@@ -2857,11 +2875,11 @@
     el.querySelector('.cat-drag-icon').innerHTML = ICONS.category;
 
     const titleEl = el.querySelector('.cat-title');
-    titleEl.textContent = catData.text || 'Kategori';
+    titleEl.textContent = catData.text || tr('kind.category');
     const renameCat = () => {
       if (!canEdit) return;
       editText(titleEl, catData.text, (val) => {
-        catData.text = val || 'Kategori';
+        catData.text = val || tr('kind.category');
         titleEl.textContent = catData.text;
         stampContent(catData);
         save();
@@ -2889,7 +2907,7 @@
       scope: boardScope,
       rename: canEdit ? renameCat : null,
       remove: canEdit ? dissolveThisCat : null,
-      removeLabel: 'Løs opp kategorien',
+      removeLabel: tr('menu.dissolveCategory'),
       removeIcon: ICONS.bubbleBurst,
     });
 
@@ -2933,9 +2951,9 @@
     // ingenting om hvilken. Kalles på nytt etter omdøping.
     function labelCatControls() {
       const n = quoted(catData.text);
-      labelBtn(menuBtn, 'Meny for kategorien ' + n);
-      labelBtn(addBtn, 'Legg til listepunkt i kategorien ' + n);
-      catHead.setAttribute('aria-label', 'Kategorien ' + n);
+      labelBtn(menuBtn, tr('label.menuCategory', { name: n }));
+      labelBtn(addBtn, tr('label.addItemInCat', { name: n }));
+      catHead.setAttribute('aria-label', tr('label.category', { name: n }));
     }
     labelCatControls();
 
@@ -3394,9 +3412,9 @@
   // FØRST: navnet kan være vilkårlig langt, og det er navnet som skal brekke
   // nedover i toasten, ikke poenget.
   function deleteMsg(kind, ids, lastName) {
-    if (ids.length === 1) return 'Lagt i søppelkassen: «' + (lastName || '') + '»';
+    if (ids.length === 1) return tr('trash.movedOne', { name: quoted(lastName || '') });
     const w = kind === 'item' ? itemWord : kind === 'card' ? listWord : kind === 'group' ? groupWord : uniWord;
-    return 'Lagt i søppelkassen: ' + w(ids.length);
+    return tr('trash.movedMany', { what: w(ids.length) });
   }
   // Committer bunken i toasten nå (angre-vinduet er over — timeren utløp, en ny
   // kategori slettes, eller brukeren sveipet toasten bort). Skjuler ikke toasten:
@@ -4519,7 +4537,7 @@
   function askCardMove(c) {
     const options = moveTargetGroups(c).map((g) => ({ id: g.id, label: g.name }));
     if (!options.length) return;
-    openPicker('«' + c.title + '» flyttes til mappen du velger.', options, '',
+    openPicker(tr('move.cardPrompt', { name: quoted(c.title) }), options, '',
       (gid) => moveCardToGroup(c.id, gid));
   }
   // Flytt lista: ny forelder (`group`) + posisjon bakerst i mål-mappen
@@ -4541,7 +4559,7 @@
     dest.cards.push(c);
     save();
     render(); // lista forsvinner fra dette board-et
-    showToast('Flyttet «' + c.title + '» til «' + dest.name + '»');
+    showToast(tr('move.movedTo', { name: quoted(c.title), dest: quoted(dest.name) }));
   }
 
   function onCardMove(ev) {
@@ -5127,9 +5145,9 @@
       // et avbrutt drag, med en forklaring.
       let reason = null;
       if (tc && frozen(tc)) reason = S.lockedTargetMsg;
-      else if (tc && tc._virtual) reason = 'En mappe kan ikke flyttes hit — den må ligge i et område';
+      else if (tc && tc._virtual) reason = tr('dnd.groupNeedsUniverse');
       else if (tc && S.rowKind === 'group' && !cap(tc, 'createGroup', !frozen(tc))) {
-        reason = 'Du kan ikke opprette mapper i dette området';
+        reason = tr('dnd.cannotCreateGroupHere');
       }
       if (reason) {
         restoreDraggedToOrigin();
@@ -5232,11 +5250,9 @@
     const crossDomain = !srcKey || !dstKey || srcKey !== dstKey;
     if (crossDomain) {
       const ok = await askConfirm({
-        title: 'Flytte mappen til et område med andre eiere?',
-        message: '«' + (g.name || 'Mappen') + '» flyttes til et område med andre eiere. ' +
-          'De som har tilgang i dag mister den — direkte mappemedlemmer og medeiere ' +
-          'følger ikke med. Medlemmene i det nye området får tilgang i stedet.',
-        okLabel: 'Flytt likevel',
+        title: tr('move.otherOwnersTitle'),
+        message: tr('move.otherOwnersMsg', { name: quoted(g.name || tr('kind.group')) }),
+        okLabel: tr('move.otherOwnersOk'),
       });
       if (!ok) { revertGroupMove(g, from); return; }
     }
@@ -6002,7 +6018,7 @@
     const srcRows = srcCard ? S.rowsOf(srcCard) : null;
     const cat = srcRows && srcRows.find((x) => x.id === catId && x.isCat);
     const np = extractionPos();
-    const nc = cat ? S.createContainer(S.rowName(cat) || 'Uten navn') : null;
+    const nc = cat ? S.createContainer(S.rowName(cat) || tr('common.noName')) : null;
     if (!nc) { // uventet → rull tilbake
       restoreDraggedToOrigin();
       if (el) expandCategory(el);
@@ -6131,7 +6147,7 @@
   addCardBtn.addEventListener('click', () => {
     const g = activeGroupObj();
     if (!canAddList(g)) return;
-    const c = card('Ny liste', [], g.id);
+    const c = card(tr('board.newList'), [], g.id);
     c.pos = maxPos(g.cards) + 1;
     stampContent(c);
     stampPos(c);
@@ -6224,7 +6240,7 @@
     modalNote.textContent = cfg.note;
     // Knappen navngir det den faktisk sletter — «Tøm» sa ingenting om hva som
     // forsvant, og de fire kassene deler samme knapp.
-    trashEmptyBtn.textContent = cfg.emptyLabel || 'Slett for godt';
+    trashEmptyBtn.textContent = cfg.emptyLabel || tr('trash.purge');
     renderTrashModalBody();
     trashModal.hidden = false;
     modalOpenedAt = Date.now();
@@ -6286,13 +6302,12 @@
       // som buffret den hadde myndigheten da knappen ble trykket.)
       if (r.manage === false && !r.pending) {
         restore.disabled = true;
-        restore.title = 'Låst – du kan ikke hente dette tilbake';
+        restore.title = tr('trash.lockedRestore');
         // Grunnen må ligge i NAVNET, ikke bare i title: en skjermleser leser
         // ikke title, og «Gjenopprett» alene forklarer ikke hvorfor den er av.
-        restore.setAttribute('aria-label', 'Gjenopprett ' + quoted(r.name) +
-          ' – låst, du kan ikke hente dette tilbake');
+        restore.setAttribute('aria-label', tr('trash.restoreLockedAria', { name: quoted(r.name) }));
       } else {
-        restore.setAttribute('aria-label', 'Gjenopprett ' + quoted(r.name));
+        restore.setAttribute('aria-label', tr('trash.restoreAria', { name: quoted(r.name) }));
       }
       // Buffret (ennå ikke committet) sletting gjenopprettes ved å angre
       // bufferet — umiddelbart og uten databasetrafikk; committede rader
@@ -6312,16 +6327,17 @@
     modalCfg = null;
   }
 
-  const TRASH_NOTE = 'Hent tilbake det du vil beholde. Resten kan du slette for godt — ' +
-    'da er det borte. Tips: hold inne søppelkasse-knappen og sveip mot høyre for å ' +
-    'slette alt med én gang.';
+  const TRASH_NOTE = tr('trash.note');
   // Sveipefeltet på søppelkasse-knappen går utenom modalen, så tømmingen må si
   // fra selv når den lot noe bli liggende.
-  const LOCKED_PURGE_MSG = 'Låst innhold ligger fortsatt i søppelkassen';
-  const groupWord = (n) => n + ' ' + (n === 1 ? 'mappe' : 'mapper');
-  const listWord = (n) => n + ' ' + (n === 1 ? 'liste' : 'lister');
-  const itemWord = (n) => n + ' ' + (n === 1 ? 'listepunkt' : 'listepunkter');
-  const uniWord = (n) => n + ' ' + (n === 1 ? 'område' : 'områder');
+  const LOCKED_PURGE_MSG = tr('trash.lockedRemains');
+  // «3 mapper» / «3 folders» — entall og flertall er egne nøkler fordi
+  // formen ikke lar seg regne ut på tvers av språk.
+  const countWord = (kind, n) => tr('count.' + kind + (n === 1 ? '.one' : '.other'), { n: n });
+  const groupWord = (n) => countWord('group', n);
+  const listWord = (n) => countWord('card', n);
+  const itemWord = (n) => countWord('item', n);
+  const uniWord = (n) => countWord('universe', n);
 
   /* ---------- De fire søppelkassene ----------
      Søpla er FELLES, så en kasse kan godt inneholde objekter jeg ikke rår over:
@@ -6344,10 +6360,10 @@
   function canPurgeGroup(g) { return canDeleteGroup(g) || cap(g, 'leave', false); }
   function openUniversesTrash() {
     showTrashModal({
-      title: 'Slettede områder',
+      title: tr('trash.universes'),
       note: TRASH_NOTE,
-      emptyLabel: 'Slett områdene for godt',
-      emptyMsg: 'Ingen slettede områder.',
+      emptyLabel: tr('trash.purgeUniverses'),
+      emptyMsg: tr('trash.noUniverses'),
       rows: () => trashedUniverses().sort(posCmp).map((u) => ({
         id: u.id,
         color: u.color || colorForId(u.id),
@@ -6369,16 +6385,16 @@
     const liveUni = () => findUniverse(uniId);
     const u0 = liveUni();
     showTrashModal({
-      title: 'Slettede mapper – ' + (u0 ? u0.name : ''),
+      title: tr('trash.groupsIn', { name: u0 ? u0.name : '' }),
       note: TRASH_NOTE,
-      emptyLabel: 'Slett mappene for godt',
-      emptyMsg: 'Ingen slettede mapper.',
+      emptyLabel: tr('trash.purgeGroups'),
+      emptyMsg: tr('trash.noGroups'),
       rows: () => {
         const u = liveUni();
         return u ? trashedGroupsOf(u).sort(posCmp).map((g) => ({
           id: g.id,
           name: g.name,
-          meta: g.isCat ? 'Mappekategori' : listWord(g.cards.filter((c) => !c.trashed).length),
+          meta: g.isCat ? tr('kind.groupcat') : listWord(g.cards.filter((c) => !c.trashed).length),
           pending: !!g._pendingDelete,
           manage: canDeleteGroup(g),
           purge: canPurgeGroup(g),
@@ -6393,10 +6409,10 @@
     const g = activeGroupObj();
     if (!g) return; // lister-søppelkassen er per mappe
     showTrashModal({
-      title: 'Slettede lister – ' + g.name,
+      title: tr('trash.cardsIn', { name: g.name }),
       note: TRASH_NOTE,
-      emptyLabel: 'Slett listene for godt',
-      emptyMsg: 'Ingen slettede lister.',
+      emptyLabel: tr('trash.purgeCards'),
+      emptyMsg: tr('trash.noCards'),
       rows: () => trashedCards().map((c) => ({
         id: c.id,
         color: c.color || colorForId(c.id),
@@ -6419,10 +6435,10 @@
     const cardId = cardData.id;
     const liveCard = () => { const f = findAnyById(cardId); return f && f.kind === 'card' ? f.obj : null; };
     showTrashModal({
-      title: 'Slettede listepunkter – ' + cardData.title,
+      title: tr('trash.itemsIn', { name: cardData.title }),
       note: TRASH_NOTE,
-      emptyLabel: 'Slett listepunktene for godt',
-      emptyMsg: 'Ingen slettede listepunkter.',
+      emptyLabel: tr('trash.purgeItems'),
+      emptyMsg: tr('trash.noItems'),
       rows: () => {
         const c = liveCard();
         return c ? trashedItemsOf(c).sort(posCmp).map((it) => ({
@@ -6508,7 +6524,7 @@
     swipeEl.className = 'swipe-field';
     swipeEl.innerHTML =
       ICONS.trashSwipe +
-      '<span class="swipe-label">Slett alt</span>' +
+      '<span class="swipe-label">' + tr('trash.swipeDeleteAll') + '</span>' +
       '<span class="swipe-arrow" aria-hidden="true"></span>';
     document.body.appendChild(swipeEl);
     swipeIconEl = swipeEl.querySelector('.swipe-icon');
@@ -6839,7 +6855,7 @@
         if (isRemove) {
           row.innerHTML = '<span class="resp-avatar resp-avatar-none">' + ICONS.handRaise + '</span>';
           const nm = document.createElement('span');
-          nm.className = 'resp-row-name'; nm.textContent = 'Ingen ansvarlig';
+          nm.className = 'resp-row-name'; nm.textContent = tr('resp.none');
           row.appendChild(nm);
         } else {
           row.appendChild(respAvatar(person, index));
@@ -6865,7 +6881,7 @@
       });
       if (!group.people.length) {
         const p = document.createElement('p');
-        p.className = 'uni-empty'; p.textContent = 'Ingen medlemmer ennå.';
+        p.className = 'uni-empty'; p.textContent = tr('share.noMembers');
         respSwitcherPanel.appendChild(p);
       }
       // Reposisjoner ved ombygging (radantallet kan ha endret seg) — men aldri
@@ -6894,7 +6910,7 @@
       // Uten cache har vi ingenting å vise → lukk med beskjed (som før).
       if (!shareGroupCache.has(key) && respOpen && token === respToken) {
         closeResponsible();
-        showToast('Fikk ikke hentet medlemmene – prøv igjen');
+        showToast(tr('share.membersFailed'));
       }
     });
   }
@@ -6952,10 +6968,9 @@
     if (kind === 'card') return activeGroupObj();
     return findCard(obj.home);
   }
-  const OBJ_MENU_WORD = {
-    universe: 'området', group: 'mappen', groupcat: 'mappekategorien',
-    card: 'listen', item: 'listepunktet', category: 'kategorien',
-  };
+  // Objekttypen i bestemt form, slik den leses inne i menyens overskrift og i
+  // «Forlat …». Slås opp per kall — språket kan være et annet enn ved oppstart.
+  const objMenuWord = (kind) => tr('kindDef.' + kind);
   // Type-ikonet i menyens overskrift (listepunkter har ingen egen glyf — der er
   // teksten identifikasjonen).
   const OBJ_MENU_HEAD_ICON = {
@@ -7143,7 +7158,7 @@
         }
         const nm = document.createElement('span');
         nm.className = 'resp-row-name';
-        nm.textContent = isNone ? 'Ingen ansvarlig' : person.name;
+        nm.textContent = isNone ? tr('resp.none') : person.name;
         row.appendChild(nm);
         row.addEventListener('click', () => {
           setResponsible(target, isNone ? null : person.id);
@@ -7156,13 +7171,13 @@
       if (!group.people.length) {
         const p = document.createElement('p');
         p.className = 'uni-empty';
-        p.textContent = 'Ingen medlemmer ennå.';
+        p.textContent = tr('share.noMembers');
         wrap.appendChild(p);
       }
     };
     const cached = shareGroupCache.get(key);
     if (cached) paint(cached);
-    else wrap.innerHTML = '<p class="uni-empty">Henter medlemmer …</p>';
+    else wrap.innerHTML = '<p class="uni-empty">' + tr('share.loadingMembers') + '</p>';
     fetchShareGroup(rType, shareRoot.id).then((g) => {
       shareGroupCache.set(key, g);
       if (wrap.isConnected) paint(g);
@@ -7193,11 +7208,11 @@
     }
     const hName = document.createElement('span');
     hName.className = 'obj-menu-head-name';
-    hName.textContent = nameOfAny(obj) || 'Uten navn';
+    hName.textContent = nameOfAny(obj) || tr('common.noName');
     head.appendChild(hName);
     objMenuPanel.appendChild(head);
-    objMenuPanel.setAttribute('aria-label',
-      'Meny for ' + (OBJ_MENU_WORD[kind] || 'objektet') + ' ' + quoted(nameOfAny(obj)));
+    objMenuPanel.setAttribute('aria-label', tr('menu.forObject',
+      { kind: objMenuWord(kind) || tr('common.theObject'), name: quoted(nameOfAny(obj)) }));
 
     const list = document.createElement('div');
     list.className = 'obj-menu-list';
@@ -7208,7 +7223,7 @@
           navnet der navigerer/kollapser nå); listepunkter og kategorier kan
           fortsatt omdøpes ved å klikke rett på navnet. */
     if (spec.rename) {
-      list.appendChild(objMenuRow(ICONS.pencil, 'Endre navn',
+      list.appendChild(objMenuRow(ICONS.pencil, tr('menu.rename'),
         () => closeObjMenuThen(() => renameFromObjMenu(spec))));
     }
 
@@ -7222,7 +7237,7 @@
       // tilbake ved neste synk. Innstillingsknappen var avskrudd på samme vis.
       if (target && shareRoot && shareRoot._shared && !frozen(target.card)) {
         ensureShareGroup('group', shareRoot.id);
-        list.appendChild(objMenuAccordion('resp', ICONS.handRaise, 'Ansvarlig',
+        list.appendChild(objMenuAccordion('resp', ICONS.handRaise, tr('menu.responsible'),
           () => buildRespRows(target, shareRoot, 'group'), objMenuCtx.sub === 'resp'));
       }
     }
@@ -7232,7 +7247,7 @@
     if (kind === 'card' || kind === 'item' || kind === 'category') {
       const getT = () => liveTarget({ kind: kind, obj: { id: spec.id } });
       if (getT()) {
-        list.appendChild(objMenuAccordion('time', ICONS.calendar, 'Tidsplan',
+        list.appendChild(objMenuAccordion('time', ICONS.calendar, tr('menu.schedule'),
           () => buildTimeEditor(getT), objMenuCtx.sub === 'time'));
       }
     }
@@ -7243,7 +7258,7 @@
     const canOrder = canReorderObj(kind, obj, cont);
     const canRehome = kind === 'card' || kind === 'item' || kind === 'group';
     if (canOrder) {
-      list.appendChild(objMenuAccordion('move', ICONS.moveArrows, 'Flytt', () => {
+      list.appendChild(objMenuAccordion('move', ICONS.moveArrows, tr('menu.move'), () => {
         const box = document.createElement('div');
         box.className = 'obj-menu-movebox';
         const step = (dir, icon, label) => objMenuRow(icon, label, () => {
@@ -7252,13 +7267,13 @@
           const again = objMenuPanel.querySelector('[data-move="' + dir + '"]');
           if (again) again.focus();
         });
-        const up = step(-1, ICONS.arrowUp, 'Flytt opp');
+        const up = step(-1, ICONS.arrowUp, tr('menu.moveUp'));
         up.dataset.move = '-1';
-        const down = step(1, ICONS.arrowDown, 'Flytt ned');
+        const down = step(1, ICONS.arrowDown, tr('menu.moveDown'));
         down.dataset.move = '1';
         box.append(up, down);
         if (canRehome) {
-          box.appendChild(objMenuRow(ICONS.folder, 'Flytt til …',
+          box.appendChild(objMenuRow(ICONS.folder, tr('menu.moveTo'),
             () => closeObjMenuThen(() => keyboardMoveTo(kind, spec.id))));
         }
         return box;
@@ -7269,7 +7284,7 @@
           kan deles; alt under dem arver tilgangen og har ingen egen
           medlemsliste (docs/rettigheter-og-deling.md). */
     if (spec.share) {
-      list.appendChild(objMenuRow(ICONS.people, 'Deling og medlemmer',
+      list.appendChild(objMenuRow(ICONS.people, tr('menu.sharing'),
         () => closeObjMenuThen(spec.share)));
     }
 
@@ -7285,11 +7300,11 @@
         // Ikonet viser tilstanden raden FØRER TIL, ikke den man står i.
         const icon = exception ? (on ? ICONS.lock : ICONS.unlock) : (on ? ICONS.unlock : ICONS.lock);
         const label = exception
-          ? (on ? 'Fjern unntaket fra låsen' : 'Gjør unntak fra låsen')
-          : (on ? 'Åpne for redigering' : 'Lås for redigering');
+          ? tr(on ? 'lock.removeException' : 'lock.makeException')
+          : tr(on ? 'lock.openForEditing' : 'lock.lockForEditing');
         const hint = exception
-          ? (on ? 'Unntatt fra en arvet lås' : 'Låst av en forelder')
-          : (on ? 'Andre kan se, men ikke redigere' : 'Alle med tilgang kan redigere');
+          ? tr(on ? 'lock.exemptFromInherited' : 'lock.lockedByParent')
+          : tr(on ? 'lock.othersCanView' : 'lock.everyoneCanEdit');
         list.appendChild(objMenuRow(icon, label, () => {
           toggleObjLock(shareType, spec.id, obj, exception, () => { render(); repaintObjMenu(); });
         }, { hint: hint }));
@@ -7298,7 +7313,7 @@
 
     /* 7) Forlat (delte områder/mapper) — gir fra seg MIN tilgang, aldri innholdet. */
     if ((kind === 'universe' || kind === 'group') && cap(obj, 'leave', false)) {
-      list.appendChild(objMenuRow(ICONS.logout, 'Forlat ' + OBJ_MENU_WORD[kind],
+      list.appendChild(objMenuRow(ICONS.logout, tr('leave.title', { kind: objMenuWord(kind) }),
         () => closeObjMenuThen(() => {
           const live = objMenuLive(kind, spec.id);
           if (live) leaveObject(kind, live);
@@ -7312,7 +7327,7 @@
       sep.className = 'obj-menu-sep';
       list.appendChild(sep);
       list.appendChild(objMenuRow(spec.removeIcon || ICONS.trash,
-        spec.removeLabel || 'Slett',
+        spec.removeLabel || tr('menu.delete'),
         () => closeObjMenuThen(spec.remove), { danger: true }));
     }
 
@@ -7397,9 +7412,9 @@
       const t = getTarget();
       if (!t) return;
       if (locked) {
-        const which = ctrlIsCat ? 'kategorien' : 'listen';
-        const nm = ctrlIsCat ? (controller.text || 'Kategori') : (controller.title || 'Uten navn');
-        note.textContent = 'Tidene styres av ' + which + ' «' + nm + '».';
+        const which = tr(ctrlIsCat ? 'kindDef.category' : 'kindDef.card');
+        const nm = ctrlIsCat ? (controller.text || tr('kind.category')) : (controller.title || tr('common.noName'));
+        note.textContent = tr('time.controlledBy', { kind: which, name: quoted(nm) });
         note.classList.add('is-muted');
         note.hidden = false;
         return;
@@ -7408,9 +7423,9 @@
       // Subtil beskjed når elementets tider ligger utenfor containerens tidsrom
       // (tre varianter: start / frist / begge). Fullt lovlig — bare et hint.
       const fl = outsideFlags(t.obj, outsideContainer());
-      if (fl.start && fl.due) note.textContent = 'Starttiden og fristen er utenfor tidsrommet.';
-      else if (fl.start) note.textContent = 'Starttiden er utenfor tidsrommet.';
-      else if (fl.due) note.textContent = 'Fristen er utenfor tidsrommet.';
+      if (fl.start && fl.due) note.textContent = tr('time.bothOutside');
+      else if (fl.start) note.textContent = tr('time.startOutside');
+      else if (fl.due) note.textContent = tr('time.dueOutside');
       note.hidden = !(fl.start || fl.due);
     };
 
@@ -7425,7 +7440,7 @@
         const heading = document.createElement('div');
         heading.className = 'time-group-heading';
         heading.innerHTML = (isDue ? ICONS.calendarDue : ICONS.calendar) +
-          '<span>' + (isDue ? 'Tidsfrist' : 'Starttid') + '</span>';
+          '<span>' + tr(isDue ? 'time.due' : 'time.start') + '</span>';
         group.appendChild(heading);
       }
       const row = document.createElement('div');
@@ -7433,8 +7448,8 @@
       const dateIn = document.createElement('input');
       dateIn.type = 'date';
       dateIn.className = 'field time-date';
-      dateIn.placeholder = 'dd.mm.åååå';
-      dateIn.setAttribute('aria-label', isDue ? 'Fristdato' : 'Startdato');
+      dateIn.placeholder = tr('time.datePlaceholder');
+      dateIn.setAttribute('aria-label', tr(isDue ? 'time.dueDate' : 'time.startDate'));
       // Klokkeikon til venstre for klokkeslett-feltet (egen ikon ved siden av,
       // ikke inni inputen — unngår at det overlapper med teksten som skrives).
       const clockIcon = document.createElement('span');
@@ -7445,13 +7460,13 @@
       timeIn.type = 'time';
       timeIn.className = 'field time-clock';
       timeIn.placeholder = 'tt:mm';
-      timeIn.setAttribute('aria-label', 'Klokkeslett (valgfritt)');
+      timeIn.setAttribute('aria-label', tr('time.clockOptional'));
       const clearBtn = document.createElement('button');
       clearBtn.type = 'button';
       clearBtn.className = 'icon-btn time-clear';
       clearBtn.innerHTML = ICONS.xmark;
-      clearBtn.title = 'Fjern tiden';
-      clearBtn.setAttribute('aria-label', isDue ? 'Fjern fristen' : 'Fjern starttiden');
+      clearBtn.title = tr('time.clear');
+      clearBtn.setAttribute('aria-label', tr(isDue ? 'time.clearDue' : 'time.clearStart'));
 
       const src = locked ? controller : t0.obj;
       dateIn.value = timeDatePart(src[field]) || '';
@@ -7495,7 +7510,7 @@
       cb.checked = !!t0.obj.lockTimes;
       cb.disabled = !canEdit;
       const txt = document.createElement('span');
-      txt.textContent = isCat ? 'Lås tidene til listepunktene i kategorien' : 'Lås tidene også til listepunktene i listen';
+      txt.textContent = tr(isCat ? 'time.lockInCategory' : 'time.lockInCard');
       lockLabel.append(cb, txt);
       cb.addEventListener('change', () => {
         const t = getTarget();
@@ -7536,8 +7551,8 @@
     const head = document.createElement('div');
     head.className = 'time-panel-title';
     head.innerHTML = field === 'due'
-      ? ICONS.calendarDue + '<span>Tidsfrist</span>'
-      : ICONS.calendar + '<span>Starttid</span>';
+      ? ICONS.calendarDue + '<span>' + tr('time.due') + '</span>'
+      : ICONS.calendar + '<span>' + tr('time.start') + '</span>';
     timeSwitcherPanel.append(head, buildTimeEditor(getT, { only: field }));
     timeQuickOpen = true;
     timeSwitcherOverlay.hidden = false;
@@ -7554,7 +7569,7 @@
   function updateUniversesTrash() { updateTrashBadge(trashedUniverses, uniTrashCount, uniTrashBtn); }
 
   function addUniverse() {
-    const u = makeUniverse('Nytt område');
+    const u = makeUniverse(tr('nav.newUniverse'));
     u.pos = state.universes.length ? maxPos(state.universes) + 1 : 0;
     stampContent(u);
     stampPos(u);
@@ -7920,8 +7935,8 @@
      Synken går fortløpende i bakgrunnen; ingen egen synk-knapp trengs.
      Ved fjern-endringer vises et lite «oppdatert»-varsel (showToast). */
   logoutBtn.addEventListener('click', async () => {
-    const q = 'Listene dine beholdes på kontoen når du logger ut.';
-    if (await askConfirm({ title: 'Logg ut', message: q, okLabel: 'Logg ut' })) logout();
+    if (await askConfirm({ title: tr('account.logout'), message: tr('account.logoutMsg'),
+      okLabel: tr('account.logout') })) logout();
   });
 
   function logout() {
@@ -7947,7 +7962,7 @@
   const delAccountErrorEl = document.getElementById('delete-account-error');
   delAccountSwipe.innerHTML =
     ICONS.trashSwipe +
-    '<span class="swipe-label">Slett kontoen</span>' +
+    '<span class="swipe-label">' + tr('account.deleteSwipeLabel') + '</span>' +
     '<span class="swipe-arrow" aria-hidden="true"></span>';
   const delSwipeIcon = delAccountSwipe.querySelector('.swipe-icon');
   const delSwipeLid = delAccountSwipe.querySelector('.swipe-icon-lid');
@@ -8059,7 +8074,7 @@
     // Kvitteringen hører hjemme på innloggingssiden, ikke i en toast: toasten
     // ligger UNDER auth-skjermen (z-index 300 mot 400), og det er hit brukeren
     // nettopp er sendt. Settes FØR utloggingen — den maler skjermen selv.
-    authNotice = 'Kontoen din er slettet.';
+    authNotice = tr('account.deleted');
     logout(); // stopper synken, tømmer minnet og viser innloggingssiden
     // Ingen lokale spor heller. En cache-skriving som allerede var bestilt ville
     // ellers ha skrevet posten inn igjen 120 ms senere (nøkkelen fanges når
@@ -8171,9 +8186,9 @@
   let authModeCur = 'login';
 
   const AUTH_MODES = {
-    login:    { title: 'Logg inn',       submit: 'Logg inn',        pass: true,  icon: 'login' },
-    register: { title: 'Registrer deg',  submit: 'Opprett konto',   pass: true,  icon: 'profile' },
-    forgot:   { title: 'Glemt passord',  submit: 'Send lenke',      pass: false, icon: 'lock' },
+    login:    { title: 'auth.login',    submit: 'auth.login',        pass: true,  icon: 'login' },
+    register: { title: 'auth.register', submit: 'auth.createAccount', pass: true,  icon: 'profile' },
+    forgot:   { title: 'auth.forgot',   submit: 'auth.sendLink',     pass: false, icon: 'lock' },
   };
   // Melding som skal bli STÅENDE på innloggingssiden etter at appen selv har
   // logget ut (kontosletting). Å sette den etter `logout()` holder ikke:
@@ -8184,9 +8199,9 @@
   function setAuthMode(mode) {
     authModeCur = mode;
     const m = AUTH_MODES[mode];
-    authHeading.textContent = m.title;
+    authHeading.textContent = tr(m.title);
     authHeadingIcon.innerHTML = ICONS[m.icon];
-    authSubmit.textContent = m.submit;
+    authSubmit.textContent = tr(m.submit);
     authPassField.hidden = !m.pass;
     authPassword.required = m.pass;
     // Navnefeltene (fornavn/etternavn) vises kun ved registrering.
@@ -8207,9 +8222,9 @@
       b.addEventListener('click', () => { authNotice = null; setAuthMode(target); });
       authLinks.appendChild(b);
     };
-    if (mode === 'login') { link('Ny bruker? Registrer deg', 'register'); link('Glemt passord?', 'forgot'); }
-    else if (mode === 'register') { link('Har du konto? Logg inn', 'login'); }
-    else { link('Tilbake til innlogging', 'login'); }
+    if (mode === 'login') { link(tr('auth.toRegister'), 'register'); link(tr('auth.toForgot'), 'forgot'); }
+    else if (mode === 'register') { link(tr('auth.toLogin'), 'login'); }
+    else { link(tr('auth.backToLogin'), 'login'); }
   }
   function authMsg(text, ok) {
     authMsgEl.textContent = text || '';
@@ -8235,7 +8250,7 @@
   function paintPassToggle(btn, shown) {
     btn.innerHTML = shown ? ICONS.eyeOff : ICONS.eye;
     btn.setAttribute('aria-pressed', shown ? 'true' : 'false');
-    const label = shown ? 'Skjul passordet' : 'Vis passordet';
+    const label = tr(shown ? 'auth.hidePassword' : 'auth.showPassword');
     btn.title = label;
     btn.setAttribute('aria-label', label);
   }
@@ -8283,23 +8298,23 @@
   }
 
   function friendlyAuthError(err) {
-    const msg = (err && err.message) || String(err || 'Noe gikk galt');
-    if (/invalid login credentials/i.test(msg)) return 'Feil e-post eller passord.';
-    if (/email not confirmed/i.test(msg)) return 'E-posten er ikke bekreftet ennå – sjekk innboksen.';
-    if (/already registered|already exists|user already/i.test(msg)) return 'Denne e-posten er allerede registrert.';
-    if (/password should be at least|weak password/i.test(msg)) return 'Passordet må ha minst 6 tegn.';
-    if (/should be different from the old password/i.test(msg)) return 'Det nye passordet må være et annet enn det gamle.';
-    if (/rate limit|too many/i.test(msg)) return 'For mange forsøk – vent litt og prøv igjen.';
+    const msg = (err && err.message) || String(err || tr('error.generic'));
+    if (/invalid login credentials/i.test(msg)) return tr('error.badCredentials');
+    if (/email not confirmed/i.test(msg)) return tr('error.emailNotConfirmed');
+    if (/already registered|already exists|user already/i.test(msg)) return tr('error.emailTaken');
+    if (/password should be at least|weak password/i.test(msg)) return tr('error.passwordTooShort');
+    if (/should be different from the old password/i.test(msg)) return tr('error.passwordSameAsOld');
+    if (/rate limit|too many/i.test(msg)) return tr('error.rateLimited');
     return msg;
   }
 
   authForm && authForm.addEventListener('submit', async (ev) => {
     ev.preventDefault();
     const client = acli();
-    if (!client) { authMsg('Innlogging er ikke tilgjengelig akkurat nå. Prøv igjen senere.'); return; }
+    if (!client) { authMsg(tr('auth.unavailable')); return; }
     const email = authEmail.value.trim().toLowerCase();
     const password = authPassword.value;
-    if (!email) { authMsg('Skriv inn e-postadressen din.'); return; }
+    if (!email) { authMsg(tr('auth.enterEmail')); return; }
     authSubmit.disabled = true;
     authNotice = null; // brukeren er i gang selv — beskjeden har gjort sitt
     authMsg('');
@@ -8311,7 +8326,7 @@
       } else if (authModeCur === 'register') {
         const firstName = authFirstName.value.trim();
         const lastName = authLastName.value.trim();
-        if (!firstName || !lastName) { authMsg('Skriv inn både fornavn og etternavn.'); return; }
+        if (!firstName || !lastName) { authMsg(tr('auth.enterFullName')); return; }
         const displayName = firstName + ' ' + lastName;
         const { data, error } = await client.auth.signUp({
           email, password,
@@ -8324,16 +8339,14 @@
         if (data && data.session) {
           // Bekreftelse er av → onAuthStateChange logger inn direkte.
         } else {
-          showAuthSent('Vi har sendt en bekreftelseslenke til <strong>' + escapeHtml(email) +
-            '</strong>. Åpne den for å fullføre registreringen, så kan du logge inn.');
+          showAuthSent(tr('auth.sentConfirm', { email: '<strong>' + escapeHtml(email) + '</strong>' }));
         }
       } else if (authModeCur === 'forgot') {
         const { error } = await client.auth.resetPasswordForEmail(email, {
           redirectTo: authRedirectUrl(),
         });
         if (error) throw error;
-        showAuthSent('Hvis <strong>' + escapeHtml(email) + '</strong> har en konto, har vi sendt en ' +
-          'lenke for å velge nytt passord. Sjekk innboksen.');
+        showAuthSent(tr('auth.sentReset', { email: '<strong>' + escapeHtml(email) + '</strong>' }));
       }
     } catch (e) {
       authMsg(friendlyAuthError(e));
@@ -8344,12 +8357,12 @@
   authSentBack && authSentBack.addEventListener('click', () => setAuthMode('login'));
 
   async function handleRecovery() {
-    const np = prompt('Velg et nytt passord (minst 6 tegn):');
-    if (!np || np.length < 6) { showToast('Passordet må ha minst 6 tegn'); return; }
+    const np = prompt(tr('auth.chooseNewPassword'));
+    if (!np || np.length < 6) { showToast(tr('error.passwordTooShortShort')); return; }
     try {
       const { error } = await acli().auth.updateUser({ password: np });
       if (error) throw error;
-      showToast('Passordet er oppdatert');
+      showToast(tr('account.passwordUpdatedShort'));
     } catch (e) { showToast(friendlyAuthError(e)); }
   }
 
@@ -8373,8 +8386,10 @@
     : (u._role === 'owner' ? SECTION_OWNED : SECTION_SHARED));
   // Brukervendte tekster som gjenbrukes i flere visninger.
   const S_TEXT = {
-    freeSection: 'Delte mapper',
-    sections: ['Mine områder', 'Områder delt med meg', 'Mapper delt med meg'],
+    get freeSection() { return tr('section.freeGroups'); },
+    get sections() {
+      return [tr('section.mine'), tr('section.sharedUniverses'), tr('section.sharedGroups')];
+    },
   };
 
   function effTrashed(o) { return !!(o && o.trashed); }
@@ -8749,9 +8764,7 @@
     if (!shareModal.hidden) closeShare();
     closeObjMenu();
     closeResponsible();
-    showToast(kind === 'group'
-      ? 'Du har ikke lenger tilgang til mappen'
-      : 'Du har ikke lenger tilgang til området');
+    showToast(tr(kind === 'group' ? 'access.lostGroup' : 'access.lostUniverse'));
   }
 
   /* ---------------- Push: rad-CRUD mot tabellene ---------------- */
@@ -9011,11 +9024,11 @@
        Én felles «kunne ikke lagres på kontoen din» ville løyet i det andre
        tilfellet. */
     const TEXT = {
-      saved: 'Lagret',
-      saving: 'Lagrer …',
-      offline: 'Frakoblet – endringene lagres på denne enheten',
-      rejected: 'Noen endringer kunne ikke lagres på kontoen din.',
-      rejectedCache: 'Endringene lagres ikke på denne enheten.',
+      get saved() { return tr('sync.saved'); },
+      get saving() { return tr('sync.saving'); },
+      get offline() { return tr('sync.offline'); },
+      get rejected() { return tr('sync.rejected'); },
+      get rejectedCache() { return tr('sync.rejectedCache'); },
     };
     const OFFLINE_AFTER_FAILURES = 2; // ett glipp er ikke «frakoblet»
     const QUIET_AFTER_MS = 1000;      // «Lagret» fader ut (kun DEN tilstanden)
@@ -9208,7 +9221,7 @@
           return;
         }
         queue.shift();
-        try { if (head.onError) head.onError(new Error('Endringen ble ikke lagret. Sjekk forbindelsen og prøv igjen.')); }
+        try { if (head.onError) head.onError(new Error(tr('sync.notSaved'))); }
         catch (e) { /* callback-feil skal ikke stoppe køen */ }
         pump();
         return;
@@ -9374,7 +9387,7 @@
       },
       onError: () => {
         posOverrides.delete(id);
-        showToast('Den nye rekkefølgen ble ikke lagret – prøv igjen');
+        showToast(tr('sync.orderNotSaved'));
         scheduleCloud(0); // server-sannheten gjenoppretter visningen
       },
     };
@@ -9716,21 +9729,20 @@
     if (!remoteEmpty || !legacy) { localStorage.setItem(flag, '1'); return; }
     const n = legacy.cards.length;
     if (!await askConfirm({
-      title: 'Legg listene til på kontoen din',
-      message: 'Vi fant ' + listWord(n) + ' som ligger lagret på denne enheten. ' +
-        'Vil du legge dem til på kontoen din, så du får dem på alle enhetene dine?',
-      okLabel: 'Legg til', danger: false,
+      title: tr('import.title'),
+      message: tr('import.message', { what: listWord(n) }),
+      okLabel: tr('import.ok'), danger: false,
     })) { localStorage.setItem(flag, '1'); return; }
     try {
       const { error } = await acli().rpc('import_doc', { p_doc: legacy });
       if (error) throw error;
       localStorage.setItem(flag, '1');
-      showToast('Listene ligger nå på kontoen din');
+      showToast(tr('import.done'));
       cloudBase = null; persistedBaseSig = null; // importen endret serveren under oss
       scheduleCloud(0);
     } catch (e) {
       migrationChecked = false; // la brukeren prøve igjen senere
-      showToast('Listene ble ikke lagt til. Prøv igjen senere.');
+      showToast(tr('import.failed'));
     }
   }
 
@@ -9783,7 +9795,7 @@
     ev.preventDefault();
     if (!authUser) return;
     const name = accountNameInput.value.trim();
-    if (!name) { setAccountMsg('Navnet kan ikke være tomt.', true); return; }
+    if (!name) { setAccountMsg(tr('account.nameEmpty'), true); return; }
     setAccountMsg('');
     try {
       const { error } = await acli().from('profiles')
@@ -9794,7 +9806,7 @@
       authUser.meta = Object.assign({}, authUser.meta, { display_name: name });
       if (lastMy && lastMy.user) lastMy.user.display_name = name;
       updateInbox(lastMy); // avatar + navnelinjen øverst
-      setAccountMsg('Navnet er oppdatert.');
+      setAccountMsg(tr('account.nameUpdated'));
       scheduleCloud(0); // frisk opp delte visninger (medlemslister o.l.)
     } catch (e) {
       setAccountMsg(friendlyAuthError(e), true);
@@ -9814,9 +9826,9 @@
         authUser.email = email;
         if (lastMy && lastMy.user) lastMy.user.email = email;
         updateInbox(lastMy);
-        setAccountMsg('E-postadressen er oppdatert.');
+        setAccountMsg(tr('account.emailUpdated'));
       } else {
-        setAccountMsg('Nesten ferdig – bekreft endringen via lenken vi har sendt på e-post.');
+        setAccountMsg(tr('account.emailConfirmPending'));
       }
     } catch (e) {
       setAccountMsg(friendlyAuthError(e), true);
@@ -9831,21 +9843,121 @@
     if (!authUser) return;
     const current = accountPassCurrent.value;
     const next = accountPassNew.value;
-    if (!current) { setAccountMsg('Skriv inn det nåværende passordet.', true); return; }
-    if (next.length < 6) { setAccountMsg('Det nye passordet må ha minst 6 tegn.', true); return; }
-    if (next === current) { setAccountMsg('Det nye passordet må være et annet enn det gamle.', true); return; }
+    if (!current) { setAccountMsg(tr('account.enterCurrentPassword'), true); return; }
+    if (next.length < 6) { setAccountMsg(tr('account.newPasswordTooShort'), true); return; }
+    if (next === current) { setAccountMsg(tr('error.passwordSameAsOld'), true); return; }
     setAccountMsg('');
     try {
       const check = await acli().auth.signInWithPassword({ email: authUser.email, password: current });
-      if (check.error) { setAccountMsg('Feil nåværende passord.', true); return; }
+      if (check.error) { setAccountMsg(tr('account.wrongCurrentPassword'), true); return; }
       const { error } = await acli().auth.updateUser({ password: next });
       if (error) throw error;
       clearPassFields([accountPassCurrent, accountPassNew]);
-      setAccountMsg('Passordet er oppdatert.');
+      setAccountMsg(tr('account.passwordUpdated'));
     } catch (e) {
       setAccountMsg(friendlyAuthError(e), true);
     }
   });
+
+  /* ---------------- Språk ----------------
+     Valget ligger to steder, og de har hver sin jobb:
+
+       • `localStorage['huskis-lang']` (i18n.js) — ENHETENS språk. Det eneste
+         som finnes før innlogging, og det som avgjør hvilket språk appen
+         starter på.
+       • `user_metadata.lang` — KONTOENS språk. Det følger deg til en ny enhet,
+         og det er dessuten det eneste serveren kan lese: e-postene appen sender
+         (`send_invite_email()`) velger språk derfra.
+
+     Kontoen vinner ved innlogging; et bytte skriver begge. Autoritativt:
+     docs/sprak.md. */
+  const langSelects = () => [document.getElementById('lang-select'),
+    document.getElementById('auth-lang-select')].filter(Boolean);
+  function paintLanguage() {
+    const icon = document.getElementById('language-icon');
+    if (icon && !icon.innerHTML) icon.innerHTML = ICONS.language;
+    langSelects().forEach((sel) => {
+      if (!sel.options.length) {
+        // Språknavnene står på sitt EGET språk («Norsk», «English») — det er
+        // slik man finner sitt eget i en liste man ellers ikke kan lese.
+        I18N.LANGS.forEach((l) => {
+          const o = document.createElement('option');
+          o.value = l.code;
+          o.textContent = l.label;
+          sel.appendChild(o);
+        });
+        sel.addEventListener('change', () => setLanguage(sel.value));
+      }
+      sel.value = I18N.lang();
+    });
+  }
+  /* Bytt språket UTEN omlasting. Brukes når en omlasting ikke er trygg (se
+     under): den statiske teksten males på nytt, og resten følger av en vanlig
+     rendring. Tekst som ble fanget i konstanter ved oppstart — demoens steg —
+     blir stående på det gamle språket; det er prisen for å slippe løkka. */
+  function repaintLanguage() {
+    I18N.applyStatic(document);
+    paintLanguage();
+  }
+  /* Bytt språk. Appen lastes normalt på nytt etterpå: språket sitter i hver
+     eneste tekst som allerede er bygget — korttitler, menyer, demoens steg —
+     og en omlasting er den ENESTE garantien for at ingenting blir stående
+     igjen på det gamle språket.
+
+     To ting må stemme FØR vi laster på nytt, ellers gjør omlastingen vondt
+     verre:
+
+       1. Valget må ha OVERLEVD på enheten. I privat modus kaster
+          `localStorage.setItem`, og omlastingen ville kommet tilbake på det
+          gamle språket — for en konto med et annet språk i en evig løkke.
+       2. Kontoen må ha TATT IMOT det. Supabase svarer med `{ error }` i stedet
+          for å kaste; ignorerte vi det, ville omlastingen lest kontoens GAMLE
+          språk tilbake og stilltiende omgjort valget (kontoen vinner).
+
+     Slår én av dem feil, bytter vi i minnet i stedet og sier fra. */
+  async function setLanguage(code) {
+    if (code === I18N.lang()) return;
+    const saved = I18N.setLang(code);
+    let onAccount = true;
+    if (authUser) {
+      const prevMeta = authUser.meta;
+      authUser.meta = Object.assign({}, authUser.meta, { lang: I18N.lang() });
+      try {
+        const { error } = await acli().auth.updateUser({ data: { lang: I18N.lang() } });
+        if (error) throw error;
+      } catch (e) {
+        authUser.meta = prevMeta;   // serverens sanne verdi står fortsatt der
+        onAccount = false;
+      }
+    }
+    if (saved && onAccount) { location.reload(); return; }
+    repaintLanguage();
+    render();
+    showToast(tr(saved ? 'lang.notOnAccount' : 'lang.notStored'));
+  }
+  /* Ved innlogging vinner kontoens språk over enhetens. Har kontoen ikke noe
+     språk ennå — en konto fra før språkvalget fantes, eller en fersk
+     registrering — arver den enhetens: norsk for alle som var her før, og det
+     man valgte på innloggingsskjermen for alle andre. */
+  function adoptAccountLanguage() {
+    if (!authUser) return;
+    const want = (authUser.meta && authUser.meta.lang) || '';
+    if (I18N.LANGS.some((l) => l.code === want)) {
+      if (want === I18N.lang()) return;
+      // Kan ikke enheten huske språket, ville omlastingen kommet tilbake hit
+      // med det gamle igjen — og gjort det på nytt, og på nytt. Vi bytter i
+      // minnet i stedet; `cloudStart()` rendrer rett etterpå.
+      if (I18N.setLang(want)) { location.reload(); return; }
+      repaintLanguage();
+      return;
+    }
+    /* Kontoen har ikke noe språk ennå. Har enheten et EKSPLISITT valg — typisk
+       tatt på innloggingsskjermen rett før — løftes det opp på kontoen. Står
+       enheten bare på standarden, skrives INGENTING: kontoen og enheten er da
+       enige uansett, og en skriving ved hver eneste innlogging ville vært ren
+       støy (og en unødvendig runde mot Auth). */
+    if (I18N.chosen()) saveAccountPref({ lang: I18N.lang() }, 1);
+  }
 
   // E-postvarsel-innstillingen ligger på kontoen (user_metadata.email_notifications).
   // Standard PÅ (ny bruker uten flagget → true). Endres optimistisk; skrivingen
@@ -10055,7 +10167,7 @@
   async function openAvatarEditor(file) {
     let im;
     try { im = await loadEditableImage(file); }
-    catch (e) { showToast('Kunne ikke lese bildefilen'); return; }
+    catch (e) { showToast(tr('avatar.readFailed')); return; }
     avEdit.img = im;
     avEdit.scale = 1; avEdit.rot = 0; avEdit.ox = 0; avEdit.oy = 0;
     avatarZoomEl.min = '1'; avatarZoomEl.value = '1';
@@ -10131,7 +10243,7 @@
     drawAvatar(c.getContext('2d'), AVATAR_SIZE);
     const dataUrl = c.toDataURL('image/jpeg', AVATAR_QUALITY);
     closeAvatarEditor();
-    await storeAvatar(dataUrl, 'Profilbildet er oppdatert.');
+    await storeAvatar(dataUrl, tr('avatar.updated'));
   });
   avatarCancelBtn.addEventListener('click', closeAvatarEditor);
   avatarCloseBtn.addEventListener('click', closeAvatarEditor);
@@ -10148,12 +10260,12 @@
   avatarRemoveBtn.addEventListener('click', async () => {
     if (!myAvatar) return;
     const ok = await askConfirm({
-      title: 'Fjern profilbilde',
-      message: 'Bildet slettes fra kontoen din, og initialene vises igjen.',
-      okLabel: 'Fjern',
+      title: tr('avatar.removeTitle'),
+      message: tr('avatar.removeMsg'),
+      okLabel: tr('common.remove'),
     });
     if (!ok) return;
-    await storeAvatar(null, 'Profilbildet er fjernet.');
+    await storeAvatar(null, tr('avatar.removed'));
   });
 
   function updateInbox(my) {
@@ -10175,7 +10287,7 @@
     if (!total) { menuInvites.hidden = true; inviteListEl.innerHTML = ''; return; }
     menuInvites.hidden = false;
     inviteListEl.innerHTML = '';
-    const typeLabel = { universe: 'Område', group: 'Mappe' };
+    const typeLabel = { universe: tr('kind.universe'), group: tr('kind.group') };
     invites.forEach((inv) => {
       const row = document.createElement('div');
       row.className = 'invite-row';
@@ -10183,17 +10295,18 @@
       info.className = 'invite-info';
       info.innerHTML = '<span class="invite-type-tag">' + (typeLabel[inv.type] || '') + '</span> ' +
         '<span class="invite-name"></span><span class="invite-from"></span>';
-      info.querySelector('.invite-name').textContent = inv.name || '(uten navn)';
+      info.querySelector('.invite-name').textContent = inv.name || tr('common.noNameParen');
       // Eierskaps-invitasjoner sier det tydelig — de gir full myndighet.
       info.querySelector('.invite-from').textContent =
-        (inv.role === 'owner' ? 'som medeier, fra ' : 'fra ') + (inv.from_name || inv.from || '');
+        tr(inv.role === 'owner' ? 'invite.asOwnerFrom' : 'invite.from',
+          { from: inv.from_name || inv.from || '' });
       const actions = document.createElement('div');
       actions.className = 'invite-actions';
       const acc = document.createElement('button');
-      acc.className = 'btn btn-solid btn-accent btn-small'; acc.type = 'button'; acc.textContent = 'Godta';
+      acc.className = 'btn btn-solid btn-accent btn-small'; acc.type = 'button'; acc.textContent = tr('invite.accept');
       acc.addEventListener('click', () => acceptInvite(inv));
       const dec = document.createElement('button');
-      dec.className = 'btn btn-small btn-ghost'; dec.type = 'button'; dec.textContent = 'Avslå';
+      dec.className = 'btn btn-small btn-ghost'; dec.type = 'button'; dec.textContent = tr('invite.decline');
       dec.addEventListener('click', () => declineInvite(inv));
       actions.append(acc, dec);
       row.append(info, actions);
@@ -10242,7 +10355,7 @@
   function acceptInvite(inv) {
     suppressedInvites.add(inv.id);
     updateInbox(lastMy);
-    showToast(inv.role === 'owner' ? 'Eierskap godtatt' : 'Deling godtatt');
+    showToast(tr(inv.role === 'owner' ? 'invite.ownershipAccepted' : 'invite.shareAccepted'));
     opQueue.enqueue({
       run: async () => {
         const { error } = await acli().rpc('accept_share_invite', { p_invite: inv.id });
@@ -10306,7 +10419,8 @@
   });
 
   const SHARE_TYPE_ICON = { universe: 'globe', group: 'folder' };
-  const TYPE_WORD = { universe: 'området', group: 'mappen' };
+  // Objekttypen i bestemt form, slik den leses inne i en setning.
+  const typeWord = (type) => tr(type === 'universe' ? 'kindDef.universe' : 'kindDef.group');
   function openShare(type, id, obj, backTo) {
     shareCtx = { type, id, obj };
     shareBackTo = backTo || null;
@@ -10317,7 +10431,7 @@
     objSpan.innerHTML = ICONS[SHARE_TYPE_ICON[type]] || '';
     objSpan.appendChild(document.createTextNode(obj.name || obj.title || ''));
     shareTitle.appendChild(objSpan);
-    shareTitle.appendChild(document.createTextNode(' — Innstillinger for deling'));
+    shareTitle.appendChild(document.createTextNode(tr('share.settingsSuffix')));
     shareModal.hidden = false;
     updateModalOpenClass2();
     renderShareModal(type, id, obj, shareBody, closeShare);
@@ -10361,14 +10475,20 @@
   function memberCategoryTitle(type, category, count) {
     const many = count > 1;
     if (type === 'universe') {
-      return category === 'universeOwner' ? (many ? 'Medeiere' : 'Eier') : 'Medlemmer';
+      return category === 'universeOwner' ? tr(many ? 'share.coOwners' : 'share.owner') : tr('share.members');
     }
-    if (category === 'universeOwner') return many ? 'Medeiere av området' : 'Eier av området';
-    if (category === 'groupOwner') return many ? 'Medeiere av mappen' : 'Eier av mappen';
-    if (category === 'universeMember') return 'Medlemmer av området';
-    return 'Medlemmer av mappen';
+    if (category === 'universeOwner') return tr(many ? 'share.coOwnersUniverse' : 'share.ownerUniverse');
+    if (category === 'groupOwner') return tr(many ? 'share.coOwnersGroup' : 'share.ownerGroup');
+    if (category === 'universeMember') return tr('share.membersUniverse');
+    return tr('share.membersGroup');
   }
   const MEMBER_CATEGORY_ORDER = ['universeOwner', 'groupOwner', 'universeMember', 'groupMember'];
+  // Hvorfor et medlem ikke kan fjernes HER. Serveren sender koden, klienten
+  // teksten — se `get_members` i supabase/users-and-sharing.sql.
+  const REMOVE_HINT_KEY = {
+    inherited: 'share.removeHintInherited',
+    lastOwner: 'share.removeHintLastOwner',
+  };
 
   function renderShareModal(type, id, obj, body, closeFn) {
     body.innerHTML = '';
@@ -10390,19 +10510,20 @@
     form.className = 'share-invite-form';
     const input = document.createElement('input');
     input.className = 'field';
-    input.type = 'email'; input.placeholder = 'E-post å invitere'; input.required = true;
-    input.setAttribute('aria-label', 'E-postadresse å invitere');
+    input.type = 'email'; input.placeholder = tr('share.invitePlaceholder'); input.required = true;
+    input.setAttribute('aria-label', tr('share.inviteAria'));
     const roleSel = document.createElement('select');
     roleSel.className = 'field share-role-select';
-    roleSel.setAttribute('aria-label', 'Rolle for den inviterte');
-    [['member', 'Som medlem'], ['owner', type === 'universe' ? 'Som medeier' : 'Som medeier av mappen']]
+    roleSel.setAttribute('aria-label', tr('share.roleAria'));
+    [['member', tr('share.asMember')],
+      ['owner', tr(type === 'universe' ? 'share.asCoOwner' : 'share.asCoOwnerGroup')]]
       .forEach(([v, label]) => {
         const o = document.createElement('option');
         o.value = v; o.textContent = label;
         roleSel.appendChild(o);
       });
     const btn = document.createElement('button');
-    btn.className = 'btn btn-solid btn-accent btn-small'; btn.type = 'submit'; btn.textContent = 'Inviter';
+    btn.className = 'btn btn-solid btn-accent btn-small'; btn.type = 'submit'; btn.textContent = tr('share.invite');
     form.append(input, roleSel, btn);
 
     /* --- Invitasjonspolicy: la vanlige medlemmer invitere flere --- */
@@ -10413,7 +10534,7 @@
     const policyCb = document.createElement('input');
     policyCb.type = 'checkbox';
     const policyTxt = document.createElement('span');
-    policyTxt.textContent = 'Tillat andre medlemmer å invitere folk til ' + (TYPE_WORD[type] || 'objektet');
+    policyTxt.textContent = tr('share.policyLabel', { kind: typeWord(type) });
     policyLabel.append(policyCb, policyTxt);
     const policyNote = document.createElement('p');
     policyNote.className = 'share-policy-note'; policyNote.hidden = true;
@@ -10431,9 +10552,7 @@
       policyCb.disabled = !caps.managePolicy;
       policyNote.hidden = caps.managePolicy || policyRow.hidden;
       if (!policyNote.hidden) {
-        policyNote.textContent = inviteEffective
-          ? 'Andre medlemmer kan invitere folk hit.'
-          : 'Bare eiere kan invitere folk hit.';
+        policyNote.textContent = tr(inviteEffective ? 'share.policyOn' : 'share.policyOff');
       }
     }
     policyCb.addEventListener('change', () => {
@@ -10479,26 +10598,27 @@
       lockRow.classList.toggle('is-inherited', !!anc);
       if (!anc) {
         lockIcon.innerHTML = obj._locked ? ICONS.lock : ICONS.unlock;
-        lockLabel.textContent = obj._locked ? 'Låst for redigering' : 'Åpent for redigering';
-        lockHint.textContent = obj._locked ? 'Andre kan se, men ikke redigere' : 'Alle med tilgang kan redigere';
-        lockBtn.textContent = obj._locked ? 'Åpne nå' : 'Lås nå';
+        lockLabel.textContent = tr(obj._locked ? 'lock.lockedForEditing' : 'lock.openForEditingState');
+        lockHint.textContent = tr(obj._locked ? 'lock.othersCanView' : 'lock.everyoneCanEdit');
+        lockBtn.textContent = tr(obj._locked ? 'lock.openNow' : 'lock.lockNow');
         lockBtn.hidden = !caps.manageLock;
         return;
       }
       const ex = !!obj._unlocked;
       lockIcon.innerHTML = ex ? ICONS.unlock : ICONS.lock;
       lockLabel.textContent = ex
-        ? ('Unntak: andre kan redigere ' + (TYPE_WORD[type] || 'objektet'))
-        : 'Automatisk låst for redigering';
+        ? tr('lock.exceptionLabel', { kind: typeWord(type) })
+        : tr('lock.autoLocked');
       lockHint.textContent = '';
       const ancIcon = document.createElement('span');
       ancIcon.className = 'share-lock-anc-icon';
       ancIcon.innerHTML = ICONS[SHARE_TYPE_ICON[anc.type]] || '';
-      lockHint.appendChild(document.createTextNode(ex ? '' : 'Fordi '));
+      lockHint.appendChild(document.createTextNode(ex ? '' : tr('lock.becausePrefix')));
       lockHint.appendChild(ancIcon);
       lockHint.appendChild(document.createTextNode(' ' + (anc.obj.name || anc.obj.title || '')));
-      lockHint.appendChild(document.createTextNode(ex ? ' er låst — denne er unntatt' : ' er låst'));
-      lockBtn.textContent = ex ? 'Fjern unntak' : 'Gjør unntak';
+      lockHint.appendChild(document.createTextNode(
+        tr(ex ? 'lock.isLockedExempt' : 'lock.isLocked')));
+      lockBtn.textContent = tr(ex ? 'lock.removeExceptionShort' : 'lock.makeExceptionShort');
       lockBtn.hidden = !caps.lockException;
     };
     lockRow.appendChild(lockBtn);
@@ -10520,14 +10640,19 @@
       const box = document.createElement('div'); box.className = 'member-info';
       box.innerHTML = '<span class="member-name"></span><span class="member-role"></span>';
       const me = authUser && mbr.id === authUser.id;
-      box.querySelector('.member-name').textContent = personName(mbr) + (me ? ' (deg)' : '');
-      box.querySelector('.member-role').textContent = mbr.role === 'owner' ? 'Eier' : 'Medlem';
+      box.querySelector('.member-name').textContent =
+        me ? tr('share.you', { name: personName(mbr) }) : personName(mbr);
+      box.querySelector('.member-role').textContent = tr(mbr.role === 'owner' ? 'share.roleOwner' : 'share.roleMember');
       // Forklar hvorfor en bruker ikke kan fjernes HER — men bare for den som
       // faktisk administrerer medlemmer, og aldri om seg selv.
-      if (mbr.removeHint && caps.manageMembers && !me) {
+      if ((mbr.removeHintCode || mbr.removeHint) && caps.manageMembers && !me) {
         const hint = document.createElement('span');
         hint.className = 'member-hint';
-        hint.textContent = mbr.removeHint;
+        // Serveren sender en språknøytral kode (`removeHintCode`) som vi
+        // oversetter selv; `removeHint` er den gamle, norske teksten og brukes
+        // kun hvis koden mangler (en server som ennå ikke er migrert).
+        hint.textContent = REMOVE_HINT_KEY[mbr.removeHintCode]
+          ? tr(REMOVE_HINT_KEY[mbr.removeHintCode]) : mbr.removeHint;
         box.appendChild(hint);
       }
       row.classList.toggle('is-inherited', mbr.direct === false);
@@ -10539,14 +10664,12 @@
       if (mbr.promotable) {
         const promote = document.createElement('button');
         promote.className = 'btn btn-small btn-ghost'; promote.type = 'button';
-        promote.textContent = 'Gjør til medeier';
+        promote.textContent = tr('share.promote');
         promote.addEventListener('click', async () => {
           if (!await askConfirm({
-            title: 'Invitere til medeierskap',
-            message: personName(mbr) + ' får en invitasjon til å bli medeier av ' +
-              (TYPE_WORD[type] || 'objektet') + '. Eierskapet gjelder først når ' +
-              'invitasjonen er godtatt, og en medeier har de samme rettighetene som deg.',
-            okLabel: 'Send invitasjon',
+            title: tr('share.promoteTitle'),
+            message: tr('share.promoteMsg', { name: personName(mbr), kind: typeWord(type) }),
+            okLabel: tr('share.promoteOk'),
           })) return;
           promote.disabled = true;
           opQueue.enqueue({
@@ -10556,7 +10679,7 @@
               if (error) throw error;
             },
             onDone: () => {
-              showToast('Invitasjon til medeierskap sendt til ' + personName(mbr) + '.');
+              showToast(tr('share.promoteSent', { name: personName(mbr) }));
               refreshMembers();
             },
             onError: (e) => { showToast(friendlyAuthError(e)); refreshMembers(); },
@@ -10569,15 +10692,12 @@
       if (mbr.demotable) {
         const demote = document.createElement('button');
         demote.className = 'btn btn-small btn-ghost'; demote.type = 'button';
-        demote.textContent = me ? 'Tre av som medeier' : 'Gjør til medlem';
+        demote.textContent = tr(me ? 'share.stepDown' : 'share.demote');
         demote.addEventListener('click', async () => {
           if (!await askConfirm({
-            title: me ? 'Tre av som medeier' : 'Fjerne medeierskap',
-            message: me
-              ? 'Du blir vanlig medlem og mister eier-rettighetene. Du beholder tilgangen, ' +
-                'men kan ikke lenger administrere medlemmer, lås eller sletting.'
-              : personName(mbr) + ' blir vanlig medlem og mister eier-rettighetene.',
-            okLabel: me ? 'Tre av' : 'Gjør til medlem',
+            title: tr(me ? 'share.stepDown' : 'share.demoteTitle'),
+            message: me ? tr('share.stepDownMsg') : tr('share.demoteMsg', { name: personName(mbr) }),
+            okLabel: tr(me ? 'share.stepDownOk' : 'share.demote'),
           })) return;
           opQueue.enqueue({
             run: async () => {
@@ -10596,13 +10716,12 @@
       // der den ene er feilmerket, er verre enn én.
       if (mbr.removable && !me) {
         const kick = document.createElement('button');
-        kick.className = 'btn btn-solid btn-red btn-small'; kick.type = 'button'; kick.textContent = 'Fjern';
+        kick.className = 'btn btn-solid btn-red btn-small'; kick.type = 'button'; kick.textContent = tr('common.remove');
         kick.addEventListener('click', async () => {
           if (!await askConfirm({
-            title: 'Fjerne medlem',
-            message: 'Fjerne ' + personName(mbr) + ' fra ' + (TYPE_WORD[type] || 'objektet') +
-              '? All tilgang under det forsvinner også.',
-            okLabel: 'Fjern',
+            title: tr('share.removeMemberTitle'),
+            message: tr('share.removeMemberMsg', { name: personName(mbr), kind: typeWord(type) }),
+            okLabel: tr('common.remove'),
           })) return;
           row.remove(); // optimistisk — refreshMembers gjenoppretter hvis serveren avviser
           opQueue.enqueue({
@@ -10638,7 +10757,7 @@
       const pending = (inf.pendingInvites || []);
       if (pending.length || optimisticRows.size) {
         const t = document.createElement('div');
-        t.className = 'share-section-title'; t.textContent = 'Ventende invitasjoner';
+        t.className = 'share-section-title'; t.textContent = tr('share.pendingInvites');
         membersWrap.appendChild(t);
       }
       pending.forEach((inv) => {
@@ -10648,11 +10767,11 @@
         box.innerHTML = '<span class="member-name"></span><span class="member-role"></span>';
         box.querySelector('.member-name').textContent = inv.email;
         box.querySelector('.member-role').textContent =
-          inv.role === 'owner' ? 'Invitert som medeier' : 'Invitert som medlem';
+          tr(inv.role === 'owner' ? 'share.invitedAsOwner' : 'share.invitedAsMember');
         row.append(avatarFor({ email: inv.email }, false), box);
         if (caps.manageMembers || inv.mine) {
           const cancel = document.createElement('button');
-          cancel.className = 'btn btn-small btn-ghost'; cancel.type = 'button'; cancel.textContent = 'Trekk tilbake';
+          cancel.className = 'btn btn-small btn-ghost'; cancel.type = 'button'; cancel.textContent = tr('share.withdraw');
           cancel.addEventListener('click', () => {
             row.remove(); // optimistisk
             opQueue.enqueue({
@@ -10679,13 +10798,14 @@
         // Samme ikon som «logg ut», men med korrekt tilgjengelig navn.
         leave.className = 'btn btn-solid btn-red share-leave'; leave.type = 'button';
         leave.innerHTML = ICONS.logout || '';
-        leave.appendChild(document.createTextNode(' Forlat ' + (TYPE_WORD[type] || 'objektet')));
-        leave.setAttribute('aria-label', 'Forlat ' + (TYPE_WORD[type] || 'objektet'));
+        const leaveLabel = tr('leave.title', { kind: typeWord(type) });
+        leave.appendChild(document.createTextNode(' ' + leaveLabel));
+        leave.setAttribute('aria-label', leaveLabel);
         leave.addEventListener('click', async () => {
           if (!await askConfirm({
-            title: 'Forlat ' + (TYPE_WORD[type] || 'objektet'),
-            message: 'Du mister tilgangen, men innholdet består for de andre.',
-            okLabel: 'Forlat',
+            title: tr('leave.title', { kind: typeWord(type) }),
+            message: tr('leave.messageShort'),
+            okLabel: tr('leave.ok'),
           })) return;
           if (closeFn) closeFn();
           removeSharedLocally(id);
@@ -10701,16 +10821,15 @@
         // Søppelkasse-glyf + tekst, samme oppsett som «Slett konto» i konto-
         // modalen: de to mest endelige knappene i appen skal se like ut, så
         // formen alene sier «dette sletter noe» før man har lest etiketten.
-        const delLabel = 'Slett ' + (TYPE_WORD[type] || 'objektet') + ' for alle';
+        const delLabel = tr('share.deleteForAllLabel', { kind: typeWord(type) });
         del.innerHTML = ICONS.trashGlyph || '';
         del.appendChild(document.createTextNode(' ' + delLabel));
         del.setAttribute('aria-label', delLabel);
         del.addEventListener('click', async () => {
           if (!await askConfirm({
-            title: 'Slett for alle',
-            message: 'Dette sletter ' + (TYPE_WORD[type] || 'objektet') +
-              ' og alt innholdet for ALLE med tilgang.',
-            okLabel: 'Slett for alle',
+            title: tr('share.deleteForAll'),
+            message: tr('share.deleteForAllMsg', { kind: typeWord(type) }),
+            okLabel: tr('share.deleteForAll'),
           })) return;
           if (closeFn) closeFn();
           const live = findAnyById(id);
@@ -10724,7 +10843,7 @@
       if (!caps.leave && !caps.delete && obj._role === 'owner' && type === 'universe') {
         const note = document.createElement('p');
         note.className = 'share-policy-note';
-        note.textContent = 'Du er eneste eier. Gi eierskap til noen andre før du kan forlate området.';
+        note.textContent = tr('share.onlyOwnerNote');
         actionsWrap.appendChild(note);
       }
     }
@@ -10756,9 +10875,9 @@
       box.innerHTML = '<span class="member-name"></span><span class="member-role"></span>';
       box.querySelector('.member-name').textContent = email;
       box.querySelector('.member-role').textContent =
-        role === 'owner' ? 'Invitert som medeier' : 'Invitert som medlem';
+        tr(role === 'owner' ? 'share.invitedAsOwner' : 'share.invitedAsMember');
       const cancel = document.createElement('button');
-      cancel.className = 'btn btn-small btn-ghost'; cancel.type = 'button'; cancel.textContent = 'Trekk tilbake';
+      cancel.className = 'btn btn-small btn-ghost'; cancel.type = 'button'; cancel.textContent = tr('share.withdraw');
       row.append(avatarFor({ email }, false), box, cancel);
       optimisticRows.add(row);
       membersWrap.appendChild(row);
@@ -10772,7 +10891,7 @@
         },
         onDone: () => {
           optimisticRows.delete(row);
-          msg.textContent = 'Invitasjon sendt til ' + email; msg.classList.add('ok'); msg.hidden = false;
+          msg.textContent = tr('share.inviteSent', { email: email }); msg.classList.add('ok'); msg.hidden = false;
           refreshMembers();
         },
         onError: (e) => {
@@ -10874,6 +10993,9 @@
   // ville den nye kontoen arvet forrige brukers historikk.
   let cloudStartedFor = null;
   async function cloudStart() {
+    // Språket først: lander kontoen på et annet språk enn enheten står på,
+    // lastes appen på nytt her — før det bygges noe UI som måtte rives ned igjen.
+    adoptAccountLanguage();
     document.body.classList.remove('no-auth');
     authScreen.hidden = true;
     // Passordet har gjort jobben sin. La det ikke bli stående i feltet — med
@@ -10968,7 +11090,7 @@
     if (!email) return;
     setAuthMode('register');
     authEmail.value = email;
-    authMsg('Du er invitert til Huskis! Fullfør registreringen for å bli med.', true);
+    authMsg(tr('auth.inviteSignup'), true);
   }
 
   async function initAccounts() {
@@ -10979,7 +11101,7 @@
       document.body.classList.add('no-auth');
       authScreen.hidden = false;
       setAuthMode('login');
-      authMsg('Innlogging er ikke tilgjengelig akkurat nå. Prøv igjen senere.');
+      authMsg(tr('auth.unavailable'));
       return;
     }
     document.body.classList.add('no-auth');
@@ -11264,31 +11386,24 @@
     {
       id: 'welcome',
       narrated: true,
-      title: 'Velkommen til Huskis',
-      html: '<p>Her kan du lage</p>' +
-        '<ul class="tour-list">' +
-        '<li>' + ICONS.list + '<span><b>huskelister</b> for å holde styr på livet ditt</span></li>' +
-        '<li>' + ICONS.folder + '<span><b>mapper</b> for å holde styr på listene dine</span></li>' +
-        '<li>' + ICONS.globe + '<span><b>områder</b> for å holde styr på mappene dine</span></li>' +
-        '</ul>' +
-        '<p>Innad i listene kan listepunktene sorteres i ' + ICONS.category +
-        ' <b>kategorier</b> – hvis du vil.</p>',
-      note: 'Nå får du en guidet tur gjennom appens viktigste funksjoner.',
-      cta: 'Kom i gang',
+      title: tr('tour.welcomeTitle'),
+      html: tr('tour.welcome', {
+        list: ICONS.list, folder: ICONS.folder, globe: ICONS.globe, category: ICONS.category,
+      }),
+      note: tr('tour.welcomeNote'),
+      cta: tr('tour.start'),
     },
     {
       id: 'open_nav',
       target: () => navCrumbBtn,
-      html: '<p>Denne knappen viser ' + ICONS.globe + ' <b>området</b> og ' +
-        ICONS.folder + ' <b>mappen</b> du er i.</p>' +
-        '<p>Trykk på den for å komme til oversikten der du oppretter områder og mapper.</p>',
+      html: tr('tour.openNav', { globe: ICONS.globe, folder: ICONS.folder }),
       done: () => !navModal.hidden,
     },
     {
       id: 'create_area',
       needsNav: true,
       target: () => navBoard.querySelector('.nav-add-uni button'),
-      html: '<p>Trykk på denne knappen for å opprette et ' + ICONS.globe + ' <b>område</b>.</p>',
+      html: tr('tour.createArea', { globe: ICONS.globe }),
       done: () => {
         const u = demoUnis()[0];
         if (!u) return false;
@@ -11303,9 +11418,7 @@
       rewind: 'create_area',
       premise: () => !!demoUni(),
       target: () => demoNameField(demoNavCard(), '.card-title'),
-      html: '<p>Gi området et navn.</p>' +
-        '<p>Bekreft med <span class="hint-chip">Enter</span>-tasten eller ved å klikke ' +
-        'utenfor navnefeltet.</p>',
+      html: tr('tour.nameArea'),
       done: () => !demoEditing() && demoNamed(demoUni(), 'name'),
     },
     {
@@ -11314,7 +11427,7 @@
       rewind: 'create_area',
       premise: () => !!demoUni(),
       target: () => { const el = demoNavCard(); return el && el.querySelector('.add-item-row .add-item-btn'); },
-      html: '<p>Trykk på den grønne knappen for å opprette en ' + ICONS.folder + ' <b>mappe</b>.</p>',
+      html: tr('tour.createFolder', { folder: ICONS.folder }),
       done: () => {
         const g = demoGroups(demoUni())[0];
         if (!g) return false;
@@ -11329,7 +11442,7 @@
       rewind: 'create_folder',
       premise: () => !!demoGroup(),
       target: () => demoNameField(demoNavRow(), '.item-text'),
-      html: '<p>Gi mappen et navn.</p>',
+      html: tr('tour.nameFolder'),
       done: () => !demoEditing() && demoNamed(demoGroup(), 'name'),
     },
     {
@@ -11338,13 +11451,13 @@
       rewind: 'create_folder',
       premise: () => !!demoGroup(),
       target: () => demoNavRow(),
-      html: '<p>Trykk på feltet til mappen du nettopp opprettet for å navigere til mappen.</p>',
+      html: tr('tour.openFolder'),
       done: () => state.activeGroup === demoCtx.groupId && navModal.hidden,
     },
     {
       id: 'create_list',
       target: () => addCardBtn,
-      html: '<p>Trykk her for å opprette en ' + ICONS.list + ' <b>liste</b>.</p>',
+      html: tr('tour.createList', { list: ICONS.list }),
       done: () => {
         const c = demoCards()[0];
         if (!c) return false;
@@ -11358,7 +11471,7 @@
       rewind: 'create_list',
       premise: () => !!demoCard(),
       target: () => demoNameField(demoCardEl(demoCtx.cardId), '.card-title'),
-      html: '<p>Gi listen et navn.</p>',
+      html: tr('tour.nameList'),
       done: () => !demoEditing() && demoNamed(demoCard(), 'title'),
     },
     {
@@ -11366,7 +11479,7 @@
       rewind: 'create_list',
       premise: () => !!demoCard(),
       target: () => { const el = demoCardEl(demoCtx.cardId); return el && el.querySelector('.add-item-row .add-item-btn'); },
-      html: '<p>Trykk her for å opprette et <b>listepunkt</b>.</p>',
+      html: tr('tour.createItem'),
       done: () => demoItems(demoCard()).length >= 1,
     },
     {
@@ -11375,13 +11488,13 @@
       rewind: 'create_item',
       premise: () => demoItems(demoCard()).length >= 1,
       target: () => { const el = demoCardEl(demoCtx.cardId); return el && el.querySelector('.edit-input'); },
-      html: '<p>Gi listepunktet et navn.</p>',
+      html: tr('tour.nameItem'),
       done: () => !demoEditing() && demoItems(demoCard()).every((it) => demoNamed(it, 'text')),
     },
     {
       id: 'create_item2',
       target: () => { const el = demoCardEl(demoCtx.cardId); return el && el.querySelector('.add-item-row .add-item-btn'); },
-      html: '<p>Opprett et listepunkt til.</p>',
+      html: tr('tour.createItem2'),
       done: () => demoItems(demoCard()).length >= 2,
     },
     {
@@ -11390,21 +11503,19 @@
       rewind: 'create_item2',
       premise: () => demoItems(demoCard()).length >= 2,
       target: () => { const el = demoCardEl(demoCtx.cardId); return el && el.querySelector('.edit-input'); },
-      html: '<p>Gi listepunktet et navn.</p>',
+      html: tr('tour.nameItem'),
       done: () => !demoEditing() && demoItems(demoCard()).every((it) => demoNamed(it, 'text')),
     },
     {
       id: 'drag_item',
       target: () => demoRows(demoCtx.cardId).slice(-1)[0],
-      html: '<p>Trekk det nederste listepunktet oppover for å endre rekkefølgen på ' +
-        'listepunktene.</p>' +
-        '<p>Hold fingeren (eller museknappen) inne på punktet til det løfter seg, og dra.</p>',
+      html: tr('tour.dragItem'),
       done: () => dropSeq > demoBase.drops,
     },
     {
       id: 'create_list2',
       target: () => addCardBtn,
-      html: '<p>Opprett en liste til.</p>',
+      html: tr('tour.createList2'),
       done: () => {
         const c = demoCards().find((x) => x.id !== demoCtx.cardId);
         if (!c) return false;
@@ -11418,7 +11529,7 @@
       rewind: 'create_list2',
       premise: () => !!demoCardOf(demoCtx.card2Id),
       target: () => demoNameField(demoCardEl(demoCtx.card2Id), '.card-title'),
-      html: '<p>Gi den nye listen et navn.</p>',
+      html: tr('tour.nameList2'),
       done: () => !demoEditing() && demoNamed(demoCardOf(demoCtx.card2Id), 'title'),
     },
     {
@@ -11426,16 +11537,13 @@
       target: () => { const el = demoCardEl(demoCtx.card2Id); return el && el.querySelector('.card-head'); },
       // «Oppover» stemmer bare i én kolonne; på en bred skjerm ligger listene
       // ved siden av hverandre. «Forbi» er riktig i begge tilfeller.
-      html: '<p>Trekk listen du nettopp lagde forbi den andre for å bytte rekkefølge på ' +
-        'de to listene.</p>' +
-        '<p>Ta tak i listens overskrift, hold inne, og dra.</p>',
+      html: tr('tour.dragList'),
       done: () => dropSeq > demoBase.drops,
     },
     {
       id: 'create_cat',
       target: () => { const el = demoCardEl(demoCtx.cardId); return el && el.querySelector('.add-cat-btn'); },
-      html: '<p>Trykk på den gule knappen for å opprette en ' + ICONS.category +
-        ' <b>kategori</b> i listen.</p>',
+      html: tr('tour.createCat', { category: ICONS.category }),
       done: () => {
         const c = demoCard();
         const cat = c && c.items.find((it) => live(it) && it.isCat);
@@ -11450,7 +11558,7 @@
       rewind: 'create_cat',
       premise: () => !!demoCat(),
       target: () => demoNameField(demoCatEl(), '.cat-title'),
-      html: '<p>Gi kategorien et navn.</p>',
+      html: tr('tour.nameCat'),
       done: () => !demoEditing() && demoNamed(demoCat(), 'text'),
     },
     {
@@ -11460,7 +11568,7 @@
       target: () => demoRows(demoCtx.cardId).filter((el) => !el.closest('.category'))[0],
       // Kategorien er destinasjonen: et kort oppå den gjør steget umulig.
       clear: () => demoCatEl(),
-      html: '<p>Trekk et listepunkt inn i kategorien.</p>',
+      html: tr('tour.dragIntoCat'),
       done: () => demoCatMembers().length > demoBase.catMembers,
     },
     {
@@ -11468,7 +11576,7 @@
       rewind: 'create_cat',
       premise: () => !!demoCat(),
       target: () => { const el = demoCatEl(); return el && el.querySelector('.cat-add-btn'); },
-      html: '<p>Opprett et listepunkt direkte i kategorien med ＋-knappen inne i den.</p>',
+      html: tr('tour.createCatItem'),
       done: () => demoCatMembers().length > demoBase.catMembers,
     },
     {
@@ -11477,7 +11585,7 @@
       rewind: 'create_cat_item',
       premise: () => demoCatMembers().length > 1,
       target: () => { const el = demoCatEl(); return el && el.querySelector('.edit-input'); },
-      html: '<p>Gi listepunktet et navn.</p>',
+      html: tr('tour.nameCatItem'),
       done: () => !demoEditing() && demoCatMembers().every((it) => demoNamed(it, 'text')),
     },
     {
@@ -11486,18 +11594,14 @@
       premise: () => !!demoCat(),
       target: () => { const el = demoCatEl(); return el && el.querySelector('.obj-menu-btn'); },
       allow: ['#obj-menu-panel'],
-      html: '<p>Åpne menyen på kategorien og velg «Løs opp kategorien». ' +
-        'Listepunktene blir stående der de er — bare overskriften forsvinner.</p>',
+      html: tr('tour.dissolveCat'),
       done: () => !demoCat(),
     },
     {
       id: 'delete_item',
       target: () => { const r = demoRows(demoCtx.cardId)[0]; return r && r.querySelector('.obj-menu-btn'); },
       allow: ['#obj-menu-panel'],
-      html: '<p>Hvert objekt har én menyknapp til høyre. Åpne menyen på et ' +
-        'listepunkt og velg «Slett listepunktet».</p>' +
-        '<p>Du kan også dra objektet rett i søppelkassen — den dukker opp så ' +
-        'snart du løfter noe.</p>',
+      html: tr('tour.deleteItem'),
       done: () => trashedItemsOf(demoCard()).length >= 1,
     },
     {
@@ -11506,7 +11610,7 @@
       premise: () => trashedItemsOf(demoCard()).length >= 1,
       target: () => { const el = demoCardEl(demoCtx.cardId); return el && el.querySelector('.item-trash-btn'); },
       trashModal: true,
-      html: '<p>Trykk på søppelkassen nederst i listen for å se hva som ligger i den.</p>',
+      html: tr('tour.openItemTrash'),
       done: () => !trashModal.hidden,
     },
     {
@@ -11516,7 +11620,7 @@
       premise: () => trashedItemsOf(demoCard()).length >= 1 || !trashModal.hidden,
       target: () => trashList.querySelector('.trash-row button'),
       trashModal: true,
-      html: '<p>Gjenopprett listepunktet.</p>',
+      html: tr('tour.restoreItem'),
       done: () => trashedItemsOf(demoCard()).length === 0,
     },
     {
@@ -11524,14 +11628,14 @@
       needsTrash: true,
       target: () => trashClose,
       trashModal: true,
-      html: '<p>Lukk søppelkassen.</p>',
+      html: tr('tour.closeItemTrash'),
       done: () => trashModal.hidden,
     },
     {
       id: 'delete_item2',
       target: () => { const r = demoRows(demoCtx.cardId)[0]; return r && r.querySelector('.obj-menu-btn'); },
       allow: ['#obj-menu-panel'],
-      html: '<p>Slett et listepunkt igjen.</p>',
+      html: tr('tour.deleteItem2'),
       done: () => trashedItemsOf(demoCard()).length >= 1,
     },
     {
@@ -11539,15 +11643,14 @@
       rewind: 'delete_item2',
       premise: () => trashedItemsOf(demoCard()).length >= 1 || demoCard().items.length < demoBase.itemsAll,
       target: () => { const el = demoCardEl(demoCtx.cardId); return el && el.querySelector('.item-trash-btn'); },
-      html: '<p>Tøm søppelkassen: hold inne knappen og sveip til høyre.</p>' +
-        '<p>Da er listepunktet borte for godt.</p>',
+      html: tr('tour.emptyItemTrash'),
       done: () => demoCard().items.length < demoBase.itemsAll,
     },
     {
       id: 'delete_list',
       target: () => { const el = demoCardEl(demoCtx.cardId); return el && el.querySelector('.obj-menu-btn'); },
       allow: ['#obj-menu-panel'],
-      html: '<p>Slett listen fra menyen i korthodet.</p>',
+      html: tr('tour.deleteList'),
       done: () => !demoCard(),
     },
     {
@@ -11555,13 +11658,13 @@
       rewind: 'delete_list',
       premise: () => trashedCards().length >= 1 || demoGroup().cards.length < demoBase.cardsAll,
       target: () => trashBtn,
-      html: '<p>Tøm mappens søppelkasse: hold inne knappen i toppmenyen og sveip til høyre.</p>',
+      html: tr('tour.emptyCardTrash'),
       done: () => demoGroup().cards.length < demoBase.cardsAll,
     },
     {
       id: 'open_nav2',
       target: () => navCrumbBtn,
-      html: '<p>Gå til «Områder og mapper».</p>',
+      html: tr('tour.openNav2'),
       done: () => !navModal.hidden,
     },
     {
@@ -11569,7 +11672,7 @@
       needsNav: true,
       target: () => { const el = demoNavCard(); return el && el.querySelector('.obj-menu-btn'); },
       allow: ['#obj-menu-panel'],
-      html: '<p>Slett området fra menyen i korthodet. Mappen og alt i den følger med.</p>',
+      html: tr('tour.deleteArea'),
       done: () => !demoUni(),
     },
     {
@@ -11578,23 +11681,22 @@
       rewind: 'delete_area',
       premise: () => trashedUniverses().length >= 1 || state.universes.length < demoBase.unis,
       target: () => uniTrashBtn,
-      html: '<p>Tøm områdenes søppelkasse: hold inne knappen og sveip til høyre.</p>',
+      html: tr('tour.emptyUniTrash'),
       done: () => state.universes.length < demoBase.unis,
     },
     {
       id: 'close_nav',
       needsNav: true,
       target: () => navModalClose,
-      html: '<p>Da er alt ryddet bort igjen. Lukk oversikten.</p>',
+      html: tr('tour.closeNav'),
       done: () => navModal.hidden,
     },
     {
       id: 'finish',
       target: () => accountBtn,
-      title: 'Takk for turen!',
-      html: '<p>Turen er over, og du er nå i din egen Huskis. Du kan ta turen igjen ' +
-        'ved å gå til kontosiden din.</p>',
-      cta: 'Ferdig',
+      title: tr('tour.finishTitle'),
+      html: tr('tour.finish'),
+      cta: tr('common.done'),
     },
   ];
   const DEMO_LAST = DEMO_STEPS.length - 1;
@@ -11811,7 +11913,7 @@
     const step = demoStep();
     // En åpen navngiving er handlingen som PÅGÅR, og linjen sier hva som
     // gjenstår. Demoen skriver aldri noe, så det finnes ingen feiltilstand her.
-    const text = (!step.cta && demoEditing()) ? 'Skriv navnet og trykk Enter.' : (step.note || '');
+    const text = (!step.cta && demoEditing()) ? tr('tour.typeNameHint') : (step.note || '');
     tourNoteEl.hidden = !text;
     tourNoteEl.textContent = text;
   }
@@ -12071,10 +12173,10 @@
   // Korte, med vilje: toasten ligger nederst på skjermen, og en lang tekst
   // brekker til en blokk som dekker det brukeren holder på med på mobil.
   const TIPS = {
-    drag: 'Tips: hold på en tittel for å flytte den.',
-    trash: 'Tips: hold på søppelkassen og sveip for å slette alt i den.',
-    moveList: 'Tips: dra en liste opp på navigasjonsknappen for å flytte den.',
-    dragTrash: 'Tips: dra et objekt i søppelkassen for å slette det.',
+    get drag() { return tr('tip.drag'); },
+    get trash() { return tr('tip.trash'); },
+    get moveList() { return tr('tip.moveList'); },
+    get dragTrash() { return tr('tip.dragTrash'); },
   };
   let pendingTip = null;  // ba om et tips mens demoen sto på
   let lastTipAt = 0;
@@ -12100,7 +12202,7 @@
     const tips = Object.assign({}, accountPref('tips'));
     tips[key] = true;
     saveAccountPref({ tips: tips }, 1);
-    showToast(TIPS[key], { label: 'Skjønner', fn: hideToast }, { tip: true });
+    showToast(TIPS[key], { label: tr('tip.gotIt'), fn: hideToast }, { tip: true });
     return true;
   }
   function flushPendingTip() {
@@ -12137,6 +12239,10 @@
   }
 
   /* ---------------- Start ---------------- */
+  // Den statiske teksten i index.html oversettes ÉN gang, før noe av appen
+  // bygges — malene (`<template>`) tas av `fromTemplate()` når de klones.
+  I18N.applyStatic(document);
+  paintLanguage();
   initAccounts();
 
   // Eksponer for enkel feilsøking/testing
@@ -12169,6 +12275,8 @@
       get shown() { return demoPainted === demoIndex && !tourCard.hidden; },
       seen: onboardingSeen,
     },
+    get lang() { return I18N.lang(); },
+    setLanguage,
     get authUser() { return authUser; },
     get lastMy() { return lastMy; },
     get client() { return aclient; },

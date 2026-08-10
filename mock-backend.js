@@ -556,6 +556,8 @@
         removable: b.direct && canManage && !lastOwner,
         removeHint: !b.direct ? 'Har tilgang via området og må fjernes der'
           : (lastOwner ? 'Siste eier kan ikke fjernes' : null),
+        // Språknøytral kode ved siden av teksten — klienten oversetter selv.
+        removeHintCode: !b.direct ? 'inherited' : (lastOwner ? 'lastOwner' : null),
         demotable: b.direct && b.role === 'owner' && canManage && !lastOwner,
         // Rolleløft går via en invitasjon mottakeren må godta — flagget speiler
         // retten til å invitere til eierskap, ikke retten til å skrive rollen.
@@ -1263,12 +1265,16 @@
             var db = loadDB();
             if (attrs.password) db.passwords[u.email] = attrs.password;
             if (attrs.data) {
+              // Supabase MERGER `data` inn i metadataen brukeren har NÅ, og den
+              // levende brukeren er sesjonen — ikke profilraden. Flettet vi fra
+              // profilen, ville felter sesjonen bærer men profilen ennå ikke har
+              // sett (en seedet test, en annen fane som skrev) forsvunnet ved
+              // neste skriving: en `updateUser({ data: { lang } })` kunne da
+              // stryke `onboarding` og starte demoen midt i noe.
+              u.user_metadata = Object.assign({}, u.user_metadata, attrs.data);
               var p = db.profiles.find(function (x) { return x.id === u.id; });
-              if (p) {
-                p.user_metadata = Object.assign({}, p.user_metadata, attrs.data);
-                u.user_metadata = clone(p.user_metadata);
-                setSess(u); // hold denne fanens sesjon i takt
-              }
+              if (p) p.user_metadata = clone(u.user_metadata);
+              setSess(u); // hold denne fanens sesjon i takt
             }
             if (attrs.email) {
               // E-postendring — ekte Supabase sender bekreftelseslenke; mocken

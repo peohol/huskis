@@ -44,15 +44,18 @@ function fordel(files, total, known = {}) {
 
   const shards = Array.from({ length: total }, () => ({ cost: 0, files: [] }));
   for (const { file, cost } of sorted) {
-    /* Ved lik kostnad velges den med færrest filer. Uten det ville alle de
-       gratis node-testene (0 s) havnet i samme shard, siden den forblir
-       «lettest» uansett hvor mange den får — og shards lenger ute ble stående
-       tomme. */
+    /* Vanlige filer: den letteste shard-en, med færrest filer som tiebreaker.
+
+       GRATIS filer (de rene node-testene måles til 0 s) velger i stedet den med
+       FÆRREST FILER først. En fil som ikke koster noe endrer nemlig ikke summen
+       den ble valgt på: uten dette ville den ene shard-en som tilfeldigvis er
+       billigst tatt imot alle sammen, én etter én, mens de andre ble stående
+       uten — og det er nettopp det tests/shard-distribution.test.js vokter. */
+    const bedre = cost === 0
+      ? (a, b) => a.files.length < b.files.length || (a.files.length === b.files.length && a.cost < b.cost)
+      : (a, b) => a.cost < b.cost || (a.cost === b.cost && a.files.length < b.files.length);
     let lightest = 0;
-    for (let i = 1; i < total; i++) {
-      const a = shards[i], b = shards[lightest];
-      if (a.cost < b.cost || (a.cost === b.cost && a.files.length < b.files.length)) lightest = i;
-    }
+    for (let i = 1; i < total; i++) if (bedre(shards[i], shards[lightest])) lightest = i;
     shards[lightest].files.push(file);
     shards[lightest].cost += cost;
   }

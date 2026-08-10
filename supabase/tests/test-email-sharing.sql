@@ -169,6 +169,55 @@ select public.t_check('B: ingen signup-lenke for registrert bruker',
 select public.t_check('B: text-variant er med',
   (select body ? 'text' from net._sent where body->>'to' = 'reg@example.com'));
 
+-- ---------- 5b. SPRÅK: e-posten skrives på MOTTAKERENS språk ----------
+-- Mottakerens `user_metadata.lang` styrer; en uregistrert mottaker arver
+-- inviterens. Ukjent/manglende verdi faller til norsk (testene over).
+\set en_reg  'ee444444-0000-0000-0000-000000000004'
+insert into auth.users (id, email) values (:'en_reg', 'en-reg@example.com');
+update public.profiles set display_name = 'En Regson' where id = :'en_reg';
+update auth.users set raw_user_meta_data = '{"lang":"en"}'::jsonb where id = :'en_reg';
+insert into public.share_invites (inviter_id, invitee_email, invitee_id, universe_id)
+  values (:'inviter', 'en-reg@example.com', :'en_reg', :'uni');
+select public.t_check('EN: emnet er på engelsk',
+  (select body->>'subject' from net._sent where body->>'to' = 'en-reg@example.com')
+    = 'Ann <b> & "Q" '' O shared “Fam <x> & "y" '' z” with you on Huskis');
+select public.t_check('EN: HTML har engelsk overskrift + CTA',
+  (select body->>'html' from net._sent where body->>'to' = 'en-reg@example.com')
+    like '%has been shared with you%'
+  and (select body->>'html' from net._sent where body->>'to' = 'en-reg@example.com')
+    like '%Open Huskis%');
+select public.t_check('EN: <html lang="en">',
+  (select body->>'html' from net._sent where body->>'to' = 'en-reg@example.com')
+    like '%<html lang="en"%');
+select public.t_check('EN: etiketten og bunnteksten er engelske',
+  (select body->>'html' from net._sent where body->>'to' = 'en-reg@example.com')
+    like '%SHARING INVITATION%'
+  and (select body->>'html' from net._sent where body->>'to' = 'en-reg@example.com')
+    like '%sender address is not monitored%');
+select public.t_check('EN: ingen norsk tekst igjen i e-posten',
+  (select body->>'html' from net._sent where body->>'to' = 'en-reg@example.com')
+    not like '%DELINGSINVITASJON%'
+  and (select body->>'text' from net._sent where body->>'to' = 'en-reg@example.com')
+    not like '%har delt%');
+
+-- Uregistrert mottaker: ingen konto → INVITERENS språk avgjør.
+update auth.users set raw_user_meta_data = '{"lang":"en"}'::jsonb where id = :'inviter';
+insert into public.share_invites (inviter_id, invitee_email, universe_id)
+  values (:'inviter', 'en-ny@example.com', :'uni');
+select public.t_check('EN: uregistrert mottaker arver inviterens språk',
+  (select body->>'html' from net._sent where body->>'to' = 'en-ny@example.com')
+    like '%You have been invited to Huskis%'
+  and (select body->>'text' from net._sent where body->>'to' = 'en-ny@example.com')
+    like '%Create an account and join%');
+-- Ukjent språkkode faller til norsk (appens standard).
+update auth.users set raw_user_meta_data = '{"lang":"klingon"}'::jsonb where id = :'inviter';
+insert into public.share_invites (inviter_id, invitee_email, universe_id)
+  values (:'inviter', 'ukjent-spraak@example.com', :'uni');
+select public.t_check('SPRÅK: ukjent kode faller til norsk',
+  (select body->>'html' from net._sent where body->>'to' = 'ukjent-spraak@example.com')
+    like '%Du er invitert til Huskis%');
+update auth.users set raw_user_meta_data = '{}'::jsonb where id = :'inviter';
+
 -- ---------- 6. VARIANT B2: registrert bruker, email_notifications=false ----------
 update auth.users set raw_user_meta_data = '{"email_notifications":"false"}'::jsonb where id = :'off';
 insert into public.share_invites (inviter_id, invitee_email, invitee_id, universe_id)

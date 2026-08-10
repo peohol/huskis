@@ -165,6 +165,16 @@
       reload();
     }
 
+    /* Teksten i banneret følger appens språkvalg. Ordboken ligger i i18n.js,
+       som lastes FØR denne fila — men banneret skal virke uansett, så
+       fallbacken (norsk) står her og brukes hvis ordboken mangler. */
+    function txt(key, fallback) {
+      var I = win.HUSKIS_I18N;
+      if (!I) return fallback;
+      var s = I.t(key);
+      return s === key ? fallback : s;
+    }
+
     /* ---------------- Banner (samme formspråk som toasten) ----------------
        Diskret, vedvarende og ikke-modalt. Stjeler ikke fokus: `role="status"` +
        `aria-live="polite"` leser meldingen opp uten å flytte fokuset, og
@@ -181,10 +191,10 @@
       text.className = 'update-banner-text';
       var msg = doc.createElement('span');
       msg.className = 'update-banner-msg';
-      msg.textContent = 'En ny versjon av Huskis er tilgjengelig.';
+      msg.textContent = txt('update.available', 'En ny versjon av Huskis er tilgjengelig.');
       bannerNote = doc.createElement('span');
       bannerNote.className = 'update-banner-note';
-      bannerNote.textContent = 'Siden oppdateres når endringene dine er lagret.';
+      bannerNote.textContent = txt('update.waiting', 'Siden oppdateres når endringene dine er lagret.');
       bannerNote.hidden = true;
       text.appendChild(msg);
       text.appendChild(bannerNote);
@@ -192,7 +202,7 @@
       var btn = doc.createElement('button');
       btn.type = 'button';
       btn.className = 'update-banner-btn';
-      btn.textContent = 'Oppdater nå';
+      btn.textContent = txt('update.now', 'Oppdater nå');
       // Brukeren ber selv om oppdateringen: ingen trygghets- eller ett-forsøk-vakt.
       btn.addEventListener('click', function () { reload(); });
 

@@ -491,6 +491,11 @@ Mottakeren varsles på to måter når noe deles med hen:
   melding, så en uregistrert mottaker oppretter konto direkte. `handle_new_user`
   kobler den ventende invitasjonen på e-post ved registrering, og den dukker opp
   i innboksen straks mottakeren logger inn.
+- **Språk** (`user_metadata.lang`): språkvelgeren i konto-modalen skriver
+  valget både til enheten (`localStorage['huskis-lang']`) og til kontoen, og
+  laster appen på nytt. Kontoens verdi vinner ved innlogging
+  (`adoptAccountLanguage()` i `cloudStart`). Serveren leser den samme verdien
+  når den skriver delings-e-poster. Autoritativt: `docs/sprak.md`.
 - **E-postvarsel-innstilling** (registrerte): en toggle i konto-modalen
   (`#email-pref-toggle`) lagrer `user_metadata.email_notifications` via
   `auth.updateUser({ data })` (optimistisk, `emailPrefOn`/`paintEmailPref`).

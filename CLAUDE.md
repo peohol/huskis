@@ -12,7 +12,7 @@ rad. Motoren kjører i to scope — `boardScope` (listevisningen) og `navScope`
 (navigasjonsmodalen) — så en endring i den treffer begge nivåene.
 
 **Kildekode** (det som deployes): `index.html`, `styles.css`, `app.js`,
-`icons.js`, `config.js`, `update-check.js`, `assets/`, `vendor/`
+`icons.js`, `i18n.js`, `config.js`, `update-check.js`, `assets/`, `vendor/`
 (supabase-js som innsjekket, uendret kopi — `docs/sikkerhetsheadere.md`).
 `dev-mock.js` og
 `mock-backend.js` er testmodus (`?mock=1`) og blir IKKE med i produksjons-
@@ -34,6 +34,12 @@ publiseres aldri før skjemaet er migrert og verifisert. Autoritativt:
 
 Tilstanden ligger i `localStorage` per konto og synkes mot Supabase (Auth +
 relasjonelle tabeller med RLS). Appen har ingen anonym modus.
+
+UI-et finnes på **norsk og engelsk**, og brukeren velger selv (også før
+innlogging). All brukerrettet tekst går gjennom ordboken i `i18n.js` —
+`tr('nøkkel')` i `app.js`, `data-i18n` i `index.html`. En norsk streng skrevet
+rett inn i koden finnes ikke på engelsk, og `tests/i18n.test.js` stopper den.
+Autoritativt: `docs/sprak.md`.
 
 De norske ordene i UI-et og dokumentasjonen er **område** og **mappe**;
 identifikatorene i koden og databasen heter fortsatt `universe` og `group`

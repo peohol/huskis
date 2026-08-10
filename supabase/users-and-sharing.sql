@@ -1980,6 +1980,20 @@ declare
   explanation text;   -- ren tekst; escapes ved HTML-innsetting
   action_text text;   -- ren tekst; escapes ved HTML-innsetting
   variant     text;   -- 'unregistered' | 'existing' (til loggen)
+  -- SPRÅK: e-posten skrives på MOTTAKERENS språk (`user_metadata.lang`, satt av
+  -- språkvelgeren i appen). En uregistrert mottaker har ikke noe språk ennå —
+  -- da brukes inviterens, som er den beste gjetningen vi har. Ukjent/manglende
+  -- verdi faller til norsk, appens standard. Se ../docs/sprak.md.
+  lang        text;
+  is_en       boolean;
+  html_lang   text;
+  label_txt   text;   -- etiketten i versaler over overskriften
+  intro_txt   text;   -- «X har delt noe med deg:» (inviter-navnet er escapet)
+  fallback_lb text;   -- «Virker ikke knappen? …»
+  footer_txt  text;   -- bunnteksten i HTML-en
+  auto_txt    text;   -- den samme beskjeden i text/plain-varianten
+  shared_line text;   -- «X har delt «Y» med deg på Huskis.» (råtekst)
+  preheader   text;   -- samme setning, escapet, som forhåndsvisningstekst
   link        text;
   body_html   text;
   body_text   text;
@@ -2015,18 +2029,59 @@ begin
   -- tekst i e-post og trenger ingen escaping).
   inv_e := public.html_escape(inviter);
   obj_e := public.html_escape(obj_name);
-  subject := inviter || ' har delt «' || obj_name || '» med deg på Huskis';
+
+  -- Mottakerens språk, med inviterens som fallback for en uregistrert mottaker.
+  select nullif(raw_user_meta_data ->> 'lang', '') into lang
+    from auth.users where id = coalesce(new.invitee_id, new.inviter_id);
+  if lang is null or lang not in ('no', 'en') then lang := 'no'; end if;
+  is_en := lang = 'en';
+  html_lang := lang;
+
+  subject := format(
+    case when is_en then '%1$s shared “%2$s” with you on Huskis'
+         else            '%1$s har delt «%2$s» med deg på Huskis' end,
+    inviter, obj_name);
+  shared_line := format(
+    case when is_en then '%1$s shared “%2$s” with you on Huskis.'
+         else            '%1$s har delt «%2$s» med deg på Huskis.' end,
+    inviter, obj_name);
+  preheader := format(
+    case when is_en then '%1$s shared “%2$s” with you on Huskis.'
+         else            '%1$s har delt «%2$s» med deg på Huskis.' end,
+    inv_e, obj_e);
+  label_txt   := case when is_en then 'SHARING INVITATION' else 'DELINGSINVITASJON' end;
+  intro_txt   := case when is_en then '<strong>' || inv_e || '</strong> shared something with you:'
+                      else            '<strong>' || inv_e || '</strong> har delt noe med deg:' end;
+  fallback_lb := case when is_en then 'Button not working? Copy this address:'
+                      else            'Virker ikke knappen? Kopier denne adressen:' end;
+  footer_txt  := case when is_en then
+                        'This message was sent automatically because someone shared content ' ||
+                        'with you in Huskis. The sender address is not monitored and cannot receive replies.'
+                      else
+                        'Denne meldingen ble sendt automatisk fordi noen delte innhold med deg i ' ||
+                        'Huskis. Avsenderadressen overvåkes ikke og kan ikke motta svar.' end;
+  auto_txt    := case when is_en then
+                        'This message was sent automatically because someone shared content with ' ||
+                        'you in Huskis. You cannot reply to this address.'
+                      else
+                        'Denne meldingen ble sendt automatisk fordi noen delte innhold med deg i ' ||
+                        'Huskis. Du kan ikke svare på denne adressen.' end;
 
   if new.invitee_id is null then
     -- Uregistrert mottaker → inviter til å registrere seg. E-posten går til
     -- invitee_email selv (self-targeted), men vi prosent-koder likevel korrekt.
     variant     := 'unregistered';
     link        := app_url || '?signup=' || public.url_encode(new.invitee_email);
-    heading     := 'Du er invitert til Huskis';
-    explanation := 'Opprett en konto med denne e-postadressen (' ||
-                   new.invitee_email ||
-                   '), så dukker delingen opp i appen og du kan godta den.';
-    action_text := 'Opprett konto og bli med';
+    heading     := case when is_en then 'You have been invited to Huskis'
+                        else            'Du er invitert til Huskis' end;
+    explanation := case when is_en then
+                          'Create an account with this email address (' || new.invitee_email ||
+                          '), and the share will show up in the app for you to accept.'
+                        else
+                          'Opprett en konto med denne e-postadressen (' || new.invitee_email ||
+                          '), så dukker delingen opp i appen og du kan godta den.' end;
+    action_text := case when is_en then 'Create an account and join'
+                        else            'Opprett konto og bli med' end;
   else
     -- Registrert mottaker → respekter e-postvarsel-innstillingen (standard på).
     variant := 'existing';
@@ -2035,26 +2090,27 @@ begin
       return new;
     end if;
     link        := app_url;
-    heading     := obj_name || ' er delt med deg';
-    explanation := 'Åpne Huskis for å se og godta invitasjonen.';
-    action_text := 'Åpne Huskis';
+    heading     := case when is_en then obj_name || ' has been shared with you'
+                        else            obj_name || ' er delt med deg' end;
+    explanation := case when is_en then 'Open Huskis to see and accept the invitation.'
+                        else            'Åpne Huskis for å se og godta invitasjonen.' end;
+    action_text := case when is_en then 'Open Huskis' else 'Åpne Huskis' end;
   end if;
 
   -- text/plain-variant (leveres sammen med HTML for maks kompatibilitet).
   body_text :=
     heading || E'\n\n' ||
-    inviter || ' har delt «' || obj_name || '» med deg på Huskis.' || E'\n\n' ||
+    shared_line || E'\n\n' ||
     explanation || E'\n\n' ||
     action_text || ': ' || link || E'\n\n' ||
-    'Denne meldingen ble sendt automatisk fordi noen delte innhold med deg i ' ||
-    'Huskis. Du kan ikke svare på denne adressen.' || E'\n\n' ||
+    auto_txt || E'\n\n' ||
     'Huskis — https://huskis.no/';
 
   -- Tabellbasert, inline-stylet HTML for e-postklienter (Outlook m/ bgcolor).
   -- Trygg fontstakk (ingen webfont), maks 600px, avrundede flater, ingen JS.
   body_html :=
     '<!DOCTYPE html>' ||
-    '<html lang="no" xmlns="http://www.w3.org/1999/xhtml">' ||
+    '<html lang="' || html_lang || '" xmlns="http://www.w3.org/1999/xhtml">' ||
     '<head>' ||
       '<meta charset="utf-8" />' ||
       '<meta name="viewport" content="width=device-width, initial-scale=1.0" />' ||
@@ -2065,7 +2121,7 @@ begin
     '<body style="margin:0;padding:0;background-color:#667788;">' ||
       -- Preheader / forhåndsvisningstekst (skjult, men fanges opp av innboksen).
       '<div style="display:none;max-height:0;overflow:hidden;mso-hide:all;font-size:1px;line-height:1px;color:#667788;opacity:0;">' ||
-        inv_e || ' har delt «' || obj_e || '» med deg på Huskis.' ||
+        preheader ||
         '&nbsp;&zwnj;&nbsp;&zwnj;&nbsp;&zwnj;&nbsp;&zwnj;&nbsp;&zwnj;&nbsp;&zwnj;&nbsp;&zwnj;' ||
       '</div>' ||
       '<table width="100%" cellpadding="0" cellspacing="0" border="0" role="presentation" bgcolor="#667788" style="width:100%;background-color:#667788;">' ||
@@ -2085,9 +2141,9 @@ begin
             '<tr><td bgcolor="#ffffff" style="background-color:#ffffff;border-radius:18px;">' ||
               '<table width="100%" cellpadding="0" cellspacing="0" border="0" role="presentation" style="width:100%;">' ||
                 '<tr><td style="padding:34px 34px 8px 34px;font-family:Arial,Helvetica,sans-serif;">' ||
-                  '<p style="margin:0 0 10px 0;font-family:Arial,Helvetica,sans-serif;font-size:13px;line-height:16px;font-weight:700;letter-spacing:1.2px;color:#4d664d;">DELINGSINVITASJON</p>' ||
+                  '<p style="margin:0 0 10px 0;font-family:Arial,Helvetica,sans-serif;font-size:13px;line-height:16px;font-weight:700;letter-spacing:1.2px;color:#4d664d;">' || label_txt || '</p>' ||
                   '<h1 style="margin:0 0 18px 0;font-family:Arial,Helvetica,sans-serif;font-size:26px;line-height:33px;font-weight:700;color:#37343f;">' || public.html_escape(heading) || '</h1>' ||
-                  '<p style="margin:0 0 20px 0;font-family:Arial,Helvetica,sans-serif;font-size:17px;line-height:26px;color:#37343f;"><strong>' || inv_e || '</strong> har delt noe med deg:</p>' ||
+                  '<p style="margin:0 0 20px 0;font-family:Arial,Helvetica,sans-serif;font-size:17px;line-height:26px;color:#37343f;">' || intro_txt || '</p>' ||
                   -- Objekt-kort (lys grønn flate, grønn venstrekant).
                   '<table width="100%" cellpadding="0" cellspacing="0" border="0" role="presentation" bgcolor="#eef3ee" style="width:100%;background-color:#eef3ee;border-radius:12px;border-left:5px solid #668866;">' ||
                     '<tr><td style="padding:16px 20px;font-family:Arial,Helvetica,sans-serif;font-size:19px;line-height:25px;font-weight:700;color:#37343f;">' || obj_e || '</td></tr>' ||
@@ -2100,11 +2156,11 @@ begin
                     '</td>' ||
                   '</tr></table>' ||
                   -- Fallback-lenke for klienter som ikke rendrer knappen.
-                  '<p style="margin:24px 0 0 0;font-family:Arial,Helvetica,sans-serif;font-size:12px;line-height:18px;color:#6b6577;">Virker ikke knappen? Kopier denne adressen:<br /><a href="' || public.html_escape(link) || '" style="color:#4d664d;text-decoration:underline;word-break:break-all;">' || public.html_escape(link) || '</a></p>' ||
+                  '<p style="margin:24px 0 0 0;font-family:Arial,Helvetica,sans-serif;font-size:12px;line-height:18px;color:#6b6577;">' || public.html_escape(fallback_lb) || '<br /><a href="' || public.html_escape(link) || '" style="color:#4d664d;text-decoration:underline;word-break:break-all;">' || public.html_escape(link) || '</a></p>' ||
                 '</td></tr>' ||
                 -- Bunntekst.
                 '<tr><td style="padding:22px 34px 30px 34px;font-family:Arial,Helvetica,sans-serif;font-size:12px;line-height:18px;color:#6b6577;border-top:1px solid #e3e7e3;">' ||
-                  'Denne meldingen ble sendt automatisk fordi noen delte innhold med deg i Huskis. Avsenderadressen overvåkes ikke og kan ikke motta svar.' ||
+                  public.html_escape(footer_txt) ||
                 '</td></tr>' ||
               '</table>' ||
             '</td></tr>' ||
@@ -2323,11 +2379,21 @@ begin
              and public.can_manage_members(p_type, p_id, uid)
              and not (p_type = 'universe' and b.role = 'owner'
                       and public.universe_owner_count(p_id) <= 1),
+           -- `removeHint` er norsk tekst og blir stående av hensyn til eldre
+           -- klienter; `removeHintCode` er den språknøytrale koden dagens
+           -- klient oversetter selv (docs/sprak.md). Additivt, som alt annet
+           -- her: en klient som ikke kjenner koden bruker teksten som før.
            'removeHint', case
              when not b.direct then 'Har tilgang via området og må fjernes der'
              when p_type = 'universe' and b.role = 'owner'
                   and public.universe_owner_count(p_id) <= 1
                then 'Siste eier kan ikke fjernes'
+             else null end,
+           'removeHintCode', case
+             when not b.direct then 'inherited'
+             when p_type = 'universe' and b.role = 'owner'
+                  and public.universe_owner_count(p_id) <= 1
+               then 'lastOwner'
              else null end,
            -- Kan degraderes fra eier til vanlig medlem?
            'demotable', b.direct and b.role = 'owner'

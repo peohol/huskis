@@ -22,6 +22,7 @@ node tests/no-legacy-domain.test.js   # repo-vid vakt mot det pensjonerte domene
 node tests/release-pipeline.test.js   # rekkefølgen migrering → smoke → deploy
 node tests/db-contract.test.js        # smoke-test.sql i takt med app.js
 node tests/security-headers.test.js   # CSP + sikkerhetsheaderne, låst Supabase-versjon
+node tests/i18n.test.js               # språkordboken + at ingen norsk tekst står igjen i koden
 ```
 
 Hele suiten i én runde (starter en lokal server selv hvis ingen svarer) —
@@ -163,6 +164,13 @@ på signaler appen faktisk gir:
   eller `localStorage['hk-mock-db']`) og vent på selve raden.
 - Bruk `{ polling: 200 }` i filer med flere sider/faner — rAF-polling struper i
   bakgrunnsfaner.
+
+**Et språkbytte laster appen på nytt** (`docs/sprak.md`), og en omlasting ber om
+webfonten på nytt. Henger den forespørselen — som den gjør på en maskin uten
+utgående nett — blokkerer det stilarket kjøringen av skriptene under seg, og
+siden kan bruke titalls sekunder på å komme opp igjen. `tests/language.test.js`
+venter derfor på `document.readyState === 'complete'` PLUSS appens egne signaler,
+med en raus timeout. Det er ikke treg kode; det er nettverket i testmiljøet.
 
 Faste ventinger er fortsatt RIKTIG tre steder, og skal ikke «optimaliseres»
 bort: **fraværsbevis** (noe skal IKKE skje — fravær kan bare påstås etter at

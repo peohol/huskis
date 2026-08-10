@@ -161,6 +161,21 @@ for (const stop of gradientStops('grad-green')) {
   check(`hvit tekst på grønt ville vært ulovlig (${v.toFixed(2)}:1) — grønt er kun ikonflate`, v < 4.5, +v.toFixed(2));
 }
 
+/* ---------- 3c. Tekst UTENFOR det hvite kortet på innloggingsskjermen ----------
+   `.auth-lang-label` (språkvelgeren, docs/sprak.md) ligger rett på skiferflaten,
+   ikke på hvitt. Tokenene over er tekstfarger for LYS bakgrunn — `--ink-soft`
+   gir 1,4:1 her — så etiketten er hvit, og det er den som skal måles. */
+console.log('\n--- Tekst på skiferflaten (innloggingsskjermen) ---');
+{
+  const declared = /\.auth-lang-label\s*\{[^}]*color:\s*([^;]+);/.exec(css);
+  check('.auth-lang-label har en egen tekstfarge (ikke arvet fra en lys flate)',
+    !!declared, declared && declared[1].trim());
+  const color = declared ? declared[1].trim() : '';
+  check('.auth-lang-label er hvit — den ligger på skifer, ikke på hvitt',
+    color === '#ffffff' || color === '#fff', color);
+  contrast('.auth-lang-label på skiferflaten (--bg)', WHITE, token('bg'), 4.5);
+}
+
 /* ---------- 3b. Lagringsstatusens trafikklys ---------- */
 console.log('\n--- Lagringsstatusens trafikklys (.sync-status-dot) ---');
 // Prikken er et grafisk objekt (3:1), og flaten den ligger på er IKKE hvit:

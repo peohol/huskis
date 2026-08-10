@@ -12,6 +12,7 @@ Ved motstrid gjelder det dokumentet som er merket autoritativt for feltet — og
 | [data-model.md](data-model.md) | state-strukturen, foreldre-pekere, kategorier, id-er, hva som lagres lokalt vs. i databasen | **ja** — klientens datamodell |
 | [arkitektur-brukere-deling.md](arkitektur-brukere-deling.md) | tabellene, RLS-policyene, triggerne, RPC-ene, LWW-stemplingen, gravsteinene, e-postvarsel-triggeren | **ja** — databasearkitekturen |
 | [accounts.md](accounts.md) | auth-UI, synk-motoren (`get_my_doc` → fletting → rad-CRUD), operasjonskøen, delings-UI, innboks, mock-backenden | **ja** — klientsiden av kontoer og synk |
+| [sprak.md](sprak.md) | språkvalget (norsk/engelsk): hvor det lagres, hvem som vinner, ordboken i `i18n.js`, hvordan en tekst kommer inn i UI-et, og hvilket språk e-postene får | **ja** — språkmodellen |
 | [design-system.md](design-system.md) | `styles.css`, nye knapper/kontroller, delte klasser, toast, modaler, animasjon | **ja** — designsystemet |
 | [tilgjengelighet.md](tilgjengelighet.md) | kontrastkravene og fargekontrakten, `aria-label` på ikonknapper, tastatursnarveiene (sortering/flytting/omdøping), fokus i modaler og etter sletting, berøringsflater, de manuelle kontrollpunktene | **ja** — WCAG-kravene |
 | [introduksjon.md](introduksjon.md) | demonstrasjonen etter første innlogging, simuleringen den kjører i, stegene, «Vis på nytt», de kontekstuelle tipsene om avanserte gester | **ja** — førstegangsopplevelsen |
@@ -34,6 +35,7 @@ Ved motstrid gjelder det dokumentet som er merket autoritativt for feltet — og
 - `mock-backend.js` — speiler serverens regler for testing (`?mock=1`), lastet av
   `dev-mock.js`. Begge er kun kildekode: `build.js` holder dem utenfor deployen
   (`sikkerhetsheadere.md`).
+- `i18n.js` — ordboken (norsk/engelsk) og `t()`. Arbeidsregler: `sprak.md`.
 - `tests/` — regresjonstestene; kommentarblokken i hver fil sier hva den dekker.
   Arbeidsregler: `tests/CLAUDE.md`.
 - `TODO.md` — kun det som fortsatt gjenstår, mest manuelle steg i Supabase/Vercel.
