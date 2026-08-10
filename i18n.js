@@ -681,6 +681,10 @@
     'share.removeHintInherited': ['Har tilgang via området og må fjernes der',
                                   'Has access through the area and must be removed there'],
     'share.removeHintLastOwner': ['Siste eier kan ikke fjernes', 'The last owner cannot be removed'],
+    'lang.notOnAccount': ['Språket er endret på denne enheten, men kunne ikke lagres på kontoen din.',
+                          'The language was changed on this device, but could not be saved to your account.'],
+    'lang.notStored':    ['Språket er endret, men denne enheten kan ikke huske valget.',
+                          'The language was changed, but this device cannot remember the choice.'],
     /* ==== HUSKIS_I18N_DICT_END ==== */
   };
 
@@ -707,15 +711,22 @@
   // Forskjellen avgjør om valget skal løftes opp på kontoen ved innlogging.
   function chosen() { return explicit; }
 
-  // Setter språket for DENNE fanen: `<html lang>` + den lagrede verdien.
-  // Rendrer IKKE på nytt — den som bytter språk laster appen på nytt (app.js →
-  // setLanguage()), som er det eneste som garantert treffer hver eneste tekst.
+  /* Setter språket for DENNE fanen: `<html lang>` + den lagrede verdien.
+     Rendrer IKKE på nytt — den som bytter språk laster appen på nytt (app.js →
+     setLanguage()), som er det eneste som garantert treffer hver eneste tekst.
+
+     RETURNERER om valget faktisk ble LAGRET. Det er avgjørende for kalleren:
+     i privat modus (eller med blokkerte nettsteddata) kaster `setItem`, og da
+     starter en omlasting på standardspråket igjen. Kombinert med en konto som
+     står på et annet språk ville det gitt en evig omlastingsløkke — appen kom
+     aldri opp. Kalleren bytter derfor i minnet i stedet når dette er `false`. */
   function setLang(code) {
     current = normalize(code);
     explicit = true;
-    try { localStorage.setItem(STORAGE_KEY, current); } catch (e) { /* privat modus */ }
+    var saved = false;
+    try { localStorage.setItem(STORAGE_KEY, current); saved = true; } catch (e) { /* privat modus */ }
     applyHtmlLang();
-    return current;
+    return saved;
   }
 
   function applyHtmlLang() {

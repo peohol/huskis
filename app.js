@@ -9891,21 +9891,49 @@
       sel.value = I18N.lang();
     });
   }
-  /* Bytt språk. Appen lastes på nytt etterpå: språket sitter i hver eneste
-     tekst som allerede er bygget — korttitler, menyer, demoens steg, og tekst
-     som ble fanget i konstanter ved oppstart. En omlasting er den ENESTE
-     garantien for at ingenting blir stående igjen på det gamle språket.
-     Kontoen skrives FØR omlastingen, ellers rekker ikke skrivingen fram. */
+  /* Bytt språket UTEN omlasting. Brukes når en omlasting ikke er trygg (se
+     under): den statiske teksten males på nytt, og resten følger av en vanlig
+     rendring. Tekst som ble fanget i konstanter ved oppstart — demoens steg —
+     blir stående på det gamle språket; det er prisen for å slippe løkka. */
+  function repaintLanguage() {
+    I18N.applyStatic(document);
+    paintLanguage();
+  }
+  /* Bytt språk. Appen lastes normalt på nytt etterpå: språket sitter i hver
+     eneste tekst som allerede er bygget — korttitler, menyer, demoens steg —
+     og en omlasting er den ENESTE garantien for at ingenting blir stående
+     igjen på det gamle språket.
+
+     To ting må stemme FØR vi laster på nytt, ellers gjør omlastingen vondt
+     verre:
+
+       1. Valget må ha OVERLEVD på enheten. I privat modus kaster
+          `localStorage.setItem`, og omlastingen ville kommet tilbake på det
+          gamle språket — for en konto med et annet språk i en evig løkke.
+       2. Kontoen må ha TATT IMOT det. Supabase svarer med `{ error }` i stedet
+          for å kaste; ignorerte vi det, ville omlastingen lest kontoens GAMLE
+          språk tilbake og stilltiende omgjort valget (kontoen vinner).
+
+     Slår én av dem feil, bytter vi i minnet i stedet og sier fra. */
   async function setLanguage(code) {
     if (code === I18N.lang()) return;
-    I18N.setLang(code);
+    const saved = I18N.setLang(code);
+    let onAccount = true;
     if (authUser) {
+      const prevMeta = authUser.meta;
       authUser.meta = Object.assign({}, authUser.meta, { lang: I18N.lang() });
-      // Feiler skrivingen, husker enheten valget likevel — det er bare de
-      // ANDRE enhetene (og e-postene) som da blir stående på det gamle.
-      try { await acli().auth.updateUser({ data: { lang: I18N.lang() } }); } catch (e) { /* uviktig */ }
+      try {
+        const { error } = await acli().auth.updateUser({ data: { lang: I18N.lang() } });
+        if (error) throw error;
+      } catch (e) {
+        authUser.meta = prevMeta;   // serverens sanne verdi står fortsatt der
+        onAccount = false;
+      }
     }
-    location.reload();
+    if (saved && onAccount) { location.reload(); return; }
+    repaintLanguage();
+    render();
+    showToast(tr(saved ? 'lang.notOnAccount' : 'lang.notStored'));
   }
   /* Ved innlogging vinner kontoens språk over enhetens. Har kontoen ikke noe
      språk ennå — en konto fra før språkvalget fantes, eller en fersk
@@ -9916,8 +9944,11 @@
     const want = (authUser.meta && authUser.meta.lang) || '';
     if (I18N.LANGS.some((l) => l.code === want)) {
       if (want === I18N.lang()) return;
-      I18N.setLang(want);
-      location.reload();
+      // Kan ikke enheten huske språket, ville omlastingen kommet tilbake hit
+      // med det gamle igjen — og gjort det på nytt, og på nytt. Vi bytter i
+      // minnet i stedet; `cloudStart()` rendrer rett etterpå.
+      if (I18N.setLang(want)) { location.reload(); return; }
+      repaintLanguage();
       return;
     }
     /* Kontoen har ikke noe språk ennå. Har enheten et EKSPLISITT valg — typisk

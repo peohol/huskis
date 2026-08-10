@@ -46,9 +46,24 @@ finner sitt eget i en liste man ellers ikke kan lese.
 **Et bytte laster appen på nytt** (`setLanguage()`). Språket sitter i hver eneste
 tekst som allerede er bygget — korttitler, menyer, demoens steg, og tekst som ble
 fanget i konstanter ved oppstart — og en omlasting er den eneste garantien for at
-ingenting blir stående igjen på det gamle språket. Kontoen skrives FØR
-omlastingen; feiler den skrivingen, husker enheten valget likevel, og det er bare
-de andre enhetene (og e-postene) som blir stående på det gamle.
+ingenting blir stående igjen på det gamle språket.
+
+**Men bare når valget overlever omlastingen.** To ting må stemme først, ellers
+gjør omlastingen vondt verre:
+
+1. **Enheten må ha lagret det.** I privat modus (eller med blokkerte
+   nettsteddata) kaster `localStorage.setItem`; `setLang()` svarer da `false`.
+   En omlasting ville kommet tilbake på standardspråket — og for en konto som
+   står på et annet språk ville `adoptAccountLanguage()` lastet på nytt igjen,
+   i det uendelige.
+2. **Kontoen må ha tatt imot det.** Supabase svarer med `{ error }` i stedet for
+   å kaste. Ignorerte vi det, ville omlastingen lest kontoens GAMLE språk
+   tilbake — og siden kontoen vinner, stilltiende omgjort valget.
+
+Slår én av dem feil, byttes språket i MINNET i stedet (`repaintLanguage()` +
+`render()`), og brukeren får beskjed om hva som ikke ble lagret. Tekst som ble
+fanget i konstanter ved oppstart blir da stående på det gamle språket — det er
+prisen for å slippe løkka.
 
 ## Ordboken
 

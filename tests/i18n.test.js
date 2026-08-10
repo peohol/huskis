@@ -179,6 +179,20 @@ for (const m of htmlNoComments.matchAll(/\b(title|aria-label|placeholder)="([^"]
 check('all synlig tekst i index.html går gjennom data-i18n',
   strayHtml.length === 0, strayHtml.slice(0, 8).join(' | '));
 
+/* ---------- 6b. Omlastingen er betinget ----------
+   Et språkbytte laster appen på nytt, men BARE når valget faktisk overlever
+   omlastingen: enheten må ha lagret det, og kontoen må ha tatt imot det. Uten
+   begge deler laster appen inn igjen på det gamle språket — og med en konto på
+   et annet språk gjør den det om og om igjen. Vaktene er lette å fjerne ved et
+   uhell, så de er festet her. */
+check('setLanguage() laster bare på nytt når valget både er lagret og landet på kontoen',
+  /if \(saved && onAccount\) \{ location\.reload\(\); return; \}/.test(appSrc));
+check('setLanguage() sjekker Supabase sin `{ error }`, ikke bare unntak',
+  /const \{ error \} = await acli\(\)\.auth\.updateUser\(\{ data: \{ lang/.test(appSrc) &&
+  /authUser\.meta = prevMeta;/.test(appSrc));
+check('adoptAccountLanguage() laster bare på nytt når enheten husket språket',
+  /if \(I18N\.setLang\(want\)\) \{ location\.reload\(\); return; \}/.test(appSrc));
+
 /* ---------- 7. Lasterekkefølge og build ---------- */
 check('index.html laster i18n.js før app.js',
   htmlSrc.indexOf('src="i18n.js"') > -1 &&
@@ -200,10 +214,20 @@ check('t() lar et ukjent {felt} stå urørt',
   I18N.t('label.menuCard') === 'Meny for listen {name}', I18N.t('label.menuCard'));
 check('t() gir nøkkelen tilbake for en ukjent nøkkel',
   I18N.t('finnes.ikke') === 'finnes.ikke');
-I18N.setLang('en');
+check('setLang() sier fra at valget ble lagret', I18N.setLang('en') === true);
 check('setLang(en) bytter språk', I18N.t('common.save') === 'Save', I18N.t('common.save'));
+check('chosen() er sann etter et eksplisitt valg', I18N.chosen() === true);
 I18N.setLang('klingon');
 check('ukjent språkkode faller til standarden', I18N.lang() === 'no', I18N.lang());
+
+/* Privat modus / blokkerte nettsteddata: `setItem` kaster. Da MÅ `setLang`
+   svare `false` — app.js laster bare appen på nytt når valget har overlevd, og
+   uten det signalet ville en konto med et annet språk gitt en evig
+   omlastingsløkke (se `adoptAccountLanguage` i app.js). */
+global.localStorage.setItem = () => { throw new Error('QuotaExceededError'); };
+check('setLang() sier fra når enheten IKKE kunne lagre valget',
+  I18N.setLang('en') === false);
+check('språket byttes i minnet likevel', I18N.lang() === 'en', I18N.lang());
 
 console.log('\n==== ' + pass + '/' + (pass + fail) + ' PASS ====');
 process.exit(fail ? 1 : 0);
