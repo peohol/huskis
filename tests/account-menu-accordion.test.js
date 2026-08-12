@@ -65,11 +65,15 @@ async function load(p, s) {
     null, { timeout: 15000, polling: 100 });
 }
 
-// Skuffen animerer på høyde; `slideSub` rydder bort den eksplisitte høyden når
-// animasjonen er ferdig. Det er ferdig-signalet — ikke klokka.
+/* Skuffene animerer på høyde; `slideSub` rydder bort den eksplisitte høyden på
+   den som åpnes når animasjonen er ferdig. Ventingen må dekke BEGGE veier: et
+   trykk åpner én skuff og lukker en annen samtidig, og den som lukker seg er
+   ikke nødvendigvis nede i null i det den åpne er ferdig. */
 const settled = (p, key) => p.waitForFunction((k) => {
-  const s = document.getElementById('acc-' + k);
-  return !!s && !s.classList.contains('is-closed') && s.style.height === '';
+  const subs = [].slice.call(document.querySelectorAll('.menu-acc-sub'));
+  return subs.length > 0 && subs.every((s) => (s.dataset.acc === k
+    ? !s.classList.contains('is-closed') && s.style.height === ''
+    : Math.round(s.getBoundingClientRect().height) === 0));
 }, key, { timeout: 5000, polling: 30 });
 
 const openDrawer = async (p, key) => { await p.locator('#acc-' + key + '-head').click(); await settled(p, key); };
