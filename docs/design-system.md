@@ -196,7 +196,14 @@ Størrelse/form kommer fra egne klasser: `.btn` (modaler), `.btn-small`,
 - `.account-btn`: kontoknappen (person-ikon, fast i øvre høyre hjørne, med
   `.menu-badge` som invitasjons-teller).
 - `.account-form` (+ `-label`/`-row`) og `.account-msg`: endre navn/e-post i
-  konto-modalen (etikett over felt, Lagre-knapp på samme rad).
+  konto-modalen (etikett over felt, Lagre-knapp på samme rad). «Bilde»-seksjonen
+  bruker den samme klassen uten å være et `<form>` — mønsteret er etikett over
+  innhold, ikke skjemaet.
+- `.menu-acc` (+ `-group`/`-head`/`-icon`/`-label`/`-chev`/`-sub`/`-body`):
+  trekkspillet i konto-modalen — overskriftsknapp med roterende vinkel og en
+  skuff som animerer på høyde. Kun ÉN skuff åpen om gangen, lukkede skuffer er
+  `inert`. Objektmenyen har sin egen form på det samme (`.obj-menu-group`), men
+  de deler animasjonen (`slideSub`). Se `docs/menus.md`.
 - `.lang-select`: språkvelgeren, en `.field`-basert `<select>` (Norsk/English).
   Den finnes to steder med samme klasse — som kontroll i en `.menu-setting`-rad
   i konto-modalen, og i `.auth-lang` nederst på innloggingsskjermen. En
@@ -616,6 +623,10 @@ Det korte som gjelder når du lager en ny kontroll:
   `attachHoldDrag`, så det som kan dras også kan flyttes med tastatur.
 - **Nye modaler**: ingenting å gjøre — fokusfellen kobles automatisk på alt som
   har klassen `.modal-overlay` eller `.switcher-overlay`.
+- **Skjult uten `hidden`** (en sammenslått trekkspillskuff: høyde 0 +
+  `overflow: hidden`) må ha attributtet `inert`. Elementene i den har fortsatt
+  en `offsetParent`, så uten `inert` tabber man rett inn i felter ingen ser.
+  `focusablesIn()` filtrerer på `[hidden], [inert]`.
 - `.visually-hidden` er den eneste riktige måten å skjule noe som fortsatt skal
   leses opp (`#a11y-live`). `hidden`/`display:none` tar elementet ut av
   tilgjengelighetstreet.

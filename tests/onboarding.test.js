@@ -560,6 +560,8 @@ async function runSimulation() {
 
   /* --- «Vis på nytt» på en konto med innhold --- */
   await p.locator('#account-btn').click();
+  // «Demonstrasjon av Huskis» ligger i Tips-skuffen (docs/menus.md).
+  await p.locator('#acc-tips-head').click();
   await p.locator('#menu-tour').waitFor({ state: 'visible' });
   await p.locator('#tour-restart').click();
   await waitStep(p, 'welcome');

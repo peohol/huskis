@@ -190,11 +190,17 @@ async function run(label, viewport, mobile) {
     return { visible: !!row && !row.hidden,
              label: row.querySelector('.menu-setting-label span:last-child').textContent.trim(),
              icon: !!row.querySelector('#language-icon svg'),
-             value: document.getElementById('lang-select').value };
+             value: document.getElementById('lang-select').value,
+             // Raden står UTENFOR trekkspillet: språket skal kunne byttes uten
+             // å åpne en skuff man ikke kan lese overskriften på.
+             inAccordion: !!row.closest('.menu-acc'),
+             reachable: !row.closest('[inert]') && row.offsetParent !== null };
   });
   log('3: språkraden i konto-modalen med ikon og gjeldende valg',
-    langRow.visible && langRow.label === 'Språk' && langRow.icon && langRow.value === 'no',
+    langRow.visible && langRow.label === 'Språk · Language' && langRow.icon && langRow.value === 'no',
     JSON.stringify(langRow));
+  log('3: språkraden ligger utenfor trekkspillet og er synlig med en gang',
+    !langRow.inAccordion && langRow.reachable, JSON.stringify(langRow));
 
   await p.selectOption('#lang-select', 'en');
   await waitForReload(p, () => {

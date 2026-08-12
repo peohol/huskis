@@ -94,7 +94,7 @@ språkbytte treffer dem også. Se `sprak.md`.
 
 Håndtaket er objektets navn-/tittelsone — samme element `attachHoldDrag` får,
 koblet med `attachKeyHandle`. Snarveiene virker på det som har fokus, og står
-oppført i konto-modalen (`.menu-keys`).
+oppført i konto-modalens Tips-skuff (`.menu-keys`, se `docs/menus.md`).
 
 | Tast | Virkning |
 |---|---|

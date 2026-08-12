@@ -115,12 +115,19 @@
     'resp.pick':   ['Velg ansvarlig', 'Choose an assignee'],
 
     /* ---- Språk ---- */
-    'lang.label': ['Språk', 'Language'],
+    /* Etiketten står på BEGGE språk i begge ordbøkene: den som havner i feil
+       språk skal kjenne igjen ordet uten å kunne lese resten av menyen. */
+    'lang.label': ['Språk · Language', 'Språk · Language'],
     'lang.aria':  ['Språk i appen og i e-postene', 'Language in the app and in emails'],
 
     /* ---- Konto ---- */
     'account.title':            ['Konto', 'Account'],
     'account.open':             ['Åpne kontoen', 'Open your account'],
+    /* Overskriftene på de tre trekkspill-skuffene (docs/menus.md). */
+    'account.sectionProfile':   ['Rediger kontoopplysninger', 'Edit account details'],
+    'account.sectionTips':      ['Tips', 'Tips'],
+    'account.sectionSession':   ['Logg ut / slett konto', 'Sign out / delete account'],
+    'account.photo':            ['Bilde', 'Picture'],
     'account.changePhoto':      ['Endre profilbilde', 'Change profile picture'],
     'account.changePhotoShort': ['Endre bilde', 'Change picture'],
     'account.removePhotoShort': ['Fjern bilde', 'Remove picture'],
@@ -135,7 +142,7 @@
     'account.emailPrefAria':    ['E-postvarsler ved deling', 'Email notifications for sharing'],
     'account.tourLabel':        ['Demonstrasjon av Huskis', 'Huskis demo'],
     'account.tourRestart':      ['Vis på nytt', 'Show again'],
-    'account.keyboard':         ['Tastatur', 'Keyboard'],
+    'account.keyboard':         ['Tastatursnarveier', 'Keyboard shortcuts'],
     'account.keyMove':          ['Flytt det valgte objektet ett hakk', 'Move the selected object one step'],
     'account.keyMoveTo':        ['Flytt til en annen liste, mappe eller område',
                                  'Move to another list, folder or workspace'],
