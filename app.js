@@ -791,9 +791,12 @@
      `.modal-overlay`) og røres ikke her. */
   const FOCUSABLE = 'a[href], button:not([disabled]), input:not([disabled]), ' +
     'select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
+  // `[inert]` teller som utenfor: en lukket trekkspillskuff har høyde 0 og er
+  // usynlig, men elementene i den har fortsatt en offsetParent. Uten dette
+  // ville Tab gått gjennom felter ingen kan se.
   function focusablesIn(root) {
     return [].slice.call(root.querySelectorAll(FOCUSABLE))
-      .filter((el) => !el.closest('[hidden]') && el.offsetParent !== null);
+      .filter((el) => !el.closest('[hidden], [inert]') && el.offsetParent !== null);
   }
   const overlayStack = [];              // åpne overlayer, nederst → øverst
   // overlay → { el, sel }: både selve noden OG en selektor som finner den igjen.
@@ -6764,8 +6767,58 @@
     navModal.hidden = true;
     updateModalOpenClass();
   }
+  /* ---------- Trekkspill-skuffer (delt mekanikk) ----------
+     Animert åpning/lukking: høyden måles, settes eksplisitt og ryddes bort
+     igjen etterpå, så en skuff som vokser (tidsfeltene, en feilmelding) ikke
+     blir stående klippet. Brukes både av objektmenyens skuffer og av
+     konto-modalens tre — se docs/menus.md. */
+  const SUB_MS = 180;
+  function slideSub(sub, open) {
+    const h = sub.scrollHeight;
+    sub.style.transition = 'none';
+    sub.style.height = (open ? 0 : h) + 'px';
+    void sub.offsetHeight;
+    sub.style.transition = '';
+    sub.classList.toggle('is-closed', !open);
+    sub.style.height = (open ? h : 0) + 'px';
+    if (open) setTimeout(() => { if (!sub.classList.contains('is-closed')) sub.style.height = ''; }, SUB_MS);
+  }
+
+  /* ---------- Konto-modalens trekkspill ----------
+     Modalen er delt i tre skuffer — kontoopplysninger, tips og logg ut/slett
+     konto — med invitasjons-innboksen og språkraden utenfor. Kun ÉN skuff er
+     åpen om gangen: å åpne en ny lukker den forrige.
+
+     En LUKKET skuff får `inert`. Uten det ville Tab gått rett gjennom feltene i
+     den: høyden er 0 og innholdet usynlig, men elementene er fortsatt
+     fokuserbare (`focusablesIn`). `inert` tar dem ut av både tabbrekkefølgen og
+     skjermleserens tre, uten å røre høyde-animasjonen. */
+  const accHeads = [].slice.call(document.querySelectorAll('#account-acc .menu-acc-head'));
+  function setAccordionOpen(key) {
+    accHeads.forEach((head) => {
+      const sub = document.getElementById(head.getAttribute('aria-controls'));
+      if (!sub) return;
+      const want = head.dataset.accHead === key;
+      const isOpen = !sub.classList.contains('is-closed');
+      if (want !== isOpen) slideSub(sub, want);
+      head.setAttribute('aria-expanded', want ? 'true' : 'false');
+      if (want) sub.removeAttribute('inert');
+      else sub.setAttribute('inert', '');
+    });
+  }
+  accHeads.forEach((head) => {
+    head.addEventListener('click', () => {
+      const open = head.getAttribute('aria-expanded') === 'true';
+      setAccordionOpen(open ? null : head.dataset.accHead);
+    });
+  });
+
   function openAccount() {
     paintAccountForms(true);
+    // Nullstill FØR modalen vises: en `display:none`-flate animerer ikke, så
+    // skuffene er lukket allerede i det modalen kommer opp. Menyen skal starte
+    // sammenslått hver gang — det er hele poenget med å dele den opp.
+    setAccordionOpen(null);
     accountModal.hidden = false;
     updateModalOpenClass();
   }
@@ -7078,8 +7131,8 @@
     return b;
   }
   // Trekkspill-fane: overskriftsrad + skuff. Kun ÉN skuff er åpen om gangen —
-  // å åpne en ny lukker den forrige (begge animert).
-  const OBJ_SUB_MS = 180;
+  // å åpne en ny lukker den forrige (begge animert). Selve høyde-animasjonen er
+  // felles med konto-modalens skuffer (`slideSub`).
   function objMenuAccordion(key, icon, label, buildBody, openNow) {
     const wrap = document.createElement('div');
     wrap.className = 'obj-menu-group';
@@ -7099,25 +7152,13 @@
     wrap.append(head, sub);
     return wrap;
   }
-  // Animert åpning/lukking. Høyden måles, settes eksplisitt og ryddes bort
-  // igjen etterpå, så en skuff som vokser (tidsfeltene) ikke blir stående klippet.
-  function slideObjSub(sub, open) {
-    const h = sub.scrollHeight;
-    sub.style.transition = 'none';
-    sub.style.height = (open ? 0 : h) + 'px';
-    void sub.offsetHeight;
-    sub.style.transition = '';
-    sub.classList.toggle('is-closed', !open);
-    sub.style.height = (open ? h : 0) + 'px';
-    if (open) setTimeout(() => { if (!sub.classList.contains('is-closed')) sub.style.height = ''; }, OBJ_SUB_MS);
-  }
   function toggleObjSub(key) {
     if (!objMenuCtx) return;
     const next = objMenuCtx.sub === key ? null : key;
     objMenuPanel.querySelectorAll('.obj-menu-sub').forEach((sub) => {
       const want = sub.dataset.sub === next;
       const isOpen = !sub.classList.contains('is-closed');
-      if (want !== isOpen) slideObjSub(sub, want);
+      if (want !== isOpen) slideSub(sub, want);
       const head = sub.previousElementSibling;
       if (head) head.setAttribute('aria-expanded', want ? 'true' : 'false');
     });
@@ -7127,7 +7168,7 @@
       setTimeout(() => {
         const a = objMenuAnchor(objMenuCtx ? objMenuCtx.spec : {}) || objMenuReturn;
         if (objMenuCtx && a && a.isConnected) positionSwitcherPanel(objMenuPanel, a);
-      }, OBJ_SUB_MS);
+      }, SUB_MS);
     }
   }
   function objMenuIsPopover() { return window.matchMedia('(min-width: 561px)').matches; }

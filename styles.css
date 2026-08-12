@@ -1500,6 +1500,74 @@ body.is-dragging * { cursor: grabbing !important; }
 .menu-body .panel-head { min-height: 0; }
 .menu-body .panel-actions { margin-top: 2px; }
 
+/* ---------------- Konto-modalens trekkspill ----------------
+   Tre skuffer — kontoopplysninger, tips, logg ut/slett konto — i stedet for én
+   lang rull. Mekanikken er den samme som objektmenyens skuffer (animert høyde,
+   kun ÉN åpen om gangen; `slideSub` i app.js), men formen er en annen: her er
+   hver skuff en egen blokk med ramme, ikke nok en rad i en meny. Språkraden
+   står utenfor og beholder sin `.menu-setting`-form. */
+.menu-acc { display: flex; flex-direction: column; gap: 8px; }
+.menu-acc-group {
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  /* Skuffen animerer på høyde og skal klippes av gruppens avrundede hjørner. */
+  overflow: hidden;
+}
+.menu-acc-head {
+  appearance: none;
+  border: none;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  min-height: 48px;
+  padding: 11px 12px;
+  background: var(--primary-soft);
+  color: var(--ink);
+  font-family: inherit;
+  font-weight: 700;
+  font-size: var(--fs-md);
+  text-align: left;
+  transition: background 0.15s;
+}
+.menu-acc-head:hover { background: var(--primary-soft-hover); }
+.menu-acc-head:focus-visible { outline: var(--focus-w) solid var(--focus); outline-offset: -3px; }
+.menu-acc-icon { flex: 0 0 auto; display: flex; }
+.menu-acc-icon .icon { width: 22px; height: 22px; }
+.menu-acc-label { flex: 1 1 auto; min-width: 0; }
+/* Vinkelen peker til høyre når skuffen er lukket og ned når den er åpen —
+   samme utslag som i objektmenyen. */
+.menu-acc-chev { flex: 0 0 auto; display: flex; color: var(--ink-soft); transition: transform 0.18s; }
+.menu-acc-chev .icon { width: 20px; height: 20px; }
+.menu-acc-head[aria-expanded='true'] .menu-acc-chev { transform: rotate(90deg); }
+.menu-acc-sub {
+  overflow: hidden;
+  background: var(--surface);
+  transition: height 0.18s ease;
+}
+.menu-acc-sub.is-closed { height: 0; }
+.menu-acc-body {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px;
+}
+/* Skillelinjene mellom seksjonene i en skuff går kant-til-kant, som resten av
+   delelinjene i modalene: den negative side-margen kansellerer nøyaktig
+   `.menu-acc-body` sin polstring. Sideveis luft rundt dem kommer fra `gap`-en. */
+.menu-acc-body .menu-divider { margin: 0 -12px; }
+/* Innstillingsradene i en skuff får avstanden sin fra `gap`-en, ikke fra sin
+   egen toppmarg (den gjelder når raden står fritt i `.menu-body`). */
+.menu-acc-body .menu-setting { margin-top: 0; }
+/* Skuffen skifter tilstand momentant for den som har bedt om mindre bevegelse —
+   `slideSub` setter fortsatt høydene, de bare animeres ikke. */
+@media (prefers-reduced-motion: reduce) {
+  .menu-acc-sub, .menu-acc-chev { transition: none; }
+}
+
 /* Tastatursnarveier i konto-modalen: definisjonsliste i to kolonner, tastene
    som små `kbd`-brikker. Ligger her og ikke ved ikonene i board-et — se
    kommentaren i index.html. */
@@ -2423,13 +2491,14 @@ body.no-auth #account-btn { display: none; }
 .auth-sent-msg strong { color: var(--primary-dark); }
 
 /* ---------------- Konto-modal: profil + badge ---------------- */
-.menu-account {
+/* «Bilde»-seksjonen i kontoopplysnings-skuffen: samme etikett-over-innhold som
+   navn/e-post/passord (`.account-form`), med avatar + identitet på raden under. */
+.account-photo-row {
   display: flex;
   align-items: center;
   gap: 14px;   /* kamera-merket henger 2px utenfor sirkelen — hold det klar av teksten */
   padding: 2px 0;
 }
-.menu-account[hidden] { display: none; }
 .account-ident { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
 .account-photo-actions { display: flex; flex-wrap: wrap; gap: 6px; }
 /* Endre navn / e-post: etikett over felt + Lagre-knapp på samme rad. */

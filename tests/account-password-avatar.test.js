@@ -94,7 +94,20 @@ async function signIn(p, email, password) {
   await p.evaluate(() => window.__huskis.tour.skipAll());
   await p.waitForTimeout(150);
 }
-const openAccount = async (p) => { await p.locator('#account-btn').click(); await p.waitForTimeout(400); };
+/* Konto-modalen er et trekkspill (docs/menus.md): kontrollene ligger i skuffer
+   som må åpnes først. Skuffen animerer på høyde, og `slideSub` rydder bort den
+   eksplisitte høyden når animasjonen er ferdig — det er ferdig-signalet. */
+const openDrawer = async (p, key) => {
+  await p.locator('#acc-' + key + '-head').click();
+  await p.waitForFunction((k) => {
+    const s = document.getElementById('acc-' + k);
+    return !!s && !s.classList.contains('is-closed') && s.style.height === '';
+  }, key, { timeout: 5000, polling: 50 });
+};
+const openAccount = async (p) => {
+  await p.locator('#account-btn').click(); await p.waitForTimeout(400);
+  await openDrawer(p, 'profile');   // bilde, navn, e-post og passord
+};
 const savePass = async (p) => { await p.locator('#account-pass-form button[type=submit]').click(); await p.waitForTimeout(700); };
 
 // Piksler i det LAGREDE bildet (data-URI): [hjørner …, midten].
@@ -200,6 +213,7 @@ async function run(label, vp, mobile) {
   log(label + ' B: feltene tømmes og skjules etter lagring', cleared);
 
   // Ut og inn: det gamle passordet virker ikke, det nye gjør det.
+  await openDrawer(p, 'session');
   await p.locator('#logout-btn').click(); await p.waitForTimeout(300);
   await p.locator('#confirm-ok').click();
   await p.waitForFunction(() => !window.__huskis.authUser

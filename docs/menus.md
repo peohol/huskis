@@ -72,8 +72,9 @@ listekortet med `.share-badge`.
 
 «Flytt», «Ansvarlig» og «Tidsplan» er skuffer (`.obj-menu-sub`) under sin
 overskriftsrad. **Kun ÉN skuff kan være åpen om gangen** — å åpne en ny lukker
-den forrige, begge med animert høyde (`slideObjSub`, 180 ms). Uten det ville
-menyen blitt lengre enn skjermen på mobil.
+den forrige, begge med animert høyde (`slideSub`, 180 ms; samme funksjon driver
+konto-modalens skuffer). Uten det ville menyen blitt lengre enn skjermen på
+mobil.
 
 Skuffene er skilt med hårfine linjer — fra hverandre og fra de vanlige radene
 over og under. En fane som kan folde seg ut er en egen blokk, ikke nok en rad i
@@ -257,39 +258,70 @@ lukker den IKKE** — brukeren skal kunne angre fra søppelkassen med én gang
 
 ## Konto-modalen (`#account-modal`, kontoknappen)
 
+Modalen er et **trekkspill med tre skuffer** (`#account-acc`) — pluss to ting
+som står utenfor dem. Prinsippet er at man skal se HVA kontoen tilbyr uten å
+lese alt den inneholder: sammenslått er hele modalen tre overskrifter og
+språkvalget.
+
 Innhold (ovenfra og ned):
 
-- **Profil-linje** (`#menu-account`): avatar (profilbilde, ellers initialene) +
-  navn + knappene «Endre bilde»/«Fjern bilde». Selve avataren er OGSÅ knappen
-  som velger bilde (kamera-merke nederst til høyre); valget åpner
-  bilderedigereren (`#avatar-modal`). Se `docs/accounts.md`.
-- **Endre navn** (`#account-name-form`): ett felt for hele navnet →
-  `profiles.display_name` (RLS: kun egen rad) + `user_metadata.display_name`
-  (fallback før første pull). Se `docs/accounts.md`.
-- **Endre e-post** (`#account-email-form`): `auth.updateUser({ email })` —
-  ekte Supabase sender bekreftelseslenke (meldingen sier «sjekk innboksen»);
-  mock-backenden endrer direkte. `handle_user_email_change`-triggeren
-  speiler til `profiles.email` etter bekreftelse.
-- **Endre passord** (`#account-pass-form`): nåværende + nytt passord (begge med
-  «vis passordet»-knapp). Se `docs/accounts.md`.
-- **Språk** (`#menu-language`): samme `.menu-setting`-rad som e-postvarselet,
-  med en `<select>` (Norsk/English) i stedet for en bryter. Valget gjelder både
-  UI-et og e-postene appen sender, og et bytte laster appen på nytt. Den samme
-  velgeren finnes nederst på innloggingsskjermen (`#auth-lang-select`) — det
-  eneste stedet språket kan velges før man har en konto. Se `docs/sprak.md`.
-- **E-postvarsel-toggle** (`#email-pref-toggle`, se `docs/accounts.md`).
-- **«Demonstrasjon av Huskis»** (`#menu-tour`): raden som starter demoen på
-  nytt (`#tour-restart` → «Vis på nytt»). Den kjører i en simulering og rører
-  aldri innholdet på kontoen. Samme `.menu-setting`-rad som e-postvarselet, men
-  med en knapp i stedet for en bryter. Se `docs/introduksjon.md`.
-- **«Invitasjoner»-innboksen** (`#menu-invites`, vises kun med innhold).
-- **Bunnraden** (`.menu-account-actions`, under en delelinje `.menu-divider` i
-  samme stil som `.modal-head` — se `docs/design-system.md` («Delelinjer i
-  modaler»)): **«Logg ut»** (GUL, med bekreftelse) i venstre ende og **«Slett
-  konto»** (RØD, med søppelkasse-ikon) i høyre. Fargene skiller det reversible
-  fra det endelige; avstanden hindrer feiltrykk. Slett-knappen åpner
-  `#delete-account-modal` (advarsel + sveip-for-å-bekrefte) — se
-  `docs/accounts.md`.
+1. **Invitasjons-innboksen** (`#menu-invites`, vises kun med innhold) — UTENFOR
+   trekkspillet, øverst. Badgen på kontoknappen sier at det ligger noe her, og
+   da skal det ikke måtte letes fram bak en lukket skuff.
+2. **«Rediger kontoopplysninger»** (`#acc-profile`) — fire seksjoner skilt med
+   hårfine linjer, i denne rekkefølgen:
+   - **Bilde** (`#menu-account`): avatar (profilbilde, ellers initialene) + navn
+     + knappene «Endre bilde»/«Fjern bilde». Selve avataren er OGSÅ knappen som
+     velger bilde (kamera-merke nederst til høyre); valget åpner
+     bilderedigereren (`#avatar-modal`). Se `docs/accounts.md`.
+   - **Navn** (`#account-name-form`): ett felt for hele navnet →
+     `profiles.display_name` (RLS: kun egen rad) + `user_metadata.display_name`
+     (fallback før første pull). Se `docs/accounts.md`.
+   - **E-post** (`#account-email-form`): `auth.updateUser({ email })` — ekte
+     Supabase sender bekreftelseslenke (meldingen sier «sjekk innboksen»);
+     mock-backenden endrer direkte. `handle_user_email_change`-triggeren speiler
+     til `profiles.email` etter bekreftelse. **E-postvarsel-toggelen**
+     (`#email-pref-toggle`, se `docs/accounts.md`) hører til adressen og står i
+     samme seksjon.
+   - **Passord** (`#account-pass-form`): nåværende + nytt passord (begge med
+     «vis passordet»-knapp). Se `docs/accounts.md`.
+3. **«Tips»** (`#acc-tips`): **«Demonstrasjon av Huskis»** (`#menu-tour`, med
+   `#tour-restart` → «Vis på nytt» — demoen kjører i en simulering og rører aldri
+   innholdet på kontoen, se `docs/introduksjon.md`) og **tastatursnarveiene**
+   (`.menu-keys`). Det man går hit for å LÆRE, ikke for å endre.
+4. **«Logg ut / slett konto»** (`#acc-session`): `.menu-account-actions` med
+   **«Logg ut»** (GUL, med bekreftelse) i venstre ende og **«Slett konto»**
+   (RØD, med søppelkasse-ikon) i høyre. Fargene skiller det reversible fra det
+   endelige; avstanden hindrer feiltrykk. Slett-knappen åpner
+   `#delete-account-modal` (advarsel + sveip-for-å-bekrefte) — se
+   `docs/accounts.md`. At de to ligger bak en lukket skuff er halve poenget:
+   ingen av dem er i veien for noe annet man kom hit for å gjøre.
+5. **Språk** (`#menu-language`) — UTENFOR trekkspillet, nederst: en
+   `.menu-setting`-rad med en `<select>` (Norsk/English). Etiketten står på
+   BEGGE språk («Språk · Language»), og raden er synlig uten å åpne noe. Den som
+   har havnet i feil språk skal ikke måtte gjette hvilken skuff valget ligger i,
+   eller lese en overskrift på et språk hen ikke kan. Valget gjelder både UI-et
+   og e-postene appen sender, og et bytte laster appen på nytt. Den samme
+   velgeren finnes nederst på innloggingsskjermen (`#auth-lang-select`) — det
+   eneste stedet språket kan velges før man har en konto. Se `docs/sprak.md`.
+
+### Skuffene
+
+Samme regel som i objektmenyen: **kun ÉN skuff er åpen om gangen** — å åpne en
+ny lukker den forrige, begge med animert høyde (`slideSub`, 180 ms, delt
+funksjon). **Modalen åpner alltid sammenslått**: `openAccount()` nullstiller
+skuffene FØR den viser modalen (en `display:none`-flate animerer ikke, så
+nullstillingen synes ikke), og en skuff man lot stå åpen overlever derfor ikke
+at modalen lukkes.
+
+Overskriften er en knapp (`.menu-acc-head`) med ikon, tekst og en vinkel som
+roterer 90° når skuffen åpner seg; `aria-expanded` + `aria-controls` peker på
+skuffen, som selv er en navngitt `role="region"`.
+
+En **lukket skuff får `inert`**. Uten det ville Tab gått rett gjennom feltene i
+den: høyden er 0 og innholdet usynlig, men elementene er fortsatt fokuserbare —
+`focusablesIn()` filtrerer derfor på `[inert]` ved siden av `[hidden]`. Se
+`docs/design-system.md` («Bevegelse og tilgjengelighet»).
 
 ## Del-modalens tilbakeknapp
 

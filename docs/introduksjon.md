@@ -273,7 +273,8 @@ en ny runde.
 ## «Vis på nytt»
 
 Konto-modalen har raden **«Demonstrasjon av Huskis»** (`#menu-tour`) med knappen
-«Vis på nytt» (`#tour-restart`). Den lukker konto-modalen først — demoen peker på
+«Vis på nytt» (`#tour-restart`) — i **Tips**-skuffen (`docs/menus.md`), sammen
+med tastatursnarveiene. Den lukker konto-modalen først — demoen peker på
 appen BAK den — og starter fra steg 1. Det finnes ingen egen repetisjonsmodus
 lenger: demoen er den samme for alle, hver gang, fordi den uansett kjører på sine
 egne kulisser.

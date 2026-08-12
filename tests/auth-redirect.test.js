@@ -142,6 +142,12 @@ function check(name, cond, extra) {
   await page.waitForTimeout(150);
   await page.locator('#account-btn').click();
   await page.waitForTimeout(300);
+  // E-postfeltet ligger i «Rediger kontoopplysninger»-skuffen (docs/menus.md).
+  await page.locator('#acc-profile-head').click();
+  await page.waitForFunction(() => {
+    const s = document.getElementById('acc-profile');
+    return !!s && !s.classList.contains('is-closed') && s.style.height === '';
+  }, null, { timeout: 5000, polling: 50 });
   const newEmail = 'ny' + Math.floor(Math.random() * 1e9) + '@test.no';
   await page.locator('#account-email-input').fill(newEmail);
   await page.locator('#account-email-form button[type=submit]').click();

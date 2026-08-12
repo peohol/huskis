@@ -155,8 +155,10 @@
     </div>
   </div>
 
-  <!-- Konto-modal (kontoknappen øverst til høyre): profil med endring av navn
-       og e-post, e-postvarsel-innstilling, invitasjons-innboks og logg ut. -->
+  <!-- Konto-modal (kontoknappen øverst til høyre): invitasjons-innboksen, tre
+       trekkspill-skuffer (kontoopplysninger, tips, logg ut/slett konto) og
+       språkvelgeren. Skuffene er lukket når modalen åpnes, og kun ÉN kan være
+       åpen om gangen — se docs/menus.md. -->
   <div class="modal-overlay" id="account-modal" hidden>
     <div class="modal menu-modal" role="dialog" aria-modal="true" aria-labelledby="account-title">
       <header class="modal-head">
@@ -164,133 +166,192 @@
         <button class="icon-btn" id="account-close" type="button" data-i18n-title="common.close" data-i18n-aria-label="common.close"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.05" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6.5 6.5 17.5 17.5"></path><path d="M17.5 6.5 6.5 17.5"></path></svg></button>
       </header>
       <div class="modal-body menu-body">
-        <!-- Profil: bildet/initialene er selv knappen som velger nytt bilde. -->
-        <div class="menu-account" id="menu-account" hidden>
-          <button class="account-avatar" id="account-avatar" type="button" data-i18n-title="account.changePhoto" data-i18n-aria-label="account.changePhoto"></button>
-          <div class="account-ident">
-            <span class="account-email" id="account-email"></span>
-            <div class="account-photo-actions">
-              <button class="btn btn-ghost btn-small" id="avatar-pick" type="button" data-i18n="account.changePhotoShort">Endre bilde</button>
-              <button class="btn btn-ghost btn-small" id="avatar-remove" type="button" data-i18n="account.removePhotoShort" hidden>Fjern bilde</button>
-            </div>
-          </div>
-          <input id="avatar-file" type="file" accept="image/*" hidden />
-        </div>
-
-        <!-- Endre navn / e-post / passord (lagres på kontoen; ny e-post bekreftes per e-post). -->
-        <section class="account-edit" id="account-edit" hidden>
-          <form class="account-form" id="account-name-form">
-            <label class="account-form-label" for="account-name-input" data-i18n="account.name">Navn</label>
-            <div class="account-form-row">
-              <input class="field" id="account-name-input" type="text" autocomplete="name" data-i18n-placeholder="account.namePlaceholder" />
-              <button class="btn btn-solid btn-accent btn-small" type="submit" data-i18n="common.save">Lagre</button>
-            </div>
-          </form>
-          <form class="account-form" id="account-email-form">
-            <label class="account-form-label" for="account-email-input" data-i18n="account.email">E-post</label>
-            <div class="account-form-row">
-              <input class="field" id="account-email-input" type="email" autocomplete="email" data-i18n-placeholder="auth.emailPlaceholder" />
-              <button class="btn btn-solid btn-accent btn-small" type="submit" data-i18n="common.save">Lagre</button>
-            </div>
-          </form>
-          <form class="account-form" id="account-pass-form">
-            <label class="account-form-label" for="account-pass-new" data-i18n="account.password">Passord</label>
-            <div class="account-form-row">
-              <span class="pass-wrap">
-                <input class="field" id="account-pass-current" type="password" autocomplete="current-password" data-i18n-placeholder="account.currentPassword" />
-                <button class="icon-btn pass-toggle" type="button" data-pass-toggle="account-pass-current"
-                        aria-pressed="false" data-i18n-title="auth.showPassword" data-i18n-aria-label="auth.showPassword"></button>
-              </span>
-            </div>
-            <div class="account-form-row">
-              <span class="pass-wrap">
-                <!-- Ingen minlength: lengden meldes i skjemaets egen melding
-                     (#account-msg), ikke i en native valideringsboble. -->
-                <input class="field" id="account-pass-new" type="password" autocomplete="new-password" data-i18n-placeholder="account.newPassword" />
-                <button class="icon-btn pass-toggle" type="button" data-pass-toggle="account-pass-new"
-                        aria-pressed="false" data-i18n-title="auth.showPassword" data-i18n-aria-label="auth.showPassword"></button>
-              </span>
-              <button class="btn btn-solid btn-accent btn-small" type="submit" data-i18n="common.save">Lagre</button>
-            </div>
-          </form>
-          <p class="account-msg" id="account-msg" role="status" hidden></p>
-        </section>
-
-        <!-- Innstilling: språk (lagres på kontoen, og styrer også e-postene
-             appen sender til deg). Ikonet settes av app.js, som de andre. -->
-        <div class="menu-setting" id="menu-language">
-          <span class="menu-setting-label">
-            <span class="menu-setting-icon" id="language-icon" aria-hidden="true"></span>
-            <span data-i18n="lang.label">Språk</span>
-          </span>
-          <select class="field lang-select" id="lang-select" data-i18n-aria-label="lang.aria"></select>
-        </div>
-
-        <!-- Innstilling: e-postvarsel når noe deles med meg (lagres på kontoen). -->
-        <div class="menu-setting" id="menu-email-pref" hidden>
-          <span class="menu-setting-label">
-            <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="#111" stroke-width="1.05" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="5" width="18" height="14" rx="2.5" fill="#ffffff"></rect><path d="m3.5 7 7.2 5.6a2 2 0 0 0 2.6 0L20.5 7"></path></svg>
-            <span data-i18n="account.emailPrefLabel">Varsle meg på e-post når noe deles med meg</span>
-          </span>
-          <button class="toggle-switch" id="email-pref-toggle" type="button" role="switch" aria-checked="true" data-i18n-aria-label="account.emailPrefAria">
-            <span class="toggle-knob" aria-hidden="true"></span>
-          </button>
-        </div>
-
-        <!-- Demonstrasjonen kan alltid tas om igjen — den er lagret på kontoen
-             som «sett», ikke som «aldri mer», og kjører uansett i en simulering
-             som ikke rører innholdet ditt. Se docs/introduksjon.md. -->
-        <div class="menu-setting" id="menu-tour" hidden>
-          <span class="menu-setting-label">
-            <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="#111" stroke-width="1.05" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3.2a5.8 5.8 0 0 0-3.4 10.5c.5.36.8.95.8 1.57v.51h5.2v-.51c0-.62.3-1.21.8-1.57A5.8 5.8 0 0 0 12 3.2Z" fill="#adad85"></path><path d="M9.4 18.2h5.2"></path><path d="M10.6 20.8h2.8"></path></svg>
-            <span data-i18n="account.tourLabel">Demonstrasjon av Huskis</span>
-          </span>
-          <button class="btn btn-ghost btn-small" id="tour-restart" type="button" data-i18n="account.tourRestart">Vis på nytt</button>
-        </div>
-
-        <!-- Tastatursnarveier. De ligger HER og ikke i board-et med vilje: en
-             synlig etikett ved hvert ikon ville gjort listevisningen tregere å
-             lese uten å hjelpe noen som allerede kan appen. Konto-modalen er
-             stedet man går for å lære, ikke for å jobbe. Snarveiene virker på
-             det som har fokus — se docs/design-system.md. -->
-        <section class="menu-keys">
-          <hr class="menu-divider" />
-          <div class="panel-head">
-            <span class="panel-title" data-i18n="account.keyboard">Tastatur</span>
-          </div>
-          <dl class="key-list">
-            <dt><kbd>Alt</kbd> + <kbd>↑</kbd> <kbd>↓</kbd></dt>
-            <dd data-i18n="account.keyMove">Flytt det valgte objektet ett hakk</dd>
-            <dt><kbd>Alt</kbd> + <kbd>M</kbd></dt>
-            <dd data-i18n="account.keyMoveTo">Flytt til en annen liste, mappe eller område</dd>
-            <dt><kbd>F2</kbd></dt>
-            <dd data-i18n="menu.rename">Endre navn</dd>
-            <dt><kbd>Esc</kbd></dt>
-            <dd data-i18n="account.keyEsc">Lukk – eller avbryt en navneendring</dd>
-          </dl>
-        </section>
-
-        <!-- Innboks: mottatte delings-invitasjoner -->
+        <!-- Innboks: mottatte delings-invitasjoner. Den står UTENFOR
+             trekkspillet: badgen på kontoknappen sier at det ligger noe her, og
+             da skal det ikke måtte letes fram bak en lukket skuff. -->
         <section class="menu-invites" id="menu-invites" hidden>
-          <hr class="menu-divider" />
           <div class="panel-head">
             <span class="panel-title" data-i18n="account.invites">Invitasjoner</span>
           </div>
           <div class="invite-list" id="invite-list"></div>
+          <hr class="menu-divider" />
         </section>
 
-        <hr class="menu-divider" />
-        <!-- Utlogging (gul: reversibel) og kontosletting (rød: endelig) står på
-             samme linje, i hver sin ende — like lette å finne, umulige å forveksle. -->
-        <div class="menu-account-actions">
-          <button class="btn btn-solid btn-yellow btn-small menu-logout" id="logout-btn" type="button" data-i18n-title="account.logout">
-            <svg class="icon btn-glyph" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.05" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 3H6a2.5 2.5 0 0 0-2.5 2.5v13A2.5 2.5 0 0 0 6 21h3"></path><path d="M21 12H10"></path><path d="M17.5 8.5 21 12l-3.5 3.5"></path></svg>
-            <span data-i18n="account.logout">Logg ut</span>
-          </button>
-          <button class="btn btn-solid btn-red btn-small menu-delete-account" id="delete-account-btn" type="button" data-i18n-title="account.delete">
-            <svg class="icon btn-glyph" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.05" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4.5 7.5h15"></path><path d="M9.5 7.5V6a2.5 2.5 0 0 1 5 0v1.5"></path><path d="M6.3 7.5l.9 11a2 2 0 0 0 2 1.9h5.6a2 2 0 0 0 2-1.9l.9-11"></path><path d="M9.7 11v6"></path><path d="M12 11v6"></path><path d="M14.3 11v6"></path></svg>
-            <span data-i18n="account.delete">Slett konto</span>
-          </button>
+        <!-- Trekkspillet: tre skuffer, kun ÉN åpen om gangen (app.js →
+             «Konto-modalens trekkspill»). Vinklene speiler ICONS.chevron. -->
+        <div class="menu-acc" id="account-acc">
+          <!-- 1. Kontoopplysningene: bilde, navn, e-post (med varselvalget) og
+               passord — én seksjon per opplysning, skilt med en linje. -->
+          <section class="menu-acc-group">
+            <button class="menu-acc-head" id="acc-profile-head" type="button"
+                    aria-expanded="false" aria-controls="acc-profile" data-acc-head="profile">
+              <span class="menu-acc-icon" aria-hidden="true"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="#111" stroke-width="1.05" stroke-linecap="round" stroke-linejoin="round"><path d="M15.6 4.4a2 2 0 0 1 2.8 0l1.2 1.2a2 2 0 0 1 0 2.8L9 19H5v-4Z" fill="#adad85"></path><path d="M14.2 5.8 18.2 9.8"></path><path d="M5 15 9 19"></path></svg></span>
+              <span class="menu-acc-label" data-i18n="account.sectionProfile">Rediger kontoopplysninger</span>
+              <span class="menu-acc-chev" aria-hidden="true"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M9.5 5.5 16 12l-6.5 6.5"></path></svg></span>
+            </button>
+            <div class="menu-acc-sub is-closed" id="acc-profile" data-acc="profile"
+                 role="region" aria-labelledby="acc-profile-head" inert>
+              <div class="menu-acc-body">
+                <!-- Bilde: bildet/initialene er selv knappen som velger nytt bilde. -->
+                <div class="account-form" id="menu-account" hidden>
+                  <span class="account-form-label" data-i18n="account.photo">Bilde</span>
+                  <div class="account-photo-row">
+                    <button class="account-avatar" id="account-avatar" type="button" data-i18n-title="account.changePhoto" data-i18n-aria-label="account.changePhoto"></button>
+                    <div class="account-ident">
+                      <span class="account-email" id="account-email"></span>
+                      <div class="account-photo-actions">
+                        <button class="btn btn-ghost btn-small" id="avatar-pick" type="button" data-i18n="account.changePhotoShort">Endre bilde</button>
+                        <button class="btn btn-ghost btn-small" id="avatar-remove" type="button" data-i18n="account.removePhotoShort" hidden>Fjern bilde</button>
+                      </div>
+                    </div>
+                    <input id="avatar-file" type="file" accept="image/*" hidden />
+                  </div>
+                </div>
+
+                <!-- Endre navn / e-post / passord (lagres på kontoen; ny e-post bekreftes per e-post). -->
+                <section class="account-edit" id="account-edit" hidden>
+                  <hr class="menu-divider" />
+                  <form class="account-form" id="account-name-form">
+                    <label class="account-form-label" for="account-name-input" data-i18n="account.name">Navn</label>
+                    <div class="account-form-row">
+                      <input class="field" id="account-name-input" type="text" autocomplete="name" data-i18n-placeholder="account.namePlaceholder" />
+                      <button class="btn btn-solid btn-accent btn-small" type="submit" data-i18n="common.save">Lagre</button>
+                    </div>
+                  </form>
+                  <hr class="menu-divider" />
+                  <form class="account-form" id="account-email-form">
+                    <label class="account-form-label" for="account-email-input" data-i18n="account.email">E-post</label>
+                    <div class="account-form-row">
+                      <input class="field" id="account-email-input" type="email" autocomplete="email" data-i18n-placeholder="auth.emailPlaceholder" />
+                      <button class="btn btn-solid btn-accent btn-small" type="submit" data-i18n="common.save">Lagre</button>
+                    </div>
+                  </form>
+                  <!-- Innstilling: e-postvarsel når noe deles med meg (lagres på
+                       kontoen). Den hører til e-postadressen og står derfor her. -->
+                  <div class="menu-setting" id="menu-email-pref" hidden>
+                    <span class="menu-setting-label">
+                      <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="#111" stroke-width="1.05" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="5" width="18" height="14" rx="2.5" fill="#ffffff"></rect><path d="m3.5 7 7.2 5.6a2 2 0 0 0 2.6 0L20.5 7"></path></svg>
+                      <span data-i18n="account.emailPrefLabel">Varsle meg på e-post når noe deles med meg</span>
+                    </span>
+                    <button class="toggle-switch" id="email-pref-toggle" type="button" role="switch" aria-checked="true" data-i18n-aria-label="account.emailPrefAria">
+                      <span class="toggle-knob" aria-hidden="true"></span>
+                    </button>
+                  </div>
+                  <hr class="menu-divider" />
+                  <form class="account-form" id="account-pass-form">
+                    <label class="account-form-label" for="account-pass-new" data-i18n="account.password">Passord</label>
+                    <div class="account-form-row">
+                      <span class="pass-wrap">
+                        <input class="field" id="account-pass-current" type="password" autocomplete="current-password" data-i18n-placeholder="account.currentPassword" />
+                        <button class="icon-btn pass-toggle" type="button" data-pass-toggle="account-pass-current"
+                                aria-pressed="false" data-i18n-title="auth.showPassword" data-i18n-aria-label="auth.showPassword"></button>
+                      </span>
+                    </div>
+                    <div class="account-form-row">
+                      <span class="pass-wrap">
+                        <!-- Ingen minlength: lengden meldes i skjemaets egen melding
+                             (#account-msg), ikke i en native valideringsboble. -->
+                        <input class="field" id="account-pass-new" type="password" autocomplete="new-password" data-i18n-placeholder="account.newPassword" />
+                        <button class="icon-btn pass-toggle" type="button" data-pass-toggle="account-pass-new"
+                                aria-pressed="false" data-i18n-title="auth.showPassword" data-i18n-aria-label="auth.showPassword"></button>
+                      </span>
+                      <button class="btn btn-solid btn-accent btn-small" type="submit" data-i18n="common.save">Lagre</button>
+                    </div>
+                  </form>
+                  <p class="account-msg" id="account-msg" role="status" hidden></p>
+                </section>
+              </div>
+            </div>
+          </section>
+
+          <!-- 2. Tips: demonstrasjonen og tastatursnarveiene — det man går hit
+               for å LÆRE, ikke for å endre. -->
+          <section class="menu-acc-group">
+            <button class="menu-acc-head" id="acc-tips-head" type="button"
+                    aria-expanded="false" aria-controls="acc-tips" data-acc-head="tips">
+              <span class="menu-acc-icon" aria-hidden="true"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="#111" stroke-width="1.05" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3.2a5.8 5.8 0 0 0-3.4 10.5c.5.36.8.95.8 1.57v.51h5.2v-.51c0-.62.3-1.21.8-1.57A5.8 5.8 0 0 0 12 3.2Z" fill="#adad85"></path><path d="M9.4 18.2h5.2"></path><path d="M10.6 20.8h2.8"></path></svg></span>
+              <span class="menu-acc-label" data-i18n="account.sectionTips">Tips</span>
+              <span class="menu-acc-chev" aria-hidden="true"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M9.5 5.5 16 12l-6.5 6.5"></path></svg></span>
+            </button>
+            <div class="menu-acc-sub is-closed" id="acc-tips" data-acc="tips"
+                 role="region" aria-labelledby="acc-tips-head" inert>
+              <div class="menu-acc-body">
+                <!-- Demonstrasjonen kan alltid tas om igjen — den er lagret på kontoen
+                     som «sett», ikke som «aldri mer», og kjører uansett i en simulering
+                     som ikke rører innholdet ditt. Se docs/introduksjon.md. -->
+                <div class="menu-setting" id="menu-tour" hidden>
+                  <span class="menu-setting-label">
+                    <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="#111" stroke-width="1.05" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3.2a5.8 5.8 0 0 0-3.4 10.5c.5.36.8.95.8 1.57v.51h5.2v-.51c0-.62.3-1.21.8-1.57A5.8 5.8 0 0 0 12 3.2Z" fill="#adad85"></path><path d="M9.4 18.2h5.2"></path><path d="M10.6 20.8h2.8"></path></svg>
+                    <span data-i18n="account.tourLabel">Demonstrasjon av Huskis</span>
+                  </span>
+                  <button class="btn btn-ghost btn-small" id="tour-restart" type="button" data-i18n="account.tourRestart">Vis på nytt</button>
+                </div>
+
+                <hr class="menu-divider" />
+                <!-- Tastatursnarveier. De ligger HER og ikke i board-et med vilje: en
+                     synlig etikett ved hvert ikon ville gjort listevisningen tregere å
+                     lese uten å hjelpe noen som allerede kan appen. Konto-modalen er
+                     stedet man går for å lære, ikke for å jobbe. Snarveiene virker på
+                     det som har fokus — se docs/design-system.md. -->
+                <section class="menu-keys">
+                  <div class="panel-head">
+                    <span class="panel-title" data-i18n="account.keyboard">Tastatursnarveier</span>
+                  </div>
+                  <dl class="key-list">
+                    <dt><kbd>Alt</kbd> + <kbd>↑</kbd> <kbd>↓</kbd></dt>
+                    <dd data-i18n="account.keyMove">Flytt det valgte objektet ett hakk</dd>
+                    <dt><kbd>Alt</kbd> + <kbd>M</kbd></dt>
+                    <dd data-i18n="account.keyMoveTo">Flytt til en annen liste, mappe eller område</dd>
+                    <dt><kbd>F2</kbd></dt>
+                    <dd data-i18n="menu.rename">Endre navn</dd>
+                    <dt><kbd>Esc</kbd></dt>
+                    <dd data-i18n="account.keyEsc">Lukk – eller avbryt en navneendring</dd>
+                  </dl>
+                </section>
+              </div>
+            </div>
+          </section>
+
+          <!-- 3. Å forlate kontoen: utlogging (gul: reversibel) og kontosletting
+               (rød: endelig) i hver sin ende av samme rad — like lette å finne,
+               umulige å forveksle. Bak en lukket skuff treffes ingen av dem ved
+               et uhell på vei til noe annet. -->
+          <section class="menu-acc-group">
+            <button class="menu-acc-head" id="acc-session-head" type="button"
+                    aria-expanded="false" aria-controls="acc-session" data-acc-head="session">
+              <span class="menu-acc-icon" aria-hidden="true"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="#111" stroke-width="1.05" stroke-linecap="round" stroke-linejoin="round"><path d="M9 3H6a2.5 2.5 0 0 0-2.5 2.5v13A2.5 2.5 0 0 0 6 21h3"></path><path d="M21 12H10"></path><path d="M17.5 8.5 21 12l-3.5 3.5"></path></svg></span>
+              <span class="menu-acc-label" data-i18n="account.sectionSession">Logg ut / slett konto</span>
+              <span class="menu-acc-chev" aria-hidden="true"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M9.5 5.5 16 12l-6.5 6.5"></path></svg></span>
+            </button>
+            <div class="menu-acc-sub is-closed" id="acc-session" data-acc="session"
+                 role="region" aria-labelledby="acc-session-head" inert>
+              <div class="menu-acc-body">
+                <div class="menu-account-actions">
+                  <button class="btn btn-solid btn-yellow btn-small menu-logout" id="logout-btn" type="button" data-i18n-title="account.logout">
+                    <svg class="icon btn-glyph" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.05" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 3H6a2.5 2.5 0 0 0-2.5 2.5v13A2.5 2.5 0 0 0 6 21h3"></path><path d="M21 12H10"></path><path d="M17.5 8.5 21 12l-3.5 3.5"></path></svg>
+                    <span data-i18n="account.logout">Logg ut</span>
+                  </button>
+                  <button class="btn btn-solid btn-red btn-small menu-delete-account" id="delete-account-btn" type="button" data-i18n-title="account.delete">
+                    <svg class="icon btn-glyph" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.05" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4.5 7.5h15"></path><path d="M9.5 7.5V6a2.5 2.5 0 0 1 5 0v1.5"></path><path d="M6.3 7.5l.9 11a2 2 0 0 0 2 1.9h5.6a2 2 0 0 0 2-1.9l.9-11"></path><path d="M9.7 11v6"></path><path d="M12 11v6"></path><path d="M14.3 11v6"></path></svg>
+                    <span data-i18n="account.delete">Slett konto</span>
+                  </button>
+                </div>
+              </div>
+            </div>
+          </section>
+        </div>
+
+        <!-- Innstilling: språk (lagres på kontoen, og styrer også e-postene
+             appen sender til deg). Ikonet settes av app.js, som de andre.
+             Raden står UTENFOR trekkspillet, nederst: den som ikke kan norsk
+             skal ikke måtte gjette hvilken skuff språkvalget ligger i — derfor
+             står etiketten også på begge språk. Se docs/sprak.md. -->
+        <div class="menu-setting" id="menu-language">
+          <span class="menu-setting-label">
+            <span class="menu-setting-icon" id="language-icon" aria-hidden="true"></span>
+            <span data-i18n="lang.label">Språk · Language</span>
+          </span>
+          <select class="field lang-select" id="lang-select" data-i18n-aria-label="lang.aria"></select>
         </div>
       </div>
     </div>

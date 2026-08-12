@@ -156,6 +156,13 @@ async function run(label, vp, mobile) {
   /* ---------- 1) Knapperaden i konto-modalen ---------- */
   await p.evaluate(() => window.__huskis.openAccount());
   await p.waitForTimeout(300);
+  // Knappene ligger i «Logg ut / slett konto»-skuffen (docs/menus.md): begge
+  // står bak et bevisst trykk, ingen av dem i veien for noe annet.
+  await p.locator('#acc-session-head').click();
+  await p.waitForFunction(() => {
+    const s = document.getElementById('acc-session');
+    return !!s && !s.classList.contains('is-closed') && s.style.height === '';
+  }, null, { timeout: 5000, polling: 50 });
   const btns = await p.evaluate(() => {
     const out = document.getElementById('logout-btn');
     const del = document.getElementById('delete-account-btn');

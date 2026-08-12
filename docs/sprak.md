@@ -38,10 +38,15 @@ To steder, samme kontroll (`<select class="lang-select">`, fylt av
 
 - **innloggingsskjermen**, nederst — det eneste stedet valget kan tas før man
   har en konto, og det første en ny bruker ser;
-- **konto-modalen**, som en `.menu-setting`-rad over e-postvarselet.
+- **konto-modalen**, som en `.menu-setting`-rad NEDERST, utenfor trekkspillet
+  (`docs/menus.md`). Alt annet i den modalen ligger i skuffer; språkraden gjør
+  det ikke, for den som har havnet i feil språk kan ikke lese overskriftene på
+  skuffene og ville måttet åpne dem på måfå.
 
-Språknavnene står på sitt eget språk («Norsk», «English»): det er slik man
-finner sitt eget i en liste man ellers ikke kan lese.
+Etiketten står på **begge språk i begge språkversjonene**: «Språk · Language»
+(`lang.label`, samme streng i norsk og engelsk rad). Språknavnene i velgeren
+står likeså på sitt eget språk («Norsk», «English») — det er slik man finner
+sitt eget i en liste man ellers ikke kan lese.
 
 **Et bytte laster appen på nytt** (`setLanguage()`). Språket sitter i hver eneste
 tekst som allerede er bygget — korttitler, menyer, demoens steg, og tekst som ble
