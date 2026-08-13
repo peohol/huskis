@@ -14,10 +14,10 @@ autoritative dokumentet for fagfeltet.
 | Felt | Nå |
 |---|---|
 | Målarkitektur | Én HTML/CSS/JS-kodebase + Capacitor for Android/iOS |
-| Nåværende fase | **Fase 2 — funksjonell paritet på Android** |
-| Status | Hele paritetsmatrisen er kjørt på fysisk telefon med en browserklient på samme konto samtidig, og alle punktene er krysset av. Ingen feil ga datatap, synkfeil eller blokkert kjernefunksjon. Runden fant ett avvik — en flimrende instruksboble i demonstrasjonen — som lå i delt kode og er rettet med regresjonstest. Fiksen er verifisert i nettleser på mobil-viewport, men ikke ennå sett på selve telefonen. |
-| Neste milepæl | Ingen kjent Android-spesifikk feil som gir datatap, synkfeil, blokkert kjernefunksjon eller dårligere tilgjengelighet enn web |
-| Ett neste praktiske steg | Installer en fersk debug-APK og kjør demonstrasjonen fram til «Slett listepunktet»: står instruksboblen stille når objektmenyen åpner seg, er fase 2 oppfylt og fase 3 kan begynne |
+| Nåværende fase | **Fase 3 — nødvendige native integrasjoner** |
+| Status | Fase 2 er ferdig og verifisert: hele paritetsmatrisen er kjørt på fysisk telefon med en browserklient på samme konto samtidig, og de to avvikene runden fant er rettet, testdekket og etterkontrollert på telefonen. Ingen kjent Android-spesifikk feil gir datatap, synkfeil, blokkert kjernefunksjon eller dårligere tilgjengelighet enn web. Fase 3 er ikke startet. |
+| Neste milepæl | Android-appen oppfører seg som en normal mobilapp i de plattformtilfellene browseren ikke håndterer godt nok selv |
+| Ett neste praktiske steg | Kartlegg hva systemets tilbakeknapp gjør i appen i dag, og definer så oppførselen: lukk øverste popover/modal, naviger deretter ett Huskis-nivå tilbake der det er naturlig, og la OS håndtere resten |
 | OTA | Ikke innført; skal ikke innføres før Android-baselinen er stabil |
 | iOS | Senere fase; ikke en del av første implementering |
 
@@ -308,7 +308,7 @@ sin egen forrige beslutning, og vekslet dermed mellom kappet og ukappet.
 Browseren hadde den samme løkka, men fyrer ikke scroll/resize ofte nok til at
 den ble synlig. Rettet ved å måle ukappet; regresjonen ligger i
 `tests/onboarding.test.js` (sjekk 11b), som feiler uten fiksen på
-mobil-viewport.
+mobil-viewport. Etterkontrollert på telefonen: boblen står stille.
 
 TalkBack leste norsk tekst med engelsk stemme. Det er telefonens
 TTS-stemmeutvalg, ikke Huskis: `lang`-håndteringen er på plass
@@ -347,7 +347,7 @@ siste avgjør om det er en ordinær Huskis-feil eller en native-spesifikk feil.
 
 **Ferdigkriterium:** ingen kjent Android-spesifikk feil kan gi datatap,
 synkfeil, blokkert kjernefunksjon eller vesentlig dårligere tilgjengelighet enn
-webversjonen.
+webversjonen. **Oppfylt.**
 
 ---
 
@@ -522,8 +522,13 @@ De skal ikke snike seg inn i fundamentfasene.
 
 ## Neste oppgave
 
-Lukk **Fase 2** med én etterkontroll: installer en fersk debug-APK (oppskrift i
-fase 1) og kjør demonstrasjonen fram til steget «Slett listepunktet». Står
-instruksboblen stille når objektmenyen åpner seg, er ferdigkriteriet oppfylt og
-**Fase 3** kan begynne — med tilbakeknappen, safe areas og skjermtastaturet som
-første punkter.
+Start **Fase 3**. Begynn med systemets tilbakeknapp: kartlegg hva den gjør i
+appen i dag, og gi den så en oppførsel som følger Huskis' egen struktur — lukk
+øverste popover/modal først, naviger deretter ett nivå tilbake der det er
+naturlig, og la OS ta resten. Deretter safe areas og skjermtastaturet.
+
+Hver fase 3-endring er plattformspesifikk og skal gates eksplisitt
+(arkitekturregel 2): browserutgaven skal fortsatt kjøre uten Capacitor, og
+`tests/capacitor-android.test.js` feiler hvis en Capacitor-referanse havner i
+web-kildefilene. Den vakten må altså få et bevisst unntak i samme endring som
+det første native API-et tas i bruk — ikke fjernes.
