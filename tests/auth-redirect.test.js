@@ -13,8 +13,12 @@
        origin i kravtabellen: det kanoniske domenet, de alternative domenene
        (www.huskis.no, huskis.vercel.app), det gamle domenet (negativt
        testtilfelle) og et vilkårlig ukjent origin gir ALLE
-       https://huskis.no/; localhost/127.0.0.1 beholder sin egen origin
-       (lokal utvikling).
+       https://huskis.no/; den lokale utviklingsserveren (http på
+       localhost/127.0.0.1 med port) beholder sin egen origin.
+       Regresjon: mobilappens WebView-origin (`https://localhost`, uten port —
+       docs/mobilapp-plan.md) er IKKE lokal utvikling og skal få den kanoniske
+       adressen. En auth-lenke til `https://localhost/` peker på en adresse som
+       bare finnes inne i appen.
     2. Trailing-slash-normalisering (med og uten avsluttende «/» inn).
     3. window.HUSKIS_CONFIG navngir KUN det kanoniske domenet — verken de
        alternative domenene (de 308-redirectes, se tests/canonical-origin.test.js)
@@ -59,6 +63,13 @@ function check(name, cond, extra) {
     ['https://en-helt-ukjent-host.example', 'https://huskis.no/'],
     ['http://localhost:8000', 'http://localhost:8000/'],
     ['http://127.0.0.1:5500', 'http://127.0.0.1:5500/'],
+    // Native runtime: Capacitor serverer de innebygde filene fra
+    // https://localhost (uten port). Ingen av formene under er en
+    // utviklingsserver, og ingen av dem kan ta imot en e-postlenke.
+    ['https://localhost', 'https://huskis.no/'],
+    ['https://localhost:8100', 'https://huskis.no/'],
+    ['http://localhost', 'https://huskis.no/'],
+    ['capacitor://localhost', 'https://huskis.no/'],
   ];
   for (const [origin, expected] of table) {
     const got = await page.evaluate((o) => window.__huskis.authRedirectUrl(o), origin);

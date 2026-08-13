@@ -15,9 +15,9 @@ autoritative dokumentet for fagfeltet.
 |---|---|
 | Målarkitektur | Én HTML/CSS/JS-kodebase + Capacitor for Android/iOS |
 | Nåværende fase | **Fase 2 — funksjonell paritet på Android** |
-| Status | Fase 1 er ferdig og verifisert: Capacitor 8.5.0 pinnet, `android/` sjekket inn, `dist/` er web-assets, GitHub Actions produserer en debug-APK fra rent checkout, og APK-en kjører på fysisk telefon med fungerende innlogging mot ekte Supabase. Fase 2 er ikke startet. |
+| Status | Hele paritetsmatrisen er kjørt på fysisk telefon med en browserklient på samme konto samtidig, og alle punktene er krysset av. Ingen feil ga datatap, synkfeil eller blokkert kjernefunksjon. Runden fant ett avvik — en flimrende instruksboble i demonstrasjonen — som lå i delt kode og er rettet med regresjonstest. Fiksen er verifisert i nettleser på mobil-viewport, men ikke ennå sett på selve telefonen. |
 | Neste milepæl | Ingen kjent Android-spesifikk feil som gir datatap, synkfeil, blokkert kjernefunksjon eller dårligere tilgjengelighet enn web |
-| Ett neste praktiske steg | Kjør testmatrisen i fase 2 på telefonen, helst med en browserklient på samme konto samtidig, og loggfør hvert avvik som enten en ordinær Huskis-feil eller en native-spesifikk feil |
+| Ett neste praktiske steg | Installer en fersk debug-APK og kjør demonstrasjonen fram til «Slett listepunktet»: står instruksboblen stille når objektmenyen åpner seg, er fase 2 oppfylt og fase 3 kan begynne |
 | OTA | Ikke innført; skal ikke innføres før Android-baselinen er stabil |
 | iOS | Senere fase; ikke en del av første implementering |
 
@@ -226,29 +226,124 @@ og deployes som før. **Oppfylt.**
 **Mål:** bevise at WebView/runtime-laget ikke bryter Huskis' eksisterende
 interaksjons- eller datasikkerhetsinvarianter.
 
-Test på fysisk Android, helst samtidig med en browserklient på samme konto:
+## Hvor WebView-laget faktisk skiller seg
 
-- [ ] registrering/innlogging/utlogging;
-- [ ] språk og kontoinnstillinger;
-- [ ] opprette, endre navn, flytte og omorganisere alle objektnivåer;
-- [ ] drag-and-drop og touch-hold på de to DnD-scope-ene;
-- [ ] sletting, angre, gjenoppretting og permanent tømming;
-- [ ] synk mellom mobil og browser uten gjenoppståtte eller tapte objekter;
-- [ ] delt innhold, roller og invitasjoner;
-- [ ] offline → online;
-- [ ] bakgrunn → forgrunn;
-- [ ] tvungen avslutning → ny oppstart;
-- [ ] tastatur, fokus, modaler, popovere og smale viewporter;
-- [ ] tilgjengelighet og berøringsflater;
-- [ ] ingen uventet reload mens lokal/synkende tilstand er utrygg;
-- [ ] auto-oppdateringsmekanikken oppfører seg forsvarlig i native runtime:
+Appen kjører NØYAKTIG den samme koden som `huskis.no`, fra sine egne innebygde
+filer. Den eneste tekniske forskjellen som betyr noe for klientlogikken er
+**originet**: Capacitor serverer filene fra `https://localhost` i stedet for
+`https://huskis.no`. Alt som forgrener på origin må derfor tåle den formen:
+
+| Sted | Regel i appen |
+|---|---|
+| Guarden i `index.html` | rører kun de tre navngitte hostene → appen navigerer aldri seg selv ut på nett |
+| `authRedirectUrl()` (`app.js`) | `https://localhost` er IKKE lokal utvikling → auth-lenker peker kanonisk ([`domains-and-urls.md`](domains-and-urls.md)) |
+| `update-check.js` | rot-relativ `/version.json` → leser sin egen innebygde fil, ser sin egen build-ID |
+| CSP (`index.html`) | `'self'` = det innebygde originet; Supabase er navngitt eksplisitt ([`sikkerhetsheadere.md`](sikkerhetsheadere.md)) |
+
+Alle fire er voktet av tester (tabellen under). Ut over dette har ikke webkoden
+noen kjennskap til Capacitor, og skal ikke få det — `tests/capacitor-android.test.js`
+feiler hvis en Capacitor-referanse sniker seg inn i web-kildefilene.
+
+Én ting til skiller runtimene, og den eier vi ikke: Capacitor limer sin egen
+bro inn som et INLINE `<script>` rett etter `<head>` (`JSInjector`), altså foran
+både innholdssikkerhetspolicyen og tegnsett-erklæringen i `index.html`. Broen
+kjører derfor før policyen er lest og blir ikke blokkert av den; til gjengjeld
+havner `<meta charset>` utenfor de første 1024 bytene, og dekodingen hviler på
+WebView-ens standard (UTF-8). Praktisk konsekvens: at norsk tekst vises riktig i
+appen er en observasjon, ikke noe repoet kan garantere — derfor står det i den
+fysiske runden.
+
+## Automatisk dekning
+
+Testene kjører den samme koden APK-en pakker, og avgjør derfor **logikken** i
+punktene under uavhengig av runtime. De erstatter ikke den fysiske testen; de
+gjør at den kan konsentrere seg om det bare en telefon kan svare på.
+
+| Område | Dekkes automatisk av |
+|---|---|
+| auth-flyten, returadresser, sesjon | `auth-redirect`, `nav-modal`, `account-password-avatar`, `delete-account` |
+| språk og kontoinnstillinger | `language`, `i18n`, `account-menu-accordion`, `account-password-avatar` |
+| opprette/endre navn/flytte/omorganisere alle nivåer | `item-creation`, `nav-modal`, `group-move`, `object-menu`, `locked-group-creation` |
+| dra-og-slipp og trykk-og-hold, begge scope | `dnd-*` (11 filer, mobil-viewport med `hasTouch`) |
+| sletting, angre, gjenoppretting, tømming | `trash-modal-layout`, `dnd-trash`, `restore-all-done` |
+| synk- og sletteinvarianter (ingen gjenoppståtte/tapte objekter) | `sync-resurrection`, `sync-shared-resurrection`, `sync-dangling-category`, `sync-schema-error` |
+| delt innhold, roller, invitasjoner | `roles-and-sections`, `locked-group-creation`, `sync-shared-resurrection` |
+| offline → online, og statusen brukeren ser | `sync-status` |
+| modaler, popovere, fokus, smale viewporter | `a11y-runtime`, `board-columns`, `trash-modal-layout`, `collapsed-alignment`, `dnd-viewport-clamp` |
+| kontrast og berøringsflater (målt i px) | `a11y-contrast`, `a11y-runtime` |
+| ingen reload mens tilstanden er utrygg (`updateSafety()`) | `auto-update` (del A og B) |
+| lik build-ID ⇒ ingen banner, ingen reload | `auto-update`, `build-version` |
+| appen peker ikke mot og reloader ikke `huskis.no` | `capacitor-android`, `canonical-origin`, `auth-redirect` |
+
+## Testet på fysisk Android
+
+Kjørt på telefon med en browserklient innlogget på samme konto samtidig,
+etter sekvensen under:
+
+- [x] registrering/innlogging/utlogging;
+- [x] språk og kontoinnstillinger;
+- [x] opprette, endre navn, flytte og omorganisere alle objektnivåer;
+- [x] drag-and-drop og touch-hold på de to DnD-scope-ene;
+- [x] sletting, angre, gjenoppretting og permanent tømming;
+- [x] synk mellom mobil og browser uten gjenoppståtte eller tapte objekter;
+- [x] delt innhold, roller og invitasjoner;
+- [x] offline → online;
+- [x] bakgrunn → forgrunn;
+- [x] tvungen avslutning → ny oppstart;
+- [x] tastatur, fokus, modaler, popovere og smale viewporter;
+- [x] tilgjengelighet og berøringsflater;
+- [x] ingen uventet reload mens lokal/synkende tilstand er utrygg;
+- [x] auto-oppdateringsmekanikken oppfører seg forsvarlig i native runtime:
       `/version.json` er rot-relativ, så i appen leser `update-check.js` den
-      INNEBYGDE fila og ser alltid sin egen build-ID. Den skal altså ikke vise
-      oppdateringsbanner eller reloade — bekreft det, i stedet for å anta det.
-      Å faktisk kunne oppdatere web-assetene er fase 5.
+      INNEBYGDE fila og ser alltid sin egen build-ID. Den viser altså verken
+      oppdateringsbanner eller reloader. Å faktisk kunne oppdatere
+      web-assetene er fase 5.
+
+**Ingen feil med datatap, synkfeil eller blokkert kjernefunksjon.** Runden fant
+ett avvik, i demonstrasjonen: instruksen på steget «Slett listepunktet» er lang,
+og når objektmenyen åpner seg må kortet vike for både målet og panelet. Kortet
+blinket da opp og ned. Årsaken lå i delt kode, ikke i native runtime —
+`placeTour()` målte kortets høyde mens forrige rundes `maxHeight` sto på, altså
+sin egen forrige beslutning, og vekslet dermed mellom kappet og ukappet.
+Browseren hadde den samme løkka, men fyrer ikke scroll/resize ofte nok til at
+den ble synlig. Rettet ved å måle ukappet; regresjonen ligger i
+`tests/onboarding.test.js` (sjekk 11b), som feiler uten fiksen på
+mobil-viewport.
+
+TalkBack leste norsk tekst med engelsk stemme. Det er telefonens
+TTS-stemmeutvalg, ikke Huskis: `lang`-håndteringen er på plass
+([`tilgjengelighet.md`](tilgjengelighet.md)), og en installert norsk stemme
+løser det.
 
 Feil som finnes både i browser og mobil er ordinære Huskis-feil. Feil som bare
 finnes i native runtime skal få avgrensede plattformtilpasninger og egne tester.
+
+## Slik kjører du den fysiske runden
+
+Dette er oppskriften runden over ble kjørt etter, og den gjenbrukes ved
+etterkontroll og på iOS i fase 7. Én sammenhengende økt dekker hele lista.
+Oppsett: debug-APK-en installert
+(oppskrift i fase 1), `huskis.no` åpen i en nettleser på en annen maskin, og en
+**ny testkonto** (T) som brukes begge steder — registreringen er selv et
+testpunkt. Din vanlige konto (P) er motparten når deling skal testes.
+
+| # | Gjør | Forventet | Dekker |
+|---|---|---|---|
+| 1 | Registrer konto T i appen. Åpne bekreftelseslenken fra e-posten. | Norsk tekst vises riktig (æ, ø, å — se dekodingsnotatet over). Lenken peker på `huskis.no` — aldri `localhost`. Bekreftelse fullfører, og innlogging i appen gir en sesjon. | registrering, auth-lenker, tegnsett |
+| 2 | Kjør demonstrasjonen som møter T ved første innlogging. | Alle stegene lar seg utføre med finger: opprette, endre navn, dra, slette. | opprette/endre/flytte, dra-og-slipp, sletting |
+| 3 | Bytt språk til engelsk og tilbake i konto-modalen. | Appen laster seg selv på nytt fra de innebygde filene, uten hvit skjerm og uten nettkrav for UI-et. | språk, kontoinnstillinger |
+| 4 | Bygg en liten struktur: område → mappe → liste → tre punkter, og endre navn på hvert nivå. | Skjermtastaturet dekker ikke feltet som redigeres, fokus lander riktig, og Enter avslutter. | objektnivåene, tastatur/fokus, smale viewporter |
+| 5 | Dra: omorganiser punkter, flytt et punkt til en annen liste, flytt en liste via navigasjonsknappen, og omorganiser områder/mapper i navigasjonsmodalen. | Trykk-og-hold tar tak, siden scroller ikke under gesten, og slippet lander der forhåndsvisningen viste. | begge DnD-scope, berøringsflater |
+| 6 | Logg inn som T i nettleseren. Endre navn på noe der, opprett ett objekt til. | Alt fra telefonen er der, og nettleserens endringer dukker opp på telefonen. | synk mobil ↔ browser |
+| 7 | På telefonen: slett et punkt og angre. Slett en liste, gjenopprett den fra søppelkassen. Slett en til og tøm kassen. | Angre gir punktet tilbake. Det permanent slettede kommer ALDRI tilbake — heller ikke etter at nettleseren har synket. | sletting/angre/gjenoppretting/tømming, synkinvarianter |
+| 8 | Del et område fra telefonen med konto P. Godta invitasjonen som P i nettleseren, og endre noe der. | Rollen og rettighetene er som i web, og endringen når telefonen. | delt innhold, roller, invitasjoner |
+| 9 | Slå på flymodus. Opprett og slett noe. Tving appen helt ut av minnet og start den igjen — fortsatt i flymodus. | Statuslinjen sier «Frakoblet – endringene lagres på denne enheten», og endringene er der etter omstart. Du er fortsatt innlogget. | offline, tvungen avslutning → ny oppstart |
+| 10 | Slå av flymodus. La appen ligge i forgrunnen et par minutter, send den til bakgrunnen underveis og hent den tilbake. | Statusen går til «Lagret», nettleseren viser det samme, og appen laster seg ALDRI på nytt av seg selv — intet oppdateringsbanner, ingen halvskrevet tekst som forsvinner. | online, bakgrunn → forgrunn, ingen uventet reload, auto-oppdatering i native runtime |
+| 11 | Slå på TalkBack og gå gjennom punkt 9, 12 og 13 i den manuelle sjekklista i [`tilgjengelighet.md`](tilgjengelighet.md). Slå den av igjen, logg ut og logg inn på nytt. | Kontrollene leses opp med meningsfulle navn, modaler fanger fokus, og utlogging/innlogging virker som i web. | tilgjengelighet, utlogging/innlogging |
+
+Rapporter et avvik med: trinnummeret, hva som faktisk skjedde, hva statuslinjen
+(`#sync-status`) sa, og om det samme skjer i nettleseren på samme konto. Det
+siste avgjør om det er en ordinær Huskis-feil eller en native-spesifikk feil.
 
 **Ferdigkriterium:** ingen kjent Android-spesifikk feil kan gi datatap,
 synkfeil, blokkert kjernefunksjon eller vesentlig dårligere tilgjengelighet enn
@@ -273,6 +368,10 @@ funksjoner bare fordi de er mulige.
       der websignalene ikke er tilstrekkelige.
 - [ ] Vurder sikker lagring av native-spesifikke secrets/tokens dersom det
       faktisk finnes et behov; ikke flytt data ut av dagens modell uten grunn.
+      Ta samtidig stilling til `android:allowBackup`, som i dag står på
+      Capacitors standard `true`: da følger WebView-lagringen — altså den
+      lokale bufferen OG Supabase-sesjonen — med i Androids sikkerhetskopi til
+      en annen enhet. Webversjonen har ingen tilsvarende vei ut av enheten.
 
 **Ferdigkriterium:** Android-appen oppfører seg som en normal mobilapp i de
 plattformtilfellene browseren ikke selv kan håndtere godt nok.
@@ -423,8 +522,8 @@ De skal ikke snike seg inn i fundamentfasene.
 
 ## Neste oppgave
 
-Start **Fase 2**: kjør paritetsmatrisen på en fysisk Android-telefon, helst med
-en browserklient innlogget på samme konto samtidig. Feil som finnes begge steder
-er ordinære Huskis-feil og hører hjemme i sin egen endring; feil som bare finnes
-i native runtime skal få en avgrenset plattformtilpasning og en egen test. Kryss
-av punktene etter hvert som de faktisk er testet.
+Lukk **Fase 2** med én etterkontroll: installer en fersk debug-APK (oppskrift i
+fase 1) og kjør demonstrasjonen fram til steget «Slett listepunktet». Står
+instruksboblen stille når objektmenyen åpner seg, er ferdigkriteriet oppfylt og
+**Fase 3** kan begynne — med tilbakeknappen, safe areas og skjermtastaturet som
+første punkter.

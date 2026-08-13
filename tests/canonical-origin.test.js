@@ -25,7 +25,9 @@
     4. redirectUrlFor() i ekte nettleser: alternative domener → kanonisk URL
        med path + query + fragment bevart (auth-parametere kommer i begge:
        `?code=` for PKCE, `#access_token=…&type=recovery` for implicit);
-       kanonisk origin, localhost og ukjente verter → null (ingen redirect).
+       kanonisk origin, localhost (både utviklingsserveren og mobilappens
+       WebView-origin `https://localhost`) og ukjente verter → null (ingen
+       redirect).
     5. Ekte navigasjon: en side lastet fra https://www.huskis.no/… havner på
        https://huskis.no/… med path/query/fragment i behold, uten å legge igjen
        en historikk-oppføring (location.replace), og uten at app.js kjørte på
@@ -178,6 +180,12 @@ check('index.html: guardens hostliste inneholder det pensjonerte domenet',
     // lokal utvikling og preview-deployer skal ALDRI flyttes
     ['http://localhost:8000/?mock=1', null],
     ['http://127.0.0.1:5500/', null],
+    // Mobilappens WebView-origin (docs/mobilapp-plan.md). En redirect herfra
+    // ville tatt appen ut av sine egne innebygde filer og over på nett — og
+    // dermed gjort butikkbinæren meningsløs første gang telefonen er offline.
+    ['https://localhost/', null],
+    ['https://localhost/?code=abc123', null],
+    ['http://localhost/', null],
     ['https://huskis-qiq3qh44v-peohols-projects.vercel.app/?mock=1', null],
     // ukjent host: fail closed betyr «rør den ikke» — vi eier den ikke
     ['https://en-helt-ukjent-host.example/', null],

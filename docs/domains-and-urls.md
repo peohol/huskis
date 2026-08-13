@@ -105,13 +105,21 @@ authRedirectUrl(origin) // origin er valgfri og KUN til testing — appen kaller
 `authRedirectUrl()` sin regel er bevisst enkel — ingen generell «sanitiser en
 vilkårlig URL»-funksjon, kun et eksplisitt valg mellom to betrodde utfall:
 
-- `location.origin` er `http(s)://localhost[:port]` eller `http(s)://127.0.0.1[:port]`
-  (lokal utvikling, `python3 -m http.server`) → behold den originen.
+- `location.origin` er `http://localhost:<port>` eller `http://127.0.0.1:<port>`
+  (lokal utvikling, `python3 -m http.server 8000`) → behold den originen.
 - Alt annet → **alltid** `canonicalAppUrl()`.
 
 Regelen feiler altså lukket, og gjør det fortsatt selv om en klient mot
 formodning skulle kjøre på en annen host enn den kanoniske (en gammel fane
 som ennå ikke har møtt redirecten).
+
+**Mobilappen er ikke lokal utvikling.** Android-appen serverer de samme filene
+fra WebView-ens egen innebygde server på `https://localhost` — https, uten
+port ([`mobilapp-plan.md`](mobilapp-plan.md)). Formen over treffer den derfor
+ikke, og en registrering eller passordgjenoppretting gjort *i appen* får den
+kanoniske adressen i lenken, ikke en `localhost`-adresse som bare finnes inne
+i appen. At appen selv kan fange opp en slik lenke er en senere fase (App
+Links); inntil da åpner lenken Huskis i telefonens nettleser.
 
 Brukes av de tre Supabase Auth-kallene som tar en returadresse:
 
@@ -226,6 +234,19 @@ lenker i en LOKAL Supabase-e-post peker altså til den lokale serveren, ikke
 til `huskis.no` — forutsatt at Supabase-prosjektets Redirect URLs også
 tillater `http://localhost:8000` (kun nødvendig hvis man faktisk tester ekte
 Supabase-e-post lokalt; `?mock=1` trenger det ikke, se `docs/accounts.md`).
+
+## Mobilappen
+
+Android-appen kjører de innebygde filene fra `https://localhost`
+([`mobilapp-plan.md`](mobilapp-plan.md)). Det originet er ikke navngitt noe
+sted i frontend, og skal ikke være det:
+
+- guarden i `index.html` rører kun de tre hostene den lister opp, så appen
+  navigeres aldri ut av seg selv og over til `huskis.no`;
+- `authRedirectUrl()` gjenkjenner den ikke som lokal utvikling, så auth-lenker
+  fra appen peker på den kanoniske adressen (se regelen over);
+- `update-check.js` henter `/version.json` rot-relativt, altså appens egen
+  innebygde fil med appens egen build-ID ([`auto-update.md`](auto-update.md)).
 
 ## Vercel-konfigurasjonen
 

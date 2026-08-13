@@ -28,6 +28,17 @@
      8. .github/workflows/android-debug.yml bygger debug-APK-en via den samme
         kjeden (node build.js → cap sync → assembleDebug), uten å signere en
         release eller røre release-kjeden.
+     9. Native runtime: webkoden er ikke avhengig av Capacitor, og ingenting i
+        den peker appen ut av sine egne innebygde filer.
+
+   `/version.json` i den innebygde builden er en KJEDE av invarianter som
+   allerede er dekket hver for seg, og som derfor ikke gjentas her:
+   `build.js` skriver samme build-ID i `index.html` og `version.json`
+   (tests/build-version.test.js), Capacitor pakker nøyaktig den mappa
+   (`webDir` under), og `update-check.js` som møter sin egen ID gjør ingenting
+   — ingen mål-build, intet banner, ingen reload (tests/auto-update.test.js).
+   Appen leser altså alltid seg selv, og oppdaterer aldri web-assetene sine.
+   Selve OTA-en er fase 5.
 
    Ren node-test — ingen server, ingen nettleser, ingen Android SDK.
 
@@ -232,6 +243,39 @@ check('workflowen feiler hvis APK-en mangler (ingen tom artifact)',
 check('workflowen signerer ikke en release',
   !/assembleRelease|bundleRelease|signingConfig|KEYSTORE/.test(wfKode));
 check('workflowen har kun lesetilgang til repoet', /permissions:\s*\n\s*contents: read/.test(wfKode));
+
+/* ---- 9. Native runtime: appen kjører seg selv, og webkoden er uavhengig ----
+
+   Capacitor serverer de innebygde filene fra `https://localhost`. To ting kan
+   ryke der uten at noen test i dag sier fra:
+
+     a) webkoden begynner å kalle Capacitor-API-er, og browserutgaven blir
+        avhengig av en runtime den ikke har (arkitekturregel 2);
+     b) noe i klienten sender appen til huskis.no — da slutter den innebygde
+        builden å bety noe, og appen blir en WebView med et nettkrav.
+
+   Auth-siden av (b) — at `authRedirectUrl()` ikke tar WebView-originet for en
+   utviklingsserver — testes i ekte nettleser (tests/auth-redirect.test.js),
+   det samme gjør guardens oppførsel (tests/canonical-origin.test.js). */
+const WEB_KILDE = ['index.html', 'app.js', 'config.js', 'i18n.js', 'icons.js', 'update-check.js', 'styles.css'];
+const capBruk = WEB_KILDE.filter((f) => /\bCapacitor\b|@capacitor|capacitor\.js|cordova/i.test(les(f)));
+check('webkoden nevner ikke Capacitor — browserutgaven er ikke avhengig av native runtime',
+  capBruk.length === 0, capBruk.join(', ') || 'ingen');
+
+/* At forespørselen faktisk går rot-relativt til eget origin, testes i ekte
+   nettleser (tests/auto-update.test.js). Det som ikke fanges der, er en
+   absolutt URL skrevet inn her: appen ville da målt seg mot huskis.no og
+   reloadet seg selv til en build den ikke har (docs/auto-update.md). */
+const absolutt = les('update-check.js').match(/https?:\/\/[^\s'")]*/g) || [];
+check('update-check.js navngir ingen vert — den måler seg alltid mot sitt eget origin',
+  absolutt.length === 0, absolutt.join(', ') || 'ingen');
+
+/* Guarden i index.html flytter en fane til det kanoniske originet. Står
+   WebView-verten på den lista, navigerer appen seg selv ut på nett ved
+   oppstart. Hostene som ER der, testes i tests/canonical-origin.test.js. */
+const guardHosts = (les('index.html').match(/REDIRECT_HOSTS\s*=\s*\[([^\]]*)\]/) || [, ''])[1];
+check('guardens hostliste navngir ingen localhost-vert (appen redirecter ikke seg selv ut)',
+  !/localhost|127\.0\.0\.1/.test(guardHosts), guardHosts.trim());
 
 console.log('\n==== ' + pass + '/' + (pass + fail) + ' PASS ====');
 process.exit(fail === 0 ? 0 : 1);
