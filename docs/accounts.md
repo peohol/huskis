@@ -450,9 +450,12 @@ visningen glir over uten flimmer.
   eller en lås som endres av noen andre — slår inn i den ÅPNE modalen.
   Realtime-hendelsen på `memberships`/`share_invites` gir oppdateringen med én
   gang, pollet er fallback. To vakter holder det rolig: listen tegnes bare om
-  når svaret faktisk er et ANNET enn forrige (samme grep som `lastViewSig` i
-  synken — ellers ville radene blitt revet ut av DOM-en midt i et klikk), og
-  det går én runde av gangen. Modalen slår samtidig opp objektet på nytt
+  når svaret faktisk er et ANNET enn det radene står med nå (samme grep som
+  `lastViewSig` i synken — ellers ville radene blitt revet ut av DOM-en midt i
+  et klikk), og det går én runde av gangen. En optimistisk endring — fjernet
+  rad, deaktivert knapp — nullstiller signaturen (`optimisticEdit`), slik at et
+  AVVIST kall faktisk blir rullet tilbake: da er jo serversvaret identisk med
+  det forrige. Modalen slår samtidig opp objektet på nytt
   (`findAnyById`), siden hver anvendte pull bygger `state` på nytt og kopien
   modalen ble åpnet med dermed er forlatt. Lukking kobler oppdatereren fra.
 - **Inviter** (`create_share_invite`): e-postfelt + rollevelger («Som medlem» /

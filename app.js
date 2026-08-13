@@ -10684,6 +10684,15 @@
     const actionsWrap = document.createElement('div');
     actionsWrap.className = 'share-actions';
 
+    // Signaturen av det serversvaret radene sist ble tegnet fra (se
+    // refreshMembers). Enhver OPTIMISTISK endring — en rad fjernet, en knapp
+    // deaktivert — gjør at DOM-en ikke lenger stemmer med det svaret, og må
+    // nullstille den: avviser serveren operasjonen, kommer det SAMME svaret
+    // tilbake, og uten nullstillingen ville gjentegningen som skal rulle
+    // endringen tilbake blitt hoppet over.
+    let membersSig = null;
+    const optimisticEdit = () => { membersSig = null; };
+
     function memberRow(mbr) {
       const row = document.createElement('div');
       row.className = 'member-row';
@@ -10721,7 +10730,7 @@
             message: tr('share.promoteMsg', { name: personName(mbr), kind: typeWord(type) }),
             okLabel: tr('share.promoteOk'),
           })) return;
-          promote.disabled = true;
+          promote.disabled = true; optimisticEdit();
           opQueue.enqueue({
             run: async () => {
               const { error } = await acli().rpc('create_share_invite',
@@ -10773,7 +10782,7 @@
             message: tr('share.removeMemberMsg', { name: personName(mbr), kind: typeWord(type) }),
             okLabel: tr('common.remove'),
           })) return;
-          row.remove(); // optimistisk — refreshMembers gjenoppretter hvis serveren avviser
+          row.remove(); optimisticEdit(); // refreshMembers gjenoppretter hvis serveren avviser
           opQueue.enqueue({
             run: async () => {
               const { error } = await acli().rpc('revoke_share', { p_type: type, p_id: id, p_user: mbr.id });
@@ -10823,7 +10832,7 @@
           const cancel = document.createElement('button');
           cancel.className = 'btn btn-small btn-ghost'; cancel.type = 'button'; cancel.textContent = tr('share.withdraw');
           cancel.addEventListener('click', () => {
-            row.remove(); // optimistisk
+            row.remove(); optimisticEdit(); // optimistisk
             opQueue.enqueue({
               run: async () => {
                 const { error } = await acli().rpc('revoke_share_invite', { p_invite: inv.id });
@@ -10903,13 +10912,13 @@
        nåtilstand, ikke et øyeblikksbilde fra da den ble åpnet.
 
        To vakter gjør den løpende oppfriskningen trygg:
-       * `membersSig` — tegn bare om når svaret faktisk er et ANNET. Uten den
-         ville hvert poll revet radene ut av DOM-en midt i et klikk (samme
-         grep som `lastViewSig` i cloudCycle).
+       * `membersSig` — tegn bare om når svaret faktisk er et ANNET enn det
+         radene står med nå. Uten den ville hvert poll revet radene ut av
+         DOM-en midt i et klikk (samme grep som `lastViewSig` i cloudCycle).
+         En optimistisk endring nullstiller den, se `optimisticEdit`.
        * `membersBusy`/`membersAgain` — én runde av gangen; en forespørsel som
          kom mens en annen var i lufta tas igjen etterpå i stedet for å falle
          på gulvet. */
-    let membersSig = null;
     let membersBusy = false, membersAgain = false;
     async function refreshMembers() {
       if (membersBusy) { membersAgain = true; return; }
@@ -10993,14 +11002,14 @@
         },
         onError: (e) => {
           optimisticRows.delete(row);
-          row.remove();
+          row.remove(); optimisticEdit();
           sentEmail = null;
           msg.textContent = friendlyAuthError(e); msg.hidden = false;
         },
       });
       cancel.addEventListener('click', () => {
         optimisticRows.delete(row);
-        row.remove();
+        row.remove(); optimisticEdit();
         if (opQueue.cancel(op)) return;
         opQueue.enqueue({
           run: async () => {

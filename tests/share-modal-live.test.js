@@ -20,6 +20,8 @@
     4. En synk-runde UTEN endring tegner IKKE listen om: radene skal ikke rives
        ut av DOM-en under et klikk hvert femte sekund
     5. Lukket modal kobles fra: synk-runder etterpå spør ikke om medlemslisten
+    6. En optimistisk fjernet rad kommer TILBAKE når serveren avviser — selv om
+       serversvaret da er identisk med det radene alt står med
 
   Oppførselen henger ikke på layout eller pekertype (synk + tilstandsendring),
   så ett viewport holder — se tests/CLAUDE.md.
@@ -110,12 +112,18 @@ async function run() {
 
   // Tell `get_members`-kallene: de er selve mekanismen som holder modalen
   // levende, og fraværet av dem etter lukking er påstanden i punkt 5.
+  // `__failRpc` lar testen få serveren til å si nei (punkt 6).
   await owner.evaluate(() => {
     const c = window.__huskis.client;
     const orig = c.rpc.bind(c);
     window.__memberCalls = 0;
+    window.__failRpc = null;
     c.rpc = function (name, params) {
       if (name === 'get_members') window.__memberCalls++;
+      if (name === window.__failRpc) {
+        window.__failed = (window.__failed || 0) + 1;
+        return Promise.resolve({ data: null, error: { message: 'nei' } });
+      }
       return orig(name, params);
     };
   });
@@ -190,6 +198,30 @@ async function run() {
     view.msg === '', view.msg);
   log('3: en ekte endring tegner radene om (merket er borte)',
     view.marked === 0, 'merkede rader: ' + view.marked);
+
+  /* ---------- 6) Avvist handling rulles tilbake ---------- */
+  // Raden fjernes optimistisk. Sier serveren nei, er svaret på den påfølgende
+  // `get_members` IDENTISK med det radene alt står med — gjentegningen som
+  // skal sette raden tilbake må derfor ikke bli hoppet over.
+  await owner.evaluate(() => { window.__failRpc = 'revoke_share'; window.__failed = 0; });
+  await owner.evaluate(() => {
+    const r = [...document.querySelectorAll('#share-body .member-row')]
+      .find((x) => /^Bo/.test((x.querySelector('.member-name') || {}).textContent || ''));
+    [...r.querySelectorAll('button')].find((b) => b.textContent.trim() === 'Fjern').click();
+  });
+  await owner.locator('#confirm-ok').click();
+  await owner.waitForFunction(() => window.__failed > 0, null, { timeout: 8000, polling: 100 }).catch(() => {});
+  log('6: serveren avviste fjerningen', await owner.evaluate(() => window.__failed) > 0);
+  // Fraværsbevis snudd på hodet: raden må komme tilbake, og den kommer i samme
+  // gjentegning som `onError` utløser — den korte ventingen dekker rundturen.
+  await owner.waitForFunction(() =>
+    [...document.querySelectorAll('#share-body .member-row .member-name')]
+      .some((el) => /^Bo/.test(el.textContent || '')),
+  null, { timeout: 6000, polling: 200 }).catch(() => {});
+  view = await shareView(owner);
+  log('6: den optimistisk fjernede raden kommer tilbake',
+    view.members.some((t) => /Bo/.test(t)), JSON.stringify(view.members));
+  await owner.evaluate(() => { window.__failRpc = null; });
 
   /* ---------- 5) Lukket modal spør ikke lenger ---------- */
   await owner.keyboard.press('Escape');
