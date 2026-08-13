@@ -19,8 +19,8 @@
     base-uri 'none';
     object-src 'none';
     script-src 'self' 'sha256-6Q3JDVUTmctJuF9ScsOY9kCKBmqaIbjWdZMf/B2lgNc=';
-    style-src 'self' https://fonts.googleapis.com;
-    font-src https://fonts.gstatic.com;
+    style-src 'self';
+    font-src 'self';
     img-src 'self' data: blob:;
     connect-src 'self' https://bmkynefxgklxzcofflqu.supabase.co wss://bmkynefxgklxzcofflqu.supabase.co;
     form-action 'self'
@@ -72,9 +72,9 @@
   <meta name="huskis-build" content="dev" />
   <title>Huskis</title>
   <link rel="icon" type="image/svg+xml" href="favicon.svg" />
-  <link rel="preconnect" href="https://fonts.googleapis.com" />
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible+Next:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <!-- Webfonten (Atkinson Hyperlegible Next) hentes IKKE fra Google Fonts:
+       @font-face-erklæringene står i styles.css og peker på assets/fonts/.
+       Se docs/sikkerhetsheadere.md. -->
   <link rel="stylesheet" href="styles.css" />
 </head>
 <body class="locked">

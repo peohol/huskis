@@ -7,8 +7,9 @@ Appen skal føles **visuelt ryddig, konsistent og forutsigbar**.
 
 ## Typografi og skala
 
-Fonten er **Atkinson Hyperlegible Next** (Google Fonts, lastet i index.html) —
-valgt for lesbarhet/tilgjengelighet. Alle synlige listepunkter (tekst, ikoner,
+Fonten er **Atkinson Hyperlegible Next** — valgt for lesbarhet/tilgjengelighet.
+Den er selvhostet: `@font-face` øverst i `styles.css` peker på `assets/fonts/`,
+ikke på Google Fonts ([`sikkerhetsheadere.md`](sikkerhetsheadere.md)). Alle synlige listepunkter (tekst, ikoner,
 knapper, kontroller) er skalert opp ~30 % i forhold til det opprinnelige
 designet, mens padding/margin/gap IKKE er skalert tilsvarende — bevisst valg:
 større, mer lesbare og lettere treffbare listepunkter i et fortsatt kompakt UI.

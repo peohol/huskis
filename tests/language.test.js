@@ -63,16 +63,6 @@ function buildDB(meta) {
   };
 }
 
-/* WEBFONTEN AVVISES I DENNE FILA. Den er dekorasjon (Google Fonts), men den
-   ligger som et `<link rel="stylesheet">` i `<head>`, og et stilark som HENGER
-   blokkerer kjøringen av skriptene under seg: siden kommer da ikke opp igjen
-   før forespørselen har brukt opp timeouten sin. Alle andre testfiler laster
-   siden én gang og merker det knapt; denne laster den på nytt for hvert eneste
-   språkbytte, og ville ellers brukt minutter på å vente på en font ingenting
-   her handler om. Ingen av appens EGNE forespørsler røres — hermetikken kommer
-   fortsatt fra mock-backenden (tests/CLAUDE.md). */
-const FONT_HOSTS = ['https://fonts.googleapis.com/**', 'https://fonts.gstatic.com/**'];
-
 /* Et språkbytte laster appen på NYTT (docs/sprak.md). Ventingen går derfor på
    det NYE dokumentet — appens egne signaler — og aldri på klokka. */
 const RELOAD_MS = 30000;
@@ -112,7 +102,6 @@ async function run(label, viewport, mobile) {
   const browser = await chromium.launch();
   // Engelsk nettleserspråk med vilje: standarden skal IKKE følge nettleseren.
   const ctx = await browser.newContext({ viewport, isMobile: mobile, hasTouch: mobile, locale: 'en-US' });
-  for (const host of FONT_HOSTS) await ctx.route(host, (route) => route.abort());
   const p = await ctx.newPage();
   const errs = [];
   p.on('pageerror', (e) => errs.push(e.message));

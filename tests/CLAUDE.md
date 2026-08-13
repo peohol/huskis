@@ -165,12 +165,12 @@ på signaler appen faktisk gir:
 - Bruk `{ polling: 200 }` i filer med flere sider/faner — rAF-polling struper i
   bakgrunnsfaner.
 
-**Et språkbytte laster appen på nytt** (`docs/sprak.md`), og en omlasting ber om
-webfonten på nytt. Henger den forespørselen — som den gjør på en maskin uten
-utgående nett — blokkerer det stilarket kjøringen av skriptene under seg, og
-siden kan bruke titalls sekunder på å komme opp igjen. `tests/language.test.js`
-venter derfor på `document.readyState === 'complete'` PLUSS appens egne signaler,
-med en raus timeout. Det er ikke treg kode; det er nettverket i testmiljøet.
+**Et språkbytte laster appen på nytt** (`docs/sprak.md`), og
+`tests/language.test.js` gjør det for hvert eneste bytte. Ventingen går derfor
+på `document.readyState === 'complete'` PLUSS appens egne signaler, med en raus
+timeout. Testmiljøet trenger ikke utgående nett: appen laster ingenting fra en
+tredjepart — webfonten ligger i `assets/fonts/`, ikke hos Google
+(`docs/sikkerhetsheadere.md`).
 
 Faste ventinger er fortsatt RIKTIG tre steder, og skal ikke «optimaliseres»
 bort: **fraværsbevis** (noe skal IKKE skje — fravær kan bare påstås etter at
