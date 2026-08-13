@@ -106,6 +106,10 @@ check('HTML-en revalideres (reload henter ny side)',
 // seg av seg selv når innholdet gjør det.
 check('langtidscache på /vendor/(.*)',
   /immutable/.test(headerFor('/vendor/(.*)')) && /max-age=31536000/.test(headerFor('/vendor/(.*)')));
+// Fontfilene får ?b=<build-ID> like lite som vendor/: de lastes fra styles.css,
+// ikke fra HTML-en, og versjonen står i filnavnet.
+check('langtidscache på /assets/fonts/(.*)',
+  /immutable/.test(headerFor('/assets/fonts/(.*)')) && /max-age=31536000/.test(headerFor('/assets/fonts/(.*)')));
 
 fs.rmSync(tmp, { recursive: true, force: true });
 console.log(`\n${passed} passed, ${failed} failed`);

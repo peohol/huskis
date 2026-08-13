@@ -4,8 +4,9 @@ Huskis er en statisk app uten server-side rendering: hele forsvaret mot injisert
 kode, innramming og eksfiltrering ligger i responsheaderne og i hvilke
 tredjeparter appen i det hele tatt har lov til å snakke med. Filene:
 `vercel.json` (headerne i produksjon), `index.html` (den samme policyen som
-`<meta>`), `build.js` (fjerner testmodusen fra deployen),
-`tests/security-headers.test.js` + `tests/csp-enforced.test.js`.
+`<meta>`), `styles.css` + `assets/fonts/` (den selvhostede webfonten),
+`vendor/` (den lokale Supabase-kopien), `build.js` (fjerner testmodusen fra
+deployen), `tests/security-headers.test.js` + `tests/csp-enforced.test.js`.
 
 ## Hvorfor policyen står to steder
 
@@ -35,8 +36,8 @@ default-src 'none';
 base-uri 'none';
 object-src 'none';
 script-src 'self' 'sha256-…';
-style-src 'self' https://fonts.googleapis.com;
-font-src https://fonts.gstatic.com;
+style-src 'self';
+font-src 'self';
 img-src 'self' data: blob:;
 connect-src 'self' https://<prosjekt>.supabase.co wss://<prosjekt>.supabase.co;
 form-action 'self';
@@ -54,11 +55,13 @@ Hvert unntak fra `'self'` står her fordi appen faktisk trenger det:
 | Unntak | Hvorfor | Hva som skal til for å fjerne det |
 |---|---|---|
 | `script-src 'sha256-…'` | Guarden for kanonisk origin i `index.html` MÅ kjøre inline, før alt annet — se [`domains-and-urls.md`](domains-and-urls.md). En ekstern fil ville kostet en rundtur før redirecten. | flytte guarden til en egen fil og godta forsinkelsen |
-| `style-src https://fonts.googleapis.com` | Stilarket for Atkinson Hyperlegible Next, appens lesevennlige skrift. | selvhoste `@font-face`-erklæringene |
-| `font-src https://fonts.gstatic.com` | Selve fontfilene stilarket over peker på. | selvhoste fontfilene |
 | `img-src data:` | Avatarbilder lagres som `data:image/jpeg`-URL-er på brukerens profil. | flytte avatarene til Supabase Storage |
 | `img-src blob:` | Avatarredigereren tegner den valgte filen via `URL.createObjectURL` i nettlesere uten `createImageBitmap`. | droppe reserveløsningen |
 | `connect-src wss://…` | Realtime (`postgres_changes`) går over WebSocket. | — (kreves) |
+
+Appen laster altså ingenting fra en tredjepart: skriptene, stilarket og
+fontfilene ligger alle på eget origin, og Supabase er den eneste eksterne verten
+i hele policyen — den står kun i `connect-src`.
 
 `connect-src 'self'` dekker oppdateringssjekkens `GET /version.json`
 ([`auto-update.md`](auto-update.md)). `form-action 'self'` er med fordi
@@ -87,7 +90,7 @@ Alle settes på `source: "/(.*)"`, altså på hver eneste respons.
 | Header | Verdi | Hvorfor |
 |---|---|---|
 | `X-Content-Type-Options` | `nosniff` | nettleseren skal aldri gjette innholdstype — en opplastet fil kan ikke bli til et skript |
-| `Referrer-Policy` | `no-referrer` | adressene i appen kan inneholde invitasjons- og auth-parametere; ingenting av det skal følge med til Google Fonts eller en lenke ut |
+| `Referrer-Policy` | `no-referrer` | adressene i appen kan inneholde invitasjons- og auth-parametere; ingenting av det skal følge med en lenke ut |
 | `Permissions-Policy` | tom allowlist `()` for kamera, mikrofon, posisjon, betaling, USB, MIDI, sensorer m.m. | appen ber aldri om noen av dem; alt som ikke er nevnt beholder nettleserens standard |
 | `X-Frame-Options` | `DENY` | samme vern som `frame-ancestors 'none'`, for nettlesere som ikke kan CSP-en |
 
@@ -143,6 +146,56 @@ Kjør deretter `node tests/security-headers.test.js` og
 `node tests/csp-enforced.test.js`, og verifiser i en preview-deploy at
 `window.supabase.createClient` finnes — en feilstavet sti gir en app som ikke
 kommer forbi innloggingsskjermen.
+
+## Webfonten: selvhostet, ikke Google Fonts
+
+Atkinson Hyperlegible Next — appens lesevennlige skrift
+([`design-system.md`](design-system.md)) — ligger i repoet, ikke på Googles
+CDN. `@font-face`-erklæringene står øverst i `styles.css` og peker på to filer:
+
+```
+assets/fonts/atkinson-hyperlegible-next-v7-latin.woff2
+assets/fonts/atkinson-hyperlegible-next-v7-latin-ext.woff2
+```
+
+Det er de samme to `woff2`-utsnittene Google Fonts selv leverte, uendret. Hvert
+utsnitt er det **variable** snittet av fonten (akse `wght`), så én fil dekker
+hele vektspennet appen bruker (400–700) — nøyaktig som før, da alle fire
+vektene i `css2`-URL-en pekte på den samme fila. `unicode-range` er beholdt fra
+Googles stilark: `latin` lastes alltid, `latin-ext` bare når en tekst faktisk
+trenger et tegn derfra.
+
+Gevinsten er den samme som for Supabase-kopien, pluss én til: `style-src` og
+`font-src` er begge `'self'`, så appen har ingen tredjepartsvert i det hele
+tatt; teksten vises like raskt om Google er nede eller blokkert; og ingen
+adresse fra appen når en tredjepart under lasting. Filnavnet bærer versjonen
+(`v7` = Google Fonts' utgave), så `/assets/fonts/(.*)` kan ha langtidscache
+(`immutable`) uten `?b=<build-ID>` — URL-en endrer seg når innholdet gjør det.
+
+`font-display: swap` står i begge erklæringene: teksten tegnes med
+reservefonten med én gang og byttes når fila er inne. En font som ikke laster
+skal aldri gi tom skjerm.
+
+`tests/security-headers.test.js` regner ut SHA-384 av hver innsjekket fontfil og
+sammenligner med sjekksummen for den versjonen — en redigert eller uregistrert
+fil feiler i CI. Testen slår også fast at `styles.css` ikke henter fonter fra en
+fremmed vert, at `index.html` verken laster stilark eller `preconnect`-er dit,
+og at produksjonsbygget faktisk publiserer fontfilene.
+
+Fonten er lisensiert under SIL Open Font License 1.1; lisensteksten følger med i
+`assets/fonts/OFL.txt`.
+
+**Oppdatering** er de samme stegene som for `vendor/`: hent Googles stilark med
+en moderne `User-Agent` (ellers får du `ttf`, ikke `woff2`), last ned filene
+stilarket peker på, legg dem inn under nye navn med den nye versjonen, oppdater
+`url()`-ene og `unicode-range` i `styles.css`, og legg de nye sjekksummene inn i
+`FONT_SHA384` i `tests/security-headers.test.js`.
+
+```bash
+UA='Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36'
+curl -sS -A "$UA" 'https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible+Next:wght@400..700&display=swap'
+openssl dgst -sha384 -binary assets/fonts/<fil>.woff2 | base64 -w0   # → FONT_SHA384
+```
 
 ## Testmodus finnes ikke i produksjon
 

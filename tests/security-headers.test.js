@@ -29,7 +29,11 @@
        filnavnet, og innholdet er byte for byte det npm publiserte — sjekksummen
        her regnes ut på nytt fra fila. Appen har ingen eksterne skriptkilder i
        det hele tatt, og produksjonsbygget publiserer kopien.
-    9. Testmodusen finnes ikke i produksjonsbygget: verken dev-mock.js,
+    9. Webfonten er selvhostet på samme måte: @font-face i styles.css peker på
+       innsjekkede filer i assets/fonts/, sjekksummene regnes ut på nytt,
+       index.html laster ikke et eneste stilark eller preconnect fra en fremmed
+       vert, og produksjonsbygget publiserer fontfilene.
+   10. Testmodusen finnes ikke i produksjonsbygget: verken dev-mock.js,
        mock-backend.js eller taggen som laster dem — og build.js sier tydelig
        fra hvis markørene forsvinner. Preview-deployer (VERCEL_ENV=preview)
        BEHOLDER den, fordi ?mock=1 er måten å teste en preview uten å røre
@@ -190,10 +194,10 @@ check("connect-src tillater eget origin ('self' — /version.json i oppdaterings
 check('connect-src tillater ingen andre verter enn Supabase og eget origin',
   conn.length === 3, conn);
 
-check('style-src tillater Google Fonts-stilarket (dokumentert unntak)',
-  (headerCsp['style-src'] || []).indexOf('https://fonts.googleapis.com') > -1, headerCsp['style-src']);
-check('font-src tillater kun fonts.gstatic.com',
-  String(headerCsp['font-src']) === 'https://fonts.gstatic.com', headerCsp['font-src']);
+check("style-src er låst til eget origin (webfonten er selvhostet)",
+  String(headerCsp['style-src']) === "'self'", headerCsp['style-src']);
+check("font-src er låst til eget origin (assets/fonts/)",
+  String(headerCsp['font-src']) === "'self'", headerCsp['font-src']);
 
 /* ================= 8) Supabase-biblioteket: lokal, låst kopi ================= */
 // Sjekksummen av hver versjon vi har sjekket inn, regnet ut av filen npm
@@ -226,7 +230,46 @@ check('index.html laster ingen skript fra en fremmed vert',
   !/<script[^>]+src="(?:https?:)?\/\//i.test(html),
   (html.match(/<script[^>]+src="(?:https?:)?\/\/[^"]*"/i) || [])[0]);
 
-/* ================= 9) Testmodus finnes ikke i produksjonsbygget ========= */
+/* ================= 9) Webfonten: lokal kopi ================= */
+// Samme prinsipp som vendor/: fila ligger i repoet, versjonen står i navnet, og
+// sjekksummen regnes ut på nytt her. Utsnittene er de to Google Fonts selv
+// leverte for denne fonten (latin + latin-ext), hvert av dem det VARIABLE
+// snittet — derfor dekker én fil hele vektspennet appen bruker (400–700).
+const FONT_SHA384 = {
+  'assets/fonts/atkinson-hyperlegible-next-v7-latin.woff2':
+    'sha384-trwxfJeLbKJXXCFjfWaVjAar+UYeUZQt1LSkQo+FWdQjPr9NV49u5HDW2Tgfny9p',
+  'assets/fonts/atkinson-hyperlegible-next-v7-latin-ext.woff2':
+    'sha384-dqgjE834HnKYas4E7qHLTgDhvisF5NRsRB9RLwdm/7qWJn2pZWra4ATev5OScOH8',
+};
+
+const css = fs.readFileSync(path.join(ROOT, 'styles.css'), 'utf8');
+const fontUrls = (css.match(/url\('([^']+\.woff2)'\)/g) || [])
+  .map((m) => /url\('([^']+)'\)/.exec(m)[1]);
+check('styles.css erklærer @font-face for webfonten', /@font-face/.test(css));
+check('styles.css peker på de innsjekkede fontfilene',
+  fontUrls.slice().sort().join(' ') === Object.keys(FONT_SHA384).sort().join(' '), fontUrls);
+Object.keys(FONT_SHA384).forEach((f) => {
+  const p = path.join(ROOT, f);
+  const sha = fs.existsSync(p)
+    ? 'sha384-' + crypto.createHash('sha384').update(fs.readFileSync(p)).digest('base64')
+    : null;
+  check(f + ' er sjekket inn og uendret', sha === FONT_SHA384[f],
+    { regnet: sha, forventet: FONT_SHA384[f] });
+});
+// Poenget med å selvhoste: ingen tredjepartsvert i det hele tatt. Et gjenglemt
+// <link> til Google Fonts ville ellers ligget der uten å virke (CSP blokkerer
+// det), og både lekke adressen og koste en rundtur.
+check('styles.css henter ingen font fra en fremmed vert',
+  !/url\(\s*['"]?(?:https?:)?\/\//i.test(css),
+  (css.match(/url\(\s*['"]?(?:https?:)?\/\/[^)]*\)/i) || [])[0]);
+check('index.html laster ingen stilark fra en fremmed vert',
+  !/<link[^>]+rel="stylesheet"[^>]+href="(?:https?:)?\/\//i.test(html),
+  (html.match(/<link[^>]+rel="stylesheet"[^>]+href="(?:https?:)?\/\/[^"]*"/i) || [])[0]);
+check('index.html har ingen preconnect/dns-prefetch til en fremmed vert',
+  !/<link[^>]+rel="(?:preconnect|dns-prefetch)"/i.test(html),
+  (html.match(/<link[^>]+rel="(?:preconnect|dns-prefetch)"[^>]*>/i) || [])[0]);
+
+/* ================= 10) Testmodus finnes ikke i produksjonsbygget ========= */
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'huskis-sec-'));
 function runBuild(dir, env) {
   const dest = path.join(tmp, dir);
@@ -260,6 +303,11 @@ check('CSP-meta-taggen er med i produksjonsbygget',
 // skulle vært — appen kommer da ikke forbi innloggingsskjermen.
 check('produksjonsbygget publiserer den lokale Supabase-kopien',
   !!lib && fs.existsSync(path.join(out, lib)), lib);
+// Uten fontfilene i dist/ ville @font-face pekt på en 404, og appen falt
+// tilbake til systemfonten i produksjon — uten at noe annet feilet.
+Object.keys(FONT_SHA384).forEach((f) => {
+  check('produksjonsbygget publiserer ' + f, fs.existsSync(path.join(out, f)));
+});
 
 // Vercel setter VERCEL_ENV selv. Produksjonsdeployen skal aldri få testmodusen,
 // uansett hvordan builden startes.
