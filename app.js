@@ -11884,6 +11884,14 @@
     const step = demoStep();
     const el = step.narrated ? null : demoTarget();
     const margin = 12, gap = 16, half = 7;
+    /* Mål kortet UKAPPET. Leses høyden mens forrige rundes `maxHeight` står
+       på, måler vi vår egen forrige beslutning i stedet for kortet: en kappet
+       høyde ser ut til å få plass, klippet fjernes, kortet vokser — og neste
+       runde kapper det igjen. Der scroll/resize fyrer i ett kjør (en telefon)
+       blir løkka synlig som at nederste del av kortet flimrer opp og ned.
+       Nullstillingen skjer i samme oppgave som målingen, så ingen mellom-
+       tilstand rekker å males. */
+    tourCard.style.maxHeight = '';
     const cw = tourCard.offsetWidth;
     const ch = tourCard.offsetHeight;
     const vw = window.innerWidth;

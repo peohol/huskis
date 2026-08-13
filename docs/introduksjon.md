@@ -137,7 +137,10 @@ Poenget er at brukeren skal se hele appen mens hen bruker den. Derfor:
 - **Kortet legger seg aldri oppå målet.** `placeTour()` velger under → over →
   høyre → venstre, og pilspissen følger med til riktig kant. Er det ikke plass
   til et helt kort noe sted, velges den største luften, og kortet kappes til den
-  og ruller innvendig.
+  og ruller innvendig. Regnestykket starter alltid fra kortets UKAPPEDE høyde:
+  måles den mens forrige rundes klipp står på, måler plasseringen sin egen
+  forrige beslutning, og kortet veksler mellom kappet og ukappet for hver
+  scroll og resize.
 - **Et drag har også en DESTINASJON**, og et kort oppå den gjør steget like
   umulig som et kort oppå målet. `clear()` på steget gir det ekstra elementet
   (kategorien i `drag_into_cat`); plasseringen regnes på rektangelet som rommer

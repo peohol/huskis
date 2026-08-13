@@ -15,9 +15,9 @@ autoritative dokumentet for fagfeltet.
 |---|---|
 | Målarkitektur | Én HTML/CSS/JS-kodebase + Capacitor for Android/iOS |
 | Nåværende fase | **Fase 2 — funksjonell paritet på Android** |
-| Status | Fase 1 er ferdig og verifisert (se fasen under). Fase 2 er i gang fra automatiseringssiden: den delen av matrisen som kan avgjøres uten telefon er gjennomgått og dekket av tester, og de invariantene som gjelder selve WebView-originet er nå voktet. Selve matrisen er ikke kjørt på telefon ennå. |
+| Status | Hele paritetsmatrisen er kjørt på fysisk telefon med en browserklient på samme konto samtidig, og alle punktene er krysset av. Ingen feil ga datatap, synkfeil eller blokkert kjernefunksjon. Runden fant ett avvik — en flimrende instruksboble i demonstrasjonen — som lå i delt kode og er rettet med regresjonstest. Fiksen er verifisert i nettleser på mobil-viewport, men ikke ennå sett på selve telefonen. |
 | Neste milepæl | Ingen kjent Android-spesifikk feil som gir datatap, synkfeil, blokkert kjernefunksjon eller dårligere tilgjengelighet enn web |
-| Ett neste praktiske steg | Kjør de fysiske punktene i fase 2 på telefonen med en browserklient på samme konto samtidig, og loggfør hvert avvik som enten en ordinær Huskis-feil eller en native-spesifikk feil |
+| Ett neste praktiske steg | Installer en fersk debug-APK og kjør demonstrasjonen fram til «Slett listepunktet»: står instruksboblen stille når objektmenyen åpner seg, er fase 2 oppfylt og fase 3 kan begynne |
 | OTA | Ikke innført; skal ikke innføres før Android-baselinen er stabil |
 | iOS | Senere fase; ikke en del av første implementering |
 
@@ -275,36 +275,54 @@ gjør at den kan konsentrere seg om det bare en telefon kan svare på.
 | lik build-ID ⇒ ingen banner, ingen reload | `auto-update`, `build-version` |
 | appen peker ikke mot og reloader ikke `huskis.no` | `capacitor-android`, `canonical-origin`, `auth-redirect` |
 
-## Gjenstår — må testes på fysisk Android
+## Testet på fysisk Android
 
-Disse kan ikke avgjøres av kodeinspeksjon eller browser-emulering. Test dem med
-en browserklient innlogget på samme konto samtidig:
+Kjørt på telefon med en browserklient innlogget på samme konto samtidig,
+etter sekvensen under:
 
-- [ ] registrering/innlogging/utlogging;
-- [ ] språk og kontoinnstillinger;
-- [ ] opprette, endre navn, flytte og omorganisere alle objektnivåer;
-- [ ] drag-and-drop og touch-hold på de to DnD-scope-ene;
-- [ ] sletting, angre, gjenoppretting og permanent tømming;
-- [ ] synk mellom mobil og browser uten gjenoppståtte eller tapte objekter;
-- [ ] delt innhold, roller og invitasjoner;
-- [ ] offline → online;
-- [ ] bakgrunn → forgrunn;
-- [ ] tvungen avslutning → ny oppstart;
-- [ ] tastatur, fokus, modaler, popovere og smale viewporter;
-- [ ] tilgjengelighet og berøringsflater;
-- [ ] ingen uventet reload mens lokal/synkende tilstand er utrygg;
-- [ ] auto-oppdateringsmekanikken oppfører seg forsvarlig i native runtime:
+- [x] registrering/innlogging/utlogging;
+- [x] språk og kontoinnstillinger;
+- [x] opprette, endre navn, flytte og omorganisere alle objektnivåer;
+- [x] drag-and-drop og touch-hold på de to DnD-scope-ene;
+- [x] sletting, angre, gjenoppretting og permanent tømming;
+- [x] synk mellom mobil og browser uten gjenoppståtte eller tapte objekter;
+- [x] delt innhold, roller og invitasjoner;
+- [x] offline → online;
+- [x] bakgrunn → forgrunn;
+- [x] tvungen avslutning → ny oppstart;
+- [x] tastatur, fokus, modaler, popovere og smale viewporter;
+- [x] tilgjengelighet og berøringsflater;
+- [x] ingen uventet reload mens lokal/synkende tilstand er utrygg;
+- [x] auto-oppdateringsmekanikken oppfører seg forsvarlig i native runtime:
       `/version.json` er rot-relativ, så i appen leser `update-check.js` den
-      INNEBYGDE fila og ser alltid sin egen build-ID. Den skal altså ikke vise
-      oppdateringsbanner eller reloade — bekreft det, i stedet for å anta det.
-      Å faktisk kunne oppdatere web-assetene er fase 5.
+      INNEBYGDE fila og ser alltid sin egen build-ID. Den viser altså verken
+      oppdateringsbanner eller reloader. Å faktisk kunne oppdatere
+      web-assetene er fase 5.
+
+**Ingen feil med datatap, synkfeil eller blokkert kjernefunksjon.** Runden fant
+ett avvik, i demonstrasjonen: instruksen på steget «Slett listepunktet» er lang,
+og når objektmenyen åpner seg må kortet vike for både målet og panelet. Kortet
+blinket da opp og ned. Årsaken lå i delt kode, ikke i native runtime —
+`placeTour()` målte kortets høyde mens forrige rundes `maxHeight` sto på, altså
+sin egen forrige beslutning, og vekslet dermed mellom kappet og ukappet.
+Browseren hadde den samme løkka, men fyrer ikke scroll/resize ofte nok til at
+den ble synlig. Rettet ved å måle ukappet; regresjonen ligger i
+`tests/onboarding.test.js` (sjekk 11b), som feiler uten fiksen på
+mobil-viewport.
+
+TalkBack leste norsk tekst med engelsk stemme. Det er telefonens
+TTS-stemmeutvalg, ikke Huskis: `lang`-håndteringen er på plass
+([`tilgjengelighet.md`](tilgjengelighet.md)), og en installert norsk stemme
+løser det.
 
 Feil som finnes både i browser og mobil er ordinære Huskis-feil. Feil som bare
 finnes i native runtime skal få avgrensede plattformtilpasninger og egne tester.
 
 ## Slik kjører du den fysiske runden
 
-Én sammenhengende økt dekker hele lista. Oppsett: debug-APK-en installert
+Dette er oppskriften runden over ble kjørt etter, og den gjenbrukes ved
+etterkontroll og på iOS i fase 7. Én sammenhengende økt dekker hele lista.
+Oppsett: debug-APK-en installert
 (oppskrift i fase 1), `huskis.no` åpen i en nettleser på en annen maskin, og en
 **ny testkonto** (T) som brukes begge steder — registreringen er selv et
 testpunkt. Din vanlige konto (P) er motparten når deling skal testes.
@@ -504,9 +522,8 @@ De skal ikke snike seg inn i fundamentfasene.
 
 ## Neste oppgave
 
-Fullfør **Fase 2**: kjør de gjenstående punktene på en fysisk Android-telefon,
-med en browserklient innlogget på samme konto samtidig. Oppskrift på å få
-APK-en på telefonen står i fase 1. Feil som finnes begge steder er ordinære
-Huskis-feil og hører hjemme i sin egen endring; feil som bare finnes i native
-runtime skal få en avgrenset plattformtilpasning og en egen test. Kryss av
-punktene etter hvert som de faktisk er testet.
+Lukk **Fase 2** med én etterkontroll: installer en fersk debug-APK (oppskrift i
+fase 1) og kjør demonstrasjonen fram til steget «Slett listepunktet». Står
+instruksboblen stille når objektmenyen åpner seg, er ferdigkriteriet oppfylt og
+**Fase 3** kan begynne — med tilbakeknappen, safe areas og skjermtastaturet som
+første punkter.

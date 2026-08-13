@@ -370,7 +370,33 @@ async function run(label, vp, mobile) {
   await pickInMenu(p, '.category[data-id="' + catId + '"] .cat-head', 'Løs opp kategorien');
 
   await waitStep(p, 'delete_item');
-  await pickInMenu(p, rader + ':first-child', 'Slett listepunktet');
+  /* Regresjon, funnet i den fysiske Android-runden (docs/mobilapp-plan.md):
+     instruksen på DETTE steget er lang, og når objektmenyen åpner seg må
+     kortet vike for panelet i tillegg til målet. Blir det for lite plass,
+     kappes kortet og ruller innvendig — det er meningen. Men plasseringen må
+     være STABIL: placeTour() målte kortets høyde MENS forrige rundes maxHeight
+     sto på, altså sin egen forrige beslutning. En kappet høyde så ut til å få
+     plass, klippet ble fjernet, kortet vokste, og neste scroll/resize kappet
+     det igjen. På en telefon, der scroll og resize fyrer i ett kjør, ble det
+     synlig som at nederste del av boblen flimret opp og ned. */
+  await p.locator(rader + ':first-child .obj-menu-btn').first().click();
+  await p.waitForFunction(() => !document.getElementById('obj-menu').hidden, null, { timeout: 5000 });
+  await p.waitForTimeout(350);   // FAST: menypanelet har sin egen åpne-animasjon
+  const bobla = await p.evaluate(async () => {
+    const card = document.getElementById('tour-card');
+    const snaps = [];
+    for (let i = 0; i < 6; i++) {
+      window.dispatchEvent(new Event('resize'));
+      await new Promise((r) => requestAnimationFrame(r));
+      const r = card.getBoundingClientRect();
+      snaps.push(Math.round(r.top) + '×' + Math.round(r.height));
+    }
+    return { snaps, kappet: card.style.maxHeight !== '' };
+  });
+  log(label + ' 11b: instruksboblen står stille når objektmenyen presser den (ingen flimring)',
+    bobla.snaps.every((s) => s === bobla.snaps[0]), JSON.stringify(bobla));
+  await p.locator('#obj-menu-panel .obj-menu-row', { hasText: 'Slett listepunktet' }).click();
+  await p.waitForTimeout(250);
   await waitStep(p, 'open_item_trash');
   await p.locator(kort + ' .item-trash-btn').click();
   await waitStep(p, 'restore_item');
