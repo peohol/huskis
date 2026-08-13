@@ -34,10 +34,19 @@ const { execSync } = require('child_process');
 
 const ROOT = __dirname;
 
-// Filer/mapper som IKKE skal publiseres (kildekode-vedlegg, ikke app).
+/* Filer/mapper som IKKE skal publiseres (kildekode-vedlegg, ikke app).
+
+   Listen er invarianten «dist/ inneholder bare web-produksjonsartefakter», og
+   den er stedet den uttrykkes. Mobilprosjektet (`docs/mobilapp-plan.md`) la til
+   npm- og Capacitor-tooling i repo-roten: `package.json`, lockfila,
+   Capacitor-konfigurasjonen og de native prosjektene er BYGGE-input, ikke
+   web-assets, og skal aldri havne på huskis.no. `ios/` står her før den finnes,
+   fordi mappen ellers ville blitt publisert den dagen den genereres.
+   `tests/build-version.test.js` vokter listen. */
 const SKIP = new Set([
   '.git', '.github', '.claude', '.vercel', 'node_modules', 'dist',
   'tests', 'docs', 'supabase', 'build.js', 'vercel.json',
+  'package.json', 'package-lock.json', 'capacitor.config.json', 'android', 'ios',
 ]);
 const SKIP_EXT = new Set(['.md']);
 

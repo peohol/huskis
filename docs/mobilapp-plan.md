@@ -15,8 +15,9 @@ autoritative dokumentet for fagfeltet.
 |---|---|
 | Målarkitektur | Én HTML/CSS/JS-kodebase + Capacitor for Android/iOS |
 | Nåværende fase | **Fase 1 — mobilfundament + første Android-debugbuild** |
-| Status | Ikke startet |
+| Status | Fundamentet er på plass i repoet: Capacitor 8.5.0 pinnet, `android/` sjekket inn, `dist/` er web-assets, og GitHub Actions bygger debug-APK-en. Fasen er IKKE ferdig — APK-en er ennå ikke installert og logget inn på en fysisk telefon. |
 | Neste milepæl | Installérbar Android-debugbuild som kjører dagens `dist/` og kan logge inn mot ekte Supabase |
+| Ett neste praktiske steg | Peder laster ned artifactet `huskis-debug-apk` fra workflowen «Android debug-APK», sideloader `app-debug.apk` på telefonen, og logger inn mot ekte Supabase |
 | OTA | Ikke innført; skal ikke innføres før Android-baselinen er stabil |
 | iOS | Senere fase; ikke en del av første implementering |
 
@@ -97,15 +98,24 @@ de native prosjektene; mobilappen skal ikke ha sin egen kopi av Huskis-logikken.
 
 ### Teknisk baseline
 
-Ved oppstart av planen er Capacitors offisielle dokumentasjon på v8, og v8
-krever Node 22+. Huskis-CI bruker allerede Node 22. Velg en konkret kompatibel
-Capacitor-versjon og pin den; oppgraderinger gjøres senere som egne, bevisste
-endringer.
+| Ledd | Valgt | Hvorfor |
+|---|---|---|
+| Capacitor | **8.5.0**, pinnet eksakt for `@capacitor/core`, `@capacitor/cli` og `@capacitor/android` | siste stabile major; krever Node 22+, som Huskis-CI allerede bruker |
+| Node | 22 | samme pin som `ci.yml` |
+| JDK | 21 | `@capacitor/android` kompilerer med `sourceCompatibility`/`targetCompatibility` 21 |
+| Android SDK | `minSdkVersion 24`, `compileSdkVersion`/`targetSdkVersion` 36 | Capacitor 8s egne standardverdier (`android/variables.gradle`) |
+| Android Gradle Plugin / Gradle | 8.13.0 / 8.14.3 | følger med Capacitor-malen |
 
-`package.json` må innføres for Capacitor. Huskis trenger ikke SemVer for denne
-endringen: dersom `version` utelates, kan dagens `version.json.version = null`
-beholdes. Første mobil-PR skal eksplisitt kontrollere at introduksjonen av npm-
-tooling ikke endrer webrelease-semantikken utilsiktet.
+Oppgraderinger gjøres senere som egne, bevisste endringer — ikke som en
+sidevirkning av en annen PR.
+
+`package.json` er innført for Capacitor og har **ikke** noe `version`-felt, slik
+at `version.json.version` fortsatt er `null` og build-ID-en forblir den eneste
+release-identiteten ([`auto-update.md`](auto-update.md)). Den er `private`, har
+ingen bundler eller frontendrammeverk, og `package-lock.json` er sjekket inn.
+Vercel hopper over install-steget (`installCommand: ""` i `vercel.json`):
+`node build.js` har ingen avhengigheter, så produksjonsdeployen skal ikke
+installere Android-toolingen.
 
 ---
 
@@ -130,37 +140,78 @@ Android-app, uten OTA og uten å endre funksjonaliteten i webappen.
 
 ## Implementasjon
 
-- [ ] Opprett en minimal `package.json` og lockfil uten å innføre bundler eller
+- [x] Opprett en minimal `package.json` og lockfil uten å innføre bundler eller
       frontendrammeverk.
-- [ ] Installer og pin `@capacitor/core`, `@capacitor/cli` og Android-plattformen
+- [x] Installer og pin `@capacitor/core`, `@capacitor/cli` og Android-plattformen
       i kompatible versjoner.
-- [ ] Opprett Capacitor-konfigurasjon med `appName = Huskis`, planlagt
+- [x] Opprett Capacitor-konfigurasjon med `appName = Huskis`, planlagt
       `appId = no.huskis.app` og `webDir = dist`.
-- [ ] Generer og sjekk inn `android/`.
-- [ ] Legg til små npm-skript for den repeterbare kjeden
+- [x] Generer og sjekk inn `android/`.
+- [x] Legg til små npm-skript for den repeterbare kjeden
       `node build.js` → Capacitor sync/copy → Android-build.
-- [ ] Oppdater `.gitignore` for `node_modules` og genererte native build-output,
+- [x] Oppdater `.gitignore` for `node_modules` og genererte native build-output,
       men **ikke** ignorer native prosjektfiler som skal være kildekode.
-- [ ] Oppdater `build.js` slik at npm-/Capacitor-/native tooling aldri kopieres
+- [x] Oppdater `build.js` slik at npm-/Capacitor-/native tooling aldri kopieres
       inn i `dist/`.
-- [ ] Legg til regresjonssjekk som beviser at `dist/` fortsatt bare inneholder
+- [x] Legg til regresjonssjekk som beviser at `dist/` fortsatt bare inneholder
       web-produksjonsartefakter, og at Capacitor peker på `dist/` uten
       produksjons-`server.url`.
-- [ ] Lag en enkel GitHub Actions-vei som kan produsere en Android debug-APK som
+- [x] Lag en enkel GitHub Actions-vei som kan produsere en Android debug-APK som
       artifact, slik at fysisk testing ikke avhenger av lokal Android Studio.
-- [ ] Ikke innfør iOS, OTA, pushvarsler, biometrikk eller annen native
+- [x] Ikke innfør iOS, OTA, pushvarsler, biometrikk eller annen native
       funksjonalitet i denne fasen.
+
+### Slik henger delene sammen
+
+```text
+node build.js  →  dist/  ──►  Vercel (huskis.no)
+                        └──►  npx cap sync android
+                                 → android/app/src/main/assets/public/
+                                 → ./gradlew assembleDebug
+                                 → android/app/build/outputs/apk/debug/app-debug.apk
+```
+
+| Fil | Rolle |
+|---|---|
+| `package.json` / `package-lock.json` | npm-manifest for Capacitor-toolingen. Ikke en del av webappen. |
+| `capacitor.config.json` | `appId`, `appName`, `webDir = dist`. Ingen `server`-blokk — appen kjører lokale web-assets. |
+| `android/` | Det native skallet, sjekket inn som kildekode. Capacitors egen `android/.gitignore` holder Gradle-output, `local.properties`, den kopierte `dist/`-en og de genererte konfigurasjonsfilene ute; `npm run sync:android` gjenskaper alt det. |
+| `.github/workflows/android-debug.yml` | Bygger debug-APK-en og laster den opp som artifact `huskis-debug-apk`. Manuell trigger + `pull_request` avgrenset med `paths`, så vanlige Huskis-PR-er ikke betaler for en Gradle-runde. |
+| `tests/capacitor-android.test.js` | Vokter invariantene over. |
+| `tests/build-version.test.js` | Vokter at toolingen ikke havner i `dist/`, og at `version.json` beholder `version: null`. |
 
 ## Verifisering
 
-- [ ] `node build.js` er grønn.
-- [ ] `node tests/build-version.test.js` er grønn.
-- [ ] Relevante release-/buildtester er grønne etter at `build.js` er endret.
-- [ ] Capacitor kan synkronisere `dist/` inn i Android-prosjektet.
+- [x] `node build.js` er grønn.
+- [x] `node tests/build-version.test.js` er grønn.
+- [x] Relevante release-/buildtester er grønne etter at `build.js` er endret
+      (`release-pipeline`, `db-contract`, `security-headers`, `no-legacy-domain`,
+      `i18n`, `shard-distribution`, `capacitor-android`).
+- [x] Capacitor kan synkronisere `dist/` inn i Android-prosjektet.
 - [ ] Gradle kan produsere en debug-APK fra rent checkout.
 - [ ] APK-en kan installeres på fysisk Android-enhet.
 - [ ] Appen starter og viser Huskis uten å hente selve UI-et fra `huskis.no`.
 - [ ] Innlogging mot ekte Supabase fungerer.
+
+Gradle-steget er ikke verifisert lokalt: utviklingsmiljøet der denne endringen
+ble gjort har ingen Android SDK, og `dl.google.com` er blokkert av
+egress-proxyen, så AGP-artefaktene kan ikke hentes. `android-debug.yml` er
+derfor den autoritative byggtesten, og punktet krysses av når den har produsert
+en APK.
+
+### Første fysiske test
+
+1. Åpne PR-ens kjøring av workflowen **«Android debug-APK»** (eller start den
+   manuelt: Actions → «Android debug-APK» → «Run workflow»).
+2. Last ned artifactet **`huskis-debug-apk`** og pakk ut `app-debug.apk`.
+3. Overfør APK-en til telefonen og installer den. Android spør om lov til å
+   installere fra ukjent kilde første gang — debug-APK-en er signert med
+   Androids standard debug-nøkkel, ikke en butikknøkkel.
+4. Start appen. Den skal vise Huskis fra sine egne innebygde filer; slå på
+   flymodus og start på nytt for å bekrefte at UI-et ikke hentes fra `huskis.no`
+   (innlogging krever selvsagt nett).
+5. Logg inn mot ekte Supabase og bekreft at innholdet synkes.
+6. Kryss av de gjenstående punktene over i denne planen.
 
 **Ferdigkriterium:** en fysisk Android-telefon kan kjøre en installert Huskis-
 debugbuild fra repoets vanlige web-build, mens browserversjonen fortsatt bygger
@@ -187,7 +238,12 @@ Test på fysisk Android, helst samtidig med en browserklient på samme konto:
 - [ ] tvungen avslutning → ny oppstart;
 - [ ] tastatur, fokus, modaler, popovere og smale viewporter;
 - [ ] tilgjengelighet og berøringsflater;
-- [ ] ingen uventet reload mens lokal/synkende tilstand er utrygg.
+- [ ] ingen uventet reload mens lokal/synkende tilstand er utrygg;
+- [ ] auto-oppdateringsmekanikken oppfører seg forsvarlig i native runtime:
+      `/version.json` er rot-relativ, så i appen leser `update-check.js` den
+      INNEBYGDE fila og ser alltid sin egen build-ID. Den skal altså ikke vise
+      oppdateringsbanner eller reloade — bekreft det, i stedet for å anta det.
+      Å faktisk kunne oppdatere web-assetene er fase 5.
 
 Feil som finnes både i browser og mobil er ordinære Huskis-feil. Feil som bare
 finnes i native runtime skal få avgrensede plattformtilpasninger og egne tester.
@@ -365,7 +421,7 @@ De skal ikke snike seg inn i fundamentfasene.
 
 ## Neste oppgave
 
-Start **Fase 1**. Gjør den minste sammenhengende endringen som gir et
-reproduserbart Capacitor/Android-fundament og en byggbar debug-APK, uten OTA,
-iOS eller nye produktfunksjoner. Oppdater denne planen med faktisk verifisert
-status før PR-en anses ferdig.
+Fullfør **Fase 1**: installer debug-APK-en fra artifactet `huskis-debug-apk` på
+en fysisk Android-telefon, bekreft at appen viser Huskis fra sine egne innebygde
+filer, og logg inn mot ekte Supabase. Kryss av de gjenstående punktene i fase 1
+og oppdater statusboksen. Først da starter **Fase 2**.

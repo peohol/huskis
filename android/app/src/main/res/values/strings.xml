@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">Huskis</string>
+    <string name="title_activity_main">Huskis</string>
+    <string name="package_name">no.huskis.app</string>
+    <string name="custom_url_scheme">no.huskis.app</string>
+</resources>

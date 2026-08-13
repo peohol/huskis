@@ -13,9 +13,14 @@
        henter ny kode, mens filene kan caches lenge).
     5. To builds gir to forskjellige ID-er, og Vercels deploy-ID brukes når
        den finnes.
-    6. Tester/dokumentasjon/SQL publiseres ikke.
-    7. vercel.json: no-store på /version.json, revalidering av HTML-en,
-       langtidscache på de versjonerte filene.
+    6. Tester/dokumentasjon/SQL publiseres ikke — og heller ikke npm-,
+       Capacitor- eller native tooling (`docs/mobilapp-plan.md`): mobilskallet
+       bygger PÅ `dist/`, det er ikke en del av den.
+    7. package.json uten `version` beholder `version.json.version = null`, slik
+       at mobilprosjektets package.json ikke smugler inn SemVer-semantikk.
+    8. vercel.json: no-store på /version.json, revalidering av HTML-en,
+       langtidscache på de versjonerte filene, og ingen npm-install i
+       produksjonsbuilden (`node build.js` har ingen avhengigheter).
 
   Kjør:
     node tests/build-version.test.js
@@ -55,6 +60,14 @@ check('version.json finnes', fs.existsSync(path.join(outA, 'version.json')));
 check('version.json har en ikke-tom buildId', typeof a.version.buildId === 'string' && a.version.buildId.length > 0);
 check('version.json har version-feltet (SemVer eller null uten package.json)',
   a.version.version === null || typeof a.version.version === 'string');
+/* Repoet HAR en package.json (den finnes kun for Capacitor-skallet), men uten
+   `version`. Da skal build-ID-en fortsatt være den eneste release-identiteten
+   og `version` forbli null — ellers ville mobilprosjektet stille ha innført
+   SemVer i webreleasen. Se docs/auto-update.md og docs/mobilapp-plan.md. */
+const pkg = JSON.parse(fs.readFileSync(path.join(ROOT, 'package.json'), 'utf8'));
+check('package.json har ikke et version-felt', !('version' in pkg));
+check('version.json.version er null når package.json mangler version',
+  a.version.version === null);
 check('builtAt er et gyldig ISO-tidspunkt',
   typeof a.version.builtAt === 'string' && !isNaN(Date.parse(a.version.builtAt)) &&
   new Date(a.version.builtAt).toISOString() === a.version.builtAt);
@@ -82,10 +95,33 @@ check('deploy-ID-en bygges også inn i klienten', metaBuildId(c.html) === c.vers
 const names = fs.readdirSync(outA);
 ['tests', 'docs', 'supabase', 'build.js', 'vercel.json', 'CLAUDE.md', 'TODO.md']
   .forEach((n) => check('publiserer ikke ' + n, names.indexOf(n) === -1));
+/* Byggetooling er IKKE web-assets. `dist/` er det som serveres fra huskis.no;
+   npm-manifestet, lockfila, Capacitor-konfigurasjonen og de native prosjektene
+   er input til builden. Havner de i `dist/`, publiseres avhengighetsgrafen og
+   den native konfigurasjonen på et offentlig domene. `ios/` finnes ikke ennå,
+   men står i SKIP-listen i build.js nettopp for at den aldri skal rekke å bli
+   publisert den dagen den genereres. */
+['package.json', 'package-lock.json', 'capacitor.config.json', 'android', 'ios', 'node_modules']
+  .forEach((n) => check('publiserer ikke tooling: ' + n, names.indexOf(n) === -1));
+/* …og heller ikke lenger nede i treet: `copyDir` filtrerer bare på toppnivå,
+   så en tooling-fil i en underkatalog ville sluppet gjennom usett. */
+function walk(dir, base, ut) {
+  for (const n of fs.readdirSync(dir)) {
+    const p = path.join(dir, n), rel = base ? base + '/' + n : n;
+    if (fs.statSync(p).isDirectory()) walk(p, rel, ut); else ut.push(rel);
+  }
+  return ut;
+}
+const alle = walk(outA, '', []);
+const lekkasjer = alle.filter((f) => /(^|\/)(package(-lock)?\.json|capacitor\.config\.json)$/.test(f)
+  || /(^|\/)(node_modules|android|ios)\//.test(f));
+check('ingen tooling-filer noe sted i dist/ [' + (lekkasjer.join(', ') || 'ingen') + ']',
+  lekkasjer.length === 0);
+
 ['app.js', 'styles.css', 'icons.js', 'i18n.js', 'config.js', 'update-check.js', 'favicon.svg', 'assets', 'vendor']
   .forEach((n) => check('publiserer ' + n, names.indexOf(n) > -1));
 
-// 7) Cache-headerne.
+// 7–8) Cache-headerne + install-steget.
 const vc = JSON.parse(fs.readFileSync(path.join(ROOT, 'vercel.json'), 'utf8'));
 const headerFor = (src) => {
   const e = (vc.headers || []).find((h) => h.source === src);
@@ -93,6 +129,11 @@ const headerFor = (src) => {
   return cc ? cc.value : '';
 };
 check('vercel.json bygger med build.js', vc.buildCommand === 'node build.js' && vc.outputDirectory === 'dist');
+/* package.json finnes kun for Capacitor-skallet. `node build.js` har ingen
+   avhengigheter, så produksjonsdeployen skal ikke installere Android-toolingen
+   for å kopiere statiske filer. Tom streng = Vercel hopper over install-steget. */
+check('vercel.json installerer ikke npm-avhengigheter i produksjonsbuilden',
+  vc.installCommand === '');
 check('/version.json caches ikke', /no-store/.test(headerFor('/version.json')));
 check('/version.json caches heller ikke på CDN-et', ((vc.headers || [])
   .find((h) => h.source === '/version.json').headers || [])

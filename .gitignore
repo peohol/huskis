@@ -1,3 +1,10 @@
+# Webbuilden (node build.js) og npm-avhengighetene for Capacitor-skallet.
 dist/
 node_modules/
 .vercel
+
+# De native prosjektene ER kildekode og sjekkes inn (docs/mobilapp-plan.md).
+# Det genererte og maskinspesifikke i dem — Gradle-output, `local.properties`,
+# de kopierte web-assetene og Capacitors egne genererte konfigurasjonsfiler —
+# ignoreres av `android/.gitignore`, som Capacitor selv legger ved prosjektet.
+# `npm run sync:android` gjenskaper alt det ignorerte fra `dist/`.

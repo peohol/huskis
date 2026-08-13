@@ -18,6 +18,12 @@ som håndhever det.
 mock-backenden (`?mock=1`), SQL-testene mot en fersk PostgreSQL i en
 service-container. Den har ikke tilgang til `SUPABASE_DB_URL`.
 
+Repoet har én workflow til, `android-debug.yml`, som står helt utenfor denne
+kjeden: den pakker `dist/` inn i en Android debug-APK og laster den opp som
+artifact. Den migrerer ingenting og deployer ingenting — se
+[`mobilapp-plan.md`](mobilapp-plan.md). `tests/release-pipeline.test.js` holder
+den (og enhver annen ny workflow) utenfor migreringen og produksjonsdeployen.
+
 ## Rekkefølgen ved merge til `main`
 
 ```
