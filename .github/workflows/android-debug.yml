@@ -74,8 +74,15 @@ jobs:
           set -euo pipefail
           sdk="$(grep -oE 'compileSdkVersion[[:space:]]*=[[:space:]]*[0-9]+' android/variables.gradle | grep -oE '[0-9]+')"
           echo "compileSdkVersion=$sdk"
-          yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses > /dev/null
-          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "platforms;android-$sdk"
+          sdkmanager="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
+          # `yes` dør av SIGPIPE i det sdkmanager slutter å lese. Med `pipefail`
+          # ville den døden blitt lest som at lisensgodkjenningen feilet, så den
+          # er av akkurat her: statusen som betyr noe er sdkmanagers egen, og
+          # uten pipefail er det nettopp den som blir pipelinens exit-kode.
+          set +o pipefail
+          yes | "$sdkmanager" --licenses > /dev/null
+          set -o pipefail
+          "$sdkmanager" "platforms;android-$sdk"
 
       - name: Bygg debug-APK
         working-directory: android
