@@ -15,7 +15,7 @@ autoritative dokumentet for fagfeltet.
 |---|---|
 | Målarkitektur | Én HTML/CSS/JS-kodebase + Capacitor for Android/iOS |
 | Nåværende fase | **Fase 1 — mobilfundament + første Android-debugbuild** |
-| Status | Fundamentet er på plass i repoet: Capacitor 8.5.0 pinnet, `android/` sjekket inn, `dist/` er web-assets, og GitHub Actions bygger debug-APK-en. Fasen er IKKE ferdig — APK-en er ennå ikke installert og logget inn på en fysisk telefon. |
+| Status | Fundamentet er på plass og bygger: Capacitor 8.5.0 pinnet, `android/` sjekket inn, `dist/` er web-assets, og GitHub Actions produserer en debug-APK fra rent checkout. Fasen er IKKE ferdig — APK-en er ennå ikke installert og logget inn på en fysisk telefon. |
 | Neste milepæl | Installérbar Android-debugbuild som kjører dagens `dist/` og kan logge inn mot ekte Supabase |
 | Ett neste praktiske steg | Peder laster ned artifactet `huskis-debug-apk` fra workflowen «Android debug-APK», sideloader `app-debug.apk` på telefonen, og logger inn mot ekte Supabase |
 | OTA | Ikke innført; skal ikke innføres før Android-baselinen er stabil |
@@ -188,16 +188,15 @@ node build.js  →  dist/  ──►  Vercel (huskis.no)
       (`release-pipeline`, `db-contract`, `security-headers`, `no-legacy-domain`,
       `i18n`, `shard-distribution`, `capacitor-android`).
 - [x] Capacitor kan synkronisere `dist/` inn i Android-prosjektet.
-- [ ] Gradle kan produsere en debug-APK fra rent checkout.
+- [x] Gradle kan produsere en debug-APK fra rent checkout.
 - [ ] APK-en kan installeres på fysisk Android-enhet.
 - [ ] Appen starter og viser Huskis uten å hente selve UI-et fra `huskis.no`.
 - [ ] Innlogging mot ekte Supabase fungerer.
 
-Gradle-steget er ikke verifisert lokalt: utviklingsmiljøet der denne endringen
-ble gjort har ingen Android SDK, og `dl.google.com` er blokkert av
-egress-proxyen, så AGP-artefaktene kan ikke hentes. `android-debug.yml` er
-derfor den autoritative byggtesten, og punktet krysses av når den har produsert
-en APK.
+Gradle-steget verifiseres i CI, ikke lokalt: `android-debug.yml` bygger fra et
+rent checkout og er derfor den autoritative byggtesten. Et utviklingsmiljø uten
+Android SDK kan ikke kjøre `./gradlew assembleDebug` — det er forventet og
+blokkerer ingenting.
 
 ### Første fysiske test
 
