@@ -15,7 +15,7 @@ autoritative dokumentet for fagfeltet.
 |---|---|
 | Målarkitektur | Én HTML/CSS/JS-kodebase + Capacitor for Android/iOS |
 | Nåværende fase | **Fase 3 — nødvendige native integrasjoner** |
-| Status | Fase 2 er ferdig og verifisert: hele paritetsmatrisen er kjørt på fysisk telefon med en browserklient på samme konto samtidig, og de to avvikene runden fant er rettet, testdekket og etterkontrollert på telefonen. Ingen kjent Android-spesifikk feil gir datatap, synkfeil, blokkert kjernefunksjon eller dårligere tilgjengelighet enn web. Fase 3 er ikke startet. |
+| Status | Fase 2 er ferdig og verifisert: hele paritetsmatrisen er kjørt på fysisk telefon med en browserklient på samme konto samtidig. Gjennomgangen i forkant fant og rettet én Android-spesifikk feil — auth-returadressen fra WebView-originet — og runden selv fant ett avvik, den flimrende instruksboblen. Begge er rettet og testdekket, og boblen er dessuten etterkontrollert på telefonen. Ingen kjent Android-spesifikk feil gir datatap, synkfeil, blokkert kjernefunksjon eller dårligere tilgjengelighet enn web. Fase 3 er ikke startet. |
 | Neste milepæl | Android-appen oppfører seg som en normal mobilapp i de plattformtilfellene browseren ikke håndterer godt nok selv |
 | Ett neste praktiske steg | Kartlegg hva systemets tilbakeknapp gjør i appen i dag, og definer så oppførselen: lukk øverste popover/modal, naviger deretter ett Huskis-nivå tilbake der det er naturlig, og la OS håndtere resten |
 | OTA | Ikke innført; skal ikke innføres før Android-baselinen er stabil |
@@ -299,16 +299,25 @@ etter sekvensen under:
       oppdateringsbanner eller reloader. Å faktisk kunne oppdatere
       web-assetene er fase 5.
 
-**Ingen feil med datatap, synkfeil eller blokkert kjernefunksjon.** Runden fant
-ett avvik, i demonstrasjonen: instruksen på steget «Slett listepunktet» er lang,
-og når objektmenyen åpner seg må kortet vike for både målet og panelet. Kortet
-blinket da opp og ned. Årsaken lå i delt kode, ikke i native runtime —
-`placeTour()` målte kortets høyde mens forrige rundes `maxHeight` sto på, altså
-sin egen forrige beslutning, og vekslet dermed mellom kappet og ukappet.
-Browseren hadde den samme løkka, men fyrer ikke scroll/resize ofte nok til at
-den ble synlig. Rettet ved å måle ukappet; regresjonen ligger i
-`tests/onboarding.test.js` (sjekk 11b), som feiler uten fiksen på
-mobil-viewport. Etterkontrollert på telefonen: boblen står stille.
+**Ingen feil med datatap, synkfeil eller blokkert kjernefunksjon.**
+
+Auth-returadressen fra WebView-originet ble funnet i gjennomgangen før runden,
+ikke av runden. Trinn 1 bekreftet at bekreftelseslenken peker kanonisk, men det
+trinnet kan ikke alene skille en fikset klient fra en ufikset: sender klienten
+en returadresse som ikke står i Supabase' tillatelsesliste, faller den tilbake
+til Site URL, og lenken ser riktig ut uansett. Det er
+`tests/auth-redirect.test.js` som beviser at appen faktisk SENDER den kanoniske
+adressen fra `https://localhost`.
+
+Runden selv fant ett avvik, i demonstrasjonen: instruksen på steget «Slett
+listepunktet» er lang, og når objektmenyen åpner seg må kortet vike for både
+målet og panelet. Kortet blinket da opp og ned. Årsaken lå i delt kode, ikke i
+native runtime — `placeTour()` målte kortets høyde mens forrige rundes
+`maxHeight` sto på, altså sin egen forrige beslutning, og vekslet dermed mellom
+kappet og ukappet. Browseren hadde den samme løkka, men fyrer ikke
+scroll/resize ofte nok til at den ble synlig. Rettet ved å måle ukappet;
+regresjonen ligger i `tests/onboarding.test.js` (sjekk 11b), som feiler uten
+fiksen på mobil-viewport. Etterkontrollert på telefonen: boblen står stille.
 
 TalkBack leste norsk tekst med engelsk stemme. Det er telefonens
 TTS-stemmeutvalg, ikke Huskis: `lang`-håndteringen er på plass
