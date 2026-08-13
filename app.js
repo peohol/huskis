@@ -9700,6 +9700,7 @@
       // Alt lokalt som fantes da staten ble lest, ligger nå på serveren.
       if (allPushed) syncedSeq = seq;
       updateInbox(my);
+      refreshOpenShare(); // en åpen del-modal følger samme runde (medlemmer, invitasjoner, lås)
       maybeOfferMigration(my);
     } catch (e) {
       // Nådde vi ikke fram, er dette en FRAKOBLET-tilstand (poll/realtime
@@ -10443,10 +10444,17 @@
   const shareBackBtn = document.getElementById('share-back');
   let shareCtx = null;    // { type, id, obj }
   let shareBackTo = null; // gjenåpner modalen del-modalen ble åpnet fra
+  // Modalen står ofte åpen mens verden endrer seg under den: mottakeren godtar
+  // invitasjonen, en medeier kaster ut noen, noen låser objektet. Den åpne
+  // modalen legger igjen sin egen oppdaterer her, og synk-runden kaller den —
+  // så medlemslisten følger serveren uten at man må lukke og åpne igjen.
+  let shareRefresh = null;
+  function refreshOpenShare() { if (shareRefresh) shareRefresh(); }
   function closeShare() {
     shareModal.hidden = true;
     shareCtx = null;
     shareBackTo = null;
+    shareRefresh = null;
     updateModalOpenClass2();
   }
   shareClose && shareClose.addEventListener('click', closeShare);
@@ -10582,6 +10590,7 @@
     policyRow.append(policyLabel, policyNote);
     const msg = document.createElement('p');
     msg.className = 'share-msg'; msg.hidden = true;
+    let sentEmail = null; // e-posten kvitteringen i `msg` gjelder, mens den venter
 
     let inviteEffective = (obj._invitePolicy || 'inherit') !== 'deny';
     function applyPerm() {
@@ -10889,17 +10898,63 @@
       }
     }
 
+    /* Én runde mot `get_members`. Kalles ved åpning, etter egne handlinger OG
+       fra hver synk-runde (`refreshOpenShare`) — modalen skal vise serverens
+       nåtilstand, ikke et øyeblikksbilde fra da den ble åpnet.
+
+       To vakter gjør den løpende oppfriskningen trygg:
+       * `membersSig` — tegn bare om når svaret faktisk er et ANNET. Uten den
+         ville hvert poll revet radene ut av DOM-en midt i et klikk (samme
+         grep som `lastViewSig` i cloudCycle).
+       * `membersBusy`/`membersAgain` — én runde av gangen; en forespørsel som
+         kom mens en annen var i lufta tas igjen etterpå i stedet for å falle
+         på gulvet. */
+    let membersSig = null;
+    let membersBusy = false, membersAgain = false;
     async function refreshMembers() {
+      if (membersBusy) { membersAgain = true; return; }
+      membersBusy = true;
+      // Fanget FØR svaret: en runde som alt var i lufta da invitasjonen ble
+      // sendt vet ingenting om den, og skal ikke fjerne kvitteringen for den.
+      const wasSent = sentEmail;
       try {
         const { data } = await acli().rpc('get_members', { p_type: type, p_id: id });
         if (!data) return;
+        if (!shareCtx || shareCtx.id !== id) return; // modalen er lukket eller viser noe annet nå
+        // Hver anvendte pull bygger `state` på nytt (applyMyDoc), så objektet
+        // modalen ble åpnet med er en forlatt kopi. Lås, rolle og policy leses
+        // derfor fra den LEVENDE raden.
+        const live = findAnyById(id);
+        if (live && live.obj) obj = live.obj;
         if (data.viewer && data.viewer.caps) caps = data.viewer.caps;
         if (!policyOverrides.has(id) && 'inviteEffective' in data) inviteEffective = !!data.inviteEffective;
+        // «Invitasjonen er sendt» gjelder bare så lenge den ligger og venter.
+        // Er den besvart — godtatt (personen står i listen nå) eller avslått —
+        // skal ikke modalen fortsatt påstå at den er underveis.
+        if (wasSent && wasSent === sentEmail
+            && !(data.pendingInvites || []).some((i) => (i.email || '').toLowerCase() === wasSent)) {
+          sentEmail = null;
+          msg.textContent = ''; msg.classList.remove('ok'); msg.hidden = true;
+        }
+        const anc = effInheritedLock();
+        const sig = canonical(data) + '||' + (obj._role || '') +
+          (obj._locked ? 'L' : '') + (obj._unlocked ? 'U' : '') + (anc ? ':' + anc.obj.id : '');
+        if (sig === membersSig) return;
+        membersSig = sig;
         applyPerm();
         paintLock();
         renderMembers(data);
         renderActions();
       } catch (e) { /* behold forrige */ }
+      finally {
+        membersBusy = false;
+        // En runde som ble bedt om mens en annen var i lufta tas igjen — men
+        // ikke for en modal som er lukket i mellomtiden.
+        if (membersAgain) {
+          membersAgain = false;
+          if (shareCtx && shareCtx.id === id) refreshMembers();
+        }
+      }
     }
 
     form.addEventListener('submit', (ev) => {
@@ -10933,11 +10988,13 @@
         onDone: () => {
           optimisticRows.delete(row);
           msg.textContent = tr('share.inviteSent', { email: email }); msg.classList.add('ok'); msg.hidden = false;
+          sentEmail = email;
           refreshMembers();
         },
         onError: (e) => {
           optimisticRows.delete(row);
           row.remove();
+          sentEmail = null;
           msg.textContent = friendlyAuthError(e); msg.hidden = false;
         },
       });
@@ -10963,6 +11020,7 @@
     paintLock();
     renderMembers(mySelfInfo(type, id, obj)); // deg selv vises straks
     renderActions();
+    shareRefresh = refreshMembers;             // hver synk-runde friskes modalen opp
     refreshMembers();                          // resten + autoritative capabilities
   }
 

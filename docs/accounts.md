@@ -444,10 +444,23 @@ visningen glir over uten flimmer.
   for den som administrerer medlemmer også en forklaring når brukeren ikke kan
   fjernes her («Har tilgang via området og må fjernes der» / «Siste eier kan
   ikke fjernes»). Ventende invitasjoner står i en egen seksjon.
+- **Modalen er levende, ikke et øyeblikksbilde.** `refreshMembers` kalles ved
+  åpning, etter egne handlinger OG fra hver `cloudCycle` (`refreshOpenShare`),
+  slik at en invitasjon som blir godtatt — eller et medlem, en rolle, en policy
+  eller en lås som endres av noen andre — slår inn i den ÅPNE modalen.
+  Realtime-hendelsen på `memberships`/`share_invites` gir oppdateringen med én
+  gang, pollet er fallback. To vakter holder det rolig: listen tegnes bare om
+  når svaret faktisk er et ANNET enn forrige (samme grep som `lastViewSig` i
+  synken — ellers ville radene blitt revet ut av DOM-en midt i et klikk), og
+  det går én runde av gangen. Modalen slår samtidig opp objektet på nytt
+  (`findAnyById`), siden hver anvendte pull bygger `state` på nytt og kopien
+  modalen ble åpnet med dermed er forlatt. Lukking kobler oppdatereren fra.
 - **Inviter** (`create_share_invite`): e-postfelt + rollevelger («Som medlem» /
   «Som medeier»). Velgeren vises kun ved `caps.inviteOwner`. Raden («Invitert
   som …») vises straks og feltet tømmes; flere invitasjoner køes. Feiler den,
-  fjernes raden og feilen vises.
+  fjernes raden og feilen vises. Kvitteringen «Invitasjon sendt til …» gjelder
+  en VENTENDE invitasjon: er den besvart — godtatt eller avslått — forsvinner
+  den sammen med den ventende raden.
 - **Degradering** (`set_member_role`): «Gjør til medlem» på en medeier, med
   bekreftelse. Rolleløft finnes ikke som knapp — det krever en invitasjon.
 - **Fjern** (`revoke_share`) / **Trekk tilbake** (`revoke_share_invite`): raden
@@ -627,7 +640,8 @@ operasjonskøen serialiserer riktig når operasjonene er trege.
 Verifisert med Playwright: registrering→«sjekk innboksen»→innlogging, CRUD +
 buffer over reload, to-bruker-deling (inviter→godta uten plassering→kryss-
 bruker-synk→lås/frys→forlat), rollemodellen og de tre seksjonene
-(`tests/roles-and-sections.test.js`), mappeflytting med bekreftelse og
+(`tests/roles-and-sections.test.js`), del-modalen som følger serveren mens den
+står åpen (`tests/share-modal-live.test.js`), mappeflytting med bekreftelse og
 id-mapping (`tests/group-move.test.js`), migrering, og desktop+mobil.
 Operasjonskøen er verifisert med `lag=800`: umiddelbar del-modal, køede
 invitasjoner m/ tilbaketrekking, lås-spam→koalescert sluttilstand, umiddelbar
