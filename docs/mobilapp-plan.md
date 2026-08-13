@@ -14,10 +14,10 @@ autoritative dokumentet for fagfeltet.
 | Felt | Nå |
 |---|---|
 | Målarkitektur | Én HTML/CSS/JS-kodebase + Capacitor for Android/iOS |
-| Nåværende fase | **Fase 1 — mobilfundament + første Android-debugbuild** |
-| Status | Fundamentet er på plass og bygger: Capacitor 8.5.0 pinnet, `android/` sjekket inn, `dist/` er web-assets, og GitHub Actions produserer en debug-APK fra rent checkout. Fasen er IKKE ferdig — APK-en er ennå ikke installert og logget inn på en fysisk telefon. |
-| Neste milepæl | Installérbar Android-debugbuild som kjører dagens `dist/` og kan logge inn mot ekte Supabase |
-| Ett neste praktiske steg | Peder laster ned artifactet `huskis-debug-apk` fra workflowen «Android debug-APK», sideloader `app-debug.apk` på telefonen, og logger inn mot ekte Supabase |
+| Nåværende fase | **Fase 2 — funksjonell paritet på Android** |
+| Status | Fase 1 er ferdig og verifisert: Capacitor 8.5.0 pinnet, `android/` sjekket inn, `dist/` er web-assets, GitHub Actions produserer en debug-APK fra rent checkout, og APK-en kjører på fysisk telefon med fungerende innlogging mot ekte Supabase. Fase 2 er ikke startet. |
+| Neste milepæl | Ingen kjent Android-spesifikk feil som gir datatap, synkfeil, blokkert kjernefunksjon eller dårligere tilgjengelighet enn web |
+| Ett neste praktiske steg | Kjør testmatrisen i fase 2 på telefonen, helst med en browserklient på samme konto samtidig, og loggfør hvert avvik som enten en ordinær Huskis-feil eller en native-spesifikk feil |
 | OTA | Ikke innført; skal ikke innføres før Android-baselinen er stabil |
 | iOS | Senere fase; ikke en del av første implementering |
 
@@ -189,32 +189,35 @@ node build.js  →  dist/  ──►  Vercel (huskis.no)
       `i18n`, `shard-distribution`, `capacitor-android`).
 - [x] Capacitor kan synkronisere `dist/` inn i Android-prosjektet.
 - [x] Gradle kan produsere en debug-APK fra rent checkout.
-- [ ] APK-en kan installeres på fysisk Android-enhet.
-- [ ] Appen starter og viser Huskis uten å hente selve UI-et fra `huskis.no`.
-- [ ] Innlogging mot ekte Supabase fungerer.
+- [x] APK-en kan installeres på fysisk Android-enhet.
+- [x] Appen starter og viser Huskis uten å hente selve UI-et fra `huskis.no`.
+- [x] Innlogging mot ekte Supabase fungerer.
 
 Gradle-steget verifiseres i CI, ikke lokalt: `android-debug.yml` bygger fra et
 rent checkout og er derfor den autoritative byggtesten. Et utviklingsmiljø uten
 Android SDK kan ikke kjøre `./gradlew assembleDebug` — det er forventet og
 blokkerer ingenting.
 
-### Første fysiske test
+### Slik får du en debug-APK på telefonen
 
-1. Åpne PR-ens kjøring av workflowen **«Android debug-APK»** (eller start den
-   manuelt: Actions → «Android debug-APK» → «Run workflow»).
+Samme oppskrift gjelder hver gang mobilen skal testes — også for testmatrisen i
+fase 2.
+
+1. Actions → **«Android debug-APK»** → «Run workflow» (eller bruk kjøringen
+   workflowen selv startet på en PR som rører mobilfundamentet).
 2. Last ned artifactet **`huskis-debug-apk`** og pakk ut `app-debug.apk`.
 3. Overfør APK-en til telefonen og installer den. Android spør om lov til å
    installere fra ukjent kilde første gang — debug-APK-en er signert med
    Androids standard debug-nøkkel, ikke en butikknøkkel.
-4. Start appen. Den skal vise Huskis fra sine egne innebygde filer; slå på
-   flymodus og start på nytt for å bekrefte at UI-et ikke hentes fra `huskis.no`
-   (innlogging krever selvsagt nett).
-5. Logg inn mot ekte Supabase og bekreft at innholdet synkes.
-6. Kryss av de gjenstående punktene over i denne planen.
+4. Appen viser Huskis fra sine egne innebygde filer. Flymodus + omstart
+   bekrefter at UI-et ikke hentes fra `huskis.no` (innlogging krever selvsagt
+   nett).
+
+Lokalt gjør `npm run android:debug` det samme, men krever Android SDK.
 
 **Ferdigkriterium:** en fysisk Android-telefon kan kjøre en installert Huskis-
 debugbuild fra repoets vanlige web-build, mens browserversjonen fortsatt bygger
-og deployes som før.
+og deployes som før. **Oppfylt.**
 
 ---
 
@@ -420,7 +423,8 @@ De skal ikke snike seg inn i fundamentfasene.
 
 ## Neste oppgave
 
-Fullfør **Fase 1**: installer debug-APK-en fra artifactet `huskis-debug-apk` på
-en fysisk Android-telefon, bekreft at appen viser Huskis fra sine egne innebygde
-filer, og logg inn mot ekte Supabase. Kryss av de gjenstående punktene i fase 1
-og oppdater statusboksen. Først da starter **Fase 2**.
+Start **Fase 2**: kjør paritetsmatrisen på en fysisk Android-telefon, helst med
+en browserklient innlogget på samme konto samtidig. Feil som finnes begge steder
+er ordinære Huskis-feil og hører hjemme i sin egen endring; feil som bare finnes
+i native runtime skal få en avgrenset plattformtilpasning og en egen test. Kryss
+av punktene etter hvert som de faktisk er testet.
