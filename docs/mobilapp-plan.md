@@ -15,7 +15,7 @@ autoritative dokumentet for fagfeltet.
 |---|---|
 | Målarkitektur | Én HTML/CSS/JS-kodebase + Capacitor for Android/iOS |
 | Nåværende fase | **Fase 3 — nødvendige native integrasjoner** |
-| Status | Fase 2 er ferdig og verifisert: hele paritetsmatrisen er kjørt på fysisk telefon med en browserklient på samme konto samtidig, og de to avvikene runden fant er rettet, testdekket og etterkontrollert på telefonen. Ingen kjent Android-spesifikk feil gir datatap, synkfeil, blokkert kjernefunksjon eller dårligere tilgjengelighet enn web. Fase 3 er ikke startet. |
+| Status | Fase 2 er ferdig og verifisert: hele paritetsmatrisen er kjørt på fysisk telefon med en browserklient på samme konto samtidig. Gjennomgangen i forkant rettet én Android-spesifikk feil — auth-returadressen fra WebView-originet — som er dekket av tester, ikke av den fysiske runden. Runden selv fant ett avvik, den flimrende instruksboblen, og det er rettet, testdekket og etterkontrollert på telefonen. Ingen kjent Android-spesifikk feil gir datatap, synkfeil, blokkert kjernefunksjon eller dårligere tilgjengelighet enn web. Fase 3 er ikke startet. |
 | Neste milepæl | Android-appen oppfører seg som en normal mobilapp i de plattformtilfellene browseren ikke håndterer godt nok selv |
 | Ett neste praktiske steg | Kartlegg hva systemets tilbakeknapp gjør i appen i dag, og definer så oppførselen: lukk øverste popover/modal, naviger deretter ett Huskis-nivå tilbake der det er naturlig, og la OS håndtere resten |
 | OTA | Ikke innført; skal ikke innføres før Android-baselinen er stabil |
