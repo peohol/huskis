@@ -49,8 +49,15 @@ function check(navn, ok, evidens) {
 const les = (...p) => fs.readFileSync(path.join(ROOT, ...p), 'utf8');
 const json = (...p) => JSON.parse(les(...p));
 const finnes = (...p) => fs.existsSync(path.join(ROOT, ...p));
-// `git check-ignore` er fasiten på hva som faktisk blir ignorert — den tar med
-// alle .gitignore-filene i kjeden, inkludert den Capacitor legger i `android/`.
+/* `git check-ignore` er fasiten på hva som faktisk blir ignorert — den tar med
+   alle .gitignore-filene i kjeden, inkludert den Capacitor legger i `android/`.
+
+   MERK skråstreken på katalogene under. Et mønster som slutter på `/` (`dist/`,
+   `node_modules/`, `build/`) treffer bare kataloger, og `--no-index` leser en
+   sti UTEN skråstrek som en fil når den ikke finnes på disk. I et rent checkout
+   finnes ingen av de genererte katalogene, så uten skråstreken ville sjekken
+   svart «ikke ignorert» — og bestått lokalt, der katalogene tilfeldigvis
+   finnes. Katalog skrives derfor som katalog. */
 function ignorert(rel) {
   return spawnSync('git', ['check-ignore', '-q', '--no-index', rel], { cwd: ROOT }).status === 0;
 }
@@ -136,7 +143,7 @@ for (const n of ['package.json', 'package-lock.json', 'capacitor.config.json', '
 }
 
 /* ---- 5. .gitignore: kildekode inn, generert utdata ut ---- */
-for (const g of ['node_modules', 'dist']) {
+for (const g of ['node_modules/', 'dist/']) {
   check(g + ' er gitignorert', ignorert(g));
 }
 /* Uten disse kan ikke et rent checkout bygge APK-en — de ER den native
@@ -160,11 +167,11 @@ for (const f of NATIV_KILDE) {
 /* Generert eller maskinspesifikt. Alt her gjenskapes av `npm run sync:android`
    + Gradle, og skal aldri havne i git. */
 const NATIV_GENERERT = [
-  'android/app/build',
+  'android/app/build/',
   'android/local.properties',
-  'android/app/src/main/assets/public',
+  'android/app/src/main/assets/public/',
   'android/app/src/main/assets/capacitor.config.json',
-  'android/capacitor-cordova-android-plugins',
+  'android/capacitor-cordova-android-plugins/',
 ];
 for (const f of NATIV_GENERERT) {
   check('generert/maskinspesifikk sti er ignorert: ' + f, ignorert(f));
