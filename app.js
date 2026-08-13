@@ -8322,16 +8322,23 @@
      ukritisk fra location.origin — en gammel fane, et pensjonert domene eller
      en ukjent host ville da endt opp i selve auth-lenken (se historikken i
      docs/domains-and-urls.md). authRedirectUrl() bruker i stedet den sentrale,
-     betrodde adressen i window.HUSKIS_CONFIG; kun localhost (lokal
-     utvikling, `python3 -m http.server`) beholder sin egen origin.
+     betrodde adressen i window.HUSKIS_CONFIG; kun den lokale utviklings-
+     serveren beholder sin egen origin.
      `origin`-parameteren finnes kun for testing — appen kaller alltid uten
      den, og bruker da location.origin. Se docs/domains-and-urls.md. */
   function canonicalAppUrl() {
     const raw = (window.HUSKIS_CONFIG && window.HUSKIS_CONFIG.canonicalAppUrl) || 'https://huskis.no';
     return raw.replace(/\/+$/, '') + '/';
   }
+  /* Den lokale utviklingsserveren, og bare den: http på localhost/127.0.0.1
+     MED et eksplisitt portnummer (`python3 -m http.server 8000`). Mobilappen
+     serverer de samme filene fra `https://localhost` — uten port, fra
+     WebView-ens egen innebygde server (docs/mobilapp-plan.md). Det er ikke en
+     utviklingsserver: en bekreftelses- eller gjenopprettingslenke dit ville
+     pekt på en adresse som ikke finnes utenfor appen. Fail closed — alt annet
+     enn den ene formen får den kanoniske adressen. */
   function isLocalDevOrigin(origin) {
-    return /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(origin);
+    return /^http:\/\/(localhost|127\.0\.0\.1):\d+$/.test(origin);
   }
   function authRedirectUrl(origin) {
     const o = (origin != null ? origin : location.origin).replace(/\/+$/, '');
