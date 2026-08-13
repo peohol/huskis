@@ -127,7 +127,7 @@ select public.t_check('A: ingen rå <script i HTML',
   (select body->>'html' from net._sent where body->>'to' = 'ny+bruker@example.com') not like '%<script%');
 select public.t_check('A: logo-PNG med absolutt produksjons-URL (kanonisk, uten www)',
   (select body->>'html' from net._sent where body->>'to' = 'ny+bruker@example.com')
-    like '%https://huskis.no/assets/email/huskis-logo.png%');
+    like '%https://huskis.no/assets/email/huskis-logo-v1.png%');
 
 -- signup-lenken er korrekt prosentkodet (+ → %2B, @ → %40) i HTML og text.
 select public.t_check('A: signup-lenke prosentkodet i HTML',

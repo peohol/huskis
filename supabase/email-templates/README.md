@@ -76,7 +76,7 @@ seksjon som bare finnes på norsk gir en engelsk leser et hull i meldingen.
 Alle fire deler samme oppbygning, og en ny mal skal kopiere den:
 
 - ytre flate `#667788`, hvitt kort med `border-radius: 18px`
-- toppbånd med logo (`https://huskis.no/assets/email/huskis-logo.png`) + ordmerket
+- toppbånd med logo (`https://huskis.no/assets/email/huskis-logo-v1.png`) + ordmerket
 - grønn etikett i versaler, `<h1>`, brødtekst
 - grønn knapp `#4d664d` (kun på handlings-e-poster), med fallback-lenke under
 - bunntekst over en `#e3e7e3`-skillelinje
