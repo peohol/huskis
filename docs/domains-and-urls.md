@@ -208,6 +208,10 @@ Sjekkliste (Peder):
       ved søk i `app.js`) — disse malene er irrelevante og kan ignoreres.
 - [ ] Alle malene i bruk er **stilt likt** de formaterte Resend-e-postene:
       lim inn utkastene fra `supabase/email-templates/` i tilsvarende felt.
+- [ ] Etter at alle fire feltene peker på `huskis-logo-v1.png`: fjern den
+      uversjonerte `assets/email/huskis-logo.png` i en egen commit — den ligger
+      der kun som kompatibilitet til Dashboard er oppdatert, se
+      «Logo-filnavnet er versjonert» i `supabase/email-templates/README.md`.
 
 En auth-lenke som mot formodning skulle peke til et alternativt domene, blir
 uansett 308-et videre til `huskis.no` med `?code=`/`#access_token=` i behold
