@@ -34,8 +34,14 @@ const ALLOWLIST = new Set([
 
 // `dist/` er generert utdata fra `node build.js` (gitignorert) — en kopi av
 // kildefilene, ikke en kilde i seg selv. Skannes den, arver den unntakene sine
-// fra index.html og gir falske treff.
-const SKIP_DIRS = new Set(['.git', 'dist']);
+// fra index.html og gir falske treff. `node_modules/` er tredjepartskode fra
+// npm og heller ingen Huskis-kilde.
+const SKIP_DIRS = new Set(['.git', 'dist', 'node_modules']);
+// Capacitor kopierer `dist/` inn i Android-prosjektet ved hver sync
+// (`docs/mobilapp-plan.md`). Kopien er gitignorert generert utdata, akkurat som
+// `dist/`, og gir de samme falske treffene. Resten av `android/` er kildekode og
+// skannes som alt annet.
+const SKIP_PATHS = new Set(['android/app/src/main/assets/public']);
 const BINARY_EXT = new Set(['.png', '.jpg', '.jpeg', '.gif', '.ico', '.woff', '.woff2', '.ttf']);
 
 const offenders = [];
@@ -43,6 +49,7 @@ function walk(dir) {
   for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
     if (entry.isDirectory()) {
       if (SKIP_DIRS.has(entry.name)) continue;
+      if (SKIP_PATHS.has(path.relative(ROOT, path.join(dir, entry.name)).split(path.sep).join('/'))) continue;
       walk(path.join(dir, entry.name));
       continue;
     }

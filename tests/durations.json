@@ -7,6 +7,7 @@
   "tests/board-columns.test.js": 38,
   "tests/build-version.test.js": 0,
   "tests/canonical-origin.test.js": 4,
+  "tests/capacitor-android.test.js": 0,
   "tests/collapsed-alignment.test.js": 9,
   "tests/csp-enforced.test.js": 4,
   "tests/db-contract.test.js": 0,

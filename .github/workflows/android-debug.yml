@@ -1,0 +1,95 @@
+name: Android debug-APK
+
+# Bygger en installérbar debug-APK av den vanlige webbuilden og laster den opp
+# som artifact, slik at fysisk testing på telefon ikke krever Android Studio
+# lokalt. Kjeden er nøyaktig den samme som lokalt (docs/mobilapp-plan.md):
+#
+#   node build.js  →  dist/  →  cap sync android  →  gradlew assembleDebug
+#
+# Ingen signering, ingen release-AAB og ingen butikkopplasting — dette er en
+# debugbuild med Androids standard debug-nøkkel.
+#
+# Trigger: manuelt (workflow_dispatch), og automatisk på de pull requestene som
+# faktisk kan gjøre APK-en ugyldig. Vanlige Huskis-PR-er som bare rører app.js,
+# styles.css eller docs/ skal ikke betale for en Gradle-runde; det de endrer
+# ligger i `dist/`, som denne workflowen uansett bare pakker inn.
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - 'android/**'
+      - 'capacitor.config.json'
+      - 'package.json'
+      - 'package-lock.json'
+      - 'build.js'
+      - '.github/workflows/android-debug.yml'
+
+concurrency:
+  group: android-debug-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  apk:
+    name: Debug-APK
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      # Samme Node-versjon som resten av CI. Capacitor 8 krever Node 22+.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      # Capacitors Android-prosjekt kompilerer mot Java 21
+      # (`sourceCompatibility` i @capacitor/android).
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      # `npm ci` bygger node_modules fra package-lock.json alene — ingen
+      # versjonsdrift mellom denne kjøringen og neste.
+      - name: Installer npm-avhengighetene reproduserbart
+        run: npm ci
+
+      # Nøyaktig samme steg som Vercel kjører. APK-en får altså den samme
+      # webbuilden som huskis.no, ikke en egen mobilvariant.
+      - name: Bygg webappen
+        run: node build.js
+
+      - name: Kopier dist/ inn i Android-prosjektet
+        run: npx cap sync android
+
+      # Runneren har Android SDK-en forhåndsinstallert, men ikke nødvendigvis
+      # akkurat den plattformen prosjektet kompilerer mot. Nivået leses fra
+      # android/variables.gradle, så de to aldri kan komme i utakt.
+      - name: Installer SDK-plattformen prosjektet kompilerer mot
+        run: |
+          set -euo pipefail
+          sdk="$(grep -oE 'compileSdkVersion[[:space:]]*=[[:space:]]*[0-9]+' android/variables.gradle | grep -oE '[0-9]+')"
+          echo "compileSdkVersion=$sdk"
+          sdkmanager="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
+          # `yes` dør av SIGPIPE i det sdkmanager slutter å lese. Med `pipefail`
+          # ville den døden blitt lest som at lisensgodkjenningen feilet, så den
+          # er av akkurat her: statusen som betyr noe er sdkmanagers egen, og
+          # uten pipefail er det nettopp den som blir pipelinens exit-kode.
+          set +o pipefail
+          yes | "$sdkmanager" --licenses > /dev/null
+          set -o pipefail
+          "$sdkmanager" "platforms;android-$sdk"
+
+      - name: Bygg debug-APK
+        working-directory: android
+        run: ./gradlew --no-daemon assembleDebug
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: huskis-debug-apk
+          path: android/app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error

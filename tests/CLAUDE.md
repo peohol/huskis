@@ -18,6 +18,7 @@ Rene node-tester (ingen server, ingen nettleser):
 
 ```bash
 node tests/build-version.test.js      # build.js + vercel.json
+node tests/capacitor-android.test.js  # Capacitor-skallet: dist/ som web-assets, ingen server.url
 node tests/no-legacy-domain.test.js   # repo-vid vakt mot det pensjonerte domenet
 node tests/release-pipeline.test.js   # rekkefølgen migrering → smoke → deploy
 node tests/db-contract.test.js        # smoke-test.sql i takt med app.js

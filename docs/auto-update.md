@@ -31,8 +31,10 @@ Fallbacken gjelder lokale bygg og CI-bygg utenfor Vercel.
 sender den siste inn med `--build-env`, fordi treet lastes opp fra CLI-en og
 Vercel-builden derfor ikke har git-metadata å lese selv.
 
-`version` leses fra `package.json` hvis repoet noen gang får en — repoet har
-ingen i dag, og SemVer skal uansett ikke måtte økes per PR. Ingen andre
+`version` leses fra `package.json`. Repoet HAR en `package.json`, men den finnes
+kun for Capacitor-skallet ([`mobilapp-plan.md`](mobilapp-plan.md)) og har med
+vilje ikke noe `version`-felt: SemVer skal ikke måtte økes per PR, og build-ID-en
+er den eneste release-identiteten. `version` er derfor `null`. Ingen andre
 miljøvariabler leses, og ingenting hemmelig havner i fila.
 
 ID-ene sammenlignes som **identitet**, aldri som rangering: en commit-SHA eller
@@ -48,6 +50,11 @@ alt unntatt i preview-deployer, se
 stempler `index.html` — meta-taggen + `?b=<build-ID>` på `app.js`, `icons.js`,
 `i18n.js`, `config.js`, `update-check.js` og `styles.css`.
 
+`SKIP`-listen i `build.js` holder også byggetoolingen ute: `package.json`,
+lockfila, `capacitor.config.json` og de native mappene (`android/`, senere
+`ios/`) er input til builden, ikke web-assets, og skal aldri serveres fra
+huskis.no ([`mobilapp-plan.md`](mobilapp-plan.md)).
+
 `vercel.json` (`buildCommand: node build.js`, `outputDirectory: dist`) setter
 sikkerhetsheaderne på alle adresser ([`sikkerhetsheadere.md`](sikkerhetsheadere.md))
 og i tillegg:
@@ -58,6 +65,10 @@ og i tillegg:
   (`location.reload(true)` brukes ikke; parameteren er avviklet.)
 * JS/CSS → `max-age=31536000, immutable`. Trygt fordi URL-en inneholder
   build-ID-en: nytt innhold ⇒ ny URL.
+
+`installCommand` er tom streng, som betyr at Vercel hopper over install-steget:
+`node build.js` har ingen avhengigheter, og de eneste pakkene i `package.json`
+er Capacitor-toolingen, som produksjonsdeployen verken bruker eller skal ha.
 
 **I lokal utvikling** står meta-taggen på `dev`. `update-check.js` starter da
 ikke — `python3 -m http.server` og nettlesertestene er urørt. Testene lager sine

@@ -24,6 +24,12 @@ ingenting skal redigeres der. Byggesteget kopierer kildefilene og stempler en
 build-ID inn i `index.html` + `version.json`; i repoet står build-ID-en på `dev`
 med vilje, slik at lokal utvikling ikke trigger auto-oppdatering.
 
+**Mobilskallet**: `package.json` + lockfila, `capacitor.config.json` og
+`android/` finnes kun for å pakke den samme `dist/`-en inn i en native app.
+Webappen har fortsatt ingen bundler og ingen klientavhengigheter, og denne
+toolingen deployes aldri — `SKIP`-listen i `build.js` holder den utenfor `dist/`.
+Autoritativt for fremdrift og neste steg: `docs/mobilapp-plan.md`.
+
 **Serversiden** er `supabase/users-and-sharing.sql` — én idempotent fil med
 tabeller, RLS, triggere og RPC-er.
 
@@ -55,6 +61,10 @@ over resten av dokumentasjonen: `docs/README.md`.
 python3 -m http.server 8000   # kjør appen: http://localhost:8000
 node build.js                 # produksjonsbuild → dist/ (samme steg som Vercel kjører)
 tests/run-all.sh              # hele JS-suiten (starter server selv) — samme som CI
+
+npm ci                        # kun for mobilskallet (Capacitor) — webappen trenger den ikke
+npm run sync:android          # node build.js → kopier dist/ inn i android/
+npm run android:debug         # samme, og bygg debug-APK (krever Android SDK)
 ```
 
 - `?mock=1` bytter Supabase-klienten mot den hermetiske mock-backenden;
@@ -104,6 +114,7 @@ Kjør den minste verifikasjonen som gir troverdig evidens for endringen:
 | Responsiv eller pekeravhengig oppførsel | både desktop- og mobil-viewport |
 | Auth, synk eller deling | mock-backend (`?mock=1`) + den relevante flerbrukerflyten |
 | Deploy, caching, build-output | `node build.js` og `node tests/build-version.test.js` |
+| Capacitor, `android/`, npm-tooling | `node tests/capacitor-android.test.js` + `node tests/build-version.test.js`, og Android debug-APK-workflowen |
 | Sikkerhetsheadere, CSP, tredjepartsressurser | `node tests/security-headers.test.js` + `node tests/csp-enforced.test.js` |
 | Releaseprosessen (workflows, `vercel.json`, smoke-test) | `node tests/release-pipeline.test.js` + `node tests/db-contract.test.js`, og SQL-suiten hvis `smoke-test.sql` er endret |
 
