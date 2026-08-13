@@ -28,8 +28,11 @@
      8. .github/workflows/android-debug.yml bygger debug-APK-en via den samme
         kjeden (node build.js → cap sync → assembleDebug), uten å signere en
         release eller røre release-kjeden.
-     9. Native runtime: webkoden er ikke avhengig av Capacitor, og ingenting i
-        den peker appen ut av sine egne innebygde filer.
+     9. Native runtime: webkoden kjenner Capacitor på ÉN gated linje (broen for
+        systemets tilbakeknapp) og ingen andre steder, og ingenting i den peker
+        appen ut av sine egne innebygde filer.
+    10. Systemets tilbakeknapp: skallet spør web-laget først og lar OS ta
+        trykket når web-laget ikke tok det.
 
    `/version.json` i den innebygde builden er en KJEDE av invarianter som
    allerede er dekket hver for seg, og som derfor ikke gjentas her:
@@ -72,6 +75,34 @@ const finnes = (...p) => fs.existsSync(path.join(ROOT, ...p));
 function ignorert(rel) {
   return spawnSync('git', ['check-ignore', '-q', '--no-index', rel], { cwd: ROOT }).status === 0;
 }
+/* Linjene med KJØRENDE kode, kommentarene fjernet. Sjekkene under handler om
+   hva koden gjør; hva kommentarene omtaler er de likegyldige til (og
+   Capacitor-broen omtales i flere av dem). Blokkkommentarene i denne kodebasen
+   fortsetter på linjer uten `*`, så blokken må spores — den kan ikke
+   gjenkjennes linje for linje. Forenkling: en `//` inne i en streng (`https://`)
+   kapper resten av linja. Det gjør ingen av sjekkene her falskt grønne, de
+   leter etter navn som ikke står i noen URL. Brukes både på JS og Java. */
+function kodeLinjer(src) {
+  let iBlokk = false;
+  return src.split('\n').map((raw, i) => {
+    let kode = raw;
+    if (iBlokk) {
+      const slutt = kode.indexOf('*/');
+      if (slutt === -1) return { nr: i + 1, l: '' };
+      kode = kode.slice(slutt + 2);
+      iBlokk = false;
+    }
+    for (;;) {
+      const start = kode.indexOf('/*');
+      if (start === -1) break;
+      const slutt = kode.indexOf('*/', start + 2);
+      if (slutt === -1) { kode = kode.slice(0, start); iBlokk = true; break; }
+      kode = kode.slice(0, start) + kode.slice(slutt + 2);
+    }
+    return { nr: i + 1, l: kode.replace(/\/\/.*$/, '') };
+  });
+}
+const kode = (src) => kodeLinjer(src).map((x) => x.l).join('\n');
 
 /* ---- 1. Capacitor peker på dist/, og ikke på huskis.no ---- */
 const cfg = json('capacitor.config.json');
@@ -258,9 +289,34 @@ check('workflowen har kun lesetilgang til repoet', /permissions:\s*\n\s*contents
    utviklingsserver — testes i ekte nettleser (tests/auth-redirect.test.js),
    det samme gjør guardens oppførsel (tests/canonical-origin.test.js). */
 const WEB_KILDE = ['index.html', 'app.js', 'config.js', 'i18n.js', 'icons.js', 'update-check.js', 'styles.css'];
-const capBruk = WEB_KILDE.filter((f) => /\bCapacitor\b|@capacitor|capacitor\.js|cordova/i.test(les(f)));
+const NEVNER_CAP = /\bCapacitor\b|@capacitor|capacitor\.js|cordova/i;
+/* Alle andre web-kildefiler enn app.js skal fortsatt være helt uvitende om at
+   det finnes en native runtime. */
+const capBruk = WEB_KILDE.filter((f) => f !== 'app.js' && NEVNER_CAP.test(les(f)));
 check('webkoden nevner ikke Capacitor — browserutgaven er ikke avhengig av native runtime',
   capBruk.length === 0, capBruk.join(', ') || 'ingen');
+
+/* Unntaket (fase 3, docs/mobilapp-plan.md): app.js SKAL kjenne native-runtimen
+   ett sted — gaten som setter opp broen for systemets tilbakeknapp. Unntaket er
+   avgrenset, ikke opphevet: én kodelinje, den må gå gjennom `window.Capacitor`,
+   og den må spørre `isNativePlatform()`. Da kan ikke et Capacitor-kall snike
+   seg inn i vanlig app-logikk uten at denne testen sier fra, og browserutgaven
+   kan ikke bli avhengig av en runtime den ikke har (arkitekturregel 2).
+   Kommentarer får omtale broen fritt — de kjører ikke. */
+const capKode = kodeLinjer(les('app.js')).filter(({ l }) => NEVNER_CAP.test(l));
+check('app.js nevner Capacitor i kjørende kode kun på ÉN linje',
+  capKode.length === 1, capKode.map((x) => 'linje ' + x.nr).join(', ') || 'ingen');
+check('den ene linjen er gaten: window.Capacitor + isNativePlatform()',
+  capKode.length === 1
+    && /window\.Capacitor\b/.test(capKode[0].l)
+    && /isNativePlatform/.test(capKode[0].l),
+  (capKode[0] ? capKode[0].l.trim() : 'mangler'));
+/* Broen skal bare finnes når gaten slipper den gjennom. Står tilordningen
+   utenfor en `if`, får browserutgaven den også — og da er gaten pynt.
+   Oppførselen i seg selv testes i ekte nettleser (tests/system-back.test.js). */
+check('broen tilordnes bak gaten, ikke ubetinget',
+  /if \(nativeShell\) window\.__huskisSystemBack = systemBack;/.test(les('app.js'))
+    && (les('app.js').match(/window\.__huskisSystemBack\s*=/g) || []).length === 1);
 
 /* At forespørselen faktisk går rot-relativt til eget origin, testes i ekte
    nettleser (tests/auto-update.test.js). Det som ikke fanges der, er en
@@ -276,6 +332,35 @@ check('update-check.js navngir ingen vert — den måler seg alltid mot sitt ege
 const guardHosts = (les('index.html').match(/REDIRECT_HOSTS\s*=\s*\[([^\]]*)\]/) || [, ''])[1];
 check('guardens hostliste navngir ingen localhost-vert (appen redirecter ikke seg selv ut)',
   !/localhost|127\.0\.0\.1/.test(guardHosts), guardHosts.trim());
+
+/* ---- 10. Systemets tilbakeknapp ----
+
+   Capacitor gjør ingenting med tilbakeknappen selv: `@capacitor/android` har
+   ingen back-håndtering, så BridgeActivity arver AppCompats standard og første
+   trykk forlater appen — uansett hva som står åpent. Det native skallet skal
+   derfor spørre web-laget først, og bare la OS ta trykket når web-laget sier at
+   det ikke tok det. Selve stigen (hvilket lag som lukkes når) testes i ekte
+   nettleser: tests/system-back.test.js. */
+const mainAct = les('android/app/src/main/java/no/huskis/app/MainActivity.java');
+check('MainActivity registrerer en OnBackPressedCallback',
+  /OnBackPressedCallback/.test(mainAct) && /getOnBackPressedDispatcher\(\)\.addCallback/.test(mainAct));
+check('MainActivity spør web-laget via __huskisSystemBack',
+  /window\.__huskisSystemBack/.test(mainAct));
+/* Uten videresendingen ville et «nei» fra web-laget blitt et dødt tilbaketrykk:
+   appen ville aldri kunne forlates med tilbakeknappen. */
+check('et ubesvart trykk sendes videre til OS, ikke svelges',
+  /setEnabled\(false\)/.test(mainAct)
+    && /getOnBackPressedDispatcher\(\)\.onBackPressed\(\)/.test(mainAct)
+    && /setEnabled\(true\)/.test(mainAct));
+/* `finish()` ville avgjort på OS-ets vegne hva et tilbaketrykk på rot-
+   aktiviteten betyr (Android bærer i dag oppgaven i bakgrunnen i stedet for å
+   rive den ned). Videresending til dispatcheren beholder plattformens egen
+   oppførsel. */
+check('skallet kaller ikke finish() selv', !/\bfinish\(\)/.test(kode(mainAct)));
+/* androidx.activity kommer inn i Capacitor som `implementation`, altså ikke på
+   appmodulens kompileringssti. MainActivity bruker API-et direkte. */
+check('android/app/build.gradle har androidx.activity på kompileringsstien',
+  /implementation "androidx\.activity:activity:\$androidxActivityVersion"/.test(appGradle));
 
 console.log('\n==== ' + pass + '/' + (pass + fail) + ' PASS ====');
 process.exit(fail === 0 ? 0 : 1);

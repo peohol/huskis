@@ -6724,26 +6724,83 @@
   trashModal.addEventListener('click', (ev) => {
     if (ev.target === trashModal && Date.now() - modalOpenedAt > 450) closeTrash();
   });
-  // Escape lukker øverste modal først (søppelkassen kan ligge over menyen) —
-  // men ikke midt i en inline-redigering (der avbryter Escape bare redigeringen).
+  /* ---------- Ett lag tilbake (Escape og systemets tilbakeknapp) ----------
+     Lagene lukkes ovenfra og ned, i den rekkefølgen brukeren ser dem
+     (søppelkassen kan ligge over menyen). ÉN stige med to innganger, så
+     tastaturet og Androids tilbakeknapp aldri kan komme i utakt — se
+     `docs/menus.md`.
+
+     `viaBack` er systemets tilbakeknapp. Den ene forskjellen ligger i
+     del-modalen: den har en egen ← tilbake til modalen den ble åpnet fra, og
+     DET er ett nivå tilbake. Escape lukker fortsatt helt («lukk = ferdig»).
+
+     Returnerer true når et lag faktisk ble lukket. */
+  function closeTopLayer(viaBack) {
+    if (timeQuickOpen) { closeTimeQuick(); return true; } // tids-popoveren ligger øverst
+    if (respOpen) { closeResponsible(); return true; } // ansvarlig-velgeren ligger øverst
+    if (confirmModalEl && !confirmModalEl.hidden) { closeConfirm(false); return true; } // øverst
+    const delAcc = document.getElementById('delete-account-modal');
+    if (delAcc && !delAcc.hidden) { closeDeleteAccount(); return true; } // over konto-modalen
+    if (avatarModal && !avatarModal.hidden) { closeAvatarEditor(); return true; } // over konto-modalen
+    const share = document.getElementById('share-modal');
+    const place = document.getElementById('place-modal');
+    if (place && !place.hidden) { place.hidden = true; updateModalOpenClass(); return true; }
+    if (share && !share.hidden) {
+      const back = viaBack ? shareBackTo : null;
+      closeShare(); // uten `backTo`: helt lukk — tilbake til hovedsiden
+      if (back) back();
+      return true;
+    }
+    if (objMenuCtx) { closeObjMenu(); return true; }
+    if (!trashModal.hidden) { closeTrash(); return true; }
+    if (!navModal.hidden) { closeNavModal(); return true; }
+    if (!accountModal.hidden) { closeAccount(); return true; }
+    return false;
+  }
+  // Escape lukker øverste lag — men ikke midt i en inline-redigering (der
+  // avbryter Escape bare redigeringen).
   document.addEventListener('keydown', (ev) => {
     if (ev.key !== 'Escape') return;
     if (ev.target && ev.target.classList && ev.target.classList.contains('edit-input')) return;
-    if (timeQuickOpen) { closeTimeQuick(); return; } // tids-popoveren ligger øverst
-    if (respOpen) { closeResponsible(); return; } // ansvarlig-velgeren ligger øverst
-    if (confirmModalEl && !confirmModalEl.hidden) { closeConfirm(false); return; } // øverst
-    const delAcc = document.getElementById('delete-account-modal');
-    if (delAcc && !delAcc.hidden) { closeDeleteAccount(); return; } // over konto-modalen
-    if (avatarModal && !avatarModal.hidden) { closeAvatarEditor(); return; } // over konto-modalen
-    const share = document.getElementById('share-modal');
-    const place = document.getElementById('place-modal');
-    if (place && !place.hidden) { place.hidden = true; updateModalOpenClass(); }
-    else if (share && !share.hidden) closeShare(); // helt lukk — tilbake til hovedsiden
-    else if (objMenuCtx) closeObjMenu();
-    else if (!trashModal.hidden) closeTrash();
-    else if (!navModal.hidden) closeNavModal();
-    else if (!accountModal.hidden) closeAccount();
+    closeTopLayer(false);
   });
+
+  /* ---------- Systemets tilbakeknapp (Android) ----------
+     Kalles av det native skallet (`MainActivity.java`), som spør web-laget
+     først og lar OS ta trykket når svaret er false. Uten dette avslutter
+     Android appen ved FØRSTE trykk, uansett hva som står åpent — Capacitor
+     legger ingen egen håndtering inn (`@capacitor/android` 8.5.0 har ingen
+     `onBackPressed`; `BridgeActivity` arver AppCompats standard).
+
+     Rekkefølgen:
+       1. en pågående inline-redigering avbrytes (samme vei som Escape);
+       2. øverste popover/modal lukkes, ett lag per trykk (`closeTopLayer`);
+       3. ellers: OS tar trykket.
+
+     Hovedsiden ER bunnen. Å åpne nav-modalen på et tilbaketrykk ville vært et
+     lag NED igjen: neste trykk lukket den, trykket etter åpnet den på nytt, og
+     man kom aldri ut av appen. «Ett Huskis-nivå tilbake» er derfor stigen over
+     — inkludert del-modalens ← tilbake til nav-modalen.
+
+     Demonstrasjonen slår av det samme her som Escape (`demoGate`): den bytter
+     ut hele state-treet mens den står på, og ✕ i kortet er den ene utgangen.
+     Returnerer false, så trykket blir et vanlig «forlat appen». */
+  function systemBack() {
+    if (demoRunning) return false;
+    const el = document.activeElement;
+    if (el && el.classList && el.classList.contains('edit-input')) {
+      el.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+      return true;
+    }
+    return closeTopLayer(true);
+  }
+  /* Eneste stedet webkoden kjenner til native-runtimen, og den er eksplisitt
+     gated: i en nettleser finnes `window.Capacitor` ikke, broen settes aldri
+     opp, og ingenting av dette kjører. Vakten i
+     `tests/capacitor-android.test.js` holder unntaket avgrenset til denne ene
+     linjen (`docs/mobilapp-plan.md`, arkitekturregel 2). */
+  const nativeShell = !!(window.Capacitor && typeof window.Capacitor.isNativePlatform === 'function' && window.Capacitor.isNativePlatform());
+  if (nativeShell) window.__huskisSystemBack = systemBack;
   // Ingen ekstra bekreftelse: sveipe-tømming har heller ingen, og tømming er
   // et bevisst valg i en modal man allerede har åpnet.
   trashEmptyBtn.addEventListener('click', () => {
@@ -12381,6 +12438,7 @@
     canonicalAppUrl, authRedirectUrl,
     get cloudBase() { return cloudBase; },
     openShare, openObjMenu, closeObjMenu, showToast, updateSafety, save,
+    systemBack, // Androids tilbakeknapp — broen settes bare opp i native runtime
     tour: {
       start: startTour,
       end: endTour,
