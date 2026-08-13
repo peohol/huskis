@@ -76,7 +76,8 @@ seksjon som bare finnes på norsk gir en engelsk leser et hull i meldingen.
 Alle fire deler samme oppbygning, og en ny mal skal kopiere den:
 
 - ytre flate `#667788`, hvitt kort med `border-radius: 18px`
-- toppbånd med logo (`https://huskis.no/assets/email/huskis-logo.png`) + ordmerket
+- toppbånd med logo (`https://huskis.no/assets/email/huskis-logo-v1.png`) + ordmerket, se
+  «Logo-filnavnet er versjonert» under
 - grønn etikett i versaler, `<h1>`, brødtekst
 - grønn knapp `#4d664d` (kun på handlings-e-poster), med fallback-lenke under
 - bunntekst over en `#e3e7e3`-skillelinje
@@ -84,6 +85,26 @@ Alle fire deler samme oppbygning, og en ny mal skal kopiere den:
 Tabell-layout og inline-stiler med vilje: e-postklienter (særlig Outlook)
 støtter ikke moderne CSS. `bgcolor`-attributtet står ved siden av
 `background-color` av samme grunn.
+
+## Logo-filnavnet er versjonert
+
+`assets/email/huskis-logo-v1.png` bærer et versjonsnummer i filnavnet, samme
+begrunnelse som `vendor/` og `assets/fonts/` (se `docs/sikkerhetsheadere.md`):
+e-postklienter (særlig Gmails egen bilde-proxy) cacher en bildehenting
+permanent per URL, også en mislykket henting — en ny fil under samme
+filnavn kan derfor forbli «ødelagt» hos mottakere lenge etter at kilden er
+fikset. Endres logoen, legg inn en ny fil under et nytt versjonsnummer
+(`-v2`, …) — ikke overskriv den gamle.
+
+**Den uversjonerte `huskis-logo.png` skal bli liggende** helt til alle fire
+feltene under er limt inn i Dashboard med den nye URL-en. `send_invite_email()`
+(Resend) bytter URL med det samme migreringen kjører — ingen manuell
+mellomstasjon. De fire Auth-malene her gjør IKKE det: draft-filen i repoet
+peker allerede på den nye URL-en, men Dashboard fortsetter å sende den gamle
+helt til noen limer inn på nytt (se advarselen øverst i denne fila). Fjernes
+`huskis-logo.png` fra repoet før det er gjort, 404-er logoen i alle fire
+live-malene — og i enhver allerede sendt e-post en mottaker åpner på nytt.
+Fjern filen i en egen, senere commit når Dashboard er bekreftet oppdatert.
 
 ## Endrer du en mal
 

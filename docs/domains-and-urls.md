@@ -145,7 +145,13 @@ on conflict (key) do update set value = excluded.value;
 derfra (faller tilbake til det hardkodede, kanoniske `https://huskis.no/`
 hvis raden mangler — aldri en frontend-verdi, aldri en klientforespørsels
 `Host`/`Origin`/`Referer`). Logo-URL-en (`https://huskis.no/assets/email/
-huskis-logo.png`) er en konstant i samme funksjon. Se `docs/arkitektur-
+huskis-logo-v1.png`) er en konstant i samme funksjon. Filnavnet bærer et
+versjonsnummer med samme begrunnelse som `vendor/` og `assets/fonts/` (se
+`docs/sikkerhetsheadere.md`): e-postklienter (særlig Gmails egen bilde-proxy)
+cacher et bilde permanent per URL, også en mislykket henting — en ny fil under
+samme filnavn kan derfor forbli «ødelagt» hos mottakere lenge etter at kilden
+er fikset. Endres logoen, bytt filnavn (`-v2`, `-v3`, …) og oppdater alle fem
+stedene URL-en er hardkodet (se under). Se `docs/arkitektur-
 brukere-deling.md` for resten av e-postoppsettet (Vault, `email_send_log`,
 escaping/prosentkoding).
 
@@ -202,6 +208,10 @@ Sjekkliste (Peder):
       ved søk i `app.js`) — disse malene er irrelevante og kan ignoreres.
 - [ ] Alle malene i bruk er **stilt likt** de formaterte Resend-e-postene:
       lim inn utkastene fra `supabase/email-templates/` i tilsvarende felt.
+- [ ] Etter at alle fire feltene peker på `huskis-logo-v1.png`: fjern den
+      uversjonerte `assets/email/huskis-logo.png` i en egen commit — den ligger
+      der kun som kompatibilitet til Dashboard er oppdatert, se
+      «Logo-filnavnet er versjonert» i `supabase/email-templates/README.md`.
 
 En auth-lenke som mot formodning skulle peke til et alternativt domene, blir
 uansett 308-et videre til `huskis.no` med `?code=`/`#access_token=` i behold

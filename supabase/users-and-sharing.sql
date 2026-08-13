@@ -1967,7 +1967,7 @@ declare
   -- Fast produksjons-URL for logoen (PNG i repoet, serveres statisk). Ikke
   -- brukerstyrt → trenger ingen escaping. Kanonisk domene (uten www) — se
   -- docs/domains-and-urls.md.
-  logo_url    constant text := 'https://huskis.no/assets/email/huskis-logo.png';
+  logo_url    constant text := 'https://huskis.no/assets/email/huskis-logo-v1.png';
   api_key     text;
   from_addr   text;
   app_url     text;

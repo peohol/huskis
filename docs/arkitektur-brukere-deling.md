@@ -318,7 +318,7 @@ DEFINER, `search_path = public, extensions, net`) sender en profilert Huskis-
 e-post via `net.http_post` (pg_net) til Resend (`api.resend.com/emails`). Kroppen
 er tabellbasert HTML med inline CSS (trygg fontstakk `Arial, Helvetica, sans-
 serif` — ingen webfont), PNG-logo fra `https://huskis.no/assets/email/
-huskis-logo.png` (kanonisk domene, uten `www` — se `docs/domains-and-urls.md`),
+huskis-logo-v1.png` (kanonisk domene, uten `www` — se `docs/domains-and-urls.md`),
 skifer/grønn-palett fra designsystemet, preheader-tekst,
 stylet `<a>`-knapp og en `text/plain`-variant. To varianter:
 
