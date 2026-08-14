@@ -31,6 +31,8 @@
        ikke under den faste toppmenyen på veien.
     8. Innloggingsskjermen: et skjema som er høyere enn det som er igjen av
        skjermen klippes ikke på toppen (sentreringen gir fra seg plass).
+    9. Søppelkassens sveipefelt utvider seg mot høyre — til den BRUKBARE
+       kanten, ikke til skjermkanten (landskap, hakk i høyre side).
 
   Kjør:
     python3 -m http.server 8000                     # fra repo-roten, i egen terminal
@@ -461,12 +463,63 @@ async function authSkjerm(label, viewport) {
   await b.close();
 }
 
+/* ---------- 9) Søppelkassens sveipefelt ----------------------------------
+   Feltet utvider seg fra knappen og MOT HØYRE, og sveipe-strekket regnes ut
+   fra bredden. Med et hakk i høyre side (landskap) må begge stoppe ved den
+   brukbare kanten: ellers ligger etiketten og pilen under hakket, og enden av
+   sveipet et sted fingeren ikke når. Kjøres i landskap fordi det er DER
+   søppelkassen står nær kanten — på de to andre viewportene ligger den midt
+   på linjen, og feltet ville nådd sin egen maksbredde lenge før sonen. */
+async function sveipefelt(label, viewport) {
+  const b = await chromium.launch();
+  const ctx = await b.newContext({ viewport, hasTouch: true });
+  const p = await ctx.newPage();
+  const errs = [];
+  p.on('pageerror', (e) => errs.push(e.message));
+  await register(p);
+  await seed(p);
+  /* Én slettet liste, så søppelkassen i toppmenyen vises i det hele tatt — og
+     LANGE navn, så breadcrumben skyver listefunksjonene helt ut til
+     kontoknappen. Det er der søppelkassen har minst plass til høyre for seg,
+     og bare der sier feltets bredde noe. */
+  await p.evaluate(() => {
+    const H = window.__huskis, u = H.state.universes[0];
+    u.name = 'Familien Holmens felles planlegging';
+    u.groups[0].name = 'Ukesplan for hele høsten 2026';
+    const g = u.groups[0];
+    g.cards[g.cards.length - 1].trashed = true;
+    H.render();
+  });
+  await p.waitForFunction(() => {
+    const t = document.getElementById('trash-btn');
+    return t && !t.hidden;
+  }, null, { timeout: 5000, polling: 100 });
+  await settSone(p, SONE);
+  const rekt = await sikkerRekt(p, SONE);
+
+  const knapp = await p.evaluate(() => {
+    const r = document.getElementById('trash-btn').getBoundingClientRect();
+    return { x: Math.round(r.left + r.width / 2), y: Math.round(r.top + r.height / 2), høyre: Math.round(r.right) };
+  });
+  await p.mouse.move(knapp.x, knapp.y);
+  await p.mouse.down();
+  await p.waitForTimeout(500);        // hold-fysikk: HOLD_EXPAND_MS (320) + slark
+  const felt = await innenfor(p, '.swipe-field.open', rekt);
+  log(label + ': sveipefeltet stopper ved den brukbare kanten, ikke skjermkanten',
+    felt.ok, felt.evidens + ', knapp høyre ' + knapp.høyre);
+  await p.mouse.up();
+  await p.waitForTimeout(300);
+  log(label + ': ingen JS-feil', errs.length === 0, errs.join(' | ') || 'ingen');
+  await b.close();
+}
+
 (async () => {
   // Sonen er ren layout, og layout treffer begge viewportene: modalene er
   // sentrerte ark på mobil og popovere/paneler på desktop.
   await run('desktop', { width: 1200, height: 900 }, false);
   await run('mobil', { width: 390, height: 780 }, true);
   await authSkjerm('auth', { width: 390, height: 780 });
+  await sveipefelt('landskap', { width: 740, height: 360 });
 
   const fail = results.filter((r) => !r).length;
   console.log('\n==== ' + (results.length - fail) + '/' + results.length + ' PASS ====');

@@ -6616,6 +6616,12 @@
       const iconR = iconEl.getBoundingClientRect();
       const vw = window.innerWidth || document.documentElement.clientWidth || 360;
       const EDGE = 8;
+      /* Høyre grense er den BRUKBARE kanten, ikke viewportkanten: i landskap
+         med et hakk i høyre side ville feltet (og dermed sveipe-strekket, som
+         regnes ut fra bredden) endt under hakket — etiketten og pilen blir
+         uleselige, og enden av sveipet ligger et sted fingeren ikke når. 0 i en
+         nettleser, se docs/design-system.md («Den sikre sonen»). */
+      const høyreKant = vw - safeInsets().right;
 
       const field = ensureSwipeField();
       // Start = knappens eksakte flate; padding-left plasserer sveipe-ikonets
@@ -6640,7 +6646,7 @@
       // Utvid mot høyre så langt det trengs/er plass (venstre kant og høyde
       // ligger fast → ingen vertikal asymmetri, ikonet står i ro).
       const width = Math.max(Math.round(r.width),
-        Math.min(207, vw - EDGE - Math.round(r.left)));
+        Math.min(207, høyreKant - EDGE - Math.round(r.left)));
       field.style.width = width + 'px';
       btnRect = r;
       // Knappen skjules IKKE: det opake feltet starter med knappens eksakte
