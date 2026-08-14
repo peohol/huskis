@@ -352,11 +352,49 @@ skjer ingenting. Se `docs/drag-and-drop.md`.
 
 - `updateModalOpenClass()` samler alle modalene (nav/konto/søppel/del/plasser/
   bekreft/objektmeny/popovere) → `body.modal-open` (scroll-lås).
-- Escape lukker øverste lag først: tids-popover → ansvarlig-velger →
-  bekreftelses-modal → plasser → del (helt) → objektmeny → søppel →
-  nav-/konto-modal.
+- **Stigen** `closeTopLayer(viaBack)` lukker ØVERSTE lag først: tids-popover →
+  ansvarlig-velger → bekreftelses-modal → slett konto → avatar → plasser → del
+  → objektmeny → søppel → nav-/konto-modal. Den returnerer true når et lag
+  faktisk ble lukket. Escape er den ene inngangen, systemets tilbakeknapp den
+  andre (under) — én stige, så de to kan ikke komme i utakt.
+- Escape lukker ikke midt i en inline-redigering; der avbryter den bare
+  redigeringen. Del-modalen lukkes HELT av Escape («lukk = ferdig»).
 - `.switcher-overlay`/`.switcher-panel`-skallet (popover på desktop, sentrert
   modal på mobil) brukes av objektmenyen, ansvarlig-velgeren og tids-popoveren.
 - Fokus inn/ut av en overlay håndteres av ÉN felles fokusfelle
   (`overlayOpened`/`overlayClosed`, en MutationObserver på `hidden`) — ingen
   åpne-/lukkefunksjon fokuserer «tilbake» selv.
+
+## Systemets tilbakeknapp (Android)
+
+`systemBack()` kjører den samme stigen som Escape, med to tillegg foran:
+
+1. en pågående **inline-redigering** avbrytes (samme vei som Escape i feltet) —
+   ellers ville et tilbaketrykk midt i en navngiving truffet laget bak;
+2. **del-modalen med `backTo`** går ETT NIVÅ tilbake til modalen den ble åpnet
+   fra, altså det `#share-back` gjør. Escape lukker fortsatt helt.
+
+Ett lag per trykk. Er ingenting åpent, svarer web-laget **false**, og OS tar
+trykket med den oppførselen plattformen selv har for et tilbaketrykk på
+rot-aktiviteten.
+
+**Hovedsiden er bunnen.** Å åpne nav-modalen på et tilbaketrykk ville vært et
+lag NED igjen: neste trykk lukket den, trykket etter åpnet den på nytt, og man
+kom aldri ut av appen. «Ett Huskis-nivå tilbake» er derfor stigen — inkludert
+del-modalens vei tilbake til nav-modalen.
+
+Demonstrasjonen står utenfor, som for Escape (`demoGate`): den bytter ut hele
+`state` mens den står på, og ✕ i kortet er den ene utgangen. Tilbakeknappen
+svarer false der, så trykket blir et vanlig «forlat appen».
+
+Broen er det **eneste** stedet webkoden kjenner native-runtimen, og den er
+eksplisitt gated: `window.__huskisSystemBack` settes bare når
+`window.Capacitor.isNativePlatform()` sier at vi kjører i skallet. En nettleser
+har ingen Capacitor-runtime, får ingen bro, og oppfører seg nøyaktig som før.
+Det native skallet (`android/app/src/main/java/no/huskis/app/MainActivity.java`)
+spør broen og lar OS ta trykket når svaret er false — Capacitor gjør ingenting
+med tilbakeknappen selv, så uten dette forlot Android appen ved FØRSTE trykk
+uansett hva som stod åpent.
+
+Voktere: `tests/system-back.test.js` (stigen, i ekte nettleser, begge
+viewportene) og `tests/capacitor-android.test.js` (gaten og skallet).

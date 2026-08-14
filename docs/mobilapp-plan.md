@@ -15,9 +15,9 @@ autoritative dokumentet for fagfeltet.
 |---|---|
 | Målarkitektur | Én HTML/CSS/JS-kodebase + Capacitor for Android/iOS |
 | Nåværende fase | **Fase 3 — nødvendige native integrasjoner** |
-| Status | Fase 2 er ferdig og verifisert: hele paritetsmatrisen er kjørt på fysisk telefon med en browserklient på samme konto samtidig. Gjennomgangen i forkant fant og rettet én Android-spesifikk feil — auth-returadressen fra WebView-originet — og runden selv fant ett avvik, den flimrende instruksboblen. Begge er rettet og testdekket, og boblen er dessuten etterkontrollert på telefonen. Ingen kjent Android-spesifikk feil gir datatap, synkfeil, blokkert kjernefunksjon eller dårligere tilgjengelighet enn web. Fase 3 er ikke startet. |
+| Status | Fase 3 er i gang. Første punkt er ferdig: systemets tilbakeknapp er kartlagt, definert, implementert, automatisk dekket (`tests/system-back.test.js`, `tests/capacitor-android.test.js`) og kjørt grønn på fysisk telefon. De fem øvrige fase 3-punktene er ikke påbegynt, så ferdigkriteriet er ikke nådd. |
 | Neste milepæl | Android-appen oppfører seg som en normal mobilapp i de plattformtilfellene browseren ikke håndterer godt nok selv |
-| Ett neste praktiske steg | Kartlegg hva systemets tilbakeknapp gjør i appen i dag, og definer så oppførselen: lukk øverste popover/modal, naviger deretter ett Huskis-nivå tilbake der det er naturlig, og la OS håndtere resten |
+| Ett neste praktiske steg | Safe areas, status-/navigasjonsfeltet og skjermtastaturet: verifiser på fysisk telefon hva som faktisk klippes eller dekkes, og gjør bare de tilpasningene funnene krever |
 | OTA | Ikke innført; skal ikke innføres før Android-baselinen er stabil |
 | iOS | Senere fase; ikke en del av første implementering |
 
@@ -240,9 +240,11 @@ filer. Den eneste tekniske forskjellen som betyr noe for klientlogikken er
 | `update-check.js` | rot-relativ `/version.json` → leser sin egen innebygde fil, ser sin egen build-ID |
 | CSP (`index.html`) | `'self'` = det innebygde originet; Supabase er navngitt eksplisitt ([`sikkerhetsheadere.md`](sikkerhetsheadere.md)) |
 
-Alle fire er voktet av tester (tabellen under). Ut over dette har ikke webkoden
-noen kjennskap til Capacitor, og skal ikke få det — `tests/capacitor-android.test.js`
-feiler hvis en Capacitor-referanse sniker seg inn i web-kildefilene.
+Alle fire er voktet av tester (tabellen under). Ut over dette kjenner webkoden
+native-runtimen på nøyaktig ÉN linje: gaten som setter opp broen for systemets
+tilbakeknapp (fase 3). `tests/capacitor-android.test.js` holder det unntaket
+avgrenset — én linje, gjennom `window.Capacitor.isNativePlatform()` — og feiler
+hvis en Capacitor-referanse sniker seg inn noe annet sted i web-kildefilene.
 
 Én ting til skiller runtimene, og den eier vi ikke: Capacitor limer sin egen
 bro inn som et INLINE `<script>` rett etter `<head>` (`JSInjector`), altså foran
@@ -365,7 +367,7 @@ webversjonen. **Oppfylt.**
 **Mål:** gjøre appen naturlig å bruke som Android-app uten å bygge native
 funksjoner bare fordi de er mulige.
 
-- [ ] Definer korrekt system-tilbakeoppførsel: lukk øverste popover/modal,
+- [x] Definer korrekt system-tilbakeoppførsel: lukk øverste popover/modal,
       naviger ett Huskis-nivå tilbake der det er naturlig, og la OS håndtere
       resten.
 - [ ] Verifiser safe areas, status-/navigasjonsfelt og skjermtastatur.
@@ -381,6 +383,57 @@ funksjoner bare fordi de er mulige.
       Capacitors standard `true`: da følger WebView-lagringen — altså den
       lokale bufferen OG Supabase-sesjonen — med i Androids sikkerhetskopi til
       en annen enhet. Webversjonen har ingen tilsvarende vei ut av enheten.
+
+## Systemets tilbakeknapp
+
+**Hva den gjorde før:** forlot appen ved FØRSTE trykk, uansett hva som stod
+åpent. Ikke en beslutning noen hadde tatt — `@capacitor/android` 8.5.0 har
+ingen back-håndtering i det hele tatt (ingen `onBackPressed`, ingen
+`OnBackPressedCallback`, ingen `KEYCODE_BACK`; det eneste treffet på
+«backButton» i pakken er en Cordova-kompatibilitetsstubbe i `native-bridge.js`).
+`BridgeActivity` arver dermed AppCompats standard, og WebView-en får aldri
+trykket. Huskis navigerer heller ikke med History API-et, så det fantes ingen
+historikk å gå tilbake i.
+
+**Hva den gjør nå:** ett lag per trykk, ovenfra og ned — inline-redigering,
+så øverste popover/modal — og faller gjennom til OS når ingenting er åpent.
+Del-modalen som ble åpnet fra nav-modalen går ett nivå tilbake dit, i stedet
+for å lukke helt. Autoritativt for stigen og hvorfor hovedsiden er bunnen:
+[`menus.md`](menus.md) («Systemets tilbakeknapp»).
+
+| Ledd | Rolle |
+|---|---|
+| `closeTopLayer(viaBack)` (`app.js`) | ÉN stige, to innganger: Escape og tilbakeknappen. |
+| `systemBack()` (`app.js`) | Tilbakeknappens inngang. Returnerer true når Huskis tok trykket. |
+| gaten (`app.js`, én linje) | Setter `window.__huskisSystemBack` KUN når `window.Capacitor.isNativePlatform()` er sann. Nettleseren får ingen bro. |
+| `MainActivity.java` | `OnBackPressedCallback` → spør broen → videresender til `OnBackPressedDispatcher` når svaret er false. Kaller ikke `finish()` selv; OS avgjør hva et tilbaketrykk på rot-aktiviteten betyr. |
+| `android/app/build.gradle` | `androidx.activity` eksplisitt på kompileringsstien (Capacitor drar den inn som `implementation`, altså ikke til appmodulen). |
+| `tests/system-back.test.js` | Stigen i ekte nettleser, begge viewportene: gaten, ett lag per trykk, del-modalens nivå tilbake, redigering avbrutt, demoen urørt, og at ingenting-åpent gir false. |
+| `tests/capacitor-android.test.js` | Gaten er avgrenset til én kodelinje, og skallet spør web-laget før OS. |
+
+### Testet på fysisk Android
+
+Sekvensen under er kjørt i sin helhet på telefon, uten avvik. Den gjenbrukes
+ved etterkontroll og på iOS i fase 7.
+
+Debug-APK som i fase 1. Bruk gestenavigasjon ELLER treknappsraden — begge
+lander i den samme `OnBackPressedDispatcher`-en, så én av dem holder; kjør
+gjerne punkt 1 og 6 i begge for å se at gesten oppfører seg likt.
+
+| # | Gjør | Forventet |
+|---|---|---|
+| 1 | Åpne nav-modalen. Tilbake. | Modalen lukkes. Appen står fortsatt åpen på hovedsiden. |
+| 2 | Åpne nav-modalen → objektmenyen på et områdekort. Tilbake, tilbake. | Først lukkes menyen (nav-modalen står), så nav-modalen. |
+| 3 | Åpne objektmenyen på en liste → «Flytt» → «Flytt til …». Tilbake. | Velgeren lukkes, objektmenyen står igjen. |
+| 4 | Åpne «Deling og medlemmer» fra en mappe i nav-modalen. Tilbake. | Del-modalen lukkes og nav-modalen kommer tilbake — samme sted som ← i overskriften. |
+| 5 | Start en omdøping (menyen → «Endre navn»), skriv litt. Tilbake til tastaturet er borte, så tilbake igjen. | Første trykk lukker tastaturet (Android selv). Neste avbryter redigeringen — det gamle navnet står, og ingen modal bak ble lukket. |
+| 6 | Stå på hovedsiden uten noe åpent. Tilbake. | Appen forlates som en vanlig Android-app; oppgaven ligger igjen, og et nytt trykk på ikonet tar deg rett tilbake — fortsatt innlogget, samme sted. |
+| 7 | Under demonstrasjonen (ny konto, eller «Vis på nytt»): tilbake. | Demoen avbrytes ikke bakveien; trykket forlater appen. ✕ i kortet er utgangen. |
+| 8 | Slå på flymodus, opprett noe, og trykk tilbake til appen forlates. Åpne den igjen. | Ingen tapte endringer, ingen dobbeltlagring, statuslinjen som før. |
+
+Avvik rapporteres som i fase 2: trinnummer, hva som faktisk skjedde, og om det
+samme skjer i nettleseren med Escape. Er svaret ja, er det en ordinær
+Huskis-feil i stigen — ikke en Capacitor-tilpasning.
 
 **Ferdigkriterium:** Android-appen oppfører seg som en normal mobilapp i de
 plattformtilfellene browseren ikke selv kan håndtere godt nok.
@@ -531,13 +584,14 @@ De skal ikke snike seg inn i fundamentfasene.
 
 ## Neste oppgave
 
-Start **Fase 3**. Begynn med systemets tilbakeknapp: kartlegg hva den gjør i
-appen i dag, og gi den så en oppførsel som følger Huskis' egen struktur — lukk
-øverste popover/modal først, naviger deretter ett nivå tilbake der det er
-naturlig, og la OS ta resten. Deretter safe areas og skjermtastaturet.
+**Fase 3 fortsetter.** Tilbakeknappen er ferdig og verifisert på telefon. Neste
+runde er safe areas, status-/navigasjonsfeltet og skjermtastaturet: se først
+hva som faktisk klippes eller dekkes på en fysisk enhet med hakk og
+gestenavigasjon, og gjør bare de tilpasningene funnene krever.
 
 Hver fase 3-endring er plattformspesifikk og skal gates eksplisitt
-(arkitekturregel 2): browserutgaven skal fortsatt kjøre uten Capacitor, og
-`tests/capacitor-android.test.js` feiler hvis en Capacitor-referanse havner i
-web-kildefilene. Den vakten må altså få et bevisst unntak i samme endring som
-det første native API-et tas i bruk — ikke fjernes.
+(arkitekturregel 2): browserutgaven skal fortsatt kjøre uten Capacitor.
+`tests/capacitor-android.test.js` har fått sitt bevisste unntak for
+tilbakeknappens bro — ÉN kodelinje i `app.js`, gjennom
+`window.Capacitor.isNativePlatform()`. Trenger et nytt punkt et native API,
+utvides unntaket like avgrenset i samme endring; vakten fjernes ikke.

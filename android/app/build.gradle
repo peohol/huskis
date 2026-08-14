@@ -33,6 +33,11 @@ repositories {
 dependencies {
     implementation fileTree(include: ['*.jar'], dir: 'libs')
     implementation "androidx.appcompat:appcompat:$androidxAppCompatVersion"
+    // MainActivity bruker OnBackPressedDispatcher direkte (systemets
+    // tilbakeknapp). Capacitor drar inn androidx.activity som `implementation`,
+    // altså ikke på appmodulens kompileringssti — den skrives derfor eksplisitt,
+    // i den samme pinnede versjonen som `variables.gradle` allerede holder.
+    implementation "androidx.activity:activity:$androidxActivityVersion"
     implementation "androidx.coordinatorlayout:coordinatorlayout:$androidxCoordinatorLayoutVersion"
     implementation "androidx.core:core-splashscreen:$coreSplashScreenVersion"
     implementation project(':capacitor-android')
