@@ -15,9 +15,9 @@ autoritative dokumentet for fagfeltet.
 |---|---|
 | Målarkitektur | Én HTML/CSS/JS-kodebase + Capacitor for Android/iOS |
 | Nåværende fase | **Fase 3 — nødvendige native integrasjoner** |
-| Status | Fase 2 er oppfylt og verifisert på fysisk telefon. Fase 3 er i gang: systemets tilbakeknapp er kartlagt, definert og implementert, med automatisk dekning i `tests/system-back.test.js` og `tests/capacitor-android.test.js`. Den er IKKE etterkontrollert på fysisk telefon ennå — punktet står derfor åpent. De øvrige fase 3-punktene er ikke påbegynt. |
+| Status | Fase 3 er i gang. Første punkt er ferdig: systemets tilbakeknapp er kartlagt, definert, implementert, automatisk dekket (`tests/system-back.test.js`, `tests/capacitor-android.test.js`) og kjørt grønn på fysisk telefon. De fem øvrige fase 3-punktene er ikke påbegynt, så ferdigkriteriet er ikke nådd. |
 | Neste milepæl | Android-appen oppfører seg som en normal mobilapp i de plattformtilfellene browseren ikke håndterer godt nok selv |
-| Ett neste praktiske steg | Kjør den fysiske tilbakeknapp-sekvensen under fase 3 på telefon, og ta så safe areas / status-/navigasjonsfelt / skjermtastatur som neste runde |
+| Ett neste praktiske steg | Safe areas, status-/navigasjonsfeltet og skjermtastaturet: verifiser på fysisk telefon hva som faktisk klippes eller dekkes, og gjør bare de tilpasningene funnene krever |
 | OTA | Ikke innført; skal ikke innføres før Android-baselinen er stabil |
 | iOS | Senere fase; ikke en del av første implementering |
 
@@ -367,10 +367,9 @@ webversjonen. **Oppfylt.**
 **Mål:** gjøre appen naturlig å bruke som Android-app uten å bygge native
 funksjoner bare fordi de er mulige.
 
-- [ ] Definer korrekt system-tilbakeoppførsel: lukk øverste popover/modal,
+- [x] Definer korrekt system-tilbakeoppførsel: lukk øverste popover/modal,
       naviger ett Huskis-nivå tilbake der det er naturlig, og la OS håndtere
-      resten. *(Implementert og automatisk dekket — se under. Gjenstår: den
-      fysiske sekvensen på telefon.)*
+      resten.
 - [ ] Verifiser safe areas, status-/navigasjonsfelt og skjermtastatur.
 - [ ] Definer hvilke eksterne lenker som åpnes i systembrowser og hvilke som
       forblir i appen.
@@ -412,7 +411,10 @@ for å lukke helt. Autoritativt for stigen og hvorfor hovedsiden er bunnen:
 | `tests/system-back.test.js` | Stigen i ekte nettleser, begge viewportene: gaten, ett lag per trykk, del-modalens nivå tilbake, redigering avbrutt, demoen urørt, og at ingenting-åpent gir false. |
 | `tests/capacitor-android.test.js` | Gaten er avgrenset til én kodelinje, og skallet spør web-laget før OS. |
 
-### Fysisk sekvens (ikke kjørt ennå)
+### Testet på fysisk Android
+
+Sekvensen under er kjørt i sin helhet på telefon, uten avvik. Den gjenbrukes
+ved etterkontroll og på iOS i fase 7.
 
 Debug-APK som i fase 1. Bruk gestenavigasjon ELLER treknappsraden — begge
 lander i den samme `OnBackPressedDispatcher`-en, så én av dem holder; kjør
@@ -582,9 +584,10 @@ De skal ikke snike seg inn i fundamentfasene.
 
 ## Neste oppgave
 
-**Fase 3 fortsetter.** Kjør først den fysiske tilbakeknapp-sekvensen over på
-telefon og kryss av punktet når den er grønn. Ta så safe areas,
-status-/navigasjonsfeltet og skjermtastaturet som neste runde.
+**Fase 3 fortsetter.** Tilbakeknappen er ferdig og verifisert på telefon. Neste
+runde er safe areas, status-/navigasjonsfeltet og skjermtastaturet: se først
+hva som faktisk klippes eller dekkes på en fysisk enhet med hakk og
+gestenavigasjon, og gjør bare de tilpasningene funnene krever.
 
 Hver fase 3-endring er plattformspesifikk og skal gates eksplisitt
 (arkitekturregel 2): browserutgaven skal fortsatt kjøre uten Capacitor.
