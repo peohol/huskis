@@ -475,7 +475,7 @@ legger dem på sin egen avstand. Autoritativt:
 |---|---|
 | `viewport-fit=cover` (`index.html`) | Ber om å få tegne under systemfeltene — det er det som gir sonen verdier i det hele tatt. |
 | `--safe-*` (`styles.css`) | Sonen som fire tall. Toppmenyen, kontoknappen, board-et, modal-/popover-skallet, toasten, lagringsstatusen og oppdateringsbanneret legger dem på. |
-| `safeInsets()` (`app.js`) | De to lagene som plasseres i JS — demonstrasjonens kort og popoveren på desktop — klemmer mot sonen i stedet for mot skjermkanten. |
+| `safeInsets()` (`app.js`) | Det som regnes ut i JS leser sonen herfra: demonstrasjonens kort, popoveren på desktop, kolonnebudsjettet og dra-og-slippets to scroll-grenser klemmer mot den brukbare bunnen i stedet for mot skjermkanten. |
 | `scroll-padding-top` (`styles.css`) | Sidens rulling vet at det faste panelet dekker toppen, så et felt som rulles fram ikke havner under det. |
 | resize-lytteren (`app.js`) | Tastaturet krymper viewportet ⇒ feltet som redigeres rulles tilbake i syne. |
 | `android:windowSoftInputMode` (manifestet) | Tastaturet krymper vinduet, det skyver det ikke. |
@@ -497,6 +497,7 @@ og punkt 7–8 i landskap.
 |---|---|---|
 | 1 | Start appen og se på toppen. | Huskis' egen flate går helt opp i skjermkanten (ingen grå/svart stripe), men breadcrumben og kontoknappen står HELT under statusfeltet/hakket — ingen tekst eller knapp er delvis dekket. |
 | 2 | Se på bunnen med innhold som fyller skjermen. | Nederste listekort kan rulles helt fram; gestelinjen dekker det ikke. Luften under siste kort ser ut som luften ellers. |
+| 2b | Dra en liste helt ned til board-et auto-scroller, og slipp den nederst. | Auto-scrollen rekker helt til enden — den slupne lista blir ikke stående delvis under gestelinjen. |
 | 3 | Utløs en toast (slett et listepunkt) og se på lagringsstatusen samtidig. | Begge ligger over gestelinjen, og de overlapper ikke hverandre. |
 | 4 | Åpne nav-modalen, konto-modalen og en objektmeny. | Overskrift og lukkeknapp er aldri under statusfeltet; nederste rad er aldri under gestelinjen. |
 | 5 | Endre navn på et listepunkt NEDERST på skjermen. | Tastaturet kommer opp, og feltet blir stående synlig over det — det havner verken under tastaturet eller under toppmenyen. Enter avslutter. |

@@ -1412,9 +1412,13 @@
   }
   function boardColumnBudget(heights, gap, n) {
     if (n <= 1) return Infinity; // én kolonne: alt havner der uansett
+    // Budsjettet er én SKJERMHØYDE under toppmenyen. Gestelinjen dekker de
+    // nederste pikslene av viewportet, så de er ikke skjerm man kan bruke —
+    // uten leddet blir kolonnen for høy, og siste kort i den havner under
+    // linja (safeInsets() er null i en nettleser).
     const vh = window.innerHeight || document.documentElement.clientHeight || 0;
     const screen = Math.max(BOARD_COL_MIN_H,
-      Math.round(vh - topbarEl.getBoundingClientRect().height - 2 * gap));
+      Math.round(vh - topbarEl.getBoundingClientRect().height - safeInsets().bottom - 2 * gap));
     if (packBoardColumns(heights, gap, screen).length <= n) return screen;
     // Alt får ikke plass på én skjermhøyde per kolonne → finn den minste høyden
     // som gjør det (monotont: større budsjett gir aldri flere kolonner).
@@ -4229,7 +4233,10 @@
     if (!windowScrollDrag()) { stopAutoScroll(); updateModalAutoScroll(); return; }
     stopModalAutoScroll();
     const r = draggedRect();
-    const vh = window.innerHeight || document.documentElement.clientHeight || 1;
+    // Nedre kant av det BRUKBARE feltet: gestelinjen dekker de nederste
+    // pikslene, og et kort som «bare så vidt er innenfor viewporten» ligger da
+    // under den (safeInsets() er null i en nettleser).
+    const vh = (window.innerHeight || document.documentElement.clientHeight || 1) - safeInsets().bottom;
     const ZONE = 120;
     // Symmetrisk, kant-forankret utløsning: OPPOVER måles kortets ØVRE kant mot
     // toppen av området rett UNDER den faste headeren (ikke viewportens øvre kant
@@ -4263,8 +4270,14 @@
         // FAKTISKE bunn: et absolutt-posisjonert barn teller ikke i board-ets egen
         // høyde (placeholderen holder kortets gamle slot), så board-ets bunn er den
         // ekte innholdsenden — uavhengig av kortet vi drar.
+        //
+        // Board-ets bunn er IKKE dokumentets ende: `.app-main` har i tillegg
+        // gestelinjens bunn-inset som padding under board-et (styles.css). Uten
+        // det leddet stopper auto-scrollen én inset for tidlig, og siste kort
+        // blir liggende under gestelinjen til brukeren scroller videre selv.
         const vh = window.innerHeight || document.documentElement.clientHeight || 0;
-        const maxScroll = Math.max(0, board.getBoundingClientRect().bottom + window.scrollY - vh);
+        const maxScroll = Math.max(0,
+          board.getBoundingClientRect().bottom + window.scrollY + safeInsets().bottom - vh);
         // Tillatt nedover-avstand er ALLTID ikke-negativ. Ligger den kompakte board-
         // bunnen OVER gjeldende scrollY (f.eks. etter at alle lister kollapset mens
         // dokumenthøyden holdes kunstig høy), blir (maxScroll - scrollY) negativ — en
@@ -4815,7 +4828,9 @@
     const gap = parseFloat(getComputedStyle(board).columnGap) || 16;
     const vh = window.innerHeight || document.documentElement.clientHeight || 0;
     const safeTop = topbarH + gap;   // øverste synlige linje (rett under toppmenyen)
-    const safeBottom = vh - gap;
+    // Nederste synlige linje: gestelinjen dekker de nederste pikslene, så
+    // viewportbunnen alene ville latt kortet ligge delvis under den.
+    const safeBottom = vh - safeInsets().bottom - gap;
     const y = window.scrollY;
     const top = cardDocTop - y;      // kortets viewport-Y akkurat nå
     let target = y;

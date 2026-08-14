@@ -63,7 +63,10 @@ Bytte utløses av **overlapp**, ikke av et punkt:
   koordinater — `dragUsesPageCoords()` skiller på `drag.kind`). Fordi et absolutt-
   posisjonert barn teller i sidens scroll-område (et `fixed` gjorde ikke det),
   klemmes nedover-auto-scroll ved board-ets faktiske bunn (ellers uendelig scroll
-  ut i blankt).
+  ut i blankt) — pluss `--safe-bottom`, siden `.app-main` bærer gestelinjens
+  strimmel som padding UNDER board-et og dokumentet derfor rekker så mye lenger
+  (`docs/board-layout.md`). Nedre auto-scroll-sone måles mot den samme brukbare
+  bunnen, ikke mot viewportkanten.
 - **Det løftede objektet holdes ALLTID innenfor viewporten** (`dragPosLeft`/
   `dragPosTop` → `clampToViewport`, begge akser, alle objekt-typer). Det finnes
   ingen grunn til å dra noe utenfor skjermen, og et board-drag er `position:
@@ -293,11 +296,13 @@ Bytte utløses av **overlapp**, ikke av et punkt:
     løftede kortet under fingeren om nettleseren selv skulle scrolle — den scroller ALDRI selv.
   - **Scroll til den slupne lista — så lite påtrengende som mulig**
     (`scrollDroppedIntoView`, kalt fra `onCardUp`): det trygge området er mellom
-    toppmenyen (+ board-gapet) og viewportbunnen (− gapet). Ligger lista allerede
+    toppmenyen (+ board-gapet) og den BRUKBARE bunnen (viewportbunnen −
+    `--safe-bottom` − gapet; gestelinjen dekker de nederste pikslene, og er 0 i
+    en nettleser — `docs/design-system.md`). Ligger lista allerede
     HELT innenfor det, er funksjonen en **no-op** — en liste som var synlig hele
     tiden skal ikke rykke rundt bare fordi den ble omrokkert. Ellers scrolles den
     KORTEST MULIGE avstanden inn i området: ligger den (delvis) bak toppmenyen,
-    legges toppen på `safeTop`; stikker den under viewportbunnen, scrolles det bare
+    legges toppen på `safeTop`; stikker den under den brukbare bunnen, scrolles det bare
     så langt at nedre kant kommer inn — men aldri så langt at toppen forsvinner bak
     toppmenyen (en liste høyere enn området prioriterer altså toppen).
     `behavior: 'smooth'`, `'auto'` ved `prefers-reduced-motion`. Kalles ETTER at

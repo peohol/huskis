@@ -57,10 +57,12 @@ oppdateringsbanneret. Et panel som klemmes mot viewporthøyden
 (`.modal`, `.switcher-panel`) tar `100%` inn i sin `max-height` — `vh` måler
 hele skjermen, `100%` måler overlayets innholdsboks, altså sonen.
 
-To lag plasseres i JS i viewport-koordinater og kan ikke få sonen fra CSS:
-demonstrasjonens kort (`placeTour`) og popover-skallet på desktop
-(`positionSwitcherPanel`). Begge klemmer mot rektangelet `safeInsets()` i
-`app.js` gir. `env()` erstattes når custom-propertyen regnes ut, så de fire
+Det som regnes ut i JS kan ikke få sonen fra CSS, og leser den i stedet fra
+`safeInsets()` i `app.js`: demonstrasjonens kort (`placeTour`), popover-skallet
+på desktop (`positionSwitcherPanel`), og de tre stedene som trenger den
+BRUKBARE bunnen i stedet for viewportkanten — kolonnebudsjettet
+(`docs/board-layout.md`) og dra-og-slippets to scroll-grenser
+(`docs/drag-and-drop.md`). `env()` erstattes når custom-propertyen regnes ut, så de fire
 løser seg til vanlige px-verdier når de leses — i motsetning til `--board-gap`,
 som er en `clamp()` og derfor må leses fra en oppløst egenskap
 (`docs/board-layout.md`).

@@ -80,6 +80,13 @@ async function seed(p) {
     c1.items.push(mk({ id: 'I1', home: 'L1', text: 'Melk', cat: null, isCat: false }));
     c1.items.push(mk({ id: 'I2', home: 'L1', text: 'Brød', cat: null, isCat: false, pos: 1 }));
     g.cards.push(c1);
+    // Nok lister til at board-et er høyere enn skjermen i begge viewportene:
+    // både bunn-luften, auto-scrollen og tastatur-sjekkene trenger et board
+    // man faktisk kan rulle i.
+    for (let i = 0; i < 12; i++) {
+      g.cards.push(mk({ id: 'X' + i, group: 'GRP', title: 'Liste ' + i, collapsed: false, pos: i + 1,
+        items: [mk({ id: 'XI' + i, home: 'X' + i, text: 'Punkt ' + i, cat: null, isCat: false })] }));
+    }
     u.groups.push(g);
     st.universes.push(u);
     st.activeUniverse = 'UNI'; st.activeGroup = 'GRP';
@@ -216,6 +223,21 @@ async function run(label, viewport, touchMode) {
     nær(main1.paddingLeft - SONE.left, main1.paddingRight - SONE.right),
     'v ' + main1.paddingLeft + ' / h ' + main1.paddingRight);
 
+  // Siste kort skal kunne RULLES helt fram. Board-ets bunn-padding er det som
+  // gjør at dokumentet i det hele tatt rekker forbi gestelinjen.
+  const bunnKort = await p.evaluate((sone) => {
+    window.scrollTo(0, document.documentElement.scrollHeight);
+    const kort = document.querySelectorAll('.app-main .card');
+    const siste = kort[kort.length - 1];
+    if (!siste) return null;
+    return { bunn: siste.getBoundingClientRect().bottom, grense: window.innerHeight - sone.bottom };
+  }, SONE);
+  log(label + ': siste kort kan rulles helt fram over gestelinjen',
+    !!bunnKort && bunnKort.bunn <= bunnKort.grense + 1,
+    bunnKort ? 'kort bunn ' + Math.round(bunnKort.bunn) + ', grense ' + Math.round(bunnKort.grense) : '—');
+  await p.evaluate(() => window.scrollTo(0, 0));
+  await p.waitForTimeout(150);
+
   await p.evaluate(() => window.__huskis.showToast('Testmelding'));
   await p.waitForTimeout(350);
   const toast = await innenfor(p, '.toast.show', rekt);
@@ -265,6 +287,56 @@ async function run(label, viewport, touchMode) {
   await p.keyboard.press('Escape');
   await p.waitForTimeout(200);
 
+  /* ---------- 5b) Dra-og-slipp: bunnen er den BRUKBARE bunnen ----------
+     Auto-scrollen under et drag stopper ved board-ets bunn, og
+     `scrollDroppedIntoView()` sjekker om det slupne kortet er synlig. Begge
+     målte mot viewportbunnen, som med en gestelinje ligger UNDER det man kan
+     se: siste kort ble stående delvis under linja til man rullet videre selv. */
+  await p.evaluate(() => window.scrollTo(0, 0));
+  await p.waitForTimeout(150);
+  const kortHode = await p.evaluate(() => {
+    const el = document.querySelector('.app-main .card[data-id="L1"] .card-head');
+    const b = el.getBoundingClientRect();
+    return { x: Math.round(b.left + b.width / 2), y: Math.round(b.top + b.height / 2) };
+  });
+  const pek = (type, x, y) => p.evaluate(({ t, cx, cy }) => {
+    const ev = new PointerEvent(t, { bubbles: true, cancelable: true, composed: true,
+      clientX: cx, clientY: cy, pointerId: 7, pointerType: 'touch', button: 0, isPrimary: true });
+    (t === 'pointerdown' ? (document.elementFromPoint(cx, cy) || document.body) : window).dispatchEvent(ev);
+  }, { t: type, cx: x, cy: y });
+  await pek('pointerdown', kortHode.x, kortHode.y);
+  await p.waitForTimeout(260);                 // trykk-og-hold: gest-fysikk, ikke tilstand
+  await pek('pointermove', kortHode.x, kortHode.y - 6);
+  await p.waitForTimeout(60);
+  // Hold kortet i nedre auto-scroll-sone og la den rulle til den stopper selv.
+  await pek('pointermove', kortHode.x, viewport.height - 20);
+  await p.waitForTimeout(1800);                // auto-scroll-fysikk: rAF over tid
+  const rullet = await p.evaluate(() => ({
+    y: window.scrollY,
+    maks: document.documentElement.scrollHeight - window.innerHeight,
+  }));
+  await pek('pointerup', kortHode.x, viewport.height - 20);
+  await p.waitForTimeout(700);                 // slipp-animasjon + scrollDroppedIntoView
+  log(label + ': auto-scrollen under et drag rekker helt til dokumentets ende',
+    rullet.maks <= 0 || rullet.y >= rullet.maks - 1,
+    'scrollY ' + Math.round(rullet.y) + ' av maks ' + Math.round(rullet.maks));
+  const slupp = await p.evaluate((sone) => {
+    const el = document.querySelector('.app-main .card[data-id="L1"]');
+    if (!el) return null;
+    const b = el.getBoundingClientRect();
+    const bar = document.querySelector('.topbar').getBoundingClientRect();
+    return { høyde: b.height, top: b.top, bunn: b.bottom,
+      grense: window.innerHeight - sone.bottom, barBunn: bar.bottom };
+  }, SONE);
+  // Et kort som er HØYERE enn det synlige feltet får ikke plass uansett, og
+  // prioriterer da toppen (samme regel som uten sone). Unntaket gjelder bare
+  // der — ellers ville det svelget nettopp den feilen vi tester.
+  const forHøyt = !!slupp && slupp.høyde > slupp.grense - slupp.barBunn;
+  log(label + ': det slupne kortet blir ikke liggende under gestelinjen',
+    !!slupp && (forHøyt ? slupp.top >= slupp.barBunn - 1 : slupp.bunn <= slupp.grense + 1),
+    slupp ? 'kort ' + Math.round(slupp.top) + '–' + Math.round(slupp.bunn)
+      + ' (h ' + Math.round(slupp.høyde) + '), felt ' + Math.round(slupp.barBunn) + '–' + Math.round(slupp.grense) : '—');
+
   /* ---------- 6) Demonstrasjonens kort ---------- */
   await p.evaluate(() => window.__huskis.tour.start());
   await p.waitForTimeout(500);
@@ -278,23 +350,11 @@ async function run(label, viewport, touchMode) {
   // Tastaturet er ikke en egen mekanisme for web-laget: det gir WebView-en en
   // bunn-inset like høy som seg selv, altså nøyaktig den resize-en vi gjør her.
   await settSone(p, null);
-  await p.evaluate(() => {
-    // Nok innhold til at feltet vi redigerer kan havne nederst.
-    const H = window.__huskis, g = H.state.universes[0].groups[0];
-    const mk = (o) => Object.assign({ ts: 1, org: 't', pos: 0, posTs: 1, posOrg: 't',
-      trashed: false, _role: 'owner' }, o);
-    for (let i = 0; i < 6; i++) {
-      g.cards.push(mk({ id: 'X' + i, group: 'GRP', title: 'Liste ' + i, collapsed: false,
-        items: [mk({ id: 'XI' + i, home: 'X' + i, text: 'Punkt ' + i, cat: null, isCat: false })], pos: i + 1 }));
-    }
-    H.render();
-  });
-  await p.waitForTimeout(400);
   // Rull helt ned og start redigering på det NEDERSTE listepunktet — det er
   // der et tastatur faktisk kommer i veien.
-  await p.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
-  await p.waitForTimeout(200);
-  await p.locator('.item[data-id="XI5"] .item-text').click();
+  await p.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight));
+  await p.waitForTimeout(250);
+  await p.locator('.item[data-id="XI11"] .item-text').click();
   await p.waitForTimeout(300);
   const redigerer = await p.evaluate(() => !!document.querySelector('.edit-input'));
   log(label + ': redigering er i gang før tastaturet kommer opp', redigerer === true, String(redigerer));

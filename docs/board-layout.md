@@ -25,7 +25,8 @@ fortsatt hadde masse plass.
   kolonner …) En tom kolonne til høyre er derfor forventet når listene får plass
   til venstre.
 - **Kolonnebudsjettet** = skjermhøyden under toppmenyen (minus luften over og
-  under). Får ikke alt plass i de kolonnene vinduet har rom til, økes budsjettet
+  under, og minus `--safe-bottom` — gestelinjens strimmel er ikke skjerm man kan
+  bruke). Får ikke alt plass i de kolonnene vinduet har rom til, økes budsjettet
   til det MINSTE som holder (binærsøk over en monoton grådig pakking) — kolonnene
   blir høyere, siden scroller, og den øverste lista i kolonne 2 glir ned som den
   nederste i kolonne 1.
