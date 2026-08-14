@@ -12050,7 +12050,8 @@
   /* Plasser kortet ved siden av målet, med pilspissen mot det. Kortet legger
      seg ALDRI oppå målet: målet er det brukeren skal treffe, og et kort i veien
      gjør steget umulig. Får ikke et helt kort plass verken over eller under,
-     velges den største luften og kortet kappes til den og ruller innvendig. */
+     velges den største luften og kortet kappes til den — da ruller teksten
+     inni kortet, mens knapperaden blir stående (se `.tour-body` i styles.css). */
   function placeTour() {
     const step = demoStep();
     const el = step.narrated ? null : demoTarget();
@@ -12076,11 +12077,18 @@
     const maxX = window.innerWidth - safe.right - margin;
     const maxY = window.innerHeight - safe.bottom - margin;
     const clamp = (lo, v, hi) => Math.max(lo, Math.min(v, Math.max(lo, hi)));
+    /* Hele den brukbare høyden. Kortet er ALDRI høyere enn denne — verken
+       midtstilt eller ved siden av et mål. Et kort som stikker ut over kanten
+       er ikke bare stygt: knappen som driver steget videre havner utenfor
+       skjermen, og på en lav skjerm (telefon i landskap) gjelder det nettopp
+       velkomsten, der «Kom i gang» er eneste vei videre. */
+    const room = maxY - minY;
     if (!el) {
       tourArrow.hidden = true;
-      tourCard.style.maxHeight = '';
+      const h = Math.min(ch, room);
+      tourCard.style.maxHeight = ch > room ? room + 'px' : '';
       tourCard.style.left = Math.max(minX, (minX + maxX - cw) / 2) + 'px';
-      tourCard.style.top = Math.max(minY, (minY + maxY - ch) / 2) + 'px';
+      tourCard.style.top = Math.max(minY, (minY + maxY - h) / 2) + 'px';
       return;
     }
     const r = el.getBoundingClientRect();
@@ -12124,18 +12132,27 @@
     else side = below >= above ? 'below' : 'above';
     let top, left, maxH = '';
     if (side === 'below' || side === 'above') {
-      if (ch > (side === 'below' ? below : above)) {
-        maxH = Math.max(120, side === 'below' ? below : above) + 'px';
-      }
+      const sideRoom = side === 'below' ? below : above;
+      /* Gulvet på 120 px hindrer en ubrukelig strimmel av et kort når luften på
+         den valgte siden er nesten null — men det kan aldri bli høyere enn hele
+         den brukbare høyden, og topp-klemmen under holder kortet innenfor
+         skjermen selv når gulvet er høyere enn luften (da legger kortet seg
+         nødvendigvis litt oppå målet: et kort utenfor kanten er verre). */
+      if (ch > sideRoom) maxH = Math.max(Math.min(120, room), sideRoom) + 'px';
       const h = maxH ? Math.min(ch, parseFloat(maxH)) : ch;
-      top = side === 'below' ? keep.bottom + gap : keep.top - gap - h;
+      top = clamp(minY, side === 'below' ? keep.bottom + gap : keep.top - gap - h, maxY - h);
       left = clamp(minX, r.left + r.width / 2 - cw / 2, maxX - cw);
       tourArrow.style.left = clamp(left + 14, r.left + r.width / 2 - half, left + cw - 14 - half * 2) + 'px';
       tourArrow.style.top = (side === 'below' ? top - half : top + h - half) + 'px';
     } else {
-      top = clamp(minY, r.top + r.height / 2 - ch / 2, maxY - ch);
+      /* Ved siden av målet er det ingen «luft på siden» som begrenser høyden —
+         bare skjermen selv. Uten kappingen her ville et høyt kort stukket ut
+         både over og under (klemmen kan bare velge én kant). */
+      if (ch > room) maxH = room + 'px';
+      const h = Math.min(ch, room);
+      top = clamp(minY, r.top + r.height / 2 - h / 2, maxY - h);
       left = side === 'right' ? keep.right + gap : keep.left - gap - cw;
-      tourArrow.style.top = clamp(top + 14, r.top + r.height / 2 - half, top + ch - 14 - half * 2) + 'px';
+      tourArrow.style.top = clamp(top + 14, r.top + r.height / 2 - half, top + h - 14 - half * 2) + 'px';
       tourArrow.style.left = (side === 'right' ? left - half : left + cw - half) + 'px';
     }
     tourCard.style.maxHeight = maxH;

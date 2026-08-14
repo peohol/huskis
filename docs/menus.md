@@ -116,13 +116,13 @@ stående). Autoritativt: `docs/trash.md` («Slett ved å dra objektet i kassen»
 ## Toppmenyen (`.topbar`)
 
 Ett fast panel øverst (`position: fixed`, full bredde, samme DOM på mobil og
-desktop). To rader:
+desktop). To deler:
 
 1. **Navigasjonsknappen** (`.crumb-btn.nav-crumb`, `#nav-crumb`): ÉN knapp som
    viser hele lokasjonen som en breadcrumb — `🌐 [områdenavn] › 📁 [mappenavn]`
    (`updateCrumbs()`; fallback «Område»/«Mappe» når ingenting finnes). Klikk
-   åpner nav-modalen. Navnene kappes med ellipsis; raden holder avstand til
-   kontoknappen med `padding-right`. På mobil krympes fonten litt (media-query).
+   åpner nav-modalen. Navnene kappes med ellipsis. På mobil krympes fonten litt
+   (media-query).
 2. **Listefunksjonene** (`.panel-actions.toolbar`): «＋ Liste»
    (`#add-card-btn`) og liste-søppelkassen (`#trash-btn`). «＋ Liste» er avskrudd uten
    en aktiv mappe man kan opprette lister i (`canAddList`, `updateToolbarState`)
@@ -130,10 +130,29 @@ desktop). To rader:
    låst område. Se `docs/rettigheter-og-deling.md` («Å opprette og å plassere
    spør FORELDEREN»).
 
+**Én linje der bredden rekker.** De to delene deler linje på desktop og på en
+telefon i LANDSKAP: panelet blir én kontrollhøyde høyt, og i landskap er høyde
+det knappeste vi har (~360 px viewport). Listefunksjonene står **rett til høyre
+for nav-knappen**, ikke skjøvet ut til kanten: breadcrumben krymper (`flex: 0 1
+auto`, navnene kappes med ellipsis) når linjen blir trang, men vokser aldri.
+Under **560 px** — telefon i portrett, samme grense som board-ets
+én-kolonne-grense — legges listefunksjonene på raden UNDER: så smalt er navnene
+verdt mer enn de 49 px panelet sparer.
+
+Kontoknappen ligger fast i hjørnet og er ikke med i panelets flyt, så plassen
+til den må holdes av noe annet: på én linje er det en `margin-right` i ENDEN av
+linjen (listefunksjonenes), i det stablede oppsettet breadcrumbens
+`padding-right` — da skal raden under bruke hele bredden. Panelets egen padding
+er den samme i begge, så kontoknappen flukter fortsatt med panelets kant
+(`tests/safe-area.test.js`).
+
 Panelets flate når helt ut i skjermkantene, men innholdet holdes innenfor den
 sikre sonen: `--safe-top` legges på padding-top og `--safe-left`/`--safe-right`
 på sidene, så breadcrumben ikke havner under statusfeltet eller et hakk (0 i en
 nettleser — `docs/design-system.md`).
+
+Begge oppsettene og grensen mellom dem er dekket av
+`tests/landscape-chrome.test.js`.
 
 Board-ets padding-top settes i JS (`syncHeaderHeight`: målt topbar-høyde +
 `--board-gap`) — se `docs/board-layout.md`. At høyden måles er det som gjør at

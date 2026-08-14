@@ -15,9 +15,9 @@ autoritative dokumentet for fagfeltet.
 |---|---|
 | Målarkitektur | Én HTML/CSS/JS-kodebase + Capacitor for Android/iOS |
 | Nåværende fase | **Fase 3 — nødvendige native integrasjoner** |
-| Status | Fase 3 er i gang. Systemets tilbakeknapp er ferdig og verifisert på fysisk telefon. Safe areas, systemfeltene og skjermtastaturet er kartlagt, definert, implementert og automatisk dekket (`tests/safe-area.test.js`, `tests/capacitor-android.test.js`), men IKKE kjørt på fysisk telefon ennå — sekvensen står under. De fire øvrige fase 3-punktene er ikke påbegynt, så ferdigkriteriet er ikke nådd. |
+| Status | Fase 3 er i gang. Systemets tilbakeknapp OG safe areas/systemfeltene/skjermtastaturet er ferdige, automatisk dekket (`tests/safe-area.test.js`, `tests/landscape-chrome.test.js`, `tests/capacitor-android.test.js`) og verifisert på fysisk telefon. De fire øvrige fase 3-punktene er ikke påbegynt, så ferdigkriteriet er ikke nådd. |
 | Neste milepæl | Android-appen oppfører seg som en normal mobilapp i de plattformtilfellene browseren ikke håndterer godt nok selv |
-| Ett neste praktiske steg | Kjør den fysiske sekvensen for safe areas og skjermtastaturet på en telefon med hakk og gestenavigasjon, og kryss av punktet når den er grønn |
+| Ett neste praktiske steg | Definer hvilke eksterne lenker som åpnes i systembrowser og hvilke som forblir i appen |
 | OTA | Ikke innført; skal ikke innføres før Android-baselinen er stabil |
 | iOS | Senere fase; ikke en del av første implementering |
 
@@ -370,8 +370,9 @@ funksjoner bare fordi de er mulige.
 - [x] Definer korrekt system-tilbakeoppførsel: lukk øverste popover/modal,
       naviger ett Huskis-nivå tilbake der det er naturlig, og la OS håndtere
       resten.
-- [ ] Verifiser safe areas, status-/navigasjonsfelt og skjermtastatur.
-      Implementert og automatisk dekket; gjenstår: den fysiske runden under.
+- [x] Verifiser safe areas, status-/navigasjonsfelt og skjermtastatur.
+      Implementert, automatisk dekket og kjørt på fysisk telefon — de to
+      landskaps-avvikene runden fant er rettet (se sekvensen under).
 - [ ] Definer hvilke eksterne lenker som åpnes i systembrowser og hvilke som
       forblir i appen.
 - [ ] Gjør auth-/e-postlenker robuste; vurder Android App Links og senere iOS
@@ -487,7 +488,15 @@ CSS-en gjør hele jobben, og webkoden kjenner fortsatt native-runtimen på
 nøyaktig ÉN linje — gaten for tilbakeknappens bro. Unntaket i
 `tests/capacitor-android.test.js` er derfor uendret.
 
-### Fysisk testsekvens (ikke kjørt ennå)
+### Testet på fysisk Android
+
+Sekvensen under er kjørt i sin helhet på telefon. Punkt 1–6 og 9 uten avvik.
+Punkt 7–8 (landskap) avdekket to ordinære Huskis-feil — begge var der i
+nettleseren på samme viewport, og begge er rettet: toppmenyen står nå på ÉN
+linje når bredden rekker ([`menus.md`](menus.md)), og demonstrasjonens kort er
+aldri høyere enn skjermen ([`introduksjon.md`](introduksjon.md)). Vakten er
+`tests/landscape-chrome.test.js`. Sekvensen gjenbrukes ved etterkontroll og på
+iOS i fase 7.
 
 Debug-APK som i fase 1, på en telefon med hakk ELLER hull i skjermen og med
 **gestenavigasjon** slått på. Kjør punkt 1 og 6 en gang til med treknappsraden,

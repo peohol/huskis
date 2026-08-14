@@ -354,10 +354,16 @@ body {
 }
 
 /* ---------------- Toppmenyen (breadcrumb + listefunksjoner) ----------------
-   Ett fast panel øverst (alle skjermstørrelser): breadcrumb-raden
+   Ett fast panel øverst (alle skjermstørrelser): breadcrumben
    (🌐 område › 📁 mappe) og listefunksjonene («＋ Liste», søppelkasse,
-   filter) på raden under. Kontoknappen er fast i viewportets hjørne (egen
-   klasse) og overlapper panelet visuelt øverst til høyre. */
+   filter). De står på SAMME linje der bredden rekker — listefunksjonene rett
+   til høyre for nav-knappen, ikke skjøvet ut til kanten. Panelet blir da én
+   kontrollhøyde høyt, og det er høyde som er mangelvaren i landskap. Under
+   560 px (telefon i portrett) legges listefunksjonene på raden under, slik at
+   breadcrumb-navnene ikke kappes bort til ingenting. Kontoknappen er fast i
+   viewportets hjørne (egen klasse) og overlapper panelet visuelt øverst til
+   høyre — plassen til den holdes av en margin PÅ ENDEN av linjen, slik at
+   panelets egen padding (og dermed fluktingen med kontoknappen) er uendret. */
 .topbar {
   position: fixed;          /* uavhengig av scrolling (robust mot iOS-backdrop-bug) */
   top: 0;
@@ -365,7 +371,7 @@ body {
   right: 0;
   z-index: 30;
   display: flex;
-  flex-direction: column;
+  align-items: center;
   gap: 8px;
   /* Flaten når helt ut i kantene, men INNHOLDET holdes innenfor den sikre
      sonen: statusfeltet øverst og et eventuelt hakk i sidene legges på
@@ -379,14 +385,15 @@ body {
   border-bottom: 1px solid var(--line);
 }
 
-/* Breadcrumb: to knapper med nivå-ikon + navn, skilt med ›. Holder avstand til
-   kontoknappen i hjørnet via padding-right. */
+/* Breadcrumb: to knapper med nivå-ikon + navn, skilt med ›. Den KRYMPER
+   (navnene kappes med ellipsis) når linjen blir trang, men VOKSER ikke: da
+   ville den skjøvet listefunksjonene bort fra nav-knappen og ut til kanten. */
 .breadcrumb {
   display: flex;
   align-items: center;
   gap: 6px;
   min-width: 0;
-  padding-right: calc(var(--control-h) + 10px);
+  flex: 0 1 auto;
 }
 .crumb-btn {
   appearance: none;
@@ -539,8 +546,16 @@ body {
            var(--safe-bottom) calc(var(--board-gap) + var(--safe-left));
 }
 
-/* Listefunksjons-raden i toppmenyen (er også .panel-actions). */
-.toolbar { flex-wrap: wrap; }
+/* Listefunksjonene i toppmenyen (er også .panel-actions): rett til høyre for
+   nav-knappen, og krymper aldri — det er breadcrumben som gir fra seg plass.
+   Marginen er plassen kontoknappen trenger i hjørnet: den ligger i ENDEN av
+   linjen (ikke mellom knappene), og teller med når flex regner ut hvor mye
+   breadcrumben må krympe. Panelets padding er dermed uendret, og kontoknappen
+   flukter fortsatt med kanten (se tests/safe-area.test.js). */
+.toolbar {
+  flex: 0 0 auto;
+  margin-right: calc(var(--control-h) + 10px);
+}
 
 /* ---------------- Generelle knapper (modaler o.l.) ----------------
    .btn = base (form/typografi), .btn-ghost = hvit, .btn-small = mindre
@@ -2283,11 +2298,15 @@ body.tour-demo .trash-row button:not(.tour-live) { opacity: 0.35; }
      plasseres av JS INNENFOR sonen (se placeTour), så et kort som bare tok
      hensyn til viewport-bredden ville stukket ut over motsatt kant. */
   width: min(400px, calc(100vw - 24px - var(--safe-left) - var(--safe-right)));
-  /* Høyden settes i JS når det ikke er plass til hele kortet ved siden av
-     målet (smal skjerm). Da ruller kortet innvendig i stedet for å legge seg
-     oppå kontrollen brukeren skal trykke på — se placeTour(). */
-  overflow-y: auto;
-  overscroll-behavior: contain;
+  /* Høyden settes i JS når hele kortet ikke får plass (lav skjerm, eller for
+     lite luft ved siden av målet — se placeTour). Kortet er en flex-kolonne
+     nettopp for det tilfellet: det er TEKSTEN (`.tour-body`) som ruller, mens
+     framdriftsstolpen og knapperaden blir stående. Ruller hele kortet, kan
+     «Kom i gang» ligge under skjermkanten på et kort brukeren tror hen har
+     lest ferdig. */
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
   padding: 18px;
   border-radius: 20px;
   background: #fff;
@@ -2295,10 +2314,20 @@ body.tour-demo .trash-row button:not(.tour-live) { opacity: 0.35; }
   animation: pop-in 0.18s cubic-bezier(.2, .75, .3, 1);
 }
 .tour-card:focus-visible { outline: var(--focus-w) solid var(--focus); outline-offset: 3px; }
+/* Rulleflaten når kortet er kappet. `min-height: 0` er det som gjør at den
+   faktisk krymper: en flex-item nekter ellers å bli mindre enn innholdet sitt,
+   og kortet ville vokst ut av maxHeight igjen. */
+.tour-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
 
 /* Framdriftsstolpe i stedet for «Steg n av m»: mindre tekst å lese, og like
    presist om hvor langt igjen det er. */
 .tour-progress {
+  flex: 0 0 auto;           /* krymper ikke når kortet er kappet */
   height: 5px;
   margin: 0 30px 12px 0;
   border-radius: 999px;
@@ -2341,6 +2370,7 @@ body.tour-demo .trash-row button:not(.tour-live) { opacity: 0.35; }
    kortet trengs den mørke varianten — samme unntak som i nav-modalen. */
 .tour-text .hint-chip { background: rgba(0, 0, 0, 0.07); }
 .tour-actions {
+  flex: 0 0 auto;           /* blir stående når teksten over ruller */
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -2385,12 +2415,23 @@ body.tour-demo .trash-row button:not(.tour-live) { opacity: 0.35; }
 }
 
 /* ---------------- Mobil ----------------
-   Samme toppmeny som desktop (breadcrumb + listefunksjoner); kun board-et
-   endres til én kolonne, og popover-skallet blir en sentrert modal. */
+   Samme toppmeny som desktop, men stablet i to rader; board-et endres til én
+   kolonne, og popover-skallet blir en sentrert modal. */
 @media (max-width: 560px) {
   /* Kolonneantallet regnes ut i JS (`relayoutBoard`) og er uansett 1 så smalt —
      her settes bare flagget som slår på DnD-ens normal-flow-vakt på touch. */
   .board { --mobile-dnd-flow-guard: 1; }
+
+  /* Så smalt er det ikke plass til begge deler på én linje: listefunksjonene
+     legges på raden under. Panelet blir én kontrollhøyde høyere — det er byttet
+     mot at navnene ikke kappes bort. Telefonen i LANDSKAP er bredere enn dette
+     og beholder derfor én-linjes-panelet.
+     Klaringen til kontoknappen flyttes samtidig til breadcrumben: raden under
+     skal bruke hele bredden, det er bare breadcrumben som ligger ved siden av
+     knappen. */
+  .topbar { flex-direction: column; align-items: stretch; }
+  .breadcrumb { padding-right: calc(var(--control-h) + 10px); }
+  .toolbar { margin-right: 0; flex-wrap: wrap; }
 
   /* Litt tettere breadcrumb så navnene får plass ved siden av kontoknappen. */
   .crumb-btn { font-size: var(--fs-md); padding: 0 10px; gap: 6px; }

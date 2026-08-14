@@ -97,8 +97,9 @@ avrundinger, så den blir stående som sikkerhetsnett.
 
 `.app-main`s `padding-top` settes IKKE via CSS `calc()`, men regnes ut i JS
 (`syncHeaderHeight`, med `ResizeObserver` på toppmenyen): eksakt målt
-toppmeny-høyde (`.topbar` — breadcrumb + listefunksjons-raden, samme panel på
-alle skjermstørrelser) **+ `--board-gap`**, satt som `--board-pad-top`.
+toppmeny-høyde (`.topbar` — breadcrumb + listefunksjoner, på én linje eller to
+rader etter bredden, se [`menus.md`](menus.md)) **+ `--board-gap`**, satt som
+`--board-pad-top`.
 
 At høyden MÅLES er det som gjør at klaringen tåler at toppmenyen selv vokser
 med den sikre sonen (`--safe-top`, se [`design-system.md`](design-system.md)):

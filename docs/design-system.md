@@ -227,7 +227,7 @@ Størrelse/form kommer fra egne klasser: `.btn` (modaler), `.btn-small`,
 - `.panel-head` + `.panel-title` + `.panel-actions`: overskrift («ALLE
   OMRÅDER»/«INVITASJONER» osv., uppercase via CSS) på egen linje + knapperad
   under. Brukes i område-/mappe-/konto-modalen og toppmenyens
-  listefunksjons-rad.
+  listefunksjoner.
 - `.crumb-btn`: navigasjonsknappen i toppmenyen — ÉN knapp med begge nivåene
   (nivå-ikon + navn på flate-mønsteret, `.crumb-name` med ellipsis);
   `.crumb-sep` er ›-skilletegnet mellom dem.
