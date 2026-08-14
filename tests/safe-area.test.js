@@ -33,6 +33,8 @@
        skjermen klippes ikke på toppen (sentreringen gir fra seg plass).
     9. Søppelkassens sveipefelt utvider seg mot høyre — til den BRUKBARE
        kanten, ikke til skjermkanten (landskap, hakk i høyre side).
+   10. En MINSTEBREDDE vinner over en maks-bredde: objektmenyens minstebredde
+       må trekke fra sonen på en smal skjerm (delt skjerm, liten WebView).
 
   Kjør:
     python3 -m http.server 8000                     # fra repo-roten, i egen terminal
@@ -513,6 +515,36 @@ async function sveipefelt(label, viewport) {
   await b.close();
 }
 
+/* ---------- 10) Panelenes MINSTEBREDDE på en smal skjerm ------------------
+   En `min-width` vinner over en `max-width`. Objektmenyens minstebredde (268
+   px) må derfor trekke fra sonen selv om skallet den arver har en sone-bevisst
+   maks-bredde — ellers stikker panelet ut under hakket på en smal skjerm (delt
+   skjerm, liten WebView). 320 px med 20 px på hver side gir 280 px brukbart,
+   altså mindre enn minstebredden. */
+async function smaltPanel(label, viewport) {
+  const SMAL = { top: 20, right: 20, bottom: 20, left: 20 };
+  const b = await chromium.launch();
+  const ctx = await b.newContext({ viewport, hasTouch: true, isMobile: true });
+  const p = await ctx.newPage();
+  const errs = [];
+  p.on('pageerror', (e) => errs.push(e.message));
+  await register(p);
+  await seed(p);
+  await p.evaluate((sone) => {
+    Object.keys(sone).forEach((k) => document.documentElement.style.setProperty('--safe-' + k, sone[k] + 'px'));
+  }, SMAL);
+  await p.waitForTimeout(200);
+  const rekt = await sikkerRekt(p, SMAL);
+  await p.locator('.item[data-id="I1"] .obj-menu-btn').first().click();
+  await p.waitForTimeout(300);
+  const panel = await innenfor(p, '#obj-menu-panel', rekt);
+  log(label + ': objektmenyens minstebredde holder seg innenfor sonen', panel.ok, panel.evidens);
+  await p.keyboard.press('Escape');
+  await p.waitForTimeout(200);
+  log(label + ': ingen JS-feil', errs.length === 0, errs.join(' | ') || 'ingen');
+  await b.close();
+}
+
 (async () => {
   // Sonen er ren layout, og layout treffer begge viewportene: modalene er
   // sentrerte ark på mobil og popovere/paneler på desktop.
@@ -520,6 +552,7 @@ async function sveipefelt(label, viewport) {
   await run('mobil', { width: 390, height: 780 }, true);
   await authSkjerm('auth', { width: 390, height: 780 });
   await sveipefelt('landskap', { width: 740, height: 360 });
+  await smaltPanel('smal', { width: 320, height: 700 });
 
   const fail = results.filter((r) => !r).length;
   console.log('\n==== ' + (results.length - fail) + '/' + results.length + ' PASS ====');

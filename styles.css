@@ -3099,7 +3099,11 @@ body.no-auth #account-btn { display: none; }
 .obj-menu-panel {
   gap: 0;
   padding: 8px;
-  min-width: min(268px, calc(100vw - 20px));
+  /* Minstebredden må trekke fra sonen på samme måte som `.switcher-panel`s
+     maks-bredde: en min-width VINNER over max-width, så uten leddene her ville
+     panelet blitt liggende under et hakk på en smal skjerm (delt skjerm, liten
+     WebView) selv om maks-bredden er sone-bevisst. 0 i en nettleser. */
+  min-width: min(268px, calc(100vw - 20px - var(--safe-left) - var(--safe-right)));
 }
 /* Overskrift: hvilket objekt menyen gjelder. På mobil dekker arket raden den
    kom fra, og uten navnet her ville man ikke se hva man holder på med. */
