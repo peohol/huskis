@@ -29,6 +29,8 @@
     7. Skjermtastaturet: et tastatur som krymper viewportet skal ikke legge seg
        over feltet som redigeres — feltet rulles tilbake i syne, og havner
        ikke under den faste toppmenyen på veien.
+    8. Innloggingsskjermen: et skjema som er høyere enn det som er igjen av
+       skjermen klippes ikke på toppen (sentreringen gir fra seg plass).
 
   Kjør:
     python3 -m http.server 8000                     # fra repo-roten, i egen terminal
@@ -243,6 +245,16 @@ async function run(label, viewport, touchMode) {
   const toast = await innenfor(p, '.toast.show', rekt);
   log(label + ': toasten ligger over gestelinjen', toast.ok, toast.evidens);
 
+  /* En LANG toast går helt ut til `max-width` (90vw). Den er sentrert på
+     `left: 50%` + `translate(-50%)`, så uten at både senteret og bredden tar
+     hensyn til sidene, legger den seg under hakket i landskap. */
+  await p.evaluate(() => window.__huskis.showToast(
+    'En svært lang melding som tvinger toasten helt ut til sin maksimale bredde'));
+  await p.waitForTimeout(350);
+  const bredToast = await innenfor(p, '.toast.show', rekt);
+  log(label + ': en toast i full bredde holder seg innenfor hakket i sidene',
+    bredToast.ok, bredToast.evidens);
+
   const bunnCss = await p.evaluate(() => {
     // Lagringsstatusen og oppdateringsbanneret kan stå skjult akkurat nå;
     // det som testes er REGELEN, så den leses av på flatene selv.
@@ -409,11 +421,52 @@ async function run(label, viewport, touchMode) {
   await b.close();
 }
 
+/* ---------- 8) Innloggingsskjermen når tastaturet krymper viewportet ----------
+   Registreringsskjemaet er høyere enn innloggingen, og med et tastatur oppe blir
+   det høyere enn det som er igjen av skjermen. Sentreres boksen med
+   `align-items: center`, klippes den da på TOPPEN — overflow mot START-kanten
+   kan ikke rulles fram — og logoen, overskriften og de første feltene blir
+   liggende under statusfeltet til tastaturet lukkes. Auto-marginer sentrerer
+   likt, men gir aldri fra seg mer plass enn det som finnes. */
+async function authSkjerm(label, viewport) {
+  const b = await chromium.launch();
+  const ctx = await b.newContext({ viewport, hasTouch: true, isMobile: true });
+  const p = await ctx.newPage();
+  const errs = [];
+  p.on('pageerror', (e) => errs.push(e.message));
+  await p.goto(BASE + '/?mock=1');
+  await p.waitForFunction(() => !!window.__huskis, null, { timeout: 10000, polling: 100 });
+  await p.evaluate((sone) => {
+    Object.keys(sone).forEach((k) => document.documentElement.style.setProperty('--safe-' + k, sone[k] + 'px'));
+  }, SONE);
+  await p.getByText('Registrer deg').click();
+  await p.locator('#auth-first-name').waitFor({ state: 'visible' });
+  // Tastaturet er den samme krympingen som i punkt 7 — her bare så kraftig at
+  // skjemaet garantert er høyere enn det som er igjen.
+  await p.setViewportSize({ width: viewport.width, height: 420 });
+  await p.waitForTimeout(300);
+  const m = await p.evaluate(() => {
+    const skjerm = document.querySelector('.auth-screen');
+    skjerm.scrollTop = 0;
+    const boks = document.querySelector('.auth-box').getBoundingClientRect();
+    return { top: boks.top, høyde: boks.height, vh: window.innerHeight,
+      rullbart: skjerm.scrollHeight > skjerm.clientHeight };
+  });
+  log(label + ': skjemaet er høyere enn skjermen (forutsetningen for sjekken)',
+    m.høyde > m.vh - SONE.top - SONE.bottom, 'boks ' + Math.round(m.høyde) + ' av ' + m.vh);
+  log(label + ': innloggingsboksen klippes ikke over den sikre sonen',
+    m.top >= SONE.top - 1,
+    'boks topp ' + Math.round(m.top) + ', sone topp ' + SONE.top + ', rullbar ' + m.rullbart);
+  log(label + ': ingen JS-feil', errs.length === 0, errs.join(' | ') || 'ingen');
+  await b.close();
+}
+
 (async () => {
   // Sonen er ren layout, og layout treffer begge viewportene: modalene er
   // sentrerte ark på mobil og popovere/paneler på desktop.
   await run('desktop', { width: 1200, height: 900 }, false);
   await run('mobil', { width: 390, height: 780 }, true);
+  await authSkjerm('auth', { width: 390, height: 780 });
 
   const fail = results.filter((r) => !r).length;
   console.log('\n==== ' + (results.length - fail) + '/' + results.length + ' PASS ====');

@@ -57,6 +57,14 @@ oppdateringsbanneret. Et panel som klemmes mot viewporthøyden
 (`.modal`, `.switcher-panel`) tar `100%` inn i sin `max-height` — `vh` måler
 hele skjermen, `100%` måler overlayets innholdsboks, altså sonen.
 
+To ting som ser ut som avstand, men er sentrering og bredde: en flate som
+**sentreres** mot viewportet må sentreres i det BRUKBARE feltet (toasten flytter
+`left` et halvt inset-avvik og tar sonen inn i sin `max-width`), og en flate som
+**sentreres i et overflow** må gjøre det med `margin: auto`, ikke `align-items:
+center` — en boks som er høyere enn containeren blir da klippet på toppen, og
+overflow mot start-kanten kan ikke rulles fram (innloggingsskjermen med
+tastaturet oppe).
+
 Det som regnes ut i JS kan ikke få sonen fra CSS, og leser den i stedet fra
 `safeInsets()` i `app.js`: demonstrasjonens kort (`placeTour`), popover-skallet
 på desktop (`positionSwitcherPanel`), og de tre stedene som trenger den

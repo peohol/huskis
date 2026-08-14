@@ -1977,7 +1977,13 @@ body.modal-open { overflow: hidden; }
    gjennom uten at teksten blir utydelig (mørk flate + hvit tekst). */
 .toast {
   position: fixed;
-  left: 50%;
+  /* Midt i det BRUKBARE feltet, ikke midt på skjermen: et hakk i siden
+     (landskap) flytter senteret et halvt inset-avvik, ellers ville en bred
+     toast lagt seg delvis under hakket. Er begge sidene 0 — enhver nettleser —
+     er dette nøyaktig `50%`. Sentreringen MÅ bli værende som `left` +
+     `translate(-50%)`: sveip-for-å-lukke legger draget inn i den samme
+     transformen (`calc(-50% + Npx)`, se attachToastSwipe i app.js). */
+  left: calc(50% + (var(--safe-left) - var(--safe-right)) / 2);
   bottom: calc(24px + var(--safe-bottom));   /* over gestelinjen, ikke under den */
   transform: translate(-50%, 16px);
   z-index: 300;
@@ -1989,7 +1995,9 @@ body.modal-open { overflow: hidden; }
      mobil. `max-content` lar den bruke hele max-width først, og brekke etter
      det. */
   width: max-content;
-  max-width: min(90vw, 480px);
+  /* Siste leddet er det brukbare feltet minus 12 px på hver side: bredden kan
+     ikke vokse ut over hakket selv om 90vw ville tillatt det. */
+  max-width: min(90vw, 480px, calc(100vw - 24px - var(--safe-left) - var(--safe-right)));
   padding: 11px 13px 11px 20px;
   border-radius: 999px;
   background: rgba(45, 38, 70, 0.62);
@@ -2036,7 +2044,9 @@ body.modal-open { overflow: hidden; }
    på tre ord — og den får litt mer bredde å brekke innenfor. Alt annet (flate,
    sveip-til-lukk, plassering) er som en vanlig toast: et tips skal aldri kreve
    mer oppmerksomhet enn en beskjed. */
-.toast.toast-tip { max-width: min(92vw, 540px); }
+.toast.toast-tip {
+  max-width: min(92vw, 540px, calc(100vw - 24px - var(--safe-left) - var(--safe-right)));
+}
 /* Angre-knappen (hele toasten er interaktiv mens den vises). */
 .toast-action {
   flex: 0 0 auto;
@@ -2476,8 +2486,6 @@ body.no-auth #account-btn { display: none; }
   inset: 0;
   z-index: 400;
   display: flex;
-  align-items: center;
-  justify-content: center;
   padding: calc(24px + var(--safe-top)) calc(24px + var(--safe-right))
            calc(24px + var(--safe-bottom)) calc(24px + var(--safe-left));
   overflow-y: auto;
@@ -2492,6 +2500,13 @@ body.no-auth #account-btn { display: none; }
   gap: 18px;
   width: 100%;
   max-width: 440px;
+  /* Sentreringen ligger HER, ikke som `align-items: center` på skjermen: en
+     flex-item som er høyere enn containeren blir da klippet på TOPPEN, og
+     overflow mot start-kanten kan ikke rulles fram — logoen og overskriften
+     ville blitt liggende under statusfeltet på registreringsskjemaet når
+     tastaturet krymper viewportet. Auto-marginer sentrerer likt, men gir aldri
+     fra seg mer plass enn det som finnes. */
+  margin: auto;
 }
 .auth-box .lock-brand { justify-content: center; }
 
