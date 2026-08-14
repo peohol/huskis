@@ -130,13 +130,20 @@ desktop). To rader:
    låst område. Se `docs/rettigheter-og-deling.md` («Å opprette og å plassere
    spør FORELDEREN»).
 
+Panelets flate når helt ut i skjermkantene, men innholdet holdes innenfor den
+sikre sonen: `--safe-top` legges på padding-top og `--safe-left`/`--safe-right`
+på sidene, så breadcrumben ikke havner under statusfeltet eller et hakk (0 i en
+nettleser — `docs/design-system.md`).
+
 Board-ets padding-top settes i JS (`syncHeaderHeight`: målt topbar-høyde +
-`--board-gap`) — se `docs/board-layout.md`.
+`--board-gap`) — se `docs/board-layout.md`. At høyden måles er det som gjør at
+klaringen følger med når panelet vokser med sonen.
 
 ## Kontoknappen (`.account-btn`, `#account-btn`)
 
-Fast i øvre høyre hjørne av VIEWPORTET (`position: fixed; top: 12px; right:
-var(--toolbar-pad)`), utenfor toppmenyens flyt — z-index (35) over det faste
+Fast i øvre høyre hjørne av VIEWPORTET (`position: fixed`, 12 px fra toppen og
+`--toolbar-pad` fra høyre, begge pluss den sikre sonen slik at den flukter med
+toppmenyens kant), utenfor toppmenyens flyt — z-index (35) over det faste
 panelet (30) men under modaler (200). Person-ikon + rød badge
 (`#account-badge`) med antall ventende invitasjoner. Åpner konto-modalen.
 Skjules før innlogging (`body.no-auth`).

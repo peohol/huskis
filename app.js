@@ -6103,6 +6103,23 @@
     modalScrollSpeed = 0;
   }
 
+  /* DEN SIKRE SONEN, for de lagene som plasseres i JS.
+     De faste elementene får den fra CSS (`--safe-*`, se styles.css og
+     docs/design-system.md), men to lag regnes ut i viewport-koordinater og må
+     lese tallene: demonstrasjonens kort og popover-skallet. De klemmes mot
+     rektangelet denne gir, ikke mot skjermkanten — ellers ville de kunnet
+     havne under statusfeltet eller gestelinjen.
+     `env()` erstattes når custom-propertyen regnes ut, så de fire løser seg
+     til vanlige px-verdier her (i motsetning til --board-gap, som er en
+     clamp() og derfor må leses fra en oppløst egenskap — se
+     docs/board-layout.md). En runtime som ikke løser dem gir NaN, og
+     fallbacken er 0: nøyaktig det en skjerm uten systemflater skal ha. */
+  function safeInsets() {
+    const cs = getComputedStyle(document.documentElement);
+    const tall = (n) => parseFloat(cs.getPropertyValue('--safe-' + n)) || 0;
+    return { top: tall('top'), right: tall('right'), bottom: tall('bottom'), left: tall('left') };
+  }
+
   // Den faste (position: fixed) toppmenyen er ute av flyten, så board-et må få
   // nøyaktig klaring: målt toppmeny-høyde + --board-gap. Padding-top regnes ut
   // HER (ikke i en CSS calc()) slik at avstanden ned til første kort blir
@@ -6123,7 +6140,20 @@
   // Kolonneantallet følger vindusbredden og budsjettet skjermhøyden — begge deler
   // endres her. (ResizeObserver-en på board-et fanger bredde-endringer, men ikke
   // en ren HØYDE-endring der board-innholdet blir stående like stort.)
-  window.addEventListener('resize', () => { syncHeaderHeight(); relayoutBoard(); fixBoardBottomGap(); });
+  window.addEventListener('resize', () => {
+    syncHeaderHeight(); relayoutBoard(); fixBoardBottomGap();
+    /* Skjermtastaturet KRYMPER viewportet (i det native skallet får WebView-en
+       en bunn-inset like høy som tastaturet; i en mobilnettleser er det den
+       samme resize-en). Da kan feltet som redigeres bli liggende under
+       tastaturet, uten at noe annet flytter det tilbake. `nearest` ruller
+       akkurat nok, og sidens `scroll-padding-top` (styles.css) holder det
+       samtidig unna den faste toppmenyen. Etter syncHeaderHeight(), som er
+       kilden til den paddingen. */
+    const a = document.activeElement;
+    if (a && a.classList && a.classList.contains('edit-input')) {
+      try { a.scrollIntoView({ block: 'nearest' }); } catch (e) { /* ignore */ }
+    }
+  });
 
   // Bunn-luft etter siste kort — uansett hvilken kolonne som ender opp høyest.
   // Med flex-kolonner ER siste korts EGEN margin-bottom (--board-gap) bunn-luften
@@ -6891,17 +6921,19 @@
   accountModal.addEventListener('click', (ev) => { if (ev.target === accountModal) closeAccount(); });
 
   // Plasser popoveren (ansvarlig-velger/tids-popover) rett til høyre for
-  // knappen (desktop); klem til viewportet så den aldri havner utenfor skjermen.
+  // knappen (desktop); klem til den SIKRE sonen så den aldri havner utenfor
+  // skjermen eller under en systemflate (safeInsets() er null i en nettleser).
   function positionSwitcherPanel(panel, btn) {
     const r = btn.getBoundingClientRect();
     const gap = 8;
+    const safe = safeInsets();
     panel.style.visibility = 'hidden';
     panel.style.top = '0px';
     panel.style.left = '0px';
     const pr = panel.getBoundingClientRect();
-    const top = Math.max(10, Math.min(r.top, window.innerHeight - pr.height - 10));
+    const top = Math.max(safe.top + 10, Math.min(r.top, window.innerHeight - safe.bottom - pr.height - 10));
     let left = r.right + gap;
-    if (left + pr.width > window.innerWidth - 10) left = Math.max(10, r.left - pr.width - gap);
+    if (left + pr.width > window.innerWidth - safe.right - 10) left = Math.max(safe.left + 10, r.left - pr.width - gap);
     panel.style.top = top + 'px';
     panel.style.left = left + 'px';
     panel.style.visibility = '';
@@ -12018,14 +12050,22 @@
     tourCard.style.maxHeight = '';
     const cw = tourCard.offsetWidth;
     const ch = tourCard.offsetHeight;
-    const vw = window.innerWidth;
-    const vh = window.innerHeight;
+    /* Kortet klemmes mot den SIKRE sonen, ikke mot skjermkanten: i et native
+       skall dekker statusfeltet og gestelinjen hver sin strimmel av
+       viewportet, og et kort som stopper 12 px fra kanten ville ligget under
+       dem. I en nettleser er alle fire null, og linjene under regner ut det
+       samme som før. */
+    const safe = safeInsets();
+    const minX = safe.left + margin;
+    const minY = safe.top + margin;
+    const maxX = window.innerWidth - safe.right - margin;
+    const maxY = window.innerHeight - safe.bottom - margin;
     const clamp = (lo, v, hi) => Math.max(lo, Math.min(v, Math.max(lo, hi)));
     if (!el) {
       tourArrow.hidden = true;
       tourCard.style.maxHeight = '';
-      tourCard.style.left = Math.max(margin, (vw - cw) / 2) + 'px';
-      tourCard.style.top = Math.max(margin, (vh - ch) / 2) + 'px';
+      tourCard.style.left = Math.max(minX, (minX + maxX - cw) / 2) + 'px';
+      tourCard.style.top = Math.max(minY, (minY + maxY - ch) / 2) + 'px';
       return;
     }
     const r = el.getBoundingClientRect();
@@ -12051,10 +12091,10 @@
         top: Math.min(keep.top, c.top), bottom: Math.max(keep.bottom, c.bottom),
       };
     });
-    const below = vh - keep.bottom - gap - margin;
-    const above = keep.top - gap - margin;
-    const right = vw - keep.right - gap - margin;
-    const leftRoom = keep.left - gap - margin;
+    const below = maxY - keep.bottom - gap;
+    const above = keep.top - gap - minY;
+    const right = maxX - keep.right - gap;
+    const leftRoom = keep.left - gap - minX;
     /* Med et frisone-element velges siden der MÅLET er den nærmeste kanten av
        rektangelet — ellers ville pilspissen pekt på destinasjonen i stedet for
        på det brukeren skal ta tak i. */
@@ -12074,11 +12114,11 @@
       }
       const h = maxH ? Math.min(ch, parseFloat(maxH)) : ch;
       top = side === 'below' ? keep.bottom + gap : keep.top - gap - h;
-      left = clamp(margin, r.left + r.width / 2 - cw / 2, vw - cw - margin);
+      left = clamp(minX, r.left + r.width / 2 - cw / 2, maxX - cw);
       tourArrow.style.left = clamp(left + 14, r.left + r.width / 2 - half, left + cw - 14 - half * 2) + 'px';
       tourArrow.style.top = (side === 'below' ? top - half : top + h - half) + 'px';
     } else {
-      top = clamp(margin, r.top + r.height / 2 - ch / 2, vh - ch - margin);
+      top = clamp(minY, r.top + r.height / 2 - ch / 2, maxY - ch);
       left = side === 'right' ? keep.right + gap : keep.left - gap - cw;
       tourArrow.style.top = clamp(top + 14, r.top + r.height / 2 - half, top + ch - 14 - half * 2) + 'px';
       tourArrow.style.left = (side === 'right' ? left - half : left + cw - half) + 'px';

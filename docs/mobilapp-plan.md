@@ -15,9 +15,9 @@ autoritative dokumentet for fagfeltet.
 |---|---|
 | Målarkitektur | Én HTML/CSS/JS-kodebase + Capacitor for Android/iOS |
 | Nåværende fase | **Fase 3 — nødvendige native integrasjoner** |
-| Status | Fase 3 er i gang. Første punkt er ferdig: systemets tilbakeknapp er kartlagt, definert, implementert, automatisk dekket (`tests/system-back.test.js`, `tests/capacitor-android.test.js`) og kjørt grønn på fysisk telefon. De fem øvrige fase 3-punktene er ikke påbegynt, så ferdigkriteriet er ikke nådd. |
+| Status | Fase 3 er i gang. Systemets tilbakeknapp er ferdig og verifisert på fysisk telefon. Safe areas, systemfeltene og skjermtastaturet er kartlagt, definert, implementert og automatisk dekket (`tests/safe-area.test.js`, `tests/capacitor-android.test.js`), men IKKE kjørt på fysisk telefon ennå — sekvensen står under. De fire øvrige fase 3-punktene er ikke påbegynt, så ferdigkriteriet er ikke nådd. |
 | Neste milepæl | Android-appen oppfører seg som en normal mobilapp i de plattformtilfellene browseren ikke håndterer godt nok selv |
-| Ett neste praktiske steg | Safe areas, status-/navigasjonsfeltet og skjermtastaturet: verifiser på fysisk telefon hva som faktisk klippes eller dekkes, og gjør bare de tilpasningene funnene krever |
+| Ett neste praktiske steg | Kjør den fysiske sekvensen for safe areas og skjermtastaturet på en telefon med hakk og gestenavigasjon, og kryss av punktet når den er grønn |
 | OTA | Ikke innført; skal ikke innføres før Android-baselinen er stabil |
 | iOS | Senere fase; ikke en del av første implementering |
 
@@ -371,6 +371,7 @@ funksjoner bare fordi de er mulige.
       naviger ett Huskis-nivå tilbake der det er naturlig, og la OS håndtere
       resten.
 - [ ] Verifiser safe areas, status-/navigasjonsfelt og skjermtastatur.
+      Implementert og automatisk dekket; gjenstår: den fysiske runden under.
 - [ ] Definer hvilke eksterne lenker som åpnes i systembrowser og hvilke som
       forblir i appen.
 - [ ] Gjør auth-/e-postlenker robuste; vurder Android App Links og senere iOS
@@ -434,6 +435,79 @@ gjerne punkt 1 og 6 i begge for å se at gesten oppfører seg likt.
 Avvik rapporteres som i fase 2: trinnummer, hva som faktisk skjedde, og om det
 samme skjer i nettleseren med Escape. Er svaret ja, er det en ordinær
 Huskis-feil i stigen — ikke en Capacitor-tilpasning.
+
+## Safe areas, systemfeltene og skjermtastaturet
+
+**Hva runtimen faktisk gjør.** `@capacitor/android` 8.5.0 har en innebygd
+`SystemBars`-plugin (ingen npm-plugin, ingen konfigurasjon — `insetsHandling`
+står på `css`). Den lytter på vinduets insets og har TO utfall, og hvilket vi
+får avgjøres av ÉN ting i webkoden: om den siste `meta[name=viewport]`-taggen
+inneholder `viewport-fit=cover`.
+
+| Uten `viewport-fit=cover` | Med `viewport-fit=cover` |
+|---|---|
+| Pluginen SPISER inset-ene (setter dem til 0) og polstrer WebView-ens forelder med dem på Android 15+ | Inset-ene slippes gjennom til WebView-en |
+| WebView-en ligger altså MELLOM systemfeltene | WebView-en dekker hele skjermen |
+| `env(safe-area-inset-*)` er 0 inne i siden | `env(safe-area-inset-*)` har de faktiske målene |
+| Feltene og gestelinjen viser vindusbakgrunnen fra AppCompat-temaet, ikke Huskis' egen flate | Huskis' egen flate når helt ut i skjermkantene |
+
+Ingen av dem KLIPPER noe — det er den samme pluginen som holder innholdet unna
+systemflatene i begge. Forskjellen er hvem som gjør jobben, og hvordan det ser
+ut. Uten `cover` blir appen stående med to fremmedfargede striper (mørke på en
+telefon i mørk modus, siden temaet er `DayNight` mens Huskis alltid er lyst).
+Derfor er `cover` valgt: appen tegner selv helt ut, og holder innholdet innenfor
+med CSS.
+
+Skjermtastaturet håndteres av den samme lytteren: når IME-en er synlig får
+WebView-ens forelder en bunn-polstring like høy som tastaturet, og
+`env(safe-area-inset-bottom)` settes samtidig til 0. Tastaturet KRYMPER altså
+viewportet — det legger seg ikke oppå det, og det skyver ikke siden opp.
+`android:windowSoftInputMode="adjustResize"` i manifestet gjør det samme valget
+eksplisitt for de Android-versjonene der pluginen ikke polstrer selv; uten
+erklæringen står modusen på «unspecified», og krymp-eller-skyv er systemets valg.
+
+**Hva Huskis gjør.** Fire tokens (`--safe-top`/`-right`/`-bottom`/`-left`) leser
+`env(safe-area-inset-*)` ett sted, og alt som ligger fast mot en viewport-kant
+legger dem på sin egen avstand. Autoritativt:
+[`design-system.md`](design-system.md) («Den sikre sonen»).
+
+| Ledd | Rolle |
+|---|---|
+| `viewport-fit=cover` (`index.html`) | Ber om å få tegne under systemfeltene — det er det som gir sonen verdier i det hele tatt. |
+| `--safe-*` (`styles.css`) | Sonen som fire tall. Toppmenyen, kontoknappen, board-et, modal-/popover-skallet, toasten, lagringsstatusen og oppdateringsbanneret legger dem på. |
+| `safeInsets()` (`app.js`) | De to lagene som plasseres i JS — demonstrasjonens kort og popoveren på desktop — klemmer mot sonen i stedet for mot skjermkanten. |
+| `scroll-padding-top` (`styles.css`) | Sidens rulling vet at det faste panelet dekker toppen, så et felt som rulles fram ikke havner under det. |
+| resize-lytteren (`app.js`) | Tastaturet krymper viewportet ⇒ feltet som redigeres rulles tilbake i syne. |
+| `android:windowSoftInputMode` (manifestet) | Tastaturet krymper vinduet, det skyver det ikke. |
+| `tests/safe-area.test.js` | Setter sonen i ekte nettleser og måler at chromet flytter seg nøyaktig så mye — begge viewportene, begge board-scopene. Dekker også de to tastatur-tilfellene. |
+| `tests/capacitor-android.test.js` | De to erklæringene sonen hviler på, i hver sin fil. |
+
+Runden trengte **ingen native API-er**: `env()` er inert i en nettleser, så
+CSS-en gjør hele jobben, og webkoden kjenner fortsatt native-runtimen på
+nøyaktig ÉN linje — gaten for tilbakeknappens bro. Unntaket i
+`tests/capacitor-android.test.js` er derfor uendret.
+
+### Fysisk testsekvens (ikke kjørt ennå)
+
+Debug-APK som i fase 1, på en telefon med hakk ELLER hull i skjermen og med
+**gestenavigasjon** slått på. Kjør punkt 1 og 6 en gang til med treknappsraden,
+og punkt 7–8 i landskap.
+
+| # | Gjør | Forventet |
+|---|---|---|
+| 1 | Start appen og se på toppen. | Huskis' egen flate går helt opp i skjermkanten (ingen grå/svart stripe), men breadcrumben og kontoknappen står HELT under statusfeltet/hakket — ingen tekst eller knapp er delvis dekket. |
+| 2 | Se på bunnen med innhold som fyller skjermen. | Nederste listekort kan rulles helt fram; gestelinjen dekker det ikke. Luften under siste kort ser ut som luften ellers. |
+| 3 | Utløs en toast (slett et listepunkt) og se på lagringsstatusen samtidig. | Begge ligger over gestelinjen, og de overlapper ikke hverandre. |
+| 4 | Åpne nav-modalen, konto-modalen og en objektmeny. | Overskrift og lukkeknapp er aldri under statusfeltet; nederste rad er aldri under gestelinjen. |
+| 5 | Endre navn på et listepunkt NEDERST på skjermen. | Tastaturet kommer opp, og feltet blir stående synlig over det — det havner verken under tastaturet eller under toppmenyen. Enter avslutter. |
+| 6 | Endre navn på et listepunkt som ligger like under toppmenyen. | Feltet rulles fram under panelet, ikke bak det. |
+| 7 | Snu telefonen til landskap med hakket til venstre. | Ingen knapp eller tekst ligger under hakket; board-ets venstre kolonne starter til høyre for det. |
+| 8 | I landskap: åpne objektmenyen på et listepunkt, og kjør «Vis på nytt» av demonstrasjonen. | Popoveren og demo-kortet holder seg innenfor det brukbare feltet — ikke under hakket, statusfeltet eller gestelinjen. |
+| 9 | Slå på mørk modus på telefonen og gjenta punkt 1. | Appen er fortsatt lys hele veien ut i kantene; ingen mørk stripe dukker opp øverst eller nederst. |
+
+Avvik rapporteres som i fase 2: trinnummer, hva som faktisk skjedde, og om det
+samme skjer i nettleseren på samme viewport. Er svaret ja, er det en ordinær
+Huskis-feil — ikke en Capacitor-tilpasning.
 
 **Ferdigkriterium:** Android-appen oppfører seg som en normal mobilapp i de
 plattformtilfellene browseren ikke selv kan håndtere godt nok.
@@ -584,10 +658,11 @@ De skal ikke snike seg inn i fundamentfasene.
 
 ## Neste oppgave
 
-**Fase 3 fortsetter.** Tilbakeknappen er ferdig og verifisert på telefon. Neste
-runde er safe areas, status-/navigasjonsfeltet og skjermtastaturet: se først
-hva som faktisk klippes eller dekkes på en fysisk enhet med hakk og
-gestenavigasjon, og gjør bare de tilpasningene funnene krever.
+**Fase 3 fortsetter.** Tilbakeknappen er ferdig og verifisert på telefon. Safe
+areas, systemfeltene og skjermtastaturet er implementert og automatisk dekket,
+men mangler den fysiske runden — kjør sekvensen over på en telefon med hakk og
+gestenavigasjon, og kryss av punktet når den er grønn. Deretter står eksterne
+lenker for tur.
 
 Hver fase 3-endring er plattformspesifikk og skal gates eksplisitt
 (arkitekturregel 2): browserutgaven skal fortsatt kjøre uten Capacitor.

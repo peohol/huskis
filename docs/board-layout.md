@@ -70,12 +70,19 @@ er alltid identisk, uansett viewport-bredde (verdien er responsiv, men leses fra
 ÉN kilde). Endres `--board-gap`, følger ALT automatisk med — ikke hardkod en egen
 verdi noe sted i board-et.
 
+Side-paddingen legger i tillegg på `--safe-left`/`--safe-right`. Det er ikke
+luft, men den strimmelen av skjermen et hakk eller en avrundet kant gjør
+ubrukelig; den er 0 i en nettleser, så luft-regelen over er uendret der.
+
 ## Bunn
 
-`.app-main` har `padding-bottom: 0` — luften under SISTE kort kommer fra kortets
-EGEN `margin-bottom` (samme `--board-gap`), ikke fra en egen bunn-padding (det
-ville lagt gap oppå gap). Kolonnene er flex-containere, så marginen kollapser
-ikke bort: den høyeste kolonnen ender med nøyaktig ett gap etter siste kort.
+`.app-main` har `padding-bottom: var(--safe-bottom)` — luften under SISTE kort
+kommer fra kortets EGEN `margin-bottom` (samme `--board-gap`), ikke fra en egen
+bunn-padding (det ville lagt gap oppå gap). Kolonnene er flex-containere, så
+marginen kollapser ikke bort: den høyeste kolonnen ender med nøyaktig ett gap
+etter siste kort. Bunn-paddingen er derfor bare den delen av viewportet
+systemets gestelinje dekker — 0 i en nettleser, se
+[`design-system.md`](design-system.md) («Den sikre sonen»).
 
 `fixBoardBottomGap()` i app.js MÅLER likevel utfallet per render (nullstiller
 `.board`s `padding-bottom`, tvinger reflow, sammenligner board- og siste-korts
@@ -91,6 +98,17 @@ avrundinger, så den blir stående som sikkerhetsnett.
 (`syncHeaderHeight`, med `ResizeObserver` på toppmenyen): eksakt målt
 toppmeny-høyde (`.topbar` — breadcrumb + listefunksjons-raden, samme panel på
 alle skjermstørrelser) **+ `--board-gap`**, satt som `--board-pad-top`.
+
+At høyden MÅLES er det som gjør at klaringen tåler at toppmenyen selv vokser
+med den sikre sonen (`--safe-top`, se [`design-system.md`](design-system.md)):
+det er ett tall, og det er alltid det faktiske.
+
+`--board-pad-top` er samtidig sidens `scroll-padding-top`. En rulling som skal
+«ta noe fram» — nettleserens egen rulling når et navnefelt får fokus, og den
+skjermtastaturet utløser når det krymper viewportet — vet ellers ikke at det
+faste panelet dekker toppen, og kan legge feltet rett under det. Paddingen må
+ligge på RULLEBOKSEN (siden): kortene har `overflow: hidden`, så en
+`scroll-margin` på feltet inne i et kort når aldri ut til sidens rulling.
 
 `--board-gap` kan IKKE leses direkte fra `:root` i JS (en `clamp()`/`vw`-custom-
 property gir tilbake selve uttrykket som streng, ikke tallet den løses til) —

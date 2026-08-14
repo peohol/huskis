@@ -37,6 +37,43 @@ hele appen følge med.
 Alle knapper i samme knapperad har identisk høyde/radius/flate (`--control-h`
 / `--control-radius`). Gjelder ＋-knapper, søppelkasser, breadcrumb-knappene og kontoknappen.
 
+## Den sikre sonen (`--safe-top`/`-right`/`-bottom`/`-left`)
+
+Fire tokens som sier hvor mye av viewportet systemets egne flater dekker:
+statusfelt eller hakk øverst, gestelinje nederst, hakk og avrundede hjørner i
+sidene. De leses fra `env(safe-area-inset-*)`.
+
+**En vanlig nettleser rapporterer ingenting** — der er alle fire 0, og hver
+regel som bruker dem regner ut nøyaktig det samme som før. Verdier finnes bare
+i mobilappen, og bare fordi `index.html` ber om å få tegne under systemfeltene
+(`viewport-fit=cover`). Uten den ville appen i stedet stått med en
+fremmedfarget stripe øverst og nederst.
+
+**Regelen: alt som ligger `position: fixed` mot en viewport-kant legger sonen PÅ
+sin egen avstand.** Det gjelder toppmenyen (`padding`), kontoknappen
+(`top`/`right`), modal- og popover-skallet (`padding` på overlayet), board-ets
+side- og bunn-padding, og de tre bunn-pillene: toasten, lagringsstatusen og
+oppdateringsbanneret. Et panel som klemmes mot viewporthøyden
+(`.modal`, `.switcher-panel`) tar `100%` inn i sin `max-height` — `vh` måler
+hele skjermen, `100%` måler overlayets innholdsboks, altså sonen.
+
+To lag plasseres i JS i viewport-koordinater og kan ikke få sonen fra CSS:
+demonstrasjonens kort (`placeTour`) og popover-skallet på desktop
+(`positionSwitcherPanel`). Begge klemmer mot rektangelet `safeInsets()` i
+`app.js` gir. `env()` erstattes når custom-propertyen regnes ut, så de fire
+løser seg til vanlige px-verdier når de leses — i motsetning til `--board-gap`,
+som er en `clamp()` og derfor må leses fra en oppløst egenskap
+(`docs/board-layout.md`).
+
+Voktere: `tests/safe-area.test.js` (setter sonen og måler at chromet flytter
+seg, begge viewportene) og `tests/capacitor-android.test.js` (de to
+erklæringene sonen hviler på).
+
+Skjermtastaturet hører til samme bilde: det krymper viewportet i stedet for å
+legge seg oppå det, så feltet som redigeres kan bli liggende under det. Sidens
+`scroll-padding-top` og resize-lytteren i `app.js` ruller det fram igjen — se
+[`board-layout.md`](board-layout.md) («Topp»).
+
 ## Luft-regler (padding/margin/gap)
 
 - **Symmetri per listepunkt**: et listepunkt skal ha samme luft på alle kanter — én

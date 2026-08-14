@@ -31,7 +31,9 @@
      9. Native runtime: webkoden kjenner Capacitor på ÉN gated linje (broen for
         systemets tilbakeknapp) og ingen andre steder, og ingenting i den peker
         appen ut av sine egne innebygde filer.
-    10. Systemets tilbakeknapp: skallet spør web-laget først og lar OS ta
+    10. Safe areas og skjermtastaturet: de to erklæringene sonen hviler på —
+        `viewport-fit=cover` i index.html og `adjustResize` i manifestet.
+    11. Systemets tilbakeknapp: skallet spør web-laget først og lar OS ta
         trykket når web-laget ikke tok det.
 
    `/version.json` i den innebygde builden er en KJEDE av invarianter som
@@ -333,7 +335,26 @@ const guardHosts = (les('index.html').match(/REDIRECT_HOSTS\s*=\s*\[([^\]]*)\]/)
 check('guardens hostliste navngir ingen localhost-vert (appen redirecter ikke seg selv ut)',
   !/localhost|127\.0\.0\.1/.test(guardHosts), guardHosts.trim());
 
-/* ---- 10. Systemets tilbakeknapp ----
+/* ---- 10. Safe areas, systemfeltene og skjermtastaturet ----
+
+   Runtimen rapporterer systemflatenes mål som `env(safe-area-inset-*)` KUN når
+   siden ber om å få tegne under dem, altså med `viewport-fit=cover`. Uten den
+   krymper skallet i stedet WebView-en, `env()` er 0, og appen står med en
+   fremmedfarget stripe øverst og nederst. Selve sonen (at chromet faktisk
+   flytter seg) testes i ekte nettleser: tests/safe-area.test.js. Her voktes de
+   to erklæringene den hviler på — de står i hver sin fil og kan ellers komme i
+   utakt uten at noe sier fra. */
+const indexHtml = les('index.html');
+const viewportTag = (indexHtml.match(/<meta name="viewport"[^>]*>/) || [''])[0];
+check('index.html ber om å få tegne under systemfeltene (viewport-fit=cover)',
+  /viewport-fit\s*=\s*cover/.test(viewportTag), viewportTag.trim() || 'ingen viewport-tagg');
+/* Uten en eksplisitt modus står den på «unspecified», og om tastaturet krymper
+   eller skyver vinduet er da systemets valg. Web-laget regner med krymping:
+   resize-lytteren i app.js ruller feltet som redigeres tilbake i syne. */
+check('android: skjermtastaturet krymper vinduet (adjustResize)',
+  /android:windowSoftInputMode="adjustResize"/.test(manifest));
+
+/* ---- 11. Systemets tilbakeknapp ----
 
    Capacitor gjør ingenting med tilbakeknappen selv: `@capacitor/android` har
    ingen back-håndtering, så BridgeActivity arver AppCompats standard og første
