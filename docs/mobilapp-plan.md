@@ -534,19 +534,23 @@ sidens flate, men VINDUSBAKGRUNNEN fra temaet, og den var lys uansett drakt.
 `DEFAULT` ga dermed lyse glyfer på et lyst bånd — nøyaktig den uleseligheten
 punkt 10 fjernet.
 
-**Runde 4 (denne).** Feilen var ikke `DEFAULT` i seg selv, men at båndet og
-glyfene hadde hver sin kilde. Foreldretemaet er derfor `Theme.AppCompat.DayNight`
-igjen, med `values-night/` + `values-night-v27/` som snur glyfene, og
-`SystemBars.style` tilbake på `DEFAULT`. Da leser flaten OG glyfene den samme
-nattmodusen og kan ikke skille lag — uavhengig av hvilken drakt brukeren har
-valgt i appen, som ikke rører systemfeltene i det hele tatt. Den «svarte
-stripen» night-varianten ga i runde 1 er dessuten ikke lenger en feil: nå ER den
-flaten, og den skal være mørk når appen er mørk.
+**Runde 4 (denne, verifisert på telefon).** Feilen var ikke `DEFAULT` i seg
+selv, men at båndet og glyfene hadde hver sin kilde. Foreldretemaet er derfor
+`Theme.AppCompat.DayNight` igjen, med `values-night/` + `values-night-v27/` som
+snur glyfene, og `SystemBars.style` tilbake på `DEFAULT`. Da leser flaten OG
+glyfene den samme nattmodusen og kan ikke skille lag — uavhengig av hvilken
+drakt brukeren har valgt i appen, som ikke rører systemfeltene i det hele tatt.
+Den «svarte stripen» night-varianten ga i runde 1 er dessuten ikke lenger en
+feil: nå ER den flaten, og den skal være mørk når appen er mørk.
 
 Samme endring fikser en annen ting bare temaet kan fikse: fra targetSdk 33
 utleder WebView `prefers-color-scheme` av appens eget tema (`isLightTheme`), så
 med et permanent lyst tema ga draktens standardvalg «Følg systemet» lys app på
-en mørk telefon. Bekreftet på enhet.
+en mørk telefon.
+
+Begge deler er bekreftet på enhet: appen blir mørk av seg selv på en mørk
+telefon med drakten på «Følg systemet», og klokka og statusikonene er lesbare i
+begge drakter — også når drakten overstyres mot telefonens modus.
 
 Lærdommen er verdt å ta med til iOS i fase 7: **båndet bak systemfeltene er
 temaets flate, ikke sidens, og glyfene må ha samme kilde som flaten under dem.**

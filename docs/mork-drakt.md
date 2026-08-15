@@ -228,6 +228,8 @@ draktvalget:
 Én kilde for både bånd og glyfer betyr at de ikke kan komme i utakt. Velger
 brukeren en drakt som avviker fra telefonen, blir toppen uvant, men aldri
 uleselig: mørkt bånd med lyse glyfer over en lys side, eller omvendt.
+Verifisert på fysisk telefon i begge drakter, også med drakten overstyrt mot
+telefonens modus.
 
 **Splash-temaet har med vilje ingen night-variant.** `drawable/splash.png` er
 hvitt hele døgnet, så der gjelder mørke glyfer også om natten.
