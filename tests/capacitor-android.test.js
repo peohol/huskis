@@ -477,6 +477,11 @@ if (finnes(APK_CFG)) {
 function kodeLinjerStreng(src, modus) {
   const linjer = src.split('\n');
   let iBlokk = false, iHtml = false, iSkript = false, streng = null;
+  /* Sist SIGNIFIKANTE tegn, brukt til å skille et regex-literal fra divisjon:
+     etter en verdi (`)`, `]`, et navn, et tall) er `/` deling, ellers starter
+     den et regex. Uten det skillet ville `/[/*]/` satt fjerneren i
+     blokk-kommentarmodus og slukt resten av fila. */
+  let forrige = '';
   return linjer.map((raw, i) => {
     if (streng !== '`') streng = null;
     const lav = raw.toLowerCase();
@@ -500,6 +505,19 @@ function kodeLinjerStreng(src, modus) {
         if (slutt === -1) { ren += raw.slice(j); break; }
         ren += raw.slice(j, slutt + 1); j = slutt; iSkript = true; continue;
       }
+      /* Regex-literal: konsumeres i sin helhet, med tegnklasser, slik at
+         `/` og `*` inne i det ikke leses som kommentartegn. */
+      if (m !== 'css' && raw[j] === '/' && !/[\w$)\]]/.test(forrige)
+        && !raw.startsWith('//', j) && !raw.startsWith('/*', j)) {
+        let k = j + 1, iKlasse = false, lukket = false;
+        for (; k < raw.length; k++) {
+          if (raw[k] === '\\') { k++; continue; }
+          if (iKlasse) { if (raw[k] === ']') iKlasse = false; continue; }
+          if (raw[k] === '[') { iKlasse = true; continue; }
+          if (raw[k] === '/') { lukket = true; break; }
+        }
+        if (lukket) { ren += raw.slice(j, k + 1); j = k; forrige = '/'; continue; }
+      }
       if (raw.startsWith('/*', j)) { iBlokk = true; j++; continue; }
       /* `<!--` betyr to helt forskjellige ting. I markup åpner den en kommentar
          som løper til `-->`; i et klassisk skript er den en LINJEkommentar
@@ -511,6 +529,7 @@ function kodeLinjerStreng(src, modus) {
       if (m !== 'css' && raw.startsWith('//', j)) break;   // `//` er IKKE en kommentar i CSS
       if (raw[j] === '"' || raw[j] === "'" || (m !== 'css' && raw[j] === '`')) streng = raw[j];
       ren += raw[j];
+      if (!/\s/.test(raw[j])) forrige = raw[j];
     }
     return { nr: i + 1, l: ren };
   });
@@ -520,8 +539,17 @@ const modusFor = (navn) => (/\.html?$/i.test(navn) ? 'html' : /\.css$/i.test(nav
 /* Hele fila som én strippet tekst, med posisjon → linjenummer for evidensen.
    Mønstre som kan spenne over linjeskift kjøres mot denne. */
 const strippet = (src, modus) => kodeLinjerStreng(src, modus).map((x) => x.l).join('\n');
+/* HTML-attributter kan skrive et hvilket som helst tegn som en tegnreferanse:
+   `href="https&#58;//x"` er den samme adressen for nettleseren. Referansene
+   dekodes derfor før mønstrene kjøres. Ingen av dem inneholder linjeskift, så
+   linjenumrene holder. */
+const dekodEntiteter = (t) => t
+  .replace(/&#x([0-9a-f]+);/gi, (_, h) => String.fromCodePoint(parseInt(h, 16)))
+  .replace(/&#(\d+);/g, (_, d) => String.fromCodePoint(parseInt(d, 10)))
+  .replace(/&(colon|sol|period|lpar|rpar|quot|apos|amp);/gi,
+    (_, n) => ({ colon: ':', sol: '/', period: '.', lpar: '(', rpar: ')', quot: '"', apos: "'", amp: '&' })[n.toLowerCase()]);
 function strippetMedLinjer(src, modus) {
-  const tekst = strippet(src, modus);
+  const tekst = modus === 'html' ? dekodEntiteter(strippet(src, modus)) : strippet(src, modus);
   return { tekst, linjeFor: (idx) => tekst.slice(0, idx).split('\n').length };
 }
 
@@ -620,7 +648,7 @@ function utsendteFiler(dir, topp) {
     if (d.isDirectory()) return utsendteFiler(p, false);
     /* Filtypene som KAN inneholde en lenke eller en navigasjon. Et bilde eller
        en fontfil kopieres også ut, men har ingen kode å skanne. */
-    return /\.(html?|js|css)$/i.test(d.name) ? [path.relative(ROOT, p)] : [];
+    return /\.(html?|[mc]?js|css)$/i.test(d.name) ? [path.relative(ROOT, p)] : [];
   });
 }
 const utsendt = utsendteFiler(ROOT, true);
@@ -659,7 +687,7 @@ const UT_MØNSTRE = [
      utenfor. */
   ['open()', /(?:^|[^.\w$])(?:window\s*\.\s*)?open\s*\(/gm],
   ['setAttribute', /\.\s*setAttribute\s*\(\s*["'`](?:xlink:)?(?:href|(?:form)?action)["'`]\s*,/gi],
-  ['.href =', /(?:^|[^.\w$])(?!location\b)[\w$\])]+\s*\.\s*(?:href|formAction|action)\s*=(?!=)/gm],
+  ['.href =', /(?:^|[^.\w$])(?!location\b)[\w$\])]+\s*\.\s*(?:href|formAction|action)\s*(?:\*\*|<<|>>>?|\|\||&&|\?\?|[-+*/%|&^])?=(?!=)/gm],
   ['skjema i markup', new RegExp(MARKUP + '[a-z][a-z0-9+.\\-]*:', 'gi')],
   ['protokoll-relativ', new RegExp(MARKUP + '\\/\\/', 'gi')],
   /* Deklarativ navigasjon uten en eneste lenke: nettleseren drar av gårde selv.
@@ -676,6 +704,28 @@ for (const f of WEB_KILDE) {
 }
 check('web-kildekoden produserer ingen utgående lenke (ingen _blank, open(), DOM-satt destinasjon, meta refresh eller href/action med skjema)',
   utLenker.length === 0, utLenker.join(', ') || 'ingen');
+
+/* VAKT FOR VAKTEN. Alle sjekkene over hviler på at kommentarfjerneren faktisk
+   etterlater koden. Hver feil den har hatt — `<!--` lest som markup i JS, `//`
+   inne i en URL, `/*` inne i et regex-literal — har samme signatur: teksten
+   BLIR TOM fra et punkt og ut, og mønstrene finner selvsagt ingenting. Da står
+   sjekkene grønne på ingenting, som er verre enn å ikke ha dem.
+
+   Kanariet er derfor uavhengig av hvilken feil det er: koden må fortsatt være
+   der. Slutter en fil å ha kjørende kode nær slutten, har fjerneren spist noe
+   den ikke skulle. */
+const svelget = [];
+for (const f of WEB_KILDE) {
+  const L = kodeLinjerStreng(les(f), modusFor(f));
+  const sisteKode = L.length - 1 - [...L].reverse().findIndex((x) => x.l.trim());
+  const andel = L.filter((x) => x.l.trim()).length / L.length;
+  if (L.length - sisteKode > 5 || andel < 0.15) {
+    svelget.push(f + ' (siste kode på linje ' + (sisteKode + 1) + ' av ' + L.length
+      + ', ' + Math.round(andel * 100) + '% kodelinjer)');
+  }
+}
+check('kommentarfjerneren spiser ikke kode — hver fil har kjørende kode helt ut',
+  svelget.length === 0, svelget.join('; ') || WEB_KILDE.length + ' filer intakte');
 
 /* Ryggraden bak alle formene over: hvilke FREMMEDE adresser frontend i det
    hele tatt navngir. Et tekstsøk kan aldri se en adresse som kommer inn som en
@@ -729,9 +779,12 @@ const NAV_KALL = /\blocation\s*\.\s*(?:assign|replace)\s*\(/gm;
    `.hash` er med selv om den er same-document: den er også et sted appen
    flytter seg selv, og det finnes ingen i dag. */
 const LOC_DEL = 'href|host|hostname|protocol|port|pathname|search|hash';
+/* Også SAMMENSATT tilordning: `location.search += '&x=1'` kaller setteren og
+   navigerer like fullt. `=(?!=)` alene godtok bare den bare formen. */
+const TILDEL = '(?:\\*\\*|<<|>>>?|\\|\\||&&|\\?\\?|[-+*/%|&^])?=(?!=)';
 const NAV_TILDEL = new RegExp(
   '(?:^|[^.\\w$])(?:(?:window|document|self|globalThis|top|parent)\\s*\\.\\s*)?location\\s*'
-  + '(?:\\.\\s*(?:' + LOC_DEL + ')\\s*)?=(?!=)', 'gm');
+  + '(?:\\.\\s*(?:' + LOC_DEL + ')\\s*)?' + TILDEL, 'gm');
 /* Som lenkesjekkene: mot HELE den strippede fila. Et uttrykk som brekker foran
    egenskapen — `location` på én linje, `.assign(…)` på neste — har ellers ikke
    begge delene på samme linje. */
@@ -746,6 +799,49 @@ for (const f of WEB_KILDE) {
     }
   }
 }
+/* ---- Det som FAKTISK pakkes ----
+
+   Alt over leser repoets kildefiler. Men det er `dist/` Capacitor kopierer inn
+   i APK-en, og `build.js` transformerer på veien: den stempler build-ID,
+   river ut testmodus-blokken, og kunne i prinsippet lagt inn hva som helst.
+   En lenke som oppstår i byggesteget ville aldri vist seg i kilden.
+
+   Derfor kjøres en ekte build, og utfallet skannes med NØYAKTIG de samme
+   mønstrene. `vendor/` er utenfor: den er tredjepartskoden, byte for byte
+   verifisert i tests/security-headers.test.js, og den har sine egne
+   `window.open`-forekomster som ikke er Huskis' lenker. */
+const byggUt = spawnSync('node', ['build.js'], { cwd: ROOT, encoding: 'utf8' });
+check('node build.js kjører (grunnlaget for skanningen av dist/)', byggUt.status === 0,
+  (byggUt.stderr || '').trim().slice(0, 120) || 'ok');
+function distFiler(dir) {
+  return fs.readdirSync(dir, { withFileTypes: true }).flatMap((d) => {
+    if (d.name === 'vendor') return [];
+    const q = path.join(dir, d.name);
+    return d.isDirectory() ? distFiler(q)
+      : /\.(html?|[mc]?js|css)$/i.test(d.name) ? [q] : [];
+  });
+}
+const DIST = path.join(ROOT, 'dist');
+const distTreff = [];
+let distAntall = 0;
+if (byggUt.status === 0 && fs.existsSync(DIST)) {
+  for (const q of distFiler(DIST)) {
+    distAntall++;
+    const rel = path.relative(ROOT, q);
+    const { tekst, linjeFor } = strippetMedLinjer(fs.readFileSync(q, 'utf8'), modusFor(q));
+    for (const [navn, re] of UT_MØNSTRE) {
+      re.lastIndex = 0;
+      for (const m of tekst.matchAll(re)) distTreff.push(rel + ':' + linjeFor(m.index) + ' (' + navn + ')');
+    }
+    for (const m of tekst.matchAll(/["'`](https?:\/\/[^"'`\s]*)/gi)) {
+      if (TILLATTE_URL.indexOf(m[1]) === -1) distTreff.push(rel + ' → ' + m[1]);
+    }
+  }
+}
+check('den BYGDE dist/ har ingen utgående lenke heller (byggesteget legger ingen inn)',
+  byggUt.status === 0 && distAntall > 0 && distTreff.length === 0,
+  distTreff.join(', ') || distAntall + ' filer skannet');
+
 check('web-kildekoden navigerer seg selv på nøyaktig ÉN linje',
   navSkriv.length === 1, navSkriv.map((x) => x.sted).join(', ') || 'ingen');
 check('den ene linjen er guardens location.replace(target) i index.html',
