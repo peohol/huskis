@@ -406,6 +406,28 @@ async function run(label, viewport, touchMode) {
     await p.keyboard.press('Escape');
     await p.setViewportSize(viewport);
     await p.waitForTimeout(300);
+  } else {
+    /* Motsatt vei: åpnet som sentrert ark (mobilbredde), så snus telefonen til
+       popover-bredde MENS panelet står åpent. Da bytter CSS skallet til
+       `position: fixed`, og uten et anker har plasseringen ingenting å forankre
+       mot — panelet ville blitt stående uten koordinater i det hele tatt.
+       Ankeret huskes derfor ved ÅPNING, ikke ved plassering. */
+    await p.locator('.item[data-id="I1"] .obj-menu-btn').first().click();
+    await p.waitForTimeout(300);
+    await p.setViewportSize({ width: 740, height: 620 });
+    await p.waitForTimeout(350);
+    const nyttRekt = await sikkerRekt(p, SONE);
+    const forankret = await p.evaluate(() => {
+      const el = document.getElementById('obj-menu-panel');
+      return { pos: getComputedStyle(el).position, top: el.style.top, left: el.style.left };
+    });
+    const innafor = await innenfor(p, '#obj-menu-panel', nyttRekt);
+    log(label + ': et ark som blir popover ved rotasjon får en forankring',
+      forankret.pos === 'fixed' && !!forankret.top && !!forankret.left && innafor.ok,
+      JSON.stringify(forankret) + ', ' + innafor.evidens);
+    await p.keyboard.press('Escape');
+    await p.setViewportSize(viewport);
+    await p.waitForTimeout(300);
   }
 
   /* ---------- 6) Demonstrasjonens kort ---------- */

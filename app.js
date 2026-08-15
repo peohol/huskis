@@ -6951,15 +6951,22 @@
   navModal.addEventListener('click', (ev) => { if (ev.target === navModal) closeNavModal(); });
   accountModal.addEventListener('click', (ev) => { if (ev.target === accountModal) closeAccount(); });
 
+  /* Knappen popoveren hører til, husket PÅ panelet. Den settes når panelet
+     ÅPNES — uansett bredde, ikke bare når det åpnes som popover: på mobil er
+     skallet et sentrert ark (CSS) og ankeret ubrukt, men snus telefonen til
+     popover-bredde MENS panelet står åpent, er ankeret det eneste
+     `repositionOpenPopovers` har å forankre mot. Uten det ville panelet blitt
+     et `position: fixed`-element uten koordinater. */
+  function rememberAnchor(panel, btn) {
+    panel.__anchor = btn && btn.isConnected ? btn : null;
+  }
   // Plasser popoveren (ansvarlig-velger/tids-popover) rett til høyre for
   // knappen (desktop); klem til den SIKRE sonen så den aldri havner utenfor
   // skjermen eller under en systemflate (safeInsets() er null i en nettleser).
   function positionSwitcherPanel(panel, btn) {
     const r = btn.getBoundingClientRect();
     const gap = 8;
-    /* Knappen huskes PÅ panelet, så en åpen popover kan plasseres på nytt uten
-       at den som åpnet den er i nærheten (se repositionOpenPopovers). */
-    panel.__anchor = btn;
+    rememberAnchor(panel, btn);
     const safe = safeInsets();
     panel.style.visibility = 'hidden';
     panel.style.top = '0px';
@@ -7094,6 +7101,7 @@
     // fra ansvarsknapp-rendringen); hent ferskt i bakgrunnen og bygg om når det
     // lander (medlemmer kan ha endret seg siden forrige cache).
     respOpen = true;
+    rememberAnchor(respSwitcherPanel, anchorBtn);
     respSwitcherOverlay.hidden = false;
     updateModalOpenClass();
     const cached = shareGroupCache.get(key);
@@ -7523,6 +7531,7 @@
   function openObjMenu(spec, anchorBtn) {
     if (objMenuCtx) closeObjMenu();
     objMenuReturn = anchorBtn || null;
+    rememberAnchor(objMenuPanel, anchorBtn);
     objMenuOverlay.hidden = false;
     objMenuPanel.style.top = '';
     objMenuPanel.style.left = '';
@@ -7738,6 +7747,7 @@
       : ICONS.calendar + '<span>' + tr('time.start') + '</span>';
     timeSwitcherPanel.append(head, buildTimeEditor(getT, { only: field }));
     timeQuickOpen = true;
+    rememberAnchor(timeSwitcherPanel, anchorBtn);
     timeSwitcherOverlay.hidden = false;
     updateModalOpenClass();
     if (anchorBtn && anchorBtn.isConnected && window.matchMedia('(min-width: 561px)').matches) {

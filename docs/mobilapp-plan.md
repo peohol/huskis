@@ -15,9 +15,9 @@ autoritative dokumentet for fagfeltet.
 |---|---|
 | Målarkitektur | Én HTML/CSS/JS-kodebase + Capacitor for Android/iOS |
 | Nåværende fase | **Fase 3 — nødvendige native integrasjoner** |
-| Status | Fase 3 er i gang. Systemets tilbakeknapp OG safe areas/systemfeltene/skjermtastaturet er ferdige, automatisk dekket (`tests/safe-area.test.js`, `tests/landscape-chrome.test.js`, `tests/capacitor-android.test.js`) og verifisert på fysisk telefon. De fire øvrige fase 3-punktene er ikke påbegynt, så ferdigkriteriet er ikke nådd. |
+| Status | Fase 3 er i gang. Systemets tilbakeknapp er ferdig og verifisert på fysisk telefon. Safe areas, systemfeltene og skjermtastaturet er implementert og automatisk dekket (`tests/safe-area.test.js`, `tests/landscape-chrome.test.js`, `tests/capacitor-android.test.js`), og hele den fysiske sekvensen er kjørt — men rettingene den utløste (landskap, og systemfeltenes glyfer i to runder) er ikke sett på telefon ennå. De fire øvrige fase 3-punktene er ikke påbegynt. |
 | Neste milepæl | Android-appen oppfører seg som en normal mobilapp i de plattformtilfellene browseren ikke håndterer godt nok selv |
-| Ett neste praktiske steg | Definer hvilke eksterne lenker som åpnes i systembrowser og hvilke som forblir i appen |
+| Ett neste praktiske steg | Installer debug-APK-en fra CI og kjør punkt 7, 8 og 10 i den fysiske sekvensen på nytt — glyffargen kan bare bekreftes med øynene, og det er den siste biten som mangler før punktet kan krysses av |
 | OTA | Ikke innført; skal ikke innføres før Android-baselinen er stabil |
 | iOS | Senere fase; ikke en del av første implementering |
 
@@ -370,9 +370,11 @@ funksjoner bare fordi de er mulige.
 - [x] Definer korrekt system-tilbakeoppførsel: lukk øverste popover/modal,
       naviger ett Huskis-nivå tilbake der det er naturlig, og la OS håndtere
       resten.
-- [x] Verifiser safe areas, status-/navigasjonsfelt og skjermtastatur.
-      Implementert, automatisk dekket og kjørt på fysisk telefon — de to
-      landskaps-avvikene runden fant er rettet (se sekvensen under).
+- [ ] Verifiser safe areas, status-/navigasjonsfelt og skjermtastatur.
+      Implementert og automatisk dekket, og hele den fysiske sekvensen er kjørt
+      — men avvikene runden fant ble rettet ETTERPÅ, og punkt 10 (systemfeltenes
+      glyfer) er ikke sett med rettingen inne. Krysses av når punkt 10 er kjørt
+      om igjen på en ny debug-APK.
 - [ ] Definer hvilke eksterne lenker som åpnes i systembrowser og hvilke som
       forblir i appen.
 - [ ] Gjør auth-/e-postlenker robuste; vurder Android App Links og senere iOS
