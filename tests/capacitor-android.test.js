@@ -304,6 +304,16 @@ const nyeImpl = implLinjer.filter((l) => IMPLEMENTASJON.indexOf(l) === -1);
 check('ingen nye Gradle-avhengigheter i appmodulen (et nytt bibliotek merger sitt eget manifest inn)',
   implLinjer.length === IMPLEMENTASJON.length && nyeImpl.length === 0,
   nyeImpl.join(', ') || implLinjer.length + ' kjente implementation-linjer');
+/* Og HELE avhengighetslista, ikke bare `@capacitor/*`-navnene. En Cordova-
+   plugin heter `cordova-plugin-…`, og `cap sync` genererer den inn i
+   `:capacitor-cordova-android-plugins` — et modulnavn som allerede står i
+   Gradle-lista, så ingen `implementation`-linje endres. Filteret ville da
+   havnet i APK-en uten at noen av de to låsene over så det. Lista må derfor
+   være uttømmende. */
+const KJENTE_PAKKER = ['@capacitor/android', '@capacitor/cli', '@capacitor/core'];
+const ukjentePakker = Object.keys(alleDeps).filter((d) => KJENTE_PAKKER.indexOf(d) === -1);
+check('ingen andre npm-avhengigheter enn de tre Capacitor-pakkene (en Cordova-plugin merger sitt eget manifest)',
+  ukjentePakker.length === 0, ukjentePakker.join(', ') || KJENTE_PAKKER.join(', '));
 const capPakker = Object.keys(alleDeps).filter((d) => d.startsWith('@capacitor/'));
 check('ingen native Capacitor-plugins utover kjerne, cli og android',
   capPakker.every((d) => CAP.indexOf(d) > -1), capPakker.join(', '));
@@ -1470,13 +1480,15 @@ const ukjenteSett = sourceSett.filter((n) => !KJENTE_SETT.has(n));
 check('bare kjente source set-er under android/app/src (et nytt må tas stilling til)',
   ukjenteSett.length === 0, ukjenteSett.join(', ') || sourceSett.join(', '));
 const iRelease = (p) => RELEASE_SETT.has(path.relative(NATIV_SRC, p).split(path.sep)[0]);
-const manifestFiler = (function les(dir, rot) {
-  return fs.readdirSync(dir, { withFileTypes: true }).flatMap((d) => {
-    const p = path.join(dir, d.name);
-    if (d.isDirectory()) return rot && !RELEASE_SETT.has(d.name) ? [] : les(p, false);
-    return d.name === 'AndroidManifest.xml' ? [p] : [];
-  });
-}(NATIV_SRC, true));
+/* NØYAKTIG Gradles standardsti, ikke et rekursivt søk. Et source set konsumerer
+   bare `src/<sett>/AndroidManifest.xml`; en ubrukt kopi under
+   `src/main/arkiv/AndroidManifest.xml` er ingenting for byggingen, men et
+   rekursivt søk ville talt den — og latt den parre seg med et publisert
+   statement. Stien kan låses slik nettopp fordi overstyring av manifest-stien
+   er forbudt i del 12 (`srcFile`). */
+const manifestFiler = [...RELEASE_SETT]
+  .map((sett) => path.join(NATIV_SRC, sett, 'AndroidManifest.xml'))
+  .filter((p) => fs.existsSync(p));
 /* Manifestene leses som TEKST, ikke slås sammen. Gradles manifest-merger har
    sine egne direktiver (`tools:node="removeAll"`, `tools:remove`,
    `tools:replace`), og med dem kan et overlay fjerne eller bytte ut et filter
@@ -1536,9 +1548,12 @@ const komponenter = manifestFiler.flatMap((p) => {
   /* `android:permission` på `<application>` gjelder hver komponent som ikke
      setter sin egen. En browser uten den tillatelsen kan ikke starte
      komponenten, og App Link-en er død — selv om alt annet står riktig. */
-  const appTillatelse = ((tekst.match(/<application\b[^>]*>/) || [''])[0]
-    .match(/android:permission\s*=\s*(?:"([^"]*)"|'([^']*)')/) || [])
-    .slice(1).find((v) => v !== undefined) || null;
+  const appTagg = (tekst.match(/<application\b[^>]*>/) || [''])[0];
+  const appAttr = (navn) => ((appTagg.match(new RegExp(navn + '\\s*=\\s*(?:"([^"]*)"|\'([^\']*)\')')) || [])
+    .slice(1).find((v) => v !== undefined)) || null;
+  const appTillatelse = appAttr('android:permission');
+  /* `android:enabled="false"` på `<application>` slår av HVER komponent. */
+  const appAktivert = appAttr('android:enabled');
   return [...tekst.matchAll(KOMPONENT), ...tekst.matchAll(KOMPONENT_TOM)].map((k) => {
     /* Attributtene leses av ÅPNINGSTAGGEN alene. Leste vi hele blokken, ville
        en komponent uten `android:name` fått navnet til den første `<action>`
@@ -1560,7 +1575,7 @@ const komponenter = manifestFiler.flatMap((p) => {
       /* En komponent med `android:enabled="false"` er utelatt fra
          intent-oppslag. Filteret ville sett komplett ut her og aldri blitt
          truffet på telefonen. */
-      aktivert: attributt('android:enabled'),
+      aktivert: attributt('android:enabled') != null ? attributt('android:enabled') : appAktivert,
       /* Komponentens egen overstyrer `<application>`s. */
       tillatelse: attributt('android:permission') != null
         ? attributt('android:permission') : appTillatelse,
@@ -1763,8 +1778,15 @@ if (harFilter) {
   const webKode = WEB_KILDE.map((f) => strippet(les(f), modusFor(f))).join('\n');
   const releaseKilder = nativeFiler.filter(iRelease);
   const leserUri = /addListener\s*\(\s*["'`]appUrlOpen/.test(webKode)
-    || releaseKilder.some((p) => /(getIntentUri|getDataString|getData)\s*\(/
-      .test(strippet(fs.readFileSync(p, 'utf8'), 'js')));
+    || releaseKilder.some((p) => {
+      const src = strippet(fs.readFileSync(p, 'utf8'), 'js');
+      /* `getData()` alene er et altfor vanlig navn — en modellklasse eller et
+         databaselag har det like gjerne. Den formen godtas derfor bare i en fil
+         som i det hele tatt kjenner `Intent`; Capacitors egen `getIntentUri()`
+         er entydig og trenger ingen slik kontekst. */
+      return /getIntentUri\s*\(/.test(src)
+        || (/\bIntent\b/.test(src) && /(getDataString|getData)\s*\(/.test(src));
+    });
   check('App Links: noe LESER den innkommende adressen (ellers mistes ?signup= og alt annet i URL-en)',
     leserUri,
     leserUri ? 'URI-en hentes — om den rutes riktig avgjøres på telefon'
@@ -1852,11 +1874,17 @@ if (byggUt.status === 0 && fs.existsSync(DIST)) {
   const skjulte = [];
   (function les(dir, topp) {
     for (const d of fs.readdirSync(dir, { withFileTypes: true })) {
+      const q = path.join(dir, d.name);
       if (d.name.startsWith('.')) {
-        if (!(topp && SKJULT_TILLATT.has(d.name))) skjulte.push(path.relative(DIST, path.join(dir, d.name)));
+        /* Den tillatte katalogen slipper gjennom SEG SELV, men ikke sitt
+           innhold: en `.well-known/.env` ville ellers blitt publisert like
+           stille som `.gitignore`. Det er derfor unntaket er en KATALOG, ikke
+           et fritak for alt under den. */
+        if (topp && SKJULT_TILLATT.has(d.name)) { if (d.isDirectory()) les(q, false); continue; }
+        skjulte.push(path.relative(DIST, q));
         continue;
       }
-      if (d.isDirectory()) les(path.join(dir, d.name), false);
+      if (d.isDirectory()) les(q, false);
     }
   }(DIST, true));
   check('dist/ publiserer ingen andre skjulte filer enn ' + [...SKJULT_TILLATT].join('/') + ' (fritaket må være selektivt)',
