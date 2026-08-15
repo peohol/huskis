@@ -466,6 +466,20 @@ if (finnes(APK_CFG)) {
     !innebygdSrv.allowNavigation || innebygdSrv.allowNavigation.length === 0,
     JSON.stringify(innebygdSrv.allowNavigation || null));
 }
+/* Sjekken over hopper over seg selv i et rent utsjekk: den innebygde
+   konfigurasjonen er generert utdata, og `cap sync` har ikke kjørt i den
+   vanlige node-runden. Da er det ingen CI-jobb som noen gang ser den PAKKEDE
+   konfigurasjonen — og en endring i genereringen ville sluppet gjennom.
+   APK-workflowen er det ene stedet filen finnes, så den må kjøre denne testen
+   ETTER synkroniseringen. Det er den rekkefølgen som voktes her; selve
+   innholdet sjekkes av linjene over, der. */
+const apkWf = les('.github/workflows/android-debug.yml');
+const iSync = apkWf.indexOf('cap sync android');
+const iTest = apkWf.indexOf('node tests/capacitor-android.test.js');
+check('APK-workflowen kjører denne testen ETTER cap sync (ellers ser ingen CI den pakkede konfigurasjonen)',
+  iSync > -1 && iTest > iSync,
+  iTest === -1 ? 'testen kjøres ikke i android-debug.yml'
+    : 'cap sync @' + iSync + ', testen @' + iTest);
 /* Sjekkene under trenger en STRENGBEVISST kommentarfjerner, ikke kodeLinjer().
    Den forenklingen — kapp linja ved første `//` — er grei for navnesjekkene
    lenger oppe, men den blindet disse på to måter: `href="//vert"` forsvant helt,
@@ -511,6 +525,14 @@ function kodeLinjerStreng(src, modus) {
       if (iBlokk) { if (raw.startsWith('*/', j)) { iBlokk = false; j++; } continue; }
       if (iHtml) { if (raw.startsWith('-->', j)) { iHtml = false; j += 2; } continue; }
       if (streng === '"""') {
+        /* Javas tekstblokk kan ESKAPERE avslutteren (`\"""`). Skråstreken
+           konsumerer derfor tegnet etter seg, ellers ville blokken blitt
+           avsluttet for tidlig og teksten under lest som kode — der en `/*`
+           straks setter fjerneren i kommentarmodus. Kotlins rå streng har
+           ingen eskaping, så der er dette å bli i strengen for lenge — og det
+           er den TRYGGE retningen: strenginnhold beholdes, så ingen kode blir
+           borte, mens en for tidlig avslutning kan svelge fila. */
+        if (raw[j] === '\\') { ren += raw[j]; if (j + 1 < raw.length) { ren += raw[j + 1]; j++; } continue; }
         if (raw.startsWith('"""', j)) { streng = null; ren += '"""'; j += 2; continue; }
         ren += raw[j];
         continue;
@@ -630,9 +652,13 @@ function javaFiler(dir, rot) {
    men en metodereferanse — `Consumer<String> gå = webView::loadUrl;` i Java,
    `webView::loadUrl` i Kotlin — laster siden like direkte når den kalles, og
    har ingen parentes på stedet der navnet står. */
+/* `webViewClient` med liten w er Kotlins EGENSKAPSform av den samme setteren:
+   `webView.webViewClient = klient` kompilerer til `setWebViewClient(…)`, men
+   inneholder verken metodenavnet eller typenavnet med stor forbokstav.
+   Navnene matches derfor uavhengig av forbokstav. */
 const LAST_API = 'loadUrl|postUrl|loadData(?:WithBaseURL)?';
-const RUTING = new RegExp('shouldOverrideUrlLoading|setWebViewClient|setWebChromeClient'
-  + '|WebViewClient|WebChromeClient'
+const RUTING = new RegExp('shouldOverrideUrlLoading|[sS]etWebViewClient|[sS]etWebChromeClient'
+  + '|[wW]ebViewClient|[wW]ebChromeClient'
   + '|\\b(?:' + LAST_API + ')\\s*\\('
   + '|::\\s*(?:' + LAST_API + ')\\b');
 /* Inventaret er FAST på `android/app/src`, og det holder bare så lenge Gradle
@@ -644,8 +670,10 @@ const RUTING = new RegExp('shouldOverrideUrlLoading|setWebViewClient|setWebChrom
    ville vært en ny tolk i en vakt. Regelen er derfor at det ikke SKAL finnes
    egendefinerte produksjonskilderøtter: legges det inn en, feiler denne, og den
    som legger den inn må utvide skanningen bevisst. */
+/* Ingen ledende ordgrense: Gradle har både `srcDirs += …` og setteren
+   `setSrcDirs([...])`, og i den siste står navnet midt inne i et ord. */
 check('build.gradle definerer ingen egne kilderøtter (skanningen dekker alt som kompileres)',
-  !/\bsrcDirs?\b/.test(kode(appGradle)), (kode(appGradle).match(/.*\bsrcDirs?\b.*/) || ['ingen'])[0].trim());
+  !/srcdirs?\b/i.test(kode(appGradle)), (kode(appGradle).match(/.*srcdirs?\b.*/i) || ['ingen'])[0].trim());
 const nativeFiler = javaFiler(NATIV_SRC, true);
 const ruter = nativeFiler.filter((p) => RUTING.test(strippet(fs.readFileSync(p, 'utf8'), 'js')));
 check('det native skallet overtar ikke og hopper ikke over navigasjonsrutingen',
@@ -782,6 +810,13 @@ const UT_MØNSTRE = [
      (docs/domains-and-urls.md); tas OAuth i bruk, er det en beslutning som
      hører hjemme i det dokumentet, ikke en stille tilføyelse. */
   ['vendor-API som navigerer', /\.\s*(?:signInWithOAuth|linkIdentity)\s*\(/g],
+  /* Destinasjonen satt som OBJEKTNØKKEL, ikke med likhetstegn:
+     `Object.assign(a, { href: adresse })` skriver den samme egenskapen, men
+     står som `href:` og går klar av både tilordnings- og markup-mønstrene.
+     Nøkkelformen finnes ikke i noen kildefil i dag, så regelen kan være
+     absolutt — og den gjelder alle filtyper, siden `href:` heller ikke er
+     gyldig markup. `action` er ikke med: det er et vanlig variabelnavn. */
+  ['destinasjon som objektnøkkel', /\b(?:href|formAction|httpEquiv)\s*:/g],
 ];
 /* Markup BYGGET i JS er en helt egen vei til en lenke: `el.innerHTML = '<a
    href="' + adresse + '">'` lager en ekte utgående lenke, men har verken et

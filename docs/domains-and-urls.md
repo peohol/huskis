@@ -325,7 +325,7 @@ over ville vært for bastant uten disse tre:
 |---|---|---|
 | **`<iframe>`** | Rutingen ser aldri en innramming | `default-src 'none'` uten `frame-src` ⇒ ingen ramme kan laste noe |
 | **Skjema sendt med POST** | En POST-innsending rapporteres ikke å nå `shouldOverrideUrlLoading` — svaret ville lastet inne i WebView-en | `form-action 'self'` ⇒ et skjema kan bare sendes til eget origin, POST som GET |
-| **`data:` og `blob:`** | `launchIntent()` returnerer eksplisitt `false` for disse: de BLIR i WebView-en | Ikke fremmed innhold — det er sidens eget, produsert av den selv. Huskis navigerer aldri til en slik adresse; vakten flagger et hvilket som helst skjema i `href`/`action`, `data:` inkludert |
+| **`data:` og `blob:`** | `launchIntent()` returnerer eksplisitt `false` for disse: de BLIR i WebView-en | Appen navigerer aldri til en slik adresse — den bruker dem bare til bilder. Vakten flagger et hvilket som helst skjema i `href`/`action`, `data:` inkludert. Se under: at vi lagde URL-en gjør ikke innholdet trygt |
 
 De to første står i policyen
 ([`sikkerhetsheadere.md`](sikkerhetsheadere.md)) og er voktet av
@@ -334,9 +334,16 @@ er det ikke Capacitors ruting.
 
 `data:`/`blob:` er verdt et ord til, siden appen faktisk BRUKER dem — avatarbilder
 lages som blob/data-URL-er, og `img-src 'self' data: blob:` tillater nettopp
-det. Et **bilde** er en ressurs, ikke en navigasjon. Skulle noen en gang
-navigere dit, ville innholdet vært appens eget uansett, og da er «inne i appen»
-riktig sted.
+det. Et **bilde** er en ressurs, ikke en navigasjon, og det er hele dagens bruk.
+
+At Huskis lager adressen gjør derimot IKKE innholdet trygt. En `data:`- eller
+`blob:`-URL bygget av tekst brukeren har skrevet, eller av noe hentet fra
+nettet, er fremmed innhold i appens innpakning — og siden `launchIntent()`
+slipper begge gjennom, ville et slikt dokument blitt det aktive dokumentet inne
+i WebView-en, med Capacitor-broen tilgjengelig (en `blob:`-URL beholder dessuten
+originet til den som lagde den). Skulle appen en gang NAVIGERE til en slik
+adresse, er kravet derfor at nyttelasten er uavhengig etterprøvd — ikke at vi
+lagde URL-en.
 
 (At POST ikke når `shouldOverrideUrlLoading` er lest, ikke observert på en
 enhet. Det endrer ingenting så lenge `form-action` står — men skulle det
