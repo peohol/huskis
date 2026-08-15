@@ -10,18 +10,24 @@
     </style>
 
     <!--
-      Kjøretidstemaet. Huskis har ÉN drakt, og den er lys — også når telefonen
-      står i mørk modus (docs/design-system.md). Derfor:
+      Kjøretidstemaet. Huskis har TO drakter (docs/mork-drakt.md), og hvilken
+      som gjelder avgjøres i web-laget — som dette temaet ikke kan se. Temaet
+      setter derfor bare UTGANGSPUNKTET, og `SystemBars`-pluginen retter
+      glyfene etter telefonens nattmodus i runtime (`style: DEFAULT` i
+      capacitor.config.json). Derfor:
 
-      • Foreldretemaet er Light, ikke DayNight. Night-varianten malte en svart
-        statusfelt-bakgrunn OVER siden, så appens egen flate ikke nådde
-        skjermkanten i mørk modus — stikk i strid med `viewport-fit=cover`.
+      • Foreldretemaet er fortsatt Light, ikke DayNight — også nå som appen kan
+        være mørk. Night-varianten malte en svart statusfelt-bakgrunn OVER
+        siden, så appens egen flate ikke nådde skjermkanten — stikk i strid med
+        `viewport-fit=cover`. Glyfene trenger ikke DayNight for å følge OS-et;
+        pluginen gjør den jobben, og den gjør den uten å male noe oppå siden.
       • Statusfeltet er gjennomsiktig, så Huskis' flate er det man ser bak
         klokka. Målene rapporteres fortsatt som `env(safe-area-inset-*)`, og
         CSS-en holder innholdet innenfor.
       • windowLightStatusBar = «feltet ligger på en LYS bakgrunn» ⇒ systemet
-        tegner MØRKE glyfer. Uten den beholdt klokka lyse glyfer over vår lyse
-        flate, og var i praksis uleselig i lys modus.
+        tegner MØRKE glyfer. Den gjelder fram til pluginen tar over, altså over
+        SPLASH-skjermen, som er lys i begge drakter — der er mørke glyfer
+        riktig svar.
       • BUNNFELTET er derimot en mørk stripe her, ikke gjennomsiktig:
         `windowLightNavigationBar` finnes først fra API 27, og runtime-veien er
         en no-op før det. På 24–26 er treknappsradens glyfer altså LYSE uansett,

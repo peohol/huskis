@@ -4,7 +4,7 @@
   "webDir": "dist",
   "plugins": {
     "SystemBars": {
-      "style": "LIGHT"
+      "style": "DEFAULT"
     }
   }
 }

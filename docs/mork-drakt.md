@@ -198,6 +198,29 @@ mot den mørke statuspillen, og at de to L-settene faktisk speiler hverandre.
 Endrer du en verdi i den mørke blokken eller et L-sett, kjør den testen.
 Kravene selv står i [`tilgjengelighet.md`](tilgjengelighet.md).
 
+## Android-skallet: glyfene følger telefonen, ikke oss
+
+Når mobilappen tegner under systemfeltene (`viewport-fit=cover`, se
+[`design-system.md`](design-system.md)), er det Huskis' egen flate klokka og
+gestelinjen ligger oppå — og den flaten skifter nå farge med drakten. Glyfene
+må snu med den, og det gjør de: `SystemBars.style = "DEFAULT"` i
+`capacitor.config.json` lar Capacitor-pluginen lese telefonens nattmodus i
+runtime.
+
+Siden draktens standardvalg er «Følg systemet», treffer det i praksis: telefonen
+i mørk modus gir mørk app OG lyse glyfer.
+
+**Overstyrer brukeren drakten mot OS-et, blir glyfene feil vei** — lys app på en
+mørk telefon gir lyse glyfer over en lys flate. Pluginen kjenner bare
+operativsystemet, ikke `localStorage['huskis-theme']`, og å fortelle den om
+valget krever en bro fra web-laget til native. I dag finnes nøyaktig ett slikt
+berøringspunkt (gaten for tilbakeknappen), og `tests/capacitor-android.test.js`
+vokter at det forblir ett. Et andre er en beslutning for
+[`mobilapp-plan.md`](mobilapp-plan.md), ikke noe drakten skal ta på egen hånd.
+
+Nettleseren er upåvirket: der er `<meta name="theme-color">` det eneste som sier
+noe om rammen, og `theme.js` holder den i takt med `--bg`.
+
 ## Hva testene dekker
 
 | Fil | Dekker |

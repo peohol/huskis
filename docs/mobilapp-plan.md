@@ -482,7 +482,7 @@ legger dem på sin egen avstand. Autoritativt:
 | resize-lytteren (`app.js`) | Tastaturet krymper viewportet ⇒ feltet som redigeres rulles tilbake i syne. |
 | `android:windowSoftInputMode` (manifestet) | Tastaturet krymper vinduet, det skyver det ikke. |
 | `values/styles.xml` + `values-v27/` | Systemfeltenes UTSEENDE: lyst tema (ikke DayNight), gjennomsiktige felt og MØRKE glyfer. Uten det ligger klokka som lyse glyfer over Huskis' lyse flate — og night-varianten malte i tillegg en svart stripe der flaten vår skulle nådd kanten. |
-| `SystemBars.style = "LIGHT"` (`capacitor.config.json`) | Pluginen setter glyffargen i RUNTIME og overstyrer temaet: med standardverdien leser den telefonens nattmodus og ber om lyse glyfer i mørk modus. Den eksplisitte stilen låser mørke glyfer, også ved rotasjon og modusbytte. |
+| `SystemBars.style = "DEFAULT"` (`capacitor.config.json`) | Pluginen setter glyffargen i RUNTIME og overstyrer temaet. `DEFAULT` lar den lese telefonens nattmodus — riktig svar nå som appen har to drakter ([`mork-drakt.md`](mork-drakt.md)) og standardvalget er «Følg systemet». Se avsnittet under om grensen. |
 | `tests/safe-area.test.js` | Setter sonen i ekte nettleser og måler at chromet flytter seg nøyaktig så mye — begge viewportene, begge board-scopene. Dekker også de to tastatur-tilfellene. |
 | `tests/capacitor-android.test.js` | De to erklæringene sonen hviler på, i hver sin fil. |
 
@@ -518,9 +518,30 @@ steder:
    mørk modus ga lyse glyfer. `SystemBars.style = "LIGHT"` i
    `capacitor.config.json` låser den.
 
-Begge voktes i `tests/capacitor-android.test.js`. Utfallet er bekreftet på
-telefon: appen ser identisk ut i lys og mørk modus, med godt lesbar tekst i
+Begge voktes i `tests/capacitor-android.test.js`. Utfallet var bekreftet på
+telefon: appen så identisk ut i lys og mørk modus, med godt lesbar tekst i
 begge.
+
+**Dette punktet er endret igjen etter at appen fikk to drakter**
+([`mork-drakt.md`](mork-drakt.md)). Forutsetningen bak `LIGHT` — «flaten bak
+feltene er vår, og den er lys» — holder ikke lenger: i mørk drakt er den
+`#141922`, og mørke glyfer over den er uleselige. Stilen er derfor tilbake til
+`DEFAULT`, som lar pluginen følge telefonens nattmodus. Siden draktens
+standardvalg er «Følg systemet», snur glyfene og flaten under dem sammen.
+
+**Grensen, og hva som gjenstår:** pluginen følger OPERATIVSYSTEMET, ikke
+Huskis' eget valg. Overstyrer brukeren drakten mot OS-et — lys app på en mørk
+telefon, eller omvendt — blir glyfene feil vei. Å rette det krever at web-laget
+forteller pluginen hvilken drakt som gjelder, altså et ANDRE
+web↔native-berøringspunkt ved siden av gaten for tilbakeknappen. Det er en egen
+beslutning for denne planen, og `tests/capacitor-android.test.js` holder broen
+på ÉN linje til den er tatt.
+
+**Ikke kjørt på telefon.** Omleggingen til `DEFAULT` er en
+konfigurasjonsendring, og lærdommen rett under sier nettopp at bare en enhet
+avgjør dette. Punkt 10 i sekvensen bør kjøres om igjen — i BEGGE draktene, og
+med et eksplisitt draktvalg mot OS-et for å se hvor ille grensen over er i
+praksis.
 
 Lærdommen er verdt å ta med til iOS i fase 7: **temaet er ikke fasit for
 systemfeltenes utseende når en plugin setter det i runtime.** Runde 1 så riktig

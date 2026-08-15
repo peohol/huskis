@@ -370,7 +370,7 @@ const stylesV27 = les('android/app/src/main/res/values-v27/styles.xml');
    som forklarer hvorfor det ikke er foreldretemaet, og den skal ikke felle
    sin egen test. */
 const arver = (s) => (s.match(/parent="[^"]*"/g) || []).join(' ');
-check('android: kjøretidstemaet er lyst, ikke DayNight (appen har én drakt)',
+check('android: kjøretidstemaet er lyst, ikke DayNight (night-varianten malte over siden)',
   /name="AppTheme\.NoActionBar"[^>]*parent="Theme\.AppCompat\.Light\.NoActionBar"/.test(styles)
   && !/DayNight/.test(arver(styles)) && !/DayNight/.test(arver(stylesV27)),
   arver(styles));
@@ -387,16 +387,23 @@ check('android: bunnfeltet er en mørk stripe før API 27, ikke gjennomsiktig',
   && /name="systemNavScrim"/.test(les('android/app/src/main/res/values/colors.xml')));
 check('android: bunnfeltet blir gjennomsiktig fra API 27 (der glyfene kan snus)',
   /android:navigationBarColor">@android:color\/transparent/.test(stylesV27));
-check('android: mørke glyfer i statusfeltet (windowLightStatusBar)',
+check('android: mørke glyfer i statusfeltet fram til pluginen tar over (windowLightStatusBar)',
   /android:windowLightStatusBar">true/.test(styles));
 /* Temaet er ikke nok alene: `SystemBars`-pluginen SETTER utseendet i runtime
-   (`setAppearanceLightStatusBars`), og med `style: DEFAULT` leser den
-   telefonens nattmodus — i mørk modus ba den dermed om LYSE glyfer, oppå vår
-   lyse flate. Med en eksplisitt `LIGHT` er den låst til mørke glyfer, også
-   etter en konfigurasjonsendring (pluginen legger den resolverte stilen på
-   igjen ved rotasjon/modusbytte). Nøkkelen er plugin-klassens navn. */
-check('capacitor.config.json låser systemfeltene til mørke glyfer (SystemBars.style = LIGHT)',
-  !!cfg.plugins && !!cfg.plugins.SystemBars && cfg.plugins.SystemBars.style === 'LIGHT',
+   (`setAppearanceLightStatusBars`) og overstyrer det. `DEFAULT` lar den lese
+   telefonens nattmodus, og det er nettopp det vi vil ha nå som appen har to
+   drakter (docs/mork-drakt.md): standardvalget er «Følg systemet», så glyfene
+   og flaten under dem snur sammen — mørke glyfer over den lyse drakten, lyse
+   over den mørke. En låst `LIGHT` ville gitt mørke glyfer over #141922.
+
+   GRENSEN, med vilje: pluginen følger OPERATIVSYSTEMET, ikke vårt eget valg.
+   Overstyrer brukeren drakten mot OS-et (lys app på en mørk telefon, eller
+   omvendt), blir glyfene feil vei. Å rette det krever en bro fra web-laget til
+   pluginen, altså et andre web↔native-berøringspunkt — se sjekken lenger nede
+   som holder broen på ÉN linje. Det er en beslutning for mobilplanen, ikke en
+   bieffekt av drakten. */
+check('capacitor.config.json lar systemfeltene følge telefonens modus (SystemBars.style = DEFAULT)',
+  !!cfg.plugins && !!cfg.plugins.SystemBars && cfg.plugins.SystemBars.style === 'DEFAULT',
   JSON.stringify((cfg.plugins || {}).SystemBars || null));
 /* Attributten finnes først fra API 27, og hører derfor hjemme i values-v27/ —
    i values/ ville den vært død kode med lint-støy på kjøpet. */
