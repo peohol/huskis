@@ -118,8 +118,8 @@ fra WebView-ens egen innebygde server på `https://localhost` — https, uten
 port ([`mobilapp-plan.md`](mobilapp-plan.md)). Formen over treffer den derfor
 ikke, og en registrering eller passordgjenoppretting gjort *i appen* får den
 kanoniske adressen i lenken, ikke en `localhost`-adresse som bare finnes inne
-i appen. At appen selv kan fange opp en slik lenke er en senere fase (App
-Links); inntil da åpner lenken Huskis i telefonens nettleser.
+i appen. Lenken åpner Huskis i telefonens nettleser, ikke i appen — hvorfor, og
+hva som skulle til for å endre det, står under «Auth-lenkene i e-post».
 
 Brukes av de tre Supabase Auth-kallene som tar en returadresse:
 
@@ -352,11 +352,144 @@ direktivet noen gang løsnes, er dette hullet det slipper løs.)
 ### Auth-lenkene i e-post
 
 De kommer fra utsiden og røres ikke av regelen over: brukeren trykker i
-e-postklienten, og Android gir adressen til standardappen for `https://huskis.no`
-— i dag telefonens browser, siden Huskis ikke har noe intent-filter for
-domenet. Bekreftelsen fullføres altså i browseren, og brukeren går tilbake til
-appen og logger inn. At appen selv kan fange lenken er neste punkt i fase 3
-(App Links), ikke dette.
+e-postklienten, og telefonen gir adressen til standardappen for DEN adressen.
+Hvilken app det blir avgjøres av **verten i lenken brukeren faktisk trykker
+på** — og den er ikke `huskis.no` i tre av de fire e-postene Huskis sender:
+
+| E-post | Verten i lenken | Hva som skjer på telefonen |
+|---|---|---|
+| Bekreft registrering (`signUp`) | `<prosjekt>.supabase.co/auth/v1/verify?…&redirect_to=https://huskis.no/` | browseren åpner, tokenet verifiseres, og svaret er 303 til `huskis.no/#access_token=…&type=signup`. Kontoen ER bekreftet; sesjonen havner i browseren, og appen står igjen ulogget. Brukeren går tilbake og logger inn med passordet sitt. |
+| Tilbakestill passord (`resetPasswordForEmail`) | samme verify-adresse, `type=recovery` | browseren åpner, `PASSWORD_RECOVERY` fyrer DER, og det nye passordet settes i browseren. Appen merker ingenting; neste innlogging i appen bruker det nye passordet. |
+| Bekreft ny e-postadresse (`updateUser({ email })`) | samme verify-adresse, `type=email_change` | adressen byttes serverside, i browseren. Appens sesjon fortsetter uendret. |
+| Delingsinvitasjon (Resend, `send_invite_email()`) | `https://huskis.no/` til en REGISTRERT mottaker, `https://huskis.no/?signup=<e-post>` til en uregistrert | peker rett på det kanoniske originet, men bærer ingen sesjon. Til en registrert mottaker er dette det ene tilfellet der App Links ville gitt mer enn en spart innlogging: er brukeren logget inn i APPEN og ikke i browseren, åpner lenken i dag en utlogget browser, mens appen har sesjonen som faktisk kan vise og godta invitasjonen. |
+| Varsel om endret adresse (*Email address changed*) | ingen handlingslenke — men fotnoten i begge språkseksjonene ankrer `https://huskis.no/` | et varsel, ikke en handling: den skal bare ta en bruker som ikke kjenner seg igjen til innloggingssiden, der «Glemt passord?» står. |
+
+De to nederste er altså de eneste som peker rett på `huskis.no`, og ingen av
+dem bærer en sesjon. «Ingen lenke» om varselet i «Auth-e-postmalene» under
+betyr ingen HANDLINGSlenke (`{{ .ConfirmationURL }}`) — fotnotens anker er noe
+annet.
+
+**Ingen av de tre første er ødelagt av å havne i browseren.** Hele handlingen
+fullføres der. For registrering og passordgjenoppretting er det appen mangler
+sesjonen, og prisen er én ekstra innlogging. Adressebyttet koster ikke engang
+det: det starter fra en app som allerede er innlogget, og den sesjonen
+fortsetter uendret. At det ikke er verre henger på flyttypen: klienten lar
+`flowType` stå på supabase-js' standard `implicit`
+(`ensureClient()` i `app.js` setter den ikke), så tokenene kommer i
+FRAGMENTET. Var flyten PKCE, ville lenken båret en `?code=` som må byttes inn
+med en verifikator lagret i originet som STARTET flyten — og en registrering
+startet i appen (`https://localhost`) kunne da ikke fullføres i browseren
+(`huskis.no`) i det hele tatt. Skrus PKCE på, er det denne seksjonen som må
+leses først.
+
+#### Android App Links: hvorfor ikke ennå
+
+App Links ville latt telefonen sende lenken til Huskis i stedet for til
+browseren. Mekanismen har to halvdeler i hvert sitt system, pluss en tredje som
+er lett å overse:
+
+1. **manifestet** — et `<intent-filter android:autoVerify="true">` på
+   `MainActivity` med `VIEW`/`BROWSABLE` og `<data android:scheme="https"
+   android:host="huskis.no">`;
+2. **originet** — `https://huskis.no/.well-known/assetlinks.json`, som må
+   navngi `no.huskis.app` og **SHA-256 av signeringsnøkkelen**. Fila er
+   repo-eid på samme måte som redirect-reglene: Vercel serverer `dist/`, og
+   `dist/` er det `build.js` kopierer (se «Vercel-konfigurasjonen»);
+3. **at fila faktisk blir publisert** — `copyDir()` i `build.js` hopper over
+   hvert navn som starter med punktum, så en `.well-known/`-katalog i repoet
+   havner i dag ikke i `dist/`. Den dagen halvdelene innføres, må `build.js`
+   slippe katalogen gjennom i samme endring.
+
+**Hvem 303-en havner hos, er et ÅPENT spørsmål.** Verten i lenken brukeren
+trykker på er `*.supabase.co`, og der kan vi ikke legge et statement — det
+originet er ikke vårt. Et intent-filter for `huskis.no` ser altså ikke selve
+tappet. Men lenken ENDER på `https://huskis.no/#access_token=…`, og en verifisert
+App Link kan bli plukket opp der: det er nøyaktig mekanismen native
+OAuth-klienter på Android bygger på (RFC 8252/AppAuth bruker en `https`-
+redirect-URI som er en App Link, og leverandøren redirecter til den). Om
+Chrome faktisk leverer fra seg på slutten av en redirect-kjede startet av et
+tapp i e-postklienten — og om fragmentet følger med — kan ikke avgjøres herfra.
+Det avhenger av browser og av brukerens «åpne som standard»-innstilling, og
+skal PRØVES på telefon i fase 6 før noe bygges rundt svaret.
+
+Konsekvensen av svaret er stor nok til å si eksplisitt: **holder redirect-veien,
+trengs verken nye maler eller `verifyOtp()`** — `{{ .ConfirmationURL }}` og
+dagens implicit-fragment kan stå som de er, og det som gjenstår er lytteren,
+statementet og nøkkelen. Holder den ikke, må lenken flyttes til `huskis.no`
+allerede i e-posten, og da kommer de to første punktene under i tillegg.
+
+De to nederste radene i tabellen — delingsinvitasjonen og fotnoten i varselet —
+blir fanget uansett hvordan det spørsmålet faller ut, siden de peker rett på
+`huskis.no`. De er også de to som ikke bærer noen sesjon: appen ville åpnet på
+startsiden sin, som er det browseren gjør i dag.
+
+Endringene App Links krever er altså **fire sikre og to betingede**:
+
+- intent-filteret på `MainActivity` (de tre punktene over: `autoVerify`,
+  `VIEW`/`DEFAULT`/`BROWSABLE`, `https` + `huskis.no` uten sti- eller
+  portbegrensning);
+- statementet på originet;
+- unntaket i `copyDir()` som faktisk får det publisert — selektivt, ellers
+  følger `.gitignore` og hver annen skjult fil med ut;
+- lytteren som leser den innkommende adressen (punktet under);
+- *betinget* — malene måtte bygge lenken selv av `{{ .TokenHash }}` i stedet for
+  `{{ .ConfirmationURL }}` — det motsatte av regelen i
+  [`supabase/email-templates/README.md`](../supabase/email-templates/README.md),
+  og malene ligger i Supabase Dashboard;
+- *betinget* — klienten måtte løse inn tokenet selv
+  (`verifyOtp({ token_hash, type })`) i stedet for å la supabase-js lese
+  fragmentet;
+- appen måtte fange den innkommende adressen — og i BEGGE retninger.
+  `@capacitor/android` tar vare på intent-URI-en (`Bridge.getIntentUri()`) og
+  varsler plugins ved `onNewIntent`, men INGEN kjerneplugin leser den: uten
+  `@capacitor/app` åpner en App Link bare Huskis på startsiden, og hele
+  adressen forsvinner. Merk at en `appUrlOpen`-lytter ALENE ikke er nok: tappes
+  lenken mens appen er stoppet — det vanlige når man kommer fra e-post — ligger
+  adressen i aktivitetens FØRSTE intent, ikke i en ny. Kaldstarten må leses for
+  seg (`App.getLaunchUrl()`). Det ville
+  kostet en native plugin og **en gate til** i web-koden. Uten den biten er et
+  intent-filter dessuten et TAP mot i dag, ikke bare en uteblitt gevinst:
+  delingsinvitasjonen lenker til `/?signup=<e-post>`, og `applySignupInvite()`
+  i `app.js` leser den verdien fra `location.search` — en invitert bruker ville
+  mistet registreringsflyten sin til en app som åpner på startsiden;
+- signeringsnøkkelen måtte finnes for en RELEASE. Debug-APK-en er signert med
+  Androids automatisk genererte debugnøkkel, og CI-runnerne er flyktige, så det
+  finnes ikke ett fingeravtrykk som er stabilt på tvers av bygg
+  ([`mobilapp-plan.md`](mobilapp-plan.md)).
+
+  Det betyr derimot IKKE at ingenting kan prøves før fase 6: debugkeystoren på
+  ÉN maskin er stabil, og fingeravtrykket derfra kan publiseres midlertidig i
+  statementet, slik at verifiseringen faktisk kjøres på en telefon. Prisen er at
+  `huskis.no` da offentlig autoriserer en debugnøkkel så lenge fila står der —
+  et bevisst, tidsavgrenset eksperiment, ikke noe som skal bli stående. Det er
+  denne veien det åpne redirect-spørsmålet over kan besvares, om svaret trengs
+  før fase 6.
+
+**Beslutningen: App Links utsettes til fase 6**, sammen med signeringsnøkkelen.
+De fire sikre endringene er uansett bundet til den fasen, og det åpne
+redirect-spørsmålet avgjøres best der det kan prøves: på en telefon. Da vurderes
+gevinsten (én spart innlogging i de to auth-flytene som koster en, pluss
+invitasjonen til en registrert mottaker) mot fire eller seks koblede endringer,
+alt etter hvordan spørsmålet faller ut. iOS Universal Links har nøyaktig den
+samme strukturen (`apple-app-site-association` i stedet for `assetlinks.json`)
+og hører til fase 7.
+
+Inntil da er regelen at halvdelene aldri innføres hver for seg — og det er verre
+enn stille:
+
+Verifiseringen av `autoVerify` mot originet har fantes siden Android 6; det
+Android 12 endret er KONSEKVENSEN av at den slår feil:
+
+- **fra Android 12** blir appen ikke tilbudt i det hele tatt når verifiseringen
+  feiler. Lenken åpner browseren nøyaktig som før, uten at noe sier fra;
+- **på Android 7–11** (appens `minSdk` er 24) faller et feilet filter tilbake
+  til vanlig dyplenke-oppslag. Brukeren kan da få en app-velger, eller ha satt
+  Huskis som standard for domenet — og da BLIR lenken åpnet i appen. Uten
+  lytteren forsvinner `?signup=`, altså en synlig regresjon for de brukerne,
+  ikke bare en uteblitt gevinst.
+
+`tests/capacitor-android.test.js` (del 13) er vakten, og den dekker de fire
+sikre punktene over.
 
 ### URL-er i brukerens egen tekst
 
@@ -373,6 +506,11 @@ inn en utgående lenke uten å komme innom denne seksjonen.
 
 Redirect-reglene er **repo-eid**: de ligger i `vercel.json` og deployes med
 appen, ikke i dashbordet. Endres de, endres de her.
+
+Det samme gjelder alt `huskis.no` SERVERER: Vercel publiserer `outputDirectory`
+= `dist/`, og `dist/` er nøyaktig det `build.js` kopierer. Skal originet svare
+på en ny sti — for eksempel `/.well-known/assetlinks.json` — er det `build.js`
+som må legge fila der, ikke en dashbord-innstilling.
 
 Domenene må være koblet til `huskis`-prosjektet for at reglene skal gjelde —
 en regel i et prosjekts `vercel.json` virker kun for prosjektets egne
@@ -473,7 +611,10 @@ aktiv på samme måte som for de to andre — kontrollert mot produksjon
   (Supabase-endepunktet og det kanoniske originet), slik at en ny utgående
   adresse må innom denne seksjonen uansett hvilket API den brukes gjennom.
   Skanningen dekker beviselig alle produksjonskildene: lista over filer låses
-  mot det `index.html` faktisk laster.
+  mot det `index.html` faktisk laster. Del 13 vokter App Links-halvdelene:
+  intent-filteret i manifestet og `assetlinks.json` på originet innføres sammen
+  eller ikke i det hele tatt, og et statement som ikke havner i `dist/` felles
+  som det det er — en påstand `huskis.no` aldri kommer til å svare på.
 - `tests/no-legacy-domain.test.js` — repo-vid tekstvakt: feiler dersom
   `huskekurv` dukker opp utenfor en eksplisitt, begrunnet unntaksliste
   (negative tester, denne fila, `TODO.md`, og de to redirect-kildene

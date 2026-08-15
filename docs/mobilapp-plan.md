@@ -15,9 +15,9 @@ autoritative dokumentet for fagfeltet.
 |---|---|
 | Målarkitektur | Én HTML/CSS/JS-kodebase + Capacitor for Android/iOS |
 | Nåværende fase | **Fase 3 — nødvendige native integrasjoner** |
-| Status | Fase 3 er i gang. Tre punkter er ferdige: systemets tilbakeknapp og safe areas/systemfeltene/skjermtastaturet, begge verifisert på fysisk telefon, og eksterne lenker, som er en beslutning uten kode og derfor ikke har noe å prøve på en telefon (se seksjonen). Automatisk dekket av `tests/safe-area.test.js`, `tests/landscape-chrome.test.js`, `tests/system-back.test.js` og `tests/capacitor-android.test.js`. De tre øvrige fase 3-punktene er ikke påbegynt, så ferdigkriteriet er ikke nådd. |
+| Status | Fase 3 er i gang. Fire punkter er ferdige: systemets tilbakeknapp og safe areas/systemfeltene/skjermtastaturet, begge verifisert på fysisk telefon, og eksterne lenker + auth-/e-postlenker, som begge er beslutninger uten kode og derfor ikke har noe å prøve på en telefon (se seksjonene). Automatisk dekket av `tests/safe-area.test.js`, `tests/landscape-chrome.test.js`, `tests/system-back.test.js` og `tests/capacitor-android.test.js`. De to øvrige fase 3-punktene er ikke påbegynt, så ferdigkriteriet er ikke nådd. |
 | Neste milepæl | Android-appen oppfører seg som en normal mobilapp i de plattformtilfellene browseren ikke håndterer godt nok selv |
-| Ett neste praktiske steg | Gjør auth-/e-postlenker robuste: vurder Android App Links slik at bekreftelse/reset kan returnere til appen |
+| Ett neste praktiske steg | Koble native lifecycle-/network-signaler til synklogikken der websignalene ikke strekker til |
 | OTA | Ikke innført; skal ikke innføres før Android-baselinen er stabil |
 | iOS | Senere fase; ikke en del av første implementering |
 
@@ -378,8 +378,13 @@ funksjoner bare fordi de er mulige.
       forblir i appen. Regelen er skrevet ned og voktet; den krevde ingen kode,
       fordi appen ikke har én eneste utgående lenke og Capacitors egen ruting
       allerede gjør nøyaktig det regelen sier.
-- [ ] Gjør auth-/e-postlenker robuste; vurder Android App Links og senere iOS
+- [x] Gjør auth-/e-postlenker robuste; vurder Android App Links og senere iOS
       Universal Links slik at bekreftelse/reset kan returnere til appen.
+      Kartlagt og avgjort: lenkene er robuste, App Links utsettes til fase 6.
+      Krevde ingen kode i appen — TAPPET i auth-lenkene går til Supabase, ikke
+      til `huskis.no`, så et intent-filter ser ikke selve trykket. Om 303-en
+      videre havner i appen er et åpent spørsmål som skal prøves på telefon
+      (se seksjonen).
 - [ ] Koble native lifecycle/network-signaler til eksisterende synklogikk bare
       der websignalene ikke er tilstrekkelige.
 - [ ] Vurder sikker lagring av native-spesifikke secrets/tokens dersom det
@@ -615,8 +620,8 @@ uendret.
 
 **De to grensetilfellene, avgjort.** Auth-lenkene i e-post kommer fra utsiden og
 røres ikke av regelen: e-postklienten gir adressen til telefonens standardapp
-for `huskis.no`, altså browseren, siden Huskis ikke har noe intent-filter for
-domenet — det er neste punkt (App Links). URL-er brukeren selv skriver i et
+for den — browseren — og Huskis har ikke noe intent-filter som gjør krav på
+noen vert (neste seksjon). URL-er brukeren selv skriver i et
 listepunkt er ren tekst og forblir det: å gjøre dem klikkbare er en
 produktendring med egne spørsmål, ikke en native integrasjon. Regelen sier
 allerede hvor en slik lenke havner den dagen den lages.
@@ -630,9 +635,91 @@ svart på. Det som er verifisert er kildekoden — Capacitors ruting er LEST i
 
 Det skillet er verdt å holde fast på, av samme grunn som systemfeltene i forrige
 punkt: koden er ikke fasit for hva enheten gjør. Den dagen appen får sin første
-utgående lenke — App Links-punktet gir den en — skal det observeres på telefon at
-adressen faktisk forlater WebView-en og lander i browseren, og at Huskis står
-igjen med tilstanden sin når man kommer tilbake.
+utgående lenke skal det observeres på telefon at adressen faktisk forlater
+WebView-en og lander i browseren, og at Huskis står igjen med tilstanden sin når
+man kommer tilbake. Neste punkt gir den ikke: App Links handler om lenker INN i
+appen, og det punktet endte uten kode.
+
+## Auth-/e-postlenker og App Links
+
+**Kartleggingen først.** Huskis sender fem e-poster med en lenke i. Hvilken app
+som svarer på telefonen avgjøres av verten i lenken brukeren faktisk trykker på,
+og den er ikke `huskis.no` i de tre som bærer en HANDLING: Supabase
+Auth-e-postene (bekreft registrering, tilbakestill passord, bekreft ny adresse)
+peker på prosjektets egen verify-adresse på `*.supabase.co`, og `huskis.no` er
+bare der 303-en LANDER. De to som peker rett på det kanoniske originet —
+delingsinvitasjonen fra Resend, og fotnoten i varselet om endret adresse — er
+nettopp de to som ikke bærer noen sesjon. Hele tabellen, med hva som skjer i
+hvert enkelt tilfelle:
+[`domains-and-urls.md`](domains-and-urls.md) («Auth-lenkene i e-post»).
+
+**Konsekvensen i dag:** lenken åpner browseren, og handlingen fullføres DER —
+kontoen blir bekreftet, passordet blir satt, adressen blir byttet. For
+registrering og passordgjenoppretting står appen igjen ulogget, og prisen er én
+ekstra innlogging; adressebyttet koster ikke engang det, siden det starter fra
+en app som allerede er innlogget. Ingen av dem er en brutt flyt. At det
+ikke er verre henger på at klienten kjører supabase-js' standard `implicit`-flyt:
+tokenene kommer i fragmentet, ikke som en `?code=` som må byttes inn med en
+PKCE-verifikator lagret i originet som startet flyten. Startet i appen
+(`https://localhost`) og fullført i browseren (`huskis.no`) ville en PKCE-flyt
+ikke kunnet fullføres i det hele tatt.
+
+**Beslutningen: App Links utsettes til fase 6**, sammen med signeringsnøkkelen.
+Fire endringer trengs uansett: intent-filteret på `MainActivity`, statementet på
+originet, det selektive unntaket i `copyDir()` som faktisk får statementet
+publisert, og lesing av den innkommende adressen (`@capacitor/app` + **en gate
+til** i web-koden) — både ved KALDSTART (`getLaunchUrl()`, det vanlige når man
+kommer fra e-post) og ved en ny intent (`appUrlOpen`). To andre er BETINGET av et spørsmål
+ingen kan svare på herfra: verten i auth-lenkene er `*.supabase.co`, men de
+ENDER på `huskis.no` — og om browseren leverer fra seg på slutten av en
+redirect-kjede, slik native OAuth-klienter bygger på, avgjøres på en telefon.
+Holder den veien, kan malene og `{{ .ConfirmationURL }}` stå som de er; holder
+den ikke, kommer e-postmalene og `verifyOtp()` i tillegg. Begrunnelsen i sin
+helhet:
+[`domains-and-urls.md`](domains-and-urls.md) («Android App Links: hvorfor ikke
+ennå»). iOS Universal Links har samme struktur og hører til fase 7.
+
+**Punktet krevde derfor ingen kode.** Web-laget kjenner fortsatt native-runtimen
+på nøyaktig ÉN gated linje — broen for tilbakeknappen — og unntaket i
+`tests/capacitor-android.test.js` er uendret. Det som ER gjort, er å gjøre den
+utsatte innføringen umulig å gjøre halvveis.
+
+| Ledd | Rolle |
+|---|---|
+| `authRedirectUrl()` (`app.js`) | Sender allerede den kanoniske adressen fra WebView-originet, altså den ene formen App Links en gang kan fange. Voktet av `tests/auth-redirect.test.js`. |
+| `AndroidManifest.xml` uten `<data android:scheme="https">` | Manifest-halvdelen. Finnes ikke i dag; innføres den alene, verifiserer Android ingenting. |
+| `.well-known/assetlinks.json` (finnes ikke) | Origin-halvdelen: `no.huskis.app` + signeringsnøkkelens SHA-256. Repo-eid — Vercel serverer `dist/`, og `build.js` fyller den. |
+| `copyDir()` i `build.js` | Den tredje halvdelen, og den lettest oversette: den hopper over hvert navn som starter med punktum, så en `.well-known/`-katalog havner i dag ikke i `dist/`. Innføres statementet, må dette endres i samme slengen — og fritaket må være SELEKTIVT. Fjernes prikk-regelen helt, publiseres `.gitignore` og hver framtidige skjulte fil på `huskis.no` med det samme. |
+| `tests/capacitor-android.test.js` (del 13) | Vakten: halvdelene innføres sammen eller ikke i det hele tatt; filteret er komplett (`VIEW` + `DEFAULT` + `BROWSABLE` + `https`) og ber om verifisering; statementet navngir riktig appId med et fingeravtrykk på riktig form, og det når faktisk `dist/`; og noe leser den innkommende adressen. Manifestene leses uten XML-kommentarer og i ALLE source set-ene — Gradle slår dem sammen, så et filter i `src/release/` teller like fullt. |
+
+### Ikke prøvd på telefon — det finnes ingen lenke som kan fange
+
+Som forrige punkt har dette **ingen fysisk sekvens**, og det er en konsekvens av
+beslutningen, ikke en utsettelse: uten et intent-filter finnes det ingen
+oppførsel en telefon kunne svart annerledes på enn den allerede gjør i fase 2s
+punkt 1 (bekreftelseslenken åpner browseren, og innlogging i appen etterpå gir
+en sesjon — kjørt, uten avvik).
+
+**Debugnøkkelen er verdt å si presist.** Debug-APK-en er signert med Androids
+automatisk genererte debugnøkkel, og CI-runnerne er flyktige — det finnes altså
+ikke ett SHA-256 som er stabilt på tvers av bygg, og derfor ingen nøkkel å
+publisere permanent før fase 6.
+
+Men verifiseringen KAN prøves før det: debugkeystoren på én maskin er stabil, så
+fingeravtrykket derfra kan legges midlertidig i statementet og hele kjeden kjøres
+på en telefon. Prisen er at `huskis.no` da offentlig autoriserer en debugnøkkel
+så lenge fila står der — et bevisst, tidsavgrenset eksperiment, ikke noe som blir
+stående. (De manuelle omveiene, `adb shell pm set-app-links-user-selection`,
+beviser derimot ikke det som skal bevises: at ORIGINET har autorisert appen.)
+
+**Det ene spørsmålet som må avgjøres først** er redirect-veien: tapp en
+bekreftelseslenke i e-postklienten på en telefon der appen er installert og
+verifisert, og se om Supabase' 303 til `huskis.no` lander i appen eller blir
+liggende i browseren — og om `#access_token=…` følger med. Svaret bestemmer om
+App Links koster fire eller seks koblede endringer, og det finnes ikke noe annet
+sted enn en enhet å hente det fra. Det kan kjøres med det midlertidige
+debug-fingeravtrykket beskrevet over, altså før fase 6, dersom svaret trengs for
+å planlegge den fasen.
 
 **Ferdigkriterium:** Android-appen oppfører seg som en normal mobilapp i de
 plattformtilfellene browseren ikke selv kan håndtere godt nok.
@@ -708,6 +795,14 @@ Google Plays interne testspor.
 - [ ] Opprett/verifiser Google Play Developer-konto.
 - [ ] Bekreft endelig package ID før første opplasting.
 - [ ] Sett opp signing og håndtering av nøkler uten secrets i repoet.
+- [ ] Ta App Links opp igjen når nøkkelen finnes: begge halvdelene i samme
+      endring (intent-filter + `.well-known/assetlinks.json` som `build.js`
+      faktisk kopierer ut). Avgjør FØRST det åpne spørsmålet i fase
+      3-seksjonen, på telefon: leverer browseren fra seg på slutten av
+      Supabase' 303 til en verifisert App Link? Svaret bestemmer om dette er
+      fire eller seks koblede endringer, og dermed om det er verdt gevinsten:
+      én spart innlogging i de to auth-flytene som koster en, pluss
+      invitasjonen til en registrert mottaker.
 - [ ] Produser release-AAB reproducerbart fra CI.
 - [ ] Opprett appoppføring, ikon, screenshots og nødvendig metadata.
 - [ ] Fullfør privacy/Data Safety-opplysninger basert på faktisk databruk.
@@ -783,13 +878,15 @@ De skal ikke snike seg inn i fundamentfasene.
 
 ## Neste oppgave
 
-**Fase 3 fortsetter.** Tre punkter er ferdige: tilbakeknappen og safe
-areas/systemfeltene/skjermtastaturet (begge verifisert på telefon), og eksterne
-lenker (en beslutning uten kode — ingenting å prøve på en telefon ennå). Neste
-punkt er **auth-/e-postlenker**: vurder Android App Links, slik at bekreftelse
-og passordgjenoppretting kan returnere til appen i stedet for å stoppe i
-browseren. Det punktet gir appen sin første ekte utgående/inngående lenke, og
-dermed også det første som faktisk KAN prøves på telefon under regelen over.
+**Fase 3 fortsetter.** Fire punkter er ferdige: tilbakeknappen og safe
+areas/systemfeltene/skjermtastaturet (begge verifisert på telefon), og de to
+lenkepunktene — eksterne lenker og auth-/e-postlenker — som begge endte som
+beslutninger uten kode, og som derfor fortsatt ikke har noe å prøve på en
+telefon. Neste punkt er **native lifecycle- og network-signaler**: koble dem til
+den eksisterende synklogikken, men bare der websignalene (`visibilitychange`,
+`online`/`offline`) ikke er tilstrekkelige. Utgangspunktet er at de er det —
+fase 2s punkt 9 og 10 er kjørt på telefon uten avvik — så første steg er å måle
+hva som faktisk mangler før noe native kobles på.
 
 Hver fase 3-endring er plattformspesifikk og skal gates eksplisitt
 (arkitekturregel 2): browserutgaven skal fortsatt kjøre uten Capacitor.

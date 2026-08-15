@@ -40,6 +40,9 @@
     12. Eksterne lenker: bare appens eget origin lastes INNE i appen, alt annet
         hører hjemme i systembrowseren (docs/domains-and-urls.md, «Eksterne
         lenker»).
+    13. Auth-/e-postlenker: App Links har to halvdeler i hvert sitt system
+        (intent-filteret og assetlinks.json på det kanoniske originet), og en
+        halv innføring feiler STILLE. De innføres sammen, eller ingen av dem.
 
    `/version.json` i den innebygde builden er en KJEDE av invarianter som
    allerede er dekket hver for seg, og som derfor ikke gjentas her:
@@ -234,7 +237,40 @@ check('android: package_name er no.huskis.app',
 const appGradle = les('android/app/build.gradle');
 check('android: applicationId er no.huskis.app', /applicationId "no\.huskis\.app"/.test(appGradle));
 check('android: namespace er no.huskis.app', /namespace = "no\.huskis\.app"/.test(appGradle));
-const manifest = les('android/app/src/main/AndroidManifest.xml');
+/* XML-kommentarene fjernes FØR noe leses. En utkommentert erklæring er ikke i
+   kraft — Android ser den aldri — så en sjekk som leser den står grønn på noe
+   som ikke finnes i appen. Det gjelder like mye `adjustResize` under som
+   App Links-filteret i del 13.
+
+   Det ene ikke-grådige mønsteret er nok her, og det er hele XML-regelen: en
+   kommentar starter på `<!--`, slutter på det FØRSTE `-->`, og kan verken
+   nestes eller inneholde `--`. `kodeLinjerStreng()` lenger nede er bygget for
+   JS/HTML med strenger, regex og skriptområder — overkill for et manifest, og
+   den er dessuten definert først et godt stykke etter dette punktet. */
+const utenXmlKommentarer = (s) => s.replace(/<!--[\s\S]*?-->/g, '');
+/* Prefikset `android:` er en KONVENSJON, ikke navnet. XML binder navnerom med
+   `xmlns:`, og `xmlns:a="http://schemas.android.com/apk/res/android"` +
+   `<data a:scheme="https">` er nøyaktig det samme manifestet for Android — men
+   usynlig for et mønster som leter etter `android:`. Da ville et aktivt filter
+   sett ut som fravær, og koblingen i del 13 stått grønn på en halv innføring.
+
+   I stedet for å tre en prefiksvariabel gjennom hvert eneste mønster,
+   NORMALISERES teksten én gang: det prefikset som faktisk er bundet til
+   Android-navnerommet skrives om til `android:`. Attributtnavn står alltid
+   etter blanktegn inne i en tagg, så den ene erstatningen er nok — elementene i
+   et manifest er uprefiksede. */
+const ANDROID_NS = 'http://schemas.android.com/apk/res/android';
+function xmlNormalisert(tekst) {
+  let ut = tekst;
+  for (const m of tekst.matchAll(/xmlns:([\w.-]+)\s*=\s*(?:"([^"]*)"|'([^']*)')/g)) {
+    const prefiks = m[1];
+    if ((m[2] !== undefined ? m[2] : m[3]) !== ANDROID_NS || prefiks === 'android') continue;
+    ut = ut.replace(new RegExp('(\\s)' + prefiks.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + ':', 'g'), '$1android:');
+  }
+  return ut;
+}
+const manifestTekst = (rel) => xmlNormalisert(utenXmlKommentarer(les(rel)));
+const manifest = manifestTekst('android/app/src/main/AndroidManifest.xml');
 /* Uten INTERNET når appen verken Supabase eller /version.json. */
 check('android: manifestet ber om INTERNET',
   /android\.permission\.INTERNET/.test(manifest));
@@ -245,6 +281,59 @@ check('iOS-plattformen er ikke innført ennå',
 /* Fase 1 skal ikke ha pushvarsler, biometrikk, haptics eller andre native
    plugins. Alt utover kjernen + plattformen er derfor en regresjon her, og skal
    komme som en bevisst endring i en senere fase. */
+/* npm-lista over holder Capacitor-plugins i sjakk, men den sier ingenting om
+   GRADLE-avhengigheter. Et hvilket som helst bibliotek på appmodulens
+   `implementation`-liste bidrar med sitt eget manifest, som Gradle merger inn i
+   appens — inkludert intent-filtre. Manifestet inne i en AAR kan ikke leses
+   herfra (den lastes ned ved bygg), så det som kan låses er HVILKE biblioteker
+   som finnes. Da må et nytt innom denne sjekken, og den som legger det inn må
+   ta stilling til hva det bidrar med. `testImplementation`/`androidTest…`
+   er utenfor: de pakkes ikke i appen. */
+/* HELE `dependencies`-blokken leses, ikke bare linjer som starter med
+   `implementation`. Gradle har en konfigurasjon per variant og rolle —
+   `releaseImplementation`, `api`, `runtimeOnly` — og alle havner i release-APK-en
+   med hvert sitt manifest. Å liste konfigurasjonsnavnene ville vært en ny liste
+   å glemme noe fra; å låse LINJENE lukker dem alle på én gang. */
+const AVHENGIGHETER = [
+  "implementation fileTree(include: ['*.jar'], dir: 'libs')",
+  'implementation "androidx.appcompat:appcompat:$androidxAppCompatVersion"',
+  'implementation "androidx.activity:activity:$androidxActivityVersion"',
+  'implementation "androidx.coordinatorlayout:coordinatorlayout:$androidxCoordinatorLayoutVersion"',
+  'implementation "androidx.core:core-splashscreen:$coreSplashScreenVersion"',
+  "implementation project(':capacitor-android')",
+  'testImplementation "junit:junit:$junitVersion"',
+  'androidTestImplementation "androidx.test.ext:junit:$androidxJunitVersion"',
+  'androidTestImplementation "androidx.test.espresso:espresso-core:$androidxEspressoCoreVersion"',
+  "implementation project(':capacitor-cordova-android-plugins')",
+];
+const depBlokk = (kode(appGradle).match(/dependencies\s*\{([\s\S]*?)\n\}/) || [, ''])[1];
+const depLinjer = depBlokk.split('\n').map((l) => l.trim()).filter(Boolean);
+const nyeDep = depLinjer.filter((l) => AVHENGIGHETER.indexOf(l) === -1);
+check('ingen nye Gradle-avhengigheter i appmodulen (et nytt bibliotek merger sitt eget manifest inn)',
+  depLinjer.length === AVHENGIGHETER.length && nyeDep.length === 0,
+  nyeDep.join(', ') || depLinjer.length + ' kjente avhengighetslinjer');
+/* Og de APPLIERTE skriptene. `apply from:` kan legge til avhengigheter uten å
+   røre blokken over — Capacitor bruker nettopp den veien selv
+   (`capacitor.build.gradle`), og der er `dependencies`-blokken TOM så lenge det
+   ikke er installert plugins. Blir den ikke tom, er det en plugin som er kommet
+   inn, og den merger sitt eget manifest. */
+const APPLIERTE = ['android/app/capacitor.build.gradle'];
+const applierteMedDep = APPLIERTE.filter((rel) => finnes(rel)
+  && ((kode(les(rel)).match(/dependencies\s*\{([\s\S]*?)\n\}/) || [, ''])[1] || '')
+    .split('\n').map((l) => l.trim()).filter(Boolean).length > 0);
+check('de applierte Gradle-skriptene legger ikke til avhengigheter',
+  applierteMedDep.length === 0,
+  applierteMedDep.join(', ') || APPLIERTE.join(', ') + ' uten avhengigheter');
+/* Og HELE avhengighetslista, ikke bare `@capacitor/*`-navnene. En Cordova-
+   plugin heter `cordova-plugin-…`, og `cap sync` genererer den inn i
+   `:capacitor-cordova-android-plugins` — et modulnavn som allerede står i
+   Gradle-lista, så ingen `implementation`-linje endres. Filteret ville da
+   havnet i APK-en uten at noen av de to låsene over så det. Lista må derfor
+   være uttømmende. */
+const KJENTE_PAKKER = ['@capacitor/android', '@capacitor/cli', '@capacitor/core'];
+const ukjentePakker = Object.keys(alleDeps).filter((d) => KJENTE_PAKKER.indexOf(d) === -1);
+check('ingen andre npm-avhengigheter enn de tre Capacitor-pakkene (en Cordova-plugin merger sitt eget manifest)',
+  ukjentePakker.length === 0, ukjentePakker.join(', ') || KJENTE_PAKKER.join(', '));
 const capPakker = Object.keys(alleDeps).filter((d) => d.startsWith('@capacitor/'));
 check('ingen native Capacitor-plugins utover kjerne, cli og android',
   capPakker.every((d) => CAP.indexOf(d) > -1), capPakker.join(', '));
@@ -784,12 +873,27 @@ const gradleFiler = (function les(dir) {
     return /\.gradle$/.test(d.name) ? [q] : [];
   });
 }(path.join(ROOT, 'android')));
+/* `srcFile` teller like mye som `srcDirs`. Gradle kan peke MANIFESTET et annet
+   sted — `sourceSets { release { manifest.srcFile '…' } }` — og da leser både
+   rutingsjekken her og App Links-sjekken i del 13 en fil som ikke er den APK-en
+   pakker. Samme regel, samme begrunnelse: overstyringen forbys, så den som
+   trenger den må utvide skanningen bevisst. */
 const medSrcDirs = gradleFiler
-  .filter((q) => /srcdirs?\b/i.test(strippet(fs.readFileSync(q, 'utf8'), 'js')))
+  .filter((q) => /(srcdirs?|srcfile)\b/i.test(strippet(fs.readFileSync(q, 'utf8'), 'js')))
   .map((q) => path.relative(ROOT, q));
-check('ingen av byggeskriptene definerer egne kilderøtter (skanningen dekker alt som kompileres)',
+check('ingen av byggeskriptene overstyrer kilderøtter eller manifest-sti (skanningen dekker alt som kompileres)',
   gradleFiler.length > 0 && medSrcDirs.length === 0,
-  medSrcDirs.join(', ') || gradleFiler.length + ' gradle-filer uten srcDirs');
+  medSrcDirs.join(', ') || gradleFiler.length + ' gradle-filer uten srcDirs/srcFile');
+/* applicationId er det statementet navngir. En `applicationIdSuffix` på
+   release — eller en flavor som setter en annen id — gir en APK med et annet
+   pakkenavn enn `assetlinks.json` peker på, og verifiseringen faller. Én
+   erklæring, ingen suffikser. */
+const idOverstyring = gradleFiler
+  .filter((q) => /applicationIdSuffix|flavorDimensions|productFlavors/.test(strippet(fs.readFileSync(q, 'utf8'), 'js')))
+  .map((q) => path.relative(ROOT, q));
+check('ingen applicationId-suffiks eller produktvarianter (statementet navngir det APK-en heter)',
+  idOverstyring.length === 0 && (kode(appGradle).match(/applicationId\s/g) || []).length === 1,
+  idOverstyring.join(', ') || 'én applicationId, ingen suffikser');
 const utenfor = gradleFiler.flatMap((q) => [...strippet(fs.readFileSync(q, 'utf8'), 'js')
   .matchAll(/apply\s+from:\s*["']([^"']+)["']/g)]
   .map((m) => path.resolve(path.dirname(q), m[1]))
@@ -1394,6 +1498,547 @@ check('den ene linjen er guardens location.replace(target) i index.html',
     && navSkriv[0].sted.startsWith('index.html:')
     && /location\.replace\(target\)/.test(navSkriv[0].l),
   navSkriv.length === 1 ? navSkriv[0].sted + '  ' + navSkriv[0].l : 'mangler');
+
+/* ---- 13. Auth-/e-postlenker: App Links innføres i to halvdeler, eller ingen ----
+
+   Kartleggingen står i docs/domains-and-urls.md («Auth-lenkene i e-post»): de
+   tre Supabase Auth-e-postene lenker til prosjektets egen verify-adresse på
+   `*.supabase.co`, og `huskis.no` er bare der 303-en LANDER. Et intent-filter
+   for `huskis.no` ser derfor ikke én eneste av dem, og App Links er utsatt til
+   fase 6, der signeringsnøkkelen finnes (docs/mobilapp-plan.md).
+
+   Det som voktes her er derfor ikke at App Links mangler, men at halvdelene
+   aldri kommer i UTAKT. En App Link er én mekanisme spredt over to systemer:
+
+     • manifestet: et `<intent-filter>` med en `http(s)`-`<data>`-vert;
+     • originet:   `https://huskis.no/.well-known/assetlinks.json`, som må
+       navngi den samme `applicationId`-en og signeringsnøkkelens SHA-256.
+
+   Feilmodusen når bare den ene finnes er STILL: Android verifiserer ingenting,
+   lenken åpner browseren nøyaktig som før, og ingen logg, ingen build og ingen
+   test sier fra — det ses bare ved å trykke på en lenke på en telefon. Det er
+   den samme lærdommen som systemfeltene i fase 3: koden er ikke fasit for hva
+   enheten gjør, så det som KAN voktes herfra må voktes.
+
+   Og en tredje halvdel som er lett å overse: fila må faktisk bli PUBLISERT.
+   `build.js` hopper over hvert navn som starter med punktum (`copyDir`), så en
+   `.well-known/`-katalog i repoet havner i dag ikke i `dist/` i det hele tatt.
+   Statementet ville blitt liggende i repoet mens `huskis.no` svarte 404 — igjen
+   uten at noe sa fra. Den dagen halvdelene innføres, må `build.js` slippe
+   katalogen gjennom i samme endring; sjekken under er stedet det oppdages. */
+const STATEMENT = path.join('.well-known', 'assetlinks.json');
+/* Manifestene i RELEASE-varianten, ikke bare `main` og ikke alle. Gradle slår
+   sammen source set-ene: et filter lagt i `src/release/AndroidManifest.xml` —
+   en nærliggende plassering nettopp når fase 6 innfører release-signering —
+   havner i den bygde appen uten at `main` endrer seg, så `main` alene er for
+   lite.
+
+   Men `debug/` er for MYE, og på en måte som gjør vakten uriktig i begge
+   retninger: source set-ene er gjensidig utelukkende, så et filter som bare
+   står i `src/debug/` er ALDRI med i det som publiseres. Talte det med, ville
+   et debug-filter kunnet «parre seg» med et publisert statement og gjøre
+   koblingen grønn for en release som ikke har noe filter. Utelatt derimot —
+   som her — ser koblingen riktig at statementet står alene. `debug/` hører
+   altså i samme bås som `test/` og `androidTest/`: ikke produksjon.
+
+   Et filter som kommer fra en AVHENGIGHET kan ikke leses herfra, men
+   avhengighetene er selv låst — del 7 låser BÅDE npm-plugin-lista og appmodulens
+   `implementation`-liste, så et bibliotek som kunne bidra med et filter må innom
+   en sjekk først. Grensen er ekte: manifestet INNE i en AAR kan ikke leses fra
+   repoet, så det som er låst er hvilke biblioteker som finnes — ikke hva hvert
+   av dem erklærer. */
+/* En ALLELISTE, ikke en nektliste. Med «alt unntatt debug/test/androidTest»
+   ville et hvilket som helst nytt source set — en `staging`-buildtype, en
+   produktvariant — blitt talt med i release-varianten uten å være det. Kun
+   `main` og `release` er publisert; alt annet må erklæres bevisst.
+
+   Og lista over KJENTE source set-er voktes for seg: dukker det opp et navn
+   ingen har tatt stilling til, feiler sjekken under i stedet for at innholdet
+   stilltiende ignoreres. Samme grep som «ingen egendefinerte kilderøtter» i
+   del 12 — vakten tolker ikke Gradle, den krever at ingen utvider den uten å
+   si fra. */
+const RELEASE_SETT = new Set(['main', 'release']);
+const KJENTE_SETT = new Set([...RELEASE_SETT, 'debug', 'test', 'androidTest']);
+const sourceSett = fs.readdirSync(NATIV_SRC, { withFileTypes: true })
+  .filter((d) => d.isDirectory()).map((d) => d.name);
+const ukjenteSett = sourceSett.filter((n) => !KJENTE_SETT.has(n));
+check('bare kjente source set-er under android/app/src (et nytt må tas stilling til)',
+  ukjenteSett.length === 0, ukjenteSett.join(', ') || sourceSett.join(', '));
+const iRelease = (p) => RELEASE_SETT.has(path.relative(NATIV_SRC, p).split(path.sep)[0]);
+/* NØYAKTIG Gradles standardsti, ikke et rekursivt søk. Et source set konsumerer
+   bare `src/<sett>/AndroidManifest.xml`; en ubrukt kopi under
+   `src/main/arkiv/AndroidManifest.xml` er ingenting for byggingen, men et
+   rekursivt søk ville talt den — og latt den parre seg med et publisert
+   statement. Stien kan låses slik nettopp fordi overstyring av manifest-stien
+   er forbudt i del 12 (`srcFile`). */
+const manifestFiler = [...RELEASE_SETT]
+  .map((sett) => path.join(NATIV_SRC, sett, 'AndroidManifest.xml'))
+  .filter((p) => fs.existsSync(p));
+/* Manifestene leses som TEKST, ikke slås sammen. Gradles manifest-merger har
+   sine egne direktiver (`tools:node="removeAll"`, `tools:remove`,
+   `tools:replace`), og med dem kan et overlay fjerne eller bytte ut et filter
+   som står i `main` — da lyver teksten om hva APK-en inneholder. Å tolke dem
+   her ville vært å skrive en merger inne i en vakt, på samme måte som å tolke
+   Groovy ville vært det i del 12. Samme svar som der: direktivene FORBYS i
+   stedet, så en som trenger dem må utvide vakten bevisst. Selve sammenslåingen
+   skjer i APK-workflowen, som er stedet en merget manifest finnes. */
+/* Prefikset `tools:` er bare en KONVENSJON. XML lar hvilket som helst navn
+   bindes til navnerommet (`xmlns:m="http://schemas.android.com/tools"` og så
+   `m:node="remove"`), og et mønster som bare kjenner det vanlige prefikset
+   ville sett rett forbi. Prefiksene leses derfor ut av bindingene i hver fil,
+   med `tools` som standard hvis ingen binding finnes. */
+const MERGER_ATTR = '(?:node|remove|removeAll|replace|strict|overrideLibrary|selector)\\b';
+const TOOLS_NS = 'http://schemas.android.com/tools';
+function mergerDirektiv(tekst) {
+  const prefikser = new Set(['tools']);
+  for (const m of tekst.matchAll(/xmlns:([\w.-]+)\s*=\s*(?:"([^"]*)"|'([^']*)')/g)) {
+    if ((m[2] !== undefined ? m[2] : m[3]) === TOOLS_NS) prefikser.add(m[1]);
+  }
+  return [...prefikser].some((p) =>
+    new RegExp('(?:^|[^\\w.-])' + p.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + ':' + MERGER_ATTR).test(tekst));
+}
+const medDirektiv = manifestFiler
+  .filter((p) => mergerDirektiv(utenXmlKommentarer(fs.readFileSync(p, 'utf8'))))
+  .map((p) => path.relative(ROOT, p));
+check('ingen av produksjonsmanifestene bruker merger-direktiver (teksten er da det APK-en får)',
+  medDirektiv.length === 0,
+  medDirektiv.join(', ') || manifestFiler.length + ' manifest uten tools:-direktiver');
+/* Hvilken KOMPONENT filteret sitter på avgjør om lenken i det hele tatt når
+   Huskis. Et komplett filter på en annen aktivitet, en `activity-alias`, en
+   receiver eller en service tilfredsstiller hver eneste sjekk under uten at
+   WebView-en noen gang ser adressen. Filtrene bæres derfor med eieren sin. */
+/* `(?<!\/)>` er ikke pynt: en SELVLUKKENDE `<activity … />` har ingen
+   `</activity>`, og uten lookbehind ville mønsteret startet der og slukt fram
+   til den NESTE komponentens sluttagg — filteret i den ville da blitt tilskrevet
+   feil eier. Med lookbehind hopper mønsteret over den selvlukkende taggen og
+   finner riktig komponent. */
+/* `activity-alias` MÅ stå først. Alternasjonen prøves i rekkefølge, og etter
+   «activity» kommer en bindestrek — et ikke-ordtegn, så `\b` slår til. En
+   `<activity-alias>` ble dermed lest som en `activity` som løp helt til den
+   NESTE aktivitetens sluttagg: aliaset fikk feil type og ble avvist, og
+   blokken slukte alt imellom. */
+const KOMPONENT_TAG = 'activity-alias|activity|service|receiver|provider';
+const KOMPONENT = new RegExp('<(' + KOMPONENT_TAG + ')\\b[^>]*(?<!/)>[\\s\\S]*?</\\1>', 'g');
+/* Og den selvlukkende formen finnes fortsatt — den bærer bare attributter, ikke
+   filtre. Den må leses, for `android:exported` kan være erklært nettopp der
+   (et overlay som bare setter et attributt). */
+const KOMPONENT_TOM = new RegExp('<(' + KOMPONENT_TAG + ')\\b[^>]*/>', 'g');
+/* `.MainActivity` og `no.huskis.app.MainActivity` er SAMME komponent for
+   Gradle: et navn som starter med punktum — eller ikke inneholder ett — er
+   relativt til pakken. Uten normalisering ville et overlay som bruker den
+   fullkvalifiserte formen fått sin egen rad i attributt-tabellen, og `exported`
+   fra `main` ville ikke blitt arvet. Navnene kanoniseres derfor før de
+   sammenlignes eller slås sammen. */
+const kanoniskKomp = (n) => (n == null ? null
+  : n.startsWith('.') ? cfg.appId + n
+    : n.indexOf('.') === -1 ? cfg.appId + '.' + n : n);
+/* `<application>`-attributtene slås sammen på tvers av manifestene FØR de arves
+   ned. `android:permission` og `android:enabled` der gjelder hver komponent som
+   ikke setter sitt eget — og Gradle merger de to `<application>`-taggene til én,
+   så en `permission` erklært i `main` gjelder også et alias som først dukker opp
+   i `release`. Leses hver fil for seg, ville aliaset fått `null` og sluppet
+   forbi. */
+const manifestTekster = manifestFiler.map((p) => ({
+  p, tekst: xmlNormalisert(utenXmlKommentarer(fs.readFileSync(p, 'utf8'))),
+}));
+const appAttrFelles = (navn) => {
+  for (const { tekst } of manifestTekster) {
+    const tagg = (tekst.match(/<application\b[^>]*>/) || [''])[0];
+    const m = tagg.match(new RegExp(navn + '\\s*=\\s*(?:"([^"]*)"|\'([^\']*)\')'));
+    const v = m ? m.slice(1).find((x) => x !== undefined) : null;
+    if (v != null) return v;
+  }
+  return null;
+};
+const appTillatelse = appAttrFelles('android:permission');
+const appAktivert = appAttrFelles('android:enabled');
+const komponenter = manifestTekster.flatMap(({ p, tekst }) => {
+  const fil = path.relative(ROOT, p);
+  return [...tekst.matchAll(KOMPONENT), ...tekst.matchAll(KOMPONENT_TOM)].map((k) => {
+    /* Attributtene leses av ÅPNINGSTAGGEN alene. Leste vi hele blokken, ville
+       en komponent uten `android:name` fått navnet til den første `<action>`
+       inni seg — altså feil eier på filteret. */
+    const åpning = (k[0].match(/^<[^>]*>/) || [''])[0];
+    const attributt = (navn) => {
+      const m = åpning.match(new RegExp(navn + '\\s*=\\s*(?:"([^"]*)"|\'([^\']*)\')'));
+      return m ? (m[1] !== undefined ? m[1] : m[2]) : null;
+    };
+    return {
+      fil,
+      type: k[1],
+      navn: kanoniskKomp(attributt('android:name') || '(uten navn)'),
+      /* En `activity-alias` ER ikke aktiviteten; den PEKER på den med
+         `android:targetActivity`. Sammenlignes aliasets eget navn med
+         MainActivity, avvises en helt gyldig plassering. */
+      mål: kanoniskKomp(attributt('android:targetActivity')),
+      eksportert: attributt('android:exported'),
+      /* En komponent med `android:enabled="false"` er utelatt fra
+         intent-oppslag. Filteret ville sett komplett ut her og aldri blitt
+         truffet på telefonen. */
+      aktivert: attributt('android:enabled') != null ? attributt('android:enabled') : appAktivert,
+      /* Komponentens egen overstyrer `<application>`s. */
+      tillatelse: attributt('android:permission') != null
+        ? attributt('android:permission') : appTillatelse,
+      /* Samme lookbehind som på komponenten, og av samme grunn: et TOMT filter
+         (`<intent-filter android:autoVerify="true" />`) har ingen sluttagg, og
+         uten den ville mønsteret slått det sammen med det NESTE filteret til én
+         blokk. Da kunne `autoVerify` kommet fra det tomme og
+         `VIEW`/kategoriene/`data` fra det andre — grønt her, to separate og
+         uverifiserte filtre på telefonen. */
+      filtre: k[0].match(/<intent-filter\b[^>]*(?<!\/)>[\s\S]*?<\/intent-filter>/g) || [],
+    };
+  });
+});
+/* Attributtene SLÅS SAMMEN per komponentnavn, ikke leses per fil. Et overlay
+   som legger et filter på `.MainActivity` uten å gjenta `android:exported`
+   arver verdien fra `main` når Gradle merger — å kreve at hvert overlay
+   duplikerer den ville felt en helt gyldig release og blokkert nettopp den
+   plasseringen inventaret over åpner for. Første eksplisitte erklæring vinner;
+   den kan bare stå ett sted uten at merger-direktiver er i bruk, og de er
+   forbudt av sjekken over. */
+const komponentAttr = new Map();
+for (const k of komponenter) {
+  const før = komponentAttr.get(k.navn) || {};
+  komponentAttr.set(k.navn, {
+    eksportert: før.eksportert != null ? før.eksportert : k.eksportert,
+    aktivert: før.aktivert != null ? før.aktivert : k.aktivert,
+    tillatelse: før.tillatelse != null ? før.tillatelse : k.tillatelse,
+  });
+}
+const intentFiltre = komponenter.flatMap((k) => k.filtre.map((blokk) => ({
+  fil: k.fil,
+  type: k.type,
+  komponent: k.navn,
+  peker: k.mål,
+  eksportert: (komponentAttr.get(k.navn) || {}).eksportert,
+  aktivert: (komponentAttr.get(k.navn) || {}).aktivert,
+  tillatelse: (komponentAttr.get(k.navn) || {}).tillatelse,
+  blokk,
+})));
+/* XML tillater BEGGE anførselstegn: `android:scheme='https'` er nøyaktig like
+   gyldig som den doble formen Capacitor selv genererer, og Android pakker den
+   like fullt. Et mønster som bare kjenner den ene skrivemåten ville sett et
+   aktivt filter som fravær — altså igjen grønt på noe som finnes. Attributtene
+   leses derfor uavhengig av anførselstegn. */
+const xmlAttr = (navn, verdi) => new RegExp(navn + '\\s*=\\s*(?:"' + verdi + '"|\'' + verdi + '\')');
+const xmlVerdier = (blokk, navn) =>
+  [...blokk.matchAll(new RegExp(navn + '\\s*=\\s*(?:"([^"]*)"|\'([^\']*)\')', 'g'))]
+    .map((m) => (m[1] !== undefined ? m[1] : m[2]));
+/* En plassholder (`android:scheme="${linkScheme}"`) fylles først av Gradle, så
+   TEKSTEN her sier ingenting om hva APK-en inneholder — filteret ville sett ut
+   som fravær. Å slå opp `manifestPlaceholders` ville vært å tolke Gradle igjen;
+   svaret er det samme som for merger-direktivene: plassholdere i de
+   URL-relevante attributtene forbys. */
+const URL_ATTR = 'scheme|host|port|path|pathPrefix|pathPattern|pathAdvancedPattern|pathSuffix|mimeType';
+const medPlassholder = intentFiltre.filter(({ blokk }) =>
+  new RegExp('android:(?:' + URL_ATTR + ')\\s*=\\s*(?:"[^"]*\\$\\{|\'[^\']*\\$\\{)').test(blokk));
+check('ingen manifest-plassholdere i URL-attributtene (teksten er da det APK-en får)',
+  medPlassholder.length === 0,
+  medPlassholder.map((f) => f.fil + ' / ' + f.komponent).join(', ') || intentFiltre.length + ' filtre uten ${…}');
+const nettFiltre = intentFiltre.filter(({ blokk }) =>
+  xmlAttr('<data\\b[^>]*android:scheme', 'https?').test(blokk));
+const harFilter = nettFiltre.length > 0;
+const filterSteder = [...new Set(nettFiltre.map((f) => f.fil))].join(', ');
+const harStatement = finnes(STATEMENT);
+check('App Links: manifestet og assetlinks.json innføres SAMMEN — eller ingen av dem',
+  harFilter === harStatement,
+  harFilter === harStatement
+    ? (harFilter ? nettFiltre.length + ' http(s)-intent-filter + ' + STATEMENT
+      : 'ingen av halvdelene — App Links er ikke innført (docs/mobilapp-plan.md, fase 3)')
+    : (harFilter ? nettFiltre.length + ' http(s)-intent-filter, men ingen ' + STATEMENT
+      : STATEMENT + ' finnes, men manifestet har ikke noe http(s)-intent-filter'));
+/* Verten i statementet og verten i filteret er den samme ene: det kanoniske
+   originet. Verdien utledes av config.js, som alt annet her. */
+const kanoniskVert = (function () {
+  try { return new URL(TILLATTE_URL[2] || '').host; } catch (e) { return ''; }
+}());
+if (harFilter) {
+  /* Uten `autoVerify` er filteret ingen App Link, men en vanlig
+     lenkehåndterer: Android spør brukeren i stedet for å verifisere mot
+     originet, og assetlinks.json blir aldri lest. */
+  check('App Links: hvert http(s)-intent-filter ber om verifisering (autoVerify)',
+    nettFiltre.every(({ blokk }) => xmlAttr('android:autoVerify', 'true').test(blokk)),
+    nettFiltre.length + ' filtre i ' + filterSteder);
+  /* Verten kreves PER FILTER, ikke som en samlet liste. Et `<data>` uten
+     `android:host` matcher hvilken som helst vert, og en samlet sjekk ville
+     latt et slikt filter passere så lenge et ANNET filter i manifestet
+     tilfeldigvis navnga `huskis.no`. Da hadde appen gjort krav på vilkårlige
+     https-adresser — det motsatte av regelen. */
+  const vertAvvik = nettFiltre
+    .map((f) => ({ f, verter: xmlVerdier(f.blokk, 'android:host') }))
+    .filter(({ verter }) => verter.length === 0 || !verter.every((h) => h === kanoniskVert));
+  check('App Links: HVERT http(s)-filter navngir kun det kanoniske originets vert',
+    kanoniskVert !== '' && vertAvvik.length === 0,
+    vertAvvik.length
+      ? vertAvvik.map(({ f, verter }) => f.fil + ': ' + (verter.join('/') || 'ingen android:host')).join(', ')
+      : kanoniskVert + ' i alle ' + nettFiltre.length + ' filtre');
+  /* Koblingen over spør bare om det FINNES et http(s)-filter — med vilje, for
+     et `http`-only filter er like mye en halv innføring som et fullt. Men et
+     filter kan også være halvt i seg selv, og da ruter Android ingenting:
+     mangler `VIEW`, `DEFAULT` eller `BROWSABLE` blir intenten fra browseren
+     aldri levert, og et `http`-only filter dekker ikke `https`-lenkene
+     dokumentet handler om. Alle fire delene må stå i det SAMME filteret — et
+     `BROWSABLE` i én blokk hjelper ikke en annen. */
+  const KOMPLETT = [
+    ['android.intent.action.VIEW', xmlAttr('<action\\b[^>]*android:name', 'android\\.intent\\.action\\.VIEW')],
+    ['category.DEFAULT', xmlAttr('<category\\b[^>]*android:name', 'android\\.intent\\.category\\.DEFAULT')],
+    ['category.BROWSABLE', xmlAttr('<category\\b[^>]*android:name', 'android\\.intent\\.category\\.BROWSABLE')],
+    ['scheme https', xmlAttr('<data\\b[^>]*android:scheme', 'https')],
+  ];
+  const komplette = nettFiltre.filter(({ blokk }) => KOMPLETT.every(([, re]) => re.test(blokk)));
+  check('App Links: minst ett filter er komplett (VIEW + DEFAULT + BROWSABLE + https)',
+    komplette.length > 0,
+    komplette.length > 0 ? komplette.length + ' av ' + nettFiltre.length + ' filtre er komplette'
+      : 'ingen komplette; beste filter mangler: ' + KOMPLETT
+        .filter(([, re]) => !nettFiltre.some(({ blokk }) => re.test(blokk))).map(([n]) => n).join(', '));
+  /* Og det komplette filteret må sitte på AKTIVITETEN som viser Huskis. Et
+     filter på en annen komponent kan ikke levere adressen til WebView-en —
+     appen ville gjort krav på lenken og så ikke hatt noe sted å gjøre av den. */
+  /* TYPEN teller like mye som navnet. En `<receiver>` eller `<service>` kan
+     hete `.MainActivity` uten å være en aktivitet, og Android løser aldri en
+     browsable VIEW-intent til en slik komponent — filteret ville sett riktig ut
+     her og vært dødt på telefonen. */
+  const MAIN = cfg.appId + '.MainActivity';
+  const erMain = (f) => (f.type === 'activity-alias'
+    ? f.peker === MAIN
+    : f.type === 'activity' && f.komponent === MAIN);
+  const påMain = komplette.filter(erMain);
+  check('App Links: det komplette filteret sitter på MainActivity (der WebView-en er)',
+    påMain.length > 0,
+    påMain.length > 0 ? påMain.length + ' filter på ' + påMain[0].komponent
+      : 'komplette filtre kun på: ' + [...new Set(komplette.map((f) => '<' + f.type + '> ' + f.komponent))].join(', '));
+  /* En aktivitet som ikke er eksportert kan ikke startes utenfra — og en App
+     Link kommer nettopp utenfra, fra browseren eller e-postklienten. Med
+     `android:exported="false"` er manifestet fullt gyldig og lar seg bygge,
+     mens hver eneste lenke blir liggende i browseren. */
+  check('App Links: MainActivity er eksportert (ellers kan ingen browser starte den)',
+    påMain.length > 0 && påMain.every((f) => f.eksportert === 'true'),
+    påMain.map((f) => f.komponent + ': android:exported=' + JSON.stringify(f.eksportert)).join(', ') || 'ingen');
+  check('App Links: komponenten er ikke låst bak en tillatelse (browseren har den ikke)',
+    påMain.length > 0 && påMain.every((f) => f.tillatelse == null),
+    påMain.map((f) => f.komponent + ': android:permission=' + JSON.stringify(f.tillatelse)).join(', ') || 'ingen');
+  /* Bare utelatt eller en literal `true` godtas. En ressurs
+     (`@bool/app_links_enabled`) eller en plassholder resolveres av byggingen,
+     ikke av teksten — og kan like gjerne bli `false` i release. */
+  /* For en `activity-alias` teller BEGGE: Android krever at både aliaset og
+     aktiviteten det peker på er påslått. Et alias som står riktig foran en
+     avslått MainActivity kan ikke startes. */
+  const påslått = (v) => v == null || v === 'true';
+  const målAktivert = (f) => (f.type === 'activity-alias'
+    ? (komponentAttr.get(f.peker) || {}).aktivert : null);
+  check('App Links: komponenten er påslått (android:enabled utelatt eller literal true)',
+    påMain.length > 0 && påMain.every((f) => påslått(f.aktivert) && påslått(målAktivert(f))),
+    påMain.map((f) => f.komponent + ': android:enabled=' + JSON.stringify(f.aktivert)
+      + (f.type === 'activity-alias' ? ' → ' + f.peker + '=' + JSON.stringify(målAktivert(f)) : ''))
+      .join(', ') || 'ingen');
+  /* STIEN teller også. Et filter kan begrenses med `android:pathPrefix="/auth"`
+     og er da fortsatt «komplett» etter sjekken over — men det matcher ikke
+     adressene Huskis faktisk får: delingsinvitasjonen er `/?signup=<e-post>`
+     og varselets fotnote er `/`, begge med stien `/` (spørrestrengen er ikke
+     med i Androids sti-matching). Minst ett kvalifiserende filter må derfor
+     enten stå UTEN sti-begrensning eller eksplisitt dekke roten. Trengs en
+     smalere sti en dag, er det en beslutning som hører hjemme i
+     docs/domains-and-urls.md — ikke en stille innsnevring her. */
+  const STI_ATTR = ['android:path', 'android:pathPrefix', 'android:pathPattern',
+    'android:pathAdvancedPattern', 'android:pathSuffix'];
+  /* Typen beholdes, ikke bare verdien. Et EKSAKT `android:path=""` matcher ikke
+     `https://huskis.no/`, hvis sti er `/` — bare `path="/"` og `pathPrefix="/"`
+     dekker roten. Å godta den tomme strengen uansett attributt var min egen
+     slurv, og ville sluppet et filter som lar lenken bli i browseren. */
+  const stiPar = (blokk) => STI_ATTR.flatMap((a) => xmlVerdier(blokk, a).map((v) => [a, v]));
+  const stiene = (blokk) => stiPar(blokk).map(([, v]) => v);
+  const dekkerRot = (blokk) => {
+    const par = stiPar(blokk);
+    return par.length === 0
+      || par.some(([a, v]) => (a === 'android:path' || a === 'android:pathPrefix') && v === '/');
+  };
+  /* PORTEN er den samme fellen som stien: `android:port="8443"` binder filteret
+     til én port, og `https://huskis.no/` (port 443, underforstått) treffer det
+     ikke. Kravet gjelder samme filter som dekker roten. */
+  /* Fra Android 15 kan et filter ha `<uri-relative-filter-group android:allow="false">`
+     som EKSKLUDERER stier fra det ytre scheme/host-filteret. En flat lesing av
+     stiattributtene ville sett `/` der og trodd roten var dekket — mens den
+     nettopp er unntatt. Semantikken modelleres ikke; et filter med en slik
+     gruppe teller rett og slett ikke som rot-kandidat. */
+  const harEkskludering = (blokk) =>
+    /<uri-relative-filter-group\b[^>]*android:allow\s*=\s*(?:"false"|'false')/.test(blokk);
+  const rotFiltre = påMain.filter((f) => {
+    if (harEkskludering(f.blokk)) return false;
+    return dekkerRot(f.blokk)
+      && xmlVerdier(f.blokk, 'android:port').length === 0
+      /* `android:mimeType` gjør filteret AVHENGIG av en MIME-type, og en
+         App Link-VIEW bærer bare URI-en — den treffer da ikke. */
+      && xmlVerdier(f.blokk, 'android:mimeType').length === 0;
+  });
+  check('App Links: minst ett kvalifiserende filter dekker roten, uten sti-, port- eller MIME-begrensning',
+    påMain.length > 0 && rotFiltre.length > 0,
+    rotFiltre.length > 0 ? rotFiltre.length + ' filter uten innsnevring'
+      : 'begrenset til sti ' + (påMain.flatMap((f) => stiene(f.blokk)).join('/') || '—')
+        + ', port ' + (påMain.flatMap((f) => xmlVerdier(f.blokk, 'android:port')).join('/') || '—')
+        + ', mimeType ' + (påMain.flatMap((f) => xmlVerdier(f.blokk, 'android:mimeType')).join('/') || '—'));
+  /* Et filter er heller ikke nok i seg selv: det bringer bare intenten til
+     aktiviteten. NOEN må lese adressen ut av den og gi den til web-laget.
+     `@capacitor/android` tar vare på den (`Bridge.getIntentUri()`) og varsler
+     plugins ved `onNewIntent`, men ingen kjerneplugin leser den — uten
+     `@capacitor/app` eller egen native kode åpner App Link-en bare Huskis på
+     startsiden sin, og HELE adressen forsvinner.
+
+     Det er et TAP mot i dag, ikke bare en uteblitt gevinst: delingsinvitasjonen
+     lenker til `/?signup=<e-post>`, og `applySignupInvite()` i app.js leser den
+     verdien fra `location.search`. Fanger appen lenken uten å videreformidle
+     URI-en, mister en invitert bruker registreringsflyten sin — noe browseren
+     håndterer riktig i dag.
+
+     At `@capacitor/app` STÅR i package.json er ikke bevis: pluginen kopierer
+     ikke adressen inn i WebView-en av seg selv, den fyrer en `appUrlOpen` som
+     noen må lytte på og rute videre. Derfor kreves bruken, ikke pakken — enten
+     lytteren i web-koden (som da også må gjennom gaten i del 9) eller native
+     kode som leser intent-URI-en selv.
+
+     Formen kreves, ikke bare navnet: en REGISTRERT lytter
+     (`addListener('appUrlOpen', …)`) i web-koden, eller native kode som faktisk
+     HENTER adressen — enten Capacitors `getIntentUri()` eller Androids egne
+     `intent.getData()`/`getDataString()`, som en egen implementasjon like gjerne
+     kan bruke. Et bart `onNewIntent`-overstyr teller ikke: det kan slippe
+     intenten på gulvet uten å lese den.
+
+     GRENSEN, og den er ekte: at lytteren finnes beviser IKKE at adressen rutes
+     riktig — at `?signup=` havner der `applySignupInvite()` leser den. Det kan
+     ingen tekstvakt avgjøre uten å tolke koden, og det er samme grense som del
+     12 allerede har skrevet ned for lenker satt sammen av strengbiter. Denne
+     sjekken sier at noen har tatt et bevisst steg; om steget virker, avgjøres
+     på en telefon — den fysiske runden i fase 6.
+
+     Og leseren må ligge i den varianten som PUBLISERES. `nativeFiler` (del 12)
+     dekker med vilje alle source set-ene, men en `getIntentUri()` som bare
+     finnes under `src/debug/java` kompileres ikke inn i release-APK-en — den
+     ville altså «bevist» en lesing den utgitte appen ikke har. Samme
+     avgrensning som manifestene: `debug/` er ikke produksjon. */
+  const webKode = WEB_KILDE.map((f) => strippet(les(f), modusFor(f))).join('\n');
+  const releaseKilder = nativeFiler.filter(iRelease);
+  /* KALDSTART er det vanlige tilfellet her: brukeren tapper lenken i
+     e-postklienten mens appen er stoppet, og adressen kommer da i aktivitetens
+     FØRSTE intent — ikke gjennom `onNewIntent`. En `appUrlOpen`-lytter alene
+     ser den aldri, og appen åpner på startsiden uten `?signup=`. Web-veien må
+     derfor ha begge: lytteren for senere intents OG `getLaunchUrl()` ved
+     oppstart. Native `getIntentUri()` leser nettopp launch-intenten, og dekker
+     kaldstarten i seg selv. */
+  const leserUri = (/addListener\s*\(\s*["'`]appUrlOpen/.test(webKode) && /getLaunchUrl\s*\(/.test(webKode))
+    || releaseKilder.some((p) => {
+      const src = strippet(fs.readFileSync(p, 'utf8'), 'js');
+      /* `getData()` alene er et altfor vanlig navn — en modellklasse eller et
+         databaselag har det like gjerne. Den formen godtas derfor bare i en fil
+         som i det hele tatt kjenner `Intent`; Capacitors egen `getIntentUri()`
+         er entydig og trenger ingen slik kontekst. */
+      return /getIntentUri\s*\(/.test(src)
+        || (/\bIntent\b/.test(src) && /(getDataString|getData)\s*\(/.test(src));
+    });
+  check('App Links: noe LESER den innkommende adressen (ellers mistes ?signup= og alt annet i URL-en)',
+    leserUri,
+    leserUri ? 'URI-en hentes — om den rutes riktig avgjøres på telefon'
+      : 'web-koden mangler appUrlOpen-lytter og/eller getLaunchUrl (kaldstart), og ingen native lesing av intent-dataen'
+        + (typeof alleDeps['@capacitor/app'] === 'string' ? ' (@capacitor/app installert, men ubrukt)' : ''));
+}
+if (harStatement) {
+  let st = null;
+  try { st = json(STATEMENT); } catch (e) { st = null; }
+  const oppf = Array.isArray(st) ? st : [];
+  const mål = oppf.map((o) => (o && o.target) || {});
+  check(STATEMENT + ' er en JSON-liste med målobjekter',
+    oppf.length > 0 && oppf.every((o) => o && typeof o === 'object' && o.target
+      && typeof o.target === 'object'),
+    oppf.length + ' oppføringer');
+  /* HUSKIS' APP LINK-oppføring må finnes — ikke at ALLE oppføringene er den.
+     Digital Asset Links er en LISTE nettopp fordi ett origin kan autorisere
+     flere apper OG flere relasjoner: en fremmed app, eller en
+     `common.get_login_creds` ved siden av, er gyldig og ikke vår sak å avvise.
+     Vi plukker derfor ut vår egen `android_app` + `handle_all_urls` og leser
+     resten av kravene fra den. */
+  const HANDLE_ALL = 'delegate_permission/common.handle_all_urls';
+  const våre = oppf.filter((o) => {
+    const t = o.target || {};
+    return t.namespace === 'android_app' && t.package_name === cfg.appId
+      && Array.isArray(o.relation) && o.relation.indexOf(HANDLE_ALL) > -1;
+  });
+  check(STATEMENT + ' har en App Link-oppføring for appens egen applicationId',
+    våre.length > 0,
+    våre.length ? våre.length + ' oppføring(er) for ' + cfg.appId
+      : 'fant kun: ' + (mål.map((t) => t.package_name).filter(Boolean).join(', ') || 'ingen'));
+  /* Uten et fingeravtrykk er statementet en påstand om ingenting: Android
+     sammenligner signaturen på den installerte APK-en mot denne lista.
+
+     FORMEN kreves, ikke bare at lista er ikke-tom. En plassholder (`"TODO"`,
+     `""`) er nøyaktig den samme stille feilen som en manglende fil: Android
+     matcher den aldri mot et sertifikat, verifiseringen faller, og lenken
+     åpner browseren som før. Et SHA-256-avtrykk er 32 heksbyte skilt med
+     kolon — den formen kan sjekkes her, mens om det er RIKTIG nøkkel bare kan
+     avgjøres av en enhet. */
+  const SHA256 = /^[0-9a-f]{2}(:[0-9a-f]{2}){31}$/i;
+  const våreMål = våre.map((o) => o.target || {});
+  const avtrykk = våreMål.flatMap((t) => (Array.isArray(t.sha256_cert_fingerprints)
+    ? t.sha256_cert_fingerprints : []));
+  /* Ingen `trim()`: det er den PUBLISERTE strengen Android leser, og
+   byte-for-byte-sjekken bevarer et mellomrom inne i JSON-verdien. Trimmet vi
+   her, ville vakten godtatt et avtrykk som aldri matcher sertifikatet. */
+  const ugyldige = avtrykk.filter((f) => typeof f !== 'string' || !SHA256.test(f));
+  check(STATEMENT + ' oppgir minst ett SHA-256-fingeravtrykk for ' + cfg.appId + ', på riktig form',
+    våreMål.length > 0
+      && våreMål.every((t) => Array.isArray(t.sha256_cert_fingerprints)
+        && t.sha256_cert_fingerprints.length > 0)
+      && ugyldige.length === 0,
+    ugyldige.length ? 'ikke et SHA-256-avtrykk: ' + ugyldige.map((f) => JSON.stringify(f)).join(', ')
+      : avtrykk.length + ' avtrykk');
+  /* Den halvdelen som ikke ligger i noen av de to filene: at originet faktisk
+     SERVERER den. `build.js` dropper prikk-kataloger — se blokken over.
+
+     Og det er den PUBLISERTE fila Android leser, ikke kilden sjekkene over
+     leste. At en sti finnes i `dist/` sier ingenting om innholdet: et
+     byggesteg kunne skrevet om, generert eller tømt den, og alle de semantiske
+     kravene ville fortsatt stått grønne på kilden. Byte for byte er derfor
+     kravet — samme grep som de synkede web-assetene i del 12, og av samme
+     grunn: da gjelder alt som er bevist om kilden også for det som serveres. */
+  const publisert = path.join(DIST, STATEMENT);
+  const finnesUt = byggUt.status === 0 && fs.existsSync(publisert);
+  const likKilde = finnesUt
+    && fs.readFileSync(publisert).equals(fs.readFileSync(path.join(ROOT, STATEMENT)));
+  check(STATEMENT + ' publiseres til dist/, byte for byte lik kilden',
+    likKilde,
+    !finnesUt ? 'mangler i dist/ — copyDir i build.js hopper over navn som starter med punktum'
+      : likKilde ? 'dist/' + STATEMENT + ' er identisk med kilden'
+        : 'dist/' + STATEMENT + ' avviker fra kilden — byggesteget har rørt den');
+}
+/* Og BAKSIDEN av den samme medaljen. Den letteste måten å få statementet
+   publisert på er å fjerne `name.startsWith('.')`-linjen i `copyDir()` — og da
+   følger hver eneste andre skjulte fil med ut på `huskis.no`. `.gitignore`
+   ligger i repo-roten allerede og ville blitt publisert med det samme; en
+   framtidig lokal konfigurasjonsfil ville fulgt etter uten at noe sa fra,
+   siden verken denne sjekken eller inventaret i del 12 leser skjulte navn.
+
+   Kravet er derfor at fritaket må være SELEKTIVT: `.well-known/` kan
+   publiseres, ingenting annet som starter med punktum. Sjekken er ikke tom i
+   dag — den slår fast at `dist/` ikke inneholder én eneste skjult fil, og den
+   blir rød i samme øyeblikk som noen løsner regelen for bredt. */
+if (byggUt.status === 0 && fs.existsSync(DIST)) {
+  const SKJULT_TILLATT = new Set(['.well-known']);
+  const skjulte = [];
+  (function les(dir, topp) {
+    for (const d of fs.readdirSync(dir, { withFileTypes: true })) {
+      const q = path.join(dir, d.name);
+      if (d.name.startsWith('.')) {
+        /* Den tillatte katalogen slipper gjennom SEG SELV, men ikke sitt
+           innhold: en `.well-known/.env` ville ellers blitt publisert like
+           stille som `.gitignore`. Det er derfor unntaket er en KATALOG, ikke
+           et fritak for alt under den. */
+        if (topp && SKJULT_TILLATT.has(d.name)) { if (d.isDirectory()) les(q, false); continue; }
+        skjulte.push(path.relative(DIST, q));
+        continue;
+      }
+      if (d.isDirectory()) les(q, false);
+    }
+  }(DIST, true));
+  check('dist/ publiserer ingen andre skjulte filer enn ' + [...SKJULT_TILLATT].join('/') + ' (fritaket må være selektivt)',
+    skjulte.length === 0, skjulte.join(', ') || 'ingen skjulte filer i dist/');
+}
 
 console.log('\n==== ' + pass + '/' + (pass + fail) + ' PASS ====');
 process.exit(fail === 0 ? 0 : 1);
