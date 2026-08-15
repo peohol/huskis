@@ -289,6 +289,13 @@ Ingen fremmed adresse skal lastes inne i mobilappens WebView. Den har
 Huskis' `localStorage`, Supabase-sesjonen og Capacitor-broen i samme kontekst;
 en side som lastes der er ikke et «faneskifte», den er innsiden av appen.
 
+**«Eget origin» med ett forbehold.** Capacitors sammenligning er skjema + vert,
+ikke fullt origin: PORTEN teller ikke. `https://localhost:8443` ville derfor
+blitt liggende inne i WebView-en, selv om det er et annet origin enn appens
+`https://localhost`. Det er teoretisk i dag — appen navngir ingen slik adresse,
+og vakten flagger enhver ny — men regelen skal ikke love mer enn mekanismen
+holder.
+
 **Hvem som håndhever det.** Ingen — i betydningen: ingen Huskis-kode.
 Capacitors egen `BridgeWebViewClient.shouldOverrideUrlLoading()` sender hver
 navigasjon videre til `Bridge.launchIntent()`, som slipper `data:`/`blob:` og

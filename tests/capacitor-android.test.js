@@ -476,12 +476,16 @@ if (finnes(APK_CFG)) {
    HTML-tekst skal ikke forgifte resten av fila. */
 function kodeLinjerStreng(src, modus) {
   const linjer = src.split('\n');
-  const jsKomm = modus !== 'css';   // `//` er IKKE en kommentar i CSS
-  let iBlokk = false, iHtml = false, streng = null;
+  let iBlokk = false, iHtml = false, iSkript = false, streng = null;
   return linjer.map((raw, i) => {
     if (streng !== '`') streng = null;
+    const lav = raw.toLowerCase();
     let ren = '';
     for (let j = 0; j < raw.length; j++) {
+      /* Inne i et inline-`<script>` gjelder JS-reglene, ikke markupens — og
+         forskjellen er ikke akademisk: `<!--` er en LINJEkommentar der, mens
+         markup ville kastet alt fram til en `-->` som kanskje aldri kommer. */
+      const m = modus === 'html' && iSkript ? 'js' : modus;
       if (iBlokk) { if (raw.startsWith('*/', j)) { iBlokk = false; j++; } continue; }
       if (iHtml) { if (raw.startsWith('-->', j)) { iHtml = false; j += 2; } continue; }
       if (streng) {
@@ -490,16 +494,22 @@ function kodeLinjerStreng(src, modus) {
         if (raw[j] === streng) streng = null;
         continue;
       }
+      if (modus === 'html' && lav.startsWith('</script', j)) { iSkript = false; }
+      else if (modus === 'html' && !iSkript && lav.startsWith('<script', j)) {
+        const slutt = raw.indexOf('>', j);
+        if (slutt === -1) { ren += raw.slice(j); break; }
+        ren += raw.slice(j, slutt + 1); j = slutt; iSkript = true; continue;
+      }
       if (raw.startsWith('/*', j)) { iBlokk = true; j++; continue; }
       /* `<!--` betyr to helt forskjellige ting. I markup åpner den en kommentar
          som løper til `-->`; i et klassisk skript er den en LINJEkommentar
          (samme for `-->` i starten av en linje). Behandles JS som markup, ville
          alt fra en `<!--` og ut fila blitt kastet — og skanningen stått grønn
          på tom tekst. */
-      if (modus === 'html' && raw.startsWith('<!--', j)) { iHtml = true; j += 3; continue; }
-      if (modus === 'js' && (raw.startsWith('<!--', j) || raw.startsWith('-->', j))) break;
-      if (jsKomm && raw.startsWith('//', j)) break;
-      if (raw[j] === '"' || raw[j] === "'" || (modus !== 'css' && raw[j] === '`')) streng = raw[j];
+      if (m === 'html' && raw.startsWith('<!--', j)) { iHtml = true; j += 3; continue; }
+      if (m === 'js' && (raw.startsWith('<!--', j) || raw.startsWith('-->', j))) break;
+      if (m !== 'css' && raw.startsWith('//', j)) break;   // `//` er IKKE en kommentar i CSS
+      if (raw[j] === '"' || raw[j] === "'" || (m !== 'css' && raw[j] === '`')) streng = raw[j];
       ren += raw[j];
     }
     return { nr: i + 1, l: ren };
@@ -593,17 +603,24 @@ const buildSkip = new Set(((build.match(/const SKIP = new Set\(\[([\s\S]*?)\]\);
   .match(/'([^']+)'/g) || []).map((s) => s.slice(1, -1)));
 const testModus = ((build.match(/const TEST_MODE_FILES = \[([^\]]*)\]/) || [, ''])[1]
   .match(/'([^']+)'/g) || []).map((s) => s.slice(1, -1));
+const buildSkipExt = new Set(((build.match(/const SKIP_EXT = new Set\(\[([^\]]*)\]\)/) || [, ''])[1]
+  .match(/'([^']+)'/g) || []).map((s) => s.slice(1, -1)));
 /* build.js kopierer REKURSIVT (copyDir), så en `assets/hjelper.js` ville blitt
    med ut like fullt som en fil i roten. Inventaret går derfor samme vei:
    SKIP-listen gjelder bare øverste nivå, akkurat som i build.js. `vendor/` er
    tredjepartskopien, voktet i tests/security-headers.test.js. */
 function utsendteFiler(dir, topp) {
   return fs.readdirSync(dir, { withFileTypes: true }).flatMap((d) => {
-    if (topp && (buildSkip.has(d.name) || d.name === 'vendor')) return [];
+    /* Nøyaktig build.js' egen semantikk: SKIP-navnene, utelatte filtyper OG
+       testmodus-filene gjelder bare ØVERSTE nivå. En `assets/dev-mock.js`
+       kopieres altså ut, og skal derfor skannes. */
+    if (topp && (buildSkip.has(d.name) || buildSkipExt.has(path.extname(d.name))
+      || testModus.indexOf(d.name) > -1 || d.name === 'vendor')) return [];
     const p = path.join(dir, d.name);
     if (d.isDirectory()) return utsendteFiler(p, false);
-    return /\.(js|css)$/.test(d.name) && testModus.indexOf(d.name) === -1
-      ? [path.relative(ROOT, p)] : [];
+    /* Filtypene som KAN inneholde en lenke eller en navigasjon. Et bilde eller
+       en fontfil kopieres også ut, men har ingen kode å skanne. */
+    return /\.(html?|js|css)$/i.test(d.name) ? [path.relative(ROOT, p)] : [];
   });
 }
 const utsendt = utsendteFiler(ROOT, true);
@@ -705,7 +722,7 @@ check('kjørende webkode navngir ingen andre absolutte adresser enn Supabase-end
    likhetstegnet («location.href =» + adressen på neste linje) har ingenting
    ETTER `=` å matche på, og ville sluppet unna. Lookahead-en skiller den
    likevel fra `==`/`===`. */
-const NAV_KALL = /\blocation\s*\.\s*(?:assign|replace)\s*\(/;
+const NAV_KALL = /\blocation\s*\.\s*(?:assign|replace)\s*\(/gm;
 /* Ikke bare `.href`: HVER skrivbar del av Location navigerer. Setter du
    `location.host`, `.protocol`, `.pathname` eller `.search`, laster siden på
    nytt mot en ny adresse — like mye en navigasjon som å sette hele href-en.
@@ -714,12 +731,18 @@ const NAV_KALL = /\blocation\s*\.\s*(?:assign|replace)\s*\(/;
 const LOC_DEL = 'href|host|hostname|protocol|port|pathname|search|hash';
 const NAV_TILDEL = new RegExp(
   '(?:^|[^.\\w$])(?:(?:window|document|self|globalThis|top|parent)\\s*\\.\\s*)?location\\s*'
-  + '(?:\\.\\s*(?:' + LOC_DEL + ')\\s*)?=(?!=)', 'm');
+  + '(?:\\.\\s*(?:' + LOC_DEL + ')\\s*)?=(?!=)', 'gm');
+/* Som lenkesjekkene: mot HELE den strippede fila. Et uttrykk som brekker foran
+   egenskapen — `location` på én linje, `.assign(…)` på neste — har ellers ikke
+   begge delene på samme linje. */
 const navSkriv = [];
 for (const f of WEB_KILDE) {
-  for (const { nr, l } of kodeLinjerStreng(les(f), modusFor(f))) {
-    if (NAV_KALL.test(l) || NAV_TILDEL.test(l)) {
-      navSkriv.push({ sted: f + ':' + nr, l: l.trim() });
+  const { tekst, linjeFor } = strippetMedLinjer(les(f), modusFor(f));
+  for (const re of [NAV_KALL, NAV_TILDEL]) {
+    re.lastIndex = 0;
+    for (const m of tekst.matchAll(re)) {
+      const nr = linjeFor(m.index);
+      navSkriv.push({ sted: f + ':' + nr, l: (tekst.split('\n')[nr - 1] || '').trim() });
     }
   }
 }
