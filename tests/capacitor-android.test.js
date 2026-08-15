@@ -467,9 +467,24 @@ if (finnes(APK_CFG)) {
 }
 /* Overtar skallet WebViewClient-en eller `shouldOverrideUrlLoading`, er det
    ikke lenger Capacitors ruting som gjelder, og regelen over er ikke lenger
-   den som kjører. Da skal endringen være bevisst — og innom dokumentet. */
+   den som kjører. Da skal endringen være bevisst — og innom dokumentet.
+
+   HELE den native kildekoden leses, ikke bare MainActivity: en hjelpeklasse
+   som kalles derfra (`Navigation.install(bridge)`) kompileres og kjører like
+   fullt, og kunne byttet ut rutingen uten at en sjekk på én fil så det. */
+const NATIV_ROT = path.join(ROOT, 'android', 'app', 'src', 'main', 'java');
+function javaFiler(dir) {
+  return fs.readdirSync(dir, { withFileTypes: true }).flatMap((d) => {
+    const p = path.join(dir, d.name);
+    if (d.isDirectory()) return javaFiler(p);
+    return /\.(java|kt)$/.test(d.name) ? [p] : [];
+  });
+}
+const RUTING = /shouldOverrideUrlLoading|setWebViewClient|setWebChromeClient|WebViewClient|WebChromeClient/;
+const ruter = javaFiler(NATIV_ROT).filter((p) => RUTING.test(kode(fs.readFileSync(p, 'utf8'))));
 check('det native skallet overtar ikke navigasjonsrutingen fra Capacitor',
-  !/shouldOverrideUrlLoading|setWebViewClient|setWebChromeClient|WebViewClient/.test(kode(mainAct)));
+  ruter.length === 0,
+  ruter.map((p) => path.relative(ROOT, p)).join(', ') || 'ingen av ' + javaFiler(NATIV_ROT).length + ' native kildefiler');
 
 /* WEB_KILDE er en fast liste, og både sjekken under og del 9 leser kun den. Et
    nytt produksjonsskript i index.html ville derfor sluppet forbi begge uten at
@@ -477,12 +492,19 @@ check('det native skallet overtar ikke navigasjonsrutingen fra Capacitor',
    derfor mot det index.html FAKTISK laster. To ting holdes utenfor med vilje:
    tredjepartskopien i `vendor/` (byte for byte det npm publiserte, voktet i
    tests/security-headers.test.js) og testmodus-blokken, som build.js river ut
-   av produksjonsbygget. */
+   av produksjonsbygget.
+
+   Begge anførselstegnene godtas, og `<link>` leses tagg for tagg slik at
+   rekkefølgen på `rel`/`href` ikke betyr noe: HTML tillater begge deler, så en
+   gyldig variant skal ikke kunne snike en fil forbi skanningen. */
 const utenKunDev = indexHtml.replace(/huskis:kun-dev:start[\s\S]*?huskis:kun-dev:slutt/g, '');
+const attributt = (tag, navn) => (tag.match(new RegExp('\\s' + navn + '\\s*=\\s*["\']([^"\']*)["\']', 'i')) || [, null])[1];
 const lastet = [
-  ...utenKunDev.matchAll(/<script[^>]*\ssrc="([^"]+)"/g),
-  ...utenKunDev.matchAll(/<link[^>]*\srel="stylesheet"[^>]*\shref="([^"]+)"/g),
-].map((m) => m[1]).filter((s) => !s.startsWith('vendor/'));
+  ...[...utenKunDev.matchAll(/<script\b[^>]*>/gi)].map((m) => attributt(m[0], 'src')),
+  ...[...utenKunDev.matchAll(/<link\b[^>]*>/gi)]
+    .filter((m) => /stylesheet/i.test(attributt(m[0], 'rel') || ''))
+    .map((m) => attributt(m[0], 'href')),
+].filter((s) => s && !s.startsWith('vendor/'));
 const uskannet = lastet.filter((s) => WEB_KILDE.indexOf(s) === -1);
 check('alle produksjonskildene index.html laster står i WEB_KILDE (og blir dermed skannet)',
   lastet.length > 0 && uskannet.length === 0, uskannet.join(', ') || lastet.join(', '));
@@ -494,21 +516,25 @@ for (const f of WEB_KILDE) {
   const raa = les(f).split('\n');
   for (const { nr, l } of kodeLinjer(les(f))) {
     /* `target=_blank` (med eller uten anførselstegn), `window.open(`, og en
-       `href`/`action` med et hvilket som helst skjema. Skjemaet listes ikke
-       opp: alt annet enn appens eget origin hører hjemme i systembrowseren, og
-       `geo:`, `sms:`, `intent:` og `market:` er like mye utgående lenker som
-       `https:`. Merk at `a[href]` i fokus-selektoren i app.js IKKE treffer
-       (her kreves likhetstegn og en verdi), og at `href="#…"`/`href="fil.css"`
-       ikke gjør det heller (ingen av dem starter med et skjema).
+       destinasjonsattributt med et hvilket som helst skjema. Skjemaet listes
+       ikke opp: alt annet enn appens eget origin hører hjemme i
+       systembrowseren, og `geo:`, `sms:`, `intent:` og `market:` er like mye
+       utgående lenker som `https:`. `formaction` er med fordi en knapp med den
+       navigerer like fullt når skjemaet sendes — og ordgrensen foran `action`
+       ville ellers hoppet over den. Merk at `a[href]` i fokus-selektoren i
+       app.js IKKE treffer (her kreves likhetstegn og en verdi), og at
+       `href="#…"`/`href="fil.css"` ikke gjør det heller (ingen av dem starter
+       med et skjema).
 
        Den protokoll-relative formen (`href="//vert"`) må leses på den RÅ
        linja: kodeLinjer() kapper fra `//` og ville etterlatt `href="`. Prosa
        med `href="//` i en kommentar finnes ikke, og ville uansett vært verdt
        et blikk. */
+    const MAL = '\\b(?:href|(?:form)?action)\\s*=\\s*\\\\?["\']?\\s*';
     if (/target\s*=\s*["']?_blank/.test(l)
       || /\bwindow\s*\.\s*open\s*\(/.test(l)
-      || /\b(?:href|action)\s*=\s*\\?["']?\s*[a-z][a-z0-9+.\-]*:/i.test(l)
-      || /\b(?:href|action)\s*=\s*\\?["']?\s*\/\//i.test(raa[nr - 1] || '')) {
+      || new RegExp(MAL + '[a-z][a-z0-9+.\\-]*:', 'i').test(l)
+      || new RegExp(MAL + '\\/\\/', 'i').test(raa[nr - 1] || '')) {
       utLenker.push(f + ':' + nr);
     }
   }
@@ -529,9 +555,14 @@ check('web-kildekoden produserer ingen utgående lenke (ingen _blank, window.ope
    fullt, og ville dessuten gått klar av lenkesjekken over. Foranstilt
    `[^.\w$]` holder `elem.location = …` og lignende egenskaper utenfor, og den
    valgfrie `.href`-halen gjør at `redirectUrlFor(location.href)` — en LESING —
-   ikke telles. */
+   ikke telles.
+
+   `=(?!=)` og ikke `=[^=]`: en tilordning som brekker linja rett etter
+   likhetstegnet («location.href =» + adressen på neste linje) har ingenting
+   ETTER `=` å matche på, og ville sluppet unna. Lookahead-en skiller den
+   likevel fra `==`/`===`. */
 const NAV_KALL = /\blocation\s*\.\s*(?:assign|replace)\s*\(/;
-const NAV_TILDEL = /(?:^|[^.\w$])(?:(?:window|document|self|globalThis|top|parent)\s*\.\s*)?location\s*(?:\.\s*href\s*)?=[^=]/;
+const NAV_TILDEL = /(?:^|[^.\w$])(?:(?:window|document|self|globalThis|top|parent)\s*\.\s*)?location\s*(?:\.\s*href\s*)?=(?!=)/;
 const navSkriv = [];
 for (const f of WEB_KILDE) {
   for (const { nr, l } of kodeLinjer(les(f))) {
