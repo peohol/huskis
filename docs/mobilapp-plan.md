@@ -15,9 +15,9 @@ autoritative dokumentet for fagfeltet.
 |---|---|
 | Målarkitektur | Én HTML/CSS/JS-kodebase + Capacitor for Android/iOS |
 | Nåværende fase | **Fase 3 — nødvendige native integrasjoner** |
-| Status | Fase 3 er i gang. Fire punkter er ferdige: systemets tilbakeknapp og safe areas/systemfeltene/skjermtastaturet, begge verifisert på fysisk telefon, og eksterne lenker + auth-/e-postlenker, som begge er beslutninger uten kode og derfor ikke har noe å prøve på en telefon (se seksjonene). Automatisk dekket av `tests/safe-area.test.js`, `tests/landscape-chrome.test.js`, `tests/system-back.test.js` og `tests/capacitor-android.test.js`. De to øvrige fase 3-punktene er ikke påbegynt, så ferdigkriteriet er ikke nådd. |
+| Status | Fase 3 er i gang. Fire punkter er ferdige: systemets tilbakeknapp og safe areas/systemfeltene/skjermtastaturet, begge verifisert på fysisk telefon, og eksterne lenker + auth-/e-postlenker, som begge er beslutninger uten kode og derfor ikke har noe å prøve på en telefon (se seksjonene). Lifecycle-/network-punktet er kartlagt og avgjort — ingen native signaler kobles på — og det ene reelle hullet er lukket i webkoden, men den fysiske sekvensen gjenstår, så punktet står åpent. Automatisk dekket av `tests/safe-area.test.js`, `tests/landscape-chrome.test.js`, `tests/system-back.test.js`, `tests/sync-foreground.test.js` og `tests/capacitor-android.test.js`. Ferdigkriteriet er ikke nådd. |
 | Neste milepæl | Android-appen oppfører seg som en normal mobilapp i de plattformtilfellene browseren ikke håndterer godt nok selv |
-| Ett neste praktiske steg | Koble native lifecycle-/network-signaler til synklogikken der websignalene ikke strekker til |
+| Ett neste praktiske steg | Kjør den fysiske sekvensen for lifecycle-punktet (bakgrunn lenge → forgrunn), og ta så sikker lagring + `android:allowBackup` |
 | OTA | Ikke innført; skal ikke innføres før Android-baselinen er stabil |
 | iOS | Senere fase; ikke en del av første implementering |
 
@@ -386,7 +386,13 @@ funksjoner bare fordi de er mulige.
       videre havner i appen er et åpent spørsmål som skal prøves på telefon
       (se seksjonen).
 - [ ] Koble native lifecycle/network-signaler til eksisterende synklogikk bare
-      der websignalene ikke er tilstrekkelige.
+      der websignalene ikke er tilstrekkelige. Kartlagt og avgjort: ingen native
+      signaler kobles på — websignalene rekker, og det ene reelle hullet
+      (ingenting hentet appen inn igjen ved gjenopptakelse) er lukket med
+      `visibilitychange`, som browseren og WebView-en har likt. Koden og
+      regresjonstesten er på plass; det som gjenstår før avkryssing er den
+      fysiske sekvensen i seksjonen — om en runde FAKTISK kjører etter at appen
+      har ligget lenge i bakgrunnen, kan bare en telefon svare på.
 - [ ] Vurder sikker lagring av native-spesifikke secrets/tokens dersom det
       faktisk finnes et behov; ikke flytt data ut av dagens modell uten grunn.
       Ta samtidig stilling til `android:allowBackup`, som i dag står på
@@ -721,6 +727,103 @@ sted enn en enhet å hente det fra. Det kan kjøres med det midlertidige
 debug-fingeravtrykket beskrevet over, altså før fase 6, dersom svaret trengs for
 å planlegge den fasen.
 
+## Lifecycle- og network-signaler
+
+**Kartleggingen først.** Synken hentes fram av seks ting, og bare tre av dem er
+hendelser:
+
+| Ledd i `app.js` | Hva det gjør |
+|---|---|
+| `save()` | en lokal endring → `scheduleCloud()` (300 ms debounce) |
+| realtime `postgres_changes` | endring hos en annen enhet → `scheduleCloud(150)` |
+| pollet (5 s) | `scheduleCloud(0)` — men `return` mens `document.hidden` |
+| `online` (to lyttere) | statusen nullstiller frakoblet-tellingen og ber om en runde straks; operasjonskøen nuller backoffen og pumper |
+| `offline` | maler statusen. Ingen synk-effekt |
+| `visibilitychange` → SKJULT | `commitAllPending()`: committer buffrede slettinger. Ikke en synk-trigger |
+
+`navigator.onLine` leses tre steder: frakoblet-tilstanden i lagringsstatusen,
+`isNetworkError()` og `updateSafety()`.
+
+**Hva som er upålitelig i en WebView — og hva som er lest kontra observert.**
+
+*Lest, ikke observert:* det sammenslåtte manifestet ber bare om `INTERNET`
+(`@capacitor/android` 8.5.0 sitt eget bibliotekmanifest er tomt — kontrollert i
+pakken). Chromiums nettverksvarsling i WebView-en henger på
+`ACCESS_NETWORK_STATE`; uten den er tilstanden UKJENT, og ukjent leses som «på
+nett». Da står `navigator.onLine` permanent på `true`, og `online`/`offline`
+fyrer aldri.
+
+*Observert — men det avgjør ikke spørsmålet:* fase 2 punkt 9 viste «Frakoblet» i
+flymodus. Den teksten har TO kilder — flagget ELLER to runder som ikke nådde
+fram — så observasjonen er forenlig med begge verdener. Enhetssjekken som
+avgjør det: `chrome://inspect` mot debug-APK-en (Capacitor slår på
+WebView-debugging i debugbygg), flymodus på, og les `navigator.onLine` +
+`__huskis.syncStatus.snapshot()`.
+
+*Konsekvensen om det stemmer:* de to `online`-lytterne blir aldri kalt. Ingen av
+dem eier data. Begge er snarveier forbi en timer som prøver igjen uansett —
+pollet hvert 5. sekund, og køens egen backoff med tak på 15 s — og det som
+faktisk MELDER frakoblet er terskelen på to runder som ikke nådde fram, som
+ikke spør `navigator.onLine` i det hele tatt. Derfor er dette ikke et hull, og
+derfor er ikke `ACCESS_NETWORK_STATE` lagt inn: en tillatelse skal ikke inn på
+en uprøvd antakelse for å spare sekunder i veier som leger seg selv. Blir
+svaret på enhetssjekken «ja, den er død», er den ene manifestlinjen det
+naturlige tiltaket — ikke en plugin.
+
+**Hullet som ER reelt, og det er et web-hull.** Pollet er slått av mens siden er
+skjult, og INGENTING hentet appen inn igjen ved gjenopptakelse.
+[`accounts.md`](accounts.md) påsto at `visibilitychange`/`focus` gjorde det;
+de lytterne fantes ikke i koden. Etter en pause i bakgrunnen var altså
+INTERVALLET det eneste som kunne ta appen igjen — og intervallet er nettopp det
+en bakgrunnsprosess ikke lover: en skjult side får timerne sine strupet
+(Chromium samkjører oppvåkningene, og etter fem minutter skjult ned mot én i
+minuttet), og en bakgrunnsapp kan fryses av OS-et. Scenarioet: telefonen ligger
+i lomma en time med Huskis i bakgrunnen mens en annen enhet flytter en liste.
+Brukeren åpner appen og ser den gamle visningen til en timer vi ikke eier
+bestemmer seg for å fyre.
+
+**Fiksen krevde ingen native API-er.** Gjenopptakelsen er en hendelse, ikke en
+timer, og `visibilitychange` er det samme signalet i browseren og i WebView-en.
+Web-laget kjenner derfor fortsatt native-runtimen på nøyaktig ÉN gated linje —
+broen for tilbakeknappen — og unntaket i `tests/capacitor-android.test.js` er
+uendret. Det samme gjelder npm-avhengighetslista og appmodulens
+`dependencies`-blokk: ingen plugin er innført.
+
+| Ledd | Rolle |
+|---|---|
+| `visibilitychange`-lytteren (`app.js`, ved `startCloudPoll`) | Synlig igjen + innlogget ⇒ `scheduleCloud(0)`. Fyrer ikke på vei INN i bakgrunnen — en app som ligger i bakgrunnen skal ikke polle. |
+| pollet (5 s) | Uendret: sikkerhetsnettet mens appen er fremme, og det som tar nettet igjen der `online` aldri kommer. |
+| realtime | Uendret, og trenger ingen nudge: dør kanalen, melder den fra selv (`CLOSED`/`CHANNEL_ERROR` → ny subscribe), og pullen over dekker hullet imens. |
+| `tests/sync-foreground.test.js` | Med pollet slått AV — altså situasjonen en strupet timer gir — henter appen inn det en annen enhet gjorde straks den er synlig. Og: en endring som ikke nådde fram lander av seg selv uten én eneste `online`-hendelse og uten at `navigator.onLine` noen gang er falsk, altså slik en WebView uten `ACCESS_NETWORK_STATE` ville oppført seg. |
+| [`accounts.md`](accounts.md) | Autoritativt for hva som starter en synk-runde. |
+
+**Ikke koblet på, og hvorfor:** `@capacitor/app` (`appStateChange`,
+`getLaunchUrl`) og `@capacitor/network` gir de samme to signalene som web-laget
+allerede har. Prisen ville vært en npm-avhengighet, en Gradle-avhengighet i
+appmodulen som merger sitt eget manifest, og en gate til i web-koden — tre
+låser fra #122 som alle måtte utvides — for et signal `visibilitychange` gir
+gratis. `@capacitor/app` kommer først når fase 6 eventuelt tar App Links opp
+igjen, og da for den innkommende ADRESSEN, ikke for lifecycle.
+
+### Ikke prøvd på telefon ennå
+
+Til forskjell fra de to lenkepunktene finnes det her noe å prøve, og utfallet
+kan bare ses på en enhet: om timerne i en bakgrunnslagt WebView faktisk struper
+eller fryser, og om `visibilitychange` faktisk fyrer når Android tar appen fram
+igjen. Nettleseren beviser stigen, ikke enheten. Sekvensen er kort, og skal
+kjøres med en browserklient innlogget på samme konto:
+
+| # | Gjør | Forventet |
+|---|---|---|
+| 1 | Send appen til bakgrunnen og la telefonen ligge låst i minst ti minutter (gjerne en time). Endre et listenavn i nettleseren imens. | — |
+| 2 | Hent appen fram igjen og se på skjermen UTEN å røre noe. | Det nye navnet står der praktisk talt med en gang — ikke etter en pause på titalls sekunder, og uten at du må dra, trykke eller endre noe for å utløse det. |
+| 3 | Gjenta med flymodus på telefonen i bakgrunnsperioden, og slå den av FØR du henter appen fram. | Statuslinjen går til «Lagret», og endringen fra nettleseren er der. |
+| 4 | Snu det: endre noe i appen, send den til bakgrunnen med en gang, vent, og se i nettleseren. | Endringen er hos den andre klienten. Den ble pushet før appen ble skjult, ikke etter. |
+
+Avvik rapporteres som i fase 2: trinnummer, hva som faktisk skjedde, hva
+`#sync-status` sa, og om det samme skjer i nettleseren med fanen i bakgrunnen.
+Er svaret ja, er det en ordinær Huskis-feil.
+
 **Ferdigkriterium:** Android-appen oppfører seg som en normal mobilapp i de
 plattformtilfellene browseren ikke selv kan håndtere godt nok.
 
@@ -882,11 +985,20 @@ De skal ikke snike seg inn i fundamentfasene.
 areas/systemfeltene/skjermtastaturet (begge verifisert på telefon), og de to
 lenkepunktene — eksterne lenker og auth-/e-postlenker — som begge endte som
 beslutninger uten kode, og som derfor fortsatt ikke har noe å prøve på en
-telefon. Neste punkt er **native lifecycle- og network-signaler**: koble dem til
-den eksisterende synklogikken, men bare der websignalene (`visibilitychange`,
-`online`/`offline`) ikke er tilstrekkelige. Utgangspunktet er at de er det —
-fase 2s punkt 9 og 10 er kjørt på telefon uten avvik — så første steg er å måle
-hva som faktisk mangler før noe native kobles på.
+telefon.
+
+**Lifecycle- og network-signalene er kartlagt og avgjort**: websignalene rekker,
+ingen native signaler er koblet på, og det ene reelle hullet — at ingenting
+hentet appen inn igjen ved gjenopptakelse — er lukket med `visibilitychange`
+(seksjonen «Lifecycle- og network-signaler»). To ting gjenstår før punktet kan
+krysses av, og begge krever en telefon: den korte fysiske sekvensen i den
+seksjonen, og enhetssjekken av om `navigator.onLine` i det hele tatt lever i
+WebView-en uten `ACCESS_NETWORK_STATE`. Det siste endrer ingenting som haster —
+alle veiene det rører leger seg selv — men svaret avgjør om én manifestlinje er
+verdt å legge inn.
+
+Deretter står **sikker lagring og `android:allowBackup`** igjen som fase 3s
+siste punkt.
 
 Hver fase 3-endring er plattformspesifikk og skal gates eksplisitt
 (arkitekturregel 2): browserutgaven skal fortsatt kjøre uten Capacitor.
