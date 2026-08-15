@@ -2718,6 +2718,26 @@
     if (el.dataset.palId) return colorForId(el.dataset.palId);
     return null;
   }
+  /* Søppelkassens prikker tar `u.color || colorForId(u.id)` — den hurtiglagrede
+     posisjonsfargen først, id-fargen som reserve. For et TRASHET objekt er den
+     hurtiglagrede fargen et levn fra sist det var synlig, og ingen rendring
+     regner den ut på nytt (reindexContainerColors ser bare på det synlige). Uten
+     dette ville prikken beholdt den gamle drakten sin farge selv om modalen ble
+     lukket og åpnet igjen — helt til en omlasting.
+
+     Fargen er verken lagret eller synket («Farge lagres ikke», se colorForIndex),
+     så å glemme den er gratis: neste oppslag faller til colorForId, som er
+     nettopp den dokumenterte stabile reserven for søppelkassen
+     (docs/colors-and-labels.md). Kun trashede objekter røres, så lys drakt ser
+     ut nøyaktig som før — en fersk sletting beholder fargen den hadde. */
+  function forgetTrashedColors() {
+    (state.universes || []).forEach((u) => {
+      if (u.trashed) delete u.color;
+      (u.groups || []).forEach((g) => (g.cards || []).forEach((c) => {
+        if (c.trashed) delete c.color;
+      }));
+    });
+  }
   // Maler alle stemplede palettflater på nytt (ansvarssirkler på kort, rader,
   // meta-chips og i ansvarlig-velgeren). Kirurgisk: rører kun `background`.
   function repaintAvatars(root) {
@@ -10323,6 +10343,7 @@
     reindexContainerColors(boardScope);
     reindexContainerColors(navScope);   // no-op når nav-modalen er tom
     repaintAvatars();
+    forgetTrashedColors();
   });
 
   // E-postvarsel-innstillingen ligger på kontoen (user_metadata.email_notifications).

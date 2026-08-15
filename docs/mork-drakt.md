@@ -178,10 +178,13 @@ lokalt fargebytte, og å utsette rendringen løser ingenting — `finishDrag()`
 kalles av droppene FØR de har committet, så en rendring der ville malt board-et
 fra tilstanden før slippet.
 
-Søppelkasse-modalens prikker er det ene unntaket: de males også fra paletten,
-men modalen bygger radene sine på nytt ved hver åpning, så en drakt-endring mens
-den STÅR åpen lar prikkene beholde den gamle fargen til den lukkes. De er rene
-identitetsmerker, og modalen er kortlevd.
+Søppelkassens prikker er det ene stedet en farge ligger hurtiglagret: radene
+tar `u.color || colorForId(u.id)`, og for et trashet objekt er `u.color` et levn
+fra sist det var synlig — ingen rendring regner den ut på nytt. `forgetTrashedColors()`
+sletter derfor den hurtiglagrede fargen på trashede objekter ved et draktbytte,
+slik at neste oppslag faller til `colorForId` i den nye drakten. Fargen er
+verken lagret eller synket, så det koster ingenting. Står modalen åpen i det
+drakten skifter, får prikkene den nye fargen ved neste åpning.
 
 ## Kontrasten er målt, ikke valgt
 
