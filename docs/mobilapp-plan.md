@@ -15,9 +15,9 @@ autoritative dokumentet for fagfeltet.
 |---|---|
 | Målarkitektur | Én HTML/CSS/JS-kodebase + Capacitor for Android/iOS |
 | Nåværende fase | **Fase 3 — nødvendige native integrasjoner** |
-| Status | Fase 3 er i gang. To punkter er ferdige og verifisert på fysisk telefon: systemets tilbakeknapp, og safe areas/systemfeltene/skjermtastaturet (automatisk dekket av `tests/safe-area.test.js`, `tests/landscape-chrome.test.js` og `tests/capacitor-android.test.js`). De fire øvrige fase 3-punktene er ikke påbegynt, så ferdigkriteriet er ikke nådd. |
+| Status | Fase 3 er i gang. Tre punkter er ferdige: systemets tilbakeknapp og safe areas/systemfeltene/skjermtastaturet, begge verifisert på fysisk telefon, og eksterne lenker, som er en beslutning uten kode og derfor ikke har noe å prøve på en telefon (se seksjonen). Automatisk dekket av `tests/safe-area.test.js`, `tests/landscape-chrome.test.js`, `tests/system-back.test.js` og `tests/capacitor-android.test.js`. De tre øvrige fase 3-punktene er ikke påbegynt, så ferdigkriteriet er ikke nådd. |
 | Neste milepæl | Android-appen oppfører seg som en normal mobilapp i de plattformtilfellene browseren ikke håndterer godt nok selv |
-| Ett neste praktiske steg | Definer hvilke eksterne lenker som åpnes i systembrowser og hvilke som forblir i appen |
+| Ett neste praktiske steg | Gjør auth-/e-postlenker robuste: vurder Android App Links slik at bekreftelse/reset kan returnere til appen |
 | OTA | Ikke innført; skal ikke innføres før Android-baselinen er stabil |
 | iOS | Senere fase; ikke en del av første implementering |
 
@@ -374,8 +374,10 @@ funksjoner bare fordi de er mulige.
       Implementert, automatisk dekket, og hele den fysiske sekvensen kjørt —
       inkludert punkt 10, som er kjørt om igjen med rettingen inne og bekreftet
       på telefon (identisk i lys og mørk modus, lesbart i begge).
-- [ ] Definer hvilke eksterne lenker som åpnes i systembrowser og hvilke som
-      forblir i appen.
+- [x] Definer hvilke eksterne lenker som åpnes i systembrowser og hvilke som
+      forblir i appen. Regelen er skrevet ned og voktet; den krevde ingen kode,
+      fordi appen ikke har én eneste utgående lenke og Capacitors egen ruting
+      allerede gjør nøyaktig det regelen sier.
 - [ ] Gjør auth-/e-postlenker robuste; vurder Android App Links og senere iOS
       Universal Links slik at bekreftelse/reset kan returnere til appen.
 - [ ] Koble native lifecycle/network-signaler til eksisterende synklogikk bare
@@ -550,6 +552,59 @@ Avvik rapporteres som i fase 2: trinnummer, hva som faktisk skjedde, og om det
 samme skjer i nettleseren på samme viewport. Er svaret ja, er det en ordinær
 Huskis-feil — ikke en Capacitor-tilpasning.
 
+## Eksterne lenker
+
+**Kartleggingen først.** Huskis' UI har ikke én utgående lenke: null `<a>`-tagger
+med absolutt adresse, null `target="_blank"`, null `window.open()`. De to eneste
+adressene utenfor eget origin som står i frontend i det hele tatt er
+Supabase-endepunktet (data over `fetch`/WebSocket, ikke navigasjon) og
+`canonicalAppUrl` (går inn i auth-lenkene Supabase sender på e-post, og
+navigeres aldri til). Appen navigerer seg selv nøyaktig ett sted:
+`location.replace(target)` i guarden øverst i `index.html` — og den rører kun de
+tre navngitte redirect-hostene, så i appen, der verten er `localhost`, gjør den
+ingenting.
+
+**Regelen som ble valgt:** appens eget origin lastes inne i appen, alt annet
+åpnes i systembrowseren. Autoritativt, med begrunnelse og de tre grensetilfellene:
+[`domains-and-urls.md`](domains-and-urls.md) («Eksterne lenker»).
+
+**Den krevde ingen kode.** Capacitors `BridgeWebViewClient.shouldOverrideUrlLoading()`
+→ `Bridge.launchIntent()` sender allerede hver adresse med et annet skjema+vert
+enn appens ut som `Intent.ACTION_VIEW`. Det ER regelen. Å legge en
+`@capacitor/browser`-plugin (Custom Tab) oppå ville vært et native API for et
+behov som ikke finnes — og fase 1 har med vilje ingen plugins utover kjernen.
+Web-laget kjenner derfor fortsatt native-runtimen på nøyaktig ÉN gated linje,
+broen for tilbakeknappen; unntaket i `tests/capacitor-android.test.js` er
+uendret.
+
+| Ledd | Rolle |
+|---|---|
+| `capacitor.config.json` uten `server.allowNavigation` | Det ene feltet som kan slå regelen av: hver oppføring der er en vert som lastes INNE i WebView-en, som har `localStorage`, Supabase-sesjonen og broen i samme kontekst. |
+| `MainActivity.java` | Overtar ikke `WebViewClient`/`shouldOverrideUrlLoading` — rutingen er Capacitors, ikke vår. |
+| CSP `default-src 'none'` (`index.html`) | Ingen `frame-src` ⇒ en fremmed side kommer heller ikke inn som `<iframe>` ([`sikkerhetsheadere.md`](sikkerhetsheadere.md)). |
+| `tests/capacitor-android.test.js` (del 12) | De to måtene å miste regelen på: `allowNavigation`, og web-kildekode som begynner å produsere utgående lenker. Vokter også at den ene selvnavigasjonen fortsatt er guardens. |
+
+**De to grensetilfellene, avgjort.** Auth-lenkene i e-post kommer fra utsiden og
+røres ikke av regelen: e-postklienten gir adressen til telefonens standardapp
+for `huskis.no`, altså browseren, siden Huskis ikke har noe intent-filter for
+domenet — det er neste punkt (App Links). URL-er brukeren selv skriver i et
+listepunkt er ren tekst og forblir det: å gjøre dem klikkbare er en
+produktendring med egne spørsmål, ikke en native integrasjon. Regelen sier
+allerede hvor en slik lenke havner den dagen den lages.
+
+### Ikke prøvd på telefon — det finnes ingenting å trykke på
+
+Dette punktet har **ingen fysisk sekvens**, og det er ikke en utsettelse: appen
+har ingen lenke som kan tappes, så det finnes ingen handling en telefon kunne
+svart på. Det som er verifisert er kildekoden — Capacitors ruting er LEST i
+`node_modules/@capacitor/android`, ikke observert på en enhet.
+
+Det skillet er verdt å holde fast på, av samme grunn som systemfeltene i forrige
+punkt: koden er ikke fasit for hva enheten gjør. Den dagen appen får sin første
+utgående lenke — App Links-punktet gir den en — skal det observeres på telefon at
+adressen faktisk forlater WebView-en og lander i browseren, og at Huskis står
+igjen med tilstanden sin når man kommer tilbake.
+
 **Ferdigkriterium:** Android-appen oppfører seg som en normal mobilapp i de
 plattformtilfellene browseren ikke selv kan håndtere godt nok.
 
@@ -699,10 +754,13 @@ De skal ikke snike seg inn i fundamentfasene.
 
 ## Neste oppgave
 
-**Fase 3 fortsetter.** To punkter er ferdige og verifisert på telefon:
-tilbakeknappen, og safe areas/systemfeltene/skjermtastaturet. Neste punkt er
-**eksterne lenker**: definer hvilke som åpnes i systembrowser og hvilke som
-forblir i appen.
+**Fase 3 fortsetter.** Tre punkter er ferdige: tilbakeknappen og safe
+areas/systemfeltene/skjermtastaturet (begge verifisert på telefon), og eksterne
+lenker (en beslutning uten kode — ingenting å prøve på en telefon ennå). Neste
+punkt er **auth-/e-postlenker**: vurder Android App Links, slik at bekreftelse
+og passordgjenoppretting kan returnere til appen i stedet for å stoppe i
+browseren. Det punktet gir appen sin første ekte utgående/inngående lenke, og
+dermed også det første som faktisk KAN prøves på telefon under regelen over.
 
 Hver fase 3-endring er plattformspesifikk og skal gates eksplisitt
 (arkitekturregel 2): browserutgaven skal fortsatt kjøre uten Capacitor.

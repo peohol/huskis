@@ -37,6 +37,9 @@
         mørke glyfer) som gjør klokka lesbar over Huskis' lyse flate.
     11. Systemets tilbakeknapp: skallet spør web-laget først og lar OS ta
         trykket når web-laget ikke tok det.
+    12. Eksterne lenker: bare appens eget origin lastes INNE i appen, alt annet
+        hører hjemme i systembrowseren (docs/domains-and-urls.md, «Eksterne
+        lenker»).
 
    `/version.json` i den innebygde builden er en KJEDE av invarianter som
    allerede er dekket hver for seg, og som derfor ikke gjentas her:
@@ -432,6 +435,86 @@ check('skallet kaller ikke finish() selv', !/\bfinish\(\)/.test(kode(mainAct)));
    appmodulens kompileringssti. MainActivity bruker API-et direkte. */
 check('android/app/build.gradle har androidx.activity på kompileringsstien',
   /implementation "androidx\.activity:activity:\$androidxActivityVersion"/.test(appGradle));
+
+/* ---- 12. Eksterne lenker ----
+
+   Regelen (docs/domains-and-urls.md, «Eksterne lenker»): appens eget origin
+   lastes INNE i appen, alt annet åpnes i systembrowseren. Den håndheves av
+   Capacitors egen `BridgeWebViewClient.shouldOverrideUrlLoading()` →
+   `Bridge.launchIntent()`, som sender enhver adresse med et annet
+   skjema+vert enn appens ut som en `Intent.ACTION_VIEW`. Huskis skriver altså
+   ingen kode for dette — og nettopp derfor er det de to måtene å MISTE regelen
+   på som må voktes:
+
+     a) `server.allowNavigation` slipper navngitte verter INN i WebView-en, som
+        har Huskis' localStorage, Supabase-sesjonen og Capacitor-broen i samme
+        kontekst. En side som lastes der er ikke et faneskifte, den er innsiden
+        av appen;
+     b) web-kildekoden begynner å produsere utgående lenker uten at noen har
+        tatt stilling til hvor de skal havne.
+
+   Alt her er tekstsjekker på kildekoden — hvor Android faktisk sender en
+   ACTION_VIEW er telefonens sak, og kan bare ses der. */
+const srv = cfg.server || {};
+check('ingen server.allowNavigation (ingen fremmed vert lastes inne i appen)',
+  !srv.allowNavigation || srv.allowNavigation.length === 0,
+  JSON.stringify(srv.allowNavigation || null));
+if (finnes(APK_CFG)) {
+  const innebygdSrv = json(APK_CFG).server || {};
+  check('den innebygde konfigurasjonen har heller ingen allowNavigation',
+    !innebygdSrv.allowNavigation || innebygdSrv.allowNavigation.length === 0,
+    JSON.stringify(innebygdSrv.allowNavigation || null));
+}
+/* Overtar skallet WebViewClient-en eller `shouldOverrideUrlLoading`, er det
+   ikke lenger Capacitors ruting som gjelder, og regelen over er ikke lenger
+   den som kjører. Da skal endringen være bevisst — og innom dokumentet. */
+check('det native skallet overtar ikke navigasjonsrutingen fra Capacitor',
+  !/shouldOverrideUrlLoading|setWebViewClient|setWebChromeClient|WebViewClient/.test(kode(mainAct)));
+
+/* Web-siden av regelen. Kjørende kode i ALLE web-kildefilene: kommentarer og
+   dokumentasjon får omtale lenker fritt. */
+const utLenker = [];
+for (const f of WEB_KILDE) {
+  const k = kodeLinjer(les(f));
+  for (const { nr, l } of k) {
+    /* `target=_blank` (med eller uten anførselstegn), `window.open(`, og en
+       `href`/`action` med en absolutt adresse eller et fremmed skjema. Merk at
+       `a[href]` i fokus-selektoren i app.js IKKE treffer: her kreves et
+       likhetstegn og en verdi. */
+    if (/target\s*=\s*["']?_blank/.test(l)
+      || /\bwindow\s*\.\s*open\s*\(/.test(l)
+      || /\b(?:href|action)\s*=\s*\\?["']?\s*(?:https?:|mailto:|tel:|\/\/)/i.test(l)) {
+      utLenker.push(f + ':' + nr);
+    }
+  }
+}
+check('web-kildekoden produserer ingen utgående lenke (ingen _blank, window.open eller absolutt href/action)',
+  utLenker.length === 0, utLenker.join(', ') || 'ingen');
+
+/* Appen navigerer seg selv nøyaktig ett sted, og det er guarden for kanonisk
+   origin. Kommer det et sted til, kan appen sende seg selv ut av sine egne
+   innebygde filer — og i WebView-en ville den navigasjonen dessuten blitt en
+   ACTION_VIEW, altså en app som blir stående igjen på siden sin mens
+   browseren åpner. `location.reload()` er ikke med: den går til den samme
+   adressen, og dekkes av tests/auto-update.test.js. Lesing av
+   `location.href`/`location.origin` er heller ikke navigasjon. */
+const navSkriv = [];
+for (const f of WEB_KILDE) {
+  for (const { nr, l } of kodeLinjer(les(f))) {
+    if (/\blocation\s*\.\s*(?:assign|replace)\s*\(/.test(l)
+      || /\blocation\s*\.\s*href\s*=[^=]/.test(l)
+      || /\bwindow\s*\.\s*location\s*=[^=]/.test(l)) {
+      navSkriv.push({ sted: f + ':' + nr, l: l.trim() });
+    }
+  }
+}
+check('web-kildekoden navigerer seg selv på nøyaktig ÉN linje',
+  navSkriv.length === 1, navSkriv.map((x) => x.sted).join(', ') || 'ingen');
+check('den ene linjen er guardens location.replace(target) i index.html',
+  navSkriv.length === 1
+    && navSkriv[0].sted.startsWith('index.html:')
+    && /location\.replace\(target\)/.test(navSkriv[0].l),
+  navSkriv.length === 1 ? navSkriv[0].sted + '  ' + navSkriv[0].l : 'mangler');
 
 console.log('\n==== ' + pass + '/' + (pass + fail) + ' PASS ====');
 process.exit(fail === 0 ? 0 : 1);
