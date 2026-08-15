@@ -1153,17 +1153,21 @@ body {
      tykkelse. Faller tilbake til sentrert strek i eldre nettlesere. */
   -webkit-text-stroke: 1px #000;
   paint-order: stroke fill;
-  cursor: text;
+  /* IKKE tekst-cursor: et klikk på tittelen kollapser kortet (som resten av
+     hodet), det redigerer ikke navnet — se «Navnet omdøpes IKKE lenger ved
+     klikk» i buildUniverse()/buildCard(). `inherit` henter derfor pekehånden
+     fra `.card-head` i stedet, så tittelen ikke signaliserer en handling den
+     ikke har. */
+  cursor: inherit;
   padding: 4px;
   border-radius: 8px;
   word-break: break-word;
-  transition: background 0.15s;
 }
-/* Tittel-hover (globalt redigerbarhets-signal): bakgrunnen bak tittelen mørkner
-   når man hoverer den, så det er tydelig at et klikk starter navneredigering.
-   Gjelder ALLE objekttyper — liste, kategori, element, område og mappe — så
-   affordansen er den samme overalt i appen. */
-.card-title:hover,
+/* Tittel-hover (redigerbarhets-signal): bakgrunnen bak tittelen mørkner når
+   man hoverer den, så det er tydelig at et klikk starter navneredigering.
+   KUN kategori og listepunkt — de er de eneste der klikk på navnet faktisk
+   redigerer det. `.card-title` (område/liste) er tatt ut: der kollapser
+   klikket kortet i stedet, se over. */
 .cat-title:hover,
 .item-text:hover { background: rgba(0, 0, 0, 0.12); }
 
@@ -1307,6 +1311,13 @@ body {
   min-height: 26px;
   align-self: flex-start;      /* klikkflaten (redigering) følger teksten, ikke hele radbredden — som .card-title/.cat-title */
 }
+/* Mapperad: SAMME rad som et listepunkt (.item-text), men klikk her navigerer
+   til mappen i stedet for å redigere navnet — se buildGroupRow(). Fjern derfor
+   tekst-cursoren og hover-bakgrunnen `.item-text` ellers har: `inherit` henter
+   pekehånden fra raden (`.nav-board .card:not(.is-locked) .item`), så navnet
+   ikke ser redigerbart ut. */
+.group-row .item-text { cursor: inherit; }
+.group-row .item-text:hover { background: none; }
 /* Gjort element: lavere bakgrunns-opacity + gjennomstreket, dempet tekst.
    Avkryssede dras ikke (de ligger i «Utført») — attachHoldDrag gater på done. */
 .item.done { background: var(--plate-done); }
@@ -1552,8 +1563,11 @@ body {
    klikk-og-hold (eller klikk-og-dra på desktop) løfter objektet. Områder,
    mapper og lister bruker i stedet pekende hånd (cursor: pointer) — der er et
    klikk den primære handlingen. Kun på det som faktisk KAN dras: ikke låste kort,
-   ikke avkryssede elementer. Tittelen (.item-text/.cat-title) beholder tekst-
-   cursoren og knappene sin egen (mer spesifikke regler vinner). */
+   ikke avkryssede elementer. Tittelen på et listepunkt (.item-text) og en
+   kategori (.cat-title) beholder tekst-cursoren — der redigerer klikket
+   navnet. Mapperadens .item-text arver i stedet denne pekehånden (se
+   `.group-row .item-text` over): der navigerer klikket, som resten av raden.
+   Knappene har sin egen cursor (mer spesifikke regler vinner). */
 .card:not(.is-locked) .item:not(.done),
 .card:not(.is-locked) .cat-head { cursor: grab; }
 
@@ -3699,9 +3713,9 @@ body.no-auth #account-btn { display: none; }
 .free-groups-card { --card-bg: var(--free-bg); --card-head: var(--free-head); --card-accent: var(--free-accent); }
 /* Tittelen står på en LYS flate her (ikke en mettet kortfarge), så den hvite
    skriften med skygge ville blitt uleselig — bruk vanlig blekk uten skygge.
-   Navnet er heller ikke redigerbart: beholderen finnes ikke i databasen. */
-.free-groups-card .card-title { color: var(--ink); text-shadow: none; -webkit-text-stroke: none; cursor: default; }
-.free-groups-card .card-title:hover { background: none; }
+   Cursor/hover følger `.card-title`s vanlige `inherit` (pekehånden fra
+   `.card-head` — hodet kollapser fortsatt ved klikk her også). */
+.free-groups-card .card-title { color: var(--ink); text-shadow: none; -webkit-text-stroke: none; }
 
 /* Breadcrumb-ikonene fylles av updateCrumbs(): [ressursikon][delt-ikon]Navn. */
 .crumb-icon, .crumb-shared { display: inline-flex; align-items: center; flex: none; }
