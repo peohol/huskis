@@ -90,38 +90,34 @@ løser seg til vanlige px-verdier når de leses — i motsetning til `--board-ga
 som er en `clamp()` og derfor må leses fra en oppløst egenskap
 (`docs/board-layout.md`).
 
-**Flaten bak systemfeltene er vår, og hvilken farge den har avhenger av
-drakten** ([`mork-drakt.md`](mork-drakt.md)). Når siden tegner under statusfeltet
-og gestelinjen, er det Huskis' egen flate klokka og gestelinjen ligger oppå — og
-den er lys i lys drakt og mørk i mørk. Glyfene må snu med den.
+**Båndet bak systemfeltene er LYST i begge drakter — glyfene er derfor mørke i
+begge.** Dette er målt på telefon, og det er ikke det man gjetter seg til fra
+koden: selv om siden tegner under statusfeltet (`viewport-fit=cover`), følger
+flaten der IKKE `--bg`. I mørk drakt er appen mørk mens båndet over den fortsatt
+er lyst. Mørke glyfer er altså riktig svar uansett drakt.
 
-Android-temaet setter bare UTGANGSPUNKTET: mørke glyfer
-(`windowLightStatusBar`/`windowLightNavigationBar`) over et lyst foreldretema.
-Det gjelder fram til web-laget er oppe, altså over splash-skjermen, som er lys i
-begge drakter. Foreldretemaet er fortsatt Light og ikke DayNight — night-
-varianten malte en svart statusfelt-bakgrunn OVER siden, så flaten vår ikke nådde
-skjermkanten. Erklæringene står i `android/app/src/main/res/values/styles.xml`
-(+ `values-v27/` for gestelinjen, som først finnes fra API 27).
+Android-temaet ber om det (`windowLightStatusBar`/`windowLightNavigationBar`,
+over et lyst foreldretema — ikke DayNight, hvis night-variant malte en svart
+statusfelt-bakgrunn OVER siden). Erklæringene står i
+`android/app/src/main/res/values/styles.xml` (+ `values-v27/` for gestelinjen,
+som først finnes fra API 27).
 
-Selve snuingen gjør Capacitors `SystemBars`-plugin, som SETTER utseendet i
-runtime og overstyrer temaet. `SystemBars.style = "DEFAULT"` i
-`capacitor.config.json` lar den lese telefonens nattmodus, og legger stilen på
-igjen ved rotasjon og modusbytte. Siden draktens standardvalg er «Følg
-systemet», snur glyfene og flaten under dem sammen.
+Temaet er ikke nok alene: Capacitors `SystemBars`-plugin SETTER utseendet i
+runtime og overstyrer det. `SystemBars.style = "LIGHT"` i
+`capacitor.config.json` låser mørke glyfer, også etter rotasjon og modusbytte.
 
-**Grensen, med vilje:** pluginen følger OPERATIVSYSTEMET, ikke Huskis' eget
-valg. Overstyrer brukeren drakten mot OS-et — lys app på en mørk telefon, eller
-omvendt — blir glyfene feil vei. Å rette det krever en bro fra web-laget til
-pluginen, altså et ANDRE web↔native-berøringspunkt (i dag finnes ett: gaten for
-tilbakeknappen). Det er en beslutning for mobilplanen
-([`mobilapp-plan.md`](mobilapp-plan.md)), ikke en bieffekt av drakten.
+**`DEFAULT` er prøvd, og reversert.** Da appen fikk to drakter
+([`mork-drakt.md`](mork-drakt.md)) var det nærliggende å la pluginen følge
+telefonens nattmodus i stedet. Det ga lyse glyfer på det lyse båndet i mørk
+modus — nøyaktig den uleseligheten denne erklæringen finnes for å fjerne.
+Premisset som førte dit («flaten bak feltene er vår, altså mørk i mørk drakt»)
+er feil, og `tests/capacitor-android.test.js` sier det nå eksplisitt.
 
 **Unntaket er bunnfeltet på API 24–26.** `windowLightNavigationBar` finnes
 først fra API 27, og runtime-veien er en no-op før det: treknappsradens glyfer
 er lyse uansett hva vi ber om. De versjonene får derfor en mørk stripe å ligge
 på (`@color/systemNavScrim`) i stedet for et gjennomsiktig felt; fra API 27 er
-feltet gjennomsiktig og glyfene snur med telefonens modus, så flaten vår når
-helt ned i begge drakter.
+feltet gjennomsiktig og glyfene mørke, så flaten vår når helt ned.
 
 Voktere: `tests/safe-area.test.js` (setter sonen og måler at chromet flytter
 seg, begge viewportene) og `tests/capacitor-android.test.js` (erklæringene

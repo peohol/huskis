@@ -387,23 +387,21 @@ check('android: bunnfeltet er en mørk stripe før API 27, ikke gjennomsiktig',
   && /name="systemNavScrim"/.test(les('android/app/src/main/res/values/colors.xml')));
 check('android: bunnfeltet blir gjennomsiktig fra API 27 (der glyfene kan snus)',
   /android:navigationBarColor">@android:color\/transparent/.test(stylesV27));
-check('android: mørke glyfer i statusfeltet fram til pluginen tar over (windowLightStatusBar)',
+check('android: mørke glyfer i statusfeltet (windowLightStatusBar)',
   /android:windowLightStatusBar">true/.test(styles));
 /* Temaet er ikke nok alene: `SystemBars`-pluginen SETTER utseendet i runtime
-   (`setAppearanceLightStatusBars`) og overstyrer det. `DEFAULT` lar den lese
-   telefonens nattmodus, og det er nettopp det vi vil ha nå som appen har to
-   drakter (docs/mork-drakt.md): standardvalget er «Følg systemet», så glyfene
-   og flaten under dem snur sammen — mørke glyfer over den lyse drakten, lyse
-   over den mørke. En låst `LIGHT` ville gitt mørke glyfer over #141922.
+   (`setAppearanceLightStatusBars`) og overstyrer det. `LIGHT` betyr «feltet
+   ligger på en lys flate» ⇒ MØRKE glyfer, låst, også etter rotasjon og
+   modusbytte (pluginen legger den resolverte stilen på igjen).
 
-   GRENSEN, med vilje: pluginen følger OPERATIVSYSTEMET, ikke vårt eget valg.
-   Overstyrer brukeren drakten mot OS-et (lys app på en mørk telefon, eller
-   omvendt), blir glyfene feil vei. Å rette det krever en bro fra web-laget til
-   pluginen, altså et andre web↔native-berøringspunkt — se sjekken lenger nede
-   som holder broen på ÉN linje. Det er en beslutning for mobilplanen, ikke en
-   bieffekt av drakten. */
-check('capacitor.config.json lar systemfeltene følge telefonens modus (SystemBars.style = DEFAULT)',
-  !!cfg.plugins && !!cfg.plugins.SystemBars && cfg.plugins.SystemBars.style === 'DEFAULT',
+   DENNE MÅ IKKE BLI `DEFAULT`. Da leser pluginen telefonens nattmodus, og det
+   virker riktig når appen har to drakter — men båndet bak statusfeltet er LYST
+   i BEGGE draktene, også når appen under er mørk (verifisert på telefon, se
+   docs/mobilapp-plan.md). Flaten der følger altså ikke `--bg`. `DEFAULT` gir
+   derfor lyse glyfer på et lyst bånd i mørk modus, altså nøyaktig den
+   uleseligheten #119 fjernet. Det er prøvd, og det er reversert. */
+check('capacitor.config.json låser systemfeltene til mørke glyfer (SystemBars.style = LIGHT)',
+  !!cfg.plugins && !!cfg.plugins.SystemBars && cfg.plugins.SystemBars.style === 'LIGHT',
   JSON.stringify((cfg.plugins || {}).SystemBars || null));
 /* Attributten finnes først fra API 27, og hører derfor hjemme i values-v27/ —
    i values/ ville den vært død kode med lint-støy på kjøpet. */
