@@ -120,6 +120,15 @@
     'lang.label': ['Språk · Language', 'Språk · Language'],
     'lang.aria':  ['Språk i appen og i e-postene', 'Language in the app and in emails'],
 
+    /* ---- Drakt (lys/mørk) ---- */
+    /* «System» betyr operativsystemets egen innstilling, og skifter med den
+       mens appen står åpen. Se docs/mork-drakt.md. */
+    'theme.label':  ['Drakt', 'Appearance'],
+    'theme.aria':   ['Lys eller mørk drakt', 'Light or dark appearance'],
+    'theme.system': ['Følg systemet', 'Match system'],
+    'theme.light':  ['Lys', 'Light'],
+    'theme.dark':   ['Mørk', 'Dark'],
+
     /* ---- Konto ---- */
     'account.title':            ['Konto', 'Account'],
     'account.open':             ['Åpne kontoen', 'Open your account'],
@@ -692,6 +701,8 @@
                           'The language was changed on this device, but could not be saved to your account.'],
     'lang.notStored':    ['Språket er endret, men denne enheten kan ikke huske valget.',
                           'The language was changed, but this device cannot remember the choice.'],
+    'theme.notStored':   ['Drakten er endret, men denne enheten kan ikke huske valget.',
+                          'The appearance was changed, but this device cannot remember the choice.'],
     /* ==== HUSKIS_I18N_DICT_END ==== */
   };
 

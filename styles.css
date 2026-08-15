@@ -51,6 +51,13 @@
 :root {
   --font: 'Atkinson Hyperlegible Next', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
 
+  /* Sier fra til nettleseren hvilken drakt siden er i, slik at alt VI ikke
+     tegner selv følger med: <select>-nedtrekket, dato- og klokkeslettvelgerne i
+     tidsplanen, rullefeltene og tekstmarkøren. Uten den blir en mørk app
+     ledsaget av lyse systempopover-er — det ene stedet drakten ellers ville
+     lekket. Settes her og snus i den mørke blokken. */
+  color-scheme: light;
+
   --bg: #667788;
   --bg-grad-a: #667788;
   --bg-grad-b: #667788;
@@ -171,6 +178,221 @@
   /* Samme linjetykkelse som ikonsettets stroke-width (se icons.js/index.html),
      for CSS-tegnede streker (f.eks. sveipefeltets pil) som skal matche ikonene. */
   --icon-stroke: 1.05px;
+
+  /* ========== DRAKT-TOKENS (lys) ==========
+     Alt under er verdier som SNUR i mørk drakt. De sto tidligere hardkodet
+     rundt om i fila (#fff, rgba(0,0,0,…), rgba(255,255,255,…)); her er de
+     samlet, slik at den mørke drakten er ÉN blokk med overstyringer og ikke en
+     kopi av stilarket. Verdiene er nøyaktig de samme som før — lys drakt ser
+     ut som den alltid har gjort. Autoritativt: docs/mork-drakt.md.
+
+     Tokenene er delt i to familier etter HVA de ligger på, fordi de snur på
+     hver sin måte:
+
+       • FLATE-familien (--surface*, --line, --wash*, --overlay, --glass-bg …)
+         ligger på appens egne lyse flater (modaler, toppmeny, kort utenfor
+         paletten). I mørk drakt blir flatene mørke og blekket lyst.
+       • PÅ-FARGE-familien (--plate*, --tint*, --hairline, --on-color-soft)
+         ligger OPPÅ en palettfarge (et listekort, et områdekort). Der er det
+         ikke flaten som snur — palettfargen gjør jobben selv (app.js speiler
+         L-en) — men lagene oppå: de halvgjennomsiktige HVITE platene blir
+         halvgjennomsiktig SVARTE, og de svarte hårstrekene blir hvite. */
+
+  /* Flater. --surface er modal-/panelflaten, -2 er den svakt tonede foten/
+     seksjonsflaten, -3 er tekstfeltenes flate, -alt er den arvede låsens
+     varselflate. --control-bg-hover er den ugjennomsiktige hviletilstanden
+     --control-bg går til ved hover (flate-mønsteret). */
+  --surface-2: #faf9fe;
+  --surface-3: #fbfbfd;
+  --surface-alt: #fff7ed;
+  --control-bg-hover: #ffffff;
+  /* Toppmenyens glassflate (backdrop-blur over board-et). */
+  --glass-bg: rgba(255, 255, 255, 0.72);
+  /* Toastens/oppdateringsbannerets mørke glassflate — mørk i BEGGE drakter
+     (den bærer hvit tekst), bare et hakk dypere i den mørke. */
+  --glass-dark: rgba(45, 38, 70, 0.62);
+  /* Modal-/demo-mørkleggingen bak dialoger. */
+  --overlay: rgba(45, 38, 70, 0.42);
+  /* Svak toning PÅ en lys flate: hover på ikonknapper, kbd-brikker,
+     hint-chipen på hvitt. --wash-2 er den samme, et hakk sterkere (spor). */
+  --wash: rgba(0, 0, 0, 0.07);
+  --wash-2: rgba(0, 0, 0, 0.1);
+  /* Av-sporet i bryterne (på/av-pillene). */
+  --track: #c4ccd2;
+  /* Antall-sirkelen i søppelkasse-knappene. */
+  --count-bg: #e6ece6;
+  /* «Mapper delt med meg» er en VIRTUELL beholder uten palettfarge — en
+     nøytral, lys kortflate (se .free-groups-card). Den er det ene kortet i
+     appen som ikke får fargen sin fra paletten, og trenger derfor sitt eget
+     sett. */
+  --free-bg: #eef0f6;
+  --free-head: #dfe3ee;
+  --free-accent: #9aa3b8;
+
+  /* Tekstfarger som må bytte side når flaten gjør det. --danger/--warn/
+     --primary-dark er FLATE-/signalfarger (knappegradienter, prikker,
+     stiplede kanter) og skal IKKE lysne i mørk drakt — derfor egne
+     -ink-tokens for de stedene den samme fargen brukes som TEKST. */
+  --danger-ink: #c0384d;    /* på hvit: 5.37:1 */
+  --primary-ink: #4d664d;   /* = --primary-dark; på hvit: 7.09:1 */
+  --note-ink: #9a6b15;      /* tidsnotatet; på hvit: 4.63:1 */
+
+  /* Ikonsettet (icons.js + de innlimte SVG-ene i index.html) har fargene som
+     PRESENTASJONSATTRIBUTTER — `stroke="#111"`, `fill="#ffffff"`,
+     `fill="#c0c4c9"`. En CSS-regel slår et slikt attributt, så attributt-
+     selektorene lenger nede maler dem om til disse tokenene i stedet: strek og
+     «papir» snur med drakten, uten at én eneste SVG må endres. Fargede
+     knapper (.btn-solid) pinner dem tilbake for sitt eget subtre — se der. */
+  --icon-ink: #111111;
+  --icon-paper: #ffffff;
+  --icon-grey: #c0c4c9;
+
+  /* ---- På-farge-familien: lag OPPÅ en palettfarge ---- */
+  /* Listepunkt-platene i et kort. Hvite og halvgjennomsiktige i lys drakt,
+     svarte og halvgjennomsiktige i mørk — begge veier er «samme flate, litt
+     løftet fra kortet». */
+  --plate: rgba(255, 255, 255, 0.55);
+  --plate-hover: rgba(255, 255, 255, 0.85);
+  --plate-done: rgba(255, 255, 255, 0.3);
+  --plate-done-hover: rgba(255, 255, 255, 0.48);
+  /* Knappeflatene som ligger rett på kortfargen (.card-cog/.cat-cog/
+     .done-restore) — svak hvit flate + ring, lyser opp ved hover. */
+  --tint: rgba(255, 255, 255, 0.2);
+  --tint-hover: rgba(255, 255, 255, 0.34);
+  /* Menyknappen mens dens egen popover står åpen: ett hakk over hover, så
+     knappen ikke ser «kald» ut under menyen sin. */
+  --tint-open: rgba(255, 255, 255, 0.42);
+  --tint-ring: rgba(255, 255, 255, 0.35);
+  /* Hårstrekene PÅ kortflaten (kategoriskiller, «Utført»-linja) og den dempede
+     etiketten ved siden av dem. Disse MÅ snu: en svart strek på et mørkt kort
+     er usynlig. */
+  --hairline: rgba(0, 0, 0, 0.15);
+  --on-color-soft: rgba(0, 0, 0, 0.42);
+  /* Meta-chipene under navnet. */
+  --chip-bg: rgba(255, 255, 255, 0.78);
+}
+
+/* ============================================================
+   MØRK DRAKT
+   ------------------------------------------------------------
+   `data-theme` settes av theme.js FØR første maling (se den fila og
+   docs/mork-drakt.md). Blokken overstyrer KUN tokens — ingen nye regler, ingen
+   duplisert geometri. Ser du deg nødt til å skrive en `[data-theme="dark"]`-
+   regel med noe annet enn en custom property i, mangler det sannsynligvis et
+   token i :root over.
+
+   Kontrastene er målt, ikke valgt på øyemål, og `tests/a11y-contrast.test.js`
+   regner dem ut på nytt fra denne blokken — nøyaktig som den gjør for :root.
+
+   PALETTFARGENE STÅR IKKE HER. Kort-/mappe-/områdefargene lages i JS
+   (app.js → colorForIndex): samme tone og samme metning, med L-settet speilet
+   fra [60,75,90] til [42,32,22]. Se kommentaren der for hvorfor speilingen er
+   komprimert og ikke en ren 100−L.
+   ============================================================ */
+:root[data-theme="dark"] {
+  color-scheme: dark;
+
+  /* Board-bakgrunnen. Samme tone som den lyse (skifer, h≈210), langt nede i
+     L. Holdes i takt med THEME_COLOR i theme.js. */
+  --bg: #141922;
+  --bg-grad-a: #141922;
+  --bg-grad-b: #141922;
+
+  --ink: #e8e6ef;           /* på --surface: 12.76:1 */
+  --ink-soft: #a8a5b4;      /* på --surface: 6.54:1 */
+  --line: #333a46;
+
+  --surface: #1e232c;
+  --surface-2: #191e27;
+  --surface-3: #171c25;
+  --surface-alt: #2a2418;
+  /* Kontrollflatene på board-et er nå et svakt LØFT, ikke en hvit plate: den
+     mørke drakten bygger dybde med lys, ikke med skygge. */
+  --control-bg: rgba(255, 255, 255, 0.1);
+  --control-bg-hover: rgba(255, 255, 255, 0.18);
+  --glass-bg: rgba(255, 255, 255, 0.06);
+  --glass-dark: rgba(10, 12, 18, 0.72);
+  --overlay: rgba(4, 6, 10, 0.62);
+  --wash: rgba(255, 255, 255, 0.1);
+  --wash-2: rgba(255, 255, 255, 0.14);
+  --track: #3c434e;
+  --count-bg: rgba(255, 255, 255, 0.14);
+  --free-bg: #262c37;
+  --free-head: #202631;
+  --free-accent: #59616f;
+
+  /* FOKUSRINGEN SNUR. Den mørke ringen (#10131a) er valgt for å lese mot alle
+     LYSE flater; mot board-bakgrunnen i mørk drakt gir den 1.0:1. Hvit gir
+     ≥ 4.0:1 mot alle 36 mørke palettfarger og ≥ 13:1 mot flatene.
+     Ringen ligger alltid UTENFOR kanten på de fargede knappene
+     (outline-offset ≥ 0), altså på flaten bak dem — ikke på selve knappen. */
+  --focus: #ffffff;
+  --focus-on-dark: #ffffff;
+
+  /* Signalfargene beholder flate-rollen sin (knappegradientene og de stiplede
+     kantene er uendret), men får lyse søsken der de brukes som TEKST. */
+  --danger-ink: #f08fa0;    /* på --surface: 6.86:1 */
+  --primary-ink: #8fbf8f;   /* på --surface: 7.52:1 */
+  --note-ink: #e2bd63;      /* på --surface: 8.78:1 */
+  /* --warn er statusprikken. Den mørke gulfargen (#7d5f10) er laget for hvit
+     bakgrunn og faller til 1.4:1 mot den mørke statuspillen. */
+  --warn: #e0b64a;          /* mot statuspillen: 6.6:1 */
+
+  /* Ikonsettet: lys strek, mørkt «papir». Da leses de samme SVG-ene som en
+     strektegning på mørk flate i stedet for som hvite blaff. */
+  --icon-ink: #e9e7ef;
+  --icon-paper: #262c36;
+  --icon-grey: #767d88;
+
+  /* Platene og hårstrekene snur side (se forklaringen ved :root). */
+  --plate: rgba(0, 0, 0, 0.3);
+  --plate-hover: rgba(0, 0, 0, 0.45);
+  --plate-done: rgba(0, 0, 0, 0.2);
+  --plate-done-hover: rgba(0, 0, 0, 0.32);
+  --tint: rgba(255, 255, 255, 0.14);
+  --tint-hover: rgba(255, 255, 255, 0.26);
+  --tint-open: rgba(255, 255, 255, 0.32);
+  --tint-ring: rgba(255, 255, 255, 0.24);
+  --hairline: rgba(255, 255, 255, 0.16);
+  --on-color-soft: rgba(255, 255, 255, 0.62);
+  --chip-bg: rgba(0, 0, 0, 0.55);
+
+  /* Skygger bærer ikke dybde på en mørk flate slik de gjør på en lys — de må
+     være dypere for i det hele tatt å synes. */
+  --shadow-sm: 0 2px 6px rgba(0, 0, 0, 0.4);
+  --shadow-md: 0 8px 20px rgba(0, 0, 0, 0.5);
+  --shadow-lg: 0 18px 42px rgba(0, 0, 0, 0.66);
+}
+
+/* IKONFARGENE, styrt av tokens i stedet for av SVG-ens egne attributter.
+   Attributtselektorene treffer nøyaktig de tre verdiene ikonsettet faktisk
+   bruker — en CSS-regel slår et presentasjonsattributt, så `stroke="#111"` i
+   markupen blir stående som dokumentasjon av motivet mens fargen kommer
+   herfra. I lys drakt er tokenene identiske med attributtene, så ingenting
+   endrer seg; i mørk snur de.
+
+   `fill="none"`/`stroke="none"` røres ikke (de er geometri, ikke farge), og
+   `currentColor`-glyfene (haken, dør-ut, ✕) følger som før `color` på
+   forelderen. */
+[stroke="#111"] { stroke: var(--icon-ink); }
+[fill="#111"] { fill: var(--icon-ink); }
+[fill="#ffffff"] { fill: var(--icon-paper); }
+[fill="#c0c4c9"] { fill: var(--icon-grey); }
+/* UNNTAKET: de massive fargeknappene. Gradientene deres er de samme i begge
+   drakter (kontraktsfarger — se kontrast-kontrakten over), så et ikon på dem
+   skal bli stående SVART uansett drakt: det er nettopp derfor grønnfargen får
+   være lys. Custom properties arver, så å pinne dem her dekker hele subtreet
+   uten en eneste ekstra selektor. */
+.btn-solid {
+  --icon-ink: #111111;
+  --icon-paper: #ffffff;
+  --icon-grey: #c0c4c9;
+  /* Og av samme grunn blekket: .btn-solid.btn-yellow setter `color: var(--ink)`
+     fordi en gul flate ikke kan bære hvit tekst (se kontrast-kontrakten). Uten
+     denne pinningen ville --ink lyst opp i mørk drakt og gjort nettopp det
+     ulovlige. Gradienten er den samme i begge drakter, så det er blekket som
+     skal stå stille. */
+  --ink: #37343f;
 }
 
 * { box-sizing: border-box; }
@@ -338,7 +560,7 @@ body {
   flex-direction: column;
   gap: 8px;
   padding: 12px var(--toolbar-pad);
-  background: rgba(255, 255, 255, 0.72);
+  background: var(--glass-bg);
   backdrop-filter: blur(14px);
   -webkit-backdrop-filter: blur(14px);
   border-bottom: 1px solid var(--line);
@@ -372,7 +594,7 @@ body {
   box-shadow: var(--shadow-sm);
   transition: background 0.18s, box-shadow 0.18s, transform 0.12s;
 }
-.crumb-btn:hover { background: #fff; box-shadow: var(--shadow-md); }
+.crumb-btn:hover { background: var(--control-bg-hover); box-shadow: var(--shadow-md); }
 .crumb-btn:active { transform: translateY(1px); }
 .crumb-btn:focus-visible { outline: var(--focus-w) solid var(--focus); outline-offset: 2px; }
 .crumb-btn .icon { font-size: var(--fs-base); }
@@ -484,7 +706,7 @@ body {
   box-shadow: var(--shadow-sm);
   transition: background 0.18s, box-shadow 0.18s, color 0.18s, transform 0.12s;
 }
-.account-btn:hover { background: #fff; color: var(--ink); box-shadow: var(--shadow-md); }
+.account-btn:hover { background: var(--control-bg-hover); color: var(--ink); box-shadow: var(--shadow-md); }
 .account-btn:active { transform: translateY(1px); }
 .account-btn > .icon { font-size: 23px; }
 
@@ -527,7 +749,7 @@ body {
 .btn:disabled:hover { box-shadow: none; }
 
 .btn-ghost {
-  background: #fff;
+  background: var(--surface);
   color: var(--ink-soft);
   box-shadow: var(--shadow-sm);
 }
@@ -566,7 +788,7 @@ body {
   touch-action: none;          /* hold/sveip uten at siden scroller */
   transition: background 0.18s, box-shadow 0.18s;
 }
-.trashcan:hover { background: #fff; box-shadow: var(--shadow-md); }
+.trashcan:hover { background: var(--control-bg-hover); box-shadow: var(--shadow-md); }
 
 .trashcan-icon { font-size: var(--fs-base); line-height: 1; display: inline-flex; }
 .trashcan-count {
@@ -577,7 +799,7 @@ body {
   height: 26px;
   padding: 0 7px;
   border-radius: 999px;
-  background: #e6ece6;
+  background: var(--count-bg);
   color: var(--ink-soft);
   font-size: 16px;
   font-weight: 700;
@@ -595,7 +817,7 @@ body {
   align-items: center;
   gap: 10px;
   border-radius: var(--control-radius);
-  background: #fff;
+  background: var(--surface);
   box-shadow: var(--shadow-md);
   overflow: hidden;
   white-space: nowrap;
@@ -666,7 +888,10 @@ body {
   min-width: 24px;
   display: flex;
   align-items: center;
-  color: var(--primary-dark);
+  /* Pila er tegnet med CSS-kanter, altså en STREK på sveipefeltets flate —
+     --primary-ink og ikke --primary-dark, så den snur med drakten som annet
+     blekk på en panelflate. */
+  color: var(--primary-ink);
 }
 .swipe-arrow::before {
   content: '';
@@ -758,9 +983,10 @@ body {
 
 /* ---------------- Card ---------------- */
 .card {
-  --card-bg: #fff;
-  --card-head: #f0f0f0;
-  --card-accent: #cccccc;
+  /* Reserve inntil app.js setter palettfargen inline (colorForIndex). */
+  --card-bg: var(--surface);
+  --card-head: var(--surface-2);
+  --card-accent: var(--line);
 
   break-inside: avoid;
   -webkit-column-break-inside: avoid;
@@ -878,10 +1104,10 @@ body {
   gap: 8px;
   padding: 6px;
   border-radius: 10px;
-  background: rgba(255, 255, 255, 0.55);
+  background: var(--plate);
   transition: background 0.15s, box-shadow 0.15s;
 }
-.item:hover { background: rgba(255, 255, 255, 0.85); }
+.item:hover { background: var(--plate-hover); }
 
 /* Avkryssingsboks: rund-firkantet boks; grønt hake-fyll når gjort.
    Haken (SVG) ligger alltid der, men er usynlig til elementet er gjort. */
@@ -911,7 +1137,7 @@ body {
   inset: 5px;
   border: 2px solid var(--card-accent);
   border-radius: 8px;
-  background: rgba(255, 255, 255, 0.55);
+  background: var(--plate);
   transition: background 0.15s, border-color 0.15s;
 }
 /* Haken males OVER boksen: begge er posisjonert, så tre-rekkefølgen avgjør —
@@ -1001,8 +1227,8 @@ body {
 }
 /* Gjort element: lavere bakgrunns-opacity + gjennomstreket, dempet tekst.
    Avkryssede dras ikke (de ligger i «Utført») — attachHoldDrag gater på done. */
-.item.done { background: rgba(255, 255, 255, 0.3); }
-.item.done:hover { background: rgba(255, 255, 255, 0.48); }
+.item.done { background: var(--plate-done); }
+.item.done:hover { background: var(--plate-done-hover); }
 .item.done .item-text { text-decoration: line-through; opacity: 0.5; }
 
 /* «Utført»-seksjonen: egen liste under de aktive, skilt med en subtil linje. */
@@ -1019,13 +1245,13 @@ body {
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.06em;
-  color: rgba(0, 0, 0, 0.42);
+  color: var(--on-color-soft);
 }
 .done-divider::after {
   content: '';
   flex: 1 1 auto;
   height: 1px;
-  background: rgba(0, 0, 0, 0.15);
+  background: var(--hairline);
 }
 /* «Gjenopprett alle utførte» (⟲) står helt til HØYRE på «Utført»-linja — altså
    etter skillelinja. Linja er divider-ens ::after og ligger derfor sist i
@@ -1074,7 +1300,7 @@ body {
   content: '';
   display: block;
   height: 1px;
-  background: rgba(0, 0, 0, 0.15);
+  background: var(--hairline);
 }
 .category:not(:last-child)::after { margin: 12px -10px 8px; }
 .item + .category::before { margin: 8px -10px 12px; }
@@ -1103,7 +1329,7 @@ body {
   top: -17px;
   height: 1px;
   margin: 0;                          /* nullstill hvile-regelens marger på .category::before */
-  background: rgba(0, 0, 0, 0.15);    /* samme linje som i hvile */
+  background: var(--hairline);    /* samme linje som i hvile */
 }
 /* Samme linje, men malt fra raden OVER. Brukes når raden UNDER linja er forfar
    til det løftede objektet (et listepunkt dratt ut av en kategori): en `position:
@@ -1119,7 +1345,7 @@ body {
   bottom: -17px;
   height: 1px;
   margin: 0;                          /* nullstill hvile-regelens marger på .category::after */
-  background: rgba(0, 0, 0, 0.15);
+  background: var(--hairline);
   display: block;
 }
 .cat-head { display: flex; align-items: center; gap: 8px; padding: 0 6px; }
@@ -1172,12 +1398,12 @@ body {
   padding: 0;
   border-radius: 9px;
   color: #fff;
-  background: rgba(255, 255, 255, 0.2);
-  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.35);
+  background: var(--tint);
+  box-shadow: inset 0 0 0 1px var(--tint-ring);
   transition: background 0.15s, transform 0.1s;
 }
 .cat-cog .icon, .done-restore .icon { width: 1em; height: 1em; font-size: 21px; }
-.cat-cog:hover, .done-restore:hover { background: rgba(255, 255, 255, 0.34); }
+.cat-cog:hover, .done-restore:hover { background: var(--tint-hover); }
 .cat-cog:active, .done-restore:active { transform: scale(0.92); }
 .cat-cog:focus-visible, .done-restore:focus-visible { outline: var(--focus-w) solid var(--focus); outline-offset: 2px; }
 .cat-cog:disabled, .done-restore:disabled { cursor: default; opacity: 0.4; }
@@ -1267,15 +1493,15 @@ body {
   align-self: center;
   transition: background 0.15s, color 0.15s, transform 0.1s;
 }
-.icon-btn:hover { background: rgba(0, 0, 0, 0.07); color: var(--ink); }
+.icon-btn:hover { background: var(--wash); color: var(--ink); }
 
 /* Objektmenyknappen — ÉN knapp per objekt, helt til høyre. Den arver flate og
    størrelse fra kontrollen den erstattet på hvert nivå (`.card-cog` på
    korthoder, `.item-cog` på rader, `.cat-cog` på kategorioverskrifter), så
    ingen ny knappestil er innført. `aria-expanded` markeres mens menyen står
    åpen, slik at knappen ikke ser «kald» ut under sin egen popover. */
-.obj-menu-btn[aria-expanded='true'] { background: rgba(255, 255, 255, 0.42); opacity: 1; }
-.item-cog.obj-menu-btn[aria-expanded='true'] { background: rgba(0, 0, 0, 0.07); }
+.obj-menu-btn[aria-expanded='true'] { background: var(--tint-open); opacity: 1; }
+.item-cog.obj-menu-btn[aria-expanded='true'] { background: var(--wash); }
 
 /* Synlig tastaturfokus på kontrollene (samme brand-ring som aktivt kort). */
 .btn-add:focus-visible,
@@ -1294,7 +1520,7 @@ body {
   color: var(--ink);
   border: none;
   outline: 2px solid var(--card-accent);
-  background: #fff;
+  background: var(--surface);
   border-radius: 6px;
   padding: 2px 6px;
   width: 100%;
@@ -1339,7 +1565,7 @@ body {
   margin: 0;
   list-style: none;
   box-shadow: var(--shadow-lg);
-  background: #fff;
+  background: var(--surface);
   transform: scale(1.03);
   cursor: grabbing;
   pointer-events: none;
@@ -1359,7 +1585,7 @@ body {
   gap: 0;
   list-style: none;
   box-shadow: var(--shadow-lg);
-  background: #fff;
+  background: var(--surface);
   border-radius: 10px;
   padding: 6px;
   transform: scale(1.03);
@@ -1379,7 +1605,7 @@ body {
    på det løftede kortet (og fra høyde-målingen) så draget leser som en kompakt rad. */
 .category.dragging .cat-add { display: none; }
 /* Svart tittel uten skygge — hvit-på-hvit var uleselig på dra-flaten. */
-.category.dragging .cat-title { color: #111; text-shadow: none; -webkit-text-stroke: none; }
+.category.dragging .cat-title { color: var(--ink); text-shadow: none; -webkit-text-stroke: none; }
 .category.dragging .cat-drag-icon { display: inline-flex; }
 
 /* Placeholders (kort/element/mappe/område): IDENTISK stil overalt — svakt
@@ -1449,7 +1675,7 @@ body.is-dragging * { cursor: grabbing !important; }
   display: grid;
   place-items: center;
   padding: 20px;
-  background: rgba(45, 38, 70, 0.42);
+  background: var(--overlay);
   backdrop-filter: blur(4px);
   -webkit-backdrop-filter: blur(4px);
   animation: fade-in 0.15s ease;
@@ -1464,7 +1690,7 @@ body.is-dragging * { cursor: grabbing !important; }
   max-height: 82vh;
   display: flex;
   flex-direction: column;
-  background: #fff;
+  background: var(--surface);
   border-radius: 20px;
   box-shadow: var(--shadow-lg);
   overflow: hidden;
@@ -1617,7 +1843,7 @@ body.is-dragging * { cursor: grabbing !important; }
   font-size: 13px;
   font-weight: 700;
   color: var(--ink);
-  background: rgba(0, 0, 0, 0.06);
+  background: var(--wash);
   border: 1px solid var(--line);
   border-radius: 6px;
   padding: 1px 6px;
@@ -1653,7 +1879,7 @@ body.is-dragging * { cursor: grabbing !important; }
 .nav-board.empty { min-height: 0; padding: 18px 0; }
 .nav-board .empty-state { color: var(--ink-soft); }
 .nav-board .empty-state .big { font-size: 46px; }
-.nav-board .hint-chip { background: rgba(0, 0, 0, 0.07); }
+.nav-board .hint-chip { background: var(--wash); }
 
 /* Under draging ligger det løftede objektet i VIEWPORT-koordinater (modalen
    scroller, ikke vinduet) — se dragUsesPageCoords()/navScope i app.js. */
@@ -1738,7 +1964,10 @@ body.is-dragging * { cursor: grabbing !important; }
   border-bottom: 1px solid var(--line);
 }
 .trash-row:last-child { border-bottom: none; }
-.trash-dot { width: 21px; height: 21px; border-radius: 7px; flex: 0 0 auto; box-shadow: inset 0 0 0 1px rgba(0,0,0,0.06); }
+/* Prikken bærer objektets palettfarge, og palettfargen er mørk i mørk drakt —
+   omtrent like mørk som modalflaten. Kantstreken er derfor --wash og ikke en
+   fast svart: den snur med drakten og gir prikken en synlig kant begge veier. */
+.trash-dot { width: 21px; height: 21px; border-radius: 7px; flex: 0 0 auto; box-shadow: inset 0 0 0 1px var(--wash); }
 /* Navn og metadata hører sammen: samme linje når det er plass, ellers legger
    metadataen seg UNDER navnet (innrykket forbi prikken, ikke ved siden av den). */
 .trash-main {
@@ -1770,7 +1999,7 @@ body.is-dragging * { cursor: grabbing !important; }
   gap: 14px;
   padding: 20px;
   border-top: 1px solid var(--line);
-  background: #faf9fe;
+  background: var(--surface-2);
 }
 /* Notatet tar hele linjen, knappen linjen under (høyrestilt): tøm-knappen
    navngir det den faktisk sletter («Slett listepunktene for godt»), og ved
@@ -1807,7 +2036,7 @@ body.is-dragging * { cursor: grabbing !important; }
   margin: 0;
   font-size: var(--fs-sm);
   font-weight: 700;
-  color: var(--danger);
+  color: var(--danger-ink);
 }
 .confirm-swipe {
   position: relative;
@@ -1817,7 +2046,7 @@ body.is-dragging * { cursor: grabbing !important; }
   height: var(--control-h);
   padding: 0 14px;
   border-radius: var(--control-radius);
-  background: #fff;
+  background: var(--surface);
   box-shadow: inset 0 0 0 1.5px var(--danger-soft-hover), var(--shadow-sm);
   overflow: hidden;
   white-space: nowrap;
@@ -1838,8 +2067,8 @@ body.is-dragging * { cursor: grabbing !important; }
   transform-origin: left center;
   pointer-events: none;
 }
-.confirm-swipe .swipe-label { color: var(--danger); }
-.confirm-swipe .swipe-arrow { color: var(--danger); }
+.confirm-swipe .swipe-label { color: var(--danger-ink); }
+.confirm-swipe .swipe-arrow { color: var(--danger-ink); }
 
 body.modal-open { overflow: hidden; }
 
@@ -1930,7 +2159,7 @@ body.modal-open { overflow: hidden; }
   max-width: min(90vw, 480px);
   padding: 11px 13px 11px 20px;
   border-radius: 999px;
-  background: rgba(45, 38, 70, 0.62);
+  background: var(--glass-dark);
   -webkit-backdrop-filter: blur(14px) saturate(1.3);
   backdrop-filter: blur(14px) saturate(1.3);
   border: 1px solid rgba(255, 255, 255, 0.16);
@@ -2059,11 +2288,11 @@ body.modal-open { overflow: hidden; }
   width: 9px;
   height: 9px;
   border-radius: 50%;
-  background: var(--primary-dark);   /* lagret */
+  background: var(--primary-ink);    /* lagret */
 }
 .sync-status[data-state="saving"] .sync-status-dot { background: var(--warn); }
 .sync-status[data-state="offline"] .sync-status-dot { background: var(--ink-soft); }
-.sync-status[data-state="rejected"] .sync-status-dot { background: var(--danger); }
+.sync-status[data-state="rejected"] .sync-status-dot { background: var(--danger-ink); }
 .sync-status[data-state="rejected"] { color: var(--ink); border-color: var(--danger-soft-hover); }
 /* «Lagret» er en kvittering, ikke en tilstand å stirre på: ett sekund etter at
    den kom, fader pillen HELT ut. En status som alltid står der er visuell støy
@@ -2118,7 +2347,7 @@ body.modal-open { overflow: hidden; }
   max-width: min(92vw, 640px);
   padding: 11px 13px 11px 20px;
   border-radius: 999px;
-  background: rgba(45, 38, 70, 0.62);
+  background: var(--glass-dark);
   -webkit-backdrop-filter: blur(14px) saturate(1.3);
   backdrop-filter: blur(14px) saturate(1.3);
   border: 1px solid rgba(255, 255, 255, 0.16);
@@ -2186,7 +2415,7 @@ body:has(.toast.show) .update-banner.show { transform: translateY(-128px); }
 .tour .tour-card { pointer-events: auto; }
 .tour.narrated {
   pointer-events: auto;  /* velkomsten er modal: flaten svelger bomtrykk */
-  background: rgba(45, 38, 70, 0.5);
+  background: var(--overlay);
   backdrop-filter: blur(4px);
   -webkit-backdrop-filter: blur(4px);
 }
@@ -2221,7 +2450,7 @@ body.tour-demo .trash-row button:not(.tour-live) { opacity: 0.35; }
   position: fixed;
   width: 14px;
   height: 14px;
-  background: #fff;
+  background: var(--surface);
   /* Konturen er det som gjør spissen synlig: uten den forsvinner et hvitt
      kvadrat mot alt som er lyst — den hvite modalen bak, en lys side. Bare de
      to YTRE kantene vises (kortet dekker den halvdelen som peker innover), så
@@ -2240,7 +2469,7 @@ body.tour-demo .trash-row button:not(.tour-live) { opacity: 0.35; }
   overscroll-behavior: contain;
   padding: 18px;
   border-radius: 20px;
-  background: #fff;
+  background: var(--surface);
   box-shadow: var(--shadow-lg);
   animation: pop-in 0.18s cubic-bezier(.2, .75, .3, 1);
 }
@@ -2252,7 +2481,7 @@ body.tour-demo .trash-row button:not(.tour-live) { opacity: 0.35; }
   height: 5px;
   margin: 0 30px 12px 0;
   border-radius: 999px;
-  background: rgba(0, 0, 0, 0.1);
+  background: var(--wash-2);
   overflow: hidden;
 }
 .tour-progress-fill {
@@ -2289,7 +2518,7 @@ body.tour-demo .trash-row button:not(.tour-live) { opacity: 0.35; }
 .tour-list .icon { flex: 0 0 auto; margin-top: 2px; }
 /* .hint-chip er laget for fargede flater (lys, gjennomsiktig hvit); på det hvite
    kortet trengs den mørke varianten — samme unntak som i nav-modalen. */
-.tour-text .hint-chip { background: rgba(0, 0, 0, 0.07); }
+.tour-text .hint-chip { background: var(--wash); }
 .tour-actions {
   display: flex;
   align-items: center;
@@ -2356,7 +2585,7 @@ body.tour-demo .trash-row button:not(.tour-live) { opacity: 0.35; }
     display: grid;
     place-items: center;
     padding: 20px;
-    background: rgba(45, 38, 70, 0.42);
+    background: var(--overlay);
   }
   .switcher-panel {
     position: static;
@@ -2405,7 +2634,7 @@ body.no-auth #account-btn { display: none; }
   display: flex;
   flex-direction: column;
   gap: 13px;
-  background: #fff;
+  background: var(--surface);
   border-radius: 20px;
   padding: 22px;
   box-shadow: var(--shadow-lg);
@@ -2444,7 +2673,7 @@ body.no-auth #account-btn { display: none; }
   padding: 12px;
   border: 1.5px solid var(--line);
   border-radius: var(--radius-sm);
-  background: #fbfbfd;
+  background: var(--surface-3);
   transition: border-color 0.15s, box-shadow 0.15s;
 }
 /* Feltet fikk før KUN en grønn kantfarge + en 14 %-transparent glød; på en lys
@@ -2486,9 +2715,9 @@ body.no-auth #account-btn { display: none; }
   font-size: var(--fs-sm);
   font-weight: 600;
   text-align: center;
-  color: var(--danger);
+  color: var(--danger-ink);
 }
-.auth-msg.ok { color: var(--primary-dark); }
+.auth-msg.ok { color: var(--primary-ink); }
 .auth-msg:empty { min-height: 0; }
 
 .auth-links {
@@ -2506,7 +2735,7 @@ body.no-auth #account-btn { display: none; }
   font-family: inherit;
   font-size: var(--fs-sm);
   font-weight: 600;
-  color: var(--primary-dark);
+  color: var(--primary-ink);
   padding: 2px 4px;
 }
 .auth-link:hover { text-decoration: underline; }
@@ -2515,7 +2744,7 @@ body.no-auth #account-btn { display: none; }
 .auth-sent-icon { font-size: 55px; color: var(--primary); }
 .auth-sent-icon .icon { margin: 0 auto; }
 .auth-sent-msg { margin: 0; font-weight: 600; font-size: var(--fs-base); color: var(--ink); line-height: 1.5; }
-.auth-sent-msg strong { color: var(--primary-dark); }
+.auth-sent-msg strong { color: var(--primary-ink); }
 
 /* ---------------- Konto-modal: profil + badge ---------------- */
 /* «Bilde»-seksjonen i kontoopplysnings-skuffen: samme etikett-over-innhold som
@@ -2550,9 +2779,9 @@ body.no-auth #account-btn { display: none; }
   margin: 0;
   font-size: var(--fs-sm);
   font-weight: 600;
-  color: var(--primary-dark);
+  color: var(--primary-ink);
 }
-.account-msg.error { color: var(--danger); }
+.account-msg.error { color: var(--danger-ink); }
 /* Avatar-sirkler (konto + delings-medlemmer): felles form (rund, sentrert hvit
    initial på gradient); størrelse/farge varierer per bruk. */
 .account-avatar, .member-avatar {
@@ -2597,7 +2826,7 @@ body.no-auth #account-btn { display: none; }
   width: 24px;
   height: 24px;
   border-radius: 50%;
-  background: #fff;
+  background: var(--surface);
   box-shadow: var(--shadow-sm);
   display: grid;
   place-items: center;
@@ -2642,7 +2871,7 @@ body.no-auth #account-btn { display: none; }
   flex: 0 0 auto;
   width: 50px; height: 28px;
   border: none; border-radius: 999px;
-  background: #c4ccd2;
+  background: var(--track);
   padding: 3px;
   cursor: pointer;
   transition: background 0.16s ease;
@@ -2669,7 +2898,7 @@ body.no-auth #account-btn { display: none; }
    allerede finnes i markupen. `display:flex` fjerner baseline-gapet en inline
    <span> ellers ville lagt under svg-en. */
 .menu-setting-icon { display: flex; flex: 0 0 auto; }
-.lang-select {
+.lang-select, .theme-select {
   flex: 0 0 auto;
   width: auto;
   padding: 8px 10px;
@@ -2677,13 +2906,20 @@ body.no-auth #account-btn { display: none; }
   font-weight: 600;
   cursor: pointer;
 }
+/* Raden bærer to par (etikett + velger) på innloggingsskjermen: språk og
+   drakt. Den brytes heller enn å presse velgerne sammen — men den brytes
+   MELLOM parene, aldri inne i et av dem: en etikett som blir stående igjen på
+   linja over velgeren sin hører ikke sammen med noe. Derfor er hvert par en
+   egen flex-boks (`.auth-lang-pair`), og det er de som er radens elementer. */
 .auth-lang {
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 10px;
+  flex-wrap: wrap;
+  gap: 8px 16px;
   margin-top: 4px;
 }
+.auth-lang-pair { display: inline-flex; align-items: center; gap: 10px; }
 /* Etiketten ligger UTENFOR det hvite kortet, rett på skiferflaten — samme sted
    som ordmerket. `--ink-soft` er en tekstfarge for hvit bakgrunn og gir 1,4:1
    her; hvit gir 4,6:1 og klarer AA for vanlig tekst (docs/tilgjengelighet.md). */
@@ -2793,7 +3029,7 @@ body.no-auth #account-btn { display: none; }
 .invite-from { display: block; font-size: 16px; color: var(--ink-soft); font-weight: 500; }
 .invite-type-tag {
   font-size: 14px; font-weight: 700; text-transform: uppercase;
-  color: var(--primary-dark); letter-spacing: 0.03em;
+  color: var(--primary-ink); letter-spacing: 0.03em;
 }
 .invite-actions { display: flex; gap: 6px; }
 
@@ -2861,11 +3097,11 @@ body.no-auth #account-btn { display: none; }
 .member-name { font-weight: 600; font-size: var(--fs-md); color: var(--ink); word-break: break-word; }
 .member-role { display: block; font-size: var(--fs-xs); color: var(--ink-soft); font-weight: 500; }
 .member-pending .member-name { color: var(--ink-soft); font-style: italic; }
-.share-msg { margin: 0; font-size: var(--fs-sm); font-weight: 600; min-height: 20px; color: var(--danger); }
-.share-msg.ok { color: var(--primary-dark); }
+.share-msg { margin: 0; font-size: var(--fs-sm); font-weight: 600; min-height: 20px; color: var(--danger-ink); }
+.share-msg.ok { color: var(--primary-ink); }
 .share-lock-row {
   display: flex; align-items: center; justify-content: space-between; gap: 12px;
-  padding: 12px; border-radius: var(--radius-sm); background: #faf9fe;
+  padding: 12px; border-radius: var(--radius-sm); background: var(--surface-2);
 }
 .share-lock-title { display: flex; align-items: center; gap: 6px; }
 .share-lock-icon { display: inline-flex; font-size: 18px; color: var(--ink); }
@@ -2873,7 +3109,7 @@ body.no-auth #account-btn { display: none; }
 .share-lock-hint { display: block; font-size: var(--fs-xs); font-weight: 500; color: var(--ink-soft); margin-top: 2px; }
 /* Arvet lås (objektet er låst fordi en forelder er låst): tydeliggjør at dette
    er en informasjons-/unntakstilstand, ikke en vanlig av/på-lås. */
-.share-lock-row.is-inherited { background: #fff7ed; }
+.share-lock-row.is-inherited { background: var(--surface-alt); }
 .share-lock-anc-icon { display: inline-flex; vertical-align: -3px; font-size: 15px; color: var(--ink); }
 .share-lock-anc-icon svg { width: 15px; height: 15px; }
 /* Arvet medlem (tilgang via området): svakere, og uten «Fjern» her. */
@@ -2889,7 +3125,7 @@ body.no-auth #account-btn { display: none; }
   padding: 14px;
   border: 1.5px solid var(--line);
   border-radius: var(--radius-sm);
-  background: #fff;
+  background: var(--surface);
   transition: border-color 0.15s, background 0.15s;
 }
 .place-option:hover { border-color: var(--primary); background: var(--primary-soft); }
@@ -2921,13 +3157,13 @@ body.no-auth #account-btn { display: none; }
   border-radius: 9px;
   font-size: var(--fs-lg);
   color: #fff;
-  background: rgba(255, 255, 255, 0.2);
-  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.35);
+  background: var(--tint);
+  box-shadow: inset 0 0 0 1px var(--tint-ring);
   transition: background 0.15s;
 }
 .card-cog:hover {
   color: #fff;
-  background: rgba(255, 255, 255, 0.34);
+  background: var(--tint-hover);
 }
 .card-cog:focus-visible { outline: var(--focus-w) solid var(--focus); outline-offset: 2px; }
 .card.is-locked .card-title { opacity: 0.9; }
@@ -2964,7 +3200,7 @@ body.no-auth #account-btn { display: none; }
   font-weight: 600;
   font-variant-numeric: tabular-nums;
   color: var(--ink-soft);
-  background: rgba(255, 255, 255, 0.78);
+  background: var(--chip-bg);
   box-shadow: 0 1px 3px rgba(35, 45, 55, 0.16);
   transition: filter 0.15s, box-shadow 0.15s, transform 0.1s;
 }
@@ -3053,7 +3289,7 @@ body.no-auth #account-btn { display: none; }
 .obj-menu-row:has(.obj-menu-hint) { flex-wrap: wrap; }
 /* Sletting/oppløsing: rød etikett bak en skillelinje, alltid nederst. */
 .obj-menu-sep { height: 1px; margin: 5px 4px; background: var(--line); }
-.obj-menu-row.is-danger { color: var(--danger); }
+.obj-menu-row.is-danger { color: var(--danger-ink); }
 .obj-menu-row.is-danger:hover { background: var(--danger-soft); }
 
 /* Trekkspillet: overskriftsraden får en vinkel til høyre som roterer 90° når
@@ -3175,7 +3411,7 @@ body.no-auth #account-btn { display: none; }
 }
 .time-row .field:disabled { opacity: 0.55; }
 /* Subtilt hint (utenfor listens tidsrom / styrt av listen). */
-.time-note { margin: 0; font-size: var(--fs-xs); font-weight: 600; color: #9a6b15; }
+.time-note { margin: 0; font-size: var(--fs-xs); font-weight: 600; color: var(--note-ink); }
 .time-note.is-muted { color: var(--ink-soft); font-weight: 500; }
 .time-note[hidden] { display: none; }
 .time-lock {
@@ -3202,7 +3438,7 @@ body.no-auth #account-btn { display: none; }
   width: 42px;
   height: 25px;
   border-radius: 999px;
-  background: #cfccd6;
+  background: var(--track);
   margin: 0;
   cursor: pointer;
   flex: none;
@@ -3295,7 +3531,7 @@ body.no-auth #account-btn { display: none; }
 .nav-add-uni { display: flex; justify-content: center; margin: 4px 0 2px; }
 /* «Mapper delt med meg» er en VIRTUELL beholder — den har ingen egen farge,
    ingen del-/slett-knapp og ingen ＋-rad; bare mappene. */
-.free-groups-card { --card-bg: #eef0f6; --card-head: #dfe3ee; --card-accent: #9aa3b8; }
+.free-groups-card { --card-bg: var(--free-bg); --card-head: var(--free-head); --card-accent: var(--free-accent); }
 /* Tittelen står på en LYS flate her (ikke en mettet kortfarge), så den hvite
    skriften med skygge ville blitt uleselig — bruk vanlig blekk uten skygge.
    Navnet er heller ikke redigerbart: beholderen finnes ikke i databasen. */

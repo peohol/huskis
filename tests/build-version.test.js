@@ -77,12 +77,12 @@ const src = fs.readFileSync(path.join(ROOT, 'index.html'), 'utf8');
 check('kildekoden står fortsatt på «dev» (auto-oppdatering av i lokal utvikling)', metaBuildId(src) === 'dev');
 
 const bid = a.version.buildId;
-['app.js', 'icons.js', 'i18n.js', 'config.js', 'update-check.js'].forEach((f) => {
+['app.js', 'icons.js', 'i18n.js', 'theme.js', 'config.js', 'update-check.js'].forEach((f) => {
   check('index.html laster ' + f + ' med ?b=<build-ID>', a.html.indexOf('src="' + f + '?b=' + bid + '"') > -1);
 });
 check('index.html laster styles.css med ?b=<build-ID>', a.html.indexOf('href="styles.css?b=' + bid + '"') > -1);
 check('ingen uversjonerte app.js/styles.css-referanser igjen',
-  !/(src|href)="(app\.js|styles\.css|icons\.js|i18n\.js|config\.js|update-check\.js)"/.test(a.html));
+  !/(src|href)="(app\.js|styles\.css|icons\.js|i18n\.js|theme\.js|config\.js|update-check\.js)"/.test(a.html));
 
 // 5) Unikhet + Vercels deploy-ID.
 const b = runBuild(outB);
@@ -118,7 +118,7 @@ const lekkasjer = alle.filter((f) => /(^|\/)(package(-lock)?\.json|capacitor\.co
 check('ingen tooling-filer noe sted i dist/ [' + (lekkasjer.join(', ') || 'ingen') + ']',
   lekkasjer.length === 0);
 
-['app.js', 'styles.css', 'icons.js', 'i18n.js', 'config.js', 'update-check.js', 'favicon.svg', 'assets', 'vendor']
+['app.js', 'styles.css', 'icons.js', 'i18n.js', 'theme.js', 'config.js', 'update-check.js', 'favicon.svg', 'assets', 'vendor']
   .forEach((n) => check('publiserer ' + n, names.indexOf(n) > -1));
 
 // 7–8) Cache-headerne + install-steget.
@@ -140,7 +140,7 @@ check('/version.json caches heller ikke på CDN-et', ((vc.headers || [])
   .some((x) => x.key === 'CDN-Cache-Control' && /no-store/.test(x.value)));
 check('HTML-en revalideres (reload henter ny side)',
   /must-revalidate/.test(headerFor('/')) && /must-revalidate/.test(headerFor('/index.html')));
-['/app.js', '/icons.js', '/i18n.js', '/config.js', '/update-check.js', '/styles.css'].forEach((s) => {
+['/app.js', '/icons.js', '/i18n.js', '/theme.js', '/config.js', '/update-check.js', '/styles.css'].forEach((s) => {
   check('langtidscache på ' + s, /immutable/.test(headerFor(s)) && /max-age=31536000/.test(headerFor(s)));
 });
 // vendor/ får ikke ?b=<build-ID>: versjonen står i filnavnet, så URL-en endrer

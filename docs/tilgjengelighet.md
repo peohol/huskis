@@ -69,6 +69,29 @@ Testen vokter i tillegg at **ingen** `:focus-visible`-regel maler ringen i noe
 annet enn `--focus`/`--focus-on-dark`, og at de pensjonerte fargeverdiene ikke
 finnes noe sted i kildetreet.
 
+### Den mørke drakten har samme kontrakt
+
+Kravene over gjelder uendret i mørk drakt — det er FLATENE som er andre, og
+tokenene som snur (se [`mork-drakt.md`](mork-drakt.md)). Samme test regner ut
+den mørke halvdelen fra `:root[data-theme="dark"]` og fra L-settene i `app.js`:
+
+| Krav | Verdi |
+|---|---|
+| `--ink` / `--ink-soft` / `--danger-ink` / `--primary-ink` / `--note-ink` som tekst på de mørke flatene | ≥ 4.5:1 |
+| `--focus` (nå **hvit**) mot board-bakgrunnen, panelflatene og alle 36 mørke palettfarger | ≥ 3:1 |
+| `--icon-ink` (nå lys) mot de samme flatene | ≥ 3:1 |
+| `--ink` på listepunkt-platen, `--ink-soft` på meta-chipen — begge over hver mørke kortfarge | ≥ 4.5:1 |
+| Trafikklyset mot den mørke statuspillen | ≥ 3:1 |
+
+**Hvorfor fokusringen snur.** `--focus` (`#10131a`) er valgt for å lese mot alle
+LYSE flater; mot den mørke board-bakgrunnen gir den 1,0:1. Hvit gir ≥ 4,0:1 mot
+alle 36 mørke palettfarger. Ringen ligger alltid UTENFOR kanten på de fargede
+knappene (`outline-offset` ≥ 0), altså på flaten bak dem — knappegradientene er
+uendret i mørk drakt, og en hvit ring PÅ den lyse grønnen ville vært ulovlig.
+Testen låser begge halvdelene: at den lyse ringen er usynlig i mørk drakt, og at
+`.btn-solid` pinner ikonstreken og `--ink` tilbake til de lyse verdiene så
+ikonene og den gule knappens tekst blir stående mørke.
+
 ## Navn på kontroller
 
 Alle ikonknapper har `aria-label`. `title` settes ved siden av som musehjelp,

@@ -12,7 +12,8 @@ rad. Motoren kjører i to scope — `boardScope` (listevisningen) og `navScope`
 (navigasjonsmodalen) — så en endring i den treffer begge nivåene.
 
 **Kildekode** (det som deployes): `index.html`, `styles.css`, `app.js`,
-`icons.js`, `i18n.js`, `config.js`, `update-check.js`, `assets/`, `vendor/`
+`icons.js`, `i18n.js`, `theme.js`, `config.js`, `update-check.js`, `assets/`,
+`vendor/`
 (supabase-js som innsjekket, uendret kopi — `docs/sikkerhetsheadere.md`).
 `dev-mock.js` og
 `mock-backend.js` er testmodus (`?mock=1`) og blir IKKE med i produksjons-
@@ -46,6 +47,12 @@ innlogging). All brukerrettet tekst går gjennom ordboken i `i18n.js` —
 `tr('nøkkel')` i `app.js`, `data-i18n` i `index.html`. En norsk streng skrevet
 rett inn i koden finnes ikke på engelsk, og `tests/i18n.test.js` stopper den.
 Autoritativt: `docs/sprak.md`.
+
+UI-et finnes også i **lys og mørk drakt**, og brukeren velger selv (også før
+innlogging). Drakten er ÉN blokk med fargetokens i `styles.css` pluss ett
+speilet L-sett i paletten — ingen egne mørke regler, ingen duplisert geometri.
+Valget lagres kun på enheten (`theme.js`, lastet i `<head>` så attributtet står
+der før første maling). Autoritativt: `docs/mork-drakt.md`.
 
 De norske ordene i UI-et og dokumentasjonen er **område** og **mappe**;
 identifikatorene i koden og databasen heter fortsatt `universe` og `group`

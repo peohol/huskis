@@ -37,6 +37,19 @@ hele appen følge med.
 Alle knapper i samme knapperad har identisk høyde/radius/flate (`--control-h`
 / `--control-radius`). Gjelder ＋-knapper, søppelkasser, breadcrumb-knappene og kontoknappen.
 
+**Ingen hardkodet flate-, linje- eller ikonfarge.** Alt som skifter mellom lys
+og mørk drakt er tokens: `--surface*` (paneler/felt), `--line`, `--wash*`
+(svak toning på en lys flate), `--overlay`/`--glass-*`, `--plate*` og `--tint*`
+(lagene som ligger OPPÅ en palettfarge), `--hairline`, `--chip-bg`,
+`--icon-ink`/`--icon-paper`/`--icon-grey`, og `--danger-ink`/`--primary-ink`/
+`--note-ink` der en signalfarge brukes som tekst. Skriver du en ny regel med
+`#fff`, `rgba(0,0,0,…)` eller `rgba(255,255,255,…)` i seg, er den mørke drakten
+allerede ødelagt — bruk et token, eller legg til ett.
+
+Unntaket er hvit tekst/glyfer PÅ en palettfarge eller en fargeknapp (korttittel,
+`.card-cog`, `.btn-solid`): den er hvit i begge drakter, og skal fortsatt stå
+som `#fff`. Autoritativt for drakten: [`mork-drakt.md`](mork-drakt.md).
+
 ## Luft-regler (padding/margin/gap)
 
 - **Symmetri per listepunkt**: et listepunkt skal ha samme luft på alle kanter — én

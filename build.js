@@ -69,7 +69,7 @@ function keepTestMode(env) {
 }
 
 // Filene index.html laster lokalt, og som derfor får `?b=<build-ID>`.
-const VERSIONED = ['config.js', 'icons.js', 'i18n.js', 'app.js', 'update-check.js', 'styles.css'];
+const VERSIONED = ['theme.js', 'config.js', 'icons.js', 'i18n.js', 'app.js', 'update-check.js', 'styles.css'];
 
 function sanitize(s) {
   return String(s || '').replace(/[^A-Za-z0-9._-]/g, '').slice(0, 100);

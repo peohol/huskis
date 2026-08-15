@@ -1,0 +1,158 @@
+# Lys og mørk drakt
+
+Les denne når oppgaven berører fargevalg, `styles.css`-tokens, ikonfarger eller
+palettfargene på kort og rader.
+
+Appen har to drakter: **lys** (som før) og **mørk**. Brukeren velger selv, også
+før innlogging.
+
+## Valget
+
+| Verdi | Betyr |
+|---|---|
+| `system` (standard) | følger operativsystemets `prefers-color-scheme`, og skifter med det mens appen står åpen |
+| `light` | lys drakt uansett hva systemet sier |
+| `dark` | mørk drakt uansett hva systemet sier |
+
+Valget ligger i `localStorage['huskis-theme']` og **bare der**. Det er
+enhetens, ikke kontoens — i motsetning til språket
+([`sprak.md`](sprak.md)), som også ligger på kontoen fordi serveren trenger
+det til invitasjons-e-postene. Drakten hører til skjermen man sitter foran og
+lyset i rommet; den har ingen serverside-effekt, og to enheter kan gjerne stå
+forskjellig. Derfor ingen `user_metadata`, ingen synk og ingen fletting.
+
+Kontrollen er den samme to steder, som språkvelgeren
+([`menus.md`](menus.md)): en `<select>` i konto-modalen (`#theme-select`, en
+`.menu-setting`-rad utenfor trekkspillet) og en på innloggingsskjermen
+(`#auth-theme-select`). Et bytte laster **ikke** siden på nytt — drakten bor i
+CSS-tokens og i kortfargene, og begge deler males på plassen sin.
+
+## `theme.js` lastes i `<head>`
+
+Fila er søsteren til `i18n.js`: ren tilstand, ingen avhengigheter, rører bare
+`<html data-theme>`, `<meta name="theme-color">` og den lagrede verdien. Den
+eksponerer `window.HUSKIS_THEME` (`mode()`, `effective()`, `setMode()`,
+`onChange()`).
+
+Den lastes **i `<head>`, ikke nederst i `<body>`**. Fargene velges av
+`data-theme` på rot-elementet, så attributtet må stå der før nettleseren maler
+første bilde; lastet sist ville skjermen blinket hvitt før den ble mørk.
+`tests/dark-mode.test.js` måler dette i den første `requestAnimationFrame`-en,
+altså før første maling.
+
+`setMode()` returnerer om valget ble **lagret** — samme kontrakt som
+`I18N.setLang()`. I privat modus kaster `setItem`, og drakten ville falt
+tilbake ved neste lasting uten at noen sa fra; `app.js` viser en toast i stedet.
+
+## Tokens, og bare tokens
+
+Alt som skifter er custom properties. `:root` har de lyse verdiene,
+`:root[data-theme="dark"]` overstyrer dem. **Den mørke blokken inneholder
+ingenting annet enn custom properties** — ingen nye regler, ingen duplisert
+geometri. Trenger du en `[data-theme="dark"]`-regel med noe annet i, mangler det
+et token i `:root`.
+
+Tokenene er delt i to familier etter hva de ligger på:
+
+- **Flate-familien** (`--surface*`, `--line`, `--wash*`, `--overlay`,
+  `--glass-bg`, `--control-bg*`, `--track`, `--count-bg`, `--free-*`) ligger på
+  appens egne flater: modaler, toppmeny, paneler. I mørk drakt blir flatene
+  mørke og blekket lyst.
+- **På-farge-familien** (`--plate*`, `--tint*`, `--hairline`, `--on-color-soft`,
+  `--chip-bg`) ligger oppå en **palettfarge**. Der snur ikke flaten —
+  palettfargen gjør jobben selv — men lagene oppå: de halvgjennomsiktig hvite
+  platene blir halvgjennomsiktig svarte, og de svarte hårstrekene blir hvite.
+
+To ting snur som ikke er flater:
+
+- **Fokusringen.** `--focus` er mørk i lys drakt (den må lese mot alle lyse
+  flater) og **hvit** i mørk. Den mørke gir 1,0:1 mot den mørke
+  board-bakgrunnen; den hvite gir ≥ 4,0:1 mot alle 36 mørke palettfarger.
+- **Signalfargene som også er tekst.** `--danger`, `--warn` og `--primary-dark`
+  er flate- og signalfarger (knappegradienter, stiplede kanter, prikker) og skal
+  ikke lysne. Der de brukes som *tekst* brukes `--danger-ink`, `--primary-ink`
+  og `--note-ink` i stedet — identiske med originalene i lys drakt, lyse i mørk.
+
+`color-scheme` settes på rot-elementet i begge drakter, så det vi ikke tegner
+selv følger med: `<select>`-nedtrekket, dato- og klokkeslettvelgerne i
+tidsplanen ([`scheduling.md`](scheduling.md)) og rullefeltene.
+
+## Ikonene snur uten at en eneste SVG endres
+
+Ikonsettet (`icons.js` + de innlimte SVG-ene i `index.html`) har fargene som
+**presentasjonsattributter**: `stroke="#111"`, `fill="#ffffff"`,
+`fill="#c0c4c9"`. En CSS-regel slår et presentasjonsattributt, så tre
+attributt-selektorer maler dem om til `--icon-ink`, `--icon-paper` og
+`--icon-grey`. I lys drakt er tokenene identiske med attributtene; i mørk blir
+streken lys og «papiret» mørkt, så ikonene leser som strektegninger på mørk
+flate i stedet for som hvite blaff.
+
+Unntaket er `.btn-solid`. Gradientene på de fargede knappene er de samme i
+begge drakter (de er kontraktsfarger, se
+[`tilgjengelighet.md`](tilgjengelighet.md)), så ikonene på dem skal bli stående
+svarte — det er nettopp derfor grønnfargen får være lys. Knappen pinner derfor
+`--icon-ink`/`--icon-paper` tilbake, og `--ink` med dem: `.btn-yellow` setter
+`color: var(--ink)` fordi en gul flate ikke kan bære hvit tekst, og uten
+pinningen ville blekket lyst opp i mørk drakt og gjort nettopp det ulovlige.
+Custom properties arver, så ett sted dekker hele subtreet.
+
+**De seks palettfyllene i ikonene** (globusens felter, mappene i logoen) står
+uendret i begge drakter. De er den lyse palettens første sett (S=20 %, L=60 %)
+og leser godt mot mørk flate; skiftet til den mørke rekka ville gjort ikonene
+grumsete uten å vinne noe.
+
+## Palettfargene: samme tone, speilet lyshet
+
+Kort-, mappe- og områdefargene er de eneste fargene som **ikke** bor i CSS — de
+utledes av posisjon ved rendring ([`colors-and-labels.md`](colors-and-labels.md)).
+Tone og metning er de samme i begge drakter; bare L-settet snur:
+
+```
+lys   L = [60, 75, 90]
+mørk  L = [42, 32, 22]
+```
+
+Den mørke rekka er **ikke** en ren `100 − L` (`[40, 25, 10]`). Kontrastforhold
+speiles ikke lineært i L: mot en mørk board-bakgrunn faller L=10 til 1,0–1,1:1,
+og de tre settene ville smeltet sammen med bakgrunnen og med hverandre.
+`[42, 32, 22]` er speilingen komprimert opp i det området som fortsatt har
+spennvidde, og gir målt nesten samme spredning mot board-et som den lyse gir mot
+sitt:
+
+| Sett | Lys drakt, mot `--bg` | Mørk drakt, mot `--bg` |
+|---|---|---|
+| 1 | 1,31–1,99:1 | 2,55–4,37:1 |
+| 2 | 2,25–2,82:1 | 1,81–2,80:1 |
+| 3 | 3,52–3,84:1 | 1,32–1,74:1 |
+
+Samme gulv (1,3) og samme tak (3,8–4,4), med settene i motsatt rekkefølge — som
+er hele poenget med en speiling.
+
+Kortets to avledede farger snur retning med drakten (`paintCardColor` i
+`app.js`): korthodet og avkryssingsboksens kant **mørknes** i lys drakt og
+**lysnes** i mørk. Mørknet på et allerede mørkt kort ville gitt et korthode som
+forsvinner i bakgrunnen og en avkryssingskant som er borte.
+
+Fordi kortfargene settes inline og ikke av CSS, må board-et rendres på nytt når
+drakten skifter. `app.js` lytter på `THEME.onChange` og kaller `render()` — også
+når skiftet kom fra operativsystemet mens appen sto åpen.
+
+## Kontrasten er målt, ikke valgt
+
+`tests/a11y-contrast.test.js` regner ut den mørke halvdelen av kontrakten på
+nytt fra `:root[data-theme="dark"]` og fra L-settene i `app.js`, akkurat som den
+gjør for den lyse: blekket på de mørke flatene, fokusringen og ikonstreken mot
+alle 36 mørke palettfarger, teksten på platene (som er blandinger — en
+halvgjennomsiktig plate over en palettfarge, regnet ut i testen), trafikklyset
+mot den mørke statuspillen, og at de to L-settene faktisk speiler hverandre.
+
+Endrer du en verdi i den mørke blokken eller et L-sett, kjør den testen.
+Kravene selv står i [`tilgjengelighet.md`](tilgjengelighet.md).
+
+## Hva testene dekker
+
+| Fil | Dekker |
+|---|---|
+| `tests/a11y-contrast.test.js` | kontraktstallene i begge drakter |
+| `tests/dark-mode.test.js` | attributtet før første maling, «følg systemet» levende, begge velgerne, varighet over omlasting, speilingen av kortfargene, `color-scheme` og `theme-color` |
+| `tests/build-version.test.js` | at `theme.js` versjoneres og langtidscaches som de andre klientfilene |

@@ -19,6 +19,14 @@
     return I18N.applyStatic(tpl.content.firstElementChild.cloneNode(true));
   }
 
+  /* ---------------- Drakt (lys/mørk) ----------------
+     `theme.js` lastes i <head>, altså lenge før denne fila, og har allerede
+     satt `data-theme` på <html> når vi kommer hit. Herfra trenger vi den bare
+     til to ting: å vite hvilken drakt som gjelder når kortfargene regnes ut
+     (paletten speiler L-en, se colorForIndex), og å male board-et på nytt når
+     drakten skifter. Autoritativt: docs/mork-drakt.md. */
+  const THEME = window.HUSKIS_THEME;
+
   /* ---------------- Konstanter ---------------- */
   const STORAGE_KEY = 'mine-lister-v1';
 
@@ -49,8 +57,25 @@
      Alt styres av konstantene under (justerbart/skalerbart — endre antall nivåer
      eller steg uten å røre resten). Farger lagres ikke/synkes ikke; de utledes
      ved rendring (rekkefølgen `pos` synkes, så alle enheter får samme farger). */
-  const COLOR_SAT = 20;                 // S (%) — likt for alle farger
-  const COLOR_LIGHTNESS = [60, 75, 90]; // L (%) per sett (sett 1, 2, 3 …)
+  const COLOR_SAT = 20;                 // S (%) — likt for alle farger, i begge drakter
+  /* L (%) per sett (sett 1, 2, 3 …), ett sett per drakt. H og S er de samme i
+     begge — det er BARE lysheten som snus, slik at et kort beholder tonen sin
+     når man bytter drakt.
+
+     Den mørke rekka er IKKE en ren 100−L ([40,25,10]). Kontrastforhold speiles
+     ikke lineært i L: mot en mørk board-bakgrunn faller L=10 til 1,0–1,1:1, og
+     de tre settene ville smeltet sammen med bakgrunnen og med hverandre.
+     [42,32,22] er speilingen komprimert opp i det området som fortsatt har
+     spennvidde. Målt mot board-bakgrunnen gir den nesten nøyaktig samme
+     spredning som den lyse rekka gir mot sin:
+
+       lys  L=60/75/90 → 1,31–1,99 / 2,25–2,82 / 3,52–3,84 mot --bg
+       mørk L=42/32/22 → 2,55–4,37 / 1,81–2,80 / 1,32–1,74 mot --bg
+
+     altså samme gulv (1,3) og samme tak (3,8–4,4), bare med settene i motsatt
+     rekkefølge — som er hele poenget med en speiling. tests/a11y-contrast.test.js
+     regner tallene ut på nytt. Se docs/mork-drakt.md. */
+  const COLOR_LIGHTNESS_BY_THEME = { light: [60, 75, 90], dark: [42, 32, 22] };
   const HUE_STEP = 60;                  // hopp mellom nabo-indekser (grader)
   const HUE_COUNT = 12;                 // antall toner per sett
 
@@ -71,7 +96,15 @@
     return order;
   }
   const HUE_ORDER = buildHueOrder(HUE_COUNT, HUE_STEP);
-  const COLOR_COUNT = HUE_ORDER.length * COLOR_LIGHTNESS.length; // farger før repetisjon
+  // Antall sett er likt i begge drakter, så antall farger før repetisjon — og
+  // dermed hvilket SETT en gitt indeks havner i — er uavhengig av drakten.
+  const COLOR_COUNT = HUE_ORDER.length * COLOR_LIGHTNESS_BY_THEME.light.length;
+
+  // Drakten som gjelder nå: 'light' eller 'dark' (theme.js løser opp 'system').
+  function themeName() { return THEME.effective(); }
+  function lightnessSet() {
+    return COLOR_LIGHTNESS_BY_THEME[themeName()] || COLOR_LIGHTNESS_BY_THEME.light;
+  }
 
   function hslToHex(h, s, l) {
     s /= 100; l /= 100;
@@ -87,10 +120,11 @@
   // Farge for indeks i: tonen velges av (i % antall toner), settet (L-nivå) av
   // hvor mange hele runder vi har fylt (floor(i / antall toner)). Wrapper rundt.
   function colorForIndex(i) {
+    const L = lightnessSet();
     i = ((i % COLOR_COUNT) + COLOR_COUNT) % COLOR_COUNT;
     const hue = HUE_ORDER[i % HUE_ORDER.length];
-    const level = Math.floor(i / HUE_ORDER.length) % COLOR_LIGHTNESS.length;
-    return hslToHex(hue, COLOR_SAT, COLOR_LIGHTNESS[level]);
+    const level = Math.floor(i / HUE_ORDER.length) % L.length;
+    return hslToHex(hue, COLOR_SAT, L[level]);
   }
   // Stabil reservefarge (f.eks. til søppelkasse-prikker) når en entitet ikke er
   // synlig og derfor mangler posisjonsfarge: utled deterministisk fra id-en.
@@ -144,6 +178,35 @@
     const f = (c) => Math.max(0, Math.round(c * (1 - amt)));
     const to = (c) => c.toString(16).padStart(2, '0');
     return '#' + to(f(r)) + to(f(g)) + to(f(b));
+  }
+  function lighten(hex, amt) {
+    const { r, g, b } = hexToRgb(hex);
+    const f = (c) => Math.min(255, Math.round(c + (255 - c) * amt));
+    const to = (c) => c.toString(16).padStart(2, '0');
+    return '#' + to(f(r)) + to(f(g)) + to(f(b));
+  }
+
+  /* Kortets tre farger settes som inline custom properties, og alle tre utledes
+     av palettfargen:
+
+       --card-bg     kortflaten selv
+       --card-head   korthodet — et hakk fra flaten, så hodet leser som eget felt
+       --card-accent kanten rundt avkryssingsboksen (et grafisk objekt, 3:1)
+
+     RETNINGEN SNUR MED DRAKTEN. I lys drakt er kortfargen lys, og de to
+     avledede mørknes. I mørk drakt er kortfargen mørk: en mørkning ville gitt
+     et korthode som forsvinner i bakgrunnen og en avkryssingskant som er borte
+     (nesten svart på nesten svart). Der lysner de i stedet — samme kontrast,
+     motsatt vei. Aksenten trenger et hakk mer (0,34 mot 0,32) for å holde 3:1
+     mot den mørke platen den ligger oppå.
+
+     Ett sted, ikke tre: alle som tegner et kort (liste, område, omfarging under
+     draging) går gjennom denne. */
+  function paintCardColor(el, base) {
+    const dark = themeName() === 'dark';
+    el.style.setProperty('--card-bg', base);
+    el.style.setProperty('--card-head', dark ? lighten(base, 0.08) : darken(base, 0.08));
+    el.style.setProperty('--card-accent', dark ? lighten(base, 0.34) : darken(base, 0.32));
   }
 
   // Respekter operativsystemets «reduser bevegelse»-innstilling: fly-/FLIP-/
@@ -1767,9 +1830,7 @@
     // ikke et område (den nøytrale flaten kommer fra `.free-groups-card`).
     if (!u._virtual) {
       const base = u.color || colorForId(u.id);
-      el.style.setProperty('--card-bg', base);
-      el.style.setProperty('--card-head', darken(base, 0.08));
-      el.style.setProperty('--card-accent', darken(base, 0.32));
+      paintCardColor(el, base);
     }
 
     const isFree = !!u._virtual;   // «Mapper delt med meg» — ikke et ekte område
@@ -2239,9 +2300,7 @@
     // Fargen settes normalt av render() (posisjonsbasert); fall tilbake på en
     // stabil id-farge om kortet bygges utenfor en full render.
     const base = cardData.color || colorForId(cardData.id);
-    el.style.setProperty('--card-bg', base);
-    el.style.setProperty('--card-head', darken(base, 0.08));
-    el.style.setProperty('--card-accent', darken(base, 0.32));
+    paintCardColor(el, base);
 
     // Delings-/låse-status (kontomodus). En liste arver delingen fra mappen —
     // den har ingen egen medlemsliste. Delt-indikatoren er en badge i
@@ -4856,9 +4915,7 @@
       c.color = colorForIndex(i);
       const el = S.root.querySelector('.card[data-id="' + c.id + '"]');
       if (!el) return;
-      el.style.setProperty('--card-bg', c.color);
-      el.style.setProperty('--card-head', darken(c.color, 0.08));
-      el.style.setProperty('--card-accent', darken(c.color, 0.32));
+      paintCardColor(el, c.color);
     });
   }
 
@@ -10004,6 +10061,7 @@
   function repaintLanguage() {
     I18N.applyStatic(document);
     paintLanguage();
+    paintTheme();   // draktvalgenes etiketter er også oversatt tekst
   }
   /* Bytt språk. Appen lastes normalt på nytt etterpå: språket sitter i hver
      eneste tekst som allerede er bygget — korttitler, menyer, demoens steg —
@@ -10064,6 +10122,48 @@
        støy (og en unødvendig runde mot Auth). */
     if (I18N.chosen()) saveAccountPref({ lang: I18N.lang() }, 1);
   }
+
+  /* ---------------- Drakt (lys/mørk) ----------------
+     Samme kontroll to steder som språket — konto-modalen og innloggings-
+     skjermen — men valget er ENHETENS alene: det ligger bare i
+     `localStorage['huskis-theme']` (theme.js), aldri på kontoen. Drakten følger
+     skjermen og lyset man sitter i, ikke hvem man er, og den har ingen
+     serverside-effekt slik språket har (invitasjons-e-postene er på kontoens
+     språk). Autoritativt: docs/mork-drakt.md.
+
+     Ingen omlasting, i motsetning til et språkbytte: drakten bor i CSS-tokens
+     og i kortfargene, og begge deler kan males på nytt der de står. */
+  const themeSelects = () => [document.getElementById('theme-select'),
+    document.getElementById('auth-theme-select')].filter(Boolean);
+  function paintTheme() {
+    const icon = document.getElementById('theme-icon');
+    if (icon && !icon.innerHTML) icon.innerHTML = ICONS.theme;
+    themeSelects().forEach((sel) => {
+      if (!sel.options.length) {
+        THEME.MODES.forEach((m) => {
+          const o = document.createElement('option');
+          o.value = m;
+          sel.appendChild(o);
+        });
+        sel.addEventListener('change', () => setTheme(sel.value));
+      }
+      // Etikettene males på nytt hver gang, ikke bare når valgene bygges: et
+      // språkbytte uten omlasting (repaintLanguage) går gjennom her.
+      Array.prototype.forEach.call(sel.options, (o) => { o.textContent = tr('theme.' + o.value); });
+      sel.value = THEME.mode();
+    });
+  }
+  function setTheme(mode) {
+    if (mode === THEME.mode()) return;
+    const saved = THEME.setMode(mode);   // maler data-theme + varsler lytterne
+    paintTheme();
+    if (!saved) showToast(tr('theme.notStored'));
+  }
+  /* Kortfargene er de eneste fargene som IKKE bor i CSS — de settes inline fra
+     paletten (colorForIndex), og paletten speiler L-en per drakt. Derfor må
+     board-et rendres på nytt når drakten skifter, også når skiftet kom fra
+     operativsystemet mens appen sto åpen ('system'). */
+  THEME.onChange(() => { paintTheme(); render(); });
 
   // E-postvarsel-innstillingen ligger på kontoen (user_metadata.email_notifications).
   // Standard PÅ (ny bruker uten flagget → true). Endres optimistisk; skrivingen
@@ -12423,6 +12523,7 @@
   // bygges — malene (`<template>`) tas av `fromTemplate()` når de klones.
   I18N.applyStatic(document);
   paintLanguage();
+  paintTheme();
   initAccounts();
 
   // Eksponer for enkel feilsøking/testing

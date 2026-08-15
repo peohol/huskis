@@ -1,0 +1,269 @@
+/*
+  Regresjonstest: LYS OG MØRK DRAKT (docs/mork-drakt.md).
+
+  Drakten er ikke et stilark til: den er ÉN blokk med fargetokens som byttes ut,
+  pluss ett tall i paletten som speiles. Testen dekker de fem stedene det kan gå
+  galt:
+
+    1. Attributtet står FØR første maling. `theme.js` lastes i <head> nettopp
+       for å unngå at skjermen blinker hvitt før den blir mørk; her måles
+       `data-theme` og den oppløste `--bg` i den FØRSTE rAF-en, altså før
+       nettleseren har malt noe.
+    2. Standarden er «følg systemet», og den følger det LEVENDE: en endring i
+       operativsystemets `prefers-color-scheme` slår gjennom uten omlasting —
+       og maler board-et på nytt, siden kortfargene ikke bor i CSS.
+    3. Et eksplisitt valg overstyrer systemet og overlever en omlasting. Begge
+       velgerne (innloggingsskjermen og konto-modalen) gjør det samme.
+    4. Kortfargene speiles: SAMME tone, invertert lyshet. Kortene er lysere enn
+       board-et i lys drakt og fortsatt lysere i mørk (bakgrunnen er da
+       mørkere enn kortene) — det er separasjonen som må overleve, ikke tallet.
+    5. Det som ikke er vårt eget: `color-scheme` på rot-elementet, så
+       <select>-nedtrekk, dato-/klokkeslettvelgere og rullefelt følger med, og
+       `<meta name="theme-color">` som farger nettleserens egen ramme.
+
+  Punkt 3 kjøres i BEGGE viewportene: på innloggingsskjermen står språk- og
+  draktvelgeren på samme rad, og raden skal brekke MELLOM parene — aldri mellom
+  en etikett og velgeren sin.
+
+  Kjør:
+    python3 -m http.server 8000                  # fra repo-roten, i egen terminal
+    NODE_PATH=$(npm root -g) node tests/dark-mode.test.js
+*/
+const { chromium } = require('playwright');
+
+const BASE = process.env.HUSKIS_URL || 'http://localhost:8000';
+
+let passed = 0, failed = 0;
+function check(name, cond, extra) {
+  if (cond) { passed++; console.log('PASS — ' + name); }
+  else { failed++; console.log('  ✗ FAIL: ' + name + (extra !== undefined ? '  [' + JSON.stringify(extra) + ']' : '')); }
+}
+
+// Draktens sannhet, lest fra tre uavhengige kilder samtidig: attributtet, den
+// oppløste bakgrunnen og det lagrede valget.
+const themeState = (p) => p.evaluate(() => ({
+  attr: document.documentElement.getAttribute('data-theme'),
+  mode: window.HUSKIS_THEME.mode(),
+  bg: getComputedStyle(document.documentElement).getPropertyValue('--bg').trim(),
+  colorScheme: getComputedStyle(document.documentElement).colorScheme,
+  meta: document.querySelector('meta[name="theme-color"]').getAttribute('content'),
+  stored: localStorage.getItem('huskis-theme'),
+}));
+
+// #rrggbb → HSL, så vi kan snakke om tone og lyshet hver for seg.
+function hsl(hex) {
+  const [r, g, b] = [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16) / 255);
+  const max = Math.max(r, g, b), min = Math.min(r, g, b), d = max - min;
+  const l = (max + min) / 2;
+  let h = 0;
+  if (d) {
+    if (max === r) h = ((g - b) / d) % 6;
+    else if (max === g) h = (b - r) / d + 2;
+    else h = (r - g) / d + 4;
+    h = (h * 60 + 360) % 360;
+  }
+  return { h: Math.round(h), l: Math.round(l * 100) };
+}
+function srgb(c) { c /= 255; return c <= 0.03928 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4); }
+function lum(hex) {
+  const [r, g, b] = [1, 3, 5].map((i) => srgb(parseInt(hex.slice(i, i + 2), 16)));
+  return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+}
+const contrast = (a, b) => (Math.max(lum(a), lum(b)) + 0.05) / (Math.min(lum(a), lum(b)) + 0.05);
+
+// Kortfargene slik de FAKTISK står i DOM-en (inline custom property fra
+// paintCardColor), ikke slik vi tror paletten regner dem ut.
+const cardColors = (p) => p.evaluate(() => [...document.querySelectorAll('#board .card')]
+  .map((c) => c.style.getPropertyValue('--card-bg').trim()));
+
+async function login(p) {
+  const email = 'u' + Math.floor(Math.random() * 1e9) + '@test.no';
+  await p.getByText('Registrer deg').click(); await p.waitForTimeout(300);
+  await p.locator('#auth-first-name').fill('Test');
+  await p.locator('#auth-last-name').fill('Bruker');
+  await p.locator('#auth-email').fill(email);
+  await p.locator('#auth-password').fill('passord123');
+  await p.locator('#auth-submit').click(); await p.waitForTimeout(700);
+  await p.getByText('Tilbake til innlogging').click(); await p.waitForTimeout(300);
+  await p.locator('#auth-email').fill(email);
+  await p.locator('#auth-password').fill('passord123');
+  await p.locator('#auth-submit').click();
+  await p.waitForFunction(() => {
+    const H = window.__huskis;
+    return H && H.authUser && H.lastMy;
+  }, null, { timeout: 15000, polling: 200 });
+  // Demoen og gest-tipsene legger seg over appen for enhver ny konto.
+  await p.evaluate(() => window.__huskis.tour.skipAll());
+  await p.waitForTimeout(150);
+  return email;
+}
+
+// Ett område > én mappe > fire lister, så vi har kort i flere L-sett å måle på.
+async function seed(p) {
+  await p.evaluate(() => {
+    const H = window.__huskis, st = H.state;
+    const mk = (o) => Object.assign({ ts: 1, org: 't', pos: 0, posTs: 1, posOrg: 't', trashed: false, _role: 'owner' }, o);
+    st.universes.length = 0;
+    const u = mk({ id: 'uni-A', name: 'Hjemme', collapsed: false, groups: [] });
+    const g = mk({ id: 'g-1', uni: 'uni-A', name: 'Ukesplan', cat: null, isCat: false, collapsed: false, cards: [] });
+    for (let i = 0; i < 4; i++) {
+      const c = mk({ id: 'c-' + i, group: 'g-1', title: 'Liste ' + (i + 1), pos: i, collapsed: false, items: [] });
+      c.items.push(mk({ id: 'i-' + i, home: 'c-' + i, text: 'Et listepunkt', done: false, cat: null, isCat: false }));
+      g.cards.push(c);
+    }
+    u.groups.push(g);
+    st.universes.push(u);
+    st.activeUniverse = 'uni-A'; st.activeGroup = 'g-1';
+    H.render();
+  });
+  await p.waitForTimeout(300);
+}
+
+(async () => {
+  const browser = await chromium.launch();
+  const errs = [];
+
+  /* ---------- 1. Attributtet står før første maling ---------- */
+  console.log('\n--- Drakten settes før første maling ---');
+  for (const [what, scheme, want] of [['mørkt system', 'dark', 'dark'], ['lyst system', 'light', 'light']]) {
+    const ctx = await browser.newContext({ viewport: { width: 1200, height: 900 }, colorScheme: scheme });
+    const p = await ctx.newPage();
+    p.on('pageerror', (e) => errs.push('[' + what + '] ' + e));
+    // Kjører FØR all sidekode. rAF-en her fyrer før nettleseren maler første
+    // bilde, så det den ser er nøyaktig det brukeren ville sett først.
+    await p.addInitScript(() => {
+      window.__firstFrame = new Promise((res) => {
+        requestAnimationFrame(() => res({
+          attr: document.documentElement.getAttribute('data-theme'),
+          bg: getComputedStyle(document.documentElement).getPropertyValue('--bg').trim(),
+          body: getComputedStyle(document.body).backgroundColor,
+        }));
+      });
+    });
+    await p.goto(BASE + '/?mock=1');
+    const first = await p.evaluate(() => window.__firstFrame);
+    check(`${what}: data-theme er «${want}» allerede i første frame`, first.attr === want, first);
+    check(`${what}: --bg er løst opp før første maling`, /^#[0-9a-f]{6}$/i.test(first.bg), first.bg);
+    const st = await themeState(p);
+    check(`${what}: standarden er «følg systemet» — ingenting lagret ennå`,
+      st.mode === 'system' && st.stored === null, st);
+    check(`${what}: første frame og den ferdig lastede siden er enige om --bg`,
+      first.bg === st.bg, { first: first.bg, etter: st.bg });
+    check(`${what}: <meta name="theme-color"> følger --bg`, st.meta === st.bg, st);
+    check(`${what}: color-scheme på rot-elementet er «${want}»`, st.colorScheme === want, st.colorScheme);
+    await ctx.close();
+  }
+
+  /* ---------- 2–5. Bytte, speiling og varighet ---------- */
+  const ctx = await browser.newContext({ viewport: { width: 1200, height: 900 }, colorScheme: 'light' });
+  const p = await ctx.newPage();
+  p.on('pageerror', (e) => errs.push(String(e)));
+  await p.goto(BASE + '/?mock=1');
+  await p.waitForTimeout(500);
+
+  console.log('\n--- Innloggingsskjermens draktvelger ---');
+  check('draktvelgeren finnes før innlogging', await p.locator('#auth-theme-select').count() === 1);
+  check('den har de tre valgene fra theme.js',
+    (await p.locator('#auth-theme-select option').allTextContents()).length === 3,
+    await p.locator('#auth-theme-select option').allTextContents());
+  await p.selectOption('#auth-theme-select', 'dark');
+  await p.waitForTimeout(250);
+  let st = await themeState(p);
+  check('valget slår gjennom med én gang', st.attr === 'dark' && st.mode === 'dark', st);
+  check('valget er lagret på enheten', st.stored === 'dark', st.stored);
+  const darkBg = st.bg;
+
+  await login(p);
+  await seed(p);
+
+  console.log('\n--- Kortfargene speiles ---');
+  const darkCards = await cardColors(p);
+  check('board-et har kort å måle på', darkCards.length >= 4, darkCards);
+  // Tilbake til lys fra konto-modalen — den andre av de to velgerne.
+  await p.evaluate(() => window.__huskis.openAccount());
+  await p.waitForTimeout(300);
+  check('draktvelgeren finnes i konto-modalen', await p.locator('#theme-select').count() === 1);
+  check('den står synlig utenfor trekkspillet, ved siden av språkraden',
+    await p.locator('#menu-theme').isVisible());
+  await p.selectOption('#theme-select', 'light');
+  await p.waitForTimeout(300);
+  await p.evaluate(() => window.__huskis.closeAccount());
+  await p.waitForTimeout(250);
+  st = await themeState(p);
+  check('konto-modalens velger bytter tilbake', st.attr === 'light' && st.stored === 'light', st);
+  const lightBg = st.bg;
+  const lightCards = await cardColors(p);
+
+  check('kortene er de samme, i samme rekkefølge', lightCards.length === darkCards.length,
+    { lys: lightCards.length, mork: darkCards.length });
+  for (let i = 0; i < Math.min(lightCards.length, darkCards.length); i++) {
+    const L = hsl(lightCards[i]), D = hsl(darkCards[i]);
+    check(`kort ${i + 1}: SAMME tone i begge drakter (${L.h}° / ${D.h}°)`, L.h === D.h, { lys: lightCards[i], mork: darkCards[i] });
+    check(`kort ${i + 1}: lysheten er speilet (L ${L.l} → ${D.l})`, D.l < L.l && D.l < 50 && L.l > 50,
+      { lys: lightCards[i], mork: darkCards[i] });
+  }
+  // Det som faktisk betyr noe er at kortet skiller seg fra board-et. Kravet er
+  // ikke et tall her — det er at den mørke drakten ikke er dårligere.
+  const sep = (cards, bg) => Math.min(...cards.map((c) => contrast(c, bg)));
+  const sepLight = sep(lightCards, lightBg), sepDark = sep(darkCards, darkBg);
+  check(`kortene skiller seg fra board-et i begge drakter (lys ${sepLight.toFixed(2)}:1, mørk ${sepDark.toFixed(2)}:1)`,
+    sepDark >= sepLight * 0.9, { lys: +sepLight.toFixed(2), mork: +sepDark.toFixed(2) });
+  check('board-et er mørkere enn kortene i mørk drakt',
+    darkCards.every((c) => lum(c) > lum(darkBg)), { bg: darkBg, kort: darkCards });
+
+  console.log('\n--- Valget overlever en omlasting ---');
+  await p.selectOption('#auth-theme-select', 'dark').catch(() => { /* skjult etter innlogging */ });
+  await p.evaluate(() => window.HUSKIS_THEME.setMode('dark'));
+  await p.reload();
+  await p.waitForFunction(() => document.readyState === 'complete', null, { timeout: 15000, polling: 200 });
+  st = await themeState(p);
+  check('drakten står der den ble satt etter en omlasting', st.attr === 'dark' && st.mode === 'dark', st);
+
+  console.log('\n--- «Følg systemet» følger systemet, levende ---');
+  await p.evaluate(() => window.HUSKIS_THEME.setMode('system'));
+  await p.waitForTimeout(200);
+  await p.emulateMedia({ colorScheme: 'dark' });
+  await p.waitForTimeout(300);
+  st = await themeState(p);
+  check('systemet slår mørkt på → appen blir mørk uten omlasting', st.attr === 'dark' && st.mode === 'system', st);
+  await p.emulateMedia({ colorScheme: 'light' });
+  await p.waitForTimeout(300);
+  st = await themeState(p);
+  check('…og lyst igjen', st.attr === 'light' && st.mode === 'system', st);
+  // Et eksplisitt valg skal IKKE la seg overstyre av operativsystemet.
+  await p.evaluate(() => window.HUSKIS_THEME.setMode('dark'));
+  await p.emulateMedia({ colorScheme: 'light' });
+  await p.waitForTimeout(300);
+  st = await themeState(p);
+  check('et eksplisitt valg lar seg ikke overstyre av systemet', st.attr === 'dark', st);
+  await p.emulateMedia({ colorScheme: null });
+  await ctx.close();
+
+  /* ---------- Innloggingsskjermens rad, begge viewporter ---------- */
+  console.log('\n--- Språk + drakt på innloggingsskjermen (begge viewporter) ---');
+  for (const [what, viewport, isMobile] of [
+    ['desktop', { width: 1200, height: 900 }, false],
+    ['mobil', { width: 390, height: 780 }, true],
+  ]) {
+    const c2 = await browser.newContext({ viewport, isMobile, hasTouch: isMobile });
+    const p2 = await c2.newPage();
+    p2.on('pageerror', (e) => errs.push('[' + what + '] ' + e));
+    await p2.goto(BASE + '/?mock=1');
+    await p2.waitForTimeout(500);
+    // Etiketten og velgeren sin skal alltid stå på SAMME linje; brekker raden,
+    // brekker den mellom de to parene.
+    const rows = await p2.evaluate(() => [...document.querySelectorAll('.auth-lang-pair')].map((pair) => {
+      const label = pair.querySelector('label').getBoundingClientRect();
+      const sel = pair.querySelector('select').getBoundingClientRect();
+      return { sammeLinje: Math.abs(label.top - sel.top) < label.height, top: Math.round(pair.getBoundingClientRect().top) };
+    }));
+    check(`${what}: begge parene finnes`, rows.length === 2, rows);
+    check(`${what}: etiketten står på samme linje som velgeren sin`, rows.every((r) => r.sammeLinje), rows);
+    await c2.close();
+  }
+
+  check('ingen JS-feil underveis', errs.length === 0, errs);
+  await browser.close();
+  console.log(`\n==== ${passed}/${passed + failed} PASS ====`);
+  process.exit(failed ? 1 : 0);
+})();
