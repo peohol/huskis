@@ -570,8 +570,12 @@ const dekodEntiteter = (t) => t
   .replace(/&#x([0-9a-f]+);?/gi, (_, h) => tegn(parseInt(h, 16)))
   .replace(/&#(\d+);?/g, (_, d) => tegn(parseInt(d, 10)))
   .replace(/&(Tab|NewLine);/g, '')
-  .replace(/&(colon|sol|period|lpar|rpar|quot|apos|amp);/gi,
-    (_, n) => ({ colon: ':', sol: '/', period: '.', lpar: '(', rpar: ')', quot: '"', apos: "'", amp: '&' })[n.toLowerCase()]);
+  /* `bsol` er skråstreken den andre veien, og teller like mye: HTML-parseren
+     gjør `&bsol;&bsol;vert` til `\\vert`, som URL-parseren normaliserer til
+     `//vert`. Uten den her ville den protokoll-relative sjekken sett på
+     entitetene i stedet for tegnene. */
+  .replace(/&(colon|sol|bsol|period|lpar|rpar|quot|apos|amp);/gi,
+    (_, n) => ({ colon: ':', sol: '/', bsol: '\\', period: '.', lpar: '(', rpar: ')', quot: '"', apos: "'", amp: '&' })[n.toLowerCase()]);
 function strippetMedLinjer(src, modus) {
   const tekst = modus === 'html' ? dekodEntiteter(strippet(src, modus)) : strippet(src, modus);
   return { tekst, linjeFor: (idx) => tekst.slice(0, idx).split('\n').length };
@@ -837,7 +841,16 @@ check('kjørende webkode navngir ingen andre absolutte adresser enn Supabase-end
 /* `location.assign/replace`, KLAMMENOTASJONEN av de samme
    (`location['assign'](…)`), og den moderne Navigation API-en
    (`navigation.navigate(…)`) — alle tre navigerer dokumentet. */
-const NAV_KALL = /\blocation\s*(?:\.\s*(?:assign|replace)|\[\s*["'`](?:assign|replace)["'`]\s*\])\s*\(|(?:^|[^.\w$])(?:window\s*\.\s*)?navigation\s*\.\s*navigate\s*\(/gm;
+/* Klammenotasjonen gjelder BEGGE ledd, ikke bare metoden: `location['assign']`
+   var dekket, men `window['location']['assign']` ikke — selve Location-objektet
+   kan hentes like godt med klammer. Holderen navngis her fordi et bart
+   `x['location']` er en hvilken som helst egenskap, ikke nødvendigvis
+   dokumentets. */
+const HOLDER = '(?:window|document|self|globalThis|top|parent)';
+const LOC_OBJ = '(?:\\blocation|' + HOLDER + '\\s*\\[\\s*["\'`]location["\'`]\\s*\\])';
+const NAV_KALL = new RegExp(
+  LOC_OBJ + '\\s*(?:\\.\\s*(?:assign|replace)|\\[\\s*["\'`](?:assign|replace)["\'`]\\s*\\])\\s*\\('
+  + '|(?:^|[^.\\w$])(?:window\\s*\\.\\s*)?navigation\\s*\\.\\s*navigate\\s*\\(', 'gm');
 /* Ikke bare `.href`: HVER skrivbar del av Location navigerer. Setter du
    `location.host`, `.protocol`, `.pathname` eller `.search`, laster siden på
    nytt mot en ny adresse — like mye en navigasjon som å sette hele href-en.
@@ -848,7 +861,7 @@ const LOC_DEL = 'href|host|hostname|protocol|port|pathname|search|hash';
    navigerer like fullt. `=(?!=)` alene godtok bare den bare formen. */
 const TILDEL = '(?:\\*\\*|<<|>>>?|\\|\\||&&|\\?\\?|[-+*/%|&^])?=(?!=)';
 const NAV_TILDEL = new RegExp(
-  '(?:^|[^.\\w$])(?:(?:window|document|self|globalThis|top|parent)\\s*\\.\\s*)?location\\s*'
+  '(?:^|[^.\\w$])(?:' + HOLDER + '\\s*(?:\\.\\s*location|\\[\\s*["\'`]location["\'`]\\s*\\])|location)\\s*'
   + '(?:(?:\\.\\s*(?:' + LOC_DEL + ')|\\[\\s*["\'`](?:' + LOC_DEL + ')["\'`]\\s*\\])\\s*)?' + TILDEL, 'gm');
 /* Som lenkesjekkene: mot HELE den strippede fila. Et uttrykk som brekker foran
    egenskapen — `location` på én linje, `.assign(…)` på neste — har ellers ikke
