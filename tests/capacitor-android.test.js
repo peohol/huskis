@@ -714,14 +714,21 @@ check('alle web-kildefilene build.js kopierer ut står i WEB_KILDE',
       bare da fanger den `setAttribute('href', enVariabel)`, som ingen
       verdibasert sjekk kan se. `src` er ikke med: et bilde er en ressurs, ikke
       en navigasjon, og styres av CSP-ens `img-src`. */
-const MARKUP = '\\b(?:href|(?:form)?action)\\s*=\\s*\\\\?["\']?\\s*';
+/* `[\s\x00-\x1f]*` foran adressen, ikke `\s*`: URL-parseren FJERNER alle
+   ledende (og etterfølgende) C0-kontrolltegn og mellomrom før den tolker
+   adressen, så `href="&#1;https://x"` navigerer til `https://x`. Bare de
+   LEDENDE — et kontrolltegn midt i skjemaet blir prosentkodet i stedet, og
+   `htt&#1;ps://x` er dermed ingen https-navigasjon. Derfor står klassen her og
+   ikke i dekoderen, som bare fjerner de tre tegnene URL-parseren stryker
+   overalt (tab, linjeskift, vognretur). */
+const MARKUP = '\\b(?:href|(?:form)?action)\\s*=\\s*\\\\?["\']?[\\s\\x00-\\x1f]*';
 const UT_MØNSTRE = [
   ['_blank', /target\s*=\s*["']?_blank/gi],
   /* Alle tre skrivemåtene av det samme: `window.open(`, klammenotasjonen
      `window['open'](` og den globale, ukvalifiserte `open(`. Foranstilt
      `[^.\w$]` holder `api.open()` og `step.reopen()` utenfor. */
   ['open()', /(?:^|[^.\w$])(?:(?:window|self|globalThis|top|parent)\s*\[\s*["'`]open["'`]\s*\]|(?:window\s*\.\s*)?open)\s*\(/gm],
-  ['setAttribute', /\.\s*setAttribute\s*\(\s*["'`](?:xlink:)?(?:href|(?:form)?action)["'`]\s*,/gi],
+  ['setAttribute', /\.\s*setAttribute\s*\(\s*["'`](?:xlink:)?(?:href|(?:form)?action|http-equiv)["'`]\s*,/gi],
   ['.href =', /(?:^|[^.\w$])(?!location\b)[\w$\])]+\s*(?:\.\s*(?:href|formAction|action)|\[\s*["'`](?:href|formaction|action)["'`]\s*\])\s*(?:\*\*|<<|>>>?|\|\||&&|\?\?|[-+*/%|&^])?=(?!=)/gim],
   /* `[\t\n\r]*` mellom hvert tegn: URL-parseren stryker de tre tegnene overalt
      i en adresse, så `href="ht\ttps://x"` er den samme utgående lenken. Den
@@ -735,6 +742,12 @@ const UT_MØNSTRE = [
   /* Deklarativ navigasjon uten en eneste lenke: nettleseren drar av gårde selv.
      Huskis har ÉN http-equiv, og det er innholdssikkerhetspolicyen. */
   ['meta refresh', /http-equiv\s*=\s*["']?refresh/gi],
+  /* Samme navigasjon, bygget fra JS: `m.httpEquiv = 'refresh'` og
+     `m.content = '0;url=…'`, så `append`. Markup-mønsteret over ser bare
+     taggen slik den STÅR i fila, og ingen av destinasjonsmønstrene dekker
+     `http-equiv`. Som med `href` flagges egenskapen uansett verdi — appen
+     setter den ikke ett eneste sted. */
+  ['meta refresh (DOM)', /(?:^|[^.\w$])[\w$\])]+\s*(?:\.\s*httpEquiv|\[\s*["'`]http-?equiv["'`]\s*\])\s*(?:\*\*|<<|>>>?|\|\||&&|\?\?|[-+*/%|&^])?=(?!=)/gim],
   /* Vendor-API-er som NAVIGERER for oss. supabase-js sender nettleseren til
      leverandøren med `location.assign()` inne i biblioteket, så kallstedet
      her har ingen navigasjon å se — men appen forlater WebView-en like fullt.
@@ -793,7 +806,7 @@ const TILLATTE_URL = [
 const fremmedeUrl = [];
 for (const f of WEB_KILDE) {
   for (const { nr, l } of kodeLinjerStreng(les(f), modusFor(f))) {
-    for (const m of l.matchAll(/["'`](https?:\/\/[^"'`\s]*)/gi)) {
+    for (const m of l.matchAll(/["'`][\x00-\x1f]*(https?:\/\/[^"'`\s]*)/gi)) {
       if (TILLATTE_URL.indexOf(m[1]) === -1) fremmedeUrl.push(f + ':' + nr + ' → ' + m[1]);
     }
   }
@@ -890,7 +903,7 @@ if (byggUt.status === 0 && fs.existsSync(DIST)) {
       re.lastIndex = 0;
       for (const m of tekst.matchAll(re)) distTreff.push(rel + ':' + linjeFor(m.index) + ' (' + navn + ')');
     }
-    for (const m of tekst.matchAll(/["'`](https?:\/\/[^"'`\s]*)/gi)) {
+    for (const m of tekst.matchAll(/["'`][\x00-\x1f]*(https?:\/\/[^"'`\s]*)/gi)) {
       if (TILLATTE_URL.indexOf(m[1]) === -1) distTreff.push(rel + ' → ' + m[1]);
     }
     /* Også navigasjonsmønstrene: byggesteget kunne like gjerne lagt inn en
@@ -918,6 +931,15 @@ if (byggUt.status === 0 && fs.existsSync(DIST)) {
 check('den BYGDE dist/ har ingen utgående lenke heller (byggesteget legger ingen inn)',
   byggUt.status === 0 && distAntall > 0 && distTreff.length === 0,
   distTreff.join(', ') || distAntall + ' filer skannet');
+/* Fritaket er en PÅSTAND, ikke bare en unnskyldning. Sjekken over feller det
+   uventede, men ville stått grønn også hvis guarden FORSVANT ut av bygget —
+   ingen treff er ingen treff. Kildesjekkene under ser fortsatt originalen, så
+   ingenting annet i suiten hadde sagt fra om `stampHtml()` en dag skrev om
+   eller mistet redirecten. Den ene ventede navigasjonen må altså finnes. */
+check('guardens navigasjon overlevde byggesteget (fritaket ble faktisk brukt)',
+  byggUt.status === 0 && guardFritatt,
+  guardFritatt ? 'location.replace(target) funnet i dist/index.html'
+    : 'ikke funnet — er den fjernet eller omskrevet av build.js?');
 
 check('web-kildekoden navigerer seg selv på nøyaktig ÉN linje',
   navSkriv.length === 1, navSkriv.map((x) => x.sted).join(', ') || 'ingen');
