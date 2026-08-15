@@ -207,21 +207,46 @@ mot den mørke statuspillen, og at de to L-settene faktisk speiler hverandre.
 Endrer du en verdi i den mørke blokken eller et L-sett, kjør den testen.
 Kravene selv står i [`tilgjengelighet.md`](tilgjengelighet.md).
 
-## Android-skallet: systemfeltenes glyfer er MØRKE i begge drakter
+## Android-skallet: systemfeltene følger telefonen, ikke drakten
 
 Appen tegner under systemfeltene (`viewport-fit=cover`, se
 [`design-system.md`](design-system.md)), så man skulle tro at flaten bak klokka
 er vår og dermed skifter farge med drakten. **Det gjør den ikke.** Målt på
-telefon: båndet bak statusfeltet er lyst i BEGGE draktene — i mørk drakt er
-appen mørk mens båndet over den fortsatt er lyst.
+telefon: båndet bak statusfeltet er VINDUSBAKGRUNNEN fra Android-temaet. Med et
+permanent lyst tema var båndet lyst også når appen under var mørk.
 
-Derfor er mørke glyfer riktig svar uansett drakt, og
-`SystemBars.style = "LIGHT"` blir stående som den er.
+Derfor er både flaten og glyfene bundet til telefonens nattmodus, ikke til
+draktvalget:
 
-**Ikke bytt den til `DEFAULT`.** Det ble prøvd i denne runden, med den
-tilsynelatende rimelige begrunnelsen at glyfene burde følge drakten. Resultatet
-på telefon var uleselig i begge modi: lyse glyfer på et lyst bånd. Vakten står i
-`tests/capacitor-android.test.js`, med begrunnelsen skrevet ut.
+- foreldretemaet er `Theme.AppCompat.DayNight.NoActionBar`, så vindusbakgrunnen
+  blir mørk om natten;
+- `values-night/` og `values-night-v27/` snur `windowLightStatusBar` og
+  `windowLightNavigationBar` til `false` i samme slengen;
+- `SystemBars.style = "DEFAULT"` lar pluginen lese den samme nattmodusen i
+  runtime (pluginen overstyrer temaet etter oppstart, rotasjon og modusbytte).
+
+Én kilde for både bånd og glyfer betyr at de ikke kan komme i utakt. Velger
+brukeren en drakt som avviker fra telefonen, blir toppen uvant, men aldri
+uleselig: mørkt bånd med lyse glyfer over en lys side, eller omvendt.
+
+**Splash-temaet har med vilje ingen night-variant.** `drawable/splash.png` er
+hvitt hele døgnet, så der gjelder mørke glyfer også om natten.
+
+**Historikk, fordi den er lett å gjenta:** kombinasjonen «permanent lyst tema»
++ `SystemBars.style = "DEFAULT"` ble prøvd og var uleselig på telefon i begge
+modi — lyse glyfer på et lyst bånd. Feilen var ikke `DEFAULT` i seg selv, men at
+båndet og glyfene hadde hver sin kilde. Vakten står i
+`tests/capacitor-android.test.js`, med begrunnelsen skrevet ut i begge
+retninger: låses glyfene igjen, må vindusbakgrunnen låses i samme slengen.
+
+### «Følg systemet» virker først med DayNight
+
+Fra targetSdk 33 utleder WebView `prefers-color-scheme` av appens EGET tema
+(`isLightTheme`), ikke av telefonens nattmodus. Med et permanent lyst tema
+svarte `matchMedia('(prefers-color-scheme: dark)')` derfor alltid `false` inne i
+appen, og standardvalget `system` ga lys app på en mørk telefon — bekreftet på
+enhet. DayNight er det som kobler de to sammen igjen; ingen ny bro mellom
+web-laget og det native skallet trengs.
 
 Nettleseren er upåvirket: der er `<meta name="theme-color">` det eneste som sier
 noe om rammen, og `theme.js` holder den i takt med `--bg`.
@@ -233,3 +258,4 @@ noe om rammen, og `theme.js` holder den i takt med `--bg`.
 | `tests/a11y-contrast.test.js` | kontraktstallene i begge drakter |
 | `tests/dark-mode.test.js` | attributtet før første maling, «følg systemet» levende, begge velgerne, varighet over omlasting, speilingen av kortfargene, `color-scheme` og `theme-color`, og at et systembytte ikke river ned en pågående navngiving |
 | `tests/build-version.test.js` | at `theme.js` versjoneres og langtidscaches som de andre klientfilene |
+| `tests/capacitor-android.test.js` | at Android-skallet står på DayNight, at night-variantene snur glyfene, og at `SystemBars.style` er `DEFAULT` |

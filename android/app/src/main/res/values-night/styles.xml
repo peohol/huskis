@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Nattvarianten av kjøretidstemaet. Den finnes fordi foreldretemaet er
+  DayNight (values/styles.xml forklarer hvorfor): når telefonen står i
+  nattmodus blir vindusbakgrunnen mørk, og da må glyfene i statusfeltet være
+  LYSE for å være lesbare.
+
+  Poenget er at båndet og glyfene har SAMME kilde — telefonens nattmodus.
+  Draktvalget i appen (Følg systemet / Lys / Mørk) kan ikke komme i utakt med
+  dem, for det rører ikke systemfeltene i det hele tatt. Velger man «Lys» på en
+  mørk telefon blir båndet mørkt med lyse glyfer over en lys side: uvant, men
+  lesbart. Det var nettopp DET som brøt sammen da temaet var permanent lyst og
+  glyfene fulgte telefonen.
+
+  Splash-temaet står med vilje IKKE her. Splash-bildet er hvitt i begge modi
+  (drawable/splash.png), så `AppTheme.NoActionBarLaunch` skal beholde mørke
+  glyfer fra values/styles.xml også om natten.
+-->
+<resources>
+    <style name="AppTheme.NoActionBar" parent="Theme.AppCompat.DayNight.NoActionBar">
+        <item name="windowActionBar">false</item>
+        <item name="windowNoTitle">true</item>
+        <item name="android:background">@null</item>
+        <item name="android:statusBarColor">@android:color/transparent</item>
+        <item name="android:navigationBarColor">@color/systemNavScrim</item>
+        <item name="android:windowLightStatusBar">false</item>
+    </style>
+</resources>

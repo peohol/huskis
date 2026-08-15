@@ -90,28 +90,29 @@ løser seg til vanlige px-verdier når de leses — i motsetning til `--board-ga
 som er en `clamp()` og derfor må leses fra en oppløst egenskap
 (`docs/board-layout.md`).
 
-**Båndet bak systemfeltene er LYST i begge drakter — glyfene er derfor mørke i
-begge.** Dette er målt på telefon, og det er ikke det man gjetter seg til fra
-koden: selv om siden tegner under statusfeltet (`viewport-fit=cover`), følger
-flaten der IKKE `--bg`. I mørk drakt er appen mørk mens båndet over den fortsatt
-er lyst. Mørke glyfer er altså riktig svar uansett drakt.
+**Båndet bak systemfeltene er IKKE sidens flate — det er vindusbakgrunnen fra
+Android-temaet.** Dette er målt på telefon, og det er ikke det man gjetter seg
+til fra koden: selv om siden tegner under statusfeltet (`viewport-fit=cover`),
+følger flaten bak klokka aldri `--bg`. Den følger temaet.
 
-Android-temaet ber om det (`windowLightStatusBar`/`windowLightNavigationBar`,
-over et lyst foreldretema — ikke DayNight, hvis night-variant malte en svart
-statusfelt-bakgrunn OVER siden). Erklæringene står i
-`android/app/src/main/res/values/styles.xml` (+ `values-v27/` for gestelinjen,
-som først finnes fra API 27).
+Derfor er hele oppsettet bundet til ÉN kilde — **telefonens nattmodus**:
 
-Temaet er ikke nok alene: Capacitors `SystemBars`-plugin SETTER utseendet i
-runtime og overstyrer det. `SystemBars.style = "LIGHT"` i
-`capacitor.config.json` låser mørke glyfer, også etter rotasjon og modusbytte.
+| Erklæring | Rolle |
+|---|---|
+| `values/styles.xml` + `values-v27/`, foreldretema `Theme.AppCompat.DayNight.NoActionBar` | Vindusbakgrunnen (og dermed båndet) blir mørk om natten. Gir også WebView-en riktig `prefers-color-scheme` — se under. |
+| `values-night/` + `values-night-v27/` | Snur glyfene med båndet: `windowLightStatusBar`/`windowLightNavigationBar` er `true` om dagen, `false` om natten. |
+| `SystemBars.style = "DEFAULT"` (`capacitor.config.json`) | Pluginen SETTER utseendet i runtime og overstyrer temaet. `DEFAULT` = les den samme nattmodusen, også etter rotasjon og modusbytte. |
 
-**`DEFAULT` er prøvd, og reversert.** Da appen fikk to drakter
-([`mork-drakt.md`](mork-drakt.md)) var det nærliggende å la pluginen følge
-telefonens nattmodus i stedet. Det ga lyse glyfer på det lyse båndet i mørk
-modus — nøyaktig den uleseligheten denne erklæringen finnes for å fjerne.
-Premisset som førte dit («flaten bak feltene er vår, altså mørk i mørk drakt»)
-er feil, og `tests/capacitor-android.test.js` sier det nå eksplisitt.
+Fordi båndet og glyfene leser samme kilde, kan de ikke komme i utakt.
+**Draktvelgeren i appen rører dem ikke i det hele tatt.** Velger brukeren «Lys»
+på en mørk telefon, blir båndet mørkt med lyse glyfer over en lys side: uvant,
+men lesbart. Uleseligheten oppstår bare når båndet og glyfene har hver sin
+kilde — som da temaet var permanent lyst mens pluginen fulgte telefonen.
+
+`DayNight` er dessuten det som får «Følg systemet» til å virke i mobilappen i
+det hele tatt: fra targetSdk 33 utleder WebView `prefers-color-scheme` av appens
+eget tema (`isLightTheme`), ikke av telefonens nattmodus. Detaljene og
+telefonverifiseringen: [`mork-drakt.md`](mork-drakt.md).
 
 **Unntaket er bunnfeltet på API 24–26.** `windowLightNavigationBar` finnes
 først fra API 27, og runtime-veien er en no-op før det: treknappsradens glyfer
