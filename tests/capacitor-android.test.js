@@ -577,7 +577,7 @@ function kodeLinjerStreng(src, modus) {
       }
       /* Regex-literal: konsumeres i sin helhet, med tegnklasser, slik at
          `/` og `*` inne i det ikke leses som kommentartegn. */
-      const etterNokkelord = /(?:^|[^\w$])(?:return|throw|typeof|instanceof|in|of|new|delete|void|case|do|else|yield|await|break|continue)\s*$/.test(hale);
+      const etterNokkelord = /(?:^|[^\w$])(?:return|throw|typeof|instanceof|in|of|new|delete|void|case|do|else|yield|await|break|continue|debugger)\s*$/.test(hale);
       if (m !== 'css' && raw[j] === '/'
         && (!/[\w$)\]]/.test(forrige) || etterNokkelord || (forrige === ')' && lukketBetingelse))
         && !raw.startsWith('//', j) && !raw.startsWith('/*', j)) {
@@ -810,11 +810,18 @@ function utsendteFiler(dir, topp, typer) {
     if (topp && (buildSkip.has(d.name) || buildSkipExt.has(path.extname(d.name))
       || testModus.indexOf(d.name) > -1)) return [];
     if (topp && d.name === 'vendor') {
-      /* Kun den pinnede bunten hoppes over — resten av katalogen skannes. */
-      return fs.readdirSync(path.join(dir, d.name))
-        .filter((n) => VENDOR_PINNET.indexOf('vendor/' + n) === -1)
-        .filter((n) => (typer || /\.(html?|[mc]?js|css)$/i).test(n))
-        .map((n) => path.join('vendor', n));
+      /* Kun den pinnede bunten hoppes over — resten av katalogen skannes,
+         REKURSIVT. build.js kopierer `vendor/` med copyDir som alt annet, så
+         en `vendor/sub/hjelper.js` havner i dist og kjører hvis noe importerer
+         den. En flat lesing her ville sluppet den forbi begge inventarene. */
+      return (function vendorFiler(v, prefiks) {
+        return fs.readdirSync(v, { withFileTypes: true }).flatMap((e) => {
+          const s = path.join(v, e.name);
+          if (e.isDirectory()) return vendorFiler(s, prefiks + e.name + '/');
+          if (VENDOR_PINNET.indexOf(prefiks + e.name) > -1) return [];
+          return (typer || /\.(html?|[mc]?js|css)$/i).test(e.name) ? [path.relative(ROOT, s)] : [];
+        });
+      }(path.join(dir, d.name), 'vendor/'));
     }
     const p = path.join(dir, d.name);
     if (d.isDirectory()) return utsendteFiler(p, false, typer);
@@ -1121,10 +1128,16 @@ function distFiler(dir, topp) {
        den innsjekkede tredjepartskopien, og skal skannes som all annen kode
        som havner i APK-en. */
     if (topp && d.name === 'vendor') {
-      return fs.readdirSync(path.join(dir, d.name))
-        .filter((n) => VENDOR_PINNET.indexOf('vendor/' + n) === -1)
-        .filter((n) => /\.(html?|[mc]?js|css|svg|xht?ml|xml)$/i.test(n))
-        .map((n) => path.join(dir, 'vendor', n));
+      /* Rekursivt, av samme grunn som i utsendteFiler: `dist/vendor/sub/` er
+         kopiert ut og kjørbar, og bare den PINNEDE bunten er unntatt. */
+      return (function vendorFiler(v, prefiks) {
+        return fs.readdirSync(v, { withFileTypes: true }).flatMap((e) => {
+          const s = path.join(v, e.name);
+          if (e.isDirectory()) return vendorFiler(s, prefiks + e.name + '/');
+          if (VENDOR_PINNET.indexOf(prefiks + e.name) > -1) return [];
+          return /\.(html?|[mc]?js|css|svg|xht?ml|xml)$/i.test(e.name) ? [s] : [];
+        });
+      }(path.join(dir, d.name), 'vendor/'));
     }
     const q = path.join(dir, d.name);
     return d.isDirectory() ? distFiler(q, false)
@@ -1236,6 +1249,15 @@ if (fs.existsSync(SYNKET)) {
         re.lastIndex = 0;
         for (const m of del.matchAll(re)) synketTreff.push(rel + ':' + linjeFor(fra + m.index) + ' (' + navn + ')');
       }
+    }
+    /* Og adressesjekken. Den manglet her, og det er nettopp den som fanger en
+       lenke satt sammen av strengbiter: `'<' + 'a hr' + 'ef="https://…"'` har
+       ingen av tokenene UT_MØNSTRE og JS_MARKUP ser etter, men adressen står
+       der hel. Uten den var den KOPIERTE builden — den APK-en faktisk pakker —
+       skannet svakere enn `dist/`, som testen bygger på nytt selv. */
+    for (const m of tekst.matchAll(/["'`][\x00-\x1f]*(https?:\/\/[^"'`\s]*)/gi)) {
+      if (/xmlns(?::[\w-]+)?\s*=\s*$/i.test(tekst.slice(Math.max(0, m.index - 40), m.index))) continue;
+      if (TILLATTE_URL.indexOf(m[1]) === -1) synketTreff.push(rel + ' → ' + m[1]);
     }
     /* Og NAVIGASJONSmønstrene — de manglet her, så en `location.assign(…)` i
        den kopierte builden var usynlig selv om dist-skanningen ville tatt den.

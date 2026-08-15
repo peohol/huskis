@@ -80,6 +80,13 @@ enhver skrivemåte, også markup satt sammen av strengbiter). Der en tekstvakt
 kan omgås av en ny staving, er svaret et annet slag net — ikke et finere
 mønster.
 
+Et kjørende net må da også nå HELE DOM-et. `querySelectorAll` går ikke inn i en
+shadow root, og en lukket rot kan ikke nås utenfra i det hele tatt — så
+`external-links.test.js` kroker `attachShadow` med `addInitScript` FØR appen
+kjører, og fører opp hver rot uansett modus. Samme slag blindsone: en
+SVG-`<a>` har `href` som et `SVGAnimatedString`, ikke en streng, så
+destinasjoner leses som ATTRIBUTT og resolveres mot `document.baseURI`.
+
 `tests/shard-distribution.test.js` er vakten: den sjekker at hver testfil havner
 i nøyaktig én shard for alle aktuelle shard-antall. En fil som faller ut mellom
 to shards gir ellers ingen rød CI — bare en test som stille aldri kjøres igjen.

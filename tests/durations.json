@@ -23,7 +23,7 @@
   "tests/dnd-separators-preview.test.js": 23,
   "tests/dnd-trash.test.js": 20,
   "tests/dnd-viewport-clamp.test.js": 14,
-  "tests/external-links.test.js": 9,
+  "tests/external-links.test.js": 4,
   "tests/group-move.test.js": 43,
   "tests/i18n.test.js": 0,
   "tests/item-creation.test.js": 15,

@@ -69,40 +69,82 @@ function buildDB() {
   };
 }
 
-/* Alt i DOM-et som KAN sende nettleseren et sted. `el.href` leses som den
-   RESOLVERTE adressen (nettleserens egen tolkning), ikke som attributtet — da
-   er «utenfor eget origin» et spørsmål om origin, ikke om skrivemåte, og
-   entiteter, skråstreker og kontrolltegn er allerede normalisert bort av den
-   som faktisk skal følge lenken. */
+/* `document.querySelectorAll` går IKKE inn i en shadow root, og en lenke
+   rendret der er like klikkbar som en i lysets DOM. En åpen rot kan man klatre
+   ned i via `el.shadowRoot`, men en LUKKET rot er per definisjon utilgjengelig
+   utenfra — den ville vært et hull testen ikke engang kunne se.
+
+   Derfor krokes `attachShadow` FØR appen kjører (`addInitScript`), og hver rot
+   den lager føres opp uansett modus. Kroken returnerer den ekte roten til
+   kalleren, så appen merker ingenting; vi har bare en referanse til den også.
+   Appen bruker ikke shadow DOM i dag, og da er registeret tomt — men det er nå
+   en MÅLT null, ikke en antatt. */
+const SHADOW_KROK = () => {
+  const orig = Element.prototype.attachShadow;
+  window.__hkRøtter = [];
+  Element.prototype.attachShadow = function (init) {
+    const rot = orig.call(this, init);
+    window.__hkRøtter.push({ rot, lukket: !!(init && init.mode === 'closed') });
+    return rot;
+  };
+};
+
+/* Alt i DOM-et som KAN sende nettleseren et sted, lest som ATTRIBUTT og
+   resolvert mot `document.baseURI`.
+
+   Attributtet, ikke egenskapen: på en SVG-`<a>` er `el.href` et
+   `SVGAnimatedString`, ikke en streng. `new URL(objektet, base)` gjør det til
+   «[object SVGAnimatedString]», som resolverer relativt og dermed ser
+   likeorigins ut — en SVG-lenke rett ut av appen ville blitt lest som trygg.
+   Den rå adressen har ikke det problemet, og `document.baseURI` tar med en
+   eventuell `<base>` slik nettleseren selv ville gjort.
+
+   `xlink:href` er med fordi det er den gamle (og fortsatt gyldige) formen i
+   SVG, og `[href]` som selektor ikke treffer den. */
 const destinasjoner = (p) => p.evaluate(() => {
   const ut = [];
   const her = location.origin;
-  const legg = (hva, rå, url) => {
-    if (!url) return;
+  const XLINK = 'http://www.w3.org/1999/xlink';
+  const legg = (hva, rå) => {
+    if (rå === null || rå === undefined || rå === '') return;
     let o = null;
-    try { o = new URL(url, location.href).origin; } catch (e) { o = 'ugyldig'; }
+    try { o = new URL(String(rå), document.baseURI).origin; } catch (e) { o = 'ugyldig'; }
     if (o !== her) ut.push(hva + ' ' + rå + ' → ' + o);
   };
-  document.querySelectorAll('a[href]').forEach((el) => legg('a', el.getAttribute('href'), el.href));
-  document.querySelectorAll('area[href]').forEach((el) => legg('area', el.getAttribute('href'), el.href));
-  document.querySelectorAll('base[href]').forEach((el) => legg('base', el.getAttribute('href'), el.href));
-  document.querySelectorAll('form[action]').forEach((el) => legg('form', el.getAttribute('action'), el.action));
-  document.querySelectorAll('[formaction]').forEach((el) => legg('formaction', el.getAttribute('formaction'), el.formAction));
-  document.querySelectorAll('meta[http-equiv]').forEach((el) => {
-    if (/refresh/i.test(el.getAttribute('http-equiv') || '')) ut.push('meta refresh ' + el.getAttribute('content'));
-  });
+  const røtter = [document, ...(window.__hkRøtter || []).map((x) => x.rot)];
+  for (const rot of røtter) {
+    rot.querySelectorAll('*').forEach((el) => {
+      const navn = el.tagName.toLowerCase();
+      for (const a of ['href', 'action', 'formaction']) {
+        if (el.hasAttribute(a)) legg(navn + '[' + a + ']', el.getAttribute(a));
+      }
+      if (el.hasAttributeNS(XLINK, 'href')) legg(navn + '[xlink:href]', el.getAttributeNS(XLINK, 'href'));
+      if (navn === 'meta' && /refresh/i.test(el.getAttribute('http-equiv') || '')) {
+        ut.push('meta refresh ' + el.getAttribute('content'));
+      }
+    });
+  }
   return ut;
 });
 
 const blanke = (p) => p.evaluate(() =>
-  [...document.querySelectorAll('[target]')]
+  [document, ...(window.__hkRøtter || []).map((x) => x.rot)]
+    .flatMap((rot) => [...rot.querySelectorAll('[target]')])
     .filter((el) => /_blank/i.test(el.getAttribute('target') || ''))
     .map((el) => el.tagName.toLowerCase() + '[target=_blank]'));
+
+/* Evidens for at kroken faktisk står, og hva den har sett. */
+const skygger = (p) => p.evaluate(() => ({
+  krok: Element.prototype.attachShadow.toString().indexOf('__hkRøtter') > -1,
+  totalt: (window.__hkRøtter || []).length,
+  lukkede: (window.__hkRøtter || []).filter((x) => x.lukket).length,
+}));
 
 async function run(navn, viewport) {
   const browser = await chromium.launch();
   const ctx = await browser.newContext(Object.assign({ viewport },
     viewport.width < 600 ? { isMobile: true, hasTouch: true } : {}));
+  await ctx.addInitScript(SHADOW_KROK);
   const p = await ctx.newPage();
   const feil = [];
   p.on('pageerror', (e) => feil.push(String(e)));
@@ -162,6 +204,12 @@ async function run(navn, viewport) {
   // 3. Ingen ny fane noe sted.
   const b = await blanke(p);
   log(navn + ': ingen target="_blank" i DOM-et', b.length === 0, b.join(', ') || 'ingen');
+
+  // 4. Shadow-registeret: kroken må stå, ellers har sjekkene over bare sett
+  //    lysets DOM uten å vite det.
+  const s = await skygger(p);
+  log(navn + ': shadow-kroken står, og hver rot er talt (også de lukkede)',
+    s.krok === true, JSON.stringify(s));
 
   log(navn + ': ingen JS-feil underveis', feil.length === 0, feil.join(' | '));
   await browser.close();
