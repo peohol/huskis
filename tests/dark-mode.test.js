@@ -2,7 +2,7 @@
   Regresjonstest: LYS OG MØRK DRAKT (docs/mork-drakt.md).
 
   Drakten er ikke et stilark til: den er ÉN blokk med fargetokens som byttes ut,
-  pluss ett tall i paletten som speiles. Testen dekker de fem stedene det kan gå
+  pluss ett tall i paletten som speiles. Testen dekker de seks stedene det kan gå
   galt:
 
     1. Attributtet står FØR første maling. `theme.js` lastes i <head> nettopp
@@ -20,6 +20,10 @@
     5. Det som ikke er vårt eget: `color-scheme` på rot-elementet, så
        <select>-nedtrekk, dato-/klokkeslettvelgere og rullefelt følger med, og
        `<meta name="theme-color">` som farger nettleserens egen ramme.
+    6. Et systembytte river ikke ned en pågående inline navngiving. Kortfargene
+       males kirurgisk (custom properties på noder som allerede står der), og
+       den fulle rendringen utsettes til redigeringen er ferdig — samme vakt
+       (`isBusyEditing`) som synken bruker.
 
   Punkt 3 kjøres i BEGGE viewportene: på innloggingsskjermen står språk- og
   draktvelgeren på samme rad, og raden skal brekke MELLOM parene — aldri mellom
@@ -236,6 +240,49 @@ async function seed(p) {
   await p.waitForTimeout(300);
   st = await themeState(p);
   check('et eksplisitt valg lar seg ikke overstyre av systemet', st.attr === 'dark', st);
+  console.log('\n--- Et systembytte river ikke ned en pågående navngiving ---');
+  /* Regresjon: draktbyttet malte board-et på nytt med en gang. Et OS-bytte
+     kommer når det kommer — gjerne midt i en inline omdøping — og `render()`
+     fjerner den fokuserte `.edit-input`-noden. `captureFocusIn` bevarer den
+     ikke, og en fjernet, fokusert node fyrer ikke pålitelig sin egen `blur`, så
+     teksten forsvant. Kortfargene skal likevel følge drakten, kirurgisk. */
+  await p.evaluate(() => window.HUSKIS_THEME.setMode('system'));
+  await p.emulateMedia({ colorScheme: 'light' });
+  await p.waitForTimeout(250);
+  // Start en omdøping og skriv noe UTEN å bekrefte. F2 på en fokusert rad er
+  // den samme veien inn som tastatursnarveien ellers i appen.
+  await p.locator('#board .card .item').first().focus();
+  await p.keyboard.press('F2');
+  await p.waitForTimeout(300);
+  await p.keyboard.type('Halvskrevet navn');
+  await p.waitForTimeout(150);
+  const før = await p.evaluate(() => {
+    const el = document.querySelector('#board .edit-input');
+    return { finnes: !!el, verdi: el && el.value, fokusert: el === document.activeElement };
+  });
+  check('forutsetning: navnefeltet står åpent med ubekreftet tekst',
+    før.finnes && før.verdi === 'Halvskrevet navn' && før.fokusert, før);
+  await p.emulateMedia({ colorScheme: 'dark' });
+  await p.waitForTimeout(400);
+  const etter = await p.evaluate(() => {
+    const el = document.querySelector('#board .edit-input');
+    return {
+      theme: document.documentElement.getAttribute('data-theme'),
+      finnes: !!el,
+      verdi: el && el.value,
+      fokusert: el === document.activeElement,
+      kortfarge: (document.querySelector('#board .card') || {}).style
+        && document.querySelector('#board .card').style.getPropertyValue('--card-bg').trim(),
+    };
+  });
+  check('drakten byttet likevel', etter.theme === 'dark', etter);
+  check('navnefeltet står fortsatt der, med teksten og fokuset i behold',
+    etter.finnes && etter.verdi === 'Halvskrevet navn' && etter.fokusert, etter);
+  check('…og kortfargene fulgte drakten kirurgisk (mørkt sett)',
+    /^#[0-9a-f]{6}$/i.test(etter.kortfarge) && hsl(etter.kortfarge).l < 50, etter.kortfarge);
+  await p.keyboard.press('Escape');
+  await p.waitForTimeout(250);
+
   await p.emulateMedia({ colorScheme: null });
   await ctx.close();
 

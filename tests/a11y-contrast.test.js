@@ -409,6 +409,82 @@ if (darkBlock) {
       worst[1] >= need, { verst: worst[0], ratio: +worst[1].toFixed(2) });
   }
 
+  console.log('\n--- Ikonene på de fargede statuschipene ---');
+  /* `.meta-chip.is-started/-soon/-over` er fargede flater som IKKE er
+     .btn-solid, så de fanges ikke av knappenes pinning. I mørk drakt snur
+     ikonstreken til --icon-ink, og det er en forbedring på blågrønt og rødt —
+     men gult kan like lite bære en lys strek som en hvit tekst. Chipen pinner
+     derfor streken mørk, som .btn-yellow gjør. */
+  {
+    const yellow = gradientStops('grad-yellow');
+    const soonRule = (css.match(/\.meta-chip\.is-soon\s*\{([^}]*)\}/) || [])[1] || '';
+    const pinned = (soonRule.match(/--icon-ink:\s*(#[0-9a-f]{3,8})/i) || [])[1];
+    check('.meta-chip.is-soon pinner en MØRK ikonstrek (gult bærer ikke lyse merker)',
+      !!pinned && lum(pinned) < 0.1, { regel: soonRule.replace(/\s+/g, ' ').trim(), pinned });
+    /* Og «papiret» sammen med den: kalender-/klokkeikonene har en hvit flate
+       under strekene. Pinnes bare streken, møter mørk strek mørkt papir. */
+    const paper = (soonRule.match(/--icon-paper:\s*(#[0-9a-f]{3,8})/i) || [])[1];
+    check('.meta-chip.is-soon pinner «papiret» sammen med streken',
+      !!paper && lum(paper) > 0.5, { paper });
+    if (paper && pinned) {
+      contrast(`den pinnede streken mot det pinnede papiret på .meta-chip.is-soon`, pinned, paper, 3);
+    }
+    for (const stop of yellow) {
+      contrast(`den pinnede streken (${pinned}) på .meta-chip.is-soon (${stop})`, pinned || '#111111', stop, 3);
+    }
+    // …og at en lys strek der ville vært ulovlig — begrunnelsen for pinningen.
+    for (const stop of yellow) {
+      const v = ratio(dtoken('icon-ink'), stop);
+      check(`lys strek på den gule chipen ville vært ulovlig (${v.toFixed(2)}:1) — derfor pinningen`, v < 3, +v.toFixed(2));
+    }
+    // De to andre chipene beholder den lyse streken, og skal være BEDRE enn
+    // den svarte de har i lys drakt.
+    for (const [navn, g] of [['is-started', 'grad-accent'], ['is-over', 'grad-red']]) {
+      for (const stop of gradientStops(g)) {
+        contrast(`lys strek på .meta-chip.${navn} (${stop})`, dtoken('icon-ink'), stop, 3);
+      }
+    }
+  }
+
+  console.log('\n--- Kontroller som bytter farge ved hover / under draging ---');
+  /* To signaler tegnes med en FAST farge oppå noe som skifter med drakten, og
+     begge falt igjennom da paletten ble mørk. Kravet her er ikke bare 3:1 der
+     det er oppnåelig — det er at den mørke drakten ikke skal være DÅRLIGERE
+     enn den lyse. Derfor måles begge draktene mot hver sin palett. */
+  {
+    // Avkryssingsboksens hover-kant, mot platen den ligger på. Hvilekanten
+    // (--card-accent) klarer 3:1; hover skal ikke gjøre kontrollen utydeligere.
+    const worst = DARK_PALETTE
+      .map((c) => { const p = over(dtoken('plate'), c); return [c + ' → ' + p, ratio(dtoken('check-hover'), p)]; })
+      .reduce((a, b) => (a[1] < b[1] ? a : b));
+    check(`--check-hover (${dtoken('check-hover')}) mot platen over alle mørke kortfarger — svakeste ${worst[1].toFixed(2)}:1 (${worst[0]}, krav 3:1)`,
+      worst[1] >= 3, { verst: worst[0], ratio: +worst[1].toFixed(2) });
+    const naiv = DARK_PALETTE
+      .map((c) => ratio(token('primary'), over(dtoken('plate'), c)))
+      .reduce((a, b) => Math.min(a, b));
+    check(`den lyse drakts --primary ville falt til ${naiv.toFixed(2)}:1 her — derfor et eget token`,
+      naiv < 3, +naiv.toFixed(2));
+
+    /* Den stiplede slippmål-kanten tegnes rett på en kortfarge. INGEN av
+       draktene når 3:1 der — den lyse bunner ut på ~1,5:1, og kanten er
+       stiplet, pulserende og ledsaget av at kassen vokser. Kravet er derfor
+       PARITET: den mørke drakten skal ikke være dårligere enn den lyse. */
+    const floor = (fg, pal) => pal.map((c) => ratio(fg, c)).reduce((a, b) => Math.min(a, b));
+    const edgeLight = floor(token('danger-edge'), paletteFor(L_LIGHT));
+    const edgeDark = floor(dtoken('danger-edge'), DARK_PALETTE);
+    check(`--danger-edge er minst like synlig i mørk drakt som i lys (mørk ${edgeDark.toFixed(2)}:1 mot lys ${edgeLight.toFixed(2)}:1)`,
+      edgeDark >= edgeLight, { lys: +edgeLight.toFixed(2), mork: +edgeDark.toFixed(2) });
+    const uendret = floor(token('danger'), DARK_PALETTE);
+    check(`--danger uendret ville bunnet ut på ${uendret.toFixed(2)}:1 mot de mørke kortfargene — derfor et eget token`,
+      uendret < edgeLight, +uendret.toFixed(2));
+
+    // Placeholderen: samme paritetskrav, mot board-bakgrunnen den ligger på.
+    const phLight = ratio(over(token('scrim'), token('bg')), token('bg'));
+    const phDark = ratio(over(dtoken('scrim'), D_BG), D_BG);
+    check(`drag-placeholderen er minst like synlig i mørk drakt som i lys (mørk ${phDark.toFixed(2)}:1 mot lys ${phLight.toFixed(2)}:1)`,
+      phDark >= phLight, { lys: +phLight.toFixed(2), mork: +phDark.toFixed(2) });
+  }
+
   console.log('\n--- Trafikklyset mot den mørke statuspillen ---');
   for (const [what, t] of [['grønt «Lagret»', 'primary-ink'], ['gult «Lagrer …»', 'warn'],
     ['grått «Frakoblet»', 'ink-soft'], ['rødt «kunne ikke lagres»', 'danger-ink']]) {

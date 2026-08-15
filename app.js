@@ -10160,10 +10160,26 @@
     if (!saved) showToast(tr('theme.notStored'));
   }
   /* Kortfargene er de eneste fargene som IKKE bor i CSS — de settes inline fra
-     paletten (colorForIndex), og paletten speiler L-en per drakt. Derfor må
-     board-et rendres på nytt når drakten skifter, også når skiftet kom fra
-     operativsystemet mens appen sto åpen ('system'). */
-  THEME.onChange(() => { paintTheme(); render(); });
+     paletten (colorForIndex), og paletten speiler L-en per drakt. De må derfor
+     males på nytt når drakten skifter, også når skiftet kom fra
+     operativsystemet mens appen sto åpen ('system').
+
+     KIRURGISK FØRST, RENDRING ETTERPÅ. `reindexContainerColors` bytter bare
+     custom properties på de kortene som allerede står der, og er trygg midt i
+     hva som helst. En full `render()` river derimot ned board-et — og en
+     drakt-endring fra operativsystemet kommer når den kommer, gjerne midt i en
+     inline navngiving. `captureFocusIn` bevarer ikke et åpent `.edit-input`, og
+     en fjernet, fokusert node fyrer ikke pålitelig sin egen `blur`, så teksten
+     brukeren holdt på å skrive ville gått tapt. Samme vakt som synken bruker
+     (`isBusyEditing`, se der): rendringen utsettes, og siden enhver senere
+     endring rendrer likevel, henter de små palettflatene (ansvarssirklene) seg
+     inn i samme øyeblikk redigeringen er ferdig. */
+  THEME.onChange(() => {
+    paintTheme();
+    reindexContainerColors(boardScope);
+    reindexContainerColors(navScope);   // no-op når nav-modalen er tom
+    if (!isBusyEditing()) render();
+  });
 
   // E-postvarsel-innstillingen ligger på kontoen (user_metadata.email_notifications).
   // Standard PÅ (ny bruker uten flagget → true). Endres optimistisk; skrivingen

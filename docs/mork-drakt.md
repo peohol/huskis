@@ -63,15 +63,30 @@ Tokenene er delt i to familier etter hva de ligger på:
   palettfargen gjør jobben selv — men lagene oppå: de halvgjennomsiktig hvite
   platene blir halvgjennomsiktig svarte, og de svarte hårstrekene blir hvite.
 
-To ting snur som ikke er flater:
+Fire ting snur som ikke er flater:
 
 - **Fokusringen.** `--focus` er mørk i lys drakt (den må lese mot alle lyse
   flater) og **hvit** i mørk. Den mørke gir 1,0:1 mot den mørke
   board-bakgrunnen; den hvite gir ≥ 4,0:1 mot alle 36 mørke palettfarger.
 - **Signalfargene som også er tekst.** `--danger`, `--warn` og `--primary-dark`
-  er flate- og signalfarger (knappegradienter, stiplede kanter, prikker) og skal
-  ikke lysne. Der de brukes som *tekst* brukes `--danger-ink`, `--primary-ink`
-  og `--note-ink` i stedet — identiske med originalene i lys drakt, lyse i mørk.
+  er flate- og signalfarger (knappegradienter, prikker) og skal ikke lysne. Der
+  de brukes som *tekst* brukes `--danger-ink`, `--primary-ink` og `--note-ink` i
+  stedet — identiske med originalene i lys drakt, lyse i mørk.
+- **Signaler som tegnes OPPÅ en kortfarge.** Tre av dem er faste farger på et
+  underlag som skifter med drakten, og alle tre falt igjennom da paletten ble
+  mørk:
+
+  | Token | Hva | Hvorfor |
+  |---|---|---|
+  | `--check-hover` | avkryssingsboksens kant ved hover | `--primary` gir 1,78:1 på den mørkeste platen — under hvilekantens egne 3,06:1, altså blir kontrollen *utydeligere* i det man sikter på den. Den lyse grønnen gir 3,38:1. |
+  | `--danger-edge` | den stiplede slippmål-kanten på søppelkassen | `--danger` bunner ut på 1,03:1 mot de mørke kortfargene. Den lyse rødfargen gir 1,76:1. |
+  | `--scrim` | drag-placeholderens flate | en mørkning på en mørk board-bakgrunn er 1,03:1; et *løft* gir 1,45:1. |
+
+  `--danger-edge` og `--scrim` når ikke 3:1 — og har aldri gjort det, heller
+  ikke i lys drakt (1,52:1 og 1,22:1). Begge er stiplede/pulserende
+  affordanser som kommer sammen med andre signaler (kassen vokser, objektet blir
+  gjennomskinnelig). Kravet testen håndhever er derfor **paritet**: den mørke
+  drakten skal ikke være dårligere enn den lyse.
 
 `color-scheme` settes på rot-elementet i begge drakter, så det vi ikke tegner
 selv følger med: `<select>`-nedtrekket, dato- og klokkeslettvelgerne i
@@ -95,6 +110,15 @@ svarte — det er nettopp derfor grønnfargen får være lys. Knappen pinner der
 `color: var(--ink)` fordi en gul flate ikke kan bære hvit tekst, og uten
 pinningen ville blekket lyst opp i mørk drakt og gjort nettopp det ulovlige.
 Custom properties arver, så ett sted dekker hele subtreet.
+
+Statuschipene under navnet (`.meta-chip.is-started/-soon/-over`) er fargede
+flater som ikke er `.btn-solid`, og de fanges derfor ikke av knappenes pinning.
+Der er den lyse streken en **forbedring** på blågrønt (3,90 → 3,95/5,54) og på
+rødt (3,52 → 4,38/5,56), så bare den gule chipen pinnes mørk — 1,47:1 med lys
+strek mot 10,48:1 med mørk. Samme regel som `.btn-yellow`: en gul flate bærer
+mørke merker. Streken og «papiret» pinnes **sammen**: kalender- og
+klokkeikonene har en hvit flate under strekene, og med bare streken pinnet ville
+mørk strek møtt mørkt papir og ikonet blitt en ulesbar klatt.
 
 **De seks palettfyllene i ikonene** (globusens felter, mappene i logoen) står
 uendret i begge drakter. De er den lyse palettens første sett (S=20 %, L=60 %)
@@ -133,9 +157,18 @@ Kortets to avledede farger snur retning med drakten (`paintCardColor` i
 **lysnes** i mørk. Mørknet på et allerede mørkt kort ville gitt et korthode som
 forsvinner i bakgrunnen og en avkryssingskant som er borte.
 
-Fordi kortfargene settes inline og ikke av CSS, må board-et rendres på nytt når
-drakten skifter. `app.js` lytter på `THEME.onChange` og kaller `render()` — også
-når skiftet kom fra operativsystemet mens appen sto åpen.
+Fordi kortfargene settes inline og ikke av CSS, må de males på nytt når drakten
+skifter — også når skiftet kom fra operativsystemet mens appen sto åpen.
+`app.js` lytter på `THEME.onChange` og gjør det i to trinn:
+
+1. **Kirurgisk, alltid.** `reindexContainerColors` bytter bare custom properties
+   på kort som allerede står i DOM-en, i begge scopene.
+2. **Full `render()`, bare når det er trygt** — bak `isBusyEditing()`, samme
+   vakt synken bruker. Et OS-bytte kommer når det kommer, gjerne midt i en
+   inline navngiving, og `render()` fjerner den fokuserte `.edit-input`-noden;
+   `captureFocusIn` bevarer den ikke, og en fjernet, fokusert node fyrer ikke
+   pålitelig sin egen `blur`. Rendringen henter inn de små palettflatene
+   (ansvarssirklene) og kommer uansett ved neste endring.
 
 ## Kontrasten er målt, ikke valgt
 
@@ -154,5 +187,5 @@ Kravene selv står i [`tilgjengelighet.md`](tilgjengelighet.md).
 | Fil | Dekker |
 |---|---|
 | `tests/a11y-contrast.test.js` | kontraktstallene i begge drakter |
-| `tests/dark-mode.test.js` | attributtet før første maling, «følg systemet» levende, begge velgerne, varighet over omlasting, speilingen av kortfargene, `color-scheme` og `theme-color` |
+| `tests/dark-mode.test.js` | attributtet før første maling, «følg systemet» levende, begge velgerne, varighet over omlasting, speilingen av kortfargene, `color-scheme` og `theme-color`, og at et systembytte ikke river ned en pågående navngiving |
 | `tests/build-version.test.js` | at `theme.js` versjoneres og langtidscaches som de andre klientfilene |
