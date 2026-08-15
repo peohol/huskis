@@ -1421,10 +1421,18 @@ const intentFiltre = manifestFiler.flatMap((p) => {
   const tekst = utenXmlKommentarer(fs.readFileSync(p, 'utf8'));
   const fil = path.relative(ROOT, p);
   return [...tekst.matchAll(KOMPONENT)].flatMap((k) => {
-    const navn = (k[0].match(/android:name\s*=\s*(?:"([^"]*)"|'([^']*)')/) || [])
-      .slice(1).find((v) => v !== undefined) || '(uten navn)';
+    /* Attributtene leses av ÅPNINGSTAGGEN alene. Leste vi hele blokken, ville
+       en komponent uten `android:name` fått navnet til den første `<action>`
+       inni seg — altså feil eier på filteret. */
+    const åpning = (k[0].match(/^<[^>]*>/) || [''])[0];
+    const attributt = (navn) => {
+      const m = åpning.match(new RegExp(navn + '\\s*=\\s*(?:"([^"]*)"|\'([^\']*)\')'));
+      return m ? (m[1] !== undefined ? m[1] : m[2]) : null;
+    };
+    const navn = attributt('android:name') || '(uten navn)';
+    const eksportert = attributt('android:exported');
     return (k[0].match(/<intent-filter\b[\s\S]*?<\/intent-filter>/g) || [])
-      .map((blokk) => ({ fil, komponent: navn, blokk }));
+      .map((blokk) => ({ fil, komponent: navn, eksportert, blokk }));
   });
 });
 /* XML tillater BEGGE anførselstegn: `android:scheme='https'` er nøyaktig like
@@ -1501,6 +1509,32 @@ if (harFilter) {
     påMain.length > 0,
     påMain.length > 0 ? påMain.length + ' filter på ' + påMain[0].komponent
       : 'komplette filtre kun på: ' + [...new Set(komplette.map((f) => f.komponent))].join(', '));
+  /* En aktivitet som ikke er eksportert kan ikke startes utenfra — og en App
+     Link kommer nettopp utenfra, fra browseren eller e-postklienten. Med
+     `android:exported="false"` er manifestet fullt gyldig og lar seg bygge,
+     mens hver eneste lenke blir liggende i browseren. */
+  check('App Links: MainActivity er eksportert (ellers kan ingen browser starte den)',
+    påMain.length > 0 && påMain.every((f) => f.eksportert === 'true'),
+    påMain.map((f) => f.komponent + ': android:exported=' + JSON.stringify(f.eksportert)).join(', ') || 'ingen');
+  /* STIEN teller også. Et filter kan begrenses med `android:pathPrefix="/auth"`
+     og er da fortsatt «komplett» etter sjekken over — men det matcher ikke
+     adressene Huskis faktisk får: delingsinvitasjonen er `/?signup=<e-post>`
+     og varselets fotnote er `/`, begge med stien `/` (spørrestrengen er ikke
+     med i Androids sti-matching). Minst ett kvalifiserende filter må derfor
+     enten stå UTEN sti-begrensning eller eksplisitt dekke roten. Trengs en
+     smalere sti en dag, er det en beslutning som hører hjemme i
+     docs/domains-and-urls.md — ikke en stille innsnevring her. */
+  const STI_ATTR = ['android:path', 'android:pathPrefix', 'android:pathPattern',
+    'android:pathAdvancedPattern', 'android:pathSuffix'];
+  const stiene = (blokk) => STI_ATTR.flatMap((a) => xmlVerdier(blokk, a));
+  const rotFiltre = påMain.filter((f) => {
+    const s = stiene(f.blokk);
+    return s.length === 0 || s.some((v) => v === '/' || v === '');
+  });
+  check('App Links: minst ett kvalifiserende filter dekker roten (/ og /?signup=…)',
+    påMain.length > 0 && rotFiltre.length > 0,
+    rotFiltre.length > 0 ? rotFiltre.length + ' filter uten innsnevrende sti'
+      : 'alle stibegrenset til: ' + påMain.flatMap((f) => stiene(f.blokk)).join(', '));
   /* Et filter er heller ikke nok i seg selv: det bringer bare intenten til
      aktiviteten. NOEN må lese adressen ut av den og gi den til web-laget.
      `@capacitor/android` tar vare på den (`Bridge.getIntentUri()`) og varsler
