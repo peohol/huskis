@@ -222,6 +222,57 @@ async function seed(p) {
   check('board-et er mørkere enn kortene i mørk drakt',
     darkCards.every((c) => lum(c) > lum(darkBg)), { bg: darkBg, kort: darkCards });
 
+  console.log('\n--- Den virtuelle beholderen holdes utenfor omfargingen ---');
+  /* «Mapper delt med meg» er en virtuell beholder uten palettfarge: flaten er
+     et nøytralt --free-*-sett fra klassen, og buildUniverseCard() hopper over
+     paintCardColor for den. reindexContainerColors må hoppe over den også —
+     ellers skriver den en inline --card-bg som slår klassen, OG forskyver
+     indeksen for alle områdene etter den (fargen er posisjonsbasert, og
+     renderNav indekserer den FILTRERTE lista). */
+  await p.evaluate(() => {
+    const H = window.__huskis, st = H.state;
+    st.universes.push({
+      id: crypto.randomUUID(), name: 'Mapper delt med meg', _virtual: true,
+      collapsed: false, groups: [], trashed: false,
+      ts: 1, org: 't', pos: -1, posTs: 1, posOrg: 't',
+    });
+    H.openNavModal();
+  });
+  await p.waitForTimeout(400);
+  const førVirt = await p.evaluate(() => {
+    const el = document.querySelector('#nav-board .free-groups-card');
+    const ekte = [...document.querySelectorAll('#nav-board .card:not(.free-groups-card)')]
+      .map((c) => c.style.getPropertyValue('--card-bg').trim());
+    return { finnes: !!el, inline: el ? el.style.getPropertyValue('--card-bg').trim() : null, ekte };
+  });
+  check('forutsetning: den virtuelle beholderen er tegnet, uten inline kortfarge',
+    førVirt.finnes && !førVirt.inline, førVirt);
+  await p.evaluate(() => window.HUSKIS_THEME.setMode('light'));
+  await p.waitForTimeout(350);
+  const etterVirt = await p.evaluate(() => {
+    const el = document.querySelector('#nav-board .free-groups-card');
+    const ekte = [...document.querySelectorAll('#nav-board .card:not(.free-groups-card)')]
+      .map((c) => c.style.getPropertyValue('--card-bg').trim());
+    return {
+      inline: el ? el.style.getPropertyValue('--card-bg').trim() : null,
+      flate: el ? getComputedStyle(el).backgroundColor : null,
+      ekte,
+    };
+  });
+  check('draktbyttet gir den ikke en palettfarge',
+    !etterVirt.inline, etterVirt);
+  check('de EKTE områdene fikk sine farger, uten at den virtuelle forskjøv indeksen',
+    etterVirt.ekte.length > 0 && etterVirt.ekte.every((c) => /^#[0-9a-f]{6}$/i.test(c)),
+    etterVirt.ekte);
+  await p.evaluate(() => {
+    const st = window.__huskis.state;
+    st.universes = st.universes.filter((u) => !u._virtual);
+    window.__huskis.closeNavModal();
+  });
+  await p.waitForTimeout(250);
+  await p.evaluate(() => window.HUSKIS_THEME.setMode('dark'));
+  await p.waitForTimeout(250);
+
   console.log('\n--- Søppelkassens prikker glemmer den gamle drakten ---');
   /* Radene tar `u.color || colorForId(u.id)`. For et TRASHET objekt er
      `u.color` et levn fra sist det var synlig, og ingen rendring regner den ut

@@ -4973,7 +4973,18 @@
   // eksisterende DOM-noder, ingen full re-rendring av board-et).
   function reindexContainerColors(scope) {
     const S = scope || boardScope;
-    S.containers().forEach((c, i) => {
+    /* Den VIRTUELLE beholderen («Mapper delt med meg») filtreres bort først —
+       nøyaktig som `renderNav()` gjør når den deler ut farger. To grunner, og
+       begge betyr noe:
+
+         • Den har ingen palettfarge. Flaten er et nøytralt `--free-*`-sett fra
+           klassen `.free-groups-card`, og `buildUniverseCard()` hopper over
+           `paintCardColor` for den med vilje. En inline `--card-bg` herfra
+           ville overstyrt klassen.
+         • Den skal ikke TELLE. Fargen er posisjonsbasert, og `renderNav()`
+           indekserer den filtrerte lista. Tok vi den med her, ville hvert
+           område etter den fått en annen farge enn rendringen ga dem. */
+    S.containers().filter((c) => !c._virtual).forEach((c, i) => {
       c.color = colorForIndex(i);
       const el = S.root.querySelector('.card[data-id="' + c.id + '"]');
       if (!el) return;
