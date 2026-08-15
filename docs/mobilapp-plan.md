@@ -480,6 +480,7 @@ legger dem på sin egen avstand. Autoritativt:
 | `scroll-padding-top` (`styles.css`) | Sidens rulling vet at det faste panelet dekker toppen, så et felt som rulles fram ikke havner under det. |
 | resize-lytteren (`app.js`) | Tastaturet krymper viewportet ⇒ feltet som redigeres rulles tilbake i syne. |
 | `android:windowSoftInputMode` (manifestet) | Tastaturet krymper vinduet, det skyver det ikke. |
+| `values/styles.xml` + `values-v27/` | Systemfeltenes UTSEENDE: lyst tema (ikke DayNight), gjennomsiktige felt og MØRKE glyfer. Uten det ligger klokka som lyse glyfer over Huskis' lyse flate — og night-varianten malte i tillegg en svart stripe der flaten vår skulle nådd kanten. |
 | `tests/safe-area.test.js` | Setter sonen i ekte nettleser og måler at chromet flytter seg nøyaktig så mye — begge viewportene, begge board-scopene. Dekker også de to tastatur-tilfellene. |
 | `tests/capacitor-android.test.js` | De to erklæringene sonen hviler på, i hver sin fil. |
 
@@ -498,6 +499,13 @@ aldri høyere enn skjermen ([`introduksjon.md`](introduksjon.md)). Vakten er
 `tests/landscape-chrome.test.js`. Sekvensen gjenbrukes ved etterkontroll og på
 iOS i fase 7.
 
+Punkt 10 kom TIL etter runden: skjermbilder fra telefonen viste at klokka og
+statusikonene er lette å lese i mørk modus, men nesten uleselige i lys — lyse
+glyfer over Huskis' lyse flate. Temaet er rettet (lyst tema, gjennomsiktige
+felt, mørke glyfer), og erklæringene voktes i
+`tests/capacitor-android.test.js`. **Selve utfallet er ikke sett på telefon
+ennå** — det kan bare bekreftes med en ny debug-APK.
+
 Debug-APK som i fase 1, på en telefon med hakk ELLER hull i skjermen og med
 **gestenavigasjon** slått på. Kjør punkt 1 og 6 en gang til med treknappsraden,
 og punkt 7–8 i landskap.
@@ -514,6 +522,7 @@ og punkt 7–8 i landskap.
 | 7 | Snu telefonen til landskap med hakket til venstre. | Ingen knapp eller tekst ligger under hakket; board-ets venstre kolonne starter til høyre for det. |
 | 8 | I landskap: åpne objektmenyen på et listepunkt, og kjør «Vis på nytt» av demonstrasjonen. | Popoveren og demo-kortet holder seg innenfor det brukbare feltet — ikke under hakket, statusfeltet eller gestelinjen. |
 | 9 | Slå på mørk modus på telefonen og gjenta punkt 1. | Appen er fortsatt lys hele veien ut i kantene; ingen mørk stripe dukker opp øverst eller nederst. |
+| 10 | Se på klokka, batteriet og gestelinjen i BEGGE modusene. | Glyfene er mørke og lette å lese mot Huskis' lyse flate — i lys modus like godt som i mørk. |
 
 Avvik rapporteres som i fase 2: trinnummer, hva som faktisk skjedde, og om det
 samme skjer i nettleseren på samme viewport. Er svaret ja, er det en ordinær

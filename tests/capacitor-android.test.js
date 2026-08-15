@@ -31,8 +31,10 @@
      9. Native runtime: webkoden kjenner Capacitor på ÉN gated linje (broen for
         systemets tilbakeknapp) og ingen andre steder, og ingenting i den peker
         appen ut av sine egne innebygde filer.
-    10. Safe areas og skjermtastaturet: de to erklæringene sonen hviler på —
-        `viewport-fit=cover` i index.html og `adjustResize` i manifestet.
+    10. Safe areas og skjermtastaturet: erklæringene sonen hviler på —
+        `viewport-fit=cover` i index.html, `adjustResize` i manifestet, og
+        systemfeltenes utseende i temaet (lyst tema, gjennomsiktige felt,
+        mørke glyfer) som gjør klokka lesbar over Huskis' lyse flate.
     11. Systemets tilbakeknapp: skallet spør web-laget først og lar OS ta
         trykket når web-laget ikke tok det.
 
@@ -353,6 +355,35 @@ check('index.html ber om å få tegne under systemfeltene (viewport-fit=cover)',
    resize-lytteren i app.js ruller feltet som redigeres tilbake i syne. */
 check('android: skjermtastaturet krymper vinduet (adjustResize)',
   /android:windowSoftInputMode="adjustResize"/.test(manifest));
+
+/* Systemfeltenes GLYFER hører til den samme mekanismen: når siden tegner under
+   feltene, er det Huskis' egen — alltid lyse — flate som ligger bak klokka og
+   gestelinjen. Uten en eksplisitt erklæring beholder feltene systemets egne
+   farger, og lyse glyfer over en lys flate er i praksis uleselige (målt på
+   telefon: grei kontrast i mørk modus, dårlig i lys). DayNight-foreldretemaet
+   var dessuten halve problemet: night-varianten malte en SVART statusfelt-
+   bakgrunn oppå siden, så flaten vår ikke nådde skjermkanten i mørk modus.
+   Ingenting av dette kan ses fra web-laget — derfor voktes erklæringene her. */
+const styles = les('android/app/src/main/res/values/styles.xml');
+const stylesV27 = les('android/app/src/main/res/values-v27/styles.xml');
+/* Kun `parent=`-attributtene leses — ordet DayNight står også i kommentaren
+   som forklarer hvorfor det ikke er foreldretemaet, og den skal ikke felle
+   sin egen test. */
+const arver = (s) => (s.match(/parent="[^"]*"/g) || []).join(' ');
+check('android: kjøretidstemaet er lyst, ikke DayNight (appen har én drakt)',
+  /name="AppTheme\.NoActionBar"[^>]*parent="Theme\.AppCompat\.Light\.NoActionBar"/.test(styles)
+  && !/DayNight/.test(arver(styles)) && !/DayNight/.test(arver(stylesV27)),
+  arver(styles));
+check('android: systemfeltene er gjennomsiktige (Huskis-flaten når skjermkanten)',
+  /android:statusBarColor">@android:color\/transparent/.test(styles)
+  && /android:navigationBarColor">@android:color\/transparent/.test(styles));
+check('android: mørke glyfer i statusfeltet (windowLightStatusBar)',
+  /android:windowLightStatusBar">true/.test(styles));
+/* Attributten finnes først fra API 27, og hører derfor hjemme i values-v27/ —
+   i values/ ville den vært død kode med lint-støy på kjøpet. */
+check('android: mørke glyfer i gestelinjen fra API 27 (windowLightNavigationBar)',
+  /android:windowLightNavigationBar">true/.test(stylesV27)
+  && !/android:windowLightNavigationBar/.test(styles));
 
 /* ---- 11. Systemets tilbakeknapp ----
 

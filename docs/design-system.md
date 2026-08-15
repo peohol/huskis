@@ -77,9 +77,18 @@ løser seg til vanlige px-verdier når de leses — i motsetning til `--board-ga
 som er en `clamp()` og derfor må leses fra en oppløst egenskap
 (`docs/board-layout.md`).
 
+**Flaten bak systemfeltene er vår, og den er lys.** Når siden tegner under
+statusfeltet og gestelinjen, er det Huskis' egen lyse flate klokka og
+gestelinjen ligger oppå — derfor ber Android-temaet om MØRKE glyfer
+(`windowLightStatusBar`/`windowLightNavigationBar`), og bruker et lyst
+foreldretema i stedet for DayNight, slik at telefonens mørke modus verken
+snur glyfene eller maler en svart stripe over toppen av siden vår. Erklæringene
+står i `android/app/src/main/res/values/styles.xml` (+ `values-v27/` for
+gestelinjen, som først finnes fra API 27).
+
 Voktere: `tests/safe-area.test.js` (setter sonen og måler at chromet flytter
-seg, begge viewportene) og `tests/capacitor-android.test.js` (de to
-erklæringene sonen hviler på).
+seg, begge viewportene) og `tests/capacitor-android.test.js` (erklæringene
+sonen og systemfeltenes utseende hviler på).
 
 Skjermtastaturet hører til samme bilde: det krymper viewportet i stedet for å
 legge seg oppå det, så feltet som redigeres kan bli liggende under det. Sidens
