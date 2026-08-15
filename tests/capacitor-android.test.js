@@ -472,14 +472,23 @@ if (finnes(APK_CFG)) {
    konfigurasjonen — og en endring i genereringen ville sluppet gjennom.
    APK-workflowen er det ene stedet filen finnes, så den må kjøre denne testen
    ETTER synkroniseringen. Det er den rekkefølgen som voktes her; selve
-   innholdet sjekkes av linjene over, der. */
-const apkWf = les('.github/workflows/android-debug.yml');
-const iSync = apkWf.indexOf('cap sync android');
-const iTest = apkWf.indexOf('node tests/capacitor-android.test.js');
+   innholdet sjekkes av linjene over, der.
+
+   Rekkefølgen leses av KJØRENDE steg, ikke av fila som tekst: både
+   `cap sync android` og testkommandoen står omtalt i kommentarene her (og i
+   overskriftsblokken øverst), så et rått tekstsøk ville stått grønt selv om
+   selve steget var fjernet eller kommentert ut. */
+const apkKjør = les('.github/workflows/android-debug.yml')
+  .split('\n')
+  .filter((l) => !/^\s*#/.test(l))
+  .map((l) => (l.match(/^\s*(?:-\s*)?run:\s*(.*)$/) || [, null])[1])
+  .filter((x) => x !== null);
+const iSync = apkKjør.findIndex((l) => /cap sync android/.test(l));
+const iTest = apkKjør.findIndex((l) => /node tests\/capacitor-android\.test\.js/.test(l));
 check('APK-workflowen kjører denne testen ETTER cap sync (ellers ser ingen CI den pakkede konfigurasjonen)',
   iSync > -1 && iTest > iSync,
-  iTest === -1 ? 'testen kjøres ikke i android-debug.yml'
-    : 'cap sync @' + iSync + ', testen @' + iTest);
+  iTest === -1 ? 'testen kjøres ikke som et run-steg i android-debug.yml'
+    : 'run-steg: cap sync #' + iSync + ', testen #' + iTest);
 /* Sjekkene under trenger en STRENGBEVISST kommentarfjerner, ikke kodeLinjer().
    Den forenklingen — kapp linja ved første `//` — er grei for navnesjekkene
    lenger oppe, men den blindet disse på to måter: `href="//vert"` forsvant helt,
@@ -499,16 +508,22 @@ function kodeLinjerStreng(src, modus) {
      et ordtegn, men er ingen verdi — `return /re/` er et regex — så de
      sjekkes for seg.
 
-     GRENSEN, bevisst: et regex kan også starte en setning etter en betingelse
-     (`if (klar) /re/.test(x)`), og der kan ikke «forrige tegn» skille den fra
-     divisjon — `(a + b) / c` ser likedan ut. Å avgjøre det krever
-     setningskontekst, altså en JS-lexer, som ville vært større enn vakten den
-     vokter. Huskis har ikke ett eneste regex med `/` eller `*` i en
-     tegnklasse; formene som faktisk oppstår (etter operator, komma, `return`)
-     er dekket, og en lenke måtte uansett navngi en adresse som URL-sjekken og
-     dist-skanningen ser. Kommer et slikt regex inn i koden, er forutsetningen
-     endret og dette er stedet å ta det opp igjen. */
+     Ett tilfelle til krever mer enn forrige tegn: et regex kan starte en
+     setning rett etter en BETINGELSE — `if (klar) /re/.test(x)` — og der ser
+     `)` nøyaktig ut som slutten på `(a + b) / c`. Forskjellen ligger i hva den
+     parentesen var, så parentesene stables: ved `(` noteres om tokenet foran
+     var `if`/`while`/`for`/`switch`/`catch`/`with`, og ved `)` husker vi hva
+     som nettopp ble lukket. Det er ingen full JS-lexer, men det er den ene
+     grammatiske opplysningen valget faktisk trenger.
+
+     `hale` er de siste signifikante tegnene PÅ TVERS av linjer, ikke bare på
+     denne. Et nøkkelord eller en betingelse som slutter på forrige linje
+     teller like fullt. */
   let forrige = '';
+  let hale = '';
+  const parenteser = [];
+  let lukketBetingelse = false;
+  const CTRL = /(?:^|[^\w$])(?:if|while|for|switch|catch|with)\s*$/;
   return linjer.map((raw, i) => {
     /* Backtick og `"""` er de to strengformene som KAN spenne over linjer
        (JS-templat, Kotlins rå streng, Javas tekstblokk). Alle andre nullstilles
@@ -551,8 +566,9 @@ function kodeLinjerStreng(src, modus) {
       }
       /* Regex-literal: konsumeres i sin helhet, med tegnklasser, slik at
          `/` og `*` inne i det ikke leses som kommentartegn. */
-      const etterNokkelord = /(?:^|[^\w$])(?:return|throw|typeof|instanceof|in|of|new|delete|void|case|do|else|yield|await)\s*$/.test(ren);
-      if (m !== 'css' && raw[j] === '/' && (!/[\w$)\]]/.test(forrige) || etterNokkelord)
+      const etterNokkelord = /(?:^|[^\w$])(?:return|throw|typeof|instanceof|in|of|new|delete|void|case|do|else|yield|await)\s*$/.test(hale);
+      if (m !== 'css' && raw[j] === '/'
+        && (!/[\w$)\]]/.test(forrige) || etterNokkelord || (forrige === ')' && lukketBetingelse))
         && !raw.startsWith('//', j) && !raw.startsWith('/*', j)) {
         let k = j + 1, iKlasse = false, lukket = false;
         for (; k < raw.length; k++) {
@@ -561,7 +577,10 @@ function kodeLinjerStreng(src, modus) {
           if (raw[k] === '[') { iKlasse = true; continue; }
           if (raw[k] === '/') { lukket = true; break; }
         }
-        if (lukket) { ren += raw.slice(j, k + 1); j = k; forrige = '/'; continue; }
+        if (lukket) {
+          ren += raw.slice(j, k + 1); j = k; forrige = '/';
+          hale = (hale + '/').slice(-60); lukketBetingelse = false; continue;
+        }
       }
       if (raw.startsWith('/*', j)) { iBlokk = true; j++; continue; }
       /* `<!--` betyr to helt forskjellige ting. I markup åpner den en kommentar
@@ -577,6 +596,10 @@ function kodeLinjerStreng(src, modus) {
       if (m === 'js' && raw.startsWith('"""', j)) { streng = '"""'; ren += '"""'; j += 2; continue; }
       if (raw[j] === '"' || raw[j] === "'" || (m !== 'css' && raw[j] === '`')) streng = raw[j];
       ren += raw[j];
+      if (raw[j] === '(') { parenteser.push(CTRL.test(hale)); lukketBetingelse = false; }
+      else if (raw[j] === ')') { lukketBetingelse = parenteser.length ? parenteser.pop() : false; }
+      else if (!/\s/.test(raw[j])) lukketBetingelse = false;
+      hale = (hale + raw[j]).slice(-60);
       if (!/\s/.test(raw[j])) forrige = raw[j];
     }
     return { nr: i + 1, l: ren };
@@ -782,8 +805,11 @@ const UT_MØNSTRE = [
   /* Alle tre skrivemåtene av det samme: `window.open(`, klammenotasjonen
      `window['open'](` og den globale, ukvalifiserte `open(`. Foranstilt
      `[^.\w$]` holder `api.open()` og `step.reopen()` utenfor. */
-  ['open()', /(?:^|[^.\w$])(?:(?:window|self|globalThis|top|parent)\s*(?:\.\s*open|\[\s*["'`]open["'`]\s*\])|open)\s*\(/gm],
-  ['setAttribute', /\.\s*setAttribute\s*\(\s*["'`](?:xlink:)?(?:href|(?:form)?action|http-equiv)["'`]\s*,/gi],
+  ['open()', /(?:^|[^.\w$])(?:(?:window|self|globalThis|top|parent)\s*(?:\??\.\s*open|(?:\?\.)?\s*\[\s*["'`]open["'`]\s*\])|open)(?:\?\.)?\s*\(/gm],
+  /* `setAttributeNS(null, 'href', …)` setter den samme navigerbare
+     egenskapen. Navnerom-argumentet står FØRST, så attributtnavnet er andre
+     argument — derfor den valgfrie ledeparameteren i mønsteret. */
+  ['setAttribute', /\??\.\s*setAttribute(?:NS)?(?:\?\.)?\s*\(\s*(?:[^,()]*,\s*)?["'`](?:xlink:)?(?:href|(?:form)?action|http-equiv)["'`]\s*,/gi],
   ['.href =', /(?:^|[^.\w$])(?!location\b)[\w$\])]+\s*(?:\.\s*(?:href|formAction|action)|\[\s*["'`](?:href|formaction|action)["'`]\s*\])\s*(?:\*\*|<<|>>>?|\|\||&&|\?\?|[-+*/%|&^])?=(?!=)/gim],
   /* `[\t\n\r]*` mellom hvert tegn: URL-parseren stryker de tre tegnene overalt
      i en adresse, så `href="ht\ttps://x"` er den samme utgående lenken. Den
@@ -808,8 +834,15 @@ const UT_MØNSTRE = [
      her har ingen navigasjon å se — men appen forlater WebView-en like fullt.
      Huskis bruker e-post + passord og ingen av disse i dag
      (docs/domains-and-urls.md); tas OAuth i bruk, er det en beslutning som
-     hører hjemme i det dokumentet, ikke en stille tilføyelse. */
-  ['vendor-API som navigerer', /\.\s*(?:signInWithOAuth|linkIdentity)\s*\(/g],
+     hører hjemme i det dokumentet, ikke en stille tilføyelse.
+
+     Lista er lest UT AV den innsjekkede bunten, ikke gjettet: hvert
+     `skipBrowserRedirect`-sted i vendor/supabase-js-2.111.0.js står rett ved en
+     `window.location.assign(…)`, og de offentlige inngangene som havner der er
+     `signInWithOAuth`, `signInWithSSO`, `linkIdentity`, `linkIdentityOAuth` og
+     samtykkeflytens `approveAuthorization`/`denyAuthorization`. Oppgraderes
+     buntten, er det her lista skal etterprøves på nytt. */
+  ['vendor-API som navigerer', /\??\.\s*(?:signInWithOAuth|signInWithSSO|linkIdentity|linkIdentityOAuth|approveAuthorization|denyAuthorization)(?:\?\.)?\s*\(/g],
   /* Destinasjonen satt som OBJEKTNØKKEL, ikke med likhetstegn:
      `Object.assign(a, { href: adresse })` skriver den samme egenskapen, men
      står som `href:` og går klar av både tilordnings- og markup-mønstrene.
@@ -839,13 +872,29 @@ const UT_MØNSTRE = [
 const JS_MARKUP = [
   ['lenke bygget i JS', /<a[\s>/]|\bhref\s*=/gi],
 ];
+/* JS_MARKUP gjelder JS-KODE, ikke filtypen. Et inline-`<script>` i index.html
+   er JS like fullt, og `el.innerHTML = '<a href="' + adresse + '">'` der ville
+   gått klar av alt: markup-mønstrene ser en apostrof i stedet for et skjema, og
+   filtypen er html. Skriptområdene skjæres derfor ut og skannes for seg, med
+   posisjonen i fila beholdt så linjenummeret i evidensen stemmer. */
+function jsOmråder(tekst, modus) {
+  if (modus === 'js') return [{ del: tekst, fra: 0 }];
+  if (modus !== 'html') return [];
+  return [...tekst.matchAll(/<script\b[^>]*>([\s\S]*?)<\/script/gi)]
+    .map((m) => ({ del: m[1], fra: m.index + m[0].indexOf(m[1]) }));
+}
 const utLenker = [];
 for (const f of WEB_KILDE) {
   const { tekst, linjeFor } = strippetMedLinjer(les(f), modusFor(f));
-  const mønstre = modusFor(f) === 'js' ? UT_MØNSTRE.concat(JS_MARKUP) : UT_MØNSTRE;
-  for (const [navn, re] of mønstre) {
+  for (const [navn, re] of UT_MØNSTRE) {
     re.lastIndex = 0;
     for (const m of tekst.matchAll(re)) utLenker.push(f + ':' + linjeFor(m.index) + ' (' + navn + ')');
+  }
+  for (const { del, fra } of jsOmråder(tekst, modusFor(f))) {
+    for (const [navn, re] of JS_MARKUP) {
+      re.lastIndex = 0;
+      for (const m of del.matchAll(re)) utLenker.push(f + ':' + linjeFor(fra + m.index) + ' (' + navn + ')');
+    }
   }
 }
 check('web-kildekoden produserer ingen utgående lenke (ingen _blank, open(), DOM-satt destinasjon, meta refresh eller href/action med skjema)',
@@ -935,11 +984,11 @@ check('kjørende webkode navngir ingen andre absolutte adresser enn Supabase-end
    `x['location']` er en hvilken som helst egenskap, ikke nødvendigvis
    dokumentets. */
 const HOLDER = '(?:window|document|self|globalThis|top|parent)';
-const LOC_OBJ = '(?:\\blocation|' + HOLDER + '\\s*\\[\\s*["\'`]location["\'`]\\s*\\])';
+const LOC_OBJ = '(?:\\blocation|' + HOLDER + '\\s*(?:\\?\\.)?\\s*\\[\\s*["\'`]location["\'`]\\s*\\])';
 const NAV_KALL = new RegExp(
-  LOC_OBJ + '\\s*(?:\\.\\s*(?:assign|replace)|\\[\\s*["\'`](?:assign|replace)["\'`]\\s*\\])\\s*\\('
-  + '|(?:^|[^.\\w$])(?:' + HOLDER + '\\s*(?:\\.\\s*navigation|\\[\\s*["\'`]navigation["\'`]\\s*\\])|navigation)\\s*'
-  + '(?:\\.\\s*navigate|\\[\\s*["\'`]navigate["\'`]\\s*\\])\\s*\\(', 'gm');
+  LOC_OBJ + '\\s*(?:\\??\\.\\s*(?:assign|replace)|(?:\\?\\.)?\\s*\\[\\s*["\'`](?:assign|replace)["\'`]\\s*\\])(?:\\?\\.)?\\s*\\('
+  + '|(?:^|[^.\\w$])(?:' + HOLDER + '\\s*(?:\\??\\.\\s*navigation|(?:\\?\\.)?\\s*\\[\\s*["\'`]navigation["\'`]\\s*\\])|navigation)\\s*'
+  + '(?:\\??\\.\\s*navigate|(?:\\?\\.)?\\s*\\[\\s*["\'`]navigate["\'`]\\s*\\])(?:\\?\\.)?\\s*\\(', 'gm');
 /* Ikke bare `.href`: HVER skrivbar del av Location navigerer. Setter du
    `location.host`, `.protocol`, `.pathname` eller `.search`, laster siden på
    nytt mot en ny adresse — like mye en navigasjon som å sette hele href-en.
@@ -950,7 +999,7 @@ const LOC_DEL = 'href|host|hostname|protocol|port|pathname|search|hash';
    navigerer like fullt. `=(?!=)` alene godtok bare den bare formen. */
 const TILDEL = '(?:\\*\\*|<<|>>>?|\\|\\||&&|\\?\\?|[-+*/%|&^])?=(?!=)';
 const NAV_TILDEL = new RegExp(
-  '(?:^|[^.\\w$])(?:' + HOLDER + '\\s*(?:\\.\\s*location|\\[\\s*["\'`]location["\'`]\\s*\\])|location)\\s*'
+  '(?:^|[^.\\w$])(?:' + HOLDER + '\\s*(?:\\??\\.\\s*location|(?:\\?\\.)?\\s*\\[\\s*["\'`]location["\'`]\\s*\\])|location)\\s*'
   + '(?:(?:\\.\\s*(?:' + LOC_DEL + ')|\\[\\s*["\'`](?:' + LOC_DEL + ')["\'`]\\s*\\])\\s*)?' + TILDEL, 'gm');
 /* Som lenkesjekkene: mot HELE den strippede fila. Et uttrykk som brekker foran
    egenskapen — `location` på én linje, `.assign(…)` på neste — har ellers ikke
@@ -1001,9 +1050,15 @@ if (byggUt.status === 0 && fs.existsSync(DIST)) {
     distAntall++;
     const rel = path.relative(ROOT, q);
     const { tekst, linjeFor } = strippetMedLinjer(fs.readFileSync(q, 'utf8'), modusFor(q));
-    for (const [navn, re] of (modusFor(q) === 'js' ? UT_MØNSTRE.concat(JS_MARKUP) : UT_MØNSTRE)) {
+    for (const [navn, re] of UT_MØNSTRE) {
       re.lastIndex = 0;
       for (const m of tekst.matchAll(re)) distTreff.push(rel + ':' + linjeFor(m.index) + ' (' + navn + ')');
+    }
+    for (const { del, fra } of jsOmråder(tekst, modusFor(q))) {
+      for (const [navn, re] of JS_MARKUP) {
+        re.lastIndex = 0;
+        for (const m of del.matchAll(re)) distTreff.push(rel + ':' + linjeFor(fra + m.index) + ' (' + navn + ')');
+      }
     }
     for (const m of tekst.matchAll(/["'`][\x00-\x1f]*(https?:\/\/[^"'`\s]*)/gi)) {
       if (TILLATTE_URL.indexOf(m[1]) === -1) distTreff.push(rel + ' → ' + m[1]);
