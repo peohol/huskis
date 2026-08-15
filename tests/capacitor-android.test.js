@@ -465,65 +465,6 @@ if (finnes(APK_CFG)) {
     !innebygdSrv.allowNavigation || innebygdSrv.allowNavigation.length === 0,
     JSON.stringify(innebygdSrv.allowNavigation || null));
 }
-/* Overtar skallet WebViewClient-en eller `shouldOverrideUrlLoading`, er det
-   ikke lenger Capacitors ruting som gjelder, og regelen over er ikke lenger
-   den som kjører. Da skal endringen være bevisst — og innom dokumentet.
-
-   HELE den native kildekoden leses, ikke bare MainActivity: en hjelpeklasse
-   som kalles derfra (`Navigation.install(bridge)`) kompileres og kjører like
-   fullt, og kunne byttet ut rutingen uten at en sjekk på én fil så det. Alle
-   source set-ene under `android/app/src` teller — `debug/` og `release/`
-   kompileres inn i hver sin variant — men ikke `test/` og `androidTest/`, som
-   aldri havner i APK-en.
-
-   Mønsteret dekker to måter, ikke én. Å bytte ut KLIENTEN
-   (`setWebViewClient`, `shouldOverrideUrlLoading`) flytter selve avgjørelsen
-   bort fra Capacitor. Å navigere WebView-en DIREKTE fra Java (`loadUrl`,
-   `postUrl`, `loadData…`) hopper over avgjørelsen: en app-initiert lasting
-   spør ikke `shouldOverrideUrlLoading` i det hele tatt, så en fremmed side
-   ville havnet inne i appen. */
-const NATIV_SRC = path.join(ROOT, 'android', 'app', 'src');
-function javaFiler(dir) {
-  return fs.readdirSync(dir, { withFileTypes: true }).flatMap((d) => {
-    const p = path.join(dir, d.name);
-    if (d.isDirectory()) return /^(test|androidTest)$/.test(d.name) ? [] : javaFiler(p);
-    return /\.(java|kt)$/.test(d.name) ? [p] : [];
-  });
-}
-const RUTING = /shouldOverrideUrlLoading|setWebViewClient|setWebChromeClient|WebViewClient|WebChromeClient|\bloadUrl\s*\(|\bpostUrl\s*\(|\bloadData(?:WithBaseURL)?\s*\(/;
-const nativeFiler = javaFiler(NATIV_SRC);
-const ruter = nativeFiler.filter((p) => RUTING.test(kode(fs.readFileSync(p, 'utf8'))));
-check('det native skallet overtar ikke og hopper ikke over navigasjonsrutingen',
-  nativeFiler.length > 0 && ruter.length === 0,
-  ruter.map((p) => path.relative(ROOT, p)).join(', ') || 'ingen av ' + nativeFiler.length + ' native kildefiler');
-
-/* WEB_KILDE er en fast liste, og både sjekken under og del 9 leser kun den. Et
-   nytt produksjonsskript i index.html ville derfor sluppet forbi begge uten at
-   noe sa fra — det ville havnet i `dist/`, men aldri blitt skannet. Lista låses
-   derfor mot det index.html FAKTISK laster. To ting holdes utenfor med vilje:
-   tredjepartskopien i `vendor/` (byte for byte det npm publiserte, voktet i
-   tests/security-headers.test.js) og testmodus-blokken, som build.js river ut
-   av produksjonsbygget.
-
-   Alle tre attributtformene HTML tillater godtas — doble, enkle og helt uten
-   anførselstegn — og `<link>` leses tagg for tagg, slik at rekkefølgen på
-   `rel`/`href` heller ikke betyr noe. En gyldig variant skal ikke kunne snike
-   en fil forbi skanningen. */
-const utenKunDev = indexHtml.replace(/huskis:kun-dev:start[\s\S]*?huskis:kun-dev:slutt/g, '');
-const attributt = (tag, navn) => {
-  const m = tag.match(new RegExp('\\s' + navn + '\\s*=\\s*(?:"([^"]*)"|\'([^\']*)\'|([^\\s"\'>]+))', 'i'));
-  return m ? (m[1] !== undefined ? m[1] : m[2] !== undefined ? m[2] : m[3]) : null;
-};
-const lastet = [
-  ...[...utenKunDev.matchAll(/<script\b[^>]*>/gi)].map((m) => attributt(m[0], 'src')),
-  ...[...utenKunDev.matchAll(/<link\b[^>]*>/gi)]
-    .filter((m) => /stylesheet/i.test(attributt(m[0], 'rel') || ''))
-    .map((m) => attributt(m[0], 'href')),
-].filter((s) => s && !s.startsWith('vendor/'));
-const uskannet = lastet.filter((s) => WEB_KILDE.indexOf(s) === -1);
-check('alle produksjonskildene index.html laster står i WEB_KILDE (og blir dermed skannet)',
-  lastet.length > 0 && uskannet.length === 0, uskannet.join(', ') || lastet.join(', '));
-
 /* Sjekkene under trenger en STRENGBEVISST kommentarfjerner, ikke kodeLinjer().
    Den forenklingen — kapp linja ved første `//` — er grei for navnesjekkene
    lenger oppe, men den blindet disse på to måter: `href="//vert"` forsvant helt,
@@ -557,9 +498,108 @@ function kodeLinjerStreng(src) {
     return { nr: i + 1, l: ren };
   });
 }
+/* Hele fila som én strippet tekst, med posisjon → linjenummer for evidensen.
+   Mønstre som kan spenne over linjeskift kjøres mot denne. */
+const strippet = (src) => kodeLinjerStreng(src).map((x) => x.l).join('\n');
+function strippetMedLinjer(src) {
+  const tekst = strippet(src);
+  return { tekst, linjeFor: (idx) => tekst.slice(0, idx).split('\n').length };
+}
+
+/* Overtar skallet WebViewClient-en eller `shouldOverrideUrlLoading`, er det
+   ikke lenger Capacitors ruting som gjelder, og regelen over er ikke lenger
+   den som kjører. Da skal endringen være bevisst — og innom dokumentet.
+
+   HELE den native kildekoden leses, ikke bare MainActivity: en hjelpeklasse
+   som kalles derfra (`Navigation.install(bridge)`) kompileres og kjører like
+   fullt, og kunne byttet ut rutingen uten at en sjekk på én fil så det. Alle
+   source set-ene under `android/app/src` teller — `debug/` og `release/`
+   kompileres inn i hver sin variant — men ikke `test/` og `androidTest/`, som
+   aldri havner i APK-en.
+
+   Mønsteret dekker to måter, ikke én. Å bytte ut KLIENTEN
+   (`setWebViewClient`, `shouldOverrideUrlLoading`) flytter selve avgjørelsen
+   bort fra Capacitor. Å navigere WebView-en DIREKTE fra Java (`loadUrl`,
+   `postUrl`, `loadData…`) hopper over avgjørelsen: en app-initiert lasting
+   spør ikke `shouldOverrideUrlLoading` i det hele tatt, så en fremmed side
+   ville havnet inne i appen.
+
+   Kilden leses STRENGBEVISST (se kodeLinjerStreng under), ikke med kode():
+   den kapper linja ved første `//`, også inne i en streng, og
+   `String u = "https://x"; webView.loadUrl(u);` ville da mistet kallet. Java
+   har de samme kommentarformene som JS, så den samme funksjonen holder. */
+const NATIV_SRC = path.join(ROOT, 'android', 'app', 'src');
+function javaFiler(dir) {
+  return fs.readdirSync(dir, { withFileTypes: true }).flatMap((d) => {
+    const p = path.join(dir, d.name);
+    if (d.isDirectory()) return /^(test|androidTest)$/.test(d.name) ? [] : javaFiler(p);
+    return /\.(java|kt)$/.test(d.name) ? [p] : [];
+  });
+}
+const RUTING = /shouldOverrideUrlLoading|setWebViewClient|setWebChromeClient|WebViewClient|WebChromeClient|\bloadUrl\s*\(|\bpostUrl\s*\(|\bloadData(?:WithBaseURL)?\s*\(/;
+const nativeFiler = javaFiler(NATIV_SRC);
+const ruter = nativeFiler.filter((p) => RUTING.test(strippet(fs.readFileSync(p, 'utf8'))));
+check('det native skallet overtar ikke og hopper ikke over navigasjonsrutingen',
+  nativeFiler.length > 0 && ruter.length === 0,
+  ruter.map((p) => path.relative(ROOT, p)).join(', ') || 'ingen av ' + nativeFiler.length + ' native kildefiler');
+
+/* WEB_KILDE er en fast liste, og både sjekkene under og del 9 leser kun den.
+   En produksjonsfil utenfor lista ville havnet i `dist/` og kjørt i appen uten
+   noen gang å bli skannet, så lista låses fra TO kanter:
+
+     a) alt index.html laster — dekker det vanlige tilfellet, og sier hvilken
+        fil som mangler;
+     b) alt `build.js` faktisk kopierer ut. Den fanger også en fil ingen
+        `<script>`-tagg nevner: `import('./hjelper.js')` på kjøretid, en
+        `<script>` bygget i JS, en `importScripts()`. Uansett hvordan den
+        lastes MÅ den ligge i repo-roten og bli kopiert, ellers finnes den ikke
+        i produksjon.
+
+   Utenfor med vilje: tredjepartskopien i `vendor/` (byte for byte det npm
+   publiserte, voktet i tests/security-headers.test.js) og testmodus-filene,
+   som build.js river ut av produksjonsbygget.
+
+   Alle tre attributtformene HTML tillater godtas — doble, enkle og helt uten
+   anførselstegn — og `<link>` leses tagg for tagg, slik at rekkefølgen på
+   `rel`/`href` heller ikke betyr noe. En gyldig variant skal ikke kunne snike
+   en fil forbi skanningen. */
+const utenKunDev = indexHtml.replace(/huskis:kun-dev:start[\s\S]*?huskis:kun-dev:slutt/g, '');
+const attributt = (tag, navn) => {
+  const m = tag.match(new RegExp('\\s' + navn + '\\s*=\\s*(?:"([^"]*)"|\'([^\']*)\'|([^\\s"\'>]+))', 'i'));
+  return m ? (m[1] !== undefined ? m[1] : m[2] !== undefined ? m[2] : m[3]) : null;
+};
+const lastet = [
+  ...[...utenKunDev.matchAll(/<script\b[^>]*>/gi)].map((m) => attributt(m[0], 'src')),
+  ...[...utenKunDev.matchAll(/<link\b[^>]*>/gi)]
+    .filter((m) => /stylesheet/i.test(attributt(m[0], 'rel') || ''))
+    .map((m) => attributt(m[0], 'href')),
+].filter((s) => s && !s.startsWith('vendor/'));
+const uskannet = lastet.filter((s) => WEB_KILDE.indexOf(s) === -1);
+check('alle produksjonskildene index.html laster står i WEB_KILDE (og blir dermed skannet)',
+  lastet.length > 0 && uskannet.length === 0, uskannet.join(', ') || lastet.join(', '));
+
+/* Samme lås fra byggsiden: SKIP-listen og testmodus-filene leses ut av
+   build.js, så de to kan ikke komme i utakt. */
+const buildSkip = new Set(((build.match(/const SKIP = new Set\(\[([\s\S]*?)\]\);/) || [, ''])[1]
+  .match(/'([^']+)'/g) || []).map((s) => s.slice(1, -1)));
+const testModus = ((build.match(/const TEST_MODE_FILES = \[([^\]]*)\]/) || [, ''])[1]
+  .match(/'([^']+)'/g) || []).map((s) => s.slice(1, -1));
+const utsendt = fs.readdirSync(ROOT)
+  .filter((n) => /\.(js|css)$/.test(n) && !buildSkip.has(n) && testModus.indexOf(n) === -1);
+const utsendtUskannet = utsendt.filter((n) => WEB_KILDE.indexOf(n) === -1);
+check('alle web-kildefilene build.js kopierer ut står i WEB_KILDE',
+  testModus.length > 0 && utsendt.length > 0 && utsendtUskannet.length === 0,
+  utsendtUskannet.join(', ') || utsendt.join(', '));
+
 
 /* Web-siden av regelen. Kjørende kode i ALLE web-kildefilene: kommentarer og
    dokumentasjon får omtale lenker fritt.
+
+   Mønstrene kjøres mot HELE den strippede fila, ikke linje for linje. Et kall
+   formatert over to linjer — `el.setAttribute(` og `'href', …)` på neste — har
+   ellers verken metode eller attributt på samme linje, og ville sluppet forbi
+   alle sammen. `\s` i mønstrene dekker linjeskiftet; treffets posisjon regnes
+   om til linjenummer for evidensen.
 
    To slag av sjekk, med vilje forskjellig strenge:
 
@@ -574,22 +614,29 @@ function kodeLinjerStreng(src) {
       verdibasert sjekk kan se. `src` er ikke med: et bilde er en ressurs, ikke
       en navigasjon, og styres av CSP-ens `img-src`. */
 const MARKUP = '\\b(?:href|(?:form)?action)\\s*=\\s*\\\\?["\']?\\s*';
-const DOM_SETT = /\.\s*setAttribute\s*\(\s*["'`](?:xlink:)?(?:href|(?:form)?action)["'`]\s*,/i;
-const DOM_TILDEL = /(?:^|[^.\w$])(?!location\b)[\w$\])]+\s*\.\s*(?:href|formAction|action)\s*=(?!=)/;
+const UT_MØNSTRE = [
+  ['_blank', /target\s*=\s*["']?_blank/gi],
+  /* Både `window.open(` og den globale, ukvalifiserte `open(` — samme
+     navigasjon. Foranstilt `[^.\w$]` holder `api.open()` og `step.reopen()`
+     utenfor. */
+  ['open()', /(?:^|[^.\w$])(?:window\s*\.\s*)?open\s*\(/gm],
+  ['setAttribute', /\.\s*setAttribute\s*\(\s*["'`](?:xlink:)?(?:href|(?:form)?action)["'`]\s*,/gi],
+  ['.href =', /(?:^|[^.\w$])(?!location\b)[\w$\])]+\s*\.\s*(?:href|formAction|action)\s*=(?!=)/gm],
+  ['skjema i markup', new RegExp(MARKUP + '[a-z][a-z0-9+.\\-]*:', 'gi')],
+  ['protokoll-relativ', new RegExp(MARKUP + '\\/\\/', 'gi')],
+  /* Deklarativ navigasjon uten en eneste lenke: nettleseren drar av gårde selv.
+     Huskis har ÉN http-equiv, og det er innholdssikkerhetspolicyen. */
+  ['meta refresh', /http-equiv\s*=\s*["']?refresh/gi],
+];
 const utLenker = [];
 for (const f of WEB_KILDE) {
-  for (const { nr, l } of kodeLinjerStreng(les(f))) {
-    if (/target\s*=\s*["']?_blank/.test(l)
-      || /\bwindow\s*\.\s*open\s*\(/.test(l)
-      || DOM_SETT.test(l)
-      || DOM_TILDEL.test(l)
-      || new RegExp(MARKUP + '[a-z][a-z0-9+.\\-]*:', 'i').test(l)
-      || new RegExp(MARKUP + '\\/\\/', 'i').test(l)) {
-      utLenker.push(f + ':' + nr);
-    }
+  const { tekst, linjeFor } = strippetMedLinjer(les(f));
+  for (const [navn, re] of UT_MØNSTRE) {
+    re.lastIndex = 0;
+    for (const m of tekst.matchAll(re)) utLenker.push(f + ':' + linjeFor(m.index) + ' (' + navn + ')');
   }
 }
-check('web-kildekoden produserer ingen utgående lenke (ingen _blank, window.open, DOM-satt destinasjon eller href/action med skjema)',
+check('web-kildekoden produserer ingen utgående lenke (ingen _blank, open(), DOM-satt destinasjon, meta refresh eller href/action med skjema)',
   utLenker.length === 0, utLenker.join(', ') || 'ingen');
 
 /* Ryggraden bak alle formene over: hvilke FREMMEDE adresser frontend i det

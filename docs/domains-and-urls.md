@@ -276,6 +276,9 @@ bevisst kort:
 | Appens eget origin — `https://huskis.no` i browseren, `https://localhost` (de innebygde filene) i mobilappen | **i appen** |
 | Alt annet | **systembrowseren** — aldri inne i WebView-en |
 
+Tre ting faller utenfor det «alt», og de er listet under «Tre unntak» —
+`<iframe>`, POST-skjemaer og `data:`/`blob:`.
+
 Ingen fremmed adresse skal lastes inne i mobilappens WebView. Den har
 Huskis' `localStorage`, Supabase-sesjonen og Capacitor-broen i samme kontekst;
 en side som lastes der er ikke et «faneskifte», den er innsiden av appen.
@@ -296,25 +299,30 @@ INN i WebView-en i stedet for ut. Feltet skal stå tomt.
 `tests/capacitor-android.test.js` vokter både det og at web-kildekoden ikke
 begynner å produsere utgående lenker.
 
-**To veier utenom rutingen, begge stengt av policyen.** `launchIntent()` ser
-bare det WebView-en spør den om, og to ting spør den ikke om:
+**Tre unntak fra ordet «alt».** Rutingen avgjør bare det WebView-en spør den
+om, og `launchIntent()` slipper dessuten én kategori gjennom med vilje. Regelen
+over ville vært for bastant uten disse tre:
 
-- **Innramming.** `default-src 'none'` uten `frame-src` betyr at ingen
-  `<iframe>` kan laste noe som helst.
-- **Skjemaer som sendes med POST.** En POST-innsending rapporteres ikke å nå
-  `shouldOverrideUrlLoading` i det hele tatt — da ville svaret lastet inne i
-  WebView-en, uten at Capacitor fikk sagt noe. `form-action 'self'` stopper
-  den før den blir en navigasjon: et skjema kan bare sendes til appens eget
-  origin, POST som GET.
+| Unntak | Hva som faktisk skjer | Hvem som dekker det |
+|---|---|---|
+| **`<iframe>`** | Rutingen ser aldri en innramming | `default-src 'none'` uten `frame-src` ⇒ ingen ramme kan laste noe |
+| **Skjema sendt med POST** | En POST-innsending rapporteres ikke å nå `shouldOverrideUrlLoading` — svaret ville lastet inne i WebView-en | `form-action 'self'` ⇒ et skjema kan bare sendes til eget origin, POST som GET |
+| **`data:` og `blob:`** | `launchIntent()` returnerer eksplisitt `false` for disse: de BLIR i WebView-en | Ikke fremmed innhold — det er sidens eget, produsert av den selv. Huskis navigerer aldri til en slik adresse; vakten flagger et hvilket som helst skjema i `href`/`action`, `data:` inkludert |
 
-Begge står i policyen ([`sikkerhetsheadere.md`](sikkerhetsheadere.md)) og er
-voktet av `tests/security-headers.test.js`. De hører med her fordi regelen over
-ellers ville vært for bastant: det er policyen, ikke Capacitors ruting, som
-dekker disse to.
+De to første står i policyen
+([`sikkerhetsheadere.md`](sikkerhetsheadere.md)) og er voktet av
+`tests/security-headers.test.js`. Poenget er hvem som dekker hva: for disse tre
+er det ikke Capacitors ruting.
+
+`data:`/`blob:` er verdt et ord til, siden appen faktisk BRUKER dem — avatarbilder
+lages som blob/data-URL-er, og `img-src 'self' data: blob:` tillater nettopp
+det. Et **bilde** er en ressurs, ikke en navigasjon. Skulle noen en gang
+navigere dit, ville innholdet vært appens eget uansett, og da er «inne i appen»
+riktig sted.
 
 (At POST ikke når `shouldOverrideUrlLoading` er lest, ikke observert på en
-enhet. Det endrer ingenting så lenge `form-action` står — men skulle den
-direktivet noen gang løsnes, er dette hullet den slipper løs.)
+enhet. Det endrer ingenting så lenge `form-action` står — men skulle det
+direktivet noen gang løsnes, er dette hullet det slipper løs.)
 
 ### Auth-lenkene i e-post
 

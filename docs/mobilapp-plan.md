@@ -581,7 +581,7 @@ uendret.
 |---|---|
 | `capacitor.config.json` uten `server.allowNavigation` | Det ene feltet som kan slå regelen av: hver oppføring der er en vert som lastes INNE i WebView-en, som har `localStorage`, Supabase-sesjonen og broen i samme kontekst. |
 | `MainActivity.java` | Overtar ikke `WebViewClient`/`shouldOverrideUrlLoading`, og navigerer ikke WebView-en direkte med `loadUrl` — rutingen er Capacitors, ikke vår. |
-| CSP `default-src 'none'` + `form-action 'self'` (`index.html`) | De to veiene utenom rutingen: en fremmed side kommer ikke inn som `<iframe>`, og et skjema kan ikke sendes til et annet origin — heller ikke med POST, som ikke når `shouldOverrideUrlLoading` ([`sikkerhetsheadere.md`](sikkerhetsheadere.md)). |
+| CSP `default-src 'none'` + `form-action 'self'` (`index.html`) | To av de tre unntakene fra rutingen: en fremmed side kommer ikke inn som `<iframe>`, og et skjema kan ikke sendes til et annet origin — heller ikke med POST, som ikke når `shouldOverrideUrlLoading` ([`sikkerhetsheadere.md`](sikkerhetsheadere.md)). Det tredje er `data:`/`blob:`, som blir i WebView-en fordi innholdet er sidens eget ([`domains-and-urls.md`](domains-and-urls.md)). |
 | `tests/capacitor-android.test.js` (del 12) | De to måtene å miste regelen på: `allowNavigation`, og web-kildekode som begynner å produsere utgående lenker. Vokter også at den ene selvnavigasjonen fortsatt er guardens. |
 
 **De to grensetilfellene, avgjort.** Auth-lenkene i e-post kommer fra utsiden og
