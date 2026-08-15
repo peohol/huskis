@@ -1397,9 +1397,36 @@ const manifestFiler = (function les(dir, rot) {
     return d.name === 'AndroidManifest.xml' ? [p] : [];
   });
 }(NATIV_SRC, true));
-const intentFiltre = manifestFiler.flatMap((p) =>
-  (utenXmlKommentarer(fs.readFileSync(p, 'utf8')).match(/<intent-filter\b[\s\S]*?<\/intent-filter>/g) || [])
-    .map((blokk) => ({ fil: path.relative(ROOT, p), blokk })));
+/* Manifestene leses som TEKST, ikke slås sammen. Gradles manifest-merger har
+   sine egne direktiver (`tools:node="removeAll"`, `tools:remove`,
+   `tools:replace`), og med dem kan et overlay fjerne eller bytte ut et filter
+   som står i `main` — da lyver teksten om hva APK-en inneholder. Å tolke dem
+   her ville vært å skrive en merger inne i en vakt, på samme måte som å tolke
+   Groovy ville vært det i del 12. Samme svar som der: direktivene FORBYS i
+   stedet, så en som trenger dem må utvide vakten bevisst. Selve sammenslåingen
+   skjer i APK-workflowen, som er stedet en merget manifest finnes. */
+const MERGER_DIREKTIV = /tools:(?:node|remove|removeAll|replace|strict|overrideLibrary|selector)\b/;
+const medDirektiv = manifestFiler
+  .filter((p) => MERGER_DIREKTIV.test(utenXmlKommentarer(fs.readFileSync(p, 'utf8'))))
+  .map((p) => path.relative(ROOT, p));
+check('ingen av produksjonsmanifestene bruker merger-direktiver (teksten er da det APK-en får)',
+  medDirektiv.length === 0,
+  medDirektiv.join(', ') || manifestFiler.length + ' manifest uten tools:-direktiver');
+/* Hvilken KOMPONENT filteret sitter på avgjør om lenken i det hele tatt når
+   Huskis. Et komplett filter på en annen aktivitet, en `activity-alias`, en
+   receiver eller en service tilfredsstiller hver eneste sjekk under uten at
+   WebView-en noen gang ser adressen. Filtrene bæres derfor med eieren sin. */
+const KOMPONENT = /<(activity|activity-alias|service|receiver|provider)\b[^>]*>[\s\S]*?<\/\1>/g;
+const intentFiltre = manifestFiler.flatMap((p) => {
+  const tekst = utenXmlKommentarer(fs.readFileSync(p, 'utf8'));
+  const fil = path.relative(ROOT, p);
+  return [...tekst.matchAll(KOMPONENT)].flatMap((k) => {
+    const navn = (k[0].match(/android:name\s*=\s*(?:"([^"]*)"|'([^']*)')/) || [])
+      .slice(1).find((v) => v !== undefined) || '(uten navn)';
+    return (k[0].match(/<intent-filter\b[\s\S]*?<\/intent-filter>/g) || [])
+      .map((blokk) => ({ fil, komponent: navn, blokk }));
+  });
+});
 /* XML tillater BEGGE anførselstegn: `android:scheme='https'` er nøyaktig like
    gyldig som den doble formen Capacitor selv genererer, og Android pakker den
    like fullt. Et mønster som bare kjenner den ene skrivemåten ville sett et
@@ -1465,6 +1492,15 @@ if (harFilter) {
     komplette.length > 0 ? komplette.length + ' av ' + nettFiltre.length + ' filtre er komplette'
       : 'ingen komplette; beste filter mangler: ' + KOMPLETT
         .filter(([, re]) => !nettFiltre.some(({ blokk }) => re.test(blokk))).map(([n]) => n).join(', '));
+  /* Og det komplette filteret må sitte på AKTIVITETEN som viser Huskis. Et
+     filter på en annen komponent kan ikke levere adressen til WebView-en —
+     appen ville gjort krav på lenken og så ikke hatt noe sted å gjøre av den. */
+  const MAIN = [cfg.appId + '.MainActivity', '.MainActivity'];
+  const påMain = komplette.filter((f) => MAIN.indexOf(f.komponent) > -1);
+  check('App Links: det komplette filteret sitter på MainActivity (der WebView-en er)',
+    påMain.length > 0,
+    påMain.length > 0 ? påMain.length + ' filter på ' + påMain[0].komponent
+      : 'komplette filtre kun på: ' + [...new Set(komplette.map((f) => f.komponent))].join(', '));
   /* Et filter er heller ikke nok i seg selv: det bringer bare intenten til
      aktiviteten. NOEN må lese adressen ut av den og gi den til web-laget.
      `@capacitor/android` tar vare på den (`Bridge.getIntentUri()`) og varsler
@@ -1482,14 +1518,26 @@ if (harFilter) {
      ikke adressen inn i WebView-en av seg selv, den fyrer en `appUrlOpen` som
      noen må lytte på og rute videre. Derfor kreves bruken, ikke pakken — enten
      lytteren i web-koden (som da også må gjennom gaten i del 9) eller native
-     kode som leser intent-URI-en selv. */
+     kode som leser intent-URI-en selv.
+
+     Formen kreves, ikke bare navnet: en REGISTRERT lytter
+     (`addListener('appUrlOpen', …)`) i web-koden, eller native kode som
+     faktisk henter URI-en (`getIntentUri()`). Et bart `onNewIntent`-overstyr
+     teller ikke — den kan like gjerne slippe intenten på gulvet.
+
+     GRENSEN, og den er ekte: at lytteren finnes beviser IKKE at adressen rutes
+     riktig — at `?signup=` havner der `applySignupInvite()` leser den. Det kan
+     ingen tekstvakt avgjøre uten å tolke koden, og det er samme grense som del
+     12 allerede har skrevet ned for lenker satt sammen av strengbiter. Denne
+     sjekken sier at noen har tatt et bevisst steg; om steget virker, avgjøres
+     på en telefon — den fysiske runden i fase 6. */
   const webKode = WEB_KILDE.map((f) => strippet(les(f), modusFor(f))).join('\n');
-  const leserUri = /appUrlOpen/.test(webKode)
-    || nativeFiler.some((p) => /getIntentUri|onNewIntent/.test(strippet(fs.readFileSync(p, 'utf8'), 'js')));
+  const leserUri = /addListener\s*\(\s*["'`]appUrlOpen/.test(webKode)
+    || nativeFiler.some((p) => /getIntentUri\s*\(/.test(strippet(fs.readFileSync(p, 'utf8'), 'js')));
   check('App Links: noe LESER den innkommende adressen (ellers mistes ?signup= og alt annet i URL-en)',
     leserUri,
-    leserUri ? 'URI-en konsumeres og rutes'
-      : 'ingen appUrlOpen-lytter i web-koden og ingen native lesing av intent-URI-en'
+    leserUri ? 'URI-en hentes — om den rutes riktig avgjøres på telefon'
+      : 'ingen registrert appUrlOpen-lytter i web-koden og ingen native getIntentUri()'
         + (typeof alleDeps['@capacitor/app'] === 'string' ? ' (@capacitor/app installert, men ubrukt)' : ''));
 }
 if (harStatement) {
