@@ -501,6 +501,12 @@ check('APK-workflowen kjører denne testen ETTER cap sync (ellers ser ingen CI d
 function kodeLinjerStreng(src, modus) {
   const linjer = src.split('\n');
   let iBlokk = false, iHtml = false, iSkript = false, streng = null;
+  /* En `<script …>`-STARTTAGG kan brekke over flere linjer. Uten denne
+     tilstanden ga `slutt === -1` opp, `iSkript` ble stående falsk, og kroppen
+     under ble lest som markup — der `<!--` er en kommentar som løper til
+     `-->`, mens den i et klassisk skript bare er en linjekommentar. Alt
+     mellom de to ville da blitt kastet, kall og alt. */
+  let iStartTagg = false;
   /* Sist SIGNIFIKANTE tegn, brukt til å skille et regex-literal fra divisjon:
      etter en VERDI (`)`, `]`, et navn, et tall) er `/` deling, ellers starter
      den et regex. Uten det skillet ville `/[/*]/` satt fjerneren i
@@ -539,6 +545,11 @@ function kodeLinjerStreng(src, modus) {
       const m = modus === 'html' && iSkript ? 'js' : modus;
       if (iBlokk) { if (raw.startsWith('*/', j)) { iBlokk = false; j++; } continue; }
       if (iHtml) { if (raw.startsWith('-->', j)) { iHtml = false; j += 2; } continue; }
+      if (iStartTagg) {
+        ren += raw[j];
+        if (raw[j] === '>') { iStartTagg = false; iSkript = true; }
+        continue;
+      }
       if (streng === '"""') {
         /* Javas tekstblokk kan ESKAPERE avslutteren (`\"""`). Skråstreken
            konsumerer derfor tegnet etter seg, ellers ville blokken blitt
@@ -561,7 +572,7 @@ function kodeLinjerStreng(src, modus) {
       if (modus === 'html' && lav.startsWith('</script', j)) { iSkript = false; }
       else if (modus === 'html' && !iSkript && lav.startsWith('<script', j)) {
         const slutt = raw.indexOf('>', j);
-        if (slutt === -1) { ren += raw.slice(j); break; }
+        if (slutt === -1) { ren += raw.slice(j); iStartTagg = true; break; }
         ren += raw.slice(j, slutt + 1); j = slutt; iSkript = true; continue;
       }
       /* Regex-literal: konsumeres i sin helhet, med tegnklasser, slik at
@@ -606,7 +617,8 @@ function kodeLinjerStreng(src, modus) {
   });
 }
 /* Kommentarsyntaksen følger filtypen, ikke innholdet. */
-const modusFor = (navn) => (/\.html?$/i.test(navn) ? 'html' : /\.css$/i.test(navn) ? 'css' : 'js');
+const modusFor = (navn) => (/\.(html?|svg|xht?ml|xml)$/i.test(navn) ? 'html'
+  : /\.css$/i.test(navn) ? 'css' : 'js');
 /* Hele fila som én strippet tekst, med posisjon → linjenummer for evidensen.
    Mønstre som kan spenne over linjeskift kjøres mot denne. */
 const strippet = (src, modus) => kodeLinjerStreng(src, modus).map((x) => x.l).join('\n');
@@ -694,9 +706,33 @@ const RUTING = new RegExp('shouldOverrideUrlLoading|[sS]etWebViewClient|[sS]etWe
    egendefinerte produksjonskilderøtter: legges det inn en, feiler denne, og den
    som legger den inn må utvide skanningen bevisst. */
 /* Ingen ledende ordgrense: Gradle har både `srcDirs += …` og setteren
-   `setSrcDirs([...])`, og i den siste står navnet midt inne i et ord. */
-check('build.gradle definerer ingen egne kilderøtter (skanningen dekker alt som kompileres)',
-  !/srcdirs?\b/i.test(kode(appGradle)), (kode(appGradle).match(/.*srcdirs?\b.*/i) || ['ingen'])[0].trim());
+   `setSrcDirs([...])`, og i den siste står navnet midt inne i et ord.
+
+   Og ALLE byggeskriptene leses, ikke bare app/build.gradle: `apply from:` er
+   Gradles egen måte å flytte konfigurasjon ut i en annen fil på (Capacitor
+   bruker den fire steder selv), og en kilderot lagt inn DER ville vært like
+   virksom. Derfor kreves i tillegg at hver `apply from` peker innenfor
+   `android/` — ellers er det et skript skanningen ikke leser. */
+const gradleFiler = (function les(dir) {
+  return fs.readdirSync(dir, { withFileTypes: true }).flatMap((d) => {
+    const q = path.join(dir, d.name);
+    if (d.isDirectory()) return d.name === 'build' || d.name === '.gradle' ? [] : les(q);
+    return /\.gradle$/.test(d.name) ? [q] : [];
+  });
+}(path.join(ROOT, 'android')));
+const medSrcDirs = gradleFiler
+  .filter((q) => /srcdirs?\b/i.test(kode(fs.readFileSync(q, 'utf8'))))
+  .map((q) => path.relative(ROOT, q));
+check('ingen av byggeskriptene definerer egne kilderøtter (skanningen dekker alt som kompileres)',
+  gradleFiler.length > 0 && medSrcDirs.length === 0,
+  medSrcDirs.join(', ') || gradleFiler.length + ' gradle-filer uten srcDirs');
+const utenfor = gradleFiler.flatMap((q) => [...kode(fs.readFileSync(q, 'utf8'))
+  .matchAll(/apply\s+from:\s*["']([^"']+)["']/g)]
+  .map((m) => path.resolve(path.dirname(q), m[1]))
+  .filter((mål) => path.relative(path.join(ROOT, 'android'), mål).startsWith('..'))
+  .map((mål) => path.relative(ROOT, q) + ' → ' + path.relative(ROOT, mål)));
+check('alle `apply from`-skript ligger under android/ (og blir dermed lest av sjekken over)',
+  utenfor.length === 0, utenfor.join(', ') || 'ingen utenfor');
 const nativeFiler = javaFiler(NATIV_SRC, true);
 const ruter = nativeFiler.filter((p) => RUTING.test(strippet(fs.readFileSync(p, 'utf8'), 'js')));
 check('det native skallet overtar ikke og hopper ikke over navigasjonsrutingen',
@@ -750,7 +786,7 @@ const buildSkipExt = new Set(((build.match(/const SKIP_EXT = new Set\(\[([^\]]*)
    med ut like fullt som en fil i roten. Inventaret går derfor samme vei:
    SKIP-listen gjelder bare øverste nivå, akkurat som i build.js. `vendor/` er
    tredjepartskopien, voktet i tests/security-headers.test.js. */
-function utsendteFiler(dir, topp) {
+function utsendteFiler(dir, topp, typer) {
   return fs.readdirSync(dir, { withFileTypes: true }).flatMap((d) => {
     /* Nøyaktig build.js' egen semantikk: SKIP-navnene, utelatte filtyper OG
        testmodus-filene gjelder bare ØVERSTE nivå. En `assets/dev-mock.js`
@@ -758,10 +794,10 @@ function utsendteFiler(dir, topp) {
     if (topp && (buildSkip.has(d.name) || buildSkipExt.has(path.extname(d.name))
       || testModus.indexOf(d.name) > -1 || d.name === 'vendor')) return [];
     const p = path.join(dir, d.name);
-    if (d.isDirectory()) return utsendteFiler(p, false);
-    /* Filtypene som KAN inneholde en lenke eller en navigasjon. Et bilde eller
-       en fontfil kopieres også ut, men har ingen kode å skanne. */
-    return /\.(html?|[mc]?js|css)$/i.test(d.name) ? [path.relative(ROOT, p)] : [];
+    if (d.isDirectory()) return utsendteFiler(p, false, typer);
+    /* Filtypene som KAN inneholde en lenke eller en navigasjon. En fontfil
+       eller et rasterbilde kopieres også ut, men har ingen kode å skanne. */
+    return (typer || /\.(html?|[mc]?js|css)$/i).test(d.name) ? [path.relative(ROOT, p)] : [];
   });
 }
 const utsendt = utsendteFiler(ROOT, true);
@@ -1038,7 +1074,7 @@ function distFiler(dir, topp) {
     if (topp && d.name === 'vendor') return [];
     const q = path.join(dir, d.name);
     return d.isDirectory() ? distFiler(q, false)
-      : /\.(html?|[mc]?js|css)$/i.test(d.name) ? [q] : [];
+      : /\.(html?|[mc]?js|css|svg|xht?ml|xml)$/i.test(d.name) ? [q] : [];
   });
 }
 const DIST = path.join(ROOT, 'dist');
@@ -1061,6 +1097,10 @@ if (byggUt.status === 0 && fs.existsSync(DIST)) {
       }
     }
     for (const m of tekst.matchAll(/["'`][\x00-\x1f]*(https?:\/\/[^"'`\s]*)/gi)) {
+      /* `xmlns="http://www.w3.org/2000/svg"` er en NAVNEROMSIDENTIFIKATOR, ikke
+         en adresse: den hentes aldri og navigeres aldri til. Uten dette ville
+         enhver SVG blitt flagget for sin egen navneromserklæring. */
+      if (/xmlns(?::[\w-]+)?\s*=\s*$/i.test(tekst.slice(Math.max(0, m.index - 40), m.index))) continue;
       if (TILLATTE_URL.indexOf(m[1]) === -1) distTreff.push(rel + ' → ' + m[1]);
     }
     /* Også navigasjonsmønstrene: byggesteget kunne like gjerne lagt inn en
@@ -1085,6 +1125,24 @@ if (byggUt.status === 0 && fs.existsSync(DIST)) {
     }
   }
 }
+/* SVG er ikke bare et bilde. Lastet som et `\u003cimg\u003e` er den inert, men navigeres
+   den til direkte — `href="ikon.svg"`, samme origin, altså INNE i appen — blir
+   den et aktivt dokument, og en `\u003ca href="https://…"\u003e` inni er klikkbar. Derfor
+   skannes SVG/XML som markup, med de samme mønstrene, både i kilden og i
+   `dist/`. De står ikke i WEB_KILDE (det er lista over kjørende kode), så de
+   får sin egen runde her. */
+const svgKilder = utsendteFiler(ROOT, true, /\.(svg|xht?ml|xml)$/i);
+const svgTreff = [];
+for (const f of svgKilder) {
+  const { tekst, linjeFor } = strippetMedLinjer(les(f), 'html');
+  for (const [navn, re] of UT_MØNSTRE) {
+    re.lastIndex = 0;
+    for (const m of tekst.matchAll(re)) svgTreff.push(f + ':' + linjeFor(m.index) + ' (' + navn + ')');
+  }
+}
+check('SVG/XML som kan navigeres til har ingen utgående lenke',
+  svgTreff.length === 0, svgTreff.join(', ') || svgKilder.join(', ') || 'ingen slike filer');
+
 check('den BYGDE dist/ har ingen utgående lenke heller (byggesteget legger ingen inn)',
   byggUt.status === 0 && distAntall > 0 && distTreff.length === 0,
   distTreff.join(', ') || distAntall + ' filer skannet');
@@ -1097,6 +1155,40 @@ check('guardens navigasjon overlevde byggesteget (fritaket ble faktisk brukt)',
   byggUt.status === 0 && guardFritatt,
   guardFritatt ? 'location.replace(target) funnet i dist/index.html'
     : 'ikke funnet — er den fjernet eller omskrevet av build.js?');
+
+/* Det APK-en faktisk pakker er ikke `dist/`, men kopien `cap sync` la i
+   `android/app/src/main/assets/public`. De to er normalt like — men denne
+   testen kjører selv `node build.js`, som river og bygger `dist/` på nytt, så
+   etter en sync er den skannede `dist/` en ANNEN build enn den som ble
+   kopiert (build-ID-en alene gjør dem observerbart forskjellige). Finnes
+   kopien, skannes derfor DEN, med nøyaktig de samme mønstrene. I et rent
+   utsjekk finnes den ikke, og da er dist-skanningen over det nærmeste vi
+   kommer; APK-workflowen er stedet begge deler finnes. */
+const SYNKET = path.join(ROOT, 'android', 'app', 'src', 'main', 'assets', 'public');
+const synketTreff = [];
+let synketAntall = 0;
+if (fs.existsSync(SYNKET)) {
+  for (const q of distFiler(SYNKET, true)) {
+    synketAntall++;
+    const rel = path.relative(ROOT, q);
+    const { tekst, linjeFor } = strippetMedLinjer(fs.readFileSync(q, 'utf8'), modusFor(q));
+    for (const [navn, re] of UT_MØNSTRE) {
+      re.lastIndex = 0;
+      for (const m of tekst.matchAll(re)) synketTreff.push(rel + ':' + linjeFor(m.index) + ' (' + navn + ')');
+    }
+    for (const { del, fra } of jsOmråder(tekst, modusFor(q))) {
+      for (const [navn, re] of JS_MARKUP) {
+        re.lastIndex = 0;
+        for (const m of del.matchAll(re)) synketTreff.push(rel + ':' + linjeFor(fra + m.index) + ' (' + navn + ')');
+      }
+    }
+  }
+  check('web-assetene cap sync KOPIERTE inn i APK-en har ingen utgående lenke',
+    synketAntall > 0 && synketTreff.length === 0,
+    synketTreff.join(', ') || synketAntall + ' filer skannet');
+} else {
+  console.log('(hopper over de synkede web-assetene — kjør `npm run sync:android` først)');
+}
 
 check('web-kildekoden navigerer seg selv på nøyaktig ÉN linje',
   navSkriv.length === 1, navSkriv.map((x) => x.sted).join(', ') || 'ingen');
