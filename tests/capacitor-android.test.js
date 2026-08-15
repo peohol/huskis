@@ -1765,9 +1765,17 @@ if (harFilter) {
   /* Bare utelatt eller en literal `true` godtas. En ressurs
      (`@bool/app_links_enabled`) eller en plassholder resolveres av byggingen,
      ikke av teksten — og kan like gjerne bli `false` i release. */
+  /* For en `activity-alias` teller BEGGE: Android krever at både aliaset og
+     aktiviteten det peker på er påslått. Et alias som står riktig foran en
+     avslått MainActivity kan ikke startes. */
+  const påslått = (v) => v == null || v === 'true';
+  const målAktivert = (f) => (f.type === 'activity-alias'
+    ? (komponentAttr.get(f.peker) || {}).aktivert : null);
   check('App Links: komponenten er påslått (android:enabled utelatt eller literal true)',
-    påMain.length > 0 && påMain.every((f) => f.aktivert == null || f.aktivert === 'true'),
-    påMain.map((f) => f.komponent + ': android:enabled=' + JSON.stringify(f.aktivert)).join(', ') || 'ingen');
+    påMain.length > 0 && påMain.every((f) => påslått(f.aktivert) && påslått(målAktivert(f))),
+    påMain.map((f) => f.komponent + ': android:enabled=' + JSON.stringify(f.aktivert)
+      + (f.type === 'activity-alias' ? ' → ' + f.peker + '=' + JSON.stringify(målAktivert(f)) : ''))
+      .join(', ') || 'ingen');
   /* STIEN teller også. Et filter kan begrenses med `android:pathPrefix="/auth"`
      og er da fortsatt «komplett» etter sjekken over — men det matcher ikke
      adressene Huskis faktisk får: delingsinvitasjonen er `/?signup=<e-post>`
@@ -1778,7 +1786,17 @@ if (harFilter) {
      docs/domains-and-urls.md — ikke en stille innsnevring her. */
   const STI_ATTR = ['android:path', 'android:pathPrefix', 'android:pathPattern',
     'android:pathAdvancedPattern', 'android:pathSuffix'];
-  const stiene = (blokk) => STI_ATTR.flatMap((a) => xmlVerdier(blokk, a));
+  /* Typen beholdes, ikke bare verdien. Et EKSAKT `android:path=""` matcher ikke
+     `https://huskis.no/`, hvis sti er `/` — bare `path="/"` og `pathPrefix="/"`
+     dekker roten. Å godta den tomme strengen uansett attributt var min egen
+     slurv, og ville sluppet et filter som lar lenken bli i browseren. */
+  const stiPar = (blokk) => STI_ATTR.flatMap((a) => xmlVerdier(blokk, a).map((v) => [a, v]));
+  const stiene = (blokk) => stiPar(blokk).map(([, v]) => v);
+  const dekkerRot = (blokk) => {
+    const par = stiPar(blokk);
+    return par.length === 0
+      || par.some(([a, v]) => (a === 'android:path' || a === 'android:pathPrefix') && v === '/');
+  };
   /* PORTEN er den samme fellen som stien: `android:port="8443"` binder filteret
      til én port, og `https://huskis.no/` (port 443, underforstått) treffer det
      ikke. Kravet gjelder samme filter som dekker roten. */
@@ -1791,8 +1809,7 @@ if (harFilter) {
     /<uri-relative-filter-group\b[^>]*android:allow\s*=\s*(?:"false"|'false')/.test(blokk);
   const rotFiltre = påMain.filter((f) => {
     if (harEkskludering(f.blokk)) return false;
-    const s = stiene(f.blokk);
-    return (s.length === 0 || s.some((v) => v === '/' || v === ''))
+    return dekkerRot(f.blokk)
       && xmlVerdier(f.blokk, 'android:port').length === 0
       /* `android:mimeType` gjør filteret AVHENGIG av en MIME-type, og en
          App Link-VIEW bærer bare URI-en — den treffer da ikke. */
@@ -1844,7 +1861,14 @@ if (harFilter) {
      avgrensning som manifestene: `debug/` er ikke produksjon. */
   const webKode = WEB_KILDE.map((f) => strippet(les(f), modusFor(f))).join('\n');
   const releaseKilder = nativeFiler.filter(iRelease);
-  const leserUri = /addListener\s*\(\s*["'`]appUrlOpen/.test(webKode)
+  /* KALDSTART er det vanlige tilfellet her: brukeren tapper lenken i
+     e-postklienten mens appen er stoppet, og adressen kommer da i aktivitetens
+     FØRSTE intent — ikke gjennom `onNewIntent`. En `appUrlOpen`-lytter alene
+     ser den aldri, og appen åpner på startsiden uten `?signup=`. Web-veien må
+     derfor ha begge: lytteren for senere intents OG `getLaunchUrl()` ved
+     oppstart. Native `getIntentUri()` leser nettopp launch-intenten, og dekker
+     kaldstarten i seg selv. */
+  const leserUri = (/addListener\s*\(\s*["'`]appUrlOpen/.test(webKode) && /getLaunchUrl\s*\(/.test(webKode))
     || releaseKilder.some((p) => {
       const src = strippet(fs.readFileSync(p, 'utf8'), 'js');
       /* `getData()` alene er et altfor vanlig navn — en modellklasse eller et
@@ -1857,7 +1881,7 @@ if (harFilter) {
   check('App Links: noe LESER den innkommende adressen (ellers mistes ?signup= og alt annet i URL-en)',
     leserUri,
     leserUri ? 'URI-en hentes — om den rutes riktig avgjøres på telefon'
-      : 'ingen registrert appUrlOpen-lytter i web-koden og ingen native lesing av intent-dataen'
+      : 'web-koden mangler appUrlOpen-lytter og/eller getLaunchUrl (kaldstart), og ingen native lesing av intent-dataen'
         + (typeof alleDeps['@capacitor/app'] === 'string' ? ' (@capacitor/app installert, men ubrukt)' : ''));
 }
 if (harStatement) {

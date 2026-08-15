@@ -439,10 +439,14 @@ Endringene App Links krever er altså **fire sikre og to betingede**:
 - *betinget* — klienten måtte løse inn tokenet selv
   (`verifyOtp({ token_hash, type })`) i stedet for å la supabase-js lese
   fragmentet;
-- appen måtte fange den innkommende adressen. `@capacitor/android` tar vare på
-  intent-URI-en (`Bridge.getIntentUri()`) og varsler plugins ved
-  `onNewIntent`, men INGEN kjerneplugin leser den: uten `@capacitor/app` åpner
-  en App Link bare Huskis på startsiden, og hele adressen forsvinner. Det ville
+- appen måtte fange den innkommende adressen — og i BEGGE retninger.
+  `@capacitor/android` tar vare på intent-URI-en (`Bridge.getIntentUri()`) og
+  varsler plugins ved `onNewIntent`, men INGEN kjerneplugin leser den: uten
+  `@capacitor/app` åpner en App Link bare Huskis på startsiden, og hele
+  adressen forsvinner. Merk at en `appUrlOpen`-lytter ALENE ikke er nok: tappes
+  lenken mens appen er stoppet — det vanlige når man kommer fra e-post — ligger
+  adressen i aktivitetens FØRSTE intent, ikke i en ny. Kaldstarten må leses for
+  seg (`App.getLaunchUrl()`). Det ville
   kostet en native plugin og **en gate til** i web-koden. Uten den biten er et
   intent-filter dessuten et TAP mot i dag, ikke bare en uteblitt gevinst:
   delingsinvitasjonen lenker til `/?signup=<e-post>`, og `applySignupInvite()`

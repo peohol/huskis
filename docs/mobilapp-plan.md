@@ -638,8 +638,9 @@ ikke kunnet fullføres i det hele tatt.
 **Beslutningen: App Links utsettes til fase 6**, sammen med signeringsnøkkelen.
 Fire endringer trengs uansett: intent-filteret på `MainActivity`, statementet på
 originet, det selektive unntaket i `copyDir()` som faktisk får statementet
-publisert, og en lytter for den innkommende intenten (`@capacitor/app` + **en
-gate til** i web-koden). To andre er BETINGET av et spørsmål
+publisert, og lesing av den innkommende adressen (`@capacitor/app` + **en gate
+til** i web-koden) — både ved KALDSTART (`getLaunchUrl()`, det vanlige når man
+kommer fra e-post) og ved en ny intent (`appUrlOpen`). To andre er BETINGET av et spørsmål
 ingen kan svare på herfra: verten i auth-lenkene er `*.supabase.co`, men de
 ENDER på `huskis.no` — og om browseren leverer fra seg på slutten av en
 redirect-kjede, slik native OAuth-klienter bygger på, avgjøres på en telefon.
