@@ -72,6 +72,14 @@ Tallene er **relative** — fordelingen trenger forholdet mellom filene, ikke
 absolutt veggklokke. En fil som mangler i `durations.json` får medianen av de
 målte, så en ny test ikke tvinger fram en ny måling.
 
+En invariant kan trenge BEGGE slag test. «Appen produserer ingen utgående
+lenker» voktes både av en tekstvakt uten nettleser
+(`capacitor-android.test.js` del 12, som ser en lenke før den er rendret) og av
+en kjørende (`external-links.test.js`, som ser det ferdige DOM-et og dermed
+enhver skrivemåte, også markup satt sammen av strengbiter). Der en tekstvakt
+kan omgås av en ny staving, er svaret et annet slag net — ikke et finere
+mønster.
+
 `tests/shard-distribution.test.js` er vakten: den sjekker at hver testfil havner
 i nøyaktig én shard for alle aktuelle shard-antall. En fil som faller ut mellom
 to shards gir ellers ingen rød CI — bare en test som stille aldri kjøres igjen.

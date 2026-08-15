@@ -454,6 +454,11 @@ aktiv på samme måte som for de to andre — kontrollert mot produksjon
 - `supabase/tests/test-email-sharing.sql` — genererte Resend-e-poster
   bruker kanonisk `huskis.no` (ikke `www`) og inneholder aldri det gamle
   domenet.
+- `tests/external-links.test.js` — den KJØRENDE vakten: appen lastes i en ekte
+  nettleser, og det ferdige DOM-et sjekkes for destinasjoner utenfor eget
+  origin. Der spiller stavemåten ingen rolle, så den fanger også markup satt
+  sammen av strengbiter — det en tekstvakt aldri kan love. Den bekrefter også
+  at en URL i et listepunkt forblir ren tekst.
 - `tests/capacitor-android.test.js` — eksterne lenker: `allowNavigation` står
   tomt (ingen fremmed vert kan lastes INNE i WebView-en), det native skallet
   overtar ikke navigasjonsrutingen fra Capacitor, web-kildekoden produserer

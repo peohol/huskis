@@ -577,7 +577,7 @@ function kodeLinjerStreng(src, modus) {
       }
       /* Regex-literal: konsumeres i sin helhet, med tegnklasser, slik at
          `/` og `*` inne i det ikke leses som kommentartegn. */
-      const etterNokkelord = /(?:^|[^\w$])(?:return|throw|typeof|instanceof|in|of|new|delete|void|case|do|else|yield|await)\s*$/.test(hale);
+      const etterNokkelord = /(?:^|[^\w$])(?:return|throw|typeof|instanceof|in|of|new|delete|void|case|do|else|yield|await|break|continue)\s*$/.test(hale);
       if (m !== 'css' && raw[j] === '/'
         && (!/[\w$)\]]/.test(forrige) || etterNokkelord || (forrige === ')' && lukketBetingelse))
         && !raw.startsWith('//', j) && !raw.startsWith('/*', j)) {
@@ -694,8 +694,11 @@ function javaFiler(dir, rot) {
 const LAST_API = 'loadUrl|postUrl|loadData(?:WithBaseURL)?';
 const RUTING = new RegExp('shouldOverrideUrlLoading|[sS]etWebViewClient|[sS]etWebChromeClient'
   + '|[wW]ebViewClient|[wW]ebChromeClient'
-  + '|\\b(?:' + LAST_API + ')\\s*\\('
-  + '|::\\s*(?:' + LAST_API + ')\\b');
+  /* Kotlin lar identifikatorer eskaperes med backtick — `webView.`+'`loadUrl`'+`(u)`
+     kaller nøyaktig det samme API-et. Backtickene godtas derfor rundt navnet,
+     både i kallet og i metodereferansen. */
+  + '|(?:^|[^\\w$.])`?(?:' + LAST_API + ')`?\\s*\\('
+  + '|::\\s*`?(?:' + LAST_API + ')`?\\b');
 /* Inventaret er FAST på `android/app/src`, og det holder bare så lenge Gradle
    ikke er fortalt noe annet. `sourceSets { main.java.srcDirs += '../shared' }`
    kompilerer `android/shared/*.java` inn i APK-en uten at én eneste fil under
@@ -721,12 +724,12 @@ const gradleFiler = (function les(dir) {
   });
 }(path.join(ROOT, 'android')));
 const medSrcDirs = gradleFiler
-  .filter((q) => /srcdirs?\b/i.test(kode(fs.readFileSync(q, 'utf8'))))
+  .filter((q) => /srcdirs?\b/i.test(strippet(fs.readFileSync(q, 'utf8'), 'js')))
   .map((q) => path.relative(ROOT, q));
 check('ingen av byggeskriptene definerer egne kilderøtter (skanningen dekker alt som kompileres)',
   gradleFiler.length > 0 && medSrcDirs.length === 0,
   medSrcDirs.join(', ') || gradleFiler.length + ' gradle-filer uten srcDirs');
-const utenfor = gradleFiler.flatMap((q) => [...kode(fs.readFileSync(q, 'utf8'))
+const utenfor = gradleFiler.flatMap((q) => [...strippet(fs.readFileSync(q, 'utf8'), 'js')
   .matchAll(/apply\s+from:\s*["']([^"']+)["']/g)]
   .map((m) => path.resolve(path.dirname(q), m[1]))
   .filter((mål) => path.relative(path.join(ROOT, 'android'), mål).startsWith('..'))
@@ -759,7 +762,14 @@ check('det native skallet overtar ikke og hopper ikke over navigasjonsrutingen',
    anførselstegn — og `<link>` leses tagg for tagg, slik at rekkefølgen på
    `rel`/`href` heller ikke betyr noe. En gyldig variant skal ikke kunne snike
    en fil forbi skanningen. */
+/* Fritaket gjelder den PINNEDE tredjepartsbunten, ikke katalogen `vendor/`.
+   En ny `vendor/hjelper.js` er ikke byte for byte det npm publiserte, og
+   tests/security-headers.test.js hasher bare den første vendor-taggen — den
+   ville altså kjørt i appen uten at noen skanner leste den. Navnet leses ut av
+   index.html, så det ikke kan komme i utakt med det som faktisk lastes. */
 const utenKunDev = indexHtml.replace(/huskis:kun-dev:start[\s\S]*?huskis:kun-dev:slutt/g, '');
+const VENDOR_PINNET = [...utenKunDev.matchAll(/<script\b[^>]*\ssrc=["'](vendor\/[^"']+)["']/gi)]
+  .map((m) => m[1]).slice(0, 1);
 const attributt = (tag, navn) => {
   const m = tag.match(new RegExp('\\s' + navn + '\\s*=\\s*(?:"([^"]*)"|\'([^\']*)\'|([^\\s"\'>]+))', 'i'));
   return m ? (m[1] !== undefined ? m[1] : m[2] !== undefined ? m[2] : m[3]) : null;
@@ -769,7 +779,7 @@ const lastet = [
   ...[...utenKunDev.matchAll(/<link\b[^>]*>/gi)]
     .filter((m) => /stylesheet/i.test(attributt(m[0], 'rel') || ''))
     .map((m) => attributt(m[0], 'href')),
-].filter((s) => s && !s.startsWith('vendor/'));
+].filter((s) => s && VENDOR_PINNET.indexOf(s) === -1);
 const uskannet = lastet.filter((s) => WEB_KILDE.indexOf(s) === -1);
 check('alle produksjonskildene index.html laster står i WEB_KILDE (og blir dermed skannet)',
   lastet.length > 0 && uskannet.length === 0, uskannet.join(', ') || lastet.join(', '));
@@ -792,7 +802,14 @@ function utsendteFiler(dir, topp, typer) {
        testmodus-filene gjelder bare ØVERSTE nivå. En `assets/dev-mock.js`
        kopieres altså ut, og skal derfor skannes. */
     if (topp && (buildSkip.has(d.name) || buildSkipExt.has(path.extname(d.name))
-      || testModus.indexOf(d.name) > -1 || d.name === 'vendor')) return [];
+      || testModus.indexOf(d.name) > -1)) return [];
+    if (topp && d.name === 'vendor') {
+      /* Kun den pinnede bunten hoppes over — resten av katalogen skannes. */
+      return fs.readdirSync(path.join(dir, d.name))
+        .filter((n) => VENDOR_PINNET.indexOf('vendor/' + n) === -1)
+        .filter((n) => (typer || /\.(html?|[mc]?js|css)$/i).test(n))
+        .map((n) => path.join('vendor', n));
+    }
     const p = path.join(dir, d.name);
     if (d.isDirectory()) return utsendteFiler(p, false, typer);
     /* Filtypene som KAN inneholde en lenke eller en navigasjon. En fontfil
@@ -845,7 +862,7 @@ const UT_MØNSTRE = [
   /* `setAttributeNS(null, 'href', …)` setter den samme navigerbare
      egenskapen. Navnerom-argumentet står FØRST, så attributtnavnet er andre
      argument — derfor den valgfrie ledeparameteren i mønsteret. */
-  ['setAttribute', /\??\.\s*setAttribute(?:NS)?(?:\?\.)?\s*\(\s*(?:[^,()]*,\s*)?["'`](?:xlink:)?(?:href|(?:form)?action|http-equiv)["'`]\s*,/gi],
+  ['setAttribute', /(?:\??\.\s*setAttribute(?:NS)?|\[\s*["'`]setAttribute(?:NS)?["'`]\s*\])(?:\?\.)?\s*\(\s*(?:[^,()]*,\s*)?["'`](?:xlink:)?(?:href|(?:form)?action|http-equiv)["'`]\s*,/gi],
   ['.href =', /(?:^|[^.\w$])(?!location\b)[\w$\])]+\s*(?:\.\s*(?:href|formAction|action)|\[\s*["'`](?:href|formaction|action)["'`]\s*\])\s*(?:\*\*|<<|>>>?|\|\||&&|\?\?|[-+*/%|&^])?=(?!=)/gim],
   /* `[\t\n\r]*` mellom hvert tegn: URL-parseren stryker de tre tegnene overalt
      i en adresse, så `href="ht\ttps://x"` er den samme utgående lenken. Den
@@ -902,9 +919,19 @@ const UT_MØNSTRE = [
    Kun JS-filer: i `index.html` er `href=` helt legitimt, og der gjelder
    markup-mønstrene med krav om skjema i stedet.
 
-   GRENSEN: en lenke satt sammen av biter (`'<' + 'a href='`) har ingen av
-   tokenene i behold, og ses ikke her. Den ville måttet navngi en adresse, som
-   URL-sjekken under fanger. */
+   GRENSEN, og den er ekte: en lenke satt sammen av biter
+   (`'<' + 'a hr' + 'ef="' + adresse + '">'`) har ingen av tokenene i behold.
+   Jeg skrev tidligere her at URL-sjekken under ville tatt den — det stemmer
+   IKKE når adressen er `canonicalAppUrl`, som nettopp er tillatt der. En
+   tekstvakt kan alltid omgås av en ny oppdeling, og å jage det videre er å
+   skrive en JS-tolk.
+
+   Derfor er svaret et ANNET slag net, ikke et finere mønster:
+   `tests/external-links.test.js` laster appen i en ekte nettleser og ser i det
+   FERDIGE DOM-et etter destinasjoner utenfor eget origin. Der spiller
+   stavemåten ingen rolle — en `<a href>` er en `<a href>` når nettleseren har
+   tolket den. De to nettene dekker hver sin svakhet: dette fanger en lenke som
+   ikke er rendret ennå, det andre fanger enhver skrivemåte. */
 const JS_MARKUP = [
   ['lenke bygget i JS', /<a[\s>/]|\bhref\s*=/gi],
 ];
@@ -1071,7 +1098,12 @@ function distFiler(dir, topp) {
        som inventaret over. En generert `dist/assets/vendor/hjelper.js` er ikke
        den innsjekkede tredjepartskopien, og skal skannes som all annen kode
        som havner i APK-en. */
-    if (topp && d.name === 'vendor') return [];
+    if (topp && d.name === 'vendor') {
+      return fs.readdirSync(path.join(dir, d.name))
+        .filter((n) => VENDOR_PINNET.indexOf('vendor/' + n) === -1)
+        .filter((n) => /\.(html?|[mc]?js|css|svg|xht?ml|xml)$/i.test(n))
+        .map((n) => path.join(dir, 'vendor', n));
+    }
     const q = path.join(dir, d.name);
     return d.isDirectory() ? distFiler(q, false)
       : /\.(html?|[mc]?js|css|svg|xht?ml|xml)$/i.test(d.name) ? [q] : [];
@@ -1167,6 +1199,7 @@ check('guardens navigasjon overlevde byggesteget (fritaket ble faktisk brukt)',
 const SYNKET = path.join(ROOT, 'android', 'app', 'src', 'main', 'assets', 'public');
 const synketTreff = [];
 let synketAntall = 0;
+let synketGuard = false;
 if (fs.existsSync(SYNKET)) {
   for (const q of distFiler(SYNKET, true)) {
     synketAntall++;
@@ -1180,6 +1213,18 @@ if (fs.existsSync(SYNKET)) {
       for (const [navn, re] of JS_MARKUP) {
         re.lastIndex = 0;
         for (const m of del.matchAll(re)) synketTreff.push(rel + ':' + linjeFor(fra + m.index) + ' (' + navn + ')');
+      }
+    }
+    /* Og NAVIGASJONSmønstrene — de manglet her, så en `location.assign(…)` i
+       den kopierte builden var usynlig selv om dist-skanningen ville tatt den.
+       Guardens ene egne navigasjon fritas på samme måte som i dist. */
+    for (const re of [NAV_KALL, NAV_TILDEL]) {
+      re.lastIndex = 0;
+      for (const m of tekst.matchAll(re)) {
+        const etter = tekst.slice(m.index, m.index + 40);
+        if (!synketGuard && rel === path.join('android', 'app', 'src', 'main', 'assets', 'public', 'index.html')
+          && /location\.replace\(\s*target\s*\)/.test(etter)) { synketGuard = true; continue; }
+        synketTreff.push(rel + ':' + linjeFor(m.index) + ' (navigasjon) ' + etter.split('\n')[0].trim());
       }
     }
   }
