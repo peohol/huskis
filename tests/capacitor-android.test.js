@@ -212,6 +212,7 @@ const NATIV_KILDE = [
   'android/app/src/main/AndroidManifest.xml',
   'android/app/src/main/java/no/huskis/app/MainActivity.java',
   'android/app/src/main/res/values/strings.xml',
+  'android/app/src/main/res/xml/data_extraction_rules.xml',
 ];
 for (const f of NATIV_KILDE) {
   check('native kildefil finnes og er IKKE ignorert: ' + f, finnes(f) && !ignorert(f));
@@ -274,6 +275,45 @@ const manifest = manifestTekst('android/app/src/main/AndroidManifest.xml');
 /* Uten INTERNET når appen verken Supabase eller /version.json. */
 check('android: manifestet ber om INTERNET',
   /android\.permission\.INTERNET/.test(manifest));
+
+/* Sikkerhetskopi. WebView-lagringen bærer BÅDE Supabase-sesjonen (med
+   refresh-tokenet) og hele den lokale bufferen i klartekst, og med Androids
+   standard `allowBackup="true"` følger de med ut av enheten — en gjenoppretting
+   på en annen telefon er da innlogget uten at noen har logget inn. Nettleseren
+   har ingen slik vei ut, og appen skal ikke ha en.
+   docs/mobilapp-plan.md, «Sikker lagring og sikkerhetskopi».
+
+   Erklæringen er ikke ÉN, men to, og de dekker hver sin halvdel: attributtet
+   stenger skykopien, regelfila stenger enhet-til-enhet-overføringen på
+   Android 12+ (targetSdk 36), som attributtet ikke rører hos alle produsenter.
+   Halve innføringen ser riktig ut og lekker fortsatt, så begge leses her —
+   sammen med koblingen mellom dem. */
+check('android: sikkerhetskopi av appdata er slått AV',
+  /android:allowBackup\s*=\s*"false"/.test(manifest));
+const regelRef = (manifest.match(/android:dataExtractionRules\s*=\s*"@xml\/([\w.]+)"/) || [, ''])[1];
+check('android: manifestet peker på regler for datauttrekk', !!regelRef, regelRef);
+const REGELFIL = 'android/app/src/main/res/xml/' + (regelRef || 'data_extraction_rules') + '.xml';
+check('android: regelfila finnes der manifestet peker', finnes(REGELFIL), REGELFIL);
+const regler = finnes(REGELFIL) ? utenXmlKommentarer(les(REGELFIL)) : '';
+/* En manglende — eller tom — seksjon er ikke «ingenting»: Android leser fravær
+   av regler som «fullt aktivert for alt utenom cache». Begge modusene må derfor
+   stenges med et eksplisitt exclude av HELE den private datakatalogen
+   (`domain="root"`, `path="."`), som er der `app_webview/` ligger. */
+function ekskluderer(kropp, domene, sti) {
+  return (kropp.match(/<exclude\b[^>]*?\/?>/g) || []).some((tagg) => {
+    const attr = (n) => (tagg.match(new RegExp(n + '\\s*=\\s*"([^"]*)"')) || [, ''])[1];
+    return attr('domain') === domene && attr('path') === sti;
+  });
+}
+for (const modus of ['cloud-backup', 'device-transfer']) {
+  const kropp = (regler.match(new RegExp('<' + modus + '\\b[^>]*>([\\s\\S]*?)</' + modus + '>')) || [, ''])[1];
+  check('android: ' + modus + ' utelukker hele appens datakatalog',
+    ekskluderer(kropp, 'root', '.'), kropp.trim());
+}
+/* Et `<include>` kan ikke slå excluden over (exclude vinner i Android), men det
+   ville betydd at noen har begynt å plukke ut data som SKAL kopieres ut. Da er
+   beslutningen en annen enn den som står i planen, og skal tas der først. */
+check('android: ingenting er plukket ut for kopiering', !/<include\b/.test(regler));
 
 /* ---- 7. Fase 1 er avgrenset ---- */
 check('iOS-plattformen er ikke innført ennå',

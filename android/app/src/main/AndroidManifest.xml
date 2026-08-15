@@ -1,8 +1,24 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
+    <!-- allowBackup=false + dataExtractionRules: WebView-lagringen skal BLI på
+         enheten. Der ligger Supabase-sesjonen (med refresh-tokenet, som fornyer
+         seg selv) og den lokale bufferen med alt innholdet — i klartekst, som i
+         nettleseren. Med Androids standard `true` følger begge med i
+         sikkerhetskopien, og en gjenoppretting på en annen telefon er innlogget
+         som brukeren uten at noen har logget inn. Nettleserutgaven har ingen
+         slik vei ut av enheten, og appen skal ikke ha en.
+
+         Ingenting går tapt av å slå det av: serveren er kanonisk, så en ny
+         telefon henter alt ved første innlogging.
+
+         Regelfila trengs I TILLEGG fordi `allowBackup=false` bare dekker
+         skykopien: på Android 12+ (targetSdk 36) fortsetter enkelte
+         produsenters enhet-til-enhet-overføring uansett. Begrunnelsen i sin
+         helhet: docs/mobilapp-plan.md, «Sikker lagring og sikkerhetskopi». -->
     <application
-        android:allowBackup="true"
+        android:allowBackup="false"
+        android:dataExtractionRules="@xml/data_extraction_rules"
         android:icon="@mipmap/ic_launcher"
         android:label="@string/app_name"
         android:roundIcon="@mipmap/ic_launcher_round"

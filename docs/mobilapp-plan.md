@@ -15,9 +15,9 @@ autoritative dokumentet for fagfeltet.
 |---|---|
 | Målarkitektur | Én HTML/CSS/JS-kodebase + Capacitor for Android/iOS |
 | Nåværende fase | **Fase 3 — nødvendige native integrasjoner** |
-| Status | Fase 3 er i gang. Fire punkter er ferdige: systemets tilbakeknapp og safe areas/systemfeltene/skjermtastaturet, begge verifisert på fysisk telefon, og eksterne lenker + auth-/e-postlenker, som begge er beslutninger uten kode og derfor ikke har noe å prøve på en telefon (se seksjonene). Lifecycle-/network-punktet er kartlagt og avgjort — ingen native signaler kobles på — og det ene reelle hullet er lukket i webkoden, men den fysiske sekvensen gjenstår, så punktet står åpent. Automatisk dekket av `tests/safe-area.test.js`, `tests/landscape-chrome.test.js`, `tests/system-back.test.js`, `tests/sync-foreground.test.js` og `tests/capacitor-android.test.js`. Ferdigkriteriet er ikke nådd. |
+| Status | Fase 3 er i gang. Fem punkter er ferdige: systemets tilbakeknapp og safe areas/systemfeltene/skjermtastaturet, begge verifisert på fysisk telefon; eksterne lenker og auth-/e-postlenker, som begge er beslutninger uten kode og derfor ikke har noe å prøve på en telefon; og sikker lagring/`android:allowBackup`, der sikkerhetskopien av WebView-lagringen er slått av (se seksjonene). Lifecycle-/network-punktet er kartlagt og avgjort — ingen native signaler kobles på — og det ene reelle hullet er lukket i webkoden, men den fysiske sekvensen gjenstår, så punktet står åpent. Automatisk dekket av `tests/safe-area.test.js`, `tests/landscape-chrome.test.js`, `tests/system-back.test.js`, `tests/sync-foreground.test.js` og `tests/capacitor-android.test.js`. Ferdigkriteriet er ikke nådd. |
 | Neste milepæl | Android-appen oppfører seg som en normal mobilapp i de plattformtilfellene browseren ikke håndterer godt nok selv |
-| Ett neste praktiske steg | Kjør den fysiske sekvensen for lifecycle-punktet (bakgrunn lenge → forgrunn), og ta så sikker lagring + `android:allowBackup` |
+| Ett neste praktiske steg | Kjør den fysiske sekvensen for lifecycle-punktet (bakgrunn lenge → forgrunn), og enhetssjekken av `navigator.onLine` i flymodus — det er alt som står igjen i fase 3 |
 | OTA | Ikke innført; skal ikke innføres før Android-baselinen er stabil |
 | iOS | Senere fase; ikke en del av første implementering |
 
@@ -393,12 +393,14 @@ funksjoner bare fordi de er mulige.
       regresjonstesten er på plass; det som gjenstår før avkryssing er den
       fysiske sekvensen i seksjonen — om en runde FAKTISK kjører etter at appen
       har ligget lenge i bakgrunnen, kan bare en telefon svare på.
-- [ ] Vurder sikker lagring av native-spesifikke secrets/tokens dersom det
+- [x] Vurder sikker lagring av native-spesifikke secrets/tokens dersom det
       faktisk finnes et behov; ikke flytt data ut av dagens modell uten grunn.
-      Ta samtidig stilling til `android:allowBackup`, som i dag står på
-      Capacitors standard `true`: da følger WebView-lagringen — altså den
-      lokale bufferen OG Supabase-sesjonen — med i Androids sikkerhetskopi til
-      en annen enhet. Webversjonen har ingen tilsvarende vei ut av enheten.
+      Ta samtidig stilling til `android:allowBackup`. Kartlagt og avgjort: det
+      finnes ingen native-spesifikke secrets, så ingen data flyttes ut av
+      dagens modell og intet keystore-lag innføres. `android:allowBackup` er
+      derimot slått AV, sammen med regler for datauttrekk: WebView-lagringen
+      bærer både Supabase-sesjonen og hele bufferen, og den skal bli på enheten
+      (se seksjonen).
 
 ## Systemets tilbakeknapp
 
@@ -824,6 +826,80 @@ Avvik rapporteres som i fase 2: trinnummer, hva som faktisk skjedde, hva
 `#sync-status` sa, og om det samme skjer i nettleseren med fanen i bakgrunnen.
 Er svaret ja, er det en ordinær Huskis-feil.
 
+## Sikker lagring og sikkerhetskopi
+
+**Kartleggingen først.** Huskis har ingen native-spesifikke secrets. Det eneste
+som ligger i frontend er Supabase-endepunktet og `anon`-nøkkelen, som begge er
+laget for å stå i klartekst i en klient (`config.js`), og appen har ingen
+API-nøkkel, ingen enhetsnøkkel og ingen native integrasjon som kunne hatt en.
+Det som ER følsomt ligger i WebView-ens `localStorage`, og er det samme som i
+nettleseren — hele lista med poster, innhold og levetid står i
+[`accounts.md`](accounts.md) («Hva som ligger i enhetens lagring»). To av dem
+betyr noe:
+
+- **sesjonen** (`sb-<prosjekt-ref>-auth-token`), som supabase-js skriver selv:
+  `persistSession` og `autoRefreshToken` står på klientens standard `true`
+  (lest i `vendor/supabase-js-2.111.0.js`). Posten bærer `refresh_token` ved
+  siden av det kortlevde `access_token`-et, og fornyer seg selv. Den er altså
+  IKKE kortlevd: den lever til brukeren logger ut. (Hvor lenge et refresh-token
+  er gyldig hos serveren er en prosjektinnstilling i Supabase, ikke noe repoet
+  kan svare for — og en tidsboks der ville uansett bare forkortet vinduet, ikke
+  fjernet det.)
+- **bufferen** (`mine-lister-v1:<uid>`), som er hele brukerens innhold i lesbar
+  form.
+
+**Sikker lagring: nei.** Et keystore-lag under sesjonen ville
+kostet en Capacitor-plugin (altså npm-avhengighetslista OG appmodulens
+`dependencies`-blokk), en egen storage-adapter til supabase-js, og en gate til i
+web-koden — tre låser fra #122 utvidet på én gang — for å beskytte ÉN av de to
+postene mot en angriper som allerede er inne i appens sandkasse, der Androids
+egen diskkryptering er den grensen som gjelder. Bufferen ved siden av ville
+fortsatt ligget i klartekst. Den ene veien dataene faktisk forlot enheten var en
+helt annen, og den lukkes med to erklæringer:
+
+**`android:allowBackup`: slått AV.** Forskjellen i angrepsflate er reell.
+Auto Backup tar som standard med filene under appens datakatalog — unntakene er
+`cache`, `code_cache` og `no_backup` — og WebView-lagringen ligger i
+`app_webview/` under nettopp den. Med Capacitors standard `true` fulgte derfor
+BÅDE sesjonen og bufferen med i Googles sikkerhetskopi, og en gjenoppretting på
+en annen telefon er innlogget som brukeren uten at noen har logget inn.
+Nettleserutgaven har ingen tilsvarende vei ut av enheten. Sesjonen er ikke
+kortlevd nok til å redde det: den fornyer seg selv så lenge posten finnes.
+
+Å slå det av koster ingenting. Serveren er kanonisk, så en ny telefon henter alt
+ved første innlogging; språk og drakt er bevisst per enhet ([`sprak.md`](sprak.md),
+[`mork-drakt.md`](mork-drakt.md)); og `mine-lister-device` SKAL være ny på en ny
+enhet — en kopi gir to enheter samme LWW-opphav, som er det `newer()` bryter
+uavgjort med.
+
+To erklæringer, fordi de dekker hver sin halvdel:
+
+| Ledd | Rolle |
+|---|---|
+| `android:allowBackup="false"` (manifestet) | Stenger skykopien, på alle Android-versjoner. |
+| `android:dataExtractionRules` → `res/xml/data_extraction_rules.xml` | Stenger enhet-til-enhet-overføringen, som attributtet IKKE rører hos alle produsenter fra Android 12 (vi er på targetSdk 36). Begge modusene må skrives eksplisitt: en manglende — eller tom — seksjon leses som «fullt aktivert», ikke som «ingenting». `cross-platform-transfer` er derimot opt-in og trenger ingen erklæring. |
+| `tests/capacitor-android.test.js` (del 6) | Begge halvdelene, koblingen mellom dem (manifestet peker på en fil som faktisk finnes), at hver seksjon utelukker HELE datakatalogen, og at ingen `<include>` har begynt å plukke ut data som skal ut likevel. |
+| [`accounts.md`](accounts.md) | Autoritativt for hva som ligger i enhetens lagring, og for at den blir der. |
+
+**Punktet krevde ingen web-kode.** Ingen plugin, ingen npm-avhengighet, ingen
+Gradle-avhengighet: web-laget kjenner fortsatt native-runtimen på nøyaktig ÉN
+gated linje — broen for tilbakeknappen — og unntaket i
+`tests/capacitor-android.test.js` er uendret.
+
+### Ikke prøvd på telefon — og hva en telefon ville lagt til
+
+Dette punktet er to erklæringer og en beslutning, og begge erklæringene er
+statiske: testen leser dem, og APK-workflowen kompilerer dem (paths-filteret
+`android/**` starter den), så at Android godtar regelfila og at manifestet
+merger uten konflikt avgjøres i CI.
+
+At Auto Backup som standard tar med `app_webview/` er LEST i Androids
+dokumentasjon, ikke observert på en enhet — men retningen henger ikke på det:
+vi vil ikke ha dataene ut i noen av tilfellene, og erklæringene feiler lukket.
+Vil man se det på enhet, er `adb shell bmgr backupnow no.huskis.app` runden som
+viser at pakken ikke lenger er kvalifisert. Det er en bekreftelse, ikke en
+åpen beslutning.
+
 **Ferdigkriterium:** Android-appen oppfører seg som en normal mobilapp i de
 plattformtilfellene browseren ikke selv kan håndtere godt nok.
 
@@ -981,11 +1057,13 @@ De skal ikke snike seg inn i fundamentfasene.
 
 ## Neste oppgave
 
-**Fase 3 fortsetter.** Fire punkter er ferdige: tilbakeknappen og safe
-areas/systemfeltene/skjermtastaturet (begge verifisert på telefon), og de to
-lenkepunktene — eksterne lenker og auth-/e-postlenker — som begge endte som
-beslutninger uten kode, og som derfor fortsatt ikke har noe å prøve på en
-telefon.
+**Fase 3 fortsetter, og alt som gjenstår krever en telefon.** Fem punkter er
+ferdige: tilbakeknappen og safe areas/systemfeltene/skjermtastaturet (begge
+verifisert på telefon); de to lenkepunktene — eksterne lenker og
+auth-/e-postlenker — som begge endte som beslutninger uten kode, og som derfor
+fortsatt ikke har noe å prøve på en telefon; og sikker lagring/`allowBackup`,
+som endte i to native erklæringer og ingen web-kode (seksjonen «Sikker lagring
+og sikkerhetskopi»).
 
 **Lifecycle- og network-signalene er kartlagt og avgjort**: websignalene rekker,
 ingen native signaler er koblet på, og det ene reelle hullet — at ingenting
@@ -995,10 +1073,10 @@ krysses av, og begge krever en telefon: den korte fysiske sekvensen i den
 seksjonen, og enhetssjekken av om `navigator.onLine` i det hele tatt lever i
 WebView-en uten `ACCESS_NETWORK_STATE`. Det siste endrer ingenting som haster —
 alle veiene det rører leger seg selv — men svaret avgjør om én manifestlinje er
-verdt å legge inn.
+verdt å legge inn. Legges den inn, hører den sammen med en ny sjekk i del 6 av
+`tests/capacitor-android.test.js`.
 
-Deretter står **sikker lagring og `android:allowBackup`** igjen som fase 3s
-siste punkt.
+Det er det eneste som står igjen i fase 3.
 
 Hver fase 3-endring er plattformspesifikk og skal gates eksplisitt
 (arkitekturregel 2): browserutgaven skal fortsatt kjøre uten Capacitor.

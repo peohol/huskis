@@ -92,6 +92,35 @@ hvilken versjon (`user_metadata.onboarding`) — og hvilke gest-tips som er vist
 `updateUser`, og leses inn i sesjonsbrukeren ved `signInWithPassword` — så to
 faner (= to enheter) deler den huskede posisjonen.
 
+### Hva som ligger i enhetens lagring
+
+Alt Huskis legger igjen på en enhet ligger i `localStorage` på appens eget
+origin, i klartekst. De to øverste postene er de tunge:
+
+| Post | Innhold | Levetid |
+|---|---|---|
+| `sb-<prosjekt-ref>-auth-token` | hele sesjonen: `access_token` (kortlevd JWT), **`refresh_token`**, og brukeren | skrives av supabase-js selv (`persistSession` og `autoRefreshToken` står på klientens standard `true`). Fornyer seg selv så lenge posten finnes; forsvinner ved utlogging |
+| `mine-lister-v1:<uid>` (`cacheKey()`) | offline-bufferen: HELE brukerens innhold, pluss synk-basen og gravsteinene | til utlogging/kontosletting rydder den. Den usuffikserte `mine-lister-v1` kan ligge igjen fra tiden før kontoer, og leses bare av migreringsflyten nederst |
+| `mine-lister-device` | enhetens `deviceId` — `org`/`posOrg` i LWW-stemplingen | permanent på enheten |
+| `huskis-lang`, `huskis-theme` | språk og drakt, bevisst PER ENHET (`docs/sprak.md`, `docs/mork-drakt.md`) | permanent på enheten |
+| `hk-migrated:<uid>` | engangsflagg for v1-migreringen | permanent på enheten |
+
+**Denne lagringen skal bli på enheten.** Refresh-tokenet er en levende
+legitimasjon: den som har posten, er innlogget som brukeren uten å ha logget
+inn — og bufferen ved siden av er innholdet i lesbar form. `deviceId` hører
+dessuten til ÉN enhet; en kopi av den gir to enheter samme LWW-opphav, slik at
+uavgjort-bryteren i `newer()` ikke lenger bryter noe.
+
+Nettleseren har ingen vei ut: `localStorage` er per origin og per nettleser, og
+appen eksporterer den ingen steder. Android-appen har én, og den er slått av —
+`android:allowBackup="false"` pluss regelfila for datauttrekk holder
+WebView-lagringen utenfor både skykopien og enhet-til-enhet-overføringen. Hvorfor
+det er valgt slik, og hvorfor det ikke koster noe: `docs/mobilapp-plan.md`
+(«Sikker lagring og sikkerhetskopi»).
+
+Serveren er kanonisk. En ny enhet trenger derfor ingenting med seg: brukeren
+logger inn, og `get_my_doc()` fyller den.
+
 ## Synk-motor v2
 
 Kanonisk innhold ligger nå relasjonelt (ikke ett jsonb-doc). Klienten holder
