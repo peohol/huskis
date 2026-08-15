@@ -86,6 +86,13 @@ snur glyfene eller maler en svart stripe over toppen av siden vår. Erklæringen
 står i `android/app/src/main/res/values/styles.xml` (+ `values-v27/` for
 gestelinjen, som først finnes fra API 27).
 
+Temaet er ikke nok alene: Capacitors `SystemBars`-plugin SETTER utseendet i
+runtime, og med standardverdien (`DEFAULT`) leser den telefonens nattmodus — i
+mørk modus ba den derfor om LYSE glyfer og overstyrte temaet. `SystemBars.style
+= "LIGHT"` i `capacitor.config.json` låser den til mørke glyfer, også etter en
+rotasjon eller et modusbytte (pluginen legger den valgte stilen på igjen ved
+konfigurasjonsendring). Én drakt, ett svar, uansett lag.
+
 Voktere: `tests/safe-area.test.js` (setter sonen og måler at chromet flytter
 seg, begge viewportene) og `tests/capacitor-android.test.js` (erklæringene
 sonen og systemfeltenes utseende hviler på).

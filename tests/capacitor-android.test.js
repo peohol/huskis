@@ -379,6 +379,15 @@ check('android: systemfeltene er gjennomsiktige (Huskis-flaten når skjermkanten
   && /android:navigationBarColor">@android:color\/transparent/.test(styles));
 check('android: mørke glyfer i statusfeltet (windowLightStatusBar)',
   /android:windowLightStatusBar">true/.test(styles));
+/* Temaet er ikke nok alene: `SystemBars`-pluginen SETTER utseendet i runtime
+   (`setAppearanceLightStatusBars`), og med `style: DEFAULT` leser den
+   telefonens nattmodus — i mørk modus ba den dermed om LYSE glyfer, oppå vår
+   lyse flate. Med en eksplisitt `LIGHT` er den låst til mørke glyfer, også
+   etter en konfigurasjonsendring (pluginen legger den resolverte stilen på
+   igjen ved rotasjon/modusbytte). Nøkkelen er plugin-klassens navn. */
+check('capacitor.config.json låser systemfeltene til mørke glyfer (SystemBars.style = LIGHT)',
+  !!cfg.plugins && !!cfg.plugins.SystemBars && cfg.plugins.SystemBars.style === 'LIGHT',
+  JSON.stringify((cfg.plugins || {}).SystemBars || null));
 /* Attributten finnes først fra API 27, og hører derfor hjemme i values-v27/ —
    i values/ ville den vært død kode med lint-støy på kjøpet. */
 check('android: mørke glyfer i gestelinjen fra API 27 (windowLightNavigationBar)',

@@ -481,6 +481,7 @@ legger dem på sin egen avstand. Autoritativt:
 | resize-lytteren (`app.js`) | Tastaturet krymper viewportet ⇒ feltet som redigeres rulles tilbake i syne. |
 | `android:windowSoftInputMode` (manifestet) | Tastaturet krymper vinduet, det skyver det ikke. |
 | `values/styles.xml` + `values-v27/` | Systemfeltenes UTSEENDE: lyst tema (ikke DayNight), gjennomsiktige felt og MØRKE glyfer. Uten det ligger klokka som lyse glyfer over Huskis' lyse flate — og night-varianten malte i tillegg en svart stripe der flaten vår skulle nådd kanten. |
+| `SystemBars.style = "LIGHT"` (`capacitor.config.json`) | Pluginen setter glyffargen i RUNTIME og overstyrer temaet: med standardverdien leser den telefonens nattmodus og ber om lyse glyfer i mørk modus. Den eksplisitte stilen låser mørke glyfer, også ved rotasjon og modusbytte. |
 | `tests/safe-area.test.js` | Setter sonen i ekte nettleser og måler at chromet flytter seg nøyaktig så mye — begge viewportene, begge board-scopene. Dekker også de to tastatur-tilfellene. |
 | `tests/capacitor-android.test.js` | De to erklæringene sonen hviler på, i hver sin fil. |
 
@@ -500,11 +501,20 @@ aldri høyere enn skjermen ([`introduksjon.md`](introduksjon.md)). Vakten er
 iOS i fase 7.
 
 Punkt 10 kom TIL etter runden: skjermbilder fra telefonen viste at klokka og
-statusikonene er lette å lese i mørk modus, men nesten uleselige i lys — lyse
-glyfer over Huskis' lyse flate. Temaet er rettet (lyst tema, gjennomsiktige
-felt, mørke glyfer), og erklæringene voktes i
-`tests/capacitor-android.test.js`. **Selve utfallet er ikke sett på telefon
-ennå** — det kan bare bekreftes med en ny debug-APK.
+statusikonene lå som lyse glyfer over Huskis' lyse flate. Rettingen tok to
+runder, og det er verdt å huske hvorfor — systemfeltenes utseende settes to
+steder:
+
+1. **temaet** (`values/styles.xml`): lyst foreldretema, gjennomsiktige felt,
+   `windowLightStatusBar`. Det fjernet den svarte stripen i mørk modus, men
+   glyfene ble fortsatt snudd;
+2. **`SystemBars`-pluginen**, som setter utseendet i RUNTIME og dermed
+   overstyrer temaet. Med standardverdien leser den telefonens nattmodus, så
+   mørk modus ga lyse glyfer. `SystemBars.style = "LIGHT"` i
+   `capacitor.config.json` låser den.
+
+Begge voktes i `tests/capacitor-android.test.js`. **Utfallet av runde 2 er ikke
+sett på telefon ennå** — det kan bare bekreftes med en ny debug-APK.
 
 Debug-APK som i fase 1, på en telefon med hakk ELLER hull i skjermen og med
 **gestenavigasjon** slått på. Kjør punkt 1 og 6 en gang til med treknappsraden,
