@@ -248,7 +248,29 @@ check('android: namespace er no.huskis.app', /namespace = "no\.huskis\.app"/.tes
    JS/HTML med strenger, regex og skriptområder — overkill for et manifest, og
    den er dessuten definert først et godt stykke etter dette punktet. */
 const utenXmlKommentarer = (s) => s.replace(/<!--[\s\S]*?-->/g, '');
-const manifest = utenXmlKommentarer(les('android/app/src/main/AndroidManifest.xml'));
+/* Prefikset `android:` er en KONVENSJON, ikke navnet. XML binder navnerom med
+   `xmlns:`, og `xmlns:a="http://schemas.android.com/apk/res/android"` +
+   `<data a:scheme="https">` er nøyaktig det samme manifestet for Android — men
+   usynlig for et mønster som leter etter `android:`. Da ville et aktivt filter
+   sett ut som fravær, og koblingen i del 13 stått grønn på en halv innføring.
+
+   I stedet for å tre en prefiksvariabel gjennom hvert eneste mønster,
+   NORMALISERES teksten én gang: det prefikset som faktisk er bundet til
+   Android-navnerommet skrives om til `android:`. Attributtnavn står alltid
+   etter blanktegn inne i en tagg, så den ene erstatningen er nok — elementene i
+   et manifest er uprefiksede. */
+const ANDROID_NS = 'http://schemas.android.com/apk/res/android';
+function xmlNormalisert(tekst) {
+  let ut = tekst;
+  for (const m of tekst.matchAll(/xmlns:([\w.-]+)\s*=\s*(?:"([^"]*)"|'([^']*)')/g)) {
+    const prefiks = m[1];
+    if ((m[2] !== undefined ? m[2] : m[3]) !== ANDROID_NS || prefiks === 'android') continue;
+    ut = ut.replace(new RegExp('(\\s)' + prefiks.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + ':', 'g'), '$1android:');
+  }
+  return ut;
+}
+const manifestTekst = (rel) => xmlNormalisert(utenXmlKommentarer(les(rel)));
+const manifest = manifestTekst('android/app/src/main/AndroidManifest.xml');
 /* Uten INTERNET når appen verken Supabase eller /version.json. */
 check('android: manifestet ber om INTERNET',
   /android\.permission\.INTERNET/.test(manifest));
@@ -1452,7 +1474,7 @@ const KOMPONENT = new RegExp('<(' + KOMPONENT_TAG + ')\\b[^>]*(?<!/)>[\\s\\S]*?<
    (et overlay som bare setter et attributt). */
 const KOMPONENT_TOM = new RegExp('<(' + KOMPONENT_TAG + ')\\b[^>]*/>', 'g');
 const komponenter = manifestFiler.flatMap((p) => {
-  const tekst = utenXmlKommentarer(fs.readFileSync(p, 'utf8'));
+  const tekst = xmlNormalisert(utenXmlKommentarer(fs.readFileSync(p, 'utf8')));
   const fil = path.relative(ROOT, p);
   return [...tekst.matchAll(KOMPONENT), ...tekst.matchAll(KOMPONENT_TOM)].map((k) => {
     /* Attributtene leses av ÅPNINGSTAGGEN alene. Leste vi hele blokken, ville
@@ -1648,9 +1670,16 @@ if (harStatement) {
       && o.relation.indexOf('delegate_permission/common.handle_all_urls') > -1)
       && mål.every((t) => t.namespace === 'android_app'),
     oppf.length + ' oppføringer');
+  /* HUSKIS-oppføringen må finnes — ikke at ALLE oppføringene er Huskis.
+     Digital Asset Links er en LISTE nettopp fordi ett origin kan autorisere
+     flere apper, og en fremmed, gyldig oppføring er ikke vår sak å avvise.
+     Kravet er at fila navngir `no.huskis.app`; resten av sjekkene under leser
+     den oppføringen. */
+  const våre = oppf.filter((o) => ((o && o.target) || {}).package_name === cfg.appId);
   check(STATEMENT + ' navngir appens egen applicationId',
-    mål.length > 0 && mål.every((t) => t.package_name === cfg.appId),
-    mål.map((t) => t.package_name).join(', ') || 'ingen');
+    våre.length > 0,
+    våre.length ? våre.length + ' oppføring(er) for ' + cfg.appId
+      : 'fant kun: ' + (mål.map((t) => t.package_name).filter(Boolean).join(', ') || 'ingen'));
   /* Uten et fingeravtrykk er statementet en påstand om ingenting: Android
      sammenligner signaturen på den installerte APK-en mot denne lista.
 
@@ -1661,12 +1690,13 @@ if (harStatement) {
      kolon — den formen kan sjekkes her, mens om det er RIKTIG nøkkel bare kan
      avgjøres av en enhet. */
   const SHA256 = /^[0-9a-f]{2}(:[0-9a-f]{2}){31}$/i;
-  const avtrykk = mål.flatMap((t) => (Array.isArray(t.sha256_cert_fingerprints)
+  const våreMål = våre.map((o) => o.target || {});
+  const avtrykk = våreMål.flatMap((t) => (Array.isArray(t.sha256_cert_fingerprints)
     ? t.sha256_cert_fingerprints : []));
   const ugyldige = avtrykk.filter((f) => typeof f !== 'string' || !SHA256.test(f.trim()));
-  check(STATEMENT + ' oppgir minst ett SHA-256-fingeravtrykk per oppføring, på riktig form',
-    mål.length > 0
-      && mål.every((t) => Array.isArray(t.sha256_cert_fingerprints)
+  check(STATEMENT + ' oppgir minst ett SHA-256-fingeravtrykk for ' + cfg.appId + ', på riktig form',
+    våreMål.length > 0
+      && våreMål.every((t) => Array.isArray(t.sha256_cert_fingerprints)
         && t.sha256_cert_fingerprints.length > 0)
       && ugyldige.length === 0,
     ugyldige.length ? 'ikke et SHA-256-avtrykk: ' + ugyldige.map((f) => JSON.stringify(f)).join(', ')
