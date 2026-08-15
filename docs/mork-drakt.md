@@ -59,9 +59,15 @@ Tokenene er delt i to familier etter hva de ligger på:
   appens egne flater: modaler, toppmeny, paneler. I mørk drakt blir flatene
   mørke og blekket lyst.
 - **På-farge-familien** (`--plate*`, `--tint*`, `--hairline`, `--on-color-soft`,
-  `--chip-bg`) ligger oppå en **palettfarge**. Der snur ikke flaten —
-  palettfargen gjør jobben selv — men lagene oppå: de halvgjennomsiktig hvite
-  platene blir halvgjennomsiktig svarte, og de svarte hårstrekene blir hvite.
+  `--chip-bg`, `--item-text-shadow`, `--item-text-stroke`) ligger oppå en
+  **palettfarge**. Der snur ikke flaten — palettfargen gjør jobben selv — men
+  lagene oppå: de halvgjennomsiktig hvite platene blir halvgjennomsiktig
+  svarte, og de svarte hårstrekene blir hvite. `--item-text-shadow`/
+  `--item-text-stroke` er av i lys drakt (`.item-text` er `--ink`, ikke fast
+  hvit, og trenger ingen kant der) og på i mørk: samme svarte tekst-border som
+  `.card-title`/`.cat-title` bærer, fordi den 30 % svarte platen mørkner
+  kortfargen svakere enn den lyse platens 55 % lysner den — nesten-hvit
+  `--ink`-skrift trenger samme lesbarhetshjelp på mappetitler og listepunkter.
 
 Fire ting snur som ikke er flater:
 
