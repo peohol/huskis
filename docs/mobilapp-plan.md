@@ -653,7 +653,7 @@ utsatte innføringen umulig å gjøre halvveis.
 | `authRedirectUrl()` (`app.js`) | Sender allerede den kanoniske adressen fra WebView-originet, altså den ene formen App Links en gang kan fange. Voktet av `tests/auth-redirect.test.js`. |
 | `AndroidManifest.xml` uten `<data android:scheme="https">` | Manifest-halvdelen. Finnes ikke i dag; innføres den alene, verifiserer Android ingenting. |
 | `.well-known/assetlinks.json` (finnes ikke) | Origin-halvdelen: `no.huskis.app` + signeringsnøkkelens SHA-256. Repo-eid — Vercel serverer `dist/`, og `build.js` fyller den. |
-| `copyDir()` i `build.js` | Den tredje halvdelen, og den lettest oversette: den hopper over hvert navn som starter med punktum, så en `.well-known/`-katalog havner i dag ikke i `dist/`. Innføres statementet, må dette endres i samme slengen. |
+| `copyDir()` i `build.js` | Den tredje halvdelen, og den lettest oversette: den hopper over hvert navn som starter med punktum, så en `.well-known/`-katalog havner i dag ikke i `dist/`. Innføres statementet, må dette endres i samme slengen — og fritaket må være SELEKTIVT. Fjernes prikk-regelen helt, publiseres `.gitignore` og hver framtidige skjulte fil på `huskis.no` med det samme. |
 | `tests/capacitor-android.test.js` (del 13) | Vakten: halvdelene innføres sammen eller ikke i det hele tatt; filteret er komplett (`VIEW` + `DEFAULT` + `BROWSABLE` + `https`) og ber om verifisering; statementet navngir riktig appId med et fingeravtrykk på riktig form, og det når faktisk `dist/`; og noe leser den innkommende adressen. Manifestene leses uten XML-kommentarer og i ALLE source set-ene — Gradle slår dem sammen, så et filter i `src/release/` teller like fullt. |
 
 ### Ikke prøvd på telefon — det finnes ingen lenke som kan fange

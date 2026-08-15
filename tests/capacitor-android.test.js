@@ -1400,7 +1400,17 @@ const manifestFiler = (function les(dir, rot) {
 const intentFiltre = manifestFiler.flatMap((p) =>
   (utenXmlKommentarer(fs.readFileSync(p, 'utf8')).match(/<intent-filter\b[\s\S]*?<\/intent-filter>/g) || [])
     .map((blokk) => ({ fil: path.relative(ROOT, p), blokk })));
-const nettFiltre = intentFiltre.filter(({ blokk }) => /<data\b[^>]*android:scheme\s*=\s*"https?"/.test(blokk));
+/* XML tillater BEGGE anførselstegn: `android:scheme='https'` er nøyaktig like
+   gyldig som den doble formen Capacitor selv genererer, og Android pakker den
+   like fullt. Et mønster som bare kjenner den ene skrivemåten ville sett et
+   aktivt filter som fravær — altså igjen grønt på noe som finnes. Attributtene
+   leses derfor uavhengig av anførselstegn. */
+const xmlAttr = (navn, verdi) => new RegExp(navn + '\\s*=\\s*(?:"' + verdi + '"|\'' + verdi + '\')');
+const xmlVerdier = (blokk, navn) =>
+  [...blokk.matchAll(new RegExp(navn + '\\s*=\\s*(?:"([^"]*)"|\'([^\']*)\')', 'g'))]
+    .map((m) => (m[1] !== undefined ? m[1] : m[2]));
+const nettFiltre = intentFiltre.filter(({ blokk }) =>
+  xmlAttr('<data\\b[^>]*android:scheme', 'https?').test(blokk));
 const harFilter = nettFiltre.length > 0;
 const filterSteder = [...new Set(nettFiltre.map((f) => f.fil))].join(', ');
 const harStatement = finnes(STATEMENT);
@@ -1421,13 +1431,21 @@ if (harFilter) {
      lenkehåndterer: Android spør brukeren i stedet for å verifisere mot
      originet, og assetlinks.json blir aldri lest. */
   check('App Links: hvert http(s)-intent-filter ber om verifisering (autoVerify)',
-    nettFiltre.every(({ blokk }) => /android:autoVerify\s*=\s*"true"/.test(blokk)),
+    nettFiltre.every(({ blokk }) => xmlAttr('android:autoVerify', 'true').test(blokk)),
     nettFiltre.length + ' filtre i ' + filterSteder);
-  const verter = nettFiltre.flatMap(({ blokk }) =>
-    [...blokk.matchAll(/android:host\s*=\s*"([^"]*)"/g)].map((m) => m[1]));
-  check('App Links: intent-filtrene navngir kun det kanoniske originets vert',
-    kanoniskVert !== '' && verter.length > 0 && verter.every((h) => h === kanoniskVert),
-    verter.join(', ') || 'ingen android:host');
+  /* Verten kreves PER FILTER, ikke som en samlet liste. Et `<data>` uten
+     `android:host` matcher hvilken som helst vert, og en samlet sjekk ville
+     latt et slikt filter passere så lenge et ANNET filter i manifestet
+     tilfeldigvis navnga `huskis.no`. Da hadde appen gjort krav på vilkårlige
+     https-adresser — det motsatte av regelen. */
+  const vertAvvik = nettFiltre
+    .map((f) => ({ f, verter: xmlVerdier(f.blokk, 'android:host') }))
+    .filter(({ verter }) => verter.length === 0 || !verter.every((h) => h === kanoniskVert));
+  check('App Links: HVERT http(s)-filter navngir kun det kanoniske originets vert',
+    kanoniskVert !== '' && vertAvvik.length === 0,
+    vertAvvik.length
+      ? vertAvvik.map(({ f, verter }) => f.fil + ': ' + (verter.join('/') || 'ingen android:host')).join(', ')
+      : kanoniskVert + ' i alle ' + nettFiltre.length + ' filtre');
   /* Koblingen over spør bare om det FINNES et http(s)-filter — med vilje, for
      et `http`-only filter er like mye en halv innføring som et fullt. Men et
      filter kan også være halvt i seg selv, og da ruter Android ingenting:
@@ -1436,10 +1454,10 @@ if (harFilter) {
      dokumentet handler om. Alle fire delene må stå i det SAMME filteret — et
      `BROWSABLE` i én blokk hjelper ikke en annen. */
   const KOMPLETT = [
-    ['android.intent.action.VIEW', /<action\b[^>]*android:name\s*=\s*"android\.intent\.action\.VIEW"/],
-    ['category.DEFAULT', /<category\b[^>]*android:name\s*=\s*"android\.intent\.category\.DEFAULT"/],
-    ['category.BROWSABLE', /<category\b[^>]*android:name\s*=\s*"android\.intent\.category\.BROWSABLE"/],
-    ['scheme https', /<data\b[^>]*android:scheme\s*=\s*"https"/],
+    ['android.intent.action.VIEW', xmlAttr('<action\\b[^>]*android:name', 'android\\.intent\\.action\\.VIEW')],
+    ['category.DEFAULT', xmlAttr('<category\\b[^>]*android:name', 'android\\.intent\\.category\\.DEFAULT')],
+    ['category.BROWSABLE', xmlAttr('<category\\b[^>]*android:name', 'android\\.intent\\.category\\.BROWSABLE')],
+    ['scheme https', xmlAttr('<data\\b[^>]*android:scheme', 'https')],
   ];
   const komplette = nettFiltre.filter(({ blokk }) => KOMPLETT.every(([, re]) => re.test(blokk)));
   check('App Links: minst ett filter er komplett (VIEW + DEFAULT + BROWSABLE + https)',
@@ -1458,12 +1476,21 @@ if (harFilter) {
      lenker til `/?signup=<e-post>`, og `applySignupInvite()` i app.js leser den
      verdien fra `location.search`. Fanger appen lenken uten å videreformidle
      URI-en, mister en invitert bruker registreringsflyten sin — noe browseren
-     håndterer riktig i dag. */
-  const leserUri = typeof alleDeps['@capacitor/app'] === 'string'
+     håndterer riktig i dag.
+
+     At `@capacitor/app` STÅR i package.json er ikke bevis: pluginen kopierer
+     ikke adressen inn i WebView-en av seg selv, den fyrer en `appUrlOpen` som
+     noen må lytte på og rute videre. Derfor kreves bruken, ikke pakken — enten
+     lytteren i web-koden (som da også må gjennom gaten i del 9) eller native
+     kode som leser intent-URI-en selv. */
+  const webKode = WEB_KILDE.map((f) => strippet(les(f), modusFor(f))).join('\n');
+  const leserUri = /appUrlOpen/.test(webKode)
     || nativeFiler.some((p) => /getIntentUri|onNewIntent/.test(strippet(fs.readFileSync(p, 'utf8'), 'js')));
-  check('App Links: noe leser den innkommende adressen (ellers mistes ?signup= og alt annet i URL-en)',
+  check('App Links: noe LESER den innkommende adressen (ellers mistes ?signup= og alt annet i URL-en)',
     leserUri,
-    leserUri ? 'URI-en videreformidles' : 'ingen @capacitor/app og ingen native lesing av intent-URI-en');
+    leserUri ? 'URI-en konsumeres og rutes'
+      : 'ingen appUrlOpen-lytter i web-koden og ingen native lesing av intent-URI-en'
+        + (typeof alleDeps['@capacitor/app'] === 'string' ? ' (@capacitor/app installert, men ubrukt)' : ''));
 }
 if (harStatement) {
   let st = null;
@@ -1504,6 +1531,32 @@ if (harStatement) {
     byggUt.status === 0 && fs.existsSync(path.join(DIST, STATEMENT)),
     fs.existsSync(path.join(DIST, STATEMENT)) ? 'dist/' + STATEMENT
       : 'mangler i dist/ — copyDir i build.js hopper over navn som starter med punktum');
+}
+/* Og BAKSIDEN av den samme medaljen. Den letteste måten å få statementet
+   publisert på er å fjerne `name.startsWith('.')`-linjen i `copyDir()` — og da
+   følger hver eneste andre skjulte fil med ut på `huskis.no`. `.gitignore`
+   ligger i repo-roten allerede og ville blitt publisert med det samme; en
+   framtidig lokal konfigurasjonsfil ville fulgt etter uten at noe sa fra,
+   siden verken denne sjekken eller inventaret i del 12 leser skjulte navn.
+
+   Kravet er derfor at fritaket må være SELEKTIVT: `.well-known/` kan
+   publiseres, ingenting annet som starter med punktum. Sjekken er ikke tom i
+   dag — den slår fast at `dist/` ikke inneholder én eneste skjult fil, og den
+   blir rød i samme øyeblikk som noen løsner regelen for bredt. */
+if (byggUt.status === 0 && fs.existsSync(DIST)) {
+  const SKJULT_TILLATT = new Set(['.well-known']);
+  const skjulte = [];
+  (function les(dir, topp) {
+    for (const d of fs.readdirSync(dir, { withFileTypes: true })) {
+      if (d.name.startsWith('.')) {
+        if (!(topp && SKJULT_TILLATT.has(d.name))) skjulte.push(path.relative(DIST, path.join(dir, d.name)));
+        continue;
+      }
+      if (d.isDirectory()) les(path.join(dir, d.name), false);
+    }
+  }(DIST, true));
+  check('dist/ publiserer ingen andre skjulte filer enn ' + [...SKJULT_TILLATT].join('/') + ' (fritaket må være selektivt)',
+    skjulte.length === 0, skjulte.join(', ') || 'ingen skjulte filer i dist/');
 }
 
 console.log('\n==== ' + pass + '/' + (pass + fail) + ' PASS ====');
