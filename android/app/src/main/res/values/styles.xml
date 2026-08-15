@@ -16,23 +16,25 @@
       • Foreldretemaet er Light, ikke DayNight. Night-varianten malte en svart
         statusfelt-bakgrunn OVER siden, så appens egen flate ikke nådde
         skjermkanten i mørk modus — stikk i strid med `viewport-fit=cover`.
-      • Begge systemfeltene er gjennomsiktige, så Huskis' flate er det man ser
-        bak klokka og gestelinjen. Målene deres rapporteres fortsatt som
-        `env(safe-area-inset-*)`, og CSS-en holder innholdet innenfor.
+      • Statusfeltet er gjennomsiktig, så Huskis' flate er det man ser bak
+        klokka. Målene rapporteres fortsatt som `env(safe-area-inset-*)`, og
+        CSS-en holder innholdet innenfor.
       • windowLightStatusBar = «feltet ligger på en LYS bakgrunn» ⇒ systemet
         tegner MØRKE glyfer. Uten den beholdt klokka lyse glyfer over vår lyse
         flate, og var i praksis uleselig i lys modus.
-
-      windowLightNavigationBar finnes først fra API 27 og står derfor i
-      values-v27/. minSdk er 24: på 24–26 er gestelinjens glyfer systemets
-      valg, og feltet er uansett en tynn stripe uten tekst.
+      • BUNNFELTET er derimot en mørk stripe her, ikke gjennomsiktig:
+        `windowLightNavigationBar` finnes først fra API 27, og runtime-veien er
+        en no-op før det. På 24–26 er treknappsradens glyfer altså LYSE uansett,
+        og de trenger noe mørkt å ligge på. Fra API 27 overstyrer
+        values-v27/styles.xml både fargen og glyfene — da når flaten vår helt
+        ned, med mørke glyfer oppå.
     -->
     <style name="AppTheme.NoActionBar" parent="Theme.AppCompat.Light.NoActionBar">
         <item name="windowActionBar">false</item>
         <item name="windowNoTitle">true</item>
         <item name="android:background">@null</item>
         <item name="android:statusBarColor">@android:color/transparent</item>
-        <item name="android:navigationBarColor">@android:color/transparent</item>
+        <item name="android:navigationBarColor">@color/systemNavScrim</item>
         <item name="android:windowLightStatusBar">true</item>
     </style>
 
@@ -42,7 +44,7 @@
     <style name="AppTheme.NoActionBarLaunch" parent="Theme.SplashScreen">
         <item name="android:background">@drawable/splash</item>
         <item name="android:statusBarColor">@android:color/transparent</item>
-        <item name="android:navigationBarColor">@android:color/transparent</item>
+        <item name="android:navigationBarColor">@color/systemNavScrim</item>
         <item name="android:windowLightStatusBar">true</item>
     </style>
 </resources>

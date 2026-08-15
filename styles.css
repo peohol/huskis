@@ -2333,6 +2333,17 @@ body.tour-demo .trash-row button:not(.tour-live) { opacity: 0.35; }
   overflow-y: auto;
   overscroll-behavior: contain;
 }
+/* Er det mer tekst under kanten, tones de nederste linjene ut. Uten den ser et
+   kappet kort FERDIG ut — teksten slutter gjerne etter et helt punkt, og en ny
+   bruker har ingen grunn til å tro at det finnes mer (mobilens rullefelt er
+   usynlig til man drar). Masken ligger på RULLEBOKSEN, ikke på innholdet, så
+   avtoningen blir stående ved kanten mens teksten glir forbi under den.
+   `.has-more` settes av `markTourOverflow()` i app.js og forsvinner når man er
+   nede — da skal siste linje være helt skarp. */
+.tour-card.has-more .tour-body {
+  -webkit-mask-image: linear-gradient(to bottom, #000 calc(100% - 34px), transparent);
+  mask-image: linear-gradient(to bottom, #000 calc(100% - 34px), transparent);
+}
 
 /* Framdriftsstolpe i stedet for «Steg n av m»: mindre tekst å lese, og like
    presist om hvor langt igjen det er. */

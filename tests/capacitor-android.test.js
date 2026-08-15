@@ -374,9 +374,19 @@ check('android: kjøretidstemaet er lyst, ikke DayNight (appen har én drakt)',
   /name="AppTheme\.NoActionBar"[^>]*parent="Theme\.AppCompat\.Light\.NoActionBar"/.test(styles)
   && !/DayNight/.test(arver(styles)) && !/DayNight/.test(arver(stylesV27)),
   arver(styles));
-check('android: systemfeltene er gjennomsiktige (Huskis-flaten når skjermkanten)',
-  /android:statusBarColor">@android:color\/transparent/.test(styles)
-  && /android:navigationBarColor">@android:color\/transparent/.test(styles));
+check('android: statusfeltet er gjennomsiktig (Huskis-flaten når skjermkanten)',
+  /android:statusBarColor">@android:color\/transparent/.test(styles));
+/* Bunnfeltet er unntaket på API 24–26: der finnes ikke
+   `windowLightNavigationBar`, og runtime-veien er en no-op, så treknappsradens
+   glyfer er LYSE uansett. Et gjennomsiktig felt ville lagt hvite knapper oppå
+   vår lyse flate — de versjonene får derfor en mørk stripe å ligge på, og først
+   values-v27 gjør feltet gjennomsiktig. */
+check('android: bunnfeltet er en mørk stripe før API 27, ikke gjennomsiktig',
+  /android:navigationBarColor">@color\/systemNavScrim/.test(styles)
+  && !/android:navigationBarColor">@android:color\/transparent/.test(styles)
+  && /name="systemNavScrim"/.test(les('android/app/src/main/res/values/colors.xml')));
+check('android: bunnfeltet blir gjennomsiktig fra API 27 (der glyfene kan snus)',
+  /android:navigationBarColor">@android:color\/transparent/.test(stylesV27));
 check('android: mørke glyfer i statusfeltet (windowLightStatusBar)',
   /android:windowLightStatusBar">true/.test(styles));
 /* Temaet er ikke nok alene: `SystemBars`-pluginen SETTER utseendet i runtime

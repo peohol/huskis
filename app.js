@@ -6986,16 +6986,31 @@
      lukkes og åpnes igjen. Plasseringen er ren geometri og kan trygt kjøres på
      nytt; på mobil er skallet en sentrert modal (CSS), og da settes ingen
      inline-koordinater i det hele tatt. */
+  /* Siste utvei når ankeret er borte: flytt panelet minst mulig, men innenfor
+     det brukbare feltet. Uten inline-koordinater (et ark som nettopp ble
+     popover) leses posisjonen fra der CSS satte det, og det klemmes derfra. */
+  function clampPanelToSafe(panel) {
+    const safe = safeInsets();
+    const r = panel.getBoundingClientRect();
+    const maxX = window.innerWidth - safe.right - 10 - r.width;
+    const maxY = window.innerHeight - safe.bottom - 10 - r.height;
+    panel.style.left = Math.max(safe.left + 10, Math.min(r.left, maxX)) + 'px';
+    panel.style.top = Math.max(safe.top + 10, Math.min(r.top, maxY)) + 'px';
+  }
   function repositionOpenPopovers() {
     [[respSwitcherOverlay, respSwitcherPanel], [timeSwitcherOverlay, timeSwitcherPanel],
       [objMenuOverlay, objMenuPanel]].forEach(([overlay, panel]) => {
       if (!overlay || overlay.hidden || !panel) return;
-      const btn = panel.__anchor;
-      if (!btn || !btn.isConnected) return;
       // Modal-varianten (mobil) plasseres av CSS — inline-koordinatene fra
       // desktop ville låst den fast i hjørnet.
       if (getComputedStyle(panel).position !== 'fixed') return;
-      positionSwitcherPanel(panel, btn);
+      const btn = panel.__anchor;
+      if (btn && btn.isConnected) { positionSwitcherPanel(panel, btn); return; }
+      /* Ankeret kan ha blitt revet ut av DOM-en mens popoveren står åpen: en
+         synk-rebuild eller `refreshCard()` bytter ut hele kortet knappen satt
+         i. Da finnes det ingen knapp å forankre mot — men panelet skal likevel
+         ikke bli liggende under en systemflate eller utenfor skjermen. */
+      clampPanelToSafe(panel);
     });
   }
 
@@ -12150,6 +12165,7 @@
       tourCard.style.left = Math.max(minX, (minX + maxX - cw) / 2) + 'px';
       tourCard.style.top = Math.max(minY, (minY + maxY - h) / 2) + 'px';
       gjenopprettLesested();
+      markTourOverflow();
       return;
     }
     const r = el.getBoundingClientRect();
@@ -12221,6 +12237,15 @@
     tourCard.style.top = top + 'px';
     tourArrow.hidden = false;
     gjenopprettLesested();
+    markTourOverflow();
+  }
+  /* Avtoningen i bunnen av kortet: PÅ når det finnes uleste linjer under
+     kanten, AV når man er nede (da skal siste linje være skarp). Kalles etter
+     hver plassering og ved rulling i kortet — begge kan endre svaret. */
+  function markTourOverflow() {
+    const body = tourCard.querySelector('.tour-body');
+    const mer = !!body && body.scrollHeight - body.scrollTop - body.clientHeight > 2;
+    tourCard.classList.toggle('has-more', mer);
   }
   // Én linje under teksten: hva som står i veien akkurat nå.
   function demoNote() {
@@ -12468,7 +12493,10 @@
      ikke av at teksten inni det rulles, og plasseringen ville i tillegg
      nullstilt lesestedet (se `placeTour` — målingen tar av høydeklippet). */
   const tourReflow = (ev) => {
-    if (ev && ev.target && ev.target.nodeType === 1 && tourEl.contains(ev.target)) return;
+    if (ev && ev.target && ev.target.nodeType === 1 && tourEl.contains(ev.target)) {
+      markTourOverflow();   // avtoningen skal av når man har rullet til bunnen
+      return;
+    }
     if (demoRunning && demoPainted === demoIndex) placeTour();
   };
   window.addEventListener('resize', tourReflow);

@@ -93,6 +93,12 @@ mørk modus ba den derfor om LYSE glyfer og overstyrte temaet. `SystemBars.style
 rotasjon eller et modusbytte (pluginen legger den valgte stilen på igjen ved
 konfigurasjonsendring). Én drakt, ett svar, uansett lag.
 
+**Unntaket er bunnfeltet på API 24–26.** `windowLightNavigationBar` finnes
+først fra API 27, og runtime-veien er en no-op før det: treknappsradens glyfer
+er lyse uansett hva vi ber om. De versjonene får derfor en mørk stripe å ligge
+på (`@color/systemNavScrim`) i stedet for et gjennomsiktig felt; fra API 27 er
+feltet gjennomsiktig og glyfene mørke, så flaten vår når helt ned.
+
 Voktere: `tests/safe-area.test.js` (setter sonen og måler at chromet flytter
 seg, begge viewportene) og `tests/capacitor-android.test.js` (erklæringene
 sonen og systemfeltenes utseende hviler på).

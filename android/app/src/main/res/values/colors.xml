@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!--
+      Bunnfeltet på API 24–26. Der finnes ikke `windowLightNavigationBar`
+      (API 27+), og runtime-veien (`setAppearanceLightNavigationBars`) er en
+      no-op på de versjonene: glyfene i treknappsraden er LYSE uansett hva vi
+      ber om. Et gjennomsiktig felt ville dermed lagt hvite knapper oppå
+      Huskis' lyse flate. Derfor får de versjonene en mørk stripe å ligge på —
+      appens egen blekkfarge, ikke Capacitors indigo. Fra API 27 er feltet
+      gjennomsiktig og glyfene mørke (values-v27/styles.xml).
+    -->
+    <color name="systemNavScrim">#37343F</color>
+</resources>

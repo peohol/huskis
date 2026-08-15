@@ -160,6 +160,11 @@ async function landskap() {
      renner ikke `.tour-body` over — nettleseren klemmer da `scrollTop` til 0.
      Skjer det for hver plassering, spretter teksten tilbake til toppen i det
      brukeren leser: nederste linje vises et øyeblikk, og forsvinner igjen. */
+  /* Uten en affordanse ser et kappet kort FERDIG ut: teksten slutter gjerne
+     etter et helt punkt, og mobilens rullefelt er usynlig til man drar. */
+  const merFør = await p.evaluate(() => document.getElementById('tour-card').classList.contains('has-more'));
+  log('landskap: kortet viser at det er mer tekst under kanten', merFør, 'has-more ' + merFør);
+
   const lesested = await p.evaluate(async () => {
     const body = document.querySelector('#tour-card .tour-body');
     body.scrollTop = body.scrollHeight;          // helt ned
@@ -175,6 +180,9 @@ async function landskap() {
   log('landskap: lesestedet i kortet overlever en ny plassering',
     lesested.etterRulling > 0 && lesested.naa === lesested.etterRulling,
     'rullet til ' + lesested.etterRulling + ', står på ' + lesested.naa);
+  // …og når man ER nede skal siste linje være skarp, ikke tonet ut.
+  const merEtter = await p.evaluate(() => document.getElementById('tour-card').classList.contains('has-more'));
+  log('landskap: avtoningen forsvinner når man har rullet til bunnen', !merEtter, 'has-more ' + merEtter);
 
   // 5: et tooltip-steg med pilspiss mot et mål i toppmenyen.
   await p.locator('#tour-next').click();

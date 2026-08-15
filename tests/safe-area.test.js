@@ -403,6 +403,21 @@ async function run(label, viewport, touchMode) {
     const flyttet = await innenfor(p, '#obj-menu-panel', nyttRekt);
     log(label + ': en åpen popover plasseres på nytt når viewportet endrer seg',
       flyttet.ok, flyttet.evidens);
+    /* Ankeret kan forsvinne MENS popoveren står åpen — en synk-rebuild eller
+       `refreshCard()` bytter ut hele kortet knappen satt i. Da finnes ingen
+       knapp å forankre mot, men panelet skal likevel ikke ende under en
+       systemflate. Menyen fra sjekken over står fortsatt åpen. */
+    await p.evaluate(() => {
+      const b = document.querySelector('.item[data-id="I1"] .obj-menu-btn');
+      if (b) b.remove();                            // som en refreshCard()
+      document.getElementById('obj-menu-panel').style.left = '-400px';
+      window.dispatchEvent(new Event('resize'));
+    });
+    await p.waitForTimeout(250);
+    const utenAnker = await innenfor(p, '#obj-menu-panel', nyttRekt);
+    log(label + ': en popover uten anker klemmes fortsatt inn i sonen',
+      utenAnker.ok, utenAnker.evidens);
+
     await p.keyboard.press('Escape');
     await p.setViewportSize(viewport);
     await p.waitForTimeout(300);
