@@ -43,6 +43,10 @@ To steder, samme kontroll (`<select class="lang-select">`, fylt av
   det ikke, for den som har havnet i feil språk kan ikke lese overskriftene på
   skuffene og ville måttet åpne dem på måfå.
 
+Draktvelgeren (lys/mørk) står begge steder ved siden av språkvelgeren og har
+samme form, men er en annen slags innstilling: den lagres KUN på enheten, og et
+bytte laster ikke appen på nytt. Se [`mork-drakt.md`](mork-drakt.md).
+
 Etiketten står på **begge språk i begge språkversjonene**: «Språk · Language»
 (`lang.label`, samme streng i norsk og engelsk rad). Språknavnene i velgeren
 står likeså på sitt eget språk («Norsk», «English») — det er slik man finner

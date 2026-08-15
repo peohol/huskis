@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Nattvarianten for API 27+, der `windowLightNavigationBar` finnes. Samme
+  regel som values-night/styles.xml: mørk flate bak, altså lyse glyfer — nå
+  også i gestelinjen, som her er gjennomsiktig i stedet for å ligge på
+  `systemNavScrim`.
+
+  Splash-temaet står med vilje ikke her; se values-night/styles.xml.
+-->
+<resources>
+    <style name="AppTheme.NoActionBar" parent="Theme.AppCompat.DayNight.NoActionBar">
+        <item name="windowActionBar">false</item>
+        <item name="windowNoTitle">true</item>
+        <item name="android:background">@null</item>
+        <item name="android:statusBarColor">@android:color/transparent</item>
+        <item name="android:navigationBarColor">@android:color/transparent</item>
+        <item name="android:windowLightStatusBar">false</item>
+        <item name="android:windowLightNavigationBar">false</item>
+    </style>
+</resources>

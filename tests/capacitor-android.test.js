@@ -295,7 +295,7 @@ check('workflowen har kun lesetilgang til repoet', /permissions:\s*\n\s*contents
    Auth-siden av (b) — at `authRedirectUrl()` ikke tar WebView-originet for en
    utviklingsserver — testes i ekte nettleser (tests/auth-redirect.test.js),
    det samme gjør guardens oppførsel (tests/canonical-origin.test.js). */
-const WEB_KILDE = ['index.html', 'app.js', 'config.js', 'i18n.js', 'icons.js', 'update-check.js', 'styles.css'];
+const WEB_KILDE = ['index.html', 'app.js', 'config.js', 'i18n.js', 'theme.js', 'icons.js', 'update-check.js', 'styles.css'];
 const NEVNER_CAP = /\bCapacitor\b|@capacitor|capacitor\.js|cordova/i;
 /* Alle andre web-kildefiler enn app.js skal fortsatt være helt uvitende om at
    det finnes en native runtime. */
@@ -359,24 +359,59 @@ check('index.html ber om å få tegne under systemfeltene (viewport-fit=cover)',
 check('android: skjermtastaturet krymper vinduet (adjustResize)',
   /android:windowSoftInputMode="adjustResize"/.test(manifest));
 
-/* Systemfeltenes GLYFER hører til den samme mekanismen: når siden tegner under
-   feltene, er det Huskis' egen — alltid lyse — flate som ligger bak klokka og
-   gestelinjen. Uten en eksplisitt erklæring beholder feltene systemets egne
-   farger, og lyse glyfer over en lys flate er i praksis uleselige (målt på
-   telefon: grei kontrast i mørk modus, dårlig i lys). DayNight-foreldretemaet
-   var dessuten halve problemet: night-varianten malte en SVART statusfelt-
-   bakgrunn oppå siden, så flaten vår ikke nådde skjermkanten i mørk modus.
+/* Systemfeltenes GLYFER hører til den samme mekanismen, og de er MÅLT på
+   telefon: båndet bak klokka er ikke sidens flate, men VINDUSBAKGRUNNEN fra
+   appens tema. Da temaet var permanent lyst, var båndet lyst også når appen
+   var mørk — og glyfer som fulgte telefonens nattmodus ble hvite oppå det.
+
+   Derfor er hele oppsettet bundet til ÉN kilde: telefonens nattmodus.
+   DayNight-foreldretemaet gjør vindusbakgrunnen mørk om natten, night-
+   variantene snur glyfene med den, og `SystemBars.style: DEFAULT` lar
+   pluginen lese den samme nattmodusen i runtime. Båndet og glyfene kan da
+   ikke komme i utakt, uansett hvilken drakt brukeren velger i appen —
+   draktvalget rører ikke systemfeltene i det hele tatt.
+
    Ingenting av dette kan ses fra web-laget — derfor voktes erklæringene her. */
+/* XML-KOMMENTARER TÅLER IKKE «--». Standarden forbyr to bindestreker på rad
+   inne i en kommentar, og Gradles `mergeDebugResources` avviser fila med
+   «The string "--" is not permitted within comments» — altså et RØDT BYGG,
+   ikke en advarsel. Fella er lett å gå i her: kommentarene i disse filene
+   forklarer hvorfor systemfeltene ser ut som de gjør, og da er det nærliggende
+   å referere en CSS-variabel ved navn. Sjekken er billig og fanger det i
+   node-suiten i stedet for etter et par minutter med Gradle. */
+for (const f of ['android/app/src/main/res/values/styles.xml',
+  'android/app/src/main/res/values-v27/styles.xml',
+  'android/app/src/main/res/values-night/styles.xml',
+  'android/app/src/main/res/values-night-v27/styles.xml',
+  'android/app/src/main/res/values/colors.xml']) {
+  const kommentarer = les(f).match(/<!--[\s\S]*?-->/g) || [];
+  const ulovlige = kommentarer
+    .map((k) => k.slice(4, -3))          // uten selve markørene
+    .filter((innhold) => innhold.includes('--'));
+  check(f + ': ingen «--» inne i en XML-kommentar (Gradle avviser fila)',
+    ulovlige.length === 0,
+    ulovlige.map((x) => x.replace(/\s+/g, ' ').trim().slice(0, 80)));
+}
+
 const styles = les('android/app/src/main/res/values/styles.xml');
 const stylesV27 = les('android/app/src/main/res/values-v27/styles.xml');
-/* Kun `parent=`-attributtene leses — ordet DayNight står også i kommentaren
-   som forklarer hvorfor det ikke er foreldretemaet, og den skal ikke felle
-   sin egen test. */
-const arver = (s) => (s.match(/parent="[^"]*"/g) || []).join(' ');
-check('android: kjøretidstemaet er lyst, ikke DayNight (appen har én drakt)',
-  /name="AppTheme\.NoActionBar"[^>]*parent="Theme\.AppCompat\.Light\.NoActionBar"/.test(styles)
-  && !/DayNight/.test(arver(styles)) && !/DayNight/.test(arver(stylesV27)),
-  arver(styles));
+const stylesNight = les('android/app/src/main/res/values-night/styles.xml');
+const stylesNightV27 = les('android/app/src/main/res/values-night-v27/styles.xml');
+/* Kjøretidstemaet MÅ være DayNight, av to grunner som begge bare kan ses
+   nativt: fra targetSdk 33 utleder WebView `prefers-color-scheme` av appens
+   eget tema (isLightTheme), ikke av telefonens nattmodus — med et permanent
+   lyst tema svarte den alltid «light», og draktens standardvalg «Følg
+   systemet» ga lys app på en mørk telefon (bekreftet på enhet). Og vindus-
+   bakgrunnen, som er flaten bak statusfeltet, må kunne bli mørk.
+
+   `AppTheme` (det ubrukte AppCompat-basetemaet Capacitor genererer) telles
+   ikke med — det er `AppTheme.NoActionBar` aktiviteten faktisk kjører på. */
+const runtimeParent = (s) =>
+  ((s.match(/name="AppTheme\.NoActionBar"\s+parent="([^"]*)"/) || [])[1] || 'mangler');
+check('android: kjøretidstemaet er DayNight (prefers-color-scheme + mørk vindusbakgrunn)',
+  [styles, stylesV27, stylesNight, stylesNightV27]
+    .every((s) => runtimeParent(s) === 'Theme.AppCompat.DayNight.NoActionBar'),
+  [styles, stylesV27, stylesNight, stylesNightV27].map(runtimeParent).join(' | '));
 check('android: statusfeltet er gjennomsiktig (Huskis-flaten når skjermkanten)',
   /android:statusBarColor">@android:color\/transparent/.test(styles));
 /* Bunnfeltet er unntaket på API 24–26: der finnes ikke
@@ -390,22 +425,42 @@ check('android: bunnfeltet er en mørk stripe før API 27, ikke gjennomsiktig',
   && /name="systemNavScrim"/.test(les('android/app/src/main/res/values/colors.xml')));
 check('android: bunnfeltet blir gjennomsiktig fra API 27 (der glyfene kan snus)',
   /android:navigationBarColor">@android:color\/transparent/.test(stylesV27));
-check('android: mørke glyfer i statusfeltet (windowLightStatusBar)',
-  /android:windowLightStatusBar">true/.test(styles));
+/* Glyfene skal snu MED vindusbakgrunnen: mørke over den lyse dagflaten, lyse
+   over den mørke nattflaten. Uten night-varianten arver natten `true` fra
+   values/ og gir mørke glyfer på mørk flate. */
+check('android: statusfeltets glyfer snur med nattmodus (windowLightStatusBar)',
+  /android:windowLightStatusBar">true/.test(styles)
+  && /android:windowLightStatusBar">false/.test(stylesNight)
+  && /android:windowLightStatusBar">false/.test(stylesNightV27));
+/* Splash-bildet er hvitt i BEGGE modi (drawable/splash.png), så splash-temaet
+   skal IKKE ha en night-variant — der gjelder mørke glyfer hele døgnet.
+   Kommentarene strippes først: de NEVNER stilen for å forklare fraværet, og
+   skal ikke felle sin egen test. */
+const utenKommentar = (s) => s.replace(/<!--[\s\S]*?-->/g, '');
+check('android: splash-temaet er uendret om natten (splash.png er hvitt i begge modi)',
+  !/AppTheme\.NoActionBarLaunch/.test(utenKommentar(stylesNight))
+  && !/AppTheme\.NoActionBarLaunch/.test(utenKommentar(stylesNightV27)));
 /* Temaet er ikke nok alene: `SystemBars`-pluginen SETTER utseendet i runtime
-   (`setAppearanceLightStatusBars`), og med `style: DEFAULT` leser den
-   telefonens nattmodus — i mørk modus ba den dermed om LYSE glyfer, oppå vår
-   lyse flate. Med en eksplisitt `LIGHT` er den låst til mørke glyfer, også
-   etter en konfigurasjonsendring (pluginen legger den resolverte stilen på
-   igjen ved rotasjon/modusbytte). Nøkkelen er plugin-klassens navn. */
-check('capacitor.config.json låser systemfeltene til mørke glyfer (SystemBars.style = LIGHT)',
-  !!cfg.plugins && !!cfg.plugins.SystemBars && cfg.plugins.SystemBars.style === 'LIGHT',
+   (`setAppearanceLightStatusBars`) og overstyrer det etter oppstart, rotasjon
+   og modusbytte. `DEFAULT` betyr «følg telefonen» — altså nøyaktig den samme
+   nattmodusen som DayNight-temaet snur vindusbakgrunnen etter, så flaten og
+   glyfene over den kan ikke skille lag.
+
+   DENNE MÅ IKKE LÅSES TIL `LIGHT` (mørke glyfer). Det var riktig så lenge
+   appen var permanent lys, men med DayNight blir båndet mørkt om natten, og
+   låste mørke glyfer ville da vært uleselige — speilbildet av feilen #119
+   fjernet. Skal den låses igjen, må vindusbakgrunnen låses lys i samme slengen
+   (docs/mobilapp-plan.md). */
+check('capacitor.config.json lar systemfeltene følge telefonen (SystemBars.style = DEFAULT)',
+  !!cfg.plugins && !!cfg.plugins.SystemBars && cfg.plugins.SystemBars.style === 'DEFAULT',
   JSON.stringify((cfg.plugins || {}).SystemBars || null));
-/* Attributten finnes først fra API 27, og hører derfor hjemme i values-v27/ —
-   i values/ ville den vært død kode med lint-støy på kjøpet. */
-check('android: mørke glyfer i gestelinjen fra API 27 (windowLightNavigationBar)',
+/* Attributten finnes først fra API 27, og hører derfor hjemme i v27-variantene
+   — i values/ ville den vært død kode med lint-støy på kjøpet. */
+check('android: gestelinjens glyfer snur med nattmodus fra API 27 (windowLightNavigationBar)',
   /android:windowLightNavigationBar">true/.test(stylesV27)
-  && !/android:windowLightNavigationBar/.test(styles));
+  && /android:windowLightNavigationBar">false/.test(stylesNightV27)
+  && !/android:windowLightNavigationBar/.test(styles)
+  && !/android:windowLightNavigationBar/.test(stylesNight));
 
 /* ---- 11. Systemets tilbakeknapp ----
 

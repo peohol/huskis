@@ -82,6 +82,12 @@
        @font-face-erklæringene står i styles.css og peker på assets/fonts/.
        Se docs/sikkerhetsheadere.md. -->
   <link rel="stylesheet" href="styles.css" />
+  <!-- LYS/MØRK DRAKT — settes FØR første maling. Skriptet setter
+       `data-theme` på <html>, og det er det attributtet som velger
+       fargetokenene i styles.css. Lastes det nederst i <body> som i18n.js og
+       app.js, rekker skjermen å blinke hvitt før den blir mørk. Fila er noen
+       få hundre byte fra samme opphav. Se docs/mork-drakt.md. -->
+  <script src="theme.js"></script>
 </head>
 <body class="locked">
   <!-- Kontoknapp: fast i øvre høyre hjørne av VIEWPORTET — utenfor toppmenyens
@@ -359,6 +365,20 @@
             <span data-i18n="lang.label">Språk · Language</span>
           </span>
           <select class="field lang-select" id="lang-select" data-i18n-aria-label="lang.aria"></select>
+        </div>
+
+        <!-- Innstilling: drakt (lys/mørk). Lagres KUN på enheten — i motsetning
+             til språket, som også ligger på kontoen fordi serveren trenger det
+             til e-postene. Drakten hører til skjermen man sitter foran, ikke
+             til hvem man er. Står ved siden av språkraden, utenfor trekkspillet,
+             av samme grunn: en innstilling man skal finne uten å lete.
+             Se docs/mork-drakt.md. -->
+        <div class="menu-setting" id="menu-theme">
+          <span class="menu-setting-label">
+            <span class="menu-setting-icon" id="theme-icon" aria-hidden="true"></span>
+            <span data-i18n="theme.label">Drakt</span>
+          </span>
+          <select class="field theme-select" id="theme-select" data-i18n-aria-label="theme.aria"></select>
         </div>
       </div>
     </div>
@@ -755,12 +775,20 @@
         <button class="btn btn-ghost" id="auth-sent-back" type="button" data-i18n="auth.backToLogin">Tilbake til innlogging</button>
       </div>
 
-      <!-- Språkvelger FØR innlogging: en ny bruker skal kunne bytte språk uten
-           å måtte gjette seg gjennom en norsk registrering først. Valget lagres
-           på enheten, og følger med opp på kontoen ved innlogging. -->
+      <!-- Språk- og draktvelger FØR innlogging: en ny bruker skal kunne bytte
+           språk uten å måtte gjette seg gjennom en norsk registrering først, og
+           skal slippe å se på en hvit skjerm i mørket fram til hen har en konto.
+           Begge valgene lagres på enheten; kun språket følger med opp på
+           kontoen ved innlogging (docs/sprak.md, docs/mork-drakt.md). -->
       <div class="auth-lang">
-        <label class="auth-lang-label" for="auth-lang-select" data-i18n="lang.label">Språk</label>
-        <select class="field lang-select" id="auth-lang-select" data-i18n-aria-label="lang.aria"></select>
+        <span class="auth-lang-pair">
+          <label class="auth-lang-label" for="auth-lang-select" data-i18n="lang.label">Språk</label>
+          <select class="field lang-select" id="auth-lang-select" data-i18n-aria-label="lang.aria"></select>
+        </span>
+        <span class="auth-lang-pair">
+          <label class="auth-lang-label" for="auth-theme-select" data-i18n="theme.label">Drakt</label>
+          <select class="field theme-select" id="auth-theme-select" data-i18n-aria-label="theme.aria"></select>
+        </span>
       </div>
     </div>
   </div>

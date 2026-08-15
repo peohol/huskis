@@ -457,10 +457,9 @@ inneholder `viewport-fit=cover`.
 
 Ingen av dem KLIPPER noe — det er den samme pluginen som holder innholdet unna
 systemflatene i begge. Forskjellen er hvem som gjør jobben, og hvordan det ser
-ut. Uten `cover` blir appen stående med to fremmedfargede striper (mørke på en
-telefon i mørk modus, siden temaet er `DayNight` mens Huskis alltid er lyst).
-Derfor er `cover` valgt: appen tegner selv helt ut, og holder innholdet innenfor
-med CSS.
+ut. Uten `cover` blir appen stående med to striper i temaets vindusbakgrunn i stedet
+for i Huskis' egen flate. Derfor er `cover` valgt: appen tegner selv helt ut, og
+holder innholdet innenfor med CSS.
 
 Skjermtastaturet håndteres av den samme lytteren: når IME-en er synlig får
 WebView-ens forelder en bunn-polstring like høy som tastaturet, og
@@ -483,8 +482,9 @@ legger dem på sin egen avstand. Autoritativt:
 | `scroll-padding-top` (`styles.css`) | Sidens rulling vet at det faste panelet dekker toppen, så et felt som rulles fram ikke havner under det. |
 | resize-lytteren (`app.js`) | Tastaturet krymper viewportet ⇒ feltet som redigeres rulles tilbake i syne. |
 | `android:windowSoftInputMode` (manifestet) | Tastaturet krymper vinduet, det skyver det ikke. |
-| `values/styles.xml` + `values-v27/` | Systemfeltenes UTSEENDE: lyst tema (ikke DayNight), gjennomsiktige felt og MØRKE glyfer. Uten det ligger klokka som lyse glyfer over Huskis' lyse flate — og night-varianten malte i tillegg en svart stripe der flaten vår skulle nådd kanten. |
-| `SystemBars.style = "LIGHT"` (`capacitor.config.json`) | Pluginen setter glyffargen i RUNTIME og overstyrer temaet: med standardverdien leser den telefonens nattmodus og ber om lyse glyfer i mørk modus. Den eksplisitte stilen låser mørke glyfer, også ved rotasjon og modusbytte. |
+| `values/styles.xml` + `values-v27/` | Systemfeltenes UTSEENDE om dagen: DayNight-foreldretema, gjennomsiktige felt og MØRKE glyfer. Uten glyferklæringen ligger klokka som lyse glyfer over Huskis' lyse flate. |
+| `values-night/` + `values-night-v27/` | Det samme om natten: vindusbakgrunnen bak feltene er nå mørk, så glyfene snus til LYSE. |
+| `SystemBars.style = "DEFAULT"` (`capacitor.config.json`) | Pluginen setter glyffargen i RUNTIME og overstyrer temaet. `DEFAULT` = les telefonens nattmodus — den samme kilden temaet snur vindusbakgrunnen etter, så flaten og glyfene over den ikke kan skille lag. Se avsnittet under. |
 | `tests/safe-area.test.js` | Setter sonen i ekte nettleser og måler at chromet flytter seg nøyaktig så mye — begge viewportene, begge board-scopene. Dekker også de to tastatur-tilfellene. |
 | `tests/capacitor-android.test.js` | De to erklæringene sonen hviler på, i hver sin fil. |
 
@@ -520,15 +520,44 @@ steder:
    mørk modus ga lyse glyfer. `SystemBars.style = "LIGHT"` i
    `capacitor.config.json` låser den.
 
-Begge voktes i `tests/capacitor-android.test.js`. Utfallet er bekreftet på
-telefon: appen ser identisk ut i lys og mørk modus, med godt lesbar tekst i
+Begge voktes i `tests/capacitor-android.test.js`. Utfallet var bekreftet på
+telefon: appen så identisk ut i lys og mørk modus, med godt lesbar tekst i
 begge.
 
-Lærdommen er verdt å ta med til iOS i fase 7: **temaet er ikke fasit for
-systemfeltenes utseende når en plugin setter det i runtime.** Runde 1 så riktig
-ut i koden og feilet på enheten — og feilet på en måte som skjulte seg selv,
-siden den svarte stripen i mørk modus ga de lyse glyfene noe mørkt å ligge på.
-Bare en telefon avgjør dette.
+**Punktet ble utfordret da appen fikk to drakter** ([`mork-drakt.md`](mork-drakt.md)),
+og det tok to runder til. Begge er verdt å skrive ned.
+
+**Runde 3 (feilet på telefon).** Resonnementet var: siden appen tegner under
+systemfeltene, er flaten bak klokka vår egen — altså `#141922` i mørk drakt, og
+da må mørke glyfer bli uleselige. Stilen ble satt til `DEFAULT`, som lar
+pluginen følge telefonens nattmodus, mens temaet ble stående permanent lyst.
+**På telefon var det uleselig i BEGGE modi:** båndet bak statusfeltet er ikke
+sidens flate, men VINDUSBAKGRUNNEN fra temaet, og den var lys uansett drakt.
+`DEFAULT` ga dermed lyse glyfer på et lyst bånd — nøyaktig den uleseligheten
+punkt 10 fjernet.
+
+**Runde 4 (denne, verifisert på telefon).** Feilen var ikke `DEFAULT` i seg
+selv, men at båndet og glyfene hadde hver sin kilde. Foreldretemaet er derfor
+`Theme.AppCompat.DayNight` igjen, med `values-night/` + `values-night-v27/` som
+snur glyfene, og `SystemBars.style` tilbake på `DEFAULT`. Da leser flaten OG
+glyfene den samme nattmodusen og kan ikke skille lag — uavhengig av hvilken
+drakt brukeren har valgt i appen, som ikke rører systemfeltene i det hele tatt.
+Den «svarte stripen» night-varianten ga i runde 1 er dessuten ikke lenger en
+feil: nå ER den flaten, og den skal være mørk når appen er mørk.
+
+Samme endring fikser en annen ting bare temaet kan fikse: fra targetSdk 33
+utleder WebView `prefers-color-scheme` av appens eget tema (`isLightTheme`), så
+med et permanent lyst tema ga draktens standardvalg «Følg systemet» lys app på
+en mørk telefon.
+
+Begge deler er bekreftet på enhet: appen blir mørk av seg selv på en mørk
+telefon med drakten på «Følg systemet», og klokka og statusikonene er lesbare i
+begge drakter — også når drakten overstyres mot telefonens modus.
+
+Lærdommen er verdt å ta med til iOS i fase 7: **båndet bak systemfeltene er
+temaets flate, ikke sidens, og glyfene må ha samme kilde som flaten under dem.**
+Runde 1 og 3 så begge riktige ut i koden og feilet på enheten. Bare en telefon
+avgjør dette.
 
 Debug-APK som i fase 1, på en telefon med hakk ELLER hull i skjermen og med
 **gestenavigasjon** slått på. Kjør punkt 1 og 6 en gang til med treknappsraden,

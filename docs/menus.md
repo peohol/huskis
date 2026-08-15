@@ -339,6 +339,13 @@ Innhold (ovenfra og ned):
    og e-postene appen sender, og et bytte laster appen på nytt. Den samme
    velgeren finnes nederst på innloggingsskjermen (`#auth-lang-select`) — det
    eneste stedet språket kan velges før man har en konto. Se `docs/sprak.md`.
+6. **Drakt** (`#menu-theme`) — samme form og samme plass som språkraden, rett
+   under den: en `.menu-setting`-rad med en `<select>` (Følg systemet / Lys /
+   Mørk). De to hører sammen som de to «hvordan appen ser ut og snakker»-valgene,
+   og begge skal kunne tas uten å åpne en skuff. Til forskjell fra språket
+   lagres drakten KUN på enheten, og et bytte laster ikke siden på nytt. Den
+   samme velgeren finnes på innloggingsskjermen (`#auth-theme-select`), ved
+   siden av språkvelgeren. Se `docs/mork-drakt.md`.
 
 ### Skuffene
 

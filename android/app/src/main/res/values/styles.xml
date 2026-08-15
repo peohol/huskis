@@ -10,26 +10,32 @@
     </style>
 
     <!--
-      Kjøretidstemaet. Huskis har ÉN drakt, og den er lys — også når telefonen
-      står i mørk modus (docs/design-system.md). Derfor:
+      Kjøretidstemaet. DayNight, og det er en BEVISST retur til noe #119
+      forlot — les hvorfor før du snur det tilbake.
 
-      • Foreldretemaet er Light, ikke DayNight. Night-varianten malte en svart
-        statusfelt-bakgrunn OVER siden, så appens egen flate ikke nådde
-        skjermkanten i mørk modus — stikk i strid med `viewport-fit=cover`.
-      • Statusfeltet er gjennomsiktig, så Huskis' flate er det man ser bak
-        klokka. Målene rapporteres fortsatt som `env(safe-area-inset-*)`, og
-        CSS-en holder innholdet innenfor.
-      • windowLightStatusBar = «feltet ligger på en LYS bakgrunn» ⇒ systemet
-        tegner MØRKE glyfer. Uten den beholdt klokka lyse glyfer over vår lyse
-        flate, og var i praksis uleselig i lys modus.
-      • BUNNFELTET er derimot en mørk stripe her, ikke gjennomsiktig:
-        `windowLightNavigationBar` finnes først fra API 27, og runtime-veien er
-        en no-op før det. På 24–26 er treknappsradens glyfer altså LYSE uansett,
-        og de trenger noe mørkt å ligge på. Fra API 27 overstyrer
-        values-v27/styles.xml både fargen og glyfene — da når flaten vår helt
-        ned, med mørke glyfer oppå.
+      Foreldretemaet avgjør to ting vi trenger, og begge følger av at appen nå
+      har to drakter (docs/mork-drakt.md):
+
+      1. `prefers-color-scheme` INNE i WebView-en. Fra targetSdk 33 utleder
+         WebView den av appens eget tema (isLightTheme), ikke av telefonens
+         nattmodus. Med et permanent lyst tema svarte den derfor alltid «light»,
+         og draktens standardvalg «Følg systemet» ga lys app på en mørk telefon.
+         Bekreftet på enhet.
+      2. VINDUSBAKGRUNNEN, som er det man ser i båndet bak statusfeltet når
+         siden tegner under det (viewport-fit=cover). Den er temaets, ikke
+         sidens — derfor var båndet lyst også når appen var mørk.
+
+      #119 forlot DayNight fordi night-varianten malte en «svart stripe» der.
+      Med to drakter er den stripen ikke lenger en feil: den ER flaten, og den
+      skal være mørk når appen er mørk. Det som var galt den gangen var at
+      appen under var lys.
+
+      Glyfene settes ikke her i praksis — `SystemBars`-pluginen overstyrer dem
+      i runtime, og står på `DEFAULT` slik at de følger telefonen sammen med
+      båndet. Verdiene under gjelder fram til pluginen tar over, altså over
+      splash-skjermen; night-varianten ligger i values-night/.
     -->
-    <style name="AppTheme.NoActionBar" parent="Theme.AppCompat.Light.NoActionBar">
+    <style name="AppTheme.NoActionBar" parent="Theme.AppCompat.DayNight.NoActionBar">
         <item name="windowActionBar">false</item>
         <item name="windowNoTitle">true</item>
         <item name="android:background">@null</item>

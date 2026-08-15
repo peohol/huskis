@@ -48,7 +48,7 @@ testmodusen (`dev-mock.js`, `mock-backend.js` og `kun-dev`-blokken i HTML-en —
 alt unntatt i preview-deployer, se
 [`sikkerhetsheadere.md`](sikkerhetsheadere.md)), skriver `version.json`, og
 stempler `index.html` — meta-taggen + `?b=<build-ID>` på `app.js`, `icons.js`,
-`i18n.js`, `config.js`, `update-check.js` og `styles.css`.
+`i18n.js`, `theme.js`, `config.js`, `update-check.js` og `styles.css`.
 
 `SKIP`-listen i `build.js` holder også byggetoolingen ute: `package.json`,
 lockfila, `capacitor.config.json` og de native mappene (`android/`, senere

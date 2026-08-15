@@ -37,6 +37,19 @@ hele appen følge med.
 Alle knapper i samme knapperad har identisk høyde/radius/flate (`--control-h`
 / `--control-radius`). Gjelder ＋-knapper, søppelkasser, breadcrumb-knappene og kontoknappen.
 
+**Ingen hardkodet flate-, linje- eller ikonfarge.** Alt som skifter mellom lys
+og mørk drakt er tokens: `--surface*` (paneler/felt), `--line`, `--wash*`
+(svak toning på en lys flate), `--overlay`/`--glass-*`, `--plate*` og `--tint*`
+(lagene som ligger OPPÅ en palettfarge), `--hairline`, `--chip-bg`,
+`--icon-ink`/`--icon-paper`/`--icon-grey`, og `--danger-ink`/`--primary-ink`/
+`--note-ink` der en signalfarge brukes som tekst. Skriver du en ny regel med
+`#fff`, `rgba(0,0,0,…)` eller `rgba(255,255,255,…)` i seg, er den mørke drakten
+allerede ødelagt — bruk et token, eller legg til ett.
+
+Unntaket er hvit tekst/glyfer PÅ en palettfarge eller en fargeknapp (korttittel,
+`.card-cog`, `.btn-solid`): den er hvit i begge drakter, og skal fortsatt stå
+som `#fff`. Autoritativt for drakten: [`mork-drakt.md`](mork-drakt.md).
+
 ## Den sikre sonen (`--safe-top`/`-right`/`-bottom`/`-left`)
 
 Fire tokens som sier hvor mye av viewportet systemets egne flater dekker:
@@ -77,21 +90,29 @@ løser seg til vanlige px-verdier når de leses — i motsetning til `--board-ga
 som er en `clamp()` og derfor må leses fra en oppløst egenskap
 (`docs/board-layout.md`).
 
-**Flaten bak systemfeltene er vår, og den er lys.** Når siden tegner under
-statusfeltet og gestelinjen, er det Huskis' egen lyse flate klokka og
-gestelinjen ligger oppå — derfor ber Android-temaet om MØRKE glyfer
-(`windowLightStatusBar`/`windowLightNavigationBar`), og bruker et lyst
-foreldretema i stedet for DayNight, slik at telefonens mørke modus verken
-snur glyfene eller maler en svart stripe over toppen av siden vår. Erklæringene
-står i `android/app/src/main/res/values/styles.xml` (+ `values-v27/` for
-gestelinjen, som først finnes fra API 27).
+**Båndet bak systemfeltene er IKKE sidens flate — det er vindusbakgrunnen fra
+Android-temaet.** Dette er målt på telefon, og det er ikke det man gjetter seg
+til fra koden: selv om siden tegner under statusfeltet (`viewport-fit=cover`),
+følger flaten bak klokka aldri `--bg`. Den følger temaet.
 
-Temaet er ikke nok alene: Capacitors `SystemBars`-plugin SETTER utseendet i
-runtime, og med standardverdien (`DEFAULT`) leser den telefonens nattmodus — i
-mørk modus ba den derfor om LYSE glyfer og overstyrte temaet. `SystemBars.style
-= "LIGHT"` i `capacitor.config.json` låser den til mørke glyfer, også etter en
-rotasjon eller et modusbytte (pluginen legger den valgte stilen på igjen ved
-konfigurasjonsendring). Én drakt, ett svar, uansett lag.
+Derfor er hele oppsettet bundet til ÉN kilde — **telefonens nattmodus**:
+
+| Erklæring | Rolle |
+|---|---|
+| `values/styles.xml` + `values-v27/`, foreldretema `Theme.AppCompat.DayNight.NoActionBar` | Vindusbakgrunnen (og dermed båndet) blir mørk om natten. Gir også WebView-en riktig `prefers-color-scheme` — se under. |
+| `values-night/` + `values-night-v27/` | Snur glyfene med båndet: `windowLightStatusBar`/`windowLightNavigationBar` er `true` om dagen, `false` om natten. |
+| `SystemBars.style = "DEFAULT"` (`capacitor.config.json`) | Pluginen SETTER utseendet i runtime og overstyrer temaet. `DEFAULT` = les den samme nattmodusen, også etter rotasjon og modusbytte. |
+
+Fordi båndet og glyfene leser samme kilde, kan de ikke komme i utakt.
+**Draktvelgeren i appen rører dem ikke i det hele tatt.** Velger brukeren «Lys»
+på en mørk telefon, blir båndet mørkt med lyse glyfer over en lys side: uvant,
+men lesbart. Uleseligheten oppstår bare når båndet og glyfene har hver sin
+kilde — som da temaet var permanent lyst mens pluginen fulgte telefonen.
+
+`DayNight` er dessuten det som får «Følg systemet» til å virke i mobilappen i
+det hele tatt: fra targetSdk 33 utleder WebView `prefers-color-scheme` av appens
+eget tema (`isLightTheme`), ikke av telefonens nattmodus. Detaljene og
+telefonverifiseringen: [`mork-drakt.md`](mork-drakt.md).
 
 **Unntaket er bunnfeltet på API 24–26.** `windowLightNavigationBar` finnes
 først fra API 27, og runtime-veien er en no-op før det: treknappsradens glyfer

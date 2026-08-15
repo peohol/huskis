@@ -10,6 +10,7 @@
   "tests/capacitor-android.test.js": 0,
   "tests/collapsed-alignment.test.js": 9,
   "tests/csp-enforced.test.js": 4,
+  "tests/dark-mode.test.js": 37,
   "tests/db-contract.test.js": 0,
   "tests/delete-account.test.js": 11,
   "tests/dnd-activation.test.js": 33,
