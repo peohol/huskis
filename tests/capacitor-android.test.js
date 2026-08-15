@@ -482,7 +482,17 @@ function kodeLinjerStreng(src, modus) {
      den et regex. Uten det skillet ville `/[/*]/` satt fjerneren i
      blokk-kommentarmodus og slukt resten av fila. Et nøkkelord slutter også på
      et ordtegn, men er ingen verdi — `return /re/` er et regex — så de
-     sjekkes for seg. */
+     sjekkes for seg.
+
+     GRENSEN, bevisst: et regex kan også starte en setning etter en betingelse
+     (`if (klar) /re/.test(x)`), og der kan ikke «forrige tegn» skille den fra
+     divisjon — `(a + b) / c` ser likedan ut. Å avgjøre det krever
+     setningskontekst, altså en JS-lexer, som ville vært større enn vakten den
+     vokter. Huskis har ikke ett eneste regex med `/` eller `*` i en
+     tegnklasse; formene som faktisk oppstår (etter operator, komma, `return`)
+     er dekket, og en lenke måtte uansett navngi en adresse som URL-sjekken og
+     dist-skanningen ser. Kommer et slikt regex inn i koden, er forutsetningen
+     endret og dette er stedet å ta det opp igjen. */
   let forrige = '';
   return linjer.map((raw, i) => {
     if (streng !== '`') streng = null;
