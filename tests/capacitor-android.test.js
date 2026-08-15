@@ -505,11 +505,15 @@ check('det native skallet overtar ikke og hopper ikke over navigasjonsrutingen',
    tests/security-headers.test.js) og testmodus-blokken, som build.js river ut
    av produksjonsbygget.
 
-   Begge anførselstegnene godtas, og `<link>` leses tagg for tagg slik at
-   rekkefølgen på `rel`/`href` ikke betyr noe: HTML tillater begge deler, så en
-   gyldig variant skal ikke kunne snike en fil forbi skanningen. */
+   Alle tre attributtformene HTML tillater godtas — doble, enkle og helt uten
+   anførselstegn — og `<link>` leses tagg for tagg, slik at rekkefølgen på
+   `rel`/`href` heller ikke betyr noe. En gyldig variant skal ikke kunne snike
+   en fil forbi skanningen. */
 const utenKunDev = indexHtml.replace(/huskis:kun-dev:start[\s\S]*?huskis:kun-dev:slutt/g, '');
-const attributt = (tag, navn) => (tag.match(new RegExp('\\s' + navn + '\\s*=\\s*["\']([^"\']*)["\']', 'i')) || [, null])[1];
+const attributt = (tag, navn) => {
+  const m = tag.match(new RegExp('\\s' + navn + '\\s*=\\s*(?:"([^"]*)"|\'([^\']*)\'|([^\\s"\'>]+))', 'i'));
+  return m ? (m[1] !== undefined ? m[1] : m[2] !== undefined ? m[2] : m[3]) : null;
+};
 const lastet = [
   ...[...utenKunDev.matchAll(/<script\b[^>]*>/gi)].map((m) => attributt(m[0], 'src')),
   ...[...utenKunDev.matchAll(/<link\b[^>]*>/gi)]
@@ -520,42 +524,72 @@ const uskannet = lastet.filter((s) => WEB_KILDE.indexOf(s) === -1);
 check('alle produksjonskildene index.html laster står i WEB_KILDE (og blir dermed skannet)',
   lastet.length > 0 && uskannet.length === 0, uskannet.join(', ') || lastet.join(', '));
 
+/* Sjekkene under trenger en STRENGBEVISST kommentarfjerner, ikke kodeLinjer().
+   Den forenklingen — kapp linja ved første `//` — er grei for navnesjekkene
+   lenger oppe, men den blindet disse på to måter: `href="//vert"` forsvant helt,
+   og på en kompakt linje som `const u = 'https://x'; window.open(u)` ble alt
+   ETTER URL-en usynlig. Denne holder styr på strenger, blokk-kommentarer og
+   HTML-kommentarer (index.html leses med den samme funksjonen), så `//` inne i
+   en URL ikke kapper noe. Enkle og doble anførselstegn nullstilles ved
+   linjeskift — de kan ikke spenne over linjer i JS, og et løsrevet apostrof i
+   HTML-tekst skal ikke forgifte resten av fila. */
+function kodeLinjerStreng(src) {
+  const linjer = src.split('\n');
+  let iBlokk = false, iHtml = false, streng = null;
+  return linjer.map((raw, i) => {
+    if (streng !== '`') streng = null;
+    let ren = '';
+    for (let j = 0; j < raw.length; j++) {
+      if (iBlokk) { if (raw.startsWith('*/', j)) { iBlokk = false; j++; } continue; }
+      if (iHtml) { if (raw.startsWith('-->', j)) { iHtml = false; j += 2; } continue; }
+      if (streng) {
+        ren += raw[j];
+        if (raw[j] === '\\') { if (j + 1 < raw.length) { ren += raw[j + 1]; j++; } continue; }
+        if (raw[j] === streng) streng = null;
+        continue;
+      }
+      if (raw.startsWith('/*', j)) { iBlokk = true; j++; continue; }
+      if (raw.startsWith('<!--', j)) { iHtml = true; j += 3; continue; }
+      if (raw.startsWith('//', j)) break;
+      if (raw[j] === '"' || raw[j] === "'" || raw[j] === '`') streng = raw[j];
+      ren += raw[j];
+    }
+    return { nr: i + 1, l: ren };
+  });
+}
+
 /* Web-siden av regelen. Kjørende kode i ALLE web-kildefilene: kommentarer og
-   dokumentasjon får omtale lenker fritt. */
+   dokumentasjon får omtale lenker fritt.
+
+   To slag av sjekk, med vilje forskjellig strenge:
+
+   a) i MARKUP kreves et skjema, fordi `href` der også brukes helt legitimt
+      (`href="favicon.svg"`, `href="#…"`). `geo:`, `sms:`, `intent:` og
+      `market:` teller like mye som `https:` — skjemaet listes derfor ikke opp.
+      `formaction` er med fordi en knapp med den navigerer når skjemaet sendes,
+      og ordgrensen foran `action` ville ellers hoppet over den;
+   b) gjennom DOM-API-et flagges destinasjonen UANSETT verdi. Appen setter ikke
+      én eneste `href`/`action` fra JS i dag, så regelen kan være absolutt — og
+      bare da fanger den `setAttribute('href', enVariabel)`, som ingen
+      verdibasert sjekk kan se. `src` er ikke med: et bilde er en ressurs, ikke
+      en navigasjon, og styres av CSP-ens `img-src`. */
+const MARKUP = '\\b(?:href|(?:form)?action)\\s*=\\s*\\\\?["\']?\\s*';
+const DOM_SETT = /\.\s*setAttribute\s*\(\s*["'`](?:xlink:)?(?:href|(?:form)?action)["'`]\s*,/i;
+const DOM_TILDEL = /(?:^|[^.\w$])(?!location\b)[\w$\])]+\s*\.\s*(?:href|formAction|action)\s*=(?!=)/;
 const utLenker = [];
 for (const f of WEB_KILDE) {
-  const raa = les(f).split('\n');
-  for (const { nr, l } of kodeLinjer(les(f))) {
-    /* `target=_blank` (med eller uten anførselstegn), `window.open(`, og en
-       destinasjonsattributt med et hvilket som helst skjema. Skjemaet listes
-       ikke opp: alt annet enn appens eget origin hører hjemme i
-       systembrowseren, og `geo:`, `sms:`, `intent:` og `market:` er like mye
-       utgående lenker som `https:`. `formaction` er med fordi en knapp med den
-       navigerer like fullt når skjemaet sendes — og ordgrensen foran `action`
-       ville ellers hoppet over den. Merk at `a[href]` i fokus-selektoren i
-       app.js IKKE treffer (her kreves likhetstegn og en verdi), og at
-       `href="#…"`/`href="fil.css"` ikke gjør det heller (ingen av dem starter
-       med et skjema).
-
-       Den protokoll-relative formen (`href="//vert"`) må leses på den RÅ
-       linja: kodeLinjer() kapper fra `//` og ville etterlatt `href="`. Prosa
-       med `href="//` i en kommentar finnes ikke, og ville uansett vært verdt
-       et blikk. */
-    const MAL = '\\b(?:href|(?:form)?action)\\s*=\\s*\\\\?["\']?\\s*';
-    /* Samme destinasjon satt gjennom DOM-API-et i stedet for i markup:
-       `el.setAttribute('href', 'geo:…')`. Formen `el.href = '…'` fanges alt av
-       MAL over — den ser ut som markup. */
-    const DOM = /\.\s*setAttribute\s*\(\s*["'`](?:xlink:)?(?:href|src|(?:form)?action)["'`]\s*,\s*["'`]\s*[a-z][a-z0-9+.\-]*:/i;
+  for (const { nr, l } of kodeLinjerStreng(les(f))) {
     if (/target\s*=\s*["']?_blank/.test(l)
       || /\bwindow\s*\.\s*open\s*\(/.test(l)
-      || DOM.test(l)
-      || new RegExp(MAL + '[a-z][a-z0-9+.\\-]*:', 'i').test(l)
-      || new RegExp(MAL + '\\/\\/', 'i').test(raa[nr - 1] || '')) {
+      || DOM_SETT.test(l)
+      || DOM_TILDEL.test(l)
+      || new RegExp(MARKUP + '[a-z][a-z0-9+.\\-]*:', 'i').test(l)
+      || new RegExp(MARKUP + '\\/\\/', 'i').test(l)) {
       utLenker.push(f + ':' + nr);
     }
   }
 }
-check('web-kildekoden produserer ingen utgående lenke (ingen _blank, window.open, setAttribute eller href/action med skjema)',
+check('web-kildekoden produserer ingen utgående lenke (ingen _blank, window.open, DOM-satt destinasjon eller href/action med skjema)',
   utLenker.length === 0, utLenker.join(', ') || 'ingen');
 
 /* Ryggraden bak alle formene over: hvilke FREMMEDE adresser frontend i det
@@ -565,10 +599,8 @@ check('web-kildekoden produserer ingen utgående lenke (ingen _blank, window.ope
    API-form den brukes gjennom, innom denne sjekken først.
 
    Verdiene UTLEDES av config.js, så et bytte av Supabase-prosjekt eller
-   kanonisk domene ikke feller testen. Porten er den strippede linja (så en URL
-   i en kommentar ikke teller), verdien leses av den rå (så `//` er i behold).
-   CSP-ens egne verter står i et flerlinjes attributt og dekkes av
-   tests/security-headers.test.js. */
+   kanonisk domene ikke feller testen. CSP-ens egne verter står i et flerlinjes
+   attributt og dekkes av tests/security-headers.test.js. */
 const cfgTekst = les('config.js');
 const TILLATTE_URL = [
   (cfgTekst.match(/url:\s*'([^']+)'/) || [, ''])[1],
@@ -576,10 +608,8 @@ const TILLATTE_URL = [
 ].filter(Boolean).flatMap((u) => [u.replace(/\/+$/, ''), u.replace(/\/+$/, '') + '/']);
 const fremmedeUrl = [];
 for (const f of WEB_KILDE) {
-  const raa = les(f).split('\n');
-  for (const { nr, l } of kodeLinjer(les(f))) {
-    if (!/["'`]https?:/i.test(l)) continue;
-    for (const m of (raa[nr - 1] || '').matchAll(/["'`](https?:\/\/[^"'`\s]*)/gi)) {
+  for (const { nr, l } of kodeLinjerStreng(les(f))) {
+    for (const m of l.matchAll(/["'`](https?:\/\/[^"'`\s]*)/gi)) {
       if (TILLATTE_URL.indexOf(m[1]) === -1) fremmedeUrl.push(f + ':' + nr + ' → ' + m[1]);
     }
   }
@@ -611,7 +641,7 @@ const NAV_KALL = /\blocation\s*\.\s*(?:assign|replace)\s*\(/;
 const NAV_TILDEL = /(?:^|[^.\w$])(?:(?:window|document|self|globalThis|top|parent)\s*\.\s*)?location\s*(?:\.\s*href\s*)?=(?!=)/;
 const navSkriv = [];
 for (const f of WEB_KILDE) {
-  for (const { nr, l } of kodeLinjer(les(f))) {
+  for (const { nr, l } of kodeLinjerStreng(les(f))) {
     if (NAV_KALL.test(l) || NAV_TILDEL.test(l)) {
       navSkriv.push({ sted: f + ':' + nr, l: l.trim() });
     }

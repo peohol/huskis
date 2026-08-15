@@ -424,8 +424,11 @@ aktiv på samme måte som for de to andre — kontrollert mot produksjon
 - `tests/capacitor-android.test.js` — eksterne lenker: `allowNavigation` står
   tomt (ingen fremmed vert kan lastes INNE i WebView-en), det native skallet
   overtar ikke navigasjonsrutingen fra Capacitor, web-kildekoden produserer
-  ingen utgående lenke (`target="_blank"`, `window.open()`, `href`/`action` med
-  et hvilket som helst skjema eller protokoll-relativ verdi), og den ENE
+  ingen utgående lenke — i markup `href`/`action`/`formaction` med et hvilket
+  som helst skjema eller protokoll-relativ verdi, pluss `target="_blank"` og
+  `window.open()`; fra JS er en destinasjon satt gjennom DOM-et
+  (`setAttribute('href', …)`, `el.href = …`) forbudt UANSETT verdi, siden appen
+  ikke setter én eneste i dag og en variabel ellers ville sluppet forbi. Den ENE
   navigasjonen appen gjør er guardens `location.replace(target)` — alle former
   for tilordning teller, også `location = …` og `document.location = …`. Den
   låser dessuten hvilke fremmede adresser frontend hardkoder til nøyaktig to
