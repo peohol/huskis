@@ -496,7 +496,11 @@ function kodeLinjerStreng(src, modus) {
      endret og dette er stedet å ta det opp igjen. */
   let forrige = '';
   return linjer.map((raw, i) => {
-    if (streng !== '`') streng = null;
+    /* Backtick og `"""` er de to strengformene som KAN spenne over linjer
+       (JS-templat, Kotlins rå streng, Javas tekstblokk). Alle andre nullstilles
+       ved linjeskift. Uten `"""` her ville en rå Kotlin-streng som inneholder
+       `/*` satt fjerneren i kommentarmodus og slukt resten av fila. */
+    if (streng !== '`' && streng !== '"""') streng = null;
     const lav = raw.toLowerCase();
     let ren = '';
     for (let j = 0; j < raw.length; j++) {
@@ -506,6 +510,11 @@ function kodeLinjerStreng(src, modus) {
       const m = modus === 'html' && iSkript ? 'js' : modus;
       if (iBlokk) { if (raw.startsWith('*/', j)) { iBlokk = false; j++; } continue; }
       if (iHtml) { if (raw.startsWith('-->', j)) { iHtml = false; j += 2; } continue; }
+      if (streng === '"""') {
+        if (raw.startsWith('"""', j)) { streng = null; ren += '"""'; j += 2; continue; }
+        ren += raw[j];
+        continue;
+      }
       if (streng) {
         ren += raw[j];
         if (raw[j] === '\\') { if (j + 1 < raw.length) { ren += raw[j + 1]; j++; } continue; }
@@ -541,6 +550,9 @@ function kodeLinjerStreng(src, modus) {
       if (m === 'html' && raw.startsWith('<!--', j)) { iHtml = true; j += 3; continue; }
       if (m === 'js' && (raw.startsWith('<!--', j) || raw.startsWith('-->', j))) break;
       if (m !== 'css' && raw.startsWith('//', j)) break;   // `//` er IKKE en kommentar i CSS
+      /* `"""` sjekkes FØR det enkle anførselstegnet, ellers ville det første av
+         de tre startet en vanlig streng som «lukkes» av det andre. */
+      if (m === 'js' && raw.startsWith('"""', j)) { streng = '"""'; ren += '"""'; j += 2; continue; }
       if (raw[j] === '"' || raw[j] === "'" || (m !== 'css' && raw[j] === '`')) streng = raw[j];
       ren += raw[j];
       if (!/\s/.test(raw[j])) forrige = raw[j];
@@ -623,6 +635,17 @@ const RUTING = new RegExp('shouldOverrideUrlLoading|setWebViewClient|setWebChrom
   + '|WebViewClient|WebChromeClient'
   + '|\\b(?:' + LAST_API + ')\\s*\\('
   + '|::\\s*(?:' + LAST_API + ')\\b');
+/* Inventaret er FAST på `android/app/src`, og det holder bare så lenge Gradle
+   ikke er fortalt noe annet. `sourceSets { main.java.srcDirs += '../shared' }`
+   kompilerer `android/shared/*.java` inn i APK-en uten at én eneste fil under
+   `src/` endrer seg — og rutingsjekken ville aldri sett dem.
+
+   Å utlede kataloglista fra Gradle-konfigurasjonen krever å tolke Groovy, og
+   ville vært en ny tolk i en vakt. Regelen er derfor at det ikke SKAL finnes
+   egendefinerte produksjonskilderøtter: legges det inn en, feiler denne, og den
+   som legger den inn må utvide skanningen bevisst. */
+check('build.gradle definerer ingen egne kilderøtter (skanningen dekker alt som kompileres)',
+  !/\bsrcDirs?\b/.test(kode(appGradle)), (kode(appGradle).match(/.*\bsrcDirs?\b.*/) || ['ingen'])[0].trim());
 const nativeFiler = javaFiler(NATIV_SRC, true);
 const ruter = nativeFiler.filter((p) => RUTING.test(strippet(fs.readFileSync(p, 'utf8'), 'js')));
 check('det native skallet overtar ikke og hopper ikke over navigasjonsrutingen',
@@ -731,7 +754,7 @@ const UT_MØNSTRE = [
   /* Alle tre skrivemåtene av det samme: `window.open(`, klammenotasjonen
      `window['open'](` og den globale, ukvalifiserte `open(`. Foranstilt
      `[^.\w$]` holder `api.open()` og `step.reopen()` utenfor. */
-  ['open()', /(?:^|[^.\w$])(?:(?:window|self|globalThis|top|parent)\s*\[\s*["'`]open["'`]\s*\]|(?:window\s*\.\s*)?open)\s*\(/gm],
+  ['open()', /(?:^|[^.\w$])(?:(?:window|self|globalThis|top|parent)\s*(?:\.\s*open|\[\s*["'`]open["'`]\s*\])|open)\s*\(/gm],
   ['setAttribute', /\.\s*setAttribute\s*\(\s*["'`](?:xlink:)?(?:href|(?:form)?action|http-equiv)["'`]\s*,/gi],
   ['.href =', /(?:^|[^.\w$])(?!location\b)[\w$\])]+\s*(?:\.\s*(?:href|formAction|action)|\[\s*["'`](?:href|formaction|action)["'`]\s*\])\s*(?:\*\*|<<|>>>?|\|\||&&|\?\?|[-+*/%|&^])?=(?!=)/gim],
   /* `[\t\n\r]*` mellom hvert tegn: URL-parseren stryker de tre tegnene overalt
@@ -760,10 +783,32 @@ const UT_MØNSTRE = [
      hører hjemme i det dokumentet, ikke en stille tilføyelse. */
   ['vendor-API som navigerer', /\.\s*(?:signInWithOAuth|linkIdentity)\s*\(/g],
 ];
+/* Markup BYGGET i JS er en helt egen vei til en lenke: `el.innerHTML = '<a
+   href="' + adresse + '">'` lager en ekte utgående lenke, men har verken et
+   skjema rett etter `href="` (der står en apostrof og en variabel) eller noen
+   `.href`-tilordning å se. Mønstrene over ser derfor ingenting.
+
+   Skanningen kan ikke flagge `innerHTML` i seg selv — app.js bruker den 74
+   steder til vanlig innhold. Men den kan flagge ANKERET: `<a` og `href=` finnes
+   ikke i én eneste JS-kildefil i dag (det eneste `href`-treffet er
+   fokus-selektoren `a[href]`, uten likhetstegn). Regelen kan derfor være
+   absolutt, og den fanger enhver `innerHTML`/`outerHTML`/`insertAdjacentHTML`/
+   `document.write` som bygger en lenke — uansett hvor adressen kommer fra.
+
+   Kun JS-filer: i `index.html` er `href=` helt legitimt, og der gjelder
+   markup-mønstrene med krav om skjema i stedet.
+
+   GRENSEN: en lenke satt sammen av biter (`'<' + 'a href='`) har ingen av
+   tokenene i behold, og ses ikke her. Den ville måttet navngi en adresse, som
+   URL-sjekken under fanger. */
+const JS_MARKUP = [
+  ['lenke bygget i JS', /<a[\s>/]|\bhref\s*=/gi],
+];
 const utLenker = [];
 for (const f of WEB_KILDE) {
   const { tekst, linjeFor } = strippetMedLinjer(les(f), modusFor(f));
-  for (const [navn, re] of UT_MØNSTRE) {
+  const mønstre = modusFor(f) === 'js' ? UT_MØNSTRE.concat(JS_MARKUP) : UT_MØNSTRE;
+  for (const [navn, re] of mønstre) {
     re.lastIndex = 0;
     for (const m of tekst.matchAll(re)) utLenker.push(f + ':' + linjeFor(m.index) + ' (' + navn + ')');
   }
@@ -780,18 +825,26 @@ check('web-kildekoden produserer ingen utgående lenke (ingen _blank, open(), DO
    Kanariet er derfor uavhengig av hvilken feil det er: koden må fortsatt være
    der. Slutter en fil å ha kjørende kode nær slutten, har fjerneren spist noe
    den ikke skulle. */
+/* Den NATIVE kilden går gjennom den samme fjerneren, og hadde nøyaktig samme
+   svakhet: en rå Kotlin-streng eller Java-tekstblokk med `/*` i seg slukte
+   resten av fila, og rutingsjekken sto grønn på tom tekst. Kanariet dekker
+   derfor begge kildesettene. */
 const svelget = [];
-for (const f of WEB_KILDE) {
-  const L = kodeLinjerStreng(les(f), modusFor(f));
+for (const [navn, kilde, modus] of [
+  ...WEB_KILDE.map((f) => [f, les(f), modusFor(f)]),
+  ...nativeFiler.map((p) => [path.relative(ROOT, p), fs.readFileSync(p, 'utf8'), 'js']),
+]) {
+  const L = kodeLinjerStreng(kilde, modus);
   const sisteKode = L.length - 1 - [...L].reverse().findIndex((x) => x.l.trim());
   const andel = L.filter((x) => x.l.trim()).length / L.length;
   if (L.length - sisteKode > 5 || andel < 0.15) {
-    svelget.push(f + ' (siste kode på linje ' + (sisteKode + 1) + ' av ' + L.length
+    svelget.push(navn + ' (siste kode på linje ' + (sisteKode + 1) + ' av ' + L.length
       + ', ' + Math.round(andel * 100) + '% kodelinjer)');
   }
 }
 check('kommentarfjerneren spiser ikke kode — hver fil har kjørende kode helt ut',
-  svelget.length === 0, svelget.join('; ') || WEB_KILDE.length + ' filer intakte');
+  svelget.length === 0,
+  svelget.join('; ') || (WEB_KILDE.length + nativeFiler.length) + ' filer intakte');
 
 /* Ryggraden bak alle formene over: hvilke FREMMEDE adresser frontend i det
    hele tatt navngir. Et tekstsøk kan aldri se en adresse som kommer inn som en
@@ -850,7 +903,8 @@ const HOLDER = '(?:window|document|self|globalThis|top|parent)';
 const LOC_OBJ = '(?:\\blocation|' + HOLDER + '\\s*\\[\\s*["\'`]location["\'`]\\s*\\])';
 const NAV_KALL = new RegExp(
   LOC_OBJ + '\\s*(?:\\.\\s*(?:assign|replace)|\\[\\s*["\'`](?:assign|replace)["\'`]\\s*\\])\\s*\\('
-  + '|(?:^|[^.\\w$])(?:window\\s*\\.\\s*)?navigation\\s*\\.\\s*navigate\\s*\\(', 'gm');
+  + '|(?:^|[^.\\w$])(?:' + HOLDER + '\\s*(?:\\.\\s*navigation|\\[\\s*["\'`]navigation["\'`]\\s*\\])|navigation)\\s*'
+  + '(?:\\.\\s*navigate|\\[\\s*["\'`]navigate["\'`]\\s*\\])\\s*\\(', 'gm');
 /* Ikke bare `.href`: HVER skrivbar del av Location navigerer. Setter du
    `location.host`, `.protocol`, `.pathname` eller `.search`, laster siden på
    nytt mot en ny adresse — like mye en navigasjon som å sette hele href-en.
@@ -912,7 +966,7 @@ if (byggUt.status === 0 && fs.existsSync(DIST)) {
     distAntall++;
     const rel = path.relative(ROOT, q);
     const { tekst, linjeFor } = strippetMedLinjer(fs.readFileSync(q, 'utf8'), modusFor(q));
-    for (const [navn, re] of UT_MØNSTRE) {
+    for (const [navn, re] of (modusFor(q) === 'js' ? UT_MØNSTRE.concat(JS_MARKUP) : UT_MØNSTRE)) {
       re.lastIndex = 0;
       for (const m of tekst.matchAll(re)) distTreff.push(rel + ':' + linjeFor(m.index) + ' (' + navn + ')');
     }
