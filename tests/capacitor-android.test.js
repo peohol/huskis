@@ -696,8 +696,14 @@ const RUTING = new RegExp('shouldOverrideUrlLoading|[sS]etWebViewClient|[sS]etWe
   + '|[wW]ebViewClient|[wW]ebChromeClient'
   /* Kotlin lar identifikatorer eskaperes med backtick — `webView.`+'`loadUrl`'+`(u)`
      kaller nøyaktig det samme API-et. Backtickene godtas derfor rundt navnet,
-     både i kallet og i metodereferansen. */
-  + '|(?:^|[^\\w$.])`?(?:' + LAST_API + ')`?\\s*\\('
+     både i kallet og i metodereferansen.
+
+     Punktum er IKKE med i klassen foran. Mottakeren er den vanlige formen
+     (`webView.loadUrl(u)`), og et mønster som utelukker den fanger bare det
+     ukvalifiserte kallet inne i WebView-klassen selv. Klassen finnes for å
+     kreve en ordgrense — `preloadUrl(` skal ikke telle — ikke for å si noe om
+     hva som står til venstre for punktumet. */
+  + '|(?:^|[^\\w$])`?(?:' + LAST_API + ')`?\\s*\\('
   + '|::\\s*`?(?:' + LAST_API + ')`?\\b');
 /* Inventaret er FAST på `android/app/src`, og det holder bare så lenge Gradle
    ikke er fortalt noe annet. `sourceSets { main.java.srcDirs += '../shared' }`
@@ -857,8 +863,18 @@ const UT_MØNSTRE = [
   ['_blank', /target\s*=\s*["']?_blank/gi],
   /* Alle tre skrivemåtene av det samme: `window.open(`, klammenotasjonen
      `window['open'](` og den globale, ukvalifiserte `open(`. Foranstilt
-     `[^.\w$]` holder `api.open()` og `step.reopen()` utenfor. */
-  ['open()', /(?:^|[^.\w$])(?:(?:window|self|globalThis|top|parent)\s*(?:\??\.\s*open|(?:\?\.)?\s*\[\s*["'`]open["'`]\s*\])|open)(?:\?\.)?\s*\(/gm],
+     `[^.\w$]` holder `api.open()` og `step.reopen()` utenfor.
+
+     Den KVALIFISERTE formen krever ingen parentes etter seg. En funksjon som
+     åpner et nytt browsing context åpner det like fullt gjennom et mellomledd
+     — `const gå = window.open.bind(window)` og senere `gå(adresse)` — og
+     kallstedet har da verken `window` eller `open` i seg. Mellomleddet kan
+     ikke spores uten å tolke JS, men det MÅ hente funksjonen én gang, og det
+     stedet står her. Regelen kan være absolutt fordi appen ikke rører
+     `window.open` i det hele tatt: både kallet og referansen er null treff i
+     dag. Det bare navnet `open` krever fortsatt parentes — ukvalifisert er det
+     et altfor vanlig ord til å flagges som referanse. */
+  ['open()', /(?:^|[^.\w$])(?:(?:window|self|globalThis|top|parent)\s*(?:\??\.\s*open|(?:\?\.)?\s*\[\s*["'`]open["'`]\s*\])|open(?:\?\.)?\s*\()/gm],
   /* `setAttributeNS(null, 'href', …)` setter den samme navigerbare
      egenskapen. Navnerom-argumentet står FØRST, så attributtnavnet er andre
      argument — derfor den valgfrie ledeparameteren i mønsteret. */
@@ -1048,10 +1064,16 @@ check('kjørende webkode navngir ingen andre absolutte adresser enn Supabase-end
    dokumentets. */
 const HOLDER = '(?:window|document|self|globalThis|top|parent)';
 const LOC_OBJ = '(?:\\blocation|' + HOLDER + '\\s*(?:\\?\\.)?\\s*\\[\\s*["\'`]location["\'`]\\s*\\])';
+/* Ingen avsluttende parentes i noen av de to: som med `window.open` navigerer
+   en referanse like mye som et kall. `const gå = location.assign.bind(location)`
+   har ingen `(` etter `assign`, men `gå(adresse)` laster siden. Referansen må
+   hentes ett sted, og det stedet fanges her. Appen har null av begge former, så
+   kravet kan være absolutt — det ene navigasjonsstedet som SKAL finnes er
+   `location.replace(target)`, og det treffes av kall-formen uansett. */
 const NAV_KALL = new RegExp(
-  LOC_OBJ + '\\s*(?:\\??\\.\\s*(?:assign|replace)|(?:\\?\\.)?\\s*\\[\\s*["\'`](?:assign|replace)["\'`]\\s*\\])(?:\\?\\.)?\\s*\\('
+  LOC_OBJ + '\\s*(?:\\??\\.\\s*(?:assign|replace)|(?:\\?\\.)?\\s*\\[\\s*["\'`](?:assign|replace)["\'`]\\s*\\])'
   + '|(?:^|[^.\\w$])(?:' + HOLDER + '\\s*(?:\\??\\.\\s*navigation|(?:\\?\\.)?\\s*\\[\\s*["\'`]navigation["\'`]\\s*\\])|navigation)\\s*'
-  + '(?:\\??\\.\\s*navigate|(?:\\?\\.)?\\s*\\[\\s*["\'`]navigate["\'`]\\s*\\])(?:\\?\\.)?\\s*\\(', 'gm');
+  + '(?:\\??\\.\\s*navigate|(?:\\?\\.)?\\s*\\[\\s*["\'`]navigate["\'`]\\s*\\])', 'gm');
 /* Ikke bare `.href`: HVER skrivbar del av Location navigerer. Setter du
    `location.host`, `.protocol`, `.pathname` eller `.search`, laster siden på
    nytt mot en ny adresse — like mye en navigasjon som å sette hele href-en.
