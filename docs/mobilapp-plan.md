@@ -381,8 +381,10 @@ funksjoner bare fordi de er mulige.
 - [x] Gjør auth-/e-postlenker robuste; vurder Android App Links og senere iOS
       Universal Links slik at bekreftelse/reset kan returnere til appen.
       Kartlagt og avgjort: lenkene er robuste, App Links utsettes til fase 6.
-      Krevde ingen kode i appen — verten i auth-lenkene er Supabase, ikke
-      `huskis.no`, så et intent-filter ville ikke sett dem (se seksjonen).
+      Krevde ingen kode i appen — TAPPET i auth-lenkene går til Supabase, ikke
+      til `huskis.no`, så et intent-filter ser ikke selve trykket. Om 303-en
+      videre havner i appen er et åpent spørsmål som skal prøves på telefon
+      (se seksjonen).
 - [ ] Koble native lifecycle/network-signaler til eksisterende synklogikk bare
       der websignalene ikke er tilstrekkelige.
 - [ ] Vurder sikker lagring av native-spesifikke secrets/tokens dersom det
@@ -667,20 +669,26 @@ oppførsel en telefon kunne svart annerledes på enn den allerede gjør i fase 2
 punkt 1 (bekreftelseslenken åpner browseren, og innlogging i appen etterpå gir
 en sesjon — kjørt, uten avvik).
 
-**Debugnøkkelen er verdt å si eksplisitt.** Debug-APK-en er signert med Androids
-automatisk genererte debugnøkkel, som er unik per maskin og per CI-kjøring. Det
-finnes altså ikke ett stabilt SHA-256 å publisere i et statement, og
-verifiseringen — det Android faktisk gjør når lenken tappes — kan ikke prøves
-ende-til-ende før fase 6 gir en release-nøkkel. Det som kan prøves før det er
-kun de manuelle omveiene (`adb shell pm set-app-links-user-selection`), og de
-beviser ikke det som skal bevises: at ORIGINET har autorisert appen.
+**Debugnøkkelen er verdt å si presist.** Debug-APK-en er signert med Androids
+automatisk genererte debugnøkkel, og CI-runnerne er flyktige — det finnes altså
+ikke ett SHA-256 som er stabilt på tvers av bygg, og derfor ingen nøkkel å
+publisere permanent før fase 6.
 
-**Det ene spørsmålet fase 6 må starte med** er redirect-veien: tapp en
+Men verifiseringen KAN prøves før det: debugkeystoren på én maskin er stabil, så
+fingeravtrykket derfra kan legges midlertidig i statementet og hele kjeden kjøres
+på en telefon. Prisen er at `huskis.no` da offentlig autoriserer en debugnøkkel
+så lenge fila står der — et bevisst, tidsavgrenset eksperiment, ikke noe som blir
+stående. (De manuelle omveiene, `adb shell pm set-app-links-user-selection`,
+beviser derimot ikke det som skal bevises: at ORIGINET har autorisert appen.)
+
+**Det ene spørsmålet som må avgjøres først** er redirect-veien: tapp en
 bekreftelseslenke i e-postklienten på en telefon der appen er installert og
 verifisert, og se om Supabase' 303 til `huskis.no` lander i appen eller blir
 liggende i browseren — og om `#access_token=…` følger med. Svaret bestemmer om
 App Links koster to eller fire koblede endringer, og det finnes ikke noe annet
-sted enn en enhet å hente det fra.
+sted enn en enhet å hente det fra. Det kan kjøres med det midlertidige
+debug-fingeravtrykket beskrevet over, altså før fase 6, dersom svaret trengs for
+å planlegge den fasen.
 
 **Ferdigkriterium:** Android-appen oppfører seg som en normal mobilapp i de
 plattformtilfellene browseren ikke selv kan håndtere godt nok.

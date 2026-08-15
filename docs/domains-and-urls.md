@@ -361,7 +361,7 @@ på** — og den er ikke `huskis.no` i tre av de fire e-postene Huskis sender:
 | Bekreft registrering (`signUp`) | `<prosjekt>.supabase.co/auth/v1/verify?…&redirect_to=https://huskis.no/` | browseren åpner, tokenet verifiseres, og svaret er 303 til `huskis.no/#access_token=…&type=signup`. Kontoen ER bekreftet; sesjonen havner i browseren, og appen står igjen ulogget. Brukeren går tilbake og logger inn med passordet sitt. |
 | Tilbakestill passord (`resetPasswordForEmail`) | samme verify-adresse, `type=recovery` | browseren åpner, `PASSWORD_RECOVERY` fyrer DER, og det nye passordet settes i browseren. Appen merker ingenting; neste innlogging i appen bruker det nye passordet. |
 | Bekreft ny e-postadresse (`updateUser({ email })`) | samme verify-adresse, `type=email_change` | adressen byttes serverside, i browseren. Appens sesjon fortsetter uendret. |
-| Delingsinvitasjon (Resend, `send_invite_email()`) | `https://huskis.no/` — `?signup=<e-post>` til en uregistrert mottaker | peker rett på det kanoniske originet, men bærer ingen sesjon; den åpner bare appen på nett. |
+| Delingsinvitasjon (Resend, `send_invite_email()`) | `https://huskis.no/` til en REGISTRERT mottaker, `https://huskis.no/?signup=<e-post>` til en uregistrert | peker rett på det kanoniske originet, men bærer ingen sesjon. Til en registrert mottaker er dette det ene tilfellet der App Links ville gitt mer enn en spart innlogging: er brukeren logget inn i APPEN og ikke i browseren, åpner lenken i dag en utlogget browser, mens appen har sesjonen som faktisk kan vise og godta invitasjonen. |
 | Varsel om endret adresse (*Email address changed*) | ingen handlingslenke — men fotnoten i begge språkseksjonene ankrer `https://huskis.no/` | et varsel, ikke en handling: den skal bare ta en bruker som ikke kjenner seg igjen til innloggingssiden, der «Glemt passord?» står. |
 
 De to nederste er altså de eneste som peker rett på `huskis.no`, og ingen av
@@ -441,11 +441,18 @@ Endringene App Links krever er altså **to sikre og to betingede**:
   delingsinvitasjonen lenker til `/?signup=<e-post>`, og `applySignupInvite()`
   i `app.js` leser den verdien fra `location.search` — en invitert bruker ville
   mistet registreringsflyten sin til en app som åpner på startsiden;
-- signeringsnøkkelen måtte finnes. Debug-APK-en er signert med Androids
-  automatisk genererte debugnøkkel, som er unik per maskin og per CI-kjøring —
-  det finnes ikke ett stabilt fingeravtrykk å publisere. Verifisering kan
-  altså ikke prøves ende-til-ende før nøkkelhåndteringen i fase 6
+- signeringsnøkkelen måtte finnes for en RELEASE. Debug-APK-en er signert med
+  Androids automatisk genererte debugnøkkel, og CI-runnerne er flyktige, så det
+  finnes ikke ett fingeravtrykk som er stabilt på tvers av bygg
   ([`mobilapp-plan.md`](mobilapp-plan.md)).
+
+  Det betyr derimot IKKE at ingenting kan prøves før fase 6: debugkeystoren på
+  ÉN maskin er stabil, og fingeravtrykket derfra kan publiseres midlertidig i
+  statementet, slik at verifiseringen faktisk kjøres på en telefon. Prisen er at
+  `huskis.no` da offentlig autoriserer en debugnøkkel så lenge fila står der —
+  et bevisst, tidsavgrenset eksperiment, ikke noe som skal bli stående. Det er
+  denne veien det åpne redirect-spørsmålet over kan besvares, om svaret trengs
+  før fase 6.
 
 **Beslutningen: App Links utsettes til fase 6**, sammen med signeringsnøkkelen.
 De to sikre endringene — lytteren og statementet — er uansett bundet til den

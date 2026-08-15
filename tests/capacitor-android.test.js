@@ -1415,9 +1415,23 @@ const manifestFiler = (function les(dir, rot) {
    Groovy ville vært det i del 12. Samme svar som der: direktivene FORBYS i
    stedet, så en som trenger dem må utvide vakten bevisst. Selve sammenslåingen
    skjer i APK-workflowen, som er stedet en merget manifest finnes. */
-const MERGER_DIREKTIV = /tools:(?:node|remove|removeAll|replace|strict|overrideLibrary|selector)\b/;
+/* Prefikset `tools:` er bare en KONVENSJON. XML lar hvilket som helst navn
+   bindes til navnerommet (`xmlns:m="http://schemas.android.com/tools"` og så
+   `m:node="remove"`), og et mønster som bare kjenner det vanlige prefikset
+   ville sett rett forbi. Prefiksene leses derfor ut av bindingene i hver fil,
+   med `tools` som standard hvis ingen binding finnes. */
+const MERGER_ATTR = '(?:node|remove|removeAll|replace|strict|overrideLibrary|selector)\\b';
+const TOOLS_NS = 'http://schemas.android.com/tools';
+function mergerDirektiv(tekst) {
+  const prefikser = new Set(['tools']);
+  for (const m of tekst.matchAll(/xmlns:([\w.-]+)\s*=\s*(?:"([^"]*)"|'([^']*)')/g)) {
+    if ((m[2] !== undefined ? m[2] : m[3]) === TOOLS_NS) prefikser.add(m[1]);
+  }
+  return [...prefikser].some((p) =>
+    new RegExp('(?:^|[^\\w.-])' + p.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + ':' + MERGER_ATTR).test(tekst));
+}
 const medDirektiv = manifestFiler
-  .filter((p) => MERGER_DIREKTIV.test(utenXmlKommentarer(fs.readFileSync(p, 'utf8'))))
+  .filter((p) => mergerDirektiv(utenXmlKommentarer(fs.readFileSync(p, 'utf8'))))
   .map((p) => path.relative(ROOT, p));
 check('ingen av produksjonsmanifestene bruker merger-direktiver (teksten er da det APK-en får)',
   medDirektiv.length === 0,
@@ -1426,11 +1440,21 @@ check('ingen av produksjonsmanifestene bruker merger-direktiver (teksten er da d
    Huskis. Et komplett filter på en annen aktivitet, en `activity-alias`, en
    receiver eller en service tilfredsstiller hver eneste sjekk under uten at
    WebView-en noen gang ser adressen. Filtrene bæres derfor med eieren sin. */
-const KOMPONENT = /<(activity|activity-alias|service|receiver|provider)\b[^>]*>[\s\S]*?<\/\1>/g;
+/* `(?<!\/)>` er ikke pynt: en SELVLUKKENDE `<activity … />` har ingen
+   `</activity>`, og uten lookbehind ville mønsteret startet der og slukt fram
+   til den NESTE komponentens sluttagg — filteret i den ville da blitt tilskrevet
+   feil eier. Med lookbehind hopper mønsteret over den selvlukkende taggen og
+   finner riktig komponent. */
+const KOMPONENT_TAG = 'activity|activity-alias|service|receiver|provider';
+const KOMPONENT = new RegExp('<(' + KOMPONENT_TAG + ')\\b[^>]*(?<!/)>[\\s\\S]*?</\\1>', 'g');
+/* Og den selvlukkende formen finnes fortsatt — den bærer bare attributter, ikke
+   filtre. Den må leses, for `android:exported` kan være erklært nettopp der
+   (et overlay som bare setter et attributt). */
+const KOMPONENT_TOM = new RegExp('<(' + KOMPONENT_TAG + ')\\b[^>]*/>', 'g');
 const komponenter = manifestFiler.flatMap((p) => {
   const tekst = utenXmlKommentarer(fs.readFileSync(p, 'utf8'));
   const fil = path.relative(ROOT, p);
-  return [...tekst.matchAll(KOMPONENT)].map((k) => {
+  return [...tekst.matchAll(KOMPONENT), ...tekst.matchAll(KOMPONENT_TOM)].map((k) => {
     /* Attributtene leses av ÅPNINGSTAGGEN alene. Leste vi hele blokken, ville
        en komponent uten `android:name` fått navnet til den første `<action>`
        inni seg — altså feil eier på filteret. */
