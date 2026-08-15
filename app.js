@@ -3900,16 +3900,23 @@
   // utvider sidens scroll-område (horisontal scrollbar — og på iOS WebKit forskyves
   // da høyre-forankrede `position: fixed`-elementer som kontoknappen). Klemmen slår
   // kun inn helt ute ved kanten, så den er usynlig for vanlig reorder/kolonnebytte.
+  /* Klemmen går mot det BRUKBARE feltet, ikke mot skjermkanten: med
+     `viewport-fit=cover` er hakkets og gestelinjens piksler en del av
+     `innerWidth`/`innerHeight`, og et løftet objekt som stopper der ville lagt
+     seg delvis under dem — mens board-et det kom fra står innenfor. Sonen er 0
+     i en nettleser, så klemmen regner ut nøyaktig det samme som før der. */
   function dragPosLeft() {
-    const vw = window.innerWidth || document.documentElement.clientWidth || 0;
+    const safe = safeInsets();
+    const vw = (window.innerWidth || document.documentElement.clientWidth || 0) - safe.left - safe.right;
     const half = dragRenderedHalf().x;
-    const left = clampToViewport(drag.lastX - drag.grabX, drag.width, half, vw);
+    const left = clampToViewport(drag.lastX - drag.grabX - safe.left, drag.width, half, vw) + safe.left;
     return left + (dragUsesPageCoords() ? window.scrollX : 0);
   }
   function dragPosTop() {
-    const vh = window.innerHeight || document.documentElement.clientHeight || 0;
+    const safe = safeInsets();
+    const vh = (window.innerHeight || document.documentElement.clientHeight || 0) - safe.top - safe.bottom;
     const half = dragRenderedHalf().y;
-    const top = clampToViewport(drag.lastY - drag.grabY, drag.height, half, vh);
+    const top = clampToViewport(drag.lastY - drag.grabY - safe.top, drag.height, half, vh) + safe.top;
     return top + (dragUsesPageCoords() ? window.scrollY : 0);
   }
 
@@ -6168,6 +6175,9 @@
     if (a && a.classList && a.classList.contains('edit-input')) {
       try { a.scrollIntoView({ block: 'nearest' }); } catch (e) { /* ignore */ }
     }
+    // En popover som står åpen er forankret i koordinater fra viewportet den
+    // ble åpnet i — den må regnes ut på nytt her, ikke først ved neste åpning.
+    repositionOpenPopovers();
   });
 
   // Bunn-luft etter siste kort — uansett hvilken kolonne som ender opp høyest.
@@ -6947,6 +6957,9 @@
   function positionSwitcherPanel(panel, btn) {
     const r = btn.getBoundingClientRect();
     const gap = 8;
+    /* Knappen huskes PÅ panelet, så en åpen popover kan plasseres på nytt uten
+       at den som åpnet den er i nærheten (se repositionOpenPopovers). */
+    panel.__anchor = btn;
     const safe = safeInsets();
     panel.style.visibility = 'hidden';
     panel.style.top = '0px';
@@ -6958,6 +6971,25 @@
     panel.style.top = top + 'px';
     panel.style.left = left + 'px';
     panel.style.visibility = '';
+  }
+  /* En popover som står åpen når viewportet endrer seg — rotasjon, delt skjerm,
+     et tastatur som krymper — beholder ellers `top`/`left` fra det GAMLE
+     viewportet: den kan bli liggende utenfor skjermen, eller (etter en rotasjon
+     som flytter hakket fra én side til den andre) under hakket, helt til den
+     lukkes og åpnes igjen. Plasseringen er ren geometri og kan trygt kjøres på
+     nytt; på mobil er skallet en sentrert modal (CSS), og da settes ingen
+     inline-koordinater i det hele tatt. */
+  function repositionOpenPopovers() {
+    [[respSwitcherOverlay, respSwitcherPanel], [timeSwitcherOverlay, timeSwitcherPanel],
+      [objMenuOverlay, objMenuPanel]].forEach(([overlay, panel]) => {
+      if (!overlay || overlay.hidden || !panel) return;
+      const btn = panel.__anchor;
+      if (!btn || !btn.isConnected) return;
+      // Modal-varianten (mobil) plasseres av CSS — inline-koordinatene fra
+      // desktop ville låst den fast i hjørnet.
+      if (getComputedStyle(panel).position !== 'fixed') return;
+      positionSwitcherPanel(panel, btn);
+    });
   }
 
   /* ---------------- Ansvarlig-velger (popover/modal) ----------------

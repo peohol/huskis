@@ -353,6 +353,61 @@ async function run(label, viewport, touchMode) {
     slupp ? 'kort ' + Math.round(slupp.top) + '–' + Math.round(slupp.bunn)
       + ' (h ' + Math.round(slupp.høyde) + '), felt ' + Math.round(slupp.barBunn) + '–' + Math.round(slupp.grense) : '—');
 
+  /* ---------- 5c) Det LØFTEDE objektet klemmes mot det brukbare feltet ------
+     Klemmen holder objektet innenfor viewporten på begge akser. Med
+     `viewport-fit=cover` er hakkets piksler en del av `innerWidth`, så en
+     klemme mot skjermkanten lar objektet legge seg delvis under hakket — mens
+     board-et det kom fra står innenfor. */
+  // Kortet ble flyttet av draget over: rull det fram igjen og mål på nytt, så
+  // punktet vi trykker på faktisk er korthodet (og ikke det faste panelet).
+  await p.evaluate(() => {
+    document.querySelector('.app-main .card[data-id="L1"]')
+      .scrollIntoView({ block: 'center', behavior: 'auto' });
+  });
+  await p.waitForTimeout(250);
+  const hode2 = await p.evaluate(() => {
+    const b = document.querySelector('.app-main .card[data-id="L1"] .card-head').getBoundingClientRect();
+    return { x: Math.round(b.left + b.width / 2), y: Math.round(b.top + b.height / 2) };
+  });
+  await pek('pointerdown', hode2.x, hode2.y);
+  await p.waitForTimeout(320);                 // trykk-og-hold: gest-fysikk
+  await pek('pointermove', hode2.x, hode2.y - 6);
+  await p.waitForTimeout(60);
+  // Dra langt UT over høyre skjermkant og les det løftede objektet mens draget
+  // fortsatt pågår — det er plasseringen under fingeren som testes.
+  await pek('pointermove', viewport.width + 300, hode2.y);
+  await p.waitForTimeout(150);
+  const løftet = await p.evaluate(() => {
+    const el = document.querySelector('.dragging');
+    if (!el) return null;
+    const b = el.getBoundingClientRect();
+    return { left: b.left, right: b.right };
+  });
+  await pek('pointerup', viewport.width + 300, hode2.y);
+  await p.waitForTimeout(500);                 // slipp-animasjon
+  log(label + ': det løftede objektet stopper ved den brukbare kanten',
+    !!løftet && løftet.right <= rekt.right + 1,
+    løftet ? 'objekt høyre ' + Math.round(løftet.right) + ' ≤ sonekant ' + rekt.right : 'ingen .dragging');
+
+  /* ---------- 5d) En åpen popover følger med når viewportet endrer seg ------
+     Kun der skallet ER en popover (desktop-bredde). Koordinatene settes inline
+     ved åpning; uten en ny utregning ved resize blir panelet stående i det
+     GAMLE viewportet — utenfor skjermen, eller under hakket etter en rotasjon
+     som flytter det fra én side til den andre. */
+  if (viewport.width >= 561) {
+    await p.locator('.item[data-id="I1"] .obj-menu-btn').first().click();
+    await p.waitForTimeout(300);
+    await p.setViewportSize({ width: 640, height: 480 });
+    await p.waitForTimeout(350);
+    const nyttRekt = await sikkerRekt(p, SONE);
+    const flyttet = await innenfor(p, '#obj-menu-panel', nyttRekt);
+    log(label + ': en åpen popover plasseres på nytt når viewportet endrer seg',
+      flyttet.ok, flyttet.evidens);
+    await p.keyboard.press('Escape');
+    await p.setViewportSize(viewport);
+    await p.waitForTimeout(300);
+  }
+
   /* ---------- 6) Demonstrasjonens kort ---------- */
   await p.evaluate(() => window.__huskis.tour.start());
   await p.waitForTimeout(500);

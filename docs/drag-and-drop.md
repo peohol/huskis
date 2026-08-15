@@ -67,8 +67,13 @@ Bytte utløses av **overlapp**, ikke av et punkt:
   strimmel som padding UNDER board-et og dokumentet derfor rekker så mye lenger
   (`docs/board-layout.md`). Nedre auto-scroll-sone måles mot den samme brukbare
   bunnen, ikke mot viewportkanten.
-- **Det løftede objektet holdes ALLTID innenfor viewporten** (`dragPosLeft`/
-  `dragPosTop` → `clampToViewport`, begge akser, alle objekt-typer). Det finnes
+- **Det løftede objektet holdes ALLTID innenfor det brukbare feltet**
+  (`dragPosLeft`/`dragPosTop` → `clampToViewport`, begge akser, alle
+  objekt-typer). «Brukbart» = viewporten minus den sikre sonen: et hakk i siden
+  er en del av `innerWidth`, og et objekt som stopper der ville lagt seg delvis
+  under hakket mens board-et det kom fra står innenfor
+  ([`design-system.md`](design-system.md)). Sonen er 0 i en nettleser, så
+  klemmen regner ut nøyaktig det samme der. Det finnes
   ingen grunn til å dra noe utenfor skjermen, og et board-drag er `position:
   absolute`, så et objekt som stikker ut utvider sidens scroll-område: horisontal
   scrollbar, og på mobil/iOS WebKit forskyves da høyre-forankrede `position:

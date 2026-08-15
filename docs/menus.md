@@ -40,6 +40,15 @@ Panelet innledes med en overskrift som sier hvilket objekt menyen gjelder
 (type-ikon + navn); på mobil dekker arket raden det kom fra, og uten navnet er
 det ikke mulig å se hva man holder på med.
 
+Popover-varianten forankres med inline `top`/`left` (`positionSwitcherPanel`,
+som klemmer mot den sikre sonen). Koordinatene gjelder viewportet panelet ble
+åpnet i, så en **åpen** popover plasseres på nytt ved resize
+(`repositionOpenPopovers` i resize-lytteren): en rotasjon, delt skjerm eller et
+tastatur som krymper viewportet ville ellers latt panelet bli stående utenfor
+skjermen — eller under hakket, hvis rotasjonen flyttet det til motsatt side.
+Ark-varianten på mobil er `position: static` og plasseres av CSS; den røres
+ikke.
+
 ### Radene
 
 Rekkefølgen er fast; rader som ikke gjelder objektet **utelates helt** (en
