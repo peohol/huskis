@@ -296,10 +296,25 @@ INN i WebView-en i stedet for ut. Feltet skal stå tomt.
 `tests/capacitor-android.test.js` vokter både det og at web-kildekoden ikke
 begynner å produsere utgående lenker.
 
-Innramming er dekket fra en annen kant: `default-src 'none'` uten `frame-src`
-betyr at ingen `<iframe>` kan laste noe som helst
-([`sikkerhetsheadere.md`](sikkerhetsheadere.md)) — en fremmed side kommer
-altså ikke inn den veien heller.
+**To veier utenom rutingen, begge stengt av policyen.** `launchIntent()` ser
+bare det WebView-en spør den om, og to ting spør den ikke om:
+
+- **Innramming.** `default-src 'none'` uten `frame-src` betyr at ingen
+  `<iframe>` kan laste noe som helst.
+- **Skjemaer som sendes med POST.** En POST-innsending rapporteres ikke å nå
+  `shouldOverrideUrlLoading` i det hele tatt — da ville svaret lastet inne i
+  WebView-en, uten at Capacitor fikk sagt noe. `form-action 'self'` stopper
+  den før den blir en navigasjon: et skjema kan bare sendes til appens eget
+  origin, POST som GET.
+
+Begge står i policyen ([`sikkerhetsheadere.md`](sikkerhetsheadere.md)) og er
+voktet av `tests/security-headers.test.js`. De hører med her fordi regelen over
+ellers ville vært for bastant: det er policyen, ikke Capacitors ruting, som
+dekker disse to.
+
+(At POST ikke når `shouldOverrideUrlLoading` er lest, ikke observert på en
+enhet. Det endrer ingenting så lenge `form-action` står — men skulle den
+direktivet noen gang løsnes, er dette hullet den slipper løs.)
 
 ### Auth-lenkene i e-post
 
@@ -412,7 +427,10 @@ aktiv på samme måte som for de to andre — kontrollert mot produksjon
   ingen utgående lenke (`target="_blank"`, `window.open()`, `href`/`action` med
   et hvilket som helst skjema eller protokoll-relativ verdi), og den ENE
   navigasjonen appen gjør er guardens `location.replace(target)` — alle former
-  for tilordning teller, også `location = …` og `document.location = …`.
+  for tilordning teller, også `location = …` og `document.location = …`. Den
+  låser dessuten hvilke fremmede adresser frontend hardkoder til nøyaktig to
+  (Supabase-endepunktet og det kanoniske originet), slik at en ny utgående
+  adresse må innom denne seksjonen uansett hvilket API den brukes gjennom.
   Skanningen dekker beviselig alle produksjonskildene: lista over filer låses
   mot det `index.html` faktisk laster.
 - `tests/no-legacy-domain.test.js` — repo-vid tekstvakt: feiler dersom

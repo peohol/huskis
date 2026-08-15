@@ -471,20 +471,31 @@ if (finnes(APK_CFG)) {
 
    HELE den native kildekoden leses, ikke bare MainActivity: en hjelpeklasse
    som kalles derfra (`Navigation.install(bridge)`) kompileres og kjører like
-   fullt, og kunne byttet ut rutingen uten at en sjekk på én fil så det. */
-const NATIV_ROT = path.join(ROOT, 'android', 'app', 'src', 'main', 'java');
+   fullt, og kunne byttet ut rutingen uten at en sjekk på én fil så det. Alle
+   source set-ene under `android/app/src` teller — `debug/` og `release/`
+   kompileres inn i hver sin variant — men ikke `test/` og `androidTest/`, som
+   aldri havner i APK-en.
+
+   Mønsteret dekker to måter, ikke én. Å bytte ut KLIENTEN
+   (`setWebViewClient`, `shouldOverrideUrlLoading`) flytter selve avgjørelsen
+   bort fra Capacitor. Å navigere WebView-en DIREKTE fra Java (`loadUrl`,
+   `postUrl`, `loadData…`) hopper over avgjørelsen: en app-initiert lasting
+   spør ikke `shouldOverrideUrlLoading` i det hele tatt, så en fremmed side
+   ville havnet inne i appen. */
+const NATIV_SRC = path.join(ROOT, 'android', 'app', 'src');
 function javaFiler(dir) {
   return fs.readdirSync(dir, { withFileTypes: true }).flatMap((d) => {
     const p = path.join(dir, d.name);
-    if (d.isDirectory()) return javaFiler(p);
+    if (d.isDirectory()) return /^(test|androidTest)$/.test(d.name) ? [] : javaFiler(p);
     return /\.(java|kt)$/.test(d.name) ? [p] : [];
   });
 }
-const RUTING = /shouldOverrideUrlLoading|setWebViewClient|setWebChromeClient|WebViewClient|WebChromeClient/;
-const ruter = javaFiler(NATIV_ROT).filter((p) => RUTING.test(kode(fs.readFileSync(p, 'utf8'))));
-check('det native skallet overtar ikke navigasjonsrutingen fra Capacitor',
-  ruter.length === 0,
-  ruter.map((p) => path.relative(ROOT, p)).join(', ') || 'ingen av ' + javaFiler(NATIV_ROT).length + ' native kildefiler');
+const RUTING = /shouldOverrideUrlLoading|setWebViewClient|setWebChromeClient|WebViewClient|WebChromeClient|\bloadUrl\s*\(|\bpostUrl\s*\(|\bloadData(?:WithBaseURL)?\s*\(/;
+const nativeFiler = javaFiler(NATIV_SRC);
+const ruter = nativeFiler.filter((p) => RUTING.test(kode(fs.readFileSync(p, 'utf8'))));
+check('det native skallet overtar ikke og hopper ikke over navigasjonsrutingen',
+  nativeFiler.length > 0 && ruter.length === 0,
+  ruter.map((p) => path.relative(ROOT, p)).join(', ') || 'ingen av ' + nativeFiler.length + ' native kildefiler');
 
 /* WEB_KILDE er en fast liste, og både sjekken under og del 9 leser kun den. Et
    nytt produksjonsskript i index.html ville derfor sluppet forbi begge uten at
@@ -531,16 +542,51 @@ for (const f of WEB_KILDE) {
        med `href="//` i en kommentar finnes ikke, og ville uansett vært verdt
        et blikk. */
     const MAL = '\\b(?:href|(?:form)?action)\\s*=\\s*\\\\?["\']?\\s*';
+    /* Samme destinasjon satt gjennom DOM-API-et i stedet for i markup:
+       `el.setAttribute('href', 'geo:…')`. Formen `el.href = '…'` fanges alt av
+       MAL over — den ser ut som markup. */
+    const DOM = /\.\s*setAttribute\s*\(\s*["'`](?:xlink:)?(?:href|src|(?:form)?action)["'`]\s*,\s*["'`]\s*[a-z][a-z0-9+.\-]*:/i;
     if (/target\s*=\s*["']?_blank/.test(l)
       || /\bwindow\s*\.\s*open\s*\(/.test(l)
+      || DOM.test(l)
       || new RegExp(MAL + '[a-z][a-z0-9+.\\-]*:', 'i').test(l)
       || new RegExp(MAL + '\\/\\/', 'i').test(raa[nr - 1] || '')) {
       utLenker.push(f + ':' + nr);
     }
   }
 }
-check('web-kildekoden produserer ingen utgående lenke (ingen _blank, window.open eller href/action med skjema)',
+check('web-kildekoden produserer ingen utgående lenke (ingen _blank, window.open, setAttribute eller href/action med skjema)',
   utLenker.length === 0, utLenker.join(', ') || 'ingen');
+
+/* Ryggraden bak alle formene over: hvilke FREMMEDE adresser frontend i det
+   hele tatt navngir. Et tekstsøk kan aldri se en adresse som kommer inn som en
+   variabel, men det kan holde lista over hardkodede adresser på nøyaktig de to
+   dokumentet lover — og da må enhver ny utgående adresse, uansett hvilken
+   API-form den brukes gjennom, innom denne sjekken først.
+
+   Verdiene UTLEDES av config.js, så et bytte av Supabase-prosjekt eller
+   kanonisk domene ikke feller testen. Porten er den strippede linja (så en URL
+   i en kommentar ikke teller), verdien leses av den rå (så `//` er i behold).
+   CSP-ens egne verter står i et flerlinjes attributt og dekkes av
+   tests/security-headers.test.js. */
+const cfgTekst = les('config.js');
+const TILLATTE_URL = [
+  (cfgTekst.match(/url:\s*'([^']+)'/) || [, ''])[1],
+  (cfgTekst.match(/canonicalAppUrl:\s*'([^']+)'/) || [, ''])[1],
+].filter(Boolean).flatMap((u) => [u.replace(/\/+$/, ''), u.replace(/\/+$/, '') + '/']);
+const fremmedeUrl = [];
+for (const f of WEB_KILDE) {
+  const raa = les(f).split('\n');
+  for (const { nr, l } of kodeLinjer(les(f))) {
+    if (!/["'`]https?:/i.test(l)) continue;
+    for (const m of (raa[nr - 1] || '').matchAll(/["'`](https?:\/\/[^"'`\s]*)/gi)) {
+      if (TILLATTE_URL.indexOf(m[1]) === -1) fremmedeUrl.push(f + ':' + nr + ' → ' + m[1]);
+    }
+  }
+}
+check('kjørende webkode navngir ingen andre absolutte adresser enn Supabase-endepunktet og det kanoniske originet',
+  TILLATTE_URL.length === 4 && fremmedeUrl.length === 0,
+  fremmedeUrl.join(', ') || 'tillatt: ' + TILLATTE_URL.join(', '));
 
 /* Appen navigerer seg selv nøyaktig ett sted, og det er guarden for kanonisk
    origin. Kommer det et sted til, kan appen sende seg selv ut av sine egne
