@@ -295,7 +295,7 @@ check('workflowen har kun lesetilgang til repoet', /permissions:\s*\n\s*contents
    Auth-siden av (b) — at `authRedirectUrl()` ikke tar WebView-originet for en
    utviklingsserver — testes i ekte nettleser (tests/auth-redirect.test.js),
    det samme gjør guardens oppførsel (tests/canonical-origin.test.js). */
-const WEB_KILDE = ['index.html', 'app.js', 'config.js', 'i18n.js', 'icons.js', 'update-check.js', 'styles.css'];
+const WEB_KILDE = ['index.html', 'app.js', 'config.js', 'i18n.js', 'theme.js', 'icons.js', 'update-check.js', 'styles.css'];
 const NEVNER_CAP = /\bCapacitor\b|@capacitor|capacitor\.js|cordova/i;
 /* Alle andre web-kildefiler enn app.js skal fortsatt være helt uvitende om at
    det finnes en native runtime. */
