@@ -423,8 +423,15 @@ blir fanget uansett hvordan det spørsmålet faller ut, siden de peker rett på
 `huskis.no`. De er også de to som ikke bærer noen sesjon: appen ville åpnet på
 startsiden sin, som er det browseren gjør i dag.
 
-Endringene App Links krever er altså **to sikre og to betingede**:
+Endringene App Links krever er altså **fire sikre og to betingede**:
 
+- intent-filteret på `MainActivity` (de tre punktene over: `autoVerify`,
+  `VIEW`/`DEFAULT`/`BROWSABLE`, `https` + `huskis.no` uten sti- eller
+  portbegrensning);
+- statementet på originet;
+- unntaket i `copyDir()` som faktisk får det publisert — selektivt, ellers
+  følger `.gitignore` og hver annen skjult fil med ut;
+- lytteren som leser den innkommende adressen (punktet under);
 - *betinget* — malene måtte bygge lenken selv av `{{ .TokenHash }}` i stedet for
   `{{ .ConfirmationURL }}` — det motsatte av regelen i
   [`supabase/email-templates/README.md`](../supabase/email-templates/README.md),
@@ -455,17 +462,28 @@ Endringene App Links krever er altså **to sikre og to betingede**:
   før fase 6.
 
 **Beslutningen: App Links utsettes til fase 6**, sammen med signeringsnøkkelen.
-De to sikre endringene — lytteren og statementet — er uansett bundet til den
-fasen, og det åpne redirect-spørsmålet avgjøres best der det kan prøves: på en
-telefon, med en release-nøkkel. Da vurderes gevinsten (én spart innlogging i de
-to flytene som faktisk koster en) mot to eller fire koblede endringer, alt etter
-hvordan det spørsmålet faller ut. iOS Universal Links har nøyaktig den samme strukturen
-(`apple-app-site-association` i stedet for `assetlinks.json`) og hører til fase
-7. Inntil da er regelen at halvdelene aldri innføres hver for seg: en halv App
-Link verifiserer ingenting, lenken åpner browseren nøyaktig som før, og
-ingenting sier fra — det ses bare på en telefon.
-`tests/capacitor-android.test.js` (del 13) er vakten, og den dekker alle tre
-punktene over.
+De fire sikre endringene er uansett bundet til den fasen, og det åpne
+redirect-spørsmålet avgjøres best der det kan prøves: på en telefon. Da vurderes
+gevinsten (én spart innlogging i de to auth-flytene som koster en, pluss
+invitasjonen til en registrert mottaker) mot fire eller seks koblede endringer,
+alt etter hvordan spørsmålet faller ut. iOS Universal Links har nøyaktig den
+samme strukturen (`apple-app-site-association` i stedet for `assetlinks.json`)
+og hører til fase 7.
+
+Inntil da er regelen at halvdelene aldri innføres hver for seg — og det er verre
+enn stille:
+
+- **fra Android 12** verifiseres et `autoVerify`-filter mot originet. Slår det
+  feil, håndterer appen ikke lenken i det hele tatt: den åpner browseren
+  nøyaktig som før, uten at noe sier fra;
+- **på Android 7–11** (appens `minSdk` er 24) finnes ikke den verifiseringen.
+  Et `BROWSABLE`-filter går der inn i vanlig dyplenke-oppslag, så brukeren kan
+  få en app-velger eller ha satt Huskis som standard — og da BLIR lenken åpnet
+  i appen. Uten lytteren betyr det at `?signup=` forsvinner, altså en synlig
+  regresjon for de brukerne, ikke bare en uteblitt gevinst.
+
+`tests/capacitor-android.test.js` (del 13) er vakten, og den dekker de fire
+sikre punktene over.
 
 ### URL-er i brukerens egen tekst
 

@@ -1421,11 +1421,28 @@ const STATEMENT = path.join('.well-known', 'assetlinks.json');
    Et filter som kommer fra en AVHENGIGHET kan ikke leses herfra, men
    avhengighetene er selv låst — se sjekken i del 7 på at det ikke finnes
    Capacitor-plugins utover kjernen. */
-const IKKE_RELEASE = /^(test|androidTest|debug)$/;
+/* En ALLELISTE, ikke en nektliste. Med «alt unntatt debug/test/androidTest»
+   ville et hvilket som helst nytt source set — en `staging`-buildtype, en
+   produktvariant — blitt talt med i release-varianten uten å være det. Kun
+   `main` og `release` er publisert; alt annet må erklæres bevisst.
+
+   Og lista over KJENTE source set-er voktes for seg: dukker det opp et navn
+   ingen har tatt stilling til, feiler sjekken under i stedet for at innholdet
+   stilltiende ignoreres. Samme grep som «ingen egendefinerte kilderøtter» i
+   del 12 — vakten tolker ikke Gradle, den krever at ingen utvider den uten å
+   si fra. */
+const RELEASE_SETT = new Set(['main', 'release']);
+const KJENTE_SETT = new Set([...RELEASE_SETT, 'debug', 'test', 'androidTest']);
+const sourceSett = fs.readdirSync(NATIV_SRC, { withFileTypes: true })
+  .filter((d) => d.isDirectory()).map((d) => d.name);
+const ukjenteSett = sourceSett.filter((n) => !KJENTE_SETT.has(n));
+check('bare kjente source set-er under android/app/src (et nytt må tas stilling til)',
+  ukjenteSett.length === 0, ukjenteSett.join(', ') || sourceSett.join(', '));
+const iRelease = (p) => RELEASE_SETT.has(path.relative(NATIV_SRC, p).split(path.sep)[0]);
 const manifestFiler = (function les(dir, rot) {
   return fs.readdirSync(dir, { withFileTypes: true }).flatMap((d) => {
     const p = path.join(dir, d.name);
-    if (d.isDirectory()) return rot && IKKE_RELEASE.test(d.name) ? [] : les(p, false);
+    if (d.isDirectory()) return rot && !RELEASE_SETT.has(d.name) ? [] : les(p, false);
     return d.name === 'AndroidManifest.xml' ? [p] : [];
   });
 }(NATIV_SRC, true));
@@ -1487,6 +1504,7 @@ const komponenter = manifestFiler.flatMap((p) => {
     };
     return {
       fil,
+      type: k[1],
       navn: attributt('android:name') || '(uten navn)',
       eksportert: attributt('android:exported'),
       filtre: k[0].match(/<intent-filter\b[\s\S]*?<\/intent-filter>/g) || [],
@@ -1509,6 +1527,7 @@ for (const k of komponenter) {
 }
 const intentFiltre = komponenter.flatMap((k) => k.filtre.map((blokk) => ({
   fil: k.fil,
+  type: k.type,
   komponent: k.navn,
   eksportert: (komponentAttr.get(k.navn) || {}).eksportert,
   blokk,
@@ -1581,12 +1600,17 @@ if (harFilter) {
   /* Og det komplette filteret må sitte på AKTIVITETEN som viser Huskis. Et
      filter på en annen komponent kan ikke levere adressen til WebView-en —
      appen ville gjort krav på lenken og så ikke hatt noe sted å gjøre av den. */
+  /* TYPEN teller like mye som navnet. En `<receiver>` eller `<service>` kan
+     hete `.MainActivity` uten å være en aktivitet, og Android løser aldri en
+     browsable VIEW-intent til en slik komponent — filteret ville sett riktig ut
+     her og vært dødt på telefonen. */
   const MAIN = [cfg.appId + '.MainActivity', '.MainActivity'];
-  const påMain = komplette.filter((f) => MAIN.indexOf(f.komponent) > -1);
+  const påMain = komplette.filter((f) =>
+    MAIN.indexOf(f.komponent) > -1 && /^activity(-alias)?$/.test(f.type));
   check('App Links: det komplette filteret sitter på MainActivity (der WebView-en er)',
     påMain.length > 0,
     påMain.length > 0 ? påMain.length + ' filter på ' + påMain[0].komponent
-      : 'komplette filtre kun på: ' + [...new Set(komplette.map((f) => f.komponent))].join(', '));
+      : 'komplette filtre kun på: ' + [...new Set(komplette.map((f) => '<' + f.type + '> ' + f.komponent))].join(', '));
   /* En aktivitet som ikke er eksportert kan ikke startes utenfra — og en App
      Link kommer nettopp utenfra, fra browseren eller e-postklienten. Med
      `android:exported="false"` er manifestet fullt gyldig og lar seg bygge,
@@ -1605,14 +1629,19 @@ if (harFilter) {
   const STI_ATTR = ['android:path', 'android:pathPrefix', 'android:pathPattern',
     'android:pathAdvancedPattern', 'android:pathSuffix'];
   const stiene = (blokk) => STI_ATTR.flatMap((a) => xmlVerdier(blokk, a));
+  /* PORTEN er den samme fellen som stien: `android:port="8443"` binder filteret
+     til én port, og `https://huskis.no/` (port 443, underforstått) treffer det
+     ikke. Kravet gjelder samme filter som dekker roten. */
   const rotFiltre = påMain.filter((f) => {
     const s = stiene(f.blokk);
-    return s.length === 0 || s.some((v) => v === '/' || v === '');
+    return (s.length === 0 || s.some((v) => v === '/' || v === ''))
+      && xmlVerdier(f.blokk, 'android:port').length === 0;
   });
-  check('App Links: minst ett kvalifiserende filter dekker roten (/ og /?signup=…)',
+  check('App Links: minst ett kvalifiserende filter dekker roten, uten sti- eller portbegrensning',
     påMain.length > 0 && rotFiltre.length > 0,
-    rotFiltre.length > 0 ? rotFiltre.length + ' filter uten innsnevrende sti'
-      : 'alle stibegrenset til: ' + påMain.flatMap((f) => stiene(f.blokk)).join(', '));
+    rotFiltre.length > 0 ? rotFiltre.length + ' filter uten innsnevring'
+      : 'begrenset til sti ' + (påMain.flatMap((f) => stiene(f.blokk)).join('/') || '—')
+        + ', port ' + (påMain.flatMap((f) => xmlVerdier(f.blokk, 'android:port')).join('/') || '—'));
   /* Et filter er heller ikke nok i seg selv: det bringer bare intenten til
      aktiviteten. NOEN må lese adressen ut av den og gi den til web-laget.
      `@capacitor/android` tar vare på den (`Bridge.getIntentUri()`) og varsler
@@ -1650,8 +1679,7 @@ if (harFilter) {
      ville altså «bevist» en lesing den utgitte appen ikke har. Samme
      avgrensning som manifestene: `debug/` er ikke produksjon. */
   const webKode = WEB_KILDE.map((f) => strippet(les(f), modusFor(f))).join('\n');
-  const releaseKilder = nativeFiler.filter((p) =>
-    !IKKE_RELEASE.test(path.relative(NATIV_SRC, p).split(path.sep)[0]));
+  const releaseKilder = nativeFiler.filter(iRelease);
   const leserUri = /addListener\s*\(\s*["'`]appUrlOpen/.test(webKode)
     || releaseKilder.some((p) => /getIntentUri\s*\(/.test(strippet(fs.readFileSync(p, 'utf8'), 'js')));
   check('App Links: noe LESER den innkommende adressen (ellers mistes ?signup= og alt annet i URL-en)',
@@ -1665,18 +1693,23 @@ if (harStatement) {
   try { st = json(STATEMENT); } catch (e) { st = null; }
   const oppf = Array.isArray(st) ? st : [];
   const mål = oppf.map((o) => (o && o.target) || {});
-  check(STATEMENT + ' er en gyldig statement-liste for Android',
-    oppf.length > 0 && oppf.every((o) => Array.isArray(o.relation)
-      && o.relation.indexOf('delegate_permission/common.handle_all_urls') > -1)
-      && mål.every((t) => t.namespace === 'android_app'),
+  check(STATEMENT + ' er en JSON-liste med målobjekter',
+    oppf.length > 0 && oppf.every((o) => o && typeof o === 'object' && o.target
+      && typeof o.target === 'object'),
     oppf.length + ' oppføringer');
-  /* HUSKIS-oppføringen må finnes — ikke at ALLE oppføringene er Huskis.
+  /* HUSKIS' APP LINK-oppføring må finnes — ikke at ALLE oppføringene er den.
      Digital Asset Links er en LISTE nettopp fordi ett origin kan autorisere
-     flere apper, og en fremmed, gyldig oppføring er ikke vår sak å avvise.
-     Kravet er at fila navngir `no.huskis.app`; resten av sjekkene under leser
-     den oppføringen. */
-  const våre = oppf.filter((o) => ((o && o.target) || {}).package_name === cfg.appId);
-  check(STATEMENT + ' navngir appens egen applicationId',
+     flere apper OG flere relasjoner: en fremmed app, eller en
+     `common.get_login_creds` ved siden av, er gyldig og ikke vår sak å avvise.
+     Vi plukker derfor ut vår egen `android_app` + `handle_all_urls` og leser
+     resten av kravene fra den. */
+  const HANDLE_ALL = 'delegate_permission/common.handle_all_urls';
+  const våre = oppf.filter((o) => {
+    const t = o.target || {};
+    return t.namespace === 'android_app' && t.package_name === cfg.appId
+      && Array.isArray(o.relation) && o.relation.indexOf(HANDLE_ALL) > -1;
+  });
+  check(STATEMENT + ' har en App Link-oppføring for appens egen applicationId',
     våre.length > 0,
     våre.length ? våre.length + ' oppføring(er) for ' + cfg.appId
       : 'fant kun: ' + (mål.map((t) => t.package_name).filter(Boolean).join(', ') || 'ingen'));

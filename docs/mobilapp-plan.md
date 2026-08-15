@@ -636,9 +636,10 @@ PKCE-verifikator lagret i originet som startet flyten. Startet i appen
 ikke kunnet fullføres i det hele tatt.
 
 **Beslutningen: App Links utsettes til fase 6**, sammen med signeringsnøkkelen.
-To endringer trengs uansett: en lytter for den innkommende intenten
-(`@capacitor/app` + **en gate til** i web-koden) og statementet på originet,
-som begge hviler på en release-nøkkel. To andre er BETINGET av et spørsmål
+Fire endringer trengs uansett: intent-filteret på `MainActivity`, statementet på
+originet, det selektive unntaket i `copyDir()` som faktisk får statementet
+publisert, og en lytter for den innkommende intenten (`@capacitor/app` + **en
+gate til** i web-koden). To andre er BETINGET av et spørsmål
 ingen kan svare på herfra: verten i auth-lenkene er `*.supabase.co`, men de
 ENDER på `huskis.no` — og om browseren leverer fra seg på slutten av en
 redirect-kjede, slik native OAuth-klienter bygger på, avgjøres på en telefon.
@@ -685,7 +686,7 @@ beviser derimot ikke det som skal bevises: at ORIGINET har autorisert appen.)
 bekreftelseslenke i e-postklienten på en telefon der appen er installert og
 verifisert, og se om Supabase' 303 til `huskis.no` lander i appen eller blir
 liggende i browseren — og om `#access_token=…` følger med. Svaret bestemmer om
-App Links koster to eller fire koblede endringer, og det finnes ikke noe annet
+App Links koster fire eller seks koblede endringer, og det finnes ikke noe annet
 sted enn en enhet å hente det fra. Det kan kjøres med det midlertidige
 debug-fingeravtrykket beskrevet over, altså før fase 6, dersom svaret trengs for
 å planlegge den fasen.
@@ -768,9 +769,10 @@ Google Plays interne testspor.
       endring (intent-filter + `.well-known/assetlinks.json` som `build.js`
       faktisk kopierer ut). Avgjør FØRST det åpne spørsmålet i fase
       3-seksjonen, på telefon: leverer browseren fra seg på slutten av
-      Supabase' 303 til en verifisert App Link? Svaret bestemmer om dette er to
-      eller fire koblede endringer, og dermed om det er verdt å spare brukeren
-      én innlogging i de to flytene som faktisk koster en.
+      Supabase' 303 til en verifisert App Link? Svaret bestemmer om dette er
+      fire eller seks koblede endringer, og dermed om det er verdt gevinsten:
+      én spart innlogging i de to auth-flytene som koster en, pluss
+      invitasjonen til en registrert mottaker.
 - [ ] Produser release-AAB reproducerbart fra CI.
 - [ ] Opprett appoppføring, ikon, screenshots og nødvendig metadata.
 - [ ] Fullfør privacy/Data Safety-opplysninger basert på faktisk databruk.
