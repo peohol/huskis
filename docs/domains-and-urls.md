@@ -274,7 +274,13 @@ bevisst kort:
 | Adresse | Hvor den åpnes |
 |---|---|
 | Appens eget origin — `https://huskis.no` i browseren, `https://localhost` (de innebygde filene) i mobilappen | **i appen** |
-| Alt annet | **systembrowseren** — aldri inne i WebView-en |
+| Alt annet | **ut av appen** — aldri inne i WebView-en |
+
+«Ut av appen» og ikke «i systembrowseren», fordi Android sender adressen til
+telefonens standardapp FOR DEN adressen: browseren for `http(s):`, men
+e-postklienten for `mailto:`, telefonappen for `tel:`, kartappen for `geo:`.
+Poenget er det samme uansett hvilken app som svarer — siden lastes ikke inne i
+Huskis.
 
 Tre ting faller utenfor det «alt», og de er listet under «Tre unntak» —
 `<iframe>`, POST-skjemaer og `data:`/`blob:`.

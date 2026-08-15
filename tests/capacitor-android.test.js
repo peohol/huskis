@@ -474,8 +474,9 @@ if (finnes(APK_CFG)) {
    en URL ikke kapper noe. Enkle og doble anførselstegn nullstilles ved
    linjeskift — de kan ikke spenne over linjer i JS, og et løsrevet apostrof i
    HTML-tekst skal ikke forgifte resten av fila. */
-function kodeLinjerStreng(src) {
+function kodeLinjerStreng(src, modus) {
   const linjer = src.split('\n');
+  const jsKomm = modus !== 'css';   // `//` er IKKE en kommentar i CSS
   let iBlokk = false, iHtml = false, streng = null;
   return linjer.map((raw, i) => {
     if (streng !== '`') streng = null;
@@ -490,19 +491,27 @@ function kodeLinjerStreng(src) {
         continue;
       }
       if (raw.startsWith('/*', j)) { iBlokk = true; j++; continue; }
-      if (raw.startsWith('<!--', j)) { iHtml = true; j += 3; continue; }
-      if (raw.startsWith('//', j)) break;
-      if (raw[j] === '"' || raw[j] === "'" || raw[j] === '`') streng = raw[j];
+      /* `<!--` betyr to helt forskjellige ting. I markup åpner den en kommentar
+         som løper til `-->`; i et klassisk skript er den en LINJEkommentar
+         (samme for `-->` i starten av en linje). Behandles JS som markup, ville
+         alt fra en `<!--` og ut fila blitt kastet — og skanningen stått grønn
+         på tom tekst. */
+      if (modus === 'html' && raw.startsWith('<!--', j)) { iHtml = true; j += 3; continue; }
+      if (modus === 'js' && (raw.startsWith('<!--', j) || raw.startsWith('-->', j))) break;
+      if (jsKomm && raw.startsWith('//', j)) break;
+      if (raw[j] === '"' || raw[j] === "'" || (modus !== 'css' && raw[j] === '`')) streng = raw[j];
       ren += raw[j];
     }
     return { nr: i + 1, l: ren };
   });
 }
+/* Kommentarsyntaksen følger filtypen, ikke innholdet. */
+const modusFor = (navn) => (/\.html?$/i.test(navn) ? 'html' : /\.css$/i.test(navn) ? 'css' : 'js');
 /* Hele fila som én strippet tekst, med posisjon → linjenummer for evidensen.
    Mønstre som kan spenne over linjeskift kjøres mot denne. */
-const strippet = (src) => kodeLinjerStreng(src).map((x) => x.l).join('\n');
-function strippetMedLinjer(src) {
-  const tekst = strippet(src);
+const strippet = (src, modus) => kodeLinjerStreng(src, modus).map((x) => x.l).join('\n');
+function strippetMedLinjer(src, modus) {
+  const tekst = strippet(src, modus);
   return { tekst, linjeFor: (idx) => tekst.slice(0, idx).split('\n').length };
 }
 
@@ -538,7 +547,7 @@ function javaFiler(dir) {
 }
 const RUTING = /shouldOverrideUrlLoading|setWebViewClient|setWebChromeClient|WebViewClient|WebChromeClient|\bloadUrl\s*\(|\bpostUrl\s*\(|\bloadData(?:WithBaseURL)?\s*\(/;
 const nativeFiler = javaFiler(NATIV_SRC);
-const ruter = nativeFiler.filter((p) => RUTING.test(strippet(fs.readFileSync(p, 'utf8'))));
+const ruter = nativeFiler.filter((p) => RUTING.test(strippet(fs.readFileSync(p, 'utf8'), 'js')));
 check('det native skallet overtar ikke og hopper ikke over navigasjonsrutingen',
   nativeFiler.length > 0 && ruter.length === 0,
   ruter.map((p) => path.relative(ROOT, p)).join(', ') || 'ingen av ' + nativeFiler.length + ' native kildefiler');
@@ -584,8 +593,20 @@ const buildSkip = new Set(((build.match(/const SKIP = new Set\(\[([\s\S]*?)\]\);
   .match(/'([^']+)'/g) || []).map((s) => s.slice(1, -1)));
 const testModus = ((build.match(/const TEST_MODE_FILES = \[([^\]]*)\]/) || [, ''])[1]
   .match(/'([^']+)'/g) || []).map((s) => s.slice(1, -1));
-const utsendt = fs.readdirSync(ROOT)
-  .filter((n) => /\.(js|css)$/.test(n) && !buildSkip.has(n) && testModus.indexOf(n) === -1);
+/* build.js kopierer REKURSIVT (copyDir), så en `assets/hjelper.js` ville blitt
+   med ut like fullt som en fil i roten. Inventaret går derfor samme vei:
+   SKIP-listen gjelder bare øverste nivå, akkurat som i build.js. `vendor/` er
+   tredjepartskopien, voktet i tests/security-headers.test.js. */
+function utsendteFiler(dir, topp) {
+  return fs.readdirSync(dir, { withFileTypes: true }).flatMap((d) => {
+    if (topp && (buildSkip.has(d.name) || d.name === 'vendor')) return [];
+    const p = path.join(dir, d.name);
+    if (d.isDirectory()) return utsendteFiler(p, false);
+    return /\.(js|css)$/.test(d.name) && testModus.indexOf(d.name) === -1
+      ? [path.relative(ROOT, p)] : [];
+  });
+}
+const utsendt = utsendteFiler(ROOT, true);
 const utsendtUskannet = utsendt.filter((n) => WEB_KILDE.indexOf(n) === -1);
 check('alle web-kildefilene build.js kopierer ut står i WEB_KILDE',
   testModus.length > 0 && utsendt.length > 0 && utsendtUskannet.length === 0,
@@ -630,7 +651,7 @@ const UT_MØNSTRE = [
 ];
 const utLenker = [];
 for (const f of WEB_KILDE) {
-  const { tekst, linjeFor } = strippetMedLinjer(les(f));
+  const { tekst, linjeFor } = strippetMedLinjer(les(f), modusFor(f));
   for (const [navn, re] of UT_MØNSTRE) {
     re.lastIndex = 0;
     for (const m of tekst.matchAll(re)) utLenker.push(f + ':' + linjeFor(m.index) + ' (' + navn + ')');
@@ -655,7 +676,7 @@ const TILLATTE_URL = [
 ].filter(Boolean).flatMap((u) => [u.replace(/\/+$/, ''), u.replace(/\/+$/, '') + '/']);
 const fremmedeUrl = [];
 for (const f of WEB_KILDE) {
-  for (const { nr, l } of kodeLinjerStreng(les(f))) {
+  for (const { nr, l } of kodeLinjerStreng(les(f), modusFor(f))) {
     for (const m of l.matchAll(/["'`](https?:\/\/[^"'`\s]*)/gi)) {
       if (TILLATTE_URL.indexOf(m[1]) === -1) fremmedeUrl.push(f + ':' + nr + ' → ' + m[1]);
     }
@@ -685,10 +706,18 @@ check('kjørende webkode navngir ingen andre absolutte adresser enn Supabase-end
    ETTER `=` å matche på, og ville sluppet unna. Lookahead-en skiller den
    likevel fra `==`/`===`. */
 const NAV_KALL = /\blocation\s*\.\s*(?:assign|replace)\s*\(/;
-const NAV_TILDEL = /(?:^|[^.\w$])(?:(?:window|document|self|globalThis|top|parent)\s*\.\s*)?location\s*(?:\.\s*href\s*)?=(?!=)/;
+/* Ikke bare `.href`: HVER skrivbar del av Location navigerer. Setter du
+   `location.host`, `.protocol`, `.pathname` eller `.search`, laster siden på
+   nytt mot en ny adresse — like mye en navigasjon som å sette hele href-en.
+   `.hash` er med selv om den er same-document: den er også et sted appen
+   flytter seg selv, og det finnes ingen i dag. */
+const LOC_DEL = 'href|host|hostname|protocol|port|pathname|search|hash';
+const NAV_TILDEL = new RegExp(
+  '(?:^|[^.\\w$])(?:(?:window|document|self|globalThis|top|parent)\\s*\\.\\s*)?location\\s*'
+  + '(?:\\.\\s*(?:' + LOC_DEL + ')\\s*)?=(?!=)', 'm');
 const navSkriv = [];
 for (const f of WEB_KILDE) {
-  for (const { nr, l } of kodeLinjerStreng(les(f))) {
+  for (const { nr, l } of kodeLinjerStreng(les(f), modusFor(f))) {
     if (NAV_KALL.test(l) || NAV_TILDEL.test(l)) {
       navSkriv.push({ sted: f + ':' + nr, l: l.trim() });
     }
