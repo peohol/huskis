@@ -156,6 +156,26 @@ async function landskap() {
   log('landskap: det er TEKSTEN som ruller, ikke kortet', v.bodyRuller && !v.kortRuller,
     'body ' + v.bodyScroll + '/' + v.bodyKlient + ', kort ruller ' + v.kortRuller);
 
+  /* Rullingen må BLI STÅENDE. Plasseringen måler kortet ukappet, og uten klipp
+     renner ikke `.tour-body` over — nettleseren klemmer da `scrollTop` til 0.
+     Skjer det for hver plassering, spretter teksten tilbake til toppen i det
+     brukeren leser: nederste linje vises et øyeblikk, og forsvinner igjen. */
+  const lesested = await p.evaluate(async () => {
+    const body = document.querySelector('#tour-card .tour-body');
+    body.scrollTop = body.scrollHeight;          // helt ned
+    const etterRulling = body.scrollTop;
+    // Kortets EGEN rulling skal ikke gi en ny plassering …
+    body.dispatchEvent(new Event('scroll', { bubbles: true }));
+    // … og en plassering som likevel kjører (her: en resize) skal ta vare på
+    // lesestedet.
+    window.dispatchEvent(new Event('resize'));
+    await new Promise((r) => requestAnimationFrame(r));
+    return { etterRulling, naa: body.scrollTop };
+  });
+  log('landskap: lesestedet i kortet overlever en ny plassering',
+    lesested.etterRulling > 0 && lesested.naa === lesested.etterRulling,
+    'rullet til ' + lesested.etterRulling + ', står på ' + lesested.naa);
+
   // 5: et tooltip-steg med pilspiss mot et mål i toppmenyen.
   await p.locator('#tour-next').click();
   await waitStep(p, 'open_nav');

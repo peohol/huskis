@@ -12110,7 +12110,19 @@
        runde kapper det igjen. Der scroll/resize fyrer i ett kjør (en telefon)
        blir løkka synlig som at nederste del av kortet flimrer opp og ned.
        Nullstillingen skjer i samme oppgave som målingen, så ingen mellom-
-       tilstand rekker å males. */
+       tilstand rekker å males.
+
+       Men den koster lesestedet: uten klippet er kortet høyt nok til at
+       `.tour-body` ikke lenger renner over, og nettleseren klemmer dermed
+       `scrollTop` til 0. Er brukeren midt i å lese den nederste delen av
+       velkomsten på en lav skjerm, spretter teksten tilbake til toppen for hver
+       eneste plassering. Lesestedet tas derfor vare på og legges tilbake når
+       klippet er satt igjen. */
+    const tourBody = tourCard.querySelector('.tour-body');
+    const lesested = tourBody ? tourBody.scrollTop : 0;
+    const gjenopprettLesested = () => {
+      if (tourBody && tourBody.scrollTop !== lesested) tourBody.scrollTop = lesested;
+    };
     tourCard.style.maxHeight = '';
     const cw = tourCard.offsetWidth;
     const ch = tourCard.offsetHeight;
@@ -12137,6 +12149,7 @@
       tourCard.style.maxHeight = ch > room ? room + 'px' : '';
       tourCard.style.left = Math.max(minX, (minX + maxX - cw) / 2) + 'px';
       tourCard.style.top = Math.max(minY, (minY + maxY - h) / 2) + 'px';
+      gjenopprettLesested();
       return;
     }
     const r = el.getBoundingClientRect();
@@ -12207,6 +12220,7 @@
     tourCard.style.left = left + 'px';
     tourCard.style.top = top + 'px';
     tourArrow.hidden = false;
+    gjenopprettLesested();
   }
   // Én linje under teksten: hva som står i veien akkurat nå.
   function demoNote() {
@@ -12448,8 +12462,15 @@
     closeAccount();          // demoen peker på appen BAK modalen
     startTour(accountBtn);
   });
-  // Pilspissen og kortet skal følge målet: siden bak ruller fritt.
-  const tourReflow = () => { if (demoRunning && demoPainted === demoIndex) placeTour(); };
+  /* Pilspissen og kortet skal følge målet: siden bak ruller fritt. Lytteren står
+     i CAPTURE-fasen for å fange rulling i alle bokser, og da kommer også kortets
+     EGEN rulling inn hit. Den skal ikke gi en ny plassering: kortet flytter seg
+     ikke av at teksten inni det rulles, og plasseringen ville i tillegg
+     nullstilt lesestedet (se `placeTour` — målingen tar av høydeklippet). */
+  const tourReflow = (ev) => {
+    if (ev && ev.target && ev.target.nodeType === 1 && tourEl.contains(ev.target)) return;
+    if (demoRunning && demoPainted === demoIndex) placeTour();
+  };
   window.addEventListener('resize', tourReflow);
   window.addEventListener('scroll', tourReflow, true);
 

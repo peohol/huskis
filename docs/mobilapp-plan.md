@@ -699,11 +699,10 @@ De skal ikke snike seg inn i fundamentfasene.
 
 ## Neste oppgave
 
-**Fase 3 fortsetter.** Tilbakeknappen er ferdig og verifisert på telefon. Safe
-areas, systemfeltene og skjermtastaturet er implementert og automatisk dekket,
-men mangler den fysiske runden — kjør sekvensen over på en telefon med hakk og
-gestenavigasjon, og kryss av punktet når den er grønn. Deretter står eksterne
-lenker for tur.
+**Fase 3 fortsetter.** To punkter er ferdige og verifisert på telefon:
+tilbakeknappen, og safe areas/systemfeltene/skjermtastaturet. Neste punkt er
+**eksterne lenker**: definer hvilke som åpnes i systembrowser og hvilke som
+forblir i appen.
 
 Hver fase 3-endring er plattformspesifikk og skal gates eksplisitt
 (arkitekturregel 2): browserutgaven skal fortsatt kjøre uten Capacitor.
