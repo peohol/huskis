@@ -611,19 +611,22 @@ appen, og det punktet endte uten kode.
 
 ## Auth-/e-postlenker og App Links
 
-**Kartleggingen først.** Huskis sender fire e-poster med en lenke i. Hvilken app
+**Kartleggingen først.** Huskis sender fem e-poster med en lenke i. Hvilken app
 som svarer på telefonen avgjøres av verten i lenken brukeren faktisk trykker på,
-og den er ikke `huskis.no` i tre av dem: de tre Supabase Auth-e-postene
-(bekreft registrering, tilbakestill passord, bekreft ny adresse) peker på
-prosjektets egen verify-adresse på `*.supabase.co`, og `huskis.no` er bare der
-303-en LANDER. Bare delingsinvitasjonen fra Resend peker rett på det kanoniske
-originet — og den bærer ingen sesjon. Hele tabellen, med hva som skjer i hvert
-av de fire tilfellene:
+og den er ikke `huskis.no` i de tre som bærer en HANDLING: Supabase
+Auth-e-postene (bekreft registrering, tilbakestill passord, bekreft ny adresse)
+peker på prosjektets egen verify-adresse på `*.supabase.co`, og `huskis.no` er
+bare der 303-en LANDER. De to som peker rett på det kanoniske originet —
+delingsinvitasjonen fra Resend, og fotnoten i varselet om endret adresse — er
+nettopp de to som ikke bærer noen sesjon. Hele tabellen, med hva som skjer i
+hvert enkelt tilfelle:
 [`domains-and-urls.md`](domains-and-urls.md) («Auth-lenkene i e-post»).
 
-**Konsekvensen i dag:** lenken åpner browseren, handlingen fullføres DER
-(kontoen blir bekreftet, passordet blir satt, adressen blir byttet), og appen
-står igjen ulogget. Prisen er én ekstra innlogging — ikke en brutt flyt. At det
+**Konsekvensen i dag:** lenken åpner browseren, og handlingen fullføres DER —
+kontoen blir bekreftet, passordet blir satt, adressen blir byttet. For
+registrering og passordgjenoppretting står appen igjen ulogget, og prisen er én
+ekstra innlogging; adressebyttet koster ikke engang det, siden det starter fra
+en app som allerede er innlogget. Ingen av dem er en brutt flyt. At det
 ikke er verre henger på at klienten kjører supabase-js' standard `implicit`-flyt:
 tokenene kommer i fragmentet, ikke som en `?code=` som må byttes inn med en
 PKCE-verifikator lagret i originet som startet flyten. Startet i appen
@@ -746,7 +749,8 @@ Google Plays interne testspor.
 - [ ] Ta App Links opp igjen når nøkkelen finnes: begge halvdelene i samme
       endring (intent-filter + `.well-known/assetlinks.json` som `build.js`
       faktisk kopierer ut), og vurder først om de fire koblede endringene i
-      fase 3-seksjonen er verdt å spare brukeren én innlogging.
+      fase 3-seksjonen er verdt å spare brukeren én innlogging i de to flytene
+      som faktisk koster en.
 - [ ] Produser release-AAB reproducerbart fra CI.
 - [ ] Opprett appoppføring, ikon, screenshots og nødvendig metadata.
 - [ ] Fullfør privacy/Data Safety-opplysninger basert på faktisk databruk.

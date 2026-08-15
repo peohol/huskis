@@ -1398,6 +1398,25 @@ if (harFilter) {
   check('App Links: intent-filtrene navngir kun det kanoniske originets vert',
     kanoniskVert !== '' && verter.length > 0 && verter.every((h) => h === kanoniskVert),
     verter.join(', ') || 'ingen android:host');
+  /* Koblingen over spør bare om det FINNES et http(s)-filter — med vilje, for
+     et `http`-only filter er like mye en halv innføring som et fullt. Men et
+     filter kan også være halvt i seg selv, og da ruter Android ingenting:
+     mangler `VIEW`, `DEFAULT` eller `BROWSABLE` blir intenten fra browseren
+     aldri levert, og et `http`-only filter dekker ikke `https`-lenkene
+     dokumentet handler om. Alle fire delene må stå i det SAMME filteret — et
+     `BROWSABLE` i én blokk hjelper ikke en annen. */
+  const KOMPLETT = [
+    ['android.intent.action.VIEW', /<action\b[^>]*android:name\s*=\s*"android\.intent\.action\.VIEW"/],
+    ['category.DEFAULT', /<category\b[^>]*android:name\s*=\s*"android\.intent\.category\.DEFAULT"/],
+    ['category.BROWSABLE', /<category\b[^>]*android:name\s*=\s*"android\.intent\.category\.BROWSABLE"/],
+    ['scheme https', /<data\b[^>]*android:scheme\s*=\s*"https"/],
+  ];
+  const komplette = nettFiltre.filter((b) => KOMPLETT.every(([, re]) => re.test(b)));
+  check('App Links: minst ett filter er komplett (VIEW + DEFAULT + BROWSABLE + https)',
+    komplette.length > 0,
+    komplette.length > 0 ? komplette.length + ' av ' + nettFiltre.length + ' filtre er komplette'
+      : 'ingen komplette; beste filter mangler: ' + KOMPLETT
+        .filter(([, re]) => !nettFiltre.some((b) => re.test(b))).map(([n]) => n).join(', '));
 }
 if (harStatement) {
   let st = null;
@@ -1413,11 +1432,25 @@ if (harStatement) {
     mål.length > 0 && mål.every((t) => t.package_name === cfg.appId),
     mål.map((t) => t.package_name).join(', ') || 'ingen');
   /* Uten et fingeravtrykk er statementet en påstand om ingenting: Android
-     sammenligner signaturen på den installerte APK-en mot denne lista. */
-  check(STATEMENT + ' oppgir minst ett SHA-256-fingeravtrykk per oppføring',
-    mål.length > 0 && mål.every((t) => Array.isArray(t.sha256_cert_fingerprints)
-      && t.sha256_cert_fingerprints.length > 0),
-    mål.map((t) => (t.sha256_cert_fingerprints || []).length + ' avtrykk').join(', ') || 'ingen');
+     sammenligner signaturen på den installerte APK-en mot denne lista.
+
+     FORMEN kreves, ikke bare at lista er ikke-tom. En plassholder (`"TODO"`,
+     `""`) er nøyaktig den samme stille feilen som en manglende fil: Android
+     matcher den aldri mot et sertifikat, verifiseringen faller, og lenken
+     åpner browseren som før. Et SHA-256-avtrykk er 32 heksbyte skilt med
+     kolon — den formen kan sjekkes her, mens om det er RIKTIG nøkkel bare kan
+     avgjøres av en enhet. */
+  const SHA256 = /^[0-9a-f]{2}(:[0-9a-f]{2}){31}$/i;
+  const avtrykk = mål.flatMap((t) => (Array.isArray(t.sha256_cert_fingerprints)
+    ? t.sha256_cert_fingerprints : []));
+  const ugyldige = avtrykk.filter((f) => typeof f !== 'string' || !SHA256.test(f.trim()));
+  check(STATEMENT + ' oppgir minst ett SHA-256-fingeravtrykk per oppføring, på riktig form',
+    mål.length > 0
+      && mål.every((t) => Array.isArray(t.sha256_cert_fingerprints)
+        && t.sha256_cert_fingerprints.length > 0)
+      && ugyldige.length === 0,
+    ugyldige.length ? 'ikke et SHA-256-avtrykk: ' + ugyldige.map((f) => JSON.stringify(f)).join(', ')
+      : avtrykk.length + ' avtrykk');
   /* Den halvdelen som ikke ligger i noen av de to filene: at originet faktisk
      SERVERER den. `build.js` dropper prikk-kataloger — se blokken over. */
   check(STATEMENT + ' blir faktisk publisert (build.js kopierer den til dist/)',

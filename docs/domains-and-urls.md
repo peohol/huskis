@@ -361,11 +361,19 @@ på** — og den er ikke `huskis.no` i tre av de fire e-postene Huskis sender:
 | Bekreft registrering (`signUp`) | `<prosjekt>.supabase.co/auth/v1/verify?…&redirect_to=https://huskis.no/` | browseren åpner, tokenet verifiseres, og svaret er 303 til `huskis.no/#access_token=…&type=signup`. Kontoen ER bekreftet; sesjonen havner i browseren, og appen står igjen ulogget. Brukeren går tilbake og logger inn med passordet sitt. |
 | Tilbakestill passord (`resetPasswordForEmail`) | samme verify-adresse, `type=recovery` | browseren åpner, `PASSWORD_RECOVERY` fyrer DER, og det nye passordet settes i browseren. Appen merker ingenting; neste innlogging i appen bruker det nye passordet. |
 | Bekreft ny e-postadresse (`updateUser({ email })`) | samme verify-adresse, `type=email_change` | adressen byttes serverside, i browseren. Appens sesjon fortsetter uendret. |
-| Delingsinvitasjon (Resend, `send_invite_email()`) | `https://huskis.no/` — `?signup=<e-post>` til en uregistrert mottaker | den ENESTE lenken som peker rett på det kanoniske originet. Den bærer ingen sesjon; den åpner bare appen på nett. |
+| Delingsinvitasjon (Resend, `send_invite_email()`) | `https://huskis.no/` — `?signup=<e-post>` til en uregistrert mottaker | peker rett på det kanoniske originet, men bærer ingen sesjon; den åpner bare appen på nett. |
+| Varsel om endret adresse (*Email address changed*) | ingen handlingslenke — men fotnoten i begge språkseksjonene ankrer `https://huskis.no/` | et varsel, ikke en handling: den skal bare ta en bruker som ikke kjenner seg igjen til innloggingssiden, der «Glemt passord?» står. |
+
+De to nederste er altså de eneste som peker rett på `huskis.no`, og ingen av
+dem bærer en sesjon. «Ingen lenke» om varselet i «Auth-e-postmalene» under
+betyr ingen HANDLINGSlenke (`{{ .ConfirmationURL }}`) — fotnotens anker er noe
+annet.
 
 **Ingen av de tre første er ødelagt av å havne i browseren.** Hele handlingen
-fullføres der — det appen mangler er sesjonen, og prisen er én ekstra
-innlogging. At det ikke er verre henger på flyttypen: klienten lar
+fullføres der. For registrering og passordgjenoppretting er det appen mangler
+sesjonen, og prisen er én ekstra innlogging. Adressebyttet koster ikke engang
+det: det starter fra en app som allerede er innlogget, og den sesjonen
+fortsetter uendret. At det ikke er verre henger på flyttypen: klienten lar
 `flowType` stå på supabase-js' standard `implicit`
 (`ensureClient()` i `app.js` setter den ikke), så tokenene kommer i
 FRAGMENTET. Var flyten PKCE, ville lenken båret en `?code=` som må byttes inn
@@ -397,8 +405,10 @@ fanget**: verten i lenken er `*.supabase.co`, ikke `huskis.no`. Et intent-filter
 for `huskis.no` ser den aldri, og 303-en videre skjer INNE i browseren — en
 serverredirect uten en ny brukerhandling leverer ikke fra seg til en app. Vi
 kan heller ikke legge et statement på `*.supabase.co`; det originet er ikke
-vårt. Bare delingsinvitasjonen — den ene lenken som allerede peker på
-`huskis.no` — ville blitt fanget, og den er den ene som ikke bærer noen sesjon.
+vårt. Det som ville blitt fanget er de to nederste radene i tabellen —
+delingsinvitasjonen og fotnoten i varselet om endret adresse — og de er nettopp
+de to som ikke bærer noen sesjon: appen ville åpnet på startsiden sin, som er
+det browseren gjør i dag.
 
 Å flytte verten til `huskis.no` er mulig, men er **fire koblede endringer**, tre
 av dem utenfor denne fila og to av dem utenfor dette repoet:
@@ -422,7 +432,7 @@ av dem utenfor denne fila og to av dem utenfor dette repoet:
 
 **Beslutningen: App Links utsettes til fase 6**, sammen med signeringsnøkkelen,
 og vurderes da mot om det fortsatt er verdt fire koblede endringer for å spare
-brukeren én innlogging. iOS Universal Links har nøyaktig den samme strukturen
+brukeren én innlogging i de to flytene som faktisk koster en. iOS Universal Links har nøyaktig den samme strukturen
 (`apple-app-site-association` i stedet for `assetlinks.json`) og hører til fase
 7. Inntil da er regelen at halvdelene aldri innføres hver for seg: en halv App
 Link verifiserer ingenting, lenken åpner browseren nøyaktig som før, og
