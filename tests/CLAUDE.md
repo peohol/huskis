@@ -80,6 +80,13 @@ enhver skrivemåte, også markup satt sammen av strengbiter). Der en tekstvakt
 kan omgås av en ny staving, er svaret et annet slag net — ikke et finere
 mønster.
 
+Og der et net ikke NÅR fram, er svaret å knytte det utilgjengelige til det
+tilgjengelige. Nettlesertesten kan ikke kjøre mot den pakkede APK-builden —
+den har ingen mock-backend, så testen kommer ikke forbi innlogging. I stedet
+kreves de synkede assetene byte for byte lik kildene (`index.html` modulo
+build-ID), og da gjelder alt de to nettene beviser om kildene også for det som
+faktisk pakkes.
+
 Et kjørende net må da også nå HELE DOM-et. `querySelectorAll` går ikke inn i en
 shadow root, og en lukket rot kan ikke nås utenfra i det hele tatt — så
 `external-links.test.js` kroker `attachShadow` med `addInitScript` FØR appen

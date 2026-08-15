@@ -22,7 +22,9 @@
        `[formaction]`, `base[href]` og `meta[http-equiv=refresh]`
     2. Det samme etter at nav-modalen og en objektmeny er åpnet (de bygger mye
        markup som ikke finnes ved første render)
-    3. Ingen `target="_blank"` noe sted i DOM-et
+    3. Ingen `target="_blank"` — sjekket i HVER av tilstandene over, ikke bare
+       til slutt: en lenke som bare finnes mens en overlay står åpen, er borte
+       fra DOM-et igjen når den lukkes
 
   Kjøres på BÅDE desktop- og mobil-viewport: markup bygges betinget av layout.
 
@@ -163,10 +165,20 @@ async function run(navn, viewport) {
     return H && H.authUser && H.lastMy && H.state.universes.length > 0;
   }, null, { timeout: 8000, polling: 200 });
 
+  /* Begge revisjonene kjøres i HVER rendret tilstand, ikke bare til slutt.
+     En `target="_blank"` som bare finnes mens nav-modalen står åpen, er borte
+     fra DOM-et igjen når modalen lukkes — en avsluttende `_blank`-sjekk ville
+     aldri sett den, og destinasjonssjekken slipper den forbi fordi origin er
+     appens eget. Det er nettopp en slik lenke som åpner en ny fane. */
+  const revider = async (hva) => {
+    const d = await destinasjoner(p);
+    log(navn + ': ingen utgående destinasjon ' + hva, d.length === 0, d.join(', ') || 'ingen');
+    const b = await blanke(p);
+    log(navn + ': ingen target="_blank" ' + hva, b.length === 0, b.join(', ') || 'ingen');
+  };
+
   // 1. Grunnvisningen, med innhold på alle fire nivåene rendret.
-  let d = await destinasjoner(p);
-  log(navn + ': ingen utgående destinasjon i DOM-et etter render',
-    d.length === 0, d.join(', ') || 'ingen');
+  await revider('i DOM-et etter render');
 
   // Brukerteksten inneholder en URL. Den skal være TEKST — finner vi den som
   // en lenke, er «URL-er i brukertekst» blitt klikkbart uten at beslutningen
@@ -182,9 +194,7 @@ async function run(navn, viewport) {
   //    render — begge må inspiseres mens de står åpne.
   await p.evaluate(() => window.__huskis.openNavModal());
   await p.waitForTimeout(400);
-  d = await destinasjoner(p);
-  log(navn + ': ingen utgående destinasjon med nav-modalen åpen',
-    d.length === 0, d.join(', ') || 'ingen');
+  await revider('med nav-modalen åpen');
   await p.keyboard.press('Escape');
   await p.waitForTimeout(250);
 
@@ -192,20 +202,14 @@ async function run(navn, viewport) {
   if (await meny.count()) {
     await meny.click();
     await p.waitForTimeout(300);
-    d = await destinasjoner(p);
-    log(navn + ': ingen utgående destinasjon med objektmenyen åpen',
-      d.length === 0, d.join(', ') || 'ingen');
+    await revider('med objektmenyen åpen');
     await p.keyboard.press('Escape');
     await p.waitForTimeout(200);
   } else {
     log(navn + ': objektmenyen finnes å åpne', false, 'fant ingen .obj-menu-btn');
   }
 
-  // 3. Ingen ny fane noe sted.
-  const b = await blanke(p);
-  log(navn + ': ingen target="_blank" i DOM-et', b.length === 0, b.join(', ') || 'ingen');
-
-  // 4. Shadow-registeret: kroken må stå, ellers har sjekkene over bare sett
+  // 3. Shadow-registeret: kroken må stå, ellers har sjekkene over bare sett
   //    lysets DOM uten å vite det.
   const s = await skygger(p);
   log(navn + ': shadow-kroken står, og hver rot er talt (også de lukkede)',

@@ -885,7 +885,11 @@ const UT_MØNSTRE = [
   /* `setAttributeNS(null, 'href', …)` setter den samme navigerbare
      egenskapen. Navnerom-argumentet står FØRST, så attributtnavnet er andre
      argument — derfor den valgfrie ledeparameteren i mønsteret. */
-  ['setAttribute', /(?:\??\.\s*setAttribute(?:NS)?|\[\s*["'`]setAttribute(?:NS)?["'`]\s*\])(?:\?\.)?\s*\(\s*(?:[^,()]*,\s*)?["'`](?:xlink:)?(?:href|(?:form)?action|http-equiv)["'`]\s*,/gi],
+  /* `target` er med av samme grunn som destinasjonene: `_blank`-mønsteret ser
+     bare skrivemåten `target=…`, og `el.setAttribute('target', v)` har ingen
+     slik form — verdien kan dessuten være en variabel. Appen setter ingen
+     `target` noe sted, så attributtet flagges uansett verdi. */
+  ['setAttribute', /(?:\??\.\s*setAttribute(?:NS)?|\[\s*["'`]setAttribute(?:NS)?["'`]\s*\])(?:\?\.)?\s*\(\s*(?:[^,()]*,\s*)?["'`](?:xlink:)?(?:href|(?:form)?action|http-equiv|target)["'`]\s*,/gi],
   ['.href =', /(?:^|[^.\w$])(?!location\b)[\w$\])]+\s*(?:\.\s*(?:href|formAction|action)|\[\s*["'`](?:href|formaction|action)["'`]\s*\])\s*(?:\*\*|<<|>>>?|\|\||&&|\?\?|[-+*/%|&^])?=(?!=)/gim],
   /* `[\t\n\r]*` mellom hvert tegn: URL-parseren stryker de tre tegnene overalt
      i en adresse, så `href="ht\ttps://x"` er den samme utgående lenken. Den
@@ -1275,6 +1279,55 @@ if (fs.existsSync(SYNKET)) {
   check('web-assetene cap sync KOPIERTE inn i APK-en har ingen utgående lenke',
     synketAntall > 0 && synketTreff.length === 0,
     synketTreff.join(', ') || synketAntall + ' filer skannet');
+
+  /* Sterkere enn å skanne kopien med de samme mønstrene: å BEVISE at kopien er
+     bygget. `build.js` kopierer hver fil uendret og rører bare to av dem —
+     index.html (build-ID + `?b=`) og den genererte version.json. Alt annet i
+     APK-en skal derfor være byte for byte kilden i repoet.
+
+     Da trenger ingen skrivemåte å gjenkjennes. En lenke satt sammen av
+     strengbiter, en endret vendor-bunt, hva som helst injisert i den PAKKEDE
+     builden er en byte-forskjell — mønstrene over kan omgås, dette kan ikke.
+     Det er også det eneste som faktisk etterprøver vendor-fritaket: skanningen
+     hopper over den pinnede bunten på NAVN, med den begrunnelsen at den er
+     byte for byte det npm publiserte, og her måles det.
+
+     Filer UTEN kilde i repoet felles IKKE: Capacitor legger selv runtime-filer
+     i den kopierte katalogen (`cordova.js`, `cordova_plugins.js` …). De dekkes
+     av mønsterskanningen over, som før — en ukjent fil skal ikke gi rød CI bare
+     for å være Capacitors egen. */
+  const GENERERT = new Set(['index.html', 'version.json']);
+  const avvik = [];
+  let sammenlignet = 0;
+  const alleSynkede = (function les(dir) {
+    return fs.readdirSync(dir, { withFileTypes: true })
+      .flatMap((d) => (d.isDirectory() ? les(path.join(dir, d.name)) : [path.join(dir, d.name)]));
+  }(SYNKET));
+  for (const q of alleSynkede) {
+    const rel = path.relative(SYNKET, q);
+    if (GENERERT.has(rel)) continue;
+    const kilde = path.join(ROOT, rel);
+    if (!fs.existsSync(kilde)) continue;
+    sammenlignet++;
+    if (!fs.readFileSync(q).equals(fs.readFileSync(kilde))) avvik.push(rel);
+  }
+  /* index.html sammenlignes mot build.js' EGEN stempling, med build-ID-en lest
+     ut av den pakkede fila. `keep` prøves begge veier: en preview-deploy
+     beholder testmodusen, en produksjonsbuild river den ut. */
+  const synketHtml = path.join(SYNKET, 'index.html');
+  if (fs.existsSync(synketHtml)) {
+    const pakket = fs.readFileSync(synketHtml, 'utf8');
+    const id = (pakket.match(/<meta\s+name="huskis-build"\s+content="([^"]*)"/) || [, null])[1];
+    const { stampHtml } = require(path.join(ROOT, 'build.js'));
+    sammenlignet++;
+    const passer = id !== null && [false, true].some((keep) => {
+      try { return stampHtml(indexHtml, id, keep) === pakket; } catch (e) { return false; }
+    });
+    if (!passer) avvik.push('index.html (er ikke stampHtml(kilden, "' + id + '"))');
+  }
+  check('de synkede web-assetene er byte for byte kildene (index.html modulo build-ID)',
+    sammenlignet > 0 && avvik.length === 0,
+    avvik.join(', ') || sammenlignet + ' filer identiske med kilden');
 } else {
   console.log('(hopper over de synkede web-assetene — kjør `npm run sync:android` først)');
 }

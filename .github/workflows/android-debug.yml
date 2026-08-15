@@ -24,6 +24,12 @@ on:
       - 'package-lock.json'
       - 'build.js'
       - '.github/workflows/android-debug.yml'
+      # Testen selv: den har sjekker som BARE kjører etter `cap sync` (den
+      # genererte konfigurasjonen, de kopierte web-assetene). Den vanlige
+      # node-runden kjører i et rent utsjekk der de grenene hopper over seg
+      # selv, så en PR som bare rører denne fila ville endret dem uten at noen
+      # jobb kjørte dem.
+      - 'tests/capacitor-android.test.js'
 
 concurrency:
   group: android-debug-${{ github.event.pull_request.number || github.ref }}
