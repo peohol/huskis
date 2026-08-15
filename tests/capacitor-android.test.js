@@ -281,6 +281,29 @@ check('iOS-plattformen er ikke innført ennå',
 /* Fase 1 skal ikke ha pushvarsler, biometrikk, haptics eller andre native
    plugins. Alt utover kjernen + plattformen er derfor en regresjon her, og skal
    komme som en bevisst endring i en senere fase. */
+/* npm-lista over holder Capacitor-plugins i sjakk, men den sier ingenting om
+   GRADLE-avhengigheter. Et hvilket som helst bibliotek på appmodulens
+   `implementation`-liste bidrar med sitt eget manifest, som Gradle merger inn i
+   appens — inkludert intent-filtre. Manifestet inne i en AAR kan ikke leses
+   herfra (den lastes ned ved bygg), så det som kan låses er HVILKE biblioteker
+   som finnes. Da må et nytt innom denne sjekken, og den som legger det inn må
+   ta stilling til hva det bidrar med. `testImplementation`/`androidTest…`
+   er utenfor: de pakkes ikke i appen. */
+const IMPLEMENTASJON = [
+  "fileTree(include: ['*.jar'], dir: 'libs')",
+  'androidx.appcompat:appcompat:$androidxAppCompatVersion',
+  'androidx.activity:activity:$androidxActivityVersion',
+  'androidx.coordinatorlayout:coordinatorlayout:$androidxCoordinatorLayoutVersion',
+  'androidx.core:core-splashscreen:$coreSplashScreenVersion',
+  "project(':capacitor-android')",
+  "project(':capacitor-cordova-android-plugins')",
+];
+const implLinjer = [...kode(appGradle).matchAll(/^\s*implementation\s+(?:"([^"]*)"|'([^']*)'|(.+))$/gm)]
+  .map((m) => (m[1] !== undefined ? m[1] : m[2] !== undefined ? m[2] : m[3]).trim());
+const nyeImpl = implLinjer.filter((l) => IMPLEMENTASJON.indexOf(l) === -1);
+check('ingen nye Gradle-avhengigheter i appmodulen (et nytt bibliotek merger sitt eget manifest inn)',
+  implLinjer.length === IMPLEMENTASJON.length && nyeImpl.length === 0,
+  nyeImpl.join(', ') || implLinjer.length + ' kjente implementation-linjer');
 const capPakker = Object.keys(alleDeps).filter((d) => d.startsWith('@capacitor/'));
 check('ingen native Capacitor-plugins utover kjerne, cli og android',
   capPakker.every((d) => CAP.indexOf(d) > -1), capPakker.join(', '));
@@ -1424,8 +1447,11 @@ const STATEMENT = path.join('.well-known', 'assetlinks.json');
    altså i samme bås som `test/` og `androidTest/`: ikke produksjon.
 
    Et filter som kommer fra en AVHENGIGHET kan ikke leses herfra, men
-   avhengighetene er selv låst — se sjekken i del 7 på at det ikke finnes
-   Capacitor-plugins utover kjernen. */
+   avhengighetene er selv låst — del 7 låser BÅDE npm-plugin-lista og appmodulens
+   `implementation`-liste, så et bibliotek som kunne bidra med et filter må innom
+   en sjekk først. Grensen er ekte: manifestet INNE i en AAR kan ikke leses fra
+   repoet, så det som er låst er hvilke biblioteker som finnes — ikke hva hvert
+   av dem erklærer. */
 /* En ALLELISTE, ikke en nektliste. Med «alt unntatt debug/test/androidTest»
    ville et hvilket som helst nytt source set — en `staging`-buildtype, en
    produktvariant — blitt talt med i release-varianten uten å være det. Kun
@@ -1507,6 +1533,12 @@ const kanoniskKomp = (n) => (n == null ? null
 const komponenter = manifestFiler.flatMap((p) => {
   const tekst = xmlNormalisert(utenXmlKommentarer(fs.readFileSync(p, 'utf8')));
   const fil = path.relative(ROOT, p);
+  /* `android:permission` på `<application>` gjelder hver komponent som ikke
+     setter sin egen. En browser uten den tillatelsen kan ikke starte
+     komponenten, og App Link-en er død — selv om alt annet står riktig. */
+  const appTillatelse = ((tekst.match(/<application\b[^>]*>/) || [''])[0]
+    .match(/android:permission\s*=\s*(?:"([^"]*)"|'([^']*)')/) || [])
+    .slice(1).find((v) => v !== undefined) || null;
   return [...tekst.matchAll(KOMPONENT), ...tekst.matchAll(KOMPONENT_TOM)].map((k) => {
     /* Attributtene leses av ÅPNINGSTAGGEN alene. Leste vi hele blokken, ville
        en komponent uten `android:name` fått navnet til den første `<action>`
@@ -1529,6 +1561,9 @@ const komponenter = manifestFiler.flatMap((p) => {
          intent-oppslag. Filteret ville sett komplett ut her og aldri blitt
          truffet på telefonen. */
       aktivert: attributt('android:enabled'),
+      /* Komponentens egen overstyrer `<application>`s. */
+      tillatelse: attributt('android:permission') != null
+        ? attributt('android:permission') : appTillatelse,
       /* Samme lookbehind som på komponenten, og av samme grunn: et TOMT filter
          (`<intent-filter android:autoVerify="true" />`) har ingen sluttagg, og
          uten den ville mønsteret slått det sammen med det NESTE filteret til én
@@ -1552,6 +1587,7 @@ for (const k of komponenter) {
   komponentAttr.set(k.navn, {
     eksportert: før.eksportert != null ? før.eksportert : k.eksportert,
     aktivert: før.aktivert != null ? før.aktivert : k.aktivert,
+    tillatelse: før.tillatelse != null ? før.tillatelse : k.tillatelse,
   });
 }
 const intentFiltre = komponenter.flatMap((k) => k.filtre.map((blokk) => ({
@@ -1561,6 +1597,7 @@ const intentFiltre = komponenter.flatMap((k) => k.filtre.map((blokk) => ({
   peker: k.mål,
   eksportert: (komponentAttr.get(k.navn) || {}).eksportert,
   aktivert: (komponentAttr.get(k.navn) || {}).aktivert,
+  tillatelse: (komponentAttr.get(k.navn) || {}).tillatelse,
   blokk,
 })));
 /* XML tillater BEGGE anførselstegn: `android:scheme='https'` er nøyaktig like
@@ -1651,6 +1688,9 @@ if (harFilter) {
   check('App Links: MainActivity er eksportert (ellers kan ingen browser starte den)',
     påMain.length > 0 && påMain.every((f) => f.eksportert === 'true'),
     påMain.map((f) => f.komponent + ': android:exported=' + JSON.stringify(f.eksportert)).join(', ') || 'ingen');
+  check('App Links: komponenten er ikke låst bak en tillatelse (browseren har den ikke)',
+    påMain.length > 0 && påMain.every((f) => f.tillatelse == null),
+    påMain.map((f) => f.komponent + ': android:permission=' + JSON.stringify(f.tillatelse)).join(', ') || 'ingen');
   check('App Links: komponenten er ikke slått av (android:enabled="false")',
     påMain.length > 0 && påMain.every((f) => f.aktivert !== 'false'),
     påMain.map((f) => f.komponent + ': android:enabled=' + JSON.stringify(f.aktivert)).join(', ') || 'ingen');
