@@ -446,10 +446,11 @@ check('android/app/build.gradle har androidx.activity på kompileringsstien',
    ingen kode for dette — og nettopp derfor er det de to måtene å MISTE regelen
    på som må voktes:
 
-     a) `server.allowNavigation` slipper navngitte verter INN i WebView-en, som
-        har Huskis' localStorage, Supabase-sesjonen og Capacitor-broen i samme
-        kontekst. En side som lastes der er ikke et faneskifte, den er innsiden
-        av appen;
+     a) `server.allowNavigation` slipper navngitte verter INN i WebView-en. Web
+        Storage er origin-skilt, så en slik side ser IKKE Huskis' localStorage
+        eller Supabase-sesjonen — men Capacitor-broen injiseres i WebView-en og
+        ikke i et bestemt origin, så den kan kalle appens native plugin-er. En
+        side som lastes der er ikke et faneskifte, den er innsiden av appen;
      b) web-kildekoden begynner å produsere utgående lenker uten at noen har
         tatt stilling til hvor de skal havne.
 
@@ -556,11 +557,19 @@ const strippet = (src, modus) => kodeLinjerStreng(src, modus).map((x) => x.l).jo
    `href="https&#58;//x"` er den samme adressen for nettleseren. Referansene
    dekodes derfor før mønstrene kjøres. Ingen av dem inneholder linjeskift, så
    linjenumrene holder. */
+/* Tabulator, linjeskift og vognretur FJERNES i stedet for å dekodes:
+   URL-parseren stryker dem overalt i en adresse, så `href="https&#x0A;://x"`
+   navigerer til `https://x`. Dekodet til et ekte linjeskift ville skjemaet
+   vært delt i to og ingen av mønstrene sett det. Det er bare tegn som
+   FORSVINNER — linjetellingen kan ikke forskyves av det. */
+const URL_USYNLIG = new Set([0x09, 0x0a, 0x0d]);
+const tegn = (kode) => (URL_USYNLIG.has(kode) ? '' : String.fromCodePoint(kode));
 const dekodEntiteter = (t) => t
   /* Semikolon er VALGFRITT: nettleseren dekoder `&#58//x` like godt som
      `&#58;//x`, så mønstrene må se det samme. */
-  .replace(/&#x([0-9a-f]+);?/gi, (_, h) => String.fromCodePoint(parseInt(h, 16)))
-  .replace(/&#(\d+);?/g, (_, d) => String.fromCodePoint(parseInt(d, 10)))
+  .replace(/&#x([0-9a-f]+);?/gi, (_, h) => tegn(parseInt(h, 16)))
+  .replace(/&#(\d+);?/g, (_, d) => tegn(parseInt(d, 10)))
+  .replace(/&(Tab|NewLine);/g, '')
   .replace(/&(colon|sol|period|lpar|rpar|quot|apos|amp);/gi,
     (_, n) => ({ colon: ':', sol: '/', period: '.', lpar: '(', rpar: ')', quot: '"', apos: "'", amp: '&' })[n.toLowerCase()]);
 function strippetMedLinjer(src, modus) {
@@ -601,7 +610,15 @@ function javaFiler(dir, rot) {
     return /\.(java|kt)$/.test(d.name) ? [p] : [];
   });
 }
-const RUTING = /shouldOverrideUrlLoading|setWebViewClient|setWebChromeClient|WebViewClient|WebChromeClient|\bloadUrl\s*\(|\bpostUrl\s*\(|\bloadData(?:WithBaseURL)?\s*\(/;
+/* Lastemetodene fanges i TO former. Kallet er den vanlige (`webView.loadUrl(u)`),
+   men en metodereferanse — `Consumer<String> gå = webView::loadUrl;` i Java,
+   `webView::loadUrl` i Kotlin — laster siden like direkte når den kalles, og
+   har ingen parentes på stedet der navnet står. */
+const LAST_API = 'loadUrl|postUrl|loadData(?:WithBaseURL)?';
+const RUTING = new RegExp('shouldOverrideUrlLoading|setWebViewClient|setWebChromeClient'
+  + '|WebViewClient|WebChromeClient'
+  + '|\\b(?:' + LAST_API + ')\\s*\\('
+  + '|::\\s*(?:' + LAST_API + ')\\b');
 const nativeFiler = javaFiler(NATIV_SRC, true);
 const ruter = nativeFiler.filter((p) => RUTING.test(strippet(fs.readFileSync(p, 'utf8'), 'js')));
 check('det native skallet overtar ikke og hopper ikke over navigasjonsrutingen',
@@ -700,17 +717,21 @@ check('alle web-kildefilene build.js kopierer ut står i WEB_KILDE',
 const MARKUP = '\\b(?:href|(?:form)?action)\\s*=\\s*\\\\?["\']?\\s*';
 const UT_MØNSTRE = [
   ['_blank', /target\s*=\s*["']?_blank/gi],
-  /* Både `window.open(` og den globale, ukvalifiserte `open(` — samme
-     navigasjon. Foranstilt `[^.\w$]` holder `api.open()` og `step.reopen()`
-     utenfor. */
-  ['open()', /(?:^|[^.\w$])(?:window\s*\.\s*)?open\s*\(/gm],
+  /* Alle tre skrivemåtene av det samme: `window.open(`, klammenotasjonen
+     `window['open'](` og den globale, ukvalifiserte `open(`. Foranstilt
+     `[^.\w$]` holder `api.open()` og `step.reopen()` utenfor. */
+  ['open()', /(?:^|[^.\w$])(?:(?:window|self|globalThis|top|parent)\s*\[\s*["'`]open["'`]\s*\]|(?:window\s*\.\s*)?open)\s*\(/gm],
   ['setAttribute', /\.\s*setAttribute\s*\(\s*["'`](?:xlink:)?(?:href|(?:form)?action)["'`]\s*,/gi],
   ['.href =', /(?:^|[^.\w$])(?!location\b)[\w$\])]+\s*(?:\.\s*(?:href|formAction|action)|\[\s*["'`](?:href|formaction|action)["'`]\s*\])\s*(?:\*\*|<<|>>>?|\|\||&&|\?\?|[-+*/%|&^])?=(?!=)/gim],
-  ['skjema i markup', new RegExp(MARKUP + '[a-z][a-z0-9+.\\-]*:', 'gi')],
+  /* `[\t\n\r]*` mellom hvert tegn: URL-parseren stryker de tre tegnene overalt
+     i en adresse, så `href="ht\ttps://x"` er den samme utgående lenken. Den
+     KODEDE formen (`&#x0A;`) er allerede borte når dekoderen har gått, dette
+     dekker den rå. */
+  ['skjema i markup', new RegExp(MARKUP + '[a-z](?:[\\t\\n\\r]*[a-z0-9+.\\-])*[\\t\\n\\r]*:', 'gi')],
   /* Protokoll-relativ, med begge skråstrekene. URL-parseren normaliserer
      omvendt skråstrek til vanlig for spesialskjemaer, så `href="\\\\vert"`
      lander på `//vert` — samme utgående lenke. */
-  ['protokoll-relativ', new RegExp(MARKUP + '[\\\\/]{2}', 'gi')],
+  ['protokoll-relativ', new RegExp(MARKUP + '(?:[\\t\\n\\r]*[\\\\/]){2}', 'gi')],
   /* Deklarativ navigasjon uten en eneste lenke: nettleseren drar av gårde selv.
      Huskis har ÉN http-equiv, og det er innholdssikkerhetspolicyen. */
   ['meta refresh', /http-equiv\s*=\s*["']?refresh/gi],
@@ -844,11 +865,15 @@ for (const f of WEB_KILDE) {
 const byggUt = spawnSync('node', ['build.js'], { cwd: ROOT, encoding: 'utf8' });
 check('node build.js kjører (grunnlaget for skanningen av dist/)', byggUt.status === 0,
   (byggUt.stderr || '').trim().slice(0, 120) || 'ok');
-function distFiler(dir) {
+function distFiler(dir, topp) {
   return fs.readdirSync(dir, { withFileTypes: true }).flatMap((d) => {
-    if (d.name === 'vendor') return [];
+    /* Fritaket gjelder `dist/vendor/` og ingenting annet — samme avgrensning
+       som inventaret over. En generert `dist/assets/vendor/hjelper.js` er ikke
+       den innsjekkede tredjepartskopien, og skal skannes som all annen kode
+       som havner i APK-en. */
+    if (topp && d.name === 'vendor') return [];
     const q = path.join(dir, d.name);
-    return d.isDirectory() ? distFiler(q)
+    return d.isDirectory() ? distFiler(q, false)
       : /\.(html?|[mc]?js|css)$/i.test(d.name) ? [q] : [];
   });
 }
@@ -857,7 +882,7 @@ const distTreff = [];
 let distAntall = 0;
 let guardFritatt = false;
 if (byggUt.status === 0 && fs.existsSync(DIST)) {
-  for (const q of distFiler(DIST)) {
+  for (const q of distFiler(DIST, true)) {
     distAntall++;
     const rel = path.relative(ROOT, q);
     const { tekst, linjeFor } = strippetMedLinjer(fs.readFileSync(q, 'utf8'), modusFor(q));

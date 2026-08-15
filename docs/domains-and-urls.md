@@ -285,9 +285,14 @@ Huskis.
 Tre ting faller utenfor det «alt», og de er listet under «Tre unntak» —
 `<iframe>`, POST-skjemaer og `data:`/`blob:`.
 
-Ingen fremmed adresse skal lastes inne i mobilappens WebView. Den har
-Huskis' `localStorage`, Supabase-sesjonen og Capacitor-broen i samme kontekst;
-en side som lastes der er ikke et «faneskifte», den er innsiden av appen.
+Ingen fremmed adresse skal lastes inne i mobilappens WebView. Faren er ikke at
+den ville lest Huskis' data: Web Storage er origin-skilt, så en side lastet fra
+`example.com` får sitt eget `localStorage` og når hverken vårt eller
+Supabase-sesjonen — å dele WebView gir ingen tilgang på tvers av origin. Det som
+derimot følger med, er **Capacitor-broen**. Den injiseres i WebView-en, ikke i
+et bestemt origin, så en fremmed side som lastes der kan kalle de native
+plugin-ene appen har. Derfor er en side som lastes der ikke et «faneskifte»,
+den er innsiden av appen.
 
 **«Eget origin» med ett forbehold.** Capacitors sammenligning er skjema + vert,
 ikke fullt origin: PORTEN teller ikke. `https://localhost:8443` ville derfor
