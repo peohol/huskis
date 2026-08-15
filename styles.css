@@ -289,6 +289,11 @@
   --on-color-soft: rgba(0, 0, 0, 0.42);
   /* Meta-chipene under navnet. */
   --chip-bg: rgba(255, 255, 255, 0.78);
+  /* Tekst-border for mappetitler/listepunkter (.item-text) — se .item-text for
+     hvorfor: teksten er `--ink`, ikke fast hvit, og trenger derfor ingen kant i
+     lys drakt (av). Mørk drakt slår den på, se der. */
+  --item-text-shadow: none;
+  --item-text-stroke: 0 transparent;
   /* Placeholder-flaten under et drag («hullet» objektet skal falle i). Den
      ligger på board-bakgrunnen ELLER inne i et kort, og må være synlig begge
      steder: en mørkning på en mørk board-bakgrunn er ingenting (1,03:1). */
@@ -388,6 +393,11 @@
   --hairline: rgba(255, 255, 255, 0.16);
   --on-color-soft: rgba(255, 255, 255, 0.62);
   --chip-bg: rgba(0, 0, 0, 0.55);
+  /* `--ink` er nesten hvit her og står oppå en plate som bare mørkner kortfargen
+     30 % (svakere enn den lyse platens 55 % lysning) — samme lesbarhetsproblem
+     som kort-/kategori-tittelen løser med skygge + strek. Slå på samme kant. */
+  --item-text-shadow: var(--text-shadow);
+  --item-text-stroke: 1px #000;
   /* Placeholderen LØFTER i stedet for å mørkne — se kommentaren ved :root.
      Mot board-bakgrunnen: 1,45:1, altså bedre enn den lyse drakts egne 1,22:1.
      Innover-skyggen blir stående svart i begge drakter; det er den som gir
@@ -1304,6 +1314,11 @@ body {
   font-size: var(--fs-base);
   font-weight: 500;
   color: var(--ink);
+  /* Usynlig i lys drakt (av), samme kant som .card-title/.cat-title i mørk —
+     se tokenene ved :root for begrunnelsen. */
+  text-shadow: var(--item-text-shadow);
+  -webkit-text-stroke: var(--item-text-stroke);
+  paint-order: stroke fill;
   cursor: text;
   padding: 2px 4px;
   border-radius: 6px;
