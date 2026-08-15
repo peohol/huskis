@@ -473,14 +473,16 @@ og hører til fase 7.
 Inntil da er regelen at halvdelene aldri innføres hver for seg — og det er verre
 enn stille:
 
-- **fra Android 12** verifiseres et `autoVerify`-filter mot originet. Slår det
-  feil, håndterer appen ikke lenken i det hele tatt: den åpner browseren
-  nøyaktig som før, uten at noe sier fra;
-- **på Android 7–11** (appens `minSdk` er 24) finnes ikke den verifiseringen.
-  Et `BROWSABLE`-filter går der inn i vanlig dyplenke-oppslag, så brukeren kan
-  få en app-velger eller ha satt Huskis som standard — og da BLIR lenken åpnet
-  i appen. Uten lytteren betyr det at `?signup=` forsvinner, altså en synlig
-  regresjon for de brukerne, ikke bare en uteblitt gevinst.
+Verifiseringen av `autoVerify` mot originet har fantes siden Android 6; det
+Android 12 endret er KONSEKVENSEN av at den slår feil:
+
+- **fra Android 12** blir appen ikke tilbudt i det hele tatt når verifiseringen
+  feiler. Lenken åpner browseren nøyaktig som før, uten at noe sier fra;
+- **på Android 7–11** (appens `minSdk` er 24) faller et feilet filter tilbake
+  til vanlig dyplenke-oppslag. Brukeren kan da få en app-velger, eller ha satt
+  Huskis som standard for domenet — og da BLIR lenken åpnet i appen. Uten
+  lytteren forsvinner `?signup=`, altså en synlig regresjon for de brukerne,
+  ikke bare en uteblitt gevinst.
 
 `tests/capacitor-android.test.js` (del 13) er vakten, og den dekker de fire
 sikre punktene over.

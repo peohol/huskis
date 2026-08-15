@@ -1506,8 +1506,18 @@ const komponenter = manifestFiler.flatMap((p) => {
       fil,
       type: k[1],
       navn: attributt('android:name') || '(uten navn)',
+      /* En `activity-alias` ER ikke aktiviteten; den PEKER på den med
+         `android:targetActivity`. Sammenlignes aliasets eget navn med
+         MainActivity, avvises en helt gyldig plassering. */
+      mål: attributt('android:targetActivity'),
       eksportert: attributt('android:exported'),
-      filtre: k[0].match(/<intent-filter\b[\s\S]*?<\/intent-filter>/g) || [],
+      /* Samme lookbehind som på komponenten, og av samme grunn: et TOMT filter
+         (`<intent-filter android:autoVerify="true" />`) har ingen sluttagg, og
+         uten den ville mønsteret slått det sammen med det NESTE filteret til én
+         blokk. Da kunne `autoVerify` kommet fra det tomme og
+         `VIEW`/kategoriene/`data` fra det andre — grønt her, to separate og
+         uverifiserte filtre på telefonen. */
+      filtre: k[0].match(/<intent-filter\b[^>]*(?<!\/)>[\s\S]*?<\/intent-filter>/g) || [],
     };
   });
 });
@@ -1529,6 +1539,7 @@ const intentFiltre = komponenter.flatMap((k) => k.filtre.map((blokk) => ({
   fil: k.fil,
   type: k.type,
   komponent: k.navn,
+  peker: k.mål,
   eksportert: (komponentAttr.get(k.navn) || {}).eksportert,
   blokk,
 })));
@@ -1605,8 +1616,10 @@ if (harFilter) {
      browsable VIEW-intent til en slik komponent — filteret ville sett riktig ut
      her og vært dødt på telefonen. */
   const MAIN = [cfg.appId + '.MainActivity', '.MainActivity'];
-  const påMain = komplette.filter((f) =>
-    MAIN.indexOf(f.komponent) > -1 && /^activity(-alias)?$/.test(f.type));
+  const erMain = (f) => (f.type === 'activity-alias'
+    ? MAIN.indexOf(f.peker) > -1
+    : f.type === 'activity' && MAIN.indexOf(f.komponent) > -1);
+  const påMain = komplette.filter(erMain);
   check('App Links: det komplette filteret sitter på MainActivity (der WebView-en er)',
     påMain.length > 0,
     påMain.length > 0 ? påMain.length + ' filter på ' + påMain[0].komponent
