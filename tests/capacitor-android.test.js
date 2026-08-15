@@ -696,6 +696,13 @@ const UT_MØNSTRE = [
   /* Deklarativ navigasjon uten en eneste lenke: nettleseren drar av gårde selv.
      Huskis har ÉN http-equiv, og det er innholdssikkerhetspolicyen. */
   ['meta refresh', /http-equiv\s*=\s*["']?refresh/gi],
+  /* Vendor-API-er som NAVIGERER for oss. supabase-js sender nettleseren til
+     leverandøren med `location.assign()` inne i biblioteket, så kallstedet
+     her har ingen navigasjon å se — men appen forlater WebView-en like fullt.
+     Huskis bruker e-post + passord og ingen av disse i dag
+     (docs/domains-and-urls.md); tas OAuth i bruk, er det en beslutning som
+     hører hjemme i det dokumentet, ikke en stille tilføyelse. */
+  ['vendor-API som navigerer', /\.\s*(?:signInWithOAuth|linkIdentity)\s*\(/g],
 ];
 const utLenker = [];
 for (const f of WEB_KILDE) {
@@ -775,7 +782,10 @@ check('kjørende webkode navngir ingen andre absolutte adresser enn Supabase-end
    likhetstegnet («location.href =» + adressen på neste linje) har ingenting
    ETTER `=` å matche på, og ville sluppet unna. Lookahead-en skiller den
    likevel fra `==`/`===`. */
-const NAV_KALL = /\blocation\s*\.\s*(?:assign|replace)\s*\(/gm;
+/* `location.assign/replace`, KLAMMENOTASJONEN av de samme
+   (`location['assign'](…)`), og den moderne Navigation API-en
+   (`navigation.navigate(…)`) — alle tre navigerer dokumentet. */
+const NAV_KALL = /\blocation\s*(?:\.\s*(?:assign|replace)|\[\s*["'`](?:assign|replace)["'`]\s*\])\s*\(|(?:^|[^.\w$])(?:window\s*\.\s*)?navigation\s*\.\s*navigate\s*\(/gm;
 /* Ikke bare `.href`: HVER skrivbar del av Location navigerer. Setter du
    `location.host`, `.protocol`, `.pathname` eller `.search`, laster siden på
    nytt mot en ny adresse — like mye en navigasjon som å sette hele href-en.
@@ -787,7 +797,7 @@ const LOC_DEL = 'href|host|hostname|protocol|port|pathname|search|hash';
 const TILDEL = '(?:\\*\\*|<<|>>>?|\\|\\||&&|\\?\\?|[-+*/%|&^])?=(?!=)';
 const NAV_TILDEL = new RegExp(
   '(?:^|[^.\\w$])(?:(?:window|document|self|globalThis|top|parent)\\s*\\.\\s*)?location\\s*'
-  + '(?:\\.\\s*(?:' + LOC_DEL + ')\\s*)?' + TILDEL, 'gm');
+  + '(?:(?:\\.\\s*(?:' + LOC_DEL + ')|\\[\\s*["\'`](?:' + LOC_DEL + ')["\'`]\\s*\\])\\s*)?' + TILDEL, 'gm');
 /* Som lenkesjekkene: mot HELE den strippede fila. Et uttrykk som brekker foran
    egenskapen — `location` på én linje, `.assign(…)` på neste — har ellers ikke
    begge delene på samme linje. */
@@ -840,14 +850,20 @@ if (byggUt.status === 0 && fs.existsSync(DIST)) {
       if (TILLATTE_URL.indexOf(m[1]) === -1) distTreff.push(rel + ' → ' + m[1]);
     }
     /* Også navigasjonsmønstrene: byggesteget kunne like gjerne lagt inn en
-       `location.assign(…)` som en `<a>`. Guardens ene egne navigasjon i
-       index.html er ventet, og trekkes fra. */
+       `location.assign(…)` som en `<a>`.
+
+       Guardens ene egne navigasjon er ventet i dist, og fritas — men per
+       TREFF, ikke per linje. Fritas hele linja, ville en ekstra navigasjon
+       lagt inntil den (`{ location.replace(target); location.assign(target); }`)
+       blitt fritatt på kjøpet. Selve treffet må altså BEGYNNE på guardens
+       form, og bare det første. */
+    let guardFritatt = false;
     for (const re of [NAV_KALL, NAV_TILDEL]) {
       re.lastIndex = 0;
       for (const m of tekst.matchAll(re)) {
-        const linje = (tekst.split('\n')[linjeFor(m.index) - 1] || '').trim();
-        if (/location\.replace\(target\)/.test(linje)) continue;
-        distTreff.push(rel + ':' + linjeFor(m.index) + ' (navigasjon) ' + linje.slice(0, 60));
+        const etter = tekst.slice(m.index, m.index + 40);
+        if (!guardFritatt && /location\.replace\(\s*target\s*\)/.test(etter)) { guardFritatt = true; continue; }
+        distTreff.push(rel + ':' + linjeFor(m.index) + ' (navigasjon) ' + etter.split('\n')[0].trim());
       }
     }
   }
