@@ -237,7 +237,18 @@ check('android: package_name er no.huskis.app',
 const appGradle = les('android/app/build.gradle');
 check('android: applicationId er no.huskis.app', /applicationId "no\.huskis\.app"/.test(appGradle));
 check('android: namespace er no.huskis.app', /namespace = "no\.huskis\.app"/.test(appGradle));
-const manifest = les('android/app/src/main/AndroidManifest.xml');
+/* XML-kommentarene fjernes FØR noe leses. En utkommentert erklæring er ikke i
+   kraft — Android ser den aldri — så en sjekk som leser den står grønn på noe
+   som ikke finnes i appen. Det gjelder like mye `adjustResize` under som
+   App Links-filteret i del 13.
+
+   Det ene ikke-grådige mønsteret er nok her, og det er hele XML-regelen: en
+   kommentar starter på `<!--`, slutter på det FØRSTE `-->`, og kan verken
+   nestes eller inneholde `--`. `kodeLinjerStreng()` lenger nede er bygget for
+   JS/HTML med strenger, regex og skriptområder — overkill for et manifest, og
+   den er dessuten definert først et godt stykke etter dette punktet. */
+const utenXmlKommentarer = (s) => s.replace(/<!--[\s\S]*?-->/g, '');
+const manifest = utenXmlKommentarer(les('android/app/src/main/AndroidManifest.xml'));
 /* Uten INTERNET når appen verken Supabase eller /version.json. */
 check('android: manifestet ber om INTERNET',
   /android\.permission\.INTERNET/.test(manifest));
@@ -1371,9 +1382,27 @@ check('den ene linjen er guardens location.replace(target) i index.html',
    uten at noe sa fra. Den dagen halvdelene innføres, må `build.js` slippe
    katalogen gjennom i samme endring; sjekken under er stedet det oppdages. */
 const STATEMENT = path.join('.well-known', 'assetlinks.json');
-const intentFiltre = manifest.match(/<intent-filter\b[\s\S]*?<\/intent-filter>/g) || [];
-const nettFiltre = intentFiltre.filter((b) => /<data\b[^>]*android:scheme\s*=\s*"https?"/.test(b));
+/* ALLE produksjonsmanifestene, ikke bare `main`. Gradle SLÅR SAMMEN manifestene
+   i source set-ene: et filter lagt i `src/release/AndroidManifest.xml` — en
+   nærliggende plassering nettopp når fase 6 innfører release-signering — havner
+   i den bygde appen uten at `main` endrer seg. Samme avgrensning som
+   rutingsjekken i del 12: `test/` og `androidTest/` teller ikke, de pakkes
+   aldri. Et filter som kommer fra en AVHENGIGHET kan ikke leses herfra, men
+   avhengighetene er selv låst — se sjekken i del 7 på at det ikke finnes
+   Capacitor-plugins utover kjernen. */
+const manifestFiler = (function les(dir, rot) {
+  return fs.readdirSync(dir, { withFileTypes: true }).flatMap((d) => {
+    const p = path.join(dir, d.name);
+    if (d.isDirectory()) return rot && /^(test|androidTest)$/.test(d.name) ? [] : les(p, false);
+    return d.name === 'AndroidManifest.xml' ? [p] : [];
+  });
+}(NATIV_SRC, true));
+const intentFiltre = manifestFiler.flatMap((p) =>
+  (utenXmlKommentarer(fs.readFileSync(p, 'utf8')).match(/<intent-filter\b[\s\S]*?<\/intent-filter>/g) || [])
+    .map((blokk) => ({ fil: path.relative(ROOT, p), blokk })));
+const nettFiltre = intentFiltre.filter(({ blokk }) => /<data\b[^>]*android:scheme\s*=\s*"https?"/.test(blokk));
 const harFilter = nettFiltre.length > 0;
+const filterSteder = [...new Set(nettFiltre.map((f) => f.fil))].join(', ');
 const harStatement = finnes(STATEMENT);
 check('App Links: manifestet og assetlinks.json innføres SAMMEN — eller ingen av dem',
   harFilter === harStatement,
@@ -1392,9 +1421,10 @@ if (harFilter) {
      lenkehåndterer: Android spør brukeren i stedet for å verifisere mot
      originet, og assetlinks.json blir aldri lest. */
   check('App Links: hvert http(s)-intent-filter ber om verifisering (autoVerify)',
-    nettFiltre.every((b) => /android:autoVerify\s*=\s*"true"/.test(b)),
-    nettFiltre.length + ' filtre');
-  const verter = nettFiltre.flatMap((b) => [...b.matchAll(/android:host\s*=\s*"([^"]*)"/g)].map((m) => m[1]));
+    nettFiltre.every(({ blokk }) => /android:autoVerify\s*=\s*"true"/.test(blokk)),
+    nettFiltre.length + ' filtre i ' + filterSteder);
+  const verter = nettFiltre.flatMap(({ blokk }) =>
+    [...blokk.matchAll(/android:host\s*=\s*"([^"]*)"/g)].map((m) => m[1]));
   check('App Links: intent-filtrene navngir kun det kanoniske originets vert',
     kanoniskVert !== '' && verter.length > 0 && verter.every((h) => h === kanoniskVert),
     verter.join(', ') || 'ingen android:host');
@@ -1411,12 +1441,29 @@ if (harFilter) {
     ['category.BROWSABLE', /<category\b[^>]*android:name\s*=\s*"android\.intent\.category\.BROWSABLE"/],
     ['scheme https', /<data\b[^>]*android:scheme\s*=\s*"https"/],
   ];
-  const komplette = nettFiltre.filter((b) => KOMPLETT.every(([, re]) => re.test(b)));
+  const komplette = nettFiltre.filter(({ blokk }) => KOMPLETT.every(([, re]) => re.test(blokk)));
   check('App Links: minst ett filter er komplett (VIEW + DEFAULT + BROWSABLE + https)',
     komplette.length > 0,
     komplette.length > 0 ? komplette.length + ' av ' + nettFiltre.length + ' filtre er komplette'
       : 'ingen komplette; beste filter mangler: ' + KOMPLETT
-        .filter(([, re]) => !nettFiltre.some((b) => re.test(b))).map(([n]) => n).join(', '));
+        .filter(([, re]) => !nettFiltre.some(({ blokk }) => re.test(blokk))).map(([n]) => n).join(', '));
+  /* Et filter er heller ikke nok i seg selv: det bringer bare intenten til
+     aktiviteten. NOEN må lese adressen ut av den og gi den til web-laget.
+     `@capacitor/android` tar vare på den (`Bridge.getIntentUri()`) og varsler
+     plugins ved `onNewIntent`, men ingen kjerneplugin leser den — uten
+     `@capacitor/app` eller egen native kode åpner App Link-en bare Huskis på
+     startsiden sin, og HELE adressen forsvinner.
+
+     Det er et TAP mot i dag, ikke bare en uteblitt gevinst: delingsinvitasjonen
+     lenker til `/?signup=<e-post>`, og `applySignupInvite()` i app.js leser den
+     verdien fra `location.search`. Fanger appen lenken uten å videreformidle
+     URI-en, mister en invitert bruker registreringsflyten sin — noe browseren
+     håndterer riktig i dag. */
+  const leserUri = typeof alleDeps['@capacitor/app'] === 'string'
+    || nativeFiler.some((p) => /getIntentUri|onNewIntent/.test(strippet(fs.readFileSync(p, 'utf8'), 'js')));
+  check('App Links: noe leser den innkommende adressen (ellers mistes ?signup= og alt annet i URL-en)',
+    leserUri,
+    leserUri ? 'URI-en videreformidles' : 'ingen @capacitor/app og ingen native lesing av intent-URI-en');
 }
 if (harStatement) {
   let st = null;

@@ -422,8 +422,12 @@ av dem utenfor denne fila og to av dem utenfor dette repoet:
 - appen måtte fange den innkommende adressen. `@capacitor/android` tar vare på
   intent-URI-en (`Bridge.getIntentUri()`) og varsler plugins ved
   `onNewIntent`, men INGEN kjerneplugin leser den: uten `@capacitor/app` åpner
-  en App Link bare Huskis på startsiden, og tokenet forsvinner. Det ville
-  kostet en native plugin og **en gate til** i web-koden;
+  en App Link bare Huskis på startsiden, og hele adressen forsvinner. Det ville
+  kostet en native plugin og **en gate til** i web-koden. Uten den biten er et
+  intent-filter dessuten et TAP mot i dag, ikke bare en uteblitt gevinst:
+  delingsinvitasjonen lenker til `/?signup=<e-post>`, og `applySignupInvite()`
+  i `app.js` leser den verdien fra `location.search` — en invitert bruker ville
+  mistet registreringsflyten sin til en app som åpner på startsiden;
 - signeringsnøkkelen måtte finnes. Debug-APK-en er signert med Androids
   automatisk genererte debugnøkkel, som er unik per maskin og per CI-kjøring —
   det finnes ikke ett stabilt fingeravtrykk å publisere. Verifisering kan
