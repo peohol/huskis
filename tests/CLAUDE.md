@@ -72,6 +72,28 @@ Tallene er **relative** — fordelingen trenger forholdet mellom filene, ikke
 absolutt veggklokke. En fil som mangler i `durations.json` får medianen av de
 målte, så en ny test ikke tvinger fram en ny måling.
 
+En invariant kan trenge BEGGE slag test. «Appen produserer ingen utgående
+lenker» voktes både av en tekstvakt uten nettleser
+(`capacitor-android.test.js` del 12, som ser en lenke før den er rendret) og av
+en kjørende (`external-links.test.js`, som ser det ferdige DOM-et og dermed
+enhver skrivemåte, også markup satt sammen av strengbiter). Der en tekstvakt
+kan omgås av en ny staving, er svaret et annet slag net — ikke et finere
+mønster.
+
+Og der et net ikke NÅR fram, er svaret å knytte det utilgjengelige til det
+tilgjengelige. Nettlesertesten kan ikke kjøre mot den pakkede APK-builden —
+den har ingen mock-backend, så testen kommer ikke forbi innlogging. I stedet
+kreves de synkede assetene byte for byte lik kildene (`index.html` modulo
+build-ID), og da gjelder alt de to nettene beviser om kildene også for det som
+faktisk pakkes.
+
+Et kjørende net må da også nå HELE DOM-et. `querySelectorAll` går ikke inn i en
+shadow root, og en lukket rot kan ikke nås utenfra i det hele tatt — så
+`external-links.test.js` kroker `attachShadow` med `addInitScript` FØR appen
+kjører, og fører opp hver rot uansett modus. Samme slag blindsone: en
+SVG-`<a>` har `href` som et `SVGAnimatedString`, ikke en streng, så
+destinasjoner leses som ATTRIBUTT og resolveres mot `document.baseURI`.
+
 `tests/shard-distribution.test.js` er vakten: den sjekker at hver testfil havner
 i nøyaktig én shard for alle aktuelle shard-antall. En fil som faller ut mellom
 to shards gir ellers ingen rød CI — bare en test som stille aldri kjøres igjen.

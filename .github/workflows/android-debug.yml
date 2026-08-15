@@ -24,6 +24,12 @@ on:
       - 'package-lock.json'
       - 'build.js'
       - '.github/workflows/android-debug.yml'
+      # Testen selv: den har sjekker som BARE kjører etter `cap sync` (den
+      # genererte konfigurasjonen, de kopierte web-assetene). Den vanlige
+      # node-runden kjører i et rent utsjekk der de grenene hopper over seg
+      # selv, så en PR som bare rører denne fila ville endret dem uten at noen
+      # jobb kjørte dem.
+      - 'tests/capacitor-android.test.js'
 
 concurrency:
   group: android-debug-${{ github.event.pull_request.number || github.ref }}
@@ -65,6 +71,17 @@ jobs:
 
       - name: Kopier dist/ inn i Android-prosjektet
         run: npx cap sync android
+
+      # `cap sync` GENERERER android/app/src/main/assets/capacitor.config.json —
+      # kopien som faktisk pakkes i APK-en. Den finnes ikke i et rent utsjekk,
+      # så sjekken av den hopper over seg selv i den vanlige node-runden
+      # (ci.yml). Her, og bare her, finnes filen: testen kjøres derfor på nytt
+      # etter synkroniseringen, slik at et generasjonssteg som skulle legge
+      # `server.allowNavigation` inn i den pakkede konfigurasjonen faktisk
+      # feller CI. `tests/capacitor-android.test.js` vokter at dette steget står
+      # her.
+      - name: Verifiser den GENERERTE Capacitor-konfigurasjonen
+        run: node tests/capacitor-android.test.js
 
       # Runneren har Android SDK-en forhåndsinstallert, men ikke nødvendigvis
       # akkurat den plattformen prosjektet kompilerer mot. Nivået leses fra

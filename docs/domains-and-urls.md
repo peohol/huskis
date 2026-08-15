@@ -2,11 +2,11 @@
 
 Les denne når oppgaven berører produksjonsdomener, redirecten til det
 kanoniske originet, Supabase Auth-redirects (registrering/glemt
-passord/e-postendring), Resend-e-postenes lenker, eller det pensjonerte
-domenet `huskekurv.vercel.app`. Dette er det **autoritative** stedet for
-domenekonfigurasjon — andre dokumenter (`docs/accounts.md`,
-`docs/arkitektur-brukere-deling.md`, `docs/auto-update.md`) lenker hit i
-stedet for å gjenta detaljene.
+passord/e-postendring), Resend-e-postenes lenker, eksterne lenker ut av appen,
+eller det pensjonerte domenet `huskekurv.vercel.app`. Dette er det
+**autoritative** stedet for domenekonfigurasjon — andre dokumenter
+(`docs/accounts.md`, `docs/arkitektur-brukere-deling.md`,
+`docs/auto-update.md`) lenker hit i stedet for å gjenta detaljene.
 
 ## Domenene
 
@@ -248,6 +248,127 @@ sted i frontend, og skal ikke være det:
 - `update-check.js` henter `/version.json` rot-relativt, altså appens egen
   innebygde fil med appens egen build-ID ([`auto-update.md`](auto-update.md)).
 
+## Eksterne lenker
+
+**Huskis' UI genererer ingen utgående lenker.** Det finnes ikke én `<a>`-tagg
+med en absolutt adresse, ikke ett `target="_blank"` og ikke ett
+`window.open()` i web-kildekoden. De eneste adressene utenfor eget origin som
+i det hele tatt står i frontend er to, og ingen av dem er en navigasjon:
+
+- **Supabase-endepunktet** (`config.js`) — data over `fetch`/WebSocket,
+  navngitt i `connect-src` ([`sikkerhetsheadere.md`](sikkerhetsheadere.md));
+- **`canonicalAppUrl`** (`config.js`) — bygges inn i returadressen Supabase
+  Auth legger i e-postlenkene (se over). Klienten navigerer aldri dit.
+
+Appen navigerer seg selv nøyaktig **ett** sted: `location.replace(target)` i
+guarden øverst i `index.html`, og bare til det kanoniske originet, og bare fra
+en av de tre navngitte redirect-hostene (se «Redirect til det kanoniske
+originet»). I mobilappen er verten `localhost`, som ikke står på den lista, så
+guarden gjør ingenting der — appen kan ikke navigere seg selv ut på nett.
+
+### Regelen
+
+Regelen gjelder uansett hvem som en gang måtte legge inn en lenke, og er
+bevisst kort:
+
+| Adresse | Hvor den åpnes |
+|---|---|
+| Appens eget origin — `https://huskis.no` i browseren, `https://localhost` (de innebygde filene) i mobilappen | **i appen** |
+| Alt annet | **ut av appen** — aldri inne i WebView-en |
+
+«Ut av appen» og ikke «i systembrowseren», fordi Android sender adressen til
+telefonens standardapp FOR DEN adressen: browseren for `http(s):`, men
+e-postklienten for `mailto:`, telefonappen for `tel:`, kartappen for `geo:`.
+Poenget er det samme uansett hvilken app som svarer — siden lastes ikke inne i
+Huskis.
+
+Tre ting faller utenfor det «alt», og de er listet under «Tre unntak» —
+`<iframe>`, POST-skjemaer og `data:`/`blob:`.
+
+Ingen fremmed adresse skal lastes inne i mobilappens WebView. Faren er ikke at
+den ville lest Huskis' data: Web Storage er origin-skilt, så en side lastet fra
+`example.com` får sitt eget `localStorage` og når hverken vårt eller
+Supabase-sesjonen — å dele WebView gir ingen tilgang på tvers av origin. Det som
+derimot følger med, er **Capacitor-broen**. Den injiseres i WebView-en, ikke i
+et bestemt origin, så en fremmed side som lastes der kan kalle de native
+plugin-ene appen har. Derfor er en side som lastes der ikke et «faneskifte»,
+den er innsiden av appen.
+
+**«Eget origin» med ett forbehold.** Capacitors sammenligning er skjema + vert,
+ikke fullt origin: PORTEN teller ikke. `https://localhost:8443` ville derfor
+blitt liggende inne i WebView-en, selv om det er et annet origin enn appens
+`https://localhost`. Det er teoretisk i dag — appen navngir ingen slik adresse,
+og vakten flagger enhver ny — men regelen skal ikke love mer enn mekanismen
+holder.
+
+**Hvem som håndhever det.** Ingen — i betydningen: ingen Huskis-kode.
+Capacitors egen `BridgeWebViewClient.shouldOverrideUrlLoading()` sender hver
+navigasjon videre til `Bridge.launchIntent()`, som slipper `data:`/`blob:` og
+adresser med appens eget skjema+vert gjennom til WebView-en, og sender alt
+annet ut som en `Intent.ACTION_VIEW` — altså til telefonens standardapp for
+adressen, normalt systembrowseren. Det er nøyaktig regelen over, og den er
+gratis: ingen native plugin, ingen gate i webkoden, ingen linje å vedlikeholde.
+Web-laget kjenner derfor fortsatt native-runtimen på bare ÉN linje (broen for
+tilbakeknappen, [`mobilapp-plan.md`](mobilapp-plan.md)).
+
+**Det ene som kan slå regelen av** er `server.allowNavigation` i
+`capacitor.config.json`: hver oppføring der er en vert `launchIntent()` slipper
+INN i WebView-en i stedet for ut. Feltet skal stå tomt.
+`tests/capacitor-android.test.js` vokter både det og at web-kildekoden ikke
+begynner å produsere utgående lenker.
+
+**Tre unntak fra ordet «alt».** Rutingen avgjør bare det WebView-en spør den
+om, og `launchIntent()` slipper dessuten én kategori gjennom med vilje. Regelen
+over ville vært for bastant uten disse tre:
+
+| Unntak | Hva som faktisk skjer | Hvem som dekker det |
+|---|---|---|
+| **`<iframe>`** | Rutingen ser aldri en innramming | `default-src 'none'` uten `frame-src` ⇒ ingen ramme kan laste noe |
+| **Skjema sendt med POST** | En POST-innsending rapporteres ikke å nå `shouldOverrideUrlLoading` — svaret ville lastet inne i WebView-en | `form-action 'self'` ⇒ et skjema kan bare sendes til eget origin, POST som GET |
+| **`data:` og `blob:`** | `launchIntent()` returnerer eksplisitt `false` for disse: de BLIR i WebView-en | Appen navigerer aldri til en slik adresse — den bruker dem bare til bilder. Vakten flagger et hvilket som helst skjema i `href`/`action`, `data:` inkludert. Se under: at vi lagde URL-en gjør ikke innholdet trygt |
+
+De to første står i policyen
+([`sikkerhetsheadere.md`](sikkerhetsheadere.md)) og er voktet av
+`tests/security-headers.test.js`. Poenget er hvem som dekker hva: for disse tre
+er det ikke Capacitors ruting.
+
+`data:`/`blob:` er verdt et ord til, siden appen faktisk BRUKER dem — avatarbilder
+lages som blob/data-URL-er, og `img-src 'self' data: blob:` tillater nettopp
+det. Et **bilde** er en ressurs, ikke en navigasjon, og det er hele dagens bruk.
+
+At Huskis lager adressen gjør derimot IKKE innholdet trygt. En `data:`- eller
+`blob:`-URL bygget av tekst brukeren har skrevet, eller av noe hentet fra
+nettet, er fremmed innhold i appens innpakning — og siden `launchIntent()`
+slipper begge gjennom, ville et slikt dokument blitt det aktive dokumentet inne
+i WebView-en, med Capacitor-broen tilgjengelig (en `blob:`-URL beholder dessuten
+originet til den som lagde den). Skulle appen en gang NAVIGERE til en slik
+adresse, er kravet derfor at nyttelasten er uavhengig etterprøvd — ikke at vi
+lagde URL-en.
+
+(At POST ikke når `shouldOverrideUrlLoading` er lest, ikke observert på en
+enhet. Det endrer ingenting så lenge `form-action` står — men skulle det
+direktivet noen gang løsnes, er dette hullet det slipper løs.)
+
+### Auth-lenkene i e-post
+
+De kommer fra utsiden og røres ikke av regelen over: brukeren trykker i
+e-postklienten, og Android gir adressen til standardappen for `https://huskis.no`
+— i dag telefonens browser, siden Huskis ikke har noe intent-filter for
+domenet. Bekreftelsen fullføres altså i browseren, og brukeren går tilbake til
+appen og logger inn. At appen selv kan fange lenken er neste punkt i fase 3
+(App Links), ikke dette.
+
+### URL-er i brukerens egen tekst
+
+Skriver noen `https://…` i navnet på et listepunkt, vises det som ren tekst.
+Det er **ikke** klikkbart, og det forblir det inntil videre: å gjøre det
+klikkbart er en produktendring med egne spørsmål (autolinking-heuristikk,
+hvordan det spiller med inline-redigering og dra-og-slipp, `rel`-attributter),
+ikke en native integrasjon. Beslutningen her er bare hvor en slik lenke ville
+havnet den dagen den lages — systembrowseren, etter tabellen over, uten ny
+native kode. Vakten i `tests/capacitor-android.test.js` feiler hvis noen legger
+inn en utgående lenke uten å komme innom denne seksjonen.
+
 ## Vercel-konfigurasjonen
 
 Redirect-reglene er **repo-eid**: de ligger i `vercel.json` og deployes med
@@ -333,6 +454,26 @@ aktiv på samme måte som for de to andre — kontrollert mot produksjon
 - `supabase/tests/test-email-sharing.sql` — genererte Resend-e-poster
   bruker kanonisk `huskis.no` (ikke `www`) og inneholder aldri det gamle
   domenet.
+- `tests/external-links.test.js` — den KJØRENDE vakten: appen lastes i en ekte
+  nettleser, og det ferdige DOM-et sjekkes for destinasjoner utenfor eget
+  origin. Der spiller stavemåten ingen rolle, så den fanger også markup satt
+  sammen av strengbiter — det en tekstvakt aldri kan love. Den bekrefter også
+  at en URL i et listepunkt forblir ren tekst.
+- `tests/capacitor-android.test.js` — eksterne lenker: `allowNavigation` står
+  tomt (ingen fremmed vert kan lastes INNE i WebView-en), det native skallet
+  overtar ikke navigasjonsrutingen fra Capacitor, web-kildekoden produserer
+  ingen utgående lenke — i markup `href`/`action`/`formaction` med et hvilket
+  som helst skjema eller protokoll-relativ verdi, pluss `target="_blank"` og
+  `window.open()`; fra JS er en destinasjon satt gjennom DOM-et
+  (`setAttribute('href', …)`, `el.href = …`) forbudt UANSETT verdi, siden appen
+  ikke setter én eneste i dag og en variabel ellers ville sluppet forbi. Den ENE
+  navigasjonen appen gjør er guardens `location.replace(target)` — alle former
+  for tilordning teller, også `location = …` og `document.location = …`. Den
+  låser dessuten hvilke fremmede adresser frontend hardkoder til nøyaktig to
+  (Supabase-endepunktet og det kanoniske originet), slik at en ny utgående
+  adresse må innom denne seksjonen uansett hvilket API den brukes gjennom.
+  Skanningen dekker beviselig alle produksjonskildene: lista over filer låses
+  mot det `index.html` faktisk laster.
 - `tests/no-legacy-domain.test.js` — repo-vid tekstvakt: feiler dersom
   `huskekurv` dukker opp utenfor en eksplisitt, begrunnet unntaksliste
   (negative tester, denne fila, `TODO.md`, og de to redirect-kildene
