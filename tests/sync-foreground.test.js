@@ -204,6 +204,18 @@ async function scenario(page) {
     check('nett borte: statusen sier «Frakoblet» uten at navigator.onLine er falsk', frakoblet === true);
     onLineHeleVeien.push(await page.evaluate(() => navigator.onLine));
 
+    /* `save()` planla en debouncet runde (300 ms) i tillegg til de to kalte.
+       Den MÅ ha fyrt — og feilet — før nettet slås på igjen: ellers kunne
+       nettopp den timeren pushet endringen straks klienten ble frisk, og
+       scenarioet ville stått grønt selv med et ødelagt poll. `updateSafety()`
+       er fasiten på hva som er i kø: 'syncing' = runde i lufta eller planlagt,
+       'unsaved' = buffer-skrivingen venter, 'unsynced' = alt er stille, men
+       endringen ligger fortsatt bare her. Ventes på TILSTAND, ikke på klokka. */
+    await page.waitForFunction(() => window.__huskis.updateSafety().reason === 'unsynced', null, { timeout: 8000 });
+    check('nett borte: ingen runde står i kø når nettet slås på igjen — pollet er det eneste igjen',
+      await page.evaluate(() => window.__huskis.updateSafety().reason) === 'unsynced',
+      await page.evaluate(() => window.__huskis.updateSafety()));
+
     // Nettet er tilbake — men INGEN sier fra. Ingen `online`, ingen
     // visibilitychange, ingen ny brukerendring. Da er pollet det eneste igjen.
     await page.evaluate(() => {
