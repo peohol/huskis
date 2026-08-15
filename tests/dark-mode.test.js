@@ -280,8 +280,22 @@ async function seed(p) {
     etter.finnes && etter.verdi === 'Halvskrevet navn' && etter.fokusert, etter);
   check('…og kortfargene fulgte drakten kirurgisk (mørkt sett)',
     /^#[0-9a-f]{6}$/i.test(etter.kortfarge) && hsl(etter.kortfarge).l < 50, etter.kortfarge);
+
+  /* Den utsatte rendringen må faktisk KOMME. Escape går gjennom
+     `editText.finish(false)`, som bare bytter noden tilbake og rendrer
+     ingenting av seg selv — uten køen ville palettflater som ikke er kort
+     (ansvarssirklene, malt inline av respAvatar) blitt stående i den gamle
+     drakten på ubestemt tid. At board-noden er byttet ut er beviset på at
+     rendringen kjørte. */
+  await p.evaluate(() => { window.__kortFor = document.querySelector('#board .card'); });
   await p.keyboard.press('Escape');
-  await p.waitForTimeout(250);
+  await p.waitForTimeout(350);
+  const flushet = await p.evaluate(() => ({
+    rendret: document.querySelector('#board .card') !== window.__kortFor,
+    feltBorte: !document.querySelector('#board .edit-input'),
+  }));
+  check('den utsatte rendringen kjøres når redigeringen avsluttes (Escape)',
+    flushet.rendret && flushet.feltBorte, flushet);
 
   await p.emulateMedia({ colorScheme: null });
   await ctx.close();

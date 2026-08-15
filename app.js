@@ -3565,6 +3565,9 @@
       delete displayEl.dataset.editing;
       if (commit) onSave(val);
       else if (opts.onCancel) opts.onCancel();
+      // Redigeringen er over — kjør det som ble utsatt mens den pågikk.
+      // Etter onSave/onCancel, så en rendring de selv utløser kommer først.
+      flushDeferredRender();
     };
     input.addEventListener('blur', () => finish(true));
     input.addEventListener('keydown', (e) => {
@@ -4182,6 +4185,7 @@
     // som draget er over; `onCardUp` har alt gjort det synkront (drop-tweenen må
     // sikte på den endelige sloten), så der blir dette en no-op.
     scheduleRelayout();
+    flushDeferredRender();   // draget er over — kjør evt. utsatt rendring
   }
 
   /* ------- Avbrutt drag (pointercancel) -------
@@ -7949,6 +7953,27 @@
     if (ae && ae.classList && ae.classList.contains('edit-input')) return true;
     return false;
   }
+  /* Arbeid som ble UTSATT fordi `isBusyEditing()` var sann. Synken har sin egen
+     variant (`cloudAgain`), men den flushes av neste synk-runde; et draktbytte
+     har ingen slik runde å vente på. Uten en kø ville en utsatt rendring aldri
+     kommet: `editText.finish(false)` (Escape) bytter bare noden tilbake og
+     rendrer ingenting, så palettflater som IKKE er kort — ansvarssirklene —
+     ble stående i den gamle drakten på ubestemt tid.
+
+     De to stedene en «opptatt» tilstand kan ta slutt er `editText.finish()`
+     (Enter, klikk ut og Escape går alle gjennom den) og `finishDrag()`. Begge
+     kaller flushDeferredRender(), som selv sjekker om den ANDRE fortsatt
+     pågår — man kan rekke å begynne å dra rett etter en navngiving. */
+  let deferredRender = false;
+  function renderOrDefer() {
+    if (isBusyEditing()) { deferredRender = true; return; }
+    render();
+  }
+  function flushDeferredRender() {
+    if (!deferredRender || isBusyEditing()) return;
+    deferredRender = false;
+    render();
+  }
   /* ---------- Lett, forbigående varsel (ingen fast statusindikator) ---------- */
   let toastTimer = null;
   let toastDismiss = null; // onDismiss for toasten som vises nå (se showToast)
@@ -10166,19 +10191,23 @@
 
      KIRURGISK FØRST, RENDRING ETTERPÅ. `reindexContainerColors` bytter bare
      custom properties på de kortene som allerede står der, og er trygg midt i
-     hva som helst. En full `render()` river derimot ned board-et — og en
-     drakt-endring fra operativsystemet kommer når den kommer, gjerne midt i en
-     inline navngiving. `captureFocusIn` bevarer ikke et åpent `.edit-input`, og
-     en fjernet, fokusert node fyrer ikke pålitelig sin egen `blur`, så teksten
-     brukeren holdt på å skrive ville gått tapt. Samme vakt som synken bruker
-     (`isBusyEditing`, se der): rendringen utsettes, og siden enhver senere
-     endring rendrer likevel, henter de små palettflatene (ansvarssirklene) seg
-     inn i samme øyeblikk redigeringen er ferdig. */
+     hva som helst — drakten slår altså gjennom på board-et umiddelbart,
+     uansett hva brukeren holder på med.
+
+     En full `render()` river derimot ned board-et, og en drakt-endring fra
+     operativsystemet kommer når den kommer — gjerne midt i en inline
+     navngiving. `captureFocusIn` bevarer ikke et åpent `.edit-input`, og en
+     fjernet, fokusert node fyrer ikke pålitelig sin egen `blur`, så teksten
+     brukeren holdt på å skrive ville gått tapt. `renderOrDefer` legger den
+     derfor i kø bak `isBusyEditing()` (se den), og køen tømmes når
+     redigeringen eller draget faktisk er over. Rendringen trengs for de
+     palettflatene som IKKE er kort — ansvarssirklene — som males inline av
+     `respAvatar`. */
   THEME.onChange(() => {
     paintTheme();
     reindexContainerColors(boardScope);
     reindexContainerColors(navScope);   // no-op når nav-modalen er tom
-    if (!isBusyEditing()) render();
+    renderOrDefer();
   });
 
   // E-postvarsel-innstillingen ligger på kontoen (user_metadata.email_notifications).

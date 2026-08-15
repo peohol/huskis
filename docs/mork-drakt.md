@@ -163,12 +163,19 @@ skifter — også når skiftet kom fra operativsystemet mens appen sto åpen.
 
 1. **Kirurgisk, alltid.** `reindexContainerColors` bytter bare custom properties
    på kort som allerede står i DOM-en, i begge scopene.
-2. **Full `render()`, bare når det er trygt** — bak `isBusyEditing()`, samme
-   vakt synken bruker. Et OS-bytte kommer når det kommer, gjerne midt i en
-   inline navngiving, og `render()` fjerner den fokuserte `.edit-input`-noden;
-   `captureFocusIn` bevarer den ikke, og en fjernet, fokusert node fyrer ikke
-   pålitelig sin egen `blur`. Rendringen henter inn de små palettflatene
-   (ansvarssirklene) og kommer uansett ved neste endring.
+2. **Full `render()`, i kø bak `isBusyEditing()`** — samme vakt synken bruker.
+   Et OS-bytte kommer når det kommer, gjerne midt i en inline navngiving, og
+   `render()` fjerner den fokuserte `.edit-input`-noden; `captureFocusIn`
+   bevarer den ikke, og en fjernet, fokusert node fyrer ikke pålitelig sin egen
+   `blur`. Rendringen trengs for de palettflatene som **ikke** er kort —
+   ansvarssirklene, som `respAvatar` maler inline.
+
+   Den må derfor **komme**, ikke bare hoppes over: `renderOrDefer()` setter et
+   flagg, og `flushDeferredRender()` tømmer det de to stedene en «opptatt»
+   tilstand kan ta slutt — `editText.finish()` (Enter, klikk ut og Escape går
+   alle gjennom den) og `finishDrag()`. Uten køen ville Escape vært en blindvei:
+   `finish(false)` bytter bare noden tilbake og rendrer ingenting, så
+   ansvarssirklene ble stående i den gamle drakten på ubestemt tid.
 
 ## Kontrasten er målt, ikke valgt
 
