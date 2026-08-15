@@ -471,24 +471,49 @@ if (finnes(APK_CFG)) {
 check('det native skallet overtar ikke navigasjonsrutingen fra Capacitor',
   !/shouldOverrideUrlLoading|setWebViewClient|setWebChromeClient|WebViewClient/.test(kode(mainAct)));
 
+/* WEB_KILDE er en fast liste, og både sjekken under og del 9 leser kun den. Et
+   nytt produksjonsskript i index.html ville derfor sluppet forbi begge uten at
+   noe sa fra — det ville havnet i `dist/`, men aldri blitt skannet. Lista låses
+   derfor mot det index.html FAKTISK laster. To ting holdes utenfor med vilje:
+   tredjepartskopien i `vendor/` (byte for byte det npm publiserte, voktet i
+   tests/security-headers.test.js) og testmodus-blokken, som build.js river ut
+   av produksjonsbygget. */
+const utenKunDev = indexHtml.replace(/huskis:kun-dev:start[\s\S]*?huskis:kun-dev:slutt/g, '');
+const lastet = [
+  ...utenKunDev.matchAll(/<script[^>]*\ssrc="([^"]+)"/g),
+  ...utenKunDev.matchAll(/<link[^>]*\srel="stylesheet"[^>]*\shref="([^"]+)"/g),
+].map((m) => m[1]).filter((s) => !s.startsWith('vendor/'));
+const uskannet = lastet.filter((s) => WEB_KILDE.indexOf(s) === -1);
+check('alle produksjonskildene index.html laster står i WEB_KILDE (og blir dermed skannet)',
+  lastet.length > 0 && uskannet.length === 0, uskannet.join(', ') || lastet.join(', '));
+
 /* Web-siden av regelen. Kjørende kode i ALLE web-kildefilene: kommentarer og
    dokumentasjon får omtale lenker fritt. */
 const utLenker = [];
 for (const f of WEB_KILDE) {
-  const k = kodeLinjer(les(f));
-  for (const { nr, l } of k) {
+  const raa = les(f).split('\n');
+  for (const { nr, l } of kodeLinjer(les(f))) {
     /* `target=_blank` (med eller uten anførselstegn), `window.open(`, og en
-       `href`/`action` med en absolutt adresse eller et fremmed skjema. Merk at
-       `a[href]` i fokus-selektoren i app.js IKKE treffer: her kreves et
-       likhetstegn og en verdi. */
+       `href`/`action` med et hvilket som helst skjema. Skjemaet listes ikke
+       opp: alt annet enn appens eget origin hører hjemme i systembrowseren, og
+       `geo:`, `sms:`, `intent:` og `market:` er like mye utgående lenker som
+       `https:`. Merk at `a[href]` i fokus-selektoren i app.js IKKE treffer
+       (her kreves likhetstegn og en verdi), og at `href="#…"`/`href="fil.css"`
+       ikke gjør det heller (ingen av dem starter med et skjema).
+
+       Den protokoll-relative formen (`href="//vert"`) må leses på den RÅ
+       linja: kodeLinjer() kapper fra `//` og ville etterlatt `href="`. Prosa
+       med `href="//` i en kommentar finnes ikke, og ville uansett vært verdt
+       et blikk. */
     if (/target\s*=\s*["']?_blank/.test(l)
       || /\bwindow\s*\.\s*open\s*\(/.test(l)
-      || /\b(?:href|action)\s*=\s*\\?["']?\s*(?:https?:|mailto:|tel:|\/\/)/i.test(l)) {
+      || /\b(?:href|action)\s*=\s*\\?["']?\s*[a-z][a-z0-9+.\-]*:/i.test(l)
+      || /\b(?:href|action)\s*=\s*\\?["']?\s*\/\//i.test(raa[nr - 1] || '')) {
       utLenker.push(f + ':' + nr);
     }
   }
 }
-check('web-kildekoden produserer ingen utgående lenke (ingen _blank, window.open eller absolutt href/action)',
+check('web-kildekoden produserer ingen utgående lenke (ingen _blank, window.open eller href/action med skjema)',
   utLenker.length === 0, utLenker.join(', ') || 'ingen');
 
 /* Appen navigerer seg selv nøyaktig ett sted, og det er guarden for kanonisk
@@ -497,13 +522,20 @@ check('web-kildekoden produserer ingen utgående lenke (ingen _blank, window.ope
    ACTION_VIEW, altså en app som blir stående igjen på siden sin mens
    browseren åpner. `location.reload()` er ikke med: den går til den samme
    adressen, og dekkes av tests/auto-update.test.js. Lesing av
-   `location.href`/`location.origin` er heller ikke navigasjon. */
+   `location.href`/`location.origin` er heller ikke navigasjon.
+
+   Alle formene teller, ikke bare `location.href = …`: en tilordning rett til
+   Location-objektet (`location = …`, `document.location = …`) navigerer like
+   fullt, og ville dessuten gått klar av lenkesjekken over. Foranstilt
+   `[^.\w$]` holder `elem.location = …` og lignende egenskaper utenfor, og den
+   valgfrie `.href`-halen gjør at `redirectUrlFor(location.href)` — en LESING —
+   ikke telles. */
+const NAV_KALL = /\blocation\s*\.\s*(?:assign|replace)\s*\(/;
+const NAV_TILDEL = /(?:^|[^.\w$])(?:(?:window|document|self|globalThis|top|parent)\s*\.\s*)?location\s*(?:\.\s*href\s*)?=[^=]/;
 const navSkriv = [];
 for (const f of WEB_KILDE) {
   for (const { nr, l } of kodeLinjer(les(f))) {
-    if (/\blocation\s*\.\s*(?:assign|replace)\s*\(/.test(l)
-      || /\blocation\s*\.\s*href\s*=[^=]/.test(l)
-      || /\bwindow\s*\.\s*location\s*=[^=]/.test(l)) {
+    if (NAV_KALL.test(l) || NAV_TILDEL.test(l)) {
       navSkriv.push({ sted: f + ':' + nr, l: l.trim() });
     }
   }

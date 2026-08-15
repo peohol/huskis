@@ -409,9 +409,12 @@ aktiv på samme måte som for de to andre — kontrollert mot produksjon
 - `tests/capacitor-android.test.js` — eksterne lenker: `allowNavigation` står
   tomt (ingen fremmed vert kan lastes INNE i WebView-en), det native skallet
   overtar ikke navigasjonsrutingen fra Capacitor, web-kildekoden produserer
-  ingen utgående lenke (`target="_blank"`, `window.open()`, absolutt `href`/
-  `action`), og den ENE navigasjonen appen gjør er guardens
-  `location.replace(target)`.
+  ingen utgående lenke (`target="_blank"`, `window.open()`, `href`/`action` med
+  et hvilket som helst skjema eller protokoll-relativ verdi), og den ENE
+  navigasjonen appen gjør er guardens `location.replace(target)` — alle former
+  for tilordning teller, også `location = …` og `document.location = …`.
+  Skanningen dekker beviselig alle produksjonskildene: lista over filer låses
+  mot det `index.html` faktisk laster.
 - `tests/no-legacy-domain.test.js` — repo-vid tekstvakt: feiler dersom
   `huskekurv` dukker opp utenfor en eksplisitt, begrunnet unntaksliste
   (negative tester, denne fila, `TODO.md`, og de to redirect-kildene
