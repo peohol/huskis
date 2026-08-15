@@ -557,8 +557,10 @@ const strippet = (src, modus) => kodeLinjerStreng(src, modus).map((x) => x.l).jo
    dekodes derfor før mønstrene kjøres. Ingen av dem inneholder linjeskift, så
    linjenumrene holder. */
 const dekodEntiteter = (t) => t
-  .replace(/&#x([0-9a-f]+);/gi, (_, h) => String.fromCodePoint(parseInt(h, 16)))
-  .replace(/&#(\d+);/g, (_, d) => String.fromCodePoint(parseInt(d, 10)))
+  /* Semikolon er VALGFRITT: nettleseren dekoder `&#58//x` like godt som
+     `&#58;//x`, så mønstrene må se det samme. */
+  .replace(/&#x([0-9a-f]+);?/gi, (_, h) => String.fromCodePoint(parseInt(h, 16)))
+  .replace(/&#(\d+);?/g, (_, d) => String.fromCodePoint(parseInt(d, 10)))
   .replace(/&(colon|sol|period|lpar|rpar|quot|apos|amp);/gi,
     (_, n) => ({ colon: ':', sol: '/', period: '.', lpar: '(', rpar: ')', quot: '"', apos: "'", amp: '&' })[n.toLowerCase()]);
 function strippetMedLinjer(src, modus) {
@@ -589,15 +591,18 @@ function strippetMedLinjer(src, modus) {
    `String u = "https://x"; webView.loadUrl(u);` ville da mistet kallet. Java
    har de samme kommentarformene som JS, så den samme funksjonen holder. */
 const NATIV_SRC = path.join(ROOT, 'android', 'app', 'src');
-function javaFiler(dir) {
+function javaFiler(dir, rot) {
   return fs.readdirSync(dir, { withFileTypes: true }).flatMap((d) => {
     const p = path.join(dir, d.name);
-    if (d.isDirectory()) return /^(test|androidTest)$/.test(d.name) ? [] : javaFiler(p);
+    /* Bare source set-RØTTENE `src/test` og `src/androidTest` hoppes over. En
+       pakkekatalog som tilfeldigvis heter `test` under `src/main` kompileres
+       inn i appen som alt annet, og skal skannes. */
+    if (d.isDirectory()) return rot && /^(test|androidTest)$/.test(d.name) ? [] : javaFiler(p, false);
     return /\.(java|kt)$/.test(d.name) ? [p] : [];
   });
 }
 const RUTING = /shouldOverrideUrlLoading|setWebViewClient|setWebChromeClient|WebViewClient|WebChromeClient|\bloadUrl\s*\(|\bpostUrl\s*\(|\bloadData(?:WithBaseURL)?\s*\(/;
-const nativeFiler = javaFiler(NATIV_SRC);
+const nativeFiler = javaFiler(NATIV_SRC, true);
 const ruter = nativeFiler.filter((p) => RUTING.test(strippet(fs.readFileSync(p, 'utf8'), 'js')));
 check('det native skallet overtar ikke og hopper ikke over navigasjonsrutingen',
   nativeFiler.length > 0 && ruter.length === 0,
@@ -700,9 +705,12 @@ const UT_MØNSTRE = [
      utenfor. */
   ['open()', /(?:^|[^.\w$])(?:window\s*\.\s*)?open\s*\(/gm],
   ['setAttribute', /\.\s*setAttribute\s*\(\s*["'`](?:xlink:)?(?:href|(?:form)?action)["'`]\s*,/gi],
-  ['.href =', /(?:^|[^.\w$])(?!location\b)[\w$\])]+\s*\.\s*(?:href|formAction|action)\s*(?:\*\*|<<|>>>?|\|\||&&|\?\?|[-+*/%|&^])?=(?!=)/gm],
+  ['.href =', /(?:^|[^.\w$])(?!location\b)[\w$\])]+\s*(?:\.\s*(?:href|formAction|action)|\[\s*["'`](?:href|formaction|action)["'`]\s*\])\s*(?:\*\*|<<|>>>?|\|\||&&|\?\?|[-+*/%|&^])?=(?!=)/gim],
   ['skjema i markup', new RegExp(MARKUP + '[a-z][a-z0-9+.\\-]*:', 'gi')],
-  ['protokoll-relativ', new RegExp(MARKUP + '\\/\\/', 'gi')],
+  /* Protokoll-relativ, med begge skråstrekene. URL-parseren normaliserer
+     omvendt skråstrek til vanlig for spesialskjemaer, så `href="\\\\vert"`
+     lander på `//vert` — samme utgående lenke. */
+  ['protokoll-relativ', new RegExp(MARKUP + '[\\\\/]{2}', 'gi')],
   /* Deklarativ navigasjon uten en eneste lenke: nettleseren drar av gårde selv.
      Huskis har ÉN http-equiv, og det er innholdssikkerhetspolicyen. */
   ['meta refresh', /http-equiv\s*=\s*["']?refresh/gi],
@@ -847,6 +855,7 @@ function distFiler(dir) {
 const DIST = path.join(ROOT, 'dist');
 const distTreff = [];
 let distAntall = 0;
+let guardFritatt = false;
 if (byggUt.status === 0 && fs.existsSync(DIST)) {
   for (const q of distFiler(DIST)) {
     distAntall++;
@@ -867,12 +876,15 @@ if (byggUt.status === 0 && fs.existsSync(DIST)) {
        lagt inntil den (`{ location.replace(target); location.assign(target); }`)
        blitt fritatt på kjøpet. Selve treffet må altså BEGYNNE på guardens
        form, og bare det første. */
-    let guardFritatt = false;
     for (const re of [NAV_KALL, NAV_TILDEL]) {
       re.lastIndex = 0;
       for (const m of tekst.matchAll(re)) {
         const etter = tekst.slice(m.index, m.index + 40);
-        if (!guardFritatt && /location\.replace\(\s*target\s*\)/.test(etter)) { guardFritatt = true; continue; }
+          /* Fritaket gjelder ÉN gang, i dist/index.html — ikke én gang per fil.
+           Ellers ville en injisert `location.replace(target)` i dist/app.js
+           fått sitt eget fritak. */
+        if (!guardFritatt && rel === path.join('dist', 'index.html')
+          && /location\.replace\(\s*target\s*\)/.test(etter)) { guardFritatt = true; continue; }
         distTreff.push(rel + ':' + linjeFor(m.index) + ' (navigasjon) ' + etter.split('\n')[0].trim());
       }
     }
