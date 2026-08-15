@@ -478,9 +478,11 @@ function kodeLinjerStreng(src, modus) {
   const linjer = src.split('\n');
   let iBlokk = false, iHtml = false, iSkript = false, streng = null;
   /* Sist SIGNIFIKANTE tegn, brukt til å skille et regex-literal fra divisjon:
-     etter en verdi (`)`, `]`, et navn, et tall) er `/` deling, ellers starter
+     etter en VERDI (`)`, `]`, et navn, et tall) er `/` deling, ellers starter
      den et regex. Uten det skillet ville `/[/*]/` satt fjerneren i
-     blokk-kommentarmodus og slukt resten av fila. */
+     blokk-kommentarmodus og slukt resten av fila. Et nøkkelord slutter også på
+     et ordtegn, men er ingen verdi — `return /re/` er et regex — så de
+     sjekkes for seg. */
   let forrige = '';
   return linjer.map((raw, i) => {
     if (streng !== '`') streng = null;
@@ -507,7 +509,8 @@ function kodeLinjerStreng(src, modus) {
       }
       /* Regex-literal: konsumeres i sin helhet, med tegnklasser, slik at
          `/` og `*` inne i det ikke leses som kommentartegn. */
-      if (m !== 'css' && raw[j] === '/' && !/[\w$)\]]/.test(forrige)
+      const etterNokkelord = /(?:^|[^\w$])(?:return|throw|typeof|instanceof|in|of|new|delete|void|case|do|else|yield|await)\s*$/.test(ren);
+      if (m !== 'css' && raw[j] === '/' && (!/[\w$)\]]/.test(forrige) || etterNokkelord)
         && !raw.startsWith('//', j) && !raw.startsWith('/*', j)) {
         let k = j + 1, iKlasse = false, lukket = false;
         for (; k < raw.length; k++) {
@@ -835,6 +838,17 @@ if (byggUt.status === 0 && fs.existsSync(DIST)) {
     }
     for (const m of tekst.matchAll(/["'`](https?:\/\/[^"'`\s]*)/gi)) {
       if (TILLATTE_URL.indexOf(m[1]) === -1) distTreff.push(rel + ' → ' + m[1]);
+    }
+    /* Også navigasjonsmønstrene: byggesteget kunne like gjerne lagt inn en
+       `location.assign(…)` som en `<a>`. Guardens ene egne navigasjon i
+       index.html er ventet, og trekkes fra. */
+    for (const re of [NAV_KALL, NAV_TILDEL]) {
+      re.lastIndex = 0;
+      for (const m of tekst.matchAll(re)) {
+        const linje = (tekst.split('\n')[linjeFor(m.index) - 1] || '').trim();
+        if (/location\.replace\(target\)/.test(linje)) continue;
+        distTreff.push(rel + ':' + linjeFor(m.index) + ' (navigasjon) ' + linje.slice(0, 60));
+      }
     }
   }
 }
