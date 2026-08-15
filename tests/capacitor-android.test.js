@@ -289,21 +289,29 @@ check('iOS-plattformen er ikke innført ennå',
    som finnes. Da må et nytt innom denne sjekken, og den som legger det inn må
    ta stilling til hva det bidrar med. `testImplementation`/`androidTest…`
    er utenfor: de pakkes ikke i appen. */
-const IMPLEMENTASJON = [
-  "fileTree(include: ['*.jar'], dir: 'libs')",
-  'androidx.appcompat:appcompat:$androidxAppCompatVersion',
-  'androidx.activity:activity:$androidxActivityVersion',
-  'androidx.coordinatorlayout:coordinatorlayout:$androidxCoordinatorLayoutVersion',
-  'androidx.core:core-splashscreen:$coreSplashScreenVersion',
-  "project(':capacitor-android')",
-  "project(':capacitor-cordova-android-plugins')",
+/* HELE `dependencies`-blokken leses, ikke bare linjer som starter med
+   `implementation`. Gradle har en konfigurasjon per variant og rolle —
+   `releaseImplementation`, `api`, `runtimeOnly` — og alle havner i release-APK-en
+   med hvert sitt manifest. Å liste konfigurasjonsnavnene ville vært en ny liste
+   å glemme noe fra; å låse LINJENE lukker dem alle på én gang. */
+const AVHENGIGHETER = [
+  "implementation fileTree(include: ['*.jar'], dir: 'libs')",
+  'implementation "androidx.appcompat:appcompat:$androidxAppCompatVersion"',
+  'implementation "androidx.activity:activity:$androidxActivityVersion"',
+  'implementation "androidx.coordinatorlayout:coordinatorlayout:$androidxCoordinatorLayoutVersion"',
+  'implementation "androidx.core:core-splashscreen:$coreSplashScreenVersion"',
+  "implementation project(':capacitor-android')",
+  'testImplementation "junit:junit:$junitVersion"',
+  'androidTestImplementation "androidx.test.ext:junit:$androidxJunitVersion"',
+  'androidTestImplementation "androidx.test.espresso:espresso-core:$androidxEspressoCoreVersion"',
+  "implementation project(':capacitor-cordova-android-plugins')",
 ];
-const implLinjer = [...kode(appGradle).matchAll(/^\s*implementation\s+(?:"([^"]*)"|'([^']*)'|(.+))$/gm)]
-  .map((m) => (m[1] !== undefined ? m[1] : m[2] !== undefined ? m[2] : m[3]).trim());
-const nyeImpl = implLinjer.filter((l) => IMPLEMENTASJON.indexOf(l) === -1);
+const depBlokk = (kode(appGradle).match(/dependencies\s*\{([\s\S]*?)\n\}/) || [, ''])[1];
+const depLinjer = depBlokk.split('\n').map((l) => l.trim()).filter(Boolean);
+const nyeDep = depLinjer.filter((l) => AVHENGIGHETER.indexOf(l) === -1);
 check('ingen nye Gradle-avhengigheter i appmodulen (et nytt bibliotek merger sitt eget manifest inn)',
-  implLinjer.length === IMPLEMENTASJON.length && nyeImpl.length === 0,
-  nyeImpl.join(', ') || implLinjer.length + ' kjente implementation-linjer');
+  depLinjer.length === AVHENGIGHETER.length && nyeDep.length === 0,
+  nyeDep.join(', ') || depLinjer.length + ' kjente avhengighetslinjer');
 /* Og HELE avhengighetslista, ikke bare `@capacitor/*`-navnene. En Cordova-
    plugin heter `cordova-plugin-…`, og `cap sync` genererer den inn i
    `:capacitor-cordova-android-plugins` — et modulnavn som allerede står i
@@ -1542,18 +1550,28 @@ const KOMPONENT_TOM = new RegExp('<(' + KOMPONENT_TAG + ')\\b[^>]*/>', 'g');
 const kanoniskKomp = (n) => (n == null ? null
   : n.startsWith('.') ? cfg.appId + n
     : n.indexOf('.') === -1 ? cfg.appId + '.' + n : n);
-const komponenter = manifestFiler.flatMap((p) => {
-  const tekst = xmlNormalisert(utenXmlKommentarer(fs.readFileSync(p, 'utf8')));
+/* `<application>`-attributtene slås sammen på tvers av manifestene FØR de arves
+   ned. `android:permission` og `android:enabled` der gjelder hver komponent som
+   ikke setter sitt eget — og Gradle merger de to `<application>`-taggene til én,
+   så en `permission` erklært i `main` gjelder også et alias som først dukker opp
+   i `release`. Leses hver fil for seg, ville aliaset fått `null` og sluppet
+   forbi. */
+const manifestTekster = manifestFiler.map((p) => ({
+  p, tekst: xmlNormalisert(utenXmlKommentarer(fs.readFileSync(p, 'utf8'))),
+}));
+const appAttrFelles = (navn) => {
+  for (const { tekst } of manifestTekster) {
+    const tagg = (tekst.match(/<application\b[^>]*>/) || [''])[0];
+    const m = tagg.match(new RegExp(navn + '\\s*=\\s*(?:"([^"]*)"|\'([^\']*)\')'));
+    const v = m ? m.slice(1).find((x) => x !== undefined) : null;
+    if (v != null) return v;
+  }
+  return null;
+};
+const appTillatelse = appAttrFelles('android:permission');
+const appAktivert = appAttrFelles('android:enabled');
+const komponenter = manifestTekster.flatMap(({ p, tekst }) => {
   const fil = path.relative(ROOT, p);
-  /* `android:permission` på `<application>` gjelder hver komponent som ikke
-     setter sin egen. En browser uten den tillatelsen kan ikke starte
-     komponenten, og App Link-en er død — selv om alt annet står riktig. */
-  const appTagg = (tekst.match(/<application\b[^>]*>/) || [''])[0];
-  const appAttr = (navn) => ((appTagg.match(new RegExp(navn + '\\s*=\\s*(?:"([^"]*)"|\'([^\']*)\')')) || [])
-    .slice(1).find((v) => v !== undefined)) || null;
-  const appTillatelse = appAttr('android:permission');
-  /* `android:enabled="false"` på `<application>` slår av HVER komponent. */
-  const appAktivert = appAttr('android:enabled');
   return [...tekst.matchAll(KOMPONENT), ...tekst.matchAll(KOMPONENT_TOM)].map((k) => {
     /* Attributtene leses av ÅPNINGSTAGGEN alene. Leste vi hele blokken, ville
        en komponent uten `android:name` fått navnet til den første `<action>`
@@ -1624,6 +1642,17 @@ const xmlAttr = (navn, verdi) => new RegExp(navn + '\\s*=\\s*(?:"' + verdi + '"|
 const xmlVerdier = (blokk, navn) =>
   [...blokk.matchAll(new RegExp(navn + '\\s*=\\s*(?:"([^"]*)"|\'([^\']*)\')', 'g'))]
     .map((m) => (m[1] !== undefined ? m[1] : m[2]));
+/* En plassholder (`android:scheme="${linkScheme}"`) fylles først av Gradle, så
+   TEKSTEN her sier ingenting om hva APK-en inneholder — filteret ville sett ut
+   som fravær. Å slå opp `manifestPlaceholders` ville vært å tolke Gradle igjen;
+   svaret er det samme som for merger-direktivene: plassholdere i de
+   URL-relevante attributtene forbys. */
+const URL_ATTR = 'scheme|host|port|path|pathPrefix|pathPattern|pathAdvancedPattern|pathSuffix|mimeType';
+const medPlassholder = intentFiltre.filter(({ blokk }) =>
+  new RegExp('android:(?:' + URL_ATTR + ')\\s*=\\s*(?:"[^"]*\\$\\{|\'[^\']*\\$\\{)').test(blokk));
+check('ingen manifest-plassholdere i URL-attributtene (teksten er da det APK-en får)',
+  medPlassholder.length === 0,
+  medPlassholder.map((f) => f.fil + ' / ' + f.komponent).join(', ') || intentFiltre.length + ' filtre uten ${…}');
 const nettFiltre = intentFiltre.filter(({ blokk }) =>
   xmlAttr('<data\\b[^>]*android:scheme', 'https?').test(blokk));
 const harFilter = nettFiltre.length > 0;
@@ -1723,7 +1752,15 @@ if (harFilter) {
   /* PORTEN er den samme fellen som stien: `android:port="8443"` binder filteret
      til én port, og `https://huskis.no/` (port 443, underforstått) treffer det
      ikke. Kravet gjelder samme filter som dekker roten. */
+  /* Fra Android 15 kan et filter ha `<uri-relative-filter-group android:allow="false">`
+     som EKSKLUDERER stier fra det ytre scheme/host-filteret. En flat lesing av
+     stiattributtene ville sett `/` der og trodd roten var dekket — mens den
+     nettopp er unntatt. Semantikken modelleres ikke; et filter med en slik
+     gruppe teller rett og slett ikke som rot-kandidat. */
+  const harEkskludering = (blokk) =>
+    /<uri-relative-filter-group\b[^>]*android:allow\s*=\s*(?:"false"|'false')/.test(blokk);
   const rotFiltre = påMain.filter((f) => {
+    if (harEkskludering(f.blokk)) return false;
     const s = stiene(f.blokk);
     return (s.length === 0 || s.some((v) => v === '/' || v === ''))
       && xmlVerdier(f.blokk, 'android:port').length === 0
