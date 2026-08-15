@@ -312,6 +312,18 @@ const nyeDep = depLinjer.filter((l) => AVHENGIGHETER.indexOf(l) === -1);
 check('ingen nye Gradle-avhengigheter i appmodulen (et nytt bibliotek merger sitt eget manifest inn)',
   depLinjer.length === AVHENGIGHETER.length && nyeDep.length === 0,
   nyeDep.join(', ') || depLinjer.length + ' kjente avhengighetslinjer');
+/* Og de APPLIERTE skriptene. `apply from:` kan legge til avhengigheter uten å
+   røre blokken over — Capacitor bruker nettopp den veien selv
+   (`capacitor.build.gradle`), og der er `dependencies`-blokken TOM så lenge det
+   ikke er installert plugins. Blir den ikke tom, er det en plugin som er kommet
+   inn, og den merger sitt eget manifest. */
+const APPLIERTE = ['android/app/capacitor.build.gradle'];
+const applierteMedDep = APPLIERTE.filter((rel) => finnes(rel)
+  && ((kode(les(rel)).match(/dependencies\s*\{([\s\S]*?)\n\}/) || [, ''])[1] || '')
+    .split('\n').map((l) => l.trim()).filter(Boolean).length > 0);
+check('de applierte Gradle-skriptene legger ikke til avhengigheter',
+  applierteMedDep.length === 0,
+  applierteMedDep.join(', ') || APPLIERTE.join(', ') + ' uten avhengigheter');
 /* Og HELE avhengighetslista, ikke bare `@capacitor/*`-navnene. En Cordova-
    plugin heter `cordova-plugin-…`, og `cap sync` genererer den inn i
    `:capacitor-cordova-android-plugins` — et modulnavn som allerede står i
@@ -817,6 +829,16 @@ const medSrcDirs = gradleFiler
 check('ingen av byggeskriptene overstyrer kilderøtter eller manifest-sti (skanningen dekker alt som kompileres)',
   gradleFiler.length > 0 && medSrcDirs.length === 0,
   medSrcDirs.join(', ') || gradleFiler.length + ' gradle-filer uten srcDirs/srcFile');
+/* applicationId er det statementet navngir. En `applicationIdSuffix` på
+   release — eller en flavor som setter en annen id — gir en APK med et annet
+   pakkenavn enn `assetlinks.json` peker på, og verifiseringen faller. Én
+   erklæring, ingen suffikser. */
+const idOverstyring = gradleFiler
+  .filter((q) => /applicationIdSuffix|flavorDimensions|productFlavors/.test(strippet(fs.readFileSync(q, 'utf8'), 'js')))
+  .map((q) => path.relative(ROOT, q));
+check('ingen applicationId-suffiks eller produktvarianter (statementet navngir det APK-en heter)',
+  idOverstyring.length === 0 && (kode(appGradle).match(/applicationId\s/g) || []).length === 1,
+  idOverstyring.join(', ') || 'én applicationId, ingen suffikser');
 const utenfor = gradleFiler.flatMap((q) => [...strippet(fs.readFileSync(q, 'utf8'), 'js')
   .matchAll(/apply\s+from:\s*["']([^"']+)["']/g)]
   .map((m) => path.resolve(path.dirname(q), m[1]))
@@ -1535,7 +1557,12 @@ check('ingen av produksjonsmanifestene bruker merger-direktiver (teksten er da d
    til den NESTE komponentens sluttagg — filteret i den ville da blitt tilskrevet
    feil eier. Med lookbehind hopper mønsteret over den selvlukkende taggen og
    finner riktig komponent. */
-const KOMPONENT_TAG = 'activity|activity-alias|service|receiver|provider';
+/* `activity-alias` MÅ stå først. Alternasjonen prøves i rekkefølge, og etter
+   «activity» kommer en bindestrek — et ikke-ordtegn, så `\b` slår til. En
+   `<activity-alias>` ble dermed lest som en `activity` som løp helt til den
+   NESTE aktivitetens sluttagg: aliaset fikk feil type og ble avvist, og
+   blokken slukte alt imellom. */
+const KOMPONENT_TAG = 'activity-alias|activity|service|receiver|provider';
 const KOMPONENT = new RegExp('<(' + KOMPONENT_TAG + ')\\b[^>]*(?<!/)>[\\s\\S]*?</\\1>', 'g');
 /* Og den selvlukkende formen finnes fortsatt — den bærer bare attributter, ikke
    filtre. Den må leses, for `android:exported` kan være erklært nettopp der
@@ -1735,8 +1762,11 @@ if (harFilter) {
   check('App Links: komponenten er ikke låst bak en tillatelse (browseren har den ikke)',
     påMain.length > 0 && påMain.every((f) => f.tillatelse == null),
     påMain.map((f) => f.komponent + ': android:permission=' + JSON.stringify(f.tillatelse)).join(', ') || 'ingen');
-  check('App Links: komponenten er ikke slått av (android:enabled="false")',
-    påMain.length > 0 && påMain.every((f) => f.aktivert !== 'false'),
+  /* Bare utelatt eller en literal `true` godtas. En ressurs
+     (`@bool/app_links_enabled`) eller en plassholder resolveres av byggingen,
+     ikke av teksten — og kan like gjerne bli `false` i release. */
+  check('App Links: komponenten er påslått (android:enabled utelatt eller literal true)',
+    påMain.length > 0 && påMain.every((f) => f.aktivert == null || f.aktivert === 'true'),
     påMain.map((f) => f.komponent + ': android:enabled=' + JSON.stringify(f.aktivert)).join(', ') || 'ingen');
   /* STIEN teller også. Et filter kan begrenses med `android:pathPrefix="/auth"`
      og er da fortsatt «komplett» etter sjekken over — men det matcher ikke
@@ -1868,7 +1898,10 @@ if (harStatement) {
   const våreMål = våre.map((o) => o.target || {});
   const avtrykk = våreMål.flatMap((t) => (Array.isArray(t.sha256_cert_fingerprints)
     ? t.sha256_cert_fingerprints : []));
-  const ugyldige = avtrykk.filter((f) => typeof f !== 'string' || !SHA256.test(f.trim()));
+  /* Ingen `trim()`: det er den PUBLISERTE strengen Android leser, og
+   byte-for-byte-sjekken bevarer et mellomrom inne i JSON-verdien. Trimmet vi
+   her, ville vakten godtatt et avtrykk som aldri matcher sertifikatet. */
+  const ugyldige = avtrykk.filter((f) => typeof f !== 'string' || !SHA256.test(f));
   check(STATEMENT + ' oppgir minst ett SHA-256-fingeravtrykk for ' + cfg.appId + ', på riktig form',
     våreMål.length > 0
       && våreMål.every((t) => Array.isArray(t.sha256_cert_fingerprints)
