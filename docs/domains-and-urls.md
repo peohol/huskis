@@ -400,25 +400,38 @@ er lett å overse:
    havner i dag ikke i `dist/`. Den dagen halvdelene innføres, må `build.js`
    slippe katalogen gjennom i samme endring.
 
-Og selv med alle tre på plass ville **ingen av de tre auth-e-postene blitt
-fanget**: verten i lenken er `*.supabase.co`, ikke `huskis.no`. Et intent-filter
-for `huskis.no` ser den aldri, og 303-en videre skjer INNE i browseren — en
-serverredirect uten en ny brukerhandling leverer ikke fra seg til en app. Vi
-kan heller ikke legge et statement på `*.supabase.co`; det originet er ikke
-vårt. Det som ville blitt fanget er de to nederste radene i tabellen —
-delingsinvitasjonen og fotnoten i varselet om endret adresse — og de er nettopp
-de to som ikke bærer noen sesjon: appen ville åpnet på startsiden sin, som er
-det browseren gjør i dag.
+**Hvem 303-en havner hos, er et ÅPENT spørsmål.** Verten i lenken brukeren
+trykker på er `*.supabase.co`, og der kan vi ikke legge et statement — det
+originet er ikke vårt. Et intent-filter for `huskis.no` ser altså ikke selve
+tappet. Men lenken ENDER på `https://huskis.no/#access_token=…`, og en verifisert
+App Link kan bli plukket opp der: det er nøyaktig mekanismen native
+OAuth-klienter på Android bygger på (RFC 8252/AppAuth bruker en `https`-
+redirect-URI som er en App Link, og leverandøren redirecter til den). Om
+Chrome faktisk leverer fra seg på slutten av en redirect-kjede startet av et
+tapp i e-postklienten — og om fragmentet følger med — kan ikke avgjøres herfra.
+Det avhenger av browser og av brukerens «åpne som standard»-innstilling, og
+skal PRØVES på telefon i fase 6 før noe bygges rundt svaret.
 
-Å flytte verten til `huskis.no` er mulig, men er **fire koblede endringer**, tre
-av dem utenfor denne fila og to av dem utenfor dette repoet:
+Konsekvensen av svaret er stor nok til å si eksplisitt: **holder redirect-veien,
+trengs verken nye maler eller `verifyOtp()`** — `{{ .ConfirmationURL }}` og
+dagens implicit-fragment kan stå som de er, og det som gjenstår er lytteren,
+statementet og nøkkelen. Holder den ikke, må lenken flyttes til `huskis.no`
+allerede i e-posten, og da kommer de to første punktene under i tillegg.
 
-- malene måtte bygge lenken selv av `{{ .TokenHash }}` i stedet for
+De to nederste radene i tabellen — delingsinvitasjonen og fotnoten i varselet —
+blir fanget uansett hvordan det spørsmålet faller ut, siden de peker rett på
+`huskis.no`. De er også de to som ikke bærer noen sesjon: appen ville åpnet på
+startsiden sin, som er det browseren gjør i dag.
+
+Endringene App Links krever er altså **to sikre og to betingede**:
+
+- *betinget* — malene måtte bygge lenken selv av `{{ .TokenHash }}` i stedet for
   `{{ .ConfirmationURL }}` — det motsatte av regelen i
   [`supabase/email-templates/README.md`](../supabase/email-templates/README.md),
   og malene ligger i Supabase Dashboard;
-- klienten måtte løse inn tokenet selv (`verifyOtp({ token_hash, type })`) i
-  stedet for å la supabase-js lese fragmentet;
+- *betinget* — klienten måtte løse inn tokenet selv
+  (`verifyOtp({ token_hash, type })`) i stedet for å la supabase-js lese
+  fragmentet;
 - appen måtte fange den innkommende adressen. `@capacitor/android` tar vare på
   intent-URI-en (`Bridge.getIntentUri()`) og varsler plugins ved
   `onNewIntent`, men INGEN kjerneplugin leser den: uten `@capacitor/app` åpner
@@ -434,9 +447,12 @@ av dem utenfor denne fila og to av dem utenfor dette repoet:
   altså ikke prøves ende-til-ende før nøkkelhåndteringen i fase 6
   ([`mobilapp-plan.md`](mobilapp-plan.md)).
 
-**Beslutningen: App Links utsettes til fase 6**, sammen med signeringsnøkkelen,
-og vurderes da mot om det fortsatt er verdt fire koblede endringer for å spare
-brukeren én innlogging i de to flytene som faktisk koster en. iOS Universal Links har nøyaktig den samme strukturen
+**Beslutningen: App Links utsettes til fase 6**, sammen med signeringsnøkkelen.
+De to sikre endringene — lytteren og statementet — er uansett bundet til den
+fasen, og det åpne redirect-spørsmålet avgjøres best der det kan prøves: på en
+telefon, med en release-nøkkel. Da vurderes gevinsten (én spart innlogging i de
+to flytene som faktisk koster en) mot to eller fire koblede endringer, alt etter
+hvordan det spørsmålet faller ut. iOS Universal Links har nøyaktig den samme strukturen
 (`apple-app-site-association` i stedet for `assetlinks.json`) og hører til fase
 7. Inntil da er regelen at halvdelene aldri innføres hver for seg: en halv App
 Link verifiserer ingenting, lenken åpner browseren nøyaktig som før, og

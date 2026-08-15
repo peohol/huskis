@@ -633,13 +633,16 @@ PKCE-verifikator lagret i originet som startet flyten. Startet i appen
 (`https://localhost`) og fullført i browseren (`huskis.no`) ville en PKCE-flyt
 ikke kunnet fullføres i det hele tatt.
 
-**Beslutningen: App Links utsettes til fase 6.** Ikke bare fordi
-signeringsnøkkelen mangler, men fordi et intent-filter for `huskis.no` uansett
-ikke ville sett én eneste av de tre auth-lenkene. Å flytte verten dit er fire
-koblede endringer — e-postmalene (Supabase Dashboard), `verifyOtp()` i
-klienten, en lytter for den innkommende intenten (`@capacitor/app` + **en gate
-til** i web-koden), og en release-nøkkel. Begrunnelsen i sin helhet, med hva
-hver av dem koster:
+**Beslutningen: App Links utsettes til fase 6**, sammen med signeringsnøkkelen.
+To endringer trengs uansett: en lytter for den innkommende intenten
+(`@capacitor/app` + **en gate til** i web-koden) og statementet på originet,
+som begge hviler på en release-nøkkel. To andre er BETINGET av et spørsmål
+ingen kan svare på herfra: verten i auth-lenkene er `*.supabase.co`, men de
+ENDER på `huskis.no` — og om browseren leverer fra seg på slutten av en
+redirect-kjede, slik native OAuth-klienter bygger på, avgjøres på en telefon.
+Holder den veien, kan malene og `{{ .ConfirmationURL }}` stå som de er; holder
+den ikke, kommer e-postmalene og `verifyOtp()` i tillegg. Begrunnelsen i sin
+helhet:
 [`domains-and-urls.md`](domains-and-urls.md) («Android App Links: hvorfor ikke
 ennå»). iOS Universal Links har samme struktur og hører til fase 7.
 
@@ -671,6 +674,13 @@ verifiseringen — det Android faktisk gjør når lenken tappes — kan ikke pr�
 ende-til-ende før fase 6 gir en release-nøkkel. Det som kan prøves før det er
 kun de manuelle omveiene (`adb shell pm set-app-links-user-selection`), og de
 beviser ikke det som skal bevises: at ORIGINET har autorisert appen.
+
+**Det ene spørsmålet fase 6 må starte med** er redirect-veien: tapp en
+bekreftelseslenke i e-postklienten på en telefon der appen er installert og
+verifisert, og se om Supabase' 303 til `huskis.no` lander i appen eller blir
+liggende i browseren — og om `#access_token=…` følger med. Svaret bestemmer om
+App Links koster to eller fire koblede endringer, og det finnes ikke noe annet
+sted enn en enhet å hente det fra.
 
 **Ferdigkriterium:** Android-appen oppfører seg som en normal mobilapp i de
 plattformtilfellene browseren ikke selv kan håndtere godt nok.
@@ -748,9 +758,11 @@ Google Plays interne testspor.
 - [ ] Sett opp signing og håndtering av nøkler uten secrets i repoet.
 - [ ] Ta App Links opp igjen når nøkkelen finnes: begge halvdelene i samme
       endring (intent-filter + `.well-known/assetlinks.json` som `build.js`
-      faktisk kopierer ut), og vurder først om de fire koblede endringene i
-      fase 3-seksjonen er verdt å spare brukeren én innlogging i de to flytene
-      som faktisk koster en.
+      faktisk kopierer ut). Avgjør FØRST det åpne spørsmålet i fase
+      3-seksjonen, på telefon: leverer browseren fra seg på slutten av
+      Supabase' 303 til en verifisert App Link? Svaret bestemmer om dette er to
+      eller fire koblede endringer, og dermed om det er verdt å spare brukeren
+      én innlogging i de to flytene som faktisk koster en.
 - [ ] Produser release-AAB reproducerbart fra CI.
 - [ ] Opprett appoppføring, ikon, screenshots og nødvendig metadata.
 - [ ] Fullfør privacy/Data Safety-opplysninger basert på faktisk databruk.

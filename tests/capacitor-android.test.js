@@ -1382,18 +1382,28 @@ check('den ene linjen er guardens location.replace(target) i index.html',
    uten at noe sa fra. Den dagen halvdelene innføres, må `build.js` slippe
    katalogen gjennom i samme endring; sjekken under er stedet det oppdages. */
 const STATEMENT = path.join('.well-known', 'assetlinks.json');
-/* ALLE produksjonsmanifestene, ikke bare `main`. Gradle SLÅR SAMMEN manifestene
-   i source set-ene: et filter lagt i `src/release/AndroidManifest.xml` — en
-   nærliggende plassering nettopp når fase 6 innfører release-signering — havner
-   i den bygde appen uten at `main` endrer seg. Samme avgrensning som
-   rutingsjekken i del 12: `test/` og `androidTest/` teller ikke, de pakkes
-   aldri. Et filter som kommer fra en AVHENGIGHET kan ikke leses herfra, men
+/* Manifestene i RELEASE-varianten, ikke bare `main` og ikke alle. Gradle slår
+   sammen source set-ene: et filter lagt i `src/release/AndroidManifest.xml` —
+   en nærliggende plassering nettopp når fase 6 innfører release-signering —
+   havner i den bygde appen uten at `main` endrer seg, så `main` alene er for
+   lite.
+
+   Men `debug/` er for MYE, og på en måte som gjør vakten uriktig i begge
+   retninger: source set-ene er gjensidig utelukkende, så et filter som bare
+   står i `src/debug/` er ALDRI med i det som publiseres. Talte det med, ville
+   et debug-filter kunnet «parre seg» med et publisert statement og gjøre
+   koblingen grønn for en release som ikke har noe filter. Utelatt derimot —
+   som her — ser koblingen riktig at statementet står alene. `debug/` hører
+   altså i samme bås som `test/` og `androidTest/`: ikke produksjon.
+
+   Et filter som kommer fra en AVHENGIGHET kan ikke leses herfra, men
    avhengighetene er selv låst — se sjekken i del 7 på at det ikke finnes
    Capacitor-plugins utover kjernen. */
+const IKKE_RELEASE = /^(test|androidTest|debug)$/;
 const manifestFiler = (function les(dir, rot) {
   return fs.readdirSync(dir, { withFileTypes: true }).flatMap((d) => {
     const p = path.join(dir, d.name);
-    if (d.isDirectory()) return rot && /^(test|androidTest)$/.test(d.name) ? [] : les(p, false);
+    if (d.isDirectory()) return rot && IKKE_RELEASE.test(d.name) ? [] : les(p, false);
     return d.name === 'AndroidManifest.xml' ? [p] : [];
   });
 }(NATIV_SRC, true));
@@ -1417,10 +1427,10 @@ check('ingen av produksjonsmanifestene bruker merger-direktiver (teksten er da d
    receiver eller en service tilfredsstiller hver eneste sjekk under uten at
    WebView-en noen gang ser adressen. Filtrene bæres derfor med eieren sin. */
 const KOMPONENT = /<(activity|activity-alias|service|receiver|provider)\b[^>]*>[\s\S]*?<\/\1>/g;
-const intentFiltre = manifestFiler.flatMap((p) => {
+const komponenter = manifestFiler.flatMap((p) => {
   const tekst = utenXmlKommentarer(fs.readFileSync(p, 'utf8'));
   const fil = path.relative(ROOT, p);
-  return [...tekst.matchAll(KOMPONENT)].flatMap((k) => {
+  return [...tekst.matchAll(KOMPONENT)].map((k) => {
     /* Attributtene leses av ÅPNINGSTAGGEN alene. Leste vi hele blokken, ville
        en komponent uten `android:name` fått navnet til den første `<action>`
        inni seg — altså feil eier på filteret. */
@@ -1429,12 +1439,34 @@ const intentFiltre = manifestFiler.flatMap((p) => {
       const m = åpning.match(new RegExp(navn + '\\s*=\\s*(?:"([^"]*)"|\'([^\']*)\')'));
       return m ? (m[1] !== undefined ? m[1] : m[2]) : null;
     };
-    const navn = attributt('android:name') || '(uten navn)';
-    const eksportert = attributt('android:exported');
-    return (k[0].match(/<intent-filter\b[\s\S]*?<\/intent-filter>/g) || [])
-      .map((blokk) => ({ fil, komponent: navn, eksportert, blokk }));
+    return {
+      fil,
+      navn: attributt('android:name') || '(uten navn)',
+      eksportert: attributt('android:exported'),
+      filtre: k[0].match(/<intent-filter\b[\s\S]*?<\/intent-filter>/g) || [],
+    };
   });
 });
+/* Attributtene SLÅS SAMMEN per komponentnavn, ikke leses per fil. Et overlay
+   som legger et filter på `.MainActivity` uten å gjenta `android:exported`
+   arver verdien fra `main` når Gradle merger — å kreve at hvert overlay
+   duplikerer den ville felt en helt gyldig release og blokkert nettopp den
+   plasseringen inventaret over åpner for. Første eksplisitte erklæring vinner;
+   den kan bare stå ett sted uten at merger-direktiver er i bruk, og de er
+   forbudt av sjekken over. */
+const komponentAttr = new Map();
+for (const k of komponenter) {
+  const før = komponentAttr.get(k.navn) || {};
+  komponentAttr.set(k.navn, {
+    eksportert: før.eksportert != null ? før.eksportert : k.eksportert,
+  });
+}
+const intentFiltre = komponenter.flatMap((k) => k.filtre.map((blokk) => ({
+  fil: k.fil,
+  komponent: k.navn,
+  eksportert: (komponentAttr.get(k.navn) || {}).eksportert,
+  blokk,
+})));
 /* XML tillater BEGGE anførselstegn: `android:scheme='https'` er nøyaktig like
    gyldig som den doble formen Capacitor selv genererer, og Android pakker den
    like fullt. Et mønster som bare kjenner den ene skrivemåten ville sett et
@@ -1564,10 +1596,18 @@ if (harFilter) {
      ingen tekstvakt avgjøre uten å tolke koden, og det er samme grense som del
      12 allerede har skrevet ned for lenker satt sammen av strengbiter. Denne
      sjekken sier at noen har tatt et bevisst steg; om steget virker, avgjøres
-     på en telefon — den fysiske runden i fase 6. */
+     på en telefon — den fysiske runden i fase 6.
+
+     Og leseren må ligge i den varianten som PUBLISERES. `nativeFiler` (del 12)
+     dekker med vilje alle source set-ene, men en `getIntentUri()` som bare
+     finnes under `src/debug/java` kompileres ikke inn i release-APK-en — den
+     ville altså «bevist» en lesing den utgitte appen ikke har. Samme
+     avgrensning som manifestene: `debug/` er ikke produksjon. */
   const webKode = WEB_KILDE.map((f) => strippet(les(f), modusFor(f))).join('\n');
+  const releaseKilder = nativeFiler.filter((p) =>
+    !IKKE_RELEASE.test(path.relative(NATIV_SRC, p).split(path.sep)[0]));
   const leserUri = /addListener\s*\(\s*["'`]appUrlOpen/.test(webKode)
-    || nativeFiler.some((p) => /getIntentUri\s*\(/.test(strippet(fs.readFileSync(p, 'utf8'), 'js')));
+    || releaseKilder.some((p) => /getIntentUri\s*\(/.test(strippet(fs.readFileSync(p, 'utf8'), 'js')));
   check('App Links: noe LESER den innkommende adressen (ellers mistes ?signup= og alt annet i URL-en)',
     leserUri,
     leserUri ? 'URI-en hentes — om den rutes riktig avgjøres på telefon'
@@ -1608,11 +1648,23 @@ if (harStatement) {
     ugyldige.length ? 'ikke et SHA-256-avtrykk: ' + ugyldige.map((f) => JSON.stringify(f)).join(', ')
       : avtrykk.length + ' avtrykk');
   /* Den halvdelen som ikke ligger i noen av de to filene: at originet faktisk
-     SERVERER den. `build.js` dropper prikk-kataloger — se blokken over. */
-  check(STATEMENT + ' blir faktisk publisert (build.js kopierer den til dist/)',
-    byggUt.status === 0 && fs.existsSync(path.join(DIST, STATEMENT)),
-    fs.existsSync(path.join(DIST, STATEMENT)) ? 'dist/' + STATEMENT
-      : 'mangler i dist/ — copyDir i build.js hopper over navn som starter med punktum');
+     SERVERER den. `build.js` dropper prikk-kataloger — se blokken over.
+
+     Og det er den PUBLISERTE fila Android leser, ikke kilden sjekkene over
+     leste. At en sti finnes i `dist/` sier ingenting om innholdet: et
+     byggesteg kunne skrevet om, generert eller tømt den, og alle de semantiske
+     kravene ville fortsatt stått grønne på kilden. Byte for byte er derfor
+     kravet — samme grep som de synkede web-assetene i del 12, og av samme
+     grunn: da gjelder alt som er bevist om kilden også for det som serveres. */
+  const publisert = path.join(DIST, STATEMENT);
+  const finnesUt = byggUt.status === 0 && fs.existsSync(publisert);
+  const likKilde = finnesUt
+    && fs.readFileSync(publisert).equals(fs.readFileSync(path.join(ROOT, STATEMENT)));
+  check(STATEMENT + ' publiseres til dist/, byte for byte lik kilden',
+    likKilde,
+    !finnesUt ? 'mangler i dist/ — copyDir i build.js hopper over navn som starter med punktum'
+      : likKilde ? 'dist/' + STATEMENT + ' er identisk med kilden'
+        : 'dist/' + STATEMENT + ' avviker fra kilden — byggesteget har rørt den');
 }
 /* Og BAKSIDEN av den samme medaljen. Den letteste måten å få statementet
    publisert på er å fjerne `name.startsWith('.')`-linjen i `copyDir()` — og da
