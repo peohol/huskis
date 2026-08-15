@@ -40,6 +40,9 @@
     12. Eksterne lenker: bare appens eget origin lastes INNE i appen, alt annet
         hører hjemme i systembrowseren (docs/domains-and-urls.md, «Eksterne
         lenker»).
+    13. Auth-/e-postlenker: App Links har to halvdeler i hvert sitt system
+        (intent-filteret og assetlinks.json på det kanoniske originet), og en
+        halv innføring feiler STILLE. De innføres sammen, eller ingen av dem.
 
    `/version.json` i den innebygde builden er en KJEDE av invarianter som
    allerede er dekket hver for seg, og som derfor ikke gjentas her:
@@ -1339,6 +1342,89 @@ check('den ene linjen er guardens location.replace(target) i index.html',
     && navSkriv[0].sted.startsWith('index.html:')
     && /location\.replace\(target\)/.test(navSkriv[0].l),
   navSkriv.length === 1 ? navSkriv[0].sted + '  ' + navSkriv[0].l : 'mangler');
+
+/* ---- 13. Auth-/e-postlenker: App Links innføres i to halvdeler, eller ingen ----
+
+   Kartleggingen står i docs/domains-and-urls.md («Auth-lenkene i e-post»): de
+   tre Supabase Auth-e-postene lenker til prosjektets egen verify-adresse på
+   `*.supabase.co`, og `huskis.no` er bare der 303-en LANDER. Et intent-filter
+   for `huskis.no` ser derfor ikke én eneste av dem, og App Links er utsatt til
+   fase 6, der signeringsnøkkelen finnes (docs/mobilapp-plan.md).
+
+   Det som voktes her er derfor ikke at App Links mangler, men at halvdelene
+   aldri kommer i UTAKT. En App Link er én mekanisme spredt over to systemer:
+
+     • manifestet: et `<intent-filter>` med en `http(s)`-`<data>`-vert;
+     • originet:   `https://huskis.no/.well-known/assetlinks.json`, som må
+       navngi den samme `applicationId`-en og signeringsnøkkelens SHA-256.
+
+   Feilmodusen når bare den ene finnes er STILL: Android verifiserer ingenting,
+   lenken åpner browseren nøyaktig som før, og ingen logg, ingen build og ingen
+   test sier fra — det ses bare ved å trykke på en lenke på en telefon. Det er
+   den samme lærdommen som systemfeltene i fase 3: koden er ikke fasit for hva
+   enheten gjør, så det som KAN voktes herfra må voktes.
+
+   Og en tredje halvdel som er lett å overse: fila må faktisk bli PUBLISERT.
+   `build.js` hopper over hvert navn som starter med punktum (`copyDir`), så en
+   `.well-known/`-katalog i repoet havner i dag ikke i `dist/` i det hele tatt.
+   Statementet ville blitt liggende i repoet mens `huskis.no` svarte 404 — igjen
+   uten at noe sa fra. Den dagen halvdelene innføres, må `build.js` slippe
+   katalogen gjennom i samme endring; sjekken under er stedet det oppdages. */
+const STATEMENT = path.join('.well-known', 'assetlinks.json');
+const intentFiltre = manifest.match(/<intent-filter\b[\s\S]*?<\/intent-filter>/g) || [];
+const nettFiltre = intentFiltre.filter((b) => /<data\b[^>]*android:scheme\s*=\s*"https?"/.test(b));
+const harFilter = nettFiltre.length > 0;
+const harStatement = finnes(STATEMENT);
+check('App Links: manifestet og assetlinks.json innføres SAMMEN — eller ingen av dem',
+  harFilter === harStatement,
+  harFilter === harStatement
+    ? (harFilter ? nettFiltre.length + ' http(s)-intent-filter + ' + STATEMENT
+      : 'ingen av halvdelene — App Links er ikke innført (docs/mobilapp-plan.md, fase 3)')
+    : (harFilter ? nettFiltre.length + ' http(s)-intent-filter, men ingen ' + STATEMENT
+      : STATEMENT + ' finnes, men manifestet har ikke noe http(s)-intent-filter'));
+/* Verten i statementet og verten i filteret er den samme ene: det kanoniske
+   originet. Verdien utledes av config.js, som alt annet her. */
+const kanoniskVert = (function () {
+  try { return new URL(TILLATTE_URL[2] || '').host; } catch (e) { return ''; }
+}());
+if (harFilter) {
+  /* Uten `autoVerify` er filteret ingen App Link, men en vanlig
+     lenkehåndterer: Android spør brukeren i stedet for å verifisere mot
+     originet, og assetlinks.json blir aldri lest. */
+  check('App Links: hvert http(s)-intent-filter ber om verifisering (autoVerify)',
+    nettFiltre.every((b) => /android:autoVerify\s*=\s*"true"/.test(b)),
+    nettFiltre.length + ' filtre');
+  const verter = nettFiltre.flatMap((b) => [...b.matchAll(/android:host\s*=\s*"([^"]*)"/g)].map((m) => m[1]));
+  check('App Links: intent-filtrene navngir kun det kanoniske originets vert',
+    kanoniskVert !== '' && verter.length > 0 && verter.every((h) => h === kanoniskVert),
+    verter.join(', ') || 'ingen android:host');
+}
+if (harStatement) {
+  let st = null;
+  try { st = json(STATEMENT); } catch (e) { st = null; }
+  const oppf = Array.isArray(st) ? st : [];
+  const mål = oppf.map((o) => (o && o.target) || {});
+  check(STATEMENT + ' er en gyldig statement-liste for Android',
+    oppf.length > 0 && oppf.every((o) => Array.isArray(o.relation)
+      && o.relation.indexOf('delegate_permission/common.handle_all_urls') > -1)
+      && mål.every((t) => t.namespace === 'android_app'),
+    oppf.length + ' oppføringer');
+  check(STATEMENT + ' navngir appens egen applicationId',
+    mål.length > 0 && mål.every((t) => t.package_name === cfg.appId),
+    mål.map((t) => t.package_name).join(', ') || 'ingen');
+  /* Uten et fingeravtrykk er statementet en påstand om ingenting: Android
+     sammenligner signaturen på den installerte APK-en mot denne lista. */
+  check(STATEMENT + ' oppgir minst ett SHA-256-fingeravtrykk per oppføring',
+    mål.length > 0 && mål.every((t) => Array.isArray(t.sha256_cert_fingerprints)
+      && t.sha256_cert_fingerprints.length > 0),
+    mål.map((t) => (t.sha256_cert_fingerprints || []).length + ' avtrykk').join(', ') || 'ingen');
+  /* Den halvdelen som ikke ligger i noen av de to filene: at originet faktisk
+     SERVERER den. `build.js` dropper prikk-kataloger — se blokken over. */
+  check(STATEMENT + ' blir faktisk publisert (build.js kopierer den til dist/)',
+    byggUt.status === 0 && fs.existsSync(path.join(DIST, STATEMENT)),
+    fs.existsSync(path.join(DIST, STATEMENT)) ? 'dist/' + STATEMENT
+      : 'mangler i dist/ — copyDir i build.js hopper over navn som starter med punktum');
+}
 
 console.log('\n==== ' + pass + '/' + (pass + fail) + ' PASS ====');
 process.exit(fail === 0 ? 0 : 1);
