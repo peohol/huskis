@@ -10004,6 +10004,21 @@
       scheduleCloud(0);
     }, 5000);
   }
+  /* Tilbake i forgrunnen ⇒ hent inn etterslepet MED ÉN GANG.
+     Pollet over hopper over runder mens siden er skjult, så alt en annen enhet
+     gjorde i mellomtiden venter på neste tikk. Hvor lenge det er, eier vi ikke:
+     en skjult side får timerne sine strupet, og i en app-runtime kan hele
+     prosessen fryses mens den ligger i bakgrunnen — intervallet er en
+     bestilling, ikke et løfte om når. Selve gjenopptakelsen er derimot en
+     HENDELSE, og den koster ingen native API-er: `visibilitychange` er det
+     samme signalet i browseren og i WebView-en (docs/mobilapp-plan.md, fase 3).
+     Realtime trenger ingen tilsvarende nudge — dør kanalen, melder den fra selv
+     (`CLOSED`/`CHANNEL_ERROR` → ny subscribe), og pullen her dekker uansett
+     hullet mens den kommer tilbake. */
+  document.addEventListener('visibilitychange', () => {
+    if (document.hidden || !authUser) return;
+    scheduleCloud(0);
+  });
 
   /* ---------------- Migreringsflyt (lokale data → import_doc) ---------------- */
   function flattenState(s) {

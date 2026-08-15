@@ -160,8 +160,22 @@ samme nested `state` som før; synken går slik (`cloudCycle`):
    Det var nettopp en usynlig, evig avvist skriving (et listepunkt som pekte på
    en kategori serveren ikke hadde) som låste synken i praksis — se
    rekkefølge-/prune-avsnittet over og `tests/sync-dangling-category.test.js`.
-4. **Realtime** `postgres_changes` på de seks tabellene + poll (5 s) +
-   `visibilitychange`/`focus`/`online` → `scheduleCloud`.
+4. **Det som starter en runde** (`scheduleCloud`, 300 ms debounce): en lokal
+   endring (`save()`), **realtime** `postgres_changes` på de seks tabellene,
+   **pollet** (5 s — det hopper over runder mens siden er skjult, så en app i
+   bakgrunnen synker ikke), **`online`**, og **gjenopptakelsen**
+   (`visibilitychange` → synlig igjen).
+
+   De to siste er snarveier forbi en timer, ikke bærebjelker, og det er med
+   vilje: pollet henter inn etterslepet uansett, og frakoblet-terskelen i
+   lagringsstatusen ser et brutt nett uten å spørre `navigator.onLine`. Derfor
+   tåler synken en runtime der `online` aldri fyrer
+   (`tests/sync-foreground.test.js`). Gjenopptakelsen er likevel verdt sin egen
+   lytter: mens siden er skjult er pollet blindt, og hvor lenge «til neste tikk»
+   varer eier vi ikke — en skjult side får timerne sine strupet, og i en
+   app-runtime kan prosessen fryses. Å komme tilbake er derimot en hendelse, og
+   den finnes likt i browser og WebView
+   ([`mobilapp-plan.md`](mobilapp-plan.md), fase 3).
 
 Offline-buffer: `state` caches per bruker (`mine-lister-v1:<uid>`), uten intern
 metadata (`stateReplacer` hopper over `_`-felt for å unngå sykliske refs — med
