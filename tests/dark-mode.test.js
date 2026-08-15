@@ -24,7 +24,11 @@
        (custom properties) og ansvarssirklene (stemplet med kilden til fargen
        sin) — så en pågående inline navngiving blir stående, og `save()` (som
        renderBoardInner kaller ubetinget) kjører ikke for et rent lokalt
-       fargebytte. Søppelkassens hurtiglagrede farger glemmes i samme slengen.
+       fargebytte.
+    7. Søppelkassens prikker utleder fargen fra id-en i den drakten som gjelder,
+       aldri fra objektets hurtiglagrede `.color`. Dekkes både for et bytte i
+       appen og for kaldstarten (drakten malt før noen lytter finnes, med en
+       lys farge liggende i den lokale bufferen).
 
   Punkt 3 kjøres i BEGGE viewportene: på innloggingsskjermen står språk- og
   draktvelgeren på samme rad, og raden skal brekke MELLOM parene — aldri mellom
@@ -273,47 +277,59 @@ async function seed(p) {
   await p.evaluate(() => window.HUSKIS_THEME.setMode('dark'));
   await p.waitForTimeout(250);
 
-  console.log('\n--- Søppelkassens prikker glemmer den gamle drakten ---');
-  /* Radene tar `u.color || colorForId(u.id)`. For et TRASHET objekt er
-     `u.color` et levn fra sist det var synlig, og ingen rendring regner den ut
-     på nytt — uten forgetTrashedColors() ville prikken beholdt den lyse
-     drakten sin farge selv etter at modalen ble lukket og åpnet igjen. */
+  console.log('\n--- Søppelkassens prikker følger drakten, også etter en kaldstart ---');
+  /* Radene utleder fargen fra id-en (`colorForId`) i den drakten som gjelder
+     NÅ — de tar ikke den hurtiglagrede `.color`. Det er den eneste varianten
+     som også holder ved KALDSTART: `theme.js` maler drakten før `app.js`
+     rekker å registrere lytteren sin, så et OS-modusbytte mens appen var
+     lukket når aldri fram til noen opprydding. Og `.color` overlever i den
+     lokale bufferen — `stateReplacer` fjerner bare `_`-prefiksede nøkler. */
+  const dotHex = async () => p.evaluate(() => {
+    const d = document.querySelector('#trash-modal .trash-dot');
+    if (!d) return null;
+    const m = getComputedStyle(d).backgroundColor.match(/\d+/g).map(Number);
+    return '#' + m.slice(0, 3).map((v) => v.toString(16).padStart(2, '0')).join('');
+  });
+
   await p.evaluate(() => window.HUSKIS_THEME.setMode('light'));
   await p.waitForTimeout(250);
   const trashetLys = await p.evaluate(() => {
-    const H = window.__huskis, st = H.state;
-    const g = st.universes[0].groups[0];
-    const c = g.cards[0];
-    c.trashed = true;              // farget mens den var synlig
-    H.render();
+    const c = window.__huskis.state.universes[0].groups[0].cards[0];
+    c.trashed = true;                 // farget mens den var synlig
+    window.__huskis.render();
     return c.color;
   });
-  check('forutsetning: den slettede lista har en hurtiglagret LYS farge',
+  check('forutsetning: den slettede lista bærer en hurtiglagret LYS farge',
     /^#[0-9a-f]{6}$/i.test(trashetLys || '') && hsl(trashetLys).l > 50, trashetLys);
+
   await p.evaluate(() => window.HUSKIS_THEME.setMode('dark'));
   await p.waitForTimeout(300);
-  const trashetMork = await p.evaluate(() => {
-    const g = window.__huskis.state.universes[0].groups[0];
-    const c = g.cards.find((x) => x.trashed);
-    return { cached: c.color, id: c.id };
-  });
-  check('den hurtiglagrede fargen er glemt ved draktbyttet',
-    !trashetMork.cached, trashetMork);
-  // …og prikken modalen faktisk tegner er fra det mørke settet.
-  await p.locator('#trash-btn').click();   // liste-søppelkassen i toppmenyen
+  await p.locator('#trash-btn').click();
   await p.waitForTimeout(400);
-  const prikk = await p.evaluate(() => {
-    const d = document.querySelector('#trash-modal .trash-dot');
-    return d ? getComputedStyle(d).backgroundColor : null;
+  const varmPrikk = await dotHex();
+  check(`prikken er fra det mørke settet etter et bytte i appen (${varmPrikk})`,
+    !!varmPrikk && hsl(varmPrikk).l < 50, varmPrikk);
+  await p.keyboard.press('Escape');
+  await p.waitForTimeout(250);
+
+  /* KALDSTARTEN, modellert direkte. Ved et OS-modusbytte mens appen var
+     lukket fyrer ingen lytter — `theme.js` maler drakten før `app.js` rekker å
+     registrere seg — og `.color` overlever i den lokale bufferen fordi
+     `stateReplacer` bare fjerner `_`-prefiksede nøkler. Tilstanden det gir er
+     nøyaktig denne: mørk drakt OG en trashet liste som bærer en lys
+     hurtiglagret farge. Invarianten er at radene ikke bryr seg om den. */
+  const kaldPrikk = await p.evaluate(async () => {
+    const c = window.__huskis.state.universes[0].groups[0].cards.find((x) => x.trashed);
+    c.color = '#ebe0e0';                 // som lastet fra buffer, lys drakt (L=90)
+    return c.color;
   });
-  if (prikk) {
-    const m = prikk.match(/\d+/g).map(Number);
-    const hex = '#' + m.slice(0, 3).map((v) => v.toString(16).padStart(2, '0')).join('');
-    check(`prikken i søppelkassen er fra det mørke settet (${hex}, L=${hsl(hex).l})`,
-      hsl(hex).l < 50, { prikk, hex });
-  } else {
-    check('prikken i søppelkassen er fra det mørke settet', true, 'modalen eksponerte ingen prikk — hoppet over');
-  }
+  check('forutsetning: den trashede lista bærer en lys buffret farge i mørk drakt',
+    hsl(kaldPrikk).l > 50, kaldPrikk);
+  await p.locator('#trash-btn').click();
+  await p.waitForTimeout(400);
+  const kaldHex = await dotHex();
+  check(`prikken er fra det mørke settet, ikke den buffrede fargen (${kaldHex})`,
+    !!kaldHex && hsl(kaldHex).l < 50, { kaldHex, buffret: kaldPrikk });
   await p.keyboard.press('Escape');
   await p.waitForTimeout(250);
 

@@ -178,13 +178,22 @@ lokalt fargebytte, og å utsette rendringen løser ingenting — `finishDrag()`
 kalles av droppene FØR de har committet, så en rendring der ville malt board-et
 fra tilstanden før slippet.
 
-Søppelkassens prikker er det ene stedet en farge ligger hurtiglagret: radene
-tar `u.color || colorForId(u.id)`, og for et trashet objekt er `u.color` et levn
-fra sist det var synlig — ingen rendring regner den ut på nytt. `forgetTrashedColors()`
-sletter derfor den hurtiglagrede fargen på trashede objekter ved et draktbytte,
-slik at neste oppslag faller til `colorForId` i den nye drakten. Fargen er
-verken lagret eller synket, så det koster ingenting. Står modalen åpen i det
-drakten skifter, får prikkene den nye fargen ved neste åpning.
+Søppelkassens prikker utleder fargen **direkte fra id-en** (`colorForId`) i den
+drakten som gjelder når raden bygges — de tar ikke objektets hurtiglagrede
+`.color`. Det er ikke bare ryddigere, det er den eneste varianten som holder:
+
+- Et draktbytte MENS appen står åpen kunne vært løst med en opprydding i
+  lytteren. En **kaldstart** kan ikke: `theme.js` maler drakten før `app.js`
+  rekker å registrere lytteren sin, så et OS-modusbytte mens appen var lukket
+  når aldri fram til noen opprydding.
+- Og `.color` overlever mellom øktene: `stateReplacer` fjerner bare
+  `_`-prefiksede nøkler, så den ligger i den lokale bufferen.
+
+For et trashet objekt er `.color` uansett et levn fra sist det var synlig —
+posisjonsfargen fryses idet det forsvinner ut av lista. `colorForId` er
+deterministisk per objekt og dermed stabil på tvers av økter og enheter, og er
+allerede dokumentert som søppelkassens fargekilde
+([`colors-and-labels.md`](colors-and-labels.md)).
 
 ## Kontrasten er målt, ikke valgt
 
