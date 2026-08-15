@@ -1475,9 +1475,13 @@
   }
   function boardColumnBudget(heights, gap, n) {
     if (n <= 1) return Infinity; // én kolonne: alt havner der uansett
+    // Budsjettet er én SKJERMHØYDE under toppmenyen. Gestelinjen dekker de
+    // nederste pikslene av viewportet, så de er ikke skjerm man kan bruke —
+    // uten leddet blir kolonnen for høy, og siste kort i den havner under
+    // linja (safeInsets() er null i en nettleser).
     const vh = window.innerHeight || document.documentElement.clientHeight || 0;
     const screen = Math.max(BOARD_COL_MIN_H,
-      Math.round(vh - topbarEl.getBoundingClientRect().height - 2 * gap));
+      Math.round(vh - topbarEl.getBoundingClientRect().height - safeInsets().bottom - 2 * gap));
     if (packBoardColumns(heights, gap, screen).length <= n) return screen;
     // Alt får ikke plass på én skjermhøyde per kolonne → finn den minste høyden
     // som gjør det (monotont: større budsjett gir aldri flere kolonner).
@@ -2697,10 +2701,30 @@
     const s = document.createElement('span');
     s.className = 'resp-avatar';
     paintAvatar(s, person && person.avatar, person ? person.initials : '?');
-    const color = index != null && index >= 0 ? colorForIndex(index)
-      : (person ? colorForId(person.id) : '#8496a6');
-    s.style.background = color;
+    /* Sirkelen er en palettflate som males INLINE (ikke av CSS), og paletten
+       speiler L-en per drakt. Kilden til fargen stemples derfor på elementet,
+       slik at den kan males om ved et draktbytte uten en full rendring — se
+       repaintAvatars(). Uten stempelet finnes ikke indeksen igjen: den er
+       personens plass i delegruppen, ikke noe som står i DOM-en.
+       Den navnløse varianten har en fast grå og stemples ikke. */
+    if (index != null && index >= 0) s.dataset.palIndex = String(index);
+    else if (person) s.dataset.palId = String(person.id);
+    s.style.background = paletteOf(s) || '#8496a6';
     return s;
+  }
+  // Fargen et stemplet element skal ha NÅ, i den drakten som gjelder.
+  function paletteOf(el) {
+    if (el.dataset.palIndex != null) return colorForIndex(Number(el.dataset.palIndex));
+    if (el.dataset.palId) return colorForId(el.dataset.palId);
+    return null;
+  }
+  // Maler alle stemplede palettflater på nytt (ansvarssirkler på kort, rader,
+  // meta-chips og i ansvarlig-velgeren). Kirurgisk: rører kun `background`.
+  function repaintAvatars(root) {
+    (root || document).querySelectorAll('[data-pal-index], [data-pal-id]').forEach((el) => {
+      const c = paletteOf(el);
+      if (c) el.style.background = c;
+    });
   }
   /* ---------------- Tidsplan (start/frist) ----------------
      Tidsverdi: null | 'YYYY-MM-DD' | 'YYYY-MM-DDTHH:MM' — klokkeslettet er
@@ -3565,9 +3589,6 @@
       delete displayEl.dataset.editing;
       if (commit) onSave(val);
       else if (opts.onCancel) opts.onCancel();
-      // Redigeringen er over — kjør det som ble utsatt mens den pågikk.
-      // Etter onSave/onCancel, så en rendring de selv utløser kommer først.
-      flushDeferredRender();
     };
     input.addEventListener('blur', () => finish(true));
     input.addEventListener('keydown', (e) => {
@@ -3958,16 +3979,23 @@
   // utvider sidens scroll-område (horisontal scrollbar — og på iOS WebKit forskyves
   // da høyre-forankrede `position: fixed`-elementer som kontoknappen). Klemmen slår
   // kun inn helt ute ved kanten, så den er usynlig for vanlig reorder/kolonnebytte.
+  /* Klemmen går mot det BRUKBARE feltet, ikke mot skjermkanten: med
+     `viewport-fit=cover` er hakkets og gestelinjens piksler en del av
+     `innerWidth`/`innerHeight`, og et løftet objekt som stopper der ville lagt
+     seg delvis under dem — mens board-et det kom fra står innenfor. Sonen er 0
+     i en nettleser, så klemmen regner ut nøyaktig det samme som før der. */
   function dragPosLeft() {
-    const vw = window.innerWidth || document.documentElement.clientWidth || 0;
+    const safe = safeInsets();
+    const vw = (window.innerWidth || document.documentElement.clientWidth || 0) - safe.left - safe.right;
     const half = dragRenderedHalf().x;
-    const left = clampToViewport(drag.lastX - drag.grabX, drag.width, half, vw);
+    const left = clampToViewport(drag.lastX - drag.grabX - safe.left, drag.width, half, vw) + safe.left;
     return left + (dragUsesPageCoords() ? window.scrollX : 0);
   }
   function dragPosTop() {
-    const vh = window.innerHeight || document.documentElement.clientHeight || 0;
+    const safe = safeInsets();
+    const vh = (window.innerHeight || document.documentElement.clientHeight || 0) - safe.top - safe.bottom;
     const half = dragRenderedHalf().y;
-    const top = clampToViewport(drag.lastY - drag.grabY, drag.height, half, vh);
+    const top = clampToViewport(drag.lastY - drag.grabY - safe.top, drag.height, half, vh) + safe.top;
     return top + (dragUsesPageCoords() ? window.scrollY : 0);
   }
 
@@ -4185,7 +4213,6 @@
     // som draget er over; `onCardUp` har alt gjort det synkront (drop-tweenen må
     // sikte på den endelige sloten), så der blir dette en no-op.
     scheduleRelayout();
-    flushDeferredRender();   // draget er over — kjør evt. utsatt rendring
   }
 
   /* ------- Avbrutt drag (pointercancel) -------
@@ -4292,7 +4319,10 @@
     if (!windowScrollDrag()) { stopAutoScroll(); updateModalAutoScroll(); return; }
     stopModalAutoScroll();
     const r = draggedRect();
-    const vh = window.innerHeight || document.documentElement.clientHeight || 1;
+    // Nedre kant av det BRUKBARE feltet: gestelinjen dekker de nederste
+    // pikslene, og et kort som «bare så vidt er innenfor viewporten» ligger da
+    // under den (safeInsets() er null i en nettleser).
+    const vh = (window.innerHeight || document.documentElement.clientHeight || 1) - safeInsets().bottom;
     const ZONE = 120;
     // Symmetrisk, kant-forankret utløsning: OPPOVER måles kortets ØVRE kant mot
     // toppen av området rett UNDER den faste headeren (ikke viewportens øvre kant
@@ -4326,8 +4356,14 @@
         // FAKTISKE bunn: et absolutt-posisjonert barn teller ikke i board-ets egen
         // høyde (placeholderen holder kortets gamle slot), så board-ets bunn er den
         // ekte innholdsenden — uavhengig av kortet vi drar.
+        //
+        // Board-ets bunn er IKKE dokumentets ende: `.app-main` har i tillegg
+        // gestelinjens bunn-inset som padding under board-et (styles.css). Uten
+        // det leddet stopper auto-scrollen én inset for tidlig, og siste kort
+        // blir liggende under gestelinjen til brukeren scroller videre selv.
         const vh = window.innerHeight || document.documentElement.clientHeight || 0;
-        const maxScroll = Math.max(0, board.getBoundingClientRect().bottom + window.scrollY - vh);
+        const maxScroll = Math.max(0,
+          board.getBoundingClientRect().bottom + window.scrollY + safeInsets().bottom - vh);
         // Tillatt nedover-avstand er ALLTID ikke-negativ. Ligger den kompakte board-
         // bunnen OVER gjeldende scrollY (f.eks. etter at alle lister kollapset mens
         // dokumenthøyden holdes kunstig høy), blir (maxScroll - scrollY) negativ — en
@@ -4878,7 +4914,9 @@
     const gap = parseFloat(getComputedStyle(board).columnGap) || 16;
     const vh = window.innerHeight || document.documentElement.clientHeight || 0;
     const safeTop = topbarH + gap;   // øverste synlige linje (rett under toppmenyen)
-    const safeBottom = vh - gap;
+    // Nederste synlige linje: gestelinjen dekker de nederste pikslene, så
+    // viewportbunnen alene ville latt kortet ligge delvis under den.
+    const safeBottom = vh - safeInsets().bottom - gap;
     const y = window.scrollY;
     const top = cardDocTop - y;      // kortets viewport-Y akkurat nå
     let target = y;
@@ -6164,6 +6202,23 @@
     modalScrollSpeed = 0;
   }
 
+  /* DEN SIKRE SONEN, for de lagene som plasseres i JS.
+     De faste elementene får den fra CSS (`--safe-*`, se styles.css og
+     docs/design-system.md), men to lag regnes ut i viewport-koordinater og må
+     lese tallene: demonstrasjonens kort og popover-skallet. De klemmes mot
+     rektangelet denne gir, ikke mot skjermkanten — ellers ville de kunnet
+     havne under statusfeltet eller gestelinjen.
+     `env()` erstattes når custom-propertyen regnes ut, så de fire løser seg
+     til vanlige px-verdier her (i motsetning til --board-gap, som er en
+     clamp() og derfor må leses fra en oppløst egenskap — se
+     docs/board-layout.md). En runtime som ikke løser dem gir NaN, og
+     fallbacken er 0: nøyaktig det en skjerm uten systemflater skal ha. */
+  function safeInsets() {
+    const cs = getComputedStyle(document.documentElement);
+    const tall = (n) => parseFloat(cs.getPropertyValue('--safe-' + n)) || 0;
+    return { top: tall('top'), right: tall('right'), bottom: tall('bottom'), left: tall('left') };
+  }
+
   // Den faste (position: fixed) toppmenyen er ute av flyten, så board-et må få
   // nøyaktig klaring: målt toppmeny-høyde + --board-gap. Padding-top regnes ut
   // HER (ikke i en CSS calc()) slik at avstanden ned til første kort blir
@@ -6184,7 +6239,23 @@
   // Kolonneantallet følger vindusbredden og budsjettet skjermhøyden — begge deler
   // endres her. (ResizeObserver-en på board-et fanger bredde-endringer, men ikke
   // en ren HØYDE-endring der board-innholdet blir stående like stort.)
-  window.addEventListener('resize', () => { syncHeaderHeight(); relayoutBoard(); fixBoardBottomGap(); });
+  window.addEventListener('resize', () => {
+    syncHeaderHeight(); relayoutBoard(); fixBoardBottomGap();
+    /* Skjermtastaturet KRYMPER viewportet (i det native skallet får WebView-en
+       en bunn-inset like høy som tastaturet; i en mobilnettleser er det den
+       samme resize-en). Da kan feltet som redigeres bli liggende under
+       tastaturet, uten at noe annet flytter det tilbake. `nearest` ruller
+       akkurat nok, og sidens `scroll-padding-top` (styles.css) holder det
+       samtidig unna den faste toppmenyen. Etter syncHeaderHeight(), som er
+       kilden til den paddingen. */
+    const a = document.activeElement;
+    if (a && a.classList && a.classList.contains('edit-input')) {
+      try { a.scrollIntoView({ block: 'nearest' }); } catch (e) { /* ignore */ }
+    }
+    // En popover som står åpen er forankret i koordinater fra viewportet den
+    // ble åpnet i — den må regnes ut på nytt her, ikke først ved neste åpning.
+    repositionOpenPopovers();
+  });
 
   // Bunn-luft etter siste kort — uansett hvilken kolonne som ender opp høyest.
   // Med flex-kolonner ER siste korts EGEN margin-bottom (--board-gap) bunn-luften
@@ -6632,6 +6703,12 @@
       const iconR = iconEl.getBoundingClientRect();
       const vw = window.innerWidth || document.documentElement.clientWidth || 360;
       const EDGE = 8;
+      /* Høyre grense er den BRUKBARE kanten, ikke viewportkanten: i landskap
+         med et hakk i høyre side ville feltet (og dermed sveipe-strekket, som
+         regnes ut fra bredden) endt under hakket — etiketten og pilen blir
+         uleselige, og enden av sveipet ligger et sted fingeren ikke når. 0 i en
+         nettleser, se docs/design-system.md («Den sikre sonen»). */
+      const høyreKant = vw - safeInsets().right;
 
       const field = ensureSwipeField();
       // Start = knappens eksakte flate; padding-left plasserer sveipe-ikonets
@@ -6656,7 +6733,7 @@
       // Utvid mot høyre så langt det trengs/er plass (venstre kant og høyde
       // ligger fast → ingen vertikal asymmetri, ikonet står i ro).
       const width = Math.max(Math.round(r.width),
-        Math.min(207, vw - EDGE - Math.round(r.left)));
+        Math.min(207, høyreKant - EDGE - Math.round(r.left)));
       field.style.width = width + 'px';
       btnRect = r;
       // Knappen skjules IKKE: det opake feltet starter med knappens eksakte
@@ -6951,21 +7028,67 @@
   navModal.addEventListener('click', (ev) => { if (ev.target === navModal) closeNavModal(); });
   accountModal.addEventListener('click', (ev) => { if (ev.target === accountModal) closeAccount(); });
 
+  /* Knappen popoveren hører til, husket PÅ panelet. Den settes når panelet
+     ÅPNES — uansett bredde, ikke bare når det åpnes som popover: på mobil er
+     skallet et sentrert ark (CSS) og ankeret ubrukt, men snus telefonen til
+     popover-bredde MENS panelet står åpent, er ankeret det eneste
+     `repositionOpenPopovers` har å forankre mot. Uten det ville panelet blitt
+     et `position: fixed`-element uten koordinater. */
+  function rememberAnchor(panel, btn) {
+    panel.__anchor = btn && btn.isConnected ? btn : null;
+  }
   // Plasser popoveren (ansvarlig-velger/tids-popover) rett til høyre for
-  // knappen (desktop); klem til viewportet så den aldri havner utenfor skjermen.
+  // knappen (desktop); klem til den SIKRE sonen så den aldri havner utenfor
+  // skjermen eller under en systemflate (safeInsets() er null i en nettleser).
   function positionSwitcherPanel(panel, btn) {
     const r = btn.getBoundingClientRect();
     const gap = 8;
+    rememberAnchor(panel, btn);
+    const safe = safeInsets();
     panel.style.visibility = 'hidden';
     panel.style.top = '0px';
     panel.style.left = '0px';
     const pr = panel.getBoundingClientRect();
-    const top = Math.max(10, Math.min(r.top, window.innerHeight - pr.height - 10));
+    const top = Math.max(safe.top + 10, Math.min(r.top, window.innerHeight - safe.bottom - pr.height - 10));
     let left = r.right + gap;
-    if (left + pr.width > window.innerWidth - 10) left = Math.max(10, r.left - pr.width - gap);
+    if (left + pr.width > window.innerWidth - safe.right - 10) left = Math.max(safe.left + 10, r.left - pr.width - gap);
     panel.style.top = top + 'px';
     panel.style.left = left + 'px';
     panel.style.visibility = '';
+  }
+  /* En popover som står åpen når viewportet endrer seg — rotasjon, delt skjerm,
+     et tastatur som krymper — beholder ellers `top`/`left` fra det GAMLE
+     viewportet: den kan bli liggende utenfor skjermen, eller (etter en rotasjon
+     som flytter hakket fra én side til den andre) under hakket, helt til den
+     lukkes og åpnes igjen. Plasseringen er ren geometri og kan trygt kjøres på
+     nytt; på mobil er skallet en sentrert modal (CSS), og da settes ingen
+     inline-koordinater i det hele tatt. */
+  /* Siste utvei når ankeret er borte: flytt panelet minst mulig, men innenfor
+     det brukbare feltet. Uten inline-koordinater (et ark som nettopp ble
+     popover) leses posisjonen fra der CSS satte det, og det klemmes derfra. */
+  function clampPanelToSafe(panel) {
+    const safe = safeInsets();
+    const r = panel.getBoundingClientRect();
+    const maxX = window.innerWidth - safe.right - 10 - r.width;
+    const maxY = window.innerHeight - safe.bottom - 10 - r.height;
+    panel.style.left = Math.max(safe.left + 10, Math.min(r.left, maxX)) + 'px';
+    panel.style.top = Math.max(safe.top + 10, Math.min(r.top, maxY)) + 'px';
+  }
+  function repositionOpenPopovers() {
+    [[respSwitcherOverlay, respSwitcherPanel], [timeSwitcherOverlay, timeSwitcherPanel],
+      [objMenuOverlay, objMenuPanel]].forEach(([overlay, panel]) => {
+      if (!overlay || overlay.hidden || !panel) return;
+      // Modal-varianten (mobil) plasseres av CSS — inline-koordinatene fra
+      // desktop ville låst den fast i hjørnet.
+      if (getComputedStyle(panel).position !== 'fixed') return;
+      const btn = panel.__anchor;
+      if (btn && btn.isConnected) { positionSwitcherPanel(panel, btn); return; }
+      /* Ankeret kan ha blitt revet ut av DOM-en mens popoveren står åpen: en
+         synk-rebuild eller `refreshCard()` bytter ut hele kortet knappen satt
+         i. Da finnes det ingen knapp å forankre mot — men panelet skal likevel
+         ikke bli liggende under en systemflate eller utenfor skjermen. */
+      clampPanelToSafe(panel);
+    });
   }
 
   /* ---------------- Ansvarlig-velger (popover/modal) ----------------
@@ -7070,6 +7193,7 @@
     // fra ansvarsknapp-rendringen); hent ferskt i bakgrunnen og bygg om når det
     // lander (medlemmer kan ha endret seg siden forrige cache).
     respOpen = true;
+    rememberAnchor(respSwitcherPanel, anchorBtn);
     respSwitcherOverlay.hidden = false;
     updateModalOpenClass();
     const cached = shareGroupCache.get(key);
@@ -7499,6 +7623,7 @@
   function openObjMenu(spec, anchorBtn) {
     if (objMenuCtx) closeObjMenu();
     objMenuReturn = anchorBtn || null;
+    rememberAnchor(objMenuPanel, anchorBtn);
     objMenuOverlay.hidden = false;
     objMenuPanel.style.top = '';
     objMenuPanel.style.left = '';
@@ -7714,6 +7839,7 @@
       : ICONS.calendar + '<span>' + tr('time.start') + '</span>';
     timeSwitcherPanel.append(head, buildTimeEditor(getT, { only: field }));
     timeQuickOpen = true;
+    rememberAnchor(timeSwitcherPanel, anchorBtn);
     timeSwitcherOverlay.hidden = false;
     updateModalOpenClass();
     if (anchorBtn && anchorBtn.isConnected && window.matchMedia('(min-width: 561px)').matches) {
@@ -7952,27 +8078,6 @@
     // stjålet fokuset før man rakk å skrive noe.
     if (ae && ae.classList && ae.classList.contains('edit-input')) return true;
     return false;
-  }
-  /* Arbeid som ble UTSATT fordi `isBusyEditing()` var sann. Synken har sin egen
-     variant (`cloudAgain`), men den flushes av neste synk-runde; et draktbytte
-     har ingen slik runde å vente på. Uten en kø ville en utsatt rendring aldri
-     kommet: `editText.finish(false)` (Escape) bytter bare noden tilbake og
-     rendrer ingenting, så palettflater som IKKE er kort — ansvarssirklene —
-     ble stående i den gamle drakten på ubestemt tid.
-
-     De to stedene en «opptatt» tilstand kan ta slutt er `editText.finish()`
-     (Enter, klikk ut og Escape går alle gjennom den) og `finishDrag()`. Begge
-     kaller flushDeferredRender(), som selv sjekker om den ANDRE fortsatt
-     pågår — man kan rekke å begynne å dra rett etter en navngiving. */
-  let deferredRender = false;
-  function renderOrDefer() {
-    if (isBusyEditing()) { deferredRender = true; return; }
-    render();
-  }
-  function flushDeferredRender() {
-    if (!deferredRender || isBusyEditing()) return;
-    deferredRender = false;
-    render();
   }
   /* ---------- Lett, forbigående varsel (ingen fast statusindikator) ---------- */
   let toastTimer = null;
@@ -10189,25 +10294,35 @@
      males på nytt når drakten skifter, også når skiftet kom fra
      operativsystemet mens appen sto åpen ('system').
 
-     KIRURGISK FØRST, RENDRING ETTERPÅ. `reindexContainerColors` bytter bare
-     custom properties på de kortene som allerede står der, og er trygg midt i
-     hva som helst — drakten slår altså gjennom på board-et umiddelbart,
-     uansett hva brukeren holder på med.
+     KUN KIRURGISK — ALDRI EN FULL RENDRING. Begge funksjonene under bytter
+     bare `background`/custom properties på noder som allerede står der:
+     `reindexContainerColors` tar kortene, `repaintAvatars` tar ansvarssirklene.
+     Til sammen er det hver eneste palettflate som lever i board-et, så en
+     `render()` ville ikke tilført noe — men den ville kostet tre ting:
 
-     En full `render()` river derimot ned board-et, og en drakt-endring fra
-     operativsystemet kommer når den kommer — gjerne midt i en inline
-     navngiving. `captureFocusIn` bevarer ikke et åpent `.edit-input`, og en
-     fjernet, fokusert node fyrer ikke pålitelig sin egen `blur`, så teksten
-     brukeren holdt på å skrive ville gått tapt. `renderOrDefer` legger den
-     derfor i kø bak `isBusyEditing()` (se den), og køen tømmes når
-     redigeringen eller draget faktisk er over. Rendringen trengs for de
-     palettflatene som IKKE er kort — ansvarssirklene — som males inline av
-     `respAvatar`. */
+       • Den river ned board-et. En drakt-endring fra operativsystemet kommer
+         når den kommer, gjerne midt i en inline navngiving, og
+         `captureFocusIn` bevarer ikke et åpent `.edit-input`. En fjernet,
+         fokusert node fyrer heller ikke pålitelig sin egen `blur`, så teksten
+         brukeren holdt på å skrive ville gått tapt.
+       • `renderBoardInner()` kaller `save()`. Drakten ligger i localStorage og
+         rører ingen synket data, men rendringen ville likevel stemplet
+         dokumentet som endret, køet en synk-runde og blokkert
+         auto-oppdateringens trygghetssjekk — for et rent lokalt fargebytte.
+       • Å utsette rendringen i stedet løser ingenting: den måtte da tømmes et
+         sted, og `finishDrag()` (det nærliggende stedet) kalles av droppene
+         FØR de har committet — `onCardUp` stempler `pos` og lagrer etterpå.
+         En rendring der ville malt board-et fra tilstanden før slippet.
+
+     Søppelkasse-modalens prikker er det ene unntaket: de males også fra
+     paletten, men modalen bygger radene sine på nytt hver gang den åpnes, så
+     en drakt-endring mens den STÅR åpen lar prikkene beholde den gamle fargen
+     til den lukkes. De er rene identitetsmerker, og modalen er kortlevd. */
   THEME.onChange(() => {
     paintTheme();
     reindexContainerColors(boardScope);
     reindexContainerColors(navScope);   // no-op når nav-modalen er tom
-    renderOrDefer();
+    repaintAvatars();
   });
 
   // E-postvarsel-innstillingen ligger på kontoen (user_metadata.email_notifications).
@@ -12148,7 +12263,8 @@
   /* Plasser kortet ved siden av målet, med pilspissen mot det. Kortet legger
      seg ALDRI oppå målet: målet er det brukeren skal treffe, og et kort i veien
      gjør steget umulig. Får ikke et helt kort plass verken over eller under,
-     velges den største luften og kortet kappes til den og ruller innvendig. */
+     velges den største luften og kortet kappes til den — da ruller teksten
+     inni kortet, mens knapperaden blir stående (se `.tour-body` i styles.css). */
   function placeTour() {
     const step = demoStep();
     const el = step.narrated ? null : demoTarget();
@@ -12159,18 +12275,47 @@
        runde kapper det igjen. Der scroll/resize fyrer i ett kjør (en telefon)
        blir løkka synlig som at nederste del av kortet flimrer opp og ned.
        Nullstillingen skjer i samme oppgave som målingen, så ingen mellom-
-       tilstand rekker å males. */
+       tilstand rekker å males.
+
+       Men den koster lesestedet: uten klippet er kortet høyt nok til at
+       `.tour-body` ikke lenger renner over, og nettleseren klemmer dermed
+       `scrollTop` til 0. Er brukeren midt i å lese den nederste delen av
+       velkomsten på en lav skjerm, spretter teksten tilbake til toppen for hver
+       eneste plassering. Lesestedet tas derfor vare på og legges tilbake når
+       klippet er satt igjen. */
+    const tourBody = tourCard.querySelector('.tour-body');
+    const lesested = tourBody ? tourBody.scrollTop : 0;
+    const gjenopprettLesested = () => {
+      if (tourBody && tourBody.scrollTop !== lesested) tourBody.scrollTop = lesested;
+    };
     tourCard.style.maxHeight = '';
     const cw = tourCard.offsetWidth;
     const ch = tourCard.offsetHeight;
-    const vw = window.innerWidth;
-    const vh = window.innerHeight;
+    /* Kortet klemmes mot den SIKRE sonen, ikke mot skjermkanten: i et native
+       skall dekker statusfeltet og gestelinjen hver sin strimmel av
+       viewportet, og et kort som stopper 12 px fra kanten ville ligget under
+       dem. I en nettleser er alle fire null, og linjene under regner ut det
+       samme som før. */
+    const safe = safeInsets();
+    const minX = safe.left + margin;
+    const minY = safe.top + margin;
+    const maxX = window.innerWidth - safe.right - margin;
+    const maxY = window.innerHeight - safe.bottom - margin;
     const clamp = (lo, v, hi) => Math.max(lo, Math.min(v, Math.max(lo, hi)));
+    /* Hele den brukbare høyden. Kortet er ALDRI høyere enn denne — verken
+       midtstilt eller ved siden av et mål. Et kort som stikker ut over kanten
+       er ikke bare stygt: knappen som driver steget videre havner utenfor
+       skjermen, og på en lav skjerm (telefon i landskap) gjelder det nettopp
+       velkomsten, der «Kom i gang» er eneste vei videre. */
+    const room = maxY - minY;
     if (!el) {
       tourArrow.hidden = true;
-      tourCard.style.maxHeight = '';
-      tourCard.style.left = Math.max(margin, (vw - cw) / 2) + 'px';
-      tourCard.style.top = Math.max(margin, (vh - ch) / 2) + 'px';
+      const h = Math.min(ch, room);
+      tourCard.style.maxHeight = ch > room ? room + 'px' : '';
+      tourCard.style.left = Math.max(minX, (minX + maxX - cw) / 2) + 'px';
+      tourCard.style.top = Math.max(minY, (minY + maxY - h) / 2) + 'px';
+      gjenopprettLesested();
+      markTourOverflow();
       return;
     }
     const r = el.getBoundingClientRect();
@@ -12196,10 +12341,10 @@
         top: Math.min(keep.top, c.top), bottom: Math.max(keep.bottom, c.bottom),
       };
     });
-    const below = vh - keep.bottom - gap - margin;
-    const above = keep.top - gap - margin;
-    const right = vw - keep.right - gap - margin;
-    const leftRoom = keep.left - gap - margin;
+    const below = maxY - keep.bottom - gap;
+    const above = keep.top - gap - minY;
+    const right = maxX - keep.right - gap;
+    const leftRoom = keep.left - gap - minX;
     /* Med et frisone-element velges siden der MÅLET er den nærmeste kanten av
        rektangelet — ellers ville pilspissen pekt på destinasjonen i stedet for
        på det brukeren skal ta tak i. */
@@ -12214,24 +12359,43 @@
     else side = below >= above ? 'below' : 'above';
     let top, left, maxH = '';
     if (side === 'below' || side === 'above') {
-      if (ch > (side === 'below' ? below : above)) {
-        maxH = Math.max(120, side === 'below' ? below : above) + 'px';
-      }
+      const sideRoom = side === 'below' ? below : above;
+      /* Gulvet på 120 px hindrer en ubrukelig strimmel av et kort når luften på
+         den valgte siden er nesten null — men det kan aldri bli høyere enn hele
+         den brukbare høyden, og topp-klemmen under holder kortet innenfor
+         skjermen selv når gulvet er høyere enn luften (da legger kortet seg
+         nødvendigvis litt oppå målet: et kort utenfor kanten er verre). */
+      if (ch > sideRoom) maxH = Math.max(Math.min(120, room), sideRoom) + 'px';
       const h = maxH ? Math.min(ch, parseFloat(maxH)) : ch;
-      top = side === 'below' ? keep.bottom + gap : keep.top - gap - h;
-      left = clamp(margin, r.left + r.width / 2 - cw / 2, vw - cw - margin);
+      top = clamp(minY, side === 'below' ? keep.bottom + gap : keep.top - gap - h, maxY - h);
+      left = clamp(minX, r.left + r.width / 2 - cw / 2, maxX - cw);
       tourArrow.style.left = clamp(left + 14, r.left + r.width / 2 - half, left + cw - 14 - half * 2) + 'px';
       tourArrow.style.top = (side === 'below' ? top - half : top + h - half) + 'px';
     } else {
-      top = clamp(margin, r.top + r.height / 2 - ch / 2, vh - ch - margin);
+      /* Ved siden av målet er det ingen «luft på siden» som begrenser høyden —
+         bare skjermen selv. Uten kappingen her ville et høyt kort stukket ut
+         både over og under (klemmen kan bare velge én kant). */
+      if (ch > room) maxH = room + 'px';
+      const h = Math.min(ch, room);
+      top = clamp(minY, r.top + r.height / 2 - h / 2, maxY - h);
       left = side === 'right' ? keep.right + gap : keep.left - gap - cw;
-      tourArrow.style.top = clamp(top + 14, r.top + r.height / 2 - half, top + ch - 14 - half * 2) + 'px';
+      tourArrow.style.top = clamp(top + 14, r.top + r.height / 2 - half, top + h - 14 - half * 2) + 'px';
       tourArrow.style.left = (side === 'right' ? left - half : left + cw - half) + 'px';
     }
     tourCard.style.maxHeight = maxH;
     tourCard.style.left = left + 'px';
     tourCard.style.top = top + 'px';
     tourArrow.hidden = false;
+    gjenopprettLesested();
+    markTourOverflow();
+  }
+  /* Avtoningen i bunnen av kortet: PÅ når det finnes uleste linjer under
+     kanten, AV når man er nede (da skal siste linje være skarp). Kalles etter
+     hver plassering og ved rulling i kortet — begge kan endre svaret. */
+  function markTourOverflow() {
+    const body = tourCard.querySelector('.tour-body');
+    const mer = !!body && body.scrollHeight - body.scrollTop - body.clientHeight > 2;
+    tourCard.classList.toggle('has-more', mer);
   }
   // Én linje under teksten: hva som står i veien akkurat nå.
   function demoNote() {
@@ -12473,8 +12637,18 @@
     closeAccount();          // demoen peker på appen BAK modalen
     startTour(accountBtn);
   });
-  // Pilspissen og kortet skal følge målet: siden bak ruller fritt.
-  const tourReflow = () => { if (demoRunning && demoPainted === demoIndex) placeTour(); };
+  /* Pilspissen og kortet skal følge målet: siden bak ruller fritt. Lytteren står
+     i CAPTURE-fasen for å fange rulling i alle bokser, og da kommer også kortets
+     EGEN rulling inn hit. Den skal ikke gi en ny plassering: kortet flytter seg
+     ikke av at teksten inni det rulles, og plasseringen ville i tillegg
+     nullstilt lesestedet (se `placeTour` — målingen tar av høydeklippet). */
+  const tourReflow = (ev) => {
+    if (ev && ev.target && ev.target.nodeType === 1 && tourEl.contains(ev.target)) {
+      markTourOverflow();   // avtoningen skal av når man har rullet til bunnen
+      return;
+    }
+    if (demoRunning && demoPainted === demoIndex) placeTour();
+  };
   window.addEventListener('resize', tourReflow);
   window.addEventListener('scroll', tourReflow, true);
 

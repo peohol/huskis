@@ -209,6 +209,13 @@ slipp før enden = avbryt + kollaps. Feltet er ETT delt listepunkt — eierskap 
 kollaps-timer er delt (`swipeOwnerBtn`/`swipeCollapseTimer`) så en ventende
 kollaps fra én knapp aldri skjuler feltet for en annen.
 
+Bredden stopper ved den BRUKBARE høyre kanten (`safeInsets().right`), ikke ved
+viewportkanten: i landskap med et hakk i høyre side ville etiketten og pilen
+havnet under hakket — og sveipe-strekket, som regnes ut fra bredden, ville endt
+et sted fingeren ikke når. 0 i en nettleser
+([`design-system.md`](design-system.md), «Den sikre sonen»); vakt i
+`tests/safe-area.test.js`.
+
 Søppelkasse-ikonet i sveipefeltet (`ICONS.trashSwipe`, se `icons.js`) har kun
 **to bevegelige deler**: hele ikonet (kasse-kropp + ribbene, urørt — de er
 alltid synlige og roterer bare med resten) og `.swipe-icon-lid` (topp-strek +

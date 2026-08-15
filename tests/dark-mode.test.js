@@ -108,16 +108,22 @@ async function seed(p) {
     const H = window.__huskis, st = H.state;
     const mk = (o) => Object.assign({ ts: 1, org: 't', pos: 0, posTs: 1, posOrg: 't', trashed: false, _role: 'owner' }, o);
     st.universes.length = 0;
-    const u = mk({ id: 'uni-A', name: 'Hjemme', collapsed: false, groups: [] });
-    const g = mk({ id: 'g-1', uni: 'uni-A', name: 'Ukesplan', cat: null, isCat: false, collapsed: false, cards: [] });
+    // EKTE UUID-er: de relasjonelle tabellene har uuid-kolonner, så seedede
+    // «uni-A»-id-er ville blitt avvist av PostgREST og latt synk-pillen stå på
+    // «rejected» — nettopp den tilstanden en av sjekkene under måler mot.
+    const id = () => crypto.randomUUID();
+    const uniId = id(), grpId = id();
+    const u = mk({ id: uniId, name: 'Hjemme', collapsed: false, groups: [] });
+    const g = mk({ id: grpId, uni: uniId, name: 'Ukesplan', cat: null, isCat: false, collapsed: false, cards: [] });
     for (let i = 0; i < 4; i++) {
-      const c = mk({ id: 'c-' + i, group: 'g-1', title: 'Liste ' + (i + 1), pos: i, collapsed: false, items: [] });
-      c.items.push(mk({ id: 'i-' + i, home: 'c-' + i, text: 'Et listepunkt', done: false, cat: null, isCat: false }));
+      const cid = id();
+      const c = mk({ id: cid, group: grpId, title: 'Liste ' + (i + 1), pos: i, collapsed: false, items: [] });
+      c.items.push(mk({ id: id(), home: cid, text: 'Et listepunkt', done: false, cat: null, isCat: false }));
       g.cards.push(c);
     }
     u.groups.push(g);
     st.universes.push(u);
-    st.activeUniverse = 'uni-A'; st.activeGroup = 'g-1';
+    st.activeUniverse = uniId; st.activeGroup = grpId;
     H.render();
   });
   await p.waitForTimeout(300);
@@ -262,11 +268,13 @@ async function seed(p) {
   });
   check('forutsetning: navnefeltet står åpent med ubekreftet tekst',
     før.finnes && før.verdi === 'Halvskrevet navn' && før.fokusert, før);
+  await p.evaluate(() => { window.__kortFor = document.querySelector('#board .card'); });
   await p.emulateMedia({ colorScheme: 'dark' });
   await p.waitForTimeout(400);
   const etter = await p.evaluate(() => {
     const el = document.querySelector('#board .edit-input');
     return {
+      sammeNode: document.querySelector('#board .card') === window.__kortFor,
       theme: document.documentElement.getAttribute('data-theme'),
       finnes: !!el,
       verdi: el && el.value,
@@ -281,21 +289,22 @@ async function seed(p) {
   check('…og kortfargene fulgte drakten kirurgisk (mørkt sett)',
     /^#[0-9a-f]{6}$/i.test(etter.kortfarge) && hsl(etter.kortfarge).l < 50, etter.kortfarge);
 
-  /* Den utsatte rendringen må faktisk KOMME. Escape går gjennom
-     `editText.finish(false)`, som bare bytter noden tilbake og rendrer
-     ingenting av seg selv — uten køen ville palettflater som ikke er kort
-     (ansvarssirklene, malt inline av respAvatar) blitt stående i den gamle
-     drakten på ubestemt tid. At board-noden er byttet ut er beviset på at
-     rendringen kjørte. */
-  await p.evaluate(() => { window.__kortFor = document.querySelector('#board .card'); });
+  /* …og det gjorde den UTEN å bygge board-et om. Denne ene sjekken dekker to
+     regresjoner, for begge følger av at `render()` kjørte:
+
+       • navnefeltet rives ned (målt over), og
+       • `renderBoardInner()` kaller `save()` — som stempler dokumentet som
+         endret, køer en synk-runde og blokkerer auto-oppdateringens
+         trygghetssjekk, for et rent lokalt fargebytte.
+
+     Den andre er målt her og ikke på synk-pillen: pillen rakk ikke å slå ut på
+     én ekstra `save()` i mock-backenden, så en sjekk på den ville passert også
+     med feilen inne. Node-identiteten er derimot entydig — palettflatene males
+     kirurgisk, så board-noden skal være den SAMME etterpå. */
+  check('board-noden er ikke bygget om — draktbyttet rendrer ikke',
+    etter.sammeNode, etter);
   await p.keyboard.press('Escape');
-  await p.waitForTimeout(350);
-  const flushet = await p.evaluate(() => ({
-    rendret: document.querySelector('#board .card') !== window.__kortFor,
-    feltBorte: !document.querySelector('#board .edit-input'),
-  }));
-  check('den utsatte rendringen kjøres når redigeringen avsluttes (Escape)',
-    flushet.rendret && flushet.feltBorte, flushet);
+  await p.waitForTimeout(250);
 
   await p.emulateMedia({ colorScheme: null });
   await ctx.close();

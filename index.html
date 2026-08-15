@@ -64,7 +64,13 @@
       if (target) location.replace(target);
     })();
   </script>
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <!-- viewport-fit=cover: siden legger seg under statusfeltet og gestelinjen i
+       et native skall, og får til gjengjeld `env(safe-area-inset-*)` med de
+       faktiske målene. styles.css leser dem inn i --safe-top/-right/-bottom/
+       -left og holder de faste elementene innenfor (docs/design-system.md,
+       «Den sikre sonen»). I en vanlig nettleser finnes ingen inset-er:
+       env() gir 0, og hele mekanismen er en no-op. -->
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
   <meta name="theme-color" content="#667788" />
   <!-- Unik ID for denne produksjonsbuilden. Byttes ut av build.js (samme verdi
        som i /version.json) og leses av update-check.js. «dev» = ubygget
@@ -96,8 +102,9 @@
 
   <!-- Toppmenyen: ÉN navigasjonsknapp som viser hvor du er (🌐 område › 📁
        mappe) og åpner den felles navigasjonsmodalen, og listefunksjonene
-       («＋ Liste», søppelkasse, filter) på raden under. All navigering/
-       redigering/deling av områder og mapper skjer i nav-modalen, ikke her. -->
+       («＋ Liste», søppelkasse, filter) rett til høyre for den — på raden
+       under kun under 560 px (telefon i portrett). All navigering/redigering/
+       deling av områder og mapper skjer i nav-modalen, ikke her. -->
   <header class="topbar" id="topbar">
     <nav class="breadcrumb" data-i18n-aria-label="crumb.youAreHere">
       <button class="crumb-btn nav-crumb" id="nav-crumb" type="button"
