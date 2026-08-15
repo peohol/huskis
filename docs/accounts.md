@@ -203,8 +203,9 @@ samme nested `state` som før; synken går slik (`cloudCycle`):
    lytter: mens siden er skjult er pollet blindt, og hvor lenge «til neste tikk»
    varer eier vi ikke — en skjult side får timerne sine strupet, og i en
    app-runtime kan prosessen fryses. Å komme tilbake er derimot en hendelse, og
-   den finnes likt i browser og WebView
-   ([`mobilapp-plan.md`](mobilapp-plan.md), fase 3).
+   den finnes likt i browser og WebView — bekreftet på Android etter en lang
+   bakgrunnsperiode: runden kommer straks appen hentes fram, ikke når en timer
+   vi ikke eier bestemmer seg ([`mobilapp-plan.md`](mobilapp-plan.md), fase 3).
 
 Offline-buffer: `state` caches per bruker (`mine-lister-v1:<uid>`), uten intern
 metadata (`stateReplacer` hopper over `_`-felt for å unngå sykliske refs — med

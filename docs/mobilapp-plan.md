@@ -14,10 +14,10 @@ autoritative dokumentet for fagfeltet.
 | Felt | Nå |
 |---|---|
 | Målarkitektur | Én HTML/CSS/JS-kodebase + Capacitor for Android/iOS |
-| Nåværende fase | **Fase 3 — nødvendige native integrasjoner** |
-| Status | Fase 3 er i gang. Fem punkter er ferdige: systemets tilbakeknapp og safe areas/systemfeltene/skjermtastaturet, begge verifisert på fysisk telefon; eksterne lenker og auth-/e-postlenker, som begge er beslutninger uten kode og derfor ikke har noe å prøve på en telefon; og sikker lagring/`android:allowBackup`, der sikkerhetskopien av WebView-lagringen er slått av (se seksjonene). Lifecycle-/network-punktet er kartlagt og avgjort — ingen native signaler kobles på — og det ene reelle hullet er lukket i webkoden, men den fysiske sekvensen gjenstår, så punktet står åpent. Automatisk dekket av `tests/safe-area.test.js`, `tests/landscape-chrome.test.js`, `tests/system-back.test.js`, `tests/sync-foreground.test.js` og `tests/capacitor-android.test.js`. Ferdigkriteriet er ikke nådd. |
-| Neste milepæl | Android-appen oppfører seg som en normal mobilapp i de plattformtilfellene browseren ikke håndterer godt nok selv |
-| Ett neste praktiske steg | Kjør den fysiske sekvensen for lifecycle-punktet (bakgrunn lenge → forgrunn), og enhetssjekken av `navigator.onLine` i flymodus — det er alt som står igjen i fase 3 |
+| Nåværende fase | **Fase 4 — felles release-identitet** |
+| Status | Fase 3 er ferdig og verifisert: alle seks punktene er avgjort, og de som hadde noe å prøve er kjørt på fysisk telefon — tilbakeknappen, safe areas/systemfeltene/skjermtastaturet, og nå lifecycle-/network-signalene, som ble kjørt uten avvik. Tre punkter endte som beslutninger uten web-kode: de to lenkepunktene, og sikker lagring, der `android:allowBackup` er slått av. Automatisk dekket av `tests/safe-area.test.js`, `tests/landscape-chrome.test.js`, `tests/system-back.test.js`, `tests/sync-foreground.test.js` og `tests/capacitor-android.test.js`. To spørsmål er bevisst parkert, begge om et TILTAK i en senere fase, ikke om oppførsel: browserens overlevering på slutten av Supabase' 303 (fase 6), og om `navigator.onLine` lever i WebView-en. Fase 4 er ikke startet. |
+| Neste milepæl | Web og mobil kan sammenlignes på én release-identitet uten at Vercels deploy-ID misbrukes som produktversjon |
+| Ett neste praktiske steg | Definer `releaseId`: hva den identifiserer, hvor den genereres, og hvordan den skiller seg fra dagens `buildId` — uten å svekke `buildId`-ens rolle i cache- og reload-sikkerheten |
 | OTA | Ikke innført; skal ikke innføres før Android-baselinen er stabil |
 | iOS | Senere fase; ikke en del av første implementering |
 
@@ -385,14 +385,15 @@ funksjoner bare fordi de er mulige.
       til `huskis.no`, så et intent-filter ser ikke selve trykket. Om 303-en
       videre havner i appen er et åpent spørsmål som skal prøves på telefon
       (se seksjonen).
-- [ ] Koble native lifecycle/network-signaler til eksisterende synklogikk bare
+- [x] Koble native lifecycle/network-signaler til eksisterende synklogikk bare
       der websignalene ikke er tilstrekkelige. Kartlagt og avgjort: ingen native
       signaler kobles på — websignalene rekker, og det ene reelle hullet
       (ingenting hentet appen inn igjen ved gjenopptakelse) er lukket med
-      `visibilitychange`, som browseren og WebView-en har likt. Koden og
-      regresjonstesten er på plass; det som gjenstår før avkryssing er den
-      fysiske sekvensen i seksjonen — om en runde FAKTISK kjører etter at appen
-      har ligget lenge i bakgrunnen, kan bare en telefon svare på.
+      `visibilitychange`, som browseren og WebView-en har likt. Den fysiske
+      sekvensen er kjørt uten avvik: en runde kjører FAKTISK når Android tar
+      appen fram igjen (se seksjonen). Ett spørsmål står fortsatt åpent, og det
+      avgjør bare et tiltak, ikke oppførselen: om `navigator.onLine` lever i
+      WebView-en uten `ACCESS_NETWORK_STATE`.
 - [x] Vurder sikker lagring av native-spesifikke secrets/tokens dersom det
       faktisk finnes et behov; ikke flytt data ut av dagens modell uten grunn.
       Ta samtidig stilling til `android:allowBackup`. Kartlagt og avgjort: det
@@ -756,11 +757,17 @@ nett». Da står `navigator.onLine` permanent på `true`, og `online`/`offline`
 fyrer aldri.
 
 *Observert — men det avgjør ikke spørsmålet:* fase 2 punkt 9 viste «Frakoblet» i
-flymodus. Den teksten har TO kilder — flagget ELLER to runder som ikke nådde
-fram — så observasjonen er forenlig med begge verdener. Enhetssjekken som
-avgjør det: `chrome://inspect` mot debug-APK-en (Capacitor slår på
-WebView-debugging i debugbygg), flymodus på, og les `navigator.onLine` +
-`__huskis.syncStatus.snapshot()`.
+flymodus, og trinn 3 i sekvensen under synket etter en bakgrunnsperiode med
+flymodus på. Ingen av dem skiller de to verdenene: «Frakoblet» har TO kilder —
+flagget ELLER to runder som ikke nådde fram — og trinn 3 slår av flymodus FØR
+appen hentes fram, så gjenopptakelsen forklarer runden uansett hva flagget sto
+på.
+
+*Fortsatt ubesvart:* enhetssjekken som avgjør det er IKKE kjørt, og den er ikke
+en runde med appen — den krever `chrome://inspect` mot debug-APK-en (Capacitor
+slår på WebView-debugging i debugbygg), flymodus på, og lesing av
+`navigator.onLine` + `__huskis.syncStatus.snapshot()`. Spørsmålet står altså
+åpent.
 
 *Konsekvensen om det stemmer:* de to `online`-lytterne blir aldri kalt. Ingen av
 dem eier data. Begge er snarveier forbi en timer som prøver igjen uansett —
@@ -770,7 +777,16 @@ ikke spør `navigator.onLine` i det hele tatt. Derfor er dette ikke et hull, og
 derfor er ikke `ACCESS_NETWORK_STATE` lagt inn: en tillatelse skal ikke inn på
 en uprøvd antakelse for å spare sekunder i veier som leger seg selv. Blir
 svaret på enhetssjekken «ja, den er død», er den ene manifestlinjen det
-naturlige tiltaket — ikke en plugin.
+naturlige tiltaket — ikke en plugin — og den hører sammen med en ny sjekk i del
+6 av `tests/capacitor-android.test.js`, der de andre manifesterklæringene
+voktes.
+
+De to andre leserne taper heller ingenting på et flagg som står permanent på
+`true`. `isNetworkError()` faller tilbake på meldingsteksten, som er der
+uansett. Og `updateSafety()`s offline-arm («ikke trygt å reloade») leses bare av
+`update-check.js`, som i appen ser sin egen innebygde `/version.json`, aldri
+finner en nyere build-ID og derfor aldri foreslår en reload i det hele tatt
+(fase 2).
 
 **Hullet som ER reelt, og det er et web-hull.** Pollet er slått av mens siden er
 skjult, og INGENTING hentet appen inn igjen ved gjenopptakelse.
@@ -807,13 +823,25 @@ låser fra #122 som alle måtte utvides — for et signal `visibilitychange` gir
 gratis. `@capacitor/app` kommer først når fase 6 eventuelt tar App Links opp
 igjen, og da for den innkommende ADRESSEN, ikke for lifecycle.
 
-### Ikke prøvd på telefon ennå
+### Testet på fysisk Android
+
+Sekvensen under er kjørt i sin helhet på telefon, uten avvik. Den gjenbrukes ved
+etterkontroll og på iOS i fase 7.
 
 Til forskjell fra de to lenkepunktene finnes det her noe å prøve, og utfallet
-kan bare ses på en enhet: om timerne i en bakgrunnslagt WebView faktisk struper
-eller fryser, og om `visibilitychange` faktisk fyrer når Android tar appen fram
-igjen. Nettleseren beviser stigen, ikke enheten. Sekvensen er kort, og skal
-kjøres med en browserklient innlogget på samme konto:
+kan bare ses på en enhet: nettleseren beviser stigen, ikke enheten. Svaret er at
+gjenopptakelsen bærer. Appen henter inn etterslepet straks Android tar den
+fram igjen — etter en lang bakgrunnsperiode, og etter en bakgrunnsperiode med
+flymodus på — og en endring gjort rett før appen ble skjult ligger allerede hos
+den andre klienten. Hvor hardt Android strupte eller frøs timerne i mellomtiden
+er dermed uten betydning: `visibilitychange` fyrer når appen kommer fram, og det
+er den runden brukeren ser.
+
+Enhetssjekken av `navigator.onLine` er ikke en del av denne sekvensen og er
+**ikke kjørt** — den krever `chrome://inspect`, ikke en runde med appen.
+`ACCESS_NETWORK_STATE`-spørsmålet står derfor fortsatt åpent (avsnittet over).
+
+Sekvensen er kort, og skal kjøres med en browserklient innlogget på samme konto:
 
 | # | Gjør | Forventet |
 |---|---|---|
@@ -901,7 +929,14 @@ viser at pakken ikke lenger er kvalifisert. Det er en bekreftelse, ikke en
 åpen beslutning.
 
 **Ferdigkriterium:** Android-appen oppfører seg som en normal mobilapp i de
-plattformtilfellene browseren ikke selv kan håndtere godt nok.
+plattformtilfellene browseren ikke selv kan håndtere godt nok. **Oppfylt.**
+
+To spørsmål står igjen åpne, og begge kan bare besvares på en telefon. Ingen av
+dem gjelder oppførselen kriteriet handler om — de avgjør hvert sitt TILTAK, i
+hver sin senere fase: om browseren leverer fra seg på slutten av Supabase' 303
+(bestemmer om App Links koster fire eller seks koblede endringer — fase 6), og
+om `navigator.onLine` lever i WebView-en (bestemmer om én manifestlinje er verdt
+å legge inn). Begge står beskrevet i seksjonene sine.
 
 ---
 
@@ -1057,28 +1092,28 @@ De skal ikke snike seg inn i fundamentfasene.
 
 ## Neste oppgave
 
-**Fase 3 fortsetter, og alt som gjenstår krever en telefon.** Fem punkter er
-ferdige: tilbakeknappen og safe areas/systemfeltene/skjermtastaturet (begge
-verifisert på telefon); de to lenkepunktene — eksterne lenker og
-auth-/e-postlenker — som begge endte som beslutninger uten kode, og som derfor
-fortsatt ikke har noe å prøve på en telefon; og sikker lagring/`allowBackup`,
-som endte i to native erklæringer og ingen web-kode (seksjonen «Sikker lagring
-og sikkerhetskopi»).
+**Start fase 4.** Begynn med `releaseId`: definer hva den identifiserer, hvor
+den genereres, og hvordan den skiller seg fra dagens `buildId` — som fortsatt
+eier cache- og reload-sikkerheten ([`auto-update.md`](auto-update.md)) og ikke
+skal svekkes for å bære en ny rolle. Deretter at web og Android kan rapportere
+den samme `releaseId` for den samme releasen.
 
-**Lifecycle- og network-signalene er kartlagt og avgjort**: websignalene rekker,
-ingen native signaler er koblet på, og det ene reelle hullet — at ingenting
-hentet appen inn igjen ved gjenopptakelse — er lukket med `visibilitychange`
-(seksjonen «Lifecycle- og network-signaler»). To ting gjenstår før punktet kan
-krysses av, og begge krever en telefon: den korte fysiske sekvensen i den
-seksjonen, og enhetssjekken av om `navigator.onLine` i det hele tatt lever i
-WebView-en uten `ACCESS_NETWORK_STATE`. Det siste endrer ingenting som haster —
-alle veiene det rører leger seg selv — men svaret avgjør om én manifestlinje er
-verdt å legge inn. Legges den inn, hører den sammen med en ny sjekk i del 6 av
-`tests/capacitor-android.test.js`.
+**Fase 3 er oppfylt**, og endte med færre native API-er enn punktlista antydet:
+ett gated kall i web-koden (broen for tilbakeknappen), noen erklæringer i
+manifestet og temaet, og ellers CSS og websignaler. To spørsmål er parkert med
+vilje, og begge kan bare besvares på en telefon:
 
-Det er det eneste som står igjen i fase 3.
+- **Browserens overlevering på slutten av Supabase' 303** — avgjør om App Links
+  koster fire eller seks koblede endringer. Hører til fase 6, der det står i
+  punktlista.
+- **Om `navigator.onLine` lever i WebView-en uten `ACCESS_NETWORK_STATE`** —
+  avgjør om én manifestlinje er verdt å legge inn. Ingenting som haster: alle
+  veiene flagget rører leger seg selv, og den fysiske runden bekreftet at synken
+  kommer fram uansett. Blir svaret «den er død», hører linjen sammen med en ny
+  sjekk i del 6 av `tests/capacitor-android.test.js`. Sekvensen står i
+  seksjonen «Lifecycle- og network-signaler».
 
-Hver fase 3-endring er plattformspesifikk og skal gates eksplisitt
+Hver native endring er plattformspesifikk og skal gates eksplisitt
 (arkitekturregel 2): browserutgaven skal fortsatt kjøre uten Capacitor.
 `tests/capacitor-android.test.js` har fått sitt bevisste unntak for
 tilbakeknappens bro — ÉN kodelinje i `app.js`, gjennom
