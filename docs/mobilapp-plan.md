@@ -15,9 +15,9 @@ autoritative dokumentet for fagfeltet.
 |---|---|
 | Målarkitektur | Én HTML/CSS/JS-kodebase + Capacitor for Android/iOS |
 | Nåværende fase | **Fase 3 — nødvendige native integrasjoner** |
-| Status | Fase 3 er i gang. Systemets tilbakeknapp er ferdig og verifisert på fysisk telefon. Safe areas, systemfeltene og skjermtastaturet er implementert og automatisk dekket (`tests/safe-area.test.js`, `tests/landscape-chrome.test.js`, `tests/capacitor-android.test.js`), og hele den fysiske sekvensen er kjørt — men rettingene den utløste (landskap, og systemfeltenes glyfer i to runder) er ikke sett på telefon ennå. De fire øvrige fase 3-punktene er ikke påbegynt. |
+| Status | Fase 3 er i gang. To punkter er ferdige og verifisert på fysisk telefon: systemets tilbakeknapp, og safe areas/systemfeltene/skjermtastaturet (automatisk dekket av `tests/safe-area.test.js`, `tests/landscape-chrome.test.js` og `tests/capacitor-android.test.js`). De fire øvrige fase 3-punktene er ikke påbegynt, så ferdigkriteriet er ikke nådd. |
 | Neste milepæl | Android-appen oppfører seg som en normal mobilapp i de plattformtilfellene browseren ikke håndterer godt nok selv |
-| Ett neste praktiske steg | Installer debug-APK-en fra CI og kjør punkt 7, 8 og 10 i den fysiske sekvensen på nytt — glyffargen kan bare bekreftes med øynene, og det er den siste biten som mangler før punktet kan krysses av |
+| Ett neste praktiske steg | Definer hvilke eksterne lenker som åpnes i systembrowser og hvilke som forblir i appen |
 | OTA | Ikke innført; skal ikke innføres før Android-baselinen er stabil |
 | iOS | Senere fase; ikke en del av første implementering |
 
@@ -370,11 +370,10 @@ funksjoner bare fordi de er mulige.
 - [x] Definer korrekt system-tilbakeoppførsel: lukk øverste popover/modal,
       naviger ett Huskis-nivå tilbake der det er naturlig, og la OS håndtere
       resten.
-- [ ] Verifiser safe areas, status-/navigasjonsfelt og skjermtastatur.
-      Implementert og automatisk dekket, og hele den fysiske sekvensen er kjørt
-      — men avvikene runden fant ble rettet ETTERPÅ, og punkt 10 (systemfeltenes
-      glyfer) er ikke sett med rettingen inne. Krysses av når punkt 10 er kjørt
-      om igjen på en ny debug-APK.
+- [x] Verifiser safe areas, status-/navigasjonsfelt og skjermtastatur.
+      Implementert, automatisk dekket, og hele den fysiske sekvensen kjørt —
+      inkludert punkt 10, som er kjørt om igjen med rettingen inne og bekreftet
+      på telefon (identisk i lys og mørk modus, lesbart i begge).
 - [ ] Definer hvilke eksterne lenker som åpnes i systembrowser og hvilke som
       forblir i appen.
 - [ ] Gjør auth-/e-postlenker robuste; vurder Android App Links og senere iOS
@@ -494,11 +493,15 @@ nøyaktig ÉN linje — gaten for tilbakeknappens bro. Unntaket i
 
 ### Testet på fysisk Android
 
-Sekvensen under er kjørt i sin helhet på telefon. Punkt 1–6 og 9 uten avvik.
+Sekvensen under er kjørt i sin helhet på telefon, og punkt 10 en gang til med
+rettingen inne. Punkt 1–6 og 9 uten avvik.
 Punkt 7–8 (landskap) avdekket to ordinære Huskis-feil — begge var der i
 nettleseren på samme viewport, og begge er rettet: toppmenyen står nå på ÉN
 linje når bredden rekker ([`menus.md`](menus.md)), og demonstrasjonens kort er
-aldri høyere enn skjermen ([`introduksjon.md`](introduksjon.md)). Vakten er
+aldri høyere enn skjermen ([`introduksjon.md`](introduksjon.md)). De to
+rettingene er verifisert i nettleseren på det samme viewportet, ikke kjørt om
+igjen på telefon — de er ren webkode, uten en plattformbit som kan oppføre seg
+annerledes der. Vakten er
 `tests/landscape-chrome.test.js`. Sekvensen gjenbrukes ved etterkontroll og på
 iOS i fase 7.
 
@@ -515,8 +518,15 @@ steder:
    mørk modus ga lyse glyfer. `SystemBars.style = "LIGHT"` i
    `capacitor.config.json` låser den.
 
-Begge voktes i `tests/capacitor-android.test.js`. **Utfallet av runde 2 er ikke
-sett på telefon ennå** — det kan bare bekreftes med en ny debug-APK.
+Begge voktes i `tests/capacitor-android.test.js`. Utfallet er bekreftet på
+telefon: appen ser identisk ut i lys og mørk modus, med godt lesbar tekst i
+begge.
+
+Lærdommen er verdt å ta med til iOS i fase 7: **temaet er ikke fasit for
+systemfeltenes utseende når en plugin setter det i runtime.** Runde 1 så riktig
+ut i koden og feilet på enheten — og feilet på en måte som skjulte seg selv,
+siden den svarte stripen i mørk modus ga de lyse glyfene noe mørkt å ligge på.
+Bare en telefon avgjør dette.
 
 Debug-APK som i fase 1, på en telefon med hakk ELLER hull i skjermen og med
 **gestenavigasjon** slått på. Kjør punkt 1 og 6 en gang til med treknappsraden,
