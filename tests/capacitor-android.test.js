@@ -765,12 +765,17 @@ const gradleFiler = (function les(dir) {
     return /\.gradle$/.test(d.name) ? [q] : [];
   });
 }(path.join(ROOT, 'android')));
+/* `srcFile` teller like mye som `srcDirs`. Gradle kan peke MANIFESTET et annet
+   sted — `sourceSets { release { manifest.srcFile '…' } }` — og da leser både
+   rutingsjekken her og App Links-sjekken i del 13 en fil som ikke er den APK-en
+   pakker. Samme regel, samme begrunnelse: overstyringen forbys, så den som
+   trenger den må utvide skanningen bevisst. */
 const medSrcDirs = gradleFiler
-  .filter((q) => /srcdirs?\b/i.test(strippet(fs.readFileSync(q, 'utf8'), 'js')))
+  .filter((q) => /(srcdirs?|srcfile)\b/i.test(strippet(fs.readFileSync(q, 'utf8'), 'js')))
   .map((q) => path.relative(ROOT, q));
-check('ingen av byggeskriptene definerer egne kilderøtter (skanningen dekker alt som kompileres)',
+check('ingen av byggeskriptene overstyrer kilderøtter eller manifest-sti (skanningen dekker alt som kompileres)',
   gradleFiler.length > 0 && medSrcDirs.length === 0,
-  medSrcDirs.join(', ') || gradleFiler.length + ' gradle-filer uten srcDirs');
+  medSrcDirs.join(', ') || gradleFiler.length + ' gradle-filer uten srcDirs/srcFile');
 const utenfor = gradleFiler.flatMap((q) => [...strippet(fs.readFileSync(q, 'utf8'), 'js')
   .matchAll(/apply\s+from:\s*["']([^"']+)["']/g)]
   .map((m) => path.resolve(path.dirname(q), m[1]))
@@ -1490,6 +1495,15 @@ const KOMPONENT = new RegExp('<(' + KOMPONENT_TAG + ')\\b[^>]*(?<!/)>[\\s\\S]*?<
    filtre. Den må leses, for `android:exported` kan være erklært nettopp der
    (et overlay som bare setter et attributt). */
 const KOMPONENT_TOM = new RegExp('<(' + KOMPONENT_TAG + ')\\b[^>]*/>', 'g');
+/* `.MainActivity` og `no.huskis.app.MainActivity` er SAMME komponent for
+   Gradle: et navn som starter med punktum — eller ikke inneholder ett — er
+   relativt til pakken. Uten normalisering ville et overlay som bruker den
+   fullkvalifiserte formen fått sin egen rad i attributt-tabellen, og `exported`
+   fra `main` ville ikke blitt arvet. Navnene kanoniseres derfor før de
+   sammenlignes eller slås sammen. */
+const kanoniskKomp = (n) => (n == null ? null
+  : n.startsWith('.') ? cfg.appId + n
+    : n.indexOf('.') === -1 ? cfg.appId + '.' + n : n);
 const komponenter = manifestFiler.flatMap((p) => {
   const tekst = xmlNormalisert(utenXmlKommentarer(fs.readFileSync(p, 'utf8')));
   const fil = path.relative(ROOT, p);
@@ -1505,12 +1519,16 @@ const komponenter = manifestFiler.flatMap((p) => {
     return {
       fil,
       type: k[1],
-      navn: attributt('android:name') || '(uten navn)',
+      navn: kanoniskKomp(attributt('android:name') || '(uten navn)'),
       /* En `activity-alias` ER ikke aktiviteten; den PEKER på den med
          `android:targetActivity`. Sammenlignes aliasets eget navn med
          MainActivity, avvises en helt gyldig plassering. */
-      mål: attributt('android:targetActivity'),
+      mål: kanoniskKomp(attributt('android:targetActivity')),
       eksportert: attributt('android:exported'),
+      /* En komponent med `android:enabled="false"` er utelatt fra
+         intent-oppslag. Filteret ville sett komplett ut her og aldri blitt
+         truffet på telefonen. */
+      aktivert: attributt('android:enabled'),
       /* Samme lookbehind som på komponenten, og av samme grunn: et TOMT filter
          (`<intent-filter android:autoVerify="true" />`) har ingen sluttagg, og
          uten den ville mønsteret slått det sammen med det NESTE filteret til én
@@ -1533,6 +1551,7 @@ for (const k of komponenter) {
   const før = komponentAttr.get(k.navn) || {};
   komponentAttr.set(k.navn, {
     eksportert: før.eksportert != null ? før.eksportert : k.eksportert,
+    aktivert: før.aktivert != null ? før.aktivert : k.aktivert,
   });
 }
 const intentFiltre = komponenter.flatMap((k) => k.filtre.map((blokk) => ({
@@ -1541,6 +1560,7 @@ const intentFiltre = komponenter.flatMap((k) => k.filtre.map((blokk) => ({
   komponent: k.navn,
   peker: k.mål,
   eksportert: (komponentAttr.get(k.navn) || {}).eksportert,
+  aktivert: (komponentAttr.get(k.navn) || {}).aktivert,
   blokk,
 })));
 /* XML tillater BEGGE anførselstegn: `android:scheme='https'` er nøyaktig like
@@ -1615,10 +1635,10 @@ if (harFilter) {
      hete `.MainActivity` uten å være en aktivitet, og Android løser aldri en
      browsable VIEW-intent til en slik komponent — filteret ville sett riktig ut
      her og vært dødt på telefonen. */
-  const MAIN = [cfg.appId + '.MainActivity', '.MainActivity'];
+  const MAIN = cfg.appId + '.MainActivity';
   const erMain = (f) => (f.type === 'activity-alias'
-    ? MAIN.indexOf(f.peker) > -1
-    : f.type === 'activity' && MAIN.indexOf(f.komponent) > -1);
+    ? f.peker === MAIN
+    : f.type === 'activity' && f.komponent === MAIN);
   const påMain = komplette.filter(erMain);
   check('App Links: det komplette filteret sitter på MainActivity (der WebView-en er)',
     påMain.length > 0,
@@ -1631,6 +1651,9 @@ if (harFilter) {
   check('App Links: MainActivity er eksportert (ellers kan ingen browser starte den)',
     påMain.length > 0 && påMain.every((f) => f.eksportert === 'true'),
     påMain.map((f) => f.komponent + ': android:exported=' + JSON.stringify(f.eksportert)).join(', ') || 'ingen');
+  check('App Links: komponenten er ikke slått av (android:enabled="false")',
+    påMain.length > 0 && påMain.every((f) => f.aktivert !== 'false'),
+    påMain.map((f) => f.komponent + ': android:enabled=' + JSON.stringify(f.aktivert)).join(', ') || 'ingen');
   /* STIEN teller også. Et filter kan begrenses med `android:pathPrefix="/auth"`
      og er da fortsatt «komplett» etter sjekken over — men det matcher ikke
      adressene Huskis faktisk får: delingsinvitasjonen er `/?signup=<e-post>`
@@ -1648,13 +1671,17 @@ if (harFilter) {
   const rotFiltre = påMain.filter((f) => {
     const s = stiene(f.blokk);
     return (s.length === 0 || s.some((v) => v === '/' || v === ''))
-      && xmlVerdier(f.blokk, 'android:port').length === 0;
+      && xmlVerdier(f.blokk, 'android:port').length === 0
+      /* `android:mimeType` gjør filteret AVHENGIG av en MIME-type, og en
+         App Link-VIEW bærer bare URI-en — den treffer da ikke. */
+      && xmlVerdier(f.blokk, 'android:mimeType').length === 0;
   });
-  check('App Links: minst ett kvalifiserende filter dekker roten, uten sti- eller portbegrensning',
+  check('App Links: minst ett kvalifiserende filter dekker roten, uten sti-, port- eller MIME-begrensning',
     påMain.length > 0 && rotFiltre.length > 0,
     rotFiltre.length > 0 ? rotFiltre.length + ' filter uten innsnevring'
       : 'begrenset til sti ' + (påMain.flatMap((f) => stiene(f.blokk)).join('/') || '—')
-        + ', port ' + (påMain.flatMap((f) => xmlVerdier(f.blokk, 'android:port')).join('/') || '—'));
+        + ', port ' + (påMain.flatMap((f) => xmlVerdier(f.blokk, 'android:port')).join('/') || '—')
+        + ', mimeType ' + (påMain.flatMap((f) => xmlVerdier(f.blokk, 'android:mimeType')).join('/') || '—'));
   /* Et filter er heller ikke nok i seg selv: det bringer bare intenten til
      aktiviteten. NOEN må lese adressen ut av den og gi den til web-laget.
      `@capacitor/android` tar vare på den (`Bridge.getIntentUri()`) og varsler
@@ -1675,9 +1702,11 @@ if (harFilter) {
      kode som leser intent-URI-en selv.
 
      Formen kreves, ikke bare navnet: en REGISTRERT lytter
-     (`addListener('appUrlOpen', …)`) i web-koden, eller native kode som
-     faktisk henter URI-en (`getIntentUri()`). Et bart `onNewIntent`-overstyr
-     teller ikke — den kan like gjerne slippe intenten på gulvet.
+     (`addListener('appUrlOpen', …)`) i web-koden, eller native kode som faktisk
+     HENTER adressen — enten Capacitors `getIntentUri()` eller Androids egne
+     `intent.getData()`/`getDataString()`, som en egen implementasjon like gjerne
+     kan bruke. Et bart `onNewIntent`-overstyr teller ikke: det kan slippe
+     intenten på gulvet uten å lese den.
 
      GRENSEN, og den er ekte: at lytteren finnes beviser IKKE at adressen rutes
      riktig — at `?signup=` havner der `applySignupInvite()` leser den. Det kan
@@ -1694,11 +1723,12 @@ if (harFilter) {
   const webKode = WEB_KILDE.map((f) => strippet(les(f), modusFor(f))).join('\n');
   const releaseKilder = nativeFiler.filter(iRelease);
   const leserUri = /addListener\s*\(\s*["'`]appUrlOpen/.test(webKode)
-    || releaseKilder.some((p) => /getIntentUri\s*\(/.test(strippet(fs.readFileSync(p, 'utf8'), 'js')));
+    || releaseKilder.some((p) => /(getIntentUri|getDataString|getData)\s*\(/
+      .test(strippet(fs.readFileSync(p, 'utf8'), 'js')));
   check('App Links: noe LESER den innkommende adressen (ellers mistes ?signup= og alt annet i URL-en)',
     leserUri,
     leserUri ? 'URI-en hentes — om den rutes riktig avgjøres på telefon'
-      : 'ingen registrert appUrlOpen-lytter i web-koden og ingen native getIntentUri()'
+      : 'ingen registrert appUrlOpen-lytter i web-koden og ingen native lesing av intent-dataen'
         + (typeof alleDeps['@capacitor/app'] === 'string' ? ' (@capacitor/app installert, men ubrukt)' : ''));
 }
 if (harStatement) {
