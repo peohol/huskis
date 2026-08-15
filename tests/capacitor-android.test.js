@@ -364,6 +364,25 @@ check('android: skjermtastaturet krymper vinduet (adjustResize)',
    var dessuten halve problemet: night-varianten malte en SVART statusfelt-
    bakgrunn oppå siden, så flaten vår ikke nådde skjermkanten i mørk modus.
    Ingenting av dette kan ses fra web-laget — derfor voktes erklæringene her. */
+/* XML-KOMMENTARER TÅLER IKKE «--». Standarden forbyr to bindestreker på rad
+   inne i en kommentar, og Gradles `mergeDebugResources` avviser fila med
+   «The string "--" is not permitted within comments» — altså et RØDT BYGG,
+   ikke en advarsel. Fella er lett å gå i her: kommentarene i disse filene
+   forklarer hvorfor systemfeltene ser ut som de gjør, og da er det nærliggende
+   å referere en CSS-variabel ved navn. Sjekken er billig og fanger det i
+   node-suiten i stedet for etter et par minutter med Gradle. */
+for (const f of ['android/app/src/main/res/values/styles.xml',
+  'android/app/src/main/res/values-v27/styles.xml',
+  'android/app/src/main/res/values/colors.xml']) {
+  const kommentarer = les(f).match(/<!--[\s\S]*?-->/g) || [];
+  const ulovlige = kommentarer
+    .map((k) => k.slice(4, -3))          // uten selve markørene
+    .filter((innhold) => innhold.includes('--'));
+  check(f + ': ingen «--» inne i en XML-kommentar (Gradle avviser fila)',
+    ulovlige.length === 0,
+    ulovlige.map((x) => x.replace(/\s+/g, ' ').trim().slice(0, 80)));
+}
+
 const styles = les('android/app/src/main/res/values/styles.xml');
 const stylesV27 = les('android/app/src/main/res/values-v27/styles.xml');
 /* Kun `parent=`-attributtene leses — ordet DayNight står også i kommentaren

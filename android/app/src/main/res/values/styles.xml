@@ -17,8 +17,11 @@
       glyfene følge telefonens nattmodus (`SystemBars.style = DEFAULT`). Det
       ble prøvd, og det er feil: båndet bak statusfeltet er LYST i begge
       draktene — også når appen under er mørk. Flaten der følger altså ikke
-      `--bg`. Lyse glyfer havner derfor på et lyst bånd og forsvinner, nøyaktig
-      slik de gjorde før #119.
+      board-bakgrunnen i det hele tatt. Lyse glyfer havner derfor på et lyst
+      bånd og forsvinner, nøyaktig slik de gjorde før #119.
+
+      (Og merk: XML tillater ikke to bindestreker på rad inne i en kommentar —
+      CSS-variabler kan ikke navngis her, Gradle avviser fila.)
 
       • Foreldretemaet er Light, ikke DayNight. Night-varianten malte en svart
         statusfelt-bakgrunn OVER siden, så appens egen flate ikke nådde
