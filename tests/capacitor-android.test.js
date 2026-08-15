@@ -31,7 +31,11 @@
      9. Native runtime: webkoden kjenner Capacitor på ÉN gated linje (broen for
         systemets tilbakeknapp) og ingen andre steder, og ingenting i den peker
         appen ut av sine egne innebygde filer.
-    10. Systemets tilbakeknapp: skallet spør web-laget først og lar OS ta
+    10. Safe areas og skjermtastaturet: erklæringene sonen hviler på —
+        `viewport-fit=cover` i index.html, `adjustResize` i manifestet, og
+        systemfeltenes utseende i temaet (lyst tema, gjennomsiktige felt,
+        mørke glyfer) som gjør klokka lesbar over Huskis' lyse flate.
+    11. Systemets tilbakeknapp: skallet spør web-laget først og lar OS ta
         trykket når web-laget ikke tok det.
 
    `/version.json` i den innebygde builden er en KJEDE av invarianter som
@@ -333,7 +337,74 @@ const guardHosts = (les('index.html').match(/REDIRECT_HOSTS\s*=\s*\[([^\]]*)\]/)
 check('guardens hostliste navngir ingen localhost-vert (appen redirecter ikke seg selv ut)',
   !/localhost|127\.0\.0\.1/.test(guardHosts), guardHosts.trim());
 
-/* ---- 10. Systemets tilbakeknapp ----
+/* ---- 10. Safe areas, systemfeltene og skjermtastaturet ----
+
+   Runtimen rapporterer systemflatenes mål som `env(safe-area-inset-*)` KUN når
+   siden ber om å få tegne under dem, altså med `viewport-fit=cover`. Uten den
+   krymper skallet i stedet WebView-en, `env()` er 0, og appen står med en
+   fremmedfarget stripe øverst og nederst. Selve sonen (at chromet faktisk
+   flytter seg) testes i ekte nettleser: tests/safe-area.test.js. Her voktes de
+   to erklæringene den hviler på — de står i hver sin fil og kan ellers komme i
+   utakt uten at noe sier fra. */
+const indexHtml = les('index.html');
+const viewportTag = (indexHtml.match(/<meta name="viewport"[^>]*>/) || [''])[0];
+check('index.html ber om å få tegne under systemfeltene (viewport-fit=cover)',
+  /viewport-fit\s*=\s*cover/.test(viewportTag), viewportTag.trim() || 'ingen viewport-tagg');
+/* Uten en eksplisitt modus står den på «unspecified», og om tastaturet krymper
+   eller skyver vinduet er da systemets valg. Web-laget regner med krymping:
+   resize-lytteren i app.js ruller feltet som redigeres tilbake i syne. */
+check('android: skjermtastaturet krymper vinduet (adjustResize)',
+  /android:windowSoftInputMode="adjustResize"/.test(manifest));
+
+/* Systemfeltenes GLYFER hører til den samme mekanismen: når siden tegner under
+   feltene, er det Huskis' egen — alltid lyse — flate som ligger bak klokka og
+   gestelinjen. Uten en eksplisitt erklæring beholder feltene systemets egne
+   farger, og lyse glyfer over en lys flate er i praksis uleselige (målt på
+   telefon: grei kontrast i mørk modus, dårlig i lys). DayNight-foreldretemaet
+   var dessuten halve problemet: night-varianten malte en SVART statusfelt-
+   bakgrunn oppå siden, så flaten vår ikke nådde skjermkanten i mørk modus.
+   Ingenting av dette kan ses fra web-laget — derfor voktes erklæringene her. */
+const styles = les('android/app/src/main/res/values/styles.xml');
+const stylesV27 = les('android/app/src/main/res/values-v27/styles.xml');
+/* Kun `parent=`-attributtene leses — ordet DayNight står også i kommentaren
+   som forklarer hvorfor det ikke er foreldretemaet, og den skal ikke felle
+   sin egen test. */
+const arver = (s) => (s.match(/parent="[^"]*"/g) || []).join(' ');
+check('android: kjøretidstemaet er lyst, ikke DayNight (appen har én drakt)',
+  /name="AppTheme\.NoActionBar"[^>]*parent="Theme\.AppCompat\.Light\.NoActionBar"/.test(styles)
+  && !/DayNight/.test(arver(styles)) && !/DayNight/.test(arver(stylesV27)),
+  arver(styles));
+check('android: statusfeltet er gjennomsiktig (Huskis-flaten når skjermkanten)',
+  /android:statusBarColor">@android:color\/transparent/.test(styles));
+/* Bunnfeltet er unntaket på API 24–26: der finnes ikke
+   `windowLightNavigationBar`, og runtime-veien er en no-op, så treknappsradens
+   glyfer er LYSE uansett. Et gjennomsiktig felt ville lagt hvite knapper oppå
+   vår lyse flate — de versjonene får derfor en mørk stripe å ligge på, og først
+   values-v27 gjør feltet gjennomsiktig. */
+check('android: bunnfeltet er en mørk stripe før API 27, ikke gjennomsiktig',
+  /android:navigationBarColor">@color\/systemNavScrim/.test(styles)
+  && !/android:navigationBarColor">@android:color\/transparent/.test(styles)
+  && /name="systemNavScrim"/.test(les('android/app/src/main/res/values/colors.xml')));
+check('android: bunnfeltet blir gjennomsiktig fra API 27 (der glyfene kan snus)',
+  /android:navigationBarColor">@android:color\/transparent/.test(stylesV27));
+check('android: mørke glyfer i statusfeltet (windowLightStatusBar)',
+  /android:windowLightStatusBar">true/.test(styles));
+/* Temaet er ikke nok alene: `SystemBars`-pluginen SETTER utseendet i runtime
+   (`setAppearanceLightStatusBars`), og med `style: DEFAULT` leser den
+   telefonens nattmodus — i mørk modus ba den dermed om LYSE glyfer, oppå vår
+   lyse flate. Med en eksplisitt `LIGHT` er den låst til mørke glyfer, også
+   etter en konfigurasjonsendring (pluginen legger den resolverte stilen på
+   igjen ved rotasjon/modusbytte). Nøkkelen er plugin-klassens navn. */
+check('capacitor.config.json låser systemfeltene til mørke glyfer (SystemBars.style = LIGHT)',
+  !!cfg.plugins && !!cfg.plugins.SystemBars && cfg.plugins.SystemBars.style === 'LIGHT',
+  JSON.stringify((cfg.plugins || {}).SystemBars || null));
+/* Attributten finnes først fra API 27, og hører derfor hjemme i values-v27/ —
+   i values/ ville den vært død kode med lint-støy på kjøpet. */
+check('android: mørke glyfer i gestelinjen fra API 27 (windowLightNavigationBar)',
+  /android:windowLightNavigationBar">true/.test(stylesV27)
+  && !/android:windowLightNavigationBar/.test(styles));
+
+/* ---- 11. Systemets tilbakeknapp ----
 
    Capacitor gjør ingenting med tilbakeknappen selv: `@capacitor/android` har
    ingen back-håndtering, så BridgeActivity arver AppCompats standard og første

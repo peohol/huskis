@@ -136,11 +136,18 @@ Poenget er at brukeren skal se hele appen mens hen bruker den. Derfor:
   presist om hvor langt igjen det er (`#tour-progress`, `role="progressbar"`).
 - **Kortet legger seg aldri oppå målet.** `placeTour()` velger under → over →
   høyre → venstre, og pilspissen følger med til riktig kant. Er det ikke plass
-  til et helt kort noe sted, velges den største luften, og kortet kappes til den
-  og ruller innvendig. Regnestykket starter alltid fra kortets UKAPPEDE høyde:
+  til et helt kort noe sted, velges den største luften, og kortet kappes til den.
+  Regnestykket starter alltid fra kortets UKAPPEDE høyde:
   måles den mens forrige rundes klipp står på, måler plasseringen sin egen
   forrige beslutning, og kortet veksler mellom kappet og ukappet for hver
   scroll og resize.
+- **Kortet er ALDRI høyere enn skjermen** — heller ikke velkomsten, som ikke
+  har noe mål å klemme seg inntil. På en lav skjerm (telefon i landskap) er det
+  velkomsten som er høyest, og «Kom i gang» er eneste vei videre ut av den: et
+  kort som stikker ut under kanten tar knappen med seg ut av syne. Kappingen
+  treffer derfor TEKSTEN, ikke kortet — `.tour-card` er en flex-kolonne der
+  `.tour-body` er rulleflaten, mens framdriftsstolpen og knapperaden blir
+  stående. `tests/landscape-chrome.test.js` er vakten.
 - **Et drag har også en DESTINASJON**, og et kort oppå den gjør steget like
   umulig som et kort oppå målet. `clear()` på steget gir det ekstra elementet
   (kategorien i `drag_into_cat`); plasseringen regnes på rektangelet som rommer

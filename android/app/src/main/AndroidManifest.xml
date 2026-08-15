@@ -9,12 +9,19 @@
         android:supportsRtl="true"
         android:theme="@style/AppTheme">
 
+        <!-- windowSoftInputMode=adjustResize: skjermtastaturet skal KRYMPE
+             vinduet, ikke skyve det opp. Web-laget regner med at et synlig
+             tastatur gir mindre viewport (resize-lytteren i app.js ruller
+             feltet som redigeres tilbake i syne). Uten erklæringen står
+             modusen på «unspecified», og hvilken av de to systemet velger er
+             ikke vår avgjørelse. -->
         <activity
             android:configChanges="orientation|keyboardHidden|keyboard|screenSize|locale|smallestScreenSize|screenLayout|uiMode|navigation|density"
             android:name=".MainActivity"
             android:label="@string/title_activity_main"
             android:theme="@style/AppTheme.NoActionBarLaunch"
             android:launchMode="singleTask"
+            android:windowSoftInputMode="adjustResize"
             android:exported="true">
 
             <intent-filter>

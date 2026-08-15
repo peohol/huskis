@@ -37,6 +37,77 @@ hele appen følge med.
 Alle knapper i samme knapperad har identisk høyde/radius/flate (`--control-h`
 / `--control-radius`). Gjelder ＋-knapper, søppelkasser, breadcrumb-knappene og kontoknappen.
 
+## Den sikre sonen (`--safe-top`/`-right`/`-bottom`/`-left`)
+
+Fire tokens som sier hvor mye av viewportet systemets egne flater dekker:
+statusfelt eller hakk øverst, gestelinje nederst, hakk og avrundede hjørner i
+sidene. De leses fra `env(safe-area-inset-*)`.
+
+**En vanlig nettleser rapporterer ingenting** — der er alle fire 0, og hver
+regel som bruker dem regner ut nøyaktig det samme som før. Verdier finnes bare
+i mobilappen, og bare fordi `index.html` ber om å få tegne under systemfeltene
+(`viewport-fit=cover`). Uten den ville appen i stedet stått med en
+fremmedfarget stripe øverst og nederst.
+
+**Regelen: alt som ligger `position: fixed` mot en viewport-kant legger sonen PÅ
+sin egen avstand.** Det gjelder toppmenyen (`padding`), kontoknappen
+(`top`/`right`), modal- og popover-skallet (`padding` på overlayet), board-ets
+side- og bunn-padding, og de tre bunn-pillene: toasten, lagringsstatusen og
+oppdateringsbanneret. Et panel som klemmes mot viewporthøyden
+(`.modal`, `.switcher-panel`) tar `100%` inn i sin `max-height` — `vh` måler
+hele skjermen, `100%` måler overlayets innholdsboks, altså sonen.
+
+To ting som ser ut som avstand, men er sentrering og bredde: en flate som
+**sentreres** mot viewportet må sentreres i det BRUKBARE feltet (toasten flytter
+`left` et halvt inset-avvik og tar sonen inn i sin `max-width`), og en flate som
+**sentreres i et overflow** må gjøre det med `margin: auto`, ikke `align-items:
+center` — en boks som er høyere enn containeren blir da klippet på toppen, og
+overflow mot start-kanten kan ikke rulles fram (innloggingsskjermen med
+tastaturet oppe).
+
+Det som regnes ut i JS kan ikke få sonen fra CSS, og leser den i stedet fra
+`safeInsets()` i `app.js`: demonstrasjonens kort (`placeTour`), popover-skallet
+på desktop (`positionSwitcherPanel`), søppelkassens sveipefelt (`openField` —
+feltet utvider seg mot HØYRE og stopper ved den brukbare kanten; sveipe-strekket
+regnes ut fra bredden og følger med), og de tre stedene som trenger den
+BRUKBARE bunnen i stedet for viewportkanten — kolonnebudsjettet
+(`docs/board-layout.md`) og dra-og-slippets to scroll-grenser
+(`docs/drag-and-drop.md`). `env()` erstattes når custom-propertyen regnes ut, så de fire
+løser seg til vanlige px-verdier når de leses — i motsetning til `--board-gap`,
+som er en `clamp()` og derfor må leses fra en oppløst egenskap
+(`docs/board-layout.md`).
+
+**Flaten bak systemfeltene er vår, og den er lys.** Når siden tegner under
+statusfeltet og gestelinjen, er det Huskis' egen lyse flate klokka og
+gestelinjen ligger oppå — derfor ber Android-temaet om MØRKE glyfer
+(`windowLightStatusBar`/`windowLightNavigationBar`), og bruker et lyst
+foreldretema i stedet for DayNight, slik at telefonens mørke modus verken
+snur glyfene eller maler en svart stripe over toppen av siden vår. Erklæringene
+står i `android/app/src/main/res/values/styles.xml` (+ `values-v27/` for
+gestelinjen, som først finnes fra API 27).
+
+Temaet er ikke nok alene: Capacitors `SystemBars`-plugin SETTER utseendet i
+runtime, og med standardverdien (`DEFAULT`) leser den telefonens nattmodus — i
+mørk modus ba den derfor om LYSE glyfer og overstyrte temaet. `SystemBars.style
+= "LIGHT"` i `capacitor.config.json` låser den til mørke glyfer, også etter en
+rotasjon eller et modusbytte (pluginen legger den valgte stilen på igjen ved
+konfigurasjonsendring). Én drakt, ett svar, uansett lag.
+
+**Unntaket er bunnfeltet på API 24–26.** `windowLightNavigationBar` finnes
+først fra API 27, og runtime-veien er en no-op før det: treknappsradens glyfer
+er lyse uansett hva vi ber om. De versjonene får derfor en mørk stripe å ligge
+på (`@color/systemNavScrim`) i stedet for et gjennomsiktig felt; fra API 27 er
+feltet gjennomsiktig og glyfene mørke, så flaten vår når helt ned.
+
+Voktere: `tests/safe-area.test.js` (setter sonen og måler at chromet flytter
+seg, begge viewportene) og `tests/capacitor-android.test.js` (erklæringene
+sonen og systemfeltenes utseende hviler på).
+
+Skjermtastaturet hører til samme bilde: det krymper viewportet i stedet for å
+legge seg oppå det, så feltet som redigeres kan bli liggende under det. Sidens
+`scroll-padding-top` og resize-lytteren i `app.js` ruller det fram igjen — se
+[`board-layout.md`](board-layout.md) («Topp»).
+
 ## Luft-regler (padding/margin/gap)
 
 - **Symmetri per listepunkt**: et listepunkt skal ha samme luft på alle kanter — én
@@ -188,7 +259,7 @@ Størrelse/form kommer fra egne klasser: `.btn` (modaler), `.btn-small`,
 - `.panel-head` + `.panel-title` + `.panel-actions`: overskrift («ALLE
   OMRÅDER»/«INVITASJONER» osv., uppercase via CSS) på egen linje + knapperad
   under. Brukes i område-/mappe-/konto-modalen og toppmenyens
-  listefunksjons-rad.
+  listefunksjoner.
 - `.crumb-btn`: navigasjonsknappen i toppmenyen — ÉN knapp med begge nivåene
   (nivå-ikon + navn på flate-mønsteret, `.crumb-name` med ellipsis);
   `.crumb-sep` er ›-skilletegnet mellom dem.

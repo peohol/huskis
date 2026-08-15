@@ -124,6 +124,25 @@
   --grad-red: linear-gradient(180deg, var(--danger), var(--danger-dark));
   --grad-yellow: linear-gradient(180deg, #e8bb50, #d9a52c);
 
+  /* DEN SIKRE SONEN. Fire tall som sier hvor mye av viewportet som er dekket
+     av systemets egne flater — statusfelt/hakk øverst, gestelinje nederst,
+     hjørneavrunding og hakk i landskap på sidene. Alt som er `position: fixed`
+     mot en viewport-kant skal legge disse PÅ sin egen avstand, slik at
+     ingenting havner under systemflatene.
+
+     `env(safe-area-inset-*)` er 0 i en vanlig nettleser (det finnes ingen
+     inset-er å rapportere), så reglene som bruker dem er en no-op der. De får
+     verdier først i et native skall, og bare når siden ber om å få tegne under
+     systemfeltene (`viewport-fit=cover` i index.html).
+
+     Fanget i egne tokens, ikke skrevet som env() der de brukes: da finnes
+     sonen ETT sted, og en test kan sette dem for å bevise at de faste
+     elementene faktisk flytter seg (tests/safe-area.test.js). */
+  --safe-top: env(safe-area-inset-top, 0px);
+  --safe-right: env(safe-area-inset-right, 0px);
+  --safe-bottom: env(safe-area-inset-bottom, 0px);
+  --safe-left: env(safe-area-inset-left, 0px);
+
   /* Sidepolstring i toppmenyen — viewport-relativ. Kontoknappen (fast i
      viewportets hjørne) bruker samme token, så den flukter med toppmenyens
      høyre kant. */
@@ -211,6 +230,17 @@ html, body {
   padding: 0;
   min-height: 100%;
 }
+
+/* Toppmenyen er FAST og dekker de øverste pikslene av siden. Nettleseren vet
+   ikke det: for den er alt fra y=0 synlig, så en rulling som «tar noe fram»
+   kan legge det rett under panelet — fokus-rullingen når et navnefelt åpnes,
+   og rullingen skjermtastaturet utløser når det krymper viewportet.
+   `scroll-padding-top` sier hvor det egentlig synlige området begynner, og
+   ligger på selve rulleboksen (siden). Det er hele grunnen til at den ikke
+   kan stå som `scroll-margin` på feltet: kortene har `overflow: hidden`, og en
+   scroll-margin inne i et slikt kort når aldri ut til sidens rulling.
+   Verdien er board-ets egen klaring (--board-pad-top, se syncHeaderHeight). */
+html { scroll-padding-top: var(--board-pad-top, 160px); }
 
 body {
   font-family: var(--font);
@@ -324,10 +354,16 @@ body {
 }
 
 /* ---------------- Toppmenyen (breadcrumb + listefunksjoner) ----------------
-   Ett fast panel øverst (alle skjermstørrelser): breadcrumb-raden
+   Ett fast panel øverst (alle skjermstørrelser): breadcrumben
    (🌐 område › 📁 mappe) og listefunksjonene («＋ Liste», søppelkasse,
-   filter) på raden under. Kontoknappen er fast i viewportets hjørne (egen
-   klasse) og overlapper panelet visuelt øverst til høyre. */
+   filter). De står på SAMME linje der bredden rekker — listefunksjonene rett
+   til høyre for nav-knappen, ikke skjøvet ut til kanten. Panelet blir da én
+   kontrollhøyde høyt, og det er høyde som er mangelvaren i landskap. Under
+   560 px (telefon i portrett) legges listefunksjonene på raden under, slik at
+   breadcrumb-navnene ikke kappes bort til ingenting. Kontoknappen er fast i
+   viewportets hjørne (egen klasse) og overlapper panelet visuelt øverst til
+   høyre — plassen til den holdes av en margin PÅ ENDEN av linjen, slik at
+   panelets egen padding (og dermed fluktingen med kontoknappen) er uendret. */
 .topbar {
   position: fixed;          /* uavhengig av scrolling (robust mot iOS-backdrop-bug) */
   top: 0;
@@ -335,23 +371,29 @@ body {
   right: 0;
   z-index: 30;
   display: flex;
-  flex-direction: column;
+  align-items: center;
   gap: 8px;
-  padding: 12px var(--toolbar-pad);
+  /* Flaten når helt ut i kantene, men INNHOLDET holdes innenfor den sikre
+     sonen: statusfeltet øverst og et eventuelt hakk i sidene legges på
+     paddingen. Panelet blir dermed høyere, og `syncHeaderHeight()` måler den
+     faktiske høyden — board-ets klaring følger med av seg selv. */
+  padding: calc(12px + var(--safe-top)) calc(var(--toolbar-pad) + var(--safe-right))
+           12px calc(var(--toolbar-pad) + var(--safe-left));
   background: rgba(255, 255, 255, 0.72);
   backdrop-filter: blur(14px);
   -webkit-backdrop-filter: blur(14px);
   border-bottom: 1px solid var(--line);
 }
 
-/* Breadcrumb: to knapper med nivå-ikon + navn, skilt med ›. Holder avstand til
-   kontoknappen i hjørnet via padding-right. */
+/* Breadcrumb: to knapper med nivå-ikon + navn, skilt med ›. Den KRYMPER
+   (navnene kappes med ellipsis) når linjen blir trang, men VOKSER ikke: da
+   ville den skjøvet listefunksjonene bort fra nav-knappen og ut til kanten. */
 .breadcrumb {
   display: flex;
   align-items: center;
   gap: 6px;
   min-width: 0;
-  padding-right: calc(var(--control-h) + 10px);
+  flex: 0 1 auto;
 }
 .crumb-btn {
   appearance: none;
@@ -468,8 +510,10 @@ body {
    sirkel med antall) viser ventende invitasjoner. */
 .account-btn {
   position: fixed;
-  top: 12px;
-  right: var(--toolbar-pad);
+  /* Samme sikre sone som toppmenyen den flukter med — knappen ligger utenfor
+     panelets flyt og må derfor legge på inset-ene selv. */
+  top: calc(12px + var(--safe-top));
+  right: calc(var(--toolbar-pad) + var(--safe-right));
   z-index: 35;
   appearance: none;
   border: none;
@@ -492,14 +536,26 @@ body {
 .app-main {
   /* Topp settes i JS (--board-pad-top, se syncHeaderHeight): eksakt toppmeny-
      høyde + --board-gap, så avstanden ned til første kort matcher gapet
-     overalt ellers. Bunn er 0 — siste korts EGEN bunn-margin (også
-     --board-gap, se .card) ER bunn-luften; en egen bunn-padding her ville
-     lagt gap på gap. */
-  padding: var(--board-pad-top, 160px) var(--board-gap) 0;
+     overalt ellers. Bunn er --safe-bottom — siste korts EGEN bunn-margin (også
+     --board-gap, se .card) ER bunn-luften, og en egen bunn-padding ville lagt
+     gap på gap; det eneste som legges til her er den delen av viewportet
+     gestelinjen dekker (0 i en nettleser). Sidene får det samme for et hakk i
+     landskap: --board-gap er fortsatt luften, inset-en er strimmelen som ikke
+     kan brukes. */
+  padding: var(--board-pad-top, 160px) calc(var(--board-gap) + var(--safe-right))
+           var(--safe-bottom) calc(var(--board-gap) + var(--safe-left));
 }
 
-/* Listefunksjons-raden i toppmenyen (er også .panel-actions). */
-.toolbar { flex-wrap: wrap; }
+/* Listefunksjonene i toppmenyen (er også .panel-actions): rett til høyre for
+   nav-knappen, og krymper aldri — det er breadcrumben som gir fra seg plass.
+   Marginen er plassen kontoknappen trenger i hjørnet: den ligger i ENDEN av
+   linjen (ikke mellom knappene), og teller med når flex regner ut hvor mye
+   breadcrumben må krympe. Panelets padding er dermed uendret, og kontoknappen
+   flukter fortsatt med kanten (se tests/safe-area.test.js). */
+.toolbar {
+  flex: 0 0 auto;
+  margin-right: calc(var(--control-h) + 10px);
+}
 
 /* ---------------- Generelle knapper (modaler o.l.) ----------------
    .btn = base (form/typografi), .btn-ghost = hvit, .btn-small = mindre
@@ -1448,7 +1504,10 @@ body.is-dragging * { cursor: grabbing !important; }
   z-index: 200;
   display: grid;
   place-items: center;
-  padding: 20px;
+  /* Mørkleggingen dekker hele skjermen, panelet holder seg innenfor den sikre
+     sonen: 20 px luft PLUSS det systemflatene dekker. */
+  padding: calc(20px + var(--safe-top)) calc(20px + var(--safe-right))
+           calc(20px + var(--safe-bottom)) calc(20px + var(--safe-left));
   background: rgba(45, 38, 70, 0.42);
   backdrop-filter: blur(4px);
   -webkit-backdrop-filter: blur(4px);
@@ -1461,7 +1520,10 @@ body.is-dragging * { cursor: grabbing !important; }
 
 .modal {
   width: min(560px, 100%);
-  max-height: 82vh;
+  /* `100%` er overlayets INNHOLDSboks — altså høyden minus den sikre sonen.
+     Uten den kunne 82vh (som måles mot hele viewportet) vokse forbi
+     paddingen og legge overskriften under statusfeltet. */
+  max-height: min(82vh, 100%);
   display: flex;
   flex-direction: column;
   background: #fff;
@@ -1859,7 +1921,7 @@ body.modal-open { overflow: hidden; }
   flex-direction: column;
   gap: 6px;
   width: max-content; /* kun så bred som det lengste navnet krever — ingen kunstig minstebredde */
-  max-width: min(320px, calc(100vw - 20px));
+  max-width: min(320px, calc(100vw - 20px - var(--safe-left) - var(--safe-right)));
   max-height: min(70vh, 480px);
   overflow-y: auto;
   padding: 10px;
@@ -1915,8 +1977,14 @@ body.modal-open { overflow: hidden; }
    gjennom uten at teksten blir utydelig (mørk flate + hvit tekst). */
 .toast {
   position: fixed;
-  left: 50%;
-  bottom: 24px;
+  /* Midt i det BRUKBARE feltet, ikke midt på skjermen: et hakk i siden
+     (landskap) flytter senteret et halvt inset-avvik, ellers ville en bred
+     toast lagt seg delvis under hakket. Er begge sidene 0 — enhver nettleser —
+     er dette nøyaktig `50%`. Sentreringen MÅ bli værende som `left` +
+     `translate(-50%)`: sveip-for-å-lukke legger draget inn i den samme
+     transformen (`calc(-50% + Npx)`, se attachToastSwipe i app.js). */
+  left: calc(50% + (var(--safe-left) - var(--safe-right)) / 2);
+  bottom: calc(24px + var(--safe-bottom));   /* over gestelinjen, ikke under den */
   transform: translate(-50%, 16px);
   z-index: 300;
   display: flex;
@@ -1927,7 +1995,9 @@ body.modal-open { overflow: hidden; }
      mobil. `max-content` lar den bruke hele max-width først, og brekke etter
      det. */
   width: max-content;
-  max-width: min(90vw, 480px);
+  /* Siste leddet er det brukbare feltet minus 12 px på hver side: bredden kan
+     ikke vokse ut over hakket selv om 90vw ville tillatt det. */
+  max-width: min(90vw, 480px, calc(100vw - 24px - var(--safe-left) - var(--safe-right)));
   padding: 11px 13px 11px 20px;
   border-radius: 999px;
   background: rgba(45, 38, 70, 0.62);
@@ -1974,7 +2044,9 @@ body.modal-open { overflow: hidden; }
    på tre ord — og den får litt mer bredde å brekke innenfor. Alt annet (flate,
    sveip-til-lukk, plassering) er som en vanlig toast: et tips skal aldri kreve
    mer oppmerksomhet enn en beskjed. */
-.toast.toast-tip { max-width: min(92vw, 540px); }
+.toast.toast-tip {
+  max-width: min(92vw, 540px, calc(100vw - 24px - var(--safe-left) - var(--safe-right)));
+}
 /* Angre-knappen (hele toasten er interaktiv mens den vises). */
 .toast-action {
   flex: 0 0 auto;
@@ -2009,8 +2081,8 @@ body.modal-open { overflow: hidden; }
    under; kun «Prøv igjen»-knappen tar imot klikk. */
 .sync-status {
   position: fixed;
-  left: 12px;
-  bottom: 16px;
+  left: calc(12px + var(--safe-left));
+  bottom: calc(16px + var(--safe-bottom));
   z-index: 290;                      /* under toasten (300) og banneret (410) */
   display: inline-flex;
   align-items: center;
@@ -2019,7 +2091,7 @@ body.modal-open { overflow: hidden; }
      avkortet «Frakoblet – endringene lagre…» skjuler nettopp det som
      beroliger. Derfor nesten full bredde på små skjermer, og ombrekking (med
      mykere hjørner) i stedet for ellipse hvis den likevel ikke rekker. */
-  max-width: calc(100vw - 24px);
+  max-width: calc(100vw - 24px - var(--safe-left) - var(--safe-right));
   padding: 7px 13px;
   border-radius: 999px;
   background: var(--control-bg);
@@ -2103,9 +2175,9 @@ body.modal-open { overflow: hidden; }
   /* Sentreres med left/right + `margin: auto` (ikke `left: 50%`): en fast
      plassert boks med `left: 50%` får bare halve viewporten som tilgjengelig
      bredde, og teksten brekker da til én ordkolonne på mobil. */
-  left: 12px;
-  right: 12px;
-  bottom: 24px;
+  left: calc(12px + var(--safe-left));
+  right: calc(12px + var(--safe-right));
+  bottom: calc(24px + var(--safe-bottom));
   margin: 0 auto;
   width: fit-content;
   transform: translateY(16px);
@@ -2232,12 +2304,19 @@ body.tour-demo .trash-row button:not(.tour-live) { opacity: 0.35; }
 }
 .tour-card {
   position: fixed;
-  width: min(400px, calc(100vw - 24px));
-  /* Høyden settes i JS når det ikke er plass til hele kortet ved siden av
-     målet (smal skjerm). Da ruller kortet innvendig i stedet for å legge seg
-     oppå kontrollen brukeren skal trykke på — se placeTour(). */
-  overflow-y: auto;
-  overscroll-behavior: contain;
+  /* Bredden må trekke fra den sikre sonen i tillegg til luften: kortet
+     plasseres av JS INNENFOR sonen (se placeTour), så et kort som bare tok
+     hensyn til viewport-bredden ville stukket ut over motsatt kant. */
+  width: min(400px, calc(100vw - 24px - var(--safe-left) - var(--safe-right)));
+  /* Høyden settes i JS når hele kortet ikke får plass (lav skjerm, eller for
+     lite luft ved siden av målet — se placeTour). Kortet er en flex-kolonne
+     nettopp for det tilfellet: det er TEKSTEN (`.tour-body`) som ruller, mens
+     framdriftsstolpen og knapperaden blir stående. Ruller hele kortet, kan
+     «Kom i gang» ligge under skjermkanten på et kort brukeren tror hen har
+     lest ferdig. */
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
   padding: 18px;
   border-radius: 20px;
   background: #fff;
@@ -2245,10 +2324,31 @@ body.tour-demo .trash-row button:not(.tour-live) { opacity: 0.35; }
   animation: pop-in 0.18s cubic-bezier(.2, .75, .3, 1);
 }
 .tour-card:focus-visible { outline: var(--focus-w) solid var(--focus); outline-offset: 3px; }
+/* Rulleflaten når kortet er kappet. `min-height: 0` er det som gjør at den
+   faktisk krymper: en flex-item nekter ellers å bli mindre enn innholdet sitt,
+   og kortet ville vokst ut av maxHeight igjen. */
+.tour-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+/* Er det mer tekst under kanten, tones de nederste linjene ut. Uten den ser et
+   kappet kort FERDIG ut — teksten slutter gjerne etter et helt punkt, og en ny
+   bruker har ingen grunn til å tro at det finnes mer (mobilens rullefelt er
+   usynlig til man drar). Masken ligger på RULLEBOKSEN, ikke på innholdet, så
+   avtoningen blir stående ved kanten mens teksten glir forbi under den.
+   `.has-more` settes av `markTourOverflow()` i app.js og forsvinner når man er
+   nede — da skal siste linje være helt skarp. */
+.tour-card.has-more .tour-body {
+  -webkit-mask-image: linear-gradient(to bottom, #000 calc(100% - 34px), transparent);
+  mask-image: linear-gradient(to bottom, #000 calc(100% - 34px), transparent);
+}
 
 /* Framdriftsstolpe i stedet for «Steg n av m»: mindre tekst å lese, og like
    presist om hvor langt igjen det er. */
 .tour-progress {
+  flex: 0 0 auto;           /* krymper ikke når kortet er kappet */
   height: 5px;
   margin: 0 30px 12px 0;
   border-radius: 999px;
@@ -2291,6 +2391,7 @@ body.tour-demo .trash-row button:not(.tour-live) { opacity: 0.35; }
    kortet trengs den mørke varianten — samme unntak som i nav-modalen. */
 .tour-text .hint-chip { background: rgba(0, 0, 0, 0.07); }
 .tour-actions {
+  flex: 0 0 auto;           /* blir stående når teksten over ruller */
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -2335,12 +2436,23 @@ body.tour-demo .trash-row button:not(.tour-live) { opacity: 0.35; }
 }
 
 /* ---------------- Mobil ----------------
-   Samme toppmeny som desktop (breadcrumb + listefunksjoner); kun board-et
-   endres til én kolonne, og popover-skallet blir en sentrert modal. */
+   Samme toppmeny som desktop, men stablet i to rader; board-et endres til én
+   kolonne, og popover-skallet blir en sentrert modal. */
 @media (max-width: 560px) {
   /* Kolonneantallet regnes ut i JS (`relayoutBoard`) og er uansett 1 så smalt —
      her settes bare flagget som slår på DnD-ens normal-flow-vakt på touch. */
   .board { --mobile-dnd-flow-guard: 1; }
+
+  /* Så smalt er det ikke plass til begge deler på én linje: listefunksjonene
+     legges på raden under. Panelet blir én kontrollhøyde høyere — det er byttet
+     mot at navnene ikke kappes bort. Telefonen i LANDSKAP er bredere enn dette
+     og beholder derfor én-linjes-panelet.
+     Klaringen til kontoknappen flyttes samtidig til breadcrumben: raden under
+     skal bruke hele bredden, det er bare breadcrumben som ligger ved siden av
+     knappen. */
+  .topbar { flex-direction: column; align-items: stretch; }
+  .breadcrumb { padding-right: calc(var(--control-h) + 10px); }
+  .toolbar { margin-right: 0; flex-wrap: wrap; }
 
   /* Litt tettere breadcrumb så navnene får plass ved siden av kontoknappen. */
   .crumb-btn { font-size: var(--fs-md); padding: 0 10px; gap: 6px; }
@@ -2355,13 +2467,15 @@ body.tour-demo .trash-row button:not(.tour-live) { opacity: 0.35; }
   .switcher-overlay {
     display: grid;
     place-items: center;
-    padding: 20px;
+    padding: calc(20px + var(--safe-top)) calc(20px + var(--safe-right))
+             calc(20px + var(--safe-bottom)) calc(20px + var(--safe-left));
     background: rgba(45, 38, 70, 0.42);
   }
   .switcher-panel {
     position: static;
     width: 100%;
     max-width: 420px;
+    max-height: min(70vh, 480px, 100%);   /* som .modal: 100% er den sikre sonen */
   }
 }
 
@@ -2383,9 +2497,8 @@ body.no-auth #account-btn { display: none; }
   inset: 0;
   z-index: 400;
   display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 24px;
+  padding: calc(24px + var(--safe-top)) calc(24px + var(--safe-right))
+           calc(24px + var(--safe-bottom)) calc(24px + var(--safe-left));
   overflow-y: auto;
   background: linear-gradient(180deg, var(--bg-grad-a), var(--bg-grad-b));
 }
@@ -2398,6 +2511,13 @@ body.no-auth #account-btn { display: none; }
   gap: 18px;
   width: 100%;
   max-width: 440px;
+  /* Sentreringen ligger HER, ikke som `align-items: center` på skjermen: en
+     flex-item som er høyere enn containeren blir da klippet på TOPPEN, og
+     overflow mot start-kanten kan ikke rulles fram — logoen og overskriften
+     ville blitt liggende under statusfeltet på registreringsskjemaet når
+     tastaturet krymper viewportet. Auto-marginer sentrerer likt, men gir aldri
+     fra seg mer plass enn det som finnes. */
+  margin: auto;
 }
 .auth-box .lock-brand { justify-content: center; }
 
@@ -2990,7 +3110,11 @@ body.no-auth #account-btn { display: none; }
 .obj-menu-panel {
   gap: 0;
   padding: 8px;
-  min-width: min(268px, calc(100vw - 20px));
+  /* Minstebredden må trekke fra sonen på samme måte som `.switcher-panel`s
+     maks-bredde: en min-width VINNER over max-width, så uten leddene her ville
+     panelet blitt liggende under et hakk på en smal skjerm (delt skjerm, liten
+     WebView) selv om maks-bredden er sone-bevisst. 0 i en nettleser. */
+  min-width: min(268px, calc(100vw - 20px - var(--safe-left) - var(--safe-right)));
 }
 /* Overskrift: hvilket objekt menyen gjelder. På mobil dekker arket raden den
    kom fra, og uten navnet her ville man ikke se hva man holder på med. */
@@ -3244,7 +3368,7 @@ body.no-auth #account-btn { display: none; }
 }
 
 /* Tids-popoveren (samme skall som bytterne). */
-.time-panel { min-width: min(320px, calc(100vw - 20px)); gap: 10px; }
+.time-panel { min-width: min(320px, calc(100vw - 20px - var(--safe-left) - var(--safe-right))); gap: 10px; }
 .time-panel-title {
   display: flex;
   align-items: center;
