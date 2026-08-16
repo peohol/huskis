@@ -196,19 +196,19 @@ async function seed(p) {
   check('board-et har kort å måle på', darkCards.length >= 4, darkCards);
 
   /* --- Den mørke kortflaten: nøytral skifer + palettpreg + aksentstripe ---
-     Prøvestilarket (dark-surface-experiment.css, PR #128) lastes av theme.js og
-     males OPPÅ palettfargen. Sjekkene her er to:
+     `:root[data-theme="dark"] .card` i styles.css maler kortflaten OPPÅ
+     palettfargen med `color-mix()` (se kommentaren der). Sjekkene her er to:
 
-       • at det i det hele tatt VIRKER. Et stilark som stille slutter å gjelde —
-         en feilstavet filbane, eller en kommentar som avsluttes for tidlig
-         (en stjerne rett foran en skråstrek inne i kommentarteksten) og spiser
-         regelen etter seg — gir ingen feilmelding noe sted: appen ser bare ut
-         som før. Derfor måles den RENDREDE flaten mot den inline palettfargen
-         kortet bærer.
+       • at det faktisk BLIR malt om, ikke bare deklarert. En regel som stille
+         slutter å gjelde (feil selektor, en kommentar som lukkes for tidlig og
+         spiser regelen etter seg) gir ingen feilmelding noe sted — appen ser
+         bare ut som før. Derfor måles den RENDREDE flaten mot den inline
+         palettfargen kortet bærer, ikke bare kildeteksten i styles.css.
        • at ingen av reglene posisjonerer kortet. `.card` MÅ bli stående
          `static`: et posisjonert kort blir containing block for de absolutt
          posisjonerte dra-elementene, og hele DnD-geometrien forskyves (se
-         tests/dnd-viewport-clamp.test.js, som måler følgene). */
+         tests/dnd-viewport-clamp.test.js, som måler følgene — dette er
+         nøyaktig feilen en tidligere utgave av dette designet hadde). */
   const flate = await p.evaluate(() => {
     const c = document.querySelector('#board .card');
     if (!c) return null;

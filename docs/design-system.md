@@ -46,9 +46,13 @@ og mørk drakt er tokens: `--surface*` (paneler/felt), `--line`, `--wash*`
 `#fff`, `rgba(0,0,0,…)` eller `rgba(255,255,255,…)` i seg, er den mørke drakten
 allerede ødelagt — bruk et token, eller legg til ett.
 
-Unntaket er hvit tekst/glyfer PÅ en palettfarge eller en fargeknapp (korttittel,
-`.card-cog`, `.btn-solid`): den er hvit i begge drakter, og skal fortsatt stå
-som `#fff`. Autoritativt for drakten: [`mork-drakt.md`](mork-drakt.md).
+Unntaket er hvit tekst/glyfer PÅ en fargeknapp (`.card-cog`, `.btn-solid`):
+gradientene er kontraktsfarger i begge drakter, og teksten/ikonet skal fortsatt
+stå som `#fff`. Korttittelen (`.card-title`/`.cat-title`) er derimot hvit KUN i
+lys drakt — i mørk drakt leser `--ink` bedre på de tonalt varierte
+kortflatene, og en `[data-theme="dark"]`-regel overstyrer fargen (se
+`:root[data-theme="dark"] .card`-blokken i `styles.css`). Autoritativt for
+drakten: [`mork-drakt.md`](mork-drakt.md).
 
 ## Den sikre sonen (`--safe-top`/`-right`/`-bottom`/`-left`)
 

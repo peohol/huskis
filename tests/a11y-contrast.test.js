@@ -43,16 +43,21 @@
        lyssatt seg motsatt av sin egen skygge. Regnet ut på samme relative
        luminans som ratioene over, så «lysest» er målt og ikke øyemål.
    10. DEN MØRKE DRAKTEN har sin egen halvdel av kontrakten (docs/mork-drakt.md).
-       Kravene er de samme, flatene er andre — og noen av dem er blandinger
-       (en halvgjennomsiktig plate over en palettfarge), så de regnes ut her i
-       stedet for å stå som en verdi noen kan glemme å oppdatere:
+       Kravene er de samme, flatene er andre — og noen av dem er blandinger, så
+       de regnes ut her i stedet for å stå som en verdi noen kan glemme å
+       oppdatere:
          a. blekket (--ink/--ink-soft) og de tre -ink-tokenene på de mørke
             flatene;
          b. --focus mot board-bakgrunnen, panelflaten og ALLE 36 mørke
             palettfargene — det er derfor ringen snur til hvit;
          c. ikonstreken (--icon-ink) mot de samme flatene, pluss platene;
-         d. platene (--plate/--plate-done) og meta-chipen over hver palettfarge:
-            teksten oppå dem er --ink/--ink-soft og må klare 4.5:1;
+         d. KORTSUBTREET (`:root[data-theme="dark"] .card`): platene, korthodet,
+            kategorifordypningen og meta-chipen er `color-mix()`-blandinger av
+            kortets EGEN palettfarge og en nøytral reserve (ikke lenger en fast
+            mørk verdi) — testen simulerer blandingen per palettfarge og
+            sjekker --ink/--ink-soft oppå (4.5:1), den tonale trappa mellom
+            flatene, og at avkryssingskanten/aksentstripen (--card-accent,
+            speilet fra paintCardColor() i app.js) holder 3:1 mot platen;
          e. trafikklyset mot den mørke statuspillen;
          f. at L-settene faktisk speiler hverandre: den mørke rekka gir samme
             spredning mot sin bakgrunn som den lyse gir mot sin.
@@ -394,19 +399,134 @@ if (darkBlock) {
       pin.replace(/\s+/g, ' ').trim());
   }
 
-  console.log('\n--- Platene over kortfargene (mørk drakt) ---');
-  // Listepunkt-platene er halvgjennomsiktig SVARTE over palettfargen. Teksten
-  // oppå er --ink; den utførte raden og meta-chipen har hver sin alfa.
+  /* ---------- Kortsubtreet: color-mix() mot :root[data-theme="dark"] .card ----------
+     Platene, korthodet, kortflaten og kategorifordypningen er ikke lenger en
+     fast mørk verdi eller en halvgjennomsiktig plate: de er en `color-mix()`-
+     blanding av kortets EGEN palettfarge og en nøytral reserve, satt PER kort
+     (custom properties på `.card`, ikke i :root — se docs/mork-drakt.md).
+     Blokken parses her på samme måte som `:root[data-theme="dark"]`, og
+     blandingen simuleres per palettfarge — nøyaktig det nettleseren selv
+     regner ut. */
+  const cardDarkBlock = ((css.match(/:root\[data-theme="dark"\]\s*\.card\s*\{([\s\S]*?)\n\}/) || [])[1] || '')
+    .replace(/\/\*[\s\S]*?\*\//g, '') || null;
+  check('styles.css har en :root[data-theme="dark"] .card-blokk', !!cardDarkBlock);
+  // «X % av var(--card-bg) blandet med #hex» — leser den SISTE (vinnende)
+  // deklarasjonen av tokenet: fallback-hexen står FØR color-mix()-utgaven på
+  // samme token (for nettlesere uten color-mix), så regexen treffer bevisst
+  // kun color-mix()-formen.
+  function cardMixToken(name) {
+    const re = new RegExp('--' + name + '\\s*:\\s*color-mix\\(in srgb, var\\(--card-bg\\) (\\d+)%, (#[0-9a-f]{6})\\)', 'i');
+    const m = cardDarkBlock && cardDarkBlock.match(re);
+    return m ? { pct: Number(m[1]) / 100, neutral: m[2] } : null;
+  }
+  function mix(pct, base, neutral) {
+    const [br, bg, bb] = rgb(base), [nr, ng, nb] = rgb(neutral);
+    const to = (v) => Math.round(v).toString(16).padStart(2, '0');
+    return '#' + to(br * pct + nr * (1 - pct)) + to(bg * pct + ng * (1 - pct)) + to(bb * pct + nb * (1 - pct));
+  }
+  // Speiler lighten() i app.js (paintCardColor): --card-accent finnes ikke som
+  // et CSS-token — det settes inline per kort av JS — så testen regner det ut
+  // selv, akkurat som DARK_PALETTE speiler colorForIndex(). Faktoren (0,34)
+  // leses ut av selve linja i app.js, ikke skrevet av her — endrer noen den,
+  // flytter tallene under seg i stedet for å stå og lyve om en verdi som ikke
+  // lenger finnes.
+  // Ankret til EGENSKAPSNAVNET, ikke bare mønsteret «dark ? lighten(base, …)» —
+  // det mønsteret finnes også på linja over (--card-head, faktor 0,08), og et
+  // uanker søk traff den i stedet ved en tidligere runde av denne testen.
+  const accentFactor = parseFloat((appSrc.match(
+    /setProperty\('--card-accent',\s*dark \? lighten\(base, ([\d.]+)\)/) || [])[1]);
+  check('lysne-faktoren til --card-accent ble lest ut av app.js', accentFactor > 0, accentFactor);
+  function jsLighten(hex, amt) {
+    const [r, g, b] = rgb(hex);
+    const to = (c) => Math.min(255, Math.round(c + (255 - c) * amt)).toString(16).padStart(2, '0');
+    return '#' + to(r) + to(g) + to(b);
+  }
+  const CARD_ACCENT = DARK_PALETTE.map((c) => jsLighten(c, accentFactor || 0.34));
+
+  console.log('\n--- Kortflatene i mørk drakt (color-mix mot palettfargen) ---');
   for (const [what, tok, ink, need] of [
+    ['korthodet', 'card-head-face', 'ink', 4.5],
+    ['korthodet (dempet blekk)', 'card-head-face', 'ink-soft', 4.5],
     ['listepunkt-platen', 'plate', 'ink', 4.5],
+    ['listepunkt-platen (dempet blekk)', 'plate', 'ink-soft', 4.5],
     ['den utførte platen', 'plate-done', 'ink', 4.5],
     ['meta-chipen', 'chip-bg', 'ink-soft', 4.5],
+    ['kategorifordypningen', 'cat-face', 'ink', 4.5],
   ]) {
+    const m = cardMixToken(tok);
+    check(`--${tok} er en color-mix() mot --card-bg`, !!m);
+    if (!m) continue;
     const worst = DARK_PALETTE
-      .map((c) => { const s = over(dtoken(tok), c); return [c + ' → ' + s, ratio(dtoken(ink), s)]; })
+      .map((c) => { const s = mix(m.pct, c, m.neutral); return [c + ' → ' + s, ratio(dtoken(ink), s)]; })
       .reduce((a, b) => (a[1] < b[1] ? a : b));
     check(`--${ink} på ${what} over alle mørke kortfarger — svakeste ${worst[1].toFixed(2)}:1 (${worst[0]}, krav ${need}:1)`,
       worst[1] >= need, { verst: worst[0], ratio: +worst[1].toFixed(2) });
+  }
+
+  console.log('\n--- Kortets tonale trapp (mørk drakt) ---');
+  // Rekkefølgen dokumentert i docs/mork-drakt.md: board < kategorifordypning <
+  // kortflate < listepunkt < korthode — hvert NABOPAR i den kjeden, ikke bare
+  // ytterpunktene, ellers ville et par kunnet kollapse eller bytte plass midt i
+  // uten at testen la merke til det.
+  //
+  // `ratio()` er SYMMETRISK (samme forhold uansett hvilken side som er lysest),
+  // så den alene kan ikke fange at et trinn har snudd RETNING — bare at det har
+  // en viss AVSTAND. Hvert par sjekkes derfor to ting: relativ luminans i riktig
+  // retning (B strengt lysere enn A, for samtlige 36 fargetoner) OG ratioen som
+  // et separat minimumsgulv, satt med god margin under de faktisk målte
+  // verdiene (se steps.js-verifiseringen i PR-en).
+  {
+    const face = cardMixToken('card-face'), head = cardMixToken('card-head-face'),
+      plate = cardMixToken('plate'), cat = cardMixToken('cat-face');
+    const alle = !!(face && head && plate && cat);
+    check('--card-face/--card-head-face/--plate/--cat-face er alle color-mix()', alle);
+    if (alle) {
+      // `spec` er enten en fast hex-streng (board-bakgrunnen) eller
+      // {pct, neutral} fra cardMixToken — begge løses til den faktiske
+      // flaten for en gitt palettfarge.
+      const at = (spec, c) => (typeof spec === 'string' ? spec : mix(spec.pct, c, spec.neutral));
+      const orderedStep = (specA, specB, floor, label) => {
+        const rows = DARK_PALETTE.map((c) => {
+          const a = at(specA, c), b = at(specB, c);
+          return { a, b, retning: lum(b) > lum(a), ratio: ratio(a, b) };
+        });
+        const feilRetning = rows.filter((r) => !r.retning);
+        check(`${label}: B er lysere enn A for alle ${DARK_PALETTE.length} fargene (riktig retning)`,
+          feilRetning.length === 0, feilRetning.slice(0, 3).map((r) => r.a + ' → ' + r.b));
+        const worst = Math.min(...rows.map((r) => r.ratio));
+        check(`${label} — svakeste trinn ${worst.toFixed(2)}:1 (gulv ${floor}:1)`, worst >= floor, +worst.toFixed(2));
+      };
+      orderedStep(D_BG, cat, 1.02, 'board → kategorifordypning');
+      orderedStep(cat, face, 1.05, 'kategorifordypning → kortflate');
+      orderedStep(face, plate, 1.03, 'kortflate → listepunkt');
+      orderedStep(plate, head, 1.05, 'listepunkt → korthode');
+    }
+  }
+
+  console.log('\n--- Aksentstripen og avkryssingskanten (--card-accent) i mørk drakt ---');
+  {
+    const plateMix = cardMixToken('plate'), headMix = cardMixToken('card-head-face');
+    const beggeFinnes = !!(plateMix && headMix);
+    check('--plate/--card-head-face finnes for stripe-/avkryssingssjekkene', beggeFinnes);
+    if (beggeFinnes) {
+      // Avkryssingskanten er en EKTE UI-kontroll (kanten rundt boksen) — 3:1 er
+      // et hardt krav, og er det som BINDER hvor mye platen kan lysnes (se
+      // docs/mork-drakt.md).
+      const accentPlate = DARK_PALETTE.map((c, i) => ratio(CARD_ACCENT[i], mix(plateMix.pct, c, plateMix.neutral)));
+      const worstPlate = Math.min(...accentPlate);
+      check(`avkryssingskanten (--card-accent) mot platen — svakeste ${worstPlate.toFixed(2)}:1 (krav 3:1)`,
+        worstPlate >= 3, +worstPlate.toFixed(2));
+
+      // Aksentstripen er SAMME token, men mot korthodet — og er dekorativ
+      // (ingen tekst står på den). Kravet er ikke et nytt 3:1-gulv (se
+      // --danger-edge/--scrim over for samme presedens), men at den ikke
+      // svekkes under det som er målt og dokumentert: en regresjonsvakt, ikke
+      // en ny kontrakt.
+      const accentHead = DARK_PALETTE.map((c, i) => ratio(CARD_ACCENT[i], mix(headMix.pct, c, headMix.neutral)));
+      const worstHead = Math.min(...accentHead);
+      check(`aksentstripen (--card-accent) mot korthodet holder seg synlig — svakeste ${worstHead.toFixed(2)}:1 (gulv 2.7:1, dekorativ — ikke et 3:1-krav)`,
+        worstHead >= 2.7, +worstHead.toFixed(2));
+    }
   }
 
   console.log('\n--- Ikonene på de fargede statuschipene ---');
@@ -452,18 +572,28 @@ if (darkBlock) {
      det er oppnåelig — det er at den mørke drakten ikke skal være DÅRLIGERE
      enn den lyse. Derfor måles begge draktene mot hver sin palett. */
   {
-    // Avkryssingsboksens hover-kant, mot platen den ligger på. Hvilekanten
-    // (--card-accent) klarer 3:1; hover skal ikke gjøre kontrollen utydeligere.
-    const worst = DARK_PALETTE
-      .map((c) => { const p = over(dtoken('plate'), c); return [c + ' → ' + p, ratio(dtoken('check-hover'), p)]; })
+    // Avkryssingsboksens hover-kant, mot platen den ligger på (nå en
+    // color-mix()-blanding — se cardMixToken over). Hvilekanten (--card-accent)
+    // klarer 3:1; hover skal ikke gjøre kontrollen utydeligere.
+    const plateForHover = cardMixToken('plate');
+    check('--plate finnes for hover-sjekken', !!plateForHover);
+    const worst = plateForHover && DARK_PALETTE
+      .map((c) => { const p = mix(plateForHover.pct, c, plateForHover.neutral); return [c + ' → ' + p, ratio(dtoken('check-hover'), p)]; })
       .reduce((a, b) => (a[1] < b[1] ? a : b));
-    check(`--check-hover (${dtoken('check-hover')}) mot platen over alle mørke kortfarger — svakeste ${worst[1].toFixed(2)}:1 (${worst[0]}, krav 3:1)`,
-      worst[1] >= 3, { verst: worst[0], ratio: +worst[1].toFixed(2) });
-    const naiv = DARK_PALETTE
-      .map((c) => ratio(token('primary'), over(dtoken('plate'), c)))
-      .reduce((a, b) => Math.min(a, b));
-    check(`den lyse drakts --primary ville falt til ${naiv.toFixed(2)}:1 her — derfor et eget token`,
-      naiv < 3, +naiv.toFixed(2));
+    if (worst) {
+      check(`--check-hover (${dtoken('check-hover')}) mot platen over alle mørke kortfarger — svakeste ${worst[1].toFixed(2)}:1 (${worst[0]}, krav 3:1)`,
+        worst[1] >= 3, { verst: worst[0], ratio: +worst[1].toFixed(2) });
+      // Den lyse drakts --primary klarer så vidt 3:1 mot den NYE, lysere platen
+      // (den gjorde det ikke mot den gamle, halvgjennomsiktig svarte platen) —
+      // men med langt mindre margin enn det dedikerte hover-tokenet. Kravet er
+      // derfor ikke lenger «ville vært ulovlig», men at --check-hover gir en
+      // TRYGGERE margin enn å bare arve den lyse drakts grønnfarge ville gjort.
+      const naiv = DARK_PALETTE
+        .map((c) => ratio(token('primary'), mix(plateForHover.pct, c, plateForHover.neutral)))
+        .reduce((a, b) => Math.min(a, b));
+      check(`--check-hover gir bedre margin (${worst[1].toFixed(2)}:1) enn den lyse drakts --primary ville gjort (${naiv.toFixed(2)}:1) — derfor et eget token`,
+        worst[1] > naiv, { checkHover: +worst[1].toFixed(2), naiv: +naiv.toFixed(2) });
+    }
 
     /* Den stiplede slippmål-kanten tegnes rett på en kortfarge. INGEN av
        draktene når 3:1 der — den lyse bunner ut på ~1,5:1, og kanten er
@@ -508,15 +638,16 @@ if (darkBlock) {
   check('tonene og metningen er de SAMME i begge drakter — kun L snur',
     !/COLOR_SAT_BY_THEME|HUE_ORDER_BY_THEME/.test(appSrc));
 
-  console.log('\n--- Hvit korttittel på de mørke kortfargene ---');
-  /* Korttittelen er hvit med tekst-skygge og en tynn svart kontur i BEGGE
-     drakter (.card-title). Konturen er der nettopp fordi den rene ratioen ikke
-     holder på de lyseste kortene — men den mørke drakten skal ikke være
-     DÅRLIGERE enn den lyse, og det er det som måles her. */
+  console.log('\n--- Hvit korttittel på de mørke kortfargene (lys drakt sitt eget regnestykke) ---');
+  /* Korttittelen er hvit med tekst-skygge og en tynn svart kontur i LYS drakt
+     (.card-title, direkte på --card-bg). I MØRK drakt er tittelen i stedet
+     --ink på --card-head-face — det dekkes av «Kortflatene i mørk drakt» over.
+     Denne sjekken er ren dokumentasjon av LYS drakts egen kontur-begrunnelse:
+     hvit tekst rett på den lyse paletten er det konturen kompenserer for. */
   const worstWhite = (pal) => pal.map((c) => ratio(WHITE, c)).reduce((a, b) => Math.min(a, b));
-  const wLight = worstWhite(paletteFor(L_LIGHT)), wDark = worstWhite(DARK_PALETTE);
-  check(`hvit tittel leser bedre i mørk drakt enn i lys (${wDark.toFixed(2)}:1 mot ${wLight.toFixed(2)}:1)`,
-    wDark > wLight, { lys: +wLight.toFixed(2), mork: +wDark.toFixed(2) });
+  const wLight = worstWhite(paletteFor(L_LIGHT));
+  check(`hvit tittel på den lyse paletten trenger konturen (${wLight.toFixed(2)}:1, under 4.5:1)`,
+    wLight < 4.5, +wLight.toFixed(2));
 }
 
 console.log(`\n==== ${passed}/${passed + failed} PASS ====`);
