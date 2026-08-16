@@ -89,7 +89,7 @@ Fire ting snur som ikke er flater:
 
   | Token | Hva | Hvorfor |
   |---|---|---|
-  | `--check-hover` | avkryssingsboksens kant ved hover | `--primary` gir 1,78:1 på den mørkeste platen — under hvilekantens egne 3,06:1, altså blir kontrollen *utydeligere* i det man sikter på den. Den lyse grønnen gir 3,38:1. |
+  | `--check-hover` | avkryssingsboksens kant ved hover | `--primary` klarer så vidt 3:1 mot den mørke platen (min 3,13:1) — men med langt mindre margin enn dette dedikerte tokenet gir (min 5,94:1), og en hover-kant skal ikke bli utydeligere enn hvilekanten i det øyeblikket man sikter på den. |
   | `--danger-edge` | den stiplede slippmål-kanten på søppelkassen | `--danger` bunner ut på 1,03:1 mot de mørke kortfargene. Den lyse rødfargen gir 1,76:1. |
   | `--scrim` | drag-placeholderens flate | en mørkning på en mørk board-bakgrunn er 1,03:1; et *løft* gir 1,45:1. |
 
@@ -211,9 +211,11 @@ allerede dokumentert som søppelkassens fargekilde
 `tests/a11y-contrast.test.js` regner ut den mørke halvdelen av kontrakten på
 nytt fra `:root[data-theme="dark"]` og fra L-settene i `app.js`, akkurat som den
 gjør for den lyse: blekket på de mørke flatene, fokusringen og ikonstreken mot
-alle 36 mørke palettfarger, teksten på platene (som er blandinger — en
-halvgjennomsiktig plate over en palettfarge, regnet ut i testen), trafikklyset
-mot den mørke statuspillen, og at de to L-settene faktisk speiler hverandre.
+alle 36 mørke palettfarger, teksten på kortsubtreets flater (som er
+blandinger — `color-mix()` av kortets egen palettfarge og en nøytral reserve,
+simulert per palettfarge i testen — se «Kortflatene: palettpreg og
+aksentstripe» under), trafikklyset mot den mørke statuspillen, og at de to
+L-settene faktisk speiler hverandre.
 
 Endrer du en verdi i den mørke blokken eller et L-sett, kjør den testen.
 Kravene selv står i [`tilgjengelighet.md`](tilgjengelighet.md).
