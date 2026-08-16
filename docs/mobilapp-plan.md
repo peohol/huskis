@@ -15,9 +15,9 @@ autoritative dokumentet for fagfeltet.
 |---|---|
 | Målarkitektur | Én HTML/CSS/JS-kodebase + Capacitor for Android/iOS |
 | Nåværende fase | **Fase 3 — nødvendige native integrasjoner** |
-| Status | Fase 3 er i gang. Fem punkter er ferdige: systemets tilbakeknapp og safe areas/systemfeltene/skjermtastaturet, begge verifisert på fysisk telefon; eksterne lenker og auth-/e-postlenker, som begge er beslutninger uten kode og derfor ikke har noe å prøve på en telefon; og sikker lagring/`android:allowBackup`, der sikkerhetskopien av WebView-lagringen er slått av (se seksjonene). Lifecycle-/network-punktet er kartlagt og avgjort — ingen native signaler kobles på — og det ene reelle hullet er lukket i webkoden, men den fysiske sekvensen gjenstår, så punktet står åpent. Automatisk dekket av `tests/safe-area.test.js`, `tests/landscape-chrome.test.js`, `tests/system-back.test.js`, `tests/sync-foreground.test.js` og `tests/capacitor-android.test.js`. Ferdigkriteriet er ikke nådd. |
+| Status | Fase 3 er i gang. Fem punkter er ferdige: systemets tilbakeknapp og safe areas/systemfeltene/skjermtastaturet, begge verifisert på fysisk telefon; eksterne lenker og auth-/e-postlenker, som begge er beslutninger uten kode og derfor ikke har noe å prøve på en telefon; og sikker lagring/`android:allowBackup`, der sikkerhetskopien av WebView-lagringen er slått av (se seksjonene). Lifecycle-/network-punktet er kartlagt og avgjort — ingen native signaler kobles på — hullet er lukket i webkoden, og den fysiske sekvensen er nå kjørt uten avvik: appen står med etterslepet inne straks Android tar den fram igjen. Punktet står likevel åpent, fordi runden ikke isolerte triggeren (pollet og realtime var i live) og enhetssjekken av `navigator.onLine` ikke er kjørt. Automatisk dekket av `tests/safe-area.test.js`, `tests/landscape-chrome.test.js`, `tests/system-back.test.js`, `tests/sync-foreground.test.js` og `tests/capacitor-android.test.js`. Ferdigkriteriet er ikke nådd. |
 | Neste milepæl | Android-appen oppfører seg som en normal mobilapp i de plattformtilfellene browseren ikke håndterer godt nok selv |
-| Ett neste praktiske steg | Kjør den fysiske sekvensen for lifecycle-punktet (bakgrunn lenge → forgrunn), og enhetssjekken av `navigator.onLine` i flymodus — det er alt som står igjen i fase 3 |
+| Ett neste praktiske steg | Kjør ÉN `chrome://inspect`-økt mot debug-APK-en og svar på begge de gjenstående spørsmålene: lever `navigator.onLine` i flymodus uten `ACCESS_NETWORK_STATE`, og er det gjenopptakelsen som starter runden når pollet og realtime er tatt ut av bildet — det er alt som står igjen i fase 3 |
 | OTA | Ikke innført; skal ikke innføres før Android-baselinen er stabil |
 | iOS | Senere fase; ikke en del av første implementering |
 
@@ -390,9 +390,12 @@ funksjoner bare fordi de er mulige.
       signaler kobles på — websignalene rekker, og det ene reelle hullet
       (ingenting hentet appen inn igjen ved gjenopptakelse) er lukket med
       `visibilitychange`, som browseren og WebView-en har likt. Koden og
-      regresjonstesten er på plass; det som gjenstår før avkryssing er den
-      fysiske sekvensen i seksjonen — om en runde FAKTISK kjører etter at appen
-      har ligget lenge i bakgrunnen, kan bare en telefon svare på.
+      regresjonstesten er på plass, og den fysiske sekvensen er kjørt uten
+      avvik: appen står med etterslepet inne straks Android tar den fram igjen.
+      Det gjenstår en enhetsøkt med `chrome://inspect` før avkryssing, med to
+      spørsmål runden ikke kunne svare på: om `navigator.onLine` lever uten
+      `ACCESS_NETWORK_STATE`, og om det FAKTISK var gjenopptakelsen som startet
+      runden — pollet og realtime var i live hele veien (se seksjonen).
 - [x] Vurder sikker lagring av native-spesifikke secrets/tokens dersom det
       faktisk finnes et behov; ikke flytt data ut av dagens modell uten grunn.
       Ta samtidig stilling til `android:allowBackup`. Kartlagt og avgjort: det
@@ -756,11 +759,17 @@ nett». Da står `navigator.onLine` permanent på `true`, og `online`/`offline`
 fyrer aldri.
 
 *Observert — men det avgjør ikke spørsmålet:* fase 2 punkt 9 viste «Frakoblet» i
-flymodus. Den teksten har TO kilder — flagget ELLER to runder som ikke nådde
-fram — så observasjonen er forenlig med begge verdener. Enhetssjekken som
-avgjør det: `chrome://inspect` mot debug-APK-en (Capacitor slår på
-WebView-debugging i debugbygg), flymodus på, og les `navigator.onLine` +
-`__huskis.syncStatus.snapshot()`.
+flymodus, og trinn 3 i sekvensen under synket etter en bakgrunnsperiode med
+flymodus på. Ingen av dem skiller de to verdenene: «Frakoblet» har TO kilder —
+flagget ELLER to runder som ikke nådde fram — og trinn 3 slår av flymodus FØR
+appen hentes fram, så nettet er tilbake uten at noen `online`-hendelse trengs.
+Runden er dermed forklart uansett hva flagget sto på.
+
+*Fortsatt ubesvart:* enhetssjekken som avgjør det er IKKE kjørt, og den er ikke
+en runde med appen — den krever `chrome://inspect` mot debug-APK-en (Capacitor
+slår på WebView-debugging i debugbygg), flymodus på, og lesing av
+`navigator.onLine` + `__huskis.syncStatus.snapshot()`. Spørsmålet står altså
+åpent.
 
 *Konsekvensen om det stemmer:* de to `online`-lytterne blir aldri kalt. Ingen av
 dem eier data. Begge er snarveier forbi en timer som prøver igjen uansett —
@@ -770,7 +779,16 @@ ikke spør `navigator.onLine` i det hele tatt. Derfor er dette ikke et hull, og
 derfor er ikke `ACCESS_NETWORK_STATE` lagt inn: en tillatelse skal ikke inn på
 en uprøvd antakelse for å spare sekunder i veier som leger seg selv. Blir
 svaret på enhetssjekken «ja, den er død», er den ene manifestlinjen det
-naturlige tiltaket — ikke en plugin.
+naturlige tiltaket — ikke en plugin — og den hører sammen med en ny sjekk i del
+6 av `tests/capacitor-android.test.js`, der de andre manifesterklæringene
+voktes.
+
+De to andre leserne taper heller ingenting på et flagg som står permanent på
+`true`. `isNetworkError()` faller tilbake på meldingsteksten, som er der
+uansett. Og `updateSafety()`s offline-arm («ikke trygt å reloade») leses bare av
+`update-check.js`, som i appen ser sin egen innebygde `/version.json`, aldri
+finner en nyere build-ID og derfor aldri foreslår en reload i det hele tatt
+(fase 2).
 
 **Hullet som ER reelt, og det er et web-hull.** Pollet er slått av mens siden er
 skjult, og INGENTING hentet appen inn igjen ved gjenopptakelse.
@@ -807,13 +825,39 @@ låser fra #122 som alle måtte utvides — for et signal `visibilitychange` gir
 gratis. `@capacitor/app` kommer først når fase 6 eventuelt tar App Links opp
 igjen, og da for den innkommende ADRESSEN, ikke for lifecycle.
 
-### Ikke prøvd på telefon ennå
+### Kjørt på fysisk Android — og det de fire trinnene ikke avgjør
 
-Til forskjell fra de to lenkepunktene finnes det her noe å prøve, og utfallet
-kan bare ses på en enhet: om timerne i en bakgrunnslagt WebView faktisk struper
-eller fryser, og om `visibilitychange` faktisk fyrer når Android tar appen fram
-igjen. Nettleseren beviser stigen, ikke enheten. Sekvensen er kort, og skal
-kjøres med en browserklient innlogget på samme konto:
+Sekvensen under er kjørt i sin helhet på telefon, uten avvik. Den gjenbrukes ved
+etterkontroll og på iOS i fase 7.
+
+**Det som ER observert** er brukeregenskapen punktet finnes for: appen står med
+etterslepet inne praktisk talt straks Android tar den fram igjen — etter en lang
+bakgrunnsperiode, og etter en bakgrunnsperiode med flymodus på — og en endring
+gjort rett før appen ble skjult ligger allerede hos den andre klienten. Ingen av
+scenarioene lot brukeren se en gammel visning mens en timer bestemte seg.
+
+**Det runden IKKE gjør er å isolere hvem som startet runden.** På telefonen er
+både pollet (5 s) og realtime i live hele veien, og begge kan starte en runde
+straks WebView-en våkner eller kanalen kobler seg opp igjen. Sekvensen slår
+ingenting av og teller ingen pulls, så et poll-tikk innen 5 s ser likt ut på
+skjermen som gjenopptakelses-lytteren. Observasjonen er altså FORENLIG med
+lytteren — og lytteren er regresjonstestet nettopp med pollet slått av
+(`tests/sync-foreground.test.js`) — men runden beviser den ikke.
+
+To spørsmål krever derfor fortsatt en enhetsøkt, og det er den samme økten:
+`chrome://inspect` mot debug-APK-en (Capacitor slår på WebView-debugging i
+debugbygg).
+
+| Spørsmål | Hva som må gjøres |
+|---|---|
+| Lever `navigator.onLine` uten `ACCESS_NETWORK_STATE`? | Flymodus på; les `navigator.onLine` og `__huskis.syncStatus.snapshot()`. |
+| Var det gjenopptakelsen som startet runden? | Isoler triggeren før appen sendes i bakgrunnen: ta realtime ut av bildet (`__huskis.client.removeAllChannels()`), og merk av når hver runde starter — f.eks. ved å instrumentere `fetch` og `visibilitychange` med tidsstempel. Lander første Supabase-kall i samme øyeblikk som synligheten snur, var det gjenopptakelsen; kommer det først ved neste 5-sekunderstikk, var det pollet. |
+
+Den høyre kolonnen er lest ut av koden — `__huskis` eksponeres også i APK-en, og
+`removeAllChannels()` finnes i den innsjekkede supabase-js — men den er **ikke
+prøvd på en enhet**, så den er en plan, ikke en oppskrift som har virket.
+
+Sekvensen er kort, og skal kjøres med en browserklient innlogget på samme konto:
 
 | # | Gjør | Forventet |
 |---|---|---|
@@ -1068,13 +1112,21 @@ og sikkerhetskopi»).
 **Lifecycle- og network-signalene er kartlagt og avgjort**: websignalene rekker,
 ingen native signaler er koblet på, og det ene reelle hullet — at ingenting
 hentet appen inn igjen ved gjenopptakelse — er lukket med `visibilitychange`
-(seksjonen «Lifecycle- og network-signaler»). To ting gjenstår før punktet kan
-krysses av, og begge krever en telefon: den korte fysiske sekvensen i den
-seksjonen, og enhetssjekken av om `navigator.onLine` i det hele tatt lever i
-WebView-en uten `ACCESS_NETWORK_STATE`. Det siste endrer ingenting som haster —
-alle veiene det rører leger seg selv — men svaret avgjør om én manifestlinje er
-verdt å legge inn. Legges den inn, hører den sammen med en ny sjekk i del 6 av
-`tests/capacitor-android.test.js`.
+(seksjonen «Lifecycle- og network-signaler»). Den fysiske sekvensen på fire
+trinn er kjørt uten avvik, og den viser brukeregenskapen: etterslepet er inne
+praktisk talt straks appen hentes fram.
+
+**Det som gjenstår er én `chrome://inspect`-økt mot debug-APK-en**, og den
+svarer på begge spørsmålene runden med vilje ikke kunne svare på:
+
+- **Lever `navigator.onLine` uten `ACCESS_NETWORK_STATE`?** Avgjør om én
+  manifestlinje er verdt å legge inn. Ingenting som haster — alle veiene flagget
+  rører leger seg selv — men blir svaret «den er død», hører linjen sammen med
+  en ny sjekk i del 6 av `tests/capacitor-android.test.js`.
+- **Var det gjenopptakelsen som startet runden?** På telefonen var pollet og
+  realtime i live hele veien, så et poll-tikk innen 5 s ser likt ut på skjermen
+  som lytteren. Tas de to ut av bildet og runden fortsatt kommer i det øyeblikket
+  synligheten snur, er lytteren bekreftet på enhet — ikke bare i nettleseren.
 
 Det er det eneste som står igjen i fase 3.
 
