@@ -1,85 +1,173 @@
 /* ============================================================
    VISUELL PRØVE — PR #128
    ------------------------------------------------------------
-   Omfattende mørk variant: store palettflater erstattes av nøytrale skifer-
-   flater. Paletten beholdes som en smal aksent, slik at farge fortsatt skiller
-   kortene uten å dominere hele hierarkiet. Alt er scoped til mørk drakt.
+   Omfattende mørk variant: store palettflater erstattes av mørke skiferflater
+   som bærer et SVAKT preg av kortets egen palettfarge. Paletten beholdes i
+   tillegg som en smal aksentstripe, slik at farge fortsatt skiller kortene uten
+   å dominere hele hierarkiet. Alt er scoped til mørk drakt.
+
+   TRE INVARIANTER STYRER FILA:
+
+   1. INGEN REGEL HER MÅ LAGE EN NY CONTAINING BLOCK.
+      Kort/listepunkt/kategori dras som `position: absolute` med DOKUMENT-
+      koordinater (se dragPosLeft/dragPosTop og liftElement i app.js) — merk at
+      en stjerne rett foran en skråstrek avslutter en CSS-kommentar, så
+      funksjonsnavnene står fullt ut her. Regnestykket forutsetter
+      at ingen forfar er posisjonert eller transformert. Første utgave av denne
+      fila satte `position: relative` på `.card` for å kunne tegne stripen med
+      `::before`, og det slo ut på to måter samtidig:
+        • `:root[data-theme="dark"] .card` (0,3,0) er STERKERE enn
+          `.card.dragging` (0,2,0) i styles.css, så et løftet KORT ble
+          `relative` i stedet for `absolute` — dokument-koordinatene ble lest
+          som forskyvning fra kortets egen plass i flyten;
+        • listepunkter og kategorier er etterkommere av `.card`, så deres
+          absolutte koordinater ble tolket relativt til kortet i stedet for til
+          dokumentet.
+      Begge veier ga det samme: objektet la seg langt nedenfor fingeren og
+      stemte ikke med placeholderen. Samme fallgruve som `flipFrom()` og
+      `applyDragSeparators()` i app.js allerede advarer mot.
+      Stripen males derfor med en BAKGRUNNSGRADIENT — bakgrunn påvirker verken
+      containing block, layout-boks eller `getBoundingClientRect()`. Det samme
+      gjelder `outline` og `box-shadow`, som er de eneste andre virkemidlene her.
+      Ingen `position`, `transform`, `filter`, `perspective`, `contain` eller
+      `will-change` har noe i denne fila å gjøre.
+
+   2. INGEN REGEL HER MÅ OVERDØVE EN TILSTAND I styles.css.
+      Selektorene her er (0,3,0) og slår dermed `.card:hover`, `.card.dragging`,
+      `.item.dragging` og `.nav-board .card.active`. Derfor settes flate-
+      egenskaper som EIES av en tilstand (box-shadow) ikke direkte: de justeres
+      via tokens, slik at hvile/hover/dra fortsatt velges av reglene i
+      styles.css. Der en flate likevel må settes direkte, står tilstanden
+      eksplisitt utenfor (`:not(.active)`, `:not(.dragging)`).
+
+   3. FARGEPREGET UTLEDES AV DE EKSISTERENDE KORTVARIABLENE.
+      `--card-bg` (palettfargen) og `--card-accent` (den lysnede utgaven) settes
+      allerede inline per kort av `paintCardColor()` i app.js. Tokenene under
+      blandes ut fra dem med `color-mix`, så det finnes ingen parallell palett å
+      holde i takt. Hver `color-mix` står etter en ren hex-verdi med samme
+      rolle: en nettleser uten `color-mix` beholder den nøytrale skiferflaten,
+      som er et fullgodt uttrykk — bare uten fargepreget.
    ============================================================ */
 
-:root[data-theme="dark"] {
-  --plate: #242a32;
-  --plate-hover: #272d36;
-  --plate-done: #20252d;
-  --plate-done-hover: #232932;
-  --chip-bg: #181d24;
-  --item-text-shadow: none;
-  --item-text-stroke: 0 transparent;
+/* Trappa nedenfra: board (#141922) < kategorifordypning < kortflate <
+   listepunkt < korthode, alle med 10 % av kortets egen palettfarge blandet inn.
+   Målte trinn og kontraster (min–maks over alle 36 mørke palettfarger) står i
+   docs/mork-drakt.md.
+
+   Tokenene bor på `.card`, ikke på `:root`: alle sammen er «på-farge»-tokens
+   som kun brukes INNE i et kort (plater, hårstreker, meta-chip, tannhjul), og
+   hvert kort må dessuten få SIN egen blanding. Custom properties arves, så
+   `.item`, `.item-check::before`, `.item-text`, `.cat-items` og resten plukker
+   dem opp uten at én eneste ny regel må skrives. Resten av den mørke drakten —
+   modaler, paneler, toppmeny — står urørt. */
+:root[data-theme="dark"] .card {
+  --plate: #262c35;
+  --plate: color-mix(in srgb, var(--card-bg) 10%, #262c35);
+  --plate-hover: #303742;
+  --plate-hover: color-mix(in srgb, var(--card-bg) 10%, #303742);
+  --plate-done: #222831;
+  --plate-done: color-mix(in srgb, var(--card-bg) 10%, #222831);
+  --plate-done-hover: #292f39;
+  --plate-done-hover: color-mix(in srgb, var(--card-bg) 10%, #292f39);
+  --chip-bg: #171c24;
+  --chip-bg: color-mix(in srgb, var(--card-bg) 10%, #171c24);
+
+  /* Kortflaten, korthodet og kategorifordypningen. Hodet ligger et tydelig
+     trinn over flaten (1,19–1,22:1 mot forrige utgaves 1,11:1), fordypningen et
+     trinn under den (1,09–1,10:1). */
+  --card-face: #1e242d;
+  --card-face: color-mix(in srgb, var(--card-bg) 10%, #1e242d);
+  --card-head-face: #2c333c;
+  --card-head-face: color-mix(in srgb, var(--card-bg) 10%, #2c333c);
+  --cat-face: #171c24;
+  --cat-face: color-mix(in srgb, var(--card-bg) 10%, #171c24);
+
+  /* Aksentstripen. `--card-accent` er allerede lysnet av paintCardColor, men
+     mot det LYSERE korthodet bunner den ut på 2,80:1. Et hakk til mot hvitt
+     løfter stripen til 3,93:1 mot hodet og 4,68:1 mot kortflaten, uten at den
+     blir en annen farge. `--card-accent` SELV er urørt: den bærer 3:1-
+     kontrakten rundt avkryssingsboksen og skal ikke flyttes. */
+  --card-stripe: var(--card-accent);
+  --card-stripe: color-mix(in srgb, var(--card-accent) 82%, #ffffff);
+
+  /* Tekst-borderen på `.item-text` (og, via reglene lenger ned, på kort- og
+     kategorititlene). Blekket klarer 9,19–13,53:1 på disse flatene helt uten
+     hjelp, så streken er BARE robusthet nå som flatene igjen har et fargepreg:
+     en halv piksel med `paint-order: stroke fill` (bare den ytre halvdelen
+     synes) definerer glyfkanten uten å lese som kontur. Den fulle 1px-streken
+     fra styles.css hører til de lyse palettflatene og ville vært for kraftig. */
+  --item-text-shadow: var(--text-shadow);
+  --item-text-stroke: 0.5px #000;
+
+  /* Hårstrekene og de små kontrollflatene dempes mot de roligere flatene. */
   --hairline: rgba(255, 255, 255, 0.12);
-  --on-color-soft: rgba(232, 230, 239, 0.62);
+  --on-color-soft: rgba(255, 255, 255, 0.62);
   --tint: rgba(255, 255, 255, 0.08);
   --tint-hover: rgba(255, 255, 255, 0.14);
   --tint-open: rgba(255, 255, 255, 0.18);
   --tint-ring: rgba(255, 255, 255, 0.15);
-  --shadow-sm: 0 2px 6px rgba(0, 0, 0, 0.28);
-  --shadow-md: 0 6px 16px rgba(0, 0, 0, 0.34);
+
+  /* Kortets egne skygger: kortet løftes fra board-et av tone + kontur, ikke av
+     en tung boks-skygge. Kun tokenene endres — `.card`, `.card:hover` og
+     `.card.dragging` i styles.css velger fortsatt hvilken som gjelder, så det
+     løftede kortet beholder draktens fulle `--shadow-lg`. Modaler og paneler er
+     urørt, siden tokenene her bare gjelder kort-subtreet. */
+  --shadow-sm: 0 1px 4px rgba(0, 0, 0, 0.32);
+  --shadow-md: 0 6px 16px rgba(0, 0, 0, 0.38);
+
+  /* Flaten + stripen. Gradienten har HARDT stopp på 4 px (samme posisjon på
+     begge fargestoppene), så det blir ingen overgangsfrynse — og kortets
+     `overflow: hidden` + `border-radius` runder stripens hjørner, akkurat som
+     ::before-utgaven gjorde. */
+  background-color: var(--card-face);
+  background-image: linear-gradient(90deg, var(--card-stripe) 0 4px, transparent 4px);
 }
 
-:root[data-theme="dark"] .card {
-  position: relative;
-  background: #20252d;
-  outline: 1px solid rgba(255, 255, 255, 0.07);
+/* Konturen gjør kortkanten tydelig mot board-bakgrunnen uten en tung skygge.
+   `outline` (ikke `border`) fordi den ikke tar plass i layout-boksen — kortets
+   geometri, og dermed DnD-målingene, blir bit for bit den samme.
+   `:not(.active)` holder fingrene av navigasjonsmodalens aktive kort, som
+   bruker nettopp `outline` til å vise hvor man står. */
+:root[data-theme="dark"] .card:not(.active) {
+  outline: 1px solid rgba(255, 255, 255, 0.09);
   outline-offset: -1px;
-  box-shadow: var(--shadow-sm);
 }
 
-/* --card-accent er fortsatt utledet av den eksisterende paletten i app.js. */
-:root[data-theme="dark"] .card::before {
-  content: '';
-  position: absolute;
-  z-index: 2;
-  inset: 0 auto 0 0;
-  width: 4px;
-  border-radius: var(--radius) 0 0 var(--radius);
-  background: var(--card-accent);
-  pointer-events: none;
+/* Hodet har sin egen flate og må derfor male stripen videre selv — ellers ville
+   den startet under hodet. Innrykket holder tittelen klar av stripen. */
+:root[data-theme="dark"] .card-head {
+  padding-left: 14px;
+  background-color: var(--card-head-face);
+  background-image: linear-gradient(90deg, var(--card-stripe) 0 4px, transparent 4px);
 }
 
-:root[data-theme="dark"] .card:hover { box-shadow: var(--shadow-md); }
-:root[data-theme="dark"] .card-head { padding-left: 14px; background: #272d36; }
-
+/* Titlene: samme subtile kant som `.item-text` får via tokenene over. */
 :root[data-theme="dark"] .card-title,
 :root[data-theme="dark"] .cat-title {
   color: var(--ink);
-  text-shadow: none;
-  -webkit-text-stroke: 0 transparent;
+  text-shadow: var(--text-shadow);
+  -webkit-text-stroke: 0.5px #000;
+}
+:root[data-theme="dark"] .collapse-count {
+  color: var(--ink-soft);
+  text-shadow: var(--text-shadow);
 }
 
-:root[data-theme="dark"] .collapse-count { color: var(--ink-soft); text-shadow: none; }
+/* Listepunktene: platene er tokenstyrt (over), så her trengs bare den svake
+   kanten som skiller platen fra kortflaten. `:not(.dragging)` fordi det løftede
+   listepunktet eier sin egen `--shadow-lg` i styles.css.
 
-:root[data-theme="dark"] .item {
-  background: var(--plate);
-  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.035);
+   Avkryssingsboksens fyll følger med vilje IKKE hover-platen: kanten rundt
+   boksen er `--card-accent`, og kontrakten er 3:1 mot fyllet den ligger på
+   (3,05:1 mot `--plate`). Fulgte fyllet med opp til `--plate-hover`, ville
+   kontrollen blitt utydeligere i samme øyeblikk man siktet på den. */
+:root[data-theme="dark"] .item:not(.dragging) {
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.04);
 }
-:root[data-theme="dark"] .item:hover { background: var(--plate-hover); }
-:root[data-theme="dark"] .item.done { background: var(--plate-done); }
-:root[data-theme="dark"] .item.done:hover { background: var(--plate-done-hover); }
-:root[data-theme="dark"] .item-check::before { background: var(--plate); }
-:root[data-theme="dark"] .item:hover .item-check::before { background: var(--plate-hover); }
-:root[data-theme="dark"] .item.done .item-check::before,
-:root[data-theme="dark"] .item.done:hover .item-check::before { background: var(--grad-accent); }
 
+/* Kategorifordypningen, med innover-skyggen som gir «hylle» beholdt. */
 :root[data-theme="dark"] .cat-items {
-  background: #181d24;
-  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.055);
+  background: var(--cat-face);
+  box-shadow: inset 0 2px 7px rgba(0, 0, 0, 0.3),
+              inset 0 0 0 1px rgba(255, 255, 255, 0.05);
 }
-
-:root[data-theme="dark"] .cat-cog,
-:root[data-theme="dark"] .done-restore,
-:root[data-theme="dark"] .card-cog {
-  background: var(--tint);
-  box-shadow: inset 0 0 0 1px var(--tint-ring);
-}
-
-:root[data-theme="dark"] .cat-cog:hover,
-:root[data-theme="dark"] .done-restore:hover,
-:root[data-theme="dark"] .card-cog:hover { background: var(--tint-hover); }

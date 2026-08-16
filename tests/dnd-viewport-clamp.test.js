@@ -10,6 +10,16 @@
   høyre, utvidet sidens scroll-bredde og (på iOS WebKit) skjøv den høyre-forankrede
   `position: fixed`-kontoknappen ut av viewporten.
 
+  SAMME FALLGRUVE, ANDRE KILDE (siste blokk): en DRAKT-regel som posisjonerer en
+  forfar. Et forsøk med `position: relative` på `.card` (for å tegne en
+  aksentstripe med `::before`) traff to ganger samtidig — `.card` ble containing
+  block for listepunkter og kategorier, og selektoren var dessuten sterkere enn
+  `.card.dragging`, så det løftede KORTET ble `relative` i stedet for `absolute`.
+  Alle fire dokument-koordinat-objektene la seg da ~114 px nedenfor fingeren, og
+  områdekortet i navigasjonsmodalen langt utenfor viewporten. Derfor kjøres
+  forankringen i MØRK drakt også: draktene deler geometri, og en regel som bare
+  gjelder den ene er nettopp den som ellers slipper gjennom.
+
   Kjør:
     python3 -m http.server 8000                     # fra repo-roten, i egen terminal
     NODE_PATH=$(npm root -g) node tests/dnd-viewport-clamp.test.js
@@ -163,6 +173,42 @@ async function dragOutOfBounds(p, label, sel, kind, opts) {
     !after.dragging && after.scrollW <= after.clientW && after.acct.r === base.acct.r, JSON.stringify(after.acct));
 }
 
+/* PEKERFORANKRINGEN: ett løft, pekeren ført til et fast punkt godt inne i
+   viewporten (klemmen over skal ikke slå inn), og så det ene spørsmålet som
+   avslører enhver containing-block-feil uansett årsak — LIGGER FINGEREN
+   FORTSATT PÅ OBJEKTET? Blir koordinatene tolket mot feil forfar, glir boksen
+   vekk fra pekeren og svaret er nei.
+   `position` sjekkes i samme slengen: board-objektene skal være `absolute`
+   (dokument-koordinater) og modal-objektene `fixed` — se kommentaren over
+   `.card.dragging` i styles.css. En drakt-regel som overdøver den er den andre
+   halvdelen av den samme feilen. */
+async function anchorHolds(p, label, sel, kind, expectPos) {
+  await p.evaluate(() => window.scrollTo(0, 0)); await p.waitForTimeout(120);
+  const z = await zoneOf(p, sel);
+  await ptr(p, 'pointerdown', z.x, z.y, kind);
+  if (kind === 'mouse') { await ptr(p, 'pointermove', z.x + 20, z.y + 4, kind); }
+  else { await p.waitForTimeout(260); await ptr(p, 'pointermove', z.x + 4, z.y + 4, kind); }
+  await p.waitForTimeout(120);
+  const t = await p.evaluate(() => ({ x: Math.round(window.innerWidth / 2), y: Math.round(window.innerHeight / 2) }));
+  await ptr(p, 'pointermove', t.x, t.y, kind);
+  await p.waitForTimeout(160);
+  const s = await p.evaluate(({ tx, ty }) => {
+    const d = document.querySelector('.item.dragging, .category.dragging, .card.dragging');
+    if (!d) return { dragging: false };
+    const r = d.getBoundingClientRect();
+    return {
+      dragging: true, position: getComputedStyle(d).position,
+      dx: Math.round(tx - r.left), dy: Math.round(ty - r.top),
+      w: Math.round(r.width), h: Math.round(r.height),
+    };
+  }, { tx: t.x, ty: t.y });
+  const inside = s.dragging && s.dx >= 0 && s.dx <= s.w && s.dy >= 0 && s.dy <= s.h;
+  log(label + ': pekeren ligger fortsatt på det løftede objektet', inside, JSON.stringify(s));
+  log(label + ': løftes som `' + expectPos + '`', s.position === expectPos, 'fikk ' + s.position);
+  await ptr(p, 'pointercancel', t.x, t.y, kind);
+  await p.waitForTimeout(250);
+}
+
 (async () => {
   const b = await chromium.launch();
 
@@ -190,6 +236,38 @@ async function dragOutOfBounds(p, label, sel, kind, opts) {
     await dragOutOfBounds(p, 'mobil/listepunkt', '.card[data-id="card-A"] .items-container > .item .item-text', 'touch');
     await dragOutOfBounds(p, 'mobil/kategori', '.card[data-id="card-A"] .category .cat-head', 'touch');
     log('mobil: ingen JS-feil', errs.length === 0, errs.join(' | '));
+    await p.close();
+  }
+
+  /* ---------- Mørk drakt: forankringen på ALLE fem nivåene ----------
+     Område og mappe bor i navigasjonsmodalen og dras `fixed`; liste, kategori
+     og listepunkt bor på board-et og dras `absolute`. Begge halvdelene kjøres,
+     fordi de to øverste nivåene er bygget av de samme komponentene som de to
+     nederste — en drakt-regel på `.card` treffer dem alle. */
+  {
+    const p = await b.newPage({ viewport: { width: 1200, height: 800 } });
+    const errs = []; p.on('pageerror', (e) => errs.push(e.message));
+    await register(p);
+    await p.evaluate(() => window.HUSKIS_THEME.setMode('dark'));
+    await p.waitForTimeout(200);
+    await seed(p, [['A', 4, 3], ['B', 4], ['C', 4], ['D', 4]]);
+    const dark = await p.evaluate(() => document.documentElement.getAttribute('data-theme'));
+    log('mørk drakt: attributtet står', dark === 'dark', String(dark));
+
+    await anchorHolds(p, 'mørk/listepunkt', '.card[data-id="card-A"] .items-container > .item .item-text', 'mouse', 'absolute');
+    await anchorHolds(p, 'mørk/kategori', '.card[data-id="card-A"] .category .cat-head', 'mouse', 'absolute');
+    await anchorHolds(p, 'mørk/liste', '.card[data-id="card-A"] .card-head', 'mouse', 'absolute');
+    // Samme runde som i lys drakt: en forskyvning som ikke slår ut på
+    // forankringen ville fortsatt kunne skyve objektet ut av viewporten.
+    await dragOutOfBounds(p, 'mørk/listepunkt', '.card[data-id="card-A"] .items-container > .item .item-text', 'mouse');
+    await dragOutOfBounds(p, 'mørk/liste', '.card[data-id="card-A"] .card-head', 'mouse', { noExtract: true });
+
+    await p.evaluate(() => window.__huskis.openNavModal());
+    await p.waitForTimeout(350);
+    await anchorHolds(p, 'mørk/område', '#nav-board .card .card-head', 'mouse', 'fixed');
+    await anchorHolds(p, 'mørk/mappe', '#nav-board .card .items-container > .item', 'mouse', 'fixed');
+
+    log('mørk drakt: ingen JS-feil', errs.length === 0, errs.join(' | '));
     await p.close();
   }
 

@@ -7,8 +7,7 @@
 
    Fila er søsteren til i18n.js: ren tilstand + noen få funksjoner, ingen
    avhengigheter, og den rører ingenting utenom `<html data-theme>`,
-   `<meta name="theme-color">`, det isolerte prøve-stilarket i PR #128 og
-   `localStorage['huskis-theme']`.
+   `<meta name="theme-color">` og `localStorage['huskis-theme']`.
 
    DEN LASTES I <head>, IKKE NEDERST I <body> — det er hele poenget. Draktens
    farger ligger i CSS-tokens som velges av `data-theme` på rot-elementet, så
@@ -39,24 +38,6 @@
   // bakgrunnen — `--bg` — i hver drakt, og MÅ holdes i takt med den i
   // styles.css; tests/dark-mode.test.js sammenligner dem.
   var THEME_COLOR = { light: '#667788', dark: '#141922' };
-
-  /* VISUELL PRØVE — PR #128.
-     Den omfattende varianten ligger i et separat, mørk-scopet stilark. Det
-     lastes mens vi fortsatt er i <head>, før app.js bygger kortene. Build-ID
-     legges på URL-en så preview-deployer ikke kan få en gammel cachet variant.
-     Hvis designet beholdes, skal reglene foldes inn i styles.css og denne
-     midlertidige lastingen fjernes. */
-  function loadDarkSurfaceExperiment() {
-    if (document.getElementById('dark-surface-experiment')) return;
-    var build = document.querySelector('meta[name="huskis-build"]');
-    var id = build && build.getAttribute('content');
-    var link = document.createElement('link');
-    link.id = 'dark-surface-experiment';
-    link.rel = 'stylesheet';
-    link.href = 'dark-surface-experiment.css' + (id ? '?b=' + encodeURIComponent(id) : '');
-    document.head.appendChild(link);
-  }
-  loadDarkSurfaceExperiment();
 
   var listeners = [];
 

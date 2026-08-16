@@ -194,6 +194,55 @@ async function seed(p) {
   console.log('\n--- Kortfargene speiles ---');
   const darkCards = await cardColors(p);
   check('board-et har kort å måle på', darkCards.length >= 4, darkCards);
+
+  /* --- Den mørke kortflaten: nøytral skifer + palettpreg + aksentstripe ---
+     Prøvestilarket (dark-surface-experiment.css, PR #128) lastes av theme.js og
+     males OPPÅ palettfargen. Sjekkene her er to:
+
+       • at det i det hele tatt VIRKER. Et stilark som stille slutter å gjelde —
+         en feilstavet filbane, eller en kommentar som avsluttes for tidlig
+         (en stjerne rett foran en skråstrek inne i kommentarteksten) og spiser
+         regelen etter seg — gir ingen feilmelding noe sted: appen ser bare ut
+         som før. Derfor måles den RENDREDE flaten mot den inline palettfargen
+         kortet bærer.
+       • at ingen av reglene posisjonerer kortet. `.card` MÅ bli stående
+         `static`: et posisjonert kort blir containing block for de absolutt
+         posisjonerte dra-elementene, og hele DnD-geometrien forskyves (se
+         tests/dnd-viewport-clamp.test.js, som måler følgene). */
+  const flate = await p.evaluate(() => {
+    const c = document.querySelector('#board .card');
+    if (!c) return null;
+    const cs = getComputedStyle(c);
+    return {
+      palett: c.style.getPropertyValue('--card-bg').trim(),
+      malt: cs.backgroundColor,
+      stripe: cs.backgroundImage,
+      position: cs.position,
+      hode: getComputedStyle(c.querySelector('.card-head')).backgroundColor,
+    };
+  });
+  /* Kanalene i 0–255, uansett skrivemåte. En `color-mix()`-blanding regnes ut i
+     en fargerom-form, så getComputedStyle svarer `color(srgb 0.15 0.16 0.19)`
+     der en vanlig farge gir `rgb(38, 44, 53)` — begge må leses likt. */
+  const kanaler = (s) => {
+    const t = String(s), n = (t.match(/[\d.]+/g) || []).map(Number).slice(0, 3);
+    const rgb = /^color\(/.test(t) ? n.map((v) => v * 255) : n;
+    return rgb.length === 3 ? rgb : [-1, -1, -1];
+  };
+  const hexKanaler = (h) => [1, 3, 5].map((i) => parseInt(String(h).slice(i, i + 2), 16));
+  const sum = (a) => a.reduce((x, y) => x + y, 0);
+  const maltRgb = flate && kanaler(flate.malt);
+  check('kortflaten er malt om til den nøytrale skiferflaten, ikke palettfargen',
+    !!flate && maltRgb.every((v) => v >= 0 && v < 80)
+      && Math.abs(sum(maltRgb) - sum(hexKanaler(flate.palett))) > 40,
+    { ...flate, maltRgb, palettRgb: flate && hexKanaler(flate.palett) });
+  check('aksentstripen står på kortet og på hodet',
+    !!flate && /gradient/.test(flate.stripe), flate && flate.stripe);
+  check('korthodet ligger lysere enn kortflaten',
+    !!flate && sum(kanaler(flate.hode)) > sum(maltRgb),
+    { hode: flate && kanaler(flate.hode), flate: maltRgb });
+  check('INGEN drakt-regel posisjonerer kortet (containing block for DnD)',
+    !!flate && flate.position === 'static', flate && flate.position);
   // Tilbake til lys fra konto-modalen — den andre av de to velgerne.
   await p.evaluate(() => window.__huskis.openAccount());
   await p.waitForTimeout(300);
