@@ -213,6 +213,88 @@ mot den mørke statuspillen, og at de to L-settene faktisk speiler hverandre.
 Endrer du en verdi i den mørke blokken eller et L-sett, kjør den testen.
 Kravene selv står i [`tilgjengelighet.md`](tilgjengelighet.md).
 
+## Pågående visuell prøve: nøytrale kortflater med palettaksent
+
+`dark-surface-experiment.css` er et **midlertidig** stilark, lastet fra
+`<head>` i `index.html` som enhver annen klientfil (og dermed versjonert av
+byggesteget), og fullt scopet til `:root[data-theme="dark"]`. Det prøver ut en
+annen fordeling av rollene i mørk drakt: i stedet for at palettfargen dekker
+hele kortet, blir kortet en mørk skiferflate som bærer sin egen palettfarge —
+13 % i kortflaten og korthodet (identitetsflaten), 10 % i platene og
+kategorifordypningen (innholdsflatene) — og fargen får i tillegg en 4 px
+aksentstripe langs venstre kant, i SAMME farge som avkryssingskanten
+(`--card-accent`). Lyshet uttrykker da hierarkiet, mens fargen holder
+identiteten.
+
+Fila er et unntak fra «tokens, og bare tokens» over, og skal ikke bli stående:
+holder uttrykket, foldes reglene inn i `styles.css`, fila og `<link>`-taggen i
+`index.html` fjernes, og denne seksjonen erstattes av de ordinære tokenene.
+
+Så lenge den står, gjelder tre ting:
+
+- **Ingen regel der må lage en containing block.** Kort, listepunkt og kategori
+  dras som `position: absolute` med *dokument*-koordinater, så en posisjonert
+  eller transformert forfar flytter hele dra-geometrien. En tidligere utgave
+  satte `position: relative` på `.card` for å tegne stripen med `::before`, og
+  alle fire dokument-koordinat-objektene la seg da ~114 px nedenfor fingeren.
+  Stripen males derfor med en bakgrunnsgradient; `outline` og `box-shadow` er de
+  eneste andre virkemidlene. `tests/dnd-viewport-clamp.test.js` måler følgene og
+  `tests/dark-mode.test.js` slår fast at `.card` er `static`.
+- **Ingen regel der må overdøve en tilstand i `styles.css`.** Selektorene er
+  `(0,3,0)` og slår dermed `.card:hover`, `.card.dragging`, `.item.dragging` og
+  `.nav-board .card.active`. Flater som eies av en tilstand justeres derfor via
+  tokens, ikke direkte; der en flate likevel settes direkte, står tilstanden
+  eksplisitt utenfor (`:not(.active)`, `:not(.dragging)`).
+- **Fargepreget utledes av de eksisterende kortvariablene.** `--card-bg` og
+  `--card-accent` settes allerede inline per kort av `paintCardColor()`; prøven
+  blander ut fra dem med `color-mix`, med en ren hex-verdi foran som reserve. Det
+  finnes ingen parallell palett.
+
+Målt over alle 36 mørke palettfarger, som min–maks:
+
+| Trinn | Ratio |
+|---|---|
+| board → kortflate | 1,15–1,32 |
+| kortflate → korthode | 1,19–1,21 |
+| kortflate → listepunkt | 1,07–1,10 |
+| listepunkt → hover | 1,15–1,16 |
+| kortflate → kategorifordypning | 1,09–1,14 |
+
+| Tekst/kontroll | Ratio | Krav |
+|---|---|---|
+| `--ink` på korthodet | 8,94–10,42 | 4,5 |
+| `--ink` på listepunkt-platen | 10,07–11,33 | 4,5 |
+| `--ink` på kategorifordypningen | 12,34–13,53 | 4,5 |
+| `--ink-soft` på korthodet | 4,58–5,34 | 4,5 |
+| `--ink-soft` på platen | 5,16–5,80 | 4,5 |
+| avkryssingskanten (`--card-accent`) mot platen | 3,05–5,36 | 3 |
+| aksentstripen (`--card-accent`) mot korthodet | 2,80–4,76 | — |
+| aksentstripen mot kortflaten | 3,34–5,76 | — |
+| `--focus` mot korthodet | 11,04–12,88 | 3 |
+
+Avkryssingskantens 3:1 er det som **binder** trappa: platen kan ikke lysnes mer
+uten at `--card-accent` mister kontrakten sin mot fyllet den ligger på. Av
+samme grunn følger avkryssingsboksens fyll ikke med opp til `--plate-hover` —
+kontrollen skal ikke bli utydeligere i det man sikter på den.
+
+**Stripen ER `--card-accent`, ikke en egen, lysere utgave.** Første runde
+blandet den med 18 % hvitt for å vinne kontrast mot det lysnede korthodet, men
+det gjorde stripen blekere og mindre mettet enn aksenten lys drakt viser for
+samme kort — nettopp det motsatte av hensikten (samme kort skal kjennes igjen
+når man bytter drakt). Pikselidentisk med LYS drakts egen aksentformel
+(`darken(base, 0.32)` på den lyse, ikke speilede, palettfargen) er ikke trygt:
+regnet ut mot de nye platene faller den til 1,9–5,2:1, altså nesten usynlig for
+enkelte fargetoner. `--card-accent` er derfor den nærmeste sikre tilnærmingen —
+samme verdi appen allerede bruker som «aksentfargen» til akkurat dette kortet i
+mørk drakt. Mot korthodet gir den 2,80–4,76:1: under 3:1 i verste hjørne, men
+det er en dekorativ stripe uten tekst på seg, og kravet er paritet med
+intensjonen (samme presedens som `--danger-edge`/`--scrim` over), ikke et nytt
+gulv.
+
+Tekst-borderen fra `--item-text-shadow`/`--item-text-stroke` er på, men tynnere
+(0,5 px mot 1 px): blekket klarer flatene med god margin, så streken er
+robusthet mot fargepreget, ikke en kontur.
+
 ## Android-skallet: systemfeltene følger telefonen, ikke drakten
 
 Appen tegner under systemfeltene (`viewport-fit=cover`, se
@@ -264,6 +346,7 @@ noe om rammen, og `theme.js` holder den i takt med `--bg`.
 | Fil | Dekker |
 |---|---|
 | `tests/a11y-contrast.test.js` | kontraktstallene i begge drakter |
-| `tests/dark-mode.test.js` | attributtet før første maling, «følg systemet» levende, begge velgerne, varighet over omlasting, speilingen av kortfargene, `color-scheme` og `theme-color`, og at et systembytte ikke river ned en pågående navngiving |
+| `tests/dark-mode.test.js` | attributtet før første maling, «følg systemet» levende, begge velgerne, varighet over omlasting, speilingen av kortfargene, `color-scheme` og `theme-color`, at et systembytte ikke river ned en pågående navngiving, og at den visuelle prøvens kortflate faktisk males (et stilark som stille slutter å gjelde ser ut som «før») uten å posisjonere kortet |
+| `tests/dnd-viewport-clamp.test.js` | at ingen drakt-regel forskyver dra-geometrien: pekerforankringen måles i mørk drakt på alle fem nivåene (område, mappe, liste, kategori, listepunkt) |
 | `tests/build-version.test.js` | at `theme.js` versjoneres og langtidscaches som de andre klientfilene |
 | `tests/capacitor-android.test.js` | at Android-skallet står på DayNight, at night-variantene snur glyfene, og at `SystemBars.style` er `DEFAULT` |
