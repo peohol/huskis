@@ -76,6 +76,13 @@
        som i /version.json) og leses av update-check.js. «dev» = ubygget
        kildekode → den automatiske oppdateringen er avslått. -->
   <meta name="huskis-build" content="dev" />
+  <!-- Releasen builden er laget AV: de 12 første tegnene av commit-SHA-en,
+       byttet ut av build.js (samme verdi som i /version.json). Web og Android
+       bygget fra samme commit får samme verdi — det er den plattformuavhengige
+       identiteten. Den rører verken cache eller reload; det eier build-ID-en
+       over. «dev» = ubygget kildekode eller ukjent commit.
+       Se docs/auto-update.md. -->
+  <meta name="huskis-release" content="dev" />
   <title>Huskis</title>
   <link rel="icon" type="image/svg+xml" href="favicon.svg" />
   <!-- Webfonten (Atkinson Hyperlegible Next) hentes IKKE fra Google Fonts:

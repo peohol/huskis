@@ -11,8 +11,12 @@
        lokal utvikling og nettlesertestene ikke får en falsk build-ID.
     4. JS/CSS lastes med ?b=<build-ID> (så en reload av HTML-en garantert
        henter ny kode, mens filene kan caches lenge).
-    5. To builds gir to forskjellige ID-er, og Vercels deploy-ID brukes når
-       den finnes.
+    5. To builds gir to forskjellige build-ID-er, og Vercels deploy-ID brukes
+       når den finnes.
+    5b. releaseId: den plattformuavhengige release-identiteten (de 12 første
+       tegnene av commit-SHA-en) står i version.json OG i klienten, er den
+       SAMME for to builds av samme commit — altså for web og Android — og er
+       aldri Vercels deploy-ID.
     6. Tester/dokumentasjon/SQL publiseres ikke — og heller ikke npm-,
        Capacitor- eller native tooling (`docs/mobilapp-plan.md`): mobilskallet
        bygger PÅ `dist/`, det er ikke en del av den.
@@ -50,9 +54,14 @@ function metaBuildId(html) {
   const m = /<meta\s+name="huskis-build"\s+content="([^"]*)"/.exec(html);
   return m ? m[1] : null;
 }
+function metaReleaseId(html) {
+  const m = /<meta\s+name="huskis-release"\s+content="([^"]*)"/.exec(html);
+  return m ? m[1] : null;
+}
 
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'huskis-build-'));
 const outA = path.join(tmp, 'a'), outB = path.join(tmp, 'b'), outC = path.join(tmp, 'c');
+const outD = path.join(tmp, 'd'), outE = path.join(tmp, 'e');
 
 // 1–4) En helt vanlig build (uten Vercel-variabler).
 const a = runBuild(outA);
@@ -61,9 +70,10 @@ check('version.json har en ikke-tom buildId', typeof a.version.buildId === 'stri
 check('version.json har version-feltet (SemVer eller null uten package.json)',
   a.version.version === null || typeof a.version.version === 'string');
 /* Repoet HAR en package.json (den finnes kun for Capacitor-skallet), men uten
-   `version`. Da skal build-ID-en fortsatt være den eneste release-identiteten
-   og `version` forbli null — ellers ville mobilprosjektet stille ha innført
-   SemVer i webreleasen. Se docs/auto-update.md og docs/mobilapp-plan.md. */
+   `version`. Da skal `version` forbli null, og release-identiteten fortsatt
+   utledes av commiten (`releaseId` under) — ellers ville mobilprosjektet
+   stille ha innført SemVer i webreleasen. Se docs/auto-update.md og
+   docs/mobilapp-plan.md. */
 const pkg = JSON.parse(fs.readFileSync(path.join(ROOT, 'package.json'), 'utf8'));
 check('package.json har ikke et version-felt', !('version' in pkg));
 check('version.json.version er null når package.json mangler version',
@@ -90,6 +100,41 @@ check('to builds gir forskjellige build-ID-er', b.version.buildId !== a.version.
 const c = runBuild(outC, { VERCEL_DEPLOYMENT_ID: 'dpl_7Gw5ZMBpQA8h9GF832KGp7nwbuh3' });
 check('Vercels deploy-ID brukes når den finnes', c.version.buildId === 'dpl_7Gw5ZMBpQA8h9GF832KGp7nwbuh3');
 check('deploy-ID-en bygges også inn i klienten', metaBuildId(c.html) === c.version.buildId);
+
+/* 5b) Release-ID-en: identiteten som følger KILDEN, ikke deployen.
+
+   Den er det fase 4 i docs/mobilapp-plan.md handler om: web og Android bygges
+   av hver sin `node build.js` over det samme treet, får hver sin build-ID —
+   og skal likevel kunne si at de er den samme releasen. Derfor testes den på
+   den egenskapen som skiller den fra build-ID-en: to builds av samme commit
+   har LIK releaseId og ULIK buildId. Se docs/auto-update.md. */
+check('version.json har en releaseId (12-tegns commit-SHA eller null)',
+  a.version.releaseId === null || /^[0-9a-f]{12}$/.test(a.version.releaseId));
+check('klientens innebygde release-ID er identisk med version.json',
+  metaReleaseId(a.html) === (a.version.releaseId || 'dev'));
+check('kildekoden står fortsatt på «dev» også for release-ID-en', metaReleaseId(src) === 'dev');
+check('to builds av samme commit er SAMME release (lik releaseId)',
+  'releaseId' in a.version && a.version.releaseId === b.version.releaseId);
+check('…men hver sin build (ulik buildId)', a.version.buildId !== b.version.buildId);
+/* Den ene misbruken fase 4 eksplisitt skal utelukke: Vercels deploy-ID er
+   infrastruktur, ikke produktversjon. Den eier build-ID-en og bare den. */
+check('Vercels deploy-ID blir ALDRI release-ID-en',
+  c.version.releaseId !== c.version.buildId
+  && (c.version.releaseId === null || /^[0-9a-f]{12}$/.test(c.version.releaseId)),
+  String(c.version.releaseId));
+
+const SHA = 'a1b2c3d4e5f60718293a4b5c6d7e8f9012345678';
+const d = runBuild(outD, { VERCEL_GIT_COMMIT_SHA: SHA, VERCEL_DEPLOYMENT_ID: 'dpl_annen_deploy_samme_commit' });
+check('releaseId er de 12 første tegnene av commit-SHA-en',
+  d.version.releaseId === SHA.slice(0, 12), String(d.version.releaseId));
+check('commit beholder hele SHA-en ved siden av', d.version.commit === SHA);
+check('release-ID-en bygges også inn i klienten', metaReleaseId(d.html) === SHA.slice(0, 12));
+/* Samme commit, en annen deploy: dette ER web-mot-Android-tilfellet, uttrykt
+   med de miljøvariablene de to byggene faktisk kjører med. */
+const e = runBuild(outE, { GITHUB_SHA: SHA });
+check('samme commit fra en ANNEN byggekjede gir samme releaseId',
+  e.version.releaseId === d.version.releaseId, String(e.version.releaseId));
+check('…og fortsatt hver sin buildId', e.version.buildId !== d.version.buildId);
 
 // 6) Kun appen publiseres.
 const names = fs.readdirSync(outA);

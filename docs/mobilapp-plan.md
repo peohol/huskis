@@ -14,10 +14,12 @@ autoritative dokumentet for fagfeltet.
 | Felt | Nå |
 |---|---|
 | Målarkitektur | Én HTML/CSS/JS-kodebase + Capacitor for Android/iOS |
-| Nåværende fase | **Fase 3 — nødvendige native integrasjoner** |
-| Status | Fase 3 er i gang. Fem punkter er ferdige: systemets tilbakeknapp og safe areas/systemfeltene/skjermtastaturet, begge verifisert på fysisk telefon; eksterne lenker og auth-/e-postlenker, som begge er beslutninger uten kode og derfor ikke har noe å prøve på en telefon; og sikker lagring/`android:allowBackup`, der sikkerhetskopien av WebView-lagringen er slått av (se seksjonene). Lifecycle-/network-punktet er kartlagt og avgjort — ingen native signaler kobles på — hullet er lukket i webkoden, og den fysiske sekvensen er nå kjørt uten avvik: appen står med etterslepet inne straks Android tar den fram igjen. Punktet står likevel åpent, fordi runden ikke isolerte triggeren (pollet og realtime var i live) og enhetssjekken av `navigator.onLine` ikke er kjørt. Automatisk dekket av `tests/safe-area.test.js`, `tests/landscape-chrome.test.js`, `tests/system-back.test.js`, `tests/sync-foreground.test.js` og `tests/capacitor-android.test.js`. Ferdigkriteriet er ikke nådd. |
+| Nåværende fase | **Fase 4 — felles release-identitet** er i gang, mens **fase 3** fortsatt har ETT åpent punkt. To faser er altså i luften samtidig. Fase 4 er startet fordi det som gjenstår i fase 3 verken blokkerer den eller berøres av den — det er en enhetsøkt, ikke kode. Fase 3 er ikke ferdig før den økten er kjørt. Statusen for hver av dem står på hver sin rad under; det gjør også neste praktiske steg. |
+| Status — fase 3 | Fase 3 er i gang. Fem punkter er ferdige: systemets tilbakeknapp og safe areas/systemfeltene/skjermtastaturet, begge verifisert på fysisk telefon; eksterne lenker og auth-/e-postlenker, som begge er beslutninger uten kode og derfor ikke har noe å prøve på en telefon; og sikker lagring/`android:allowBackup`, der sikkerhetskopien av WebView-lagringen er slått av (se seksjonene). Lifecycle-/network-punktet er kartlagt og avgjort — ingen native signaler kobles på — hullet er lukket i webkoden, og den fysiske sekvensen er nå kjørt uten avvik: appen står med etterslepet inne straks Android tar den fram igjen. Punktet står likevel åpent, fordi runden ikke isolerte triggeren (pollet og realtime var i live) og enhetssjekken av `navigator.onLine` ikke er kjørt. Automatisk dekket av `tests/safe-area.test.js`, `tests/landscape-chrome.test.js`, `tests/system-back.test.js`, `tests/sync-foreground.test.js` og `tests/capacitor-android.test.js`. Ferdigkriteriet er ikke nådd. |
+| Status — fase 4 | Fase 4 er i gang. Fem av sju punkter er ferdige: kartleggingen av dagens release-identiteter, `releaseId` er definert og generert i `build.js`, web og Android bygget fra samme commit rapporterer den samme verdien, `version.json` er utvidet additivt uten at cache- eller reload-sikkerheten er rørt, og kompatibilitetsregelen mellom klientrelease og databaseskjema er skrevet ned ([`release-og-deploy.md`](release-og-deploy.md)). De to siste — `minimumSupportedRelease` og valget mellom byte-identisk artifact og separate builds — står bevisst åpne til det finnes et konkret behov (se seksjonen). Automatisk dekket av `tests/build-version.test.js`, `tests/auto-update.test.js` og `tests/capacitor-android.test.js`. Ferdigkriteriet er ikke erklært oppfylt: APK-en er bygget og pakket med identiteten inne (målt i APK-workflowen, etter ekte `cap sync`), men ingen har lest den ut av en kjørende APK på en telefon. |
 | Neste milepæl | Android-appen oppfører seg som en normal mobilapp i de plattformtilfellene browseren ikke håndterer godt nok selv |
-| Ett neste praktiske steg | Kjør ÉN `chrome://inspect`-økt mot debug-APK-en og svar på begge de gjenstående spørsmålene: lever `navigator.onLine` i flymodus uten `ACCESS_NETWORK_STATE`, og er det gjenopptakelsen som starter runden når pollet og realtime er tatt ut av bildet — det er alt som står igjen i fase 3 |
+| Neste praktiske steg — fase 3 | Kjør ÉN `chrome://inspect`-økt mot debug-APK-en og svar på begge de gjenstående spørsmålene: lever `navigator.onLine` i flymodus uten `ACCESS_NETWORK_STATE`, og er det gjenopptakelsen som starter runden når pollet og realtime er tatt ut av bildet — det er alt som står igjen i fase 3 |
+| Neste praktiske steg — fase 4 | Les `document.querySelector('meta[name=huskis-release]').content` i APK-en og i web-klienten, og se at de er like mens build-ID-ene er forskjellige. Begge artifactene må være bygget av SAMME commit — den automatiske PR-kjøringen av `android-debug.yml` bygger merge-commiten og gir et forventet avvik; se «Hvilken commit et artifact faktisk er bygget av». Det er samme slags økt som fase 3s, og kan kjøres i den — men den erstatter den ikke: fase 3s to spørsmål må besvares uansett |
 | OTA | Ikke innført; skal ikke innføres før Android-baselinen er stabil |
 | iOS | Senere fase; ikke en del av første implementering |
 
@@ -28,7 +30,9 @@ endring:
 
 - oppdater **nåværende fase**, **status** og **neste milepæl** øverst;
 - kryss bare av punkter som faktisk er implementert og verifisert;
-- la ett konkret neste steg være tydelig;
+- la ett konkret neste steg være tydelig — og er flere faser i luften samtidig,
+  ett per åpen fase, med hver sin rad i tabellen. En fase som fortsatt har et
+  åpent punkt skal aldri kunne bli usynlig fordi en senere fase er startet;
 - endrer vi strategi, oppdater planen før eller samtidig med implementeringen;
 - ikke før kronologisk endringslogg her — git og PR-ene er historikken.
 
@@ -110,8 +114,9 @@ Oppgraderinger gjøres senere som egne, bevisste endringer — ikke som en
 sidevirkning av en annen PR.
 
 `package.json` er innført for Capacitor og har **ikke** noe `version`-felt, slik
-at `version.json.version` fortsatt er `null` og build-ID-en forblir den eneste
-release-identiteten ([`auto-update.md`](auto-update.md)). Den er `private`, har
+at `version.json.version` fortsatt er `null`: SemVer skal ikke måtte økes per PR.
+Release-identiteten er `releaseId`, og den utledes av commiten, ikke av
+`package.json` ([`auto-update.md`](auto-update.md)). Den er `private`, har
 ingen bundler eller frontendrammeverk, og `package-lock.json` er sjekket inn.
 Vercel hopper over install-steget (`installCommand: ""` i `vercel.json`):
 `node build.js` har ingen avhengigheter, så produksjonsdeployen skal ikke
@@ -958,20 +963,192 @@ Dagens `buildId` identifiserer en konkret build/deploy og beholdes så lenge det
 er nyttig. Innfør i tillegg en **plattformuavhengig `releaseId`** som følger den
 logiske Huskis-releasen.
 
-- [ ] Definer `releaseId` og hvor den genereres.
-- [ ] Web og Android kan rapportere samme `releaseId` for samme release.
-- [ ] Skill `releaseId` fra Vercel-spesifikk `buildId`/deployment-ID.
-- [ ] Oppdater `version.json`/mobilmetadata uten å svekke cache- eller
-      reload-sikkerheten.
-- [ ] Dokumenter kompatibilitetsregelen mellom klientrelease og databaseskjema.
+- [x] Definer `releaseId` og hvor den genereres. De 12 første tegnene av
+      commit-SHA-en, generert i `build.js` (se seksjonene).
+- [x] Web og Android kan rapportere samme `releaseId` for samme release.
+      Begge bygges av `node build.js` over det samme treet, og identiteten
+      følger med `dist/` inn i APK-en.
+- [x] Skill `releaseId` fra Vercel-spesifikk `buildId`/deployment-ID.
+      `releaseId` leser aldri `VERCEL_DEPLOYMENT_ID`; `buildId` er fortsatt
+      deploy-ID-en i produksjon.
+- [x] Oppdater `version.json`/mobilmetadata uten å svekke cache- eller
+      reload-sikkerheten. Feltet er lagt TIL; `update-check.js` er urørt og
+      leser fortsatt bare `buildId`. Androids `versionCode`/`versionName` er
+      ikke rørt — de hører til fase 6.
+- [x] Dokumenter kompatibilitetsregelen mellom klientrelease og databaseskjema.
+      [`release-og-deploy.md`](release-og-deploy.md) («Klientrelease og
+      databaseskjema»).
 - [ ] Vurder `minimumSupportedRelease` bare dersom et konkret behov oppstår;
-      gammel klient skal ellers fortsatt fungere.
+      gammel klient skal ellers fortsatt fungere. **Behovet finnes ikke i dag**
+      — se «De to punktene som står åpne med vilje».
 - [ ] Bestem om web og mobil skal motta samme byte-identiske webartifact eller
       separate builds med samme `releaseId`. Ikke endre dagens sikre
       migrering→smoke→Vercel-rekkefølge uten eksplisitt design og tester.
+      **I dag ER de separate builds med samme `releaseId`**; valget tas når
+      fase 5 (OTA) gir det en konsekvens — se samme seksjon.
+
+## Kartleggingen først: hva identifiserer en release i dag
+
+Fire tall er i omløp, og de svarer på fire forskjellige spørsmål. Ingen av dem
+svarte på «hvilken Huskis-release er dette?» før `releaseId` kom til.
+
+| Felt | Svarer på | Eies av | Verdi i dag |
+|---|---|---|---|
+| `buildId` | «hvilken build/deploy kjører denne klienten?» | `build.js`, én gang per bygg | Vercels deploy-ID i produksjon, ellers `<sha12>-<tid i base36>`. Stemplet i `<meta name="huskis-build">` OG `/version.json`, og hektet på JS/CSS-URL-ene som `?b=` |
+| `version.json.version` | «hvilken SemVer?» — ingenting, med vilje | `package.json` | `null`. `package.json` finnes kun for Capacitor-skallet og har ikke noe `version`-felt, så SemVer skal ikke måtte økes per PR |
+| Vercels deployment-ID | «hvilken deploy i Vercels infrastruktur?» | Vercel | Brukes som `buildId` i produksjonsbygget, og ALDRI til noe annet. Den er leverandørens identitet, ikke produktets |
+| `versionCode` / `versionName` | «hvilken butikkbinær?» | `android/app/build.gradle` | `1` / `"1.0"` — Capacitor-malens startverdier, urørt. De trengs først når appen distribueres gjennom Play (fase 6), og er et krav DERFRA, ikke en produktversjon |
+
+Hullet: `buildId` er unik per BYGG. Web og Android bygges av hver sin kjøring av
+`node build.js` over det samme treet, så de kan ikke ha samme `buildId` — og
+hadde dermed ingen måte å si at de er den samme releasen.
+
+## `releaseId`
+
+**Definisjonen:** `releaseId` er de 12 første tegnene av commit-SHA-en builden
+er laget av. Én commit på `main` ER én Huskis-release: `release.yml` kjører på
+hver push dit, og alt som deployes deployes fra en commit.
+
+**Hvor den genereres:** i `build.js`, i den samme kjøringen som `buildId`, fra
+den samme kilden som `commit` (`VERCEL_GIT_COMMIT_SHA` → `GITHUB_SHA` →
+`git rev-parse HEAD`). Den skrives til de samme to stedene: klienten
+(`<meta name="huskis-release">`) og `/version.json`.
+
+**Forskjellen fra `buildId`,** som er hele poenget: to bygg av samme commit får
+FORSKJELLIG `buildId` og LIK `releaseId`. Det gjelder web mot Android, og en
+re-deploy mot den forrige. Autoritativt, med tabellen som stiller dem opp mot
+hverandre: [`auto-update.md`](auto-update.md) («Release-ID»).
+
+**Vercels deploy-ID misbrukes ikke.** `releaseId` leser aldri
+`VERCEL_DEPLOYMENT_ID`. Den fortsetter å være `buildId` i produksjon, der den
+hører hjemme: den identifiserer deployen, ikke produktet.
+
+**`buildId` beholder rollen sin, uendret.** Den eier cache- og
+reload-sikkerheten alene — `?b=`-URL-ene, sammenligningen i `update-check.js` og
+dermed «lik build-ID ⇒ ingen banner, ingen reload». `updateSafety()` avgjør
+fortsatt når en reload er trygg. `releaseId` er en identitet som RAPPORTERES,
+ikke et signal noe reagerer på; ingen kodelinje i oppdateringsmekanikken leser
+den.
+
+**Additivt, fordi gamle klienter leser fila** (arkitekturregel 7). `releaseId`
+er et nytt felt ved siden av de gamle — ingen er døpt om eller fjernet. En
+klient fra før dette (en telefon som ikke er oppdatert, en fane som har stått
+åpen) leser `version.json` som før: `update-check.js` validerer på `buildId`
+alene og overser resten. Regelen gjelder framover også: `version.json` utvides,
+den skrives ikke om.
+
+| Ledd | Rolle |
+|---|---|
+| `makeReleaseId()` (`build.js`) | Genererer identiteten. `null` når SHA-en er ukjent — en ukjent release er ikke en oppdiktet en. |
+| `stampHtml()` (`build.js`) | Stempler BEGGE meta-taggene. Mangler en av dem i `index.html`, kaster builden i stedet for å deploye en klient uten identitet. |
+| `<meta name="huskis-release">` (`index.html`) | Klientens egen kopi, lesbar uten nett — det er den som gjør at en offline Android-app kan sammenlignes med web. `dev` = ubygget kilde eller ukjent commit. |
+| `/version.json` | Det klienten spør mot. `releaseId` ligger ved siden av `buildId`; `commit` beholder hele SHA-en. |
+| `update-check.js` | **Urørt.** Leser og sammenligner fortsatt bare `buildId`. |
+| `tests/build-version.test.js` | De to ID-ene hver for seg: to bygg av samme commit gir lik `releaseId` og ulik `buildId`, formen er 12 heks, og deploy-ID-en blir aldri `releaseId`. |
+| `tests/auto-update.test.js` | Reload-sikkerheten: lik `buildId` + en annen `releaseId` + felt klienten ikke kjenner ⇒ ingen mål-build, intet banner, ingen reload. |
+| `tests/capacitor-android.test.js` | Androids halvdel: den synkede kopien er byte for byte kilden (`index.html` modulo begge ID-ene), og den innebygde `version.json` bærer den samme releasen som klienten i APK-en. |
+| [`auto-update.md`](auto-update.md) | Autoritativt for build-ID, release-ID og oppdateringsmekanikken. |
+| [`release-og-deploy.md`](release-og-deploy.md) | Autoritativt for releaseprosessen og for kompatibilitetsregelen mot databaseskjemaet. |
+
+**Rekkefølgen migrering → smoke → Vercel er urørt.** Punktet krevde ingen
+endring i `release.yml` eller `vercel.json`: releasen som migreres, smoke-testes
+og deployes er allerede én `github.sha`, og det er nettopp den `releaseId`
+navngir.
+
+## De to punktene som står åpne med vilje
+
+Begge er beslutninger som skal tas når det finnes noe å ta dem PÅ. Å innføre dem
+nå ville vært mekanikk uten en bruker.
+
+**`minimumSupportedRelease`.** Det som ville gjort en nedre grense nødvendig er
+en klient som ikke lenger KAN fungere mot serveren. Det finnes ikke: skjemaet er
+additivt, en gammel klient skriver et delsett av kolonnene og leser bort de nye
+([`release-og-deploy.md`](release-og-deploy.md)). En grense ville altså i dag
+bare kunne stenge ute klienter som virker.
+
+**Og `releaseId` kan ikke være grensen alene.** En «minimum» er en ORDNING —
+«denne og alle nyere» — og en commit-SHA har ingen. Den er en identitet som
+sammenlignes med `===`, aldri med `>=`; en test som `releaseId >=
+minimumSupportedRelease` ville vært meningsløs uansett hvordan den ble skrevet.
+`builtAt` løser det heller ikke: den er byggets tidspunkt, ikke releasens
+rekkefølge, og to bygg av samme release har forskjellig verdi. Den dagen en
+serverendring faktisk brekker en eldre klient, må ordningen derfor designes
+SAMMEN med grensen — en egen monoton verdi (release-sekvens eller SemVer) eller
+en autoritativ mapping som ordner `releaseId`-ene. `releaseId` svarer på hvilken
+release klienten kjører, og det er alt den kan svare på.
+
+**Byte-identisk artifact eller separate builds.** I dag er svaret de facto
+**separate builds med samme `releaseId`**: Vercel kjører `node build.js`, og
+Android-workflowen kjører sin egen. `buildId` er derfor forskjellig, og det er
+riktig — de ER to bygg. Et byte-identisk artifact ville krevd at build-ID-en ble
+sendt inn utenfra og at ETT bygg ble delt mellom to kjeder, altså en ny
+avhengighet mellom release-workflowen og Android-workflowen. Det er en pris uten
+en gevinst så lenge appen ikke oppdaterer web-assetene sine. Med OTA (fase 5)
+får spørsmålet en konsekvens — da er det bundelen som distribueres — og da tas
+valget der, med design og tester.
+
+### Hvilken commit et artifact faktisk er bygget av
+
+`releaseId` navngir commiten builden ER laget av. Det er en egenskap, ikke en
+svakhet — identiteten kan ikke lyve om opphavet sitt — men den betyr at to
+artifacts bare har samme `releaseId` hvis de er bygget av samme commit, og det
+er de ikke alltid:
+
+| Artifact | Bygger | Blir `releaseId` |
+|---|---|---|
+| Vercel-preview på en PR | grenas HEAD | grenas HEAD-commit |
+| `android-debug.yml` på `pull_request` | GitHubs syntetiske MERGE-commit (`actions/checkout` sin standard der) | merge-commiten |
+| `android-debug.yml` på `workflow_dispatch` | HEAD på refen som velges (observert: en manuell kjøring på denne grenen sjekket ut grenas HEAD og stemplet nettopp den) | den commiten |
+| Produksjonsdeployen (`release.yml`) | `github.sha` på `main` | main-commiten |
+
+Målt på denne planens egen PR: previewen rapporterte `0427d395315a`, mens
+`huskis-debug-apk` rapporterte `9d0a7634a036`. Begge var riktige — de var to
+forskjellige commits.
+
+**Workflowen er med vilje ikke endret.** Å pinne APK-jobben til PR-headen ville
+gjort de to automatiske artifactene sammenlignbare, men svekket det jobben
+finnes for: den bygger og kjører `tests/capacitor-android.test.js` mot det som
+faktisk lander etter merge. En sammenligning er ikke verdt en dårligere port.
+
+**Konsekvensen for enhetssjekken:** de to artifactene må komme fra SAMME commit,
+og det er to måter å få det på.
+
+1. **Etter merge:** kjør `android-debug.yml` manuelt på `main` og sammenlign
+   APK-en med `huskis.no`. Begge er da main-commiten.
+2. **Før merge:** kjør `android-debug.yml` manuelt på grenen — et
+   `workflow_dispatch` bygger refens HEAD, altså nøyaktig den commiten Vercel
+   previewer — og sammenlign APK-en med preview-URL-en.
+
+Den automatiske PR-kjøringen er ikke en av dem, og et avvik derfra er forventet.
+
+### Ikke prøvd på telefon — hva som ER verifisert, og hva som ikke er det
+
+*Verifisert:* at `node build.js` skriver den samme `releaseId` i klienten og i
+`version.json`, at to bygg av samme commit får lik `releaseId` og ulik
+`buildId`, og at oppdateringsmekanikken ikke reagerer på feltet. Alt dette er
+kjørt i denne kjeden, ikke lest.
+
+*Verifisert i APK-workflowen, med ekte `cap sync`:* Androids halvdel er
+kopisteget som legger `dist/` i `android/app/src/main/assets/public`. Det er
+kjørt i CI, ikke bare lokalt: `android-debug.yml` kjører
+`tests/capacitor-android.test.js` etter synkroniseringen, og der målte den at
+kopien er byte for byte kilden (`index.html` modulo de to ID-ene), at den
+innebygde `version.json` bærer release-ID-en, og at klienten i APK-en og den
+innebygde `version.json` melder den samme releasen. APK-en er altså bygget og
+pakket med identiteten inne.
+
+*Ikke observert:* ingen har lest `releaseId` ut av en KJØRENDE APK på en
+telefon. Det er det neste praktiske steget for fase 4, og det er en
+`chrome://inspect`-økt av samme slag som fase 3s — de kan kjøres i samme økt,
+men fase 4 avlaster ikke fase 3.
 
 **Ferdigkriterium:** web og mobil kan sammenlignes på én release-identitet uten
 at Vercels deploy-ID misbrukes som produktversjon.
+
+Mekanikken er på plass og voktet av tester, men kriteriet er **ikke erklært
+oppfylt**: to punkter står åpne, og sammenligningen er ikke gjort på en enhet.
+Planens egen regel gjelder — en fase er ikke ferdig før ferdigkriteriet er
+verifisert.
 
 ---
 
@@ -1101,6 +1278,14 @@ De skal ikke snike seg inn i fundamentfasene.
 
 ## Neste oppgave
 
+**To faser er i luften samtidig.** Fase 4 er startet uten at fase 3 er ferdig,
+fordi det som gjenstår i fase 3 er en enhetsøkt — ikke kode fase 4 kunne
+kollidert med. Rekkefølgen i planen er ikke opphevet: fase 3 er ikke ferdig før
+ferdigkriteriet er verifisert, og det som står igjen der er beskrevet først
+under.
+
+### Fase 3
+
 **Fase 3 fortsetter, og alt som gjenstår krever en telefon.** Fem punkter er
 ferdige: tilbakeknappen og safe areas/systemfeltene/skjermtastaturet (begge
 verifisert på telefon); de to lenkepunktene — eksterne lenker og
@@ -1129,6 +1314,23 @@ svarer på begge spørsmålene runden med vilje ikke kunne svare på:
   synligheten snur, er lytteren bekreftet på enhet — ikke bare i nettleseren.
 
 Det er det eneste som står igjen i fase 3.
+
+### Fase 4
+
+**Identiteten finnes, og de to åpne punktene er åpne med vilje.** `releaseId` er
+definert, generert i `build.js` og stemplet inn i både klienten og
+`/version.json`; web og Android bygget fra samme commit rapporterer den samme
+verdien, mens `buildId` fortsatt er unik per bygg og eier cache- og
+reload-sikkerheten alene. `minimumSupportedRelease` og valget mellom
+byte-identisk artifact og separate builds står åpne til det finnes et konkret
+behov — det første til en serverendring faktisk brekker en eldre klient, det
+andre til OTA (fase 5) gir valget en konsekvens.
+
+**Det som gjenstår for ferdigkriteriet er å SE det på en enhet:** les
+`document.querySelector('meta[name=huskis-release]').content` i APK-en og på
+`huskis.no` bygget fra samme commit, og se at de er like mens build-ID-ene er
+forskjellige. Androids halvdel er i dag verifisert som kjede og i en simulert
+sync, ikke observert i en kjørende APK.
 
 Hver fase 3-endring er plattformspesifikk og skal gates eksplisitt
 (arkitekturregel 2): browserutgaven skal fortsatt kjøre uten Capacitor.

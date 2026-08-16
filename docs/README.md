@@ -26,7 +26,7 @@ Ved motstrid gjelder det dokumentet som er merket autoritativt for feltet — og
 | [scheduling.md](scheduling.md) | tids-editoren (objektmenyens tidsskuff + tids-popoveren), start-/fristtider, indikator-chipene | **ja** — tidsplanlegging |
 | [colors-and-labels.md](colors-and-labels.md) | posisjonsbasert HSL-farge på kort/rader, de gamle K/P-feltene | **ja** — fargesystemet |
 | [domains-and-urls.md](domains-and-urls.md) | det kanoniske originet og 308-redirecten fra de alternative domenene, auth-redirects, lenker i utsendte e-poster | **ja** — domener og URL-generering |
-| [auto-update.md](auto-update.md) | build-ID, `/version.json`, cache-headerne i `vercel.json`, automatisk reload av åpne faner | **ja** — build og auto-oppdatering |
+| [auto-update.md](auto-update.md) | build-ID, release-ID, `/version.json`, cache-headerne i `vercel.json`, automatisk reload av åpne faner | **ja** — build og auto-oppdatering |
 | [mobilapp-plan.md](mobilapp-plan.md) | Capacitor, Android/iOS, native builds, OTA og hvor mobilprosjektet står | **ja** — mobilplan, fremdrift og neste steg |
 | [sikkerhetsheadere.md](sikkerhetsheadere.md) | innholdssikkerhetspolicyen (CSP) og unntakene i den, de øvrige sikkerhetsheaderne, den låste Supabase-versjonen, hvorfor testmodusen ikke finnes i produksjon | **ja** — responsheadere og CSP |
 | [release-og-deploy.md](release-og-deploy.md) | rekkefølgen fra merge til produksjon: testing på PR, migrering, smoke-test, Vercel-deploy, preview-deploys, feil/retry/rollback | **ja** — releaseprosessen |

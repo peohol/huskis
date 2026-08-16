@@ -87,6 +87,48 @@ Nettopp derfor er preview-deployen det ene bygget som beholder testmodusen:
 `VERCEL_ENV=preview` (se [`sikkerhetsheadere.md`](sikkerhetsheadere.md)).
 Produksjonsdeployen har den aldri, så `?mock=1` gjør ingenting på `huskis.no`.
 
+## Klientrelease og databaseskjema
+
+Kjeden over sikrer rekkefølgen for ÉN release. Regelen under sier hvilke
+klientreleaser skjemaet må tåle samtidig — og det er flere enn den nyeste, fordi
+en fane kan stå åpen i dagevis og en mobilapp kan bli stående uoppdatert i
+ukevis ([`mobilapp-plan.md`](mobilapp-plan.md), arkitekturregel 7).
+
+**Regelen: skjemaet skal alltid tåle den nyeste releasen og alle eldre som
+fortsatt kan være i bruk.** To krav følger av den, ett i hver retning:
+
+- **Framover:** et felt klienten skriver må finnes i skjemaet FØR klienten som
+  skriver det er publisert. Det er nettopp det rekkefølgen
+  migrering → smoke → deploy håndhever, og smoke-testen leser kontrakten ut av
+  `app.js` — ikke ut av skjemafila — så en kolonne klienten sender og skjemaet
+  mangler stopper deployen i stedet for å bli en usynlig avvist skriving.
+- **Bakover:** skjemaendringer er additive. En eldre klient skriver et delsett av
+  kolonnene som nå finnes, og leser bort de nye. En kolonne fjernes derfor
+  tidligst en runde etter at klienten sluttet å bruke den
+  ([`supabase/CLAUDE.md`](../supabase/CLAUDE.md)).
+
+Det er dette som gjør frontend-rollback trygt, og det er den samme regelen som
+gjør at en Android-app fra en eldre release fungerer mot dagens database uten
+noe eget kompatibilitetslag.
+
+**`releaseId` er identiteten dette snakkes om i** — den plattformuavhengige
+release-ID-en i `/version.json` og i klientens `<meta name="huskis-release">`
+([`auto-update.md`](auto-update.md)). Web og Android bygget fra samme commit
+rapporterer den samme verdien, så «hvilken release kjører denne klienten?» kan
+besvares likt begge steder.
+
+Den er en identitet å SAMMENLIGNE med `===`, ikke en versjon å rangere med `>=`
+— en commit-SHA har ingen ordning. Appen har i dag ingen nedre støttet release
+(`minimumSupportedRelease`), og skal ikke få en før et konkret behov oppstår: så
+lenge skjemaet er additivt, er en gammel klient en fungerende klient. Skulle
+kravet en dag bli en nedre grense, kan `releaseId` ikke være grensen alene — den
+trenger en ordning som må designes samtidig ([`mobilapp-plan.md`](mobilapp-plan.md),
+fase 4).
+
+Releasen som migreres, smoke-testes og deployes er den samme commiten hele
+veien: `release.yml` kjører på én `github.sha`, og den er både `commit` og
+`releaseId` i `version.json` for deployen som kommer ut.
+
 ## Smoke-testen
 
 `supabase/smoke-test.sql` svarer på ett spørsmål: **finnes og virker alt den
@@ -203,8 +245,8 @@ godkjenning eller egne miljø-secrets senere.
 
 ## Se også
 
-- [`auto-update.md`](auto-update.md) — build-ID, `/version.json` og hvordan
-  åpne faner oppdager en ny deploy
+- [`auto-update.md`](auto-update.md) — build-ID, release-ID, `/version.json` og
+  hvordan åpne faner oppdager en ny deploy
 - [`supabase/CLAUDE.md`](../supabase/CLAUDE.md) — reglene for selve
   skjemaendringen (idempotens, additivitet)
 - [`tests/CLAUDE.md`](../tests/CLAUDE.md) — hvordan testene kjøres lokalt

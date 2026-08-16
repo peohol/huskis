@@ -6,7 +6,9 @@
   Del A — oppdateringsmotoren med injiserte avhengigheter (falsk klokke, falsk
   fetch, falsk reload/sessionStorage), så testene er uavhengige av ekte tid,
   nett og Vercel:
-     • oppdager en annen build-ID, reagerer ikke på samme build-ID
+     • oppdager en annen build-ID, reagerer ikke på samme build-ID — heller
+       ikke når resten av version.json er en annen (`releaseId` og ukjente
+       felt er ikke oppdateringssignaler)
      • cachefri forespørsel (cache: no-store + cache-bustende parameter)
      • samtidige kontroller dedupliseres til én forespørsel
      • offline, nettverksfeil, HTTP-feil og ugyldig JSON håndteres STILLE
@@ -149,6 +151,29 @@ async function engineScenario(page) {
       out.sameNoTarget = e.inst.target === null;
       out.sameNoBanner = !document.getElementById('update-banner');
       out.sameNoReload = e.rl.n === 0;
+      e.inst.stop();
+    }
+
+    /* 2b) …heller ikke når resten av version.json er en annen.
+
+       Build-ID-en eier cache- og reload-sikkerheten alene (docs/auto-update.md).
+       `releaseId` kom til i fase 4 og er en IDENTITET som rapporteres, ikke et
+       oppdateringssignal — og fila er additiv fordi gamle klienter leser den
+       (arkitekturregel 7 i docs/mobilapp-plan.md). Begge deler er den samme
+       egenskapen: lik build-ID ⇒ ingen banner, ingen reload, uansett hva ellers
+       står i svaret — også felt denne klienten aldri har hørt om. */
+    {
+      const e = mk({
+        fetch: mkFetch(() => okJson({
+          buildId: 'A', releaseId: 'en-helt-annen-release', version: '9.9.9',
+          commit: 'deadbeef', etFeltFraFremtiden: { minimumSupportedRelease: 'x' },
+        })),
+        hidden: () => false,
+      });
+      e.inst.start(); e.clock.advance(1); await flush();
+      out.otherFieldsNoTarget = e.inst.target === null;
+      out.otherFieldsNoBanner = !document.getElementById('update-banner');
+      out.otherFieldsNoReload = e.rl.n === 0;
       e.inst.stop();
     }
 
@@ -465,6 +490,9 @@ async function scenario(page, viewport, label) {
   check('A: ingen mål-build når ID-ene er like', a.sameNoTarget);
   check('A: ingen banner når ID-ene er like', a.sameNoBanner);
   check('A: ingen reload når ID-ene er like', a.sameNoReload);
+  check('A: lik build-ID + annen releaseId/ukjente felt → ingen mål-build', a.otherFieldsNoTarget);
+  check('A: lik build-ID + annen releaseId/ukjente felt → ingen banner', a.otherFieldsNoBanner);
+  check('A: lik build-ID + annen releaseId/ukjente felt → ingen reload', a.otherFieldsNoReload);
   check('A: forespørselen bruker cache: no-store', a.noStore);
   check('A: cache-bustende parameter, ny per kontroll', a.bustParam);
   check('A: henter fra samme origin (rot-relativ /version.json)', a.sameOrigin);

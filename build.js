@@ -13,17 +13,27 @@
         i produksjon. Preview-deployer (`VERCEL_ENV=preview`) beholder den —
         der ER `?mock=1` måten å teste uten å røre ekte data på. Se
         `docs/sikkerhetsheadere.md` og `docs/release-og-deploy.md`.
-     4. Bygger build-ID-en inn to steder med samme verdi:
-          • <meta name="huskis-build"> i dist/index.html (klienten)
+     4. Bygger de TO identitetene inn to steder hver, med samme verdi:
+          • <meta name="huskis-build"> + <meta name="huskis-release"> i
+            dist/index.html (klienten)
           • dist/version.json (det klienten spør mot)
         og hekter `?b=<build-ID>` på JS/CSS-URL-ene, slik at en reload av
         HTML-en garantert henter den nye koden mens filene samtidig kan
         caches for alltid (URL-en endrer seg når innholdet gjør det).
 
-   Build-ID: Vercels deploy-ID (`VERCEL_DEPLOYMENT_ID`) når den finnes — den er
-   unik per deploy og krever ingen ekstra konfigurasjon. Ellers commit-SHA +
-   buildtidspunkt, som er unikt nok for alle andre miljøer. Ingen hemmeligheter
-   eller andre miljøvariabler eksponeres.
+   Build-ID: identifiserer DENNE builden/deployen. Vercels deploy-ID
+   (`VERCEL_DEPLOYMENT_ID`) når den finnes — den er unik per deploy og krever
+   ingen ekstra konfigurasjon. Ellers commit-SHA + buildtidspunkt, som er unikt
+   nok for alle andre miljøer.
+
+   Release-ID: identifiserer KILDEN builden er laget av — de 12 første tegnene
+   av commit-SHA-en. To builds av samme commit (Vercel-deployen og Android-
+   builden, eller en re-deploy) er forskjellige builds av SAMME release, og får
+   derfor samme release-ID og hver sin build-ID. Den er aldri Vercels deploy-ID,
+   og den rører verken cache eller reload — det eier build-ID-en alene
+   (`docs/auto-update.md`).
+
+   Ingen hemmeligheter eller andre miljøvariabler eksponeres.
 
    Kjør lokalt:  node build.js [--out dist]
    ============================================================ */
@@ -92,6 +102,17 @@ function makeBuildId(atMs) {
   return (sha ? sha.slice(0, 12) : 'local') + '-' + atMs.toString(36);
 }
 
+/* Én ID per RELEASE, altså per kilde-commit — plattformuavhengig med vilje:
+   Vercel-deployen og Android-builden kjører hver sin `node build.js` over det
+   samme treet og får da samme verdi. Leser NØYAKTIG den samme kilden som
+   `commit` (`VERCEL_GIT_COMMIT_SHA`/`GITHUB_SHA`/`git rev-parse HEAD`), aldri
+   `VERCEL_DEPLOYMENT_ID`: en deploy-ID er infrastruktur, ikke produktversjon.
+   `null` når SHA-en ikke er kjent — ukjent release er ikke en oppdiktet en. */
+function makeReleaseId() {
+  const sha = gitSha();
+  return sha ? sha.slice(0, 12) : null;
+}
+
 function semver() {
   try {
     const pkg = JSON.parse(fs.readFileSync(path.join(ROOT, 'package.json'), 'utf8'));
@@ -131,18 +152,24 @@ function stripDevOnly(html) {
   return out;
 }
 
-// Bygger build-ID-en inn i HTML-en + versjonerer de lokale JS/CSS-URL-ene.
-// `keep` = behold testmodusen (kun preview-deployer, se keepTestMode).
-function stampHtml(html, buildId, keep) {
+// Bygger de to identitetene inn i HTML-en + versjonerer de lokale JS/CSS-URL-ene.
+// `ids` = { buildId, releaseId }. `keep` = behold testmodusen (kun
+// preview-deployer, se keepTestMode).
+function stampMeta(html, name, value) {
+  const re = new RegExp('(<meta\\s+name="' + name + '"\\s+content=")[^"]*(")');
+  const out = html.replace(re, (m, a, b) => a + value + b);
+  if (out === html) throw new Error('Fant ikke <meta name="' + name + '"> i index.html');
+  return out;
+}
+function stampHtml(html, ids, keep) {
   const stripped = keep ? html : stripDevOnly(html);
-  let out = stripped.replace(
-    /(<meta\s+name="huskis-build"\s+content=")[^"]*(")/,
-    (m, a, b) => a + buildId + b
-  );
-  if (out === stripped) throw new Error('Fant ikke <meta name="huskis-build"> i index.html');
+  let out = stampMeta(stripped, 'huskis-build', ids.buildId);
+  // Ukjent release stemples som «dev» — samme plassholder som ubygget kilde,
+  // og dermed noe ingen klient kan lese som en ekte release.
+  out = stampMeta(out, 'huskis-release', ids.releaseId || 'dev');
   for (const f of VERSIONED) {
     const re = new RegExp('((?:src|href)=")' + reEscape(f) + '(")', 'g');
-    out = out.replace(re, (m, a, b) => a + f + '?b=' + buildId + b);
+    out = out.replace(re, (m, a, b) => a + f + '?b=' + ids.buildId + b);
   }
   return out;
 }
@@ -150,6 +177,7 @@ function stampHtml(html, buildId, keep) {
 function build(outDir) {
   const at = new Date();
   const buildId = makeBuildId(at.getTime());
+  const releaseId = makeReleaseId();
   const out = path.resolve(ROOT, outDir);
   const keep = keepTestMode();
 
@@ -160,10 +188,15 @@ function build(outDir) {
   copyDir(ROOT, out, true, out, skip);
 
   const html = fs.readFileSync(path.join(ROOT, 'index.html'), 'utf8');
-  fs.writeFileSync(path.join(out, 'index.html'), stampHtml(html, buildId, keep));
+  fs.writeFileSync(path.join(out, 'index.html'), stampHtml(html, { buildId, releaseId }, keep));
 
+  /* Feltene er ADDITIVE: en telefon kan kjøre en gammel release lenge
+     (arkitekturregel 7 i docs/mobilapp-plan.md), og den leser denne fila. Nye
+     felt legges til; ingen døpes om eller fjernes. `update-check.js` leser kun
+     `buildId` og overser resten. */
   const version = {
     buildId,
+    releaseId,
     version: semver(),
     builtAt: at.toISOString(),
     commit: gitSha() || null,
@@ -175,8 +208,9 @@ function build(outDir) {
 if (require.main === module) {
   const i = process.argv.indexOf('--out');
   const v = build(i > -1 ? process.argv[i + 1] : 'dist');
-  console.log('✅ Build ' + v.buildId + ' (' + v.builtAt + ')' +
+  console.log('✅ Build ' + v.buildId + ' — release ' + (v.releaseId || 'ukjent') +
+    ' (' + v.builtAt + ')' +
     (v.testMode ? ' — preview: testmodus (?mock=1) er MED' : ''));
 }
 
-module.exports = { build, makeBuildId, stampHtml, stripDevOnly, keepTestMode, VERSIONED };
+module.exports = { build, makeBuildId, makeReleaseId, stampHtml, stripDevOnly, keepTestMode, VERSIONED };
