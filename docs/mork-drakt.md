@@ -219,9 +219,12 @@ Kravene selv står i [`tilgjengelighet.md`](tilgjengelighet.md).
 `<head>` i `index.html` som enhver annen klientfil (og dermed versjonert av
 byggesteget), og fullt scopet til `:root[data-theme="dark"]`. Det prøver ut en
 annen fordeling av rollene i mørk drakt: i stedet for at palettfargen dekker
-hele kortet, blir kortet en mørk skiferflate som bærer 10 % av sin egen
-palettfarge, og fargen får i tillegg en 4 px aksentstripe langs venstre kant.
-Lyshet uttrykker da hierarkiet, mens fargen holder identiteten.
+hele kortet, blir kortet en mørk skiferflate som bærer sin egen palettfarge —
+13 % i kortflaten og korthodet (identitetsflaten), 10 % i platene og
+kategorifordypningen (innholdsflatene) — og fargen får i tillegg en 4 px
+aksentstripe langs venstre kant, i SAMME farge som avkryssingskanten
+(`--card-accent`). Lyshet uttrykker da hierarkiet, mens fargen holder
+identiteten.
 
 Fila er et unntak fra «tokens, og bare tokens» over, og skal ikke bli stående:
 holder uttrykket, foldes reglene inn i `styles.css`, fila og `<link>`-taggen i
@@ -251,27 +254,42 @@ Målt over alle 36 mørke palettfarger, som min–maks:
 
 | Trinn | Ratio |
 |---|---|
-| board → kortflate | 1,15–1,27 |
-| kortflate → korthode | 1,19–1,22 |
-| kortflate → listepunkt | 1,10–1,12 |
+| board → kortflate | 1,15–1,32 |
+| kortflate → korthode | 1,19–1,21 |
+| kortflate → listepunkt | 1,07–1,10 |
 | listepunkt → hover | 1,15–1,16 |
-| kortflate → kategorifordypning | 1,09–1,10 |
+| kortflate → kategorifordypning | 1,09–1,14 |
 
 | Tekst/kontroll | Ratio | Krav |
 |---|---|---|
-| `--ink` på korthodet | 9,19–10,42 | 4,5 |
+| `--ink` på korthodet | 8,94–10,42 | 4,5 |
 | `--ink` på listepunkt-platen | 10,07–11,33 | 4,5 |
 | `--ink` på kategorifordypningen | 12,34–13,53 | 4,5 |
-| `--ink-soft` på korthodet | 4,71–5,34 | 4,5 |
+| `--ink-soft` på korthodet | 4,58–5,34 | 4,5 |
 | `--ink-soft` på platen | 5,16–5,80 | 4,5 |
 | avkryssingskanten (`--card-accent`) mot platen | 3,05–5,36 | 3 |
-| aksentstripen mot korthodet | 3,93–5,81 | 3 |
-| `--focus` mot korthodet | 11,36–12,88 | 3 |
+| aksentstripen (`--card-accent`) mot korthodet | 2,80–4,76 | — |
+| aksentstripen mot kortflaten | 3,34–5,76 | — |
+| `--focus` mot korthodet | 11,04–12,88 | 3 |
 
 Avkryssingskantens 3:1 er det som **binder** trappa: platen kan ikke lysnes mer
 uten at `--card-accent` mister kontrakten sin mot fyllet den ligger på. Av
 samme grunn følger avkryssingsboksens fyll ikke med opp til `--plate-hover` —
 kontrollen skal ikke bli utydeligere i det man sikter på den.
+
+**Stripen ER `--card-accent`, ikke en egen, lysere utgave.** Første runde
+blandet den med 18 % hvitt for å vinne kontrast mot det lysnede korthodet, men
+det gjorde stripen blekere og mindre mettet enn aksenten lys drakt viser for
+samme kort — nettopp det motsatte av hensikten (samme kort skal kjennes igjen
+når man bytter drakt). Pikselidentisk med LYS drakts egen aksentformel
+(`darken(base, 0.32)` på den lyse, ikke speilede, palettfargen) er ikke trygt:
+regnet ut mot de nye platene faller den til 1,9–5,2:1, altså nesten usynlig for
+enkelte fargetoner. `--card-accent` er derfor den nærmeste sikre tilnærmingen —
+samme verdi appen allerede bruker som «aksentfargen» til akkurat dette kortet i
+mørk drakt. Mot korthodet gir den 2,80–4,76:1: under 3:1 i verste hjørne, men
+det er en dekorativ stripe uten tekst på seg, og kravet er paritet med
+intensjonen (samme presedens som `--danger-edge`/`--scrim` over), ikke et nytt
+gulv.
 
 Tekst-borderen fra `--item-text-shadow`/`--item-text-stroke` er på, men tynnere
 (0,5 px mot 1 px): blekket klarer flatene med god margin, så streken er

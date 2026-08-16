@@ -50,8 +50,11 @@
    ============================================================ */
 
 /* Trappa nedenfra: board (#141922) < kategorifordypning < kortflate <
-   listepunkt < korthode, alle med 10 % av kortets egen palettfarge blandet inn.
-   Målte trinn og kontraster (min–maks over alle 36 mørke palettfarger) står i
+   listepunkt < korthode. Kortflaten og korthodet får 13 % av palettfargen —
+   et hakk mer enn resten (10 %) — for tydeligere adskillelse mellom nabokort;
+   platene og fordypningen er innholdsflater, ikke identitetsflaten, og holder
+   seg derfor på den opprinnelige, mer tilbakeholdne blandingen. Målte trinn og
+   kontraster (min–maks over alle 36 mørke palettfarger) står i
    docs/mork-drakt.md.
 
    Tokenene bor på `.card`, ikke på `:root`: alle sammen er «på-farge»-tokens
@@ -72,23 +75,30 @@
   --chip-bg: #171c24;
   --chip-bg: color-mix(in srgb, var(--card-bg) 10%, #171c24);
 
-  /* Kortflaten, korthodet og kategorifordypningen. Hodet ligger et tydelig
-     trinn over flaten (1,19–1,22:1 mot forrige utgaves 1,11:1), fordypningen et
-     trinn under den (1,09–1,10:1). */
+  /* Kortflaten og korthodet: 13 %, ikke 10 % — se begrunnelsen over. Hodet
+     ligger fortsatt et tydelig trinn over flaten (1,19–1,21:1), kategori-
+     fordypningen (10 %, urørt) fortsatt et trinn under den (1,09–1,10:1). */
   --card-face: #1e242d;
-  --card-face: color-mix(in srgb, var(--card-bg) 10%, #1e242d);
+  --card-face: color-mix(in srgb, var(--card-bg) 13%, #1e242d);
   --card-head-face: #2c333c;
-  --card-head-face: color-mix(in srgb, var(--card-bg) 10%, #2c333c);
+  --card-head-face: color-mix(in srgb, var(--card-bg) 13%, #2c333c);
   --cat-face: #171c24;
   --cat-face: color-mix(in srgb, var(--card-bg) 10%, #171c24);
 
-  /* Aksentstripen. `--card-accent` er allerede lysnet av paintCardColor, men
-     mot det LYSERE korthodet bunner den ut på 2,80:1. Et hakk til mot hvitt
-     løfter stripen til 3,93:1 mot hodet og 4,68:1 mot kortflaten, uten at den
-     blir en annen farge. `--card-accent` SELV er urørt: den bærer 3:1-
-     kontrakten rundt avkryssingsboksen og skal ikke flyttes. */
+  /* Aksentstripen ER `--card-accent` — samme verdi som avkryssingskanten, ikke
+     en egen, lysere utgave. Første runde blandet den ytterligere med 18 %
+     hvitt for å vinne kontrast mot det lysnede korthodet, men det var nettopp
+     det som gjorde stripen blekere og mindre mettet enn aksenten lys drakt
+     viser: samme kort skal kjennes igjen når man bytter drakt. `--card-accent`
+     kan ikke gjøres identisk med lys drakts EGEN aksent (den er en mørkning av
+     den lyse palettfargen — på en mørk plate ville den blitt usynlig for
+     enkelte fargetoner, ned mot 1,9:1), men den er allerede den SAMME verdien
+     appen ellers bruker som «aksentfargen» til dette kortet i mørk drakt, og
+     mot korthodet gir den 2,80–4,90:1 — synlig, om enn under 3:1 i verste
+     hjørne. Det er akseptabelt for en dekorativ stripe (ingen tekst står på
+     den), på samme måte som `--danger-edge`/`--scrim` heller ikke når 3:1 (se
+     docs/mork-drakt.md): kravet er paritet med intensjonen, ikke et nytt gulv. */
   --card-stripe: var(--card-accent);
-  --card-stripe: color-mix(in srgb, var(--card-accent) 82%, #ffffff);
 
   /* Tekst-borderen på `.item-text` (og, via reglene lenger ned, på kort- og
      kategorititlene). Blekket klarer 9,19–13,53:1 på disse flatene helt uten
