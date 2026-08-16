@@ -61,13 +61,20 @@ samme to stedene: `<meta name="huskis-release">` i klienten og `/version.json`.
 En klient kan altså rapportere sin egen release uten å spørre nettet — det er
 det som gjør at en Android-app offline kan sammenlignes med `huskis.no`.
 
-`releaseId` leser nøyaktig den samme kilden som `commit`
-(`VERCEL_GIT_COMMIT_SHA` → `GITHUB_SHA` → `git rev-parse HEAD`) og **aldri**
-`VERCEL_DEPLOYMENT_ID`: en deploy-ID er Vercels infrastruktur, ikke en
-produktversjon. `commit` beholder hele SHA-en; `releaseId` er den korte formen
-som sammenlignes — også den som identitet, aldri som rangering. Er SHA-en ukjent
-(bygg uten git og uten miljøvariabel), er `releaseId` `null` og meta-taggen står
-på `dev`: en ukjent release er ikke en oppdiktet en.
+`releaseId` navngir commiten builden faktisk er laget AV — den leser nøyaktig
+den samme kilden som `commit` (`VERCEL_GIT_COMMIT_SHA` → `GITHUB_SHA` →
+`git rev-parse HEAD`). To artifacts har derfor samme `releaseId` bare når de er
+bygget av samme commit; en CI-jobb som bygger en syntetisk merge-commit stempler
+DEN (se [`mobilapp-plan.md`](mobilapp-plan.md), «Hvilken commit et artifact
+faktisk er bygget av»). Den leser **aldri** `VERCEL_DEPLOYMENT_ID`: en deploy-ID
+er Vercels infrastruktur, ikke en produktversjon.
+
+`commit` beholder hele SHA-en; `releaseId` er den korte formen som sammenlignes
+— også den som identitet, aldri som rangering. En commit-SHA har ingen ordning,
+så `releaseId` kan svare på HVILKEN release en klient kjører, men aldri alene på
+om den er nyere eller eldre enn en annen. Er SHA-en ukjent (bygg uten git og
+uten miljøvariabel), er `releaseId` `null` og meta-taggen står på `dev`: en
+ukjent release er ikke en oppdiktet en.
 
 **Ingenting i oppdateringsmekanikken leser `releaseId`.** `update-check.js`
 sammenligner `buildId` og bare den, og validerer svaret på `buildId` alene —

@@ -115,10 +115,15 @@ noe eget kompatibilitetslag.
 release-ID-en i `/version.json` og i klientens `<meta name="huskis-release">`
 ([`auto-update.md`](auto-update.md)). Web og Android bygget fra samme commit
 rapporterer den samme verdien, så «hvilken release kjører denne klienten?» kan
-besvares likt begge steder. Den er en identitet å SAMMENLIGNE, ikke en versjon å
-rangere: appen har i dag ingen nedre støttet release (`minimumSupportedRelease`),
-og skal ikke få en før et konkret behov oppstår — så lenge skjemaet er additivt,
-er en gammel klient en fungerende klient.
+besvares likt begge steder.
+
+Den er en identitet å SAMMENLIGNE med `===`, ikke en versjon å rangere med `>=`
+— en commit-SHA har ingen ordning. Appen har i dag ingen nedre støttet release
+(`minimumSupportedRelease`), og skal ikke få en før et konkret behov oppstår: så
+lenge skjemaet er additivt, er en gammel klient en fungerende klient. Skulle
+kravet en dag bli en nedre grense, kan `releaseId` ikke være grensen alene — den
+trenger en ordning som må designes samtidig ([`mobilapp-plan.md`](mobilapp-plan.md),
+fase 4).
 
 Releasen som migreres, smoke-testes og deployes er den samme commiten hele
 veien: `release.yml` kjører på én `github.sha`, og den er både `commit` og

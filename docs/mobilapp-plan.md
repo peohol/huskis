@@ -19,7 +19,7 @@ autoritative dokumentet for fagfeltet.
 | Status — fase 4 | Fase 4 er i gang. Fem av sju punkter er ferdige: kartleggingen av dagens release-identiteter, `releaseId` er definert og generert i `build.js`, web og Android bygget fra samme commit rapporterer den samme verdien, `version.json` er utvidet additivt uten at cache- eller reload-sikkerheten er rørt, og kompatibilitetsregelen mellom klientrelease og databaseskjema er skrevet ned ([`release-og-deploy.md`](release-og-deploy.md)). De to siste — `minimumSupportedRelease` og valget mellom byte-identisk artifact og separate builds — står bevisst åpne til det finnes et konkret behov (se seksjonen). Automatisk dekket av `tests/build-version.test.js`, `tests/auto-update.test.js` og `tests/capacitor-android.test.js`. Ferdigkriteriet er ikke erklært oppfylt: Android-halvdelen er verifisert som kjede og i en simulert sync, ikke observert i en kjørende APK. |
 | Neste milepæl | Android-appen oppfører seg som en normal mobilapp i de plattformtilfellene browseren ikke håndterer godt nok selv |
 | Neste praktiske steg — fase 3 | Kjør ÉN `chrome://inspect`-økt mot debug-APK-en og svar på begge de gjenstående spørsmålene: lever `navigator.onLine` i flymodus uten `ACCESS_NETWORK_STATE`, og er det gjenopptakelsen som starter runden når pollet og realtime er tatt ut av bildet — det er alt som står igjen i fase 3 |
-| Neste praktiske steg — fase 4 | Les `document.querySelector('meta[name=huskis-release]').content` i APK-en og på `huskis.no` bygget fra samme commit, og se at de er like mens build-ID-ene er forskjellige. Det er samme slags økt som fase 3s, og kan kjøres i den — men den erstatter den ikke: fase 3s to spørsmål må besvares uansett |
+| Neste praktiske steg — fase 4 | Les `document.querySelector('meta[name=huskis-release]').content` i APK-en og i web-klienten, og se at de er like mens build-ID-ene er forskjellige. Begge artifactene må være bygget av SAMME commit — den automatiske PR-kjøringen av `android-debug.yml` bygger merge-commiten og gir et forventet avvik; se «Hvilken commit et artifact faktisk er bygget av». Det er samme slags økt som fase 3s, og kan kjøres i den — men den erstatter den ikke: fase 3s to spørsmål må besvares uansett |
 | OTA | Ikke innført; skal ikke innføres før Android-baselinen er stabil |
 | iOS | Senere fase; ikke en del av første implementering |
 
@@ -1064,9 +1064,18 @@ nå ville vært mekanikk uten en bruker.
 en klient som ikke lenger KAN fungere mot serveren. Det finnes ikke: skjemaet er
 additivt, en gammel klient skriver et delsett av kolonnene og leser bort de nye
 ([`release-og-deploy.md`](release-og-deploy.md)). En grense ville altså i dag
-bare kunne stenge ute klienter som virker. Den dagen en serverendring faktisk
-brekker en eldre klient, er `releaseId` identiteten en slik grense må uttrykkes
-i — men grensen selv er en egen, eksplisitt beslutning.
+bare kunne stenge ute klienter som virker.
+
+**Og `releaseId` kan ikke være grensen alene.** En «minimum» er en ORDNING —
+«denne og alle nyere» — og en commit-SHA har ingen. Den er en identitet som
+sammenlignes med `===`, aldri med `>=`; en test som `releaseId >=
+minimumSupportedRelease` ville vært meningsløs uansett hvordan den ble skrevet.
+`builtAt` løser det heller ikke: den er byggets tidspunkt, ikke releasens
+rekkefølge, og to bygg av samme release har forskjellig verdi. Den dagen en
+serverendring faktisk brekker en eldre klient, må ordningen derfor designes
+SAMMEN med grensen — en egen monoton verdi (release-sekvens eller SemVer) eller
+en autoritativ mapping som ordner `releaseId`-ene. `releaseId` svarer på hvilken
+release klienten kjører, og det er alt den kan svare på.
 
 **Byte-identisk artifact eller separate builds.** I dag er svaret de facto
 **separate builds med samme `releaseId`**: Vercel kjører `node build.js`, og
@@ -1077,6 +1086,40 @@ avhengighet mellom release-workflowen og Android-workflowen. Det er en pris uten
 en gevinst så lenge appen ikke oppdaterer web-assetene sine. Med OTA (fase 5)
 får spørsmålet en konsekvens — da er det bundelen som distribueres — og da tas
 valget der, med design og tester.
+
+### Hvilken commit et artifact faktisk er bygget av
+
+`releaseId` navngir commiten builden ER laget av. Det er en egenskap, ikke en
+svakhet — identiteten kan ikke lyve om opphavet sitt — men den betyr at to
+artifacts bare har samme `releaseId` hvis de er bygget av samme commit, og det
+er de ikke alltid:
+
+| Artifact | Bygger | Blir `releaseId` |
+|---|---|---|
+| Vercel-preview på en PR | grenas HEAD | grenas HEAD-commit |
+| `android-debug.yml` på `pull_request` | GitHubs syntetiske MERGE-commit (`actions/checkout` sin standard der) | merge-commiten |
+| `android-debug.yml` på `workflow_dispatch` | HEAD på refen som velges | den commiten |
+| Produksjonsdeployen (`release.yml`) | `github.sha` på `main` | main-commiten |
+
+Målt på denne planens egen PR: previewen rapporterte `0427d395315a`, mens
+`huskis-debug-apk` rapporterte `9d0a7634a036`. Begge var riktige — de var to
+forskjellige commits.
+
+**Workflowen er med vilje ikke endret.** Å pinne APK-jobben til PR-headen ville
+gjort de to automatiske artifactene sammenlignbare, men svekket det jobben
+finnes for: den bygger og kjører `tests/capacitor-android.test.js` mot det som
+faktisk lander etter merge. En sammenligning er ikke verdt en dårligere port.
+
+**Konsekvensen for enhetssjekken:** de to artifactene må komme fra SAMME commit,
+og det er to måter å få det på.
+
+1. **Etter merge:** kjør `android-debug.yml` manuelt på `main` og sammenlign
+   APK-en med `huskis.no`. Begge er da main-commiten.
+2. **Før merge:** kjør `android-debug.yml` manuelt på grenen — et
+   `workflow_dispatch` bygger refens HEAD, altså nøyaktig den commiten Vercel
+   previewer — og sammenlign APK-en med preview-URL-en.
+
+Den automatiske PR-kjøringen er ikke en av dem, og et avvik derfra er forventet.
 
 ### Ikke prøvd på telefon — hva som ER verifisert, og hva som ikke er det
 
