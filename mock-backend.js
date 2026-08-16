@@ -1366,6 +1366,10 @@
         return ch;
       },
       removeChannel: function (ch) { channels = channels.filter(function (c) { return c !== ch; }); },
+      // Samme flate som supabase-js: den er det en feilsøkingsøkt tar realtime
+      // ut av bildet med (docs/mobilapp-plan.md, «Sonden»).
+      getChannels: function () { return channels.slice(); },
+      removeAllChannels: function () { channels = []; },
     };
     return client;
   }

@@ -15,11 +15,11 @@ autoritative dokumentet for fagfeltet.
 |---|---|
 | Målarkitektur | Én HTML/CSS/JS-kodebase + Capacitor for Android/iOS |
 | Nåværende fase | **Fase 4 — felles release-identitet** er i gang, mens **fase 3** fortsatt har ETT åpent punkt. To faser er altså i luften samtidig. Fase 4 er startet fordi det som gjenstår i fase 3 verken blokkerer den eller berøres av den — det er en enhetsøkt, ikke kode. Fase 3 er ikke ferdig før den økten er kjørt. Statusen for hver av dem står på hver sin rad under; det gjør også neste praktiske steg. |
-| Status — fase 3 | Fase 3 er i gang. Fem punkter er ferdige: systemets tilbakeknapp og safe areas/systemfeltene/skjermtastaturet, begge verifisert på fysisk telefon; eksterne lenker og auth-/e-postlenker, som begge er beslutninger uten kode og derfor ikke har noe å prøve på en telefon; og sikker lagring/`android:allowBackup`, der sikkerhetskopien av WebView-lagringen er slått av (se seksjonene). Lifecycle-/network-punktet er kartlagt og avgjort — ingen native signaler kobles på — hullet er lukket i webkoden, og den fysiske sekvensen er nå kjørt uten avvik: appen står med etterslepet inne straks Android tar den fram igjen. Punktet står likevel åpent, fordi runden ikke isolerte triggeren (pollet og realtime var i live) og enhetssjekken av `navigator.onLine` ikke er kjørt. Automatisk dekket av `tests/safe-area.test.js`, `tests/landscape-chrome.test.js`, `tests/system-back.test.js`, `tests/sync-foreground.test.js` og `tests/capacitor-android.test.js`. Ferdigkriteriet er ikke nådd. |
+| Status — fase 3 | Fase 3 er i gang. Fem punkter er ferdige: systemets tilbakeknapp og safe areas/systemfeltene/skjermtastaturet, begge verifisert på fysisk telefon; eksterne lenker og auth-/e-postlenker, som begge er beslutninger uten kode og derfor ikke har noe å prøve på en telefon; og sikker lagring/`android:allowBackup`, der sikkerhetskopien av WebView-lagringen er slått av (se seksjonene). Lifecycle-/network-punktet er kartlagt og avgjort — ingen native signaler kobles på — hullet er lukket i webkoden, og den fysiske sekvensen er nå kjørt uten avvik: appen står med etterslepet inne straks Android tar den fram igjen. Punktet står likevel åpent, fordi runden ikke isolerte triggeren (pollet og realtime var i live) og enhetssjekken av `navigator.onLine` ikke er kjørt. Måleren økten skal bruke — sonden i seksjonen — er derimot kjørt i en ekte nettleser og gjør det den påstår; det som mangler er svarene fra en enhet. Automatisk dekket av `tests/safe-area.test.js`, `tests/landscape-chrome.test.js`, `tests/system-back.test.js`, `tests/sync-foreground.test.js` og `tests/capacitor-android.test.js`. Ferdigkriteriet er ikke nådd. |
 | Status — fase 4 | Fase 4 er i gang. Fem av sju punkter er ferdige: kartleggingen av dagens release-identiteter, `releaseId` er definert og generert i `build.js`, web og Android bygget fra samme commit rapporterer den samme verdien, `version.json` er utvidet additivt uten at cache- eller reload-sikkerheten er rørt, og kompatibilitetsregelen mellom klientrelease og databaseskjema er skrevet ned ([`release-og-deploy.md`](release-og-deploy.md)). De to siste — `minimumSupportedRelease` og valget mellom byte-identisk artifact og separate builds — står bevisst åpne til det finnes et konkret behov (se seksjonen). Automatisk dekket av `tests/build-version.test.js`, `tests/auto-update.test.js` og `tests/capacitor-android.test.js`. Ferdigkriteriet er ikke erklært oppfylt: APK-en er bygget og pakket med identiteten inne (målt i APK-workflowen, etter ekte `cap sync`), men ingen har lest den ut av en kjørende APK på en telefon. |
 | Neste milepæl | Android-appen oppfører seg som en normal mobilapp i de plattformtilfellene browseren ikke håndterer godt nok selv |
-| Neste praktiske steg — fase 3 | Kjør ÉN `chrome://inspect`-økt mot debug-APK-en og svar på begge de gjenstående spørsmålene: lever `navigator.onLine` i flymodus uten `ACCESS_NETWORK_STATE`, og er det gjenopptakelsen som starter runden når pollet og realtime er tatt ut av bildet — det er alt som står igjen i fase 3 |
-| Neste praktiske steg — fase 4 | Les `document.querySelector('meta[name=huskis-release]').content` i APK-en og i web-klienten, og se at de er like mens build-ID-ene er forskjellige. Begge artifactene må være bygget av SAMME commit — den automatiske PR-kjøringen av `android-debug.yml` bygger merge-commiten og gir et forventet avvik; se «Hvilken commit et artifact faktisk er bygget av». Det er samme slags økt som fase 3s, og kan kjøres i den — men den erstatter den ikke: fase 3s to spørsmål må besvares uansett |
+| Neste praktiske steg — fase 3 | Kjør ÉN `chrome://inspect`-økt mot debug-APK-en og svar på begge de gjenstående spørsmålene: lever `navigator.onLine` i flymodus uten `ACCESS_NETWORK_STATE`, og er det gjenopptakelsen som starter runden når pollet og realtime er tatt ut av bildet. Sonden som svarer på begge står ferdig i seksjonen «Sonden: én innliming, begge spørsmålene» — lim den inn i konsollen, kjør `__probe.net()` og `__probe.report()`. Det er alt som står igjen i fase 3 |
+| Neste praktiske steg — fase 4 | Les `meta[name=huskis-release]` i APK-en og i web-klienten, og se at de er like mens build-ID-ene er forskjellige. Sonden i fase 3 gir begge med `__probe.net()`, så avlesningen hører hjemme i den samme økten — men den erstatter den ikke: fase 3s to spørsmål må besvares uansett. Begge artifactene må være bygget av SAMME commit — den automatiske PR-kjøringen av `android-debug.yml` bygger merge-commiten og gir et forventet avvik; se «Hvilken commit et artifact faktisk er bygget av» |
 | OTA | Ikke innført; skal ikke innføres før Android-baselinen er stabil |
 | iOS | Senere fase; ikke en del av første implementering |
 
@@ -859,8 +859,72 @@ debugbygg).
 | Var det gjenopptakelsen som startet runden? | Isoler triggeren før appen sendes i bakgrunnen: ta realtime ut av bildet (`__huskis.client.removeAllChannels()`), og merk av når hver runde starter — f.eks. ved å instrumentere `fetch` og `visibilitychange` med tidsstempel. Lander første Supabase-kall i samme øyeblikk som synligheten snur, var det gjenopptakelsen; kommer det først ved neste 5-sekunderstikk, var det pollet. |
 
 Den høyre kolonnen er lest ut av koden — `__huskis` eksponeres også i APK-en, og
-`removeAllChannels()` finnes i den innsjekkede supabase-js — men den er **ikke
-prøvd på en enhet**, så den er en plan, ikke en oppskrift som har virket.
+`removeAllChannels()` finnes i den innsjekkede supabase-js. Selve MEKANIKKEN er
+dessuten kjørt: sonden under er den samme teksten `tests/sync-foreground.test.js`
+(del 5) henter ut av dette dokumentet og kjører i en ekte nettleser, så den måler
+det den påstår og velter ikke appen. Sonden er altså ikke lenger bare en plan.
+**Svarene er det fortsatt: ingen har kjørt den på en enhet.**
+
+### Sonden: én innliming, begge spørsmålene
+
+Lim inn i konsollen i `chrome://inspect` mot WebView-en, ETTER innlogging. Den
+tar realtime ut av bildet med det samme, og logger hvert Supabase-kall, hver
+synlighetsvending og hver `online`/`offline`-hendelse med tidsstempel:
+
+```js
+window.__probe = window.__probe || (() => {
+  const log = [], now = () => Math.round(performance.now());
+  const add = (what, extra) => log.push(Object.assign({ t: now(), what }, extra || {}));
+  const c = window.__huskis.client, rpc = c.rpc.bind(c), fetch0 = window.fetch.bind(window);
+  c.rpc = function (name) { add('rpc', { name }); return rpc.apply(null, arguments); };
+  window.fetch = function (u) { add('fetch', { url: String((u && u.url) || u).slice(-48) }); return fetch0.apply(null, arguments); };
+  // Capture på window ⇒ tidsstemplet settes FØR appens egen lytter svarer.
+  addEventListener('visibilitychange', () => add('visible', { visible: !document.hidden }), true);
+  addEventListener('online', () => add('online'));
+  addEventListener('offline', () => add('offline'));
+  c.removeAllChannels();                    // realtime kan ikke starte runden
+  const meta = (n) => (document.querySelector('meta[name="huskis-' + n + '"]') || {}).content;
+  return {
+    log,
+    net: () => ({ onLine: navigator.onLine, release: meta('release'), build: meta('build'),
+                  sync: window.__huskis.syncStatus.snapshot() }),
+    report: () => {
+      let i = -1;
+      log.forEach((e, n) => { if (e.what === 'visible' && e.visible) i = n; });
+      const v = i < 0 ? null : log[i];
+      const k = i < 0 ? null : log.slice(i + 1).find((e) => e.what === 'rpc' || e.what === 'fetch');
+      return { visibleAt: v && v.t, firstCallAt: k && k.t,
+               deltaMs: (v && k) ? k.t - v.t : null, tail: log.slice(-8) };
+    },
+    reset: () => { log.length = 0; },
+  };
+})();
+```
+
+| Kall | Gir |
+|---|---|
+| `__probe.net()` | `onLine`, hele synk-snapshotet — og `release`/`build` fra meta-taggene, altså fase 4s avlesning i samme slengen |
+| `__probe.report()` | `deltaMs`: fra synligheten snudde til første Supabase-kall. `tail` er de siste hendelsene, i rekkefølge |
+| `__probe.reset()` | tømmer loggen mellom rundene |
+
+**Q1 — lever `navigator.onLine`?** Slå PÅ flymodus med appen fremme, og kjør
+`__probe.net()`. `onLine: true` med flymodus på betyr at flagget står permanent
+sant, altså at Chromiums nettverksvarsling er død uten `ACCESS_NETWORK_STATE` —
+og da fyrer `online`/`offline` aldri. Slå flymodus AV igjen og se på
+`__probe.report().tail`: står det ingen `online`-hendelse der, er svaret
+bekreftet fra to kanter. `sync` viser samtidig hvilken av de to kildene til
+«Frakoblet» som gjelder (`offline`-flagget kontra `netFailures`).
+
+**Q2 — var det gjenopptakelsen?** `__probe.reset()`, send appen i bakgrunnen,
+vent (varier lengden: ti sekunder, ett minutt, ti minutter), hent den fram og
+kjør `__probe.report()`. Gjenta tre ganger.
+
+- `deltaMs` under ~100 tre ganger på rad ⇒ gjenopptakelsen. Et 5-sekunderstikk
+  treffer et 100 ms-vindu i ett av femti forsøk; tre på rad er ett av 125 000.
+- `deltaMs` spredt mellom 0 og 5000 ⇒ pollet, og lytteren gjør ikke jobben på
+  enheten.
+- `deltaMs: null` ⇒ ingen runde i det hele tatt etter gjenopptakelsen. Det er
+  det scenarioet punktet finnes for, og da er hullet ikke lukket.
 
 Sekvensen er kort, og skal kjøres med en browserklient innlogget på samme konto:
 
@@ -1140,7 +1204,9 @@ pakket med identiteten inne.
 *Ikke observert:* ingen har lest `releaseId` ut av en KJØRENDE APK på en
 telefon. Det er det neste praktiske steget for fase 4, og det er en
 `chrome://inspect`-økt av samme slag som fase 3s — de kan kjøres i samme økt,
-men fase 4 avlaster ikke fase 3.
+men fase 4 avlaster ikke fase 3. Avlesningen ligger i sonden fase 3 bruker:
+`__probe.net()` gir `release` og `build` ved siden av nettilstanden («Sonden:
+én innliming, begge spørsmålene»).
 
 **Ferdigkriterium:** web og mobil kan sammenlignes på én release-identitet uten
 at Vercels deploy-ID misbrukes som produktversjon.

@@ -25,6 +25,15 @@
        ikke nådde fram, fram av seg selv. Pollet er nettet under, ikke
        hendelsen. (Denne står ikke og faller med lytteren over; den låser
        forutsetningen for at ingenting native trengs.)
+    5. SONDEN i docs/mobilapp-plan.md («Sonden: én innliming, begge
+       spørsmålene»): enhetsøkten som fortsatt gjenstår i fase 3 skal ikke
+       starte med en oppskrift ingen har prøvd. Snippeten HENTES ut av
+       dokumentet og kjøres her, så den ikke kan drifte fra handlene den
+       bruker: den installerer seg uten feil, tar realtime ut av bildet, leser
+       `navigator.onLine`/synk-snapshotet/meta-taggene, måler avstanden fra
+       gjenopptakelsen til første Supabase-kall — og lar appen synke som før.
+       Testen svarer IKKE på hva en telefon gjør; den svarer på at måleren
+       måler.
 
   Ett viewport: dette er synk-logikk, uten avhengighet av layout eller pekertype
   (tests/CLAUDE.md).
@@ -33,6 +42,8 @@
     python3 -m http.server 8000
     NODE_PATH=$(npm root -g) node tests/sync-foreground.test.js
 */
+const fs = require('fs');
+const path = require('path');
 const { chromium } = require(require('path').join(process.env.NODE_PATH || require('child_process').execSync('npm root -g').toString().trim(), 'playwright'));
 const BASE = process.env.HUSKIS_URL || 'http://localhost:8000';
 
@@ -99,6 +110,18 @@ const setVisible = (page, visible) => page.evaluate((v) => {
   Object.defineProperty(document, 'visibilityState', { configurable: true, get: () => (v ? 'visible' : 'hidden') });
   document.dispatchEvent(new Event('visibilitychange'));
 }, visible);
+
+/* Sonden HENTES ut av docs/mobilapp-plan.md — den er ikke kopiert hit. Da kan
+   ikke oppskriften enhetsøkten skal kjøre drifte fra det som faktisk er prøvd:
+   endres snippeten i dokumentet, er det den nye teksten som kjøres her. */
+function probeSnippet() {
+  const doc = fs.readFileSync(path.join(__dirname, '..', 'docs', 'mobilapp-plan.md'), 'utf8');
+  const fra = doc.indexOf('### Sonden');
+  if (fra < 0) return '';
+  const start = doc.indexOf('```js', fra);
+  const slutt = start < 0 ? -1 : doc.indexOf('```', start + 5);
+  return slutt < 0 ? '' : doc.slice(doc.indexOf('\n', start) + 1, slutt);
+}
 
 const pulls = (page) => page.evaluate(() => window.__pulls);
 const hasCard = (page, id) => page.evaluate((id) => {
@@ -233,6 +256,69 @@ async function scenario(page) {
       onLineHeleVeien.every((v) => v === true), onLineHeleVeien);
     check('hele scenarioet: ingen `online`-hendelse ble fyrt',
       await page.evaluate(() => window.__onlineEvents) === 0);
+  }
+
+  /* 5) Sonden fra planen. Den skal brukes i en `chrome://inspect`-økt mot
+        debug-APK-en, der ingenting kan settes opp på forhånd — derfor kjøres
+        nøyaktig den teksten her, mot en ekte nettleser. Pollet slås av som i
+        1–3: da er gjenopptakelsen det ENESTE som kan starte runden sonden
+        måler, og deltaen kan tilskrives den. */
+  {
+    const { ids, db } = buildDB();
+    await load(page, db);
+    const snippet = probeSnippet();
+    check('sonden: snippeten står i docs/mobilapp-plan.md og setter opp `__probe`',
+      /window\.__probe\s*=/.test(snippet) && /removeAllChannels/.test(snippet), snippet.slice(0, 80));
+
+    await page.evaluate(() => (window.__intervals || []).filter((i) => i.ms === 5000).forEach((i) => clearInterval(i.id)));
+    check('sonden: realtime er i live FØR den kjøres',
+      await page.evaluate(() => window.__huskis.client.getChannels().length) > 0);
+
+    let installert;
+    try {
+      installert = await page.evaluate(new Function(snippet +
+        '\nreturn { ok: !!window.__probe, kanaler: window.__huskis.client.getChannels().length };'));
+    } catch (e) { installert = { ok: false, feil: String(e).slice(0, 200) }; }
+    check('sonden: installerer seg uten feil', installert.ok === true, installert);
+    check('sonden: realtime er tatt ut av bildet', installert.kanaler === 0, installert);
+
+    const net = await page.evaluate(() => window.__probe.net());
+    check('sonden: `net()` leser navigator.onLine (Q1s avlesning)', net.onLine === true, net);
+    check('sonden: `net()` gir synk-snapshotet med tilstand',
+      !!net.sync && typeof net.sync.state === 'string' && 'offline' in net.sync, net.sync);
+    check('sonden: `net()` leser begge meta-taggene (fase 4s avlesning i samme økt)',
+      typeof net.release === 'string' && net.release.length > 0 &&
+      typeof net.build === 'string' && net.build.length > 0, { release: net.release, build: net.build });
+
+    // Gjenopptakelsen, med en fremmed endring å hente: sonden skal tidfeste
+    // både vendingen og runden den utløser — og appen skal synke som før.
+    await page.evaluate(() => window.__probe.reset());
+    await setVisible(page, false);
+    await page.evaluate((ids) => {
+      const db = window.HK_MOCK._loadDB();
+      db.cards.push({ id: ids.NEW, owner_id: ids.uid, group_id: ids.PG,
+        title: 'Laget mens sonden sto på', k: true, p: true, lab_ts: 0, lab_org: '',
+        trashed: false, locked: false, unlocked: false, invite_policy: 'inherit',
+        ts: 2, org: 'b', pos: 1, pos_ts: 0, pos_org: '' });
+      window.HK_MOCK._saveDB(db);
+    }, ids);
+    await setVisible(page, true);
+    const kom = await page.waitForFunction((id) => {
+      const h = window.__huskis;
+      for (const u of h.state.universes) for (const g of (u.groups || [])) for (const c of (g.cards || [])) if (c.id === id) return true;
+      return false;
+    }, ids.NEW, { timeout: 3000 }).then(() => true).catch(() => false);
+    check('sonden: appen synker fortsatt med sonden installert', kom === true);
+
+    const rapport = await page.evaluate(() => window.__probe.report());
+    check('sonden: `report()` tidfester gjenopptakelsen og første Supabase-kall',
+      typeof rapport.deltaMs === 'number', rapport);
+    check('sonden: målt delta er godt under pollets 5 s — altså lesbart som gjenopptakelsen',
+      rapport.deltaMs >= 0 && rapport.deltaMs < 500, rapport);
+    check('sonden: det målte kallet ER pullen (`get_my_doc`)',
+      (rapport.tail || []).some((e) => e.what === 'rpc' && e.name === 'get_my_doc'), rapport.tail);
+    check('sonden: `reset()` tømmer loggen',
+      await page.evaluate(() => { window.__probe.reset(); return window.__probe.log.length; }) === 0);
   }
 }
 
