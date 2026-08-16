@@ -856,7 +856,7 @@ debugbygg).
 | Spørsmål | Hva som må gjøres |
 |---|---|
 | Lever `navigator.onLine` uten `ACCESS_NETWORK_STATE`? | Flymodus på; les `navigator.onLine` og `__huskis.syncStatus.snapshot()`. |
-| Var det gjenopptakelsen som startet runden? | Isoler triggeren før appen sendes i bakgrunnen: ta realtime ut av bildet (`__huskis.client.removeAllChannels()`), og merk av når hver runde starter — f.eks. ved å instrumentere `fetch` og `visibilitychange` med tidsstempel. Lander første Supabase-kall i samme øyeblikk som synligheten snur, var det gjenopptakelsen; kommer det først ved neste 5-sekunderstikk, var det pollet. |
+| Var det gjenopptakelsen som startet runden? | Runden må TILSKRIVES, ikke tidfestes: både pollet og realtime kan starte en runde i samme øyeblikk som appen kommer fram, så et lite tidsintervall beviser ingenting. Sonden under gjør realtime inert og merker hver runde med kilden sin (`by`). |
 
 Den høyre kolonnen er lest ut av koden — `__huskis` eksponeres også i APK-en, og
 `removeAllChannels()` finnes i den innsjekkede supabase-js. Selve MEKANIKKEN er
@@ -867,33 +867,48 @@ det den påstår og velter ikke appen. Sonden er altså ikke lenger bare en plan
 
 ### Sonden: én innliming, begge spørsmålene
 
-Lim inn i konsollen i `chrome://inspect` mot WebView-en, ETTER innlogging. Den
-tar realtime ut av bildet med det samme, og logger hvert Supabase-kall, hver
-synlighetsvending og hver `online`/`offline`-hendelse med tidsstempel:
+Lim inn i konsollen i `chrome://inspect` mot WebView-en, ETTER innlogging:
 
 ```js
 window.__probe = window.__probe || (() => {
   const log = [], now = () => Math.round(performance.now());
   const add = (what, extra) => log.push(Object.assign({ t: now(), what }, extra || {}));
   const c = window.__huskis.client, rpc = c.rpc.bind(c), fetch0 = window.fetch.bind(window);
-  c.rpc = function (name) { add('rpc', { name }); return rpc.apply(null, arguments); };
-  window.fetch = function (u) { add('fetch', { url: String((u && u.url) || u).slice(-48) }); return fetch0.apply(null, arguments); };
-  // Capture på window ⇒ tidsstemplet settes FØR appens egen lytter svarer.
-  addEventListener('visibilitychange', () => add('visible', { visible: !document.hidden }), true);
+  let inResume = false, by = null;
+  /* Realtime ut av bildet — og HOLDT ute. `removeAllChannels()` alene rekker
+     ikke: den lukker kanalen, appen ser `CLOSED` og re-subscriber etter 4 s, og
+     et `SUBSCRIBED` starter selv en runde. En inert kanal tar imot forsøket. */
+  const dead = { on: () => dead, subscribe: () => dead, unsubscribe: () => Promise.resolve('ok'), teardown() {} };
+  c.channel = () => dead;
+  c.removeAllChannels();
+  /* Kilden til runden, uten gjetting: capture på window fyrer FØR appens egen
+     visibilitychange-lytter, bobling ETTER den. Alt appen planlegger imens er
+     dermed gjenopptakelsens, og merket står mens timeren kjører — `cloudCycle()`
+     kaller `get_my_doc` synkront, så runden merkes der den faktisk starter. */
+  addEventListener('visibilitychange', () => { inResume = !document.hidden; add('visible', { visible: !document.hidden }); }, true);
+  addEventListener('visibilitychange', () => { inResume = false; }, false);
+  const st = window.setTimeout;
+  window.setTimeout = function (fn) {
+    if (!inResume || typeof fn !== 'function') return st.apply(window, arguments);
+    const a = [...arguments];
+    a[0] = function () { by = 'visibilitychange'; try { return fn.apply(this, arguments); } finally { by = null; } };
+    return st.apply(window, a);
+  };
+  c.rpc = function (name) { add('rpc', { name, by: by || 'annet' }); return rpc.apply(null, arguments); };
+  window.fetch = function (u) { add('fetch', { url: String((u && u.url) || u).slice(-48), by: by || 'annet' }); return fetch0.apply(null, arguments); };
   addEventListener('online', () => add('online'));
   addEventListener('offline', () => add('offline'));
-  c.removeAllChannels();                    // realtime kan ikke starte runden
   const meta = (n) => (document.querySelector('meta[name="huskis-' + n + '"]') || {}).content;
   return {
     log,
     net: () => ({ onLine: navigator.onLine, release: meta('release'), build: meta('build'),
-                  sync: window.__huskis.syncStatus.snapshot() }),
+                  channels: c.getChannels().length, sync: window.__huskis.syncStatus.snapshot() }),
     report: () => {
       let i = -1;
       log.forEach((e, n) => { if (e.what === 'visible' && e.visible) i = n; });
       const v = i < 0 ? null : log[i];
       const k = i < 0 ? null : log.slice(i + 1).find((e) => e.what === 'rpc' || e.what === 'fetch');
-      return { visibleAt: v && v.t, firstCallAt: k && k.t,
+      return { visibleAt: v && v.t, firstCallAt: k && k.t, by: k && k.by,
                deltaMs: (v && k) ? k.t - v.t : null, tail: log.slice(-8) };
     },
     reset: () => { log.length = 0; },
@@ -903,9 +918,13 @@ window.__probe = window.__probe || (() => {
 
 | Kall | Gir |
 |---|---|
-| `__probe.net()` | `onLine`, hele synk-snapshotet — og `release`/`build` fra meta-taggene, altså fase 4s avlesning i samme slengen |
-| `__probe.report()` | `deltaMs`: fra synligheten snudde til første Supabase-kall. `tail` er de siste hendelsene, i rekkefølge |
+| `__probe.net()` | `onLine`, hele synk-snapshotet, `channels` (skal være `0` hele økten) — og `release`/`build` fra meta-taggene, altså fase 4s avlesning i samme slengen |
+| `__probe.report()` | `by`: hvem som startet runden. `deltaMs` og `tail` er kontekst, ikke beviset |
 | `__probe.reset()` | tømmer loggen mellom rundene |
+
+**Sonden endrer appen til du laster den på nytt:** realtime kommer ikke tilbake
+i denne økten. Det er hele poenget — pollet dekker hullet imens, og en reload
+gir alt tilbake.
 
 **Q1 — lever `navigator.onLine`?** Slå PÅ flymodus med appen fremme, og kjør
 `__probe.net()`. `onLine: true` med flymodus på betyr at flagget står permanent
@@ -919,12 +938,22 @@ bekreftet fra to kanter. `sync` viser samtidig hvilken av de to kildene til
 vent (varier lengden: ti sekunder, ett minutt, ti minutter), hent den fram og
 kjør `__probe.report()`. Gjenta tre ganger.
 
-- `deltaMs` under ~100 tre ganger på rad ⇒ gjenopptakelsen. Et 5-sekunderstikk
-  treffer et 100 ms-vindu i ett av femti forsøk; tre på rad er ett av 125 000.
-- `deltaMs` spredt mellom 0 og 5000 ⇒ pollet, og lytteren gjør ikke jobben på
-  enheten.
+Svaret står i `by`, ikke i klokka:
+
+- `by: 'visibilitychange'` ⇒ gjenopptakelsen startet runden. Direkte tilskrevet:
+  merket settes bare på det appen planla mens synlighetshendelsen ble behandlet.
+- `by: 'annet'` ⇒ noe annet kom først. Med realtime inert er det pollet, og da
+  gjør lytteren ikke jobben på enheten.
 - `deltaMs: null` ⇒ ingen runde i det hele tatt etter gjenopptakelsen. Det er
   det scenarioet punktet finnes for, og da er hullet ikke lukket.
+
+**Tid alene duger ikke her, og det er verdt å vite hvorfor.** Pollet står på
+under målingen, akkurat som i vanlig bruk — og en strupet eller fryst timer har
+ikke uniform fase: et forfalt 5-sekunderstikk kan bli kjørbart i samme øyeblikk
+som appen kommer fram. Et lite `deltaMs` er derfor forenlig med BEGGE
+forklaringene uansett hvor mange ganger det gjentas. `by` skiller dem; `deltaMs`
+sier bare hvor raskt det gikk. Sjekk samtidig at `net().channels` fortsatt er
+`0` — er den ikke det, har realtime kommet tilbake og runden kan være dens.
 
 Sekvensen er kort, og skal kjøres med en browserklient innlogget på samme konto:
 

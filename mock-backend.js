@@ -1200,6 +1200,15 @@
 
     var channels = [];
     function fireChannels() { channels.forEach(function (ch) { ch._handlers.forEach(function (h) { try { h(); } catch (e) {} }); }); }
+    /* Som i supabase-js: å fjerne en kanal går via `unsubscribe()`, og den
+       melder `CLOSED` tilbake. Klienten svarer på det med å subscribe på nytt
+       (`startCloudRealtime`), så en mock som bare tømmer lista ville skjult at
+       realtime kommer TILBAKE etter at noen har tatt den bort. */
+    function closed(list) {
+      list.forEach(function (ch) {
+        if (ch._statusCb) setTimeout(function () { ch._statusCb('CLOSED'); }, 0);
+      });
+    }
     window.addEventListener('storage', function (ev) {
       if (ev.key === PING_KEY) fireChannels();
     });
@@ -1361,15 +1370,15 @@
       channel: function (nm) {
         var ch = { _handlers: [], _statusCb: null,
           on: function () { var cb = arguments[arguments.length - 1]; ch._handlers.push(cb); return ch; },
-          subscribe: function (statusCb) { channels.push(ch); if (statusCb) setTimeout(function () { statusCb('SUBSCRIBED'); }, 0); return ch; },
+          subscribe: function (statusCb) { ch._statusCb = statusCb || null; channels.push(ch); if (statusCb) setTimeout(function () { statusCb('SUBSCRIBED'); }, 0); return ch; },
         };
         return ch;
       },
-      removeChannel: function (ch) { channels = channels.filter(function (c) { return c !== ch; }); },
+      removeChannel: function (ch) { channels = channels.filter(function (c) { return c !== ch; }); closed([ch]); },
       // Samme flate som supabase-js: den er det en feilsøkingsøkt tar realtime
       // ut av bildet med (docs/mobilapp-plan.md, «Sonden»).
       getChannels: function () { return channels.slice(); },
-      removeAllChannels: function () { channels = []; },
+      removeAllChannels: function () { var old = channels; channels = []; closed(old); },
     };
     return client;
   }

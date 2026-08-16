@@ -260,9 +260,14 @@ async function scenario(page) {
 
   /* 5) Sonden fra planen. Den skal brukes i en `chrome://inspect`-økt mot
         debug-APK-en, der ingenting kan settes opp på forhånd — derfor kjøres
-        nøyaktig den teksten her, mot en ekte nettleser. Pollet slås av som i
-        1–3: da er gjenopptakelsen det ENESTE som kan starte runden sonden
-        måler, og deltaen kan tilskrives den. */
+        nøyaktig den teksten her, mot en ekte nettleser.
+
+        Pollet står PÅ i hele denne delen, i motsetning til 1–3. Det er poenget:
+        på telefonen kan det ikke slås av, og en strupet eller fryst timer har
+        ikke uniform fase — et forfalt tikk kan bli kjørbart i samme øyeblikk
+        som appen kommer fram. Derfor skal sonden TILSKRIVE runden (`by`), ikke
+        tidfeste den, og de to andre startkildene må enten være ute av bildet
+        (realtime) eller synlige som `annet` (pollet). */
   {
     const { ids, db } = buildDB();
     await load(page, db);
@@ -270,7 +275,6 @@ async function scenario(page) {
     check('sonden: snippeten står i docs/mobilapp-plan.md og setter opp `__probe`',
       /window\.__probe\s*=/.test(snippet) && /removeAllChannels/.test(snippet), snippet.slice(0, 80));
 
-    await page.evaluate(() => (window.__intervals || []).filter((i) => i.ms === 5000).forEach((i) => clearInterval(i.id)));
     check('sonden: realtime er i live FØR den kjøres',
       await page.evaluate(() => window.__huskis.client.getChannels().length) > 0);
 
@@ -282,16 +286,33 @@ async function scenario(page) {
     check('sonden: installerer seg uten feil', installert.ok === true, installert);
     check('sonden: realtime er tatt ut av bildet', installert.kanaler === 0, installert);
 
+    /* Og BLIR ute. `removeAllChannels()` lukker kanalen, appen ser `CLOSED` og
+       re-subscriber etter 4 s — et `SUBSCRIBED` starter selv en runde, og den
+       ville sett ut som gjenopptakelsens. Fast venting er riktig her: det er
+       appens egen 4-sekunderstimer som skal få lov til å fyre. */
+    await page.waitForTimeout(5000);
+    check('sonden: realtime er fortsatt ute etter appens re-subscribe (4 s)',
+      await page.evaluate(() => window.__huskis.client.getChannels().length) === 0);
+    check('sonden: en fremmed endring når IKKE appen via realtime',
+      await page.evaluate(() => window.__probe.log.every((e) => e.what !== 'rpc' || e.by === 'annet')) === true);
+
     const net = await page.evaluate(() => window.__probe.net());
     check('sonden: `net()` leser navigator.onLine (Q1s avlesning)', net.onLine === true, net);
     check('sonden: `net()` gir synk-snapshotet med tilstand',
       !!net.sync && typeof net.sync.state === 'string' && 'offline' in net.sync, net.sync);
+    check('sonden: `net()` rapporterer at realtime er ute (`channels: 0`)', net.channels === 0, net);
     check('sonden: `net()` leser begge meta-taggene (fase 4s avlesning i samme økt)',
       typeof net.release === 'string' && net.release.length > 0 &&
       typeof net.build === 'string' && net.build.length > 0, { release: net.release, build: net.build });
 
-    // Gjenopptakelsen, med en fremmed endring å hente: sonden skal tidfeste
-    // både vendingen og runden den utløser — og appen skal synke som før.
+    // Pollet har gått i de fem sekundene over, og skal være merket som noe
+    // annet enn gjenopptakelsen. Uten det skillet er `by` verdiløs.
+    check('sonden: pollets egne runder er merket `annet`',
+      await page.evaluate(() => window.__probe.log.some((e) => e.what === 'rpc' && e.by === 'annet')) === true,
+      await page.evaluate(() => window.__probe.log.slice(-4)));
+
+    // Gjenopptakelsen, med en fremmed endring å hente: runden skal tilskrives
+    // lytteren — og appen skal synke som før.
     await page.evaluate(() => window.__probe.reset());
     await setVisible(page, false);
     await page.evaluate((ids) => {
@@ -311,12 +332,21 @@ async function scenario(page) {
     check('sonden: appen synker fortsatt med sonden installert', kom === true);
 
     const rapport = await page.evaluate(() => window.__probe.report());
-    check('sonden: `report()` tidfester gjenopptakelsen og første Supabase-kall',
-      typeof rapport.deltaMs === 'number', rapport);
-    check('sonden: målt delta er godt under pollets 5 s — altså lesbart som gjenopptakelsen',
-      rapport.deltaMs >= 0 && rapport.deltaMs < 500, rapport);
-    check('sonden: det målte kallet ER pullen (`get_my_doc`)',
-      (rapport.tail || []).some((e) => e.what === 'rpc' && e.name === 'get_my_doc'), rapport.tail);
+    check('sonden: `report()` TILSKRIVER runden gjenopptakelsen (`by`)',
+      rapport.by === 'visibilitychange', rapport);
+    check('sonden: det tilskrevne kallet ER pullen (`get_my_doc`)',
+      (rapport.tail || []).some((e) => e.what === 'rpc' && e.name === 'get_my_doc' && e.by === 'visibilitychange'),
+      rapport.tail);
+    check('sonden: `deltaMs` er med som kontekst', typeof rapport.deltaMs === 'number', rapport);
+
+    /* Merket må ikke smitte: en runde som IKKE kommer av en synlighetsvending
+       skal aldri kunne leses som gjenopptakelsens. */
+    await page.evaluate(() => window.__probe.reset());
+    await page.evaluate(() => window.__huskis.cloudCycle());
+    check('sonden: en runde utenom gjenopptakelsen merkes `annet`',
+      await page.evaluate(() => window.__probe.log.filter((e) => e.what === 'rpc').every((e) => e.by === 'annet')) === true,
+      await page.evaluate(() => window.__probe.log.slice(0, 4)));
+
     check('sonden: `reset()` tømmer loggen',
       await page.evaluate(() => { window.__probe.reset(); return window.__probe.log.length; }) === 0);
   }
