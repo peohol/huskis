@@ -44,13 +44,13 @@ altså før første maling.
 `I18N.setLang()`. I privat modus kaster `setItem`, og drakten ville falt
 tilbake ved neste lasting uten at noen sa fra; `app.js` viser en toast i stedet.
 
-## Tokens, og bare tokens
+## Tokens, og bare tokens — med ett unntak
 
 Alt som skifter er custom properties. `:root` har de lyse verdiene,
-`:root[data-theme="dark"]` overstyrer dem. **Den mørke blokken inneholder
-ingenting annet enn custom properties** — ingen nye regler, ingen duplisert
-geometri. Trenger du en `[data-theme="dark"]`-regel med noe annet i, mangler det
-et token i `:root`.
+`:root[data-theme="dark"]` overstyrer dem. **Den blokken inneholder ingenting
+annet enn custom properties** — ingen nye regler, ingen duplisert geometri.
+Trenger du en `[data-theme="dark"]`-regel med noe annet i, mangler det et
+token i `:root`.
 
 Tokenene er delt i to familier etter hva de ligger på:
 
@@ -58,16 +58,21 @@ Tokenene er delt i to familier etter hva de ligger på:
   `--glass-bg`, `--control-bg*`, `--track`, `--count-bg`, `--free-*`) ligger på
   appens egne flater: modaler, toppmeny, paneler. I mørk drakt blir flatene
   mørke og blekket lyst.
-- **På-farge-familien** (`--plate*`, `--tint*`, `--hairline`, `--on-color-soft`,
-  `--chip-bg`, `--item-text-shadow`, `--item-text-stroke`) ligger oppå en
-  **palettfarge**. Der snur ikke flaten — palettfargen gjør jobben selv — men
-  lagene oppå: de halvgjennomsiktig hvite platene blir halvgjennomsiktig
-  svarte, og de svarte hårstrekene blir hvite. `--item-text-shadow`/
-  `--item-text-stroke` er av i lys drakt (`.item-text` er `--ink`, ikke fast
-  hvit, og trenger ingen kant der) og på i mørk: samme svarte tekst-border som
-  `.card-title`/`.cat-title` bærer, fordi den 30 % svarte platen mørkner
-  kortfargen svakere enn den lyse platens 55 % lysner den — nesten-hvit
-  `--ink`-skrift trenger samme lesbarhetshjelp på mappetitler og listepunkter.
+- **På-farge-familien** (`--tint*`, `--hairline`, `--on-color-soft`,
+  `--item-text-shadow`, `--item-text-stroke`) ligger oppå en **palettfarge**.
+  Der snur ikke flaten — palettfargen gjør jobben selv — men lagene oppå: de
+  svarte hårstrekene blir hvite, og tekst-borderen på listepunkter/mappetitler
+  slår på (av i lys drakt, siden `.item-text` der er vanlig `--ink`-blekk uten
+  behov for kant).
+
+**Unntaket:** `--plate*`, `--chip-bg` og de tilhørende kortflate-tokenene
+(`--card-face`, `--card-head-face`, `--cat-face`, `--card-stripe`) er OGSÅ
+«på-farge», men kan ikke være en flat `:root`-verdi — de skal bære et preg av
+NETTOPP kortets EGEN palettfarge (`--card-bg`, satt inline per kort av
+`paintCardColor()` i `app.js`), og blandes derfor med `color-mix()` i en egen
+`:root[data-theme="dark"] .card`-blokk rett under token-blokken i
+`styles.css`. Se kommentaren der, og «Kortflatene: palettpreg og aksentstripe»
+under.
 
 Fire ting snur som ikke er flater:
 
@@ -213,42 +218,46 @@ mot den mørke statuspillen, og at de to L-settene faktisk speiler hverandre.
 Endrer du en verdi i den mørke blokken eller et L-sett, kjør den testen.
 Kravene selv står i [`tilgjengelighet.md`](tilgjengelighet.md).
 
-## Pågående visuell prøve: nøytrale kortflater med palettaksent
+## Kortflatene: palettpreg og aksentstripe
 
-`dark-surface-experiment.css` er et **midlertidig** stilark, lastet fra
-`<head>` i `index.html` som enhver annen klientfil (og dermed versjonert av
-byggesteget), og fullt scopet til `:root[data-theme="dark"]`. Det prøver ut en
-annen fordeling av rollene i mørk drakt: i stedet for at palettfargen dekker
-hele kortet, blir kortet en mørk skiferflate som bærer sin egen palettfarge —
-13 % i kortflaten og korthodet (identitetsflaten), 10 % i platene og
-kategorifordypningen (innholdsflatene) — og fargen får i tillegg en 4 px
-aksentstripe langs venstre kant, i SAMME farge som avkryssingskanten
-(`--card-accent`). Lyshet uttrykker da hierarkiet, mens fargen holder
-identiteten.
+I stedet for at palettfargen dekker hele kortet, er kortet i mørk drakt en
+mørk skiferflate som bærer sin egen palettfarge — 13 % i kortflaten og
+korthodet (identitetsflaten), 10 % i platene og kategorifordypningen
+(innholdsflatene) — og fargen får i tillegg en 4 px aksentstripe langs venstre
+kant, i SAMME farge som avkryssingskanten (`--card-accent`). Lyshet uttrykker
+hierarkiet; fargen holder identiteten.
 
-Fila er et unntak fra «tokens, og bare tokens» over, og skal ikke bli stående:
-holder uttrykket, foldes reglene inn i `styles.css`, fila og `<link>`-taggen i
-`index.html` fjernes, og denne seksjonen erstattes av de ordinære tokenene.
-
-Så lenge den står, gjelder tre ting:
+Reglene bor i en egen `:root[data-theme="dark"] .card`-blokk i `styles.css`,
+rett under den flate token-blokken — se «Tokens, og bare tokens» over for
+hvorfor de MÅ stå der og ikke som en flat `:root`-verdi. To ting styrer den
+blokken:
 
 - **Ingen regel der må lage en containing block.** Kort, listepunkt og kategori
-  dras som `position: absolute` med *dokument*-koordinater, så en posisjonert
-  eller transformert forfar flytter hele dra-geometrien. En tidligere utgave
-  satte `position: relative` på `.card` for å tegne stripen med `::before`, og
-  alle fire dokument-koordinat-objektene la seg da ~114 px nedenfor fingeren.
-  Stripen males derfor med en bakgrunnsgradient; `outline` og `box-shadow` er de
-  eneste andre virkemidlene. `tests/dnd-viewport-clamp.test.js` måler følgene og
-  `tests/dark-mode.test.js` slår fast at `.card` er `static`.
-- **Ingen regel der må overdøve en tilstand i `styles.css`.** Selektorene er
-  `(0,3,0)` og slår dermed `.card:hover`, `.card.dragging`, `.item.dragging` og
-  `.nav-board .card.active`. Flater som eies av en tilstand justeres derfor via
-  tokens, ikke direkte; der en flate likevel settes direkte, står tilstanden
-  eksplisitt utenfor (`:not(.active)`, `:not(.dragging)`).
-- **Fargepreget utledes av de eksisterende kortvariablene.** `--card-bg` og
-  `--card-accent` settes allerede inline per kort av `paintCardColor()`; prøven
-  blander ut fra dem med `color-mix`, med en ren hex-verdi foran som reserve. Det
-  finnes ingen parallell palett.
+  dras som `position: absolute` med *dokument*-koordinater (se `dragPosLeft`/
+  `dragPosTop`/`liftElement` i `app.js`), så en posisjonert eller transformert
+  forfar flytter hele dra-geometrien. Et tidligere forsøk satte
+  `position: relative` på `.card` for å tegne stripen med `::before`, og det
+  gjorde `.card` til containing block for sine absolutt posisjonerte
+  etterkommere OG lot selektoren overstyre `.card.dragging` sin egen
+  `position: absolute` — det løftede objektet la seg langt nedenfor fingeren på
+  fire av fem nivåer. Stripen males derfor med en BAKGRUNNSGRADIENT; `outline`
+  og `box-shadow` er de eneste andre virkemidlene i blokken.
+  `tests/dnd-viewport-clamp.test.js` måler pekerforankringen i mørk drakt på
+  alle fem nivåer, og `tests/dark-mode.test.js` slår fast at `.card` er
+  `static`.
+- **Ingen regel der må overdøve en tilstand fra resten av `styles.css`.**
+  Selektorene er `(0,3,0)` og slår dermed `.card:hover`, `.card.dragging`,
+  `.item.dragging` og `.nav-board .card.active`. Flater som eies av en tilstand
+  justeres derfor via tokens, ikke direkte; der en flate likevel settes
+  direkte, står tilstanden eksplisitt utenfor (`:not(.active)`,
+  `:not(.dragging)`).
+
+Fargepreget utledes av de eksisterende kortvariablene: `--card-bg` og
+`--card-accent` settes allerede inline per kort av `paintCardColor()` i
+`app.js`, og blokken blander ut fra dem med `color-mix()`, med en ren hex-verdi
+foran som reserve (en nettleser uten `color-mix` beholder den nøytrale
+skiferflaten — fullgod, bare uten fargepreg). Det finnes ingen parallell
+palett.
 
 Målt over alle 36 mørke palettfarger, som min–maks:
 
@@ -345,8 +354,8 @@ noe om rammen, og `theme.js` holder den i takt med `--bg`.
 
 | Fil | Dekker |
 |---|---|
-| `tests/a11y-contrast.test.js` | kontraktstallene i begge drakter |
-| `tests/dark-mode.test.js` | attributtet før første maling, «følg systemet» levende, begge velgerne, varighet over omlasting, speilingen av kortfargene, `color-scheme` og `theme-color`, at et systembytte ikke river ned en pågående navngiving, og at den visuelle prøvens kortflate faktisk males (et stilark som stille slutter å gjelde ser ut som «før») uten å posisjonere kortet |
+| `tests/a11y-contrast.test.js` | kontraktstallene i begge drakter, inkludert kortsubtreets `color-mix()`-blandede flater (`--plate*`, `--chip-bg`, `--card-face`, `--card-head-face`, `--cat-face`) og avkryssingskanten/aksentstripen (`--card-accent`, speilet fra `paintCardColor()` i `app.js`) |
+| `tests/dark-mode.test.js` | attributtet før første maling, «følg systemet» levende, begge velgerne, varighet over omlasting, speilingen av kortfargene, `color-scheme` og `theme-color`, at et systembytte ikke river ned en pågående navngiving, og at kortflaten faktisk males om (en regel som stille slutter å gjelde ser ut som «før») uten å posisjonere kortet |
 | `tests/dnd-viewport-clamp.test.js` | at ingen drakt-regel forskyver dra-geometrien: pekerforankringen måles i mørk drakt på alle fem nivåene (område, mappe, liste, kategori, listepunkt) |
 | `tests/build-version.test.js` | at `theme.js` versjoneres og langtidscaches som de andre klientfilene |
 | `tests/capacitor-android.test.js` | at Android-skallet står på DayNight, at night-variantene snur glyfene, og at `SystemBars.style` er `DEFAULT` |

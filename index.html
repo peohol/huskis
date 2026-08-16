@@ -82,14 +82,6 @@
        @font-face-erklæringene står i styles.css og peker på assets/fonts/.
        Se docs/sikkerhetsheadere.md. -->
   <link rel="stylesheet" href="styles.css" />
-  <!-- VISUELL PRØVE (PR #128): nøytrale mørke kortflater med palettaksent.
-       Midlertidig stilark, fullt scopet til `:root[data-theme="dark"]`, så det
-       er en no-op i lys drakt. Lastes her — ikke fra theme.js — så det står i
-       <head> før første maling og får `?b=<build-ID>` av det ordinære
-       byggesteget som alle andre klientfiler. Holder uttrykket, foldes reglene
-       inn i styles.css og både fila og denne taggen fjernes.
-       Se docs/mork-drakt.md. -->
-  <link rel="stylesheet" href="dark-surface-experiment.css" />
   <!-- LYS/MØRK DRAKT — settes FØR første maling. Skriptet setter
        `data-theme` på <html>, og det er det attributtet som velger
        fargetokenene i styles.css. Lastes det nederst i <body> som i18n.js og
