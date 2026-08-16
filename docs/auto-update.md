@@ -18,7 +18,8 @@ generert ÉN gang i `build.js` og skrevet til to steder med nøyaktig samme verd
 | Fila klienten spør mot | `/version.json` |
 
 ```json
-{ "buildId": "dpl_…", "version": null, "builtAt": "2026-07-28T02:51:02.609Z", "commit": "a92b9a9…" }
+{ "buildId": "dpl_…", "releaseId": "a92b9a9c1d2e", "version": null,
+  "builtAt": "2026-07-28T02:51:02.609Z", "commit": "a92b9a9c1d2e…" }
 ```
 
 `buildId` = Vercels `VERCEL_DEPLOYMENT_ID` når den finnes (unik per deploy, ingen
@@ -33,12 +34,58 @@ Vercel-builden derfor ikke har git-metadata å lese selv.
 
 `version` leses fra `package.json`. Repoet HAR en `package.json`, men den finnes
 kun for Capacitor-skallet ([`mobilapp-plan.md`](mobilapp-plan.md)) og har med
-vilje ikke noe `version`-felt: SemVer skal ikke måtte økes per PR, og build-ID-en
-er den eneste release-identiteten. `version` er derfor `null`. Ingen andre
-miljøvariabler leses, og ingenting hemmelig havner i fila.
+vilje ikke noe `version`-felt: SemVer skal ikke måtte økes per PR. `version` er
+derfor `null`. Ingen andre miljøvariabler leses, og ingenting hemmelig havner i
+fila.
 
 ID-ene sammenlignes som **identitet**, aldri som rangering: en commit-SHA eller
 en deploy-ID er ikke «større» eller «mindre» enn en annen.
+
+## Release-ID (identiteten på tvers av plattformer)
+
+`buildId` svarer på «hvilken build kjører denne klienten?». Den kan ikke svare på
+«hvilken **release**?», for den er unik per build — og en release bygges flere
+ganger: én gang av Vercel for web, én gang av Android-workflowen for APK-en, én
+gang til hvis deployen kjøres om igjen. Derfor finnes `releaseId` ved siden av:
+
+| | `buildId` | `releaseId` |
+|---|---|---|
+| Identifiserer | denne builden/deployen | kilden builden er laget av |
+| Verdi | Vercels deploy-ID, ellers `<sha12>-<tid>` | commit-SHA-ens 12 første tegn |
+| Web og Android, samme commit | forskjellige | **like** |
+| To deployer av samme commit | forskjellige | like |
+| Eier cache og reload | **ja** — alt under her | nei, rører ingenting |
+
+Begge genereres ÉN gang i `build.js`, i den samme kjøringen, og skrives til de
+samme to stedene: `<meta name="huskis-release">` i klienten og `/version.json`.
+En klient kan altså rapportere sin egen release uten å spørre nettet — det er
+det som gjør at en Android-app offline kan sammenlignes med `huskis.no`.
+
+`releaseId` leser nøyaktig den samme kilden som `commit`
+(`VERCEL_GIT_COMMIT_SHA` → `GITHUB_SHA` → `git rev-parse HEAD`) og **aldri**
+`VERCEL_DEPLOYMENT_ID`: en deploy-ID er Vercels infrastruktur, ikke en
+produktversjon. `commit` beholder hele SHA-en; `releaseId` er den korte formen
+som sammenlignes — også den som identitet, aldri som rangering. Er SHA-en ukjent
+(bygg uten git og uten miljøvariabel), er `releaseId` `null` og meta-taggen står
+på `dev`: en ukjent release er ikke en oppdiktet en.
+
+**Ingenting i oppdateringsmekanikken leser `releaseId`.** `update-check.js`
+sammenligner `buildId` og bare den, og validerer svaret på `buildId` alene —
+ukjente felt overses. Lik build-ID gir fortsatt intet banner, ingen reload, og
+`updateSafety()` avgjør fortsatt alene når en reload er trygg. Det er testet fra
+begge sider: `tests/build-version.test.js` (de to ID-ene, og at deploy-ID-en
+aldri blir release-ID) og `tests/auto-update.test.js` (lik build-ID + en annen
+`releaseId` + felt klienten ikke kjenner ⇒ ingen reaksjon).
+
+**`version.json` er additiv.** En telefon kan kjøre en gammel release lenge
+(arkitekturregel 7 i [`mobilapp-plan.md`](mobilapp-plan.md)), og den leser denne
+fila. Nye felt legges derfor til; eksisterende felt døpes ikke om og fjernes
+ikke. En klient som ikke kjenner `releaseId` oppfører seg nøyaktig som før.
+
+Android-skallets `versionCode`/`versionName` er noe annet igjen: de er Google
+Plays krav til butikkbinæren, ikke produktversjonen, og de hører til
+butikkdistribusjonen (fase 6 i [`mobilapp-plan.md`](mobilapp-plan.md)).
+`releaseId` erstatter dem ikke.
 
 ## Build og cache-headere
 
@@ -47,7 +94,7 @@ filene til `dist/` (uten `tests/`, `docs/`, `supabase/`, `*.md`), fjerner
 testmodusen (`dev-mock.js`, `mock-backend.js` og `kun-dev`-blokken i HTML-en —
 alt unntatt i preview-deployer, se
 [`sikkerhetsheadere.md`](sikkerhetsheadere.md)), skriver `version.json`, og
-stempler `index.html` — meta-taggen + `?b=<build-ID>` på `app.js`, `icons.js`,
+stempler `index.html` — de to meta-taggene + `?b=<build-ID>` på `app.js`, `icons.js`,
 `i18n.js`, `theme.js`, `config.js`, `update-check.js` og `styles.css`.
 
 `SKIP`-listen i `build.js` holder også byggetoolingen ute: `package.json`,
@@ -70,7 +117,7 @@ og i tillegg:
 `node build.js` har ingen avhengigheter, og de eneste pakkene i `package.json`
 er Capacitor-toolingen, som produksjonsdeployen verken bruker eller skal ha.
 
-**I lokal utvikling** står meta-taggen på `dev`. `update-check.js` starter da
+**I lokal utvikling** står begge meta-taggene på `dev`. `update-check.js` starter da
 ikke — `python3 -m http.server` og nettlesertestene er urørt. Testene lager sine
 egne instanser med injiserte avhengigheter.
 

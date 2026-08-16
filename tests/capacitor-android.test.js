@@ -53,6 +53,11 @@
    Appen leser altså alltid seg selv, og oppdaterer aldri web-assetene sine.
    Selve OTA-en er fase 5.
 
+   Release-ID-en (fase 4) er det ene som IKKE er dekket av den kjeden: den skal
+   være LIK på tvers av to builds, og bare den synkede kopien viser at Androids
+   halvdel faktisk bærer den. Den sjekkes derfor der kopien måles, sammen med
+   byte-for-byte-sammenligningen.
+
    Ren node-test — ingen server, ingen nettleser, ingen Android SDK.
 
    Kjør:
@@ -143,8 +148,9 @@ if (finnes(APK_CFG)) {
 const pkg = json('package.json');
 check('package.json er privat (publiseres aldri til npm)', pkg.private === true);
 /* build.js leser `version` herfra. Uten feltet forblir version.json.version
-   null, og build-ID-en er fortsatt den eneste release-identiteten
-   (docs/auto-update.md). Testes også fra utfallssiden i build-version.test.js. */
+   null: SemVer skal ikke måtte økes per PR, og release-identiteten utledes av
+   commiten (`releaseId`, docs/auto-update.md) — ikke av denne fila.
+   Testes også fra utfallssiden i build-version.test.js. */
 check('package.json har ikke et version-felt', !('version' in pkg));
 
 const CAP = ['@capacitor/core', '@capacitor/cli', '@capacitor/android'];
@@ -1510,23 +1516,42 @@ if (fs.existsSync(SYNKET)) {
     sammenlignet++;
     if (!fs.readFileSync(q).equals(fs.readFileSync(kilde))) avvik.push(rel);
   }
-  /* index.html sammenlignes mot build.js' EGEN stempling, med build-ID-en lest
-     ut av den pakkede fila. `keep` prøves begge veier: en preview-deploy
+  /* index.html sammenlignes mot build.js' EGEN stempling, med BEGGE ID-ene
+     lest ut av den pakkede fila. `keep` prøves begge veier: en preview-deploy
      beholder testmodusen, en produksjonsbuild river den ut. */
   const synketHtml = path.join(SYNKET, 'index.html');
+  let pakketRelease = null;
   if (fs.existsSync(synketHtml)) {
     const pakket = fs.readFileSync(synketHtml, 'utf8');
     const id = (pakket.match(/<meta\s+name="huskis-build"\s+content="([^"]*)"/) || [, null])[1];
+    pakketRelease = (pakket.match(/<meta\s+name="huskis-release"\s+content="([^"]*)"/) || [, null])[1];
     const { stampHtml } = require(path.join(ROOT, 'build.js'));
     sammenlignet++;
-    const passer = id !== null && [false, true].some((keep) => {
-      try { return stampHtml(indexHtml, id, keep) === pakket; } catch (e) { return false; }
+    const passer = id !== null && pakketRelease !== null && [false, true].some((keep) => {
+      try { return stampHtml(indexHtml, { buildId: id, releaseId: pakketRelease }, keep) === pakket; }
+      catch (e) { return false; }
     });
-    if (!passer) avvik.push('index.html (er ikke stampHtml(kilden, "' + id + '"))');
+    if (!passer) avvik.push('index.html (er ikke stampHtml(kilden, "' + id + '"/"' + pakketRelease + '"))');
   }
-  check('de synkede web-assetene er byte for byte kildene (index.html modulo build-ID)',
+  check('de synkede web-assetene er byte for byte kildene (index.html modulo build- og release-ID)',
     sammenlignet > 0 && avvik.length === 0,
     avvik.join(', ') || sammenlignet + ' filer identiske med kilden');
+
+  /* Fase 4 (docs/mobilapp-plan.md): APK-en skal kunne rapportere den SAMME
+     release-identiteten som web. Kjeden er `node build.js` → `dist/` →
+     `cap sync`, så det som må holde her er at kopien faktisk bærer identiteten
+     videre, i klienten OG i den innebygde `/version.json` — de to stedene den
+     leses fra. Build-ID-ene er derimot forskjellige med vilje: det er to
+     builds av samme release. */
+  const synketVersjon = path.join(SYNKET, 'version.json');
+  if (fs.existsSync(synketVersjon) && pakketRelease !== null) {
+    const v = JSON.parse(fs.readFileSync(synketVersjon, 'utf8'));
+    check('den innebygde version.json bærer release-ID-en',
+      'releaseId' in v && (v.releaseId === null || /^[0-9a-f]{12}$/.test(v.releaseId)),
+      String(v.releaseId));
+    check('klienten og den innebygde version.json melder samme release',
+      pakketRelease === (v.releaseId || 'dev'), pakketRelease + ' / ' + String(v.releaseId));
+  }
 } else {
   console.log('(hopper over de synkede web-assetene — kjør `npm run sync:android` først)');
 }
