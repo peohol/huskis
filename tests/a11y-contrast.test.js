@@ -426,13 +426,22 @@ if (darkBlock) {
   }
   // Speiler lighten() i app.js (paintCardColor): --card-accent finnes ikke som
   // et CSS-token — det settes inline per kort av JS — så testen regner det ut
-  // selv, akkurat som DARK_PALETTE speiler colorForIndex().
+  // selv, akkurat som DARK_PALETTE speiler colorForIndex(). Faktoren (0,34)
+  // leses ut av selve linja i app.js, ikke skrevet av her — endrer noen den,
+  // flytter tallene under seg i stedet for å stå og lyve om en verdi som ikke
+  // lenger finnes.
+  // Ankret til EGENSKAPSNAVNET, ikke bare mønsteret «dark ? lighten(base, …)» —
+  // det mønsteret finnes også på linja over (--card-head, faktor 0,08), og et
+  // uanker søk traff den i stedet ved en tidligere runde av denne testen.
+  const accentFactor = parseFloat((appSrc.match(
+    /setProperty\('--card-accent',\s*dark \? lighten\(base, ([\d.]+)\)/) || [])[1]);
+  check('lysne-faktoren til --card-accent ble lest ut av app.js', accentFactor > 0, accentFactor);
   function jsLighten(hex, amt) {
     const [r, g, b] = rgb(hex);
     const to = (c) => Math.min(255, Math.round(c + (255 - c) * amt)).toString(16).padStart(2, '0');
     return '#' + to(r) + to(g) + to(b);
   }
-  const CARD_ACCENT = DARK_PALETTE.map((c) => jsLighten(c, 0.34));
+  const CARD_ACCENT = DARK_PALETTE.map((c) => jsLighten(c, accentFactor || 0.34));
 
   console.log('\n--- Kortflatene i mørk drakt (color-mix mot palettfargen) ---');
   for (const [what, tok, ink, need] of [
@@ -456,30 +465,41 @@ if (darkBlock) {
 
   console.log('\n--- Kortets tonale trapp (mørk drakt) ---');
   // Rekkefølgen dokumentert i docs/mork-drakt.md: board < kategorifordypning <
-  // kortflate < listepunkt < korthode. Gulvene under er satt med god margin
-  // under de faktisk målte verdiene, så testen fanger et brutt TRINN (et som
-  // kollapser eller snur rekkefølge), ikke enhver liten justering av en
-  // blandingsprosent.
+  // kortflate < listepunkt < korthode — hvert NABOPAR i den kjeden, ikke bare
+  // ytterpunktene, ellers ville et par kunnet kollapse eller bytte plass midt i
+  // uten at testen la merke til det.
+  //
+  // `ratio()` er SYMMETRISK (samme forhold uansett hvilken side som er lysest),
+  // så den alene kan ikke fange at et trinn har snudd RETNING — bare at det har
+  // en viss AVSTAND. Hvert par sjekkes derfor to ting: relativ luminans i riktig
+  // retning (B strengt lysere enn A, for samtlige 36 fargetoner) OG ratioen som
+  // et separat minimumsgulv, satt med god margin under de faktisk målte
+  // verdiene (se steps.js-verifiseringen i PR-en).
   {
     const face = cardMixToken('card-face'), head = cardMixToken('card-head-face'),
       plate = cardMixToken('plate'), cat = cardMixToken('cat-face');
     const alle = !!(face && head && plate && cat);
     check('--card-face/--card-head-face/--plate/--cat-face er alle color-mix()', alle);
     if (alle) {
-      const step = (a, b, floor, label) => {
-        const rs = DARK_PALETTE.map((c) => ratio(mix(a.pct, c, a.neutral), mix(b.pct, c, b.neutral)));
-        const worst = Math.min(...rs);
+      // `spec` er enten en fast hex-streng (board-bakgrunnen) eller
+      // {pct, neutral} fra cardMixToken — begge løses til den faktiske
+      // flaten for en gitt palettfarge.
+      const at = (spec, c) => (typeof spec === 'string' ? spec : mix(spec.pct, c, spec.neutral));
+      const orderedStep = (specA, specB, floor, label) => {
+        const rows = DARK_PALETTE.map((c) => {
+          const a = at(specA, c), b = at(specB, c);
+          return { a, b, retning: lum(b) > lum(a), ratio: ratio(a, b) };
+        });
+        const feilRetning = rows.filter((r) => !r.retning);
+        check(`${label}: B er lysere enn A for alle ${DARK_PALETTE.length} fargene (riktig retning)`,
+          feilRetning.length === 0, feilRetning.slice(0, 3).map((r) => r.a + ' → ' + r.b));
+        const worst = Math.min(...rows.map((r) => r.ratio));
         check(`${label} — svakeste trinn ${worst.toFixed(2)}:1 (gulv ${floor}:1)`, worst >= floor, +worst.toFixed(2));
       };
-      const boardStep = (b, floor, label) => {
-        const rs = DARK_PALETTE.map((c) => ratio(D_BG, mix(b.pct, c, b.neutral)));
-        const worst = Math.min(...rs);
-        check(`${label} — svakeste trinn ${worst.toFixed(2)}:1 (gulv ${floor}:1)`, worst >= floor, +worst.toFixed(2));
-      };
-      boardStep(face, 1.1, 'board → kortflate');
-      step(face, head, 1.1, 'kortflate → korthode');
-      step(face, plate, 1.02, 'kortflate → listepunkt');
-      step(face, cat, 1.02, 'kortflate → kategorifordypning (kategorien mørkere)');
+      orderedStep(D_BG, cat, 1.02, 'board → kategorifordypning');
+      orderedStep(cat, face, 1.05, 'kategorifordypning → kortflate');
+      orderedStep(face, plate, 1.03, 'kortflate → listepunkt');
+      orderedStep(plate, head, 1.05, 'listepunkt → korthode');
     }
   }
 
