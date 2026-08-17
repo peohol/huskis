@@ -332,11 +332,13 @@ async function scenario(page) {
     check('sonden: appen synker fortsatt med sonden installert', kom === true);
 
     const rapport = await page.evaluate(() => window.__probe.report());
+    check('sonden: `report()` sier at synlighetssignalet KOM (`sawVisible`)',
+      rapport.sawVisible === true && rapport.wokeBy === 'visible', rapport);
     check('sonden: `report()` TILSKRIVER runden gjenopptakelsen (`by`)',
       rapport.by === 'visibilitychange', rapport);
     check('sonden: det tilskrevne kallet ER pullen (`get_my_doc`)',
-      (rapport.tail || []).some((e) => e.what === 'rpc' && e.name === 'get_my_doc' && e.by === 'visibilitychange'),
-      rapport.tail);
+      (rapport.calls || []).some((e) => e.name === 'get_my_doc' && e.by === 'visibilitychange'),
+      rapport.calls);
     check('sonden: `deltaMs` er med som kontekst', typeof rapport.deltaMs === 'number', rapport);
 
     /* Merket må ikke smitte: en runde som IKKE kommer av en synlighetsvending
@@ -346,6 +348,13 @@ async function scenario(page) {
     check('sonden: en runde utenom gjenopptakelsen merkes `annet`',
       await page.evaluate(() => window.__probe.log.filter((e) => e.what === 'rpc').every((e) => e.by === 'annet')) === true,
       await page.evaluate(() => window.__probe.log.slice(0, 4)));
+    /* Og uten en synlighetsvending i loggen skal rapporten SI det, ikke bare
+       falle tilbake på ingenting. Det var nettopp den tvetydigheten som gjorde
+       enhetsrundens to lange forsøk vanskelige å lese: `deltaMs: null` kan bety
+       «ingen runde», men også «ingen synlighetsvending i det hele tatt». */
+    check('sonden: rapporten skiller «ingen synlighetsvending» fra «ingen runde»',
+      await page.evaluate(() => window.__probe.report().sawVisible) === false,
+      await page.evaluate(() => window.__probe.report()));
 
     check('sonden: `reset()` tømmer loggen',
       await page.evaluate(() => { window.__probe.reset(); return window.__probe.log.length; }) === 0);

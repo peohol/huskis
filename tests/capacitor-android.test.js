@@ -282,6 +282,15 @@ const manifest = manifestTekst('android/app/src/main/AndroidManifest.xml');
 check('android: manifestet ber om INTERNET',
   /android\.permission\.INTERNET/.test(manifest));
 
+/* ACCESS_NETWORK_STATE er det Chromiums nettverksvarsling i WebView-en henger
+   på. Uten den er tilstanden ukjent, ukjent leses som «på nett», og da står
+   `navigator.onLine` permanent på true mens `online`/`offline` aldri fyrer —
+   målt på enhet i flymodus (docs/mobilapp-plan.md, «Lifecycle- og
+   network-signaler»). Ingen av de tre leserne eier data, så dette er en
+   opprydding i signalene, ikke en datavei. */
+check('android: manifestet ber om ACCESS_NETWORK_STATE (navigator.onLine er død uten)',
+  /android\.permission\.ACCESS_NETWORK_STATE/.test(manifest));
+
 /* Sikkerhetskopi. WebView-lagringen bærer BÅDE Supabase-sesjonen (med
    refresh-tokenet) og hele den lokale bufferen i klartekst, og med Androids
    standard `allowBackup="true"` følger de med ut av enheten — en gjenoppretting
