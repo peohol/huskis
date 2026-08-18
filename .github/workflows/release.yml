@@ -7,7 +7,8 @@ name: Release
 #   2. migrering — setup.sql + users-and-sharing.sql mot produksjonsdatabasen
 #   3. smoke     — supabase/smoke-test.sql: finnes og VIRKER alt klienten
 #                  trenger (tabeller, kolonner, funksjoner, RPC-er, RLS)?
-#   4. deploy    — FØRST nå bygges og publiseres frontenden på Vercel
+#   4. deploy    — FØRST nå bygges OTA-bundelen for Android (signert, lagt i
+#                  treet), og deretter publiseres frontenden på Vercel
 #
 # Hvert ledd `needs` det forrige, så en frontend som avhenger av nye
 # databaseendringer kan ikke nå produksjon før migreringen er fullført OG
@@ -29,6 +30,10 @@ name: Release
 #   VERCEL_TOKEN     — Vercel → Account Settings → Tokens
 #   VERCEL_ORG_ID    — fra .vercel/project.json etter `vercel link`
 #   VERCEL_PROJECT_ID— samme sted
+#   OTA_SIGNING_KEY  — privat RSA-nøkkel (PKCS#8 PEM) som signerer
+#                      OTA-bundelen. Den offentlige halvdelen står i
+#                      capacitor.config.json og er pakket inn i APK-en.
+#                      Se docs/mobilapp-plan.md, fase 5.
 # ============================================================
 
 on:
@@ -66,6 +71,18 @@ env:
   # etter merge. Går den i bakken, er rollback å sette tallet tilbake.
   # `tests/release-pipeline.test.js` vokter at det ER en eksakt versjon.
   VERCEL_CLI_VERSION: '58.5.1'
+
+  # Det LAVESTE native skallet denne web-bundelen fortsatt virker i. Manifestet
+  # publiseres for hvert nivå fra og med dette, til og med `versionCode` i
+  # android/app/build.gradle — et skall utenfor spennet ber om et manifest som
+  # ikke finnes, får 404 og gjør ingenting (docs/mobilapp-plan.md, fase 5).
+  #
+  # HEVES når web-koden begynner å kreve noe et eldre skall ikke har. Da faller
+  # de eldre skallene ut av OTA og må oppdateres gjennom butikken — som er
+  # riktig svar, siden bundelen ikke ville virket i dem.
+  # Kan aldri være 1: både skallet før OTA-pluginen og skallet etter meldte `1`.
+  # `tests/release-pipeline.test.js` vokter begge grensene.
+  OTA_MIN_VERSION_CODE: '2'
 
 jobs:
   # ---- 1. Tester ------------------------------------------------------
@@ -160,7 +177,10 @@ jobs:
         with:
           node-version: '22'
 
-      - name: Sjekk at Vercel-secretene finnes
+      # Begge secretene sjekkes FØR noe arbeid gjøres, slik at en manglende
+      # secret feller jobben med det samme og ikke halvveis. Verdiene leses kun
+      # som «tom eller ikke» — ingen av dem skrives ut.
+      - name: Sjekk at secretene finnes
         run: |
           for s in VERCEL_TOKEN VERCEL_ORG_ID VERCEL_PROJECT_ID; do
             if [ -z "${!s}" ]; then
@@ -168,8 +188,17 @@ jobs:
               exit 1
             fi
           done
+          # Uten signeringsnøkkelen kan OTA-bundelen ikke signeres, og pluginen
+          # er fail closed på signatur: en usignert bundle blir avvist på hver
+          # telefon. Releasen skal derfor stoppe her, ikke publisere en bundle
+          # ingen kan bruke.
+          if [ -z "$OTA_SIGNING_KEY" ]; then
+            echo "::error::Mangler secret OTA_SIGNING_KEY (privat RSA-nøkkel, PKCS#8 PEM). Den offentlige halvdelen står i capacitor.config.json. Se docs/release-og-deploy.md."
+            exit 1
+          fi
         env:
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          OTA_SIGNING_KEY: ${{ secrets.OTA_SIGNING_KEY }}
 
       # Vercel svarer «Could not retrieve Project Settings» på ALT som går galt
       # her — ugyldig token, token uten tilgang, feil prosjekt-ID. Vi spør API-et
@@ -224,6 +253,29 @@ jobs:
           mkdir -p .vercel
           printf '{"projectId":"%s","orgId":"%s"}\n' \
             "$VERCEL_PROJECT_ID" "$VERCEL_ORG_ID" > .vercel/project.json
+
+      # OTA-bundelen for Android (docs/mobilapp-plan.md, fase 5). Den bygges av
+      # NØYAKTIG den commiten som nettopp ble migrert og smoke-testet — jobben
+      # ligger bak `needs: smoke` — og legges i treet FØR opplastingen under.
+      # Vercel-builden kopierer `ota/` ut i `dist/` (mappen står ikke i
+      # SKIP-listen i build.js), så bundelen og manifestet serveres fra
+      # huskis.no sammen med resten av appen.
+      #
+      # `node build.js` her er mobilbundelens EGET bygg: den kjører på runneren
+      # fordi ZIP-en må pakkes der verktøyet finnes, mens web-builden kjører hos
+      # Vercel. De to er to builds av samme release — samme `releaseId`, hver
+      # sin `buildId` — og det er `releaseId` som er identiteten som betyr noe.
+      #
+      # Ingen klient leser dette ennå: web-laget har ikke fått verten i CSP-en,
+      # og appen kaller verken downloadBundle eller setNextBundle. Steget
+      # produserer altså noe som kan måles før noe kan gå galt av det.
+      - name: Bygg og signer OTA-bundelen for Android
+        env:
+          GITHUB_SHA: ${{ github.sha }}
+          OTA_SIGNING_KEY: ${{ secrets.OTA_SIGNING_KEY }}
+        run: |
+          node build.js
+          node .github/scripts/ota-bundle.js
 
       # Builden kjører HOS Vercel, ikke her — altså nøyaktig som da
       # git-integrasjonen deployet main, bare startet fra denne jobben i stedet.

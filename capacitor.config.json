@@ -8,7 +8,8 @@
     },
     "LiveUpdate": {
       "autoUpdateStrategy": "none",
-      "readyTimeout": 10000
+      "readyTimeout": 10000,
+      "publicKey": "-----BEGIN PUBLIC KEY-----\nMIICIjANBgkqhkiG9w0BAQEFAAOCAg8AMIICCgKCAgEA1nhoZQx6del74cQdBbYq\noZ6Yg6/mr75EstUX92sxjrC83epbFs0AzmHEfJvMGIt2YsKEOrEFGLe0d5vRLxYg\n86uH+5qhbulHCLvQxqyTYXcZSw4z/vJ4l/z+yPXJmDrMbHPd5D+jvvBElm2mIY37\noks7IJFOVnQEl95h708eqjkcyWXHHk5xCnxVp9kT4oB4DPWeSRoGdc4c6Nq5Engz\n8yONEJeyP/Y6a8e6H1Cd0+DZWYasl2XjPbx3EUGxVisJlVg9pLse+O9AZK8SQizy\nxPhq/1Efqbn3aNkGql1stjWlZdrfAuO49FPxV+JLGQ3jP9UMb7TU6TsbaJoDhjAZ\nU2QK7ECgMHIwaHR+SHVjp8G/RjBz0lPpZXUCB9Ooiv1j0aRCMvswKFlIBOWvYYYy\nnOF4b27YcOgp6EW6RG2EVY2eXYf6pDlnrYvGX2KfL61qAHm6v/LCCT7frXH8SAC9\nOXCbraTmuVr4jh2YA7jhs0Me1GMm9q73FrOo/xUELYG4x++7sXKbuF3JhYAJdQ3z\nODnddrDxlFJ8FxkvSxI/JjXKDsQFWVjZ+2dHY1EZVHe48u4z4AwsDHlmg6GGSBAQ\nZAcwA5v1mykBTQ2V6MXBiJ6gM2sEwFrFGDyXx8rfKSY6G4254TpBmZiZe6jhbc/6\nEesZHk2n3OmXwMsPRkKKbwUCAwEAAQ==\n-----END PUBLIC KEY-----\n"
     }
   }
 }

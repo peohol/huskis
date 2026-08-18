@@ -34,13 +34,28 @@ den (og enhver annen ny workflow) utenfor migreringen og produksjonsdeployen.
                                           tre forsøk med økende pause)
 3. smoke       psql: supabase/smoke-test.sql
                  ↓ needs                 (read-only transaksjon mot produksjon)
-4. deploy      preflight mot Vercels API → vercel deploy --prod
+4. deploy      preflight mot Vercels API → OTA-bundle (bygget + signert)
+               → vercel deploy --prod
 ```
 
 Builden i ledd 4 kjører HOS Vercel, ikke på runneren — altså som da
 git-integrasjonen deployet `main`, bare startet fra denne jobben i stedet.
 Porten er uendret: jobben ligger bak `needs: smoke`, så opplastingen skjer
 først etter at migreringen er verifisert.
+
+**OTA-bundelen for Android bygges i det samme leddet, rett før opplastingen.**
+`.github/scripts/ota-bundle.js` pakker `dist/` til `ota/bundles/<buildId>.zip`,
+signerer ZIP-en med `OTA_SIGNING_KEY` (`SHA256withRSA`, base64), verifiserer
+signaturen mot den offentlige nøkkelen som er pakket i APK-en, og skriver ett
+manifest per støttet native nivå til `ota/android/<versionCode>.json`. Vercel-
+builden kopierer `ota/` ut i `dist/`, så filene serveres fra huskis.no. Verifiser
+ingen signatur, skrives ingen manifest og releasen stopper. Hva formen betyr og
+hvorfor grensen ligger i URL-en: [`mobilapp-plan.md`](mobilapp-plan.md), fase 5.
+
+Dette er mobilbundelens EGET `node build.js`, kjørt på runneren fordi ZIP-en må
+pakkes der. Web-builden kjører fortsatt hos Vercel. De to er to builds av samme
+release: samme `releaseId`, hver sin `buildId`
+([`auto-update.md`](auto-update.md)).
 
 Hvert ledd er en egen jobb med `needs` på det forrige. Stopper ledd 2 eller 3,
 kjøres ledd 4 aldri — produksjon fortsetter å servere den forrige frontenden.
@@ -237,9 +252,13 @@ pågående release.
 | `VERCEL_TOKEN` | Vercel → Account Settings → Tokens. Scope kan være teamet (`peohols-projects`) ELLER bare prosjektet (`peohols-projects/huskis`) — deployjobben er bygget for at project-scope skal holde | deploy |
 | `VERCEL_ORG_ID` | `.vercel/project.json` etter `vercel link` | deploy |
 | `VERCEL_PROJECT_ID` | samme fil | deploy |
+| `OTA_SIGNING_KEY` | privat RSA-nøkkel, PKCS#8 PEM (`openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:4096`). Den offentlige halvdelen står som `publicKey` i `capacitor.config.json` og er pakket inn i APK-en | deploy (OTA-signeringen) |
 
 Mangler en av dem, feiler jobben med en eksplisitt melding om hvilken — den
-feiler ALDRI stille videre til neste ledd. Merk at siden Vercels git-deploy for
+feiler ALDRI stille videre til neste ledd. `OTA_SIGNING_KEY` behandles likt:
+uten den stopper releasen, i stedet for å publisere en bundle ingen telefon kan
+verifisere (pluginen er fail closed på signatur). Privatnøkkelen forlater aldri
+runneren — den leses ett sted, som miljøvariabel, og skrives aldri ut. Merk at siden Vercels git-deploy for
 `main` er av, er `VERCEL_TOKEN`/`ORG_ID`/`PROJECT_ID` nå det eneste som kan
 publisere til produksjon.
 

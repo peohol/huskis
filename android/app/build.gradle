@@ -7,7 +7,14 @@ android {
         applicationId "no.huskis.app"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 1
+        // OTA-ens kompatibilitetsgrense hviler på dette tallet
+        // (docs/mobilapp-plan.md, «Native-kompatibilitet er en vakt i fase 5»).
+        // Capacitor-malens `1` kunne ikke brukes: et skall bygget FØR
+        // OTA-pluginen og ett bygget etter er native forskjellige, men begge
+        // meldte `1`. Nivået økes når det native skallet endres — manifestet
+        // publiseres per nivå, og et skall uten et manifest får 404 og gjør
+        // ingenting. Fase 6 legger butikkens eget krav på det samme tallet.
+        versionCode 2
         versionName "1.0"
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         aaptOptions {
