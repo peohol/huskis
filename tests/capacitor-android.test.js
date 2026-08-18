@@ -37,7 +37,11 @@
         som avvæpner rollback-timeren — står bak den samme gaten. Og (9c) de to
         native halvdelene signeringsrunden legger inn: `versionCode`, som ER
         OTA-ens kompatibilitetsgrense, og `publicKey`, som er den eneste
-        halvdelen av nøkkelparet som noensinne skal ligge i repoet.
+        halvdelen av nøkkelparet som noensinne skal ligge i repoet. Og (9d)
+        hentingen: manifest-URL-en bygges av det kanoniske originet + skallets
+        `getVersionCode()`, manifestet valideres ved systemgrensen, og
+        `downloadBundle` er den eneste metoden som rører en bundle — ingen
+        `setNextBundle`, ingen `reload`; en hentet bundle blir liggende ubrukt.
     10. Safe areas og skjermtastaturet: erklæringene sonen hviler på —
         `viewport-fit=cover` i index.html, `adjustResize` i manifestet, og
         systemfeltenes utseende i temaet (lyst tema, gjennomsiktige felt,
@@ -674,18 +678,81 @@ const kropp = (navn) =>
 const utenPunkt = ['cloudStart', 'initAccounts'].filter((f) => !/markAppReady\(\);/.test(kropp(f)));
 check('readiness-punktet settes fra begge de brukbare skjermene (cloudStart + initAccounts)',
   utenPunkt.length === 0, utenPunkt.join(', ') || 'cloudStart, initAccounts');
-/* Runde 1 henter INGEN bundle. `downloadBundle`, `setNextBundle` og `reload`
-   hører til runden som gjør det, og DEN runden må ha klargjøringstilstanden og
-   native-kompatibilitetsvakten med seg (docs/mobilapp-plan.md). Kommer et av
-   kallene inn før dem, er rekkefølgen brutt — og et bundlebytte ville skjedd
-   utenom `updateSafety()`. */
+/* ---- 9d. OTA-hentingen: manifest + downloadBundle, uten å bytte ----
+   Runden «hente og verifisere» (docs/mobilapp-plan.md, fase 5): manifestet
+   leses på URL-en det NATIVE nivået bestemmer, valideres ved systemgrensen, og
+   en annen release lastes ned — men stilles ALDRI opp. `setNextBundle` og
+   `reload` hører til runden med klargjøringstilstanden og blokklistevakten;
+   kommer et av kallene inn før dem, ville et bundlebytte skjedd utenom
+   `updateSafety()`, og en rullet-tilbake bundle kunne stilles opp på nytt.
+   Selve oppførselen (stille 404, ===-sammenligningen, kallets felter) kjøres i
+   ekte nettleser med faket bro: tests/ota-fetch.test.js. Her låses KILDEN. */
+const OTA_METODER = ['ready', 'getVersionCode', 'downloadBundle'];
 const otaKall = (appKode.match(/\blive\.(\w+)\(/g) || []).map((m) => m.slice(5, -1));
-check('den eneste native OTA-metoden webkoden kaller er ready()',
-  otaKall.length > 0 && otaKall.every((m) => m === 'ready'),
+check('pluginbroen kalles kun med de tre kjente metodene (ready, getVersionCode, downloadBundle)',
+  otaKall.length > 0 && otaKall.every((m) => OTA_METODER.indexOf(m) > -1),
   otaKall.join(', ') || 'ingen');
-check('pluginbroen brukes kun av readiness-punktet',
-  (appKode.match(/nativePlugins/g) || []).length === 2,
+/* downloadBundle er den eneste nye metoden som RØRER en bundle — lista over
+   bundle-metoder var ['ready'] og er nå ['ready', 'downloadBundle'].
+   getVersionCode er med som ren lesing: den bygger manifest-URL-en (vakten ER
+   URL-en, docs/mobilapp-plan.md «Native-kompatibilitet er en vakt i fase 5»)
+   og endrer ingenting på enheten. */
+check('downloadBundle er den eneste nye metoden som rører en bundle',
+  otaKall.filter((m) => m !== 'ready' && m !== 'getVersionCode').join(',') === 'downloadBundle',
+  otaKall.join(', '));
+check('ingen kode kaller setNextBundle eller reload på pluginbroen — bundelen blir liggende ubrukt',
+  otaKall.indexOf('setNextBundle') === -1 && otaKall.indexOf('reload') === -1
+    && WEB_KILDE.every((f) => !/\bsetNextBundle\b/.test(kode(les(f)))),
+  otaKall.join(', '));
+check('pluginbroen brukes kun av readiness-punktet og OTA-hentingen',
+  (appKode.match(/nativePlugins/g) || []).length === 3,
   (appKode.match(/nativePlugins/g) || []).length + ' forekomster i kjørende kode');
+
+/* Hentingen selv: bak den samme gaten som ready(), URL-en bygget av det
+   kanoniske originet + skallets eget nivå, og manifestet validert FØR noe av
+   det brukes. Alt her er stille å bryte — en hardkodet vert eller et hopp over
+   valideringen ser helt riktig ut helt til feil telefon laster ned feil kode. */
+const otaKropp = (appKode.match(/async function fetchOtaBundle\(\) \{([\s\S]*?)\n  \}/) || [, ''])[1] || '';
+check('OTA-hentingen finnes som én navngitt funksjon (fetchOtaBundle)',
+  otaKropp !== '' && /\.downloadBundle\(/.test(otaKropp),
+  otaKropp ? 'fetchOtaBundle' : 'fant ikke funksjonen');
+check('hentingen står bak native-gaten og bak pluginbroen, ikke ubetinget',
+  /if \(!nativeShell\) return;/.test(otaKropp)
+    && /nativePlugins\.LiveUpdate/.test(otaKropp)
+    && otaKropp.indexOf('nativeShell') < otaKropp.indexOf('.downloadBundle('),
+  otaKropp ? 'gate før downloadBundle' : 'ingen kropp');
+/* getVersionCode() gir en STRENG, og URL-formen er valgt nettopp for å slippe
+   tallparsing og sammenligningsoperator — en parseInt her ville vært den
+   valgte formen forlatt i det stille. */
+check('manifest-URL-en bygges av canonicalAppUrl() og skallets versionCode — ingen egen vert, ingen tallparsing',
+  /canonicalAppUrl\(\)/.test(otaKropp)
+    && /base \+ 'ota\/android\/' \+ versionCode \+ '\.json'/.test(otaKropp)
+    && !/parseInt|Number\(/.test(otaKropp),
+  (otaKropp.match(/base \+ [^;]+/) || ['fant ikke URL-byggingen'])[0]);
+check('nøyaktig ETT fetch, med cache: no-store (manifestet navngir det som gjelder NÅ)',
+  (otaKropp.match(/\bfetch\(/g) || []).length === 1 && /\{ cache: 'no-store' \}/.test(otaKropp),
+  (otaKropp.match(/\bfetch\(/g) || []).length + ' fetch-kall');
+check('manifestet valideres ved systemgrensen før noe av det brukes',
+  /validOtaManifest\(/.test(otaKropp)
+    && otaKropp.indexOf('validOtaManifest(') < otaKropp.indexOf('.downloadBundle('),
+  'validOtaManifest før downloadBundle');
+check('manifestets releaseId sammenlignes med === mot egen meta-tagg (identitet, aldri rangering)',
+  /meta\[name="huskis-release"\]/.test(otaKropp) && /m\.releaseId === egen/.test(otaKropp),
+  (otaKropp.match(/m\.releaseId[^;]*/) || ['fant ikke sammenligningen'])[0]);
+/* Pluginen sjekker checksum-feltet KUN når publicKey ikke er satt (lest i
+   kilden, docs/mobilapp-plan.md «Hva manifestet inneholder»). Et checksum-felt
+   her ville påstått en kontroll som aldri kjører. */
+check('downloadBundle får url, bundleId og signature — og INGEN checksum',
+  /live\.downloadBundle\(\{ url: m\.url, bundleId: m\.bundleId, signature: m\.signature \}\)/.test(otaKropp)
+    && otaKropp.indexOf('checksum') === -1,
+  (otaKropp.match(/live\.downloadBundle\([^)]*\)/) || ['fant ikke kallet'])[0]);
+/* Valideringen låser url til det kanoniske originet: den native nedlastingen
+   går i OkHttp, UTENFOR WebView-ens CSP, så dette er den ene vakten som sier
+   hvilken vert appen i det hele tatt henter kode fra. */
+const validKropp = (appKode.match(/function validOtaManifest\([^)]*\) \{([\s\S]*?)\n  \}/) || [, ''])[1] || '';
+check('valideringen låser url til det kanoniske originet (nedlastingen skjer utenfor CSP-en)',
+  /m\.url\.indexOf\(base\) !== 0/.test(validKropp),
+  (validKropp.match(/m\.url[^;]*/) || ['fant ikke url-sjekken'])[0]);
 
 /* ---- 10. Safe areas, systemfeltene og skjermtastaturet ----
 

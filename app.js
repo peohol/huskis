@@ -11623,6 +11623,88 @@
       .then(() => { readyInFlight = false; });
   }
 
+  /* ---------------- OTA: hente og verifisere en bundle ----------------
+     Steg 0–1 av OTA-flyten (`docs/mobilapp-plan.md`, «Slik er løsningen tenkt
+     å henge sammen»): manifestet leses fra det kanoniske originet på URL-en
+     det NATIVE nivået bestemmer, og en annen release lastes ned med pluginens
+     `downloadBundle()` — signaturvakten ligger i pluginen (fail closed når
+     `publicKey` er satt, derfor ingen `checksum` i kallet). Bundelen blir
+     liggende ubrukt: `setNextBundle()`/`reload()` hører til runden med
+     klargjøringstilstanden, og uten et bytte er en nedlasting alltid trygg —
+     den rører ikke koden som kjører.
+
+     Alle utfall er STILLE — intet banner, ingen kastet feil. En 404 er vakten
+     som virker (skallet er utenfor spennet manifestene skrives for), og en
+     nettverksfeil er en offline oppstart; begge betyr «ingenting å gjøre».
+     NØYAKTIG ETT fetch per oppstart, ingen retry og ingen poll: gjentakene
+     hører til klargjøringstilstanden i update-check.js, som ikke finnes før
+     `setNextBundle()` gjør det.
+
+     `otaFetch` sier hvor langt flyten kom og hvorfor den stoppet — lest i
+     enhetsøkten (chrome://inspect), som liveReadyError over. */
+  let otaFetch = { state: 'idle', detail: null };
+  /* Manifestet er et svar fra nettet, ikke en typet verdi: form og typer
+     sjekkes FØR noe av innholdet brukes, og alt som ikke stemmer er «finnes
+     ikke» — samme utfall som 404. `bundleId` blir et navn i pluginens lager og
+     `url` gis til NATIV nedlasting utenfor WebView-ens CSP, så begge låses til
+     formene serveren faktisk skriver (.github/scripts/ota-bundle.js): url må
+     ligge på det kanoniske originet — appen henter aldri kode fra en vert
+     ingen har navngitt. versionCode er manifestets egen selvkontroll: filen vi
+     fikk er filen vi ba om. */
+  function validOtaManifest(m, versionCode, base) {
+    const str = (v, max) => typeof v === 'string' && v.length > 0 && v.length <= max;
+    if (!m || typeof m !== 'object' || Array.isArray(m)) return false;
+    if (!str(m.releaseId, 64) || /\s/.test(m.releaseId)) return false;
+    if (!str(m.bundleId, 200) || !/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(m.bundleId)) return false;
+    if (!str(m.url, 2000) || m.url.indexOf(base) !== 0) return false;
+    if (!str(m.signature, 4096) || !/^[A-Za-z0-9+/]+=*$/.test(m.signature)) return false;
+    if (String(m.versionCode) !== versionCode) return false;
+    return true;
+  }
+  async function fetchOtaBundle() {
+    if (otaFetch.state !== 'idle') return;           // maks én henting per oppstart
+    if (!nativeShell) return;                        // samme gate som ready()
+    const live = nativePlugins.LiveUpdate;
+    if (!live || typeof live.getVersionCode !== 'function' || typeof live.downloadBundle !== 'function') return;
+    // Egen release leses lokalt, aldri fra nettet. «dev» = ubygget kildekode —
+    // samme placeholder-regel som update-check.js: da finnes ingen identitet å
+    // sammenligne med, og ingenting hentes.
+    const metaEl = document.querySelector('meta[name="huskis-release"]');
+    const egen = metaEl ? String(metaEl.getAttribute('content') || '').trim() : '';
+    if (!egen || egen === 'dev') return;
+    otaFetch = { state: 'checking', detail: null };
+    let m = null;
+    try {
+      // getVersionCode() gir en STRENG, og den brukes kun som tekst i URL-en —
+      // ingen tallparsing (docs/mobilapp-plan.md, «Native-kompatibilitet er en
+      // vakt i fase 5»). Kun sifre: verdien blir en del av en URL.
+      const svar = await live.getVersionCode();
+      const versionCode = svar && typeof svar.versionCode === 'string' ? svar.versionCode.trim() : '';
+      if (!/^\d+$/.test(versionCode)) { otaFetch = { state: 'no-manifest', detail: 'versionCode fra skallet: ' + JSON.stringify(svar) }; return; }
+      const base = canonicalAppUrl();
+      const res = await fetch(base + 'ota/android/' + versionCode + '.json', { cache: 'no-store' });
+      if (!res.ok) { otaFetch = { state: 'no-manifest', detail: 'http ' + res.status }; return; }
+      const data = await res.json();
+      if (!validOtaManifest(data, versionCode, base)) { otaFetch = { state: 'no-manifest', detail: 'ugyldig manifest' }; return; }
+      m = data;
+    } catch (e) {
+      otaFetch = { state: 'no-manifest', detail: (e && e.message) || String(e) };
+      return;
+    }
+    // Identitet, aldri rangering — samme prinsipp som buildId i
+    // update-check.js (docs/auto-update.md).
+    if (m.releaseId === egen) { otaFetch = { state: 'same-release', detail: egen }; return; }
+    otaFetch = { state: 'downloading', detail: m.bundleId };
+    try {
+      await live.downloadBundle({ url: m.url, bundleId: m.bundleId, signature: m.signature });
+      otaFetch = { state: 'downloaded', detail: m.bundleId };
+    } catch (e) {
+      // Også stille: en avvist signatur eller en avbrutt nedlasting koster
+      // ingenting før noe stilles opp. Feilen står her for enhetsøkten.
+      otaFetch = { state: 'download-failed', detail: (e && e.message) || String(e) };
+    }
+  }
+
   async function initAccounts() {
     const client = acli();
     if (!client) {
@@ -12850,6 +12932,10 @@
   paintLanguage();
   paintTheme();
   initAccounts();
+  // OTA-hentingen (fase 5): ett manifest-oppslag per oppstart, kun i native
+  // skall — fire-and-forget, og alle utfall er stille. Uavhengig av
+  // innloggingen over: en annen release skal hentes også på auth-skjermen.
+  fetchOtaBundle();
 
   // Eksponer for enkel feilsøking/testing
   window.__huskis = {
@@ -12871,6 +12957,9 @@
     // Siste feil fra et mislykket LiveUpdate.ready()-kall, eller null. Lest i
     // enhetsøkten når appReady blir hengende på false i native runtime.
     get liveReadyError() { return liveReadyError; },
+    // Hvor langt OTA-hentingen kom ved denne oppstarten, og hvorfor den
+    // stoppet. Lest i enhetsøkten; i en nettleser står den alltid på 'idle'.
+    get otaFetch() { return otaFetch; },
     tour: {
       start: startTour,
       end: endTour,
