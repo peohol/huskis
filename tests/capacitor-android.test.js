@@ -34,7 +34,10 @@
         filer. Og (9b) OTA-pluginen fase 5 innfører: rollback er PÅ
         (`readyTimeout` > 0), pluginen henter ingenting av seg selv
         (`autoUpdateStrategy` er ikke slått på), og `ready()` — det ene kallet
-        som avvæpner rollback-timeren — står bak den samme gaten.
+        som avvæpner rollback-timeren — står bak den samme gaten. Og (9c) de to
+        native halvdelene signeringsrunden legger inn: `versionCode`, som ER
+        OTA-ens kompatibilitetsgrense, og `publicKey`, som er den eneste
+        halvdelen av nøkkelparet som noensinne skal ligge i repoet.
     10. Safe areas og skjermtastaturet: erklæringene sonen hviler på —
         `viewport-fit=cover` i index.html, `adjustResize` i manifestet, og
         systemfeltenes utseende i temaet (lyst tema, gjennomsiktige felt,
@@ -70,6 +73,7 @@
 'use strict';
 const fs = require('fs');
 const path = require('path');
+const crypto = require('crypto');
 const { spawnSync } = require('child_process');
 
 const ROOT = path.join(__dirname, '..');
@@ -562,14 +566,61 @@ const SKY_FELT = ['appId', 'defaultChannel', 'serverDomain'];
 const skySatt = lu ? SKY_FELT.filter((f) => lu[f]) : [];
 check('ingen Capawesome Cloud-konto i konfigurasjonen (selvhostet, uten sky)',
   skySatt.length === 0, skySatt.join(', ') || 'ingen av ' + SKY_FELT.join('/'));
-/* `publicKey` innføres først i runden som faktisk signerer en bundle — den
-   forutsetter et nøkkelpar som ikke finnes ennå (docs/mobilapp-plan.md). Står
-   den der en dag, er det den OFFENTLIGE halvdelen: privatnøkkelen er en
-   Actions-secret og skal aldri kunne bli pakket inn i en APK. */
+/* ---- 9c. De to native halvdelene av signeringen ----
+
+   Begge er BAKT INN i binæren og kan ikke endres uten en ny butikkrelease. Det
+   er nettopp derfor de voktes her: en feil i en av dem oppdages ellers først
+   når en telefon avviser en bundle — eller, verre, når den godtar en den ikke
+   skulle godtatt.
+
+   `versionCode` ER kompatibilitetsgrensen (docs/mobilapp-plan.md,
+   «Native-kompatibilitet er en vakt i fase 5»). Manifestet publiseres per nivå,
+   og et skall uten et manifest for sitt nivå får 404 og gjør ingenting. Nivået
+   kan derfor aldri være Capacitor-malens `1`: skallet FØR OTA-pluginen og
+   skallet ETTER er native forskjellige, men begge meldte `1`, og grensen ville
+   sluppet inn begge. Spennet manifestene faktisk skrives for sjekkes mot dette
+   tallet i tests/release-pipeline.test.js. */
+const versionCode = Number((kode(appGradle).match(/^\s*versionCode\s+(\d+)\s*$/m) || [])[1]);
+check('android: versionCode er et helt tall over 1 (grensen kan ikke være 1)',
+  Number.isInteger(versionCode) && versionCode > 1, String(versionCode));
+
+/* `publicKey` er den OFFENTLIGE halvdelen. Privatnøkkelen er en Actions-secret
+   og skal aldri kunne bli pakket inn i en APK — derfor sjekkes det eksplisitt
+   at det ikke står en privatnøkkel her. Pluginen er fail closed på feltet: er
+   det satt og signaturen mangler, kastes ERROR_SIGNATURE_MISSING, og den faller
+   IKKE tilbake til checksum. */
 check('publicKey, hvis satt, er en offentlig nøkkel — aldri en privatnøkkel',
   !lu || !lu.publicKey
     || (/BEGIN PUBLIC KEY/.test(lu.publicKey) && !/PRIVATE KEY/.test(lu.publicKey)),
   lu && lu.publicKey ? 'publicKey satt' : 'ikke satt ennå (signeringsrunden)');
+if (lu && lu.publicKey) {
+  let nokkel = null;
+  try { nokkel = crypto.createPublicKey(lu.publicKey); } catch (e) { nokkel = null; }
+  check('publicKey er en RSA-nøkkel som lar seg lese',
+    !!nokkel && nokkel.asymmetricKeyType === 'rsa',
+    nokkel ? nokkel.asymmetricKeyType : 'lot seg ikke lese');
+  check('nøkkelen er minst 2048 bit',
+    !!nokkel && (nokkel.asymmetricKeyDetails || {}).modulusLength >= 2048,
+    nokkel ? String((nokkel.asymmetricKeyDetails || {}).modulusLength) : '');
+  /* Og den må overleve PLUGINENS egen parsing, ikke bare Nodes. Lest i
+     LiveUpdate.java: PEM-hodene og linjeskiftene strippes, resten base64-dekodes
+     og leses som en X509EncodedKeySpec (SubjectPublicKeyInfo). En nøkkel på et
+     annet format — PKCS#1 («BEGIN RSA PUBLIC KEY»), DER-fil, en OpenSSH-linje —
+     ville stått grønn på mønstersjekken over og feilet på telefonen. */
+  const raa = lu.publicKey
+    .replace('-----BEGIN PUBLIC KEY-----', '').replace('-----END PUBLIC KEY-----', '')
+    .replace(/\s/g, '');
+  let somPluginen = null;
+  try {
+    somPluginen = crypto.createPublicKey({ key: Buffer.from(raa, 'base64'), format: 'der', type: 'spki' });
+  } catch (e) { somPluginen = null; }
+  const derAv = (k) => (k ? k.export({ type: 'spki', format: 'der' }) : Buffer.alloc(0));
+  check('nøkkelen overlever pluginens EGEN parsing (base64 uten PEM-hoder → X509EncodedKeySpec)',
+    !!somPluginen && !!nokkel && derAv(somPluginen).equals(derAv(nokkel)),
+    somPluginen ? 'samme nøkkel begge veier' : 'lot seg ikke lese som X.509/SPKI');
+} else {
+  console.log('(hopper over nøkkelsjekkene — publicKey er ikke satt ennå)');
+}
 if (finnes(APK_CFG)) {
   const innebygdLu = (json(APK_CFG).plugins || {}).LiveUpdate || null;
   check('den innebygde konfigurasjonen i APK-en bærer den samme LiveUpdate-blokken',

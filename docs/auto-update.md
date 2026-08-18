@@ -119,6 +119,11 @@ og i tillegg:
   (`location.reload(true)` brukes ikke; parameteren er avviklet.)
 * JS/CSS → `max-age=31536000, immutable`. Trygt fordi URL-en inneholder
   build-ID-en: nytt innhold ⇒ ny URL.
+* `/ota/android/*.json` → `no-store` (+ `CDN-Cache-Control: no-store`), og
+  `/ota/bundles/*.zip` → `max-age=31536000, immutable`. Samme to regimer som
+  over, av samme grunn: manifestet navngir bundelen som gjelder NÅ, mens ZIP-en
+  har build-ID-en i navnet. Hva filene er, og hvem som leser dem, står i
+  [`mobilapp-plan.md`](mobilapp-plan.md) (fase 5).
 
 `installCommand` er tom streng, som betyr at Vercel hopper over install-steget:
 `node build.js` har ingen avhengigheter, og de eneste pakkene i `package.json`

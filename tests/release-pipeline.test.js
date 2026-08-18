@@ -24,6 +24,12 @@
         404 hver for seg, og logger aldri tokenet — og bruker ikke `vercel pull`
      9. Vercel CLI-en er låst til en EKSAKT versjon (aldri `@latest`), definert
         ett sted og verifisert i jobben
+    10. OTA-bundelen (fase 5): den bygges og signeres i den samme jobben som
+        deployer — altså bak smoke-testen — og legges i treet FØR opplastingen.
+        Signeringen er ikke bare påstått her: nøkkelparet lages i testen, hele
+        veien zip → signatur → verifisering kjøres, og en endret byte eller feil
+        nøkkel må gi et NEI. Grensene rundt den (nedre `versionCode`, at `ota/`
+        faktisk publiseres, at secreten aldri skrives ut) sjekkes ved siden av.
 
    Ren node-test — ingen server, ingen nettleser.
 
@@ -32,7 +38,10 @@
    ============================================================ */
 'use strict';
 const fs = require('fs');
+const os = require('os');
 const path = require('path');
+const crypto = require('crypto');
+const { spawnSync } = require('child_process');
 
 const ROOT = path.join(__dirname, '..');
 const WF = path.join(ROOT, '.github', 'workflows');
@@ -239,6 +248,230 @@ const sqlRunner = fs.readFileSync(path.join(ROOT, 'supabase', 'tests', 'run-test
 check('SQL-suiten kjører smoke-testen mot et ferdig migrert skjema',
   /smoke-test\.sql/.test(sqlRunner),
   (sqlRunner.match(/smoke-test\.sql/g) || []).length + ' steder');
+
+/* ---- 10. OTA-bundelen: bygget, signert og verifisert i release-kjeden ----
+
+   Fase 5 publiserer en signert ZIP og ett manifest per støttet native nivå
+   (docs/mobilapp-plan.md). Ingen klient leser dem ennå — denne runden
+   produserer dem — men rekkefølgen og signaturen er nettopp det som ikke kan
+   ettermonteres: en bundle bygget av en ANNEN commit enn den som ble migrert og
+   smoke-testet, eller en signatur som ikke verifiserer, er stille feil helt
+   fram til en telefon avviser bundelen. */
+const otaSkript = '.github/scripts/ota-bundle.js';
+const ota = require(path.join(ROOT, otaSkript));
+const otaKilde = fs.readFileSync(path.join(ROOT, otaSkript), 'utf8');
+
+check('signeringsskriptet finnes', fs.existsSync(path.join(ROOT, otaSkript)));
+/* Repoet har ingen klientavhengigheter, og byggesteget skal ikke bli stedet der
+   den første kommer inn. Signeringen er ren `crypto` fra Node. */
+const otaRequire = [...otaKilde.matchAll(/require\('([^']+)'\)/g)].map((m) => m[1]);
+check('skriptet bruker bare Nodes standardbibliotek (ingen ny avhengighet)',
+  otaRequire.every((r) => ['fs', 'path', 'crypto', 'child_process'].indexOf(r) > -1),
+  otaRequire.join(', '));
+
+/* Rekkefølgen: bundelen skal bygges av den commiten som nettopp passerte
+   smoke-testen, og ligge i treet før det lastes opp. Ankrene finnes begge, så
+   en indexOf mot et fjernet steg kan ikke bli en stille pass. */
+const otaJobber = Object.entries(relJobs)
+  .filter(([, tekst]) => tekst.indexOf(otaSkript) > -1).map(([navn]) => navn);
+check('nøyaktig én jobb bygger OTA-bundelen', otaJobber.length === 1,
+  otaJobber.join(', ') || 'ingen');
+check('den jobben er «deploy», som venter på smoke-testen', otaJobber[0] === 'deploy');
+/* Indeksene måles i KODEN, ikke i teksten: kommentarene i jobben omtaler både
+   `vercel deploy` og builden, og en rekkefølgesjekk mot dem ville målt hvor
+   forklaringene står. */
+const deployKode = utenKommentarer(relJobs.deploy || '');
+const iOta = deployKode.indexOf(otaSkript);
+const iBuild = deployKode.indexOf('node build.js');
+const iOpplasting = deployKode.indexOf('vercel deploy');
+check('OTA-bundelen bygges og signeres FØR treet lastes opp til Vercel',
+  iOta > -1 && iOpplasting > -1 && iOta < iOpplasting,
+  'ota@' + iOta + ', opplasting@' + iOpplasting);
+check('webbuilden kjøres før bundelen pakkes (ZIP-en er dist/)',
+  iBuild > -1 && iBuild < iOta, 'build@' + iBuild);
+check('bundelen bygges av den samme commiten som deployes (GITHUB_SHA sendes inn)',
+  !!relJobs.deploy && /GITHUB_SHA: \$\{\{ github\.sha \}\}/.test(relJobs.deploy));
+
+/* Privatnøkkelen skal aldri kunne leses ut av en logg — verken av workflowen
+   eller av skriptet. Skriptet rører den ett sted: der den hentes inn. */
+check('deployjobben stopper hvis signeringsnøkkelen mangler (fail closed)',
+  !!relJobs.deploy && /if \[ -z "\$OTA_SIGNING_KEY" \]/.test(relJobs.deploy));
+check('workflowen skriver aldri ut signeringsnøkkelen',
+  !/echo[^\n]*\$OTA_SIGNING_KEY/.test(utenKommentarer(release)));
+const nokkelLesninger = (otaKilde.match(/process\.env\.OTA_SIGNING_KEY/g) || []).length;
+check('skriptet leser signeringsnøkkelen på nøyaktig ett sted',
+  nokkelLesninger === 1, nokkelLesninger + ' lesninger');
+/* Og den skrives aldri ut. Navnet får stå i prosa og i feilmeldinger — det er
+   VERDIEN som aldri skal nå en logg, altså variabelen den ligger i. */
+const lekkendeUtskrift = otaKilde.split('\n')
+  .filter((l) => /console\.(log|error)/.test(l))
+  .filter((l) => /privateKeyPem|process\.env\.OTA_SIGNING_KEY/.test(l));
+check('skriptet skriver aldri ut selve nøkkelen',
+  lekkendeUtskrift.length === 0, lekkendeUtskrift.join(' | ') || 'ingen');
+
+/* Nedre native grense. Manifestet publiseres per nivå, så grensen er hvilke
+   filer som i det hele tatt finnes — og den kan aldri være 1, fordi både
+   skallet før OTA-pluginen og skallet etter meldte `versionCode 1`. */
+const minNivaa = (release.match(/^\s*OTA_MIN_VERSION_CODE:\s*'(\d+)'/m) || [])[1];
+check('release.yml definerer OTA_MIN_VERSION_CODE ett sted', !!minNivaa, minNivaa || 'mangler');
+const gradleVersionCode = ota.readVersionCode(
+  fs.readFileSync(path.join(ROOT, 'android', 'app', 'build.gradle'), 'utf8'));
+check('den nedre grensen er over 1 (versionCode 1 er tvetydig)',
+  Number(minNivaa) >= 2, String(minNivaa));
+check('den nedre grensen er ikke høyere enn skallet repoet bygger',
+  Number(minNivaa) <= gradleVersionCode,
+  'min=' + minNivaa + ', versionCode=' + gradleVersionCode);
+check('manifestnivåene avvises hvis grensen settes til 1',
+  (() => { try { ota.manifestLevels(1, 4); return false; } catch (e) { return true; } })());
+check('manifestnivåene dekker hele spennet fra grensen til skallet',
+  ota.manifestLevels(2, 4).join(',') === '2,3,4', ota.manifestLevels(2, 4).join(','));
+
+/* Bundelen lastes ned av NATIV kode med en absolutt URL, og den må stå på det
+   kanoniske originet — ikke på et av domenene som bare redirecter dit. */
+const kanonisk = (fs.readFileSync(path.join(ROOT, 'config.js'), 'utf8')
+  .match(/canonicalAppUrl:\s*'([^']+)'/) || [])[1];
+check('bundle-URL-en står på det kanoniske originet',
+  !!kanonisk && ota.bundleUrl('x').indexOf(kanonisk + '/') === 0, ota.bundleUrl('<bundleId>'));
+
+/* `dist/` er det som serveres. Havner `ota` i SKIP-listen i build.js, blir
+   verken bundelen eller manifestet publisert — og OTA stopper stille. */
+const buildKilde = fs.readFileSync(path.join(ROOT, 'build.js'), 'utf8');
+const skipListe = (buildKilde.match(/const SKIP = new Set\(\[[\s\S]*?\]\);/) || [''])[0];
+check('build.js holder IKKE ota/ utenfor dist/', skipListe.indexOf("'ota'") === -1);
+/* Mappen lages kun på runneren, midt i deployjobben, og kan derfor se ut som
+   noe man burde gitignorere. Det ville vært en stille OTA-stopp: Vercel CLI-en
+   laster opp treet, og hva den utelater styres ikke av dette repoet. En mappe
+   ingen laster opp blir aldri kopiert til dist/, og manifestet ville svart 404
+   for alle. */
+check('ota/ er ikke gitignorert (ellers når den aldri opplastingen)',
+  spawnSync('git', ['check-ignore', '-q', '--no-index', 'ota/'], { cwd: ROOT }).status !== 0);
+
+/* Manifestet navngir bundelen som gjelder NÅ og må aldri serveres fra cache;
+   ZIP-en har build-ID-en i navnet og kan caches for alltid. */
+const otaHeader = (kilde, nokkel) => {
+  const e = (vercel.headers || []).find((h) => h.source === kilde);
+  const v = e && (e.headers || []).find((x) => x.key === nokkel);
+  return v ? v.value : '';
+};
+check('manifestene serveres uten cache', /no-store/.test(otaHeader('/ota/android/(.*)', 'Cache-Control')),
+  otaHeader('/ota/android/(.*)', 'Cache-Control') || 'ingen header');
+check('…også forbi CDN-en', /no-store/.test(otaHeader('/ota/android/(.*)', 'CDN-Cache-Control')));
+check('ZIP-ene caches for alltid (build-ID-en står i navnet)',
+  /immutable/.test(otaHeader('/ota/bundles/(.*)', 'Cache-Control')),
+  otaHeader('/ota/bundles/(.*)', 'Cache-Control') || 'ingen header');
+
+/* ---- Signaturen, kjørt — ikke lest ----
+   Nøkkelparet lages her, så testen trenger ingen secret. Det den beviser er at
+   `crypto.createSign('sha256')` gir en signatur `crypto.createVerify` godtar
+   over nøyaktig de bytene som ble signert, og at den sier NEI når den skal.
+   At Java leser den samme signaturen er lest i pluginens kilde
+   (`Signature.getInstance("SHA256withRSA")` over filbytene, base64), ikke kjørt
+   her — det krever en JVM, og står som eget punkt i mobilapp-planen. */
+function nyttNokkelpar() {
+  return crypto.generateKeyPairSync('rsa', {
+    modulusLength: 2048,
+    publicKeyEncoding: { type: 'spki', format: 'pem' },
+    privateKeyEncoding: { type: 'pkcs8', format: 'pem' },
+  });
+}
+const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'huskis-ota-'));
+try {
+  const par = nyttNokkelpar();
+  const annet = nyttNokkelpar();
+
+  const fil = path.join(tmp, 'vilkarlig.bin');
+  fs.writeFileSync(fil, crypto.randomBytes(5000));
+  const sig = ota.signFile(fil, par.privateKey);
+  check('signaturen verifiserer mot den offentlige halvdelen',
+    ota.verifyFile(fil, sig, par.publicKey) === true);
+  check('en annen nøkkel verifiserer den IKKE',
+    ota.verifyFile(fil, sig, annet.publicKey) === false);
+  const bytes = fs.readFileSync(fil);
+  bytes[0] = bytes[0] ^ 0xff;
+  fs.writeFileSync(fil, bytes);
+  check('én endret byte gjør signaturen ugyldig',
+    ota.verifyFile(fil, sig, par.publicKey) === false);
+
+  /* Hele jobben, med en liten `dist/`: zip → signatur → verifisering →
+     manifest. Det er den samme funksjonen release.yml kjører; bare nøklene og
+     mappen er testens egne. */
+  const dist = path.join(tmp, 'dist');
+  fs.mkdirSync(path.join(dist, 'assets'), { recursive: true });
+  fs.writeFileSync(path.join(dist, 'index.html'), '<!doctype html><title>t</title>');
+  fs.writeFileSync(path.join(dist, 'assets', 'a.svg'), '<svg xmlns="http://www.w3.org/2000/svg"/>');
+  const ids = {
+    bundleId: 'abc123def456-testid', releaseId: 'abc123def456',
+    commit: 'a'.repeat(40), builtAt: '2026-08-18T00:00:00.000Z',
+  };
+  const res = ota.publishBundle({
+    distDir: dist, outDir: path.join(tmp, 'ota'),
+    privateKeyPem: par.privateKey, publicKeyPem: par.publicKey,
+    ids, versionCode: 3, minVersionCode: 2,
+  });
+  check('ZIP-en ble skrevet med build-ID-en som navn',
+    fs.existsSync(res.zipPath) && path.basename(res.zipPath) === ids.bundleId + '.zip',
+    path.basename(res.zipPath));
+  /* `zip` kjøres med cwd INNE i dist/. En utdata-sti som ikke er gjort absolutt
+     ville da blitt tolket derfra — altså skrevet et annet sted enn kalleren ba
+     om, eller feilet med en kryptisk exit-kode. */
+  check('utdata-stiene er absolutte, uavhengig av hva kalleren sendte inn',
+    path.isAbsolute(res.zipPath) && res.manifests.every((m) => path.isAbsolute(m.path)));
+
+  /* `version.json` kjenner bare `buildId`, `downloadBundle()` bare `bundleId`.
+     Navnebyttet skjer ett sted, og det er dette som faktisk kjører i release.yml
+     — det er ikke dekket av kallet over, som får identitetene ferdig satt. */
+  const fraVersjon = ota.idsFromVersion({
+    buildId: 'b-1', releaseId: 'r-1', commit: 'c', builtAt: 't', version: null,
+  });
+  check('buildId fra version.json blir bundleId mot pluginen',
+    fraVersjon.bundleId === 'b-1' && fraVersjon.releaseId === 'r-1',
+    JSON.stringify(fraVersjon));
+  check('en build uten identitet gir ingen bundle (fail closed)',
+    (() => {
+      try {
+        ota.publishBundle({
+          distDir: dist, outDir: path.join(tmp, 'ota-uten-id'),
+          privateKeyPem: par.privateKey, publicKeyPem: par.publicKey,
+          ids: ota.idsFromVersion({}), versionCode: 2, minVersionCode: 2,
+        });
+        return false;
+      } catch (e) { return /mangler bundleId|mangler releaseId/.test(e.message); }
+    })());
+  check('signaturen i manifestet verifiserer mot ZIP-en som faktisk ble skrevet',
+    ota.verifyFile(res.zipPath, res.manifests[0].manifest.signature, par.publicKey) === true);
+  check('det skrives ett manifest per støttet nivå',
+    res.manifests.length === 2
+      && res.manifests.every((m) => fs.existsSync(m.path))
+      && res.manifests.map((m) => path.basename(m.path)).join(',') === '2.json,3.json',
+    res.manifests.map((m) => path.basename(m.path)).join(','));
+  const m0 = JSON.parse(fs.readFileSync(res.manifests[0].path, 'utf8'));
+  check('manifestet navngir releasen, bundelen og nivået sitt',
+    m0.releaseId === ids.releaseId && m0.bundleId === ids.bundleId && m0.versionCode === 2,
+    JSON.stringify({ releaseId: m0.releaseId, bundleId: m0.bundleId, versionCode: m0.versionCode }));
+  check('manifestet peker på ZIP-en på det kanoniske originet',
+    m0.url === ota.bundleUrl(ids.bundleId), m0.url);
+  /* Pluginen sjekker `checksum` KUN når `publicKey` ikke er satt (lest i
+     LiveUpdate.java). Et checksum-felt ved siden av signaturen ville påstått en
+     kontroll som aldri kjører. */
+  check('manifestet påstår ingen checksum ved siden av signaturen',
+    !('checksum' in m0), Object.keys(m0).join(', '));
+
+  /* Den ene feilen som ellers ikke ville vist seg før på en telefon: secreten
+     og den innebygde nøkkelen er ikke to halvdeler av samme par. */
+  let stoppet = false;
+  try {
+    ota.publishBundle({
+      distDir: dist, outDir: path.join(tmp, 'ota-feil'),
+      privateKeyPem: par.privateKey, publicKeyPem: annet.publicKey,
+      ids, versionCode: 2, minVersionCode: 2,
+    });
+  } catch (e) { stoppet = /[Ss]ignaturen verifiserer ikke/.test(e.message); }
+  check('et nøkkelpar som ikke henger sammen stopper publiseringen', stoppet);
+  check('…og da ble det heller ikke skrevet noe manifest',
+    !fs.existsSync(path.join(tmp, 'ota-feil', 'android')));
+} finally {
+  fs.rmSync(tmp, { recursive: true, force: true });
+}
 
 console.log('\n==== ' + pass + '/' + (pass + fail) + ' PASS ====');
 process.exit(fail === 0 ? 0 : 1);
