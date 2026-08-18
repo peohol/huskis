@@ -584,43 +584,51 @@ const versionCode = Number((kode(appGradle).match(/^\s*versionCode\s+(\d+)\s*$/m
 check('android: versionCode er et helt tall over 1 (grensen kan ikke være 1)',
   Number.isInteger(versionCode) && versionCode > 1, String(versionCode));
 
-/* `publicKey` er den OFFENTLIGE halvdelen. Privatnøkkelen er en Actions-secret
-   og skal aldri kunne bli pakket inn i en APK — derfor sjekkes det eksplisitt
-   at det ikke står en privatnøkkel her. Pluginen er fail closed på feltet: er
-   det satt og signaturen mangler, kastes ERROR_SIGNATURE_MISSING, og den faller
-   IKKE tilbake til checksum. */
-check('publicKey, hvis satt, er en offentlig nøkkel — aldri en privatnøkkel',
-  !lu || !lu.publicKey
-    || (/BEGIN PUBLIC KEY/.test(lu.publicKey) && !/PRIVATE KEY/.test(lu.publicKey)),
-  lu && lu.publicKey ? 'publicKey satt' : 'ikke satt ennå (signeringsrunden)');
-if (lu && lu.publicKey) {
-  let nokkel = null;
+/* `publicKey` er den OFFENTLIGE halvdelen, og er FRA OG MED signeringsrunden et
+   krav, ikke et valgfritt felt — den runden la den inn sammen med
+   `versionCode`-økningen og GitHub-secreten med privatnøkkelen
+   (OTA_SIGNING_KEY). Uten den kan ingen telefon verifisere en bundle, og
+   `release.yml` stopper allerede releasen i signeringssteget — men den feilen
+   skal synes HER også, ikke bare oppdages i en logg. Privatnøkkelen skal aldri
+   kunne bli pakket inn i en APK — derfor sjekkes det eksplisitt at det ikke
+   står en privatnøkkel her. Pluginen er fail closed på feltet: er det satt og
+   signaturen mangler, kastes ERROR_SIGNATURE_MISSING, og den faller IKKE
+   tilbake til checksum. */
+const publicKeySatt = !!lu && typeof lu.publicKey === 'string' && lu.publicKey.length > 0;
+check('publicKey er satt (kreves fra og med signeringsrunden, ikke lenger valgfritt)',
+  publicKeySatt, publicKeySatt ? 'satt' : 'MANGLER');
+check('publicKey er en offentlig nøkkel — aldri en privatnøkkel',
+  publicKeySatt && /BEGIN PUBLIC KEY/.test(lu.publicKey) && !/PRIVATE KEY/.test(lu.publicKey),
+  publicKeySatt ? 'ok' : 'mangler');
+
+let nokkel = null;
+if (publicKeySatt) {
   try { nokkel = crypto.createPublicKey(lu.publicKey); } catch (e) { nokkel = null; }
-  check('publicKey er en RSA-nøkkel som lar seg lese',
-    !!nokkel && nokkel.asymmetricKeyType === 'rsa',
-    nokkel ? nokkel.asymmetricKeyType : 'lot seg ikke lese');
-  check('nøkkelen er minst 2048 bit',
-    !!nokkel && (nokkel.asymmetricKeyDetails || {}).modulusLength >= 2048,
-    nokkel ? String((nokkel.asymmetricKeyDetails || {}).modulusLength) : '');
-  /* Og den må overleve PLUGINENS egen parsing, ikke bare Nodes. Lest i
-     LiveUpdate.java: PEM-hodene og linjeskiftene strippes, resten base64-dekodes
-     og leses som en X509EncodedKeySpec (SubjectPublicKeyInfo). En nøkkel på et
-     annet format — PKCS#1 («BEGIN RSA PUBLIC KEY»), DER-fil, en OpenSSH-linje —
-     ville stått grønn på mønstersjekken over og feilet på telefonen. */
+}
+check('publicKey er en RSA-nøkkel som lar seg lese',
+  !!nokkel && nokkel.asymmetricKeyType === 'rsa',
+  nokkel ? nokkel.asymmetricKeyType : 'mangler eller lot seg ikke lese');
+check('nøkkelen er minst 2048 bit',
+  !!nokkel && (nokkel.asymmetricKeyDetails || {}).modulusLength >= 2048,
+  nokkel ? String((nokkel.asymmetricKeyDetails || {}).modulusLength) : '');
+/* Og den må overleve PLUGINENS egen parsing, ikke bare Nodes. Lest i
+   LiveUpdate.java: PEM-hodene og linjeskiftene strippes, resten base64-dekodes
+   og leses som en X509EncodedKeySpec (SubjectPublicKeyInfo). En nøkkel på et
+   annet format — PKCS#1 («BEGIN RSA PUBLIC KEY»), DER-fil, en OpenSSH-linje —
+   ville stått grønn på mønstersjekken over og feilet på telefonen. */
+let somPluginen = null;
+if (publicKeySatt) {
   const raa = lu.publicKey
     .replace('-----BEGIN PUBLIC KEY-----', '').replace('-----END PUBLIC KEY-----', '')
     .replace(/\s/g, '');
-  let somPluginen = null;
   try {
     somPluginen = crypto.createPublicKey({ key: Buffer.from(raa, 'base64'), format: 'der', type: 'spki' });
   } catch (e) { somPluginen = null; }
-  const derAv = (k) => (k ? k.export({ type: 'spki', format: 'der' }) : Buffer.alloc(0));
-  check('nøkkelen overlever pluginens EGEN parsing (base64 uten PEM-hoder → X509EncodedKeySpec)',
-    !!somPluginen && !!nokkel && derAv(somPluginen).equals(derAv(nokkel)),
-    somPluginen ? 'samme nøkkel begge veier' : 'lot seg ikke lese som X.509/SPKI');
-} else {
-  console.log('(hopper over nøkkelsjekkene — publicKey er ikke satt ennå)');
 }
+const derAv = (k) => (k ? k.export({ type: 'spki', format: 'der' }) : Buffer.alloc(0));
+check('nøkkelen overlever pluginens EGEN parsing (base64 uten PEM-hoder → X509EncodedKeySpec)',
+  !!somPluginen && !!nokkel && derAv(somPluginen).equals(derAv(nokkel)),
+  somPluginen ? 'samme nøkkel begge veier' : 'mangler eller lot seg ikke lese som X.509/SPKI');
 if (finnes(APK_CFG)) {
   const innebygdLu = (json(APK_CFG).plugins || {}).LiveUpdate || null;
   check('den innebygde konfigurasjonen i APK-en bærer den samme LiveUpdate-blokken',
