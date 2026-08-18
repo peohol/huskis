@@ -118,12 +118,21 @@ rapporterer den samme verdien, så «hvilken release kjører denne klienten?» k
 besvares likt begge steder.
 
 Den er en identitet å SAMMENLIGNE med `===`, ikke en versjon å rangere med `>=`
-— en commit-SHA har ingen ordning. Appen har i dag ingen nedre støttet release
-(`minimumSupportedRelease`), og skal ikke få en før et konkret behov oppstår: så
-lenge skjemaet er additivt, er en gammel klient en fungerende klient. Skulle
-kravet en dag bli en nedre grense, kan `releaseId` ikke være grensen alene — den
-trenger en ordning som må designes samtidig ([`mobilapp-plan.md`](mobilapp-plan.md),
-fase 4).
+— en commit-SHA har ingen ordning. Appen har **ingen** nedre støttet release
+(`minimumSupportedRelease`), og får bare en dersom et konkret
+inkompatibilitetsbehov oppstår: så lenge skjemaet er additivt, er en gammel
+klient en fungerende klient. OTA gjør den vanligste grunnen til å ville ha en
+grense mindre sannsynlig — en klient som er blitt for gammel kan flyttes
+FRAMOVER i stedet for å stenges ute — men OTA er en leveringsmekanisme, ikke en
+garanti: en telefon kan være offline lenge, kjøre en APK fra før OTA fantes,
+eller ha en updater som ikke virker. Det er derfor additiviteten, ikke OTA, som
+bærer regelen. Skulle behovet oppstå, kan `releaseId` uansett ikke være grensen
+alene — en ordning må designes samtidig.
+
+Den grensen mobilen faktisk trenger går den andre veien: «denne web-bundelen
+krever et nyere native skall». Den har allerede en ordnet verdi i `versionCode`,
+og innføres som en vakt sammen med OTA
+([`mobilapp-plan.md`](mobilapp-plan.md), fase 5).
 
 Releasen som migreres, smoke-testes og deployes er den samme commiten hele
 veien: `release.yml` kjører på én `github.sha`, og den er både `commit` og

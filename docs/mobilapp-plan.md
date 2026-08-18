@@ -14,13 +14,15 @@ autoritative dokumentet for fagfeltet.
 | Felt | Nå |
 |---|---|
 | Målarkitektur | Én HTML/CSS/JS-kodebase + Capacitor for Android/iOS |
-| Nåværende fase | **Fase 3 er ferdig**, og det samme er **fase 4 — felles release-identitet**. Begge ferdigkriteriene er oppfylt på fysisk enhet i samme `chrome://inspect`-økt: release-ID-en er lest ut av en kjørende APK, og de to spørsmålene om lifecycle-/network-signalene er besvart med målinger, ikke antakelser. Neste fase er **fase 5**. Statusen for hver fase står på hver sin rad under. |
+| Nåværende fase | **Fase 5 — OTA for web-assets.** Fase 3 og fase 4 er ferdige; begge ferdigkriteriene ble oppfylt på fysisk enhet i samme `chrome://inspect`-økt. Fase 5 er i gang, og den starter ikke med kode: OTA-løsningen skulle velges først, mot åtte krav, og **valget er tatt**. Statusen for hver fase står på hver sin rad under. |
 | Status — fase 3 | **Ferdigkriteriet er nådd.** Alle seks punktene er avgjort: systemets tilbakeknapp og safe areas/systemfeltene/skjermtastaturet, begge verifisert på fysisk telefon; eksterne lenker og auth-/e-postlenker, som begge er beslutninger uten kode og derfor ikke har noe å prøve på en telefon; sikker lagring/`android:allowBackup`, der sikkerhetskopien av WebView-lagringen er slått av; og lifecycle-/network-signalene, målt på enhet med sonden. `navigator.onLine` er bekreftet dødt uten `ACCESS_NETWORK_STATE`, og tillatelsen er lagt inn med vakt. Gjenopptakelsen er tilskrevet: et `get_my_doc` står i enhetsloggen merket `by: 'visibilitychange'`. Målingen viste samtidig at hendelsen IKKE leveres når Android har fryst prosessen — der starter pollets forfalte tikk runden i samme øyeblikk som opptiningen. Begge ledd er dermed bærende, hvert i sitt regime (se seksjonen). Ingen native plugin er innført. Automatisk dekket av `tests/safe-area.test.js`, `tests/landscape-chrome.test.js`, `tests/system-back.test.js`, `tests/sync-foreground.test.js` (del 2 og del 6 kjører hvert sitt regime) og `tests/capacitor-android.test.js`. |
-| Status — fase 4 | Fase 4s ferdigkriterium er **oppfylt**: en kjørende APK og en Vercel-preview bygget av samme commit rapporterte den samme `releaseId` (`d10867a7c0a6`) med hver sin `buildId`, lest på telefon. Fem av sju punkter er ferdige: kartleggingen av dagens release-identiteter, `releaseId` er definert og generert i `build.js`, web og Android bygget fra samme commit rapporterer den samme verdien, `version.json` er utvidet additivt uten at cache- eller reload-sikkerheten er rørt, og kompatibilitetsregelen mellom klientrelease og databaseskjema er skrevet ned ([`release-og-deploy.md`](release-og-deploy.md)). De to siste — `minimumSupportedRelease` og valget mellom byte-identisk artifact og separate builds — står bevisst åpne til det finnes et konkret behov (se seksjonen). Automatisk dekket av `tests/build-version.test.js`, `tests/auto-update.test.js` og `tests/capacitor-android.test.js`. |
-| Neste milepæl | Fase 5: distribusjon og oppdatering av Android-appen |
+| Status — fase 4 | Fase 4s ferdigkriterium er **oppfylt**: en kjørende APK og en Vercel-preview bygget av samme commit rapporterte den samme `releaseId` (`d10867a7c0a6`) med hver sin `buildId`, lest på telefon. Alle sju punktene er avgjort. Fem er implementert: kartleggingen av dagens release-identiteter, `releaseId` er definert og generert i `build.js`, web og Android bygget fra samme commit rapporterer den samme verdien, `version.json` er utvidet additivt uten at cache- eller reload-sikkerheten er rørt, og kompatibilitetsregelen mellom klientrelease og databaseskjema er skrevet ned ([`release-og-deploy.md`](release-og-deploy.md)). De to siste er beslutninger, ikke kode — `minimumSupportedRelease` og valget mellom byte-identisk artifact og separate builds — sto åpne til OTA ga dem en konsekvens, og er nå avgjort i fase 5: ingen nedre grense, og separate builds med samme `releaseId` (se «De to punktene fra fase 4 får sitt svar her»). Automatisk dekket av `tests/build-version.test.js`, `tests/auto-update.test.js` og `tests/capacitor-android.test.js`. |
+| Status — fase 5 | **Valget er tatt, ingen kode er skrevet.** Løsningen er `@capawesome/capacitor-live-update` i selvhostet modus, uten sky-konto — begrunnet mot alle åtte kravene i fase 5-seksjonen. Det avgjørende var målt, ikke antatt: pluginen krever ingen bundler (Capacitors bro genererer selv `window.Capacitor.Plugins`, så web-koden når den gjennom den samme vakten som tilbakeknappen), og den koster nøyaktig to navngitte sjekker i `tests/capacitor-android.test.js`. Hullet fasen skal fylle er også målt: oppdateringsmotoren KJØRER i APK-en, men sammenligner seg med sin egen innebygde `/version.json`. Tre vakter er navngitt som del av valget, fordi de ikke kan ettermonteres: readiness-punktet som ER rollback-vakten, klargjøringstilstanden mellom «ny build sett» og reload, og native-kompatibilitetsgrensen i manifestet. Ingen av implementasjonspunktene er begynt. |
+| Neste milepæl | Fase 5: første OTA-bundle som flytter en APK til samme `releaseId` som `huskis.no` |
 | Neste praktiske steg — fase 3 | Ingen. Fasen er ferdig |
-| Neste praktiske steg — fase 4 | Ingen. Fasen er ferdig; de to «vurder …»-punktene tas opp igjen når fase 5 (OTA) gir dem en konsekvens |
-| OTA | Ikke innført; skal ikke innføres før Android-baselinen er stabil |
+| Neste praktiske steg — fase 4 | Ingen. Fasen er ferdig; de to «vurder …»-punktene fikk sitt svar i fase 5 |
+| Neste praktiske steg — fase 5 | Innfør pluginen i det minste sammenhengende steget, uten bundlebytte: npm-pakken pinnet, `LiveUpdate`-blokken i `capacitor.config.json` med `publicKey` og `readyTimeout`, `ready()` i readiness-punktet bak native-vakten, og de to låsene i `tests/capacitor-android.test.js` utvidet i samme endring. Da kan rollback-veien prøves på telefon før noe bundlebytte finnes — og både klargjøringstilstanden og native-vakten kommer i runden som faktisk henter en bundle |
+| OTA | Ikke innført. Løsningen er valgt (`@capawesome/capacitor-live-update`, selvhostet); Android-baselinen er stabil, så fase 5 kan begynne |
 | iOS | Senere fase; ikke en del av første implementering |
 
 ### Slik holdes planen levende
@@ -93,8 +95,10 @@ de native prosjektene; mobilappen skal ikke ha sin egen kopi av Huskis-logikken.
 - **Android først**, iOS etter at Android-baselinen er bevist.
 - Første native mål er en **debugbuild på fysisk Android-telefon**, ikke Google
   Play.
-- OTA-leverandør velges **senere**, etter at krav til signering, rollback,
-  kanaler, staged rollout og butikkpolicy er vurdert.
+- **OTA-løsningen er valgt**: `@capawesome/capacitor-live-update`, selvhostet og
+  uten sky-konto. Kravene til signering, rollback, kanaler, staged rollout og
+  butikkpolicy er vurdert i fase 5-seksjonen, som er autoritativ for
+  begrunnelsen.
 - PWA er valgfritt og ligger utenfor denne planen inntil det finnes et konkret
   behov.
 - Planlagt app-/bundle-ID er **`no.huskis.app`**. Den skal behandles som en
@@ -1165,14 +1169,21 @@ logiske Huskis-releasen.
 - [x] Dokumenter kompatibilitetsregelen mellom klientrelease og databaseskjema.
       [`release-og-deploy.md`](release-og-deploy.md) («Klientrelease og
       databaseskjema»).
-- [ ] Vurder `minimumSupportedRelease` bare dersom et konkret behov oppstår;
-      gammel klient skal ellers fortsatt fungere. **Behovet finnes ikke i dag**
-      — se «De to punktene som står åpne med vilje».
-- [ ] Bestem om web og mobil skal motta samme byte-identiske webartifact eller
+- [x] Vurder `minimumSupportedRelease` bare dersom et konkret behov oppstår;
+      gammel klient skal ellers fortsatt fungere. **Vurderingen er gjort:
+      innføres ikke nå, og regelen står ved lag** — det er additivt skjema og
+      bakoverkompatibel backend som bærer den, mens OTA gjør den vanligste
+      grunnen til å ønske seg en grense mindre sannsynlig. Grensen mobilen
+      faktisk trenger går på butikkbinæren (`versionCode`) og innføres i
+      fase 5. Det som er krysset av er VURDERINGEN, ikke en implementasjon.
+- [x] Bestem om web og mobil skal motta samme byte-identiske webartifact eller
       separate builds med samme `releaseId`. Ikke endre dagens sikre
       migrering→smoke→Vercel-rekkefølge uten eksplisitt design og tester.
-      **I dag ER de separate builds med samme `releaseId`**; valget tas når
-      fase 5 (OTA) gir det en konsekvens — se samme seksjon.
+      **Avgjort i fase 5: separate builds med samme `releaseId`** — altså det
+      de allerede er. Et byte-identisk artifact ville krevd en ny kobling
+      mellom release-workflowen og web-deployen uten å svare på noe
+      `releaseId` ikke allerede svarer på. Det som er krysset av er
+      BESLUTNINGEN, ikke en implementasjon.
 
 ## Kartleggingen først: hva identifiserer en release i dag
 
@@ -1242,37 +1253,20 @@ endring i `release.yml` eller `vercel.json`: releasen som migreres, smoke-testes
 og deployes er allerede én `github.sha`, og det er nettopp den `releaseId`
 navngir.
 
-## De to punktene som står åpne med vilje
+## Det `releaseId` ikke kan svare på
 
-Begge er beslutninger som skal tas når det finnes noe å ta dem PÅ. Å innføre dem
-nå ville vært mekanikk uten en bruker.
+**En «minimum» er en ORDNING** — «denne og alle nyere» — og en commit-SHA har
+ingen. `releaseId` er en identitet som sammenlignes med `===`, aldri med `>=`;
+en test som `releaseId >= minimumSupportedRelease` ville vært meningsløs uansett
+hvordan den ble skrevet. `builtAt` løser det heller ikke: den er byggets
+tidspunkt, ikke releasens rekkefølge, og to bygg av samme release har
+forskjellig verdi.
 
-**`minimumSupportedRelease`.** Det som ville gjort en nedre grense nødvendig er
-en klient som ikke lenger KAN fungere mot serveren. Det finnes ikke: skjemaet er
-additivt, en gammel klient skriver et delsett av kolonnene og leser bort de nye
-([`release-og-deploy.md`](release-og-deploy.md)). En grense ville altså i dag
-bare kunne stenge ute klienter som virker.
-
-**Og `releaseId` kan ikke være grensen alene.** En «minimum» er en ORDNING —
-«denne og alle nyere» — og en commit-SHA har ingen. Den er en identitet som
-sammenlignes med `===`, aldri med `>=`; en test som `releaseId >=
-minimumSupportedRelease` ville vært meningsløs uansett hvordan den ble skrevet.
-`builtAt` løser det heller ikke: den er byggets tidspunkt, ikke releasens
-rekkefølge, og to bygg av samme release har forskjellig verdi. Den dagen en
-serverendring faktisk brekker en eldre klient, må ordningen derfor designes
-SAMMEN med grensen — en egen monoton verdi (release-sekvens eller SemVer) eller
-en autoritativ mapping som ordner `releaseId`-ene. `releaseId` svarer på hvilken
-release klienten kjører, og det er alt den kan svare på.
-
-**Byte-identisk artifact eller separate builds.** I dag er svaret de facto
-**separate builds med samme `releaseId`**: Vercel kjører `node build.js`, og
-Android-workflowen kjører sin egen. `buildId` er derfor forskjellig, og det er
-riktig — de ER to bygg. Et byte-identisk artifact ville krevd at build-ID-en ble
-sendt inn utenfra og at ETT bygg ble delt mellom to kjeder, altså en ny
-avhengighet mellom release-workflowen og Android-workflowen. Det er en pris uten
-en gevinst så lenge appen ikke oppdaterer web-assetene sine. Med OTA (fase 5)
-får spørsmålet en konsekvens — da er det bundelen som distribueres — og da tas
-valget der, med design og tester.
+Det er denne egenskapen — og ikke et åpent spørsmål — som avgjorde de to siste
+punktene i lista over. Ingen nedre støttet release innføres, og web og mobil får
+separate builds med samme `releaseId`. Avveiningen som gjorde dem avgjørbare kom
+med OTA og står i fase 5-seksjonen, «De to punktene fra fase 4 får sitt svar
+her»; den er autoritativ for begge.
 
 ### Hvilken commit et artifact faktisk er bygget av
 
@@ -1340,10 +1334,10 @@ pakket med identiteten inne.
 at Vercels deploy-ID misbrukes som produktversjon. **Oppfylt** — målt på en
 kjørende APK mot en preview av samme commit (tabellen over).
 
-De to gjenstående punktene i lista er ikke en rest av dette: de er «vurder
-…»-punkter, og vurderingen ER gjort — svaret er «ikke ennå», av grunner som står
-i «De to punktene som står åpne med vilje». De tas opp igjen når fase 5 gir dem
-en konsekvens, ikke før.
+De to siste punktene i lista er «vurder …»-punkter, og vurderingen ER gjort:
+ingen `minimumSupportedRelease`, og separate builds med samme `releaseId`.
+Grunnlaget står i «De to punktene, og svaret de fikk»; konsekvensen som gjorde
+dem avgjørbare kom med OTA, og avveiningen står i fase 5-seksjonen.
 
 ---
 
@@ -1364,13 +1358,366 @@ Før implementering skal OTA-løsning velges etter disse kravene:
 - mulighet for automatisering fra GitHub Actions;
 - rimelig leverandørlåsing og driftskostnad.
 
-Implementasjonen skal:
+**Valget er tatt:** `@capawesome/capacitor-live-update`, i selvhostet modus, uten
+sky-konto. Kartleggingen, sammenligningen og prisen står under. Ingenting av
+implementasjonslista nederst er begynt.
+
+## Nåtilstanden: hva som allerede finnes, og nøyaktig hvor hullet er
+
+Fire ledd er på plass fra før, og de er grunnen til at fase 5 er et lite lag og
+ikke et nytt system:
+
+| Ledd | Hva den allerede gjør | Hva OTA trenger av den |
+|---|---|---|
+| `updateSafety()` (`app.js`) | ett samlet, fail closed «er det trygt å bytte kode nå?» — bygget på tilstander appen allerede fører ([`auto-update.md`](auto-update.md)) | uendret. OTA skal SPØRRE den, ikke få sin egen |
+| `update-check.js` | banner, inaktivitetsregel, ett-forsøk-vakt, poll og hendelser — alt med injiserte avhengigheter (`url`, `reload`, `isSafe`) | uendret mekanikk; native får en gren som bytter KILDE og RELOAD |
+| `releaseId` | plattformuavhengig identitet på kilden, sammenlignet med `===` ([`auto-update.md`](auto-update.md)) | svaret på «kjører denne telefonen den releasen web kjører?» |
+| `buildId` | eier cache og reload alene: `?b=`-URL-ene og sammenligningen i `update-check.js` | identiteten på selve bundelen, én per bygg |
+
+**Hullet er målt, ikke antatt.** `dist/` ble bygget og servert på sitt eget
+origin — nøyaktig APK-situasjonen, der `https://localhost` serverer den
+innebygde kopien av den samme builden — og oppdateringsmotoren ble spurt hva den
+så:
+
+```json
+{ "started": true, "klientBuildId": "62e80375b74c-msyfflyy",
+  "serverBuildId": "62e80375b74c-msyfflyy", "checks": 2, "target": null,
+  "reloads": 0, "banner": false, "safety": { "safe": true, "reason": "" } }
+```
+
+Motoren er altså ikke AV i appen. Den startet av seg selv, den utførte de to
+kontrollene sonden ba om i stedet for å vente på oppstartstimeren, og
+`updateSafety()` svarte `safe: true` — den var villig. Den fant bare ingenting,
+fordi den målte seg mot seg selv: `noteBuild()` returnerer på `id === buildId`,
+og i APK-en ER de to alltid like. Det er ikke en manglende funksjon; det er en
+sammenligning uten motpart.
+
+**Og web-laget kan ikke bare spørre `huskis.no` i stedet.** CSP-en står som
+meta-tag i `index.html` og gjelder derfor også inne i APK-en. Målt i ekte
+nettleser mot den bygde `dist/`:
+
+```
+Refused to connect to 'https://huskis.no/ota/android.json' because it violates
+the following Content Security Policy directive: "connect-src 'self' https://bmky…"
+```
+
+Samme forespørsel mot eget origin gikk gjennom. Å hente et OTA-manifest fra
+web-laget koster altså nøyaktig én ny vert i `connect-src`
+([`sikkerhetsheadere.md`](sikkerhetsheadere.md)) — en pris, ikke en hindring,
+men den skal stå her og ikke oppdages underveis.
+
+**Og repoet har to porter som er bygget for å stoppe en ny native
+avhengighet.** `tests/capacitor-android.test.js` låser hvilke npm-pakker og
+hvilke Gradle-avhengigheter som finnes, nettopp fordi et nytt bibliotek merger
+sitt eget manifest inn i appens. De skal utvides bevisst, ikke omgås — nøyaktig
+hva de sier fra om, står under «Prisen».
+
+## Kartleggingen: hva som finnes av OTA for Capacitor
+
+| Kandidat | Lisens/modell | Cap 8 | Selvhostet uten konto | Status |
+|---|---|---|---|---|
+| `@capawesome/capacitor-live-update` | MIT (plugin), sky valgfri | 8.4.0 | **ja** — `downloadBundle({url, bundleId, checksum, signature})` | **valgt** |
+| `@capgo/capacitor-updater` | MPL-2.0 (plugin), sky valgfri | 8.51.13 | ja — `download({url, version, checksum, sessionKey})` | reell reserve |
+| `@capacitor/live-updates` (Appflow) | `"license": "Commercial"` | 0.5.0 | nei — krever Appflow | **ute** |
+| Egen Capacitor-plugin | — | — | ja | **ute** |
+| Ikke gjøre noe (kun butikkrelease) | — | — | — | **ute** |
+
+**Appflow er ute fordi den legges ned.** Pakken er fortsatt publisert (0.5.0,
+februar 2026) og støtter Capacitor 8, men den er lisensiert `Commercial` og
+virker bare mot Appflow, som etter Ionics egen kunngjøring slutter å levere
+31\. desember 2027. Å bygge fase 5 på en tjeneste med kjent sluttdato ville vært
+å planlegge to migreringer i stedet for én.
+
+**Egen plugin er ute** fordi den koster mest der den er svakest: signaturvakt,
+rollback-timer, atomisk bundlebytte og gjenoppretting av den innebygde
+versjonen er akkurat den native koden som er dyrest å skrive riktig og umulig å
+teste billig. To vedlikeholdte, kvitterte implementasjoner finnes.
+
+**«Ikke gjøre noe» er ute** fordi fase 5 ER kravet: en telefon skal ikke måtte
+vente på en butikkrunde for en tekstretting. Alternativet er ikke gratis — det
+er arkitekturregel 7 som betaler, ved at eldre klienter blir stadig eldre.
+
+### De to reelle: målt, ikke lest
+
+Begge ble installert i en kopi av repoet og synkronisert med ekte
+`npx cap sync android`. Forskjellen er ikke funksjonell — den er hvor mye de
+drar med seg inn i APK-en:
+
+| | Capawesome | Capgo |
+|---|---|---|
+| Eget `AndroidManifest.xml` | tomt | tomt (bare `<application>`) |
+| Gradle-avhengigheter den drar inn | `zip4j`, `okhttp`, `okhttp-brotli`, `appcompat` | `androidx.work`, `lifecycle-process`, **`play-services-tasks`**, **`play:app-update`(+ktx)**, `guava`, `versioncompare`, `okhttp`, `brotli`, `appcompat` |
+| Native metoder eksponert | 26 | 50 |
+| Konfigurasjonsvalg | 9 | ~35 |
+| Standard-endepunkter | ingen kontakt: `autoUpdateStrategy` er `"none"`, `appId` tomt | `plugin.capgo.app/updates`, `/channel_self`, `/stats` — tre URL-er som må overstyres for å bli selvhostet |
+
+Capgo drar inn Google Play-tjenester og Play Core i en app som i dag ikke har
+noen av delene. Det er ikke en feil ved Capgo — den er bygget for å gjøre mer,
+inkludert butikkoppdateringer — men i Huskis er det et helt lag med merget
+manifest som ingen har bruk for, i en app som ellers navngir hver eneste
+utgående adresse. Og de tre standard-URL-ene betyr at selvhosting hos Capgo er
+noe man må huske å slå PÅ; hos Capawesome er det der man starter.
+
+## Valget mot de åtte kravene
+
+**`@capawesome/capacitor-live-update`, selvhostet.** Bundelen er en signert
+ZIP-fil Huskis lager selv; skyen brukes ikke, og det finnes ingen konto å ha.
+
+| Krav | Hvordan det dekkes | Kilde |
+|---|---|---|
+| Signering/integritet | `Signature.getInstance("SHA256withRSA")` over selve filbytene, X.509-nøkkel fra `publicKey` i `capacitor.config.json`. **Fail closed**: er `publicKey` satt og signaturen mangler, kastes `ERROR_SIGNATURE_MISSING` — den faller ikke tilbake til checksum | lest i pluginens Java-kilde |
+| Innebygd kjent-god fallback | `reset()` går tilbake til bundelen som ble pakket i binæren | dokumentert + kilde |
+| Rollback ved mislykket oppstart | rollback-timeren armeres i pluginens konstruktør og avvæpnes av `ready()`; `readyTimeout` styrer fristen | lest i kilden |
+| Kanaler/staged rollout | selvhostet er kanalen manifest-URL-en, og utrulling en andel i manifestet som enheten avgjør mot sin egen `getDeviceId()`. Pluginen har også kanaler og rollout — de hører til skyen, og brukes ikke | dokumentert |
+| Skille web/native | pluginen bytter KUN de utpakkede web-assetene; native kode og plugins ligger i binæren og kan bare endres gjennom butikken | dokumentert + kilde |
+| App Store/Play | Play forbyr nedlastet kjørbar kode (dex/JAR/.so), men unntar eksplisitt kode som kjører i en tolk med indirekte tilgang til Android-API-ene — JavaScript i en WebView. Apples DPLA tillater tolket kode så lenge den ikke endrer appens primære formål eller omgår App Review | Play-policyen og Apples avtaletekst |
+| Automatisering fra Actions | bundelen er en ZIP og en JSON. `release.yml` bygger og signerer den på den samme `github.sha` som migreres, smoke-testes og deployes | følger av dagens kjede |
+| Leverandørlåsing/driftskostnad | MIT, ingen konto, ingen regning. Låsingen er formatet på ett `downloadBundle`-kall — bytter vi plugin, byttes kallet, ikke bundelen | npm + kilde |
+
+Skyprisene ble ikke avgjørende, siden ingen av dem skal betales: Capgo oppgis
+fra ~12 USD/mnd og Capawesome fra ~9 USD/mnd. Begge prissidene er blokkert av
+utgående proxy i denne økten, så tallene er lest ut av søketreff og ikke
+verifisert mot kilden — de er tatt med for fullstendighet, ikke som grunnlag.
+
+## Prisen, eksplisitt
+
+**Den ville prisen — en bundler — betales ikke.** Det var det åpne spørsmålet:
+en Capacitor-plugin brukes normalt som `import { LiveUpdate } from '…'`, og en
+`import` i `app.js` ville krevd nettopp det Huskis ikke har. Den veien trengs
+ikke. Capacitors Android-bro GENERERER og injiserer JS-en som legger hver
+registrerte native plugin på `window.Capacitor.Plugins['<id>']`, med én funksjon
+per `@PluginMethod` (`JSExport.getPluginJS()` i `@capacitor/android`). Etter
+`cap sync` sto `LiveUpdatePlugin` i den genererte
+`android/app/src/main/assets/capacitor.plugins.json`, og pluginen eksponerer 26
+native metoder. Web-koden når dem gjennom nøyaktig den samme vakten som
+tilbakeknappens bro allerede bruker — `window.Capacitor` finnes ikke i en
+nettleser, og da kjører ingenting av det. **Ingen bundler, ingen import, ingen
+klientavhengighet i webappen.**
+
+Det som faktisk koster:
+
+| Pris | Hva den er | Hvor den betales |
+|---|---|---|
+| En fjerde npm-pakke | `@capawesome/capacitor-live-update`, pinnet eksakt. Den er byggeinput for det native skallet, aldri en web-asset — `SKIP`-listen i `build.js` holder `package.json` og `node_modules/` ute av `dist/` som før | `package.json`, lockfila |
+| To låser må utvides | målt: en kopi av repoet med pluginen installert og synkronisert gir **134/136** i `tests/capacitor-android.test.js`, mot **129/129** uten. Nøyaktig to navngitte sjekker faller: «ingen andre npm-avhengigheter enn de tre Capacitor-pakkene» og «de applierte Gradle-skriptene legger ikke til avhengigheter». Ingen annen sjekk rører seg — heller ikke `server.url`, den synkede kopiens byte-likhet eller release-ID-ene | `tests/capacitor-android.test.js` |
+| Native tredjepartskode i APK-en | `zip4j` og `okhttp`/`okhttp-brotli`. Pluginens eget manifest er tomt; hva AAR-ene merger inn er ikke lest ut av selve arkivene, og skal etterprøves på det bygde manifestet | `android/` |
+| Én ny vert i CSP | `connect-src` må navngi `https://huskis.no` for at web-laget skal kunne lese OTA-manifestet fra appens origin. I browseren er den allerede `'self'`, så tillegget endrer ingenting der | `index.html`, `vercel.json`, [`sikkerhetsheadere.md`](sikkerhetsheadere.md) |
+| Et definert readiness-punkt | `ready()` MÅ kalles hver gang appen starter, ellers ruller rollback-timeren tilbake. Timeren armeres i pluginens konstruktør, også når appen kjører den innebygde bundelen. HVOR kallet står er hele vakten, ikke en detalj — se «Readiness-punktet» | web-koden, bak native-vakten |
+| Én signeringsnøkkel | privatnøkkelen er en Actions-secret og forlater aldri runneren; den offentlige står i `capacitor.config.json` og pakkes i APK-en | GitHub-secrets |
+
+Signaturen kan lages med Nodes standardbibliotek alene
+(`crypto.createSign('sha256')` over ZIP-bytene, base64) — pluginens verifisering
+er ren `SHA256withRSA`, uten noe leverandørformat i mellom. Byggesteget får
+altså ingen avhengighet.
+
+## Readiness-punktet — den ene linjen som ER rollback-vakten
+
+`ready()` avvæpner rollback-timeren. Kalles den for TIDLIG, er vakten borte: en
+bundle som laster scriptene, kaller `ready()` og deretter feiler i initen blir
+godkjent, og pluginen ruller den aldri tilbake. Kalles den for SENT, ruller en
+fungerende bundle tilbake fordi kaldstarten var treg. Plasseringen er derfor
+ikke «en linje ved oppstart» — den er selve definisjonen av «denne bundelen
+virker».
+
+**Punktet skal ligge etter at appen faktisk er brukbar, og det skal ikke
+avhenge av nettet.** Det andre kravet er like hardt som det første: venter
+`ready()` på et svar fra serveren, blir en offline kaldstart umulig å skille fra
+en ødelagt bundle, og pluginen ruller tilbake en bundle som virker. Det ville
+brutt punktet «tåle offline oppstart» i lista nederst.
+
+Huskis har et signal som oppfyller begge: **første brukbare skjerm malt fra
+lokal tilstand** — innloggingsskjermen for en utlogget bruker, brettet fra
+`localStorage` for en innlogget. Begge nås uten nettverk; `updateSafety()` har
+allerede `sync-unknown` for tilstanden «innlogget, men serveren har ikke svart
+ennå», altså er det en tilstand appen kjører i, ikke en feil. Det er sent nok
+til at en bundle som feiler i initen aldri kommer dit, og tidlig nok til at det
+skjer uten nett.
+
+To ting må måles på enhet før punktet kan kalles ferdig: at en bundle som feiler
+ETTER at scriptene er lastet, men før skjermen er brukbar, faktisk blir rullet
+tilbake — og at `readyTimeout` har margin nok for en treg kaldstart på ekte
+maskinvare.
+
+## Slik er løsningen tenkt å henge sammen
+
+Fire ledd, med hvert sitt regime — og `updateSafety()` eier fortsatt det ene
+spørsmålet den alltid har eid, uendret:
+
+```text
+0. AVVIS      manifestet oppgir hvilket native skall bundelen krever. Passer
+              det ikke telefonens, skjer INGENTING — verken download eller set.
+1. HENTE      downloadBundle({url, bundleId, signature}) — native nedlasting,
+              rører ikke klienten som kjører. Alltid trygt.
+2. STILLE OPP setNextBundle() — bundelen tas i bruk ved neste kaldstart.
+              Kaldstart er trygt av seg selv: ingen usikret arbeid i lufta.
+              FØRST når 1 og 2 har lykkes er målet «reloadbart».
+3. BYTTE NÅ   LiveUpdate.reload() — dette ER en reload midt i en økt, og går
+              derfor gjennom updateSafety(), banneret, inaktivitetsregelen og
+              ett-forsøk-vakten i update-check.js. Uendret regel, ny reload.
+```
+
+**Steg 0–2 er et nytt ledd i `update-check.js`, ikke en byttet avhengighet.**
+Det er verdt å være presis om, fordi motoren i dag går rett fra «jeg så en annen
+build-ID» til `reload()`: `check()` gjør fetch → `validBuildId()` →
+`noteBuild()`, og `autoReload()` kaller `reload()` uten noe imellom. På native
+ville det betydd en `LiveUpdate.reload()` på en bundle som verken er lastet ned
+eller stilt opp — altså en reload av nøyaktig den koden som allerede kjører.
+
+Native trenger derfor en eksplisitt, asynkron **klargjøringstilstand** mellom
+`noteBuild()` og `evaluate()`: et mål er ikke reloadbart før nedlasting og
+`setNextBundle()` har lykkes. To regler følger av det, og begge er
+fail closed-regler av samme slag som resten av modulen:
+
+- **En feilet klargjøring skal ikke brenne ett-forsøk-vakten.**
+  `markAttempt()` skrives i dag rett før reloaden, og en oppbrukt vakt er
+  permanent for den mål-builden i den fanen. Klargjøringen må derfor kunne
+  feile og prøves igjen ved neste anledning uten å koste forsøket.
+- **Banneret skal ikke love noe som ikke er klart.** «Oppdater nå» går utenom
+  trygghetsvakten med vilje — brukeren har bedt om det selv — men den kan ikke
+  gå utenom klargjøringen. Er bundelen ikke stilt opp, er det ingenting å laste.
+
+Det browser-laget beholder uendret er avgjørelsen: `updateSafety()`, banneret,
+inaktivitetsregelen og ett-forsøk-vakten er de samme. Arkitekturregel 8 handler
+om at trygghetsvurderingen ikke dupliseres, og den holder — men fasen legger til
+et ledd, den bytter ikke bare to felt.
+
+`releaseId` er signalet: manifestet navngir releasen web kjører, og enheten
+sammenligner med `===` mot sin egen `<meta name="huskis-release">`. `buildId`
+beholder rollen sin og blir bundelens identitet mot pluginen (`bundleId`), slik
+at to bygg av samme release ikke kolliderer i pluginens lager.
+
+Hvor bundelen ligger er den ene undersøkelsen som gjenstår, og den har et
+kriterium: den skal ikke koste en ny leverandør, en ny vert utover den ene i
+CSP-en, eller en avhengighet i byggesteget. Utgangspunktet som oppfyller alle
+tre er at `release.yml` bygger og signerer ZIP-en på samme `github.sha` og
+legger den i treet før `vercel deploy`, slik at den serveres fra `huskis.no`
+sammen med manifestet.
+
+## Native-kompatibilitet er en vakt i fase 5, ikke et punkt i fase 6
+
+Lista nederst sier «aldri OTA-oppdatere native plugins». Det er en REGEL for hva
+vi publiserer — ikke en vakt i klienten, og en regel kan ikke stoppe det som
+skjer utilsiktet. Så snart fase 5 publiserer bundles automatisk fra
+`release.yml`, er scenariet dette: en senere release endrer en native plugin
+eller Capacitor-konfigurasjonen OG web-assetene i samme commit. Butikkbinæren
+oppdateres i sitt eget tempo, men web-halvdelen ville nådd hver telefon med én
+gang — inkludert de som fortsatt kjører det gamle skallet, og som da får
+web-kode som kaller inn i noe som ikke finnes.
+
+**Manifestet skal derfor bære en kompatibilitetsgrense fra den første
+fungerende OTA-flyten**, og klienten skal avvise en inkompatibel bundle FØR
+nedlasting og oppstilling — steg 0 i flyten over. Pluginen har halvdelen på
+plass: `getVersionCode()` finnes nettopp for å begrense live updates til
+kompatible native versjoner, og leverandøren dokumenterer i tillegg mønsteret
+med å binde kanalnavnet til `versionCode` ved byggtid.
+
+To former er aktuelle, og valget tas i første implementasjonsrunde:
+
+| Form | Hvordan den feiler | Pris |
+|---|---|---|
+| Manifest-URL-en bærer det native nivået (`…/android/<versionCode>.json`) | fail closed av seg selv: et gammelt skall ber om et manifest som ikke finnes, får 404 og gjør ingenting | én URL-form, og én publisering per støttet nivå |
+| Manifestet har et felt med nedre `versionCode` | klienten må selv sammenligne og avvise | ett felt, men vakten ligger i klientkoden |
+
+Begge krever det samme av det native skallet, og DET er den reelle kostnaden:
+`versionCode` må øke når skallet endres. I dag står den på Capacitor-malens `1`
+og er aldri rørt, fordi ingenting har hatt bruk for den ennå. Fra og med denne
+vakten har den en jobb, og en endring i `android/` eller
+`capacitor.config.json` uten en økning er da en feil — den skal fanges av
+`tests/capacitor-android.test.js` i samme endring som vakten innføres.
+
+Fase 6 eier fortsatt `versionCode` som BUTIKKENS krav: monotont økende per
+opplasting, signering, spor. Det er en annen bruk av det samme tallet, og den
+kommer i tillegg — ikke i stedet.
+
+## De to punktene fra fase 4 får sitt svar her
+
+Begge sto åpne til OTA ga dem en konsekvens. Det gjør fase 5 nå.
+
+**`minimumSupportedRelease` innføres ikke nå, og regelen forblir «bare ved et
+konkret inkompatibilitetsbehov».** En nedre grense finnes for å STENGE UTE en
+klient som ikke lenger kan virke. OTA angriper det fra motsatt kant: den flytter
+klienten FRAMOVER, og manifestet navngir én release alle skal på — en identitet,
+ikke en grense.
+
+Men OTA er en LEVERINGSMEKANISME, ikke en garanti for at alle klienter faktisk
+blir oppdatert. En telefon kan ha vært offline i månedsvis, kjøre en APK fra før
+OTA fantes, eller ha en updater som ikke virker. Det som gjør at grensen ikke
+trengs, er derfor fortsatt at skjemaet er additivt og backend bakoverkompatibel
+([`release-og-deploy.md`](release-og-deploy.md)) — OTA gjør bare den vanligste
+grunnen til å ville ha en grense mye mindre sannsynlig. Skulle et konkret
+inkompatibilitetsbehov oppstå, står ordningsproblemet fortsatt der:
+`releaseId` kan ikke være grensen alene, og en monoton verdi må designes sammen
+med grensen.
+
+Grensen OTA faktisk skaper går den andre veien: en web-bundle kan kreve et
+nyere NATIVE skall enn det telefonen har. Den grensen kan ikke vente på fase 6 —
+se «Native-kompatibilitet er en vakt i fase 5».
+
+**Web og mobil får separate builds med samme `releaseId`.** Byte-identisk
+artifact ble vurdert og valgt bort. Produksjonsbuilden kjører HOS Vercel og får
+`VERCEL_DEPLOYMENT_ID` som `buildId`; en OTA-bundle må pakkes som ZIP der
+verktøyet finnes, altså på Actions-runneren. Å tvinge de to til å bli ett bygg
+ville krevd at build-ID-en ble sendt inn utenfra og at release-workflowen og
+web-deployen delte artifact — en ny kobling i den ene kjeden som i dag holder
+rekkefølgen migrering → smoke → deploy.
+
+Prisen for å la dem være to er null, fordi `releaseId` allerede er svaret:
+identiteten som betyr noe er kilden, og den er lik. `buildId` skal være
+forskjellig — de ER to bygg. At de to byggene er like nok er dessuten allerede
+bevist maskinelt: `tests/capacitor-android.test.js` måler at den synkede kopien
+er byte for byte kilden, `index.html` modulo de to ID-ene.
+
+## Hva som er lest, og hva som er observert
+
+| Påstand | Grunnlag |
+|---|---|
+| Oppdateringsmotoren kjører i APK-en, men måler seg mot seg selv | **observert** — `dist/` servert på eget origin, motoren avlest i ekte nettleser |
+| CSP-en avviser en OTA-forespørsel til `huskis.no` fra appens origin | **observert** — CSP-brudd i konsollen, samme-origin gikk gjennom |
+| Pluginen krever ingen bundler | **observert** — `cap sync` registrerte `LiveUpdatePlugin` i `capacitor.plugins.json`; broens generering av `window.Capacitor.Plugins` lest i `JSExport.java` |
+| Prisen i testsuiten er nøyaktig to sjekker | **observert** — 129/129 uten, 134/136 med, i en kopi av repoet |
+| Capgo drar inn Play-tjenester, Capawesome ikke | **observert** — begge installert, Gradle-blokkene lest fra pakkene |
+| Signering er `SHA256withRSA` og fail closed | **lest** i pluginens Java-kilde, ikke kjørt |
+| Rollback-timer, `reset()` og `reload()`s virkemåte | **lest** i pluginens Java-kilde, ikke kjørt |
+| Play- og App Store-reglene tillater JS-OTA | **lest** — Apples avtaletekst hentet direkte; Play-policyen bare gjennom søketreff, siden `support.google.com` er blokkert av utgående proxy i denne økten |
+| Appflow legges ned 31.12.2027 | **lest** gjennom søketreff — Ionics egne sider er blokkert av proxyen. Pakkens `"license": "Commercial"` er derimot lest direkte fra npm |
+| Skyprisene | **lest** gjennom søketreff; begge prissidene er blokkert. Ikke grunnlag for valget |
+
+## Hva som krever en enhetsøkt
+
+Ingenting av dette kan avgjøres uten en telefon, og ingen av dem skal krysses av
+før de er målt i en `chrome://inspect`-økt mot en APK:
+
+- at `window.Capacitor.Plugins.LiveUpdate` faktisk finnes i Huskis' egen APK —
+  broen er lest i Capacitors kilde, ikke sett i appen;
+- at `reload()` beholder originet, og dermed `localStorage` og Supabase-sesjonen,
+  gjennom et bundlebytte;
+- at rollback-timeren faktisk gjenoppretter den innebygde bundelen når en
+  bevisst ødelagt bundle aldri rekker `ready()` — og, som eget tilfelle, en
+  bundle som laster scriptene fint men feiler FØR skjermen er brukbar;
+- at en offline kaldstart rekker readiness-punktet innenfor `readyTimeout`, slik
+  at fravær av nett aldri leses som en defekt bundle;
+- at et bytte gjennom `updateSafety()` ikke taper en usynket endring — samme
+  spørsmål som del B i `tests/auto-update.test.js` stiller i browseren;
+- at den native nedlastingen ikke er underlagt WebView-ens CSP;
+- hva pluginen koster i kaldstartstid;
+- hva AAR-ene faktisk merger inn i det bygde manifestet.
+
+## Implementasjonen skal
 
 - [ ] aldri OTA-oppdatere Swift/Kotlin/native plugins;
+- [ ] håndheve native-kompatibilitet som en VAKT, ikke bare som en regel:
+      manifestet bærer grensen, klienten avviser en inkompatibel bundle før
+      nedlasting og oppstilling, og `versionCode` øker når skallet endres
+      (seksjonen «Native-kompatibilitet er en vakt i fase 5»);
 - [ ] verifisere bundle før aktivering;
 - [ ] beholde den innebygde butikkversjonen som fallback;
+- [ ] kalle `ready()` i et definert readiness-punkt — etter at appen er brukbar,
+      og uten å vente på nettet (seksjonen «Readiness-punktet»);
 - [ ] gjenbruke `updateSafety()` slik at bundlebytte ikke skjer midt i usikret
       arbeid;
+- [ ] klargjøre målet (nedlasting + `setNextBundle()`) som en egen tilstand før
+      det kan reloades, og la en feilet klargjøring prøves igjen uten å brenne
+      ett-forsøk-vakten;
 - [ ] tåle offline oppstart;
 - [ ] unngå reload-/oppdateringsløkker;
 - [ ] kunne rulle tilbake en dårlig mobilbundle;
@@ -1403,6 +1750,9 @@ Google Plays interne testspor.
 - [ ] Fullfør privacy/Data Safety-opplysninger basert på faktisk databruk.
 - [ ] Gi reviewer/testspor fungerende testkonto der det kreves.
 - [ ] Test installasjon, oppgradering og rollback gjennom Play-sporet.
+- [ ] Ta `versionCode` videre fra OTA-vakten (fase 5) til butikkens krav:
+      monotont økende per opplasting, og konsistent med grensen OTA-manifestet
+      allerede bruker. Det er samme tall i to roller — ikke to ordninger.
 
 **Ferdigkriterium:** en tester kan installere og oppdatere Huskis gjennom Google
 Play uten sideloading.
@@ -1473,8 +1823,18 @@ De skal ikke snike seg inn i fundamentfasene.
 
 ## Neste oppgave
 
-**Fase 3 og fase 4 er begge ferdige**, og de ble avsluttet i samme
-`chrome://inspect`-økt mot debug-APK-en. Neste oppgave er derfor fase 5.
+**Fase 5 er i gang, og valget er tatt.** Fase 3 og fase 4 er begge ferdige, og
+ble avsluttet i samme `chrome://inspect`-økt mot debug-APK-en.
+
+Neste oppgave er den første implementasjonsrunden i fase 5, og den skal være
+liten: pinn `@capawesome/capacitor-live-update`, legg `LiveUpdate`-blokken med
+`publicKey` og `readyTimeout` i `capacitor.config.json`, kall `ready()` i
+readiness-punktet bak den samme native-vakten som tilbakeknappen bruker, og
+utvid de to låsene i `tests/capacitor-android.test.js` i samme endring. Da
+kjører appen fortsatt bare den innebygde bundelen — men rollback-veien finnes,
+og den kan prøves på telefon før noe bundlebytte innføres. Klargjøringstilstanden
+og native-kompatibilitetsvakten hører til runden som faktisk henter en bundle,
+og ingen bundle skal hentes før begge er på plass.
 
 ### Fase 3
 
@@ -1505,14 +1865,14 @@ Ingen plugin er innført, og unntaket for tilbakeknappens bro står uendret.
 
 ### Fase 4
 
-**Identiteten finnes, og de to åpne punktene er åpne med vilje.** `releaseId` er
+**Identiteten finnes, og de to siste punktene er avgjort.** `releaseId` er
 definert, generert i `build.js` og stemplet inn i både klienten og
 `/version.json`; web og Android bygget fra samme commit rapporterer den samme
 verdien, mens `buildId` fortsatt er unik per bygg og eier cache- og
-reload-sikkerheten alene. `minimumSupportedRelease` og valget mellom
-byte-identisk artifact og separate builds står åpne til det finnes et konkret
-behov — det første til en serverendring faktisk brekker en eldre klient, det
-andre til OTA (fase 5) gir valget en konsekvens.
+reload-sikkerheten alene. `minimumSupportedRelease` innføres ikke — OTA flytter
+gamle klienter framover i stedet for å stenge dem ute — og web og mobil får
+separate builds med samme `releaseId`. Begge svarene er begrunnet i
+fase 5-seksjonen.
 
 **Ferdigkriteriet er sett på enhet:** en kjørende APK og en Vercel-preview
 bygget av samme commit rapporterte den samme `releaseId` (`d10867a7c0a6`) med
@@ -1524,3 +1884,26 @@ Hver fase 3-endring er plattformspesifikk og skal gates eksplisitt
 tilbakeknappens bro — ÉN kodelinje i `app.js`, gjennom
 `window.Capacitor.isNativePlatform()`. Trenger et nytt punkt et native API,
 utvides unntaket like avgrenset i samme endring; vakten fjernes ikke.
+
+### Fase 5
+
+**Løsningen er valgt, og prisen er skrevet ned.**
+`@capawesome/capacitor-live-update` i selvhostet modus: MIT, ingen sky-konto,
+ingen regning, og bundelen er en signert ZIP Huskis lager selv. Valget hviler på
+tre målinger, ikke på produktsider — at pluginen ikke krever en bundler, at den
+koster nøyaktig to navngitte sjekker i `tests/capacitor-android.test.js`, og at
+alternativet drar Google Play-tjenester inn i en app som ikke har dem.
+
+**Hullet fasen skal fylle er også målt:** oppdateringsmotoren kjører i APK-en og
+`updateSafety()` svarer `safe: true` — den sammenligner bare sin egen innebygde
+`/version.json` med seg selv. Fase 5 gir den en motpart uten å røre
+trygghetsvurderingen: `updateSafety()`, banneret, inaktivitetsregelen og
+ett-forsøk-vakten er de samme (arkitekturregel 8). Det som kommer i tillegg er
+et ledd, ikke et nytt begrep — et mål må klargjøres (nedlasting +
+`setNextBundle()`) før det kan reloades, og en inkompatibel bundle avvises før
+klargjøringen i det hele tatt begynner.
+
+Ingen kode er skrevet, og ingen av implementasjonspunktene er begynt. Det som
+gjenstår før den første runden kan kalles ferdig, må måles på telefon —
+seksjonen «Hva som krever en enhetsøkt» lister nøyaktig hva.
+
