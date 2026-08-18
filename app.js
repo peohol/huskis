@@ -11596,17 +11596,31 @@
 
      Idempotent: den første av de to veiene vinner. En senere innlogging eller
      kontobytte i samme økt er ikke en ny oppstart, og timeren er allerede
-     avvæpnet. */
+     avvæpnet.
+
+     `appReady` speiler IKKE bare «skjermen er malt» — den speiler «avvæpningen
+     er bekreftet». I browseren og når det ikke finnes noen plugin å spørre,
+     er de to samtidige (ingenting å vente på). Men i native runtime, med
+     pluginen der, venter `appReady` på at `live.ready()` faktisk RESOLVER: et
+     unntak i broen eller en avvist promise skal ikke kunne lese seg selv som
+     «avvæpnet» — det ville gjort readiness-punktet blindt for nøyaktig den
+     feilen det finnes for å oppdage. `readyInFlight` gjør en mislykket
+     avvæpning retrybar (en senere `markAppReady()` prøver på nytt i stedet
+     for å være låst av et tidligere svelget avslag), og `liveReadyError`
+     eksponerer siste feil for enhetsøkten. */
   let appReady = false;
+  let readyInFlight = false;
+  let liveReadyError = null;
   function markAppReady() {
-    if (appReady) return;
-    appReady = true;
-    if (!nativeShell) return;   // samme gate som tilbakeknappens bro
+    if (appReady || readyInFlight) return;
+    if (!nativeShell) { appReady = true; return; }   // samme gate som tilbakeknappens bro
     const live = nativePlugins.LiveUpdate;
-    if (!live || typeof live.ready !== 'function') return;
-    // Uten `await`: readiness-punktet skal ikke kunne utsettes av pluginen, og
-    // en avvist promise herfra skal ikke rive oppstarten.
-    try { Promise.resolve(live.ready()).catch(() => {}); } catch (e) {}
+    if (!live || typeof live.ready !== 'function') { appReady = true; return; }
+    readyInFlight = true;
+    Promise.resolve(live.ready())
+      .then(() => { appReady = true; liveReadyError = null; })
+      .catch((e) => { liveReadyError = (e && e.message) || String(e); })
+      .then(() => { readyInFlight = false; });
   }
 
   async function initAccounts() {
@@ -12854,6 +12868,9 @@
     // Har appen nådd readiness-punktet? Leses i enhetsøkten (chrome://inspect)
     // for å måle at en offline kaldstart rekker det innenfor `readyTimeout`.
     get appReady() { return appReady; },
+    // Siste feil fra et mislykket LiveUpdate.ready()-kall, eller null. Lest i
+    // enhetsøkten når appReady blir hengende på false i native runtime.
+    get liveReadyError() { return liveReadyError; },
     tour: {
       start: startTour,
       end: endTour,

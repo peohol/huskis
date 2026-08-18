@@ -587,10 +587,24 @@ check('readiness-punktet finnes som én navngitt funksjon (markAppReady)',
   readyKropp !== '' && /\.ready\(\)/.test(readyKropp),
   readyKropp ? 'markAppReady' : 'fant ikke funksjonen');
 check('ready() står bak native-gaten og bak pluginbroen, ikke ubetinget',
-  /if \(!nativeShell\) return;/.test(readyKropp)
+  /if \(!nativeShell\) \{ appReady = true; return; \}/.test(readyKropp)
     && /nativePlugins\.LiveUpdate/.test(readyKropp)
     && readyKropp.indexOf('nativeShell') < readyKropp.indexOf('.ready('),
   readyKropp.trim().split('\n').map((l) => l.trim()).filter(Boolean).join(' ') || 'ingen kropp');
+/* [P1, PR-review #134] `appReady` skal IKKE settes før `ready()` faktisk har
+   lyktes — en avvist promise skal ikke kunne lese seg selv som «avvæpnet», og
+   en mislykket avvæpning skal være retrybar, ikke låst av et svelget avslag.
+   De to early-return-grenene (ingen native runtime / ingen plugin) har
+   ingenting å vente på og setter `appReady` med det samme; den tredje — det
+   faktiske native-kallet — setter den kun inne i `.then()`, og en `.catch()`
+   fanger feilen i stedet for å late som suksess. */
+check('appReady venter på at ready() faktisk resolverer (og en avvist promise er retrybar)',
+  (readyKropp.match(/appReady = true;/g) || []).length === 3
+    && /if \(!live \|\| typeof live\.ready !== 'function'\) \{ appReady = true; return; \}/.test(readyKropp)
+    && /readyInFlight = true;[\s\S]*\.then\(\(\) => \{ appReady = true; liveReadyError = null; \}\)/.test(readyKropp)
+    && /\.catch\(\(e\) => \{ liveReadyError = /.test(readyKropp)
+    && /\.then\(\(\) => \{ readyInFlight = false; \}\);/.test(readyKropp),
+  readyKropp.trim());
 /* Punktet nås fra BEGGE de brukbare skjermene: innloggingsskjermen for en
    utlogget bruker, board-et brettet fra localStorage for en innlogget. Bare ett
    av kallstedene ville gjort rollback avhengig av hvilken av dem brukeren

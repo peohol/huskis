@@ -17,7 +17,7 @@ autoritative dokumentet for fagfeltet.
 | Nåværende fase | **Fase 5 — OTA for web-assets.** Fase 3 og fase 4 er ferdige; begge ferdigkriteriene ble oppfylt på fysisk enhet i samme `chrome://inspect`-økt. Fase 5 er i gang, og den starter ikke med kode: OTA-løsningen skulle velges først, mot åtte krav, og **valget er tatt**. Statusen for hver fase står på hver sin rad under. |
 | Status — fase 3 | **Ferdigkriteriet er nådd.** Alle seks punktene er avgjort: systemets tilbakeknapp og safe areas/systemfeltene/skjermtastaturet, begge verifisert på fysisk telefon; eksterne lenker og auth-/e-postlenker, som begge er beslutninger uten kode og derfor ikke har noe å prøve på en telefon; sikker lagring/`android:allowBackup`, der sikkerhetskopien av WebView-lagringen er slått av; og lifecycle-/network-signalene, målt på enhet med sonden. `navigator.onLine` er bekreftet dødt uten `ACCESS_NETWORK_STATE`, og tillatelsen er lagt inn med vakt. Gjenopptakelsen er tilskrevet: et `get_my_doc` står i enhetsloggen merket `by: 'visibilitychange'`. Målingen viste samtidig at hendelsen IKKE leveres når Android har fryst prosessen — der starter pollets forfalte tikk runden i samme øyeblikk som opptiningen. Begge ledd er dermed bærende, hvert i sitt regime (se seksjonen). Ingen native plugin er innført. Automatisk dekket av `tests/safe-area.test.js`, `tests/landscape-chrome.test.js`, `tests/system-back.test.js`, `tests/sync-foreground.test.js` (del 2 og del 6 kjører hvert sitt regime) og `tests/capacitor-android.test.js`. |
 | Status — fase 4 | Fase 4s ferdigkriterium er **oppfylt**: en kjørende APK og en Vercel-preview bygget av samme commit rapporterte den samme `releaseId` (`d10867a7c0a6`) med hver sin `buildId`, lest på telefon. Alle sju punktene er avgjort. Fem er implementert: kartleggingen av dagens release-identiteter, `releaseId` er definert og generert i `build.js`, web og Android bygget fra samme commit rapporterer den samme verdien, `version.json` er utvidet additivt uten at cache- eller reload-sikkerheten er rørt, og kompatibilitetsregelen mellom klientrelease og databaseskjema er skrevet ned ([`release-og-deploy.md`](release-og-deploy.md)). De to siste er beslutninger, ikke kode — `minimumSupportedRelease` og valget mellom byte-identisk artifact og separate builds — sto åpne til OTA ga dem en konsekvens, og er nå avgjort i fase 5: ingen nedre grense, og separate builds med samme `releaseId` (se «De to punktene fra fase 4 får sitt svar her»). Automatisk dekket av `tests/build-version.test.js`, `tests/auto-update.test.js` og `tests/capacitor-android.test.js`. |
-| Status — fase 5 | **Pluginen og rollback-veien står i koden; ingen bundle hentes ennå.** Løsningen er `@capawesome/capacitor-live-update` i selvhostet modus, uten sky-konto — begrunnet mot alle åtte kravene i fase 5-seksjonen. Første implementasjonsrunde er den minste som kan prøves på telefon: pakken pinnet, `LiveUpdate`-blokken med `readyTimeout` (rollback PÅ) og `autoUpdateStrategy` på `none`, og `ready()` i readiness-punktet bak den samme native-gaten som tilbakeknappens bro. Ingen `downloadBundle`, `setNextBundle` eller `reload` — og derfor heller ingen CSP-, `release.yml`- eller manifestendring. Hullet fasen skal fylle står uendret: oppdateringsmotoren KJØRER i APK-en, men sammenligner seg med sin egen innebygde `/version.json`. Av de tre vaktene som ikke kan ettermonteres er readiness-punktet nå skrevet; klargjøringstilstanden og native-kompatibilitetsgrensen hører til runden som faktisk henter en bundle. **Ingen av implementasjonspunktene er krysset av** — koden er ikke prøvd på enhet i denne omgangen. |
+| Status — fase 5 | **Pluginen og rollback-veien står i koden; ingen bundle hentes ennå.** Løsningen er `@capawesome/capacitor-live-update` i selvhostet modus, uten sky-konto — begrunnet mot alle åtte kravene i fase 5-seksjonen. Første implementasjonsrunde er den minste som kan prøves på telefon: pakken pinnet, `LiveUpdate`-blokken med `readyTimeout` (rollback PÅ) og `autoUpdateStrategy` på `none`, og `ready()` i readiness-punktet bak den samme native-gaten som tilbakeknappens bro. Ingen `downloadBundle`, `setNextBundle` eller `reload` — og derfor heller ingen CSP-, `release.yml`- eller manifestendring. Hullet fasen skal fylle står uendret: oppdateringsmotoren KJØRER i APK-en, men sammenligner seg med sin egen innebygde `/version.json`. Av de tre vaktene som ikke kan ettermonteres er readiness-punktet nå skrevet; klargjøringstilstanden og native-kompatibilitetsgrensen hører til runden som faktisk henter en bundle. Kodegjennomgang på PR-en (#134) fant og rettet ett funn i selve readiness-punktet (`appReady` ventet ikke på at `ready()` faktisk lyktes) og navnga ett krav for neste runde (en rullet-tilbake bundle må sperres varig, ikke bare oppdages av `readyTimeout` igjen — se «En rullet-tilbake bundle må være varig sperret»). **Ingen av implementasjonspunktene er krysset av** — koden er ikke prøvd på enhet i denne omgangen. |
 | Neste milepæl | Fase 5: første OTA-bundle som flytter en APK til samme `releaseId` som `huskis.no` |
 | Neste praktiske steg — fase 3 | Ingen. Fasen er ferdig |
 | Neste praktiske steg — fase 4 | Ingen. Fasen er ferdig; de to «vurder …»-punktene fikk sitt svar i fase 5 |
@@ -1553,8 +1553,8 @@ og gjør ingenting.
 |---|---|
 | npm | `@capawesome/capacitor-live-update` 8.4.0, pinnet eksakt, i `dependencies` — ikke `devDependencies`: koden pakkes inn i APK-en, i motsetning til `@capacitor/cli`, som bare kjører på byggemaskinen |
 | `capacitor.config.json` | `LiveUpdate`-blokken med `readyTimeout: 10000` (standardverdien er `0`, og `0` betyr at automatisk rollback er AV) og `autoUpdateStrategy: "none"`. Ingen `appId`, `defaultChannel` eller `serverDomain`: pluginen har ingen adresse å kontakte, og kontakter derfor ingenting av seg selv |
-| `app.js` | `markAppReady()` kaller `LiveUpdate.ready()` bak `nativeShell` — den samme gaten tilbakeknappens bro bruker. Kallstedene er de brukbare skjermene: `cloudStart()` rett etter at board-et er brettet fra `localStorage`, og `initAccounts()` når innloggingsskjermen står malt — også i grenen der Supabase mangler og skjermen er alt appen har å vise. Ingen av dem ligger etter noe som venter på serveren. Funksjonen er idempotent — første vei vinner, og et kontobytte senere i økten er ikke en ny oppstart |
-| `tests/capacitor-android.test.js` | de to låsene som måtte utvides, pluss de nye invariantene: at `LiveUpdate`-blokken finnes, at `readyTimeout` er positiv, at `autoUpdateStrategy` ikke er slått på, at ingen sky-felter er satt, at `ready()` står bak gaten og kalles fra begge skjermene, og at `ready()` fortsatt er den ENESTE native OTA-metoden web-koden kaller |
+| `app.js` | `markAppReady()` kaller `LiveUpdate.ready()` bak `nativeShell` — den samme gaten tilbakeknappens bro bruker. Kallstedene er de brukbare skjermene: `cloudStart()` rett etter at board-et er brettet fra `localStorage`, og `initAccounts()` når innloggingsskjermen står malt — også i grenen der Supabase mangler og skjermen er alt appen har å vise. Ingen av dem ligger etter noe som venter på serveren. Funksjonen er idempotent — første vei vinner, og et kontobytte senere i økten er ikke en ny oppstart. `window.__huskis.appReady` blir først `true` når `ready()` faktisk har RESOLVERT (eller når det ikke finnes noe native-kall å vente på); en avvist promise fanges i `window.__huskis.liveReadyError` i stedet for å telle som avvæpnet (PR-review #134, punkt P1) |
+| `tests/capacitor-android.test.js` | de to låsene som måtte utvides, pluss de nye invariantene: at `LiveUpdate`-blokken finnes, at `readyTimeout` er positiv, at `autoUpdateStrategy` ikke er slått på, at ingen sky-felter er satt, at `ready()` står bak gaten og kalles fra begge skjermene, at `appReady` ikke settes før promisen er avgjort, og at `ready()` fortsatt er den ENESTE native OTA-metoden web-koden kaller |
 
 Gaten i `app.js` er fortsatt gaten, men den er nå to linjer i stedet for én:
 `isNativePlatform()`-spørsmålet, og oppslaget av `window.Capacitor.Plugins` BAK
@@ -1694,6 +1694,37 @@ Fase 6 eier fortsatt `versionCode` som BUTIKKENS krav: monotont økende per
 opplasting, signering, spor. Det er en annen bruk av det samme tallet, og den
 kommer i tillegg — ikke i stedet.
 
+### En rullet-tilbake bundle må være varig sperret — ikke bare gjenkjent av timeren
+
+Funn fra kodegjennomgang av PR #134 (P2), verifisert mot pluginens kilde:
+`readyTimeout` beskytter mot at en DÅRLIG bundle blir stående, men ikke mot at
+NESTE kaldstart velger nøyaktig samme `bundleId` igjen. Pluginen har en
+blokkliste (`autoBlockRolledBackBundles`, `getBlockedBundles()`,
+`clearBlockedBundles()`), men to ting gjør den ikke en vakt av seg selv:
+
+- standardverdien er `false` — den må slås PÅ eksplisitt;
+- **den sjekkes kun inne i pluginens egen `sync()`-flyt**
+  (`isBlockedBundleId(latestBundleId)` i `fetchLatestBundleInternal`), lest
+  direkte i `LiveUpdate.java`. Huskis' selvhostede flyt bruker den MANUELLE
+  veien — `downloadBundle()` + `setNextBundle()` — og `setNextBundle()`
+  konsulterer aldri blokklisten. Et manifest som (ved en feil, eller en
+  fastlåst utrulling) fortsetter å peke på en `bundleId` som nettopp ble
+  rullet tilbake, ville derfor bli stilt opp på nytt ved neste kaldstart, ryke
+  på `readyTimeout` igjen, og gjenta seg for hver kaldstart — en reload-løkke
+  på tvers av kalde oppstarter, som er nøyaktig det implementasjonslista
+  nederst («unngå reload-/oppdateringsløkker») skal hindre. Ett-forsøk-vakten
+  i `update-check.js` er `sessionStorage`-basert og dekker ikke dette: den
+  overlever ikke en kald app-prosess.
+
+**Konsekvens for runden som faktisk henter en bundle** (ikke denne): før et
+manifestmål stages med `setNextBundle()`, må klienten selv konsultere
+`getBlockedBundles()` (eller en egen persistent karantene) og avvise et
+blokkert mål — samme prinsipp som steg 0 (native-kompatibilitet) i flyten
+under, men for identitet i stedet for versjon. `autoBlockRolledBackBundles`
+bør trolig slås PÅ i samme runde, siden ingenting ellers fyller blokklisten.
+Uimplementert her med vilje: runden henter ingen bundle i det hele tatt, og en
+karantenevakt uten noe å karantene ville vært utestet kode.
+
 ## De to punktene fra fase 4 får sitt svar her
 
 Begge sto åpne til OTA ga dem en konsekvens. Det gjør fase 5 nå.
@@ -1792,7 +1823,10 @@ før de er målt i en `chrome://inspect`-økt mot en APK:
       det kan reloades, og la en feilet klargjøring prøves igjen uten å brenne
       ett-forsøk-vakten;
 - [ ] tåle offline oppstart;
-- [ ] unngå reload-/oppdateringsløkker;
+- [ ] unngå reload-/oppdateringsløkker — inkludert på tvers av KALDE
+      oppstarter: en rullet-tilbake `bundleId` skal avvises FØR den stilles
+      opp på nytt, ikke bare oppdages av `readyTimeout` igjen (seksjonen «En
+      rullet-tilbake bundle må være varig sperret»);
 - [ ] kunne rulle tilbake en dårlig mobilbundle;
 - [ ] først bevises på Android før den tas til iOS.
 
@@ -1896,18 +1930,27 @@ De skal ikke snike seg inn i fundamentfasene.
 
 ## Neste oppgave
 
-**Fase 5 er i gang, og valget er tatt.** Fase 3 og fase 4 er begge ferdige, og
-ble avsluttet i samme `chrome://inspect`-økt mot debug-APK-en.
+**Fase 5 er i gang.** Fase 3 og fase 4 er begge ferdige, og ble avsluttet i
+samme `chrome://inspect`-økt mot debug-APK-en. Løsningen er valgt, og første
+implementasjonsrunde er merget (PR #134): pluginen pinnet, `LiveUpdate`-blokken
+i `capacitor.config.json` med `readyTimeout` (rollback PÅ) og
+`autoUpdateStrategy: "none"`, `ready()` kalt i readiness-punktet bak den samme
+native-vakten som tilbakeknappen bruker, og de to låsene i
+`tests/capacitor-android.test.js` utvidet. Kodegjennomgang på PR-en fant og
+fikset ett reelt funn i samme runde (P1: `appReady` ble satt `true` FØR
+`ready()` var bekreftet — se «Hva som er innført») og navnga ett krav for
+runden som kommer (P2: en rullet-tilbake bundle må sperres varig, ikke bare
+oppdages av timeren — se «En rullet-tilbake bundle må være varig sperret»).
 
-Neste oppgave er den første implementasjonsrunden i fase 5, og den skal være
-liten: pinn `@capawesome/capacitor-live-update`, legg `LiveUpdate`-blokken med
-`publicKey` og `readyTimeout` i `capacitor.config.json`, kall `ready()` i
-readiness-punktet bak den samme native-vakten som tilbakeknappen bruker, og
-utvid de to låsene i `tests/capacitor-android.test.js` i samme endring. Da
-kjører appen fortsatt bare den innebygde bundelen — men rollback-veien finnes,
-og den kan prøves på telefon før noe bundlebytte innføres. Klargjøringstilstanden
-og native-kompatibilitetsvakten hører til runden som faktisk henter en bundle,
-og ingen bundle skal hentes før begge er på plass.
+Appen kjører fortsatt bare den innebygde bundelen — ingen `downloadBundle`,
+`setNextBundle` eller `reload` er kalt. **Neste oppgave er enhetsøkten**:
+måle de tingene som ikke kan avgjøres uten telefon (seksjonen «Hva som krever
+en enhetsøkt»), først og fremst at `window.Capacitor.Plugins.LiveUpdate`
+faktisk finnes i Huskis' egen APK og at `window.__huskis.appReady` blir `true`
+innenfor `readyTimeout` også i flymodus. Deretter runden som faktisk henter en
+bundle — den må ha klargjøringstilstanden, native-kompatibilitetsvakten,
+`publicKey` + signering, en økt `versionCode`, OG blokklistevakten (P2) med
+seg, ikke bundlebyttet alene.
 
 ### Fase 3
 
@@ -1976,7 +2019,12 @@ et ledd, ikke et nytt begrep — et mål må klargjøres (nedlasting +
 `setNextBundle()`) før det kan reloades, og en inkompatibel bundle avvises før
 klargjøringen i det hele tatt begynner.
 
-Ingen kode er skrevet, og ingen av implementasjonspunktene er begynt. Det som
-gjenstår før den første runden kan kalles ferdig, må måles på telefon —
-seksjonen «Hva som krever en enhetsøkt» lister nøyaktig hva.
+**Første runde er merget (PR #134):** pluginen, `LiveUpdate`-blokken og
+readiness-punktet finnes i koden, uten at noen bundle hentes. Ingen av
+implementasjonspunktene er krysset av — det som gjenstår før runden kan kalles
+ferdig, må måles på telefon; seksjonen «Hva som krever en enhetsøkt» lister
+nøyaktig hva. Kodegjennomgangen på PR-en fant ett reelt funn i selve runden
+(rettet: readiness-punktet ventet ikke på at native-kallet lyktes) og navnga
+ett krav for runden som henter en bundle (en rullet-tilbake bundle må sperres
+varig — seksjonen «En rullet-tilbake bundle må være varig sperret»).
 
