@@ -23,8 +23,10 @@
     6. Ingen andre inline-kilder: ingen flere <script> uten src, ingen on*=,
        ingen style=/<style> (som ellers ville krevd 'unsafe-inline').
     7. connect-src dekker Supabase-prosjektet i config.js — både https og wss
-       (realtime) — og ingen andre verter. Drift mellom config.js og policyen
-       stopper her.
+       (realtime) — pluss det kanoniske originet fra samme fil, som er
+       OTA-manifestets vert inne i APK-en (der 'self' er https://localhost —
+       docs/mobilapp-plan.md, fase 5). Ingen andre verter; drift mellom
+       config.js og policyen stopper her.
     8. Supabase-biblioteket ligger i repoet (`vendor/`), på en EKSAKT versjon i
        filnavnet, og innholdet er byte for byte det npm publiserte — sjekksummen
        her regnes ut på nytt fra fila. Appen har ingen eksterne skriptkilder i
@@ -191,8 +193,17 @@ check('connect-src tillater Supabase over https', conn.indexOf(origin) > -1, { o
 check('connect-src tillater Supabase over wss (realtime)', conn.indexOf(wss) > -1, { wss, conn });
 check("connect-src tillater eget origin ('self' — /version.json i oppdateringssjekken)",
   conn.indexOf("'self'") > -1, conn);
-check('connect-src tillater ingen andre verter enn Supabase og eget origin',
-  conn.length === 3, conn);
+// OTA-manifestet (docs/mobilapp-plan.md, fase 5): inne i APK-en er 'self' det
+// innebygde originet (https://localhost), så det kanoniske originet må stå
+// navngitt for at web-laget skal få lese /ota/android/<versionCode>.json.
+// Verten hentes fra config.js — samme ene kilde som appen selv bruker.
+const canonicalUrl = (/canonicalAppUrl:\s*'([^']+)'/.exec(cfgSrc) || [])[1];
+const canonicalOrigin = canonicalUrl ? new URL(canonicalUrl).origin : '';
+check('config.js oppgir det kanoniske originet', !!canonicalOrigin, canonicalUrl);
+check('connect-src tillater det kanoniske originet (OTA-manifestet i APK-en)',
+  conn.indexOf(canonicalOrigin) > -1, { canonicalOrigin, conn });
+check('connect-src tillater ingen andre verter enn Supabase, eget origin og det kanoniske originet',
+  conn.length === 4, conn);
 
 check("style-src er låst til eget origin (webfonten er selvhostet)",
   String(headerCsp['style-src']) === "'self'", headerCsp['style-src']);

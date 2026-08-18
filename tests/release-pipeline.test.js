@@ -29,7 +29,8 @@
         Signeringen er ikke bare påstått her: nøkkelparet lages i testen, hele
         veien zip → signatur → verifisering kjøres, og en endret byte eller feil
         nøkkel må gi et NEI. Grensene rundt den (nedre `versionCode`, at `ota/`
-        faktisk publiseres, at secreten aldri skrives ut) sjekkes ved siden av.
+        faktisk publiseres, at secreten aldri skrives ut, cache- og
+        CORS-headerne for manifest og bundle) sjekkes ved siden av.
 
    Ren node-test — ingen server, ingen nettleser.
 
@@ -359,6 +360,15 @@ check('…også forbi CDN-en', /no-store/.test(otaHeader('/ota/android/(.*)', 'C
 check('ZIP-ene caches for alltid (build-ID-en står i navnet)',
   /immutable/.test(otaHeader('/ota/bundles/(.*)', 'Cache-Control')),
   otaHeader('/ota/bundles/(.*)', 'Cache-Control') || 'ingen header');
+/* Manifestet leses av WebView-en i APK-en, og DENS origin er https://localhost
+   — en cross-origin-lesning som CSP-verten alene ikke åpner: uten CORS-headeren
+   blokkeres SVARET, stille, ett lag lenger ut (docs/sikkerhetsheadere.md,
+   «OTA-manifestet leses på tvers av origin»). Manifestet er offentlige,
+   ukredensierte data, så `*` gir ingen tilgang noen ikke allerede har.
+   Bundlene trenger den ikke: nedlastingen skjer i NATIV kode (OkHttp). */
+check('manifestene kan leses fra et annet origin (APK-ens WebView er https://localhost)',
+  otaHeader('/ota/android/(.*)', 'Access-Control-Allow-Origin') === '*',
+  otaHeader('/ota/android/(.*)', 'Access-Control-Allow-Origin') || 'ingen header');
 
 /* ---- Signaturen, kjørt — ikke lest ----
    Nøkkelparet lages her, så testen trenger ingen secret. Det den beviser er at

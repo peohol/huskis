@@ -14,6 +14,11 @@
        securitypolicyviolation — inkludert guarden for kanonisk origin, som
        kjører inline og kun slipper gjennom på hash-en sin.
     2. Oppdateringssjekken får hente /version.json (connect-src 'self').
+    2b. OTA-manifestets vert slipper gjennom: et fetch mot det kanoniske
+        originet gir IKKE noe connect-src-brudd (docs/mobilapp-plan.md,
+        fase 5 — i APK-en er 'self' https://localhost, så verten må være
+        navngitt). Selve svaret avhenger av nettet og testes ikke; policyen
+        avgjøres FØR forespørselen går ut, så bruddet er det som ville synes.
     3. Avatarbildet vises som data:-URL (img-src data:).
     4. Injisert inline-kode blir BLOKKERT — en XSS med `<script>…</script>`
        kjører ikke, selv om den skulle nå DOM-en.
@@ -122,6 +127,22 @@ async function register(p) {
       .catch((e) => 'blokkert:' + e.message));
   check('oppdateringssjekken får hente /version.json (connect-src self)',
     /^status:/.test(versionFetch), versionFetch);
+
+  /* ---------- 2b) OTA-manifestets vert: connect-src slipper den ut ---------- */
+  // Adressen bygges av guardens eget kanoniske origin — testen navngir ingen
+  // vert selv. Nettverksutfallet er likegyldig (CI kan stå uten utgående nett,
+  // og produksjonssvaret ville uansett vært CORS-avhengig herfra): et
+  // CSP-blokkert kall avbrytes FØR nettet og gir et securitypolicyviolation,
+  // og det er fraværet av det bruddet som er påstanden. At en annen fremmed
+  // vert fortsatt blokkeres, viser angrepsdelen under (cdn.example.invalid).
+  const otaManifestUrl = await page.evaluate(() =>
+    window.__huskisCanonical.origin + '/ota/android/2.json');
+  await page.evaluate((u) => fetch(u, { cache: 'no-store' }).catch(() => {}), otaManifestUrl);
+  await page.waitForTimeout(300);
+  const otaBrudd = (await violations(page))
+    .filter((v) => v.indexOf('connect-src ← ' + otaManifestUrl.replace(/\/ota\/.*$/, '')) === 0);
+  check('fetch mot OTA-manifestet på det kanoniske originet blokkeres IKKE av policyen',
+    otaBrudd.length === 0, otaBrudd);
 
   /* ---------- 3) Avatar som data:-URL ---------- */
   const dataImg = await page.evaluate(() => new Promise((res) => {

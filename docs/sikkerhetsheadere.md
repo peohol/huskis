@@ -39,7 +39,7 @@ script-src 'self' 'sha256-…';
 style-src 'self';
 font-src 'self';
 img-src 'self' data: blob:;
-connect-src 'self' https://<prosjekt>.supabase.co wss://<prosjekt>.supabase.co;
+connect-src 'self' https://<prosjekt>.supabase.co wss://<prosjekt>.supabase.co https://huskis.no;
 form-action 'self';
 frame-ancestors 'none'          ← kun som HTTP-header
 ```
@@ -58,15 +58,39 @@ Hvert unntak fra `'self'` står her fordi appen faktisk trenger det:
 | `img-src data:` | Avatarbilder lagres som `data:image/jpeg`-URL-er på brukerens profil. | flytte avatarene til Supabase Storage |
 | `img-src blob:` | Avatarredigereren tegner den valgte filen via `URL.createObjectURL` i nettlesere uten `createImageBitmap`. | droppe reserveløsningen |
 | `connect-src wss://…` | Realtime (`postgres_changes`) går over WebSocket. | — (kreves) |
+| `connect-src https://huskis.no` | OTA-manifestet ([`mobilapp-plan.md`](mobilapp-plan.md), fase 5): inne i APK-en er `'self'` det INNEBYGDE originet (`https://localhost`), og web-laget leser `/ota/android/<versionCode>.json` fra det kanoniske originet. I browseren, der appen alt kjører på `https://huskis.no`, er verten allerede dekket av `'self'` — tillegget endrer ingenting der. | fjerne OTA-flyten |
 
 Appen laster altså ingenting fra en tredjepart: skriptene, stilarket og
-fontfilene ligger alle på eget origin, og Supabase er den eneste eksterne verten
-i hele policyen — den står kun i `connect-src`.
+fontfilene ligger alle på eget origin, og de eneste adressene i hele policyen
+utover eget origin er Supabase og appens eget kanoniske origin — begge står kun
+i `connect-src`.
 
 `connect-src 'self'` dekker oppdateringssjekkens `GET /version.json`
 ([`auto-update.md`](auto-update.md)). `form-action 'self'` er med fordi
 skjemaene i appen (innlogging, navn, e-post, passord) sendes med JavaScript og
 `preventDefault()`; en injisert `<form action="https://…">` kommer ingen vei.
+
+### OTA-manifestet leses på tvers av origin — derfor har det en CORS-header
+
+CSP-verten over er bare den ene halvdelen av at APK-en får lese manifestet.
+Lesningen er en cross-origin-forespørsel (`https://localhost` →
+`https://huskis.no`), og da krever nettleseren i tillegg at SVARET eksplisitt
+tillater det: uten `Access-Control-Allow-Origin` slipper forespørselen ut
+gjennom CSP-en, men svaret blokkeres av CORS — samme stille feil, ett lag
+lenger ut. `vercel.json` setter derfor `Access-Control-Allow-Origin: *` på
+nøyaktig `/ota/android/(.*)`:
+
+- manifestet er offentlige, ukredensierte, statiske data — det navngir den
+  releasen alle skal på, og `*` gir ingen tilgang noen ikke allerede har ved å
+  hente URL-en selv;
+- `*` sender aldri cookies eller andre credentials med (nettlesere avviser
+  kombinasjonen), så headeren kan ikke gjøre en autentisert forespørsel mulig;
+- ingen andre stier får headeren. Bundlene (`/ota/bundles/`) trenger den ikke:
+  nedlastingen skjer i NATIV kode (OkHttp i pluginen), utenfor både WebView-ens
+  CSP og CORS ([`mobilapp-plan.md`](mobilapp-plan.md), fase 5).
+
+`tests/release-pipeline.test.js` låser headeren sammen med cache-reglene for de
+samme stiene.
 
 ### Endrer du guarden
 
