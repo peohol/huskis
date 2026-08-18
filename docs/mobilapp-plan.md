@@ -1584,10 +1584,10 @@ bundelen den har, og hvert utfall er et stille no-op som kun synes i
 | npm | `@capawesome/capacitor-live-update` 8.4.0, pinnet eksakt, i `dependencies` — ikke `devDependencies`: koden pakkes inn i APK-en, i motsetning til `@capacitor/cli`, som bare kjører på byggemaskinen |
 | `capacitor.config.json` | `LiveUpdate`-blokken med `readyTimeout: 10000` (standardverdien er `0`, og `0` betyr at automatisk rollback er AV) og `autoUpdateStrategy: "none"`. Ingen `appId`, `defaultChannel` eller `serverDomain`: pluginen har ingen adresse å kontakte, og kontakter derfor ingenting av seg selv |
 | `app.js` (readiness-punktet) | `markAppReady()` kaller `LiveUpdate.ready()` bak `nativeShell` — den samme gaten tilbakeknappens bro bruker. Kallstedene er de brukbare skjermene: `cloudStart()` rett etter at board-et er brettet fra `localStorage`, og `initAccounts()` når innloggingsskjermen står malt — også i grenen der Supabase mangler og skjermen er alt appen har å vise. Ingen av dem ligger etter noe som venter på serveren. Funksjonen er idempotent — første vei vinner, og et kontobytte senere i økten er ikke en ny oppstart. `window.__huskis.appReady` blir først `true` når `ready()` faktisk har RESOLVERT (eller når det ikke finnes noe native-kall å vente på); en avvist promise fanges i `window.__huskis.liveReadyError` i stedet for å telle som avvæpnet (PR-review #134, punkt P1) |
-| `app.js` (hentingen) | `fetchOtaBundle()`, kalt én gang ved oppstart, bak den samme gaten: bygger `<canonicalAppUrl()>ota/android/<getVersionCode()>.json` (nivået er en STRENG — ingen tallparsing), gjør nøyaktig ETT `fetch(…, {cache: 'no-store'})`, validerer svaret ved systemgrensen (`validOtaManifest`: form og typer på `releaseId`/`bundleId`/`url`/`signature`, `url` låst til det kanoniske originet, `versionCode` som selvkontroll), sammenligner `releaseId` med `===` mot `<meta name="huskis-release">`, og kaller `downloadBundle({url, bundleId, signature})` — uten `checksum`, som pluginen bare sjekker når `publicKey` ikke er satt. 404, nettverksfeil, ugyldig manifest og avvist nedlasting er alle stille no-op; utfallet står i `window.__huskis.otaFetch` for enhetsøkten |
+| `app.js` (hentingen) | `fetchOtaBundle()`, kalt én gang ved oppstart, bak den samme gaten: bygger `<canonicalAppUrl()>ota/android/<getVersionCode()>.json` (nivået er en STRENG — ingen tallparsing), gjør nøyaktig ETT `fetch(…, {cache: 'no-store'})`, validerer svaret ved systemgrensen (`validOtaManifest`: form og typer på `releaseId`/`bundleId`/`url`/`signature`, `url` låst til det kanoniske originet, `versionCode` som selvkontroll), sammenligner `releaseId` med `===` mot `<meta name="huskis-release">`, og kaller `downloadBundle({url, bundleId, signature})` — uten `checksum`, som pluginen bare sjekker når `publicKey` ikke er satt. 404, nettverksfeil, ugyldig manifest og avvist nedlasting er alle stille no-op; utfallet står i `window.__huskis.otaFetch` for enhetsøkten. En bundle som alt ligger i pluginens lager skilles ut som `already-downloaded` og ikke som en feil — se «En allerede hentet bundle er ikke en feilet nedlasting» |
 | `index.html` + `vercel.json` (CSP) | `https://huskis.no` i `connect-src`, i BEGGE policyene — meta-taggen er den som gjelder inne i APK-en. Og CORS-headeren på manifest-stien, siden lesningen er cross-origin fra `https://localhost` ([`sikkerhetsheadere.md`](sikkerhetsheadere.md)) |
 | `tests/capacitor-android.test.js` | de to låsene som måtte utvides, pluss invariantene: at `LiveUpdate`-blokken finnes, at `readyTimeout` er positiv, at `autoUpdateStrategy` ikke er slått på, at ingen sky-felter er satt, at `ready()` står bak gaten og kalles fra begge skjermene, at `appReady` ikke settes før promisen er avgjort. Og de to native halvdelene av signeringen: at `versionCode` er over `1`, og at `publicKey` er en RSA-nøkkel som overlever PLUGINENS egen parsing — base64 uten PEM-hoder, lest som `X509EncodedKeySpec`. Fra hente-runden også: at broen kalles med nøyaktig `ready`/`getVersionCode`/`downloadBundle` og INGEN kaller `setNextBundle` eller `reload`, at hentingen står bak gaten, at URL-en bygges av `canonicalAppUrl()` + `versionCode` uten tallparsing, ett `fetch` med `no-store`, validering før bruk, `===` mot meta-taggen, og `downloadBundle` uten `checksum` |
-| `tests/ota-fetch.test.js` | flyten KJØRT i ekte nettleser, med broen faket slik skallet injiserer den og manifest-URL-en rutet: i nettleser skjer ingenting; 404 og nettverksfeil er stille no-op med nøyaktig ett oppslag på riktig URL; ugyldige manifester (ikke-JSON, fremmed `url`-vert, feil `versionCode`) stopper ved systemgrensen; lik `releaseId` laster ingenting; ulik `releaseId` gir nøyaktig ett `downloadBundle` med nøyaktig de tre feltene; en avvist nedlasting er stille. Intet banner i noe scenario |
+| `tests/ota-fetch.test.js` | flyten KJØRT i ekte nettleser, med broen faket slik skallet injiserer den og manifest-URL-en rutet: i nettleser skjer ingenting; 404 og nettverksfeil er stille no-op med nøyaktig ett oppslag på riktig URL; ugyldige manifester (ikke-JSON, fremmed `url`-vert, feil `versionCode`) stopper ved systemgrensen; lik `releaseId` laster ingenting; ulik `releaseId` gir nøyaktig ett `downloadBundle` med nøyaktig de tre feltene; en avvist nedlasting er stille; og pluginens `ERROR_BUNDLE_EXISTS` leses som `already-downloaded`, ikke som en feil. Intet banner i noe scenario |
 | `android/app/build.gradle` | `versionCode 2`. Tallet ER kompatibilitetsgrensen fra nå av (se under) |
 | `.github/scripts/ota-bundle.js` | pakker `dist/` til `ota/bundles/<buildId>.zip`, signerer ZIP-bytene (`crypto.createSign('sha256')`, base64), VERIFISERER signaturen mot den innebygde `publicKey` før noe skrives, og skriver ett manifest per støttet nivå. Ren Node — `fs`, `path`, `crypto`, `child_process` — så byggesteget får ingen avhengighet |
 | `.github/workflows/release.yml` | steget kjører i deployjobben, altså bak `needs: smoke`, på den samme `github.sha` som ble migrert og smoke-testet, og legger utdataene i treet FØR `vercel deploy`. `OTA_MIN_VERSION_CODE` står i workflow-env som det laveste native nivået bundelen støttes i. Mangler `OTA_SIGNING_KEY`, stopper releasen — den publiserer ikke en bundle ingen kan verifisere |
@@ -1874,6 +1874,30 @@ i APK-en, ville den dessuten kostet en `versionCode`-økning uten at noe ble
 tryggere. Den slås på i den runden hvor noe faktisk kan rulles tilbake, sammen
 med klientens egen sjekk mot listen.
 
+### En allerede hentet bundle er ikke en feilet nedlasting
+
+Funn fra kodegjennomgang av PR #136, verifisert i pluginens kilde:
+`downloadBundle()` starter med `if (hasBundleById(bundleId))` og svarer da
+`ERROR_BUNDLE_EXISTS` («bundle already exists.») FØR den laster ned noe. Det
+er ikke en kant-situasjon — det treffer HVER kaldstart etter den første
+vellykkede nedlastingen, så lenge manifestet peker på den samme bundelen.
+
+To ting følger, én for denne runden og én for den neste:
+
+- **Instrumentet må skille dem.** `otaFetch` er det enhetsøkten leser, og de
+  to punktene økten skal avgjøre — at nedlastingen går utenfor WebView-ens
+  CSP, og at telefonen godtar produksjonssignaturen — besvares nettopp av om
+  nedlastingen lyktes. Meldt som `download-failed` ville en allerede hentet
+  bundle sett ut som en AVVIST SIGNATUR, altså en falsk negativ i den ene
+  målingen. Klienten skiller den derfor ut som `already-downloaded`
+  (`app.js`, dekket av `tests/ota-fetch.test.js`).
+- **Oppstillingsrunden kan ikke gjøre `setNextBundle()` avhengig av at et
+  ferskt `downloadBundle()` lyktes.** Klargjøringstilstanden må regne en
+  bundle som ligger i lageret som KLAR — ellers ville en app som lastet ned i
+  går aldri kommet videre til oppstilling i dag: nedlastingen «feiler» hver
+  gang, fordi den allerede er gjort. Dette er det samme slaget krav som P2
+  (varig sperring) og hører til den samme runden.
+
 ## De to punktene fra fase 4 får sitt svar her
 
 Begge sto åpne til OTA ga dem en konsekvens. Det gjør fase 5 nå.
@@ -1935,7 +1959,7 @@ er byte for byte kilden, `index.html` modulo de to ID-ene.
 | CSP-en slipper nå manifest-oppslaget ut, og blokkerer fortsatt fremmede verter | **observert** — `tests/csp-enforced.test.js` i ekte nettleser: intet `connect-src`-brudd for det kanoniske originet, fortsatt brudd for `cdn.example.invalid`. Og med verten fjernet ble hele hente-flyten et stille no-op (`no-manifest`, ingen JS-feil) — fail closed, målt i en bevisst rød kjøring |
 | Hele hente-flyten: stille 404/nettverksfeil, systemgrense-validering, `===`, `downloadBundle` med nøyaktig tre felter | **observert** — `tests/ota-fetch.test.js` i ekte nettleser, med broen faket slik skallet injiserer den og manifest-URL-en rutet. Det testen IKKE ser: et ekte skalls `getVersionCode()`, produksjonens faktiske svar (inkludert CORS-headeren), og pluginens faktiske nedlasting/verifisering |
 | Manifest-lesningen krever CORS i tillegg til CSP-verten (cross-origin fra `https://localhost`) | **resonnert + låst**, ikke observert på enhet: headeren står i `vercel.json` og voktes i `tests/release-pipeline.test.js`, men nettlesertesten svarer selv med headeren (rutet), så det ekte produksjonssvaret lest fra en WebView gjenstår |
-| Hva pluginen gjør når samme `bundleId` lastes ned på nytt (andre kaldstart uten at noe er stilt opp) | **ikke lest** i denne runden — utfallet lander uansett stille i `otaFetch`, og enhetsøkten bør notere det |
+| Pluginen AVVISER en `bundleId` den alt har, og det treffer hver kaldstart etter den første nedlastingen | **lest** i `LiveUpdate.java` 8.4.0: `downloadBundle()` starter med `if (hasBundleById(bundleId))` → `ERROR_BUNDLE_EXISTS` («bundle already exists.»), FØR nedlastingen. Funnet kom fra kodegjennomgangen av PR #136 og er verifisert i kilden. Klienten skiller derfor utfallet ut som `already-downloaded` — se «En allerede hentet bundle er ikke en feilet nedlasting» |
 
 ## Hva som krever en enhetsøkt
 
@@ -1986,10 +2010,16 @@ før de er målt i en `chrome://inspect`-økt mot en APK:
   verifisering godtar Node-signaturen, og på `download-failed` med en
   signaturfeil hvis de to halvdelene ikke passer sammen. Fortsatt ikke testet
   — klar, ikke verifisert;
-- hva pluginen gjør når samme `bundleId` lastes ned på nytt — andre kaldstart
-  uten at noe er stilt opp treffer dette: manifestet peker fortsatt på samme
-  bundle, og `downloadBundle()` kalles igjen for en identitet som alt ligger i
-  lageret. Ikke lest i kilden; enhetsøkten ser svaret i `otaFetch`;
+- **lesningsregel for de to punktene over:** `otaFetch.state` skiller fire
+  utfall, og enhetsøkten må lese dem riktig. `downloaded` = begge punktene
+  besvart. `already-downloaded` = bundelen ble hentet i en TIDLIGERE økt
+  (pluginen avviser en `bundleId` den alt har) — også et JA på begge
+  punktene, men fra forrige oppstart, ikke denne. `download-failed` = en ekte
+  feil, og det er DEN som ville betydd at telefonen avviste signaturen.
+  `no-manifest` = 404/nettverksfeil, altså at det ikke kom så langt. En APK
+  som har lastet ned én gang vil derfor melde `already-downloaded` ved hver
+  senere kaldstart; for å måle en FERSK nedlasting må appdata tømmes (eller
+  en ny release publiseres) først;
 - hva pluginen koster i kaldstartstid — samme stoppeklokke-måling som
   readiness-punktet lenger opp; ikke presist målt;
 - hva AAR-ene faktisk merger inn i det bygde manifestet.

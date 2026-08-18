@@ -11701,7 +11701,23 @@
     } catch (e) {
       // Også stille: en avvist signatur eller en avbrutt nedlasting koster
       // ingenting før noe stilles opp. Feilen står her for enhetsøkten.
-      otaFetch = { state: 'download-failed', detail: (e && e.message) || String(e) };
+      const feil = (e && e.message) || String(e);
+      /* Én av avvisningene er ikke en feil: pluginen nekter å laste ned en
+         `bundleId` som ALLEREDE ligger i lageret («bundle already exists.»,
+         `hasBundleById()` i LiveUpdate.java). Det treffer hver kaldstart
+         etter den første vellykkede nedlastingen — bundelen ER hentet og
+         verifisert. Den skilles ut fordi `otaFetch` er enhetsøktens
+         instrument: meldt som `download-failed` ville den lest som at
+         telefonen avviste SIGNATUREN, altså en falsk negativ i nøyaktig det
+         punktet økten skal avgjøre (docs/mobilapp-plan.md, «Hva som krever
+         en enhetsøkt»). Tekstmatchen tåler å ryke — pakken er pinnet
+         eksakt, og en endret melding faller tilbake til `download-failed`,
+         aldri til en falsk suksess. Funnet kom fra kodegjennomgangen av
+         PR #136 og verifisert i pluginens kilde. */
+      otaFetch = {
+        state: /bundle already exists/i.test(feil) ? 'already-downloaded' : 'download-failed',
+        detail: feil,
+      };
     }
   }
 

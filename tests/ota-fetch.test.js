@@ -24,7 +24,10 @@
        fra manifestet. Fortsatt intet banner: ingenting byttes i denne runden.
     7. En avvist downloadBundle (f.eks. signaturfeil på enheten) er også
        stille; utfallet står i window.__huskis.otaFetch for enhetsøkten.
-    8. Ett manifest-oppslag per oppstart, og ingen andre metoder enn
+    8. En bundle som ALT ligger i pluginens lager (andre kaldstart) skilles
+       fra en ekte feil: pluginen avviser den med ERROR_BUNDLE_EXISTS, og
+       den skal ikke kunne leses som en avvist signatur.
+    9. Ett manifest-oppslag per oppstart, og ingen andre metoder enn
        ready/getVersionCode/downloadBundle kalles på broen.
 
   Ren logikk uten layout-avhengighet → én viewport.
@@ -94,6 +97,10 @@ function check(name, cond, extra) {
             window.__otaBro.kall.push('downloadBundle');
             window.__otaBro.download.push(opts);
             if (q.get('dl') === 'fail') throw new Error('signature verification failed (test)');
+            // Pluginens egen melding, ordrett fra LiveUpdatePlugin.java
+            // (ERROR_BUNDLE_EXISTS) — den kaster denne når bundleId alt
+            // ligger i lageret, altså ved hver kaldstart etter den første.
+            if (q.get('dl') === 'exists') throw new Error('bundle already exists.');
             return {};
           },
         },
@@ -127,7 +134,8 @@ function check(name, cond, extra) {
 
   const ferdig = () => page.waitForFunction(() => {
     const H = window.__huskis;
-    return H && ['no-manifest', 'same-release', 'downloaded', 'download-failed'].indexOf(H.otaFetch.state) > -1;
+    return H && ['no-manifest', 'same-release', 'downloaded', 'already-downloaded', 'download-failed']
+      .indexOf(H.otaFetch.state) > -1;
   }, null, { timeout: 10000, polling: 200 });
   const tilstand = () => page.evaluate(() => window.__huskis.otaFetch);
   const bro = () => page.evaluate(() => window.__otaBro);
@@ -218,6 +226,21 @@ function check(name, cond, extra) {
     (await tilstand()).state === 'download-failed' && /signature/.test((await tilstand()).detail || ''),
     await tilstand());
   check('avvist nedlasting: intet banner', !(await banner()));
+
+  /* ---------- 8) Andre kaldstart: bundelen ligger alt i lageret ----------
+     Pluginen avviser en `bundleId` den allerede har (`ERROR_BUNDLE_EXISTS`,
+     lest i LiveUpdate.java), og det treffer HVER kaldstart etter den første
+     vellykkede nedlastingen. Det er ikke en feil, og det skal ikke kunne
+     leses som en avvist SIGNATUR: `otaFetch` er enhetsøktens instrument, og
+     de to utfallene fører til helt ulike konklusjoner om telefonen
+     (docs/mobilapp-plan.md, «Hva som krever en enhetsøkt»). */
+  manifestTreff = [];
+  manifestSvar = { status: 200, body: JSON.stringify(gyldigManifest()) };
+  await page.goto(BASE + '/?mock=1&cap=1&dl=exists');
+  await ferdig();
+  check("allerede nedlastet bundle skilles fra en ekte feil ('already-downloaded')",
+    (await tilstand()).state === 'already-downloaded', await tilstand());
+  check('…og den er fortsatt stille: intet banner, ingenting stilt opp', !(await banner()));
 
   check('ingen ukontrollerte JS-feil i noen av scenarioene', pageErrors.length === 0, pageErrors);
 
