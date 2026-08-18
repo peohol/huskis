@@ -1676,7 +1676,11 @@ plass: `getVersionCode()` finnes nettopp for å begrense live updates til
 kompatible native versjoner, og leverandøren dokumenterer i tillegg mønsteret
 med å binde kanalnavnet til `versionCode` ved byggtid.
 
-To former er aktuelle, og valget tas i første implementasjonsrunde:
+To former er aktuelle. Valget står fortsatt ÅPENT: første implementasjonsrunde
+innførte pluginen og rollback-veien uten manifest, så det er runden som
+publiserer det første manifestet som må avgjøre — og den kan ikke utsette det,
+siden formen bestemmer både URL-en `release.yml` skriver til og hvor vakten
+ligger:
 
 | Form | Hvordan den feiler | Pris |
 |---|---|---|
