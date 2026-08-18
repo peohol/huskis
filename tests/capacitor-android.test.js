@@ -28,9 +28,13 @@
      8. .github/workflows/android-debug.yml bygger debug-APK-en via den samme
         kjeden (node build.js → cap sync → assembleDebug), uten å signere en
         release eller røre release-kjeden.
-     9. Native runtime: webkoden kjenner Capacitor på ÉN gated linje (broen for
-        systemets tilbakeknapp) og ingen andre steder, og ingenting i den peker
-        appen ut av sine egne innebygde filer.
+     9. Native runtime: webkoden kjenner Capacitor på TO gated linjer (broen for
+        systemets tilbakeknapp og oppslaget av de native pluginene) og ingen
+        andre steder, og ingenting i den peker appen ut av sine egne innebygde
+        filer. Og (9b) OTA-pluginen fase 5 innfører: rollback er PÅ
+        (`readyTimeout` > 0), pluginen henter ingenting av seg selv
+        (`autoUpdateStrategy` er ikke slått på), og `ready()` — det ene kallet
+        som avvæpner rollback-timeren — står bak den samme gaten.
     10. Safe areas og skjermtastaturet: erklæringene sonen hviler på —
         `viewport-fit=cover` i index.html, `adjustResize` i manifestet, og
         systemfeltenes utseende i temaet (lyst tema, gjennomsiktige felt,
@@ -165,6 +169,20 @@ check('core, cli og android står i samme versjon',
 check('Capacitor-majoren er 8', /^8\./.test(alleDeps['@capacitor/core'] || ''),
   alleDeps['@capacitor/core']);
 
+/* Fase 5s OTA-plugin. Den er en RUNTIME-avhengighet for det native skallet og
+   skal stå i `dependencies`, ikke i `devDependencies`: koden pakkes inn i
+   APK-en, i motsetning til `@capacitor/cli` som bare kjører på byggemaskinen.
+   Pinnet eksakt av samme grunn som Capacitor-pakkene — en patch-drift ville
+   byttet NATIV kode i appen uten at noe i repoet endret seg. */
+const OTA = '@capawesome/capacitor-live-update';
+check(OTA + ' er en runtime-avhengighet (dependencies, ikke devDependencies)',
+  typeof (pkg.dependencies || {})[OTA] === 'string',
+  (pkg.dependencies || {})[OTA] || 'mangler i dependencies');
+check(OTA + ' er pinnet eksakt (ingen ^, ~ eller latest)',
+  /^\d+\.\d+\.\d+$/.test(alleDeps[OTA] || ''), alleDeps[OTA] || '');
+check(OTA + ' står på majoren som er verifisert mot Capacitor 8',
+  /^8\./.test(alleDeps[OTA] || ''), alleDeps[OTA] || 'mangler');
+
 /* Huskis er fortsatt vanilla HTML/CSS/JS. Mobilprosjektet skal ikke være
    bakveien inn for en bundler eller et frontendrammeverk
    (docs/mobilapp-plan.md, arkitekturregel 1). */
@@ -186,7 +204,7 @@ check('npm-skriptet for Android-builden kjører gradlew assembleDebug',
 /* ---- 3. Lockfila ---- */
 check('package-lock.json er sjekket inn', finnes('package-lock.json') && !ignorert('package-lock.json'));
 const lock = json('package-lock.json');
-for (const p of CAP) {
+for (const p of CAP.concat([OTA])) {
   const node = (lock.packages || {})['node_modules/' + p];
   check('lockfila låser ' + p + ' til den samme versjonen',
     !!node && node.version === alleDeps[p], (node && node.version) || 'mangler');
@@ -369,25 +387,41 @@ check('ingen nye Gradle-avhengigheter i appmodulen (et nytt bibliotek merger sit
   nyeDep.join(', ') || depLinjer.length + ' kjente avhengighetslinjer');
 /* Og de APPLIERTE skriptene. `apply from:` kan legge til avhengigheter uten å
    røre blokken over — Capacitor bruker nettopp den veien selv
-   (`capacitor.build.gradle`), og der er `dependencies`-blokken TOM så lenge det
-   ikke er installert plugins. Blir den ikke tom, er det en plugin som er kommet
-   inn, og den merger sitt eget manifest. */
-const APPLIERTE = ['android/app/capacitor.build.gradle'];
-const applierteMedDep = APPLIERTE.filter((rel) => finnes(rel)
-  && ((kode(les(rel)).match(/dependencies\s*\{([\s\S]*?)\n\}/) || [, ''])[1] || '')
-    .split('\n').map((l) => l.trim()).filter(Boolean).length > 0);
-check('de applierte Gradle-skriptene legger ikke til avhengigheter',
-  applierteMedDep.length === 0,
-  applierteMedDep.join(', ') || APPLIERTE.join(', ') + ' uten avhengigheter');
+   (`capacitor.build.gradle`), og `cap sync` GENERERER én linje der per
+   installert native plugin. Blokken var tom så lenge det ikke fantes noen; fra
+   fase 5 bærer den nøyaktig én, og lista under er fasiten. Kommer det en linje
+   til, er det en plugin som er kommet inn — og den merger sitt eget manifest
+   inn i appens.
+
+   Den ene linjen ble betalt bevisst (docs/mobilapp-plan.md, «Prisen»):
+   `@capawesome/capacitor-live-update` drar med seg `zip4j` og `okhttp` som
+   transitive Gradle-avhengigheter. Hva AAR-ene faktisk merger inn i det BYGDE
+   manifestet kan ikke leses herfra, og står som eget punkt for enhetsøkten. */
+const APPLIERT_DEP = {
+  'android/app/capacitor.build.gradle': ["implementation project(':capawesome-capacitor-live-update')"],
+};
+const applierteAvvik = [];
+for (const rel of Object.keys(APPLIERT_DEP)) {
+  if (!finnes(rel)) continue;
+  const kjente = APPLIERT_DEP[rel];
+  const linjer = ((kode(les(rel)).match(/dependencies\s*\{([\s\S]*?)\n\}/) || [, ''])[1] || '')
+    .split('\n').map((l) => l.trim()).filter(Boolean);
+  if (linjer.length !== kjente.length || linjer.some((l) => kjente.indexOf(l) === -1)) {
+    applierteAvvik.push(rel + ': ' + (linjer.join(', ') || 'tom'));
+  }
+}
+check('de applierte Gradle-skriptene legger ikke til andre avhengigheter enn OTA-pluginen',
+  applierteAvvik.length === 0,
+  applierteAvvik.join(' | ') || APPLIERT_DEP['android/app/capacitor.build.gradle'].join(', '));
 /* Og HELE avhengighetslista, ikke bare `@capacitor/*`-navnene. En Cordova-
    plugin heter `cordova-plugin-…`, og `cap sync` genererer den inn i
    `:capacitor-cordova-android-plugins` — et modulnavn som allerede står i
    Gradle-lista, så ingen `implementation`-linje endres. Filteret ville da
    havnet i APK-en uten at noen av de to låsene over så det. Lista må derfor
    være uttømmende. */
-const KJENTE_PAKKER = ['@capacitor/android', '@capacitor/cli', '@capacitor/core'];
+const KJENTE_PAKKER = ['@capacitor/android', '@capacitor/cli', '@capacitor/core', OTA];
 const ukjentePakker = Object.keys(alleDeps).filter((d) => KJENTE_PAKKER.indexOf(d) === -1);
-check('ingen andre npm-avhengigheter enn de tre Capacitor-pakkene (en Cordova-plugin merger sitt eget manifest)',
+check('ingen andre npm-avhengigheter enn de tre Capacitor-pakkene og OTA-pluginen (en Cordova-plugin merger sitt eget manifest)',
   ukjentePakker.length === 0, ukjentePakker.join(', ') || KJENTE_PAKKER.join(', '));
 const capPakker = Object.keys(alleDeps).filter((d) => d.startsWith('@capacitor/'));
 check('ingen native Capacitor-plugins utover kjerne, cli og android',
@@ -448,20 +482,30 @@ check('webkoden nevner ikke Capacitor — browserutgaven er ikke avhengig av nat
   capBruk.length === 0, capBruk.join(', ') || 'ingen');
 
 /* Unntaket (fase 3, docs/mobilapp-plan.md): app.js SKAL kjenne native-runtimen
-   ett sted — gaten som setter opp broen for systemets tilbakeknapp. Unntaket er
-   avgrenset, ikke opphevet: én kodelinje, den må gå gjennom `window.Capacitor`,
-   og den må spørre `isNativePlatform()`. Da kan ikke et Capacitor-kall snike
-   seg inn i vanlig app-logikk uten at denne testen sier fra, og browserutgaven
-   kan ikke bli avhengig av en runtime den ikke har (arkitekturregel 2).
-   Kommentarer får omtale broen fritt — de kjører ikke. */
+   ett sted — gaten, som setter opp broen for systemets tilbakeknapp OG leser
+   pluginbroen fase 5 kaller `ready()` gjennom. Unntaket er avgrenset, ikke
+   opphevet: to kodelinjer som står ved siden av hverandre, den første spør
+   `isNativePlatform()`, den andre leser `window.Capacitor.Plugins` BAK svaret.
+   Da kan ikke et Capacitor-kall snike seg inn i vanlig app-logikk uten at denne
+   testen sier fra, og browserutgaven kan ikke bli avhengig av en runtime den
+   ikke har (arkitekturregel 2). Kommentarer får omtale broen fritt — de kjører
+   ikke. */
 const capKode = kodeLinjer(les('app.js')).filter(({ l }) => NEVNER_CAP.test(l));
-check('app.js nevner Capacitor i kjørende kode kun på ÉN linje',
-  capKode.length === 1, capKode.map((x) => 'linje ' + x.nr).join(', ') || 'ingen');
-check('den ene linjen er gaten: window.Capacitor + isNativePlatform()',
-  capKode.length === 1
+check('app.js nevner Capacitor i kjørende kode kun på TO linjer',
+  capKode.length === 2, capKode.map((x) => 'linje ' + x.nr).join(', ') || 'ingen');
+check('den første linjen er gaten: window.Capacitor + isNativePlatform()',
+  capKode.length === 2
     && /window\.Capacitor\b/.test(capKode[0].l)
     && /isNativePlatform/.test(capKode[0].l),
   (capKode[0] ? capKode[0].l.trim() : 'mangler'));
+/* Pluginbroen er GENERERT av Capacitor i den native runtimen, og finnes ikke i
+   en nettleser. Leses den uten `nativeShell` foran seg, blir den `undefined`
+   der — og gaten er igjen pynt: en senere `nativePlugins.X.y()` ville kastet i
+   browseren i stedet for å la være å kjøre. */
+check('den andre linjen leser pluginbroen bak gaten (nativeShell && window.Capacitor.Plugins)',
+  capKode.length === 2
+    && /nativeShell\s*&&\s*window\.Capacitor\.Plugins/.test(capKode[1].l),
+  (capKode[1] ? capKode[1].l.trim() : 'mangler'));
 /* Broen skal bare finnes når gaten slipper den gjennom. Står tilordningen
    utenfor en `if`, får browserutgaven den også — og da er gaten pynt.
    Oppførselen i seg selv testes i ekte nettleser (tests/system-back.test.js). */
@@ -483,6 +527,92 @@ check('update-check.js navngir ingen vert — den måler seg alltid mot sitt ege
 const guardHosts = (les('index.html').match(/REDIRECT_HOSTS\s*=\s*\[([^\]]*)\]/) || [, ''])[1];
 check('guardens hostliste navngir ingen localhost-vert (appen redirecter ikke seg selv ut)',
   !/localhost|127\.0\.0\.1/.test(guardHosts), guardHosts.trim());
+
+/* ---- 9b. OTA-pluginen: innført, men ikke slått på (fase 5, første runde) ----
+   Runden innfører `@capawesome/capacitor-live-update` og ROLLBACK-veien uten å
+   hente noen bundle, slik at rollback-mekanikken kan prøves på telefon før det
+   finnes et bundlebytte å feile i. Tre invarianter bærer det, og alle tre er
+   stille å bryte — appen ser helt riktig ut i alle tre tilfellene.
+
+   Konfigurasjonen står i `capacitor.config.json` og pakkes inn i APK-en; den
+   kan ikke endres uten en ny butikkbinær, og det er nettopp derfor den skal
+   voktes her og ikke bare leses. */
+const lu = (cfg.plugins || {}).LiveUpdate || null;
+check('capacitor.config.json har en LiveUpdate-blokk',
+  !!lu, lu ? JSON.stringify(lu) : 'mangler');
+/* Pluginens standardverdi er 0, og 0 betyr at automatisk rollback er AV.
+   En konfigurasjon som «har pluginen» uten denne verdien har altså ingen vakt:
+   rollback-timeren armeres aldri, og en bundle som ikke når readiness-punktet
+   blir stående. Verdien er leverandørens egen anbefaling (10000 ms), og
+   marginen mot en treg kaldstart skal måles på enhet. */
+check('readyTimeout er satt til et positivt antall ms (0 = rollback AV)',
+  !!lu && typeof lu.readyTimeout === 'number' && lu.readyTimeout > 0,
+  lu ? String(lu.readyTimeout) : 'mangler');
+/* `background` ville fått pluginen til å hente OG bytte bundle av seg selv, ved
+   oppstart og ved resume — utenom `updateSafety()`, banneret, inaktivitets-
+   regelen og ett-forsøk-vakten i update-check.js. Hele fase 5 hviler på at
+   avgjørelsen blir liggende der den ligger (docs/auto-update.md). */
+check('autoUpdateStrategy er ikke slått på (pluginen henter ingenting av seg selv)',
+  !!lu && (lu.autoUpdateStrategy === undefined || lu.autoUpdateStrategy === 'none'),
+  lu ? String(lu.autoUpdateStrategy) : 'mangler');
+/* Selvhostet, uten sky-konto: `appId`, `defaultChannel` og `serverDomain` er
+   Capawesome Cloud-felter, og et utfylt felt her ville gitt appen en utgående
+   adresse ingen har navngitt (docs/sikkerhetsheadere.md). */
+const SKY_FELT = ['appId', 'defaultChannel', 'serverDomain'];
+const skySatt = lu ? SKY_FELT.filter((f) => lu[f]) : [];
+check('ingen Capawesome Cloud-konto i konfigurasjonen (selvhostet, uten sky)',
+  skySatt.length === 0, skySatt.join(', ') || 'ingen av ' + SKY_FELT.join('/'));
+/* `publicKey` innføres først i runden som faktisk signerer en bundle — den
+   forutsetter et nøkkelpar som ikke finnes ennå (docs/mobilapp-plan.md). Står
+   den der en dag, er det den OFFENTLIGE halvdelen: privatnøkkelen er en
+   Actions-secret og skal aldri kunne bli pakket inn i en APK. */
+check('publicKey, hvis satt, er en offentlig nøkkel — aldri en privatnøkkel',
+  !lu || !lu.publicKey
+    || (/BEGIN PUBLIC KEY/.test(lu.publicKey) && !/PRIVATE KEY/.test(lu.publicKey)),
+  lu && lu.publicKey ? 'publicKey satt' : 'ikke satt ennå (signeringsrunden)');
+if (finnes(APK_CFG)) {
+  const innebygdLu = (json(APK_CFG).plugins || {}).LiveUpdate || null;
+  check('den innebygde konfigurasjonen i APK-en bærer den samme LiveUpdate-blokken',
+    !!innebygdLu && JSON.stringify(innebygdLu) === JSON.stringify(lu),
+    innebygdLu ? JSON.stringify(innebygdLu) : 'mangler');
+}
+
+/* Readiness-punktet ER rollback-vakten (docs/mobilapp-plan.md,
+   «Readiness-punktet»). `ready()` avvæpner timeren pluginen armerer i sin egen
+   konstruktør; kalles den aldri, gjenopprettes den innebygde bundelen. Det som
+   voktes her er ikke at kallet finnes, men HVOR og BAK HVA det står. */
+const appKode = kode(les('app.js'));
+const readyKropp = (appKode.match(/function markAppReady\(\) \{([\s\S]*?)\n  \}/) || [, ''])[1] || '';
+check('readiness-punktet finnes som én navngitt funksjon (markAppReady)',
+  readyKropp !== '' && /\.ready\(\)/.test(readyKropp),
+  readyKropp ? 'markAppReady' : 'fant ikke funksjonen');
+check('ready() står bak native-gaten og bak pluginbroen, ikke ubetinget',
+  /if \(!nativeShell\) return;/.test(readyKropp)
+    && /nativePlugins\.LiveUpdate/.test(readyKropp)
+    && readyKropp.indexOf('nativeShell') < readyKropp.indexOf('.ready('),
+  readyKropp.trim().split('\n').map((l) => l.trim()).filter(Boolean).join(' ') || 'ingen kropp');
+/* Punktet nås fra BEGGE de brukbare skjermene: innloggingsskjermen for en
+   utlogget bruker, board-et brettet fra localStorage for en innlogget. Bare ett
+   av kallstedene ville gjort rollback avhengig av hvilken av dem brukeren
+   traff — og for den andre halvparten ville en fungerende bundle blitt rullet
+   tilbake. */
+const kropp = (navn) =>
+  (appKode.match(new RegExp('async function ' + navn + '\\(\\) \\{([\\s\\S]*?)\\n  \\}')) || [, ''])[1] || '';
+const utenPunkt = ['cloudStart', 'initAccounts'].filter((f) => !/markAppReady\(\);/.test(kropp(f)));
+check('readiness-punktet settes fra begge de brukbare skjermene (cloudStart + initAccounts)',
+  utenPunkt.length === 0, utenPunkt.join(', ') || 'cloudStart, initAccounts');
+/* Runde 1 henter INGEN bundle. `downloadBundle`, `setNextBundle` og `reload`
+   hører til runden som gjør det, og DEN runden må ha klargjøringstilstanden og
+   native-kompatibilitetsvakten med seg (docs/mobilapp-plan.md). Kommer et av
+   kallene inn før dem, er rekkefølgen brutt — og et bundlebytte ville skjedd
+   utenom `updateSafety()`. */
+const otaKall = (appKode.match(/\blive\.(\w+)\(/g) || []).map((m) => m.slice(5, -1));
+check('den eneste native OTA-metoden webkoden kaller er ready()',
+  otaKall.length > 0 && otaKall.every((m) => m === 'ready'),
+  otaKall.join(', ') || 'ingen');
+check('pluginbroen brukes kun av readiness-punktet',
+  (appKode.match(/nativePlugins/g) || []).length === 2,
+  (appKode.match(/nativePlugins/g) || []).length + ' forekomster i kjørende kode');
 
 /* ---- 10. Safe areas, systemfeltene og skjermtastaturet ----
 
