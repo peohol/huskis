@@ -7,8 +7,14 @@
   bakgrunnen er det INTERVALLET som skal ta appen igjen. Det er nettopp den
   mekanismen en app-runtime ikke lover noe om: en skjult side får timerne sine
   strupet, og en bakgrunnsprosess kan fryses helt. Gjenopptakelsen er derimot en
-  hendelse, og den finnes i både browser og WebView
-  (`visibilitychange` — docs/mobilapp-plan.md, fase 3).
+  hendelse (`visibilitychange`).
+
+  Målt på fysisk Android deler de to leddene jobben etter hvor lenge appen var
+  borte, og ingen av dem dekker begge regimene alene: lever prosessen, fyrer
+  hendelsen og lytteren starter runden; har OS-et fryst prosessen, kommer
+  hendelsen ALDRI, og det forfalte poll-tikket starter runden i samme øyeblikk
+  som opptiningen (docs/mobilapp-plan.md, «Kjørt med sonden»). Del 2 og del 6
+  kjører hvert sitt regime.
 
   Verifiserer:
     1. Skjult side: gjenopptakelses-lytteren fyrer IKKE på veien inn i
@@ -26,14 +32,19 @@
        hendelsen. (Denne står ikke og faller med lytteren over; den låser
        forutsetningen for at ingenting native trengs.)
     5. SONDEN i docs/mobilapp-plan.md («Sonden: én innliming, begge
-       spørsmålene»): enhetsøkten som fortsatt gjenstår i fase 3 skal ikke
-       starte med en oppskrift ingen har prøvd. Snippeten HENTES ut av
-       dokumentet og kjøres her, så den ikke kan drifte fra handlene den
-       bruker: den installerer seg uten feil, tar realtime ut av bildet, leser
-       `navigator.onLine`/synk-snapshotet/meta-taggene, måler avstanden fra
-       gjenopptakelsen til første Supabase-kall — og lar appen synke som før.
-       Testen svarer IKKE på hva en telefon gjør; den svarer på at måleren
+       spørsmålene»): den er måleinstrumentet enhetsøkten leser svarene sine
+       av, og skal ikke kunne drifte fra handlene den bruker. Snippeten HENTES
+       ut av dokumentet og kjøres her: den installerer seg uten feil, tar
+       realtime ut av bildet, leser `navigator.onLine`/synk-snapshotet/
+       meta-taggene, TILSKRIVER runden en kilde (`by`) — og lar appen synke som
+       før. Testen svarer IKKE på hva en telefon gjør; den svarer på at måleren
        måler.
+    6. Opptining UTEN hendelse — det andre regimet på telefonen: synligheten
+       snus uten at `visibilitychange` leveres, slik en fryst og opptint
+       WebView-prosess gjør det. Pollets forfalte tikk skal starte runden
+       likevel. Det låser at guarden i `startCloudPoll` leser `document.hidden`
+       på tikket; et flagg satt av en synlighetslytter ville stått på «skjult»
+       for alltid etter en frysing.
 
   Ett viewport: dette er synk-logikk, uten avhengighet av layout eller pekertype
   (tests/CLAUDE.md).
@@ -104,12 +115,14 @@ async function load(page, db) {
   });
 }
 
-// Skjul/vis siden slik nettleseren gjør det, og fyr signalet appen lytter på.
-const setVisible = (page, visible) => page.evaluate((v) => {
+/* Skjul/vis siden slik nettleseren gjør det, og fyr signalet appen lytter på.
+   `hendelse: false` snur synligheten UTEN å levere `visibilitychange` — det er
+   opptiningen etter en fryst bakgrunnsprosess (del 6). */
+const setVisible = (page, visible, opts) => page.evaluate(([v, hendelse]) => {
   Object.defineProperty(document, 'hidden', { configurable: true, get: () => !v });
   Object.defineProperty(document, 'visibilityState', { configurable: true, get: () => (v ? 'visible' : 'hidden') });
-  document.dispatchEvent(new Event('visibilitychange'));
-}, visible);
+  if (hendelse) document.dispatchEvent(new Event('visibilitychange'));
+}, [visible, !opts || opts.hendelse !== false]);
 
 /* Sonden HENTES ut av docs/mobilapp-plan.md — den er ikke kopiert hit. Da kan
    ikke oppskriften enhetsøkten skal kjøre drifte fra det som faktisk er prøvd:
@@ -358,6 +371,54 @@ async function scenario(page) {
 
     check('sonden: `reset()` tømmer loggen',
       await page.evaluate(() => { window.__probe.reset(); return window.__probe.log.length; }) === 0);
+  }
+
+  /* 6) OPPTINING UTEN HENDELSE — det andre av de to regimene på telefonen.
+        Enhetsøkten viste at etter minutter i bakgrunnen fryser Android
+        prosessen, og når den tiner er `document.hidden` allerede falsk uten at
+        `visibilitychange` noen gang ble levert (docs/mobilapp-plan.md, «Kjørt
+        med sonden»). Da er lytteren i del 2 per definisjon ute av spill, og det
+        forfalte poll-tikket er alt som er igjen.
+
+        Derfor står pollet PÅ her, og hendelsen er det som holdes tilbake —
+        speilvendt av del 1–3. Det låser guarden i `startCloudPoll`: den må lese
+        `document.hidden` på tikket. Leses den i stedet fra et flagg en
+        synlighetslytter setter, står flagget på «skjult» for alltid etter en
+        frysing, og appen på telefonen våkner aldri igjen. */
+  {
+    const { ids, db } = buildDB();
+    await load(page, db);
+    await page.evaluate(() => {
+      window.__vc = 0;
+      document.addEventListener('visibilitychange', () => { window.__vc++; });
+    });
+
+    await setVisible(page, false); // veien INN i bakgrunnen har hendelsen sin
+    await page.evaluate((ids) => {
+      const db = window.HK_MOCK._loadDB();
+      db.cards.push({ id: ids.NEW, owner_id: ids.uid, group_id: ids.PG,
+        title: 'Laget mens prosessen var fryst', k: true, p: true, lab_ts: 0, lab_org: '',
+        trashed: false, locked: false, unlocked: false, invite_policy: 'inherit',
+        ts: 2, org: 'b', pos: 1, pos_ts: 0, pos_org: '' });
+      window.HK_MOCK._saveDB(db);
+    }, ids);
+
+    const førTint = await pulls(page);
+    await page.evaluate(() => { window.__vc = 0; });
+    await setVisible(page, true, { hendelse: false }); // opptiningen: ingen hendelse
+    const kom = await page.waitForFunction((id) => {
+      const h = window.__huskis;
+      for (const u of h.state.universes) for (const g of (u.groups || [])) for (const c of (g.cards || [])) if (c.id === id) return true;
+      return false;
+    }, ids.NEW, { timeout: 9000 }).then(() => true).catch(() => false);
+
+    check('opptining: ingen `visibilitychange` ble levert (lytteren er ute av spill)',
+      await page.evaluate(() => window.__vc) === 0, await page.evaluate(() => window.__vc));
+    check('opptining: pollet starter runden likevel — guarden leser `document.hidden` på tikket',
+      await pulls(page) > førTint, { før: førTint, etter: await pulls(page) });
+    check('opptining: det den andre enheten laget er hentet inn', kom === true);
+    check('opptining: og det står på skjermen',
+      (await page.evaluate(() => document.body.innerText)).includes('Laget mens prosessen var fryst'));
   }
 }
 

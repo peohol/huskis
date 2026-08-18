@@ -9997,6 +9997,14 @@
       }
     });
   }
+  /* Guarden leser `document.hidden` PÅ TIKKET, og det er ikke en detalj: en
+     Android-WebView som har ligget minutter i bakgrunnen får prosessen fryst, og
+     når den tiner er siden allerede synlig UTEN at `visibilitychange` ble levert
+     (målt — docs/mobilapp-plan.md, «Kjørt med sonden»). Da er dette forfalte
+     tikket det eneste leddet som kan starte runden. Byttes guarden mot et flagg
+     en synlighetslytter setter, står flagget på «skjult» for alltid etter en
+     frysing og appen våkner aldri igjen. Del 6 av tests/sync-foreground.test.js
+     kjører nettopp det: synligheten snus uten at hendelsen leveres. */
   function startCloudPoll() {
     clearInterval(cloudPoll);
     cloudPoll = setInterval(() => {
@@ -10010,8 +10018,15 @@
      en skjult side får timerne sine strupet, og i en app-runtime kan hele
      prosessen fryses mens den ligger i bakgrunnen — intervallet er en
      bestilling, ikke et løfte om når. Selve gjenopptakelsen er derimot en
-     HENDELSE, og den koster ingen native API-er: `visibilitychange` er det
-     samme signalet i browseren og i WebView-en (docs/mobilapp-plan.md, fase 3).
+     HENDELSE, og den koster ingen native API-er.
+
+     De to leddene deler jobben etter hvor lenge appen var borte, målt på fysisk
+     Android: er prosessen i live, fyrer `visibilitychange` og lytteren her
+     starter runden; har OS-et fryst den, kommer hendelsen aldri, og det forfalte
+     poll-tikket over starter runden i samme øyeblikk som opptiningen. Ingen av
+     dem dekker begge regimene alene — begge er bærende
+     (docs/mobilapp-plan.md, fase 3).
+
      Realtime trenger ingen tilsvarende nudge — dør kanalen, melder den fra selv
      (`CLOSED`/`CHANNEL_ERROR` → ny subscribe), og pullen her dekker uansett
      hullet mens den kommer tilbake. */

@@ -14,11 +14,11 @@ autoritative dokumentet for fagfeltet.
 | Felt | Nå |
 |---|---|
 | Målarkitektur | Én HTML/CSS/JS-kodebase + Capacitor for Android/iOS |
-| Nåværende fase | **Fase 3** har ETT åpent punkt, og det er nå det eneste som står igjen av de to fasene som var i luften: **fase 4 — felles release-identitet** har fått ferdigkriteriet sitt oppfylt på enhet. Fase 3s punkt er ikke lenger bare en måling som mangler — enhetsøkten er kjørt, og den viste at gjenopptakelses-signalet ikke kommer fram på telefonen slik det gjør i nettleseren. Neste steg er derfor en diagnose, ikke en avkrysning. Statusen for hver fase står på hver sin rad under; det gjør også neste praktiske steg. |
-| Status — fase 3 | Fase 3 er i gang. Fem punkter er ferdige: systemets tilbakeknapp og safe areas/systemfeltene/skjermtastaturet, begge verifisert på fysisk telefon; eksterne lenker og auth-/e-postlenker, som begge er beslutninger uten kode og derfor ikke har noe å prøve på en telefon; og sikker lagring/`android:allowBackup`, der sikkerhetskopien av WebView-lagringen er slått av (se seksjonene). Lifecycle-/network-punktet er det åpne, og enhetsøkten er kjørt: `navigator.onLine` er bekreftet dødt uten `ACCESS_NETWORK_STATE`, og tillatelsen er lagt inn med vakt. Gjenopptakelses-lytteren derimot ble IKKE bekreftet — i to av tre runder registrerte sonden ingen synlighetsvending i det hele tatt etter en lang bakgrunnsperiode, og i den tredje vant pollets forfalte tikk med 3 ms. Hullet er lukket i nettleseren (`tests/sync-foreground.test.js`), ikke observert lukket på enheten. Gjenstår: én diagnoserunde som skiller «signalet kommer ikke» fra «siden ble lastet på nytt i bakgrunnen» (se seksjonen). Automatisk dekket av `tests/safe-area.test.js`, `tests/landscape-chrome.test.js`, `tests/system-back.test.js`, `tests/sync-foreground.test.js` og `tests/capacitor-android.test.js`. Ferdigkriteriet er ikke nådd. |
+| Nåværende fase | **Fase 3 er ferdig**, og det samme er **fase 4 — felles release-identitet**. Begge ferdigkriteriene er oppfylt på fysisk enhet i samme `chrome://inspect`-økt: release-ID-en er lest ut av en kjørende APK, og de to spørsmålene om lifecycle-/network-signalene er besvart med målinger, ikke antakelser. Neste fase er **fase 5**. Statusen for hver fase står på hver sin rad under. |
+| Status — fase 3 | **Ferdigkriteriet er nådd.** Alle seks punktene er avgjort: systemets tilbakeknapp og safe areas/systemfeltene/skjermtastaturet, begge verifisert på fysisk telefon; eksterne lenker og auth-/e-postlenker, som begge er beslutninger uten kode og derfor ikke har noe å prøve på en telefon; sikker lagring/`android:allowBackup`, der sikkerhetskopien av WebView-lagringen er slått av; og lifecycle-/network-signalene, målt på enhet med sonden. `navigator.onLine` er bekreftet dødt uten `ACCESS_NETWORK_STATE`, og tillatelsen er lagt inn med vakt. Gjenopptakelsen er tilskrevet: et `get_my_doc` står i enhetsloggen merket `by: 'visibilitychange'`. Målingen viste samtidig at hendelsen IKKE leveres når Android har fryst prosessen — der starter pollets forfalte tikk runden i samme øyeblikk som opptiningen. Begge ledd er dermed bærende, hvert i sitt regime (se seksjonen). Ingen native plugin er innført. Automatisk dekket av `tests/safe-area.test.js`, `tests/landscape-chrome.test.js`, `tests/system-back.test.js`, `tests/sync-foreground.test.js` (del 2 og del 6 kjører hvert sitt regime) og `tests/capacitor-android.test.js`. |
 | Status — fase 4 | Fase 4s ferdigkriterium er **oppfylt**: en kjørende APK og en Vercel-preview bygget av samme commit rapporterte den samme `releaseId` (`d10867a7c0a6`) med hver sin `buildId`, lest på telefon. Fem av sju punkter er ferdige: kartleggingen av dagens release-identiteter, `releaseId` er definert og generert i `build.js`, web og Android bygget fra samme commit rapporterer den samme verdien, `version.json` er utvidet additivt uten at cache- eller reload-sikkerheten er rørt, og kompatibilitetsregelen mellom klientrelease og databaseskjema er skrevet ned ([`release-og-deploy.md`](release-og-deploy.md)). De to siste — `minimumSupportedRelease` og valget mellom byte-identisk artifact og separate builds — står bevisst åpne til det finnes et konkret behov (se seksjonen). Automatisk dekket av `tests/build-version.test.js`, `tests/auto-update.test.js` og `tests/capacitor-android.test.js`. |
-| Neste milepæl | Android-appen oppfører seg som en normal mobilapp i de plattformtilfellene browseren ikke håndterer godt nok selv |
-| Neste praktiske steg — fase 3 | Kjør sonden én gang til, med de nye signalene i: bakgrunn i 5–20 minutter, hent appen fram, og les `__probe.report()`. Svarer den `sawVisible: false` med `wokeBy: 'timer-hopp'`, kommer ikke Page Visibility fram på enheten, og fiksen er et annet web-signal (`focus`/`pageshow`/`resume`) — hvilket, avgjør loggen. Er `__probe` derimot borte, ble siden lastet på nytt i bakgrunnen, og hullet er et annet. Fiksen designes etter den målingen (se «Kjørt med sonden: hva enheten svarte») |
+| Neste milepæl | Fase 5: distribusjon og oppdatering av Android-appen |
+| Neste praktiske steg — fase 3 | Ingen. Fasen er ferdig |
 | Neste praktiske steg — fase 4 | Ingen. Fasen er ferdig; de to «vurder …»-punktene tas opp igjen når fase 5 (OTA) gir dem en konsekvens |
 | OTA | Ikke innført; skal ikke innføres før Android-baselinen er stabil |
 | iOS | Senere fase; ikke en del av første implementering |
@@ -810,18 +810,28 @@ Brukeren åpner appen og ser den gamle visningen til en timer vi ikke eier
 bestemmer seg for å fyre.
 
 **Fiksen krevde ingen native API-er.** Gjenopptakelsen er en hendelse, ikke en
-timer, og `visibilitychange` er det samme signalet i browseren og i WebView-en.
-Web-laget kjenner derfor fortsatt native-runtimen på nøyaktig ÉN gated linje —
-broen for tilbakeknappen — og unntaket i `tests/capacitor-android.test.js` er
-uendret. Det samme gjelder npm-avhengighetslista og appmodulens
-`dependencies`-blokk: ingen plugin er innført.
+timer, og `visibilitychange` finnes i WebView-en så vel som i browseren — målt,
+med en runde tilskrevet lytteren på fysisk Android (seksjonen «Kjørt med
+sonden»). Web-laget kjenner derfor fortsatt native-runtimen på nøyaktig ÉN gated
+linje — broen for tilbakeknappen — og unntaket i
+`tests/capacitor-android.test.js` er uendret. Det samme gjelder
+npm-avhengighetslista og appmodulens `dependencies`-blokk: ingen plugin er
+innført.
+
+**Men lytteren rekker ikke inn i begge regimene, og det er målingens andre
+funn.** Har Android fryst prosessen — observert fra 103 s i bakgrunnen og
+oppover — snur synligheten mens prosessen står stille, og hendelsen blir aldri
+levert. Da er det pollets forfalte tikk som starter runden, og det kommer ikke
+5 s etter opptiningen: intervallet forfalt for lengst, så event-løkka kjører det
+først av alt. De to leddene deler altså jobben etter hvor lenge appen var borte,
+og ingen av dem dekker begge regimene alene.
 
 | Ledd | Rolle |
 |---|---|
-| `visibilitychange`-lytteren (`app.js`, ved `startCloudPoll`) | Synlig igjen + innlogget ⇒ `scheduleCloud(0)`. Fyrer ikke på vei INN i bakgrunnen — en app som ligger i bakgrunnen skal ikke polle. |
-| pollet (5 s) | Uendret: sikkerhetsnettet mens appen er fremme, og det som tar nettet igjen der `online` aldri kommer. |
+| `visibilitychange`-lytteren (`app.js`, ved `startCloudPoll`) | Synlig igjen + innlogget ⇒ `scheduleCloud(0)`. Fyrer ikke på vei INN i bakgrunnen — en app som ligger i bakgrunnen skal ikke polle. Dekker regimet der prosessen lever. |
+| pollet (5 s) | Sikkerhetsnettet mens appen er fremme, og det som tar nettet igjen der `online` aldri kommer — OG det eneste leddet som starter runden etter en frysing, siden hendelsen ikke leveres da. Guarden MÅ derfor lese `document.hidden` på tikket; et flagg satt av en synlighetslytter ville stått på «skjult» for alltid etter en frysing (`tests/sync-foreground.test.js`, del 6). |
 | realtime | Uendret, og trenger ingen nudge: dør kanalen, melder den fra selv (`CLOSED`/`CHANNEL_ERROR` → ny subscribe), og pullen over dekker hullet imens. |
-| `tests/sync-foreground.test.js` | Med pollet slått AV — altså situasjonen en strupet timer gir — henter appen inn det en annen enhet gjorde straks den er synlig. Og: en endring som ikke nådde fram lander av seg selv uten én eneste `online`-hendelse og uten at `navigator.onLine` noen gang er falsk, altså slik en WebView uten `ACCESS_NETWORK_STATE` ville oppført seg. |
+| `tests/sync-foreground.test.js` | Kjører begge regimene hver for seg. Del 2: med pollet slått AV henter appen inn det en annen enhet gjorde straks den er synlig. Del 6: speilvendt — synligheten snus UTEN at hendelsen leveres, slik en opptint prosess gjør det, og pollets tikk skal starte runden likevel. Del 4: en endring som ikke nådde fram lander av seg selv uten én eneste `online`-hendelse og uten at `navigator.onLine` noen gang er falsk, altså slik en WebView uten `ACCESS_NETWORK_STATE` oppfører seg. |
 | [`accounts.md`](accounts.md) | Autoritativt for hva som starter en synk-runde. |
 
 **Ikke koblet på, og hvorfor:** `@capacitor/app` (`appStateChange`,
@@ -851,21 +861,20 @@ skjermen som gjenopptakelses-lytteren. Observasjonen er altså FORENLIG med
 lytteren — og lytteren er regresjonstestet nettopp med pollet slått av
 (`tests/sync-foreground.test.js`) — men runden beviser den ikke.
 
-To spørsmål krever derfor fortsatt en enhetsøkt, og det er den samme økten:
+To spørsmål krevde derfor en egen enhetsøkt, og det ble den samme økten:
 `chrome://inspect` mot debug-APK-en (Capacitor slår på WebView-debugging i
 debugbygg).
 
-| Spørsmål | Hva som må gjøres |
+| Spørsmål | Hva økten gjør |
 |---|---|
 | Lever `navigator.onLine` uten `ACCESS_NETWORK_STATE`? | Flymodus på; les `navigator.onLine` og `__huskis.syncStatus.snapshot()`. |
 | Var det gjenopptakelsen som startet runden? | Runden må TILSKRIVES, ikke tidfestes: både pollet og realtime kan starte en runde i samme øyeblikk som appen kommer fram, så et lite tidsintervall beviser ingenting. Sonden under gjør realtime inert og merker hver runde med kilden sin (`by`). |
 
-Den høyre kolonnen er lest ut av koden — `__huskis` eksponeres også i APK-en, og
-`removeAllChannels()` finnes i den innsjekkede supabase-js. Selve MEKANIKKEN er
-dessuten kjørt: sonden under er den samme teksten `tests/sync-foreground.test.js`
-(del 5) henter ut av dette dokumentet og kjører i en ekte nettleser, så den måler
-det den påstår og velter ikke appen. Sonden er altså ikke lenger bare en plan.
-**Svarene er det fortsatt: ingen har kjørt den på en enhet.**
+Sonden er den samme teksten `tests/sync-foreground.test.js` (del 5) henter ut av
+dette dokumentet og kjører i en ekte nettleser, så den måler det den påstår og
+velter ikke appen. Økten ER kjørt, og svarene står under «Kjørt med sonden: hva
+enheten svarte». Oppskriften blir stående: den gjenbrukes ved etterkontroll og
+på iOS i fase 7.
 
 ### Sonden: én innliming, begge spørsmålene
 
@@ -990,51 +999,68 @@ Er svaret ja, er det en ordinær Huskis-feil.
 ### Kjørt med sonden: hva enheten svarte
 
 Økten er kjørt på fysisk Android, med realtime inert (`channels: 0` gjennom
-hele) og pollet på, som i vanlig bruk.
+hele) og pollet på, som i vanlig bruk. Begge spørsmålene er besvart.
 
-**Q1 er besvart, og svaret er «ja, flagget er dødt».** I flymodus sto
-`navigator.onLine` fortsatt på `true`, og det kom ingen `online`/`offline` i
-loggen da flymodus ble slått av igjen. Chromiums nettverksvarsling er altså ute
-av drift i WebView-en uten `ACCESS_NETWORK_STATE` — nøyaktig slik pakken ble
-lest. Tiltaket er tatt: manifestet ber nå om tillatelsen, voktet av
-`tests/capacitor-android.test.js`. Ingen av de tre leserne eier data, så dette
-rydder i signalene; det flytter ingen invariant.
+**Q1 — `navigator.onLine` er død uten `ACCESS_NETWORK_STATE`.** I flymodus sto
+flagget fortsatt på `true`, og det kom ingen `online`/`offline` i loggen da
+flymodus ble slått av igjen. Chromiums nettverksvarsling er altså ute av drift i
+WebView-en — nøyaktig slik pakken ble lest. Tiltaket er tatt: manifestet ber nå
+om tillatelsen, voktet av `tests/capacitor-android.test.js`. Ingen av de tre
+leserne eier data, så dette rydder i signalene; det flytter ingen invariant.
 
-**Q2 er ikke besvart, og det som kom fram er verre enn et tapt kappløp.**
+**Q2 — ja, lytteren starter runden. Men bare i det ene av to regimer.** Loggen
+deler seg rent etter om Android hadde fryst prosessen eller ikke, og de to
+halvdelene har hver sin startkilde:
 
-| Bakgrunnsperiode | `by` | `deltaMs` | Hva det betyr |
-|---|---|---|---|
-| ~30 s | `annet` | 3 ms | Synligheten snudde, men kallet 3 ms etter var pollets forfalte tikk. Om lytterens egen runde kom rett etterpå kan ikke leses av — den rapporten viste bare FØRSTE kall |
-| ~5 min | — | — | Rapporten var tom: ingen synlighetsvending registrert i det hele tatt |
-| ~20 min | — | — | Det samme |
+| Fravær (målt fra loggen) | Kom `visible: true`? | Hva som startet runden |
+|---|---|---|
+| 2,6 s — prosessen levde | ja | `get_my_doc` merket `by: 'visibilitychange'`, 3 ms etter |
+| 103 s / 305 s / 1264 s — prosessen fryst | nei, ingen synlighetsvending i det hele tatt | pollets forfalte tikk (`by: 'annet'`), som første linje etter stillheten |
 
-De to lange rundene er det springende punktet. Rapporten faller bare tilbake på
-ingenting når loggen mangler en synlighetsvending — den sier altså ikke «ingen
-synk startet», den sier «`visibilitychange` fyrte aldri». Fyrer den ikke, vet
-ikke appen at den er fremme igjen, og lytteren er per definisjon ute av spill.
+Grensen mellom de to ligger et sted mellom 3 s og 100 s, og økten pinner den
+ikke — den trengs ikke: begge sidene av den starter runden.
 
-**Ingen av de tre rundene bekreftet lytteren.** Punktet står derfor åpent, og
-formuleringen «hullet er lukket» gjelder bare webkoden og nettleseren, der
-`tests/sync-foreground.test.js` beviser den: på enheten er den ikke observert
-én eneste gang.
+**Den korte runden er svaret på spørsmålet slik det ble stilt.** Et
+`get_my_doc`-kall står i loggen med `by: 'visibilitychange'`. Det er ikke et
+tidsintervall som også kunne vært pollets — det er kallets egen kallstack,
+merket mens gjenopptakelsens `setTimeout` sto på. Lytteren VIRKER altså i
+WebView-en, og det er observert, ikke utledet.
 
-To forklaringer står igjen, og de peker på hver sin fiks:
+**De tre lange rundene viser regimet lytteren ikke rekker inn i.** Der står hele
+loggen stille — 103, 305 og 1264 sekunder uten en eneste linje, altså en fryst
+prosess, ikke en strupet timer — og første linje etter stillheten er et
+`get_my_doc` merket `annet`. Ingen `visible`-linje ligger foran det. At runden i
+det hele tatt kjørte, BEVISER at siden allerede sto som synlig da timerne tinte:
+pollets guard leser `document.hidden` på tikket og hadde ellers returnert. Med
+andre ord snudde synligheten mens prosessen sto stille, og hendelsen ble aldri
+levert.
 
-1. **Page Visibility fyrer ikke på gjenopptakelse i WebView-en** etter at
-   Android har fryst prosessen. Da må appen ha et annet signal — `focus`,
-   `pageshow` og Page Lifecycle-hendelsen `resume` er kandidatene, og alle er
-   web-signaler som ikke koster en plugin.
-2. **Siden ble revet ned og lastet på nytt** mens appen lå i bakgrunnen. Da
-   synker appen fra bunnen ved oppstart, brukeren ser ikke gammelt innhold, og
-   hullet er et annet enn vi tror.
+**Hullet er lukket, men av to ledd, ikke ett:**
 
-Sonden over logger nå begge deler: alle kandidatsignalene, og et `timer-hopp`
-som viser fryse-vinduet selv når INGEN hendelse fyrer. Overlever `__probe` en
-bakgrunnsperiode, er forklaring 2 utelukket; er `wokeBy` da `timer-hopp` og
-`sawVisible` false, er forklaring 1 bekreftet. Fiksen designes etter den
-målingen, ikke før — koden er ikke fasit for hva enheten gjør, og det er
-nettopp denne fasen som har lært oss det to ganger før (systemfeltene, runde 1
-og 3).
+| Regime | Lytteren | Pollet |
+|---|---|---|
+| Kort fravær, prosessen lever | starter runden (målt: 3 ms etter) | ville uansett tatt det innen 5 s |
+| Langt fravær, prosessen fryst | fyrer ikke — hendelsen kommer aldri | starter runden som aller første handling etter opptiningen |
+
+Det forfalte tikket venter ikke 5 s på tur: intervallet forfalt for minutter
+siden, så event-løkka kjører det først av alt. Brukeregenskapen holder derfor i
+begge regimene — og på telefonen er det lange fraværet det vanlige.
+
+**Konsekvensen for koden er at begge ledd er bærende.** Pollet er ikke lenger
+bare et sikkerhetsnett bak lytteren; i det frosne regimet er det den eneste
+starteren. Det gjør guarden i `startCloudPoll` til en invariant: den må lese
+`document.hidden` PÅ TIKKET. Skrives den om til et flagg en
+`visibilitychange`-lytter setter — en nærliggende opprydding — står flagget på
+«skjult» for alltid etter en frysing, og appen våkner aldri igjen. Del 6 av
+`tests/sync-foreground.test.js` kjører nettopp den situasjonen: synligheten snus
+uten at hendelsen leveres, og runden skal komme likevel.
+
+**Det økten ikke svarer på, og hvorfor det ikke endrer noe:** hvilket signal —
+om noe — Chromium leverer i stedet på opptiningen. Sonden som ble kjørt lyttet
+bare etter `visibilitychange`, så loggen kan ikke si om `focus`, `pageshow` eller
+`resume` kom. Oppskriften over lytter etter alle fire, så en senere økt kan svare
+på det. Svaret ville uansett bare vært en snarvei: pollet starter allerede runden
+i samme øyeblikk, så det finnes ikke noe hull et ekstra signal kunne lukket.
 
 ## Sikker lagring og sikkerhetskopi
 
@@ -1447,42 +1473,35 @@ De skal ikke snike seg inn i fundamentfasene.
 
 ## Neste oppgave
 
-**To faser er i luften samtidig.** Fase 4 er startet uten at fase 3 er ferdig,
-fordi det som gjenstår i fase 3 er en enhetsøkt — ikke kode fase 4 kunne
-kollidert med. Rekkefølgen i planen er ikke opphevet: fase 3 er ikke ferdig før
-ferdigkriteriet er verifisert, og det som står igjen der er beskrevet først
-under.
+**Fase 3 og fase 4 er begge ferdige**, og de ble avsluttet i samme
+`chrome://inspect`-økt mot debug-APK-en. Neste oppgave er derfor fase 5.
 
 ### Fase 3
 
-**Fase 3 fortsetter, og alt som gjenstår krever en telefon.** Fem punkter er
-ferdige: tilbakeknappen og safe areas/systemfeltene/skjermtastaturet (begge
-verifisert på telefon); de to lenkepunktene — eksterne lenker og
-auth-/e-postlenker — som begge endte som beslutninger uten kode, og som derfor
-fortsatt ikke har noe å prøve på en telefon; og sikker lagring/`allowBackup`,
-som endte i to native erklæringer og ingen web-kode (seksjonen «Sikker lagring
-og sikkerhetskopi»).
+**Alle seks punktene er avgjort.** Tilbakeknappen og safe
+areas/systemfeltene/skjermtastaturet er verifisert på telefon; de to
+lenkepunktene — eksterne lenker og auth-/e-postlenker — endte som beslutninger
+uten kode, og har derfor ingenting å prøve på en telefon; sikker
+lagring/`allowBackup` endte i to native erklæringer og ingen web-kode
+(seksjonen «Sikker lagring og sikkerhetskopi»).
 
-**Lifecycle- og network-signalene er kartlagt og avgjort**: websignalene rekker,
-ingen native signaler er koblet på, og det ene reelle hullet — at ingenting
-hentet appen inn igjen ved gjenopptakelse — er lukket med `visibilitychange`
-(seksjonen «Lifecycle- og network-signaler»). Den fysiske sekvensen på fire
-trinn er kjørt uten avvik, og den viser brukeregenskapen: etterslepet er inne
-praktisk talt straks appen hentes fram.
+**Lifecycle- og network-signalene er kartlagt, avgjort og MÅLT på enhet.**
+Websignalene rekker, ingen native signaler er koblet på, og det ene reelle
+hullet — at ingenting hentet appen inn igjen ved gjenopptakelse — er lukket.
+Enhetsøkten svarte på begge spørsmålene runden med vilje ikke kunne svare på
+(seksjonen «Kjørt med sonden: hva enheten svarte»):
 
-**Det som gjenstår er én `chrome://inspect`-økt mot debug-APK-en**, og den
-svarer på begge spørsmålene runden med vilje ikke kunne svare på:
+- **`navigator.onLine` er død uten `ACCESS_NETWORK_STATE`** — flagget sto på
+  `true` i flymodus. Manifestlinjen er lagt inn, voktet av del 6 i
+  `tests/capacitor-android.test.js`.
+- **Gjenopptakelsen startet runden** — et `get_my_doc` står i loggen tilskrevet
+  `visibilitychange`. Målingen la samtidig til noe planen ikke visste: har
+  Android fryst prosessen, leveres hendelsen ikke i det hele tatt, og da er
+  pollets forfalte tikk det eneste som starter runden. Begge ledd er bærende,
+  hvert i sitt regime, og `tests/sync-foreground.test.js` kjører dem hver for
+  seg (del 2 og del 6).
 
-- **Lever `navigator.onLine` uten `ACCESS_NETWORK_STATE`?** Avgjør om én
-  manifestlinje er verdt å legge inn. Ingenting som haster — alle veiene flagget
-  rører leger seg selv — men blir svaret «den er død», hører linjen sammen med
-  en ny sjekk i del 6 av `tests/capacitor-android.test.js`.
-- **Var det gjenopptakelsen som startet runden?** På telefonen var pollet og
-  realtime i live hele veien, så et poll-tikk innen 5 s ser likt ut på skjermen
-  som lytteren. Tas de to ut av bildet og runden fortsatt kommer i det øyeblikket
-  synligheten snur, er lytteren bekreftet på enhet — ikke bare i nettleseren.
-
-Det er det eneste som står igjen i fase 3.
+Ingen plugin er innført, og unntaket for tilbakeknappens bro står uendret.
 
 ### Fase 4
 
@@ -1495,11 +1514,9 @@ byte-identisk artifact og separate builds står åpne til det finnes et konkret
 behov — det første til en serverendring faktisk brekker en eldre klient, det
 andre til OTA (fase 5) gir valget en konsekvens.
 
-**Det som gjenstår for ferdigkriteriet er å SE det på en enhet:** les
-`document.querySelector('meta[name=huskis-release]').content` i APK-en og på
-`huskis.no` bygget fra samme commit, og se at de er like mens build-ID-ene er
-forskjellige. Androids halvdel er i dag verifisert som kjede og i en simulert
-sync, ikke observert i en kjørende APK.
+**Ferdigkriteriet er sett på enhet:** en kjørende APK og en Vercel-preview
+bygget av samme commit rapporterte den samme `releaseId` (`d10867a7c0a6`) med
+hver sin `buildId`, lest i `chrome://inspect` mot APK-en og i nettleseren.
 
 Hver fase 3-endring er plattformspesifikk og skal gates eksplisitt
 (arkitekturregel 2): browserutgaven skal fortsatt kjøre uten Capacitor.
