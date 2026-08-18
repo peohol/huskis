@@ -82,6 +82,12 @@ env:
   # riktig svar, siden bundelen ikke ville virket i dem.
   # Kan aldri være 1: både skallet før OTA-pluginen og skallet etter meldte `1`.
   # `tests/release-pipeline.test.js` vokter begge grensene.
+  #
+  # BLIR STÅENDE PÅ 2 selv om skallet nå er 3: web-koden som stiller opp og
+  # bytter bundle bruker bare metoder pluginen har i begge nivåer, og vakten mot
+  # en rullet-tilbake bundle er klientens egen, varige karantene — den virker
+  # også i et nivå 2-skall, der `autoBlockRolledBackBundles` ikke er slått på.
+  # Nivå 2 er dessuten skallet de gjenstående enhetsmålingene skal gjøres på.
   OTA_MIN_VERSION_CODE: '2'
 
 jobs:
