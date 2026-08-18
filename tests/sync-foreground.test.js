@@ -7,8 +7,14 @@
   bakgrunnen er det INTERVALLET som skal ta appen igjen. Det er nettopp den
   mekanismen en app-runtime ikke lover noe om: en skjult side får timerne sine
   strupet, og en bakgrunnsprosess kan fryses helt. Gjenopptakelsen er derimot en
-  hendelse, og den finnes i både browser og WebView
-  (`visibilitychange` — docs/mobilapp-plan.md, fase 3).
+  hendelse (`visibilitychange`).
+
+  Målt på fysisk Android deler de to leddene jobben etter hvor lenge appen var
+  borte, og ingen av dem dekker begge regimene alene: lever prosessen, fyrer
+  hendelsen og lytteren starter runden; har OS-et fryst prosessen, kommer
+  hendelsen ALDRI, og det forfalte poll-tikket starter runden i samme øyeblikk
+  som opptiningen (docs/mobilapp-plan.md, «Kjørt med sonden»). Del 2 og del 6
+  kjører hvert sitt regime.
 
   Verifiserer:
     1. Skjult side: gjenopptakelses-lytteren fyrer IKKE på veien inn i
@@ -25,6 +31,20 @@
        ikke nådde fram, fram av seg selv. Pollet er nettet under, ikke
        hendelsen. (Denne står ikke og faller med lytteren over; den låser
        forutsetningen for at ingenting native trengs.)
+    5. SONDEN i docs/mobilapp-plan.md («Sonden: én innliming, begge
+       spørsmålene»): den er måleinstrumentet enhetsøkten leser svarene sine
+       av, og skal ikke kunne drifte fra handlene den bruker. Snippeten HENTES
+       ut av dokumentet og kjøres her: den installerer seg uten feil, tar
+       realtime ut av bildet, leser `navigator.onLine`/synk-snapshotet/
+       meta-taggene, TILSKRIVER runden en kilde (`by`) — og lar appen synke som
+       før. Testen svarer IKKE på hva en telefon gjør; den svarer på at måleren
+       måler.
+    6. Opptining UTEN hendelse — det andre regimet på telefonen: synligheten
+       snus uten at `visibilitychange` leveres, slik en fryst og opptint
+       WebView-prosess gjør det. Pollets forfalte tikk skal starte runden
+       likevel. Det låser at guarden i `startCloudPoll` leser `document.hidden`
+       på tikket; et flagg satt av en synlighetslytter ville stått på «skjult»
+       for alltid etter en frysing.
 
   Ett viewport: dette er synk-logikk, uten avhengighet av layout eller pekertype
   (tests/CLAUDE.md).
@@ -33,6 +53,8 @@
     python3 -m http.server 8000
     NODE_PATH=$(npm root -g) node tests/sync-foreground.test.js
 */
+const fs = require('fs');
+const path = require('path');
 const { chromium } = require(require('path').join(process.env.NODE_PATH || require('child_process').execSync('npm root -g').toString().trim(), 'playwright'));
 const BASE = process.env.HUSKIS_URL || 'http://localhost:8000';
 
@@ -93,12 +115,26 @@ async function load(page, db) {
   });
 }
 
-// Skjul/vis siden slik nettleseren gjør det, og fyr signalet appen lytter på.
-const setVisible = (page, visible) => page.evaluate((v) => {
+/* Skjul/vis siden slik nettleseren gjør det, og fyr signalet appen lytter på.
+   `hendelse: false` snur synligheten UTEN å levere `visibilitychange` — det er
+   opptiningen etter en fryst bakgrunnsprosess (del 6). */
+const setVisible = (page, visible, opts) => page.evaluate(([v, hendelse]) => {
   Object.defineProperty(document, 'hidden', { configurable: true, get: () => !v });
   Object.defineProperty(document, 'visibilityState', { configurable: true, get: () => (v ? 'visible' : 'hidden') });
-  document.dispatchEvent(new Event('visibilitychange'));
-}, visible);
+  if (hendelse) document.dispatchEvent(new Event('visibilitychange'));
+}, [visible, !opts || opts.hendelse !== false]);
+
+/* Sonden HENTES ut av docs/mobilapp-plan.md — den er ikke kopiert hit. Da kan
+   ikke oppskriften enhetsøkten skal kjøre drifte fra det som faktisk er prøvd:
+   endres snippeten i dokumentet, er det den nye teksten som kjøres her. */
+function probeSnippet() {
+  const doc = fs.readFileSync(path.join(__dirname, '..', 'docs', 'mobilapp-plan.md'), 'utf8');
+  const fra = doc.indexOf('### Sonden');
+  if (fra < 0) return '';
+  const start = doc.indexOf('```js', fra);
+  const slutt = start < 0 ? -1 : doc.indexOf('```', start + 5);
+  return slutt < 0 ? '' : doc.slice(doc.indexOf('\n', start) + 1, slutt);
+}
 
 const pulls = (page) => page.evaluate(() => window.__pulls);
 const hasCard = (page, id) => page.evaluate((id) => {
@@ -233,6 +269,156 @@ async function scenario(page) {
       onLineHeleVeien.every((v) => v === true), onLineHeleVeien);
     check('hele scenarioet: ingen `online`-hendelse ble fyrt',
       await page.evaluate(() => window.__onlineEvents) === 0);
+  }
+
+  /* 5) Sonden fra planen. Den skal brukes i en `chrome://inspect`-økt mot
+        debug-APK-en, der ingenting kan settes opp på forhånd — derfor kjøres
+        nøyaktig den teksten her, mot en ekte nettleser.
+
+        Pollet står PÅ i hele denne delen, i motsetning til 1–3. Det er poenget:
+        på telefonen kan det ikke slås av, og en strupet eller fryst timer har
+        ikke uniform fase — et forfalt tikk kan bli kjørbart i samme øyeblikk
+        som appen kommer fram. Derfor skal sonden TILSKRIVE runden (`by`), ikke
+        tidfeste den, og de to andre startkildene må enten være ute av bildet
+        (realtime) eller synlige som `annet` (pollet). */
+  {
+    const { ids, db } = buildDB();
+    await load(page, db);
+    const snippet = probeSnippet();
+    check('sonden: snippeten står i docs/mobilapp-plan.md og setter opp `__probe`',
+      /window\.__probe\s*=/.test(snippet) && /removeAllChannels/.test(snippet), snippet.slice(0, 80));
+
+    check('sonden: realtime er i live FØR den kjøres',
+      await page.evaluate(() => window.__huskis.client.getChannels().length) > 0);
+
+    let installert;
+    try {
+      installert = await page.evaluate(new Function(snippet +
+        '\nreturn { ok: !!window.__probe, kanaler: window.__huskis.client.getChannels().length };'));
+    } catch (e) { installert = { ok: false, feil: String(e).slice(0, 200) }; }
+    check('sonden: installerer seg uten feil', installert.ok === true, installert);
+    check('sonden: realtime er tatt ut av bildet', installert.kanaler === 0, installert);
+
+    /* Og BLIR ute. `removeAllChannels()` lukker kanalen, appen ser `CLOSED` og
+       re-subscriber etter 4 s — et `SUBSCRIBED` starter selv en runde, og den
+       ville sett ut som gjenopptakelsens. Fast venting er riktig her: det er
+       appens egen 4-sekunderstimer som skal få lov til å fyre. */
+    await page.waitForTimeout(5000);
+    check('sonden: realtime er fortsatt ute etter appens re-subscribe (4 s)',
+      await page.evaluate(() => window.__huskis.client.getChannels().length) === 0);
+    check('sonden: en fremmed endring når IKKE appen via realtime',
+      await page.evaluate(() => window.__probe.log.every((e) => e.what !== 'rpc' || e.by === 'annet')) === true);
+
+    const net = await page.evaluate(() => window.__probe.net());
+    check('sonden: `net()` leser navigator.onLine (Q1s avlesning)', net.onLine === true, net);
+    check('sonden: `net()` gir synk-snapshotet med tilstand',
+      !!net.sync && typeof net.sync.state === 'string' && 'offline' in net.sync, net.sync);
+    check('sonden: `net()` rapporterer at realtime er ute (`channels: 0`)', net.channels === 0, net);
+    check('sonden: `net()` leser begge meta-taggene (fase 4s avlesning i samme økt)',
+      typeof net.release === 'string' && net.release.length > 0 &&
+      typeof net.build === 'string' && net.build.length > 0, { release: net.release, build: net.build });
+
+    // Pollet har gått i de fem sekundene over, og skal være merket som noe
+    // annet enn gjenopptakelsen. Uten det skillet er `by` verdiløs.
+    check('sonden: pollets egne runder er merket `annet`',
+      await page.evaluate(() => window.__probe.log.some((e) => e.what === 'rpc' && e.by === 'annet')) === true,
+      await page.evaluate(() => window.__probe.log.slice(-4)));
+
+    // Gjenopptakelsen, med en fremmed endring å hente: runden skal tilskrives
+    // lytteren — og appen skal synke som før.
+    await page.evaluate(() => window.__probe.reset());
+    await setVisible(page, false);
+    await page.evaluate((ids) => {
+      const db = window.HK_MOCK._loadDB();
+      db.cards.push({ id: ids.NEW, owner_id: ids.uid, group_id: ids.PG,
+        title: 'Laget mens sonden sto på', k: true, p: true, lab_ts: 0, lab_org: '',
+        trashed: false, locked: false, unlocked: false, invite_policy: 'inherit',
+        ts: 2, org: 'b', pos: 1, pos_ts: 0, pos_org: '' });
+      window.HK_MOCK._saveDB(db);
+    }, ids);
+    await setVisible(page, true);
+    const kom = await page.waitForFunction((id) => {
+      const h = window.__huskis;
+      for (const u of h.state.universes) for (const g of (u.groups || [])) for (const c of (g.cards || [])) if (c.id === id) return true;
+      return false;
+    }, ids.NEW, { timeout: 3000 }).then(() => true).catch(() => false);
+    check('sonden: appen synker fortsatt med sonden installert', kom === true);
+
+    const rapport = await page.evaluate(() => window.__probe.report());
+    check('sonden: `report()` sier at synlighetssignalet KOM (`sawVisible`)',
+      rapport.sawVisible === true && rapport.wokeBy === 'visible', rapport);
+    check('sonden: `report()` TILSKRIVER runden gjenopptakelsen (`by`)',
+      rapport.by === 'visibilitychange', rapport);
+    check('sonden: det tilskrevne kallet ER pullen (`get_my_doc`)',
+      (rapport.calls || []).some((e) => e.name === 'get_my_doc' && e.by === 'visibilitychange'),
+      rapport.calls);
+    check('sonden: `deltaMs` er med som kontekst', typeof rapport.deltaMs === 'number', rapport);
+
+    /* Merket må ikke smitte: en runde som IKKE kommer av en synlighetsvending
+       skal aldri kunne leses som gjenopptakelsens. */
+    await page.evaluate(() => window.__probe.reset());
+    await page.evaluate(() => window.__huskis.cloudCycle());
+    check('sonden: en runde utenom gjenopptakelsen merkes `annet`',
+      await page.evaluate(() => window.__probe.log.filter((e) => e.what === 'rpc').every((e) => e.by === 'annet')) === true,
+      await page.evaluate(() => window.__probe.log.slice(0, 4)));
+    /* Og uten en synlighetsvending i loggen skal rapporten SI det, ikke bare
+       falle tilbake på ingenting. Det var nettopp den tvetydigheten som gjorde
+       enhetsrundens to lange forsøk vanskelige å lese: `deltaMs: null` kan bety
+       «ingen runde», men også «ingen synlighetsvending i det hele tatt». */
+    check('sonden: rapporten skiller «ingen synlighetsvending» fra «ingen runde»',
+      await page.evaluate(() => window.__probe.report().sawVisible) === false,
+      await page.evaluate(() => window.__probe.report()));
+
+    check('sonden: `reset()` tømmer loggen',
+      await page.evaluate(() => { window.__probe.reset(); return window.__probe.log.length; }) === 0);
+  }
+
+  /* 6) OPPTINING UTEN HENDELSE — det andre av de to regimene på telefonen.
+        Enhetsøkten viste at etter minutter i bakgrunnen fryser Android
+        prosessen, og når den tiner er `document.hidden` allerede falsk uten at
+        `visibilitychange` noen gang ble levert (docs/mobilapp-plan.md, «Kjørt
+        med sonden»). Da er lytteren i del 2 per definisjon ute av spill, og det
+        forfalte poll-tikket er alt som er igjen.
+
+        Derfor står pollet PÅ her, og hendelsen er det som holdes tilbake —
+        speilvendt av del 1–3. Det låser guarden i `startCloudPoll`: den må lese
+        `document.hidden` på tikket. Leses den i stedet fra et flagg en
+        synlighetslytter setter, står flagget på «skjult» for alltid etter en
+        frysing, og appen på telefonen våkner aldri igjen. */
+  {
+    const { ids, db } = buildDB();
+    await load(page, db);
+    await page.evaluate(() => {
+      window.__vc = 0;
+      document.addEventListener('visibilitychange', () => { window.__vc++; });
+    });
+
+    await setVisible(page, false); // veien INN i bakgrunnen har hendelsen sin
+    await page.evaluate((ids) => {
+      const db = window.HK_MOCK._loadDB();
+      db.cards.push({ id: ids.NEW, owner_id: ids.uid, group_id: ids.PG,
+        title: 'Laget mens prosessen var fryst', k: true, p: true, lab_ts: 0, lab_org: '',
+        trashed: false, locked: false, unlocked: false, invite_policy: 'inherit',
+        ts: 2, org: 'b', pos: 1, pos_ts: 0, pos_org: '' });
+      window.HK_MOCK._saveDB(db);
+    }, ids);
+
+    const førTint = await pulls(page);
+    await page.evaluate(() => { window.__vc = 0; });
+    await setVisible(page, true, { hendelse: false }); // opptiningen: ingen hendelse
+    const kom = await page.waitForFunction((id) => {
+      const h = window.__huskis;
+      for (const u of h.state.universes) for (const g of (u.groups || [])) for (const c of (g.cards || [])) if (c.id === id) return true;
+      return false;
+    }, ids.NEW, { timeout: 9000 }).then(() => true).catch(() => false);
+
+    check('opptining: ingen `visibilitychange` ble levert (lytteren er ute av spill)',
+      await page.evaluate(() => window.__vc) === 0, await page.evaluate(() => window.__vc));
+    check('opptining: pollet starter runden likevel — guarden leser `document.hidden` på tikket',
+      await pulls(page) > førTint, { før: førTint, etter: await pulls(page) });
+    check('opptining: det den andre enheten laget er hentet inn', kom === true);
+    check('opptining: og det står på skjermen',
+      (await page.evaluate(() => document.body.innerText)).includes('Laget mens prosessen var fryst'));
   }
 }
 

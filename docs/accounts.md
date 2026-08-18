@@ -195,16 +195,21 @@ samme nested `state` som før; synken går slik (`cloudCycle`):
    bakgrunnen synker ikke), **`online`**, og **gjenopptakelsen**
    (`visibilitychange` → synlig igjen).
 
-   De to siste er snarveier forbi en timer, ikke bærebjelker, og det er med
+   `online` er en snarvei forbi en timer, ikke en bærebjelke, og det er med
    vilje: pollet henter inn etterslepet uansett, og frakoblet-terskelen i
    lagringsstatusen ser et brutt nett uten å spørre `navigator.onLine`. Derfor
    tåler synken en runtime der `online` aldri fyrer
-   (`tests/sync-foreground.test.js`). Gjenopptakelsen er likevel verdt sin egen
-   lytter: mens siden er skjult er pollet blindt, og hvor lenge «til neste tikk»
-   varer eier vi ikke — en skjult side får timerne sine strupet, og i en
-   app-runtime kan prosessen fryses. Å komme tilbake er derimot en hendelse, og
-   den finnes likt i browser og WebView
-   ([`mobilapp-plan.md`](mobilapp-plan.md), fase 3).
+   (`tests/sync-foreground.test.js`).
+
+   Gjenopptakelsen er derimot bærende, og deler jobben med pollet etter hvor
+   lenge appen var borte. Mens siden er skjult er pollet blindt, og hvor lenge
+   «til neste tikk» varer eier vi ikke — en skjult side får timerne sine
+   strupet. Lever prosessen, er retur en HENDELSE, og lytteren starter runden
+   der og da. Men fryser OS-et prosessen — målt på Android — snur synligheten
+   mens den står stille, og hendelsen blir aldri levert; da er det pollets
+   forfalte tikk som starter runden, som første handling etter opptiningen.
+   Derfor må guarden i pollet lese `document.hidden` på tikket, ikke et flagg en
+   synlighetslytter setter ([`mobilapp-plan.md`](mobilapp-plan.md), fase 3).
 
 Offline-buffer: `state` caches per bruker (`mine-lister-v1:<uid>`), uten intern
 metadata (`stateReplacer` hopper over `_`-felt for å unngå sykliske refs — med

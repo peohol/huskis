@@ -61,4 +61,18 @@
     <!-- Permissions -->
 
     <uses-permission android:name="android.permission.INTERNET" />
+
+    <!-- ACCESS_NETWORK_STATE: Chromiums nettverksvarsling i WebView-en henger på
+         denne. Uten den er tilstanden UKJENT, og ukjent leses som «på nett»:
+         `navigator.onLine` står permanent på true og `online`/`offline` fyrer
+         aldri. Målt på enhet, ikke antatt — flymodus på ga fortsatt
+         `onLine: true` og ingen hendelser i loggen
+         (docs/mobilapp-plan.md, «Lifecycle- og network-signaler»).
+
+         Ingen av de tre leserne EIER data, så dette er ikke en datavei: det er
+         statuslinjen som slipper å vente ut to mislykkede runder før den sier
+         «Frakoblet», og etterslepet som hentes inn straks nettet er tilbake i
+         stedet for ved neste 5-sekunderstikk. Tillatelsen er «normal» — den
+         leser tilstanden, den åpner ingen ny kanal ut. -->
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
 </manifest>
