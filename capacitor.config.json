@@ -5,6 +5,10 @@
   "plugins": {
     "SystemBars": {
       "style": "DEFAULT"
+    },
+    "LiveUpdate": {
+      "autoUpdateStrategy": "none",
+      "readyTimeout": 10000
     }
   }
 }

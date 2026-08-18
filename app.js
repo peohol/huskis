@@ -6946,9 +6946,16 @@
   /* Eneste stedet webkoden kjenner til native-runtimen, og den er eksplisitt
      gated: i en nettleser finnes `window.Capacitor` ikke, broen settes aldri
      opp, og ingenting av dette kjører. Vakten i
-     `tests/capacitor-android.test.js` holder unntaket avgrenset til denne ene
-     linjen (`docs/mobilapp-plan.md`, arkitekturregel 2). */
+     `tests/capacitor-android.test.js` holder unntaket avgrenset til disse to
+     linjene (`docs/mobilapp-plan.md`, arkitekturregel 2). */
   const nativeShell = !!(window.Capacitor && typeof window.Capacitor.isNativePlatform === 'function' && window.Capacitor.isNativePlatform());
+  /* Den ANDRE linjen, og den står her av samme grunn: bak den samme gaten.
+     Capacitors Android-bro GENERERER og injiserer `window.Capacitor.Plugins`
+     med én funksjon per native `@PluginMethod`, så et plugin-kall trenger
+     verken `import`, bundler eller klientavhengighet — webappen forblir
+     vanilla (`docs/mobilapp-plan.md`, fase 5). I en nettleser er dette `{}`,
+     og hvert eneste oppslag gir `undefined`. */
+  const nativePlugins = (nativeShell && window.Capacitor.Plugins) || {};
   if (nativeShell) window.__huskisSystemBack = systemBack;
   // Ingen ekstra bekreftelse: sveipe-tømming har heller ingen, og tømming er
   // et bevisst valg i en modal man allerede har åpnet.
@@ -11486,6 +11493,9 @@
       loadCache();
       render();
     }
+    // Readiness-punktet for en INNLOGGET bruker: board-et er brettet fra
+    // localStorage og skjermen er brukbar. Alt under her spør serveren.
+    markAppReady();
     lastViewSig = null; // tving en full første render ved (ny) innlogging
     migrationChecked = false;
     navRestored = false; // gjenopprett husket posisjon ved neste (første) pull
@@ -11566,6 +11576,53 @@
     authMsg(tr('auth.inviteSignup'), true);
   }
 
+  /* ---------------- Readiness-punktet (OTA-rollback) ----------------
+     `LiveUpdate.ready()` avvæpner rollback-timeren pluginen armerer i sin egen
+     konstruktør — også når appen kjører den innebygde bundelen. Blir den aldri
+     avvæpnet, gjenoppretter pluginen bundelen som ligger i binæren. HVOR
+     kallet står er derfor hele vakten, ikke en detalj (`docs/mobilapp-plan.md`,
+     «Readiness-punktet»):
+
+       • for TIDLIG — ved script-last — godkjenner den en bundle som laster
+         fint og deretter feiler i initen;
+       • for SENT, eller avhengig av et svar fra serveren, ruller den tilbake
+         en bundle som VIRKER: en offline kaldstart ville ikke kunne skilles
+         fra en defekt bundle.
+
+     Punktet er derfor «første brukbare skjerm malt fra LOKAL tilstand»:
+     innloggingsskjermen for en utlogget bruker, board-et brettet fra
+     localStorage for en innlogget. Begge nås uten nett, og begge ligger etter
+     at hele app.js har kjørt. Alt som venter på serveren ligger etter kallet.
+
+     Idempotent: den første av de to veiene vinner. En senere innlogging eller
+     kontobytte i samme økt er ikke en ny oppstart, og timeren er allerede
+     avvæpnet.
+
+     `appReady` speiler IKKE bare «skjermen er malt» — den speiler «avvæpningen
+     er bekreftet». I browseren og når det ikke finnes noen plugin å spørre,
+     er de to samtidige (ingenting å vente på). Men i native runtime, med
+     pluginen der, venter `appReady` på at `live.ready()` faktisk RESOLVER: et
+     unntak i broen eller en avvist promise skal ikke kunne lese seg selv som
+     «avvæpnet» — det ville gjort readiness-punktet blindt for nøyaktig den
+     feilen det finnes for å oppdage. `readyInFlight` gjør en mislykket
+     avvæpning retrybar (en senere `markAppReady()` prøver på nytt i stedet
+     for å være låst av et tidligere svelget avslag), og `liveReadyError`
+     eksponerer siste feil for enhetsøkten. */
+  let appReady = false;
+  let readyInFlight = false;
+  let liveReadyError = null;
+  function markAppReady() {
+    if (appReady || readyInFlight) return;
+    if (!nativeShell) { appReady = true; return; }   // samme gate som tilbakeknappens bro
+    const live = nativePlugins.LiveUpdate;
+    if (!live || typeof live.ready !== 'function') { appReady = true; return; }
+    readyInFlight = true;
+    Promise.resolve(live.ready())
+      .then(() => { appReady = true; liveReadyError = null; })
+      .catch((e) => { liveReadyError = (e && e.message) || String(e); })
+      .then(() => { readyInFlight = false; });
+  }
+
   async function initAccounts() {
     const client = acli();
     if (!client) {
@@ -11575,6 +11632,7 @@
       authScreen.hidden = false;
       setAuthMode('login');
       authMsg(tr('auth.unavailable'));
+      markAppReady();  // skjermen er malt, og den er alt appen har å vise
       return;
     }
     document.body.classList.add('no-auth');
@@ -11599,6 +11657,13 @@
       const user = data && data.session && data.session.user;
       if (user && !authUser) { authUser = { id: user.id, email: user.email, meta: user.user_metadata || {} }; cloudStart(); }
     } catch (e) { /* ingen sesjon */ }
+    // Readiness-punktet for en UTLOGGET bruker: innloggingsskjermen står malt,
+    // og den er den brukbare skjermen. (Er vi innlogget, satte cloudStart()
+    // punktet allerede — dette kallet er da et no-op.) Kallet står ETTER
+    // try/catch nettopp fordi begge utfallene skal nå det: en
+    // sesjonsgjenoppretting som feiler fordi enheten er offline skal ikke
+    // kunne holde appen fra readiness-punktet.
+    markAppReady();
   }
 
   /* ---------------- «Er det trygt å laste siden på nytt nå?» ----------------
@@ -12800,6 +12865,12 @@
     get cloudBase() { return cloudBase; },
     openShare, openObjMenu, closeObjMenu, showToast, updateSafety, save,
     systemBack, // Androids tilbakeknapp — broen settes bare opp i native runtime
+    // Har appen nådd readiness-punktet? Leses i enhetsøkten (chrome://inspect)
+    // for å måle at en offline kaldstart rekker det innenfor `readyTimeout`.
+    get appReady() { return appReady; },
+    // Siste feil fra et mislykket LiveUpdate.ready()-kall, eller null. Lest i
+    // enhetsøkten når appReady blir hengende på false i native runtime.
+    get liveReadyError() { return liveReadyError; },
     tour: {
       start: startTour,
       end: endTour,
