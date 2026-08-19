@@ -730,10 +730,23 @@ check('ready() står bak native-gaten og bak pluginbroen, ikke ubetinget',
 check('appReady venter på at ready() faktisk resolverer (og en avvist promise er retrybar)',
   (readyKropp.match(/appReady = true;/g) || []).length === 3
     && /if \(!live \|\| typeof live\.ready !== 'function'\) \{ appReady = true; return; \}/.test(readyKropp)
-    && /readyInFlight = true;[\s\S]*\.then\(\(res\) => \{ appReady = true; liveReadyError = null; noteRollback\(res\); \}\)/.test(readyKropp)
+    && /readyInFlight = true;[\s\S]*\.then\(\(res\) => \{ appReady = true;[^}]*liveReadyError = null; noteRollback\(res\); \}\)/.test(readyKropp)
     && /\.catch\(\(e\) => \{ liveReadyError = /.test(readyKropp)
     && /\.then\(\(\) => \{ readyInFlight = false; \}\);/.test(readyKropp),
   readyKropp.trim());
+/* Stoppeklokken mot `readyTimeout` (docs/mobilapp-plan.md, «Slik kjører du
+   enhetsøkten»): `disarmedAt` skal bety «timeren ble avvæpnet», ikke «skjermen
+   ble malt». Ble den satt i en av de to early-return-grenene også, ville et
+   skall uten plugin rapportert en avvæpning som aldri skjedde — og tallet
+   enhetsøkten måler mot 10 000 ms hadde vært appens malingstid, ikke broens.
+   `reachedAt` skal motsatt settes FØR de samme grenene, ellers mangler tallet
+   nøyaktig på de to veiene som ikke venter på noe. */
+check('stoppeklokken skiller readiness-punktet fra avvæpningen',
+  /noteReadyMs\('reachedAt'\);[\s\S]*if \(!nativeShell\)/.test(readyKropp)
+    && (readyKropp.match(/noteReadyMs\('disarmedAt'\)/g) || []).length === 1
+    && /\.then\(\(res\) => \{[^}]*noteReadyMs\('disarmedAt'\)/.test(readyKropp),
+  readyKropp.trim());
+
 /* Punktet nås fra BEGGE de brukbare skjermene: innloggingsskjermen for en
    utlogget bruker, board-et brettet fra localStorage for en innlogget. Bare ett
    av kallstedene ville gjort rollback avhengig av hvilken av dem brukeren

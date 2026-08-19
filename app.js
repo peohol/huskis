@@ -11612,14 +11612,53 @@
   let readyInFlight = false;
   let liveReadyError = null;
   let liveReady = null;            // pluginens ReadyResult, eller null
+  /* Stoppeklokken enhetsøkten leser mot pluginens `readyTimeout` (10 000 ms).
+     `appReady` alene kan ikke svare på om avvæpningen kom GODT innenfor
+     grensen eller så vidt innenfor: den blir `true` også når timeren rakk å
+     utløse først, fordi en rollback mot en allerede innebygd bundle er et
+     no-op (`docs/mobilapp-plan.md`, «Hva som krever en enhetsøkt»). To
+     tidspunkter skiller det som ellers ser likt ut:
+
+       reachedAt   — readiness-punktet ble nådd: første brukbare skjerm er
+                     malt fra LOKAL tilstand. Er dette tallet stort, er det
+                     appens egen oppstart som er treg.
+       disarmedAt  — `ready()` RESOLVERTE, altså øyeblikket timeren faktisk
+                     ble avvæpnet. Det er DETTE tallet som skal måles mot
+                     `readyTimeout`. Avstanden fra `reachedAt` er broens egen
+                     kostnad.
+
+     `disarmedAt` er `null` uten en plugin å spørre — i browseren og i et
+     skall uten `LiveUpdate`. Det er ikke en manglende måling, men et presist
+     svar: der finnes det ingen timer å avvæpne. `null` sammen med en satt
+     `liveReadyError` er det motsatte, og det alvorlige: avvæpningen ble
+     forsøkt og mislyktes.
+
+     BEGGE TALLENE ER NEDRE GRENSER, og det må stå i det som rapporteres.
+     `performance.now()` teller fra WebView-ens navigasjonsstart, mens
+     pluginen armerer `readyTimeout` i sin egen konstruktør — altså FØR siden
+     i det hele tatt begynner å laste. Avstanden mellom de to nullpunktene er
+     ikke synlig fra JS. Et tall godt under 10 000 ms er derfor ikke i seg
+     selv et bevis for at timeren ikke utløp; et tall NÆR grensen er
+     til gjengjeld et sikkert varsel. */
+  let readyMs = null;              // { reachedAt, disarmedAt } i ms fra navigasjonsstart
+  function noteReadyMs(felt) {
+    const p = window.performance;
+    if (!p || typeof p.now !== 'function') return;
+    if (!readyMs) readyMs = { reachedAt: null, disarmedAt: null };
+    if (readyMs[felt] == null) readyMs[felt] = Math.round(p.now());
+  }
   function markAppReady() {
     if (appReady || readyInFlight) return;
+    // Før de tidlige returene: punktet ble nådd uansett hvilken av de tre
+    // veiene ut som tas, og en retry etter et avvist `ready()` er ikke et nytt
+    // readiness-punkt (`noteReadyMs` beholder det første tallet).
+    noteReadyMs('reachedAt');
     if (!nativeShell) { appReady = true; return; }   // samme gate som tilbakeknappens bro
     const live = nativePlugins.LiveUpdate;
     if (!live || typeof live.ready !== 'function') { appReady = true; return; }
     readyInFlight = true;
     Promise.resolve(live.ready())
-      .then((res) => { appReady = true; liveReadyError = null; noteRollback(res); })
+      .then((res) => { appReady = true; noteReadyMs('disarmedAt'); liveReadyError = null; noteRollback(res); })
       .catch((e) => { liveReadyError = (e && e.message) || String(e); })
       .then(() => { readyInFlight = false; });
   }
@@ -13136,6 +13175,10 @@
     // Siste feil fra et mislykket LiveUpdate.ready()-kall, eller null. Lest i
     // enhetsøkten når appReady blir hengende på false i native runtime.
     get liveReadyError() { return liveReadyError; },
+    // Stoppeklokken: { reachedAt, disarmedAt } i ms fra navigasjonsstart, eller
+    // null før readiness-punktet er nådd. `disarmedAt` er tallet som måles mot
+    // `readyTimeout` (10 000 ms) — begge er nedre grenser, se erklæringen.
+    get readyMs() { return readyMs; },
     // Hvor langt OTA-hentingen kom ved denne oppstarten, og hvorfor den
     // stoppet. Lest i enhetsøkten; i en nettleser står den alltid på 'idle'.
     get otaFetch() { return otaFetch; },

@@ -36,6 +36,9 @@
        klientens egen liste stilles ikke opp — og en liste som ikke kan leses
        (fra broen eller fra localStorage) er også et nei (fail closed).
    12. En feilet oppstilling er stille, og etterlater ingenting stilt opp.
+   13. Stoppeklokken mot `readyTimeout`: `readyMs.disarmedAt` er tidspunktet
+       `ready()` RESOLVERTE, ikke tidspunktet skjermen ble malt — og den er
+       `null` uten en plugin å spørre.
 
   Ren logikk uten layout-avhengighet → én viewport.
 
@@ -118,7 +121,13 @@ function check(name, cond, extra) {
       isNativePlatform: () => true,
       Plugins: {
         LiveUpdate: {
-          ready: async () => { window.__otaBro.kall.push('ready'); return {}; },
+          // ?ready=slow gjør avvæpningen målbart treg, slik at stoppeklokken
+          // kan vise at `disarmedAt` er broens svar og ikke malingstidspunktet.
+          ready: async () => {
+            window.__otaBro.kall.push('ready');
+            if (q.get('ready') === 'slow') await new Promise((r) => setTimeout(r, 250));
+            return {};
+          },
           getVersionCode: async () => { window.__otaBro.kall.push('getVersionCode'); return { versionCode: '3' }; },
           downloadBundle: async (opts) => {
             window.__otaBro.kall.push('downloadBundle');
@@ -380,6 +389,39 @@ function check(name, cond, extra) {
     (await oppstilling()).state === 'stage-failed' && bs.kall.indexOf('reload') === -1,
     await oppstilling());
   check('feilet oppstilling: intet banner', !(await banner()));
+
+  /* ---------- 12) Stoppeklokken mot readyTimeout ----------
+     Enhetsøkten skal kunne si om avvæpningen kom godt innenfor de 10 000 ms
+     pluginen gir, og `appReady` alene kan ikke svare på det: den blir `true`
+     også når timeren rakk å utløse først (docs/mobilapp-plan.md, «Slik kjører
+     du enhetsøkten»). Det som måles her er at de to tallene betyr det de
+     heter — en treg bro skal flytte `disarmedAt`, ikke `reachedAt`. */
+  {
+    manifestSvar = { status: 404, body: '' };
+    await page.goto(BASE + '/?mock=1&cap=1&ready=slow');
+    await page.waitForFunction(() => {
+      const r = window.__huskis && window.__huskis.readyMs;
+      return !!r && r.disarmedAt != null;
+    }, null, { timeout: 10000, polling: 100 });
+    const t = await page.evaluate(() => window.__huskis.readyMs);
+    check('stoppeklokken: begge tallene er ms fra navigasjonsstart',
+      Number.isFinite(t.reachedAt) && Number.isFinite(t.disarmedAt) && t.reachedAt >= 0, t);
+    check('stoppeklokken: en treg ready() flytter disarmedAt, ikke reachedAt',
+      t.disarmedAt - t.reachedAt >= 200, t);
+  }
+  /* Uten en plugin å spørre finnes det ingen timer å avvæpne, og da skal
+     tallet være `null` — ikke et malingstidspunkt som utgir seg for å være en
+     avvæpning. */
+  {
+    await page.goto(BASE + '/?mock=1');
+    await page.waitForFunction(() => {
+      const r = window.__huskis && window.__huskis.readyMs;
+      return !!r && r.reachedAt != null;
+    }, null, { timeout: 10000, polling: 100 });
+    const t = await page.evaluate(() => window.__huskis.readyMs);
+    check('nettleser: reachedAt måles, disarmedAt er null (ingen timer å avvæpne)',
+      Number.isFinite(t.reachedAt) && t.disarmedAt === null, t);
+  }
 
   check('ingen ukontrollerte JS-feil i noen av scenarioene', pageErrors.length === 0, pageErrors);
 
