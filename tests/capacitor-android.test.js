@@ -38,10 +38,13 @@
         native halvdelene signeringsrunden legger inn: `versionCode`, som ER
         OTA-ens kompatibilitetsgrense, og `publicKey`, som er den eneste
         halvdelen av nøkkelparet som noensinne skal ligge i repoet. Og (9d)
-        hentingen: manifest-URL-en bygges av det kanoniske originet + skallets
-        `getVersionCode()`, manifestet valideres ved systemgrensen, og
-        `downloadBundle` er den eneste metoden som rører en bundle — ingen
-        `setNextBundle`, ingen `reload`; en hentet bundle blir liggende ubrukt.
+        hele OTA-flyten: manifest-URL-en bygges av det kanoniske originet +
+        skallets `getVersionCode()`, manifestet valideres ved systemgrensen, og
+        `setNextBundle`/`reload` — de to som faktisk BYTTER kode — står bak
+        karantenen og bak motorens klargjøring, ikke løst i koden. Og (9e)
+        klargjøringstilstanden i update-check.js: ett-forsøk-vakten kan ikke
+        brennes av en feilet klargjøring, og banneret vises ikke før målet er
+        stilt opp.
     10. Safe areas og skjermtastaturet: erklæringene sonen hviler på —
         `viewport-fit=cover` i index.html, `adjustResize` i manifestet, og
         systemfeltenes utseende i temaet (lyst tema, gjennomsiktige felt,
@@ -563,6 +566,17 @@ check('readyTimeout er satt til et positivt antall ms (0 = rollback AV)',
 check('autoUpdateStrategy er ikke slått på (pluginen henter ingenting av seg selv)',
   !!lu && (lu.autoUpdateStrategy === undefined || lu.autoUpdateStrategy === 'none'),
   lu ? String(lu.autoUpdateStrategy) : 'mangler');
+/* Karantenen pluginen selv fører, og HOVEDVAKTEN mot at en rullet-tilbake
+   bundle stilles opp igjen: standardverdien er `false`, og feltet har først noe
+   å føre opp fra og med runden som stiller opp en bundle — før den fantes
+   ingen rollback som kunne fylle listen. Feltet pakkes inn i APK-en, og
+   `versionCode` under er derfor økt i den samme endringen. Klientens egen
+   karantene i app.js er ETT lag til, for det ene tilfellet pluginens ikke
+   dekker (docs/mobilapp-plan.md, «En rullet-tilbake bundle må være varig
+   sperret»). */
+check('autoBlockRolledBackBundles er slått PÅ (standard er false)',
+  !!lu && lu.autoBlockRolledBackBundles === true,
+  lu ? String(lu.autoBlockRolledBackBundles) : 'mangler');
 /* Selvhostet, uten sky-konto: `appId`, `defaultChannel` og `serverDomain` er
    Capawesome Cloud-felter, og et utfylt felt her ville gitt appen en utgående
    adresse ingen har navngitt (docs/sikkerhetsheadere.md). */
@@ -587,6 +601,14 @@ check('ingen Capawesome Cloud-konto i konfigurasjonen (selvhostet, uten sky)',
 const versionCode = Number((kode(appGradle).match(/^\s*versionCode\s+(\d+)\s*$/m) || [])[1]);
 check('android: versionCode er et helt tall over 1 (grensen kan ikke være 1)',
   Number.isInteger(versionCode) && versionCode > 1, String(versionCode));
+/* Og over 2: `autoBlockRolledBackBundles` ble slått på i konfigurasjonen over,
+   og konfigurasjonen pakkes inn i APK-en. Et skall med karantenen på og ett
+   uten er native forskjellige og kan ikke melde det samme nivået — nøyaktig
+   samme resonnement som gjorde at `1` ikke kunne bli stående. Hvor lavt et
+   nivå som fortsatt FÅR bundelen er en egen avgjørelse (OTA_MIN_VERSION_CODE i
+   release.yml, voktet i tests/release-pipeline.test.js). */
+check('android: versionCode er økt etter at karantenefeltet kom inn i konfigurasjonen',
+  versionCode > 2, String(versionCode));
 
 /* `publicKey` er den OFFENTLIGE halvdelen, og er FRA OG MED signeringsrunden et
    krav, ikke et valgfritt felt — den runden la den inn sammen med
@@ -664,7 +686,7 @@ check('ready() står bak native-gaten og bak pluginbroen, ikke ubetinget',
 check('appReady venter på at ready() faktisk resolverer (og en avvist promise er retrybar)',
   (readyKropp.match(/appReady = true;/g) || []).length === 3
     && /if \(!live \|\| typeof live\.ready !== 'function'\) \{ appReady = true; return; \}/.test(readyKropp)
-    && /readyInFlight = true;[\s\S]*\.then\(\(\) => \{ appReady = true; liveReadyError = null; \}\)/.test(readyKropp)
+    && /readyInFlight = true;[\s\S]*\.then\(\(res\) => \{ appReady = true; liveReadyError = null; noteRollback\(res\); \}\)/.test(readyKropp)
     && /\.catch\(\(e\) => \{ liveReadyError = /.test(readyKropp)
     && /\.then\(\(\) => \{ readyInFlight = false; \}\);/.test(readyKropp),
   readyKropp.trim());
@@ -678,49 +700,131 @@ const kropp = (navn) =>
 const utenPunkt = ['cloudStart', 'initAccounts'].filter((f) => !/markAppReady\(\);/.test(kropp(f)));
 check('readiness-punktet settes fra begge de brukbare skjermene (cloudStart + initAccounts)',
   utenPunkt.length === 0, utenPunkt.join(', ') || 'cloudStart, initAccounts');
-/* ---- 9d. OTA-hentingen: manifest + downloadBundle, uten å bytte ----
-   Runden «hente og verifisere» (docs/mobilapp-plan.md, fase 5): manifestet
-   leses på URL-en det NATIVE nivået bestemmer, valideres ved systemgrensen, og
-   en annen release lastes ned — men stilles ALDRI opp. `setNextBundle` og
-   `reload` hører til runden med klargjøringstilstanden og blokklistevakten;
-   kommer et av kallene inn før dem, ville et bundlebytte skjedd utenom
-   `updateSafety()`, og en rullet-tilbake bundle kunne stilles opp på nytt.
-   Selve oppførselen (stille 404, ===-sammenligningen, kallets felter) kjøres i
-   ekte nettleser med faket bro: tests/ota-fetch.test.js. Her låses KILDEN. */
-const OTA_METODER = ['ready', 'getVersionCode', 'downloadBundle'];
+/* ---- 9d. OTA-flyten: hente, klargjøre og bytte ----
+   Fase 5 i sin helhet (docs/mobilapp-plan.md): manifestet leses på URL-en det
+   NATIVE nivået bestemmer, valideres ved systemgrensen, bundelen lastes ned,
+   stilles opp — og byttes. De to siste er de eneste kallene som faktisk endrer
+   hvilken kode enheten kjører, og de er derfor ikke låst til «finnes ikke»
+   lenger, men til HVOR og BAK HVA de står. Selve oppførselen kjøres i ekte
+   nettleser med faket bro: tests/ota-fetch.test.js. Her låses KILDEN. */
+const OTA_METODER = ['ready', 'getVersionCode', 'downloadBundle',
+  'getBlockedBundles', 'setNextBundle', 'reload'];
 const otaKall = (appKode.match(/\blive\.(\w+)\(/g) || []).map((m) => m.slice(5, -1));
-check('pluginbroen kalles kun med de tre kjente metodene (ready, getVersionCode, downloadBundle)',
-  otaKall.length > 0 && otaKall.every((m) => OTA_METODER.indexOf(m) > -1),
-  otaKall.join(', ') || 'ingen');
-/* downloadBundle er den eneste nye metoden som RØRER en bundle — lista over
-   bundle-metoder var ['ready'] og er nå ['ready', 'downloadBundle'].
-   getVersionCode er med som ren lesing: den bygger manifest-URL-en (vakten ER
-   URL-en, docs/mobilapp-plan.md «Native-kompatibilitet er en vakt i fase 5»)
-   og endrer ingenting på enheten. */
-check('downloadBundle er den eneste nye metoden som rører en bundle',
-  otaKall.filter((m) => m !== 'ready' && m !== 'getVersionCode').join(',') === 'downloadBundle',
-  otaKall.join(', '));
-check('ingen kode kaller setNextBundle eller reload på pluginbroen — bundelen blir liggende ubrukt',
-  otaKall.indexOf('setNextBundle') === -1 && otaKall.indexOf('reload') === -1
-    && WEB_KILDE.every((f) => !/\bsetNextBundle\b/.test(kode(les(f)))),
-  otaKall.join(', '));
-check('pluginbroen brukes kun av readiness-punktet og OTA-hentingen',
-  (appKode.match(/nativePlugins/g) || []).length === 3,
+const ukjenteKall = otaKall.filter((m) => OTA_METODER.indexOf(m) === -1);
+check('pluginbroen kalles kun med de seks kjente metodene',
+  otaKall.length > 0 && ukjenteKall.length === 0,
+  ukjenteKall.join(', ') || otaKall.join(', '));
+/* Hver av de tre som RØRER en bundle skal finnes nøyaktig én gang. To
+   kallsteder for det samme ville betydd to veier gjennom vaktene, og bare den
+   ene ville blitt lest her. */
+['downloadBundle', 'setNextBundle', 'reload'].forEach((m) => {
+  check('live.' + m + ' kalles fra nøyaktig ett sted',
+    otaKall.filter((k) => k === m).length === 1,
+    otaKall.filter((k) => k === m).length + ' kall');
+});
+check('pluginbroen brukes kun av readiness-punktet, hentingen, klargjøringen og byttet',
+  (appKode.match(/nativePlugins/g) || []).length === 5,
   (appKode.match(/nativePlugins/g) || []).length + ' forekomster i kjørende kode');
+
+/* Oppstillingen: `setNextBundle()` konsulterer ALDRI pluginens blokkliste selv
+   — den leses kun i pluginens egen `sync()`-flyt, som Huskis ikke bruker (lest
+   i LiveUpdate.java 8.4.0, docs/mobilapp-plan.md «En rullet-tilbake bundle må
+   være varig sperret»). Karantenen må derfor spørres FØR oppstillingen, og
+   fail closed: kan vi ikke lese listene, stiller vi ingenting opp. Uten dette
+   ville et manifest som blir stående på en dårlig bundle gitt én ødelagt
+   kaldstart annenhver gang, i det uendelige. */
+const stageKropp = (appKode.match(/async function prepareOtaBundle\(\) \{([\s\S]*?)\n  \}/) || [, ''])[1] || '';
+check('oppstillingen finnes som én navngitt funksjon (prepareOtaBundle)',
+  stageKropp !== '' && /live\.setNextBundle\(/.test(stageKropp),
+  stageKropp ? 'prepareOtaBundle' : 'fant ikke funksjonen');
+check('karantenen spørres FØR setNextBundle, og et sperret mål stilles ikke opp',
+  /otaBlockedBundle\(/.test(stageKropp)
+    && stageKropp.indexOf('otaBlockedBundle(') < stageKropp.indexOf('live.setNextBundle(')
+    && /catch \(e\) \{ sperret = true; \}/.test(stageKropp)
+    && /if \(sperret\) \{[^}]*'blocked'[\s\S]*?return false;/.test(stageKropp),
+  stageKropp ? 'karantene før oppstilling' : 'ingen kropp');
+/* «Klargjort» må dekke BEGGE veier. Pluginen avviser en `bundleId` den har fra
+   før (ERROR_BUNDLE_EXISTS), og det treffer hver kaldstart etter den første —
+   en oppstilling som krevde en FERSK nedlasting ville derfor aldri kommet
+   videre dagen etter. */
+check('en bundle som alt ligger i lageret regnes som klargjort, ikke som en feil',
+  /otaFetch\.state !== 'downloaded' && otaFetch\.state !== 'already-downloaded'/.test(stageKropp),
+  (stageKropp.match(/otaFetch\.state !== [^)]*/) || ['fant ikke sjekken'])[0]);
+const blockKropp = (appKode.match(/async function otaBlockedBundle\([^)]*\) \{([\s\S]*?)\n  \}/) || [, ''])[1] || '';
+check('karantenen leser BÅDE vår egen varige liste og pluginens blokkliste',
+  /egen\.indexOf\(bundleId\) > -1/.test(blockKropp)
+    && /live\.getBlockedBundles\(/.test(blockKropp),
+  blockKropp.trim() || 'fant ikke funksjonen');
+/* Fail closed hele veien: en liste som ikke kan LESES er ikke det samme som en
+   tom liste, en rollback som ikke kunne FØRES OPP er ikke det samme som ingen
+   rollback, og et svar fra broen som ikke er en liste er ikke ingen sperre.
+   Hver av dem betyr «vi vet ikke», og da stilles ingenting opp. */
+const NEI = [
+  ['en rollback som ikke kunne føres opp', /if \(otaQuarantineBroken\) return true;/],
+  ['en liste som ikke kan leses', /if \(egen === null\) return true;/],
+  ['en bro uten getBlockedBundles', /typeof live\.getBlockedBundles !== 'function'\) return true;/],
+  ['et svar som ikke er en liste', /!Array\.isArray\(r\.bundleIds\)\) return true;/],
+];
+NEI.forEach(([navn, re]) => {
+  check('karantenen er fail closed: ' + navn + ' er et NEI',
+    re.test(blockKropp), blockKropp.trim() || 'fant ikke funksjonen');
+});
+/* Lesningen må skille «tom» fra «uleselig», ellers er fail closed-sjekken over
+   pynt: en blokkert lagring ville lest som en tom liste. */
+const lesKropp = (appKode.match(/function otaQuarantine\(\) \{([\s\S]*?)\n  \}/) || [, ''])[1] || '';
+check('en uleselig karanteneliste skilles fra en tom (null vs [])',
+  /catch \(e\) \{ return null; \}/.test(lesKropp)
+    && /if \(raa == null\) return \[\];/.test(lesKropp)
+    && /return null;/.test(lesKropp),
+  lesKropp.trim() || 'fant ikke funksjonen');
+/* Og skrivingen leses tilbake — samme regel som ett-forsøk-vakten i
+   update-check.js. En rollback vi ikke klarte å føre opp skal stoppe
+   oppstillingen, ikke forsvinne stille. */
+const skrivKropp = (appKode.match(/function otaQuarantineAdd\([^)]*\) \{([\s\S]*?)\n  \}/) || [, ''])[1] || '';
+check('skrivingen til karantenen leses tilbake, og en feilet skriving sperrer oppstillingen',
+  /catch \(e\) \{ otaQuarantineBroken = true; return; \}/.test(skrivKropp)
+    && /if \(!igjen \|\| igjen\.indexOf\(id\) === -1\) otaQuarantineBroken = true;/.test(skrivKropp),
+  skrivKropp.trim() || 'fant ikke funksjonen');
+/* Vår egen karantene dekker det ene tilfellet pluginens ikke kan: dør
+   prosessen mellom rollbacken og readiness-punktet i den innebygde bundelen,
+   er `rollbackPerformed` borte ved neste kaldstart (det bor i minnet). Da står
+   `previousBundleId` igjen alene, og `ready()` melder `currentBundleId == null`
+   sammen med den. Den signaturen ER rollbacken. */
+const rollbackKropp = (appKode.match(/function noteRollback\([^)]*\) \{([\s\S]*?)\n  \}/) || [, ''])[1] || '';
+check('en rullet-tilbake bundle føres i en VARIG karantene (localStorage), ikke bare i minnet',
+  /liveReady\.rollback === true \|\| liveReady\.currentBundleId == null/.test(rollbackKropp)
+    && /otaQuarantineAdd\(forrige\)/.test(rollbackKropp)
+    && /localStorage\.setItem\(OTA_BLOCK_KEY/.test(appKode),
+  rollbackKropp.trim() || 'fant ikke funksjonen');
+
+/* Byttet: pluginens `reload()` tar i bruk bundelen som er stilt opp som NESTE.
+   Den skal aldri kunne kalles på et mål som ikke ER stilt opp — da ville den
+   lastet den koden som allerede kjører — og den skal stå bak den samme gaten
+   som resten. Avgjørelsen om NÅR (updateSafety, banneret, inaktivitetsregelen,
+   ett-forsøk-vakten) ligger fortsatt i update-check.js; dette er bare veien. */
+const applyKropp = (appKode.match(/function applyUpdate\(\) \{([\s\S]*?)\n  \}/) || [, ''])[1] || '';
+check('byttet finnes som én navngitt funksjon (applyUpdate), bak gaten',
+  applyKropp !== '' && /nativeShell \? nativePlugins\.LiveUpdate : null/.test(applyKropp),
+  applyKropp.trim() || 'fant ikke funksjonen');
+check('live.reload() kalles kun når en bundle FAKTISK er stilt opp — ellers location.reload()',
+  /otaStage\.state === 'staged'\) \{ live\.reload\(\); return; \}/.test(applyKropp)
+    && /location\.reload\(\);/.test(applyKropp),
+  applyKropp.trim());
 
 /* Hentingen selv: bak den samme gaten som ready(), URL-en bygget av det
    kanoniske originet + skallets eget nivå, og manifestet validert FØR noe av
    det brukes. Alt her er stille å bryte — en hardkodet vert eller et hopp over
    valideringen ser helt riktig ut helt til feil telefon laster ned feil kode. */
 const otaKropp = (appKode.match(/async function fetchOtaBundle\(\) \{([\s\S]*?)\n  \}/) || [, ''])[1] || '';
+const lastKropp = (appKode.match(/async function downloadOtaBundle\([^)]*\) \{([\s\S]*?)\n  \}/) || [, ''])[1] || '';
 check('OTA-hentingen finnes som én navngitt funksjon (fetchOtaBundle)',
-  otaKropp !== '' && /\.downloadBundle\(/.test(otaKropp),
+  otaKropp !== '' && /prepareOtaBundle\(\)/.test(otaKropp),
   otaKropp ? 'fetchOtaBundle' : 'fant ikke funksjonen');
 check('hentingen står bak native-gaten og bak pluginbroen, ikke ubetinget',
   /if \(!nativeShell\) return;/.test(otaKropp)
     && /nativePlugins\.LiveUpdate/.test(otaKropp)
-    && otaKropp.indexOf('nativeShell') < otaKropp.indexOf('.downloadBundle('),
-  otaKropp ? 'gate før downloadBundle' : 'ingen kropp');
+    && otaKropp.indexOf('nativeShell') < otaKropp.indexOf('live.getVersionCode('),
+  otaKropp ? 'gate før getVersionCode' : 'ingen kropp');
 /* getVersionCode() gir en STRENG, og URL-formen er valgt nettopp for å slippe
    tallparsing og sammenligningsoperator — en parseInt her ville vært den
    valgte formen forlatt i det stille. */
@@ -734,8 +838,8 @@ check('nøyaktig ETT fetch, med cache: no-store (manifestet navngir det som gjel
   (otaKropp.match(/\bfetch\(/g) || []).length + ' fetch-kall');
 check('manifestet valideres ved systemgrensen før noe av det brukes',
   /validOtaManifest\(/.test(otaKropp)
-    && otaKropp.indexOf('validOtaManifest(') < otaKropp.indexOf('.downloadBundle('),
-  'validOtaManifest før downloadBundle');
+    && otaKropp.indexOf('validOtaManifest(') < otaKropp.indexOf('otaTarget = m;'),
+  'validOtaManifest før målet settes');
 check('manifestets releaseId sammenlignes med === mot egen meta-tagg (identitet, aldri rangering)',
   /meta\[name="huskis-release"\]/.test(otaKropp) && /m\.releaseId === egen/.test(otaKropp),
   (otaKropp.match(/m\.releaseId[^;]*/) || ['fant ikke sammenligningen'])[0]);
@@ -743,9 +847,9 @@ check('manifestets releaseId sammenlignes med === mot egen meta-tagg (identitet,
    kilden, docs/mobilapp-plan.md «Hva manifestet inneholder»). Et checksum-felt
    her ville påstått en kontroll som aldri kjører. */
 check('downloadBundle får url, bundleId og signature — og INGEN checksum',
-  /live\.downloadBundle\(\{ url: m\.url, bundleId: m\.bundleId, signature: m\.signature \}\)/.test(otaKropp)
-    && otaKropp.indexOf('checksum') === -1,
-  (otaKropp.match(/live\.downloadBundle\([^)]*\)/) || ['fant ikke kallet'])[0]);
+  /live\.downloadBundle\(\{ url: m\.url, bundleId: m\.bundleId, signature: m\.signature \}\)/.test(lastKropp)
+    && appKode.indexOf('checksum') === -1,
+  (lastKropp.match(/live\.downloadBundle\([^)]*\)/) || ['fant ikke kallet'])[0]);
 /* Valideringen låser url til det kanoniske originet: den native nedlastingen
    går i OkHttp, UTENFOR WebView-ens CSP, så dette er den ene vakten som sier
    hvilken vert appen i det hele tatt henter kode fra. */
@@ -753,6 +857,52 @@ const validKropp = (appKode.match(/function validOtaManifest\([^)]*\) \{([\s\S]*
 check('valideringen låser url til det kanoniske originet (nedlastingen skjer utenfor CSP-en)',
   /m\.url\.indexOf\(base\) !== 0/.test(validKropp),
   (validKropp.match(/m\.url[^;]*/) || ['fant ikke url-sjekken'])[0]);
+
+/* ---- 9e. Klargjøringstilstanden i update-check.js ----
+
+   Motoren gikk før rett fra «jeg så en annen build-ID» til `reload()`. På
+   native ville det betydd en reload av nøyaktig den koden som allerede kjører:
+   bundelen må være lastet ned OG stilt opp først. Leddet er lagt til i motoren,
+   ikke i trygghetsvurderingen (arkitekturregel 8) — og det bærer to fail
+   closed-regler som er stille å bryte.
+
+   Native-kunnskapen blir liggende i app.js: begge krokene slås opp på
+   `window.__huskis` ved HVERT kall, nøyaktig som `defaultIsSafe` allerede
+   gjør. Står et pluginnavn i denne fila, har kunnskapen lekket. */
+const uc = kode(les('update-check.js'));
+const PLUGIN_ORD = ['LiveUpdate', 'setNextBundle', 'downloadBundle', 'getBlockedBundles', 'bundleId'];
+const lekket = PLUGIN_ORD.filter((w) => new RegExp('\\b' + w + '\\b').test(uc));
+check('update-check.js kjenner ingen plugin — krokene slås opp på window.__huskis',
+  lekket.length === 0 && /win\.__huskis;[\s\S]*prepareUpdate/.test(uc)
+    && /win\.__huskis;[\s\S]*applyUpdate/.test(uc),
+  lekket.join(', ') || 'ingen');
+/* Regel 1: en FEILET klargjøring skal ikke brenne ett-forsøk-vakten.
+   `markAttempt()` skrives i dag rett før reloaden, og en oppbrukt vakt er
+   permanent for den mål-builden i den fanen. Vakten skrives derfor kun i
+   `autoReload()`, og `evaluate()` returnerer FØR den når målet ikke er
+   klargjort. */
+const evalKropp = (uc.match(/function evaluate\(\) \{([\s\S]*?)\n    \}/) || [, ''])[1] || '';
+check('evaluate() returnerer før alt annet når målet ikke er klargjort',
+  /if \(prepared !== target\) return;/.test(evalKropp)
+    && evalKropp.indexOf('prepared !== target') < evalKropp.indexOf('isSafe()'),
+  evalKropp.trim().split('\n').map((l) => l.trim()).filter(Boolean).join(' ') || 'ingen kropp');
+check('ett-forsøk-vakten skrives kun i autoReload(), som kun evaluate() når fram til',
+  (uc.match(/markAttempt\(/g) || []).length === 2   // definisjonen + det ene kallet
+    && /function autoReload\(\) \{[\s\S]*?markAttempt\(target\)/.test(uc)
+    && (uc.match(/autoReload\(\);/g) || []).length === 1,
+  (uc.match(/markAttempt\(/g) || []).length + ' forekomster');
+/* Regel 2: banneret skal ikke love noe som ikke er klart. Det vises først når
+   klargjøringen har lykkes, og «Oppdater nå» — som med vilje går utenom
+   trygghetsvakten — går IKKE utenom klargjøringen. */
+const prepKropp = (uc.match(/function prepareTarget\(\) \{([\s\S]*?)\n    \}/) || [, ''])[1] || '';
+check('banneret vises først når klargjøringen har lykkes',
+  (uc.match(/showBanner\(\);/g) || []).length === 1 && /showBanner\(\);/.test(prepKropp)
+    && /prepared !== id\) return;/.test(prepKropp),
+  prepKropp.trim() ? 'showBanner kun i prepareTarget' : 'ingen kropp');
+check('«Oppdater nå» går utenom trygghetsvakten, men ikke utenom klargjøringen',
+  /btn\.addEventListener\('click', function \(\) \{ manualReload\(\); \}\);/.test(uc)
+    && /function manualReload\(\) \{\s*if \(target && prepared === target\) \{ reload\(\); return; \}/.test(uc),
+  (uc.match(/function manualReload\(\) \{[\s\S]*?\n    \}/) || ['fant ikke knappen'])[0]);
 
 /* ---- 10. Safe areas, systemfeltene og skjermtastaturet ----
 

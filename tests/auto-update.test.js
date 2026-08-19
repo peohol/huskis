@@ -17,6 +17,9 @@
        gjennomføres når den blir trygg
      • inaktivitetsgrensen (60 s) og utsettelse ved brukeraktivitet
      • maks ETT automatisk forsøk per mål-build per fane (ingen reload-løkke)
+     • klargjøringstilstanden: et uklargjort mål gir verken banner eller
+       reload, en feilet klargjøring brenner ikke ett-forsøk-vakten og prøves
+       igjen, og «Oppdater nå» laster ikke noe som ikke er stilt opp
      • kontrollene som fyres av synlighet/fokus/pageshow/online/poll
      • banneret: tilgjengelig, ikke-modalt, stjeler ikke fokus
      • stop() rydder timere, lyttere og banner
@@ -400,6 +403,67 @@ async function engineScenario(page) {
       peer.close(); e.inst.stop();
     }
 
+    /* 15) Klargjøringstilstanden: et mål er ikke reloadbart før nedlasting OG
+       oppstilling har lykkes. I nettleseren er klargjøringen et rent ja (målet
+       ligger på serveren); i det native skallet dekker den OTA-bundelen
+       (docs/mobilapp-plan.md, fase 5). Her injiseres den, slik `isSafe` og
+       `reload` allerede injiseres. */
+    {
+      sessionStorage.removeItem('huskis:auto-reload-build');
+      const prep = { ok: false, calls: 0 };
+      const e = mk({ hidden: () => true, safe: () => true, storage: 'real',
+        extra: { prepare: function () { prep.calls++; return Promise.resolve(prep.ok); } } });
+      e.inst.start(); e.clock.advance(1); await flush();
+      out.prepTargetSeen = e.inst.target === 'B';
+      out.prepNotPrepared = e.inst.prepared === null;
+      out.prepNoBanner = !document.getElementById('update-banner');
+      out.prepNoReload = e.rl.n === 0;
+      // Regel 1: en feilet klargjøring brenner IKKE ett-forsøk-vakten. Den er
+      // permanent for mål-builden i den fanen, og skal koste noe bare når en
+      // reload faktisk ble forsøkt.
+      out.prepNoAttemptBurned = sessionStorage.getItem('huskis:auto-reload-build') === null;
+      // …og prøves igjen ved neste naturlige anledning: motorens egen kontroll.
+      const n0 = prep.calls;
+      await e.inst.check(); await flush();
+      out.prepRetried = prep.calls > n0;
+      out.prepStillNoReload = e.rl.n === 0 && !document.getElementById('update-banner');
+      // Når den lykkes: banneret kommer, reloaden skjer, og forsøket brukes én
+      // gang — ikke én gang per mislykket klargjøring.
+      prep.ok = true;
+      await e.inst.check(); await flush();
+      out.prepReadyBanner = !!document.getElementById('update-banner');
+      out.prepReadyReload = e.rl.n === 1 && e.inst.prepared === 'B';
+      out.prepAttemptStored = sessionStorage.getItem('huskis:auto-reload-build') === 'B';
+      e.inst.stop();
+      sessionStorage.removeItem('huskis:auto-reload-build');
+    }
+
+    /* 16) Regel 2: «Oppdater nå» går utenom trygghetsvakten med vilje — men
+       kan ikke gå utenom klargjøringen. Er ingenting stilt opp, er det
+       ingenting å laste; knappen setter i gang klargjøringen i stedet, og
+       reloaden skjer når den har lykkes. */
+    {
+      const build = { id: 'B' };
+      const prep = { ok: true };
+      const e = mk({ hidden: () => false, safe: () => false, storage: null,
+        fetch: mkFetch(() => okJson({ buildId: build.id })),
+        extra: { prepare: function () { return Promise.resolve(prep.ok); } } });
+      e.inst.start(); e.clock.advance(1); await flush();
+      out.manualBannerWhenPrepared = !!document.querySelector('#update-banner .update-banner-btn');
+      // Et NYTT mål som ikke lar seg klargjøre: banneret står igjen, men det
+      // det lover er ikke klart.
+      build.id = 'C'; prep.ok = false;
+      await e.inst.check(); await flush();
+      const btn = document.querySelector('#update-banner .update-banner-btn');
+      out.manualUnpreparedTarget = e.inst.target === 'C' && e.inst.prepared === null && !!btn;
+      btn.click(); await flush();
+      out.manualUnpreparedNoReload = e.rl.n === 0;
+      prep.ok = true;
+      await e.inst.check(); await flush();
+      out.manualRunsWhenPrepared = e.rl.n === 1;
+      e.inst.stop();
+    }
+
     return out;
   });
 }
@@ -543,6 +607,19 @@ async function scenario(page, viewport, label) {
   check('A: check() etter stop() er en no-op', a.cleanupCheckIsNoop);
   check('A: ny build meldt fra en annen fane gir mål-build', a.peerTarget);
   check('A: ny build fra en annen fane viser banner', a.peerBanner);
+  check('A: uklargjort mål oppdages, men klargjøres ikke', a.prepTargetSeen && a.prepNotPrepared);
+  check('A: uklargjort mål viser intet banner', a.prepNoBanner);
+  check('A: uklargjort mål reloades ikke', a.prepNoReload);
+  check('A: feilet klargjøring brenner ikke ett-forsøk-vakten', a.prepNoAttemptBurned);
+  check('A: feilet klargjøring prøves igjen ved neste kontroll', a.prepRetried);
+  check('A: en ny feilet klargjøring gir fortsatt verken banner eller reload', a.prepStillNoReload);
+  check('A: vellykket klargjøring viser banneret', a.prepReadyBanner);
+  check('A: vellykket klargjøring gjennomfører reloaden', a.prepReadyReload);
+  check('A: forsøket registreres først når reloaden faktisk skjedde', a.prepAttemptStored);
+  check('A: banneret står når målet ER klargjort', a.manualBannerWhenPrepared);
+  check('A: et nytt, uklargjort mål lar banneret stå', a.manualUnpreparedTarget);
+  check('A: «Oppdater nå» laster ikke noe som ikke er stilt opp', a.manualUnpreparedNoReload);
+  check('A: «Oppdater nå» gjennomføres når klargjøringen har lykkes', a.manualRunsWhenPrepared);
 
   await safetyScenario(page, s.ids);
 }

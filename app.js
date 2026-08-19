@@ -11611,6 +11611,7 @@
   let appReady = false;
   let readyInFlight = false;
   let liveReadyError = null;
+  let liveReady = null;            // pluginens ReadyResult, eller null
   function markAppReady() {
     if (appReady || readyInFlight) return;
     if (!nativeShell) { appReady = true; return; }   // samme gate som tilbakeknappens bro
@@ -11618,31 +11619,112 @@
     if (!live || typeof live.ready !== 'function') { appReady = true; return; }
     readyInFlight = true;
     Promise.resolve(live.ready())
-      .then(() => { appReady = true; liveReadyError = null; })
+      .then((res) => { appReady = true; liveReadyError = null; noteRollback(res); })
       .catch((e) => { liveReadyError = (e && e.message) || String(e); })
       .then(() => { readyInFlight = false; });
   }
 
-  /* ---------------- OTA: hente og verifisere en bundle ----------------
-     Steg 0–1 av OTA-flyten (`docs/mobilapp-plan.md`, «Slik er løsningen tenkt
-     å henge sammen»): manifestet leses fra det kanoniske originet på URL-en
-     det NATIVE nivået bestemmer, og en annen release lastes ned med pluginens
-     `downloadBundle()` — signaturvakten ligger i pluginen (fail closed når
-     `publicKey` er satt, derfor ingen `checksum` i kallet). Bundelen blir
-     liggende ubrukt: `setNextBundle()`/`reload()` hører til runden med
-     klargjøringstilstanden, og uten et bytte er en nedlasting alltid trygg —
-     den rører ikke koden som kjører.
+  /* ------- Karantene: en rullet-tilbake bundle stilles ikke opp igjen -------
+     `readyTimeout` gjenoppretter den innebygde bundelen når en OTA-bundle
+     aldri rekker readiness-punktet — men den hindrer ikke at NESTE kaldstart
+     stiller opp nøyaktig den samme `bundleId`-en på nytt. `setNextBundle()`
+     konsulterer ALDRI en blokkliste selv; den sjekker bare at bundelen finnes
+     (`hasBundleById`), og `isBlockedBundleId()` leses kun i pluginens egen
+     `sync()`-flyt, som Huskis ikke bruker (docs/mobilapp-plan.md, «En
+     rullet-tilbake bundle må være varig sperret»). Uten en vakt før
+     oppstillingen ville et manifest som blir stående på en dårlig bundle gitt
+     én ødelagt kaldstart om og om igjen.
 
-     Alle utfall er STILLE — intet banner, ingen kastet feil. En 404 er vakten
-     som virker (skallet er utenfor spennet manifestene skrives for), og en
-     nettverksfeil er en offline oppstart; begge betyr «ingenting å gjøre».
-     NØYAKTIG ETT fetch per oppstart, ingen retry og ingen poll: gjentakene
-     hører til klargjøringstilstanden i update-check.js, som ikke finnes før
-     `setNextBundle()` gjør det.
+     PLUGINENS EGEN LISTE ER HOVEDVAKTEN, og `autoBlockRolledBackBundles` er
+     slått på. Lest i LiveUpdate.java 8.4.0: `rollback()` setter
+     `rollbackPerformed`, husker den dårlige bundelen som `previousBundleId`,
+     bytter til den innebygde og kaller `Bridge.reload()` — alt i SAMME
+     prosess. Den innebygde bundelen laster da med det samme, `ready()` treffer
+     et `rollbackPerformed` som fortsatt er `true`, og pluginen fører bundelen
+     opp i sin egen varige liste. Den vanlige rollback-veien er altså dekket.
 
-     `otaFetch` sier hvor langt flyten kom og hvorfor den stoppet — lest i
-     enhetsøkten (chrome://inspect), som liveReadyError over. */
+     Vår egen liste er ETT lag til, for det ene tilfellet pluginens ikke kan
+     dekke: dør prosessen mellom rollbacken og readiness-punktet i den
+     innebygde bundelen, blir flagget aldri lest, og neste kaldstart har det
+     ikke lenger (det bor i minnet). Da står `previousBundleId` igjen alene, og
+     `ready()` melder `currentBundleId === null` (vi kjører den innebygde)
+     sammen med den. Den signaturen ER rollbacken, og den vises nøyaktig én
+     gang — `ready()` overskriver `previousBundleId` med det samme.
+
+     Begge veier inn i listen er FAIL CLOSED: kan den ikke leses, eller kunne
+     en rollback ikke føres opp i den, stiller vi ingenting opp. En liste vi
+     ikke kan stole på er ikke det samme som en tom liste. */
+  const OTA_BLOCK_KEY = 'huskis:ota-blocked';
+  let otaQuarantineBroken = false;   // en rollback kunne ikke føres opp
+  /* `[]` = lest, ingenting sperret. `null` = kunne IKKE leses — verken
+     blokkert lagring, en verdi som ikke lar seg parse, eller noe som ikke er
+     en liste av strenger er det samme som «vi vet ikke». */
+  function otaQuarantine() {
+    let raa;
+    try { raa = localStorage.getItem(OTA_BLOCK_KEY); } catch (e) { return null; }
+    if (raa == null) return [];
+    try {
+      const v = JSON.parse(raa);
+      if (!Array.isArray(v) || v.some((x) => typeof x !== 'string')) return null;
+      return v;
+    } catch (e) { return null; }
+  }
+  /* Skrivingen leses tilbake, som ett-forsøk-vakten i update-check.js: en
+     rollback vi ikke KAN føre opp må stoppe oppstillingen, ikke forsvinne. Var
+     listen uleselig, skrives den fersk — den gamle kunne uansett ikke brukes,
+     og en leselig liste er bedre enn en ødelagt. */
+  function otaQuarantineAdd(id) {
+    if (!id) return;
+    const lest = otaQuarantine();
+    const ny = (lest || []).indexOf(id) > -1 ? lest.slice() : (lest || []).concat([id]);
+    while (ny.length > 20) ny.shift();   // en liste, ikke et arkiv
+    try { localStorage.setItem(OTA_BLOCK_KEY, JSON.stringify(ny)); }
+    catch (e) { otaQuarantineBroken = true; return; }
+    const igjen = otaQuarantine();
+    if (!igjen || igjen.indexOf(id) === -1) otaQuarantineBroken = true;
+  }
+  function noteRollback(res) {
+    liveReady = res && typeof res === 'object' ? res : null;
+    if (!liveReady) return;
+    const forrige = typeof liveReady.previousBundleId === 'string' ? liveReady.previousBundleId : '';
+    if (!forrige) return;
+    if (liveReady.rollback === true || liveReady.currentBundleId == null) otaQuarantineAdd(forrige);
+  }
+
+  /* ---------------- OTA: hente, klargjøre og bytte bundle ----------------
+     Hele OTA-flyten (`docs/mobilapp-plan.md`, «Slik er løsningen tenkt å henge
+     sammen»), bak den samme gaten som readiness-punktet:
+
+       0. AVVIS   — manifestet leses fra det kanoniske originet på URL-en det
+                    NATIVE nivået bestemmer. Finnes ikke nivået, er svaret 404
+                    og ingenting skjer. Vakten ER URL-en.
+       1. HENTE   — `downloadBundle()`. Signaturvakten ligger i pluginen (fail
+                    closed når `publicKey` er satt, derfor ingen `checksum`).
+                    Rører ikke koden som kjører; alltid trygt.
+       2. STILLE  — `setNextBundle()`, etter at karantenen har sagt ja.
+          OPP       Bundelen tas i bruk ved neste kaldstart.
+       3. BYTTE   — `applyUpdate()`, drevet av update-check.js gjennom
+          NÅ        updateSafety(), banneret, inaktivitetsregelen og
+                    ett-forsøk-vakten. Uendret regel, ny reload.
+
+     Steg 0–2 kjøres én gang ved oppstart, slik at en kaldstart alene er nok
+     til å få den nye bundelen. Steg 1–2 kan i tillegg prøves om igjen av
+     motoren (`prepareUpdate`) — MANIFESTET hentes fortsatt nøyaktig én gang
+     per oppstart, uten retry og uten poll.
+
+     Alle utfall er STILLE — intet banner før målet er klargjort, ingen kastet
+     feil. En 404 er vakten som virker (skallet er utenfor spennet manifestene
+     skrives for), og en nettverksfeil er en offline oppstart; begge betyr
+     «ingenting å gjøre».
+
+     To instrumenter for enhetsøkten (chrome://inspect), som `liveReadyError`
+     over: `otaFetch` sier hvor langt HENTINGEN kom, `otaStage` hvor langt
+     OPPSTILLINGEN kom. De holdes fra hverandre med vilje — lesningsregelen for
+     de to nedlastingspunktene i planen leser `otaFetch` alene. */
   let otaFetch = { state: 'idle', detail: null };
+  let otaStage = { state: 'idle', detail: null };
+  let otaTarget = null;       // manifestet denne oppstarten skal over til
+  let otaPreparing = null;    // pågående klargjøring (dedupliserer)
   /* Manifestet er et svar fra nettet, ikke en typet verdi: form og typer
      sjekkes FØR noe av innholdet brukes, og alt som ikke stemmer er «finnes
      ikke» — samme utfall som 404. `bundleId` blir et navn i pluginens lager og
@@ -11694,10 +11776,76 @@
     // Identitet, aldri rangering — samme prinsipp som buildId i
     // update-check.js (docs/auto-update.md).
     if (m.releaseId === egen) { otaFetch = { state: 'same-release', detail: egen }; return; }
+    otaTarget = m;
+    /* Motoren i update-check.js måler seg mot /version.json, og inne i appen ER
+       den klientens egen, innebygde kopi — den kan bare finne seg selv. Målet
+       kommer derfor herfra, fra manifestet, som `bundleId`: den identiteten
+       pluginen bruker, og den motorens ett-forsøk-vakt skal telle på. Motoren
+       eier fortsatt avgjørelsen; dette er bare signalet. */
+    const U = window.HuskisUpdate;
+    if (U && U.instance && typeof U.instance.noteBuild === 'function') {
+      try { U.instance.noteBuild(m.bundleId); } catch (e) { /* stille */ }
+    }
+    await prepareOtaBundle();
+  }
+
+  /* Steg 1–2: hent bundelen om den ikke alt ligger der, og still den opp.
+     Returnerer om målet er KLARGJORT, altså reloadbart. Kan prøves om igjen —
+     en feilet klargjøring koster ingenting og låser ingenting. */
+  async function prepareOtaBundle() {
+    if (otaStage.state === 'staged') return true;
+    if (otaPreparing) return otaPreparing;
+    const m = otaTarget;
+    if (!m) return false;
+    const live = nativePlugins.LiveUpdate;
+    if (!live || typeof live.setNextBundle !== 'function') return false;
+    otaPreparing = (async () => {
+      /* Karantenen FØR oppstillingen: `setNextBundle()` spør aldri selv.
+         Fail closed — kan vi ikke lese listene, stiller vi ingenting opp. */
+      let sperret;
+      try { sperret = await otaBlockedBundle(live, m.bundleId); }
+      catch (e) { sperret = true; }
+      if (sperret) { otaStage = { state: 'blocked', detail: m.bundleId }; return false; }
+      /* «Klargjort» dekker BEGGE veier: en fersk nedlasting som lyktes, OG en
+         bundle som alt ligger i pluginens lager. Uten den andre ville en app
+         som lastet ned i går aldri kommet videre i dag — pluginen avviser en
+         `bundleId` den har fra før, hver eneste kaldstart. */
+      if (otaFetch.state !== 'downloaded' && otaFetch.state !== 'already-downloaded') {
+        if (!(await downloadOtaBundle(live, m))) return false;
+      }
+      try { await live.setNextBundle({ bundleId: m.bundleId }); }
+      catch (e) {
+        otaStage = { state: 'stage-failed', detail: (e && e.message) || String(e) };
+        return false;
+      }
+      otaStage = { state: 'staged', detail: m.bundleId };
+      return true;
+    })().then((v) => { otaPreparing = null; return v; }, () => { otaPreparing = null; return false; });
+    return otaPreparing;
+  }
+
+  /* Begge listene: pluginens egen (hovedvakten, fylt av
+     `autoBlockRolledBackBundles`) og vår egen (det ene tilfellet pluginens
+     ikke kan dekke — se over). Begge er persistente, så et avvist mål stilles
+     ikke opp igjen ved neste kaldstart. Hvert eneste utfall vi ikke kan
+     fastslå er et NEI. */
+  async function otaBlockedBundle(live, bundleId) {
+    if (otaQuarantineBroken) return true;                            // fail closed
+    const egen = otaQuarantine();
+    if (egen === null) return true;                                  // fail closed
+    if (egen.indexOf(bundleId) > -1) return true;
+    if (typeof live.getBlockedBundles !== 'function') return true;   // fail closed
+    const r = await live.getBlockedBundles();
+    if (!r || !Array.isArray(r.bundleIds)) return true;              // fail closed
+    return r.bundleIds.indexOf(bundleId) > -1;
+  }
+
+  async function downloadOtaBundle(live, m) {
     otaFetch = { state: 'downloading', detail: m.bundleId };
     try {
       await live.downloadBundle({ url: m.url, bundleId: m.bundleId, signature: m.signature });
       otaFetch = { state: 'downloaded', detail: m.bundleId };
+      return true;
     } catch (e) {
       // Også stille: en avvist signatur eller en avbrutt nedlasting koster
       // ingenting før noe stilles opp. Feilen står her for enhetsøkten.
@@ -11714,11 +11862,26 @@
          eksakt, og en endret melding faller tilbake til `download-failed`,
          aldri til en falsk suksess. Funnet kom fra kodegjennomgangen av
          PR #136 og verifisert i pluginens kilde. */
-      otaFetch = {
-        state: /bundle already exists/i.test(feil) ? 'already-downloaded' : 'download-failed',
-        detail: feil,
-      };
+      const finnes = /bundle already exists/i.test(feil);
+      otaFetch = { state: finnes ? 'already-downloaded' : 'download-failed', detail: feil };
+      return finnes;
     }
+  }
+
+  /* Motorens to kroker (update-check.js). `prepareUpdate` svarer på om målet er
+     reloadbart — i nettleseren alltid ja, i skallet først når nedlasting og
+     oppstilling har lykkes. `applyUpdate` er selve byttet: pluginens egen
+     `reload()` tar i bruk bundelen som er stilt opp som NESTE; en vanlig
+     `location.reload()` ville lastet den som allerede kjører. */
+  function prepareUpdate(id) {
+    if (!nativeShell) return Promise.resolve(true);
+    if (!otaTarget || otaTarget.bundleId !== id) return Promise.resolve(false);
+    return prepareOtaBundle();
+  }
+  function applyUpdate() {
+    const live = nativeShell ? nativePlugins.LiveUpdate : null;
+    if (live && typeof live.reload === 'function' && otaStage.state === 'staged') { live.reload(); return; }
+    location.reload();
   }
 
   async function initAccounts() {
@@ -12976,6 +13139,22 @@
     // Hvor langt OTA-hentingen kom ved denne oppstarten, og hvorfor den
     // stoppet. Lest i enhetsøkten; i en nettleser står den alltid på 'idle'.
     get otaFetch() { return otaFetch; },
+    // Hvor langt OPPSTILLINGEN kom: 'idle' | 'blocked' | 'staged' |
+    // 'stage-failed'. Holdes atskilt fra otaFetch, som er lesningen av de to
+    // nedlastingspunktene i enhetsøkten (docs/mobilapp-plan.md, fase 5).
+    get otaStage() { return otaStage; },
+    // Pluginens ReadyResult: hvilken bundle som kjører, hvilken som kjørte
+    // sist, og om en rollback ble utført. Lest i enhetsøkten når rollback-
+    // veien skal prøves; det er den samme meldingen karantenen leser.
+    get liveReady() { return liveReady; },
+    // Bundle-ID-er klienten har sperret varig på denne enheten (rullet
+    // tilbake). `null` = listen kunne ikke leses, og da stilles ingenting opp.
+    get otaBlocked() { return otaQuarantine(); },
+    /* Krokene update-check.js slår opp ved hvert kall: er mål-builden
+       reloadbar (nedlastet + stilt opp), og hvordan byttes den. Avgjørelsen —
+       updateSafety(), banneret, inaktivitetsregelen, ett-forsøk-vakten —
+       ligger fortsatt i motoren (docs/auto-update.md). */
+    prepareUpdate, applyUpdate,
     tour: {
       start: startTour,
       end: endTour,

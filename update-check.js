@@ -12,8 +12,11 @@
      • Vi henter /version.json fra VÅRT EGET origin (rot-relativ URL — også en
        preview-deploy skal måles mot seg selv), uten cache, og sammenligner
        ID-ene som IDENTITET — aldri «større/mindre».
-     • Er de forskjellige, finnes det en nyere klient. Da venter vi på et trygt
-       øyeblikk (se `isSafe` → app.js `updateSafety()`) og laster på nytt.
+     • Er de forskjellige, finnes det en nyere klient. Da KLARGJØRES målet
+       (`prepare` → app.js `prepareUpdate()`; i nettleseren er det et rent ja,
+       i det native skallet er det nedlasting + oppstilling av bundelen), og
+       vi venter på et trygt øyeblikk (se `isSafe` → app.js `updateSafety()`)
+       før vi laster på nytt (`reload` → app.js `applyUpdate()`).
 
    Utviklingsmodus: meta-taggen står på «dev» i kildekoden og byttes først av
    build.js. Uten en ekte build-ID starter modulen ikke — lokal server og
@@ -42,6 +45,39 @@
       try { return !!h.updateSafety().safe; } catch (e) { return false; }
     };
   }
+
+  /* Klargjøringen: er mål-builden i det hele tatt noe denne klienten KAN laste?
+     I en nettleser er svaret alltid ja — målet ligger på serveren, og en reload
+     henter det. I det native skallet må bundelen først lastes ned og stilles
+     opp, og det er app.js som eier den koden (docs/mobilapp-plan.md, «Hvor
+     hente-koden bor»). Samme sene binding som `defaultIsSafe`: modulen lastes
+     etter app.js, men instansen opprettes uten injiserte avhengigheter, så
+     `window.__huskis` slås opp ved HVERT kall i stedet for å fanges én gang.
+
+     Mangler kroken, er det ingenting å klargjøre. Det er ikke fail open: i
+     native er det app.js som melder mål-builden i det hele tatt (`noteBuild`),
+     så en app.js som ikke finnes gir heller ikke noe mål å laste. */
+  function defaultPrepare(win) {
+    return function (id) {
+      var h = win.__huskis;
+      if (!h || typeof h.prepareUpdate !== 'function') return true;
+      return h.prepareUpdate(id);
+    };
+  }
+
+  /* Selve reloaden. I nettleseren er den `location.reload()`. I det native
+     skallet må den gå gjennom pluginens egen `reload()`, ellers laster
+     WebView-en den bundelen den allerede kjører — den nye er stilt opp som
+     NESTE. app.js eier også det valget, bak den samme gaten. */
+  function defaultReload(win) {
+    return function () {
+      var h = win.__huskis;
+      if (h && typeof h.applyUpdate === 'function') {
+        try { h.applyUpdate(); return; } catch (e) { /* faller tilbake under */ }
+      }
+      win.location.reload();
+    };
+  }
   function sessionStore(win) {
     try { return win.sessionStorage || null; } catch (e) { return null; } // privat modus o.l.
   }
@@ -66,8 +102,9 @@
     var now = o.now || function () { return Date.now(); };
     var setT = o.setTimeout || function (fn, ms) { return win.setTimeout(fn, ms); };
     var clearT = o.clearTimeout || function (id) { return win.clearTimeout(id); };
-    var reload = o.reload || function () { win.location.reload(); };
+    var reload = o.reload || defaultReload(win);
     var isSafe = o.isSafe || defaultIsSafe(win);
+    var prepare = o.prepare || defaultPrepare(win);
     var isHidden = o.isHidden || function () { return !!doc.hidden; };
     var isOnline = o.isOnline || function () { return !win.navigator || win.navigator.onLine !== false; };
     var storage = ('storage' in o) ? o.storage : sessionStore(win);
@@ -78,6 +115,9 @@
     var channelName = ('channelName' in o) ? o.channelName : 'huskis-update';
 
     var target = null;      // build-ID-en vi vil over til (null = ingen kjent)
+    var prepared = null;    // build-ID-en klargjøringen har lykkes for
+    var preparing = null;   // pågående klargjøring (dedupliserer samtidige kall)
+    var manualWanted = false;  // brukeren trykket «Oppdater nå» før målet var klart
     var inFlight = null;    // pågående kontroll (dedupliserer samtidige kall)
     var pollTimer = null, safetyTimer = null, startTimer = null;
     var lastActivity = now();
@@ -110,6 +150,9 @@
         .then(function (data) {
           var id = validBuildId(data);
           if (id) noteBuild(id, false);
+          // En klargjøring som feilet forrige gang prøves igjen her — i
+          // motorens egen rytme, ikke i en egen retry-løkke.
+          prepareTarget();
           return id;
         })
         .catch(function () { return ''; })   // nettverksfeil/ugyldig JSON: stille
@@ -124,16 +167,47 @@
       if (id === buildId) return;          // ren identitet, ingen rangering av SHA-er
       if (target !== id) {
         target = id;
+        prepared = null;                   // nytt mål ⇒ ny klargjøring
         if (!fromPeer) broadcast(id);
-        showBanner();
-        startSafetyTicker();
+        prepareTarget();
       }
       evaluate();
+    }
+
+    /* ---------------- Klargjøring: er målet i det hele tatt lastbart? -------
+       Et mål er ikke reloadbart før klargjøringen har lykkes. I nettleseren er
+       den et rent ja (målet ligger på serveren); i det native skallet dekker
+       den nedlasting OG oppstilling av bundelen (docs/mobilapp-plan.md, fase 5).
+
+       To fail closed-regler bor her:
+         • en FEILET klargjøring koster ingenting — den brenner ikke
+           ett-forsøk-vakten (som skrives først i `autoReload`), og prøves på
+           nytt ved neste naturlige anledning, altså neste `check()`;
+         • banneret vises FØRST når målet er klart. «Oppdater nå» går utenom
+           trygghetsvakten med vilje, men kan ikke gå utenom klargjøringen —
+           er det ingenting stilt opp, er det ingenting å laste. */
+    function prepareTarget() {
+      if (stopped || !target || prepared === target || preparing) return;
+      var id = target;
+      preparing = id;
+      Promise.resolve()
+        .then(function () { return prepare(id); })
+        .then(function (ok) { if (!stopped && target === id && ok) prepared = id; })
+        .catch(function () { /* stille: prøves igjen ved neste kontroll */ })
+        .then(function () {
+          if (preparing === id) preparing = null;
+          if (stopped || target !== id || prepared !== id) return;
+          showBanner();
+          startSafetyTicker();
+          if (manualWanted) { manualWanted = false; reload(); return; }
+          evaluate();
+        });
     }
 
     /* ---------------- Er det trygt å laste på nytt nå? ---------------- */
     function evaluate() {
       if (stopped || !target) return;
+      if (prepared !== target) return;     // ikke klargjort ⇒ ingenting å laste
       var safe = isOnline() && !!isSafe();
       paintBanner(safe);
       if (!safe) return;
@@ -204,12 +278,19 @@
       btn.className = 'update-banner-btn';
       btn.textContent = txt('update.now', 'Oppdater nå');
       // Brukeren ber selv om oppdateringen: ingen trygghets- eller ett-forsøk-vakt.
-      btn.addEventListener('click', function () { reload(); });
+      // Klargjøringen er den ene vakten knappen IKKE går utenom: er målet ikke
+      // stilt opp, settes den i gang, og reloaden skjer når den har lykkes.
+      btn.addEventListener('click', function () { manualReload(); });
 
       banner.appendChild(text);
       banner.appendChild(btn);
       doc.body.appendChild(banner);
       requestPaint();
+    }
+    function manualReload() {
+      if (target && prepared === target) { reload(); return; }
+      manualWanted = true;
+      prepareTarget();
     }
     function requestPaint() {
       if (banner) banner.classList.add('show');
@@ -306,6 +387,7 @@
       if (chan) { try { chan.close(); } catch (e) {} chan = null; }
       if (banner && banner.parentNode) banner.parentNode.removeChild(banner);
       banner = bannerNote = null;
+      preparing = null; manualWanted = false;
     }
 
     var api = {
@@ -313,9 +395,14 @@
       stop: stop,
       check: check,
       evaluate: evaluate,
+      // Meldes utenfra av app.js i det native skallet: der er /version.json
+      // klientens EGEN, innebygde kopi, så motoren kan bare måle seg mot seg
+      // selv. Målet kommer fra OTA-manifestet (docs/mobilapp-plan.md, fase 5).
+      noteBuild: function (id) { noteBuild(id, false); },
       markActivity: markActivity,
       get buildId() { return buildId; },
       get target() { return target; },
+      get prepared() { return prepared; },
       get checks() { return checks; },
       get reloads() { return reloads; },
       get started() { return started; },

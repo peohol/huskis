@@ -14,7 +14,12 @@ android {
         // meldte `1`. Nivået økes når det native skallet endres — manifestet
         // publiseres per nivå, og et skall uten et manifest får 404 og gjør
         // ingenting. Fase 6 legger butikkens eget krav på det samme tallet.
-        versionCode 2
+        //
+        // 2 → 3: `autoBlockRolledBackBundles` kom inn i capacitor.config.json,
+        // og konfigurasjonen pakkes inn i APK-en. Et skall med karantenen på og
+        // ett uten er native forskjellige, og kan derfor ikke melde det samme
+        // nivået.
+        versionCode 3
         versionName "1.0"
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         aaptOptions {

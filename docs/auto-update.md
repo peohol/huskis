@@ -4,7 +4,8 @@ En fane som har stått åpen i dagevis kjører fortsatt koden fra den deployen d
 ble lastet med. Denne mekanikken oppdager at produksjonen har fått en nyere
 build, og laster siden på nytt — men **bare når det ikke kan koste brukeren
 noe**. Filene: `build.js`, `vercel.json`, `update-check.js`,
-`__huskis.updateSafety()` i `app.js`, `.update-banner` i `styles.css`.
+`__huskis.updateSafety()`/`prepareUpdate()`/`applyUpdate()` i `app.js`,
+`.update-banner` i `styles.css`.
 
 ## Build-ID (ikke SemVer)
 
@@ -160,6 +161,13 @@ En `BroadcastChannel` (`huskis-update`) melder fra til andre faner på samme
 origin at en ny build finnes, så de slipper å vente på sitt eget poll. Kanalen er
 allerede origin-avgrenset, så domenene forblir uavhengige.
 
+I Android-skallet finnes det en kilde til: `/version.json` er der klientens egen,
+innebygde kopi, så motoren kan bare måle seg mot seg selv. Mål-builden meldes
+derfor inn utenfra — `app.js` leser OTA-manifestet og gir motoren bundelens ID
+gjennom `HuskisUpdate.instance.noteBuild()`. Signalet kommer altså et annet sted
+fra; avgjørelsen (klargjøring, `updateSafety()`, banneret, inaktivitetsregelen,
+ett-forsøk-vakten) ligger fortsatt i motoren alene.
+
 ## «Trygt å oppdatere» — den konkrete definisjonen
 
 `__huskis.updateSafety()` i `app.js` returnerer `{ safe, reason }` og er bygget på
@@ -185,8 +193,45 @@ input-felter i DOM-en. Den er **fail closed**: alt vi ikke kan fastslå er utryg
 alt**. En avvist skriving holder altså fanen «utrygt» til den lykkes — heller
 vente enn å reloade bort en endring.
 
+## Klargjøring: er målet i det hele tatt lastbart?
+
+Mellom «jeg så en annen build-ID» og reloaden ligger ett ledd til:
+**klargjøringen**. I nettleseren er den et rent ja — målet ligger på serveren,
+og en reload henter det. I Android-skallet må web-bundelen først lastes ned og
+stilles opp, og før begge har lykkes finnes det ingenting å laste
+([`mobilapp-plan.md`](mobilapp-plan.md), fase 5).
+
+`update-check.js` eier leddet, men ikke kunnskapen om det. To kroker slås opp på
+`window.__huskis` ved HVERT kall — samme sene binding som `isSafe` allerede
+bruker, fordi modulen lastes etter `app.js` og instansen opprettes uten
+injiserte avhengigheter:
+
+| Krok | Hva app.js svarer i nettleseren | …og i skallet |
+|---|---|---|
+| `prepareUpdate(buildId)` | `true` — ingenting å klargjøre | nedlasting + `setNextBundle()` av OTA-bundelen, etter at karantenen har sagt ja |
+| `applyUpdate()` | `location.reload()` | pluginens `reload()`, som tar i bruk bundelen som er stilt opp som NESTE |
+
+Mangler kroken, er det ingenting å klargjøre. Det er ikke fail open: i skallet
+er det `app.js` som melder mål-builden i det hele tatt (`/version.json` er der
+klientens egen, innebygde kopi og kan bare finne seg selv), så en `app.js` som
+ikke svarer gir heller ikke noe mål å laste.
+
+To fail closed-regler følger, og begge er av samme slag som resten av modulen:
+
+* **En feilet klargjøring koster ingenting.** Ett-forsøk-vakten skrives først
+  rett før reloaden, og er permanent for den mål-builden i den fanen. En
+  klargjøring som ikke gikk gjennom skal kunne prøves igjen — den prøves ved
+  neste naturlige anledning, altså neste kontroll, ikke i en egen retry-løkke.
+* **Banneret lover ikke noe som ikke er klart.** Det vises FØRST når
+  klargjøringen har lykkes. «Oppdater nå» går utenom trygghetsvakten med vilje
+  — brukeren har bedt om det selv — men kan ikke gå utenom klargjøringen: er
+  målet ikke stilt opp, settes klargjøringen i gang, og reloaden skjer når den
+  har lykkes.
+
 ## Hva som skjer når en nyere build oppdages
 
+0. **Klargjøring** → målet gjøres lastbart (se over). Alt under skjer først
+   etter at den har lykkes.
 1. **Skjult fane + trygt** → last på nytt med en gang.
 2. **Synlig fane** → et diskret, vedvarende, ikke-modalt banner nederst
    (`.update-banner`, samme glassflate som toasten): «En ny versjon av Huskis er
@@ -200,7 +245,9 @@ vente enn å reloade bort en endring.
    dine er lagret.» En trygghets-tikk hvert 5. sekund gjennomfører reloaden
    automatisk senere, når tilstanden blir trygg og fanen er skjult eller har
    ligget lenge i ro.
-5. «Oppdater nå» laster alltid — brukeren har bedt om det selv.
+5. «Oppdater nå» laster alltid — brukeren har bedt om det selv. Er målet
+   klargjort, skjer det med en gang; er det ikke det, skjer det så snart
+   klargjøringen har lykkes.
 
 ## Ingen reload-løkker
 

@@ -1,8 +1,8 @@
 /*
-  Test for OTA-HENTINGEN (fase 5, «hente og verifisere» — docs/mobilapp-plan.md):
-  manifestet leses på URL-en det native nivået bestemmer, valideres ved
-  systemgrensen, og en annen release lastes ned med downloadBundle() — uten at
-  noe stilles opp eller byttes. Kildeform og gating låses i
+  Test for OTA-FLYTEN (fase 5 — docs/mobilapp-plan.md): manifestet leses på
+  URL-en det native nivået bestemmer, valideres ved systemgrensen, en annen
+  release lastes ned med downloadBundle() og stilles opp med setNextBundle() —
+  etter at karantenen har sagt ja. Kildeform og gating låses i
   tests/capacitor-android.test.js; her KJØRES flyten i ekte nettleser, med
   pluginbroen faket slik skallet injiserer den (samme mønster som
   tests/system-back.test.js) og manifest-URL-en rutet i Playwright.
@@ -26,9 +26,16 @@
        stille; utfallet står i window.__huskis.otaFetch for enhetsøkten.
     8. En bundle som ALT ligger i pluginens lager (andre kaldstart) skilles
        fra en ekte feil: pluginen avviser den med ERROR_BUNDLE_EXISTS, og
-       den skal ikke kunne leses som en avvist signatur.
-    9. Ett manifest-oppslag per oppstart, og ingen andre metoder enn
-       ready/getVersionCode/downloadBundle kalles på broen.
+       den skal ikke kunne leses som en avvist signatur — og den regnes som
+       KLARGJORT: oppstillingen skjer også da.
+    9. Ett manifest-oppslag per oppstart, og ingen andre metoder enn de seks
+       kjente kalles på broen.
+   10. Oppstillingen: setNextBundle() kalles med nøyaktig bundleId-en fra
+       manifestet, og FØRST etter at karantenen er spurt.
+   11. Karantenen avviser: en bundleId i pluginens blokkliste ELLER i
+       klientens egen liste stilles ikke opp — og en liste som ikke kan leses
+       (fra broen eller fra localStorage) er også et nei (fail closed).
+   12. En feilet oppstilling er stille, og etterlater ingenting stilt opp.
 
   Ren logikk uten layout-avhengighet → én viewport.
 
@@ -58,7 +65,7 @@ const BUNDLE = ANNEN + '-t3st1';
 const gyldigManifest = () => ({
   releaseId: ANNEN,
   bundleId: BUNDLE,
-  versionCode: 2,
+  versionCode: 3,
   url: KANONISK + '/ota/bundles/' + BUNDLE + '.zip',
   signature: 'dGVzdHNpZ25hdHVyZW4=',
   commit: ANNEN + '0000000000000000000000000000',
@@ -86,13 +93,33 @@ function check(name, cond, extra) {
   await ctx.addInitScript(() => {
     const q = new URLSearchParams(location.search);
     if (q.get('cap') !== '1') return;
-    window.__otaBro = { kall: [], download: [] };
+    window.__otaBro = { kall: [], download: [], stage: [] };
+    /* Klientens EGEN karanteneliste, som app.js leser før oppstillingen.
+       ?quar=<id> seeder den; ?quar=corrupt legger inn noe som ikke lar seg
+       lese; ?quar=throw gjør selve lesningen umulig. De to siste er
+       fail closed-tilfellene: en liste vi ikke kan stole på er ikke en tom
+       liste. */
+    const QK = 'huskis:ota-blocked';
+    const q0 = q.get('quar');
+    if (q0 === 'corrupt') {
+      localStorage.setItem(QK, '{ikke en liste');
+    } else if (q0 === 'throw') {
+      const ekte = Storage.prototype.getItem;
+      Storage.prototype.getItem = function (k) {
+        if (k === QK) throw new Error('storage blocked (test)');
+        return ekte.call(this, k);
+      };
+    } else if (q0) {
+      localStorage.setItem(QK, JSON.stringify([q0]));
+    } else {
+      localStorage.removeItem(QK);   // localStorage overlever navigasjon
+    }
     window.Capacitor = {
       isNativePlatform: () => true,
       Plugins: {
         LiveUpdate: {
           ready: async () => { window.__otaBro.kall.push('ready'); return {}; },
-          getVersionCode: async () => { window.__otaBro.kall.push('getVersionCode'); return { versionCode: '2' }; },
+          getVersionCode: async () => { window.__otaBro.kall.push('getVersionCode'); return { versionCode: '3' }; },
           downloadBundle: async (opts) => {
             window.__otaBro.kall.push('downloadBundle');
             window.__otaBro.download.push(opts);
@@ -103,6 +130,21 @@ function check(name, cond, extra) {
             if (q.get('dl') === 'exists') throw new Error('bundle already exists.');
             return {};
           },
+          // ?blocked=<id> legger den id-en i pluginens blokkliste;
+          // ?blocked=err får oppslaget til å kaste (fail closed-tilfellet).
+          getBlockedBundles: async () => {
+            window.__otaBro.kall.push('getBlockedBundles');
+            const b = q.get('blocked');
+            if (b === 'err') throw new Error('blocklist unavailable (test)');
+            return { bundleIds: b ? [b] : [] };
+          },
+          setNextBundle: async (opts) => {
+            window.__otaBro.kall.push('setNextBundle');
+            window.__otaBro.stage.push(opts);
+            if (q.get('set') === 'fail') throw new Error('bundle not found (test)');
+            return {};
+          },
+          reload: async () => { window.__otaBro.kall.push('reload'); return {}; },
         },
       },
     };
@@ -132,12 +174,16 @@ function check(name, cond, extra) {
     });
   });
 
+  /* Flyten er ferdig når hentingen har stoppet OG oppstillingen har tatt
+     stilling — ellers ville en sjekk kunne lese en halvferdig klargjøring. */
   const ferdig = () => page.waitForFunction(() => {
     const H = window.__huskis;
-    return H && ['no-manifest', 'same-release', 'downloaded', 'already-downloaded', 'download-failed']
-      .indexOf(H.otaFetch.state) > -1;
+    if (!H) return false;
+    if (H.otaStage.state !== 'idle') return true;   // oppstillingen har tatt stilling
+    return ['no-manifest', 'same-release', 'download-failed'].indexOf(H.otaFetch.state) > -1;
   }, null, { timeout: 10000, polling: 200 });
   const tilstand = () => page.evaluate(() => window.__huskis.otaFetch);
+  const oppstilling = () => page.evaluate(() => window.__huskis.otaStage);
   const bro = () => page.evaluate(() => window.__otaBro);
   const banner = () => page.evaluate(() => !!document.getElementById('update-banner'));
 
@@ -155,7 +201,7 @@ function check(name, cond, extra) {
   await page.goto(BASE + '/?mock=1&cap=1');
   await ferdig();
   check('404: nøyaktig ETT oppslag, på ota/android/<versionCode>.json',
-    manifestTreff.length === 1 && manifestTreff[0] === '/ota/android/2.json', manifestTreff);
+    manifestTreff.length === 1 && manifestTreff[0] === '/ota/android/3.json', manifestTreff);
   check("404: stille no-op ('no-manifest', ingen nedlasting)",
     (await tilstand()).state === 'no-manifest' && (await bro()).download.length === 0,
     await tilstand());
@@ -174,7 +220,7 @@ function check(name, cond, extra) {
   const ugyldige = [
     ['ikke JSON (feilside fra en cache)', { status: 200, type: 'text/html', body: '<html>oops</html>' }],
     ['url utenfor det kanoniske originet', { status: 200, body: JSON.stringify(Object.assign(gyldigManifest(), { url: 'https://cdn.example.invalid/x.zip' })) }],
-    ['versionCode er ikke nivået det ble bedt om', { status: 200, body: JSON.stringify(Object.assign(gyldigManifest(), { versionCode: 3 })) }],
+    ['versionCode er ikke nivået det ble bedt om', { status: 200, body: JSON.stringify(Object.assign(gyldigManifest(), { versionCode: 4 })) }],
   ];
   for (const [navn, svar] of ugyldige) {
     manifestTreff = [];
@@ -212,10 +258,26 @@ function check(name, cond, extra) {
       && b.download[0].bundleId === BUNDLE
       && b.download[0].signature === gyldigManifest().signature,
     b.download[0]);
-  check('ingen andre metoder enn ready/getVersionCode/downloadBundle på broen',
-    b.kall.every((k) => ['ready', 'getVersionCode', 'downloadBundle'].indexOf(k) > -1), b.kall);
+  const KJENTE = ['ready', 'getVersionCode', 'downloadBundle', 'getBlockedBundles', 'setNextBundle', 'reload'];
+  check('ingen andre metoder enn de seks kjente på broen',
+    b.kall.every((k) => KJENTE.indexOf(k) > -1), b.kall);
   check('fortsatt ETT manifest-oppslag denne oppstarten', manifestTreff.length === 1, manifestTreff);
-  check('nedlastingen viser intet banner — ingenting byttes i denne runden', !(await banner()));
+  /* Oppstillingen: karantenen spørres FØRST, og setNextBundle får nøyaktig
+     manifestets bundleId. Rekkefølgen er hele vakten — `setNextBundle()`
+     konsulterer aldri blokklisten selv (LiveUpdate.java 8.4.0). */
+  check("oppstilt: setNextBundle kalt én gang med manifestets bundleId ('staged')",
+    (await oppstilling()).state === 'staged' && b.stage.length === 1
+      && Object.keys(b.stage[0]).join(',') === 'bundleId' && b.stage[0].bundleId === BUNDLE,
+    { stage: b.stage, otaStage: await oppstilling() });
+  check('karantenen ble spurt FØR oppstillingen',
+    b.kall.indexOf('getBlockedBundles') > -1
+      && b.kall.indexOf('getBlockedBundles') < b.kall.indexOf('setNextBundle'), b.kall);
+  check('ingenting byttes av seg selv: reload() kalles ikke ved oppstart',
+    b.kall.indexOf('reload') === -1, b.kall);
+  /* Banneret hører til update-check.js, og motoren starter ikke uten en ekte
+     build-ID (meta-taggen står på «dev» i kildekoden). Oppstillingen alene
+     viser altså ingenting — den virker ved neste kaldstart. */
+  check('oppstillingen viser intet banner av seg selv', !(await banner()));
 
   /* ---------- 7) Avvist nedlasting (f.eks. signaturfeil) er stille ---------- */
   manifestTreff = [];
@@ -238,9 +300,86 @@ function check(name, cond, extra) {
   manifestSvar = { status: 200, body: JSON.stringify(gyldigManifest()) };
   await page.goto(BASE + '/?mock=1&cap=1&dl=exists');
   await ferdig();
+  const b8 = await bro();
   check("allerede nedlastet bundle skilles fra en ekte feil ('already-downloaded')",
     (await tilstand()).state === 'already-downloaded', await tilstand());
-  check('…og den er fortsatt stille: intet banner, ingenting stilt opp', !(await banner()));
+  /* Og den er KLARGJORT. Gjorde oppstillingen seg avhengig av at et FERSKT
+     downloadBundle() lyktes, ville en app som lastet ned i går aldri kommet
+     videre i dag — pluginen avviser den samme bundleId-en hver kaldstart. */
+  check('…og den stilles likevel opp: «klargjort» dekker begge veier',
+    (await oppstilling()).state === 'staged' && b8.stage.length === 1 && b8.stage[0].bundleId === BUNDLE,
+    { stage: b8.stage, otaStage: await oppstilling() });
+  check('…og fortsatt intet banner', !(await banner()));
+
+  /* ---------- 9) En avvist nedlasting stiller ingenting opp ---------- */
+  {
+    manifestSvar = { status: 200, body: JSON.stringify(gyldigManifest()) };
+    await page.goto(BASE + '/?mock=1&cap=1&dl=fail');
+    await ferdig();
+    const bf = await bro();
+    check('avvist nedlasting: ingenting stilt opp', (await oppstilling()).state === 'idle' && bf.stage.length === 0,
+      { stage: bf.stage, otaStage: await oppstilling() });
+  }
+
+  /* ---------- 10) Karantene: en blokkert bundleId stilles ikke opp ----------
+     `readyTimeout` gjenoppretter den innebygde bundelen, men hindrer ikke at
+     NESTE kaldstart stiller opp nøyaktig den samme bundleId-en på nytt —
+     `setNextBundle()` spør aldri blokklisten selv (docs/mobilapp-plan.md, «En
+     rullet-tilbake bundle må være varig sperret»). */
+  manifestTreff = [];
+  manifestSvar = { status: 200, body: JSON.stringify(gyldigManifest()) };
+  await page.goto(BASE + '/?mock=1&cap=1&blocked=' + BUNDLE);
+  await ferdig();
+  const bb = await bro();
+  check("blokkert bundle: ingen oppstilling ('blocked')",
+    (await oppstilling()).state === 'blocked' && bb.stage.length === 0,
+    { stage: bb.stage, otaStage: await oppstilling() });
+  check('blokkert bundle: den lastes ikke engang ned',
+    bb.download.length === 0, bb.download);
+
+  /* Klientens EGEN liste sperrer like godt — og den er den som dekker det ene
+     tilfellet pluginens ikke kan (docs/mobilapp-plan.md, «En rullet-tilbake
+     bundle må være varig sperret»). */
+  manifestSvar = { status: 200, body: JSON.stringify(gyldigManifest()) };
+  await page.goto(BASE + '/?mock=1&cap=1&quar=' + BUNDLE);
+  await ferdig();
+  const bq = await bro();
+  check('bundle i klientens egen karantene: ingen oppstilling, ingen nedlasting',
+    (await oppstilling()).state === 'blocked' && bq.stage.length === 0 && bq.download.length === 0,
+    { otaStage: await oppstilling(), download: bq.download });
+
+  /* Fail closed på VÅR side også: en karanteneliste som ikke lar seg lese er
+     ikke det samme som en tom liste. Uten dette ville en blokkert lagring
+     stilltiende slått av hele vakten. */
+  for (const [navn, verdi] of [['ødelagt innhold', 'corrupt'], ['lagringen kaster', 'throw']]) {
+    manifestSvar = { status: 200, body: JSON.stringify(gyldigManifest()) };
+    await page.goto(BASE + '/?mock=1&cap=1&quar=' + verdi);
+    await ferdig();
+    const bu = await bro();
+    check('uleselig karanteneliste (' + navn + '): fail closed, ingen oppstilling',
+      (await oppstilling()).state === 'blocked' && bu.stage.length === 0 && bu.download.length === 0,
+      { otaStage: await oppstilling(), otaBlocked: await page.evaluate(() => window.__huskis.otaBlocked) });
+  }
+
+  /* Fail closed: en blokkliste som ikke kan leses er også et nei. Kan vi ikke
+     vite om målet er sperret, stiller vi ingenting opp. */
+  manifestSvar = { status: 200, body: JSON.stringify(gyldigManifest()) };
+  await page.goto(BASE + '/?mock=1&cap=1&blocked=err');
+  await ferdig();
+  const be = await bro();
+  check('blokkliste som ikke kan leses: fail closed, ingen oppstilling',
+    (await oppstilling()).state === 'blocked' && be.stage.length === 0 && be.download.length === 0,
+    { stage: be.stage, download: be.download, otaStage: await oppstilling() });
+
+  /* ---------- 11) En feilet oppstilling er stille ---------- */
+  manifestSvar = { status: 200, body: JSON.stringify(gyldigManifest()) };
+  await page.goto(BASE + '/?mock=1&cap=1&set=fail');
+  await ferdig();
+  const bs = await bro();
+  check("feilet setNextBundle: stille, med feilen i otaStage ('stage-failed')",
+    (await oppstilling()).state === 'stage-failed' && bs.kall.indexOf('reload') === -1,
+    await oppstilling());
+  check('feilet oppstilling: intet banner', !(await banner()));
 
   check('ingen ukontrollerte JS-feil i noen av scenarioene', pageErrors.length === 0, pageErrors);
 
