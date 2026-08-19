@@ -157,7 +157,9 @@ jobs:
           # ene egenskapen som avgjør om en komponent et bibliotek la inn kan
           # nås utenfra. Leses med en XML-parser, ikke med grep: AGP skriver det
           # sammenslåtte manifestet med ett attributt per linje, så et
-          # linjebasert søk ville sett forbi halvparten.
+          # linjebasert søk ville sett forbi halvparten. `exported` og
+          # `permission` står sammen fordi det er de to som til sammen avgjør
+          # om en komponent kan nås utenfra — den ene alene svarer ikke.
           python3 - "$ut/AndroidManifest.xml" <<'PY'
           import sys, xml.etree.ElementTree as ET
           NS = '{http://schemas.android.com/apk/res/android}'
@@ -170,7 +172,9 @@ jobs:
           app = rot.find('application')
           for e in (list(app) if app is not None else []):
               if e.tag in ('activity', 'service', 'receiver', 'provider'):
-                  print(e.tag + ': ' + navn(e) + '  exported=' + e.get(NS + 'exported', '(usatt)'))
+                  print(e.tag + ': ' + navn(e)
+                        + '  exported=' + e.get(NS + 'exported', '(usatt)')
+                        + '  permission=' + e.get(NS + 'permission', '(ingen)'))
                   for md in e.findall('meta-data'):
                       print('    meta-data: ' + navn(md))
           PY
