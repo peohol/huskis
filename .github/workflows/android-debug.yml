@@ -9,6 +9,10 @@ name: Android debug-APK
 # Ingen signering, ingen release-AAB og ingen butikkopplasting — dette er en
 # debugbuild med Androids standard debug-nøkkel.
 #
+# Jobben laster opp to artifacts: APK-en, og det SAMMENSLÅTTE Android-manifestet
+# med merger-rapporten — den ene filen som viser hva de native bibliotekene drar
+# med seg inn i appens eget manifest (siste steg).
+#
 # Trigger: manuelt (workflow_dispatch), og automatisk på de pull requestene som
 # faktisk kan gjøre APK-en ugyldig. Vanlige Huskis-PR-er som bare rører app.js,
 # styles.css eller docs/ skal ikke betale for en Gradle-runde; det de endrer
@@ -109,4 +113,74 @@ jobs:
         with:
           name: huskis-debug-apk
           path: android/app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
+
+      # Hva de native AAR-ene drar med seg INN i appens manifest er det siste
+      # åpne punktet i fase 5 som ikke krever en telefon (docs/mobilapp-plan.md).
+      # `tests/capacitor-android.test.js` sier det selv: manifestet inne i en AAR
+      # kan ikke leses fra repoet, så det som kan låses der er HVILKE biblioteker
+      # som finnes — ikke hva hvert av dem erklærer. Den sammenslåtte fila er
+      # derimot Gradle-output, og den finnes nøyaktig her. Den skrives derfor ut
+      # i loggen og lastes opp sammen med merger-rapporten, som attribuerer hver
+      # eneste node til fila den kom fra. Steget må stå ETTER `assembleDebug` —
+      # før den kjørte finnes ingen sammenslåing.
+      - name: Les det sammenslåtte Android-manifestet
+        working-directory: android
+        run: |
+          set -euo pipefail
+          ut=app/build/outputs/merged-manifest
+          rapport=app/build/outputs/logs/manifest-merger-debug-report.txt
+          # `-print -quit` i stedet for `| head -1`: en pipe som lukkes tidlig
+          # dreper `find` med SIGPIPE, og med `pipefail` ville den døden blitt
+          # lest som at søket feilet.
+          merged="$(find app/build/intermediates -path '*merged_manifest*/debug/*' -name AndroidManifest.xml -print -quit)"
+          if [ -z "$merged" ]; then
+            echo "Fant ikke det sammenslåtte manifestet under app/build/intermediates" >&2
+            exit 1
+          fi
+          mkdir -p "$ut"
+          cp "$merged" "$ut/AndroidManifest.xml"
+          echo "== $merged =="
+          cat "$ut/AndroidManifest.xml"
+          # Rapporten er provenansen — hvilken fil som la inn hva — og den skal
+          # ikke kunne felle APK-byggingen: manifestet over er svaret, rapporten
+          # er begrunnelsen.
+          if [ -f "$rapport" ]; then
+            cp "$rapport" "$ut/"
+            echo "== $rapport =="
+            cat "$ut/manifest-merger-debug-report.txt"
+          else
+            echo "== ingen manifest-merger-rapport i denne Gradle-versjonen =="
+          fi
+          # Og til slutt konklusjonen de to filene over bærer, i lesbar form:
+          # hva APK-en faktisk ERKLÆRER. `exported` står med fordi det er den
+          # ene egenskapen som avgjør om en komponent et bibliotek la inn kan
+          # nås utenfra. Leses med en XML-parser, ikke med grep: AGP skriver det
+          # sammenslåtte manifestet med ett attributt per linje, så et
+          # linjebasert søk ville sett forbi halvparten. `exported` og
+          # `permission` står sammen fordi det er de to som til sammen avgjør
+          # om en komponent kan nås utenfra — den ene alene svarer ikke.
+          python3 - "$ut/AndroidManifest.xml" <<'PY'
+          import sys, xml.etree.ElementTree as ET
+          NS = '{http://schemas.android.com/apk/res/android}'
+          rot = ET.parse(sys.argv[1]).getroot()
+          navn = lambda e: e.get(NS + 'name', '(uten navn)')
+          print('== oppsummering: hva det bygde manifestet erklærer ==')
+          for tagg in ('uses-permission', 'permission'):
+              for e in rot.findall(tagg):
+                  print(tagg + ': ' + navn(e))
+          app = rot.find('application')
+          for e in (list(app) if app is not None else []):
+              if e.tag in ('activity', 'service', 'receiver', 'provider'):
+                  print(e.tag + ': ' + navn(e)
+                        + '  exported=' + e.get(NS + 'exported', '(usatt)')
+                        + '  permission=' + e.get(NS + 'permission', '(ingen)'))
+                  for md in e.findall('meta-data'):
+                      print('    meta-data: ' + navn(md))
+          PY
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: huskis-merged-manifest
+          path: android/app/build/outputs/merged-manifest
           if-no-files-found: error
