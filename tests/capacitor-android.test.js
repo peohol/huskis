@@ -486,12 +486,25 @@ check('workflowen har kun lesetilgang til repoet', /permissions:\s*\n\s*contents
 
    Rekkefølgen er hele poenget: før `assembleDebug` har kjørt finnes ingen
    sammenslåing, så et steg som havnet foran ville lest en fil som ikke er der —
-   eller, verre, en gammel en fra en tidligere kjøring. */
-const iAssemble = wfKode.indexOf('assembleDebug');
-const iMerget = wfKode.indexOf('merged_manifest');
+   eller, verre, en gammel en fra en tidligere kjøring.
+
+   Og rekkefølgen leses av STEG, ikke av fila som tekst. `wfKode` fjerner
+   riktignok heltlinje-kommentarer, men den beskyttelsen er indirekte: den
+   holder bare så lenge omtalen av `assembleDebug` står på sin egen
+   kommentarlinje. Står den i et STEG-NAVN, eller bak en avsluttende kommentar
+   på en YAML-linje, fester et rått `indexOf` seg på omtalen — og da står
+   sjekken grønn med manifest-steget plassert FØR byggingen (målt: den gjorde
+   nettopp det). Samme grunn som del 9 leser `cap sync`-rekkefølgen av kjørende
+   steg. Gradle-steget kjennes derfor igjen på `run:`-linjen sin, ikke på at
+   navnet nevnes; manifest-steget på `merged_manifest`, som bare finnes i
+   `find`-glob-en (artifactstien staves med bindestrek). Feiler oppdelingen i
+   steg, blir begge indeksene 0 og sjekken rød — den feiler lukket. */
+const wfSteg = wfKode.split(/\n(?=[ \t]{2,}- (?:name|uses|run):)/);
+const iByggSteg = wfSteg.findIndex((s) => /^\s*(?:-\s*)?run:[^\n]*gradlew[^\n]*assembleDebug/m.test(s));
+const iMergetSteg = wfSteg.findIndex((s) => s.indexOf('merged_manifest') > -1);
 check('workflowen leser det sammenslåtte manifestet ETTER Gradle-runden',
-  iAssemble > -1 && iMerget > iAssemble,
-  'assembleDebug @' + iAssemble + ', merged_manifest @' + iMerget);
+  iByggSteg > -1 && iMergetSteg > iByggSteg,
+  'assembleDebug: steg #' + iByggSteg + ', merged_manifest: steg #' + iMergetSteg);
 /* Merger-rapporten er provenansen: den attribuerer hver node i det
    sammenslåtte manifestet til fila den kom fra. Uten den er manifestet et
    resultat uten avsender, og et nytt bibliotek kan ikke skilles fra appens egne
