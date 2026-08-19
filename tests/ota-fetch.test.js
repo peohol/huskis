@@ -36,9 +36,9 @@
        klientens egen liste stilles ikke opp — og en liste som ikke kan leses
        (fra broen eller fra localStorage) er også et nei (fail closed).
    12. En feilet oppstilling er stille, og etterlater ingenting stilt opp.
-   13. Stoppeklokken mot `readyTimeout`: `readyMs.disarmedAt` er tidspunktet
-       `ready()` RESOLVERTE, ikke tidspunktet skjermen ble malt — og den er
-       `null` uten en plugin å spørre.
+   13. Stoppeklokken mot `readyTimeout`: `readyCalledAt` er tatt FØR broen og
+       `readyResolvedAt` etter, slik at rundturen ligger mellom dem — og begge
+       er `null` uten en plugin å spørre.
 
   Ren logikk uten layout-avhengighet → én viewport.
 
@@ -393,25 +393,33 @@ function check(name, cond, extra) {
   /* ---------- 12) Stoppeklokken mot readyTimeout ----------
      Enhetsøkten skal kunne si om avvæpningen kom godt innenfor de 10 000 ms
      pluginen gir, og `appReady` alene kan ikke svare på det: den blir `true`
-     også når timeren rakk å utløse først (docs/mobilapp-plan.md, «Slik kjører
-     du enhetsøkten»). Det som måles her er at de to tallene betyr det de
-     heter — en treg bro skal flytte `disarmedAt`, ikke `reachedAt`. */
+     også når timeren rakk å utløse først (docs/mobilapp-plan.md, «Tidsmålingen
+     mot readyTimeout»). Avvæpningen skjer inne i `ready()`, mellom kallet og
+     svaret — så det som måles her er at de to tidspunktene faktisk KLEMMER
+     rundturen: en treg bro skal flytte `readyResolvedAt` bort fra
+     `readyCalledAt`, og ingen av dem skal flytte `reachedAt`. */
   {
     manifestSvar = { status: 404, body: '' };
     await page.goto(BASE + '/?mock=1&cap=1&ready=slow');
     await page.waitForFunction(() => {
       const r = window.__huskis && window.__huskis.readyMs;
-      return !!r && r.disarmedAt != null;
+      return !!r && r.readyResolvedAt != null;
     }, null, { timeout: 10000, polling: 100 });
     const t = await page.evaluate(() => window.__huskis.readyMs);
-    check('stoppeklokken: begge tallene er ms fra navigasjonsstart',
-      Number.isFinite(t.reachedAt) && Number.isFinite(t.disarmedAt) && t.reachedAt >= 0, t);
-    check('stoppeklokken: en treg ready() flytter disarmedAt, ikke reachedAt',
-      t.disarmedAt - t.reachedAt >= 200, t);
+    check('stoppeklokken: alle tre er ms fra navigasjonsstart, i rekkefølge',
+      Number.isFinite(t.reachedAt) && Number.isFinite(t.readyCalledAt)
+        && Number.isFinite(t.readyResolvedAt) && t.reachedAt >= 0
+        && t.readyCalledAt >= t.reachedAt && t.readyResolvedAt >= t.readyCalledAt, t);
+    check('stoppeklokken: rundturen ligger mellom readyCalledAt og readyResolvedAt',
+      t.readyResolvedAt - t.readyCalledAt >= 200, t);
+    /* Og den treffer ikke readiness-punktet: `readyCalledAt` tas før broen, så
+       en treg `ready()` skal ikke kunne se ut som en treg oppstart. */
+    check('stoppeklokken: en treg ready() flytter ikke readyCalledAt bort fra reachedAt',
+      t.readyCalledAt - t.reachedAt < 100, t);
   }
-  /* Uten en plugin å spørre finnes det ingen timer å avvæpne, og da skal
-     tallet være `null` — ikke et malingstidspunkt som utgir seg for å være en
-     avvæpning. */
+  /* Uten en plugin å spørre finnes det ingen timer å avvæpne, og da skal begge
+     de to siste være `null` — ikke et malingstidspunkt som utgir seg for å
+     være en avvæpning. */
   {
     await page.goto(BASE + '/?mock=1');
     await page.waitForFunction(() => {
@@ -419,8 +427,8 @@ function check(name, cond, extra) {
       return !!r && r.reachedAt != null;
     }, null, { timeout: 10000, polling: 100 });
     const t = await page.evaluate(() => window.__huskis.readyMs);
-    check('nettleser: reachedAt måles, disarmedAt er null (ingen timer å avvæpne)',
-      Number.isFinite(t.reachedAt) && t.disarmedAt === null, t);
+    check('nettleser: reachedAt måles, de to andre er null (ingen timer å avvæpne)',
+      Number.isFinite(t.reachedAt) && t.readyCalledAt === null && t.readyResolvedAt === null, t);
   }
 
   check('ingen ukontrollerte JS-feil i noen av scenarioene', pageErrors.length === 0, pageErrors);

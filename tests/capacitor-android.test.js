@@ -734,17 +734,27 @@ check('appReady venter på at ready() faktisk resolverer (og en avvist promise e
     && /\.catch\(\(e\) => \{ liveReadyError = /.test(readyKropp)
     && /\.then\(\(\) => \{ readyInFlight = false; \}\);/.test(readyKropp),
   readyKropp.trim());
-/* Stoppeklokken mot `readyTimeout` (docs/mobilapp-plan.md, «Slik kjører du
-   enhetsøkten»): `disarmedAt` skal bety «timeren ble avvæpnet», ikke «skjermen
-   ble malt». Ble den satt i en av de to early-return-grenene også, ville et
-   skall uten plugin rapportert en avvæpning som aldri skjedde — og tallet
-   enhetsøkten måler mot 10 000 ms hadde vært appens malingstid, ikke broens.
-   `reachedAt` skal motsatt settes FØR de samme grenene, ellers mangler tallet
-   nøyaktig på de to veiene som ikke venter på noe. */
-check('stoppeklokken skiller readiness-punktet fra avvæpningen',
+/* Stoppeklokken mot `readyTimeout` (docs/mobilapp-plan.md, «Tidsmålingen mot
+   readyTimeout»). Tallet som måles mot de 10 000 er `readyCalledAt`, og det er
+   plasseringen som gjør det til en ekte nedre grense: `stopRollbackTimer()` er
+   det FØRSTE `ready()` gjør nativt (LiveUpdate.java 8.4.0), så avvæpningen
+   ligger etter at kallet krysset broen — men før `callback.success()`, som er
+   det `readyResolvedAt` ser. Settes `readyCalledAt` etter broen, eller leses
+   `readyResolvedAt` som avvæpningstidspunktet, påstår instrumentet en
+   presisjon det ikke har.
+
+   `reachedAt` skal settes FØR de to early-return-grenene (ellers mangler
+   tallet på de to veiene som ikke venter på noe), og de to andre skal settes
+   KUN i native-grenen — et skall uten plugin skal ikke rapportere en
+   avvæpning som aldri skjedde. */
+check('stoppeklokken: reachedAt før gatene, de to andre kun i native-grenen',
   /noteReadyMs\('reachedAt'\);[\s\S]*if \(!nativeShell\)/.test(readyKropp)
-    && (readyKropp.match(/noteReadyMs\('disarmedAt'\)/g) || []).length === 1
-    && /\.then\(\(res\) => \{[^}]*noteReadyMs\('disarmedAt'\)/.test(readyKropp),
+    && (readyKropp.match(/noteReadyMs\('readyCalledAt'\)/g) || []).length === 1
+    && (readyKropp.match(/noteReadyMs\('readyResolvedAt'\)/g) || []).length === 1,
+  readyKropp.trim());
+check('stoppeklokken: readyCalledAt står FØR broen, readyResolvedAt i .then()',
+  /noteReadyMs\('readyCalledAt'\);\s*Promise\.resolve\(live\.ready\(\)\)/.test(readyKropp)
+    && /\.then\(\(res\) => \{[^}]*noteReadyMs\('readyResolvedAt'\)/.test(readyKropp),
   readyKropp.trim());
 
 /* Punktet nås fra BEGGE de brukbare skjermene: innloggingsskjermen for en
