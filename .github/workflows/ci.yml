@@ -48,6 +48,13 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # Nettstegene under regner ut fristene sine av hvor mye av JOBBENS
+      # budsjett som faktisk er igjen. Uten et felles nullpunkt kan de bare
+      # gjette, og summen av takene deres (som er bakstoppere hver for seg)
+      # overstiger med vilje jobbens tak.
+      - name: Merk jobbens starttid
+        run: echo "JOBB_START=$(date +%s)" >> "$GITHUB_ENV"
+
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
@@ -58,7 +65,7 @@ jobs:
       # endre CI-oppførselen uten at noe i repoet endret seg, og cache-nøkkelen
       # under ville ikke hatt noe å feste seg i.
       - name: Installer Playwright
-        timeout-minutes: 5
+        timeout-minutes: 3
         run: npm install -g playwright@${{ env.PLAYWRIGHT_VERSION }}
 
       # Chromium-nedlastingen er den dyreste delen av oppstarten og er identisk
@@ -75,12 +82,15 @@ jobs:
           path: ~/.cache/ms-playwright
           key: ms-playwright-${{ runner.os }}-${{ env.PLAYWRIGHT_VERSION }}
 
-      # Taket er en bakstopper, ikke et budsjett: nedlastingen er ~150 MB, og
-      # på den dårligste målte hastigheten (138 kB/s, se steget under) tar den
-      # 18 minutter. 15 fanger en vranglås uten å kappe en treg-men-levende CDN.
+      # Taket er en bakstopper, ikke et budsjett: nedlastingen er ~150 MB.
+      # 12 er valgt slik at det ALLTID står igjen et gulv til steget under —
+      # 1 (oppstart) + 3 + 12 + 4 (testreserve) = 20 av jobbens 25, altså minst
+      # 5 minutter til install-deps selv når dette steget bruker hele taket
+      # sitt. Uten det gulvet kunne en cache-bom spise hele budsjettet, og
+      # jobbens tak ville slått inn før noe steg rakk å si fra selv.
       - name: Installer Chromium
         if: steps.chromium-cache.outputs.cache-hit != 'true'
-        timeout-minutes: 15
+        timeout-minutes: 12
         run: playwright install chromium
 
       - name: Installer systembibliotekene Chromium trenger
@@ -121,13 +131,28 @@ jobs:
           Acquire::https::Timeout "20";
           CONF
 
-          # Retryen må ligge rundt install-deps selv. Fristen gjør at vi aldri
-          # STARTER et forsøk som ikke rekker å bli ferdig innenfor taket over:
-          # 12 minutter pluss et forsøk som allerede er i gang (~5 min på det
-          # tregeste målte speilet) holder seg innenfor 20. Da er det
-          # ::error::-en under som lander i loggen, ikke GitHubs anonyme
-          # «The operation was canceled».
-          frist=$((SECONDS + 720))
+          # Retryen må ligge rundt install-deps selv, og fristen regnes ut fra
+          # hvor mye av JOBBENS budsjett som faktisk er igjen — ikke fra et
+          # fast tall. Summen av stegtakene (3 + 12 + 20) overstiger med vilje
+          # jobbens 25: hvert tak er en bakstopper for SITT steg. Med en fast
+          # frist ville derfor jobbtaket kunne slå inn før løkka rakk å si fra
+          # selv, og da er vi tilbake til den anonyme «The operation was
+          # canceled» denne blokken finnes for å bli kvitt. Det er ikke en
+          # teoretisk bane: ved et cache-bom har Chromium-nedlastingen kjørt
+          # rett foran her.
+          JOBB_TAK_S=$((25 * 60))    # må være jobbens timeout-minutes
+          TEST_RESERVE_S=$((4 * 60)) # tregeste målte shard: 2min 38s
+          if [ -n "${JOBB_START:-}" ]; then
+            igjen=$(( JOBB_TAK_S - ( $(date +%s) - JOBB_START ) - TEST_RESERVE_S ))
+          else
+            echo "::warning::JOBB_START mangler — faller tilbake på en fast frist."
+            igjen=$((5 * 60))
+          fi
+          if [ "$igjen" -le 0 ]; then
+            echo "::error::Ikke nok igjen av jobbens budsjett til å installere systembibliotekene. Stegene foran brukte for lang tid — se hvilket av dem som gikk tregt, og kjør jobben på nytt."
+            exit 1
+          fi
+          frist=$((SECONDS + igjen))
           forsok=1
           until playwright install-deps chromium; do
             if [ "$forsok" -ge 3 ] || [ "$SECONDS" -ge "$frist" ]; then

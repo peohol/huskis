@@ -282,32 +282,59 @@ const harTak = (s) => Number((s.match(/^\s*timeout-minutes:\s*(\d+)/m) || [])[1]
 
 const deps = stegMed('install-deps chromium');
 
-/* Taket skal være en BAKSTOPPER mot en vranglås, ikke et budsjett steget må
+/* Takene er BAKSTOPPERE, hvert for sitt steg — ikke budsjetter stegene må
    holde seg innenfor. Forskjellen er målt, ikke prinsipiell: i run 32246391806
    brukte de seks shardene 21/32/38/42/283 sekunder på det samme steget, og et
    tak på 6 minutter felte den sjette. Hele spredningen er apt-speilets
-   hastighet — 21,1 MB lastes ned på alt fra sekunder til 2min 32s (138 kB/s).
+   hastighet — de samme 21,1 MB lastes ned på alt fra 12 s til 2min 32s.
 
-   Derfor to grenser, begge nedenfra: taket må klare den målte halen med god
-   margin (283 s ≈ 4,7 min, så minst 15), og det må fortsatt være igjen nok av
-   jobbens budsjett til oppstart og testene (~4 min). */
-check('install-deps-taket er en bakstopper, ikke et budsjett',
-  harTak(deps) >= 15 && jsTak - harTak(deps) >= 4,
-  `steg ${harTak(deps)} min av jobbens ${jsTak} min — ${jsTak - harTak(deps)} min igjen til oppstart og tester`);
+   Men fordi hvert tak er en bakstopper, er SUMMEN av dem med vilje større enn
+   jobbens tak (3 + 12 + 20 = 35 mot 25). Da må to ting holde, og ingen av dem
+   følger av at hvert enkelt tak er under jobbens:
 
-check('apt-timeoutene skrives til apt.conf.d (ikke som -o på et forsteg)',
-  /\/etc\/apt\/apt\.conf\.d\//.test(deps) &&
-  /Acquire::http::Timeout/.test(deps) && /Acquire::https::Timeout/.test(deps) &&
-  /Acquire::Retries/.test(deps),
-  'ellers henger playwrights eget apt-get update videre');
+     1. Det må stå igjen et GULV til install-deps selv når stegene foran bruker
+        hele taket sitt — ellers kan et cache-bom spise budsjettet, og jobbens
+        tak slår inn før noe steg rekker å si fra selv. Det er nettopp den
+        anonyme «The operation was canceled» hele blokken finnes for å unngå.
+     2. Fristen i retry-løkka må regnes ut fra hvor mye av jobbens budsjett som
+        FAKTISK er igjen. En fast frist vet ikke hva stegene foran brukte. */
+const OPPSTART_MIN = 1;   // checkout + setup-node + cache: målt 4–12 s
+const TESTRESERVE_MIN = 4; // tregeste målte shard: 2min 38s
 
-check('install-deps kjøres i en retry-løkke',
-  /(until|while|for)\b[\s\S]*playwright install-deps/.test(deps) ||
-  /playwright install-deps[\s\S]*\b(until|while|done)\b/.test(deps));
+const pwTak = harTak(stegMed('npm install -g playwright'));
+const chromeTak = harTak(stegMed('playwright install chromium'));
+const gulv = jsTak - OPPSTART_MIN - pwTak - chromeTak - TESTRESERVE_MIN;
 
-check('en oppbrukt retry gir ::error::, ikke en anonym cancel',
-  /::error::/.test(deps) && /::warning::/.test(deps),
-  'skiller nettverkshenging fra en ekte avhengighetsfeil i loggen');
+check('install-deps har sitt eget tak, under jobbens',
+  harTak(deps) > 0 && harTak(deps) < jsTak,
+  `steg ${harTak(deps)} min mot jobbens ${jsTak} min`);
+
+check('det står igjen et gulv til install-deps selv ved cache-bom',
+  gulv >= 5,
+  `${jsTak} − ${OPPSTART_MIN} oppstart − ${pwTak} playwright − ${chromeTak} chromium ` +
+  `− ${TESTRESERVE_MIN} testreserve = ${gulv} min igjen`);
+
+/* Fristen må være budsjettstyrt, ikke et fast tall. */
+check('løkka leser jobbens starttid i stedet for å gjette',
+  /JOBB_START/.test(deps) && /date \+%s/.test(deps),
+  'ellers vet ikke fristen hva stegene foran brukte');
+
+check('jobbens starttid blir faktisk satt, og før nettstegene',
+  /JOBB_START=\$\(date \+%s\)" >> "\$GITHUB_ENV"/.test(jsJobb) &&
+  jsJobb.indexOf('JOBB_START=$(date') < jsJobb.indexOf('install-deps chromium'));
+
+/* Regnestykket i skriptet må bruke jobbens EGET tak. Endrer noen
+   timeout-minutes på jobben uten å endre skriptet, driver de fra hverandre og
+   fristen blir stille feil. */
+const takIskript = Number((deps.match(/JOBB_TAK_S=\$\(\((\d+) \* 60\)\)/) || [])[1]);
+check('skriptets jobbtak er det samme som jobbens timeout-minutes',
+  takIskript === jsTak,
+  `skript ${takIskript} min mot jobbens ${jsTak} min`);
+
+const reserveIskript = Number((deps.match(/TEST_RESERVE_S=\$\(\((\d+) \* 60\)\)/) || [])[1]);
+check('skriptet holder av en testreserve som dekker den tregeste sharden',
+  reserveIskript >= TESTRESERVE_MIN,
+  `${reserveIskript} min avsatt`);
 
 for (const [navn, frag] of [['npm install -g playwright', 'npm install -g playwright'],
                             ['playwright install chromium', 'playwright install chromium']]) {

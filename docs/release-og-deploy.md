@@ -215,11 +215,24 @@ stillhets-timeout, og apt har ingen nedre hastighetsgrense. En slik runde blir
 grønn, bare langsom. Blir den for langsom, felles den til slutt av taket på
 steget.
 
-Takene på nettstegene er derfor bakstoppere mot en vranglås, ikke budsjetter
-stegene skal holde seg innenfor. `install-deps` har 20 minutter — jobbens 25
-minus det resten av jobben trenger — nettopp fordi et tak satt etter
-normaltilfellet felte en runde som ellers ville blitt grønn. Cachesteget står
-bevisst uten tak: et cachebom skal gi en tregere jobb, ikke en rød.
+Takene på nettstegene er derfor bakstoppere mot en vranglås i DET steget, ikke
+budsjetter stegene skal holde seg innenfor — et tak satt etter normaltilfellet
+felte en runde som ellers ville blitt grønn. Summen av dem (3 + 12 + 20) er
+med vilje større enn jobbens 25, og da må to ting holde:
+
+- **Et gulv til `install-deps`.** Bruker Playwright- og Chromium-stegene hele
+  taket sitt (bare mulig ved cache-bom), står det fortsatt igjen 5 minutter av
+  jobbens budsjett etter testreserven. Uten det gulvet kunne en cache-bom spise
+  budsjettet, og jobbens tak ville slått inn før noe steg rakk å si fra selv.
+- **En budsjettstyrt frist.** Retry-løkka regner ut fristen sin av hvor mye av
+  jobbens 25 minutter som FAKTISK er igjen — den leser starttiden et eget
+  første steg legger i `JOBB_START`. Er budsjettet allerede brukt opp, sier
+  steget fra med `::error::` og navngir at det var stegene foran som brukte
+  tiden, i stedet for å bli drept anonymt.
+
+Cachesteget står bevisst uten tak: et cachebom skal gi en tregere jobb, ikke en
+rød. `tests/release-pipeline.test.js` holder hele regnestykket fast, så det
+ikke kan drive fra hverandre når noen justerer ett av tallene.
 
 **Migreringen (ledd 2) feiler** → jobben prøver hver fil inntil tre ganger med
 10/20 sekunders pause. `lock_timeout=15s` gjør at en DDL som blir stående og
