@@ -216,8 +216,14 @@ fase 2.
    workflowen selv startet på en PR som rører mobilfundamentet).
 2. Last ned artifactet **`huskis-debug-apk`** og pakk ut `app-debug.apk`.
 3. Overfør APK-en til telefonen og installer den. Android spør om lov til å
-   installere fra ukjent kilde første gang — debug-APK-en er signert med
-   Androids standard debug-nøkkel, ikke en butikknøkkel.
+   installere fra ukjent kilde første gang — debug-APK-en er signert med en
+   debug-nøkkel, ikke en butikknøkkel. Workflowen konfigurerer ingen signering og
+   tar ikke vare på noe nøkkellager, så nøkkelen er den Gradle lager på runneren:
+   to kjøringer kan ikke antas å gi samme sertifikat, og da nekter Android å
+   installere den ene APK-en over den andre. **Avinstaller den forrige først** —
+   det tømmer samtidig appdataen. Skal en måling sammenligne to APK-er uten å
+   miste tilstand, må debug-signeringen først bli stabil; det hører hjemme i
+   fase 6, som eier signering.
 4. Appen viser Huskis fra sine egne innebygde filer. Flymodus + omstart
    bekrefter at UI-et ikke hentes fra `huskis.no` (innlogging krever selvsagt
    nett).
@@ -2054,18 +2060,27 @@ kjører den.
 3. Commit `ota/` og de tre patchede filene, og push. Previewen serverer nå
    riggmanifestet med de samme headerne produksjonen bruker (no-store + CORS på
    manifestet).
-4. Bygg APK-en med workflowen «Android debug-APK» på RIGGRENEN, og installer den.
-   Den erstatter produksjons-APK-en (samme `appId`, samme debug-nøkkel) — og
-   appdataen følger med, så tøm den mellom riggen og det ekte skallet.
+4. Bygg APK-en med workflowen «Android debug-APK» på RIGGRENEN. **Avinstaller
+   den APK-en som står på telefonen før du installerer riggen** — og motsatt vei
+   når du går tilbake til produksjonsskallet. `android-debug.yml` har ingen
+   signeringskonfigurasjon og persisterer ikke noe nøkkellager, så debug-nøkkelen
+   er den runneren selv lager; to kjøringer kan ikke antas å gi samme
+   signeringssertifikat, og Android oppgraderer bare en APK som har både samme
+   `appId` OG samme sertifikat. Avinstalleringen tar med seg all appdata —
+   `localStorage`, klientens karantene og pluginens bundlelager. Det er en presis
+   nullstilling, men det betyr også at ÉN måling må gjøres ferdig innenfor ÉN
+   installasjon: bytter du skall midt i, er evidensen borte.
 5. Kaldstart. `otaFetch` skal ende på `downloaded`, `otaStage` på `staged`. Et
    nytt kaldstart — eller et `reload()` gjennom banneret — tar riggbundelen i
    bruk, den kaster, og etter `readyTimeout` (10 000 ms) skal pluginen være
    tilbake på den innebygde. Les `liveReady` (`rollback`, `previousBundleId`) og
    `otaBlocked`, og se at NESTE kaldstart melder `otaStage.state === 'blocked'`.
 
-Hver måling trenger et nytt `--id`: en bundle som er hentet én gang avvises som
-«already exists», og en som er rullet tilbake er sperret for alltid i begge
-karantenelagene.
+Hver måling innenfor den samme installasjonen trenger et nytt `--id`: en bundle
+som er hentet én gang avvises som «already exists», og en som er rullet tilbake
+er sperret for alltid i begge karantenelagene. En avinstallering nullstiller
+riktignok begge lagene — men den tar evidensen fra forrige runde med seg, så det
+er ikke en snarvei.
 
 Og riggen trenger ikke to merger, slik produksjonsmålingen gjør: manifestets
 `releaseId` er riggens eget navn (`rig-broken-<n>`), aldri tolv hex-tegn, så det
@@ -2143,6 +2158,7 @@ er byte for byte kilden, `index.html` modulo de to ID-ene.
 | Måleriggen er smal: den bytter tre konstanter og ingenting mer | **observert** — `tests/ota-rig.test.js` kjører patchen over de EKTE `config.js`, `index.html` og `capacitor.config.json`: nøyaktig én linje i hver, og `readyTimeout`/`autoBlockRolledBackBundles` står urørt |
 | En riggbundle kan ikke aktiveres av et produksjonsskall | **observert** — samme fil: riggmanifestet forkastes av klientens `url`-vakt når basen er produksjonens `canonicalAppUrl`, og riggsignaturen verifiserer ikke mot den innebygde `publicKey` |
 | Riggbundelen er faktisk ødelagt, og hele veien zip → signatur → manifest kjører | **observert** — samme fil, over en liten `dist/`: `app.js` i arkivet kaller aldri `ready()` og kaster, blank-modus er én `index.html` uten skript, og manifestet passerer klientens systemgrense med riggverten som base |
+| To debug-APK-er kan ikke antas å oppgradere hverandre | **lest** i `.github/workflows/android-debug.yml`: ingen `signingConfig`, ingen cache av et nøkkellager, og en fersk `ubuntu-latest`-runner per kjøring — så debug-sertifikatet er det Gradle lager der og da. Android oppgraderer bare ved samme `appId` OG samme sertifikat, så et skallbytte på telefonen må regnes som avinstaller + installer, og appdataen forsvinner med det. Funnet kom fra kodegjennomgangen av PR #138 |
 
 ## Hva som krever en enhetsøkt
 
@@ -2305,7 +2321,11 @@ Google Plays interne testspor.
 
 - [ ] Opprett/verifiser Google Play Developer-konto.
 - [ ] Bekreft endelig package ID før første opplasting.
-- [ ] Sett opp signing og håndtering av nøkler uten secrets i repoet.
+- [ ] Sett opp signing og håndtering av nøkler uten secrets i repoet. Det gir
+      samtidig noe fase 5 måtte klare seg uten: en STABIL signatur på testbuildene,
+      slik at en ny APK oppgraderer den forrige i stedet for å kreve
+      avinstallering — og dermed en enhetsøkt som kan bytte skall uten å miste
+      appdata.
 - [ ] Ta App Links opp igjen når nøkkelen finnes: begge halvdelene i samme
       endring (intent-filter + `.well-known/assetlinks.json` som `build.js`
       faktisk kopierer ut). Avgjør FØRST det åpne spørsmålet i fase
