@@ -17,7 +17,7 @@ autoritative dokumentet for fagfeltet.
 | Nåværende fase | **Fase 5 — OTA for web-assets.** Fase 3 og fase 4 er ferdige; begge ferdigkriteriene ble oppfylt på fysisk enhet i samme `chrome://inspect`-økt. Fase 5 startet ikke med kode: OTA-løsningen skulle velges først, mot åtte krav, og **valget er tatt**. Kjeden er nå hel i koden — det som gjenstår av fasen er å prøve den på en fysisk telefon. Statusen for hver fase står på hver sin rad under. |
 | Status — fase 3 | **Ferdigkriteriet er nådd.** Alle seks punktene er avgjort: systemets tilbakeknapp og safe areas/systemfeltene/skjermtastaturet, begge verifisert på fysisk telefon; eksterne lenker og auth-/e-postlenker, som begge er beslutninger uten kode og derfor ikke har noe å prøve på en telefon; sikker lagring/`android:allowBackup`, der sikkerhetskopien av WebView-lagringen er slått av; og lifecycle-/network-signalene, målt på enhet med sonden. `navigator.onLine` er bekreftet dødt uten `ACCESS_NETWORK_STATE`, og tillatelsen er lagt inn med vakt. Gjenopptakelsen er tilskrevet: et `get_my_doc` står i enhetsloggen merket `by: 'visibilitychange'`. Målingen viste samtidig at hendelsen IKKE leveres når Android har fryst prosessen — der starter pollets forfalte tikk runden i samme øyeblikk som opptiningen. Begge ledd er dermed bærende, hvert i sitt regime (se seksjonen). Ingen native plugin er innført. Automatisk dekket av `tests/safe-area.test.js`, `tests/landscape-chrome.test.js`, `tests/system-back.test.js`, `tests/sync-foreground.test.js` (del 2 og del 6 kjører hvert sitt regime) og `tests/capacitor-android.test.js`. |
 | Status — fase 4 | Fase 4s ferdigkriterium er **oppfylt**: en kjørende APK og en Vercel-preview bygget av samme commit rapporterte den samme `releaseId` (`d10867a7c0a6`) med hver sin `buildId`, lest på telefon. Alle sju punktene er avgjort. Fem er implementert: kartleggingen av dagens release-identiteter, `releaseId` er definert og generert i `build.js`, web og Android bygget fra samme commit rapporterer den samme verdien, `version.json` er utvidet additivt uten at cache- eller reload-sikkerheten er rørt, og kompatibilitetsregelen mellom klientrelease og databaseskjema er skrevet ned ([`release-og-deploy.md`](release-og-deploy.md)). De to siste er beslutninger, ikke kode — `minimumSupportedRelease` og valget mellom byte-identisk artifact og separate builds — sto åpne til OTA ga dem en konsekvens, og er nå avgjort i fase 5: ingen nedre grense, og separate builds med samme `releaseId` (se «De to punktene fra fase 4 får sitt svar her»). Automatisk dekket av `tests/build-version.test.js`, `tests/auto-update.test.js` og `tests/capacitor-android.test.js`. |
-| Status — fase 5 | **Hele kjeden står i koden: pluginen/rollback-veien, den signerte bundelen med manifestet, hentingen — og nå OPPSTILLINGEN OG BYTTET.** En APK leser manifestet på URL-en skallets `getVersionCode()` bestemmer, validerer det ved systemgrensen, sammenligner `releaseId` med `===`, laster ned bundelen, spør karantenen, og stiller den opp med `setNextBundle()`. Bundelen tas i bruk ved neste kaldstart — eller med en gang, gjennom `LiveUpdate.reload()`, som går den samme veien som en vanlig nettleser-reload: `updateSafety()`, banneret, inaktivitetsregelen og ett-forsøk-vakten i `update-check.js`. Leddet som er lagt til der er **klargjøringen**: et mål er ikke reloadbart før nedlasting OG oppstilling har lykkes, en feilet klargjøring brenner ikke ett-forsøk-vakten, og banneret vises ikke før målet er stilt opp. Karantenen er varig og har to lag, begge fail closed: pluginens egen blokkliste (`autoBlockRolledBackBundles` er nå slått PÅ) er hovedvakten, og klientens egen liste i `localStorage` dekker det ene tilfellet den ikke kan — at prosessen dør mellom rollbacken og readiness-punktet (se «En rullet-tilbake bundle må være varig sperret»). `versionCode` er økt til `3` fordi konfigurasjonsfeltet pakkes inn i APK-en, og `OTA_MIN_VERSION_CODE` er hevet til `3` med det: et nivå 2-skall bærer web-kode som laster ned uten å stille opp, og ville fått lovet en oppdatering det aldri kan aktivere. Flyten er KJØRT i ekte nettleser med faket bro (`tests/ota-fetch.test.js`: oppstilling, karantene, fail closed-blokkliste, feilet oppstilling) og klargjøringen i `tests/auto-update.test.js`. **Ikke prøvd på enhet ennå:** de to punktene hente-runden gjorde målbare (nedlastingen utenfor WebView-ens CSP, og telefonens verifisering av produksjonssignaturen), og de tre oppstillingsrunden gjorde målbare for første gang (rollback av en bundle som aldri når `ready()`, `reload()` som beholder originet, og et bytte gjennom `updateSafety()`). Det siste ULØSTE i veien for økten er nå avgjort og bygget: en bevisst ødelagt bundle kan ikke publiseres på produksjonsveien, fordi OTA-bundelen ER produksjonsbuilden — rollback og karantene måles derfor på en MÅLERIGG med eget skall, eget nøkkelpar og egen vert (`.github/scripts/ota-rig.js`, «Den ødelagte bundelen kan ikke være en produksjonsrelease»). Det ene gjenstående punktet som IKKE krevde en telefon er derimot lukket: `android-debug.yml` leser nå ut Gradles sammenslåtte `AndroidManifest.xml`, og `zip4j` bidrar ingenting mens `okhttp` bidrar én `androidx.startup`-initializer og ingenting annet («Hva de native bibliotekene merger inn i manifestet»). Og det siste som manglet FØR økten er på plass: stoppeklokken mot `readyTimeout` (`window.__huskis.readyMs`), siden `appReady` alene ikke kan skille en avvæpning som kom godt innenfor de 10 000 ms fra en som så vidt rakk det. Arbeidet med den avdekket samtidig et ÅPENT SPØRSMÅL som bare enheten kan avgjøre: auth-initialiseringen ligger før readiness-punktet, og offline med et token nær utløp kan Supabases egen retry-løkke bruke opptil 30 sekunder — tre ganger `readyTimeout` («Hvorfor flymodus er det harde tilfellet»). Lest i kilden, ikke målt. Selve økten er planlagt og forberedt — protokollen står i «Slik kjører du enhetsøkten», og APK-en for produksjonshalvdelen er bygget. **Ingen av implementasjonspunktene i sjekklisten er krysset av ennå** — hvert av de gjenstående krever en enhetsøkt. |
+| Status — fase 5 | **Hele kjeden står i koden: pluginen/rollback-veien, den signerte bundelen med manifestet, hentingen — og nå OPPSTILLINGEN OG BYTTET.** En APK leser manifestet på URL-en skallets `getVersionCode()` bestemmer, validerer det ved systemgrensen, sammenligner `releaseId` med `===`, laster ned bundelen, spør karantenen, og stiller den opp med `setNextBundle()`. Bundelen tas i bruk ved neste kaldstart — eller med en gang, gjennom `LiveUpdate.reload()`, som går den samme veien som en vanlig nettleser-reload: `updateSafety()`, banneret, inaktivitetsregelen og ett-forsøk-vakten i `update-check.js`. Leddet som er lagt til der er **klargjøringen**: et mål er ikke reloadbart før nedlasting OG oppstilling har lykkes, en feilet klargjøring brenner ikke ett-forsøk-vakten, og banneret vises ikke før målet er stilt opp. Karantenen er varig og har to lag, begge fail closed: pluginens egen blokkliste (`autoBlockRolledBackBundles` er nå slått PÅ) er hovedvakten, og klientens egen liste i `localStorage` dekker det ene tilfellet den ikke kan — at prosessen dør mellom rollbacken og readiness-punktet (se «En rullet-tilbake bundle må være varig sperret»). `versionCode` er økt til `3` fordi konfigurasjonsfeltet pakkes inn i APK-en, og `OTA_MIN_VERSION_CODE` er hevet til `3` med det: et nivå 2-skall bærer web-kode som laster ned uten å stille opp, og ville fått lovet en oppdatering det aldri kan aktivere. Flyten er KJØRT i ekte nettleser med faket bro (`tests/ota-fetch.test.js`: oppstilling, karantene, fail closed-blokkliste, feilet oppstilling) og klargjøringen i `tests/auto-update.test.js`. **Ikke prøvd på enhet ennå:** de to punktene hente-runden gjorde målbare (nedlastingen utenfor WebView-ens CSP, og telefonens verifisering av produksjonssignaturen), og de tre oppstillingsrunden gjorde målbare for første gang (rollback av en bundle som aldri når `ready()`, `reload()` som beholder originet, og et bytte gjennom `updateSafety()`). Det siste ULØSTE i veien for økten er nå avgjort og bygget: en bevisst ødelagt bundle kan ikke publiseres på produksjonsveien, fordi OTA-bundelen ER produksjonsbuilden — rollback og karantene måles derfor på en MÅLERIGG med eget skall, eget nøkkelpar og egen vert (`.github/scripts/ota-rig.js`, «Den ødelagte bundelen kan ikke være en produksjonsrelease»). Det ene gjenstående punktet som IKKE krevde en telefon er derimot lukket: `android-debug.yml` leser nå ut Gradles sammenslåtte `AndroidManifest.xml`, og `zip4j` bidrar ingenting mens `okhttp` bidrar én `androidx.startup`-initializer og ingenting annet («Hva de native bibliotekene merger inn i manifestet»). Og det siste som manglet FØR økten er på plass: stoppeklokken mot `readyTimeout` (`window.__huskis.readyMs`), siden `appReady` alene ikke kan skille en avvæpning som kom godt innenfor de 10 000 ms fra en som så vidt rakk det. Arbeidet med den avdekket samtidig en reell feilvei, som er RETTET i samme runde: auth-initialiseringen lå foran readiness-punktet, og offline med et token nær utløp kunne Supabases egen retry-løkke bruke opptil 30 sekunder — tre ganger `readyTimeout`, altså en falsk rollback av en frisk bundle, som karantenen deretter ville gjort varig. Punktet er flyttet foran `getSession()`, og invarianten «ingenting som kan vente på nettet over `markAppReady()`» håndheves nå både posisjonelt i kilden og kjørende med `?authlag=` («Hvorfor punktet ligger FØR `getSession()`»). Selve økten er planlagt og forberedt — protokollen står i «Slik kjører du enhetsøkten», og APK-en for produksjonshalvdelen er bygget. **Ingen av implementasjonspunktene i sjekklisten er krysset av ennå** — hvert av de gjenstående krever en enhetsøkt. |
 | Neste milepæl | Fase 5: første OTA-bundle som flytter en APK til samme `releaseId` som `huskis.no` |
 | Neste praktiske steg — fase 3 | Ingen. Fasen er ferdig |
 | Neste praktiske steg — fase 4 | Ingen. Fasen er ferdig; de to «vurder …»-punktene fikk sitt svar i fase 5 |
@@ -292,6 +292,7 @@ gjør at den kan konsentrere seg om det bare en telefon kan svare på.
 | lik build-ID ⇒ ingen banner, ingen reload | `auto-update`, `build-version` |
 | appen peker ikke mot og reloader ikke `huskis.no` | `capacitor-android`, `canonical-origin`, `auth-redirect` |
 | stoppeklokken skiller readiness-punktet fra avvæpningen | `ota-fetch`, `capacitor-android` |
+| ingen nettavhengighet på kritisk vei til readiness-punktet | `ota-fetch` (`?authlag=`), `capacitor-android` (posisjonelt) |
 
 ## Testet på fysisk Android
 
@@ -1605,13 +1606,47 @@ avhenge av nettet.** Det andre kravet er like hardt som det første: venter
 en ødelagt bundle, og pluginen ruller tilbake en bundle som virker. Det ville
 brutt punktet «tåle offline oppstart» i lista nederst.
 
-Huskis har et signal som oppfyller begge: **første brukbare skjerm malt fra
-lokal tilstand** — innloggingsskjermen for en utlogget bruker, brettet fra
-`localStorage` for en innlogget. Begge nås uten nettverk; `updateSafety()` har
-allerede `sync-unknown` for tilstanden «innlogget, men serveren har ikke svart
-ennå», altså er det en tilstand appen kjører i, ikke en feil. Det er sent nok
-til at en bundle som feiler i initen aldri kommer dit, og tidlig nok til at det
-skjer uten nett.
+Huskis har et signal som oppfyller begge: **første skjerm malt fra lokal
+tilstand** — innloggingsskjermen, som `initAccounts()` maler ubetinget, også
+for en innlogget bruker (der byttes den ut av `cloudStart()` like etterpå).
+Den nås uten nettverk; `updateSafety()` har allerede `sync-unknown` for
+tilstanden «innlogget, men serveren har ikke svart ennå», altså er det en
+tilstand appen kjører i, ikke en feil. Det er sent nok til at en bundle som
+feiler i initen aldri kommer dit, og tidlig nok til at det skjer uten nett.
+
+### Hvorfor punktet ligger FØR `getSession()`, ikke etter
+
+Kravet «skal ikke avhenge av nettet» er strengere enn det ser ut, og det ble
+brutt av et kall som ikke ser ut som et nettkall. `markAppReady()` nås fra
+`initAccounts()`, og der lå det opprinnelig etter `await
+client.auth.getSession()`. Lest i den innsjekkede `vendor/supabase-js-2.111.0.js`:
+
+- `__loadSession()` regner en sesjon som utløpt allerede **90 sekunder** før den
+  er det (`EXPIRY_MARGIN`, `3 × 30 000`);
+- er den «utløpt», hentes et nytt token **før** sesjonen leveres videre — også
+  før `INITIAL_SESSION`, som er veien en innlogget bruker når `cloudStart()`;
+- offline feiler det kallet som `AuthRetryableFetchError`, og
+  `_refreshAccessToken()` prøver på nytt med eksponentiell backoff i opptil
+  **30 000 ms**.
+
+Det er tre ganger `readyTimeout`. En offline kaldstart med et token nær utløp
+ville dermed rullet tilbake en helt frisk bundle — og siden
+`autoBlockRolledBackBundles` er på og klienten har sin egen karantene, ville den
+friske bundelen deretter vært **varig sperret** på den enheten. En falsk
+rollback er altså ikke en forbigående irritasjon; den er permanent og stille.
+
+Punktet står derfor før `getSession()`. Regelen som følger av det, og som
+`tests/capacitor-android.test.js` håndhever posisjonelt: **ingenting som kan
+vente på nettet får legges over `markAppReady()` i `initAccounts()`.**
+
+**Prisen, sagt rett ut:** for en innlogget bruker ligger `loadCache()` og
+`render()` nå utenfor det voktede vinduet. En bundle som maler
+innloggingsskjermen fint og først deretter feiler i board-renderingen blir ikke
+rullet tilbake. Avveiningen er bevisst: en uteblitt rollback rettes av neste
+release, en falsk rollback er varig.
+
+Svaret var ikke å heve `readyTimeout` — det ville gitt en ekte defekt bundle
+like lang tid til å se frisk ut.
 
 To ting må måles på enhet før punktet kan kalles ferdig: at en bundle som feiler
 ETTER at scriptene er lastet, men før skjermen er brukbar, faktisk blir rullet
@@ -2499,40 +2534,28 @@ gjenstår som et eget, ikke-instrumentert punkt.
 Står `readyResolvedAt` på `null` mens `readyCalledAt` har et tall, kom kallet
 aldri tilbake — les `window.__huskis.liveReadyError`.
 
-#### Hvorfor flymodus er det harde tilfellet
+#### Hvorfor flymodus fortsatt er tilfellet som måles
 
-Mål minst tre kaldstarter i FLYMODUS (tvangslukk + åpne). Grunnen er ikke at
-readiness-punktet venter på serveren — det gjør det ikke; alt som spør serveren
-ligger etter `markAppReady()`, og pluginens `ready()` er lokalt bokholderi uten
-nettkall. Grunnen ligger ETT hakk før, i auth-initialiseringen som må ha kjørt
-før readiness-punktet i det hele tatt nås:
+Mål minst tre kaldstarter i FLYMODUS (tvangslukk + åpne). Readiness-punktet
+venter ikke på serveren — alt som spør ligger etter `markAppReady()`, og
+pluginens `ready()` er lokalt bokholderi uten nettkall — men det gjorde det
+inntil nylig, indirekte: auth-initialiseringen lå foran punktet, og offline med
+et token nær utløp kunne Supabases egen retry-løkke bruke opptil 30 sekunder.
+Det er rettet ved å flytte punktet foran `getSession()` («Hvorfor punktet ligger
+FØR `getSession()`»), og invarianten håndheves nå av to tester.
 
-`markAppReady()` kalles fra `cloudStart()` og `initAccounts()`, og begge ligger
-bak Supabases `onAuthStateChange`/`getSession()`. Lest i den innsjekkede
-`vendor/supabase-js-2.111.0.js`: `__loadSession()` regner en sesjon som utløpt
-allerede 90 sekunder før den faktisk er det (`EXPIRY_MARGIN`), og henter da et
-nytt token FØR `INITIAL_SESSION` sendes videre. Offline feiler det kallet som
-`AuthRetryableFetchError` — som er nettopp den feilen `_refreshAccessToken`
-prøver på nytt, med eksponentiell backoff (200 ms, 400, 800 …) helt til det har
-gått **30 sekunder**.
-
-En offline kaldstart med et token som er nær utløp kan altså holde
-readiness-punktet i opptil tre ganger `readyTimeout`. Det er den samme
-feilmodusen readiness-punktet ble plassert for å unngå — «for SENT, eller
-avhengig av et svar fra serveren, ruller den tilbake en bundle som VIRKER» —
-og den er ikke lukket av at punktet står etter `try/catch`, fordi ventingen
-skjer før koden vår får kontrollen.
-
-**Dette er lest i kilden, ikke målt på enhet**, og det er derfor en av tingene
-økten skal avgjøre. Mål begge tilfellene, og skriv ned hvilket som var hvilket:
+Flymodus er derfor ikke lenger en jakt på et kjent hull, men målingen som
+bekrefter at det er lukket på ekte maskinvare — der lagringen er treg og
+prosessen kan være kald. Mål begge tilfellene og skriv ned hvilket som var
+hvilket:
 
 - flymodus med FERSKT token (logg inn rett før, så `expires_at` er langt unna);
-- flymodus med token nær utløp — det tilfellet regnestykket over gjelder.
+- flymodus med token NÆR UTLØP — tilfellet som utløste rettelsen. `reachedAt`
+  skal her være like lav som i det første; er den det ikke, finnes det enda en
+  nettavhengighet foran punktet, og den skal navngis.
 
-Er det andre tallet stort, er ikke svaret å heve `readyTimeout`: det ville gitt
-en ekte defekt bundle like lang tid til å se frisk ut. Da er spørsmålet hvor
-readiness-punktet står i forhold til auth-initialiseringen, og det er en
-beslutning for repo-eier, ikke for målingen.
+Er tallene store uansett token, er ikke svaret å heve `readyTimeout`: det ville
+gitt en ekte defekt bundle like lang tid til å se frisk ut.
 
 ### Hva rapporten må inneholde
 

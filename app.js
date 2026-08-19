@@ -11493,8 +11493,10 @@
       loadCache();
       render();
     }
-    // Readiness-punktet for en INNLOGGET bruker: board-et er brettet fra
-    // localStorage og skjermen er brukbar. Alt under her spør serveren.
+    // Sikkerhetsnett for readiness-punktet: `initAccounts()` har normalt satt
+    // det allerede, før sin egen `getSession()`, så dette er et no-op. Det står
+    // igjen for den innloggede veien skulle den en gang nås uten å ha vært
+    // innom der. Alt under her spør serveren.
     markAppReady();
     lastViewSig = null; // tving en full første render ved (ny) innlogging
     migrationChecked = false;
@@ -11589,14 +11591,35 @@
          en bundle som VIRKER: en offline kaldstart ville ikke kunne skilles
          fra en defekt bundle.
 
-     Punktet er derfor «første brukbare skjerm malt fra LOKAL tilstand»:
-     innloggingsskjermen for en utlogget bruker, board-et brettet fra
-     localStorage for en innlogget. Begge nås uten nett, og begge ligger etter
-     at hele app.js har kjørt. Alt som venter på serveren ligger etter kallet.
+     Punktet er derfor «app.js har kjørt helt ut og malt den første skjermen fra
+     LOKAL tilstand»: innloggingsskjermen, som `initAccounts()` maler
+     ubetinget — for en innlogget bruker like fullt, den byttes bare ut av
+     `cloudStart()` like etterpå. Ingenting på veien dit spør nettet.
 
-     Idempotent: den første av de to veiene vinner. En senere innlogging eller
-     kontobytte i samme økt er ikke en ny oppstart, og timeren er allerede
-     avvæpnet.
+     OG KALLET STÅR FØR `getSession()`, ikke etter. Det er ikke en detalj:
+     `await client.auth.getSession()` KAN vente på nettet, og lenge. Lest i den
+     innsjekkede `vendor/supabase-js-2.111.0.js`: `__loadSession()` regner en
+     sesjon som utløpt allerede 90 sekunder før den er det (`EXPIRY_MARGIN`),
+     henter da nytt token FØR sesjonen leveres videre — også til
+     `INITIAL_SESSION` — og `_refreshAccessToken()` prøver på nytt med
+     eksponentiell backoff så lenge feilen er `AuthRetryableFetchError`, som er
+     nøyaktig det offline gir, i opptil 30 000 ms. Det er TRE GANGER
+     `readyTimeout`. Med kallet etter ventingen ville en helt frisk bundle
+     blitt rullet tilbake bare fordi tokenet ikke kunne fornyes — og fordi
+     `autoBlockRolledBackBundles` er på og klienten har sin egen karantene,
+     ville den frisk bundelen deretter vært VARIG sperret på den enheten.
+
+     Prisen er sagt rett ut: for en innlogget bruker ligger `loadCache()` og
+     `render()` nå UTENFOR det voktede vinduet, så en bundle som maler
+     innloggingsskjermen fint og først deretter feiler i board-renderingen blir
+     ikke rullet tilbake. Det er den bevisste avveiningen: en FALSK rollback er
+     varig og stille, mens en uteblitt rollback rettes av neste release.
+
+     Idempotent: den første veien vinner. `cloudStart()` beholder sitt kall som
+     et sikkerhetsnett — skulle `initAccounts()` en gang få en tidlig retur før
+     sitt eget, er den innloggede veien fortsatt dekket. En senere innlogging
+     eller kontobytte i samme økt er ikke en ny oppstart, og timeren er
+     allerede avvæpnet.
 
      `appReady` speiler IKKE bare «skjermen er malt» — den speiler «avvæpningen
      er bekreftet». I browseren og når det ikke finnes noen plugin å spørre,
@@ -11964,6 +11987,13 @@
         cloudStop();
       }
     });
+    /* Readiness-punktet: innloggingsskjermen står malt fra lokal tilstand, og
+       hele app.js har kjørt. Kallet står FØR `getSession()` fordi det kallet
+       kan vente på nettet i opptil 30 sekunder — tre ganger `readyTimeout` —
+       når tokenet er nær utløp og enheten er offline. Se erklæringen av
+       `markAppReady()` for regnestykket og for hva plasseringen koster.
+       INGENTING SOM KAN VENTE PÅ NETTET SKAL LEGGES OVER DENNE LINJEN. */
+    markAppReady();
     // Gjenopprett evt. eksisterende sesjon (onAuthStateChange kan allerede ha
     // gjort det via INITIAL_SESSION — ikke start på nytt da).
     try {
@@ -11971,13 +12001,6 @@
       const user = data && data.session && data.session.user;
       if (user && !authUser) { authUser = { id: user.id, email: user.email, meta: user.user_metadata || {} }; cloudStart(); }
     } catch (e) { /* ingen sesjon */ }
-    // Readiness-punktet for en UTLOGGET bruker: innloggingsskjermen står malt,
-    // og den er den brukbare skjermen. (Er vi innlogget, satte cloudStart()
-    // punktet allerede — dette kallet er da et no-op.) Kallet står ETTER
-    // try/catch nettopp fordi begge utfallene skal nå det: en
-    // sesjonsgjenoppretting som feiler fordi enheten er offline skal ikke
-    // kunne holde appen fra readiness-punktet.
-    markAppReady();
   }
 
   /* ---------------- «Er det trygt å laste siden på nytt nå?» ----------------

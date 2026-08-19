@@ -39,6 +39,9 @@
    13. Stoppeklokken mot `readyTimeout`: `readyCalledAt` er tatt FØR broen og
        `readyResolvedAt` etter, slik at rundturen ligger mellom dem — og begge
        er `null` uten en plugin å spørre.
+   14. INVARIANTEN: en auth-fornyelse som venter på nettet ligger ikke på
+       kritisk vei til readiness-punktet. Med en treg auth-initialisering skal
+       punktet likevel nås med det samme.
 
   Ren logikk uten layout-avhengighet → én viewport.
 
@@ -121,8 +124,8 @@ function check(name, cond, extra) {
       isNativePlatform: () => true,
       Plugins: {
         LiveUpdate: {
-          // ?ready=slow gjør avvæpningen målbart treg, slik at stoppeklokken
-          // kan vise at `disarmedAt` er broens svar og ikke malingstidspunktet.
+          // ?ready=slow gjør rundturen målbart treg, slik at stoppeklokken kan
+          // vise at den ligger mellom readyCalledAt og readyResolvedAt.
           ready: async () => {
             window.__otaBro.kall.push('ready');
             if (q.get('ready') === 'slow') await new Promise((r) => setTimeout(r, 250));
@@ -429,6 +432,45 @@ function check(name, cond, extra) {
     const t = await page.evaluate(() => window.__huskis.readyMs);
     check('nettleser: reachedAt måles, de to andre er null (ingen timer å avvæpne)',
       Number.isFinite(t.reachedAt) && t.readyCalledAt === null && t.readyResolvedAt === null, t);
+  }
+
+  /* ---------- 13) Auth-fornyelsen ligger ikke på kritisk vei ----------
+     Den ekte feilmodusen dette vokter mot står i app.js ved `markAppReady()`:
+     supabase-js regner en sesjon som utløpt 90 sekunder før den er det, og
+     fornyer tokenet FØR sesjonen leveres — offline med retry i opptil 30 000
+     ms, altså tre ganger `readyTimeout`. Lå readiness-punktet bak den
+     ventingen, ville en helt frisk bundle blitt rullet tilbake og deretter
+     VARIG sperret.
+
+     `?authlag=` forsinker begge veiene sesjonen kommer ut av mock-backenden
+     (`getSession()` og den første `INITIAL_SESSION`), slik den ekte
+     retry-løkka gjør. Punktet skal nås lenge før den forsinkelsen er over. */
+  {
+    const LAG = 3000;
+    manifestSvar = { status: 404, body: '' };
+    const t0 = Date.now();
+    await page.goto(BASE + '/?mock=1&cap=1&authlag=' + LAG);
+    /* Tidsavbruddet ER regresjonen: ligger punktet bak auth igjen, kommer
+       `appReady` aldri innenfor vinduet. Fanges, så den rapporteres som en
+       vanlig FAIL med tallene ved siden av — ikke som et krasj. */
+    let naadd = true;
+    try {
+      await page.waitForFunction(() => window.__huskis && window.__huskis.appReady === true,
+        null, { timeout: LAG - 500, polling: 50 });
+    } catch (e) { naadd = false; }
+    const brukt = Date.now() - t0;
+    const t = await page.evaluate(() => window.__huskis.readyMs);
+    check('treg auth-initialisering holder ikke readiness-punktet',
+      naadd && brukt < LAG && t && t.reachedAt < LAG,
+      { naadd, bruktMs: brukt, authlagMs: LAG, readyMs: t });
+    /* Og punktet er ekte, ikke bare tidlig: skjermen SKAL være malt. Ble
+       `markAppReady()` flyttet så langt frem at ingenting er malt, godkjenner
+       den en bundle som laster fint og feiler i initen. */
+    check('…og innloggingsskjermen er faktisk malt når punktet nås',
+      await page.evaluate(() => {
+        const el = document.getElementById('auth-screen');
+        return !!el && !el.hidden;
+      }), 'auth-screen synlig');
   }
 
   check('ingen ukontrollerte JS-feil i noen av scenarioene', pageErrors.length === 0, pageErrors);

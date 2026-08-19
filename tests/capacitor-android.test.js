@@ -764,6 +764,23 @@ check('stoppeklokken: readyCalledAt står FØR broen, readyResolvedAt i .then()'
    tilbake. */
 const kropp = (navn) =>
   (appKode.match(new RegExp('async function ' + navn + '\\(\\) \\{([\\s\\S]*?)\\n  \\}')) || [, ''])[1] || '';
+/* [P1, PR-review #141] INVARIANTEN: ingenting som kan vente på NETTET får ligge
+   på kritisk vei til readiness-punktet. Lest i den innsjekkede supabase-js
+   regner `__loadSession()` en sesjon som utløpt 90 sekunder før den er det og
+   fornyer tokenet før den leveres — offline med retry i opptil 30 000 ms, tre
+   ganger `readyTimeout`. Lå `markAppReady()` bak den ventingen, ville en frisk
+   bundle blitt rullet tilbake og deretter varig sperret av karantenen.
+
+   Sjekken er posisjonell fordi feilen er posisjonell: i `initAccounts` skal
+   kallet stå FØR den første `await client.auth.…`. Den kjørende halvdelen av
+   invarianten ligger i tests/ota-fetch.test.js (sjekk 13, med ?authlag=). */
+const initKropp = kropp('initAccounts');
+const iPunkt = initKropp.indexOf('markAppReady();');
+const iAuthAwait = initKropp.search(/await\s+client\.auth\./);
+check('readiness-punktet står FØR det første auth-kallet som kan vente på nettet',
+  iPunkt > -1 && iAuthAwait > -1 && iPunkt < iAuthAwait,
+  'markAppReady@' + iPunkt + ', første await client.auth.@' + iAuthAwait);
+
 const utenPunkt = ['cloudStart', 'initAccounts'].filter((f) => !/markAppReady\(\);/.test(kropp(f)));
 check('readiness-punktet settes fra begge de brukbare skjermene (cloudStart + initAccounts)',
   utenPunkt.length === 0, utenPunkt.join(', ') || 'cloudStart, initAccounts');
