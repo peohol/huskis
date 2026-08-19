@@ -8,3 +8,8 @@ node_modules/
 # de kopierte web-assetene og Capacitors egne genererte konfigurasjonsfiler —
 # ignoreres av `android/.gitignore`, som Capacitor selv legger ved prosjektet.
 # `npm run sync:android` gjenskaper alt det ignorerte fra `dist/`.
+
+# Målerigg for OTA (docs/mobilapp-plan.md, fase 5): riggens eget nøkkelpar.
+# Privatnøkkelen skal aldri kunne committes — den er en engangsnøkkel som
+# signerer bevisst ødelagte bundles, og hører ikke hjemme i repoet.
+.ota-rig/
