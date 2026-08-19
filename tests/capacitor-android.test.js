@@ -409,7 +409,11 @@ check('ingen nye Gradle-avhengigheter i appmodulen (et nytt bibliotek merger sit
    Den ene linjen ble betalt bevisst (docs/mobilapp-plan.md, «Prisen»):
    `@capawesome/capacitor-live-update` drar med seg `zip4j` og `okhttp` som
    transitive Gradle-avhengigheter. Hva AAR-ene faktisk merger inn i det BYGDE
-   manifestet kan ikke leses herfra, og står som eget punkt for enhetsøkten. */
+   manifestet kan fortsatt ikke leses herfra — men det er lest, i den ene jobben
+   der en sammenslåing finnes: `zip4j` bidrar ingenting, `okhttp` én
+   `androidx.startup`-initializer (docs/mobilapp-plan.md, «Hva de native
+   bibliotekene merger inn i manifestet»). Steget som leser den ut er låst i
+   del 8. */
 const APPLIERT_DEP = {
   'android/app/capacitor.build.gradle': ["implementation project(':capawesome-capacitor-live-update')"],
 };
