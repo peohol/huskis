@@ -27,7 +27,9 @@
      7. Fase 1 er avgrenset: ingen iOS, ingen ekstra native plugins.
      8. .github/workflows/android-debug.yml bygger debug-APK-en via den samme
         kjeden (node build.js → cap sync → assembleDebug), uten å signere en
-        release eller røre release-kjeden.
+        release eller røre release-kjeden. Og den leser ut det SAMMENSLÅTTE
+        Android-manifestet etterpå: hva et native bibliotek erklærer kan ikke
+        leses fra repoet (del 7), bare fra Gradles egen sammenslåing.
      9. Native runtime: webkoden kjenner Capacitor på TO gated linjer (broen for
         systemets tilbakeknapp og oppslaget av de native pluginene) og ingen
         andre steder, og ingenting i den peker appen ut av sine egne innebygde
@@ -470,6 +472,31 @@ check('workflowen feiler hvis APK-en mangler (ingen tom artifact)',
 check('workflowen signerer ikke en release',
   !/assembleRelease|bundleRelease|signingConfig|KEYSTORE/.test(wfKode));
 check('workflowen har kun lesetilgang til repoet', /permissions:\s*\n\s*contents: read/.test(wfKode));
+
+/* Det SAMMENSLÅTTE manifestet. Del 7 låser hvilke biblioteker som finnes, men
+   ikke hva hvert av dem erklærer — manifestet inne i en AAR kan ikke leses fra
+   repoet. Gradle slår dem sammen, og resultatet er en fil som finnes NØYAKTIG
+   her, i den ene jobben som kjører en ekte Android-build. Uten dette steget er
+   spørsmålet «hva drar `zip4j`/`okhttp` med seg inn i appens manifest?» ikke
+   besvarbart uten å pakke opp en APK for hånd.
+
+   Rekkefølgen er hele poenget: før `assembleDebug` har kjørt finnes ingen
+   sammenslåing, så et steg som havnet foran ville lest en fil som ikke er der —
+   eller, verre, en gammel en fra en tidligere kjøring. */
+const iAssemble = wfKode.indexOf('assembleDebug');
+const iMerget = wfKode.indexOf('merged_manifest');
+check('workflowen leser det sammenslåtte manifestet ETTER Gradle-runden',
+  iAssemble > -1 && iMerget > iAssemble,
+  'assembleDebug @' + iAssemble + ', merged_manifest @' + iMerget);
+/* Merger-rapporten er provenansen: den attribuerer hver node i det
+   sammenslåtte manifestet til fila den kom fra. Uten den er manifestet et
+   resultat uten avsender, og et nytt bibliotek kan ikke skilles fra appens egne
+   erklæringer. */
+check('workflowen tar med merger-rapporten (hvilken fil som la inn hva)',
+  /manifest-merger-debug-report\.txt/.test(wfKode));
+check('workflowen laster opp det sammenslåtte manifestet som artifact',
+  /name: huskis-merged-manifest/.test(wfKode)
+    && /path: android\/app\/build\/outputs\/merged-manifest/.test(wfKode));
 
 /* ---- 9. Native runtime: appen kjører seg selv, og webkoden er uavhengig ----
 
