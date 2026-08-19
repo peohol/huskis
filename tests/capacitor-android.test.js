@@ -730,10 +730,33 @@ check('ready() står bak native-gaten og bak pluginbroen, ikke ubetinget',
 check('appReady venter på at ready() faktisk resolverer (og en avvist promise er retrybar)',
   (readyKropp.match(/appReady = true;/g) || []).length === 3
     && /if \(!live \|\| typeof live\.ready !== 'function'\) \{ appReady = true; return; \}/.test(readyKropp)
-    && /readyInFlight = true;[\s\S]*\.then\(\(res\) => \{ appReady = true; liveReadyError = null; noteRollback\(res\); \}\)/.test(readyKropp)
+    && /readyInFlight = true;[\s\S]*\.then\(\(res\) => \{ appReady = true;[^}]*liveReadyError = null; noteRollback\(res\); \}\)/.test(readyKropp)
     && /\.catch\(\(e\) => \{ liveReadyError = /.test(readyKropp)
     && /\.then\(\(\) => \{ readyInFlight = false; \}\);/.test(readyKropp),
   readyKropp.trim());
+/* Stoppeklokken mot `readyTimeout` (docs/mobilapp-plan.md, «Tidsmålingen mot
+   readyTimeout»). Tallet som måles mot de 10 000 er `readyCalledAt`, og det er
+   plasseringen som gjør det til en ekte nedre grense: `stopRollbackTimer()` er
+   det FØRSTE `ready()` gjør nativt (LiveUpdate.java 8.4.0), så avvæpningen
+   ligger etter at kallet krysset broen — men før `callback.success()`, som er
+   det `readyResolvedAt` ser. Settes `readyCalledAt` etter broen, eller leses
+   `readyResolvedAt` som avvæpningstidspunktet, påstår instrumentet en
+   presisjon det ikke har.
+
+   `reachedAt` skal settes FØR de to early-return-grenene (ellers mangler
+   tallet på de to veiene som ikke venter på noe), og de to andre skal settes
+   KUN i native-grenen — et skall uten plugin skal ikke rapportere en
+   avvæpning som aldri skjedde. */
+check('stoppeklokken: reachedAt før gatene, de to andre kun i native-grenen',
+  /noteReadyMs\('reachedAt'\);[\s\S]*if \(!nativeShell\)/.test(readyKropp)
+    && (readyKropp.match(/noteReadyMs\('readyCalledAt'\)/g) || []).length === 1
+    && (readyKropp.match(/noteReadyMs\('readyResolvedAt'\)/g) || []).length === 1,
+  readyKropp.trim());
+check('stoppeklokken: readyCalledAt står FØR broen, readyResolvedAt i .then()',
+  /noteReadyMs\('readyCalledAt'\);\s*Promise\.resolve\(live\.ready\(\)\)/.test(readyKropp)
+    && /\.then\(\(res\) => \{[^}]*noteReadyMs\('readyResolvedAt'\)/.test(readyKropp),
+  readyKropp.trim());
+
 /* Punktet nås fra BEGGE de brukbare skjermene: innloggingsskjermen for en
    utlogget bruker, board-et brettet fra localStorage for en innlogget. Bare ett
    av kallstedene ville gjort rollback avhengig av hvilken av dem brukeren
@@ -741,6 +764,23 @@ check('appReady venter på at ready() faktisk resolverer (og en avvist promise e
    tilbake. */
 const kropp = (navn) =>
   (appKode.match(new RegExp('async function ' + navn + '\\(\\) \\{([\\s\\S]*?)\\n  \\}')) || [, ''])[1] || '';
+/* [P1, PR-review #141] INVARIANTEN: ingenting som kan vente på NETTET får ligge
+   på kritisk vei til readiness-punktet. Lest i den innsjekkede supabase-js
+   regner `__loadSession()` en sesjon som utløpt 90 sekunder før den er det og
+   fornyer tokenet før den leveres — offline med retry i opptil 30 000 ms, tre
+   ganger `readyTimeout`. Lå `markAppReady()` bak den ventingen, ville en frisk
+   bundle blitt rullet tilbake og deretter varig sperret av karantenen.
+
+   Sjekken er posisjonell fordi feilen er posisjonell: i `initAccounts` skal
+   kallet stå FØR den første `await client.auth.…`. Den kjørende halvdelen av
+   invarianten ligger i tests/ota-fetch.test.js (sjekk 13, med ?authlag=). */
+const initKropp = kropp('initAccounts');
+const iPunkt = initKropp.indexOf('markAppReady();');
+const iAuthAwait = initKropp.search(/await\s+client\.auth\./);
+check('readiness-punktet står FØR det første auth-kallet som kan vente på nettet',
+  iPunkt > -1 && iAuthAwait > -1 && iPunkt < iAuthAwait,
+  'markAppReady@' + iPunkt + ', første await client.auth.@' + iAuthAwait);
+
 const utenPunkt = ['cloudStart', 'initAccounts'].filter((f) => !/markAppReady\(\);/.test(kropp(f)));
 check('readiness-punktet settes fra begge de brukbare skjermene (cloudStart + initAccounts)',
   utenPunkt.length === 0, utenPunkt.join(', ') || 'cloudStart, initAccounts');

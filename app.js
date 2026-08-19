@@ -11493,8 +11493,10 @@
       loadCache();
       render();
     }
-    // Readiness-punktet for en INNLOGGET bruker: board-et er brettet fra
-    // localStorage og skjermen er brukbar. Alt under her spør serveren.
+    // Sikkerhetsnett for readiness-punktet: `initAccounts()` har normalt satt
+    // det allerede, før sin egen `getSession()`, så dette er et no-op. Det står
+    // igjen for den innloggede veien skulle den en gang nås uten å ha vært
+    // innom der. Alt under her spør serveren.
     markAppReady();
     lastViewSig = null; // tving en full første render ved (ny) innlogging
     migrationChecked = false;
@@ -11589,14 +11591,35 @@
          en bundle som VIRKER: en offline kaldstart ville ikke kunne skilles
          fra en defekt bundle.
 
-     Punktet er derfor «første brukbare skjerm malt fra LOKAL tilstand»:
-     innloggingsskjermen for en utlogget bruker, board-et brettet fra
-     localStorage for en innlogget. Begge nås uten nett, og begge ligger etter
-     at hele app.js har kjørt. Alt som venter på serveren ligger etter kallet.
+     Punktet er derfor «app.js har kjørt helt ut og malt den første skjermen fra
+     LOKAL tilstand»: innloggingsskjermen, som `initAccounts()` maler
+     ubetinget — for en innlogget bruker like fullt, den byttes bare ut av
+     `cloudStart()` like etterpå. Ingenting på veien dit spør nettet.
 
-     Idempotent: den første av de to veiene vinner. En senere innlogging eller
-     kontobytte i samme økt er ikke en ny oppstart, og timeren er allerede
-     avvæpnet.
+     OG KALLET STÅR FØR `getSession()`, ikke etter. Det er ikke en detalj:
+     `await client.auth.getSession()` KAN vente på nettet, og lenge. Lest i den
+     innsjekkede `vendor/supabase-js-2.111.0.js`: `__loadSession()` regner en
+     sesjon som utløpt allerede 90 sekunder før den er det (`EXPIRY_MARGIN`),
+     henter da nytt token FØR sesjonen leveres videre — også til
+     `INITIAL_SESSION` — og `_refreshAccessToken()` prøver på nytt med
+     eksponentiell backoff så lenge feilen er `AuthRetryableFetchError`, som er
+     nøyaktig det offline gir, i opptil 30 000 ms. Det er TRE GANGER
+     `readyTimeout`. Med kallet etter ventingen ville en helt frisk bundle
+     blitt rullet tilbake bare fordi tokenet ikke kunne fornyes — og fordi
+     `autoBlockRolledBackBundles` er på og klienten har sin egen karantene,
+     ville den frisk bundelen deretter vært VARIG sperret på den enheten.
+
+     Prisen er sagt rett ut: for en innlogget bruker ligger `loadCache()` og
+     `render()` nå UTENFOR det voktede vinduet, så en bundle som maler
+     innloggingsskjermen fint og først deretter feiler i board-renderingen blir
+     ikke rullet tilbake. Det er den bevisste avveiningen: en FALSK rollback er
+     varig og stille, mens en uteblitt rollback rettes av neste release.
+
+     Idempotent: den første veien vinner. `cloudStart()` beholder sitt kall som
+     et sikkerhetsnett — skulle `initAccounts()` en gang få en tidlig retur før
+     sitt eget, er den innloggede veien fortsatt dekket. En senere innlogging
+     eller kontobytte i samme økt er ikke en ny oppstart, og timeren er
+     allerede avvæpnet.
 
      `appReady` speiler IKKE bare «skjermen er malt» — den speiler «avvæpningen
      er bekreftet». I browseren og når det ikke finnes noen plugin å spørre,
@@ -11612,14 +11635,67 @@
   let readyInFlight = false;
   let liveReadyError = null;
   let liveReady = null;            // pluginens ReadyResult, eller null
+  /* Stoppeklokken enhetsøkten leser mot pluginens `readyTimeout` (10 000 ms).
+     `appReady` alene kan ikke svare på om avvæpningen kom godt innenfor
+     grensen eller så vidt innenfor: den blir `true` også når timeren rakk å
+     utløse først, fordi en rollback mot en allerede innebygd bundle er et
+     no-op (`docs/mobilapp-plan.md`, «Hva som krever en enhetsøkt»).
+
+     TRE TIDSPUNKTER, alle i ms fra navigasjonsstart, fordi ingen av dem alene
+     er både lesbart fra JS og likt det timeren måler:
+
+       reachedAt        readiness-punktet nådd: første brukbare skjerm er malt
+                        fra LOKAL tilstand. Er dette tallet stort, ligger
+                        tregheten FØR pluginen — se merknaden nederst.
+       readyCalledAt    rett før `live.ready()` krysser broen.
+       readyResolvedAt  promiset resolverte.
+
+     HVILKET TALL SOM MÅLES MOT `readyTimeout`: `readyCalledAt`. Lest i
+     LiveUpdate.java 8.4.0 er `stopRollbackTimer()` det FØRSTE `ready()` gjør;
+     etterpå kommer `deleteUnusedBundles()`, to bundle-ID-oppslag og en
+     eventuell blokkering — og først DA `callback.success()`, som er det
+     `readyResolvedAt` ser. Avvæpningen skjer altså et sted mellom de to siste
+     tidspunktene, ikke på `readyResolvedAt`.
+
+     Og bare `reachedAt`/`readyCalledAt` er ekte NEDRE GRENSER for det timeren
+     måler. Timeren armeres i pluginens konstruktør, før WebView-en begynner å
+     navigere, så det virkelige forløpet er lengre enn alt vi teller fra
+     navigasjonsstart — men avvæpningen skjer ETTER at kallet krysset broen, så
+     `readyCalledAt` ligger trygt under. `readyResolvedAt` har derimot to
+     ukjente med MOTSATT fortegn (armeringen før nullpunktet vårt, det native
+     etterarbeidet etter avvæpningen) og kan lande på begge sider av det
+     virkelige tallet. Det er derfor ikke en grense, og skal ikke leses som en.
+
+     `readyResolvedAt − readyCalledAt` er rundturen over broen pluss det
+     `ready()` gjør nativt. Det er IKKE pluginens totale kaldstartskostnad:
+     initialiseringen dens skjer før readiness-punktet og isoleres ikke av
+     dette trekket.
+
+     De to siste er `null` uten en plugin å spørre — i browseren og i et skall
+     uten `LiveUpdate`. Det er ikke en manglende måling, men et presist svar:
+     der finnes det ingen timer å avvæpne. `readyResolvedAt` som `null` mens
+     `readyCalledAt` har et tall er det motsatte, og det alvorlige: kallet ble
+     gjort og kom aldri tilbake (se `liveReadyError`). */
+  let readyMs = null;
+  function noteReadyMs(felt) {
+    const p = window.performance;
+    if (!p || typeof p.now !== 'function') return;
+    if (!readyMs) readyMs = { reachedAt: null, readyCalledAt: null, readyResolvedAt: null };
+    if (readyMs[felt] == null) readyMs[felt] = Math.round(p.now());
+  }
   function markAppReady() {
     if (appReady || readyInFlight) return;
+    // Før de tidlige returene: punktet ble nådd uansett hvilken av de tre
+    // veiene ut som tas, og en retry etter et avvist `ready()` er ikke et nytt
+    // readiness-punkt (`noteReadyMs` beholder det første tallet).
+    noteReadyMs('reachedAt');
     if (!nativeShell) { appReady = true; return; }   // samme gate som tilbakeknappens bro
     const live = nativePlugins.LiveUpdate;
     if (!live || typeof live.ready !== 'function') { appReady = true; return; }
     readyInFlight = true;
+    noteReadyMs('readyCalledAt');
     Promise.resolve(live.ready())
-      .then((res) => { appReady = true; liveReadyError = null; noteRollback(res); })
+      .then((res) => { appReady = true; noteReadyMs('readyResolvedAt'); liveReadyError = null; noteRollback(res); })
       .catch((e) => { liveReadyError = (e && e.message) || String(e); })
       .then(() => { readyInFlight = false; });
   }
@@ -11911,6 +11987,13 @@
         cloudStop();
       }
     });
+    /* Readiness-punktet: innloggingsskjermen står malt fra lokal tilstand, og
+       hele app.js har kjørt. Kallet står FØR `getSession()` fordi det kallet
+       kan vente på nettet i opptil 30 sekunder — tre ganger `readyTimeout` —
+       når tokenet er nær utløp og enheten er offline. Se erklæringen av
+       `markAppReady()` for regnestykket og for hva plasseringen koster.
+       INGENTING SOM KAN VENTE PÅ NETTET SKAL LEGGES OVER DENNE LINJEN. */
+    markAppReady();
     // Gjenopprett evt. eksisterende sesjon (onAuthStateChange kan allerede ha
     // gjort det via INITIAL_SESSION — ikke start på nytt da).
     try {
@@ -11918,13 +12001,6 @@
       const user = data && data.session && data.session.user;
       if (user && !authUser) { authUser = { id: user.id, email: user.email, meta: user.user_metadata || {} }; cloudStart(); }
     } catch (e) { /* ingen sesjon */ }
-    // Readiness-punktet for en UTLOGGET bruker: innloggingsskjermen står malt,
-    // og den er den brukbare skjermen. (Er vi innlogget, satte cloudStart()
-    // punktet allerede — dette kallet er da et no-op.) Kallet står ETTER
-    // try/catch nettopp fordi begge utfallene skal nå det: en
-    // sesjonsgjenoppretting som feiler fordi enheten er offline skal ikke
-    // kunne holde appen fra readiness-punktet.
-    markAppReady();
   }
 
   /* ---------------- «Er det trygt å laste siden på nytt nå?» ----------------
@@ -13136,6 +13212,11 @@
     // Siste feil fra et mislykket LiveUpdate.ready()-kall, eller null. Lest i
     // enhetsøkten når appReady blir hengende på false i native runtime.
     get liveReadyError() { return liveReadyError; },
+    // Stoppeklokken: { reachedAt, readyCalledAt, readyResolvedAt } i ms fra
+    // navigasjonsstart, eller null før readiness-punktet er nådd.
+    // `readyCalledAt` er tallet som måles mot `readyTimeout` (10 000 ms), og
+    // det eneste som er en ekte nedre grense — se erklæringen.
+    get readyMs() { return readyMs; },
     // Hvor langt OTA-hentingen kom ved denne oppstarten, og hvorfor den
     // stoppet. Lest i enhetsøkten; i en nettleser står den alltid på 'idle'.
     get otaFetch() { return otaFetch; },

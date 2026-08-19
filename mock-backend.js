@@ -25,6 +25,22 @@
     var m = /[?&]lag=(\d+)/.exec(location.search);
     return m ? Math.min(parseInt(m[1], 10) || 0, 10000) : 0;
   })();
+  /* Kunstig forsinkelse på AUTH-initialiseringen alene: ?mock=1&authlag=3000.
+     Modellerer det ekte supabase-js gjør offline med et token nær utløp —
+     `__loadSession()` fornyer tokenet FØR sesjonen leveres, og retry-løkka kan
+     bruke opptil 30 000 ms (docs/mobilapp-plan.md, «Hvorfor flymodus er det
+     harde tilfellet»). Derfor forsinkes BEGGE veiene sesjonen kommer ut:
+     `getSession()` og den første `INITIAL_SESSION`. Brukes til å måle at
+     readiness-punktet ikke ligger bak den ventingen. */
+  var AUTH_LAG = (function () {
+    var m = /[?&]authlag=(\d+)/.exec(location.search);
+    return m ? Math.min(parseInt(m[1], 10) || 0, 30000) : 0;
+  })();
+  function afterAuthLag(fn) {
+    if (!AUTH_LAG) return setTimeout(fn, 0);
+    return setTimeout(fn, AUTH_LAG);
+  }
+
   // Utfør et «server»-kall: run() kjøres ETTER forsinkelsen (som om forespørselen
   // var underveis), og resultatet leveres asynkront. Kastede feil → { error }.
   function serverCall(run) {
@@ -1305,10 +1321,15 @@
           return Promise.resolve({ data: { user: u }, error: null });
         },
         signOut: function () { setSess(null); setTimeout(function () { emitAuth('SIGNED_OUT', null); }, 0); return Promise.resolve({ error: null }); },
-        getSession: function () { return Promise.resolve({ data: { session: sessionObj() }, error: null }); },
+        getSession: function () {
+          if (!AUTH_LAG) return Promise.resolve({ data: { session: sessionObj() }, error: null });
+          return new Promise(function (resolve) {
+            afterAuthLag(function () { resolve({ data: { session: sessionObj() }, error: null }); });
+          });
+        },
         onAuthStateChange: function (cb) {
           authListeners.push(cb);
-          setTimeout(function () { cb('INITIAL_SESSION', sessionObj()); }, 0);
+          afterAuthLag(function () { cb('INITIAL_SESSION', sessionObj()); });
           return { data: { subscription: { unsubscribe: function () {} } } };
         },
       },

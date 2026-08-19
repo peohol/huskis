@@ -36,6 +36,12 @@
        klientens egen liste stilles ikke opp — og en liste som ikke kan leses
        (fra broen eller fra localStorage) er også et nei (fail closed).
    12. En feilet oppstilling er stille, og etterlater ingenting stilt opp.
+   13. Stoppeklokken mot `readyTimeout`: `readyCalledAt` er tatt FØR broen og
+       `readyResolvedAt` etter, slik at rundturen ligger mellom dem — og begge
+       er `null` uten en plugin å spørre.
+   14. INVARIANTEN: en auth-fornyelse som venter på nettet ligger ikke på
+       kritisk vei til readiness-punktet. Med en treg auth-initialisering skal
+       punktet likevel nås med det samme.
 
   Ren logikk uten layout-avhengighet → én viewport.
 
@@ -118,7 +124,13 @@ function check(name, cond, extra) {
       isNativePlatform: () => true,
       Plugins: {
         LiveUpdate: {
-          ready: async () => { window.__otaBro.kall.push('ready'); return {}; },
+          // ?ready=slow gjør rundturen målbart treg, slik at stoppeklokken kan
+          // vise at den ligger mellom readyCalledAt og readyResolvedAt.
+          ready: async () => {
+            window.__otaBro.kall.push('ready');
+            if (q.get('ready') === 'slow') await new Promise((r) => setTimeout(r, 250));
+            return {};
+          },
           getVersionCode: async () => { window.__otaBro.kall.push('getVersionCode'); return { versionCode: '3' }; },
           downloadBundle: async (opts) => {
             window.__otaBro.kall.push('downloadBundle');
@@ -380,6 +392,86 @@ function check(name, cond, extra) {
     (await oppstilling()).state === 'stage-failed' && bs.kall.indexOf('reload') === -1,
     await oppstilling());
   check('feilet oppstilling: intet banner', !(await banner()));
+
+  /* ---------- 12) Stoppeklokken mot readyTimeout ----------
+     Enhetsøkten skal kunne si om avvæpningen kom godt innenfor de 10 000 ms
+     pluginen gir, og `appReady` alene kan ikke svare på det: den blir `true`
+     også når timeren rakk å utløse først (docs/mobilapp-plan.md, «Tidsmålingen
+     mot readyTimeout»). Avvæpningen skjer inne i `ready()`, mellom kallet og
+     svaret — så det som måles her er at de to tidspunktene faktisk KLEMMER
+     rundturen: en treg bro skal flytte `readyResolvedAt` bort fra
+     `readyCalledAt`, og ingen av dem skal flytte `reachedAt`. */
+  {
+    manifestSvar = { status: 404, body: '' };
+    await page.goto(BASE + '/?mock=1&cap=1&ready=slow');
+    await page.waitForFunction(() => {
+      const r = window.__huskis && window.__huskis.readyMs;
+      return !!r && r.readyResolvedAt != null;
+    }, null, { timeout: 10000, polling: 100 });
+    const t = await page.evaluate(() => window.__huskis.readyMs);
+    check('stoppeklokken: alle tre er ms fra navigasjonsstart, i rekkefølge',
+      Number.isFinite(t.reachedAt) && Number.isFinite(t.readyCalledAt)
+        && Number.isFinite(t.readyResolvedAt) && t.reachedAt >= 0
+        && t.readyCalledAt >= t.reachedAt && t.readyResolvedAt >= t.readyCalledAt, t);
+    check('stoppeklokken: rundturen ligger mellom readyCalledAt og readyResolvedAt',
+      t.readyResolvedAt - t.readyCalledAt >= 200, t);
+    /* Og den treffer ikke readiness-punktet: `readyCalledAt` tas før broen, så
+       en treg `ready()` skal ikke kunne se ut som en treg oppstart. */
+    check('stoppeklokken: en treg ready() flytter ikke readyCalledAt bort fra reachedAt',
+      t.readyCalledAt - t.reachedAt < 100, t);
+  }
+  /* Uten en plugin å spørre finnes det ingen timer å avvæpne, og da skal begge
+     de to siste være `null` — ikke et malingstidspunkt som utgir seg for å
+     være en avvæpning. */
+  {
+    await page.goto(BASE + '/?mock=1');
+    await page.waitForFunction(() => {
+      const r = window.__huskis && window.__huskis.readyMs;
+      return !!r && r.reachedAt != null;
+    }, null, { timeout: 10000, polling: 100 });
+    const t = await page.evaluate(() => window.__huskis.readyMs);
+    check('nettleser: reachedAt måles, de to andre er null (ingen timer å avvæpne)',
+      Number.isFinite(t.reachedAt) && t.readyCalledAt === null && t.readyResolvedAt === null, t);
+  }
+
+  /* ---------- 13) Auth-fornyelsen ligger ikke på kritisk vei ----------
+     Den ekte feilmodusen dette vokter mot står i app.js ved `markAppReady()`:
+     supabase-js regner en sesjon som utløpt 90 sekunder før den er det, og
+     fornyer tokenet FØR sesjonen leveres — offline med retry i opptil 30 000
+     ms, altså tre ganger `readyTimeout`. Lå readiness-punktet bak den
+     ventingen, ville en helt frisk bundle blitt rullet tilbake og deretter
+     VARIG sperret.
+
+     `?authlag=` forsinker begge veiene sesjonen kommer ut av mock-backenden
+     (`getSession()` og den første `INITIAL_SESSION`), slik den ekte
+     retry-løkka gjør. Punktet skal nås lenge før den forsinkelsen er over. */
+  {
+    const LAG = 3000;
+    manifestSvar = { status: 404, body: '' };
+    const t0 = Date.now();
+    await page.goto(BASE + '/?mock=1&cap=1&authlag=' + LAG);
+    /* Tidsavbruddet ER regresjonen: ligger punktet bak auth igjen, kommer
+       `appReady` aldri innenfor vinduet. Fanges, så den rapporteres som en
+       vanlig FAIL med tallene ved siden av — ikke som et krasj. */
+    let naadd = true;
+    try {
+      await page.waitForFunction(() => window.__huskis && window.__huskis.appReady === true,
+        null, { timeout: LAG - 500, polling: 50 });
+    } catch (e) { naadd = false; }
+    const brukt = Date.now() - t0;
+    const t = await page.evaluate(() => window.__huskis.readyMs);
+    check('treg auth-initialisering holder ikke readiness-punktet',
+      naadd && brukt < LAG && t && t.reachedAt < LAG,
+      { naadd, bruktMs: brukt, authlagMs: LAG, readyMs: t });
+    /* Og punktet er ekte, ikke bare tidlig: skjermen SKAL være malt. Ble
+       `markAppReady()` flyttet så langt frem at ingenting er malt, godkjenner
+       den en bundle som laster fint og feiler i initen. */
+    check('…og innloggingsskjermen er faktisk malt når punktet nås',
+      await page.evaluate(() => {
+        const el = document.getElementById('auth-screen');
+        return !!el && !el.hidden;
+      }), 'auth-screen synlig');
+  }
 
   check('ingen ukontrollerte JS-feil i noen av scenarioene', pageErrors.length === 0, pageErrors);
 
