@@ -191,6 +191,18 @@ To tester holder den ærlig:
 
 **Testene (ledd 1) feiler** → ingenting er rørt. Fiks og push på nytt.
 
+Feilen trenger ikke være en test. JS-jobbens tre nettsteg — Playwright fra npm,
+Chromium fra CDN-en og systembibliotekene fra Ubuntu-speilet — har hvert sitt
+tak på 5–6 minutter, så et speil som slutter å svare koster minutter og ikke
+jobbens 25. `install-deps` kjøres i tillegg opptil tre ganger med 10/20
+sekunders pause. Timeoutene for apt står i `/etc/apt/apt.conf.d/`, ikke som
+flagg på et forsteg: `playwright install-deps` kjører sitt EGET `apt-get
+update` inne i seg selv, og det er der hengingen oppstår. Gir retryen opp, sier
+loggen det med `::error::`, og annoteringen navngir apt-linja som skiller et
+dødt speil (kjør jobben på nytt) fra en avhengighet som faktisk er borte (en ny
+kjøring hjelper ikke). Cachesteget står bevisst uten tak — et cachebom skal gi
+en tregere jobb, ikke en rød.
+
 **Migreringen (ledd 2) feiler** → jobben prøver hver fil inntil tre ganger med
 10/20 sekunders pause. `lock_timeout=15s` gjør at en DDL som blir stående og
 vente gir opp raskt i stedet for å holde på låsene sine mens køen bygger seg

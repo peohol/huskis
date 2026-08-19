@@ -58,10 +58,16 @@ jobs:
       # endre CI-oppførselen uten at noe i repoet endret seg, og cache-nøkkelen
       # under ville ikke hatt noe å feste seg i.
       - name: Installer Playwright
+        timeout-minutes: 5
         run: npm install -g playwright@${{ env.PLAYWRIGHT_VERSION }}
 
       # Chromium-nedlastingen er den dyreste delen av oppstarten og er identisk
       # i alle shards. apt-delen (--with-deps) må kjøre uansett; den er rask.
+      #
+      # Cachesteget står bevisst UTEN timeout-minutes: actions/cache feiler
+      # mykt (et bom gir en tregere jobb, ikke en rød), og har sin egen
+      # segmentgrense. En stegtimeout her ville gjort et overlevelig bom om til
+      # en feilet jobb — motsatt av det resten av denne blokken prøver på.
       - name: Hent Chromium fra cache
         id: chromium-cache
         uses: actions/cache@v4
@@ -71,10 +77,54 @@ jobs:
 
       - name: Installer Chromium
         if: steps.chromium-cache.outputs.cache-hit != 'true'
+        timeout-minutes: 5
         run: playwright install chromium
 
       - name: Installer systembibliotekene Chromium trenger
-        run: playwright install-deps chromium
+        # Normalt tar steget sekunder. Taket er satt over løkkas egen frist
+        # under (180 s + ett forsøk som allerede er i gang), slik at det er
+        # ::error::-en herfra som lander i loggen — ikke GitHubs anonyme
+        # «The operation was canceled».
+        timeout-minutes: 6
+        run: |
+          set -euo pipefail
+
+          # `playwright install-deps` kjører sitt EGET `apt-get update` inne i
+          # seg selv. Derfor må timeoutene stå i apt-KONFIGURASJONEN: et
+          # forsteg med `apt-get update -o Acquire::Retries=...` ville ikke ha
+          # rørt kallet som faktisk henger.
+          #
+          # Uten timeout venter apt evig på en speilserver som godtar
+          # forbindelsen, sender headeren og så blir stille. 2026-08-19 kostet
+          # det shard 3, 4 og 5 hele jobbens 25 minutter, to runder på rad
+          # (run 32231446083), med «Get: … noble-security InRelease» som siste
+          # linje før stillheten.
+          #
+          # Prisen for én hengende fil er (Retries + 1) × Timeout — målt til
+          # 20/41/61/87 s for Retries 0/1/2/3. To gir tre forsøk på ~60 s, hvert
+          # med en NY forbindelse, og det er nettopp medisinen: shard 1, 2 og 6
+          # var grønne i det samme minuttet som 3, 4 og 5 hang, så det var
+          # forbindelsen som var død — ikke speilet.
+          sudo tee /etc/apt/apt.conf.d/99-huskis-nett > /dev/null <<'CONF'
+          Acquire::Retries "2";
+          Acquire::http::Timeout "20";
+          Acquire::https::Timeout "20";
+          CONF
+
+          # Retryen må ligge rundt install-deps selv, og fristen gjør at vi
+          # aldri STARTER et forsøk som ikke rekker å bli ferdig innenfor
+          # steget.
+          frist=$((SECONDS + 180))
+          forsok=1
+          until playwright install-deps chromium; do
+            if [ "$forsok" -ge 3 ] || [ "$SECONDS" -ge "$frist" ]; then
+              echo "::error::install-deps feilet $forsok gang(er). Står det «Connection timed out» eller «Failed to fetch» over denne linja, var det apt-speilet — kjør jobben på nytt. Står det «Unable to locate package», er avhengigheten ekte borte og en ny kjøring hjelper ikke."
+              exit 1
+            fi
+            echo "::warning::install-deps feilet (forsøk $forsok) — prøver igjen om $((forsok * 10)) s."
+            sleep $((forsok * 10))
+            forsok=$((forsok + 1))
+          done
 
       - name: Kjør JS-testene
         env:
