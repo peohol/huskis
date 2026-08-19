@@ -191,6 +191,49 @@ To tester holder den ærlig:
 
 **Testene (ledd 1) feiler** → ingenting er rørt. Fiks og push på nytt.
 
+Feilen trenger ikke være en test. JS-jobbens dyreste avhengighet er
+Ubuntu-speilet: `playwright install-deps` henter ~21 MB skriftpakker, og
+hastigheten dit svinger kraftig mellom runnere i samme runde — målt fra 21
+sekunder til 2min 32s (138 kB/s) for nøyaktig den samme nedlastingen.
+
+To forskjellige feil kommer derfra, og bare den ene er automatisk dekket:
+
+**Speilet slutter å svare** — forbindelsen godtas, headeren kommer, og så blir
+det stille. Dette er dekket. `Acquire::http::Timeout` i
+`/etc/apt/apt.conf.d/` bryter en overføring som står stille, og prisen per
+hengende fil er `(Retries + 1) × Timeout` ≈ 60 sekunder. Timeoutene må stå i
+apt-konfigurasjonen og ikke som flagg på et forsteg: `playwright install-deps`
+kjører sitt EGET `apt-get update` inne i seg selv, og det er der ventingen
+skjer. Feiler kallet, kjøres det inntil tre ganger med 10/20 sekunders pause.
+Gir retryen opp, sier loggen det med `::error::`, og annoteringen navngir
+apt-linja som skiller et dødt speil (kjør jobben på nytt) fra en avhengighet
+som faktisk er borte (en ny kjøring hjelper ikke).
+
+**Speilet er bare tregt** — det kommer bytes hele tiden, men få. Dette er IKKE
+dekket, og kan ikke dekkes av apt: `Acquire::*::Timeout` er en
+stillhets-timeout, og apt har ingen nedre hastighetsgrense. En slik runde blir
+grønn, bare langsom. Blir den for langsom, felles den til slutt av taket på
+steget.
+
+Takene på nettstegene er derfor bakstoppere mot en vranglås i DET steget, ikke
+budsjetter stegene skal holde seg innenfor — et tak satt etter normaltilfellet
+felte en runde som ellers ville blitt grønn. Summen av dem (3 + 12 + 20) er
+med vilje større enn jobbens 25, og da må to ting holde:
+
+- **Et gulv til `install-deps`.** Bruker Playwright- og Chromium-stegene hele
+  taket sitt (bare mulig ved cache-bom), står det fortsatt igjen 5 minutter av
+  jobbens budsjett etter testreserven. Uten det gulvet kunne en cache-bom spise
+  budsjettet, og jobbens tak ville slått inn før noe steg rakk å si fra selv.
+- **En budsjettstyrt frist.** Retry-løkka regner ut fristen sin av hvor mye av
+  jobbens 25 minutter som FAKTISK er igjen — den leser starttiden et eget
+  første steg legger i `JOBB_START`. Er budsjettet allerede brukt opp, sier
+  steget fra med `::error::` og navngir at det var stegene foran som brukte
+  tiden, i stedet for å bli drept anonymt.
+
+Cachesteget står bevisst uten tak: et cachebom skal gi en tregere jobb, ikke en
+rød. `tests/release-pipeline.test.js` holder hele regnestykket fast, så det
+ikke kan drive fra hverandre når noen justerer ett av tallene.
+
 **Migreringen (ledd 2) feiler** → jobben prøver hver fil inntil tre ganger med
 10/20 sekunders pause. `lock_timeout=15s` gjør at en DDL som blir stående og
 vente gir opp raskt i stedet for å holde på låsene sine mens køen bygger seg

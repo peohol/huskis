@@ -48,6 +48,13 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # Nettstegene under regner ut fristene sine av hvor mye av JOBBENS
+      # budsjett som faktisk er igjen. Uten et felles nullpunkt kan de bare
+      # gjette, og summen av takene deres (som er bakstoppere hver for seg)
+      # overstiger med vilje jobbens tak.
+      - name: Merk jobbens starttid
+        run: echo "JOBB_START=$(date +%s)" >> "$GITHUB_ENV"
+
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
@@ -58,10 +65,16 @@ jobs:
       # endre CI-oppførselen uten at noe i repoet endret seg, og cache-nøkkelen
       # under ville ikke hatt noe å feste seg i.
       - name: Installer Playwright
+        timeout-minutes: 3
         run: npm install -g playwright@${{ env.PLAYWRIGHT_VERSION }}
 
       # Chromium-nedlastingen er den dyreste delen av oppstarten og er identisk
       # i alle shards. apt-delen (--with-deps) må kjøre uansett; den er rask.
+      #
+      # Cachesteget står bevisst UTEN timeout-minutes: actions/cache feiler
+      # mykt (et bom gir en tregere jobb, ikke en rød), og har sin egen
+      # segmentgrense. En stegtimeout her ville gjort et overlevelig bom om til
+      # en feilet jobb — motsatt av det resten av denne blokken prøver på.
       - name: Hent Chromium fra cache
         id: chromium-cache
         uses: actions/cache@v4
@@ -69,12 +82,87 @@ jobs:
           path: ~/.cache/ms-playwright
           key: ms-playwright-${{ runner.os }}-${{ env.PLAYWRIGHT_VERSION }}
 
+      # Taket er en bakstopper, ikke et budsjett: nedlastingen er ~150 MB.
+      # 12 er valgt slik at det ALLTID står igjen et gulv til steget under —
+      # 1 (oppstart) + 3 + 12 + 4 (testreserve) = 20 av jobbens 25, altså minst
+      # 5 minutter til install-deps selv når dette steget bruker hele taket
+      # sitt. Uten det gulvet kunne en cache-bom spise hele budsjettet, og
+      # jobbens tak ville slått inn før noe steg rakk å si fra selv.
       - name: Installer Chromium
         if: steps.chromium-cache.outputs.cache-hit != 'true'
+        timeout-minutes: 12
         run: playwright install chromium
 
       - name: Installer systembibliotekene Chromium trenger
-        run: playwright install-deps chromium
+        # Taket er utledet av JOBBENS budsjett, ikke av normaltilfellet: 25
+        # minutter minus det resten av jobben trenger (~1 min oppstart + ~3 min
+        # tester) gir 20. Det er en bakstopper mot en vranglås — ikke et
+        # budsjett steget skal holde seg innenfor.
+        #
+        # Et tak satt etter normaltilfellet er aktivt skadelig, og det ble målt:
+        # med 6 minutter falt shard 2 (run 32246391806), mens de fem andre
+        # brukte 21/32/38/42 og 283 sekunder på nøyaktig det samme steget. Hele
+        # spredningen er speilets hastighet — shard 3 lastet ned de samme
+        # 21,1 MB på 2min 32s (138 kB/s) og ble grønn. Et tak inne i den halen
+        # gjør en treg runde om til en rød runde.
+        timeout-minutes: 20
+        run: |
+          set -euo pipefail
+
+          # `playwright install-deps` kjører sitt EGET `apt-get update` inne i
+          # seg selv. Derfor må timeoutene stå i apt-KONFIGURASJONEN: et
+          # forsteg med `apt-get update -o Acquire::Retries=...` ville ikke ha
+          # rørt kallet som faktisk henger.
+          #
+          # Uten timeout venter apt evig på en speilserver som godtar
+          # forbindelsen, sender headeren og så blir stille. 2026-08-19 kostet
+          # det shard 3, 4 og 5 hele jobbens 25 minutter, to runder på rad
+          # (run 32231446083), med «Get: … noble-security InRelease» som siste
+          # linje før stillheten.
+          #
+          # Prisen for én hengende fil er (Retries + 1) × Timeout — målt til
+          # 20/41/61/87 s for Retries 0/1/2/3. To gir tre forsøk på ~60 s, hvert
+          # med en NY forbindelse, og det er nettopp medisinen: shard 1, 2 og 6
+          # var grønne i det samme minuttet som 3, 4 og 5 hang, så det var
+          # forbindelsen som var død — ikke speilet.
+          sudo tee /etc/apt/apt.conf.d/99-huskis-nett > /dev/null <<'CONF'
+          Acquire::Retries "2";
+          Acquire::http::Timeout "20";
+          Acquire::https::Timeout "20";
+          CONF
+
+          # Retryen må ligge rundt install-deps selv, og fristen regnes ut fra
+          # hvor mye av JOBBENS budsjett som faktisk er igjen — ikke fra et
+          # fast tall. Summen av stegtakene (3 + 12 + 20) overstiger med vilje
+          # jobbens 25: hvert tak er en bakstopper for SITT steg. Med en fast
+          # frist ville derfor jobbtaket kunne slå inn før løkka rakk å si fra
+          # selv, og da er vi tilbake til den anonyme «The operation was
+          # canceled» denne blokken finnes for å bli kvitt. Det er ikke en
+          # teoretisk bane: ved et cache-bom har Chromium-nedlastingen kjørt
+          # rett foran her.
+          JOBB_TAK_S=$((25 * 60))    # må være jobbens timeout-minutes
+          TEST_RESERVE_S=$((4 * 60)) # tregeste målte shard: 2min 38s
+          if [ -n "${JOBB_START:-}" ]; then
+            igjen=$(( JOBB_TAK_S - ( $(date +%s) - JOBB_START ) - TEST_RESERVE_S ))
+          else
+            echo "::warning::JOBB_START mangler — faller tilbake på en fast frist."
+            igjen=$((5 * 60))
+          fi
+          if [ "$igjen" -le 0 ]; then
+            echo "::error::Ikke nok igjen av jobbens budsjett til å installere systembibliotekene. Stegene foran brukte for lang tid — se hvilket av dem som gikk tregt, og kjør jobben på nytt."
+            exit 1
+          fi
+          frist=$((SECONDS + igjen))
+          forsok=1
+          until playwright install-deps chromium; do
+            if [ "$forsok" -ge 3 ] || [ "$SECONDS" -ge "$frist" ]; then
+              echo "::error::install-deps feilet $forsok gang(er). Står det «Connection timed out» eller «Failed to fetch» over denne linja, var det apt-speilet — kjør jobben på nytt. Står det «Unable to locate package», er avhengigheten ekte borte og en ny kjøring hjelper ikke."
+              exit 1
+            fi
+            echo "::warning::install-deps feilet (forsøk $forsok) — prøver igjen om $((forsok * 10)) s."
+            sleep $((forsok * 10))
+            forsok=$((forsok + 1))
+          done
 
       - name: Kjør JS-testene
         env:

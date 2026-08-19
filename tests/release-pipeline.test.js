@@ -19,7 +19,8 @@
      5. vercel.json slår av Vercels egen git-deploy for main (ellers ville
         Vercel deployet parallelt med migreringen)
      6. ingen ANNEN workflow migrerer databasen eller deployer til produksjon
-     7. ci.yml kjører både JS- og SQL-suiten, og gjenbrukes av release.yml
+     7. ci.yml kjører både JS- og SQL-suiten, og gjenbrukes av release.yml —
+        og nettstegene der kan ikke henge til jobbens timeout
      8. deployjobben sjekker Vercel-tilgangen FØR den bygger, forklarer 401/403/
         404 hver for seg, og logger aldri tokenet — og bruker ikke `vercel pull`
      9. Vercel CLI-en er låst til en EKSAKT versjon (aldri `@latest`), definert
@@ -242,6 +243,201 @@ check('ci.yml rører ikke produksjonsdatabasen',
   !/SUPABASE_DB_URL/.test(utenKommentarer(ci)));
 check('ci.yml deployer ikke',
   !/vercel\s+deploy/.test(utenKommentarer(ci)));
+
+/* Nettstegene i JS-jobben kan ikke henge til jobbens timeout.
+
+   2026-08-19 hang `playwright install-deps` inne i sitt eget `apt-get update`,
+   mot et Ubuntu-speil som godtok forbindelsen, sendte headeren og så ble
+   stille. Shard 3, 4 og 5 brukte hele jobbens 25 minutter uten å kjøre én
+   testkropp, to runder på rad (run 32231446083). Det er ikke en testfeil, men
+   loggen ser ut som en: siste linje er «The operation was canceled».
+
+   Tre ting holder det borte, og alle tre kan fjernes uten at noen annen test
+   merker det:
+     · timeoutene må stå i apt-KONFIGURASJONEN. `playwright install-deps`
+       kjører sitt EGET apt-get update inne i seg selv, så et forsteg med
+       `-o Acquire::...` treffer ikke kallet som faktisk henger.
+     · retryen må ligge rundt install-deps selv, og gi opp med ::error::, slik
+       at en oppbrukt retry ser annerledes ut enn en ekte avhengighetsfeil.
+     · stegene som går ut på nett må ha et tak under jobbens 25 minutter. */
+const jsJobb = ciJobs.js || '';
+const jsTak = Number((jsJobb.match(/^ {4}timeout-minutes:\s*(\d+)/m) || [])[1]);
+
+/* Deler en jobb i ett tekststykke per steg. Kommentarene er strippet først:
+   forklaringen over cachesteget nevner «timeout-minutes» i prosa, og en vakt
+   som leser sin egen begrunnelse er ingen vakt. */
+function stegene(jobb) {
+  const ut = [];
+  let cur = null;
+  for (const l of utenKommentarer(jobb).split('\n')) {
+    if (/^ {6}- /.test(l)) { if (cur) ut.push(cur.join('\n')); cur = [l]; }
+    else if (cur) cur.push(l);
+  }
+  if (cur) ut.push(cur.join('\n'));
+  return ut;
+}
+const jsSteg = stegene(jsJobb);
+const stegMed = (frag) => jsSteg.find((s) => s.includes(frag)) || '';
+const harTak = (s) => Number((s.match(/^\s*timeout-minutes:\s*(\d+)/m) || [])[1]) || 0;
+
+const deps = stegMed('install-deps chromium');
+
+/* Takene er BAKSTOPPERE, hvert for sitt steg — ikke budsjetter stegene må
+   holde seg innenfor. Forskjellen er målt, ikke prinsipiell: i run 32246391806
+   brukte de seks shardene 21/32/38/42/283 sekunder på det samme steget, og et
+   tak på 6 minutter felte den sjette. Hele spredningen er apt-speilets
+   hastighet — de samme 21,1 MB lastes ned på alt fra 12 s til 2min 32s.
+
+   Men fordi hvert tak er en bakstopper, er SUMMEN av dem med vilje større enn
+   jobbens tak (3 + 12 + 20 = 35 mot 25). Da må to ting holde, og ingen av dem
+   følger av at hvert enkelt tak er under jobbens:
+
+     1. Det må stå igjen et GULV til install-deps selv når stegene foran bruker
+        hele taket sitt — ellers kan et cache-bom spise budsjettet, og jobbens
+        tak slår inn før noe steg rekker å si fra selv. Det er nettopp den
+        anonyme «The operation was canceled» hele blokken finnes for å unngå.
+     2. Fristen i retry-løkka må regnes ut fra hvor mye av jobbens budsjett som
+        FAKTISK er igjen. En fast frist vet ikke hva stegene foran brukte. */
+const OPPSTART_MIN = 1;   // checkout + setup-node + cache: målt 4–12 s
+const TESTRESERVE_MIN = 4; // tregeste målte shard: 2min 38s
+
+const pwTak = harTak(stegMed('npm install -g playwright'));
+const chromeTak = harTak(stegMed('playwright install chromium'));
+const gulv = jsTak - OPPSTART_MIN - pwTak - chromeTak - TESTRESERVE_MIN;
+
+check('install-deps har sitt eget tak, under jobbens',
+  harTak(deps) > 0 && harTak(deps) < jsTak,
+  `steg ${harTak(deps)} min mot jobbens ${jsTak} min`);
+
+check('det står igjen et gulv til install-deps selv ved cache-bom',
+  gulv >= 5,
+  `${jsTak} − ${OPPSTART_MIN} oppstart − ${pwTak} playwright − ${chromeTak} chromium ` +
+  `− ${TESTRESERVE_MIN} testreserve = ${gulv} min igjen`);
+
+/* Fristen må være budsjettstyrt, ikke et fast tall. */
+check('løkka leser jobbens starttid i stedet for å gjette',
+  /JOBB_START/.test(deps) && /date \+%s/.test(deps),
+  'ellers vet ikke fristen hva stegene foran brukte');
+
+check('jobbens starttid blir faktisk satt, og før nettstegene',
+  /JOBB_START=\$\(date \+%s\)" >> "\$GITHUB_ENV"/.test(jsJobb) &&
+  jsJobb.indexOf('JOBB_START=$(date') < jsJobb.indexOf('install-deps chromium'));
+
+/* Regnestykket i skriptet må bruke jobbens EGET tak. Endrer noen
+   timeout-minutes på jobben uten å endre skriptet, driver de fra hverandre og
+   fristen blir stille feil. */
+const takIskript = Number((deps.match(/JOBB_TAK_S=\$\(\((\d+) \* 60\)\)/) || [])[1]);
+check('skriptets jobbtak er det samme som jobbens timeout-minutes',
+  takIskript === jsTak,
+  `skript ${takIskript} min mot jobbens ${jsTak} min`);
+
+const reserveIskript = Number((deps.match(/TEST_RESERVE_S=\$\(\((\d+) \* 60\)\)/) || [])[1]);
+check('skriptet holder av en testreserve som dekker den tregeste sharden',
+  reserveIskript >= TESTRESERVE_MIN,
+  `${reserveIskript} min avsatt`);
+
+for (const [navn, frag] of [['npm install -g playwright', 'npm install -g playwright'],
+                            ['playwright install chromium', 'playwright install chromium']]) {
+  check(`nedlastingssteget «${navn}» har et tak`,
+    harTak(stegMed(frag)) > 0, `${harTak(stegMed(frag))} min`);
+}
+
+/* Shell-blokkene må holde som bash. To feilklasser, og `bash -n` fanger bare
+   den ene:
+
+     · ubalanserte sitater, en heredoc som ikke lukkes, et manglende `done` —
+       parsefeil, og dem tar `bash -n`.
+     · et ugyldig variabelnavn. `for forsøk in 1 2 3` PARSER fint; bash sier
+       først «`forsøk': not a valid identifier» når linja kjøres. I et repo
+       der alt annet skrives på norsk er det en nærliggende feil å gjøre, og
+       den viser seg da først i CI.
+
+   Den andre fanges ved å strippe kommentarer, sitater og heredoc-kropper —
+   der HØRER norsk hjemme — og kreve at det som står igjen, selve koden, er
+   ren ASCII. */
+function kodedel(skript) {
+  let ut = '', heredoc = null;
+  for (const linje of skript.split('\n')) {
+    if (heredoc !== null) { if (linje.trim() === heredoc) heredoc = null; continue; }
+    let i = 0, kode = '';
+    while (i < linje.length) {
+      const c = linje[i];
+      if (c === '\\') { i += 2; continue; }
+      if (c === '#' && (i === 0 || /\s/.test(linje[i - 1]))) break;
+      if (c === "'") { const slutt = linje.indexOf("'", i + 1); i = slutt === -1 ? linje.length : slutt + 1; continue; }
+      if (c === '"') {
+        i++;
+        while (i < linje.length && linje[i] !== '"') i += linje[i] === '\\' ? 2 : 1;
+        i++; continue;
+      }
+      kode += c; i++;
+    }
+    const hd = kode.match(/<<-?\s*'?([A-Za-z_][A-Za-z0-9_]*)'?/);
+    if (hd) heredoc = hd[1];
+    ut += kode + '\n';
+  }
+  return ut;
+}
+
+/* Trekker ut run-blokkene slik YAML leser dem: innrykket settes av første
+   linje etter nøkkelen, og blokken slutter der innrykket blir mindre. Nok til
+   å få tak i skriptet som faktisk kjører — repoet har ingen YAML-parser. */
+function runBlokker(yaml) {
+  const linjer = yaml.split('\n');
+  const ut = [];
+  for (let i = 0; i < linjer.length; i++) {
+    /* Blokkformen først: «run: |» ville ellers blitt lest som en enlinjers
+       kommando der selve |-tegnet er kommandoen. */
+    if (!/^\s*(?:- )?run:[ \t]*\|-?[ \t]*$/.test(linjer[i])) {
+      const enkel = linjer[i].match(/^\s*(?:- )?run:[ \t]+([^|>\s].*)$/);
+      if (enkel) ut.push(enkel[1]);
+      continue;
+    }
+    const kropp = [];
+    let base = null;
+    for (let j = i + 1; j < linjer.length; j++) {
+      if (linjer[j].trim() === '') { kropp.push(''); continue; }
+      const inn = linjer[j].length - linjer[j].replace(/^ +/, '').length;
+      if (base === null) base = inn;
+      if (inn < base) break;
+      kropp.push(linjer[j].slice(base));
+    }
+    ut.push(kropp.join('\n'));
+  }
+  return ut;
+}
+
+for (const [fil, kilde] of [['ci.yml', ci], ['release.yml', release]]) {
+  const blokker = runBlokker(kilde);
+  const feil = [];
+  blokker.forEach((b, i) => {
+    /* ${{ ... }} er GitHub-uttrykk, ikke shell. De byttes ut med et vanlig ord
+       så bash ser den fasongen den faktisk får utdelt. */
+    const skript = b.replace(/\$\{\{[\s\S]*?\}\}/g, 'GHEXPR');
+    const tmpfil = path.join(os.tmpdir(), `huskis-run-${process.pid}-${fil}-${i}.sh`);
+    fs.writeFileSync(tmpfil, skript);
+    const r = spawnSync('bash', ['-n', tmpfil], { encoding: 'utf8' });
+    fs.unlinkSync(tmpfil);
+    /* Også ADVARSLER teller. En heredoc som aldri lukkes gir exit 0 og bare
+       «warning: here-document … delimited by end-of-file» på stderr — mens
+       resten av blokken stilltiende er slukt som heredoc-innhold. */
+    const klage = (r.stderr || '').trim();
+    if (r.status !== 0 || klage) feil.push(`#${i}: ${klage.split('\n')[0]}`);
+  });
+  check(`alle run-blokkene i ${fil} parser som bash`,
+    blokker.length > 0 && feil.length === 0,
+    feil.length ? feil.join(' | ') : `${blokker.length} blokker`);
+
+  const ikkeAscii = [];
+  blokker.forEach((b, i) => {
+    kodedel(b.replace(/\$\{\{[\s\S]*?\}\}/g, 'GHEXPR')).split('\n').forEach((l) => {
+      if ([...l].some((c) => c.charCodeAt(0) > 126)) ikkeAscii.push(`#${i}: ${l.trim()}`);
+    });
+  });
+  check(`ingen norske tegn i kodeposisjon i ${fil} (ugyldige variabelnavn)`,
+    ikkeAscii.length === 0,
+    ikkeAscii.length ? ikkeAscii.join(' | ') : `${blokker.length} blokker`);
+}
 
 /* SQL-suiten må faktisk kjøre smoke-testen, ellers kan den være ødelagt uten
    at noen ser det før den blokkerer en release. */
