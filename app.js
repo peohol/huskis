@@ -11628,34 +11628,60 @@
      `readyTimeout` gjenoppretter den innebygde bundelen når en OTA-bundle
      aldri rekker readiness-punktet — men den hindrer ikke at NESTE kaldstart
      stiller opp nøyaktig den samme `bundleId`-en på nytt. `setNextBundle()`
-     konsulterer aldri pluginens blokkliste; den leses kun i pluginens egen
+     konsulterer ALDRI en blokkliste selv; den sjekker bare at bundelen finnes
+     (`hasBundleById`), og `isBlockedBundleId()` leses kun i pluginens egen
      `sync()`-flyt, som Huskis ikke bruker (docs/mobilapp-plan.md, «En
-     rullet-tilbake bundle må være varig sperret»). Uten en vakt her ville et
-     manifest som blir stående på en dårlig bundle gitt én ødelagt kaldstart
-     annenhver gang, i det uendelige.
+     rullet-tilbake bundle må være varig sperret»). Uten en vakt før
+     oppstillingen ville et manifest som blir stående på en dårlig bundle gitt
+     én ødelagt kaldstart om og om igjen.
 
-     Pluginens egen `autoBlockRolledBackBundles` er slått på og leses under,
-     men den fyller listen KUN når `ready()` kommer for sent i den SAMME
-     prosessen (`rollbackPerformed` er et minneflagg, lest i LiveUpdate.java
-     8.4.0). Den vanlige veien — appen dør med den dårlige bundelen og
-     kaldstarter på den innebygde — fanges derfor av vår egen, varige
-     karantene: `ready()` melder da `currentBundleId === null` (vi kjører den
-     innebygde) sammen med en `previousBundleId` (den vi kjørte sist). Den
-     signaturen ER rollbacken, og den vises nøyaktig én gang — `ready()`
-     overskriver `previousBundleId` med det samme. */
+     PLUGINENS EGEN LISTE ER HOVEDVAKTEN, og `autoBlockRolledBackBundles` er
+     slått på. Lest i LiveUpdate.java 8.4.0: `rollback()` setter
+     `rollbackPerformed`, husker den dårlige bundelen som `previousBundleId`,
+     bytter til den innebygde og kaller `Bridge.reload()` — alt i SAMME
+     prosess. Den innebygde bundelen laster da med det samme, `ready()` treffer
+     et `rollbackPerformed` som fortsatt er `true`, og pluginen fører bundelen
+     opp i sin egen varige liste. Den vanlige rollback-veien er altså dekket.
+
+     Vår egen liste er ETT lag til, for det ene tilfellet pluginens ikke kan
+     dekke: dør prosessen mellom rollbacken og readiness-punktet i den
+     innebygde bundelen, blir flagget aldri lest, og neste kaldstart har det
+     ikke lenger (det bor i minnet). Da står `previousBundleId` igjen alene, og
+     `ready()` melder `currentBundleId === null` (vi kjører den innebygde)
+     sammen med den. Den signaturen ER rollbacken, og den vises nøyaktig én
+     gang — `ready()` overskriver `previousBundleId` med det samme.
+
+     Begge veier inn i listen er FAIL CLOSED: kan den ikke leses, eller kunne
+     en rollback ikke føres opp i den, stiller vi ingenting opp. En liste vi
+     ikke kan stole på er ikke det samme som en tom liste. */
   const OTA_BLOCK_KEY = 'huskis:ota-blocked';
+  let otaQuarantineBroken = false;   // en rollback kunne ikke føres opp
+  /* `[]` = lest, ingenting sperret. `null` = kunne IKKE leses — verken
+     blokkert lagring, en verdi som ikke lar seg parse, eller noe som ikke er
+     en liste av strenger er det samme som «vi vet ikke». */
   function otaQuarantine() {
+    let raa;
+    try { raa = localStorage.getItem(OTA_BLOCK_KEY); } catch (e) { return null; }
+    if (raa == null) return [];
     try {
-      const v = JSON.parse(localStorage.getItem(OTA_BLOCK_KEY) || '[]');
-      return Array.isArray(v) ? v.filter((x) => typeof x === 'string') : [];
-    } catch (e) { return []; }
+      const v = JSON.parse(raa);
+      if (!Array.isArray(v) || v.some((x) => typeof x !== 'string')) return null;
+      return v;
+    } catch (e) { return null; }
   }
+  /* Skrivingen leses tilbake, som ett-forsøk-vakten i update-check.js: en
+     rollback vi ikke KAN føre opp må stoppe oppstillingen, ikke forsvinne. Var
+     listen uleselig, skrives den fersk — den gamle kunne uansett ikke brukes,
+     og en leselig liste er bedre enn en ødelagt. */
   function otaQuarantineAdd(id) {
-    const list = otaQuarantine();
-    if (!id || list.indexOf(id) > -1) return;
-    list.push(id);
-    while (list.length > 20) list.shift();   // en liste, ikke et arkiv
-    try { localStorage.setItem(OTA_BLOCK_KEY, JSON.stringify(list)); } catch (e) {}
+    if (!id) return;
+    const lest = otaQuarantine();
+    const ny = (lest || []).indexOf(id) > -1 ? lest.slice() : (lest || []).concat([id]);
+    while (ny.length > 20) ny.shift();   // en liste, ikke et arkiv
+    try { localStorage.setItem(OTA_BLOCK_KEY, JSON.stringify(ny)); }
+    catch (e) { otaQuarantineBroken = true; return; }
+    const igjen = otaQuarantine();
+    if (!igjen || igjen.indexOf(id) === -1) otaQuarantineBroken = true;
   }
   function noteRollback(res) {
     liveReady = res && typeof res === 'object' ? res : null;
@@ -11798,17 +11824,20 @@
     return otaPreparing;
   }
 
-  /* Både vår egen varige karantene og pluginens egen blokkliste. Den siste
-     fylles kun av `autoBlockRolledBackBundles` og kun i den ene prosessen der
-     `ready()` kom for sent; den første dekker den vanlige veien. Begge er
-     persistente, og et avvist mål stilles derfor ikke opp igjen ved neste
-     kaldstart. */
+  /* Begge listene: pluginens egen (hovedvakten, fylt av
+     `autoBlockRolledBackBundles`) og vår egen (det ene tilfellet pluginens
+     ikke kan dekke — se over). Begge er persistente, så et avvist mål stilles
+     ikke opp igjen ved neste kaldstart. Hvert eneste utfall vi ikke kan
+     fastslå er et NEI. */
   async function otaBlockedBundle(live, bundleId) {
-    if (otaQuarantine().indexOf(bundleId) > -1) return true;
+    if (otaQuarantineBroken) return true;                            // fail closed
+    const egen = otaQuarantine();
+    if (egen === null) return true;                                  // fail closed
+    if (egen.indexOf(bundleId) > -1) return true;
     if (typeof live.getBlockedBundles !== 'function') return true;   // fail closed
     const r = await live.getBlockedBundles();
-    const ids = r && Array.isArray(r.bundleIds) ? r.bundleIds : [];
-    return ids.indexOf(bundleId) > -1;
+    if (!r || !Array.isArray(r.bundleIds)) return true;              // fail closed
+    return r.bundleIds.indexOf(bundleId) > -1;
   }
 
   async function downloadOtaBundle(live, m) {
@@ -13118,7 +13147,8 @@
     // sist, og om en rollback ble utført. Lest i enhetsøkten når rollback-
     // veien skal prøves; det er den samme meldingen karantenen leser.
     get liveReady() { return liveReady; },
-    // Bundle-ID-er som er varig sperret på denne enheten (rullet tilbake).
+    // Bundle-ID-er klienten har sperret varig på denne enheten (rullet
+    // tilbake). `null` = listen kunne ikke leses, og da stilles ingenting opp.
     get otaBlocked() { return otaQuarantine(); },
     /* Krokene update-check.js slår opp ved hvert kall: er mål-builden
        reloadbar (nedlastet + stilt opp), og hvordan byttes den. Avgjørelsen —

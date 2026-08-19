@@ -83,12 +83,17 @@ env:
   # Kan aldri være 1: både skallet før OTA-pluginen og skallet etter meldte `1`.
   # `tests/release-pipeline.test.js` vokter begge grensene.
   #
-  # BLIR STÅENDE PÅ 2 selv om skallet nå er 3: web-koden som stiller opp og
-  # bytter bundle bruker bare metoder pluginen har i begge nivåer, og vakten mot
-  # en rullet-tilbake bundle er klientens egen, varige karantene — den virker
-  # også i et nivå 2-skall, der `autoBlockRolledBackBundles` ikke er slått på.
-  # Nivå 2 er dessuten skallet de gjenstående enhetsmålingene skal gjøres på.
-  OTA_MIN_VERSION_CODE: '2'
+  # REGELEN FOR VERDIEN: det laveste skallet som kan TA I BRUK en bundle — ikke
+  # det laveste skallet der pluginen har metodene. Grensen avhenger av
+  # web-koden som ALLEREDE KJØRER i skallet, for det er den som må stille opp
+  # bundelen; koden som kan det ligger inne i bundelen, og hjelper derfor ikke
+  # et skall som ikke rekker å ta den i bruk.
+  #
+  # Derfor 3, ikke 2: et `versionCode 2`-skall bærer web-koden fra før
+  # oppstillingsrunden. Den laster ned bundelen og stopper — den kaller aldri
+  # `setNextBundle()`. Et manifest på nivå 2 ville lovet en oppdatering som
+  # aldri kan aktiveres. Nivå 3 er det første skallet som bærer oppstillingen.
+  OTA_MIN_VERSION_CODE: '3'
 
 jobs:
   # ---- 1. Tester ------------------------------------------------------

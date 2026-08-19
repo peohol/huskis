@@ -566,13 +566,14 @@ check('readyTimeout er satt til et positivt antall ms (0 = rollback AV)',
 check('autoUpdateStrategy er ikke slått på (pluginen henter ingenting av seg selv)',
   !!lu && (lu.autoUpdateStrategy === undefined || lu.autoUpdateStrategy === 'none'),
   lu ? String(lu.autoUpdateStrategy) : 'mangler');
-/* Karantenen pluginen selv fører: standardverdien er `false`, og feltet har
-   først noe å føre opp fra og med runden som stiller opp en bundle — før den
-   fantes ingen rollback som kunne fylle listen. Feltet pakkes inn i APK-en, og
-   `versionCode` under er derfor økt i den samme endringen. Klientens EGEN
-   karantene i app.js står ved siden av: pluginens liste fylles kun når
-   `ready()` kommer for sent i den samme prosessen (docs/mobilapp-plan.md, «En
-   rullet-tilbake bundle må være varig sperret»). */
+/* Karantenen pluginen selv fører, og HOVEDVAKTEN mot at en rullet-tilbake
+   bundle stilles opp igjen: standardverdien er `false`, og feltet har først noe
+   å føre opp fra og med runden som stiller opp en bundle — før den fantes
+   ingen rollback som kunne fylle listen. Feltet pakkes inn i APK-en, og
+   `versionCode` under er derfor økt i den samme endringen. Klientens egen
+   karantene i app.js er ETT lag til, for det ene tilfellet pluginens ikke
+   dekker (docs/mobilapp-plan.md, «En rullet-tilbake bundle må være varig
+   sperret»). */
 check('autoBlockRolledBackBundles er slått PÅ (standard er false)',
   !!lu && lu.autoBlockRolledBackBundles === true,
   lu ? String(lu.autoBlockRolledBackBundles) : 'mangler');
@@ -751,14 +752,44 @@ check('en bundle som alt ligger i lageret regnes som klargjort, ikke som en feil
   (stageKropp.match(/otaFetch\.state !== [^)]*/) || ['fant ikke sjekken'])[0]);
 const blockKropp = (appKode.match(/async function otaBlockedBundle\([^)]*\) \{([\s\S]*?)\n  \}/) || [, ''])[1] || '';
 check('karantenen leser BÅDE vår egen varige liste og pluginens blokkliste',
-  /otaQuarantine\(\)\.indexOf\(bundleId\) > -1/.test(blockKropp)
-    && /live\.getBlockedBundles\(/.test(blockKropp)
-    && /typeof live\.getBlockedBundles !== 'function'\) return true;/.test(blockKropp),
+  /egen\.indexOf\(bundleId\) > -1/.test(blockKropp)
+    && /live\.getBlockedBundles\(/.test(blockKropp),
   blockKropp.trim() || 'fant ikke funksjonen');
-/* Vår egen karantene er den som dekker den vanlige veien: pluginens liste
-   fylles kun når `ready()` kommer for sent i den SAMME prosessen. Signaturen
-   etter en kaldstart er `ready()`-svaret — vi kjører den innebygde bundelen
-   (`currentBundleId == null`) og forrige var en annen. */
+/* Fail closed hele veien: en liste som ikke kan LESES er ikke det samme som en
+   tom liste, en rollback som ikke kunne FØRES OPP er ikke det samme som ingen
+   rollback, og et svar fra broen som ikke er en liste er ikke ingen sperre.
+   Hver av dem betyr «vi vet ikke», og da stilles ingenting opp. */
+const NEI = [
+  ['en rollback som ikke kunne føres opp', /if \(otaQuarantineBroken\) return true;/],
+  ['en liste som ikke kan leses', /if \(egen === null\) return true;/],
+  ['en bro uten getBlockedBundles', /typeof live\.getBlockedBundles !== 'function'\) return true;/],
+  ['et svar som ikke er en liste', /!Array\.isArray\(r\.bundleIds\)\) return true;/],
+];
+NEI.forEach(([navn, re]) => {
+  check('karantenen er fail closed: ' + navn + ' er et NEI',
+    re.test(blockKropp), blockKropp.trim() || 'fant ikke funksjonen');
+});
+/* Lesningen må skille «tom» fra «uleselig», ellers er fail closed-sjekken over
+   pynt: en blokkert lagring ville lest som en tom liste. */
+const lesKropp = (appKode.match(/function otaQuarantine\(\) \{([\s\S]*?)\n  \}/) || [, ''])[1] || '';
+check('en uleselig karanteneliste skilles fra en tom (null vs [])',
+  /catch \(e\) \{ return null; \}/.test(lesKropp)
+    && /if \(raa == null\) return \[\];/.test(lesKropp)
+    && /return null;/.test(lesKropp),
+  lesKropp.trim() || 'fant ikke funksjonen');
+/* Og skrivingen leses tilbake — samme regel som ett-forsøk-vakten i
+   update-check.js. En rollback vi ikke klarte å føre opp skal stoppe
+   oppstillingen, ikke forsvinne stille. */
+const skrivKropp = (appKode.match(/function otaQuarantineAdd\([^)]*\) \{([\s\S]*?)\n  \}/) || [, ''])[1] || '';
+check('skrivingen til karantenen leses tilbake, og en feilet skriving sperrer oppstillingen',
+  /catch \(e\) \{ otaQuarantineBroken = true; return; \}/.test(skrivKropp)
+    && /if \(!igjen \|\| igjen\.indexOf\(id\) === -1\) otaQuarantineBroken = true;/.test(skrivKropp),
+  skrivKropp.trim() || 'fant ikke funksjonen');
+/* Vår egen karantene dekker det ene tilfellet pluginens ikke kan: dør
+   prosessen mellom rollbacken og readiness-punktet i den innebygde bundelen,
+   er `rollbackPerformed` borte ved neste kaldstart (det bor i minnet). Da står
+   `previousBundleId` igjen alene, og `ready()` melder `currentBundleId == null`
+   sammen med den. Den signaturen ER rollbacken. */
 const rollbackKropp = (appKode.match(/function noteRollback\([^)]*\) \{([\s\S]*?)\n  \}/) || [, ''])[1] || '';
 check('en rullet-tilbake bundle føres i en VARIG karantene (localStorage), ikke bare i minnet',
   /liveReady\.rollback === true \|\| liveReady\.currentBundleId == null/.test(rollbackKropp)

@@ -17,7 +17,7 @@ autoritative dokumentet for fagfeltet.
 | Nåværende fase | **Fase 5 — OTA for web-assets.** Fase 3 og fase 4 er ferdige; begge ferdigkriteriene ble oppfylt på fysisk enhet i samme `chrome://inspect`-økt. Fase 5 startet ikke med kode: OTA-løsningen skulle velges først, mot åtte krav, og **valget er tatt**. Kjeden er nå hel i koden — det som gjenstår av fasen er å prøve den på en fysisk telefon. Statusen for hver fase står på hver sin rad under. |
 | Status — fase 3 | **Ferdigkriteriet er nådd.** Alle seks punktene er avgjort: systemets tilbakeknapp og safe areas/systemfeltene/skjermtastaturet, begge verifisert på fysisk telefon; eksterne lenker og auth-/e-postlenker, som begge er beslutninger uten kode og derfor ikke har noe å prøve på en telefon; sikker lagring/`android:allowBackup`, der sikkerhetskopien av WebView-lagringen er slått av; og lifecycle-/network-signalene, målt på enhet med sonden. `navigator.onLine` er bekreftet dødt uten `ACCESS_NETWORK_STATE`, og tillatelsen er lagt inn med vakt. Gjenopptakelsen er tilskrevet: et `get_my_doc` står i enhetsloggen merket `by: 'visibilitychange'`. Målingen viste samtidig at hendelsen IKKE leveres når Android har fryst prosessen — der starter pollets forfalte tikk runden i samme øyeblikk som opptiningen. Begge ledd er dermed bærende, hvert i sitt regime (se seksjonen). Ingen native plugin er innført. Automatisk dekket av `tests/safe-area.test.js`, `tests/landscape-chrome.test.js`, `tests/system-back.test.js`, `tests/sync-foreground.test.js` (del 2 og del 6 kjører hvert sitt regime) og `tests/capacitor-android.test.js`. |
 | Status — fase 4 | Fase 4s ferdigkriterium er **oppfylt**: en kjørende APK og en Vercel-preview bygget av samme commit rapporterte den samme `releaseId` (`d10867a7c0a6`) med hver sin `buildId`, lest på telefon. Alle sju punktene er avgjort. Fem er implementert: kartleggingen av dagens release-identiteter, `releaseId` er definert og generert i `build.js`, web og Android bygget fra samme commit rapporterer den samme verdien, `version.json` er utvidet additivt uten at cache- eller reload-sikkerheten er rørt, og kompatibilitetsregelen mellom klientrelease og databaseskjema er skrevet ned ([`release-og-deploy.md`](release-og-deploy.md)). De to siste er beslutninger, ikke kode — `minimumSupportedRelease` og valget mellom byte-identisk artifact og separate builds — sto åpne til OTA ga dem en konsekvens, og er nå avgjort i fase 5: ingen nedre grense, og separate builds med samme `releaseId` (se «De to punktene fra fase 4 får sitt svar her»). Automatisk dekket av `tests/build-version.test.js`, `tests/auto-update.test.js` og `tests/capacitor-android.test.js`. |
-| Status — fase 5 | **Hele kjeden står i koden: pluginen/rollback-veien, den signerte bundelen med manifestet, hentingen — og nå OPPSTILLINGEN OG BYTTET.** En APK leser manifestet på URL-en skallets `getVersionCode()` bestemmer, validerer det ved systemgrensen, sammenligner `releaseId` med `===`, laster ned bundelen, spør karantenen, og stiller den opp med `setNextBundle()`. Bundelen tas i bruk ved neste kaldstart — eller med en gang, gjennom `LiveUpdate.reload()`, som går den samme veien som en vanlig nettleser-reload: `updateSafety()`, banneret, inaktivitetsregelen og ett-forsøk-vakten i `update-check.js`. Leddet som er lagt til der er **klargjøringen**: et mål er ikke reloadbart før nedlasting OG oppstilling har lykkes, en feilet klargjøring brenner ikke ett-forsøk-vakten, og banneret vises ikke før målet er stilt opp. Karantenen er varig og dobbel: pluginens egen blokkliste (`autoBlockRolledBackBundles` er nå slått PÅ) og klientens egen liste i `localStorage`, som dekker den vanlige rollback-veien pluginens flagg IKKE fanger (se «En rullet-tilbake bundle må være varig sperret»). `versionCode` er økt til `3` fordi konfigurasjonsfeltet pakkes inn i APK-en; `OTA_MIN_VERSION_CODE` blir stående på `2`. Flyten er KJØRT i ekte nettleser med faket bro (`tests/ota-fetch.test.js`: oppstilling, karantene, fail closed-blokkliste, feilet oppstilling) og klargjøringen i `tests/auto-update.test.js`. **Ikke prøvd på enhet ennå:** de to punktene hente-runden gjorde målbare (nedlastingen utenfor WebView-ens CSP, og telefonens verifisering av produksjonssignaturen), og de tre denne runden gjør målbare for første gang (rollback av en bundle som aldri når `ready()`, `reload()` som beholder originet, og et bytte gjennom `updateSafety()`). **Ingen av implementasjonspunktene i sjekklisten er krysset av ennå.** |
+| Status — fase 5 | **Hele kjeden står i koden: pluginen/rollback-veien, den signerte bundelen med manifestet, hentingen — og nå OPPSTILLINGEN OG BYTTET.** En APK leser manifestet på URL-en skallets `getVersionCode()` bestemmer, validerer det ved systemgrensen, sammenligner `releaseId` med `===`, laster ned bundelen, spør karantenen, og stiller den opp med `setNextBundle()`. Bundelen tas i bruk ved neste kaldstart — eller med en gang, gjennom `LiveUpdate.reload()`, som går den samme veien som en vanlig nettleser-reload: `updateSafety()`, banneret, inaktivitetsregelen og ett-forsøk-vakten i `update-check.js`. Leddet som er lagt til der er **klargjøringen**: et mål er ikke reloadbart før nedlasting OG oppstilling har lykkes, en feilet klargjøring brenner ikke ett-forsøk-vakten, og banneret vises ikke før målet er stilt opp. Karantenen er varig og har to lag, begge fail closed: pluginens egen blokkliste (`autoBlockRolledBackBundles` er nå slått PÅ) er hovedvakten, og klientens egen liste i `localStorage` dekker det ene tilfellet den ikke kan — at prosessen dør mellom rollbacken og readiness-punktet (se «En rullet-tilbake bundle må være varig sperret»). `versionCode` er økt til `3` fordi konfigurasjonsfeltet pakkes inn i APK-en, og `OTA_MIN_VERSION_CODE` er hevet til `3` med det: et nivå 2-skall bærer web-kode som laster ned uten å stille opp, og ville fått lovet en oppdatering det aldri kan aktivere. Flyten er KJØRT i ekte nettleser med faket bro (`tests/ota-fetch.test.js`: oppstilling, karantene, fail closed-blokkliste, feilet oppstilling) og klargjøringen i `tests/auto-update.test.js`. **Ikke prøvd på enhet ennå:** de to punktene hente-runden gjorde målbare (nedlastingen utenfor WebView-ens CSP, og telefonens verifisering av produksjonssignaturen), og de tre denne runden gjør målbare for første gang (rollback av en bundle som aldri når `ready()`, `reload()` som beholder originet, og et bytte gjennom `updateSafety()`). **Ingen av implementasjonspunktene i sjekklisten er krysset av ennå.** |
 | Neste milepæl | Fase 5: første OTA-bundle som flytter en APK til samme `releaseId` som `huskis.no` |
 | Neste praktiske steg — fase 3 | Ingen. Fasen er ferdig |
 | Neste praktiske steg — fase 4 | Ingen. Fasen er ferdig; de to «vurder …»-punktene fikk sitt svar i fase 5 |
@@ -1602,7 +1602,7 @@ karantenen kan prøves i praksis.
 | `tests/auto-update.test.js` | klargjøringen KJØRT i ekte nettleser med injisert `prepare`: et uklargjort mål gir verken banner eller reload og brenner ikke ett-forsøk-vakten, en feilet klargjøring prøves igjen ved neste kontroll, en vellykket klargjøring viser banneret og gjennomfører reloaden med nøyaktig ett registrert forsøk, og «Oppdater nå» laster ikke noe som ikke er stilt opp — men gjennomføres straks klargjøringen har lykkes |
 | `android/app/build.gradle` | `versionCode 3` — økt fordi `autoBlockRolledBackBundles` pakkes inn i APK-en. Tallet ER kompatibilitetsgrensen (se under) |
 | `.github/scripts/ota-bundle.js` | pakker `dist/` til `ota/bundles/<buildId>.zip`, signerer ZIP-bytene (`crypto.createSign('sha256')`, base64), VERIFISERER signaturen mot den innebygde `publicKey` før noe skrives, og skriver ett manifest per støttet nivå. Ren Node — `fs`, `path`, `crypto`, `child_process` — så byggesteget får ingen avhengighet |
-| `.github/workflows/release.yml` | steget kjører i deployjobben, altså bak `needs: smoke`, på den samme `github.sha` som ble migrert og smoke-testet, og legger utdataene i treet FØR `vercel deploy`. `OTA_MIN_VERSION_CODE` står i workflow-env som det laveste native nivået bundelen støttes i, og blir stående på `2` (se under). Mangler `OTA_SIGNING_KEY`, stopper releasen — den publiserer ikke en bundle ingen kan verifisere |
+| `.github/workflows/release.yml` | steget kjører i deployjobben, altså bak `needs: smoke`, på den samme `github.sha` som ble migrert og smoke-testet, og legger utdataene i treet FØR `vercel deploy`. `OTA_MIN_VERSION_CODE` står i workflow-env som det laveste native nivået bundelen støttes i, og er `3` (se under). Mangler `OTA_SIGNING_KEY`, stopper releasen — den publiserer ikke en bundle ingen kan verifisere |
 | `vercel.json` | `/ota/android/*.json` → `no-store` (manifestet navngir bundelen som gjelder NÅ), `/ota/bundles/*.zip` → `immutable` (build-ID-en står i navnet) |
 | `tests/release-pipeline.test.js` | at rekkefølgen holder, at bundelen bygges før opplastingen, at grensen er over `1` og ikke høyere enn skallet, at `ota/` faktisk publiseres — og signaturen KJØRT: nøkkelparet lages i testen, hele veien zip → signatur → verifisering går gjennom, og en endret byte, feil nøkkel eller et nøkkelpar som ikke henger sammen må gi et NEI |
 
@@ -1661,16 +1661,30 @@ grunnen: `autoBlockRolledBackBundles` kom inn i `capacitor.config.json`, og
 konfigurasjonen pakkes inn i APK-en. Et skall med karantenen på og ett uten er
 native forskjellige, og kan derfor ikke melde det samme nivået.
 
-**`OTA_MIN_VERSION_CODE` ble likevel stående på `2`**, og det er en avveining,
-ikke en forglemmelse. Web-koden som stiller opp og bytter bruker bare metoder
-pluginen har i BEGGE nivåer (`setNextBundle`, `getBlockedBundles`, `reload` —
-alle i 8.4.0, som er pinnet), så bundelen VIRKER i et nivå 2-skall. Det ene som
-ikke virker der er pluginens egen `autoBlockRolledBackBundles`, og den er ikke
-vakten: klientens egen, varige karantene er det, og den er ren web-kode som
-følger med bundelen. Nivå 2 er dessuten skallet de gjenstående
-enhetsmålingene skal gjøres på — heves grensen, får den APK-en 404 og kan ikke
-måle noe som helst. Grensen heves den dagen web-koden faktisk begynner å kreve
-noe et nivå 2-skall ikke har.
+**`OTA_MIN_VERSION_CODE` ble hevet til `3` i den samme runden**, og
+avveiningen der er verdt å skrive ned, fordi et første utkast satte den til `2`
+på et resonnement som ikke holdt. Det lød: web-koden bruker bare metoder
+pluginen har i begge nivåer, så bundelen VIRKER i et nivå 2-skall. Det er sant
+om pluginen og likevel feil om utfallet, og kodegjennomgangen av PR #137 fant
+hvorfor.
+
+**Grensen avhenger av web-koden som ALLEREDE KJØRER i skallet, ikke bare av
+hva pluginen kan.** Et `versionCode 2`-skall bærer web-koden fra hente-runden.
+Den laster ned bundelen og stopper der — den kaller aldri `setNextBundle()`.
+Koden som kan stille opp ligger inne i bundelen, og hjelper derfor ikke: den
+kommer aldri til å kjøre, fordi ingenting tar bundelen i bruk. Et manifest på
+nivå 2 ville altså lovet en oppdatering som aldri kan aktiveres — en
+nedlasting i evig løkke, ett stille no-op per kaldstart.
+
+Regelen som følger, og som gjelder for hver senere runde: **det laveste
+støttede nivået er det laveste skallet som kan TA I BRUK en bundle**, ikke det
+laveste skallet der pluginen har metodene. Nivå 3 er det første skallet som
+bærer oppstillingen, og grensen står derfor der.
+
+Prisen er at debug-APK-ene fra de tre første rundene faller utenfor OTA. Det
+koster ingenting: en debug-APK bygget av DENNE runden er nivå 3, og den måler
+alt de eldre kunne målt — inkludert de to punktene hente-runden gjorde
+målbare — pluss oppstillingen, byttet og rollbacken, som bare den kan måle.
 
 Det maskinen ikke kan svare på ennå er om noen GLEMTE å øke `versionCode` da
 skallet ble endret; testene ser bare det som står der nå. Skulle det bli et
@@ -1864,7 +1878,7 @@ så vakten arver en vei som allerede må virke.
 
 Prisen er reell og betales: ett manifest per støttet nivå, altså N identiske
 filer. Spennet er `OTA_MIN_VERSION_CODE` til og med `versionCode`, og akkurat nå
-er det to nivåer (`2` og `3`) og dermed to filer.
+er begge `3` — altså ett nivå og én fil.
 
 Fase 6 eier fortsatt `versionCode` som BUTIKKENS krav: monotont økende per
 opplasting, signering, spor. Det er en annen bruk av det samme tallet, og den
@@ -1892,37 +1906,45 @@ blokkliste (`autoBlockRolledBackBundles`, `getBlockedBundles()`,
   i `update-check.js` er `sessionStorage`-basert og dekker ikke dette: den
   overlever ikke en kald app-prosess.
 
-**Vakten står nå, og den er dobbel.** Før et manifestmål stilles opp med
+**Vakten står nå, i to lag.** Før et manifestmål stilles opp med
 `setNextBundle()`, spør klienten selv — samme prinsipp som steg 0
 (native-kompatibilitet), men for identitet i stedet for versjon:
 
-1. **Klientens egen, varige karantene** (`localStorage`, `huskis:ota-blocked`).
-2. **Pluginens egen blokkliste** (`getBlockedBundles()`), som
+1. **Pluginens egen blokkliste** (`getBlockedBundles()`), som
    `autoBlockRolledBackBundles` fyller. Feltet er slått PÅ i den samme runden —
    det har først nå noe å føre opp, og siden det pakkes inn i APK-en, ble
-   `versionCode` økt sammen med det.
+   `versionCode` økt sammen med det. **Dette er hovedvakten.**
+2. **Klientens egen, varige karantene** (`localStorage`, `huskis:ota-blocked`)
+   — ett lag til, for det ene tilfellet det første ikke kan dekke.
 
-Rangeringen er ikke tilfeldig, for en tredje lesning i `LiveUpdate.java` 8.4.0
-viser at pluginens egen liste ikke rekker hele veien: `addBlockedBundleId()`
-kalles fra `ready()`, og bare når `rollbackPerformed` er `true`.
-`rollbackPerformed` er et MINNEFLAGG i plugin-instansen, satt av `rollback()`.
-Den vanlige rollback-veien er at appen aldri når `ready()` i det hele tatt,
-prosessen dør, og neste kaldstart kjører den innebygde bundelen — i en NY
-prosess, der flagget er `false` igjen. Da føres ingenting opp. Pluginens
-blokkliste fanger altså bare det ene tilfellet der `ready()` kommer for sent i
-den samme prosessen.
+Rekkefølgen er rettet etter kodegjennomgangen av PR #137, som fant at et
+tidligere utkast av denne seksjonen bygget på en FEIL modell av pluginen.
+Lesningen som gjelder, i `LiveUpdate.java` 8.4.0: `rollback()` setter
+`rollbackPerformed`, husker den dårlige bundelen som `previousBundleId`, bytter
+til den innebygde med `setCurrentBundleById(null)` — og den veien ender i
+`setCurrentCapacitorServerPath()`, som kaller `Bridge.reload()`. Alt skjer i
+SAMME prosess. Den innebygde bundelen laster altså med det samme, dens
+`ready()` treffer et `rollbackPerformed` som fortsatt er `true`, og pluginen
+fører bundelen opp i sin egen varige liste. **Den vanlige rollback-veien er
+dermed dekket av pluginen selv.**
 
-Klientens egen karantene dekker den vanlige veien, og den leser det samme
-`ready()`-svaret: en kaldstart etter en rollback melder `currentBundleId ===
-null` (vi kjører den innebygde) sammen med en `previousBundleId` (den vi kjørte
-sist). Den signaturen ER rollbacken, og den vises nøyaktig én gang — `ready()`
-overskriver `previousBundleId` med det samme. Er den lest, ligger `bundleId`-en
-varig i `localStorage`, og et manifest som blir stående på den stiller den ikke
-opp igjen.
+Hullet som blir igjen er smalt, og det er det klientens egen liste finnes for:
+dør prosessen mellom rollbacken og readiness-punktet i den innebygde bundelen,
+blir flagget aldri lest, og ved neste kaldstart finnes det ikke lenger — det
+bor i minnet. Da står `previousBundleId` igjen alene, og `ready()` melder
+`currentBundleId === null` (vi kjører den innebygde) sammen med den. Den
+signaturen ER rollbacken, og den vises nøyaktig én gang — `ready()` overskriver
+`previousBundleId` med det samme.
 
-Begge oppslag er fail closed: kan ingen av listene leses, stilles ingenting
-opp. Og fordi vakten er klientens egen web-kode, følger den med bundelen — den
-virker også i et eldre skall der `autoBlockRolledBackBundles` ikke er satt.
+**Begge lag er fail closed, og det er en egenskap ved koden, ikke en påstand.**
+En liste som ikke kan LESES — blokkert lagring, en verdi som ikke lar seg
+parse, et brosvar som ikke er en liste — er ikke det samme som en tom liste;
+hvert av de tilfellene er et NEI. Og en rollback som ikke kunne FØRES OPP er
+heller ikke det samme som ingen rollback: skrivingen leses tilbake, og slår den
+feil, stilles ingenting opp i den økten. Uten det ville et ekstra lag som
+svarer «ingenting er sperret» når det ikke vet, gjort vakten svakere enn den
+uten laget. Alle fire tilfellene er kjørt i `tests/ota-fetch.test.js` og låst i
+`tests/capacitor-android.test.js`.
 
 ### En allerede hentet bundle er ikke en feilet nedlasting
 
@@ -2008,7 +2030,8 @@ er byte for byte kilden, `index.html` modulo de to ID-ene.
 | CSP-en slipper nå manifest-oppslaget ut, og blokkerer fortsatt fremmede verter | **observert** — `tests/csp-enforced.test.js` i ekte nettleser: intet `connect-src`-brudd for det kanoniske originet, fortsatt brudd for `cdn.example.invalid`. Og med verten fjernet ble hele hente-flyten et stille no-op (`no-manifest`, ingen JS-feil) — fail closed, målt i en bevisst rød kjøring |
 | Hele hente-flyten: stille 404/nettverksfeil, systemgrense-validering, `===`, `downloadBundle` med nøyaktig tre felter | **observert** — `tests/ota-fetch.test.js` i ekte nettleser, med broen faket slik skallet injiserer den og manifest-URL-en rutet. Det testen IKKE ser: et ekte skalls `getVersionCode()`, produksjonens faktiske svar (inkludert CORS-headeren), og pluginens faktiske nedlasting/verifisering |
 | Manifest-lesningen krever CORS i tillegg til CSP-verten (cross-origin fra `https://localhost`) | **resonnert + låst**, ikke observert på enhet: headeren står i `vercel.json` og voktes i `tests/release-pipeline.test.js`, men nettlesertesten svarer selv med headeren (rutet), så det ekte produksjonssvaret lest fra en WebView gjenstår |
-| Pluginens egen blokkliste fylles KUN når `ready()` kommer for sent i den samme prosessen | **lest** i `LiveUpdate.java` 8.4.0: `addBlockedBundleId()` kalles fra `ready()` og bare når `rollbackPerformed` er `true` — et minneflagg i plugin-instansen, satt av `rollback()`. Den vanlige veien (appen dør med den dårlige bundelen og kaldstarter på den innebygde) starter en NY prosess der flagget er `false`. Derfor bærer klientens egen, varige karantene vakten, og `ready()`-signaturen den leser (`currentBundleId === null` + en `previousBundleId`) er lest i den samme kilden |
+| Pluginens egen blokkliste dekker den vanlige rollback-veien | **lest** i `LiveUpdate.java` 8.4.0, etter en RETTING fra kodegjennomgangen av PR #137: `rollback()` setter `rollbackPerformed`, husker den dårlige bundelen som `previousBundleId` og kaller `setCurrentBundleById(null)` → `setCurrentCapacitorServerPath()` → `Bridge.reload()` — alt i SAMME prosess. Den innebygde bundelen laster med det samme, dens `ready()` ser flagget fortsatt `true`, og `addBlockedBundleId()` kjører. Et tidligere utkast av planen påsto at flagget gikk tapt i en ny prosess; det var feil |
+| Hullet klientens egen karantene dekker | **lest** i den samme kilden: `rollbackPerformed` bor i minnet og nullstilles først på slutten av `ready()`. Dør prosessen mellom rollbacken og readiness-punktet i den innebygde bundelen, leses flagget aldri, og neste kaldstart har det ikke. Da står `previousBundleId` igjen alene sammen med `currentBundleId === null` — signaturen klienten fører opp. Smalt, men ikke tomt |
 | `setNextBundle()` konsulterer ikke blokklisten | **lest** i `LiveUpdate.java` 8.4.0: metoden sjekker kun `hasBundleById()`; `isBlockedBundleId()` leses bare i `fetchLatestBundleInternal`, altså i `sync()`-flyten Huskis ikke bruker |
 | Hele oppstillingen: karantene → nedlasting (eller en bundle som alt ligger der) → `setNextBundle` med manifestets `bundleId` | **observert** — `tests/ota-fetch.test.js` i ekte nettleser: rekkefølgen, at en blokkert bundle ikke engang lastes ned, at en ulesbar blokkliste er et nei, og at en feilet oppstilling er stille. Det testen IKKE ser: en ekte plugins faktiske oppstilling, og at neste kaldstart tar bundelen i bruk |
 | Klargjøringen i motoren: et uklargjort mål gir verken banner eller reload, og en feilet klargjøring koster ikke forsøket | **observert** — `tests/auto-update.test.js` i ekte nettleser, med injisert `prepare` på begge viewportene |
@@ -2264,12 +2287,16 @@ Fjerde runde: stille opp og bytte. Den doble karantenen (P2 er dermed lukket i
 koden), `setNextBundle()`, klargjøringstilstanden i `update-check.js` og
 `LiveUpdate.reload()` gjennom `updateSafety()`, banneret, inaktivitetsregelen
 og ett-forsøk-vakten. `autoBlockRolledBackBundles` er slått på, og `versionCode`
-er økt til `3` fordi feltet pakkes inn i APK-en; `OTA_MIN_VERSION_CODE` blir
-stående på `2`, siden vakten som betyr noe er klientens egen, varige karantene
-— og siden nivå 2 er skallet enhetsmålingene skal gjøres på. Runden fant
-samtidig at pluginens egen blokkliste ikke rekker hele veien: den fylles kun
-når `ready()` kommer for sent i den SAMME prosessen, ikke etter den vanlige
-rollback-veien (se «En rullet-tilbake bundle må være varig sperret»).
+er økt til `3` fordi feltet pakkes inn i APK-en, og `OTA_MIN_VERSION_CODE` er
+hevet til `3` med det. Kodegjennomgangen av runden rettet to ting som begge sto
+på feil premiss: grensen kan ikke være `2`, fordi et nivå 2-skall bærer
+web-kode som laster ned uten å stille opp og derfor aldri kan aktivere
+bundelen; og pluginens egen blokkliste rekker lenger enn først antatt —
+`rollback()` bytter til den innebygde bundelen og kaller `Bridge.reload()` i
+SAMME prosess, så den vanlige rollback-veien fyller listen. Klientens egen
+karantene er derfor ett lag til, ikke hovedvakten, og begge lag er nå
+fail closed på både lesning og skriving (se «En rullet-tilbake bundle må være
+varig sperret»).
 
 **Enhetsøkten er delvis gjort**, mot debug-APK-en fra første runde:
 `window.Capacitor.Plugins.LiveUpdate` finnes, `getCurrentBundle()` melder den
@@ -2358,16 +2385,18 @@ manifestet i stedet for fra `/version.json`.
 manifestet i den andre; hentingen i den tredje; oppstillingen og byttet i den
 fjerde. Kodegjennomgangen på den første fant ett reelt funn i selve runden
 (rettet: readiness-punktet ventet ikke på at native-kallet lyktes) og navnga
-ett krav (P2, varig sperring) som den fjerde runden lukket — og utvidet:
-pluginens egen blokkliste fylles kun når `ready()` kommer for sent i den SAMME
-prosessen, så klientens egen, varige karantene er den som bærer vakten.
+ett krav (P2, varig sperring) som den fjerde runden lukket. Kodegjennomgangen
+av DEN runden rettet i sin tur modellen den lukkingen bygget på: `rollback()`
+kaller `Bridge.reload()` i samme prosess, så pluginens egen blokkliste dekker
+den vanlige veien, og klientens egen karantene er ett lag til — for det ene
+tilfellet der prosessen dør før readiness-punktet.
 
 **Kompatibilitetsvakten har fått sin form:** manifest-URL-en bærer det native
 nivået, så et skall utenfor spennet får 404 og gjør ingenting — vakten ligger i
 hva som FINNES, ikke i en sammenligning klienten kan gjøre feil. `versionCode`
-er `3`, og `OTA_MIN_VERSION_CODE` `2`: spennet er to nivåer, fordi web-koden
-virker i begge og fordi vakten mot en rullet-tilbake bundle er web-kode som
-følger med bundelen. Signaturen er verifisert maskinelt, og byggesteget
+er `3`, og `OTA_MIN_VERSION_CODE` likeså: spennet er ett nivå, fordi grensen er
+det laveste skallet som kan TA I BRUK en bundle — ikke det laveste skallet der
+pluginen har metodene. Signaturen er verifisert maskinelt, og byggesteget
 verifiserer sin egen signatur mot den innebygde nøkkelen før det skriver et
 manifest.
 
