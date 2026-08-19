@@ -152,6 +152,28 @@ jobs:
           else
             echo "== ingen manifest-merger-rapport i denne Gradle-versjonen =="
           fi
+          # Og til slutt konklusjonen de to filene over bærer, i lesbar form:
+          # hva APK-en faktisk ERKLÆRER. `exported` står med fordi det er den
+          # ene egenskapen som avgjør om en komponent et bibliotek la inn kan
+          # nås utenfra. Leses med en XML-parser, ikke med grep: AGP skriver det
+          # sammenslåtte manifestet med ett attributt per linje, så et
+          # linjebasert søk ville sett forbi halvparten.
+          python3 - "$ut/AndroidManifest.xml" <<'PY'
+          import sys, xml.etree.ElementTree as ET
+          NS = '{http://schemas.android.com/apk/res/android}'
+          rot = ET.parse(sys.argv[1]).getroot()
+          navn = lambda e: e.get(NS + 'name', '(uten navn)')
+          print('== oppsummering: hva det bygde manifestet erklærer ==')
+          for tagg in ('uses-permission', 'permission'):
+              for e in rot.findall(tagg):
+                  print(tagg + ': ' + navn(e))
+          app = rot.find('application')
+          for e in (list(app) if app is not None else []):
+              if e.tag in ('activity', 'service', 'receiver', 'provider'):
+                  print(e.tag + ': ' + navn(e) + '  exported=' + e.get(NS + 'exported', '(usatt)'))
+                  for md in e.findall('meta-data'):
+                      print('    meta-data: ' + navn(md))
+          PY
 
       - uses: actions/upload-artifact@v4
         with:
