@@ -281,9 +281,19 @@ const stegMed = (frag) => jsSteg.find((s) => s.includes(frag)) || '';
 const harTak = (s) => Number((s.match(/^\s*timeout-minutes:\s*(\d+)/m) || [])[1]) || 0;
 
 const deps = stegMed('install-deps chromium');
-check('install-deps-steget har sitt eget tak, godt under jobbens',
-  harTak(deps) > 0 && harTak(deps) < jsTak,
-  `steg ${harTak(deps)} min mot jobbens ${jsTak} min`);
+
+/* Taket skal være en BAKSTOPPER mot en vranglås, ikke et budsjett steget må
+   holde seg innenfor. Forskjellen er målt, ikke prinsipiell: i run 32246391806
+   brukte de seks shardene 21/32/38/42/283 sekunder på det samme steget, og et
+   tak på 6 minutter felte den sjette. Hele spredningen er apt-speilets
+   hastighet — 21,1 MB lastes ned på alt fra sekunder til 2min 32s (138 kB/s).
+
+   Derfor to grenser, begge nedenfra: taket må klare den målte halen med god
+   margin (283 s ≈ 4,7 min, så minst 15), og det må fortsatt være igjen nok av
+   jobbens budsjett til oppstart og testene (~4 min). */
+check('install-deps-taket er en bakstopper, ikke et budsjett',
+  harTak(deps) >= 15 && jsTak - harTak(deps) >= 4,
+  `steg ${harTak(deps)} min av jobbens ${jsTak} min — ${jsTak - harTak(deps)} min igjen til oppstart og tester`);
 
 check('apt-timeoutene skrives til apt.conf.d (ikke som -o på et forsteg)',
   /\/etc\/apt\/apt\.conf\.d\//.test(deps) &&

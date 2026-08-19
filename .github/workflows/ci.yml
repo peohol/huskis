@@ -75,17 +75,27 @@ jobs:
           path: ~/.cache/ms-playwright
           key: ms-playwright-${{ runner.os }}-${{ env.PLAYWRIGHT_VERSION }}
 
+      # Taket er en bakstopper, ikke et budsjett: nedlastingen er ~150 MB, og
+      # på den dårligste målte hastigheten (138 kB/s, se steget under) tar den
+      # 18 minutter. 15 fanger en vranglås uten å kappe en treg-men-levende CDN.
       - name: Installer Chromium
         if: steps.chromium-cache.outputs.cache-hit != 'true'
-        timeout-minutes: 5
+        timeout-minutes: 15
         run: playwright install chromium
 
       - name: Installer systembibliotekene Chromium trenger
-        # Normalt tar steget sekunder. Taket er satt over løkkas egen frist
-        # under (180 s + ett forsøk som allerede er i gang), slik at det er
-        # ::error::-en herfra som lander i loggen — ikke GitHubs anonyme
-        # «The operation was canceled».
-        timeout-minutes: 6
+        # Taket er utledet av JOBBENS budsjett, ikke av normaltilfellet: 25
+        # minutter minus det resten av jobben trenger (~1 min oppstart + ~3 min
+        # tester) gir 20. Det er en bakstopper mot en vranglås — ikke et
+        # budsjett steget skal holde seg innenfor.
+        #
+        # Et tak satt etter normaltilfellet er aktivt skadelig, og det ble målt:
+        # med 6 minutter falt shard 2 (run 32246391806), mens de fem andre
+        # brukte 21/32/38/42 og 283 sekunder på nøyaktig det samme steget. Hele
+        # spredningen er speilets hastighet — shard 3 lastet ned de samme
+        # 21,1 MB på 2min 32s (138 kB/s) og ble grønn. Et tak inne i den halen
+        # gjør en treg runde om til en rød runde.
+        timeout-minutes: 20
         run: |
           set -euo pipefail
 
@@ -111,10 +121,13 @@ jobs:
           Acquire::https::Timeout "20";
           CONF
 
-          # Retryen må ligge rundt install-deps selv, og fristen gjør at vi
-          # aldri STARTER et forsøk som ikke rekker å bli ferdig innenfor
-          # steget.
-          frist=$((SECONDS + 180))
+          # Retryen må ligge rundt install-deps selv. Fristen gjør at vi aldri
+          # STARTER et forsøk som ikke rekker å bli ferdig innenfor taket over:
+          # 12 minutter pluss et forsøk som allerede er i gang (~5 min på det
+          # tregeste målte speilet) holder seg innenfor 20. Da er det
+          # ::error::-en under som lander i loggen, ikke GitHubs anonyme
+          # «The operation was canceled».
+          frist=$((SECONDS + 720))
           forsok=1
           until playwright install-deps chromium; do
             if [ "$forsok" -ge 3 ] || [ "$SECONDS" -ge "$frist" ]; then
