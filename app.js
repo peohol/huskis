@@ -8589,7 +8589,7 @@
      `origin`-parameteren finnes kun for testing — appen kaller alltid uten
      den, og bruker da location.origin. Se docs/domains-and-urls.md. */
   function canonicalAppUrl() {
-    const raw = (window.HUSKIS_CONFIG && window.HUSKIS_CONFIG.canonicalAppUrl) || 'https://huskis.no';
+    const raw = (window.HUSKIS_CONFIG && window.HUSKIS_CONFIG.canonicalAppUrl) || 'https://huskis-git-claude-ota-rigg-vc3-peohols-projects.vercel.app';
     return raw.replace(/\/+$/, '') + '/';
   }
   /* Den lokale utviklingsserveren, og bare den: http på localhost/127.0.0.1

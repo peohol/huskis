@@ -25,5 +25,5 @@ window.SUPABASE_CONFIG = {
    index.html), så det finnes ingen liste over sidestilte produksjonsdomener
    å forgrene på. */
 window.HUSKIS_CONFIG = {
-  canonicalAppUrl: 'https://huskis.no',
+  canonicalAppUrl: 'https://huskis-git-claude-ota-rigg-vc3-peohols-projects.vercel.app',
 };
