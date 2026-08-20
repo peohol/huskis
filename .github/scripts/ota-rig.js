@@ -11,17 +11,29 @@
    bundle der ville vært en ødelagt nettside for alle.
 
    Riggen løser det ved å bygge et EGET skall som ikke kan nå produksjon i det
-   hele tatt. Nøyaktig tre konstanter skiller det fra produksjonsskallet:
+   hele tatt. Nøyaktig fem konstanter skiller det fra produksjonsskallet, og
+   fire av dem er det samme svaret på ett spørsmål — hvilken adresse skallet
+   hører hjemme på:
 
      1. `config.js`            → `canonicalAppUrl` peker på riggens vert
      2. `index.html`           → CSP-ens `connect-src` slipper riggens vert
                                  INN og produksjonsverten UT
-     3. `capacitor.config.json`→ `LiveUpdate.publicKey` er riggens egen nøkkel
+     3. `index.html`           → `CANONICAL_ORIGIN` i origin-vakten
+     4. `app.js`               → reserveverdien i `canonicalAppUrl()`, den
+                                 `config.js` overstyrer
+     5. `capacitor.config.json`→ `LiveUpdate.publicKey` er riggens egen nøkkel
 
-   Ingen av de tre leses av rollback-timeren, pluginens blokkliste eller
+   Punkt 3 og 4 er inerte i selve målingen — origin-vakten treffer bare på de
+   navngitte produksjonshostene, og reserveverdien leses aldri når `config.js`
+   er satt — men de MÅ likevel byttes: `tests/capacitor-android.test.js` regner
+   enhver absolutt adresse utenom Supabase og `canonicalAppUrl` som fremmed, og
+   den testen er et byggesteg i «Android debug-APK». Uten dem kan riggskallets
+   APK ikke bygges i det hele tatt.
+
+   Ingen av de fem leses av rollback-timeren, pluginens blokkliste eller
    klientens egen karantene — den koden er byte for byte produksjonens. Det er
    derfor målingen kan overføres, og `tests/ota-rig.test.js` måler at patchen
-   ikke rører noe annet enn de tre.
+   ikke rører noe annet enn de fem.
 
    Det riggen IKKE kan svare på, og som må leses av det EKTE skallet i den
    samme økten: at telefonen godtar PRODUKSJONSSIGNATUREN, og at manifestet kan
@@ -70,7 +82,7 @@ function readCanonical(configJsText) {
   return m[1].replace(/\/+$/, '');
 }
 
-/* ---- De tre patchene. Rene tekst-inn/tekst-ut, slik at testen kan kjøre dem
+/* ---- De fem patchene. Rene tekst-inn/tekst-ut, slik at testen kan kjøre dem
    over de EKTE filene uten å røre treet. ---- */
 
 function patchConfigJs(text, host) {
@@ -90,6 +102,35 @@ function patchCsp(html, gammelVert, nyVert) {
     throw new Error('index.html: connect-src nevner ikke ' + gammelVert);
   }
   return html.replace(linje[0], linje[0].split(gammelVert).join(nyVert));
+}
+
+/* Origin-vakten i `index.html` navngir produksjonsadressen som det stedet en
+   fane på et pensjonert domene skal sendes hjem til. Den treffer bare på de
+   hostene den selv lister, så i APK-en (`https://localhost`) gjør den
+   ingenting — men adressen STÅR der, og skanningen i
+   `tests/capacitor-android.test.js` leser den. */
+function patchCanonicalOrigin(html, gammelVert, nyVert) {
+  const re = /(var CANONICAL_ORIGIN = ')([^']+)(')/;
+  const m = html.match(re);
+  if (!m) throw new Error('index.html: fant ingen CANONICAL_ORIGIN i origin-vakten');
+  if (m[2].replace(/\/+$/, '') !== gammelVert) {
+    throw new Error('index.html: CANONICAL_ORIGIN er ikke ' + gammelVert);
+  }
+  return html.replace(re, '$1' + nyVert + '$3');
+}
+
+/* Reserveverdien i `canonicalAppUrl()`: den leses bare når `config.js` mangler
+   feltet, og riggen setter nettopp det feltet. Linjen byttes likevel, av samme
+   grunn som CANONICAL_ORIGIN. Det er den ENESTE linjen riggen rører i `app.js`
+   — rollback-timeren, blokklisten og karantenen står urørt. */
+function patchAppFallback(text, gammelVert, nyVert) {
+  const re = /(window\.HUSKIS_CONFIG\.canonicalAppUrl\) \|\| ')([^']+)(')/;
+  const m = text.match(re);
+  if (!m) throw new Error('app.js: fant ingen reserveverdi i canonicalAppUrl()');
+  if (m[2].replace(/\/+$/, '') !== gammelVert) {
+    throw new Error('app.js: reserveverdien er ikke ' + gammelVert);
+  }
+  return text.replace(re, '$1' + nyVert + '$3');
 }
 
 /* Nøkkelen er det eneste som endres i konfigurasjonen — samme fil, samme
@@ -314,12 +355,17 @@ function main() {
   const bundleId = arg.id || nextRigId(path.join(outDir, 'bundles'));
   if (!/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(bundleId)) throw new Error('--id har tegn klienten avviser');
 
-  // Skallet: de tre konstantene, idempotent (en ny bundle rører dem ikke).
+  // Skallet: de fem konstantene, idempotent (en ny bundle rører dem ikke).
+  const appPath = path.join(ROOT, 'app.js');
   const patchet = [];
   if (gammelVert !== host) {
-    fs.writeFileSync(indexPath, patchCsp(fs.readFileSync(indexPath, 'utf8'), gammelVert, host));
+    let html = fs.readFileSync(indexPath, 'utf8');
+    html = patchCsp(html, gammelVert, host);
+    html = patchCanonicalOrigin(html, gammelVert, host);
+    fs.writeFileSync(indexPath, html);
     fs.writeFileSync(configPath, patchConfigJs(fs.readFileSync(configPath, 'utf8'), host));
-    patchet.push('config.js', 'index.html');
+    fs.writeFileSync(appPath, patchAppFallback(fs.readFileSync(appPath, 'utf8'), gammelVert, host));
+    patchet.push('config.js', 'index.html', 'app.js');
   }
   const capTekst = fs.readFileSync(capPath, 'utf8');
   const nyCap = patchCapConfig(capTekst, nokler.publicKey);
@@ -367,6 +413,6 @@ if (require.main === module) {
 }
 
 module.exports = {
-  readCanonical, patchConfigJs, patchCsp, patchCapConfig,
+  readCanonical, patchConfigJs, patchCsp, patchCanonicalOrigin, patchAppFallback, patchCapConfig,
   brokenAppJs, blankIndexHtml, rigManifest, nextRigId, buildRig, rigKeys,
 };
