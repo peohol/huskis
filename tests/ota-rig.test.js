@@ -165,6 +165,46 @@ check('en reserveverdi som ikke er produksjonsverten stopper riggen',
     "const raw = (window.HUSKIS_CONFIG && window.HUSKIS_CONFIG.canonicalAppUrl) || 'https://andre.no';\n",
     PROD_VERT, RIG_VERT)));
 
+/* ---- Halvpatchet tre er selvbekreftende, og må derfor være umulig ----
+
+   `main()` bruker `config.js` som sentinel: er `canonicalAppUrl` allerede
+   riggverten, hoppes hele adresseblokken over. En runde som rakk å skrive
+   `config.js` og så kastet på `app.js`, ville derfor ved neste kjøring sett
+   ferdig ut — den manglende patchen ville verken blitt reparert eller
+   validert. Alle fire adressene regnes derfor ut i ett trekk FØR noe skrives. */
+
+const alle = rig.patchAdresser({ indexHtml, configJs, appJs }, PROD_VERT, RIG_VERT);
+check('patchAdresser gir de samme fire linjene som patchene hver for seg',
+  alle.indexHtml === nyIndexHele && alle.configJs === nyConfig && alle.appJs === nyApp);
+
+/* Regresjonen: siste adressepatch feiler. Ingenting skal komme ut — og
+   `config.js` i treet skal fortsatt navngi PRODUKSJONSVERTEN, altså sentinelen
+   som får neste kjøring til å patche på nytt i stedet for å hoppe over. */
+const halvt = { indexHtml, configJs, appJs: 'const x = 1;\n' };
+check('en feilende app.js-patch gir ingen delvis patchet utgang',
+  kaster(() => rig.patchAdresser(halvt, PROD_VERT, RIG_VERT)));
+check('…og sentinelen står igjen på produksjonsverten, så en ny kjøring patcher på nytt',
+  rig.readCanonical(halvt.configJs) === PROD_VERT, rig.readCanonical(halvt.configJs));
+/* Det samme for en index.html som mister origin-vakten — rekkefølgen internt i
+   patchAdresser skal ikke kunne gjøre den ene feilen mildere enn den andre. */
+check('en feilende index.html-patch gir heller ingen delvis patchet utgang',
+  kaster(() => rig.patchAdresser({ indexHtml: '<!doctype html>\n', configJs, appJs },
+    PROD_VERT, RIG_VERT)));
+
+/* Og renheten må holdes i main(): skriver den én av adressefilene FØR
+   patchAdresser har returnert, er hele vakten over omgått. */
+const mainKropp = (rigKilde.match(/\nfunction main\(\) \{[\s\S]*?\n\}\n/) || [''])[0];
+check('main() finnes å lese', mainKropp.length > 0);
+for (const direkte of ['patchCsp(', 'patchCanonicalOrigin(', 'patchConfigJs(', 'patchAppFallback(']) {
+  check('main() kaller ikke ' + direkte + ' direkte — bare patchAdresser',
+    mainKropp.indexOf(direkte) === -1);
+}
+check('main() regner ut adressepatchene FØR den første skrivingen',
+  mainKropp.indexOf('patchAdresser(') > -1
+    && mainKropp.indexOf('patchAdresser(') < mainKropp.indexOf('writeFileSync('),
+  'patchAdresser@' + mainKropp.indexOf('patchAdresser(')
+    + ' writeFileSync@' + mainKropp.indexOf('writeFileSync('));
+
 /* ---- 2. Manifestet: samme form som produksjonens, egen vert ---- */
 
 const prodManifest = ota.buildManifest({

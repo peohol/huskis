@@ -133,6 +133,24 @@ function patchAppFallback(text, gammelVert, nyVert) {
   return text.replace(re, '$1' + nyVert + '$3');
 }
 
+/* De fire adresse-patchene i ETT trekk, rent tekst-inn/tekst-ut. Grunnen til
+   at de hører sammen er at `main()` bruker `config.js` som sentinel for om
+   skallet allerede er patchet: en runde som rakk å skrive `config.js` og så
+   kastet på `app.js`, ville ved neste kjøring lest riggverten ut av
+   `config.js`, sett den lik `--host`, og hoppet over hele blokken — den
+   manglende `app.js`-patchen ville verken blitt reparert eller validert.
+   Halvpatchet er derfor selvbekreftende, og det er nettopp det «fail closed»
+   ikke skal være. Kaster én av dem her, har ingen av dem blitt skrevet. */
+function patchAdresser(filer, gammelVert, nyVert) {
+  let html = patchCsp(filer.indexHtml, gammelVert, nyVert);
+  html = patchCanonicalOrigin(html, gammelVert, nyVert);
+  return {
+    indexHtml: html,
+    configJs: patchConfigJs(filer.configJs, nyVert),
+    appJs: patchAppFallback(filer.appJs, gammelVert, nyVert),
+  };
+}
+
 /* Nøkkelen er det eneste som endres i konfigurasjonen — samme fil, samme
    formatering (JSON med to mellomrom, som den står i repoet). */
 function patchCapConfig(jsonText, publicKeyPem) {
@@ -359,12 +377,17 @@ function main() {
   const appPath = path.join(ROOT, 'app.js');
   const patchet = [];
   if (gammelVert !== host) {
-    let html = fs.readFileSync(indexPath, 'utf8');
-    html = patchCsp(html, gammelVert, host);
-    html = patchCanonicalOrigin(html, gammelVert, host);
-    fs.writeFileSync(indexPath, html);
-    fs.writeFileSync(configPath, patchConfigJs(fs.readFileSync(configPath, 'utf8'), host));
-    fs.writeFileSync(appPath, patchAppFallback(fs.readFileSync(appPath, 'utf8'), gammelVert, host));
+    // Alt regnes ut FØRST, og skrives bare hvis hver eneste patch lyktes:
+    // et halvpatchet tre ville sett ferdig ut for neste kjøring (se
+    // `patchAdresser`).
+    const nye = patchAdresser({
+      indexHtml: fs.readFileSync(indexPath, 'utf8'),
+      configJs: fs.readFileSync(configPath, 'utf8'),
+      appJs: fs.readFileSync(appPath, 'utf8'),
+    }, gammelVert, host);
+    fs.writeFileSync(indexPath, nye.indexHtml);
+    fs.writeFileSync(configPath, nye.configJs);
+    fs.writeFileSync(appPath, nye.appJs);
     patchet.push('config.js', 'index.html', 'app.js');
   }
   const capTekst = fs.readFileSync(capPath, 'utf8');
@@ -413,6 +436,7 @@ if (require.main === module) {
 }
 
 module.exports = {
-  readCanonical, patchConfigJs, patchCsp, patchCanonicalOrigin, patchAppFallback, patchCapConfig,
+  readCanonical, patchConfigJs, patchCsp, patchCanonicalOrigin, patchAppFallback,
+  patchAdresser, patchCapConfig,
   brokenAppJs, blankIndexHtml, rigManifest, nextRigId, buildRig, rigKeys,
 };
