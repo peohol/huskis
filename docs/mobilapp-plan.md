@@ -2430,15 +2430,16 @@ går den i stykker, måler B en kjede som ikke er bevist.
   lastes ned. Enhver senere merge til `main` flytter manifestet videre og
   bevarer bindingen — den brytes bare hvis APK-en bygges på nytt av `main`.
 - **Riggen for installasjon B er bygget.** Riggrenen er `claude/ota-rigg-vc3`,
-  laget av `main`, og verten er dens egen Vercel-preview
+  og verten er dens egen Vercel-preview
   `https://huskis-git-claude-ota-rigg-vc3-peohols-projects.vercel.app`. Begge
   riggbundlene ligger der, signert med riggens engangsnøkkel: `rig-broken-1`
   (`--mode throw`) og `rig-broken-2` (`--mode blank`). `ota/android/3.json`
   navngir `rig-broken-1`, så runde én kjører rett ut av boksen; manifestet for
   hver av dem står også som `3.throw.json` og `3.blank.json`, og runde to
   kjøres ved å kopiere `3.blank.json` over `3.json` og pushe. Riggskallets APK
-  bygges av den samme grenen med «Android debug-APK». Grenen skal aldri merges,
-  og slettes når økten er ferdig.
+  er bygget av den samme grenen: «Android debug-APK», kjøring 102, artifactet
+  `huskis-debug-apk`, som utløper 2026-11-18. Grenen skal aldri merges, og
+  slettes når økten er ferdig.
 - **Riggens privatnøkkel er en engangsnøkkel i `.ota-rig/`, og den følger ikke
   grenen.** De to bundlene over er derfor de to som kan måles med det
   riggskallet: en tredje riggbundle krever et nytt nøkkelpar, og dermed en ny
