@@ -19,7 +19,7 @@
     base-uri 'none';
     object-src 'none';
     script-src 'self' 'sha256-6Q3JDVUTmctJuF9ScsOY9kCKBmqaIbjWdZMf/B2lgNc=';
-    style-src 'self';
+    style-src 'self' 'sha256-E7zJXfkufcgTIQG1Th6iYnoGis+rTfZd044bgiM1kr4=';
     font-src 'self';
     img-src 'self' data: blob:;
     connect-src 'self' https://bmkynefxgklxzcofflqu.supabase.co wss://bmkynefxgklxzcofflqu.supabase.co https://huskis.no;
@@ -164,7 +164,10 @@
         <!-- Samme board-oppsett som hovedsiden, men alltid én kolonne. -->
         <section class="board nav-board" id="nav-board" aria-live="polite"></section>
         <div class="panel-actions nav-actions">
+          <!-- Semantisk slippmål for et område-drag (Smett: `zoneSelector`) —
+               se «NAV-SCOPET PÅ dnd-kit» i app.js. -->
           <button class="trashcan" id="uni-trash-btn" type="button"
+                  data-dnd-zone="uni-trash"
                   data-i18n-title="trash.universesBtnTitle"
                   data-i18n-aria-label="trash.universes" hidden>
             <svg class="icon trashcan-icon" viewBox="0 0 24 24" fill="none" stroke="#111" stroke-width="1.05" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6.3 7.5l.9 11a2 2 0 0 0 2 1.9h5.6a2 2 0 0 0 2-1.9l.9-11" fill="#c0c4c9" stroke="none"></path><path d="M4.5 7.5h15"></path><path d="M9.5 7.5V6a2.5 2.5 0 0 1 5 0v1.5"></path><path d="M6.3 7.5l.9 11a2 2 0 0 0 2 1.9h5.6a2 2 0 0 0 2-1.9l.9-11"></path><path d="M9.7 11v6"></path><path d="M12 11v6"></path><path d="M14.3 11v6"></path></svg>
@@ -828,6 +831,13 @@
        Oppgraderingsrutinen: docs/sikkerhetsheadere.md. config.js holder dine
        verdier. -->
   <script src="vendor/supabase-js-2.111.0.js"></script>
+  <!-- Dra-og-slipp-motoren (Smett over dnd-kit), samme opplegg som Supabase:
+       en innsjekket kopi i repoet, versjonen i filnavnet, ingen CDN. Filen er
+       IIFE-artefaktet `npm run build:iife` gir i peohol/smett — den definerer
+       den globale `Smett`, og MÅ lastes som et klassisk skript FØR app.js. Et
+       modulskript ville kjørt etter alle klassiske skript, altså etter app.js.
+       Se docs/dndkit-plan.md og docs/sikkerhetsheadere.md. -->
+  <script src="vendor/smett-0.1.0.js"></script>
   <script src="config.js"></script>
   <!-- huskis:kun-dev:start — mock-backenden for hermetisk to-bruker-testing
        (?mock=1). HELE blokken, og begge filene den peker på, fjernes av

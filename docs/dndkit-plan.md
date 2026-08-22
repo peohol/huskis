@@ -1,9 +1,22 @@
 # Migrering til dnd-kit + Smett — plan
 
 En levende arbeidsplan, som `mobilapp-plan.md`: den viser hva som er avklart,
-hva som gjenstår og hva som fortsatt er ubesvart. Nåtilstanden for dagens motor
-står i [`drag-and-drop.md`](drag-and-drop.md), og den er autoritativ til
-migreringen faktisk er gjennomført.
+hva som gjenstår og hva som fortsatt er ubesvart. Nåtilstanden — hva som kjører
+på hvilken motor akkurat nå — står i [`drag-and-drop.md`](drag-and-drop.md), og
+den er autoritativ.
+
+## Hvor vi er
+
+| Steg | Status |
+|---|---|
+| 0. Blokker-avklaring | **ferdig** — iOS-risikoen er avkreftet på ekte maskinvare (se risiko 1) |
+| 1. Smett-endringene | **ferdig** — IIFE-byggemål, `phrases`, `itemType`/`containerAccept` (smett@c97fe43) |
+| 2. Testinfrastrukturen | **ferdig** — alle elleve DnD-testfilene drives av ekte input (`tests/dnd-gestures.js`) |
+| 3. Nav-scopet | **ferdig** — `vendor/smett-0.1.0.js` er sjekket inn, og nav-modalen kjøres av dnd-kit |
+| 4. Board-scopet, kortnivået | gjenstår |
+| 5. Board-scopet, radnivået | gjenstår |
+| 6. Ekstrahering til ny liste | gjenstår for board-scopet; nav-scopets versjon kom med steg 3 (se under) |
+| 7. Rydding | gjenstår |
 
 ## Hva som har skjedd i Smett
 
@@ -135,7 +148,7 @@ Identitet må stå i DOM-en, og Smett feiler hardt på manglende/duplisert id:
 - Søppelkassene og nav-knappen trenger `data-dnd-zone`.
 - Låste/`done`-rader og alle knapper i dra-sonen trenger `data-dnd-ignore`.
 
-### Innpakning uten bundler
+### Innpakning uten bundler *(gjort i steg 3)*
 
 Huskis har ingen bundler og ingen klientavhengigheter, og det skal den ikke få.
 Smett publiserer i dag ESM (`dist/`) og én selvstendig ESM-bundle
@@ -190,7 +203,13 @@ små tilvalg — `itemType?(el)` og `containerAccept?(el)` — løser det, og
 
 ## Åpne risikoer, i rekkefølge
 
-1. **`position: fixed` på iOS WebKit.** dnd-kits regel er
+1. ~~**`position: fixed` på iOS WebKit.**~~ **AVKREFTET** på ekte maskinvare
+   (iOS 26.6, Safari og Chrome): WebKit-defekten finnes ikke lenger, og
+   kontrollen — `position: fixed` + transform UTEN top layer — hoppet heller
+   ikke. dnd-kits top layer er altså ikke det som redder oss; det er ingenting å
+   redde fra. Begrunnelsen for `position: absolute` i `drag-and-drop.md` er
+   foreldet og skrives om i steg 7. Den opprinnelige teksten:
+   dnd-kits regel er
    `[data-dnd-dragging] { position: fixed !important; transform: var(--dnd-transform) !important }`
    — nøyaktig kombinasjonen `drag-and-drop.md` sier vi bevisst unngikk, fordi et
    `fixed`-element med egen transform legger seg relativt til dokumentet der og
@@ -198,7 +217,9 @@ små tilvalg — `itemType?(el)` og `containerAccept?(el)` — løser det, og
    `popover`, som kan gjøre spørsmålet irrelevant. **Dette må verifiseres på ekte
    iOS-maskinvare før noe annet i planen settes i gang.** Svarer det feil, er
    migreringen blokkert på en upstream-endring.
-2. **Testene driver drag med syntetiske `PointerEvent`-er.** dnd-kits
+2. ~~**Testene driver drag med syntetiske `PointerEvent`-er.**~~ **GJORT** i
+   steg 2: alle elleve filene drives av ekte input gjennom `tests/dnd-gestures.js`.
+   Den opprinnelige teksten: dnd-kits
    `PointerSensor` kaller `document.body.setPointerCapture(event.pointerId)` og
    **kansellerer draget hvis det kaster** — som det alltid gjør for en oppdiktet
    `pointerId`. Smetts egen roadmap fører dette opp som en kjent upstream-kostnad.
@@ -218,14 +239,20 @@ små tilvalg — `itemType?(el)` og `containerAccept?(el)` — løser det, og
    De skrives om til `page.mouse`/`page.touchscreen`, slik Smetts egen
    `e2e/helpers.js` gjør. Dette er den største enkeltposten i arbeidet, og den er
    uunngåelig.
-3. **Opplesningene er engelske.** `announcements.ts` er faste engelske strenger,
+3. ~~**Opplesningene er engelske.**~~ **LØST** i Smett: `phrases` erstatter
+   setnings-byggerne, og nav-scopet bygger dem av `tr()`. Den opprinnelige
+   teksten: `announcements.ts` er faste engelske strenger,
    og `SortableBoard` bygger dem selv. `docs/sprak.md` og `docs/tilgjengelighet.md`
    krever at ALL brukerrettet tekst — også `announce()` — kommer fra ordboken.
    Man kan sende inn en egen `manager` med egne `announcements`, men board-ets
    `onAnnounce`-speiling og `speak()` (programmatisk flytting, feilet lagring)
    bruker fortsatt `say.*`. Smett trenger injiserbare fraser. Liten endring, men
    den er en forutsetning, ikke en pynt.
-4. **Klikk etter drag undertrykkes ikke.** dnd-kit binder `preventDefault` på
+4. ~~**Klikk etter drag undertrykkes ikke.**~~ **LØST for nav-scopet** med en
+   vakt på dokumentet, i capture-fasen, for det første klikket etter et drag
+   (`navInstallClickGuard`) — den dekker også slippet på en ANNEN rad, som
+   `attachHoldDrag`s vakt på kildens sone aldri så. Steg 4–5 arver den.
+   Den opprinnelige teksten: dnd-kit binder `preventDefault` på
    `click`; våre `.card-head`- og `.cat-head`-handlere er vanlige `click`-lyttere
    og fyrer likevel — et fullført liste-drag ville kollapset lista etterpå.
    `attachHoldDrag`s `stopImmediatePropagation`-vakt må beholdes og kobles på
@@ -241,7 +268,9 @@ små tilvalg — `itemType?(el)` og `containerAccept?(el)` — løser det, og
    uansett godt under headeren, så dette er trolig akseptabelt — men det skal
    måles, ikke antas. Samme for at farten er per frame, ikke per millisekund
    (`frameSteps` forsvinner): 120 Hz scroller fortere enn 60 Hz.
-7. **Placeholderens geometri.** dnd-kit holder plassen med en klone tatt ved løft.
+7. **Placeholderens geometri.** *(Løst for nav-scopet: kollapsen skjer i
+   `beforedragstart`, altså FØR dnd-kit måler, så klonen er korthøy/
+   overskriftshøy av seg selv. Se punkt 3 over.)* dnd-kit holder plassen med en klone tatt ved løft.
    Vi krymper placeholderen (liste → korthode-høyde, kategori → header-høyde) etter
    løft. Det må gjøres om til CSS på `[data-dnd-placeholder]`.
 
@@ -277,3 +306,58 @@ verifiserbart.
 6. **Ekstrahering til ny liste** til slutt — den er mest Huskis og minst Smett.
 7. **Rydding**: slett den døde motoren, skriv om `drag-and-drop.md` til
    nåtilstanden, og la dette dokumentet dø.
+
+## Det steg 3 lærte, som ikke sto her
+
+Nav-scopet er i mål, og fem ting i planen over viste seg å være feil eller
+ufullstendige. De står her fordi steg 4–6 møter de samme spørsmålene.
+
+**1. Nav-scopet HAR ekstrahering.** Planen sa «ingen ekstrahering til ny liste»
+som en grunn til å ta nav først. Det stemmer ikke: `navScope.canExtract` finnes,
+og en mappe eller mappekategori dratt ut i lufta blir et nytt OMRÅDE. Den måtte
+derfor med i steg 3, og løsningen er den planen selv foreskriver for steg 6:
+`containerAccept` som svarer med tom liste mens ekstraheringsmodus står på, og
+`placeNewListPlaceholder` som ren app-rendring. Det virker. Én forskjell fra den
+gamle motoren, med vilje: klonen dnd-kit holder plassen med blir liggende i lista
+i stedet for å bli fjernet, så layout-hoppet ved modusbyttet er mindre.
+
+**2. CSP-en måtte utvides.** dnd-kit injiserer et `<style>`-element mens et drag
+pågår — det som løfter objektet inn i top layer og posisjonerer det. `style-src
+'self'` blokkerte det, og feilen var stille: draget «virket», men det løftede
+objektet ble liggende sentrert i viewporten i stedet for å følge fingeren. Ett
+element, én hash, og to av dnd-kits plugins (`Cursor`, `PreventSelection`) er
+meldt av fordi Huskis maler det de maler fra `body.is-dragging`.
+`tests/csp-enforced.test.js` regner hashen ut på nytt fra et EKTE drag.
+Se [`sikkerhetsheadere.md`](sikkerhetsheadere.md).
+
+**3. `beforedragstart` er den eneste kroken før målingen.** dnd-kit måler det
+løftede objektets boks ÉN gang, og Smetts `intentRectangle` regner ut fra den.
+Alt som endrer objektets størrelse ved løft — kollapsen av alle kort, kategoriens
+sammenfolding — må derfor skje i `beforedragstart`, ikke i `dragstart`. Steg 4 og
+5 møter nøyaktig det samme med `collapseCardsForDrag` og `collapseCategory`, og
+kategori-kollapsen må da også bli momentan.
+
+**4. Tre regler måtte uttrykkes som kollisjonsdetektorer.** Planen antok at
+`accept` og sonene dekket avvikene. Tre gjorde de ikke:
+kategoriens OVERSKRIFT som vei INN i kategorien, kolonnen som må ta imot et kort
+sluppet nedenfor alt innhold, og at et `collisionPriority` på entiteten
+OVERSTYRER det detektoren svarte (så en droppable som trenger to prioriteter må
+settes til `null`). Alle tre er `docs/drag-and-drop.md`-stoff nå; steg 4 og 5
+arver de to siste.
+
+**5. dnd-kits klone er ikke en nabo.** Klonen som holder plassen ligger rett
+etter det løftede objektet og bærer de samme klassene. `previousElementSibling`/
+`nextElementSibling` — som hele `pos`-regnestykket hviler på — leste den som
+naboen, og svarte da alltid «ingen nabo på den siden», altså «sist i lista»,
+uansett hvor man slapp. `boardRows`/`isBoardRow` og en egen `navRowSibling`
+hopper over den nå. Det samme gjelder `sepRows` (skillelinjene) og
+`restoreCardsAfterDrag`.
+
+**Fortsatt uløst, og det gjelder steg 4–5 også:** et slipp i et LÅST mål avvises
+ved slippet (`onCommit` kaster → Smett ruller tilbake), ikke under draget slik
+planen ønsket. `containerAccept` kjenner bare containeren, ikke hvor raden kom
+fra — og regelen er kilde-avhengig (en fri mappe kan omrokkeres i fri-seksjonen,
+men ingen mappe kan flyttes INN i den). Å få den under draget krever enten et
+kilde-argument til `containerAccept` i Smett, eller at Huskis setter `accept` på
+droppable-ene selv ved `dragstart`. Utfallet er uendret i dag: rullet tilbake, og
+en toast sier hvorfor.
