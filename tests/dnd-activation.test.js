@@ -5,10 +5,12 @@
      objektet ikke rykker tilbake til nedtrykkspunktet ved første bevegelse.
   2. Liten touch-drift FØR holdet er ferdig gir ikke et offset ved løft.
   3. En sekundær peker (isPrimary === false) starter aldri et drag.
-  4. Et raskt slipp på en NY plass lander der det ble sluppet, for liste,
-     listepunkt, mappe OG område. En ekte finger kan ikke slippe et sted den
-     aldri var, så bevegelsen og slippet sendes i SAMME frame: det invarianten
-     vokter er at motoren aldri rakk å behandle bevegelsen før slippet kom.
+  4. Et raskt `pointerup` på en NY plass — uten en siste `pointermove` — lander
+     der det ble sluppet, for liste, listepunkt, mappe OG område.
+     Slippet er EKTE: et `touchEnd` bærer punktet det slipper i, så gesten er
+     ekte input og pekeren har likevel aldri vært innom underveis. Det er
+     nettopp fraværet av den siste bevegelsen som gjør at bare slippets egne
+     koordinater kan gi riktig plassering.
 
   Gestene er EKTE input (`tests/dnd-gestures.js`).
 
@@ -51,6 +53,14 @@ async function register(p) {
 /* Trykk og hold til objektet FAKTISK er løftet — `liftTouch` prøver på nytt
    hvis en synk-runde tegner raden om midt i holdet, slik en bruker ville. */
 const holdOn = (p, x, y) => G.liftTouch(p, { x, y });
+
+/* Et lite SIDEVEIS nikk ved KILDEN før et slipp langt unna.
+   Det er nikket som gjør påstanden skarp: etter det finnes det en behandlet
+   bevegelse, og den ligger ved kilden. Lander objektet likevel nede ved
+   slippunktet, kan bare slippets egne koordinater ha bestemt det — motoren har
+   ikke sett noen bevegelse dit. Sideveis, fordi det ikke kan endre rekkefølgen
+   i en loddrett liste. */
+const nudge = (p, at) => G.touchMove(p, at.x + 12, at.y);
 
 // cards = [[tittel, antall listepunkter], …]
 async function seed(p, cards) {
@@ -186,7 +196,8 @@ const log = (n, ok, x = '') => { results.push(ok); console.log((ok ? 'PASS' : 'F
     const src = await centerOf(p, '.item[data-id="it-A-0"]');
     await holdOn(p, src.x, src.y); // holdet fullføres → draget starter i nedtrykkspunktet
     const dst = await centerOf(p, '.item[data-id="it-A-4"]');
-    await G.touchMove(p, src.x, dst.y + 4); await G.touchEnd(p); // samme frame
+    await nudge(p, src);
+    await G.touchEnd(p, src.x, dst.y + 4); // INGEN pointermove mot slippunktet
     await p.waitForTimeout(500);
     const after = await itemOrder(p, 'card-A');
     log('4 ' + M.n + ' listepunkt: raskt slipp flyttet punktet ned forbi it-A-4',
@@ -200,7 +211,8 @@ const log = (n, ok, x = '') => { results.push(ok); console.log((ok ? 'PASS' : 'F
     await holdOn(p, h.x, h.y); // hold → draget starter, ALLE lister kollapser
     // Mål mål-listas hode ETTER kollapsen (layouten er en annen nå).
     const target = await centerOf(p, '.card[data-id="card-R"] .card-head');
-    await G.touchMove(p, target.x, target.y + 4); await G.touchEnd(p); // samme frame
+    await nudge(p, h);
+    await G.touchEnd(p, target.x, target.y + 4); // INGEN pointermove mot slippunktet
     await p.waitForTimeout(900);
     const cAfter = await cardOrder(p);
     log('4 ' + M.n + ' liste: raskt slipp flyttet lista forbi card-R',
@@ -217,9 +229,18 @@ const log = (n, ok, x = '') => { results.push(ok); console.log((ok ? 'PASS' : 'F
     const g1 = await centerOf(p, uSel + ' .item[data-id="' + gIds[0] + '"]');
     const g3 = await centerOf(p, uSel + ' .item[data-id="' + gIds[2] + '"]');
     await holdOn(p, g1.x, g1.y);
-    await G.touchMove(p, g1.x, g3.y + 4); await G.touchEnd(p); // samme frame
+    await nudge(p, g1);
+    await G.touchEnd(p, g1.x, g3.y + 4); // INGEN pointermove mot slippunktet
     await p.waitForTimeout(500);
-    const gAfter = await p.evaluate((sel) => [...document.querySelectorAll(sel + ' .items-container > .item')].map((g) => g.dataset.id), uSel);
+    // Lest fra STATE, ikke fra DOM: et ekte slipp på en annen rad gir et ekte
+    // klikk på den raden etterpå, og dra-sonens klikk-sperre sitter på KILDENS
+    // sone — så nav-modalen rekker å navigere bort. Rekkefølgen som betyr noe er
+    // den lagrede uansett, og den overlever at modalen lukker seg.
+    const gAfter = await p.evaluate(() => {
+      const st = window.__huskis.state;
+      const u = st.universes.find((x) => x.id === st.activeUniverse);
+      return u.groups.filter((g) => !g.trashed).slice().sort((a, b) => a.pos - b.pos).map((g) => g.id);
+    });
     log('4 ' + M.n + ' mappe: raskt slipp flyttet raden forbi den tredje',
       gAfter.indexOf(gIds[0]) > gAfter.indexOf(gIds[2]) && gAfter.length === gIds.length,
       gIds.join(',') + ' → ' + gAfter.join(','));
@@ -238,7 +259,8 @@ const log = (n, ok, x = '') => { results.push(ok); console.log((ok ? 'PASS' : 'F
     const u1 = await centerOf(p, '#nav-board .card[data-id="' + uIds[0] + '"] .card-head');
     const u3 = await centerOf(p, '#nav-board .card[data-id="' + uIds[2] + '"] .card-head');
     await holdOn(p, u1.x, u1.y);
-    await G.touchMove(p, u1.x, u3.y + 4); await G.touchEnd(p); // samme frame
+    await nudge(p, u1);
+    await G.touchEnd(p, u1.x, u3.y + 4); // INGEN pointermove mot slippunktet
     await p.waitForTimeout(500);
     const uAfter = await p.evaluate(() => [...document.querySelectorAll('#nav-board .card')].map((u) => u.dataset.id));
     log('4 ' + M.n + ' område: raskt slipp flyttet raden forbi den tredje',

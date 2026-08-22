@@ -84,11 +84,18 @@ const lastTouch = new WeakMap();
 
 async function touchAt(p, type, x, y) {
   const s = await cdp(p);
-  const ended = type === 'touchEnd' || type === 'touchCancel';
+  /*
+   * En AVBRUTT gest er alltid punktløs — CDP avviser den ellers.
+   *
+   * Et SLIPP kan gå begge veier, og forskjellen er verdt å kjenne: uten punkt
+   * betyr det «alle fingre opp», og MED punkt slipper det nøyaktig der. Det
+   * siste er det som gjør «slipp på en ny plass uten en siste bevegelse» mulig
+   * å uttrykke med ekte input — hendelsen er like ekte, og pekeren har likevel
+   * aldri vært innom underveis.
+   */
+  const ended = type === 'touchCancel' || (type === 'touchEnd' && !Number.isFinite(x));
   await s.send('Input.dispatchTouchEvent', {
     type,
-    // A finger that has left the glass carries no coordinate: CDP rejects
-    // touchEnd and touchCancel outright if given one.
     touchPoints: ended ? [] : [{ x, y, radiusX: 12, radiusY: 12, force: 1 }],
   });
   if (!ended) lastTouch.set(p, { x, y });
@@ -212,7 +219,7 @@ async function travel(p, measure, touch, { steps = 12, settle = 180 } = {}) {
 }
 
 /**
- * Slipp der pekeren står.
+ * Slipp der pekeren står — eller et annet sted, om testen ber om det.
  *
  * `at` er valgfri, og skal stort sett utelates: slippet hører hjemme der
  * gesten faktisk endte. Sender testen et punkt den målte på nytt, slipper den
