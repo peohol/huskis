@@ -41,7 +41,8 @@ søppelkasse-seksjonen). Grovt regnet **~1 200 av dem er motor** og erstattes:
 
 | Huskis-kode | Erstattes av |
 |---|---|
-| `attachHoldDrag`, `preventTouchScroll` (79) | `PointerSensor` + `activationConstraints` |
+| `attachHoldDrag` (77) | `PointerSensor` + `activationConstraints` |
+| `preventTouchScroll` (2) | `PointerSensor`s egen ikke-passive `touchmove`-vakt, bundet ved AKTIVERING |
 | `beginDragCommon`, `liftElement`, `moveElement`, `dragPosLeft/Top`, `dragUsesPageCoords`, `onDragScroll` (122) | `Feedback` (top layer via `popover`) + `ScrollListener` |
 | `clampToViewport`, `dragRenderedHalf` (25) | `SafeViewport` |
 | `vOverlap`…`isSingleRowLayout`, `layoutRect`, `draggedRect` (65) | `hysteresisCollision` + `intentRectangle` + dnd-kit-shapes |
@@ -83,9 +84,22 @@ skal henge på Smetts kroker i stedet for på våre egne pointer-lyttere:
 | Slipp i LÅST mål avvises | dnd-kits `accept` på droppablen. Dette blir **bedre**: en frossen container avviser under draget i stedet for etter slippet |
 | `canDrag` (frossen/`done`/capability/forelderens myndighet) | `data-dnd-ignore` på raden — `preventPointer` sjekker `closest('[data-dnd-ignore]')` først |
 | Unntakssonene (`.obj-menu-btn`, `.edit-input`, `.meta-chip`, avmerkingsboks) | `data-dnd-ignore` på de samme elementene |
-| Dra-sonen (`.card-head`, `.cat-head`, hele `.item`) | `handleSelector` |
+| Dra-sonen (`.card-head`, `.cat-head`, hele `.item`) | `handleSelector` — UTEN `touch-action: none` |
 | Dynamisk rotasjon ±5° + skala per type | CSS `rotate:`/`scale:` på `[data-dnd-dragging]` (egne egenskaper, ikke `transform` — den skriver dnd-kit selv med `!important`). `SafeViewport` måler den faktisk malte boksen, så klemmen tar høyde for det |
 | `move_group`-RPC-en, `applyIdMapping`, `pendingGroupMoves` | uendret; kalles fra `onCommit` |
+| `relayoutBoard`s frosne kolonner (`if (drag.active) return`) | `!manager.dragOperation.status.idle` — se under |
+
+**Én kilde til sannhet må byttes ut, ikke bare flyttes.** `drag.active` er ikke
+bare motorens interne flagg: `relayoutBoard` starter med `if (drag.active) return`,
+og DET er stedet den frosne kolonnefordelingen faktisk håndheves. `boardRO`
+(en `ResizeObserver`) planlegger `relayoutBoard` på neste rAF hver gang et kort
+endrer høyde — og `collapseCardsForDrag` endrer høyden på ALLE kortene idet et
+liste-drag starter. Uten en ny vakt ville board-et pakket om kolonnene midt i
+draget, som er nøyaktig den flimringen `drag-and-drop.md` sier frysingen finnes
+for. Vakten blir `!manager.dragOperation.status.idle`, og en utsatt
+`relayoutBoard` etter `dragend` (kortene har da endret høyde for godt). Samme
+gjelder `syncHeaderHeight`/`fixBoardBottomGap`-trioen på linje 6254, som deler
+`ResizeObserver`-vei.
 
 ## Den konkrete arkitekturen
 
@@ -188,12 +202,22 @@ små tilvalg — `itemType?(el)` og `containerAccept?(el)` — løser det, og
    `PointerSensor` kaller `document.body.setPointerCapture(event.pointerId)` og
    **kansellerer draget hvis det kaster** — som det alltid gjør for en oppdiktet
    `pointerId`. Smetts egen roadmap fører dette opp som en kjent upstream-kostnad.
-   11 testfiler definerer syntetiske pekerhendelser; 7 av dem har ingen ekte input
-   i det hele tatt (`dnd-collapse-scroll`, `dnd-drop-animation`,
-   `dnd-extract-thresholds`, `dnd-mobile-autoscroll`, `dnd-peek-collapsed`,
-   `dnd-recovery-scroll`, `dnd-viewport-clamp`, pluss `board-columns`). De må
-   skrives om til `page.mouse`/`page.touchscreen`, slik Smetts egen `e2e/helpers.js`
-   gjør. Dette er den største enkeltposten i arbeidet, og den er uunngåelig.
+   **Elleve testfiler driver drag syntetisk, og alle elleve må skrives om** — ikke
+   bare de som mangler ekte input:
+
+   - **Åtte uten ekte input i det hele tatt**: `board-columns`,
+     `dnd-collapse-scroll`, `dnd-drop-animation`, `dnd-extract-thresholds`,
+     `dnd-mobile-autoscroll`, `dnd-peek-collapsed`, `dnd-recovery-scroll`,
+     `dnd-viewport-clamp`.
+   - **Tre som har ekte input for MUS, men syntetiske gester for TOUCH**:
+     `dnd-activation` (13 `pointer()`-kall — hold-aktivering, sekundær peker,
+     `pointerup` uten `pointermove`), `dnd-layout-modes` (14 `touch()`-kall) og
+     `dnd-separators-preview` (5). Disse ser «halvt dekket» ut og er det ikke:
+     musedelene overlever, touch-delene dør like stille som de åtte.
+
+   De skrives om til `page.mouse`/`page.touchscreen`, slik Smetts egen
+   `e2e/helpers.js` gjør. Dette er den største enkeltposten i arbeidet, og den er
+   uunngåelig.
 3. **Opplesningene er engelske.** `announcements.ts` er faste engelske strenger,
    og `SortableBoard` bygger dem selv. `docs/sprak.md` og `docs/tilgjengelighet.md`
    krever at ALL brukerrettet tekst — også `announce()` — kommer fra ordboken.
@@ -221,6 +245,15 @@ små tilvalg — `itemType?(el)` og `containerAccept?(el)` — løser det, og
    Vi krymper placeholderen (liste → korthode-høyde, kategori → header-høyde) etter
    løft. Det må gjøres om til CSS på `[data-dnd-placeholder]`.
 
+Én ting som IKKE er en risiko, fordi spørsmålet melder seg av seg selv: at
+native panorering fortsatt blokkeres mens draget lever. `activationConstraints`
+avgjør bare NÅR draget starter; det er `PointerSensor` som ved aktivering binder
+en ikke-passiv `touchmove` med `preventDefault` — samme mekanikk som
+`preventTouchScroll`, bare upstream. Dra-sonene skal derfor IKKE ha
+`touch-action: none`: Smetts anbefaling om det gjelder et dedikert håndtak, mens
+vår sone er hele raden/korthodet og må fortsatt kunne scrolles fra. Det er
+nøyaktig `card`-policyen i Smetts egen Release Board («as Huskis does»).
+
 ## Rekkefølge
 
 Ingen big bang. Motoren driver fem nivåer i to scope; å bytte alt i én PR er ikke
@@ -230,8 +263,9 @@ verifiserbart.
    som endringer i Smett. Ingenting under her er verdt å begynne på før dette står.
 1. **Smett-endringene**, i `peohol/smett`: IIFE-byggemål, injiserbare fraser,
    `itemType`/`containerAccept`. Egne PR-er der, med Smetts egne browser-suiter.
-2. **Testinfrastrukturen først.** Skriv om de 8 filene til ekte input MOT DAGENS
-   MOTOR. De skal være grønne før og etter — det er hele poenget: da er de et net
+2. **Testinfrastrukturen først.** Skriv om ALLE elleve filene — hver syntetiske
+   gest, ikke bare filene som mangler ekte input helt — til ekte input MOT DAGENS
+   MOTOR. De skal være grønne før og etter; det er hele poenget: da er de et net
    under migreringen i stedet for en post i den.
 3. **Nav-scopet først, ikke board-scopet.** Færre særtilfeller (alltid én kolonne,
    ingen ekstrahering til ny liste, ingen normal-flow-vakt, egen scroll-container),
