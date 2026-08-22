@@ -5,11 +5,15 @@
    2. Etter et fullført liste-drag scroller siden til den slupne lista (toppen
       like under den faste toppmenyen).
 
+  Gestene er EKTE input (`tests/dnd-gestures.js`) — ikke oppdiktede
+  PointerEvent-er. Se den fila for hvorfor det er et krav og ikke en detalj.
+
   Kjør:
     python3 -m http.server 8000                      # fra repo-roten, i egen terminal
     NODE_PATH=$(npm root -g) node tests/dnd-collapse-scroll.test.js
 */
 const { chromium } = require('playwright');
+const G = require('./dnd-gestures.js');
 
 const BASE = process.env.HUSKIS_URL || 'http://localhost:8000';
 
@@ -63,13 +67,6 @@ async function seed(p, cards) {
   await p.waitForTimeout(300);
 }
 
-async function pointer(p, type, x, y) {
-  await p.evaluate(({ type, x, y }) => {
-    const ev = new PointerEvent(type, { bubbles: true, cancelable: true, composed: true, clientX: x, clientY: y, pointerId: 7, pointerType: 'touch', button: 0, isPrimary: true });
-    (type === 'pointerdown' ? (document.elementFromPoint(x, y) || document.body) : window).dispatchEvent(ev);
-  }, { type, x, y });
-}
-
 (async () => {
   const b = await chromium.launch();
   const results = [];
@@ -104,15 +101,17 @@ async function pointer(p, type, x, y) {
 
   // Stå øverst, dra den ØVERSTE lista NED forbi de andre → slupt langt nede.
   await p.evaluate(() => window.scrollTo(0, 0)); await p.waitForTimeout(150);
-  const R = await p.evaluate(() => {
-    const r = document.querySelector('.card[data-id="card-Hoy"] .card-head').getBoundingClientRect();
-    return { x: r.left + r.width / 2, y: r.top + r.height / 2 };
-  });
-  await pointer(p, 'pointerdown', R.x, R.y); await p.waitForTimeout(260);
+  const R = await G.centre(p, '.card[data-id="card-Hoy"] .card-head');
+  await G.lift(p, R, true);
+  // Ned mot skjermkanten, og bli der: auto-scrollen skal ta draget videre.
   let y = R.y;
-  for (let i = 0; i < 10; i++) { y = Math.min(740, y + 40); await pointer(p, 'pointermove', R.x, y); await p.waitForTimeout(50); }
+  for (let i = 0; i < 10; i++) {
+    y = Math.min(740, y + 40);
+    await G.touchMove(p, R.x, y);
+    await p.waitForTimeout(50);
+  }
   await p.waitForTimeout(400); // la auto-scroll dra draget nedover
-  await pointer(p, 'pointerup', R.x, y);
+  await G.drop(p, undefined, true);
   await p.waitForTimeout(900); // smooth-scroll + fly-inn ferdig
 
   const res = await p.evaluate(() => {

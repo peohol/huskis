@@ -15,6 +15,7 @@
   (c) pointercancel ruller tilbake uten å lagre et drop.
 */
 const { chromium } = require('playwright');
+const G = require('./dnd-gestures.js');
 
 const BASE = process.env.HUSKIS_URL || 'http://localhost:8000';
 const VW = 390, VH = 780;
@@ -72,13 +73,6 @@ async function buildScenario(p) {
   await p.waitForTimeout(300);
 }
 
-async function pointer(p, type, x, y) {
-  await p.evaluate(({ type, x, y }) => {
-    const ev = new PointerEvent(type, { bubbles: true, cancelable: true, composed: true, clientX: x, clientY: y, pointerId: 7, pointerType: 'touch', button: 0, isPrimary: true });
-    (type === 'pointerdown' ? (document.elementFromPoint(x, y) || document.body) : window).dispatchEvent(ev);
-  }, { type, x, y });
-}
-
 (async () => {
   const b = await chromium.launch();
   const p = await b.newPage({ viewport: { width: VW, height: VH }, isMobile: true, hasTouch: true });
@@ -98,13 +92,11 @@ async function pointer(p, type, x, y) {
   // Scroll helt ned og løft den nederste lista (kollaps + board-vakt).
   await p.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight));
   await p.waitForTimeout(150);
-  const R = await p.evaluate(() => {
-    const cs = [...document.querySelectorAll('.card')];
-    const r = cs[cs.length - 1].querySelector('.card-head').getBoundingClientRect();
-    return { x: r.left + r.width / 2, y: r.top + r.height / 2 };
-  });
-  await pointer(p, 'pointerdown', R.x, R.y); await p.waitForTimeout(260);
-  await pointer(p, 'pointermove', R.x, R.y - 4); await p.waitForTimeout(60);
+  const lastCard = await p.evaluate(() =>
+    [...document.querySelectorAll('.card')].pop().dataset.id);
+  const R = await G.centre(p, '.card[data-id="' + lastCard + '"] .card-head');
+  await G.lift(p, R, true);
+  await G.touchMove(p, R.x, R.y - 4); await p.waitForTimeout(60);
 
   const during = await p.evaluate(() => {
     const bd = document.querySelector('.board');
@@ -123,7 +115,7 @@ async function pointer(p, type, x, y) {
     'bottom=' + during.boardDocBottom + ' scrollY=' + during.scrollY);
 
   // Start en NEDOVER-auto-scroll (fingeren i bunn-sonen).
-  await pointer(p, 'pointermove', R.x, VH - 16); await p.waitForTimeout(120);
+  await G.touchMove(p, R.x, VH - 16); await p.waitForTimeout(120);
 
   // Reproduser fortegns-feil-tilstanden: hold DOKUMENTET høyt (ingen native klemme)
   // men gjør BOARD-bunnen kort → board.bottom havner OVER scrollY → maxScroll < scrollY.
@@ -146,7 +138,7 @@ async function pointer(p, type, x, y) {
 
   // pointercancel → rollback (aldri et lagret drop).
   const before = await p.evaluate(() => [...document.querySelectorAll('.card')].map((c) => c.dataset.id));
-  await pointer(p, 'pointercancel', R.x, VH - 16); await p.waitForTimeout(250);
+  await G.touchCancel(p); await p.waitForTimeout(250);
   const after = await p.evaluate(() => ({
     order: [...document.querySelectorAll('.card')].map((c) => c.dataset.id),
     dragging: document.querySelectorAll('.card.dragging').length,

@@ -8,11 +8,14 @@
   6. Startskalaen i drop-animasjonen følger objekttypen (dragScale: liste 1.02,
      listepunkt 1.03, mappe/område 1.05) — ikke en hardkodet 1.02 for alt.
 
+  Gestene er EKTE input (`tests/dnd-gestures.js`).
+
   Kjør:
     python3 -m http.server 8000                    # fra repo-roten, i egen terminal
     NODE_PATH=$(npm root -g) node tests/dnd-drop-animation.test.js
 */
 const { chromium } = require('playwright');
+const G = require('./dnd-gestures.js');
 
 const BASE = process.env.HUSKIS_URL || 'http://localhost:8000';
 
@@ -68,13 +71,6 @@ async function seed(p, cards) {
   await p.waitForTimeout(300);
 }
 
-async function pointer(p, type, x, y) {
-  await p.evaluate(({ type, x, y }) => {
-    const ev = new PointerEvent(type, { bubbles: true, cancelable: true, composed: true, clientX: x, clientY: y, pointerId: 7, pointerType: 'touch', button: 0, isPrimary: true });
-    (type === 'pointerdown' ? (document.elementFromPoint(x, y) || document.body) : window).dispatchEvent(ev);
-  }, { type, x, y });
-}
-
 const centerOf = (p, sel) => p.evaluate((sel) => {
   const r = document.querySelector(sel).getBoundingClientRect();
   return { x: r.left + r.width / 2, y: r.top + r.height / 2 };
@@ -86,7 +82,14 @@ const centerOf = (p, sel) => p.evaluate((sel) => {
 // `rest` = hvileboksen etter slippet. Start-transformens translate skal føre
 // hvileboksen NØYAKTIG tilbake til `from` — da starter animasjonen der objektet
 // faktisk var, uansett om klemmen holdt det innenfor viewporten.
-const dropAndMeasure = (p, sel, x, y) => p.evaluate(({ sel, x, y }) => {
+/*
+  Slippet må måles i SAMME øyeblikk som det skjer: drop-animasjonen setter
+  transformen i pointerup-håndtereren, og den er ryddet bort igjen når
+  animasjonen er ferdig. Med ekte input kan ikke testen måle inni hendelsen, så
+  den armerer en lytter først. Den registreres etter appens egen, og kjører
+  derfor etter den — nøyaktig der den gamle syntetiske dispatchen målte.
+*/
+const armDrop = (p, sel) => p.evaluate((sel) => {
   const box = (el) => {
     const t = el.style.transform, tr = el.style.transition;
     el.style.transition = 'none'; el.style.transform = 'none';
@@ -96,19 +99,26 @@ const dropAndMeasure = (p, sel, x, y) => p.evaluate(({ sel, x, y }) => {
   };
   const el = document.querySelector(sel);
   const from = box(el);
-  window.dispatchEvent(new PointerEvent('pointerup', {
-    bubbles: true, cancelable: true, composed: true, clientX: x, clientY: y,
-    pointerId: 7, pointerType: 'touch', button: 0, isPrimary: true,
-  }));
-  const transform = el.style.transform || '';
-  const m = /translate\(([-\d.e+]+)px,\s*([-\d.e+]+)px\)/.exec(transform);
-  const rest = box(el);
-  return {
-    from, rest, transform,
-    dx: m ? parseFloat(m[1]) : NaN,
-    dy: m ? parseFloat(m[2]) : NaN,
-  };
-}, { sel, x, y });
+  window.__drop = { from };
+  window.addEventListener('pointerup', () => {
+    const transform = el.style.transform || '';
+    const m = /translate\(([-\d.e+]+)px,\s*([-\d.e+]+)px\)/.exec(transform);
+    window.__drop = {
+      from, transform, rest: box(el),
+      dx: m ? parseFloat(m[1]) : NaN,
+      dy: m ? parseFloat(m[2]) : NaN,
+    };
+  }, { once: true });
+}, sel);
+
+const measuredDrop = (p) => p.evaluate(() => window.__drop);
+
+/** Armér, slipp for ekte, og les av det lytteren fanget. */
+async function dropAndMeasure(p, sel) {
+  await armDrop(p, sel);
+  await G.drop(p, undefined, true);
+  return measuredDrop(p);
+}
 
 const scaleIn = (t) => { const m = /scale\(([\d.]+)\)/.exec(t); return m ? parseFloat(m[1]) : null; };
 
@@ -125,11 +135,11 @@ const log = (n, ok, x = '') => { results.push(ok); console.log((ok ? 'PASS' : 'F
     await register(p); await seed(p, [['A', 4], ['B', 4], ['C', 4]]);
 
     const h = await centerOf(p, '.card[data-id="card-B"] .card-head');
-    await pointer(p, 'pointerdown', h.x, h.y); await p.waitForTimeout(260);
+    await G.lift(p, { x: h.x, y: h.y }, true);
     // Langt UT til høyre for viewporten: klemmen (clampToViewport) holder kortet
     // synlig, mens den uklemte posisjonen ligger flere hundre px utenfor.
     const farX = M.vw + 260;
-    await pointer(p, 'pointermove', farX, h.y); await p.waitForTimeout(120);
+    await G.touchMove(p, farX, h.y); await p.waitForTimeout(120);
     const clamped = await p.evaluate(() => {
       const r = document.querySelector('.card.dragging').getBoundingClientRect();
       return { right: Math.round(r.right), vw: window.innerWidth };
@@ -137,7 +147,7 @@ const log = (n, ok, x = '') => { results.push(ok); console.log((ok ? 'PASS' : 'F
     log('5 ' + M.n + ': kortet er klemt innenfor viewporten før slippet',
       clamped.right <= clamped.vw + 2, JSON.stringify(clamped));
 
-    const res = await dropAndMeasure(p, '.card.dragging', farX, h.y);
+    const res = await dropAndMeasure(p, '.card.dragging');
     const ex = Math.abs(res.rest.left + res.dx - res.from.left);
     const ey = Math.abs(res.rest.top + res.dy - res.from.top);
     log('5 ' + M.n + ': drop-animasjonen starter der kortet FAKTISK stod (ingen hopp)',
@@ -155,17 +165,17 @@ const log = (n, ok, x = '') => { results.push(ok); console.log((ok ? 'PASS' : 'F
 
     // LISTE → 1.02
     const ch = await centerOf(p, '.card[data-id="card-A"] .card-head');
-    await pointer(p, 'pointerdown', ch.x, ch.y); await p.waitForTimeout(260);
-    await pointer(p, 'pointermove', ch.x - 40, ch.y + 30); await p.waitForTimeout(120);
-    const rCard = await dropAndMeasure(p, '.card.dragging', ch.x - 40, ch.y + 30);
+    await G.lift(p, { x: ch.x, y: ch.y }, true);
+    await G.touchMove(p, ch.x - 40, ch.y + 30); await p.waitForTimeout(120);
+    const rCard = await dropAndMeasure(p, '.card.dragging');
     log('6 liste: startskala 1.02', scaleIn(rCard.transform) === 1.02, 'transform=' + rCard.transform);
     await p.waitForTimeout(700);
 
     // LISTEPUNKT → 1.03
     const it = await centerOf(p, '.item[data-id="it-A-2"]');
-    await pointer(p, 'pointerdown', it.x, it.y); await p.waitForTimeout(260);
-    await pointer(p, 'pointermove', it.x, it.y + 40); await p.waitForTimeout(120);
-    const rItem = await dropAndMeasure(p, '.item.dragging', it.x, it.y + 40);
+    await G.lift(p, { x: it.x, y: it.y }, true);
+    await G.touchMove(p, it.x, it.y + 40); await p.waitForTimeout(120);
+    const rItem = await dropAndMeasure(p, '.item.dragging');
     log('6 listepunkt: startskala 1.03', scaleIn(rItem.transform) === 1.03, 'transform=' + rItem.transform);
     await p.waitForTimeout(600);
 
@@ -177,10 +187,10 @@ const log = (n, ok, x = '') => { results.push(ok); console.log((ok ? 'PASS' : 'F
     const uSel = '#nav-board .card[data-id="' + await p.evaluate(() => window.__huskis.state.activeUniverse) + '"]';
     const gIds = await p.evaluate((sel) => [...document.querySelectorAll(sel + ' .items-container > .item')].map((g) => g.dataset.id), uSel);
     const g0 = await centerOf(p, uSel + ' .item[data-id="' + gIds[0] + '"]');
-    await pointer(p, 'pointerdown', g0.x, g0.y); await p.waitForTimeout(260);
+    await G.lift(p, { x: g0.x, y: g0.y }, true);
     // Til venstre, så dra-rotasjonen (og dermed rotate/scale-suffikset) ikke blir 0.
-    await pointer(p, 'pointermove', g0.x - 90, g0.y + 30); await p.waitForTimeout(120);
-    const rGroup = await dropAndMeasure(p, '#nav-board .item.dragging', g0.x - 90, g0.y + 30);
+    await G.touchMove(p, g0.x - 90, g0.y + 30); await p.waitForTimeout(120);
+    const rGroup = await dropAndMeasure(p, '#nav-board .item.dragging');
     log('6 mappe: startskala 1.03', scaleIn(rGroup.transform) === 1.03, 'transform=' + rGroup.transform);
     await p.waitForTimeout(600);
 
@@ -194,9 +204,9 @@ const log = (n, ok, x = '') => { results.push(ok); console.log((ok ? 'PASS' : 'F
     await p.waitForTimeout(150);
     const uIds = await p.evaluate(() => [...document.querySelectorAll('#nav-board .card')].map((u) => u.dataset.id));
     const u0 = await centerOf(p, '#nav-board .card[data-id="' + uIds[0] + '"] .card-head');
-    await pointer(p, 'pointerdown', u0.x, u0.y); await p.waitForTimeout(260);
-    await pointer(p, 'pointermove', u0.x - 90, u0.y + 30); await p.waitForTimeout(120);
-    const rUni = await dropAndMeasure(p, '#nav-board .card.dragging', u0.x - 90, u0.y + 30);
+    await G.lift(p, { x: u0.x, y: u0.y }, true);
+    await G.touchMove(p, u0.x - 90, u0.y + 30); await p.waitForTimeout(120);
+    const rUni = await dropAndMeasure(p, '#nav-board .card.dragging');
     log('6 område: startskala 1.02', scaleIn(rUni.transform) === 1.02, 'transform=' + rUni.transform);
     await p.waitForTimeout(600);
 

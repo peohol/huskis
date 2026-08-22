@@ -10,11 +10,15 @@
   JS setter `.sep-above` på den nedre raden i hver grense som skal ha en linje, og
   `.seps-managed` slår av hvile-reglene i containeren (se applyDragSeparators).
 
+  Touch-gestene er EKTE input (`tests/dnd-gestures.js`); muse-gestene var det
+  allerede.
+
   Kjør:
     python3 -m http.server 8000                        # fra repo-roten, i egen terminal
     NODE_PATH=$(npm root -g) node tests/dnd-separators-preview.test.js
 */
 const { chromium } = require('playwright');
+const G = require('./dnd-gestures.js');
 
 const BASE = process.env.HUSKIS_URL || 'http://localhost:8000';
 
@@ -110,13 +114,6 @@ const centerOf = (p, sel) => p.evaluate((sel) => {
   const r = el.getBoundingClientRect();
   return { x: Math.round(r.left + r.width / 2), y: Math.round(r.top + r.height / 2) };
 }, sel);
-
-async function touch(p, type, x, y) {
-  await p.evaluate(({ type, x, y }) => {
-    const ev = new PointerEvent(type, { bubbles: true, cancelable: true, composed: true, clientX: x, clientY: y, pointerId: 7, pointerType: 'touch', button: 0, isPrimary: true });
-    (type === 'pointerdown' ? (document.elementFromPoint(x, y) || document.body) : window).dispatchEvent(ev);
-  }, { type, x, y });
-}
 
 const results = [];
 const log = (n, ok, x = '') => { results.push(ok); console.log((ok ? 'PASS' : 'FAIL') + ' — ' + n + (x ? '  [' + x + ']' : '')); };
@@ -227,14 +224,14 @@ const log = (n, ok, x = '') => { results.push(ok); console.log((ok ? 'PASS' : 'F
     const errs = []; p.on('pageerror', (e) => errs.push(e.message));
     await register(p); await seed(p);
     const src = await centerOf(p, '.item[data-id="bunn"]');
-    await touch(p, 'pointerdown', src.x, src.y); await p.waitForTimeout(260); // trykk-og-hold
-    await touch(p, 'pointermove', src.x, src.y - 10); await p.waitForTimeout(60);
+    await G.lift(p, src, true); // trykk-og-hold
+    await G.touchMove(p, src.x, src.y - 10); await p.waitForTimeout(60);
     const topp = await centerOf(p, '.item[data-id="topp"]');
-    await touch(p, 'pointermove', topp.x, topp.y + 18); await p.waitForTimeout(80);
-    await touch(p, 'pointermove', topp.x, topp.y + 20); await p.waitForTimeout(250);
+    await G.touchMove(p, topp.x, topp.y + 18); await p.waitForTimeout(80);
+    await G.touchMove(p, topp.x, topp.y + 20); await p.waitForTimeout(250);
     const s = sig(await rows(p));
     log('4 mobil: linje mellom placeholderen og kategorien', s === 'topp|item-ph—cat-1—midt', s);
-    await touch(p, 'pointerup', topp.x, topp.y + 20); await p.waitForTimeout(600);
+    await G.drop(p, undefined, true); await p.waitForTimeout(600);
     const after = await restingSeps(p);
     log('4 mobil etter slipp: hvile-reglene tilbake', after.managed === false && after.sepClasses === 0,
       JSON.stringify(after));
