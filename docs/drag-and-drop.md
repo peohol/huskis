@@ -3,6 +3,11 @@
 Les denne når oppgaven berører reorder, overføring mellom lister/mapper, eller
 selve dra-motoren i app.js.
 
+Dokumentet beskriver motoren slik den er nå: hjemmesnekret, på Pointer Events.
+Planen om å bytte den mot dnd-kit + Smett ligger i
+[`dndkit-plan.md`](dndkit-plan.md); dette dokumentet er autoritativt til den
+migreringen faktisk er gjennomført.
+
 Bytte utløses av **overlapp**, ikke av et punkt:
 
 - ≥ **20 %** høyde-/breddeoverlapp bytter plass; **retningsstyrt** (hysterese mot
