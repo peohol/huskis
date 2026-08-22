@@ -21,7 +21,7 @@ autoritative dokumentet for fagfeltet.
 | Neste milepæl | Fase 5: første OTA-bundle som flytter en APK til samme `releaseId` som `huskis.no` |
 | Neste praktiske steg — fase 3 | Ingen. Fasen er ferdig |
 | Neste praktiske steg — fase 4 | Ingen. Fasen er ferdig; de to «vurder …»-punktene fikk sitt svar i fase 5 |
-| Neste praktiske steg — fase 5 | **Kjøre enhetsøkten. Protokollen står i «Slik kjører du enhetsøkten», og forberedelsene er gjort.** Økten er to installasjoner, fordi hvert skallbytte er avinstaller + installer og dermed nullstiller telefonen: **A** måler nedlastingen utenfor CSP-en, produksjonssignaturen, oppstillingen, `reload()` som beholder originet, byttet gjennom `updateSafety()` og tidsmålingen — mot APK-en som ER bygget, av `0ebb737` (`versionCode 3`, `releaseId 0ebb737b5bf9`), slik at manifestet navngir en SENERE release enn APK-en; **B** måler rollback og karantene mot måleriggen («Slik bygger og kjører du målerigg-runden»). Instrumentet tidsmålingen manglet finnes nå: `window.__huskis.readyMs` |
+| Neste praktiske steg — fase 5 | **Kjøre enhetsøkten. Protokollen står i «Slik kjører du enhetsøkten», og forberedelsene er gjort.** Økten er to installasjoner, fordi hvert skallbytte er avinstaller + installer og dermed nullstiller telefonen: **A** måler nedlastingen utenfor CSP-en, produksjonssignaturen, oppstillingen, `reload()` som beholder originet, byttet gjennom `updateSafety()` og tidsmålingen — mot APK-en som ER bygget, av `0ebb737` (`versionCode 3`, `releaseId 0ebb737b5bf9`), slik at manifestet navngir en SENERE release enn APK-en; **B** måler rollback og karantene mot måleriggen, som ER bygget: riggrenen `claude/ota-rigg-vc3`, dens egen Vercel-preview som vert, og begge riggbundlene (`rig-broken-1` med `--mode throw`, `rig-broken-2` med `--mode blank`) signert og lagt ut der. Det ene som gjenstår før B kan måle noe, er at Vercel Authentication slås AV på prosjektet mens runden står på — ellers svarer previewverten `302` til `vercel.com/sso-api`, og riggskallet melder `no-manifest` uten å ha målt noe. Instrumentet tidsmålingen manglet finnes nå: `window.__huskis.readyMs` |
 | OTA | Innført ende til ende i koden: pluginen, den signerte bundelen, manifestet per native nivå, hentingen, karantenen, oppstillingen og byttet. Ikke prøvd på en fysisk enhet ennå — ferdigkriteriet står derfor åpent |
 | iOS | Senere fase; ikke en del av første implementering |
 
@@ -2081,10 +2081,19 @@ eneste browserbruker, ikke bare et testtilfelle for én telefon.
 tatt.** Riggen bygges av `.github/scripts/ota-rig.js` på en egen gren som aldri
 merges, og består av to halvdeler:
 
-- **et riggskall**, altså en debug-APK bygget av riggrenen. Nøyaktig tre
-  konstanter skiller den fra produksjonsskallet: `canonicalAppUrl` i `config.js`,
-  verten i CSP-ens `connect-src` i `index.html`, og `LiveUpdate.publicKey` i
-  `capacitor.config.json`;
+- **et riggskall**, altså en debug-APK bygget av riggrenen. Nøyaktig fem
+  konstanter skiller den fra produksjonsskallet, og fire av dem er det samme
+  svaret på ett spørsmål — hvilken adresse skallet hører hjemme på:
+  `canonicalAppUrl` i `config.js`, verten i CSP-ens `connect-src` i
+  `index.html`, `CANONICAL_ORIGIN` i origin-vakten i `index.html`, og
+  reserveverdien i `canonicalAppUrl()` i `app.js`. Den femte er
+  `LiveUpdate.publicKey` i `capacitor.config.json`. De to siste
+  adresse-konstantene er inerte i selve målingen — origin-vakten treffer bare
+  på de produksjonshostene den selv lister, og reserveverdien leses aldri når
+  `config.js` er satt — men de må likevel byttes, fordi
+  `tests/capacitor-android.test.js` regner enhver absolutt adresse utenom
+  Supabase og `canonicalAppUrl` som fremmed, og den testen er et BYGGESTEG i
+  «Android debug-APK»;
 - **en riggbundle**, signert med riggens eget engangsnøkkelpar og servert fra
   riggrenens egen Vercel-preview, sammen med et manifest på nivået skallet spør
   etter. Bundelen er hele web-builden med `app.js` byttet mot et skript som maler
@@ -2115,10 +2124,12 @@ aldri. Den faller på at `window.__huskis` — hvert eneste instrument økten le
 innebygde bundelen laster, ellers finnes det ingenting å lese; et tapt kappløp
 mot `readyTimeout` ser da ut som en rollback som ikke virket.
 
-**Hva riggen kan svare på, og hva den ikke får brukes til.** De tre konstantene
+**Hva riggen kan svare på, og hva den ikke får brukes til.** De fem konstantene
 leses ikke av rollback-timeren, av pluginens blokkliste eller av klientens egen
 karantene — den koden er byte for byte produksjonens, og patchen rører ingenting
-annet (`tests/ota-rig.test.js` måler det linje for linje mot de ekte filene).
+annet: én linje i hver av `config.js` og `app.js`, to i `index.html`, og
+`publicKey` i `capacitor.config.json` (`tests/ota-rig.test.js` måler det linje
+for linje mot de ekte filene).
 Rollback- og karantenepunktet kan derfor måles på riggen. De to
 nedlastingspunktene kan det IKKE: riggen signerer med sin egen nøkkel og leser
 fra sin egen vert, så både «telefonen godtar produksjonssignaturen» og
@@ -2148,11 +2159,23 @@ kjører den.
    commiten som produksjons-APK-en: bindingen «manifestet må navngi en annen
    release enn APK-en» gjelder bare produksjonsveien, og riggens `releaseId` er
    riggens eget navn.
+
+   **Previewverten må kunne leses UTEN innlogging, og kan det ikke i
+   utgangspunktet.** Vercel-prosjektets «Deployment Protection» står på Vercel
+   Authentication for `all_except_custom_domains`, og målt svarer
+   `huskis-git-<gren>-<team>.vercel.app` da `302` til `vercel.com/sso-api` på
+   både `/ota/android/<versionCode>.json` og `/ota/bundles/<id>.zip`.
+   Riggskallet ville lest den redirecten som `no-manifest` og aldri kommet til
+   nedlastingen — en runde som ser ut som en vakt som virker, men som ikke har
+   målt noe. Beskyttelsen må derfor være av mens riggrunden står på, og på
+   igjen etterpå. `huskis.no` er et custom domain og berøres ikke av
+   innstillingen; alle ANDRE previewer er lesbare i det vinduet, og det er
+   prisen.
 2. `node build.js`, deretter
    `node .github/scripts/ota-rig.js --host https://<preview-verten>`. Skriptet
-   patcher de tre konstantene, lager nøkkelparet første gang, bygger og signerer
+   patcher de fem konstantene, lager nøkkelparet første gang, bygger og signerer
    `ota/bundles/rig-broken-1.zip` og skriver `ota/android/<versionCode>.json`.
-3. Commit `ota/` og de tre patchede filene, og push. Previewen serverer nå
+3. Commit `ota/` og de fire patchede filene, og push. Previewen serverer nå
    riggmanifestet med de samme headerne produksjonen bruker (no-store + CORS på
    manifestet).
 4. Bygg APK-en med workflowen «Android debug-APK» på RIGGRENEN. **Avinstaller
@@ -2250,7 +2273,8 @@ er byte for byte kilden, `index.html` modulo de to ID-ene.
 | Pluginen AVVISER en `bundleId` den alt har, og det treffer hver kaldstart etter den første nedlastingen | **lest** i `LiveUpdate.java` 8.4.0: `downloadBundle()` starter med `if (hasBundleById(bundleId))` → `ERROR_BUNDLE_EXISTS` («bundle already exists.»), FØR nedlastingen. Funnet kom fra kodegjennomgangen av PR #136 og er verifisert i kilden. Klienten skiller derfor utfallet ut som `already-downloaded` — se «En allerede hentet bundle er ikke en feilet nedlasting» |
 | `reload()` armerer rollback-timeren PÅ NYTT | **lest** i `LiveUpdate.java` 8.4.0: `reload()` er `getNextCapacitorServerPath()` → `setCurrentCapacitorServerPath()` → `startRollbackTimer()`. Et bundlebytte midt i en økt er derfor også en anledning til å måle rollback — uten en kaldstart |
 | `previousBundleId` er VARIG, `rollbackPerformed` er det ikke | **lest** i `LiveUpdatePreferences.java` 8.4.0: `setPreviousBundleId()` skriver til SharedPreferences, mens flagget er et vanlig felt i `LiveUpdate`. Det er nøyaktig derfor signaturen «`previousBundleId` sammen med `currentBundleId === null`» finnes igjen å lese for klientens eget karantenelag etter en prosessdød |
-| Måleriggen er smal: den bytter tre konstanter og ingenting mer | **observert** — `tests/ota-rig.test.js` kjører patchen over de EKTE `config.js`, `index.html` og `capacitor.config.json`: nøyaktig én linje i hver, og `readyTimeout`/`autoBlockRolledBackBundles` står urørt |
+| Måleriggen er smal: den bytter fem konstanter og ingenting mer | **observert** — `tests/ota-rig.test.js` kjører patchen over de EKTE `config.js`, `index.html`, `app.js` og `capacitor.config.json`: én linje i `config.js`, to i `index.html`, én i `app.js`, og `publicKey` i konfigurasjonen. `readyTimeout`/`autoBlockRolledBackBundles` står urørt, og det gjør også `otaBlocked`, `liveReady`, `setNextBundle`, `markAppReady` og `readyMs` i `app.js`. De fire adressepatchene er alt-eller-ingenting: kaster én av dem, skrives ingen — `config.js` er sentinelen for om skallet er patchet, så et halvpatchet tre ville sett ferdig ut for neste kjøring |
+| Et riggskall med produksjonsadressen igjen i koden kan ikke BYGGES | **observert** — «Android debug-APK» på riggrenen (kjøring 101) stoppet i sitt eget teststeg: `tests/capacitor-android.test.js` regner enhver absolutt adresse utenom Supabase og `canonicalAppUrl` som fremmed, og fant `https://huskis.no` i `index.html` (origin-vakten) og `app.js` (reserveverdien). Det er grunnen til at riggpatchen er fem konstanter og ikke tre |
 | En riggbundle kan ikke aktiveres av et produksjonsskall | **observert** — samme fil: riggmanifestet forkastes av klientens `url`-vakt når basen er produksjonens `canonicalAppUrl`, og riggsignaturen verifiserer ikke mot den innebygde `publicKey` |
 | Riggbundelen er faktisk ødelagt, og hele veien zip → signatur → manifest kjører | **observert** — samme fil, over en liten `dist/`: `app.js` i arkivet kaller aldri `ready()` og kaster, blank-modus er én `index.html` uten skript, og manifestet passerer klientens systemgrense med riggverten som base |
 | To debug-APK-er kan ikke antas å oppgradere hverandre | **lest** i `.github/workflows/android-debug.yml`: ingen `signingConfig`, ingen cache av et nøkkellager, og en fersk `ubuntu-latest`-runner per kjøring — så debug-sertifikatet er det Gradle lager der og da. Android oppgraderer bare ved samme `appId` OG samme sertifikat, så et skallbytte på telefonen må regnes som avinstaller + installer, og appdataen forsvinner med det. Funnet kom fra kodegjennomgangen av PR #138 |
@@ -2285,7 +2309,7 @@ før de er målt i en `chrome://inspect`-økt mot en APK:
   ikke på produksjonsskallet** (seksjonen «Den ødelagte bundelen kan ikke være
   en produksjonsrelease»): en ødelagt bundle kan ikke publiseres på
   produksjonsveien, fordi OTA-bundelen ER produksjonsbuilden. Riggskallet skiller
-  seg fra produksjonsskallet i tre konstanter, og det skal stå i det som
+  seg fra produksjonsskallet i fem konstanter, og det skal stå i det som
   rapporteres. Byttet trenger heller ingen kaldstart: `reload()` armerer
   rollback-timeren på nytt (lest i `LiveUpdate.java` 8.4.0), så et bytte midt i
   økten teller. Fortsatt ikke testet — klar, ikke verifisert;
@@ -2405,6 +2429,21 @@ går den i stykker, måler B en kjede som ikke er bevist.
   commiten manifestet navngir, svarer `otaFetch` `same-release`, og ingenting
   lastes ned. Enhver senere merge til `main` flytter manifestet videre og
   bevarer bindingen — den brytes bare hvis APK-en bygges på nytt av `main`.
+- **Riggen for installasjon B er bygget.** Riggrenen er `claude/ota-rigg-vc3`,
+  og verten er dens egen Vercel-preview
+  `https://huskis-git-claude-ota-rigg-vc3-peohols-projects.vercel.app`. Begge
+  riggbundlene ligger der, signert med riggens engangsnøkkel: `rig-broken-1`
+  (`--mode throw`) og `rig-broken-2` (`--mode blank`). `ota/android/3.json`
+  navngir `rig-broken-1`, så runde én kjører rett ut av boksen; manifestet for
+  hver av dem står også som `3.throw.json` og `3.blank.json`, og runde to
+  kjøres ved å kopiere `3.blank.json` over `3.json` og pushe. Riggskallets APK
+  er bygget av den samme grenen: «Android debug-APK», kjøring 102, artifactet
+  `huskis-debug-apk`, som utløper 2026-11-18. Grenen skal aldri merges, og
+  slettes når økten er ferdig.
+- **Riggens privatnøkkel er en engangsnøkkel i `.ota-rig/`, og den følger ikke
+  grenen.** De to bundlene over er derfor de to som kan måles med det
+  riggskallet: en tredje riggbundle krever et nytt nøkkelpar, og dermed en ny
+  rigg-APK.
 
 **Sjekk begge før du starter. Uten dem finnes det ikke noe manifest å måle
 mot:**
@@ -2477,20 +2516,35 @@ Alt i steg 2–6 må gjøres ferdig før telefonen får et nytt skall.
 
 ### Installasjon B — riggskallet
 
-Riggen bygges og kjøres som beskrevet i «Slik bygger og kjører du
-målerigg-runden». To ting gjelder i tillegg når den kjøres som del av denne
-økten:
+Riggen er bygget («Det som er stilt opp på forhånd»), så det som står igjen av
+«Slik bygger og kjører du målerigg-runden» er APK-en, beskyttelsen på
+previewverten og selve kaldstartene. Fire ting gjelder i tillegg når riggen
+kjøres som del av denne økten:
 
-- **riggrenen lages av `main`**, ikke av `0ebb737` som installasjon A. Riggen
+- **riggrenen er laget av `main`**, ikke av `0ebb737` som installasjon A. Riggen
   har ingen av produksjonsmålingens to bindinger: manifestets `releaseId` er
   riggens eget navn (`rig-broken-<n>`) og kan aldri kollidere med APK-ens, og
   `ota-rig.js` leser `versionCode` ut av `android/app/build.gradle` selv, så
   manifestet skrives alltid for nøyaktig det nivået riggskallet melder;
+- **Vercel Authentication må være av på prosjektet mens runden står på.** Uten
+  det svarer previewverten `302` til `vercel.com/sso-api`, og riggskallet
+  melder `no-manifest` uten å ha målt noe (steg 1 i oppskriften);
 - **begge de to defektene måles i den samme installasjonen.** `--mode throw`
   (laster scriptene fint, men feiler før skjermen er brukbar) og `--mode blank`
   (når aldri `ready()`) er to ulike tilfeller, og hver runde trenger et nytt
   `--id`: en bundle som er hentet én gang avvises som «already exists», og en
-  som er rullet tilbake er sperret for alltid i begge karantenelagene.
+  som er rullet tilbake er sperret for alltid i begge karantenelagene. Begge
+  bundlene ligger allerede på verten; runde to slippes løs ved å kopiere
+  `ota/android/3.blank.json` over `ota/android/3.json` og pushe riggrenen, slik
+  at manifestet navngir den andre;
+- **de fem konstantene skal stå i det som rapporteres**, fordi riggskallet ikke
+  er produksjonsskallet: `canonicalAppUrl` i `config.js`, verten i CSP-ens
+  `connect-src` i `index.html`, `CANONICAL_ORIGIN` i origin-vakten i
+  `index.html`, reserveverdien i `canonicalAppUrl()` i `app.js`, og
+  `LiveUpdate.publicKey` i `capacitor.config.json`. `readyTimeout` og
+  `autoBlockRolledBackBundles` er IKKE blant dem, og heller ikke rollback-,
+  karantene- eller oppstillingskoden i `app.js` — det er den koden målingen
+  gjelder, og den er byte for byte produksjonens.
 
 Avlesningene per runde: `window.__huskis.liveReady` (`rollback`,
 `previousBundleId`) rett etter at den innebygde bundelen er tilbake, og
@@ -2561,7 +2615,7 @@ gitt en ekte defekt bundle like lang tid til å se frisk ut.
 
 - for hvert punkt: den rå avlesningen, ikke en konklusjon om den;
 - hvilken installasjon hver avlesning kom fra, og hvilken `bundleId`;
-- for riggpunktene: at de er målt på riggskallet, og hvilke tre konstanter det
+- for riggpunktene: at de er målt på riggskallet, og hvilke fem konstanter det
   skiller seg fra produksjonsskallet på;
 - for tidsmålingen: at tallene er nedre grenser, og hvorfor.
 
@@ -2765,7 +2819,7 @@ produksjonen.** OTA-bundelen ER produksjonsbuilden, så en ødelagt bundle på
 produksjonsveien ville vært en ødelagt nettside for alle. Valget er en MÅLERIGG
 — eget skall, eget engangsnøkkelpar, egen vert — bygget av
 `.github/scripts/ota-rig.js` på en gren som aldri merges, og låst av
-`tests/ota-rig.test.js`: patchen bytter tre konstanter og ingenting mer, og en
+`tests/ota-rig.test.js`: patchen bytter fem konstanter og ingenting mer, og en
 riggbundle kan verken nå eller aktiveres av et produksjonsskall. Begrunnelsen og
 de forkastede formene står i «Den ødelagte bundelen kan ikke være en
 produksjonsrelease».
@@ -2879,7 +2933,7 @@ manifest.
 kunne ikke måles i det hele tatt uten å avgjøre hvor en bevisst ødelagt bundle
 skal komme fra, og produksjonsveien var utelukket: `release.yml` pakker den
 samme `dist/`-en som deployes til huskis.no. Valget er en målerigg med eget
-skall, eget engangsnøkkelpar og egen vert — de tre konstantene som skiller den
+skall, eget engangsnøkkelpar og egen vert — de fem konstantene som skiller den
 fra produksjonsskallet leses ikke av rollback-timeren, blokklisten eller
 karantenen, og `tests/ota-rig.test.js` måler at patchen ikke rører noe annet.
 Formene som ble forkastet, og hva riggen IKKE får brukes til å svare på, står i

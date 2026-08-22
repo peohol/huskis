@@ -10,12 +10,14 @@
    produksjon i det hele tatt.
 
    Riggen er bare troverdig så lenge den er SMAL. Målingen kan overføres til
-   produksjonsskallet fordi de to skiller seg i nøyaktig tre konstanter — hvem
-   som signerer, hvilken vert, og hvilken vert CSP-en slipper — og ingen av dem
-   leses av rollback-timeren, pluginens blokkliste eller klientens karantene.
-   Denne filen måler nettopp det, og at riggen ikke kan røre produksjon:
+   produksjonsskallet fordi de to skiller seg i nøyaktig fem konstanter — hvem
+   som signerer, og de fire stedene skallets egen adresse står (config.js,
+   CSP-ens connect-src, origin-vakten i index.html og reserveverdien i
+   canonicalAppUrl()) — og ingen av dem leses av rollback-timeren, pluginens
+   blokkliste eller klientens karantene. Denne filen måler nettopp det, og at
+   riggen ikke kan røre produksjon:
 
-     1. patchen endrer de tre konstantene og ingenting annet
+     1. patchen endrer de fem konstantene og ingenting annet
      2. riggmanifestet har samme form som produksjonens, og passerer klientens
         systemgrense — men bare med riggens egen vert som base
      3. bundelen er faktisk ødelagt: ingen readiness, og den kaster
@@ -52,7 +54,7 @@ function check(navn, ok, evidens) {
 const rigKilde = fs.readFileSync(path.join(ROOT, '.github', 'scripts', 'ota-rig.js'), 'utf8');
 const RIG_VERT = 'https://huskis-git-rigg-eksempel.vercel.app';
 
-/* ---- 1. Patchen: nøyaktig tre konstanter, kjørt over de EKTE filene ---- */
+/* ---- 1. Patchen: nøyaktig fem konstanter, kjørt over de EKTE filene ---- */
 
 const configJs = fs.readFileSync(path.join(ROOT, 'config.js'), 'utf8');
 const indexHtml = fs.readFileSync(path.join(ROOT, 'index.html'), 'utf8');
@@ -89,6 +91,40 @@ check('produksjonsverten er UTE av connect-src',
   indexDiff.length === 1 && indexDiff[0].indexOf(PROD_VERT + ';') === -1
     && indexDiff[0].indexOf(PROD_VERT + ' ') === -1, indexDiff[0]);
 
+/* CANONICAL_ORIGIN i origin-vakten og reserveverdien i `canonicalAppUrl()` er
+   inerte i selve målingen — vakten treffer bare på de produksjonshostene den
+   selv lister, og reserveverdien leses aldri når `config.js` er satt. De må
+   likevel byttes: `tests/capacitor-android.test.js` regner enhver absolutt
+   adresse utenom Supabase og `canonicalAppUrl` som fremmed, og den testen er et
+   BYGGESTEG i «Android debug-APK». Uten patchen kan riggskallets APK ikke
+   bygges. */
+const nyIndexHele = rig.patchCanonicalOrigin(nyIndex, PROD_VERT, RIG_VERT);
+const indexHeleDiff = endredeLinjer(indexHtml, nyIndexHele);
+check('index.html: nøyaktig to linjer endres i alt', indexHeleDiff.length === 2,
+  indexHeleDiff.join(' | '));
+check('…og den andre er CANONICAL_ORIGIN, satt til riggverten',
+  indexHeleDiff.length === 2
+    && indexHeleDiff.some((l) => l === "var CANONICAL_ORIGIN = '" + RIG_VERT + "';"),
+  indexHeleDiff.join(' | '));
+
+const appJs = fs.readFileSync(path.join(ROOT, 'app.js'), 'utf8');
+const nyApp = rig.patchAppFallback(appJs, PROD_VERT, RIG_VERT);
+const appDiff = endredeLinjer(appJs, nyApp);
+check('app.js: nøyaktig én linje endres', appDiff.length === 1, appDiff.join(' | '));
+check('…og det er reserveverdien i canonicalAppUrl()',
+  appDiff.length === 1
+    && appDiff[0] === "const raw = (window.HUSKIS_CONFIG && window.HUSKIS_CONFIG.canonicalAppUrl) || '"
+      + RIG_VERT + "';",
+  appDiff[0]);
+/* Den ene linjen er hele riggens fotavtrykk i `app.js`: koden målingen gjelder
+   — rollback-signaturen fra `ready()`, karantenen og blokklisten — står urørt. */
+for (const symbol of ['otaBlocked', 'liveReady', 'setNextBundle', 'markAppReady', 'readyMs']) {
+  check('app.js: ' + symbol + ' er uendret av riggpatchen',
+    (appJs.split(symbol).length) === (nyApp.split(symbol).length)
+      && appJs.split(symbol).length > 1,
+    symbol + ' × ' + (nyApp.split(symbol).length - 1));
+}
+
 const testPar = crypto.generateKeyPairSync('rsa', {
   modulusLength: 2048,
   publicKeyEncoding: { type: 'spki', format: 'pem' },
@@ -117,6 +153,57 @@ check('en index.html uten connect-src stopper riggen',
   kaster(() => rig.patchCsp('<!doctype html>\n', PROD_VERT, RIG_VERT)));
 check('en connect-src uten produksjonsverten stopper riggen',
   kaster(() => rig.patchCsp("connect-src 'self';\n", PROD_VERT, RIG_VERT)));
+check('en index.html uten CANONICAL_ORIGIN stopper riggen',
+  kaster(() => rig.patchCanonicalOrigin('<!doctype html>\n', PROD_VERT, RIG_VERT)));
+check('en CANONICAL_ORIGIN som ikke er produksjonsverten stopper riggen',
+  kaster(() => rig.patchCanonicalOrigin("var CANONICAL_ORIGIN = 'https://andre.no';\n",
+    PROD_VERT, RIG_VERT)));
+check('en app.js uten reserveverdien stopper riggen',
+  kaster(() => rig.patchAppFallback('const x = 1;\n', PROD_VERT, RIG_VERT)));
+check('en reserveverdi som ikke er produksjonsverten stopper riggen',
+  kaster(() => rig.patchAppFallback(
+    "const raw = (window.HUSKIS_CONFIG && window.HUSKIS_CONFIG.canonicalAppUrl) || 'https://andre.no';\n",
+    PROD_VERT, RIG_VERT)));
+
+/* ---- Halvpatchet tre er selvbekreftende, og må derfor være umulig ----
+
+   `main()` bruker `config.js` som sentinel: er `canonicalAppUrl` allerede
+   riggverten, hoppes hele adresseblokken over. En runde som rakk å skrive
+   `config.js` og så kastet på `app.js`, ville derfor ved neste kjøring sett
+   ferdig ut — den manglende patchen ville verken blitt reparert eller
+   validert. Alle fire adressene regnes derfor ut i ett trekk FØR noe skrives. */
+
+const alle = rig.patchAdresser({ indexHtml, configJs, appJs }, PROD_VERT, RIG_VERT);
+check('patchAdresser gir de samme fire linjene som patchene hver for seg',
+  alle.indexHtml === nyIndexHele && alle.configJs === nyConfig && alle.appJs === nyApp);
+
+/* Regresjonen: siste adressepatch feiler. Ingenting skal komme ut — og
+   `config.js` i treet skal fortsatt navngi PRODUKSJONSVERTEN, altså sentinelen
+   som får neste kjøring til å patche på nytt i stedet for å hoppe over. */
+const halvt = { indexHtml, configJs, appJs: 'const x = 1;\n' };
+check('en feilende app.js-patch gir ingen delvis patchet utgang',
+  kaster(() => rig.patchAdresser(halvt, PROD_VERT, RIG_VERT)));
+check('…og sentinelen står igjen på produksjonsverten, så en ny kjøring patcher på nytt',
+  rig.readCanonical(halvt.configJs) === PROD_VERT, rig.readCanonical(halvt.configJs));
+/* Det samme for en index.html som mister origin-vakten — rekkefølgen internt i
+   patchAdresser skal ikke kunne gjøre den ene feilen mildere enn den andre. */
+check('en feilende index.html-patch gir heller ingen delvis patchet utgang',
+  kaster(() => rig.patchAdresser({ indexHtml: '<!doctype html>\n', configJs, appJs },
+    PROD_VERT, RIG_VERT)));
+
+/* Og renheten må holdes i main(): skriver den én av adressefilene FØR
+   patchAdresser har returnert, er hele vakten over omgått. */
+const mainKropp = (rigKilde.match(/\nfunction main\(\) \{[\s\S]*?\n\}\n/) || [''])[0];
+check('main() finnes å lese', mainKropp.length > 0);
+for (const direkte of ['patchCsp(', 'patchCanonicalOrigin(', 'patchConfigJs(', 'patchAppFallback(']) {
+  check('main() kaller ikke ' + direkte + ' direkte — bare patchAdresser',
+    mainKropp.indexOf(direkte) === -1);
+}
+check('main() regner ut adressepatchene FØR den første skrivingen',
+  mainKropp.indexOf('patchAdresser(') > -1
+    && mainKropp.indexOf('patchAdresser(') < mainKropp.indexOf('writeFileSync('),
+  'patchAdresser@' + mainKropp.indexOf('patchAdresser(')
+    + ' writeFileSync@' + mainKropp.indexOf('writeFileSync('));
 
 /* ---- 2. Manifestet: samme form som produksjonens, egen vert ---- */
 
