@@ -10,6 +10,12 @@
   høyre, utvidet sidens scroll-bredde og (på iOS WebKit) skjøv den høyre-forankrede
   `position: fixed`-kontoknappen ut av viewporten.
 
+  Nav-modalen kjører nå på dnd-kit (se `docs/drag-and-drop.md`), som løfter
+  objektet inn i TOP LAYER via `popover`. Forankringen skal holde der også — det
+  er den samme påstanden, mot en annen mekanikk — så de to nav-nivåene måles med
+  `[data-dnd-dragging]` i stedet for `.dragging`, og `position: fixed` er
+  dnd-kits egen regel i stedet for vår.
+
   SAMME FALLGRUVE, ANDRE KILDE (siste blokk): en DRAKT-regel som posisjonerer en
   forfar. Et forsøk med `position: relative` på `.card` (for å tegne en
   aksentstripe med `::before`) traff to ganger samtidig — `.card` ble containing
@@ -30,6 +36,11 @@ const { chromium } = require('playwright');
 const G = require('./dnd-gestures.js');
 
 const BASE = process.env.HUSKIS_URL || 'http://localhost:8000';
+
+/* Det løftede objektet, uansett motor: hovedsidens board merker det med
+   `.dragging`, nav-modalen (dnd-kit) med `[data-dnd-dragging]`. Bare ett drag
+   kan være aktivt om gangen, så én selektor for begge er nok. */
+const DRAGGED = '.item.dragging, .category.dragging, .card.dragging, [data-dnd-dragging]';
 
 async function register(p) {
   await p.goto(BASE + '/?mock=1');
@@ -99,8 +110,8 @@ const zoneOf = (p, sel) => p.evaluate((sel) => {
 
 // Måler alt vi bryr oss om i én runde: det løftede objektets rendrede boks,
 // sidens scroll-bredde, og de faste toppelementenes plassering.
-const probe = (p) => p.evaluate(() => {
-  const d = document.querySelector('.item.dragging, .category.dragging, .card.dragging');
+const probe = (p) => p.evaluate((sel) => {
+  const d = document.querySelector(sel);
   const a = document.getElementById('account-btn').getBoundingClientRect();
   const t = document.getElementById('topbar').getBoundingClientRect();
   const r = d ? d.getBoundingClientRect() : null;
@@ -114,7 +125,7 @@ const probe = (p) => p.evaluate(() => {
     phMode: document.querySelector('.new-list-placeholder') ? 'extract'
       : (document.querySelector('.item-placeholder, .card-placeholder') ? 'reorder' : 'none'),
   };
-});
+}, DRAGGED);
 
 const results = [];
 const log = (n, ok, x = '') => { results.push(ok); console.log((ok ? 'PASS' : 'FAIL') + ' — ' + n + (x ? '  [' + x + ']' : '')); };
@@ -195,8 +206,8 @@ async function anchorHolds(p, label, sel, kind, expectPos) {
   if (touch) await G.touchMove(p, t.x, t.y);
   else await p.mouse.move(t.x, t.y, { steps: 6 });
   await p.waitForTimeout(160);
-  const s = await p.evaluate(({ tx, ty }) => {
-    const d = document.querySelector('.item.dragging, .category.dragging, .card.dragging');
+  const s = await p.evaluate(({ tx, ty, sel }) => {
+    const d = document.querySelector(sel);
     if (!d) return { dragging: false };
     const r = d.getBoundingClientRect();
     return {
@@ -204,7 +215,7 @@ async function anchorHolds(p, label, sel, kind, expectPos) {
       dx: Math.round(tx - r.left), dy: Math.round(ty - r.top),
       w: Math.round(r.width), h: Math.round(r.height),
     };
-  }, { tx: t.x, ty: t.y });
+  }, { tx: t.x, ty: t.y, sel: DRAGGED });
   const inside = s.dragging && s.dx >= 0 && s.dx <= s.w && s.dy >= 0 && s.dy <= s.h;
   log(label + ': pekeren ligger fortsatt på det løftede objektet', inside, JSON.stringify(s));
   log(label + ': løftes som `' + expectPos + '`', s.position === expectPos, 'fikk ' + s.position);

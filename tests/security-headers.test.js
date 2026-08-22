@@ -205,32 +205,89 @@ check('connect-src tillater det kanoniske originet (OTA-manifestet i APK-en)',
 check('connect-src tillater ingen andre verter enn Supabase, eget origin og det kanoniske originet',
   conn.length === 4, conn);
 
-check("style-src er låst til eget origin (webfonten er selvhostet)",
-  String(headerCsp['style-src']) === "'self'", headerCsp['style-src']);
+/* style-src er eget origin PLUSS én sjekksum: dra-og-slipp-motoren (dnd-kit,
+   gjennom Smett) injiserer ett stilark mens et drag pågår — det som posisjonerer
+   det løftede objektet i top layer. Det er en inline-stil, og den eneste veien
+   forbi `style-src` uten `'unsafe-inline'` er en hash av nøyaktig det arket.
+   Selve teksten finnes bare i kjøretid (den settes sammen inne i biblioteket),
+   så sjekksummen kan ikke regnes ut her — `tests/csp-enforced.test.js` gjør det
+   i en ekte nettleser og feiler hvis den drifter. Her voktes FORMEN: eget
+   origin, nøyaktig én hash, og ingenting annet. Se docs/sikkerhetsheadere.md. */
+const styleSrc = headerCsp['style-src'] || [];
+check("style-src tillater eget origin (webfonten er selvhostet)",
+  styleSrc.indexOf("'self'") > -1, styleSrc);
+check('style-src har nøyaktig én hash — dra-og-slipp-motorens stilark',
+  styleSrc.filter((s2) => /^'sha(256|384|512)-/.test(s2)).length === 1, styleSrc);
+check('style-src har ingen andre kilder enn eget origin og den ene hashen',
+  styleSrc.length === 2, styleSrc);
 check("font-src er låst til eget origin (assets/fonts/)",
   String(headerCsp['font-src']) === "'self'", headerCsp['font-src']);
 
-/* ================= 8) Supabase-biblioteket: lokal, låst kopi ================= */
-// Sjekksummen av hver versjon vi har sjekket inn, regnet ut av filen npm
-// publiserte (`@supabase/supabase-js@<versjon>` → `dist/umd/supabase.js`).
-// Oppgraderer du, må den nye versjonen inn her — en ukjent versjon feiler, så
-// en kopi kan verken byttes ut eller redigeres uten at det synes.
-const VENDOR_SHA384 = {
-  '2.111.0': 'sha384-faMlYZUtkJj+Sh6Bmu/L0GzPcraRWN6CW+9RH3GUrK/Z0WS9tgaNNt0tHiLxsbdb',
+/* ================= 8) Bibliotekene: lokale, låste kopier ================= */
+/* Begge tredjepartsbibliotekene ligger i `vendor/`, med den eksakte versjonen i
+   filnavnet og sjekksummen regnet ut på nytt her. Det de IKKE deler er hvor
+   bytene kommer fra, og guarden må si det riktige om hver av dem:
+
+     • Supabase er publisert på npm, så kopien er byte for byte pakken npm
+       leverte (`@supabase/supabase-js@<versjon>` → `dist/umd/supabase.js`).
+     • Smett er IKKE på npm. Kopien er byte for byte det `npm run build:iife`
+       gir i peohol/smett på den commit-en som står her — et esbuild-artefakt,
+       ikke en publisert pakke. Derfor er commit-en en del av påstanden: uten
+       den finnes det ingen kilde å regne bytene ut fra på nytt. Smett pinner
+       esbuild til en eksakt versjon nettopp for at den påstanden skal holde
+       over tid (en minifiserer kan endre output i en patch-utgivelse).
+
+   Oppgraderer du et av dem, må den nye versjonen (og for Smett: den nye
+   commit-en) inn her — en ukjent versjon feiler, så en kopi kan verken byttes
+   ut eller redigeres uten at det synes. */
+const VENDORED = {
+  'supabase-js': {
+    what: 'Supabase-biblioteket',
+    version: '2.111.0',
+    // Byte for byte det npm publiserte for denne versjonen.
+    origin: 'npm: @supabase/supabase-js@2.111.0 → dist/umd/supabase.js',
+    sha384: 'sha384-faMlYZUtkJj+Sh6Bmu/L0GzPcraRWN6CW+9RH3GUrK/Z0WS9tgaNNt0tHiLxsbdb',
+  },
+  smett: {
+    what: 'dra-og-slipp-motoren (Smett over dnd-kit)',
+    version: '0.1.0',
+    // Byte for byte det `npm ci && npm run build:iife` gir fra denne commit-en.
+    origin: 'peohol/smett@c97fe43 → npm run build:iife → dist/smett.iife.js',
+    sha384: 'sha384-JalZQamPKmQgg28sq4Q6q824wEsMNdnfwKuD1RyxAPVBeM8tkYFa2/di4bSBAvNC',
+  },
 };
 
-const lib = (/<script src="(vendor\/[^"]+)"/.exec(html) || [])[1];
-check('index.html laster Supabase-biblioteket fra en lokal kopi i vendor/', !!lib, lib);
-const libVersion = (/-(\d+\.\d+\.\d+)\.js$/.exec(lib || '') || [])[1];
-check('filnavnet oppgir en EKSAKT versjon (ikke flytende @2)', !!libVersion, lib);
-const libPath = lib ? path.join(ROOT, lib) : null;
-check('kopien er sjekket inn i repoet', !!libPath && fs.existsSync(libPath), lib);
-const libSha = libPath && fs.existsSync(libPath)
-  ? 'sha384-' + crypto.createHash('sha384').update(fs.readFileSync(libPath)).digest('base64')
-  : null;
-check('kopien er byte for byte den npm publiserte for denne versjonen',
-  !!libSha && libSha === VENDOR_SHA384[libVersion],
-  { versjon: libVersion, regnet: libSha, forventet: VENDOR_SHA384[libVersion] });
+// Alle vendor-skriptene index.html faktisk laster, i rekkefølge.
+const vendorScripts = (html.match(/<script src="vendor\/[^"]+"/g) || [])
+  .map((m) => /"(vendor\/[^"]+)"/.exec(m)[1]);
+check('index.html laster begge bibliotekene fra lokale kopier i vendor/',
+  vendorScripts.length === Object.keys(VENDORED).length, vendorScripts);
+// Smett MÅ ligge før app.js: den er et klassisk skript som definerer `Smett`,
+// og app.js leser den globalen mens den kjører.
+check('vendor/smett-0.1.0.js lastes FØR app.js',
+  html.indexOf('vendor/smett-0.1.0.js') > -1 &&
+  html.indexOf('vendor/smett-0.1.0.js') < html.indexOf('src="app.js"'),
+  { smett: html.indexOf('vendor/smett-0.1.0.js'), app: html.indexOf('src="app.js"') });
+check('app.js er ikke gjort til et modulskript (det ville kjørt etter alle klassiske)',
+  !/<script[^>]+type="module"/i.test(html),
+  (html.match(/<script[^>]+type="module"[^>]*>/i) || [])[0]);
+
+Object.keys(VENDORED).forEach((key) => {
+  const want = VENDORED[key];
+  const lib = vendorScripts.find((src) => src.indexOf('vendor/' + key + '-') === 0);
+  check('index.html laster ' + want.what + ' fra en lokal kopi i vendor/', !!lib, vendorScripts);
+  const libVersion = (/-(\d+\.\d+\.\d+)\.js$/.exec(lib || '') || [])[1];
+  check(key + ': filnavnet oppgir en EKSAKT versjon (ikke flytende @2)',
+    libVersion === want.version, { fil: lib, forventet: want.version });
+  const libPath = lib ? path.join(ROOT, lib) : null;
+  check(key + ': kopien er sjekket inn i repoet', !!libPath && fs.existsSync(libPath), lib);
+  const libSha = libPath && fs.existsSync(libPath)
+    ? 'sha384-' + crypto.createHash('sha384').update(fs.readFileSync(libPath)).digest('base64')
+    : null;
+  check(key + ': kopien er byte for byte ' + want.origin,
+    !!libSha && libSha === want.sha384,
+    { regnet: libSha, forventet: want.sha384 });
+});
 
 // Hele poenget med den lokale kopien: ingenting utenfor eget origin kan kjøre
 // kode, og appen laster ikke ned noe som helst fra et CDN.
@@ -310,10 +367,13 @@ check('resten av HTML-en er urørt (samme antall <script src>)',
   { dist: (built.match(/<script src=/g) || []).length, src: (html.match(/<script src=/g) || []).length });
 check('CSP-meta-taggen er med i produksjonsbygget',
   /<meta\s+http-equiv="Content-Security-Policy"/.test(built));
-// Uten kopien i dist/ ville produksjon stått igjen med en 404 der biblioteket
-// skulle vært — appen kommer da ikke forbi innloggingsskjermen.
-check('produksjonsbygget publiserer den lokale Supabase-kopien',
-  !!lib && fs.existsSync(path.join(out, lib)), lib);
+// Uten kopiene i dist/ ville produksjon stått igjen med en 404 der biblioteket
+// skulle vært — uten Supabase kommer appen ikke forbi innloggingsskjermen, og
+// uten Smett kaster app.js på en global som ikke finnes.
+vendorScripts.forEach((src) => {
+  check('produksjonsbygget publiserer den lokale kopien ' + src,
+    fs.existsSync(path.join(out, src)), src);
+});
 // Uten fontfilene i dist/ ville @font-face pekt på en 404, og appen falt
 // tilbake til systemfonten i produksjon — uten at noe annet feilet.
 Object.keys(FONT_SHA384).forEach((f) => {

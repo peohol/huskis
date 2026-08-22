@@ -20,7 +20,7 @@ Ved motstrid gjelder det dokumentet som er merket autoritativt for feltet — og
 | [tilgjengelighet.md](tilgjengelighet.md) | kontrastkravene og fargekontrakten, `aria-label` på ikonknapper, tastatursnarveiene (sortering/flytting/omdøping), fokus i modaler og etter sletting, berøringsflater, de manuelle kontrollpunktene | **ja** — WCAG-kravene |
 | [introduksjon.md](introduksjon.md) | demonstrasjonen etter første innlogging, simuleringen den kjører i, stegene, «Vis på nytt», de kontekstuelle tipsene om avanserte gester | **ja** — førstegangsopplevelsen |
 | [menus.md](menus.md) | toppmenyen, navigasjonsmodalen (områder + mapper), kontoknappen/-modalen og **objektmenyen** på alle seks nivåene | **ja** — navigasjon og menyer |
-| [drag-and-drop.md](drag-and-drop.md) | reorder, flytting mellom lister/mapper/områder, ekstrahering, peek, auto-scroll, de to dra-scopene | **ja** — dra-og-slipp-motoren |
+| [drag-and-drop.md](drag-and-drop.md) | reorder, flytting mellom lister/mapper/områder, ekstrahering, peek, auto-scroll, de to dra-scopene — og hvilken motor som driver hvilket scope mens migreringen pågår | **ja** — dra-og-slipp-motoren |
 | [dndkit-plan.md](dndkit-plan.md) | å bytte den hjemmesnekrede dra-og-slipp-motoren mot dnd-kit + Smett: hva som delegeres, hva som blir igjen, hva Smett mangler, og i hvilken rekkefølge | **ja** — migreringsplanen for dra-og-slipp |
 | [board-layout.md](board-layout.md) | kolonnefordelingen i listevisningen og avstander/padding/gap der | **ja** — board-layouten |
 | [trash.md](trash.md) | sletting (menyen og **slipp i kassen**), gjenoppretting og tømming på alle fire nivåene, buffret sletting, angre | **ja** — søppelkassene |

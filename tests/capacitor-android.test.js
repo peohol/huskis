@@ -1478,22 +1478,24 @@ check('det native skallet overtar ikke og hopper ikke over navigasjonsrutingen',
         lastes MÅ den ligge i repo-roten og bli kopiert, ellers finnes den ikke
         i produksjon.
 
-   Utenfor med vilje: tredjepartskopien i `vendor/` (byte for byte det npm
-   publiserte, voktet i tests/security-headers.test.js) og testmodus-filene,
-   som build.js river ut av produksjonsbygget.
+   Utenfor med vilje: tredjepartskopiene i `vendor/` (låst byte for byte i
+   tests/security-headers.test.js) og testmodus-filene, som build.js river ut av
+   produksjonsbygget.
 
    Alle tre attributtformene HTML tillater godtas — doble, enkle og helt uten
    anførselstegn — og `<link>` leses tagg for tagg, slik at rekkefølgen på
    `rel`/`href` heller ikke betyr noe. En gyldig variant skal ikke kunne snike
    en fil forbi skanningen. */
-/* Fritaket gjelder den PINNEDE tredjepartsbunten, ikke katalogen `vendor/`.
-   En ny `vendor/hjelper.js` er ikke byte for byte det npm publiserte, og
-   tests/security-headers.test.js hasher bare den første vendor-taggen — den
-   ville altså kjørt i appen uten at noen skanner leste den. Navnet leses ut av
-   index.html, så det ikke kan komme i utakt med det som faktisk lastes. */
+/* Fritaket gjelder de PINNEDE tredjepartskopiene, ikke katalogen `vendor/`.
+   En ny `vendor/hjelper.js` ville kjørt i appen uten at noen skanner leste den
+   — og det er tests/security-headers.test.js som stenger den døren: den krever
+   at index.html laster NØYAKTIG de vendor-filene som står registrert der, hver
+   med sin egen sjekksum og sin egen anvisning på hvor bytene kommer fra. En
+   uregistrert fil feiler der, ikke her. Navnene leses ut av index.html, så
+   lista ikke kan komme i utakt med det som faktisk lastes. */
 const utenKunDev = indexHtml.replace(/huskis:kun-dev:start[\s\S]*?huskis:kun-dev:slutt/g, '');
 const VENDOR_PINNET = [...utenKunDev.matchAll(/<script\b[^>]*\ssrc=["'](vendor\/[^"']+)["']/gi)]
-  .map((m) => m[1]).slice(0, 1);
+  .map((m) => m[1]);
 const attributt = (tag, navn) => {
   const m = tag.match(new RegExp('\\s' + navn + '\\s*=\\s*(?:"([^"]*)"|\'([^\']*)\'|([^\\s"\'>]+))', 'i'));
   return m ? (m[1] !== undefined ? m[1] : m[2] !== undefined ? m[2] : m[3]) : null;
