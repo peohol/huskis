@@ -712,13 +712,13 @@ body {
      ikke imot klikk, og en treffflate på den ville bare lagt et usynlig teppe
      over raden bak. */
 .item-check, .item-cog, .card-cog,
-.cat-cog, .done-restore, .cat-add-btn,
+.cat-cog, .done-restore, .done-delete, .cat-add-btn,
 .icon-btn:not(.pass-toggle) {
   position: relative;
 }
 .item-check::after, .item-cog::after,
 .card-cog::after, .cat-cog::after,
-.done-restore::after, .cat-add-btn::after,
+.done-restore::after, .done-delete::after, .cat-add-btn::after,
 .icon-btn:not(.pass-toggle)::after {
   content: '';
   position: absolute;
@@ -1520,15 +1520,18 @@ body {
   height: 1px;
   background: var(--hairline);
 }
-/* «Gjenopprett alle utførte» (⟲) står helt til HØYRE på «Utført»-linja — altså
-   etter skillelinja. Linja er divider-ens ::after og ligger derfor sist i
-   flex-rekkefølgen; `order: 1` på knappen (som står før pseudo-elementet i
-   DOM-en) flytter den forbi den. Knappen står i samme 36px-kolonne som
-   listepunktenes menyknapp: begge containere har 10px sidepolstring, og `margin-right:
-   6px` legger til .item-ens egen polstring, så ikonene står nøyaktig over
-   hverandre. Selve knappeflaten er den delte hvite flate-knappen — se
-   `.cat-cog, .done-restore` lenger nede. */
-.done-restore { order: 1; margin-right: 6px; }
+/* «Gjenopprett alle utførte» (⟲) og «Slett alle utførte» (🗑) står på
+   «Utført»-linja, begge etter skillelinja: linja er divider-ens ::after og
+   ligger derfor sist i flex-rekkefølgen; `order` på knappene (som står før
+   pseudo-elementet i DOM-en) flytter dem forbi den — ⟲ først, 🗑 helt til
+   høyre for den (oppgaven ber om 🗑 til høyre for ⟲). Containerens `gap: 10px`
+   gir avstanden mellom de to knappene. 🗑 står i samme 36px-kolonne som
+   listepunktenes menyknapp: begge containere har 10px sidepolstring, og
+   `margin-right: 6px` legger til .item-ens egen polstring, så ikonene står
+   nøyaktig over hverandre. Selve knappeflaten er den delte hvite
+   flate-knappen — se `.cat-cog, .done-restore, .done-delete` lenger nede. */
+.done-restore { order: 1; }
+.done-delete { order: 2; margin-right: 6px; }
 .items-done {
   list-style: none;
   display: flex;
@@ -1646,12 +1649,12 @@ body {
 }
 
 /* Den hvite flate-knappen på LISTEFLATEN: kategoriens tannhjul + oppløs-knapp og
-   ⟲-knappen på «Utført»-linja. Samme uttrykk som .card-cog (svakt hvit flate +
+   ⟲/🗑-knappene på «Utført»-linja. Samme uttrykk som .card-cog (svakt hvit flate +
    ring, lysner ved hover) — synlige mot den fargede listeflaten og på linje med
    kort-hodets og listepunktenes knapper. Ikonene har svart strek i seg selv
-   (ICONS-settets regel), så `color` styrer ikke dem. Ett felles sett regler så de
-   to knappene ikke kan gli fra hverandre. */
-.cat-cog, .done-restore {
+   (ICONS-settets regel), så `color` styrer ikke dem. Ett felles sett regler så
+   knappene ikke kan gli fra hverandre. */
+.cat-cog, .done-restore, .done-delete {
   flex: 0 0 auto;
   align-self: center;
   appearance: none;
@@ -1669,11 +1672,11 @@ body {
   box-shadow: inset 0 0 0 1px var(--tint-ring);
   transition: background 0.15s, transform 0.1s;
 }
-.cat-cog .icon, .done-restore .icon { width: 1em; height: 1em; font-size: 21px; }
-.cat-cog:hover, .done-restore:hover { background: var(--tint-hover); }
-.cat-cog:active, .done-restore:active { transform: scale(0.92); }
-.cat-cog:focus-visible, .done-restore:focus-visible { outline: var(--focus-w) solid var(--focus); outline-offset: 2px; }
-.cat-cog:disabled, .done-restore:disabled { cursor: default; opacity: 0.4; }
+.cat-cog .icon, .done-restore .icon, .done-delete .icon { width: 1em; height: 1em; font-size: 21px; }
+.cat-cog:hover, .done-restore:hover, .done-delete:hover { background: var(--tint-hover); }
+.cat-cog:active, .done-restore:active, .done-delete:active { transform: scale(0.92); }
+.cat-cog:focus-visible, .done-restore:focus-visible, .done-delete:focus-visible { outline: var(--focus-w) solid var(--focus); outline-offset: 2px; }
+.cat-cog:disabled, .done-restore:disabled, .done-delete:disabled { cursor: default; opacity: 0.4; }
 
 .cat-items {
   list-style: none;
@@ -2715,6 +2718,7 @@ body.tour-demo .obj-menu-btn:not(.tour-live),
 body.tour-demo .item-check:not(.tour-live),
 body.tour-demo .share-badge:not(.tour-live),
 body.tour-demo .done-restore:not(.tour-live),
+body.tour-demo .done-delete:not(.tour-live),
 body.tour-demo .trashcan:not(.tour-live),
 body.tour-demo .add-item-btn:not(.tour-live),
 body.tour-demo .add-cat-btn:not(.tour-live),

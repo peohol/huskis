@@ -97,6 +97,7 @@
     'item.markDone':      ['Merk som gjort', 'Mark as done'],
     'card.done':          ['Utført', 'Done'],
     'card.restoreAllDone': ['Gjenopprett alle utførte listepunkter', 'Restore all completed items'],
+    'card.deleteAllDone': ['Slett alle utførte listepunkter', 'Delete all completed items'],
 
     /* ---- Søppelkasse ---- */
     'trash.title':             ['Søppelkasse', 'Trash'],
@@ -315,6 +316,8 @@
     'label.addItemInCat':   ['Legg til listepunkt i kategorien {name}', 'Add item to the category {name}'],
     'label.restoreDoneIn':  ['Gjenopprett alle utførte listepunkter i {name}',
                              'Restore all completed items in {name}'],
+    'label.deleteDoneIn':   ['Slett alle utførte listepunkter i {name}',
+                             'Delete all completed items in {name}'],
     'label.markDone':       ['Merk {name} som gjort', 'Mark {name} as done'],
     'label.unmarkDone':     ['Fjern merket gjort på {name}', 'Unmark {name} as done'],
 

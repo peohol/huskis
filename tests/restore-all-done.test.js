@@ -1,12 +1,12 @@
 /*
   Regresjonstest: ⟲-knappen på «Utført»-linja (gjenopprett alle utførte).
 
-  Knappen står på SAMME linje som «Utført»-tittelen, helt til HØYRE (etter
-  skillelinja), i samme kolonne som listepunktenes menyknapp. Et klikk reaktiverer ALLE
-  avkryssede listepunkter i lista på én gang: de går tilbake til plassene sine
-  (pos er urørt) — kategoriserte tilbake INN i kategorien sin — «Utført»-
-  seksjonen skjules, og endringen overlever reload. I en låst liste er knappen
-  skjult.
+  Knappen står på SAMME linje som «Utført»-tittelen, til HØYRE for skillelinja
+  — foran 🗑-knappen som sletter alle utførte (egen test: delete-all-done.test.js).
+  Et klikk reaktiverer ALLE avkryssede listepunkter i lista på én gang: de går
+  tilbake til plassene sine (pos er urørt) — kategoriserte tilbake INN i
+  kategorien sin — «Utført»-seksjonen skjules, og endringen overlever reload.
+  I en låst liste er knappen skjult.
 
   Kjør:
     python3 -m http.server 8000                     # fra repo-roten, i egen terminal
@@ -113,14 +113,15 @@ async function run(label, vp, mobile) {
     d.done.length === 4 && d.level1.length === 1 && d.inCat.length === 0,
     JSON.stringify(d));
 
-  /* ---------- 3) Plassering: samme linje som «Utført», helt til høyre ---------- */
+  /* ---------- 3) Plassering: samme linje som «Utført», ⟲ FØR 🗑 (se
+     delete-all-done.test.js), begge til høyre for skillelinja ---------- */
   const geom = await p.evaluate(() => {
     const c = document.querySelector('.card[data-id="card-A"]');
     const div = c.querySelector('.done-divider');
     const lbl = div.querySelector('span').getBoundingClientRect();
     const btn = div.querySelector('.done-restore').getBoundingClientRect();
+    const del = div.querySelector('.done-delete').getBoundingClientRect();
     const dr = div.getBoundingClientRect();
-    const x = c.querySelector('.items-done .obj-menu-btn').getBoundingClientRect();
     return {
       visible: !div.querySelector('.done-restore').hidden,
       overlapY: Math.min(lbl.bottom, btn.bottom) - Math.max(lbl.top, btn.top),
@@ -130,18 +131,20 @@ async function run(label, vp, mobile) {
       // knappen — er den bredden > 0, ligger linja MELLOM dem, altså knappen
       // til høyre for linja slik oppgaven ber om.
       lineWidth: Math.round(btn.left - lbl.right - 20),  // minus de to 10px-gapene
-      xCenterDelta: Math.round((btn.left + btn.width / 2) - (x.left + x.width / 2)),
+      // 🗑 (delete-all-done.test.js) står til høyre for ⟲ — det er DEN som nå
+      // flukter med listepunktenes menyknapp-kolonne, ikke ⟲ selv.
+      deleteRightOfRestore: del.left >= btn.right,
       w: Math.round(btn.width), h: Math.round(btn.height),
     };
   });
   log(label + ' 3: ⟲ er synlig', geom.visible === true);
   log(label + ' 3: ⟲ står på SAMME linje som «Utført» (vertikal overlapp)',
     geom.overlapY > 0, 'overlapp=' + geom.overlapY);
-  log(label + ' 3: ⟲ står til HØYRE for tittelen/skillelinja, ytterst på linja',
+  log(label + ' 3: ⟲ står til HØYRE for tittelen/skillelinja',
     geom.btnLeftOfLabel === true && geom.insideDivider === true && geom.lineWidth > 0,
     JSON.stringify(geom));
-  log(label + ' 3: ⟲ flukter med listepunktenes menyknapp-kolonne',
-    Math.abs(geom.xCenterDelta) <= 1, 'delta=' + geom.xCenterDelta);
+  log(label + ' 3: 🗑 står til HØYRE for ⟲',
+    geom.deleteRightOfRestore === true, JSON.stringify(geom));
   log(label + ' 3: ⟲ har full trykkflate (36×36)',
     geom.w === 36 && geom.h === 36, geom.w + '×' + geom.h);
 
