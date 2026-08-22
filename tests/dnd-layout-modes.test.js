@@ -5,11 +5,14 @@
   layout. I flerkolonnelayout (bredt vindu, inkl. Androids «Side for datamaskin»
   på touch) får DnD desktop-oppførsel: naturlig kollaps, ingen vakt.
 
+  Gestene er EKTE input (`tests/dnd-gestures.js`).
+
   Kjør:
     python3 -m http.server 8000                     # fra repo-roten, i egen terminal
     NODE_PATH=$(npm root -g) node tests/dnd-layout-modes.test.js
 */
 const { chromium } = require('playwright');
+const G = require('./dnd-gestures.js');
 
 const BASE = process.env.HUSKIS_URL || 'http://localhost:8000';
 
@@ -64,13 +67,6 @@ async function seed(p, cards) {
 }
 
 // Syntetisk touch-peker (som de øvrige DnD-testene).
-async function touch(p, type, x, y) {
-  await p.evaluate(({ type, x, y }) => {
-    const ev = new PointerEvent(type, { bubbles: true, cancelable: true, composed: true, clientX: x, clientY: y, pointerId: 7, pointerType: 'touch', button: 0, isPrimary: true });
-    (type === 'pointerdown' ? (document.elementFromPoint(x, y) || document.body) : window).dispatchEvent(ev);
-  }, { type, x, y });
-}
-
 const guardStyles = (p) => p.evaluate(() => {
   const bd = document.querySelector('.board');
   return { minH: bd.style.minHeight || '', pad: bd.style.paddingTop || '' };
@@ -155,8 +151,8 @@ const log = (n, ok, x = '') => { results.push(ok); console.log((ok ? 'PASS' : 'F
 
     const before = await p.evaluate(() => [...document.querySelectorAll('.card')].map((c) => c.dataset.id));
     const h = await headRectOf(p, before[0]);
-    await touch(p, 'pointerdown', h.x, h.y); await p.waitForTimeout(260); // touch-hold
-    await touch(p, 'pointermove', h.x + 6, h.y + 6); await p.waitForTimeout(50);
+    await G.lift(p, { x: h.x, y: h.y }, true); // touch-hold
+    await G.touchMove(p, h.x + 6, h.y + 6); await p.waitForTimeout(50);
     const during = await guardStyles(p);
     const collapsed = await p.evaluate(() => document.querySelectorAll('.card.collapsed').length);
     const dragging = await p.evaluate(() => document.querySelectorAll('.card.dragging').length);
@@ -173,8 +169,8 @@ const log = (n, ok, x = '') => { results.push(ok); console.log((ok ? 'PASS' : 'F
     log('2 bred touch: overskriftene følger flerkolonneflyt (≥2 kolonner)', distinctCols >= 2, 'kolonner=' + distinctCols);
 
     // Reorder + drop
-    await touch(p, 'pointermove', h.x + 200, h.y + 220); await p.waitForTimeout(80);
-    await touch(p, 'pointerup', h.x + 200, h.y + 220); await p.waitForTimeout(900);
+    await G.touchMove(p, h.x + 200, h.y + 220); await p.waitForTimeout(80);
+    await G.drop(p, undefined, true); await p.waitForTimeout(900);
     const after = await p.evaluate(() => ({
       dragging: document.querySelectorAll('.card.dragging').length,
       ph: document.querySelectorAll('.card-placeholder').length,
@@ -184,11 +180,18 @@ const log = (n, ok, x = '') => { results.push(ok); console.log((ok ? 'PASS' : 'F
 
     // pointercancel-rollback i flerkolonne-touch
     const before2 = await p.evaluate(() => [...document.querySelectorAll('.card')].map((c) => c.dataset.id));
+    // Slippet over scrollet siden, så korthodet kan ligge utenfor viewporten.
+    // Med syntetiske hendelser gjorde det ingenting: pointerdown traff
+    // document.body, draget startet aldri, og «rekkefølgen er uendret» var sann
+    // fordi ingenting hadde skjedd. Ekte input må treffe noe for å teste noe.
+    await p.evaluate((id) => document.querySelector('.card[data-id="' + id + '"]')
+      .scrollIntoView({ block: 'center' }), before2[0]);
+    await p.waitForTimeout(250);
     const h2 = await headRectOf(p, before2[0]);
-    await touch(p, 'pointerdown', h2.x, h2.y); await p.waitForTimeout(260);
-    await touch(p, 'pointermove', h2.x + 8, h2.y + 40); await p.waitForTimeout(50);
-    await touch(p, 'pointermove', h2.x + 8, h2.y + 160); await p.waitForTimeout(50);
-    await touch(p, 'pointercancel', h2.x + 8, h2.y + 160); await p.waitForTimeout(200);
+    await G.lift(p, { x: h2.x, y: h2.y }, true);
+    await G.touchMove(p, h2.x + 8, h2.y + 40); await p.waitForTimeout(50);
+    await G.touchMove(p, h2.x + 8, h2.y + 160); await p.waitForTimeout(50);
+    await G.touchCancel(p); await p.waitForTimeout(200);
     const cancel = await p.evaluate(() => ({
       order: [...document.querySelectorAll('.card')].map((c) => c.dataset.id),
       dragging: document.querySelectorAll('.card.dragging').length,
@@ -210,11 +213,11 @@ const log = (n, ok, x = '') => { results.push(ok); console.log((ok ? 'PASS' : 'F
     log('3 mobil: board i ÉNKOLONNE', mode.single && mode.colCount === '1', JSON.stringify(mode));
     await p.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight)); await p.waitForTimeout(120);
     const hh = await headRectOf(p, 'card-Kort');
-    await touch(p, 'pointerdown', hh.x, hh.y); await p.waitForTimeout(260);
-    await touch(p, 'pointermove', hh.x + 3, hh.y - 3); await p.waitForTimeout(60);
+    await G.lift(p, { x: hh.x, y: hh.y }, true);
+    await G.touchMove(p, hh.x + 3, hh.y - 3); await p.waitForTimeout(60);
     const during = await guardStyles(p);
     log('3 mobil: board-vakt AKTIV (minHeight + padding-top satt)', during.minH !== '' && during.pad !== '', JSON.stringify(during));
-    await touch(p, 'pointerup', hh.x + 3, hh.y - 3); await p.waitForTimeout(900);
+    await G.drop(p, undefined, true); await p.waitForTimeout(900);
     const after = await guardStyles(p);
     log('3 mobil: vakt ryddet etter slipp', after.minH === '' && after.pad === '', JSON.stringify(after));
     log('3 mobil: ingen JS-feil', errs.length === 0, errs.join(' | '));
@@ -230,12 +233,12 @@ const log = (n, ok, x = '') => { results.push(ok); console.log((ok ? 'PASS' : 'F
     // Dra den ØVERSTE lista (alltid synlig uten scroll). freezeBoardForDrag setter
     // min-height uansett removedAbove, så minH-tilstedeværelse = vakt aktiv.
     const h = await headRectOf(p, 'card-Hoy');
-    await touch(p, 'pointerdown', h.x, h.y); await p.waitForTimeout(260);
-    await touch(p, 'pointermove', h.x + 4, h.y - 4); await p.waitForTimeout(60);
+    await G.lift(p, { x: h.x, y: h.y }, true);
+    await G.touchMove(p, h.x + 4, h.y - 4); await p.waitForTimeout(60);
     const during = await guardStyles(p);
     const guardActive = during.minH !== '';
     log('4 grense ' + w + 'px (touch): vakt ' + (wantGuard ? 'AKTIV' : 'IKKE aktiv'), guardActive === wantGuard, JSON.stringify(during));
-    await touch(p, 'pointercancel', h.x + 4, h.y - 4); await p.waitForTimeout(150);
+    await G.touchCancel(p); await p.waitForTimeout(150);
     await p.close();
     if (errs.length) log('4 grense ' + w + ': ingen JS-feil', false, errs.join(' | '));
   }
