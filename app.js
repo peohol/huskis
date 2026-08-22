@@ -2411,11 +2411,16 @@
     doneItems.forEach((it) => doneList.appendChild(buildItem(it, cardData)));
     doneWrap.hidden = doneItems.length === 0;
 
-    // ⟲ helt til høyre på «Utført»-linja: reaktiverer alle utførte på én gang.
-    // Skjult i en frosset (låst) liste, som avmerkingsboksene ellers.
+    // ⟲ reaktiverer alle utførte på én gang; 🗑 til høyre for den sletter alle
+    // utførte på én gang (til element-søppelkassen, som enkeltsletting). Begge
+    // skjult i en frosset (låst) liste, som avmerkingsboksene ellers.
     const restoreDoneBtn = el.querySelector('.done-restore');
-    if (!canEdit) restoreDoneBtn.hidden = true;
-    else restoreDoneBtn.addEventListener('click', () => restoreAllDone(el, cardData));
+    const deleteDoneBtn = el.querySelector('.done-delete');
+    if (!canEdit) { restoreDoneBtn.hidden = true; deleteDoneBtn.hidden = true; }
+    else {
+      restoreDoneBtn.addEventListener('click', () => restoreAllDone(el, cardData));
+      deleteDoneBtn.addEventListener('click', () => deleteAllDone(el, cardData));
+    }
 
     // Legg til listepunkt / kategori: to midtstilte knapper, ingen navnefelt.
     // Knappen oppretter objektet med én gang og åpner navneredigereren på det
@@ -2488,6 +2493,7 @@
       labelBtn(addBtn, tr('label.addItemIn', { name: n }));
       labelBtn(addCatBtn, tr('label.addCatIn', { name: n }));
       labelBtn(restoreDoneBtn, tr('label.restoreDoneIn', { name: n }));
+      labelBtn(deleteDoneBtn, tr('label.deleteDoneIn', { name: n }));
       headEl.setAttribute('aria-label', tr('label.card', { name: n }));
       // Korthodet er `role="button"`, og en knapp har presentasjonelle barn:
       // <h2>-en inni blir dermed ikke lenger en overskrift man kan hoppe til.
@@ -3190,6 +3196,27 @@
 
     if (!reduce) flipFrom(snap, DONE_FLIP_MS);
     save();
+  }
+
+  // 🗑-knappen på «Utført»-linja, til høyre for ⟲: slett ALLE utførte
+  // listepunkter i lista på én gang → element-søppelkassen (gjenopprettbare
+  // derfra, akkurat som ved enkeltsletting — se deleteItem). Ghosten for hver
+  // rad fanges FØR kortet bygges på nytt, og flyr til kassen etterpå; toasten
+  // samler seg til én bunke (pushDeleteToast slår id-ene sammen når kind er
+  // den samme, så én «Angre» gjelder alle).
+  function deleteAllDone(cardEl, cardData) {
+    const rows = [...cardEl.querySelectorAll('.items-done > .item')];
+    if (!rows.length) return;
+    const ghosts = rows.map(ghostFrom);
+    rows.forEach((rowEl) => {
+      const it = cardData.items.find((i) => i.id === rowEl.dataset.id);
+      if (!it) return;
+      bufferDelete(it, 'item', (x) => setTrashed(x, 'item', true));
+      pushDeleteToast('item', it.id, it.text);
+    });
+    refreshCard(cardData); // element-søppelkassen dukker opp FØR animasjonen
+    const trashBtn = board.querySelector('.card[data-id="' + cardData.id + '"] .item-trash-btn');
+    ghosts.forEach((g) => flyGhost(g, trashBtn));
   }
 
   /* ---------------- Slette-animasjon («pakk sammen og fly i søpla») ----------------
@@ -12650,7 +12677,7 @@
      om. En listepunkt-rad er hele sonen når den skal dras, men den bærer også
      avmerking, tannhjul og slette-kryss — og ingen av dem skal virke da. De
      slippes gjennom kun når de ER målet. */
-  const DEMO_NEVER = '.obj-menu-btn, .item-check, .done-restore, .trashcan';
+  const DEMO_NEVER = '.obj-menu-btn, .item-check, .done-restore, .done-delete, .trashcan';
   function demoLets(node) {
     if (!node || !node.closest) return false;
     if (tourEl.contains(node)) return true;          // demokortet selv

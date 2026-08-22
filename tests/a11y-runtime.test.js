@@ -555,7 +555,7 @@ async function run(label, viewport) {
      og «innstillinger» er den ene destruktiv. */
   const touch = await page.evaluate(() => {
     const ICON = '.item-check, .item-cog, .card-cog,'
-      + '.cat-cog, .done-restore, .cat-add-btn,'
+      + '.cat-cog, .done-restore, .done-delete, .cat-add-btn,'
       + '.icon-btn:not(.pass-toggle)';
     // Kun det som FAKTISK tar imot en finger. `pointer-events` arves, så dette
     // luker samtidig bort etterkommere av slette-animasjonens `.fly-ghost` —
