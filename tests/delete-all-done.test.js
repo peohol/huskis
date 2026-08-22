@@ -166,6 +166,16 @@ async function run(label, vp, mobile) {
   const toast = await toastInfo(p);
   log(label + ' 4: en angrbar toast kom',
     toast.shown === true && /ngre|søppel/i.test(toast.text), JSON.stringify(toast));
+  // 🗑-knappen (som hadde fokus) forsvinner med resten av «Utført»-seksjonen
+  // når kortet bygges på nytt — fokus skal IKKE falle til <body>, men til
+  // ＋-knappen (samme fallback som focusTargetAfterRemoval bruker for en
+  // tømt container, se deleteAllDone).
+  const focusAfter = await p.evaluate(() => {
+    const ae = document.activeElement;
+    return { tag: ae.tagName, cls: ae.className };
+  });
+  log(label + ' 4: fokus etter sletting lander på ＋-knappen, ikke på <body>',
+    focusAfter.tag !== 'BODY' && /add-item-btn/.test(focusAfter.cls), JSON.stringify(focusAfter));
 
   /* ---------- 5) «Angre» i toasten gjenoppretter alle fire ---------- */
   await p.locator('#toast .toast-action').click(); await p.waitForTimeout(400);

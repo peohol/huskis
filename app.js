@@ -3207,6 +3207,12 @@
   function deleteAllDone(cardEl, cardData) {
     const rows = [...cardEl.querySelectorAll('.items-done > .item')];
     if (!rows.length) return;
+    // Fokus MÅ ha et sted å gå: hele «Utført»-seksjonen — 🗑-knappen selv
+    // inkludert — forsvinner når kortet bygges på nytt, akkurat som i
+    // deleteItem. Etter denne operasjonen er seksjonen ALLTID tom, så
+    // ＋-knappen (samme fallback som focusTargetAfterRemoval bruker for en
+    // tømt container) er alltid riktig — ingen rad overlever å pekes på.
+    keepFocus('.card[data-id="' + cardData.id + '"] .add-item-btn');
     const ghosts = rows.map(ghostFrom);
     rows.forEach((rowEl) => {
       const it = cardData.items.find((i) => i.id === rowEl.dataset.id);
@@ -3215,6 +3221,7 @@
       pushDeleteToast('item', it.id, it.text);
     });
     refreshCard(cardData); // element-søppelkassen dukker opp FØR animasjonen
+    applyFocusIntent();
     const trashBtn = board.querySelector('.card[data-id="' + cardData.id + '"] .item-trash-btn');
     ghosts.forEach((g) => flyGhost(g, trashBtn));
   }
