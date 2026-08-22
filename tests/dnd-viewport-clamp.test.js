@@ -20,11 +20,14 @@
   forankringen i MØRK drakt også: draktene deler geometri, og en regel som bare
   gjelder den ene er nettopp den som ellers slipper gjennom.
 
+  Gestene er EKTE input (`tests/dnd-gestures.js`).
+
   Kjør:
     python3 -m http.server 8000                     # fra repo-roten, i egen terminal
     NODE_PATH=$(npm root -g) node tests/dnd-viewport-clamp.test.js
 */
 const { chromium } = require('playwright');
+const G = require('./dnd-gestures.js');
 
 const BASE = process.env.HUSKIS_URL || 'http://localhost:8000';
 
@@ -89,15 +92,6 @@ async function seed(p, cards) {
   await p.waitForTimeout(300);
 }
 
-// Syntetisk peker (samme mønster som de øvrige DnD-testene) — pointerType er
-// parameter så både mus (start på bevegelse) og touch (200 ms hold) kan kjøres.
-async function ptr(p, type, x, y, kind) {
-  await p.evaluate(({ type, x, y, kind }) => {
-    const ev = new PointerEvent(type, { bubbles: true, cancelable: true, composed: true, clientX: x, clientY: y, pointerId: 7, pointerType: kind, button: 0, isPrimary: true });
-    (type === 'pointerdown' ? (document.elementFromPoint(x, y) || document.body) : window).dispatchEvent(ev);
-  }, { type, x, y, kind });
-}
-
 const zoneOf = (p, sel) => p.evaluate((sel) => {
   const r = document.querySelector(sel).getBoundingClientRect();
   return { x: r.left + Math.min(60, r.width / 2), y: r.top + r.height / 2 };
@@ -133,10 +127,11 @@ async function dragOutOfBounds(p, label, sel, kind, opts) {
   // start hvert drag fra toppen så dra-sonen ikke ligger bak den faste toppmenyen.
   await p.evaluate(() => window.scrollTo(0, 0)); await p.waitForTimeout(120);
   const base = await probe(p);
+  const touch = kind !== 'mouse';
   const z = await zoneOf(p, sel);
-  await ptr(p, 'pointerdown', z.x, z.y, kind);
-  if (kind === 'mouse') { await ptr(p, 'pointermove', z.x + 20, z.y + 4, kind); }
-  else { await p.waitForTimeout(260); await ptr(p, 'pointermove', z.x + 4, z.y + 4, kind); }
+  await G.lift(p, z, touch);
+  if (touch) await G.touchMove(p, z.x + 4, z.y + 4);
+  else await p.mouse.move(z.x + 20, z.y + 4);
   await p.waitForTimeout(80);
 
   const started = await probe(p);
@@ -151,7 +146,8 @@ async function dragOutOfBounds(p, label, sel, kind, opts) {
   const bad = [];
   let sawExtract = false;
   for (const [where, x, y] of stops) {
-    await ptr(p, 'pointermove', x, y, kind);
+    if (touch) await G.touchMove(p, x, y);
+    else await p.mouse.move(x, y, { steps: 4 });
     await p.waitForTimeout(140); // FLIP (150 ms) og auto-scroll får løpe
     const s = await probe(p);
     if (!s.dragging) { bad.push(where + ': draget døde'); continue; }
@@ -166,10 +162,15 @@ async function dragOutOfBounds(p, label, sel, kind, opts) {
   // Ekstrahering finnes kun for listepunkt/kategori — en liste dras aldri ut i «board-lufta».
   if (!opts.noExtract) log(label + ': ny-liste-placeholderen (extract) ble faktisk aktivert underveis', sawExtract);
 
-  await ptr(p, 'pointercancel', vw / 2, vh / 2, kind);
+  // Touch kan avbrytes for ekte. En mus kan ikke: dagens motor avbryter ikke på
+  // Escape, og en oppdiktet `pointercancel` er nettopp det denne omskrivingen
+  // fjerner. Musedraget avsluttes derfor med et ekte slipp — det er klemmen og
+  // headeren denne fila vokter, og de skal holde uansett hvordan gesten ender.
+  if (touch) await G.touchCancel(p);
+  else await p.mouse.up();
   await p.waitForTimeout(250);
   const after = await probe(p);
-  log(label + ': ryddet opp etter avbrutt drag (ingen overflow, header urørt)',
+  log(label + ': ryddet opp etter ' + (touch ? 'avbrutt' : 'avsluttet') + ' drag (ingen overflow, header urørt)',
     !after.dragging && after.scrollW <= after.clientW && after.acct.r === base.acct.r, JSON.stringify(after.acct));
 }
 
@@ -184,13 +185,15 @@ async function dragOutOfBounds(p, label, sel, kind, opts) {
    halvdelen av den samme feilen. */
 async function anchorHolds(p, label, sel, kind, expectPos) {
   await p.evaluate(() => window.scrollTo(0, 0)); await p.waitForTimeout(120);
+  const touch = kind !== 'mouse';
   const z = await zoneOf(p, sel);
-  await ptr(p, 'pointerdown', z.x, z.y, kind);
-  if (kind === 'mouse') { await ptr(p, 'pointermove', z.x + 20, z.y + 4, kind); }
-  else { await p.waitForTimeout(260); await ptr(p, 'pointermove', z.x + 4, z.y + 4, kind); }
+  await G.lift(p, z, touch);
+  if (touch) await G.touchMove(p, z.x + 4, z.y + 4);
+  else await p.mouse.move(z.x + 20, z.y + 4);
   await p.waitForTimeout(120);
   const t = await p.evaluate(() => ({ x: Math.round(window.innerWidth / 2), y: Math.round(window.innerHeight / 2) }));
-  await ptr(p, 'pointermove', t.x, t.y, kind);
+  if (touch) await G.touchMove(p, t.x, t.y);
+  else await p.mouse.move(t.x, t.y, { steps: 6 });
   await p.waitForTimeout(160);
   const s = await p.evaluate(({ tx, ty }) => {
     const d = document.querySelector('.item.dragging, .category.dragging, .card.dragging');
@@ -205,7 +208,8 @@ async function anchorHolds(p, label, sel, kind, expectPos) {
   const inside = s.dragging && s.dx >= 0 && s.dx <= s.w && s.dy >= 0 && s.dy <= s.h;
   log(label + ': pekeren ligger fortsatt på det løftede objektet', inside, JSON.stringify(s));
   log(label + ': løftes som `' + expectPos + '`', s.position === expectPos, 'fikk ' + s.position);
-  await ptr(p, 'pointercancel', t.x, t.y, kind);
+  if (touch) await G.touchCancel(p);
+  else await p.mouse.up();
   await p.waitForTimeout(250);
 }
 

@@ -95,6 +95,25 @@ async function touchAt(p, type, x, y) {
 }
 
 const touchStart = (p, x, y) => touchAt(p, 'touchStart', x, y);
+
+/**
+ * En ANDRE finger, mens den første alt ligger nede.
+ *
+ * Det er slik en sekundær peker oppstår i virkeligheten: `isPrimary` er ikke
+ * noe man ber om, det er hva nettleseren kaller finger nummer to. Den første
+ * må derfor faktisk ligge et sted — velg et sted som ikke selv starter noe.
+ */
+async function touchSecond(p, first, second) {
+  const s = await cdp(p);
+  await s.send('Input.dispatchTouchEvent', {
+    type: 'touchStart',
+    touchPoints: [
+      { x: first.x, y: first.y, id: 1, radiusX: 12, radiusY: 12, force: 1 },
+      { x: second.x, y: second.y, id: 2, radiusX: 12, radiusY: 12, force: 1 },
+    ],
+  });
+  lastTouch.set(p, second);
+}
 const touchMove = (p, x, y) => touchAt(p, 'touchMove', x, y);
 const touchEnd = (p, x, y) => touchAt(p, 'touchEnd', x, y);
 const touchCancel = (p) => touchAt(p, 'touchCancel', 0, 0);
@@ -207,11 +226,45 @@ async function drop(p, at, touch) {
   await p.waitForTimeout(320);
 }
 
-/** Avbryt gesten slik nettleseren gjør det — ikke slik en test ønsker seg. */
-async function cancel(p, touch) {
-  if (touch) await touchCancel(p);
-  else await p.keyboard.press('Escape');
-  await p.waitForTimeout(200);
+/*
+ * Å AVBRYTE en gest er bare mulig for ekte på touch (`touchCancel`).
+ *
+ * En mus har ingen tilsvarende ekte hendelse, og dagens motor avbryter ikke på
+ * Escape — så et musedrag ender med et slipp. En oppdiktet `pointercancel` er
+ * nettopp det denne modulen finnes for å bli kvitt, og den ville dessuten ikke
+ * matche pekeren dnd-kit har fanget. Tester som trenger en avbrytelse, tar den
+ * på touch.
+ */
+
+/**
+ * Ett steg av en gest, i den formen de eldre testene er skrevet rundt.
+ *
+ * De uttrykker et drag som en rekke diskrete pekerhendelser, med sine egne
+ * ventinger mellom. Formen er grei nok — det var LEVERINGEN som var problemet.
+ * Denne sender nøyaktig den samme sekvensen gjennom nettleserens inputkø, så
+ * et helt filsett kan bli ekte uten å skrives om setning for setning.
+ *
+ * Ny kode bør heller bruke `lift`/`travel`/`drop`: de venter på at løftet
+ * faktisk skjedde, og de har regelen om å sikte på et punkt målt før løftet.
+ */
+async function sendPointer(p, type, x, y, kind) {
+  const touch = kind !== 'mouse';
+  if (type === 'pointerdown') {
+    if (touch) return touchStart(p, x, y);
+    await p.mouse.move(x, y);
+    return p.mouse.down();
+  }
+  if (type === 'pointermove') {
+    return touch ? touchMove(p, x, y) : p.mouse.move(x, y);
+  }
+  if (type === 'pointerup') {
+    if (touch) return touchEnd(p, x, y);
+    await p.mouse.move(x, y);
+    return p.mouse.up();
+  }
+  // pointercancel: ekte på touch, og på mus finnes det ikke — der er slippet
+  // den eneste ekte måten gesten kan ta slutt på.
+  return touch ? touchCancel(p) : p.mouse.up();
 }
 
 /**
@@ -230,7 +283,7 @@ async function dragFromTo(p, from, to, { touch = false } = {}) {
 module.exports = {
   HOLD_MS, HOLD_MOVE_MOUSE, HOLD_WAIT, NUDGE,
   centre, past,
-  touchStart, touchMove, touchEnd, touchCancel,
+  touchStart, touchMove, touchEnd, touchCancel, touchSecond,
   liftedCount, lift, liftMouse, liftTouch,
-  travel, drop, cancel, dragFromTo,
+  travel, drop, dragFromTo, sendPointer,
 };

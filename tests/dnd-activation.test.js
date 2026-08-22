@@ -5,14 +5,19 @@
      objektet ikke rykker tilbake til nedtrykkspunktet ved første bevegelse.
   2. Liten touch-drift FØR holdet er ferdig gir ikke et offset ved løft.
   3. En sekundær peker (isPrimary === false) starter aldri et drag.
-  4. Et raskt `pointerup` på en NY plass — uten en siste `pointermove` — lander
-     der det ble sluppet, for liste, listepunkt, mappe OG område.
+  4. Et raskt slipp på en NY plass lander der det ble sluppet, for liste,
+     listepunkt, mappe OG område. En ekte finger kan ikke slippe et sted den
+     aldri var, så bevegelsen og slippet sendes i SAMME frame: det invarianten
+     vokter er at motoren aldri rakk å behandle bevegelsen før slippet kom.
+
+  Gestene er EKTE input (`tests/dnd-gestures.js`).
 
   Kjør:
     python3 -m http.server 8000                    # fra repo-roten, i egen terminal
     NODE_PATH=$(npm root -g) node tests/dnd-activation.test.js
 */
 const { chromium } = require('playwright');
+const G = require('./dnd-gestures.js');
 
 const BASE = process.env.HUSKIS_URL || 'http://localhost:8000';
 
@@ -43,20 +48,9 @@ async function register(p) {
   await p.waitForTimeout(150);
 }
 
-/* Trykk og hold til objektet FAKTISK er løftet. Klokka duger ikke: lander en
-   synk-runde midt i holdet, tegnes raden på nytt, og hold-timeren fyrer på en
-   node som ikke er i dokumentet lenger — draget starter aldri. En bruker ville
-   tatt tak på nytt; det gjør vi også. INGEN pointermove sendes, så «raskt
-   slipp» er fortsatt nøyaktig det som testes. */
-const lifted = (p) => p.waitForFunction(
-  () => document.body.classList.contains('is-dragging'), null, { timeout: 1200, polling: 30 });
-async function holdOn(p, x, y) {
-  for (let i = 0; i < 4; i++) {
-    await pointer(p, 'pointerdown', x, y);
-    try { await lifted(p); return; } catch (e) { await pointer(p, 'pointercancel', x, y); }
-  }
-  throw new Error('holdet løftet aldri objektet');
-}
+/* Trykk og hold til objektet FAKTISK er løftet — `liftTouch` prøver på nytt
+   hvis en synk-runde tegner raden om midt i holdet, slik en bruker ville. */
+const holdOn = (p, x, y) => G.liftTouch(p, { x, y });
 
 // cards = [[tittel, antall listepunkter], …]
 async function seed(p, cards) {
@@ -84,16 +78,8 @@ async function seed(p, cards) {
   await p.waitForTimeout(300);
 }
 
-// Syntetisk peker (samme mønster som de øvrige DnD-testene).
-async function pointer(p, type, x, y, opts = {}) {
-  await p.evaluate(({ type, x, y, opts }) => {
-    const ev = new PointerEvent(type, Object.assign({
-      bubbles: true, cancelable: true, composed: true, clientX: x, clientY: y,
-      pointerId: 7, pointerType: 'touch', button: 0, isPrimary: true,
-    }, opts));
-    (type === 'pointerdown' ? (document.elementFromPoint(x, y) || document.body) : window).dispatchEvent(ev);
-  }, { type, x, y, opts });
-}
+// Ekte pekerinput, i den steg-for-steg-formen denne fila er skrevet rundt.
+const pointer = (p, type, x, y) => G.sendPointer(p, type, x, y, 'touch');
 
 const centerOf = (p, sel) => p.evaluate((sel) => {
   const r = document.querySelector(sel).getBoundingClientRect();
@@ -170,7 +156,10 @@ const log = (n, ok, x = '') => { results.push(ok); console.log((ok ? 'PASS' : 'F
     await register(p); await seed(p, [['A', 6]]);
 
     const src = await centerOf(p, '.item[data-id="it-A-2"]');
-    await pointer(p, 'pointerdown', src.x, src.y, { pointerId: 9, isPrimary: false });
+    // Én finger ligger allerede på toppmenyen (som ikke starter noe), så
+    // fingeren på raden er nettopp det en sekundær peker ER: nummer to.
+    const rest = await centerOf(p, '#topbar');
+    await G.touchSecond(p, rest, src);
     await p.waitForTimeout(320); // godt forbi HOLD_MS
     const state = await p.evaluate(() => ({
       dragging: document.querySelectorAll('.dragging').length,
@@ -179,7 +168,7 @@ const log = (n, ok, x = '') => { results.push(ok); console.log((ok ? 'PASS' : 'F
     }));
     log('3 sekundær peker: ingen drag, ingen press-feedback, ingen placeholder',
       state.dragging === 0 && state.hold === 0 && state.ph === 0, JSON.stringify(state));
-    await pointer(p, 'pointerup', src.x, src.y, { pointerId: 9, isPrimary: false });
+    await G.touchEnd(p);
     await p.waitForTimeout(150);
     log('3 ingen JS-feil', errs.length === 0, errs.join(' | '));
     await p.close();
@@ -197,7 +186,7 @@ const log = (n, ok, x = '') => { results.push(ok); console.log((ok ? 'PASS' : 'F
     const src = await centerOf(p, '.item[data-id="it-A-0"]');
     await holdOn(p, src.x, src.y); // holdet fullføres → draget starter i nedtrykkspunktet
     const dst = await centerOf(p, '.item[data-id="it-A-4"]');
-    await pointer(p, 'pointerup', src.x, dst.y + 4); // INGEN pointermove imellom
+    await G.touchMove(p, src.x, dst.y + 4); await G.touchEnd(p); // samme frame
     await p.waitForTimeout(500);
     const after = await itemOrder(p, 'card-A');
     log('4 ' + M.n + ' listepunkt: raskt slipp flyttet punktet ned forbi it-A-4',
@@ -211,7 +200,7 @@ const log = (n, ok, x = '') => { results.push(ok); console.log((ok ? 'PASS' : 'F
     await holdOn(p, h.x, h.y); // hold → draget starter, ALLE lister kollapser
     // Mål mål-listas hode ETTER kollapsen (layouten er en annen nå).
     const target = await centerOf(p, '.card[data-id="card-R"] .card-head');
-    await pointer(p, 'pointerup', target.x, target.y + 4); // INGEN pointermove
+    await G.touchMove(p, target.x, target.y + 4); await G.touchEnd(p); // samme frame
     await p.waitForTimeout(900);
     const cAfter = await cardOrder(p);
     log('4 ' + M.n + ' liste: raskt slipp flyttet lista forbi card-R',
@@ -228,7 +217,7 @@ const log = (n, ok, x = '') => { results.push(ok); console.log((ok ? 'PASS' : 'F
     const g1 = await centerOf(p, uSel + ' .item[data-id="' + gIds[0] + '"]');
     const g3 = await centerOf(p, uSel + ' .item[data-id="' + gIds[2] + '"]');
     await holdOn(p, g1.x, g1.y);
-    await pointer(p, 'pointerup', g1.x, g3.y + 4); // INGEN pointermove
+    await G.touchMove(p, g1.x, g3.y + 4); await G.touchEnd(p); // samme frame
     await p.waitForTimeout(500);
     const gAfter = await p.evaluate((sel) => [...document.querySelectorAll(sel + ' .items-container > .item')].map((g) => g.dataset.id), uSel);
     log('4 ' + M.n + ' mappe: raskt slipp flyttet raden forbi den tredje',
@@ -249,7 +238,7 @@ const log = (n, ok, x = '') => { results.push(ok); console.log((ok ? 'PASS' : 'F
     const u1 = await centerOf(p, '#nav-board .card[data-id="' + uIds[0] + '"] .card-head');
     const u3 = await centerOf(p, '#nav-board .card[data-id="' + uIds[2] + '"] .card-head');
     await holdOn(p, u1.x, u1.y);
-    await pointer(p, 'pointerup', u1.x, u3.y + 4); // INGEN pointermove
+    await G.touchMove(p, u1.x, u3.y + 4); await G.touchEnd(p); // samme frame
     await p.waitForTimeout(500);
     const uAfter = await p.evaluate(() => [...document.querySelectorAll('#nav-board .card')].map((u) => u.dataset.id));
     log('4 ' + M.n + ' område: raskt slipp flyttet raden forbi den tredje',

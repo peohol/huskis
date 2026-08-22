@@ -25,11 +25,14 @@
       og kortets `overflow: hidden` klippet det bort. Linja males nå fra raden over
       (`.sep-below`).
 
+  Gestene er EKTE input (`tests/dnd-gestures.js`).
+
   Kjør:
     python3 -m http.server 8000                     # fra repo-roten, i egen terminal
     NODE_PATH=$(npm root -g) node tests/dnd-extract-thresholds.test.js
 */
 const { chromium } = require('playwright');
+const G = require('./dnd-gestures.js');
 
 const BASE = process.env.HUSKIS_URL || 'http://localhost:8000';
 
@@ -95,12 +98,9 @@ async function seed(p, n, withCat, sizes) {
   await p.waitForTimeout(300);
 }
 
-async function ptr(p, type, x, y, kind) {
-  await p.evaluate(({ type, x, y, kind }) => {
-    const ev = new PointerEvent(type, { bubbles: true, cancelable: true, composed: true, clientX: x, clientY: y, pointerId: kind === 'mouse' ? 1 : 7, pointerType: kind, button: 0, buttons: type === 'pointerup' || type === 'pointercancel' ? 0 : 1, isPrimary: true });
-    (type === 'pointerdown' ? (document.elementFromPoint(x, y) || document.body) : window).dispatchEvent(ev);
-  }, { type, x, y, kind });
-}
+// Ekte pekerinput, i den steg-for-steg-formen denne fila er skrevet rundt.
+// Sekvensene under er uendret; det er leveringen som er ekte nå.
+const ptr = (p, type, x, y, kind) => G.sendPointer(p, type, x, y, kind);
 
 const centerOf = (p, sel) => p.evaluate((sel) => {
   const el = document.querySelector(sel); if (!el) return null;

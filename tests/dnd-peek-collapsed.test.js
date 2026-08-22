@@ -9,11 +9,14 @@
   kapasitet). Rask slipp (før 200 ms) inn i en kollapset liste lander også, og
   «(N)»-telleren oppdateres.
 
+  Gestene er EKTE input (`tests/dnd-gestures.js`).
+
   Kjør:
     python3 -m http.server 8000                     # fra repo-roten, i egen terminal
     NODE_PATH=$(npm root -g) node tests/dnd-peek-collapsed.test.js
 */
 const { chromium } = require('playwright');
+const G = require('./dnd-gestures.js');
 
 const BASE = process.env.HUSKIS_URL || 'http://localhost:8000';
 
@@ -71,12 +74,9 @@ async function seed(p) {
   await p.waitForTimeout(300);
 }
 
-async function touch(p, type, x, y) {
-  await p.evaluate(({ type, x, y }) => {
-    const ev = new PointerEvent(type, { bubbles: true, cancelable: true, composed: true, clientX: x, clientY: y, pointerId: 7, pointerType: 'touch', button: 0, isPrimary: true });
-    (type === 'pointerdown' ? (document.elementFromPoint(x, y) || document.body) : window).dispatchEvent(ev);
-  }, { type, x, y });
-}
+// Ekte pekerinput, i den steg-for-steg-formen denne fila er skrevet rundt.
+// Sekvensene under er uendret; det er leveringen som er ekte nå.
+const touch = (p, type, x, y) => G.sendPointer(p, type, x, y, 'touch');
 
 // Kollaps en liste/kategori via DIREKTE state (ikke et klikk → save()): et klikk
 // planlegger en mock-synk som kan re-rendre og bytte ut det dratte nodet MENS

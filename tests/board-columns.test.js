@@ -21,11 +21,14 @@
       plass i rekkefølgen. Placeholderen skal vises begge steder — der man sikter —
       og slippet skal gi nøyaktig samme rekkefølge.
 
+  Gestene er EKTE input (`tests/dnd-gestures.js`).
+
   Kjør:
     python3 -m http.server 8000                     # fra repo-roten, i egen terminal
     NODE_PATH=$(npm root -g) node tests/board-columns.test.js
 */
 const { chromium } = require('playwright');
+const G = require('./dnd-gestures.js');
 
 const BASE = process.env.HUSKIS_URL || 'http://localhost:8000';
 
@@ -80,13 +83,6 @@ async function seed(p, sizes) {
   await p.waitForTimeout(350);
 }
 
-async function ptr(p, type, x, y) {
-  await p.evaluate(({ type, x, y }) => {
-    const ev = new PointerEvent(type, { bubbles: true, cancelable: true, composed: true, clientX: x, clientY: y, pointerId: 1, pointerType: 'mouse', button: 0, buttons: type === 'pointerup' || type === 'pointercancel' ? 0 : 1, isPrimary: true });
-    (type === 'pointerdown' ? (document.elementFromPoint(x, y) || document.body) : window).dispatchEvent(ev);
-  }, { type, x, y });
-}
-
 // Kolonnene som lister av rad-navn: kort → tittel, ny-liste-placeholder → «+».
 const cols = (p) => p.evaluate(() => [...document.querySelectorAll('.board > .board-col')].map((col) =>
   [...col.children].map((el) => el.classList.contains('new-list-placeholder') ? '+'
@@ -109,9 +105,7 @@ const log = (n, ok, x = '') => { results.push(ok); console.log((ok ? 'PASS' : 'F
 // Løft et listepunkt med mus (ingen hold på desktop — 5 px bevegelse holder).
 async function lift(p, sel) {
   const z = await rectOf(p, sel);
-  await ptr(p, 'pointerdown', z.cx, z.cy);
-  await ptr(p, 'pointermove', z.cx, z.cy + 8);
-  await p.waitForTimeout(60);
+  await G.liftMouse(p, { x: z.cx, y: z.cy });
   return z;
 }
 
@@ -164,14 +158,14 @@ async function lift(p, sel) {
     // Sikt i board-lufta rett under L1 og beveg pekeren én piksel om gangen.
     const snaps = [];
     for (let i = 0; i < 14; i++) {
-      await ptr(p, 'pointermove', Math.round(l1.cx), Math.round(l1.b) + 12 - i);
+      await p.mouse.move(Math.round(l1.cx), Math.round(l1.b) + 12 - i);
       await p.waitForTimeout(25);
       snaps.push((await cols(p)).map((c) => c.join(',')).join('|'));
     }
     const uniq = [...new Set(snaps)];
     log('2 layouten står i ro gjennom 14 piksler (ingen veksling)', uniq.length === 1, uniq.join('  ≠  '));
     log('2 placeholderen står mellom L1 og L2 i kolonne 1', /^L1,\+,L2/.test(snaps[snaps.length - 1]), snaps[snaps.length - 1]);
-    await ptr(p, 'pointerup', Math.round(l1.cx), Math.round(l1.b) - 1);
+    await p.mouse.move(Math.round(l1.cx), Math.round(l1.b) - 1); await p.mouse.up();
     await p.waitForTimeout(400);
     log('2 ingen JS-feil', errs.length === 0, errs.join(' | '));
     await p.close();
@@ -190,12 +184,12 @@ async function lift(p, sel) {
       JSON.stringify(start));
     const l1 = await rectOf(p, '.card[data-id="card-0"]');
     await lift(p, '.card[data-id="card-1"] .item');
-    await ptr(p, 'pointermove', Math.round(l1.cx), Math.round(l1.b) + 20); await p.waitForTimeout(60);
-    await ptr(p, 'pointermove', Math.round(l1.cx), Math.round(l1.b) + 24); await p.waitForTimeout(80);
+    await p.mouse.move(Math.round(l1.cx), Math.round(l1.b) + 20); await p.waitForTimeout(60);
+    await p.mouse.move(Math.round(l1.cx), Math.round(l1.b) + 24); await p.waitForTimeout(80);
     const during = await cols(p);
     log('3 placeholderen ligger under L1 i KOLONNE 1', (during[0] || []).join(',') === 'L1,+',
       during.map((c) => c.join(',')).join('|'));
-    await ptr(p, 'pointerup', Math.round(l1.cx), Math.round(l1.b) + 24);
+    await p.mouse.move(Math.round(l1.cx), Math.round(l1.b) + 24); await p.mouse.up();
     await p.waitForTimeout(500);
     await p.keyboard.press('Escape'); await p.waitForTimeout(200);
     log('3 den nye lista havnet MELLOM L1 og L2 i rekkefølgen',
@@ -216,12 +210,12 @@ async function lift(p, sel) {
     const aim = path === 'bunnen av kolonne 1'
       ? { x: Math.round(l1.cx), y: Math.round(l1.b) + 30 }   // under L1, i kolonne 1
       : { x: Math.round(l2.cx), y: Math.round(l2.t) - 20 };  // over L2, i kolonne 2
-    await ptr(p, 'pointermove', aim.x, aim.y); await p.waitForTimeout(60);
-    await ptr(p, 'pointermove', aim.x, aim.y + 2); await p.waitForTimeout(80);
+    await p.mouse.move(aim.x, aim.y); await p.waitForTimeout(60);
+    await p.mouse.move(aim.x, aim.y + 2); await p.waitForTimeout(80);
     const during = (await cols(p)).map((c) => c.join(',')).join('|');
     const want = path === 'bunnen av kolonne 1' ? 'L1,+|L2|L3' : 'L1|+,L2|L3';
     log('4 ' + path + ': placeholderen vises DER man sikter', during === want, during);
-    await ptr(p, 'pointerup', aim.x, aim.y + 2);
+    await p.mouse.move(aim.x, aim.y + 2); await p.mouse.up();
     await p.waitForTimeout(500);
     await p.keyboard.press('Escape'); await p.waitForTimeout(200);
     log('4 ' + path + ': samme sluttrekkefølge', (await order(p)).join(',') === 'L1,(ny),L2,L3',
@@ -272,11 +266,11 @@ async function lift(p, sel) {
     const z = await lift(p, '.card[data-id="card-0"] .item');
     const seq = [];
     for (let i = 0; i < 160; i++) {
-      await ptr(p, 'pointermove', z.cx, z.cy + 8 + i * 2);
+      await p.mouse.move(z.cx, z.cy + 8 + i * 2);
       const now = (await cols(p)).map((c) => c.join(',')).join('|');
       if (seq[seq.length - 1] !== now) seq.push(now);
     }
-    await ptr(p, 'pointercancel', z.cx, z.cy);
+    await p.mouse.up(); // musen har ingen ekte avbrytelse; her er slippet bare slutten
     await p.waitForTimeout(300);
     const counts = {};
     seq.forEach((s) => { counts[s] = (counts[s] || 0) + 1; });
@@ -303,7 +297,7 @@ async function lift(p, sel) {
     // Dra nedover gjennom board-lufta, INN i L2, og videre ut under den.
     let entered = null, left = null, prev = null;
     for (let i = 0; i < 200; i++) {
-      await ptr(p, 'pointermove', z.cx, z.cy + 8 + i * 3);
+      await p.mouse.move(z.cx, z.cy + 8 + i * 3);
       const s = await p.evaluate(() => {
         const d = document.querySelector('.item.dragging');
         const ph = document.querySelector('.item-placeholder');
@@ -323,7 +317,7 @@ async function lift(p, sel) {
       if (entered && s.mode === 'extract') { left = { botThird: s.botThird, addMid: prev.addMid }; break; }
       prev = s;
     }
-    await ptr(p, 'pointercancel', z.cx, z.cy);
+    await p.mouse.up(); // musen har ingen ekte avbrytelse; her er slippet bare slutten
     await p.waitForTimeout(300);
     log('7 objektet gikk inn i L2 og ut igjen', !!entered && !!left);
     if (left) {
