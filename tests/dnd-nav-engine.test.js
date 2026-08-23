@@ -30,6 +30,10 @@
     8. Peek-åpningen virker på den nye motoren også: blir man værende over et
        KOLLAPSET område, folder det seg midlertidig ut, og et slipp der lander i
        det — og lar det stå åpent.
+    9. Et ANDRE drag virker rett etter det første. Slippet rendrer modalen på
+       nytt mens dnd-kit ennå avslutter draget, og da lar bibliotekets egen
+       DOM-overvåking ombyggingen passere: uten en `sync()` etterpå står
+       registeret igjen med de gamle kortene, og neste løft finner ingenting.
 
   Kjør:
     python3 -m http.server 8000                         # fra repo-roten, i egen terminal
@@ -279,6 +283,33 @@ async function run(label, viewport, mobile) {
   log(label + ' 2b: områdene er foldet ut igjen etter draget',
     (await p.evaluate(() => [...document.querySelectorAll('#nav-board .card')]
       .filter((c) => c.classList.contains('collapsed')).length)) === 0);
+
+  /* ---------- 9) Et ANDRE drag virker rett etter det første ---------- */
+  // Draget i 2b rendret nav-modalen på nytt, og de nye kortene er ikke de
+  // dnd-kit har i registeret sitt. Ombyggingen skjer mens dnd-kit fortsatt
+  // avslutter draget, så bibliotekets egen DOM-overvåking lar den passere — og
+  // uten en `sync()` etter rendringen er det ingenting igjen å løfte. Verst på
+  // touch, der ingenting annet rakk å rendre imellom: dra ett område på en
+  // telefon, og det neste lot seg ikke ta i det hele tatt.
+  // Ikke `G.lift` her: den prøver til det lykkes, og hele spørsmålet er om det
+  // FØRSTE forsøket finner noe å løfte.
+  // Kortet som nå ligger ØVERST: et kort lenger ned kan være under folden, og
+  // et punkt der treffer modal-overlayet i stedet for kortet.
+  const again = await G.centre(p, '#nav-board .card[data-id="' + cards[1] + '"] .card-title');
+  if (touch) {
+    await G.touchStart(p, again.x, again.y);
+    await p.waitForTimeout(G.HOLD_WAIT);
+  } else {
+    await p.mouse.move(again.x, again.y);
+    await p.mouse.down();
+    await p.mouse.move(again.x, again.y + G.NUDGE, { steps: 3 });
+    await p.waitForTimeout(120);
+  }
+  const lifted9 = await G.liftedCount(p);
+  log(label + ' 9: et nytt områdekort kan løftes RETT ETTER at et annet ble sluppet',
+    lifted9 === 1, 'løftet: ' + lifted9);
+  if (touch) await G.touchCancel(p); else await p.mouse.up();
+  await p.waitForTimeout(300);
 
   /* ---------- 8) Peek-åpning av et kollapset område ---------- */
   // Målet er området som ligger ØVERST etter omrokkeringen i 2b: da er både

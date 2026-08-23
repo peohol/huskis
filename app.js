@@ -1801,12 +1801,33 @@
       if (rank === SECTION_OWNED) col.appendChild(navAddUniverseRow());
     });
     navBoard.appendChild(col);
+    navSyncBoards();
     relayoutBoard(navScope);
     applyFocusIntent(); // samme grunn som i renderBoard: modalen bygges fra bunnen
     // ETTER fokuseringen: `focus()` scroller elementet inn i visningen, og ville
     // ellers dratt visningen bort fra der brukeren faktisk sto.
     restoreNavScroll(keepScroll);
   }
+  /* En ombygging bytter ut hvert eneste kort og hver eneste rad, og dnd-kit
+     sitter igjen med de GAMLE elementene i registeret sitt — da er det ingenting
+     igjen å løfte.
+
+     Smett følger med på DOM-et selv, men bare mens ingen drar: endringene som
+     skjer mens en gest står på er dnd-kits egne, og den lar dem være. Et slipp
+     rendrer nav-modalen på nytt mens dnd-kit fortsatt avslutter draget
+     (slippanimasjonen), så nettopp DEN ombyggingen faller mellom de to — og
+     etterpå kommer det ingen ny endring å reagere på. Uten dette virker det
+     neste løftet først når noe annet tilfeldigvis rendrer på nytt.
+
+     `sync()` er Smetts egen vei ut: «public for a render you know about». Mens
+     et drag FAKTISK pågår holder vi fingrene av fatet — da er DOM-et dnd-kits,
+     og Smett har sin egen grunn til å la det være. */
+  function navSyncBoards() {
+    if (drag.active && dragScope() === navScope) return;
+    if (navCardBoard) navCardBoard.sync();
+    if (navRowBoard) navRowBoard.sync();
+  }
+
   // Scrollposisjonen i nav-modalen over en ombygging. `atBottom` skilles ut
   // fordi en kortere liste har en ny bunn: den samme piksel-verdien ville da
   // ikke lenger vært nederst.
@@ -6043,6 +6064,15 @@
   function extractionPos() {
     const S = dragScope();
     const ph = drag.ph;
+    // I nav-modalen blir det ekstraherte et NYTT OMRÅDE med bare meg som eier,
+    // altså «Mine områder» — og da gjelder seksjonsregelen i `navCardNeighbour`
+    // (aldri det virtuelle kortets `Infinity`, aldri en pos fra en annen
+    // seksjon). Board-et har verken seksjoner eller virtuelle kort.
+    if (S === navScope) {
+      const pPrevN = ph ? (navCardNeighbour(ph, -1, SECTION_OWNED) || {}).pos : null;
+      const pNextN = ph ? (navCardNeighbour(ph, 1, SECTION_OWNED) || {}).pos : null;
+      return between(pPrevN == null ? null : pPrevN, pNextN == null ? null : pNextN);
+    }
     const prev = ph && boardRowSibling(ph, -1);
     const next = ph && boardRowSibling(ph, 1);
     const pPrev = prev && prev.classList.contains('card') ? (S.findContainer(prev.dataset.id) || {}).pos : null;
@@ -6975,6 +7005,30 @@
   }
 
   /* ------- Slippet: hva det BETYR ------- */
+  /* Naboen en ny `pos` for et OMRÅDEKORT skal regnes mot: bare kortene i samme
+     seksjon. `renderNav` sorterer på sectionRank FØR pos og bygger én seksjon
+     om gangen, så en pos hentet over en seksjonsgrense flytter ingenting dit
+     man ser — den importerer bare en fremmed verdi inn i seksjonen og stokker
+     om på resten. Nøyaktig samme regel som tastaturet alt følger (`moveCtx`).
+
+     Det virtuelle «Mapper delt med meg»-kortet er aldri en nabo. Det har
+     `pos: Infinity`, og `between(Infinity, null)` er `Infinity` — en verdi som
+     ikke overlever JSON (den blir `null`), så slippet ville slettet brukerens
+     egen rekkefølge i stedet for å lagre den.
+
+     Et kort i en FREMMED seksjon hoppes over, ikke stoppes ved: slipper man
+     nedenfor alt, er svaret «sist i min egen seksjon» — ikke «ingen naboer». */
+  function navCardNeighbour(from, dir, rank) {
+    let n = from;
+    while ((n = boardRowSibling(n, dir))) {
+      if (!n.classList.contains('card')) continue;
+      const c = navScope.findContainer(n.dataset.id);
+      if (!c || c._virtual) continue;
+      if (sectionRank(c) === rank) return c;
+    }
+    return null;
+  }
+
   // Områdene ordnes PERSONLIG: posisjonen ligger på min egen medlemskapsrad og
   // endrer aldri hva andre ser. Ny `pos` mellom naboene i leserekkefølge,
   // kirurgisk — så samtidige endringer på andre kort flettes uten konflikt.
@@ -6984,12 +7038,9 @@
     navSettleCardInColumn(el);
     const c = navScope.findContainer(el.dataset.id);
     if (c) {
-      const prev = boardRowSibling(el, -1);
-      const next = boardRowSibling(el, 1);
-      const pPrev = prev && prev.classList.contains('card')
-        ? (navScope.findContainer(prev.dataset.id) || {}).pos : null;
-      const pNext = next && next.classList.contains('card')
-        ? (navScope.findContainer(next.dataset.id) || {}).pos : null;
+      const rank = sectionRank(c);
+      const pPrev = (navCardNeighbour(el, -1, rank) || {}).pos;
+      const pNext = (navCardNeighbour(el, 1, rank) || {}).pos;
       const np = between(pPrev == null ? null : pPrev, pNext == null ? null : pNext);
       c.pos = np;
       if (c._canon) cloudPersonalPos(navScope.contKind, c.id, np);

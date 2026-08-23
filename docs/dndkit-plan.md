@@ -309,7 +309,7 @@ verifiserbart.
 
 ## Det steg 3 lærte, som ikke sto her
 
-Nav-scopet er i mål, og fem ting i planen over viste seg å være feil eller
+Nav-scopet er i mål, og sju ting i planen over viste seg å være feil eller
 ufullstendige. De står her fordi steg 4–6 møter de samme spørsmålene.
 
 **1. Nav-scopet HAR ekstrahering.** Planen sa «ingen ekstrahering til ny liste»
@@ -352,6 +352,26 @@ naboen, og svarte da alltid «ingen nabo på den siden», altså «sist i lista�
 uansett hvor man slapp. `boardRows`/`isBoardRow` og en egen `navRowSibling`
 hopper over den nå. Det samme gjelder `sepRows` (skillelinjene) og
 `restoreCardsAfterDrag`.
+
+**6. En ombygging må MELDES til dnd-kit.** Smett følger med på DOM-et selv, men
+lar det være i fred mens et drag pågår — da er det dnd-kits. Rendringen etter et
+slipp faller mellom de to: den kommer mens dnd-kit ennå avslutter draget, og
+etterpå kommer det ingen ny endring å reagere på. Registeret blir stående med de
+gamle, frakoblede elementene, og NESTE løft finner ingenting å løfte. På mus rakk
+en synkrunde ofte å rendre imellom og skjulte feilen; på touch gjorde den ikke
+det, og et andre områdedrag var umulig. `renderNav` avslutter derfor med
+`navSyncBoards()` (Smetts `sync()` på begge board-ene). Steg 4 og 5 rendrer på
+nøyaktig samme måte etter et slipp og trenger det samme.
+
+**7. Et områdes `pos` må regnes innenfor sin egen seksjon.** Nav-modalen har tre
+seksjoner, og `renderNav` sorterer på seksjon før `pos` — så en pos hentet over
+en seksjonsgrense flytter ingenting dit man ser. Verre: det virtuelle «Mapper
+delt med meg»-kortet har `pos: Infinity`, og `between(Infinity, null)` er
+`Infinity`, som ikke overlever JSON. Et område sluppet nedenfor alt lagret da
+`pos: null` på medlemskapsraden og mistet brukerens egen rekkefølge. Feilen
+fantes i den gamle motoren også (samme regnestykke, samme placeholder-plassering
+nederst i kolonnen), så steg 4–5 arver den ikke — men `navCardNeighbour` er nå
+regelen ett sted, og tastaturet fulgte den allerede (`moveCtx`).
 
 **Fortsatt uløst, og det gjelder steg 4–5 også:** et slipp i et LÅST mål avvises
 ved slippet (`onCommit` kaster → Smett ruller tilbake), ikke under draget slik

@@ -891,6 +891,40 @@ som hele `pos`-regnestykket hviler på — leser den da som naboen, og svarer
 `[data-dnd-placeholder]`, og det samme gjør `sepRows` (skillelinjene) og
 `restoreCardsAfterDrag`.
 
+### En ombygging må meldes til dnd-kit
+
+Et slipp rendrer nav-modalen på nytt, og da byttes hvert eneste kort og hver
+eneste rad ut. dnd-kit har fortsatt de GAMLE elementene i registeret sitt, og
+de finnes ikke i dokumentet lenger — da er det ingenting igjen å løfte.
+
+Smett følger med på DOM-et selv, men bare mens ingen drar: endringene som skjer
+mens en gest står på er dnd-kits egne, og den lar dem være i fred. Ombyggingen
+etter et slipp faller nøyaktig mellom de to — den kommer mens dnd-kit ennå
+avslutter draget (slippanimasjonen), og etterpå kommer det ingen ny endring å
+reagere på. `renderNav` avslutter derfor med `navSyncBoards()`, som kaller
+Smetts `sync()` («public for a render you know about») på begge board-ene. Mens
+et nav-drag FAKTISK pågår gjør den ingenting — da er DOM-et dnd-kits.
+
+Uten den virker det neste løftet først når noe annet tilfeldigvis rendrer på
+nytt, som en synkrunde. På mus rakk det ofte akkurat; på touch gjorde det ikke
+det, og et andre områdedrag var umulig. `dnd-nav-engine` sjekk 9 er vakten.
+
+### Områdenes `pos` regnes ALLTID innenfor sin egen seksjon
+
+Nav-modalen deler områdene i tre seksjoner, og `renderNav` sorterer på seksjon
+FØR `pos`. En `pos` hentet over en seksjonsgrense flytter derfor ingenting dit
+man ser — den importerer bare en fremmed verdi inn i seksjonen og stokker om på
+resten av den. Det virtuelle «Mapper delt med meg»-kortet er dessuten aldri en
+nabo: det har `pos: Infinity`, og `between(Infinity, null)` er `Infinity`, en
+verdi som ikke overlever JSON. Slippet ville da lagret `pos: null` på
+medlemskapsraden og slettet brukerens egen rekkefølge i stedet for å endre den.
+
+`navCardNeighbour` er regelen ett sted: den går utover i leserekkefølge og
+HOPPER OVER både det virtuelle kortet og kort i en annen seksjon — slipper man
+nedenfor alt, er svaret «sist i min egen seksjon», ikke «ingen naboer». Både
+slippet (`navCommitCard`) og ekstraheringen (`extractionPos` i nav-scopet)
+bruker den, og tastaturet har alltid fulgt den samme regelen (`moveCtx`).
+
 ### Det som er annerledes enn før, og hvorfor
 
 - **Kategorien folder seg sammen momentant** ved løft (se over).
