@@ -12,7 +12,7 @@ den er autoritativ.
 | 0. Blokker-avklaring | **ferdig** — iOS-risikoen er avkreftet på ekte maskinvare (se risiko 1) |
 | 1. Smett-endringene | **ferdig** — IIFE-byggemål, `phrases`, `itemType`/`containerAccept` (smett@c97fe43) |
 | 2. Testinfrastrukturen | **ferdig** — alle elleve DnD-testfilene drives av ekte input (`tests/dnd-gestures.js`) |
-| 3. Nav-scopet | **ferdig** — `vendor/smett-0.1.0.js` er sjekket inn, og nav-modalen kjøres av dnd-kit |
+| 3. Nav-scopet | **ferdig** — `vendor/smett-0.1.0.js` er sjekket inn (smett@8a760a3, som pinner esbuild eksakt), og nav-modalen kjøres av dnd-kit |
 | 4. Board-scopet, kortnivået | gjenstår |
 | 5. Board-scopet, radnivået | gjenstår |
 | 6. Ekstrahering til ny liste | gjenstår for board-scopet; nav-scopets versjon kom med steg 3 (se under) |
