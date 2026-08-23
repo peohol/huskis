@@ -1535,21 +1535,27 @@
       seen.add(el);
     });
   }
-  /* Fordelingen er FROSSET mens et drag pågår — og litt til.
-     dnd-kit holder det løftede kortets plass med en KLONE til drop-animasjonen
-     er ferdig, og klonen er ingen board-rad (`isBoardRow` hopper over den). En
-     omfordeling mens den står der ville skrevet kolonnens barn på nytt uten den,
-     og klonen hadde blitt liggende FØRST i kolonnen — et hull på feil sted midt
-     i animasjonen. Board-et fordeles derfor på nytt først når klonen er ute av
-     DOM-en (`boardRelayoutAfterDrop`).
-     `relayoutBoardNow` er den samme fordelingen uten vakten: slippet trenger en
-     ferdig layout FØR det måler hvor lista havnet. */
+  /* Fordelingen er FROSSET mens et drag pågår: kortene skal ligge i ro under
+     fingeren. `relayoutBoardNow` er den samme fordelingen uten vakten — slippet
+     trenger en ferdig layout FØR drop-animasjonen sikter (`boardCommitCard`). */
   function relayoutBoard(scope) {
     const S = scope || boardScope;
     if (drag.active) return;
-    if (S.root.querySelector('[data-dnd-placeholder]')) return;
     relayoutBoardNow(S);
   }
+  /* Høyden det LØFTEDE kortet får når det LANDER.
+     dnd-kit setter en fast høyde på det løftede elementet ved løft — den
+     KOLLAPSEDE, siden alle listene kollapser i `beforedragstart` — og den blir
+     stående gjennom hele drop-animasjonen. Pakkingen må regne med høyden kortet
+     faktisk får når det er tilbake i flyten; ellers fordeler den kolonnene på et
+     kort som «veier» en korthøyde, og kortet må flytte seg en gang til når
+     klonen forsvinner. Vi måler den rett FØR kollapsen — den eneste gangen den
+     er å se. Settes av `boardCollapseCardsForDrag`, nullstilles når klonen er
+     borte (`boardRelayoutAfterDrop`). */
+  let boardLiftedRow = null, boardLiftedRowH = 0;
+  const boardRowHeight = (el) =>
+    (el === boardLiftedRow && boardLiftedRowH ? boardLiftedRowH : el.offsetHeight);
+
   function relayoutBoardNow(scope) {
     const S = scope || boardScope;
     // Ett scope med bare én kolonne har ingenting å fordele — og i nav-modalen
@@ -1586,7 +1592,7 @@
     observeBoardRows(S, rows);
     if (!rows.length) return;
     const gap = boardGap(S.root);
-    const heights = rows.map((el) => el.offsetHeight);
+    const heights = rows.map(boardRowHeight);
     const plan = packBoardColumns(heights, gap, boardColumnBudget(heights, gap, cols.length));
     cols.forEach((col, j) => {
       const next = (plan[j] || []).map((i) => rows[i]);
@@ -7343,10 +7349,13 @@
   const CRUMB_ZONE = 'crumb';
   // Kolonnen som er «siste utvei» akkurat nå (se `boardColumnCollision`).
   let boardTargetCol = null;
-  // Lista som nettopp ble sluppet, og som skal scrolles inn i syne når
-  // drop-animasjonen er ferdig (`boardRelayoutAfterDrop`). Kun et VELLYKKET
-  // slipp: et slipp i kassen eller på breadcrumben går aldri gjennom `onCommit`.
-  let boardDroppedCard = null;
+  /* Lista som nettopp ble sluppet, og som skal scrolles inn i syne når
+     drop-animasjonen er ferdig (`boardRelayoutAfterDrop`). Kun et VELLYKKET
+     slipp: et slipp i kassen eller på breadcrumben går aldri gjennom `onCommit`.
+     Vi holder ID-en, ikke noden: en synk-runde kan rendre board-et på nytt i
+     mellomtiden, og en frakoblet node måler 0 — scrollen ville da sendt siden
+     til toppen i stedet for til lista. */
+  let boardDroppedCardId = null;
 
   /* ------- Ordboken Smett snakker fra -------
      Kolonnene har ingen navn verdt å lese opp — de er en layout, ikke en
@@ -7539,7 +7548,7 @@
     dndSwallowClick = true;    // klikket som ellers ville fulgt slippet
     setCardCrumbTarget(false);
     boardTargetCol = null;
-    if (!drag.active) { boardDroppedCard = null; return; }
+    if (!drag.active) { boardDroppedCardId = null; return; }
     restoreCardsAfterDrag();
     boardReleaseBoard();
     finishDrag();
@@ -7572,6 +7581,9 @@
     const basePad = parseFloat(getComputedStyle(board).paddingTop) || 0;
     const before = board.getBoundingClientRect().height;
     const top0 = draggedEl.getBoundingClientRect().top;
+    // Hvilehøyden, målt før kollapsen: den pakkingen skal regne med ved slippet.
+    boardLiftedRow = draggedEl;
+    boardLiftedRowH = draggedEl.offsetHeight;
     board.style.minHeight = before + 'px';
     boardFrozen = true;
     board.querySelectorAll('.card').forEach((cEl) => {
@@ -7588,12 +7600,13 @@
   }
 
   /* Etterarbeidet, når KLONEN ER BORTE.
-     Kolonnefordelingen kan ikke kjøres før da (se `relayoutBoard`), og det er
-     også først da board-et har sin endelige høyde: klonen holder plassen med det
+     Først da har board-et sin endelige høyde: klonen holder plassen med det
      løftede kortets KOLLAPSEDE boks, mens kortet som lander der er foldet ut
      igjen. Fram til klonen forsvinner er dokumentet altså kortere enn det blir —
      og `scrollDroppedIntoView` klemmer mot nettopp dokumenthøyden, så en scroll
-     regnet ut før dette ville stoppet for tidlig. */
+     regnet ut før dette ville stoppet for tidlig. Kolonnefordelingen er allerede
+     kjørt av `boardCommitCard`; runden her fanger veiene som ikke går gjennom
+     den (avbrudd, slipp i en sone) og korthøyder som endret seg underveis. */
   function boardRelayoutAfterDrop() {
     let frames = 0;
     const tick = () => {
@@ -7603,19 +7616,27 @@
         requestAnimationFrame(tick);
         return;
       }
+      boardLiftedRow = null;
+      boardLiftedRowH = 0;
       relayoutBoard(boardScope);
       fixBoardBottomGap();
-      const dropped = boardDroppedCard;
-      boardDroppedCard = null;
-      if (dropped && dropped.isConnected) {
-        const r = dropped.getBoundingClientRect();
-        scrollDroppedIntoView(r.top + window.scrollY, r.height);
-      }
       // Draget er over og board-et ferdig malt. Slettingen (`dropIntoTrash`) kan
       // ha rendret board-et på nytt MENS dnd-kit fortsatt avsluttet draget — den
       // ombyggingen falt mellom Smetts DOM-overvåking og vår egen synk, og
       // registeret ville ellers blitt stående med frakoblede noder.
-      boardSyncCardBoard();
+      // ÉN frame til før scrollen: klonen ble nettopp fjernet og bunn-luften
+      // satt, og både lista si egen boks og dokumenthøyden — som scrollen
+      // klemmes mot — er først ferdige etter den neste layout-runden.
+      const droppedId = boardDroppedCardId;
+      boardDroppedCardId = null;
+      requestAnimationFrame(() => {
+        const el = droppedId && board.querySelector('.card[data-id="' + droppedId + '"]');
+        if (el) {
+          const r = el.getBoundingClientRect();
+          scrollDroppedIntoView(r.top + window.scrollY, r.height);
+        }
+        boardSyncCardBoard();
+      });
     };
     requestAnimationFrame(tick);
   }
@@ -7677,13 +7698,20 @@
     }
     boardScope.reindexColors();
     save();
-    // Fold listene tilbake og slipp vakten FØR drop-animasjonen sikter: dnd-kit
-    // regner ut hvor det løftede kortet skal fly, og layouten må være ferdig da.
+    /* Fold listene tilbake, slipp vakten og fordel kolonnene FØR
+       drop-animasjonen sikter: dnd-kit regner ut hvor det løftede kortet skal
+       fly, og sikter på KLONENS boks. Kortene har vært frosset i den
+       fordelingen de hadde da draget startet, og et kort som byttet kolonne
+       endrer som regel den grådige pakkingen — uten en omfordeling her ville
+       kortet fløyet til den frosne sloten og så hoppet til sin endelige plass
+       når fordelingen kjørte. `relayoutBoardNow` tar klonen med seg. */
     restoreCardsAfterDrag();
     boardReleaseBoard();
-    // Scroll-til-slupt hører til etterarbeidet: lista har ingen plass i flyten å
-    // måle så lenge den ligger i top layer (`boardRelayoutAfterDrop`).
-    boardDroppedCard = el;
+    relayoutBoardNow(boardScope);
+    // Scroll-til-slupt hører derimot til ETTERarbeidet: klonen holder plassen
+    // med den kollapsede boksen, så dokumentet er kortere enn det blir — og
+    // scrollen klemmes mot nettopp dokumenthøyden (`boardRelayoutAfterDrop`).
+    boardDroppedCardId = el.dataset.id;
   }
 
   /* ============================================================

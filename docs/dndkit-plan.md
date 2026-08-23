@@ -436,11 +436,15 @@ alle ville meldt seg samtidig for et slipp i lufta under board-et. Svaret regnes
 ut av kortets egen boks, én gang per bevegelse — samme mønster som
 `navTargetCont`.
 
-**4. Klonen holder plassen med den KOLLAPSEDE boksen.** Alt som måler board-ets
-høyde eller kortets slot må derfor vente til klonen er borte: kolonnefordelingen
-(som ellers skriver kolonnens barn på nytt uten klonen, og legger den først) og
-`scrollDroppedIntoView` (som klemmer mot en dokumenthøyde som ennå ikke er den
-endelige). `boardRelayoutAfterDrop` venter på det ene punktet der begge er sanne.
+**4. Klonen holder plassen med den KOLLAPSEDE boksen — og det er den
+drop-animasjonen sikter på.** Kolonnene er frosset gjennom draget, så
+fordelingen må kjøres ved SLIPPET; ellers flyr kortet til den frosne sloten og
+teleporterer så til sin endelige plass (målt til ~1000 px). Og den fordelingen må
+regne med kortets HVILEhøyde: dnd-kit pinner den kollapsede på elementet gjennom
+hele animasjonen, så `offsetHeight` svarer feil for nettopp den raden.
+`scrollDroppedIntoView` må derimot vente til klonen ER borte — den klemmer mot
+dokumenthøyden, som ennå ikke er den endelige — og må slå opp lista på ID, siden
+en synk-runde kan ha byttet ut noden imens.
 
 **5. En vakt man ikke kan observere, er ikke en vakt.** Den gamle motoren frøs
 board-et mens pekeren sto i toppmenyen. Begge målene der er soner nå, og Smett

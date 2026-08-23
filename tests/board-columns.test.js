@@ -21,6 +21,16 @@
       plass i rekkefølgen. Placeholderen skal vises begge steder — der man sikter —
       og slippet skal gi nøyaktig samme rekkefølge.
 
+  (9) FORDELINGEN ER FERDIG FØR DROP-ANIMASJONEN. Kolonnene er frosset gjennom
+      draget, og en liste som bytter kolonne endrer som regel den grådige
+      pakkingen. Kjøres fordelingen først ETTER slipp-animasjonen, flyr kortet
+      til den frosne sloten og TELEPORTERER så til sin endelige plass — målt til
+      ~1000 px. Fordelingen må derfor kjøres ved slippet, og den må regne med det
+      løftede kortets HVILEhøyde: dnd-kit pinner den KOLLAPSEDE på det gjennom
+      hele animasjonen, så en pakking som leser den fordeler kolonnene på et kort
+      som «veier» en korthøyde. Testen følger selve flukten: der animasjonen
+      ENDER skal være der kortet blir liggende.
+
   Gestene er EKTE input (`tests/dnd-gestures.js`).
 
   Kjør:
@@ -369,6 +379,78 @@ async function lift(p, sel) {
     const empty = await live();
     log('8 tom mappe slipper alle kort-observasjoner', empty.total <= 2 && empty.detached === 0, JSON.stringify(empty));
     log('8 ingen JS-feil', errs.length === 0, errs.join(' | '));
+    await p.close();
+  }
+
+  /* ---------- (9) Fordelingen er ferdig før drop-animasjonen ---------- */
+  {
+    const p = await b.newPage({ viewport: { width: 1200, height: 800 } });
+    const errs = []; p.on('pageerror', (e) => errs.push(e.message));
+    await register(p);
+    // Ujevne høyder, så en flytting mellom kolonner faktisk endrer pakkingen.
+    await seed(p, [10, 2, 10, 2, 10, 2, 8]);
+    const før = await cols(p);
+    log('9 board-et har flere kolonner', før.length >= 2, JSON.stringify(før));
+
+    // Løft den ØVERSTE lista i kolonne 1 og slipp den nederst i kolonne 2.
+    const h = await G.centre(p, '.board .board-col:first-child .card .card-head');
+    await G.lift(p, h, false);
+    const to = await p.evaluate(() => {
+      const c2 = [...document.querySelectorAll('.board > .board-col')][1];
+      const kort = [...c2.children].filter((x) => x.classList.contains('card'));
+      const siste = kort[kort.length - 1].getBoundingClientRect();
+      return { x: siste.left + siste.width / 2, y: siste.top + siste.height * 0.9 };
+    });
+    await G.travel(p, to, false);
+    /* Følg FLUKTEN, frame for frame, så lenge klonen står. Det er den siste
+       posisjonen animasjonen når som avslører om den siktet riktig: en måling
+       etterpå ser bare hvileposisjonen, uansett hvor kortet var på vei. */
+    await p.evaluate(() => {
+      window.__flukt = [];
+      const kort = () => document.querySelector('.card[data-id="card-0"]');
+      const tikk = () => {
+        const a = kort();
+        if (a) window.__flukt.push(Math.round(a.getBoundingClientRect().top + window.scrollY));
+        if (document.querySelector('.board [data-dnd-placeholder]')) requestAnimationFrame(tikk);
+      };
+      requestAnimationFrame(tikk);
+    });
+    await p.mouse.up();
+    // MENS klonen står: fordelingen skal allerede være den endelige.
+    await p.waitForTimeout(80);
+    const under = await p.evaluate(() => ({
+      kol: [...document.querySelectorAll('.board > .board-col')].map((col) => [...col.children]
+        .filter((el) => !el.hasAttribute('data-dnd-placeholder'))
+        .map((el) => (el.querySelector('.card-title') || {}).textContent)),
+      klone: document.querySelectorAll('.board [data-dnd-placeholder]').length,
+    }));
+    log('9 klonen står ennå (drop-animasjonen pågår)', under.klone === 1, 'kloner=' + under.klone);
+    await p.waitForFunction(() => !document.querySelector('[data-dnd-placeholder]'), null, { timeout: 4000 });
+    await p.waitForTimeout(700);
+    const flukt = await p.evaluate(() => window.__flukt);
+    const hvile = await p.evaluate(() =>
+      Math.round(document.querySelector('.card[data-id="card-0"]').getBoundingClientRect().top + window.scrollY));
+    const enden = flukt.length ? flukt[flukt.length - 1] : null;
+    log('9 flukten ble faktisk fulgt', flukt.length >= 3, 'målinger=' + flukt.length);
+    log('9 animasjonen ender der kortet blir liggende (ingen teleportering)',
+      enden !== null && Math.abs(enden - hvile) <= 4,
+      'ende=' + enden + ' hvile=' + hvile + ' flukt=' + JSON.stringify(flukt.slice(-4)));
+    /* … og den går DIT hele veien. Kjøres fordelingen først etter at dnd-kit har
+       regnet ut hvor kortet skal fly, sikter flukten på den frosne sloten: den
+       beveger seg BORT fra hvileplassen (målt til ~1000 px) før klonen forsvinner
+       og kortet teleporterer tilbake. Slingringsmonnet dekker at første måling
+       tas før drop-transformen er satt. */
+    const avstand = flukt.map((v) => Math.abs(v - hvile));
+    const verst = Math.max(...avstand);
+    log('9 flukten beveger seg mot hvileplassen hele veien',
+      flukt.length > 0 && verst <= avstand[0] + 60,
+      'verst=' + verst + ' først=' + avstand[0]);
+    const etter = await cols(p);
+    log('9 kolonnefordelingen er den samme før og etter at klonen forsvinner',
+      JSON.stringify(under.kol) === JSON.stringify(etter),
+      'under=' + JSON.stringify(under.kol) + ' etter=' + JSON.stringify(etter));
+    log('9 lista havnet i den andre kolonnen', etter[1].includes('L1'), JSON.stringify(etter));
+    log('9 ingen JS-feil', errs.length === 0, errs.join(' | '));
     await p.close();
   }
 

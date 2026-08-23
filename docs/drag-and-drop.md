@@ -994,22 +994,34 @@ gang per bevegelse), ikke av pekeren: det er den samme kolonneregelen som gjelde
 ellers. Prioriteten er den lavest mulige, så kolonnen aldri vinner over et kort
 eller en sone.
 
-### Etterarbeidet skjer når klonen er borte
+### Fordelingen ved slippet, og etterarbeidet når klonen er borte
 
-dnd-kit holder plassen med en KLONE til drop-animasjonen er ferdig, og klonen er
-ingen board-rad (`isBoardRow` hopper over den). To ting må derfor vente på at den
-forsvinner (`boardRelayoutAfterDrop`):
+Kolonnene er frosset gjennom draget, og et kort som bytter kolonne endrer som
+regel den grådige pakkingen. **Fordelingen må derfor kjøres ved SLIPPET**, i
+`boardCommitCard` (`relayoutBoardNow` — den samme fordelingen uten drag-vakten):
+dnd-kit regner ut hvor det løftede kortet skal fly, og sikter på KLONENS boks.
+Kjøres fordelingen først etterpå, flyr kortet til den frosne sloten og
+teleporterer så til sin endelige plass — målt til ~1000 px.
 
-- **Kolonnefordelingen.** En omfordeling mens klonen står der ville skrevet
-  kolonnens barn på nytt uten den, og klonen hadde blitt liggende først i
-  kolonnen — et hull på feil sted midt i animasjonen. `relayoutBoard` er derfor
-  en no-op så lenge en klone finnes; `relayoutBoardNow` er den samme fordelingen
-  uten vakten.
-- **`scrollDroppedIntoView`.** Klonen holder plassen med det løftede kortets
-  KOLLAPSEDE boks, mens kortet som lander der er foldet ut igjen. Fram til klonen
-  forsvinner er dokumentet altså kortere enn det blir — og scrollen klemmes mot
-  nettopp dokumenthøyden, så en scroll regnet ut før dette ville stoppet for
-  tidlig.
+Fordelingen må da regne med det løftede kortets **hvilehøyde**. dnd-kit pinner
+den KOLLAPSEDE høyden på elementet gjennom hele animasjonen, så `offsetHeight`
+svarer feil for nettopp den raden: pakkingen ville fordelt kolonnene på et kort
+som «veier» et korthode, og kortet måtte flytte seg en gang til når klonen
+forsvant. Hvilehøyden måles rett før kollapsen (`boardLiftedRow`/
+`boardLiftedRowH`, lest av `boardRowHeight`) — den eneste gangen den er å se.
+`board-columns` sjekk 9 følger selve flukten: den skal gå mot hvileplassen hele
+veien, og ende der.
+
+To ting må likevel vente til klonen faktisk er borte (`boardRelayoutAfterDrop`):
+
+- **`scrollDroppedIntoView`.** Klonen holder plassen med den kollapsede boksen,
+  så dokumentet er kortere enn det blir — og scrollen klemmes mot nettopp
+  dokumenthøyden. Den kjøres derfor én frame etter at klonen er fjernet, og slår
+  opp lista på ID: en synk-runde kan ha rendret board-et i mellomtiden, og en
+  frakoblet node måler 0 (scrollen ville da sendt siden til toppen).
+- **Bunn-luften og en siste synk.** `fixBoardBottomGap` måler kortenes bokser, og
+  slettingen («dra lista i kassen») kan ha rendret board-et mens dnd-kit ennå
+  avsluttet draget.
 
 ### Det som er annerledes enn før
 
