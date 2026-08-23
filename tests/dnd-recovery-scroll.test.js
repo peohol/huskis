@@ -93,20 +93,27 @@ const centerOf = (p, sel) => p.evaluate((sel) => {
 }, sel);
 
 // Avstanden fra pekeren til det løftede objektets LAYOUT-topp i viewporten.
-// Leses fra `style.top` (dokument-koordinat) − scrollY, ikke fra
-// getBoundingClientRect: kategorien kollapser (animert høyde) og roterer under
-// draget, så både senter og omslutningsboks flytter seg av andre grunner enn
-// scrollen vi tester.
+// For den gamle motorens objekter leses den fra `style.top` (dokument-koordinat)
+// − scrollY, ikke fra getBoundingClientRect: kategorien kollapser (animert
+// høyde) og roterer under draget, så både senter og omslutningsboks flytter seg
+// av andre grunner enn scrollen vi tester.
+// dnd-kit løfter i stedet objektet inn i top layer (`position: fixed`), og der
+// ER omslutningsboksens topp viewport-koordinaten — bevegelsen i disse
+// sjekkene er dessuten rent loddrett, så rotasjonen står stille.
 const dragTopOffset = (p, sel, py) => p.evaluate(({ sel, py }) => {
   const el = document.querySelector(sel);
-  return py - (parseFloat(el.style.top) - window.scrollY);
+  const t = parseFloat(el.style.top);
+  const doc = Number.isFinite(t) && getComputedStyle(el).position === 'absolute';
+  return py - (doc ? t - window.scrollY : el.getBoundingClientRect().top);
 }, { sel, py });
 
 // Restene et drag ALDRI skal etterlate seg.
 const residue = (p) => p.evaluate(() => {
   const dragged = document.querySelector('.card[style*="left"], .item[style*="left"]');
   return {
-    dragging: document.querySelectorAll('.dragging').length,
+    // Begge motorene: den gamle merker med `.dragging`, dnd-kit med
+    // `[data-dnd-dragging]`.
+    dragging: document.querySelectorAll('.dragging, [data-dnd-dragging]').length,
     ph: document.querySelectorAll('.card-placeholder, .item-placeholder, .group-placeholder, .new-list-placeholder').length,
     isDragging: document.body.classList.contains('is-dragging'),
     cursor: getComputedStyle(document.body).cursor,
@@ -182,7 +189,7 @@ const log = (n, ok, x = '') => { results.push(ok); console.log((ok ? 'PASS' : 'F
      `visibilitychange`) eller en capture-slipp der objektet fortsatt henger i DOM
      skal avbryte gesten: window-lytterne lever videre, og et bredere nett fikk
      lister/listepunkter/kategorier til å «glippe» rett etter løft. */
-  for (const K of [{ n: 'liste', sel: '.card[data-id="card-A"] .card-head', drag: '.card.dragging' },
+  for (const K of [{ n: 'liste', sel: '.card[data-id="card-A"] .card-head', drag: '#board .card[data-dnd-dragging]' },
     { n: 'listepunkt', sel: '.item[data-id="it-B-2"]', drag: '.item.dragging' },
     { n: 'kategori', sel: '.category[data-id="cat-A"] .cat-head', drag: '.category.dragging' }]) {
     const p = await b.newPage({ viewport: { width: 420, height: 820 }, hasTouch: true, isMobile: true });
@@ -204,7 +211,7 @@ const log = (n, ok, x = '') => { results.push(ok); console.log((ok ? 'PASS' : 'F
     await p.evaluate(() => {
       window.dispatchEvent(new Event('blur'));
       document.dispatchEvent(new Event('visibilitychange'));
-      const el = document.querySelector('.dragging');
+      const el = document.querySelector('.dragging, [data-dnd-dragging]');
       if (el) el.dispatchEvent(new PointerEvent('lostpointercapture', { bubbles: true, composed: true, pointerId: 7, pointerType: 'touch' }));
     });
     await p.waitForTimeout(250);
@@ -218,7 +225,11 @@ const log = (n, ok, x = '') => { results.push(ok); console.log((ok ? 'PASS' : 'F
     log('8a ' + K.n + ': objektet følger fortsatt pekeren etterpå',
       Math.abs(after - before) < 3, 'før=' + before.toFixed(1) + ' etter=' + after.toFixed(1));
 
-    await pointer(p, 'pointerup', c.x, c.y - 60); await p.waitForTimeout(500);
+    await pointer(p, 'pointerup', c.x, c.y - 60);
+    // Vent på TILSTANDEN: dnd-kits drop-animasjon bærer `[data-dnd-dragging]`
+    // helt til den er ferdig.
+    await p.waitForFunction(() => !document.querySelector('.dragging, [data-dnd-dragging]'), null, { timeout: 5000 });
+    await p.waitForTimeout(200);
     const r = await residue(p);
     log('8a ' + K.n + ': vanlig slipp rydder opp', r.dragging === 0 && r.ph === 0, JSON.stringify(r));
     log('8a ' + K.n + ': ingen JS-feil', errs.length === 0, errs.join(' | '));
@@ -231,18 +242,22 @@ const log = (n, ok, x = '') => { results.push(ok); console.log((ok ? 'PASS' : 'F
     const errs = []; p.on('pageerror', (e) => errs.push(e.message));
     await register(p); await seed(p, [['A', 8], ['B', 8], ['C', 8]]);
 
-    const order0 = await p.evaluate(() => [...document.querySelectorAll('.board .card')].map((c) => c.dataset.id));
+    // Klonen dnd-kit holder plassen med bærer de samme klassene, men har fått
+    // identiteten fjernet — den er ingen rad, og skal ikke telle med.
+    const cardIds = () => p.evaluate(() => [...document.querySelectorAll('#board .card')]
+      .filter((c) => !c.hasAttribute('data-dnd-placeholder')).map((c) => c.dataset.id));
+    const order0 = await cardIds();
     const h = await centerOf(p, '.card[data-id="card-A"] .card-head');
     await pointer(p, 'pointerdown', h.x, h.y); await p.waitForTimeout(260);
     await pointer(p, 'pointermove', h.x, 790); await p.waitForTimeout(200); // auto-scroll i gang
-    const lifted = await p.evaluate(() => document.querySelectorAll('.card.dragging').length);
+    const lifted = await p.evaluate(() => document.querySelectorAll('#board .card[data-dnd-dragging]').length);
     log('8b draget var aktivt før noden ble revet ut', lifted === 1, 'dragging=' + lifted);
 
     // Slik en synk-rebuild ville gjort det: noden ut av DOM. Draget kan da aldri
     // fullføres — første bevegelse etterpå skal rydde alt.
-    await p.evaluate(() => { document.querySelector('.card.dragging').remove(); });
+    await p.evaluate(() => { document.querySelector('#board .card[data-dnd-dragging]').remove(); });
     await pointer(p, 'pointermove', h.x, 700);
-    await p.waitForTimeout(250);
+    await p.waitForTimeout(400);
     const r = await residue(p);
     log('8b ingen .dragging / placeholder igjen', r.dragging === 0 && r.ph === 0, JSON.stringify(r));
     log('8b global dra-cursor fjernet', r.isDragging === false && r.cursor !== 'grabbing', 'cursor=' + r.cursor);
@@ -255,7 +270,7 @@ const log = (n, ok, x = '') => { results.push(ok); console.log((ok ? 'PASS' : 'F
     const y2 = await p.evaluate(() => window.scrollY);
     log('8b auto-scroll stoppet', Math.abs(y2 - y1) < 2, 'y1=' + y1 + ' y2=' + y2);
 
-    const order1 = await p.evaluate(() => [...document.querySelectorAll('.board .card')].map((c) => c.dataset.id));
+    const order1 = await cardIds();
     log('8b avbrutt drag lagret ingen ny rekkefølge for de gjenværende',
       JSON.stringify(order1) === JSON.stringify(order0.filter((id) => id !== 'card-A')),
       order0.join(',') + ' → ' + order1.join(','));

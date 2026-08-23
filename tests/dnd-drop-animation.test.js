@@ -4,15 +4,19 @@
   5. Slippes objektet ved (eller utenfor) viewportkanten, skal fly-inn-animasjonen
      starte fra objektets FAKTISK RENDREDE boks — ikke fra den UKLEMTE
      `drag.lastX - grabX`, som ligger utenfor skjermen når klemmen har slått inn
-     (ga et synlig hopp idet man slapp).
+     (ga et synlig hopp idet man slapp). Målt på et LISTEPUNKT: det er nivåene
+     som fortsatt kjører den hjemmesnekrede motoren som har den transformen.
+     For en LISTE er drop-animasjonen dnd-kits, og klemmen Smetts `SafeViewport`
+     — påstanden der er den samme, og måles som den gjelder: kortet holder seg
+     innenfor viewporten, og slippet lar ingen dra-maling bli igjen.
   6. Løfte-skalaen følger objekttypen — liste 1.02, listepunkt 1.03 — og ikke en
-     hardkodet 1.02 for alt. På hovedsidens board leses den av drop-animasjonens
-     startskala; i nav-modalen, som kjører på dnd-kit (`docs/drag-and-drop.md`),
-     er drop-animasjonen bibliotekets, og skalaen ligger i CSS på
-     `[data-dnd-dragging]`. Der måles derfor det som faktisk MALES under draget:
-     skalaen, og at rotasjonen settes som en EGEN `rotate`-egenskap — dnd-kit
-     skriver `transform` selv, med `!important`, så en rotasjon lagt der ville
-     forsvunnet uten at noe annet feilet.
+     hardkodet 1.02 for alt. På de nivåene som kjører den gamle motoren leses den
+     av drop-animasjonens startskala; på dnd-kit-nivåene (`docs/drag-and-drop.md`
+     — nav-modalen og hovedsidens KORTNIVÅ) er drop-animasjonen bibliotekets, og
+     skalaen ligger i CSS på `[data-dnd-dragging]`. Der måles derfor det som
+     faktisk MALES under draget: skalaen, og at rotasjonen settes som en EGEN
+     `rotate`-egenskap — dnd-kit skriver `transform` selv, med `!important`, så
+     en rotasjon lagt der ville forsvunnet uten at noe annet feilet.
 
   Gestene er EKTE input (`tests/dnd-gestures.js`).
 
@@ -128,8 +132,8 @@ async function dropAndMeasure(p, sel) {
 
 const scaleIn = (t) => { const m = /scale\(([\d.]+)\)/.exec(t); return m ? parseFloat(m[1]) : null; };
 
-/* Malingen av det løftede objektet i nav-scopet: dnd-kit eier geometrien, vi
-   eier skala og rotasjon — og de må ligge i egenskaper dnd-kit IKKE skriver. */
+/* Malingen av det løftede objektet på dnd-kit-nivåene: dnd-kit eier geometrien,
+   vi eier skala og rotasjon — og de må ligge i egenskaper dnd-kit IKKE skriver. */
 const paintOf = (p, sel) => p.evaluate((s) => {
   const el = document.querySelector(s);
   if (!el) return null;
@@ -149,25 +153,67 @@ const log = (n, ok, x = '') => { results.push(ok); console.log((ok ? 'PASS' : 'F
     const errs = []; p.on('pageerror', (e) => errs.push(e.message));
     await register(p); await seed(p, [['A', 4], ['B', 4], ['C', 4]]);
 
-    const h = await centerOf(p, '.card[data-id="card-B"] .card-head');
-    await G.lift(p, { x: h.x, y: h.y }, true);
-    // Langt UT til høyre for viewporten: klemmen (clampToViewport) holder kortet
-    // synlig, mens den uklemte posisjonen ligger flere hundre px utenfor.
     const farX = M.vw + 260;
-    await G.touchMove(p, farX, h.y); await p.waitForTimeout(120);
-    const clamped = await p.evaluate(() => {
-      const r = document.querySelector('.card.dragging').getBoundingClientRect();
-      return { right: Math.round(r.right), vw: window.innerWidth };
-    });
-    log('5 ' + M.n + ': kortet er klemt innenfor viewporten før slippet',
-      clamped.right <= clamped.vw + 2, JSON.stringify(clamped));
 
-    const res = await dropAndMeasure(p, '.card.dragging');
+    /* LISTEPUNKT — den gamle motoren: klemmen er `clampToViewport`, og
+       drop-transformen er vår egen.
+
+       Grepet tas ved radens VENSTRE kant og pekeren føres til kortets HØYRE
+       kant. Den uklemte boksen stikker da langt ut av viewporten (klemmen er
+       aktiv), mens PEKEREN fortsatt står inne i kortet — og det er pekerens x
+       `dragOverCard` leser. Uten det hadde raden falt ut av lista og draget
+       vært i ekstraheringsmodus, som ikke har noen drop-tween å måle. */
+    const grip = await p.evaluate(() => {
+      // Teksten, ikke hele raden: avmerkingsboksen til venstre er unntatt fra
+      // dra-sonen, og et grep der løfter ingenting.
+      const t = document.querySelector('.item[data-id="it-B-1"] .item-text');
+      const el = t.closest('.item');
+      const r = t.getBoundingClientRect();
+      const cr = el.closest('.card').getBoundingClientRect();
+      return { x: r.left + 10, y: r.top + r.height / 2, edgeX: cr.right - 3 };
+    });
+    await G.lift(p, { x: grip.x, y: grip.y }, true);
+    await G.travel(p, { x: grip.edgeX, y: grip.y }, true, { steps: 6, settle: 140 });
+    const clamped = await p.evaluate(() => {
+      const r = document.querySelector('.item.dragging').getBoundingClientRect();
+      return { right: Math.round(r.right), vw: window.innerWidth, extract: !!document.querySelector('.new-list-placeholder') };
+    });
+    log('5 ' + M.n + ': listepunktet er klemt innenfor viewporten før slippet',
+      clamped.right <= clamped.vw + 2 && !clamped.extract, JSON.stringify(clamped));
+
+    const res = await dropAndMeasure(p, '.item.dragging');
     const ex = Math.abs(res.rest.left + res.dx - res.from.left);
     const ey = Math.abs(res.rest.top + res.dy - res.from.top);
-    log('5 ' + M.n + ': drop-animasjonen starter der kortet FAKTISK stod (ingen hopp)',
+    log('5 ' + M.n + ': drop-animasjonen starter der listepunktet FAKTISK stod (ingen hopp)',
       ex < 2 && ey < 2, 'avvik x=' + ex.toFixed(1) + ' y=' + ey.toFixed(1) + ' transform=' + res.transform);
     await p.waitForTimeout(700);
+
+    /* LISTE — dnd-kit: klemmen er Smetts `SafeViewport`, drop-animasjonen
+       bibliotekets. Samme påstand, målt der den nå gjelder. Kortet kan dras helt
+       ut av board-et uten å skifte modus (det finnes ingen ekstrahering på
+       kortnivå), så her holder det å føre pekeren langt utenfor kanten.
+       `travel` går i to omganger med en pause imellom: klemmen leser den FAKTISK
+       MALTE boksen, og rotasjonen settes av oss etter at dnd-kit har regnet ut
+       flyttingen — ett enkelt hopp ville derfor klemt mot forrige frames boks. */
+    const ch = await centerOf(p, '.card[data-id="card-B"] .card-head');
+    await G.lift(p, { x: ch.x, y: ch.y }, true);
+    await G.travel(p, { x: farX, y: ch.y }, true);
+    const cClamped = await p.evaluate(() => {
+      const r = document.querySelector('#board [data-dnd-dragging]').getBoundingClientRect();
+      return { right: Math.round(r.right), vw: window.innerWidth };
+    });
+    log('5 ' + M.n + ': lista er klemt innenfor viewporten før slippet',
+      cClamped.right <= cClamped.vw + 2, JSON.stringify(cClamped));
+    await G.drop(p, undefined, true);
+    // Vent på TILSTANDEN: dnd-kit bærer `[data-dnd-dragging]` gjennom hele
+    // drop-animasjonen, så et fast tall ville målt midt i den.
+    await p.waitForFunction(() => !document.querySelector('[data-dnd-dragging]'), null, { timeout: 4000 });
+    log('5 ' + M.n + ': slippet lot ingen dra-maling bli igjen på lista',
+      (await p.evaluate(() => {
+        const el = document.querySelector('.card[data-id="card-B"]');
+        return !!el && !el.style.rotate && getComputedStyle(el).position === 'static';
+      })) === true);
+
     log('5 ' + M.n + ': ingen JS-feil', errs.length === 0, errs.join(' | '));
     await p.close();
   }
@@ -178,13 +224,19 @@ const log = (n, ok, x = '') => { results.push(ok); console.log((ok ? 'PASS' : 'F
     const errs = []; p.on('pageerror', (e) => errs.push(e.message));
     await register(p); await seed(p, [['A', 6], ['B', 6]]);
 
-    // LISTE → 1.02
+    // LISTE → 1.02, malt av dnd-kit (kortnivået kjører på det nå), så skalaen
+    // og rotasjonen måles på det som faktisk står malt under draget.
     const ch = await centerOf(p, '.card[data-id="card-A"] .card-head');
     await G.lift(p, { x: ch.x, y: ch.y }, true);
     await G.touchMove(p, ch.x - 40, ch.y + 30); await p.waitForTimeout(120);
-    const rCard = await dropAndMeasure(p, '.card.dragging');
-    log('6 liste: startskala 1.02', scaleIn(rCard.transform) === 1.02, 'transform=' + rCard.transform);
-    await p.waitForTimeout(700);
+    const cPaint = await paintOf(p, '#board [data-dnd-dragging]');
+    log('6 liste: løftes med skala 1.02', !!cPaint && cPaint.scale === '1.02', JSON.stringify(cPaint));
+    log('6 liste: rotasjonen er en EGEN `rotate`-egenskap, ikke en `transform`',
+      !!cPaint && /^-?[\d.]+deg$/.test(cPaint.rotate), JSON.stringify(cPaint));
+    log('6 liste: løftes i top layer (dnd-kits `position: fixed`)',
+      !!cPaint && cPaint.position === 'fixed', JSON.stringify(cPaint));
+    await G.drop(p, undefined, true);
+    await p.waitForFunction(() => !document.querySelector('[data-dnd-dragging]'), null, { timeout: 4000 });
 
     // LISTEPUNKT → 1.03
     const it = await centerOf(p, '.item[data-id="it-A-2"]');

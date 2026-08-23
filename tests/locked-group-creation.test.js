@@ -157,6 +157,29 @@ async function liftTo(p, sel, x, y) {
 }
 const drop = async (p, x, y) => { await ptr(p, 'pointerup', x, y, 'mouse'); await p.waitForTimeout(500); };
 
+/* Kort-draget kjøres av dnd-kit (`docs/drag-and-drop.md`), som avviser en
+   oppdiktet `pointerId` og lar draget dø stille — se `tests/dnd-gestures.js`.
+   Muse-gesten må derfor gå gjennom nettleserens egen inputkø. Begge sjekkene her
+   handler om HVORVIDT løftet skjer, så gesten drives med primitivene og
+   påstanden gjøres selv (et hjelpe-løft som prøver på nytt ville skjult svaret).
+   Returnerer antall løftede kort. */
+async function mouseLiftCard(p, sel, dy) {
+  const r = await rectOf(p, sel);
+  if (!r) return -1;
+  await p.mouse.move(r.x, r.y);
+  await p.mouse.down();
+  await p.mouse.move(r.x + 12, r.y + 12, { steps: 3 });
+  await p.waitForTimeout(140);
+  await p.mouse.move(r.x, r.y + dy, { steps: 6 });
+  await p.waitForTimeout(180);
+  return p.evaluate(() => document.querySelectorAll('#board .card[data-dnd-dragging]').length);
+}
+const mouseDropCard = async (p) => {
+  await p.mouse.up();
+  await p.waitForFunction(() => !document.querySelector('[data-dnd-dragging]'), null, { timeout: 5000 });
+  await p.waitForTimeout(250);
+};
+
 // Board-luft godt under det nederste kortet (der ny-liste-placeholderen hører hjemme).
 const airBelowCards = (p) => p.evaluate(() => {
   let bottom = 0;
@@ -245,11 +268,10 @@ async function run(label, viewport, mobile) {
 
   // 5) Listedraging krever rett til å endre mappens innhold (posisjonen er mappens)
   await goTo(p, ids.GX);
-  const cardMid = await rectOf(p, '.card[data-id="' + ids.LX + '"] .card-head');
-  await liftTo(p, '.card[data-id="' + ids.LX + '"] .card-head', cardMid.x, cardMid.y + 160);
+  const lockedLift = await mouseLiftCard(p, '.card[data-id="' + ids.LX + '"] .card-head', 160);
   log(label + ' 5: en liste i en låst mappe lar seg ikke dra, selv med lås-unntak',
-    await p.locator('.card.dragging').count() === 0);
-  await drop(p, cardMid.x, cardMid.y + 160);
+    lockedLift === 0, 'løftet=' + lockedLift);
+  await p.mouse.up(); await p.waitForTimeout(300);
 
   // 6) Søppelkassene: gjenopprett/tøm kun der myndigheten finnes
   await goTo(p, ids.GL);
@@ -319,11 +341,10 @@ async function run(label, viewport, mobile) {
     JSON.stringify(t));
   await closeTrash(p);
   await goTo(p, ids.GX);
-  const ownerCard = await rectOf(p, '.card[data-id="' + ids.LX + '"] .card-head');
-  await liftTo(p, '.card[data-id="' + ids.LX + '"] .card-head', ownerCard.x, ownerCard.y + 160);
+  const ownerLift = await mouseLiftCard(p, '.card[data-id="' + ids.LX + '"] .card-head', 160);
   log(label + ' 8: eieren kan dra listene i den låste mappen',
-    await p.locator('.card.dragging').count() === 1);
-  await drop(p, ownerCard.x, ownerCard.y + 160);
+    ownerLift === 1, 'løftet=' + ownerLift);
+  await mouseDropCard(p);
 
   await p.screenshot({ path: '/tmp/locked-group-' + (mobile ? 'mobil' : 'desktop') + '.png' });
   log(label + ' 9: ingen JS-feil underveis', errs.length === 0, errs.join(' | '));

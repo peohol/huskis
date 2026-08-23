@@ -1431,6 +1431,14 @@
 
   const boardGap = (root) => parseFloat(getComputedStyle(root || board).columnGap) || 0;
   const boardColumns = (root) => [...(root || board).children].filter((c) => c.classList.contains('board-col'));
+  /* Kolonnene er kortboardets containere, og Smett krever en stabil id på hver
+     (`data-dnd-container`). Nav-modalen har alltid nøyaktig én og setter den
+     selv (`NAV_COL_ID`); hovedsidens board får sine etter INDEKS, stemplet hver
+     gang kolonnene bygges eller antallet endres. Fordelingen er frosset mens et
+     drag pågår, så id-ene kan ikke skifte under fingeren. */
+  function stampBoardColumns(root) {
+    boardColumns(root).forEach((col, i) => { col.dataset.dndContainer = 'board-col:' + i; });
+  }
   // Board-et et element hører til (hovedsiden eller nav-modalen).
   const boardRootOf = (el) => (el && el.closest('.board')) || board;
   // Alle board-rader (kort + evt. ny-liste-placeholder) i LESEREKKEFØLGE:
@@ -1527,9 +1535,29 @@
       seen.add(el);
     });
   }
+  /* Fordelingen er FROSSET mens et drag pågår: kortene skal ligge i ro under
+     fingeren. `relayoutBoardNow` er den samme fordelingen uten vakten — slippet
+     trenger en ferdig layout FØR drop-animasjonen sikter (`boardCommitCard`). */
   function relayoutBoard(scope) {
     const S = scope || boardScope;
-    if (drag.active) return;                            // frosset under draging
+    if (drag.active) return;
+    relayoutBoardNow(S);
+  }
+  /* Høyden det LØFTEDE kortet får når det LANDER.
+     dnd-kit setter en fast høyde på det løftede elementet ved løft — den
+     KOLLAPSEDE, siden alle listene kollapser i `beforedragstart` — og den blir
+     stående gjennom hele drop-animasjonen. Pakkingen må regne med høyden kortet
+     faktisk får når det er tilbake i flyten; ellers fordeler den kolonnene på et
+     kort som «veier» en korthøyde, og kortet må flytte seg en gang til når
+     klonen forsvinner. Vi måler den rett FØR kollapsen — den eneste gangen den
+     er å se. Settes av `boardCollapseCardsForDrag`, nullstilles når klonen er
+     borte (`boardRelayoutAfterDrop`). */
+  let boardLiftedRow = null, boardLiftedRowH = 0;
+  const boardRowHeight = (el) =>
+    (el === boardLiftedRow && boardLiftedRowH ? boardLiftedRowH : el.offsetHeight);
+
+  function relayoutBoardNow(scope) {
+    const S = scope || boardScope;
     // Ett scope med bare én kolonne har ingenting å fordele — og i nav-modalen
     // ligger seksjonsoverskriftene i den samme kolonnen, så en omfordeling
     // ville flyttet kortene bort fra overskriften sin.
@@ -1559,11 +1587,12 @@
       }
       if (rows.length) cols[0].append(...rows);
     }
+    stampBoardColumns(S.root);
     const rows = boardRows(S.root);
     observeBoardRows(S, rows);
     if (!rows.length) return;
     const gap = boardGap(S.root);
-    const heights = rows.map((el) => el.offsetHeight);
+    const heights = rows.map(boardRowHeight);
     const plan = packBoardColumns(heights, gap, boardColumnBudget(heights, gap, cols.length));
     cols.forEach((col, j) => {
       const next = (plan[j] || []).map((i) => rows[i]);
@@ -1605,6 +1634,11 @@
     captureFocusIn(board); // hvor fokus sto, FØR board-et rives ned
     renderBoardInner();
     applyFocusIntent();
+    // Ombyggingen har byttet ut hvert eneste kort, og dnd-kit sitter igjen med
+    // de gamle nodene. Meld den — samme grunn som `renderNav` har, se
+    // `boardSyncCardBoard`.
+    ensureBoardCardBoard();
+    boardSyncCardBoard();
   }
   function renderBoardInner() {
     followActiveGroup();
@@ -1669,6 +1703,7 @@
     col.className = 'board-col';
     cards.forEach((c) => col.appendChild(buildCard(c)));
     board.appendChild(col);
+    stampBoardColumns(board);
     relayoutBoard();
     fixBoardBottomGap();
     // De avanserte gestene introduseres først når de er relevante (INTRODUKSJON).
@@ -2406,25 +2441,27 @@
       removeLabel: tr('menu.deleteCard'),
     });
 
-    // Kort-draging: trykk-og-hold på korthodet (tittel-delen) unntatt
-    // menyknappen. Frosset (låst for meg) → ingen draging.
-    // Plasseringen blant søsknene tilhører MAPPEN, så den krever i tillegg rett
-    // til å endre mappens innhold: under et lås-unntak på lista alene kan man
-    // redigere den, men ikke omrokkere eller flytte den (mapperadene i
-    // nav-modalen bruker `reorderInParent` på samme måte). Board-et viser kun den
-    // aktive mappens lister, så den slås opp der — ikke via `_parent`, som en
-    // nyopprettet liste ennå ikke har.
-    attachHoldDrag(headEl, el, startCardDrag,
-      () => canEdit && canAddList(activeGroupObj()), '.obj-menu-btn');
+    // Kort-draging eies av dnd-kit (se «BOARD-SCOPETS KORTNIVÅ PÅ dnd-kit»);
+    // korthodet er dra-sonen (`handleSelector`), og menyknappen/meta-chipene
+    // bærer `data-dnd-ignore` selv.
+    // «Kan ikke dras» uttrykkes på den samme sonen: frosset (låst for meg) →
+    // ingen draging. Plasseringen blant søsknene tilhører MAPPEN, så den krever
+    // i tillegg rett til å endre mappens innhold: under et lås-unntak på lista
+    // alene kan man redigere den, men ikke omrokkere eller flytte den
+    // (mapperadene i nav-modalen bruker `reorderInParent` på samme måte).
+    // Board-et viser kun den aktive mappens lister, så den slås opp der — ikke
+    // via `_parent`, som en nyopprettet liste ennå ikke har.
+    if (!(canEdit && canAddList(activeGroupObj()))) headEl.dataset.dndIgnore = '';
 
     // Klikk på korthodet (ikke menyknapp/meta-chip) kollapser/utvider kortet med
-    // en rullgardin-animasjon (et fullført hold løfter i stedet kortet —
-    // attachHoldDrag undertrykker da klikket). Lukketilstanden lagres i DB.
+    // en rullgardin-animasjon (et fullført drag løfter i stedet kortet —
+    // klikk-vakten undertrykker da klikket, se `dndInstallClickGuard`).
+    // Lukketilstanden lagres i DB.
     headEl.addEventListener('click', (ev) => {
       if (ev.target.closest('.obj-menu-btn, .meta-chip, .edit-input')) return;
       toggleCardCollapsed(el, cardData);
     });
-    // Korthodet er kortets tastaturhåndtak — samme element attachHoldDrag drar i,
+    // Korthodet er kortets tastaturhåndtak — samme element dra-sonen ligger på,
     // og samme rolle det allerede har i nav-modalen: Enter/Mellomrom kollapser,
     // Alt+pil sorterer, Alt+M flytter til en annen mappe, F2 omdøper.
     headEl.setAttribute('role', 'button');
@@ -2859,6 +2896,9 @@
     const b = document.createElement('button');
     b.type = 'button';
     b.className = 'meta-chip ' + cls;
+    // Chipene er egne knapper i korthodets dra-sone: et tregt trykk skal åpne
+    // dem, ikke løfte lista (`HOLD_SKIP` i den gamle motoren).
+    b.dataset.dndIgnore = '';
     return b;
   }
   function appendTimeChip(row, target, field, canEdit) {
@@ -3648,6 +3688,10 @@
     const input = document.createElement('input');
     input.type = 'text';
     input.className = 'edit-input' + (opts.cls ? ' ' + opts.cls : '');
+    // Navnefeltet ligger midt i dra-sonen (korthodet, raden, kategorioverskriften),
+    // og et hold der ville blokkert caret-plassering og markering. Den gamle
+    // motoren uttrykte det med `HOLD_SKIP`; dnd-kit leser `data-dnd-ignore`.
+    input.dataset.dndIgnore = '';
     input.value = current;
     displayEl.replaceWith(input);
     if (opts.autosize) {
@@ -6417,7 +6461,7 @@
 
      ÉN AKTIV DRAG-TILSTAND. `drag` er fortsatt den ene posten om draget som
      pågår, uansett hvem som driver det. Vi fyller den fra dnd-kits
-     `dragOperation` (`navSyncIntent`), og da virker alt som allerede leser den —
+     `dragOperation` (`dndSyncIntent`), og da virker alt som allerede leser den —
      `draggedRect`, `dragOverCard`/`cardBand`, peek-lagene, skillelinjene,
      søppelkassen, `finishDrag` — uendret, på begge motorer. Det er også det som
      holder `relayoutBoard` frosset og hindrer at et board-drag starter oppå et
@@ -6729,14 +6773,14 @@
     }));
     navWire(navCardBoard);
     navWire(navRowBoard);
-    navInstallClickGuard();
+    dndInstallClickGuard();
   }
 
-  /* ------- Klikket etter draget -------
+  /* ------- Klikket etter draget (DELT av begge dnd-kit-scopene) -------
      dnd-kit binder `preventDefault` på `click`, men ikke `stopPropagation` — og
-     våre egne klikk-lyttere (korthodet kollapser området, mapperaden navigerer)
-     fyrer likevel. Et fullført drag ville dermed lukket området eller navigert
-     bort idet man slapp.
+     våre egne klikk-lyttere (korthodet kollapser lista/området, mapperaden
+     navigerer) fyrer likevel. Et fullført drag ville dermed lukket kortet eller
+     navigert bort idet man slapp.
 
      Den gamle motoren stoppet klikket på KILDENS sone. Det holdt bare så lenge
      klikket kom tilbake til den sonen: et ekte slipp over en ANNEN rad gir et
@@ -6744,15 +6788,18 @@
      det på dokumentet, i capture-fasen. Flagget varer til det første klikket, og
      ryddes av neste `pointerdown` — et drag som endte over noe uklikkbart gir
      ingen `click` i det hele tatt, og flagget skal ikke bli liggende. */
-  let navSwallowClick = false;
-  function navInstallClickGuard() {
+  let dndSwallowClick = false;
+  let dndClickGuardInstalled = false;
+  function dndInstallClickGuard() {
+    if (dndClickGuardInstalled) return;
+    dndClickGuardInstalled = true;
     document.addEventListener('click', (ev) => {
-      if (!navSwallowClick) return;
-      navSwallowClick = false;
+      if (!dndSwallowClick) return;
+      dndSwallowClick = false;
       ev.stopImmediatePropagation();
       ev.preventDefault();
     }, true);
-    document.addEventListener('pointerdown', () => { navSwallowClick = false; }, true);
+    document.addEventListener('pointerdown', () => { dndSwallowClick = false; }, true);
   }
 
   function navWire(board) {
@@ -6851,18 +6898,19 @@
   }
 
   function navDragStart(board) {
-    navSyncIntent(board.manager.dragOperation);
-    navPaint();
+    dndSyncIntent(board.manager.dragOperation);
+    dndPaintRotation();
     if (drag.kind === 'card') return;
     navTargetCont = navPickContainer(dragOverCard());
     applyDragSeparators();
   }
 
-  // Fyll `drag` fra dnd-kits operasjon, så alt som leser den ser det samme som
-  // Smetts plasseringspolitikk gjør. `intentRectangle` er den UKLEMTE boksen —
-  // brukerens intensjon, ikke det klemte maleriet — og det er nøyaktig
-  // kontrakten `draggedRect()` alltid har hatt.
-  function navSyncIntent(op) {
+  /* Fyll `drag` fra dnd-kits operasjon, så alt som leser den ser det samme som
+     Smetts plasseringspolitikk gjør. `intentRectangle` er den UKLEMTE boksen —
+     brukerens intensjon, ikke det klemte maleriet — og det er nøyaktig
+     kontrakten `draggedRect()` alltid har hatt.
+     DELT av begge dnd-kit-scopene (nav-modalen og hovedsidens kortnivå). */
+  function dndSyncIntent(op) {
     const rect = Smett.intentRectangle(op);
     const at = op.position && op.position.current;
     if (!rect || !at) return;
@@ -6877,15 +6925,15 @@
 
   // Rotasjonen er dynamisk (±5° etter horisontal posisjon) og må derfor settes
   // fra JS. Som EGEN egenskap (`rotate`), aldri `transform`: den skriver dnd-kit
-  // selv, med `!important`. Skalaen ligger i CSS av samme grunn.
-  function navPaint() {
+  // selv, med `!important`. Skalaen ligger i CSS av samme grunn. DELT.
+  function dndPaintRotation() {
     if (!drag.el) return;
     drag.el.style.rotate = cardRotation().toFixed(2) + 'deg';
   }
 
   function navDragMove(board) {
-    navSyncIntent(board.manager.dragOperation);
-    navPaint();
+    dndSyncIntent(board.manager.dragOperation);
+    dndPaintRotation();
     if (drag.kind === 'card') return;
     updatePeek(drag.lastX, drag.lastY);
     navUpdateExtractMode();
@@ -6904,7 +6952,7 @@
     // allerede har gjort det (ekstrahering og kryss-område-flytting rydder før
     // `render()`, som de alltid har gjort).
     if (drag.el && drag.el.isConnected) drag.el.style.rotate = '';
-    navSwallowClick = true;    // klikket som ellers ville fulgt slippet
+    dndSwallowClick = true;    // klikket som ellers ville fulgt slippet
     navExtract = false;
     navTargetCont = null;
     navSourceCardId = null;
@@ -7184,7 +7232,7 @@
      Drar man raden UT av alle områdekortene, dukker en kort-formet placeholder
      med ＋ opp i kolonnen; slipp der oppretter et nytt område med bare denne
      raden i. Selve tersklene («er raden i dette kortet?», 1/3-reglene i
-     `dragOverCard`/`cardBand`) er uendret — de leser `drag`, og `navSyncIntent`
+     `dragOverCard`/`cardBand`) er uendret — de leser `drag`, og `dndSyncIntent`
      har fylt den fra dnd-kit.
 
      Mens modusen står på svarer `navRowAccept` med tom liste. Da tar ingen
@@ -7250,6 +7298,421 @@
     // Fokuser den nye tittelen for redigering
     startRename(board.querySelector('.card[data-id="' + c.id + '"] .card-title'));
   });
+
+  /* ============================================================
+     BOARD-SCOPETS KORTNIVÅ PÅ dnd-kit (gjennom Smett)
+     ------------------------------------------------------------
+     Listene på hovedsiden — kortene i kolonnene — dras ikke lenger av motoren
+     over. De kjøres av dnd-kit gjennom Smett, som nav-modalen. RADNIVÅET
+     (listepunkt og kategori) står fortsatt på den hjemmesnekrede motoren;
+     rekkefølgen for resten står i `docs/dndkit-plan.md`.
+
+     ETT BOARD, ETT NIVÅ. Kortene har sitt eget board med sin egen manager,
+     nøyaktig som nav-scopets to. Dra-sonen er korthodet (`.card-head`), og
+     radene ligger i `.card-body` — de to sonene overlapper ikke, så et trykk på
+     et listepunkt løfter aldri lista.
+
+     ROTEN ER DOKUMENTET, IKKE BOARD-ET. Liste-søppelkassen og 📁-breadcrumben
+     ligger i toppmenyen, utenfor `#board`, og en sone må ligge under board-ets
+     rot for å bli registrert. Selektorene er derfor scopet til `#board` selv,
+     så nav-modalens kort og kolonne aldri havner i dette registeret (to board
+     som registrerer det samme elementet ville kjempet om det).
+
+     ÉN AKTIV DRAG-TILSTAND. `drag` fylles fra dnd-kits `dragOperation`
+     (`dndSyncIntent`), som i nav-scopet, og da virker alt som allerede leser
+     den — `draggedRect`, søppelkassen, `finishDrag` — uendret. Det er også det
+     som holder kolonnefordelingen frosset og hindrer at et radnivå-drag starter
+     oppå et kortdrag.
+
+     HVA SOM ER dnd-kits NÅ: aktiveringen, posisjoneringen av det løftede kortet
+     (top layer via `popover`), placeholderen (en klone), plasseringen (Smetts
+     hysterese-detektor med Huskis' egne tall — kolonneporten på 50 %
+     horisontal overlapp ER regelen «kolonne = kort som deler spor»), vindus-
+     auto-scrollen og drop-animasjonen.
+
+     HVA SOM ER VÅRT: kollaps-alle ved løft (og kompensasjonen som holder kortet
+     under fingeren), kolonnen som siste utvei, søppelkassen, 📁-breadcrumben, ny
+     `pos` mellom naboene i leserekkefølge, fargeindekseringen og
+     scroll-til-slupt.
+
+     BOARD-ET FRYSES IKKE mens man sikter i toppmenyen. Den gamle motoren hoppet
+     over plasseringen der oppe, «så lista ikke bytter plass mens man løfter den
+     opp». Begge målene i toppmenyen er SONER nå, og Smett ruller lista tilbake
+     dit den kom fra før handlingen — rekkefølgen underveis har altså ingen
+     virkning i det hele tatt. En vakt for den ville dessuten ikke kunne
+     observeres: veien opp til toppmenyen går tvers over kortene uansett, så
+     lista har allerede byttet plass før pekeren kommer dit.
+     ============================================================ */
+  let boardCardBoard = null;
+  // Sonene et liste-drag kan slippes i. Begge ligger i toppmenyen.
+  const CARD_TRASH_ZONE = 'card-trash';
+  const CRUMB_ZONE = 'crumb';
+  // Kolonnen som er «siste utvei» akkurat nå (se `boardColumnCollision`).
+  let boardTargetCol = null;
+  /* Lista som nettopp ble sluppet, og som skal scrolles inn i syne når
+     drop-animasjonen er ferdig (`boardRelayoutAfterDrop`). Kun et VELLYKKET
+     slipp: et slipp i kassen eller på breadcrumben går aldri gjennom `onCommit`.
+     Vi holder ID-en, ikke noden: en synk-runde kan rendre board-et på nytt i
+     mellomtiden, og en frakoblet node måler 0 — scrollen ville da sendt siden
+     til toppen i stedet for til lista. */
+  let boardDroppedCardId = null;
+
+  /* ------- Ordboken Smett snakker fra -------
+     Kolonnene har ingen navn verdt å lese opp — de er en layout, ikke en
+     beholder brukeren kjenner — så posisjonen sies uten container. */
+  function boardCardLabel(el) {
+    const c = el && el.dataset ? findCard(el.dataset.id) : null;
+    return c ? c.title : '';
+  }
+  function boardCardPhrases() {
+    return {
+      pickedUp: (name, position) => tr('dnd.a11yPickedUp', { name: quoted(name), position }),
+      moving: (name, position) => tr('dnd.a11yMoving', { name: quoted(name), position }),
+      dropped: (name, position) => tr('dnd.a11yDropped', { name: quoted(name), position }),
+      moved: (name, position) => tr('dnd.a11yMoved', { name: quoted(name), position }),
+      cancelled: (name) => tr('dnd.a11yCancelled', { name: quoted(name) }),
+      failed: (name) => tr('dnd.a11yFailed', { name: quoted(name) }),
+      inContainer: (index, total) => tr('dnd.a11yPosition', { pos: index + 1, total }),
+      // De to sonene betyr helt forskjellige ting, og det skal høres.
+      overZone: (zoneId) => tr(zoneId === CRUMB_ZONE ? 'dnd.a11yOverCrumb' : 'dnd.a11yOverTrash'),
+      offBoard: () => tr('dnd.a11yOffBoard'),
+    };
+  }
+
+  /* ------- Kolonnen som siste utvei -------
+     Slipper man kortet NEDENFOR alt innhold i en kolonne, betyr det «sist i den
+     kolonnen», ikke «ingenting». `pointerIntersection` mot kolonnens egen boks
+     sier «ingenting» der: kolonnen slutter der innholdet slutter.
+
+     Nav-modalen har nøyaktig én kolonne og kan svare ubetinget. Hovedsidens
+     board har flere, og bare ÉN av dem kan være svaret — ellers ville alle
+     kolonnene meldt seg samtidig for et slipp i lufta under board-et. Hvilken
+     avgjøres av KORTETS EGEN BOKS, ikke pekeren: det er den samme kolonneregelen
+     som gjelder ellers (kortet hører til sporet det overlapper mest), og den
+     samme boksen Smetts hysterese-detektor måler med.
+
+     Prioriteten er den lavest mulige: kolonnen er aldri vinneren mens et kort
+     eller en sone kan måles. */
+  function boardPickColumn() {
+    const cols = boardColumns(board);
+    if (!cols.length) return null;
+    const r = draggedRect();
+    let best = null, bestOverlap = 0, near = null, nearD = Infinity;
+    for (const col of cols) {
+      const cr = col.getBoundingClientRect();
+      const overlap = Math.max(0, Math.min(r.right, cr.right) - Math.max(r.left, cr.left));
+      if (overlap > bestOverlap) { bestOverlap = overlap; best = col; }
+      const d = Math.abs((cr.left + cr.right) / 2 - (r.left + r.right) / 2);
+      if (d < nearD) { nearD = d; near = col; }
+    }
+    // Ingen overlapp i det hele tatt (kortet dratt helt utenfor kolonnene):
+    // nærmeste kolonne langs x. Et slipp der er fortsatt et slipp.
+    return best || near;
+  }
+  function boardColumnCollision(input) {
+    const col = input.droppable.element;
+    if (!col) return null;
+    const hit = Smett.pointerIntersection(input);
+    if (hit) { hit.priority = Smett.CollisionPriority.Low; return hit; }
+    if (col !== boardTargetCol) return null;
+    return {
+      id: input.droppable.id,
+      value: 0.5,
+      type: Smett.CollisionType.Collision,
+      priority: Smett.CollisionPriority.Lowest,
+    };
+  }
+  // Smett registrerer containerne med `pointerIntersection` og fast lav
+  // prioritet. Vår detektor bestemmer prioriteten selv, så `collisionPriority`
+  // nulles: dnd-kit lar en prioritet på entiteten OVERSTYRE den detektoren svarte.
+  function boardTuneColumnCollisions() {
+    if (!boardCardBoard) return;
+    for (const droppable of boardCardBoard.manager.registry.droppables) {
+      const el = droppable.element;
+      if (el && el.classList && el.classList.contains('board-col') &&
+          droppable.collisionDetector !== boardColumnCollision) {
+        droppable.collisionDetector = boardColumnCollision;
+        droppable.collisionPriority = null;
+      }
+    }
+  }
+
+  /* ------- Board-et ------- */
+  function ensureBoardCardBoard() {
+    if (boardCardBoard || typeof Smett === 'undefined' || !Smett.SortableBoard) return;
+    boardCardBoard = new Smett.SortableBoard({
+      root: document.body,
+      itemSelector: '#board .card',
+      containerSelector: '#board .board-col',
+      handleSelector: '.card-head',
+      zoneSelector: '#trash-btn, #nav-crumb',
+      idAttribute: 'data-id',
+      axis: 'vertical',
+      // Tastaturet er Huskis' eget (`attachKeyHandle`), av samme grunn som i
+      // nav-scopet: Enter/Mellomrom på et korthode betyr allerede «kollaps».
+      keyboard: false,
+      safeInsets: safeInsets,
+      describeItem: boardCardLabel,
+      phrases: boardCardPhrases(),
+      onCommit: boardCommitCard,
+      onZoneDrop: boardZoneDrop,
+      onDropTarget: boardDropTarget,
+      onError: (err) => { if (window.console) console.error('[huskis] board-dnd', err); },
+    });
+    boardWire(boardCardBoard);
+    dndInstallClickGuard();
+  }
+  /* En ombygging bytter ut hvert eneste kort, og dnd-kit sitter igjen med de
+     GAMLE elementene i registeret sitt — da er det ingenting igjen å løfte.
+     Smett følger med på DOM-et selv, men lar det være i fred mens et drag pågår;
+     rendringen etter et slipp faller mellom de to. Se `navSyncBoards`, som har
+     nøyaktig den samme begrunnelsen. */
+  function boardSyncCardBoard() {
+    if (!boardCardBoard) return;
+    // Mens KORTBOARDET selv drar er DOM-et dnd-kits, og Smett har sin egen grunn
+    // til å la det være. Et radnivå-drag (den gamle motoren) rører derimot ikke
+    // kortene, så da er en synk både trygg og nødvendig.
+    if (!boardCardBoard.manager.dragOperation.status.idle) return;
+    boardCardBoard.sync();
+  }
+
+  function boardWire(b) {
+    // Samme avmelding som i nav-scopet: `Cursor` og `PreventSelection` maler noe
+    // Huskis allerede maler fra `body.is-dragging`, og hvert injiserte stilark
+    // koster en egen sjekksum i `style-src` (`docs/sikkerhetsheadere.md`).
+    b.manager.registry.plugins.unregister(Smett.Cursor);
+    b.manager.registry.plugins.unregister(Smett.PreventSelection);
+    const monitor = b.manager.monitor;
+    // `beforedragstart` er den ENESTE kroken som kjører før dnd-kit måler det
+    // løftede kortet, og målingen skjer én gang. Kollapsen av alle lister må
+    // derfor skje der.
+    monitor.addEventListener('beforedragstart', () => boardDragBegin(b));
+    monitor.addEventListener('dragstart', () => boardDragStart(b));
+    monitor.addEventListener('dragmove', () => boardDragMove(b));
+    monitor.addEventListener('dragend', () => boardDragEnd());
+  }
+
+  function boardSource(b) {
+    const src = b.manager.dragOperation.source;
+    const el = src && src.element;
+    return el instanceof HTMLElement ? el : null;
+  }
+
+  function boardDragBegin(b) {
+    const el = boardSource(b);
+    if (!el) return;
+    drag.scope = boardScope;
+    drag.kind = 'card';
+    drag.el = el;
+    drag.active = true;
+    drag.ph = null;             // reorder-placeholderen er dnd-kits klone
+    drag.phMode = 'reorder';
+    drag.origParent = el.parentNode;
+    drag.origNext = el.nextSibling;
+    drag.recentSwap = null;     // anti-flimringen er Smetts nå
+    drag.card = null;
+    drag.peekCard = null;
+    drag.peekCat = null;
+    drag.overCard = null;
+    drag.overGrace = 0;
+    drag.trashHost = null;
+    drag.crumbTarget = false;
+    boardTargetCol = null;
+    document.body.classList.add('is-dragging');
+    // Nettleserens scroll-anchoring ville ellers rykket siden brått når listene
+    // kollapser. Samme grep som `beginDragCommon`.
+    document.documentElement.style.overflowAnchor = 'none';
+    boardCollapseCardsForDrag(el);
+    boardTuneColumnCollisions();
+    armDragTrash();             // liste-kassen, avdekket for draget
+  }
+
+  function boardDragStart(b) {
+    dndSyncIntent(b.manager.dragOperation);
+    dndPaintRotation();
+    boardTargetCol = boardPickColumn();
+  }
+
+  function boardDragMove(b) {
+    dndSyncIntent(b.manager.dragOperation);
+    dndPaintRotation();
+    boardTargetCol = boardPickColumn();
+  }
+
+  function boardDragEnd() {
+    // Smetts egen `dragend`-lytter er registrert først og har alt kjørt:
+    // sluttplasseringen er satt, og `onCommit`/`onZoneDrop` har gjort sitt mens
+    // `drag` fortsatt beskrev draget. Her rydder vi — restore/release er
+    // idempotente, så veien gjennom en sone (som rydder selv) koster ingenting.
+    if (drag.el && drag.el.isConnected) drag.el.style.rotate = '';
+    dndSwallowClick = true;    // klikket som ellers ville fulgt slippet
+    setCardCrumbTarget(false);
+    boardTargetCol = null;
+    if (!drag.active) { boardDroppedCardId = null; return; }
+    restoreCardsAfterDrag();
+    boardReleaseBoard();
+    finishDrag();
+    boardRelayoutAfterDrop();
+  }
+
+  /* ------- Kollaps ved løft, og kortet som blir liggende under fingeren -------
+     Alle lister kollapses til korthodet mens én dras — kortere vei å dra. Det må
+     skje FØR dnd-kit måler (`beforedragstart`), ellers ville treffdeteksjonen
+     siktet med et kort som er flere ganger så høyt som det man ser.
+
+     Men kollapsen flytter også kortet man nettopp tok tak i, og dnd-kit maler
+     det løftede kortet fra der elementet FAKTISK LÅ da det ble målt — ikke fra
+     grepet, slik den gamle motoren gjorde. Uten mottiltak løsner kortet fra
+     fingeren med akkurat den avstanden layouten flyttet seg (høyden av hver åpen
+     liste over den dratte, i kortets egen kolonne).
+
+     Derfor: frys board-høyden og kompensér med padding-top for det kortet
+     faktisk flyttet seg. Høyden måles FØR kollapsen og skiftet ETTER, så
+     regnestykket gjelder uansett hvilken kolonne kortet ligger i og hvor mange
+     kolonner board-et har. `min-height` gjør dessuten jobben normal-flow-vakten
+     alltid har gjort på mobil: board-bunnen — og dermed dokumentets maks-scroll
+     — kan ikke synke mens fingeren er nede, og Android Chrome klemmer da ikke
+     scrollen (som ville avbrutt gesten). Board-et er `box-sizing: border-box`,
+     så padding-en spiser av innholdet og totalhøyden står stille.
+     `card.collapsed` er urørt, så `restoreCardsAfterDrag()` folder alt tilbake
+     til lagret tilstand. */
+  let boardFrozen = false;
+  function boardCollapseCardsForDrag(draggedEl) {
+    const basePad = parseFloat(getComputedStyle(board).paddingTop) || 0;
+    const before = board.getBoundingClientRect().height;
+    const top0 = draggedEl.getBoundingClientRect().top;
+    // Hvilehøyden, målt før kollapsen: den pakkingen skal regne med ved slippet.
+    boardLiftedRow = draggedEl;
+    boardLiftedRowH = draggedEl.offsetHeight;
+    board.style.minHeight = before + 'px';
+    boardFrozen = true;
+    board.querySelectorAll('.card').forEach((cEl) => {
+      if (!cEl.classList.contains('collapsed')) collapseCardBody(cEl);
+    });
+    const shift = top0 - draggedEl.getBoundingClientRect().top;
+    if (shift > 0) board.style.paddingTop = (basePad + shift) + 'px';
+  }
+  function boardReleaseBoard() {
+    if (!boardFrozen) return;
+    boardFrozen = false;
+    board.style.minHeight = '';
+    board.style.paddingTop = '';
+  }
+
+  /* Etterarbeidet, når KLONEN ER BORTE.
+     Først da har board-et sin endelige høyde: klonen holder plassen med det
+     løftede kortets KOLLAPSEDE boks, mens kortet som lander der er foldet ut
+     igjen. Fram til klonen forsvinner er dokumentet altså kortere enn det blir —
+     og `scrollDroppedIntoView` klemmer mot nettopp dokumenthøyden, så en scroll
+     regnet ut før dette ville stoppet for tidlig. Kolonnefordelingen er allerede
+     kjørt av `boardCommitCard`; runden her fanger veiene som ikke går gjennom
+     den (avbrudd, slipp i en sone) og korthøyder som endret seg underveis. */
+  function boardRelayoutAfterDrop() {
+    let frames = 0;
+    const tick = () => {
+      // 120 frames er et sikkerhetsnett, ikke en forventning: drop-animasjonen
+      // er ferdig lenge før, og en fane i bakgrunnen skal ikke bli hengende.
+      if (board.querySelector('[data-dnd-placeholder]') && ++frames < 120) {
+        requestAnimationFrame(tick);
+        return;
+      }
+      boardLiftedRow = null;
+      boardLiftedRowH = 0;
+      relayoutBoard(boardScope);
+      fixBoardBottomGap();
+      // Draget er over og board-et ferdig malt. Slettingen (`dropIntoTrash`) kan
+      // ha rendret board-et på nytt MENS dnd-kit fortsatt avsluttet draget — den
+      // ombyggingen falt mellom Smetts DOM-overvåking og vår egen synk, og
+      // registeret ville ellers blitt stående med frakoblede noder.
+      // ÉN frame til før scrollen: klonen ble nettopp fjernet og bunn-luften
+      // satt, og både lista si egen boks og dokumenthøyden — som scrollen
+      // klemmes mot — er først ferdige etter den neste layout-runden.
+      const droppedId = boardDroppedCardId;
+      boardDroppedCardId = null;
+      requestAnimationFrame(() => {
+        const el = droppedId && board.querySelector('.card[data-id="' + droppedId + '"]');
+        if (el) {
+          const r = el.getBoundingClientRect();
+          scrollDroppedIntoView(r.top + window.scrollY, r.height);
+        }
+        boardSyncCardBoard();
+      });
+    };
+    requestAnimationFrame(tick);
+  }
+
+  /* ------- Sonene: søppelkassen og 📁-breadcrumben -------
+     Begge ligger i toppmenyen, og begge er SEMANTISKE slippmål: Smett ruller
+     lista tilbake dit den kom fra FØR handlingen kalles. For kassen er det
+     nøyaktig dagens semantikk («ingen ny pos skrives, slettingen tar over»). For
+     breadcrumben er det nytt og bedre: avbryter man velgeren, er ingenting
+     endret — før ble lista liggende der placeholderen tilfeldigvis sto da
+     pekeren forlot board-et. */
+  function boardDropTarget(target) {
+    const zone = target && target.kind === 'zone' ? target.element : null;
+    const btn = dragTrashBtn();
+    const onTrash = !!(drag.trashArmed && btn && zone === btn);
+    setDragTrashTarget(onTrash);
+    // Breadcrumben markeres kun når det FINNES en annen mappe å flytte til.
+    setCardCrumbTarget(!onTrash && zone === navCrumbBtn && moveTargetGroups().length > 0);
+  }
+  function boardZoneDrop(result) {
+    // Lista er alt lagt tilbake der den kom fra. Fold listene ut og slipp vakten
+    // før handlingen: både slettingen og flyttevelgeren skal møte et board i
+    // normal flyt.
+    restoreCardsAfterDrag();
+    boardReleaseBoard();
+    if (result.zoneId === CARD_TRASH_ZONE) {
+      const btn = dragTrashBtn();
+      if (!drag.trashArmed || !btn) return;
+      // Rydd kassen ut av dra-tilstanden FØR slettingen: den rendrer på nytt, og
+      // en `data-drag-revealed` som overlevde ville skjult en kasse som nå har
+      // innhold.
+      disarmDragTrash();
+      dropIntoTrash(boardScope, 'card', result.itemId);
+      return;
+    }
+    if (result.zoneId !== CRUMB_ZONE) return;
+    setCardCrumbTarget(false);
+    const c = findCard(result.itemId);
+    if (c) askCardMove(c);
+  }
+
+  /* ------- Slippet: hva det BETYR -------
+     Ny `pos` mellom naboene i LESEREKKEFØLGE (naboen over den øverste raden i en
+     kolonne ligger nederst i kolonnen før — `boardRowSibling`). Kirurgisk, så
+     samtidige endringer på andre lister flettes uten konflikt. */
+  function boardCommitCard() {
+    const el = drag.el;
+    if (!el || !el.isConnected) return;
+    const c = boardScope.findContainer(el.dataset.id);
+    if (c) {
+      const prev = boardRowSibling(el, -1);
+      const next = boardRowSibling(el, 1);
+      const pPrev = prev && prev.classList.contains('card')
+        ? (boardScope.findContainer(prev.dataset.id) || {}).pos : null;
+      const pNext = next && next.classList.contains('card')
+        ? (boardScope.findContainer(next.dataset.id) || {}).pos : null;
+      c.pos = between(pPrev == null ? null : pPrev, pNext == null ? null : pNext);
+      stampPos(c);
+    }
+    boardScope.reindexColors();
+    save();
+    /* Fold listene tilbake, slipp vakten og fordel kolonnene FØR
+       drop-animasjonen sikter: dnd-kit regner ut hvor det løftede kortet skal
+       fly, og sikter på KLONENS boks. Kortene har vært frosset i den
+       fordelingen de hadde da draget startet, og et kort som byttet kolonne
+       endrer som regel den grådige pakkingen — uten en omfordeling her ville
+       kortet fløyet til den frosne sloten og så hoppet til sin endelige plass
+       når fordelingen kjørte. `relayoutBoardNow` tar klonen med seg. */
+    restoreCardsAfterDrag();
+    boardReleaseBoard();
+    relayoutBoardNow(boardScope);
+    // Scroll-til-slupt hører derimot til ETTERarbeidet: klonen holder plassen
+    // med den kollapsede boksen, så dokumentet er kortere enn det blir — og
+    // scrollen klemmes mot nettopp dokumenthøyden (`boardRelayoutAfterDrop`).
+    boardDroppedCardId = el.dataset.id;
+  }
 
   /* ============================================================
      SØPPELKASSER (områder / mapper / lister / elementer)
@@ -14157,6 +14620,8 @@
     // (`dropTarget`, `manager.dragOperation`) i stedet for å gjette fra DOM-en.
     get navCardBoard() { return navCardBoard; },
     get navRowBoard() { return navRowBoard; },
+    // Hovedsidens kortnivå, samme sak (bygges ved første `renderBoard`).
+    get boardCardBoard() { return boardCardBoard; },
     openAccount, closeAccount,
     canonical, reconcile, emptyDoc, docFromMyState, contentDocFromMy, applyMyDoc, cloudCycle,
     isSchemaMismatch, isTombstoneReject, isNetworkError, tombIds,

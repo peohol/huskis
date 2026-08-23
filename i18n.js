@@ -283,6 +283,7 @@
     'dnd.a11yPositionIn': ['plass {pos} av {total} i {name}',
                            'position {pos} of {total} in {name}'],
     'dnd.a11yOverTrash':  ['over søppelkassen', 'over the trash'],
+    'dnd.a11yOverCrumb':  ['over «flytt til mappe»', 'over “move to folder”'],
     'dnd.a11yOffBoard':   ['utenfor', 'off the board'],
 
     /* ---- Tomtilstander ---- */

@@ -10,18 +10,19 @@
   høyre, utvidet sidens scroll-bredde og (på iOS WebKit) skjøv den høyre-forankrede
   `position: fixed`-kontoknappen ut av viewporten.
 
-  Nav-modalen kjører nå på dnd-kit (se `docs/drag-and-drop.md`), som løfter
-  objektet inn i TOP LAYER via `popover`. Forankringen skal holde der også — det
-  er den samme påstanden, mot en annen mekanikk — så de to nav-nivåene måles med
-  `[data-dnd-dragging]` i stedet for `.dragging`, og `position: fixed` er
-  dnd-kits egen regel i stedet for vår.
+  Nav-modalen OG hovedsidens kortnivå kjører nå på dnd-kit (se
+  `docs/drag-and-drop.md`), som løfter objektet inn i TOP LAYER via `popover`.
+  Forankringen skal holde der også — det er den samme påstanden, mot en annen
+  mekanikk — så de nivåene måles med `[data-dnd-dragging]` i stedet for
+  `.dragging`, og `position: fixed` er dnd-kits egen regel i stedet for vår.
+  Bare listepunkt og kategori dras fortsatt `absolute` i dokument-koordinater.
 
   SAMME FALLGRUVE, ANDRE KILDE (siste blokk): en DRAKT-regel som posisjonerer en
   forfar. Et forsøk med `position: relative` på `.card` (for å tegne en
   aksentstripe med `::before`) traff to ganger samtidig — `.card` ble containing
   block for listepunkter og kategorier, og selektoren var dessuten sterkere enn
   `.card.dragging`, så det løftede KORTET ble `relative` i stedet for `absolute`.
-  Alle fire dokument-koordinat-objektene la seg da ~114 px nedenfor fingeren, og
+  Objektene la seg da ~114 px nedenfor fingeren, og
   områdekortet i navigasjonsmodalen langt utenfor viewporten. Derfor kjøres
   forankringen i MØRK drakt også: draktene deler geometri, og en regel som bare
   gjelder den ene er nettopp den som ellers slipper gjennom.
@@ -179,7 +180,10 @@ async function dragOutOfBounds(p, label, sel, kind, opts) {
   // headeren denne fila vokter, og de skal holde uansett hvordan gesten ender.
   if (touch) await G.touchCancel(p);
   else await p.mouse.up();
-  await p.waitForTimeout(250);
+  // Vent på TILSTANDEN, ikke på klokka: dnd-kit bærer `[data-dnd-dragging]`
+  // gjennom hele drop-animasjonen, så et fast tall måler midt i den.
+  await p.waitForFunction((sel) => !document.querySelector(sel), DRAGGED, { timeout: 5000 });
+  await p.waitForTimeout(120);
   const after = await probe(p);
   log(label + ': ryddet opp etter ' + (touch ? 'avbrutt' : 'avsluttet') + ' drag (ingen overflow, header urørt)',
     !after.dragging && after.scrollW <= after.clientW && after.acct.r === base.acct.r, JSON.stringify(after.acct));
@@ -190,10 +194,11 @@ async function dragOutOfBounds(p, label, sel, kind, opts) {
    avslører enhver containing-block-feil uansett årsak — LIGGER FINGEREN
    FORTSATT PÅ OBJEKTET? Blir koordinatene tolket mot feil forfar, glir boksen
    vekk fra pekeren og svaret er nei.
-   `position` sjekkes i samme slengen: board-objektene skal være `absolute`
-   (dokument-koordinater) og modal-objektene `fixed` — se kommentaren over
-   `.card.dragging` i styles.css. En drakt-regel som overdøver den er den andre
-   halvdelen av den samme feilen. */
+   `position` sjekkes i samme slengen: den gamle motorens objekter (listepunkt,
+   kategori) skal være `absolute` (dokument-koordinater), og dnd-kits (liste,
+   mappe, område) `fixed` i top layer — se kommentaren over `.card.dragging` i
+   styles.css. En drakt-regel som overdøver den er den andre halvdelen av den
+   samme feilen. */
 async function anchorHolds(p, label, sel, kind, expectPos) {
   await p.evaluate(() => window.scrollTo(0, 0)); await p.waitForTimeout(120);
   const touch = kind !== 'mouse';
@@ -221,7 +226,8 @@ async function anchorHolds(p, label, sel, kind, expectPos) {
   log(label + ': løftes som `' + expectPos + '`', s.position === expectPos, 'fikk ' + s.position);
   if (touch) await G.touchCancel(p);
   else await p.mouse.up();
-  await p.waitForTimeout(250);
+  await p.waitForFunction((sel) => !document.querySelector(sel), DRAGGED, { timeout: 5000 });
+  await p.waitForTimeout(120);
 }
 
 (async () => {
@@ -255,8 +261,8 @@ async function anchorHolds(p, label, sel, kind, expectPos) {
   }
 
   /* ---------- Mørk drakt: forankringen på ALLE fem nivåene ----------
-     Område og mappe bor i navigasjonsmodalen og dras `fixed`; liste, kategori
-     og listepunkt bor på board-et og dras `absolute`. Begge halvdelene kjøres,
+     Område, mappe og liste dras av dnd-kit og løftes `fixed` i top layer;
+     kategori og listepunkt dras fortsatt `absolute`. Begge halvdelene kjøres,
      fordi de to øverste nivåene er bygget av de samme komponentene som de to
      nederste — en drakt-regel på `.card` treffer dem alle. */
   {
@@ -271,7 +277,7 @@ async function anchorHolds(p, label, sel, kind, expectPos) {
 
     await anchorHolds(p, 'mørk/listepunkt', '.card[data-id="card-A"] .items-container > .item .item-text', 'mouse', 'absolute');
     await anchorHolds(p, 'mørk/kategori', '.card[data-id="card-A"] .category .cat-head', 'mouse', 'absolute');
-    await anchorHolds(p, 'mørk/liste', '.card[data-id="card-A"] .card-head', 'mouse', 'absolute');
+    await anchorHolds(p, 'mørk/liste', '.card[data-id="card-A"] .card-head', 'mouse', 'fixed');
     // Samme runde som i lys drakt: en forskyvning som ikke slår ut på
     // forankringen ville fortsatt kunne skyve objektet ut av viewporten.
     await dragOutOfBounds(p, 'mørk/listepunkt', '.card[data-id="card-A"] .items-container > .item .item-text', 'mouse');

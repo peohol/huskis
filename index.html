@@ -114,7 +114,11 @@
        deling av områder og mapper skjer i nav-modalen, ikke her. -->
   <header class="topbar" id="topbar">
     <nav class="breadcrumb" data-i18n-aria-label="crumb.youAreHere">
+      <!-- Semantisk slippmål for et liste-drag (Smett: `zoneSelector`) — slipp
+           her åpner «Flytt … til» (se «BOARD-SCOPETS KORTNIVÅ PÅ dnd-kit» i
+           app.js). -->
       <button class="crumb-btn nav-crumb" id="nav-crumb" type="button"
+              data-dnd-zone="crumb"
               data-i18n-title="crumb.navTitle" aria-haspopup="dialog">
         <!-- [ressursikon][delt-ikon ved behov] Ressursnavn — ikonene fylles av
              updateCrumbs() (delt-ikonet vises kun når objektet faktisk er delt). -->
@@ -129,7 +133,9 @@
     </nav>
     <div class="panel-actions toolbar">
         <button class="btn-add btn-solid btn-green" id="add-card-btn" type="button" data-i18n-title="board.newList" data-i18n-aria-label="board.newList"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="#111" stroke-width="1.05" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 4.5v15"></path><path d="M4.5 12h15"></path></svg> <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="#111" stroke-width="1.05" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3" width="18" height="18" rx="4.5" fill="#ffffff"></rect><circle cx="8" cy="8.5" r="0.7" fill="#111" stroke="none"></circle><circle cx="8" cy="12" r="0.7" fill="#111" stroke="none"></circle><circle cx="8" cy="15.5" r="0.7" fill="#111" stroke="none"></circle><path d="M11.5 8.5h5.5"></path><path d="M11.5 12h5.5"></path><path d="M11.5 15.5h5.5"></path></svg></button>
+        <!-- Semantisk slippmål for et liste-drag (Smett: `zoneSelector`). -->
         <button class="trashcan" id="trash-btn" type="button"
+                data-dnd-zone="card-trash"
                 data-i18n-title="trash.cardsBtnTitle"
                 data-i18n-aria-label="trash.cards" hidden>
           <svg class="icon trashcan-icon" viewBox="0 0 24 24" fill="none" stroke="#111" stroke-width="1.05" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6.3 7.5l.9 11a2 2 0 0 0 2 1.9h5.6a2 2 0 0 0 2-1.9l.9-11" fill="#c0c4c9" stroke="none"></path><path d="M4.5 7.5h15"></path><path d="M9.5 7.5V6a2.5 2.5 0 0 1 5 0v1.5"></path><path d="M6.3 7.5l.9 11a2 2 0 0 0 2 1.9h5.6a2 2 0 0 0 2-1.9l.9-11"></path><path d="M9.7 11v6"></path><path d="M12 11v6"></path><path d="M14.3 11v6"></path></svg>

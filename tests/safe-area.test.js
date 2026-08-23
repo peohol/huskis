@@ -41,6 +41,10 @@
     NODE_PATH=$(npm root -g) node tests/safe-area.test.js
 */
 const { chromium } = require('playwright');
+// Liste-draget kjøres av dnd-kit (`docs/drag-and-drop.md`), som avviser en
+// oppdiktet `pointerId` og lar draget dø stille. Gestene må derfor gå gjennom
+// nettleserens egen inputkø — se `tests/dnd-gestures.js`.
+const G = require('./dnd-gestures.js');
 
 const BASE = process.env.HUSKIS_URL || 'http://localhost:8000';
 const results = [];
@@ -310,29 +314,20 @@ async function run(label, viewport, touchMode) {
      se: siste kort ble stående delvis under linja til man rullet videre selv. */
   await p.evaluate(() => window.scrollTo(0, 0));
   await p.waitForTimeout(150);
-  const kortHode = await p.evaluate(() => {
-    const el = document.querySelector('.app-main .card[data-id="L1"] .card-head');
-    const b = el.getBoundingClientRect();
-    return { x: Math.round(b.left + b.width / 2), y: Math.round(b.top + b.height / 2) };
-  });
-  const pek = (type, x, y) => p.evaluate(({ t, cx, cy }) => {
-    const ev = new PointerEvent(t, { bubbles: true, cancelable: true, composed: true,
-      clientX: cx, clientY: cy, pointerId: 7, pointerType: 'touch', button: 0, isPrimary: true });
-    (t === 'pointerdown' ? (document.elementFromPoint(cx, cy) || document.body) : window).dispatchEvent(ev);
-  }, { t: type, cx: x, cy: y });
-  await pek('pointerdown', kortHode.x, kortHode.y);
-  await p.waitForTimeout(260);                 // trykk-og-hold: gest-fysikk, ikke tilstand
-  await pek('pointermove', kortHode.x, kortHode.y - 6);
-  await p.waitForTimeout(60);
+  const kortHode = await G.centre(p, '.app-main .card[data-id="L1"] .card-head');
+  const slippUt = () => p.waitForFunction(
+    () => !document.querySelector('[data-dnd-dragging]'), null, { timeout: 5000 });
+  await G.lift(p, kortHode, touchMode);
   // Hold kortet i nedre auto-scroll-sone og la den rulle til den stopper selv.
-  await pek('pointermove', kortHode.x, viewport.height - 20);
-  await p.waitForTimeout(1800);                // auto-scroll-fysikk: rAF over tid
+  await G.travel(p, { x: kortHode.x, y: viewport.height - 20 }, touchMode,
+    { steps: 6, settle: 1800 });               // auto-scroll-fysikk: rAF over tid
   const rullet = await p.evaluate(() => ({
     y: window.scrollY,
     maks: document.documentElement.scrollHeight - window.innerHeight,
   }));
-  await pek('pointerup', kortHode.x, viewport.height - 20);
-  await p.waitForTimeout(700);                 // slipp-animasjon + scrollDroppedIntoView
+  await G.drop(p, undefined, touchMode);
+  await slippUt();
+  await p.waitForTimeout(700);                 // scrollDroppedIntoView (smooth)
   log(label + ': auto-scrollen under et drag rekker helt til dokumentets ende',
     rullet.maks <= 0 || rullet.y >= rullet.maks - 1,
     'scrollY ' + Math.round(rullet.y) + ' av maks ' + Math.round(rullet.maks));
@@ -365,29 +360,25 @@ async function run(label, viewport, touchMode) {
       .scrollIntoView({ block: 'center', behavior: 'auto' });
   });
   await p.waitForTimeout(250);
-  const hode2 = await p.evaluate(() => {
-    const b = document.querySelector('.app-main .card[data-id="L1"] .card-head').getBoundingClientRect();
-    return { x: Math.round(b.left + b.width / 2), y: Math.round(b.top + b.height / 2) };
-  });
-  await pek('pointerdown', hode2.x, hode2.y);
-  await p.waitForTimeout(320);                 // trykk-og-hold: gest-fysikk
-  await pek('pointermove', hode2.x, hode2.y - 6);
-  await p.waitForTimeout(60);
+  const hode2 = await G.centre(p, '.app-main .card[data-id="L1"] .card-head');
+  await G.lift(p, hode2, touchMode);
   // Dra langt UT over høyre skjermkant og les det løftede objektet mens draget
-  // fortsatt pågår — det er plasseringen under fingeren som testes.
-  await pek('pointermove', viewport.width + 300, hode2.y);
-  await p.waitForTimeout(150);
+  // fortsatt pågår — det er plasseringen under fingeren som testes. `travel` går
+  // i to omganger: klemmen leser den FAKTISK MALTE boksen, og rotasjonen settes
+  // etter at flyttingen er regnet ut, så ett enkelt hopp ville klemt mot forrige
+  // frames boks.
+  await G.travel(p, { x: viewport.width + 300, y: hode2.y }, touchMode);
   const løftet = await p.evaluate(() => {
-    const el = document.querySelector('.dragging');
+    const el = document.querySelector('#board [data-dnd-dragging]');
     if (!el) return null;
     const b = el.getBoundingClientRect();
     return { left: b.left, right: b.right };
   });
-  await pek('pointerup', viewport.width + 300, hode2.y);
-  await p.waitForTimeout(500);                 // slipp-animasjon
+  await G.drop(p, undefined, touchMode);
+  await slippUt();
   log(label + ': det løftede objektet stopper ved den brukbare kanten',
     !!løftet && løftet.right <= rekt.right + 1,
-    løftet ? 'objekt høyre ' + Math.round(løftet.right) + ' ≤ sonekant ' + rekt.right : 'ingen .dragging');
+    løftet ? 'objekt høyre ' + Math.round(løftet.right) + ' ≤ sonekant ' + rekt.right : 'ingen [data-dnd-dragging]');
 
   /* ---------- 5d) En åpen popover følger med når viewportet endrer seg ------
      Kun der skallet ER en popover (desktop-bredde). Koordinatene settes inline
