@@ -13,8 +13,8 @@ den er autoritativ.
 | 1. Smett-endringene | **ferdig** — IIFE-byggemål, `phrases`, `itemType`/`containerAccept` (smett@c97fe43) |
 | 2. Testinfrastrukturen | **ferdig** — alle elleve DnD-testfilene drives av ekte input (`tests/dnd-gestures.js`) |
 | 3. Nav-scopet | **ferdig** — `vendor/smett-0.1.0.js` er sjekket inn (smett@8a760a3, som pinner esbuild eksakt), og nav-modalen kjøres av dnd-kit |
-| 4. Board-scopet, kortnivået | gjenstår |
-| 5. Board-scopet, radnivået | gjenstår |
+| 4. Board-scopet, kortnivået | **ferdig** — listene på hovedsiden kjøres av dnd-kit (samme innsjekkede artefakt; ingen Smett-endring trengtes) |
+| 5. Board-scopet, radnivået | gjenstår — NESTE |
 | 6. Ekstrahering til ny liste | gjenstår for board-scopet; nav-scopets versjon kom med steg 3 (se under) |
 | 7. Rydding | gjenstår |
 
@@ -261,13 +261,18 @@ små tilvalg — `itemType?(el)` og `containerAccept?(el)` — løser det, og
    under». Smetts `hysteresisCollision` har ingen retningsinngang: den tar nærmeste
    godkjente nabo, og reverseringslåsen gjør jobben retningen gjorde. Det er en
    bevisst forenkling i Smett, men det er en oppførselsendring som må kjennes på,
-   ikke bare leses.
-6. **Auto-scroll-sonene.** `AutoScroller.threshold` er en brøkdel av containeren.
+   ikke bare leses. Etter steg 3 og 4 har den ikke gitt utslag i noen test — men
+   det er heller ikke MÅLT: ingen av testene teller antall bytter per bevegelse.
+6. ~~**Auto-scroll-sonene.**~~ **MÅLT** i steg 4, på hovedsidens board (det er
+   der window-scrollen er). Et sikte rett under den faste toppmenyen
+   (`topbarBottom + 12 px`) scroller siden oppover — sonen rekker altså godt under
+   headeren, slik antakelsen var, og man må ikke dra lista opp bak den.
+   `dnd-mobile-autoscroll` sjekk (d) er vakten. At farten er per frame og ikke per
+   millisekund (`frameSteps` forsvinner) er fortsatt upstreams sak: 120 Hz
+   scroller fortere enn 60 Hz. Den opprinnelige teksten:
+   `AutoScroller.threshold` er en brøkdel av containeren.
    Vår øvre sone måles fra bunnen av den faste toppmenyen, nettopp for at man ikke
-   skal måtte dra lista opp bak headeren. Med 0.2 × viewporthøyde rekker sonen
-   uansett godt under headeren, så dette er trolig akseptabelt — men det skal
-   måles, ikke antas. Samme for at farten er per frame, ikke per millisekund
-   (`frameSteps` forsvinner): 120 Hz scroller fortere enn 60 Hz.
+   skal måtte dra lista opp bak headeren.
 7. **Placeholderens geometri.** *(Løst for nav-scopet: kollapsen skjer i
    `beforedragstart`, altså FØR dnd-kit måler, så klonen er korthøy/
    overskriftshøy av seg selv. Se punkt 3 over.)* dnd-kit holder plassen med en klone tatt ved løft.
@@ -282,6 +287,24 @@ en ikke-passiv `touchmove` med `preventDefault` — samme mekanikk som
 `touch-action: none`: Smetts anbefaling om det gjelder et dedikert håndtak, mens
 vår sone er hele raden/korthodet og må fortsatt kunne scrolles fra. Det er
 nøyaktig `card`-policyen i Smetts egen Release Board («as Huskis does»).
+
+## To beslutninger steg 4 tok
+
+**Låst mål under draget hører til steg 5–6.** Alle kolonnene på hovedsiden
+tilhører den samme mappen, så et kortdrag har ikke noe låst mål å avvise: det
+finnes ingen kryss-container-flytting på kortnivå. Spørsmålet — og dermed valget
+mellom et kilde-argument i Smetts `containerAccept` og at Huskis setter `accept`
+selv ved `dragstart` — melder seg først når radene får kryssa containere.
+
+**Smett skal ikke resynke etter `onCommit` — i hvert fall ikke for oss.** At
+registeret blir stående med frakoblede noder når konsumenten rendrer mens dnd-kit
+ennå avslutter draget, er en felle enhver konsument går i, og den kunne løses i
+Smett (resync når draget blir idle hvis DOM-et endret seg underveis). Men for
+Huskis ville den vært overflødig: `renderNav` og `renderBoard` avslutter uansett
+med `sync()`, fordi ENHVER ombygging bytter ut nodene — ikke bare den som
+tilfeldigvis kommer under et slipp. En Smett-endring her ville dessuten krevd et
+nytt artefakt og en ny pinne to steder (`docs/sikkerhetsheadere.md`), uten å endre
+oppførsel. Den står derfor fortsatt åpen, som en Smett-PR i egen rett.
 
 ## Rekkefølge
 
@@ -299,7 +322,7 @@ verifiserbart.
 3. **Nav-scopet først, ikke board-scopet.** Færre særtilfeller (alltid én kolonne,
    ingen ekstrahering til ny liste, ingen normal-flow-vakt, egen scroll-container),
    og det er det scopet der en feil er minst synlig for en bruker.
-4. **Board-scopet, kortnivået** (lister i kolonner): kollaps-alle, board-vakten,
+4. ~~**Board-scopet, kortnivået**~~ **GJORT**: kollaps-alle, board-vakten,
    søppelkassen, breadcrumben, `scrollDroppedIntoView`.
 5. **Board-scopet, radnivået** (listepunkt + kategori): peek, skillelinjer,
    kategori-kollaps, kategori → annen liste.
@@ -373,11 +396,54 @@ fantes i den gamle motoren også (samme regnestykke, samme placeholder-plasserin
 nederst i kolonnen), så steg 4–5 arver den ikke — men `navCardNeighbour` er nå
 regelen ett sted, og tastaturet fulgte den allerede (`moveCtx`).
 
-**Fortsatt uløst, og det gjelder steg 4–5 også:** et slipp i et LÅST mål avvises
+**Fortsatt uløst, og det gjelder steg 5–6:** et slipp i et LÅST mål avvises
 ved slippet (`onCommit` kaster → Smett ruller tilbake), ikke under draget slik
 planen ønsket. `containerAccept` kjenner bare containeren, ikke hvor raden kom
 fra — og regelen er kilde-avhengig (en fri mappe kan omrokkeres i fri-seksjonen,
 men ingen mappe kan flyttes INN i den). Å få den under draget krever enten et
 kilde-argument til `containerAccept` i Smett, eller at Huskis setter `accept` på
 droppable-ene selv ved `dragstart`. Utfallet er uendret i dag: rullet tilbake, og
-en toast sier hvorfor.
+en toast sier hvorfor. Steg 4 hadde ingenting å løse her — alle kolonnene på
+hovedsiden tilhører den samme mappen, så det finnes ikke noe låst mål på
+kortnivå. Spørsmålet melder seg først når radene får kryssa containere (steg 5)
+og ekstraheringen kommer (steg 6).
+
+## Det steg 4 lærte
+
+Kortnivået på hovedsiden er i mål. Fem ting er verdt å ta med videre.
+
+**1. Board-vakten er ikke lenger en mobil-fiks.** Den fantes for at
+board-bunnen ikke skulle synke og utløse Android Chromes scroll-klemme, og var
+derfor slått på KUN på touch/pen i énkolonne-layout. Med dnd-kit får den en
+andre, viktigere jobb: dnd-kit maler det løftede kortet fra der elementet FAKTISK
+LÅ da det ble målt, og kollapsen (som må skje før målingen) flytter nettopp det
+kortet. Uten kompensasjon løsner kortet fra fingeren med akkurat den avstanden.
+Det gjelder alle inputtyper og alle layouter, så skillet er borte —
+`--mobile-dnd-flow-guard` og `boardUsesSingleColumnLayout` har ingen lesere
+igjen når steg 7 rydder. Kompensasjonen er dessuten det MÅLTE skiftet, ikke
+summen av body-høydene over: det regnestykket gjelder uansett kolonne.
+
+**2. Roten må dekke sonene, ikke bare board-et.** Liste-søppelkassen og
+📁-breadcrumben ligger i toppmenyen, utenfor `#board`, og Smett registrerer bare
+soner som ligger under board-ets rot. Roten er derfor `document.body`, med
+selektorene scopet til `#board` — ellers ville nav-modalens kort havnet i det
+samme registeret. Steg 5 har det samme spørsmålet for element-kassene, men de
+ligger inne i kortene og krever ingenting.
+
+**3. Kolonnen som siste utvei må VELGE kolonne.** Nav-scopets versjon svarer
+ubetinget fordi modalen har nøyaktig én kolonne. Hovedsidens board har flere, og
+alle ville meldt seg samtidig for et slipp i lufta under board-et. Svaret regnes
+ut av kortets egen boks, én gang per bevegelse — samme mønster som
+`navTargetCont`.
+
+**4. Klonen holder plassen med den KOLLAPSEDE boksen.** Alt som måler board-ets
+høyde eller kortets slot må derfor vente til klonen er borte: kolonnefordelingen
+(som ellers skriver kolonnens barn på nytt uten klonen, og legger den først) og
+`scrollDroppedIntoView` (som klemmer mot en dokumenthøyde som ennå ikke er den
+endelige). `boardRelayoutAfterDrop` venter på det ene punktet der begge er sanne.
+
+**5. En vakt man ikke kan observere, er ikke en vakt.** Den gamle motoren frøs
+board-et mens pekeren sto i toppmenyen. Begge målene der er soner nå, og Smett
+ruller lista tilbake FØR handlingen — så rekkefølgen underveis har ingen virkning,
+og veien opp går tvers over kortene uansett. Det fantes ingen test som kunne
+skille de to tilfellene, og mekanikken ble derfor ikke portet.

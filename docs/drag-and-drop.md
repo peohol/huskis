@@ -5,9 +5,10 @@ selve dra-motoren i app.js.
 
 Motoren er **midt i et bytte**, og de to scopene kjøres derfor av hver sin:
 
-| Scope | Motor |
+| Nivå | Motor |
 |---|---|
-| `boardScope` — hovedsidens board (lister, listepunkter, kategorier) | den hjemmesnekrede, på Pointer Events. Resten av dette dokumentet beskriver den. |
+| `boardScope`, radnivået — listepunkter og kategorier | den hjemmesnekrede, på Pointer Events. Resten av dette dokumentet beskriver den. |
+| `boardScope`, kortnivået — listene i kolonnene | **dnd-kit**. Se [«Board-scopets kortnivå kjører på dnd-kit»](#board-scopets-kortnivå-kjører-på-dnd-kit) under. |
 | `navScope` — nav-modalen (områder, mapper, mappekategorier) | **dnd-kit**, gjennom [Smett](https://github.com/peohol/smett). Se [«Nav-scopet kjører på dnd-kit»](#nav-scopet-kjører-på-dnd-kit-smett) under. |
 
 Rekkefølgen for resten av byttet står i [`dndkit-plan.md`](dndkit-plan.md).
@@ -186,7 +187,9 @@ Bytte utløses av **overlapp**, ikke av et punkt:
   den scroller aldri selv — og gjør ingen plasseringsevaluering (pekeren har ikke
   flyttet seg; auto-scroll-loopen gjør den jobben én gang per frame når det er VI
   som scroller).
-- **Draging startes ulikt på touch og mus** (`attachHoldDrag`). Dra-håndtakene er
+- **Draging startes ulikt på touch og mus** (`attachHoldDrag` — nå kun for
+  listepunkter og kategorier; lister, områder, mapper og mappekategorier
+  aktiveres av dnd-kits `PointerSensor` med de samme tallene). Dra-håndtakene er
   FJERNET; draging inviteres på objektets navn-/tittelsone — men ikke på knappene
   (`except`-selektoren, med `closest`) og heller ikke på interaktive/redigerbare
   etterkommere i sonen (`HOLD_SKIP` = `.edit-input` (inline omdøping — et hold
@@ -259,61 +262,48 @@ Bytte utløses av **overlapp**, ikke av et punkt:
   altså FØR plassering og før 📁-breadcrumben — sikter man på kassen, er det
   slettingen som gjelder. Kategorier har ingen kasse (de løses opp fra menyen).
   Autoritativt: `docs/trash.md` («Slett ved å dra objektet i kassen»).
-- **Lister kollapser mens en liste dras** (`collapseCardsForDrag`/
+- **Lister kollapser mens en liste dras** (`boardCollapseCardsForDrag`/
   `restoreCardsAfterDrag`): idet et liste-drag starter, kollapses BÅDE den dratte
   lista og alle de andre til bare korthodet (som kategorienes kollaps under drag)
   → board-et blir kompakt og dra-avstanden kort. MOMENTANT, ingen animasjon (samme
   som rullgardinen, se `collapseCardBody`/`expandCardBody` i `docs/design-system.md`
-  — en kollaps-animasjon gjorde systemet tregere uten å tilføre klarhet). Den dratte
-  lista slipper sin faste høyde og følger body-kollapsen; placeholderen settes til
-  header-høyden, og `drag.height` settes til header-høyden for treffdeteksjon.
+  — en kollaps-animasjon gjorde systemet tregere uten å tilføre klarhet).
   `card.collapsed` røres IKKE under draget; ved slipp gjenopprettes hver liste til sin
   lagrede lukketilstand — robust mot en samtidig synk-rebuild, som uansett bygger
-  kortene fra `card.collapsed`.
-  - **DnD-modus følger board-LAYOUTEN, ikke bare `pointerType`** (`boardUsesSingleColumnLayout`):
-    normal-flow-vakten (under) aktiveres KUN når (a) input er touch/pen OG (b) board-et
-    er i ÉNKOLONNE-layout. Tre tilfeller:
-    - **Énkolonne + touch/pen** → normal-flow-vakt (mobil-fiksen).
-    - **Flerkolonne** (bredt vindu, inkl. Androids «Side for datamaskin» på touch) →
-      desktop-oppførsel UANSETT inputtype: bare kollaps, board-et krymper naturlig, INGEN
-      vakt (verken `min-height` eller `padding-top`), som i main. En vakt her ga en stor,
-      stygg `padding-top` og fikk overskriftene til å flokke seg rundt den dratte lista i
-      stedet for å følge kolonneflyten.
-    - **Énkolonne + mus** → ingen vakt (et musedrag rammes ikke av mobilens
-      `pointercancel`-problem).
-    Kilden til sannhet er CSS-layouten, ikke enhet/UA: `--mobile-dnd-flow-guard` settes
-    til `1` KUN i mobil-media-regelen (`column-count: 1`, `styles.css`) og leses av
-    `boardUsesSingleColumnLayout()` — terskelen finnes dermed ett sted (CSS). Beslutningen
-    tas ved dragstart og lagres implisitt via `boardGuard` (satt bare når vakten aktiveres,
-    sjekket i release), så samme modus brukes gjennom hele pekersekvensen selv om vinduet
-    endres midt i draget.
-  - **Normal-flow-vakt rundt board-et** (`freezeBoardForDrag`/`releaseBoardAfterDrag`,
-    mot spontant DnD-avbrudd i énkolonne på touch/pen): kollapser en HØY liste OVER den
-    dratte, krymper board-ets INNHOLD, og løfter man den NEDERSTE lista, ville board-bunnen
-    — og dermed sidens maks-scroll — falt brått under gjeldende `scrollY`. Android Chrome
-    klemmer da `scrollY` oppover mens pekeren er aktiv, og en slik scroll-klemme avbryter
-    touch-en (`pointercancel` → draget dør). Tidligere fikser (utsatt kollaps til > 2 px;
-    deretter en `<html>`-`min-height`-lås) hjalp bare delvis: den utsatte kollapsen skjedde
-    fortsatt straks etter løftet, og `<html>`-låsen holdt dokumentet høyt mens BOARD-et
-    krympet — det ga en NY feil der auto-scrollens `maxScroll` (målt fra board-bunnen)
-    kunne havne UNDER `scrollY` (se auto-scroll-punktet under). **Løsning:** legg vakten
-    rundt SELVE board-et FØR kollapsen. `freezeBoardForDrag` (1) fryser `board.style.minHeight`
-    til board-høyden før kollaps → board-bunnen (og dermed dokumentets `scrollHeight` +
-    `maxScroll`) kan ikke synke mens fingeren er nede; (2) legger på `padding-top` = summen
-    av body-høyder som fjernes for listene OVER den dratte, så den dratte lista beholder
-    samme viewport-Y og de kompakte overskriftene bunkes rett over den — nær fingeren, ikke
-    rullet vekk. (Board bruker CSS multi-column, så en `padding-top` skyver alle kolonner
-    likt; et spacer-BARN ville i stedet flytt inn i kolonneflyten.) Kollapsen skjer i SAMME
-    oppgave som vakten settes (og er momentan), så ingen mellomtilstand med sunket board-bunn
-    males. `releaseBoardAfterDrag` (kalt fra `onCardUp`/`onCardCancel` MOMENTANT rett etter
-    `restoreCardsAfterDrag`, som utvider listene momentant) fjerner `min-height` + `padding-top`
-    i samme oppgave → én reflow maler den ferdige, naturlige layouten uten et mellomsteg (der
-    padding-top + utvidede bodyer ville gitt et hopp). Øvrige støttetiltak (beholdt):
-    `beginDragCommon` måler dra-boksen med transformen nøytralisert; `overflowAnchor='none'`
-    på `<html>` under draget; en passiv `scroll`-lytter (`onDragScroll`) reposisjonerer det
-    løftede kortet under fingeren om nettleseren selv skulle scrolle — den scroller ALDRI selv.
+  kortene fra `card.collapsed`. Kollapsen skjer i `beforedragstart`, den eneste
+  kroken før dnd-kit måler det løftede kortet.
+  - **Board-vakten gjelder ALLE liste-drag** (`boardCollapseCardsForDrag`/
+    `boardReleaseBoard`), på mus som på finger og i én kolonne som i flere. Den gjør
+    to jobber på én gang:
+    1. **Kortet skal bli liggende under fingeren.** dnd-kit maler det løftede kortet
+       fra der elementet FAKTISK LÅ da det ble målt — ikke fra grepet, slik den gamle
+       motoren gjorde. Kollapsen flytter kortet man nettopp tok tak i (hver åpen liste
+       over det i kortets egen kolonne krymper), og uten kompensasjon løsner kortet fra
+       fingeren med akkurat den avstanden. `padding-top` på board-et legger den tilbake:
+       kortets topp måles FØR kollapsen og skiftet ETTER, så regnestykket gjelder uansett
+       kolonne og kolonneantall. Board-et er `box-sizing: border-box`, så padding-en
+       spiser av innholdet og totalhøyden står stille.
+    2. **Board-bunnen skal ikke synke** (`min-height` = board-høyden før kollaps).
+       Krymper board-INNHOLDET mens fingeren er nede, faller sidens maks-scroll brått
+       under gjeldende `scrollY`; Android Chrome klemmer da `scrollY` oppover, og en slik
+       scroll-klemme avbryter touch-en (`pointercancel` → draget dør). Tidligere fikser
+       (utsatt kollaps til > 2 px; deretter en `<html>`-`min-height`-lås) hjalp bare
+       delvis: den utsatte kollapsen skjedde fortsatt straks etter løftet, og
+       `<html>`-låsen holdt dokumentet høyt mens BOARD-et krympet — det ga en NY feil der
+       auto-scrollens `maxScroll` (målt fra board-bunnen) kunne havne UNDER `scrollY`.
+
+    Før dnd-kit var punkt 1 ikke et problem (den gamle motoren malte fra grepet), og
+    vakten fantes derfor KUN for punkt 2 — altså kun på touch/pen i énkolonne-layout
+    (`boardUsesSingleColumnLayout`, `--mobile-dnd-flow-guard`). Punkt 1 gjelder alle
+    inputtyper og alle layouter, så skillet er borte. `padding-top` er dessuten ikke
+    lenger summen av alle body-høydene over — den er det MÅLTE skiftet, som i
+    flerkolonne-layout er langt mindre (kun listene i kortets egen kolonne teller).
+    `boardReleaseBoard` (kalt fra `onCommit`/`onZoneDrop`/`dragend` MOMENTANT rett etter
+    `restoreCardsAfterDrag`, som utvider listene momentant) fjerner `min-height` +
+    `padding-top` i samme oppgave → én reflow maler den ferdige, naturlige layouten uten
+    et mellomsteg. `overflowAnchor='none'` på `<html>` under draget er beholdt.
   - **Scroll til den slupne lista — så lite påtrengende som mulig**
-    (`scrollDroppedIntoView`, kalt fra `onCardUp`): det trygge området er mellom
+    (`scrollDroppedIntoView`, kalt fra `boardCommitCard`): det trygge området er mellom
     toppmenyen (+ board-gapet) og den BRUKBARE bunnen (viewportbunnen −
     `--safe-bottom` − gapet; gestelinjen dekker de nederste pikslene, og er 0 i
     en nettleser — `docs/design-system.md`). Ligger lista allerede
@@ -324,12 +314,12 @@ Bytte utløses av **overlapp**, ikke av et punkt:
     så langt at nedre kant kommer inn — men aldri så langt at toppen forsvinner bak
     toppmenyen (en liste høyere enn området prioriterer altså toppen).
     `behavior: 'smooth'`, `'auto'` ved `prefers-reduced-motion`. Kalles ETTER at
-    layouten er satt (restore/release) og kortet er lagt i normal flyt;
-    `slotDocTop`/`slotH` måles i DOKUMENT-koordinat (upåvirket av selve scrollingen)
-    FØR `dropIntoPlaceholder` setter fly-inn-transformen. Hoppes over når lista
-    slippes på nav-knappen (flyttes til en annen mappe → forsvinner fra
-    board-et). Gjelder både touch og mus. Kun i `boardScope` — nav-modalen har
-    ingen window-scroll å justere.
+    layouten er satt (restore/release). Sloten måles på KLONEN — det løftede kortet
+    ligger i top layer og har ingen plass i flyten å måle — og høyden er kortets egen,
+    nå som det er foldet tilbake til lagret tilstand. Hoppes over når lista slippes på
+    nav-knappen eller i kassen (begge er soner og går aldri gjennom `onCommit`).
+    Gjelder både touch og mus. Kun i `boardScope` — nav-modalen har ingen
+    window-scroll å justere.
   - **Auto-scroll kan aldri bytte fortegn** (`startAutoScroll`): den tillatte
     nedover-avstanden klemmes til `Math.min(delta, Math.max(0, maxScroll - scrollY))`.
     Ligger board-bunnen (den kompakte, kollapsede) OVER `scrollY` — slik den kunne med
@@ -732,8 +722,9 @@ mekanikken er Smetts transaksjon i stedet for vår egen rollback.
 Nav-modalen dras av [dnd-kit](https://github.com/clauderic/dnd-kit) gjennom
 [Smett](https://github.com/peohol/smett), som ligger i repoet som en innsjekket,
 låst kopi (`vendor/smett-0.1.0.js`, den globale `Smett` — se
-[`sikkerhetsheadere.md`](sikkerhetsheadere.md)). Hovedsidens board står
-fortsatt på motoren beskrevet over; rekkefølgen for resten står i
+[`sikkerhetsheadere.md`](sikkerhetsheadere.md)). Hovedsidens KORTNIVÅ kjører på
+det samme (se [neste kapittel](#board-scopets-kortnivå-kjører-på-dnd-kit));
+radnivået står fortsatt på motoren beskrevet over. Rekkefølgen for resten står i
 [`dndkit-plan.md`](dndkit-plan.md). Koden ligger i seksjonen
 «NAV-SCOPET PÅ dnd-kit» i `app.js`.
 
@@ -762,7 +753,7 @@ knappen og ＋-raden i en kategori har den også, så et trykk der aldri løfter
 
 ### `drag` er fortsatt den ene posten om draget som pågår
 
-Nav-motoren fyller `drag` fra dnd-kits `dragOperation` (`navSyncIntent`), og da
+Nav-motoren fyller `drag` fra dnd-kits `dragOperation` (`dndSyncIntent`), og da
 virker alt som allerede leser den — `draggedRect`, `dragOverCard`/`cardBand`,
 peek-lagene, skillelinjene, søppelkassen, `finishDrag` — uendret, på begge
 motorer. Det er også det som holder `relayoutBoard` frosset og hindrer at et
@@ -875,11 +866,12 @@ containeren er bare fallbacken under dem.
 ### Klikket etter draget
 
 dnd-kit binder `preventDefault` på `click`, men ikke `stopPropagation` — og våre
-egne klikk-lyttere (korthodet kollapser området, mapperaden navigerer) fyrer
-likevel. Den gamle motoren stoppet klikket på KILDENS sone, og det holdt bare så
-lenge klikket kom tilbake dit: et ekte slipp over en ANNEN rad gir et tiltrodd
-klikk på DEN raden. Nav-motoren tar det derfor på dokumentet, i capture-fasen,
-for det første klikket etter et drag (`navInstallClickGuard`).
+egne klikk-lyttere (korthodet kollapser lista/området, mapperaden navigerer)
+fyrer likevel. Den gamle motoren stoppet klikket på KILDENS sone, og det holdt
+bare så lenge klikket kom tilbake dit: et ekte slipp over en ANNEN rad gir et
+tiltrodd klikk på DEN raden. Vakten tar det derfor på dokumentet, i
+capture-fasen, for det første klikket etter et drag (`dndInstallClickGuard`,
+delt av begge dnd-kit-scopene).
 
 ### Klonen er ikke en nabo
 
@@ -904,6 +896,11 @@ avslutter draget (slippanimasjonen), og etterpå kommer det ingen ny endring å
 reagere på. `renderNav` avslutter derfor med `navSyncBoards()`, som kaller
 Smetts `sync()` («public for a render you know about») på begge board-ene. Mens
 et nav-drag FAKTISK pågår gjør den ingenting — da er DOM-et dnd-kits.
+
+`renderBoard` gjør det samme med `boardSyncCardBoard()`. Der er det slettingen
+(«dra lista i kassen») som rendrer midt i avslutningen, og etterarbeidet
+(`boardRelayoutAfterDrop`) synker derfor én gang til når klonen er borte — da er
+DOM-et endelig, uansett hvem som rakk å rendre underveis.
 
 Uten den virker det neste løftet først når noe annet tilfeldigvis rendrer på
 nytt, som en synkrunde. På mus rakk det ofte akkurat; på touch gjorde det ikke
@@ -955,18 +952,92 @@ kjempet om Enter/Mellomrom, som på et korthode og en mapperad allerede betyr
 Alt+piler og «Flytt til …» — se «Rekkefølge og flytting fra tastatur» i `app.js`
 og [`tilgjengelighet.md`](tilgjengelighet.md).
 
+## Board-scopets kortnivå kjører på dnd-kit
+
+Listene på hovedsiden — kortene i kolonnene — dras av dnd-kit gjennom Smett, som
+nav-modalen. RADNIVÅET (listepunkt og kategori) står fortsatt på motoren
+beskrevet øverst. Koden ligger i seksjonen «BOARD-SCOPETS KORTNIVÅ PÅ dnd-kit»
+i `app.js`, og alt som gjelder begge dnd-kit-scopene står i
+[«Nav-scopet kjører på dnd-kit»](#nav-scopet-kjører-på-dnd-kit-smett) over —
+`dndSyncIntent` (som fyller `drag`), `dndPaintRotation` og klikk-vakten
+(`dndInstallClickGuard`) er delt.
+
+| Board | Elementer | Containere | Dra-sone | Soner |
+|---|---|---|---|---|
+| `boardCardBoard` | `#board .card` | `#board .board-col` | `.card-head` | `#trash-btn`, `#nav-crumb` |
+
+**Roten er dokumentet, ikke board-et.** Liste-søppelkassen og 📁-breadcrumben
+ligger i toppmenyen, utenfor `#board`, og en sone må ligge under board-ets rot
+for å bli registrert. Selektorene er derfor scopet til `#board` selv, så
+nav-modalens kort og kolonne aldri havner i dette registeret — to board som
+registrerer det samme elementet ville kjempet om det.
+
+**Kolonnene er containerne**, og de har fått `data-dnd-container` etter INDEKS
+(`stampBoardColumns`, kalt der kolonnene bygges). Fordelingen er frosset gjennom
+draget, så id-ene kan ikke skifte under fingeren. Huskis-regelen «kolonne = kort
+med ≥ 50 % horisontal overlapp» er Smetts `crossAxisRatio`: et kort i en annen
+kolonne er ingen nabo før det løftede kortet faktisk overlapper sporet.
+
+**«Kan ikke dras»** står på dra-sonen som `data-dnd-ignore`: korthodet i en liste
+man ikke kan omrokkere (frossen, eller uten rett til å endre mappens innhold),
+menyknappen, meta-chipene og det åpne navnefeltet (`editText`).
+
+### Kolonnen som siste utvei
+
+Et slipp NEDENFOR alt innhold i en kolonne betyr «sist i den kolonnen», ikke
+«ingenting» — og `pointerIntersection` mot kolonnens egen boks sier «ingenting»
+der, for kolonnen slutter der innholdet slutter. Nav-modalen har nøyaktig én
+kolonne og kan svare ubetinget; hovedsidens board har flere, og bare ÉN av dem
+kan være svaret, ellers ville alle meldt seg samtidig for et slipp i lufta under
+board-et. Hvilken avgjøres av KORTETS EGEN BOKS (`boardPickColumn`, regnet ut én
+gang per bevegelse), ikke av pekeren: det er den samme kolonneregelen som gjelder
+ellers. Prioriteten er den lavest mulige, så kolonnen aldri vinner over et kort
+eller en sone.
+
+### Etterarbeidet skjer når klonen er borte
+
+dnd-kit holder plassen med en KLONE til drop-animasjonen er ferdig, og klonen er
+ingen board-rad (`isBoardRow` hopper over den). To ting må derfor vente på at den
+forsvinner (`boardRelayoutAfterDrop`):
+
+- **Kolonnefordelingen.** En omfordeling mens klonen står der ville skrevet
+  kolonnens barn på nytt uten den, og klonen hadde blitt liggende først i
+  kolonnen — et hull på feil sted midt i animasjonen. `relayoutBoard` er derfor
+  en no-op så lenge en klone finnes; `relayoutBoardNow` er den samme fordelingen
+  uten vakten.
+- **`scrollDroppedIntoView`.** Klonen holder plassen med det løftede kortets
+  KOLLAPSEDE boks, mens kortet som lander der er foldet ut igjen. Fram til klonen
+  forsvinner er dokumentet altså kortere enn det blir — og scrollen klemmes mot
+  nettopp dokumenthøyden, så en scroll regnet ut før dette ville stoppet for
+  tidlig.
+
+### Det som er annerledes enn før
+
+- **Board-vakten gjelder alle liste-drag** — se kollaps-punktet øverst.
+- **Søppelkassens treffsone er knappen selv**, ikke knappen pluss 12 px slark:
+  sonen er en droppable, og dnd-kit måler dens egen boks. Samme endring som i
+  nav-scopet.
+- **Et slipp på 📁-breadcrumben ruller lista tilbake først** — se under.
+- **Board-et fryses ikke lenger mens man sikter i toppmenyen.** Den gamle motoren
+  hoppet over plasseringen der oppe. Begge målene i toppmenyen er soner nå, og
+  Smett ruller lista tilbake dit den kom fra FØR handlingen, så rekkefølgen
+  underveis har ingen virkning. En vakt for den ville dessuten ikke kunne
+  observeres: veien opp til toppmenyen går tvers over kortene uansett, så lista
+  har allerede byttet plass før pekeren kommer dit.
+
 ## Flytting av lister til en annen mappe (innen samme område)
 
 Mappene ligger ikke på hovedsiden. Dra i stedet lista opp på
-**nav-knappen** i toppmenyen: knappen markeres (`.drop-target`, kun når
-det finnes andre mapper), dra-kortet blir gjennomskinnelig (`.to-group`), og
-board-et fryses mens man sikter (ingen reorder over toppmenyen). Slipp legger
-kortet normalt tilbake på board-et og åpner en velger («Flytt … til:», i
-plasserings-modal-skallet via `openPicker`); valget gjør en kirurgisk flytting
-(`moveCardToGroup`: `card.group` + `pos` bakerst, kun posisjonsregisteret
-stemples) + toast. Avbrytes velgeren blir lista
-liggende. `moveCardToGroup` slår opp det LEVENDE kortet på id — en
-synk-rebuild kan ha byttet ut objektet mens velgeren sto åpen.
+**nav-knappen** i toppmenyen: knappen er en SONE for kortdraget
+(`data-dnd-zone="crumb"`), den markeres (`.drop-target`, kun når det finnes andre
+mapper), og dra-kortet blir gjennomskinnelig (`.to-group`). Smett ruller lista
+tilbake dit den kom fra FØR handlingen — som for søppelkassen — og så åpnes en
+velger («Flytt … til:», i plasserings-modal-skallet via `openPicker`); valget gjør
+en kirurgisk flytting (`moveCardToGroup`: `card.group` + `pos` bakerst, kun
+posisjonsregisteret stemples) + toast. Avbrytes velgeren, er INGENTING endret —
+heller ikke rekkefølgen på board-et, som draget kan ha rukket å endre på veien
+opp. `moveCardToGroup` slår opp det LEVENDE kortet på id — en synk-rebuild kan ha
+byttet ut objektet mens velgeren sto åpen.
 
 Velgeren viser mappene i det AKTIVE området der man faktisk kan opprette
 lister (`cap(g, 'createList')`; mappekategorier er overskrifter og listes ikke). Vil man flytte lista lenger — til en mappe i et annet område —

@@ -9,9 +9,10 @@ Listepunkt**, der en liste i tillegg kan ha ett nivå med **kategorier**.
 De to øverste nivåene er bygget av nøyaktig samme komponenter som de to
 nederste: et område ER et kort, en mappe ER en rad, og de deler CSS-klasser,
 maler og politikk. Dra-og-slipp kjører i to scope — `boardScope`
-(listevisningen) og `navScope` (navigasjonsmodalen) — og de to står **midt i et
-motorbytte**: `navScope` kjøres av dnd-kit gjennom Smett
-(`vendor/smett-0.1.0.js`), `boardScope` fortsatt av den hjemmesnekrede motoren i
+(listevisningen) og `navScope` (navigasjonsmodalen) — og de står **midt i et
+motorbytte**: `navScope` og `boardScope`s KORTNIVÅ (listene) kjøres av dnd-kit
+gjennom Smett (`vendor/smett-0.1.0.js`), mens `boardScope`s RADNIVÅ
+(listepunkter og kategorier) fortsatt kjøres av den hjemmesnekrede motoren i
 `app.js`. En endring i delt politikk treffer derfor begge nivåene, og en endring
 i selve motoren bare ett. Rekkefølgen for resten av byttet:
 `docs/dndkit-plan.md`. Nåtilstanden: `docs/drag-and-drop.md`.
@@ -105,8 +106,8 @@ npm run android:debug         # samme, og bygg debug-APK (krever Android SDK)
 - Opprettelse og flytting spør FORELDEREN om lov, ikke objektet selv —
   myndigheten ligger på nivået over (`docs/rettigheter-og-deling.md`).
 - Endringer i område-/mappe-UI-et treffer liste-/listepunkt-UI-et og omvendt
-  (delte klasser, delt DnD-politikk). Sjekk begge — og husk at de to scopene har
-  hver sin MOTOR under seg fram til migreringen er ferdig.
+  (delte klasser, delt DnD-politikk). Sjekk begge — og husk at kort- og radnivået
+  har hver sin MOTOR under seg fram til migreringen er ferdig.
 - Valider ved systemgrensene (brukerinput, svar fra Supabase), ikke internt.
 - Endrer du en invariant, oppdater det autoritative dokumentet i `docs/` i samme
   endring. Skriv nåtilstanden, ikke endringshistorikk («siste runde» o.l.) —

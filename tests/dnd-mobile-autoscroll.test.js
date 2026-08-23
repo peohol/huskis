@@ -6,13 +6,22 @@
     python3 -m http.server 8000                    # fra repo-roten, i egen terminal
     NODE_PATH=$(npm root -g) node tests/dnd-mobile-autoscroll.test.js
 
-  Testen driver den ekte DnD-koden via syntetiske PointerEvents mot mock-backenden
-  (?mock=1). Merk: Playwrights syntetiske events reproduserer ikke Android Chromes
+  Testen driver den ekte DnD-koden med EKTE input (`tests/dnd-gestures.js`) mot
+  mock-backenden (?mock=1). Merk: Playwright reproduserer ikke Android Chromes
   reelle scroll-klemme/`pointercancel` — testen verifiserer derfor INVARIANTENE:
-  (a) board-bunnen (og dermed dokumentets maxScroll) faller ikke under touch-drag,
+  (a) board-bunnen (og dermed dokumentets maxScroll) faller ikke under touch-drag
+      (board-vakten, `boardCollapseCardsForDrag`),
   (b) en nedover-auto-scroll-frame reduserer ALDRI scrollY når board-bunnen ligger
-      over scrollY (den gamle fortegns-feilen), og
-  (c) pointercancel ruller tilbake uten å lagre et drop.
+      over scrollY (den gamle fortegns-feilen — auto-scrollen er dnd-kits nå, og
+      påstanden skal holde der også), og
+  (c) et avbrudd ruller tilbake uten å lagre et drop, og
+  (d) den ØVRE auto-scroll-sonen rekker under den faste toppmenyen — dnd-kits
+      `AutoScroller` bruker en brøkdel av containeren der vår egen sone ble målt
+      fra toppmenyens bunn (`docs/dndkit-plan.md`, risiko 6).
+
+  Liste-draget kjøres av dnd-kit (`docs/drag-and-drop.md`), så det løftede kortet
+  merkes med `[data-dnd-dragging]` og plassen holdes av en KLONE — som bærer de
+  samme klassene og derfor må filtreres bort når rekkefølgen leses.
 */
 const { chromium } = require('playwright');
 const G = require('./dnd-gestures.js');
@@ -92,8 +101,9 @@ async function buildScenario(p) {
   // Scroll helt ned og løft den nederste lista (kollaps + board-vakt).
   await p.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight));
   await p.waitForTimeout(150);
-  const lastCard = await p.evaluate(() =>
-    [...document.querySelectorAll('.card')].pop().dataset.id);
+  const cardIds = () => p.evaluate(() => [...document.querySelectorAll('#board .card')]
+    .filter((c) => !c.hasAttribute('data-dnd-placeholder')).map((c) => c.dataset.id));
+  const lastCard = (await cardIds()).pop();
   const R = await G.centre(p, '.card[data-id="' + lastCard + '"] .card-head');
   await G.lift(p, R, true);
   await G.touchMove(p, R.x, R.y - 4); await p.waitForTimeout(60);
@@ -102,8 +112,8 @@ async function buildScenario(p) {
     const bd = document.querySelector('.board');
     const r = bd.getBoundingClientRect();
     return {
-      dragging: document.querySelectorAll('.card.dragging').length,
-      collapsed: document.querySelectorAll('.card.collapsed').length,
+      dragging: document.querySelectorAll('#board .card[data-dnd-dragging]').length,
+      collapsed: document.querySelectorAll('#board .card.collapsed').length,
       boardDocBottom: Math.round(r.bottom + window.scrollY),
       scrollY: Math.round(window.scrollY),
       scrollHeight: document.scrollingElement.scrollHeight,
@@ -137,15 +147,50 @@ async function buildScenario(p) {
   log('nedover-frame reduserer ALDRI scrollY', drops.length === 0, 'drops=' + drops.length + ' min=' + Math.min(...samples));
 
   // pointercancel → rollback (aldri et lagret drop).
-  const before = await p.evaluate(() => [...document.querySelectorAll('.card')].map((c) => c.dataset.id));
-  await G.touchCancel(p); await p.waitForTimeout(250);
-  const after = await p.evaluate(() => ({
-    order: [...document.querySelectorAll('.card')].map((c) => c.dataset.id),
-    dragging: document.querySelectorAll('.card.dragging').length,
-    ph: document.querySelectorAll('.card-placeholder, .item-placeholder, .group-placeholder').length,
-  }));
+  const before = await cardIds();
+  await G.touchCancel(p);
+  await p.waitForFunction(() => !document.querySelector('[data-dnd-dragging]'), null, { timeout: 5000 });
+  await p.waitForTimeout(200);
+  const after = {
+    order: await cardIds(),
+    ...(await p.evaluate(() => ({
+      dragging: document.querySelectorAll('.dragging, [data-dnd-dragging]').length,
+      ph: document.querySelectorAll('.card-placeholder, .item-placeholder, .group-placeholder, [data-dnd-placeholder]').length,
+    }))),
+  };
   log('pointercancel: opprydding (ingen dragging/placeholder)', after.dragging === 0 && after.ph === 0, JSON.stringify(after));
   log('pointercancel: rekkefølge uendret', JSON.stringify(after.order) === JSON.stringify(before));
+
+  /* ---- Den ØVRE auto-scroll-sonen rekker UNDER den faste toppmenyen ----
+     Vår gamle sone ble målt fra bunnen av toppmenyen, nettopp for at man ikke
+     skulle måtte dra lista opp BAK headeren før scrollingen slo inn. dnd-kits
+     `AutoScroller` bruker i stedet en brøkdel av containeren, og spørsmålet er
+     om den brøkdelen rekker langt nok ned. Måles, ikke antas. */
+  // Rydd bort testkondisjonen over (den kunstige dokumenthøyden), ellers ville
+  // «bunnen» ligget langt under innholdet.
+  await p.evaluate(() => {
+    document.documentElement.style.minHeight = '';
+    document.querySelector('#board').style.minHeight = '';
+  });
+  await p.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight));
+  await p.waitForTimeout(250);
+  const lastId = (await cardIds()).pop();
+  const grip = await G.centre(p, '.card[data-id="' + lastId + '"] .card-head');
+  await G.lift(p, grip, true);
+  const zone = await p.evaluate(() => ({
+    topbarBottom: Math.round(document.getElementById('topbar').getBoundingClientRect().bottom),
+    y: Math.round(window.scrollY),
+  }));
+  // Rett UNDER toppmenyen — altså det høyeste punktet en finger kan sikte på
+  // uten å gjemme lista bak headeren.
+  await G.touchMove(p, grip.x, zone.topbarBottom + 12);
+  await p.waitForTimeout(450);
+  const scrolledUp = await p.evaluate(() => Math.round(window.scrollY));
+  log('øvre auto-scroll-sone rekker under toppmenyen', scrolledUp < zone.y - 10,
+    'fra=' + zone.y + ' til=' + scrolledUp + ' (toppmenyens bunn=' + zone.topbarBottom + ')');
+  await G.touchCancel(p);
+  await p.waitForFunction(() => !document.querySelector('[data-dnd-dragging]'), null, { timeout: 5000 });
+
   log('ingen JS-feil', errs.length === 0, errs.join(' | '));
 
   await b.close();
