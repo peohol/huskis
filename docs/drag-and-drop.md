@@ -3,10 +3,18 @@
 Les denne når oppgaven berører reorder, overføring mellom lister/mapper, eller
 selve dra-motoren i app.js.
 
-Dokumentet beskriver motoren slik den er nå: hjemmesnekret, på Pointer Events.
-Planen om å bytte den mot dnd-kit + Smett ligger i
-[`dndkit-plan.md`](dndkit-plan.md); dette dokumentet er autoritativt til den
-migreringen faktisk er gjennomført.
+Motoren er **midt i et bytte**, og de to scopene kjøres derfor av hver sin:
+
+| Scope | Motor |
+|---|---|
+| `boardScope` — hovedsidens board (lister, listepunkter, kategorier) | den hjemmesnekrede, på Pointer Events. Resten av dette dokumentet beskriver den. |
+| `navScope` — nav-modalen (områder, mapper, mappekategorier) | **dnd-kit**, gjennom [Smett](https://github.com/peohol/smett). Se [«Nav-scopet kjører på dnd-kit»](#nav-scopet-kjører-på-dnd-kit-smett) under. |
+
+Rekkefølgen for resten av byttet står i [`dndkit-plan.md`](dndkit-plan.md).
+**Politikken** — hva et slipp betyr, hvem som får lov, tersklene, peek,
+skillelinjene, søppelkassen — er den samme i begge scopene og beskrives ett sted
+her; det som skiller dem er hvem som leverer gesten, geometrien og
+placeholderen.
 
 Bytte utløses av **overlapp**, ikke av et punkt:
 
@@ -666,22 +674,18 @@ forhåndsvisning: den rører IKKE `card.collapsed`/`item.collapsed` og lagrer ik
 
 ## Områder og mapper (nav-modalen)
 
-Egen kode for disse to nivåene finnes ikke lenger: `startGroupDrag`/
-`startUniverseDrag`/`updateGroupPlacement`/`updateUniversePlacement`/
-`finishColumnDrop`/`cancelColumnDrop` + de to auto-scroll-loopene er FJERNET og
-erstattet av `navScope` (se toppen av dokumentet). Områder dras som lister
-(`startCardDrag`), mapper som listepunkter (`startItemDrag`), mappekategorier
-som kategorier (`startCategoryDrag`).
+Egen kode for disse to nivåene finnes ikke: områder dras som lister, mapper som
+listepunkter, mappekategorier som kategorier — samme komponenter, samme
+politikk, bare et annet state-tre (`navScope`, se toppen av dokumentet). Selve
+gesten leveres av dnd-kit; se [neste kapittel](#nav-scopet-kjører-på-dnd-kit-smett).
 
 Det som er verdt å merke seg:
 
 - **Alltid én kolonne**: `navScope.singleColumn` gjør at `relayoutBoard` lager
   nøyaktig én `.board-col` (samme kolonnemaskineri som hovedsiden, se
-  `docs/board-layout.md`), så kort-draget aldri møter flerkolonne-logikken
-  (`isSingleRowLayout` slår aldri inn — kortene ligger over hverandre).
-- **Auto-scroll ruller modalens `.menu-body`** (`updateModalAutoScroll`,
-  `startModalAutoScroll`) og re-evaluerer plasseringen per frame med
-  `reapplyPlacement`, som vindus-auto-scrollen.
+  `docs/board-layout.md`), så kort-draget aldri møter flerkolonne-logikken.
+- **Auto-scroll ruller modalens `.menu-body`** — dnd-kits `AutoScroller` finner
+  scroll-containeren selv (den er en forfar til det løftede objektet).
 - **Kollaps-alle under draget** gjelder også her (områdekortene foldes til
   overskriften mens ett dras), men uten normal-flow-vakten — den finnes for
   window-scroll-klemmen på mobil, og modalen scroller i sin egen container.
@@ -698,8 +702,8 @@ Det som er verdt å merke seg:
   endres aldri. Det samme gjelder områdene på toppnivå. Se
   `docs/rettigheter-og-deling.md` del 11 og 12.
 - **Seksjonsoverskriftene** i nav-modalen ligger i den samme `.board-col` som
-  kortene, men `boardRows` filtrerer på `.card`/`.card-placeholder`, så de er
-  aldri dra-mål.
+  kortene, men `boardRows` filtrerer på `.card`/`.card-placeholder` (og hopper
+  over dnd-kits klone), så de er aldri dra-mål.
 - **Den aktive mappen følger med** når den bytter område (dratt dit, ekstrahert
   til et nytt, eller båret med av en mappekategori): `followActiveGroup()` kalles
   først i `renderBoard()` og flytter `state.activeUniverse` etter mappa.
@@ -717,6 +721,239 @@ er den `frozen()`, kjøres `restoreDraggedToOrigin()` + `finishDrag()` (som et
 avbrutt drag) og en toast sier fra — `S.lockedTargetMsg`, «Listen er låst – du
 kan ikke flytte noe hit» på board-et og «Området er låst – du kan ikke flytte
 noe hit» i nav-modalen.
+
+I nav-scopet gjør `navCommitRow`/`navCommitCategory` den samme sjekken
+(`navRejectTarget`) og **kaster** i stedet: Smett ruller da rekkefølgen tilbake
+til der draget startet, og toasten sier det samme. Utfallet er identisk;
+mekanikken er Smetts transaksjon i stedet for vår egen rollback.
+
+## Nav-scopet kjører på dnd-kit (Smett)
+
+Nav-modalen dras av [dnd-kit](https://github.com/clauderic/dnd-kit) gjennom
+[Smett](https://github.com/peohol/smett), som ligger i repoet som en innsjekket,
+låst kopi (`vendor/smett-0.1.0.js`, den globale `Smett` — se
+[`sikkerhetsheadere.md`](sikkerhetsheadere.md)). Hovedsidens board står
+fortsatt på motoren beskrevet over; rekkefølgen for resten står i
+[`dndkit-plan.md`](dndkit-plan.md). Koden ligger i seksjonen
+«NAV-SCOPET PÅ dnd-kit» i `app.js`.
+
+### To board, ett nivå hver, hver sin manager
+
+| Board | Elementer | Containere | Dra-sone | Sone |
+|---|---|---|---|---|
+| `navCardBoard` | `.card` (områder) | `.board-col` | `.card-head` | `#uni-trash-btn` |
+| `navRowBoard` | `.item`, `.category` (mapper, mappekategorier) | `.items-container`, `.cat-items` | `.cat-head`, `.item` | `.group-trash-btn` |
+
+Smetts `extensions.md` sier «et board per hierarkinivå», og at hvert board da
+bygger sin egen manager: dnd-kit stempler `pointerdown` med sensoren som tok
+den, så det INNERSTE board-et vinner et delt trykk. Et trykk på en mapperad
+løfter mappen, ikke området den ligger i. To managere gir dessuten hvert nivå
+sine EGNE soner — område-kassen finnes ikke for et mappe-drag, og omvendt.
+
+Identiteten leses fra DOM-en (`idAttribute: 'data-id'`, som vi allerede hadde).
+Containerne har fått `data-dnd-container`: kolonnen `nav-col`, hvert områdes
+`.items-container` områdets id, hver kategoris `.cat-items` kategoriens id.
+Kassene har `data-dnd-zone`.
+
+«Kan ikke dras» uttrykkes som `data-dnd-ignore` på selve dra-sonen: en låst
+mappe på raden, en låst mappekategori på `.cat-head` (ikke på hele kategorien —
+det ville tatt mappene inni med seg), fri-beholderen på korthodet. Objektmeny-
+knappen og ＋-raden i en kategori har den også, så et trykk der aldri løfter noe.
+
+### `drag` er fortsatt den ene posten om draget som pågår
+
+Nav-motoren fyller `drag` fra dnd-kits `dragOperation` (`navSyncIntent`), og da
+virker alt som allerede leser den — `draggedRect`, `dragOverCard`/`cardBand`,
+peek-lagene, skillelinjene, søppelkassen, `finishDrag` — uendret, på begge
+motorer. Det er også det som holder `relayoutBoard` frosset og hindrer at et
+board-drag starter oppå et nav-drag. `Smett.intentRectangle()` gir nøyaktig den
+UKLEMTE boksen `draggedRect()` alltid har vært.
+
+### Hva som er dnd-kits nå
+
+Aktiveringen (trykk-og-hold 200 ms / musavstand 5 px — Smett har Huskis' egne
+tall), plasseringspolitikken (Smetts hysterese-detektor med `SWAP_RATIO` 0.2,
+`SWAP_REV_RATIO` 0.5, `SWAP_LOCK_MS` 300, kolonne-porten 0.5), den autoritative
+sluttplasseringen ved `pointerup`, placeholderen (en KLONE av det løftede
+objektet, ikke et tomt element vi lager selv), auto-scrollen av modalen,
+drop-animasjonen og klemmen mot det brukbare feltet (`SafeViewport`, matet med
+`safeInsets()`).
+
+To Huskis-problemer forsvant med det:
+
+- **`position: absolute` i dokument-koordinater.** dnd-kit løfter objektet inn i
+  **top layer** via `popover`. Det teller ikke i sidens scroll-område, og
+  iOS-WebKit-defekten den gamle løsningen skrev seg bort fra finnes ikke lenger
+  (verifisert på iOS 26.6).
+- **`.dragging`-klassen.** Motoren merker i stedet `[data-dnd-dragging]` (det
+  løftede objektet) og `[data-dnd-placeholder]` (klonen). CSS-en er speilet på de
+  to i `styles.css`; skalaen ligger der, rotasjonen settes fra JS som EGEN
+  `rotate`-egenskap — aldri via `transform`, som dnd-kit skriver selv med
+  `!important`.
+
+### Hva som fortsatt er Huskis' — og hvor det henger
+
+| Mekanikk | Kroken |
+|---|---|
+| Ny `pos` mellom naboene, personlig rekkefølge, `move_group` | `onCommit` (`navCommitCard`/`navCommitRow`/`navCommitCategory`) |
+| Søppelkassen som slippmål | `zoneSelector` + `onZoneDrop` — Smett ruller raden tilbake FØR handlingen, altså dagens semantikk |
+| Peek-åpning av kollapsede mål | `dragmove` → `updatePeek` (uendret); `reapplyPeekPlacement` ber om en ny kollisjonsrunde i stedet for å regne om selv |
+| Skillelinjene rundt kategorier | `dragover` → `applyDragSeparators` (uendret; `sepRows` hopper over `[data-dnd-dragging]`, og klonen ER «raden som kommer») |
+| Kollaps-alle ved løft, kategoriens sammenfolding | `beforedragstart` — se under |
+| Låst/virtuelt/uten opprettelsesrett mål | `navRejectTarget` i `onCommit`, som KASTER → Smett ruller tilbake |
+| Ekstrahering til nytt område | `containerAccept` → tom liste + vår egen `.new-list-placeholder` |
+| «Kategorier nøstes aldri» | `itemType` + `containerAccept` — avvises UNDER draget, ikke etter slippet |
+| Opplesningene | `phrases`, bygget av `tr()` (`docs/sprak.md`) |
+
+### `beforedragstart` er den eneste kroken før målingen
+
+dnd-kit måler det løftede objektet ÉN gang (`shape.initial`, som Smetts
+`intentRectangle` regner ut fra). Alt som endrer objektets størrelse ved løft må
+derfor skje før den målingen, og `beforedragstart` er den eneste kroken som
+kjører der: kollapsen av alle områdekort, og mappekategoriens sammenfolding til
+bare overskriften. Kategorien folder seg derfor sammen MOMENTANT i nav-scopet,
+ikke over 300 ms som på board-et — en boks som krymper etter målingen ville latt
+treffdeteksjonen sikte med en kategori som ikke lenger er så høy som den ble
+målt.
+
+**Og board-høyden fryses mens et områdekort dras.** Den gamle motoren malte det
+løftede objektet fra GREPET (`peker − grabY`), så det lå under fingeren uansett
+hva kollapsen gjorde med layouten. dnd-kit maler fra der elementet FAKTISK LÅ da
+det ble målt. Kollapsen flytter kortet man nettopp tok tak i — både fordi
+kortene over krymper, og fordi nav-modalen er loddrett sentrert og re-sentrerer
+når innholdet blir kortere — og uten mottiltak løsner kortet fra fingeren med
+akkurat den avstanden (målt til ~100 px i en vanlig modal). `navCollapseCardsForDrag`
+fryser derfor `#nav-board`s høyde (modalen re-sentrerer da ikke) og kompenserer
+med `padding-top` for kortene over. Board-et er `box-sizing: border-box`, så
+padding-en spiser av innholdet og totalhøyden står stille. Samme regnestykke som
+`freezeBoardForDrag` gjør for hovedsidens board, av en annen grunn: der finnes
+vakten for window-scroll-klemmen på mobil.
+
+### Politikken som måtte uttrykkes som kollisjonsdetektorer
+
+dnd-kits containere treffes normalt av `pointerIntersection` mot sin egen boks.
+Huskis' regler er ikke boks-regler, så containerne i nav-scopet har egne
+detektorer. To ting å vite om mekanikken: en `collisionPriority` på entiteten
+OVERSTYRER prioriteten detektoren svarte, så en droppable som trenger to
+prioriteter får `collisionPriority = null` og bestemmer selv; og radene inne i
+en container er dnd-kits egne (Smetts hysterese-detektor, Normal prioritet), så
+containeren er bare fallbacken under dem.
+
+- **KORTET velger container, ikke pekeren** (`navPickContainer`,
+  `navLevel1Collision`). Regelen er den samme som før: først «hvilket kort er
+  objektet i?» — avgjort av objektets egen boks mot kortets innholdssone
+  (1/3-tersklene), ikke av pekeren — og så, inne i det kortet, velger pekeren
+  mellom nivå 1 og en mappekategoris hylle. Et sikte rett under siste mappe, på
+  ＋-knapperaden, er innenfor kortet men utenfor `.items-container`; med ren
+  boks-testing traff det ingenting, og mappen ble liggende igjen.
+  Svaret regnes ut ÉN gang per pekerbevegelse. Det er ikke en optimalisering:
+  `dragOverCard` har hukommelse, og slarken `noteOverShift` gir gjennom ett
+  layout-hopp blir forbrukt av det første kallet som finner objektet inne i
+  sonen på egen hånd. Regnet detektorene det ut selv, ville bevegelsen og
+  kollisjonen svart på hver sin layout og skiftet på å ha rett én gang per
+  frame.
+- **Kategoriens OVERSKRIFT er en vei INN i kategorien** (`navShelfCollision`).
+  Pekeren inne i en mappekategori — overskriften like mye som hylla — betyr «legg
+  raden i kategorien». For dnd-kit er overskriften en del av kategori-RADEN, så
+  et sikte der ville lest som «bytt plass med kategorien». Hylla svarer derfor på
+  overskriften også, med høy prioritet; står pekeren i selve hylla, svarer den
+  med lav, slik at radene der bestemmer plassen. En KOLLAPSET kategori er
+  unntatt — der er hylla uten høyde, og nivå 1 gjelder til peek har foldet den
+  ut.
+- **Kolonnen tar ALLTID imot et områdekort** (`navColumnCollision`). Nav-modalen
+  har nøyaktig én kolonne, og et områdekort har ingen annen plass å falle ned i:
+  slipp nedenfor kortene — eller utenfor modalen — betyr «sist», ikke
+  «ingenting». Sluttplasseringen er punktbasert, så «over alle kortene» blir
+  først og «under alle» blir sist, som den senterbaserte sluttplasseringen på
+  board-et. Prioriteten er den lavest mulige, så kolonnen aldri vinner over et
+  kort eller kassen.
+- **Kortet legges tilbake BLANT kortene** (`navSettleCardInColumn`) — ikke en
+  detektor, men den samme saken: sluttplasseringen legger kortet sist i
+  containeren når slippet er nedenfor alle kort, og sist i kolonnen er etter
+  seksjonsoverskriften for neste seksjon.
+
+### Klikket etter draget
+
+dnd-kit binder `preventDefault` på `click`, men ikke `stopPropagation` — og våre
+egne klikk-lyttere (korthodet kollapser området, mapperaden navigerer) fyrer
+likevel. Den gamle motoren stoppet klikket på KILDENS sone, og det holdt bare så
+lenge klikket kom tilbake dit: et ekte slipp over en ANNEN rad gir et tiltrodd
+klikk på DEN raden. Nav-motoren tar det derfor på dokumentet, i capture-fasen,
+for det første klikket etter et drag (`navInstallClickGuard`).
+
+### Klonen er ikke en nabo
+
+dnd-kit holder plassen med en KLONE av det løftede objektet, og den ligger rett
+etter det med de samme klassene. `previousElementSibling`/`nextElementSibling` —
+som hele `pos`-regnestykket hviler på — leser den da som naboen, og svarer
+«ingen nabo på den siden», altså «sist i lista», uansett hvor man faktisk slapp.
+`boardRows`/`isBoardRow` og `navRowSibling` hopper derfor over
+`[data-dnd-placeholder]`, og det samme gjør `sepRows` (skillelinjene) og
+`restoreCardsAfterDrag`.
+
+### En ombygging må meldes til dnd-kit
+
+Et slipp rendrer nav-modalen på nytt, og da byttes hvert eneste kort og hver
+eneste rad ut. dnd-kit har fortsatt de GAMLE elementene i registeret sitt, og
+de finnes ikke i dokumentet lenger — da er det ingenting igjen å løfte.
+
+Smett følger med på DOM-et selv, men bare mens ingen drar: endringene som skjer
+mens en gest står på er dnd-kits egne, og den lar dem være i fred. Ombyggingen
+etter et slipp faller nøyaktig mellom de to — den kommer mens dnd-kit ennå
+avslutter draget (slippanimasjonen), og etterpå kommer det ingen ny endring å
+reagere på. `renderNav` avslutter derfor med `navSyncBoards()`, som kaller
+Smetts `sync()` («public for a render you know about») på begge board-ene. Mens
+et nav-drag FAKTISK pågår gjør den ingenting — da er DOM-et dnd-kits.
+
+Uten den virker det neste løftet først når noe annet tilfeldigvis rendrer på
+nytt, som en synkrunde. På mus rakk det ofte akkurat; på touch gjorde det ikke
+det, og et andre områdedrag var umulig. `dnd-nav-engine` sjekk 9 er vakten.
+
+### Områdenes `pos` regnes ALLTID innenfor sin egen seksjon
+
+Nav-modalen deler områdene i tre seksjoner, og `renderNav` sorterer på seksjon
+FØR `pos`. En `pos` hentet over en seksjonsgrense flytter derfor ingenting dit
+man ser — den importerer bare en fremmed verdi inn i seksjonen og stokker om på
+resten av den. Det virtuelle «Mapper delt med meg»-kortet er dessuten aldri en
+nabo: det har `pos: Infinity`, og `between(Infinity, null)` er `Infinity`, en
+verdi som ikke overlever JSON. Slippet ville da lagret `pos: null` på
+medlemskapsraden og slettet brukerens egen rekkefølge i stedet for å endre den.
+
+`navCardNeighbour` er regelen ett sted: den går utover i leserekkefølge og
+HOPPER OVER både det virtuelle kortet og kort i en annen seksjon — slipper man
+nedenfor alt, er svaret «sist i min egen seksjon», ikke «ingen naboer». Både
+slippet (`navCommitCard`) og ekstraheringen (`extractionPos` i nav-scopet)
+bruker den, og tastaturet har alltid fulgt den samme regelen (`moveCtx`).
+
+### Det som er annerledes enn før, og hvorfor
+
+- **Kategorien folder seg sammen momentant** ved løft (se over).
+- **Søppelkassens treffsone er knappen selv**, ikke knappen pluss 12 px slark:
+  sonen er en droppable, og dnd-kit måler dens egen boks.
+- **Ekstraheringsmodus fjerner ikke klonen** fra lista. Den gamle motoren tok
+  reorder-placeholderen ut idet ny-liste-placeholderen kom; her blir klonen
+  liggende. Layout-hoppet er dermed mindre, og `noteOverShift` gjør fortsatt
+  resten.
+- **Låst mål avvises ved slippet**, ikke under draget. Planen sier at dnd-kits
+  `accept` skal ta det UNDER draget, og for «kategorier nøstes aldri» gjør den
+  det. Resten avhenger av hvor raden kom FRA — en fri mappe kan omrokkeres i
+  fri-seksjonen, men ingen mappe kan flyttes INN i den — og `containerAccept`
+  kjenner bare containeren, ikke kilden. Utfallet er uendret (rullet tilbake +
+  toast); mekanikken er Smetts transaksjon.
+- **En kasse som ikke er DETTE dragets** tar ikke imot: kassen som gjelder er
+  den i containeren raden kom fra, og bare når jeg har lov til å slette. Kassene
+  er soner, så et slipp på en annen synlig kasse — et annet områdes, eller
+  mappe-kassen under et kategori-drag — ruller raden tilbake i stedet for å
+  omrokkere den. Den gamle motoren lot den falle gjennom til en vanlig
+  omrokkering.
+
+### Tastaturet er fortsatt Huskis' eget
+
+Begge board-ene bygges med `keyboard: false`. dnd-kits `KeyboardSensor` ville
+kjempet om Enter/Mellomrom, som på et korthode og en mapperad allerede betyr
+«kollaps» og «naviger». WCAG-alternativet til draget er `attachKeyHandle` — F2,
+Alt+piler og «Flytt til …» — se «Rekkefølge og flytting fra tastatur» i `app.js`
+og [`tilgjengelighet.md`](tilgjengelighet.md).
 
 ## Flytting av lister til en annen mappe (innen samme område)
 

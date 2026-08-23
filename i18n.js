@@ -270,6 +270,20 @@
                            'The list is locked – you cannot move anything here'],
     'dnd.universeLocked': ['Området er låst – du kan ikke flytte noe hit',
                            'The workspace is locked – you cannot move anything here'],
+    /* Opplesningene under et drag. Dra-og-slipp-motoren (Smett/dnd-kit) bygger
+       setningene selv, men av DISSE byggerne — ikke av sine egne engelske. */
+    'dnd.a11yPickedUp':   ['Løftet {name}. {position}.', 'Picked up {name}. {position}.'],
+    'dnd.a11yMoving':     ['{name}. {position}.', '{name}. {position}.'],
+    'dnd.a11yDropped':    ['Slapp {name}. {position}.', 'Dropped {name}. {position}.'],
+    'dnd.a11yMoved':      ['Flyttet {name}. {position}.', 'Moved {name}. {position}.'],
+    'dnd.a11yCancelled':  ['Flyttingen av {name} ble avbrutt.', 'Move cancelled for {name}.'],
+    'dnd.a11yFailed':     ['Flyttingen mislyktes. {name} ble lagt tilbake.',
+                           'Move failed. {name} was restored.'],
+    'dnd.a11yPosition':   ['plass {pos} av {total}', 'position {pos} of {total}'],
+    'dnd.a11yPositionIn': ['plass {pos} av {total} i {name}',
+                           'position {pos} of {total} in {name}'],
+    'dnd.a11yOverTrash':  ['over søppelkassen', 'over the trash'],
+    'dnd.a11yOffBoard':   ['utenfor', 'off the board'],
 
     /* ---- Tomtilstander ---- */
     'empty.noGroups':     ['Ingen mapper ennå.', 'No folders yet.'],

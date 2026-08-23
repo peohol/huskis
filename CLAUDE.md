@@ -6,15 +6,21 @@ Huskis er en statisk vanilla-JS-app uten bundler, rammeverk eller
 klientavhengigheter. Innholdet er hierarkisk: **Område > Mappe > Liste >
 Listepunkt**, der en liste i tillegg kan ha ett nivå med **kategorier**.
 
-De to øverste nivåene er bygget av nøyaktig samme komponenter og samme
-dra-og-slipp-motor som de to nederste: et område ER et kort, en mappe ER en
-rad. Motoren kjører i to scope — `boardScope` (listevisningen) og `navScope`
-(navigasjonsmodalen) — så en endring i den treffer begge nivåene.
+De to øverste nivåene er bygget av nøyaktig samme komponenter som de to
+nederste: et område ER et kort, en mappe ER en rad, og de deler CSS-klasser,
+maler og politikk. Dra-og-slipp kjører i to scope — `boardScope`
+(listevisningen) og `navScope` (navigasjonsmodalen) — og de to står **midt i et
+motorbytte**: `navScope` kjøres av dnd-kit gjennom Smett
+(`vendor/smett-0.1.0.js`), `boardScope` fortsatt av den hjemmesnekrede motoren i
+`app.js`. En endring i delt politikk treffer derfor begge nivåene, og en endring
+i selve motoren bare ett. Rekkefølgen for resten av byttet:
+`docs/dndkit-plan.md`. Nåtilstanden: `docs/drag-and-drop.md`.
 
 **Kildekode** (det som deployes): `index.html`, `styles.css`, `app.js`,
 `icons.js`, `i18n.js`, `theme.js`, `config.js`, `update-check.js`, `assets/`,
 `vendor/`
-(supabase-js som innsjekket, uendret kopi — `docs/sikkerhetsheadere.md`).
+(supabase-js og Smett som innsjekkede, låste kopier —
+`docs/sikkerhetsheadere.md`).
 `dev-mock.js` og
 `mock-backend.js` er testmodus (`?mock=1`) og blir IKKE med i produksjons-
 deployen — `build.js` fjerner både filene og taggen som laster dem. Kun
@@ -99,7 +105,8 @@ npm run android:debug         # samme, og bygg debug-APK (krever Android SDK)
 - Opprettelse og flytting spør FORELDEREN om lov, ikke objektet selv —
   myndigheten ligger på nivået over (`docs/rettigheter-og-deling.md`).
 - Endringer i område-/mappe-UI-et treffer liste-/listepunkt-UI-et og omvendt
-  (delte klasser, delt DnD-motor). Sjekk begge.
+  (delte klasser, delt DnD-politikk). Sjekk begge — og husk at de to scopene har
+  hver sin MOTOR under seg fram til migreringen er ferdig.
 - Valider ved systemgrensene (brukerinput, svar fra Supabase), ikke internt.
 - Endrer du en invariant, oppdater det autoritative dokumentet i `docs/` i samme
   endring. Skriv nåtilstanden, ikke endringshistorikk («siste runde» o.l.) —

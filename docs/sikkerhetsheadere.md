@@ -5,7 +5,7 @@ kode, innramming og eksfiltrering ligger i responsheaderne og i hvilke
 tredjeparter appen i det hele tatt har lov til å snakke med. Filene:
 `vercel.json` (headerne i produksjon), `index.html` (den samme policyen som
 `<meta>`), `styles.css` + `assets/fonts/` (den selvhostede webfonten),
-`vendor/` (den lokale Supabase-kopien), `build.js` (fjerner testmodusen fra
+`vendor/` (de lokale kopiene av Supabase og Smett), `build.js` (fjerner testmodusen fra
 deployen), `tests/security-headers.test.js` + `tests/csp-enforced.test.js`.
 
 ## Hvorfor policyen står to steder
@@ -36,7 +36,7 @@ default-src 'none';
 base-uri 'none';
 object-src 'none';
 script-src 'self' 'sha256-…';
-style-src 'self';
+style-src 'self' 'sha256-…';
 font-src 'self';
 img-src 'self' data: blob:;
 connect-src 'self' https://<prosjekt>.supabase.co wss://<prosjekt>.supabase.co https://huskis.no;
@@ -55,6 +55,7 @@ Hvert unntak fra `'self'` står her fordi appen faktisk trenger det:
 | Unntak | Hvorfor | Hva som skal til for å fjerne det |
 |---|---|---|
 | `script-src 'sha256-…'` | Guarden for kanonisk origin i `index.html` MÅ kjøre inline, før alt annet — se [`domains-and-urls.md`](domains-and-urls.md). En ekstern fil ville kostet en rundtur før redirecten. | flytte guarden til en egen fil og godta forsinkelsen |
+| `style-src 'sha256-…'` | Dra-og-slipp-motoren (dnd-kit, gjennom Smett) injiserer ETT stilark mens et drag pågår: reglene som løfter objektet inn i top layer og posisjonerer det. Uten dem ligger det løftede objektet i normal flyt og følger ikke fingeren. Arket lages i kjøretid, så en fil er ikke et alternativ — en hash av nøyaktig det arket er. Se under. | at dnd-kit slutter å injisere stil (upstream) |
 | `img-src data:` | Avatarbilder lagres som `data:image/jpeg`-URL-er på brukerens profil. | flytte avatarene til Supabase Storage |
 | `img-src blob:` | Avatarredigereren tegner den valgte filen via `URL.createObjectURL` i nettlesere uten `createImageBitmap`. | droppe reserveløsningen |
 | `connect-src wss://…` | Realtime (`postgres_changes`) går over WebSocket. | — (kreves) |
@@ -92,6 +93,34 @@ nøyaktig `/ota/android/(.*)`:
 `tests/release-pipeline.test.js` låser headeren sammen med cache-reglene for de
 samme stiene.
 
+### Stilarket dra-og-slipp-motoren injiserer
+
+dnd-kit legger et `<style>`-element først i `<head>` idet et drag starter, og
+tar det bort igjen etterpå. Innholdet er reglene for `[data-dnd-dragging]` og
+`[data-dnd-placeholder]` — `position: fixed`, `top`/`left` fra egne
+custom-properties, top layer via `popover`. Det er selve posisjoneringen av det
+løftede objektet, og blokkeres arket, blir objektet liggende i flyten uten at
+noe annet feiler: draget «virker», men ingenting følger fingeren.
+
+To ting gjør at det bare er ÉN hash der, ikke tre:
+
+- `Cursor` og `PreventSelection` — to dnd-kit-plugins som injiserer hvert sitt
+  lille ark (`* { cursor: grabbing }` og `* { user-select: none }`) — er meldt
+  av i `app.js`. Huskis maler begge deler selv, fra `body.is-dragging`.
+- Den vendorede kopien av Smett er byte for byte låst (se over), så teksten i
+  arket er den samme hver gang.
+
+Hashen kan ikke regnes ut fra kildekoden: teksten settes sammen inne i
+biblioteket. `tests/csp-enforced.test.js` gjør det i stedet i en ekte nettleser
+— den kjører et EKTE nav-drag, fanger arket motoren injiserte, regner ut
+SHA-256 og krever at akkurat den står i `style-src`. Driver teksten (en ny
+Smett-kopi, en ny dnd-kit-versjon), er det den testen som sier fra. Ny hash
+kommer fra den samme testen; verdien skal inn **begge** steder, meta-taggen i
+`index.html` og `Content-Security-Policy` i `vercel.json`.
+
+`tests/security-headers.test.js` vokter formen: `style-src` skal være eget
+origin pluss nøyaktig én hash, og ingenting annet.
+
 ### Endrer du guarden
 
 Hash-en i `script-src` er SHA-256 av innholdet i inline-blokken, nøyaktig som den
@@ -121,15 +150,16 @@ Alle settes på `source: "/(.*)"`, altså på hver eneste respons.
 Framing er altså umulig: `frame-ancestors 'none'` i CSP-en, med `X-Frame-Options:
 DENY` som reserve. Ingen del av Huskis er ment å vises inne i en annen side.
 
-## Supabase-biblioteket: lokal kopi, eksakt versjon
+## Bibliotekene i `vendor/`: lokale kopier, eksakte versjoner
 
-Biblioteket ligger i repoet, ikke på et CDN:
+Appen har to tredjepartsbiblioteker, og begge ligger i repoet, ikke på et CDN:
 
 ```html
 <script src="vendor/supabase-js-2.111.0.js"></script>
+<script src="vendor/smett-0.1.0.js"></script>
 ```
 
-Filen er en **uendret kopi** av `dist/umd/supabase.js` fra npm-pakken
+Supabase-filen er en **uendret kopi** av `dist/umd/supabase.js` fra npm-pakken
 `@supabase/supabase-js`, og versjonen står i filnavnet. Det gir tre ting på én
 gang: `script-src` trenger ingen eksterne kilder (`'self'` og guard-hash-en er
 hele direktivet), appen laster like godt om et CDN er nede, og
@@ -137,16 +167,32 @@ tredjepartskoden endrer seg bare i en commit her — et flytende `@2` fra et CDN
 kunne gitt hver deploy, og hver reload hos brukeren, en annen versjon enn den
 som ble testet.
 
+Smett-filen — dra-og-slipp-motoren, se [`dndkit-plan.md`](dndkit-plan.md) — er
+det samme opplegget med én forskjell som betyr noe for guarden: **Smett er ikke
+publisert på npm.** Kopien er derfor ikke «det npm leverte», men *det
+`npm run build:iife` gir i `peohol/smett` på en bestemt commit*, og den commit-en
+er en del av påstanden. Uten den finnes det ingen kilde å regne bytene ut fra på
+nytt. Smett pinner esbuild til en eksakt versjon nettopp for at påstanden skal
+holde over tid — en minifiserer kan endre output i en patch-utgivelse, og et
+`^`-spenn ville latt samme kildekode gi en annen fil.
+
+Smett MÅ lastes som et klassisk skript FØR `app.js`: den definerer den globale
+`Smett`, og app.js leser den mens den kjører. Å gjøre `app.js` til et
+modulskript i stedet er ikke et alternativ — et modulskript kjører etter ALLE
+klassiske skript på siden, altså også etter `update-check.js`.
+
 `vercel.json` gir `/vendor/(.*)` langtidscache (`immutable`). Filene der får
 ikke `?b=<build-ID>` som resten av JS-en: versjonen står allerede i navnet, så
 URL-en endrer seg av seg selv når innholdet gjør det.
 
-`tests/security-headers.test.js` regner ut SHA-384 av den innsjekkede filen og
-sammenligner med sjekksummen for den versjonen. En redigert, byttet eller
-uregistrert kopi feiler i CI. Testen slår også fast at `script-src` ikke har
-noen eksterne kilder, og at `index.html` ikke laster skript fra en fremmed vert.
+`tests/security-headers.test.js` regner ut SHA-384 av hver innsjekket fil og
+sammenligner med sjekksummen for den versjonen (`VENDORED`, der hver oppføring
+også sier hvor bytene kommer fra). En redigert, byttet eller uregistrert kopi
+feiler i CI. Testen slår også fast at `script-src` ikke har noen eksterne
+kilder, at `index.html` ikke laster skript fra en fremmed vert, at Smett lastes
+før `app.js`, og at ingen av skriptene er `type="module"`.
 
-**Oppgradering** er fire steg:
+**Oppgradering av Supabase** er fire steg:
 
 ```bash
 V=2.222.0
@@ -170,6 +216,22 @@ Kjør deretter `node tests/security-headers.test.js` og
 `node tests/csp-enforced.test.js`, og verifiser i en preview-deploy at
 `window.supabase.createClient` finnes — en feilstavet sti gir en app som ikke
 kommer forbi innloggingsskjermen.
+
+**Oppgradering av Smett** er de samme stegene, men bytene bygges i stedet for å
+hentes:
+
+```bash
+git -C ../smett fetch && git -C ../smett checkout <commit>
+(cd ../smett && npm ci && npm run build:iife)
+cp ../smett/dist/smett.iife.js "vendor/smett-$V.js"
+git rm "vendor/smett-<gammel versjon>.js"
+openssl dgst -sha384 -binary "vendor/smett-$V.js" | base64 -w0   # → VENDORED.smett.sha384
+```
+
+Både `version` (som må stemme med filnavnet), `origin` (commit-en) og `sha384`
+oppdateres i `VENDORED` i `tests/security-headers.test.js`. `origin` er ikke
+pynt: den er den eneste anvisningen på hvordan sjekksummen kan regnes ut på nytt
+av noen andre enn den som la den inn.
 
 ## Webfonten: selvhostet, ikke Google Fonts
 

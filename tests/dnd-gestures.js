@@ -195,6 +195,17 @@ const lift = (p, at, touch) => (touch ? liftTouch(p, at) : liftMouse(p, at));
  * - **Funksjon** — for et mål som faktisk ikke flytter seg, men som må måles
  *   sent: en søppelkasse, bunnen av en container, et element etter en scroll.
  *
+ * To presiseringer som har kostet tid:
+ *
+ * - **Løftet kan selv endre layouten.** Et LISTE-/OMRÅDE-drag kollapser alle
+ *   kortene idet det starter, så et punkt målt før løftet peker et helt annet
+ *   sted etterpå. Der måles målet ETTER løftet — men fortsatt bare én gang.
+ * - **Sikt på SENTERET av sloten objektet skal ende i**, ikke forbi naboen. Et
+ *   objekt som bytter plass med naboen TAR naboens slot, og naboen tar dens:
+ *   sikter man forbi naboen, ligger punktet etter byttet i sloten under, og
+ *   objektet fortsetter nedover. Senteret av målsloten står stille gjennom
+ *   byttet, og er derfor det ene punktet som uttrykker «hit».
+ *
  * To omganger uansett, fordi board-et kan auto-scrolle under pekeren mens den
  * er underveis.
  */

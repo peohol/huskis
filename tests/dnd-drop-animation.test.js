@@ -5,8 +5,14 @@
      starte fra objektets FAKTISK RENDREDE boks — ikke fra den UKLEMTE
      `drag.lastX - grabX`, som ligger utenfor skjermen når klemmen har slått inn
      (ga et synlig hopp idet man slapp).
-  6. Startskalaen i drop-animasjonen følger objekttypen (dragScale: liste 1.02,
-     listepunkt 1.03, mappe/område 1.05) — ikke en hardkodet 1.02 for alt.
+  6. Løfte-skalaen følger objekttypen — liste 1.02, listepunkt 1.03 — og ikke en
+     hardkodet 1.02 for alt. På hovedsidens board leses den av drop-animasjonens
+     startskala; i nav-modalen, som kjører på dnd-kit (`docs/drag-and-drop.md`),
+     er drop-animasjonen bibliotekets, og skalaen ligger i CSS på
+     `[data-dnd-dragging]`. Der måles derfor det som faktisk MALES under draget:
+     skalaen, og at rotasjonen settes som en EGEN `rotate`-egenskap — dnd-kit
+     skriver `transform` selv, med `!important`, så en rotasjon lagt der ville
+     forsvunnet uten at noe annet feilet.
 
   Gestene er EKTE input (`tests/dnd-gestures.js`).
 
@@ -122,6 +128,15 @@ async function dropAndMeasure(p, sel) {
 
 const scaleIn = (t) => { const m = /scale\(([\d.]+)\)/.exec(t); return m ? parseFloat(m[1]) : null; };
 
+/* Malingen av det løftede objektet i nav-scopet: dnd-kit eier geometrien, vi
+   eier skala og rotasjon — og de må ligge i egenskaper dnd-kit IKKE skriver. */
+const paintOf = (p, sel) => p.evaluate((s) => {
+  const el = document.querySelector(s);
+  if (!el) return null;
+  const cs = getComputedStyle(el);
+  return { scale: cs.scale, rotate: el.style.rotate, position: cs.position };
+}, sel);
+
 const results = [];
 const log = (n, ok, x = '') => { results.push(ok); console.log((ok ? 'PASS' : 'FAIL') + ' — ' + n + (x ? '  [' + x + ']' : '')); };
 
@@ -190,9 +205,18 @@ const log = (n, ok, x = '') => { results.push(ok); console.log((ok ? 'PASS' : 'F
     await G.lift(p, { x: g0.x, y: g0.y }, true);
     // Til venstre, så dra-rotasjonen (og dermed rotate/scale-suffikset) ikke blir 0.
     await G.touchMove(p, g0.x - 90, g0.y + 30); await p.waitForTimeout(120);
-    const rGroup = await dropAndMeasure(p, '#nav-board .item.dragging');
-    log('6 mappe: startskala 1.03', scaleIn(rGroup.transform) === 1.03, 'transform=' + rGroup.transform);
+    const gPaint = await paintOf(p, '#nav-board [data-dnd-dragging]');
+    log('6 mappe: løftes med skala 1.03',
+      !!gPaint && gPaint.scale === '1.03', JSON.stringify(gPaint));
+    log('6 mappe: rotasjonen er en EGEN `rotate`-egenskap, ikke en `transform`',
+      !!gPaint && /^-?[\d.]+deg$/.test(gPaint.rotate), JSON.stringify(gPaint));
+    await G.drop(p, undefined, true);
     await p.waitForTimeout(600);
+    log('6 mappe: dra-malingen er ryddet etter slippet',
+      (await p.evaluate(() => {
+        const el = document.querySelector('#nav-board .items-container > .item');
+        return !!el && !el.style.rotate && !el.hasAttribute('data-dnd-dragging');
+      })) === true);
 
     // OMRÅDE (kort) → samme skala som en liste (1.02)
     for (let i = 0; i < 2; i++) {
@@ -206,8 +230,12 @@ const log = (n, ok, x = '') => { results.push(ok); console.log((ok ? 'PASS' : 'F
     const u0 = await centerOf(p, '#nav-board .card[data-id="' + uIds[0] + '"] .card-head');
     await G.lift(p, { x: u0.x, y: u0.y }, true);
     await G.touchMove(p, u0.x - 90, u0.y + 30); await p.waitForTimeout(120);
-    const rUni = await dropAndMeasure(p, '#nav-board .card.dragging');
-    log('6 område: startskala 1.02', scaleIn(rUni.transform) === 1.02, 'transform=' + rUni.transform);
+    const uPaint = await paintOf(p, '#nav-board [data-dnd-dragging]');
+    log('6 område: løftes med skala 1.02',
+      !!uPaint && uPaint.scale === '1.02', JSON.stringify(uPaint));
+    log('6 område: løftes i top layer (dnd-kits `position: fixed`)',
+      !!uPaint && uPaint.position === 'fixed', JSON.stringify(uPaint));
+    await G.drop(p, undefined, true);
     await p.waitForTimeout(600);
 
     log('6 ingen JS-feil', errs.length === 0, errs.join(' | '));

@@ -13,6 +13,12 @@
     1. Appen laster, logger inn og bygger innhold uten ETT eneste
        securitypolicyviolation — inkludert guarden for kanonisk origin, som
        kjører inline og kun slipper gjennom på hash-en sin.
+    1b. Dra-og-slipp-motoren (dnd-kit, gjennom Smett) injiserer ett stilark
+        mens et drag pågår — det som posisjonerer det løftede objektet i top
+        layer. Et EKTE nav-drag viser at policyen slipper det gjennom, og
+        sjekksummen regnes ut på nytt her fra selve arket: driver teksten fra
+        hashen i `style-src`, feiler dette før noen merker at det løftede
+        objektet ikke lenger følger fingeren.
     2. Oppdateringssjekken får hente /version.json (connect-src 'self').
     2b. OTA-manifestets vert slipper gjennom: et fetch mot det kanoniske
         originet gir IKKE noe connect-src-brudd (docs/mobilapp-plan.md,
@@ -36,7 +42,11 @@
     NODE_PATH=$(npm root -g) node tests/csp-enforced.test.js
 */
 'use strict';
+const fs = require('fs');
+const path = require('path');
+const crypto = require('crypto');
 const { chromium } = require('playwright');
+const G = require('./dnd-gestures.js');
 
 const BASE = process.env.HUSKIS_URL || 'http://localhost:8000';
 
@@ -87,6 +97,17 @@ async function register(p) {
     document.addEventListener('securitypolicyviolation', (e) => {
       window.__csp.push(e.effectiveDirective + ' ← ' + e.blockedURI);
     });
+    // Stilarkene dra-og-slipp-motoren injiserer under et drag. De legges FORAN
+    // i <head> (`prepend`) nettopp for at @layer-erklæringene deres skal ha
+    // lavest prioritet; her fanger vi teksten så sjekksummen kan regnes ut.
+    window.__injectedStyles = [];
+    const prepend = Element.prototype.prepend;
+    Element.prototype.prepend = function (...nodes) {
+      for (const n of nodes) {
+        if (n && n.tagName === 'STYLE') window.__injectedStyles.push(n.textContent);
+      }
+      return prepend.apply(this, nodes);
+    };
   });
 
   /* ---------- 1) Vanlig bruk: ingen brudd ---------- */
@@ -113,9 +134,39 @@ async function register(p) {
   });
   await page.evaluate(() => window.__huskis.openNavModal());
   await page.waitForTimeout(400);
+
+  /* ---------- 1b) Motorens eget stilark under et EKTE drag ---------- */
+  // Løft en mapperad i nav-modalen. Det er løftet som får motoren til å
+  // injisere arket; uten et ekte drag skjer ingenting å måle.
+  const row = '#nav-board .item[data-id="g-csp"]';
+  await G.lift(page, await G.centre(page, row), false);
+  await page.waitForTimeout(150);
+  const lifted = await page.evaluate(() => {
+    const el = document.querySelector('[data-dnd-dragging]');
+    return el ? getComputedStyle(el).position : null;
+  });
+  await G.drop(page, undefined, false);
+  await page.waitForTimeout(300);
+
+  const injected = [...new Set(await page.evaluate(() => window.__injectedStyles))];
+  check('draget injiserte nøyaktig ett stilark', injected.length === 1,
+    injected.map((t) => t.slice(0, 60)));
+  const styleHash = injected.length === 1
+    ? "'sha256-" + crypto.createHash('sha256').update(injected[0], 'utf8').digest('base64') + "'"
+    : null;
+  const policy = /style-src([^;]*);/.exec(
+    fs.readFileSync(path.join(__dirname, '..', 'index.html'), 'utf8')) || [];
+  check('style-src godkjenner nøyaktig det arket motoren injiserte',
+    !!styleHash && (policy[1] || '').indexOf(styleHash) > -1,
+    { regnet: styleHash, policy: (policy[1] || '').trim() });
+  // Beviset på at hashen VIRKER: uten den ville arket blitt blokkert, og det
+  // løftede objektet ville ligget i normal flyt i stedet for i top layer.
+  check('det løftede objektet posisjoneres av arket (position: fixed)',
+    lifted === 'fixed', lifted);
+
   await page.keyboard.press('Escape');
   await page.waitForTimeout(300);
-  check('ingen CSP-brudd etter innlogging, render og modaler',
+  check('ingen CSP-brudd etter innlogging, render, modaler og et drag',
     (await violations(page)).length === 0, await violations(page));
 
   /* ---------- 2) Oppdateringssjekken: /version.json ---------- */

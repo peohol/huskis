@@ -122,10 +122,19 @@ på kontroller — `aria-label`, `title`, `placeholder` og opplesningene i
 `announce()` — kommer fra den samme ordboken som resten av UI-et, så et
 språkbytte treffer dem også. Se `sprak.md`.
 
+Det gjelder også opplesningene UNDER et drag i nav-modalen, som dnd-kit sier
+fram i sitt eget live-område: motoren snakker fra `phrases`, en ordbok vi gir
+den, og hver setning bygges av `tr()` (`dnd.a11y*`). Biblioteket har engelske
+standardsetninger, og ingen av dem når brukeren. Se
+[`drag-and-drop.md`](drag-and-drop.md).
+
 ## Tastatur
 
-Håndtaket er objektets navn-/tittelsone — samme element `attachHoldDrag` får,
-koblet med `attachKeyHandle`. Snarveiene virker på det som har fokus, og står
+Håndtaket er objektets navn-/tittelsone — det samme elementet draget tar tak i,
+koblet med `attachKeyHandle`. Nav-modalens board bygges med `keyboard: false`:
+dnd-kits egen tastatursensor ville kjempet om `Enter`/`Mellomrom`, som på et
+korthode og en mapperad allerede betyr noe annet. Snarveiene under er
+WCAG-alternativet til draget på ALLE nivåer, uansett hvilken motor som drar. Snarveiene virker på det som har fokus, og står
 oppført i konto-modalens Tips-skuff (`.menu-keys`, se `docs/menus.md`).
 
 | Tast | Virkning |

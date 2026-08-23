@@ -10,7 +10,9 @@ og listefunksjonene.
 Nøkkelidé: **områder og mapper bruker nøyaktig samme oppsett som lister og
 listepunkter.** Et område er et `.card`, en mappe en `.item`-rad, en
 mappekategori en `.category`. Dermed arves hele kort-/rad-designet OG hele
-dra-og-slipp-motoren — se `docs/drag-and-drop.md` («Nav-scopet»).
+dra-og-slipp-POLITIKKEN. Selve motoren er en annen her enn på hovedsiden mens
+migreringen pågår: nav-modalen kjøres av dnd-kit — se `docs/drag-and-drop.md`
+(«Nav-scopet kjører på dnd-kit»).
 
 ## Objektmenyen (`.obj-menu-btn` → `#obj-menu`)
 
@@ -196,8 +198,9 @@ Seksjon 3 tegnes som ett **virtuelt områdekort** (`.free-groups-card`,
 et kanonisk område, og beholderen finnes ikke i databasen.
 
 Alle tre seksjonene ligger i den SAMME `.board-col` som områdekortene, som egne
-rader. Dra-og-slipp-motoren hopper over dem (`boardRows` filtrerer på
-`.card`/`.card-placeholder`), så de kan stå der uten å bli dra-mål, og
+rader. Dra-og-slipp hopper over dem (`boardRows` filtrerer på
+`.card`/`.card-placeholder`, og hopper over dnd-kits klone), så de kan stå der
+uten å bli dra-mål, og
 `relayoutBoard` returnerer tidlig for énkolonne-scopet slik at kortene aldri
 flyttes bort fra overskriften sin.
 
