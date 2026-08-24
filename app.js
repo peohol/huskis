@@ -3743,7 +3743,10 @@
       stampContent(obj);
       save();
       if (S === navScope) updateCrumbs();
-      if (onNamed) onNamed();
+      // Introduksjonen har egne «opprett neste punkt»-steg og må fortsatt få
+      // demonstrere ＋-knappen. Uten unntaket ville den automatiske raden både
+      // hoppet over steget og blitt liggende navnløs idet drag-steget begynner.
+      if (onNamed && !demoRunning) onNamed();
     }, { onCancel: discard });
   }
 
