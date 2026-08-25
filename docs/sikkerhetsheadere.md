@@ -167,7 +167,7 @@ tredjepartskoden endrer seg bare i en commit her — et flytende `@2` fra et CDN
 kunne gitt hver deploy, og hver reload hos brukeren, en annen versjon enn den
 som ble testet.
 
-Smett-filen — dra-og-slipp-motoren, se [`dndkit-plan.md`](dndkit-plan.md) — er
+Smett-filen — dra-og-slipp-laget, se [`drag-and-drop.md`](drag-and-drop.md) — er
 det samme opplegget med én forskjell som betyr noe for guarden: **Smett er ikke
 publisert på npm.** Kopien er derfor ikke «det npm leverte», men *det
 `npm run build:iife` gir i `peohol/smett` på en bestemt commit*, og den commit-en

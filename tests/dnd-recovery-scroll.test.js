@@ -9,7 +9,7 @@
       `visibilitychange`) eller en capture-slipp der objektet står i DOM avbryter
       gesten — for liste, listepunkt OG kategori.
   8b. Rives objektet UT av DOM (synk-rebuild), ryddes draget opp: ingen
-      `.dragging`, placeholder, auto-scroll, global cursor eller board-vakt igjen.
+      dra-merke, placeholder, auto-scroll, global cursor eller board-vakt igjen.
   9.  Manuelt window-scroll under listepunkt-/kategori-drag holder objektet under
       pekeren (før: bare lister ble reposisjonert).
   10. Et liste-slipp som allerede er fullt synlig flytter ikke viewporten.
@@ -111,10 +111,9 @@ const dragTopOffset = (p, sel, py) => p.evaluate(({ sel, py }) => {
 const residue = (p) => p.evaluate(() => {
   const dragged = document.querySelector('.card[style*="left"], .item[style*="left"]');
   return {
-    // Begge motorene: den gamle merker med `.dragging`, dnd-kit med
     // `[data-dnd-dragging]`.
-    dragging: document.querySelectorAll('.dragging, [data-dnd-dragging]').length,
-    ph: document.querySelectorAll('.card-placeholder, .item-placeholder, .group-placeholder, .new-list-placeholder, [data-dnd-placeholder]').length,
+    dragging: document.querySelectorAll('[data-dnd-dragging]').length,
+    ph: document.querySelectorAll('.card-placeholder, .new-list-placeholder, [data-dnd-placeholder]').length,
     isDragging: document.body.classList.contains('is-dragging'),
     cursor: getComputedStyle(document.body).cursor,
     inlinePos: dragged ? (dragged.getAttribute('style') || '') : '',
@@ -133,7 +132,7 @@ const log = (n, ok, x = '') => { results.push(ok); console.log((ok ? 'PASS' : 'F
      Fartsnormaliseringen (`frameSteps`: px per 60 Hz-frame, klemt dt) var vår
      egen, og den fulgte med motoren ut — auto-scrollen er dnd-kits `AutoScroller`
      nå, på alle nivåene. At farten er per frame og ikke per millisekund er
-     dermed upstreams sak (`docs/dndkit-plan.md`, risiko 6), og en falsk
+     dermed upstreams sak (`docs/drag-and-drop.md`, «Auto-scroll»), og en falsk
      rAF-klokke måler biblioteket, ikke oss.
 
      Det som fortsatt er VÅRT å vokte er at auto-scrollen i det hele tatt slår
@@ -195,7 +194,7 @@ const log = (n, ok, x = '') => { results.push(ok); console.log((ok ? 'PASS' : 'F
     await p.evaluate(() => {
       window.dispatchEvent(new Event('blur'));
       document.dispatchEvent(new Event('visibilitychange'));
-      const el = document.querySelector('.dragging, [data-dnd-dragging]');
+      const el = document.querySelector('[data-dnd-dragging]');
       if (el) el.dispatchEvent(new PointerEvent('lostpointercapture', { bubbles: true, composed: true, pointerId: 7, pointerType: 'touch' }));
     });
     await p.waitForTimeout(250);
@@ -212,7 +211,7 @@ const log = (n, ok, x = '') => { results.push(ok); console.log((ok ? 'PASS' : 'F
     await pointer(p, 'pointerup', c.x, c.y - 60);
     // Vent på TILSTANDEN: dnd-kits drop-animasjon bærer `[data-dnd-dragging]`
     // helt til den er ferdig.
-    await p.waitForFunction(() => !document.querySelector('.dragging, [data-dnd-dragging]'), null, { timeout: 5000 });
+    await p.waitForFunction(() => !document.querySelector('[data-dnd-dragging]'), null, { timeout: 5000 });
     await p.waitForTimeout(200);
     const r = await residue(p);
     log('8a ' + K.n + ': vanlig slipp rydder opp', r.dragging === 0 && r.ph === 0, JSON.stringify(r));
@@ -243,7 +242,7 @@ const log = (n, ok, x = '') => { results.push(ok); console.log((ok ? 'PASS' : 'F
     await pointer(p, 'pointermove', h.x, 700);
     await p.waitForTimeout(400);
     const r = await residue(p);
-    log('8b ingen .dragging / placeholder igjen', r.dragging === 0 && r.ph === 0, JSON.stringify(r));
+    log('8b ingen dra-merke / placeholder igjen', r.dragging === 0 && r.ph === 0, JSON.stringify(r));
     log('8b global dra-cursor fjernet', r.isDragging === false && r.cursor !== 'grabbing', 'cursor=' + r.cursor);
     log('8b board-vakt + overflowAnchor ryddet',
       r.boardGuard === '|' && r.overflowAnchor === '', 'guard=' + r.boardGuard + ' anchor=' + r.overflowAnchor);

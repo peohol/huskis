@@ -4,7 +4,7 @@
   Alle lister kollapses idet én dras, og kollapsen må skje FØR dnd-kit måler det
   løftede kortet (`beforedragstart`). Men den flytter også kortet man nettopp tok
   tak i, og dnd-kit maler kortet fra der elementet FAKTISK LÅ da det ble målt —
-  ikke fra grepet, slik den gamle motoren gjorde. Board-vakten
+  ikke fra grepet. Board-vakten
   (`boardCollapseCardsForDrag` → min-height + padding-top) gjør derfor to jobber:
 
     1. GREPET HOLDER. `padding-top` legger tilbake nøyaktig det kortet flyttet
@@ -18,11 +18,9 @@
   hylla si ved løft, og en full hylle er lett hundrevis av piksler.
   `boardFreezeForRowDrag` holder board-høyden på samme måte (test 4b).
 
-  Før dnd-kit fantes vakten KUN for punkt 2, og derfor kun på touch/pen i
-  énkolonne-layout. Punkt 1 gjelder overalt, så skillet er borte: vakten er aktiv
-  i begge layouter og for begge inputtyper. Grensen mellom én og flere kolonner
-  (560/561 px) kjøres fortsatt — nå for å vise at grepet holder på begge sider av
-  den. Se `docs/drag-and-drop.md`.
+  Vakten er aktiv i begge layouter og for begge inputtyper. Grensen mellom én og
+  flere kolonner (560/561 px) kjøres for å vise at grepet holder på begge sider
+  av den. Se `docs/drag-and-drop.md`.
 
   Gestene er EKTE input (`tests/dnd-gestures.js`), og liste-draget kjøres av
   dnd-kit: det løftede kortet merkes `[data-dnd-dragging]`, og plassen holdes av
@@ -91,11 +89,11 @@ const guardStyles = (p) => p.evaluate(() => {
   const bd = document.querySelector('.board');
   return { minH: bd.style.minHeight || '', pad: bd.style.paddingTop || '' };
 });
-// `single` = CSS-flagget som slår på normal-flow-vakten; `colCount` = antall
+// `single` = CSS-sidens flagg for énkolonne-modus; `colCount` = antall
 // FAKTISKE kolonner. Kolonnene er egne containere (`.board-col`, fordelt av
 // `relayoutBoard`), ikke CSS multi-column — se docs/board-layout.md.
 const colMode = (p) => p.evaluate(() => ({
-  single: getComputedStyle(document.querySelector('.board')).getPropertyValue('--mobile-dnd-flow-guard').trim() === '1',
+  single: getComputedStyle(document.querySelector('.board')).getPropertyValue('--board-single-column').trim() === '1',
   colCount: String(document.querySelectorAll('.board > .board-col').length),
 }));
 const headRectOf = (p, id) => p.evaluate((id) => {
@@ -200,7 +198,7 @@ const log = (n, ok, x = '') => { results.push(ok); console.log((ok ? 'PASS' : 'F
       const topbar = document.querySelector('.topbar') || document.querySelector('header');
       return {
         order: cards.map((c) => c.dataset.id),
-        dragging: document.querySelectorAll('.dragging, [data-dnd-dragging]').length,
+        dragging: document.querySelectorAll('[data-dnd-dragging]').length,
         ph: document.querySelectorAll('.card-placeholder, [data-dnd-placeholder]').length,
         movedTop: Math.round(r.top), vh: window.innerHeight,
         topbarBottom: Math.round(topbar ? topbar.getBoundingClientRect().bottom : 0),
@@ -254,7 +252,7 @@ const log = (n, ok, x = '') => { results.push(ok); console.log((ok ? 'PASS' : 'F
     await p.waitForFunction(() => !document.querySelector('[data-dnd-dragging]'), null, { timeout: 5000 });
     await p.waitForTimeout(900);
     const after = await p.evaluate(() => ({
-      dragging: document.querySelectorAll('.dragging, [data-dnd-dragging]').length,
+      dragging: document.querySelectorAll('[data-dnd-dragging]').length,
       ph: document.querySelectorAll('.card-placeholder, [data-dnd-placeholder]').length,
       guard: (document.querySelector('.board').style.minHeight || '') + '/' + (document.querySelector('.board').style.paddingTop || ''),
     }));
@@ -279,7 +277,7 @@ const log = (n, ok, x = '') => { results.push(ok); console.log((ok ? 'PASS' : 'F
     const cancel = {
       order: await cardIds(p),
       ...(await p.evaluate(() => ({
-        dragging: document.querySelectorAll('.dragging, [data-dnd-dragging]').length,
+        dragging: document.querySelectorAll('[data-dnd-dragging]').length,
         ph: document.querySelectorAll('.card-placeholder, [data-dnd-placeholder]').length,
       }))),
     };
@@ -424,7 +422,7 @@ const log = (n, ok, x = '') => { results.push(ok); console.log((ok ? 'PASS' : 'F
         transform: moved.style.transform || '', trans: moved.style.transition || '',
         top: Math.round(r.top), vh: window.innerHeight,
         topbarBottom: Math.round(topbar ? topbar.getBoundingClientRect().bottom : 0),
-        dragging: document.querySelectorAll('.dragging, [data-dnd-dragging]').length,
+        dragging: document.querySelectorAll('[data-dnd-dragging]').length,
         ph: document.querySelectorAll('.card-placeholder, [data-dnd-placeholder]').length,
       };
     });

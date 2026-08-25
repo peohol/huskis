@@ -1298,14 +1298,12 @@
      «kort» (`.card`), en mappe en rad (`.item`) og en mappekategori en
      `.category`. `drag.kind` er derfor fortsatt 'card'/'item'/'category' i begge
      scopene; det eneste som skiller dem er hvilket state-tre man slår opp i, hva
-     forelder-/navnefeltene heter, og hvor draget foregår (hovedsidens board med
-     dokument-koordinater + window-scroll, vs. nav-modalens board med viewport-
-     koordinater + modal-scroll). Alt det bor her; `drag.scope` velges ved
+     forelder-/navnefeltene heter, og hvor draget foregår (hovedsidens board vs.
+     nav-modalens board i menymodalen). Alt det bor her; `drag.scope` velges ved
      dragstart ut fra hvilket board det løftede elementet ligger i. */
   const boardScope = {
     key: 'board',
     contKind: 'card', rowKind: 'item',
-    pageCoords: true,                 // absolutt posisjonering i dokument-koordinater
     get root() { return board; },
     containers: () => activeCards(),
     findContainer: (id) => findCard(id) || null,
@@ -1343,7 +1341,6 @@
   const navScope = {
     key: 'nav',
     contKind: 'universe', rowKind: 'group',
-    pageCoords: false,                // fast posisjonering (modalen scroller, ikke vinduet)
     get root() { return navBoard; },
     singleColumn: true,               // nav-modalen har alltid én kolonne
     containers: () => visibleUniverses(),
@@ -1386,7 +1383,6 @@
     reindexColors: () => reindexContainerColors(navScope),
     lockedTargetMsg: tr('dnd.universeLocked'),
   };
-  const scopeForEl = (el) => (el && navBoard.contains(el) ? navScope : boardScope);
   const dragScope = () => drag.scope || boardScope;
 
   /* ---------------- Render ---------------- */
@@ -2647,8 +2643,9 @@
      overskriftslinjen (ikke tittel/tannhjul/oppløs/＋) folder `.cat-items` (og
      ＋-knappen) sammen. MOMENTANT (ingen animasjon, som liste-rullgardinen).
      Lukketilstanden (`cat.collapsed`, et element-felt) lagres/synkes i DB.
-     `collapseCategory`/`expandCategory` (lenger nede) er en EGEN, animert variant
-     som brukes UNDER kategori-draging — ikke å forveksle med disse. */
+     `dndCollapseCategory`/`dndSettleCategory`/`expandCategory` (lenger nede) er
+     en EGEN variant som brukes UNDER kategori-draging — ikke å forveksle med
+     disse. */
   function collapseCatBody(catEl) {
     const inner = catEl.querySelector('.cat-items');
     if (!inner) return;
@@ -2903,7 +2900,7 @@
     b.type = 'button';
     b.className = 'meta-chip ' + cls;
     // Chipene er egne knapper i korthodets dra-sone: et tregt trykk skal åpne
-    // dem, ikke løfte lista (`HOLD_SKIP` i den gamle motoren).
+    // dem, ikke løfte lista (`data-dnd-ignore`, som dnd-kit leser).
     b.dataset.dndIgnore = '';
     return b;
   }
@@ -3169,11 +3166,6 @@
   function appendToItemsEnd(cont, node) {
     const anchor = itemsEndAnchor(cont);
     if (anchor) cont.insertBefore(node, anchor); else cont.appendChild(node);
-  }
-  // Er `node` allerede på siste plass blant listepunktene (samme forbehold)?
-  function isAtItemsEnd(cont, node) {
-    const anchor = itemsEndAnchor(cont);
-    return anchor ? anchor.previousElementSibling === node : cont.lastElementChild === node;
   }
 
   // Oppløs en kategori: radene beholder rekkefølge og «arver» kategoriens plass i
@@ -3707,8 +3699,8 @@
     input.type = 'text';
     input.className = 'edit-input' + (opts.cls ? ' ' + opts.cls : '');
     // Navnefeltet ligger midt i dra-sonen (korthodet, raden, kategorioverskriften),
-    // og et hold der ville blokkert caret-plassering og markering. Den gamle
-    // motoren uttrykte det med `HOLD_SKIP`; dnd-kit leser `data-dnd-ignore`.
+    // og et hold der ville blokkert caret-plassering og markering. `data-dnd-ignore`
+    // holder dnd-kits sensor unna.
     input.dataset.dndIgnore = '';
     input.value = current;
     displayEl.replaceWith(input);
@@ -3763,35 +3755,39 @@
   }
 
   /* ============================================================
-     DRA-OG-SLIPP-MOTOR
-     Kort og elementer bytter plass når de overlapper et annet
-     kort/element med minst 20 % av høyden. For å unngå flimring er
-     byttet retningsstyrt: nedover-drag bytter kun med kortet under,
-     oppover-drag kun med kortet over. Bytter animeres med FLIP (150 ms).
-     Kryss-kolonne / overføring mellom kort skjer når dra-elementet
-     føres inn i en annen kolonne/kategori.
-     Spesialtilfelle: hvis ingen kolonne har mer enn ett kort (alle
-     kategorier ligger på samme horisontale rad), er vertikalt bytte
-     umulig — da gjelder i stedet en tilsvarende 20 %-regel for
-     bredde-overlapp, retningsstyrt mot venstre/høyre.
+     DELT DnD-POLITIKK
+     ------------------------------------------------------------
+     Selve draget — aktivering, løft, plassering, auto-scroll, drop-
+     animasjon — er dnd-kits, gjennom Smett. Alle fem nivåene kjøres av de fire
+     board-ene lenger nede, to per scope («NAV-SCOPET PÅ dnd-kit»,
+     «BOARD-SCOPETS KORTNIVÅ …», «BOARD-SCOPETS RADNIVÅ …»).
+
+     Her ligger det som er VÅRT: hva et drag BETYR. Det er én samling regler,
+     DELT av alle fem nivåene og av begge scopene — en endring her treffer
+     både hovedsiden og nav-modalen:
+
+       • `drag` — den ene posten om draget som pågår, fylt fra dnd-kits
+         `dragOperation` (`dndSyncIntent`). Alt under leser den.
+       • «hvilken liste er objektet i» — `dragOverCard`/`cardBand` med sine
+         1/3-terskler og sin hukommelse, og `noteOverShift`-slarken.
+       • peek: et kollapset mål åpnes MIDLERTIDIG når man blir værende over
+         det (`updatePeek`, `setPeekLayer`, `resolvePeekOnDrop`).
+       • skillelinjene under draget (`applyDragSeparators`, `sepRows`).
+       • ekstrahering til en ny container (`makeNewListPlaceholder`,
+         `placeNewListPlaceholder`, `extractRowToNewContainer`).
+       • søppelkassen som slippmål (`armDragTrash` … `dropIntoTrash`).
+       • slippets ettervirkninger: ny `pos` (`rowPos`), `move_group`-RPC-en
+         (`commitGroupMove`), reconcile, farger, `finishDrag`.
+
+     Tallene politikken bruker (bytte-terskel, anti-flimring, hold-tid,
+     museavstand) er Smetts standardverdier — de ER Huskis' egne tall, og
+     står dokumentert i `docs/drag-and-drop.md`.
      ============================================================ */
 
-  const SWAP_RATIO = 0.2; // 20 % høydeoverlapp utløser bytte
   const FLIP_MS = 150;
   // Teller vellykkede slipp (se finishDrag). Leses av demoen, som har steg der
   // selve slippet ER handlingen.
   let dropSeq = 0, dragRolledBack = false;
-  // Anti-flimring: rett etter et bytte ligger geometrien ofte slik at det motsatte
-  // byttet straks trigges igjen (naboen har nettopp relokert via FLIP) → objektene
-  // hopper frem og tilbake. To milde tiltak gjelder KUN reverseringen av forrige
-  // bytte (samme nabo, motsatt side); vanlige (fremover) bytter er urørt:
-  //  1) Tidslås (SWAP_LOCK_MS): reverseringen blokkeres et kort vindu etter byttet.
-  //  2) Overlapp-hysterese (SWAP_REV_RATIO): reverseringen krever mer overlapp
-  //     (50 %) enn et vanlig bytte (SWAP_RATIO, 20 %), så to objekter ikke bytter
-  //     tilbake ved bare såvidt-berøring — men fortsatt tydelig mindre enn full
-  //     senter-kryssing (som overskjøt inn i NESTE element).
-  const SWAP_LOCK_MS = 300;
-  const SWAP_REV_RATIO = 0.5;
   // Drar man et listepunkt (eller en kategori) OVER en kollapset liste/kategori og
   // BLIR VÆRENDE der i PEEK_MS, åpnes målet MIDLERTIDIG så man ser hvor det vil
   // lande. Flytter man videre uten å slippe, kollapses målet tilbake. Se peek-blokken.
@@ -3799,29 +3795,6 @@
 
   const drag = { active: false };
 
-  /* ------- Geometri-hjelpere ------- */
-  function vOverlap(a, b) {
-    return Math.max(0, Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top));
-  }
-  function hOverlap(a, b) {
-    return Math.max(0, Math.min(a.right, b.right) - Math.max(a.left, b.left));
-  }
-  function hOverlapFrac(a, b) {
-    return hOverlap(a, b) / Math.max(1, Math.min(a.width, b.width));
-  }
-  function vOverlapFrac(a, b) {
-    return vOverlap(a, b) / Math.max(1, Math.min(a.height, b.height));
-  }
-  // Sant når ingen to kort deler kolonne (>= 50 % horisontal overlapp),
-  // altså at kortene ligger på én enkelt horisontal rad.
-  function isSingleRowLayout(rects) {
-    for (let i = 0; i < rects.length; i++) {
-      for (let j = i + 1; j < rects.length; j++) {
-        if (hOverlapFrac(rects[i], rects[j]) >= 0.5) return false;
-      }
-    }
-    return true;
-  }
   // Layout-boks uten evt. pågående FLIP-transform, så treffdeteksjon er stabil
   // selv mens kort animerer på plass.
   function layoutRect(el) {
@@ -3837,20 +3810,6 @@
         };
       } catch (e) { /* faller tilbake til r */ }
     }
-    return r;
-  }
-  // Elementets FAKTISKE layout-boks (posisjon + størrelse) uten en evt. egen
-  // transform. `getBoundingClientRect` på et rotert/skalert element gir den
-  // ROTERTE omslutningsboksen — bredere og høyere enn boksen elementet ligger i —
-  // så en måling under draging (dra-rotasjon) eller under en `.drag-hold`-
-  // trykkskala må nøytralisere transformen først.
-  function untransformedRect(el) {
-    const prevT = el.style.transform, prevTr = el.style.transition;
-    el.style.transition = 'none';
-    el.style.transform = 'none';
-    const r = el.getBoundingClientRect();
-    el.style.transform = prevT;
-    el.style.transition = prevTr;
     return r;
   }
   // Dra-elementets logiske boks ut fra pekerposisjon (urørt av rotasjon/skala).
@@ -3887,13 +3846,12 @@
     prev.forEach((old, el) => {
       if (!el.isConnected) return;
       // ALDRI FLIP en FORFAR til det løftede objektet: et transformert element
-      // blir containing block for sine absolutt posisjonerte etterkommere, så
-      // dra-elementets dokument-koordinater (dragPos*) ville plutselig blitt
-      // tolket relativt til forfaren — objektet hopper vekk fra fingeren og
-      // langt ut til siden (helt ut av viewporten når kortet står i en høyre
-      // kolonne). Skjer f.eks. når et listepunkt dras ut i board-lufta:
-      // ny-liste-placeholderen omrokkerer kortene, og kilde-kortet er en forfar.
-      // Slike forfedre snapper på plass uten tween i stedet.
+      // blir containing block for sine absolutt posisjonerte etterkommere, og
+      // en `::before`-skillelinje eller annen absolutt plassering i draget ville
+      // plutselig blitt tolket relativt til forfaren. Skjer f.eks. når et
+      // listepunkt dras ut i board-lufta: ny-liste-placeholderen omrokkerer
+      // kortene, og kilde-kortet er en forfar. Slike forfedre snapper på plass
+      // uten tween i stedet.
       if (drag.active && drag.el && el !== drag.el && el.contains(drag.el)) return;
       const now = el.getBoundingClientRect();
       const dx = old.left - now.left;
@@ -3915,412 +3873,6 @@
     });
   }
 
-  /* ------- Felles start / bevegelse / slutt ------- */
-  /* ---------------- Trykk-og-hold / dra → dra-og-slipp ----------------
-     Dra-håndtakene er fjernet. Draging inviteres på objektets navn-/tittelsone
-     (ikke på knappene, `except`-selektoren). To modi etter inn-enhet:
-     - **Touch/pen (mobil)**: trykk og HOLD (HOLD_MS) løfter objektet. Beveger
-       fingeren seg mer enn HOLD_MOVE px før holdet er fullført, tolkes det som
-       scroll/sveip og holdet avbrytes (siden scroller da nativt). Nødvendig for
-       å skille draging fra scrolling på en berøringsskjerm.
-     - **Mus (desktop)**: INGEN delay — draget starter idet pekeren beveger seg
-       forbi HOLD_MOVE_MOUSE px med knappen nede (klassisk desktop-drag). På
-       desktop er det ingen konflikt mellom scroll og drag, så et hold trengs ikke.
-     Avstanden måles EUKLIDSK fra nedtrykkspunktet (kvadrert, ingen rot), så en
-     diagonal bevegelse teller like mye som en akse-parallell.
-     Et rent klikk (ingen bevegelse) gjør fortsatt det klikket pleide (omdøp/
-     bytt/kryss/kollaps); et fullført drag undertrykker det påfølgende klikket.
-     `startDrag` er den vanlige peker-drag-starteren; vi gir den et syntetisk
-     event med pekerinfoen fra pointerdown (knappen er fortsatt nede, så
-     pointerId-en er aktiv → setPointerCapture i beginDragCommon virker på
-     `dragEl`) — men med SISTE kjente koordinater, ikke pointerdown-punktet, så
-     objektet ikke rykker tilbake dit idet det løftes. */
-  const HOLD_MS = 200;
-  // Aktiveringsterskel (euklidsk avstand fra pointerdown). Touch/pen trenger
-  // slark for at et hold ikke skal avbrytes av fingerens naturlige vandring;
-  // mus har ingen slik vandring, så en lavere terskel gir et mer umiddelbart
-  // desktop-drag uten å gjøre et vanlig klikk til et drag.
-  const HOLD_MOVE = 10;
-  const HOLD_MOVE_MOUSE = 5;
-  // Interaktive/redigerbare etterkommere som ALDRI skal starte et drag, selv om
-  // de ligger i dra-sonen (i tillegg til per-sone-`except`): den inline
-  // redigereren (`editText` → `.edit-input`, hvor et hold ville blokkert caret-
-  // plassering/markering) og meta-chipene (`fillMetaRow` → `.meta-chip`, egne
-  // hurtigredigerings-knapper — et tregt trykk skal åpne dem, ikke løfte kortet).
-  const HOLD_SKIP = '.edit-input, .meta-chip';
-  function attachHoldDrag(zone, dragEl, startDrag, canDrag, except) {
-    let timer = null, held = false, sx = 0, sy = 0, pid = null, mouse = false;
-    // Siste kjente pekerposisjon/-tilstand MENS aktiveringen er armert. Draget
-    // starter her, ikke i pointerdown-punktet: på touch rekker fingeren å vandre
-    // i løpet av holdet, og på mus har pekeren pr. definisjon flyttet seg forbi
-    // terskelen. Startet vi i nedtrykkspunktet, ville objektet rykke tilbake dit
-    // idet det løftes (grabX/grabY måles mot start-koordinatene).
-    let cx = 0, cy = 0, primary = true;
-    function disarm() {
-      if (timer) { clearTimeout(timer); timer = null; }
-      dragEl.classList.remove('drag-hold');
-      window.removeEventListener('pointermove', onMove);
-      window.removeEventListener('pointerup', onUp);
-      window.removeEventListener('pointercancel', onUp);
-    }
-    function startNow() {
-      disarm();
-      // Sjekk forutsetningene på nytt AKKURAT nå — mellom pointerdown og dette
-      // øyeblikket kan alt ha endret seg: en synk-rebuild kan ha byttet ut noden
-      // (peker-lytterne sitter da på den nye), objektet kan ha blitt låst/flyttet
-      // (canDrag), et annet drag kan ha startet, eller pekeren kan ha blitt
-      // sekundær (multitouch).
-      if (!dragEl.isConnected || !canDrag() || drag.active || !primary) return;
-      held = true;
-      startDrag({ button: 0, clientX: cx, clientY: cy, pointerId: pid,
-        pointerType: mouse ? 'mouse' : 'touch', target: dragEl, preventDefault() {} }, dragEl);
-    }
-    function onMove(ev) {
-      if (ev.pointerId !== pid) return;
-      cx = ev.clientX; cy = ev.clientY;
-      if (ev.isPrimary === false) primary = false;
-      // Euklidsk avstand (kvadrert — ingen rot nødvendig): en diagonal bevegelse
-      // skal telle like mye som en akse-parallell, ikke kreve terskelen på hver
-      // akse hver for seg.
-      const lim = mouse ? HOLD_MOVE_MOUSE : HOLD_MOVE;
-      const dx = cx - sx, dy = cy - sy;
-      if (dx * dx + dy * dy <= lim * lim) return;
-      // Mus: bevegelse forbi terskelen STARTER draget (ingen delay). Touch/pen:
-      // bevegelse FØR holdet er fullført = scroll/sveip → avbryt.
-      if (mouse) startNow(); else disarm();
-    }
-    function onUp(ev) { if (ev.pointerId === pid) disarm(); }
-    zone.addEventListener('pointerdown', (ev) => {
-      held = false;
-      if (ev.button != null && ev.button !== 0) return;
-      if (ev.isPrimary === false) return; // sekundær peker (multitouch) starter aldri et drag
-      if (!canDrag()) return;
-      if (ev.target.closest(HOLD_SKIP)) return;
-      if (except && ev.target.closest(except)) return;
-      ev.preventDefault(); // ingen tekstmarkering/fokus mens man holder/drar
-      sx = cx = ev.clientX; sy = cy = ev.clientY; pid = ev.pointerId;
-      primary = true;
-      mouse = ev.pointerType === 'mouse';
-      // Press-feedback (scale) kun på touch/pen der holdet faktisk tar tid; på
-      // mus starter draget umiddelbart på bevegelse, så et press-blink ved hvert
-      // klikk ville bare distrahert.
-      if (!mouse) dragEl.classList.add('drag-hold');
-      // Lytt på WINDOW (ikke bare zone): før draget er fanget kan pekeren flyttes/
-      // slippes UTENFOR sonen; da ville zone-lyttere aldri fyre og timeren startet
-      // et drag etter at knappen alt var sluppet. Fjernes idet draget starter/avbrytes.
-      window.addEventListener('pointermove', onMove);
-      window.addEventListener('pointerup', onUp);
-      window.addEventListener('pointercancel', onUp);
-      // Touch/pen: hold-timer. Mus: ingen timer — onMove starter draget på bevegelse.
-      if (!mouse) timer = setTimeout(() => { timer = null; startNow(); }, HOLD_MS);
-    });
-    // Undertrykk klikket (omdøp/bytt/kryss/kollaps) som ellers ville fulgt et
-    // fullført drag. Capture + stopImmediatePropagation stopper også lyttere på
-    // samme element (f.eks. rad-aktivering på mappe-/område-radene).
-    zone.addEventListener('click', (ev) => {
-      if (held) { ev.stopImmediatePropagation(); ev.preventDefault(); held = false; }
-    }, true);
-  }
-
-  // Blokkér native scroll mens et drag pågår (fingeren startet på en sone med
-  // normal touch-action, så vi kan ikke la nettleseren panorere når draget først
-  // er i gang). Ikke-passiv, så preventDefault faktisk stopper scrollingen.
-  function preventTouchScroll(e) { if (drag.active && e.cancelable) e.preventDefault(); }
-
-  function beginDragCommon(ev, el) {
-    ev.preventDefault();
-    // Mål boksen UTEN en evt. `.drag-hold`-skalering: på touch legges en liten
-    // trykk-feedback-skala (scale .98) på under holdet, og den kan fortsatt tone ut
-    // idet draget starter. En skalert getBoundingClientRect ga en placeholder ~10 px
-    // for lav → board-et krympet ved løft → en 10 px scroll-klemme (som på mobil kan
-    // avbryte touch-en). Nøytraliser transformen for selve målingen og gjenopprett
-    // etterpå (start*Drag setter drag-transformen straks etter uansett).
-    const rect = untransformedRect(el);
-    drag.scope = scopeForEl(el); // hovedsidens board eller nav-modalens board
-    drag.el = el;
-    drag.width = rect.width;
-    drag.height = rect.height;
-    drag.grabX = ev.clientX - rect.left;
-    drag.grabY = ev.clientY - rect.top;
-    drag.pointerId = ev.pointerId;
-    drag.lastX = ev.clientX;
-    drag.lastY = ev.clientY;
-    drag.active = true;
-    // Opprinnelig DOM-plassering (FØR placeholderen settes inn): brukes av
-    // on*Cancel for å føre elementet tilbake uten å beregne ny pos/lagre. Under
-    // draging flyttes kun placeholderen — elementet blir liggende i denne sloten —
-    // så dette er også dets faktiske posisjon, men vi registrerer den eksplisitt.
-    drag.origParent = el.parentNode;
-    drag.origNext = el.nextSibling;
-    drag.recentSwap = null; // anti-flimring nullstilles per drag (se SWAP_LOCK_MS/SWAP_REV_RATIO)
-    drag.card = null;       // kilde-/sonekort (settes av startCategoryDrag); nullstilt så en
-                            // stale kategori-verdi ikke lekker inn i et påfølgende listepunkt-drag
-    drag.peekCard = null;   // midlertidig peek-åpnet liste under draget (se peek-blokken)
-    drag.peekCat = null;    // midlertidig peek-åpnet kategori under draget
-    drag.overCard = el.closest('.card'); // lista objektet «er i» (1/3-hysterese, se dragOverCard)
-    drag.overGrace = 0;     // slark for stickiness-en, satt av selve modusbyttet (noteOverShift)
-    try { ev.target.setPointerCapture(ev.pointerId); } catch (e) {}
-    document.body.classList.add('is-dragging');
-    // Slå av nettleserens scroll-anchoring mens draget pågår: den ville ellers
-    // justert scroll-posisjonen brått når board-et krymper (liste-kollaps).
-    document.documentElement.style.overflowAnchor = 'none';
-    window.addEventListener('touchmove', preventTouchScroll, { passive: false });
-    // Hold det løftede objektet under pekeren om SIDEN scroller uten at vi gjorde
-    // det (momentum, kollaps-klemme, tastatur, en synk-rebuild som endrer høyden).
-    // Gjelder alle dokument-koordinat-drag (kort/listepunkt/kategori) — mappe/
-    // område dras `fixed` i en modal og påvirkes ikke av window-scroll.
-    // Reagerer KUN (reposisjonerer); den scroller aldri selv.
-    window.addEventListener('scroll', onDragScroll, { passive: true });
-  }
-  // Ren reposisjonering (to style-skrivinger, ingen layout-lesing) → trygg å kjøre
-  // synkront per scroll-event. Plasseringen re-evalueres IKKE her: pekeren har
-  // ikke flyttet seg, og auto-scroll-loopen gjør allerede den jobben én gang per
-  // animasjonsframe når det er VI som scroller.
-  function onDragScroll() {
-    if (drag.active && drag.el && dragUsesPageCoords()) moveElement();
-  }
-
-  // Posisjonen dra-elementet skal få via style.left/top.
-  // Kort/element/kategori dras på selve board-et (window kan være scrollet) og
-  // er `position: absolute` → DOKUMENT-koordinater (peker + window-scroll). Det
-  // unngår en iOS-WebKit-bug der et `position: fixed`-element SOM HAR en transform
-  // legges relativt til dokumentet og «scroller vekk» fra fingeren (kortet hopper
-  // rett opp, ofte forbi viewporten, idet man tar tak). Mappe/område dras i en
-  // modal og er fortsatt `position: fixed` (viewport-koordinater) — der endres
-  // aldri window-scroll mens draget pågår, så de rammes ikke av buggen.
-  function dragUsesPageCoords() {
-    return dragScope().pageCoords;
-  }
-  // Skalaen det løftede objektet males med (start*Drag/on*Move setter
-  // `rotate(…) scale(…)`, og CSS setter samme verdi i hvile-regelen): lister
-  // 1.02, listepunkt/kategori 1.03, mappe/område 1.05.
-  function dragScale() {
-    return drag.kind === 'card' ? 1.02 : 1.03;
-  }
-  // Halvparten av den FAKTISK RENDREDE boksen (skala + maks rotasjon) langs hver
-  // akse — transformen maler noen piksler utenfor layout-boksen.
-  function dragRenderedHalf() {
-    const rad = MAX_ROT * Math.PI / 180, s = dragScale();
-    const c = Math.cos(rad), sn = Math.sin(rad);
-    return {
-      x: s * ((drag.width / 2) * c + (drag.height / 2) * sn),
-      y: s * ((drag.width / 2) * sn + (drag.height / 2) * c),
-    };
-  }
-  // Klem en akse slik at hele den rendrede boksen holder seg innenfor viewporten
-  // (0..extent). Er objektet større enn viewporten langs aksen, sentreres det.
-  function clampToViewport(base, size, half, extent) {
-    const lo = half - size / 2;             // objektets kant treffer 0
-    const hi = extent - size / 2 - half;    // objektets kant treffer `extent`
-    return hi > lo ? Math.max(lo, Math.min(base, hi)) : (lo + hi) / 2;
-  }
-  // Det løftede objektet holdes ALLTID innenfor viewporten på begge akser: det
-  // finnes ingen grunn til å dra noe utenfor skjermen, og et objekt som stikker ut
-  // utvider sidens scroll-område (horisontal scrollbar — og på iOS WebKit forskyves
-  // da høyre-forankrede `position: fixed`-elementer som kontoknappen). Klemmen slår
-  // kun inn helt ute ved kanten, så den er usynlig for vanlig reorder/kolonnebytte.
-  /* Klemmen går mot det BRUKBARE feltet, ikke mot skjermkanten: med
-     `viewport-fit=cover` er hakkets og gestelinjens piksler en del av
-     `innerWidth`/`innerHeight`, og et løftet objekt som stopper der ville lagt
-     seg delvis under dem — mens board-et det kom fra står innenfor. Sonen er 0
-     i en nettleser, så klemmen regner ut nøyaktig det samme som før der. */
-  function dragPosLeft() {
-    const safe = safeInsets();
-    const vw = (window.innerWidth || document.documentElement.clientWidth || 0) - safe.left - safe.right;
-    const half = dragRenderedHalf().x;
-    const left = clampToViewport(drag.lastX - drag.grabX - safe.left, drag.width, half, vw) + safe.left;
-    return left + (dragUsesPageCoords() ? window.scrollX : 0);
-  }
-  function dragPosTop() {
-    const safe = safeInsets();
-    const vh = (window.innerHeight || document.documentElement.clientHeight || 0) - safe.top - safe.bottom;
-    const half = dragRenderedHalf().y;
-    const top = clampToViewport(drag.lastY - drag.grabY - safe.top, drag.height, half, vh) + safe.top;
-    return top + (dragUsesPageCoords() ? window.scrollY : 0);
-  }
-
-  function liftElement() {
-    const el = drag.el;
-    el.style.width = drag.width + 'px';
-    el.style.height = drag.height + 'px';
-    el.style.left = dragPosLeft() + 'px';
-    el.style.top = dragPosTop() + 'px';
-    el.classList.add('dragging');
-  }
-
-  function moveElement() {
-    const el = drag.el;
-    el.style.left = dragPosLeft() + 'px';
-    el.style.top = dragPosTop() + 'px';
-  }
-
-  function wouldMove(ph, refEl, pos) {
-    if (refEl === ph) return false;
-    if (pos === 'before') return refEl.previousElementSibling !== ph;
-    return refEl.nextElementSibling !== ph; // 'after'
-  }
-  // Placeholderen legges alltid i REFERANSERADENS egen container. På board-et er
-  // det kolonnen ref ligger i — «nederst i kolonne 1» og «øverst i kolonne 2» er
-  // samme plass i rekkefølgen, men to ulike containere, og placeholderen skal
-  // vises der man faktisk siktet.
-  function placePlaceholder(ph, refEl, pos) {
-    const cont = refEl.parentNode;
-    if (pos === 'before') cont.insertBefore(ph, refEl);
-    else cont.insertBefore(ph, refEl.nextElementSibling);
-  }
-
-  // Anti-flimring (se SWAP_LOCK_MS/SWAP_REV_RATIO): et bytte plasserer
-  // placeholderen foran/bak et nabo-element; det direkte omvendte er samme nabo
-  // med motsatt side. Vanlige (fremover) bytter beholder den ivrige 20 %-terskelen;
-  // REVERSERINGEN av siste bytte blokkeres (a) i et kort tidsvindu etter byttet, og
-  // (b) til overlappen mot naboen når SWAP_REV_RATIO (50 %) — begge milde, så en
-  // bevisst tilbakeføring fortsatt virker uten å måtte overskyte inn i neste
-  // element. Aksen (V-overlapp vs H-overlapp) velges etter hvor nabo og dra-senter
-  // er mest adskilt (vertikale lister → Y; horisontal kort-rad → X).
-  function swapReversesRecent(action) {
-    const rs = drag.recentSwap;
-    if (!rs || !action.ref || action.ref.dataset.id !== rs.refId) return false;
-    const isReverse = (action.pos === 'before' && rs.pos === 'after') ||
-                      (action.pos === 'after' && rs.pos === 'before');
-    if (!isReverse) return false;
-    if (performance.now() - rs.t < SWAP_LOCK_MS) return true; // tidslås
-    const dr = draggedRect(), nr = layoutRect(action.ref);
-    const vertical = Math.abs((nr.top + nr.height / 2) - (dr.top + dr.height / 2)) >=
-                     Math.abs((nr.left + nr.width / 2) - (dr.left + dr.width / 2));
-    const frac = vertical ? vOverlap(dr, nr) / nr.height : hOverlap(dr, nr) / nr.width;
-    return frac < SWAP_REV_RATIO; // for lite overlapp → blokkér reverseringen
-  }
-  function recordSwap(action) {
-    drag.recentSwap = { refId: action.ref ? action.ref.dataset.id : null, pos: action.pos, t: performance.now() };
-  }
-
-  /* ------- Autoritativ SLUTTPLASSERING ved pointerup -------
-     Den løpende plasseringen er retningsstyrt (20 %-overlapp + anti-reverserings-
-     lås) og drives av `pointermove`. Men den siste bevegelsen før et slipp kan
-     være koalescert bort eller helt utelatt (rask gest, eller en peker som bare
-     hoppet fra nedtrykk til slipp), så placeholderen kan stå igjen fra NEST siste
-     bevegelse. Ved slippet kjører vi derfor én siste, REN SENTERBASERT
-     plassering fra de faktiske slipp-koordinatene: ingen retning (det finnes
-     ingen ved et hopp), ingen 20 %-terskel og ingen anti-reverseringslås —
-     slipp-punktet ER brukerens tydelige sluttintensjon, og et raskt slipp skal
-     lande der og ikke ett hakk unna. */
-  function centerPlaceRows(rows, rects, horizontal) {
-    const ph = drag.ph;
-    if (!ph || !rows.length) return;
-    const d = draggedRect();
-    const c = horizontal ? d.left + d.width / 2 : d.top + d.height / 2;
-    const key = (r) => (horizontal ? r.left + r.width / 2 : r.top + r.height / 2);
-    const sorted = rows.slice().sort((a, b) => key(rects.get(a)) - key(rects.get(b)));
-    let ref = null;
-    for (const el of sorted) if (c < key(rects.get(el))) { ref = el; break; }
-    const action = ref ? { ref, pos: 'before' } : { ref: sorted[sorted.length - 1], pos: 'after' };
-    if (!wouldMove(ph, action.ref, action.pos)) return;
-    const snap = snapshotRects(rows);
-    placePlaceholder(ph, action.ref, action.pos);
-    flipFrom(snap, FLIP_MS);
-    recordSwap(action);
-  }
-
-  // Animer dra-elementet fra flytende posisjon inn i placeholder-sloten.
-  // rot = grader kortet skal starte rotert i (0/false for kategorier → ingen
-  // spin/skala, se under).
-  // `fromRect` = allerede målt dra-boks (for kallere som må rydde dra-stilene
-  // før de kaller hit — onCardUp måler slot-posisjonen sin i mellomtiden).
-  function dropIntoPlaceholder(el, rot, fromRect) {
-    const reduced = prefersReducedMotion();
-    // Startpunktet er objektets FAKTISKE boks der det står malt, mens det fortsatt
-    // er `.dragging` — ikke den uklemte `drag.lastX - grabX`/`lastY - grabY`. Den
-    // uklemte posisjonen ligger utenfor viewporten så snart klemmen
-    // (clampToViewport) har slått inn, og animasjonen startet da et sted objektet
-    // aldri var malt → et synlig hopp idet man slapp ved/utenfor kanten.
-    const from = reduced ? null : (fromRect || untransformedRect(el));
-    const scale = dragScale();
-    el.classList.remove('dragging');
-    el.style.left = el.style.top = el.style.width = el.style.height = '';
-    el.style.transform = ''; // fjern evt. dynamisk drag-rotasjon før vi måler hvileposisjonen
-    if (reduced) return;   // ingen drop-tween ved redusert bevegelse
-    const now = el.getBoundingClientRect();
-    const dx = from.left - now.left;
-    const dy = from.top - now.top;
-    el.style.transition = 'none';
-    // Skalaen følger objekttypen (dragScale: liste 1.02, listepunkt 1.03,
-    // mappe/område 1.05) — en hardkodet 1.02 ga et synlig krymp i starten av
-    // drop-animasjonen for alt annet enn lister.
-    el.style.transform = `translate(${dx}px, ${dy}px)${rot ? ` rotate(${rot}deg) scale(${scale})` : ''}`;
-    void el.offsetWidth;
-    requestAnimationFrame(() => {
-      el.style.transition = `transform ${FLIP_MS}ms cubic-bezier(.2,.75,.3,1)`;
-      el.style.transform = '';
-      el.addEventListener('transitionend', function te(e) {
-        if (e.propertyName !== 'transform') return;
-        el.style.transition = '';
-        el.style.transform = '';
-        el.removeEventListener('transitionend', te);
-      });
-    });
-  }
-
-  /* ------- Normal-flow-vakt rundt board-et under liste-DnD på touch/pen -------
-     Kollapsen av alle lister krymper board-INNHOLDET. Løfter man den nederste
-     lista (siden nær maks scroll), ville board-bunnen — og dermed dokumentets
-     maks-scroll — falt brått under gjeldende scrollY, og Android Chrome klemte
-     scrollY oppover mens pekeren var nede → pointercancel. Vakten holder BÅDE
-     dokumenthøyden og den dratte listas viewport-posisjon fast:
-       1. Frys board sin min-height til høyden FØR kollaps → board-bunnen (og
-          dermed dokumentets scrollHeight + maxScroll) kan ikke synke.
-       2. Kompensér med padding-top = summen av body-høyder som fjernes for
-          listene OVER den dratte (board bruker multi-column, så en padding-top
-          skyver alle kolonner likt — et spacer-BARN ville i stedet flytt inn i
-          kolonneflyten). Da beholder den dratte lista samme viewport-Y gjennom
-          kollapsen, og de kompakte overskriftene bunkes rett over den — nær
-          fingeren, ikke rullet vekk.
-     Aktiveres KUN når (a) input er touch/pen (mus avbrytes ikke av en scroll-
-     justering) OG (b) board-et er i ÉNKOLONNE-layout. I FLERKOLONNE-layout (bredt
-     vindu, inkl. Androids «Side for datamaskin») får DnD desktop-oppførsel uansett
-     inputtype: board-et krymper naturlig, ingen vakt — ellers ville padding-top-
-     kompensasjonen blitt stor og stygg, og overskriftene flokket seg rundt den
-     dratte lista i stedet for å følge kolonneflyten. Se `boardUsesSingleColumnLayout`. */
-  let boardGuard = null;
-  // Kilde til sannhet for én/flerkolonne = CSS-layouten, ikke enhet/pointerType.
-  // `--mobile-dnd-flow-guard` settes til 1 KUN i mobil-media-regelen (column-count:1),
-  // 0 ellers → terskelen finnes bare ett sted (styles.css). Se .board i styles.css.
-  function boardUsesSingleColumnLayout() {
-    return getComputedStyle(board).getPropertyValue('--mobile-dnd-flow-guard').trim() === '1';
-  }
-  function clearBoardGuardStyles() {
-    board.style.transition = '';
-    board.style.minHeight = '';
-    board.style.paddingTop = '';
-  }
-  function freezeBoardForDrag(ph) {
-    if (boardGuard) clearBoardGuardStyles(); // rydd evt. rest fra et avbrutt drag
-    const boardH = board.getBoundingClientRect().height;
-    // Body-høyde som forsvinner for hver ÅPEN liste OVER den dratte (før ph i
-    // leserekkefølgen). Vakten brukes kun i énkolonne-layout, så «over» = før i
-    // kolonnen — men `boardRows()` er uansett den riktige rekkefølgen.
-    let removedAbove = 0;
-    for (const row of boardRows()) {
-      if (row === ph) break;
-      if (row.classList.contains('card') && !row.classList.contains('collapsed')) {
-        const body = row.querySelector('.card-body');
-        if (body) removedAbove += body.getBoundingClientRect().height;
-      }
-    }
-    const basePad = parseFloat(getComputedStyle(board).paddingTop) || 0;
-    board.style.minHeight = boardH + 'px';
-    board.style.paddingTop = (basePad + removedAbove) + 'px';
-    boardGuard = { basePad, removedAbove };
-  }
-  // Ved slipp/kansellering: fjern min-height + padding-top-kompensasjonen. Kalles
-  // MOMENTANT rett etter restoreCardsAfterDrag (som utvider listene momentant) i
-  // samme oppgave → én reflow maler den ferdige, naturlige layouten uten et
-  // mellomsteg (der padding-top + utvidede bodyer ville gitt et hopp).
-  function releaseBoardAfterDrag() {
-    if (!boardGuard) return;
-    boardGuard = null;
-    clearBoardGuardStyles();
-  }
-
   function finishDrag() {
     /* Et VELLYKKET slipp, i motsetning til et tilbakerullet drag. Demoen har
        steg som skal kvitteres ut av selve slippet — også når objektet lander på
@@ -4333,7 +3885,6 @@
     disarmDragTrash();        // skjul kassen igjen om draget ikke endte i den
     clearAllDragSeparators(); // tilbake til hvile-reglene (pseudo-linjene på .category)
     clearAllPeeks(true); // sikkerhetsnett: kollaps evt. peek-åpnede mål tilbake (no-op om alt alt er løst)
-    window.removeEventListener('scroll', onDragScroll);
     document.documentElement.style.overflowAnchor = ''; // gjenopprett scroll-anchoring
     // Sikkerhetsnett: en placeholder skal kun eksistere mens draging pågår.
     // Fjern den aktive om den fortsatt henger i DOM, og fei bort evt. foreldreløse
@@ -4342,16 +3893,12 @@
     drag.el = null;
     drag.ph = null;
     drag.trashHost = null;
-    document.querySelectorAll('.card-placeholder, .item-placeholder')
-      .forEach((el) => el.remove());
-    stopAutoScroll();
-    stopModalAutoScroll();
+    document.querySelectorAll('.card-placeholder').forEach((el) => el.remove());
     document.body.classList.remove('is-dragging');
-    window.removeEventListener('touchmove', preventTouchScroll, { passive: false });
     // Kolonnefordelingen har vært frosset gjennom draget (og korthøydene kan ha
     // endret seg — et listepunkt flyttet mellom to lister). Kjør den på nytt nå
-    // som draget er over; `onCardUp` har alt gjort det synkront (drop-tweenen må
-    // sikte på den endelige sloten), så der blir dette en no-op.
+    // som draget er over; `boardRelayoutAfterDrop` gjør den samme runden når
+    // drop-animasjonen er ferdig, så der blir dette en no-op.
     scheduleRelayout();
   }
 
@@ -4359,9 +3906,9 @@
      kaller aldri `onCommit`, men `finishDrag()` teller likevel opp `dropSeq` —
      telleren demoen bruker på de stegene der SLIPPET er handlingen. Uten dette
      kvitterte en `pointercancel` (typisk Android Chrome som klemmer scrollen)
-     ut «dra raden»-steget uten at brukeren hadde flyttet noe. Den gamle motoren
-     sa det samme fra `restoreDraggedToOrigin`; her kommer flagget fra dnd-kits
-     egen `dragend`. */
+     ut «dra raden»-steget uten at brukeren hadde flyttet noe. Flagget kommer
+     fra dnd-kits egen `dragend.canceled`; `restoreDraggedToOrigin` setter det
+     samme flagget på de rollback-veiene Huskis selv tar. */
   function dndNoteCanceled(event) {
     if (event && event.canceled) dragRolledBack = true;
   }
@@ -4370,238 +3917,22 @@
      En kansellert pekersekvens (typisk Android Chrome som klemmer scroll-
      posisjonen) er IKKE et vellykket slipp: den skal ikke beregne ny pos,
      stampe eller lagre, og ikke åpne mappe-flyttevelgeren. Vi fører elementet
-     tilbake til den registrerte opprinnelige sloten og rydder dra-stilene.
-     Elementet står allerede der (kun placeholderen flyttes under draging), men
-     re-innsettingen mot `origNext` er et sikkerhetsnett. Kaller IKKE finishDrag
-     selv — hver on*Cancel gjør det (etter evt. nivå-spesifikk opprydding). */
+     tilbake til den registrerte opprinnelige sloten og rydder sikte-klassene.
+     Elementet står allerede der (dnd-kit sorterer klonen, ikke det løftede
+     objektet), men re-innsettingen mot `origNext` er et sikkerhetsnett.
+     Geometrien er dnd-kits og ryddes av dnd-kit; her rører vi kun det som er
+     vårt. Kaller IKKE finishDrag selv — kalleren gjør det. */
   function restoreDraggedToOrigin() {
     dragRolledBack = true; // ikke et slipp — se finishDrag()
     const el = drag.el;
     if (!el) return;
     // Er noden allerede ute av dokumentet, har DOM-en gått videre uten den (en
     // rebuild har satt inn ferske noder). Å sette den inn igjen ville gitt et
-    // spøkelses-duplikat — vi rydder bare dra-stilene og lar den ligge død.
+    // spøkelses-duplikat — vi lar den ligge død.
     if (el.isConnected && drag.origParent) drag.origParent.insertBefore(el, drag.origNext);
-    el.classList.remove('dragging');
     el.classList.remove('to-group', 'to-trash');
-    el.style.left = el.style.top = el.style.width = el.style.height = '';
-    el.style.transform = '';
-    el.style.transition = '';
   }
 
-  /* ------- Sikkerhetsnett: avbryt et drag som mistet OBJEKTET SITT -------
-     Draget lever av `pointermove`/`pointerup` på WINDOW. De lytterne overlever
-     alt annet enn at selve objektet forsvinner: rives noden ut av DOM (en synk-
-     rebuild bytter den ut), får vi aldri et brukbart slipp — objektet blir
-     hengende limt til pekeren, med placeholder i DOM og auto-scroll i gang.
-     `cancelActiveDrag` kjører da den nivå-riktige kanselleringsflyten (rollback,
-     ingen pos/lagring) og er idempotent: hver on*Cancel returnerer straks når
-     `drag.active` er false, og finishDrag setter den false. Et vanlig
-     `pointerup`/`pointercancel` har dermed allerede ryddet om nettet fyrer etterpå.
-
-     VIKTIG — nettet henger på ÉN tilstand: at `drag.el` er frakoblet. Vi har
-     bevisst IKKE hendelses-utløsere:
-     - `window.blur`/`visibilitychange` sier ingenting om gesten. Fokus flytter
-       seg av mange grunner (en innebygd iframe/verktøylinje som stjeler fokus,
-       OS-nivå fokusbytte, nettleser-UI), pekeren er upåvirket, og å avbryte på
-       dem fikk lister/listepunkter/kategorier til å «glippe» rett etter løft.
-     - `lostpointercapture` fyrer også når alt er i orden, OG — når noden faktisk
-       rives ut — dispatches den på en node som ikke lenger er i dokumentet, så
-       den når uansett ikke en lytter på `document`. Ubrukelig i begge retninger.
-     Derfor sjekker vi tilstanden der den betyr noe: ved neste bevegelse (rydd
-     opp med én gang) og ved slippet (ikke commit et drop på en død node). */
-  function cancelActiveDrag() {
-    if (!drag.active) return;
-    if (drag.kind === 'card') onCardCancel();
-    else if (drag.kind === 'item') onItemCancel();
-    else if (drag.kind === 'category') onCategoryCancel();
-    else finishDrag();
-  }
-  // Sant når det løftede objektet er borte fra dokumentet — da rydder vi og
-  // avbryter i stedet for å drive draget videre (eller committe et drop) på en
-  // node ingen ser.
-  function dragElDetached() {
-    return drag.active && (!drag.el || !drag.el.isConnected);
-  }
-
-  /* ------- Auto-scroll når dra-kortet nærmer seg topp/bunn av vinduet -------
-     Sakte når kortet nærmer seg kanten, raskere jo lengre ut i sonen — og
-     raskest når det holdes forbi selve kanten. Fungerer begge veier. */
-  let autoScrollRAF = null;
-  let autoScrollSpeed = 0;
-
-  /* Auto-scroll-fartene er px PER 60 Hz-FRAME. Uten normalisering scroller en
-     120 Hz-skjerm dobbelt så fort som en 60 Hz-skjerm for samme fysiske tid (og
-     en travel frame gir et hopp). `frameSteps` gjør om tiden siden forrige
-     RAF-kall til antall 60 Hz-frames, klemt oppad: etter en bakgrunnsfane/pause
-     kan dt være hundrevis av ms, og et ukjemmet dt ville rykket siden langt av
-     gårde i én frame. Første frame (ingen forrige tid) teller som én. */
-  const FRAME_MS = 1000 / 60;
-  const MAX_FRAME_MS = 50;
-  function frameSteps(prevTs, ts) {
-    if (prevTs == null) return 1;
-    const now = typeof ts === 'number' ? ts : performance.now();
-    return Math.max(0, Math.min(MAX_FRAME_MS, now - prevTs)) / FRAME_MS;
-  }
-  const frameNow = (ts) => (typeof ts === 'number' ? ts : performance.now());
-
-  function edgeSpeed(p) {
-    // p: 0 ved sonens indre kant, 1 ved vinduskanten, >1 forbi kanten.
-    const MIN = 4, MAX = 20, BEYOND = 34;
-    if (p <= 0) return 0;
-    if (p <= 1) return MIN + (MAX - MIN) * p;
-    return MAX + (BEYOND - MAX) * Math.min(1, p - 1);
-  }
-  // Drag på hovedsidens board scroller VINDUET ved kanten (dokument-koordinater);
-  // drag i nav-modalen scroller modalens `.menu-body` i stedet (se
-  // updateModalAutoScroll). Skillet følger scopet, ikke nivået.
-  function windowScrollDrag() {
-    return dragScope().pageCoords;
-  }
-  // Re-evaluer plasseringen etter en auto-scroll-frame (pekeren står stille, så vi
-  // bruker siste kjente pekerposisjon + rulleretningen som «drag-retning»).
-  function reapplyPlacement(dir) {
-    if (drag.kind === 'card') updateCardPlacement(0, dir);
-    else if (drag.kind === 'item') updateItemPlacement(drag.lastX, drag.lastY, dir);
-    else if (drag.kind === 'category') updateCategoryPlacement();
-  }
-  function updateAutoScroll() {
-    if (!drag.active) { stopAutoScroll(); stopModalAutoScroll(); return; }
-    if (!windowScrollDrag()) { stopAutoScroll(); updateModalAutoScroll(); return; }
-    stopModalAutoScroll();
-    const r = draggedRect();
-    // Nedre kant av det BRUKBARE feltet: gestelinjen dekker de nederste
-    // pikslene, og et kort som «bare så vidt er innenfor viewporten» ligger da
-    // under den (safeInsets() er null i en nettleser).
-    const vh = (window.innerHeight || document.documentElement.clientHeight || 1) - safeInsets().bottom;
-    const ZONE = 120;
-    // Symmetrisk, kant-forankret utløsning: OPPOVER måles kortets ØVRE kant mot
-    // toppen av området rett UNDER den faste headeren (ikke viewportens øvre kant
-    // — ellers måtte man dra lista opp bak headeren før scrollingen slo inn,
-    // spesielt på mobil). NEDOVER måles kortets NEDRE kant mot viewportens nedre
-    // kant.
-    const headerBottom = topbarEl.getBoundingClientRect().bottom;
-    const up = edgeSpeed((headerBottom + ZONE - r.top) / ZONE);
-    const down = edgeSpeed((r.bottom - (vh - ZONE)) / ZONE);
-    // Et kort som er høyere enn området mellom sonene kan ligge i begge samtidig;
-    // da avgjør pekerens halvdel (øvre/nedre av det synlige området) retningen, så
-    // brukeren styrer veien i stedet for at den flimrer.
-    if (up > 0 && down > 0) {
-      autoScrollSpeed = drag.lastY < (headerBottom + vh) / 2 ? -up : down;
-    } else {
-      autoScrollSpeed = down > 0 ? down : (up > 0 ? -up : 0);
-    }
-    if (autoScrollSpeed !== 0) startAutoScroll(); else stopAutoScroll();
-  }
-  function startAutoScroll() {
-    if (autoScrollRAF != null) return;
-    let prevTs = null, rest = 0; // `rest` = ubrukt sub-piksel-avstand, tas med neste frame
-    const step = (ts) => {
-      if (!drag.active || autoScrollSpeed === 0) { autoScrollRAF = null; return; }
-      let delta = autoScrollSpeed * frameSteps(prevTs, ts) + rest;
-      prevTs = frameNow(ts);
-      if (delta > 0) {
-        // Det løftede kortet er `position: absolute`, så dets dokument-posisjon
-        // (scrollY + peker) ville selv utvidet sidens scroll-område hver frame og
-        // gjort nedover-scrollingen uendelig ut i blankt. Stopp ved board-ets
-        // FAKTISKE bunn: et absolutt-posisjonert barn teller ikke i board-ets egen
-        // høyde (placeholderen holder kortets gamle slot), så board-ets bunn er den
-        // ekte innholdsenden — uavhengig av kortet vi drar.
-        //
-        // Board-ets bunn er IKKE dokumentets ende: `.app-main` har i tillegg
-        // gestelinjens bunn-inset som padding under board-et (styles.css). Uten
-        // det leddet stopper auto-scrollen én inset for tidlig, og siste kort
-        // blir liggende under gestelinjen til brukeren scroller videre selv.
-        const vh = window.innerHeight || document.documentElement.clientHeight || 0;
-        const maxScroll = Math.max(0,
-          board.getBoundingClientRect().bottom + window.scrollY + safeInsets().bottom - vh);
-        // Tillatt nedover-avstand er ALLTID ikke-negativ. Ligger den kompakte board-
-        // bunnen OVER gjeldende scrollY (f.eks. etter at alle lister kollapset mens
-        // dokumenthøyden holdes kunstig høy), blir (maxScroll - scrollY) negativ — en
-        // positiv nedover-scroll skulle da STOPPE, ikke snus til et stort hopp OPPOVER
-        // (som på mobil kan utløse pointercancel). Klem derfor til >= 0: en positiv
-        // autoScrollSpeed reduserer aldri scrollY.
-        delta = Math.min(delta, Math.max(0, maxScroll - window.scrollY));
-      }
-      const before = window.scrollY;
-      if (delta !== 0) window.scrollBy(0, delta);
-      // Ta vare på avstanden nettleseren ikke brukte (avrunding til hele piksler),
-      // så en lav fart per frame på 120 Hz ikke forsvinner i avrundingen. Klemt til
-      // ±1 px så den ikke hoper seg opp når scrollen står i en ende.
-      rest = Math.max(-1, Math.min(1, delta - (window.scrollY - before)));
-      // Kortet er `position: absolute` (dokument-koordinater) → flytt det med den
-      // nye scroll-posisjonen så det blir liggende under fingeren, og re-evaluer
-      // de andre kortenes plassering med rulleretningen som «drag-retning».
-      if (window.scrollY !== before) { moveElement(); reapplyPlacement(autoScrollSpeed > 0 ? 1 : -1); }
-      autoScrollRAF = requestAnimationFrame(step);
-    };
-    autoScrollRAF = requestAnimationFrame(step);
-  }
-  function stopAutoScroll() {
-    if (autoScrollRAF != null) { cancelAnimationFrame(autoScrollRAF); autoScrollRAF = null; }
-    autoScrollSpeed = 0;
-  }
-
-  /* ---------------- KORT-DRAGING ---------------- */
-  function startCardDrag(ev, cardEl) {
-    if (ev.button != null && ev.button !== 0) return;
-    if (drag.active) return; // ignorer ny drag mens en pågår (unngår foreldreløs placeholder)
-    beginDragCommon(ev, cardEl);
-    drag.kind = 'card';
-    drag.crumbTarget = false; // sikter lista på 📁-breadcrumben? (flytt til annen mappe)
-
-    const S = dragScope();
-    const ph = document.createElement('div');
-    ph.className = 'card-placeholder';
-    ph.style.height = drag.height + 'px';
-    cardEl.parentNode.insertBefore(ph, cardEl); // kortets egen kolonne
-    drag.ph = ph;
-
-    liftElement();
-    // Kollaps ALLE lister (den dratte + de andre) mens draget pågår → kortere
-    // avstand å dra. Momentant (ingen animasjon). Tilstanden gjenopprettes ved
-    // slipp (fra `card.collapsed`).
-    //
-    // Normal-flow-vakten (`freezeBoardForDrag`, se der) brukes KUN når input er
-    // touch/pen OG board-et er i ÉNKOLONNE-layout — beslutningen følger CSS-
-    // layouten, ikke bare `pointerType`. I FLERKOLONNE-layout (bredt vindu, inkl.
-    // Androids «Side for datamaskin» på touch) får DnD desktop-oppførsel: bare
-    // kollaps, board-et krymper og siden justerer scroll naturlig, ingen vakt —
-    // som i main. Mus i énkolonne trenger heller ingen vakt (et musedrag avbrytes
-    // ikke av mobilens pointercancel-problem). Vakten (når aktiv) legges FØR
-    // kollapsen i SAMME oppgave, så verken dokumenthøyden eller den dratte listas
-    // viewport-Y endres mens fingeren er nede. Slippes i `onCardUp`/`onCardCancel`.
-    // Vakten gjelder KUN hovedsidens board (nav-modalen scroller i sin egen
-    // container og rammes ikke av window-scroll-klemmen).
-    const useMobileFlowGuard = S === boardScope &&
-      ev.pointerType !== 'mouse' && boardUsesSingleColumnLayout();
-    if (useMobileFlowGuard) freezeBoardForDrag(ph);
-    collapseCardsForDrag(drag.el, ph);
-    drag.el.style.transform = `rotate(${cardRotation()}deg) scale(1.02)`;
-    window.addEventListener('pointermove', onCardMove);
-    window.addEventListener('pointerup', onCardUp);
-    window.addEventListener('pointercancel', onCardCancel);
-    armDragTrash(); // søppelkassen dukker opp som slippmål mens draget varer
-  }
-
-  /* ------- Midlertidig kollaps av alle lister under et liste-drag -------
-     Alle lister (den dratte + de andre) kollapses til bare korthodet → board-et
-     blir kompakt, så man ikke trenger dra langt for å omrokkere. MOMENTANT (ingen
-     animasjon, se collapseCardBody). Den dratte lista slipper sin faste høyde og
-     følger body-kollapsen; placeholderen settes til header-høyden. `card.collapsed`
-     røres ikke, så `restoreCardsAfterDrag()` bare gjenoppretter lagret tilstand. */
-  function collapseCardsForDrag(draggedEl, ph) {
-    // offsetHeight (ikke getBoundingClientRect): en rotert bred header ville blåst
-    // opp getBoundingClientRect-høyden (som for kategorien). offsetHeight er transform-fri.
-    const headH = draggedEl.querySelector('.card-head').offsetHeight;
-    draggedEl.style.height = ''; // slipp fast høyde → kortet følger body-kollapsen
-    if (!draggedEl.classList.contains('collapsed')) collapseCardBody(draggedEl);
-    drag.height = headH; // treffdeteksjon + placeholder bruker den kollapsede boksen
-    ph.style.height = headH + 'px';
-    dragScope().root.querySelectorAll('.card:not(.dragging)').forEach((cEl) => {
-      if (!cEl.classList.contains('collapsed')) collapseCardBody(cEl);
-    });
-  }
   // Ved slipp: gjenopprett hver liste til sin lagrede lukketilstand (momentant).
   // Robust mot en samtidig synk-rebuild, som uansett bygger kortene fra
   // `card.collapsed`.
@@ -4636,7 +3967,6 @@
      ruller draget tilbake som et avbrutt drag (ingen ny posisjon, ingen
      lagring) og lar slette-funksjonen gjøre resten — samme vei som menyens
      «Slett», med fly-i-kassen-animasjon og samlende angre-toast. */
-  const DRAG_TRASH_PAD = 12;   // raus treffsone rundt kassen (den er et lite mål)
 
   // Kassen dette draget kan slippes i — eller null når nivået ikke har en.
   function dragTrashBtn() {
@@ -4702,15 +4032,6 @@
     drag.trashArmed = false;
     drag.overTrash = false;
   }
-  function pointerOnDragTrash(x, y) {
-    if (!drag.trashArmed) return false;
-    const btn = dragTrashBtn();
-    if (!btn || btn.hidden || !btn.isConnected) return false;
-    const r = btn.getBoundingClientRect();
-    if (!r.width || !r.height) return false;
-    return x >= r.left - DRAG_TRASH_PAD && x <= r.right + DRAG_TRASH_PAD &&
-           y >= r.top - DRAG_TRASH_PAD && y <= r.bottom + DRAG_TRASH_PAD;
-  }
   // Siktemarkering på kassen + gjennomskinnelig dra-objekt, så kassen synes
   // gjennom det løftede kortet (samme grep som 📁-breadcrumben bruker).
   function setDragTrashTarget(on) {
@@ -4769,14 +4090,6 @@
     return visibleGroupsOf(activeUniverseObj()).filter((g) =>
       !g.isCat && g.id !== state.activeGroup && canAddList(g));
   }
-  function pointerOnNavCrumb(x, y) {
-    const r = navCrumbBtn.getBoundingClientRect();
-    return x >= r.left && x <= r.right && y >= r.top && y <= r.bottom;
-  }
-  function pointerInTopbar(x, y) {
-    const r = topbarEl.getBoundingClientRect();
-    return x >= r.left && x <= r.right && y >= r.top && y <= r.bottom;
-  }
   // Sett/fjern siktemarkeringen på 📁-breadcrumben + gjør dra-kortet
   // gjennomskinnelig så knappen synes gjennom det løftede kortet.
   function setCardCrumbTarget(on) {
@@ -4815,244 +4128,6 @@
     showToast(tr('move.movedTo', { name: quoted(c.title), dest: quoted(dest.name) }));
   }
 
-  function onCardMove(ev) {
-    if (!drag.active) return;
-    if (dragElDetached()) { cancelActiveDrag(); return; }
-    const dx = ev.clientX - drag.lastX;
-    const dy = ev.clientY - drag.lastY;
-    drag.lastX = ev.clientX;
-    drag.lastY = ev.clientY;
-    moveElement();
-    drag.el.style.transform = `rotate(${cardRotation()}deg) scale(1.02)`;
-
-    // Sikter man på søppelkassen, er det slettingen som gjelder — verken
-    // omrokkering eller 📁-breadcrumben. (Liste-kassen ligger i toppmenyen,
-    // område-kassen nederst i nav-modalen; sjekken dekker begge.)
-    if (pointerOnDragTrash(ev.clientX, ev.clientY)) {
-      setDragTrashTarget(true);
-      setCardCrumbTarget(false);
-      stopAutoScroll();
-      return;
-    }
-    setDragTrashTarget(false);
-
-    // Over toppmenyen sikter vi på 📁-breadcrumben (flytt til annen mappe) i
-    // stedet for å omorganisere board-et: marker knappen, og la board-et +
-    // siden ligge i ro så lista ikke bytter plass mens man løfter den opp.
-    if (dragScope() === boardScope && pointerInTopbar(ev.clientX, ev.clientY)) {
-      setCardCrumbTarget(pointerOnNavCrumb(ev.clientX, ev.clientY) &&
-        moveTargetGroups(findCard(drag.el.dataset.id)).length > 0);
-      stopAutoScroll();
-      return;
-    }
-    setCardCrumbTarget(false);
-    updateAutoScroll();
-    updateCardPlacement(dx, dy);
-  }
-
-  // Finn og utfør evt. placeholder-flytting ut fra dra-retningen (dx, dy).
-  // Kalles både fra peker-bevegelse og fra auto-scroll (med syntetisk retning).
-  function updateCardPlacement(dx, dy) {
-    if (!drag.active || drag.kind !== 'card') return;
-    const dragRect = draggedRect();
-    const root = dragScope().root;
-    const cards = [...root.querySelectorAll('.card:not(.dragging)')];
-    if (!cards.length) return;
-    const rects = new Map(cards.map((c) => [c, layoutRect(c)]));
-    const ph = drag.ph;
-
-    let action = null;
-
-    // Spesialtilfelle: ingen kolonne har mer enn ett kort → vertikalt
-    // bytte er umulig. Bruk i stedet en 20 %-regel for bredde-overlapp,
-    // retningsstyrt mot venstre/høyre.
-    const restRects = cards.map((c) => rects.get(c)).concat([layoutRect(ph)]);
-    if (isSingleRowLayout(restRects)) {
-      if (dx > 0) {
-        // Høyre: nærmeste kort til høyre med >= 20 % breddeoverlapp.
-        let best = null, bestLeft = Infinity;
-        for (const c of cards) {
-          const r = rects.get(c);
-          if (r.left >= dragRect.left && hOverlap(dragRect, r) >= SWAP_RATIO * r.width && r.left < bestLeft) {
-            bestLeft = r.left; best = c;
-          }
-        }
-        if (best) action = { ref: best, pos: 'after' };
-      } else if (dx < 0) {
-        // Venstre: nærmeste kort til venstre med >= 20 % breddeoverlapp.
-        let best = null, bestLeft = -Infinity;
-        for (const c of cards) {
-          const r = rects.get(c);
-          if (r.left <= dragRect.left && hOverlap(dragRect, r) >= SWAP_RATIO * r.width && r.left > bestLeft) {
-            bestLeft = r.left; best = c;
-          }
-        }
-        if (best) action = { ref: best, pos: 'before' };
-      }
-    } else {
-      // Kolonne = kort som ligger på samme horisontale spor som dra-kortet.
-      const col = cards.filter((c) => hOverlapFrac(dragRect, rects.get(c)) >= 0.5);
-      const phInCol = col.length && hOverlapFrac(dragRect, layoutRect(ph)) >= 0.5;
-
-      if (col.length && !phInCol) {
-        // Bytte kolonne: plasser etter vertikal senterposisjon.
-        const cy = dragRect.top + dragRect.height / 2;
-        const sorted = col.slice().sort((a, b) => rects.get(a).top - rects.get(b).top);
-        let ref = null;
-        for (const c of sorted) {
-          const r = rects.get(c);
-          if (cy < r.top + r.height / 2) { ref = c; break; }
-        }
-        action = ref ? { ref, pos: 'before' } : { ref: sorted[sorted.length - 1], pos: 'after' };
-      } else if (col.length && dy > 0) {
-        // Nedover: nærmeste kort under med >= 20 % overlapp.
-        let best = null, bestTop = Infinity;
-        for (const c of col) {
-          const r = rects.get(c);
-          if (r.top >= dragRect.top && vOverlap(dragRect, r) >= SWAP_RATIO * r.height && r.top < bestTop) {
-            bestTop = r.top; best = c;
-          }
-        }
-        if (best) action = { ref: best, pos: 'after' };
-      } else if (col.length && dy < 0) {
-        // Oppover: nærmeste kort over med >= 20 % overlapp.
-        let best = null, bestTop = -Infinity;
-        for (const c of col) {
-          const r = rects.get(c);
-          if (r.top <= dragRect.top && vOverlap(dragRect, r) >= SWAP_RATIO * r.height && r.top > bestTop) {
-            bestTop = r.top; best = c;
-          }
-        }
-        if (best) action = { ref: best, pos: 'before' };
-      }
-    }
-
-    if (!action || !wouldMove(ph, action.ref, action.pos)) return;
-    if (swapReversesRecent(action)) return;
-    const snap = snapshotRects(cards);
-    placePlaceholder(ph, action.ref, action.pos);
-    flipFrom(snap, FLIP_MS);
-    recordSwap(action);
-  }
-
-  // Sluttplassering ved slipp (se centerPlaceRows): rent senterbasert, slik at et
-  // raskt slipp lander der kortet faktisk ble sluppet — også når det hoppet over
-  // flere plasser siden forrige pointermove.
-  function commitCardPlacement() {
-    if (!drag.active || drag.kind !== 'card') return;
-    const dragRect = draggedRect();
-    const root = dragScope().root;
-    const cards = [...root.querySelectorAll('.card:not(.dragging)')];
-    if (!cards.length) return;
-    const rects = new Map(cards.map((c) => [c, layoutRect(c)]));
-    const restRects = cards.map((c) => rects.get(c)).concat([layoutRect(drag.ph)]);
-    if (isSingleRowLayout(restRects)) { // én horisontal rad → senter langs X
-      centerPlaceRows(cards, rects, true);
-      return;
-    }
-    // Flerkolonne/kolonne: kortene som deler spor med dra-kortet, senter langs Y.
-    // Ligger dra-kortet i et kolonnegap, lar vi placeholderen stå (den løpende
-    // plasseringen har allerede valgt kolonne).
-    const col = cards.filter((c) => hOverlapFrac(dragRect, rects.get(c)) >= 0.5);
-    if (col.length) centerPlaceRows(col, rects, false);
-  }
-
-  function onCardUp(ev) {
-    if (!drag.active) return;
-    if (dragElDetached()) { cancelActiveDrag(); return; }
-    window.removeEventListener('pointermove', onCardMove);
-    window.removeEventListener('pointerup', onCardUp);
-    window.removeEventListener('pointercancel', onCardCancel);
-
-    const S = dragScope();
-    const el = drag.el;
-    const onBoard = S === boardScope;
-    // Bestem drop-mål OG sluttplassering ut fra de FAKTISKE slipp-koordinatene,
-    // ikke det som lå mellomlagret fra siste pointermove: den kan være koalescert
-    // bort eller helt utelatt (rask gest), så både breadcrumb-treffet og
-    // placeholderen kunne blitt hentet fra nest siste bevegelse.
-    if (ev && typeof ev.clientX === 'number') {
-      drag.lastX = ev.clientX; drag.lastY = ev.clientY;
-    }
-    /* Slipp i søppelkassen: draget rulles tilbake som et AVBRUTT drag (ingen ny
-       pos, ingen lagring, ingen flytte-velger), og slettingen tar over. Sjekkes
-       før plasseringen committes — et slipp i kassen skal ikke også omrokkere. */
-    if (pointerOnDragTrash(drag.lastX, drag.lastY)) {
-      const trashedId = el.dataset.id;
-      onCardCancel();
-      dropIntoTrash(S, 'card', trashedId);
-      return;
-    }
-    if (ev && typeof ev.clientX === 'number') {
-      // (Kortet flyttes IKKE hit visuelt: drop-tweenen starter fra der det faktisk
-      // står malt, se dropIntoPlaceholder — et snapp hit først ville gitt et rykk.)
-      if (!(onBoard && pointerInTopbar(drag.lastX, drag.lastY))) commitCardPlacement();
-    }
-    const relX = drag.lastX;
-    const relY = drag.lastY;
-    const cardObj = S.findContainer(el.dataset.id);
-    const onCrumb = onBoard && pointerOnNavCrumb(relX, relY) &&
-      moveTargetGroups(cardObj).length > 0;
-    setCardCrumbTarget(false); // fjern evt. highlight uansett utfall
-
-    const rot = cardRotation();
-    drag.ph.parentNode.insertBefore(el, drag.ph); // placeholderens kolonne
-    drag.ph.remove();
-    finishDrag();
-    restoreCardsAfterDrag();  // fold listene tilbake til lagret lukketilstand (momentant)
-    releaseBoardAfterDrag();  // slipp touch-vakten momentant (no-op på mus) → layout satt
-
-    // Ny rekkefølge: gi kortet en pos mellom naboene i LESEREKKEFØLGE (naboen
-    // over den øverste raden i en kolonne ligger nederst i kolonnen før).
-    // Kirurgisk – kun dette kortets posisjonsregister endres, så samtidige
-    // endringer på andre kort/enheter flettes uten konflikt.
-    const prev = boardRowSibling(el, -1);
-    const next = boardRowSibling(el, 1);
-    const c = S.findContainer(el.dataset.id);
-    if (c) {
-      const pPrev = prev && prev.classList.contains('card') ? (S.findContainer(prev.dataset.id) || {}).pos : null;
-      const pNext = next && next.classList.contains('card') ? (S.findContainer(next.dataset.id) || {}).pos : null;
-      const np = between(pPrev == null ? null : pPrev, pNext == null ? null : pNext);
-      if (c._canon) {
-        // Områder (og frie mapper) ordnes PERSONLIG — posisjonen ligger på
-        // min egen medlemskapsrad og endrer aldri hva andre ser.
-        c.pos = np;
-        cloudPersonalPos(S.contKind, c.id, np);
-      } else {
-        c.pos = np;
-        stampPos(c);
-      }
-    }
-    S.reindexColors();
-    save();
-
-    // Visuell plassering (etter at layouten er satt av restore/release over): legg
-    // kortet i normal flyt, mål slot-en, fly det inn fra slipp-punktet, og scroll
-    // så den slupne lista inn i visning (endring 2). slotDocTop måles UTEN dra-
-    // transformen (dropIntoPlaceholder setter den etterpå), og i DOKUMENT-koordinat
-    // så den er upåvirket av selve scrollingen.
-    // Mål den faktiske dra-boksen (uten dra-rotasjonen) før stilene ryddes —
-    // drop-tweenen skal starte der kortet står malt (dropIntoPlaceholder).
-    const fromRect = untransformedRect(el);
-    el.classList.remove('dragging');
-    el.style.left = el.style.top = el.style.width = el.style.height = '';
-    el.style.transform = '';
-    // Kortene er tilbake i normal flyt (og utvidet igjen) → fordel kolonnene på
-    // nytt FØR vi måler sloten, så drop-tweenen sikter på den endelige plassen.
-    relayoutBoard(S);
-    const slotRect = el.getBoundingClientRect();
-    const slotDocTop = slotRect.top + window.scrollY;
-    const slotH = slotRect.height;
-    dropIntoPlaceholder(el, rot, fromRect);
-    // Scroll-til-slupt gjelder vindus-scrollen, altså kun hovedsidens board.
-    if (onBoard && !onCrumb) scrollDroppedIntoView(slotDocTop, slotH);
-
-    // Slipp på 📁-breadcrumben: kortet er lagt normalt tilbake på board-et
-    // (posisjonen over), og flytte-velgeren åpnes — avbrytes den, blir lista
-    // stående der den lå.
-    if (onCrumb && cardObj) askCardMove(cardObj);
-  }
-
   // Etter et fullført liste-drag: sørg for at den slupne lista er synlig — men så
   // lite påtrengende som mulig. Ligger den allerede komfortabelt i det trygge
   // området (mellom toppmenyen og viewportbunnen), gjør vi INGENTING; ellers
@@ -5083,21 +4158,6 @@
     window.scrollTo({ top: target, behavior: prefersReducedMotion() ? 'auto' : 'smooth' });
   }
 
-  // pointercancel under et liste-drag: rull tilbake til utgangspunktet uten å
-  // beregne pos, stampe, oppdatere farge/mount eller lagre — og uten å åpne
-  // mappe-flyttevelgeren. Kollapsen foldes tilbake og touch-vakten slippes.
-  function onCardCancel() {
-    if (!drag.active) return;
-    window.removeEventListener('pointermove', onCardMove);
-    window.removeEventListener('pointerup', onCardUp);
-    window.removeEventListener('pointercancel', onCardCancel);
-    setCardCrumbTarget(false);
-    restoreDraggedToOrigin();
-    finishDrag();
-    restoreCardsAfterDrag();
-    releaseBoardAfterDrag();
-  }
-
   // Fargene er posisjonsbaserte (colorForIndex): en omrokkering endrer alle
   // kortenes posisjon i den sorterte lista, ikke bare det flyttede kortets —
   // reindekser derfor alltid samtlige (kirurgisk: kun CSS-variabler på
@@ -5123,42 +4183,6 @@
     });
   }
 
-  /* ---------------- ELEMENT-DRAGING ---------------- */
-  function startItemDrag(ev, itemEl) {
-    if (ev.button != null && ev.button !== 0) return;
-    if (drag.active) return; // ignorer ny drag mens en pågår (unngår foreldreløs placeholder)
-    beginDragCommon(ev, itemEl);
-    drag.kind = 'item';
-    drag.phMode = 'reorder';
-    // Kassen som gjelder er den i containeren raden kom FRA — ikke den man
-    // tilfeldigvis svever over. Slettingen legger raden i kildens kasse.
-    drag.trashHost = itemEl.closest('.card');
-
-    const ph = document.createElement('li');
-    ph.className = 'item-placeholder';
-    ph.style.height = drag.height + 'px';
-    itemEl.parentNode.insertBefore(ph, itemEl);
-    drag.ph = ph;
-
-    liftElement();
-    applyDragSeparators(); // etter løftet: det dratte er da ute av flyten (ingen nabo)
-    drag.el.style.transform = `rotate(${cardRotation()}deg) scale(1.03)`; // dynamisk rotasjon (globalt)
-    window.addEventListener('pointermove', onItemMove);
-    window.addEventListener('pointerup', onItemUp);
-    window.addEventListener('pointercancel', onItemCancel);
-    armDragTrash();
-  }
-
-  // Direkte-barn-rader i en drop-container som deltar i rekkefølgen: elementer
-  // (og på nivå 1 også kategorier), unntatt det som dras. Placeholderen er
-  // hverken `.item` eller `.category`, så den utelates automatisk. Bruker
-  // direkte barn (ikke querySelectorAll('.item')) så vi ikke plukker elementer
-  // som ligger INNE i en kategori når vi ser på nivå-1-containeren.
-  function rowChildren(cont) {
-    return [...cont.children].filter((c) =>
-      (c.classList.contains('item') && !c.classList.contains('dragging')) ||
-      (c.classList.contains('category') && !c.classList.contains('dragging')));
-  }
   // Pos-en til en DOM-rad (element ELLER kategori) via state-oppslaget.
   function rowPos(sib) {
     if (!sib || !(sib.classList.contains('item') || sib.classList.contains('category'))) return null;
@@ -5179,14 +4203,13 @@
      representerer (kategori-placeholderen som en kategori), så man ser
      skillelinjene slik de BLIR hvis man slipper der den står. Klasser (ikke
      innsatte linje-elementer) nettopp fordi radenes DOM-naboskap brukes av
-     plasserings- og pos-logikken (wouldMove/rowPos). */
+     pos-logikken (`rowPos`) og av dnd-kits egen sortering. */
   const sepConts = new Set();
-  /* «Plassen som kommer», uansett motor. Den gamle motoren setter inn sin egen
-     `.item-placeholder`/`.card-placeholder` (`drag.ph`); dnd-kit holder plassen
-     med en KLONE av det løftede objektet (`[data-dnd-placeholder]`), som følger
-     med når sorteringen flytter objektet. Begge svarer på det samme spørsmålet:
-     hvor havner dette om jeg slipper nå? På dnd-kit er `drag.ph` derfor kun satt
-     i ekstraheringsmodus — der er det VI som eier plasseringen. */
+  /* «Plassen som kommer». I REORDER holder dnd-kit plassen med en KLONE av det
+     løftede objektet (`[data-dnd-placeholder]`), som følger med når sorteringen
+     flytter objektet. I EKSTRAHERING er plasseringen vår, og da — og bare da —
+     er `drag.ph` satt: ny-liste-placeholderen vi selv legger inn blant kortene.
+     Begge svarer på det samme spørsmålet: hvor havner dette om jeg slipper nå? */
   function dragPlaceholderEl() {
     if (drag.ph) return drag.ph;
     return dragScope().root.querySelector('[data-dnd-placeholder]');
@@ -5194,19 +4217,17 @@
   // Radene i en nivå-1-container som deltar: listepunkter, kategorier og
   // placeholderen. Det dratte objektet er ute av flyten og er ingen nabo.
   function sepRows(cont) {
-    return [...cont.children].filter((c) => !c.classList.contains('dragging') &&
-      // dnd-kit merker det løftede objektet i stedet for å gi det en klasse. Det
-      // ligger i top layer, ute av flyten, og er like lite en nabo der.
+    return [...cont.children].filter((c) =>
+      // Det løftede objektet ligger i top layer, ute av flyten, og er ingen nabo.
       !c.hasAttribute('data-dnd-dragging') &&
       // I EKSTRAHERINGSMODUS (`drag.ph` satt) er raden på vei UT av lista — den
       // skal bli sin egen — så klonen er ikke «plassen som kommer» lenger, og
       // linjene skal ikke tegnes rundt den.
       !(drag.ph && c.hasAttribute('data-dnd-placeholder')) &&
-      (c.classList.contains('item') || c.classList.contains('category') ||
-       c.classList.contains('item-placeholder')));
+      (c.classList.contains('item') || c.classList.contains('category')));
   }
   function isCatRow(el) {
-    return el.classList.contains('category') || el.classList.contains('cat-placeholder');
+    return el.classList.contains('category');
   }
   /* Hvor en forhåndsvisnings-linje faktisk skal SETTES.
      dnd-kits klone bygges på nytt av det løftede objektet ved hver sortering, og
@@ -5249,14 +4270,16 @@
       rows.forEach((row, i) => {
         const prev = i > 0 ? rows[i - 1] : null;
         if (!prev || !(isCatRow(prev) || isCatRow(row))) return;
-        // En rad som er FORFAR til det løftede objektet må ALDRI posisjoneres:
-        // `.sep-above` setter `position: relative`, og da blir raden containing
-        // block for det absolutt posisjonerte dra-elementet — dets dokument-
-        // koordinater tolkes plutselig relativt til raden, og kortets
-        // `overflow: hidden` klipper det bort (et listepunkt dratt UT av en
-        // kategori til nivå 1 i samme liste «forsvant»). Samme fallgruve som
-        // flipFrom unngår. Linja males da fra raden OVER i stedet
-        // (`.sep-below`, identisk geometri) — den er aldri en forfar.
+        // En rad som er FORFAR til det løftede objektet posisjoneres ALDRI:
+        // `.sep-above` setter `position: relative`, og en posisjonert forfar blir
+        // containing block for sine absolutt posisjonerte etterkommere. Symptomet
+        // var at et listepunkt dratt UT av en kategori til nivå 1 i samme liste
+        // «forsvant» (kortets `overflow: hidden` klippet det bort). dnd-kit løfter
+        // nå objektet inn i top layer, der ingen forfar når det, så nettopp det
+        // symptomet kan ikke gjenta seg — men speilingen står: geometrien er
+        // identisk uansett hvilken av de to radene som bærer linja, og det er den
+        // formen `dnd-separators-preview` måler. Linja males fra raden OVER
+        // (`.sep-below`) — den er aldri en forfar.
         if (drag.el && row.contains(drag.el)) addSep(prev, 'sep-below');
         else addSep(row, 'sep-above');
       });
@@ -5283,253 +4306,6 @@
     // Linja klonen speiler står også på det løftede objektet (`addSep`), som kan
     // ligge i en container vi ikke lenger styrer.
     if (drag.el) drag.el.classList.remove('sep-above', 'sep-below');
-  }
-
-  function onItemMove(ev) {
-    if (!drag.active) return;
-    if (dragElDetached()) { cancelActiveDrag(); return; }
-    const dy = ev.clientY - drag.lastY;
-    drag.lastX = ev.clientX;
-    drag.lastY = ev.clientY;
-    moveElement();
-    drag.el.style.transform = `rotate(${cardRotation()}deg) scale(1.03)`;
-    // Sikter man på kassen, står placeholderen i ro: slippet sletter, det
-    // flytter ikke. (Se «Slett ved å dra objektet i søppelkassen».)
-    if (pointerOnDragTrash(drag.lastX, drag.lastY)) {
-      setDragTrashTarget(true);
-      stopAutoScroll();
-      return;
-    }
-    setDragTrashTarget(false);
-    updateAutoScroll();
-    updatePeek(drag.lastX, drag.lastY);
-    updateItemPlacement(drag.lastX, drag.lastY, dy);
-  }
-
-  // Finn og utfør evt. placeholder-flytting for et listepunkt-drag. px/py =
-  // pekerposisjon (viewport), dy = retning (peker-delta eller rulleretning fra
-  // auto-scroll). Kalles fra onItemMove og fra auto-scroll-loopen (stille peker).
-  function updateItemPlacement(px, py, dy, commit) {
-    if (!drag.active || drag.kind !== 'item') return;
-    // Utenfor alle lister (board-luft mellom/utenfor listene) → ny-liste-
-    // placeholder (ekstrahering til en ny liste med bare dette listepunktet).
-    const overCard = dragOverCard();
-    if (!overCard) {
-      // Uten opprettelsesrett i mappen finnes ingen ny liste å slippe i: da blir
-      // reorder-placeholderen stående der den var, og et slipp i board-lufta
-      // legger objektet tilbake der det kom fra.
-      if (!canExtractDragged()) { setReorderMode(); return; }
-      setExtractMode();
-      placeNewListPlaceholder();
-      return;
-    }
-    const beforeTop = overCard.getBoundingClientRect().top;
-    setReorderMode();
-    noteOverShift(overCard, beforeTop); // modusbyttet rykker lista — se noteOverShift
-    const dragRect = draggedRect();
-    const flipEls = [...dragScope().root.querySelectorAll('.item:not(.dragging), .category:not(.dragging)')];
-
-    // 1) Nivå 2 først: er pekeren inne i en kategori i lista? → kategoriens
-    //    .cat-items (slipp på overskriften ELLER blant listepunktene legger
-    //    listepunktet i kategorien). Innenfor lista er det fortsatt PEKEREN som
-    //    velger rad/kategori — 1/3-reglene gjelder kun grensen mellom lister.
-    let targetCont = null;
-    for (const cat of overCard.querySelectorAll('.category:not(.dragging)')) {
-      if (pointerInRect(cat.getBoundingClientRect(), px, py)) {
-        targetCont = cat.querySelector('.cat-items'); break;
-      }
-    }
-    // 2) Nivå 1: kortets .items-container (håndterer overføring mellom kort).
-    if (!targetCont) targetCont = overCard.querySelector('.items-container');
-    if (!targetCont) return;
-
-    // Er målet en KOLLAPSET (ennå ikke peek-åpnet) liste eller kategori? La
-    // placeholderen bli der den er mens peek-timeren (200 ms) løper — flyttet vi den
-    // inn nå, ville kildekortet krympet og målet stukket vekk under pekeren (peek
-    // ville aldri rukket å åpne). `commit` (fra onItemUp) overstyrer: ved selve
-    // slippet skal listepunktet lande i det kollapsede målet selv om peek ikke rakk.
-    const tCardEl = targetCont.closest('.card');
-    const tCatEl = targetCont.closest('.category');
-    if (!commit && ((tCardEl && tCardEl.classList.contains('collapsed')) ||
-                    (tCatEl && tCatEl.classList.contains('collapsed')))) return;
-
-    const ph = drag.ph;
-    const rows = rowChildren(targetCont);
-    const phInCont = ph.parentNode === targetCont;
-    const hasCat = rows.some((r) => r.classList.contains('category'));
-
-    let action = null; // {pos:'before'|'after'|'append', ref?}
-
-    if (!phInCont || hasCat || commit) {
-      // Overføring til en annen container, ELLER nivå 1 med kategorier (blandede
-      // radhøyder), ELLER sluttplasseringen ved slipp: senterbasert innsetting —
-      // robust der overlapp-hysteresen ellers ville feilet mot en høy kategori-
-      // blokk, og ved slipp finnes det ingen retning å styre etter (siste
-      // pointermove kan mangle helt, se centerPlaceRows).
-      const cy = dragRect.top + dragRect.height / 2;
-      let ref = null;
-      for (const it of rows) {
-        const r = layoutRect(it);
-        if (cy < r.top + r.height / 2) { ref = it; break; }
-      }
-      action = ref ? { ref, pos: 'before' } : { pos: 'append' };
-    } else if (dy > 0) {
-      let best = null, bestTop = Infinity;
-      for (const it of rows) {
-        const r = layoutRect(it);
-        if (r.top >= dragRect.top && vOverlap(dragRect, r) >= SWAP_RATIO * r.height && r.top < bestTop) {
-          bestTop = r.top; best = it;
-        }
-      }
-      if (best) action = { ref: best, pos: 'after' };
-    } else if (dy < 0) {
-      let best = null, bestTop = -Infinity;
-      for (const it of rows) {
-        const r = layoutRect(it);
-        if (r.top <= dragRect.top && vOverlap(dragRect, r) >= SWAP_RATIO * r.height && r.top > bestTop) {
-          bestTop = r.top; best = it;
-        }
-      }
-      if (best) action = { ref: best, pos: 'before' };
-    }
-
-    if (!action) return;
-    const willMove = action.pos === 'append'
-      ? !isAtItemsEnd(targetCont, ph)
-      : wouldMove(ph, action.ref, action.pos);
-    if (!willMove) return;
-    // Anti-reverseringslåsen skal aldri overstyre slippet: den finnes for å dempe
-    // flimring under bevegelse, mens slipp-punktet er en tydelig sluttintensjon.
-    if (!commit && swapReversesRecent(action)) return;
-
-    const snap = snapshotRects(flipEls);
-    if (action.pos === 'append') appendToItemsEnd(targetCont, ph);
-    else placePlaceholder(ph, action.ref, action.pos);
-    applyDragSeparators();
-    flipFrom(snap, FLIP_MS);
-    recordSwap(action);
-  }
-
-  function onItemUp(ev) {
-    if (!drag.active) return;
-    if (dragElDetached()) { cancelActiveDrag(); return; }
-    window.removeEventListener('pointermove', onItemMove);
-    window.removeEventListener('pointerup', onItemUp);
-    window.removeEventListener('pointercancel', onItemCancel);
-
-    // Re-evaluer modus/plassering fra de FAKTISKE slipp-koordinatene før vi
-    // avgjør extract vs. reorder: siste pointermove kan være koalescert eller
-    // helt utelatt, så `drag.phMode`/placeholderen kan være foreldet (samme
-    // fort/koalescert-peker-tilfelle som onCardUp håndterer for breadcrumben).
-    // Retningen (dy) regnes FØR drag.lastY overskrives; med commit=true er
-    // plasseringen uansett senterbasert, så et slipp uten forutgående bevegelse
-    // (dy = 0) lander riktig også i en homogen liste — der den retningsstyrte
-    // varianten tidligere ikke gjorde noe i det hele tatt.
-    if (ev && typeof ev.clientX === 'number') {
-      const dy = ev.clientY - drag.lastY;
-      drag.lastX = ev.clientX; drag.lastY = ev.clientY;
-      /* Slipp i søppelkassen avgjøres FØR plasseringen re-evalueres: raden skal
-         hverken flyttes eller ekstraheres, bare slettes. Draget rulles tilbake
-         som et avbrutt drag, og slette-funksjonen gjør resten. */
-      if (pointerOnDragTrash(drag.lastX, drag.lastY)) {
-        const trashScope = dragScope();
-        const trashedId = drag.el.dataset.id;
-        onItemCancel();
-        dropIntoTrash(trashScope, 'item', trashedId);
-        return;
-      }
-      updateItemPlacement(drag.lastX, drag.lastY, dy, true); // commit: lande i kollapset mål om peek ikke rakk
-    }
-
-    if (drag.phMode === 'extract') { extractRowToNewContainer(); return; }
-
-    const S = dragScope();
-    const el = drag.el;
-    const rot = cardRotation();
-    const sourceCardId = el.closest('.card') ? el.closest('.card').dataset.id : null;
-    const targetContainer = drag.ph.parentNode;
-
-    // Mål-containeren LÅST for meg? DB-guarden krever redigering på BÅDE gammel og
-    // ny forelder, så en overføring dit ville blitt avvist og snappet tilbake ved
-    // neste synk. Rull tilbake som et avbrutt drag i stedet (og si fra) — samme
-    // sjekk som kryss-liste-flyttingen i onCategoryUp gjør.
-    const targetHead = targetContainer.closest('.card');
-    if (targetHead && targetHead.dataset.id !== sourceCardId) {
-      const tc = S.findContainer(targetHead.dataset.id);
-      // Ugyldig mål avvises MED EN GANG. Serveren ville uansett avvist skrivingen
-      // og snappet objektet tilbake ved neste synk; her rulles draget tilbake som
-      // et avbrutt drag, med en forklaring.
-      let reason = null;
-      if (tc && frozen(tc)) reason = S.lockedTargetMsg;
-      else if (tc && tc._virtual) reason = tr('dnd.groupNeedsUniverse');
-      else if (tc && S.rowKind === 'group' && !cap(tc, 'createGroup', !frozen(tc))) {
-        reason = tr('dnd.cannotCreateGroupHere');
-      }
-      if (reason) {
-        restoreDraggedToOrigin();
-        finishDrag(); // rydder placeholder/skillelinjer + kollapser evt. peek-åpnet mål
-        showToast(reason);
-        return;
-      }
-    }
-
-    targetContainer.insertBefore(el, drag.ph);
-    drag.ph.remove();
-    // Tilbake til hvile-skillelinjene FØR dropIntoPlaceholder måler hvileposisjonen
-    // (ellers måles den uten en evt. linje over det slupne objektet → et hopp).
-    clearAllDragSeparators();
-    // Peek-oppgjør FØR finishDrag: et peek-åpnet mål elementet landet i forblir åpent,
-    // andre peek-åpnede mål kollapses tilbake (finishDrag sitt sikkerhetsnett blir no-op).
-    resolvePeekOnDrop(el.closest('.card'), el.closest('.category'));
-    dropIntoPlaceholder(el, rot);
-    finishDrag();
-
-    const targetCardId = el.closest('.card').dataset.id;
-    const catEl = el.closest('.category'); // ligger elementet nå inne i en kategori?
-    const prev = el.previousElementSibling;
-    const next = el.nextElementSibling;
-
-    // Ta et øyeblikksbilde av alle rader FØR reconcile: ved overføring til en
-    // annen container må mål-containeren finne den flyttede raden selv om kilden
-    // reconciles først (ellers droppes den fra pool-en før målet ser den).
-    const pool = S.rowPool();
-    reconcileRows(S, sourceCardId, pool);
-    if (targetCardId !== sourceCardId) reconcileRows(S, targetCardId, pool);
-
-    // Kirurgisk: sett kun den flyttede radens forelder (home/uni), kategori (cat)
-    // og posisjon. `cat` rir på posisjonsregisteret (som forelderen).
-    const moved = S.findRow(el.dataset.id);
-    let groupMove = null;
-    if (moved) {
-      const np = between(rowPos(prev), rowPos(next));
-      const fromCont = S.rowParent(moved);
-      if (S.rowKind === 'group' && targetCardId !== fromCont) {
-        // En MAPPE som bytter område går gjennom move_group-RPC-en (databasen
-        // avviser en direkte `universe_id`-skriving). Vi flytter den optimistisk
-        // her og lar RPC-en avgjøre reparenting vs. kopier-og-slett.
-        groupMove = { from: fromCont, to: targetCardId, cat: catEl ? catEl.dataset.id : null, pos: np };
-        S.setRowParent(moved, targetCardId);
-        moved._parent = S.findContainer(targetCardId) || moved._parent;
-        moved.cat = groupMove.cat;
-        moved.pos = np;
-      } else if (moved._canon) {
-        // Fri mappe omrokkert i sin egen seksjon: PERSONLIG rekkefølge.
-        moved.cat = null;
-        moved.pos = np;
-        cloudPersonalPos(S.rowKind, moved.id, np);
-      } else {
-        S.setRowParent(moved, targetCardId);
-        moved.cat = catEl ? catEl.dataset.id : null;
-        moved.pos = np;
-        stampPos(moved);
-      }
-    }
-    // Et slipp inn i en fortsatt kollapset liste/kategori (rask slipp uten peek) har
-    // endret leaf-antallet → oppdater «(N)»-tellerne.
-    refreshAllCollapseCounts();
-    save();
-    S.afterDrop();
-    if (groupMove) commitGroupMove(moved, groupMove.from, groupMove.to, groupMove.cat, groupMove.pos);
   }
 
   /* ---------------- Mappeflytting mellom områder (move_group) ----------------
@@ -5635,15 +4411,6 @@
     save();
   }
 
-  // pointercancel under et listepunkt-drag: rull tilbake uten reconcile/pos/lagre.
-  function onItemCancel() {
-    if (!drag.active) return;
-    window.removeEventListener('pointermove', onItemMove);
-    window.removeEventListener('pointerup', onItemUp);
-    window.removeEventListener('pointercancel', onItemCancel);
-    restoreDraggedToOrigin();
-    finishDrag();
-  }
   // Slipp i ny-container-placeholderen: opprett en ny liste (board) / et nytt
   // område (nav) med bare denne raden, og fokusér navnet (blank input) straks.
   function extractRowToNewContainer() {
@@ -5724,55 +4491,6 @@
      draget starter kollapser kategorien (CAT_COLLAPSE_MS) til bare overskriften;
      ved slipp folder den seg ut igjen med den reverserte animasjonen. */
   const CAT_COLLAPSE_MS = 300;
-  function liftCategory() {
-    const el = drag.el;
-    el.style.width = drag.width + 'px'; // ingen fast høyde → følger den kollapsende høyden
-    el.style.left = dragPosLeft() + 'px';
-    el.style.top = dragPosTop() + 'px';
-    el.classList.add('dragging');
-  }
-  function collapseCategory(catEl, ph) {
-    const catItems = catEl.querySelector('.cat-items');
-    // offsetHeight (ikke getBoundingClientRect): sistnevnte ville inkludert dra-
-    // rotasjonen (som blåser opp en bred, lav header kraftig) → for høy placeholder.
-    const headH = catEl.querySelector('.cat-head').offsetHeight;
-    const collapsedH = headH + 12; // header + .category.dragging-polstring (6px topp/bunn, gap:0)
-    drag.height = collapsedH;      // treffdeteksjon bruker den kollapsede boksen
-    if (prefersReducedMotion()) {
-      catItems.style.overflow = 'hidden';
-      catItems.style.height = '0px'; catItems.style.opacity = '0';
-      catItems.style.paddingTop = '0'; catItems.style.paddingBottom = '0';
-      ph.style.height = collapsedH + 'px';
-      return;
-    }
-    const startH = catItems.getBoundingClientRect().height;
-    catItems.style.overflow = 'hidden';
-    catItems.style.height = startH + 'px';
-    void catItems.offsetWidth; // registrer starttilstanden
-    catItems.style.transition = 'height ' + CAT_COLLAPSE_MS + 'ms ease, opacity ' + CAT_COLLAPSE_MS + 'ms ease, padding ' + CAT_COLLAPSE_MS + 'ms ease';
-    ph.style.transition = 'height ' + CAT_COLLAPSE_MS + 'ms ease';
-    requestAnimationFrame(() => {
-      catItems.style.height = '0px'; catItems.style.opacity = '0';
-      catItems.style.paddingTop = '0'; catItems.style.paddingBottom = '0';
-      ph.style.height = collapsedH + 'px';
-    });
-  }
-  // Etter et kategori-drag (slipp/kansellering): fold ut igjen MED MINDRE kategorien
-  // er klikk-kollapset (rullgardin, `cat.collapsed`) — da beholdes den kollapset.
-  function settleCategoryAfterDrag(catEl) {
-    const catObj = dragScope().findRow(catEl.dataset.id);
-    if (catObj && catObj.collapsed) {
-      const inner = catEl.querySelector('.cat-items');
-      if (inner) {
-        inner.style.transition = ''; inner.style.overflow = 'hidden';
-        inner.style.height = '0px'; inner.style.opacity = '0';
-        inner.style.paddingTop = '0'; inner.style.paddingBottom = '0';
-      }
-      catEl.classList.add('collapsed');
-    } else {
-      expandCategory(catEl);
-    }
-  }
   function expandCategory(catEl) {
     const catItems = catEl.querySelector('.cat-items');
     const clear = () => {
@@ -5793,26 +4511,6 @@
       catItems.removeEventListener('transitionend', te);
     });
   }
-  // Senterbasert placeholder-innsetting blant nivå-1-rader (blandede høyder).
-  function placeRowPlaceholder(cont) {
-    const ph = drag.ph;
-    const dragRect = draggedRect();
-    const cy = dragRect.top + dragRect.height / 2;
-    const rows = rowChildren(cont);
-    let ref = null;
-    for (const r of rows) {
-      const rr = layoutRect(r);
-      if (cy < rr.top + rr.height / 2) { ref = r; break; }
-    }
-    const action = ref ? { ref, pos: 'before' } : { pos: 'append' };
-    const willMove = action.pos === 'append' ? cont.lastElementChild !== ph : wouldMove(ph, action.ref, 'before');
-    if (!willMove) return;
-    const snap = snapshotRects(rows);
-    if (action.pos === 'append') cont.appendChild(ph);
-    else placePlaceholder(ph, action.ref, 'before');
-    applyDragSeparators();
-    flipFrom(snap, FLIP_MS);
-  }
   /* ---------------- Ekstrahering til ny liste (kategori/listepunkt → nytt kort) ----------------
      Drar man en kategori (eller et listepunkt) UT av listene og holder den over,
      under eller mellom dem, dukker en KORT-formet placeholder med et ＋-ikon opp på
@@ -5822,7 +4520,7 @@
      OPPRETTER (owner) av den nye lista: den lages lokalt med ny id og pushes som en
      ny rad eid av gjeldende bruker (insertPayload → owner_id = meg), uansett hvem som
      opprettet kilde-lista. Ekstrahering fra en LÅST (frosset) liste er umulig — selve
-     draget er da avskrudd (attachHoldDrag canDrag = !frozen). `drag.phMode`
+     draget er da avskrudd (`data-dnd-ignore` på en frossen rads dra-sone). `drag.phMode`
      ('reorder' | 'extract') styrer hvilken placeholder som er aktiv. */
   // Får det LØFTEDE objektet i det hele tatt bli sin egen container? Board-scopet
   // spør mappen om opprettelsesrett, nav-scopet spør mappen om den kan flyttes
@@ -6088,34 +4786,6 @@
     ph.innerHTML = '<span class="new-list-plus" aria-hidden="true">' + ICONS.plus + '</span>';
     return ph;
   }
-  // Bytt til ekstraherings-placeholderen (kort-formet, ＋, på board-et).
-  function setExtractMode() {
-    if (drag.phMode === 'extract') return;
-    drag.phMode = 'extract';
-    if (drag.ph && drag.ph.parentNode) drag.ph.remove();
-    drag.ph = makeNewListPlaceholder(Math.max(72, drag.height));
-    // Midlertidig sist i siste kolonne; `placeNewListPlaceholder` flytter den
-    // straks til kolonnen/plassen man faktisk sikter på.
-    const root = dragScope().root;
-    const cols = boardColumns(root);
-    (cols[cols.length - 1] || root).appendChild(drag.ph);
-    applyDragSeparators(); // placeholderen forlot lista → linjene der uten den
-  }
-  // Bytt tilbake til reorder-placeholderen (element-/kategori-placeholder i lista).
-  function setReorderMode() {
-    if (drag.phMode === 'reorder') return;
-    drag.phMode = 'reorder';
-    if (drag.ph && drag.ph.parentNode) drag.ph.remove();
-    const ph = document.createElement('li');
-    ph.className = drag.kind === 'category' ? 'item-placeholder cat-placeholder' : 'item-placeholder';
-    ph.style.height = drag.height + 'px';
-    drag.ph = ph;
-    // Legg den midlertidig i utgangs-containeren; plasseringslogikken flytter den
-    // straks til rett container/plass (updateItemPlacement / placeRowPlaceholder).
-    const home = drag.origParent || (drag.card && drag.card.querySelector('.items-container')) || dragScope().root;
-    home.appendChild(ph);
-    applyDragSeparators();
-  }
   /* Plassér ny-liste-placeholderen blant board-ets kort.
 
      KOLONNEN velges av pekeren (som ellers vannrett), PLASSEN i kolonnen av
@@ -6187,67 +4857,6 @@
     return between(pPrev == null ? null : pPrev, pNext == null ? null : pNext);
   }
 
-  function startCategoryDrag(ev, catEl) {
-    if (ev.button != null && ev.button !== 0) return;
-    if (drag.active) return; // ignorer ny drag mens en pågår
-    beginDragCommon(ev, catEl);
-    drag.kind = 'category';
-    drag.phMode = 'reorder';
-    drag.card = catEl.closest('.card'); // kategorier flyttes kun innen egen liste
-    // Grep-punktet måles relativt til OVERSKRIFTEN, ikke hele (u-kollapsede)
-    // kategori-boksen: kategorien kollapser til bare overskriften under draging,
-    // og en evt. ::before-skillelinje over headeren gjorde ellers grabY større
-    // enn den kollapsede høyden → fingeren havnet utenfor boksen (skjev
-    // plassering + auto-scroll ved kanten slo ikke inn).
-    drag.grabY = ev.clientY - catEl.querySelector('.cat-head').getBoundingClientRect().top;
-
-    const ph = document.createElement('li');
-    ph.className = 'item-placeholder cat-placeholder';
-    ph.style.height = drag.height + 'px';
-    catEl.parentNode.insertBefore(ph, catEl);
-    drag.ph = ph;
-
-    liftCategory();
-    applyDragSeparators(); // etter løftet: det dratte er da ute av flyten (ingen nabo)
-    drag.el.style.transform = `rotate(${cardRotation()}deg) scale(1.03)`; // dynamisk rotasjon (globalt)
-    collapseCategory(catEl, ph);
-    window.addEventListener('pointermove', onCategoryMove);
-    window.addEventListener('pointerup', onCategoryUp);
-    window.addEventListener('pointercancel', onCategoryCancel);
-  }
-  function onCategoryMove(ev) {
-    if (!drag.active) return;
-    if (dragElDetached()) { cancelActiveDrag(); return; }
-    drag.lastX = ev.clientX;
-    drag.lastY = ev.clientY;
-    moveElement();
-    drag.el.style.transform = `rotate(${cardRotation()}deg) scale(1.03)`;
-    updateAutoScroll();
-    updatePeek(drag.lastX, drag.lastY);
-    updateCategoryPlacement();
-  }
-  // Innenfor kildelisten → reorder på nivå 1; over en ANNEN liste → flytt kategorien
-  // INN i den (nivå 1 — kategorier nøstes aldri); ellers (board-luft mellom/utenfor
-  // listene) → ny-liste-placeholder (ekstrahering).
-  function updateCategoryPlacement(commit) {
-    if (!drag.active || drag.kind !== 'category') return;
-    const overCard = dragOverCard();
-    if (!overCard) {
-      if (!canExtractDragged()) { setReorderMode(); return; } // se updateItemPlacement
-      setExtractMode();
-      placeNewListPlaceholder();
-      return;
-    }
-    const beforeTop = overCard.getBoundingClientRect().top;
-    setReorderMode();
-    noteOverShift(overCard, beforeTop); // modusbyttet rykker lista — se noteOverShift
-    // Kollapset (ennå ikke peek-åpnet) mål-liste: la placeholderen bli der den er
-    // mens peek-timeren løper (se updateItemPlacement). `commit` (fra onCategoryUp)
-    // overstyrer så kategorien lander i den kollapsede lista ved selve slippet.
-    if (overCard !== drag.card && !commit && overCard.classList.contains('collapsed')) return;
-    const cont = overCard.querySelector('.items-container');
-    if (cont) placeRowPlaceholder(cont);
-  }
   // Flytt en kategori (med alle medlemmene) fra kilde-lista til en annen liste på
   // nivå 1. Medlemmene beholder sin `cat`-peker; både kategori og medlemmer får ny
   // `home` (= mål-kortet) og stemples (home rir på posisjonsregisteret). Kategoriens
@@ -6265,77 +4874,6 @@
     S.setRows(srcCard, srcRows.filter((r) => r.id !== catId && !memberIds.has(r.id)));
     S.rowsOf(tCard).push(cat, ...members);
     return true;
-  }
-  function onCategoryUp(ev) {
-    if (!drag.active) return;
-    if (dragElDetached()) { cancelActiveDrag(); return; }
-    window.removeEventListener('pointermove', onCategoryMove);
-    window.removeEventListener('pointerup', onCategoryUp);
-    window.removeEventListener('pointercancel', onCategoryCancel);
-
-    // Re-evaluer modus/plassering fra de FAKTISKE slipp-koordinatene før vi
-    // avgjør extract vs. reorder: siste pointermove kan være koalescert eller
-    // utelatt, så `drag.phMode`/placeholderen kan være foreldet (samme
-    // fort/koalescert-peker-tilfelle som onCardUp håndterer for breadcrumben).
-    if (ev && typeof ev.clientX === 'number') {
-      drag.lastX = ev.clientX; drag.lastY = ev.clientY;
-      updateCategoryPlacement(true); // commit: lande i kollapset mål-liste om peek ikke rakk
-    }
-
-    if (drag.phMode === 'extract') { extractCategoryToNewContainer(); return; }
-
-    const S = dragScope();
-    const el = drag.el;
-    const cont = drag.ph.parentNode;
-    const targetCardEl = cont.closest('.card');
-    const sourceCardId = drag.card ? drag.card.dataset.id
-      : (el.closest('.card') ? el.closest('.card').dataset.id : null);
-    const targetCardId = targetCardEl ? targetCardEl.dataset.id : sourceCardId;
-
-    // Kryss-liste-flytting: kategorien (+ medlemmene) inn i en ANNEN liste. Mål-lista
-    // rebygges med render(), så peek-DOM-en forkastes — rydd peek-slotene uten
-    // re-kollaps. Et peek-åpnet mål slippet landet i forblir åpent (collapsed=false).
-    if (targetCardId && targetCardId !== sourceCardId) {
-      // Mål-lista LÅST for meg? DB-guarden krever redigering på BÅDE gammelt og nytt
-      // card_id, så en flytting ville blitt avvist og snappet tilbake ved neste synk.
-      // Rull tilbake som et avbrutt drag i stedet (og si fra).
-      const tcCheck = S.findContainer(targetCardId);
-      if (tcCheck && frozen(tcCheck)) {
-        restoreDraggedToOrigin();
-        settleCategoryAfterDrag(el);
-        finishDrag(); // rydder + clearAllPeeks(true) kollapser evt. peek-åpnet mål tilbake
-        showToast(S.lockedTargetMsg);
-        return;
-      }
-      const keepOpen = !!(drag.peekCard && drag.peekCard.expanded && drag.peekCard.el === targetCardEl);
-      const prevPos = rowPos(drag.ph.previousElementSibling);
-      const nextPos = rowPos(drag.ph.nextElementSibling);
-      clearAllPeeks(false);
-      finishDrag();
-      if (keepOpen) {
-        const tc = S.findContainer(targetCardId);
-        if (tc) { tc.collapsed = false; if (!frozen(tc)) stampContent(tc); }
-      }
-      moveCategoryToCard(S, el.dataset.id, sourceCardId, targetCardId, prevPos, nextPos);
-      S.render();
-      save();
-      return;
-    }
-
-    // Samme liste: reorder på nivå 1.
-    cont.insertBefore(el, drag.ph);
-    drag.ph.remove();
-    clearAllDragSeparators(); // hvile-linjene tilbake før hvileposisjonen måles
-    dropIntoPlaceholder(el, false); // fly inn i sloten (kollapset) …
-    settleCategoryAfterDrag(el);    // … og fold ut igjen (med mindre klikk-kollapset)
-    finishDrag();
-
-    const prev = el.previousElementSibling;
-    const next = el.nextElementSibling;
-    const cat = S.findRow(el.dataset.id);
-    if (cat) { cat.pos = between(rowPos(prev), rowPos(next)); stampPos(cat); }
-    save();
-    S.afterDrop();
   }
   // Slipp i ny-liste-placeholderen: gjør kategorien til en ny liste (samme tittel),
   // medlemmene blir ukategoriserte listepunkter i den. Selve kategori-raden slettes.
@@ -6374,60 +4912,14 @@
     S.render(); // rebygg rent (ny container + oppdatert kilde)
     save();
   }
-  // pointercancel under et kategori-drag: rull tilbake uten pos/lagre og fold
-  // kategorien ut igjen (den kollapset ved dragstart).
-  function onCategoryCancel() {
-    if (!drag.active) return;
-    window.removeEventListener('pointermove', onCategoryMove);
-    window.removeEventListener('pointerup', onCategoryUp);
-    window.removeEventListener('pointercancel', onCategoryCancel);
-    const el = drag.el;
-    restoreDraggedToOrigin();
-    if (el) settleCategoryAfterDrag(el);
-    finishDrag();
-  }
 
-  /* ------- Auto-scroll av nav-modalen under draging -------
-     Områder/mapper dras i en modal der VINDUET aldri scroller; scroll-
-     containeren er modalens `.menu-body`. Samme sonelogikk/fart som vindus-
-     auto-scrollen, og etter hver frame re-evalueres plasseringen (radene har
-     flyttet seg mens pekeren står stille) — nøyaktig som `reapplyPlacement`
-     gjør for board-et. */
-  let modalScrollRAF = null, modalScrollSpeed = 0;
-  function modalScroller() {
-    return navModal.querySelector('.menu-body');
-  }
-  function updateModalAutoScroll() {
-    const scroller = modalScroller();
-    if (!drag.active || !scroller) { stopModalAutoScroll(); return; }
-    const r = scroller.getBoundingClientRect();
-    const EDGE = 52;
-    const y = drag.lastY;
-    let speed = 0;
-    if (y < r.top + EDGE) speed = -Math.ceil(((r.top + EDGE - y) / EDGE) * 16);
-    else if (y > r.bottom - EDGE) speed = Math.ceil(((y - (r.bottom - EDGE)) / EDGE) * 16);
-    modalScrollSpeed = speed;
-    if (speed !== 0) startModalAutoScroll(scroller); else stopModalAutoScroll();
-  }
-  function startModalAutoScroll(scroller) {
-    if (modalScrollRAF != null) return;
-    let prevTs = null, rest = 0;
-    const step = (ts) => {
-      if (!drag.active || modalScrollSpeed === 0) { modalScrollRAF = null; return; }
-      const delta = modalScrollSpeed * frameSteps(prevTs, ts) + rest; // px per 60 Hz-frame
-      prevTs = frameNow(ts);
-      const before = scroller.scrollTop;
-      scroller.scrollTop += delta;
-      rest = Math.max(-1, Math.min(1, delta - (scroller.scrollTop - before)));
-      if (scroller.scrollTop !== before) reapplyPlacement(modalScrollSpeed > 0 ? 1 : -1);
-      modalScrollRAF = requestAnimationFrame(step);
-    };
-    modalScrollRAF = requestAnimationFrame(step);
-  }
-  function stopModalAutoScroll() {
-    if (modalScrollRAF != null) { cancelAnimationFrame(modalScrollRAF); modalScrollRAF = null; }
-    modalScrollSpeed = 0;
-  }
+  /* ============================================================
+     VIEWPORT- OG BOARD-MÅL
+     ------------------------------------------------------------
+     Ikke DnD-politikk, men tallene politikken (og resten av UI-et) måler mot:
+     den sikre sonen, toppmenyens klaring og bunn-luften under siste kort.
+     `safeInsets` mates dessuten inn i Smetts `SafeViewport`.
+     ============================================================ */
 
   /* DEN SIKRE SONEN, for de lagene som plasseres i JS.
      De faste elementene får den fra CSS (`--safe-*`, se styles.css og
@@ -6508,11 +5000,11 @@
   /* ============================================================
      NAV-SCOPET PÅ dnd-kit (gjennom Smett)
      ------------------------------------------------------------
-     Nav-modalen — områder som kort, mapper og mappekategorier som rader — dras
-     ikke lenger av motoren over. Den kjører på dnd-kit, gjennom Smett
-     (`vendor/smett-0.1.0.js`, den globale `Smett`). Hovedsidens board
-     (`boardScope`) står fortsatt på den hjemmesnekrede motoren; rekkefølgen for
-     resten av byttet står i `docs/dndkit-plan.md`.
+     Nav-modalen — områder som kort, mapper og mappekategorier som rader —
+     kjøres av dnd-kit gjennom Smett (`vendor/smett-0.1.0.js`, den globale
+     `Smett`). Politikken de to board-ene her leser fra er DELT med hovedsidens
+     to; den ligger i seksjonen «DELT DnD-POLITIKK» over
+     (`docs/drag-and-drop.md`).
 
      TO BOARD, ETT NIVÅ HVER, HVER SIN MANAGER. Smetts `extensions.md` sier «et
      board per hierarkinivå», og at hvert board da bygger sin egen manager:
@@ -6605,8 +5097,9 @@
      derimot fortsatt ved slippet (`navCommitRow` kaster → Smett ruller
      tilbake). Det spørsmålet avhenger av hvor raden kom FRA — en fri mappe kan
      omrokkeres i fri-seksjonen, men ingen mappe kan flyttes INN i den — og
-     `containerAccept` kjenner bare containeren, ikke kilden. Se
-     `docs/dndkit-plan.md`. */
+     `containerAccept` kjenner bare containeren, ikke kilden. Skal den bli en
+     drag-tid-regel også her, krever det et kilde-argument i Smetts
+     `containerAccept`. Se `docs/drag-and-drop.md`. */
   function navRowAccept(cont) {
     if (navExtract) return [];                       // ekstrahering: ingen tar imot nå
     if (dndInCollapsedTarget(cont)) return [];       // peek folder ut først
@@ -6615,7 +5108,7 @@
   }
 
   /* ------- Hvilken container hører draget til NÅ? -------
-     Huskis-regelen er i to trinn, og den er uendret fra den gamle motoren:
+     Huskis-regelen er i to trinn:
 
        1. Hvilket KORT er objektet i? Det avgjøres av OBJEKTETS EGEN BOKS mot
           kortets innholdssone (1/3-tersklene i `dragOverCard`/`cardBand`), ikke
@@ -6659,14 +5152,11 @@
     return card.querySelector('.items-container');
   }
   /* ------- Et KOLLAPSET mål må stå stille til peek har åpnet det -------
-     Den gamle motoren løste dette med én tidlig return i `updateItemPlacement`:
-     var mål-containeren i en kollapset liste eller kategori, ble placeholderen
-     der den var mens 200 ms-timeren løp. Flyttet vi raden inn med én gang, ville
-     kilden krympet med en radhøyde og målet stukket vekk under pekeren — timeren
-     rakk aldri ut, og peek åpnet aldri.
+     Flyttes raden inn med én gang, krymper kilden med en radhøyde og målet
+     stikker vekk under pekeren — 200 ms-timeren rekker aldri ut, og peek åpner
+     aldri. Ingenting skal altså flytte seg mens et kollapset mål hoveres.
 
-     Under dnd-kit må det samme sies to steder, fordi de to slagene mål feiler på
-     hver sin måte:
+     Det må sies to steder, fordi de to slagene mål feiler på hver sin måte:
 
      1. **En kollapset LISTE tar ikke imot.** Containeren er uten høyde, og en rad
         flyttet dit ville forsvunnet inn i noe usynlig. `*RowAccept` svarer tomt
@@ -6686,8 +5176,8 @@
         SYNLIGE raden over som vanlig.
 
      Kategoriens egen hylle (`.cat-items`) dekkes av samme regel som (1). Selve
-     SLIPPET er en tydelig sluttintensjon og lander i målet uansett, som den
-     gamle motorens `commit = true` (se `dndLandInPeekTarget`). */
+     SLIPPET er en tydelig sluttintensjon og lander i målet uansett — et raskt
+     slipp før peek rakk havner altså der (se `dndLandInPeekTarget`). */
   // Er containeren i et kollapset mål peek ennå ikke har foldet ut?
   function dndInCollapsedTarget(cont) {
     const cat = cont.closest('.category');
@@ -6779,13 +5269,12 @@
   }
   /* Slippet i et mål peek ikke rakk å åpne: legg raden sist i det. Målet er
      kollapset, så det finnes ingen synlige rader å plassere seg mellom — «sist»
-     er hele svaret, og det er også der den gamle senterbaserte regelen havnet. */
+     er hele svaret. */
   function dndLandInPeekTarget() {
     const cont = dndPeekPending;
     if (!cont || !drag.el || !cont.isConnected || !dndInCollapsedTarget(cont)) return;
     appendToItemsEnd(cont, drag.el);
   }
-
 
   function dndLevel1Collision(input) {
     const cont = input.droppable.element;
@@ -6977,10 +5466,9 @@
      navigerer) fyrer likevel. Et fullført drag ville dermed lukket kortet eller
      navigert bort idet man slapp.
 
-     Den gamle motoren stoppet klikket på KILDENS sone. Det holdt bare så lenge
-     klikket kom tilbake til den sonen: et ekte slipp over en ANNEN rad gir et
-     tiltrodd klikk på DEN raden, som en vakt på kilden aldri ser. Derfor tar vi
-     det på dokumentet, i capture-fasen. Flagget varer til det første klikket, og
+     En vakt på KILDENS sone holder ikke: den ser bare klikk som kommer tilbake
+     dit, og et ekte slipp over en ANNEN rad gir et tiltrodd klikk på DEN raden.
+     Derfor tar vi det på dokumentet, i capture-fasen. Flagget varer til det første klikket, og
      ryddes av neste `pointerdown` — et drag som endte over noe uklikkbart gir
      ingen `click` i det hele tatt, og flagget skal ikke bli liggende. */
   let dndSwallowClick = false;
@@ -7067,7 +5555,6 @@
     drag.phMode = 'reorder';
     drag.origParent = el.parentNode;
     drag.origNext = el.nextSibling;
-    drag.recentSwap = null;     // anti-flimringen er Smetts nå; feltet nullstilles likt
     drag.card = kind === 'category' ? el.closest('.card') : null;
     drag.peekCard = null;
     drag.peekCat = null;
@@ -7081,7 +5568,7 @@
     navSourceCardId = drag.trashHost ? drag.trashHost.dataset.id : null;
     document.body.classList.add('is-dragging');
     // Nettleserens scroll-anchoring ville ellers rykket modalen brått når
-    // kortene kollapser. Samme grep som `beginDragCommon`.
+    // kortene kollapser. `finishDrag` slipper den igjen.
     document.documentElement.style.overflowAnchor = 'none';
     if (kind === 'card') {
       navCollapseCardsForDrag(el);
@@ -7190,14 +5677,14 @@
 
      Men kollapsen flytter også kortet man nettopp tok tak i, og dnd-kit maler
      det løftede objektet fra der elementet FAKTISK LÅ da det ble målt — ikke
-     fra grepet, slik den gamle motoren gjorde. Uten mottiltak ville kortet
+     fra grepet. Uten mottiltak ville kortet
      løsnet fra fingeren med akkurat den avstanden layouten flyttet seg: både
      fordi kortene OVER krymper, og fordi nav-modalen er loddrett sentrert og
      dermed re-sentrerer når innholdet blir kortere.
 
      Derfor fryses board-høyden (modalen re-sentrerer da ikke) og
      kompenseres med padding-top for kortene over — samme regnestykke som
-     `freezeBoardForDrag` gjør for hovedsidens board, av en annen grunn.
+     `boardCollapseCardsForDrag` gjør for hovedsidens board, av en annen grunn.
      Board-et er `box-sizing: border-box`, så padding-en spiser av innholdet og
      totalhøyden står stille. `card.collapsed` er urørt, så
      `restoreCardsAfterDrag()` folder alt tilbake til lagret tilstand. */
@@ -7461,10 +5948,9 @@
      Mens modusen står på svarer `navRowAccept` med tom liste. Da tar ingen
      container imot, dnd-kit finner ikke noe mål, og sorteringen står stille:
      Smetts eget svar på «slå av reorder akkurat nå». Klonen blir liggende der
-     den sist havnet i stedet for å bli fjernet, slik den gamle motorens
-     placeholder ble. Det er med vilje: gulvet flytter seg da ikke under raden
-     idet modusen skifter, og layout-hoppet `noteOverShift` fantes for å
-     kompensere for oppstår ikke i det hele tatt. */
+     den sist havnet — med vilje: gulvet flytter seg da ikke under raden idet
+     modusen skifter, og layout-hoppet `noteOverShift` kompenserer for oppstår
+     ikke i det hele tatt. */
   function navUpdateExtractMode() {
     const overCard = dragOverCard();
     if (!overCard && canExtractDragged()) {
@@ -7477,8 +5963,7 @@
     // Modusbyttet rykker kortet man nettopp gikk INN i: ny-område-placeholderen
     // forlater kolonnen, og alt under den flytter seg opp. `noteOverShift` lar
     // stickiness-en i `dragOverCard` beholde kortet gjennom akkurat det hoppet,
-    // så raden ikke faller ut igjen i samme bevegelse. Samme grep, samme
-    // begrunnelse som i den gamle motoren.
+    // så raden ikke faller ut igjen i samme bevegelse.
     const beforeTop = overCard ? overCard.getBoundingClientRect().top : 0;
     navSetReorderMode();
     if (overCard) noteOverShift(overCard, beforeTop);
@@ -7520,10 +6005,10 @@
   /* ============================================================
      BOARD-SCOPETS KORTNIVÅ PÅ dnd-kit (gjennom Smett)
      ------------------------------------------------------------
-     Listene på hovedsiden — kortene i kolonnene — dras ikke lenger av motoren
-     over. De kjøres av dnd-kit gjennom Smett, som nav-modalen. RADNIVÅET
-     (listepunkt og kategori) står fortsatt på den hjemmesnekrede motoren;
-     rekkefølgen for resten står i `docs/dndkit-plan.md`.
+     Listene på hovedsiden — kortene i kolonnene — kjøres av dnd-kit gjennom
+     Smett, som nav-modalen. Radnivået (listepunkt og kategori) har sitt eget
+     board lenger nede. Den delte politikken ligger i seksjonen «DELT
+     DnD-POLITIKK» (`docs/drag-and-drop.md`).
 
      ETT BOARD, ETT NIVÅ. Kortene har sitt eget board med sin egen manager,
      nøyaktig som nav-scopets to. Dra-sonen er korthodet (`.card-head`), og
@@ -7553,13 +6038,13 @@
      `pos` mellom naboene i leserekkefølge, fargeindekseringen og
      scroll-til-slupt.
 
-     BOARD-ET FRYSES IKKE mens man sikter i toppmenyen. Den gamle motoren hoppet
-     over plasseringen der oppe, «så lista ikke bytter plass mens man løfter den
-     opp». Begge målene i toppmenyen er SONER nå, og Smett ruller lista tilbake
-     dit den kom fra før handlingen — rekkefølgen underveis har altså ingen
-     virkning i det hele tatt. En vakt for den ville dessuten ikke kunne
-     observeres: veien opp til toppmenyen går tvers over kortene uansett, så
-     lista har allerede byttet plass før pekeren kommer dit.
+     BOARD-ET FRYSES IKKE mens man sikter i toppmenyen, selv om det kan virke
+     som om lista ikke bør bytte plass mens man løfter den opp dit. Begge målene
+     i toppmenyen er SONER, og Smett ruller lista tilbake dit den kom fra før
+     handlingen — rekkefølgen underveis har altså ingen virkning i det hele
+     tatt. En vakt for den ville dessuten ikke kunne observeres: veien opp til
+     toppmenyen går tvers over kortene uansett, så lista har allerede byttet
+     plass før pekeren kommer dit.
      ============================================================ */
   let boardCardBoard = null;
   // Sonene et liste-drag kan slippes i. Begge ligger i toppmenyen.
@@ -7726,7 +6211,6 @@
     drag.phMode = 'reorder';
     drag.origParent = el.parentNode;
     drag.origNext = el.nextSibling;
-    drag.recentSwap = null;     // anti-flimringen er Smetts nå
     drag.card = null;
     drag.peekCard = null;
     drag.peekCat = null;
@@ -7737,7 +6221,7 @@
     boardTargetCol = null;
     document.body.classList.add('is-dragging');
     // Nettleserens scroll-anchoring ville ellers rykket siden brått når listene
-    // kollapser. Samme grep som `beginDragCommon`.
+    // kollapser. `finishDrag` slipper den igjen.
     document.documentElement.style.overflowAnchor = 'none';
     boardCollapseCardsForDrag(el);
     boardTuneColumnCollisions();
@@ -7781,7 +6265,7 @@
 
      Men kollapsen flytter også kortet man nettopp tok tak i, og dnd-kit maler
      det løftede kortet fra der elementet FAKTISK LÅ da det ble målt — ikke fra
-     grepet, slik den gamle motoren gjorde. Uten mottiltak løsner kortet fra
+     grepet. Uten mottiltak løsner kortet fra
      fingeren med akkurat den avstanden layouten flyttet seg (høyden av hver åpen
      liste over den dratte, i kortets egen kolonne).
 
@@ -8118,7 +6602,6 @@
     drag.phMode = 'reorder';
     drag.origParent = el.parentNode;
     drag.origNext = el.nextSibling;
-    drag.recentSwap = null;     // anti-flimringen er Smetts nå
     drag.card = kind === 'category' ? el.closest('.card') : null;
     drag.peekCard = null;
     drag.peekCat = null;
@@ -8135,7 +6618,7 @@
     boardRowSourceCardId = drag.trashHost ? drag.trashHost.dataset.id : null;
     document.body.classList.add('is-dragging');
     // Nettleserens scroll-anchoring ville ellers rykket siden brått når
-    // kategorien folder seg sammen. Samme grep som `beginDragCommon`.
+    // kategorien folder seg sammen. `finishDrag` slipper den igjen.
     document.documentElement.style.overflowAnchor = 'none';
     boardFreezeForRowDrag(el);
     dndTuneRowCollisions(boardRowBoard);
@@ -8178,8 +6661,7 @@
          på det samme punktet leser den nye layouten som en ny intensjon. Målt:
          en rad lagt inn over en kategori dyttet kategorien ned under pekeren, og
          neste runde leste det som «legg raden i kategorien i stedet» — som
-         flyttet den igjen. Den gamle motoren hadde vakten uten å vite av den:
-         den regnet bare på `pointermove`. */
+         flyttet den igjen. */
       if (drag.lastX === dndPolicyX && drag.lastY === dndPolicyY) return;
       dndPolicyX = drag.lastX;
       dndPolicyY = drag.lastY;
@@ -8434,8 +6916,7 @@
      Mens modusen står på svarer `boardRowAccept` med tom liste. Da tar ingen
      container imot, dnd-kit finner ikke noe mål, og sorteringen står stille:
      Smetts eget svar på «slå av reorder akkurat nå». Klonen blir liggende der
-     den sist havnet i stedet for å bli fjernet, slik den gamle motorens
-     placeholder ble — gulvet flytter seg da ikke under raden idet modusen
+     den sist havnet — gulvet flytter seg da ikke under raden idet modusen
      skifter. */
   function boardUpdateExtractMode() {
     const overCard = dragOverCard();
@@ -9836,7 +8317,7 @@
     // Menyknappen ligger midt i dra-sonen på hvert eneste objekt, og et trykk
     // på den skal åpne menyen — aldri løfte objektet. `data-dnd-ignore` er
     // dnd-kits måte å si det på (`preventActivation` ser etter den før alt
-    // annet); den gamle motoren har sin egen `except`-selektor.
+    // annet).
     btn.dataset.dndIgnore = '';
     btn.innerHTML = ICONS.menuDots;
     btn.addEventListener('click', (ev) => {
@@ -12536,7 +11017,7 @@
          auto-oppdateringens trygghetssjekk — for et rent lokalt fargebytte.
        • Å utsette rendringen i stedet løser ingenting: den måtte da tømmes et
          sted, og `finishDrag()` (det nærliggende stedet) kalles av droppene
-         FØR de har committet — `onCardUp` stempler `pos` og lagrer etterpå.
+         FØR de har committet — `boardCommitCard` stempler `pos` og lagrer etterpå.
          En rendring der ville malt board-et fra tilstanden før slippet.
 
      Søppelkasse-modalens prikker er det ene unntaket: de males også fra

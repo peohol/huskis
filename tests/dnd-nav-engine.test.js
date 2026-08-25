@@ -11,8 +11,8 @@
   Dekker:
     1. Nav-modalen har dnd-kits kroker: det løftede objektet får
        `[data-dnd-dragging]`, og klonen som holder plassen
-       `[data-dnd-placeholder]`. Hovedsidens board bruker fortsatt `.dragging`
-       og sin egen `.item-placeholder` — de to motorene lever side om side.
+       `[data-dnd-placeholder]` — som gir fra seg id-en, siden Smett tar
+       identiteten fra det løftede objektet.
     2. Klonen er ikke en NABO. Den ligger rett etter det løftede objektet og
        bærer de samme klassene, så en `pos` regnet mot den ville alltid blitt
        «sist i lista» uansett hvor man slapp. En mappe sluppet MIDT i lista skal
@@ -151,14 +151,13 @@ async function run(label, viewport, mobile) {
     const ph = document.querySelector('#nav-board [data-dnd-placeholder]');
     return {
       løftet: el && el.dataset.id,
-      gammelKlasse: document.querySelectorAll('#nav-board .dragging').length,
       klone: !!ph,
       kloneEtterLøftet: !!(el && el.nextElementSibling === ph),
       kloneUtenId: !!(ph && !ph.dataset.id),
     };
   });
-  log(label + ' 1: det løftede objektet er merket av dnd-kit, ikke av den gamle motoren',
-    lifted.løftet === rows[0] && lifted.gammelKlasse === 0, JSON.stringify(lifted));
+  log(label + ' 1: det løftede objektet er merket av dnd-kit',
+    lifted.løftet === rows[0], JSON.stringify(lifted));
   log(label + ' 1: klonen holder plassen rett etter objektet, og har gitt fra seg id-en',
     lifted.klone === true && lifted.kloneEtterLøftet === true && lifted.kloneUtenId === true,
     JSON.stringify(lifted));

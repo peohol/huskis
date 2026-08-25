@@ -81,8 +81,7 @@ async function seed(p) {
    Radnivået kjøres av dnd-kit: det LØFTEDE objektet merkes `[data-dnd-dragging]`
    (og ligger i top layer, ute av flyten), mens plassen holdes av en KLONE med
    `[data-dnd-placeholder]` — samme klasser som raden den er en kopi av, men uten
-   id (Smett tar identiteten fra den). Klonen er «plassen som kommer», altså det
-   den gamle motorens `.item-placeholder`/`.cat-placeholder` var. */
+   id (Smett tar identiteten fra den). Klonen er «plassen som kommer». */
 const rows = (p) => p.evaluate(() => {
   const cont = document.querySelector('.card[data-id="card-A"] .items-container');
   return [...cont.children].map((c) => {

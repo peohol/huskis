@@ -123,7 +123,8 @@ verdi fra en separat `clamp()`.
 ## Mobil, én kolonne
 
 Kolonneformelen gir 1 av seg selv så smalt. Mobil-media-regelen (`max-width:
-560px`) setter derfor bare `--mobile-dnd-flow-guard: 1`, flagget som slår på
-DnD-ens normal-flow-vakt på touch (se `docs/drag-and-drop.md`). Kortene
-(`width: 100%`, base-regelen) fyller hele den ene kolonnen → jevn luft på alle
-sider siden `--board-gap` uansett brukes konsekvent.
+560px`) setter derfor bare `--board-single-column: 1` — CSS-sidens svar på
+«er board-et i énkolonne-modus?», som `tests/dnd-layout-modes.test.js` leser for
+å vise at CSS og JS er enige om modus. Kortene (`width: 100%`, base-regelen)
+fyller hele den ene kolonnen → jevn luft på alle sider siden `--board-gap`
+uansett brukes konsekvent.

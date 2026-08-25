@@ -180,9 +180,9 @@ const log = (n, ok, x = '') => { results.push(ok); console.log((ok ? 'PASS' : 'F
     await G.touchSecond(p, rest, src);
     await p.waitForTimeout(320); // godt forbi HOLD_MS
     const state = await p.evaluate(() => ({
-      dragging: document.querySelectorAll('.dragging, [data-dnd-dragging]').length,
+      dragging: document.querySelectorAll('[data-dnd-dragging]').length,
       hold: document.querySelectorAll('.drag-hold').length,
-      ph: document.querySelectorAll('.item-placeholder, .card-placeholder, .group-placeholder, .new-list-placeholder').length,
+      ph: document.querySelectorAll('.card-placeholder, .new-list-placeholder, [data-dnd-placeholder]').length,
     }));
     log('3 sekundær peker: ingen drag, ingen press-feedback, ingen placeholder',
       state.dragging === 0 && state.hold === 0 && state.ph === 0, JSON.stringify(state));

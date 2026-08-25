@@ -210,8 +210,9 @@ objektmenyen (`docs/menus.md`).
   tom-tilstander) bygges fra `window.ICONS` (`icons.js`, lastet før `app.js`)
   via `el.innerHTML = ICONS.xxx`.
 - Dra-håndtakene er fjernet: draging inviteres ved trykk-og-hold på et objekts
-  navn-/tittelsone (`attachHoldDrag`, se `docs/drag-and-drop.md`). Under holdet
-  får det objektet som skal løftes et lite «press» (`.drag-hold`, scale).
+  navn-/tittelsone (dnd-kits `handleSelector`, se `docs/drag-and-drop.md`).
+  Under holdet får det objektet som skal løftes et lite «press» (`.drag-hold`,
+  scale).
 - **Logo (`favicon.svg` + brand-mark på innloggingsskjermen)**: tre stablede
   lister — samme motiv som `list`-ikonet, men tegnet som tre avrundede kort
   forskjøvet nedover/til høyre; kun det fremste kortet har de tre listepunktene
@@ -343,15 +344,16 @@ Størrelse/form kommer fra egne klasser: `.btn` (modaler), `.btn-small`,
   håndtak, ingen ekstra DOM/JS). Av = grå spor, på = `--grad-green` (samme
   grønn som `.btn-green`). Delt regel på tvers av `.time-lock input` (tidslås)
   og `.share-policy-label input` (invitasjonspolicy) i `styles.css`.
-- Draging (ingen håndtak): på et objekts navn-/tittelsone (`attachHoldDrag`). På
+- Draging (ingen håndtak): på et objekts navn-/tittelsone (`handleSelector`). På
   **touch** løftes det med trykk-og-hold (200 ms; press-scale `.drag-hold`); på
   **mus/desktop** starter draget umiddelbart på bevegelse (ingen delay). **Cursor:**
   listepunkt-/kategori-dra-sonene får `cursor: grab` (åpen hånd), mens område/
   mappe/liste bruker `cursor: pointer` (pekende hånd — klikk er primærhandlingen).
   Se `docs/drag-and-drop.md` for soner/unntak og mekanikk.
-- Placeholders: én delt stil for `.card-/.item-/.group-placeholder` — se
-  `docs/drag-and-drop.md`. Ingen kant (kun mørknet flate + innover-skygge);
-  den stiplede kanten er fjernet.
+- Placeholders: samme uttrykk enten hullet er dnd-kits klone
+  (`[data-dnd-placeholder]`) eller vår egen ny-liste-slot
+  (`.card-placeholder`) — se `docs/drag-and-drop.md`. Ingen kant (kun mørknet
+  flate + innover-skygge).
 - `.add-item-row`: de to «legg til»-knappene nederst i en liste, **midtstilt**
   (`justify-content: center`). Det er ingen navne-input her — objektet opprettes
   tomt og navngis på plassen sin (se «Opprettelse …» under).
@@ -391,9 +393,9 @@ Størrelse/form kommer fra egne klasser: `.btn` (modaler), `.btn-small`,
   (listeflaten), og `.cat-items` er en **fordypning** rett under (4px gap) — litt
   mørkere flate (`rgba(0,0,0,.1)`) + innover-skygge (`inset box-shadow`) + stort
   venstre-innrykk, så listepunktene blir som «bøker» i en hylle som går inn i veggen
-  (dette erstattet den tidligere grupperingsstreken). `.category.dragging` er et
-  løftet, hvitt chip UTEN fast høyde (følger den kollapsende `.cat-items`-høyden
-  under draging — se `docs/drag-and-drop.md`) som skal lese som en **kompakt rad,
+  (dette erstattet den tidligere grupperingsstreken). Den LØFTEDE kategorien
+  (`.board .category[data-dnd-dragging]`) er et hvitt chip med hylla foldet
+  sammen (se `docs/drag-and-drop.md`) som skal lese som en **kompakt rad,
   ikke et felt**: kategori-ikonet (`.cat-drag-icon`, skjult i hvile) vises til
   venstre for tittelen, tittelen blir **svart uten skygge** (hvit-på-hvit var
   uleselig mot den hvite flaten), menyknappen skjules (`display:none`) og
@@ -469,11 +471,11 @@ Størrelse/form kommer fra egne klasser: `.btn` (modaler), `.btn-small`,
 - **Kollapset kategori = nøyaktig overskriftslinjen**: `.cat-items` har høyde 0 når
   kategorien er kollapset, men lå fortsatt som en flex-rad mellom to av `.category`s
   4px-gap — luften under overskriften ble 4px større enn over (tydeligst rundt
-  knappene og mot skillelinjene). `.category.collapsed:not(.dragging) > .cat-items`
-  har derfor `margin-top: -4px`, som spiser det ene gapet: lik luft (16px) til
-  skillelinja over og under, slik en kollapset liste er nøyaktig header-høy.
-  `.dragging` er utelatt fordi den allerede har `gap: 0` (og `collapsedH` i
-  `collapseCategory` regner med det).
+  knappene og mot skillelinjene).
+  `.category.collapsed:not([data-dnd-dragging]) > .cat-items` har derfor
+  `margin-top: -4px`, som spiser det ene gapet: lik luft (16px) til skillelinja
+  over og under, slik en kollapset liste er nøyaktig header-høy. Det LØFTEDE
+  objektet er utelatt fordi det allerede har `gap: 0`.
 - **Ny-liste-placeholder** (`.new-list-placeholder`, kategori-/listepunkt-
   ekstrahering, `docs/drag-and-drop.md`): en kort-formet slot med et hvitt **＋-ikon**
   i midten (stiplet-hvit inset-ring over den delte placeholder-flaten) som
@@ -716,8 +718,8 @@ Det korte som gjelder når du lager en ny kontroll:
 - **Ikonknapper**: alltid `aria-label`, og navnet skal inneholde objektets navn
   (`quoted(navn)`), ikke bare handlingen. `title` er musehjelp i tillegg, aldri
   i stedet.
-- **Nye rader/kort**: koble `attachKeyHandle` på det SAMME elementet som får
-  `attachHoldDrag`, så det som kan dras også kan flyttes med tastatur.
+- **Nye rader/kort**: koble `attachKeyHandle` på det SAMME elementet som er
+  dra-sone, så det som kan dras også kan flyttes med tastatur.
 - **Nye modaler**: ingenting å gjøre — fokusfellen kobles automatisk på alt som
   har klassen `.modal-overlay` eller `.switcher-overlay`.
 - **Skjult uten `hidden`** (en sammenslått trekkspillskuff: høyde 0 +

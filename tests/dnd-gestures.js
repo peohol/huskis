@@ -129,7 +129,7 @@ const touchCancel = (p) => touchAt(p, 'touchCancel', 0, 0);
 
 /** Er noe løftet akkurat nå? Motoren merker det løftede objektet. */
 const liftedCount = (p) => p.evaluate(
-  () => document.querySelectorAll('.dragging, [data-dnd-dragging]').length,
+  () => document.querySelectorAll('[data-dnd-dragging]').length,
 );
 
 /*

@@ -234,25 +234,24 @@ rett under den flate token-blokken — se «Tokens, og bare tokens» over for
 hvorfor de MÅ stå der og ikke som en flat `:root`-verdi. To ting styrer den
 blokken:
 
-- **Ingen regel der må lage en containing block.** Kort, listepunkt og kategori
-  dras som `position: absolute` med *dokument*-koordinater (se `dragPosLeft`/
-  `dragPosTop`/`liftElement` i `app.js`), så en posisjonert eller transformert
-  forfar flytter hele dra-geometrien. Et tidligere forsøk satte
-  `position: relative` på `.card` for å tegne stripen med `::before`, og det
-  gjorde `.card` til containing block for sine absolutt posisjonerte
-  etterkommere OG lot selektoren overstyre `.card.dragging` sin egen
-  `position: absolute` — det løftede objektet la seg langt nedenfor fingeren på
-  fire av fem nivåer. Stripen males derfor med en BAKGRUNNSGRADIENT; `outline`
-  og `box-shadow` er de eneste andre virkemidlene i blokken.
+- **Ingen regel der må lage en containing block.** dnd-kit løfter objektet inn i
+  top layer og posisjonerer det selv, så en posisjonert eller transformert forfar
+  flytter hele dra-geometrien. Et tidligere forsøk satte `position: relative` på
+  `.card` for å tegne stripen med `::before`, og det gjorde `.card` til
+  containing block for sine absolutt posisjonerte etterkommere OG lot selektoren
+  overstyre det løftede objektets egen posisjonering — det la seg langt nedenfor
+  fingeren på fire av fem nivåer. Stripen males derfor med en
+  BAKGRUNNSGRADIENT; `outline` og `box-shadow` er de eneste andre virkemidlene i
+  blokken.
   `tests/dnd-viewport-clamp.test.js` måler pekerforankringen i mørk drakt på
   alle fem nivåer, og `tests/dark-mode.test.js` slår fast at `.card` er
   `static`.
 - **Ingen regel der må overdøve en tilstand fra resten av `styles.css`.**
-  Selektorene er `(0,3,0)` og slår dermed `.card:hover`, `.card.dragging`,
-  `.item.dragging` og `.nav-board .card.active`. Flater som eies av en tilstand
-  justeres derfor via tokens, ikke direkte; der en flate likevel settes
-  direkte, står tilstanden eksplisitt utenfor (`:not(.active)`,
-  `:not(.dragging)`).
+  Selektorene er `(0,3,0)` og slår dermed `.card:hover`,
+  `.board .card[data-dnd-dragging]` og `.nav-board .card.active`. Flater som
+  eies av en tilstand justeres derfor via tokens, ikke direkte; der en flate
+  likevel settes direkte, står tilstanden eksplisitt utenfor (`:not(.active)`,
+  `:not([data-dnd-dragging])`).
 
 Fargepreget utledes av de eksisterende kortvariablene: `--card-bg` og
 `--card-accent` settes allerede inline per kort av `paintCardColor()` i
