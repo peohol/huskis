@@ -127,14 +127,6 @@ const cardTitles = (p, gid) => p.evaluate((gid) => {
 }, gid);
 const dbCardCount = (p) => p.evaluate(() => JSON.parse(localStorage.getItem('hk-mock-db')).cards.length);
 
-async function ptr(p, type, x, y, kind) {
-  await p.evaluate(({ type, x, y, kind }) => {
-    const ev = new PointerEvent(type, { bubbles: true, cancelable: true, composed: true,
-      clientX: x, clientY: y, pointerId: kind === 'mouse' ? 1 : 7, pointerType: kind, button: 0,
-      buttons: type === 'pointerup' || type === 'pointercancel' ? 0 : 1, isPrimary: true });
-    (type === 'pointerdown' ? (document.elementFromPoint(x, y) || document.body) : window).dispatchEvent(ev);
-  }, { type, x, y, kind });
-}
 const rectOf = (p, sel) => p.evaluate((sel) => {
   const el = document.querySelector(sel); if (!el) return null;
   const r = el.getBoundingClientRect();
@@ -142,20 +134,30 @@ const rectOf = (p, sel) => p.evaluate((sel) => {
     left: r.left, right: r.right, top: r.top, bottom: r.bottom };
 }, sel);
 
-// Løft en rad/liste med musen og dra den til (x, y) — uten å slippe.
+/* Løft en rad med musen og dra den til (x, y) — uten å slippe.
+   Ekte input gjennom nettleserens egen inputkø, av samme grunn som
+   `mouseLiftCard` under: radnivået kjøres av dnd-kit, som fanger pekeren og
+   avviser en oppdiktet `pointerId` — en syntetisk gest dør stille, og testen
+   ville målt ingenting. Siste bit går to ganger (dnd-kit lar av og til ett
+   `pointermove` falle på gulvet; se `tests/dnd-gestures.js`). */
 async function liftTo(p, sel, x, y) {
   const r = await rectOf(p, sel);
   if (!r) return false;
-  await ptr(p, 'pointerdown', r.x, r.y, 'mouse');
-  await ptr(p, 'pointermove', r.x + 12, r.y + 12, 'mouse');
-  await p.waitForTimeout(120);
-  await ptr(p, 'pointermove', x, y, 'mouse');
+  await p.mouse.move(r.x, r.y);
+  await p.mouse.down();
+  await p.mouse.move(r.x + 12, r.y + 12, { steps: 3 });
+  await p.waitForTimeout(140);
+  await p.mouse.move(x, y, { steps: 6 });
   await p.waitForTimeout(160);
-  await ptr(p, 'pointermove', x, y + 1, 'mouse');
+  await p.mouse.move(x, y + 1, { steps: 1 });
   await p.waitForTimeout(160);
   return true;
 }
-const drop = async (p, x, y) => { await ptr(p, 'pointerup', x, y, 'mouse'); await p.waitForTimeout(500); };
+const drop = async (p, x, y) => {
+  await p.mouse.move(x, y, { steps: 1 });
+  await p.mouse.up();
+  await p.waitForTimeout(500);
+};
 
 /* Kort-draget kjøres av dnd-kit (`docs/drag-and-drop.md`), som avviser en
    oppdiktet `pointerId` og lar draget dø stille — se `tests/dnd-gestures.js`.
@@ -247,7 +249,7 @@ async function run(label, viewport, mobile) {
   let air = await airBelowCards(p);
   await liftTo(p, '.card[data-id="' + ids.LX + '"] .item[data-id="' + ids.IX1 + '"]', air.x, air.y);
   log(label + ' 4: listepunktet lar seg løfte (lista har lås-unntak)',
-    await p.locator('.item.dragging').count() === 1);
+    await p.locator('#board .item[data-dnd-dragging]').count() === 1);
   log(label + ' 4: ingen ny-liste-placeholder i board-lufta',
     await p.locator('.new-list-placeholder').count() === 0);
   await drop(p, air.x, air.y);

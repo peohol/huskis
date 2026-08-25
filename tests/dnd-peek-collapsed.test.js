@@ -9,6 +9,11 @@
   kapasitet). Rask slipp (før 200 ms) inn i en kollapset liste lander også, og
   «(N)»-telleren oppdateres.
 
+  Filen dekker også speilvendingen av den samme vakten: et dra-mål må stå stille
+  mens man sikter på det, også når det er ÅPENT. En åpen, tom kategori er både en
+  rad og en container, og sorteringen fikk den til å flykte oppover forbi
+  pekeren (test 7).
+
   Gestene er EKTE input (`tests/dnd-gestures.js`).
 
   Kjør:
@@ -78,6 +83,30 @@ async function seed(p) {
 // Sekvensene under er uendret; det er leveringen som er ekte nå.
 const touch = (p, type, x, y) => G.sendPointer(p, type, x, y, 'touch');
 
+/* Én bevegelse, to hendelser.
+
+   dnd-kit lar ETT `pointermove` falle på gulvet rett etter en layout-endring
+   (nettopp en peek som folder ut et mål): `dragOperation.position` oppdateres,
+   men verken `dragmove` eller `dragover` fyrer, så peek-laget og
+   ekstraheringsmodusen blir stående på forrige punkt. NESTE bevegelse henter alt
+   inn igjen — målt: en etterfølgende 1 px-nudge gjenopprettet både peek og
+   plassering — så en finger, som sender en strøm av punkter, merker det aldri.
+   En test som flytter seg i ett eneste sprang gjør det.
+
+   Derfor sendes hver bevegelse som to punkter: målet, og målet én piksel unna.
+   Samme grep som `travel()` i `dnd-gestures.js`, som går veien to ganger av
+   nettopp denne grunnen. Sprangene beholdes — de er det gesten HER uttrykker
+   («dra over den kollapsede lista»), og en interpolert vei ville i stedet dratt
+   objektet gjennom board-lufta mellom listene, der ekstraherings-placeholderen
+   dytter mål-lista bort. */
+const slide = async (p, x, y) => {
+  await touch(p, 'pointermove', x, y + 1);
+  await p.waitForTimeout(16);
+  await touch(p, 'pointermove', x, y);
+};
+const press = (p, x, y) => touch(p, 'pointerdown', x, y);
+const release = (p, x, y) => touch(p, 'pointerup', x, y);
+
 // Kollaps en liste/kategori via DIREKTE state (ikke et klikk → save()): et klikk
 // planlegger en mock-synk som kan re-rendre og bytte ut det dratte nodet MENS
 // trykk-holdet pågår (200 ms) → holdet dropper draget (dragEl frakoblet). Direkte
@@ -130,25 +159,25 @@ const log = (n, ok, x = '') => { results.push(ok); console.log((ok ? 'PASS' : 'F
 
     const src = await centerOf(p, '.item[data-id="a-free"] .item-title, .item[data-id="a-free"]');
     // Løft listepunktet (touch-hold), dra over kollapset B, HOLD i > 200 ms.
-    await touch(p, 'pointerdown', src.x, src.y); await p.waitForTimeout(240);
-    await touch(p, 'pointermove', src.x + 4, src.y + 4); await p.waitForTimeout(40);
+    await press(p, src.x, src.y); await p.waitForTimeout(240);
+    await slide(p, src.x + 4, src.y + 4); await p.waitForTimeout(40);
     // MÅL B FØRST NÅ: draget viser fram kildekortets søppelkasse (docs/trash.md),
     // så A blir høyere og B — som ligger under i samme kolonne — flytter seg ned.
     const bHead = await centerOf(p, '.card[data-id="card-B"] .card-head');
-    await touch(p, 'pointermove', bHead.x, bHead.y); await p.waitForTimeout(60);
+    await slide(p, bHead.x, bHead.y); await p.waitForTimeout(60);
     let collapsedDuring = await isCollapsedDom(p, 'card-B', 'card');
     log('1 rett etter ankomst (< 200 ms): B fortsatt kollapset', collapsedDuring === true, 'collapsed=' + collapsedDuring);
     // Bli værende over B og vent forbi PEEK_MS.
-    await touch(p, 'pointermove', bHead.x + 1, bHead.y + 1); await p.waitForTimeout(300);
+    await slide(p, bHead.x + 1, bHead.y + 1); await p.waitForTimeout(300);
     let openPeek = await isCollapsedDom(p, 'card-B', 'card');
     log('1 etter ≥200 ms hover: B PEEK-ÅPNET', openPeek === false, 'collapsed=' + openPeek);
 
     // Flytt tilbake til A uten å slippe → B skal lukkes igjen.
-    await touch(p, 'pointermove', src.x, src.y + 40); await p.waitForTimeout(120);
+    await slide(p, src.x, src.y + 40); await p.waitForTimeout(120);
     let reclosed = await isCollapsedDom(p, 'card-B', 'card');
     log('1 flyttet vekk uten slipp: B kollapset tilbake', reclosed === true, 'collapsed=' + reclosed);
     // Slipp (tilbake i A) — B skal fortsatt være kollapset og state uendret for B.
-    await touch(p, 'pointerup', src.x, src.y + 40); await p.waitForTimeout(300);
+    await release(p, src.x, src.y + 40); await p.waitForTimeout(300);
     const st1 = await state(p);
     log('1 slipp utenfor B: B fortsatt kollapset i state', st1['card-B'].collapsed === true, JSON.stringify(st1['card-B']));
     log('1 ingen JS-feil', errs.length === 0, errs.join(' | '));
@@ -162,17 +191,25 @@ const log = (n, ok, x = '') => { results.push(ok); console.log((ok ? 'PASS' : 'F
     await register(p); await seed(p);
     await collapse(p, "card-B", "card");
     const src = await centerOf(p, '.item[data-id="a-free"]');
-    await touch(p, 'pointerdown', src.x, src.y); await p.waitForTimeout(240);
-    await touch(p, 'pointermove', src.x + 4, src.y + 4); await p.waitForTimeout(40);
+    await press(p, src.x, src.y); await p.waitForTimeout(240);
+    await slide(p, src.x + 4, src.y + 4); await p.waitForTimeout(40);
     const bHead = await centerOf(p, '.card[data-id="card-B"] .card-head');  // se 1)
-    await touch(p, 'pointermove', bHead.x, bHead.y); await p.waitForTimeout(60);
-    await touch(p, 'pointermove', bHead.x + 1, bHead.y + 20); await p.waitForTimeout(300); // peek åpner
+    await slide(p, bHead.x, bHead.y); await p.waitForTimeout(60);
+    /* Bli værende over B og vent forbi PEEK_MS. Siktepunktet regnes ut av det
+       KOLLAPSEDE KORTETS egen boks — ikke som korthodets senter pluss et tall.
+       Et kollapset kort er bare korthodet, ~56 px høyt, så «+20» lå 8 px fra
+       underkanten: en renderer som gir korthodet noen piksler mindre (målt: CI)
+       la punktet UTENFOR kortet, `dragOverCard` svarte «ingen liste»,
+       ekstraheringsmodus slo inn og peek startet aldri. Senteret har hele
+       halvhøyden som slark. */
+    const iB = await centerOf(p, '.card[data-id="card-B"]');
+    await slide(p, iB.x, iB.y); await p.waitForTimeout(300); // peek åpner
     let openPeek = await isCollapsedDom(p, 'card-B', 'card');
     log('2 B peek-åpnet før slipp', openPeek === false, 'collapsed=' + openPeek);
     // Slipp inne i B.
     const drop = await centerOf(p, '.card[data-id="card-B"] .items-container');
-    await touch(p, 'pointermove', drop.x, drop.y + 6); await p.waitForTimeout(80);
-    await touch(p, 'pointerup', drop.x, drop.y + 6); await p.waitForTimeout(400);
+    await slide(p, drop.x, drop.y + 6); await p.waitForTimeout(80);
+    await release(p, drop.x, drop.y + 6); await p.waitForTimeout(400);
     const st = await state(p);
     const inB = st['card-B'].items.some((it) => it.id === 'a-free' && it.home === 'card-B');
     const notInA = !st['card-A'].items.some((it) => it.id === 'a-free');
@@ -192,15 +229,15 @@ const log = (n, ok, x = '') => { results.push(ok); console.log((ok ? 'PASS' : 'F
     log('3 forutsetning: kategori kollapset', await isCollapsedDom(p, 'cat-1', 'category') === true);
     const src = await centerOf(p, '.item[data-id="a-free"]');
     const catHead = await centerOf(p, '.category[data-id="cat-1"] .cat-head');
-    await touch(p, 'pointerdown', src.x, src.y); await p.waitForTimeout(240);
-    await touch(p, 'pointermove', src.x + 4, src.y + 4); await p.waitForTimeout(40);
-    await touch(p, 'pointermove', catHead.x, catHead.y); await p.waitForTimeout(60);
-    await touch(p, 'pointermove', catHead.x + 1, catHead.y + 1); await p.waitForTimeout(300);
+    await press(p, src.x, src.y); await p.waitForTimeout(240);
+    await slide(p, src.x + 4, src.y + 4); await p.waitForTimeout(40);
+    await slide(p, catHead.x, catHead.y); await p.waitForTimeout(60);
+    await slide(p, catHead.x + 1, catHead.y + 1); await p.waitForTimeout(300);
     let openPeek = await isCollapsedDom(p, 'cat-1', 'category');
     log('3 kategori PEEK-ÅPNET etter hover', openPeek === false, 'collapsed=' + openPeek);
     const drop = await centerOf(p, '.category[data-id="cat-1"] .cat-items');
-    await touch(p, 'pointermove', drop.x, drop.y + 6); await p.waitForTimeout(80);
-    await touch(p, 'pointerup', drop.x, drop.y + 6); await p.waitForTimeout(400);
+    await slide(p, drop.x, drop.y + 6); await p.waitForTimeout(80);
+    await release(p, drop.x, drop.y + 6); await p.waitForTimeout(400);
     const st = await state(p);
     const landed = st['card-A'].items.find((it) => it.id === 'a-free');
     log('3 listepunktet landet i kategorien (cat=cat-1)', landed && landed.cat === 'cat-1', JSON.stringify(landed));
@@ -217,20 +254,20 @@ const log = (n, ok, x = '') => { results.push(ok); console.log((ok ? 'PASS' : 'F
     log('4 forutsetning: B kollapset', await isCollapsedDom(p, 'card-B', 'card') === true);
     const src = await centerOf(p, '.category[data-id="cat-1"] .cat-head');
     const bHead = await centerOf(p, '.card[data-id="card-B"] .card-head');
-    await touch(p, 'pointerdown', src.x, src.y); await p.waitForTimeout(240);
-    await touch(p, 'pointermove', src.x + 4, src.y + 4); await p.waitForTimeout(40);
-    await touch(p, 'pointermove', bHead.x, bHead.y); await p.waitForTimeout(60);
+    await press(p, src.x, src.y); await p.waitForTimeout(240);
+    await slide(p, src.x + 4, src.y + 4); await p.waitForTimeout(40);
+    await slide(p, bHead.x, bHead.y); await p.waitForTimeout(60);
     // B ligger nå UNDER A i samme kolonne (board-et fyller venstre kolonne først,
     // se docs/board-layout.md), og ny-liste-placeholderen dytter den et stykke ned
     // mens man sikter. Sikt derfor på der B FAKTISK står nå — det er det en bruker
     // gjør når kortet flytter seg.
     const bNow = await centerOf(p, '.card[data-id="card-B"] .card-head');
-    await touch(p, 'pointermove', bNow.x + 1, bNow.y); await p.waitForTimeout(320);
+    await slide(p, bNow.x + 1, bNow.y); await p.waitForTimeout(320);
     let openPeek = await isCollapsedDom(p, 'card-B', 'card');
     log('4 B PEEK-ÅPNET under kategori-drag', openPeek === false, 'collapsed=' + openPeek);
     const drop = await centerOf(p, '.card[data-id="card-B"] .items-container');
-    await touch(p, 'pointermove', drop.x, drop.y + 6); await p.waitForTimeout(80);
-    await touch(p, 'pointerup', drop.x, drop.y + 6); await p.waitForTimeout(500);
+    await slide(p, drop.x, drop.y + 6); await p.waitForTimeout(80);
+    await release(p, drop.x, drop.y + 6); await p.waitForTimeout(500);
     const st = await state(p);
     const catInB = st['card-B'].items.some((it) => it.id === 'cat-1' && it.isCat && it.home === 'card-B');
     const membersInB = ['a-m1', 'a-m2'].every((id) => st['card-B'].items.some((it) => it.id === id && it.home === 'card-B' && it.cat === 'cat-1'));
@@ -254,20 +291,20 @@ const log = (n, ok, x = '') => { results.push(ok); console.log((ok ? 'PASS' : 'F
     await register(p); await seed(p);
     // Kort kategori-drag i A (setter drag.card = card-A).
     const catH = await centerOf(p, '.category[data-id="cat-1"] .cat-head');
-    await touch(p, 'pointerdown', catH.x, catH.y); await p.waitForTimeout(240);
-    await touch(p, 'pointermove', catH.x + 4, catH.y + 4); await p.waitForTimeout(40);
-    await touch(p, 'pointermove', catH.x + 4, catH.y - 30); await p.waitForTimeout(60);
-    await touch(p, 'pointerup', catH.x + 4, catH.y - 30); await p.waitForTimeout(300);
+    await press(p, catH.x, catH.y); await p.waitForTimeout(240);
+    await slide(p, catH.x + 4, catH.y + 4); await p.waitForTimeout(40);
+    await slide(p, catH.x + 4, catH.y - 30); await p.waitForTimeout(60);
+    await release(p, catH.x + 4, catH.y - 30); await p.waitForTimeout(300);
     // Kollaps A (samme kort som var kategori-kilde) og dra et listepunkt fra B over det.
     await collapse(p, 'card-A', 'card');
     const src = await centerOf(p, '.item[data-id="b-1"]');
     const aHead = await centerOf(p, '.card[data-id="card-A"] .card-head');
-    await touch(p, 'pointerdown', src.x, src.y); await p.waitForTimeout(240);
-    await touch(p, 'pointermove', src.x + 4, src.y + 4); await p.waitForTimeout(40);
-    await touch(p, 'pointermove', aHead.x, aHead.y); await p.waitForTimeout(60);
-    await touch(p, 'pointermove', aHead.x + 1, aHead.y + 1); await p.waitForTimeout(300);
+    await press(p, src.x, src.y); await p.waitForTimeout(240);
+    await slide(p, src.x + 4, src.y + 4); await p.waitForTimeout(40);
+    await slide(p, aHead.x, aHead.y); await p.waitForTimeout(60);
+    await slide(p, aHead.x + 1, aHead.y + 1); await p.waitForTimeout(300);
     log('5 peek åpner A i en økt etter et kategori-drag', await isCollapsedDom(p, 'card-A', 'card') === false);
-    await touch(p, 'pointerup', aHead.x + 1, aHead.y + 1); await p.waitForTimeout(300);
+    await release(p, aHead.x + 1, aHead.y + 1); await p.waitForTimeout(300);
     log('5 ingen JS-feil', errs.length === 0, errs.join(' | '));
     await p.close();
   }
@@ -294,15 +331,15 @@ const log = (n, ok, x = '') => { results.push(ok); console.log((ok ? 'PASS' : 'F
     // B er ÅPEN her: slippet må ligge nede i listepunkt-området, ikke på tittelen
     // (inn-terskelen er nedre kant av listetittelen — se dragOverCard i app.js).
     const bItems = await centerOf(p, '.card[data-id="card-B"] .items-container');
-    await touch(p, 'pointerdown', src.x, src.y); await p.waitForTimeout(240);
-    await touch(p, 'pointermove', src.x + 4, src.y + 4); await p.waitForTimeout(40);
-    await touch(p, 'pointermove', bHead.x, bHead.y); await p.waitForTimeout(60);
-    await touch(p, 'pointermove', bItems.x, bItems.y); await p.waitForTimeout(60);
+    await press(p, src.x, src.y); await p.waitForTimeout(240);
+    await slide(p, src.x + 4, src.y + 4); await p.waitForTimeout(40);
+    await slide(p, bHead.x, bHead.y); await p.waitForTimeout(60);
+    await slide(p, bItems.x, bItems.y); await p.waitForTimeout(60);
     // B ligger under A i samme kolonne, og ny-liste-placeholderen dytter den ned
     // mens man sikter → sikt på der listepunkt-området FAKTISK er nå (se test 4).
     const bItemsNow = await centerOf(p, '.card[data-id="card-B"] .items-container');
-    await touch(p, 'pointermove', bItemsNow.x, bItemsNow.y); await p.waitForTimeout(60);
-    await touch(p, 'pointerup', bItemsNow.x, bItemsNow.y); await p.waitForTimeout(400);
+    await slide(p, bItemsNow.x, bItemsNow.y); await p.waitForTimeout(60);
+    await release(p, bItemsNow.x, bItemsNow.y); await p.waitForTimeout(400);
     const st = await state(p);
     const catStaysInA = st['card-A'].items.some((it) => it.id === 'cat-1');
     const notInB = !st['card-B'].items.some((it) => it.id === 'cat-1');
@@ -310,6 +347,63 @@ const log = (n, ok, x = '') => { results.push(ok); console.log((ok ? 'PASS' : 'F
     log('6 kategorien ble IKKE flyttet inn i låst B', catStaysInA && notInB, JSON.stringify({ A: st['card-A'].items.map((x) => x.id), B: st['card-B'].items.map((x) => x.id) }));
     log('6 toast «Lista er låst» vist', /låst/i.test(toastMsg), 'toast=' + toastMsg);
     log('6 ingen JS-feil', errs.length === 0, errs.join(' | '));
+    await p.close();
+  }
+
+  /* ============ 7) Listepunkt → ÅPEN, TOM kategori: kategorien flykter ikke ============
+     Speilvendingen av vakten i test 3. En kategori er BÅDE en rad på nivå 1 og en
+     container, og dnd-kits sortering byttet det løftede listepunktet med
+     kategori-RADEN mens pekeren allerede var inne i kategorien: kategorien hoppet
+     en radhøyde oppover, siktepunktet ble liggende under den, og listepunktet
+     landet ved siden av kategorien i stedet for i den. Er hylla i tillegg TOM,
+     finnes det ingen rad inni å sortere mot som kunne rettet det opp igjen.
+
+     Siktepunktet måles én gang — når draget er løftet og søppelkassen er ute —
+     og røres ikke etterpå. Det er nettopp FLUKTEN som er påstanden: står målet
+     stille, treffer det samme punktet fortsatt. */
+  {
+    const p = await b.newPage({ viewport: { width: 1200, height: 900 }, hasTouch: true });
+    const errs = []; p.on('pageerror', (e) => errs.push(e.message));
+    await register(p); await seed(p);
+    // Tøm kategorien — hylla skal stå igjen åpen og tom.
+    await p.evaluate(() => {
+      const H = window.__huskis, st = H.state;
+      const g = st.universes.find((u) => u.id === st.activeUniverse).groups.find((x) => x.id === st.activeGroup);
+      g.cards.find((c) => c.id === 'card-A').items
+        .filter((it) => it.cat === 'cat-1').forEach((it) => { it.trashed = true; });
+      H.render();
+    });
+    await p.waitForTimeout(300);
+    const medlemmer = await p.evaluate(() =>
+      document.querySelectorAll('.category[data-id="cat-1"] .cat-items > .item').length);
+    const åpen = await isCollapsedDom(p, 'cat-1', 'category');
+    log('7 forutsetning: kategorien er åpen og tom', medlemmer === 0 && åpen === false,
+      JSON.stringify({ medlemmer, collapsed: åpen }));
+
+    const src = await centerOf(p, '.item[data-id="a-free"]');
+    await press(p, src.x, src.y); await p.waitForTimeout(240);
+    await slide(p, src.x + 4, src.y + 4); await p.waitForTimeout(300);
+    // Sikt på den grønne ＋-knappen i hylla — nede i kategorien, godt forbi
+    // overskriftslinja. Måles NÅ, med søppelkassen ute, og står fast resten av draget.
+    const aim = await centerOf(p, '.category[data-id="cat-1"] .cat-add-btn');
+    for (let i = 1; i <= 6; i++) {
+      await slide(p, Math.round(src.x + (aim.x - src.x) * i / 6),
+        Math.round(src.y + (aim.y - src.y) * i / 6));
+      await p.waitForTimeout(60);
+    }
+    const nå = await p.evaluate(() => {
+      const r = document.querySelector('.category[data-id="cat-1"]').getBoundingClientRect();
+      return { top: Math.round(r.top), bottom: Math.round(r.bottom) };
+    });
+    log('7 kategorien flyktet ikke: siktepunktet er fortsatt inne i den',
+      aim.y >= nå.top && aim.y <= nå.bottom, JSON.stringify({ sikte: aim.y, kategori: nå }));
+
+    await release(p, aim.x, aim.y); await p.waitForTimeout(400);
+    const st7 = await state(p);
+    const landet = st7['card-A'].items.find((it) => it.id === 'a-free');
+    log('7 listepunktet landet i den tomme kategorien (cat=cat-1)',
+      !!landet && landet.cat === 'cat-1', JSON.stringify(landet));
+    log('7 ingen JS-feil', errs.length === 0, errs.join(' | '));
     await p.close();
   }
 

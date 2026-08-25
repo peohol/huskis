@@ -116,15 +116,34 @@ const probe = (p) => p.evaluate((sel) => {
   const a = document.getElementById('account-btn').getBoundingClientRect();
   const t = document.getElementById('topbar').getBoundingClientRect();
   const r = d ? d.getBoundingClientRect() : null;
+  /* Hvor mye ROTASJONEN alene får stikke utenfor.
+     Klemmen (`SafeViewport`) holder den boksen dnd-kit har MÅLT, og målingen tar
+     ikke med rotasjonen appen maler objektet med etterpå (`dndPaintRotation`,
+     ±5°). En rotert boks er både høyere og bredere enn den den ble målt som, og
+     differansen stikker ut med halvparten på hver kant. Objektet ligger i top
+     layer (`position: fixed`), så et hjørne utenfor kanten lager hverken
+     scrollbar eller overflow — det er kosmetikk. Å klemme mot den roterte boksen
+     i stedet ville kostet det som betyr noe: grepet, som da hadde løsnet fra
+     fingeren med den samme slarken hver gang objektet nærmet seg en kant
+     (`dnd-layout-modes` sjekk 1). */
+  let slack = { x: 1, y: 1 };
+  if (d) {
+    const a = Math.abs(parseFloat(d.style.rotate) || 0) * Math.PI / 180;
+    const cos = Math.cos(a), sin = Math.sin(a);
+    const w = d.offsetWidth, h = d.offsetHeight;
+    slack = { x: Math.ceil(Math.max(0, (w * cos + h * sin - w) / 2)) + 1,
+      y: Math.ceil(Math.max(0, (h * cos + w * sin - h) / 2)) + 1 };
+  }
   return {
     dragging: !!d,
+    slack,
     box: r ? { l: Math.round(r.left), r: Math.round(r.right), t: Math.round(r.top), b: Math.round(r.bottom) } : null,
     vw: window.innerWidth, vh: window.innerHeight,
     scrollW: document.documentElement.scrollWidth, clientW: document.documentElement.clientWidth,
     acct: { l: Math.round(a.left), r: Math.round(a.right), t: Math.round(a.top) },
     topbar: { l: Math.round(t.left), r: Math.round(t.right), t: Math.round(t.top) },
     phMode: document.querySelector('.new-list-placeholder') ? 'extract'
-      : (document.querySelector('.item-placeholder, .card-placeholder') ? 'reorder' : 'none'),
+      : (document.querySelector('[data-dnd-placeholder]') ? 'reorder' : 'none'),
   };
 }, DRAGGED);
 
@@ -158,14 +177,23 @@ async function dragOutOfBounds(p, label, sel, kind, opts) {
   const bad = [];
   let sawExtract = false;
   for (const [where, x, y] of stops) {
-    if (touch) await G.touchMove(p, x, y);
-    else await p.mouse.move(x, y, { steps: 4 });
-    await p.waitForTimeout(140); // FLIP (150 ms) og auto-scroll får løpe
+    // TO omganger til hvert stopp. Klemmen (`SafeViewport`) leser den FAKTISK
+    // MALTE boksen, og rotasjonen settes av OSS etter at dnd-kit har regnet ut
+    // flyttingen — ett enkelt hopp klemmes derfor mot forrige frames boks, og en
+    // bred rad som nettopp fikk full rotasjon stikker ut med differansen.
+    for (const pass of [0, 1]) {
+      if (touch) await G.touchMove(p, x, y);
+      else await p.mouse.move(x, y, { steps: pass ? 1 : 4 });
+      await p.waitForTimeout(pass ? 140 : 60); // FLIP (150 ms) og auto-scroll får løpe
+    }
     const s = await probe(p);
     if (!s.dragging) { bad.push(where + ': draget døde'); continue; }
     if (s.phMode === 'extract') sawExtract = true;
     const b = s.box;
-    if (b.l < -1 || b.r > s.vw + 1 || b.t < -1 || b.b > s.vh + 1) bad.push(where + ': boks ' + JSON.stringify(b) + ' utenfor ' + s.vw + '×' + s.vh);
+    if (b.l < -s.slack.x || b.r > s.vw + s.slack.x || b.t < -s.slack.y || b.b > s.vh + s.slack.y) {
+      bad.push(where + ': boks ' + JSON.stringify(b) + ' utenfor ' + s.vw + '×' + s.vh +
+        ' (rotasjonsslark ' + JSON.stringify(s.slack) + ')');
+    }
     if (s.scrollW > s.clientW) bad.push(where + ': horisontal overflow ' + s.scrollW + '>' + s.clientW);
     if (s.acct.l !== base.acct.l || s.acct.r !== base.acct.r || s.acct.t !== base.acct.t) bad.push(where + ': kontoknappen flyttet seg ' + JSON.stringify(s.acct));
     if (s.topbar.l !== base.topbar.l || s.topbar.r !== base.topbar.r) bad.push(where + ': toppmenyen flyttet seg ' + JSON.stringify(s.topbar));
@@ -187,6 +215,17 @@ async function dragOutOfBounds(p, label, sel, kind, opts) {
   const after = await probe(p);
   log(label + ': ryddet opp etter ' + (touch ? 'avbrutt' : 'avsluttet') + ' drag (ingen overflow, header urørt)',
     !after.dragging && after.scrollW <= after.clientW && after.acct.r === base.acct.r, JSON.stringify(after.acct));
+  /* Et musedrag ender i et ekte SLIPP, og slippet skjer i board-lufta — altså en
+     EKSTRAHERING. Den nye lista åpner navneredigereren med det samme
+     (`nameNewRow`), og et felt som står åpent inn i neste drag rives ned av det
+     første trykket: raden blir byttet ut midt i løftet, og draget starter aldri.
+     Escape lukker feltet (og fjerner den navnløse lista igjen) før neste runde. */
+  // …men BARE når det faktisk står et felt åpent: Escape lukker ellers
+  // nav-modalen, og resten av runden ville da siktet på et tomt board.
+  if (await p.evaluate(() => !!document.querySelector('.edit-input'))) {
+    await p.keyboard.press('Escape');
+    await p.waitForTimeout(250);
+  }
 }
 
 /* PEKERFORANKRINGEN: ett løft, pekeren ført til et fast punkt godt inne i
@@ -194,11 +233,9 @@ async function dragOutOfBounds(p, label, sel, kind, opts) {
    avslører enhver containing-block-feil uansett årsak — LIGGER FINGEREN
    FORTSATT PÅ OBJEKTET? Blir koordinatene tolket mot feil forfar, glir boksen
    vekk fra pekeren og svaret er nei.
-   `position` sjekkes i samme slengen: den gamle motorens objekter (listepunkt,
-   kategori) skal være `absolute` (dokument-koordinater), og dnd-kits (liste,
-   mappe, område) `fixed` i top layer — se kommentaren over `.card.dragging` i
-   styles.css. En drakt-regel som overdøver den er den andre halvdelen av den
-   samme feilen. */
+   `position` sjekkes i samme slengen: alt som dras av dnd-kit løftes `fixed` i
+   top layer — og etter steg 5 er det ALLE nivåene i begge scopene. En
+   drakt-regel som overdøver den er den andre halvdelen av den samme feilen. */
 async function anchorHolds(p, label, sel, kind, expectPos) {
   await p.evaluate(() => window.scrollTo(0, 0)); await p.waitForTimeout(120);
   const touch = kind !== 'mouse';
@@ -228,6 +265,17 @@ async function anchorHolds(p, label, sel, kind, expectPos) {
   else await p.mouse.up();
   await p.waitForFunction((sel) => !document.querySelector(sel), DRAGGED, { timeout: 5000 });
   await p.waitForTimeout(120);
+  // Musedraget ender i et ekte SLIPP midt på board-et — altså i board-lufta, som
+  // for et listepunkt eller en kategori betyr EKSTRAHERING til en ny liste. Den
+  // åpner navneredigereren med det samme, og et felt som står åpent inn i neste
+  // drag rives ned av det første trykket: raden byttes ut midt i løftet, og
+  // draget starter aldri. Escape lukker feltet (og fjerner den navnløse lista).
+  // …men BARE når det faktisk står et felt åpent: Escape lukker ellers
+  // nav-modalen, og resten av runden ville da siktet på et tomt board.
+  if (await p.evaluate(() => !!document.querySelector('.edit-input'))) {
+    await p.keyboard.press('Escape');
+    await p.waitForTimeout(250);
+  }
 }
 
 (async () => {
@@ -256,6 +304,7 @@ async function anchorHolds(p, label, sel, kind, expectPos) {
     await seed(p, [['A', 4, 3], ['B', 4]]);
     await dragOutOfBounds(p, 'mobil/listepunkt', '.card[data-id="card-A"] .items-container > .item .item-text', 'touch');
     await dragOutOfBounds(p, 'mobil/kategori', '.card[data-id="card-A"] .category .cat-head', 'touch');
+    await dragOutOfBounds(p, 'mobil/liste', '.card[data-id="card-A"] .card-head', 'touch', { noExtract: true });
     log('mobil: ingen JS-feil', errs.length === 0, errs.join(' | '));
     await p.close();
   }
@@ -275,8 +324,8 @@ async function anchorHolds(p, label, sel, kind, expectPos) {
     const dark = await p.evaluate(() => document.documentElement.getAttribute('data-theme'));
     log('mørk drakt: attributtet står', dark === 'dark', String(dark));
 
-    await anchorHolds(p, 'mørk/listepunkt', '.card[data-id="card-A"] .items-container > .item .item-text', 'mouse', 'absolute');
-    await anchorHolds(p, 'mørk/kategori', '.card[data-id="card-A"] .category .cat-head', 'mouse', 'absolute');
+    await anchorHolds(p, 'mørk/listepunkt', '.card[data-id="card-A"] .items-container > .item .item-text', 'mouse', 'fixed');
+    await anchorHolds(p, 'mørk/kategori', '.card[data-id="card-A"] .category .cat-head', 'mouse', 'fixed');
     await anchorHolds(p, 'mørk/liste', '.card[data-id="card-A"] .card-head', 'mouse', 'fixed');
     // Samme runde som i lys drakt: en forskyvning som ikke slår ut på
     // forankringen ville fortsatt kunne skyve objektet ut av viewporten.

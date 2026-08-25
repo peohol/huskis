@@ -14,6 +14,10 @@
     2. BOARD-BUNNEN SYNKER IKKE. `min-height` holder dokumentets maks-scroll
        oppe, så Android Chrome ikke klemmer scrollen og avbryter touch-en.
 
+  Punkt 2 gjelder RADNIVÅET også, av en annen grunn: en kategori folder sammen
+  hylla si ved løft, og en full hylle er lett hundrevis av piksler.
+  `boardFreezeForRowDrag` holder board-høyden på samme måte (test 4b).
+
   Før dnd-kit fantes vakten KUN for punkt 2, og derfor kun på touch/pen i
   énkolonne-layout. Punkt 1 gjelder overalt, så skillet er borte: vakten er aktiv
   i begge layouter og for begge inputtyper. Grensen mellom én og flere kolonner
@@ -334,6 +338,64 @@ const log = (n, ok, x = '') => { results.push(ok); console.log((ok ? 'PASS' : 'F
     await p.waitForFunction(() => !document.querySelector('[data-dnd-dragging]'), null, { timeout: 5000 });
     await p.close();
     if (errs.length) log('4 grense ' + w + ': ingen JS-feil', false, errs.join(' | '));
+  }
+
+  /* ---------- 4b) KATEGORI-drag: board-bunnen synker ikke ----------
+     Radnivået har den samme saken som kortnivået, av en annen grunn: kategorien
+     folder sammen hylla si ved løft (`dndCollapseCategory`), og en kategori med
+     mange medlemmer krymper board-et med hele hylla. Et board som blir kortere
+     flytter dokumentets maks-scroll oppover, nettleseren klemmer scrollen, og
+     ALT flytter seg under fingeren. `boardFreezeForRowDrag` holder derfor
+     board-høyden gjennom draget — samme `min-height` som kortnivåets vakt.
+     Kategoriens egen topp flytter seg ikke av kollapsen (hylla ligger UNDER
+     overskriften), så her trengs ingen `padding-top`-kompensasjon. */
+  {
+    const p = await b.newPage({ viewport: { width: 390, height: 780 }, isMobile: true, hasTouch: true });
+    const errs = []; p.on('pageerror', (e) => errs.push(e.message));
+    await register(p);
+    await seed(p, [['Hoy', 8], ['Kat', 1]]);
+    // Gjør «Kat»-lista om til én kategori med mange medlemmer.
+    await p.evaluate(() => {
+      const H = window.__huskis, st = H.state;
+      const g = st.universes.find((u) => u.id === st.activeUniverse).groups.find((x) => x.id === st.activeGroup);
+      const c = g.cards.find((x) => x.id === 'card-Kat');
+      const mk = () => ({ ts: 0, org: 't', posTs: 0, posOrg: 't' });
+      c.items.push(Object.assign({ id: 'cat-1', text: 'Kategori', home: 'card-Kat', cat: null, isCat: true, trashed: false, done: false, collapsed: false, pos: 1 }, mk()));
+      for (let i = 0; i < 8; i++) {
+        c.items.push(Object.assign({ id: 'kat-m' + i, text: 'Medlem ' + i, home: 'card-Kat', cat: 'cat-1', isCat: false, trashed: false, done: false, pos: i }, mk()));
+      }
+      H.render();
+    });
+    await p.waitForTimeout(300);
+    const før = await p.evaluate(() => ({
+      doc: Math.round(document.documentElement.scrollHeight),
+      shelf: Math.round(document.querySelector('.category[data-id="cat-1"] .cat-items').getBoundingClientRect().height),
+    }));
+    log('4b forutsetning: hylla har høyde å miste', før.shelf > 100, JSON.stringify(før));
+
+    const head = await p.evaluate(() => {
+      const el = document.querySelector('.category[data-id="cat-1"] .cat-head');
+      el.scrollIntoView({ block: 'center' });
+      const r = el.getBoundingClientRect();
+      return { x: Math.round(r.left + r.width / 2), y: Math.round(r.top + r.height / 2) };
+    });
+    await p.waitForTimeout(150);
+    const doc0 = await p.evaluate(() => Math.round(document.documentElement.scrollHeight));
+    const at = await G.lift(p, head, true);
+    await G.touchMove(p, at.x + 3, at.y - 3); await p.waitForTimeout(80);
+    const under = await guardStyles(p);
+    const doc1 = await p.evaluate(() => Math.round(document.documentElement.scrollHeight));
+    log('4b kategori-drag: board-vakt AKTIV (min-height satt)', under.minH !== '', JSON.stringify(under));
+    log('4b kategori-drag: dokumentet ble ikke kortere av at hylla foldet seg sammen',
+      doc1 >= doc0 - 2, 'før=' + doc0 + ' under=' + doc1);
+
+    await G.touchCancel(p);
+    await p.waitForFunction(() => !document.querySelector('[data-dnd-dragging]'), null, { timeout: 5000 });
+    await p.waitForTimeout(400);
+    const etter = await guardStyles(p);
+    log('4b vakt ryddet etter avbrutt kategori-drag', etter.minH === '' && etter.pad === '', JSON.stringify(etter));
+    log('4b ingen JS-feil', errs.length === 0, errs.join(' | '));
+    await p.close();
   }
 
   /* ---------- 5) prefers-reduced-motion: momentan scroll, ingen drop-tween ---------- */

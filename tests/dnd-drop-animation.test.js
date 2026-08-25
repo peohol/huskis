@@ -4,19 +4,18 @@
   5. Slippes objektet ved (eller utenfor) viewportkanten, skal fly-inn-animasjonen
      starte fra objektets FAKTISK RENDREDE boks — ikke fra den UKLEMTE
      `drag.lastX - grabX`, som ligger utenfor skjermen når klemmen har slått inn
-     (ga et synlig hopp idet man slapp). Målt på et LISTEPUNKT: det er nivåene
-     som fortsatt kjører den hjemmesnekrede motoren som har den transformen.
-     For en LISTE er drop-animasjonen dnd-kits, og klemmen Smetts `SafeViewport`
-     — påstanden der er den samme, og måles som den gjelder: kortet holder seg
-     innenfor viewporten, og slippet lar ingen dra-maling bli igjen.
-  6. Løfte-skalaen følger objekttypen — liste 1.02, listepunkt 1.03 — og ikke en
-     hardkodet 1.02 for alt. På de nivåene som kjører den gamle motoren leses den
-     av drop-animasjonens startskala; på dnd-kit-nivåene (`docs/drag-and-drop.md`
-     — nav-modalen og hovedsidens KORTNIVÅ) er drop-animasjonen bibliotekets, og
-     skalaen ligger i CSS på `[data-dnd-dragging]`. Der måles derfor det som
-     faktisk MALES under draget: skalaen, og at rotasjonen settes som en EGEN
-     `rotate`-egenskap — dnd-kit skriver `transform` selv, med `!important`, så
-     en rotasjon lagt der ville forsvunnet uten at noe annet feilet.
+     (ga et synlig hopp idet man slapp). Alle fem nivåene kjører på dnd-kit
+     (`docs/drag-and-drop.md`), så drop-animasjonen er bibliotekets og klemmen
+     Smetts `SafeViewport`. Påstanden måles derfor som den gjelder: objektet
+     holder seg innenfor viewporten, og slippet lar ingen dra-maling bli igjen.
+  6. Løftets MALING følger objekttypen, og ikke en hardkodet verdi for alt:
+     skala 1.02 for en liste og et område, 1.03 for et listepunkt, en mappe og en
+     kategori, og kategorien males i tillegg KOMPAKT som en rad (hylla er foldet
+     sammen ved løft). Skalaen ligger i CSS på `[data-dnd-dragging]`, så det som
+     måles er det som faktisk STÅR MALT under draget — og at rotasjonen settes
+     som en EGEN `rotate`-egenskap: dnd-kit skriver `transform` selv, med
+     `!important`, så en rotasjon lagt der ville forsvunnet uten at noe annet
+     feilet.
 
   Gestene er EKTE input (`tests/dnd-gestures.js`).
 
@@ -99,38 +98,6 @@ const centerOf = (p, sel) => p.evaluate((sel) => {
   den armerer en lytter først. Den registreres etter appens egen, og kjører
   derfor etter den — nøyaktig der den gamle syntetiske dispatchen målte.
 */
-const armDrop = (p, sel) => p.evaluate((sel) => {
-  const box = (el) => {
-    const t = el.style.transform, tr = el.style.transition;
-    el.style.transition = 'none'; el.style.transform = 'none';
-    const r = el.getBoundingClientRect();
-    el.style.transform = t; el.style.transition = tr;
-    return { left: r.left, top: r.top };
-  };
-  const el = document.querySelector(sel);
-  const from = box(el);
-  window.__drop = { from };
-  window.addEventListener('pointerup', () => {
-    const transform = el.style.transform || '';
-    const m = /translate\(([-\d.e+]+)px,\s*([-\d.e+]+)px\)/.exec(transform);
-    window.__drop = {
-      from, transform, rest: box(el),
-      dx: m ? parseFloat(m[1]) : NaN,
-      dy: m ? parseFloat(m[2]) : NaN,
-    };
-  }, { once: true });
-}, sel);
-
-const measuredDrop = (p) => p.evaluate(() => window.__drop);
-
-/** Armér, slipp for ekte, og les av det lytteren fanget. */
-async function dropAndMeasure(p, sel) {
-  await armDrop(p, sel);
-  await G.drop(p, undefined, true);
-  return measuredDrop(p);
-}
-
-const scaleIn = (t) => { const m = /scale\(([\d.]+)\)/.exec(t); return m ? parseFloat(m[1]) : null; };
 
 /* Malingen av det løftede objektet på dnd-kit-nivåene: dnd-kit eier geometrien,
    vi eier skala og rotasjon — og de må ligge i egenskaper dnd-kit IKKE skriver. */
@@ -138,7 +105,12 @@ const paintOf = (p, sel) => p.evaluate((s) => {
   const el = document.querySelector(s);
   if (!el) return null;
   const cs = getComputedStyle(el);
-  return { scale: cs.scale, rotate: el.style.rotate, position: cs.position };
+  return {
+    scale: cs.scale, rotate: el.style.rotate, position: cs.position,
+    // Kategoriens kompakte rad-form (se 6 kategori): hylla er foldet sammen, og
+    // resten skal lese som ett listepunkt — ikke som en beholder med luft i.
+    gap: cs.gap, padding: cs.padding, radius: cs.borderRadius, overflow: cs.overflow,
+  };
 }, sel);
 
 const results = [];
@@ -175,18 +147,25 @@ const log = (n, ok, x = '') => { results.push(ok); console.log((ok ? 'PASS' : 'F
     await G.lift(p, { x: grip.x, y: grip.y }, true);
     await G.travel(p, { x: grip.edgeX, y: grip.y }, true, { steps: 6, settle: 140 });
     const clamped = await p.evaluate(() => {
-      const r = document.querySelector('.item.dragging').getBoundingClientRect();
+      const r = document.querySelector('#board .item[data-dnd-dragging]').getBoundingClientRect();
       return { right: Math.round(r.right), vw: window.innerWidth, extract: !!document.querySelector('.new-list-placeholder') };
     });
     log('5 ' + M.n + ': listepunktet er klemt innenfor viewporten før slippet',
       clamped.right <= clamped.vw + 2 && !clamped.extract, JSON.stringify(clamped));
 
-    const res = await dropAndMeasure(p, '.item.dragging');
-    const ex = Math.abs(res.rest.left + res.dx - res.from.left);
-    const ey = Math.abs(res.rest.top + res.dy - res.from.top);
-    log('5 ' + M.n + ': drop-animasjonen starter der listepunktet FAKTISK stod (ingen hopp)',
-      ex < 2 && ey < 2, 'avvik x=' + ex.toFixed(1) + ' y=' + ey.toFixed(1) + ' transform=' + res.transform);
-    await p.waitForTimeout(700);
+    /* Drop-animasjonen er dnd-kits nå, som for lista under: den flyr fra der
+       objektet FAKTISK ble malt (klemt) til hvileplassen, og påstanden er at
+       ingenting av dra-malingen blir liggende igjen. Den gamle motoren skrev
+       tweenen selv, i en `transform` vi kunne lese av ved `pointerup`; det
+       gjør dnd-kit ikke. */
+    await G.drop(p, undefined, true);
+    await p.waitForFunction(() => !document.querySelector('[data-dnd-dragging]'), null, { timeout: 4000 });
+    log('5 ' + M.n + ': slippet lot ingen dra-maling bli igjen på listepunktet',
+      (await p.evaluate(() => {
+        const el = document.querySelector('.item[data-id="it-B-1"]');
+        return !!el && !el.style.rotate && getComputedStyle(el).position === 'static';
+      })) === true);
+    await p.waitForTimeout(300);
 
     /* LISTE — dnd-kit: klemmen er Smetts `SafeViewport`, drop-animasjonen
        bibliotekets. Samme påstand, målt der den nå gjelder. Kortet kan dras helt
@@ -242,9 +221,42 @@ const log = (n, ok, x = '') => { results.push(ok); console.log((ok ? 'PASS' : 'F
     const it = await centerOf(p, '.item[data-id="it-A-2"]');
     await G.lift(p, { x: it.x, y: it.y }, true);
     await G.touchMove(p, it.x, it.y + 40); await p.waitForTimeout(120);
-    const rItem = await dropAndMeasure(p, '.item.dragging');
-    log('6 listepunkt: startskala 1.03', scaleIn(rItem.transform) === 1.03, 'transform=' + rItem.transform);
-    await p.waitForTimeout(600);
+    const iPaint = await paintOf(p, '#board .item[data-dnd-dragging]');
+    log('6 listepunkt: løftes med skala 1.03', !!iPaint && iPaint.scale === '1.03', JSON.stringify(iPaint));
+    log('6 listepunkt: løftes i top layer (dnd-kits `position: fixed`)',
+      !!iPaint && iPaint.position === 'fixed', JSON.stringify(iPaint));
+    await G.drop(p, undefined, true);
+    await p.waitForFunction(() => !document.querySelector('[data-dnd-dragging]'), null, { timeout: 4000 });
+    await p.waitForTimeout(300);
+
+    // KATEGORI → samme skala som et listepunkt (den ER en rad), og den samme
+    // KOMPAKTE formen den gamle motoren malte (`.category.dragging`): hylla er
+    // foldet sammen ved løft, så gap, polstring, radius og klipping må matche et
+    // listepunkt. Uten det leser det løftede objektet som en beholder med luft i.
+    await p.evaluate(() => {
+      const H = window.__huskis, st = H.state;
+      const g = st.universes.find((u) => u.id === st.activeUniverse).groups.find((x) => x.id === st.activeGroup);
+      const c = g.cards.find((x) => x.id === 'card-A');
+      const mk = () => ({ ts: 0, org: 't', posTs: 0, posOrg: 't' });
+      c.items.push(Object.assign({ id: 'cat-A', text: 'Kategori', home: 'card-A', cat: null, isCat: true, trashed: false, done: false, collapsed: false, pos: 9 }, mk()));
+      for (let i = 0; i < 3; i++) {
+        c.items.push(Object.assign({ id: 'catm-' + i, text: 'M' + i, home: 'card-A', cat: 'cat-A', isCat: false, trashed: false, done: false, pos: i }, mk()));
+      }
+      H.render();
+    });
+    await p.waitForTimeout(300);
+    const kh = await centerOf(p, '.category[data-id="cat-A"] .cat-head');
+    await G.lift(p, { x: kh.x, y: kh.y }, true);
+    await G.touchMove(p, kh.x, kh.y + 40); await p.waitForTimeout(120);
+    const kPaint = await paintOf(p, '#board .category[data-dnd-dragging]');
+    log('6 kategori: løftes med skala 1.03 (den er en rad)',
+      !!kPaint && kPaint.scale === '1.03', JSON.stringify(kPaint));
+    log('6 kategori: males kompakt som en rad (gap 0, polstring 6px, radius 10px, klippet)',
+      !!kPaint && kPaint.gap === '0px' && kPaint.padding === '6px' &&
+      kPaint.radius === '10px' && kPaint.overflow === 'hidden', JSON.stringify(kPaint));
+    await G.drop(p, undefined, true);
+    await p.waitForFunction(() => !document.querySelector('[data-dnd-dragging]'), null, { timeout: 4000 });
+    await p.waitForTimeout(300);
 
     // MAPPE (rad i et område-kort) → samme skala som et listepunkt (1.03)
     for (let i = 0; i < 2; i++) {

@@ -345,6 +345,25 @@ async function run(label, vp, mobile) {
   log(label + ' 11: menyen åpner seg ikke når steget ikke demonstrerer sletting',
     antallFør === 2 && antallEtter === 2, antallFør + ' → ' + antallEtter);
 
+  /* Et AVBRUTT drag er ikke et slipp. `pointercancel` (Android Chrome som klemmer
+     scrollen) ruller draget tilbake uten å flytte noe, og steget skal bli
+     stående. Telleren steget leser (`dropSeq`) er blind for tilstand — den teller
+     slipp — så uten vakten i `dndNoteCanceled` kvitterte avbruddet steget ut og
+     brukeren ble sendt videre uten å ha gjort handlingen. */
+  const førAvbrudd = await p.locator(rader).last().boundingBox();
+  await p.mouse.move(førAvbrudd.x + førAvbrudd.width / 2, førAvbrudd.y + førAvbrudd.height / 2);
+  await p.mouse.down();
+  await p.mouse.move(førAvbrudd.x + førAvbrudd.width / 2, førAvbrudd.y + førAvbrudd.height / 2 - 30, { steps: 4 });
+  await p.waitForTimeout(120);
+  await p.evaluate(() => {
+    const el = document.querySelector('[data-dnd-dragging]');
+    (el || document).dispatchEvent(new PointerEvent('pointercancel', { bubbles: true, pointerId: 1, isPrimary: true }));
+  });
+  await p.mouse.up();
+  await p.waitForTimeout(600);
+  log(label + ' 11 avbrudd: et avbrutt drag kvitterer IKKE ut «dra raden»-steget',
+    (await tourState(p)).id === 'drag_item', 'steg=' + (await tourState(p)).id);
+
   await drag(p, rader + ':last-child', rader + ':first-child');
   await waitStep(p, 'create_list2');
   await p.locator('#add-card-btn').click();
