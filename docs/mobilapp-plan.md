@@ -14,15 +14,17 @@ autoritative dokumentet for fagfeltet.
 | Felt | Nå |
 |---|---|
 | Målarkitektur | Én HTML/CSS/JS-kodebase + Capacitor for Android/iOS |
-| Nåværende fase | **Fase 5 — OTA for web-assets.** Fase 3 og fase 4 er ferdige; begge ferdigkriteriene ble oppfylt på fysisk enhet i samme `chrome://inspect`-økt. Fase 5 startet ikke med kode: OTA-løsningen skulle velges først, mot åtte krav, og **valget er tatt**. Kjeden er nå hel i koden — det som gjenstår av fasen er å prøve den på en fysisk telefon. Statusen for hver fase står på hver sin rad under. |
+| Nåværende fase | **Fase 6 — Android intern distribusjon.** Fase 5 er ferdig: hele OTA-kjeden er både implementert og verifisert på fysisk Android gjennom en produksjonsmåling og en separat rollback-rigg. |
 | Status — fase 3 | **Ferdigkriteriet er nådd.** Alle seks punktene er avgjort: systemets tilbakeknapp og safe areas/systemfeltene/skjermtastaturet, begge verifisert på fysisk telefon; eksterne lenker og auth-/e-postlenker, som begge er beslutninger uten kode og derfor ikke har noe å prøve på en telefon; sikker lagring/`android:allowBackup`, der sikkerhetskopien av WebView-lagringen er slått av; og lifecycle-/network-signalene, målt på enhet med sonden. `navigator.onLine` er bekreftet dødt uten `ACCESS_NETWORK_STATE`, og tillatelsen er lagt inn med vakt. Gjenopptakelsen er tilskrevet: et `get_my_doc` står i enhetsloggen merket `by: 'visibilitychange'`. Målingen viste samtidig at hendelsen IKKE leveres når Android har fryst prosessen — der starter pollets forfalte tikk runden i samme øyeblikk som opptiningen. Begge ledd er dermed bærende, hvert i sitt regime (se seksjonen). Ingen native plugin er innført. Automatisk dekket av `tests/safe-area.test.js`, `tests/landscape-chrome.test.js`, `tests/system-back.test.js`, `tests/sync-foreground.test.js` (del 2 og del 6 kjører hvert sitt regime) og `tests/capacitor-android.test.js`. |
 | Status — fase 4 | Fase 4s ferdigkriterium er **oppfylt**: en kjørende APK og en Vercel-preview bygget av samme commit rapporterte den samme `releaseId` (`d10867a7c0a6`) med hver sin `buildId`, lest på telefon. Alle sju punktene er avgjort. Fem er implementert: kartleggingen av dagens release-identiteter, `releaseId` er definert og generert i `build.js`, web og Android bygget fra samme commit rapporterer den samme verdien, `version.json` er utvidet additivt uten at cache- eller reload-sikkerheten er rørt, og kompatibilitetsregelen mellom klientrelease og databaseskjema er skrevet ned ([`release-og-deploy.md`](release-og-deploy.md)). De to siste er beslutninger, ikke kode — `minimumSupportedRelease` og valget mellom byte-identisk artifact og separate builds — sto åpne til OTA ga dem en konsekvens, og er nå avgjort i fase 5: ingen nedre grense, og separate builds med samme `releaseId` (se «De to punktene fra fase 4 får sitt svar her»). Automatisk dekket av `tests/build-version.test.js`, `tests/auto-update.test.js` og `tests/capacitor-android.test.js`. |
-| Status — fase 5 | **Hele kjeden står i koden: pluginen/rollback-veien, den signerte bundelen med manifestet, hentingen — og nå OPPSTILLINGEN OG BYTTET.** En APK leser manifestet på URL-en skallets `getVersionCode()` bestemmer, validerer det ved systemgrensen, sammenligner `releaseId` med `===`, laster ned bundelen, spør karantenen, og stiller den opp med `setNextBundle()`. Bundelen tas i bruk ved neste kaldstart — eller med en gang, gjennom `LiveUpdate.reload()`, som går den samme veien som en vanlig nettleser-reload: `updateSafety()`, banneret, inaktivitetsregelen og ett-forsøk-vakten i `update-check.js`. Leddet som er lagt til der er **klargjøringen**: et mål er ikke reloadbart før nedlasting OG oppstilling har lykkes, en feilet klargjøring brenner ikke ett-forsøk-vakten, og banneret vises ikke før målet er stilt opp. Karantenen er varig og har to lag, begge fail closed: pluginens egen blokkliste (`autoBlockRolledBackBundles` er nå slått PÅ) er hovedvakten, og klientens egen liste i `localStorage` dekker det ene tilfellet den ikke kan — at prosessen dør mellom rollbacken og readiness-punktet (se «En rullet-tilbake bundle må være varig sperret»). `versionCode` er økt til `3` fordi konfigurasjonsfeltet pakkes inn i APK-en, og `OTA_MIN_VERSION_CODE` er hevet til `3` med det: et nivå 2-skall bærer web-kode som laster ned uten å stille opp, og ville fått lovet en oppdatering det aldri kan aktivere. Flyten er KJØRT i ekte nettleser med faket bro (`tests/ota-fetch.test.js`: oppstilling, karantene, fail closed-blokkliste, feilet oppstilling) og klargjøringen i `tests/auto-update.test.js`. **Ikke prøvd på enhet ennå:** de to punktene hente-runden gjorde målbare (nedlastingen utenfor WebView-ens CSP, og telefonens verifisering av produksjonssignaturen), og de tre oppstillingsrunden gjorde målbare for første gang (rollback av en bundle som aldri når `ready()`, `reload()` som beholder originet, og et bytte gjennom `updateSafety()`). Det siste ULØSTE i veien for økten er nå avgjort og bygget: en bevisst ødelagt bundle kan ikke publiseres på produksjonsveien, fordi OTA-bundelen ER produksjonsbuilden — rollback og karantene måles derfor på en MÅLERIGG med eget skall, eget nøkkelpar og egen vert (`.github/scripts/ota-rig.js`, «Den ødelagte bundelen kan ikke være en produksjonsrelease»). Det ene gjenstående punktet som IKKE krevde en telefon er derimot lukket: `android-debug.yml` leser nå ut Gradles sammenslåtte `AndroidManifest.xml`, og `zip4j` bidrar ingenting mens `okhttp` bidrar én `androidx.startup`-initializer og ingenting annet («Hva de native bibliotekene merger inn i manifestet»). Og det siste som manglet FØR økten er på plass: stoppeklokken mot `readyTimeout` (`window.__huskis.readyMs`), siden `appReady` alene ikke kan skille en avvæpning som kom godt innenfor de 10 000 ms fra en som så vidt rakk det. Arbeidet med den avdekket samtidig en reell feilvei, som er RETTET i samme runde: auth-initialiseringen lå foran readiness-punktet, og offline med et token nær utløp kunne Supabases egen retry-løkke bruke opptil 30 sekunder — tre ganger `readyTimeout`, altså en falsk rollback av en frisk bundle, som karantenen deretter ville gjort varig. Punktet er flyttet foran `getSession()`, og invarianten «ingenting som kan vente på nettet over `markAppReady()`» håndheves nå både posisjonelt i kilden og kjørende med `?authlag=` («Hvorfor punktet ligger FØR `getSession()`»). Selve økten er planlagt og forberedt — protokollen står i «Slik kjører du enhetsøkten», og APK-en for produksjonshalvdelen er bygget. **Ingen av implementasjonspunktene i sjekklisten er krysset av ennå** — hvert av de gjenstående krever en enhetsøkt. |
-| Neste milepæl | Fase 5: første OTA-bundle som flytter en APK til samme `releaseId` som `huskis.no` |
+| Status — fase 5 | **Ferdigkriteriet er oppfylt på fysisk Android.** Installasjon A beviste produksjonskjeden: et `versionCode 3`-skall fra `0ebb737` lastet ned og stilte opp en senere produksjonsbundle, Java godtok produksjonssignaturen, `updateSafety()` blokkerte byttet offline og under synk, origin/sesjon/data overlevde byttet, OTA-aktiveringen var varig, og fire flymodus-kaldstarter nådde `ready()` på 249–314 ms mot `readyTimeout = 10000` ms — også med token nær utløp. Installasjon B beviste fallbacken på måleriggen: både `rig-broken-1` (`throw`) og `rig-broken-2` (`blank`) ble rullet tilbake til innebygd bundle og sperret varig; for `rig-broken-2` ble hele signaturen lest direkte som `rollback: true`, `previousBundleId: 'rig-broken-2'`, klientkarantene og pluginblokkliste. Råmålingene står i fase 5-seksjonen. |
+| Status — fase 6 | Ikke startet. Neste arbeid er stabil Android-signering, endelig package-ID/Play-oppsett og første reproducerbare release-AAB til internt testspor. |
+| Neste milepæl | Fase 6: første installasjon og oppdatering av Huskis gjennom Google Plays interne testspor, uten sideloading |
 | Neste praktiske steg — fase 3 | Ingen. Fasen er ferdig |
 | Neste praktiske steg — fase 4 | Ingen. Fasen er ferdig; de to «vurder …»-punktene fikk sitt svar i fase 5 |
-| Neste praktiske steg — fase 5 | **Kjøre enhetsøkten. Protokollen står i «Slik kjører du enhetsøkten», og forberedelsene er gjort.** Økten er to installasjoner, fordi hvert skallbytte er avinstaller + installer og dermed nullstiller telefonen: **A** måler nedlastingen utenfor CSP-en, produksjonssignaturen, oppstillingen, `reload()` som beholder originet, byttet gjennom `updateSafety()` og tidsmålingen — mot APK-en som ER bygget, av `0ebb737` (`versionCode 3`, `releaseId 0ebb737b5bf9`), slik at manifestet navngir en SENERE release enn APK-en; **B** måler rollback og karantene mot måleriggen, som ER bygget: riggrenen `claude/ota-rigg-vc3`, dens egen Vercel-preview som vert, og begge riggbundlene (`rig-broken-1` med `--mode throw`, `rig-broken-2` med `--mode blank`) signert og lagt ut der. Det ene som gjenstår før B kan måle noe, er at Vercel Authentication slås AV på prosjektet mens runden står på — ellers svarer previewverten `302` til `vercel.com/sso-api`, og riggskallet melder `no-manifest` uten å ha målt noe. Instrumentet tidsmålingen manglet finnes nå: `window.__huskis.readyMs` |
-| OTA | Innført ende til ende i koden: pluginen, den signerte bundelen, manifestet per native nivå, hentingen, karantenen, oppstillingen og byttet. Ikke prøvd på en fysisk enhet ennå — ferdigkriteriet står derfor åpent |
+| Neste praktiske steg — fase 5 | Ingen. Fasen er ferdig; produksjons-OTA, readiness, rollback og karantene er målt på fysisk Android |
+| Neste praktiske steg — fase 6 | Avklar/verifiser Play Developer-konto og endelig package ID, og design stabil signering før første release-AAB bygges |
+| OTA | Innført ende til ende og verifisert på fysisk Android: signert produksjonsbundle, manifest per native nivå, native nedlasting, oppstilling, trygg aktivering, varig aktivering, readiness, rollback og karantene. Ferdigkriteriet er oppfylt |
 | iOS | Senere fase; ikke en del av første implementering |
 
 ### Slik holdes planen levende
@@ -402,19 +404,14 @@ funksjoner bare fordi de er mulige.
       til `huskis.no`, så et intent-filter ser ikke selve trykket. Om 303-en
       videre havner i appen er et åpent spørsmål som skal prøves på telefon
       (se seksjonen).
-- [ ] Koble native lifecycle/network-signaler til eksisterende synklogikk bare
-      der websignalene ikke er tilstrekkelige. Kartlagt og avgjort: ingen native
-      signaler kobles på — websignalene rekker, og det ene reelle hullet
-      (ingenting hentet appen inn igjen ved gjenopptakelse) er lukket med
-      `visibilitychange`, som browseren og WebView-en har likt. Koden og
-      regresjonstesten er på plass, og den fysiske sekvensen er kjørt uten
-      avvik: appen står med etterslepet inne straks Android tar den fram igjen.
-      Enhetsøkten med `chrome://inspect` ER nå kjørt, og den avgjorde det ene av
-      de to spørsmålene: `navigator.onLine` er dødt uten `ACCESS_NETWORK_STATE`,
-      og tillatelsen er lagt inn. Det andre står åpent og kom dårligere ut enn
-      ventet: lytteren ble ikke bekreftet i noen av de tre rundene, og de to
-      lange registrerte ingen synlighetsvending overhodet. Hullet er lukket i
-      nettleseren, ikke observert lukket på enheten (se seksjonen).
+- [x] Koble native lifecycle/network-signaler til eksisterende synklogikk bare
+      der websignalene ikke er tilstrekkelige. Kartlagt, avgjort og målt på
+      fysisk Android: ingen native lifecycle-/network-plugin trengs.
+      `visibilitychange` starter synkrunden når prosessen lever; når Android har
+      fryst prosessen, leveres hendelsen ikke og det forfalte 5-sekunderspollet
+      starter runden straks prosessen tiner. `ACCESS_NETWORK_STATE` er lagt til
+      fordi `navigator.onLine` ellers sto permanent `true` i flymodus. Begge
+      regimene er låst av `tests/sync-foreground.test.js`.
 - [x] Vurder sikker lagring av native-spesifikke secrets/tokens dersom det
       faktisk finnes et behov; ikke flytt data ut av dagens modell uten grunn.
       Ta samtidig stilling til `android:allowBackup`. Kartlagt og avgjort: det
@@ -660,8 +657,9 @@ allerede hvor en slik lenke havner den dagen den lages.
 
 Dette punktet har **ingen fysisk sekvens**, og det er ikke en utsettelse: appen
 har ingen lenke som kan tappes, så det finnes ingen handling en telefon kunne
-svart på. Det som er verifisert er kildekoden — Capacitors ruting er LEST i
-`node_modules/@capacitor/android`, ikke observert på en enhet.
+svart annerledes på enn den allerede gjør. Det som er verifisert er kildekoden
+— Capacitors ruting er LEST i `node_modules/@capacitor/android`, ikke observert
+på en enhet.
 
 Det skillet er verdt å holde fast på, av samme grunn som systemfeltene i forrige
 punkt: koden er ikke fasit for hva enheten gjør. Den dagen appen får sin første
@@ -1366,20 +1364,21 @@ Før implementering skal OTA-løsning velges etter disse kravene:
 - mulighet for automatisering fra GitHub Actions;
 - rimelig leverandørlåsing og driftskostnad.
 
-**Valget er tatt:** `@capawesome/capacitor-live-update`, i selvhostet modus, uten
-sky-konto. Kartleggingen, sammenligningen og prisen står under. Fire
-implementasjonsrunder er innført: pluginen og rollback-veien uten at noen bundle
-hentes, den signerte bundelen med manifestet — publisert av `release.yml` —
-hentingen, og til slutt oppstillingen og byttet: karantenen, `setNextBundle()`,
-klargjøringstilstanden i `update-check.js` og `LiveUpdate.reload()` gjennom
-`updateSafety()` (seksjonen «Hva som er innført»). Kjeden er dermed hel i koden.
-Ingen av punktene i implementasjonslista nederst er krysset av: det som gjenstår
-av dem krever en enhetsøkt.
+**Valget er tatt og fasen er verifisert:** `@capawesome/capacitor-live-update`, i
+selvhostet modus, uten sky-konto. Kartleggingen, sammenligningen og prisen står
+under. Fire implementasjonsrunder er innført: pluginen og rollback-veien uten at
+noen bundle hentes, den signerte bundelen med manifestet — publisert av
+`release.yml` — hentingen, og til slutt oppstillingen og byttet: karantenen,
+`setNextBundle()`, klargjøringstilstanden i `update-check.js` og
+`LiveUpdate.reload()` gjennom `updateSafety()` (seksjonen «Hva som er innført»).
+Kjeden er hel i koden, og enhetsøkten 25. august 2026 verifiserte den på fysisk
+Android: produksjons-OTA i installasjon A og rollback/karantene i installasjon
+B. Alle punktene i implementasjonslista nederst er derfor krysset av.
 
-## Nåtilstanden: hva som allerede finnes, og nøyaktig hvor hullet er
+## Nåtilstanden: hva som allerede finnes, og nøyaktig hvor hullet var
 
-Fire ledd er på plass fra før, og de er grunnen til at fase 5 er et lite lag og
-ikke et nytt system:
+Fire ledd var på plass fra før, og de er grunnen til at fase 5 ble et lite lag
+og ikke et nytt system:
 
 | Ledd | Hva den allerede gjør | Hva OTA trenger av den |
 |---|---|---|
@@ -1388,7 +1387,7 @@ ikke et nytt system:
 | `releaseId` | plattformuavhengig identitet på kilden, sammenlignet med `===` ([`auto-update.md`](auto-update.md)) | svaret på «kjører denne telefonen den releasen web kjører?» |
 | `buildId` | eier cache og reload alene: `?b=`-URL-ene og sammenligningen i `update-check.js` | identiteten på selve bundelen, én per bygg |
 
-**Hullet er målt, ikke antatt.** `dist/` ble bygget og servert på sitt eget
+**Hullet ble målt, ikke antatt.** `dist/` ble bygget og servert på sitt eget
 origin — nøyaktig APK-situasjonen, der `https://localhost` serverer den
 innebygde kopien av den samme builden — og oppdateringsmotoren ble spurt hva den
 så:
@@ -1399,14 +1398,14 @@ så:
   "reloads": 0, "banner": false, "safety": { "safe": true, "reason": "" } }
 ```
 
-Motoren er altså ikke AV i appen. Den startet av seg selv, den utførte de to
+Motoren var altså ikke AV i appen. Den startet av seg selv, den utførte de to
 kontrollene sonden ba om i stedet for å vente på oppstartstimeren, og
 `updateSafety()` svarte `safe: true` — den var villig. Den fant bare ingenting,
 fordi den målte seg mot seg selv: `noteBuild()` returnerer på `id === buildId`,
-og i APK-en ER de to alltid like. Det er ikke en manglende funksjon; det er en
-sammenligning uten motpart.
+og i APK-en ER de to alltid like. Fase 5 ga den en signert, nivåbundet motpart
+utenfor det innebygde originet.
 
-**Og web-laget kan ikke bare spørre `huskis.no` i stedet.** CSP-en står som
+**Og web-laget kunne ikke bare spørre `huskis.no` i stedet.** CSP-en står som
 meta-tag i `index.html` og gjelder derfor også inne i APK-en. Målt i ekte
 nettleser mot den bygde `dist/`:
 
@@ -1416,26 +1415,20 @@ the following Content Security Policy directive: "connect-src 'self' https://bmk
 ```
 
 Samme forespørsel mot eget origin gikk gjennom. Å hente et OTA-manifest fra
-web-laget koster altså nøyaktig én ny vert i `connect-src`
-([`sikkerhetsheadere.md`](sikkerhetsheadere.md)) — en pris, ikke en hindring,
-men den skal stå her og ikke oppdages underveis.
+web-laget kostet altså nøyaktig én ny vert i `connect-src`
+([`sikkerhetsheadere.md`](sikkerhetsheadere.md)) — en pris, ikke en hindring.
+Den prisen er betalt, og målingen er snudd til en vakt:
+`tests/csp-enforced.test.js` viser at manifest-oppslaget slipper ut mens en
+fremmed vert fortsatt blokkeres. Cross-origin-lesningen
+(`https://localhost` → `https://huskis.no`) trenger i tillegg CORS;
+`Access-Control-Allow-Origin: *` står derfor på nøyaktig manifest-stien i
+`vercel.json`. Installasjon A verifiserte på ekte WebView at dette leddet faktisk
+kan lese produksjonsmanifestet.
 
-Den prisen er nå betalt — verten står i begge policyene, og målingen er snudd
-til en vakt: `tests/csp-enforced.test.js` viser at manifest-oppslaget slipper
-ut mens en fremmed vert fortsatt blokkeres. Underveis viste prisen seg å ha en
-tvilling CSP-målingen over ikke kunne se: lesningen er CROSS-ORIGIN
-(`https://localhost` → `https://huskis.no`), så svaret må i tillegg bære en
-CORS-header — uten den slipper forespørselen ut, men svaret blokkeres, like
-stille, ett lag lenger ut. `Access-Control-Allow-Origin: *` står derfor på
-nøyaktig manifest-stien i `vercel.json`; begrunnelsen og avgrensningen står i
-[`sikkerhetsheadere.md`](sikkerhetsheadere.md), vakten i
-`tests/release-pipeline.test.js`.
-
-**Og repoet har to porter som er bygget for å stoppe en ny native
-avhengighet.** `tests/capacitor-android.test.js` låser hvilke npm-pakker og
-hvilke Gradle-avhengigheter som finnes, nettopp fordi et nytt bibliotek merger
-sitt eget manifest inn i appens. De skal utvides bevisst, ikke omgås — nøyaktig
-hva de sier fra om, står under «Prisen».
+**Repoet har to porter som er bygget for å stoppe en ny native avhengighet.**
+`tests/capacitor-android.test.js` låser hvilke npm-pakker og hvilke
+Gradle-avhengigheter som finnes, nettopp fordi et nytt bibliotek merger sitt
+eget manifest inn i appens. De ble utvidet bevisst for LiveUpdate-pluginen.
 
 ## Kartleggingen: hva som finnes av OTA for Capacitor
 
@@ -1490,11 +1483,11 @@ ZIP-fil Huskis lager selv; skyen brukes ikke, og det finnes ingen konto å ha.
 
 | Krav | Hvordan det dekkes | Kilde |
 |---|---|---|
-| Signering/integritet | `Signature.getInstance("SHA256withRSA")` over selve filbytene, X.509-nøkkel fra `publicKey` i `capacitor.config.json`. **Fail closed**: er `publicKey` satt og signaturen mangler, kastes `ERROR_SIGNATURE_MISSING` — den faller ikke tilbake til checksum | lest i pluginens Java-kilde |
-| Innebygd kjent-god fallback | `reset()` går tilbake til bundelen som ble pakket i binæren | dokumentert + kilde |
-| Rollback ved mislykket oppstart | rollback-timeren armeres i pluginens konstruktør og avvæpnes av `ready()`; `readyTimeout` styrer fristen | lest i kilden |
+| Signering/integritet | `Signature.getInstance("SHA256withRSA")` over selve filbytene, X.509-nøkkel fra `publicKey` i `capacitor.config.json`. **Fail closed**: er `publicKey` satt og signaturen mangler, kastes `ERROR_SIGNATURE_MISSING` — den faller ikke tilbake til checksum | lest i pluginens Java-kilde + produksjonssignaturen godtatt av fysisk Android i installasjon A |
+| Innebygd kjent-god fallback | `reset()`/rollback går tilbake til bundelen som ble pakket i binæren | dokumentert + fysisk observert i begge riggrundene |
+| Rollback ved mislykket oppstart | rollback-timeren armeres i pluginens konstruktør og avvæpnes av `ready()`; `readyTimeout` styrer fristen | lest i kilden + fysisk observert med `throw` og `blank` |
 | Kanaler/staged rollout | selvhostet er kanalen manifest-URL-en, og utrulling en andel i manifestet som enheten avgjør mot sin egen `getDeviceId()`. Pluginen har også kanaler og rollout — de hører til skyen, og brukes ikke | dokumentert |
-| Skille web/native | pluginen bytter KUN de utpakkede web-assetene; native kode og plugins ligger i binæren og kan bare endres gjennom butikken | dokumentert + kilde |
+| Skille web/native | pluginen bytter KUN de utpakkede web-assetene; native kode og plugins ligger i binæren og kan bare endres gjennom butikken | dokumentert + kompatibilitetsvakten per `versionCode` |
 | App Store/Play | Play forbyr nedlastet kjørbar kode (dex/JAR/.so), men unntar eksplisitt kode som kjører i en tolk med indirekte tilgang til Android-API-ene — JavaScript i en WebView. Apples DPLA tillater tolket kode så lenge den ikke endrer appens primære formål eller omgår App Review | Play-policyen og Apples avtaletekst |
 | Automatisering fra Actions | bundelen er en ZIP og en JSON. `release.yml` bygger og signerer den på den samme `github.sha` som migreres, smoke-testes og deployes | følger av dagens kjede |
 | Leverandørlåsing/driftskostnad | MIT, ingen konto, ingen regning. Låsingen er formatet på ett `downloadBundle`-kall — bytter vi plugin, byttes kallet, ikke bundelen | npm + kilde |
@@ -1525,7 +1518,7 @@ Det som faktisk koster:
 |---|---|---|
 | En fjerde npm-pakke | `@capawesome/capacitor-live-update`, pinnet eksakt. Den er byggeinput for det native skallet, aldri en web-asset — `SKIP`-listen i `build.js` holder `package.json` og `node_modules/` ute av `dist/` som før | `package.json`, lockfila |
 | To låser må utvides | målt: en kopi av repoet med pluginen installert og synkronisert gir **134/136** i `tests/capacitor-android.test.js`, mot **129/129** uten. Nøyaktig to navngitte sjekker faller: «ingen andre npm-avhengigheter enn de tre Capacitor-pakkene» og «de applierte Gradle-skriptene legger ikke til avhengigheter». Ingen annen sjekk rører seg — heller ikke `server.url`, den synkede kopiens byte-likhet eller release-ID-ene | `tests/capacitor-android.test.js` |
-| Native tredjepartskode i APK-en | `zip4j` og `okhttp`/`okhttp-brotli`. Pluginens eget manifest er tomt, og det BYGDE manifestet er nå lest: `zip4j` bidrar ingenting, `okhttp` med én `androidx.startup`-initializer og ingenting annet (seksjonen under) | `android/`, `.github/workflows/android-debug.yml` |
+| Native tredjepartskode i APK-en | `zip4j` og `okhttp`/`okhttp-brotli`. Pluginens eget manifest er tomt, og det BYGDE manifestet er lest: `zip4j` bidrar ingenting, `okhttp` med én `androidx.startup`-initializer og ingenting annet (seksjonen under) | `android/`, `.github/workflows/android-debug.yml` |
 | Én ny vert i CSP, og CORS på manifest-stien | `connect-src` navngir `https://huskis.no`, slik at web-laget kan lese OTA-manifestet fra appens origin — i browseren er verten allerede `'self'`, så tillegget endrer ingenting der. Og fordi lesningen er cross-origin inne i APK-en, svarer `/ota/android/*` med `Access-Control-Allow-Origin: *`: offentlige, ukredensierte data | `index.html`, `vercel.json`, [`sikkerhetsheadere.md`](sikkerhetsheadere.md) |
 | Et definert readiness-punkt | `ready()` MÅ kalles hver gang appen starter, ellers ruller rollback-timeren tilbake. Timeren armeres i pluginens konstruktør, også når appen kjører den innebygde bundelen. HVOR kallet står er hele vakten, ikke en detalj — se «Readiness-punktet» | web-koden, bak native-vakten |
 | Én signeringsnøkkel | privatnøkkelen er en Actions-secret og forlater aldri runneren; den offentlige står i `capacitor.config.json` og pakkes i APK-en | GitHub-secrets |
@@ -1648,10 +1641,15 @@ release, en falsk rollback er varig.
 Svaret var ikke å heve `readyTimeout` — det ville gitt en ekte defekt bundle
 like lang tid til å se frisk ut.
 
-To ting må måles på enhet før punktet kan kalles ferdig: at en bundle som feiler
-ETTER at scriptene er lastet, men før skjermen er brukbar, faktisk blir rullet
-tilbake — og at `readyTimeout` har margin nok for en treg kaldstart på ekte
-maskinvare.
+**Målt på fysisk Android 25. august 2026.** Tre kaldstarter i flymodus med
+ferskt token ga `readyCalledAt` 291, 249 og 314 ms; en fjerde kaldstart etter at
+`expires_at` var satt fem sekunder fram i tid og fikk utløpe offline ga 277 ms.
+Alle fire lå svært langt under `readyTimeout = 10000` ms, og nær-utløpt token
+flyttet ikke readiness-punktet. Riggtesten ga samtidig den andre halvparten av
+beviset: `rig-broken-1`, som laster scriptene men kaster før brukbar skjerm, ble
+rullet tilbake; `rig-broken-2`, som aldri når `ready()`, ble også rullet tilbake.
+Readiness-punktet har dermed både nødvendig plassering og nødvendig tidsmargin
+på ekte maskinvare.
 
 ## Hva som er innført: hele kjeden, i fire steg
 
@@ -1709,10 +1707,9 @@ Gaten i `app.js` er fortsatt gaten, men den er nå to linjer i stedet for én:
 svaret på det. Testen låser begge — at det er nøyaktig to linjer, hva hver av
 dem gjør, og hvilke fire steder pluginbroen brukes.
 
-**Ingen kodesteg gjenstår.** Det som gjenstår av fase 5 er å prøve kjeden på en
-fysisk telefon: en bundle kan nå feile ved oppstart, og derfor kan
-rollback-timeren, karantenen og byttet endelig måles i praksis (seksjonen «Hva
-som krever en enhetsøkt»).
+**Ingen kodesteg eller enhetsmålinger gjenstår i fase 5.** Kjeden er prøvd på
+fysisk Android mot produksjon og mot den avgrensede rollback-riggen. Detaljene
+og råmålingene står under «Enhetsøkten — kjørt 25. august 2026».
 
 ### Nøkkelparet: hvor de to halvdelene bor, og hvorfor de aldri møtes
 
@@ -1733,7 +1730,9 @@ av samme par, feiler releasen med den setningen som forklaring.
 Nøkkelen er lest maskinelt på begge måter den kan bli lest: som PEM av Node, og
 som base64 uten PEM-hoder inn i en `X509EncodedKeySpec` — nøyaktig linjene i
 `LiveUpdate.java`. En nøkkel på et annet format (PKCS#1, DER-fil, OpenSSH-linje)
-ville sett riktig ut i konfigurasjonen og feilet på telefonen.
+ville sett riktig ut i konfigurasjonen og feilet på telefonen. Installasjon A
+lukket siste gap: pluginens Java-verifisering godtok den faktiske
+produksjonssignaturen laget av Node.
 
 ### `versionCode` er kompatibilitetsgrensen — derfor kunne den ikke bli stående på 1
 
@@ -1759,37 +1758,17 @@ grunnen: `autoBlockRolledBackBundles` kom inn i `capacitor.config.json`, og
 konfigurasjonen pakkes inn i APK-en. Et skall med karantenen på og ett uten er
 native forskjellige, og kan derfor ikke melde det samme nivået.
 
-**`OTA_MIN_VERSION_CODE` ble hevet til `3` i den samme runden**, og
-avveiningen der er verdt å skrive ned, fordi et første utkast satte den til `2`
-på et resonnement som ikke holdt. Det lød: web-koden bruker bare metoder
-pluginen har i begge nivåer, så bundelen VIRKER i et nivå 2-skall. Det er sant
-om pluginen og likevel feil om utfallet, og kodegjennomgangen av PR #137 fant
-hvorfor.
+**`OTA_MIN_VERSION_CODE` ble hevet til `3` i den samme runden.** Et
+`versionCode 2`-skall bærer web-koden fra hente-runden. Den laster ned bundelen
+og stopper der — den kaller aldri `setNextBundle()`. Koden som kan stille opp
+ligger inne i bundelen og kommer derfor aldri til å kjøre. Regelen som følger:
+**det laveste støttede nivået er det laveste skallet som kan TA I BRUK en
+bundle**, ikke det laveste skallet der pluginen har metodene.
 
-**Grensen avhenger av web-koden som ALLEREDE KJØRER i skallet, ikke bare av
-hva pluginen kan.** Et `versionCode 2`-skall bærer web-koden fra hente-runden.
-Den laster ned bundelen og stopper der — den kaller aldri `setNextBundle()`.
-Koden som kan stille opp ligger inne i bundelen, og hjelper derfor ikke: den
-kommer aldri til å kjøre, fordi ingenting tar bundelen i bruk. Et manifest på
-nivå 2 ville altså lovet en oppdatering som aldri kan aktiveres — en
-nedlasting i evig løkke, ett stille no-op per kaldstart.
-
-Regelen som følger, og som gjelder for hver senere runde: **det laveste
-støttede nivået er det laveste skallet som kan TA I BRUK en bundle**, ikke det
-laveste skallet der pluginen har metodene. Nivå 3 er det første skallet som
-bærer oppstillingen, og grensen står derfor der.
-
-Prisen er at debug-APK-ene fra de tre første rundene faller utenfor OTA. Det
-koster ingenting: en debug-APK bygget av DENNE runden er nivå 3, og den måler
-alt de eldre kunne målt — inkludert de to punktene hente-runden gjorde
-målbare — pluss oppstillingen, byttet og rollbacken, som bare den kan måle.
-
-Det maskinen ikke kan svare på ennå er om noen GLEMTE å øke `versionCode` da
-skallet ble endret; testene ser bare det som står der nå. Skulle det bli et
-reelt problem, er svaret en innsjekket historikk av par (`versionCode`,
-fingeravtrykk av de native kildefilene): et endret fingeravtrykk uten et nytt
-nivå er da en rød test. Det er ikke bygget nå — det ville vært en mekanisme uten
-en observert feil bak seg.
+Installasjon A målte den reelle nivå-3-veien: skallets `getVersionCode()` fant
+produksjonsmanifestet for nivå 3, manifestet passerte CORS/systemgrensen, og
+bundelen ble både lastet ned og stilt opp. Fail-closed 404-utfallet for et nivå
+uten manifest er fortsatt automatisk dekket av `tests/ota-fetch.test.js`.
 
 Fase 6 eier fortsatt det samme tallet som BUTIKKENS krav (monotont økende per
 opplasting). Det er en annen bruk, og den kommer i tillegg.
@@ -1938,741 +1917,355 @@ oppdateres i sitt eget tempo, men web-halvdelen ville nådd hver telefon med én
 gang — inkludert de som fortsatt kjører det gamle skallet, og som da får
 web-kode som kaller inn i noe som ikke finnes.
 
-**Manifestet skal derfor bære en kompatibilitetsgrense fra den første
-fungerende OTA-flyten**, og klienten skal avvise en inkompatibel bundle FØR
-nedlasting og oppstilling — steg 0 i flyten over. Pluginen har halvdelen på
-plass: `getVersionCode()` finnes nettopp for å begrense live updates til
-kompatible native versjoner, og leverandøren dokumenterer i tillegg mønsteret
-med å binde kanalnavnet til `versionCode` ved byggtid.
+**Manifestet bærer derfor kompatibilitetsgrensen fra den første fungerende
+OTA-flyten.** Klienten ber om manifestet på URL-en skallets
+`getVersionCode()` bestemmer; et skall utenfor spennet får 404 før nedlasting og
+oppstilling. Installasjon A verifiserte den ekte nivå-3-veien mot produksjon,
+mens 404-grenen er kjørt i ekte nettleser med faket bro
+(`tests/ota-fetch.test.js`).
 
-Begge halvdelene står nå i koden: manifestet publiseres per nivå
-(signeringsrunden), og klienten bygger URL-en av skallets eget
-`getVersionCode()` (hente-runden) — et skall utenfor spennet spør etter en fil
-som ikke finnes, får 404 og gjør ingenting. Det siste er målt i ekte nettleser
-med faket bro (`tests/ota-fetch.test.js`); det som gjenstår er å se det samme
-fra et EKTE skall mot produksjon (se «Hva som krever en enhetsøkt»).
-
-**Formen er valgt: URL-en bærer nivået.** To var aktuelle, og valget måtte tas
-av runden som publiserte det første manifestet, siden formen bestemmer både
-URL-en `release.yml` skriver til og hvor vakten ligger:
+**Formen er valgt: URL-en bærer nivået.** To aktuelle former ble vurdert:
 
 | Form | Hvordan den feiler | Pris | |
 |---|---|---|---|
 | Manifest-URL-en bærer det native nivået (`…/android/<versionCode>.json`) | fail closed av seg selv: et gammelt skall ber om et manifest som ikke finnes, får 404 og gjør ingenting | én URL-form, og én publisering per støttet nivå | **valgt** |
 | Manifestet har et felt med nedre `versionCode` | klienten må selv sammenligne og avvise | ett felt, men vakten ligger i klientkoden | ute |
 
-Avgjørende var HVEM som holder vakten. Spørsmålet «får denne klienten lov til å
-hente dette?» besvares serverside overalt ellers i Huskis, og klientens gating
-er kun UX. Med URL-formen er svaret et faktum om hva som FINNES: et nivå er
-støttet nøyaktig når releasen skrev en fil for det. Med feltformen er svaret en
-sammenligning klienten kan gjøre feil — og gjør den det, laster den ned og
-stiller opp en bundle som kaller inn i noe som ikke finnes, og feilen havner
-rett i reload-løkken seksjonen under handler om.
-
-To mindre ting pekte samme vei. `getVersionCode()` returnerer en STRENG, så
-URL-formen slipper både tallparsing og sammenligningsoperator. Og 404-grenen
-finnes uansett — den er den samme som «ingen release ennå» og «nettet er nede» —
-så vakten arver en vei som allerede må virke.
-
-Prisen er reell og betales: ett manifest per støttet nivå, altså N identiske
-filer. Spennet er `OTA_MIN_VERSION_CODE` til og med `versionCode`, og akkurat nå
-er begge `3` — altså ett nivå og én fil.
-
-Fase 6 eier fortsatt `versionCode` som BUTIKKENS krav: monotont økende per
-opplasting, signering, spor. Det er en annen bruk av det samme tallet, og den
-kommer i tillegg — ikke i stedet.
+Prisen er ett manifest per støttet nivå. Spennet er
+`OTA_MIN_VERSION_CODE` til og med `versionCode`, og akkurat nå er begge `3`.
+Fase 6 eier fortsatt `versionCode` som butikkens monotone opplastingsnummer i
+tillegg til denne rollen.
 
 ### En rullet-tilbake bundle må være varig sperret — ikke bare gjenkjent av timeren
 
-Funn fra kodegjennomgang av PR #134 (P2), verifisert mot pluginens kilde:
-`readyTimeout` beskytter mot at en DÅRLIG bundle blir stående, men ikke mot at
-NESTE kaldstart velger nøyaktig samme `bundleId` igjen. Pluginen har en
-blokkliste (`autoBlockRolledBackBundles`, `getBlockedBundles()`,
-`clearBlockedBundles()`), men to ting gjør den ikke en vakt av seg selv:
+`readyTimeout` beskytter mot at en DÅRLIG bundle blir stående, men neste
+kaldstart må også nekte samme `bundleId` å bli stilt opp på nytt. Vakten har to
+lag:
 
-- standardverdien er `false` — den må slås PÅ eksplisitt;
-- **den sjekkes kun inne i pluginens egen `sync()`-flyt**
-  (`isBlockedBundleId(latestBundleId)` i `fetchLatestBundleInternal`), lest
-  direkte i `LiveUpdate.java`. Huskis' selvhostede flyt bruker den MANUELLE
-  veien — `downloadBundle()` + `setNextBundle()` — og `setNextBundle()`
-  konsulterer aldri blokklisten. Et manifest som (ved en feil, eller en
-  fastlåst utrulling) fortsetter å peke på en `bundleId` som nettopp ble
-  rullet tilbake, ville derfor bli stilt opp på nytt ved neste kaldstart, ryke
-  på `readyTimeout` igjen, og gjenta seg for hver kaldstart — en reload-løkke
-  på tvers av kalde oppstarter, som er nøyaktig det implementasjonslista
-  nederst («unngå reload-/oppdateringsløkker») skal hindre. Ett-forsøk-vakten
-  i `update-check.js` er `sessionStorage`-basert og dekker ikke dette: den
-  overlever ikke en kald app-prosess.
+1. **Pluginens egen blokkliste** (`getBlockedBundles()`), fylt av
+   `autoBlockRolledBackBundles`. Dette er hovedvakten.
+2. **Klientens egen varige karantene** (`localStorage`, `huskis:ota-blocked`) —
+   ekstra laget for prosessdød mellom rollback og readiness i den innebygde
+   bundelen.
 
-**Vakten står nå, i to lag.** Før et manifestmål stilles opp med
-`setNextBundle()`, spør klienten selv — samme prinsipp som steg 0
-(native-kompatibilitet), men for identitet i stedet for versjon:
-
-1. **Pluginens egen blokkliste** (`getBlockedBundles()`), som
-   `autoBlockRolledBackBundles` fyller. Feltet er slått PÅ i den samme runden —
-   det har først nå noe å føre opp, og siden det pakkes inn i APK-en, ble
-   `versionCode` økt sammen med det. **Dette er hovedvakten.**
-2. **Klientens egen, varige karantene** (`localStorage`, `huskis:ota-blocked`)
-   — ett lag til, for det ene tilfellet det første ikke kan dekke.
-
-Rekkefølgen er rettet etter kodegjennomgangen av PR #137, som fant at et
-tidligere utkast av denne seksjonen bygget på en FEIL modell av pluginen.
-Lesningen som gjelder, i `LiveUpdate.java` 8.4.0: `rollback()` setter
-`rollbackPerformed`, husker den dårlige bundelen som `previousBundleId`, bytter
-til den innebygde med `setCurrentBundleById(null)` — og den veien ender i
-`setCurrentCapacitorServerPath()`, som kaller `Bridge.reload()`. Alt skjer i
-SAMME prosess. Den innebygde bundelen laster altså med det samme, dens
-`ready()` treffer et `rollbackPerformed` som fortsatt er `true`, og pluginen
-fører bundelen opp i sin egen varige liste. **Den vanlige rollback-veien er
-dermed dekket av pluginen selv.**
-
-Hullet som blir igjen er smalt, og det er det klientens egen liste finnes for:
-dør prosessen mellom rollbacken og readiness-punktet i den innebygde bundelen,
-blir flagget aldri lest, og ved neste kaldstart finnes det ikke lenger — det
-bor i minnet. Da står `previousBundleId` igjen alene, og `ready()` melder
-`currentBundleId === null` (vi kjører den innebygde) sammen med den. Den
-signaturen ER rollbacken, og den vises nøyaktig én gang — `ready()` overskriver
-`previousBundleId` med det samme.
-
-**Begge lag er fail closed, og det er en egenskap ved koden, ikke en påstand.**
-En liste som ikke kan LESES — blokkert lagring, en verdi som ikke lar seg
-parse, et brosvar som ikke er en liste — er ikke det samme som en tom liste;
-hvert av de tilfellene er et NEI. Og en rollback som ikke kunne FØRES OPP er
-heller ikke det samme som ingen rollback: skrivingen leses tilbake, og slår den
-feil, stilles ingenting opp i den økten. Uten det ville et ekstra lag som
-svarer «ingenting er sperret» når det ikke vet, gjort vakten svakere enn den
-uten laget. Alle fire tilfellene er kjørt i `tests/ota-fetch.test.js` og låst i
-`tests/capacitor-android.test.js`.
+Begge er fail closed før `setNextBundle()`. Installasjon B målte dette fysisk.
+Etter `rig-broken-1` inneholdt pluginens blokkliste `rig-broken-1`, og neste
+kaldstart ga `otaStage: { state: 'blocked', detail: 'rig-broken-1' }`. Etter
+`rig-broken-2` viste `liveReady` direkte `rollback: true` og
+`previousBundleId: 'rig-broken-2'`; klientkarantenen inneholdt
+`rig-broken-2`, pluginens blokkliste inneholdt begge riggbundlene, og
+`otaStage` blokkerte `rig-broken-2`. Reload-/oppdateringsløkka er dermed
+stoppet på tvers av kalde oppstarter på ekte enhet.
 
 ### En allerede hentet bundle er ikke en feilet nedlasting
 
-Funn fra kodegjennomgang av PR #136, verifisert i pluginens kilde:
-`downloadBundle()` starter med `if (hasBundleById(bundleId))` og svarer da
-`ERROR_BUNDLE_EXISTS` («bundle already exists.») FØR den laster ned noe. Det
-er ikke en kant-situasjon — det treffer HVER kaldstart etter den første
-vellykkede nedlastingen, så lenge manifestet peker på den samme bundelen.
-
-To ting følger, og begge står nå i koden:
-
-- **Instrumentet må skille dem.** `otaFetch` er det enhetsøkten leser, og de
-  to punktene økten skal avgjøre — at nedlastingen går utenfor WebView-ens
-  CSP, og at telefonen godtar produksjonssignaturen — besvares nettopp av om
-  nedlastingen lyktes. Meldt som `download-failed` ville en allerede hentet
-  bundle sett ut som en AVVIST SIGNATUR, altså en falsk negativ i den ene
-  målingen. Klienten skiller den derfor ut som `already-downloaded`
-  (`app.js`, dekket av `tests/ota-fetch.test.js`).
-- **Oppstillingen er ikke gjort avhengig av at et ferskt `downloadBundle()`
-  lyktes.** Klargjøringen regner en bundle som ligger i lageret som KLAR —
-  ellers ville en app som lastet ned i går aldri kommet videre til oppstilling
-  i dag: nedlastingen «feiler» hver gang, fordi den allerede er gjort. Begge
-  veier er kjørt i `tests/ota-fetch.test.js`.
+Pluginen avviser `downloadBundle()` med `ERROR_BUNDLE_EXISTS` når `bundleId`
+allerede finnes. Klienten skiller derfor `already-downloaded` fra ekte
+`download-failed`, og oppstillingen kan gå videre på en bundle som allerede
+ligger i lageret. Dette er kjørt i `tests/ota-fetch.test.js`; den ferske
+produksjonsmålingen i installasjon A ga `downloaded`, som var nødvendig for å
+bevise signatur og native nedlasting i akkurat den oppstarten.
 
 ### Den ødelagte bundelen kan ikke være en produksjonsrelease
 
-To av punktene enhetsøkten skal måle — at en dårlig bundle RULLES TILBAKE, og at
-den deretter havner i KARANTENEN — krever en bundle som aldri når
-readiness-punktet. Den kan ikke lages på produksjonsveien: OTA-bundelen ER
-produksjonsbuilden. `release.yml` pakker nøyaktig den `dist/`-en som deployes til
-huskis.no, signerer den med produksjonsnøkkelen og lar manifestet peke på den. En
-bevisst ødelagt bundle publisert der ville vært en ødelagt nettside for hver
-eneste browserbruker, ikke bare et testtilfelle for én telefon.
+Rollback må testes med en bundle som aldri når readiness-punktet, men
+OTA-bundelen på produksjonsveien ER den samme produksjonsbuilden som deployes
+til `huskis.no`. En bevisst ødelagt produksjonsbundle er derfor uaktuelt.
 
-**Valgt: en MÅLERIGG — et eget skall som ikke kan nå produksjon i det hele
-tatt.** Riggen bygges av `.github/scripts/ota-rig.js` på en egen gren som aldri
-merges, og består av to halvdeler:
+**Valgt: en målerigg — eget skall, eget nøkkelpar, egen vert.** Riggen bygges av
+`.github/scripts/ota-rig.js` på en gren som aldri merges. Nøyaktig fem
+konstanter skiller riggskallet fra produksjonsskallet:
 
-- **et riggskall**, altså en debug-APK bygget av riggrenen. Nøyaktig fem
-  konstanter skiller den fra produksjonsskallet, og fire av dem er det samme
-  svaret på ett spørsmål — hvilken adresse skallet hører hjemme på:
-  `canonicalAppUrl` i `config.js`, verten i CSP-ens `connect-src` i
-  `index.html`, `CANONICAL_ORIGIN` i origin-vakten i `index.html`, og
-  reserveverdien i `canonicalAppUrl()` i `app.js`. Den femte er
-  `LiveUpdate.publicKey` i `capacitor.config.json`. De to siste
-  adresse-konstantene er inerte i selve målingen — origin-vakten treffer bare
-  på de produksjonshostene den selv lister, og reserveverdien leses aldri når
-  `config.js` er satt — men de må likevel byttes, fordi
-  `tests/capacitor-android.test.js` regner enhver absolutt adresse utenom
-  Supabase og `canonicalAppUrl` som fremmed, og den testen er et BYGGESTEG i
-  «Android debug-APK»;
-- **en riggbundle**, signert med riggens eget engangsnøkkelpar og servert fra
-  riggrenens egen Vercel-preview, sammen med et manifest på nivået skallet spør
-  etter. Bundelen er hele web-builden med `app.js` byttet mot et skript som maler
-  en riggmelding og kaster (`--mode throw`), eller en `index.html` uten skript i
-  det hele tatt (`--mode blank`) — de to tilfellene «laster scriptene fint, men
-  feiler FØR skjermen er brukbar» og «når aldri `ready()`».
+1. `canonicalAppUrl` i `config.js` → previewverten;
+2. CSP-vert i `index.html` → previewverten;
+3. `CANONICAL_ORIGIN` i `index.html` → previewverten;
+4. reserveverdien i `canonicalAppUrl()` i `app.js` → previewverten;
+5. `LiveUpdate.publicKey` i `capacitor.config.json` → riggens engangsnøkkel.
 
-| Form | Hva den koster | |
-|---|---|---|
-| Målerigg: eget skall, eget nøkkelpar, egen vert | skallet er ikke lenger BYTE FOR BYTE produksjonsskallet, og det må sies eksplisitt i det som rapporteres | **valgt** |
-| Midlertidig bundle på et `versionCode`-nivå produksjonsklienter ikke spør etter | formen finnes allerede, men filene må likevel LIGGE på huskis.no — og dit går det bare én vei | ute |
-| Signere den ødelagte bundelen lokalt med produksjonsnøkkelen | privatnøkkelen må ut av Actions-secreten for å signere noe vi VET er ødelagt | ute |
-| Simulere defekten i `chrome://inspect` (blokkere `app.js` etter byttet) | produksjonsskallet i behold, men målingen blir et kappløp mot en 10 s-timer — og instrumentene bor i den `app.js` som blokkeres | ute |
+`readyTimeout`, `autoBlockRolledBackBundles`, rollback-, karantene- og
+oppstillingskoden er urørt. `tests/ota-rig.test.js` låser avgrensningen.
 
-Avgjørende var HVOR den ødelagte bundelen må ligge. Alternativ to og tre er
-egentlig det samme kravet: at filene serveres fra huskis.no. Dit går det én vei,
-og den er `release.yml` bak `needs: smoke` — `tests/release-pipeline.test.js`
-(sjekk 6) måler at ingen ANNEN workflow deployer til produksjon. Å legge en
-ødelagt bundle på produksjonsverten krever derfor enten en ny deployvei utenom
-den kjeden, eller at riggartefaktene merges til `main`. Begge deler betaler med
-den ene invarianten releaseprosessen er bygget rundt, for å slippe å bytte tre
-konstanter i et testskall.
-
-Fjerde form er den mest fristende, siden den beholder produksjonsskallet helt:
-blokker `app.js` i DevTools rett etter et bundlebytte, så nås readiness-punktet
-aldri. Den faller på at `window.__huskis` — hvert eneste instrument økten leser
-— ER `app.js`. Blokkeringen må stå til rollbacken har skjedd og fjernes før den
-innebygde bundelen laster, ellers finnes det ingenting å lese; et tapt kappløp
-mot `readyTimeout` ser da ut som en rollback som ikke virket.
-
-**Hva riggen kan svare på, og hva den ikke får brukes til.** De fem konstantene
-leses ikke av rollback-timeren, av pluginens blokkliste eller av klientens egen
-karantene — den koden er byte for byte produksjonens, og patchen rører ingenting
-annet: én linje i hver av `config.js` og `app.js`, to i `index.html`, og
-`publicKey` i `capacitor.config.json` (`tests/ota-rig.test.js` måler det linje
-for linje mot de ekte filene).
-Rollback- og karantenepunktet kan derfor måles på riggen. De to
-nedlastingspunktene kan det IKKE: riggen signerer med sin egen nøkkel og leser
-fra sin egen vert, så både «telefonen godtar produksjonssignaturen» og
-«manifestet kan leses fra huskis.no (CSP + CORS)» ville vært selvbevis. De må
-leses av det EKTE skallet, i den samme økten.
-
-Riggen kan heller ikke smitte produksjon, og det er ikke en påstand: manifestet
-peker på riggverten, og klientens `url`-vakt forkaster det mot produksjonens
-`canonicalAppUrl` før noe lastes ned. Skulle det likevel nå et produksjonsskall,
-verifiserer riggsignaturen ikke mot den innebygde nøkkelen — pluginen er fail
-closed på signatur. Begge leddene er kjørt i `tests/ota-rig.test.js`.
-
-**Riggrenen skal aldri merges**, og det er maskinelt sagt: riggen må committe
-`ota/` for at previewen skal servere bundelen, og `tests/ota-rig.test.js` feiler
-på et tre der `ota/` er sjekket inn. Riggens privatnøkkel er en engangsnøkkel i
-en gitignorert mappe (`.ota-rig/`) — den signerer bare bundles vi vet er
-ødelagte, og produksjonsnøkkelen rører riggen aldri (skriptet kjenner ikke
-secretens navn).
+Riggen hadde to signerte defekte bundles i samme installasjon:
+`rig-broken-1` (`--mode throw`: skriptene laster, så kastes det før brukbar
+skjerm) og `rig-broken-2` (`--mode blank`: ingen skript, når aldri `ready()`).
+Begge ble rullet tilbake og blokkert på fysisk Android i enhetsøkten.
 
 ### Slik bygger og kjører du målerigg-runden
 
-Riggen er ett verktøy for én måling, ikke en del av releasen. Ingen workflow
-kjører den.
+Riggen er et verktøy for måling, ikke del av releasen. Reproduserbar oppskrift:
 
-1. Lag en riggren av `main` og push den — grenen får sin egen Vercel-preview
-   (`docs/release-og-deploy.md`). Riggrenen trenger IKKE å ligge på den samme
-   commiten som produksjons-APK-en: bindingen «manifestet må navngi en annen
-   release enn APK-en» gjelder bare produksjonsveien, og riggens `releaseId` er
-   riggens eget navn.
+1. Lag en riggren av `main`; den får egen Vercel-preview.
+2. Slå Vercel Authentication av midlertidig mens runden står på, ellers får
+   skallet `302`/`no-manifest` i stedet for et måleresultat.
+3. Kjør `node build.js`, deretter
+   `node .github/scripts/ota-rig.js --host https://<preview-verten>`.
+4. Commit rigg-`ota/` og de patchede filene, bygg debug-APK på riggrenen, og
+   avinstaller forrige skall før installasjon fordi debug-signaturen ikke er
+   stabil mellom Actions-kjøringer.
+5. Kaldstart: `otaFetch=downloaded`, `otaStage=staged`. Neste kaldstart bruker
+   defekt bundle; etter 10 000 ms skal innebygd bundle være tilbake og samme
+   `bundleId` blokkert ved neste oppstilling.
+6. Hver defekt må ha egen ID. I økten 25. august 2026 ble `rig-broken-1` og
+   `rig-broken-2` brukt i samme installasjon.
+7. Slå Vercel Authentication på igjen etter runden og slett riggrenen når
+   målerapporten er lagret; riggrenen skal aldri merges.
 
-   **Previewverten må kunne leses UTEN innlogging, og kan det ikke i
-   utgangspunktet.** Vercel-prosjektets «Deployment Protection» står på Vercel
-   Authentication for `all_except_custom_domains`, og målt svarer
-   `huskis-git-<gren>-<team>.vercel.app` da `302` til `vercel.com/sso-api` på
-   både `/ota/android/<versionCode>.json` og `/ota/bundles/<id>.zip`.
-   Riggskallet ville lest den redirecten som `no-manifest` og aldri kommet til
-   nedlastingen — en runde som ser ut som en vakt som virker, men som ikke har
-   målt noe. Beskyttelsen må derfor være av mens riggrunden står på, og på
-   igjen etterpå. `huskis.no` er et custom domain og berøres ikke av
-   innstillingen; alle ANDRE previewer er lesbare i det vinduet, og det er
-   prisen.
-2. `node build.js`, deretter
-   `node .github/scripts/ota-rig.js --host https://<preview-verten>`. Skriptet
-   patcher de fem konstantene, lager nøkkelparet første gang, bygger og signerer
-   `ota/bundles/rig-broken-1.zip` og skriver `ota/android/<versionCode>.json`.
-3. Commit `ota/` og de fire patchede filene, og push. Previewen serverer nå
-   riggmanifestet med de samme headerne produksjonen bruker (no-store + CORS på
-   manifestet).
-4. Bygg APK-en med workflowen «Android debug-APK» på RIGGRENEN. **Avinstaller
-   den APK-en som står på telefonen før du installerer riggen** — og motsatt vei
-   når du går tilbake til produksjonsskallet. `android-debug.yml` har ingen
-   signeringskonfigurasjon og persisterer ikke noe nøkkellager, så debug-nøkkelen
-   er den runneren selv lager; to kjøringer kan ikke antas å gi samme
-   signeringssertifikat, og Android oppgraderer bare en APK som har både samme
-   `appId` OG samme sertifikat. Avinstalleringen tar med seg all appdata —
-   `localStorage`, klientens karantene og pluginens bundlelager. Det er en presis
-   nullstilling, men det betyr også at ÉN måling må gjøres ferdig innenfor ÉN
-   installasjon: bytter du skall midt i, er evidensen borte.
-5. Kaldstart. `otaFetch` skal ende på `downloaded`, `otaStage` på `staged`. Et
-   nytt kaldstart — eller et `reload()` gjennom banneret — tar riggbundelen i
-   bruk, den kaster, og etter `readyTimeout` (10 000 ms) skal pluginen være
-   tilbake på den innebygde. Les `liveReady` (`rollback`, `previousBundleId`) og
-   `otaBlocked`, og se at NESTE kaldstart melder `otaStage.state === 'blocked'`.
+## De to punktene fra fase 4 fikk sitt svar her
 
-Hver måling innenfor den samme installasjonen trenger et nytt `--id`: en bundle
-som er hentet én gang avvises som «already exists», og en som er rullet tilbake
-er sperret for alltid i begge karantenelagene. En avinstallering nullstiller
-riktignok begge lagene — men den tar evidensen fra forrige runde med seg, så det
-er ikke en snarvei.
-
-Og riggen trenger ikke to merger, slik produksjonsmålingen gjør: manifestets
-`releaseId` er riggens eget navn (`rig-broken-<n>`), aldri tolv hex-tegn, så det
-kan ikke være det samme som APK-ens egen release.
-
-## De to punktene fra fase 4 får sitt svar her
-
-Begge sto åpne til OTA ga dem en konsekvens. Det gjør fase 5 nå.
-
-**`minimumSupportedRelease` innføres ikke nå, og regelen forblir «bare ved et
-konkret inkompatibilitetsbehov».** En nedre grense finnes for å STENGE UTE en
-klient som ikke lenger kan virke. OTA angriper det fra motsatt kant: den flytter
-klienten FRAMOVER, og manifestet navngir én release alle skal på — en identitet,
-ikke en grense.
-
-Men OTA er en LEVERINGSMEKANISME, ikke en garanti for at alle klienter faktisk
-blir oppdatert. En telefon kan ha vært offline i månedsvis, kjøre en APK fra før
-OTA fantes, eller ha en updater som ikke virker. Det som gjør at grensen ikke
-trengs, er derfor fortsatt at skjemaet er additivt og backend bakoverkompatibel
-([`release-og-deploy.md`](release-og-deploy.md)) — OTA gjør bare den vanligste
-grunnen til å ville ha en grense mye mindre sannsynlig. Skulle et konkret
-inkompatibilitetsbehov oppstå, står ordningsproblemet fortsatt der:
-`releaseId` kan ikke være grensen alene, og en monoton verdi må designes sammen
-med grensen.
-
-Grensen OTA faktisk skaper går den andre veien: en web-bundle kan kreve et
-nyere NATIVE skall enn det telefonen har. Den grensen kan ikke vente på fase 6 —
-se «Native-kompatibilitet er en vakt i fase 5».
+**`minimumSupportedRelease` innføres ikke nå.** Additivt skjema og
+bakoverkompatibel backend bærer gamle klienter; OTA flytter den vanligste
+klienten framover. Native inkompatibilitet håndteres separat gjennom
+`versionCode`-spennet.
 
 **Web og mobil får separate builds med samme `releaseId`.** Byte-identisk
-artifact ble vurdert og valgt bort. Produksjonsbuilden kjører HOS Vercel og får
-`VERCEL_DEPLOYMENT_ID` som `buildId`; en OTA-bundle må pakkes som ZIP der
-verktøyet finnes, altså på Actions-runneren. Å tvinge de to til å bli ett bygg
-ville krevd at build-ID-en ble sendt inn utenfra og at release-workflowen og
-web-deployen delte artifact — en ny kobling i den ene kjeden som i dag holder
-rekkefølgen migrering → smoke → deploy.
+artifact ble valgt bort fordi det ville koblet Actions-pakking og Vercels
+produksjonsbuild uten å svare på noe `releaseId` ikke allerede svarer på.
 
-Prisen for å la dem være to er null, fordi `releaseId` allerede er svaret:
-identiteten som betyr noe er kilden, og den er lik. `buildId` skal være
-forskjellig — de ER to bygg. At de to byggene er like nok er dessuten allerede
-bevist maskinelt: `tests/capacitor-android.test.js` måler at den synkede kopien
-er byte for byte kilden, `index.html` modulo de to ID-ene.
-
-## Hva som er lest, og hva som er observert
+## Hva som er lest, testet og observert
 
 | Påstand | Grunnlag |
 |---|---|
-| Oppdateringsmotoren kjører i APK-en, men måler seg mot seg selv | **observert** — `dist/` servert på eget origin, motoren avlest i ekte nettleser |
-| CSP-en avviser en OTA-forespørsel til `huskis.no` fra appens origin | **observert** — CSP-brudd i konsollen, samme-origin gikk gjennom |
-| Pluginen krever ingen bundler | **observert** — `cap sync` registrerte `LiveUpdatePlugin` i `capacitor.plugins.json`; broens generering av `window.Capacitor.Plugins` lest i `JSExport.java` |
-| Prisen i testsuiten er nøyaktig to sjekker | **observert** — 129/129 uten, 134/136 med, i en kopi av repoet. Bekreftet på nytt i repoet selv da pluginen ble innført: nøyaktig de to navngitte sjekkene falt, og suiten står nå på 152/152 med de nye invariantene |
-| `cap sync` legger nøyaktig én Gradle-linje til | **observert** — `implementation project(':capawesome-capacitor-live-update')` i den genererte `android/app/capacitor.build.gradle`, og ingen endring i appmodulens egen `dependencies`-blokk |
-| Rollback-timeren armeres i konstruktøren, uansett bundle | **lest** i `LiveUpdate.java`: `startRollbackTimer()` kalles i konstruktøren, og `rollback()` med den innebygde bundelen i bruk logger «Default bundle is already in use» og gjør ingenting |
-| Capgo drar inn Play-tjenester, Capawesome ikke | **observert** — begge installert, Gradle-blokkene lest fra pakkene |
-| Signering er `SHA256withRSA` og fail closed | **lest** i pluginens Java-kilde, ikke kjørt. VÅR halvdel er derimot kjørt: `crypto.createSign('sha256')` → `crypto.createVerify` gir `true` over de signerte bytene, `false` for en endret byte og `false` for feil nøkkel (`tests/release-pipeline.test.js`) |
-| Den innebygde `publicKey` lar seg lese på pluginens egen måte | **observert** — samme nøkkel ut av både Nodes PEM-parser og `X509EncodedKeySpec`-veien (base64 uten PEM-hoder), sammenlignet som DER |
-| Bundelen er `dist/` med `index.html` i roten | **observert** — 407 kB, 20 filer, `unzip -Z1` mot den faktisk produserte ZIP-en. Byggesteget avviser en ZIP uten `index.html` i roten |
-| Vercel-builden publiserer `ota/` | **observert** — `node build.js` kjørt med `ota/` i treet la `ota/android/2.json` og `ota/bundles/<buildId>.zip` i `dist/` |
-| Et nøkkelpar som ikke henger sammen stopper releasen | **observert** — `publishBundle()` med to ulike halvdeler kaster, og skriver ingen manifest |
-| Rollback-timer, `reset()` og `reload()`s virkemåte | **lest** i pluginens Java-kilde, ikke kjørt |
-| Play- og App Store-reglene tillater JS-OTA | **lest** — Apples avtaletekst hentet direkte; Play-policyen bare gjennom søketreff, siden `support.google.com` er blokkert av utgående proxy i denne økten |
-| Appflow legges ned 31.12.2027 | **lest** gjennom søketreff — Ionics egne sider er blokkert av proxyen. Pakkens `"license": "Commercial"` er derimot lest direkte fra npm |
-| Skyprisene | **lest** gjennom søketreff; begge prissidene er blokkert. Ikke grunnlag for valget |
-| CSP-en slipper nå manifest-oppslaget ut, og blokkerer fortsatt fremmede verter | **observert** — `tests/csp-enforced.test.js` i ekte nettleser: intet `connect-src`-brudd for det kanoniske originet, fortsatt brudd for `cdn.example.invalid`. Og med verten fjernet ble hele hente-flyten et stille no-op (`no-manifest`, ingen JS-feil) — fail closed, målt i en bevisst rød kjøring |
-| Hele hente-flyten: stille 404/nettverksfeil, systemgrense-validering, `===`, `downloadBundle` med nøyaktig tre felter | **observert** — `tests/ota-fetch.test.js` i ekte nettleser, med broen faket slik skallet injiserer den og manifest-URL-en rutet. Det testen IKKE ser: et ekte skalls `getVersionCode()`, produksjonens faktiske svar (inkludert CORS-headeren), og pluginens faktiske nedlasting/verifisering |
-| Manifest-lesningen krever CORS i tillegg til CSP-verten (cross-origin fra `https://localhost`) | **resonnert + låst**, ikke observert på enhet: headeren står i `vercel.json` og voktes i `tests/release-pipeline.test.js`, men nettlesertesten svarer selv med headeren (rutet), så det ekte produksjonssvaret lest fra en WebView gjenstår |
-| Pluginens egen blokkliste dekker den vanlige rollback-veien | **lest** i `LiveUpdate.java` 8.4.0, etter en RETTING fra kodegjennomgangen av PR #137: `rollback()` setter `rollbackPerformed`, husker den dårlige bundelen som `previousBundleId` og kaller `setCurrentBundleById(null)` → `setCurrentCapacitorServerPath()` → `Bridge.reload()` — alt i SAMME prosess. Den innebygde bundelen laster med det samme, dens `ready()` ser flagget fortsatt `true`, og `addBlockedBundleId()` kjører. Et tidligere utkast av planen påsto at flagget gikk tapt i en ny prosess; det var feil |
-| Hullet klientens egen karantene dekker | **lest** i den samme kilden: `rollbackPerformed` bor i minnet og nullstilles først på slutten av `ready()`. Dør prosessen mellom rollbacken og readiness-punktet i den innebygde bundelen, leses flagget aldri, og neste kaldstart har det ikke. Da står `previousBundleId` igjen alene sammen med `currentBundleId === null` — signaturen klienten fører opp. Smalt, men ikke tomt |
-| `setNextBundle()` konsulterer ikke blokklisten | **lest** i `LiveUpdate.java` 8.4.0: metoden sjekker kun `hasBundleById()`; `isBlockedBundleId()` leses bare i `fetchLatestBundleInternal`, altså i `sync()`-flyten Huskis ikke bruker |
-| Hele oppstillingen: karantene → nedlasting (eller en bundle som alt ligger der) → `setNextBundle` med manifestets `bundleId` | **observert** — `tests/ota-fetch.test.js` i ekte nettleser: rekkefølgen, at en blokkert bundle ikke engang lastes ned, at en ulesbar blokkliste er et nei, og at en feilet oppstilling er stille. Det testen IKKE ser: en ekte plugins faktiske oppstilling, og at neste kaldstart tar bundelen i bruk |
-| Klargjøringen i motoren: et uklargjort mål gir verken banner eller reload, og en feilet klargjøring koster ikke forsøket | **observert** — `tests/auto-update.test.js` i ekte nettleser, med injisert `prepare` på begge viewportene |
-| Pluginen AVVISER en `bundleId` den alt har, og det treffer hver kaldstart etter den første nedlastingen | **lest** i `LiveUpdate.java` 8.4.0: `downloadBundle()` starter med `if (hasBundleById(bundleId))` → `ERROR_BUNDLE_EXISTS` («bundle already exists.»), FØR nedlastingen. Funnet kom fra kodegjennomgangen av PR #136 og er verifisert i kilden. Klienten skiller derfor utfallet ut som `already-downloaded` — se «En allerede hentet bundle er ikke en feilet nedlasting» |
-| `reload()` armerer rollback-timeren PÅ NYTT | **lest** i `LiveUpdate.java` 8.4.0: `reload()` er `getNextCapacitorServerPath()` → `setCurrentCapacitorServerPath()` → `startRollbackTimer()`. Et bundlebytte midt i en økt er derfor også en anledning til å måle rollback — uten en kaldstart |
-| `previousBundleId` er VARIG, `rollbackPerformed` er det ikke | **lest** i `LiveUpdatePreferences.java` 8.4.0: `setPreviousBundleId()` skriver til SharedPreferences, mens flagget er et vanlig felt i `LiveUpdate`. Det er nøyaktig derfor signaturen «`previousBundleId` sammen med `currentBundleId === null`» finnes igjen å lese for klientens eget karantenelag etter en prosessdød |
-| Måleriggen er smal: den bytter fem konstanter og ingenting mer | **observert** — `tests/ota-rig.test.js` kjører patchen over de EKTE `config.js`, `index.html`, `app.js` og `capacitor.config.json`: én linje i `config.js`, to i `index.html`, én i `app.js`, og `publicKey` i konfigurasjonen. `readyTimeout`/`autoBlockRolledBackBundles` står urørt, og det gjør også `otaBlocked`, `liveReady`, `setNextBundle`, `markAppReady` og `readyMs` i `app.js`. De fire adressepatchene er alt-eller-ingenting: kaster én av dem, skrives ingen — `config.js` er sentinelen for om skallet er patchet, så et halvpatchet tre ville sett ferdig ut for neste kjøring |
-| Et riggskall med produksjonsadressen igjen i koden kan ikke BYGGES | **observert** — «Android debug-APK» på riggrenen (kjøring 101) stoppet i sitt eget teststeg: `tests/capacitor-android.test.js` regner enhver absolutt adresse utenom Supabase og `canonicalAppUrl` som fremmed, og fant `https://huskis.no` i `index.html` (origin-vakten) og `app.js` (reserveverdien). Det er grunnen til at riggpatchen er fem konstanter og ikke tre |
-| En riggbundle kan ikke aktiveres av et produksjonsskall | **observert** — samme fil: riggmanifestet forkastes av klientens `url`-vakt når basen er produksjonens `canonicalAppUrl`, og riggsignaturen verifiserer ikke mot den innebygde `publicKey` |
-| Riggbundelen er faktisk ødelagt, og hele veien zip → signatur → manifest kjører | **observert** — samme fil, over en liten `dist/`: `app.js` i arkivet kaller aldri `ready()` og kaster, blank-modus er én `index.html` uten skript, og manifestet passerer klientens systemgrense med riggverten som base |
-| To debug-APK-er kan ikke antas å oppgradere hverandre | **lest** i `.github/workflows/android-debug.yml`: ingen `signingConfig`, ingen cache av et nøkkellager, og en fersk `ubuntu-latest`-runner per kjøring — så debug-sertifikatet er det Gradle lager der og da. Android oppgraderer bare ved samme `appId` OG samme sertifikat, så et skallbytte på telefonen må regnes som avinstaller + installer, og appdataen forsvinner med det. Funnet kom fra kodegjennomgangen av PR #138 |
-| Hva de native bibliotekene merger inn i det bygde manifestet | **observert** — Gradles sammenslåtte `AndroidManifest.xml` og merger-rapporten, skrevet ut og lastet opp av `android-debug.yml` (kjøring 94, commit `61fa9e1`). `zip4j` bidrar ingenting; `okhttp-android` bidrar én `androidx.startup`-initializer og ingenting annet; APK-ens eneste eksporterte komponent utenom `MainActivity` er `profileinstaller`s mottaker, bak `android.permission.DUMP`. Hele tabellen står i «Hva de native bibliotekene merger inn i manifestet». Det rapporten IKKE viser er hvilken avhengighet som dro hver AAR inn — bare hvem som erklærte noden |
+| Pluginen finnes i ekte Huskis-APK | **observert på fysisk Android** — `window.Capacitor.Plugins.LiveUpdate` eksponerer metodene |
+| Native manifestlesning fra `https://localhost` til produksjon virker | **observert på fysisk Android** — nivå-3-manifestet ble lest og `otaFetch` gikk videre til `downloaded` |
+| Native bundle-nedlasting ligger utenfor WebView CSP/CORS | **observert på fysisk Android** — produksjonsbundle ble `downloaded`; bundle-stien har med vilje ingen CORS-header, så lesningen kan ikke ha vært WebView-fetch |
+| Produksjonssignaturen verifiseres av pluginens Java-kode | **observert på fysisk Android** — `downloaded` på fersk installasjon med `publicKey` satt fail closed |
+| Oppstilling med `setNextBundle()` virker | **observert på fysisk Android** — `otaStage: staged`, og neste kaldstart kjørte den nye releasen |
+| `LiveUpdate.reload()`/OTA-bytte beholder origin, sesjon og data | **observert på fysisk Android** — `https://localhost`, innlogging og offline-opprettet listepunkt var bevart etter byttet |
+| `updateSafety()` beskytter usynket arbeid | **observert på fysisk Android** — `offline` → `syncing` → `safe: true`; byttet skjedde først etter sikker tilstand |
+| Aktiveringen er varig | **observert på fysisk Android** — neste kaldstart ga `same-release` og `otaStage: idle` |
+| Readiness har stor margin offline | **observert på fysisk Android** — `readyCalledAt` 291/249/314 ms med ferskt token og 277 ms med utløpt/nær-utløpt token, mot 10 000 ms |
+| Rollback til innebygd bundle virker | **observert på fysisk Android-rigg** — både `throw` og `blank` falt tilbake; `blank` ga eksplisitt `rollback: true` |
+| Pluginens permanente blokkliste fylles | **observert på fysisk Android-rigg** — `bundleIds` endte med både `rig-broken-1` og `rig-broken-2` |
+| Klientens ekstra karantene fylles når rollback-signaturen leses | **observert på fysisk Android-rigg** — `otaBlocked: ['rig-broken-2']` sammen med `previousBundleId: 'rig-broken-2'` |
+| En blokkert bundle stilles ikke opp på nytt på neste kaldstart | **observert på fysisk Android-rigg** — `otaStage.state === 'blocked'` for begge rigg-ID-ene |
+| Native bibliotekers merged manifest | **observert i APK-workflowen** — `zip4j` ingen noder; `okhttp-android` én `androidx.startup`-initializer |
+| Automatiske fail-closed- og systemgrensetilfeller | **kjørt i tester** — `ota-fetch`, `auto-update`, `release-pipeline`, `capacitor-android`, `ota-rig` |
 
-## Hva som krever en enhetsøkt
+## Enhetsøkten — kjørt 25. august 2026
 
-Ingenting av dette kan avgjøres uten en telefon, og ingen av dem skal krysses av
-før de er målt i en `chrome://inspect`-økt mot en APK:
-
-- ✅ **at `window.Capacitor.Plugins.LiveUpdate` faktisk finnes i Huskis' egen
-  APK** — MÅLT mot debug-APK-en fra PR #134 (`android-debug.yml`,
-  commit `b6b369f`): `window.Capacitor.Plugins.LiveUpdate` var et objekt med
-  metoder, og `getCurrentBundle()` meldte ingen bundle (den innebygde/default
-  builden — ingen OTA-bundle er hentet). Broen var tidligere bare lest i
-  Capacitors kilde, ikke sett i appen;
-- 🔜 **klar til måling: at `reload()` beholder originet**, og dermed
-  `localStorage` og Supabase-sesjonen, gjennom et bundlebytte. Oppstillings-
-  runden gjorde punktet målbart: `LiveUpdate.reload()` kalles nå — gjennom
-  `updateSafety()`, banneret, inaktivitetsregelen og ett-forsøk-vakten — så
-  økten kan se et bytte midt i en økt og lese om brukeren fortsatt er
-  innlogget etterpå. Fortsatt ikke testet — klar, ikke verifisert;
-- 🔜 **klar til måling: at rollback-timeren faktisk gjenoppretter den innebygde
-  bundelen** når en bevisst ødelagt bundle aldri rekker `ready()` — og, som
-  eget tilfelle, en bundle som laster scriptene fint men feiler FØR skjermen er
-  brukbar. Oppstillingsrunden gjorde punktet målbart for første gang: en bundle
-  kan nå tas i bruk, og dermed feile ved oppstart. Målingen har to ledd, og det
-  andre er nytt: etter rollbacken skal `bundleId`-en havne i karantenen, som
-  leses i `window.__huskis.otaBlocked` — en tom liste der etter en rollback
-  betyr at signaturen fra `ready()` ikke ble lest, og at den samme dårlige
-  bundelen ville blitt stilt opp igjen. **Dette punktet måles på MÅLERIGGEN,
-  ikke på produksjonsskallet** (seksjonen «Den ødelagte bundelen kan ikke være
-  en produksjonsrelease»): en ødelagt bundle kan ikke publiseres på
-  produksjonsveien, fordi OTA-bundelen ER produksjonsbuilden. Riggskallet skiller
-  seg fra produksjonsskallet i fem konstanter, og det skal stå i det som
-  rapporteres. Byttet trenger heller ingen kaldstart: `reload()` armerer
-  rollback-timeren på nytt (lest i `LiveUpdate.java` 8.4.0), så et bytte midt i
-  økten teller. Fortsatt ikke testet — klar, ikke verifisert;
-- 🔜 **klar til måling: at oppstillingen faktisk virker på enheten.**
-  `window.__huskis.otaStage` skal stå på `staged`, og NESTE kaldstart skal
-  kjøre den nye releasen — lest som `<meta name="huskis-release">` /
-  `window.__huskis.otaFetch.state === 'same-release'`. Ingen av leddene er
-  prøvd mot en ekte plugin;
-- ⚠️ **delvis målt: at en offline kaldstart rekker readiness-punktet** —
-  telefonen ble satt i flymodus, appen tvangslukket og åpnet på nytt, og
-  `window.__huskis.appReady` ble `true` med `window.__huskis.liveReadyError`
-  lik `null`. Det bekrefter at en offline kaldstart IKKE hindrer readiness-
-  punktet eller etterlater en feil. Det som IKKE er målt her er PRESIS
-  TIDSBRUK — om det skjedde godt innenfor `readyTimeout` (10000 ms) eller nær
-  grensen — siden `appReady` blir `true` selv om pluginens rollback-timer
-  rakk å utløse FØRST (rollback mot en allerede-innebygd bundle er et
-  no-op, så det ville ikke vist seg som en feil her). **Instrumentet finnes nå:**
-  `window.__huskis.readyMs` gir `{ reachedAt, readyCalledAt, readyResolvedAt }`
-  i ms fra navigasjonsstart, og det er `readyCalledAt` som måles mot de 10 000
-  — avvæpningen skjer inne i `ready()`, ikke når promiset resolverer. En
-  stoppeklokke i hånden kunne aldri skilt de tre tallene fra hverandre.
-  Målingen gjenstår; hvordan tallene leses, og hvorfor flymodus er det harde
-  tilfellet, står i «Tidsmålingen mot `readyTimeout`»;
-- 🔜 **klar til måling: at et bytte gjennom `updateSafety()` ikke taper en
-  usynket endring** — samme spørsmål som del B i `tests/auto-update.test.js`
-  stiller i browseren, men med `LiveUpdate.reload()` som reload. Fortsatt ikke
-  testet — klar, ikke verifisert;
-- 🔜 **klar til måling: at den native nedlastingen ikke er underlagt
-  WebView-ens CSP.** Hente-runden gjorde punktet målbart for første gang —
-  koden som laster ned finnes, og `chrome://inspect` mot en APK av den viser
-  utfallet i `window.__huskis.otaFetch`. Målingen er skarp av en grunn til:
-  `/ota/bundles/`-stien har med vilje INGEN CORS-header (kun manifest-stien
-  har), så en nedlasting som lykkes kan ikke ha skjedd som en lesning fra
-  WebView-en — den gikk i OkHttp, utenfor både CSP og CORS. Fortsatt ikke
-  testet — klar, ikke verifisert;
-- 🔜 **klar til måling: at en telefon faktisk VERIFISERER en bundle signert
-  med produksjonsnøkkelen.** Signaturen er verifisert maskinelt på vår side
-  (Node signerer, Node verifiserer), og at Java leser det samme formatet er
-  lest i pluginens kilde — men de to har aldri møtt hverandre. Hente-runden er
-  runden som kaller `downloadBundle()`, og kallet bærer manifestets signatur
-  mot den innebygde `publicKey`: `otaFetch` ender på `downloaded` når Javas
-  verifisering godtar Node-signaturen, og på `download-failed` med en
-  signaturfeil hvis de to halvdelene ikke passer sammen. Fortsatt ikke testet
-  — klar, ikke verifisert;
-- **lesningsregel for de to punktene over:** `otaFetch.state` skiller fire
-  utfall, og enhetsøkten må lese dem riktig. `downloaded` = begge punktene
-  besvart. `already-downloaded` = bundelen ble hentet i en TIDLIGERE økt
-  (pluginen avviser en `bundleId` den alt har) — også et JA på begge
-  punktene, men fra forrige oppstart, ikke denne. `download-failed` = en ekte
-  feil, og det er DEN som ville betydd at telefonen avviste signaturen.
-  `no-manifest` = 404/nettverksfeil, altså at det ikke kom så langt. En APK
-  som har lastet ned én gang vil derfor melde `already-downloaded` ved hver
-  senere kaldstart; for å måle en FERSK nedlasting må appdata tømmes (eller
-  en ny release publiseres) først;
-- hva pluginen koster i kaldstartstid — fortsatt ikke instrumentert, og
-  stoppeklokken lukker det IKKE. `readyResolvedAt − readyCalledAt` er rundturen
-  over broen pluss det `ready()` gjør nativt; pluginens initialisering skjer før
-  readiness-punktet og isoleres ikke av det trekket.
-
-**To ting må stemme før økten i det hele tatt gir et svar**, og de gjelder
-produksjonsskallet — ikke riggen:
-
-- **APK-en må være `versionCode 3` eller høyere**, altså bygget av `main` fra og
-  med oppstillingsrunden. `OTA_MIN_VERSION_CODE` ble hevet til `3` i den samme
-  runden, så en debug-APK fra de tre første rundene får 404 på manifestet. Det er
-  vakten som virker, ikke en feil — men den måler ingenting.
-- **Manifestet må navngi en ANNEN release enn APK-en.** `release.yml` publiserer
-  manifestet for nøyaktig den commiten APK-en bygges av, så en APK og et manifest
-  fra samme merge gir `same-release` og ingenting skjer. Bygg derfor APK-en av én
-  merge, og la en SENERE merge til `main` publisere releasen telefonen skal
-  flyttes til.
-
-Riggen har ingen av de to bindingene: den serverer sitt eget manifest på det
-nivået skallet spør etter, og navngir en `releaseId` som aldri kan være APK-ens.
-
-## Slik kjører du enhetsøkten
-
-Fem punkter skal måles, og de kan ikke måles i én installasjon. Rekkefølgen
-under er derfor ikke en anbefaling — den er den eneste som får alle fem i mål.
-
-### Begrensningen som deler økten i to
-
-`android-debug.yml` har ingen signeringskonfigurasjon og persisterer ikke noe
-nøkkellager: debug-nøkkelen er den runneren selv lager, og to kjøringer kan ikke
-antas å gi samme signeringssertifikat. Android oppgraderer bare en APK som har
-både samme `appId` OG samme sertifikat, så **hvert skallbytte er avinstaller +
-installer**. Det tar med seg all appdata — `localStorage`, klientens karantene
-og pluginens bundlelager.
-
-Konsekvensen er absolutt: **én måling må gjøres FERDIG innenfor én
-installasjon.** Skriv av avlesningene før du avinstallerer; etterpå finnes de
-ikke, og de kan ikke rekonstrueres.
-
-Produksjonsskallet og riggskallet er to ulike skall, og det gir to
-installasjoner:
-
-| Installasjon | Skall | Måler |
-|---|---|---|
-| **A** | produksjonsskallet, APK-en bygget av `0ebb737` | nedlastingen utenfor CSP-en, produksjonssignaturen, oppstillingen, `reload()` som beholder originet, byttet gjennom `updateSafety()`, og tidsmålingen |
-| **B** | riggskallet, APK-en bygget av riggrenen | rollback + karantene |
-
-**A først.** Riggen kan ikke svare på nedlastingspunktene — den signerer med sitt
-eget nøkkelpar og leser fra sin egen vert, så begge svarene ville vært selvbevis
-(«Den ødelagte bundelen kan ikke være en produksjonsrelease»). A er altså den
-halvdelen som avgjør om kjeden mot produksjon henger sammen i det hele tatt;
-går den i stykker, måler B en kjede som ikke er bevist.
-
-### Det som er stilt opp på forhånd
-
-- **APK-en for installasjon A er bygget.** «Android debug-APK» kjørte på grenen
-  `claude/enhetsokt-vc3` og la ut artifactet `huskis-debug-apk`. Grenen peker på
-  `0ebb737` og finnes bare fordi `workflow_dispatch` tar en BRANCH eller TAG,
-  ikke en løs SHA. Den skal aldri merges, og kan slettes når økten er ferdig.
-- **Bindingen er hele grunnen til at APK-en ikke bygges av `main`.** APK-en
-  bærer `releaseId 0ebb737b5bf9`. Manifestet på huskis.no navngir alltid den
-  SISTE mergen til `main`. De to må være ulike: bygges APK-en av nøyaktig den
-  commiten manifestet navngir, svarer `otaFetch` `same-release`, og ingenting
-  lastes ned. Enhver senere merge til `main` flytter manifestet videre og
-  bevarer bindingen — den brytes bare hvis APK-en bygges på nytt av `main`.
-- **Riggen for installasjon B er bygget.** Riggrenen er `claude/ota-rigg-vc3`,
-  og verten er dens egen Vercel-preview
-  `https://huskis-git-claude-ota-rigg-vc3-peohols-projects.vercel.app`. Begge
-  riggbundlene ligger der, signert med riggens engangsnøkkel: `rig-broken-1`
-  (`--mode throw`) og `rig-broken-2` (`--mode blank`). `ota/android/3.json`
-  navngir `rig-broken-1`, så runde én kjører rett ut av boksen; manifestet for
-  hver av dem står også som `3.throw.json` og `3.blank.json`, og runde to
-  kjøres ved å kopiere `3.blank.json` over `3.json` og pushe. Riggskallets APK
-  er bygget av den samme grenen: «Android debug-APK», kjøring 102, artifactet
-  `huskis-debug-apk`, som utløper 2026-11-18. Grenen skal aldri merges, og
-  slettes når økten er ferdig.
-- **Riggens privatnøkkel er en engangsnøkkel i `.ota-rig/`, og den følger ikke
-  grenen.** De to bundlene over er derfor de to som kan måles med det
-  riggskallet: en tredje riggbundle krever et nytt nøkkelpar, og dermed en ny
-  rigg-APK.
-
-**Sjekk begge før du starter. Uten dem finnes det ikke noe manifest å måle
-mot:**
-
-1. `release.yml` gikk grønt på den commiten `main` står på — er den rød eller
-   ikke ferdig, er manifestet på huskis.no eldre enn `main`;
-2. `https://huskis.no/ota/android/3.json` navngir den commitens `releaseId`
-   (de tolv første tegnene av SHA-en, `build.js`).
+Økten ble kjørt i to installasjoner fordi hvert debug-skallbytte krever
+avinstaller + installer og dermed nullstiller appdata.
 
 ### Installasjon A — produksjonsskallet
 
-1. **Avinstaller det som står på telefonen fra før**, installer
-   `huskis-debug-apk`, og koble til over `chrome://inspect`.
-2. **Kaldstart 1 — tre punkter i én avlesning.**
+Skall: debug-APK fra `0ebb737b5bf9` (`versionCode 3`). Første ferske oppstart:
 
-   ```js
-   window.__huskis.otaFetch    // { state, detail }
-   window.__huskis.otaStage
-   ```
+```json
+{
+  "release": "0ebb737b5bf9",
+  "otaFetch": { "state": "downloaded", "detail": "23a5e4cdeaf7-mt8ge5ib" },
+  "otaStage": { "state": "staged", "detail": "23a5e4cdeaf7-mt8ge5ib" }
+}
+```
 
-   `otaFetch.state === 'downloaded'` svarer på to av punktene samtidig.
-   NEDLASTINGEN UTENFOR CSP-EN: `/ota/bundles/` har med vilje ingen
-   CORS-header — bare manifest-stien har — så en nedlasting som lyktes kan
-   ikke ha skjedd som en lesning fra WebView-en; den gikk i OkHttp, utenfor
-   både CSP og CORS. PRODUKSJONSSIGNATUREN: bundelen kom gjennom pluginens
-   signaturvakt, som er fail closed mot den `publicKey` som er pakket inn i
-   APK-en. Java verifiserte altså det Node signerte, for første gang.
+Dette er den ferske produksjonsnedlastingen: native OkHttp kom utenfor
+WebView-CSP/CORS, Java godtok Node-signaturen mot den innebygde
+produksjonsnøkkelen, og `setNextBundle()` stilte bundelen opp.
 
-   `otaStage.state === 'staged'` svarer på oppstillingen.
+`updateSafety()` ble deretter lest mens et nytt listepunkt ble opprettet
+offline:
 
-   Lesningsregelen for de fire utfallene står i «Hva som krever en
-   enhetsøkt». På en fersk installasjon SKAL det stå `downloaded`;
-   `already-downloaded` her ville betydd at avinstalleringen ikke tok
-   pluginens bundlelager med seg, og da er ikke dette en fersk måling.
-3. **Byttet gjennom `updateSafety()` skal ikke ta en usynket endring med seg.**
-   Logg inn, slå av nettet, og gjør en endring (et nytt listepunkt holder).
-   Banneret skal ikke bytte noe:
+```text
+{ safe: false, reason: 'offline' }
+{ safe: false, reason: 'syncing' }
+{ safe: true,  reason: '' }
+```
 
-   ```js
-   window.__huskis.updateSafety()   // { safe: false, reason: 'offline' }
-   ```
+Oppdateringsmotoren gjennomførte byttet automatisk etter at tilstanden ble
+trygg. Den eksplisitte «før reload»-avlesningen rakk derfor ikke å bli tatt, men
+hele sekvensen binder årsaken: APK-en startet på `0ebb737b5bf9`, den nye bundelen
+var `staged`, byttet var blokkert offline og under synk, og etter `safe: true`
+kjørte den nye releasen. Etter byttet var `origin` fortsatt
+`https://localhost`, brukeren fortsatt innlogget og det offline-opprettede
+listepunktet fortsatt til stede.
 
-   Slå nettet på igjen og les på nytt før synken er ferdig — svaret skal
-   fortsatt være `safe: false`, med `'unsaved'`, `'syncing'` eller `'unsynced'`
-   som grunn, alt etter hvor i lagringen endringen står. La synken bli ferdig,
-   og se at det går til `{ safe: true, reason: '' }`. Dette er del B i
-   `tests/auto-update.test.js`, stilt med `LiveUpdate.reload()` som reload.
-4. **`reload()` beholder originet.** Skriv ned `location.origin`, at brukeren
-   er innlogget (`window.__huskis.authUser`) og hva som står i listene. Trykk
-   deretter på banneret — det er den ekte veien, gjennom `updateSafety()`,
-   inaktivitetsregelen og ett-forsøk-vakten. Etter byttet skal originet være
-   det samme, brukeren fortsatt innlogget og listene stå der: pluginen bytter
-   hvilke FILER WebView-en leser, ikke hvilken adresse den står på.
-   `<meta name="huskis-release">` skal nå navngi manifestets `releaseId`.
+Neste kaldstart:
 
-   Kommer banneret aldri, kan `window.__huskis.applyUpdate()` kalles direkte —
-   men da er det pluginens `reload()` alene som er målt, ikke motoren, og det
-   må stå i rapporten.
-5. **Kaldstart 2 — at byttet er varig.** Tvangslukk appen og åpne den igjen.
-   `otaFetch.state` skal nå være `'same-release'`: klientens egen `releaseId`
-   og manifestets er den samme, og det er nøyaktig dét som beviser at den nye
-   bundelen kjører. `otaStage.state` skal stå på `'idle'` — det er ingenting
-   å stille opp.
-6. **Tidsmålingen**, som beskrevet under — begge flymodustilfellene. Den
-   hører hjemme her fordi `readyMs` bare finnes i en bundle som er nyere enn
-   APK-en: den innebygde builden fra `0ebb737` har den ikke, så tallene kan
-   først leses etter at byttet i steg 4 eller 5 har skjedd.
+```json
+{
+  "release": "23a5e4cdeaf7",
+  "otaFetch": { "state": "same-release", "detail": "23a5e4cdeaf7" },
+  "otaStage": { "state": "idle", "detail": null },
+  "authUser": true,
+  "origin": "https://localhost"
+}
+```
 
-Alt i steg 2–6 må gjøres ferdig før telefonen får et nytt skall.
+Mens timingmålingen pågikk ble PR #150 merget, og telefonen OTA-oppdaterte seg
+videre til `215ee37d5dac`. Det er forventet og ble i seg selv en ekstra
+produksjons-OTA-observasjon. Tidsmålingene ble gjort på denne nyere bundelen.
 
-### Installasjon B — riggskallet
+Flymodus, ferskt token — tre kalde oppstarter:
 
-Riggen er bygget («Det som er stilt opp på forhånd»), så det som står igjen av
-«Slik bygger og kjører du målerigg-runden» er APK-en, beskyttelsen på
-previewverten og selve kaldstartene. Fire ting gjelder i tillegg når riggen
-kjøres som del av denne økten:
+| # | `reachedAt` | `readyCalledAt` | `readyResolvedAt` |
+|---|---:|---:|---:|
+| 1 | 291 ms | 291 ms | 344 ms |
+| 2 | 249 ms | 249 ms | 290 ms |
+| 3 | 314 ms | 314 ms | 367 ms |
 
-- **riggrenen er laget av `main`**, ikke av `0ebb737` som installasjon A. Riggen
-  har ingen av produksjonsmålingens to bindinger: manifestets `releaseId` er
-  riggens eget navn (`rig-broken-<n>`) og kan aldri kollidere med APK-ens, og
-  `ota-rig.js` leser `versionCode` ut av `android/app/build.gradle` selv, så
-  manifestet skrives alltid for nøyaktig det nivået riggskallet melder;
-- **Vercel Authentication må være av på prosjektet mens runden står på.** Uten
-  det svarer previewverten `302` til `vercel.com/sso-api`, og riggskallet
-  melder `no-manifest` uten å ha målt noe (steg 1 i oppskriften);
-- **begge de to defektene måles i den samme installasjonen.** `--mode throw`
-  (laster scriptene fint, men feiler før skjermen er brukbar) og `--mode blank`
-  (når aldri `ready()`) er to ulike tilfeller, og hver runde trenger et nytt
-  `--id`: en bundle som er hentet én gang avvises som «already exists», og en
-  som er rullet tilbake er sperret for alltid i begge karantenelagene. Begge
-  bundlene ligger allerede på verten; runde to slippes løs ved å kopiere
-  `ota/android/3.blank.json` over `ota/android/3.json` og pushe riggrenen, slik
-  at manifestet navngir den andre;
-- **de fem konstantene skal stå i det som rapporteres**, fordi riggskallet ikke
-  er produksjonsskallet: `canonicalAppUrl` i `config.js`, verten i CSP-ens
-  `connect-src` i `index.html`, `CANONICAL_ORIGIN` i origin-vakten i
-  `index.html`, reserveverdien i `canonicalAppUrl()` i `app.js`, og
-  `LiveUpdate.publicKey` i `capacitor.config.json`. `readyTimeout` og
-  `autoBlockRolledBackBundles` er IKKE blant dem, og heller ikke rollback-,
-  karantene- eller oppstillingskoden i `app.js` — det er den koden målingen
-  gjelder, og den er byte for byte produksjonens.
+Flymodus, token satt til å utløpe om fem sekunder og deretter latt utløpe før
+kaldstart:
 
-Avlesningene per runde: `window.__huskis.liveReady` (`rollback`,
-`previousBundleId`) rett etter at den innebygde bundelen er tilbake, og
-`window.__huskis.otaBlocked`. En TOM liste der etter en rollback er et negativt
-funn, ikke et fravær av funn: da ble ikke signaturen fra `ready()` lest, og den
-samme dårlige bundelen ville blitt stilt opp igjen. Neste kaldstart skal melde
-`otaStage.state === 'blocked'`.
+```json
+{
+  "readyMs": {
+    "reachedAt": 277,
+    "readyCalledAt": 277,
+    "readyResolvedAt": 300
+  },
+  "appReady": true,
+  "liveReadyError": null
+}
+```
 
-### Tidsmålingen mot `readyTimeout`
+`readyCalledAt` er tallet som sammenlignes med `readyTimeout`; alle fire
+målingene er nedre grenser fordi pluginens rollback-timer armeres før WebView-
+navigasjonens nullpunkt. Marginen er likevel over 9,6 sekunder selv i den
+langsommeste målte starten, og token nær utløp gjorde ingen målbar forskjell.
 
-`window.__huskis.readyMs` er tre tall, alle i ms fra WebView-ens
-navigasjonsstart:
+### Installasjon B — rollback-riggen
 
-| Felt | Er |
-|---|---|
-| `reachedAt` | readiness-punktet nådd — første brukbare skjerm malt fra LOKAL tilstand |
-| `readyCalledAt` | rett før `live.ready()` krysser broen |
-| `readyResolvedAt` | promiset resolverte |
+Riggskall: `cebe6df46862`, bygget av `claude/ota-rigg-vc3`. Fem konstanter
+skiller skallet fra produksjon (de fire vert/origin-konstantene og
+`LiveUpdate.publicKey`); `readyTimeout`, `autoBlockRolledBackBundles`, rollback,
+karantene og oppstilling er produksjonskoden.
 
-**Tallet som måles mot `readyTimeout` er `readyCalledAt`.** Avvæpningen skjer
-ikke på `readyResolvedAt`: lest i `LiveUpdate.java` 8.4.0 er
-`stopRollbackTimer()` det FØRSTE `ready()` gjør, og etterpå kommer
-`deleteUnusedBundles()`, to bundle-ID-oppslag og en eventuell blokkering før
-`callback.success()`. Avvæpningen ligger altså et sted mellom `readyCalledAt`
-og `readyResolvedAt`.
+**Runde 1 — `rig-broken-1` / `throw`:**
 
-**Bare `reachedAt` og `readyCalledAt` er ekte nedre grenser** for det timeren
-måler. Timeren armeres i pluginens konstruktør, før WebView-en begynner å
-navigere, så det virkelige forløpet er lengre enn alt vi teller fra
-navigasjonsstart — men avvæpningen skjer etter at kallet krysset broen, så
-`readyCalledAt` ligger trygt under. `readyResolvedAt` har to ukjente med
-MOTSATT fortegn (armeringen før nullpunktet vårt, det native etterarbeidet
-etter avvæpningen) og kan lande på begge sider av det virkelige tallet. Den
-skal derfor ikke leses som en grense.
+Før aktivering:
 
-`readyResolvedAt − readyCalledAt` er rundturen over broen pluss det `ready()`
-gjør nativt. Det er IKKE pluginens totale kaldstartskostnad — initialiseringen
-dens skjer før readiness-punktet, og isoleres ikke av dette trekket. Det
-gjenstår som et eget, ikke-instrumentert punkt.
+```json
+{
+  "release": "cebe6df46862",
+  "otaFetch": { "state": "downloaded", "detail": "rig-broken-1" },
+  "otaStage": { "state": "staged", "detail": "rig-broken-1" }
+}
+```
 
-Står `readyResolvedAt` på `null` mens `readyCalledAt` har et tall, kom kallet
-aldri tilbake — les `window.__huskis.liveReadyError`.
+Etter defekt oppstart og automatisk retur til innebygd bundle ble det korte
+`liveReady.rollback`-signalet ikke fanget i tide; den første avlesningen var:
 
-#### Hvorfor flymodus fortsatt er tilfellet som måles
+```json
+{
+  "release": "cebe6df46862",
+  "liveReady": { "currentBundleId": null, "previousBundleId": null, "rollback": false },
+  "otaBlocked": [],
+  "otaStage": { "state": "blocked", "detail": "rig-broken-1" }
+}
+```
 
-Mål minst tre kaldstarter i FLYMODUS (tvangslukk + åpne). Readiness-punktet
-venter ikke på serveren — alt som spør ligger etter `markAppReady()`, og
-pluginens `ready()` er lokalt bokholderi uten nettkall — men det gjorde det
-inntil nylig, indirekte: auth-initialiseringen lå foran punktet, og offline med
-et token nær utløp kunne Supabases egen retry-løkke bruke opptil 30 sekunder.
-Det er rettet ved å flytte punktet foran `getSession()` («Hvorfor punktet ligger
-FØR `getSession()`»), og invarianten håndheves nå av to tester.
+Den varige native blokkliste-avlesningen viste imidlertid direkte:
 
-Flymodus er derfor ikke lenger en jakt på et kjent hull, men målingen som
-bekrefter at det er lukket på ekte maskinvare — der lagringen er treg og
-prosessen kan være kald. Mål begge tilfellene og skriv ned hvilket som var
-hvilket:
+```json
+{ "bundleIds": ["rig-broken-1"] }
+```
 
-- flymodus med FERSKT token (logg inn rett før, så `expires_at` er langt unna);
-- flymodus med token NÆR UTLØP — tilfellet som utløste rettelsen. `reachedAt`
-  skal her være like lav som i det første; er den det ikke, finnes det enda en
-  nettavhengighet foran punktet, og den skal navngis.
+Neste kaldstart beholdt `release = ceb...`, `otaStage = blocked` for
+`rig-broken-1` og samme pluginblokkliste. Runde 1 beviser derfor faktisk
+rollback/fallback og pluginens hovedkarantene, men ikke klientens ekstra
+`localStorage`-karantene — det forbigående ReadyResult-et ble ikke observert.
 
-Er tallene store uansett token, er ikke svaret å heve `readyTimeout`: det ville
-gitt en ekte defekt bundle like lang tid til å se frisk ut.
+**Runde 2 — `rig-broken-2` / `blank`:**
 
-### Hva rapporten må inneholde
+Manifestet ble byttet til den andre allerede signerte riggbundelen uten ny
+installasjon. Før aktivering:
 
-- for hvert punkt: den rå avlesningen, ikke en konklusjon om den;
-- hvilken installasjon hver avlesning kom fra, og hvilken `bundleId`;
-- for riggpunktene: at de er målt på riggskallet, og hvilke fem konstanter det
-  skiller seg fra produksjonsskallet på;
-- for tidsmålingen: at tallene er nedre grenser, og hvorfor.
+```json
+{
+  "release": "cebe6df46862",
+  "otaFetch": { "state": "downloaded", "detail": "rig-broken-2" },
+  "otaStage": { "state": "staged", "detail": "rig-broken-2" },
+  "pluginBlocked": { "bundleIds": ["rig-broken-1"] }
+}
+```
 
-Først når et punkt har en slik avlesning bak seg, krysses det av i
-sjekklisten — ikke fordi koden finnes.
+Etter blank bundle, timeout og automatisk rollback:
+
+```json
+{
+  "release": "cebe6df46862",
+  "liveReady": {
+    "currentBundleId": null,
+    "previousBundleId": "rig-broken-2",
+    "rollback": true
+  },
+  "otaBlocked": ["rig-broken-2"],
+  "otaStage": { "state": "blocked", "detail": "rig-broken-2" },
+  "pluginBlocked": {
+    "bundleIds": ["rig-broken-1", "rig-broken-2"]
+  }
+}
+```
+
+Runde 2 er det komplette direkte beviset: fallback, ReadyResult-signaturen,
+klientkarantenen, pluginens permanente blokkliste og avvisning før ny
+oppstilling ble observert samtidig.
+
+## Slik kjører du enhetsøkten igjen
+
+Protokollen beholdes fordi den er nyttig ved regresjonskontroll og senere iOS-
+arbeid. Produksjonsmålingen må bruke et kompatibelt skall (`versionCode` innen
+manifestspennet) som ligger minst én release bak manifestet på produksjon.
+Rollback-målingen må bruke en separat riggvert/nøkkel; en ødelagt bundle skal
+aldri publiseres på produksjonsveien.
+
+### Installasjon A — produksjon
+
+1. Fersk installasjon av kompatibel produksjons-APK; `chrome://inspect`.
+2. Les `otaFetch` og `otaStage`: fersk annen release skal gi `downloaded` og
+   `staged`.
+3. Gjør en lokal endring offline; bekreft `updateSafety()` false offline, false
+   mens synk pågår, true etter synk.
+4. La ekte update-check-vei gjennomføre byttet. Bekreft samme origin,
+   innlogging og data.
+5. Kaldstart på nytt: `same-release`, `otaStage: idle`.
+6. Mål minst tre flymodus-kaldstarter med ferskt token og minst én med token nær
+   utløp. Sammenlign `readyCalledAt` med `readyTimeout`.
+
+### Installasjon B — rigg
+
+1. Gjør previewverten offentlig midlertidig; installér rigg-APK ferskt.
+2. `throw`: `downloaded`/`staged`, aktiver, vent rollback, les ReadyResult,
+   klientkarantene og `getBlockedBundles()`; neste kaldstart skal blokkere samme
+   ID.
+3. Bytt manifestet til en ny, allerede signert `blank`-ID uten reinstallasjon;
+   gjenta.
+4. Slå previewbeskyttelsen på igjen og slett riggrenen etter at målingen er
+   dokumentert.
 
 ## Implementasjonen skal
 
-- [ ] aldri OTA-oppdatere Swift/Kotlin/native plugins;
-- [ ] håndheve native-kompatibilitet som en VAKT, ikke bare som en regel:
-      manifestet bærer grensen, klienten avviser en inkompatibel bundle før
-      nedlasting og oppstilling, og `versionCode` øker når skallet endres
-      (seksjonen «Native-kompatibilitet er en vakt i fase 5»). Serversiden står
-      (formen er valgt, `versionCode` er `3`, manifestet publiseres per nivå),
-      og klientsiden står nå også: URL-en bygges av skallets eget nivå, og en
-      404 er målt som stille no-op i ekte nettleser (`tests/ota-fetch.test.js`)
-      — men med faket bro og rutet manifest. Punktet krysses av når enhetsøkten
-      har sett vakten virke fra et EKTE skall mot produksjon — CORS-leddet i
-      lesningen kan bare den se;
-- [ ] verifisere bundle før aktivering — `downloadBundle()` bærer nå
-      signaturen, og pluginen er fail closed når `publicKey` er satt; at en
-      TELEFON faktisk godtar produksjonssignaturen står i «Hva som krever en
-      enhetsøkt»;
-- [ ] beholde den innebygde butikkversjonen som fallback — `readyTimeout` er
-      satt, så pluginens rollback er slått PÅ, og fra og med oppstillingsrunden
-      finnes det endelig en bundle som KAN feile. Veien er fortsatt ikke prøvd
-      på en telefon;
-- [ ] kalle `ready()` i et definert readiness-punkt — etter at appen er brukbar,
-      og uten å vente på nettet (seksjonen «Readiness-punktet»). Koden står, og
-      invariantene er låst i `tests/capacitor-android.test.js`; punktet krysses
-      ikke av før enhetsøkten har målt de to tingene seksjonen navngir;
-- [ ] gjenbruke `updateSafety()` slik at bundlebytte ikke skjer midt i usikret
-      arbeid — `LiveUpdate.reload()` går gjennom nøyaktig den samme veien som
-      en nettleser-reload, og vurderingen er uendret (arkitekturregel 8). Kjørt
-      i nettleser; et bytte på enhet gjenstår;
-- [ ] klargjøre målet (nedlasting + `setNextBundle()`) som en egen tilstand før
-      det kan reloades, og la en feilet klargjøring prøves igjen uten å brenne
-      ett-forsøk-vakten. Leddet står i `update-check.js` og er kjørt i ekte
-      nettleser (`tests/auto-update.test.js`); punktet krysses av når en telefon
-      har vist at klargjøringen gjør det den lover;
-- [ ] tåle offline oppstart;
-- [ ] unngå reload-/oppdateringsløkker — inkludert på tvers av KALDE
-      oppstarter: en rullet-tilbake `bundleId` skal avvises FØR den stilles
-      opp på nytt, ikke bare oppdages av `readyTimeout` igjen (seksjonen «En
-      rullet-tilbake bundle må være varig sperret»). Den doble karantenen står,
-      og avvisningen er kjørt i nettleser; at en EKTE rollback faktisk fyller
-      den gjenstår på enhet, og måles på måleriggen;
-- [ ] kunne rulle tilbake en dårlig mobilbundle — HVORDAN en ødelagt bundle i det
-      hele tatt kan nå en telefon uten å ødelegge produksjonen er nå avgjort og
-      bygget (`.github/scripts/ota-rig.js`, seksjonen «Den ødelagte bundelen kan
-      ikke være en produksjonsrelease»). Selve rullingen er fortsatt en måling,
-      ikke kode;
-- [ ] først bevises på Android før den tas til iOS.
+- [x] aldri OTA-oppdatere Swift/Kotlin/native plugins — LiveUpdate bytter bare
+      web-assets, og `versionCode`-manifestspennet hindrer webkode som krever et
+      annet skall i å bli tilbudt uten riktig native nivå;
+- [x] håndheve native-kompatibilitet som en vakt: manifest-URL-en bærer
+      `versionCode`, og nivå 3-produksjonsveien er observert på ekte skall;
+- [x] verifisere bundle før aktivering — fysisk Android godtok den faktiske
+      produksjonssignaturen mot den innebygde `publicKey`;
+- [x] beholde den innebygde butikkversjonen som fallback — begge riggdefektene
+      falt tilbake til innebygd bundle;
+- [x] kalle `ready()` i et definert readiness-punkt etter brukbar lokal skjerm
+      og før nettavhengig auth — målt med 249–314 ms i flymodus, også med token
+      nær utløp;
+- [x] gjenbruke `updateSafety()` slik at bundlebytte ikke skjer midt i usikret
+      arbeid — fysisk sekvens `offline` → `syncing` → `safe` og bevart
+      offline-endring;
+- [x] klargjøre målet (nedlasting + `setNextBundle()`) før reload — fysisk
+      `downloaded` + `staged`, deretter varig ny release;
+- [x] tåle offline oppstart — fire flymoduskaldstarter nådde readiness uten
+      feil og med stor margin;
+- [x] unngå reload-/oppdateringsløkker på tvers av kalde oppstarter — begge
+      riggbundlene ble permanent blokkert og `otaStage` avviste dem før ny
+      oppstilling;
+- [x] kunne rulle tilbake en dårlig mobilbundle — både «script kaster før
+      brukbar skjerm» og «blank / når aldri ready» er observert på fysisk
+      Android-rigg;
+- [x] først bevises på Android før den tas til iOS — hele enhetsøkten er kjørt
+      på Android før fase 7.
 
 **Ferdigkriterium:** en testrelease kan oppdatere browser og Android til samme
 `releaseId` uten butikkoppdatering, og mobilappen kan trygt falle tilbake hvis
-OTA-releasen er defekt.
+OTA-releasen er defekt. **Oppfylt på fysisk Android 25. august 2026.**
 
 ---
 
@@ -2774,191 +2367,38 @@ De skal ikke snike seg inn i fundamentfasene.
 
 ## Neste oppgave
 
-**Fase 5 er hel i koden.** Fase 3 og fase 4 er begge ferdige, og ble avsluttet
-i samme `chrome://inspect`-økt mot debug-APK-en. Fire runder er innført, og den
-siste lukket det siste kodesteget.
+**Fase 5 er ferdig.** Produksjons-OTA og rollback-riggen er kjørt på fysisk
+Android, råmålingene står i fase 5, og alle implementasjonspunktene er krysset
+av. Det siste mobile steget før butikkarbeidet var ikke kode, men den fysiske
+målingen; den er nå gjort.
 
-Første runde (merget): pluginen pinnet, `LiveUpdate`-blokken i
-`capacitor.config.json` med `readyTimeout` (rollback PÅ) og
-`autoUpdateStrategy: "none"`, `ready()` kalt i readiness-punktet bak den samme
-native-vakten som tilbakeknappen bruker. Kodegjennomgangen fant og fikset ett
-reelt funn (P1: `appReady` ble satt `true` FØR `ready()` var bekreftet) og
-navnga ett krav for senere (P2: en rullet-tilbake bundle må sperres varig).
+**Neste oppgave er fase 6 — Android intern distribusjon.** Start med de tre
+tingene som låser resten av fasen:
 
-Andre runde (merget): den første signerte bundelen og manifestet. `release.yml`
-bygger og signerer ZIP-en på den commiten som ble migrert og smoke-testet,
-verifiserer signaturen mot den innebygde nøkkelen, og skriver ett manifest per
-støttet native nivå. Manifestformen er avgjort — URL-en bærer nivået —
-`versionCode` er økt, og `publicKey` står i konfigurasjonen.
+1. opprett/verifiser Google Play Developer-kontoen;
+2. bekreft at `no.huskis.app` er endelig package ID før første opplasting;
+3. design stabil release-signering og secret-håndtering, slik at neste testbuild
+   kan oppgradere den forrige uten avinstallering og appdatatap.
 
-Tredje runde (merget): hentingen, uten å bytte. CSP-verten (`https://huskis.no`
-i `connect-src`, begge policyene) pluss CORS-headeren på manifest-stien som
-cross-origin-lesningen fra `https://localhost` krever; `fetchOtaBundle()` i
-`app.js` bak samme gate som `ready()` — URL-en bygget av `getVersionCode()`,
-ett `fetch` med `no-store`, systemgrense-validering, `===` mot
-`<meta name="huskis-release">`, og `downloadBundle({url, bundleId, signature})`.
-
-Fjerde runde: stille opp og bytte. Den doble karantenen (P2 er dermed lukket i
-koden), `setNextBundle()`, klargjøringstilstanden i `update-check.js` og
-`LiveUpdate.reload()` gjennom `updateSafety()`, banneret, inaktivitetsregelen
-og ett-forsøk-vakten. `autoBlockRolledBackBundles` er slått på, og `versionCode`
-er økt til `3` fordi feltet pakkes inn i APK-en, og `OTA_MIN_VERSION_CODE` er
-hevet til `3` med det. Kodegjennomgangen av runden rettet to ting som begge sto
-på feil premiss: grensen kan ikke være `2`, fordi et nivå 2-skall bærer
-web-kode som laster ned uten å stille opp og derfor aldri kan aktivere
-bundelen; og pluginens egen blokkliste rekker lenger enn først antatt —
-`rollback()` bytter til den innebygde bundelen og kaller `Bridge.reload()` i
-SAMME prosess, så den vanlige rollback-veien fyller listen. Klientens egen
-karantene er derfor ett lag til, ikke hovedvakten, og begge lag er nå
-fail closed på både lesning og skriving (se «En rullet-tilbake bundle må være
-varig sperret»).
-
-Femte runde er ikke et nytt ledd i kjeden, men det siste hinderet foran økten:
-**hvordan en bevisst ødelagt bundle kan nå en telefon uten å ødelegge
-produksjonen.** OTA-bundelen ER produksjonsbuilden, så en ødelagt bundle på
-produksjonsveien ville vært en ødelagt nettside for alle. Valget er en MÅLERIGG
-— eget skall, eget engangsnøkkelpar, egen vert — bygget av
-`.github/scripts/ota-rig.js` på en gren som aldri merges, og låst av
-`tests/ota-rig.test.js`: patchen bytter fem konstanter og ingenting mer, og en
-riggbundle kan verken nå eller aktiveres av et produksjonsskall. Begrunnelsen og
-de forkastede formene står i «Den ødelagte bundelen kan ikke være en
-produksjonsrelease».
-
-**Enhetsøkten er delvis gjort**, mot debug-APK-en fra første runde:
-`window.Capacitor.Plugins.LiveUpdate` finnes, `getCurrentBundle()` melder den
-innebygde builden, og en kaldstart i FLYMODUS nådde readiness-punktet
-(`window.__huskis.appReady === true`, `liveReadyError === null`).
-
-**Neste steg er derfor ikke kode, men en telefon.** Fem punkter er nå klare til
-måling i én økt (seksjonen «Hva som krever en enhetsøkt»): den første ekte
-nedlastingen (`otaFetch` — måler i ett at OkHttp går utenfor WebView-ens CSP og
-at telefonen godtar produksjonsnøkkelens signatur), at bundelen faktisk stilles
-opp (`otaStage`), at neste kaldstart kjører den, at `reload()` beholder
-originet og dermed sesjonen, og at en bevisst ødelagt bundle rulles tilbake OG
-havner i karantenen (`otaBlocked`). De fire første leses av det EKTE skallet mot
-produksjon; det femte måles på måleriggen, og at skallet da er et annet skal stå
-i det som rapporteres. To bindinger gjelder produksjonsmålingen alene: APK-en må
-være `versionCode 3`, og manifestet må navngi en SENERE release enn den APK-en
-er bygget av. I tillegg gjenstår fra før en presis tidsmåling mot `readyTimeout`.
+Når de tre er avgjort, er neste tekniske leveranse en reproducerbar signert AAB
+fra CI og første opplasting til Google Plays interne testspor.
 
 ### Fase 3
 
-**Alle seks punktene er avgjort.** Tilbakeknappen og safe
-areas/systemfeltene/skjermtastaturet er verifisert på telefon; de to
-lenkepunktene — eksterne lenker og auth-/e-postlenker — endte som beslutninger
-uten kode, og har derfor ingenting å prøve på en telefon; sikker
-lagring/`allowBackup` endte i to native erklæringer og ingen web-kode
-(seksjonen «Sikker lagring og sikkerhetskopi»).
-
-**Lifecycle- og network-signalene er kartlagt, avgjort og MÅLT på enhet.**
-Websignalene rekker, ingen native signaler er koblet på, og det ene reelle
-hullet — at ingenting hentet appen inn igjen ved gjenopptakelse — er lukket.
-Enhetsøkten svarte på begge spørsmålene runden med vilje ikke kunne svare på
-(seksjonen «Kjørt med sonden: hva enheten svarte»):
-
-- **`navigator.onLine` er død uten `ACCESS_NETWORK_STATE`** — flagget sto på
-  `true` i flymodus. Manifestlinjen er lagt inn, voktet av del 6 i
-  `tests/capacitor-android.test.js`.
-- **Gjenopptakelsen startet runden** — et `get_my_doc` står i loggen tilskrevet
-  `visibilitychange`. Målingen la samtidig til noe planen ikke visste: har
-  Android fryst prosessen, leveres hendelsen ikke i det hele tatt, og da er
-  pollets forfalte tikk det eneste som starter runden. Begge ledd er bærende,
-  hvert i sitt regime, og `tests/sync-foreground.test.js` kjører dem hver for
-  seg (del 2 og del 6).
-
-Ingen plugin er innført, og unntaket for tilbakeknappens bro står uendret.
+Ferdig: tilbakeknapp, safe areas/systemfelt/tastatur, lenkebeslutninger,
+lifecycle/network og sikkerhetskopi er avgjort og verifisert der fysisk måling
+var meningsfull. Ingen unødvendig lifecycle/network-plugin ble innført.
 
 ### Fase 4
 
-**Identiteten finnes, og de to siste punktene er avgjort.** `releaseId` er
-definert, generert i `build.js` og stemplet inn i både klienten og
-`/version.json`; web og Android bygget fra samme commit rapporterer den samme
-verdien, mens `buildId` fortsatt er unik per bygg og eier cache- og
-reload-sikkerheten alene. `minimumSupportedRelease` innføres ikke — OTA flytter
-gamle klienter framover i stedet for å stenge dem ute — og web og mobil får
-separate builds med samme `releaseId`. Begge svarene er begrunnet i
-fase 5-seksjonen.
-
-**Ferdigkriteriet er sett på enhet:** en kjørende APK og en Vercel-preview
-bygget av samme commit rapporterte den samme `releaseId` (`d10867a7c0a6`) med
-hver sin `buildId`, lest i `chrome://inspect` mot APK-en og i nettleseren.
-
-Hver fase 3-endring er plattformspesifikk og skal gates eksplisitt
-(arkitekturregel 2): browserutgaven skal fortsatt kjøre uten Capacitor.
-`tests/capacitor-android.test.js` har fått sitt bevisste unntak for
-tilbakeknappens bro — ÉN kodelinje i `app.js`, gjennom
-`window.Capacitor.isNativePlatform()`. Trenger et nytt punkt et native API,
-utvides unntaket like avgrenset i samme endring; vakten fjernes ikke.
+Ferdig: `releaseId` er plattformuavhengig identitet; web og Android kan melde
+samme release med ulike `buildId`. Ingen `minimumSupportedRelease`; separate
+builds med samme `releaseId`.
 
 ### Fase 5
 
-**Løsningen er valgt, og prisen er skrevet ned.**
-`@capawesome/capacitor-live-update` i selvhostet modus: MIT, ingen sky-konto,
-ingen regning, og bundelen er en signert ZIP Huskis lager selv. Valget hviler på
-tre målinger, ikke på produktsider — at pluginen ikke krever en bundler, at den
-koster nøyaktig to navngitte sjekker i `tests/capacitor-android.test.js`, og at
-alternativet drar Google Play-tjenester inn i en app som ikke har dem.
-
-**Hullet fasen skal fylle er også målt:** oppdateringsmotoren kjører i APK-en og
-`updateSafety()` svarer `safe: true` — den sammenlignet bare sin egen innebygde
-`/version.json` med seg selv. Fase 5 ga den en motpart uten å røre
-trygghetsvurderingen: `updateSafety()`, banneret, inaktivitetsregelen og
-ett-forsøk-vakten er de samme (arkitekturregel 8). Det som kom i tillegg er et
-ledd, ikke et nytt begrep — et mål må klargjøres (nedlasting +
-`setNextBundle()`) før det kan reloades, en inkompatibel bundle avvises før
-klargjøringen begynner, og signalet om at det FINNES et mål kommer fra
-manifestet i stedet for fra `/version.json`.
-
-**Fire runder er innført, og kjeden er hel i koden:** pluginen,
-`LiveUpdate`-blokken og readiness-punktet i den første; den signerte bundelen og
-manifestet i den andre; hentingen i den tredje; oppstillingen og byttet i den
-fjerde. Kodegjennomgangen på den første fant ett reelt funn i selve runden
-(rettet: readiness-punktet ventet ikke på at native-kallet lyktes) og navnga
-ett krav (P2, varig sperring) som den fjerde runden lukket. Kodegjennomgangen
-av DEN runden rettet i sin tur modellen den lukkingen bygget på: `rollback()`
-kaller `Bridge.reload()` i samme prosess, så pluginens egen blokkliste dekker
-den vanlige veien, og klientens egen karantene er ett lag til — for det ene
-tilfellet der prosessen dør før readiness-punktet.
-
-**Kompatibilitetsvakten har fått sin form:** manifest-URL-en bærer det native
-nivået, så et skall utenfor spennet får 404 og gjør ingenting — vakten ligger i
-hva som FINNES, ikke i en sammenligning klienten kan gjøre feil. `versionCode`
-er `3`, og `OTA_MIN_VERSION_CODE` likeså: spennet er ett nivå, fordi grensen er
-det laveste skallet som kan TA I BRUK en bundle — ikke det laveste skallet der
-pluginen har metodene. Signaturen er verifisert maskinelt, og byggesteget
-verifiserer sin egen signatur mot den innebygde nøkkelen før det skriver et
-manifest.
-
-**Den ødelagte bundelen har fått sin form.** Rollback- og karantenepunktet
-kunne ikke måles i det hele tatt uten å avgjøre hvor en bevisst ødelagt bundle
-skal komme fra, og produksjonsveien var utelukket: `release.yml` pakker den
-samme `dist/`-en som deployes til huskis.no. Valget er en målerigg med eget
-skall, eget engangsnøkkelpar og egen vert — de fem konstantene som skiller den
-fra produksjonsskallet leses ikke av rollback-timeren, blokklisten eller
-karantenen, og `tests/ota-rig.test.js` måler at patchen ikke rører noe annet.
-Formene som ble forkastet, og hva riggen IKKE får brukes til å svare på, står i
-«Den ødelagte bundelen kan ikke være en produksjonsrelease».
-
-**Enhetsøkten er delvis gjort**, mot debug-APK-en bygget av første runde:
-`window.Capacitor.Plugins.LiveUpdate` finnes, `getCurrentBundle()` melder den
-innebygde builden, og en kaldstart i FLYMODUS (tvangslukk + gjenåpne) nådde
-readiness-punktet — `window.__huskis.appReady` ble `true`,
-`window.__huskis.liveReadyError` var `null`. **Ingen av implementasjonspunktene
-i sjekklisten er krysset av.** Det som gjenstår er ikke kode, men målinger: fem
-punkter står klare i «Hva som krever en enhetsøkt», og instrumentene er
-`window.__huskis.otaFetch` (nedlastingen utenfor CSP-en + produksjons-
-signaturen), `otaStage` (oppstillingen), `liveReady` (rollbacken), `otaBlocked`
-(karantenen) og `readyMs` (stoppeklokken mot `readyTimeout`). Det siste er nytt,
-og det lukker det ene punktet som gjensto fra fase 3: `appReady` blir `true`
-også når timeren rakk å utløse først, så en boolsk avlesning kunne aldri si om
-avvæpningen kom godt innenfor de 10 000 ms. **Selve økten er planlagt og
-forberedt** — rekkefølgen, de to installasjonene og avlesningene står i «Slik
-kjører du enhetsøkten».
-
-**Det siste punktet som ikke trengte en telefon er lukket.** Hva de native
-bibliotekene merger inn i appens manifest kunne ikke leses fra repoet, men
-Gradles sammenslåing svarer, og den finnes i APK-workflowen: `zip4j` bidrar
-ingenting, `okhttp` én `androidx.startup`-initializer, og APK-ens eneste
-eksporterte komponent utenom `MainActivity` er `profileinstaller`s mottaker bak
-`android.permission.DUMP` (seksjonen «Hva de native bibliotekene merger inn i
-manifestet»).
+Ferdig: selvhostet signert OTA med `@capawesome/capacitor-live-update`,
+`versionCode`-bundet kompatibilitet, native nedlasting, staging, trygg reload,
+readiness, innebygd fallback og dobbel varig karantene. Produksjonsmålingen og
+to forskjellige defekte riggbundler er observert på fysisk Android. iOS arver
+arkitekturen først i fase 7.
