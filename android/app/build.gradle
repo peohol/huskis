@@ -1,5 +1,41 @@
 apply plugin: 'com.android.application'
 
+/* ---- Release-signering (docs/mobilapp-plan.md, fase 6) --------------------
+
+   Butikkbinæren signeres med UPLOAD-nøkkelen. Materialet kommer alltid
+   UTENFRA repoet, i to former som gir nøyaktig samme resultat:
+
+     • miljøvariabler — det CI bruker, fylt fra GitHub-secrets;
+     • android/keystore.properties — lokalt, gitignorert.
+
+   Miljøvariabelen vinner der begge finnes, slik at en glemt lokal fil aldri
+   kan overstyre det CI ble bedt om å signere med.
+
+   INGENTING av dette står i repoet. Nøkkelen, passordene og aliaset er
+   hemmeligheter; det eneste offentlige er sertifikatets SHA-256-fingeravtrykk,
+   som release-workflowen skriver ut etter bygget.
+
+   Verdiene leses ett sted (her) og skrives aldri ut — heller ikke i
+   feilmeldingen under, som bare navngir hva som mangler. */
+def signeringsEgenskaper = new Properties()
+def signeringsFil = rootProject.file('keystore.properties')
+if (signeringsFil.exists()) {
+    signeringsFil.withInputStream { signeringsEgenskaper.load(it) }
+}
+def signeringsVerdi = { String miljo, String egenskap ->
+    def v = System.getenv(miljo)
+    if (v == null || v.trim().isEmpty()) v = signeringsEgenskaper.getProperty(egenskap)
+    (v == null || v.trim().isEmpty()) ? null : v.trim()
+}
+def uploadKeystore      = signeringsVerdi('HUSKIS_UPLOAD_KEYSTORE_FILE', 'storeFile')
+def uploadStorePassword = signeringsVerdi('HUSKIS_UPLOAD_KEYSTORE_PASSWORD', 'storePassword')
+def uploadKeyAlias      = signeringsVerdi('HUSKIS_UPLOAD_KEY_ALIAS', 'keyAlias')
+def uploadKeyPassword   = signeringsVerdi('HUSKIS_UPLOAD_KEY_PASSWORD', 'keyPassword')
+// En absolutt sti brukes som den er; en relativ leses fra `android/`.
+def uploadKeystoreFil   = uploadKeystore == null ? null : rootProject.file(uploadKeystore)
+def signeringKlar = uploadKeystoreFil != null && uploadKeystoreFil.isFile() &&
+        uploadStorePassword != null && uploadKeyAlias != null && uploadKeyPassword != null
+
 android {
     namespace = "no.huskis.app"
     compileSdk = rootProject.ext.compileSdkVersion
@@ -7,20 +43,38 @@ android {
         applicationId "no.huskis.app"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        // OTA-ens kompatibilitetsgrense hviler på dette tallet
-        // (docs/mobilapp-plan.md, «Native-kompatibilitet er en vakt i fase 5»).
+        // ETT tall i to roller — ikke to ordninger: OTA-ens
+        // kompatibilitetsgrense (docs/mobilapp-plan.md, «Native-kompatibilitet
+        // er en vakt i fase 5») OG Google Plays monotont økende
+        // opplastingsnummer (fase 6).
+        //
         // Capacitor-malens `1` kunne ikke brukes: et skall bygget FØR
         // OTA-pluginen og ett bygget etter er native forskjellige, men begge
         // meldte `1`. Nivået økes når det native skallet endres — manifestet
         // publiseres per nivå, og et skall uten et manifest får 404 og gjør
-        // ingenting. Fase 6 legger butikkens eget krav på det samme tallet.
+        // ingenting.
         //
         // 2 → 3: `autoBlockRolledBackBundles` kom inn i capacitor.config.json,
         // og konfigurasjonen pakkes inn i APK-en. Et skall med karantenen på og
         // ett uten er native forskjellige, og kan derfor ikke melde det samme
         // nivået.
+        //
+        // REGELEN VIDERE: tallet økes med 1 i den endringen som produserer en
+        // ny butikkopplasting, og gjenbrukes eller senkes ALDRI. Play avviser
+        // en opplasting som gjenbruker et nummer, og OTA-manifestspennet
+        // (OTA_MIN_VERSION_CODE i release.yml → dette tallet) utvides av seg
+        // selv. `.github/workflows/android-release.yml` sjekker på hver PR at
+        // tallet ikke er senket.
         versionCode 3
-        versionName "1.0"
+        // Butikkens visningsnavn, og ikke en produktversjon: Huskis' identitet
+        // er `releaseId` (docs/auto-update.md), som utledes av commiten og
+        // dessuten byttes av OTA — den kan derfor ikke bakes inn i binæren.
+        // Play krever ingenting av dette feltet, men viser det til testerne, og
+        // en konstant «1.0» ville gjort to interne testreleaser umulige å skille
+        // fra hverandre i konsollen. Derfor: fast prefiks + versionCode, altså
+        // fortsatt ETT tall. Prefikset er en etikett og økes ikke — dette er
+        // ikke SemVer.
+        versionName "1.0.3"
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         aaptOptions {
              // Files and dirs to omit from the packaged assets dir, modified to accommodate modern web apps.
@@ -28,12 +82,56 @@ android {
             ignoreAssetsPattern = '!.svn:!.git:!.ds_store:!*.scc:.*:!CVS:!thumbs.db:!picasa.ini:!*~'
         }
     }
+    signingConfigs {
+        // Konfigurasjonen finnes bare når materialet finnes. Et halvt utfylt
+        // signingConfig ville fått Gradle til å feile med en fjern melding om
+        // et manglende passord; her feiler den i stedet med vakten under, som
+        // sier nøyaktig hva som mangler.
+        if (signeringKlar) {
+            release {
+                storeFile uploadKeystoreFil
+                storePassword uploadStorePassword
+                keyAlias uploadKeyAlias
+                keyPassword uploadKeyPassword
+            }
+        }
+    }
     buildTypes {
         release {
             minifyEnabled false
             proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
+            if (signeringKlar) signingConfig signingConfigs.release
         }
     }
+}
+
+/* FAIL CLOSED. Uten denne vakten gjør Gradle nøyaktig det farlige: mangler
+   signingConfig, bygger `bundleRelease` ferdig og legger fra seg en USIGNERT
+   AAB med det vanlige navnet. En jobb som lastet den opp som artifact ville
+   sett grønn ut, og feilen ville først vist seg i Play Console — eller, verre,
+   som en binær signert med noe annet enn upload-nøkkelen.
+
+   Vakten står på TASK-GRAFEN, ikke i en `doFirst`: da avvises bygget før noen
+   oppgave har kjørt, og det finnes ingen halvferdig artifact å forveksle med
+   en ekte. Bare appmodulens egne release-pakkeoppgaver treffes — debugbygget
+   (`assembleDebug`) og bibliotekmodulene er urørt. */
+def RELEASE_PAKKING = ~/^:app:(assemble|bundle|package)Release/
+gradle.taskGraph.whenReady { graf ->
+    if (signeringKlar) return
+    if (!graf.allTasks.any { RELEASE_PAKKING.matcher(it.path).find() }) return
+    def mangler = []
+    if (uploadKeystore == null) {
+        mangler << 'HUSKIS_UPLOAD_KEYSTORE_FILE (eller storeFile i android/keystore.properties)'
+    } else if (!uploadKeystoreFil.isFile()) {
+        mangler << 'HUSKIS_UPLOAD_KEYSTORE_FILE peker på en fil som ikke finnes: ' + uploadKeystoreFil
+    }
+    if (uploadStorePassword == null) mangler << 'HUSKIS_UPLOAD_KEYSTORE_PASSWORD (storePassword)'
+    if (uploadKeyAlias == null) mangler << 'HUSKIS_UPLOAD_KEY_ALIAS (keyAlias)'
+    if (uploadKeyPassword == null) mangler << 'HUSKIS_UPLOAD_KEY_PASSWORD (keyPassword)'
+    throw new GradleException(
+        'Release-signeringen er ikke konfigurert, og en usignert release-artifact '
+        + 'skal ikke produseres. Mangler: ' + mangler.join(', ')
+        + '. Se docs/mobilapp-plan.md, fase 6. (Debugbygget: ./gradlew assembleDebug.)')
 }
 
 repositories {

@@ -2,6 +2,7 @@
   "tests/a11y-contrast.test.js": 0,
   "tests/a11y-runtime.test.js": 32,
   "tests/account-password-avatar.test.js": 27,
+  "tests/android-release.test.js": 0,
   "tests/auth-redirect.test.js": 4,
   "tests/auto-update.test.js": 28,
   "tests/board-columns.test.js": 38,

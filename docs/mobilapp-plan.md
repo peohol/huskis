@@ -14,16 +14,16 @@ autoritative dokumentet for fagfeltet.
 | Felt | Nå |
 |---|---|
 | Målarkitektur | Én HTML/CSS/JS-kodebase + Capacitor for Android/iOS |
-| Nåværende fase | **Fase 6 — Android intern distribusjon.** Fase 5 er ferdig: hele OTA-kjeden er både implementert og verifisert på fysisk Android gjennom en produksjonsmåling og en separat rollback-rigg. |
+| Nåværende fase | **Fase 6 — Android intern distribusjon.** Repo-siden er innført: stabil release-signering, reproducerbar release-AAB fra CI, endelig package ID og butikkregelen for `versionCode`. Det som gjenstår er manuelt i Google Play Console. |
 | Status — fase 3 | **Ferdigkriteriet er nådd.** Alle seks punktene er avgjort: systemets tilbakeknapp og safe areas/systemfeltene/skjermtastaturet, begge verifisert på fysisk telefon; eksterne lenker og auth-/e-postlenker, som begge er beslutninger uten kode og derfor ikke har noe å prøve på en telefon; sikker lagring/`android:allowBackup`, der sikkerhetskopien av WebView-lagringen er slått av; og lifecycle-/network-signalene, målt på enhet med sonden. `navigator.onLine` er bekreftet dødt uten `ACCESS_NETWORK_STATE`, og tillatelsen er lagt inn med vakt. Gjenopptakelsen er tilskrevet: et `get_my_doc` står i enhetsloggen merket `by: 'visibilitychange'`. Målingen viste samtidig at hendelsen IKKE leveres når Android har fryst prosessen — der starter pollets forfalte tikk runden i samme øyeblikk som opptiningen. Begge ledd er dermed bærende, hvert i sitt regime (se seksjonen). Ingen native plugin er innført. Automatisk dekket av `tests/safe-area.test.js`, `tests/landscape-chrome.test.js`, `tests/system-back.test.js`, `tests/sync-foreground.test.js` (del 2 og del 6 kjører hvert sitt regime) og `tests/capacitor-android.test.js`. |
 | Status — fase 4 | Fase 4s ferdigkriterium er **oppfylt**: en kjørende APK og en Vercel-preview bygget av samme commit rapporterte den samme `releaseId` (`d10867a7c0a6`) med hver sin `buildId`, lest på telefon. Alle sju punktene er avgjort. Fem er implementert: kartleggingen av dagens release-identiteter, `releaseId` er definert og generert i `build.js`, web og Android bygget fra samme commit rapporterer den samme verdien, `version.json` er utvidet additivt uten at cache- eller reload-sikkerheten er rørt, og kompatibilitetsregelen mellom klientrelease og databaseskjema er skrevet ned ([`release-og-deploy.md`](release-og-deploy.md)). De to siste er beslutninger, ikke kode — `minimumSupportedRelease` og valget mellom byte-identisk artifact og separate builds — sto åpne til OTA ga dem en konsekvens, og er nå avgjort i fase 5: ingen nedre grense, og separate builds med samme `releaseId` (se «De to punktene fra fase 4 får sitt svar her»). Automatisk dekket av `tests/build-version.test.js`, `tests/auto-update.test.js` og `tests/capacitor-android.test.js`. |
 | Status — fase 5 | **Ferdigkriteriet er oppfylt på fysisk Android.** Installasjon A beviste produksjonskjeden: et `versionCode 3`-skall fra `0ebb737` lastet ned og stilte opp en senere produksjonsbundle, Java godtok produksjonssignaturen, `updateSafety()` blokkerte byttet offline og under synk, origin/sesjon/data overlevde byttet, OTA-aktiveringen var varig, og fire flymodus-kaldstarter nådde `ready()` på 249–314 ms mot `readyTimeout = 10000` ms — også med token nær utløp. Installasjon B beviste fallbacken på måleriggen: både `rig-broken-1` (`throw`) og `rig-broken-2` (`blank`) ble rullet tilbake til innebygd bundle og sperret varig; for `rig-broken-2` ble hele signaturen lest direkte som `rollback: true`, `previousBundleId: 'rig-broken-2'`, klientkarantene og pluginblokkliste. Råmålingene står i fase 5-seksjonen. |
-| Status — fase 6 | Ikke startet. Neste arbeid er stabil Android-signering, endelig package-ID/Play-oppsett og første reproducerbare release-AAB til internt testspor. |
+| Status — fase 6 | **Repo-siden er ferdig; butikk-siden er manuell.** Innført og maskinelt dekket: `no.huskis.app` er bekreftet endelig og låst i alle seks stedene som navngir den; release-signeringen tar imot materiale utenfra (miljøvariabler eller en gitignorert properties-fil) og AVVISER et release-bygg uten det, i tre fail-closed-lag; `.github/workflows/android-release.yml` bygger `app-release.aab` reproducerbart av den samme `dist/`-kjeden og laster den opp som artifact; og `versionCode` har fått butikkens monotone regel uten å bli et tall nummer to. Ingen nøkkel, intet passord og ingen Play-konto finnes ennå — det signerte bygget er derfor prøvd bare fra avvisningssiden. Automatisk dekket av `tests/android-release.test.js`. |
 | Neste milepæl | Fase 6: første installasjon og oppdatering av Huskis gjennom Google Plays interne testspor, uten sideloading |
 | Neste praktiske steg — fase 3 | Ingen. Fasen er ferdig |
 | Neste praktiske steg — fase 4 | Ingen. Fasen er ferdig; de to «vurder …»-punktene fikk sitt svar i fase 5 |
 | Neste praktiske steg — fase 5 | Ingen. Fasen er ferdig; produksjons-OTA, readiness, rollback og karantene er målt på fysisk Android |
-| Neste praktiske steg — fase 6 | Avklar/verifiser Play Developer-konto og endelig package ID, og design stabil signering før første release-AAB bygges |
+| Neste praktiske steg — fase 6 | Opprett Google Play Developer-kontoen, lag upload-nøkkelen og legg inn de fire `ANDROID_UPLOAD_*`-secretene — så kan «Android release-AAB» kjøres og AAB-en lastes opp til internt testspor (fase 6, «Slik lager du upload-nøkkelen») |
 | OTA | Innført ende til ende og verifisert på fysisk Android: signert produksjonsbundle, manifest per native nivå, native nedlasting, oppstilling, trygg aktivering, varig aktivering, readiness, rollback og karantene. Ferdigkriteriet er oppfylt |
 | iOS | Senere fase; ikke en del av første implementering |
 
@@ -1201,7 +1201,7 @@ svarte på «hvilken Huskis-release er dette?» før `releaseId` kom til.
 | `buildId` | «hvilken build/deploy kjører denne klienten?» | `build.js`, én gang per bygg | Vercels deploy-ID i produksjon, ellers `<sha12>-<tid i base36>`. Stemplet i `<meta name="huskis-build">` OG `/version.json`, og hektet på JS/CSS-URL-ene som `?b=` |
 | `version.json.version` | «hvilken SemVer?» — ingenting, med vilje | `package.json` | `null`. `package.json` finnes kun for Capacitor-skallet og har ikke noe `version`-felt, så SemVer skal ikke måtte økes per PR |
 | Vercels deployment-ID | «hvilken deploy i Vercels infrastruktur?» | Vercel | Brukes som `buildId` i produksjonsbygget, og ALDRI til noe annet. Den er leverandørens identitet, ikke produktets |
-| `versionCode` / `versionName` | «hvilken butikkbinær?» | `android/app/build.gradle` | `1` / `"1.0"` — Capacitor-malens startverdier, urørt. De trengs først når appen distribueres gjennom Play (fase 6), og er et krav DERFRA, ikke en produktversjon |
+| `versionCode` / `versionName` | «hvilken butikkbinær?» | `android/app/build.gradle` | `3` / `"1.0.3"` — ett tall i to roller: OTA-ens kompatibilitetsnivå (fase 5) og Google Plays monotone opplastingsnummer (fase 6). `versionName` utledes av det samme tallet. Et krav fra butikken og fra OTA, ikke en produktversjon |
 
 Hullet: `buildId` er unik per BYGG. Web og Android bygges av hver sin kjøring av
 `node build.js` over det samme treet, så de kan ikke ha samme `buildId` — og
@@ -1770,8 +1770,9 @@ produksjonsmanifestet for nivå 3, manifestet passerte CORS/systemgrensen, og
 bundelen ble både lastet ned og stilt opp. Fail-closed 404-utfallet for et nivå
 uten manifest er fortsatt automatisk dekket av `tests/ota-fetch.test.js`.
 
-Fase 6 eier fortsatt det samme tallet som BUTIKKENS krav (monotont økende per
-opplasting). Det er en annen bruk, og den kommer i tillegg.
+Det samme tallet er dessuten BUTIKKENS opplastingsnummer. Regelen som holder de
+to rollene i ett tall står i fase 6, «`versionCode` og `versionName`: ett tall,
+to roller».
 
 ### Hva manifestet inneholder
 
@@ -1933,8 +1934,8 @@ mens 404-grenen er kjørt i ekte nettleser med faket bro
 
 Prisen er ett manifest per støttet nivå. Spennet er
 `OTA_MIN_VERSION_CODE` til og med `versionCode`, og akkurat nå er begge `3`.
-Fase 6 eier fortsatt `versionCode` som butikkens monotone opplastingsnummer i
-tillegg til denne rollen.
+Det samme tallet er butikkens opplastingsnummer i tillegg til denne rollen
+(fase 6).
 
 ### En rullet-tilbake bundle må være varig sperret — ikke bare gjenkjent av timeren
 
@@ -2274,13 +2275,37 @@ OTA-releasen er defekt. **Oppfylt på fysisk Android 25. august 2026.**
 **Mål:** flytte fra sideloadet debug-APK til en ekte signert Android-app i
 Google Plays interne testspor.
 
+Fasen har to halvdeler som ikke kan gjøres i samme runde. Alt som kan bygges,
+låses og prøves fra repoet er innført. Resten krever en Google-konto, en
+appoppføring og en nøkkel som ikke finnes ennå, og står igjen som navngitte
+manuelle steg — ikke som uavklart arbeid.
+
+**Innført i repoet, og maskinelt dekket:**
+
+- [x] Bekreft endelig package ID før første opplasting — `no.huskis.app`, se
+      «Package ID-en er endelig».
+- [x] Sett opp signing og håndtering av nøkler uten secrets i repoet.
+      Gradle tar imot materialet utenfra og AVVISER et release-bygg uten det.
+      Den stabile signaturen på testbuildene følger av dette, men først når
+      nøkkelen faktisk finnes — den står derfor på den manuelle lista.
+- [x] Produser release-AAB reproducerbart fra CI —
+      `.github/workflows/android-release.yml`.
+- [x] Ta `versionCode` videre fra OTA-vakten (fase 5) til butikkens krav:
+      monotont økende per opplasting, og konsistent med grensen OTA-manifestet
+      allerede bruker. Det er samme tall i to roller — ikke to ordninger.
+
+**Krever at du gjør noe manuelt, i denne rekkefølgen:**
+
 - [ ] Opprett/verifiser Google Play Developer-konto.
-- [ ] Bekreft endelig package ID før første opplasting.
-- [ ] Sett opp signing og håndtering av nøkler uten secrets i repoet. Det gir
-      samtidig noe fase 5 måtte klare seg uten: en STABIL signatur på testbuildene,
-      slik at en ny APK oppgraderer den forrige i stedet for å kreve
-      avinstallering — og dermed en enhetsøkt som kan bytte skall uten å miste
-      appdata.
+- [ ] Lag upload-nøkkelen og legg inn de fire GitHub-secretene («Slik lager du
+      upload-nøkkelen»).
+- [ ] Kjør «Android release-AAB» manuelt og last den ned.
+- [ ] Opprett appoppføring, ikon, screenshots og nødvendig metadata.
+- [ ] Meld appen inn i Play App Signing ved første opplasting, og sett
+      repository-variabelen `ANDROID_UPLOAD_CERT_SHA256`.
+- [ ] Fullfør privacy/Data Safety-opplysninger basert på faktisk databruk.
+- [ ] Gi reviewer/testspor fungerende testkonto der det kreves.
+- [ ] Test installasjon, oppgradering og rollback gjennom Play-sporet.
 - [ ] Ta App Links opp igjen når nøkkelen finnes: begge halvdelene i samme
       endring (intent-filter + `.well-known/assetlinks.json` som `build.js`
       faktisk kopierer ut). Avgjør FØRST det åpne spørsmålet i fase
@@ -2288,18 +2313,246 @@ Google Plays interne testspor.
       Supabase' 303 til en verifisert App Link? Svaret bestemmer om dette er
       fire eller seks koblede endringer, og dermed om det er verdt gevinsten:
       én spart innlogging i de to auth-flytene som koster en, pluss
-      invitasjonen til en registrert mottaker.
-- [ ] Produser release-AAB reproducerbart fra CI.
-- [ ] Opprett appoppføring, ikon, screenshots og nødvendig metadata.
-- [ ] Fullfør privacy/Data Safety-opplysninger basert på faktisk databruk.
-- [ ] Gi reviewer/testspor fungerende testkonto der det kreves.
-- [ ] Test installasjon, oppgradering og rollback gjennom Play-sporet.
-- [ ] Ta `versionCode` videre fra OTA-vakten (fase 5) til butikkens krav:
-      monotont økende per opplasting, og konsistent med grensen OTA-manifestet
-      allerede bruker. Det er samme tall i to roller — ikke to ordninger.
+      invitasjonen til en registrert mottaker. MERK at fingeravtrykket
+      `assetlinks.json` skal inneholde er APP-SIGNING-sertifikatets, ikke
+      upload-sertifikatets — se nøkkeltabellen under.
 
 **Ferdigkriterium:** en tester kan installere og oppdatere Huskis gjennom Google
 Play uten sideloading.
+
+## Tre nøkler, tre jobber — og bare offentlige halvdeler i repoet
+
+Fra og med denne fasen finnes det tre uavhengige nøkkelpar rundt Huskis. De
+signerer hver sin ting, og de kan ikke erstatte hverandre.
+
+| Nøkkel | Signerer | Hvor privatdelen bor | Hvis den er borte eller byttes |
+|---|---|---|---|
+| **Upload key** | AAB-en som lastes opp til Play | din maskin (`huskis-upload.jks`) + GitHub-secrets. ALDRI i repoet | Play avviser opplastingen. Nøkkelen kan erstattes — Google kan nullstille den mot en ny |
+| **App signing key** | APK-ene Google Play leverer til telefonene | hos Google, generert av Google ved påmelding til Play App Signing | kan aldri byttes. Det er DENNE signaturen telefonen ser, og den som avgjør om en oppdatering får lov til å erstatte den installerte appen |
+| **OTA-nøkkelen** (fase 5) | web-bundelen OTA leverer | GitHub-secret `OTA_SIGNING_KEY`. Den offentlige halvdelen står som `publicKey` i `capacitor.config.json` | ingen telefon kan verifisere bundelen. Se «Nøkkelparet» i fase 5 |
+
+**Play App Signing er ikke et valg.** En ny app på Google Play må levere AAB og
+må være meldt inn i Play App Signing. Konsekvensen er hele grunnen til at
+oppsettet ser ut som det gjør: du signerer ALDRI det brukeren installerer. Du
+signerer opplastingen, Google verifiserer at den kom fra deg, pakker om og
+signerer på nytt med app-signing-nøkkelen.
+
+Det er også hele sikkerhetsgevinsten. Ved påmelding skal Google GENERERE
+app-signing-nøkkelen; da finnes den aldri utenfor Googles nøkkellager, og den
+ene nøkkelen som ikke kan erstattes kan heller ikke mistes herfra. Upload-
+nøkkelen, som du faktisk holder, er den erstattelige av de to.
+
+**Dette skal aldri inn i repoet, i noen form:** keystore-filen (`.jks`,
+`.keystore`, `.p12`), passordene, aliaset, og base64-formen av keystoren.
+`.gitignore` dekker filmønstrene og `android/keystore.properties` i repo-roten,
+og `tests/android-release.test.js` leser hele det sporede treet for å slå fast
+at ingen keystore og ingen PEM-privatnøkkel har kommet inn.
+
+Det ENESTE signeringsrelaterte som hører hjemme i repoet er offentlig:
+OTA-nøkkelens `publicKey`, og — når den finnes — upload-sertifikatets SHA-256-
+fingeravtrykk som repository-VARIABEL. Et fingeravtrykk er offentlig av natur;
+Play Console viser det selv.
+
+## Hva GitHub Actions trenger
+
+| Navn | Type | Hvor den hentes | Brukes av |
+|---|---|---|---|
+| `ANDROID_UPLOAD_KEYSTORE_BASE64` | secret | `base64 -w0 huskis-upload.jks` | android-release.yml |
+| `ANDROID_UPLOAD_KEYSTORE_PASSWORD` | secret | passordet du satte på keystoren | android-release.yml |
+| `ANDROID_UPLOAD_KEY_ALIAS` | secret | aliaset du ga nøkkelen (`huskis-upload`) | android-release.yml |
+| `ANDROID_UPLOAD_KEY_PASSWORD` | secret | passordet på selve nøkkelen | android-release.yml |
+| `ANDROID_UPLOAD_CERT_SHA256` | **variabel** | skrives ut av workflowen etter første bygg, og står i Play Console | android-release.yml |
+
+De fire første legges inn under Settings → Secrets and variables → Actions →
+**Secrets**. Den siste under **Variables** i det samme bildet — den er ikke
+hemmelig, og den er maskinsjekken på at signaturidentiteten er STABIL: er den
+satt, feiler jobben hvis AAB-en er signert med en annen nøkkel enn sist.
+
+Gradle leser aldri secretene direkte. Workflowen skriver keystoren til
+`$RUNNER_TEMP` (utenfor repoet), setter miljøvariablene
+`HUSKIS_UPLOAD_KEYSTORE_FILE`, `HUSKIS_UPLOAD_KEYSTORE_PASSWORD`,
+`HUSKIS_UPLOAD_KEY_ALIAS` og `HUSKIS_UPLOAD_KEY_PASSWORD` på det ene steget som
+bygger, og sletter keystoren igjen uansett utfall. Passordene går aldri gjennom
+`$GITHUB_ENV`, som ville båret dem videre til hvert steg etterpå.
+
+## Slik lager du upload-nøkkelen
+
+Én gang, på din egen maskin. Filen skal ALDRI inn i repoet, og den bør
+sikkerhetskopieres et sted du finner den igjen om fem år.
+
+```bash
+keytool -genkeypair -v \
+  -keystore huskis-upload.jks -storetype PKCS12 \
+  -alias huskis-upload \
+  -keyalg RSA -keysize 4096 \
+  -validity 10000                        # ~27 år; Play krever gyldighet forbi 2033
+
+base64 -w0 huskis-upload.jks             # Linux — innholdet i secreten
+base64 -i huskis-upload.jks | tr -d '\n'  # macOS
+```
+
+Bruk **samme passord** på keystoren og på nøkkelen. PKCS12 støtter ikke
+forskjellige passord for de to; keytool sier fra og bruker keystore-passordet
+uansett. Begge secretene fylles likevel ut — formen er standard Android, og
+Gradle-siden håndterer også et oppsett der de er forskjellige.
+
+**Lokalt, uten GitHub:** legg `android/keystore.properties` (gitignorert) med
+`storeFile`, `storePassword`, `keyAlias` og `keyPassword`, og kjør
+`cd android && ./gradlew bundleRelease`. Miljøvariablene vinner over filen der
+begge finnes, slik at en glemt lokal fil aldri kan overstyre det CI ble bedt om
+å signere med.
+
+## Fail closed i tre lag
+
+Den farlige feilen er ikke at et release-bygg stopper. Den farlige feilen er at
+det IKKE stopper: uten en `signingConfig` bygger Gradle glad og fornøyd ferdig
+og legger fra seg en **usignert** `app-release.aab` med nøyaktig det vanlige
+navnet. En jobb som lastet den opp som artifact ville sett grønn ut, og feilen
+ville først vist seg i Play Console.
+
+| Lag | Hvor | Hva det stopper |
+|---|---|---|
+| 1 | `android-release.yml`, første steg med secrets | mangler én av de fire secretene, feller jobben før noe arbeid er gjort |
+| 2 | `android/app/build.gradle`, vakt på task-grafen | mangler signeringsmaterialet, avvises `:app:*Release`-pakking FØR noen oppgave har kjørt — det finnes ingen halvferdig artifact å forveksle med en ekte |
+| 3 | `android-release.yml`, etter bygget | `keytool -printcert -jarfile` leser signaturen ut av det FERDIGE artifactet og feiler hardt på en usignert fil. Er `ANDROID_UPLOAD_CERT_SHA256` satt, kreves i tillegg at det er samme nøkkel som sist |
+
+Lag 2 er den ene invarianten som ikke kan leses ut av en fil, og workflowen
+prøver den derfor på ekte: den kjører et release-bygg med TOMT signeringsmiljø,
+krever at det feiler PÅ VAKTEN (ikke på noe annet), og at det ikke ligger igjen
+en AAB etterpå. Prøven kjører også foran hvert signert bygg — hver eneste AAB
+som lastes opp herfra har nettopp bevist sin egen fail-closed-vakt.
+
+## `versionCode` og `versionName`: ett tall, to roller
+
+`versionCode` står på `3`. Det er det samme tallet i to jobber, og det skal
+fortsette å være ETT tall:
+
+- **OTA-ens kompatibilitetsnivå** (fase 5): manifestet publiseres per nivå, og
+  et skall uten et manifest for sitt nivå får 404 og gjør ingenting.
+- **Google Plays opplastingsnummer**: Play avviser en opplasting som gjenbruker
+  et nummer, og en app kan bare oppdateres til et høyere.
+
+**Regelen: tallet økes med 1 i den endringen som produserer en ny
+butikkopplasting, og gjenbrukes eller senkes aldri.**
+
+Det er én regel fordi de to kravene aldri kan komme i konflikt. Hver
+butikkopplasting er en ny binær, og hver binær som er native forskjellig må
+uansett ha et nytt nivå. En økning som skjer av butikkgrunner alene er
+harmløs for OTA: manifestspennet (`OTA_MIN_VERSION_CODE` til og med
+`versionCode`) blir ett nivå bredere, og det nye nivået er native identisk med
+det forrige — begge skallene kan ta i bruk den samme bundelen.
+
+`OTA_MIN_VERSION_CODE` beveger seg fortsatt uavhengig, og bare oppover: den
+heves når web-koden begynner å kreve noe et eldre skall ikke har. Butikken har
+ingenting med den grensen å gjøre.
+
+**Vakten mot en senkning** ligger i `android-release.yml`, som på hver PR
+sammenligner `versionCode` mot PR-ens base med den SAMME parseren OTA-manifestet
+bruker (`readVersionCode` i `.github/scripts/ota-bundle.js`). At tallet skal
+ØKES før en ny opplasting er derimot en regel for opplastingen, ikke for hver
+PR — og der er Play selv den harde porten.
+
+**`versionName` er `"1.0.3"`, og utledes av det samme tallet.** Play krever
+ingenting av feltet — det er en visningsstreng, ikke en nøkkel — men testerne
+ser den, og Play navngir releasen i konsollen med den. En konstant `"1.0"`
+ville gjort to interne testreleaser umulige å skille fra hverandre. Prefikset
+`1.0.` er en fast etikett og økes ikke: **dette er ikke SemVer**, og Huskis har
+ingen produktversjon å uttrykke.
+
+Release-identiteten er fortsatt `releaseId` ([`auto-update.md`](auto-update.md)),
+og den kan ikke brukes her: den utledes av commiten og BYTTES av OTA, mens
+`versionName` er bakt inn i binæren. Et `versionName` satt til `releaseId` ville
+ligget og påstått feil release på hver eneste telefon som hadde tatt imot en
+OTA-bundle.
+
+## Package ID-en er endelig
+
+`no.huskis.app` er behandlet som **endelig** fra og med nå, og skal ikke endres.
+
+Grunnen er ikke smak. Application ID-en er primærnøkkelen til Play-oppføringen,
+til installasjonen på hver telefon og til app-signing-nøkkelen. Etter første
+opplasting er den låst for appens levetid: en «ny» ID er en ny app — ny
+oppføring, nye testere, ingen oppgradering av den installerte.
+
+Undersøkelsen i repoet fant ingen teknisk grunn til å velge noe annet. Den er
+reversert domenenavn for huskis.no, den er en gyldig Android application ID
+(minst to segmenter, hvert segment starter med en bokstav, ingen av dem er et
+Java-nøkkelord — sjekket maskinelt), og den står allerede likt i alle seks
+stedene som navngir den:
+
+| Sted | Felt |
+|---|---|
+| `capacitor.config.json` | `appId` |
+| `android/app/build.gradle` | `applicationId` |
+| `android/app/build.gradle` | `namespace` |
+| `android/app/src/main/res/values/strings.xml` | `package_name` |
+| `android/app/src/main/res/values/strings.xml` | `custom_url_scheme` |
+| `android/app/src/main/java/no/huskis/app/MainActivity.java` | pakkeerklæringen + kildestien |
+
+Det ene som ikke kan avgjøres herfra er om ID-en allerede er tatt av en annen
+utvikler på Play. Det ses første gang appoppføringen opprettes, og er derfor et
+punkt på den manuelle lista.
+
+Malens eksempelklasser under `android/app/src/test` og
+`android/app/src/androidTest` ligger fortsatt i `com.getcapacitor.myapp`. De
+kompileres aldri inn i appen, og er derfor utenfor vakten med vilje.
+
+## Slik bygger du release-AAB-en
+
+1. Legg inn de fire secretene (over).
+2. Actions → **Android release-AAB** → Run workflow, på `main`.
+3. Last ned artifactet `huskis-release-aab`. Jobbsammendraget viser package ID,
+   `versionCode`, `versionName`, `releaseId`, commit og sertifikatets SHA-256.
+4. Første gang: sett repository-variabelen `ANDROID_UPLOAD_CERT_SHA256` til
+   fingeravtrykket i sammendraget. Fra da av er signaturidentiteten låst
+   maskinelt.
+5. Play Console → Testing → Internal testing → last opp AAB-en.
+
+Workflowen bygger med den samme kjeden som resten av mobilappen —
+`node build.js` → `dist/` → `cap sync android` → `gradlew bundleRelease` — og
+kjører de rene node-testene FØR artifactet produseres. Den publiserer
+ingenting til Google Play; opplastingen er manuell inntil kontoen og
+oppføringen finnes.
+
+**Den første Play-installasjonen koster én avinstallering.** Den sideloadede
+debug-APK-en er signert med Androids debugnøkkel, og en app kan ikke bytte
+signatur på en telefon. Enheten må derfor avinstallere debugbygget før den kan
+installere fra Play, og lokal appdata går tapt den ene gangen. Etterpå er
+signaturen stabil, og hver ny opplasting oppgraderer den forrige — som er
+nettopp det fase 5 måtte klare seg uten.
+
+## Hva som er automatisk dekket
+
+`tests/android-release.test.js` er vakten for hele fasen (`node
+tests/android-release.test.js`): package ID-en i alle seks stedene og at ingen
+annen ID er erklært i det som pakkes; `versionCode` som ett heltallsliteral den
+samme parseren OTA-manifestet bruker kan lese, og `versionName` utledet av det;
+at signeringsmaterialet kommer utenfra og at ingen nøkkelfil, alias eller
+passord er skrevet inn i Gradle-skriptet; at `signingConfig` settes ett sted og
+bak betingelsen; at task-graf-vakten finnes, treffer appmodulens
+release-pakking og IKKE debugbygget; at ingen keystore og ingen PEM-privatnøkkel
+finnes i det sporede treet; og hele release-workflowen — rekkefølgen på
+stegene, riktig variant, testene før artifactet, de tre fail-closed-lagene, at
+secretene aldri skrives ut eller går gjennom `$GITHUB_ENV`, og at debugveien er
+urørt.
+
+Forholdet mellom `versionCode` og OTA-manifestspennet står fortsatt i
+`tests/release-pipeline.test.js`, og skallets øvrige invarianter i
+`tests/capacitor-android.test.js`.
+
+**Ikke verifisert maskinelt:** at et signert bygg faktisk kommer ut i den andre
+enden. Ingen keystore finnes ennå, så `bundleRelease` har aldri kjørt MED
+materiale — det er AVVISNINGEN workflowen prøver, på hver PR som rører skallet.
+Det siste leddet lukkes første gang workflowen kjøres med secretene på plass;
+lag 3 (signaturen lest ut av artifactet) er porten som lukker det.
+
+## Neste PR
+
+Denne runden er repo-siden. Neste tekniske leveranse er ikke kode, men de
+manuelle stegene: konto, nøkkel, secrets og første opplasting. Kommer det en PR
+før det, er det den som legger inn Play-publisering fra CI — og den kan ikke
+skrives før det finnes en appoppføring å publisere til og en service-konto å
+gjøre det med.
 
 ---
 
@@ -2367,21 +2620,27 @@ De skal ikke snike seg inn i fundamentfasene.
 
 ## Neste oppgave
 
-**Fase 5 er ferdig.** Produksjons-OTA og rollback-riggen er kjørt på fysisk
-Android, råmålingene står i fase 5, og alle implementasjonspunktene er krysset
-av. Det siste mobile steget før butikkarbeidet var ikke kode, men den fysiske
-målingen; den er nå gjort.
+**Fase 6 er halvferdig, og den halvdelen som gjenstår er ikke kode.** Repo-siden
+er innført: package ID-en er bekreftet endelig, release-signeringen tar imot
+materiale utenfra og avviser et bygg uten det, «Android release-AAB» produserer
+`app-release.aab` reproducerbart, og `versionCode` har fått butikkens regel uten
+å bli et tall nummer to.
 
-**Neste oppgave er fase 6 — Android intern distribusjon.** Start med de tre
-tingene som låser resten av fasen:
+**Neste praktiske steg er ditt, i denne rekkefølgen:**
 
-1. opprett/verifiser Google Play Developer-kontoen;
-2. bekreft at `no.huskis.app` er endelig package ID før første opplasting;
-3. design stabil release-signering og secret-håndtering, slik at neste testbuild
-   kan oppgradere den forrige uten avinstallering og appdatatap.
+1. opprett Google Play Developer-kontoen;
+2. lag upload-nøkkelen (`keytool`, se fase 6) og legg inn de fire
+   `ANDROID_UPLOAD_*`-secretene;
+3. kjør «Android release-AAB» manuelt, sett `ANDROID_UPLOAD_CERT_SHA256` til
+   fingeravtrykket jobben skriver ut, og last AAB-en opp til internt testspor.
 
-Når de tre er avgjort, er neste tekniske leveranse en reproducerbar signert AAB
-fra CI og første opplasting til Google Plays interne testspor.
+Steg 3 lukker samtidig det siste maskinelle hullet i fasen: at et signert bygg
+faktisk kommer ut i den andre enden. Uten en nøkkel kan bare AVVISNINGEN prøves,
+og den er prøvd.
+
+Regn med at den første Play-installasjonen krever at debug-APK-en avinstalleres
+— en app kan ikke bytte signatur på en telefon. Det skjer én gang; etterpå
+oppgraderer hver ny opplasting den forrige.
 
 ### Fase 3
 

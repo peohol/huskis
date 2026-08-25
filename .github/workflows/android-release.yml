@@ -1,0 +1,433 @@
+name: Android release-AAB
+
+# Bygger den SIGNERTE butikkbinæren — `app-release.aab` — av nøyaktig den samme
+# webbuilden som huskis.no, og laster den opp som artifact. Kjeden er den samme
+# som debug-APK-en bruker (docs/mobilapp-plan.md, fase 6):
+#
+#   node build.js  →  dist/  →  cap sync android  →  gradlew bundleRelease
+#
+# Forskjellen fra `android-debug.yml` er signaturen. Debug-APK-en signeres med
+# Androids flyktige debugnøkkel, som er ny på hver maskin; denne signeres med
+# UPLOAD-nøkkelen, som er én stabil identitet og kommer fra GitHub-secrets.
+# Ingenting av nøkkelmaterialet ligger i repoet, og ingenting av det skrives ut.
+#
+# Workflowen publiserer INGENTING til Google Play. Den produserer artifactet du
+# laster ned og laster opp manuelt til det interne testsporet første gang.
+#
+# ---- To jobbmoduser, én jobb ------------------------------------------------
+#
+#   pull_request      — kun FAIL CLOSED-prøven: et release-bygg UTEN
+#                       signeringsmateriale skal avvises, og ikke stille legge
+#                       fra seg en usignert AAB. Ingen secrets brukes.
+#   workflow_dispatch — samme prøve, og deretter det ekte signerte bygget.
+#
+# Prøven kjører altså også foran hvert signert bygg: hver eneste AAB som lastes
+# opp herfra har nettopp bevist sin egen fail-closed-vakt.
+#
+# Nødvendige repository-secrets (Settings → Secrets and variables → Actions):
+#   ANDROID_UPLOAD_KEYSTORE_BASE64   — upload-keystoren (.jks), base64
+#   ANDROID_UPLOAD_KEYSTORE_PASSWORD — passordet til keystoren
+#   ANDROID_UPLOAD_KEY_ALIAS         — aliaset til upload-nøkkelen
+#   ANDROID_UPLOAD_KEY_PASSWORD      — passordet til selve nøkkelen
+#
+# Valgfri repository-VARIABEL (ikke en secret — et sertifikatfingeravtrykk er
+# offentlig, Google Play viser det selv):
+#   ANDROID_UPLOAD_CERT_SHA256       — fingeravtrykket bygget skal ha. Er den
+#                                      satt, feiler jobben hvis AAB-en er
+#                                      signert med en annen nøkkel. Det er
+#                                      maskinsjekken på at signaturidentiteten
+#                                      faktisk er STABIL.
+#
+# Hvordan nøkkelen lages, hva forskjellen på upload key og app-signing key er,
+# og hva som må gjøres manuelt i Play Console: docs/mobilapp-plan.md, fase 6.
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - 'android/**'
+      - 'capacitor.config.json'
+      - 'package.json'
+      - 'package-lock.json'
+      - 'build.js'
+      - '.github/workflows/android-release.yml'
+      - 'tests/android-release.test.js'
+
+concurrency:
+  group: android-release-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  aab:
+    name: Release-AAB
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      # En butikkbinær bygges normalt av `main`. Andre grener er tillatt (det er
+      # slik oppsettet prøves ut første gang), men skal ikke kunne forveksles
+      # med en release i ettertid — derfor står grenen i loggen og i
+      # jobbsammendraget.
+      - name: Si hvilken kilde artifactet bygges av
+        run: |
+          set -euo pipefail
+          echo "ref=$GITHUB_REF  sha=$GITHUB_SHA"
+          if [ "$GITHUB_REF" != "refs/heads/main" ] && [ "$GITHUB_EVENT_NAME" = "workflow_dispatch" ]; then
+            echo "::warning::Bygger fra $GITHUB_REF, ikke main. En AAB som skal til Google Play bør bygges av main."
+          fi
+
+      # Samme Node-versjon som resten av CI. Capacitor 8 krever Node 22+.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      # Capacitors Android-prosjekt kompilerer mot Java 21. JDK-en gir samtidig
+      # `keytool`, som verifiserer signaturen på den ferdige AAB-en.
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      # `versionCode` er BÅDE Google Plays opplastingsnummer og OTA-ens
+      # kompatibilitetsnivå (docs/mobilapp-plan.md, fase 6). Et nummer som er
+      # senket er to feil på én gang: Play avviser en opplasting som gjenbruker
+      # et nummer, og OTA-manifestspennet ville krympet under skall som alt står
+      # ute. Ingen av delene oppdages av et bygg — de oppdages i Play Console
+      # eller på en telefon som stille slutter å få oppdateringer.
+      #
+      # Sammenligningen går mot PR-ens base, som er den ene faste referansen en
+      # gren har. Bare senking feller: at tallet skal ØKES før en ny opplasting
+      # er en regel for opplastingen, ikke for hver PR.
+      - name: Sjekk at versionCode ikke er senket
+        if: github.event_name == 'pull_request'
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          set -euo pipefail
+          # Samme parser som OTA-manifestet bruker — ikke en ny kopi av den.
+          cat > "$RUNNER_TEMP/les-versioncode.js" <<'JS'
+          const fs = require('fs');
+          const ota = require(process.env.GITHUB_WORKSPACE + '/.github/scripts/ota-bundle.js');
+          process.stdout.write(String(ota.readVersionCode(fs.readFileSync(process.argv[2], 'utf8'))));
+          JS
+          # Utsjekket er grunt (fetch-depth 1), så basen må hentes eksplisitt.
+          if ! git fetch --depth=1 origin "$BASE_SHA"; then
+            echo "::error::Fikk ikke hentet PR-ens base ($BASE_SHA). Kjør jobben på nytt."
+            exit 1
+          fi
+          git show "$BASE_SHA:android/app/build.gradle" > "$RUNNER_TEMP/base-build.gradle"
+          base_code="$(node "$RUNNER_TEMP/les-versioncode.js" "$RUNNER_TEMP/base-build.gradle")"
+          head_code="$(node "$RUNNER_TEMP/les-versioncode.js" android/app/build.gradle)"
+          echo "versionCode: $base_code (base) → $head_code (denne grenen)"
+          if [ "$head_code" -lt "$base_code" ]; then
+            echo "::error::versionCode er senket fra $base_code til $head_code. Tallet er Google Plays opplastingsnummer og OTA-ens kompatibilitetsnivå — det kan bare økes. Se docs/mobilapp-plan.md, fase 6."
+            exit 1
+          fi
+          echo "✅ versionCode er ikke senket."
+
+      # Testene FØR artifactet produseres. Nettlesersuiten kjøres av `ci.yml` på
+      # den PR-en commiten kom fra; det som gjenstår her er de rene
+      # node-vaktene, og de dekker nettopp det denne jobben kan ødelegge:
+      # byggeutdataen, mobilskallet, release-signeringen og releasekjeden.
+      - name: Kjør de rene node-testene
+        run: |
+          set -euo pipefail
+          for t in build-version capacitor-android android-release release-pipeline \
+                   security-headers no-legacy-domain db-contract i18n; do
+            echo "──────── tests/$t.test.js ────────"
+            node "tests/$t.test.js"
+          done
+
+      # `npm ci` bygger node_modules fra package-lock.json alene — ingen
+      # versjonsdrift mellom denne kjøringen og neste.
+      - name: Installer npm-avhengighetene reproduserbart
+        run: npm ci
+
+      # Nøyaktig samme steg som Vercel kjører. AAB-en får altså den samme
+      # webbuilden som huskis.no, ikke en egen mobilvariant.
+      - name: Bygg webappen
+        run: node build.js
+
+      - name: Kopier dist/ inn i Android-prosjektet
+        run: npx cap sync android
+
+      # Den GENERERTE Capacitor-konfigurasjonen — kopien som faktisk pakkes i
+      # binæren — finnes bare etter `cap sync`, så sjekken av den hopper over
+      # seg selv i den vanlige node-runden. Her finnes filen.
+      - name: Verifiser den GENERERTE Capacitor-konfigurasjonen
+        run: node tests/capacitor-android.test.js
+
+      # Runneren har Android SDK-en forhåndsinstallert, men ikke nødvendigvis
+      # akkurat den plattformen prosjektet kompilerer mot. Nivået leses fra
+      # android/variables.gradle, så de to aldri kan komme i utakt.
+      - name: Installer SDK-plattformen prosjektet kompilerer mot
+        run: |
+          set -euo pipefail
+          sdk="$(grep -oE 'compileSdkVersion[[:space:]]*=[[:space:]]*[0-9]+' android/variables.gradle | grep -oE '[0-9]+')"
+          echo "compileSdkVersion=$sdk"
+          sdkmanager="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
+          # `yes` dør av SIGPIPE i det sdkmanager slutter å lese. Med `pipefail`
+          # ville den døden blitt lest som at lisensgodkjenningen feilet, så den
+          # er av akkurat her.
+          set +o pipefail
+          yes | "$sdkmanager" --licenses > /dev/null
+          set -o pipefail
+          "$sdkmanager" "platforms;android-$sdk"
+
+      # ---- FAIL CLOSED ------------------------------------------------------
+      # Uten vakten i android/app/build.gradle gjør Gradle nøyaktig det farlige:
+      # `bundleRelease` fullfører uten signingConfig og legger fra seg en
+      # USIGNERT app-release.aab med det vanlige navnet. En jobb som lastet den
+      # opp ville sett grønn ut helt til Play Console avviste den.
+      #
+      # Dette steget kjører derfor et release-bygg med TOMT signeringsmiljø og
+      # krever at det avvises — av vakten, ikke av en tilfeldig annen feil, og
+      # uten at det finnes en AAB på disk etterpå. Det er den ene invarianten
+      # som ikke kan leses ut av en fil.
+      - name: Fail closed — release uten signeringsmateriale skal avvises
+        working-directory: android
+        env:
+          HUSKIS_UPLOAD_KEYSTORE_FILE: ''
+          HUSKIS_UPLOAD_KEYSTORE_PASSWORD: ''
+          HUSKIS_UPLOAD_KEY_ALIAS: ''
+          HUSKIS_UPLOAD_KEY_PASSWORD: ''
+        run: |
+          set -euo pipefail
+          aab=app/build/outputs/bundle/release/app-release.aab
+          rm -f "$aab"
+          # Statusen fanges i stedet for å felle skriptet: her er en NULLSTATUS
+          # feilen vi leter etter, og med `set -e` ville et forventet avslag
+          # drept skriptet før det fikk sagt hva det fant.
+          status=0
+          ./gradlew --no-daemon bundleRelease > /tmp/fail-closed.log 2>&1 || status=$?
+          cat /tmp/fail-closed.log
+          if [ "$status" -eq 0 ]; then
+            echo "::error::bundleRelease gikk gjennom UTEN signeringsmateriale. Vakten i android/app/build.gradle er borte, og en usignert AAB kan nå produseres stille."
+            exit 1
+          fi
+          if ! grep -q 'Release-signeringen er ikke konfigurert' /tmp/fail-closed.log; then
+            echo "::error::bundleRelease feilet, men ikke på signeringsvakten. Da beviser ikke denne prøven noe — se loggen over."
+            exit 1
+          fi
+          if [ -f "$aab" ]; then
+            echo "::error::Det ble liggende igjen en AAB etter et avvist release-bygg: $aab"
+            exit 1
+          fi
+          echo "✅ Et release-bygg uten signeringsmateriale avvises, og legger ingenting fra seg."
+
+      # ---- Fra og med her: det ekte, signerte bygget ------------------------
+      # Alt under kjører KUN på manuell start. På en pull request er jobben
+      # ferdig etter prøven over, og har aldri sett en secret.
+
+      # Alle fire secretene sjekkes FØR noe arbeid gjøres, slik at en manglende
+      # secret feller jobben med det samme og ikke halvveis. Verdiene leses kun
+      # som «tom eller ikke» — ingen av dem skrives ut.
+      - name: Sjekk at signeringssecretene finnes
+        if: github.event_name == 'workflow_dispatch'
+        env:
+          ANDROID_UPLOAD_KEYSTORE_BASE64: ${{ secrets.ANDROID_UPLOAD_KEYSTORE_BASE64 }}
+          ANDROID_UPLOAD_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_UPLOAD_KEYSTORE_PASSWORD }}
+          ANDROID_UPLOAD_KEY_ALIAS: ${{ secrets.ANDROID_UPLOAD_KEY_ALIAS }}
+          ANDROID_UPLOAD_KEY_PASSWORD: ${{ secrets.ANDROID_UPLOAD_KEY_PASSWORD }}
+        run: |
+          set -euo pipefail
+          for s in ANDROID_UPLOAD_KEYSTORE_BASE64 ANDROID_UPLOAD_KEYSTORE_PASSWORD \
+                   ANDROID_UPLOAD_KEY_ALIAS ANDROID_UPLOAD_KEY_PASSWORD; do
+            if [ -z "${!s}" ]; then
+              echo "::error::Mangler secret $s. Uten den kan ingen signert release-AAB bygges. Se docs/mobilapp-plan.md, fase 6."
+              exit 1
+            fi
+          done
+          echo "✅ Alle fire signeringssecretene finnes."
+
+      # Keystoren skrives UTENFOR repoet ($RUNNER_TEMP), slik at ingen
+      # `git status`, ingen `cap sync` og ingen artifact-opplasting kan komme
+      # borti den. `umask 077` gjør at bare runnerbrukeren kan lese den, og
+      # opprydningssteget nederst fjerner den uansett utfall.
+      - name: Skriv upload-keystoren utenfor repoet
+        if: github.event_name == 'workflow_dispatch'
+        env:
+          ANDROID_UPLOAD_KEYSTORE_BASE64: ${{ secrets.ANDROID_UPLOAD_KEYSTORE_BASE64 }}
+          ANDROID_UPLOAD_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_UPLOAD_KEYSTORE_PASSWORD }}
+          ANDROID_UPLOAD_KEY_ALIAS: ${{ secrets.ANDROID_UPLOAD_KEY_ALIAS }}
+        run: |
+          set -euo pipefail
+          umask 077
+          sti="$RUNNER_TEMP/huskis-upload.jks"
+          # `tr -d` først: en secret limt inn med linjeskift er fortsatt gyldig
+          # base64, men `base64 -d` er ikke enig i alle utgaver.
+          printf '%s' "$ANDROID_UPLOAD_KEYSTORE_BASE64" | tr -d '[:space:]' | base64 -d > "$sti"
+          if [ ! -s "$sti" ]; then
+            echo "::error::ANDROID_UPLOAD_KEYSTORE_BASE64 dekodet til ingenting. Lag den med: base64 -w0 upload.jks"
+            exit 1
+          fi
+          # Passordet går inn som MILJØVARIABEL (`:env`), aldri på kommandolinja
+          # — argumenter er synlige for andre prosesser og havner i sporinger.
+          # Dette er den ene tidlige prøven på at keystore, passord og alias
+          # faktisk hører sammen; uten den kommer feilen som en Gradle-sporing.
+          if ! keytool -list -keystore "$sti" \
+                 -storepass:env ANDROID_UPLOAD_KEYSTORE_PASSWORD \
+                 -alias "$ANDROID_UPLOAD_KEY_ALIAS" > /dev/null 2>&1; then
+            echo "::error::Keystoren lot seg ikke åpne med det oppgitte passordet, eller den har ikke aliaset i ANDROID_UPLOAD_KEY_ALIAS."
+            exit 1
+          fi
+          echo "HUSKIS_UPLOAD_KEYSTORE_FILE=$sti" >> "$GITHUB_ENV"
+          echo "✅ Keystoren er lest, og aliaset finnes i den."
+
+      # Passordene og aliaset settes på DETTE steget alene — ikke i
+      # $GITHUB_ENV, som ville båret dem videre til hvert eneste steg etterpå.
+      # Stien til keystoren er ikke hemmelig og kommer derfra.
+      - name: Bygg signert release-AAB
+        if: github.event_name == 'workflow_dispatch'
+        working-directory: android
+        env:
+          HUSKIS_UPLOAD_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_UPLOAD_KEYSTORE_PASSWORD }}
+          HUSKIS_UPLOAD_KEY_ALIAS: ${{ secrets.ANDROID_UPLOAD_KEY_ALIAS }}
+          HUSKIS_UPLOAD_KEY_PASSWORD: ${{ secrets.ANDROID_UPLOAD_KEY_PASSWORD }}
+        run: ./gradlew --no-daemon bundleRelease
+
+      # Signaturen leses ut av det ferdige artifactet, ikke antatt av at Gradle
+      # var fornøyd. `keytool -printcert -jarfile` feiler hardt på en usignert
+      # fil, så steget er i seg selv den siste fail-closed-porten.
+      #
+      # Fingeravtrykket er OFFENTLIG — Play Console viser det selv — og er det
+      # eneste som identifiserer signaturen utenfra. Er repository-variabelen
+      # ANDROID_UPLOAD_CERT_SHA256 satt, kreves det at det er NØYAKTIG samme
+      # nøkkel som sist: det er maskinsjekken på en stabil app-signatur.
+      - name: Verifiser signaturen på AAB-en
+        if: github.event_name == 'workflow_dispatch'
+        env:
+          FORVENTET_FINGERAVTRYKK: ${{ vars.ANDROID_UPLOAD_CERT_SHA256 }}
+        run: |
+          set -euo pipefail
+          aab=android/app/build/outputs/bundle/release/app-release.aab
+          if [ ! -f "$aab" ]; then
+            echo "::error::Gradle la ikke fra seg noen AAB på $aab"
+            exit 1
+          fi
+          keytool -printcert -jarfile "$aab" > /tmp/aab-cert.txt
+          cat /tmp/aab-cert.txt
+          fingeravtrykk="$(grep -m1 -oE 'SHA256: [0-9A-Fa-f:]+' /tmp/aab-cert.txt | cut -d' ' -f2)"
+          echo "AAB_CERT_SHA256=$fingeravtrykk" >> "$GITHUB_ENV"
+          echo "Sertifikatets SHA-256: $fingeravtrykk"
+          if [ -n "$FORVENTET_FINGERAVTRYKK" ]; then
+            # Sammenlignes uten kolon og uten hensyn til store/små bokstaver, så
+            # verdien kan limes inn i variabelen i den formen Play viser den.
+            a="$(printf '%s' "$fingeravtrykk" | tr -d ':' | tr 'A-F' 'a-f')"
+            b="$(printf '%s' "$FORVENTET_FINGERAVTRYKK" | tr -d ':' | tr 'A-F' 'a-f')"
+            if [ "$a" != "$b" ]; then
+              echo "::error::AAB-en er signert med en ANNEN nøkkel enn den repository-variabelen ANDROID_UPLOAD_CERT_SHA256 sier. Signaturidentiteten er ikke stabil — Google Play vil avvise opplastingen. Fikk $fingeravtrykk."
+              exit 1
+            fi
+            echo "✅ Samme signaturidentitet som ANDROID_UPLOAD_CERT_SHA256."
+          else
+            echo "::warning::Repository-variabelen ANDROID_UPLOAD_CERT_SHA256 er ikke satt, så signaturidentiteten sammenlignes ikke med noe. Sett den til $fingeravtrykk for å låse den."
+          fi
+
+      # Hva binæren faktisk ERKLÆRER, lest ut av Gradles egen sammenslåing av
+      # release-manifestet — ikke av kilden den ble bygget fra. Package ID og
+      # versionCode er de to som ikke kan rettes opp i ettertid: den første er
+      # låst for appens levetid etter første opplasting, den andre kan aldri
+      # gjenbrukes.
+      - name: Verifiser identiteten i det bygde release-manifestet
+        if: github.event_name == 'workflow_dispatch'
+        run: |
+          set -euo pipefail
+          # Identiteten repoet BESKRIVER, lest med den samme parseren som
+          # OTA-manifestet bruker (`readVersionCode`) — ikke en ny kopi av den.
+          node - <<'JS' > "$RUNNER_TEMP/identitet.env"
+          const fs = require('fs');
+          const ota = require(process.cwd() + '/.github/scripts/ota-bundle.js');
+          const rå = fs.readFileSync('android/app/build.gradle', 'utf8');
+          const kode = rå.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^[ \t]*\/\/.*$/gm, '');
+          const felt = (navn) => (kode.match(new RegExp(navn + '\\s+"([^"]+)"')) || [])[1];
+          const versjon = JSON.parse(fs.readFileSync('dist/version.json', 'utf8'));
+          console.log('FORVENTET_APPLICATION_ID=' + felt('applicationId'));
+          console.log('FORVENTET_VERSION_CODE=' + ota.readVersionCode(rå));
+          console.log('FORVENTET_VERSION_NAME=' + felt('versionName'));
+          console.log('BYGD_RELEASE_ID=' + (versjon.releaseId || 'ukjent'));
+          JS
+          cat "$RUNNER_TEMP/identitet.env"
+          # $GITHUB_ENV virker først i NESTE steg, og sammenligningen skjer i
+          # dette. Verdiene må derfor inn i skallet her OG videre til
+          # oppsummeringen etterpå.
+          set -a; . "$RUNNER_TEMP/identitet.env"; set +a
+          cat "$RUNNER_TEMP/identitet.env" >> "$GITHUB_ENV"
+          # `-print -quit` i stedet for `| head -1`: en pipe som lukkes tidlig
+          # dreper `find` med SIGPIPE, og med `pipefail` ville den døden blitt
+          # lest som at søket feilet.
+          merged="$(find android/app/build/intermediates -path '*merged_manifest*/release/*' -name AndroidManifest.xml -print -quit)"
+          if [ -z "$merged" ]; then
+            echo "::error::Fant ikke det sammenslåtte release-manifestet under android/app/build/intermediates"
+            exit 1
+          fi
+          echo "== $merged =="
+          # Leses med en XML-parser, ikke med grep: AGP skriver det sammenslåtte
+          # manifestet med ett attributt per linje, så et linjebasert søk ville
+          # sett forbi halvparten.
+          python3 - "$merged" <<'PY'
+          import os, sys, xml.etree.ElementTree as ET
+          NS = '{http://schemas.android.com/apk/res/android}'
+          rot = ET.parse(sys.argv[1]).getroot()
+          faktisk = {
+              'applicationId': rot.get('package'),
+              'versionCode': rot.get(NS + 'versionCode'),
+              'versionName': rot.get(NS + 'versionName'),
+          }
+          forventet = {
+              'applicationId': os.environ['FORVENTET_APPLICATION_ID'],
+              'versionCode': os.environ['FORVENTET_VERSION_CODE'],
+              'versionName': os.environ['FORVENTET_VERSION_NAME'],
+          }
+          feil = 0
+          for k in forventet:
+              ok = faktisk[k] == forventet[k]
+              print(('OK   ' if ok else 'FEIL ') + k + ': ' + repr(faktisk[k])
+                    + ' (forventet ' + repr(forventet[k]) + ')')
+              if not ok:
+                  feil += 1
+          if feil:
+              print('::error::Den bygde binæren har ikke identiteten repoet beskriver.')
+              sys.exit(1)
+          PY
+
+      - name: Skriv oppsummering for den manuelle opplastingen
+        if: github.event_name == 'workflow_dispatch'
+        run: |
+          set -euo pipefail
+          {
+            echo "### Release-AAB"
+            echo
+            echo "| Felt | Verdi |"
+            echo "|---|---|"
+            echo "| Package ID | \`$FORVENTET_APPLICATION_ID\` |"
+            echo "| versionCode | \`$FORVENTET_VERSION_CODE\` |"
+            echo "| versionName | \`$FORVENTET_VERSION_NAME\` |"
+            echo "| releaseId | \`$BYGD_RELEASE_ID\` |"
+            echo "| commit | \`$GITHUB_SHA\` |"
+            echo "| ref | \`$GITHUB_REF\` |"
+            echo "| Sertifikat (SHA-256) | \`$AAB_CERT_SHA256\` |"
+            echo
+            echo "Last ned artifactet **huskis-release-aab** og last det opp i"
+            echo "Google Play Console → Testing → Internal testing."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - uses: actions/upload-artifact@v4
+        if: github.event_name == 'workflow_dispatch'
+        with:
+          name: huskis-release-aab
+          path: android/app/build/outputs/bundle/release/app-release.aab
+          if-no-files-found: error
+
+      # Keystoren skal ikke bli liggende igjen på runneren, heller ikke når et
+      # steg over har feilet. Filen ligger utenfor repoet og kan aldri ha blitt
+      # med i artifactet, men en runner er ikke stedet en signeringsnøkkel skal
+      # overleve jobben sin.
+      - name: Fjern keystoren fra runneren
+        if: always()
+        run: rm -f "$RUNNER_TEMP/huskis-upload.jks"
