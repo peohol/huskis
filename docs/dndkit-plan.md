@@ -14,9 +14,9 @@ den er autoritativ.
 | 2. Testinfrastrukturen | **ferdig** — alle elleve DnD-testfilene drives av ekte input (`tests/dnd-gestures.js`) |
 | 3. Nav-scopet | **ferdig** — `vendor/smett-0.1.0.js` er sjekket inn (smett@8a760a3, som pinner esbuild eksakt), og nav-modalen kjøres av dnd-kit |
 | 4. Board-scopet, kortnivået | **ferdig** — listene på hovedsiden kjøres av dnd-kit (samme innsjekkede artefakt; ingen Smett-endring trengtes) |
-| 5. Board-scopet, radnivået | gjenstår — NESTE |
-| 6. Ekstrahering til ny liste | gjenstår for board-scopet; nav-scopets versjon kom med steg 3 (se under) |
-| 7. Rydding | gjenstår |
+| 5. Board-scopet, radnivået | **ferdig** — listepunkter og kategorier kjøres av dnd-kit (samme innsjekkede artefakt; ingen Smett-endring trengtes) |
+| 6. Ekstrahering til ny liste | **ferdig** — den lot seg ikke utsette, og kom med steg 5, som nav-scopets kom med steg 3 (se under) |
+| 7. Rydding | gjenstår — NESTE |
 
 ## Hva som har skjedd i Smett
 
@@ -260,9 +260,12 @@ små tilvalg — `itemType?(el)` og `containerAccept?(el)` — løser det, og
 5. **Retningsstyringen er borte.** Vår regel er «nedover-drag bytter kun med kortet
    under». Smetts `hysteresisCollision` har ingen retningsinngang: den tar nærmeste
    godkjente nabo, og reverseringslåsen gjør jobben retningen gjorde. Det er en
-   bevisst forenkling i Smett, men det er en oppførselsendring som må kjennes på,
-   ikke bare leses. Etter steg 3 og 4 har den ikke gitt utslag i noen test — men
-   det er heller ikke MÅLT: ingen av testene teller antall bytter per bevegelse.
+   bevisst forenkling i Smett. Etter steg 5 har den ett MÅLT utslag, og det er ikke
+   retningen men OVERLAPPEN: hysteresen måler hvor mye av NABOEN som dekkes, og et
+   lavt listepunkt rekker aldri 20 % av en høy kategori. Den gamle motoren byttet
+   nettopp derfor til senterbasert innsetting så snart nivå 1 hadde en kategori.
+   Sluttplasseringen ved slippet er punktbasert og upåvirket; det er
+   forhåndsvisningen som ikke følger med (se «Det steg 5 lærte», punkt 2).
 6. ~~**Auto-scroll-sonene.**~~ **MÅLT** i steg 4, på hovedsidens board (det er
    der window-scrollen er). Et sikte rett under den faste toppmenyen
    (`topbarBottom + 12 px`) scroller siden oppover — sonen rekker altså godt under
@@ -324,9 +327,10 @@ verifiserbart.
    og det er det scopet der en feil er minst synlig for en bruker.
 4. ~~**Board-scopet, kortnivået**~~ **GJORT**: kollaps-alle, board-vakten,
    søppelkassen, breadcrumben, `scrollDroppedIntoView`.
-5. **Board-scopet, radnivået** (listepunkt + kategori): peek, skillelinjer,
+5. ~~**Board-scopet, radnivået**~~ **GJORT**: peek, skillelinjer,
    kategori-kollaps, kategori → annen liste.
-6. **Ekstrahering til ny liste** til slutt — den er mest Huskis og minst Smett.
+6. ~~**Ekstrahering til ny liste** til slutt~~ **GJORT, sammen med steg 5** —
+   den lot seg ikke utsette (se «Det steg 5 lærte»).
 7. **Rydding**: slett den døde motoren, skriv om `drag-and-drop.md` til
    nåtilstanden, og la dette dokumentet dø.
 
@@ -372,7 +376,7 @@ arver de to siste.
 etter det løftede objektet og bærer de samme klassene. `previousElementSibling`/
 `nextElementSibling` — som hele `pos`-regnestykket hviler på — leste den som
 naboen, og svarte da alltid «ingen nabo på den siden», altså «sist i lista»,
-uansett hvor man slapp. `boardRows`/`isBoardRow` og en egen `navRowSibling`
+uansett hvor man slapp. `boardRows`/`isBoardRow` og en egen `dndRowSibling`
 hopper over den nå. Det samme gjelder `sepRows` (skillelinjene) og
 `restoreCardsAfterDrag`.
 
@@ -434,7 +438,7 @@ ligger inne i kortene og krever ingenting.
 ubetinget fordi modalen har nøyaktig én kolonne. Hovedsidens board har flere, og
 alle ville meldt seg samtidig for et slipp i lufta under board-et. Svaret regnes
 ut av kortets egen boks, én gang per bevegelse — samme mønster som
-`navTargetCont`.
+`dndRowTargetCont`.
 
 **4. Klonen holder plassen med den KOLLAPSEDE boksen — og det er den
 drop-animasjonen sikter på.** Kolonnene er frosset gjennom draget, så
@@ -451,3 +455,112 @@ board-et mens pekeren sto i toppmenyen. Begge målene der er soner nå, og Smett
 ruller lista tilbake FØR handlingen — så rekkefølgen underveis har ingen virkning,
 og veien opp går tvers over kortene uansett. Det fantes ingen test som kunne
 skille de to tilfellene, og mekanikken ble derfor ikke portet.
+
+## Det steg 5 lærte
+
+Radnivået på hovedsiden er i mål, og med det kjøres alle fem nivåene av dnd-kit.
+Åtte ting er verdt å ta med til ryddingen — og til enhver senere endring i
+politikken.
+
+**1. Ekstraheringen måtte med, som i nav.** Planen la den til steg 6, men den lot
+seg ikke utsette: så snart radene kjøres av dnd-kit, sorterer biblioteket raden
+inn i en container hver gang pekeren er over board-et, og `placeNewListPlaceholder`
+hadde ingen vei inn. Løsningen er den nav-scopet alt bruker — `containerAccept`
+svarer tomt mens modusen står på. Steg 6 er dermed gjort.
+
+**2. Forhåndsvisningen når ikke alltid fram; slippet gjør det.** dnd-kits
+optimistiske sortering flytter raden underveis BARE når den overlapper en RAD. Er
+det ingen rad å overlappe — en tom liste, stripen over første rad, stripen under
+siste, en kategori for høy til at et lavt listepunkt dekker en femtedel av den —
+er containeren selv slippmålet, og plasseringen avgjøres først ved slippet
+(`AuthoritativeDrop` → `insertByPoint`). Utfallet er riktig; det er hullet som
+ikke rekker å flytte seg først. Det er den ENE gjenstående forskjellen mot den
+gamle motoren som en bruker kan se, og den hører hjemme i Smett om den skal
+lukkes: en `settle` også på `dragover`, ikke bare ved slippet.
+
+**3. `dragmove` alene er ikke et pålitelig signal.** dnd-kit oppdaterer sin egen
+posisjon og kjører sin egen kollisjonsrunde uten alltid å melde en `dragmove`:
+etter en peek-utvidelse er det målt at pekeren flyttet seg 100–400 px,
+`dragOperation.position` fulgte med og `dragover` fyrte — men ingen `dragmove`.
+Politikken henger derfor på begge krokene (`dndRowPolicy`). Testene merker det
+samme fra utsiden, og sender hver bevegelse som TO punkter — som `travel()` i
+`tests/dnd-gestures.js` alt gjør, av samme grunn.
+
+**4. Står pekeren stille, skal svaret stå stille.** Vår egen plassering flytter
+radene, og en ny runde på det samme punktet leser den nye layouten som en ny
+intensjon: en rad lagt inn over en kategori dyttet kategorien ned under pekeren,
+og neste runde leste det som «legg raden i kategorien i stedet», som flyttet den
+igjen. Den gamle motoren hadde vakten uten å vite av den — den regnet bare på
+`pointermove`. Nå står den eksplisitt i `dndRowPolicy`.
+
+**5. Intensjonsboksen må være LAYOUT-boksen.** `intentRectangle` er uklemt, men
+den er målt på elementet slik det MALES — og vi skalerer det 1,02/1,03 mens det
+er løftet. To piksler der er forskjellen på å være i lista og å falle ut av den:
+en peek rakk ikke å åpne fordi den nedre 1/3 lå 0,3 px for lavt. `dndSyncIntent`
+beholder derfor senteret (skalaen er sentrert) og bytter størrelsen mot
+objektets egen `offsetWidth`/`offsetHeight`, målt ved løft.
+
+**6. Klonen speiler det LØFTEDE objektet.** dnd-kit bygger den på nytt av
+objektet ved hver sortering, så en klasse eller inline-stil satt på klonen selv er
+borte ved neste bevegelse. Alt som skal stå på hullet må settes på objektet også
+(`addSep`). Og linjene må tegnes én gang til på neste frame:
+dnd-kit avgjør plasseringen i kollisjonsrunden, men SKRIVER den asynkront.
+
+**7. En regel uten virkning er ingen regel.**
+`.board [data-dnd-placeholder] { rotate: none }` gjorde ingenting — klonen bærer
+rotasjonen som en INLINE-stil, og en inline-stil slår enhver klasseregel, så en
+bred, lav rad fikk et hull dobbelt så høyt som seg selv. Med `!important` står
+den. Målingen fant samtidig at viewport-klemmen ikke tar rotasjonen med i det
+hele tatt: et kort dratt til nedre høyre hjørne på en 390 × 780-skjerm lå 13 px
+under viewportkanten. Det ble PRØVD rettet ved å legge rotasjons-slarken oppå
+enhetens safe insets — og da løsnet grepet fra fingeren med den samme slarken
+hver gang objektet nærmet seg en kant (`dnd-layout-modes` sjekk 1). Klemmen
+holder derfor fortsatt den MÅLTE boksen, og `dnd-viewport-clamp` regner
+rotasjons-slarken inn i sin egen toleranse i stedet. Objektet ligger i top layer,
+så hjørnet utenfor kanten er kosmetikk; grepet er det ikke.
+
+**8. Containersvaret er én kollisjonsrunde gammelt.** Totrinnsregelen — kortet
+velger container, pekeren velger hylle eller nivå 1 — regnes ut i vår egen
+`dragmove`-lytter, og den løper ETTER dnd-kits kollisjonsrunde. I den ene runden
+svaret er for gammelt, rakk hysteresen å bytte det løftede listepunktet med
+kategori-RADEN mens pekeren allerede var inne i kategorien: kategorien hoppet en
+radhøyde oppover, siktepunktet ble liggende under den, og raden landet ved siden
+av kategorien i stedet for i den. Var hylla i tillegg tom, fantes det ingen rad
+inni å sortere mot som kunne rettet det opp igjen. Det er nøyaktig den samme
+feilen som den KOLLAPSEDE kategorien i steg 3, og den har det samme svaret:
+spørsmålet må stilles i kollisjonsdetektoren, mot pekeren dnd-kit selv holder
+(`dragOperation.position.current`) — ikke mot den vi noterte forrige bevegelse.
+Vakten står i `dndCategoryRowCollision`; `tests/dnd-peek-collapsed.test.js` test 7
+og `tests/onboarding.test.js` (`drag_into_cat`) er de to som fanger den. Det ble
+først prøvd med et NOTAT i stedet — «radene konkurrerer bare inne i containeren
+totrinnsregelen valgte» — og det gjorde vondt verre: et for gammelt svar ble til
+et VETO, og et slipp nederst i en liste sluttet å bytte plass med siste rad
+(`dnd-extract-thresholds` F1/F2). En vakt som leser forrige bevegelse er ikke en
+sen vakt; den er en gal en. Et forsøk på å RETTE OPP svaret ved slippet i stedet
+— regn containeren ut på nytt av slipp-punktet og flytt raden dit — viste seg
+samtidig å ikke rette opp noe som helst: `dndSetRowTarget` tvinger en ny
+kollisjonsrunde når containersvaret endrer seg, så slippmålet følger allerede
+med. Mekanismen ble fjernet igjen; ingen sjekk kunne se den.
+
+## De tre beslutningene steg 5 tok
+
+**Låst mål under draget: `containerAccept` holdt, uten en Smett-endring.** For
+board-scopet er regelen om CONTAINEREN alene — radene i en låst liste kan ikke
+løftes (`data-dnd-ignore`), så kilden er aldri selv låst, og hovedsiden har ingen
+virtuell beholder som må kunne omrokkeres innvendig men ikke tas imot utenfra.
+`boardRowAccept` svarer derfor tomt for en frossen liste, og avvisningen skjer
+under draget: hullet dukker aldri opp der. Verken et kilde-argument i Smetts
+`containerAccept` eller egne `accept` satt ved `dragstart` trengtes. Prisen er at
+et slipp da ikke har noe å si fra om — derfor sier `boardWarnLockedTarget` det
+ved slippet, og commit-sjekken står igjen som vakten for lista som ble låst MENS
+draget pågikk. I NAV-scopet er den samme regelen fortsatt kilde-avhengig (den
+virtuelle fri-beholderen), og den avgjøres der fortsatt ved slippet. Skal den
+også bli en drag-tid-regel, er det et kilde-argument i `containerAccept` — en
+Smett-PR i egen rett.
+
+**Ekstraheringen ble slått sammen med steg 5.** Se punkt 1 over.
+
+**Smett resynker fortsatt ikke etter et vellykket `onCommit`.** Steg 5 trengte
+den ikke: `renderBoard` avslutter med `boardSyncBoards()`, som melder BEGGE
+board-ene på hovedsiden (de har hver sin manager). Den står fortsatt åpen som en
+Smett-PR i egen rett.

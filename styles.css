@@ -2161,11 +2161,11 @@ body.is-dragging * { cursor: grabbing !important; }
 .nav-board .hint-chip { background: var(--wash); }
 
 /* ---------------- dnd-kits dra-og-slipp ----------------
-   Nav-modalen (alle tre nivåene) og hovedsidens KORTNIVÅ kjører på dnd-kit
-   gjennom Smett (se «NAV-SCOPET PÅ dnd-kit» og «BOARD-SCOPETS KORTNIVÅ PÅ
-   dnd-kit» i app.js). Reglene står derfor på `.board`, som begge board-ene
-   bærer; hovedsidens listepunkter og kategorier bruker fortsatt den gamle
-   motorens `.dragging` (docs/dndkit-plan.md).
+   ALLE fem nivåene — nav-modalens tre og hovedsidens to — kjører på dnd-kit
+   gjennom Smett (se «NAV-SCOPET PÅ dnd-kit», «BOARD-SCOPETS KORTNIVÅ …» og
+   «BOARD-SCOPETS RADNIVÅ …» i app.js). Reglene står derfor på `.board`, som
+   begge board-rotene bærer. Den gamle motorens `.dragging`-regler lenger opp i
+   fila har ingen lesere igjen og ryddes i steg 7 (docs/dndkit-plan.md).
    dnd-kit løfter selve objektet inn i TOP LAYER via `popover` og lar
    en KLONE holde plassen i layouten, så de to tilstandene har egne kroker:
 
@@ -2190,6 +2190,18 @@ body.is-dragging * { cursor: grabbing !important; }
   list-style: none;
   cursor: grabbing;
 }
+/* Kategorien dras som en kompakt rad: hylla er foldet sammen ved løft
+   (`dndCollapseCategory`), og resten må matche et listepunkt — samme polstring
+   og radius, ingen gap mot den sammenfoldede hylla, og klipping så den ikke
+   stikker ut. Nøyaktig de samme fire verdiene som `.category.dragging` lenger
+   opp i fila; uten dem leser det løftede objektet som en beholder med luft i.
+   Måles i `dnd-drop-animation` («6 kategori»), på det som faktisk står malt. */
+.board .category[data-dnd-dragging] {
+  gap: 0;
+  padding: 6px;
+  border-radius: 10px;
+  overflow: hidden;
+}
 /* Skillelinjene hører til kategoriens plass på nivå 1 (mot nabo-radene) — de
    skal ikke males på det løftede objektet (ga ellers en «fantom-strek»). */
 .board .category[data-dnd-dragging]::before,
@@ -2208,6 +2220,16 @@ body.is-dragging * { cursor: grabbing !important; }
   -webkit-text-stroke: none;
 }
 .board .category[data-dnd-dragging] .cat-drag-icon { display: inline-flex; }
+/* Forhåndsvisnings-linja som skal males på HULLET settes på det LØFTEDE
+   objektet, fordi klonen speiler klassene dens (se `addSep` i app.js). Objektet
+   ligger i top layer og er ingen rad i lista: det skal hverken male linja eller
+   ta imot marginen som gjør plass til den — dnd-kit setter `top`/`left` selv, og
+   en `margin-top` på 25 px ville flyttet det løftede objektet vekk fra fingeren. */
+.board [data-dnd-dragging].sep-above,
+.board [data-dnd-dragging].sep-below { margin: 0 !important; }
+.board [data-dnd-dragging].sep-above::before,
+.board [data-dnd-dragging].sep-below::after { content: none; }
+
 /* Sikter man på søppelkassen, gjøres det løftede objektet gjennomskinnelig så
    kassen (med sin `.drop-target`-markering) synes gjennom det — samme grep som
    `.dragging.to-trash` på hovedsidens board. */
@@ -2232,11 +2254,20 @@ body.is-dragging * { cursor: grabbing !important; }
 .board .item[data-dnd-placeholder],
 .board .category[data-dnd-placeholder] { border-radius: 10px; }
 /* Klonen er tatt av det løftede objektet ETTER at rotasjonen ble satt fra JS
-   (dndPaintRotation) — hullet i lista skal stå rett. */
-.board [data-dnd-placeholder] { rotate: none; scale: none; }
+   (dndPaintRotation), så den bærer den som en INLINE-stil — og en inline-stil
+   slår enhver klasseregel. Hullet i lista skal stå rett, så her må det
+   `!important` til; uten det er regelen en vakt som ikke vokter noe (en bred,
+   lav rad fikk et hull dobbelt så høyt som seg selv). */
+.board [data-dnd-placeholder] { rotate: none !important; scale: none !important; }
 .board [data-dnd-placeholder] > * { visibility: hidden; }
-.board .category[data-dnd-placeholder]::before,
-.board .category[data-dnd-placeholder]::after { content: none; }
+/* Kategoriens hvile-linjer hører til kategorien, ikke til hullet — MEN under et
+   raddrag ER klonen «raden som kommer», og da er det den som skal bære linja
+   (`applyDragSeparators` gir den `.sep-above`/`.sep-below` som enhver annen
+   rad). Unntaket må derfor skrives på samme form som `seps-managed` bruker,
+   ellers slår det — mer spesifikt — ut den forhåndsvisningen det ikke handler
+   om. */
+.board .category[data-dnd-placeholder]:not(.sep-above)::before,
+.board .category[data-dnd-placeholder]:not(.sep-below)::after { content: none; }
 
 /* Aktivt område / aktiv mappe: samme grønne brand-ring som resten av appen,
    trukket innover så den ikke kolliderer med nabokortet. */

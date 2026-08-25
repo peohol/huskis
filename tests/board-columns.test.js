@@ -309,10 +309,18 @@ async function lift(p, sel) {
     for (let i = 0; i < 200; i++) {
       await p.mouse.move(z.cx, z.cy + 8 + i * 3);
       const s = await p.evaluate(() => {
-        const d = document.querySelector('.item.dragging');
-        const ph = document.querySelector('.item-placeholder');
+        const d = document.querySelector('#board .item[data-dnd-dragging]');
+        const ph = document.querySelector('#board [data-dnd-placeholder]');
         const ar = document.querySelector('.card[data-id="card-1"] .add-item-row');
-        const top = parseFloat(d.style.top) - window.scrollY, h = parseFloat(d.style.height);
+        // Den LOGISKE dra-boksen, som treffdeteksjonen bruker: dnd-kits uklemte
+        // intensjonsboks, med størrelsen byttet mot objektets egen layout-boks
+        // (det malte er skalert, og `getBoundingClientRect` ville dessuten gitt
+        // den ROTERTE omslutningsboksen). Samme regnestykke som `dndSyncIntent`.
+        const op = window.__huskis.boardRowBoard.manager.dragOperation;
+        const ir = window.Smett.intentRectangle(op);
+        const bb = ir && (ir.boundingRectangle || ir);
+        const h = d.offsetHeight;
+        const top = bb ? bb.top + bb.height / 2 - h / 2 : NaN;
         const r = ar && ar.getBoundingClientRect();
         return {
           mode: document.querySelector('.new-list-placeholder') ? 'extract' : (ph ? 'reorder' : '-'),

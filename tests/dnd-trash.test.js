@@ -117,7 +117,7 @@ async function dragOnto(p, fromSel, targetSel, opts = {}) {
   const aiming = await p.evaluate((s) => {
     const el = document.querySelector(s);
     return { sikter: !!el && el.classList.contains('drop-target'),
-      gjennomskinnelig: !!document.querySelector('.dragging.to-trash') };
+      gjennomskinnelig: !!document.querySelector('.dragging.to-trash, [data-dnd-dragging].to-trash') };
   }, targetSel);
   if (opts.shot) await p.screenshot({ path: opts.shot });
   if (opts.abortAway) {

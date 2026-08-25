@@ -114,7 +114,7 @@ const residue = (p) => p.evaluate(() => {
     // Begge motorene: den gamle merker med `.dragging`, dnd-kit med
     // `[data-dnd-dragging]`.
     dragging: document.querySelectorAll('.dragging, [data-dnd-dragging]').length,
-    ph: document.querySelectorAll('.card-placeholder, .item-placeholder, .group-placeholder, .new-list-placeholder').length,
+    ph: document.querySelectorAll('.card-placeholder, .item-placeholder, .group-placeholder, .new-list-placeholder, [data-dnd-placeholder]').length,
     isDragging: document.body.classList.contains('is-dragging'),
     cursor: getComputedStyle(document.body).cursor,
     inlinePos: dragged ? (dragged.getAttribute('style') || '') : '',
@@ -129,7 +129,16 @@ const log = (n, ok, x = '') => { results.push(ok); console.log((ok ? 'PASS' : 'F
 (async () => {
   const b = await chromium.launch();
 
-  /* ===== 7) Auto-scroll: samme fysiske tid → samme avstand på 60 og 120 fps ===== */
+  /* ===== 7) Auto-scroll under et RAD-drag =====
+     Fartsnormaliseringen (`frameSteps`: px per 60 Hz-frame, klemt dt) var vår
+     egen, og den fulgte med motoren ut — auto-scrollen er dnd-kits `AutoScroller`
+     nå, på alle nivåene. At farten er per frame og ikke per millisekund er
+     dermed upstreams sak (`docs/dndkit-plan.md`, risiko 6), og en falsk
+     rAF-klokke måler biblioteket, ikke oss.
+
+     Det som fortsatt er VÅRT å vokte er at auto-scrollen i det hele tatt slår
+     inn for et listepunkt: holdes fingeren i bunn-sonen, skal siden rulle — det
+     er den eneste veien til en liste lenger ned på en høy skjerm. */
   {
     const p = await b.newPage({ viewport: { width: 420, height: 820 }, hasTouch: true, isMobile: true });
     const errs = []; p.on('pageerror', (e) => errs.push(e.message));
@@ -142,44 +151,19 @@ const log = (n, ok, x = '') => { results.push(ok); console.log((ok ? 'PASS' : 'F
     await pointer(p, 'pointerdown', it.x, it.y); await p.waitForTimeout(260);
     await pointer(p, 'pointermove', it.x, 700); await p.waitForTimeout(60);
     await pointer(p, 'pointermove', it.x, 806); await p.waitForTimeout(120);
-
-    // Overta rAF: loopen re-scheduler seg mot den GLOBALE funksjonen, så den
-    // flytter seg inn i vår falske klokke ved neste frame.
-    await p.evaluate(() => {
-      const st = { t: performance.now(), cbs: new Map(), next: 1 };
-      window.__raf = st;
-      window.requestAnimationFrame = (cb) => { st.cbs.set(st.next, cb); return st.next++; };
-      window.cancelAnimationFrame = (id) => { st.cbs.delete(id); };
-      window.__step = (dt, n) => {
-        for (let i = 0; i < n; i++) {
-          st.t += dt;
-          const due = [...st.cbs.entries()];
-          st.cbs.clear();
-          due.forEach(([, cb]) => cb(st.t));
-        }
-      };
-    });
-    await p.waitForTimeout(120); // siste ekte frame flytter loopen inn i den falske
-
-    const run = (dt, n) => p.evaluate(({ dt, n }) => {
-      const y0 = window.scrollY;
-      window.__step(dt, n);
-      return window.scrollY - y0;
-    }, { dt, n });
-
-    const d60 = await run(1000 / 60, 12);   // 200 ms i 60 fps
-    const d120 = await run(1000 / 120, 24); // 200 ms i 120 fps
-    const dPause = await run(5000, 1);      // «fanen lå i bakgrunnen»
-    const perFrame = d60 / 12;
-    log('7 auto-scroll kjører i det hele tatt', d60 > 40, 'd60=' + d60.toFixed(1));
-    log('7 lik simulert tid → tilnærmet lik avstand ved 60 og 120 RAF-steg',
-      Math.abs(d120 - d60) / Math.max(1, d60) < 0.15,
-      'd60=' + d60.toFixed(1) + ' d120=' + d120.toFixed(1));
-    log('7 stort dt (bakgrunnsfane) klemmes — ingen hopp',
-      dPause <= perFrame * 3.5 + 1, 'dPause=' + dPause.toFixed(1) + ' per frame=' + perFrame.toFixed(1));
-
-    await p.evaluate(() => { window.requestAnimationFrame = (cb) => setTimeout(() => cb(performance.now()), 16); });
+    const y0 = await p.evaluate(() => window.scrollY);
+    // Ekte klokke: 600 ms med fingeren i sonen. Fast venting er RIKTIG her —
+    // dette er gest- og animasjonsfysikk, ikke en tilstand å vente på.
+    await p.waitForTimeout(600);
+    const y1 = await p.evaluate(() => window.scrollY);
+    log('7 auto-scroll ruller siden mens et listepunkt holdes i bunn-sonen',
+      y1 - y0 > 40, 'scrollY ' + y0 + ' → ' + y1);
+    // …og den STOPPER ved slippet.
     await pointer(p, 'pointerup', it.x, 806); await p.waitForTimeout(500);
+    const y2 = await p.evaluate(() => window.scrollY);
+    await p.waitForTimeout(400);
+    const y3 = await p.evaluate(() => window.scrollY);
+    log('7 auto-scrollen stopper ved slippet', Math.abs(y3 - y2) <= 2, 'scrollY ' + y2 + ' → ' + y3);
     log('7 ingen JS-feil', errs.length === 0, errs.join(' | '));
     await p.close();
   }
@@ -190,8 +174,8 @@ const log = (n, ok, x = '') => { results.push(ok); console.log((ok ? 'PASS' : 'F
      skal avbryte gesten: window-lytterne lever videre, og et bredere nett fikk
      lister/listepunkter/kategorier til å «glippe» rett etter løft. */
   for (const K of [{ n: 'liste', sel: '.card[data-id="card-A"] .card-head', drag: '#board .card[data-dnd-dragging]' },
-    { n: 'listepunkt', sel: '.item[data-id="it-B-2"]', drag: '.item.dragging' },
-    { n: 'kategori', sel: '.category[data-id="cat-A"] .cat-head', drag: '.category.dragging' }]) {
+    { n: 'listepunkt', sel: '.item[data-id="it-B-2"]', drag: '#board .item[data-dnd-dragging]' },
+    { n: 'kategori', sel: '.category[data-id="cat-A"] .cat-head', drag: '#board .category[data-dnd-dragging]' }]) {
     const p = await b.newPage({ viewport: { width: 420, height: 820 }, hasTouch: true, isMobile: true });
     const errs = []; p.on('pageerror', (e) => errs.push(e.message));
     await register(p); await seed(p, [['A', 8, 3], ['B', 8]]);
@@ -285,8 +269,8 @@ const log = (n, ok, x = '') => { results.push(ok); console.log((ok ? 'PASS' : 'F
   }
 
   /* ===== 9) Ekstern window-scroll under listepunkt-/kategori-drag ===== */
-  for (const K of [{ n: 'listepunkt', sel: '.item[data-id="it-A-3"]', drag: '.item.dragging' },
-    { n: 'kategori', sel: '.category[data-id="cat-A"] .cat-head', drag: '.category.dragging' }]) {
+  for (const K of [{ n: 'listepunkt', sel: '.item[data-id="it-A-3"]', drag: '#board .item[data-dnd-dragging]' },
+    { n: 'kategori', sel: '.category[data-id="cat-A"] .cat-head', drag: '#board .category[data-dnd-dragging]' }]) {
     const p = await b.newPage({ viewport: { width: 420, height: 820 }, hasTouch: true, isMobile: true });
     const errs = []; p.on('pageerror', (e) => errs.push(e.message));
     await register(p); await seed(p, [['A', 12, 4], ['B', 20]]);

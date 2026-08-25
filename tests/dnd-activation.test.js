@@ -123,12 +123,17 @@ const log = (n, ok, x = '') => { results.push(ok); console.log((ok ? 'PASS' : 'F
     await p.mouse.down();
     // ETT stort hopp: draget starter i dette punktet (terskel 5 px for mus).
     await p.mouse.move(src.x, src.y - 40); await p.waitForTimeout(80);
-    const lifted = await p.evaluate(() => document.querySelectorAll('.item.dragging').length);
-    const off1 = await grabOffset(p, '.item.dragging', src.y - 40);
+    const lifted = await p.evaluate(() => document.querySelectorAll('#board .item[data-dnd-dragging]').length);
+    // Hendelsen som AKTIVERER draget bærer ikke også flyttingen: dnd-kit maler
+    // objektet på hvileplassen den ene framen, og under pekeren fra og med neste.
+    // Med en ekte musestrøm er det ett steg på noen få piksler; her er hoppet 40,
+    // og målingen må derfor starte etter at draget faktisk er i gang.
+    await p.mouse.move(src.x, src.y - 39); await p.waitForTimeout(60);
+    const off1 = await grabOffset(p, '#board .item[data-dnd-dragging]', src.y - 39);
     // Én piksel videre: med gammelt grep (målt fra pointerdown) ville objektet
     // hoppet ~39 px her; med nytt grep følger det pekeren.
     await p.mouse.move(src.x, src.y - 41); await p.waitForTimeout(60);
-    const off2 = await grabOffset(p, '.item.dragging', src.y - 41);
+    const off2 = await grabOffset(p, '#board .item[data-dnd-dragging]', src.y - 41);
     log('1 mus: draget er i gang', lifted === 1, 'dragging=' + lifted);
     log('1 mus: ingen rykk tilbake til pointerdown-punktet (grepet er stabilt)',
       Math.abs(off2 - off1) < 2, 'off1=' + off1.toFixed(1) + ' off2=' + off2.toFixed(1));
@@ -147,10 +152,13 @@ const log = (n, ok, x = '') => { results.push(ok); console.log((ok ? 'PASS' : 'F
     await pointer(p, 'pointerdown', src.x, src.y);
     // 8 px drift — under HOLD_MOVE (10), så holdet overlever.
     await pointer(p, 'pointermove', src.x, src.y - 8); await p.waitForTimeout(280);
-    const lifted = await p.evaluate(() => document.querySelectorAll('.item.dragging').length);
-    const off1 = await grabOffset(p, '.item.dragging', src.y - 8);
+    const lifted = await p.evaluate(() => document.querySelectorAll('#board .item[data-dnd-dragging]').length);
+    // Se test 1: første bevegelse etter aktiveringen er den som maler objektet
+    // under fingeren. Grepet måles fra og med den.
+    await pointer(p, 'pointermove', src.x, src.y - 7); await p.waitForTimeout(60);
+    const off1 = await grabOffset(p, '#board .item[data-dnd-dragging]', src.y - 7);
     await pointer(p, 'pointermove', src.x, src.y - 9); await p.waitForTimeout(60);
-    const off2 = await grabOffset(p, '.item.dragging', src.y - 9);
+    const off2 = await grabOffset(p, '#board .item[data-dnd-dragging]', src.y - 9);
     log('2 touch: holdet overlevde driften og løftet objektet', lifted === 1, 'dragging=' + lifted);
     log('2 touch: ingen offset ved løft (grepet følger fingeren)',
       Math.abs(off2 - off1) < 2, 'off1=' + off1.toFixed(1) + ' off2=' + off2.toFixed(1));
@@ -172,9 +180,9 @@ const log = (n, ok, x = '') => { results.push(ok); console.log((ok ? 'PASS' : 'F
     await G.touchSecond(p, rest, src);
     await p.waitForTimeout(320); // godt forbi HOLD_MS
     const state = await p.evaluate(() => ({
-      dragging: document.querySelectorAll('.dragging').length,
+      dragging: document.querySelectorAll('.dragging, [data-dnd-dragging]').length,
       hold: document.querySelectorAll('.drag-hold').length,
-      ph: document.querySelectorAll('.item-placeholder, .card-placeholder, .group-placeholder').length,
+      ph: document.querySelectorAll('.item-placeholder, .card-placeholder, .group-placeholder, .new-list-placeholder').length,
     }));
     log('3 sekundær peker: ingen drag, ingen press-feedback, ingen placeholder',
       state.dragging === 0 && state.hold === 0 && state.ph === 0, JSON.stringify(state));
