@@ -80,6 +80,33 @@ jobs:
             echo "::warning::Bygger fra $GITHUB_REF, ikke main. En AAB som skal til Google Play bør bygges av main."
           fi
 
+      # Alle fire secretene sjekkes HER, som det første etter utsjekket: en
+      # manglende secret skal felle jobben med det samme, ikke etter at
+      # testene, npm-installasjonen, webbuilden, Capacitor-synken,
+      # SDK-installasjonen og fail-closed-prøven har brukt sin tid. Og ikke
+      # bare for tidsbruken: en feil i et av de stegene ville ellers stoppet
+      # jobben FØR denne meldingen, og da er diagnosen «du mangler en secret»
+      # borte akkurat når den trengs. Steget trenger verken Node eller Java.
+      #
+      # Verdiene leses kun som «tom eller ikke» — ingen av dem skrives ut.
+      - name: Sjekk at signeringssecretene finnes
+        if: github.event_name == 'workflow_dispatch'
+        env:
+          ANDROID_UPLOAD_KEYSTORE_BASE64: ${{ secrets.ANDROID_UPLOAD_KEYSTORE_BASE64 }}
+          ANDROID_UPLOAD_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_UPLOAD_KEYSTORE_PASSWORD }}
+          ANDROID_UPLOAD_KEY_ALIAS: ${{ secrets.ANDROID_UPLOAD_KEY_ALIAS }}
+          ANDROID_UPLOAD_KEY_PASSWORD: ${{ secrets.ANDROID_UPLOAD_KEY_PASSWORD }}
+        run: |
+          set -euo pipefail
+          for s in ANDROID_UPLOAD_KEYSTORE_BASE64 ANDROID_UPLOAD_KEYSTORE_PASSWORD \
+                   ANDROID_UPLOAD_KEY_ALIAS ANDROID_UPLOAD_KEY_PASSWORD; do
+            if [ -z "${!s}" ]; then
+              echo "::error::Mangler secret $s. Uten den kan ingen signert release-AAB bygges. Se docs/mobilapp-plan.md, fase 6."
+              exit 1
+            fi
+          done
+          echo "✅ Alle fire signeringssecretene finnes."
+
       # Samme Node-versjon som resten av CI. Capacitor 8 krever Node 22+.
       - uses: actions/setup-node@v4
         with:
@@ -223,27 +250,6 @@ jobs:
       # ---- Fra og med her: det ekte, signerte bygget ------------------------
       # Alt under kjører KUN på manuell start. På en pull request er jobben
       # ferdig etter prøven over, og har aldri sett en secret.
-
-      # Alle fire secretene sjekkes FØR noe arbeid gjøres, slik at en manglende
-      # secret feller jobben med det samme og ikke halvveis. Verdiene leses kun
-      # som «tom eller ikke» — ingen av dem skrives ut.
-      - name: Sjekk at signeringssecretene finnes
-        if: github.event_name == 'workflow_dispatch'
-        env:
-          ANDROID_UPLOAD_KEYSTORE_BASE64: ${{ secrets.ANDROID_UPLOAD_KEYSTORE_BASE64 }}
-          ANDROID_UPLOAD_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_UPLOAD_KEYSTORE_PASSWORD }}
-          ANDROID_UPLOAD_KEY_ALIAS: ${{ secrets.ANDROID_UPLOAD_KEY_ALIAS }}
-          ANDROID_UPLOAD_KEY_PASSWORD: ${{ secrets.ANDROID_UPLOAD_KEY_PASSWORD }}
-        run: |
-          set -euo pipefail
-          for s in ANDROID_UPLOAD_KEYSTORE_BASE64 ANDROID_UPLOAD_KEYSTORE_PASSWORD \
-                   ANDROID_UPLOAD_KEY_ALIAS ANDROID_UPLOAD_KEY_PASSWORD; do
-            if [ -z "${!s}" ]; then
-              echo "::error::Mangler secret $s. Uten den kan ingen signert release-AAB bygges. Se docs/mobilapp-plan.md, fase 6."
-              exit 1
-            fi
-          done
-          echo "✅ Alle fire signeringssecretene finnes."
 
       # Keystoren skrives UTENFOR repoet ($RUNNER_TEMP), slik at ingen
       # `git status`, ingen `cap sync` og ingen artifact-opplasting kan komme

@@ -22,10 +22,18 @@ def signeringsFil = rootProject.file('keystore.properties')
 if (signeringsFil.exists()) {
     signeringsFil.withInputStream { signeringsEgenskaper.load(it) }
 }
+/* Verdien brukes NØYAKTIG som den er gitt. Trimming er kun tomhetstesten:
+   en secret som er blank teller som usatt, men et passord som lovlig
+   BEGYNNER eller SLUTTER med blanktegn skal ikke endres av oss. Ble det
+   trimmet, ville `keytool`-forsjekken i android-release.yml (som leser den
+   RÅ secreten) godtatt passordet og Gradle etterpå avvist det — samme
+   verdi, to forskjellige svar. Gjelder stien og aliaset likt: en sti med et
+   blanktegn på slutten navngis av vakten under, og er dermed synlig. */
+def erSatt = { String v -> v != null && !v.trim().isEmpty() }
 def signeringsVerdi = { String miljo, String egenskap ->
     def v = System.getenv(miljo)
-    if (v == null || v.trim().isEmpty()) v = signeringsEgenskaper.getProperty(egenskap)
-    (v == null || v.trim().isEmpty()) ? null : v.trim()
+    if (!erSatt(v)) v = signeringsEgenskaper.getProperty(egenskap)
+    erSatt(v) ? v : null
 }
 def uploadKeystore      = signeringsVerdi('HUSKIS_UPLOAD_KEYSTORE_FILE', 'storeFile')
 def uploadStorePassword = signeringsVerdi('HUSKIS_UPLOAD_KEYSTORE_PASSWORD', 'storePassword')

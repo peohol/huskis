@@ -2368,6 +2368,13 @@ De fire første legges inn under Settings → Secrets and variables → Actions 
 hemmelig, og den er maskinsjekken på at signaturidentiteten er STABIL: er den
 satt, feiler jobben hvis AAB-en er signert med en annen nøkkel enn sist.
 
+Verdiene brukes **nøyaktig som de er lagret**. Et passord kan lovlig begynne
+eller slutte med blanktegn, så Gradle trimmer dem ikke — trimming brukes bare
+til å avgjøre om en secret er blank, altså usatt. Prisen er at et linjeskift på
+slutten av en secret er en ekte forskjell: `gh secret set X < fil` tar med
+linjeskiftet, mens innliming i nettleseren ikke gjør det. Er passordet feil,
+sier `keytool`-forsjekken i jobben fra før Gradle i det hele tatt starter.
+
 Gradle leser aldri secretene direkte. Workflowen skriver keystoren til
 `$RUNNER_TEMP` (utenfor repoet), setter miljøvariablene
 `HUSKIS_UPLOAD_KEYSTORE_FILE`, `HUSKIS_UPLOAD_KEYSTORE_PASSWORD`,

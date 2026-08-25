@@ -259,6 +259,17 @@ check('en lokal, gitignorert properties-fil er alternativet til miljøvariablene
   /rootProject\.file\('keystore\.properties'\)/.test(appGradleKode), 'android/keystore.properties');
 check('miljøvariabelen vinner over den lokale fila',
   /System\.getenv\([^)]*\)[\s\S]{0,200}?getProperty\(/.test(appGradleKode));
+/* Og verdien brukes NØYAKTIG som den er gitt. Et passord kan lovlig begynne
+   eller slutte med blanktegn, og et `trim()` på vei ut ville endret det —
+   uten å si fra. Verre: `keytool`-forsjekken i android-release.yml leser den
+   RÅ secreten, så et trimmet passord ville gitt to forskjellige svar på den
+   samme verdien (forsjekken ja, Gradle nei). Trimming hører derfor kun til
+   tomhetstesten: en blank secret teller som usatt. */
+check('tomhetstesten bruker trim', /trim\(\)\.isEmpty\(\)/.test(appGradleKode));
+check('…men verdien returneres uendret (et passord kan lovlig ha blanktegn)',
+  /erSatt\(v\) \? v : null/.test(appGradleKode)
+    && !/[?:]\s*v\.trim\(\)/.test(appGradleKode),
+  (appGradleKode.match(/erSatt\(v\) \?[^\n]*/) || ['fant ikke returuttrykket'])[0].trim());
 
 /* Ingen verdi skrevet inn i skriptet. Et literal passord her ville vært en
    hemmelighet i repoet, uansett hvor «midlertidig» den var ment. */
@@ -389,6 +400,7 @@ const iTester = steg(/^\s*(?:-\s*)?(?:name:[^\n]*\n)?[\s\S]*?run:[\s\S]*?tests\/
 const iSync = steg(/run:[^\n]*cap sync android/);
 const iByggAab = steg(/run:[^\n]*gradlew[^\n]*bundleRelease\s*$/m);
 const iOpplasting = steg(/name: huskis-release-aab/);
+const iFailClosed = steg(new RegExp(VAKTSETNING));
 check('testene kjøres FØR artifactet produseres',
   iTester > -1 && iByggAab > -1 && iTester < iByggAab,
   'tester: steg #' + iTester + ', bundleRelease: steg #' + iByggAab);
@@ -421,12 +433,22 @@ for (const s of ['ANDROID_UPLOAD_KEYSTORE_BASE64', 'ANDROID_UPLOAD_KEYSTORE_PASS
 }
 check('en manglende secret feller jobben (fail closed, ikke usignert artifact)',
   /if \[ -z "\$\{!s\}" \]/.test(wfKode) && /::error::Mangler secret/.test(wfKode));
+/* Og porten står FØRST. Sto den etter testene, npm-installasjonen, webbuilden,
+   synken, SDK-installasjonen og fail-closed-prøven, ville en manglende secret
+   kostet nesten hele jobben — og, verre, en feil i et av de stegene ville
+   stoppet jobben før meldingen «Mangler secret X» rakk å bli skrevet. Da er
+   diagnosen borte nøyaktig når den trengs. */
+const iSecretPort = steg(/::error::Mangler secret/);
+const iNpmCi = steg(/run: npm ci/);
+check('secret-porten står FØR alt arbeid som koster tid',
+  iSecretPort > -1 && iNpmCi > -1 && iSecretPort < iNpmCi && iSecretPort < iFailClosed,
+  'secret-port: steg #' + iSecretPort + ', npm ci: steg #' + iNpmCi
+    + ', fail-closed: steg #' + iFailClosed);
 
 /* FAIL CLOSED, lag 2: prøven som KJØRER et release-bygg uten materiale og
    krever at det avvises — av vakten i build.gradle, ikke av en tilfeldig annen
    feil, og uten at det ligger igjen en AAB. Dette er den ene invarianten som
    ikke kan leses ut av en fil, og den kjører også foran hvert signert bygg. */
-const iFailClosed = steg(new RegExp(VAKTSETNING));
 check('workflowen prøver fail-closed-vakten ved å faktisk kjøre et release-bygg uten nøkkel',
   iFailClosed > -1 && /HUSKIS_UPLOAD_KEYSTORE_PASSWORD: ''/.test(wfKode),
   'steg #' + iFailClosed);
