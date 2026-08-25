@@ -182,13 +182,14 @@ Det er derfor kollisjonsdetektorene under finnes: de gjør containeren til et
 svar, slik at slippet har et mål å lande i. Å lukke forskjellen helt hører hjemme
 i Smett — en `settle` også på `dragover`, ikke bare ved slippet.
 
-**Sluttplasseringen er autoritativ.** Den løpende plasseringen er retningsstyrt,
-men den SISTE bevegelsen før et slipp kan være koalescert bort eller helt utelatt
-(rask gest, eller en peker som bare hoppet fra nedtrykk til slipp). Ved slippet
+**Sluttplasseringen er autoritativ.** Den løpende plasseringen er
+overlapp-basert, og den SISTE bevegelsen før et slipp kan være koalescert bort
+eller helt utelatt (rask gest, eller en peker som bare hoppet fra nedtrykk til
+slipp) — hullet kunne da bli stående fra nest siste bevegelse. Ved slippet
 kjøres derfor én siste plassering fra de FAKTISKE slipp-koordinatene, for alle
-fem nivåene. Den er **ren punktbasert**: ingen retning (det finnes ingen ved et
-hopp), ingen 20 %-terskel og ingen anti-reverseringslås — slipp-punktet ER
-brukerens tydelige sluttintensjon.
+fem nivåene. Den er **ren punktbasert** (`insertByPoint`): hverken 20 %-terskelen
+eller reverseringslåsen gjelder der — slipp-punktet ER brukerens tydelige
+sluttintensjon, og et raskt slipp skal lande der, ikke ett hakk unna.
 
 ### Politikken regnes om på BÅDE `dragmove` og `dragover`
 

@@ -1,6 +1,8 @@
 /* ============================================================
    Huskis — app.js
-   Vanilla JS. Egen dra-og-slipp-motor på Pointer Events.
+   Vanilla JS, ingen bundler. Dra-og-slipp kjøres av dnd-kit gjennom Smett
+   (`vendor/smett-0.1.0.js`); hva et slipp BETYR ligger her, i seksjonen
+   «DELT DnD-POLITIKK». Autoritativt: docs/drag-and-drop.md.
    ============================================================ */
 (function () {
   'use strict';
