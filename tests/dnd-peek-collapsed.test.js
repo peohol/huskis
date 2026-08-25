@@ -195,7 +195,15 @@ const log = (n, ok, x = '') => { results.push(ok); console.log((ok ? 'PASS' : 'F
     await slide(p, src.x + 4, src.y + 4); await p.waitForTimeout(40);
     const bHead = await centerOf(p, '.card[data-id="card-B"] .card-head');  // se 1)
     await slide(p, bHead.x, bHead.y); await p.waitForTimeout(60);
-    await slide(p, bHead.x + 1, bHead.y + 20); await p.waitForTimeout(300); // peek åpner
+    /* Bli værende over B og vent forbi PEEK_MS. Siktepunktet regnes ut av det
+       KOLLAPSEDE KORTETS egen boks — ikke som korthodets senter pluss et tall.
+       Et kollapset kort er bare korthodet, ~56 px høyt, så «+20» lå 8 px fra
+       underkanten: en renderer som gir korthodet noen piksler mindre (målt: CI)
+       la punktet UTENFOR kortet, `dragOverCard` svarte «ingen liste»,
+       ekstraheringsmodus slo inn og peek startet aldri. Senteret har hele
+       halvhøyden som slark. */
+    const iB = await centerOf(p, '.card[data-id="card-B"]');
+    await slide(p, iB.x, iB.y); await p.waitForTimeout(300); // peek åpner
     let openPeek = await isCollapsedDom(p, 'card-B', 'card');
     log('2 B peek-åpnet før slipp', openPeek === false, 'collapsed=' + openPeek);
     // Slipp inne i B.
