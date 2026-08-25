@@ -283,8 +283,9 @@ const log = (n, ok, x = '') => { results.push(ok); console.log((ok ? 'PASS' : 'F
   /* ============ 5) Integrasjon: peek virker i en økt ETTER et kategori-drag ============
      Røyktest at et kategori-drag (som er det ENESTE som setter `drag.card`) ikke
      etterlater tilstand som blokkerer et påfølgende listepunkt-peek. `drag.card`
-     nullstilles per drag i `beginDragCommon` nettopp for at en stale kategori-kilde
-     ikke skal kunne ekskludere et kort fra peek (`c !== drag.card`). */
+     nullstilles ved hvert løft (`*DragBegin`) nettopp for at en stale
+     kategori-kilde ikke skal kunne ekskludere et kort fra peek
+     (`c !== drag.card`). */
   {
     const p = await b.newPage({ viewport: { width: 1200, height: 900 }, hasTouch: true });
     const errs = []; p.on('pageerror', (e) => errs.push(e.message));

@@ -8,7 +8,10 @@ per-enhet-minnet for aktiv mappe/område.
 - **Ren statisk app**: `index.html` + `styles.css` + `app.js`. Ingen bundler og
   ingen rammeverk; `node build.js` stempler kun en build-ID inn i produksjons-
   kopien (`docs/auto-update.md`).
-- **Vanilla JS** med egen dra-og-slipp-motor på Pointer Events (mus + touch likt) — se `docs/drag-and-drop.md`.
+- **Vanilla JS**, uten klientavhengigheter i appkoden. Dra-og-slipp er det ene
+  unntaket: gesten kjøres av dnd-kit gjennom Smett (`vendor/smett-0.1.0.js`, en
+  innsjekket, låst kopi), mens hva et slipp BETYR ligger i `app.js` — se
+  `docs/drag-and-drop.md`.
 - **Persistens** i `localStorage` (offline-buffer per konto); sanntids-synk mot
   Supabase (Auth + relasjonelle tabeller) — se `docs/accounts.md`.
 

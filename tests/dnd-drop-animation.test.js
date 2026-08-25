@@ -16,6 +16,18 @@
      som en EGEN `rotate`-egenskap: dnd-kit skriver `transform` selv, med
      `!important`, så en rotasjon lagt der ville forsvunnet uten at noe annet
      feilet.
+  7. To hvile-regler må vike for det LØFTEDE objektet, og de sier det med
+     dnd-kits krok — ikke med en klasse:
+       a) MØRK drakt gir et hvilende listepunkt en svak inset-kant
+          (`:root[data-theme="dark"] .item:not([data-dnd-dragging])`). Selektoren
+          er sterkere enn løfte-regelen, så uten unntaket ville det løftede
+          listepunktet mistet sin egen `--shadow-lg` — i mørk drakt alene.
+       b) En KLIKK-kollapset kategori har `margin-top: -4px` på hylla si
+          (`.category.collapsed:not([data-dnd-dragging]) > .cat-items`). Det
+          løftede objektet har allerede `gap: 0`, så margen ville gjort det 4px
+          lavere enn klonen som holder plassen.
+     Begge er usynlige for enhver annen sjekk i suiten: de gjelder bare mens noe
+     er løftet, og bare i den ene drakten / den ene kollaps-tilstanden.
 
   Gestene er EKTE input (`tests/dnd-gestures.js`).
 
@@ -127,8 +139,7 @@ const log = (n, ok, x = '') => { results.push(ok); console.log((ok ? 'PASS' : 'F
 
     const farX = M.vw + 260;
 
-    /* LISTEPUNKT — den gamle motoren: klemmen er `clampToViewport`, og
-       drop-transformen er vår egen.
+    /* LISTEPUNKT — klemmen er Smetts `SafeViewport`.
 
        Grepet tas ved radens VENSTRE kant og pekeren føres til kortets HØYRE
        kant. Den uklemte boksen stikker da langt ut av viewporten (klemmen er
@@ -153,11 +164,10 @@ const log = (n, ok, x = '') => { results.push(ok); console.log((ok ? 'PASS' : 'F
     log('5 ' + M.n + ': listepunktet er klemt innenfor viewporten før slippet',
       clamped.right <= clamped.vw + 2 && !clamped.extract, JSON.stringify(clamped));
 
-    /* Drop-animasjonen er dnd-kits nå, som for lista under: den flyr fra der
+    /* Drop-animasjonen er dnd-kits, som for lista under: den flyr fra der
        objektet FAKTISK ble malt (klemt) til hvileplassen, og påstanden er at
-       ingenting av dra-malingen blir liggende igjen. Den gamle motoren skrev
-       tweenen selv, i en `transform` vi kunne lese av ved `pointerup`; det
-       gjør dnd-kit ikke. */
+       ingenting av dra-malingen blir liggende igjen. Selve tweenen er
+       bibliotekets og kan ikke leses av ved `pointerup`. */
     await G.drop(p, undefined, true);
     await p.waitForFunction(() => !document.querySelector('[data-dnd-dragging]'), null, { timeout: 4000 });
     log('5 ' + M.n + ': slippet lot ingen dra-maling bli igjen på listepunktet',
@@ -229,10 +239,10 @@ const log = (n, ok, x = '') => { results.push(ok); console.log((ok ? 'PASS' : 'F
     await p.waitForFunction(() => !document.querySelector('[data-dnd-dragging]'), null, { timeout: 4000 });
     await p.waitForTimeout(300);
 
-    // KATEGORI → samme skala som et listepunkt (den ER en rad), og den samme
-    // KOMPAKTE formen den gamle motoren malte (`.category.dragging`): hylla er
-    // foldet sammen ved løft, så gap, polstring, radius og klipping må matche et
-    // listepunkt. Uten det leser det løftede objektet som en beholder med luft i.
+    // KATEGORI → samme skala som et listepunkt (den ER en rad), og en KOMPAKT
+    // rad-form: hylla er foldet sammen ved løft, så gap, polstring, radius og
+    // klipping må matche et listepunkt. Uten det leser det løftede objektet som
+    // en beholder med luft i.
     await p.evaluate(() => {
       const H = window.__huskis, st = H.state;
       const g = st.universes.find((u) => u.id === st.activeUniverse).groups.find((x) => x.id === st.activeGroup);
@@ -303,6 +313,68 @@ const log = (n, ok, x = '') => { results.push(ok); console.log((ok ? 'PASS' : 'F
     await p.waitForTimeout(600);
 
     log('6 ingen JS-feil', errs.length === 0, errs.join(' | '));
+    await p.close();
+  }
+
+  /* ===== 7) Hvile-regler som må vike for det LØFTEDE objektet ===== */
+  {
+    const p = await b.newPage({ viewport: { width: 1200, height: 900 }, hasTouch: true, colorScheme: 'dark' });
+    const errs = []; p.on('pageerror', (e) => errs.push(e.message));
+    await register(p); await seed(p, [['A', 4]]);
+    // Eksplisitt valg, ikke systemets: testen skal måle den mørke drakten
+    // uansett hva runneren har satt (docs/mork-drakt.md).
+    await p.evaluate(() => document.documentElement.setAttribute('data-theme', 'dark'));
+    await p.waitForTimeout(200);
+    log('7 drakten er mørk',
+      (await p.evaluate(() => document.documentElement.getAttribute('data-theme'))) === 'dark');
+
+    // (a) Det løftede listepunktet eier sin egen --shadow-lg, også i mørk drakt.
+    const restShadow = await p.evaluate(() =>
+      getComputedStyle(document.querySelector('.item[data-id="it-A-0"]')).boxShadow);
+    const it = await centerOf(p, '.item[data-id="it-A-1"]');
+    await G.lift(p, { x: it.x, y: it.y }, true);
+    await G.touchMove(p, it.x, it.y + 40); await p.waitForTimeout(120);
+    const liftShadow = await p.evaluate(() => {
+      const el = document.querySelector('#board .item[data-dnd-dragging]');
+      return el ? getComputedStyle(el).boxShadow : '(intet løftet)';
+    });
+    log('7a mørk drakt: hvilende listepunkt har den svake inset-kanten',
+      /inset/.test(restShadow), restShadow);
+    log('7a mørk drakt: det LØFTEDE listepunktet har løfte-skyggen, ikke inset-kanten',
+      liftShadow !== restShadow && !/inset/.test(liftShadow), liftShadow);
+    await G.drop(p, undefined, true);
+    await p.waitForFunction(() => !document.querySelector('[data-dnd-dragging]'), null, { timeout: 4000 });
+    await p.waitForTimeout(300);
+
+    // (b) En KLIKK-kollapset kategori: hylle-margen gjelder ikke det løftede
+    // objektet. `collapsed: true` seedes direkte — et klikk ville lagret.
+    await p.evaluate(() => {
+      const H = window.__huskis, st = H.state;
+      const g = st.universes.find((u) => u.id === st.activeUniverse).groups.find((x) => x.id === st.activeGroup);
+      const c = g.cards.find((x) => x.id === 'card-A');
+      const mk = () => ({ ts: 0, org: 't', posTs: 0, posOrg: 't' });
+      c.items.push(Object.assign({ id: 'cat-K', text: 'Kollapset', home: 'card-A', cat: null, isCat: true, trashed: false, done: false, collapsed: true, pos: 9 }, mk()));
+      c.items.push(Object.assign({ id: 'catm-K', text: 'M', home: 'card-A', cat: 'cat-K', isCat: false, trashed: false, done: false, pos: 0 }, mk()));
+      H.render();
+    });
+    await p.waitForTimeout(300);
+    const shelf = '.category[data-id="cat-K"] > .cat-items';
+    const restMargin = await p.evaluate((s) => getComputedStyle(document.querySelector(s)).marginTop, shelf);
+    const kh = await centerOf(p, '.category[data-id="cat-K"] .cat-head');
+    await G.lift(p, { x: kh.x, y: kh.y }, true);
+    await G.touchMove(p, kh.x, kh.y - 40); await p.waitForTimeout(120);
+    const liftMargin = await p.evaluate(() => {
+      const el = document.querySelector('#board .category[data-dnd-dragging] > .cat-items');
+      return el ? getComputedStyle(el).marginTop : '(intet løftet)';
+    });
+    log('7b kollapset kategori i hvile: hylla spiser det ene gapet (-4px)',
+      restMargin === '-4px', restMargin);
+    log('7b … men den LØFTEDE kategorien gjør ikke det (den har alt gap: 0)',
+      liftMargin === '0px', liftMargin);
+    await G.drop(p, undefined, true);
+    await p.waitForTimeout(400);
+
+    log('7 ingen JS-feil', errs.length === 0, errs.join(' | '));
     await p.close();
   }
 

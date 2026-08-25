@@ -10,18 +10,17 @@
   høyre, utvidet sidens scroll-bredde og (på iOS WebKit) skjøv den høyre-forankrede
   `position: fixed`-kontoknappen ut av viewporten.
 
-  Nav-modalen OG hovedsidens kortnivå kjører nå på dnd-kit (se
-  `docs/drag-and-drop.md`), som løfter objektet inn i TOP LAYER via `popover`.
-  Forankringen skal holde der også — det er den samme påstanden, mot en annen
-  mekanikk — så de nivåene måles med `[data-dnd-dragging]` i stedet for
-  `.dragging`, og `position: fixed` er dnd-kits egen regel i stedet for vår.
-  Bare listepunkt og kategori dras fortsatt `absolute` i dokument-koordinater.
+  Alle fem nivåene kjører på dnd-kit (se `docs/drag-and-drop.md`), som løfter
+  objektet inn i TOP LAYER via `popover`. Hele den feilklassen er dermed borte —
+  ingen forfar kan nå et element i top layer. Forankringen skal likevel holde,
+  og det er den påstanden som måles her: objektet ligger under pekeren, innenfor
+  viewporten, og toppmenyen rører seg ikke.
 
   SAMME FALLGRUVE, ANDRE KILDE (siste blokk): en DRAKT-regel som posisjonerer en
   forfar. Et forsøk med `position: relative` på `.card` (for å tegne en
   aksentstripe med `::before`) traff to ganger samtidig — `.card` ble containing
   block for listepunkter og kategorier, og selektoren var dessuten sterkere enn
-  `.card.dragging`, så det løftede KORTET ble `relative` i stedet for `absolute`.
+  løfte-regelen, så det løftede KORTET mistet sin egen posisjonering.
   Objektene la seg da ~114 px nedenfor fingeren, og
   områdekortet i navigasjonsmodalen langt utenfor viewporten. Derfor kjøres
   forankringen i MØRK drakt også: draktene deler geometri, og en regel som bare
@@ -38,10 +37,9 @@ const G = require('./dnd-gestures.js');
 
 const BASE = process.env.HUSKIS_URL || 'http://localhost:8000';
 
-/* Det løftede objektet, uansett motor: hovedsidens board merker det med
-   `.dragging`, nav-modalen (dnd-kit) med `[data-dnd-dragging]`. Bare ett drag
-   kan være aktivt om gangen, så én selektor for begge er nok. */
-const DRAGGED = '.item.dragging, .category.dragging, .card.dragging, [data-dnd-dragging]';
+/* Det løftede objektet, på alle fem nivåene: dnd-kit merker det med
+   `[data-dnd-dragging]`. Bare ett drag kan være aktivt om gangen. */
+const DRAGGED = '[data-dnd-dragging]';
 
 async function register(p) {
   await p.goto(BASE + '/?mock=1');

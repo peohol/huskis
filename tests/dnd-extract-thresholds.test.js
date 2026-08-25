@@ -468,7 +468,7 @@ function firstWhere(samples, pred) {
       return { x: Math.round(last.left + last.width / 2), y: Math.round(last.top + last.height / 2) };
     });
     await move(p, belowLast.x, belowLast.y - 10, 'touch'); await p.waitForTimeout(80);
-    // Anti-flimringen (SWAP_LOCK_MS = 300 ms) blokkerer det motsatte byttet rett
+    // Anti-flimringen (Smetts `reverseLockMs` = 300 ms) blokkerer det motsatte byttet rett
     // etter innsettingen i lista — vent den ut før den siste nudgen.
     await p.waitForTimeout(350);
     await move(p, belowLast.x, belowLast.y, 'touch'); await p.waitForTimeout(150);
@@ -615,14 +615,13 @@ function firstWhere(samples, pred) {
   }
 
   /* ============ D) Listepunkt UT av en kategori: forblir synlig ============
-     Den gamle motoren løftet objektet med `position: absolute` i
-     dokument-koordinater, og da var en `position: relative` på en FORFAR-rad nok
-     til å gjøre den til containing block: koordinatene ble plutselig tolket mot
-     kategorien, og kortets `overflow: hidden` klippet objektet bort. Hele den
-     feilklassen er borte — dnd-kit løfter objektet inn i TOP LAYER (`popover`,
-     `position: fixed`), der ingen forfar kan nå det. Det som står igjen å vokte
-     er utfallet: raden skal være synlig, ligge under pekeren, og faktisk ha
-     kommet UT på nivå 1 med skillelinjene rundt kategorien i orden. */
+     Løftes objektet i dokument-koordinater, er en `position: relative` på en
+     FORFAR-rad nok til å gjøre den til containing block: koordinatene tolkes da
+     mot kategorien, og kortets `overflow: hidden` klipper objektet bort. Hele
+     den feilklassen er borte — dnd-kit løfter objektet inn i TOP LAYER
+     (`popover`, `position: fixed`), der ingen forfar kan nå det. Det som står
+     igjen å vokte er utfallet: raden skal være synlig, ligge under pekeren, og
+     faktisk ha kommet UT på nivå 1 med skillelinjene rundt kategorien i orden. */
   for (const [label, vp, kind] of [['desktop', { width: 1200, height: 900 }, 'mouse'], ['mobil', mobil, 'touch']]) {
     const p = await b.newPage({ viewport: vp, hasTouch: true });
     const errs = []; p.on('pageerror', (e) => errs.push(e.message));

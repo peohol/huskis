@@ -10,10 +10,9 @@ De to øverste nivåene er bygget av nøyaktig samme komponenter som de to
 nederste: et område ER et kort, en mappe ER en rad, og de deler CSS-klasser,
 maler og politikk. Dra-og-slipp kjører i to scope — `boardScope`
 (listevisningen) og `navScope` (navigasjonsmodalen) — og **alle fem nivåene
-kjøres nå av dnd-kit gjennom Smett** (`vendor/smett-0.1.0.js`). Den
-hjemmesnekrede motoren i `app.js` har ingen lesere igjen og ryddes bort i steg 7
-(`docs/dndkit-plan.md`); til da står den der, død. Politikken er DELT mellom
-scopene — en endring treffer begge. Nåtilstanden: `docs/drag-and-drop.md`.
+kjøres av dnd-kit gjennom Smett** (`vendor/smett-0.1.0.js`). Selve gesten er
+dnd-kits; hva et slipp BETYR er Huskis', og den politikken er DELT mellom
+scopene — en endring treffer begge. Autoritativt: `docs/drag-and-drop.md`.
 
 **Kildekode** (det som deployes): `index.html`, `styles.css`, `app.js`,
 `icons.js`, `i18n.js`, `theme.js`, `config.js`, `update-check.js`, `assets/`,

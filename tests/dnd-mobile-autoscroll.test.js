@@ -17,7 +17,7 @@
   (c) et avbrudd ruller tilbake uten å lagre et drop, og
   (d) den ØVRE auto-scroll-sonen rekker under den faste toppmenyen — dnd-kits
       `AutoScroller` bruker en brøkdel av containeren der vår egen sone ble målt
-      fra toppmenyens bunn (`docs/dndkit-plan.md`, risiko 6).
+      fra toppmenyens bunn (`docs/drag-and-drop.md`, «Auto-scroll»).
 
   Liste-draget kjøres av dnd-kit (`docs/drag-and-drop.md`), så det løftede kortet
   merkes med `[data-dnd-dragging]` og plassen holdes av en KLONE — som bærer de
@@ -154,8 +154,8 @@ async function buildScenario(p) {
   const after = {
     order: await cardIds(),
     ...(await p.evaluate(() => ({
-      dragging: document.querySelectorAll('.dragging, [data-dnd-dragging]').length,
-      ph: document.querySelectorAll('.card-placeholder, .item-placeholder, .group-placeholder, [data-dnd-placeholder]').length,
+      dragging: document.querySelectorAll('[data-dnd-dragging]').length,
+      ph: document.querySelectorAll('.card-placeholder, .new-list-placeholder, [data-dnd-placeholder]').length,
     }))),
   };
   log('pointercancel: opprydding (ingen dragging/placeholder)', after.dragging === 0 && after.ph === 0, JSON.stringify(after));
