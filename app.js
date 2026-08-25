@@ -4355,6 +4355,17 @@
     scheduleRelayout();
   }
 
+  /* Et AVBRUTT drag er ikke et slipp. dnd-kit ruller rekkefølgen tilbake selv og
+     kaller aldri `onCommit`, men `finishDrag()` teller likevel opp `dropSeq` —
+     telleren demoen bruker på de stegene der SLIPPET er handlingen. Uten dette
+     kvitterte en `pointercancel` (typisk Android Chrome som klemmer scrollen)
+     ut «dra raden»-steget uten at brukeren hadde flyttet noe. Den gamle motoren
+     sa det samme fra `restoreDraggedToOrigin`; her kommer flagget fra dnd-kits
+     egen `dragend`. */
+  function dndNoteCanceled(event) {
+    if (event && event.canceled) dragRolledBack = true;
+  }
+
   /* ------- Avbrutt drag (pointercancel) -------
      En kansellert pekersekvens (typisk Android Chrome som klemmer scroll-
      posisjonen) er IKKE et vellykket slipp: den skal ikke beregne ny pos,
@@ -7008,7 +7019,7 @@
     monitor.addEventListener('dragstart', () => navDragStart(board));
     monitor.addEventListener('dragmove', () => navDragMove(board));
     monitor.addEventListener('dragover', () => navDragOver(board));
-    monitor.addEventListener('dragend', () => navDragEnd());
+    monitor.addEventListener('dragend', (event) => navDragEnd(event));
   }
 
   /* Naboraden i DOM, uten dnd-kits klone.
@@ -7153,7 +7164,7 @@
     applyDragSeparatorsSoon();
   }
 
-  function navDragEnd() {
+  function navDragEnd(event) {
     // Smetts egen `dragend`-lytter er registrert først og har alt kjørt:
     // sluttplasseringen er satt, og `onCommit`/`onZoneDrop` har gjort sitt mens
     // `drag` fortsatt beskrev draget. Her rydder vi — med mindre en av dem
@@ -7168,6 +7179,7 @@
     if (!drag.active) return;
     if (drag.kind === 'category' && drag.el && drag.el.isConnected) dndSettleCategory(drag.el);
     if (drag.kind === 'card') { restoreCardsAfterDrag(); navReleaseBoard(); }
+    dndNoteCanceled(event);
     finishDrag();
   }
 
@@ -7694,7 +7706,7 @@
     monitor.addEventListener('beforedragstart', () => boardDragBegin(b));
     monitor.addEventListener('dragstart', () => boardDragStart(b));
     monitor.addEventListener('dragmove', () => boardDragMove(b));
-    monitor.addEventListener('dragend', () => boardDragEnd());
+    monitor.addEventListener('dragend', (event) => boardDragEnd(event));
   }
 
   function boardSource(b) {
@@ -7745,7 +7757,7 @@
     boardTargetCol = boardPickColumn();
   }
 
-  function boardDragEnd() {
+  function boardDragEnd(event) {
     // Smetts egen `dragend`-lytter er registrert først og har alt kjørt:
     // sluttplasseringen er satt, og `onCommit`/`onZoneDrop` har gjort sitt mens
     // `drag` fortsatt beskrev draget. Her rydder vi — restore/release er
@@ -7757,6 +7769,7 @@
     if (!drag.active) { boardDroppedCardId = null; return; }
     restoreCardsAfterDrag();
     boardReleaseBoard();
+    dndNoteCanceled(event);
     finishDrag();
     boardRelayoutAfterDrop();
   }
@@ -8090,7 +8103,7 @@
     monitor.addEventListener('dragstart', () => boardRowDragStart(b));
     monitor.addEventListener('dragmove', () => boardRowDragMove(b));
     monitor.addEventListener('dragover', () => boardRowDragOver(b));
-    monitor.addEventListener('dragend', () => boardRowDragEnd());
+    monitor.addEventListener('dragend', (event) => boardRowDragEnd(event));
   }
 
   function boardRowDragBegin(b) {
@@ -8187,7 +8200,7 @@
     applyDragSeparatorsSoon();
   }
 
-  function boardRowDragEnd() {
+  function boardRowDragEnd(event) {
     // Smetts egen `dragend`-lytter er registrert først og har alt kjørt:
     // sluttplasseringen er satt, og `onCommit`/`onZoneDrop` har gjort sitt mens
     // `drag` fortsatt beskrev draget. Her rydder vi — med mindre en av dem
@@ -8202,6 +8215,7 @@
     if (!drag.active) { boardReleaseRowGuard(); return; }
     if (drag.kind === 'category' && drag.el && drag.el.isConnected) dndSettleCategory(drag.el);
     boardReleaseRowGuard();
+    dndNoteCanceled(event);
     finishDrag();
     boardRelayoutAfterRowDrop();
   }

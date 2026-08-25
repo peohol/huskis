@@ -356,6 +356,17 @@ Bytte utløses av **overlapp**, ikke av et punkt:
   (`restoreCardsAfterDrag`). Den beregner IKKE ny `pos`, kaller ikke `stampPos`/
   `cloudPersonalPos`/`reindex*Colors`/`save`, og åpner ikke mappe-flyttevelgeren.
   `pointerup` bruker fortsatt den vanlige drop-flyten.
+
+  **På dnd-kit sies det samme av biblioteket.** Der ruller Smett rekkefølgen
+  tilbake selv og kaller aldri `onCommit`, så `pos` skrives uansett ikke. Men
+  `finishDrag()` teller ETHVERT drag som avsluttes som et slipp (`dropSeq`), og
+  den telleren er blind for tilstand med vilje: demoen har steg der selve
+  slippet ER handlingen, også når objektet lander på samme plass. Hvert av de
+  tre board-ene sier derfor fra om avbruddet før de rydder
+  (`dndNoteCanceled(event)` → `dragRolledBack`), av dnd-kits egen
+  `dragend.canceled`. Uten det kvitterte en `pointercancel` — typisk Android
+  Chrome som klemmer scrollen — ut «dra raden»-steget i demoen uten at brukeren
+  hadde flyttet noe (`tests/onboarding.test.js`, «11 avbrudd»).
 - **Alle placeholders deler én stil** (felles regel for `.card-/.item-/.group-
   placeholder`): 1px stiplet kant med lav opacity, svakt mørknet flate og en
   subtil inset-skygge («hull som skal fylles») — kun radius/margens varierer per
