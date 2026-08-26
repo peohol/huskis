@@ -130,10 +130,10 @@ Ett fast panel øverst (`position: fixed`, full bredde, samme DOM på mobil og
 desktop). To deler:
 
 1. **Navigasjonsknappen** (`.crumb-btn.nav-crumb`, `#nav-crumb`): ÉN knapp som
-   viser hele lokasjonen som en breadcrumb — `🌐 [områdenavn] › 📁 [mappenavn]`
-   (`updateCrumbs()`; fallback «Område»/«Mappe» når ingenting finnes). Klikk
-   åpner nav-modalen. Navnene kappes med ellipsis. På mobil krympes fonten litt
-   (media-query).
+   viser hele lokasjonen som en breadcrumb — bare navnene, uten ikoner —
+   `[områdenavn] › [mappenavn]` (`updateCrumbs()`; fallback «Område»/«Mappe» når
+   ingenting finnes). Klikk åpner nav-modalen. Navnene kappes med ellipsis. På
+   mobil krympes fonten litt (media-query).
 2. **Listefunksjonene** (`.panel-actions.toolbar`): «＋ Liste»
    (`#add-card-btn`) og liste-søppelkassen (`#trash-btn`). «＋ Liste» er avskrudd uten
    en aktiv mappe man kan opprette lister i (`canAddList`, `updateToolbarState`)
@@ -177,6 +177,17 @@ toppmenyens kant), utenfor toppmenyens flyt — z-index (35) over det faste
 panelet (30) men under modaler (200). Person-ikon + rød badge
 (`#account-badge`) med antall ventende invitasjoner. Åpner konto-modalen.
 Skjules før innlogging (`body.no-auth`).
+
+## Draktknappen (`.theme-toggle-btn`, `#theme-toggle-btn`)
+
+Fast rett til venstre for kontoknappen — samme posisjonsmønster (12 px fra
+toppen, plassert med `--control-h` + gap fra kontoknappens `right`), samme
+flate/hover/fokus-behandling, samme z-index. Bytter lys ↔ mørk drakt i ETT
+trykk (`setTheme`, `docs/mork-drakt.md`) — ingen «følg systemet». Ikonet
+(sol/måne) og tittelen viser drakten som ER aktiv, ikke den man bytter til.
+Skjules før innlogging som kontoknappen (`body.no-auth`); innloggingsskjermens
+egen `<select>` (`#auth-theme-select`) dekker valget der ingen kontoknapp
+finnes å stå ved siden av.
 
 ## Navigasjonsmodalen (`#nav-modal`, åpnes fra nav-knappen)
 
@@ -265,9 +276,10 @@ av). Én knapp til høyre: objektmenyen.
 ### Type-ikon og delt-merke foran navnet
 
 Både områdekortet og mapperaden innleder med **[type-ikon]([delt-ikon])Navn** —
-`.kind-icon` (`ICONS.globe` / `ICONS.folder`, samme ikoner som breadcrumben)
-først, så `.share-badge` når objektet er delt, så navnet. Rekkefølgen ligger i
-malene; byggerne fyller bare ikonet.
+`.kind-icon` (`ICONS.globe` / `ICONS.folder`) først, så `.share-badge` når
+objektet er delt, så navnet. Rekkefølgen ligger i malene; byggerne fyller bare
+ikonet. Breadcrumben i toppmenyen viser derimot bare navnene, uten ikoner
+(`docs/rettigheter-og-deling.md`).
 
 Områdekortet får derfor **ikke** den lyse innerkanten delte listekort har
 (`.nav-board .card.is-shared` nullstiller den): `.card-body` er gjennomsiktig, så
@@ -342,13 +354,10 @@ Innhold (ovenfra og ned):
    og e-postene appen sender, og et bytte laster appen på nytt. Den samme
    velgeren finnes nederst på innloggingsskjermen (`#auth-lang-select`) — det
    eneste stedet språket kan velges før man har en konto. Se `docs/sprak.md`.
-6. **Drakt** (`#menu-theme`) — samme form og samme plass som språkraden, rett
-   under den: en `.menu-setting`-rad med en `<select>` (Følg systemet / Lys /
-   Mørk). De to hører sammen som de to «hvordan appen ser ut og snakker»-valgene,
-   og begge skal kunne tas uten å åpne en skuff. Til forskjell fra språket
-   lagres drakten KUN på enheten, og et bytte laster ikke siden på nytt. Den
-   samme velgeren finnes på innloggingsskjermen (`#auth-theme-select`), ved
-   siden av språkvelgeren. Se `docs/mork-drakt.md`.
+
+Drakten (lys/mørk) har IKKE en rad her lenger — den flyttet til en egen knapp
+ved siden av kontoknappen (`.theme-toggle-btn`, over) for et raskere bytte. Se
+`docs/mork-drakt.md`.
 
 ### Skuffene
 

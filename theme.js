@@ -1,9 +1,9 @@
 /* ============================================================
    Huskis — theme.js
 
-   Drakten i UI-et: lys eller mørk. Hele draktmodellen — hvor valget lagres,
-   hva «system» betyr, og hvordan fargene snus — er beskrevet i
-   docs/mork-drakt.md, som er autoritativ.
+   Drakten i UI-et: lys eller mørk. Hele draktmodellen — hvor valget lagres og
+   hvordan fargene snur — er beskrevet i docs/mork-drakt.md, som er
+   autoritativ.
 
    Fila er søsteren til i18n.js: ren tilstand + noen få funksjoner, ingen
    avhengigheter, og den rører ingenting utenom `<html data-theme>`,
@@ -16,9 +16,9 @@
    Den er noen få hundre byte og hentes fra samme opphav, så
    render-blokkeringen er ikke målbar.
 
-   TRE VERDIER, IKKE TO: 'system' (standard) følger operativsystemets
-   `prefers-color-scheme` og skifter med det mens appen står åpen; 'light' og
-   'dark' er brukerens eksplisitte overstyring og er upåvirket av OS-et.
+   TO VERDIER, INGEN «FØLG SYSTEMET»: brukeren velger eksplisitt lys eller
+   mørk, og det lagrede valget er alltid det som gjelder — ingen live-følging
+   av operativsystemets `prefers-color-scheme`. Standarden er lys.
 
    VALGET ER ENHETENS, ikke kontoens — i motsetning til språket (docs/sprak.md).
    Drakten avhenger av skjermen og lyset man sitter i, ikke av hvem man er, og
@@ -28,9 +28,8 @@
 (function () {
   'use strict';
 
-  // Rekkefølgen her er rekkefølgen i draktvelgeren.
-  var MODES = ['system', 'light', 'dark'];
-  var DEFAULT = 'system';
+  var MODES = ['light', 'dark'];
+  var DEFAULT = 'light';
   var STORAGE_KEY = 'huskis-theme';
 
   // `<meta name="theme-color">` farger nettleserens egen ramme (adresselinja på
@@ -52,23 +51,18 @@
 
   var current = stored();
 
-  function systemPrefersDark() {
-    try { return !!(window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches); }
-    catch (e) { return false; }
-  }
-
-  // Draktet som faktisk gjelder nå: 'light' eller 'dark'. 'system' løses opp
-  // her, og bare her — resten av appen forholder seg til svaret.
+  // Det gjeldende valget ER drakten som males — ingen «system» å løse opp
+  // lenger. Funksjonen beholdes som API (samme kontrakt som før) fordi
+  // app.js/tester leser gjennom den.
   function effective() {
-    return current === 'system' ? (systemPrefersDark() ? 'dark' : 'light') : current;
+    return current;
   }
 
   function apply() {
-    var eff = effective();
-    document.documentElement.setAttribute('data-theme', eff);
+    document.documentElement.setAttribute('data-theme', current);
     var meta = document.querySelector('meta[name="theme-color"]');
-    if (meta) meta.setAttribute('content', THEME_COLOR[eff]);
-    return eff;
+    if (meta) meta.setAttribute('content', THEME_COLOR[current]);
+    return current;
   }
 
   /* Setter drakten for DENNE fanen: attributtet males med én gang, og
@@ -94,24 +88,6 @@
   }
 
   apply();
-
-  /* «System» skal følge OS-et også MENS appen står åpen (nattmodus som slår inn
-     kl. 22, en bryter i kontrollsenteret). Lytteren står permanent, men gjør
-     ingenting når brukeren har valgt lys eller mørk eksplisitt — da er OS-et
-     nettopp det de har overstyrt. `addEventListener` finnes ikke på
-     MediaQueryList i eldre Safari; `addListener` er reserven. */
-  try {
-    var mq = window.matchMedia('(prefers-color-scheme: dark)');
-    var onSystem = function () {
-      if (current !== 'system') return;
-      var eff = apply();
-      for (var i = 0; i < listeners.length; i++) {
-        try { listeners[i](eff, current); } catch (e) { /* som over */ }
-      }
-    };
-    if (mq.addEventListener) mq.addEventListener('change', onSystem);
-    else if (mq.addListener) mq.addListener(onSystem);
-  } catch (e) { /* ingen matchMedia: drakten blir stående der den er */ }
 
   window.HUSKIS_THEME = {
     MODES: MODES,

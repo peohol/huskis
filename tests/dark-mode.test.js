@@ -9,11 +9,11 @@
        for å unngå at skjermen blinker hvitt før den blir mørk; her måles
        `data-theme` og den oppløste `--bg` i den FØRSTE rAF-en, altså før
        nettleseren har malt noe.
-    2. Standarden er «følg systemet», og den følger det LEVENDE: en endring i
-       operativsystemets `prefers-color-scheme` slår gjennom uten omlasting —
-       og maler board-et på nytt, siden kortfargene ikke bor i CSS.
-    3. Et eksplisitt valg overstyrer systemet og overlever en omlasting. Begge
-       velgerne (innloggingsskjermen og konto-modalen) gjør det samme.
+    2. Standarden er LYS, uansett hva operativsystemet sier — det finnes ingen
+       «følg systemet», og et OS-bytte har ingen effekt på en lagret drakt.
+    3. Et eksplisitt valg overlever en omlasting. Begge kontrollene
+       (draktknappen ved kontoknappen og innloggingsskjermens velger) gjør det
+       samme.
     4. Kortfargene speiles: SAMME tone, invertert lyshet. Kortene er lysere enn
        board-et i lys drakt og fortsatt lysere i mørk (bakgrunnen er da
        mørkere enn kortene) — det er separasjonen som må overleve, ikke tallet.
@@ -138,9 +138,9 @@ async function seed(p) {
   const browser = await chromium.launch();
   const errs = [];
 
-  /* ---------- 1. Attributtet står før første maling ---------- */
-  console.log('\n--- Drakten settes før første maling ---');
-  for (const [what, scheme, want] of [['mørkt system', 'dark', 'dark'], ['lyst system', 'light', 'light']]) {
+  /* ---------- 1. Attributtet står før første maling, uansett systemet ---------- */
+  console.log('\n--- Drakten settes før første maling — alltid lys, uavhengig av systemet ---');
+  for (const [what, scheme] of [['mørkt system', 'dark'], ['lyst system', 'light']]) {
     const ctx = await browser.newContext({ viewport: { width: 1200, height: 900 }, colorScheme: scheme });
     const p = await ctx.newPage();
     p.on('pageerror', (e) => errs.push('[' + what + '] ' + e));
@@ -157,15 +157,16 @@ async function seed(p) {
     });
     await p.goto(BASE + '/?mock=1');
     const first = await p.evaluate(() => window.__firstFrame);
-    check(`${what}: data-theme er «${want}» allerede i første frame`, first.attr === want, first);
+    check(`${what}: data-theme er «light» allerede i første frame (ingen «følg systemet»)`,
+      first.attr === 'light', first);
     check(`${what}: --bg er løst opp før første maling`, /^#[0-9a-f]{6}$/i.test(first.bg), first.bg);
     const st = await themeState(p);
-    check(`${what}: standarden er «følg systemet» — ingenting lagret ennå`,
-      st.mode === 'system' && st.stored === null, st);
+    check(`${what}: standarden er lys — ingenting lagret ennå`,
+      st.mode === 'light' && st.stored === null, st);
     check(`${what}: første frame og den ferdig lastede siden er enige om --bg`,
       first.bg === st.bg, { first: first.bg, etter: st.bg });
     check(`${what}: <meta name="theme-color"> følger --bg`, st.meta === st.bg, st);
-    check(`${what}: color-scheme på rot-elementet er «${want}»`, st.colorScheme === want, st.colorScheme);
+    check(`${what}: color-scheme på rot-elementet er «light»`, st.colorScheme === 'light', st.colorScheme);
     await ctx.close();
   }
 
@@ -178,8 +179,8 @@ async function seed(p) {
 
   console.log('\n--- Innloggingsskjermens draktvelger ---');
   check('draktvelgeren finnes før innlogging', await p.locator('#auth-theme-select').count() === 1);
-  check('den har de tre valgene fra theme.js',
-    (await p.locator('#auth-theme-select option').allTextContents()).length === 3,
+  check('den har de to valgene fra theme.js (ingen «følg systemet»)',
+    (await p.locator('#auth-theme-select option').allTextContents()).length === 2,
     await p.locator('#auth-theme-select option').allTextContents());
   await p.selectOption('#auth-theme-select', 'dark');
   await p.waitForTimeout(250);
@@ -243,18 +244,17 @@ async function seed(p) {
     { hode: flate && kanaler(flate.hode), flate: maltRgb });
   check('INGEN drakt-regel posisjonerer kortet (containing block for DnD)',
     !!flate && flate.position === 'static', flate && flate.position);
-  // Tilbake til lys fra konto-modalen — den andre av de to velgerne.
-  await p.evaluate(() => window.__huskis.openAccount());
+  // Tilbake til lys fra draktknappen — den andre av de to kontrollene, og den
+  // som står ved siden av kontoknappen etter innlogging.
+  check('draktknappen er synlig etter innlogging', await p.locator('#theme-toggle-btn').isVisible());
+  check('den er trykket ned (mørk er aktiv)',
+    (await p.locator('#theme-toggle-btn').getAttribute('aria-pressed')) === 'true');
+  await p.locator('#theme-toggle-btn').click();
   await p.waitForTimeout(300);
-  check('draktvelgeren finnes i konto-modalen', await p.locator('#theme-select').count() === 1);
-  check('den står synlig utenfor trekkspillet, ved siden av språkraden',
-    await p.locator('#menu-theme').isVisible());
-  await p.selectOption('#theme-select', 'light');
-  await p.waitForTimeout(300);
-  await p.evaluate(() => window.__huskis.closeAccount());
-  await p.waitForTimeout(250);
   st = await themeState(p);
-  check('konto-modalens velger bytter tilbake', st.attr === 'light' && st.stored === 'light', st);
+  check('ett trykk på draktknappen bytter tilbake til lys', st.attr === 'light' && st.stored === 'light', st);
+  check('knappen er ikke lenger trykket ned',
+    (await p.locator('#theme-toggle-btn').getAttribute('aria-pressed')) === 'false');
   const lightBg = st.bg;
   const lightCards = await cardColors(p);
 
@@ -329,10 +329,11 @@ async function seed(p) {
   console.log('\n--- Søppelkassens prikker følger drakten, også etter en kaldstart ---');
   /* Radene utleder fargen fra id-en (`colorForId`) i den drakten som gjelder
      NÅ — de tar ikke den hurtiglagrede `.color`. Det er den eneste varianten
-     som også holder ved KALDSTART: `theme.js` maler drakten før `app.js`
-     rekker å registrere lytteren sin, så et OS-modusbytte mens appen var
-     lukket når aldri fram til noen opprydding. Og `.color` overlever i den
-     lokale bufferen — `stateReplacer` fjerner bare `_`-prefiksede nøkler. */
+     som også holder ved KALDSTART: `theme.js` maler den lagrede drakten før
+     `app.js` rekker å registrere lytteren sin, så et bytte tatt i en tidligere
+     økt når aldri fram til noen opprydding før siden alt har malt kortene
+     sine. Og `.color` overlever i den lokale bufferen — `stateReplacer`
+     fjerner bare `_`-prefiksede nøkler. */
   const dotHex = async () => p.evaluate(() => {
     const d = document.querySelector('#trash-modal .trash-dot');
     if (!d) return null;
@@ -361,9 +362,9 @@ async function seed(p) {
   await p.keyboard.press('Escape');
   await p.waitForTimeout(250);
 
-  /* KALDSTARTEN, modellert direkte. Ved et OS-modusbytte mens appen var
-     lukket fyrer ingen lytter — `theme.js` maler drakten før `app.js` rekker å
-     registrere seg — og `.color` overlever i den lokale bufferen fordi
+  /* KALDSTARTEN, modellert direkte. `theme.js` maler den lagrede drakten før
+     `app.js` rekker å registrere sin lytter, så ingen opprydding fyrer ved
+     selve sidelastingen — og `.color` overlever i den lokale bufferen fordi
      `stateReplacer` bare fjerner `_`-prefiksede nøkler. Tilstanden det gir er
      nøyaktig denne: mørk drakt OG en trashet liste som bærer en lys
      hurtiglagret farge. Invarianten er at radene ikke bryr seg om den. */
@@ -390,31 +391,29 @@ async function seed(p) {
   st = await themeState(p);
   check('drakten står der den ble satt etter en omlasting', st.attr === 'dark' && st.mode === 'dark', st);
 
-  console.log('\n--- «Følg systemet» følger systemet, levende ---');
-  await p.evaluate(() => window.HUSKIS_THEME.setMode('system'));
+  console.log('\n--- Ingen «følg systemet»: en OS-endring har ingen effekt ---');
+  await p.evaluate(() => window.HUSKIS_THEME.setMode('light'));
   await p.waitForTimeout(200);
   await p.emulateMedia({ colorScheme: 'dark' });
   await p.waitForTimeout(300);
   st = await themeState(p);
-  check('systemet slår mørkt på → appen blir mørk uten omlasting', st.attr === 'dark' && st.mode === 'system', st);
-  await p.emulateMedia({ colorScheme: 'light' });
-  await p.waitForTimeout(300);
-  st = await themeState(p);
-  check('…og lyst igjen', st.attr === 'light' && st.mode === 'system', st);
-  // Et eksplisitt valg skal IKKE la seg overstyre av operativsystemet.
+  check('operativsystemet slår mørkt på, men appen blir stående lys',
+    st.attr === 'light' && st.mode === 'light', st);
   await p.evaluate(() => window.HUSKIS_THEME.setMode('dark'));
   await p.emulateMedia({ colorScheme: 'light' });
   await p.waitForTimeout(300);
   st = await themeState(p);
-  check('et eksplisitt valg lar seg ikke overstyre av systemet', st.attr === 'dark', st);
-  console.log('\n--- Et systembytte river ikke ned en pågående navngiving ---');
-  /* Regresjon: draktbyttet malte board-et på nytt med en gang. Et OS-bytte
-     kommer når det kommer — gjerne midt i en inline omdøping — og `render()`
-     fjerner den fokuserte `.edit-input`-noden. `captureFocusIn` bevarer den
-     ikke, og en fjernet, fokusert node fyrer ikke pålitelig sin egen `blur`, så
-     teksten forsvant. Kortfargene skal likevel følge drakten, kirurgisk. */
-  await p.evaluate(() => window.HUSKIS_THEME.setMode('system'));
-  await p.emulateMedia({ colorScheme: 'light' });
+  check('…og en eksplisitt mørk drakt lar seg ikke overstyre av et lyst system',
+    st.attr === 'dark' && st.mode === 'dark', st);
+
+  console.log('\n--- Et draktbytte river ikke ned en pågående navngiving ---');
+  /* Regresjon: draktbyttet malte board-et på nytt med en gang. Et bytte kan
+     komme midt i en inline omdøping — draktknappen er ett tastetrykk unna —
+     og `render()` fjerner den fokuserte `.edit-input`-noden. `captureFocusIn`
+     bevarer den ikke, og en fjernet, fokusert node fyrer ikke pålitelig sin
+     egen `blur`, så teksten forsvant. Kortfargene skal likevel følge drakten,
+     kirurgisk. */
+  await p.evaluate(() => window.HUSKIS_THEME.setMode('light'));
   await p.waitForTimeout(250);
   // Start en omdøping og skriv noe UTEN å bekrefte. F2 på en fokusert rad er
   // den samme veien inn som tastatursnarveien ellers i appen.
@@ -430,7 +429,7 @@ async function seed(p) {
   check('forutsetning: navnefeltet står åpent med ubekreftet tekst',
     før.finnes && før.verdi === 'Halvskrevet navn' && før.fokusert, før);
   await p.evaluate(() => { window.__kortFor = document.querySelector('#board .card'); });
-  await p.emulateMedia({ colorScheme: 'dark' });
+  await p.evaluate(() => window.HUSKIS_THEME.setMode('dark'));
   await p.waitForTimeout(400);
   const etter = await p.evaluate(() => {
     const el = document.querySelector('#board .edit-input');
@@ -467,7 +466,6 @@ async function seed(p) {
   await p.keyboard.press('Escape');
   await p.waitForTimeout(250);
 
-  await p.emulateMedia({ colorScheme: null });
   await ctx.close();
 
   /* ---------- Innloggingsskjermens rad, begge viewporter ---------- */

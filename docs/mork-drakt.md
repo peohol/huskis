@@ -4,15 +4,20 @@ Les denne når oppgaven berører fargevalg, `styles.css`-tokens, ikonfarger elle
 palettfargene på kort og rader.
 
 Appen har to drakter: **lys** (som før) og **mørk**. Brukeren velger selv, også
-før innlogging.
+før innlogging. Det finnes ingen «følg systemet» — bare de to eksplisitte
+valgene.
 
 ## Valget
 
 | Verdi | Betyr |
 |---|---|
-| `system` (standard) | følger operativsystemets `prefers-color-scheme`, og skifter med det mens appen står åpen |
-| `light` | lys drakt uansett hva systemet sier |
-| `dark` | mørk drakt uansett hva systemet sier |
+| `light` (standard) | lys drakt |
+| `dark` | mørk drakt |
+
+`THEME.MODES` i `theme.js` er `['light', 'dark']` — nøyaktig disse to, i denne
+rekkefølgen. Standarden er lys: appen leser IKKE operativsystemets
+`prefers-color-scheme` noe sted, verken som standard eller løpende — et
+eksplisitt valg er det eneste som styrer.
 
 Valget ligger i `localStorage['huskis-theme']` og **bare der**. Det er
 enhetens, ikke kontoens — i motsetning til språket
@@ -21,11 +26,22 @@ det til invitasjons-e-postene. Drakten hører til skjermen man sitter foran og
 lyset i rommet; den har ingen serverside-effekt, og to enheter kan gjerne stå
 forskjellig. Derfor ingen `user_metadata`, ingen synk og ingen fletting.
 
-Kontrollen er den samme to steder, som språkvelgeren
-([`menus.md`](menus.md)): en `<select>` i konto-modalen (`#theme-select`, en
-`.menu-setting`-rad utenfor trekkspillet) og en på innloggingsskjermen
-(`#auth-theme-select`). Et bytte laster **ikke** siden på nytt — drakten bor i
-CSS-tokens og i kortfargene, og begge deler males på plassen sin.
+Kontrollen er ULIK to steder, avhengig av om kontoknappen finnes å stå ved
+siden av:
+
+- **Draktknappen** (`.theme-toggle-btn`, `#theme-toggle-btn`) — fast rett til
+  venstre for kontoknappen, utenfor toppmenyens flyt, skjult før innlogging
+  (`body.no-auth`) akkurat som kontoknappen selv. ÉTT trykk bytter mellom de to
+  verdiene; ikonet viser drakten som ER aktiv (sol i lys, måne i mørk), ikke
+  den du bytter til. Dette er den raske veien, og den eneste kontrollen i
+  appen — se [`menus.md`](menus.md).
+- **Innloggingsskjermens `<select>`** (`#auth-theme-select`) — den eneste veien
+  inn FØR man har en konto, siden det ikke finnes noen kontoknapp der ennå.
+  Fylles fra `THEME.MODES`, så den vokser/krymper med listen uten kodeendring
+  andre steder.
+
+Et bytte laster **ikke** siden på nytt — drakten bor i CSS-tokens og i
+kortfargene, og begge deler males på plassen sin.
 
 ## `theme.js` lastes i `<head>`
 
@@ -169,9 +185,8 @@ Kortets to avledede farger snur retning med drakten (`paintCardColor` i
 forsvinner i bakgrunnen og en avkryssingskant som er borte.
 
 Fordi kortfargene settes inline og ikke av CSS, må de males på nytt når drakten
-skifter — også når skiftet kom fra operativsystemet mens appen sto åpen.
-`app.js` lytter på `THEME.onChange` og maler **kirurgisk, aldri med en full
-`render()`**:
+skifter. `app.js` lytter på `THEME.onChange` og maler **kirurgisk, aldri med en
+full `render()`**:
 
 1. **`reindexContainerColors`** bytter custom properties på kortene som allerede
    står i DOM-en, i begge scopene.
@@ -194,9 +209,10 @@ drakten som gjelder når raden bygges — de tar ikke objektets hurtiglagrede
 `.color`. Det er ikke bare ryddigere, det er den eneste varianten som holder:
 
 - Et draktbytte MENS appen står åpen kunne vært løst med en opprydding i
-  lytteren. En **kaldstart** kan ikke: `theme.js` maler drakten før `app.js`
-  rekker å registrere lytteren sin, så et OS-modusbytte mens appen var lukket
-  når aldri fram til noen opprydding.
+  lytteren. En **kaldstart** kan ikke: `theme.js` maler den lagrede drakten før
+  `app.js` rekker å registrere lytteren sin, så et bytte tatt i en TIDLIGERE
+  økt (eller på en annen fane) når aldri fram til noen opprydding før
+  gjeldende side alt har malt kortene sine.
 - Og `.color` overlever mellom øktene: `stateReplacer` fjerner bare
   `_`-prefiksede nøkler, så den ligger i den lokale bufferen.
 
@@ -339,14 +355,11 @@ båndet og glyfene hadde hver sin kilde. Vakten står i
 `tests/capacitor-android.test.js`, med begrunnelsen skrevet ut i begge
 retninger: låses glyfene igjen, må vindusbakgrunnen låses i samme slengen.
 
-### «Følg systemet» virker først med DayNight
-
-Fra targetSdk 33 utleder WebView `prefers-color-scheme` av appens EGET tema
-(`isLightTheme`), ikke av telefonens nattmodus. Med et permanent lyst tema
-svarte `matchMedia('(prefers-color-scheme: dark)')` derfor alltid `false` inne i
-appen, og standardvalget `system` ga lys app på en mørk telefon — bekreftet på
-enhet. DayNight er det som kobler de to sammen igjen; ingen ny bro mellom
-web-laget og det native skallet trengs.
+Appens EGEN drakt leser aldri `prefers-color-scheme` — se «Valget» over, det
+finnes ingen «følg systemet» i `theme.js`. Fra targetSdk 33 utleder WebView
+den CSS-egenskapen av appens tema (`isLightTheme`), ikke av telefonens
+nattmodus, men det er uten betydning for oss: DayNight trengs likevel, for
+koblingen mellom bånd og glyfer over.
 
 Nettleseren er upåvirket: der er `<meta name="theme-color">` det eneste som sier
 noe om rammen, og `theme.js` holder den i takt med `--bg`.
@@ -356,7 +369,7 @@ noe om rammen, og `theme.js` holder den i takt med `--bg`.
 | Fil | Dekker |
 |---|---|
 | `tests/a11y-contrast.test.js` | kontraktstallene i begge drakter, inkludert kortsubtreets `color-mix()`-blandede flater (`--plate*`, `--chip-bg`, `--card-face`, `--card-head-face`, `--cat-face`) og avkryssingskanten/aksentstripen (`--card-accent`, speilet fra `paintCardColor()` i `app.js`) |
-| `tests/dark-mode.test.js` | attributtet før første maling, «følg systemet» levende, begge velgerne, varighet over omlasting, speilingen av kortfargene, `color-scheme` og `theme-color`, at et systembytte ikke river ned en pågående navngiving, og at kortflaten faktisk males om (en regel som stille slutter å gjelde ser ut som «før») uten å posisjonere kortet |
+| `tests/dark-mode.test.js` | attributtet før første maling, draktknappen og innloggingsskjermens velger, varighet over omlasting, speilingen av kortfargene, `color-scheme` og `theme-color`, at et draktbytte ikke river ned en pågående navngiving, og at kortflaten faktisk males om (en regel som stille slutter å gjelde ser ut som «før») uten å posisjonere kortet |
 | `tests/dnd-viewport-clamp.test.js` | at ingen drakt-regel forskyver dra-geometrien: pekerforankringen måles i mørk drakt på alle fem nivåene (område, mappe, liste, kategori, listepunkt) |
 | `tests/build-version.test.js` | at `theme.js` versjoneres og langtidscaches som de andre klientfilene |
 | `tests/capacitor-android.test.js` | at Android-skallet står på DayNight, at night-variantene snur glyfene, og at `SystemBars.style` er `DEFAULT` |

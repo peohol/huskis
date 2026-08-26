@@ -77,20 +77,24 @@ window.ICONS = {
     '<path d="M12 3.5a13 13 0 0 1 3.6 8.5 13 13 0 0 1-3.6 8.5 13 13 0 0 1-3.6-8.5A13 13 0 0 1 12 3.5Z"></path>' +
     '</svg>',
 
-  /* Drakt (lys/mørk): én sirkel der den ene halvdelen er «papir» (hvit i lys
-     drakt, mørk i mørk — fill="#ffffff" følger --icon-paper) og den andre er
-     fylt med samme blågrønn som språk-globusen, så de to innstillingsradene i
-     konto-modalen leser som et par. Motivet er halv sol / halv måne: skiven er
-     delt loddrett, og strålene står bare på den lyse siden. */
-  theme: '<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="#111" stroke-width="1.05" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
-    '<path d="M12 5.5A6.5 6.5 0 0 0 12 18.5Z" fill="#ffffff" stroke="none"></path>' +
-    '<path d="M12 5.5A6.5 6.5 0 0 1 12 18.5Z" fill="#85adad" stroke="none"></path>' +
-    '<circle cx="12" cy="12" r="6.5"></circle>' +
-    '<path d="M12 5.5v13"></path>' +
-    '<path d="M12 1.9v1.7"></path>' +
-    '<path d="M4.85 4.85l1.2 1.2"></path>' +
-    '<path d="M1.9 12h1.7"></path>' +
-    '<path d="M4.85 19.15l1.2-1.2"></path>' +
+  /* Draktknappen (`#theme-toggle-btn`): viser hvilken drakt som ER aktiv, ikke
+     hvilken man bytter TIL — sol i lys drakt, måne i mørk. «Papiret» (skiven/
+     halvmånen) er `fill="#ffffff"`, som følger --icon-paper som alle andre
+     ikoner (mørk og lys i sin tur). paintThemeToggle() i app.js velger hvilken
+     av de to som vises. */
+  sun: '<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="#111" stroke-width="1.05" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
+    '<circle cx="12" cy="12" r="5" fill="#ffffff"></circle>' +
+    '<path d="M12 1.5v2.2"></path>' +
+    '<path d="M12 20.3v2.2"></path>' +
+    '<path d="M4.22 4.22l1.56 1.56"></path>' +
+    '<path d="M18.22 18.22l1.56 1.56"></path>' +
+    '<path d="M1.5 12h2.2"></path>' +
+    '<path d="M20.3 12h2.2"></path>' +
+    '<path d="M4.22 19.78l1.56-1.56"></path>' +
+    '<path d="M18.22 5.78l1.56-1.56"></path>' +
+    '</svg>',
+  moon: '<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="#111" stroke-width="1.05" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
+    '<path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79Z" fill="#ffffff"></path>' +
     '</svg>',
 
   // Øye (Vis): hornhinnen (mandelen) hvit, pupillen (indre sirkel) svart.

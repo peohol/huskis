@@ -97,6 +97,14 @@
   <script src="theme.js"></script>
 </head>
 <body class="locked">
+  <!-- Draktknapp: fast rett til venstre for kontoknappen, samme mønster
+       (posisjon/flate/hover). Ett trykk bytter lys ↔ mørk — ingen «følg
+       systemet» lenger. Ikonet og tittelen viser hvilken drakt som ER aktiv
+       (sol i lys, måne i mørk); paintThemeToggle() i app.js maler den om ved
+       hvert bytte. Skjult før innlogging, som kontoknappen — velgeren nederst
+       på innloggingsskjermen dekker valget der. Se docs/mork-drakt.md. -->
+  <button class="theme-toggle-btn" id="theme-toggle-btn" type="button" aria-pressed="false"></button>
+
   <!-- Kontoknapp: fast i øvre høyre hjørne av VIEWPORTET — utenfor toppmenyens
        flyt, alltid synlig. Åpner konto-modalen; badgen viser ventende
        invitasjoner. -->
@@ -120,14 +128,10 @@
       <button class="crumb-btn nav-crumb" id="nav-crumb" type="button"
               data-dnd-zone="crumb"
               data-i18n-title="crumb.navTitle" aria-haspopup="dialog">
-        <!-- [ressursikon][delt-ikon ved behov] Ressursnavn — ikonene fylles av
-             updateCrumbs() (delt-ikonet vises kun når objektet faktisk er delt). -->
-        <span class="crumb-icon" id="crumb-uni-icon" aria-hidden="true"></span>
-        <span class="crumb-shared" id="crumb-uni-shared" hidden></span>
+        <!-- Bare navnene, uten ikoner (heller ikke delt-ikonet) — plassen er
+             knapp, og updateCrumbs() setter teksten. -->
         <span class="crumb-name" id="crumb-uni-name" data-i18n="kind.universe">Område</span>
         <span class="crumb-sep" aria-hidden="true">›</span>
-        <span class="crumb-icon" id="crumb-group-icon" aria-hidden="true"></span>
-        <span class="crumb-shared" id="crumb-group-shared" hidden></span>
         <span class="crumb-name" id="crumb-group-name" data-i18n="kind.group">Mappe</span>
       </button>
     </nav>
@@ -381,20 +385,6 @@
             <span data-i18n="lang.label">Språk · Language</span>
           </span>
           <select class="field lang-select" id="lang-select" data-i18n-aria-label="lang.aria"></select>
-        </div>
-
-        <!-- Innstilling: drakt (lys/mørk). Lagres KUN på enheten — i motsetning
-             til språket, som også ligger på kontoen fordi serveren trenger det
-             til e-postene. Drakten hører til skjermen man sitter foran, ikke
-             til hvem man er. Står ved siden av språkraden, utenfor trekkspillet,
-             av samme grunn: en innstilling man skal finne uten å lete.
-             Se docs/mork-drakt.md. -->
-        <div class="menu-setting" id="menu-theme">
-          <span class="menu-setting-label">
-            <span class="menu-setting-icon" id="theme-icon" aria-hidden="true"></span>
-            <span data-i18n="theme.label">Drakt</span>
-          </span>
-          <select class="field theme-select" id="theme-select" data-i18n-aria-label="theme.aria"></select>
         </div>
       </div>
     </div>
