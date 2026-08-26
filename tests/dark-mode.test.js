@@ -245,16 +245,18 @@ async function seed(p) {
   check('INGEN drakt-regel posisjonerer kortet (containing block for DnD)',
     !!flate && flate.position === 'static', flate && flate.position);
   // Tilbake til lys fra draktknappen — den andre av de to kontrollene, og den
-  // som står ved siden av kontoknappen etter innlogging.
+  // som står ved siden av kontoknappen etter innlogging. Ingen `aria-pressed`
+  // (se paintThemeToggle): navnet ALENE sier hva trykket gjør, og det skal
+  // snu med drakten.
   check('draktknappen er synlig etter innlogging', await p.locator('#theme-toggle-btn').isVisible());
-  check('den er trykket ned (mørk er aktiv)',
-    (await p.locator('#theme-toggle-btn').getAttribute('aria-pressed')) === 'true');
+  check('den tilbyr «bytt til lys» mens mørk er aktiv',
+    (await p.locator('#theme-toggle-btn').getAttribute('aria-label')) === 'Bytt til lys drakt');
   await p.locator('#theme-toggle-btn').click();
   await p.waitForTimeout(300);
   st = await themeState(p);
   check('ett trykk på draktknappen bytter tilbake til lys', st.attr === 'light' && st.stored === 'light', st);
-  check('knappen er ikke lenger trykket ned',
-    (await p.locator('#theme-toggle-btn').getAttribute('aria-pressed')) === 'false');
+  check('navnet snudde til «bytt til mørk» etter byttet',
+    (await p.locator('#theme-toggle-btn').getAttribute('aria-label')) === 'Bytt til mørk drakt');
   const lightBg = st.bg;
   const lightCards = await cardColors(p);
 

@@ -10983,12 +10983,14 @@
     paintThemeToggle();
   }
   // Knappen viser drakten som ER aktiv (sol i lys, måne i mørk), og
-  // tittelen/aria-label sier hvilken handling ETT trykk utfører — samme
-  // mønster som «vis passordet»-øyet (paintPassToggle).
+  // tittelen/aria-label sier hvilken handling ETT trykk utfører. INGEN
+  // `aria-pressed`: navnet er handlingen («Bytt til …»), ikke en fast
+  // identitet, og et skiftende navn sammen med `aria-pressed` ville lest
+  // som om selve handlingen sto «trykket inn» — se ARIA APG om toggle-
+  // knapper med stabilt navn + `aria-pressed` versus handlingsnavn uten.
   function paintThemeToggle() {
     const dark = THEME.mode() === 'dark';
     themeToggleBtn.innerHTML = dark ? ICONS.moon : ICONS.sun;
-    themeToggleBtn.setAttribute('aria-pressed', dark ? 'true' : 'false');
     const label = tr(dark ? 'theme.toLight' : 'theme.toDark');
     themeToggleBtn.title = label;
     themeToggleBtn.setAttribute('aria-label', label);
