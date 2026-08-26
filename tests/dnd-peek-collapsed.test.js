@@ -12,7 +12,9 @@
   Filen dekker også speilvendingen av den samme vakten: et dra-mål må stå stille
   mens man sikter på det, også når det er ÅPENT. En åpen, tom kategori er både en
   rad og en container, og sorteringen fikk den til å flykte oppover forbi
-  pekeren (test 7).
+  pekeren (test 7) — og den samme tomme hylla er det ene stedet Smett
+  forhåndsviser slippet underveis, siden det ikke finnes en rad der som kunne
+  flyttet hullet inn.
 
   Gestene er EKTE input (`tests/dnd-gestures.js`).
 
@@ -398,6 +400,20 @@ const log = (n, ok, x = '') => { results.push(ok); console.log((ok ? 'PASS' : 'F
     });
     log('7 kategorien flyktet ikke: siktepunktet er fortsatt inne i den',
       aim.y >= nå.top && aim.y <= nå.bottom, JSON.stringify({ sikte: aim.y, kategori: nå }));
+
+    /* Og hullet er der ALLEREDE, før slippet.
+
+       En tom hylle har ingen rad å overlappe, så dnd-kits optimistiske
+       sortering har ingenting å flytte hullet med: draget viste raden i lista
+       den kom fra, helt til slippet la den et annet sted. Smett kjører derfor
+       den samme punktbaserte plasseringen underveis når slippmålet er en TOM
+       container — og bare da, se `docs/drag-and-drop.md`. */
+    const hull = await p.evaluate(() => ({
+      iHylla: document.querySelectorAll('.category[data-id="cat-1"] .cat-items > [data-dnd-placeholder]').length,
+      iLista: document.querySelectorAll('.card[data-id="card-A"] .items-container > [data-dnd-placeholder]').length,
+    }));
+    log('7 hullet ligger i den tomme kategorien mens draget fortsatt holdes',
+      hull.iHylla === 1 && hull.iLista === 0, JSON.stringify(hull));
 
     await release(p, aim.x, aim.y); await p.waitForTimeout(400);
     const st7 = await state(p);

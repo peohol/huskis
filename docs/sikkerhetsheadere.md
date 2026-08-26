@@ -156,7 +156,7 @@ Appen har to tredjepartsbiblioteker, og begge ligger i repoet, ikke på et CDN:
 
 ```html
 <script src="vendor/supabase-js-2.111.0.js"></script>
-<script src="vendor/smett-0.1.0.js"></script>
+<script src="vendor/smett-0.2.0.js"></script>
 ```
 
 Supabase-filen er en **uendret kopi** av `dist/umd/supabase.js` fra npm-pakken

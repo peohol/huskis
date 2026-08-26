@@ -10,7 +10,7 @@ dokumentet:
   drop-animasjon og opprydding kommer fra
   [dnd-kit](https://github.com/clauderic/dnd-kit) gjennom
   [Smett](https://github.com/peohol/smett), som ligger i repoet som en
-  innsjekket, låst kopi (`vendor/smett-0.1.0.js`, den globale `Smett` — se
+  innsjekket, låst kopi (`vendor/smett-0.2.0.js`, den globale `Smett` — se
   [`sikkerhetsheadere.md`](sikkerhetsheadere.md)).
 - **Betydningen er Huskis'.** Hva et slipp GJØR — ny `pos`, hvilken container
   raden havner i, hvem som får lov, hva som slettes, hva som opprettes — ligger
@@ -172,15 +172,29 @@ lander riktig, se neste avsnitt.
 ### Forhåndsvisningen når ikke alltid fram; slippet gjør det
 
 dnd-kits optimistiske sortering flytter raden UNDERVEIS bare når den overlapper
-en RAD. Er det ingen rad å overlappe — en tom liste, stripen over første rad,
-stripen under siste, en kategori som er for høy til at et listepunkt dekker en
-femtedel av den — er CONTAINEREN selv slippmålet, og plasseringen avgjøres først
-ved SLIPPET (Smetts `AuthoritativeDrop` → `insertByPoint`, som er punktbasert).
-Slippet lander riktig; det er bare hullet som ikke rekker å flytte seg først.
+en RAD. Er det ingen rad å overlappe — stripen over første rad, stripen under
+siste, en kategori som er for høy til at et listepunkt dekker en femtedel av
+den — er CONTAINEREN selv slippmålet, og plasseringen avgjøres først ved SLIPPET
+(Smetts `AuthoritativeDrop` → `insertByPoint`, som er punktbasert). Slippet
+lander riktig; det er bare hullet som ikke rekker å flytte seg først.
 
 Det er derfor kollisjonsdetektorene under finnes: de gjør containeren til et
-svar, slik at slippet har et mål å lande i. Å lukke forskjellen helt hører hjemme
-i Smett — en `settle` også på `dragover`, ikke bare ved slippet.
+svar, slik at slippet har et mål å lande i.
+
+**Unntaket er en TOM container** — en tom liste, en tom kategori. Der finnes det
+ingen rad å overlappe i det hele tatt, så hullet ville aldri kommet etter, og
+draget ga ingen tilbakemelding før man slapp. Smett kjører derfor den samme
+`insertByPoint` underveis når slippmålet er en tom container, slik at hullet
+ligger der før man slipper.
+
+Og bare der. En container som fortsatt har rader er dnd-kits å sortere i, også i
+de rammene der en høy nabo lar containeren vinne runden. To regler på samme
+liste er verre enn én: `insertByPoint` leser naboenes sentre i en layout hullet
+ennå ikke er en del av, så flyttingen den gjør skyver hvert eneste senter den
+nettopp leste — og dnd-kits overlapp-regel fører så raden videre forbi det
+punktet ba om. MÅLT: et sikte 18 px under en nabos senter havnet en hel rad OVER
+den. Slippet er autoritativt der, og det måles én gang, når ingenting lenger
+flytter seg under det (`peohol/smett#9`).
 
 **Sluttplasseringen er autoritativ.** Den løpende plasseringen er
 overlapp-basert, og den SISTE bevegelsen før et slipp kan være koalescert bort
@@ -277,12 +291,23 @@ slipper den igjen.
 ## Politikken som måtte uttrykkes som kollisjonsdetektorer
 
 dnd-kits containere treffes normalt av `pointerIntersection` mot sin egen boks.
-Huskis' regler er ikke boks-regler, så containerne har egne detektorer. To ting
+Huskis' regler er ikke boks-regler, så containerne har egne detektorer. Tre ting
 om mekanikken: en `collisionPriority` på ENTITETEN overstyrer prioriteten
 detektoren svarte, så en droppable som trenger to prioriteter får
-`collisionPriority = null` og bestemmer selv; og radene inne i en container er
+`collisionPriority = null` og bestemmer selv; radene inne i en container er
 dnd-kits egne (hysterese-detektoren, Normal prioritet), så containeren er bare
-fallbacken under dem.
+fallbacken under dem; og detektorene settes på nytt for hver bevegelse
+(`dndTuneRowCollisions` fra `dndRowPolicy`), ikke bare ved løft. Det siste er
+Smetts: den skriver detektoren på hver RAD ved hver `sync()` — en rad som holder
+en container av sitt eget (altså kategorien) får Smetts egen vertsdetektor — og
+den synker midt i gesten når den forhåndsviser et slipp i en tom container.
+Containernes egne detektorer og prioriteter rører den ikke.
+
+Smetts vertsdetektor sier omtrent det samme som vår, men ikke det samme: den lar
+en kategori som er KOLLAPSET konkurrere som en vanlig nabo, og den regner
+overskriften som en del av kategori-raden. Begge deler er Huskis-regler den ikke
+kan kjenne (peek, og «overskriften er en vei INN»), så vår detektor er den som
+skal stå der.
 
 - **KORTET velger container, ikke pekeren** (`dndPickRowContainer`,
   `dndLevel1Collision`). Først «hvilket kort er objektet i?» — avgjort av

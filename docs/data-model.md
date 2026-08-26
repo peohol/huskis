@@ -9,7 +9,7 @@ per-enhet-minnet for aktiv mappe/område.
   ingen rammeverk; `node build.js` stempler kun en build-ID inn i produksjons-
   kopien (`docs/auto-update.md`).
 - **Vanilla JS**, uten klientavhengigheter i appkoden. Dra-og-slipp er det ene
-  unntaket: gesten kjøres av dnd-kit gjennom Smett (`vendor/smett-0.1.0.js`, en
+  unntaket: gesten kjøres av dnd-kit gjennom Smett (`vendor/smett-0.2.0.js`, en
   innsjekket, låst kopi), mens hva et slipp BETYR ligger i `app.js` — se
   `docs/drag-and-drop.md`.
 - **Persistens** i `localStorage` (offline-buffer per konto); sanntids-synk mot

@@ -1,7 +1,7 @@
 /* ============================================================
    Huskis — app.js
    Vanilla JS, ingen bundler. Dra-og-slipp kjøres av dnd-kit gjennom Smett
-   (`vendor/smett-0.1.0.js`); hva et slipp BETYR ligger her, i seksjonen
+   (`vendor/smett-0.2.0.js`); hva et slipp BETYR ligger her, i seksjonen
    «DELT DnD-POLITIKK». Autoritativt: docs/drag-and-drop.md.
    ============================================================ */
 (function () {
@@ -4989,7 +4989,7 @@
      NAV-SCOPET PÅ dnd-kit (gjennom Smett)
      ------------------------------------------------------------
      Nav-modalen — områder som kort, mapper og mappekategorier som rader —
-     kjøres av dnd-kit gjennom Smett (`vendor/smett-0.1.0.js`, den globale
+     kjøres av dnd-kit gjennom Smett (`vendor/smett-0.2.0.js`, den globale
      `Smett`). Politikken de to board-ene her leser fra er DELT med hovedsidens
      to; den ligger i seksjonen «DELT DnD-POLITIKK» over
      (`docs/drag-and-drop.md`).
@@ -5328,7 +5328,15 @@
   // prioritet. Våre detektorer trenger å bestemme prioriteten selv (hylla har to
   // — se over), så `collisionPriority` nulles: dnd-kit lar en prioritet på
   // entiteten OVERSTYRE den detektoren svarte. Begge settes på den droppable-en
-  // som allerede finnes; Smetts `sync()` rører ingen av delene.
+  // som allerede finnes.
+  //
+  // For CONTAINERNE holder det å gjøre det én gang: Smetts `sync()` rører
+  // hverken detektor eller prioritet på en container den alt kjenner. For
+  // RADENE gjør den det — en rad som holder en container av sitt eget får
+  // Smetts egen vertsdetektor på hver `sync()`, og kategori-raden er nettopp en
+  // slik rad. Derfor kalles denne på nytt for hver bevegelse (`dndRowPolicy`),
+  // ikke bare ved løft: Smett synker midt i gesten når den forhåndsviser et
+  // slipp i en TOM container.
   function dndTuneRowCollisions(rowBoard) {
     if (!rowBoard) return;
     for (const droppable of rowBoard.manager.registry.droppables) {
@@ -6641,6 +6649,11 @@
     if (dndRowPolicyBusy) return;
     dndRowPolicyBusy = true;
     try {
+      // Kategori-radens detektor er VÅR, og Smett skriver rad-detektorene på
+      // hver `sync()` — også de den kjører midt i et drag, når den
+      // forhåndsviser et slipp i en tom container. Sett dem på igjen her, før
+      // kollisjonsrunden som kommer; ved løft alene ville de ikke overlevd.
+      dndTuneRowCollisions(b);
       dndSyncIntent(b.manager.dragOperation);
       dndPaintRotation();
       /* Svaret er en funksjon av PEKERPOSISJONEN. Står pekeren stille, skal
