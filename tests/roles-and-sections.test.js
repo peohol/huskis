@@ -9,7 +9,7 @@
     4. Medlemslisten: kategorioverskrifter, «Eier» vs. «Medeiere», deduplisering,
        forklaring når et arvet områdemedlem ikke kan fjernes
     5. Rolleinvitasjon (medeier) — rollevelgeren finnes kun for den som kan det
-    6. Breadcrumbs: [ressursikon][delt-ikon]Navn, og den virtuelle «Delte mapper»-roten
+    6. Breadcrumben: bare navnene (ingen ikoner), og den virtuelle «Delte mapper»-roten
     7. Lister deles ikke selv: ingen delerad i listens meny (bare delt-merket),
        og serveren avviser en liste-invitasjon også via rå RPC
     8. Tap av tilgang navigerer brukeren ut av den ugyldige visningen
@@ -243,17 +243,21 @@ async function run(label, viewport, mobile) {
   await p.waitForTimeout(500);
   const crumb = await p.evaluate(() => ({
     uni: document.getElementById('crumb-uni-name').textContent,
-    uniIcon: document.getElementById('crumb-uni-icon').innerHTML.length,
-    uniShared: !document.getElementById('crumb-uni-shared').hidden,
     grp: document.getElementById('crumb-group-name').textContent,
-    grpIcon: document.getElementById('crumb-group-icon').innerHTML.length,
-    grpShared: !document.getElementById('crumb-group-shared').hidden,
+    // Breadcrumben viser ALDRI ikoner (heller ikke delt-ikonet) —
+    // docs/rettigheter-og-deling.md. crumb-uni-icon/-shared og
+    // crumb-group-icon/-shared finnes ikke lenger i DOM-en.
+    ingenIkonelementer: !document.getElementById('crumb-uni-icon')
+      && !document.getElementById('crumb-uni-shared')
+      && !document.getElementById('crumb-group-icon')
+      && !document.getElementById('crumb-group-shared'),
   }));
-  log(label + ' 6: fri mappe får den virtuelle roten «Delte mapper» UTEN områdeikon',
-    crumb.uni === 'Delte mapper' && crumb.uniIcon === 0 && crumb.uniShared === true,
-    JSON.stringify(crumb));
-  log(label + ' 6: mappeleddet har mappeikon + delt-ikon (ikke mappeikon to ganger)',
-    crumb.grp === 'Mappe B' && crumb.grpIcon > 0 && crumb.grpShared === true);
+  log(label + ' 6: fri mappe får den virtuelle roten «Delte mapper»',
+    crumb.uni === 'Delte mapper', JSON.stringify(crumb));
+  log(label + ' 6: mappeleddet viser mappenavnet',
+    crumb.grp === 'Mappe B', JSON.stringify(crumb));
+  log(label + ' 6: breadcrumben har ingen ikonelementer, bare navn',
+    crumb.ingenIkonelementer, JSON.stringify(crumb));
 
   /* ---------- 7) Lister har ingen deling ---------- */
   await loadAs(p, db, ids.uA, 'a@x.no', viewport);

@@ -74,11 +74,12 @@ check('alle deklarerte nøkler kom med i ordboken',
 /* ---------- 4–5. Nøklene appen faktisk bruker ---------- */
 // Nøkler som slås opp dynamisk (`tr('count.' + kind + …)`). Prefikset står her
 // fordi et statisk søk aldri kan finne den sammensatte nøkkelen.
-// `theme.system`/`theme.light`/`theme.dark` slås opp som `tr('theme.' + mode)`
-// når draktvelgeren bygges — men `theme.label`/`theme.aria`/`theme.notStored`
-// står statisk, så hele prefikset kan ikke unntas.
+// `theme.light`/`theme.dark` slås opp som `tr('theme.' + mode)` når
+// innloggingsskjermens draktvelger bygges — men `theme.label`/`theme.aria`/
+// `theme.notStored`/`theme.toLight`/`theme.toDark` står statisk, så hele
+// prefikset kan ikke unntas.
 const DYNAMIC_PREFIXES = ['count.', 'kindDef.'];
-const DYNAMIC_KEYS = ['theme.system', 'theme.light', 'theme.dark'];
+const DYNAMIC_KEYS = ['theme.light', 'theme.dark'];
 const isDynamic = (k) => DYNAMIC_PREFIXES.some((p) => k.indexOf(p) === 0) || DYNAMIC_KEYS.indexOf(k) > -1;
 
 const appSrc = read('app.js');

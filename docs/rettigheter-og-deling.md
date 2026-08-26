@@ -439,8 +439,9 @@ medlemsliste lekkes aldri til en mottaker uten områdeadgang.
 
 ## 8. Ikoner og breadcrumbs
 
-Fast rekkefølge: `[ressursikon][delt-ikon ved behov] Ressursnavn`. Mappeikonet
-vises aldri to ganger.
+Fast rekkefølge i nav-modalens område-kort og mappe-rader:
+`[ressursikon][delt-ikon ved behov] Ressursnavn`. Mappeikonet vises aldri to
+ganger.
 
 Et objekt er **aktivt delt** når mer enn én bruker har effektiv tilgang.
 Ventende invitasjoner alene utløser ikke delt-ikonet. For en mappe regnes det
@@ -448,12 +449,21 @@ fra den dedupliserte effektive medlemslisten, inkludert arvede områdemedlemmer
 (`group_member_count`).
 
 ```
-[områdeikon][delt?] Områdenavn  ›  [mappeikon][delt?] Mappenavn
+[områdeikon][delt?] Områdenavn  ›  [mappeikon][delt?] Mappenavn   (nav-modalen)
 [delt-ikon] Delte mapper         ›  [mappeikon][delt-ikon] Mappenavn
 ```
 
 Første ledd i den frie varianten er en **virtuell navigasjonsrot** uten
 områdeikon; den navigerer tilbake til «Mapper delt med meg».
+
+**Breadcrumben i toppmenyen** (`#nav-crumb`) viser derimot BARE navnene, uten
+noen av ikonene over — heller ikke delt-ikonet: plassen er knapp, og brukeren
+trenger ikke påminnes om deling akkurat der.
+
+```
+Områdenavn  ›  Mappenavn        (breadcrumben)
+Delte mapper  ›  Mappenavn
+```
 
 Alle ikoner og ikonknapper har tilgjengelige navn og tooltips.
 

@@ -620,10 +620,6 @@
   const navCrumbBtn = document.getElementById('nav-crumb');
   const crumbUniName = document.getElementById('crumb-uni-name');
   const crumbGroupName = document.getElementById('crumb-group-name');
-  const crumbUniIcon = document.getElementById('crumb-uni-icon');
-  const crumbGroupIcon = document.getElementById('crumb-group-icon');
-  const crumbUniShared = document.getElementById('crumb-uni-shared');
-  const crumbGroupShared = document.getElementById('crumb-group-shared');
   const respSwitcherOverlay = document.getElementById('resp-switcher');
   const respSwitcherPanel = document.getElementById('resp-switcher-panel');
   const addCardBtn = document.getElementById('add-card-btn');
@@ -652,7 +648,9 @@
   const uniTrashBtn = document.getElementById('uni-trash-btn');
   const uniTrashCount = document.getElementById('uni-trash-count');
 
-  // Konto-modal (kontoknappen øverst til høyre).
+  // Draktknapp (fast rett til venstre for kontoknappen) og konto-modal
+  // (kontoknappen øverst til høyre).
+  const themeToggleBtn = document.getElementById('theme-toggle-btn');
   const accountBtn = document.getElementById('account-btn');
   const accountModal = document.getElementById('account-modal');
   const accountClose = document.getElementById('account-close');
@@ -1720,30 +1718,17 @@
   }
 
   // Breadcrumben (nav-knappen) viser navnet på gjeldende område og mappe, ikke
-  // bare nivånavnet — så man alltid ser hvor i hierarkiet man er.
-  // Breadcrumben følger den faste ikonrekkefølgen
-  // `[ressursikon][delt-ikon ved behov] Ressursnavn`, aldri med mappeikonet to
-  // ganger. En FRI mappe (delt direkte med meg, uten tilgang til det kanoniske
-  // området) får en virtuell rot: `[delt-ikon] Delte mapper` — ingen
-  // områdeikon, siden det ikke er noe område jeg kan se.
-  function setCrumbShared(el, on, label) {
-    el.hidden = !on;
-    el.innerHTML = on ? ICONS.people : '';
-    if (on) el.title = label;
-    el.setAttribute('aria-hidden', on ? 'false' : 'true');
-    if (on) el.setAttribute('aria-label', label); else el.removeAttribute('aria-label');
-  }
+  // bare nivånavnet — så man alltid ser hvor i hierarkiet man er. Bare
+  // navnene, uten ikoner — heller ikke delt-ikonet, som nav-modalens kort og
+  // rader fortsatt viser (docs/rettigheter-og-deling.md). En FRI mappe (delt
+  // direkte med meg, uten tilgang til det kanoniske området) får en virtuell
+  // rot: «Delte mapper».
   function updateCrumbs() {
     const uni = activeUniverseObj();
     const group = activeGroupObj();
     const free = !!(group && group._free);
-    crumbUniIcon.innerHTML = free ? '' : ICONS.globe;
     crumbUniName.textContent = free ? S_TEXT.freeSection : (uni ? uni.name : tr('kind.universe'));
-    setCrumbShared(crumbUniShared, free || !!(uni && uni._shared),
-      free ? tr('section.sharedGroups') : tr('crumb.universeShared'));
-    crumbGroupIcon.innerHTML = ICONS.folder;
     crumbGroupName.textContent = group ? group.name : tr('kind.group');
-    setCrumbShared(crumbGroupShared, !!(group && group._shared), tr('crumb.groupShared'));
   }
 
   // Delings-/låse-status (kontomodus): toggler .is-shared og fyller .share-badge
@@ -1909,7 +1894,8 @@
     // Som for mapperaden: ringen alene forteller ikke en skjermleser noe.
     if (isActiveUni) el.setAttribute('aria-current', 'true');
     else el.removeAttribute('aria-current');
-    // [ressursikon]([delt-ikon])Navn — samme rekkefølge som breadcrumben.
+    // [ressursikon]([delt-ikon])Navn (docs/rettigheter-og-deling.md). Bare
+    // nav-modalens kort/rader viser dette — breadcrumben viser kun navnet.
     el.querySelector('.uni-icon').innerHTML = isFree ? ICONS.people : ICONS.globe;
 
     const titleEl = el.querySelector('.card-title');
@@ -7695,6 +7681,7 @@
     updateModalOpenClass();
   }
   navCrumbBtn.addEventListener('click', openNavModal);
+  themeToggleBtn.addEventListener('click', () => setTheme(THEME.mode() === 'dark' ? 'light' : 'dark'));
   accountBtn.addEventListener('click', openAccount);
   navModalClose.addEventListener('click', closeNavModal);
   accountClose.addEventListener('click', closeAccount);
@@ -10962,21 +10949,24 @@
   }
 
   /* ---------------- Drakt (lys/mørk) ----------------
-     Samme kontroll to steder som språket — konto-modalen og innloggings-
-     skjermen — men valget er ENHETENS alene: det ligger bare i
-     `localStorage['huskis-theme']` (theme.js), aldri på kontoen. Drakten følger
-     skjermen og lyset man sitter i, ikke hvem man er, og den har ingen
-     serverside-effekt slik språket har (invitasjons-e-postene er på kontoens
-     språk). Autoritativt: docs/mork-drakt.md.
+     Valget er ENHETENS alene: det ligger bare i `localStorage['huskis-theme']`
+     (theme.js), aldri på kontoen. Drakten følger skjermen og lyset man sitter
+     i, ikke hvem man er, og den har ingen serverside-effekt slik språket har
+     (invitasjons-e-postene er på kontoens språk). Autoritativt:
+     docs/mork-drakt.md.
+
+     To kontroller, ikke én: draktknappen (`#theme-toggle-btn`, fast rett til
+     venstre for kontoknappen) ETT trykk bytter lys ↔ mørk, og er derfor det
+     raske valget når man først er inne. Innloggingsskjermens `<select>`
+     (`#auth-theme-select`) er den eneste veien inn FØR man har en konto —
+     ingen kontoknapp å stå ved siden av der ennå. Ingen «følg systemet» —
+     THEME.MODES er bare `['light', 'dark']`.
 
      Ingen omlasting, i motsetning til et språkbytte: drakten bor i CSS-tokens
      og i kortfargene, og begge deler kan males på nytt der de står. */
-  const themeSelects = () => [document.getElementById('theme-select'),
-    document.getElementById('auth-theme-select')].filter(Boolean);
   function paintTheme() {
-    const icon = document.getElementById('theme-icon');
-    if (icon && !icon.innerHTML) icon.innerHTML = ICONS.theme;
-    themeSelects().forEach((sel) => {
+    const sel = document.getElementById('auth-theme-select');
+    if (sel) {
       if (!sel.options.length) {
         THEME.MODES.forEach((m) => {
           const o = document.createElement('option');
@@ -10989,7 +10979,21 @@
       // språkbytte uten omlasting (repaintLanguage) går gjennom her.
       Array.prototype.forEach.call(sel.options, (o) => { o.textContent = tr('theme.' + o.value); });
       sel.value = THEME.mode();
-    });
+    }
+    paintThemeToggle();
+  }
+  // Knappen viser drakten som ER aktiv (sol i lys, måne i mørk), og
+  // tittelen/aria-label sier hvilken handling ETT trykk utfører. INGEN
+  // `aria-pressed`: navnet er handlingen («Bytt til …»), ikke en fast
+  // identitet, og et skiftende navn sammen med `aria-pressed` ville lest
+  // som om selve handlingen sto «trykket inn» — se ARIA APG om toggle-
+  // knapper med stabilt navn + `aria-pressed` versus handlingsnavn uten.
+  function paintThemeToggle() {
+    const dark = THEME.mode() === 'dark';
+    themeToggleBtn.innerHTML = dark ? ICONS.moon : ICONS.sun;
+    const label = tr(dark ? 'theme.toLight' : 'theme.toDark');
+    themeToggleBtn.title = label;
+    themeToggleBtn.setAttribute('aria-label', label);
   }
   function setTheme(mode) {
     if (mode === THEME.mode()) return;
@@ -10999,8 +11003,7 @@
   }
   /* Kortfargene er de eneste fargene som IKKE bor i CSS — de settes inline fra
      paletten (colorForIndex), og paletten speiler L-en per drakt. De må derfor
-     males på nytt når drakten skifter, også når skiftet kom fra
-     operativsystemet mens appen sto åpen ('system').
+     males på nytt når drakten skifter.
 
      KUN KIRURGISK — ALDRI EN FULL RENDRING. Begge funksjonene under bytter
      bare `background`/custom properties på noder som allerede står der:
@@ -11008,11 +11011,10 @@
      Til sammen er det hver eneste palettflate som lever i board-et, så en
      `render()` ville ikke tilført noe — men den ville kostet tre ting:
 
-       • Den river ned board-et. En drakt-endring fra operativsystemet kommer
-         når den kommer, gjerne midt i en inline navngiving, og
-         `captureFocusIn` bevarer ikke et åpent `.edit-input`. En fjernet,
-         fokusert node fyrer heller ikke pålitelig sin egen `blur`, så teksten
-         brukeren holdt på å skrive ville gått tapt.
+       • Den river ned board-et. Et draktbytte kan komme midt i en inline
+         navngiving, og `captureFocusIn` bevarer ikke et åpent `.edit-input`.
+         En fjernet, fokusert node fyrer heller ikke pålitelig sin egen
+         `blur`, så teksten brukeren holdt på å skrive ville gått tapt.
        • `renderBoardInner()` kaller `save()`. Drakten ligger i localStorage og
          rører ingen synket data, men rendringen ville likevel stemplet
          dokumentet som endret, køet en synk-runde og blokkert

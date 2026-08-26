@@ -35,7 +35,8 @@ kontroller skal bruke disse — aldri egne ad hoc-verdier. Endres et token, skal
 hele appen følge med.
 
 Alle knapper i samme knapperad har identisk høyde/radius/flate (`--control-h`
-/ `--control-radius`). Gjelder ＋-knapper, søppelkasser, breadcrumb-knappene og kontoknappen.
+/ `--control-radius`). Gjelder ＋-knapper, søppelkasser, breadcrumb-knappene,
+kontoknappen og draktknappen.
 
 **Ingen hardkodet flate-, linje- eller ikonfarge.** Alt som skifter mellom lys
 og mørk drakt er tokens: `--surface*` (paneler/felt), `--line`, `--wash*`
@@ -290,12 +291,15 @@ Størrelse/form kommer fra egne klasser: `.btn` (modaler), `.btn-small`,
   under. Brukes i område-/mappe-/konto-modalen og toppmenyens
   listefunksjoner.
 - `.crumb-btn`: navigasjonsknappen i toppmenyen — ÉN knapp med begge nivåene
-  (nivå-ikon + navn på flate-mønsteret, `.crumb-name` med ellipsis);
+  (bare navn, uten ikoner, på flate-mønsteret; `.crumb-name` med ellipsis);
   `.crumb-sep` er ›-skilletegnet mellom dem.
 - `.trashcan`: ALLE søppelkasse-knapper — hvit avrundet beholder, antall i grå
   sirkel (`.trashcan-count`), **skjult (`hidden`) når tom**.
 - `.account-btn`: kontoknappen (person-ikon, fast i øvre høyre hjørne, med
   `.menu-badge` som invitasjons-teller).
+- `.theme-toggle-btn`: draktknappen, fast rett til venstre for kontoknappen —
+  samme flate/hover/fokus-mønster, sol-/måneikon for aktiv drakt
+  (`docs/mork-drakt.md`).
 - `.account-form` (+ `-label`/`-row`) og `.account-msg`: endre navn/e-post i
   konto-modalen (etikett over felt, Lagre-knapp på samme rad). «Bilde»-seksjonen
   bruker den samme klassen uten å være et `<form>` — mønsteret er etikett over
@@ -329,8 +333,9 @@ Størrelse/form kommer fra egne klasser: `.btn` (modaler), `.btn-small`,
 - Delt-merket (`.share-badge`) er en ren INDIKATOR på alle nivåer (span,
   `aria-hidden`) — ikke lenger en knapp på listekortet.
 - **Type-ikon foran navnet i nav-modalen**: områdekortet og mapperaden
-  innleder med `[type-ikon]([delt-ikon])Navn` — `.kind-icon` (globus/mappe, samme
-  ikoner som breadcrumben), så `.share-badge` når objektet er delt, så navnet.
+  innleder med `[type-ikon]([delt-ikon])Navn` — `.kind-icon` (globus/mappe),
+  så `.share-badge` når objektet er delt, så navnet. Breadcrumben i toppmenyen
+  viser derimot bare navnene, uten ikoner.
   Delte områdekort får derfor IKKE den lyse innerkanten delte listekort har
   (`.nav-board .card.is-shared` nullstiller box-shadow-ringen): `.card-body` er
   gjennomsiktig, så ringen lyste gjennom nederst og leste som en ramme rundt
@@ -570,7 +575,8 @@ handlingene i appen får samme form uansett hvilken modal de står i.
 ## Flate-mønsteret
 
 Hvile = halvgjennomsiktig hvit (`--control-bg`), hover = helt ugjennomsiktig
-hvit. Gjelder søppelkasser, breadcrumb-knappene og kontoknappen.
+hvit. Gjelder søppelkasser, breadcrumb-knappene, kontoknappen og
+draktknappen.
 
 ## `[hidden]`-regelen
 

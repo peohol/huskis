@@ -122,13 +122,15 @@
     'lang.aria':  ['Språk i appen og i e-postene', 'Language in the app and in emails'],
 
     /* ---- Drakt (lys/mørk) ---- */
-    /* «System» betyr operativsystemets egen innstilling, og skifter med den
-       mens appen står åpen. Se docs/mork-drakt.md. */
-    'theme.label':  ['Drakt', 'Appearance'],
-    'theme.aria':   ['Lys eller mørk drakt', 'Light or dark appearance'],
-    'theme.system': ['Følg systemet', 'Match system'],
-    'theme.light':  ['Lys', 'Light'],
-    'theme.dark':   ['Mørk', 'Dark'],
+    /* To valg, ingen «følg systemet» — se docs/mork-drakt.md. `theme.toLight`/
+       `theme.toDark` er draktknappens tittel/aria-label: de sier hvilken
+       handling ETT trykk utfører (samme mønster som auth.showPassword). */
+    'theme.label':   ['Drakt', 'Appearance'],
+    'theme.aria':    ['Lys eller mørk drakt', 'Light or dark appearance'],
+    'theme.light':   ['Lys', 'Light'],
+    'theme.dark':    ['Mørk', 'Dark'],
+    'theme.toLight': ['Bytt til lys drakt', 'Switch to light appearance'],
+    'theme.toDark':  ['Bytt til mørk drakt', 'Switch to dark appearance'],
 
     /* ---- Konto ---- */
     'account.title':            ['Konto', 'Account'],
@@ -300,8 +302,6 @@
     'section.sharedUniverses':  ['Områder delt med meg', 'Workspaces shared with me'],
     'section.sharedGroups':     ['Mapper delt med meg', 'Folders shared with me'],
     'section.freeGroups':       ['Delte mapper', 'Shared folders'],
-    'crumb.universeShared':     ['Området er delt', 'The workspace is shared'],
-    'crumb.groupShared':        ['Mappen er delt', 'The folder is shared'],
     'share.withOthers':         ['Delt med andre', 'Shared with others'],
     'share.withYou':            ['Delt med deg', 'Shared with you'],
 
