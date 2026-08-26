@@ -18,11 +18,13 @@ som håndhever det.
 mock-backenden (`?mock=1`), SQL-testene mot en fersk PostgreSQL i en
 service-container. Den har ikke tilgang til `SUPABASE_DB_URL`.
 
-Repoet har én workflow til, `android-debug.yml`, som står helt utenfor denne
-kjeden: den pakker `dist/` inn i en Android debug-APK og laster den opp som
-artifact. Den migrerer ingenting og deployer ingenting — se
-[`mobilapp-plan.md`](mobilapp-plan.md). `tests/release-pipeline.test.js` holder
-den (og enhver annen ny workflow) utenfor migreringen og produksjonsdeployen.
+Repoet har to workflows til, `android-debug.yml` og `android-release.yml`, som
+står helt utenfor denne kjeden: den første pakker `dist/` inn i en Android
+debug-APK, den andre bygger den signerte butikkbinæren `app-release.aab`. Begge
+laster opp et artifact, ingen av dem migrerer eller deployer noe, og ingen av
+dem publiserer til Google Play — se [`mobilapp-plan.md`](mobilapp-plan.md).
+`tests/release-pipeline.test.js` holder dem (og enhver annen ny workflow)
+utenfor migreringen og produksjonsdeployen.
 
 ## Rekkefølgen ved merge til `main`
 
@@ -304,6 +306,11 @@ verifisere (pluginen er fail closed på signatur). Privatnøkkelen forlater aldr
 runneren — den leses ett sted, som miljøvariabel, og skrives aldri ut. Merk at siden Vercels git-deploy for
 `main` er av, er `VERCEL_TOKEN`/`ORG_ID`/`PROJECT_ID` nå det eneste som kan
 publisere til produksjon.
+
+Android-signeringen har sine egne secrets (`ANDROID_UPLOAD_*`). De hører til
+butikkdistribusjonen, ikke til denne kjeden, og står i
+[`mobilapp-plan.md`](mobilapp-plan.md), fase 6 — sammen med hvilken nøkkel som
+er hvilken.
 
 `SUPABASE_DB_URL` må være den DIREKTE tilkoblingen (port 5432), ikke
 pooler-URL-en (6543): både migreringen og smoke-testen kjører flerstegs

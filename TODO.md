@@ -11,6 +11,14 @@ Skjemaet trenger ingen manuell kjøring: «Release»
 slipper først frontenden ut på Vercel etter at smoke-testen er grønn. Se
 `docs/release-og-deploy.md`.
 
+## Android: fra debug-APK til Google Plays interne testspor
+
+Repo-siden er på plass — signering, release-AAB-workflow, package ID og
+`versionCode`-regelen. Det som gjenstår er manuelt og kan ikke gjøres herfra:
+Google Play Developer-kontoen, upload-nøkkelen, de fire `ANDROID_UPLOAD_*`-
+secretene og første opplasting. Stegene i rekkefølge står i
+`docs/mobilapp-plan.md`, fase 6.
+
 ## Diagnostikk: når en delingsinvitasjon ikke kommer fram
 
 Oppsettet er verifisert i produksjon (pg_net aktivert, nøkkel i Vault,

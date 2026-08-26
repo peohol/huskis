@@ -13,3 +13,13 @@ node_modules/
 # Privatnøkkelen skal aldri kunne committes — den er en engangsnøkkel som
 # signerer bevisst ødelagte bundles, og hører ikke hjemme i repoet.
 .ota-rig/
+
+# Android release-signering (docs/mobilapp-plan.md, fase 6): upload-nøkkelen og
+# passordene til den. Materialet kommer alltid UTENFRA repoet — GitHub-secrets i
+# CI, eller `android/keystore.properties` lokalt — og ingen av delene skal kunne
+# committes. Mønstrene står i repo-roten med vilje: de gjelder da uansett hvor i
+# treet en nøkkelfil måtte havne, ikke bare i `android/`.
+*.jks
+*.keystore
+*.p12
+keystore.properties
