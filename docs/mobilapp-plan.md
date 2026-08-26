@@ -18,12 +18,12 @@ autoritative dokumentet for fagfeltet.
 | Status — fase 3 | **Ferdigkriteriet er nådd.** Alle seks punktene er avgjort: systemets tilbakeknapp og safe areas/systemfeltene/skjermtastaturet, begge verifisert på fysisk telefon; eksterne lenker og auth-/e-postlenker, som begge er beslutninger uten kode og derfor ikke har noe å prøve på en telefon; sikker lagring/`android:allowBackup`, der sikkerhetskopien av WebView-lagringen er slått av; og lifecycle-/network-signalene, målt på enhet med sonden. `navigator.onLine` er bekreftet dødt uten `ACCESS_NETWORK_STATE`, og tillatelsen er lagt inn med vakt. Gjenopptakelsen er tilskrevet: et `get_my_doc` står i enhetsloggen merket `by: 'visibilitychange'`. Målingen viste samtidig at hendelsen IKKE leveres når Android har fryst prosessen — der starter pollets forfalte tikk runden i samme øyeblikk som opptiningen. Begge ledd er dermed bærende, hvert i sitt regime (se seksjonen). Ingen native plugin er innført. Automatisk dekket av `tests/safe-area.test.js`, `tests/landscape-chrome.test.js`, `tests/system-back.test.js`, `tests/sync-foreground.test.js` (del 2 og del 6 kjører hvert sitt regime) og `tests/capacitor-android.test.js`. |
 | Status — fase 4 | Fase 4s ferdigkriterium er **oppfylt**: en kjørende APK og en Vercel-preview bygget av samme commit rapporterte den samme `releaseId` (`d10867a7c0a6`) med hver sin `buildId`, lest på telefon. Alle sju punktene er avgjort. Fem er implementert: kartleggingen av dagens release-identiteter, `releaseId` er definert og generert i `build.js`, web og Android bygget fra samme commit rapporterer den samme verdien, `version.json` er utvidet additivt uten at cache- eller reload-sikkerheten er rørt, og kompatibilitetsregelen mellom klientrelease og databaseskjema er skrevet ned ([`release-og-deploy.md`](release-og-deploy.md)). De to siste er beslutninger, ikke kode — `minimumSupportedRelease` og valget mellom byte-identisk artifact og separate builds — sto åpne til OTA ga dem en konsekvens, og er nå avgjort i fase 5: ingen nedre grense, og separate builds med samme `releaseId` (se «De to punktene fra fase 4 får sitt svar her»). Automatisk dekket av `tests/build-version.test.js`, `tests/auto-update.test.js` og `tests/capacitor-android.test.js`. |
 | Status — fase 5 | **Ferdigkriteriet er oppfylt på fysisk Android.** Installasjon A beviste produksjonskjeden: et `versionCode 3`-skall fra `0ebb737` lastet ned og stilte opp en senere produksjonsbundle, Java godtok produksjonssignaturen, `updateSafety()` blokkerte byttet offline og under synk, origin/sesjon/data overlevde byttet, OTA-aktiveringen var varig, og fire flymodus-kaldstarter nådde `ready()` på 249–314 ms mot `readyTimeout = 10000` ms — også med token nær utløp. Installasjon B beviste fallbacken på måleriggen: både `rig-broken-1` (`throw`) og `rig-broken-2` (`blank`) ble rullet tilbake til innebygd bundle og sperret varig; for `rig-broken-2` ble hele signaturen lest direkte som `rollback: true`, `previousBundleId: 'rig-broken-2'`, klientkarantene og pluginblokkliste. Råmålingene står i fase 5-seksjonen. |
-| Status — fase 6 | **Repo-siden er ferdig; butikk-siden er manuell.** Innført og maskinelt dekket: `no.huskis.app` er bekreftet endelig og låst i alle seks stedene som navngir den; release-signeringen tar imot materiale utenfra (miljøvariabler eller en gitignorert properties-fil) og AVVISER et release-bygg uten det, i tre fail-closed-lag; `.github/workflows/android-release.yml` bygger `app-release.aab` reproducerbart av den samme `dist/`-kjeden og laster den opp som artifact; og `versionCode` har fått butikkens monotone regel uten å bli et tall nummer to. Ingen nøkkel, intet passord og ingen Play-konto finnes ennå — det signerte bygget er derfor prøvd bare fra avvisningssiden. Automatisk dekket av `tests/android-release.test.js`. |
+| Status — fase 6 | **Repo-siden er ferdig; butikk-siden er manuell.** Innført og maskinelt dekket: `no.huskis.app` er bekreftet endelig og låst i alle seks stedene som navngir den; release-signeringen tar imot materiale utenfra (miljøvariabler eller en gitignorert properties-fil) og AVVISER et release-bygg uten det, i tre fail-closed-lag; `.github/workflows/android-release.yml` bygger `app-release.aab` reproducerbart av den samme `dist/`-kjeden og laster den opp som artifact; `versionCode` har fått butikkens monotone regel uten å bli et tall nummer to; og appikonet og splash-bildet er Huskis' eget merke, utledet av `favicon.svg`, i stedet for Capacitor-malens logo. Ingen nøkkel, intet passord og ingen Play-konto finnes ennå — det signerte bygget er derfor prøvd bare fra avvisningssiden. Automatisk dekket av `tests/android-release.test.js`. |
 | Neste milepæl | Fase 6: første installasjon og oppdatering av Huskis gjennom Google Plays interne testspor, uten sideloading |
 | Neste praktiske steg — fase 3 | Ingen. Fasen er ferdig |
 | Neste praktiske steg — fase 4 | Ingen. Fasen er ferdig; de to «vurder …»-punktene fikk sitt svar i fase 5 |
 | Neste praktiske steg — fase 5 | Ingen. Fasen er ferdig; produksjons-OTA, readiness, rollback og karantene er målt på fysisk Android |
-| Neste praktiske steg — fase 6 | Opprett Google Play Developer-kontoen, lag upload-nøkkelen og legg inn de fire `ANDROID_UPLOAD_*`-secretene — så kan «Android release-AAB» kjøres og AAB-en lastes opp til internt testspor (fase 6, «Slik lager du upload-nøkkelen») |
+| Neste praktiske steg — fase 6 | Opprett Google Play Developer-kontoen, lag upload-nøkkelen og legg inn de fire `ANDROID_UPLOAD_*`-secretene — så kan «Android release-AAB» kjøres og AAB-en lastes opp til internt testspor (fase 6, «Slik lager du upload-nøkkelen»). Butikkoppføringens egen grafikk (512×512-ikon, screenshots) lages i Play Console; appikonet i binæren er på plass |
 | OTA | Innført ende til ende og verifisert på fysisk Android: signert produksjonsbundle, manifest per native nivå, native nedlasting, oppstilling, trygg aktivering, varig aktivering, readiness, rollback og karantene. Ferdigkriteriet er oppfylt |
 | iOS | Senere fase; ikke en del av første implementering |
 
@@ -2293,6 +2293,10 @@ manuelle steg — ikke som uavklart arbeid.
 - [x] Ta `versionCode` videre fra OTA-vakten (fase 5) til butikkens krav:
       monotont økende per opplasting, og konsistent med grensen OTA-manifestet
       allerede bruker. Det er samme tall i to roller — ikke to ordninger.
+- [x] Bytt Capacitor-malens logo mot Huskis' eget merke i appikonet og
+      splash-bildet — se «Appikonet og splash-bildet». Det som fortsatt er
+      manuelt er butikkoppføringens grafikk, som lastes opp i Play Console og
+      ikke ligger i binæren.
 
 **Krever at du gjør noe manuelt, i denne rekkefølgen:**
 
@@ -2300,7 +2304,9 @@ manuelle steg — ikke som uavklart arbeid.
 - [ ] Lag upload-nøkkelen og legg inn de fire GitHub-secretene («Slik lager du
       upload-nøkkelen»).
 - [ ] Kjør «Android release-AAB» manuelt og last den ned.
-- [ ] Opprett appoppføring, ikon, screenshots og nødvendig metadata.
+- [ ] Opprett appoppføring med butikkgrafikken: 512×512-ikonet, feature-
+      grafikken og screenshots. Den grafikken lastes opp i Play Console og
+      ligger IKKE i binæren — appikonet i AAB-en er allerede Huskis' eget.
 - [ ] Meld appen inn i Play App Signing ved første opplasting, og sett
       repository-variabelen `ANDROID_UPLOAD_CERT_SHA256`.
 - [ ] Fullfør privacy/Data Safety-opplysninger basert på faktisk databruk.
@@ -2504,6 +2510,54 @@ Malens eksempelklasser under `android/app/src/test` og
 `android/app/src/androidTest` ligger fortsatt i `com.getcapacitor.myapp`. De
 kompileres aldri inn i appen, og er derfor utenfor vakten med vilje.
 
+## Appikonet og splash-bildet
+
+Begge er Huskis' eget merke — de tre stablede kortene med avkryssingslista på
+det fremste, det samme motivet som `favicon.svg` og `.brand-mark` på
+innloggingsskjermen (`docs/design-system.md`). Fram til nå var begge
+**Capacitor-malens** logo, urørt siden fase 1.
+
+Det var ikke kosmetikk å bytte. Ikonet og splash-bildet er det eneste av appen
+en tester ser før web-laget har tegnet noe som helst, og en mal-logo er i samme
+familie av feil som resten av denne fasen: den ser grønn ut i et bygg,
+den vises først i Play Console eller på en telefon — og etter første opplasting
+koster den en ny `versionCode` og en ny opplasting å rette.
+
+| Fil | Hva den er |
+|---|---|
+| `res/drawable/ic_launcher_foreground.xml` | Merket som VectorDrawable — forgrunnen i adaptive-ikonet, altså det ~alle telefoner faktisk viser (API 26+) |
+| `res/values/ic_launcher_background.xml` | Bakgrunnslaget: hvit, samme flate som splash-bildet |
+| `res/mipmap-*dpi/ic_launcher{,_round}.png` | Rasterfallbacken for API 24–25, som ikke kjenner adaptive-ikoner. `minSdkVersion` er 24, så de må finnes |
+| `res/drawable*/splash.png` | Splash-bildet, én per tetthet og orientering fordi bitmapen strekkes til vinduet |
+
+**Merket ligger i 108-rutenettets trygge sone.** Et adaptive-ikon er 108×108dp,
+men launcheren klipper det med sin egen maske — bare de midterste 72dp er
+garantert synlige. Merket er 56dp bredt og sentrert, altså 26–82dp, med margin
+inn til masken uansett hvilken form telefonen bruker.
+
+**Vektoren står i favicon-ens eget 24-rutenett**, og `<group>` gjør om til
+108-rutenettet. Det er med vilje: da kan de to tegningene sammenlignes linje for
+linje. SVG-ens `<rect rx>` og `<circle>` finnes ikke i en VectorDrawable og er
+skrevet ut som `pathData`; konverteringen er verifisert pikselidentisk med
+`favicon.svg`.
+
+**Rasterfilene er UTLEDET av `favicon.svg`, ikke tegnet på nytt.** Endres
+merket, må de genereres om — og `tests/android-release.test.js` sier fra: den
+leser fargene ut av hver enkelt bildefil og krever at merkets tre kortfarger
+står der. Et filnavn ville ikke fanget noe, for malens filer heter nøyaktig det
+samme som våre.
+
+Splash-bildet er fortsatt **hvitt i begge drakter**. Det er ikke en forglemmelse:
+`AppTheme.NoActionBarLaunch` har med vilje ingen night-variant, fordi mørke
+glyfer i statusfeltet gjelder hele døgnet over den hvite splash-flaten
+(`values/styles.xml` og `values-night/styles.xml` forklarer hvorfor). Bare
+motivet er byttet — mekanismen er urørt.
+
+**Ikke innført:** et `<monochrome>`-lag for Androids tematiserte ikoner (API 33+).
+Uten det tematiserer launcheren simpelthen ikke Huskis-ikonet; ingenting brekker.
+En monokrom utgave av en «papirbunke» der de tre kortene skilles av FARGE er en
+egen designoppgave, ikke en mekanisk utledning.
+
 ## Slik bygger du release-AAB-en
 
 1. Legg inn de fire secretene (over).
@@ -2542,6 +2596,15 @@ finnes i det sporede treet; og hele release-workflowen — rekkefølgen på
 stegene, riktig variant, testene før artifactet, de tre fail-closed-lagene, at
 secretene aldri skrives ut eller går gjennom `$GITHUB_ENV`, og at debugveien er
 urørt.
+
+Butikkgrafikken er dekket av den samme fila, og den leser BILDENE, ikke
+filnavnene: merkets tre kortfarger må stå i hver eneste rasterfil (ti
+launcher-ikoner og elleve splash-bilder, hvert i sitt riktige mål), forgrunnen
+må være vektoren i 108-rutenettet, adaptive-ikonet må peke på den og den hvite
+flaten, manifestet må fortsatt peke på rasterfallbacken — og malens egne filer
+må være FJERNET, ikke bare overskygget: en gjenglemt
+`drawable-v24/ic_launcher_foreground.xml` vinner over `drawable/` fra API 24 og
+ville stille gitt malens logo tilbake på hver eneste telefon.
 
 Forholdet mellom `versionCode` og OTA-manifestspennet står fortsatt i
 `tests/release-pipeline.test.js`, og skallets øvrige invarianter i

@@ -220,10 +220,13 @@ objektmenyen (`docs/menus.md`).
   kortene fylles med palettfarge **3/2/1** (bakerst→fremst — det fremste kortet
   har farge 1), slik at det fremste kortet dekker strekene på kortene bak →
   «papirbunke»-effekt. Tynnere strek enn ikonsettet (0.9) så listepunktene
-  overlever i 16px favicon. Logoen finnes to steder (samme markup): `favicon.svg`
-  (frittstående fil, siden `<link rel="icon">` ikke kan peke på en JS-streng) og
-  inline i `.brand-mark` (`index.html`). Endrer du motivet/fargene, oppdater
-  BEGGE.
+  overlever i 16px favicon. Logoen finnes tre steder (samme motiv):
+  `favicon.svg` (frittstående fil, siden `<link rel="icon">` ikke kan peke på en
+  JS-streng), inline i `.brand-mark` (`index.html`) — de to med samme markup —
+  og i Android-skallet som appikon og splash-bilde, der den er UTLEDET av
+  `favicon.svg` og ikke tegnet på nytt (`docs/mobilapp-plan.md`, «Appikonet og
+  splash-bildet»). Endrer du motivet/fargene, oppdater alle tre: de to første
+  for hånd, den tredje ved å generere rasterfilene og vektoren om.
 - `--icon-stroke` (token, 1.05px): linjetykkelsen for CSS-tegnede (ikke-SVG)
   streker som skal matche ikonsettets stroke-width visuelt — brukt av
   sveipefeltets pil (`.swipe-arrow::before`/`::after`), som tidligere hadde en

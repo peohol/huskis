@@ -35,6 +35,9 @@
         skrives aldri ut, riktig variant (`bundleRelease`), signaturen og
         identiteten LEST UT AV det ferdige artifactet, og AAB-en lastet opp som
         artifact.
+     6. Butikkgrafikken: appikonet og splash-bildet er Huskis' eget merke, ikke
+        Capacitor-malens logo — lest ut av selve bildefilene, ikke av et
+        filnavn.
 
    Ren node-test — ingen server, ingen nettleser, ingen Android SDK.
 
@@ -44,6 +47,7 @@
 'use strict';
 const fs = require('fs');
 const path = require('path');
+const zlib = require('zlib');
 const { spawnSync } = require('child_process');
 
 const ROOT = path.join(__dirname, '..');
@@ -520,7 +524,149 @@ check('workflowen sjekker på PR at versionCode ikke er senket',
 check('…og leser tallet med den samme parseren som OTA-manifestet bruker',
   /ota-bundle\.js[\s\S]{0,200}readVersionCode/.test(wfKode));
 
-/* ---- 6. Debugveien er urørt ------------------------------------------------
+/* ---- 6. Butikkgrafikken er Huskis' egen, ikke malens -----------------------
+   Appikonet og splash-bildet er det eneste av appen en tester ser før web-laget
+   har tegnet noe som helst — og Capacitor-malen leverer sin egen logo i begge.
+   Den feilen har samme form som resten av denne fila: den ser grønn ut i et
+   bygg, den vises først i Play Console eller på en telefon, og etter første
+   opplasting koster den en ny `versionCode` og en ny opplasting å rette.
+
+   Merket er `favicon.svg` — det samme som webappen viser i fanen. Vakten leser
+   derfor FARGENE UT AV bildefilene og krever at Huskis' tre kortfarger står i
+   hver eneste én. Kommer malgrafikken tilbake, er de borte. Et filnavn ville
+   ikke fanget noe: malens filer heter nøyaktig det samme som våre. */
+
+/* Minimal PNG-leser: 8 bit, ikke-interlaced, RGB eller RGBA. Nok til det ene
+   spørsmålet vakten stiller — hvilke farger står i bildet — og dermed uten å
+   innføre en avhengighet for det. `zlib` er nodes egen. */
+function lesPng(buf) {
+  const bredde = buf.readUInt32BE(16), hoyde = buf.readUInt32BE(20);
+  const dybde = buf[24], type = buf[25], interlace = buf[28];
+  if (dybde !== 8 || interlace !== 0 || (type !== 2 && type !== 6)) {
+    throw new Error('uventet PNG-form: dybde=' + dybde + ' type=' + type + ' interlace=' + interlace);
+  }
+  const kanaler = type === 6 ? 4 : 3;
+  const biter = [];
+  for (let o = 8; o < buf.length;) {
+    const len = buf.readUInt32BE(o), navn = buf.toString('ascii', o + 4, o + 8);
+    if (navn === 'IDAT') biter.push(buf.subarray(o + 8, o + 8 + len));
+    if (navn === 'IEND') break;
+    o += 12 + len;
+  }
+  const rå = zlib.inflateSync(Buffer.concat(biter));
+  const rad = bredde * kanaler;
+  const ut = Buffer.alloc(rad * hoyde);
+  let forrige = Buffer.alloc(rad);
+  for (let y = 0; y < hoyde; y++) {
+    const filter = rå[y * (rad + 1)];
+    const linje = rå.subarray(y * (rad + 1) + 1, y * (rad + 1) + 1 + rad);
+    const n = ut.subarray(y * rad, (y + 1) * rad);
+    for (let i = 0; i < rad; i++) {
+      const a = i >= kanaler ? n[i - kanaler] : 0;
+      const b = forrige[i];
+      const c = i >= kanaler ? forrige[i - kanaler] : 0;
+      let v = linje[i];
+      if (filter === 1) v += a;
+      else if (filter === 2) v += b;
+      else if (filter === 3) v += (a + b) >> 1;
+      else if (filter === 4) {
+        const p = a + b - c, pa = Math.abs(p - a), pb = Math.abs(p - b), pc = Math.abs(p - c);
+        v += (pa <= pb && pa <= pc) ? a : (pb <= pc ? b : c);
+      }
+      n[i] = v & 0xff;
+    }
+    forrige = n;
+  }
+  return { bredde, hoyde, kanaler, piksler: ut };
+}
+
+/* Huskis' merke: de tre kortene, i favicon.svg' egne verdier. Gjennomsiktige
+   piksler teller ikke — hjørnene utenfor ikonformen er tomme. */
+const KORTFARGER = ['85ad85', 'adad85', 'ad8585'];
+function grafikk(rel) {
+  const png = lesPng(fs.readFileSync(path.join(ROOT, rel)));
+  const funnet = new Set();
+  const { piksler, kanaler } = png;
+  for (let i = 0; i + kanaler <= piksler.length; i += kanaler) {
+    if (kanaler === 4 && piksler[i + 3] < 250) continue;
+    const hex = piksler.subarray(i, i + 3).toString('hex');
+    if (KORTFARGER.includes(hex)) {
+      funnet.add(hex);
+      if (funnet.size === KORTFARGER.length) break;
+    }
+  }
+  return { mål: png.bredde + 'x' + png.hoyde, merke: funnet.size === KORTFARGER.length };
+}
+
+/* Kilden alt utledes av. Endres den, skal ikonene følge etter — og da faller
+   sjekkene under til de er generert på nytt. */
+check('favicon.svg bærer merkets tre kortfarger (kilden ikonene utledes av)',
+  KORTFARGER.every((c) => les('favicon.svg').includes(c)), KORTFARGER.join(' '));
+
+/* Adaptive-ikonet (API 26+) er det ~alle telefoner faktisk viser. Forgrunnen er
+   en VectorDrawable med merket, bakgrunnen den hvite flaten — samme flate som
+   splash-bildet, som er hvitt i begge drakter (values/styles.xml). */
+const forgrunn = les('android/app/src/main/res/drawable/ic_launcher_foreground.xml');
+check('adaptive-ikonets forgrunn er merket, tegnet som vektor',
+  KORTFARGER.every((c) => forgrunn.includes(c)) && /<vector/.test(forgrunn));
+check('…og den står i 108-rutenettet, slik adaptive-ikoner måles',
+  /android:viewportWidth="108"/.test(forgrunn) && /android:viewportHeight="108"/.test(forgrunn));
+for (const variant of ['ic_launcher', 'ic_launcher_round']) {
+  const adaptiv = les('android/app/src/main/res/mipmap-anydpi-v26/' + variant + '.xml');
+  check('mipmap-anydpi-v26/' + variant + '.xml peker på merket og den hvite flaten',
+    /<foreground android:drawable="@drawable\/ic_launcher_foreground"\/>/.test(adaptiv)
+      && /<background android:drawable="@color\/ic_launcher_background"\/>/.test(adaptiv));
+}
+
+/* Malens egne filer skal være BORTE, ikke bare overskygget: en gjenglemt
+   `drawable-v24/ic_launcher_foreground.xml` vinner over `drawable/` fra API 24
+   og ville stille gitt malens logo tilbake på hver eneste telefon. */
+for (const rest of ['android/app/src/main/res/drawable-v24/ic_launcher_foreground.xml',
+                    'android/app/src/main/res/drawable/ic_launcher_background.xml']) {
+  check('malens ' + path.basename(path.dirname(rest)) + '/' + path.basename(rest) + ' er fjernet',
+    !finnes(rest));
+}
+
+/* Eldre launchere (API 24–25) kjenner ikke adaptive-ikoner og faller tilbake på
+   rasterfilene. `minSdkVersion` er 24, så de MÅ finnes — og manifestet må
+   fortsatt peke på dem. */
+const manifest = les('android/app/src/main/AndroidManifest.xml');
+check('manifestet peker fortsatt på @mipmap/ic_launcher og @mipmap/ic_launcher_round',
+  /android:icon="@mipmap\/ic_launcher"/.test(manifest)
+    && /android:roundIcon="@mipmap\/ic_launcher_round"/.test(manifest));
+const IKON_MÅL = { mdpi: 48, hdpi: 72, xhdpi: 96, xxhdpi: 144, xxxhdpi: 192 };
+for (const [tetthet, px] of Object.entries(IKON_MÅL)) {
+  for (const variant of ['ic_launcher', 'ic_launcher_round']) {
+    const rel = 'android/app/src/main/res/mipmap-' + tetthet + '/' + variant + '.png';
+    const g = grafikk(rel);
+    check('mipmap-' + tetthet + '/' + variant + '.png bærer merket, i riktig tetthet',
+      g.merke && g.mål === px + 'x' + px, g.mål);
+  }
+}
+/* Malens forgrunns-PNG-er er ikke lenger referert av noe — de skal ikke bli
+   liggende og bli pakket med. */
+for (const tetthet of Object.keys(IKON_MÅL)) {
+  check('mipmap-' + tetthet + '/ic_launcher_foreground.png er fjernet (vektoren erstatter den)',
+    !finnes('android/app/src/main/res/mipmap-' + tetthet + '/ic_launcher_foreground.png'));
+}
+
+/* Splash-bildene: én per tetthet og orientering, fordi bitmapen strekkes til
+   vinduet. Merket er tegnet uforvrengt i hver enkelt, så målene er en del av
+   sjekken. */
+const SPLASH_MÅL = [
+  ['drawable', 480, 320],
+  ['drawable-land-mdpi', 480, 320], ['drawable-port-mdpi', 320, 480],
+  ['drawable-land-hdpi', 800, 480], ['drawable-port-hdpi', 480, 800],
+  ['drawable-land-xhdpi', 1280, 720], ['drawable-port-xhdpi', 720, 1280],
+  ['drawable-land-xxhdpi', 1600, 960], ['drawable-port-xxhdpi', 960, 1600],
+  ['drawable-land-xxxhdpi', 1920, 1280], ['drawable-port-xxxhdpi', 1280, 1920],
+];
+for (const [mappe, w, h] of SPLASH_MÅL) {
+  const g = grafikk('android/app/src/main/res/' + mappe + '/splash.png');
+  check(mappe + '/splash.png bærer merket, i riktig mål', g.merke && g.mål === w + 'x' + h, g.mål);
+}
+
+/* ---- 7. Debugveien er urørt ------------------------------------------------
    Fase 6 skal ikke koste den sideloadede debug-APK-en, som fortsatt er måten
    en enhetsøkt gjøres på. */
 const debugWf = utenKommentarer(les('.github/workflows/android-debug.yml'));
