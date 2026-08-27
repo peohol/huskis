@@ -658,10 +658,43 @@ dermed `cardBand` og ekstraher-terskelen — står stille. De to andre kassene
 bredde å ta av. `dnd-trash` sjekk 11 måler bredden og treffer ytterkanten av
 raden.
 
-- **Kassen er BUNDET til draget**: for et listepunkt/en mappe er det kassen i
-  containeren raden kom FRA (`drag.trashHost`), ikke den man tilfeldigvis svever
-  over. Et slipp på en ANNEN synlig kasse — et annet områdes, eller mappe-kassen
-  under et kategori-drag — ruller raden tilbake i stedet for å omrokkere den.
+- **Kassen FØLGER objektet**: for et listepunkt/en mappe står den i containeren
+  objektet svever over NÅ (`retargetDragTrash` flytter `drag.trashHost` på hver
+  politikkrunde), ikke i den det kom fra. Uten det måtte en rad dratt til en
+  annen liste dras hele veien tilbake for å slettes.
+
+  Det er den SAMME kassen som flytter seg. Hva slippet BETYR er uendret: raden
+  slettes i sin EGEN container — `dropIntoTrash` leser `it.home`, og draget er
+  rullet tilbake før den kalles — akkurat som menyens «Slett». Verten er bare
+  hvor knappen står mens man drar, og derfor er det fortsatt radens egen
+  slette-rett som avgjør om noen kasse armes (`draggedCanBeTrashed`), ikke
+  rettighetene i containeren man svever over.
+
+  Et slipp på en ANNEN synlig kasse — en man ikke svever over, eller
+  mappe-kassen under et kategori-drag — ruller raden tilbake i stedet for å
+  omrokkere den. `*ZoneDrop` sammenligner sone-id-en med `dragTrashBtn()`, som
+  leser den nye verten, så vakten holder uendret.
+
+  **Raden den forlot beholder plassen sin ut draget.** Bare markeringen tas av;
+  `is-trash-roaming` maler bare dragets egen kasse, og de andre står usynlige og
+  holder boksen i ro. Skjulte vi dem, ville kortet krympet med en hel knapperad
+  og alt under det rykket OPPOVER — midt under fingeren. MÅLT i nav-modalen, som
+  er énkolonne: en mappe dratt til området under landet på feil rad, fordi
+  målkortet smatt oppover i det øyeblikket kildekortets kasse ble skjult
+  (`nav-modal` sjekk 6a/7).
+
+  Layouten endrer seg altså bare ÉN vei: et kort man kommer inn i blir en
+  knapperad høyere, aldri kortere. Ut-terskelen for det kortet flytter seg like
+  langt ned — det er ikke slark, kassen ER en del av kortet, og `board-columns`
+  sjekk 7 måler at linja fortsatt er nedre 1/3 forbi kortets bunn.
+
+  **Kassen slippes aldri helt.** Forlater objektet alle containere
+  (ekstraheringsmodus), blir kassen stående der den var — det er ingen container
+  å flytte den til. `dnd-trash` sjekk 12 måler at den står i ro gjennom 60
+  frames.
+
+  En LISTE og et OMRÅDE har ingen vert å bytte: de slippes i kassen i topplinja
+  respektive nav-modalens bunnrad.
 - **Kategorier har ingen kasse.** En kategori slettes ikke — den LØSES OPP
   (listepunktene blir stående), fra objektmenyen. `dragTrashBtn()` svarer null for
   dem, og ingenting armes.

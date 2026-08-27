@@ -28,6 +28,11 @@
    11. Kassen i et KORT er radbred mens draget står på — den skal treffes med en
        finger, ikke med en musepeker — og treffer man ytterkanten av raden, er
        det fortsatt kassen man sikter på.
+   12. Kassen FØLGER objektet: drar man en rad til en annen container, flytter
+       kassen seg dit — én om gangen — og et slipp i den NYE verten sletter
+       raden i dens EGEN container. Forlater raden alle containere, blir kassen
+       stående; å skjule den ville krympet kortet og flyttet raden ut og inn av
+       containeren én gang per frame.
 
   Kjør:
     python3 -m http.server 8000                     # fra repo-roten, i egen terminal
@@ -441,11 +446,126 @@ async function runTrashVsExtract(label, viewport) {
   await b.close();
 }
 
+/* ---------- 12) Kassen følger objektet mellom containere ---------- */
+async function runTrashFollows(label, viewport) {
+  const b = await chromium.launch();
+  const p = await b.newPage({ viewport });
+  const errs = [];
+  p.on('pageerror', (e) => errs.push(e.message));
+  await register(p);
+  // To lister med hvert sitt innhold, og korte nok til at begge kassene ligger
+  // innenfor skjermen på mobil — auto-scroll midt i gesten ville flyttet
+  // knappen under pekeren, og da måler testen rulling, ikke regelen.
+  await p.evaluate(() => {
+    const H = window.__huskis, st = H.state;
+    const mk = (o) => Object.assign({ ts: 1, org: 't', pos: 0, posTs: 1, posOrg: 't',
+      trashed: false, _role: 'owner' }, o);
+    st.universes.length = 0;
+    const u = mk({ id: 'UNI', name: 'Hjemme', collapsed: false, groups: [] });
+    const g = mk({ id: 'GRP', uni: 'UNI', name: 'Ukesplan', cat: null, isCat: false, collapsed: false, cards: [] });
+    u.groups.push(g);
+    const a = mk({ id: 'L1', group: 'GRP', title: 'Liste A', collapsed: false, items: [] });
+    a.items.push(mk({ id: 'A0', home: 'L1', text: 'Melk', cat: null, isCat: false }));
+    a.items.push(mk({ id: 'A1', home: 'L1', text: 'Brød', cat: null, isCat: false, pos: 1 }));
+    const c = mk({ id: 'L2', group: 'GRP', title: 'Liste B', collapsed: false, items: [], pos: 1 });
+    c.items.push(mk({ id: 'B0', home: 'L2', text: 'Sykkel', cat: null, isCat: false }));
+    g.cards.push(a, c);
+    st.universes.push(u);
+    st.activeUniverse = 'UNI'; st.activeGroup = 'GRP';
+    H.render();
+  });
+  await p.waitForTimeout(350);
+
+  // Hvilke kasser er armert, og i hvilke kort?
+  const verter = () => p.evaluate(() => [...document.querySelectorAll('.trashcan.drag-trash')]
+    .map((t) => { const c = t.closest('.card'); return c ? c.dataset.id : 'TOPP'; }));
+
+  const src = await p.locator('.item[data-id="A1"]').boundingBox();
+  const sx = src.x + Math.min(src.width / 2, 120), sy = src.y + src.height / 2;
+  await p.mouse.move(sx, sy);
+  await p.mouse.down(); await p.waitForTimeout(60);
+  await p.mouse.move(sx + 12, sy + 12); await p.waitForTimeout(140);
+  const vedLoft = await verter();
+  log(label + ' 12: kassen står i lista raden ble løftet fra',
+    vedLoft.length === 1 && vedLoft[0] === 'L1', JSON.stringify(vedLoft));
+
+  // Inn i liste B.
+  const mål = await p.locator('.item[data-id="B0"]').boundingBox();
+  await p.mouse.move(mål.x + Math.min(mål.width / 2, 120), mål.y + mål.height / 2, { steps: 14 });
+  await p.waitForTimeout(300);
+  const overB = await verter();
+  log(label + ' 12: kassen fulgte med til liste B — og bare ÉN er armert',
+    overB.length === 1 && overB[0] === 'L2', JSON.stringify(overB));
+
+  // Står raden i ro, skal kassen stå i ro. Nederst i kortet er prøven hardest:
+  // der ligger raden nær kanten, og en kasse som ble skjult ville krympet
+  // kortet og flyttet raden ut av det.
+  const kort = await p.locator('.card[data-id="L2"]').boundingBox();
+  await p.mouse.move(mål.x + Math.min(mål.width / 2, 120), kort.y + kort.height - 6, { steps: 8 });
+  await p.waitForTimeout(200);
+  const iRo = await p.evaluate(() => new Promise((res) => {
+    const sett = new Set(); let n = 0;
+    const tick = () => {
+      sett.add([...document.querySelectorAll('.trashcan.drag-trash')]
+        .map((t) => { const c = t.closest('.card'); return c ? c.dataset.id : 'TOPP'; }).join(','));
+      if (++n < 60) requestAnimationFrame(tick); else res([...sett]);
+    };
+    requestAnimationFrame(tick);
+  }));
+  log(label + ' 12: kassen står i ro når pekeren gjør det (60 frames)',
+    iRo.length === 1, JSON.stringify(iRo));
+
+  // Slipp i B-ens kasse. Boksen måles PÅ NYTT etter reisen: kassen som dukket
+  // opp i B gjorde kortet høyere.
+  let t = await p.locator('.card[data-id="L2"] .item-trash-btn').boundingBox().catch(() => null);
+  // Fulgte ikke kassen med, er B-ens kasse fortsatt skjult og har ingen boks.
+  // Da er resten av blokken meningsløs — si fra og gå videre i stedet for å
+  // kaste, så de andre viewportene fortsatt kjører.
+  if (!t) {
+    log(label + ' 12: den nye verten markeres, og raden blir rød', false, 'B-ens kasse er skjult');
+    log(label + ' 12: slippet slettet raden i dens EGEN liste, og B er urørt', false, 'B-ens kasse er skjult');
+    await p.mouse.up(); await p.waitForTimeout(400);
+    log(label + ' 12: ingen JS-feil', errs.length === 0, errs.join(' | '));
+    await p.close(); await b.close();
+    return;
+  }
+  await p.mouse.move(t.x + t.width / 2, t.y + t.height / 2, { steps: 10 });
+  await p.waitForTimeout(200);
+  t = await p.locator('.card[data-id="L2"] .item-trash-btn').boundingBox();
+  for (let i = 0; i < 4; i++) { await p.mouse.move(t.x + t.width / 2, t.y + t.height / 2); await p.waitForTimeout(40); }
+  const siktet = await p.evaluate(() => ({
+    kassen: !!document.querySelector('.card[data-id="L2"] .item-trash-btn.drop-target'),
+    rød: !!document.querySelector('[data-dnd-dragging].to-trash'),
+  }));
+  log(label + ' 12: den nye verten markeres, og raden blir rød',
+    siktet.kassen === true && siktet.rød === true, JSON.stringify(siktet));
+
+  await p.mouse.up(); await p.waitForTimeout(900);
+  const etter = await p.evaluate(() => {
+    const g = window.__huskis.state.universes[0].groups[0];
+    const it = g.cards.flatMap((c) => c.items).find((x) => x.id === 'A1');
+    const lev = (id) => g.cards.find((c) => c.id === id).items
+      .filter((x) => !x.trashed && !x._pendingDelete).map((x) => x.id);
+    return { slettet: !!(it && (it.trashed || it._pendingDelete)),
+      home: it && it.home, L1: lev('L1'), L2: lev('L2') };
+  });
+  // Slippet SLETTER, og raden havner i sin EGEN listes kasse — verten var bare
+  // hvor knappen sto. Liste B skal være urørt.
+  log(label + ' 12: slippet slettet raden i dens EGEN liste, og B er urørt',
+    etter.slettet === true && etter.home === 'L1' &&
+    etter.L1.join(',') === 'A0' && etter.L2.join(',') === 'B0', JSON.stringify(etter));
+  log(label + ' 12: ingen JS-feil', errs.length === 0, errs.join(' | '));
+  await p.close();
+  await b.close();
+}
+
 (async () => {
   await run('desktop', { width: 1280, height: 900 });
   await run('mobil', { width: 390, height: 780 });
   await runTrashVsExtract('desktop', { width: 1280, height: 900 });
   await runTrashVsExtract('mobil', { width: 390, height: 780 });
+  await runTrashFollows('desktop', { width: 1280, height: 900 });
+  await runTrashFollows('mobil', { width: 390, height: 780 });
   const failed = results.filter((x) => !x).length;
   console.log('\n==== ' + (results.length - failed) + '/' + results.length + ' PASS ====');
   process.exit(failed ? 1 : 0);

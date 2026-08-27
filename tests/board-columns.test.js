@@ -310,7 +310,11 @@ async function lift(p, sel) {
     const z = await lift(p, '.card[data-id="card-0"] .item');
     // Dra nedover gjennom board-lufta, INN i L2, og videre ut under den.
     let entered = null, left = null, prev = null;
-    for (let i = 0; i < 200; i++) {
+    // 240, ikke 200: kassen følger objektet (`retargetDragTrash`), så L2 blir en
+    // knapperad høyere i det raden kommer inn i den — og ut-linja flytter seg
+    // like langt ned. Det er ikke slark: kassen ER en del av kortet, og
+    // regnestykket under måler mot kortets bunn slik den står NÅ.
+    for (let i = 0; i < 240; i++) {
       await p.mouse.move(z.cx, z.cy + 8 + i * 3);
       const s = await p.evaluate(() => {
         const d = document.querySelector('#board .item[data-dnd-dragging]');

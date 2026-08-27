@@ -3986,11 +3986,12 @@
      (listepunktene blir stående), og det gjøres fra objektmenyen. Derfor
      returnerer `dragTrashBtn()` null for dem, og ingenting armes.
 
-     Kassen er BUNDET til draget: for et listepunkt/en mappe er det kassen i
-     containeren raden kom FRA, ikke den man tilfeldigvis svever over. Slippet
-     ruller draget tilbake som et avbrutt drag (ingen ny posisjon, ingen
+     Kassen FØLGER objektet: for et listepunkt/en mappe står den i containeren
+     objektet svever over NÅ (`retargetDragTrash`), ikke i den det kom fra.
+     Slippet ruller draget tilbake som et avbrutt drag (ingen ny posisjon, ingen
      lagring) og lar slette-funksjonen gjøre resten — samme vei som menyens
-     «Slett», med fly-i-kassen-animasjon og samlende angre-toast. */
+     «Slett», med fly-i-kassen-animasjon og samlende angre-toast. Raden havner
+     i sin EGEN containers kasse; verten er bare hvor knappen sto. */
 
   // Kassen dette draget kan slippes i — eller null når nivået ikke har en.
   function dragTrashBtn() {
@@ -4044,6 +4045,50 @@
     if (btn.hidden) { btn.hidden = false; btn.dataset.dragRevealed = '1'; }
     const wrap = btn.closest('.item-trash');
     if (wrap && wrap.hidden) { wrap.hidden = false; wrap.dataset.dragRevealed = '1'; }
+    // Kassen kan vandre mellom kortene i et rad-drag, og da males bare den ene
+    // (`is-trash-roaming` i styles.css).
+    if (drag.kind === 'item') document.body.classList.add('is-trash-roaming');
+  }
+
+  /* KASSEN FØLGER OBJEKTET. Den står i containeren objektet svever over nå,
+     ikke i den det kom fra: en rad dratt til en annen liste måtte ellers dras
+     hele veien tilbake for å slettes.
+
+     Det er den SAMME kassen som flytter seg. Hva slippet BETYR er uendret:
+     draget rulles tilbake, og raden slettes i sin EGEN container
+     (`dropIntoTrash` leser `it.home`), akkurat som menyens «Slett». Verten er
+     bare hvor knappen står mens man drar — og derfor er det fortsatt radens
+     egen slette-rett som avgjør om noen kasse armes i det hele tatt
+     (`draggedCanBeTrashed`), ikke rettighetene i lista man svever over.
+
+     KASSEN SLIPPES ALDRI HELT. Forlater objektet alle containere
+     (ekstraheringsmodus), blir kassen stående der den var. Å skjule den ville
+     krympet kortet, og et kort som krymper flytter alt under seg — også
+     objektet selv, som da kunne falt ut av containeren, fått kassen skjult,
+     vokst tilbake og falt inn igjen, én gang per frame. Kassen bytter vert;
+     den forsvinner ikke.
+
+     Bare rader har en vert å bytte. En LISTE og et OMRÅDE slippes i kassen i
+     topplinja respektive nav-modalens bunnrad — én kasse, ingen vert. */
+  function retargetDragTrash() {
+    if (!drag.trashArmed || drag.kind !== 'item') return;
+    const el = drag.el;
+    const host = el && el.isConnected ? el.closest('.card') : null;
+    if (!host || host === drag.trashHost) return;
+    // Siktemarkeringen tas av FØR knappen forlates: `setDragTrashTarget` er
+    // kantstyrt, så et flagg som ble nullstilt bak ryggen på den ville latt
+    // objektet stå rødt.
+    setDragTrashTarget(false);
+    // Den forlatte raden BEHOLDER PLASSEN SIN ut draget — bare markeringen tas
+    // av. Skjulte vi den, ville kortet krympet med en hel knapperad og alt under
+    // det rykket OPPOVER, midt under fingeren. MÅLT i nav-modalen, som er
+    // énkolonne: en mappe dratt til området under landet på feil rad, fordi
+    // målkortet smatt oppover i det øyeblikket kildekortets kasse ble skjult.
+    // `disarmDragTrash` rydder alle radene draget avdekket, ved slutten.
+    const forrige = dragTrashBtn();
+    if (forrige) forrige.classList.remove('drag-trash', 'drop-target');
+    drag.trashHost = host;
+    armDragTrash();
   }
   /* Sikter pekeren på kassen dette draget kan slippes i?
 
@@ -4067,12 +4112,15 @@
   }
   // Kalles fra finishDrag — altså på ALLE veier ut av et drag, også avbrudd.
   function disarmDragTrash() {
-    document.querySelectorAll('.trashcan.drag-trash').forEach((btn) => {
-      btn.classList.remove('drag-trash', 'drop-target');
-      const wrap = btn.closest('.item-trash');
-      if (btn.dataset.dragRevealed) { btn.hidden = true; delete btn.dataset.dragRevealed; }
-      if (wrap && wrap.dataset.dragRevealed) { wrap.hidden = true; delete wrap.dataset.dragRevealed; }
+    document.querySelectorAll('.trashcan.drag-trash')
+      .forEach((btn) => btn.classList.remove('drag-trash', 'drop-target'));
+    // Hver rad draget avdekket skjules igjen — også de som bare holdt plassen
+    // (`reserveTrashRows`), som aldri bar `.drag-trash`.
+    document.querySelectorAll('[data-drag-revealed]').forEach((el) => {
+      el.hidden = true;
+      delete el.dataset.dragRevealed;
     });
+    document.body.classList.remove('is-trash-roaming');
     drag.trashArmed = false;
     drag.overTrash = false;
   }
@@ -5770,10 +5818,11 @@
   }
   function navZoneDrop(result) {
     const btn = dragTrashBtn();
-    // Kassen er BUNDET til draget: den i containeren raden kom fra, og bare når
-    // jeg faktisk har lov til å slette (`armDragTrash` → `draggedCanBeTrashed`).
-    // Sikter man på en ANNEN kasse — et annet områdes, synlig fordi den har
-    // innhold — skjer ingenting; Smett har alt lagt raden tilbake.
+    // Kassen er DRAGETS: den `retargetDragTrash` har flyttet dit raden svever nå,
+    // og bare når jeg faktisk har lov til å slette (`armDragTrash` →
+    // `draggedCanBeTrashed`). Sikter man på en ANNEN kasse — et områdes man
+    // ikke svever over, synlig fordi den har innhold — skjer ingenting; Smett
+    // har alt lagt raden tilbake.
     if (!drag.trashArmed || !btn || btn.getAttribute('data-dnd-zone') !== result.zoneId) return;
     // Rydd kassen ut av dra-tilstanden FØR slettingen: den rendrer på nytt, og
     // en `data-drag-revealed` som overlevde ville skjult en kasse som nå har
@@ -6718,6 +6767,10 @@
 
          DELT av begge scopene: mappe-kassen i nav-modalen ligger på samme vis
          utenfor mappelistas sone. */
+      // Kassen står der objektet er nå, ikke der det kom fra (`retargetDragTrash`).
+      // Må skje FØR sikte-testen: den måler knappen, og knappen kan nettopp ha
+      // flyttet seg til et annet kort.
+      retargetDragTrash();
       const påKassen = pointerOnDragTrash(drag.lastX, drag.lastY);
       // Markeringen settes BEGGE veier her. Smetts `onDropTarget` fyrer bare når
       // MÅLET endrer seg, og i ringen rundt knappen er målet null hele tiden —
@@ -6847,10 +6900,11 @@
   }
   function boardRowZoneDrop(result) {
     const btn = dragTrashBtn();
-    // Kassen er BUNDET til draget: den i lista raden kom fra, og bare når jeg
-    // faktisk har lov til å slette (`armDragTrash` → `draggedCanBeTrashed`).
-    // Sikter man på en ANNEN kasse — en annen listes, synlig fordi den har
-    // innhold — skjer ingenting; Smett har alt lagt raden tilbake.
+    // Kassen er DRAGETS: den `retargetDragTrash` har flyttet dit raden svever nå,
+    // og bare når jeg faktisk har lov til å slette (`armDragTrash` →
+    // `draggedCanBeTrashed`). Sikter man på en ANNEN kasse — en listes man ikke
+    // svever over, synlig fordi den har innhold — skjer ingenting; Smett har
+    // alt lagt raden tilbake.
     if (!drag.trashArmed || !btn || btn.getAttribute('data-dnd-zone') !== result.zoneId) return;
     // Rydd kassen ut av dra-tilstanden FØR slettingen: den rendrer på nytt, og
     // en `data-drag-revealed` som overlevde ville skjult en kasse som nå har

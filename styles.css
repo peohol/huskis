@@ -3859,6 +3859,14 @@ body.no-auth #theme-toggle-btn { display: none; }
    og rødvasken på det som dras. */
 .item-trash .trashcan.drag-trash.drop-target { transform: none; }
 
+/* ÉN KASSE MALES OM GANGEN mens en rad dras (`is-trash-roaming`). Kassen følger
+   objektet (`retargetDragTrash`), og raden den forlot beholder PLASSEN sin ut
+   draget — ellers ville kortet krympet med en hel knapperad og alt under det
+   rykket oppover, midt under fingeren. Den står altså igjen, usynlig, og holder
+   boksen i ro. Det samme gjelder en kasse som har innhold og ellers står
+   synlig: under et rad-drag er det bare dragets egen kasse som synes. */
+body.is-trash-roaming .item-trash > .trashcan:not(.drag-trash) { visibility: hidden; }
+
 /* En kasse som ble AVDEKKET av draget er per definisjon tom, og «0» der leser
    som et antall i stedet for et mål. Attributtet settes av armDragTrash — på
    knappen selv (topplinja) eller på wrapperen rundt den (kort/områdekort). */
