@@ -252,7 +252,7 @@ const VENDORED = {
     what: 'dra-og-slipp-motoren (Smett over dnd-kit)',
     version: '0.2.0',
     // Byte for byte det `npm ci && npm run build:iife` gir fra denne commit-en.
-    origin: 'peohol/smett@eb89c9b → npm run build:iife → dist/smett.iife.js',
+    origin: 'peohol/smett@fa94e65 → npm run build:iife → dist/smett.iife.js',
     sha384: 'sha384-QX+eobU8pHXcyy4ZbW2wRiHNRbauZ4gw5tXKSHl5uzhmvHtaYm2tE12GhRgHvhZk',
   },
 };
