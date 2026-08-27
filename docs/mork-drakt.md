@@ -26,19 +26,22 @@ det til invitasjons-e-postene. Drakten hører til skjermen man sitter foran og
 lyset i rommet; den har ingen serverside-effekt, og to enheter kan gjerne stå
 forskjellig. Derfor ingen `user_metadata`, ingen synk og ingen fletting.
 
-Kontrollen er ULIK to steder, avhengig av om kontoknappen finnes å stå ved
-siden av:
+Kontrollen er SAMME knapp to steder, avhengig av om kontoknappen finnes å stå
+ved siden av:
 
 - **Draktknappen** (`.theme-toggle-btn`, `#theme-toggle-btn`) — fast rett til
   venstre for kontoknappen, utenfor toppmenyens flyt, skjult før innlogging
-  (`body.no-auth`) akkurat som kontoknappen selv. ÉTT trykk bytter mellom de to
-  verdiene; ikonet viser drakten som ER aktiv (sol i lys, måne i mørk), ikke
-  den du bytter til. Dette er den raske veien, og den eneste kontrollen i
-  appen — se [`menus.md`](menus.md).
-- **Innloggingsskjermens `<select>`** (`#auth-theme-select`) — den eneste veien
-  inn FØR man har en konto, siden det ikke finnes noen kontoknapp der ennå.
-  Fylles fra `THEME.MODES`, så den vokser/krymper med listen uten kodeendring
-  andre steder.
+  (`body.no-auth`) akkurat som kontoknappen selv.
+- **Innloggingsskjermens egen** (`.theme-toggle-btn.auth-theme-toggle-btn`,
+  `#auth-theme-toggle-btn`) — den eneste veien inn FØR man har en konto, siden
+  det ikke finnes noen kontoknapp der ennå. Samme klasse og samme ikon som
+  headerens knapp, malt av samme `paintThemeToggle()` — bare `position: static`
+  i stedet for fast i hjørnet, siden den står inline i språkraden
+  (`.auth-lang`) og ikke har noen kontoknapp å flukte med.
+
+Begge er ÉTT trykk som bytter mellom de to verdiene; ikonet viser drakten som
+ER aktiv (sol i lys, måne i mørk), ikke den du bytter til. Dette er appens
+eneste kontroll for drakt — se [`menus.md`](menus.md).
 
 Et bytte laster **ikke** siden på nytt — drakten bor i CSS-tokens og i
 kortfargene, og begge deler males på plassen sin.
@@ -369,7 +372,7 @@ noe om rammen, og `theme.js` holder den i takt med `--bg`.
 | Fil | Dekker |
 |---|---|
 | `tests/a11y-contrast.test.js` | kontraktstallene i begge drakter, inkludert kortsubtreets `color-mix()`-blandede flater (`--plate*`, `--chip-bg`, `--card-face`, `--card-head-face`, `--cat-face`) og avkryssingskanten/aksentstripen (`--card-accent`, speilet fra `paintCardColor()` i `app.js`) |
-| `tests/dark-mode.test.js` | attributtet før første maling, draktknappen og innloggingsskjermens velger, varighet over omlasting, speilingen av kortfargene, `color-scheme` og `theme-color`, at et draktbytte ikke river ned en pågående navngiving, og at kortflaten faktisk males om (en regel som stille slutter å gjelde ser ut som «før») uten å posisjonere kortet |
+| `tests/dark-mode.test.js` | attributtet før første maling, begge draktknappene (headeren og innloggingsskjermen), varighet over omlasting, speilingen av kortfargene, `color-scheme` og `theme-color`, at et draktbytte ikke river ned en pågående navngiving, og at kortflaten faktisk males om (en regel som stille slutter å gjelde ser ut som «før») uten å posisjonere kortet |
 | `tests/dnd-viewport-clamp.test.js` | at ingen drakt-regel forskyver dra-geometrien: pekerforankringen måles i mørk drakt på alle fem nivåene (område, mappe, liste, kategori, listepunkt) |
 | `tests/build-version.test.js` | at `theme.js` versjoneres og langtidscaches som de andre klientfilene |
 | `tests/capacitor-android.test.js` | at Android-skallet står på DayNight, at night-variantene snur glyfene, og at `SystemBars.style` er `DEFAULT` |
