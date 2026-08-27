@@ -25,6 +25,9 @@
        raden er teknisk «utenfor alle lister» når man er framme ved den. Sikter
        man på kassen, lover ikke ny-liste-placeholderen noe, og et slipp i
        treffsonen sletter i stedet for å lage en ny liste.
+   11. Kassen i et KORT er radbred mens draget står på — den skal treffes med en
+       finger, ikke med en musepeker — og treffer man ytterkanten av raden, er
+       det fortsatt kassen man sikter på.
 
   Kjør:
     python3 -m http.server 8000                     # fra repo-roten, i egen terminal
@@ -120,8 +123,17 @@ async function dragOnto(p, fromSel, targetSel, opts = {}) {
   }
   const aiming = await p.evaluate((s) => {
     const el = document.querySelector(s);
+    const d = document.querySelector('[data-dnd-dragging]');
+    const cs = d && getComputedStyle(d);
+    // Rødvasken males som `background-image` OVER den halvgjennomsiktige flaten.
+    // «Her slettes det» kan IKKE uttrykkes med mer gjennomsikt: alt som dras er
+    // allerede gjennomsiktig, og de to tilstandene ville lest likt. Derfor leser
+    // vi fargen, og krever samtidig at objektet står i full styrke.
+    const rgb = cs && /(\d+),\s*(\d+),\s*(\d+)/.exec(cs.backgroundImage);
     return { sikter: !!el && el.classList.contains('drop-target'),
-      gjennomskinnelig: !!document.querySelector('[data-dnd-dragging].to-trash') };
+      merket: !!document.querySelector('[data-dnd-dragging].to-trash'),
+      vask: rgb ? rgb.slice(1, 4).map(Number) : null,
+      opacity: cs ? cs.opacity : null };
   }, targetSel);
   if (opts.shot) await p.screenshot({ path: opts.shot });
   if (opts.abortAway) {
@@ -150,8 +162,12 @@ async function run(label, viewport) {
     it.armed.synlig === true && it.armed.armert === true, JSON.stringify(it.armed));
   log(label + ' 8: den avdekkede element-kassen viser ingen «0»-teller',
     it.armed.tellerSkjult === true, JSON.stringify(it.armed));
-  log(label + ' 2: sikting markerer kassen og gjør objektet gjennomskinnelig',
-    it.aiming.sikter === true && it.aiming.gjennomskinnelig === true, JSON.stringify(it.aiming));
+  log(label + ' 2: sikting markerer kassen og gir objektet RØD bakgrunn',
+    it.aiming.sikter === true && it.aiming.merket === true &&
+    !!it.aiming.vask && it.aiming.vask[0] > it.aiming.vask[1] + 60 &&
+    it.aiming.vask[0] > it.aiming.vask[2] + 60, JSON.stringify(it.aiming));
+  log(label + ' 2: … og objektet toner IKKE ut — fargen bærer signalet alene',
+    it.aiming.opacity === '1', JSON.stringify(it.aiming));
   const afterItem = await p.evaluate(() => {
     const c = window.__huskis.state.universes[0].groups[0].cards.find((x) => x.id === 'L1');
     const o = c.items.find((x) => x.id === 'I1');
@@ -363,6 +379,31 @@ async function runTrashVsExtract(label, viewport) {
   const paaKassen = await state();
   log(label + ' 10: kassen lover ingen ny liste mens man sikter på den',
     paaKassen.lover === false && paaKassen.siktet === true, JSON.stringify(paaKassen));
+
+  /* ---------- 11) Kassen i kortet er RADBRED under draget ---------- */
+  // Knappen er ~48 px i hvile — den forsvinner under en fingertupp, og på
+  // berøring finnes ingen peker som viser hvor man egentlig sikter. Under et
+  // drag strekker den seg over hele radbredden. Bare BREDDEN endres: høyden
+  // står, altså står kortets boks, og ekstraher-terskelen (`cardBand` =
+  // kortets egen kant) rører seg ikke.
+  const bredde = await p.evaluate(() => {
+    const btn = document.querySelector('.card[data-id="L1"] .item-trash-btn');
+    const kort = document.querySelector('.card[data-id="L1"]');
+    const r = btn.getBoundingClientRect(), kr = kort.getBoundingClientRect();
+    return { kasse: Math.round(r.width), kort: Math.round(kr.width),
+      innenfor: r.left >= kr.left && r.right <= kr.right };
+  });
+  log(label + ' 11: den armerte kassen er radbred (og holder seg innenfor kortet)',
+    bredde.kasse >= bredde.kort - 24 && bredde.innenfor === true, JSON.stringify(bredde));
+
+  // Ytterkanten av raden — målt fra KORTETS venstrekant, altså et punkt den
+  // smale hvileknappen aldri nådde. Treffer man der, er det fortsatt kassen.
+  t = await p.locator('.card[data-id="L1"] .item-trash-btn').boundingBox();
+  const kortBoks = await p.locator('.card[data-id="L1"]').boundingBox();
+  for (let i = 0; i < 3; i++) { await p.mouse.move(kortBoks.x + 24, t.y + t.height / 2); await p.waitForTimeout(40); }
+  const iYtterkant = await state();
+  log(label + ' 11: ytterkanten av kasseraden sikter på kassen',
+    iYtterkant.siktet === true && iYtterkant.lover === false, JSON.stringify(iYtterkant));
 
   // Rett under knappen: innenfor treffsonen, utenfor selve knappen — der en
   // finger faktisk lander.

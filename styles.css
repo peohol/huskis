@@ -303,6 +303,12 @@
      ligger på board-bakgrunnen ELLER inne i et kort, og må være synlig begge
      steder: en mørkning på en mørk board-bakgrunn er ingenting (1,03:1). */
   --scrim: rgba(0, 0, 0, 0.12);
+  /* Rødvasken over det LØFTEDE objektet når et slipp ville slettet det. Den
+     males OVER dra-flaten (som `background-image`), så gjennomsikten og
+     bakgrunnssløret står urørt — det er bare fargen som skifter. Egen fra
+     --danger-soft: den er en flate under mørk tekst på hvitt, denne er et lag
+     over en halvgjennomsiktig flate og må bære signalet alene. */
+  --drag-danger: rgba(192, 56, 77, 0.45);
   /* Avkryssingsboksens kant ved hover. Egen fra --primary fordi hvilekanten
      (--card-accent) regnes ut fra kortfargen og treffer 3:1 — en hover som
      bytter til en fast farge må klare det samme, ellers blir kontrollen
@@ -416,6 +422,10 @@
      Innover-skyggen blir stående svart i begge drakter; det er den som gir
      «hull», og et hull er mørkt uansett drakt. */
   --scrim: rgba(255, 255, 255, 0.13);
+  /* Speilingen av --drag-danger: den mørke drakten løfter i stedet for å
+     mørkne, så vasken er den LYSE rødfargen — og svakere, fordi den ligger på
+     en mørk flate der lys tar mer plass. */
+  --drag-danger: rgba(240, 143, 160, 0.34);
   /* --primary mot den mørke platen (nå en color-mix() mot palettfargen, se
      `.card` lenger ned) klarer så vidt 3:1 i verste hjørne — men med langt
      mindre margin (min 3,13:1) enn dette dedikerte tokenet gir (min 5,94:1),
@@ -2158,17 +2168,33 @@ body.is-dragging * { cursor: grabbing !important; }
    `width`, `height`, `transform`, `translate`). Vår egen løfte-effekt må derfor
    uttrykkes i egenskaper dnd-kit IKKE skriver: `scale` og `rotate` som EGNE
    egenskaper, aldri via `transform`. Rotasjonen er dynamisk og settes fra JS
-   (dndPaintRotation); skalaen står her. */
+   (dndPaintRotation); skalaen står her.
+
+   ALT SOM DRAS ER HALVGJENNOMSIKTIG. Det løftede objektet ligger oppå det man
+   sikter mot, og det man sikter mot er hele svaret på hvor slippet lander:
+   hullet, ny-liste-stripa, skillelinja, søppelkassen. Stripa er 10 px og
+   ligger mellom to kort — akkurat der fingeren, og dermed objektet, er. Flaten
+   beholder derfor sin EGEN farge (kortets palettfarge, radens plate) og bare
+   slipper lys gjennom; `backdrop-filter` gir det ett tynt slør, så teksten på
+   objektet ikke leses rett mot mønsteret under.
+
+   Dette er Huskis' politikk, ikke Smetts: Smett sier hvor et slipp lander, ikke
+   hvordan det som dras ser ut. */
 .board .card[data-dnd-dragging] {
   scale: 1.02;
   box-shadow: var(--shadow-lg);
+  background: color-mix(in srgb, var(--card-bg) 58%, transparent);
+  -webkit-backdrop-filter: blur(1px);
+  backdrop-filter: blur(1px);
   cursor: grabbing;
 }
 .board .item[data-dnd-dragging],
 .board .category[data-dnd-dragging] {
   scale: 1.03;
   box-shadow: var(--shadow-lg);
-  background: var(--surface);
+  background: color-mix(in srgb, var(--surface) 58%, transparent);
+  -webkit-backdrop-filter: blur(1px);
+  backdrop-filter: blur(1px);
   list-style: none;
   cursor: grabbing;
 }
@@ -2210,12 +2236,20 @@ body.is-dragging * { cursor: grabbing !important; }
 .board [data-dnd-dragging].sep-above::before,
 .board [data-dnd-dragging].sep-below::after { content: none; }
 
-/* Sikter man på søppelkassen, gjøres det løftede objektet gjennomskinnelig så
-   kassen (med sin `.drop-target`-markering) synes gjennom det. `to-trash`
-   settes fra JS (`setDragTrashTarget`). */
-.board [data-dnd-dragging].to-trash { opacity: 0.45; }
-/* Lista sikter på 📁-breadcrumben (flytt til en annen mappe): samme grep, så
-   knappen med sin `.drop-target`-markering synes gjennom det løftede kortet. */
+/* Sikter man på søppelkassen, skifter det løftede objektet BAKGRUNNSFARGE til
+   rødt: et slipp her sletter. Gjennomsikten og sløret er allerede signalet for
+   «dette dras», så tilstanden kan ikke uttrykkes med mer gjennomsikt — da hadde
+   de to lest likt. Vasken males som `background-image`, altså OVER
+   `background-color`, så flaten fortsatt slipper kassen (med sin
+   `.drop-target`-markering) gjennom. `to-trash` settes fra JS
+   (`setDragTrashTarget`). */
+.board [data-dnd-dragging].to-trash {
+  background-image: linear-gradient(var(--drag-danger), var(--drag-danger));
+}
+/* Lista sikter på 📁-breadcrumben (flytt til en annen mappe). Den ENESTE
+   dra-tilstanden som fortsatt tones ut i stedet for å skifte farge: en flytting
+   har ingen egen farge i paletten slik slettingen har rødt, og signalet den
+   deler med er breadcrumbens egen `.drop-target`-markering. */
 .board [data-dnd-dragging].to-group { opacity: 0.45; }
 
 /* Klonen er «hullet» objektet kom fra: samme uttrykk som `.card-placeholder`
@@ -3808,13 +3842,30 @@ body.no-auth #theme-toggle-btn { display: none; }
 /* ---------------- Slett ved å dra objektet i søppelkassen ----------------
    Kassen for nivået man drar på vises fram i det draget starter (`.drag-trash`)
    og lyser opp når man sikter på den (`.drop-target`, samme markering som
-   📁-breadcrumben). Det løftede objektet blir gjennomskinnelig så kassen synes
-   gjennom det. Se app.js («SLETT VED Å DRA OBJEKTET I SØPPELKASSEN»). */
+   📁-breadcrumben), og det løftede objektet skifter til rød bakgrunn. Se app.js
+   («SLETT VED Å DRA OBJEKTET I SØPPELKASSEN»). */
 .trashcan.drag-trash {
   outline: 2px dashed var(--danger-edge);
   outline-offset: 3px;
   animation: trash-armed 1.4s ease-in-out infinite;
 }
+/* Kassene som ligger i et KORT — listepunkt-kassen nederst i lista, mappe-kassen
+   nederst i området — strekker seg over hele radbredden mens draget står på.
+   Grunnen er fingeren: knappen er ellers ~48 px bred, den forsvinner under
+   tuppen, og på berøring finnes ingen peker som viser hvor man egentlig sikter.
+   Bare BREDDEN endres. Høyden står, altså står kortets boks, og
+   ekstraher-terskelen (`cardBand` = kortets egen kant) rører seg ikke.
+   De to andre kassene — topplinjas og nav-modalens bunnrad — deler rad med
+   ＋-knappen og har ingen ledig bredde å ta av. */
+.item-trash .trashcan.drag-trash {
+  flex: 1 1 auto;
+  justify-content: center;
+}
+/* Den radbrede kassen vokser ikke i tillegg: 12 % av den stikker utenfor kortet,
+   som klipper (`overflow: hidden`). Siktemarkeringen bæres av flaten, den
+   stiplede kanten og rødvasken på det som dras. */
+.item-trash .trashcan.drag-trash.drop-target { transform: none; }
+
 /* En kasse som ble AVDEKKET av draget er per definisjon tom, og «0» der leser
    som et antall i stedet for et mål. Attributtet settes av armDragTrash — på
    knappen selv (topplinja) eller på wrapperen rundt den (kort/områdekort). */

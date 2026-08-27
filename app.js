@@ -4044,8 +4044,10 @@
     drag.trashArmed = false;
     drag.overTrash = false;
   }
-  // Siktemarkering på kassen + gjennomskinnelig dra-objekt, så kassen synes
-  // gjennom det løftede kortet (samme grep som 📁-breadcrumben bruker).
+  // Siktemarkering på kassen + RØD bakgrunn på dra-objektet. Alt som dras er
+  // allerede halvgjennomsiktig (se `[data-dnd-dragging]` i styles.css), så
+  // «her slettes det» kan ikke uttrykkes med mer gjennomsikt — det er fargen
+  // som bærer det. Flaten slipper fortsatt kassen gjennom.
   function setDragTrashTarget(on) {
     on = !!on;
     if (drag.overTrash === on) return;

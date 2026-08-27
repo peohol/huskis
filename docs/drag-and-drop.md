@@ -649,6 +649,15 @@ tilbake dit den kom fra FØR handlingen kalles — nøyaktig semantikken vi vil 
 ingen ny `pos` skrives, slettingen tar over. Treffsonen er knappen selv; sonen er
 en droppable, og dnd-kit måler dens egen boks.
 
+**Kassene som ligger i et KORT er radbrede mens draget står på** — listepunkt-
+kassen nederst i lista, mappe-kassen nederst i området. Knappen er ~48 px i
+hvile: den forsvinner under en fingertupp, og på berøring finnes ingen peker som
+viser hvor man egentlig sikter. Bare BREDDEN endres, så kortets høyde — og
+dermed `cardBand` og ekstraher-terskelen — står stille. De to andre kassene
+(topplinjas og nav-modalens bunnrad) deler rad med ＋-knappen og har ingen ledig
+bredde å ta av. `dnd-trash` sjekk 11 måler bredden og treffer ytterkanten av
+raden.
+
 - **Kassen er BUNDET til draget**: for et listepunkt/en mappe er det kassen i
   containeren raden kom FRA (`drag.trashHost`), ikke den man tilfeldigvis svever
   over. Et slipp på en ANNEN synlig kasse — et annet områdes, eller mappe-kassen
@@ -881,6 +890,28 @@ rotate: none }` gjorde ingenting — klonen bærer rotasjonen som en INLINE-stil
 en inline-stil slår enhver klasseregel, så en bred, lav rad fikk et hull dobbelt
 så høyt som seg selv. Med `!important` står den.
 
+### Alt som dras er halvgjennomsiktig
+
+Det løftede objektet ligger oppå det man sikter mot, og det man sikter mot ER
+svaret på hvor slippet lander: hullet, ny-liste-stripa, skillelinja,
+søppelkassen. Stripa er 10 px og ligger mellom to kort — altså akkurat der
+fingeren, og dermed objektet, er. Flaten beholder derfor sin egen farge (kortets
+palettfarge, radens plate) og slipper bare lys gjennom; `backdrop-filter:
+blur(1px)` gir den ett tynt slør, så teksten på objektet ikke leses rett mot
+mønsteret under. Det er BAKGRUNNEN som er gjennomsiktig — `opacity` står på 1,
+så teksten er like lesbar som i hvile.
+
+Regelen gjelder alle fem nivåene, fra én blokk på `[data-dnd-dragging]`. Den er
+Huskis' politikk, ikke Smetts: Smett sier hvor et slipp lander, ikke hvordan det
+som dras ser ut.
+
+**Tilstander må derfor uttrykkes i FARGE, ikke i mer gjennomsikt.** Sikter man på
+søppelkassen, males en rødvask (`--drag-danger`) over flaten som
+`background-image`, altså oppå `background-color`: gjennomsikten og sløret står
+urørt, kassen synes fortsatt gjennom objektet, og «her slettes det» leses som en
+farge. Uttrykt som enda et lag gjennomsikt ville de to tilstandene lest likt.
+Målt i `dnd-drop-animation` (sjekk 6, alle fem nivåene) og `dnd-trash` (sjekk 2).
+
 ## Auto-scroll
 
 dnd-kits `AutoScroller` finner scroll-containeren selv: vinduet for et drag på
@@ -935,7 +966,8 @@ bare et annet state-tre (`navScope`). Det som er verdt å merke seg:
 Mappene ligger ikke på hovedsiden. Dra i stedet lista opp på **nav-knappen** i
 toppmenyen: knappen er en SONE for kortdraget (`data-dnd-zone="crumb"`), den
 markeres (`.drop-target`, kun når det finnes andre mapper), og det løftede kortet
-blir gjennomskinnelig (`.to-group`). Smett ruller lista tilbake dit den kom fra
+tones ut (`.to-group` — den eneste dra-tilstanden som fortsatt bruker `opacity`
+i stedet for en farge). Smett ruller lista tilbake dit den kom fra
 FØR handlingen — som for søppelkassen — og så åpnes en velger («Flytt … til:», i
 plasserings-modal-skallet via `openPicker`); valget gjør en kirurgisk flytting
 (`moveCardToGroup`: `card.group` + `pos` bakerst, kun posisjonsregisteret
