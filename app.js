@@ -3883,6 +3883,8 @@
     drag.trashHost = null;
     document.querySelectorAll('.card-placeholder').forEach((el) => el.remove());
     document.body.classList.remove('is-dragging');
+    setExtracting(false);   // sikkerhetsnett: også på avbruddsveiene
+    setTrashHold(false);
     // Kolonnefordelingen har vært frosset gjennom draget (og korthøydene kan ha
     // endret seg — et listepunkt flyttet mellom to lister). Kjør den på nytt nå
     // som draget er over; `boardRelayoutAfterDrop` gjør den samme runden når
@@ -4008,6 +4010,26 @@
     if (btn.hidden) { btn.hidden = false; btn.dataset.dragRevealed = '1'; }
     const wrap = btn.closest('.item-trash');
     if (wrap && wrap.hidden) { wrap.hidden = false; wrap.dataset.dragRevealed = '1'; }
+  }
+  /* Sikter pekeren på kassen dette draget kan slippes i?
+
+     SLIPPET avgjøres av Smett (`zoneSelector` → `pointerIntersection` mot
+     knappen). Dette er noe annet og litt større: sonen der PLASSERINGEN står i
+     ro. Kassen ligger under ＋-raden, altså utenfor listas innholdssone
+     (`cardBand`), så en rad på vei ned til den forlater lista og slår på
+     ekstraheringsmodus — og da lager et slipp som bommer på knappen en NY LISTE
+     i stedet for å slette. Slarken er hysterese: uten den ville
+     ny-liste-placeholderen blinket inn og ut idet pekeren streifer kanten av
+     knappen, og hvert blink flytter kortene under den. */
+  const DRAG_TRASH_PAD = 12;
+  function pointerOnDragTrash(x, y) {
+    if (!drag.trashArmed) return false;
+    const btn = dragTrashBtn();
+    if (!btn || btn.hidden || !btn.isConnected) return false;
+    const r = btn.getBoundingClientRect();
+    if (!r.width || !r.height) return false;
+    return x >= r.left - DRAG_TRASH_PAD && x <= r.right + DRAG_TRASH_PAD &&
+           y >= r.top - DRAG_TRASH_PAD && y <= r.bottom + DRAG_TRASH_PAD;
   }
   // Kalles fra finishDrag — altså på ALLE veier ut av et drag, også avbrudd.
   function disarmDragTrash() {
@@ -4766,6 +4788,37 @@
       const cd = cardEl && S.findContainer(cardEl.dataset.id);
       if (cd) setCollapseCount(catEl.querySelector('.cat-head'), catMemberCount(S.rowsOf(cd), catEl.dataset.id), true);
     });
+  }
+  /* Ekstrahering: ÉN plass som kommer, ikke to.
+
+     Raden er på vei ut av lista, og ny-liste-placeholderen er plassen den skal
+     til. dnd-kits klone blir likevel liggende igjen i lista — den er dnd-kits,
+     ikke vår, og motoren flytter den bare ved å bytte med en RAD. Vist samtidig
+     er de to hull som lover hver sin plassering, og bare det ene holder.
+
+     Klonen tas derfor UT AV FLYTEN mens modusen står på, så lista lukker seg
+     over hullet slik den gjør når raden faktisk forlater den. Hoppet det gir
+     går i «bli der du er»-retning: sonen krymper bort fra objektet som nettopp
+     forlot den, aldri mot det. */
+  function setExtracting(on) {
+    document.body.classList.toggle('is-extracting', !!on);
+  }
+  /* Ny-liste-placeholderen males ikke mens pekeren står på kassen: der SLETTER
+     slippet, og en placeholder som lover en ny liste ville lovet feil. Kun
+     malingen — plassen beholdes, så modusen og kortene under står i ro. */
+  /* Slapp man i kassens treffsone? Punktet leses av Smetts operasjon, ikke av
+     `drag.lastX/Y`: Smett skriver de FAKTISKE slipp-koordinatene inn før
+     operasjonen avsluttes (`AuthoritativeDrop`), mens vår egen mellomlagring er
+     satt av siste `dragmove` — og den kan være koalescert bort i en rask gest. */
+  function dropReleasedOnTrash(b) {
+    if (!drag.trashArmed || drag.kind !== 'item') return false;
+    const at = b && b.manager.dragOperation.position;
+    const pt = at && at.current;
+    if (!pt) return false;
+    return pointerOnDragTrash(pt.x, pt.y);
+  }
+  function setTrashHold(on) {
+    document.body.classList.toggle('is-over-trash', !!on);
   }
   function makeNewListPlaceholder(height) {
     const ph = document.createElement('div');
@@ -5807,6 +5860,19 @@
   }
 
   function navCommitRow() {
+    /* Slipp i kassens treffsone SLETTER — også når ekstraheringsmodusen står
+       på. Sonen er litt større enn knappen, og treffer man knappen på pikselen
+       har Smett alt tatt slippet som en sone (`onZoneDrop`) og vi er ikke her.
+       Dette er ringen rundt: uten den lager et slipp som bommer med noen få
+       piksler en NY LISTE i stedet for å slette. Draget rulles tilbake som et
+       avbrutt drag, og slettingen tar over — samme vei som sone-slippet. */
+    if (dropReleasedOnTrash(navRowBoard)) {
+      const trashedId = drag.el && drag.el.dataset.id;
+      restoreDraggedToOrigin();
+      disarmDragTrash();
+      if (trashedId) dropIntoTrash(navScope, 'item', trashedId);
+      return;
+    }
     if (drag.phMode === 'extract') {
       if (drag.kind === 'category') extractCategoryToNewContainer();
       else extractRowToNewContainer();
@@ -5970,6 +6036,7 @@
     if (navExtract) return;
     navExtract = true;
     drag.phMode = 'extract';
+    setExtracting(true);
     drag.ph = makeNewListPlaceholder(Math.max(72, drag.height));
     const cols = boardColumns(navBoard);
     (cols[cols.length - 1] || navBoard).appendChild(drag.ph);
@@ -5981,6 +6048,7 @@
     drag.phMode = 'reorder';
     if (drag.ph && drag.ph.parentNode) drag.ph.remove();
     drag.ph = null;
+    setExtracting(false);
     dndRefreshRowAccepts();
   }
 
@@ -6656,6 +6724,35 @@
       dndTuneRowCollisions(b);
       dndSyncIntent(b.manager.dragOperation);
       dndPaintRotation();
+      /* Sikter man på KASSEN, står plasseringen i ro: slippet SLETTER, det
+         flytter ikke. Regelen er tilbake fra den gamle motoren, der den lå i
+         `onItemMove`, og den forsvant i overgangen til dnd-kit.
+
+         Uten den er kassen uråelig. Den ligger under ＋-raden — utenfor listas
+         innholdssone (`cardBand`) — så raden er ute av lista et stykke FØR
+         pekeren når kassen, og ekstraheringsmodusen er alt slått på når man
+         kommer fram. I den modusen tar ingen container imot, så et slipp som
+         bommer på selve knappen lager en NY LISTE i stedet for å slette. MÅLT:
+         34 px under knappens senter ga en ny liste med raden i.
+
+         Modusen røres IKKE her — den er lista si, og å slå den av og på idet
+         pekeren streifer kassen ville flyttet kortene under den én gang per
+         streif. Det som skjer er de to tingene som gjør slippet ærlig:
+         ny-liste-placeholderen males ikke (`setTrashHold` — den beholder
+         plassen sin, så ingenting rykker), og kassen markeres. Hva slippet
+         BETYR står i `*CommitRow`: i denne sonen sletter det.
+
+         Sonen er litt større enn knappen (`DRAG_TRASH_PAD`) — knappen er et
+         lite mål, og en finger treffer den ikke på pikselen.
+
+         DELT av begge scopene: mappe-kassen i nav-modalen ligger på samme vis
+         utenfor mappelistas sone. */
+      if (pointerOnDragTrash(drag.lastX, drag.lastY)) {
+        setDragTrashTarget(true);
+        setTrashHold(true);
+        return;
+      }
+      setTrashHold(false);
       /* Svaret er en funksjon av PEKERPOSISJONEN. Står pekeren stille, skal
          svaret stå stille — selv om layouten flyttet seg. Det er nettopp der
          tilbakekoblingen bor: VÅR egen plassering flytter radene, og en ny runde
@@ -6809,6 +6906,19 @@
   }
 
   function boardCommitRow() {
+    /* Slipp i kassens treffsone SLETTER — også når ekstraheringsmodusen står
+       på. Sonen er litt større enn knappen, og treffer man knappen på pikselen
+       har Smett alt tatt slippet som en sone (`onZoneDrop`) og vi er ikke her.
+       Dette er ringen rundt: uten den lager et slipp som bommer med noen få
+       piksler en NY LISTE i stedet for å slette. Draget rulles tilbake som et
+       avbrutt drag, og slettingen tar over — samme vei som sone-slippet. */
+    if (dropReleasedOnTrash(boardRowBoard)) {
+      const trashedId = drag.el && drag.el.dataset.id;
+      restoreDraggedToOrigin();
+      disarmDragTrash();
+      if (trashedId) dropIntoTrash(boardScope, 'item', trashedId);
+      return;
+    }
     if (drag.phMode === 'extract') {
       if (drag.kind === 'category') extractCategoryToNewContainer();
       else extractRowToNewContainer();
@@ -6942,6 +7052,7 @@
     if (boardExtract) return;
     boardExtract = true;
     drag.phMode = 'extract';
+    setExtracting(true);
     drag.ph = makeNewListPlaceholder(Math.max(72, drag.height));
     const cols = boardColumns(board);
     (cols[cols.length - 1] || board).appendChild(drag.ph);
@@ -6953,6 +7064,7 @@
     drag.phMode = 'reorder';
     if (drag.ph && drag.ph.parentNode) drag.ph.remove();
     drag.ph = null;
+    setExtracting(false);
     dndRefreshRowAccepts();
   }
 

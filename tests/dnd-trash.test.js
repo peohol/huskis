@@ -21,6 +21,10 @@
        både der knappen selv var skjult og der wrapperen rundt den var det.
     9. Kassen blir stående i synsfeltet etter slettingen, så den kan tømmes med
        én gang (nav-modalen scroller, og draget kollapser kortene underveis).
+   10. Kassen slår EKSTRAHERINGEN: den ligger utenfor listas innholdssone, så
+       raden er teknisk «utenfor alle lister» når man er framme ved den. Sikter
+       man på kassen, lover ikke ny-liste-placeholderen noe, og et slipp i
+       treffsonen sletter i stedet for å lage en ny liste.
 
   Kjør:
     python3 -m http.server 8000                     # fra repo-roten, i egen terminal
@@ -305,9 +309,89 @@ async function run(label, viewport) {
   await b.close();
 }
 
+/* Kassen slår EKSTRAHERINGEN, ikke omvendt.
+
+   Egen økt, fordi den handler om det FØRSTE draget mot kassen i en urørt liste:
+   de andre sjekkene har alt slettet rader, og en liste som har krympet stiller
+   kassen et annet sted i forhold til innholdssonen. */
+async function runTrashVsExtract(label, viewport) {
+  const b = await chromium.launch();
+  const p = await b.newPage({ viewport });
+  const errs = [];
+  p.on('pageerror', (e) => errs.push(e.message));
+  await register(p);
+  // Egen, kort seed: ÉN liste med to rader. Kassen skal ligge godt innenfor
+  // skjermen på mobil også — auto-scroll midt i gesten ville flyttet knappen
+  // under pekeren, og da måler testen rulling, ikke regelen.
+  await p.evaluate(() => {
+    const H = window.__huskis, st = H.state;
+    const mk = (o) => Object.assign({ ts: 1, org: 't', pos: 0, posTs: 1, posOrg: 't',
+      trashed: false, _role: 'owner' }, o);
+    st.universes.length = 0;
+    const u = mk({ id: 'UNI', name: 'Hjemme', collapsed: false, groups: [] });
+    const g = mk({ id: 'GRP', uni: 'UNI', name: 'Ukesplan', cat: null, isCat: false, collapsed: false, cards: [] });
+    u.groups.push(g);
+    const c1 = mk({ id: 'L1', group: 'GRP', title: 'Handleliste', collapsed: false, items: [] });
+    c1.items.push(mk({ id: 'I1', home: 'L1', text: 'Melk', cat: null, isCat: false }));
+    c1.items.push(mk({ id: 'I2', home: 'L1', text: 'Brød', cat: null, isCat: false, pos: 1 }));
+    g.cards.push(c1);
+    st.universes.push(u);
+    st.activeUniverse = 'UNI'; st.activeGroup = 'GRP';
+    H.render();
+  });
+  await p.waitForTimeout(350);
+
+  const cardsBefore = await p.evaluate(() =>
+    window.__huskis.state.universes[0].groups[0].cards.filter((c) => !c.trashed).length);
+  const src = await p.locator('.item[data-id="I2"]').boundingBox();
+  const sx = src.x + Math.min(src.width / 2, 120), sy = src.y + src.height / 2;
+  await p.mouse.move(sx, sy);
+  await p.mouse.down(); await p.waitForTimeout(60);
+  await p.mouse.move(sx + 12, sy + 12); await p.waitForTimeout(120);
+  let t = await p.locator('.card[data-id="L1"] .item-trash-btn').boundingBox();
+  for (let i = 1; i <= 10; i++) {
+    await p.mouse.move(sx + (t.x + t.width / 2 - sx) * i / 10, sy + (t.y + t.height / 2 - sy) * i / 10);
+    await p.waitForTimeout(30);
+  }
+  t = await p.locator('.card[data-id="L1"] .item-trash-btn').boundingBox();
+  for (let i = 0; i < 3; i++) { await p.mouse.move(t.x + t.width / 2, t.y + t.height / 2); await p.waitForTimeout(40); }
+  const state = () => p.evaluate(() => {
+    const ph = document.querySelector('.new-list-placeholder');
+    return { lover: !!ph && getComputedStyle(ph).visibility !== 'hidden',
+      siktet: !!document.querySelector('.card[data-id="L1"] .item-trash-btn.drop-target') };
+  });
+  const paaKassen = await state();
+  log(label + ' 10: kassen lover ingen ny liste mens man sikter på den',
+    paaKassen.lover === false && paaKassen.siktet === true, JSON.stringify(paaKassen));
+
+  // Rett under knappen: innenfor treffsonen, utenfor selve knappen — der en
+  // finger faktisk lander.
+  t = await p.locator('.card[data-id="L1"] .item-trash-btn').boundingBox();
+  for (let i = 0; i < 3; i++) { await p.mouse.move(t.x + t.width / 2, t.y + t.height + 9); await p.waitForTimeout(40); }
+  const iRingen = await state();
+  log(label + ' 10: ringen rundt knappen lover heller ingen ny liste',
+    iRingen.lover === false && iRingen.siktet === true, JSON.stringify(iRingen));
+
+  await p.mouse.up(); await p.waitForTimeout(800);
+  const etter = await p.evaluate(() => {
+    const g = window.__huskis.state.universes[0].groups[0];
+    const o = g.cards.flatMap((c) => c.items || []).find((x) => x.id === 'I2');
+    return { slettet: !!(o && (o.trashed || o._pendingDelete)),
+      kort: g.cards.filter((c) => !c.trashed).length };
+  });
+  log(label + ' 10: slipp i ringen SLETTER — det lager ingen ny liste',
+    etter.slettet === true && etter.kort === cardsBefore,
+    JSON.stringify(Object.assign({ kortFoer: cardsBefore }, etter)));
+  log(label + ' 10: ingen JS-feil', errs.length === 0, errs.join(' | '));
+  await p.close();
+  await b.close();
+}
+
 (async () => {
   await run('desktop', { width: 1280, height: 900 });
   await run('mobil', { width: 390, height: 780 });
+  await runTrashVsExtract('desktop', { width: 1280, height: 900 });
+  await runTrashVsExtract('mobil', { width: 390, height: 780 });
   const failed = results.filter((x) => !x).length;
   console.log('\n==== ' + (results.length - failed) + '/' + results.length + ' PASS ====');
   process.exit(failed ? 1 : 0);

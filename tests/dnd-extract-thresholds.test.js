@@ -175,6 +175,13 @@ const probe = (p) => p.evaluate(() => {
     dragging: !!d,
     drag,
     mode: newList ? 'extract' : (clone ? 'reorder' : 'none'),
+    /* Hvor mange hull som faktisk MALES. I ekstraheringsmodus skal det være
+       nøyaktig ett: ny-liste-placeholderen. dnd-kits klone blir liggende igjen
+       der raden lå — motoren flytter den bare ved å bytte med en RAD, og i
+       denne modusen tar ingen container imot — men den skal ikke tegnes, for da
+       lover to hull hver sin plassering. */
+    malteHull: [...document.querySelectorAll('.new-list-placeholder, #board [data-dnd-placeholder]')]
+      .filter((el) => getComputedStyle(el).visibility !== 'hidden').length,
     phCard: ph && ph.closest('.card') ? ph.closest('.card').dataset.id : null,
     overCard,
     cards,
@@ -292,6 +299,15 @@ function firstWhere(samples, pred) {
       downOvershoot != null && downOvershoot >= 0 && downOvershoot <= 8 &&
       upOvershoot != null && upOvershoot >= 0 && upOvershoot <= 8,
       'ned=' + (downOvershoot == null ? '-' : downOvershoot.toFixed(1)) + ' opp=' + (upOvershoot == null ? '-' : upOvershoot.toFixed(1)));
+    /* Aldri to malte hull samtidig. I ekstraheringsmodus er ny-liste-
+       placeholderen plassen som kommer; dnd-kits klone blir liggende igjen i
+       kildelista, men skal ikke tegnes i tillegg — to hull lover hver sin
+       plassering, og bare det ene holder. NULL er også et gyldig svar: står
+       pekeren på søppelkassen, lover ingen av dem noe (slippet sletter). */
+    const iExtract = s.concat(s2).filter((x) => x.mode === 'extract');
+    log('A5 aldri to malte hull samtidig i ekstraheringsmodus',
+      iExtract.length > 0 && iExtract.every((x) => x.malteHull <= 1),
+      'prøver=' + iExtract.length + ' malte=' + JSON.stringify([...new Set(iExtract.map((x) => x.malteHull))]));
     log('A ingen JS-feil', errs.length === 0, errs.join(' | '));
     await p.close();
     void base;

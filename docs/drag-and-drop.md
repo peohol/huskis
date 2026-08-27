@@ -508,6 +508,21 @@ leserekkefølge.
 — ingen container tar imot, dnd-kit finner ikke noe mål, sorteringen står stille,
 og plasseringen er vår. Det er Smetts eget svar på «slå av reorder akkurat nå».
 
+**ETT malt hull om gangen** (`setExtracting` → `body.is-extracting`).
+Ny-liste-placeholderen er plassen som kommer, men dnd-kits klone blir liggende
+igjen der raden lå: motoren flytter den bare ved å bytte med en RAD, og i denne
+modusen tar ingen container imot. Vist samtidig lover de to hver sin plassering,
+og bare det ene holder — klonen males derfor ikke mens modusen står på (dnd-kits
+egen standard, som `styles.css` ellers slår av).
+
+Den beholder PLASSEN sin. Å ta den ut av flyten var det første forsøket, og det
+er lista selv som forbyr det: uten radhøyden krymper kortet forbi
+`MIN_BAND_SLACK`, sonen slår om til hele kortet, objektet er inne igjen, klonen
+kommer tilbake — én runde per piksel (målt som 10 gjentakelser av samme tilstand
+gjennom 320 px). Hullet som blir stående er ærlig: det er plassen raden kommer
+tilbake til om man går inn igjen. Dekket av sjekk A5 i
+`tests/dnd-extract-thresholds.test.js`.
+
 `placeNewListPlaceholder` plasserer kort-placeholderen:
 
 - **KOLONNEN** etter pekerens x (±8 px slingring). Ingen kolonnetreff (pekeren i et
@@ -682,6 +697,37 @@ en droppable, og dnd-kit måler dens egen boks.
 - **Feiler LUKKET** (`draggedCanBeTrashed`): samme capabilities som menyens
   «Slett»-rad. Uten rett vises ingen kasse i det hele tatt, så man kan ikke sikte
   på noe serveren ville avvist.
+
+### Kassen slår ekstraheringen
+
+Element-kassen ligger UNDER ＋-raden, altså utenfor listas innholdssone
+(`cardBand`). En rad på vei ned til den er derfor «utenfor alle lister» et stykke
+FØR pekeren er framme, og ekstraheringsmodusen står alt på når man kommer fram. I
+den modusen tar ingen container imot — så et slipp som bommer på selve knappen
+med noen få piksler lager en NY LISTE i stedet for å slette. MÅLT: 34 px under
+knappens senter.
+
+Regelen som løser det er `pointerOnDragTrash` (+ `DRAG_TRASH_PAD`, 12 px):
+**mens pekeren er i kassens treffsone, står plasseringen i ro.**
+
+- **Modusen røres ikke.** Å slå ekstraheringen av og på idet pekeren streifer
+  knappen ville flyttet kortene under den én gang per streif — nøyaktig
+  flimringen `MIN_BAND_SLACK` og `noteOverShift` finnes for å unngå. Objektet
+  følger fortsatt fingeren; det er peek og modusvalget som fryses.
+- **Ny-liste-placeholderen males ikke** (`setTrashHold` → `body.is-over-trash`).
+  Den beholder plassen sin, så ingenting rykker — men den lover ikke en ny liste
+  et sted der slippet sletter.
+- **Slippet sletter i hele sonen.** Treffer man knappen, er det Smetts sone
+  (`onZoneDrop`). Ringen rundt er `*CommitRow`, som spør kassen FØR den spør
+  ekstraheringen: draget rulles tilbake som et avbrutt drag, og slettingen tar
+  over — samme vei som sone-slippet. Slipp-punktet leses av Smetts operasjon,
+  ikke av vår egen mellomlagring, som kan være koalescert bort i en rask gest.
+
+Slarken er ikke pynt: knappen er et lite mål, og en finger treffer den ikke på
+pikselen. Utenfor sonen gjelder ekstraheringen som før — der er man virkelig i
+board-lufta under kortet.
+
+Dekket av sjekk 10 i `tests/dnd-trash.test.js` (egen økt, begge viewportene).
 
 Autoritativt: [`trash.md`](trash.md) («Slett ved å dra objektet i kassen»).
 

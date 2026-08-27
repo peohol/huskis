@@ -2223,6 +2223,27 @@ body.is-dragging * { cursor: grabbing !important; }
    lav rad fikk et hull dobbelt så høyt som seg selv). */
 .board [data-dnd-placeholder] { rotate: none !important; scale: none !important; }
 .board [data-dnd-placeholder] > * { visibility: hidden; }
+/* EKSTRAHERING: raden er på vei ut av lista, og ny-liste-placeholderen er
+   plassen den skal til. dnd-kits klone blir liggende igjen der raden lå —
+   motoren flytter den bare ved å bytte med en RAD, og i denne modusen tar ingen
+   container imot. To MARKERTE hull som lover hver sin plassering er ett for
+   mye, og det er det utenfor lista som holder: klonen males derfor ikke mens
+   modusen står på (dnd-kits egen standard, som regelen over slår av).
+
+   Den beholder PLASSEN sin. Å ta den ut av flyten var det første forsøket, og
+   det er lista selv som forbyr det: uten radhøyden krymper kortet forbi
+   `MIN_BAND_SLACK`, sonen slår om til hele kortet, objektet er inne igjen,
+   klonen kommer tilbake — én runde per piksel. Målt som 10 gjentakelser av
+   samme tilstand gjennom 320 px (`board-columns` sjekk 6) og som flimring i
+   fire av `dnd-extract-thresholds`. Hullet som blir stående er ærlig: det er
+   plassen raden kommer tilbake til om man går inn igjen.
+   Se `setExtracting` og docs/drag-and-drop.md. */
+body.is-extracting .board [data-dnd-placeholder] { visibility: hidden; }
+/* Pekeren på kassen: der SLETTER slippet, så ny-liste-placeholderen skal ikke
+   love en ny liste. Kun malingen skrus av — plassen beholdes, ellers ville
+   kortene under rykket én gang for hvert streif over knappen. Modusen selv er
+   uendret; se `setTrashHold` og docs/drag-and-drop.md. */
+body.is-over-trash .new-list-placeholder { visibility: hidden; }
 /* Kategoriens hvile-linjer hører til kategorien, ikke til hullet — MEN under et
    raddrag ER klonen «raden som kommer», og da er det den som skal bære linja
    (`applyDragSeparators` gir den `.sep-above`/`.sep-below` som enhver annen
