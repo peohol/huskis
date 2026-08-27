@@ -983,6 +983,10 @@ body {
 .theme-toggle-btn:hover { background: var(--control-bg-hover); color: var(--ink); box-shadow: var(--shadow-md); }
 .theme-toggle-btn:active { transform: translateY(1px); }
 .theme-toggle-btn > .icon { font-size: 23px; }
+/* Innloggingsskjermens utgave av samme knapp: identisk flate og ikon, men
+   inline i språkraden (`.auth-lang`) i stedet for fast i hjørnet — det finnes
+   ingen kontoknapp å stå ved siden av FØR man har en konto. */
+.auth-theme-toggle-btn { position: static; }
 
 /* ---------------- Main ---------------- */
 .app-main {
@@ -3001,8 +3005,8 @@ body.tour-demo .trash-row button:not(.tour-live) { opacity: 0.35; }
    ============================================================ */
 
 /* Skjul app-innhold også i kontomodus (før innlogging). Draktknappen skjules
-   med kontoknappen den står ved siden av — innloggingsskjermens egen velger
-   (#auth-theme-select) dekker draktvalget der. */
+   med kontoknappen den står ved siden av — innloggingsskjermens egen knapp
+   (#auth-theme-toggle-btn) dekker draktvalget der. */
 body.no-auth .topbar,
 body.no-auth .app-main,
 body.no-auth #account-btn,
@@ -3306,7 +3310,7 @@ body.no-auth #theme-toggle-btn { display: none; }
    allerede finnes i markupen. `display:flex` fjerner baseline-gapet en inline
    <span> ellers ville lagt under svg-en. */
 .menu-setting-icon { display: flex; flex: 0 0 auto; }
-.lang-select, .theme-select {
+.lang-select {
   flex: 0 0 auto;
   width: auto;
   padding: 8px 10px;
@@ -3314,11 +3318,12 @@ body.no-auth #theme-toggle-btn { display: none; }
   font-weight: 600;
   cursor: pointer;
 }
-/* Raden bærer to par (etikett + velger) på innloggingsskjermen: språk og
-   drakt. Den brytes heller enn å presse velgerne sammen — men den brytes
-   MELLOM parene, aldri inne i et av dem: en etikett som blir stående igjen på
-   linja over velgeren sin hører ikke sammen med noe. Derfor er hvert par en
-   egen flex-boks (`.auth-lang-pair`), og det er de som er radens elementer. */
+/* Raden bærer språkparet (etikett + velger) og draktknappen på
+   innloggingsskjermen. Den brytes heller enn å presse dem sammen — men aldri
+   INNE i språkparet: en etikett som blir stående igjen på linja over
+   velgeren sin hører ikke sammen med noe. Derfor er paret sin egen flex-boks
+   (`.auth-lang-pair`); draktknappen trenger ingen, siden ikonet ALENE er
+   navnet (samme mønster som headerens `#theme-toggle-btn`). */
 .auth-lang {
   display: flex;
   align-items: center;

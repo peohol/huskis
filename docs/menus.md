@@ -178,7 +178,7 @@ panelet (30) men under modaler (200). Person-ikon + rød badge
 (`#account-badge`) med antall ventende invitasjoner. Åpner konto-modalen.
 Skjules før innlogging (`body.no-auth`).
 
-## Draktknappen (`.theme-toggle-btn`, `#theme-toggle-btn`)
+## Draktknappen (`.theme-toggle-btn`, `#theme-toggle-btn` / `#auth-theme-toggle-btn`)
 
 Fast rett til venstre for kontoknappen — samme posisjonsmønster (12 px fra
 toppen, plassert med `--control-h` + gap fra kontoknappens `right`), samme
@@ -186,8 +186,9 @@ flate/hover/fokus-behandling, samme z-index. Bytter lys ↔ mørk drakt i ETT
 trykk (`setTheme`, `docs/mork-drakt.md`) — ingen «følg systemet». Ikonet
 (sol/måne) og tittelen viser drakten som ER aktiv, ikke den man bytter til.
 Skjules før innlogging som kontoknappen (`body.no-auth`); innloggingsskjermens
-egen `<select>` (`#auth-theme-select`) dekker valget der ingen kontoknapp
-finnes å stå ved siden av.
+egen knapp (`#auth-theme-toggle-btn`, samme klasse og samme maling — bare
+inline i språkraden i stedet for fast i hjørnet) dekker valget der ingen
+kontoknapp finnes å stå ved siden av.
 
 ## Navigasjonsmodalen (`#nav-modal`, åpnes fra nav-knappen)
 
