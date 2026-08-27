@@ -1845,9 +1845,41 @@
      et drag FAKTISK pågår holder vi fingrene av fatet — da er DOM-et dnd-kits,
      og Smett har sin egen grunn til å la det være. */
   function navSyncBoards() {
-    if (drag.active && dragScope() === navScope) return;
+    if (drag.active && dragScope() === navScope) { noteSyncOwed(); return; }
     if (navCardBoard) navCardBoard.sync();
     if (navRowBoard) navRowBoard.sync();
+  }
+
+  /* EN AVVIST SYNK KAN IKKE FORKASTES.
+     Begge synkefunksjonene lar motoren være i fred når den ikke er i ro — men
+     rendringen som ba om synken HAR allerede byttet ut nodene, og registeret
+     står igjen med de gamle. Raden er da død helt til noe annet tilfeldigvis
+     rendrer på nytt.
+
+     MÅLT: slipp en rad, og løft den igjen mens lagringen fra det første slippet
+     er i lufta. Svaret fra skyen rendrer board-et mens dnd-kit fortsatt står i
+     `dropped` — den ene synken faller, og raden lot seg ikke løfte igjen før
+     neste lagring rendret på nytt. Sikkerhetsnettene etter et slipp
+     (`boardRelayoutAfter*Drop`) dekker det ikke: de kjører ÉN gang, og
+     rendringen fjernet klonen de venter på.
+
+     Så vi husker den avviste synken og tilbyr den på nytt hver frame til den
+     går gjennom. Begge tilbys, ikke bare den som ble avvist: `sync()` er
+     idempotent, og to flagg for det samme er to ting som kan komme i utakt. */
+  let syncOwed = false;
+  let syncPumping = false;
+  function noteSyncOwed() {
+    syncOwed = true;
+    if (syncPumping) return;
+    syncPumping = true;
+    const tick = () => {
+      syncOwed = false;
+      navSyncBoards();
+      boardSyncBoards();
+      if (syncOwed) { requestAnimationFrame(tick); return; }
+      syncPumping = false;
+    };
+    requestAnimationFrame(tick);
   }
 
   // Scrollposisjonen i nav-modalen over en ombygging. `atBottom` skilles ut
@@ -6172,8 +6204,15 @@
   function boardSyncBoards() {
     // Mens et board selv drar er DOM-et dnd-kits, og Smett har sin egen grunn
     // til å la det være. De to har hver sin manager, så de spørres hver for seg.
-    if (boardCardBoard && boardCardBoard.manager.dragOperation.status.idle) boardCardBoard.sync();
-    if (boardRowBoard && boardRowBoard.manager.dragOperation.status.idle) boardRowBoard.sync();
+    // Blir synken avvist, er den UTSATT, ikke forkastet — se `noteSyncOwed`.
+    if (boardCardBoard) {
+      if (boardCardBoard.manager.dragOperation.status.idle) boardCardBoard.sync();
+      else noteSyncOwed();
+    }
+    if (boardRowBoard) {
+      if (boardRowBoard.manager.dragOperation.status.idle) boardRowBoard.sync();
+      else noteSyncOwed();
+    }
   }
 
   function boardWire(b) {

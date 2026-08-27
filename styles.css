@@ -2175,7 +2175,7 @@ body.is-dragging * { cursor: grabbing !important; }
    hullet, ny-liste-stripa, skillelinja, søppelkassen. Stripa er 10 px og
    ligger mellom to kort — akkurat der fingeren, og dermed objektet, er. Flaten
    beholder derfor sin EGEN farge (kortets palettfarge, radens plate) og bare
-   slipper lys gjennom; `backdrop-filter` gir det ett tynt slør, så teksten på
+   slipper lys gjennom; `backdrop-filter` gir det et tynt slør, så teksten på
    objektet ikke leses rett mot mønsteret under.
 
    Dette er Huskis' politikk, ikke Smetts: Smett sier hvor et slipp lander, ikke
@@ -2184,8 +2184,8 @@ body.is-dragging * { cursor: grabbing !important; }
   scale: 1.02;
   box-shadow: var(--shadow-lg);
   background: color-mix(in srgb, var(--card-bg) 58%, transparent);
-  -webkit-backdrop-filter: blur(1px);
-  backdrop-filter: blur(1px);
+  -webkit-backdrop-filter: blur(2px);
+  backdrop-filter: blur(2px);
   cursor: grabbing;
 }
 .board .item[data-dnd-dragging],
@@ -2193,8 +2193,8 @@ body.is-dragging * { cursor: grabbing !important; }
   scale: 1.03;
   box-shadow: var(--shadow-lg);
   background: color-mix(in srgb, var(--surface) 58%, transparent);
-  -webkit-backdrop-filter: blur(1px);
-  backdrop-filter: blur(1px);
+  -webkit-backdrop-filter: blur(2px);
+  backdrop-filter: blur(2px);
   list-style: none;
   cursor: grabbing;
 }

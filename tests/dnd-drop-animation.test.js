@@ -239,7 +239,7 @@ const log = (n, ok, x = '') => { results.push(ok); console.log((ok ? 'PASS' : 'F
       !!cPaint && cPaint.position === 'fixed', JSON.stringify(cPaint));
     log('6 liste: flaten er halvgjennomsiktig med bakgrunnsslør, teksten i full styrke',
       !!cPaint && cPaint.alfa > 0.3 && cPaint.alfa < 0.9 &&
-      cPaint.opacity === '1' && /blur\(1px\)/.test(cPaint.slor), JSON.stringify(cPaint));
+      cPaint.opacity === '1' && /blur\(2px\)/.test(cPaint.slor), JSON.stringify(cPaint));
     await G.drop(p, undefined, true);
     await p.waitForFunction(() => !document.querySelector('[data-dnd-dragging]'), null, { timeout: 4000 });
 
@@ -253,7 +253,7 @@ const log = (n, ok, x = '') => { results.push(ok); console.log((ok ? 'PASS' : 'F
       !!iPaint && iPaint.position === 'fixed', JSON.stringify(iPaint));
     log('6 listepunkt: flaten er halvgjennomsiktig med bakgrunnsslør, teksten i full styrke',
       !!iPaint && iPaint.alfa > 0.3 && iPaint.alfa < 0.9 &&
-      iPaint.opacity === '1' && /blur\(1px\)/.test(iPaint.slor), JSON.stringify(iPaint));
+      iPaint.opacity === '1' && /blur\(2px\)/.test(iPaint.slor), JSON.stringify(iPaint));
     await G.drop(p, undefined, true);
     await p.waitForFunction(() => !document.querySelector('[data-dnd-dragging]'), null, { timeout: 4000 });
     await p.waitForTimeout(300);
@@ -285,7 +285,7 @@ const log = (n, ok, x = '') => { results.push(ok); console.log((ok ? 'PASS' : 'F
       kPaint.radius === '10px' && kPaint.overflow === 'hidden', JSON.stringify(kPaint));
     log('6 kategori: flaten er halvgjennomsiktig med bakgrunnsslør, teksten i full styrke',
       !!kPaint && kPaint.alfa > 0.3 && kPaint.alfa < 0.9 &&
-      kPaint.opacity === '1' && /blur\(1px\)/.test(kPaint.slor), JSON.stringify(kPaint));
+      kPaint.opacity === '1' && /blur\(2px\)/.test(kPaint.slor), JSON.stringify(kPaint));
     await G.drop(p, undefined, true);
     await p.waitForFunction(() => !document.querySelector('[data-dnd-dragging]'), null, { timeout: 4000 });
     await p.waitForTimeout(300);
@@ -308,7 +308,7 @@ const log = (n, ok, x = '') => { results.push(ok); console.log((ok ? 'PASS' : 'F
       !!gPaint && /^-?[\d.]+deg$/.test(gPaint.rotate), JSON.stringify(gPaint));
     log('6 mappe: flaten er halvgjennomsiktig med bakgrunnsslør, teksten i full styrke',
       !!gPaint && gPaint.alfa > 0.3 && gPaint.alfa < 0.9 &&
-      gPaint.opacity === '1' && /blur\(1px\)/.test(gPaint.slor), JSON.stringify(gPaint));
+      gPaint.opacity === '1' && /blur\(2px\)/.test(gPaint.slor), JSON.stringify(gPaint));
     await G.drop(p, undefined, true);
     await p.waitForTimeout(600);
     log('6 mappe: dra-malingen er ryddet etter slippet',
@@ -336,7 +336,7 @@ const log = (n, ok, x = '') => { results.push(ok); console.log((ok ? 'PASS' : 'F
       !!uPaint && uPaint.position === 'fixed', JSON.stringify(uPaint));
     log('6 område: flaten er halvgjennomsiktig med bakgrunnsslør, teksten i full styrke',
       !!uPaint && uPaint.alfa > 0.3 && uPaint.alfa < 0.9 &&
-      uPaint.opacity === '1' && /blur\(1px\)/.test(uPaint.slor), JSON.stringify(uPaint));
+      uPaint.opacity === '1' && /blur\(2px\)/.test(uPaint.slor), JSON.stringify(uPaint));
     await G.drop(p, undefined, true);
     await p.waitForTimeout(600);
 

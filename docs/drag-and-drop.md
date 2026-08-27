@@ -791,6 +791,26 @@ Uten den virker det neste løftet først når noe annet tilfeldigvis rendrer på
 nytt, som en synkrunde. På mus rakk det ofte akkurat; på touch gjorde det ikke
 det, og et andre drag var umulig. `dnd-nav-engine` sjekk 9 er vakten.
 
+### En AVVIST synk er utsatt, ikke forkastet
+
+At synken lar motoren være i fred når den ikke er i ro, er halve regelen.
+Rendringen som ba om synken HAR allerede byttet ut nodene — blir synken bare
+droppet, står registeret igjen med de gamle, og feilen over er tilbake i full
+bredde.
+
+MÅLT: slipp en rad, og løft den igjen mens lagringen fra det første slippet er i
+lufta. Svaret fra skyen rendrer board-et mens dnd-kit fortsatt står i `dropped`,
+den ene synken faller, og raden lar seg ikke løfte igjen før neste lagring
+rendrer på nytt. Sikkerhetsnettene etter et slipp (`boardRelayoutAfter*Drop`)
+dekker det ikke: de kjører ÉN gang, og rendringen fjernet nettopp den klonen de
+venter på.
+
+`noteSyncOwed` husker derfor den avviste synken og tilbyr begge på nytt hver
+frame til de går gjennom. Begge, ikke bare den som ble avvist: `sync()` er
+idempotent, og to flagg for det samme er to ting som kan komme i utakt.
+`dnd-activation` sjekk 5 er vakten — den rendrer hver frame så lenge motoren står
+i `dropped`, og krever at raden både står i registeret og lar seg løfte etterpå.
+
 ## Etterarbeidet ved slippet
 
 **Fordelingen må kjøres ved SLIPPET.** Kolonnene er frosset gjennom draget, og et
@@ -897,7 +917,7 @@ svaret på hvor slippet lander: hullet, ny-liste-stripa, skillelinja,
 søppelkassen. Stripa er 10 px og ligger mellom to kort — altså akkurat der
 fingeren, og dermed objektet, er. Flaten beholder derfor sin egen farge (kortets
 palettfarge, radens plate) og slipper bare lys gjennom; `backdrop-filter:
-blur(1px)` gir den ett tynt slør, så teksten på objektet ikke leses rett mot
+blur(2px)` gir den et tynt slør, så teksten på objektet ikke leses rett mot
 mønsteret under. Det er BAKGRUNNEN som er gjennomsiktig — `opacity` står på 1,
 så teksten er like lesbar som i hvile.
 
