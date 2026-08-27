@@ -649,8 +649,10 @@
   const uniTrashCount = document.getElementById('uni-trash-count');
 
   // Draktknapp (fast rett til venstre for kontoknappen) og konto-modal
-  // (kontoknappen øverst til høyre).
+  // (kontoknappen øverst til høyre). `authThemeToggleBtn` er den SAMME
+  // knappen, bare inline på innloggingsskjermen — se paintThemeToggle().
   const themeToggleBtn = document.getElementById('theme-toggle-btn');
+  const authThemeToggleBtn = document.getElementById('auth-theme-toggle-btn');
   const accountBtn = document.getElementById('account-btn');
   const accountModal = document.getElementById('account-modal');
   const accountClose = document.getElementById('account-close');
@@ -7682,6 +7684,7 @@
   }
   navCrumbBtn.addEventListener('click', openNavModal);
   themeToggleBtn.addEventListener('click', () => setTheme(THEME.mode() === 'dark' ? 'light' : 'dark'));
+  authThemeToggleBtn.addEventListener('click', () => setTheme(THEME.mode() === 'dark' ? 'light' : 'dark'));
   accountBtn.addEventListener('click', openAccount);
   navModalClose.addEventListener('click', closeNavModal);
   accountClose.addEventListener('click', closeAccount);
@@ -10886,7 +10889,7 @@
   function repaintLanguage() {
     I18N.applyStatic(document);
     paintLanguage();
-    paintTheme();   // draktvalgenes etiketter er også oversatt tekst
+    paintTheme();   // draktknappenes tittel/aria-label er også oversatt tekst
   }
   /* Bytt språk. Appen lastes normalt på nytt etterpå: språket sitter i hver
      eneste tekst som allerede er bygget — korttitler, menyer, demoens steg —
@@ -10955,34 +10958,21 @@
      (invitasjons-e-postene er på kontoens språk). Autoritativt:
      docs/mork-drakt.md.
 
-     To kontroller, ikke én: draktknappen (`#theme-toggle-btn`, fast rett til
-     venstre for kontoknappen) ETT trykk bytter lys ↔ mørk, og er derfor det
-     raske valget når man først er inne. Innloggingsskjermens `<select>`
-     (`#auth-theme-select`) er den eneste veien inn FØR man har en konto —
-     ingen kontoknapp å stå ved siden av der ennå. Ingen «følg systemet» —
-     THEME.MODES er bare `['light', 'dark']`.
+     ÉN kontroll, malt to steder: draktknappen (`#theme-toggle-btn`, fast rett
+     til venstre for kontoknappen) er det raske valget når man først er inne.
+     Innloggingsskjermens knapp (`#auth-theme-toggle-btn`) er SAMME knapp —
+     samme klasse, samme ikon, samme `paintThemeToggle()` — bare inline i
+     språkraden i stedet for fast i hjørnet, siden det ikke finnes noen
+     kontoknapp å stå ved siden av FØR man har en konto. Begge bytter lys ↔
+     mørk i ETT trykk. Ingen «følg systemet» — THEME.MODES er bare
+     `['light', 'dark']`.
 
      Ingen omlasting, i motsetning til et språkbytte: drakten bor i CSS-tokens
      og i kortfargene, og begge deler kan males på nytt der de står. */
   function paintTheme() {
-    const sel = document.getElementById('auth-theme-select');
-    if (sel) {
-      if (!sel.options.length) {
-        THEME.MODES.forEach((m) => {
-          const o = document.createElement('option');
-          o.value = m;
-          sel.appendChild(o);
-        });
-        sel.addEventListener('change', () => setTheme(sel.value));
-      }
-      // Etikettene males på nytt hver gang, ikke bare når valgene bygges: et
-      // språkbytte uten omlasting (repaintLanguage) går gjennom her.
-      Array.prototype.forEach.call(sel.options, (o) => { o.textContent = tr('theme.' + o.value); });
-      sel.value = THEME.mode();
-    }
     paintThemeToggle();
   }
-  // Knappen viser drakten som ER aktiv (sol i lys, måne i mørk), og
+  // Knappene viser drakten som ER aktiv (sol i lys, måne i mørk), og
   // tittelen/aria-label sier hvilken handling ETT trykk utfører. INGEN
   // `aria-pressed`: navnet er handlingen («Bytt til …»), ikke en fast
   // identitet, og et skiftende navn sammen med `aria-pressed` ville lest
@@ -10990,10 +10980,13 @@
   // knapper med stabilt navn + `aria-pressed` versus handlingsnavn uten.
   function paintThemeToggle() {
     const dark = THEME.mode() === 'dark';
-    themeToggleBtn.innerHTML = dark ? ICONS.moon : ICONS.sun;
+    const icon = dark ? ICONS.moon : ICONS.sun;
     const label = tr(dark ? 'theme.toLight' : 'theme.toDark');
-    themeToggleBtn.title = label;
-    themeToggleBtn.setAttribute('aria-label', label);
+    [themeToggleBtn, authThemeToggleBtn].forEach((btn) => {
+      btn.innerHTML = icon;
+      btn.title = label;
+      btn.setAttribute('aria-label', label);
+    });
   }
   function setTheme(mode) {
     if (mode === THEME.mode()) return;

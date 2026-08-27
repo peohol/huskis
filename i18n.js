@@ -122,13 +122,11 @@
     'lang.aria':  ['Språk i appen og i e-postene', 'Language in the app and in emails'],
 
     /* ---- Drakt (lys/mørk) ---- */
-    /* To valg, ingen «følg systemet» — se docs/mork-drakt.md. `theme.toLight`/
-       `theme.toDark` er draktknappens tittel/aria-label: de sier hvilken
-       handling ETT trykk utfører (samme mønster som auth.showPassword). */
-    'theme.label':   ['Drakt', 'Appearance'],
-    'theme.aria':    ['Lys eller mørk drakt', 'Light or dark appearance'],
-    'theme.light':   ['Lys', 'Light'],
-    'theme.dark':    ['Mørk', 'Dark'],
+    /* To valg, ingen «følg systemet» — se docs/mork-drakt.md. Draktknappen
+       (headeren og innloggingsskjermen deler samme knapp) har ingen synlig
+       tekst — `theme.toLight`/`theme.toDark` er tittel/aria-label alene: de
+       sier hvilken handling ETT trykk utfører (samme mønster som
+       auth.showPassword). */
     'theme.toLight': ['Bytt til lys drakt', 'Switch to light appearance'],
     'theme.toDark':  ['Bytt til mørk drakt', 'Switch to dark appearance'],
 

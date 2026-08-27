@@ -11,9 +11,9 @@
        nettleseren har malt noe.
     2. Standarden er LYS, uansett hva operativsystemet sier — det finnes ingen
        «følg systemet», og et OS-bytte har ingen effekt på en lagret drakt.
-    3. Et eksplisitt valg overlever en omlasting. Begge kontrollene
-       (draktknappen ved kontoknappen og innloggingsskjermens velger) gjør det
-       samme.
+    3. Et eksplisitt valg overlever en omlasting. Begge draktknappene
+       (headerens, ved kontoknappen, og innloggingsskjermens egen — samme
+       knapp, malt likt) gjør det samme.
     4. Kortfargene speiles: SAMME tone, invertert lyshet. Kortene er lysere enn
        board-et i lys drakt og fortsatt lysere i mørk (bakgrunnen er da
        mørkere enn kortene) — det er separasjonen som må overleve, ikke tallet.
@@ -30,9 +30,9 @@
        appen og for kaldstarten (drakten malt før noen lytter finnes, med en
        lys farge liggende i den lokale bufferen).
 
-  Punkt 3 kjøres i BEGGE viewportene: på innloggingsskjermen står språk- og
-  draktvelgeren på samme rad, og raden skal brekke MELLOM parene — aldri mellom
-  en etikett og velgeren sin.
+  Punkt 3 kjøres i BEGGE viewportene: på innloggingsskjermen står språkvelgeren
+  og draktknappen på samme rad, og raden skal brekke UTENFOR språkparet —
+  aldri mellom etiketten og velgeren sin.
 
   Kjør:
     python3 -m http.server 8000                  # fra repo-roten, i egen terminal
@@ -177,16 +177,17 @@ async function seed(p) {
   await p.goto(BASE + '/?mock=1');
   await p.waitForTimeout(500);
 
-  console.log('\n--- Innloggingsskjermens draktvelger ---');
-  check('draktvelgeren finnes før innlogging', await p.locator('#auth-theme-select').count() === 1);
-  check('den har de to valgene fra theme.js (ingen «følg systemet»)',
-    (await p.locator('#auth-theme-select option').allTextContents()).length === 2,
-    await p.locator('#auth-theme-select option').allTextContents());
-  await p.selectOption('#auth-theme-select', 'dark');
+  console.log('\n--- Innloggingsskjermens draktknapp ---');
+  check('draktknappen finnes før innlogging', await p.locator('#auth-theme-toggle-btn').count() === 1);
+  check('den viser «bytt til mørk» mens lys er aktiv (ingen «følg systemet»)',
+    (await p.locator('#auth-theme-toggle-btn').getAttribute('aria-label')) === 'Bytt til mørk drakt');
+  await p.locator('#auth-theme-toggle-btn').click();
   await p.waitForTimeout(250);
   let st = await themeState(p);
   check('valget slår gjennom med én gang', st.attr === 'dark' && st.mode === 'dark', st);
   check('valget er lagret på enheten', st.stored === 'dark', st.stored);
+  check('navnet snudde til «bytt til lys» etter byttet',
+    (await p.locator('#auth-theme-toggle-btn').getAttribute('aria-label')) === 'Bytt til lys drakt');
   const darkBg = st.bg;
 
   await login(p);
@@ -386,7 +387,7 @@ async function seed(p) {
   await p.waitForTimeout(250);
 
   console.log('\n--- Valget overlever en omlasting ---');
-  await p.selectOption('#auth-theme-select', 'dark').catch(() => { /* skjult etter innlogging */ });
+  await p.locator('#auth-theme-toggle-btn').click({ timeout: 500 }).catch(() => { /* skjult etter innlogging */ });
   await p.evaluate(() => window.HUSKIS_THEME.setMode('dark'));
   await p.reload();
   await p.waitForFunction(() => document.readyState === 'complete', null, { timeout: 15000, polling: 200 });
@@ -482,14 +483,16 @@ async function seed(p) {
     await p2.goto(BASE + '/?mock=1');
     await p2.waitForTimeout(500);
     // Etiketten og velgeren sin skal alltid stå på SAMME linje; brekker raden,
-    // brekker den mellom de to parene.
+    // brekker den utenfor språkparet, aldri inni det.
     const rows = await p2.evaluate(() => [...document.querySelectorAll('.auth-lang-pair')].map((pair) => {
       const label = pair.querySelector('label').getBoundingClientRect();
       const sel = pair.querySelector('select').getBoundingClientRect();
       return { sammeLinje: Math.abs(label.top - sel.top) < label.height, top: Math.round(pair.getBoundingClientRect().top) };
     }));
-    check(`${what}: begge parene finnes`, rows.length === 2, rows);
+    check(`${what}: språkparet finnes`, rows.length === 1, rows);
     check(`${what}: etiketten står på samme linje som velgeren sin`, rows.every((r) => r.sammeLinje), rows);
+    check(`${what}: draktknappen står i samme rad, uten egen etikett`,
+      await p2.locator('.auth-lang #auth-theme-toggle-btn').isVisible());
     await c2.close();
   }
 
