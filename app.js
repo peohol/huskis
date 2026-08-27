@@ -3757,7 +3757,7 @@
        • `drag` — den ene posten om draget som pågår, fylt fra dnd-kits
          `dragOperation` (`dndSyncIntent`). Alt under leser den.
        • «hvilken liste er objektet i» — `dragOverCard`/`cardBand` med sine
-         1/3-terskler og sin hukommelse, og `noteOverShift`-slarken.
+         1/3-terskler og sin hukommelse.
        • peek: et kollapset mål åpnes MIDLERTIDIG når man blir værende over
          det (`updatePeek`, `setPeekLayer`, `resolvePeekOnDrop`).
        • skillelinjene under draget (`applyDragSeparators`, `sepRows`).
@@ -4546,110 +4546,44 @@
      så med et pekerbasert svar dukket ny-liste-placeholderen opp mye senere på vei
      nedover ut av en liste enn oppover (og motsatt inn i den neste).
 
-     Referanselinjene er listas INNHOLDSSONE — fra listetittelens (korthodets)
-     nedre kant til midt i +-knapperaden — begge veier, både inn og ut. Kortets
-     ytterkanter brukes ikke: tittelraden og knapperaden er «rammen», og et objekt
-     som ligger oppå dem hører ikke til innholdet. Terskelen er den samme linja
-     hver vei, og det er alltid 1/3 av objektet som passerer den:
-     - INN/UT ved TITTELEN: objektets ØVRE 1/3 har passert tittelens nedre kant
-       (nedover = inn, oppover = ut).
-     - INN/UT ved KNAPPENE: objektets NEDRE 1/3 har passert midtlinja i
-       +-knapperaden (oppover = inn, nedover = ut).
-     Det er én regel: objektet er i lista når dets MIDTRE 1/3 ligger innenfor
-     sonen. Vannrett (flerkolonne på desktop) avgjør pekerens kolonne som før;
+     SONEN ER KORTETS EGEN BOKS, og regelen er én: objektet er i lista når dets
+     MIDTRE 1/3 ligger innenfor kortet. Altså — objektet forlater lista først når
+     en tredjedel av det stikker utenfor kortkanten, og går inn i den neste når en
+     tredjedel har kommet innenfor. Samme linje hver vei, begge veier.
+
+     Sonen var en gang INNHOLDSSONEN — fra midt i tittelraden til midt i
+     ＋-knapperaden — med rammeradene regnet som «ikke innhold». Det gjorde at
+     raden var utenfor lista mens den fortsatt lå tydelig oppå den: allerede over
+     knapperaden, og et godt stykke før søppelkassen, sto ny-liste-placeholderen
+     og lovet en ny liste. Og kassen er nettopp der man skal kunne sikte. Rammen
+     er en del av kortet man ser, så den er en del av lista man er i.
+
+     Vannrett (flerkolonne på desktop) avgjør pekerens kolonne som før;
      1/3-reglene er rent loddrette. Valget henger igjen i `drag.overCard`. */
-  // Minste innholdssone vi tør sikte på (utover objektets midtre 1/3). Må dekke
-  // layout-hoppet man får idet man går INN i en liste: ny-liste-placeholderen
-  // (≥ 72 px) forsvinner fra board-et samtidig som reorder-placeholderen (én
-  // radhøyde) legges inn i lista, så lista rykker et stykke oppover mot objektet.
-  // Er sonen mindre enn dette, ville objektet falt ut igjen i samme bevegelse.
-  const MIN_BAND_SLACK = 48;
-  function cardBand(cardEl, third) {
+  function cardBand(cardEl) {
     const r = cardEl.getBoundingClientRect();
-    const collapsed = cardEl.classList.contains('collapsed');
-    // En KOLLAPSET liste har ingen innholdssone å sikte på — der er hele det
-    // (header-høye) kortet sonen. Det samme gjelder en PEEK-ÅPNET liste: den ble
-    // åpnet nettopp fordi objektet siktet på den (over overskriften, det eneste
-    // som fantes), og skal ikke falle ut av lista i det den folder seg ut.
-    const peeked = drag.peekCard && drag.peekCard.el === cardEl && drag.peekCard.expanded;
-    if (collapsed || peeked) return { top: r.top, bottom: r.bottom };
-    const head = cardEl.querySelector('.card-head');
-    const add = cardEl.querySelector('.add-item-row');
-    const ar = add && !add.hidden ? add.getBoundingClientRect() : null;
-    // Linjene går gjennom MIDTEN av rammeradene, ikke langs innerkantene deres:
-    // halve tittelraden og halve knapperaden er slark, så FØRSTE og SISTE plass i
-    // lista er like lett å treffe som plassene mellom radene.
-    // - Nederst: for å havne sist må objektets senter forbi siste rads senter, og
-    //   da stikker nedre 1/3 nesten ned i knapperaden. Lander man en KATEGORI sist,
-    //   krymper lista samtidig ~25 px (skillelinja under placeholderen forsvinner
-    //   når den blir siste rad), så linja kommer opp mot objektet mens man sikter.
-    // - Øverst: ligger en KATEGORI først i lista, er det bare ~10 px mellom
-    //   tittelraden og kategorien — og pekeren må være der for å treffe nivå 1 i
-    //   stedet for inne i kategorien. Uten slarken var «over en kategori øverst»
-    //   umulig (målt: 0 px vindu, mot 63 px over et vanlig listepunkt øverst).
-    // En LÅST liste har ingen +-knapper → kortets bunn.
-    const hr = head ? head.getBoundingClientRect() : null;
-    const top = hr ? hr.top + hr.height / 2 : r.top;
-    const bottom = ar && ar.height ? ar.top + ar.height / 2 : r.bottom;
-    // Er sonen for liten til å sikte på — en TOM (eller nesten tom) liste har bare
-    // noen få piksler mellom tittelen og +-knappene — gjelder hele kortet i stedet,
-    // som for en kollapset liste. Størrelsen måles som om reorder-placeholderen
-    // IKKE lå der: den ligger inne i lista man ER i, og uten korreksjonen ville
-    // samme liste hatt en romsligere sone ute enn inne — objektet ville da gått inn,
-    // falt ut igjen og flimret.
-    const ph = dragPlaceholderEl();
-    const phH = ph && ph.parentNode && cardEl.contains(ph) ? ph.getBoundingClientRect().height + 8 : 0;
-    if (bottom - top - phH < third + MIN_BAND_SLACK) return { top: r.top, bottom: r.bottom };
-    return { top, bottom };
+    return { top: r.top, bottom: r.bottom };
   }
   function dragOverCard() {
     const d = draggedRect(); // UKLEMT: pekerens intensjon (som treffdeteksjonen ellers)
     const third = d.height / 3;
     const topThird = d.top + third;     // «øvre 1/3 har passert» = denne linja over linja
     const botThird = d.bottom - third;  // «nedre 1/3 har passert» = denne linja under linja
-    const inCard = (el, grace) => {
+    const inCard = (el) => {
       const r = el.getBoundingClientRect();
       if (drag.lastX < r.left || drag.lastX > r.right) return false; // kolonnen (flerkolonne)
-      const b = cardBand(el, third);
-      return topThird >= b.top - grace && botThird <= b.bottom + grace;
+      const b = cardBand(el);
+      return topThird >= b.top && botThird <= b.bottom;
     };
+    // Det man ALT er i vinner et delt svar. Kortboksene overlapper ikke, så det
+    // er sjelden aktuelt — men det er også det billigste svaret å prøve først.
     const cur = drag.overCard;
-    if (cur && cur.isConnected) {
-      // Slarken skal dekke ETT layout-hopp, ikke bli liggende: er objektet inne i
-      // sonen på egen hånd, er hoppet passert og slarken forbrukt (se noteOverShift).
-      if (inCard(cur, 0)) { drag.overGrace = 0; return cur; }
-      if (inCard(cur, drag.overGrace || 0)) return cur;
-    }
+    if (cur && cur.isConnected && inCard(cur)) return cur;
     for (const c of dragScope().root.querySelectorAll('.card')) {
-      if (inCard(c, 0)) { drag.overCard = c; drag.overGrace = 0; return c; }
+      if (inCard(c)) { drag.overCard = c; return c; }
     }
     drag.overCard = null;
-    drag.overGrace = 0;
     return null;
-  }
-  /* Selve modusbyttet flytter kortet man nettopp gikk INN i (`drag.overGrace`).
-     Går man fra board-luft inn i en liste, forsvinner ny-liste-placeholderen fra
-     kolonnen og reorder-placeholderen legges inn i lista: alt under den gamle
-     plassen rykker OPP. Har lista en høy sone (en vanlig, fylt liste), betyr det
-     bare at sonen kommer objektet i møte. Har den en KORT sone — en kollapset
-     liste, eller en tom der `MIN_BAND_SLACK` gjør hele kortet til sone — rekker
-     hoppet å legge sonen forbi objektet, som dermed faller ut igjen, som legger
-     placeholderen tilbake, som dytter lista ned igjen: én runde per piksel.
-
-     Vi måler derfor hvor langt lista faktisk flyttet seg av byttet og lar
-     stickiness-en i `dragOverCard` beholde den gjennom akkurat det hoppet. Å
-     forlate lista krever da en tydelig bevegelse ut — ikke bare at gulvet flyttet
-     seg under objektet. Grensen for å gå INN er uendret (`grace` er 0 til man er
-     inne), så 1/3-tersklene måles som før.
-
-     Slarken FORBRUKES så snart objektet ligger inne i sonen på egen hånd
-     (`dragOverCard`): den er kompensasjon for ett hopp, ikke en varig utvidelse av
-     lista. I det vanlige tilfellet (en fylt liste, høy sone) er den derfor borte
-     allerede ved neste bevegelse, og ut-tersklene er nøyaktig de dokumenterte. */
-  function noteOverShift(cardEl, beforeTop) {
-    if (!cardEl || drag.overCard !== cardEl) return;
-    drag.overGrace = Math.max(drag.overGrace || 0,
-      Math.abs(cardEl.getBoundingClientRect().top - beforeTop));
   }
   /* ---------------- Peek-åpning av kollapsede mål under draging ----------------
      Drar man et listepunkt over en KOLLAPSET liste eller kategori (eller en hel
@@ -4820,11 +4754,21 @@
   function setTrashHold(on) {
     document.body.classList.toggle('is-over-trash', !!on);
   }
-  function makeNewListPlaceholder(height) {
+  /* Ny-liste-placeholderen SVEVER mellom kortene.
+
+     Den var en kort-formet slot med et ＋ i, altså 72+ px som skjøv kortene fra
+     hverandre — og det var selve problemet: hvert modusbytte flyttet alt under
+     den. Går man videre ned i lista under, forsvinner placeholderen, kortet
+     smetter oppover, og raden man drar havner UNDER sonen som nettopp flyttet
+     seg. Man må dra oppover igjen for å treffe det man alt siktet på.
+
+     Nå tar den ingen plass: en flat stripe malt MIDT I GAPET som allerede er
+     der. Avstanden mellom kortene er den samme med og uten den, så ingenting
+     rykker — hverken når den kommer eller når den går. Se `.new-list-placeholder`
+     i styles.css. */
+  function makeNewListPlaceholder() {
     const ph = document.createElement('div');
     ph.className = 'card-placeholder new-list-placeholder';
-    ph.style.height = height + 'px';
-    ph.innerHTML = '<span class="new-list-plus" aria-hidden="true">' + ICONS.plus + '</span>';
     return ph;
   }
   /* Plassér ny-liste-placeholderen blant board-ets kort.
@@ -5168,15 +5112,9 @@
      containeren er bare fallbacken under dem.
 
      Svaret regnes ut ÉN gang per pekerbevegelse (`navUpdateExtractMode`/
-     `boardUpdateExtractMode`), ikke på nytt inne i hver detektor. Det er ikke en optimalisering, det er hele
-     stabiliteten: `dragOverCard` har hukommelse (`drag.overCard`,
-     `drag.overGrace`), og slarken `noteOverShift` gir gjennom ett layout-hopp
-     blir FORBRUKT av det første kallet som finner objektet inne i sonen på egen
-     hånd. Regnet detektorene det ut selv, ville de brukt opp slarken i den
-     samme framen den ble gitt — og hvert modusbytte flytter kortene (modalen er
-     loddrett sentrert, så en ny-område-placeholder skyver ALT). Da svarer
-     bevegelsen og kollisjonen på hver sin layout, og de to skifter på å ha rett
-     én gang per frame. */
+     `boardUpdateExtractMode`), ikke på nytt inne i hver detektor: `dragOverCard`
+     har hukommelse (`drag.overCard`), og et svar regnet på nytt midt i en frame
+     ville lest en annen layout enn den bevegelsen svarte på. */
   let dndRowTargetCont = null;
   function dndPickRowContainer(card) {
     if (!card) return null;
@@ -5608,7 +5546,6 @@
     drag.peekCard = null;
     drag.peekCat = null;
     drag.overCard = el.closest('.card');
-    drag.overGrace = 0;
     drag.trashHost = el.closest('.card');
     navExtract = false;
     dndRowTargetCont = null;
@@ -6001,18 +5938,17 @@
   }
 
   /* ------- Ekstrahering: mappe/mappekategori → NYTT område -------
-     Drar man raden UT av alle områdekortene, dukker en kort-formet placeholder
-     med ＋ opp i kolonnen; slipp der oppretter et nytt område med bare denne
-     raden i. Selve tersklene («er raden i dette kortet?», 1/3-reglene i
-     `dragOverCard`/`cardBand`) er uendret — de leser `drag`, og `dndSyncIntent`
-     har fylt den fra dnd-kit.
+     Drar man raden UT av alle områdekortene, males en flat stripe i gapet mellom
+     kortene; slipp der oppretter et nytt område med bare denne raden i.
+     Tersklene («er raden i dette kortet?», 1/3-reglene i
+     `dragOverCard`/`cardBand`) leser `drag`, som `dndSyncIntent` har fylt fra
+     dnd-kit.
 
      Mens modusen står på svarer `navRowAccept` med tom liste. Da tar ingen
      container imot, dnd-kit finner ikke noe mål, og sorteringen står stille:
      Smetts eget svar på «slå av reorder akkurat nå». Klonen blir liggende der
-     den sist havnet — med vilje: gulvet flytter seg da ikke under raden idet
-     modusen skifter, og layout-hoppet `noteOverShift` kompenserer for oppstår
-     ikke i det hele tatt. */
+     den sist havnet, og stripa tar ingen plass — modusbyttet flytter altså
+     ingenting, hverken i lista eller i kolonnen. */
   function navUpdateExtractMode() {
     const overCard = dragOverCard();
     if (!overCard && canExtractDragged()) {
@@ -6022,13 +5958,7 @@
       placeNewListPlaceholder();
       return;
     }
-    // Modusbyttet rykker kortet man nettopp gikk INN i: ny-område-placeholderen
-    // forlater kolonnen, og alt under den flytter seg opp. `noteOverShift` lar
-    // stickiness-en i `dragOverCard` beholde kortet gjennom akkurat det hoppet,
-    // så raden ikke faller ut igjen i samme bevegelse.
-    const beforeTop = overCard ? overCard.getBoundingClientRect().top : 0;
     navSetReorderMode();
-    if (overCard) noteOverShift(overCard, beforeTop);
     dndPeekPending = dndPeekTarget(overCard);
     dndSetRowTarget(dndPickRowContainer(overCard));
   }
@@ -6037,7 +5967,7 @@
     navExtract = true;
     drag.phMode = 'extract';
     setExtracting(true);
-    drag.ph = makeNewListPlaceholder(Math.max(72, drag.height));
+    drag.ph = makeNewListPlaceholder();
     const cols = boardColumns(navBoard);
     (cols[cols.length - 1] || navBoard).appendChild(drag.ph);
     dndRefreshRowAccepts();
@@ -6279,7 +6209,6 @@
     drag.peekCard = null;
     drag.peekCat = null;
     drag.overCard = null;
-    drag.overGrace = 0;
     drag.trashHost = null;
     drag.crumbTarget = false;
     boardTargetCol = null;
@@ -6670,7 +6599,6 @@
     drag.peekCard = null;
     drag.peekCat = null;
     drag.overCard = el.closest('.card');
-    drag.overGrace = 0;
     // Kassen som gjelder er den i LISTA raden kom fra — ikke den man tilfeldigvis
     // svever over. Slettingen legger raden i kildens kasse.
     drag.trashHost = el.closest('.card');
@@ -6747,12 +6675,19 @@
 
          DELT av begge scopene: mappe-kassen i nav-modalen ligger på samme vis
          utenfor mappelistas sone. */
-      if (pointerOnDragTrash(drag.lastX, drag.lastY)) {
-        setDragTrashTarget(true);
-        setTrashHold(true);
-        return;
-      }
-      setTrashHold(false);
+      const påKassen = pointerOnDragTrash(drag.lastX, drag.lastY);
+      // Markeringen settes BEGGE veier her. Smetts `onDropTarget` fyrer bare når
+      // MÅLET endrer seg, og i ringen rundt knappen er målet null hele tiden —
+      // ingen ville da tatt markeringen av igjen, og kassen ble stående som om
+      // den var klar til å ta imot mens raden lå nede ved ny-liste-stripa.
+      setDragTrashTarget(påKassen);
+      // Og stripa lover ingenting i ringen: der SLETTER slippet (`*CommitRow`).
+      // Selve knappen ligger inne i kortet, altså inne i sonen — der er modusen
+      // reorder uansett. Ringen er den lille biten som kan stikke utenfor
+      // kortkanten. Modusen regnes ellers ut som vanlig: å fryse den her ville
+      // utsatt byttet med hele kassens høyde, og ut-terskelen ned ville sluttet
+      // å være den samme linja som opp.
+      setTrashHold(påKassen);
       /* Svaret er en funksjon av PEKERPOSISJONEN. Står pekeren stille, skal
          svaret stå stille — selv om layouten flyttet seg. Det er nettopp der
          tilbakekoblingen bor: VÅR egen plassering flytter radene, og en ny runde
@@ -7017,18 +6952,20 @@
   }
 
   /* ------- Ekstrahering: listepunkt/kategori → NY liste -------
-     Drar man raden UT av alle listene, dukker en kort-formet placeholder med ＋
-     opp i kolonnen man sikter på; slipp der oppretter en ny liste med bare denne
-     raden i (en kategori blir en liste med samme tittel og sine medlemmer).
-     Selve tersklene («er raden i denne lista?», 1/3-reglene i
-     `dragOverCard`/`cardBand`) er uendret — de leser `drag`, og `dndSyncIntent`
-     har fylt den fra dnd-kit.
+     Drar man raden UT av alle listene, males en flat stripe i gapet mellom
+     kortene i kolonnen man sikter på; slipp der oppretter en ny liste med bare
+     denne raden i (en kategori blir en liste med samme tittel og sine
+     medlemmer). Tersklene («er raden i denne lista?», 1/3-reglene i
+     `dragOverCard`/`cardBand`) leser `drag`, som `dndSyncIntent` har fylt fra
+     dnd-kit.
 
      Mens modusen står på svarer `boardRowAccept` med tom liste. Da tar ingen
      container imot, dnd-kit finner ikke noe mål, og sorteringen står stille:
      Smetts eget svar på «slå av reorder akkurat nå». Klonen blir liggende der
-     den sist havnet — gulvet flytter seg da ikke under raden idet modusen
-     skifter. */
+     den sist havnet, og stripa tar ingen plass — modusbyttet flytter altså
+     ingenting, hverken i lista eller i kolonnen. Det var nettopp flyttingen som
+     gjorde det umulig å treffe lista under: stripa forsvant, kortet smatt
+     oppover, og raden havnet under sonen den nettopp siktet på. */
   function boardUpdateExtractMode() {
     const overCard = dragOverCard();
     if (!overCard && canExtractDragged()) {
@@ -7038,13 +6975,7 @@
       placeNewListPlaceholder();
       return;
     }
-    // Modusbyttet rykker lista man nettopp gikk INN i: ny-liste-placeholderen
-    // forlater kolonnen, og alt under den flytter seg opp. `noteOverShift` lar
-    // stickiness-en i `dragOverCard` beholde lista gjennom akkurat det hoppet,
-    // så raden ikke faller ut igjen i samme bevegelse.
-    const beforeTop = overCard ? overCard.getBoundingClientRect().top : 0;
     boardSetReorderMode();
-    if (overCard) noteOverShift(overCard, beforeTop);
     dndPeekPending = dndPeekTarget(overCard);
     dndSetRowTarget(dndPickRowContainer(overCard));
   }
@@ -7053,7 +6984,7 @@
     boardExtract = true;
     drag.phMode = 'extract';
     setExtracting(true);
-    drag.ph = makeNewListPlaceholder(Math.max(72, drag.height));
+    drag.ph = makeNewListPlaceholder();
     const cols = boardColumns(board);
     (cols[cols.length - 1] || board).appendChild(drag.ph);
     dndRefreshRowAccepts();

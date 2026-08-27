@@ -3,20 +3,24 @@
   et listepunkt dratt UT av en kategori forblir synlig.
 
   (A) Terskler (dragOverCard i app.js): hvilken liste det løftede objektet «er i»
-      avgjøres av OBJEKTETS boks, ikke pekeren, og av listas INNHOLDSSONE
-      (midt i tittelraden … midt i +-knapperaden), ikke kortets ytterkanter — de
+      avgjøres av OBJEKTETS boks, ikke pekeren, og av KORTETS EGEN BOKS — de
       samme linjene både inn og ut:
-      - Ved TITTELEN: objektets øvre 1/3 passerer tittelradens midtlinje (ned =
-        inn, opp = ut).
-      - Ved KNAPPENE: objektets nedre 1/3 passerer knapperadens midtlinje (opp =
-        inn, ned = ut).
-      Halve rammeraden er slark hver vei, så FØRSTE og SISTE plass i lista er like
-      lett å treffe som plassene mellom radene.
-      Dvs. objektet er i lista når dets midtre 1/3 ligger innenfor sonen.
+      - Ved OVERKANTEN: objektets øvre 1/3 passerer kortkanten (ned = inn, opp =
+        ut).
+      - Ved UNDERKANTEN: objektets nedre 1/3 passerer kortkanten (opp = inn, ned
+        = ut).
+      Dvs. objektet er i lista når dets midtre 1/3 ligger innenfor kortet, og det
+      forlater lista først når en tredjedel av det stikker utenfor kanten.
+
+      Sonen var en gang INNHOLDSSONEN (midt i tittelraden … midt i +-knapperaden),
+      med rammeradene regnet som «ikke innhold». Det gjorde at raden var utenfor
+      lista mens den fortsatt lå tydelig oppå den — allerede over knapperaden, og
+      et godt stykke før søppelkassen, sto ny-liste-stripa og lovet en ny liste.
+      Rammen er en del av kortet man ser, så den er en del av lista man er i.
+
       Symmetrisk begge veier (før dukket placeholderen opp mye lettere oppover enn
       nedover), og uten flimring i overgangen. Gjelder både énkolonne (mobil) og
-      flerkolonne (desktop). En TOM liste har ingen sone å sikte på — der gjelder
-      hele kortet (som for en kollapset liste).
+      flerkolonne (desktop).
 
   (B) Et listepunkt dratt ut av en kategori til nivå 1 i SAMME liste ble usynlig:
       skillelinje-forhåndsvisningen ga kategorien `position: relative`, og siden
@@ -188,10 +192,9 @@ const probe = (p) => p.evaluate(() => {
   };
 });
 
-// Nedre referanselinje: MIDT i +-knapperaden (slark, se cardBand i app.js).
-const addLine = (c) => (c.add.top + c.add.bottom) / 2;
-// Øvre referanselinje: MIDT i tittelraden (samme slark, se cardBand i app.js).
-const headLine = (c) => (c.head.top + c.head.bottom) / 2;
+// Referanselinjene ER kortkantene (se cardBand i app.js).
+const addLine = (c) => c.rect.bottom;
+const headLine = (c) => c.rect.top;
 
 const results = [];
 const log = (n, ok, x = '') => { results.push(ok); console.log((ok ? 'PASS' : 'FAIL') + ' — ' + n + (x ? '  [' + x + ']' : '')); };
@@ -236,7 +239,12 @@ async function sweep(p, x, fromY, step, count, kind) {
 function modeSeq(samples, stopAt) {
   const seq = [];
   for (const s of samples) {
-    const v = s.mode + ':' + (s.phCard || '-');
+    // MÅLET, ikke hvor klonen står: klonen henger ett kollisjonsrunde etter når
+    // objektet møter et kort gjennom en rammerad det ikke er noen rad å
+    // overlappe i. Se B1/B3.
+    // I extract er man per definisjon ikke i noe kort; da sier `overCard`
+    // ingenting (den kan henge igjen på kortet man nettopp forlot).
+    const v = s.mode + ':' + (s.mode === 'reorder' ? (s.overCard || '-') : '-');
     if (seq[seq.length - 1] !== v) seq.push(v);
     if (v === stopAt) break;
   }
@@ -264,7 +272,7 @@ function firstWhere(samples, pred) {
 
     // NEDOVER ut av liste 0 (øverst).
     const z = await liftItem(p, '.item[data-id="card-0-b"]', 'touch');
-    const s = await sweep(p, z.x, z.y + 4, 3, 52, 'touch');
+    const s = await sweep(p, z.x, z.y + 4, 3, 90, 'touch');
     const hit = firstWhere(s, (x) => x.mode === 'extract');
     if (hit) {
       const h = hit.at.drag.height;
@@ -280,7 +288,7 @@ function firstWhere(samples, pred) {
 
     // OPPOVER ut av liste 1 (nederst).
     const z2 = await liftItem(p, '.item[data-id="card-1-a"]', 'touch');
-    const s2 = await sweep(p, z2.x, z2.y - 4, -3, 52, 'touch');
+    const s2 = await sweep(p, z2.x, z2.y - 4, -3, 90, 'touch');
     const hit2 = firstWhere(s2, (x) => x.mode === 'extract');
     if (hit2) {
       const h = hit2.at.drag.height;
@@ -293,12 +301,28 @@ function firstWhere(samples, pred) {
     await ptr(p, 'pointercancel', z2.x, z2.y, 'touch'); await p.waitForTimeout(200);
 
     const sym = downOvershoot != null && upOvershoot != null && Math.abs(downOvershoot - upOvershoot) <= 8;
-    log('A3 SYMMETRI: like langt forbi sonen opp som ned (≤ 8 px forskjell)', sym,
+    log('A3 SYMMETRI: like langt forbi kortkanten opp som ned (≤ 8 px forskjell)', sym,
       'ned=' + (downOvershoot == null ? '-' : downOvershoot.toFixed(1)) + ' opp=' + (upOvershoot == null ? '-' : upOvershoot.toFixed(1)));
     log('A4 terskelen treffer 1/3-linja (0..steglengde forbi sonen)',
       downOvershoot != null && downOvershoot >= 0 && downOvershoot <= 8 &&
       upOvershoot != null && upOvershoot >= 0 && upOvershoot <= 8,
       'ned=' + (downOvershoot == null ? '-' : downOvershoot.toFixed(1)) + ' opp=' + (upOvershoot == null ? '-' : upOvershoot.toFixed(1)));
+    /* Stripa SVEVER: gapet mellom kortene er det samme hele veien.
+
+       Dette er hele grunnen til at ny-liste-placeholderen ble flat. Den var en
+       kort-formet slot som skjøv kortene fra hverandre, og da ble hvert
+       modusbytte et layout-hopp: drar man videre ned i lista under, forsvinner
+       stripa, kortet smetter oppover, og raden havner UNDER sonen den nettopp
+       siktet på — man må dra oppover igjen for å treffe. Tar stripa ingen plass,
+       finnes ikke hoppet. */
+    const gaps = s.concat(s2)
+      .filter((x) => x.cards['card-0'] && x.cards['card-1'])
+      .map((x) => Math.round(x.cards['card-1'].rect.top - x.cards['card-0'].rect.bottom));
+    const unike = [...new Set(gaps)];
+    log('A6 ny-liste-stripa skyver ikke kortene fra hverandre',
+      gaps.length > 0 && unike.length === 1,
+      'prøver=' + gaps.length + ' gap=' + JSON.stringify(unike));
+
     /* Aldri to malte hull samtidig. I ekstraheringsmodus er ny-liste-
        placeholderen plassen som kommer; dnd-kits klone blir liggende igjen i
        kildelista, men skal ikke tegnes i tillegg — to hull lover hver sin
@@ -322,15 +346,20 @@ function firstWhere(samples, pred) {
     // Hele veien fra liste 0 ned i liste 1, i små steg.
     const z = await liftItem(p, '.item[data-id="card-0-b"]', 'touch');
     const s = await sweep(p, z.x, z.y + 4, 3, 120, 'touch');
-    const inNext = firstWhere(s, (x) => x.mode === 'reorder' && x.phCard === 'card-1');
+    /* Nedover er MÅLET det som sier «nå er jeg i lista under» — samme grunn som
+       oppover i B3: objektet møter kortet gjennom tittelraden, og den stripen
+       har ingen rad å overlappe. Klonen (forhåndsvisningen) flytter seg først
+       når første rad i lista faktisk overlappes. Terskelen som skal måles er
+       vår, og den leses av modusskiftet. */
+    const inNext = firstWhere(s, (x) => x.mode === 'reorder' && x.overCard === 'card-1');
     if (inNext) {
       const h = inNext.at.drag.height;
-      // «øvre 1/3 har passert nedre kant av listetittelen» (samme linje som ut-
-      // terskelen oppover — det er midtre 1/3 som skal ligge innenfor sonen)
+      // «øvre 1/3 har passert kortets overkant» (samme linje som ut-terskelen
+      // oppover — det er midtre 1/3 som skal ligge innenfor kortet)
       const over = (inNext.at.drag.top + h / 3) - headLine(inNext.before.cards['card-1']);
-      log('B1 inn i neste liste nedover: øvre 1/3 har akkurat passert tittelradens midtlinje',
-        over >= 0 && over <= 8, 'forbi tittelmidten=' + over.toFixed(1));
-    } else log('B1 inn i neste liste nedover: placeholderen havnet i liste 1', false, JSON.stringify(s.map((x) => x.mode + '/' + x.phCard)));
+      log('B1 inn i neste liste nedover: øvre 1/3 har akkurat passert kortkanten',
+        over >= 0 && over <= 8, 'forbi kortkanten=' + over.toFixed(1));
+    } else log('B1 inn i neste liste nedover: draget havnet i liste 1', false, JSON.stringify(s.map((x) => x.mode + '/' + x.overCard)));
 
     // Monoton bevegelse → nøyaktig sekvensen reorder(0) → extract → reorder(1)
     // frem til listepunktet er inne i liste 1 (sveipet fortsetter forbi den, og
@@ -353,8 +382,8 @@ function firstWhere(samples, pred) {
     if (inPrev) {
       const h = inPrev.at.drag.height;
       const over = addLine(inPrev.before.cards['card-0']) - (inPrev.at.drag.bottom - h / 3);
-      log('B3 inn i forrige liste oppover: nedre 1/3 har akkurat passert knapperadens midtlinje',
-        over >= 0 && over <= 8, 'forbi knappemidten=' + over.toFixed(1));
+      log('B3 inn i forrige liste oppover: nedre 1/3 har akkurat passert kortkanten',
+        over >= 0 && over <= 8, 'forbi kortkanten=' + over.toFixed(1));
     } else log('B3 inn i forrige liste oppover: draget havnet i liste 0', false, JSON.stringify(s2.map((x) => x.mode + '/' + x.overCard)));
     const seq2 = s2.map((x) => x.mode + ':' + (x.overCard || '-'))
       .filter((v, i, a) => i === 0 || v !== a[i - 1]);
@@ -392,15 +421,16 @@ function firstWhere(samples, pred) {
     log('C0 forutsetning: to kort i samme kolonne', !!pair, JSON.stringify(pair));
     if (pair) {
       const z = await liftItem(p, '.item[data-id="' + pair.top + '-b"]', 'mouse');
-      // Nok steg til å nå HELT ned i kortet under: ny-liste-placeholderen legger
-      // seg mellom kortene og skyver det nedre kortet et stykke ned underveis.
+      // Nok steg til å nå HELT ned i kortet under.
       const s = await sweep(p, z.x, z.y + 4, 6, 90, 'mouse');
       const out = firstWhere(s, (x) => x.mode === 'extract');
-      const into = firstWhere(s, (x) => x.mode === 'reorder' && x.phCard === pair.bottom);
+      // MÅLET, ikke klonen — se B1/B3: klonen henger etter når objektet møter
+      // kortet gjennom en rammerad det ikke er noen rad å overlappe i.
+      const into = firstWhere(s, (x) => x.mode === 'reorder' && x.overCard === pair.bottom);
       if (out) {
         const h = out.at.drag.height;
         const over = (out.at.drag.bottom - h / 3) - addLine(out.before.cards[pair.top]);
-        log('C1 desktop: ut-terskelen er nedre 1/3 forbi knapperadens midtlinje', over >= 0 && over <= 8, 'forbi=' + over.toFixed(1));
+        log('C1 desktop: ut-terskelen er nedre 1/3 forbi kortkanten', over >= 0 && over <= 8, 'forbi=' + over.toFixed(1));
         log('C2 desktop: extract mens pekeren ennå er over kildelista',
           out.at.y <= out.before.cards[pair.top].rect.bottom,
           'peker=' + Math.round(out.at.y) + ' kortbunn=' + Math.round(out.before.cards[pair.top].rect.bottom));
@@ -408,12 +438,12 @@ function firstWhere(samples, pred) {
       if (into) {
         const h = into.at.drag.height;
         const over = (into.at.drag.top + h / 3) - headLine(into.before.cards[pair.bottom]);
-        log('C3 desktop: inn-terskelen er øvre 1/3 forbi tittelradens midtlinje', over >= 0 && over <= 8, 'forbi=' + over.toFixed(1));
+        log('C3 desktop: inn-terskelen er øvre 1/3 forbi kortkanten', over >= 0 && over <= 8, 'forbi=' + over.toFixed(1));
         log('C4 desktop: ingen flimring i kolonnen', (() => {
           const q = modeSeq(s, 'reorder:' + pair.bottom);
           return q.length === 3 && q[1] === 'extract:-';
         })(), modeSeq(s, 'reorder:' + pair.bottom).join(' → '));
-      } else log('C3 desktop: placeholderen havnet i kortet under', false, JSON.stringify(s.map((x) => x.mode + '/' + x.phCard)));
+      } else log('C3 desktop: draget havnet i kortet under', false, JSON.stringify(s.map((x) => x.mode + '/' + x.overCard)));
       await ptr(p, 'pointercancel', z.x, z.y, 'mouse'); await p.waitForTimeout(200);
     }
     log('C ingen JS-feil', errs.length === 0, errs.join(' | '));

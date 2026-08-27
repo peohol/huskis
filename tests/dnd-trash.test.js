@@ -372,6 +372,19 @@ async function runTrashVsExtract(label, viewport) {
   log(label + ' 10: ringen rundt knappen lover heller ingen ny liste',
     iRingen.lover === false && iRingen.siktet === true, JSON.stringify(iRingen));
 
+  // Og markeringen slipper taket når man drar videre ned, forbi treffsonen.
+  // Smetts `onDropTarget` fyrer bare når MÅLET endrer seg, og i ringen er målet
+  // null hele tiden — uten at vi selv tar markeringen av, ble kassen stående som
+  // om den var klar til å ta imot mens raden lå nede ved ny-liste-stripa.
+  t = await p.locator('.card[data-id="L1"] .item-trash-btn').boundingBox();
+  for (let i = 0; i < 3; i++) { await p.mouse.move(t.x + t.width / 2, t.y + t.height + 90); await p.waitForTimeout(40); }
+  const langtUnder = await state();
+  log(label + ' 10: markeringen slipper når man drar videre forbi kassen',
+    langtUnder.siktet === false, JSON.stringify(langtUnder));
+
+  // Tilbake i ringen for selve slippet.
+  t = await p.locator('.card[data-id="L1"] .item-trash-btn').boundingBox();
+  for (let i = 0; i < 3; i++) { await p.mouse.move(t.x + t.width / 2, t.y + t.height + 9); await p.waitForTimeout(40); }
   await p.mouse.up(); await p.waitForTimeout(800);
   const etter = await p.evaluate(() => {
     const g = window.__huskis.state.universes[0].groups[0];
