@@ -518,10 +518,9 @@ if (darkBlock) {
         worstPlate >= 3, +worstPlate.toFixed(2));
 
       // Aksentstripen er SAMME token, men mot korthodet — og er dekorativ
-      // (ingen tekst står på den). Kravet er ikke et nytt 3:1-gulv (se
-      // --danger-edge/--scrim over for samme presedens), men at den ikke
-      // svekkes under det som er målt og dokumentert: en regresjonsvakt, ikke
-      // en ny kontrakt.
+      // (ingen tekst står på den). Kravet er ikke et nytt 3:1-gulv (se --scrim
+      // under for samme presedens), men at den ikke svekkes under det som er
+      // målt og dokumentert: en regresjonsvakt, ikke en ny kontrakt.
       const accentHead = DARK_PALETTE.map((c, i) => ratio(CARD_ACCENT[i], mix(headMix.pct, c, headMix.neutral)));
       const worstHead = Math.min(...accentHead);
       check(`aksentstripen (--card-accent) mot korthodet holder seg synlig — svakeste ${worstHead.toFixed(2)}:1 (gulv 2.7:1, dekorativ — ikke et 3:1-krav)`,
@@ -595,20 +594,10 @@ if (darkBlock) {
         worst[1] > naiv, { checkHover: +worst[1].toFixed(2), naiv: +naiv.toFixed(2) });
     }
 
-    /* Den stiplede slippmål-kanten tegnes rett på en kortfarge. INGEN av
-       draktene når 3:1 der — den lyse bunner ut på ~1,5:1, og kanten er
-       stiplet, pulserende og ledsaget av at kassen vokser. Kravet er derfor
-       PARITET: den mørke drakten skal ikke være dårligere enn den lyse. */
-    const floor = (fg, pal) => pal.map((c) => ratio(fg, c)).reduce((a, b) => Math.min(a, b));
-    const edgeLight = floor(token('danger-edge'), paletteFor(L_LIGHT));
-    const edgeDark = floor(dtoken('danger-edge'), DARK_PALETTE);
-    check(`--danger-edge er minst like synlig i mørk drakt som i lys (mørk ${edgeDark.toFixed(2)}:1 mot lys ${edgeLight.toFixed(2)}:1)`,
-      edgeDark >= edgeLight, { lys: +edgeLight.toFixed(2), mork: +edgeDark.toFixed(2) });
-    const uendret = floor(token('danger'), DARK_PALETTE);
-    check(`--danger uendret ville bunnet ut på ${uendret.toFixed(2)}:1 mot de mørke kortfargene — derfor et eget token`,
-      uendret < edgeLight, +uendret.toFixed(2));
-
-    // Placeholderen: samme paritetskrav, mot board-bakgrunnen den ligger på.
+    // Placeholderen: paritetskravet, mot board-bakgrunnen den ligger på. INGEN
+    // av draktene når 3:1 der — den lyse bunner ut på ~1,2:1 — og flaten kommer
+    // sammen med andre signaler. Kravet er derfor PARITET: den mørke drakten
+    // skal ikke være dårligere enn den lyse.
     const phLight = ratio(over(token('scrim'), token('bg')), token('bg'));
     const phDark = ratio(over(dtoken('scrim'), D_BG), D_BG);
     check(`drag-placeholderen er minst like synlig i mørk drakt som i lys (mørk ${phDark.toFixed(2)}:1 mot lys ${phLight.toFixed(2)}:1)`,

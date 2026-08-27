@@ -83,14 +83,13 @@ den mørke halvdelen fra `:root[data-theme="dark"]` og fra L-settene i `app.js`:
 | `--ink` på listepunkt-platen, `--ink-soft` på meta-chipen — begge over hver mørke kortfarge | ≥ 4.5:1 |
 | Trafikklyset mot den mørke statuspillen | ≥ 3:1 |
 | `--check-hover` (avkryssingsboksens hover-kant) mot platen over hver mørk kortfarge | ≥ 3:1 |
-| `--danger-edge` (stiplet slippmål-kant) og `--scrim` (drag-placeholderen) | **paritet** — se under |
+| `--scrim` (drag-placeholderen) | **paritet** — se under |
 
-**Paritet der 3:1 aldri har vært mulig.** Den stiplede slippmål-kanten og
-drag-placeholderen tegnes rett på en kortfarge respektive board-bakgrunnen, og
-hverken lys eller mørk drakt når 3:1 der (den lyse bunner ut på 1,52:1 og
-1,22:1). Begge er stiplede/pulserende affordanser som kommer sammen med andre
-signaler. Testen krever derfor at den mørke drakten ikke er **dårligere** enn
-den lyse — ikke et absolutt tall den lyse drakten selv aldri har holdt.
+**Paritet der 3:1 aldri har vært mulig.** Drag-placeholderen tegnes rett på
+board-bakgrunnen, og hverken lys eller mørk drakt når 3:1 der (den lyse bunner
+ut på 1,22:1). Det er en flate som kommer sammen med andre signaler. Testen
+krever derfor at den mørke drakten ikke er **dårligere** enn den lyse — ikke et
+absolutt tall den lyse drakten selv aldri har holdt.
 
 **Hvorfor fokusringen snur.** `--focus` (`#10131a`) er valgt for å lese mot alle
 LYSE flater; mot den mørke board-bakgrunnen gir den 1,0:1. Hvit gir ≥ 4,0:1 mot

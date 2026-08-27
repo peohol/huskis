@@ -314,10 +314,6 @@
      bytter til en fast farge må klare det samme, ellers blir kontrollen
      UTYDELIGERE i det øyeblikket man sikter på den. */
   --check-hover: #668866;
-  /* Den stiplede kanten som viser at søppelkassen er et slippmål. Egen fra
-     --danger: kanten tegnes rett på en kortfarge, og den mørke rødfargen og de
-     mørke kortfargene ligger for nær hverandre. */
-  --danger-edge: #c0384d;
 }
 
 /* ============================================================
@@ -432,12 +428,6 @@
      og en hover-kant skal ikke bli utydeligere enn hvilekanten i det øyeblikket
      man sikter på den. tests/a11y-contrast.test.js regner marginen ut på nytt. */
   --check-hover: #8fbf8f;
-  /* --danger mot de mørke kortfargene bunner ut på 1,03:1 (mot #566b81). Den
-     lyse rødfargen gir 1,76:1 — over den lyse drakts eget gulv på 1,52:1.
-     Ingen av draktene når 3:1 her, og det har de aldri gjort: kanten er
-     stiplet, pulserer og kommer sammen med at kassen vokser. */
-  --danger-edge: #f08fa0;
-
   /* Skygger bærer ikke dybde på en mørk flate slik de gjør på en lys — de må
      være dypere for i det hele tatt å synes. */
   --shadow-sm: 0 2px 6px rgba(0, 0, 0, 0.4);
@@ -522,8 +512,8 @@
      nærmeste sikre tilnærmingen — samme verdi appen ellers bruker som
      «aksentfargen» til nettopp dette kortet i mørk drakt. Mot korthodet er den
      under 3:1 i verste hjørne, men det er en dekorativ stripe uten tekst på
-     seg (samme presedens som --danger-edge/--scrim over: paritet med
-     intensjonen, ikke et nytt gulv). `--card-accent` SELV er urørt av dette —
+     seg (samme presedens som --scrim over: paritet med intensjonen, ikke et
+     nytt gulv). `--card-accent` SELV er urørt av dette —
      den bærer 3:1-kontrakten rundt avkryssingsboksen og skal ikke flyttes. */
   --card-stripe: var(--card-accent);
 
@@ -3841,14 +3831,17 @@ body.no-auth #theme-toggle-btn { display: none; }
 
 /* ---------------- Slett ved å dra objektet i søppelkassen ----------------
    Kassen for nivået man drar på vises fram i det draget starter (`.drag-trash`)
-   og lyser opp når man sikter på den (`.drop-target`, samme markering som
-   📁-breadcrumben), og det løftede objektet skifter til rød bakgrunn. Se app.js
-   («SLETT VED Å DRA OBJEKTET I SØPPELKASSEN»). */
-.trashcan.drag-trash {
-  outline: 2px dashed var(--danger-edge);
-  outline-offset: 3px;
-  animation: trash-armed 1.4s ease-in-out infinite;
-}
+   og lyser opp når man sikter på den (`.drop-target`), og det løftede objektet
+   skifter til rød bakgrunn. Se app.js («SLETT VED Å DRA OBJEKTET I
+   SØPPELKASSEN»).
+
+   Markeringen er flate + skygge, ikke en kantlinje: 📁-breadcrumben beholder
+   sin stiplede ring, men en søppelkasse har ingen.
+
+   `.drag-trash` bærer ingen egen maling. Kassene i et kort viser seg fram ved å
+   strekke seg over radbredden (rett under), og alle fire ved at de i det hele
+   tatt DUKKER OPP — de er skjult når de er tomme. Siktemarkeringen er
+   `.drop-target` lenger ned. */
 /* Kassene som ligger i et KORT — listepunkt-kassen nederst i lista, mappe-kassen
    nederst i området — strekker seg over hele radbredden mens draget står på.
    Grunnen er fingeren: knappen er ellers ~48 px bred, den forsvinner under
@@ -3862,8 +3855,8 @@ body.no-auth #theme-toggle-btn { display: none; }
   justify-content: center;
 }
 /* Den radbrede kassen vokser ikke i tillegg: 12 % av den stikker utenfor kortet,
-   som klipper (`overflow: hidden`). Siktemarkeringen bæres av flaten, den
-   stiplede kanten og rødvasken på det som dras. */
+   som klipper (`overflow: hidden`). Siktemarkeringen bæres av flaten, skyggen
+   og rødvasken på det som dras. */
 .item-trash .trashcan.drag-trash.drop-target { transform: none; }
 
 /* En kasse som ble AVDEKKET av draget er per definisjon tom, og «0» der leser
@@ -3873,17 +3866,10 @@ body.no-auth #theme-toggle-btn { display: none; }
 [data-drag-revealed] .trashcan.drag-trash .trashcan-count { display: none; }
 .trashcan.drag-trash.drop-target {
   background: var(--danger-soft);
-  outline: 2.5px dashed var(--danger-edge);
   box-shadow: 0 4px 12px rgba(180, 60, 60, 0.35);
   transform: scale(1.12);
-  animation: none;
-}
-@keyframes trash-armed {
-  0%, 100% { outline-offset: 3px; }
-  50% { outline-offset: 6px; }
 }
 @media (prefers-reduced-motion: reduce) {
-  .trashcan.drag-trash { animation: none; }
   .trashcan.drag-trash.drop-target { transform: none; }
 }
 

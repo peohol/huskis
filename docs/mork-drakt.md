@@ -102,21 +102,19 @@ Fire ting snur som ikke er flater:
   er flate- og signalfarger (knappegradienter, prikker) og skal ikke lysne. Der
   de brukes som *tekst* brukes `--danger-ink`, `--primary-ink` og `--note-ink` i
   stedet — identiske med originalene i lys drakt, lyse i mørk.
-- **Signaler som tegnes OPPÅ en kortfarge.** Fire av dem er faste farger på et
+- **Signaler som tegnes OPPÅ en kortfarge.** Tre av dem er faste farger på et
   underlag som skifter med drakten, og alle falt igjennom da paletten ble mørk:
 
   | Token | Hva | Hvorfor |
   |---|---|---|
   | `--check-hover` | avkryssingsboksens kant ved hover | `--primary` klarer så vidt 3:1 mot den mørke platen (min 3,13:1) — men med langt mindre margin enn dette dedikerte tokenet gir (min 5,94:1), og en hover-kant skal ikke bli utydeligere enn hvilekanten i det øyeblikket man sikter på den. |
-  | `--danger-edge` | den stiplede slippmål-kanten på søppelkassen | `--danger` bunner ut på 1,03:1 mot de mørke kortfargene. Den lyse rødfargen gir 1,76:1. |
   | `--scrim` | drag-placeholderens flate | en mørkning på en mørk board-bakgrunn er 1,03:1; et *løft* gir 1,45:1. |
   | `--drag-danger` | rødvasken over et objekt som slettes ved slipp | vasken males på en halvgjennomsiktig dra-flate ([`drag-and-drop.md`](drag-and-drop.md)). Den mørke drakten løfter i stedet for å mørkne, så vasken er den LYSE rødfargen — og svakere, fordi lys tar mer plass på en mørk flate. |
 
-  `--danger-edge` og `--scrim` når ikke 3:1 — og har aldri gjort det, heller
-  ikke i lys drakt (1,52:1 og 1,22:1). Begge er stiplede/pulserende
-  affordanser som kommer sammen med andre signaler (kassen strekker seg over
-  hele radbredden, objektet skifter til rødt). Kravet testen håndhever er derfor
-  **paritet**: den mørke drakten skal ikke være dårligere enn den lyse.
+  `--scrim` når ikke 3:1 — og har aldri gjort det, heller ikke i lys drakt
+  (1,22:1). Det er en flate som kommer sammen med andre signaler. Kravet testen
+  håndhever er derfor **paritet**: den mørke drakten skal ikke være dårligere
+  enn den lyse.
 
 `color-scheme` settes på rot-elementet i begge drakter, så det vi ikke tegner
 selv følger med: `<select>`-nedtrekket, dato- og klokkeslettvelgerne i
@@ -317,7 +315,7 @@ enkelte fargetoner. `--card-accent` er derfor den nærmeste sikre tilnærmingen 
 samme verdi appen allerede bruker som «aksentfargen» til akkurat dette kortet i
 mørk drakt. Mot korthodet gir den 2,80–4,76:1: under 3:1 i verste hjørne, men
 det er en dekorativ stripe uten tekst på seg, og kravet er paritet med
-intensjonen (samme presedens som `--danger-edge`/`--scrim` over), ikke et nytt
+intensjonen (samme presedens som `--scrim` over), ikke et nytt
 gulv.
 
 Tekst-borderen fra `--item-text-shadow`/`--item-text-stroke` er på, men tynnere
