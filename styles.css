@@ -2276,9 +2276,11 @@ body.is-dragging * { cursor: grabbing !important; }
    `MIN_BAND_SLACK`, sonen slår om til hele kortet, objektet er inne igjen,
    klonen kommer tilbake — én runde per piksel. Målt som 10 gjentakelser av
    samme tilstand gjennom 320 px (`board-columns` sjekk 6) og som flimring i
-   fire av `dnd-extract-thresholds`. Hullet som blir stående er ærlig: det er
-   plassen raden kommer tilbake til om man går inn igjen.
-   Se `setExtracting` og docs/drag-and-drop.md. */
+   fire av `dnd-extract-thresholds`. Prøvd på nytt etter at DRA-ANKERET kom, som
+   holder det man sikter på i ro: terskelen flyttet seg fortsatt 10–27 px, og
+   kolonnen flimret (`dnd-extract-thresholds` A4/B3/C1/C4). Hullet som blir
+   stående er ærlig: det er plassen raden kommer tilbake til om man går inn
+   igjen. Se `setExtracting` og docs/drag-and-drop.md. */
 body.is-extracting .board [data-dnd-placeholder] { visibility: hidden; }
 /* Pekeren på kassen: der SLETTER slippet, så ny-liste-placeholderen skal ikke
    love en ny liste. Kun malingen skrus av — plassen beholdes, ellers ville
@@ -3858,14 +3860,6 @@ body.no-auth #theme-toggle-btn { display: none; }
    som klipper (`overflow: hidden`). Siktemarkeringen bæres av flaten, skyggen
    og rødvasken på det som dras. */
 .item-trash .trashcan.drag-trash.drop-target { transform: none; }
-
-/* ÉN KASSE MALES OM GANGEN mens en rad dras (`is-trash-roaming`). Kassen følger
-   objektet (`retargetDragTrash`), og raden den forlot beholder PLASSEN sin ut
-   draget — ellers ville kortet krympet med en hel knapperad og alt under det
-   rykket oppover, midt under fingeren. Den står altså igjen, usynlig, og holder
-   boksen i ro. Det samme gjelder en kasse som har innhold og ellers står
-   synlig: under et rad-drag er det bare dragets egen kasse som synes. */
-body.is-trash-roaming .item-trash > .trashcan:not(.drag-trash) { visibility: hidden; }
 
 /* En kasse som ble AVDEKKET av draget er per definisjon tom, og «0» der leser
    som et antall i stedet for et mål. Attributtet settes av armDragTrash — på

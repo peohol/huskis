@@ -3904,6 +3904,7 @@
     if (!dragRolledBack) dropSeq++;
     dragRolledBack = false;
     drag.active = false;
+    anchorEnd();              // polstringen og scrollen vår rulles tilbake
     disarmDragTrash();        // skjul kassen igjen om draget ikke endte i den
     clearAllDragSeparators(); // tilbake til hvile-reglene (pseudo-linjene på .category)
     clearAllPeeks(true); // sikkerhetsnett: kollaps evt. peek-åpnede mål tilbake (no-op om alt alt er løst)
@@ -3969,6 +3970,245 @@
       if (want && !isCollapsed) collapseCardBody(cEl);
       else if (!want && isCollapsed) expandCardBody(cEl);
     });
+  }
+
+  /* ------- DRA-ANKERET: layouten flytter seg BORT fra siktet -------
+
+     Under et raddrag vokser og krymper containerne: kassen kommer i lista man
+     svever over og forsvinner fra den man forlot, og hullet bytter liste. I
+     normal flyt absorberes hver slik endring NEDOVER — alt under den flytter
+     seg — og da smetter nettopp det man sikter på unna fingeren i samme
+     øyeblikk som det ble laget.
+
+     Ankeret snur retningen: den nærmeste FASTE kanten på eller under siktet
+     skal stå stille, og board-et gjør jobben OVER den i stedet. Sagt som
+     regelen brukeren ser: det som kommer, kommer MOT deg; resten av siden — det
+     du uansett ikke sikter på — forskyver seg og lager rommet.
+
+     Siktet er objektets eget senter (`draggedRect`), samme referanse som
+     1/3-tersklene bruker. Objektet ligger i top layer og følger pekeren, så
+     siktelinjen er en VIEWPORT-linje: den flytter seg ikke av at vi scroller.
+
+     FASTE KANTER er de som ikke rører seg av en ren OMROKKERING: kortkantene,
+     ＋-raden og kasseraden. Radene selv er ikke med — bytter hullet plass med en
+     nabo, er det forhåndsvisningen, ikke et hopp som skal settes av.
+
+     TO DELER, med hver sin rekkevidde:
+
+       1. VÅRE EGNE endringer (kassen som dukker opp eller forsvinner) måles
+          rundt selve endringen — `withAnchor` — og settes av uansett hvor i
+          layouten de skjer, også inne i kortet man svever over. Vi vet hva de
+          er og når de skjer.
+       2. dnd-kits egne (hullet som bytter liste) fanges av en
+          `ResizeObserver`, og da BARE for kort som ligger HELT OVER siktet.
+          Endrer kortet man er inne i høyde, er det motorens forhåndsvisning av
+          slippet — å kompensere for den flytter radene under fingeren, og da
+          leser motoren neste runde som en ny intensjon. MÅLT: en rad dratt opp
+          forbi en kategori landet én plass for lavt, hver gang
+          (`dnd-separators-preview` sjekk 3). Politikkrunden selv rører derfor
+          ikke ankeret i det hele tatt.
+
+     TO KNAPPER, i denne rekkefølgen:
+
+       1. `padding-top` på board-et skyver innholdet NED. Den er vår egen, koster
+          ingen scrollposisjon, og er det synlige «ekstra rommet over lista».
+       2. Er padding-en tom og innholdet skal OPP, scroller vi i stedet. Da går
+          board-toppen opp forbi toppmenyen — men scrollområdet vokste like mye,
+          så den er fortsatt å nå.
+
+     Rekkefølgen gjør turen reversibel: ned fyller padding først, opp tømmer
+     padding først. Snur man midt i et drag, går board-et og scrollen samme vei
+     tilbake — MÅLT: fram og tilbake mellom to lister om og om igjen gir en
+     stabil syklus, ingen drift.
+
+     Kompensasjonen måles på ankerets DOKUMENTposisjon (boks + scroll), som bare
+     endrer seg av layout. En scroll — brukerens egen eller dnd-kits auto-scroll
+     — går derfor rett gjennom uten å bli tatt for et hopp. */
+  let anchorPad = 0;          // vår padding-top: innholdet skjøvet ned
+  let anchorFloor = 0;        // board-ets hevede min-høyde: rommet vi må ha for å KUNNE scrolle ned
+  let anchorScrollOwn = 0;    // hvor mye VI har scrollet, så det kan rulles tilbake
+  let anchorBasePad = 0;      // board-ets egen padding, eid av *CollapseCardsForDrag
+  let anchorRO = null;
+  let anchorBusy = false;
+  const anchorHeights = new Map();   // kort → høyden vi sist så
+
+  // Scroll-containeren for scopet: nav-modalens kropp, ellers vinduet.
+  const anchorScroller = () => (dragScope() === navScope ? navModalBody : null);
+  function anchorScrollPos() {
+    const s = anchorScroller();
+    return s ? s.scrollTop : window.scrollY;
+  }
+  function anchorScrollMax() {
+    const s = anchorScroller();
+    if (s) return Math.max(0, s.scrollHeight - s.clientHeight);
+    return Math.max(0, document.documentElement.scrollHeight - window.innerHeight);
+  }
+  function anchorScrollTo(y) {
+    const s = anchorScroller();
+    if (s) s.scrollTop = y; else window.scrollTo(0, y);
+  }
+  // Hvor langt ned board-ets bunn ligger i det scrollbare innholdet.
+  function anchorContentBottom() {
+    const r = dragScope().root.getBoundingClientRect();
+    const s = anchorScroller();
+    return s ? r.bottom - s.getBoundingClientRect().top + s.scrollTop : r.bottom + window.scrollY;
+  }
+  /* Rommet å scrolle NED i. Dra-vakten har frosset board-ets min-høyde, og
+     board-et er `box-sizing: border-box` — en padding-bottom vokser da
+     ingenting. Vi hever gulvet i stedet, og BARE oppover: en side som blir
+     kortere mens fingeren er nede får scrollen klemt, og en klemt scroll
+     avbryter touchen (se Board-vakten). */
+  function anchorMakeRoom(mål) {
+    const s = anchorScroller();
+    const synlig = s ? s.clientHeight : window.innerHeight;
+    const root = dragScope().root;
+    // Regnestykket går på board-ets BUNN, ikke på `scrollHeight`: den er klemt
+    // opp til rutehøyden, så et innhold som er kortere enn ruta ser like langt
+    // ut uansett hvor mye vi legger på. Bunnen må forbi `mål + ruta`.
+    for (let i = 0; i < 3 && anchorScrollMax() < mål; i++) {
+      const mangler = Math.ceil(mål + synlig - anchorContentBottom());
+      if (mangler <= 0) break;
+      // Gulvet SENKES aldri: dra-vakten har alt satt en min-høyde for at siden
+      // ikke skal bli kortere mens fingeren er nede, og vår egen fra forrige
+      // runde teller like mye.
+      const gulv = Math.max(anchorFloor, parseFloat(root.style.minHeight) || 0,
+        Math.ceil(root.getBoundingClientRect().height));
+      anchorFloor = gulv + mangler;
+      root.style.minHeight = anchorFloor + 'px';
+    }
+  }
+  /* Flytt board-innholdet `s` piksler (positivt = nedover). */
+  function anchorShift(s) {
+    const pad = Math.max(0, anchorPad + s);
+    const rest = s - (pad - anchorPad);   // < 0 bare når padding-en gikk tom
+    anchorPad = pad;
+    dragScope().root.style.paddingTop = (anchorBasePad + anchorPad) + 'px';
+    if (rest >= 0) return;
+    // Innholdet skal opp: vi scroller ned, og lager rommet først.
+    const mål = anchorScrollPos() - rest;
+    anchorMakeRoom(mål);
+    const før = anchorScrollPos();
+    anchorScrollTo(mål);
+    anchorScrollOwn += anchorScrollPos() - før;   // det som FAKTISK ble scrollet
+  }
+  // Siktelinjen: objektets eget senter, i viewport-koordinater.
+  function anchorAimY() {
+    const d = draggedRect();
+    return d.top + d.height / 2;
+  }
+  /* Kanten som skal stå stille: den ØVERSTE faste kanten på eller under siktet.
+     Finnes ingen — siktet er under alt — er board-ets egen bunn den siste, og da
+     vokser lista oppover i stedet for å skyve bunnen bort. */
+  function anchorPickRef() {
+    const root = dragScope().root;
+    if (!root) return null;
+    const aim = anchorAimY();
+    let best = null;
+    const vurder = (el, edge, y) => {
+      if (y < aim - 0.5) return;
+      if (!best || y < best.y) best = { el, edge, y };
+    };
+    root.querySelectorAll('.card').forEach((cEl) => {
+      if (cEl.hasAttribute('data-dnd-placeholder')) return;
+      const r = cEl.getBoundingClientRect();
+      if (!r.height) return;
+      vurder(cEl, 'top', r.top);
+      vurder(cEl, 'bottom', r.bottom);
+      const add = cEl.querySelector('.add-item-row');
+      if (add) {
+        const ar = add.getBoundingClientRect();
+        if (ar.height) vurder(add, 'top', ar.top);
+      }
+      const kasse = cEl.querySelector('.item-trash');
+      if (kasse && !kasse.hidden) {
+        const kr = kasse.getBoundingClientRect();
+        if (kr.height) vurder(kasse, 'top', kr.top);
+      }
+    });
+    if (!best) best = { el: root, edge: 'bottom', y: root.getBoundingClientRect().bottom };
+    return { el: best.el, edge: best.edge, doc: best.y + anchorScrollPos() };
+  }
+  function anchorDocY(ref) {
+    const r = ref.el.getBoundingClientRect();
+    return (ref.edge === 'top' ? r.top : r.bottom) + anchorScrollPos();
+  }
+  // Høydene observatøren måler mot. Settes på nytt etter våre egne endringer, så
+  // de ikke føres to ganger.
+  function anchorNoteHeights() {
+    if (!anchorRO) return;
+    anchorHeights.forEach((_, cEl) => {
+      anchorHeights.set(cEl, cEl.isConnected ? cEl.getBoundingClientRect().height : 0);
+    });
+  }
+  /* VÅR EGEN endring: mål kanten FØR, gjør endringen, sett av ETTER — alt i
+     samme oppgave, så ingenting rekker å males imellom. */
+  function withAnchor(fn) {
+    if (!anchorRO) { fn(); return; }
+    const ref = anchorPickRef();
+    fn();
+    if (ref && ref.el.isConnected) {
+      const d = anchorDocY(ref) - ref.doc;
+      if (Math.abs(d) >= 0.5) {
+        anchorBusy = true;
+        try { anchorShift(-d); } finally { anchorBusy = false; }
+      }
+    }
+    anchorNoteHeights();
+  }
+  /* dnd-kits egen: et kort HELT OVER siktet endret høyde — typisk hullet som
+     forlot lista over. Da skal det man svever over stå stille. Observatøren
+     fyrer etter layout og FØR maling, så rettelsen kommer i samme frame. */
+  function anchorObserved() {
+    if (!anchorRO || anchorBusy || !drag.active) return;
+    const aim = anchorAimY();
+    let sum = 0;
+    const nye = [];
+    anchorHeights.forEach((h, cEl) => {
+      if (!cEl.isConnected) return;
+      const r = cEl.getBoundingClientRect();
+      nye.push([cEl, r.height]);
+      const dh = r.height - h;
+      // «Helt over siktet» måles på boksen FØR endringen: veksten ligger under
+      // toppen, så den gamle bunnen er den nye minus veksten.
+      if (dh && r.bottom - dh <= aim) sum += dh;
+    });
+    nye.forEach(([cEl, h]) => anchorHeights.set(cEl, h));
+    if (Math.abs(sum) < 0.5) return;
+    anchorBusy = true;
+    try { anchorShift(-sum); } finally { anchorBusy = false; }
+    anchorNoteHeights();
+  }
+  /* Ankeret gjelder RADDRAG. Et kortdrag lager og river ingen rader; det
+     kollapser alt ved løft, og den kompensasjonen er `*CollapseCardsForDrag`
+     sin. Startes fra `*DragStart`, altså etter at kassen for kilden er avdekket
+     og dnd-kit har målt løftet: alt det hører til løftet, ikke til draget. */
+  function anchorBegin() {
+    const root = dragScope().root;
+    if (!root || (drag.kind !== 'item' && drag.kind !== 'category')) return;
+    anchorBasePad = parseFloat(getComputedStyle(root).paddingTop) || 0;
+    anchorPad = anchorFloor = anchorScrollOwn = 0;
+    anchorHeights.clear();
+    anchorRO = new ResizeObserver(() => anchorObserved());
+    root.querySelectorAll('.card').forEach((cEl) => {
+      if (cEl.hasAttribute('data-dnd-placeholder')) return;
+      anchorHeights.set(cEl, cEl.getBoundingClientRect().height);
+      anchorRO.observe(cEl);
+    });
+  }
+  // Ved slipp: både polstringen og scrollen rulles tilbake, så board-et lander
+  // i samme forhold til siden som det ble løftet fra. Kortene foldes ut igjen i
+  // samme oppgave (`restoreCardsAfterDrag` → `*ReleaseBoard`), så det blir én
+  // reflow, ikke to.
+  function anchorEnd() {
+    if (!anchorRO) return;
+    anchorRO.disconnect();
+    anchorRO = null;
+    anchorHeights.clear();
+    const root = dragScope().root;
+    root.style.paddingTop = '';
+    if (anchorFloor) root.style.minHeight = '';
+    if (anchorScrollOwn) anchorScrollTo(anchorScrollPos() - anchorScrollOwn);
+    anchorPad = anchorFloor = anchorScrollOwn = 0;
   }
 
   /* ------- SLETT VED Å DRA OBJEKTET I SØPPELKASSEN -------
@@ -4045,9 +4285,16 @@
     if (btn.hidden) { btn.hidden = false; btn.dataset.dragRevealed = '1'; }
     const wrap = btn.closest('.item-trash');
     if (wrap && wrap.hidden) { wrap.hidden = false; wrap.dataset.dragRevealed = '1'; }
-    // Kassen kan vandre mellom kortene i et rad-drag, og da males bare den ene
-    // (`is-trash-roaming` i styles.css).
-    if (drag.kind === 'item') document.body.classList.add('is-trash-roaming');
+  }
+  // Skjul igjen kassen (knappen og/eller raden rundt den) VI avdekket. Var den
+  // synlig fra før — kassen har innhold — blir den stående: markøren
+  // `data-drag-revealed` er det eneste som avgjør.
+  function hideRevealedTrash(...els) {
+    els.forEach((el) => {
+      if (!el || !el.dataset || !el.dataset.dragRevealed) return;
+      el.hidden = true;
+      delete el.dataset.dragRevealed;
+    });
   }
 
   /* KASSEN FØLGER OBJEKTET. Den står i containeren objektet svever over nå,
@@ -4072,23 +4319,44 @@
      topplinja respektive nav-modalens bunnrad — én kasse, ingen vert. */
   function retargetDragTrash() {
     if (!drag.trashArmed || drag.kind !== 'item') return;
-    const el = drag.el;
-    const host = el && el.isConnected ? el.closest('.card') : null;
+    // «Hvilken liste er objektet i?» besvares ÉTT sted (`dragOverCard`:
+    // objektets midtre 1/3 innenfor kortet), og kassen bruker det samme svaret
+    // som plasseringen og ekstraheringen. En egen terskel for kassen ville vært
+    // en andre regel på det samme spørsmålet — og da kan knappen stå i en annen
+    // liste enn den raden ville landet i.
+    const host = dragOverCard();
     if (!host || host === drag.trashHost) return;
     // Siktemarkeringen tas av FØR knappen forlates: `setDragTrashTarget` er
     // kantstyrt, så et flagg som ble nullstilt bak ryggen på den ville latt
     // objektet stå rødt.
     setDragTrashTarget(false);
-    // Den forlatte raden BEHOLDER PLASSEN SIN ut draget — bare markeringen tas
-    // av. Skjulte vi den, ville kortet krympet med en hel knapperad og alt under
-    // det rykket OPPOVER, midt under fingeren. MÅLT i nav-modalen, som er
-    // énkolonne: en mappe dratt til området under landet på feil rad, fordi
-    // målkortet smatt oppover i det øyeblikket kildekortets kasse ble skjult.
-    // `disarmDragTrash` rydder alle radene draget avdekket, ved slutten.
     const forrige = dragTrashBtn();
-    if (forrige) forrige.classList.remove('drag-trash', 'drop-target');
-    drag.trashHost = host;
-    armDragTrash();
+    const forrigeRad = forrige && forrige.closest('.item-trash');
+    withAnchor(() => {
+      if (forrige) forrige.classList.remove('drag-trash', 'drop-target');
+      drag.trashHost = host;
+      armDragTrash();
+      // Raden draget forlot forsvinner helt — den holder ingen plass. Kortet
+      // krymper med en knapperad, men DRA-ANKERET absorberer det, så verken det
+      // man svever over eller terskelen inn i det flytter seg.
+      hideRevealedTrash(forrige, forrigeRad);
+    });
+    refreshTrashZones();
+  }
+  /* Kassene er SONER, og dnd-kit måler en droppable ÉN gang og beholder boksen
+     til noe ber om en ny måling. En kasse vi nettopp skjulte står da igjen med
+     boksen den HADDE, og et slipp der leses som et slipp i kassen — MÅLT i
+     nav-modalen: en mappe sluppet på en rad i området under landet i den
+     skjulte kassen til området den kom fra, og ble rullet tilbake. Vi ber om
+     målingen selv, på alle sonene, etter at ankeret har flyttet board-et
+     ferdig. En skjult knapp måler 0×0 og treffes ikke. */
+  function refreshTrashZones() {
+    const b = dragScope() === navScope ? navRowBoard : boardRowBoard;
+    const reg = b && b.manager && b.manager.registry;
+    if (!reg || !reg.droppables) return;
+    for (const d of reg.droppables) {
+      if (typeof d.refreshShape === 'function' && String(d.id).indexOf(':zone:') >= 0) d.refreshShape();
+    }
   }
   /* Sikter pekeren på kassen dette draget kan slippes i?
 
@@ -4114,13 +4382,11 @@
   function disarmDragTrash() {
     document.querySelectorAll('.trashcan.drag-trash')
       .forEach((btn) => btn.classList.remove('drag-trash', 'drop-target'));
-    // Hver rad draget avdekket skjules igjen — også de som bare holdt plassen
-    // (`reserveTrashRows`), som aldri bar `.drag-trash`.
+    // Hver rad draget avdekket skjules igjen.
     document.querySelectorAll('[data-drag-revealed]').forEach((el) => {
       el.hidden = true;
       delete el.dataset.dragRevealed;
     });
-    document.body.classList.remove('is-trash-roaming');
     drag.trashArmed = false;
     drag.overTrash = false;
   }
@@ -5653,6 +5919,7 @@
 
   function navDragStart(board) {
     dndSyncIntent(board.manager.dragOperation);
+    anchorBegin();              // layouten skal fra nå av flytte seg bort fra siktet
     dndPaintRotation();
     if (drag.kind === 'card') return;
     dndRowTargetCont = dndPickRowContainer(dragOverCard());
@@ -6712,6 +6979,7 @@
 
   function boardRowDragStart(b) {
     dndSyncIntent(b.manager.dragOperation);
+    anchorBegin();              // layouten skal fra nå av flytte seg bort fra siktet
     dndPaintRotation();
     dndRowTargetCont = dndPickRowContainer(dragOverCard());
     applyDragSeparators();
@@ -14066,6 +14334,14 @@
       get narrated() { return !!demoStep().narrated; },
       get shown() { return demoPainted === demoIndex && !tourCard.hidden; },
       seen: onboardingSeen,
+    },
+    /* DRA-ANKERET, lest av `tests/dnd-layout-anchor.test.js`: hvor mye board-et
+       er skjøvet, og hvordan, for å holde siktet i ro. */
+    get dragAnchor() {
+      return {
+        on: !!anchorRO,
+        pad: anchorPad, floor: anchorFloor, scroll: anchorScrollOwn,
+      };
     },
     get lang() { return I18N.lang(); },
     setLanguage,
