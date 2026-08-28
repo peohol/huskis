@@ -1,7 +1,7 @@
 /* ============================================================
    Huskis — app.js
    Vanilla JS, ingen bundler. Dra-og-slipp kjøres av dnd-kit gjennom Smett
-   (`vendor/smett-0.1.0.js`); hva et slipp BETYR ligger her, i seksjonen
+   (`vendor/smett-0.2.0.js`); hva et slipp BETYR ligger her, i seksjonen
    «DELT DnD-POLITIKK». Autoritativt: docs/drag-and-drop.md.
    ============================================================ */
 (function () {
@@ -1848,9 +1848,41 @@
      et drag FAKTISK pågår holder vi fingrene av fatet — da er DOM-et dnd-kits,
      og Smett har sin egen grunn til å la det være. */
   function navSyncBoards() {
-    if (drag.active && dragScope() === navScope) return;
+    if (drag.active && dragScope() === navScope) { noteSyncOwed(); return; }
     if (navCardBoard) navCardBoard.sync();
     if (navRowBoard) navRowBoard.sync();
+  }
+
+  /* EN AVVIST SYNK KAN IKKE FORKASTES.
+     Begge synkefunksjonene lar motoren være i fred når den ikke er i ro — men
+     rendringen som ba om synken HAR allerede byttet ut nodene, og registeret
+     står igjen med de gamle. Raden er da død helt til noe annet tilfeldigvis
+     rendrer på nytt.
+
+     MÅLT: slipp en rad, og løft den igjen mens lagringen fra det første slippet
+     er i lufta. Svaret fra skyen rendrer board-et mens dnd-kit fortsatt står i
+     `dropped` — den ene synken faller, og raden lot seg ikke løfte igjen før
+     neste lagring rendret på nytt. Sikkerhetsnettene etter et slipp
+     (`boardRelayoutAfter*Drop`) dekker det ikke: de kjører ÉN gang, og
+     rendringen fjernet klonen de venter på.
+
+     Så vi husker den avviste synken og tilbyr den på nytt hver frame til den
+     går gjennom. Begge tilbys, ikke bare den som ble avvist: `sync()` er
+     idempotent, og to flagg for det samme er to ting som kan komme i utakt. */
+  let syncOwed = false;
+  let syncPumping = false;
+  function noteSyncOwed() {
+    syncOwed = true;
+    if (syncPumping) return;
+    syncPumping = true;
+    const tick = () => {
+      syncOwed = false;
+      navSyncBoards();
+      boardSyncBoards();
+      if (syncOwed) { requestAnimationFrame(tick); return; }
+      syncPumping = false;
+    };
+    requestAnimationFrame(tick);
   }
 
   // Scrollposisjonen i nav-modalen over en ombygging. `atBottom` skilles ut
@@ -3768,7 +3800,7 @@
        • `drag` — den ene posten om draget som pågår, fylt fra dnd-kits
          `dragOperation` (`dndSyncIntent`). Alt under leser den.
        • «hvilken liste er objektet i» — `dragOverCard`/`cardBand` med sine
-         1/3-terskler og sin hukommelse, og `noteOverShift`-slarken.
+         1/3-terskler og sin hukommelse.
        • peek: et kollapset mål åpnes MIDLERTIDIG når man blir værende over
          det (`updatePeek`, `setPeekLayer`, `resolvePeekOnDrop`).
        • skillelinjene under draget (`applyDragSeparators`, `sepRows`).
@@ -3881,6 +3913,7 @@
     if (!dragRolledBack) dropSeq++;
     dragRolledBack = false;
     drag.active = false;
+    anchorEnd();              // polstringen og scrollen vår rulles tilbake
     disarmDragTrash();        // skjul kassen igjen om draget ikke endte i den
     clearAllDragSeparators(); // tilbake til hvile-reglene (pseudo-linjene på .category)
     clearAllPeeks(true); // sikkerhetsnett: kollaps evt. peek-åpnede mål tilbake (no-op om alt alt er løst)
@@ -3894,6 +3927,10 @@
     drag.trashHost = null;
     document.querySelectorAll('.card-placeholder').forEach((el) => el.remove());
     document.body.classList.remove('is-dragging');
+    setExtracting(false);   // sikkerhetsnett: også på avbruddsveiene
+    setTrashHold(false);
+    setHoleAstray(false);
+    clearHoleSpace();
     // Kolonnefordelingen har vært frosset gjennom draget (og korthøydene kan ha
     // endret seg — et listepunkt flyttet mellom to lister). Kjør den på nytt nå
     // som draget er over; `boardRelayoutAfterDrop` gjør den samme runden når
@@ -3946,6 +3983,370 @@
     });
   }
 
+  /* ------- DRA-ANKERET: layouten flytter seg BORT fra siktet -------
+
+     Under et raddrag vokser og krymper containerne: kassen kommer i lista man
+     svever over og forsvinner fra den man forlot, og hullet bytter liste. I
+     normal flyt absorberes hver slik endring NEDOVER — alt under den flytter
+     seg — og da smetter nettopp det man sikter på unna fingeren i samme
+     øyeblikk som det ble laget.
+
+     Ankeret snur retningen: den nærmeste FASTE kanten på eller under siktet
+     skal stå stille, og board-et gjør jobben OVER den i stedet. Sagt som
+     regelen brukeren ser: det som kommer, kommer MOT deg; resten av siden — det
+     du uansett ikke sikter på — forskyver seg og lager rommet.
+
+     Siktet er objektets eget senter (`draggedRect`), samme referanse som
+     1/3-tersklene bruker. Objektet ligger i top layer og følger pekeren, så
+     siktelinjen er en VIEWPORT-linje: den flytter seg ikke av at vi scroller.
+
+     FASTE KANTER er de som ikke rører seg av en ren OMROKKERING: kortkantene,
+     ＋-raden og kasseraden. Radene selv er ikke med — bytter hullet plass med en
+     nabo, er det forhåndsvisningen, ikke et hopp som skal settes av.
+
+     TO DELER, med hver sin rekkevidde:
+
+       1. VÅRE EGNE endringer (kassen som dukker opp eller forsvinner) måles
+          rundt selve endringen — `withAnchor` — og settes av uansett hvor i
+          layouten de skjer, også inne i kortet man svever over. Vi vet hva de
+          er og når de skjer.
+       2. dnd-kits egne (hullet som bytter liste) fanges av en
+          `ResizeObserver`, og da BARE for kort som ligger HELT OVER siktet.
+          Endrer kortet man er inne i høyde, er det motorens forhåndsvisning av
+          slippet — å kompensere for den flytter radene under fingeren, og da
+          leser motoren neste runde som en ny intensjon. MÅLT: en rad dratt opp
+          forbi en kategori landet én plass for lavt, hver gang
+          (`dnd-separators-preview` sjekk 3). Politikkrunden selv rører derfor
+          ikke ankeret i det hele tatt.
+
+     TO KNAPPER, i denne rekkefølgen:
+
+       1. `padding-top` på board-et skyver innholdet NED. Den er vår egen, koster
+          ingen scrollposisjon, og er det synlige «ekstra rommet over lista».
+       2. Er padding-en tom og innholdet skal OPP, scroller vi i stedet. Da går
+          board-toppen opp forbi toppmenyen — men scrollområdet vokste like mye,
+          så den er fortsatt å nå.
+
+     Rekkefølgen gjør turen reversibel: ned fyller padding først, opp tømmer
+     padding først. Snur man midt i et drag, går board-et og scrollen samme vei
+     tilbake — MÅLT: fram og tilbake mellom to lister om og om igjen gir en
+     stabil syklus, ingen drift.
+
+     Kompensasjonen måles på ankerets DOKUMENTposisjon (boks + scroll), som bare
+     endrer seg av layout. En scroll — brukerens egen eller dnd-kits auto-scroll
+     — går derfor rett gjennom uten å bli tatt for et hopp. */
+  /* Sammentrekningen av et hull som ikke lover noe (`syncHoleSpace`): hvilken
+     container som bærer den, og hvor mye. Ankeret trenger begge for å kunne se
+     bort fra sin egen kompensasjon når det måler korthøyder. */
+  let holeShrunk = null;
+  let holeShrinkPx = 0;
+  let holeCol = null;         // kolonnen som bærer kompensasjonen
+  let holeColPad = 0;
+  let anchorPad = 0;          // vår padding-top: innholdet skjøvet ned
+  let anchorFloor = 0;        // board-ets hevede min-høyde: rommet vi må ha for å KUNNE scrolle ned
+  let anchorScrollOwn = 0;    // hvor mye VI har scrollet, så det kan rulles tilbake
+  let anchorBasePad = 0;      // board-ets egen padding, eid av *CollapseCardsForDrag
+  let anchorRO = null;
+  let anchorBusy = false;
+  const anchorHeights = new Map();   // kort → høyden vi sist så
+
+  // Scroll-containeren for scopet: nav-modalens kropp, ellers vinduet.
+  const anchorScroller = () => (dragScope() === navScope ? navModalBody : null);
+  function anchorScrollPos() {
+    const s = anchorScroller();
+    return s ? s.scrollTop : window.scrollY;
+  }
+  function anchorScrollMax() {
+    const s = anchorScroller();
+    if (s) return Math.max(0, s.scrollHeight - s.clientHeight);
+    return Math.max(0, document.documentElement.scrollHeight - window.innerHeight);
+  }
+  function anchorScrollTo(y) {
+    const s = anchorScroller();
+    if (s) s.scrollTop = y; else window.scrollTo(0, y);
+  }
+  // Hvor langt ned board-ets bunn ligger i det scrollbare innholdet.
+  function anchorContentBottom() {
+    const r = dragScope().root.getBoundingClientRect();
+    const s = anchorScroller();
+    return s ? r.bottom - s.getBoundingClientRect().top + s.scrollTop : r.bottom + window.scrollY;
+  }
+  /* Rommet å scrolle NED i. Dra-vakten har frosset board-ets min-høyde, og
+     board-et er `box-sizing: border-box` — en padding-bottom vokser da
+     ingenting. Vi hever gulvet i stedet, og BARE oppover: en side som blir
+     kortere mens fingeren er nede får scrollen klemt, og en klemt scroll
+     avbryter touchen (se Board-vakten). */
+  function anchorMakeRoom(mål) {
+    const s = anchorScroller();
+    const synlig = s ? s.clientHeight : window.innerHeight;
+    const root = dragScope().root;
+    // Regnestykket går på board-ets BUNN, ikke på `scrollHeight`: den er klemt
+    // opp til rutehøyden, så et innhold som er kortere enn ruta ser like langt
+    // ut uansett hvor mye vi legger på. Bunnen må forbi `mål + ruta`.
+    for (let i = 0; i < 3 && anchorScrollMax() < mål; i++) {
+      const mangler = Math.ceil(mål + synlig - anchorContentBottom());
+      if (mangler <= 0) break;
+      // Gulvet SENKES aldri: dra-vakten har alt satt en min-høyde for at siden
+      // ikke skal bli kortere mens fingeren er nede, og vår egen fra forrige
+      // runde teller like mye.
+      const gulv = Math.max(anchorFloor, parseFloat(root.style.minHeight) || 0,
+        Math.ceil(root.getBoundingClientRect().height));
+      anchorFloor = gulv + mangler;
+      root.style.minHeight = anchorFloor + 'px';
+    }
+  }
+  /* Flytt board-innholdet `s` piksler (positivt = nedover).
+
+     PARET MÅ VÆRE REVERSIBELT. Et negativt skift som polstringen ikke rakk over
+     ble til en scroll nedover; et positivt skift la seg bare på polstringen
+     igjen, og scrollen ble stående. Over mange turer opp og ned krøp siden
+     nedover uten at noe ga den tilbake (MÅLT: 22 px per tur, mens polstringen
+     sto på 0). Et positivt skift ruller derfor VÅR EGEN scroll tilbake først,
+     og går bare til polstring når det ikke er mer scroll å gi tilbake. */
+  function anchorShift(s) {
+    if (s > 0 && anchorScrollOwn > 0) {
+      const opp = Math.min(s, anchorScrollOwn);
+      const før = anchorScrollPos();
+      anchorScrollTo(før - opp);
+      const faktisk = før - anchorScrollPos();
+      anchorScrollOwn -= faktisk;
+      s -= faktisk;
+      if (s <= 0.5) return;
+    }
+    const pad = Math.max(0, anchorPad + s);
+    const rest = s - (pad - anchorPad);   // < 0 bare når padding-en gikk tom
+    anchorPad = pad;
+    dragScope().root.style.paddingTop = (anchorBasePad + anchorPad) + 'px';
+    if (rest >= 0) return;
+    // Innholdet skal opp: vi scroller ned, og lager rommet først.
+    const mål = anchorScrollPos() - rest;
+    anchorMakeRoom(mål);
+    const før = anchorScrollPos();
+    anchorScrollTo(mål);
+    anchorScrollOwn += anchorScrollPos() - før;   // det som FAKTISK ble scrollet
+  }
+  // Siktelinjen: objektets eget senter, i viewport-koordinater.
+  function anchorAimY() {
+    const d = draggedRect();
+    return d.top + d.height / 2;
+  }
+  /* Kanten som skal stå stille: den ØVERSTE faste kanten på eller under siktet.
+     Finnes ingen — siktet er under alt — er board-ets egen bunn den siste, og da
+     vokser lista oppover i stedet for å skyve bunnen bort. */
+  function anchorPickRef() {
+    const root = dragScope().root;
+    if (!root) return null;
+    const aim = anchorAimY();
+    let best = null;
+    const vurder = (el, edge, y) => {
+      if (y < aim - 0.5) return;
+      if (!best || y < best.y) best = { el, edge, y };
+    };
+    root.querySelectorAll('.card').forEach((cEl) => {
+      if (cEl.hasAttribute('data-dnd-placeholder')) return;
+      const r = cEl.getBoundingClientRect();
+      if (!r.height) return;
+      vurder(cEl, 'top', r.top);
+      vurder(cEl, 'bottom', r.bottom);
+      const add = cEl.querySelector('.add-item-row');
+      if (add) {
+        const ar = add.getBoundingClientRect();
+        if (ar.height) vurder(add, 'top', ar.top);
+      }
+      const kasse = cEl.querySelector('.item-trash');
+      if (kasse && !kasse.hidden) {
+        const kr = kasse.getBoundingClientRect();
+        if (kr.height) vurder(kasse, 'top', kr.top);
+      }
+    });
+    if (!best) best = { el: root, edge: 'bottom', y: root.getBoundingClientRect().bottom };
+    return { el: best.el, edge: best.edge, doc: best.y + anchorScrollPos() };
+  }
+  function anchorDocY(ref) {
+    const r = ref.el.getBoundingClientRect();
+    return (ref.edge === 'top' ? r.top : r.bottom) + anchorScrollPos();
+  }
+  /* Plassen kortet legger beslag på — SETT BORT FRA VÅR EGEN SAMMENTREKNING.
+
+     Observatøren skal se dnd-kits endringer: hullet som flytter seg til en annen
+     liste, en rad som bytter plass. Vår egen komprimering (`syncHoleSpace`) er
+     alt kompensert der den ble gjort, og teller derfor ikke som en høydeendring.
+     Trakk vi den fra ved å nullstille høydene i stedet, svelget vi motorens
+     endring i det samme kortet i den samme frame-en — og da fyrte observatøren
+     aldri (MÅLT: null observerte skift gjennom en hel tur opp og ned, mens
+     polstringen vokste 112 px per runde). */
+  function anchorOuterH(el) {
+    if (!el.isConnected) return 0;
+    const h = el.getBoundingClientRect().height;
+    return h + (holeShrunk && el.contains(holeShrunk) ? holeShrinkPx : 0);
+  }
+  /* Høydene observatøren måler mot. Settes på nytt etter våre egne endringer, så
+     de ikke føres to ganger — men BARE for kortene vi faktisk rørte. Nullstilte
+     vi alle, svelget vi samtidig dnd-kits egne endringer: motoren flytter hullet
+     til en annen liste i den samme frame-en, observatøren hadde ennå ikke fyrt,
+     og da så den ingen endring å sette av. MÅLT: kortet man svever over rykket
+     56 px opp under fingeren (`dnd-layout-anchor` 4). Uten argument (draget
+     starter) føres alle. */
+  function anchorNoteHeights(els) {
+    if (!anchorRO) return;
+    if (!els) { anchorHeights.forEach((_, cEl) => anchorHeights.set(cEl, anchorOuterH(cEl))); return; }
+    els.forEach((el) => {
+      const cEl = el && el.closest ? el.closest('.card') : null;
+      if (cEl && anchorHeights.has(cEl)) anchorHeights.set(cEl, anchorOuterH(cEl));
+    });
+  }
+  /* VÅR EGEN endring: mål kanten FØR, gjør endringen, sett av ETTER — alt i
+     samme oppgave, så ingenting rekker å males imellom. */
+  function withAnchor(fn, rørte) {
+    if (!anchorRO) { fn(); return; }
+    const ref = anchorPickRef();
+    fn();
+    if (ref && ref.el.isConnected) {
+      const d = anchorDocY(ref) - ref.doc;
+      if (Math.abs(d) >= 0.5) {
+        anchorBusy = true;
+        try { anchorShift(-d); } finally { anchorBusy = false; }
+      }
+    }
+    anchorNoteHeights(rørte);
+  }
+  /* ------- EN KOMPENSASJON ER ET LÅN, OG LÅN SKAL GJØRES OPP -------
+
+     Ankeret holder én kant i ro ved å skyve board-et, og HVILKEN kant velges av
+     hvor siktet er akkurat da. Går layouten tilbake til en tilstand den har
+     vært i før — hullet åpner seg igjen, kassa er tilbake i lista den startet i
+     — mens siktet har flyttet seg i mellomtiden, ser regelen ingen kant som må
+     stå i ro, og skiftet blir stående. MÅLT: +56 px per lukking av hullet, og
+     ingen tilbakebetaling i det hele tatt — over fire turer opp og ned vokste
+     polstringen til 893 px, med board-ets min-høyde og scrollen etter seg. Det
+     er «luften over den øverste lista» som bare blir større.
+
+     Hver kilde fører derfor sitt eget lån, og gjør det opp i det tilstanden er
+     tilbake der den startet. Da er skiftet en funksjon av layouten, ikke av
+     veien dit: samme tilstand gir samme board, uansett hvor mange ganger man
+     har vært innom. */
+  let anchorTrashOwed = 0;   // lånt for kasserader som har byttet kort
+  let anchorTrashHome = null;
+  // Det EFFEKTIVE skiftet av innholdet: polstring minus vår egen scroll.
+  function anchorNet() { return anchorPad - anchorScrollOwn; }
+  // Gjør en endring og svar med hvor mye ankeret lånte for den.
+  function anchorBorrow(fn, rørte) {
+    const før = anchorNet();
+    withAnchor(fn, rørte);
+    return anchorNet() - før;
+  }
+  /* ------- HULLETS EGEN FLYTTING ER OGSÅ ET LÅN -------
+
+     Forlater hullet et kort som ligger HELT OVER siktet, blir det kortet en
+     radhøyde kortere, og observatøren skyver board-et ned så det man svever
+     over står stille. Kommer raden tilbake til det samme kortet, kan
+     observatøren IKKE føre lånet tilbake: da er siktet inne i kortet, og
+     endringer i kortet man er inni er motorens egen forhåndsvisning — flytter
+     man den, glir radene under fingeren (MÅLT: en rad dratt opp forbi en
+     kategori landet én plass for lavt, `dnd-separators-preview` sjekk 3).
+
+     Uten en motpost blir skiftet stående, og over mange turer opp og ned bygger
+     det seg opp som luft over den øverste lista (MÅLT: +56 px per tur). Vi
+     fører derfor lånet selv, og gjør det opp i det raden er tilbake i kortet
+     den forlot: da er layouten der den var, og skiftet skal være det samme.
+     Hullet vokser da OPP mot fingeren i stedet for å skyve resten ned — samme
+     retning som ellers: det som kommer, kommer mot deg. */
+  let anchorRowCard = null;         // kortet hullet ligger i nå
+  const anchorRowAway = new Map();  // kort raden forlot ovenfra → hva det lånte
+  function anchorNoteRowMove(ph, plass) {
+    if (!anchorRO) return;
+    /* Klonen kan være borte fra DOM-en et øyeblikk mens motoren bygger den om.
+       Det er ingen flytting — bare fravær — og den siste lista vi VET om er
+       fortsatt den riktige å måle neste flytting mot. */
+    const kort = ph ? ph.closest('.card') : null;
+    if (!kort || kort === anchorRowCard) return;
+    const forlot = anchorRowCard;
+    anchorRowCard = kort;
+    if (!forlot) return;
+    /* ETT LÅN PER LISTE. Raden kan gå L1 → L2 → L3 og komme tilbake i motsatt
+       rekkefølge; med bare ett utestående lån ble det første glemt idet det
+       andre ble tatt opp, og de 56 pikslene ble stående (MÅLT: +56 px per tur
+       fra og med tredje runde). */
+    if (anchorRowAway.has(kort)) {
+      anchorRepay(anchorRowAway.get(kort));
+      anchorRowAway.delete(kort);
+    } else if (forlot.getBoundingClientRect().bottom <= anchorAimY() && plass > 0) {
+      anchorRowAway.set(forlot, (anchorRowAway.get(forlot) || 0) + plass);
+    }
+  }
+  function anchorRepay(lån) {
+    if (!anchorRO || Math.abs(lån) < 0.5) return;
+    // Bare polstringen flytter seg; ingen korthøyder endres, så ingenting skal
+    // føres på nytt.
+    anchorBusy = true;
+    try { anchorShift(-lån); } finally { anchorBusy = false; }
+  }
+  /* dnd-kits egen: et kort HELT OVER siktet endret høyde — typisk hullet som
+     forlot lista over. Da skal det man svever over stå stille. Observatøren
+     fyrer etter layout og FØR maling, så rettelsen kommer i samme frame. */
+  function anchorObserved() {
+    if (!anchorRO || anchorBusy || !drag.active) return;
+    const aim = anchorAimY();
+    let sum = 0;
+    const nye = [];
+    anchorHeights.forEach((h, cEl) => {
+      if (!cEl.isConnected) return;
+      const r = cEl.getBoundingClientRect();
+      const ytre = anchorOuterH(cEl);
+      nye.push([cEl, ytre]);
+      const dh = ytre - h;
+      // «Helt over siktet» måles på boksen FØR endringen: veksten ligger under
+      // toppen, så den gamle bunnen er den nye minus veksten.
+      if (dh && r.bottom - dh <= aim) sum += dh;
+    });
+    nye.forEach(([cEl, h]) => anchorHeights.set(cEl, h));
+    if (Math.abs(sum) < 0.5) return;
+    anchorBusy = true;
+    try { anchorShift(-sum); } finally { anchorBusy = false; }
+    anchorNoteHeights();
+  }
+  /* Ankeret gjelder RADDRAG. Et kortdrag lager og river ingen rader; det
+     kollapser alt ved løft, og den kompensasjonen er `*CollapseCardsForDrag`
+     sin. Startes fra `*DragStart`, altså etter at kassen for kilden er avdekket
+     og dnd-kit har målt løftet: alt det hører til løftet, ikke til draget. */
+  function anchorBegin() {
+    const root = dragScope().root;
+    if (!root || (drag.kind !== 'item' && drag.kind !== 'category')) return;
+    anchorBasePad = parseFloat(getComputedStyle(root).paddingTop) || 0;
+    anchorPad = anchorFloor = anchorScrollOwn = 0;
+    anchorTrashOwed = 0;
+    anchorTrashHome = drag.trashHost || null;
+    anchorRowCard = null;
+    anchorRowAway.clear();
+    anchorHeights.clear();
+    anchorRO = new ResizeObserver(() => anchorObserved());
+    root.querySelectorAll('.card').forEach((cEl) => {
+      if (cEl.hasAttribute('data-dnd-placeholder')) return;
+      anchorHeights.set(cEl, anchorOuterH(cEl));
+      anchorRO.observe(cEl);
+    });
+  }
+  // Ved slipp: både polstringen og scrollen rulles tilbake, så board-et lander
+  // i samme forhold til siden som det ble løftet fra. Kortene foldes ut igjen i
+  // samme oppgave (`restoreCardsAfterDrag` → `*ReleaseBoard`), så det blir én
+  // reflow, ikke to.
+  function anchorEnd() {
+    if (!anchorRO) return;
+    anchorRO.disconnect();
+    anchorRO = null;
+    anchorHeights.clear();
+    const root = dragScope().root;
+    root.style.paddingTop = '';
+    if (anchorFloor) root.style.minHeight = '';
+    if (anchorScrollOwn) anchorScrollTo(anchorScrollPos() - anchorScrollOwn);
+    anchorPad = anchorFloor = anchorScrollOwn = 0;
+    anchorTrashOwed = 0;
+    anchorTrashHome = anchorRowCard = null;
+    anchorRowAway.clear();
+    if (holeCol) { holeCol.style.paddingTop = ''; holeCol = null; }
+    holeShrunk = null; holeShrinkPx = holeColPad = 0;
+  }
+
   /* ------- SLETT VED Å DRA OBJEKTET I SØPPELKASSEN -------
      Søppelkassen for NIVÅET man drar på dukker opp i det draget starter (den er
      ellers skjult når den er tom), lyser opp når man sikter på den, og sletter
@@ -3961,11 +4362,12 @@
      (listepunktene blir stående), og det gjøres fra objektmenyen. Derfor
      returnerer `dragTrashBtn()` null for dem, og ingenting armes.
 
-     Kassen er BUNDET til draget: for et listepunkt/en mappe er det kassen i
-     containeren raden kom FRA, ikke den man tilfeldigvis svever over. Slippet
-     ruller draget tilbake som et avbrutt drag (ingen ny posisjon, ingen
+     Kassen FØLGER objektet: for et listepunkt/en mappe står den i containeren
+     objektet svever over NÅ (`retargetDragTrash`), ikke i den det kom fra.
+     Slippet ruller draget tilbake som et avbrutt drag (ingen ny posisjon, ingen
      lagring) og lar slette-funksjonen gjøre resten — samme vei som menyens
-     «Slett», med fly-i-kassen-animasjon og samlende angre-toast. */
+     «Slett», med fly-i-kassen-animasjon og samlende angre-toast. Raden havner
+     i sin EGEN containers kasse; verten er bare hvor knappen sto. */
 
   // Kassen dette draget kan slippes i — eller null når nivået ikke har en.
   function dragTrashBtn() {
@@ -4020,19 +4422,118 @@
     const wrap = btn.closest('.item-trash');
     if (wrap && wrap.hidden) { wrap.hidden = false; wrap.dataset.dragRevealed = '1'; }
   }
+  // Skjul igjen kassen (knappen og/eller raden rundt den) VI avdekket. Var den
+  // synlig fra før — kassen har innhold — blir den stående: markøren
+  // `data-drag-revealed` er det eneste som avgjør.
+  function hideRevealedTrash(...els) {
+    els.forEach((el) => {
+      if (!el || !el.dataset || !el.dataset.dragRevealed) return;
+      el.hidden = true;
+      delete el.dataset.dragRevealed;
+    });
+  }
+
+  /* KASSEN FØLGER OBJEKTET. Den står i containeren objektet svever over nå,
+     ikke i den det kom fra: en rad dratt til en annen liste måtte ellers dras
+     hele veien tilbake for å slettes.
+
+     Det er den SAMME kassen som flytter seg. Hva slippet BETYR er uendret:
+     draget rulles tilbake, og raden slettes i sin EGEN container
+     (`dropIntoTrash` leser `it.home`), akkurat som menyens «Slett». Verten er
+     bare hvor knappen står mens man drar — og derfor er det fortsatt radens
+     egen slette-rett som avgjør om noen kasse armes i det hele tatt
+     (`draggedCanBeTrashed`), ikke rettighetene i lista man svever over.
+
+     KASSEN SLIPPES ALDRI HELT. Forlater objektet alle containere
+     (ekstraheringsmodus), blir kassen stående der den var. Å skjule den ville
+     krympet kortet, og et kort som krymper flytter alt under seg — også
+     objektet selv, som da kunne falt ut av containeren, fått kassen skjult,
+     vokst tilbake og falt inn igjen, én gang per frame. Kassen bytter vert;
+     den forsvinner ikke.
+
+     Bare rader har en vert å bytte. En LISTE og et OMRÅDE slippes i kassen i
+     topplinja respektive nav-modalens bunnrad — én kasse, ingen vert. */
+  function retargetDragTrash() {
+    if (!drag.trashArmed || drag.kind !== 'item') return;
+    // «Hvilken liste er objektet i?» besvares ÉTT sted (`dragOverCard`:
+    // objektets midtre 1/3 innenfor kortet), og kassen bruker det samme svaret
+    // som plasseringen og ekstraheringen. En egen terskel for kassen ville vært
+    // en andre regel på det samme spørsmålet — og da kan knappen stå i en annen
+    // liste enn den raden ville landet i.
+    const host = dragOverCard();
+    if (!host || host === drag.trashHost) return;
+    // Siktemarkeringen tas av FØR knappen forlates: `setDragTrashTarget` er
+    // kantstyrt, så et flagg som ble nullstilt bak ryggen på den ville latt
+    // objektet stå rødt.
+    setDragTrashTarget(false);
+    const forrige = dragTrashBtn();
+    const forrigeRad = forrige && forrige.closest('.item-trash');
+    const lånt = anchorBorrow(() => {
+      if (forrige) forrige.classList.remove('drag-trash', 'drop-target');
+      drag.trashHost = host;
+      armDragTrash();
+      // Raden draget forlot forsvinner helt — den holder ingen plass. Kortet
+      // krymper med en knapperad, men DRA-ANKERET absorberer det, så verken det
+      // man svever over eller terskelen inn i det flytter seg.
+      hideRevealedTrash(forrige, forrigeRad);
+    }, [forrige, host]);
+    // Er kassa tilbake i lista draget startet i, er layouten der den var, og
+    // lånet gjøres opp (se blokken om lån ved `anchorBorrow`).
+    anchorTrashOwed += lånt;
+    if (host === anchorTrashHome) { anchorRepay(anchorTrashOwed); anchorTrashOwed = 0; }
+    refreshTrashZones();
+  }
+  /* Kassene er SONER, og dnd-kit måler en droppable ÉN gang og beholder boksen
+     til noe ber om en ny måling. En kasse vi nettopp skjulte står da igjen med
+     boksen den HADDE, og et slipp der leses som et slipp i kassen — MÅLT i
+     nav-modalen: en mappe sluppet på en rad i området under landet i den
+     skjulte kassen til området den kom fra, og ble rullet tilbake. Vi ber om
+     målingen selv, på alle sonene, etter at ankeret har flyttet board-et
+     ferdig. En skjult knapp måler 0×0 og treffes ikke. */
+  function refreshTrashZones() {
+    const b = dragScope() === navScope ? navRowBoard : boardRowBoard;
+    const reg = b && b.manager && b.manager.registry;
+    if (!reg || !reg.droppables) return;
+    for (const d of reg.droppables) {
+      if (typeof d.refreshShape === 'function' && String(d.id).indexOf(':zone:') >= 0) d.refreshShape();
+    }
+  }
+  /* Sikter pekeren på kassen dette draget kan slippes i?
+
+     SLIPPET avgjøres av Smett (`zoneSelector` → `pointerIntersection` mot
+     knappen). Dette er noe annet og litt større: sonen der PLASSERINGEN står i
+     ro. Kassen ligger under ＋-raden, altså utenfor listas innholdssone
+     (`cardBand`), så en rad på vei ned til den forlater lista og slår på
+     ekstraheringsmodus — og da lager et slipp som bommer på knappen en NY LISTE
+     i stedet for å slette. Slarken er hysterese: uten den ville
+     ny-liste-placeholderen blinket inn og ut idet pekeren streifer kanten av
+     knappen, og hvert blink flytter kortene under den. */
+  const DRAG_TRASH_PAD = 12;
+  function pointerOnDragTrash(x, y) {
+    if (!drag.trashArmed) return false;
+    const btn = dragTrashBtn();
+    if (!btn || btn.hidden || !btn.isConnected) return false;
+    const r = btn.getBoundingClientRect();
+    if (!r.width || !r.height) return false;
+    return x >= r.left - DRAG_TRASH_PAD && x <= r.right + DRAG_TRASH_PAD &&
+           y >= r.top - DRAG_TRASH_PAD && y <= r.bottom + DRAG_TRASH_PAD;
+  }
   // Kalles fra finishDrag — altså på ALLE veier ut av et drag, også avbrudd.
   function disarmDragTrash() {
-    document.querySelectorAll('.trashcan.drag-trash').forEach((btn) => {
-      btn.classList.remove('drag-trash', 'drop-target');
-      const wrap = btn.closest('.item-trash');
-      if (btn.dataset.dragRevealed) { btn.hidden = true; delete btn.dataset.dragRevealed; }
-      if (wrap && wrap.dataset.dragRevealed) { wrap.hidden = true; delete wrap.dataset.dragRevealed; }
+    document.querySelectorAll('.trashcan.drag-trash')
+      .forEach((btn) => btn.classList.remove('drag-trash', 'drop-target'));
+    // Hver rad draget avdekket skjules igjen.
+    document.querySelectorAll('[data-drag-revealed]').forEach((el) => {
+      el.hidden = true;
+      delete el.dataset.dragRevealed;
     });
     drag.trashArmed = false;
     drag.overTrash = false;
   }
-  // Siktemarkering på kassen + gjennomskinnelig dra-objekt, så kassen synes
-  // gjennom det løftede kortet (samme grep som 📁-breadcrumben bruker).
+  // Siktemarkering på kassen + RØD bakgrunn på dra-objektet. Alt som dras er
+  // allerede halvgjennomsiktig (se `[data-dnd-dragging]` i styles.css), så
+  // «her slettes det» kan ikke uttrykkes med mer gjennomsikt — det er fargen
+  // som bærer det. Flaten slipper fortsatt kassen gjennom.
   function setDragTrashTarget(on) {
     on = !!on;
     if (drag.overTrash === on) return;
@@ -4535,110 +5036,44 @@
      så med et pekerbasert svar dukket ny-liste-placeholderen opp mye senere på vei
      nedover ut av en liste enn oppover (og motsatt inn i den neste).
 
-     Referanselinjene er listas INNHOLDSSONE — fra listetittelens (korthodets)
-     nedre kant til midt i +-knapperaden — begge veier, både inn og ut. Kortets
-     ytterkanter brukes ikke: tittelraden og knapperaden er «rammen», og et objekt
-     som ligger oppå dem hører ikke til innholdet. Terskelen er den samme linja
-     hver vei, og det er alltid 1/3 av objektet som passerer den:
-     - INN/UT ved TITTELEN: objektets ØVRE 1/3 har passert tittelens nedre kant
-       (nedover = inn, oppover = ut).
-     - INN/UT ved KNAPPENE: objektets NEDRE 1/3 har passert midtlinja i
-       +-knapperaden (oppover = inn, nedover = ut).
-     Det er én regel: objektet er i lista når dets MIDTRE 1/3 ligger innenfor
-     sonen. Vannrett (flerkolonne på desktop) avgjør pekerens kolonne som før;
+     SONEN ER KORTETS EGEN BOKS, og regelen er én: objektet er i lista når dets
+     MIDTRE 1/3 ligger innenfor kortet. Altså — objektet forlater lista først når
+     en tredjedel av det stikker utenfor kortkanten, og går inn i den neste når en
+     tredjedel har kommet innenfor. Samme linje hver vei, begge veier.
+
+     Sonen var en gang INNHOLDSSONEN — fra midt i tittelraden til midt i
+     ＋-knapperaden — med rammeradene regnet som «ikke innhold». Det gjorde at
+     raden var utenfor lista mens den fortsatt lå tydelig oppå den: allerede over
+     knapperaden, og et godt stykke før søppelkassen, sto ny-liste-placeholderen
+     og lovet en ny liste. Og kassen er nettopp der man skal kunne sikte. Rammen
+     er en del av kortet man ser, så den er en del av lista man er i.
+
+     Vannrett (flerkolonne på desktop) avgjør pekerens kolonne som før;
      1/3-reglene er rent loddrette. Valget henger igjen i `drag.overCard`. */
-  // Minste innholdssone vi tør sikte på (utover objektets midtre 1/3). Må dekke
-  // layout-hoppet man får idet man går INN i en liste: ny-liste-placeholderen
-  // (≥ 72 px) forsvinner fra board-et samtidig som reorder-placeholderen (én
-  // radhøyde) legges inn i lista, så lista rykker et stykke oppover mot objektet.
-  // Er sonen mindre enn dette, ville objektet falt ut igjen i samme bevegelse.
-  const MIN_BAND_SLACK = 48;
-  function cardBand(cardEl, third) {
+  function cardBand(cardEl) {
     const r = cardEl.getBoundingClientRect();
-    const collapsed = cardEl.classList.contains('collapsed');
-    // En KOLLAPSET liste har ingen innholdssone å sikte på — der er hele det
-    // (header-høye) kortet sonen. Det samme gjelder en PEEK-ÅPNET liste: den ble
-    // åpnet nettopp fordi objektet siktet på den (over overskriften, det eneste
-    // som fantes), og skal ikke falle ut av lista i det den folder seg ut.
-    const peeked = drag.peekCard && drag.peekCard.el === cardEl && drag.peekCard.expanded;
-    if (collapsed || peeked) return { top: r.top, bottom: r.bottom };
-    const head = cardEl.querySelector('.card-head');
-    const add = cardEl.querySelector('.add-item-row');
-    const ar = add && !add.hidden ? add.getBoundingClientRect() : null;
-    // Linjene går gjennom MIDTEN av rammeradene, ikke langs innerkantene deres:
-    // halve tittelraden og halve knapperaden er slark, så FØRSTE og SISTE plass i
-    // lista er like lett å treffe som plassene mellom radene.
-    // - Nederst: for å havne sist må objektets senter forbi siste rads senter, og
-    //   da stikker nedre 1/3 nesten ned i knapperaden. Lander man en KATEGORI sist,
-    //   krymper lista samtidig ~25 px (skillelinja under placeholderen forsvinner
-    //   når den blir siste rad), så linja kommer opp mot objektet mens man sikter.
-    // - Øverst: ligger en KATEGORI først i lista, er det bare ~10 px mellom
-    //   tittelraden og kategorien — og pekeren må være der for å treffe nivå 1 i
-    //   stedet for inne i kategorien. Uten slarken var «over en kategori øverst»
-    //   umulig (målt: 0 px vindu, mot 63 px over et vanlig listepunkt øverst).
-    // En LÅST liste har ingen +-knapper → kortets bunn.
-    const hr = head ? head.getBoundingClientRect() : null;
-    const top = hr ? hr.top + hr.height / 2 : r.top;
-    const bottom = ar && ar.height ? ar.top + ar.height / 2 : r.bottom;
-    // Er sonen for liten til å sikte på — en TOM (eller nesten tom) liste har bare
-    // noen få piksler mellom tittelen og +-knappene — gjelder hele kortet i stedet,
-    // som for en kollapset liste. Størrelsen måles som om reorder-placeholderen
-    // IKKE lå der: den ligger inne i lista man ER i, og uten korreksjonen ville
-    // samme liste hatt en romsligere sone ute enn inne — objektet ville da gått inn,
-    // falt ut igjen og flimret.
-    const ph = dragPlaceholderEl();
-    const phH = ph && ph.parentNode && cardEl.contains(ph) ? ph.getBoundingClientRect().height + 8 : 0;
-    if (bottom - top - phH < third + MIN_BAND_SLACK) return { top: r.top, bottom: r.bottom };
-    return { top, bottom };
+    return { top: r.top, bottom: r.bottom };
   }
   function dragOverCard() {
     const d = draggedRect(); // UKLEMT: pekerens intensjon (som treffdeteksjonen ellers)
     const third = d.height / 3;
     const topThird = d.top + third;     // «øvre 1/3 har passert» = denne linja over linja
     const botThird = d.bottom - third;  // «nedre 1/3 har passert» = denne linja under linja
-    const inCard = (el, grace) => {
+    const inCard = (el) => {
       const r = el.getBoundingClientRect();
       if (drag.lastX < r.left || drag.lastX > r.right) return false; // kolonnen (flerkolonne)
-      const b = cardBand(el, third);
-      return topThird >= b.top - grace && botThird <= b.bottom + grace;
+      const b = cardBand(el);
+      return topThird >= b.top && botThird <= b.bottom;
     };
+    // Det man ALT er i vinner et delt svar. Kortboksene overlapper ikke, så det
+    // er sjelden aktuelt — men det er også det billigste svaret å prøve først.
     const cur = drag.overCard;
-    if (cur && cur.isConnected) {
-      // Slarken skal dekke ETT layout-hopp, ikke bli liggende: er objektet inne i
-      // sonen på egen hånd, er hoppet passert og slarken forbrukt (se noteOverShift).
-      if (inCard(cur, 0)) { drag.overGrace = 0; return cur; }
-      if (inCard(cur, drag.overGrace || 0)) return cur;
-    }
+    if (cur && cur.isConnected && inCard(cur)) return cur;
     for (const c of dragScope().root.querySelectorAll('.card')) {
-      if (inCard(c, 0)) { drag.overCard = c; drag.overGrace = 0; return c; }
+      if (inCard(c)) { drag.overCard = c; return c; }
     }
     drag.overCard = null;
-    drag.overGrace = 0;
     return null;
-  }
-  /* Selve modusbyttet flytter kortet man nettopp gikk INN i (`drag.overGrace`).
-     Går man fra board-luft inn i en liste, forsvinner ny-liste-placeholderen fra
-     kolonnen og reorder-placeholderen legges inn i lista: alt under den gamle
-     plassen rykker OPP. Har lista en høy sone (en vanlig, fylt liste), betyr det
-     bare at sonen kommer objektet i møte. Har den en KORT sone — en kollapset
-     liste, eller en tom der `MIN_BAND_SLACK` gjør hele kortet til sone — rekker
-     hoppet å legge sonen forbi objektet, som dermed faller ut igjen, som legger
-     placeholderen tilbake, som dytter lista ned igjen: én runde per piksel.
-
-     Vi måler derfor hvor langt lista faktisk flyttet seg av byttet og lar
-     stickiness-en i `dragOverCard` beholde den gjennom akkurat det hoppet. Å
-     forlate lista krever da en tydelig bevegelse ut — ikke bare at gulvet flyttet
-     seg under objektet. Grensen for å gå INN er uendret (`grace` er 0 til man er
-     inne), så 1/3-tersklene måles som før.
-
-     Slarken FORBRUKES så snart objektet ligger inne i sonen på egen hånd
-     (`dragOverCard`): den er kompensasjon for ett hopp, ikke en varig utvidelse av
-     lista. I det vanlige tilfellet (en fylt liste, høy sone) er den derfor borte
-     allerede ved neste bevegelse, og ut-tersklene er nøyaktig de dokumenterte. */
-  function noteOverShift(cardEl, beforeTop) {
-    if (!cardEl || drag.overCard !== cardEl) return;
-    drag.overGrace = Math.max(drag.overGrace || 0,
-      Math.abs(cardEl.getBoundingClientRect().top - beforeTop));
   }
   /* ---------------- Peek-åpning av kollapsede mål under draging ----------------
      Drar man et listepunkt over en KOLLAPSET liste eller kategori (eller en hel
@@ -4778,11 +5213,223 @@
       if (cd) setCollapseCount(catEl.querySelector('.cat-head'), catMemberCount(S.rowsOf(cd), catEl.dataset.id), true);
     });
   }
-  function makeNewListPlaceholder(height) {
+  /* Ekstrahering: ÉN plass som kommer, ikke to.
+
+     Raden er på vei ut av lista, og ny-liste-placeholderen er plassen den skal
+     til. dnd-kits klone blir likevel liggende igjen i lista — den er dnd-kits,
+     ikke vår, og motoren flytter den bare ved å bytte med en RAD. Vist samtidig
+     er de to hull som lover hver sin plassering, og bare det ene holder.
+
+     Klonen males derfor ikke mens modusen står på, og `syncHoleSpace` lukker
+     også plassen: lista står ikke åpen for en rad som er på vei ut av den. */
+  function setExtracting(on) {
+    document.body.classList.toggle('is-extracting', !!on);
+  }
+  /* Slapp man i kassens treffsone? Punktet leses av Smetts operasjon, ikke av
+     `drag.lastX/Y`: Smett skriver de FAKTISKE slipp-koordinatene inn før
+     operasjonen avsluttes (`AuthoritativeDrop`), mens vår egen mellomlagring er
+     satt av siste `dragmove` — og den kan være koalescert bort i en rask gest. */
+  function dropReleasedOnTrash(b) {
+    if (!drag.trashArmed || drag.kind !== 'item') return false;
+    const at = b && b.manager.dragOperation.position;
+    const pt = at && at.current;
+    if (!pt) return false;
+    return pointerOnDragTrash(pt.x, pt.y);
+  }
+  /* INGEN plassholder males mens pekeren står på kassen: der SLETTER slippet, og
+     både ny-liste-stripa og hullet raden kom fra ville lovet en plassering som
+     ikke skjer. Hullet kan til og med ligge i en HELT ANNEN liste enn den man
+     sikter i — kassen ligger utenfor radene, så det finnes ingen rad å bytte med
+     på veien tilbake dit. Hullet mister også PLASSEN (`syncHoleSpace`), og
+     kompensasjonen der holder kortets underkant — og dermed kassa — i ro.
+     Se `body.is-over-trash` i styles.css. */
+  function setTrashHold(on) {
+    document.body.classList.toggle('is-over-trash', !!on);
+  }
+  /* Hullet er bare et løfte DER RADEN LANDER. dnd-kits sortering flytter det bare
+     ved å bytte med en RAD, så på vei tilbake opp fra lista under — over
+     ＋-raden, der det ikke finnes en rad å bytte med — blir det liggende igjen i
+     lista man forlot, mens slippet lander i den man er i (`dragOverCard`, som
+     kollisjonsdetektorene leser via `dndRowTargetCont`). Et hull i feil liste er
+     ett løfte for mye. MÅLT: et vindu på ~35 px over ＋-raden der hullet sto
+     igjen i lista under og slippet la raden i lista over. */
+  function setHoleAstray(on) {
+    document.body.classList.toggle('is-hole-astray', !!on);
+  }
+
+  /* ------- HULLET SOM IKKE LOVER NOE: VERKEN MALING ELLER PLASS -------
+
+     LISTENE ER ALLTID MAKSIMALT KOMPRIMERT. Et hull som ikke lover en
+     plassering males ikke (`is-hole-gone`) — og da skal raden heller ikke stå
+     igjen som et åpent mellomrom. Alle tre tilfellene behandles likt:
+     ekstrahering, sikte på en kasse, og et hull som ligger igjen i en ANNEN
+     liste enn den slippet gjelder.
+
+     Kortets boks er samtidig ekstraher-linja og kassens plass, så komprimeringen
+     må ikke flytte den kanten draget sikter mot. Det er kompensasjonen under
+     som holder den i ro — samme regel som dra-ankeret. */
+  // Skriv variabelen bare når den faktisk endrer seg, og hold rede på hvem som
+  // bærer den, så den alltid kan tas av igjen.
+  function settVar(el, navn, verdi) {
+    if (!el) return;
+    if (el.style.getPropertyValue(navn) !== verdi) el.style.setProperty(navn, verdi);
+  }
+  function syncHoleSpace() {
+    const kl = document.body.classList;
+    /* Ett spørsmål, ett svar: lover hullet ingenting, males det ikke OG tar det
+       ingen plass. En liste med en åpen rad ingen plassholder fyller lover en
+       plassering som ikke finnes. */
+    const vekk = !!drag.active &&
+      (kl.contains('is-extracting') || kl.contains('is-over-trash') || kl.contains('is-hole-astray'));
+    const ph = drag.active ? dragScope().root.querySelector('[data-dnd-placeholder]') : null;
+    const cont = ph ? ph.parentNode : null;
+    kl.toggle('is-hole-gone', vekk && !!ph);
+
+    /* PLASSEN tas av en negativ `margin-bottom` PÅ KLONEN — aldri av
+       `display: none` eller `height: 0`. KLONENS BOKS ER DRA-OBJEKTETS
+       GEOMETRI: dnd-kit speiler mål, plassering OG viewport-klemme fra den hver
+       frame. En klone uten boks krympet dra-objektet til 12×12 px, og klemmen
+       slapp det 269 px utenfor skjermkanten — begge MÅLT. En margin-bottom rører
+       verken størrelsen eller plasseringen; den trekker bare radene ETTER
+       klonen opp, og containeren krymper med raden og gapet.
+
+       Men beløpet kan ikke SKRIVES på klonen. Klonen er en kopi av raden som
+       dras, og dnd-kit bygger den om fra originalens `style`-attributt — der vi
+       selv maler rotasjonen hver frame (`dndPaintRotation`). MÅLT: attributtet
+       ble skrevet i sin helhet, «rotate: …deg; margin-bottom: -56px» ble til
+       «rotate: …deg», og lista sto med en åpen rad igjen til neste runde.
+       Verdien legges derfor på CONTAINEREN, som er VÅR node, og klonen arver den
+       (`--hole-shrink` i styles.css). */
+    const boks = ph ? ph.getBoundingClientRect() : null;
+    const gap = cont ? (parseFloat(getComputedStyle(cont).rowGap) || 0) : 0;
+    const plass = boks ? boks.height + gap : 0;      // det hullet ville tatt åpent
+    const beløp = vekk ? plass : 0;
+    // Flyttet motoren hullet til en annen liste? Se blokken om lån ved
+    // `anchorNoteRowMove` — den fører motpost for kortet raden forlot.
+    anchorNoteRowMove(ph, plass);
+
+    const nyCont = beløp ? cont : null;
+    const verdi = (-beløp) + 'px';
+
+    /* KOMPENSASJONEN HØRER TIL KOLONNEN, OG DEN ER EN TILSTAND.
+
+       Kortet krymper med en radhøyde, og alt under det i kolonnen ville rykket
+       opp under fingeren. Kolonnen får derfor en `padding-top` på nøyaktig det
+       hullet ikke lenger tar: alt OVER hullet flyttes ned, alt under står
+       stille, og listene over følger med.
+
+       KOLONNEN, IKKE KORTET. En `margin-top` på kortet selv holdt riktig kant i
+       ro, men bare kortet flyttet seg: listene OVER ble stående, og gapet mellom
+       dem vokste med en hel radhøyde (MÅLT: 28 → 84 px).
+
+       KOLONNEN, IKKE BOARD-ET. Kolonnene er ekte containere som lever
+       uavhengig, så en liste som krymper i kolonne 2 flytter ingenting i
+       kolonne 1. Skyver man board-et, flytter man kolonnene man ikke rørte —
+       MÅLT: ny-liste-stripa forsvant fordi kortet i NABOkolonnen kom ned over
+       siktet (`board-columns` 3 og 4).
+
+       EN TILSTAND, IKKE ET SKIFT. Beløpet regnes ut på nytt hver runde, og
+       polstringen finnes nøyaktig så lenge sammentrekningen finnes. Legger man
+       delta på delta i stedet, teller man med motorens egne flyttinger: hullet
+       tar plassen med seg til en annen liste, og polstringen fra den forrige
+       blir stående som ren luft (MÅLT: kortet man svever over rykket 56 px ned,
+       `dnd-layout-anchor` sjekk 4).
+
+       RETNINGEN: bare når hullet ligger OVER siktet. Ligger det under — man drar
+       oppover, bort fra det — krymper lista nedenfra, og alt over siktet står
+       stille av seg selv. Kompenserer man likevel, kommer kanten man sikter MOT
+       nærmere fingeren, og ekstraher-terskelen slår inn for tidlig (MÅLT: 30 px,
+       `dnd-extract-thresholds` B3).
+
+       MÅL FØRST, SKRIV SÅ — OG SKRIV BEGGE I SAMME OMGANG. Måler man MELLOM de
+       to skrivingene, tvinger man fram en layout der lista er krympet og
+       polstringen ennå ikke lagt på: siden er 56 px kortere i det øyeblikket, og
+       er man scrollet til bunnen, klemmer nettleseren scrollen ned — permanent.
+       MÅLT på den nederste lista: scrollen hoppet 56 px i det kassa ble armert,
+       auto-scrollen dro den tilbake ~10 px per frame, kassa vandret under
+       fingeren, og `is-over-trash` slo av og på 21 ganger på 60 frames. */
+    const savnet = holeMissingPx(cont, boks, gap, holeShrunk === cont);
+    const kol = nyCont && savnet && (!boks || anchorAimY() >= boks.top)
+      ? nyCont.closest('.board-col') : null;
+    holeShrinkPx = nyCont ? savnet : 0;
+    if (holeShrunk && holeShrunk !== nyCont) holeShrunk.style.removeProperty('--hole-shrink');
+    settVar(nyCont, '--hole-shrink', verdi);
+    holeShrunk = nyCont;
+    setHoleColPad(kol, kol ? savnet : 0);
+  }
+  /* Hvor mye MINDRE plass hullet tar i lista si når det er lukket, enn om det
+     sto åpent — nøyaktig det polstringen skal gi tilbake.
+
+     Vanligvis hele raden pluss gapet. Men containeren har en min-høyde (tom
+     listes slippflate), og er raden den eneste i lista, stopper den der: da er
+     svaret bare det som stikker forbi gulvet. Gjettet man hele radhøyden, ble
+     kortet 22 px for langt ned, kassa gled ut under fingeren, hullet kom
+     tilbake — og så igjen: flimring (MÅLT med pekeren i ro).
+
+     Regnes på layouten SLIK DEN ER NÅ, uten å røre den: `lukket` sier om
+     containeren allerede står sammentrukket, så vi vet om høyden vi måler er
+     med eller uten hullet. */
+  function holeMissingPx(cont, boks, gap, lukket) {
+    if (!cont || !boks) return 0;
+    const cs = getComputedStyle(cont);
+    const gulv = parseFloat(cs.minHeight) || 0;
+    const nå = cont.getBoundingClientRect().height;
+    const plass = boks.height + gap;
+    // Rask vei: containeren står klar av gulvet i BEGGE tilstandene, og da er
+    // svaret hele plassen raden legger beslag på.
+    if (lukket ? nå > gulv + 0.5 : nå - plass > gulv + 0.5) return plass;
+    /* Nær gulvet: da er lista så godt som tom, og de få radene som står igjen
+       telles. Gapet finnes bare MELLOM rader — er hullet alene, er det ingen gap
+       å gi tilbake, og en plass regnet med gapet ble 8 px for stor (MÅLT: kassa
+       flyttet seg like langt under fingeren). */
+    let sum = 0, n = 0;
+    [...cont.children].forEach((k) => {
+      if (k.hasAttribute('data-dnd-placeholder')) return;
+      const ks = getComputedStyle(k);
+      // Dra-objektet selv er tatt ut av flyten og fyller ingen rad.
+      if (ks.position === 'fixed' || ks.position === 'absolute' || ks.display === 'none') return;
+      const h = k.getBoundingClientRect().height;
+      if (!h) return;
+      sum += h + (parseFloat(ks.marginTop) || 0) + (parseFloat(ks.marginBottom) || 0);
+      n++;
+    });
+    const uten = Math.max(gulv, sum + gap * Math.max(0, n - 1));
+    const med = Math.max(gulv, sum + boks.height + gap * n);
+    return Math.max(0, med - uten);
+  }
+  /* Polstringen som holder kolonnen i ro mens hullet er lukket. Bæreren huskes,
+     så den alltid kan tas av igjen — også når hullet flytter seg til en annen
+     kolonne. */
+  function setHoleColPad(kol, px) {
+    if (holeCol && holeCol !== kol) { holeCol.style.paddingTop = ''; holeCol = null; holeColPad = 0; }
+    if (!kol) return;
+    holeCol = kol;
+    holeColPad = px;
+    kol.style.paddingTop = px ? px + 'px' : '';
+    if (!px) { holeCol = null; kol.style.paddingTop = ''; }
+  }
+  function clearHoleSpace() {
+    if (holeShrunk) { holeShrunk.style.removeProperty('--hole-shrink'); holeShrunk = null; }
+    if (holeCol) { holeCol.style.paddingTop = ''; holeCol = null; }
+    holeShrinkPx = holeColPad = 0;
+    document.body.classList.remove('is-hole-gone');
+  }
+
+  /* Ny-liste-placeholderen SVEVER mellom kortene.
+
+     Den var en kort-formet slot med et ＋ i, altså 72+ px som skjøv kortene fra
+     hverandre — og det var selve problemet: hvert modusbytte flyttet alt under
+     den. Går man videre ned i lista under, forsvinner placeholderen, kortet
+     smetter oppover, og raden man drar havner UNDER sonen som nettopp flyttet
+     seg. Man må dra oppover igjen for å treffe det man alt siktet på.
+
+     Nå tar den ingen plass: en flat stripe malt MIDT I GAPET som allerede er
+     der. Avstanden mellom kortene er den samme med og uten den, så ingenting
+     rykker — hverken når den kommer eller når den går. Se `.new-list-placeholder`
+     i styles.css. */
+  function makeNewListPlaceholder() {
     const ph = document.createElement('div');
     ph.className = 'card-placeholder new-list-placeholder';
-    ph.style.height = height + 'px';
-    ph.innerHTML = '<span class="new-list-plus" aria-hidden="true">' + ICONS.plus + '</span>';
     return ph;
   }
   /* Plassér ny-liste-placeholderen blant board-ets kort.
@@ -5054,7 +5701,7 @@
      NAV-SCOPET PÅ dnd-kit (gjennom Smett)
      ------------------------------------------------------------
      Nav-modalen — områder som kort, mapper og mappekategorier som rader —
-     kjøres av dnd-kit gjennom Smett (`vendor/smett-0.1.0.js`, den globale
+     kjøres av dnd-kit gjennom Smett (`vendor/smett-0.2.0.js`, den globale
      `Smett`). Politikken de to board-ene her leser fra er DELT med hovedsidens
      to; den ligger i seksjonen «DELT DnD-POLITIKK» over
      (`docs/drag-and-drop.md`).
@@ -5180,15 +5827,9 @@
      containeren er bare fallbacken under dem.
 
      Svaret regnes ut ÉN gang per pekerbevegelse (`navUpdateExtractMode`/
-     `boardUpdateExtractMode`), ikke på nytt inne i hver detektor. Det er ikke en optimalisering, det er hele
-     stabiliteten: `dragOverCard` har hukommelse (`drag.overCard`,
-     `drag.overGrace`), og slarken `noteOverShift` gir gjennom ett layout-hopp
-     blir FORBRUKT av det første kallet som finner objektet inne i sonen på egen
-     hånd. Regnet detektorene det ut selv, ville de brukt opp slarken i den
-     samme framen den ble gitt — og hvert modusbytte flytter kortene (modalen er
-     loddrett sentrert, så en ny-område-placeholder skyver ALT). Da svarer
-     bevegelsen og kollisjonen på hver sin layout, og de to skifter på å ha rett
-     én gang per frame. */
+     `boardUpdateExtractMode`), ikke på nytt inne i hver detektor: `dragOverCard`
+     har hukommelse (`drag.overCard`), og et svar regnet på nytt midt i en frame
+     ville lest en annen layout enn den bevegelsen svarte på. */
   let dndRowTargetCont = null;
   function dndPickRowContainer(card) {
     if (!card) return null;
@@ -5393,7 +6034,15 @@
   // prioritet. Våre detektorer trenger å bestemme prioriteten selv (hylla har to
   // — se over), så `collisionPriority` nulles: dnd-kit lar en prioritet på
   // entiteten OVERSTYRE den detektoren svarte. Begge settes på den droppable-en
-  // som allerede finnes; Smetts `sync()` rører ingen av delene.
+  // som allerede finnes.
+  //
+  // For CONTAINERNE holder det å gjøre det én gang: Smetts `sync()` rører
+  // hverken detektor eller prioritet på en container den alt kjenner. For
+  // RADENE gjør den det — en rad som holder en container av sitt eget får
+  // Smetts egen vertsdetektor på hver `sync()`, og kategori-raden er nettopp en
+  // slik rad. Derfor kalles denne på nytt for hver bevegelse (`dndRowPolicy`),
+  // ikke bare ved løft: Smett synker midt i gesten når den forhåndsviser et
+  // slipp i en TOM container.
   function dndTuneRowCollisions(rowBoard) {
     if (!rowBoard) return;
     for (const droppable of rowBoard.manager.registry.droppables) {
@@ -5612,7 +6261,6 @@
     drag.peekCard = null;
     drag.peekCat = null;
     drag.overCard = el.closest('.card');
-    drag.overGrace = 0;
     drag.trashHost = el.closest('.card');
     navExtract = false;
     dndRowTargetCont = null;
@@ -5636,6 +6284,7 @@
 
   function navDragStart(board) {
     dndSyncIntent(board.manager.dragOperation);
+    anchorBegin();              // layouten skal fra nå av flytte seg bort fra siktet
     dndPaintRotation();
     if (drag.kind === 'card') return;
     dndRowTargetCont = dndPickRowContainer(dragOverCard());
@@ -5801,10 +6450,11 @@
   }
   function navZoneDrop(result) {
     const btn = dragTrashBtn();
-    // Kassen er BUNDET til draget: den i containeren raden kom fra, og bare når
-    // jeg faktisk har lov til å slette (`armDragTrash` → `draggedCanBeTrashed`).
-    // Sikter man på en ANNEN kasse — et annet områdes, synlig fordi den har
-    // innhold — skjer ingenting; Smett har alt lagt raden tilbake.
+    // Kassen er DRAGETS: den `retargetDragTrash` har flyttet dit raden svever nå,
+    // og bare når jeg faktisk har lov til å slette (`armDragTrash` →
+    // `draggedCanBeTrashed`). Sikter man på en ANNEN kasse — et områdes man
+    // ikke svever over, synlig fordi den har innhold — skjer ingenting; Smett
+    // har alt lagt raden tilbake.
     if (!drag.trashArmed || !btn || btn.getAttribute('data-dnd-zone') !== result.zoneId) return;
     // Rydd kassen ut av dra-tilstanden FØR slettingen: den rendrer på nytt, og
     // en `data-drag-revealed` som overlevde ville skjult en kasse som nå har
@@ -5864,6 +6514,19 @@
   }
 
   function navCommitRow() {
+    /* Slipp i kassens treffsone SLETTER — også når ekstraheringsmodusen står
+       på. Sonen er litt større enn knappen, og treffer man knappen på pikselen
+       har Smett alt tatt slippet som en sone (`onZoneDrop`) og vi er ikke her.
+       Dette er ringen rundt: uten den lager et slipp som bommer med noen få
+       piksler en NY LISTE i stedet for å slette. Draget rulles tilbake som et
+       avbrutt drag, og slettingen tar over — samme vei som sone-slippet. */
+    if (dropReleasedOnTrash(navRowBoard)) {
+      const trashedId = drag.el && drag.el.dataset.id;
+      restoreDraggedToOrigin();
+      disarmDragTrash();
+      if (trashedId) dropIntoTrash(navScope, 'item', trashedId);
+      return;
+    }
     if (drag.phMode === 'extract') {
       if (drag.kind === 'category') extractCategoryToNewContainer();
       else extractRowToNewContainer();
@@ -5992,18 +6655,17 @@
   }
 
   /* ------- Ekstrahering: mappe/mappekategori → NYTT område -------
-     Drar man raden UT av alle områdekortene, dukker en kort-formet placeholder
-     med ＋ opp i kolonnen; slipp der oppretter et nytt område med bare denne
-     raden i. Selve tersklene («er raden i dette kortet?», 1/3-reglene i
-     `dragOverCard`/`cardBand`) er uendret — de leser `drag`, og `dndSyncIntent`
-     har fylt den fra dnd-kit.
+     Drar man raden UT av alle områdekortene, males en flat stripe i gapet mellom
+     kortene; slipp der oppretter et nytt område med bare denne raden i.
+     Tersklene («er raden i dette kortet?», 1/3-reglene i
+     `dragOverCard`/`cardBand`) leser `drag`, som `dndSyncIntent` har fylt fra
+     dnd-kit.
 
      Mens modusen står på svarer `navRowAccept` med tom liste. Da tar ingen
      container imot, dnd-kit finner ikke noe mål, og sorteringen står stille:
      Smetts eget svar på «slå av reorder akkurat nå». Klonen blir liggende der
-     den sist havnet — med vilje: gulvet flytter seg da ikke under raden idet
-     modusen skifter, og layout-hoppet `noteOverShift` kompenserer for oppstår
-     ikke i det hele tatt. */
+     den sist havnet, og stripa tar ingen plass — modusbyttet flytter altså
+     ingenting, hverken i lista eller i kolonnen. */
   function navUpdateExtractMode() {
     const overCard = dragOverCard();
     if (!overCard && canExtractDragged()) {
@@ -6013,13 +6675,7 @@
       placeNewListPlaceholder();
       return;
     }
-    // Modusbyttet rykker kortet man nettopp gikk INN i: ny-område-placeholderen
-    // forlater kolonnen, og alt under den flytter seg opp. `noteOverShift` lar
-    // stickiness-en i `dragOverCard` beholde kortet gjennom akkurat det hoppet,
-    // så raden ikke faller ut igjen i samme bevegelse.
-    const beforeTop = overCard ? overCard.getBoundingClientRect().top : 0;
     navSetReorderMode();
-    if (overCard) noteOverShift(overCard, beforeTop);
     dndPeekPending = dndPeekTarget(overCard);
     dndSetRowTarget(dndPickRowContainer(overCard));
   }
@@ -6027,7 +6683,8 @@
     if (navExtract) return;
     navExtract = true;
     drag.phMode = 'extract';
-    drag.ph = makeNewListPlaceholder(Math.max(72, drag.height));
+    setExtracting(true);
+    drag.ph = makeNewListPlaceholder();
     const cols = boardColumns(navBoard);
     (cols[cols.length - 1] || navBoard).appendChild(drag.ph);
     dndRefreshRowAccepts();
@@ -6038,6 +6695,7 @@
     drag.phMode = 'reorder';
     if (drag.ph && drag.ph.parentNode) drag.ph.remove();
     drag.ph = null;
+    setExtracting(false);
     dndRefreshRowAccepts();
   }
 
@@ -6227,8 +6885,15 @@
   function boardSyncBoards() {
     // Mens et board selv drar er DOM-et dnd-kits, og Smett har sin egen grunn
     // til å la det være. De to har hver sin manager, så de spørres hver for seg.
-    if (boardCardBoard && boardCardBoard.manager.dragOperation.status.idle) boardCardBoard.sync();
-    if (boardRowBoard && boardRowBoard.manager.dragOperation.status.idle) boardRowBoard.sync();
+    // Blir synken avvist, er den UTSATT, ikke forkastet — se `noteSyncOwed`.
+    if (boardCardBoard) {
+      if (boardCardBoard.manager.dragOperation.status.idle) boardCardBoard.sync();
+      else noteSyncOwed();
+    }
+    if (boardRowBoard) {
+      if (boardRowBoard.manager.dragOperation.status.idle) boardRowBoard.sync();
+      else noteSyncOwed();
+    }
   }
 
   function boardWire(b) {
@@ -6268,7 +6933,6 @@
     drag.peekCard = null;
     drag.peekCat = null;
     drag.overCard = null;
-    drag.overGrace = 0;
     drag.trashHost = null;
     drag.crumbTarget = false;
     boardTargetCol = null;
@@ -6659,7 +7323,6 @@
     drag.peekCard = null;
     drag.peekCat = null;
     drag.overCard = el.closest('.card');
-    drag.overGrace = 0;
     // Kassen som gjelder er den i LISTA raden kom fra — ikke den man tilfeldigvis
     // svever over. Slettingen legger raden i kildens kasse.
     drag.trashHost = el.closest('.card');
@@ -6681,6 +7344,7 @@
 
   function boardRowDragStart(b) {
     dndSyncIntent(b.manager.dragOperation);
+    anchorBegin();              // layouten skal fra nå av flytte seg bort fra siktet
     dndPaintRotation();
     dndRowTargetCont = dndPickRowContainer(dragOverCard());
     applyDragSeparators();
@@ -6706,8 +7370,59 @@
     if (dndRowPolicyBusy) return;
     dndRowPolicyBusy = true;
     try {
+      // Kategori-radens detektor er VÅR, og Smett skriver rad-detektorene på
+      // hver `sync()` — også de den kjører midt i et drag, når den
+      // forhåndsviser et slipp i en tom container. Sett dem på igjen her, før
+      // kollisjonsrunden som kommer; ved løft alene ville de ikke overlevd.
+      dndTuneRowCollisions(b);
       dndSyncIntent(b.manager.dragOperation);
       dndPaintRotation();
+      /* Sikter man på KASSEN, står plasseringen i ro: slippet SLETTER, det
+         flytter ikke. Regelen er tilbake fra den gamle motoren, der den lå i
+         `onItemMove`, og den forsvant i overgangen til dnd-kit.
+
+         Uten den er kassen uråelig. Den ligger under ＋-raden — utenfor listas
+         innholdssone (`cardBand`) — så raden er ute av lista et stykke FØR
+         pekeren når kassen, og ekstraheringsmodusen er alt slått på når man
+         kommer fram. I den modusen tar ingen container imot, så et slipp som
+         bommer på selve knappen lager en NY LISTE i stedet for å slette. MÅLT:
+         34 px under knappens senter ga en ny liste med raden i.
+
+         Modusen røres IKKE her — den er lista si, og å slå den av og på idet
+         pekeren streifer kassen ville flyttet kortene under den én gang per
+         streif. Det som skjer er de to tingene som gjør slippet ærlig: INGEN
+         plassholder males (`setTrashHold` — verken ny-liste-stripa eller hullet
+         raden kom fra; hullet mister også plassen, men kortets underkant står
+         stille, så kassa ikke flytter seg under fingeren), og kassen markeres. Hva slippet BETYR står i `*CommitRow`: i denne sonen
+         sletter det.
+
+         Sonen er litt større enn knappen (`DRAG_TRASH_PAD`) — knappen er et
+         lite mål, og en finger treffer den ikke på pikselen.
+
+         DELT av begge scopene: mappe-kassen i nav-modalen ligger på samme vis
+         utenfor mappelistas sone. */
+      // Kassen står der objektet er nå, ikke der det kom fra (`retargetDragTrash`).
+      // Må skje FØR sikte-testen: den måler knappen, og knappen kan nettopp ha
+      // flyttet seg til et annet kort.
+      retargetDragTrash();
+      const påKassen = pointerOnDragTrash(drag.lastX, drag.lastY);
+      // Markeringen settes BEGGE veier her. Smetts `onDropTarget` fyrer bare når
+      // MÅLET endrer seg, og i ringen rundt knappen er målet null hele tiden —
+      // ingen ville da tatt markeringen av igjen, og kassen ble stående som om
+      // den var klar til å ta imot mens raden lå nede ved ny-liste-stripa.
+      setDragTrashTarget(påKassen);
+      // Og stripa lover ingenting i ringen: der SLETTER slippet (`*CommitRow`).
+      // Selve knappen ligger inne i kortet, altså inne i sonen — der er modusen
+      // reorder uansett. Ringen er den lille biten som kan stikke utenfor
+      // kortkanten. Modusen regnes ellers ut som vanlig: å fryse den her ville
+      // utsatt byttet med hele kassens høyde, og ut-terskelen ned ville sluttet
+      // å være den samme linja som opp.
+      setTrashHold(påKassen);
+      // ETT MALT HULL OM GANGEN, del to: hullet lover bare noe der raden faktisk
+      // lander. `dragOverCard` er allerede regnet ut denne runden.
+      const hull = dragScope().root.querySelector('[data-dnd-placeholder]');
+      const iMål = dragOverCard();
+      setHoleAstray(!!hull && !!iMål && hull.closest('.card') !== iMål);
       /* Svaret er en funksjon av PEKERPOSISJONEN. Står pekeren stille, skal
          svaret stå stille — selv om layouten flyttet seg. Det er nettopp der
          tilbakekoblingen bor: VÅR egen plassering flytter radene, og en ny runde
@@ -6722,6 +7437,9 @@
       update();
     } finally {
       dndRowPolicyBusy = false;
+      // Til slutt, når modusen er avgjort av `update()`: lukk hullet helt om det
+      // ikke lover noe, og betal tilbake det ankeret ikke lenger kan skylde.
+      syncHoleSpace();
     }
   }
 
@@ -6824,10 +7542,11 @@
   }
   function boardRowZoneDrop(result) {
     const btn = dragTrashBtn();
-    // Kassen er BUNDET til draget: den i lista raden kom fra, og bare når jeg
-    // faktisk har lov til å slette (`armDragTrash` → `draggedCanBeTrashed`).
-    // Sikter man på en ANNEN kasse — en annen listes, synlig fordi den har
-    // innhold — skjer ingenting; Smett har alt lagt raden tilbake.
+    // Kassen er DRAGETS: den `retargetDragTrash` har flyttet dit raden svever nå,
+    // og bare når jeg faktisk har lov til å slette (`armDragTrash` →
+    // `draggedCanBeTrashed`). Sikter man på en ANNEN kasse — en listes man ikke
+    // svever over, synlig fordi den har innhold — skjer ingenting; Smett har
+    // alt lagt raden tilbake.
     if (!drag.trashArmed || !btn || btn.getAttribute('data-dnd-zone') !== result.zoneId) return;
     // Rydd kassen ut av dra-tilstanden FØR slettingen: den rendrer på nytt, og
     // en `data-drag-revealed` som overlevde ville skjult en kasse som nå har
@@ -6861,6 +7580,19 @@
   }
 
   function boardCommitRow() {
+    /* Slipp i kassens treffsone SLETTER — også når ekstraheringsmodusen står
+       på. Sonen er litt større enn knappen, og treffer man knappen på pikselen
+       har Smett alt tatt slippet som en sone (`onZoneDrop`) og vi er ikke her.
+       Dette er ringen rundt: uten den lager et slipp som bommer med noen få
+       piksler en NY LISTE i stedet for å slette. Draget rulles tilbake som et
+       avbrutt drag, og slettingen tar over — samme vei som sone-slippet. */
+    if (dropReleasedOnTrash(boardRowBoard)) {
+      const trashedId = drag.el && drag.el.dataset.id;
+      restoreDraggedToOrigin();
+      disarmDragTrash();
+      if (trashedId) dropIntoTrash(boardScope, 'item', trashedId);
+      return;
+    }
     if (drag.phMode === 'extract') {
       if (drag.kind === 'category') extractCategoryToNewContainer();
       else extractRowToNewContainer();
@@ -6959,18 +7691,20 @@
   }
 
   /* ------- Ekstrahering: listepunkt/kategori → NY liste -------
-     Drar man raden UT av alle listene, dukker en kort-formet placeholder med ＋
-     opp i kolonnen man sikter på; slipp der oppretter en ny liste med bare denne
-     raden i (en kategori blir en liste med samme tittel og sine medlemmer).
-     Selve tersklene («er raden i denne lista?», 1/3-reglene i
-     `dragOverCard`/`cardBand`) er uendret — de leser `drag`, og `dndSyncIntent`
-     har fylt den fra dnd-kit.
+     Drar man raden UT av alle listene, males en flat stripe i gapet mellom
+     kortene i kolonnen man sikter på; slipp der oppretter en ny liste med bare
+     denne raden i (en kategori blir en liste med samme tittel og sine
+     medlemmer). Tersklene («er raden i denne lista?», 1/3-reglene i
+     `dragOverCard`/`cardBand`) leser `drag`, som `dndSyncIntent` har fylt fra
+     dnd-kit.
 
      Mens modusen står på svarer `boardRowAccept` med tom liste. Da tar ingen
      container imot, dnd-kit finner ikke noe mål, og sorteringen står stille:
      Smetts eget svar på «slå av reorder akkurat nå». Klonen blir liggende der
-     den sist havnet — gulvet flytter seg da ikke under raden idet modusen
-     skifter. */
+     den sist havnet, og stripa tar ingen plass — modusbyttet flytter altså
+     ingenting, hverken i lista eller i kolonnen. Det var nettopp flyttingen som
+     gjorde det umulig å treffe lista under: stripa forsvant, kortet smatt
+     oppover, og raden havnet under sonen den nettopp siktet på. */
   function boardUpdateExtractMode() {
     const overCard = dragOverCard();
     if (!overCard && canExtractDragged()) {
@@ -6980,13 +7714,7 @@
       placeNewListPlaceholder();
       return;
     }
-    // Modusbyttet rykker lista man nettopp gikk INN i: ny-liste-placeholderen
-    // forlater kolonnen, og alt under den flytter seg opp. `noteOverShift` lar
-    // stickiness-en i `dragOverCard` beholde lista gjennom akkurat det hoppet,
-    // så raden ikke faller ut igjen i samme bevegelse.
-    const beforeTop = overCard ? overCard.getBoundingClientRect().top : 0;
     boardSetReorderMode();
-    if (overCard) noteOverShift(overCard, beforeTop);
     dndPeekPending = dndPeekTarget(overCard);
     dndSetRowTarget(dndPickRowContainer(overCard));
   }
@@ -6994,7 +7722,8 @@
     if (boardExtract) return;
     boardExtract = true;
     drag.phMode = 'extract';
-    drag.ph = makeNewListPlaceholder(Math.max(72, drag.height));
+    setExtracting(true);
+    drag.ph = makeNewListPlaceholder();
     const cols = boardColumns(board);
     (cols[cols.length - 1] || board).appendChild(drag.ph);
     dndRefreshRowAccepts();
@@ -7005,6 +7734,7 @@
     drag.phMode = 'reorder';
     if (drag.ph && drag.ph.parentNode) drag.ph.remove();
     drag.ph = null;
+    setExtracting(false);
     dndRefreshRowAccepts();
   }
 
@@ -14453,6 +15183,27 @@
       get narrated() { return !!demoStep().narrated; },
       get shown() { return demoPainted === demoIndex && !tourCard.hidden; },
       seen: onboardingSeen,
+    },
+    /* DRA-ANKERET, lest av `tests/dnd-layout-anchor.test.js`: hvor mye board-et
+       er skjøvet, og hvordan, for å holde siktet i ro. */
+    get dragAnchor() {
+      return {
+        on: !!anchorRO,
+        pad: anchorPad, floor: anchorFloor, scroll: anchorScrollOwn,
+      };
+    },
+    /* Den LOGISKE dra-boksen, slik plasseringsreglene faktisk leser den
+       (`draggedRect`: pekeren minus grepet, uklemt og uten rotasjon/skala).
+       Testene rekonstruerte den før fra dnd-kits `intentRectangle`, og den
+       ligger inntil én frame bak — et sveip i 3 px steg målte da terskelen opp
+       til to steg feil. `band` er kortets egen kant, altså den andre siden av
+       den samme sammenligningen (`cardBand`). */
+    get dragBox() {
+      if (!drag.active) return null;
+      const d = draggedRect();
+      const c = drag.overCard;
+      return { top: d.top, bottom: d.bottom, height: d.height,
+        kort: c ? c.dataset.id : null, band: c ? cardBand(c) : null };
     },
     get lang() { return I18N.lang(); },
     setLanguage,

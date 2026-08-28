@@ -250,10 +250,10 @@ const VENDORED = {
   },
   smett: {
     what: 'dra-og-slipp-motoren (Smett over dnd-kit)',
-    version: '0.1.0',
+    version: '0.2.0',
     // Byte for byte det `npm ci && npm run build:iife` gir fra denne commit-en.
-    origin: 'peohol/smett@8a760a3 → npm run build:iife → dist/smett.iife.js',
-    sha384: 'sha384-JalZQamPKmQgg28sq4Q6q824wEsMNdnfwKuD1RyxAPVBeM8tkYFa2/di4bSBAvNC',
+    origin: 'peohol/smett@fa94e65 → npm run build:iife → dist/smett.iife.js',
+    sha384: 'sha384-QX+eobU8pHXcyy4ZbW2wRiHNRbauZ4gw5tXKSHl5uzhmvHtaYm2tE12GhRgHvhZk',
   },
 };
 
@@ -264,10 +264,10 @@ check('index.html laster begge bibliotekene fra lokale kopier i vendor/',
   vendorScripts.length === Object.keys(VENDORED).length, vendorScripts);
 // Smett MÅ ligge før app.js: den er et klassisk skript som definerer `Smett`,
 // og app.js leser den globalen mens den kjører.
-check('vendor/smett-0.1.0.js lastes FØR app.js',
-  html.indexOf('vendor/smett-0.1.0.js') > -1 &&
-  html.indexOf('vendor/smett-0.1.0.js') < html.indexOf('src="app.js"'),
-  { smett: html.indexOf('vendor/smett-0.1.0.js'), app: html.indexOf('src="app.js"') });
+check('vendor/smett-0.2.0.js lastes FØR app.js',
+  html.indexOf('vendor/smett-0.2.0.js') > -1 &&
+  html.indexOf('vendor/smett-0.2.0.js') < html.indexOf('src="app.js"'),
+  { smett: html.indexOf('vendor/smett-0.2.0.js'), app: html.indexOf('src="app.js"') });
 check('app.js er ikke gjort til et modulskript (det ville kjørt etter alle klassiske)',
   !/<script[^>]+type="module"/i.test(html),
   (html.match(/<script[^>]+type="module"[^>]*>/i) || [])[0]);

@@ -19,7 +19,9 @@
        aldri Vercels deploy-ID.
     6. Tester/dokumentasjon/SQL publiseres ikke — og heller ikke npm-,
        Capacitor- eller native tooling (`docs/mobilapp-plan.md`): mobilskallet
-       bygger PÅ `dist/`, det er ikke en del av den.
+       bygger PÅ `dist/`, det er ikke en del av den. `dist/` inneholder
+       NØYAKTIG kildefilene og ingenting annet — en fil som ligger igjen i
+       repo-roten deployes ellers stille.
     7. package.json uten `version` beholder `version.json.version = null`, slik
        at mobilprosjektets package.json ikke smugler inn SemVer-semantikk.
     8. vercel.json: no-store på /version.json, revalidering av HTML-en,
@@ -165,6 +167,19 @@ check('ingen tooling-filer noe sted i dist/ [' + (lekkasjer.join(', ') || 'ingen
 
 ['app.js', 'styles.css', 'icons.js', 'i18n.js', 'theme.js', 'config.js', 'update-check.js', 'favicon.svg', 'assets', 'vendor']
   .forEach((n) => check('publiserer ' + n, names.indexOf(n) > -1));
+
+/* Og INGENTING ELLERS. Nektelistene over fanger bare det de nevner ved navn,
+   mens `copyDir` kopierer ALT annet på toppnivå som ikke står i SKIP. En fil
+   som blir liggende igjen i repo-roten — et skjermbilde, en notatfil, en dump
+   — deployes dermed til huskis.no uten at noe sier fra. Fasiten under er hele
+   innholdet i en produksjonsbuild; testmodusens to filer kommer kun med i en
+   preview-deploy (`security-headers`, `csp-enforced`). Legger du til en ekte
+   kildefil, hører den hjemme her. */
+const FASIT = ['index.html', 'version.json', 'favicon.svg', 'app.js', 'styles.css',
+  'icons.js', 'i18n.js', 'theme.js', 'config.js', 'update-check.js', 'assets', 'vendor'];
+const uventet = names.filter((n) => FASIT.indexOf(n) === -1);
+check('publiserer ingenting utenom kildekoden [' + (uventet.join(', ') || 'ingen') + ']',
+  uventet.length === 0);
 
 // 7–8) Cache-headerne + install-steget.
 const vc = JSON.parse(fs.readFileSync(path.join(ROOT, 'vercel.json'), 'utf8'));

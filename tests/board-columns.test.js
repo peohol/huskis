@@ -256,11 +256,12 @@ async function lift(p, sel) {
   }
 
   /* ============ 6) Ingen flimring mot en KOLLAPSET liste under kilden ============
-     Modusbyttet (ny-liste-placeholderen ut av kolonnen, reorder-placeholderen inn
-     i lista) rykker alt under den gamle plassen OPPOVER. En kollapset liste har en
-     kort sone, så hoppet rakk å legge sonen forbi objektet: det falt ut igjen,
+     Modusbyttet rykket en gang alt under den gamle plassen OPPOVER: den
+     kort-formede ny-liste-placeholderen forlot kolonnen. En kollapset liste har
+     en kort sone, så hoppet rakk å legge sonen forbi objektet: det falt ut igjen,
      placeholderen kom tilbake, lista ble dyttet ned … én runde per piksel.
-     `noteOverShift`/`drag.overGrace` lar stickiness-en holde lista gjennom hoppet. */
+     Stripa tar ingen plass lenger, så hoppet finnes ikke; dette er vakten om
+     noen skulle gi den høyde igjen. */
   {
     const p = await b.newPage({ viewport: { width: 1400, height: 760 } });
     const errs = []; p.on('pageerror', (e) => errs.push(e.message));
@@ -293,11 +294,14 @@ async function lift(p, sel) {
     await p.close();
   }
 
-  /* ============ 7) Slarken forbrukes — ut-terskelen er den dokumenterte ============
-     `drag.overGrace` er kompensasjon for ETT layout-hopp (punkt 6), ikke en varig
-     utvidelse av lista. Blir den liggende, må man dra en placeholderhøyde EKSTRA
-     for å komme ut igjen av en liste man gikk inn i underveis — og et slipp rett
-     under lista havner i den i stedet for i en ny liste. */
+  /* ============ 7) Ut-terskelen er den samme linja, også etter en tur innom ============
+     Går man INN i en liste underveis og videre ut under den, skal ut-terskelen
+     være nøyaktig den dokumenterte: nedre 1/3 forbi kortkanten. Den var en gang
+     noe annet — ny-liste-placeholderen skjøv kortene når den kom og gikk, og
+     slarken som kompenserte for hoppet ble liggende, så man måtte dra en
+     placeholderhøyde EKSTRA for å komme ut igjen. Stripa tar ingen plass lenger,
+     så hoppet finnes ikke og slarken er borte; det denne sjekker er at linja da
+     er den samme inn og ut. */
   {
     const p = await b.newPage({ viewport: { width: 1400, height: 900 } });
     const errs = []; p.on('pageerror', (e) => errs.push(e.message));
@@ -306,32 +310,34 @@ async function lift(p, sel) {
     const z = await lift(p, '.card[data-id="card-0"] .item');
     // Dra nedover gjennom board-lufta, INN i L2, og videre ut under den.
     let entered = null, left = null, prev = null;
-    for (let i = 0; i < 200; i++) {
+    // 240, ikke 200: kassen følger objektet (`retargetDragTrash`), så L2 blir en
+    // knapperad høyere i det raden kommer inn i den — og ut-linja flytter seg
+    // like langt ned. Det er ikke slark: kassen ER en del av kortet, og
+    // regnestykket under måler mot kortets bunn slik den står NÅ.
+    for (let i = 0; i < 240; i++) {
       await p.mouse.move(z.cx, z.cy + 8 + i * 3);
       const s = await p.evaluate(() => {
         const d = document.querySelector('#board .item[data-dnd-dragging]');
         const ph = document.querySelector('#board [data-dnd-placeholder]');
-        const ar = document.querySelector('.card[data-id="card-1"] .add-item-row');
-        // Den LOGISKE dra-boksen, som treffdeteksjonen bruker: dnd-kits uklemte
-        // intensjonsboks, med størrelsen byttet mot objektets egen layout-boks
-        // (det malte er skalert, og `getBoundingClientRect` ville dessuten gitt
-        // den ROTERTE omslutningsboksen). Samme regnestykke som `dndSyncIntent`.
-        const op = window.__huskis.boardRowBoard.manager.dragOperation;
-        const ir = window.Smett.intentRectangle(op);
-        const bb = ir && (ir.boundingRectangle || ir);
-        const h = d.offsetHeight;
-        const top = bb ? bb.top + bb.height / 2 - h / 2 : NaN;
+        const ar = document.querySelector('.card[data-id="card-1"]');
+        /* Den LOGISKE dra-boksen, som treffdeteksjonen bruker — hentet fra
+           appen selv (`__huskis.dragBox` → `draggedRect`: pekeren minus grepet,
+           uklemt og uten rotasjon/skala). Rekonstruert fra dnd-kits
+           `intentRectangle` lå den inntil én frame bak, og et sveip i 3 px steg
+           målte da terskelen opp til to steg feil. */
+        const db = window.__huskis.dragBox;
+        const h = db ? db.height : d.offsetHeight;
+        const top = db ? db.top : NaN;
         const r = ar && ar.getBoundingClientRect();
         return {
           mode: document.querySelector('.new-list-placeholder') ? 'extract' : (ph ? 'reorder' : '-'),
           phCard: ph && ph.closest('.card') ? ph.closest('.card').dataset.id : null,
           botThird: top + h - h / 3,
-          addMid: r ? (r.top + r.bottom) / 2 : null,
+          addMid: r ? r.bottom : null,
         };
       });
       if (!entered && s.mode === 'reorder' && s.phCard === 'card-1') entered = s;
-      // Geometrien MÅ leses fra prøven FØR overgangen: i extract-modus har
-      // reorder-placeholderen alt forlatt lista, så knapperaden har rykket opp.
+      // Geometrien leses fra prøven FØR overgangen, som terskelen ble målt mot.
       if (entered && s.mode === 'extract') { left = { botThird: s.botThird, addMid: prev.addMid }; break; }
       prev = s;
     }
@@ -340,7 +346,7 @@ async function lift(p, sel) {
     log('7 objektet gikk inn i L2 og ut igjen', !!entered && !!left);
     if (left) {
       const over = left.botThird - left.addMid;
-      log('7 ut-terskelen er nedre 1/3 forbi knapperadens midtlinje (slarken forbrukt)',
+      log('7 ut-terskelen er nedre 1/3 forbi kortkanten, også etter en tur innom',
         over >= 0 && over <= 12, 'forbi=' + over.toFixed(1) + ' px');
     }
     log('7 ingen JS-feil', errs.length === 0, errs.join(' | '));

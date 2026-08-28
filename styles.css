@@ -309,15 +309,17 @@
      ligger på board-bakgrunnen ELLER inne i et kort, og må være synlig begge
      steder: en mørkning på en mørk board-bakgrunn er ingenting (1,03:1). */
   --scrim: rgba(0, 0, 0, 0.12);
+  /* Rødvasken over det LØFTEDE objektet når et slipp ville slettet det. Den
+     males OVER dra-flaten (som `background-image`), så gjennomsikten og
+     bakgrunnssløret står urørt — det er bare fargen som skifter. Egen fra
+     --danger-soft: den er en flate under mørk tekst på hvitt, denne er et lag
+     over en halvgjennomsiktig flate og må bære signalet alene. */
+  --drag-danger: rgba(192, 56, 77, 0.45);
   /* Avkryssingsboksens kant ved hover. Egen fra --primary fordi hvilekanten
      (--card-accent) regnes ut fra kortfargen og treffer 3:1 — en hover som
      bytter til en fast farge må klare det samme, ellers blir kontrollen
      UTYDELIGERE i det øyeblikket man sikter på den. */
   --check-hover: #668866;
-  /* Den stiplede kanten som viser at søppelkassen er et slippmål. Egen fra
-     --danger: kanten tegnes rett på en kortfarge, og den mørke rødfargen og de
-     mørke kortfargene ligger for nær hverandre. */
-  --danger-edge: #c0384d;
 }
 
 /* ============================================================
@@ -422,18 +424,16 @@
      Innover-skyggen blir stående svart i begge drakter; det er den som gir
      «hull», og et hull er mørkt uansett drakt. */
   --scrim: rgba(255, 255, 255, 0.13);
+  /* Speilingen av --drag-danger: den mørke drakten løfter i stedet for å
+     mørkne, så vasken er den LYSE rødfargen — og svakere, fordi den ligger på
+     en mørk flate der lys tar mer plass. */
+  --drag-danger: rgba(240, 143, 160, 0.34);
   /* --primary mot den mørke platen (nå en color-mix() mot palettfargen, se
      `.card` lenger ned) klarer så vidt 3:1 i verste hjørne — men med langt
      mindre margin (min 3,13:1) enn dette dedikerte tokenet gir (min 5,94:1),
      og en hover-kant skal ikke bli utydeligere enn hvilekanten i det øyeblikket
      man sikter på den. tests/a11y-contrast.test.js regner marginen ut på nytt. */
   --check-hover: #8fbf8f;
-  /* --danger mot de mørke kortfargene bunner ut på 1,03:1 (mot #566b81). Den
-     lyse rødfargen gir 1,76:1 — over den lyse drakts eget gulv på 1,52:1.
-     Ingen av draktene når 3:1 her, og det har de aldri gjort: kanten er
-     stiplet, pulserer og kommer sammen med at kassen vokser. */
-  --danger-edge: #f08fa0;
-
   /* Skygger bærer ikke dybde på en mørk flate slik de gjør på en lys — de må
      være dypere for i det hele tatt å synes. */
   --shadow-sm: 0 2px 6px rgba(0, 0, 0, 0.4);
@@ -518,8 +518,8 @@
      nærmeste sikre tilnærmingen — samme verdi appen ellers bruker som
      «aksentfargen» til nettopp dette kortet i mørk drakt. Mot korthodet er den
      under 3:1 i verste hjørne, men det er en dekorativ stripe uten tekst på
-     seg (samme presedens som --danger-edge/--scrim over: paritet med
-     intensjonen, ikke et nytt gulv). `--card-accent` SELV er urørt av dette —
+     seg (samme presedens som --scrim over: paritet med intensjonen, ikke et
+     nytt gulv). `--card-accent` SELV er urørt av dette —
      den bærer 3:1-kontrakten rundt avkryssingsboksen og skal ikke flyttes. */
   --card-stripe: var(--card-accent);
 
@@ -1872,25 +1872,38 @@ body {
   margin: 0 0 var(--board-gap);
   border-radius: var(--radius);
 }
-/* «Ny liste»-placeholderen (kategori-/listepunkt-ekstrahering): en kort-formet
-   slot med et ＋-ikon i midten som signaliserer at slipp oppretter en NY liste.
-   Stiplet kant + hvitt ＋ på den mørknede flaten. */
+/* «Ny liste»-placeholderen (kategori-/listepunkt-ekstrahering): en flat stripe
+   som SVEVER i gapet mellom to kort.
+
+   Den var en kort-formet slot med et ＋ i — 72+ px som skjøv kortene fra
+   hverandre. Det gjorde hvert modusbytte til et layout-hopp: dro man videre ned
+   i lista under, forsvant stripa, kortet smatt oppover, og raden havnet under
+   sonen som nettopp flyttet seg.
+
+   Derfor tar den ingen plass i flyten (`height: 0`, ingen marg): gapet mellom
+   kortene er `--board-gap` med og uten den. Stripa males av `::before`, løftet
+   opp så den ligger MIDT i det gapet. Ingen ＋: den er et sted, ikke en knapp,
+   og på 10 px er det ikke plass til et ikon som betyr noe. */
 .new-list-placeholder {
-  display: grid;
-  place-items: center;
-  box-shadow: inset 0 2px 10px rgba(0, 0, 0, 0.22),
+  height: 0;
+  margin: 0;
+  position: relative;
+  background: none;
+  box-shadow: none;
+  overflow: visible;
+}
+.new-list-placeholder::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  /* Midt i gapet over: halve gapet pluss halve stripa. */
+  top: calc((var(--board-gap) + 10px) / -2);
+  height: 10px;
+  border-radius: 5px;
+  background: var(--scrim);
+  box-shadow: inset 0 1px 4px rgba(0, 0, 0, 0.22),
               inset 0 0 0 2px rgba(255, 255, 255, 0.55);
-}
-.new-list-plus {
-  display: grid;
-  place-items: center;
-}
-.new-list-plus .icon {
-  width: 40px;
-  height: 40px;
-  stroke: #fff;
-  stroke-width: 2;
-  opacity: 0.9;
 }
 body.is-dragging { cursor: grabbing; user-select: none; -webkit-user-select: none; }
 body.is-dragging * { cursor: grabbing !important; }
@@ -2146,17 +2159,33 @@ body.is-dragging * { cursor: grabbing !important; }
    `width`, `height`, `transform`, `translate`). Vår egen løfte-effekt må derfor
    uttrykkes i egenskaper dnd-kit IKKE skriver: `scale` og `rotate` som EGNE
    egenskaper, aldri via `transform`. Rotasjonen er dynamisk og settes fra JS
-   (dndPaintRotation); skalaen står her. */
+   (dndPaintRotation); skalaen står her.
+
+   ALT SOM DRAS ER HALVGJENNOMSIKTIG. Det løftede objektet ligger oppå det man
+   sikter mot, og det man sikter mot er hele svaret på hvor slippet lander:
+   hullet, ny-liste-stripa, skillelinja, søppelkassen. Stripa er 10 px og
+   ligger mellom to kort — akkurat der fingeren, og dermed objektet, er. Flaten
+   beholder derfor sin EGEN farge (kortets palettfarge, radens plate) og bare
+   slipper lys gjennom; `backdrop-filter` gir det et tynt slør, så teksten på
+   objektet ikke leses rett mot mønsteret under.
+
+   Dette er Huskis' politikk, ikke Smetts: Smett sier hvor et slipp lander, ikke
+   hvordan det som dras ser ut. */
 .board .card[data-dnd-dragging] {
   scale: 1.02;
   box-shadow: var(--shadow-lg);
+  background: color-mix(in srgb, var(--card-bg) 58%, transparent);
+  -webkit-backdrop-filter: blur(2px);
+  backdrop-filter: blur(2px);
   cursor: grabbing;
 }
 .board .item[data-dnd-dragging],
 .board .category[data-dnd-dragging] {
   scale: 1.03;
   box-shadow: var(--shadow-lg);
-  background: var(--surface);
+  background: color-mix(in srgb, var(--surface) 58%, transparent);
+  -webkit-backdrop-filter: blur(2px);
+  backdrop-filter: blur(2px);
   list-style: none;
   cursor: grabbing;
 }
@@ -2198,12 +2227,20 @@ body.is-dragging * { cursor: grabbing !important; }
 .board [data-dnd-dragging].sep-above::before,
 .board [data-dnd-dragging].sep-below::after { content: none; }
 
-/* Sikter man på søppelkassen, gjøres det løftede objektet gjennomskinnelig så
-   kassen (med sin `.drop-target`-markering) synes gjennom det. `to-trash`
-   settes fra JS (`setDragTrashTarget`). */
-.board [data-dnd-dragging].to-trash { opacity: 0.45; }
-/* Lista sikter på 📁-breadcrumben (flytt til en annen mappe): samme grep, så
-   knappen med sin `.drop-target`-markering synes gjennom det løftede kortet. */
+/* Sikter man på søppelkassen, skifter det løftede objektet BAKGRUNNSFARGE til
+   rødt: et slipp her sletter. Gjennomsikten og sløret er allerede signalet for
+   «dette dras», så tilstanden kan ikke uttrykkes med mer gjennomsikt — da hadde
+   de to lest likt. Vasken males som `background-image`, altså OVER
+   `background-color`, så flaten fortsatt slipper kassen (med sin
+   `.drop-target`-markering) gjennom. `to-trash` settes fra JS
+   (`setDragTrashTarget`). */
+.board [data-dnd-dragging].to-trash {
+  background-image: linear-gradient(var(--drag-danger), var(--drag-danger));
+}
+/* Lista sikter på 📁-breadcrumben (flytt til en annen mappe). Den ENESTE
+   dra-tilstanden som fortsatt tones ut i stedet for å skifte farge: en flytting
+   har ingen egen farge i paletten slik slettingen har rødt, og signalet den
+   deler med er breadcrumbens egen `.drop-target`-markering. */
 .board [data-dnd-dragging].to-group { opacity: 0.45; }
 
 /* Klonen er «hullet» objektet kom fra: samme uttrykk som `.card-placeholder`
@@ -2228,6 +2265,37 @@ body.is-dragging * { cursor: grabbing !important; }
    lav rad fikk et hull dobbelt så høyt som seg selv). */
 .board [data-dnd-placeholder] { rotate: none !important; scale: none !important; }
 .board [data-dnd-placeholder] > * { visibility: hidden; }
+/* HULLET SOM IKKE LOVER NOE: verken maling eller plass.
+
+   Et malt hull sier «her lander raden». Tre ganger sier det ikke det:
+   i ekstraheringsmodus (ny-liste-stripa er plassen raden skal til), når pekeren
+   står på en kasse (slippet sletter), og når klonen ligger igjen i en ANNEN
+   liste enn den slippet gjelder. Da males den ikke — og LISTA STÅR HELLER IKKE
+   ÅPEN: en rad uten en plassholder i lover en plassering som ikke finnes.
+
+   Plassen tas av en negativ `margin-bottom` på klonen. Aldri `display: none`
+   eller `height: 0`: klonens boks ER dra-objektets geometri, og dnd-kit speiler
+   mål, plassering og viewport-klemme fra den (`display: none` krympet
+   dra-objektet til 12×12 px; frosne mål slapp det 269 px utenfor skjermkanten).
+
+   Beløpet kommer som en ARVET variabel fra containeren, ikke som en inline-stil
+   på klonen: klonen er en kopi av raden som dras, og dnd-kit bygger den om fra
+   originalens `style`-attributt — det samme attributtet vi maler rotasjonen i
+   (se regelen over). En inline `margin-bottom` ble vasket bort med den.
+   Containeren er VÅR node, og klonen arver. Se `syncHoleSpace` i app.js. */
+body.is-hole-gone .board [data-dnd-placeholder] { visibility: hidden; }
+/* Marginene på et hull som ikke lover noe er VÅRE. `!important` av samme grunn
+   som for det løftede objektet lenger opp: kategoriens skillemarger står i en
+   regel med tre klasser (`.items-container.seps-managed > .sep-above`), og 25 px
+   tom marg er nettopp den åpne raden komprimeringen skal fjerne. Linja i margen
+   males uansett ikke — hullet er `visibility: hidden`. */
+body.is-hole-gone [data-dnd-placeholder] {
+  margin-top: 0 !important;
+  margin-bottom: var(--hole-shrink, 0px) !important;
+}
+/* Pekeren på kassen: der SLETTER slippet, så ny-liste-stripa skal ikke love en
+   ny liste. Stripa tar ingen plass, så her er det bare malingen. */
+body.is-over-trash .new-list-placeholder { visibility: hidden; }
 /* Kategoriens hvile-linjer hører til kategorien, ikke til hullet — MEN under et
    raddrag ER klonen «raden som kommer», og da er det den som skal bære linja
    (`applyDragSeparators` gir den `.sep-above`/`.sep-below` som enhver annen
@@ -3865,14 +3933,34 @@ body.no-auth .corner-controls { display: none; }
 
 /* ---------------- Slett ved å dra objektet i søppelkassen ----------------
    Kassen for nivået man drar på vises fram i det draget starter (`.drag-trash`)
-   og lyser opp når man sikter på den (`.drop-target`, samme markering som
-   📁-breadcrumben). Det løftede objektet blir gjennomskinnelig så kassen synes
-   gjennom det. Se app.js («SLETT VED Å DRA OBJEKTET I SØPPELKASSEN»). */
-.trashcan.drag-trash {
-  outline: 2px dashed var(--danger-edge);
-  outline-offset: 3px;
-  animation: trash-armed 1.4s ease-in-out infinite;
+   og lyser opp når man sikter på den (`.drop-target`), og det løftede objektet
+   skifter til rød bakgrunn. Se app.js («SLETT VED Å DRA OBJEKTET I
+   SØPPELKASSEN»).
+
+   Markeringen er flate + skygge, ikke en kantlinje: 📁-breadcrumben beholder
+   sin stiplede ring, men en søppelkasse har ingen.
+
+   `.drag-trash` bærer ingen egen maling. Kassene i et kort viser seg fram ved å
+   strekke seg over radbredden (rett under), og alle fire ved at de i det hele
+   tatt DUKKER OPP — de er skjult når de er tomme. Siktemarkeringen er
+   `.drop-target` lenger ned. */
+/* Kassene som ligger i et KORT — listepunkt-kassen nederst i lista, mappe-kassen
+   nederst i området — strekker seg over hele radbredden mens draget står på.
+   Grunnen er fingeren: knappen er ellers ~48 px bred, den forsvinner under
+   tuppen, og på berøring finnes ingen peker som viser hvor man egentlig sikter.
+   Bare BREDDEN endres. Høyden står, altså står kortets boks, og
+   ekstraher-terskelen (`cardBand` = kortets egen kant) rører seg ikke.
+   De to andre kassene — topplinjas og nav-modalens bunnrad — deler rad med
+   ＋-knappen og har ingen ledig bredde å ta av. */
+.item-trash .trashcan.drag-trash {
+  flex: 1 1 auto;
+  justify-content: center;
 }
+/* Den radbrede kassen vokser ikke i tillegg: 12 % av den stikker utenfor kortet,
+   som klipper (`overflow: hidden`). Siktemarkeringen bæres av flaten, skyggen
+   og rødvasken på det som dras. */
+.item-trash .trashcan.drag-trash.drop-target { transform: none; }
+
 /* En kasse som ble AVDEKKET av draget er per definisjon tom, og «0» der leser
    som et antall i stedet for et mål. Attributtet settes av armDragTrash — på
    knappen selv (topplinja) eller på wrapperen rundt den (kort/områdekort). */
@@ -3880,17 +3968,10 @@ body.no-auth .corner-controls { display: none; }
 [data-drag-revealed] .trashcan.drag-trash .trashcan-count { display: none; }
 .trashcan.drag-trash.drop-target {
   background: var(--danger-soft);
-  outline: 2.5px dashed var(--danger-edge);
   box-shadow: 0 4px 12px rgba(180, 60, 60, 0.35);
   transform: scale(1.12);
-  animation: none;
-}
-@keyframes trash-armed {
-  0%, 100% { outline-offset: 3px; }
-  50% { outline-offset: 6px; }
 }
 @media (prefers-reduced-motion: reduce) {
-  .trashcan.drag-trash { animation: none; }
   .trashcan.drag-trash.drop-target { transform: none; }
 }
 

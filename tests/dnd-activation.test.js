@@ -11,6 +11,11 @@
      ekte input og pekeren har likevel aldri vært innom underveis. Det er
      nettopp fraværet av den siste bevegelsen som gjør at bare slippets egne
      koordinater kan gi riktig plassering.
+  5. En RENDRING MENS MOTOREN AVSLUTTER ET SLIPP dreper ikke raden. Rendringen
+     bytter ut hver eneste node, og synken mot dnd-kits register lar motoren
+     være i fred når den ikke er i ro — men da er synken UTSATT, ikke forkastet.
+     Uten det ble raden liggende uløftbar helt til noe annet tilfeldigvis
+     rendret på nytt (i praksis: neste lagring).
 
   Gestene er EKTE input (`tests/dnd-gestures.js`).
 
@@ -276,6 +281,81 @@ const log = (n, ok, x = '') => { results.push(ok); console.log((ok ? 'PASS' : 'F
       uIds.join(',') + ' → ' + uAfter.join(','));
 
     log('4 ' + M.n + ': ingen JS-feil', errs.length === 0, errs.join(' | '));
+    await p.close();
+  }
+
+  /* ===== 5) En rendring MENS slippet avsluttes dreper ikke raden ===== */
+  {
+    const p = await b.newPage({ viewport: { width: 1200, height: 900 }, hasTouch: true });
+    const errs = []; p.on('pageerror', (e) => errs.push(e.message));
+    await register(p); await seed(p, [['A', 4]]);
+
+    // Løft og slipp på samme sted. I det motoren går inn i `dropped` — altså
+    // mens slippanimasjonen kjører — rendrer vi board-et på nytt. Det er
+    // nøyaktig det svaret fra skyen gjør når lagringen fra slippet lander:
+    // hver node byttes ut mens dnd-kit ennå ikke er i ro.
+    const at = await centerOf(p, '.item[data-id="it-A-1"]');
+    await G.liftMouse(p, { x: at.x, y: at.y });
+
+    // Vakten armes FØR slippet og rendrer hver frame så lenge motoren står i
+    // `dropped`. Én rendring holder ikke som prøve: treffer den den FØRSTE
+    // frame-en, rekker sikkerhetsnettet etter slippet
+    // (`boardRelayoutAfterRowDrop`) å synke når motoren blir i ro like etter,
+    // og hullet lukker seg av seg selv. Det nettet kjører ÉN gang. Feilen er
+    // rendringen som kommer ETTER den — og den fanges bare hvis vi holder på
+    // ut animasjonen.
+    await p.evaluate(() => {
+      const H = window.__huskis;
+      const m = H.boardRowBoard.manager;
+      const t0 = performance.now();
+      window.__rendringer = 0;
+      const tick = () => {
+        if (m.dragOperation.status.current === 'dropped') {
+          H.render();
+          window.__rendringer++;
+        } else if (window.__rendringer) {
+          return;                                   // animasjonen er over
+        } else if (performance.now() - t0 > 3000) {
+          return;                                   // sikkerhetsnett
+        }
+        requestAnimationFrame(tick);
+      };
+      requestAnimationFrame(tick);
+    });
+    await p.mouse.up();
+    await p.waitForFunction(() => window.__rendringer > 0, null, { timeout: 4000, polling: 16 })
+      .catch(() => {});
+    const rendringer = await p.evaluate(() => window.__rendringer);
+    log('5 board-et ble rendret mens motoren fortsatt sto i «dropped»',
+      rendringer > 0, 'rendringer=' + rendringer);
+
+    // Vent til motoren er i ro OG den utsatte synken har fått kjøre.
+    await p.waitForFunction(
+      () => window.__huskis.boardRowBoard.manager.dragOperation.status.idle,
+      null, { timeout: 4000, polling: 30 });
+    await p.waitForTimeout(200);
+
+    const registrert = await p.evaluate(() => {
+      const el = document.querySelector('.item[data-id="it-A-1"]');
+      const dr = [...window.__huskis.boardRowBoard.manager.registry.draggables];
+      return { reg: dr.some((d) => d.element === el), n: dr.length };
+    });
+    log('5 raden står i dnd-kits register etter rendringen',
+      registrert.reg === true, JSON.stringify(registrert));
+
+    // Og det som teller: den lar seg faktisk løfte igjen.
+    const at2 = await centerOf(p, '.item[data-id="it-A-1"]');
+    await p.mouse.move(at2.x, at2.y);
+    await p.mouse.down();
+    await p.mouse.move(at2.x, at2.y + G.NUDGE, { steps: 3 });
+    await p.waitForTimeout(90);
+    const løftet = await G.liftedCount(p);
+    await p.mouse.up();
+    await p.waitForTimeout(300);
+    log('5 raden lar seg løfte igjen uten at noe annet har rendret',
+      løftet === 1, 'dragging=' + løftet);
+
+    log('5 ingen JS-feil', errs.length === 0, errs.join(' | '));
     await p.close();
   }
 

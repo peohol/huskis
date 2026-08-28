@@ -10,7 +10,7 @@ dokumentet:
   drop-animasjon og opprydding kommer fra
   [dnd-kit](https://github.com/clauderic/dnd-kit) gjennom
   [Smett](https://github.com/peohol/smett), som ligger i repoet som en
-  innsjekket, låst kopi (`vendor/smett-0.1.0.js`, den globale `Smett` — se
+  innsjekket, låst kopi (`vendor/smett-0.2.0.js`, den globale `Smett` — se
   [`sikkerhetsheadere.md`](sikkerhetsheadere.md)).
 - **Betydningen er Huskis'.** Hva et slipp GJØR — ny `pos`, hvilken container
   raden havner i, hvem som får lov, hva som slettes, hva som opprettes — ligger
@@ -172,15 +172,29 @@ lander riktig, se neste avsnitt.
 ### Forhåndsvisningen når ikke alltid fram; slippet gjør det
 
 dnd-kits optimistiske sortering flytter raden UNDERVEIS bare når den overlapper
-en RAD. Er det ingen rad å overlappe — en tom liste, stripen over første rad,
-stripen under siste, en kategori som er for høy til at et listepunkt dekker en
-femtedel av den — er CONTAINEREN selv slippmålet, og plasseringen avgjøres først
-ved SLIPPET (Smetts `AuthoritativeDrop` → `insertByPoint`, som er punktbasert).
-Slippet lander riktig; det er bare hullet som ikke rekker å flytte seg først.
+en RAD. Er det ingen rad å overlappe — stripen over første rad, stripen under
+siste, en kategori som er for høy til at et listepunkt dekker en femtedel av
+den — er CONTAINEREN selv slippmålet, og plasseringen avgjøres først ved SLIPPET
+(Smetts `AuthoritativeDrop` → `insertByPoint`, som er punktbasert). Slippet
+lander riktig; det er bare hullet som ikke rekker å flytte seg først.
 
 Det er derfor kollisjonsdetektorene under finnes: de gjør containeren til et
-svar, slik at slippet har et mål å lande i. Å lukke forskjellen helt hører hjemme
-i Smett — en `settle` også på `dragover`, ikke bare ved slippet.
+svar, slik at slippet har et mål å lande i.
+
+**Unntaket er en TOM container** — en tom liste, en tom kategori. Der finnes det
+ingen rad å overlappe i det hele tatt, så hullet ville aldri kommet etter, og
+draget ga ingen tilbakemelding før man slapp. Smett kjører derfor den samme
+`insertByPoint` underveis når slippmålet er en tom container, slik at hullet
+ligger der før man slipper.
+
+Og bare der. En container som fortsatt har rader er dnd-kits å sortere i, også i
+de rammene der en høy nabo lar containeren vinne runden. To regler på samme
+liste er verre enn én: `insertByPoint` leser naboenes sentre i en layout hullet
+ennå ikke er en del av, så flyttingen den gjør skyver hvert eneste senter den
+nettopp leste — og dnd-kits overlapp-regel fører så raden videre forbi det
+punktet ba om. MÅLT: et sikte 18 px under en nabos senter havnet en hel rad OVER
+den. Slippet er autoritativt der, og det måles én gang, når ingenting lenger
+flytter seg under det (`peohol/smett#9`).
 
 **Sluttplasseringen er autoritativ.** Den løpende plasseringen er
 overlapp-basert, og den SISTE bevegelsen før et slipp kan være koalescert bort
@@ -277,26 +291,36 @@ slipper den igjen.
 ## Politikken som måtte uttrykkes som kollisjonsdetektorer
 
 dnd-kits containere treffes normalt av `pointerIntersection` mot sin egen boks.
-Huskis' regler er ikke boks-regler, så containerne har egne detektorer. To ting
+Huskis' regler er ikke boks-regler, så containerne har egne detektorer. Tre ting
 om mekanikken: en `collisionPriority` på ENTITETEN overstyrer prioriteten
 detektoren svarte, så en droppable som trenger to prioriteter får
-`collisionPriority = null` og bestemmer selv; og radene inne i en container er
+`collisionPriority = null` og bestemmer selv; radene inne i en container er
 dnd-kits egne (hysterese-detektoren, Normal prioritet), så containeren er bare
-fallbacken under dem.
+fallbacken under dem; og detektorene settes på nytt for hver bevegelse
+(`dndTuneRowCollisions` fra `dndRowPolicy`), ikke bare ved løft. Det siste er
+Smetts: den skriver detektoren på hver RAD ved hver `sync()` — en rad som holder
+en container av sitt eget (altså kategorien) får Smetts egen vertsdetektor — og
+den synker midt i gesten når den forhåndsviser et slipp i en tom container.
+Containernes egne detektorer og prioriteter rører den ikke.
+
+Smetts vertsdetektor sier omtrent det samme som vår, men ikke det samme: den lar
+en kategori som er KOLLAPSET konkurrere som en vanlig nabo, og den regner
+overskriften som en del av kategori-raden. Begge deler er Huskis-regler den ikke
+kan kjenne (peek, og «overskriften er en vei INN»), så vår detektor er den som
+skal stå der.
 
 - **KORTET velger container, ikke pekeren** (`dndPickRowContainer`,
   `dndLevel1Collision`). Først «hvilket kort er objektet i?» — avgjort av
-  objektets egen boks mot kortets innholdssone (1/3-tersklene under), ikke av
+  objektets egen boks mot kortets kant (1/3-tersklene under), ikke av
   pekeren — og så, inne i det kortet, velger pekeren mellom nivå 1 og en
   kategoris hylle. Et sikte rett under siste rad, på ＋-knapperaden, er innenfor
   kortet men utenfor `.items-container`; med ren boks-testing traff det
   ingenting, og raden ble liggende igjen.
 
-  Svaret regnes ut ÉN gang per pekerbevegelse. Det er ikke en optimalisering:
-  `dragOverCard` har hukommelse, og slarken `noteOverShift` gir gjennom ett
-  layout-hopp forbrukes av det FØRSTE kallet som finner objektet inne i sonen på
-  egen hånd. Regnet detektorene det ut selv, ville bevegelsen og kollisjonen
-  svart på hver sin layout og skiftet på å ha rett én gang per frame.
+  Svaret regnes ut ÉN gang per pekerbevegelse: `dragOverCard` har hukommelse
+  (`drag.overCard`), og et svar regnet på nytt midt i en frame ville lest en
+  annen layout enn den bevegelsen svarte på — da skifter bevegelsen og
+  kollisjonen på å ha rett, én gang per frame.
 
 - **Kategoriens OVERSKRIFT er en vei INN i kategorien** (`dndShelfCollision`).
   Pekeren inne i en kategori — overskriften like mye som hylla — betyr «legg
@@ -385,93 +409,155 @@ Grensen mellom lister avgjøres av det LØFTEDE OBJEKTETS boks (`draggedRect()`,
 uklemt), ikke av pekeren. Pekeren sitter der man tok tak, så et pekerbasert svar
 gjorde ny-liste-placeholderen mye lettere å få frem oppover enn nedover.
 
-Referanselinjene er listas **innholdssone** — fra **midt i listetittelen**
-(korthodet) til **midt i +-knapperaden** (`.add-item-row`) — de SAMME linjene inn
-og ut. Kortets ytterkanter brukes ikke: tittelraden og knapperaden er rammen rundt
-innholdet, og halve rammeraden regnes som lista (se slark-punktet under). «1/3 har
-passert» = 1/3-linja ligger på andre siden av referanselinja:
+Referanselinjen er **kortets egen kant** — de SAMME linjene inn og ut. «1/3 har
+passert» = 1/3-linja ligger på andre siden av kanten:
 
-| Bevegelse | Placeholderen skifter når … |
+| Bevegelse | Modusen skifter når … |
 |---|---|
-| INN, nedover | objektets **øvre 1/3** har passert **tittelradens midtlinje** |
-| UT, oppover | objektets **øvre 1/3** har passert **tittelradens midtlinje** |
-| INN, oppover | objektets **nedre 1/3** har passert **knapperadens midtlinje** |
-| UT, nedover | objektets **nedre 1/3** har passert **knapperadens midtlinje** |
+| INN, nedover | objektets **øvre 1/3** har passert kortets **overkant** |
+| UT, oppover | objektets **øvre 1/3** har passert kortets **overkant** |
+| INN, oppover | objektets **nedre 1/3** har passert kortets **underkant** |
+| UT, nedover | objektets **nedre 1/3** har passert kortets **underkant** |
 
 Det er altså én regel: **objektet er i lista når dets midtre 1/3 ligger innenfor
-sonen** (`cardBand` + `inCard` i `dragOverCard`). Reglene er rent loddrette —
-**flerkolonne** (desktop) håndteres av pekerens x. Innenfor en liste er det
-fortsatt PEKEREN som velger rad/kategori. Valget henger igjen i `drag.overCard`;
-er flere kort aktuelle, vinner det man alt er i.
+kortet** (`cardBand` + `inCard` i `dragOverCard`). Sagt motsatt: raden forlater
+lista først når en tredjedel av den stikker utenfor kanten. Reglene er rent
+loddrette — **flerkolonne** (desktop) håndteres av pekerens x. Innenfor en liste
+er det fortsatt PEKEREN som velger rad/kategori. Valget henger igjen i
+`drag.overCard`; er flere kort aktuelle, vinner det man alt er i.
 
-Ingen dødbånd mellom inn og ut — hysteresen kommer av LAYOUTEN: idet man går inn,
-forsvinner ny-liste-placeholderen fra board-et og raden sorteres inn i lista
-(sonen vokser med en radhøyde), og motsatt når man går ut. Begge deler flytter
-geometrien i «bli der du er»-retning, så en monoton bevegelse gir nøyaktig
-`reorder(A)` → `extract` → `reorder(B)`.
+**Sonen var en gang INNHOLDSSONEN** — fra midt i listetittelen til midt i
+＋-knapperaden — med rammeradene regnet som «ikke innhold» og halve rammeraden som
+slark. Det gjorde at raden var utenfor lista mens den fortsatt lå tydelig oppå
+den: allerede over knapperaden, og et godt stykke før søppelkassen, sto
+ny-liste-stripa og lovet en ny liste. Og kassen er nettopp der man skal kunne
+sikte (se [«Kassen slår ekstraheringen»](#kassen-slår-ekstraheringen)). Rammen er
+en del av kortet man ser, så den er en del av lista man er i.
 
-**Unntaket: en KORT sone under placeholderen** (`noteOverShift`/`drag.overGrace`).
-Selve modusbyttet rykker alt som lå under ny-liste-placeholderen i kolonnen
-OPPOVER. Har lista en høy sone, betyr det bare at sonen kommer objektet i møte —
-«bli der du er». Men en **kollapset** liste (hele det lille kortet er sonen), eller
-en tom der `MIN_BAND_SLACK` gjør hele kortet til sone, er kortere enn hoppet: sonen
-rekker forbi objektet, som faller ut igjen, som legger placeholderen tilbake, som
-dytter lista ned igjen — én runde per piksel. Vi MÅLER derfor hvor langt lista
-faktisk flyttet seg av byttet og lar stickiness-en i `dragOverCard` beholde den
-gjennom akkurat det hoppet (`grace` legges bare på det kortet man ALLEREDE er i;
-grensen for å gå INN er uendret, så 1/3-tersklene måles som før).
+**Ingen dødbånd, og ingen hysterese å regne på.** Både inn- og ut-terskelen er den
+samme kanten, og et modusbytte flytter ingenting: ny-liste-stripa tar ingen plass
+(se under), og dnd-kits klone blir liggende i lista raden kom fra. En monoton
+bevegelse gir derfor nøyaktig `reorder(A)` → `extract` → `reorder(B)`, uten at
+noe kort rykker.
 
-Slarken **forbrukes** så snart objektet ligger inne i sonen på egen hånd
-(`inCard(cur, 0)`): den er kompensasjon for ETT hopp, ikke en varig utvidelse av
-lista. Blir den liggende, må man dra en placeholderhøyde EKSTRA for å komme ut igjen,
-og et slipp rett under lista havner i den i stedet for i en ny liste (målt: 57 px
-forbi terskelen, mot 0,5 px når den forbrukes). Dekket av punkt 6 og 7 i
-`tests/board-columns.test.js`.
-
-To spesialtilfeller i `cardBand`:
-
-- **Kollapset eller peek-åpnet liste** → hele kortet er sonen. En kollapset liste
-  har ingen innholdssone i det hele tatt, og en peek-åpnet liste ble åpnet nettopp
-  fordi objektet siktet på den (over overskriften, det eneste som fantes) — den
-  skal ikke miste objektet i det den folder seg ut.
-- **For liten sone** (tom eller nesten tom liste) → hele kortet. Sonen måles da som
-  om raden ikke lå der; ellers ville samme liste hatt en romsligere sone UTE enn
-  INNE, og objektet ville gått inn, falt ut igjen og flimret. `MIN_BAND_SLACK`
-  (48 px) må dekke at lista rykker oppover mot objektet idet ny-liste-placeholderen
-  (≥ 72 px) byttes mot en radhøyde inne i lista.
-
-**Hvorfor linjene går MIDT i rammeradene og ikke langs innerkantene**: første og
-siste plass i lista er de trangeste å treffe, og halve rammeraden er slarken som
-gjør dem like lette som plassene mellom radene.
-
-- **Nederst**: for å havne sist må objektets senter forbi siste rads senter, og da
-  stikker nedre 1/3 nesten ned i knapperaden. Slippes en KATEGORI sist i en liste
-  med kategorier, krymper lista i tillegg ~25 px i samme øyeblikk (skillelinja
-  under placeholderen forsvinner når den blir siste rad), så linja kommer opp mot
-  objektet mens man sikter — uten slarken var vinduet ~2 px. Dekket av `F1`/`F2` i
-  `tests/dnd-extract-thresholds.test.js` og «dratt nederst» i
-  `tests/dnd-separators-preview.test.js`.
-- **Øverst**: ligger en KATEGORI først i lista, er det bare ~10 px mellom
-  tittelraden og kategorien — og pekeren må være nettopp DER for å treffe nivå 1 i
-  stedet for inne i kategorien. Uten slarken var «over en kategori øverst» umulig:
-  målt 0 px vindu, mot 63 px over et vanlig listepunkt øverst; med slarken 30 px
-  (og 93 px over et listepunkt). Dekket av `G1`/`G2` i
-  `tests/dnd-extract-thresholds.test.js`.
-
-Ut-tersklene ligger ~20–30 px innenfor kortets ytterkanter, så
-ny-liste-placeholderen dukker opp tidligere enn med kortkantene som grense.
+Slik var det ikke. Ny-liste-placeholderen var kort-formet, altså 72+ px, og hvert
+modusbytte skjøv alt under den i kolonnen. Maskineriet som holdt det i sjakk —
+`MIN_BAND_SLACK`, `noteOverShift`, `drag.overGrace` — kompenserte for ETT slikt
+hopp om gangen, og det holdt ikke: dro man videre ned i lista under, forsvant
+placeholderen, kortet smatt oppover, og raden havnet UNDER sonen den nettopp
+siktet på. Man måtte dra oppover igjen for å treffe. Med en stripe som ikke tar
+plass finnes hoppet ikke, og hele det maskineriet er borte.
 
 Peek-åpning av kollapsede mål bruker samme `dragOverCard`, ellers kunne
 plasseringen stå og vente på en peek som aldri startet fordi pekeren ennå ikke var
 inne i kortet.
 
+## Dra-ankeret: layouten flytter seg BORT fra siktet
+
+Mens en rad dras, vokser og krymper containerne: kasseraden kommer i lista
+objektet er i og forsvinner fra den det forlot, og hullet bytter liste. I normal
+flyt absorberes hver slik endring NEDOVER — alt under den flytter seg — og da
+smetter nettopp det man sikter på unna fingeren i samme øyeblikk som det ble
+laget.
+
+Ankeret snur retningen: **den nærmeste FASTE kanten på eller under siktet skal
+stå stille, og board-et gjør jobben OVER den i stedet.** Sagt som regelen
+brukeren ser: det som kommer, kommer MOT deg; resten av siden — det du uansett
+ikke sikter på — forskyver seg og lager rommet.
+
+- **Siktet** er objektets eget senter (`draggedRect`), samme referanse som
+  1/3-tersklene. Objektet ligger i top layer og følger pekeren, så siktelinjen er
+  en VIEWPORT-linje: den flytter seg ikke av at vi scroller.
+- **Faste kanter** er de som ikke rører seg av en ren OMROKKERING: kortkantene,
+  ＋-raden og kasseraden. Radene selv er ikke med — bytter hullet plass med en
+  nabo, er det forhåndsvisningen, ikke et hopp som skal settes av.
+
+**To knapper, i denne rekkefølgen.** `padding-top` på board-et skyver innholdet
+NED; den er vår egen, koster ingen scrollposisjon, og er det synlige «ekstra
+rommet over lista». Skal innholdet OPP og padding-en er tom, scroller vi i
+stedet. Board-toppen går da opp forbi toppmenyen — men `anchorMakeRoom` hever
+board-ets `min-height` først, så scrollområdet vokser like mye og toppen er
+fortsatt å nå. Gulvet senkes aldri under draget: en side som blir kortere mens
+fingeren er nede får scrollen klemt, og en klemt scroll avbryter touchen (se
+[Board-vakten](#board-vakten-grepet-holder-og-bunnen-synker-ikke)). Rekkefølgen
+gjør turen reversibel — ned fyller padding først, opp tømmer padding først — så
+et drag som snur går samme vei tilbake. MÅLT (`dnd-layout-anchor` sjekk 6): fram
+og tilbake mellom to lister fire ganger gir en stabil syklus, ikke et board som
+vandrer.
+
+**Kompensasjonen måles på ankerets DOKUMENTposisjon** (boks + scroll), som bare
+endrer seg av layout. En scroll — brukerens egen eller dnd-kits auto-scroll — går
+derfor rett gjennom uten å bli tatt for et hopp.
+
+### To deler, med hver sin rekkevidde
+
+1. **VÅRE EGNE endringer** — kasseraden som dukker opp eller forsvinner — måles
+   rundt selve endringen (`withAnchor`) og settes av uansett hvor i layouten de
+   skjer, også inne i kortet man svever over. Vi vet hva de er og når de skjer.
+2. **dnd-kits egne** — hullet som bytter liste — fanges av en `ResizeObserver`,
+   og da BARE for kort som ligger HELT OVER siktet.
+
+Grensen i punkt 2 er målt fram. Endrer kortet man er INNE I høyde, er det
+motorens egen forhåndsvisning av slippet, og å kompensere for den flytter radene
+under fingeren — som motoren så leser som en ny intensjon neste runde. MÅLT: en
+rad dratt opp forbi en kategori landet én plass for lavt, hver eneste gang
+(`dnd-separators-preview` sjekk 3). Av samme grunn rører **politikkrunden ikke
+ankeret i det hele tatt**: en tvungen layout midt i runden endrer det dnd-kit
+selv leser rett etterpå.
+
+### Hva det gir, retning for retning
+
+| Situasjon | Hva som står stille |
+|---|---|
+| Ned mot neste liste: kasseraden forlater lista over | målkortets overkant, og kildekortets underkant (ekstraher-terskelen) |
+| Ned videre: hullet forlater lista over | målkortet — det rykker ikke oppover under fingeren |
+| Ned inn i neste liste: kasseraden opprettes der | kortets overkant; kassen vokser nedover, bort fra siktet |
+| Opp inn i lista over: kasseraden opprettes der | kortet UNDER; kassen vokser OPPOVER, og siktet lander inni den |
+
+Rommet som blir til overs legger seg øverst i board-et, og rommet som trengs tas
+derfra igjen når draget snur. `dnd-layout-anchor` måler alle fire radene, på
+desktop og mobil.
+
+**En kompensasjon er et LÅN, og lån skal gjøres opp.** Ankeret holder én kant i
+ro, og hvilken kant velges av hvor siktet er akkurat da. Går layouten tilbake til
+en tilstand den har vært i før, mens siktet har flyttet seg i mellomtiden, ser
+regelen ingen kant som må stå i ro, og skiftet blir stående. MÅLT: uten
+bokføring vokste polstringen til 893 px etter fire turer opp og ned — «luften
+over den øverste lista» som bare blir større. Hver kilde fører derfor sitt eget
+lån og gjør det opp i det tilstanden er tilbake der den startet:
+
+| Kilde | Lånet gjøres opp når |
+|---|---|
+| Kasseraden bytter kort (`retargetDragTrash`) | kassa er tilbake i lista draget startet i |
+| Hullet forlater et kort HELT OVER siktet (motorens egen flytting) | raden er tilbake i det kortet — ett lån per liste, siden raden kan gå L1 → L2 → L3 og tilbake i motsatt rekkefølge |
+| Sammentrekningen av et hull (`syncHoleSpace`) | ingen: den er en TILSTAND på kolonnen, ikke et skift, og finnes nøyaktig så lenge hullet er lukket |
+
+Og paret polstring/scroll må være reversibelt: et negativt skift som polstringen
+ikke rakk over ble til en scroll nedover, mens et positivt skift bare la seg på
+polstringen igjen. Et positivt skift ruller derfor VÅR EGEN scroll tilbake først.
+`dnd-layout-anchor` sjekk 11 måler at ankerets eget bidrag holder seg under det
+som faktisk kan mangle over siktet, gjennom fire turer over alle listene.
+
 ## Ekstrahering til ny container (rad → nytt kort)
 
 Drar man en **kategori** eller et **listepunkt** UT av listene og holder det over,
-under eller mellom dem (dvs. i board-luften, ikke over noe kort), dukker en KORT-
-formet placeholder med et **＋-ikon** i midten opp (`.new-list-placeholder`) —
-slipp der oppretter en NY liste. Det samme gjelder i nav-modalen: en mappe eller
-mappekategori dratt ut i lufta blir et nytt OMRÅDE.
+under eller mellom dem (dvs. i board-luften, ikke over noe kort), males en flat
+stripe i gapet mellom kortene (`.new-list-placeholder`) — slipp der oppretter en
+NY liste. Det samme gjelder i nav-modalen: en mappe eller mappekategori dratt ut
+i lufta blir et nytt OMRÅDE.
+
+**Stripa SVEVER — den tar ingen plass** (`height: 0`, ingen marg; selve stripa
+males av `::before`, løftet opp så den ligger midt i gapet som allerede er der).
+Avstanden mellom kortene er nøyaktig den samme med og uten den.
+
+Den var en kort-formet slot med et ＋ i, altså 72+ px, og det var selve
+problemet: hvert modusbytte skjøv alt under den. Drar man videre ned i lista
+under, forsvinner stripa — og med den gamle placeholderen smatt kortet da
+oppover, slik at raden havnet UNDER sonen den nettopp siktet på. Man måtte dra
+oppover igjen for å treffe det man alt siktet på. ＋-ikonet er borte med samme
+begrunnelse: stripa er et sted, ikke en knapp, og på 10 px er det ikke plass til
+et ikon som betyr noe. Dekket av sjekk A6 i
+`tests/dnd-extract-thresholds.test.js` (gapet er det samme gjennom hele draget).
 
 `drag.phMode` (`'reorder'` | `'extract'`) styrer modusen;
 `*SetExtractMode`/`*SetReorderMode` bytter. `dragOverCard()` avgjør modus hver
@@ -483,7 +569,112 @@ leserekkefølge.
 — ingen container tar imot, dnd-kit finner ikke noe mål, sorteringen står stille,
 og plasseringen er vår. Det er Smetts eget svar på «slå av reorder akkurat nå».
 
-`placeNewListPlaceholder` plasserer kort-placeholderen:
+## Ett malt hull om gangen
+
+**Bare ETT sted får love en plassering av gangen.** Et malt hull sier «her lander
+raden»; ny-liste-stripa sier «her blir den sin egen liste»; en markert kasse sier
+«her slettes den». To av dem samtidig lover hver sin plassering, og bare den ene
+er sann.
+
+**I ekstraheringsmodus** er stripa plassen som kommer, men dnd-kits klone blir
+liggende igjen der raden lå: motoren flytter den bare ved å bytte med en RAD, og
+i denne modusen tar ingen container imot. Klonen males derfor ikke mens modusen
+står på (dnd-kits egen standard, som `styles.css` ellers slår av).
+
+**På kassen** gjelder det samme: der SLETTER slippet, og verken stripa eller
+klonen skal love en plassering. `body.is-over-trash` slår av malingen av begge.
+Rødvasken på det som dras og et malt hull utelukker dermed hverandre.
+
+**Og hullet males bare DER RADEN LANDER** (`setHoleAstray` →
+`body.is-hole-astray`). Sorteringen flytter klonen bare ved å bytte med en RAD,
+og over ＋-raden finnes det ingen: drar man en rad ned i lista under og opp igjen,
+blir klonen liggende der nede mens slippet lander i lista man er i
+(`dragOverCard`, som kollisjonsdetektorene leser via `dndRowTargetCont`). MÅLT:
+et vindu på ~35 px over ＋-raden der klonen sto i lista under og slippet la raden
+i lista over. Der males den ikke.
+
+`dnd-trash` sjekk 13 måler hele turen — ned i lista under, opp igjen og fram til
+knappen: aldri rødvask og malt hull samtidig, og males hullet, ligger det i lista
+slippet faktisk lander i. Males det ikke, tar det heller ingen plass (under).
+
+### Et hull som ikke lover noe tar heller ingen plass (`syncHoleSpace`)
+
+**Listene er alltid maksimalt komprimert.** Males hullet ikke, står lista heller
+ikke åpen for det: en rad uten en plassholder i lover en plassering som ikke
+finnes. Regelen gjelder alle tre tilfellene likt — ekstrahering, sikte på en
+kasse, og et hull som ligger igjen i en annen liste.
+
+Plassen tas av en negativ `margin-bottom` på klonen, som en ARVET variabel fra
+containeren (`--hole-shrink`) — ikke som en inline-stil på klonen selv. Klonen er
+en kopi av raden som dras, og dnd-kit bygger den om fra originalens
+`style`-attributt — det samme attributtet Huskis maler rotasjonen i hver frame
+(`dndPaintRotation`). MÅLT: attributtet ble skrevet i sin helhet,
+«rotate: …deg; margin-bottom: -56px» ble til «rotate: …deg», og lista sto med en
+åpen rad til neste runde.
+
+**Klonens boks er DRA-OBJEKTETS GEOMETRI**, og derfor må plassen tas med margin
+og ingenting annet. dnd-kit speiler mål, plassering OG viewport-klemme fra
+klonens boks hver frame. MÅLT: `display: none` krympet dra-objektet til 12×12 px;
+fryser man målene i stedet, slipper klemmen objektet 269 px utenfor skjermkanten
+(`dnd-viewport-clamp`).
+
+Marginene på et skjult hull er Huskis' egne: kategoriens skillemarger
+(`.sep-above`/`.sep-below`, 25 px) er en del av løftet om hvor raden lander, og
+et hull som ikke lover noe bærer dem ikke.
+
+#### Kompensasjonen: kolonnens polstring, målt hver runde
+
+Kortet krymper med en radhøyde, og alt under det ville rykket opp under
+fingeren. **Kolonnen** får derfor en `padding-top` på nøyaktig det den ble
+kortere: alt over hullet flyttes ned, alt under står stille.
+
+- **Kolonnen, ikke kortet.** En `margin-top` på kortet selv holdt riktig kant i
+  ro, men bare kortet flyttet seg: listene OVER ble stående, og gapet mellom dem
+  vokste med en hel radhøyde (MÅLT: 28 → 84 px).
+- **Kolonnen, ikke board-et.** Kolonnene er ekte containere som lever uavhengig
+  ([`board-layout.md`](board-layout.md)), så en liste som krymper i kolonne 2
+  flytter ingenting i kolonne 1. Skyver man board-et, flytter man kolonnene man
+  ikke rørte — MÅLT: ny-liste-stripa forsvant fordi kortet i NABOkolonnen kom ned
+  over siktet (`board-columns` 3 og 4).
+- **Beløpet måles, det gjettes ikke** (`holeMissingPx`): hvor mye mindre plass
+  hullet tar nå enn om det sto åpent, regnet på containerens INNHOLD mot dens
+  min-høyde. Er raden den eneste i lista, stopper containeren på min-høyden, og
+  svaret er mindre enn en radhøyde. Gjettet man hele radhøyden, ble kortet 22 px
+  for langt ned, kassa gled ut under fingeren, hullet kom tilbake — og så igjen:
+  flimring (MÅLT med pekeren i ro).
+- **Det er en TILSTAND, ikke et skift.** Polstringen regnes ut på nytt hver
+  runde og finnes nøyaktig så lenge sammentrekningen finnes. Legger man delta på
+  delta i stedet, teller man med motorens egne flyttinger, og en polstring lagt
+  på for forrige liste blir stående som ren luft (MÅLT: kortet man svever over
+  rykket 56 px ned, `dnd-layout-anchor` sjekk 4).
+- **Mål FØRST, skriv så — og skriv begge i samme omgang.** Måler man MELLOM
+  sammentrekningen og polstringen, tvinger man fram en layout der lista er
+  krympet og polstringen ennå ikke lagt på: siden er 56 px kortere i det
+  øyeblikket, og er man scrollet til bunnen, klemmer nettleseren scrollen ned —
+  permanent. MÅLT på den nederste lista: scrollen hoppet 56 px i det kassa ble
+  armert, auto-scrollen dro den tilbake ~10 px per frame, kassa vandret under
+  fingeren, og markeringen slo av og på 20 ganger på 500 piksler sakte
+  innmarsj (`dnd-layout-anchor` sjekk 12).
+- **Retningen:** bare når hullet ligger OVER siktet. Ligger det under — man drar
+  oppover, bort fra det — krymper lista nedenfra, og alt over siktet står stille
+  av seg selv. Kompenserer man likevel, kommer kanten man sikter MOT nærmere
+  fingeren, og ekstraher-terskelen slår inn for tidlig (MÅLT: 30 px,
+  `dnd-extract-thresholds` B3).
+
+Ankeret ser bort fra denne sammentrekningen når det måler korthøyder
+(`anchorOuterH`): den er alt kompensert der den ble gjort. Trakk man den fra ved
+å nullstille høydene i stedet, svelget man motorens endring i det samme kortet i
+den samme frame-en.
+
+`dnd-layout-anchor` sjekk 8 måler at ingen container har plass som ingen malt rad
+fyller, sjekk 9 at kassa står bom stille med pekeren i ro, sjekk 10 at gapene
+mellom listene er de samme som i hvile, og sjekk 12 at en sakte innmarsj mot
+kassa i den nederste lista verken får markeringen til å vippe eller scrollen til
+å hoppe. `dnd-trash` sjekk 13 måler at et skjult
+hull ikke tar plass i NOEN liste. Sjekk A5 i `dnd-extract-thresholds.test.js`
+måler at bare ett hull males.
+
+`placeNewListPlaceholder` plasserer stripa:
 
 - **KOLONNEN** etter pekerens x (±8 px slingring). Ingen kolonnetreff (pekeren i et
   kolonnegap) → behold kolonnen placeholderen alt står i. Klemmes til siste kolonne
@@ -492,25 +683,14 @@ og plasseringen er vår. Det er Smetts eget svar på «slå av reorder akkurat n
   ([`board-layout.md`](board-layout.md)).
 - **PLASSEN i kolonnen** etter det LØFTEDE OBJEKTETS y-senter — ikke pekerens:
   ut-terskelen (1/3) slår inn mens pekeren fortsatt kan være inne i lista man
-  forlot, og et pekerbasert y-valg la da placeholderen på feil side av den. Målt
-  mot den layouten man SER; den er selvstabiliserende, siden et kort placeholderen
-  passerer samtidig glir en placeholderhøyde bort i samme retning.
+  forlot, og et pekerbasert y-valg la da stripa på feil side av den. Målt mot den
+  layouten man SER.
 
 **To veier til samme plass:** bunnen av kolonne k og toppen av kolonne k+1 er samme
 plass i rekkefølgen, men to ulike containere. Sikter man under siste liste i
 kolonne k, havner placeholderen der; sikter man over første liste i kolonne k+1,
 havner den der. Sluttresultatet er identisk. Dekket av punkt 4 i
 `tests/board-columns.test.js`.
-
-**Hullet blir stående i kilde-lista.** dnd-kits klone blir liggende der raden kom
-fra mens ekstraheringsmodusen står på. Kilde-lista er altså en radhøyde høyere
-enn den blir, samtidig som ny-liste-placeholderen legger seg inn i kolonnen — den
-døde sonen mellom «ut av lista» og «ny liste» er tilsvarende større. Å ta hullet
-ut av flyten er PRØVD (usynlig klone + negativ margin på resten av lista, boksen
-beholdt fordi dnd-kit måler det løftede objektet PÅ klonen) og krympet sonen fra
-112 til 64 px — men da mistet en kategori dratt over en kollapset liste
-peek-åpningen sin (`dnd-peek-collapsed` test 4), fordi kilde-lista krympet under
-pekeren mens 200 ms-timeren løp. Hullet blir derfor stående.
 
 Hva slippet gjør:
 
@@ -647,16 +827,105 @@ tilbake dit den kom fra FØR handlingen kalles — nøyaktig semantikken vi vil 
 ingen ny `pos` skrives, slettingen tar over. Treffsonen er knappen selv; sonen er
 en droppable, og dnd-kit måler dens egen boks.
 
-- **Kassen er BUNDET til draget**: for et listepunkt/en mappe er det kassen i
-  containeren raden kom FRA (`drag.trashHost`), ikke den man tilfeldigvis svever
-  over. Et slipp på en ANNEN synlig kasse — et annet områdes, eller mappe-kassen
-  under et kategori-drag — ruller raden tilbake i stedet for å omrokkere den.
+**Kassene som ligger i et KORT er radbrede mens draget står på** — listepunkt-
+kassen nederst i lista, mappe-kassen nederst i området. Knappen er ~48 px i
+hvile: den forsvinner under en fingertupp, og på berøring finnes ingen peker som
+viser hvor man egentlig sikter. Bare BREDDEN endres, så kortets høyde — og
+dermed `cardBand` og ekstraher-terskelen — står stille. De to andre kassene
+(topplinjas og nav-modalens bunnrad) deler rad med ＋-knappen og har ingen ledig
+bredde å ta av. `dnd-trash` sjekk 11 måler bredden og treffer ytterkanten av
+raden.
+
+- **Kassen FØLGER objektet**: for et listepunkt/en mappe står den i containeren
+  objektet er i NÅ (`retargetDragTrash` flytter `drag.trashHost` på hver
+  politikkrunde), ikke i den det kom fra. Uten det måtte en rad dratt til en
+  annen liste dras hele veien tilbake for å slettes.
+
+  **«Hvilken liste er objektet i?» besvares ÉTT sted.** Kassen bruker
+  `dragOverCard` — objektets midtre 1/3 innenfor kortet, [samme
+  regel](#hvilken-liste-er-objektet-i--13-terskler-dragovercard) som
+  plasseringen og ekstraheringen. En egen terskel for kassen ville vært en andre
+  regel på det samme spørsmålet, og da kunne knappen stått i en annen liste enn
+  raden ville landet i. Svaret kommer altså FØR dnd-kit flytter raden inn blant
+  radene i den nye lista — det er DOM-forelderen, og den skifter først når
+  objektet svever over selve radene. `dnd-layout-anchor` sjekk 1 måler nettopp
+  den forskjellen.
+
+  Det er den SAMME kassen som flytter seg. Hva slippet BETYR er uendret: raden
+  slettes i sin EGEN container — `dropIntoTrash` leser `it.home`, og draget er
+  rullet tilbake før den kalles — akkurat som menyens «Slett». Verten er bare
+  hvor knappen står mens man drar, og derfor er det fortsatt radens egen
+  slette-rett som avgjør om noen kasse armes (`draggedCanBeTrashed`), ikke
+  rettighetene i containeren man svever over.
+
+  Et slipp på en ANNEN synlig kasse — en man ikke svever over, eller
+  mappe-kassen under et kategori-drag — ruller raden tilbake i stedet for å
+  omrokkere den. `*ZoneDrop` sammenligner sone-id-en med `dragTrashBtn()`, som
+  leser den nye verten, så vakten holder uendret.
+
+  **Raden den forlot forsvinner helt** (`hideRevealedTrash`) — den holder ingen
+  plass. Kortet krymper med en hel knapperad, og alt under det ville rykket
+  OPPOVER midt under fingeren; det er nettopp den bevegelsen
+  [dra-ankeret](#dra-ankeret-layouten-flytter-seg-bort-fra-siktet) tar. MÅLT
+  (`dnd-layout-anchor` sjekk 2–3): kildekortets underkant og målkortets overkant
+  står begge på pikselen gjennom byttet, og de 59 px kasseraden ga fra seg
+  legger seg som `padding-top` OVER lista i stedet.
+
+  **En skjult sone må måles på nytt.** dnd-kit måler en droppable én gang og
+  beholder boksen; en kasse vi nettopp skjulte står da igjen med boksen den
+  HADDE, og et slipp der leses som et slipp i kassen. `refreshTrashZones` ber om
+  målingen selv (en skjult knapp måler 0×0). MÅLT i nav-modalen: en mappe sluppet
+  på en rad i området UNDER landet i den skjulte kassen til området den kom fra,
+  og ble rullet tilbake uten beskjed (`nav-modal` sjekk 9).
+
+  **Kassen slippes aldri helt.** Forlater objektet alle containere
+  (ekstraheringsmodus), svarer `dragOverCard` null og kassen blir stående der den
+  var — det er ingen container å flytte den til, og en kasse må finnes til enhver
+  tid. `dnd-trash` sjekk 12 måler at den står i ro gjennom 60 frames.
+
+  En LISTE og et OMRÅDE har ingen vert å bytte: de slippes i kassen i topplinja
+  respektive nav-modalens bunnrad.
 - **Kategorier har ingen kasse.** En kategori slettes ikke — den LØSES OPP
   (listepunktene blir stående), fra objektmenyen. `dragTrashBtn()` svarer null for
   dem, og ingenting armes.
 - **Feiler LUKKET** (`draggedCanBeTrashed`): samme capabilities som menyens
   «Slett»-rad. Uten rett vises ingen kasse i det hele tatt, så man kan ikke sikte
   på noe serveren ville avvist.
+
+### Kassen og ekstraheringen
+
+Element-kassen ligger nederst i kortet, under ＋-raden. Det gjorde den uråelig så
+lenge sonen var listas INNHOLDSSONE: raden var «utenfor alle lister» et stykke FØR
+pekeren var framme ved kassen, ekstraheringsmodusen sto alt på når man kom fram,
+og siden ingen container tar imot i den modusen lagde et slipp som bommet på
+knappen en NY LISTE i stedet for å slette. MÅLT: 34 px under knappens senter.
+
+Sonen er nå kortets egen kant, og kassen ligger inne i kortet. Dermed er modusen
+`reorder` hele veien ned til kassen — stripa lover ingen ny liste mens man sikter
+på den, uten at noe måtte fryses.
+
+To ting står igjen, og begge handler om RINGEN rundt knappen
+(`pointerOnDragTrash` + `DRAG_TRASH_PAD`, 12 px — knappen er et lite mål, og en
+finger treffer den ikke på pikselen):
+
+- **Slippet sletter i hele ringen.** Treffer man knappen, er det Smetts sone
+  (`onZoneDrop`). Ringen rundt er `*CommitRow`, som spør kassen FØR den spør
+  ekstraheringen: draget rulles tilbake som et avbrutt drag, og slettingen tar
+  over — samme vei som sone-slippet. Slipp-punktet leses av Smetts operasjon,
+  ikke av vår egen mellomlagring, som kan være koalescert bort i en rask gest.
+- **Ingen plassholder lover noe i ringen** (`setTrashHold` →
+  `body.is-over-trash`). Ringen kan stikke litt utenfor kortkanten, og der ville
+  stripa lovet en ny liste et sted slippet sletter. Det samme gjelder HULLET
+  raden kom fra — se [«Ett malt hull om
+  gangen»](#ett-malt-hull-om-gangen). Kun
+  malingen skrus av; stripa er null uansett, og hullets plass beholdes.
+
+**Markeringen settes begge veier fra `dndRowPolicy`.** Smetts `onDropTarget` fyrer
+bare når MÅLET endrer seg, og i ringen er målet null hele tiden — ingen ville da
+tatt markeringen av igjen, og kassen ble stående som om den var klar til å ta imot
+mens raden lå nede ved ny-liste-stripa.
+
+Dekket av sjekk 10 i `tests/dnd-trash.test.js` (egen økt, begge viewportene).
 
 Autoritativt: [`trash.md`](trash.md) («Slett ved å dra objektet i kassen»).
 
@@ -747,6 +1016,26 @@ da er DOM-et dnd-kits.
 Uten den virker det neste løftet først når noe annet tilfeldigvis rendrer på
 nytt, som en synkrunde. På mus rakk det ofte akkurat; på touch gjorde det ikke
 det, og et andre drag var umulig. `dnd-nav-engine` sjekk 9 er vakten.
+
+### En AVVIST synk er utsatt, ikke forkastet
+
+At synken lar motoren være i fred når den ikke er i ro, er halve regelen.
+Rendringen som ba om synken HAR allerede byttet ut nodene — blir synken bare
+droppet, står registeret igjen med de gamle, og feilen over er tilbake i full
+bredde.
+
+MÅLT: slipp en rad, og løft den igjen mens lagringen fra det første slippet er i
+lufta. Svaret fra skyen rendrer board-et mens dnd-kit fortsatt står i `dropped`,
+den ene synken faller, og raden lar seg ikke løfte igjen før neste lagring
+rendrer på nytt. Sikkerhetsnettene etter et slipp (`boardRelayoutAfter*Drop`)
+dekker det ikke: de kjører ÉN gang, og rendringen fjernet nettopp den klonen de
+venter på.
+
+`noteSyncOwed` husker derfor den avviste synken og tilbyr begge på nytt hver
+frame til de går gjennom. Begge, ikke bare den som ble avvist: `sync()` er
+idempotent, og to flagg for det samme er to ting som kan komme i utakt.
+`dnd-activation` sjekk 5 er vakten — den rendrer hver frame så lenge motoren står
+i `dropped`, og krever at raden både står i registeret og lar seg løfte etterpå.
 
 ## Etterarbeidet ved slippet
 
@@ -847,6 +1136,28 @@ rotate: none }` gjorde ingenting — klonen bærer rotasjonen som en INLINE-stil
 en inline-stil slår enhver klasseregel, så en bred, lav rad fikk et hull dobbelt
 så høyt som seg selv. Med `!important` står den.
 
+### Alt som dras er halvgjennomsiktig
+
+Det løftede objektet ligger oppå det man sikter mot, og det man sikter mot ER
+svaret på hvor slippet lander: hullet, ny-liste-stripa, skillelinja,
+søppelkassen. Stripa er 10 px og ligger mellom to kort — altså akkurat der
+fingeren, og dermed objektet, er. Flaten beholder derfor sin egen farge (kortets
+palettfarge, radens plate) og slipper bare lys gjennom; `backdrop-filter:
+blur(2px)` gir den et tynt slør, så teksten på objektet ikke leses rett mot
+mønsteret under. Det er BAKGRUNNEN som er gjennomsiktig — `opacity` står på 1,
+så teksten er like lesbar som i hvile.
+
+Regelen gjelder alle fem nivåene, fra én blokk på `[data-dnd-dragging]`. Den er
+Huskis' politikk, ikke Smetts: Smett sier hvor et slipp lander, ikke hvordan det
+som dras ser ut.
+
+**Tilstander må derfor uttrykkes i FARGE, ikke i mer gjennomsikt.** Sikter man på
+søppelkassen, males en rødvask (`--drag-danger`) over flaten som
+`background-image`, altså oppå `background-color`: gjennomsikten og sløret står
+urørt, kassen synes fortsatt gjennom objektet, og «her slettes det» leses som en
+farge. Uttrykt som enda et lag gjennomsikt ville de to tilstandene lest likt.
+Målt i `dnd-drop-animation` (sjekk 6, alle fem nivåene) og `dnd-trash` (sjekk 2).
+
 ## Auto-scroll
 
 dnd-kits `AutoScroller` finner scroll-containeren selv: vinduet for et drag på
@@ -901,7 +1212,8 @@ bare et annet state-tre (`navScope`). Det som er verdt å merke seg:
 Mappene ligger ikke på hovedsiden. Dra i stedet lista opp på **nav-knappen** i
 toppmenyen: knappen er en SONE for kortdraget (`data-dnd-zone="crumb"`), den
 markeres (`.drop-target`, kun når det finnes andre mapper), og det løftede kortet
-blir gjennomskinnelig (`.to-group`). Smett ruller lista tilbake dit den kom fra
+tones ut (`.to-group` — den eneste dra-tilstanden som fortsatt bruker `opacity`
+i stedet for en farge). Smett ruller lista tilbake dit den kom fra
 FØR handlingen — som for søppelkassen — og så åpnes en velger («Flytt … til:», i
 plasserings-modal-skallet via `openPicker`); valget gjør en kirurgisk flytting
 (`moveCardToGroup`: `card.group` + `pos` bakerst, kun posisjonsregisteret
