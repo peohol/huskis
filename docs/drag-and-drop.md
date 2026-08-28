@@ -647,6 +647,14 @@ kortere: alt over hullet flyttes ned, alt under står stille.
   delta i stedet, teller man med motorens egne flyttinger, og en polstring lagt
   på for forrige liste blir stående som ren luft (MÅLT: kortet man svever over
   rykket 56 px ned, `dnd-layout-anchor` sjekk 4).
+- **Mål FØRST, skriv så — og skriv begge i samme omgang.** Måler man MELLOM
+  sammentrekningen og polstringen, tvinger man fram en layout der lista er
+  krympet og polstringen ennå ikke lagt på: siden er 56 px kortere i det
+  øyeblikket, og er man scrollet til bunnen, klemmer nettleseren scrollen ned —
+  permanent. MÅLT på den nederste lista: scrollen hoppet 56 px i det kassa ble
+  armert, auto-scrollen dro den tilbake ~10 px per frame, kassa vandret under
+  fingeren, og markeringen slo av og på 20 ganger på 500 piksler sakte
+  innmarsj (`dnd-layout-anchor` sjekk 12).
 - **Retningen:** bare når hullet ligger OVER siktet. Ligger det under — man drar
   oppover, bort fra det — krymper lista nedenfra, og alt over siktet står stille
   av seg selv. Kompenserer man likevel, kommer kanten man sikter MOT nærmere
@@ -659,8 +667,10 @@ Ankeret ser bort fra denne sammentrekningen når det måler korthøyder
 den samme frame-en.
 
 `dnd-layout-anchor` sjekk 8 måler at ingen container har plass som ingen malt rad
-fyller, sjekk 9 at kassa står bom stille med pekeren i ro, og sjekk 10 at gapene
-mellom listene er de samme som i hvile. `dnd-trash` sjekk 13 måler at et skjult
+fyller, sjekk 9 at kassa står bom stille med pekeren i ro, sjekk 10 at gapene
+mellom listene er de samme som i hvile, og sjekk 12 at en sakte innmarsj mot
+kassa i den nederste lista verken får markeringen til å vippe eller scrollen til
+å hoppe. `dnd-trash` sjekk 13 måler at et skjult
 hull ikke tar plass i NOEN liste. Sjekk A5 i `dnd-extract-thresholds.test.js`
 måler at bare ett hull males.
 

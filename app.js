@@ -5301,12 +5301,6 @@
 
     const nyCont = beløp ? cont : null;
     const verdi = (-beløp) + 'px';
-    if (holeShrunk !== nyCont ||
-        (nyCont && nyCont.style.getPropertyValue('--hole-shrink') !== verdi)) {
-      if (holeShrunk && holeShrunk !== nyCont) holeShrunk.style.removeProperty('--hole-shrink');
-      settVar(nyCont, '--hole-shrink', verdi);
-      holeShrunk = nyCont;
-    }
 
     /* KOMPENSASJONEN HØRER TIL KOLONNEN, OG DEN ER EN TILSTAND.
 
@@ -5330,53 +5324,68 @@
        delta på delta i stedet, teller man med motorens egne flyttinger: hullet
        tar plassen med seg til en annen liste, og polstringen fra den forrige
        blir stående som ren luft (MÅLT: kortet man svever over rykket 56 px ned,
-       `dnd-layout-anchor` sjekk 4). Som tilstand kan luft heller ikke bygge seg
-       opp over listene, uansett hvor mange ganger man drar opp og ned.
+       `dnd-layout-anchor` sjekk 4).
 
        RETNINGEN: bare når hullet ligger OVER siktet. Ligger det under — man drar
        oppover, bort fra det — krymper lista nedenfra, og alt over siktet står
        stille av seg selv. Kompenserer man likevel, kommer kanten man sikter MOT
        nærmere fingeren, og ekstraher-terskelen slår inn for tidlig (MÅLT: 30 px,
-       `dnd-extract-thresholds` B3). */
-    const savnet = holeShrunk ? holeMissingPx(holeShrunk, boks.height, gap) : 0;
-    holeShrinkPx = savnet;
-    const kol = holeShrunk && savnet && (!boks || anchorAimY() >= boks.top)
-      ? holeShrunk.closest('.board-col') : null;
+       `dnd-extract-thresholds` B3).
+
+       MÅL FØRST, SKRIV SÅ — OG SKRIV BEGGE I SAMME OMGANG. Måler man MELLOM de
+       to skrivingene, tvinger man fram en layout der lista er krympet og
+       polstringen ennå ikke lagt på: siden er 56 px kortere i det øyeblikket, og
+       er man scrollet til bunnen, klemmer nettleseren scrollen ned — permanent.
+       MÅLT på den nederste lista: scrollen hoppet 56 px i det kassa ble armert,
+       auto-scrollen dro den tilbake ~10 px per frame, kassa vandret under
+       fingeren, og `is-over-trash` slo av og på 21 ganger på 60 frames. */
+    const savnet = holeMissingPx(cont, boks, gap, holeShrunk === cont);
+    const kol = nyCont && savnet && (!boks || anchorAimY() >= boks.top)
+      ? nyCont.closest('.board-col') : null;
+    holeShrinkPx = nyCont ? savnet : 0;
+    if (holeShrunk && holeShrunk !== nyCont) holeShrunk.style.removeProperty('--hole-shrink');
+    settVar(nyCont, '--hole-shrink', verdi);
+    holeShrunk = nyCont;
     setHoleColPad(kol, kol ? savnet : 0);
   }
-  /* Hvor mye MINDRE plass hullet tar nå enn om det sto åpent — nøyaktig det
-     polstringen skal gi tilbake.
+  /* Hvor mye MINDRE plass hullet tar i lista si når det er lukket, enn om det
+     sto åpent — nøyaktig det polstringen skal gi tilbake.
 
      Vanligvis hele raden pluss gapet. Men containeren har en min-høyde (tom
      listes slippflate), og er raden den eneste i lista, stopper den der: da er
      svaret bare det som stikker forbi gulvet. Gjettet man hele radhøyden, ble
      kortet 22 px for langt ned, kassa gled ut under fingeren, hullet kom
-     tilbake — og så igjen: flimring (MÅLT med pekeren i ro). */
-  function holeMissingPx(cont, høyde, gap) {
+     tilbake — og så igjen: flimring (MÅLT med pekeren i ro).
+
+     Regnes på layouten SLIK DEN ER NÅ, uten å røre den: `lukket` sier om
+     containeren allerede står sammentrukket, så vi vet om høyden vi måler er
+     med eller uten hullet. */
+  function holeMissingPx(cont, boks, gap, lukket) {
+    if (!cont || !boks) return 0;
     const cs = getComputedStyle(cont);
     const gulv = parseFloat(cs.minHeight) || 0;
     const nå = cont.getBoundingClientRect().height;
-    // Ikke klemt mot gulvet: hullet ville tatt hele plassen sin — raden og gapet.
-    if (nå > gulv + 0.5) return høyde + gap;
-    // Klemt: da er lista så godt som tom, og de få radene som står igjen telles.
+    const plass = boks.height + gap;
+    // Rask vei: containeren står klar av gulvet i BEGGE tilstandene, og da er
+    // svaret hele plassen raden legger beslag på.
+    if (lukket ? nå > gulv + 0.5 : nå - plass > gulv + 0.5) return plass;
+    /* Nær gulvet: da er lista så godt som tom, og de få radene som står igjen
+       telles. Gapet finnes bare MELLOM rader — er hullet alene, er det ingen gap
+       å gi tilbake, og en plass regnet med gapet ble 8 px for stor (MÅLT: kassa
+       flyttet seg like langt under fingeren). */
     let sum = 0, n = 0;
     [...cont.children].forEach((k) => {
-      const ks = getComputedStyle(k);
-      // Dra-objektet selv er tatt ut av flyten og fyller ingen rad; klonen er
-      // det vi regner plassen FOR.
       if (k.hasAttribute('data-dnd-placeholder')) return;
+      const ks = getComputedStyle(k);
+      // Dra-objektet selv er tatt ut av flyten og fyller ingen rad.
       if (ks.position === 'fixed' || ks.position === 'absolute' || ks.display === 'none') return;
       const h = k.getBoundingClientRect().height;
       if (!h) return;
       sum += h + (parseFloat(ks.marginTop) || 0) + (parseFloat(ks.marginBottom) || 0);
       n++;
     });
-    /* Gapet finnes bare MELLOM rader: er hullet alene i lista, er det ingen
-       gap å gi tilbake, og en plass regnet med gapet ble 8 px for stor — nok
-       til at kassa flyttet seg like langt under fingeren (`dnd-layout-anchor`
-       sjekk 9). */
     const uten = Math.max(gulv, sum + gap * Math.max(0, n - 1));
-    const med = Math.max(gulv, sum + høyde + gap * n);
+    const med = Math.max(gulv, sum + boks.height + gap * n);
     return Math.max(0, med - uten);
   }
   /* Polstringen som holder kolonnen i ro mens hullet er lukket. Bæreren huskes,

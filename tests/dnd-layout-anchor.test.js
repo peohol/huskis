@@ -36,6 +36,11 @@
    10. INGEN GAP: når en liste komprimerer, følger listene OVER med nedover.
        Kompensasjonen ligger på kolonnen, ikke på kortet, så avstanden mellom
        kortene er den samme som i hvile.
+   12. SAKTE INNMARSJ MOT KASSA i den NEDERSTE lista, med siden scrollet til
+       bunnen: markeringen slår ikke av og på, og scrollen hopper ikke. Måler man
+       mellom sammentrekningen og kompensasjonen, er siden et øyeblikk 56 px
+       kortere, nettleseren klemmer scrollen, og auto-scrollen drar den tilbake —
+       kassa vandrer under fingeren og tilstanden hakker.
    11. INGEN LUFT SOM BYGGER SEG OPP: fire turer opp og ned over alle listene
        etterlater like mye polstring som den første. En kompensasjon som ikke kan
        føres tilbake når siktet har flyttet seg, blir ellers stående, og
@@ -516,6 +521,74 @@ async function iRoOgUtenGap(label, viewport) {
   await p.close(); await b.close();
 }
 
+/* ============ 12) Sakte innmarsj mot kassa i den NEDERSTE lista ============
+
+   Den er det verste tilfellet: siden er scrollet til bunnen, og en liste som
+   krymper gjør siden kortere. Måler man MELLOM sammentrekningen og
+   kompensasjonen, tvinger man fram en layout der siden er 56 px kortere, og
+   nettleseren klemmer scrollen — permanent. Auto-scrollen drar den tilbake,
+   kassa vandrer under fingeren, og tilstanden slår av og på. */
+async function seedTre(p) {
+  await p.evaluate(() => {
+    const H = window.__huskis, st = H.state;
+    const mk = (o) => Object.assign({ ts: 1, org: 't', pos: 0, posTs: 1, posOrg: 't',
+      trashed: false, _role: 'owner' }, o);
+    st.universes.length = 0;
+    const u = mk({ id: 'UNI', name: 'Hjemme', collapsed: false, groups: [] });
+    const g = mk({ id: 'GRP', uni: 'UNI', name: 'Ukesplan', cat: null, isCat: false, collapsed: false, cards: [] });
+    u.groups.push(g);
+    [0, 1, 2].forEach((i) => {
+      const id = 'K' + i;
+      const c = mk({ id, group: 'GRP', title: 'Liste ' + i, collapsed: false, items: [], pos: i });
+      [0, 1, 2].forEach((r) => c.items.push(mk({ id: id + '-' + r, home: id,
+        text: 'Rad ' + i + '.' + r, cat: null, isCat: false, pos: r })));
+      g.cards.push(c);
+    });
+    st.universes.push(u);
+    st.activeUniverse = 'UNI'; st.activeGroup = 'GRP';
+    H.render();
+  });
+  await p.waitForTimeout(400);
+}
+
+async function sakteMotKassa(label, viewport) {
+  const b = await chromium.launch();
+  const p = await b.newPage({ viewport, hasTouch: viewport.width < 500, isMobile: viewport.width < 500 });
+  const errs = []; p.on('pageerror', (e) => errs.push(e.message));
+  await register(p); await seedTre(p);
+  await p.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight));
+  await p.waitForTimeout(300);
+
+  const { x, y } = await løft(p, 'K1-0');
+  const siste = await p.locator('.card').last().boundingBox();
+  const slutt = Math.min(siste.y + siste.height - 20, viewport.height - 10);
+  const prøver = [];
+  // ETT piksel om gangen: det er den sakte innmarsjen som utløser hakkingen.
+  for (let ny = y + 6; ny <= slutt; ny += 1) {
+    await p.mouse.move(x, ny, { steps: 1 });
+    await p.waitForTimeout(16);
+    prøver.push(await p.evaluate(() => ({
+      kasse: document.body.classList.contains('is-over-trash'),
+      y: window.scrollY,
+    })));
+  }
+  // Hvor mange ganger slår «pekeren er på kassa» av eller på? Én gang per kasse
+  // man passerer er riktig; hakkingen viste seg som 15+.
+  let vipp = 0;
+  prøver.forEach((s, i) => { if (i && s.kasse !== prøver[i - 1].kasse) vipp++; });
+  log(label + ' 12: kassemarkeringen slår ikke av og på under sakte innmarsj (' + prøver.length + ' piksler)',
+    vipp <= 4, JSON.stringify({ vipp, prøver: prøver.length }));
+  // …og scrollen skal ikke hoppe. Auto-scroll beveger noen få piksler per frame;
+  // klemmen ga et hopp på en hel radhøyde.
+  const hopp = [];
+  prøver.forEach((s, i) => { if (i && Math.abs(s.y - prøver[i - 1].y) > 20) hopp.push(prøver[i - 1].y + '→' + s.y); });
+  log(label + ' 12: scrollen hopper ikke når lista komprimerer',
+    hopp.length === 0, JSON.stringify(hopp.slice(0, 4)));
+  await p.mouse.up(); await p.waitForTimeout(500);
+  log(label + ' 12: ingen JS-feil', errs.length === 0, errs.join(' | '));
+  await p.close(); await b.close();
+}
+
 (async () => {
   await nedover('desktop', { width: 1280, height: 900 });
   await nedover('mobil', { width: 390, height: 780 });
@@ -525,6 +598,8 @@ async function iRoOgUtenGap(label, viewport) {
   await komprimert('mobil', { width: 390, height: 780 });
   await iRoOgUtenGap('desktop', { width: 1280, height: 900 });
   await iRoOgUtenGap('mobil', { width: 390, height: 780 });
+  await sakteMotKassa('mobil', { width: 390, height: 700 });
+  await sakteMotKassa('desktop', { width: 540, height: 700 });
   const failed = results.filter((x) => !x).length;
   console.log('\n==== ' + (results.length - failed) + '/' + results.length + ' PASS ====');
   process.exit(failed ? 1 : 0);
