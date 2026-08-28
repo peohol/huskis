@@ -23,7 +23,8 @@
         med opplesning i `#a11y-live`.
      8. Innholdet OPPDATERES mens modalen står åpen: krysser man av det siste
         uferdige listepunktet, forsvinner listens hendelser uten at modalen
-        lukkes.
+        lukkes — og en frist som PASSERER mens modalen står åpen flytter seg
+        til «Frist utløpt» uten at noe i tilstanden endret seg.
      9. i18n: modalen finnes på både norsk og engelsk.
     10. Farge er aldri eneste bærer, og den gule/grønne statusflaten pinner en
         MØRK ikonstrek (kontraktsfargene er de samme i begge drakter).
@@ -258,6 +259,54 @@ async function run(label, viewport, touchMode) {
   log(label + ' 8b: listen forsvinner når det siste uferdige listepunktet krysses av',
     førAvkryss.includes('Rapport') && !etterAvkryss.includes('Rapport'),
     JSON.stringify(førAvkryss) + ' → ' + JSON.stringify(etterAvkryss));
+
+  /* ---------- 8c) Tiden går, uten at tilstanden endrer seg ----------
+     Modalen sover til den FØRSTE grensen en rad er på vei mot, i stedet for å
+     pulse. En frist som passerer mens modalen står åpen skal derfor flytte seg
+     til «Frist utløpt» av seg selv, uten at noe i tilstanden endret seg.
+
+     Tidsverdier har minutt-oppløsning, så grensen er neste hele minutt: dette
+     er en TIDSVINDU-OBSERVASJON, og ventingen kan ikke bindes til en
+     tilstandsendring. Den kjøres derfor bare i ett viewport. */
+  if (!touchMode) {
+    await p.evaluate((iid) => {
+      const H = window.__huskis;
+      // Reaktiver listepunktet fra 8b, så «Rapport» er en aktiv liste igjen.
+      const el = document.querySelector('.item[data-id="' + iid + '"] .item-check');
+      if (el) el.click();
+    }, fx.id.I2);
+    const grense = await p.evaluate(() => {
+      const H = window.__huskis;
+      const kort = H.state.universes[0].groups
+        .reduce((a, g) => a.concat(g.cards || []), []).find((c) => c.title === 'Rapport');
+      const pad = (n) => String(n).padStart(2, '0');
+      const d = new Date(Date.now() + 60000);   // neste hele minutt
+      const v = d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate()) +
+        'T' + pad(d.getHours()) + ':' + pad(d.getMinutes());
+      // Gjennom den ekte setteren: en rå tilordning ville manglet stemplingen,
+      // og neste synk-runde ville rullet verdien tilbake til serverens.
+      H.setObjectTime({ kind: 'card', obj: kort, card: kort }, 'due', v);
+      H.render();
+      return new Date(v).getTime();
+    });
+    const iGruppe = (navn) => p.evaluate((n) => {
+      const heads = [].slice.call(document.querySelectorAll('.events-group-head'));
+      const h = heads.find((x) => x.children[1].textContent === n);
+      return h ? [].slice.call(h.nextElementSibling.querySelectorAll('.event-row-name')).map((e) => e.textContent) : [];
+    }, navn);
+    log(label + ' 8c: fristen står i «Frist innen 7 dager» før grensen',
+      (await iGruppe('Frist innen 7 dager')).includes('Rapport'), await iGruppe('Frist innen 7 dager'));
+    const flyttet = await p.waitForFunction(() => {
+      const heads = [].slice.call(document.querySelectorAll('.events-group-head'));
+      const h = heads.find((x) => x.children[1].textContent === 'Frist utløpt');
+      return !!h && [].slice.call(h.nextElementSibling.querySelectorAll('.event-row-name'))
+        .some((e) => e.textContent === 'Rapport');
+    }, null, { timeout: 70000, polling: 500 }).then(() => true).catch(() => false);
+    log(label + ' 8d: … og flytter seg til «Frist utløpt» av seg selv når den passerer',
+      flyttet, 'grense ' + new Date(grense).toISOString());
+    log(label + ' 8e: modalen står fortsatt åpen etter flyttingen',
+      !(await p.locator('#events-modal').isHidden()));
+  }
 
   /* ---------- 5) Tomtilstand ---------- */
   await p.evaluate(() => {

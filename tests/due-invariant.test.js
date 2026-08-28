@@ -24,7 +24,10 @@
      8. Låste tider teller ikke: et listepunkt hvis tider styres av listen har
         ingen aktiv egen verdi, og blokkerer derfor ikke listen.
      9. Dato uten klokkeslett måles med den felles semantikken — fristdatoen
-        varer ut døgnet, så barn samme dag med klokkeslett er gyldig.
+        varer ut døgnet, så barn samme dag med klokkeslett er gyldig. Og
+        dato-FØRST-inntasting virker: en dato som ennå kan reddes av et
+        klokkeslett samme dag blir stående i feltet i stedet for å bli
+        tilbakestilt, slik at neste halvdel av paret kan skrives inn.
     10. UI-veiene: både objektmenyens tidsskuff og tids-popoveren avviser en
         ugyldig frist, tilbakestiller feltet til forrige gyldige verdi og sier
         fra i en toast — uten bekreftelsesmodal.
@@ -235,6 +238,51 @@ const clearToast = (p) => p.evaluate(() => {
     r.ok === false && r.due === '2026-06-18T19:00', JSON.stringify(r));
   await clearToast(p);
   await setDue(p, 'Plan', 'Kat', '2026-06-18');
+
+  /* ---------- 9c) Dato først, klokkeslett etterpå ----------
+     Forelderen har klokkeslett; barnets DATO alene tolkes som døgnets slutt og
+     avvises. Da skal feltet likevel bli stående, ellers er den normale
+     rekkefølgen (dato → klokkeslett) umulig å skrive. */
+  // Barnet ryddes bort FØR taket senkes — ellers avviser setteren senkingen.
+  await setDue(p, 'Plan', 'Medlem', null);
+  await setDue(p, 'Plan', 'Kat', '2026-06-18T17:00');
+  await p.evaluate((cid) => {
+    const H = window.__huskis;
+    H.setActiveGroup(H.state.universes[0].groups[0].id);
+    H.state.universes[0].groups[0].cards.find((c) => c.id === cid).collapsed = false;
+    H.render();
+  }, id.LPLAN);
+  await p.waitForTimeout(300);
+  await p.locator('.item[data-id="' + id.IMED + '"] > .obj-menu-btn').click();
+  await p.waitForTimeout(250);
+  await p.locator('#obj-menu-panel .obj-menu-toggle', { hasText: 'Tidsplan' }).click();
+  await p.waitForTimeout(400);
+  const dF = '#obj-menu-panel .obj-menu-sub .time-group:nth-of-type(2) input[type="date"]';
+  const tF = '#obj-menu-panel .obj-menu-sub .time-group:nth-of-type(2) input[type="time"]';
+  await p.fill(dF, '2026-06-18');
+  await p.locator(dF).blur();
+  await p.waitForTimeout(250);
+  log('9c: datoen blir stående når et klokkeslett samme dag fortsatt kan redde den',
+    (await p.inputValue(dF)) === '2026-06-18' && (await readDue(p, 'Plan', 'Medlem')) === null,
+    (await p.inputValue(dF)) + ' / data ' + await readDue(p, 'Plan', 'Medlem'));
+  await p.fill(tF, '16:00');
+  await p.locator(tF).blur();
+  await p.waitForTimeout(250);
+  log('9d: … og klokkeslettet etterpå fullfører den gyldige verdien',
+    (await readDue(p, 'Plan', 'Medlem')) === '2026-06-18T16:00', await readDue(p, 'Plan', 'Medlem'));
+  // En dato som IKKE kan reddes av noe klokkeslett tilbakestilles som før.
+  await p.fill(dF, '2026-06-25');
+  await p.locator(dF).blur();
+  await p.waitForTimeout(250);
+  log('9e: en dato utenfor rekkevidde tilbakestilles fortsatt',
+    (await p.inputValue(dF)) === '2026-06-18' && (await readDue(p, 'Plan', 'Medlem')) === '2026-06-18T16:00',
+    (await p.inputValue(dF)) + ' / data ' + await readDue(p, 'Plan', 'Medlem'));
+  await p.keyboard.press('Escape');
+  await clearToast(p);
+  await p.waitForTimeout(200);
+  // Taket løftes FØRST (dato uten klokkeslett varer ut døgnet), så barnet.
+  await setDue(p, 'Plan', 'Kat', '2026-06-18');
+  await setDue(p, 'Plan', 'Medlem', '2026-06-18T19:00');
 
   /* ---------- 10) De to UI-veiene ---------- */
   // 10a: tids-popoveren fra frist-chipen på listepunktet.

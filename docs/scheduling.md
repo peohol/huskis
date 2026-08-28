@@ -127,6 +127,13 @@ Ved forsøk på en ugyldig verdi:
   når den forfaller;
 - ingen bekreftelsesmodal.
 
+**Ett unntak fra tilbakestillingen.** Et felt er et PAR (dato + klokkeslett), og
+brukeren skriver normalt datoen først. Er forelderens frist et klokkeslett samme
+dag, blir datoen alene avvist — den varer ut døgnet. Da blir det brukeren skrev
+stående i feltet (fortsatt uten å bli lagret), slik at klokkeslettet kan skrives
+inn etterpå og fullføre en gyldig verdi. En dato som ikke kan reddes av noe
+klokkeslett tilbakestilles som ellers.
+
 ### Eldre data som allerede bryter regelen
 
 Tider utenfor foreldrenes tidsrom var tidligere fritt tillatt, så det kan finnes

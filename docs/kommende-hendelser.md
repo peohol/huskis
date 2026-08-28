@@ -70,6 +70,15 @@ synk-runde ender i begge. Kallet er en no-op når modalen er lukket, og maler
 bare om når SIGNATUREN endrer seg — da mister ikke en fokusert rad fokus av en
 bakgrunnssynk som ikke rørte noen av hendelsene.
 
+Gruppene avhenger også av `now`, ikke bare av tilstanden. Modalen PULSER likevel
+ikke: hver hendelse har nøyaktig to øyeblikk der den kan bytte gruppe —
+tidspunktet selv, og 7-døgnsgrensen (`at - WEEK_MS`) — så `refreshEventsModal()`
+sover til den FØRSTE av dem (`nextEventBoundary`). En frist som passerer mens
+modalen står åpen flytter seg dermed til «Frist utløpt» av seg selv. Søvnen har
+et tak på seks timer, og en `visibilitychange` regner ut på nytt med én gang:
+`setTimeout` er ikke til å stole på over en fane i bakgrunnen eller en enhet som
+har sovet.
+
 ## Hva som er aktivt
 
 En hendelse finnes bare for noe det fortsatt er noe å gjøre med:

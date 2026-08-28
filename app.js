@@ -3002,6 +3002,16 @@
     }
     return null;
   }
+  /* Ble en DATO uten klokkeslett avvist bare fordi døgnet varer LENGER enn
+     forelderens frist samme dag? Da kan et klokkeslett fortsatt redde verdien,
+     og feltet skal ikke tilbakestilles — ellers ville det vært umulig å skrive
+     dato først og klokkeslett etterpå, som er den normale rekkefølgen i et
+     dato+tid-par. */
+  function dueNeedsClock(card, obj, value) {
+    if (!value || timeClockPart(value)) return false;
+    const ceil = dueCeiling(card, obj);
+    return !!ceil && timeDatePart(value) === localDateStr(new Date(ceil.ms));
+  }
   /* Bryter objektets EGEN frist allerede invarianten (eldre data)? Returnerer
      forelderen som er brutt, eller null. Låste elementer har ingen aktiv egen
      verdi og kan derfor ikke være i konflikt. */
@@ -8671,6 +8681,33 @@
     eventsCountEl.textContent = tr(data.total === 1 ? 'events.count.one' : 'events.count.other', { n: data.total });
   }
 
+  /* Bøttene avhenger av `now`, ikke bare av tilstanden: står modalen åpen når en
+     frist passerer eller en 7-døgnsgrense krysses, havner raden i feil gruppe
+     uten at noe i state har endret seg. Vi PULSER ikke — hver hendelse har
+     nøyaktig to øyeblikk der den kan bytte gruppe (tidspunktet selv, og
+     7-døgnsgrensen `at - WEEK_MS`), så vi sover til den første av dem.
+     Taket er der for en maskin som har sovet: `setTimeout` er upålitelig over
+     lange strekk, og da er en ny utregning uansett billig. */
+  const EVENTS_MAX_SLEEP_MS = 6 * 60 * 60 * 1000;
+  let eventsTimer = null;
+  function nextEventBoundary(data, now) {
+    let best = Infinity;
+    const consider = (t) => { if (t > now && t < best) best = t; };
+    [data.due.over, data.due.soon, data.due.later,
+      data.start.started, data.start.soon, data.start.later].forEach((rows) => {
+      rows.forEach((e) => { consider(e.at); consider(e.at - WEEK_MS); });
+    });
+    return best;
+  }
+  function scheduleEventsBoundary(data) {
+    clearTimeout(eventsTimer);
+    eventsTimer = null;
+    const next = nextEventBoundary(data, data.now);
+    if (next === Infinity) return;
+    // +50 ms: vi skal våkne SÅ VIDT etter grensen, ikke nøyaktig på den.
+    eventsTimer = setTimeout(refreshEventsModal, Math.min(next - data.now + 50, EVENTS_MAX_SLEEP_MS));
+  }
+
   // Signaturen fanger alt raden viser: endres ingenting av det, står DOM-en.
   function eventsSignature(data) {
     const one = (e) => e.kind + '|' + e.bucket + '|' + e.type + '|' + e.id + '|' + e.at + '|' + e.name + '|' + e.path.join('/');
@@ -8685,6 +8722,7 @@
     const modal = document.getElementById('events-modal');
     if (!modal || modal.hidden) return;
     const data = collectUpcomingEvents();
+    scheduleEventsBoundary(data);
     const sig = eventsSignature(data);
     if (!force && sig === eventsSig) return;
     eventsSig = sig;
@@ -8698,6 +8736,8 @@
   }
   function closeEventsModal() {
     eventsModal.hidden = true;
+    clearTimeout(eventsTimer);
+    eventsTimer = null;
     eventsSig = null;
     updateModalOpenClass();
   }
@@ -8707,6 +8747,12 @@
     closeEventsModal();
     navigateToObject({ type: type, id: id });
   }
+  /* En timer er ikke til å stole på over en fane i bakgrunnen eller en enhet
+     som har sovet — kommer vi tilbake i forgrunnen, regnes det ut på nytt med
+     én gang. No-op når modalen er lukket. */
+  document.addEventListener('visibilitychange', () => {
+    if (!document.hidden) refreshEventsModal();
+  });
   if (eventsBtn) eventsBtn.addEventListener('click', openEventsModal);
   if (eventsCloseBtn) eventsCloseBtn.addEventListener('click', closeEventsModal);
   if (eventsModal) {
@@ -9470,8 +9516,11 @@
           : null;
         /* Den ENE setteren — all fristvalidering ligger der, ikke her. Blir
            verdien avvist, faller feltene tilbake til den forrige gyldige
-           verdien (ingen bekreftelsesmodal, bare en kort beskjed fra setteren). */
-        if (!setObjectTime(t, field, v)) {
+           verdien (ingen bekreftelsesmodal, bare en kort beskjed fra setteren).
+           UNNTAKET er en dato som ennå kan reddes av et klokkeslett samme dag
+           (`dueNeedsClock`): da blir det brukeren skrev stående, så den neste
+           halvdelen av paret kan skrives inn. */
+        if (!setObjectTime(t, field, v) && !dueNeedsClock(t.card, t.obj, v)) {
           dateIn.value = timeDatePart(t.obj[field]) || '';
           timeIn.value = timeClockPart(t.obj[field]) || '';
         }
