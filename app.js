@@ -3920,6 +3920,7 @@
     document.body.classList.remove('is-dragging');
     setExtracting(false);   // sikkerhetsnett: også på avbruddsveiene
     setTrashHold(false);
+    setHoleAstray(false);
     // Kolonnefordelingen har vært frosset gjennom draget (og korthøydene kan ha
     // endret seg — et listepunkt flyttet mellom to lister). Kjør den på nytt nå
     // som draget er over; `boardRelayoutAfterDrop` gjør den samme runden når
@@ -5087,9 +5088,6 @@
   function setExtracting(on) {
     document.body.classList.toggle('is-extracting', !!on);
   }
-  /* Ny-liste-placeholderen males ikke mens pekeren står på kassen: der SLETTER
-     slippet, og en placeholder som lover en ny liste ville lovet feil. Kun
-     malingen — plassen beholdes, så modusen og kortene under står i ro. */
   /* Slapp man i kassens treffsone? Punktet leses av Smetts operasjon, ikke av
      `drag.lastX/Y`: Smett skriver de FAKTISKE slipp-koordinatene inn før
      operasjonen avsluttes (`AuthoritativeDrop`), mens vår egen mellomlagring er
@@ -5101,8 +5099,25 @@
     if (!pt) return false;
     return pointerOnDragTrash(pt.x, pt.y);
   }
+  /* INGEN plassholder males mens pekeren står på kassen: der SLETTER slippet, og
+     både ny-liste-stripa og hullet raden kom fra ville lovet en plassering som
+     ikke skjer. Hullet kan til og med ligge i en HELT ANNEN liste enn den man
+     sikter i — kassen ligger utenfor radene, så det finnes ingen rad å bytte med
+     på veien tilbake dit. Kun malingen; plassen beholdes, så modusen og kortene
+     under står i ro. Se `body.is-over-trash` i styles.css. */
   function setTrashHold(on) {
     document.body.classList.toggle('is-over-trash', !!on);
+  }
+  /* Hullet males bare DER RADEN LANDER. dnd-kits sortering flytter det bare ved
+     å bytte med en RAD, så på vei tilbake opp fra lista under — over ＋-raden,
+     der det ikke finnes en rad å bytte med — blir det liggende igjen i lista man
+     forlot, mens slippet lander i den man er i (`dragOverCard`, som
+     kollisjonsdetektorene leser via `dndRowTargetCont`). Et malt hull i feil
+     liste er ett løfte for mye. MÅLT: et vindu på ~35 px over ＋-raden der hullet
+     sto igjen i lista under og slippet la raden i lista over. Kun malingen;
+     plassen beholdes, så ingenting rykker. */
+  function setHoleAstray(on) {
+    document.body.classList.toggle('is-hole-astray', !!on);
   }
   /* Ny-liste-placeholderen SVEVER mellom kortene.
 
@@ -7025,10 +7040,11 @@
 
          Modusen røres IKKE her — den er lista si, og å slå den av og på idet
          pekeren streifer kassen ville flyttet kortene under den én gang per
-         streif. Det som skjer er de to tingene som gjør slippet ærlig:
-         ny-liste-placeholderen males ikke (`setTrashHold` — den beholder
-         plassen sin, så ingenting rykker), og kassen markeres. Hva slippet
-         BETYR står i `*CommitRow`: i denne sonen sletter det.
+         streif. Det som skjer er de to tingene som gjør slippet ærlig: INGEN
+         plassholder males (`setTrashHold` — verken ny-liste-stripa eller hullet
+         raden kom fra; begge beholder plassen sin, så ingenting rykker), og
+         kassen markeres. Hva slippet BETYR står i `*CommitRow`: i denne sonen
+         sletter det.
 
          Sonen er litt større enn knappen (`DRAG_TRASH_PAD`) — knappen er et
          lite mål, og en finger treffer den ikke på pikselen.
@@ -7052,6 +7068,11 @@
       // utsatt byttet med hele kassens høyde, og ut-terskelen ned ville sluttet
       // å være den samme linja som opp.
       setTrashHold(påKassen);
+      // ETT MALT HULL OM GANGEN, del to: hullet lover bare noe der raden faktisk
+      // lander. `dragOverCard` er allerede regnet ut denne runden.
+      const hull = dragScope().root.querySelector('[data-dnd-placeholder]');
+      const iMål = dragOverCard();
+      setHoleAstray(!!hull && !!iMål && hull.closest('.card') !== iMål);
       /* Svaret er en funksjon av PEKERPOSISJONEN. Står pekeren stille, skal
          svaret stå stille — selv om layouten flyttet seg. Det er nettopp der
          tilbakekoblingen bor: VÅR egen plassering flytter radene, og en ny runde

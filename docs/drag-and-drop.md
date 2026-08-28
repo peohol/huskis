@@ -556,16 +556,38 @@ leserekkefølge.
 — ingen container tar imot, dnd-kit finner ikke noe mål, sorteringen står stille,
 og plasseringen er vår. Det er Smetts eget svar på «slå av reorder akkurat nå».
 
-**ETT malt hull om gangen** (`setExtracting` → `body.is-extracting`).
-Ny-liste-placeholderen er plassen som kommer, men dnd-kits klone blir liggende
-igjen der raden lå: motoren flytter den bare ved å bytte med en RAD, og i denne
-modusen tar ingen container imot. Vist samtidig lover de to hver sin plassering,
-og bare det ene holder — klonen males derfor ikke mens modusen står på (dnd-kits
-egen standard, som `styles.css` ellers slår av).
+## Ett malt hull om gangen
 
-Klonen beholder PLASSEN sin. Å ta den ut av flyten var det første forsøket, og
-det gjorde lista til nok en ting som flytter seg midt i et modusbytte — den
-krympet en radhøyde idet stripa kom, og vokste igjen idet den gikk. Prøvd på nytt
+**Bare ETT sted får love en plassering av gangen.** Et malt hull sier «her lander
+raden»; ny-liste-stripa sier «her blir den sin egen liste»; en markert kasse sier
+«her slettes den». To av dem samtidig lover hver sin plassering, og bare den ene
+er sann.
+
+**I ekstraheringsmodus** er stripa plassen som kommer, men dnd-kits klone blir
+liggende igjen der raden lå: motoren flytter den bare ved å bytte med en RAD, og
+i denne modusen tar ingen container imot. Klonen males derfor ikke mens modusen
+står på (dnd-kits egen standard, som `styles.css` ellers slår av).
+
+**På kassen** gjelder det samme: der SLETTER slippet, og verken stripa eller
+klonen skal love en plassering. `body.is-over-trash` slår av malingen av begge.
+Rødvasken på det som dras og et malt hull utelukker dermed hverandre.
+
+**Og hullet males bare DER RADEN LANDER** (`setHoleAstray` →
+`body.is-hole-astray`). Sorteringen flytter klonen bare ved å bytte med en RAD,
+og over ＋-raden finnes det ingen: drar man en rad ned i lista under og opp igjen,
+blir klonen liggende der nede mens slippet lander i lista man er i
+(`dragOverCard`, som kollisjonsdetektorene leser via `dndRowTargetCont`). MÅLT:
+et vindu på ~35 px over ＋-raden der klonen sto i lista under og slippet la raden
+i lista over. Der males den ikke.
+
+`dnd-trash` sjekk 13 måler hele turen — ned i lista under, opp igjen og fram til
+knappen: aldri rødvask og malt hull samtidig, og males hullet, ligger det i lista
+slippet faktisk lander i.
+
+I alle tre tilfellene er det KUN malingen som skrus av: **klonen beholder PLASSEN
+sin.** Å ta den ut av flyten var det første forsøket, og det gjorde lista til nok
+en ting som flytter seg midt i et modusbytte — den krympet en radhøyde idet
+stripa kom, og vokste igjen idet den gikk. Prøvd på nytt
 etter at [dra-ankeret](#dra-ankeret-layouten-flytter-seg-bort-fra-siktet) kom:
 ekstraher-terskelen flyttet seg 10–27 px og kolonnen flimret mellom `reorder` og
 `extract` (`dnd-extract-thresholds` A4/B3/C1/C4). Hullet som blir stående er
@@ -811,9 +833,12 @@ finger treffer den ikke på pikselen):
   ekstraheringen: draget rulles tilbake som et avbrutt drag, og slettingen tar
   over — samme vei som sone-slippet. Slipp-punktet leses av Smetts operasjon,
   ikke av vår egen mellomlagring, som kan være koalescert bort i en rask gest.
-- **Stripa lover ingenting i ringen** (`setTrashHold` → `body.is-over-trash`).
-  Ringen kan stikke litt utenfor kortkanten, og der ville stripa lovet en ny
-  liste et sted slippet sletter. Kun malingen skrus av; plassen er null uansett.
+- **Ingen plassholder lover noe i ringen** (`setTrashHold` →
+  `body.is-over-trash`). Ringen kan stikke litt utenfor kortkanten, og der ville
+  stripa lovet en ny liste et sted slippet sletter. Det samme gjelder HULLET
+  raden kom fra — se [«Ett malt hull om
+  gangen»](#ett-malt-hull-om-gangen). Kun
+  malingen skrus av; stripa er null uansett, og hullets plass beholdes.
 
 **Markeringen settes begge veier fra `dndRowPolicy`.** Smetts `onDropTarget` fyrer
 bare når MÅLET endrer seg, og i ringen er målet null hele tiden — ingen ville da

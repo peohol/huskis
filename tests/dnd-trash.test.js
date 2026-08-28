@@ -33,6 +33,12 @@
        raden i dens EGEN container. Forlater raden alle containere, blir kassen
        stående; å skjule den ville krympet kortet og flyttet raden ut og inn av
        containeren én gang per frame.
+   13. ETT MALT HULL OM GANGEN, og bare der raden faktisk lander. Sikter man på
+       kassen, sletter slippet — da skal ingen plassholder love en plassering,
+       heller ikke hullet raden kom fra, som kan ligge igjen i en HELT ANNEN
+       liste enn den man sikter i. Rødvasken på det som dras og et malt hull
+       utelukker hverandre, og males hullet i det hele tatt, ligger det i lista
+       slippet faktisk lander i.
 
   Kjør:
     python3 -m http.server 8000                     # fra repo-roten, i egen terminal
@@ -559,6 +565,131 @@ async function runTrashFollows(label, viewport) {
   await b.close();
 }
 
+/* ============ 13) Ett malt hull om gangen ============
+   dnd-kits sortering flytter hullet bare ved å bytte med en RAD, så drar man en
+   rad ned i lista under og deretter opp til KASSEN i lista over, blir hullet
+   liggende igjen i lista under: kassen ligger utenfor radene, og det er ingen
+   rad å bytte med på veien tilbake. Da lover to ting hver sin plassering
+   samtidig — hullet sier «her lander raden», kassen sier «her slettes den» — og
+   bare den ene er sann. Hullet males derfor ikke mens man sikter på kassen. */
+async function runEttHull(label, viewport) {
+  const b = await chromium.launch();
+  const p = await b.newPage({ viewport });
+  const errs = [];
+  p.on('pageerror', (e) => errs.push(e.message));
+  await register(p);
+  // Samme to-liste-oppsett som sjekk 12, men liste B beholder en rad etter
+  // flyttingen, så den ikke bytter til tom-tilstand midt i målingen.
+  await p.evaluate(() => {
+    const H = window.__huskis, st = H.state;
+    const mk = (o) => Object.assign({ ts: 1, org: 't', pos: 0, posTs: 1, posOrg: 't',
+      trashed: false, _role: 'owner' }, o);
+    st.universes.length = 0;
+    const u = mk({ id: 'UNI', name: 'Hjemme', collapsed: false, groups: [] });
+    const g = mk({ id: 'GRP', uni: 'UNI', name: 'Ukesplan', cat: null, isCat: false, collapsed: false, cards: [] });
+    u.groups.push(g);
+    const a = mk({ id: 'L1', group: 'GRP', title: 'Liste A', collapsed: false, items: [] });
+    a.items.push(mk({ id: 'A0', home: 'L1', text: 'Melk', cat: null, isCat: false }));
+    a.items.push(mk({ id: 'A1', home: 'L1', text: 'Brød', cat: null, isCat: false, pos: 1 }));
+    const c = mk({ id: 'L2', group: 'GRP', title: 'Liste B', collapsed: false, items: [], pos: 1 });
+    c.items.push(mk({ id: 'B0', home: 'L2', text: 'Sykkel', cat: null, isCat: false }));
+    c.items.push(mk({ id: 'B1', home: 'L2', text: 'Sko', cat: null, isCat: false, pos: 1 }));
+    g.cards.push(a, c);
+    st.universes.push(u);
+    st.activeUniverse = 'UNI'; st.activeGroup = 'GRP';
+    H.render();
+  });
+  await p.waitForTimeout(350);
+
+  // Hva LOVER layouten akkurat nå? Et hull teller bare når det faktisk males.
+  const lovnader = () => p.evaluate(() => {
+    const malt = (el) => {
+      if (!el) return false;
+      const cs = getComputedStyle(el);
+      return cs.visibility === 'visible' && cs.display !== 'none' &&
+        el.getBoundingClientRect().height > 0;
+    };
+    const klone = document.querySelector('[data-dnd-placeholder]');
+    return {
+      hull: malt(klone),
+      hullIKort: klone && klone.closest('.card') ? klone.closest('.card').dataset.id : null,
+      stripe: malt(document.querySelector('.new-list-placeholder')),
+      rød: !!document.querySelector('[data-dnd-dragging].to-trash'),
+      vert: (document.querySelector('.trashcan.drag-trash') || {}).closest
+        ? (document.querySelector('.trashcan.drag-trash').closest('.card') || {}).dataset?.id || 'TOPP' : null,
+    };
+  });
+
+  const src = await p.locator('.item[data-id="A1"]').boundingBox();
+  const sx = src.x + Math.min(src.width / 2, 120), sy = src.y + src.height / 2;
+  await p.mouse.move(sx, sy);
+  await p.mouse.down(); await p.waitForTimeout(60);
+  await p.mouse.move(sx + 12, sy + 12); await p.waitForTimeout(160);
+
+  // Ned i liste B, så dnd-kit flytter hullet dit …
+  const b0 = await p.locator('.item[data-id="B0"]').boundingBox();
+  const yNed = b0.y + b0.height / 2 + 10;
+  await p.mouse.move(sx, yNed, { steps: 14 });
+  await p.waitForTimeout(300);
+  const iB = await lovnader();
+
+  /* … og så OPP igjen, steg for steg, helt fram til kassen i liste A. Hullet
+     blir liggende i B hele veien: sorteringen flytter det bare ved å bytte med
+     en RAD, og over ＋-raden finnes det ingen. */
+  const a0 = await p.locator('.item[data-id="A0"]').boundingBox();
+  const kasse0 = await p.locator('.card[data-id="L1"] .item-trash-btn').boundingBox()
+    .catch(() => null);
+  const yOpp = (kasse0 ? kasse0.y + kasse0.height / 2 : a0.y + a0.height / 2);
+  const prøver = [];
+  for (let i = 1; i <= 16; i++) {
+    await p.mouse.move(sx, yNed + (yOpp - yNed) * i / 16, { steps: 2 });
+    await p.waitForTimeout(70);
+    prøver.push(await lovnader());
+  }
+  const iA = prøver[prøver.length - 1];
+  log(label + ' 13: fiksturet stemmer — hullet lå igjen i den ANDRE lista',
+    iB.hullIKort === 'L2' && prøver.some((s) => s.hullIKort === 'L2' && s.vert === 'L1'),
+    JSON.stringify({ iB: iB.hullIKort, spor: prøver.map((s) => s.hullIKort + '/' + s.vert).join(' ') }));
+
+  // Boksen måles på nytt: kasseraden kan ha flyttet seg mens vi gikk.
+  const kasse = await p.locator('.card[data-id="L1"] .item-trash-btn').boundingBox();
+  for (let i = 0; i < 4; i++) {
+    await p.mouse.move(kasse.x + kasse.width / 2, kasse.y + kasse.height / 2);
+    await p.waitForTimeout(60);
+  }
+  const påKassen = await lovnader();
+  prøver.push(påKassen);
+
+  const begge = prøver.filter((s) => s.rød && s.hull);
+  log(label + ' 13: rødvask og malt hull opptrer aldri samtidig (' + prøver.length + ' prøver)',
+    begge.length === 0, JSON.stringify(begge.slice(0, 2)));
+  // Og males hullet i det hele tatt, ligger det i lista slippet lander i —
+  // den samme lista kassen står i (`dragOverCard` svarer begge).
+  const feilListe = prøver.filter((s) => s.hull && s.vert && s.hullIKort !== s.vert);
+  log(label + ' 13: et malt hull ligger alltid i lista raden faktisk lander i',
+    feilListe.length === 0, JSON.stringify(feilListe.slice(0, 2)));
+  log(label + ' 13: på kassen males verken hullet eller ny-liste-stripa',
+    påKassen.rød === true && påKassen.hull === false && påKassen.stripe === false,
+    JSON.stringify(påKassen));
+
+  // Og slippet betyr fortsatt det samme: raden slettes i sin EGEN liste.
+  await p.mouse.up(); await p.waitForTimeout(900);
+  const etter = await p.evaluate(() => {
+    const g = window.__huskis.state.universes[0].groups[0];
+    const it = g.cards.flatMap((c) => c.items).find((x) => x.id === 'A1');
+    const lev = (id) => g.cards.find((c) => c.id === id).items
+      .filter((x) => !x.trashed && !x._pendingDelete).map((x) => x.id);
+    return { slettet: !!(it && (it.trashed || it._pendingDelete)),
+      home: it && it.home, L1: lev('L1'), L2: lev('L2') };
+  });
+  log(label + ' 13: slippet sletter fortsatt i radens EGEN liste',
+    etter.slettet === true && etter.home === 'L1' &&
+    etter.L1.join(',') === 'A0' && etter.L2.join(',') === 'B0,B1', JSON.stringify(etter));
+  log(label + ' 13: ingen JS-feil', errs.length === 0, errs.join(' | '));
+  await p.close();
+  await b.close();
+}
+
 (async () => {
   await run('desktop', { width: 1280, height: 900 });
   await run('mobil', { width: 390, height: 780 });
@@ -566,6 +697,8 @@ async function runTrashFollows(label, viewport) {
   await runTrashVsExtract('mobil', { width: 390, height: 780 });
   await runTrashFollows('desktop', { width: 1280, height: 900 });
   await runTrashFollows('mobil', { width: 390, height: 780 });
+  await runEttHull('desktop', { width: 1280, height: 900 });
+  await runEttHull('mobil', { width: 390, height: 780 });
   const failed = results.filter((x) => !x).length;
   console.log('\n==== ' + (results.length - failed) + '/' + results.length + ' PASS ====');
   process.exit(failed ? 1 : 0);

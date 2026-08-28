@@ -2282,11 +2282,24 @@ body.is-dragging * { cursor: grabbing !important; }
    stående er ærlig: det er plassen raden kommer tilbake til om man går inn
    igjen. Se `setExtracting` og docs/drag-and-drop.md. */
 body.is-extracting .board [data-dnd-placeholder] { visibility: hidden; }
-/* Pekeren på kassen: der SLETTER slippet, så ny-liste-placeholderen skal ikke
-   love en ny liste. Kun malingen skrus av — plassen beholdes, ellers ville
-   kortene under rykket én gang for hvert streif over knappen. Modusen selv er
-   uendret; se `setTrashHold` og docs/drag-and-drop.md. */
-body.is-over-trash .new-list-placeholder { visibility: hidden; }
+/* Pekeren på kassen: der SLETTER slippet. INGEN plassholder skal da love en
+   plassering — verken ny-liste-stripa eller hullet raden kom fra. Ett malt hull
+   om gangen er den samme regelen som over: enten havner raden i kassen, eller så
+   havner den i en rad, og et malt hull mens man sikter på kassen antyder det
+   siste når det første er sant. Rødvasken på det som dras og et malt hull
+   utelukker hverandre.
+
+   Kun MALINGEN skrus av — plassen beholdes, ellers ville kortene under rykket én
+   gang for hvert streif over knappen (og terskelen med dem, se blokken over).
+   Modusen selv er uendret; se `setTrashHold` og docs/drag-and-drop.md. */
+body.is-over-trash .new-list-placeholder,
+body.is-over-trash .board [data-dnd-placeholder] { visibility: hidden; }
+/* Samme regel, andre grunn: hullet ligger i en ANNEN liste enn den slippet
+   lander i. dnd-kits sortering flytter det bare ved å bytte med en RAD, og over
+   ＋-raden finnes det ingen rad å bytte med — så på vei tilbake opp fra lista
+   under blir det liggende igjen der nede og lover feil liste. Kun malingen; se
+   `setHoleAstray` i app.js. */
+body.is-hole-astray .board [data-dnd-placeholder] { visibility: hidden; }
 /* Kategoriens hvile-linjer hører til kategorien, ikke til hullet — MEN under et
    raddrag ER klonen «raden som kommer», og da er det den som skal bære linja
    (`applyDragSeparators` gir den `.sep-above`/`.sep-below` som enhver annen
