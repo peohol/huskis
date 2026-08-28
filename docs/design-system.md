@@ -543,7 +543,9 @@ Størrelse/form kommer fra egne klasser: `.btn` (modaler), `.btn-small`,
   `docs/menus.md`. `.trashcan.drag-trash` + `.to-trash`: søppelkassen som
   drop-mål mens et drag pågår (`docs/trash.md`).
   `.meta-row` + `.meta-chip`: indikator-chipene under navnet (delt/ansvarlig/
-  start/frist — status-farger via `--grad-*`). `.resp-avatar` / `.resp-row`:
+  start/frist — status-farger via `--grad-*`; `.is-conflict` legger på en
+  stiplet kant i chipens EGEN tekstfarge når fristen bryter invarianten, mens
+  glyfen og teksten bærer meningen). `.resp-avatar` / `.resp-row`:
   ansvarlig-sirkler og velger-rader; sirkelfargen settes inline fra paletten
   (`colorForIndex`, personens alfabetiske plass i delegruppen). Se
   `docs/scheduling.md` og `docs/accounts.md`.

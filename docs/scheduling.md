@@ -134,19 +134,39 @@ stående i feltet (fortsatt uten å bli lagret), slik at klokkeslettet kan skriv
 inn etterpå og fullføre en gyldig verdi. En dato som ikke kan reddes av noe
 klokkeslett tilbakestilles som ellers.
 
+### Et bytte av forelder er ikke en fristendring
+
+Regelen håndheves på hver skriving av `due` — den er altså sann for alt brukeren
+SETTER. Men et objekt kan også få et nytt tak uten at fristen røres: et drag, en
+tastaturflytting eller «Flytt til …» kan legge et listepunkt i en liste med
+tidligere frist.
+
+Den flyttingen avvises IKKE. Dra-og-slipp er appens primære gest, og målets
+frist står ingen steder i det øyeblikket man drar — en avvisning ville vært
+friksjon av en grunn brukeren ikke kan se. Resultatet håndteres i stedet av
+nøyaktig det samme maskineriet som eldre data under: bruddet vises, det
+blokkerer ingenting, og neste fristendring må bringe objektet innenfor.
+
+Fristene til barna endres ALDRI automatisk av en flytting — det er brukerens
+data (`docs/drag-and-drop.md` for hva et slipp ellers betyr).
+
 ### Eldre data som allerede bryter regelen
 
 Tider utenfor foreldrenes tidsrom var tidligere fritt tillatt, så det kan finnes
-data som bryter invarianten. Strategien er:
+data som bryter invarianten. Sammen med flyttingene over er dette de to måtene
+et brudd kan finnes på. Strategien er:
 
 - **ingen migrering og ingen mutering.** Normalisering, fletting og synk rører
   ikke tidsverdier; et brudd lastes, vises og synkes uendret.
 - **et brudd blokkerer ikke forelderen sin.** Et barn som allerede lå utenfor
   taket teller ikke som et gyldig barn når forelderens frist flyttes — ellers
   ville forelderen vært låst fast for en feil den ikke har gjort.
-- **bruddet er synlig.** Åpner man tidseditoren på objektet, står det en tydelig
-  (men ikke blokkerende) beskjed om at fristen ligger etter forelderens, og at
-  neste endring må bringe den innenfor.
+- **bruddet er synlig — også uten å åpne noe.** Frist-chipen under navnet bytter
+  til varseltrekanten (`ICONS.alert`) i stedet for kalenderen, og sier i
+  `title`/`aria-label` hvilken forelder som er brutt og når den forfaller.
+  Meningen bæres av glyfen og teksten, ikke av farge: statusfargen fortsetter å
+  si hvor fristen står i tid. Åpner man tidseditoren, står den samme beskjeden
+  der — tydelig, men ikke blokkerende.
 - **bruddet kan ikke bekreftes på nytt.** Enhver ny skriving valideres, så et
   ugyldig objekt kan bare endres til en gyldig verdi — eller stå urørt.
 
@@ -178,6 +198,11 @@ samme `now` som resten):
   er ikke overskredet før dagen etter.
 
 Fargene bruker knappesystemets gradienter (`--grad-green/-yellow/-red`).
+
+Bryter fristen invarianten (`.meta-chip.is-conflict`), bytter chipen glyf til
+varseltrekanten og forteller i teksten sin hvilken forelder som er brutt — se
+«Den harde fristinvarianten» over. Statusfargen står urørt: den sier fortsatt
+hvor fristen ligger i tid.
 
 ## Synk/DB
 

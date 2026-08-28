@@ -3868,6 +3868,12 @@ body.no-auth .corner-controls { display: none; }
   --icon-paper: #ffffff;
 }
 .meta-chip.is-over { background: var(--grad-red); color: #fff; text-shadow: var(--text-shadow); }
+/* Fristen ligger etter forelderens (docs/scheduling.md). Meningen bæres av
+   varseltrekanten og av chipens tekst (`title`/`aria-label`) — statusfargen
+   under sier fortsatt hvor fristen står i tid. Kanten er ren forsterkning og
+   arver chipens EGEN tekstfarge, så den aldri kan være svakere enn teksten som
+   allerede står på den samme flaten. */
+.meta-chip.is-conflict { border: 1.5px dashed currentColor; }
 
 /* ---------------- Objektmenyen (én knapp per objekt) ----------------
    Popover ved menyknappen på desktop, sentrert ark på mobil — panelet arver

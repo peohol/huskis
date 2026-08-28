@@ -35,6 +35,11 @@
         migrert eller mutert — men det blokkerer ikke forelderen sin, det får
         en tydelig beskjed i tidseditoren, og det kan ikke bekreftes på nytt
         (neste skriving må lande innenfor taket).
+    12. Et BYTTE AV FORELDER flytter taket uten å gå gjennom setteren. Det
+        avvises ikke — gesten er appens primære, og målets frist er ikke synlig
+        mens man flytter — men resultatet er et brudd, og det skal være synlig
+        på board-et med én gang: frist-chipen bytter til varseltrekanten og
+        sier i klartekst hvilken forelder som er brutt.
 
   Kjør:
     python3 -m http.server 8000                        # fra repo-roten, i egen terminal
@@ -381,6 +386,54 @@ const clearToast = (p) => p.evaluate(() => {
   });
   log('11g: bruddet synkes uendret — ingen normalisering rører det',
     iDB === '2026-06-25', iDB);
+
+  /* ---------- 12) Flytting til en forelder med tidligere frist ---------- */
+  // Setteren slipper aldri et barn forbi forelderen, så et brudd kan ikke lages
+  // den veien — det må komme av at TAKET flyttes under føttene på objektet.
+  await setDue(p, 'Gammel', 'Lydig', '2026-06-30');
+  const flyttbar = await readDue(p, 'Gammel', 'Lydig');
+  log('12a: setteren slipper fortsatt ikke barnet forbi forelderen',
+    flyttbar === '2026-06-09', flyttbar);
+  // «Fritt punkt» ligger i «Fri», som ikke har frist — der er 31.12 lovlig.
+  // Flyttes det inn i «Plan» (frist 20.06), er det plutselig utenfor.
+  await setDue(p, 'Fri', 'Fritt punkt', '2026-12-31');
+  await p.evaluate((cid) => {
+    const H = window.__huskis;
+    H.setActiveGroup(H.state.universes[0].groups[0].id);
+    H.state.universes[0].groups[0].cards.forEach((c) => { c.collapsed = false; });
+    H.render();
+  }, id.LFRI);
+  await p.waitForTimeout(300);
+  await p.locator('.item[data-id="' + id.IFRI + '"]').focus();
+  await p.keyboard.press('Alt+KeyM');
+  await p.waitForTimeout(400);
+  const velger = await p.evaluate(() => !document.getElementById('place-modal').hidden);
+  log('12b: «Flytt til …» åpner seg', velger);
+  await p.locator('#place-body .place-option', { hasText: 'Plan' }).first().click();
+  await p.waitForTimeout(500);
+  const havnet = await p.evaluate((iid) => {
+    const el = document.querySelector('.item[data-id="' + iid + '"]');
+    const card = el && el.closest('.card');
+    return card ? (card.querySelector('.card-title') || {}).textContent : null;
+  }, id.IFRI);
+  log('12c: flyttingen blir IKKE avvist — gesten går gjennom',
+    havnet === 'Plan', havnet);
+  log('12d: fristen er urørt av flyttingen',
+    (await readDue(p, 'Plan', 'Fritt punkt')) === '2026-12-31', await readDue(p, 'Plan', 'Fritt punkt'));
+  const chip = await p.evaluate((iid) => {
+    const c = document.querySelector('.item[data-id="' + iid + '"] .meta-due');
+    return c ? { konflikt: c.classList.contains('is-conflict'), tittel: c.title,
+      trekant: /polygon|M12 4\.3/.test(c.innerHTML) } : null;
+  }, id.IFRI);
+  log('12e: frist-chipen på board-et viser bruddet — trekant, ikke bare farge',
+    !!chip && chip.konflikt && chip.trekant, JSON.stringify(chip));
+  log('12f: … og sier i klartekst hvilken forelder som er brutt',
+    !!chip && /Plan/.test(chip.tittel), chip && chip.tittel);
+  // Og bruddet kan ikke bekreftes på nytt gjennom en ny fristendring.
+  const etterFlytting = await setDue(p, 'Plan', 'Fritt punkt', '2026-12-30');
+  log('12g: en ny ugyldig frist på det flyttede objektet avvises som ellers',
+    etterFlytting.ok === false, JSON.stringify(etterFlytting));
+  await clearToast(p);
 
   log('ingen JS-feil', errs.length === 0, errs.join(' | '));
   await browser.close();

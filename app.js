@@ -3086,11 +3086,29 @@
     } else if (startStatus(v) === 'started') {
       chip.classList.add('is-started');
     }
+    /* Ligger fristen etter forelderens (docs/scheduling.md)? Setteren hindrer at
+       det OPPSTÅR ved en tidsendring, men et bytte av forelder — et drag, en
+       tastaturflytting, «Flytt til …» — flytter taket uten å gå gjennom den, og
+       eldre data kan bære bruddet fra før. Da skal det være synlig HER, ikke
+       først når man åpner tidseditoren.
+
+       Signalet er GLYFEN (varseltrekant i stedet for kalenderen) og teksten,
+       ikke fargen: statusfargen sier fortsatt hvor fristen står i tid, og den
+       skal den fortsette å si. Den stiplede kanten er bare forsterkning, og
+       arver chipens egen tekstfarge — den kan dermed aldri bli svakere enn
+       teksten som allerede står der. */
+    const conflict = isDue ? dueLegacyConflict(target.card, target.obj) : null;
     const clock = timeClockPart(v);
     const showClock = clock && timeDatePart(v) === todayStr();
-    chip.innerHTML = (showClock ? ICONS.clock : (isDue ? ICONS.calendarDue : ICONS.calendar)) +
+    if (conflict) chip.classList.add('is-conflict');
+    chip.innerHTML = (conflict ? ICONS.alert : (showClock ? ICONS.clock : (isDue ? ICONS.calendarDue : ICONS.calendar))) +
       '<span>' + (showClock ? clock : fmtDay(timeDatePart(v))) + '</span>';
-    chip.title = tr(isDue ? 'time.dueLabel' : 'time.startLabel', { time: fmtTimeFull(v) });
+    chip.title = conflict
+      ? tr('time.dueConflict', {
+        kind: tr(conflict.kind === 'category' ? 'kindDef.category' : 'kindDef.card'),
+        name: timeObjName(conflict.obj), time: fmtTimeFull(conflict.obj.due),
+      })
+      : tr(isDue ? 'time.dueLabel' : 'time.startLabel', { time: fmtTimeFull(v) });
     chip.setAttribute('aria-label', canEdit ? tr('chip.tapToChange', { text: chip.title }) : chip.title);
     if (canEdit) chip.addEventListener('click', (ev) => { ev.stopPropagation(); openTimeQuick(target, field, chip); });
     else chip.disabled = true;
