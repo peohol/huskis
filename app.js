@@ -9931,6 +9931,15 @@
   }
 
   const NOTIF_RETRY_MS = 60 * 1000;
+  /* Hvor gammel markøren får bli når det ikke er noe å logge. Uten et tak ville
+     den blitt stående der siste logging skjedde — kanskje uker tilbake — og
+     vinduet (markør, nå] ville dekket hele den perioden. En frist som SETTES
+     til et tidspunkt i den perioden (i går, forrige uke) ville da blitt varslet
+     med det samme, stikk i strid med regelen om at varsler gjelder terskler
+     appen har SETT passere. Markøren rykker derfor fram også på en tom runde —
+     men bare når den har blitt så gammel, så en app som står åpen ikke skriver
+     til databasen hvert femte sekund. */
+  const NOTIF_CURSOR_MAX_LAG_MS = 5 * 60 * 1000;
   async function runNotifications() {
     const client = acli();
     if (!client || !authUser || demoActive || notifBusy) return;
@@ -9953,7 +9962,8 @@
     const kjent = new Set(notifRows.map((r) => r.key));
     const rows = notifCursor == null ? []
       : collectNotifications(state, now, notifPrefs, notifCursor).filter((r) => !kjent.has(r.key));
-    if (notifCursor != null && !rows.length) return;
+    // Ingenting å logge, og markøren er fersk nok → ingen grunn til å skrive.
+    if (notifCursor != null && !rows.length && now - notifCursor < NOTIF_CURSOR_MAX_LAG_MS) return;
     notifBusy = true;
     try {
       const { data, error } = await client.rpc('notify_record', { p_rows: rows, p_cursor: now });
@@ -14753,8 +14763,12 @@
       // Nullstill FØRST, last så denne brukerens egen post: uten buffer starter
       // vi helt tomt (og med ukjent historikk), aldri på noe fra en annen konto.
       // (Supabase kan gå rett fra én bruker til en annen uten SIGNED_OUT, så
-      // profilbildet må nullstilles her og ikke bare i cloudStop.)
+      // profilbildet og varslene må nullstilles her og ikke bare i cloudStop.
+      // Varslene er ikke bare en visning: sto de igjen til den nye brukerens
+      // første pull — som kan utebli helt offline — ville forrige brukers
+      // historikk og ulest-antall blitt stående synlig på en annen konto.)
       myAvatar = null; avatarPainted = null;
+      resetNotifications();
       resetLocalSync();
       loadCache();
       render();

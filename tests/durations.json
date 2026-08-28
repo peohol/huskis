@@ -40,7 +40,7 @@
   "tests/locked-group-creation.test.js": 25,
   "tests/nav-modal.test.js": 63,
   "tests/no-legacy-domain.test.js": 0,
-  "tests/notif-modal.test.js": 25,
+  "tests/notif-modal.test.js": 35,
   "tests/notifications.test.js": 6,
   "tests/object-menu.test.js": 38,
   "tests/onboarding.test.js": 48,

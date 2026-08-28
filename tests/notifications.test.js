@@ -367,6 +367,40 @@ async function run() {
   log('11: markøren står foran tersklene, så en tømt historikk gjenskapes ikke',
     førTømming > 0 && etterTømming === 0, førTømming + ' → ' + etterTømming);
 
+  /* ---------- 12) Markøren rykker fram også på en TOM runde ---------- */
+  /* Uten det ville markøren blitt stående der siste logging skjedde, og vinduet
+     (markør, nå] dekket hele perioden siden. En frist som SETTES til et
+     tidspunkt i den perioden ville da blitt varslet med det samme — stikk i
+     strid med regelen om at varsler gjelder terskler appen har SETT passere. */
+  await setCursor(a, Date.now() - 10 * 60 * 1000);   // eldre enn taket (5 min)
+  await cycle(a);
+  await cycle(a);
+  const markør = await a.evaluate(() => ({
+    markør: window.__huskis.notifCursor,
+    nå: Date.now(),
+    rader: window.__huskis.notifRows.length,
+  }));
+  log('12a: en runde uten noe å logge rykker likevel markøren fram når den er gammel',
+    markør.nå - markør.markør < 60 * 1000 && markør.rader === 0,
+    'markøren er ' + Math.round((markør.nå - markør.markør) / 1000) + ' s gammel, ' +
+      markør.rader + ' rader');
+
+  // …og da varsler ikke en frist som settes til et tidspunkt FØR den.
+  await a.evaluate(() => {
+    const H = window.__huskis;
+    const kort = H.state.universes[0].groups[0].cards.find((c) => c.title === 'Endret');
+    const d = new Date(Date.now() - 7 * 60 * 1000);
+    const to = (n) => String(n).padStart(2, '0');
+    H.setObjectTime({ obj: kort, card: kort }, 'due',
+      d.getFullYear() + '-' + to(d.getMonth() + 1) + '-' + to(d.getDate()) +
+      'T' + to(d.getHours()) + ':' + to(d.getMinutes()));
+  });
+  await cycle(a);
+  await cycle(a);
+  const etterFortid = await a.evaluate(() => window.__huskis.notifRows.map((r) => r.type + ':' + r.name));
+  log('12b: en frist satt til et tidspunkt som ALT var passert varsler ikke',
+    etterFortid.length === 0, JSON.stringify(etterFortid));
+
   log('ingen JS-feil', errs.length === 0, errs.join(' | '));
   await ctx2.close();
   await browser.close();

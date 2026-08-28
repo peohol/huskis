@@ -27,6 +27,9 @@
     10. Preferansepanelet: fire brytere, og et bytte lagres på kontoen.
     11. Tastatur og fokus: Escape lukker, og fokus går tilbake til bjellen.
     12. i18n: hele flaten på engelsk.
+    13. Kontobytte UTEN utlogging (Supabase kan gå rett fra én bruker til en
+        annen): historikken og badgen nullstilles med én gang, ikke først når
+        den nye brukerens pull svarer — den kan utebli helt offline.
 
   Kjøres på BÅDE desktop- og mobil-viewport.
 
@@ -59,8 +62,13 @@ function buildDB() {
   const item = (i, c, t) => base({ id: i, owner_id: uid, card_id: c, text: t, done: false });
   return { id, uid, db: {
     _rolesBackfilled: true,
-    profiles: [{ id: uid, email: 'm@x.no', display_name: 'Modal', user_metadata: {} }],
-    passwords: { 'm@x.no': 'x' },
+    // Bruker B finnes bare for kontobytte-testen nederst: Supabase kan gå rett
+    // fra én innlogget bruker til en annen UTEN et SIGNED_OUT imellom.
+    profiles: [
+      { id: uid, email: 'm@x.no', display_name: 'Modal', user_metadata: {} },
+      { id: 'uB', email: 'b@x.no', display_name: 'Bytte', user_metadata: {} },
+    ],
+    passwords: { 'm@x.no': 'x', 'b@x.no': 'x' },
     universes: [base({ id: id.UA, owner_id: uid, name: 'Arbeid' })],
     groups: [base({ id: id.GA, owner_id: uid, universe_id: id.UA, name: 'Klinikk' })],
     cards: [card(id.C1, 'Skattemelding', 0), card(id.C2, 'Sykkeltur', 1), card(id.C3, 'Flyttedag', 2)],
@@ -435,10 +443,95 @@ async function runEngelsk() {
   await browser.close();
 }
 
+/* Kontobytte uten utlogging. Supabase kan gå rett fra én innlogget bruker til
+   en annen uten et SIGNED_OUT imellom (`cloudStart` har en egen gren for det),
+   og da må varselhistorikken byttes ut MED ÉN GANG — ikke først når den nye
+   brukerens pull svarer. Serverforsinkelsen (`&lag=`) er hele poenget: den
+   holder pullen i lufta mens vi ser etter, så det som måles er nullstillingen
+   og ikke det nye svaret. */
+async function runKontobytte() {
+  const browser = await chromium.launch();
+  const ctx = await browser.newContext({ viewport: { width: 1200, height: 900 },
+    timezoneId: 'Europe/Oslo', locale: 'nb-NO' });
+  const p = await ctx.newPage();
+  const errs = [];
+  p.on('pageerror', (e) => errs.push(e.message));
+  console.log('\n== kontobytte ==');
+
+  // Fang klientinstansen appen bruker, så testen kan logge inn som en ANNEN
+  // bruker i den samme fanen og få den ekte SIGNED_IN-hendelsen.
+  await p.addInitScript(() => {
+    let real = null;
+    Object.defineProperty(window, 'HK_MOCK', {
+      configurable: true,
+      get() { return real; },
+      set(v) {
+        const orig = v.createClient;
+        v.createClient = function () {
+          const c = orig.apply(this, arguments);
+          window.__client = c;
+          return c;
+        };
+        real = v;
+      },
+    });
+  });
+
+  const { id, uid, db } = buildDB();
+  await p.goto(BASE + '/?mock=1&lag=1200');
+  await p.evaluate(({ db, uid }) => {
+    localStorage.clear(); sessionStorage.clear();
+    localStorage.setItem('hk-mock-db', JSON.stringify(db));
+    sessionStorage.setItem('hk-mock-session', JSON.stringify({
+      id: uid, email: 'm@x.no',
+      user_metadata: { onboarding: { v: 3, status: 'done' },
+        tips: { drag: true, trash: true, moveList: true, dragTrash: true } },
+    }));
+  }, { db, uid });
+  await p.goto(BASE + '/?mock=1&lag=1200');
+  await p.waitForFunction(() => {
+    const H = window.__huskis;
+    return H && H.authUser && H.lastMy && H.state.universes.length > 0;
+  }, null, { timeout: 25000, polling: 200 });
+
+  await addNotifs(p, [
+    { type: 'dueOver', obj_type: 'card', obj_id: id.C1, name: 'Skattemelding',
+      at: Date.now() - 60000, value: '2026-06-14T12:00' },
+    { type: 'startNow', obj_type: 'card', obj_id: id.C2, name: 'Sykkeltur',
+      at: Date.now() - 90000, value: '2026-06-10T08:00' },
+  ]);
+  await p.evaluate(() => window.__huskis.cloudCycle());
+  await p.waitForFunction(() => window.__huskis.notifRows.length === 2, null,
+    { timeout: 20000, polling: 200 });
+  const før = await badgeInfo(p);
+  log('13a: bruker A har to uleste varsler før byttet',
+    før.hidden === false && før.text === '2', JSON.stringify(før));
+
+  // Bytt konto uten å logge ut: den nye brukerens pull er på vei, men treg.
+  await p.evaluate(() => window.__client.auth.signInWithPassword({ email: 'b@x.no', password: 'x' }));
+  await p.waitForFunction(() => window.__huskis.authUser && window.__huskis.authUser.id === 'uB',
+    null, { timeout: 8000, polling: 50 });
+  const etter = await p.evaluate(() => ({
+    rader: window.__huskis.notifRows.length,
+    prefs: window.__huskis.notifPrefs,
+    markør: window.__huskis.notifCursor,
+    badge: document.getElementById('notif-badge').hidden,
+    navn: document.getElementById('notif-btn').getAttribute('aria-label'),
+    lastMy: !!window.__huskis.lastMy,
+  }));
+  log('13b: historikken er borte FØR den nye brukerens pull har svart',
+    etter.rader === 0 && etter.prefs === null && etter.markør === null &&
+    etter.badge === true && etter.navn === 'Varsler', JSON.stringify(etter));
+
+  log('kontobytte: ingen JS-feil', errs.length === 0, errs.join(' | '));
+  await browser.close();
+}
+
 (async () => {
   await run('desktop', { width: 1200, height: 900 }, false);
   await run('mobil', { width: 390, height: 780 }, true);
   await runEngelsk();
+  await runKontobytte();
   const ok = results.filter(Boolean).length;
   console.log('\n==== ' + ok + '/' + results.length + ' PASS ====');
   process.exit(ok === results.length ? 0 : 1);

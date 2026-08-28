@@ -195,7 +195,10 @@ samme nested `state` som før; synken går slik (`cloudCycle`):
    `runNotifications()` generatoren og logger tersklene som er passert siden
    markøren. Runden kaster aldri på det — en generering som ikke når fram lar
    markøren stå, og vinduet er fortsatt åpent neste gang. Se
-   [`varsler.md`](varsler.md).
+   [`varsler.md`](varsler.md). Varselhistorikken nullstilles
+   sammen med resten av den lokale synk-tilstanden — både ved utlogging og i
+   `cloudStart`s gren for et kontobytte UTEN `SIGNED_OUT`, siden den nye
+   brukerens første pull kan utebli helt offline.
 
 4. **Det som starter en runde** (`scheduleCloud`, 300 ms debounce): en lokal
    endring (`save()`), **realtime** `postgres_changes` på de seks tabellene,

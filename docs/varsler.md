@@ -87,6 +87,15 @@ verdt å lese sammen:
   Setter man en frist til i går, ligger terskelen bak markøren. Varslene handler
   om terskler appen har SETT passere.
 
+For at det siste punktet skal være sant, må markøren rykke fram også når det
+ikke er noe å logge — ellers ville den blitt stående der siste varsel ble
+skrevet, kanskje uker tilbake, og alt som ble SATT til et tidspunkt i mellomtiden
+hadde blitt varslet med det samme. En tom runde flytter den derfor også, men
+bare når den har blitt eldre enn fem minutter (`NOTIF_CURSOR_MAX_LAG_MS`): en
+app som står åpen skal ikke skrive til databasen hvert femte sekund. Prisen er
+at en frist satt til de siste par minuttene fortsatt kan gi et varsel om at den
+er passert — den ER passert, så det er ikke galt.
+
 Én runde logger maksimalt `NOTIF_BATCH_MAX` (50) rader, og beholder de nyeste
 tersklene: en historikk som åpner med tre hundre rader er ikke en historikk.
 
