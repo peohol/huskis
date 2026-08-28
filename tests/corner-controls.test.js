@@ -4,12 +4,12 @@
   («Toppkontrollene») og docs/design-system.md.
 
   Gruppen erstattet to knapper som hver hadde sin egen `right:`-utregning.
-  Poenget med denne fila er å låse at den TÅLER FLERE: kalenderknappen (PR 2)
-  og varselknappen (PR 3) skal kunne legges til uten en ny utregning noe sted.
+  Poenget med denne fila er å låse at den TÅLER FLERE: kalenderknappen kom til
+  uten en eneste ny utregning, og varselknappen skal kunne gjøre det samme.
 
   Dekker:
-     1. Gruppen finnes, og knappene ligger i rekkefølgen søk → drakt → konto
-        (DOM og visuelt), med kontoknappen ytterst.
+     1. Gruppen finnes, og knappene ligger i rekkefølgen kalender → søk → drakt
+        → konto (DOM og visuelt), med kontoknappen ytterst.
      2. Alle knappene har kontrollhøyden, samme overkant og lik luft mellom seg
         — ingen av dem er mindre enn berøringsmålet.
      3. Kontoknappen flukter fortsatt med toppmenyens høyre kant.
@@ -42,6 +42,15 @@ const BASE = process.env.HUSKIS_URL || 'http://localhost:8000';
 const results = [];
 const log = (n, ok, x = '') => { results.push(ok); console.log((ok ? 'PASS' : 'FAIL') + ' — ' + n + (x ? '  [' + x + ']' : '')); };
 const nær = (a, b, slack = 1) => Math.abs(a - b) <= slack;
+// Knappene radvis, øverste rad først — gruppen er ÉN rad på bred skjerm og to
+// på smal (drakt+konto øverst, kalender+søk under).
+const radvis = (kids) => {
+  const byTop = new Map();
+  kids.forEach((k) => { if (!byTop.has(k.top)) byTop.set(k.top, []); byTop.get(k.top).push(k); });
+  // Sortert på `left`, ikke DOM-rekkefølge: `order` kan flytte en knapp.
+  return [...byTop.entries()].sort((a, b) => a[0] - b[0])
+    .map(([, v]) => v.sort((a, b) => a.left - b.left));
+};
 
 // Fire ULIKE tall, så en regel som bruker feil kant blir synlig.
 const SONE = { top: 48, right: 24, bottom: 32, left: 16 };
@@ -110,6 +119,10 @@ const geo = (p) => p.evaluate(() => {
     token: parseFloat(rootCs.getPropertyValue('--corner-btns-w')),
     padTop: parseFloat(rootCs.getPropertyValue('--board-pad-top')),
     barBottom: Math.round(bar.bottom),
+    // Panelets INNHOLDSHØYDE (uten padding): så mange gruppe-rader kan ligge
+    // ved siden av det uten at noe må skyves ned.
+    barContent: Math.round(document.getElementById('topbar').clientHeight
+      - parseFloat(barCs.paddingTop) - parseFloat(barCs.paddingBottom)),
     barPadRight: parseFloat(barCs.paddingRight),
     crumbRight: høyreKant('#nav-crumb'),
     crumbPadRight: parseFloat(getComputedStyle(document.querySelector('.breadcrumb')).paddingRight),
@@ -193,19 +206,30 @@ async function run(label, viewport, mobile) {
   /* ---------- 1–2) Rekkefølge, størrelse, luft ---------- */
   const g = await geo(p);
   const ids = g.kids.map((k) => k.id);
-  log(label + ' 1a: gruppen holder søk, drakt og konto i den rekkefølgen',
-    JSON.stringify(ids) === JSON.stringify(['search-btn', 'theme-toggle-btn', 'account-btn']), JSON.stringify(ids));
-  log(label + ' 1b: kontoknappen er ytterst til høyre',
-    g.kids[2].right >= g.kids[1].right && g.kids[1].right >= g.kids[0].right,
-    JSON.stringify(g.kids.map((k) => k.right)));
+  log(label + ' 1a: gruppen holder kalender, søk, drakt og konto i den rekkefølgen',
+    JSON.stringify(ids) === JSON.stringify(['events-btn', 'search-btn', 'theme-toggle-btn', 'account-btn']),
+    JSON.stringify(ids));
+  const rader0 = radvis(g.kids);
+  log(label + ' 1b: kontoknappen ligger ytterst til høyre i sin rad',
+    rader0.every((rad) => rad.every((k, i) => i === 0 || k.right >= rad[i - 1].right)) &&
+    rader0[0][rader0[0].length - 1].id === 'account-btn',
+    JSON.stringify(rader0.map((rad) => rad.map((k) => k.id + '@' + k.right))));
   log(label + ' 2a: alle knappene er kvadratiske og har kontrollhøyden',
     g.kids.every((k) => nær(k.w, g.kontrollH) && nær(k.h, g.kontrollH)),
     JSON.stringify(g.kids.map((k) => k.w + 'x' + k.h)) + ' vs ' + g.kontrollH);
-  log(label + ' 2b: knappene står på samme linje',
-    g.kids.every((k) => k.top === g.kids[0].top), JSON.stringify(g.kids.map((k) => k.top)));
-  const gaps = [g.kids[1].left - g.kids[0].right, g.kids[2].left - g.kids[1].right];
+  /* Oppsettet er ULIKT i de to bredene, med vilje: på bred skjerm står alle
+     fire på én linje, på smal deles gruppen i to rader — drakt og konto
+     øverst, kalender og søk under. Det er den SISTE raden toppmenyen viker
+     for, så breadcrumben får plassen til to knapper i stedet for fire. */
+  const forventet = mobile
+    ? [['theme-toggle-btn', 'account-btn'], ['events-btn', 'search-btn']]
+    : [['events-btn', 'search-btn', 'theme-toggle-btn', 'account-btn']];
+  log(label + ' 2b: knappene står i forventet rad-oppsett',
+    JSON.stringify(rader0.map((rad) => rad.map((k) => k.id))) === JSON.stringify(forventet),
+    JSON.stringify(rader0.map((rad) => rad.map((k) => k.id))));
+  const gaps = rader0.reduce((a, rad) => a.concat(rad.slice(1).map((k, i) => k.left - rad[i].right)), []);
   log(label + ' 2c: lik luft mellom knappene, og den er gruppens gap',
-    gaps.every((x) => nær(x, g.gap)), JSON.stringify(gaps) + ' vs gap ' + g.gap);
+    gaps.length > 0 && gaps.every((x) => nær(x, g.gap)), JSON.stringify(gaps) + ' vs gap ' + g.gap);
   log(label + ' 2d: ingen knapp er under berøringsmålet på 44 px',
     g.kids.every((k) => k.w >= 44 && k.h >= 44), JSON.stringify(g.kids.map((k) => k.w)));
 
@@ -218,8 +242,10 @@ async function run(label, viewport, mobile) {
   log(label + ' 4a: --corner-btns-w er gruppens målte bredde + luften',
     nær(g.token, g.group.w + g.gap), g.token + ' vs ' + (g.group.w + g.gap));
   if (mobile) {
-    log(label + ' 4b: breadcrumben holder av plassen (stablet oppsett)',
-      nær(g.crumbPadRight, g.token) && g.toolbarMarginRight === 0,
+    /* BEGGE panelradene holder av plassen her: gruppen er også to rader så
+       smalt, og da ligger én gruppe-rad ved siden av hver av dem. */
+    log(label + ' 4b: begge panelradene holder av plassen (stablet oppsett)',
+      nær(g.crumbPadRight, g.token) && nær(g.toolbarMarginRight, g.token),
       'crumb-padding ' + g.crumbPadRight + ', toolbar-margin ' + g.toolbarMarginRight);
   } else {
     log(label + ' 4b: listefunksjonene holder av plassen (én linje)',
@@ -278,11 +304,16 @@ async function run(label, viewport, mobile) {
   await ventPåMåling(p, førBredde);
   const f = await geo(p);
   log(label + ' 8a: de nye knappene står først, konto fortsatt ytterst',
-    f.kids.length === 5 && f.kids[0].id === 'fremtid-1' && f.kids[4].id === 'account-btn',
+    f.kids.length === g.kids.length + 2 && f.kids[0].id === 'fremtid-1' &&
+    f.kids[f.kids.length - 1].id === 'account-btn',
     JSON.stringify(f.kids.map((k) => k.id)));
-  log(label + ' 8b: den målte bredden vokste med de to knappene',
-    nær(f.token, f.group.w + f.gap) && f.token > g.token,
-    g.token + ' → ' + f.token);
+  /* Den målte bredden er alltid gruppens SISTE rad + luften. På bred skjerm
+     vokser den med de nye knappene; på smal er siste rad fortsatt kalender +
+     søk, så bredden står stille og det er HØYDEN som vokser. */
+  log(label + ' 8b: den målte bredden følger fortsatt gruppens siste rad',
+    nær(f.token, f.rader[f.rader.length - 1].right - f.rader[f.rader.length - 1].left + f.gap) &&
+    (mobile ? nær(f.token, g.token) && f.group.h > g.group.h : f.token > g.token),
+    g.token + ' → ' + f.token + ', høyde ' + g.group.h + ' → ' + f.group.h);
   log(label + ' 8c: gruppen flukter fortsatt med toppmenyens kant',
     nær(f.vw - f.group.right, f.barPadRight),
     'gruppe ' + (f.vw - f.group.right) + ' vs panel-padding ' + f.barPadRight);
@@ -299,12 +330,13 @@ async function run(label, viewport, mobile) {
   const antallFørBrudd = await p.evaluate(() => {
     const g = document.getElementById('corner-controls');
     const rader = () => new Set([...g.children].map((k) => Math.round(k.getBoundingClientRect().top))).size;
+    const start = rader();   // 1 på bred skjerm, 2 på smal (se 2b)
     let n = 0;
     // Stopp ved FØRSTE brudd: da er siste rad delvis fylt, som den ville vært
     // med et realistisk antall knapper. Fyller vi videre til hver rad er full,
     // spiser gruppen hele linjebredden, og da finnes det ingen plass igjen å
     // holde av — et scenario ingen knapperekke faktisk havner i.
-    while (rader() === 1 && n < 40) {
+    while (rader() === start && n < 40) {
       const b = document.createElement('button');
       b.type = 'button';
       b.className = 'corner-btn';
@@ -327,17 +359,25 @@ async function run(label, viewport, mobile) {
   log(label + ' 8h: board-klaringen følger gruppens nye underkant',
     w.padTop >= Math.max(w.barBottom, w.group.bottom) - 1,
     'pad-top ' + Math.round(w.padTop) + ', gruppe bunn ' + w.group.bottom);
-  log(label + ' 8i: kontoknappen er fortsatt ytterst nederst til høyre',
-    w.kids[w.kids.length - 1].id === 'account-btn'
-      && w.kids[w.kids.length - 1].right === Math.max(...w.kids.map((k) => k.right)),
-    JSON.stringify(w.kids[w.kids.length - 1]));
+  /* Kontoknappen ender fortsatt sin rad ytterst til høyre — den NEDERSTE raden
+     på bred skjerm, den ØVERSTE på smal (der kalender/søk ligger under den). */
+  const raderNå = radvis(w.kids);
+  const kontoRad = raderNå.find((rad) => rad.some((k) => k.id === 'account-btn'));
+  log(label + ' 8i: kontoknappen ender fortsatt sin rad ytterst til høyre',
+    !!kontoRad && kontoRad[kontoRad.length - 1].id === 'account-btn'
+      && kontoRad[kontoRad.length - 1].right === Math.max(...w.kids.map((k) => k.right))
+      && (mobile ? kontoRad === raderNå[0] : kontoRad === raderNå[raderNå.length - 1]),
+    JSON.stringify(raderNå.map((rad) => rad.map((k) => k.id))));
   /* Selve poenget med bruddet: de ekstra radene skal ikke legge seg OPPÅ
      toppmenyens kontroller. Den horisontale klaringen (--corner-btns-w) gjelder
      bare den raden menyen selv står på, så overskuddet må skyves inn i panelets
      padding-top — da ligger menyens FØRSTE rad ved siden av gruppens SISTE. */
-  log(label + ' 8j: overskuddet over én knapperad er skjøvet inn i panelet',
-    nær(w.overflow, w.group.h - w.kontrollH),
-    'overflow ' + w.overflow + ', gruppe ' + w.group.h + ' - kontroll ' + w.kontrollH);
+  /* Overskuddet er de gruppe-radene panelet IKKE har en egen rad ved siden av:
+     gruppens høyde minus panelets INNHOLDSHØYDE. Panelet har én rad på bred
+     skjerm og to på smal, og hver av dem holder av den samme klaringen. */
+  log(label + ' 8j: overskuddet over panelets egne rader er skjøvet inn i panelet',
+    nær(w.overflow, Math.max(0, w.group.h - w.barContent), 2),
+    'overflow ' + w.overflow + ', gruppe ' + w.group.h + ' - panelinnhold ' + w.barContent);
   const øversteKontroll = Math.min(...w.kontroller.map((k) => k.top));
   log(label + ' 8k: ingen kontroll ligger under gruppens EKSTRA rader',
     øversteKontroll >= w.group.top + w.overflow - 1,
@@ -349,10 +389,10 @@ async function run(label, viewport, mobile) {
   log(label + ' 8l: ingen toppmeny-kontroll blir dekket av en knapperad',
     dekket.length === 0,
     'rader ' + JSON.stringify(w.rader) + ' vs ' + JSON.stringify(dekket.length ? dekket : w.kontroller));
-  const sisteRad = w.rader[w.rader.length - 1];
-  log(label + ' 8m: den målte bredden gjelder gruppens SISTE rad',
-    nær(w.token, (sisteRad.right - sisteRad.left) + w.gap),
-    'token ' + w.token + ' vs siste rad ' + (sisteRad.right - sisteRad.left) + ' + gap ' + w.gap);
+  const bredest = Math.max(...w.rader.map((r) => r.right - r.left));
+  log(label + ' 8m: den målte bredden gjelder gruppens BREDESTE rad',
+    nær(w.token, bredest + w.gap),
+    'token ' + w.token + ' vs bredeste rad ' + bredest + ' + gap ' + w.gap);
 
   log(label + ': ingen JS-feil', errs.length === 0, errs.join(' | '));
   await browser.close();

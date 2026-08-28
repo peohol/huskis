@@ -155,11 +155,13 @@ verdt mer enn de 49 px panelet sparer.
 Toppkontrollene (under) ligger fast i hjørnet og er ikke med i panelets flyt,
 så plassen til dem må holdes av noe annet: på én linje er det en
 `margin-right` i ENDEN av linjen (listefunksjonenes), i det stablede oppsettet
-breadcrumbens `padding-right` — da skal raden under bruke hele bredden. Begge
-leser `--corner-btns-w`, som appen MÅLER (`syncTopChrome`), så plassen holder
-takt med hvor mange knapper gruppen faktisk har. Brytes gruppen til flere
-rader, er det den SISTE raden som ligger ved siden av panelets linje — de
-øvrige skyves over den (`--corner-btns-overflow`, under). Panelets egen padding er den
+holder BEGGE radene av den samme plassen (breadcrumbens `padding-right` og
+listefunksjonenes `margin-right`) — for der er hjørnegruppen også to rader, og
+da ligger én gruppe-rad ved siden av hver av dem. Begge leser
+`--corner-btns-w`, som appen MÅLER (`syncTopChrome`) som gruppens BREDESTE rad,
+så plassen holder takt med hvor mange knapper gruppen faktisk har. Har gruppen
+flere rader enn panelet, skyves overskuddet over panelets egne rader ned i
+paddingen (`--corner-btns-overflow`, under). Panelets egen padding er den
 samme i begge, så gruppen flukter fortsatt med panelets kant
 (`tests/safe-area.test.js`, `tests/corner-controls.test.js`).
 
@@ -189,11 +191,12 @@ det finnes ingen `right:`-kjede å regne om:
 
 | Rekkefølge | Knapp | Åpner |
 |---|---|---|
-| 1 | **Søk** (`.search-btn`, `#search-btn`) | søkemodalen — `docs/sok-og-navigering.md` |
-| 2 | **Drakt** (`.theme-toggle-btn`, `#theme-toggle-btn`) | ingen; bytter lys ↔ mørk i ETT trykk |
-| 3 | **Konto** (`.account-btn`, `#account-btn`) | konto-modalen |
+| 1 | **Kalender** (`.events-btn`, `#events-btn`) | «Kommende hendelser» — `docs/kommende-hendelser.md` |
+| 2 | **Søk** (`.search-btn`, `#search-btn`) | søkemodalen — `docs/sok-og-navigering.md` |
+| 3 | **Drakt** (`.theme-toggle-btn`, `#theme-toggle-btn`) | ingen; bytter lys ↔ mørk i ETT trykk |
+| 4 | **Konto** (`.account-btn`, `#account-btn`) | konto-modalen |
 
-Alle tre bærer `.corner-btn`: samme flate-mønster som søppelkassene
+Alle fire bærer `.corner-btn`: samme flate-mønster som søppelkassene
 (halvgjennomsiktig hvit → hvit ved hover), samme høyde/radius som resten av
 kontrollene, samme fokusring. Kontoknappen har i tillegg den røde badgen
 (`#account-badge`) med antall ventende invitasjoner; draktknappens ikon
@@ -205,15 +208,26 @@ av innloggingsskjermens egen knapp (`#auth-theme-toggle-btn`, samme
 `.corner-btn`-flate og samme maling — bare inline i språkraden i stedet for
 fast i hjørnet).
 
+**Under 560 px deles gruppen i to rader:** drakt og konto øverst, kalender og
+søk under (`order: -1` på de to første — alt annet faller under dem i
+DOM-rekkefølge, så regelen «en ny knapp legges FØRST» holder fortsatt). Poenget
+er breadcrumben: det er gruppens SISTE rad toppmenyens linje viker for, så den
+trenger bare å holde av plass til to knapper i stedet for fire.
+
 Gruppen bryter til **flere rader** mot høyre kant når raden ikke rekker
 (`flex-wrap`); knappene krymper aldri under kontrollhøyden. Gruppen er en
-høyre KOLONNE oppå panelet, og den horisontale klaringen gjelder bare den raden
-panelet selv står på — så `syncTopChrome()` skyver overskuddet
-(`--corner-btns-overflow`, høyden utover én knapperad) inn i panelets
-`padding-top`. Da ligger panelets FØRSTE rad alltid ved siden av gruppens
-SISTE, listefunksjonene havner under gruppen, og board-ets klaring følger med.
-`--corner-btns-w` måler nettopp den siste raden, ikke hele gruppen — det er den
-ene raden panelet må vike for. Vokter: `tests/corner-controls.test.js`.
+høyre KOLONNE oppå panelet, og hver av panelets EGNE rader holder av den samme
+klaringen — så én gruppe-rad kan ligge ved siden av hver av dem. Har gruppen
+flere rader enn panelet, skyver `syncTopChrome()` overskuddet
+(`--corner-btns-overflow`, gruppens høyde minus panelets innholdshøyde) inn i
+panelets `padding-top`. Da havner ingen gruppe-rad oppå en panelrad, og
+board-ets klaring følger med.
+
+`--corner-btns-w` måler gruppens BREDESTE rad, ikke hele gruppen og ikke bare
+den nederste — klaringen må holde for hver rad som kan ligge ved siden av en
+panelrad. Radene finnes ved å gruppere knappene på `top`, ikke ved å gå gjennom
+DOM-en: en `order` kan legge en knapp på en annen rad enn DOM-rekkefølgen
+tilsier. Vokter: `tests/corner-controls.test.js`.
 
 ## Navigasjonsmodalen (`#nav-modal`, åpnes fra nav-knappen)
 

@@ -477,6 +477,10 @@
     // En render UNDER `applyingRemote` kaller også save() (renderBoardInner), og
     // da er det fletteresultatet som skrives ned — ikke en ny brukerendring.
     scheduleCacheWrite(!applyingRemote);
+    // «Kommende hendelser» regnes ut av tilstanden, så enhver endring i den kan
+    // gjøre listen utdatert mens modalen står åpen. Kallet er en no-op når den
+    // er lukket, og maler bare om når noe faktisk ble annerledes.
+    refreshEventsModal();
     if (applyingRemote) return;
     if (authUser) { saveSeq++; scheduleCloud(); syncStatus.refresh(); }
   }
@@ -648,7 +652,7 @@
   const uniTrashBtn = document.getElementById('uni-trash-btn');
   const uniTrashCount = document.getElementById('uni-trash-count');
 
-  // Toppkontrollgruppen i øvre høyre hjørne (søk, drakt, konto) og modalene de
+  // Toppkontrollgruppen i øvre høyre hjørne (kalender, søk, drakt, konto) og modalene de
   // åpner. `authThemeToggleBtn` er den SAMME draktknappen, bare inline på
   // innloggingsskjermen — se paintThemeToggle().
   const cornerControls = document.getElementById('corner-controls');
@@ -1635,6 +1639,7 @@
     renderBoardInner();
     applyFocusIntent();
     paintNavFlash();       // markeringen av et navigasjonsmål overlever ombyggingen
+    refreshEventsModal();  // en synk-runde kan ha endret hendelsene under modalen
     // Ombyggingen har byttet ut hvert eneste kort — og dermed hver eneste rad —
     // og dnd-kit sitter igjen med de gamle nodene. Meld den; samme grunn som
     // `renderNav` har, se `boardSyncBoards`.
@@ -2847,11 +2852,22 @@
      Tidsverdi: null | 'YYYY-MM-DD' | 'YYYY-MM-DDTHH:MM' — klokkeslettet er
      valgfritt (dato + tid er to felt i UI-et). Rir på innholds-registeret
      (ts/org) som tekst/done/responsible. Starttid = når noe BØR påbegynnes,
-     frist = når det bør være utført; ingen av dem håndheves. Lister har i
-     tillegg `lockTimes`: listens tider gjelder da elementene, som ikke kan ha
-     egne. Alle statuser regnes på DATO-nivå (lokal tid):
-       start:  nøytral frem til startdatoen, grønn f.o.m. den.
-       frist:  nøytral → gul dagen før fristen → rød f.o.m. fristdatoen. */
+     frist = når det bør være utført. Lister har i tillegg `lockTimes`: listens
+     tider gjelder da elementene, som ikke kan ha egne.
+
+     ÉN TIDSSEMANTIKK, ETT STED (docs/scheduling.md). En dato uten klokkeslett
+     er et DØGN, ikke et tidspunkt, og hvilken ende av døgnet som gjelder følger
+     av FELTET:
+
+       start uten klokkeslett → 00:00:00.000 (døgnet begynner)
+       frist uten klokkeslett → 23:59:59.999 (døgnet slutter)
+
+     `timeMs(verdi, felt)` er den eneste omregningen, og alt som sammenligner
+     tid går gjennom den: chip-statusene, «utenfor tidsrommet»-hintet, den harde
+     fristinvarianten og hendelsesmotoren. Regnestykket bruker
+     `new Date(år, mnd, dag, …)` — altså LOKAL veggtid. «14. juli» er 14. juli
+     der brukeren står, også når sommertiden legger til eller fjerner en time
+     samme døgn; ingen del av kjeden går innom UTC. */
   function timeDatePart(v) { return v ? String(v).slice(0, 10) : null; }
   function timeClockPart(v) { v = String(v || ''); return v.length > 10 ? v.slice(11, 16) : null; }
   function localDateStr(d) {
@@ -2862,6 +2878,25 @@
   function addDaysStr(dateStr, days) {
     const p = dateStr.split('-').map(Number);
     return localDateStr(new Date(p[0], p[1] - 1, p[2] + days));
+  }
+  const HOUR_MS = 60 * 60 * 1000;
+  const DAY_MS = 24 * HOUR_MS;
+  const WEEK_MS = 7 * DAY_MS;
+  /* Tidsverdi → millisekunder i lokal veggtid, eller null når verdien er tom.
+     `field` er 'start' eller 'due' og avgjør hvilken ende av døgnet en dato
+     uten klokkeslett betyr (se blokken over). */
+  function timeMs(v, field) {
+    const d = timeDatePart(v);
+    if (!d) return null;
+    const p = d.split('-').map(Number);
+    const clock = timeClockPart(v);
+    if (clock) {
+      const c = clock.split(':').map(Number);
+      return new Date(p[0], p[1] - 1, p[2], c[0] || 0, c[1] || 0, 0, 0).getTime();
+    }
+    return field === 'due'
+      ? new Date(p[0], p[1] - 1, p[2], 23, 59, 59, 999).getTime()
+      : new Date(p[0], p[1] - 1, p[2], 0, 0, 0, 0).getTime();
   }
   // Månedsnavn og datoformat er språkavhengige: «12. mai» mot «12 May».
   // Listen står som én streng i ordboken (mellomrom skiller) — tolv nøkler
@@ -2878,31 +2913,39 @@
     const day = fmtDay(timeDatePart(v));
     return clock ? tr('date.at', { date: day, clock: clock }) : day;
   }
-  function startStatus(v) { // 'future' | 'started'
-    const d = timeDatePart(v);
-    return d && todayStr() >= d ? 'started' : 'future';
+  /* Chip-statusene. Begge regnes med `timeMs` mot samme `now`, så en frist som
+     står «innen 7 dager» i Kommende hendelser aldri kan være rød i lista:
+       start:  nøytral til starttidspunktet er passert, grønn f.o.m. det — en
+               dato uten klokkeslett begynner 00:00, altså grønn hele startdagen.
+       frist:  nøytral → gul dagen før OG på selve fristdagen → rød først når
+               fristen faktisk er passert (en dato uten klokkeslett varer ut
+               døgnet, så den er ikke overskredet før dagen etter). */
+  function startStatus(v, now) { // 'future' | 'started'
+    const t = timeMs(v, 'start');
+    return t != null && t <= (now == null ? Date.now() : now) ? 'started' : 'future';
   }
-  function dueStatus(v) { // 'later' | 'soon' (dagen før) | 'over' (f.o.m. fristdatoen)
-    const d = timeDatePart(v);
-    if (!d) return 'later';
-    const t = todayStr();
-    if (t >= d) return 'over';
-    if (t >= addDaysStr(d, -1)) return 'soon';
-    return 'later';
-  }
-  // Sammenlign to tidsverdier: på dato-nivå når minst én mangler klokkeslett
-  // (samme dag regnes da som «innenfor»), ellers på fullt tidspunkt.
-  function cmpTime(a, b) {
-    const A = timeClockPart(a) && timeClockPart(b) ? a : timeDatePart(a);
-    const B = timeClockPart(a) && timeClockPart(b) ? b : timeDatePart(b);
-    return A < B ? -1 : A > B ? 1 : 0;
+  function dueStatus(v, now) { // 'later' | 'soon' | 'over'
+    const t = timeMs(v, 'due');
+    if (t == null) return 'later';
+    const n = now == null ? Date.now() : now;
+    if (t < n) return 'over';
+    // «Snart» er kalenderbasert (i dag eller i morgen), ikke et døgn målt i
+    // millisekunder: en frist i morgen skal være gul uansett hvor sent i dag
+    // brukeren ser på den.
+    return timeDatePart(v) <= addDaysStr(localDateStr(new Date(n)), 1) ? 'soon' : 'later';
   }
   // Er elementets start/frist utenfor tidsrommet til containeren (liste eller
-  // kategori)? (Subtil beskjed i tidsmodulen — fullt lovlig, bare et hint.)
+  // kategori)? Subtil beskjed i tidsmodulen — for START er dette fullt lovlig
+  // og bare et hint; en FRIST utenfor containerens frist er derimot et brudd på
+  // fristinvarianten under, og håndteres av den.
   function outsideFlags(item, container) {
-    const chk = (v) => !!v && ((container.start && cmpTime(v, container.start) < 0) ||
-                               (container.due && cmpTime(v, container.due) > 0));
-    return { start: chk(item.start), due: chk(item.due) };
+    const cs = timeMs(container.start, 'start');
+    const cd = timeMs(container.due, 'due');
+    const chk = (v, field) => {
+      const t = timeMs(v, field);
+      return t != null && ((cs != null && t < cs) || (cd != null && t > cd));
+    };
+    return { start: chk(item.start, 'start'), due: chk(item.due, 'due') };
   }
   // Hva styrer et elements tider når `lockTimes` er på? Listen (kort) har
   // forrang; ellers en kategori elementet ligger i som selv låser tidene. Null
@@ -2913,6 +2956,141 @@
     const cat = item.cat ? catOf(card, item.cat) : null;
     if (cat && cat.lockTimes) return cat;
     return null;
+  }
+
+  /* ---------------- Den harde fristinvarianten ----------------
+     Et barn kan ALDRI ha en senere frist enn en forelder som selv har frist.
+     Har forelderen ingen frist, er barnet ubundet. Foreldrekjeden for frist:
+
+       kategori                → listen
+       kategorisert listepunkt → kategorien → listen
+       ukategorisert listepunkt→ listen
+
+     Taket er den TIDLIGSTE fristen i kjeden, ikke bare den nærmeste
+     forelderens: da holder regelen transitivt også når mellomleddet
+     (kategorien) ikke har frist i det hele tatt.
+
+     Regelen håndheves i `setObjectTime()` — den ene setteren alle kodeveier
+     går gjennom — og gjelder BEGGE retninger: et barn kan ikke settes forbi
+     forelderen, og en forelder kan ikke flyttes foran et barns gyldige frist.
+
+     ELDRE DATA som allerede bryter regelen migreres ikke og muteres ikke (se
+     docs/scheduling.md): et brudd blokkerer ikke forelderen sin, det vises som
+     en tydelig beskjed i tidseditoren, og enhver ny skriving på det objektet
+     må lande innenfor taket — så bruddet kan ikke bekreftes på nytt.
+
+     LÅSTE TIDER teller ikke: er elementets tider styrt av listen eller en
+     kategori (`timeController`), er dets egen verdi inert — den kan verken
+     redigeres eller skape en konflikt så lenge låsen står. Verdien valideres
+     igjen den dagen låsen tas av og feltet blir redigerbart. */
+
+  // Forfedrene et objekts tider måles mot, nærmeste først. Kjeden er den samme
+  // for frist og start (og for dedupliseringen i hendelsesmotoren).
+  function timeAncestors(card, obj) {
+    if (!card || !obj || obj === card) return [];
+    if (obj.isCat) return [card];
+    const cat = obj.cat ? catOf(card, obj.cat) : null;
+    return cat && live(cat) ? [cat, card] : [card];
+  }
+  // Taket for objektets egen frist: den tidligste fristen blant forfedrene.
+  // Null → ingen forelder har frist, og barnet er fritt.
+  function dueCeiling(card, obj) {
+    let best = null;
+    timeAncestors(card, obj).forEach((p) => {
+      const ms = timeMs(p.due, 'due');
+      if (ms == null) return;
+      if (!best || ms < best.ms) best = { ms: ms, obj: p, kind: p.isCat ? 'category' : 'card' };
+    });
+    return best;
+  }
+  // Objektene som er bundet av dette objektets frist. Kategoriene først: er det
+  // en kategori som stopper en listeendring, er DEN den meningsfulle beskjeden.
+  // Elementer med låste tider hopper vi over — verdien deres er inert.
+  function dueDescendants(card, obj) {
+    if (!card || !obj) return [];
+    const rows = (card.items || []).filter(live);
+    if (obj === card) {
+      return rows.filter((r) => r.isCat)
+        .concat(rows.filter((r) => !r.isCat && !timeController(r, card)));
+    }
+    if (obj.isCat) return rows.filter((r) => !r.isCat && r.cat === obj.id && !timeController(r, card));
+    return [];
+  }
+  /* Ville `next` (rå tidsverdi) brutt invarianten som frist på objektet?
+     Returnerer null når verdien er lovlig, ellers
+       { dir: 'parent', obj, kind }  — barnet ville havnet etter forelderen
+       { dir: 'child',  obj, kind }  — forelderen ville havnet foran et barn
+     `dir` er også nøkkelvalget i feilmeldingen. */
+  function dueConflict(card, obj, next) {
+    const t = timeMs(next, 'due');
+    if (t == null) return null;   // å fjerne en frist kan aldri bryte regelen
+    const ceil = dueCeiling(card, obj);
+    if (ceil && t > ceil.ms) return { dir: 'parent', obj: ceil.obj, kind: ceil.kind };
+    for (const ch of dueDescendants(card, obj)) {
+      const c = timeMs(ch.due, 'due');
+      if (c == null || c <= t) continue;
+      // Et barn som ALLEREDE bryter regelen (eldre data) blokkerer ikke: det
+      // ville låst forelderen fast for en feil den ikke har gjort.
+      const chCeil = dueCeiling(card, ch);
+      if (chCeil && c > chCeil.ms) continue;
+      return { dir: 'child', obj: ch, kind: ch.isCat ? 'category' : 'item' };
+    }
+    return null;
+  }
+  /* Ble en DATO uten klokkeslett avvist bare fordi døgnet varer LENGER enn
+     forelderens frist samme dag? Da kan et klokkeslett fortsatt redde verdien,
+     og feltet skal ikke tilbakestilles — ellers ville det vært umulig å skrive
+     dato først og klokkeslett etterpå, som er den normale rekkefølgen i et
+     dato+tid-par. */
+  function dueNeedsClock(card, obj, value) {
+    if (!value || timeClockPart(value)) return false;
+    const ceil = dueCeiling(card, obj);
+    return !!ceil && timeDatePart(value) === localDateStr(new Date(ceil.ms));
+  }
+  /* Bryter objektets EGEN frist allerede invarianten (eldre data)? Returnerer
+     forelderen som er brutt, eller null. Låste elementer har ingen aktiv egen
+     verdi og kan derfor ikke være i konflikt. */
+  function dueLegacyConflict(card, obj) {
+    if (!obj || !obj.due) return null;
+    if (!obj.isCat && obj !== card && timeController(obj, card)) return null;
+    const ceil = dueCeiling(card, obj);
+    return ceil && timeMs(obj.due, 'due') > ceil.ms ? ceil : null;
+  }
+  // Navnet på et objekt i en tidsbeskjed (lister har `title`, resten `text`).
+  function timeObjName(obj) {
+    return quoted(obj.title != null ? obj.title : obj.text);
+  }
+  // Feilmeldingen for en avvist fristendring. Nøklene står som hele strenger:
+  // tests/i18n.test.js finner bare nøkler som er skrevet ut i kildekoden.
+  function dueConflictMsg(conf) {
+    return tr(conf.dir === 'parent' ? 'time.dueAfterParent' : 'time.dueBeforeChild', {
+      kind: tr(conf.kind === 'category' ? 'kindDef.category' : conf.kind === 'card' ? 'kindDef.card' : 'kindDef.item'),
+      name: timeObjName(conf.obj),
+      time: fmtTimeFull(conf.obj.due),
+    });
+  }
+
+  /* DEN SENTRALE SETTEREN for start/frist. Alt som skriver `start` eller `due`
+     går gjennom denne — objektmenyens tidsskuff og tids-popoveren bygger begge
+     den samme editoren, og editoren committer her. Ligger valideringen ETT
+     sted, kan ingen ny inngang gå utenom den.
+
+     `target` = { kind, obj, card } (for lister er obj === card).
+     Returnerer true når verdien ble skrevet, false når den ble avvist. */
+  function setObjectTime(target, field, value) {
+    const obj = target && target.obj;
+    if (!obj) return false;
+    const v = value || null;
+    if ((obj[field] || null) === v) return true;   // ingen endring
+    if (field === 'due') {
+      const conf = dueConflict(target.card, obj, v);
+      if (conf) { showToast(dueConflictMsg(conf)); return false; }
+    }
+    obj[field] = v;
+    stampContent(obj);
+    refreshCard(target.card);   // indikator-chipene følger med umiddelbart
+    save();
+    return true;
   }
 
   /* ---------------- Indikator-chips (meta-raden under navnet) ----------------
@@ -2943,11 +3121,29 @@
     } else if (startStatus(v) === 'started') {
       chip.classList.add('is-started');
     }
+    /* Ligger fristen etter forelderens (docs/scheduling.md)? Setteren hindrer at
+       det OPPSTÅR ved en tidsendring, men et bytte av forelder — et drag, en
+       tastaturflytting, «Flytt til …» — flytter taket uten å gå gjennom den, og
+       eldre data kan bære bruddet fra før. Da skal det være synlig HER, ikke
+       først når man åpner tidseditoren.
+
+       Signalet er GLYFEN (varseltrekant i stedet for kalenderen) og teksten,
+       ikke fargen: statusfargen sier fortsatt hvor fristen står i tid, og den
+       skal den fortsette å si. Den stiplede kanten er bare forsterkning, og
+       arver chipens egen tekstfarge — den kan dermed aldri bli svakere enn
+       teksten som allerede står der. */
+    const conflict = isDue ? dueLegacyConflict(target.card, target.obj) : null;
     const clock = timeClockPart(v);
     const showClock = clock && timeDatePart(v) === todayStr();
-    chip.innerHTML = (showClock ? ICONS.clock : (isDue ? ICONS.calendarDue : ICONS.calendar)) +
+    if (conflict) chip.classList.add('is-conflict');
+    chip.innerHTML = (conflict ? ICONS.alert : (showClock ? ICONS.clock : (isDue ? ICONS.calendarDue : ICONS.calendar))) +
       '<span>' + (showClock ? clock : fmtDay(timeDatePart(v))) + '</span>';
-    chip.title = tr(isDue ? 'time.dueLabel' : 'time.startLabel', { time: fmtTimeFull(v) });
+    chip.title = conflict
+      ? tr('time.dueConflict', {
+        kind: tr(conflict.kind === 'category' ? 'kindDef.category' : 'kindDef.card'),
+        name: timeObjName(conflict.obj), time: fmtTimeFull(conflict.obj.due),
+      })
+      : tr(isDue ? 'time.dueLabel' : 'time.startLabel', { time: fmtTimeFull(v) });
     chip.setAttribute('aria-label', canEdit ? tr('chip.tapToChange', { text: chip.title }) : chip.title);
     if (canEdit) chip.addEventListener('click', (ev) => { ev.stopPropagation(); openTimeQuick(target, field, chip); });
     else chip.disabled = true;
@@ -5590,17 +5786,26 @@
      Er gruppen én rad — alltid i dag — er de to det samme. Radene er
      høyrestilte, så raden strekker seg fra sitt venstreste element til
      gruppens høyrekant. */
-  function cornerLastRowWidth(corner) {
+  /* Bredden på den BREDESTE raden i hjørnegruppen. Toppmenyen kan ha flere
+     rader selv (breadcrumb + listefunksjoner under 560 px), og da ligger det en
+     gruppe-rad ved siden av hver av dem — klaringen må derfor holde for den
+     bredeste, ikke bare for den nederste.
+
+     Radene finnes ved å gruppere på `top`, ikke ved å gå gjennom DOM-en: en
+     `order` kan legge en knapp på en annen rad enn DOM-rekkefølgen tilsier
+     (smal skjerm løfter drakt og konto opp, se styles.css). */
+  function cornerWidestRowWidth(corner) {
     const kids = cornerControls ? cornerControls.children : null;
     if (!kids || !kids.length) return corner.width;
-    const lastTop = kids[kids.length - 1].getBoundingClientRect().top;
-    let left = corner.right;
-    for (let i = kids.length - 1; i >= 0; i--) {
+    const left = new Map();
+    for (let i = 0; i < kids.length; i++) {
       const r = kids[i].getBoundingClientRect();
-      if (Math.abs(r.top - lastTop) > 1) break;
-      left = Math.min(left, r.left);
+      const row = Math.round(r.top);
+      left.set(row, Math.min(left.has(row) ? left.get(row) : Infinity, r.left));
     }
-    return corner.right - left;
+    let widest = 0;
+    left.forEach((l) => { widest = Math.max(widest, corner.right - l); });
+    return widest;
   }
 
   /* Toppmenyen OG toppkontrollgruppen er `position: fixed` og dermed ute av
@@ -5617,7 +5822,7 @@
        --corner-btns-w   bredden hjørnegruppen legger beslag på (+ luften til
                          innholdet ved siden av). Den MÅLES i stedet for å
                          regnes ut av et knappeantall, så en ny knapp i gruppen
-                         (kalender, varsler) ikke krever en ny utregning noe
+                         (varsler) ikke krever en ny utregning noe
                          sted. Gruppen er `display: none` før innlogging — da
                          står CSS-startverdien, som er riktig for de knappene
                          som finnes.
@@ -5639,11 +5844,19 @@
     const corner = cornerControls ? cornerControls.getBoundingClientRect() : null;
     if (corner && corner.width > 0) {
       const btnGap = parseFloat(getComputedStyle(cornerControls).columnGap) || 0;
-      root.setProperty('--corner-btns-w', (cornerLastRowWidth(corner) + btnGap) + 'px');
+      root.setProperty('--corner-btns-w', (cornerWidestRowWidth(corner) + btnGap) + 'px');
     }
-    const ctrlH = parseFloat(rootCs.getPropertyValue('--control-h')) || 0;
+    /* Overskuddet er de gruppe-radene toppmenyen IKKE har en egen rad ved siden
+       av. Panelets egne rader holder alle av den samme klaringen (styles.css),
+       så det er panelets innholdshøyde — ikke én kontrollhøyde — gruppen måles
+       mot. Måles på innholdsboksen, som er uavhengig av paddingen dette tallet
+       selv går inn i; ellers hadde utregningen bitt seg selv i halen. */
+    const barCs = getComputedStyle(topbarEl);
+    const barContent = Math.max(
+      parseFloat(rootCs.getPropertyValue('--control-h')) || 0,
+      topbarEl.clientHeight - (parseFloat(barCs.paddingTop) || 0) - (parseFloat(barCs.paddingBottom) || 0));
     root.setProperty('--corner-btns-overflow',
-      Math.max(0, (corner ? corner.height : 0) - ctrlH) + 'px');
+      Math.max(0, (corner ? corner.height : 0) - barContent) + 'px');
     // ETTER overskuddet: toppmenyens høyde avhenger av det, og rect-lesningen
     // tvinger fram den nye layouten.
     const bar = topbarEl.getBoundingClientRect();
@@ -7766,9 +7979,11 @@
     const avatarEd = document.getElementById('avatar-modal');
     const delAcc = document.getElementById('delete-account-modal');
     const searchEl = document.getElementById('search-modal');
+    const eventsEl = document.getElementById('events-modal');
     document.body.classList.toggle('modal-open',
       !trashModal.hidden || !navModal.hidden ||
       !accountModal.hidden || (searchEl && !searchEl.hidden) ||
+      (eventsEl && !eventsEl.hidden) ||
       (share && !share.hidden) || (place && !place.hidden) ||
       (confirmEl && !confirmEl.hidden) || (objMenu && !objMenu.hidden) ||
       (timeSw && !timeSw.hidden) || (avatarEd && !avatarEd.hidden) ||
@@ -8339,6 +8554,8 @@
     if (objMenuCtx) { closeObjMenu(); return true; }
     const searchEl = document.getElementById('search-modal');
     if (searchEl && !searchEl.hidden) { closeSearchModal(); return true; }
+    const eventsEl = document.getElementById('events-modal');
+    if (eventsEl && !eventsEl.hidden) { closeEventsModal(); return true; }
     if (!trashModal.hidden) { closeTrash(); return true; }
     if (!navModal.hidden) { closeNavModal(); return true; }
     if (!accountModal.hidden) { closeAccount(); return true; }
@@ -8954,6 +9171,417 @@
     if (ev.key === 'Enter') { ev.preventDefault(); openSearchHit(searchActive); }
     // Escape håndteres av den felles stigen (closeTopLayer).
   });
+
+  /* ============================================================
+     KOMMENDE HENDELSER
+     ------------------------------------------------------------
+     Én samlet, prioritert oversikt over relevante frister og starttider på
+     tvers av HELE tilstanden — ikke bare den aktive mappen.
+
+     To ting bor her, og de er bevisst skilt:
+
+     1. `collectUpcomingEvents(state, now)` — hendelsesmotoren. Ren funksjon av
+        tilstand + tidspunkt, uten et eneste DOM-oppslag. `now` er EKSPLISITT,
+        så grensetilfellene (nøyaktig nå, nøyaktig 7 døgn, sommertid) kan
+        testes uten systemklokken. Varslene i neste runde skal bruke den samme
+        — reglene skal finnes ÉN gang.
+     2. Modalen — som bare TEGNER det motoren returnerte, og navigerer via
+        `navigateToObject()`.
+
+     Autoritativt: docs/kommende-hendelser.md.
+     ============================================================ */
+
+  // Rekkefølgen mellom objekttyper når to hendelser har nøyaktig samme tid.
+  const EVENT_TYPE_RANK = { card: 0, category: 1, item: 2 };
+  // Nøklene står som hele strenger (ikke `'kind.' + type`): tests/i18n.test.js
+  // finner bare nøkler som er skrevet ut i kildekoden.
+  const EVENT_TYPE_LABEL = { card: 'kind.card', category: 'kind.category', item: 'kind.item' };
+  /* Radens ikon sier hva slags OBJEKT dette er — status ligger i gruppens
+     overskrift, ikke på hver rad. Listepunkt-ikonet er det samme motivet som
+     listens, bare én rad i stedet for tre (`icons.js`). */
+  const EVENT_ROW_ICON = { card: 'list', category: 'category', item: 'item' };
+
+  /* AKTIVT/UFULLFØRT — hva som i det hele tatt kan gi en hendelse:
+       listepunkt: levende, ikke kategori, ikke avkrysset;
+       kategori:   har minst ett aktivt listepunkt som er BARN av den;
+       liste:      har minst ett aktivt listepunkt, i kategori eller ikke.
+     En tom liste/kategori er altså irrelevant, og det samme er en der alt er
+     gjort: det finnes ikke noe igjen å rekke fristen med. */
+  function itemIsActive(it) { return live(it) && !it.isCat && !it.done; }
+  function cardIsActive(card) { return (card.items || []).some(itemIsActive); }
+  function categoryIsActive(card, cat) {
+    return (card.items || []).some((it) => itemIsActive(it) && it.cat === cat.id);
+  }
+
+  /* Objektets EFFEKTIVE tid + hvor den kommer fra. Presedensen er den samme som
+     ellers i appen (`timeController`): en liste med `lockTimes` styrer alle sine
+     listepunkter, ellers styrer en kategori med `lockTimes` sine egne, ellers
+     har listepunktet sine egne tider. Uten lås arves ingenting — et listepunkt
+     uten frist HAR ingen frist, selv om listen har en.
+       { value, own } — `value` er den effektive tiden, `own: false` betyr at
+     den er ren arv (objektets egen, skjulte verdi er da inert). */
+  function effectiveTime(card, obj, field) {
+    const ctrl = (!obj.isCat && obj !== card) ? timeController(obj, card) : null;
+    if (ctrl) return { value: ctrl[field] || null, own: false };
+    return { value: obj[field] || null, own: true };
+  }
+
+  /* Fristbøttene. Grensene er UTTØMMENDE og møtes uten hull — nøyaktig 7 døgn
+     havner i «om 7 døgn eller mer», nøyaktig nå i «innen 7 dager». */
+  function dueBucket(at, now) {
+    if (at < now) return 'over';
+    return at < now + WEEK_MS ? 'soon' : 'later';
+  }
+  /* Startbøttene. Speiler IKKE fristene ved `now`: et tidspunkt som er nøyaktig
+     nå HAR begynt, mens en frist som er nøyaktig nå ennå ikke er oversittet. */
+  function startBucket(at, now) {
+    if (at <= now) return 'started';
+    return at < now + WEEK_MS ? 'soon' : 'later';
+  }
+
+  /* HOVEDMOTOREN. `st` er tilstanden (standard: appens egen), `now` er
+     millisekunder eller en Date (standard: nå).
+
+     Returnerer
+       { now, total,
+         due:   { over: [], soon: [], later: [] },
+         start: { started: [], soon: [], later: [] } }
+
+     der hver hendelse er
+       { kind, bucket, type, id, name, value, at, own, path, cardId } */
+  function collectUpcomingEvents(st, now) {
+    const S = st || state;
+    const N = now == null ? Date.now() : (now instanceof Date ? now.getTime() : Number(now));
+    const due = [];
+    const start = [];
+
+    (S.universes || []).forEach((u) => {
+      if (!live(u)) return;
+      // Fri-beholderen er en seksjon i nav-modalen, ikke et område — men
+      // mappene i den er ekte, og stien deres må ha en rot (som i søket).
+      const uniName = u._virtual ? S_TEXT.freeSection : u.name;
+      (u.groups || []).forEach((g) => {
+        if (!live(g) || g.isCat) return;
+        (g.cards || []).forEach((c) => {
+          if (!live(c) || !cardIsActive(c)) return;
+          const basePath = [uniName, g.name, c.title];
+          /* Rekkefølgen er hierarkisk med vilje: dedupliseringen under spør om
+             en FORELDER allerede har fått en hendelse, så listen må være
+             behandlet før kategoriene, og kategoriene før listepunktene. */
+          const shown = { due: new Map(), start: new Map() };  // objekt-id → hendelsens tid
+          const emit = (kind, type, obj, eff, path) => {
+            const at = timeMs(eff.value, kind);
+            if (at == null) return;
+            const bucket = kind === 'due' ? dueBucket(at, N) : startBucket(at, N);
+            /* DEDUPLISERING. Felles for begge feltene: en tid som er identisk
+               med en forelders allerede viste tid tilfører ingenting — det
+               gjelder både ren arv (låste tider) og en kategori som tilfeldigvis
+               har satt samme dag som listen.
+
+               FRISTER har i tillegg én regel til: er forelderens frist allerede
+               UTLØPT, dominerer den alt under seg som er utløpt av samme eller
+               senere grunn. Uten den ville én oversittet liste tegnet en vegg av
+               røde rader som alle sier det samme.
+
+               STARTER har ikke den regelen, og skal ikke ha den: at en liste er
+               påbegynt betyr ikke at et listepunkt med sin egen, senere start er
+               det. Et barn med særskilt egen starttid vises derfor alltid. */
+            for (const p of timeAncestors(c, obj)) {
+              const pat = shown[kind].get(p.id);
+              if (pat == null) continue;
+              if (pat === at) return;
+              if (kind === 'due' && pat < N && at >= pat) return;
+            }
+            shown[kind].set(obj.id, at);
+            (kind === 'due' ? due : start).push({
+              kind: kind, bucket: bucket, type: type, id: obj.id,
+              name: type === 'card' ? obj.title : obj.text,
+              value: eff.value, at: at, own: eff.own,
+              path: path, cardId: c.id,
+            });
+          };
+
+          ['start', 'due'].forEach((field) => {
+            emit(field, 'card', c, effectiveTime(c, c, field), [uniName, g.name]);
+            (c.items || []).forEach((it) => {
+              if (!live(it) || !it.isCat || !categoryIsActive(c, it)) return;
+              emit(field, 'category', it, effectiveTime(c, it, field), basePath);
+            });
+            (c.items || []).forEach((it) => {
+              if (!itemIsActive(it)) return;
+              const cat = it.cat ? catOf(c, it.cat) : null;
+              const path = cat && live(cat) ? basePath.concat([cat.text]) : basePath;
+              emit(field, 'item', it, effectiveTime(c, it, field), path);
+            });
+          });
+        });
+      });
+    });
+
+    /* SORTERING. «Lengst overskredet først» og «nærmest først» er den samme
+       stigende rekkefølgen på tid; det eneste unntaket er «Har begynt», der den
+       SIST påbegynte står øverst — det er den man nettopp har satt i gang og
+       mest sannsynlig leter etter. Tie-brekkerne gjør rekkefølgen fullstendig
+       bestemt, så to visninger av samme tilstand aldri bytter om på to rader. */
+    const byTime = (dir) => (a, b) => {
+      if (a.at !== b.at) return (a.at - b.at) * dir;
+      const t = EVENT_TYPE_RANK[a.type] - EVENT_TYPE_RANK[b.type];
+      if (t) return t;
+      const n = String(a.name || '').localeCompare(String(b.name || ''), SEARCH_COLLATE);
+      if (n) return n;
+      const p = a.path.join(' ').localeCompare(b.path.join(' '), SEARCH_COLLATE);
+      if (p) return p;
+      return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
+    };
+    const pick = (rows, bucket, dir) => rows.filter((e) => e.bucket === bucket).sort(byTime(dir));
+    const out = {
+      now: N,
+      due: { over: pick(due, 'over', 1), soon: pick(due, 'soon', 1), later: pick(due, 'later', 1) },
+      start: { started: pick(start, 'started', -1), soon: pick(start, 'soon', 1), later: pick(start, 'later', 1) },
+    };
+    out.total = due.length + start.length;
+    return out;
+  }
+
+  /* ---------------- Modalen «Kommende hendelser» ----------------
+     Innholdet regnes ut fra gjeldende lokale tilstand når modalen åpnes, og
+     males på nytt ved enhver endring mens den står åpen (`save()` og
+     `renderBoard()` kaller `refreshEventsModal()`, og en synk-runde ender i
+     begge). Malingen er idempotent: er signaturen den samme, røres ikke DOM-en
+     — da mister ikke en fokusert rad fokus av en bakgrunnssynk. */
+  const eventsBtn = document.getElementById('events-btn');
+  const eventsModal = document.getElementById('events-modal');
+  const eventsCloseBtn = document.getElementById('events-close');
+  const eventsBodyEl = document.getElementById('events-body');
+  const eventsCountEl = document.getElementById('events-count');
+  // Seksjonene og gruppene, i visningsrekkefølge. Nøklene er hele strenger av
+  // samme grunn som ellers (tests/i18n.test.js leser kildekoden).
+  const EVENT_SECTIONS = [
+    { field: 'due', title: 'events.dueTitle', groups: [
+      { key: 'over', label: 'events.dueOver', icon: 'alert', tone: 'is-over' },
+      { key: 'soon', label: 'events.dueSoon', icon: 'alert', tone: 'is-soon' },
+      { key: 'later', label: 'events.dueLater', icon: 'calendarDue', tone: 'is-later' },
+    ] },
+    { field: 'start', title: 'events.startTitle', groups: [
+      { key: 'started', label: 'events.startStarted', icon: 'play', tone: 'is-started' },
+      { key: 'soon', label: 'events.startSoon', icon: 'clock', tone: 'is-startsoon' },
+      { key: 'later', label: 'events.startLater', icon: 'calendar', tone: 'is-startlater' },
+    ] },
+  ];
+  let eventsSig = null;   // signaturen som står tegnet nå
+
+  function eventIconEl(icon, cls) {
+    const el = document.createElement('span');
+    el.className = cls;
+    el.setAttribute('aria-hidden', 'true');
+    el.innerHTML = ICONS[icon];
+    return el;
+  }
+
+  /* «Om 3 d» / «3 d siden» — hvor langt unna tidspunktet er, men BARE innenfor
+     sju døgn: lenger ut sier datoen alene mer enn et tall gjør. Under ett døgn
+     byttes enheten til timer.
+
+     Enhetene telles NEDOVER til hele (3 d = minst tre hele døgn igjen), ikke
+     avrundet. To grunner: det er den ærlige lesningen av en nedtelling, og
+     teksten bytter da på eksakte tidspunkter (`e.at ± n · enhet`), som
+     `nextEventBoundary` kan sove fram til uten å regne på halve enheter.
+     Gulvet er 1 — noe tjue minutter unna er «om 1 t», ikke «om 0 t». */
+  function relParts(at, now) {
+    const diff = at - now;
+    const abs = Math.abs(diff);
+    if (abs > WEEK_MS) return null;
+    const unit = abs < DAY_MS ? HOUR_MS : DAY_MS;
+    return { diff: diff, unit: unit, n: Math.max(1, Math.floor(abs / unit)) };
+  }
+  function fmtRelative(at, now) {
+    const p = relParts(at, now);
+    if (!p) return null;
+    return tr(p.diff >= 0 ? 'events.relIn' : 'events.relAgo',
+      { n: p.n, unit: tr(p.unit === DAY_MS ? 'events.unitDay' : 'events.unitHour') });
+  }
+
+  function eventRow(ev, now) {
+    const li = document.createElement('li');
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'event-row';
+    btn.dataset.type = ev.type;
+    btn.dataset.id = ev.id;
+
+    const main = document.createElement('span');
+    main.className = 'event-row-main';
+    const nameEl = document.createElement('span');
+    nameEl.className = 'event-row-name';
+    nameEl.textContent = ev.name || tr('common.noName');
+    // Bare kontekststien: typen står ikke lenger i teksten, den er ikonet foran
+    // raden. Stien er det som skiller to objekter med samme navn.
+    const meta = document.createElement('span');
+    meta.className = 'event-row-meta';
+    meta.textContent = ev.path.join(SEARCH_PATH_SEP);
+    main.append(nameEl, meta);
+
+    // Høyre side: den relative avstanden over den konkrete datoen.
+    const when = document.createElement('span');
+    when.className = 'event-row-when';
+    const rel = fmtRelative(ev.at, now);
+    if (rel) {
+      const relEl = document.createElement('span');
+      relEl.className = 'event-row-rel';
+      relEl.textContent = rel;
+      when.appendChild(relEl);
+    }
+    const abs = document.createElement('span');
+    abs.className = 'event-row-date';
+    abs.textContent = fmtTimeFull(ev.value);
+    when.appendChild(abs);
+
+    btn.append(eventIconEl(EVENT_ROW_ICON[ev.type], 'event-row-icon'), main, when);
+    /* Ikonet er nå den eneste VISUELLE bæreren av objekttypen, så navnet må si
+       den i klartekst (docs/tilgjengelighet.md). */
+    const whenText = tr(ev.kind === 'due' ? 'time.dueLabel' : 'time.startLabel',
+      { time: fmtTimeFull(ev.value) });
+    btn.setAttribute('aria-label', tr('events.rowLabel', {
+      name: ev.name || tr('common.noName'), kind: tr(EVENT_TYPE_LABEL[ev.type]),
+      when: rel ? tr('events.whenRel', { when: whenText, rel: rel }) : whenText,
+      path: ev.path.join(SEARCH_PATH_SEP),
+    }));
+    btn.addEventListener('click', () => openEventTarget(ev.type, ev.id));
+    li.appendChild(btn);
+    return li;
+  }
+
+  function paintEvents(data) {
+    eventsBodyEl.innerHTML = '';
+    if (!data.total) {
+      const empty = document.createElement('p');
+      empty.className = 'events-empty';
+      empty.textContent = tr('events.empty');
+      eventsBodyEl.appendChild(empty);
+      eventsCountEl.textContent = tr('events.empty');
+      return;
+    }
+    EVENT_SECTIONS.forEach((sec) => {
+      const rows = sec.groups.reduce((n, g) => n + data[sec.field][g.key].length, 0);
+      if (!rows) return;
+      const section = document.createElement('section');
+      section.className = 'events-section';
+      const h = document.createElement('h3');
+      h.className = 'events-section-head';
+      h.textContent = tr(sec.title);
+      section.appendChild(h);
+      /* Hver gruppe er sitt eget element, så skillelinjen mellom to grupper kan
+         henge på den andre (`.events-group + .events-group`) i stedet for å
+         være en egen node i strømmen. */
+      sec.groups.forEach((g) => {
+        const list = data[sec.field][g.key];
+        if (!list.length) return;
+        const group = document.createElement('div');
+        group.className = 'events-group';
+        const head = document.createElement('div');
+        head.className = 'events-group-head';
+        const label = document.createElement('span');
+        label.textContent = tr(g.label);
+        head.append(eventIconEl(g.icon, 'event-icon ' + g.tone), label);
+        const ul = document.createElement('ul');
+        ul.className = 'events-list';
+        ul.setAttribute('aria-label', tr(g.label));
+        list.forEach((ev) => ul.appendChild(eventRow(ev, data.now)));
+        group.append(head, ul);
+        section.appendChild(group);
+      });
+      eventsBodyEl.appendChild(section);
+    });
+    eventsCountEl.textContent = tr(data.total === 1 ? 'events.count.one' : 'events.count.other', { n: data.total });
+  }
+
+  /* Bøttene avhenger av `now`, ikke bare av tilstanden: står modalen åpen når en
+     frist passerer eller en 7-døgnsgrense krysses, havner raden i feil gruppe
+     uten at noe i state har endret seg. Vi PULSER ikke — hver hendelse har
+     nøyaktig to øyeblikk der den kan bytte gruppe (tidspunktet selv, og
+     7-døgnsgrensen `at - WEEK_MS`), så vi sover til den første av dem.
+     Taket er der for en maskin som har sovet: `setTimeout` er upålitelig over
+     lange strekk, og da er en ny utregning uansett billig. */
+  const EVENTS_MAX_SLEEP_MS = 6 * 60 * 60 * 1000;
+  let eventsTimer = null;
+  function nextEventBoundary(data, now) {
+    let best = Infinity;
+    const consider = (t) => { if (t > now && t < best) best = t; };
+    [data.due.over, data.due.soon, data.due.later,
+      data.start.started, data.start.soon, data.start.later].forEach((rows) => {
+      rows.forEach((e) => {
+        consider(e.at);
+        // De to 7-døgnsgrensene: gruppen bytter på den ene, og den relative
+        // teksten dukker opp/forsvinner på hver sin.
+        consider(e.at - WEEK_MS);
+        consider(e.at + WEEK_MS);
+        // … og teksten selv bytter på hver hele enhet (se `relParts`).
+        const p = relParts(e.at, now);
+        if (p) consider(p.diff >= 0 ? e.at - p.n * p.unit : e.at + (p.n + 1) * p.unit);
+      });
+    });
+    return best;
+  }
+  function scheduleEventsBoundary(data) {
+    clearTimeout(eventsTimer);
+    eventsTimer = null;
+    const next = nextEventBoundary(data, data.now);
+    if (next === Infinity) return;
+    // +50 ms: vi skal våkne SÅ VIDT etter grensen, ikke nøyaktig på den.
+    eventsTimer = setTimeout(refreshEventsModal, Math.min(next - data.now + 50, EVENTS_MAX_SLEEP_MS));
+  }
+
+  // Signaturen fanger alt raden viser: endres ingenting av det, står DOM-en.
+  function eventsSignature(data) {
+    const one = (e) => e.kind + '|' + e.bucket + '|' + e.type + '|' + e.id + '|' + e.at + '|' +
+      e.name + '|' + e.path.join('/') + '|' + fmtRelative(e.at, data.now);
+    return EVENT_SECTIONS.map((sec) => sec.groups
+      .map((g) => data[sec.field][g.key].map(one).join(';')).join('#')).join('##');
+  }
+  function refreshEventsModal(force) {
+    /* Elementet slås opp her og ikke gjennom `eventsModal` over: `save()` kaller
+       denne, og save() finnes lenge før denne seksjonen har kjørt sine `const`
+       (en migrering under oppstart lagrer). Oppslaget koster ingenting, og
+       vakten står før alt annet i denne fila blir rørt. */
+    const modal = document.getElementById('events-modal');
+    if (!modal || modal.hidden) return;
+    const data = collectUpcomingEvents();
+    scheduleEventsBoundary(data);
+    const sig = eventsSignature(data);
+    if (!force && sig === eventsSig) return;
+    eventsSig = sig;
+    paintEvents(data);
+  }
+  function openEventsModal() {
+    eventsSig = null;
+    eventsModal.hidden = false;
+    refreshEventsModal(true);
+    updateModalOpenClass();
+  }
+  function closeEventsModal() {
+    eventsModal.hidden = true;
+    clearTimeout(eventsTimer);
+    eventsTimer = null;
+    eventsSig = null;
+    updateModalOpenClass();
+  }
+  // Raden er en snarvei til objektet: lukk FØRST, så navigeringen får eie
+  // fokuset (den felles fokusfellen ville ellers dratt det tilbake til knappen).
+  function openEventTarget(type, id) {
+    closeEventsModal();
+    navigateToObject({ type: type, id: id });
+  }
+  /* En timer er ikke til å stole på over en fane i bakgrunnen eller en enhet
+     som har sovet — kommer vi tilbake i forgrunnen, regnes det ut på nytt med
+     én gang. No-op når modalen er lukket. */
+  document.addEventListener('visibilitychange', () => {
+    if (!document.hidden) refreshEventsModal();
+  });
+  if (eventsBtn) eventsBtn.addEventListener('click', openEventsModal);
+  if (eventsCloseBtn) eventsCloseBtn.addEventListener('click', closeEventsModal);
+  if (eventsModal) {
+    eventsModal.addEventListener('click', (ev) => { if (ev.target === eventsModal) closeEventsModal(); });
+  }
 
   /* Knappen popoveren hører til, husket PÅ panelet. Den settes når panelet
      ÅPNES — uansett bredde, ikke bare når det åpnes som popover: på mobil er
@@ -9635,6 +10263,20 @@
         note.hidden = false;
         return;
       }
+      /* ELDRE DATA: fristen ligger allerede etter forelderens. Vi migrerer
+         ikke og muterer ikke (docs/scheduling.md) — men bruddet skal være
+         synlig, og setteren sørger for at neste skriving må rette det opp.
+         Beskjeden går foran hintet under: den er den eneste som krever noe. */
+      const conf = dueLegacyConflict(t.card, t.obj);
+      if (conf) {
+        note.textContent = tr('time.dueConflict', {
+          kind: tr(conf.kind === 'category' ? 'kindDef.category' : 'kindDef.card'),
+          name: timeObjName(conf.obj), time: fmtTimeFull(conf.obj.due),
+        });
+        note.classList.remove('is-muted');
+        note.hidden = false;
+        return;
+      }
       if (isCard || isCat) { note.hidden = true; return; }
       // Subtil beskjed når elementets tider ligger utenfor containerens tidsrom
       // (tre varianter: start / frist / begge). Fullt lovlig — bare et hint.
@@ -9696,13 +10338,18 @@
         const v = dateIn.value
           ? (timeIn.value ? dateIn.value + 'T' + timeIn.value.slice(0, 5) : dateIn.value)
           : null;
-        clearBtn.hidden = !v;
-        if ((t.obj[field] || null) === v) return;
-        t.obj[field] = v;
-        stampContent(t.obj);
-        refreshCard(t.card); // indikator-chipene følger med umiddelbart
+        /* Den ENE setteren — all fristvalidering ligger der, ikke her. Blir
+           verdien avvist, faller feltene tilbake til den forrige gyldige
+           verdien (ingen bekreftelsesmodal, bare en kort beskjed fra setteren).
+           UNNTAKET er en dato som ennå kan reddes av et klokkeslett samme dag
+           (`dueNeedsClock`): da blir det brukeren skrev stående, så den neste
+           halvdelen av paret kan skrives inn. */
+        if (!setObjectTime(t, field, v) && !dueNeedsClock(t.card, t.obj, v)) {
+          dateIn.value = timeDatePart(t.obj[field]) || '';
+          timeIn.value = timeClockPart(t.obj[field]) || '';
+        }
+        clearBtn.hidden = !t.obj[field];
         updateNote();
-        save();
       };
       dateIn.addEventListener('change', commit);
       timeIn.addEventListener('change', commit);
@@ -15121,6 +15768,10 @@
     // `searchObjects` til å måle rangeringen uten å gå gjennom UI-et, og
     // `navigateToObject` er den samme funksjonen søkeresultatene kaller.
     openSearchModal, closeSearchModal, searchObjects, buildSearchIndex, navigateToObject,
+    /* Kommende hendelser. `collectUpcomingEvents(state, now)` tar et EKSPLISITT
+       `now`, så grensetilfellene kan testes uten systemklokken — og
+       `setObjectTime` er den ene setteren fristinvarianten håndheves i. */
+    openEventsModal, closeEventsModal, collectUpcomingEvents, setObjectTime,
     // Nav-scopets dra-og-slipp-board (dnd-kit gjennom Smett). Bygges først når
     // modalen åpnes; testene bruker dem til å lese motorens egen tilstand
     // (`dropTarget`, `manager.dragOperation`) i stedet for å gjette fra DOM-en.

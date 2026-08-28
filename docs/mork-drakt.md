@@ -139,6 +139,14 @@ svarte — det er nettopp derfor grønnfargen får være lys. Knappen pinner der
 pinningen ville blekket lyst opp i mørk drakt og gjort nettopp det ulovlige.
 Custom properties arver, så ett sted dekker hele subtreet.
 
+Regelen bak unntaket er at pinningen hører til **flaten**, ikke til
+beholderen: er flaten under glyfen en kontraktsfarge, står glyfen stille. Derfor
+pinner gruppeikonet i «Kommende hendelser» (`.event-icon`) sin egen plate, mens
+typeikonet i raden ved siden av — som står rett på modalflaten — følger drakten
+som alle andre ikoner. Pinner man hele modalen i stedet, tar man med seg ikoner
+som ikke har noen kontraktsfarge under seg, og de forsvinner
+([`kommende-hendelser.md`](kommende-hendelser.md)).
+
 Statuschipene under navnet (`.meta-chip.is-started/-soon/-over`) er fargede
 flater som ikke er `.btn-solid`, og de fanges derfor ikke av knappenes pinning.
 Der er den lyse streken en **forbedring** på blågrønt (3,90 → 3,95/5,54) og på

@@ -19,12 +19,13 @@ Ved motstrid gjelder det dokumentet som er merket autoritativt for feltet — og
 | [mork-drakt.md](mork-drakt.md) | lys/mørk drakt: hvor valget lagres, `theme.js` i `<head>`, de to token-familiene, ikonfargene, og hvordan palettens L-sett speiles | **ja** — draktmodellen |
 | [tilgjengelighet.md](tilgjengelighet.md) | kontrastkravene og fargekontrakten, `aria-label` på ikonknapper, tastatursnarveiene (sortering/flytting/omdøping), fokus i modaler og etter sletting, berøringsflater, de manuelle kontrollpunktene | **ja** — WCAG-kravene |
 | [introduksjon.md](introduksjon.md) | demonstrasjonen etter første innlogging, simuleringen den kjører i, stegene, «Vis på nytt», de kontekstuelle tipsene om avanserte gester | **ja** — førstegangsopplevelsen |
-| [menus.md](menus.md) | toppmenyen, toppkontrollene (søk/drakt/konto), navigasjonsmodalen (områder + mapper), konto-modalen og **objektmenyen** på alle seks nivåene | **ja** — navigasjon og menyer |
+| [menus.md](menus.md) | toppmenyen, toppkontrollene (kalender/søk/drakt/konto), navigasjonsmodalen (områder + mapper), konto-modalen og **objektmenyen** på alle seks nivåene | **ja** — navigasjon og menyer |
 | [sok-og-navigering.md](sok-og-navigering.md) | globalt søk (indeks, normalisering, rangering, søkemodalen) og den generelle `navigateToObject()` som sender brukeren til et bestemt objekt | **ja** — søk og objekt-navigering |
+| [kommende-hendelser.md](kommende-hendelser.md) | kalenderknappen, modalen «Kommende hendelser», hendelsesmotoren (`collectUpcomingEvents`), gruppene/grensene og den hierarkiske dedupliseringen | **ja** — hendelsesoversikten |
 | [drag-and-drop.md](drag-and-drop.md) | reorder, flytting mellom lister/mapper/områder, ekstrahering, peek, skillelinjer, kassene som slippmål, de to dra-scopene og de fire dnd-kit-board-ene | **ja** — dra-og-slipp |
 | [board-layout.md](board-layout.md) | kolonnefordelingen i listevisningen og avstander/padding/gap der | **ja** — board-layouten |
 | [trash.md](trash.md) | sletting (menyen og **slipp i kassen**), gjenoppretting og tømming på alle fire nivåene, buffret sletting, angre | **ja** — søppelkassene |
-| [scheduling.md](scheduling.md) | tids-editoren (objektmenyens tidsskuff + tids-popoveren), start-/fristtider, indikator-chipene | **ja** — tidsplanlegging |
+| [scheduling.md](scheduling.md) | tids-editoren (objektmenyens tidsskuff + tids-popoveren), start-/fristtider, semantikken for dato uten klokkeslett, den harde fristinvarianten, indikator-chipene | **ja** — tidsplanlegging |
 | [feature-plan-search-events-notifications.md](feature-plan-search-events-notifications.md) | planlagt implementering av globalt søk, kommende hendelser, fristinvariant og varsler | **ja** — arbeidsplanen for denne funksjonsserien |
 | [colors-and-labels.md](colors-and-labels.md) | posisjonsbasert HSL-farge på kort/rader, de gamle K/P-feltene | **ja** — fargesystemet |
 | [domains-and-urls.md](domains-and-urls.md) | det kanoniske originet og 308-redirecten fra de alternative domenene, auth-redirects, lenker i utsendte e-poster | **ja** — domener og URL-generering |

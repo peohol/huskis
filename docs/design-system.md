@@ -29,7 +29,9 @@ står fortsatt som px.
 
 `--control-h` (49px), `--control-radius` (14px), `--control-bg`
 (rgba(255,255,255,.75)), `--toolbar-pad`, `--text-shadow`,
-`--grad-green/-accent/-red/-yellow` (knappe-gradienter), `--danger`/`--warn`
+`--grad-green/-accent/-red/-yellow` (knappe-gradienter, pluss
+`--grad-purple/-blue` som bare brukes av startgruppene i «Kommende
+hendelser»), `--danger`/`--warn`
 (fare/advarsel som flate- og signalfarge), skygge- og radius-variablene. Nye
 kontroller skal bruke disse — aldri egne ad hoc-verdier. Endres et token, skal
 hele appen følge med.
@@ -172,6 +174,8 @@ grå = `#c0c4c9`):
 | Liste | hvit flate, svarte punkter/linjer |
 | Listepunkt (item) | hvit plate, svart punkt + linje — samme motiv som lista, én rad i stedet for tre |
 | Forstørrelsesglass (søk) | linsen hvit, skaftet kun strek |
+| Varseltrekant (alert) | trekanten hvit, utropstegnet svart |
+| Start/påbegynt (play) | urskive hvit, trekanten svart — bevisst IKKE en hake |
 | Øye (vis) | hornhinne hvit, pupill svart |
 | Person (mine) | hode + kropp farge 4 |
 | Tre personer (delte) | hver person farge 1 / 2 / 3 |
@@ -298,11 +302,14 @@ Størrelse/form kommer fra egne klasser: `.btn` (modaler), `.btn-small`,
 - `.trashcan`: ALLE søppelkasse-knapper — hvit avrundet beholder, antall i grå
   sirkel (`.trashcan-count`), **skjult (`hidden`) når tom**.
 - `.corner-controls` + `.corner-btn`: toppkontrollgruppen i øvre høyre hjørne
-  (søk, drakt, konto). ÉN fast flex-gruppe med flate-mønsteret på hver knapp;
+  (kalender, søk, drakt, konto). ÉN fast flex-gruppe med flate-mønsteret på hver
+  knapp;
   en ny knapp legges FØRST i gruppen og trenger ingen egen posisjonsregel.
   Bredden gruppen legger beslag på måles i JS (`--corner-btns-w`) — se
   `docs/menus.md` («Toppkontrollene»).
-  Variantene: `.search-btn` (åpner søkemodalen, `docs/sok-og-navigering.md`),
+  Variantene: `.events-btn` (åpner «Kommende hendelser»,
+  `docs/kommende-hendelser.md`), `.search-btn` (åpner søkemodalen,
+  `docs/sok-og-navigering.md`),
   `.theme-toggle-btn` (sol-/måneikon for aktiv drakt, `docs/mork-drakt.md`) og
   `.account-btn` (person-ikon + `.menu-badge` som invitasjons-teller).
   Innloggingsskjermens draktknapp bruker den samme `.corner-btn`-flaten inline
@@ -315,6 +322,18 @@ Størrelse/form kommer fra egne klasser: `.btn` (modaler), `.btn-small`,
   til. Innvendig `box-shadow` i `--focus` — kortene har `overflow: hidden`, og
   fokusringen eier `outline` på det samme elementet. Se
   `docs/sok-og-navigering.md`.
+- `.events-body` (+ `-section`/`-group`/`-group-head`/`-list`), `.event-row`
+  (+ `-icon`/`-main`/`-meta`/`-when`/`-rel`/`-date`) og `.event-icon`: modalen
+  «Kommende hendelser». Arbeidsdelingen: `.event-icon` i gruppens overskrift
+  bærer STATUS (farget plate), `.event-row-icon` i raden bærer OBJEKTTYPEN
+  (uten flate). Statusflatene er de samme gradientene som `.meta-chip`-statusene
+  (`is-over`, `is-soon`, `is-started`) pluss `is-later` (grønn) og de to som
+  bare finnes her: `is-startsoon` (`--grad-purple`) og `is-startlater`
+  (`--grad-blue`) — startgruppene skal ikke låne varselfargene. `.event-icon`
+  pinner `--icon-ink`/`--icon-paper` for seg selv, som `.btn-solid` gjør, siden
+  platen er den samme i begge drakter; `.event-row-icon` har ingen plate, følger
+  drakten og kaster en liten `drop-shadow`. `.events-group + .events-group`
+  legger skillelinjen mellom to grupper. Se `docs/kommende-hendelser.md`.
 - `.account-form` (+ `-label`/`-row`) og `.account-msg`: endre navn/e-post i
   konto-modalen (etikett over felt, Lagre-knapp på samme rad). «Bilde»-seksjonen
   bruker den samme klassen uten å være et `<form>` — mønsteret er etikett over
@@ -531,7 +550,9 @@ Størrelse/form kommer fra egne klasser: `.btn` (modaler), `.btn-small`,
   `docs/menus.md`. `.trashcan.drag-trash` + `.to-trash`: søppelkassen som
   drop-mål mens et drag pågår (`docs/trash.md`).
   `.meta-row` + `.meta-chip`: indikator-chipene under navnet (delt/ansvarlig/
-  start/frist — status-farger via `--grad-*`). `.resp-avatar` / `.resp-row`:
+  start/frist — status-farger via `--grad-*`; `.is-conflict` legger på en
+  stiplet kant i chipens EGEN tekstfarge når fristen bryter invarianten, mens
+  glyfen og teksten bærer meningen). `.resp-avatar` / `.resp-row`:
   ansvarlig-sirkler og velger-rader; sirkelfargen settes inline fra paletten
   (`colorForIndex`, personens alfabetiske plass i delegruppen). Se
   `docs/scheduling.md` og `docs/accounts.md`.

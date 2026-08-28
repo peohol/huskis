@@ -13,7 +13,7 @@
      samme lys ovenfra som de nedoverforskjøvne skyggene forutsetter.
    • Delte klasser: .panel-head/.panel-title/.panel-actions (menyoverskrift +
      knapperad), .btn-add (grønn ＋), .trashcan (hvit søppelkasse),
-     .corner-controls/.corner-btn (toppkontrollgruppen: søk, drakt, konto),
+     .corner-controls/.corner-btn (toppkontrollgruppen: kalender, søk, drakt, konto),
      .crumb-btn (navigasjonsknappen), delte sletteknapp-, placeholder- og
      håndtak-regler.
    • Flate-mønster: halvgjennomsiktig hvit (--control-bg) som hviletilstand,
@@ -131,6 +131,12 @@
   --grad-accent: linear-gradient(180deg, var(--accent), var(--accent-dark));
   --grad-red: linear-gradient(180deg, var(--danger), var(--danger-dark));
   --grad-yellow: linear-gradient(180deg, #e8bb50, #d9a52c);
+  /* Startgruppene i «Kommende hendelser» er INGEN advarsel, og skal derfor ikke
+     låne varselfargene. To egne flater, lyse nok til at den svarte ikonstreken
+     klarer 3:1 mot begge endene (som resten av kontraktsfargene er de like i
+     begge drakter — se docs/kommende-hendelser.md). */
+  --grad-purple: linear-gradient(180deg, #cda9cd, #ad85ad);
+  --grad-blue: linear-gradient(180deg, #a9a9cd, #8585ad);
 
   /* DEN SIKRE SONEN. Fire tall som sier hvor mye av viewportet som er dekket
      av systemets egne flater — statusfelt/hakk øverst, gestelinje nederst,
@@ -788,11 +794,12 @@ body {
    for nav-knappen, ikke skjøvet ut til kanten. Panelet blir da én
    kontrollhøyde høyt, og det er høyde som er mangelvaren i landskap. Under
    560 px (telefon i portrett) legges listefunksjonene på raden under, slik at
-   breadcrumb-navnene ikke kappes bort til ingenting. Toppkontrollene (søk,
-   drakt, konto) er ÉN fast gruppe i viewportets hjørne (`.corner-controls`) og
-   overlapper panelet visuelt øverst til høyre — plassen til dem holdes av en
-   margin PÅ ENDEN av linjen (`--corner-btns-w`, målt i JS), slik at panelets
-   egen padding (og dermed fluktingen med kontoknappen) er uendret. */
+   breadcrumb-navnene ikke kappes bort til ingenting. Toppkontrollene (kalender,
+   søk, drakt, konto) er ÉN fast gruppe i viewportets hjørne
+   (`.corner-controls`) og overlapper panelet visuelt øverst til høyre — plassen
+   til dem holdes av en margin PÅ ENDEN av hver panelrad (`--corner-btns-w`,
+   målt i JS), slik at panelets egen padding (og dermed fluktingen med
+   kontoknappen) er uendret. */
 .topbar {
   position: fixed;          /* uavhengig av scrolling (robust mot iOS-backdrop-bug) */
   top: 0;
@@ -807,10 +814,11 @@ body {
      paddingen. Panelet blir dermed høyere, og `syncTopChrome()` måler den
      faktiske høyden — board-ets klaring følger med av seg selv.
      `--corner-btns-overflow` (også målt) er høyden hjørnegruppen har utover
-     én knapperad: brytes gruppen til flere rader, skyves HELE panelet ned like
-     mye, så panelets første rad alltid ligger ved siden av gruppens siste og
-     den horisontale klaringen (--corner-btns-w) fortsatt rekker. Den er 0 så
-     lenge gruppen er én rad, altså alltid i dag. */
+     PANELETS EGNE RADER: hver panelrad holder av den horisontale klaringen
+     (--corner-btns-w), så én gruppe-rad kan ligge ved siden av hver av dem.
+     Har gruppen flere rader enn det, skyves HELE panelet ned like mye. Den er
+     0 i begge dagens oppsett — én gruppe-rad mot én panelrad på bred skjerm,
+     to mot to på smal. */
   padding: calc(12px + var(--safe-top) + var(--corner-btns-overflow, 0px))
            calc(var(--toolbar-pad) + var(--safe-right))
            12px calc(var(--toolbar-pad) + var(--safe-left));
@@ -943,13 +951,14 @@ body {
    ÉN fast gruppe i øvre høyre hjørne av VIEWPORTET, utenfor toppmenyens flyt —
    z-index over det faste panelet (30) men under modaler (200). Knappene ligger
    i DOM-rekkefølge og plasseres av flex; ingen av dem kjenner naboens bredde,
-   så en ny knapp (kalender, varsler) legges til ved å sette den FØRST i
+   så en ny knapp (varsler) legges til ved å sette den FØRST i
    gruppen — ingen `right:`-kjede å regne om.
 
    Er det ikke plass til alle på én rad, brytes gruppen til flere rader mot
    høyre kant (`flex-wrap`); knappene krymper aldri. Plassen gruppen tar av
-   toppmenyens linje MÅLES i JS (`--corner-btns-w`, syncTopChrome i app.js),
-   og board-ets klaring regnes fra den laveste av toppmenyen og gruppen. */
+   toppmenyens linjer MÅLES i JS (`--corner-btns-w` = gruppens BREDESTE rad,
+   syncTopChrome i app.js), og board-ets klaring regnes fra den laveste av
+   toppmenyen og gruppen. */
 .corner-controls {
   position: fixed;
   /* Samme sikre sone som toppmenyen gruppen flukter med — den ligger utenfor
@@ -966,7 +975,32 @@ body {
   max-width: calc(100vw - var(--safe-left) - var(--safe-right) - var(--toolbar-pad) * 2);
 }
 
-/* Felles flate for hjørneknappene (søk, drakt, konto): flate-mønsteret —
+/* Telefon i portrett (samme grense som resten av appen): gruppen deles i TO
+   rader — drakt og konto øverst, kalender og søk under. Klaringen panelet må
+   holde av blir dermed to knapper i stedet for fire, og breadcrumben får
+   plassen. Panelet er også to rader så smalt, så den andre gruppe-raden legger
+   seg ved siden av listefunksjonene i stedet for å skyve panelet nedover — se
+   `--corner-btns-overflow` ved `.topbar`.
+
+   Rekkefølgen styres av `order`, ikke av DOM-en: DOM-rekkefølgen er fortsatt
+   den brede (kalender → søk → drakt → konto), og en ny knapp legges FØRST der
+   som før — den havner da i den nederste raden av seg selv. Maks-bredden er
+   nøyaktig to knapper + luften mellom dem, så bruddet skjer av seg selv i
+   stedet for av et usynlig hjelpeelement. */
+@media (max-width: 560px) {
+  .corner-controls {
+    max-width: calc(var(--control-h) * 2 + var(--corner-btns-gap));
+  }
+  /* Bare drakt og konto løftes opp; ALT annet i gruppen faller under dem i
+     DOM-rekkefølge. Da holder regelen fra den brede visningen fortsatt: en ny
+     knapp legges FØRST i gruppen, og havner i verktøyraden av seg selv.
+     Scopet til gruppen — `.theme-toggle-btn` finnes også inline i
+     innloggingsskjermens språkrad, og en `order` der ville flyttet den. */
+  .corner-controls > .theme-toggle-btn,
+  .corner-controls > .account-btn { order: -1; }
+}
+
+/* Felles flate for hjørneknappene (kalender, søk, drakt, konto): flate-mønsteret —
    halvgjennomsiktig hvit → hvit ved hover, samme høyde/radius som resten av
    kontrollene. Innloggingsskjermens draktknapp bruker den samme klassen inline
    i språkraden. */
@@ -3033,12 +3067,14 @@ body.tour-demo .trash-row button:not(.tour-live) { opacity: 0.35; }
      legges på raden under. Panelet blir én kontrollhøyde høyere — det er byttet
      mot at navnene ikke kappes bort. Telefonen i LANDSKAP er bredere enn dette
      og beholder derfor én-linjes-panelet.
-     Klaringen til kontoknappen flyttes samtidig til breadcrumben: raden under
-     skal bruke hele bredden, det er bare breadcrumben som ligger ved siden av
-     knappen. */
+     Klaringen holdes av BEGGE radene her: hjørnegruppen er også to rader så
+     smalt (drakt/konto over kalender/søk), og da ligger den ene gruppe-raden
+     ved siden av breadcrumben og den andre ved siden av listefunksjonene. Det
+     er nettopp derfor panelet slipper å skyves ned for gruppens andre rad —
+     se `--corner-btns-overflow` (syncTopChrome). */
   .topbar { flex-direction: column; align-items: stretch; }
   .breadcrumb { padding-right: var(--corner-btns-w); }
-  .toolbar { margin-right: 0; flex-wrap: wrap; }
+  .toolbar { margin-right: var(--corner-btns-w); flex-wrap: wrap; }
 
   /* Litt tettere breadcrumb så navnene får plass ved siden av kontoknappen. */
   .crumb-btn { font-size: var(--fs-md); padding: 0 10px; gap: 6px; }
@@ -3073,7 +3109,7 @@ body.tour-demo .trash-row button:not(.tour-live) { opacity: 0.35; }
    ============================================================ */
 
 /* Skjul app-innhold også i kontomodus (før innlogging). Hele
-   toppkontrollgruppen (søk, drakt, konto) går med — innloggingsskjermens egen
+   toppkontrollgruppen (kalender, søk, drakt, konto) går med — innloggingsskjermens egen
    draktknapp (#auth-theme-toggle-btn) dekker draktvalget der. */
 body.no-auth .topbar,
 body.no-auth .app-main,
@@ -3681,6 +3717,168 @@ body.no-auth .corner-controls { display: none; }
 }
 .search-result.is-active .search-result-cue { visibility: visible; }
 
+/* ---------------- «Kommende hendelser» ----------------
+   Samme modalskall som søket, med den samme delingen: hodet står i ro og
+   INNHOLDET ruller. To seksjoner (frister, starter), hver med opptil tre
+   grupper — overskrift med statusikon, og radene under.
+
+   ARBEIDSDELINGEN MELLOM IKONENE: gruppens overskrift bærer STATUS (farget
+   plate), raden bærer OBJEKTTYPEN (liste/kategori/listepunkt, uten flate).
+   Fargen er dermed aldri gjentatt nedover en hel gruppe, og den er aldri
+   eneste bærer: overskriften står i klartekst, og radens navn sier typen
+   (docs/tilgjengelighet.md).
+
+   PINNINGEN FØLGER PLATEN, ikke modalen. Gruppens statusikon står på en
+   kontraktsgradient som er den samme i begge drakter, så det pinner
+   `--icon-ink`/`--icon-paper` for seg selv, akkurat som `.btn-solid` gjør.
+   Typeikonet i raden har ingen plate — det står rett på modalflaten, og den
+   SNUR med drakten, så streken må snu med den. Et av typeikonene (kategori) er
+   bare streker, uten «papir» å bli sett på: pinnet mørk ble det nesten
+   usynlig på en mørk rad. */
+.events-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+.events-empty { margin: 0; font-size: var(--fs-sm); color: var(--ink-soft); font-weight: 500; }
+.events-section { display: flex; flex-direction: column; gap: 12px; }
+.events-section-head {
+  margin: 0;
+  font-size: var(--fs-md);
+  font-weight: 700;
+  color: var(--ink);
+}
+.events-group { display: flex; flex-direction: column; gap: 8px; }
+/* Skillelinje mellom to grupper, med LIK luft på hver side: seksjonens gap står
+   over linjen og paddingen under den. Avstanden mellom to grupper blir dermed
+   dobbelt så stor som inne i én, og grupperingen leses uten å telle rader. */
+.events-group + .events-group {
+  border-top: 1px solid var(--line);
+  padding-top: 12px;
+}
+.events-group-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: var(--fs-sm);
+  font-weight: 600;
+  color: var(--ink-soft);
+}
+.events-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.event-row {
+  width: 100%;
+  appearance: none;
+  cursor: pointer;
+  text-align: left;
+  font-family: inherit;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 12px;
+  border: 1.5px solid transparent;
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+  transition: background 0.15s, border-color 0.15s;
+}
+.event-row:hover { background: var(--wash); }
+.event-row:focus-visible { outline: var(--focus-w) solid var(--focus); outline-offset: 2px; }
+/* Typeikonet: samme boks-størrelse som gruppens statusikon, men uten flate —
+   det er en opplysning om hva raden ER, ikke en status. */
+.event-row-icon {
+  flex: 0 0 auto;
+  width: 26px;
+  height: 26px;
+  display: grid;
+  place-items: center;
+}
+/* Litt skygge, så den lyse streken i mørk drakt løftes fra raden i stedet for
+   å ligge flatt i den. `filter` og ikke `box-shadow`: boksen er gjennomsiktig,
+   det er GLYFEN som skal kaste skyggen. Svart i begge drakter — den mørkner
+   både en lys og en mørk flate. */
+.event-row-icon .icon {
+  width: 1em;
+  height: 1em;
+  font-size: 21px;
+  filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.3));
+}
+.event-row-main { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+.event-row-name {
+  font-size: var(--fs-base);
+  font-weight: 600;
+  color: var(--ink);
+  overflow-wrap: anywhere;
+}
+/* Kontekststien — dempet, så navnet dominerer raden. */
+.event-row-meta {
+  font-size: var(--fs-xs);
+  font-weight: 500;
+  color: var(--ink-soft);
+  overflow-wrap: anywhere;
+}
+/* Høyre side: avstanden i tid over den konkrete datoen. */
+.event-row-when {
+  flex: 0 0 auto;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 1px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.event-row-rel { font-size: var(--fs-xs); font-weight: 600; color: var(--ink-soft); }
+.event-row-date { font-size: var(--fs-sm); font-weight: 600; color: var(--ink); }
+/* Gruppens statusikon: en rund plate i gruppens farge. */
+.event-icon {
+  flex: 0 0 auto;
+  width: 26px;
+  height: 26px;
+  display: grid;
+  place-items: center;
+  border-radius: 999px;
+  background: var(--chip-bg);
+  box-shadow: 0 1px 3px rgba(35, 45, 55, 0.16);
+  /* Kontraktsfargene under glyfen er de samme i begge drakter, så glyfen skal
+     stå stille også. Custom properties arver, så pinningen her dekker hele
+     ikonet uten en eneste ekstra selektor — samme grep som `.btn-solid`. */
+  --icon-ink: #111111;
+  --icon-paper: #ffffff;
+  --icon-grey: #c0c4c9;
+}
+.event-icon .icon { width: 1em; height: 1em; font-size: 15px; }
+.event-icon.is-over { background: var(--grad-red); }
+.event-icon.is-soon { background: var(--grad-yellow); }
+.event-icon.is-later { background: var(--grad-green); }
+.event-icon.is-started { background: var(--grad-accent); }
+.event-icon.is-startsoon { background: var(--grad-purple); }
+.event-icon.is-startlater { background: var(--grad-blue); }
+/* Telefon i portrett (samme grense som board-ets én-kolonne-grense): tiden
+   flyttes ned på sin egen linje, på linje med teksten. Da får stien hele
+   bredden i stedet for å brekke over fire linjer ved siden av en kolonne som
+   likevel ikke kan krympe (tidspunktet skal aldri kappes). */
+@media (max-width: 560px) {
+  .event-row { align-items: flex-start; flex-wrap: wrap; }
+  /* Basis 0, ikke `auto`: med innholdsbredden som basis ville navnet brutt ned
+     under ikonet i stedet for å krympe ved siden av det. */
+  .event-row-main { flex-basis: 0; }
+  .event-row-when {
+    width: 100%;
+    padding-left: 36px;
+    flex-direction: row;
+    align-items: baseline;
+    gap: 8px;
+  }
+}
+
 /* ---------------- Kortvarig markering av et navigasjonsmål ----------------
    Settes av `navigateToObject()` på objektet man nettopp havnet ved (søk i
    dag, kommende hendelser og varsler senere) og fjernes igjen etter
@@ -3804,6 +4002,12 @@ body.no-auth .corner-controls { display: none; }
   --icon-paper: #ffffff;
 }
 .meta-chip.is-over { background: var(--grad-red); color: #fff; text-shadow: var(--text-shadow); }
+/* Fristen ligger etter forelderens (docs/scheduling.md). Meningen bæres av
+   varseltrekanten og av chipens tekst (`title`/`aria-label`) — statusfargen
+   under sier fortsatt hvor fristen står i tid. Kanten er ren forsterkning og
+   arver chipens EGEN tekstfarge, så den aldri kan være svakere enn teksten som
+   allerede står på den samme flaten. */
+.meta-chip.is-conflict { border: 1.5px dashed currentColor; }
 
 /* ---------------- Objektmenyen (én knapp per objekt) ----------------
    Popover ved menyknappen på desktop, sentrert ark på mobil — panelet arver

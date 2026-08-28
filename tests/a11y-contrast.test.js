@@ -565,6 +565,48 @@ if (darkBlock) {
     }
   }
 
+  console.log('\n--- Statusflatene i «Kommende hendelser» ---');
+  /* PINNINGEN FØLGER PLATEN, ikke modalen: gruppens statusikon (`.event-icon`)
+     står på en kontraktsgradient som er den samme i begge drakter, så det
+     pinner streken mørk for seg selv — se docs/kommende-hendelser.md. Da må
+     hver eneste gruppeflate bære den svarte streken på 3:1, også de to som
+     bare finnes her (startgruppene skal ikke låne varselfargene).
+
+     Modalen som HELHET skal ikke pinne noe. Radens typeikon står rett på
+     modalflaten, som snur med drakten, og kategori-ikonet er bare streker uten
+     «papir» å bli sett på — pinnet mørkt forsvant det i en mørk rad. Streken
+     der er --icon-ink, som allerede måles mot --surface-2 lenger oppe. */
+  {
+    const modalRule = (css.match(/\.events-modal\s*\{([^}]*)\}/) || [])[1] || '';
+    check('.events-modal pinner IKKE ikonfargene — radens typeikon følger drakten',
+      !/--icon-(ink|paper|grey)\s*:/.test(modalRule), { regel: modalRule.trim() });
+    const iconRule = (css.match(/\.event-icon\s*\{([^}]*)\}/) || [])[1] || '';
+    const pinned = iconRule.match(/--icon-ink:\s*(#[0-9a-f]{3,8})/i);
+    check('.event-icon pinner en MØRK ikonstrek på sin egen kontraktsflate',
+      !!pinned && lum(pinned[1]) < 0.1, { pinned: pinned && pinned[1] });
+    const paper = iconRule.match(/--icon-paper:\s*(#[0-9a-f]{3,8})/i);
+    check('.event-icon pinner «papiret» sammen med streken',
+      !!paper && lum(paper[1]) > 0.5, { paper: paper && paper[1] });
+    const strek = (pinned && pinned[1]) || '#111111';
+    const ark = (paper && paper[1]) || '#ffffff';
+    /* Ikonene her er PLATE-ikoner: en hvit flate med mørke streker oppå. Streken
+       tegnes altså på «papiret», ikke rett på gruppeflaten, og det er derfor
+       ikke streken alene som må skille seg fra flaten — det holder at ÉN av de
+       to gjør det. På de lyse flatene (gul, grønn, lilla, blå) er det streken,
+       på de mørke (rød, blågrønn) er det papiret. Kravet er at hver eneste
+       gruppeflate har minst én av delene på 3:1, ellers blir glyfen en klatt. */
+    for (const g of ['grad-red', 'grad-yellow', 'grad-green', 'grad-accent', 'grad-purple', 'grad-blue']) {
+      for (const stop of gradientStops(g)) {
+        const vStrek = ratio(strek, stop);
+        const vArk = ratio(ark, stop);
+        check(`--${g} (${stop}) skiller seg fra ikonet — strek ${vStrek.toFixed(2)}:1 / papir ${vArk.toFixed(2)}:1 (krav 3:1 på én av dem)`,
+          Math.max(vStrek, vArk) >= 3, { strek: +vStrek.toFixed(2), papir: +vArk.toFixed(2) });
+      }
+    }
+    // Og streken må alltid skille seg fra papiret den faktisk ligger på.
+    contrast('den pinnede streken mot det pinnede papiret i modalen', strek, ark, 3);
+  }
+
   console.log('\n--- Kontroller som bytter farge ved hover / under draging ---');
   /* To signaler tegnes med en FAST farge oppå noe som skifter med drakten, og
      begge falt igjennom da paletten ble mørk. Kravet her er ikke bare 3:1 der

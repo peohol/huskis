@@ -105,6 +105,14 @@
        (`--corner-btns-w`, syncTopChrome). Hele gruppen skjules før innlogging.
        Se docs/menus.md («Toppkontrollene»). -->
   <div class="corner-controls" id="corner-controls">
+    <!-- Kalender: åpner «Kommende hendelser» (frister og starttider på tvers av
+         hele tilstanden). Se docs/kommende-hendelser.md. -->
+    <button class="corner-btn events-btn" id="events-btn" type="button"
+            data-i18n-title="events.title" data-i18n-aria-label="events.title"
+            aria-haspopup="dialog">
+      <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="#111" stroke-width="1.05" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3.5" y="5" width="17" height="16" rx="2.5" fill="#ffffff"></rect><path d="M8 3v4"></path><path d="M16 3v4"></path><path d="M3.5 9.5h17"></path></svg>
+    </button>
+
     <!-- Søk: åpner søkemodalen (globalt søk over områder, mapper, lister,
          kategorier og listepunkter). Se docs/sok-og-navigering.md. -->
     <button class="corner-btn search-btn" id="search-btn" type="button"
@@ -470,6 +478,26 @@
              det aktive treffet gjennom aria-activedescendant. -->
         <p class="visually-hidden" id="search-count" role="status" aria-live="polite"></p>
       </div>
+    </div>
+  </div>
+
+  <!-- «Kommende hendelser»: frister og starttider på tvers av hele tilstanden,
+       gruppert og sortert av `collectUpcomingEvents()`. Innholdet bygges i JS
+       (renderes på nytt mens modalen står åpen når tilstanden endrer seg), og
+       hver rad navigerer via `navigateToObject()`. Se
+       docs/kommende-hendelser.md. -->
+  <div class="modal-overlay" id="events-modal" hidden>
+    <div class="modal events-modal" role="dialog" aria-modal="true" aria-labelledby="events-modal-title">
+      <header class="modal-head">
+        <h2 id="events-modal-title">
+          <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="#111" stroke-width="1.05" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3.5" y="5" width="17" height="16" rx="2.5" fill="#ffffff"></rect><path d="M8 3v4"></path><path d="M16 3v4"></path><path d="M3.5 9.5h17"></path></svg>
+          <span data-i18n="events.title">Kommende hendelser</span>
+        </h2>
+        <button class="icon-btn" id="events-close" type="button" data-i18n-title="common.close" data-i18n-aria-label="common.close"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.05" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6.5 6.5 17.5 17.5"></path><path d="M17.5 6.5 6.5 17.5"></path></svg></button>
+      </header>
+      <div class="modal-body events-body" id="events-body"></div>
+      <!-- Antallet leses opp ved åpning; gruppene har sine egne navn. -->
+      <p class="visually-hidden" id="events-count" role="status" aria-live="polite"></p>
     </div>
   </div>
 

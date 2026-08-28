@@ -276,6 +276,31 @@
                             'Showing the first {shown} of {total} matches. Type more to narrow it down.'],
     'search.gone':         ['Objektet finnes ikke lenger.', 'That object no longer exists.'],
 
+    /* ---- Kommende hendelser (docs/kommende-hendelser.md) ---- */
+    'events.title':        ['Kommende hendelser', 'Upcoming events'],
+    'events.empty':        ['Ingen kommende frister eller starttider.',
+                            'No upcoming deadlines or start times.'],
+    'events.dueTitle':     ['Tidsfrister', 'Deadlines'],
+    'events.dueOver':      ['Frist utløpt', 'Overdue'],
+    'events.dueSoon':      ['Frist innen 7 dager', 'Due within 7 days'],
+    'events.dueLater':     ['Frist om 7 dager eller mer', 'Due in 7 days or more'],
+    'events.startTitle':   ['Starttider', 'Start times'],
+    'events.startStarted': ['Har begynt', 'Has started'],
+    'events.startSoon':    ['Begynner innen 7 dager', 'Starts within 7 days'],
+    'events.startLater':   ['Begynner om 7 dager eller mer', 'Starts in 7 days or more'],
+    // Radens opplesning: navnet først, så type, tid og sti.
+    'events.rowLabel':     ['{name}, {kind}. {when}. {path}', '{name}, {kind}. {when}. {path}'],
+    /* Avstanden i tid, vist over datoen på radens høyre side — kun innenfor sju
+       døgn. Enheten er egen nøkkel: «t» heter «h» på engelsk. */
+    'events.relIn':        ['Om {n} {unit}', 'In {n} {unit}'],
+    'events.relAgo':       ['{n} {unit} siden', '{n} {unit} ago'],
+    'events.unitDay':      ['d', 'd'],
+    'events.unitHour':     ['t', 'h'],
+    // Tid + avstand i ÉN opplesning («Frist: 5. jan — om 3 d»).
+    'events.whenRel':      ['{when} \u2014 {rel}', '{when} \u2014 {rel}'],
+    'events.count.one':    ['{n} hendelse.', '{n} event.'],
+    'events.count.other':  ['{n} hendelser.', '{n} events.'],
+
     /* ---- «Flytt til …» ---- */
     'move.outOfCategory': ['Ut av kategorien (i «{list}»)', 'Out of the category (in “{list}”)'],
     'move.toCategory':    ['Kategorien «{name}»', 'The category “{name}”'],
@@ -482,6 +507,15 @@
                              'The start time and the deadline are outside the time span.'],
     'time.startOutside':    ['Starttiden er utenfor tidsrommet.', 'The start time is outside the time span.'],
     'time.dueOutside':      ['Fristen er utenfor tidsrommet.', 'The deadline is outside the time span.'],
+    /* Den harde fristinvarianten (docs/scheduling.md): et barn kan aldri ha en
+       senere frist enn en forelder som selv har frist. To avvisninger og én
+       beskjed om eldre data som allerede bryter regelen. */
+    'time.dueAfterParent':  ['Fristen kan ikke være senere enn {kind} {name}, som har frist {time}.',
+                             'The deadline cannot be later than {kind} {name}, which is due {time}.'],
+    'time.dueBeforeChild':  ['Fristen kan ikke flyttes foran {kind} {name}, som har frist {time}.',
+                             'The deadline cannot be moved ahead of {kind} {name}, which is due {time}.'],
+    'time.dueConflict':     ['Fristen ligger etter {kind} {name} ({time}). Neste endring må bringe den innenfor.',
+                             'This deadline is later than {kind} {name} ({time}). The next change must bring it back inside.'],
     'time.lockInCard':      ['Lås tidene også til listepunktene i listen',
                              'Apply these times to the items in the list too'],
     'time.lockInCategory':  ['Lås tidene til listepunktene i kategorien',
