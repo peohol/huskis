@@ -19,7 +19,7 @@
        på sine gamle avstander (browserutgaven skal ikke betale for native).
     2. Toppmenyen og kontoknappen legger sonen på: innholdet havner ikke under
        statusfeltet, og de to flukter fortsatt.
-    3. Board-ets klaring følger med: `syncHeaderHeight()` måler den FAKTISKE
+    3. Board-ets klaring følger med: `syncTopChrome()` måler den FAKTISKE
        toppmeny-høyden, så første kort ligger fortsatt under menyen.
     4. Bunn-chromet (toast, lagringsstatus, oppdateringsbanner) og board-ets
        bunn holder seg over gestelinjen.

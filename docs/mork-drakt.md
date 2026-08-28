@@ -29,15 +29,15 @@ forskjellig. Derfor ingen `user_metadata`, ingen synk og ingen fletting.
 Kontrollen er SAMME knapp to steder, avhengig av om kontoknappen finnes å stå
 ved siden av:
 
-- **Draktknappen** (`.theme-toggle-btn`, `#theme-toggle-btn`) — fast rett til
-  venstre for kontoknappen, utenfor toppmenyens flyt, skjult før innlogging
-  (`body.no-auth`) akkurat som kontoknappen selv.
-- **Innloggingsskjermens egen** (`.theme-toggle-btn.auth-theme-toggle-btn`,
+- **Draktknappen** (`.corner-btn.theme-toggle-btn`, `#theme-toggle-btn`) — i
+  toppkontrollgruppen i øvre høyre hjørne, utenfor toppmenyens flyt, skjult før
+  innlogging (`body.no-auth`) sammen med resten av gruppen
+  (`docs/menus.md`).
+- **Innloggingsskjermens egen** (`.corner-btn.theme-toggle-btn.auth-theme-toggle-btn`,
   `#auth-theme-toggle-btn`) — den eneste veien inn FØR man har en konto, siden
-  det ikke finnes noen kontoknapp der ennå. Samme klasse og samme ikon som
-  headerens knapp, malt av samme `paintThemeToggle()` — bare `position: static`
-  i stedet for fast i hjørnet, siden den står inline i språkraden
-  (`.auth-lang`) og ikke har noen kontoknapp å flukte med.
+  toppkontrollene ikke finnes der ennå. Samme klasser og samme ikon som
+  headerens knapp, malt av samme `paintThemeToggle()` — bare inline i
+  språkraden (`.auth-lang`) i stedet for i hjørnegruppen.
 
 Begge er ÉTT trykk som bytter mellom de to verdiene; ikonet viser drakten som
 ER aktiv (sol i lys, måne i mørk), ikke den du bytter til. Dette er appens

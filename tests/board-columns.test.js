@@ -377,7 +377,8 @@ async function lift(p, sel) {
     log('8 antall observerte mål er uendret etter 15 re-rendringer',
       after.total === first.total, JSON.stringify({ first, after }));
     log('8 ingen frakoblede noder blir liggende og observeres', after.detached === 0, JSON.stringify(after));
-    // Tom mappe: kortene slippes, kun de to permanente (board + toppmeny) står igjen.
+    // Tom mappe: kortene slippes, kun de tre permanente står igjen — board-et,
+    // toppmenyen og toppkontrollgruppen (`syncTopChrome`, docs/menus.md).
     await p.evaluate(() => {
       const H = window.__huskis, st = H.state;
       const g = st.universes.find((u) => u.id === st.activeUniverse).groups.find((x) => x.id === st.activeGroup);
@@ -385,7 +386,7 @@ async function lift(p, sel) {
     });
     await p.waitForTimeout(400);
     const empty = await live();
-    log('8 tom mappe slipper alle kort-observasjoner', empty.total <= 2 && empty.detached === 0, JSON.stringify(empty));
+    log('8 tom mappe slipper alle kort-observasjoner', empty.total <= 3 && empty.detached === 0, JSON.stringify(empty));
     log('8 ingen JS-feil', errs.length === 0, errs.join(' | '));
     await p.close();
   }

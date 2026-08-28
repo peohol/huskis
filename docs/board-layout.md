@@ -96,14 +96,19 @@ avrundinger, så den blir stående som sikkerhetsnett.
 ## Topp
 
 `.app-main`s `padding-top` settes IKKE via CSS `calc()`, men regnes ut i JS
-(`syncHeaderHeight`, med `ResizeObserver` på toppmenyen): eksakt målt
-toppmeny-høyde (`.topbar` — breadcrumb + listefunksjoner, på én linje eller to
-rader etter bredden, se [`menus.md`](menus.md)) **+ `--board-gap`**, satt som
-`--board-pad-top`.
+(`syncTopChrome`, med `ResizeObserver` på både toppmenyen og
+toppkontrollgruppen): den laveste underkanten av det faste chromet
+**+ `--board-gap`**, satt som `--board-pad-top`. Chromet er to ting, og begge
+kan vokse: `.topbar` (breadcrumb + listefunksjoner, på én linje eller to rader
+etter bredden) og `.corner-controls` (søk/drakt/konto, som brytes til flere
+rader når raden ikke rekker) — se [`menus.md`](menus.md).
 
-At høyden MÅLES er det som gjør at klaringen tåler at toppmenyen selv vokser
-med den sikre sonen (`--safe-top`, se [`design-system.md`](design-system.md)):
-det er ett tall, og det er alltid det faktiske.
+Samme funksjon MÅLER gruppens bredde og skriver den til `--corner-btns-w`, som
+er plassen toppmenyens linje holder av til den.
+
+At det MÅLES er det som gjør at klaringen tåler at chromet selv vokser med den
+sikre sonen (`--safe-top`, se [`design-system.md`](design-system.md)) eller med
+en knapp til i hjørnet: det er ett tall, og det er alltid det faktiske.
 
 `--board-pad-top` er samtidig sidens `scroll-padding-top`. En rulling som skal
 «ta noe fram» — nettleserens egen rulling når et navnefelt får fokus, og den
