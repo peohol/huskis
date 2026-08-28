@@ -3921,6 +3921,7 @@
     setExtracting(false);   // sikkerhetsnett: også på avbruddsveiene
     setTrashHold(false);
     setHoleAstray(false);
+    clearHoleSpace();
     // Kolonnefordelingen har vært frosset gjennom draget (og korthøydene kan ha
     // endret seg — et listepunkt flyttet mellom to lister). Kjør den på nytt nå
     // som draget er over; `boardRelayoutAfterDrop` gjør den samme runden når
@@ -4133,13 +4134,21 @@
     const r = ref.el.getBoundingClientRect();
     return (ref.edge === 'top' ? r.top : r.bottom) + anchorScrollPos();
   }
+  /* Plassen kortet legger beslag på, MARGINEN medregnet. `syncHoleSpace` gir et
+     kort som lukker hullet en `margin-top` på nøyaktig det hullet ga fra seg —
+     boksen krymper og marginen vokser like mye, så YTTERmålet står stille og
+     observatøren ser riktig at ingenting under kortet flyttet seg. Slippes
+     marginen igjen (hullet forlot kortet), er det ytre målet som faller, og da
+     er det en ekte endring. Bare vi setter inline-margin på et kort. */
+  function anchorOuterH(el) {
+    if (!el.isConnected) return 0;
+    return el.getBoundingClientRect().height + (parseFloat(el.style.marginTop) || 0);
+  }
   // Høydene observatøren måler mot. Settes på nytt etter våre egne endringer, så
   // de ikke føres to ganger.
   function anchorNoteHeights() {
     if (!anchorRO) return;
-    anchorHeights.forEach((_, cEl) => {
-      anchorHeights.set(cEl, cEl.isConnected ? cEl.getBoundingClientRect().height : 0);
-    });
+    anchorHeights.forEach((_, cEl) => anchorHeights.set(cEl, anchorOuterH(cEl)));
   }
   /* VÅR EGEN endring: mål kanten FØR, gjør endringen, sett av ETTER — alt i
      samme oppgave, så ingenting rekker å males imellom. */
@@ -4167,8 +4176,9 @@
     anchorHeights.forEach((h, cEl) => {
       if (!cEl.isConnected) return;
       const r = cEl.getBoundingClientRect();
-      nye.push([cEl, r.height]);
-      const dh = r.height - h;
+      const ytre = anchorOuterH(cEl);
+      nye.push([cEl, ytre]);
+      const dh = ytre - h;
       // «Helt over siktet» måles på boksen FØR endringen: veksten ligger under
       // toppen, så den gamle bunnen er den nye minus veksten.
       if (dh && r.bottom - dh <= aim) sum += dh;
@@ -4192,7 +4202,7 @@
     anchorRO = new ResizeObserver(() => anchorObserved());
     root.querySelectorAll('.card').forEach((cEl) => {
       if (cEl.hasAttribute('data-dnd-placeholder')) return;
-      anchorHeights.set(cEl, cEl.getBoundingClientRect().height);
+      anchorHeights.set(cEl, anchorOuterH(cEl));
       anchorRO.observe(cEl);
     });
   }
@@ -5108,17 +5118,94 @@
   function setTrashHold(on) {
     document.body.classList.toggle('is-over-trash', !!on);
   }
-  /* Hullet males bare DER RADEN LANDER. dnd-kits sortering flytter det bare ved
-     å bytte med en RAD, så på vei tilbake opp fra lista under — over ＋-raden,
-     der det ikke finnes en rad å bytte med — blir det liggende igjen i lista man
-     forlot, mens slippet lander i den man er i (`dragOverCard`, som
-     kollisjonsdetektorene leser via `dndRowTargetCont`). Et malt hull i feil
-     liste er ett løfte for mye. MÅLT: et vindu på ~35 px over ＋-raden der hullet
-     sto igjen i lista under og slippet la raden i lista over. Kun malingen;
-     plassen beholdes, så ingenting rykker. */
+  /* Hullet er bare et løfte DER RADEN LANDER. dnd-kits sortering flytter det bare
+     ved å bytte med en RAD, så på vei tilbake opp fra lista under — over
+     ＋-raden, der det ikke finnes en rad å bytte med — blir det liggende igjen i
+     lista man forlot, mens slippet lander i den man er i (`dragOverCard`, som
+     kollisjonsdetektorene leser via `dndRowTargetCont`). Et hull i feil liste er
+     ett løfte for mye. MÅLT: et vindu på ~35 px over ＋-raden der hullet sto
+     igjen i lista under og slippet la raden i lista over. */
   function setHoleAstray(on) {
     document.body.classList.toggle('is-hole-astray', !!on);
   }
+
+  /* ------- HULLET SOM IKKE LOVER NOE: MALING, OG NOEN GANGER PLASSEN -------
+
+     MALINGEN skrus av i alle tre tilfellene (`is-hole-gone`). PLASSEN tas i det
+     ene der den kan tas trygt: når hullet ligger i en ANNEN liste enn den
+     slippet gjelder. Den lista har ingen grunn til å stå med en åpen rad, og
+     kortet som krymper er ikke det terskelen leses av.
+
+     Ligger hullet i lista man selv er i, blir plassen stående. Kortets boks er
+     der samtidig ekstraher-linja OG kassens plass, og å ta radhøyden ut av den
+     flytter begge — MÅLT: kassen glapp under fingeren og sonen slo om til
+     `extract` før man var framme ved knappen (`dnd-trash` 10/11/12).
+
+     Beløpet regnes ut fra bunnen hver runde, så det ikke kan komme i utakt med
+     de andre tingene som endrer kortets høyde (kasseraden kommer og går i det
+     samme kortet). */
+  let holeShrunk = null;      // klonen som bærer den negative marginen
+  let holeMarginCard = null;  // kortet som bærer kompensasjonen
+  // Skriv en inline-stil bare når den faktisk endrer seg, og hold rede på hvem
+  // som bærer den, så den alltid kan tas av igjen.
+  function settStil(el, felt, verdi) {
+    if (el && el.style[felt] !== verdi) el.style[felt] = verdi;
+  }
+  function syncHoleSpace() {
+    const kl = document.body.classList;
+    // MALINGEN skrus av i alle tre tilfellene der hullet ikke lover noe.
+    const vekk = !!drag.active &&
+      (kl.contains('is-extracting') || kl.contains('is-over-trash') || kl.contains('is-hole-astray'));
+    // PLASSEN bare der den kan tas trygt — se blokken over.
+    const komprimer = !!drag.active && kl.contains('is-hole-astray');
+    const ph = drag.active ? dragScope().root.querySelector('[data-dnd-placeholder]') : null;
+    const card = ph ? ph.closest('.card') : null;
+    kl.toggle('is-hole-gone', vekk && !!ph);
+
+    /* PLASSEN tas av en negativ `margin-bottom` på klonen — aldri av
+       `display: none` eller `height: 0`. KLONENS BOKS ER DRA-OBJEKTETS
+       GEOMETRI: dnd-kit speiler mål, plassering OG viewport-klemme fra den hver
+       frame. En klone uten boks krympet dra-objektet til 12×12 px, og klemmen
+       slapp det 269 px utenfor skjermkanten — begge MÅLT. En margin-bottom rører
+       verken størrelsen eller plasseringen; den trekker bare radene ETTER
+       klonen opp, og containeren krymper med raden og gapet. */
+    const boks = ph ? ph.getBoundingClientRect() : null;
+    const gap = ph ? (parseFloat(getComputedStyle(ph.parentNode).rowGap) || 0) : 0;
+    const beløp = komprimer && boks ? boks.height + gap : 0;
+    if (holeShrunk && holeShrunk !== ph) { settStil(holeShrunk, 'marginBottom', ''); holeShrunk = null; }
+    if (ph) {
+      settStil(ph, 'marginBottom', beløp ? (-beløp) + 'px' : '');
+      holeShrunk = beløp ? ph : null;
+    }
+
+    /* KOMPENSASJONEN ER LOKAL. Kortet krymper med en radhøyde, og alt under det
+       ville rykket oppover midt under fingeren. I stedet får kortet selv en
+       `margin-top` på nøyaktig det samme beløpet: UNDERKANTEN står stille, og
+       bare overkanten flytter seg ned. Ingen andre kort, ingen board-padding og
+       ingen scroll rører seg.
+
+       Retningen velges av siktet, samme regel som dra-ankeret: ligger siktet
+       UNDER hullet står underkanten stille; ligger det OVER — man drar oppover
+       forbi lista hullet ligger i — krymper kortet nedenfra, og overkanten
+       står. */
+    const komp = beløp && card && anchorAimY() >= boks.top ? beløp : 0;
+    const bar = holeMarginCard;
+    if (holeMarginCard && holeMarginCard !== card) { settStil(holeMarginCard, 'marginTop', ''); holeMarginCard = null; }
+    if (card) {
+      settStil(card, 'marginTop', komp ? komp + 'px' : '');
+      holeMarginCard = komp ? card : null;
+    }
+    /* Endret kortets margin seg, endret det YTRE målet seg uten at boksen gjorde
+       det, og observatøren fyrer ikke på margin. Be om runden selv: et kort helt
+       over siktet skal fortsatt ikke dra det man svever over med seg. */
+    if (bar !== holeMarginCard) anchorObserved();
+  }
+  function clearHoleSpace() {
+    if (holeShrunk) { settStil(holeShrunk, 'marginBottom', ''); holeShrunk = null; }
+    if (holeMarginCard) { settStil(holeMarginCard, 'marginTop', ''); holeMarginCard = null; }
+    document.body.classList.remove('is-hole-gone');
+  }
+
   /* Ny-liste-placeholderen SVEVER mellom kortene.
 
      Den var en kort-formet slot med et ＋ i, altså 72+ px som skjøv kortene fra
@@ -7087,6 +7174,9 @@
       update();
     } finally {
       dndRowPolicyBusy = false;
+      // Til slutt, når modusen er avgjort av `update()`: lukk hullet helt om det
+      // ikke lover noe, og la kortet bære kompensasjonen selv.
+      syncHoleSpace();
     }
   }
 
@@ -14363,6 +14453,19 @@
         on: !!anchorRO,
         pad: anchorPad, floor: anchorFloor, scroll: anchorScrollOwn,
       };
+    },
+    /* Den LOGISKE dra-boksen, slik plasseringsreglene faktisk leser den
+       (`draggedRect`: pekeren minus grepet, uklemt og uten rotasjon/skala).
+       Testene rekonstruerte den før fra dnd-kits `intentRectangle`, og den
+       ligger inntil én frame bak — et sveip i 3 px steg målte da terskelen opp
+       til to steg feil. `band` er kortets egen kant, altså den andre siden av
+       den samme sammenligningen (`cardBand`). */
+    get dragBox() {
+      if (!drag.active) return null;
+      const d = draggedRect();
+      const c = drag.overCard;
+      return { top: d.top, bottom: d.bottom, height: d.height,
+        kort: c ? c.dataset.id : null, band: c ? cardBand(c) : null };
     },
     get lang() { return I18N.lang(); },
     setLanguage,

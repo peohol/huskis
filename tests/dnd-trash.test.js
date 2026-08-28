@@ -38,7 +38,9 @@
        heller ikke hullet raden kom fra, som kan ligge igjen i en HELT ANNEN
        liste enn den man sikter i. Rødvasken på det som dras og et malt hull
        utelukker hverandre, og males hullet i det hele tatt, ligger det i lista
-       slippet faktisk lander i.
+       slippet faktisk lander i. Et hull i FEIL liste tar heller ingen plass
+       der — den lista komprimeres — og kantene draget nærmer seg står likevel
+       stille, så terskelen ikke flytter seg.
 
   Kjør:
     python3 -m http.server 8000                     # fra repo-roten, i egen terminal
@@ -610,13 +612,24 @@ async function runEttHull(label, viewport) {
         el.getBoundingClientRect().height > 0;
     };
     const klone = document.querySelector('[data-dnd-placeholder]');
+    const kant = (id, side) => { const c = document.querySelector('.card[data-id="' + id + '"]');
+      return c ? +c.getBoundingClientRect()[side].toFixed(1) : null; };
     return {
       hull: malt(klone),
+      /* Plassen hullet tar i LISTA. Klonens egen boks står urørt — den er
+         dra-objektets geometri — så det som måles er containeren den ligger i:
+         lover hullet ingenting, skal raden og gapet være borte derfra. */
+      hullH: klone ? +klone.getBoundingClientRect().height.toFixed(0) : null,
+      listeH: klone && klone.parentNode
+        ? +klone.parentNode.getBoundingClientRect().height.toFixed(0) : null,
       hullIKort: klone && klone.closest('.card') ? klone.closest('.card').dataset.id : null,
       stripe: malt(document.querySelector('.new-list-placeholder')),
       rød: !!document.querySelector('[data-dnd-dragging].to-trash'),
       vert: (document.querySelector('.trashcan.drag-trash') || {}).closest
         ? (document.querySelector('.trashcan.drag-trash').closest('.card') || {}).dataset?.id || 'TOPP' : null,
+      // Kantene draget nærmer seg: L1 møtes NEDENFRA (underkanten er terskelen),
+      // L2 forlates OPPOVER (overkanten). Begge skal stå stille.
+      L1bunn: kant('L1', 'bottom'), L2topp: kant('L2', 'top'),
     };
   });
 
@@ -671,6 +684,25 @@ async function runEttHull(label, viewport) {
   log(label + ' 13: på kassen males verken hullet eller ny-liste-stripa',
     påKassen.rød === true && påKassen.hull === false && påKassen.stripe === false,
     JSON.stringify(påKassen));
+  /* Og et hull som ligger i FEIL liste tar heller ingen plass der: den lista har
+     ingen grunn til å stå med en åpen rad. Måles på CONTAINEREN — klonens egen
+     boks er dra-objektets geometri og skal stå urørt.
+
+     Ligger hullet i lista slippet gjelder (samme kort som kassen), beholder det
+     plassen: der er kortets boks samtidig ekstraher-linja og kassens plass. */
+  const iFeil = [...new Set(prøver.filter((s) => s.hullIKort !== s.vert).map((s) => s.listeH))];
+  const iEgen = [...new Set(prøver.filter((s) => s.hullIKort === s.vert).map((s) => s.listeH))];
+  log(label + ' 13: et hull i feil liste tar heller ingen plass der',
+    iFeil.length === 1 && iEgen.length === 1 && iEgen[0] - iFeil[0] >= 40,
+    JSON.stringify({ iFeil, iEgen, klonH: [...new Set(prøver.map((s) => s.hullH))] }));
+  /* Kortene krymper med en radhøyde når hullet lukkes — men kantene draget
+     NÆRMER SEG står stille: kompensasjonen er en `margin-top` på kortet selv, så
+     underkanten (og dermed terskelen) er urørt, og kortet man forlater slipper
+     plassen nedover, bort fra fingeren. */
+  const l1 = [...new Set(prøver.map((s) => s.L1bunn))];
+  const l2 = [...new Set(prøver.map((s) => s.L2topp))];
+  log(label + ' 13: kantene draget nærmer seg står stille gjennom hele turen',
+    l1.length === 1 && l2.length === 1, JSON.stringify({ 'L1-bunn': l1, 'L2-topp': l2 }));
 
   // Og slippet betyr fortsatt det samme: raden slettes i sin EGEN liste.
   await p.mouse.up(); await p.waitForTimeout(900);

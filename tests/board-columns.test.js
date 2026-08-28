@@ -320,15 +320,14 @@ async function lift(p, sel) {
         const d = document.querySelector('#board .item[data-dnd-dragging]');
         const ph = document.querySelector('#board [data-dnd-placeholder]');
         const ar = document.querySelector('.card[data-id="card-1"]');
-        // Den LOGISKE dra-boksen, som treffdeteksjonen bruker: dnd-kits uklemte
-        // intensjonsboks, med størrelsen byttet mot objektets egen layout-boks
-        // (det malte er skalert, og `getBoundingClientRect` ville dessuten gitt
-        // den ROTERTE omslutningsboksen). Samme regnestykke som `dndSyncIntent`.
-        const op = window.__huskis.boardRowBoard.manager.dragOperation;
-        const ir = window.Smett.intentRectangle(op);
-        const bb = ir && (ir.boundingRectangle || ir);
-        const h = d.offsetHeight;
-        const top = bb ? bb.top + bb.height / 2 - h / 2 : NaN;
+        /* Den LOGISKE dra-boksen, som treffdeteksjonen bruker — hentet fra
+           appen selv (`__huskis.dragBox` → `draggedRect`: pekeren minus grepet,
+           uklemt og uten rotasjon/skala). Rekonstruert fra dnd-kits
+           `intentRectangle` lå den inntil én frame bak, og et sveip i 3 px steg
+           målte da terskelen opp til to steg feil. */
+        const db = window.__huskis.dragBox;
+        const h = db ? db.height : d.offsetHeight;
+        const top = db ? db.top : NaN;
         const r = ar && ar.getBoundingClientRect();
         return {
           mode: document.querySelector('.new-list-placeholder') ? 'extract' : (ph ? 'reorder' : '-'),

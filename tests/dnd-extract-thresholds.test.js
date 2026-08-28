@@ -148,18 +148,16 @@ const probe = (p) => p.evaluate(() => {
   const newList = document.querySelector('.new-list-placeholder');
   const clone = document.querySelector('#board [data-dnd-placeholder]');
   const ph = newList || clone;
-  let drag = null;
+  /* Den LOGISKE dra-boksen kommer fra APPEN (`__huskis.dragBox` →
+     `draggedRect`: pekeren minus grepet, uklemt og uten rotasjon/skala) — det er
+     den boksen 1/3-reglene faktisk leser. Rekonstruert fra dnd-kits
+     `intentRectangle` lå den inntil én frame bak, og et sveip i 3 px steg målte
+     da terskelen opp til to steg for tidlig. Den andre siden av
+     sammenligningen — kortkanten — leses fortsatt fra DOM-en. */
+  const db = window.__huskis.dragBox;
+  const drag = db ? { top: db.top, bottom: db.bottom, height: db.height } : null;
   const B = window.__huskis.boardRowBoard;
   const op = B && B.manager.dragOperation;
-  if (d && op && !op.status.idle && window.Smett) {
-    const r = window.Smett.intentRectangle(op);
-    const bb = r && (r.boundingRectangle || r);
-    if (bb) {
-      const h = d.offsetHeight;
-      const top = bb.top + bb.height / 2 - h / 2;
-      drag = { top, bottom: top + h, height: h };
-    }
-  }
   /* Hvilken LISTE er slippmålet akkurat nå.
      `phCard` (hvor KLONEN står) er forhåndsvisningen, og den følger dnd-kits
      optimistiske sortering — som bare bytter med en RAD. Er det ingen rad å
@@ -184,8 +182,15 @@ const probe = (p) => p.evaluate(() => {
        der raden lå — motoren flytter den bare ved å bytte med en RAD, og i
        denne modusen tar ingen container imot — men den skal ikke tegnes, for da
        lover to hull hver sin plassering. */
+    /* MALT betyr faktisk malt: hullet lukkes med `display: none` når det ikke
+       lover noe (lista skal være maksimalt komprimert), og et `visibility`-
+       oppslag alene ville talt en rad som ikke finnes. */
     malteHull: [...document.querySelectorAll('.new-list-placeholder, #board [data-dnd-placeholder]')]
-      .filter((el) => getComputedStyle(el).visibility !== 'hidden').length,
+      .filter((el) => {
+        const cs = getComputedStyle(el);
+        return cs.visibility !== 'hidden' && cs.display !== 'none' &&
+          el.getBoundingClientRect().height > 0;
+      }).length,
     phCard: ph && ph.closest('.card') ? ph.closest('.card').dataset.id : null,
     overCard,
     cards,

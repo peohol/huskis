@@ -584,15 +584,32 @@ i lista over. Der males den ikke.
 knappen: aldri rødvask og malt hull samtidig, og males hullet, ligger det i lista
 slippet faktisk lander i.
 
-I alle tre tilfellene er det KUN malingen som skrus av: **klonen beholder PLASSEN
-sin.** Å ta den ut av flyten var det første forsøket, og det gjorde lista til nok
-en ting som flytter seg midt i et modusbytte — den krympet en radhøyde idet
-stripa kom, og vokste igjen idet den gikk. Prøvd på nytt
-etter at [dra-ankeret](#dra-ankeret-layouten-flytter-seg-bort-fra-siktet) kom:
-ekstraher-terskelen flyttet seg 10–27 px og kolonnen flimret mellom `reorder` og
-`extract` (`dnd-extract-thresholds` A4/B3/C1/C4). Hullet som blir stående er
-dessuten ærlig: det er plassen raden kommer tilbake til om man går inn igjen.
-Dekket av sjekk A5 i `tests/dnd-extract-thresholds.test.js`.
+### Et hull i FEIL liste tar heller ingen plass (`syncHoleSpace`)
+
+Ligger hullet i en annen liste enn den slippet gjelder, lukker det seg helt: den
+lista har ingen grunn til å stå med en åpen rad. Plassen tas av en negativ
+`margin-bottom` på klonen, og kortet får en `margin-top` på nøyaktig det samme —
+UNDERKANTEN står stille, og bare overkanten flytter seg ned. Ingen andre kort,
+ingen board-padding og ingen scroll rører seg. Kortets margin teller som en del
+av høyden for ankeret (`anchorOuterH`), så alt under kortet står også stille.
+
+**Klonens boks er DRA-OBJEKTETS GEOMETRI**, og derfor må plassen tas med margin
+og ingenting annet. dnd-kit speiler mål, plassering OG viewport-klemme fra
+klonens boks hver frame. MÅLT: `display: none` krympet dra-objektet til 12×12 px;
+fryser man målene i stedet, slipper klemmen objektet 269 px utenfor skjermkanten
+(`dnd-viewport-clamp`). En `margin-bottom` rører verken størrelse eller
+plassering — den trekker bare radene ETTER klonen opp.
+
+**De to andre tilfellene beholder plassen.** Er hullet i lista man selv er i —
+ekstraheringsmodus, eller sikte på kortets egen kasse — er kortets boks
+samtidig ekstraher-linja og kassens plass, og å ta radhøyden ut av den flytter
+begge. MÅLT: `dnd-trash` 10/11/12 mister kassen, og sonen slår om til `extract`
+før pekeren er framme ved knappen. Hullet blir da stående usynlig, og det er
+ærlig nok: det er plassen raden kommer tilbake til om man går inn igjen.
+
+`dnd-trash` sjekk 13 måler begge deler — at et hull i feil liste ikke tar plass
+der, og at kantene draget nærmer seg står stille gjennom hele turen. Sjekk A5 i
+`dnd-extract-thresholds.test.js` måler at bare ett hull males.
 
 `placeNewListPlaceholder` plasserer stripa:
 
