@@ -170,6 +170,8 @@ grå = `#c0c4c9`):
 | Søppelkasse (trash/trashSwipe) | kroppen grå |
 | Mappe | farge 2 (gulaktig mappefarge) |
 | Liste | hvit flate, svarte punkter/linjer |
+| Listepunkt (item) | hvit plate, svart punkt + linje — samme motiv som lista, én rad i stedet for tre |
+| Forstørrelsesglass (søk) | linsen hvit, skaftet kun strek |
 | Øye (vis) | hornhinne hvit, pupill svart |
 | Person (mine) | hode + kropp farge 4 |
 | Tre personer (delte) | hver person farge 1 / 2 / 3 |
@@ -295,11 +297,24 @@ Størrelse/form kommer fra egne klasser: `.btn` (modaler), `.btn-small`,
   `.crumb-sep` er ›-skilletegnet mellom dem.
 - `.trashcan`: ALLE søppelkasse-knapper — hvit avrundet beholder, antall i grå
   sirkel (`.trashcan-count`), **skjult (`hidden`) når tom**.
-- `.account-btn`: kontoknappen (person-ikon, fast i øvre høyre hjørne, med
-  `.menu-badge` som invitasjons-teller).
-- `.theme-toggle-btn`: draktknappen, fast rett til venstre for kontoknappen —
-  samme flate/hover/fokus-mønster, sol-/måneikon for aktiv drakt
-  (`docs/mork-drakt.md`).
+- `.corner-controls` + `.corner-btn`: toppkontrollgruppen i øvre høyre hjørne
+  (søk, drakt, konto). ÉN fast flex-gruppe med flate-mønsteret på hver knapp;
+  en ny knapp legges FØRST i gruppen og trenger ingen egen posisjonsregel.
+  Bredden gruppen legger beslag på måles i JS (`--corner-btns-w`) — se
+  `docs/menus.md` («Toppkontrollene»).
+  Variantene: `.search-btn` (åpner søkemodalen, `docs/sok-og-navigering.md`),
+  `.theme-toggle-btn` (sol-/måneikon for aktiv drakt, `docs/mork-drakt.md`) og
+  `.account-btn` (person-ikon + `.menu-badge` som invitasjons-teller).
+  Innloggingsskjermens draktknapp bruker den samme `.corner-btn`-flaten inline
+  i språkraden.
+- `.search-modal` (+ `.search-body`/`-results`/`-result`/`-note`):
+  søkemodalen — feltet står i ro og resultatlisten ruller. Den aktive raden
+  bæres av kant, flate OG en pilspiss, aldri av farge alene. Se
+  `docs/sok-og-navigering.md`.
+- `.nav-flash`: den kortvarige markeringen av objektet man nettopp navigerte
+  til. Innvendig `box-shadow` i `--focus` — kortene har `overflow: hidden`, og
+  fokusringen eier `outline` på det samme elementet. Se
+  `docs/sok-og-navigering.md`.
 - `.account-form` (+ `-label`/`-row`) og `.account-msg`: endre navn/e-post i
   konto-modalen (etikett over felt, Lagre-knapp på samme rad). «Bilde»-seksjonen
   bruker den samme klassen uten å være et `<form>` — mønsteret er etikett over

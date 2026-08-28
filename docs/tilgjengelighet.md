@@ -160,6 +160,22 @@ beskjed i live-området.
 `Alt`+`M` sjekkes på `ev.code === 'KeyM'`, ikke `ev.key` — på macOS gir `Alt`+`M`
 tegnet «µ».
 
+## Lister man velger i (søkeresultatene)
+
+Søkemodalens felt er en **combobox over en listbox**: `role="combobox"` +
+`aria-controls`/`aria-expanded` på feltet, `role="listbox"` på lista,
+`role="option"` + `aria-selected` på radene, og `aria-activedescendant` på
+feltet som peker på det aktive treffet. Da flytter piltastene valget uten at
+fokus forlater feltet — man kan skrive videre uten å tabbe tilbake, og
+skjermleseren sier fram raden av seg selv.
+
+To ting som er lette å glemme i et slikt mønster, og som gjelder alle framtidige
+valglister: **antallet treff** må leses opp et sted (et visuelt skjult
+`role="status"`), og **den aktive raden kan ikke bæres av farge alene** — i
+søket står typen i klartekst i raden, og den aktive raden har en pilspiss ved
+siden av kanten og flaten. Autoritativt for resten av søket:
+`sok-og-navigering.md`.
+
 ## To bevisste avveininger
 
 **Korthodet er `role="button"`, og det koster `<h2>`-en.** En knapp har

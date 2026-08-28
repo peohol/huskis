@@ -59,6 +59,8 @@
     /* ---- Objekttyper ---- */
     'kind.universe':    ['Område', 'Workspace'],
     'kind.group':       ['Mappe', 'Folder'],
+    'kind.card':        ['Liste', 'List'],
+    'kind.item':        ['Listepunkt', 'Item'],
     'kind.category':    ['Kategori', 'Category'],
     'kind.groupcat':    ['Mappekategori', 'Folder category'],
     // Samme seks typene i bestemt form, slik de leses inne i en setning.
@@ -255,6 +257,24 @@
                              'A workspace is the top level and cannot be moved.'],
     'a11y.categoryCannotMove': ['En kategori kan ikke flyttes til en annen forelder.',
                                 'A category cannot be moved to another parent.'],
+    'a11y.wentTo':        ['Gikk til {kind} {name}.', 'Went to {kind} {name}.'],
+
+    /* ---- Globalt søk (docs/sok-og-navigering.md) ---- */
+    'search.title':        ['Søk', 'Search'],
+    'search.placeholder':  ['Skriv for å søke', 'Type to search'],
+    'search.inputLabel':   ['Søketekst', 'Search text'],
+    'search.resultsLabel': ['Søkeresultater', 'Search results'],
+    'search.hint':         ['Søket dekker alt du har tilgang til: områder, mapper, lister, kategorier og listepunkter.',
+                            'The search covers everything you have access to: workspaces, folders, lists, categories and items.'],
+    // Typen + kontekststien under navnet i et søketreff. Skilletegnet er det
+    // samme i begge språk (som breadcrumbens).
+    'search.rowMeta':      ['{kind} \u00B7 {path}', '{kind} \u00B7 {path}'],
+    'search.noHits':       ['Ingen treff på {q}.', 'No matches for {q}.'],
+    'search.hits.one':     ['{n} treff.', '{n} match.'],
+    'search.hits.other':   ['{n} treff.', '{n} matches.'],
+    'search.more':         ['Viser de {shown} første av {total} treff. Skriv mer for å snevre inn.',
+                            'Showing the first {shown} of {total} matches. Type more to narrow it down.'],
+    'search.gone':         ['Objektet finnes ikke lenger.', 'That object no longer exists.'],
 
     /* ---- «Flytt til …» ---- */
     'move.outOfCategory': ['Ut av kategorien (i «{list}»)', 'Out of the category (in “{list}”)'],

@@ -648,9 +648,10 @@
   const uniTrashBtn = document.getElementById('uni-trash-btn');
   const uniTrashCount = document.getElementById('uni-trash-count');
 
-  // Draktknapp (fast rett til venstre for kontoknappen) og konto-modal
-  // (kontoknappen øverst til høyre). `authThemeToggleBtn` er den SAMME
-  // knappen, bare inline på innloggingsskjermen — se paintThemeToggle().
+  // Toppkontrollgruppen i øvre høyre hjørne (søk, drakt, konto) og modalene de
+  // åpner. `authThemeToggleBtn` er den SAMME draktknappen, bare inline på
+  // innloggingsskjermen — se paintThemeToggle().
+  const cornerControls = document.getElementById('corner-controls');
   const themeToggleBtn = document.getElementById('theme-toggle-btn');
   const authThemeToggleBtn = document.getElementById('auth-theme-toggle-btn');
   const accountBtn = document.getElementById('account-btn');
@@ -1633,6 +1634,7 @@
     captureFocusIn(board); // hvor fokus sto, FØR board-et rives ned
     renderBoardInner();
     applyFocusIntent();
+    paintNavFlash();       // markeringen av et navigasjonsmål overlever ombyggingen
     // Ombyggingen har byttet ut hvert eneste kort — og dermed hver eneste rad —
     // og dnd-kit sitter igjen med de gamle nodene. Meld den; samme grunn som
     // `renderNav` har, se `boardSyncBoards`.
@@ -1826,6 +1828,7 @@
     navSyncBoards();
     relayoutBoard(navScope);
     applyFocusIntent(); // samme grunn som i renderBoard: modalen bygges fra bunnen
+    paintNavFlash();
     // ETTER fokuseringen: `focus()` scroller elementet inn i visningen, og ville
     // ellers dratt visningen bort fra der brukeren faktisk sto.
     restoreNavScroll(keepScroll);
@@ -4928,34 +4931,88 @@
     return { top: tall('top'), right: tall('right'), bottom: tall('bottom'), left: tall('left') };
   }
 
-  // Den faste (position: fixed) toppmenyen er ute av flyten, så board-et må få
-  // nøyaktig klaring: målt toppmeny-høyde + --board-gap. Padding-top regnes ut
-  // HER (ikke i en CSS calc()) slik at avstanden ned til første kort blir
-  // PIKSELNØYAKTIG lik gapet ellers (venstre/høyre/bunn-padding, kolonne-gap,
-  // kort-til-kort). --board-gap er en clamp()/vw-verdi — å lese den direkte fra
-  // :root ville gitt oss selve uttrykket (som streng), ikke tallet den løses til;
-  // vi leser den derfor fra board sin FAKTISK OPPLØSTE column-gap i stedet.
-  function syncHeaderHeight() {
+  /* Bredden på gruppens SISTE rad. Det er den ene raden som ligger ved siden av
+     toppmenyens linje (de øvrige er skjøvet over den, se
+     --corner-btns-overflow), og dermed den eneste bredden menyen må holde av.
+     Er gruppen én rad — alltid i dag — er de to det samme. Radene er
+     høyrestilte, så raden strekker seg fra sitt venstreste element til
+     gruppens høyrekant. */
+  function cornerLastRowWidth(corner) {
+    const kids = cornerControls ? cornerControls.children : null;
+    if (!kids || !kids.length) return corner.width;
+    const lastTop = kids[kids.length - 1].getBoundingClientRect().top;
+    let left = corner.right;
+    for (let i = kids.length - 1; i >= 0; i--) {
+      const r = kids[i].getBoundingClientRect();
+      if (Math.abs(r.top - lastTop) > 1) break;
+      left = Math.min(left, r.left);
+    }
+    return corner.right - left;
+  }
+
+  /* Toppmenyen OG toppkontrollgruppen er `position: fixed` og dermed ute av
+     flyten. Board-et må få klaring under det laveste av de to, og toppmenyens
+     linje må holde av plassen gruppen tar til høyre. Begge deler MÅLES her:
+
+       --board-pad-top   klaringen ned til første kort = laveste chrome-kant +
+                         --board-gap. Regnes ut i JS (ikke som en CSS calc())
+                         slik at avstanden blir PIKSELNØYAKTIG lik gapet
+                         ellers. --board-gap er en clamp()/vw-verdi — å lese
+                         den direkte fra :root ville gitt selve uttrykket (som
+                         streng), ikke tallet; den leses derfor fra board sin
+                         FAKTISK OPPLØSTE column-gap.
+       --corner-btns-w   bredden hjørnegruppen legger beslag på (+ luften til
+                         innholdet ved siden av). Den MÅLES i stedet for å
+                         regnes ut av et knappeantall, så en ny knapp i gruppen
+                         (kalender, varsler) ikke krever en ny utregning noe
+                         sted. Gruppen er `display: none` før innlogging — da
+                         står CSS-startverdien, som er riktig for de knappene
+                         som finnes.
+       --corner-btns-overflow
+                         høyden gruppen har UTOVER én knapperad. Gruppen ligger
+                         som en høyre KOLONNE oppå toppmenyen, og den
+                         horisontale klaringen (--corner-btns-w) gjelder bare
+                         den raden menyen selv står på. Brytes gruppen til
+                         flere rader, ville de ekstra radene lagt seg oppå
+                         menyens neste rad (listefunksjonene i det stablede
+                         mobiloppsettet). Overskuddet skyves derfor inn i
+                         toppmenyens egen padding-top: da ligger menyens FØRSTE
+                         rad alltid ved siden av gruppens SISTE, og den
+                         horisontale klaringen rekker igjen. */
+  function syncTopChrome() {
     const root = document.documentElement.style;
-    const topH = topbarEl.getBoundingClientRect().height;
+    const rootCs = getComputedStyle(document.documentElement);
     const gap = parseFloat(getComputedStyle(board).columnGap) || 0;
-    root.setProperty('--board-pad-top', (topH + gap) + 'px');
+    const corner = cornerControls ? cornerControls.getBoundingClientRect() : null;
+    if (corner && corner.width > 0) {
+      const btnGap = parseFloat(getComputedStyle(cornerControls).columnGap) || 0;
+      root.setProperty('--corner-btns-w', (cornerLastRowWidth(corner) + btnGap) + 'px');
+    }
+    const ctrlH = parseFloat(rootCs.getPropertyValue('--control-h')) || 0;
+    root.setProperty('--corner-btns-overflow',
+      Math.max(0, (corner ? corner.height : 0) - ctrlH) + 'px');
+    // ETTER overskuddet: toppmenyens høyde avhenger av det, og rect-lesningen
+    // tvinger fram den nye layouten.
+    const bar = topbarEl.getBoundingClientRect();
+    const chromeBottom = Math.max(bar.bottom, corner && corner.height > 0 ? corner.bottom : 0);
+    root.setProperty('--board-pad-top', (chromeBottom + gap) + 'px');
   }
   if (typeof ResizeObserver === 'function') {
-    const ro = new ResizeObserver(syncHeaderHeight);
+    const ro = new ResizeObserver(syncTopChrome);
     ro.observe(topbarEl);
+    if (cornerControls) ro.observe(cornerControls);
   }
   // Kolonneantallet følger vindusbredden og budsjettet skjermhøyden — begge deler
   // endres her. (ResizeObserver-en på board-et fanger bredde-endringer, men ikke
   // en ren HØYDE-endring der board-innholdet blir stående like stort.)
   window.addEventListener('resize', () => {
-    syncHeaderHeight(); relayoutBoard(); fixBoardBottomGap();
+    syncTopChrome(); relayoutBoard(); fixBoardBottomGap();
     /* Skjermtastaturet KRYMPER viewportet (i det native skallet får WebView-en
        en bunn-inset like høy som tastaturet; i en mobilnettleser er det den
        samme resize-en). Da kan feltet som redigeres bli liggende under
        tastaturet, uten at noe annet flytter det tilbake. `nearest` ruller
        akkurat nok, og sidens `scroll-padding-top` (styles.css) holder det
-       samtidig unna den faste toppmenyen. Etter syncHeaderHeight(), som er
+       samtidig unna den faste toppmenyen. Etter syncTopChrome(), som er
        kilden til den paddingen. */
     const a = document.activeElement;
     if (a && a.classList && a.classList.contains('edit-input')) {
@@ -6972,9 +7029,10 @@
     const timeSw = document.getElementById('time-switcher');
     const avatarEd = document.getElementById('avatar-modal');
     const delAcc = document.getElementById('delete-account-modal');
+    const searchEl = document.getElementById('search-modal');
     document.body.classList.toggle('modal-open',
       !trashModal.hidden || !navModal.hidden ||
-      !accountModal.hidden ||
+      !accountModal.hidden || (searchEl && !searchEl.hidden) ||
       (share && !share.hidden) || (place && !place.hidden) ||
       (confirmEl && !confirmEl.hidden) || (objMenu && !objMenu.hidden) ||
       (timeSw && !timeSw.hidden) || (avatarEd && !avatarEd.hidden) ||
@@ -7543,6 +7601,8 @@
       return true;
     }
     if (objMenuCtx) { closeObjMenu(); return true; }
+    const searchEl = document.getElementById('search-modal');
+    if (searchEl && !searchEl.hidden) { closeSearchModal(); return true; }
     if (!trashModal.hidden) { closeTrash(); return true; }
     if (!navModal.hidden) { closeNavModal(); return true; }
     if (!accountModal.hidden) { closeAccount(); return true; }
@@ -7690,6 +7750,474 @@
   accountClose.addEventListener('click', closeAccount);
   navModal.addEventListener('click', (ev) => { if (ev.target === navModal) closeNavModal(); });
   accountModal.addEventListener('click', (ev) => { if (ev.target === accountModal) closeAccount(); });
+
+  /* ============================================================
+     GLOBALT SØK OG NAVIGERING TIL ET OBJEKT
+     ------------------------------------------------------------
+     To ting bor her, og de er bevisst skilt fra hverandre:
+
+     1. SØKET — en ren indeks over gjeldende klienttilstand og en
+        deterministisk rangering av treffene. Ingen databasekall per
+        tastetrykk: alt appen kan vise, ligger allerede i `state`.
+     2. `navigateToObject()` — den ENE veien fra «her er et objekt» til «nå
+        står brukeren ved det». Søket er første kaller; kommende hendelser og
+        varsler skal bruke den samme.
+
+     Autoritativt: docs/sok-og-navigering.md.
+     ============================================================ */
+
+  /* Rangeringen av objekttypene — søkeresultatene sorteres primært på denne.
+     Mappekategorier er IKKE med: de er overskrifter i nav-modalen, ikke et
+     sted man kan navigere til (`validateActive` hopper over `isCat`). */
+  const SEARCH_TYPE_RANK = { universe: 0, group: 1, card: 2, category: 3, item: 4 };
+  // Skilletegnet mellom nivåene i en kontekststi — det samme som
+  // breadcrumbens `.crumb-sep`, og det samme tegnet i begge språk.
+  const CRUMB_SEP = '\u203A';
+  const SEARCH_PATH_SEP = ' ' + CRUMB_SEP + ' ';
+  const SEARCH_TYPE_ICON = { universe: 'globe', group: 'folder', card: 'list', category: 'category', item: 'item' };
+  // Nøklene står som hele strenger (ikke `'kind.' + type`): tests/i18n.test.js
+  // finner bare nøkler som er skrevet ut i kildekoden.
+  const SEARCH_TYPE_LABEL = {
+    universe: 'kind.universe', group: 'kind.group', card: 'kind.card',
+    category: 'kind.category', item: 'kind.item',
+  };
+  /* Taket på hvor mange treff som TEGNES. Et ett-tegns søk kan treffe alt man
+     eier, og en liste på tusen rader er verken raskere eller mer lesbar enn en
+     på femti — den er bare tregere å bygge. Totalen står i notatlinjen under
+     lista, så brukeren vet at det finnes flere. */
+  const SEARCH_MAX = 50;
+  // Hvor lenge markeringen av navigasjonsmålet står.
+  const NAV_FLASH_MS = 1600;
+
+  /* Normalisering: trim + NFC + små bokstaver. Ikke mer.
+     - NFC fordi «å» kan komme dekomponert (a + ring) fra en annen plattform,
+       og to strenger som SER like ut må da også matche.
+     - Diakritikk beholdes: «lån» og «lan» er ikke det samme ordet på norsk, og
+       en «smart» sammenslåing ville gitt treff brukeren ikke ba om.
+     - Ingen fuzzy matching. Prefiks og infiks er hele regelen. */
+  function searchNorm(s) {
+    let v = String(s == null ? '' : s).trim();
+    if (v.normalize) v = v.normalize('NFC');
+    return v.toLowerCase();
+  }
+
+  /* Søkeindeksen: ett flatt oppslag per levende, tilgjengelig objekt, med
+     navnet normalisert og forfedrene som en sti. Bygges fra `state`, altså det
+     samme treet UI-et tegner — det som ligger i papirkurven (`trashed` eller
+     `_pendingDelete`) er allerede ute, fordi `live()` er den samme vakten. */
+  function buildSearchIndex() {
+    const out = [];
+    const add = (type, obj, name, path, loc) => {
+      out.push(Object.assign({
+        type, id: obj.id,
+        name: String(name == null ? '' : name),
+        norm: searchNorm(name),
+        path,
+      }, loc));
+    };
+    state.universes.forEach((u) => {
+      if (!live(u)) return;
+      // Fri-beholderen er en SEKSJON i nav-modalen, ikke et område man kan
+      // navigere til — men mappene i den er ekte, og stien deres må ha en rot.
+      const uniName = u._virtual ? S_TEXT.freeSection : u.name;
+      if (!u._virtual) add('universe', u, u.name, [], { uni: u.id });
+      groupsOf(u).forEach((g) => {
+        if (!live(g) || g.isCat) return;
+        add('group', g, g.name, [uniName], { uni: u.id, group: g.id });
+        (g.cards || []).forEach((c) => {
+          if (!live(c)) return;
+          add('card', c, c.title, [uniName, g.name], { uni: u.id, group: g.id, card: c.id });
+          (c.items || []).forEach((it) => {
+            if (!live(it)) return;
+            const base = [uniName, g.name, c.title];
+            if (it.isCat) { add('category', it, it.text, base, { uni: u.id, group: g.id, card: c.id }); return; }
+            // Et listepunkt i en kategori får kategorien sist i stien. Et
+            // listepunkt hvis `cat` peker på noe som ikke finnes rendres som
+            // ukategorisert (docs/data-model.md) — og stien sier det samme.
+            const cat = it.cat ? (c.items || []).find((x) => x.id === it.cat && x.isCat && live(x)) : null;
+            add('item', it, it.text, cat ? base.concat([cat.text]) : base,
+              { uni: u.id, group: g.id, card: c.id, cat: cat ? cat.id : null });
+          });
+        });
+      });
+    });
+    return out;
+  }
+
+  /* Sorteringen. Rekkefølgen er FULLSTENDIG bestemt — to rendringer av samme
+     søk gir alltid samme liste:
+       1. prefikstreff før infikstreff;
+       2. objekttype (område, mappe, liste, kategori, listepunkt);
+       3. eksakt treff (navnet ER søket) før lengre navn;
+       4. alfabetisk på det normaliserte navnet;
+       5. hele stien, og til slutt id-en — to objekter kan hete det samme i to
+          mapper, og da skal rekkefølgen mellom dem stå stille.
+     Alfabetet er norsk (æ, ø, å sist) uansett UI-språk: det er ÉN rekkefølge,
+     og den skal ikke endre seg når man bytter språk. */
+  const SEARCH_COLLATE = 'no';
+  function searchCmp(a, b) {
+    if (a.prefix !== b.prefix) return a.prefix ? -1 : 1;
+    const t = SEARCH_TYPE_RANK[a.type] - SEARCH_TYPE_RANK[b.type];
+    if (t) return t;
+    if (a.exact !== b.exact) return a.exact ? -1 : 1;
+    const n = a.norm.localeCompare(b.norm, SEARCH_COLLATE);
+    if (n) return n;
+    const p = a.pathKey.localeCompare(b.pathKey, SEARCH_COLLATE);
+    if (p) return p;
+    return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
+  }
+
+  /* Søk over indeksen. Tom (eller bare blank) søketekst gir INGEN treff — en
+     resultatliste over alt man eier er ikke et søkeresultat. */
+  function searchObjects(query, index) {
+    const q = searchNorm(query);
+    if (!q) return [];
+    const hits = [];
+    (index || buildSearchIndex()).forEach((row) => {
+      const at = row.norm.indexOf(q);
+      if (at < 0) return;
+      hits.push(Object.assign({}, row, {
+        prefix: at === 0,
+        exact: row.norm === q,
+        pathKey: row.path.join(' '),
+      }));
+    });
+    hits.sort(searchCmp);
+    return hits;
+  }
+
+  /* ---------------- Naviger til et objekt ----------------
+     `navigateToObject({ type, id })` er den generelle mekanismen: den slår opp
+     objektet der det FAKTISK ligger nå (ikke der kalleren husket det), gjør det
+     som skal til for at det finnes i DOM-en, og markerer det kort.
+
+     Kalleren trenger bare type + id. Alt annet — område, mappe, liste,
+     kategori — finnes ved oppslag, så en id fra et varsel som er timer eller
+     dager gammelt fortsatt fører riktig sted (eller pent til ingen steder,
+     hvis objektet er slettet i mellomtiden). */
+  function locateObject(type, id) {
+    if (!type || !id) return null;
+    for (const u of state.universes) {
+      if (!live(u)) continue;
+      if (type === 'universe') { if (u.id === id && !u._virtual) return { universe: u }; continue; }
+      for (const g of groupsOf(u)) {
+        if (!live(g) || g.isCat) continue;
+        if (type === 'group') { if (g.id === id) return { universe: u, group: g }; continue; }
+        for (const c of (g.cards || [])) {
+          if (!live(c)) continue;
+          if (type === 'card') { if (c.id === id) return { universe: u, group: g, card: c }; continue; }
+          for (const it of (c.items || [])) {
+            if (!live(it) || it.id !== id) continue;
+            if (type === 'category' ? !it.isCat : !!it.isCat) continue;
+            return { universe: u, group: g, card: c, item: it };
+          }
+        }
+      }
+    }
+    return null;
+  }
+
+  /* Åpne det som må åpnes for at målet skal STÅ i DOM-en. Dette er det ene
+     stedet navigeringen endrer data: er målet et OMRÅDE, eller ligger det inne
+     i en kollapset liste eller kategori, må rullgardinen opp — ellers ser
+     brukeren ingenting av det hen søkte opp. Kollapstilstanden er en
+     visnings-preferanse som synkes som alt annet (docs/data-model.md); et
+     frosset objekt foldes ut lokalt uten å skrives, som `toggleCardCollapsed`.
+     Selve LISTEN som mål foldes ikke ut — korthodet er synlig uansett, og en
+     navigering skal ikke endre mer enn den må. */
+  // Fold ut ett objekt. `owner` er det objektet låsen henger på (kortet for en
+  // kategori, objektet selv ellers). Returnerer om endringen skal LAGRES.
+  function unfold(obj, owner) {
+    if (!obj || !obj.collapsed) return false;
+    obj.collapsed = false;
+    if (frozen(owner)) return false;   // låst av andre: fold ut lokalt, ikke skriv
+    stampContent(obj);
+    return true;
+  }
+  function expandForTarget(type, loc) {
+    let touched = false;
+    if (type === 'universe') {
+      // Et kollapset områdekort viser ingen mapper — bare overskriften. Da har
+      // man ikke kommet fram til noe ved å søke seg dit.
+      touched = unfold(loc.universe, loc.universe);
+    } else {
+      const c = loc.card;
+      touched = unfold(c, c);
+      const it = loc.item;
+      const catId = it && !it.isCat ? it.cat : null;
+      const cat = catId ? (c.items || []).find((x) => x.id === catId && x.isCat && live(x)) : null;
+      if (unfold(cat, c)) touched = true;
+    }
+    if (touched) save();
+  }
+
+  /* Kortvarig markering av målet. Ringen tegnes med en INNVENDIG box-shadow
+     (`.nav-flash` i styles.css), ikke en outline: kortene har `overflow:
+     hidden`, og fokusringen eier `outline` på det samme elementet.
+
+     Markeringen huskes som en SELEKTOR, ikke som en node — av nøyaktig samme
+     grunn som fokusønsket (`keepFocus`): å folde ut en kollapset liste lagrer,
+     lagringen utløser en synk-runde, og runden rendrer board-et fra bunnen.
+     Hadde vi holdt på noden, ville ringen forsvunnet et halvsekund etter at
+     den kom. `paintNavFlash()` males derfor på nytt sist i renderBoard() og
+     renderNav(), helt til tidsvinduet er ute. */
+  let navFlash = null;        // { sel } — det som skal stå markert
+  let navFlashTimer = null;
+  function navFlashNode() {
+    if (!navFlash) return null;
+    try { return document.querySelector(navFlash.sel); } catch (e) { return null; }
+  }
+  function clearNavFlash() {
+    clearTimeout(navFlashTimer);
+    const el = navFlashNode();
+    if (el) el.classList.remove('nav-flash');
+    navFlash = null;
+  }
+  function paintNavFlash() {
+    const el = navFlashNode();
+    if (!el || el.classList.contains('nav-flash')) return;
+    el.classList.add('nav-flash');
+  }
+  function flashTarget(sel) {
+    clearNavFlash();
+    navFlash = { sel };
+    paintNavFlash();
+    navFlashTimer = setTimeout(clearNavFlash, NAV_FLASH_MS);
+  }
+
+  /* Fokusér, rull fram og marker målet — etter at layouten står.
+     `relayoutBoard` FLYTTER kortnodene mellom kolonnene etter rendringen, og
+     en `ResizeObserver`-runde kan komme rett etter. Sikter vi før det, ruller
+     vi mot en node som straks står et annet sted. To animasjonsrammer er nok:
+     den første lar rendringen (og relayouten den kaller) males, den andre lar
+     en observatør-runde utløst av den første rekke å skrive ferdig. */
+  function revealTarget(selector) {
+    if (!selector) return;
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        const el = document.querySelector(selector);
+        if (!el) return;
+        // preventScroll: rullingen under bestemmer selv hvor målet havner.
+        try { el.focus({ preventScroll: true }); } catch (e) { /* ikke fokuserbart */ }
+        try {
+          el.scrollIntoView({
+            block: 'center', inline: 'nearest',
+            behavior: prefersReducedMotion() ? 'auto' : 'smooth',
+          });
+        } catch (e) { el.scrollIntoView(); }
+        flashTarget(selector);
+      });
+    });
+  }
+
+  // Objektets navn, uansett nivå (områder/mapper/lister har `name`/`title`,
+  // listepunkter og kategorier `text`).
+  function objectName(type, loc) {
+    if (type === 'universe') return loc.universe.name;
+    if (type === 'group') return loc.group.name;
+    if (type === 'card') return loc.card.title;
+    return loc.item ? loc.item.text : '';
+  }
+
+  /* DEN GENERELLE NAVIGASJONSFUNKSJONEN.
+
+     `target` = { type, id }. `opts.announce !== false` leser opp hvor man
+     havnet (aria-live) — det er den eneste tilbakemeldingen en skjermleser får
+     av en rulling og en ring.
+
+     Returnerer true når navigeringen faktisk skjedde. */
+  function navigateToObject(target, opts) {
+    const o = opts || {};
+    const type = target && target.type;
+    const loc = locateObject(type, target && target.id);
+    if (!loc) {
+      showToast(tr('search.gone'));
+      announce(tr('search.gone'));
+      return false;
+    }
+    const name = objectName(type, loc);
+    const say = () => {
+      if (o.announce === false) return;
+      announce(tr('a11y.wentTo', { kind: tr('kindDef.' + type), name: quoted(name) }));
+    };
+
+    /* ET OMRÅDE finnes ikke på hovedsiden — det ER nav-modalen. Vi peker det ut
+       der uten å velge en mappe i det: å bytte aktivt område ville flyttet
+       brukeren bort fra mappen hen står i, og det er ikke det man ba om ved å
+       søke opp et område. */
+    if (type === 'universe') {
+      expandForTarget(type, loc);   // FØR modalen bygges: kortet tegnes fra state
+      openNavModal();
+      revealTarget(handleSelector('universe', loc.universe.id));
+      say();
+      return true;
+    }
+
+    // Alle de fire andre nivåene bor i en mappe: gå dit først, og lukk
+    // nav-modalen hvis den står åpen (den dekker board-et man skal se).
+    if (!navModal.hidden) closeNavModal();
+    goToGroup(loc.group);
+
+    // Mappen ER målet: board-et viser den, og breadcrumben er stedet som sier
+    // hvor man står. Ingenting å folde ut, ingenting å rulle til.
+    if (type === 'group') {
+      render();
+      revealTarget('#nav-crumb');
+      say();
+      return true;
+    }
+
+    if (type !== 'card') expandForTarget(type, loc);
+    render();
+    revealTarget(handleSelector(type, target.id));
+    say();
+    return true;
+  }
+
+  /* ---------------- Søkemodalen ----------------
+     Feltet er en combobox over resultatlisten: piltastene flytter det AKTIVE
+     treffet (`aria-activedescendant`) uten at fokus forlater feltet, så man
+     kan skrive videre uten å tabbe tilbake. Enter åpner det aktive treffet,
+     Escape lukker (den felles stigen, `closeTopLayer`), og fokus går tilbake
+     til søkeknappen (den felles fokusfellen, `overlayOpened`/`overlayClosed`). */
+  const searchBtn = document.getElementById('search-btn');
+  const searchModal = document.getElementById('search-modal');
+  const searchCloseBtn = document.getElementById('search-close');
+  const searchInput = document.getElementById('search-input');
+  const searchResultsEl = document.getElementById('search-results');
+  const searchHintEl = document.getElementById('search-hint');
+  const searchEmptyEl = document.getElementById('search-empty');
+  const searchMoreEl = document.getElementById('search-more');
+  const searchCountEl = document.getElementById('search-count');
+  let searchHits = [];      // treffene som faktisk er TEGNET (taket er brukt)
+  let searchActive = -1;    // indeks i searchHits, eller -1
+
+  function openSearchModal() {
+    searchInput.value = '';
+    paintSearchResults();
+    searchModal.hidden = false;
+    updateModalOpenClass();
+    // Fokus i feltet ved åpning. Den felles fokusfellen ville ellers tatt
+    // panelet (den flytter bare fokus inn hvis åpne-koden ikke gjorde det).
+    requestAnimationFrame(() => {
+      if (searchModal.hidden) return;
+      try { searchInput.focus(); } catch (e) { /* ignorer */ }
+    });
+  }
+  function closeSearchModal() {
+    searchModal.hidden = true;
+    searchHits = [];
+    searchActive = -1;
+    updateModalOpenClass();
+  }
+
+  function searchRow(hit, i) {
+    const li = document.createElement('li');
+    li.className = 'search-result';
+    li.id = 'search-opt-' + i;
+    li.setAttribute('role', 'option');
+    li.setAttribute('aria-selected', 'false');
+    li.dataset.type = hit.type;
+    li.dataset.id = hit.id;
+
+    const icon = document.createElement('span');
+    icon.className = 'search-result-icon';
+    icon.setAttribute('aria-hidden', 'true');
+    icon.innerHTML = ICONS[SEARCH_TYPE_ICON[hit.type]];
+
+    const main = document.createElement('span');
+    main.className = 'search-result-main';
+    const nameEl = document.createElement('span');
+    nameEl.className = 'search-result-name';
+    nameEl.textContent = hit.name || tr('common.noName');
+    // Typen i klartekst PLUSS forfedrene: to lister som heter det samme i hver
+    // sin mappe er ikke til å skille på navnet alene, og ikonet sier bare hva
+    // slags objekt det er — ikke hvor det står.
+    const meta = document.createElement('span');
+    meta.className = 'search-result-meta';
+    meta.textContent = hit.path.length
+      ? tr('search.rowMeta', { kind: tr(SEARCH_TYPE_LABEL[hit.type]), path: hit.path.join(SEARCH_PATH_SEP) })
+      : tr(SEARCH_TYPE_LABEL[hit.type]);
+    main.append(nameEl, meta);
+
+    // Aktiv rad bæres av mer enn farge (docs/tilgjengelighet.md).
+    const cue = document.createElement('span');
+    cue.className = 'search-result-cue';
+    cue.setAttribute('aria-hidden', 'true');
+    cue.textContent = CRUMB_SEP;
+
+    li.append(icon, main, cue);
+    li.addEventListener('click', () => openSearchHit(i));
+    return li;
+  }
+
+  function paintSearchActive(scroll) {
+    const rows = searchResultsEl.children;
+    for (let i = 0; i < rows.length; i++) {
+      const on = i === searchActive;
+      rows[i].classList.toggle('is-active', on);
+      rows[i].setAttribute('aria-selected', on ? 'true' : 'false');
+    }
+    const cur = searchActive >= 0 ? rows[searchActive] : null;
+    if (cur) searchInput.setAttribute('aria-activedescendant', cur.id);
+    else searchInput.removeAttribute('aria-activedescendant');
+    if (cur && scroll) cur.scrollIntoView({ block: 'nearest' });
+  }
+
+  function paintSearchResults() {
+    const q = searchInput.value.trim();
+    const all = searchObjects(q);
+    searchHits = all.slice(0, SEARCH_MAX);
+    searchResultsEl.innerHTML = '';
+    searchHits.forEach((hit, i) => searchResultsEl.appendChild(searchRow(hit, i)));
+    // Første treff er aktivt fra start: «skriv og trykk Enter» er den raskeste
+    // veien til det man søkte etter, og den skal ikke koste et piltrykk.
+    searchActive = searchHits.length ? 0 : -1;
+    paintSearchActive(false);
+
+    searchHintEl.hidden = !!q;
+    searchEmptyEl.hidden = !(q && !all.length);
+    if (q && !all.length) searchEmptyEl.textContent = tr('search.noHits', { q: quoted(q) });
+    searchMoreEl.hidden = all.length <= SEARCH_MAX;
+    if (all.length > SEARCH_MAX) {
+      searchMoreEl.textContent = tr('search.more', { shown: SEARCH_MAX, total: all.length });
+    }
+    searchInput.setAttribute('aria-expanded', searchHits.length ? 'true' : 'false');
+    // Antallet leses opp; hvilket treff som er aktivt sier combobox-en selv.
+    searchCountEl.textContent = !q ? ''
+      : (!all.length ? tr('search.noHits', { q: quoted(q) })
+        : tr(all.length === 1 ? 'search.hits.one' : 'search.hits.other', { n: all.length }));
+  }
+
+  function moveSearchActive(step) {
+    if (!searchHits.length) return;
+    const n = searchHits.length;
+    searchActive = searchActive < 0
+      ? (step > 0 ? 0 : n - 1)
+      : ((searchActive + step) % n + n) % n;
+    paintSearchActive(true);
+  }
+
+  function openSearchHit(i) {
+    const hit = searchHits[i];
+    if (!hit) return;
+    // Lukk FØRST: navigeringen fokuserer målet etterpå, og den felles
+    // fokusfellen skal ikke rekke å dra fokus tilbake til søkeknappen etter det.
+    closeSearchModal();
+    navigateToObject({ type: hit.type, id: hit.id });
+  }
+
+  searchBtn.addEventListener('click', openSearchModal);
+  searchCloseBtn.addEventListener('click', closeSearchModal);
+  searchModal.addEventListener('click', (ev) => { if (ev.target === searchModal) closeSearchModal(); });
+  searchInput.addEventListener('input', paintSearchResults);
+  searchInput.addEventListener('keydown', (ev) => {
+    if (ev.altKey || ev.ctrlKey || ev.metaKey) return;
+    if (ev.key === 'ArrowDown') { ev.preventDefault(); moveSearchActive(1); return; }
+    if (ev.key === 'ArrowUp') { ev.preventDefault(); moveSearchActive(-1); return; }
+    if (ev.key === 'Enter') { ev.preventDefault(); openSearchHit(searchActive); }
+    // Escape håndteres av den felles stigen (closeTopLayer).
+  });
 
   /* Knappen popoveren hører til, husket PÅ panelet. Den settes når panelet
      ÅPNES — uansett bredde, ikke bare når det åpnes som popover: på mobil er
@@ -13853,6 +14381,10 @@
     addUniverse, deleteUniverse, setActiveUniverse, setActiveGroup,
     emptyUniversesTrash, emptyGroupsTrash, emptyCardsTrash, emptyItemsTrash,
     openNavModal, closeNavModal,
+    // Globalt søk + den generelle navigasjonsmekanismen. Testene bruker
+    // `searchObjects` til å måle rangeringen uten å gå gjennom UI-et, og
+    // `navigateToObject` er den samme funksjonen søkeresultatene kaller.
+    openSearchModal, closeSearchModal, searchObjects, buildSearchIndex, navigateToObject,
     // Nav-scopets dra-og-slipp-board (dnd-kit gjennom Smett). Bygges først når
     // modalen åpnes; testene bruker dem til å lese motorens egen tilstand
     // (`dropTarget`, `manager.dragOperation`) i stedet for å gjette fra DOM-en.

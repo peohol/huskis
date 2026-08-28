@@ -12,9 +12,10 @@
    • Lysretning: alle flate-gradienter er LODDRETTE med lyseste ende ØVERST —
      samme lys ovenfra som de nedoverforskjøvne skyggene forutsetter.
    • Delte klasser: .panel-head/.panel-title/.panel-actions (menyoverskrift +
-     knapperad), .btn-add (grønn ＋), .trashcan (hvit søppelkasse), .account-btn
-     (kontoknapp), .theme-toggle-btn (draktknapp), .crumb-btn
-     (navigasjonsknappen), delte sletteknapp-, placeholder- og håndtak-regler.
+     knapperad), .btn-add (grønn ＋), .trashcan (hvit søppelkasse),
+     .corner-controls/.corner-btn (toppkontrollgruppen: søk, drakt, konto),
+     .crumb-btn (navigasjonsknappen), delte sletteknapp-, placeholder- og
+     håndtak-regler.
    • Flate-mønster: halvgjennomsiktig hvit (--control-bg) som hviletilstand,
      helt ugjennomsiktig (#fff) ved hover.
    • Luft-regler: hvert element har samme luft på alle kanter (én padding-
@@ -154,11 +155,16 @@
      viewportets hjørne) bruker samme token, så den flukter med toppmenyens
      høyre kant. */
   --toolbar-pad: clamp(12px, 3vw, 40px);
-  /* Bredden de to faste hjørneknappene (draktknapp + kontoknapp) tar sammen,
-     inkludert luften mellom dem og til innholdet ved siden av. Brukt to steder
-     som MÅ holde takt: `.toolbar`s margin (én linje) og `.breadcrumb`s padding
-     (stablet mobiloppsett) — se «Toppmenyen» over `.topbar`. */
-  --corner-btns-w: calc(var(--control-h) * 2 + 20px);
+  /* Luften mellom hjørneknappene i toppkontrollgruppen (og mellom gruppen og
+     innholdet ved siden av). */
+  --corner-btns-gap: 10px;
+  /* Bredden toppkontrollgruppen tar, inkludert luften til innholdet ved siden
+     av. Brukt to steder som MÅ holde takt: `.toolbar`s margin (én linje) og
+     `.breadcrumb`s padding (stablet mobiloppsett) — se «Toppmenyen» over
+     `.topbar`. Verdien her er kun en startverdi for de tre knappene som finnes
+     i dag; `syncTopChrome()` i app.js MÅLER gruppen og skriver den faktiske
+     bredden, slik at en ny knapp ikke krever en ny utregning her. */
+  --corner-btns-w: calc(var(--control-h) * 3 + var(--corner-btns-gap) * 3);
   /* Ett tall for ALT luft-mellomrom i listevisningen: board-ets venstre/høyre/
      bunn-padding, kolonne-gap OG kort-til-kort-avstand — samme verdi overalt gir
      identisk luft rundt og mellom listekortene. Bunn-padding-effekten kommer fra
@@ -782,11 +788,11 @@ body {
    for nav-knappen, ikke skjøvet ut til kanten. Panelet blir da én
    kontrollhøyde høyt, og det er høyde som er mangelvaren i landskap. Under
    560 px (telefon i portrett) legges listefunksjonene på raden under, slik at
-   breadcrumb-navnene ikke kappes bort til ingenting. Drakt- og kontoknappen er
-   faste i viewportets hjørne (egne klasser) og overlapper panelet visuelt
-   øverst til høyre — plassen til dem holdes av en margin PÅ ENDEN av linjen
-   (`--corner-btns-w`), slik at panelets egen padding (og dermed fluktingen med
-   kontoknappen) er uendret. */
+   breadcrumb-navnene ikke kappes bort til ingenting. Toppkontrollene (søk,
+   drakt, konto) er ÉN fast gruppe i viewportets hjørne (`.corner-controls`) og
+   overlapper panelet visuelt øverst til høyre — plassen til dem holdes av en
+   margin PÅ ENDEN av linjen (`--corner-btns-w`, målt i JS), slik at panelets
+   egen padding (og dermed fluktingen med kontoknappen) er uendret. */
 .topbar {
   position: fixed;          /* uavhengig av scrolling (robust mot iOS-backdrop-bug) */
   top: 0;
@@ -798,9 +804,15 @@ body {
   gap: 8px;
   /* Flaten når helt ut i kantene, men INNHOLDET holdes innenfor den sikre
      sonen: statusfeltet øverst og et eventuelt hakk i sidene legges på
-     paddingen. Panelet blir dermed høyere, og `syncHeaderHeight()` måler den
-     faktiske høyden — board-ets klaring følger med av seg selv. */
-  padding: calc(12px + var(--safe-top)) calc(var(--toolbar-pad) + var(--safe-right))
+     paddingen. Panelet blir dermed høyere, og `syncTopChrome()` måler den
+     faktiske høyden — board-ets klaring følger med av seg selv.
+     `--corner-btns-overflow` (også målt) er høyden hjørnegruppen har utover
+     én knapperad: brytes gruppen til flere rader, skyves HELE panelet ned like
+     mye, så panelets første rad alltid ligger ved siden av gruppens siste og
+     den horisontale klaringen (--corner-btns-w) fortsatt rekker. Den er 0 så
+     lenge gruppen er én rad, altså alltid i dag. */
+  padding: calc(12px + var(--safe-top) + var(--corner-btns-overflow, 0px))
+           calc(var(--toolbar-pad) + var(--safe-right))
            12px calc(var(--toolbar-pad) + var(--safe-left));
   background: var(--glass-bg);
   backdrop-filter: blur(14px);
@@ -927,49 +939,43 @@ body {
 .btn-add.icon-only .icon { font-size: 34px; }
 
 
-/* ---------------- Kontoknapp ----------------
-   Fast i øvre høyre hjørne av VIEWPORTET, utenfor toppmenyens flyt — z-index
-   over det faste panelet (30) men under modaler (200). Samme flate-mønster
-   som søppelkassene: halvgjennomsiktig hvit → hvit ved hover. Badgen (rød
-   sirkel med antall) viser ventende invitasjoner. */
-.account-btn {
+/* ---------------- Toppkontrollene (hjørnegruppen) ----------------
+   ÉN fast gruppe i øvre høyre hjørne av VIEWPORTET, utenfor toppmenyens flyt —
+   z-index over det faste panelet (30) men under modaler (200). Knappene ligger
+   i DOM-rekkefølge og plasseres av flex; ingen av dem kjenner naboens bredde,
+   så en ny knapp (kalender, varsler) legges til ved å sette den FØRST i
+   gruppen — ingen `right:`-kjede å regne om.
+
+   Er det ikke plass til alle på én rad, brytes gruppen til flere rader mot
+   høyre kant (`flex-wrap`); knappene krymper aldri. Plassen gruppen tar av
+   toppmenyens linje MÅLES i JS (`--corner-btns-w`, syncTopChrome i app.js),
+   og board-ets klaring regnes fra den laveste av toppmenyen og gruppen. */
+.corner-controls {
   position: fixed;
-  /* Samme sikre sone som toppmenyen den flukter med — knappen ligger utenfor
+  /* Samme sikre sone som toppmenyen gruppen flukter med — den ligger utenfor
      panelets flyt og må derfor legge på inset-ene selv. */
   top: calc(12px + var(--safe-top));
   right: calc(var(--toolbar-pad) + var(--safe-right));
   z-index: 35;
-  appearance: none;
-  border: none;
-  cursor: pointer;
-  width: var(--control-h);
-  height: var(--control-h);
-  display: grid;
-  place-items: center;
-  border-radius: var(--control-radius);
-  background: var(--control-bg);
-  color: var(--ink-soft);
-  box-shadow: var(--shadow-sm);
-  transition: background 0.18s, box-shadow 0.18s, color 0.18s, transform 0.12s;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: var(--corner-btns-gap);
+  /* Bredden gruppen har å bryte innenfor: viewportet minus den sikre sonen og
+     panelets sidepolstring i begge ender. */
+  max-width: calc(100vw - var(--safe-left) - var(--safe-right) - var(--toolbar-pad) * 2);
 }
-.account-btn:hover { background: var(--control-bg-hover); color: var(--ink); box-shadow: var(--shadow-md); }
-.account-btn:active { transform: translateY(1px); }
-.account-btn > .icon { font-size: 23px; }
 
-/* ---------------- Draktknapp ----------------
-   Fast rett til venstre for kontoknappen — samme sikre sone, samme
-   flate-mønster, samme z-index. `right` legger kontoknappens egen bredde
-   + 10px gap OPPÅ kontoknappens offset, så den alltid står klistret til
-   venstre for den uansett hvor bred den sikre sonen er. Ikonet (sol/måne)
-   settes av paintThemeToggle() i app.js. */
-.theme-toggle-btn {
-  position: fixed;
-  top: calc(12px + var(--safe-top));
-  right: calc(var(--toolbar-pad) + var(--safe-right) + var(--control-h) + 10px);
-  z-index: 35;
+/* Felles flate for hjørneknappene (søk, drakt, konto): flate-mønsteret —
+   halvgjennomsiktig hvit → hvit ved hover, samme høyde/radius som resten av
+   kontrollene. Innloggingsskjermens draktknapp bruker den samme klassen inline
+   i språkraden. */
+.corner-btn {
+  flex: 0 0 auto;
   appearance: none;
   border: none;
   cursor: pointer;
+  position: relative;      /* .menu-badge forankres i knappen */
   width: var(--control-h);
   height: var(--control-h);
   display: grid;
@@ -980,13 +986,9 @@ body {
   box-shadow: var(--shadow-sm);
   transition: background 0.18s, box-shadow 0.18s, color 0.18s, transform 0.12s;
 }
-.theme-toggle-btn:hover { background: var(--control-bg-hover); color: var(--ink); box-shadow: var(--shadow-md); }
-.theme-toggle-btn:active { transform: translateY(1px); }
-.theme-toggle-btn > .icon { font-size: 23px; }
-/* Innloggingsskjermens utgave av samme knapp: identisk flate og ikon, men
-   inline i språkraden (`.auth-lang`) i stedet for fast i hjørnet — det finnes
-   ingen kontoknapp å stå ved siden av FØR man har en konto. */
-.auth-theme-toggle-btn { position: static; }
+.corner-btn:hover { background: var(--control-bg-hover); color: var(--ink); box-shadow: var(--shadow-md); }
+.corner-btn:active { transform: translateY(1px); }
+.corner-btn > .icon { font-size: 23px; }
 
 /* ---------------- Main ---------------- */
 .app-main {
@@ -1821,8 +1823,7 @@ body {
 /* Synlig tastaturfokus på kontrollene (samme brand-ring som aktivt kort). */
 .btn-add:focus-visible,
 .trashcan:focus-visible,
-.account-btn:focus-visible,
-.theme-toggle-btn:focus-visible,
+.corner-btn:focus-visible,
 .icon-btn:focus-visible {
   outline: var(--focus-w) solid var(--focus);
   outline-offset: 2px;
@@ -2795,8 +2796,7 @@ body.tour-demo .add-cat-btn:not(.tour-live),
 body.tour-demo .cat-add-btn:not(.tour-live),
 body.tour-demo #add-card-btn:not(.tour-live),
 body.tour-demo .nav-add-uni button:not(.tour-live),
-body.tour-demo #account-btn:not(.tour-live),
-body.tour-demo #theme-toggle-btn:not(.tour-live),
+body.tour-demo .corner-btn:not(.tour-live),
 body.tour-demo #nav-crumb:not(.tour-live),
 body.tour-demo #nav-modal-close:not(.tour-live),
 body.tour-demo #trash-close:not(.tour-live),
@@ -3004,13 +3004,12 @@ body.tour-demo .trash-row button:not(.tour-live) { opacity: 0.35; }
    flate-mønstre fra designsystemet over.
    ============================================================ */
 
-/* Skjul app-innhold også i kontomodus (før innlogging). Draktknappen skjules
-   med kontoknappen den står ved siden av — innloggingsskjermens egen knapp
-   (#auth-theme-toggle-btn) dekker draktvalget der. */
+/* Skjul app-innhold også i kontomodus (før innlogging). Hele
+   toppkontrollgruppen (søk, drakt, konto) går med — innloggingsskjermens egen
+   draktknapp (#auth-theme-toggle-btn) dekker draktvalget der. */
 body.no-auth .topbar,
 body.no-auth .app-main,
-body.no-auth #account-btn,
-body.no-auth #theme-toggle-btn { display: none; }
+body.no-auth .corner-controls { display: none; }
 
 /* ---------------- Auth-skjerm ---------------- */
 .auth-screen {
@@ -3323,7 +3322,7 @@ body.no-auth #theme-toggle-btn { display: none; }
    INNE i språkparet: en etikett som blir stående igjen på linja over
    velgeren sin hører ikke sammen med noe. Derfor er paret sin egen flex-boks
    (`.auth-lang-pair`); draktknappen trenger ingen, siden ikonet ALENE er
-   navnet (samme mønster som headerens `#theme-toggle-btn`). */
+   navnet (samme `.corner-btn`-flate som i toppkontrollgruppen). */
 .auth-lang {
   display: flex;
   align-items: center;
@@ -3542,6 +3541,99 @@ body.no-auth #theme-toggle-btn { display: none; }
   transition: border-color 0.15s, background 0.15s;
 }
 .place-option:hover { border-color: var(--primary); background: var(--primary-soft); }
+
+/* ---------------- Søkemodal ----------------
+   Feltet står i ro og RESULTATLISTEN ruller: skriver man videre etter å ha
+   rullet nedover, skal søkefeltet fortsatt være der. `.modal-body`s egen
+   rulling slås derfor av her, og flyttes inn på lista.
+   Panelet har en minstehøyde så det ikke hopper i størrelse for hvert
+   tastetrykk mens treffene kommer og går. */
+.search-modal { min-height: min(340px, 100%); }
+.search-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.search-note { margin: 0; font-size: var(--fs-sm); color: var(--ink-soft); font-weight: 500; }
+.search-results {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+/* En tom liste skal ikke legge igjen et gap over tom-tilstanden. */
+.search-results:empty { display: none; }
+.search-result {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 12px;
+  border: 1.5px solid transparent;
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s;
+}
+.search-result:hover { background: var(--wash); }
+/* Den aktive raden bæres av TRE signaler, ikke bare farge: kant, flate og en
+   pilspiss i enden (docs/tilgjengelighet.md — farge er aldri alene). */
+.search-result.is-active {
+  border-color: var(--primary);
+  background: var(--primary-soft);
+}
+.search-result-icon { flex: 0 0 auto; display: inline-flex; font-size: var(--fs-lg); line-height: 1; }
+.search-result-main { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+.search-result-name {
+  font-size: var(--fs-base);
+  font-weight: 600;
+  color: var(--ink);
+  overflow-wrap: anywhere;
+}
+/* Typen i klartekst + kontekststien — dempet, så navnet dominerer raden. */
+.search-result-meta {
+  font-size: var(--fs-xs);
+  font-weight: 500;
+  color: var(--ink-soft);
+  overflow-wrap: anywhere;
+}
+.search-result-cue {
+  flex: 0 0 auto;
+  font-size: var(--fs-lg);
+  font-weight: 700;
+  color: var(--ink-soft);
+  visibility: hidden;
+}
+.search-result.is-active .search-result-cue { visibility: visible; }
+
+/* ---------------- Kortvarig markering av et navigasjonsmål ----------------
+   Settes av `navigateToObject()` på objektet man nettopp havnet ved (søk i
+   dag, kommende hendelser og varsler senere) og fjernes igjen etter
+   NAV_FLASH_MS. Ringen tegnes som en INNVENDIG box-shadow, ikke som en
+   outline: kortene har `overflow: hidden` (en utvendig ring ville blitt
+   klippet), og fokusringen — som ligger på det samme elementet i det samme
+   øyeblikket — eier `outline`. */
+@keyframes nav-flash {
+  0%   { box-shadow: inset 0 0 0 0 transparent; }
+  15%  { box-shadow: inset 0 0 0 3px var(--focus); }
+  70%  { box-shadow: inset 0 0 0 3px var(--focus); }
+  100% { box-shadow: inset 0 0 0 0 transparent; }
+}
+.nav-flash {
+  box-shadow: inset 0 0 0 3px var(--focus);
+  animation: nav-flash 1.6s ease-in-out;
+}
+@media (prefers-reduced-motion: reduce) {
+  /* Ingen pulsering — ringen står stille til den fjernes. */
+  .nav-flash { animation: none; }
+}
 
 /* ---------------- Delt / låst-merker ----------------
    Delt-merket og del-knappen har samme høyde som navnet ved siden av

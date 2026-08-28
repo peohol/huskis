@@ -97,24 +97,38 @@
   <script src="theme.js"></script>
 </head>
 <body class="locked">
-  <!-- Draktknapp: fast rett til venstre for kontoknappen, samme mønster
-       (posisjon/flate/hover). Ett trykk bytter lys ↔ mørk — ingen «følg
-       systemet» lenger. Ikonet og tittelen viser hvilken drakt som ER aktiv
-       (sol i lys, måne i mørk); paintThemeToggle() i app.js maler den om ved
-       hvert bytte. Skjult før innlogging, som kontoknappen — den samme knappen
-       står inline på innloggingsskjermen der (#auth-theme-toggle-btn). Se
-       docs/mork-drakt.md. -->
-  <button class="theme-toggle-btn" id="theme-toggle-btn" type="button"></button>
+  <!-- Toppkontrollene: ÉN responsiv gruppe fast i øvre høyre hjørne av
+       VIEWPORTET, utenfor toppmenyens flyt. Knappene ligger i DOM-rekkefølge
+       venstre → høyre og får plassen sin av flex — ingen av dem kjenner
+       naboens bredde, så en ny knapp legges til ved å sette den først i
+       gruppen. Plassen gruppen tar av toppmenyens linje måles i JS
+       (`--corner-btns-w`, syncTopChrome). Hele gruppen skjules før innlogging.
+       Se docs/menus.md («Toppkontrollene»). -->
+  <div class="corner-controls" id="corner-controls">
+    <!-- Søk: åpner søkemodalen (globalt søk over områder, mapper, lister,
+         kategorier og listepunkter). Se docs/sok-og-navigering.md. -->
+    <button class="corner-btn search-btn" id="search-btn" type="button"
+            data-i18n-title="search.title" data-i18n-aria-label="search.title"
+            aria-haspopup="dialog">
+      <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="#111" stroke-width="1.05" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5" fill="#ffffff"></circle><path d="M15.2 15.2 20 20"></path></svg>
+    </button>
 
-  <!-- Kontoknapp: fast i øvre høyre hjørne av VIEWPORTET — utenfor toppmenyens
-       flyt, alltid synlig. Åpner konto-modalen; badgen viser ventende
-       invitasjoner. -->
-  <button class="account-btn" id="account-btn" type="button"
-          data-i18n-title="account.title" data-i18n-aria-label="account.open"
-          aria-haspopup="dialog">
-    <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="#111" stroke-width="1.05" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="8" r="3.4" fill="#85adad"></circle><path d="M5.5 20a6.5 6.5 0 0 1 13 0" fill="#85adad"></path></svg>
-    <span class="menu-badge" id="account-badge" hidden aria-hidden="true"></span>
-  </button>
+    <!-- Draktknapp: ett trykk bytter lys ↔ mørk — ingen «følg systemet».
+         Ikonet og tittelen viser hvilken drakt som ER aktiv (sol i lys, måne i
+         mørk); paintThemeToggle() i app.js maler den om ved hvert bytte. Den
+         samme knappen står inline på innloggingsskjermen
+         (#auth-theme-toggle-btn). Se docs/mork-drakt.md. -->
+    <button class="corner-btn theme-toggle-btn" id="theme-toggle-btn" type="button"></button>
+
+    <!-- Kontoknapp: alltid sist i gruppen, altså ytterst i hjørnet. Åpner
+         konto-modalen; badgen viser ventende invitasjoner. -->
+    <button class="corner-btn account-btn" id="account-btn" type="button"
+            data-i18n-title="account.title" data-i18n-aria-label="account.open"
+            aria-haspopup="dialog">
+      <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="#111" stroke-width="1.05" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="8" r="3.4" fill="#85adad"></circle><path d="M5.5 20a6.5 6.5 0 0 1 13 0" fill="#85adad"></path></svg>
+      <span class="menu-badge" id="account-badge" hidden aria-hidden="true"></span>
+    </button>
+  </div>
 
   <!-- Toppmenyen: ÉN navigasjonsknapp som viser hvor du er (🌐 område › 📁
        mappe) og åpner den felles navigasjonsmodalen, og listefunksjonene
@@ -422,6 +436,40 @@
         <button class="btn btn-ghost" id="avatar-cancel" type="button" data-i18n="common.cancel">Avbryt</button>
         <button class="btn btn-solid btn-accent" id="avatar-save" type="button" data-i18n="avatar.use">Bruk bildet</button>
       </footer>
+    </div>
+  </div>
+
+  <!-- Søkemodal: globalt søk over alle levende områder, mapper, lister,
+       kategorier og listepunkter man har tilgang til. Feltet er en combobox
+       over resultatlisten (`role="listbox"`), så piltastene flytter det aktive
+       treffet uten at fokus forlater feltet. Lukkes FØR nav-modalen i stigen
+       (`closeTopLayer`), men er aldri åpen samtidig med den: et områdetreff
+       lukker søket og åpner nav-modalen. Se docs/sok-og-navigering.md. -->
+  <div class="modal-overlay" id="search-modal" hidden>
+    <div class="modal search-modal" role="dialog" aria-modal="true" aria-labelledby="search-modal-title">
+      <header class="modal-head">
+        <h2 id="search-modal-title">
+          <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="#111" stroke-width="1.05" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5" fill="#ffffff"></circle><path d="M15.2 15.2 20 20"></path></svg>
+          <span data-i18n="search.title">Søk</span>
+        </h2>
+        <button class="icon-btn" id="search-close" type="button" data-i18n-title="common.close" data-i18n-aria-label="common.close"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.05" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6.5 6.5 17.5 17.5"></path><path d="M17.5 6.5 6.5 17.5"></path></svg></button>
+      </header>
+      <div class="modal-body search-body">
+        <input class="field search-input" id="search-input" type="text"
+               autocomplete="off" autocapitalize="none" autocorrect="off" spellcheck="false"
+               role="combobox" aria-expanded="false" aria-controls="search-results"
+               aria-autocomplete="list"
+               data-i18n-placeholder="search.placeholder" data-i18n-aria-label="search.inputLabel">
+        <!-- Tomt felt gir ingen resultatdump — bare en linje som sier hva som skjer. -->
+        <p class="search-note" id="search-hint" data-i18n="search.hint">Søket dekker alt du har tilgang til: områder, mapper, lister, kategorier og listepunkter.</p>
+        <p class="search-note" id="search-empty" hidden></p>
+        <ul class="search-results" id="search-results" role="listbox"
+            data-i18n-aria-label="search.resultsLabel"></ul>
+        <p class="search-note search-more" id="search-more" hidden></p>
+        <!-- Antall treff leses opp; selve listen har `role="listbox"` og sier
+             det aktive treffet gjennom aria-activedescendant. -->
+        <p class="visually-hidden" id="search-count" role="status" aria-live="polite"></p>
+      </div>
     </div>
   </div>
 
@@ -796,7 +844,7 @@
           <label class="auth-lang-label" for="auth-lang-select" data-i18n="lang.label">Språk</label>
           <select class="field lang-select" id="auth-lang-select" data-i18n-aria-label="lang.aria"></select>
         </span>
-        <button class="theme-toggle-btn auth-theme-toggle-btn" id="auth-theme-toggle-btn" type="button"></button>
+        <button class="corner-btn theme-toggle-btn auth-theme-toggle-btn" id="auth-theme-toggle-btn" type="button"></button>
       </div>
     </div>
   </div>

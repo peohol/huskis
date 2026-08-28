@@ -185,6 +185,16 @@ window.ICONS = {
     '<path d="M11.5 15.5h5.5"></path>' +
     '</svg>',
 
+  // Listepunkt: ÉN rad — den lyse platen et listepunkt tegnes på, med punktet
+  // og linjen fra `list`-ikonet. Motivet er bevisst det samme som listens, bare
+  // én rad i stedet for tre: i søketreffene skal en liste og et listepunkt
+  // kunne skilles på et blikk uten å være to urelaterte tegninger.
+  item: '<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="#111" stroke-width="1.05" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
+    '<rect x="3" y="8" width="18" height="8" rx="3" fill="#ffffff"></rect>' +
+    '<circle cx="7.5" cy="12" r="0.7" fill="#111" stroke="none"></circle>' +
+    '<path d="M10.5 12h7"></path>' +
+    '</svg>',
+
   // Kryss (×) for lukk-/slett-knapper: egen SVG med samme strek (1.05) og runde
   // ender som resten av settet. Bruker currentColor så CSS styrer farge (svart i
   // hvile, rød ved hover på slett-knappene — se .icon-btn/-delete i styles.css).

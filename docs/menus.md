@@ -1,7 +1,9 @@
-# Menyer: toppmeny (nav-knapp), navigasjonsmodalen, kontoknapp/-modal
+# Menyer: toppmeny (nav-knapp), toppkontrollene, navigasjonsmodalen, konto-modalen
 
-Les denne når oppgaven berører toppmenyen, navigasjonsknappen/-modalen (områder
-og mapper) eller kontoknappen/konto-modalen.
+Les denne når oppgaven berører toppmenyen, toppkontrollene i hjørnet (søk,
+drakt, konto), navigasjonsknappen/-modalen (områder og mapper) eller
+konto-modalen. Selve søket og navigeringen til et objekt ligger i
+`docs/sok-og-navigering.md`.
 
 Prinsipp: **all navigering, redigering, omrokkering og deling av områder og
 mapper skjer i ÉN felles modal** — hovedsiden har kun nav-knappen (hvor er jeg)
@@ -150,12 +152,16 @@ Under **560 px** — telefon i portrett, samme grense som board-ets
 én-kolonne-grense — legges listefunksjonene på raden UNDER: så smalt er navnene
 verdt mer enn de 49 px panelet sparer.
 
-Kontoknappen ligger fast i hjørnet og er ikke med i panelets flyt, så plassen
-til den må holdes av noe annet: på én linje er det en `margin-right` i ENDEN av
-linjen (listefunksjonenes), i det stablede oppsettet breadcrumbens
-`padding-right` — da skal raden under bruke hele bredden. Panelets egen padding
-er den samme i begge, så kontoknappen flukter fortsatt med panelets kant
-(`tests/safe-area.test.js`).
+Toppkontrollene (under) ligger fast i hjørnet og er ikke med i panelets flyt,
+så plassen til dem må holdes av noe annet: på én linje er det en
+`margin-right` i ENDEN av linjen (listefunksjonenes), i det stablede oppsettet
+breadcrumbens `padding-right` — da skal raden under bruke hele bredden. Begge
+leser `--corner-btns-w`, som appen MÅLER (`syncTopChrome`), så plassen holder
+takt med hvor mange knapper gruppen faktisk har. Brytes gruppen til flere
+rader, er det den SISTE raden som ligger ved siden av panelets linje — de
+øvrige skyves over den (`--corner-btns-overflow`, under). Panelets egen padding er den
+samme i begge, så gruppen flukter fortsatt med panelets kant
+(`tests/safe-area.test.js`, `tests/corner-controls.test.js`).
 
 Panelets flate når helt ut i skjermkantene, men innholdet holdes innenfor den
 sikre sonen: `--safe-top` legges på padding-top og `--safe-left`/`--safe-right`
@@ -165,30 +171,49 @@ nettleser — `docs/design-system.md`).
 Begge oppsettene og grensen mellom dem er dekket av
 `tests/landscape-chrome.test.js`.
 
-Board-ets padding-top settes i JS (`syncHeaderHeight`: målt topbar-høyde +
-`--board-gap`) — se `docs/board-layout.md`. At høyden måles er det som gjør at
-klaringen følger med når panelet vokser med sonen.
+Board-ets padding-top settes i JS (`syncTopChrome`: målt underkant av
+toppmenyen OG toppkontrollgruppen + `--board-gap`) — se
+`docs/board-layout.md`. At det MÅLES er det som gjør at klaringen følger med
+når panelet vokser med sonen, og når gruppen brytes til flere rader.
 
-## Kontoknappen (`.account-btn`, `#account-btn`)
+## Toppkontrollene (`.corner-controls`, `#corner-controls`)
 
-Fast i øvre høyre hjørne av VIEWPORTET (`position: fixed`, 12 px fra toppen og
-`--toolbar-pad` fra høyre, begge pluss den sikre sonen slik at den flukter med
-toppmenyens kant), utenfor toppmenyens flyt — z-index (35) over det faste
-panelet (30) men under modaler (200). Person-ikon + rød badge
-(`#account-badge`) med antall ventende invitasjoner. Åpner konto-modalen.
-Skjules før innlogging (`body.no-auth`).
+ÉN fast gruppe i øvre høyre hjørne av VIEWPORTET (`position: fixed`, 12 px fra
+toppen og `--toolbar-pad` fra høyre, begge pluss den sikre sonen slik at den
+flukter med toppmenyens kant), utenfor toppmenyens flyt — z-index (35) over det
+faste panelet (30) men under modaler (200).
 
-## Draktknappen (`.theme-toggle-btn`, `#theme-toggle-btn` / `#auth-theme-toggle-btn`)
+Knappene ligger i DOM-rekkefølge og plasseres av flex. Ingen av dem kjenner
+naboens bredde, så en NY knapp legges til ved å sette den først i gruppen —
+det finnes ingen `right:`-kjede å regne om:
 
-Fast rett til venstre for kontoknappen — samme posisjonsmønster (12 px fra
-toppen, plassert med `--control-h` + gap fra kontoknappens `right`), samme
-flate/hover/fokus-behandling, samme z-index. Bytter lys ↔ mørk drakt i ETT
-trykk (`setTheme`, `docs/mork-drakt.md`) — ingen «følg systemet». Ikonet
-(sol/måne) og tittelen viser drakten som ER aktiv, ikke den man bytter til.
-Skjules før innlogging som kontoknappen (`body.no-auth`); innloggingsskjermens
-egen knapp (`#auth-theme-toggle-btn`, samme klasse og samme maling — bare
-inline i språkraden i stedet for fast i hjørnet) dekker valget der ingen
-kontoknapp finnes å stå ved siden av.
+| Rekkefølge | Knapp | Åpner |
+|---|---|---|
+| 1 | **Søk** (`.search-btn`, `#search-btn`) | søkemodalen — `docs/sok-og-navigering.md` |
+| 2 | **Drakt** (`.theme-toggle-btn`, `#theme-toggle-btn`) | ingen; bytter lys ↔ mørk i ETT trykk |
+| 3 | **Konto** (`.account-btn`, `#account-btn`) | konto-modalen |
+
+Alle tre bærer `.corner-btn`: samme flate-mønster som søppelkassene
+(halvgjennomsiktig hvit → hvit ved hover), samme høyde/radius som resten av
+kontrollene, samme fokusring. Kontoknappen har i tillegg den røde badgen
+(`#account-badge`) med antall ventende invitasjoner; draktknappens ikon
+(sol/måne) og tittel viser drakten som ER aktiv, ikke den man bytter til
+(`setTheme`, `docs/mork-drakt.md`) — det finnes ingen «følg systemet».
+
+**Hele gruppen skjules før innlogging** (`body.no-auth`). Draktvalget dekkes da
+av innloggingsskjermens egen knapp (`#auth-theme-toggle-btn`, samme
+`.corner-btn`-flate og samme maling — bare inline i språkraden i stedet for
+fast i hjørnet).
+
+Gruppen bryter til **flere rader** mot høyre kant når raden ikke rekker
+(`flex-wrap`); knappene krymper aldri under kontrollhøyden. Gruppen er en
+høyre KOLONNE oppå panelet, og den horisontale klaringen gjelder bare den raden
+panelet selv står på — så `syncTopChrome()` skyver overskuddet
+(`--corner-btns-overflow`, høyden utover én knapperad) inn i panelets
+`padding-top`. Da ligger panelets FØRSTE rad alltid ved siden av gruppens
+SISTE, listefunksjonene havner under gruppen, og board-ets klaring følger med.
+`--corner-btns-w` måler nettopp den siste raden, ikke hele gruppen — det er den
+ene raden panelet må vike for. Vokter: `tests/corner-controls.test.js`.
 
 ## Navigasjonsmodalen (`#nav-modal`, åpnes fra nav-knappen)
 
@@ -357,7 +382,7 @@ Innhold (ovenfra og ned):
    eneste stedet språket kan velges før man har en konto. Se `docs/sprak.md`.
 
 Drakten (lys/mørk) har IKKE en rad her lenger — den flyttet til en egen knapp
-ved siden av kontoknappen (`.theme-toggle-btn`, over) for et raskere bytte. Se
+i toppkontrollgruppen (`.theme-toggle-btn`, over) for et raskere bytte. Se
 `docs/mork-drakt.md`.
 
 ### Skuffene
@@ -405,12 +430,12 @@ skjer ingenting. Se `docs/drag-and-drop.md`.
 
 ## Modal-infrastruktur
 
-- `updateModalOpenClass()` samler alle modalene (nav/konto/søppel/del/plasser/
-  bekreft/objektmeny/popovere) → `body.modal-open` (scroll-lås).
+- `updateModalOpenClass()` samler alle modalene (nav/konto/søk/søppel/del/
+  plasser/bekreft/objektmeny/popovere) → `body.modal-open` (scroll-lås).
 - **Stigen** `closeTopLayer(viaBack)` lukker ØVERSTE lag først: tids-popover →
   ansvarlig-velger → bekreftelses-modal → slett konto → avatar → plasser → del
-  → objektmeny → søppel → nav-/konto-modal. Den returnerer true når et lag
-  faktisk ble lukket. Escape er den ene inngangen, systemets tilbakeknapp den
+  → objektmeny → søk → søppel → nav-/konto-modal. Den returnerer true når et
+  lag faktisk ble lukket. Escape er den ene inngangen, systemets tilbakeknapp den
   andre (under) — én stige, så de to kan ikke komme i utakt.
 - Escape lukker ikke midt i en inline-redigering; der avbryter den bare
   redigeringen. Del-modalen lukkes HELT av Escape («lukk = ferdig»).
