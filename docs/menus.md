@@ -157,7 +157,9 @@ så plassen til dem må holdes av noe annet: på én linje er det en
 `margin-right` i ENDEN av linjen (listefunksjonenes), i det stablede oppsettet
 breadcrumbens `padding-right` — da skal raden under bruke hele bredden. Begge
 leser `--corner-btns-w`, som appen MÅLER (`syncTopChrome`), så plassen holder
-takt med hvor mange knapper gruppen faktisk har. Panelets egen padding er den
+takt med hvor mange knapper gruppen faktisk har. Brytes gruppen til flere
+rader, er det den SISTE raden som ligger ved siden av panelets linje — de
+øvrige skyves over den (`--corner-btns-overflow`, under). Panelets egen padding er den
 samme i begge, så gruppen flukter fortsatt med panelets kant
 (`tests/safe-area.test.js`, `tests/corner-controls.test.js`).
 
@@ -204,9 +206,14 @@ av innloggingsskjermens egen knapp (`#auth-theme-toggle-btn`, samme
 fast i hjørnet).
 
 Gruppen bryter til **flere rader** mot høyre kant når raden ikke rekker
-(`flex-wrap`); knappene krymper aldri under kontrollhøyden, og
-`syncTopChrome()` skyver board-ets klaring ned under den nye underkanten.
-Vokter: `tests/corner-controls.test.js`.
+(`flex-wrap`); knappene krymper aldri under kontrollhøyden. Gruppen er en
+høyre KOLONNE oppå panelet, og den horisontale klaringen gjelder bare den raden
+panelet selv står på — så `syncTopChrome()` skyver overskuddet
+(`--corner-btns-overflow`, høyden utover én knapperad) inn i panelets
+`padding-top`. Da ligger panelets FØRSTE rad alltid ved siden av gruppens
+SISTE, listefunksjonene havner under gruppen, og board-ets klaring følger med.
+`--corner-btns-w` måler nettopp den siste raden, ikke hele gruppen — det er den
+ene raden panelet må vike for. Vokter: `tests/corner-controls.test.js`.
 
 ## Navigasjonsmodalen (`#nav-modal`, åpnes fra nav-knappen)
 

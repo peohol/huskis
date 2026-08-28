@@ -804,9 +804,15 @@ body {
   gap: 8px;
   /* Flaten når helt ut i kantene, men INNHOLDET holdes innenfor den sikre
      sonen: statusfeltet øverst og et eventuelt hakk i sidene legges på
-     paddingen. Panelet blir dermed høyere, og `syncHeaderHeight()` måler den
-     faktiske høyden — board-ets klaring følger med av seg selv. */
-  padding: calc(12px + var(--safe-top)) calc(var(--toolbar-pad) + var(--safe-right))
+     paddingen. Panelet blir dermed høyere, og `syncTopChrome()` måler den
+     faktiske høyden — board-ets klaring følger med av seg selv.
+     `--corner-btns-overflow` (også målt) er høyden hjørnegruppen har utover
+     én knapperad: brytes gruppen til flere rader, skyves HELE panelet ned like
+     mye, så panelets første rad alltid ligger ved siden av gruppens siste og
+     den horisontale klaringen (--corner-btns-w) fortsatt rekker. Den er 0 så
+     lenge gruppen er én rad, altså alltid i dag. */
+  padding: calc(12px + var(--safe-top) + var(--corner-btns-overflow, 0px))
+           calc(var(--toolbar-pad) + var(--safe-right))
            12px calc(var(--toolbar-pad) + var(--safe-left));
   background: var(--glass-bg);
   backdrop-filter: blur(14px);

@@ -24,7 +24,9 @@
         seg innenfor det brukbare feltet og flukter fortsatt med toppmenyen.
      8. Gruppen SKALERER: legger man til flere knapper, følger den målte
         bredden med, rekkefølgen holder, ingenting kolliderer, og når raden er
-        full brytes gruppen nedover — med board-klaringen etter seg.
+        full brytes gruppen nedover — med board-klaringen etter seg. De ekstra
+        radene legger seg ALDRI oppå toppmenyens kontroller: overskuddet
+        (`--corner-btns-overflow`) skyves inn i panelets padding-top.
      9. Hele gruppen er skjult før innlogging.
 
   Kjøres på BÅDE desktop- og mobil-viewport (toppmenyen er én linje over
@@ -113,6 +115,28 @@ const geo = (p) => p.evaluate(() => {
     crumbPadRight: parseFloat(getComputedStyle(document.querySelector('.breadcrumb')).paddingRight),
     toolbarRight: Math.max(høyreKant('#add-card-btn'), høyreKant('#trash-btn')),
     toolbarMarginRight: parseFloat(getComputedStyle(toolbar).marginRight),
+    overflow: parseFloat(rootCs.getPropertyValue('--corner-btns-overflow')) || 0,
+    // Gruppens rader, hver som ett rektangel (radene er høyrestilte).
+    rader: (() => {
+      const byTop = new Map();
+      [...g.children].forEach((k) => {
+        const r = k.getBoundingClientRect();
+        const key = Math.round(r.top);
+        const cur = byTop.get(key) || { top: key, bottom: Math.round(r.bottom), left: Infinity, right: -Infinity };
+        cur.left = Math.min(cur.left, Math.round(r.left));
+        cur.right = Math.max(cur.right, Math.round(r.right));
+        byTop.set(key, cur);
+      });
+      return [...byTop.values()].sort((a, b) => a.top - b.top);
+    })(),
+    // Hele rektangler, til kollisjonstesten når gruppen er brutt til flere rader.
+    kontroller: ['#nav-crumb', '#add-card-btn', '#trash-btn'].map((sel) => {
+      const el = document.querySelector(sel);
+      if (!el || el.hidden || !el.offsetParent) return null;
+      const r = el.getBoundingClientRect();
+      return { sel, left: Math.round(r.left), right: Math.round(r.right),
+        top: Math.round(r.top), bottom: Math.round(r.bottom) };
+    }).filter(Boolean),
     førsteKortTopp: first ? Math.round(first.getBoundingClientRect().top) : null,
     vw: window.innerWidth,
   };
@@ -276,6 +300,10 @@ async function run(label, viewport, mobile) {
     const g = document.getElementById('corner-controls');
     const rader = () => new Set([...g.children].map((k) => Math.round(k.getBoundingClientRect().top))).size;
     let n = 0;
+    // Stopp ved FØRSTE brudd: da er siste rad delvis fylt, som den ville vært
+    // med et realistisk antall knapper. Fyller vi videre til hver rad er full,
+    // spiser gruppen hele linjebredden, og da finnes det ingen plass igjen å
+    // holde av — et scenario ingen knapperekke faktisk havner i.
     while (rader() === 1 && n < 40) {
       const b = document.createElement('button');
       b.type = 'button';
@@ -303,6 +331,28 @@ async function run(label, viewport, mobile) {
     w.kids[w.kids.length - 1].id === 'account-btn'
       && w.kids[w.kids.length - 1].right === Math.max(...w.kids.map((k) => k.right)),
     JSON.stringify(w.kids[w.kids.length - 1]));
+  /* Selve poenget med bruddet: de ekstra radene skal ikke legge seg OPPÅ
+     toppmenyens kontroller. Den horisontale klaringen (--corner-btns-w) gjelder
+     bare den raden menyen selv står på, så overskuddet må skyves inn i panelets
+     padding-top — da ligger menyens FØRSTE rad ved siden av gruppens SISTE. */
+  log(label + ' 8j: overskuddet over én knapperad er skjøvet inn i panelet',
+    nær(w.overflow, w.group.h - w.kontrollH),
+    'overflow ' + w.overflow + ', gruppe ' + w.group.h + ' - kontroll ' + w.kontrollH);
+  const øversteKontroll = Math.min(...w.kontroller.map((k) => k.top));
+  log(label + ' 8k: ingen kontroll ligger under gruppens EKSTRA rader',
+    øversteKontroll >= w.group.top + w.overflow - 1,
+    'øverste kontroll ' + øversteKontroll + ' ≥ gruppens siste rad ' + (w.group.top + w.overflow));
+  // RADENE, ikke gruppens omsluttende boks: den siste raden er delvis fylt, og
+  // det er den toppmenyens linje ligger ved siden av.
+  const dekket = w.kontroller.filter((k) => w.rader.some((r) =>
+    k.left < r.right && k.right > r.left && k.top < r.bottom && k.bottom > r.top));
+  log(label + ' 8l: ingen toppmeny-kontroll blir dekket av en knapperad',
+    dekket.length === 0,
+    'rader ' + JSON.stringify(w.rader) + ' vs ' + JSON.stringify(dekket.length ? dekket : w.kontroller));
+  const sisteRad = w.rader[w.rader.length - 1];
+  log(label + ' 8m: den målte bredden gjelder gruppens SISTE rad',
+    nær(w.token, (sisteRad.right - sisteRad.left) + w.gap),
+    'token ' + w.token + ' vs siste rad ' + (sisteRad.right - sisteRad.left) + ' + gap ' + w.gap);
 
   log(label + ': ingen JS-feil', errs.length === 0, errs.join(' | '));
   await browser.close();

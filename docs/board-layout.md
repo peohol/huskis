@@ -103,8 +103,11 @@ kan vokse: `.topbar` (breadcrumb + listefunksjoner, på én linje eller to rader
 etter bredden) og `.corner-controls` (søk/drakt/konto, som brytes til flere
 rader når raden ikke rekker) — se [`menus.md`](menus.md).
 
-Samme funksjon MÅLER gruppens bredde og skriver den til `--corner-btns-w`, som
-er plassen toppmenyens linje holder av til den.
+Samme funksjon måler to ting til: `--corner-btns-w` (bredden på gruppens siste
+rad — plassen toppmenyens linje holder av til den) og `--corner-btns-overflow`
+(høyden gruppen har utover én knapperad, som legges på toppmenyens egen
+`padding-top` så de ekstra radene aldri dekker menyens kontroller). Se
+[`menus.md`](menus.md).
 
 At det MÅLES er det som gjør at klaringen tåler at chromet selv vokser med den
 sikre sonen (`--safe-top`, se [`design-system.md`](design-system.md)) eller med

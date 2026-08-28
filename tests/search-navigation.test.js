@@ -15,8 +15,8 @@
         heter det samme.
      6. Escape lukker modalen og gir fokus tilbake til søkeknappen.
      7. Museklikk på en rad gjør det samme som Enter.
-     8. Område: lukker søket, åpner nav-modalen, peker ut kortet — og velger
-        IKKE en mappe i det.
+     8. Område: lukker søket, åpner nav-modalen, folder ut et kollapset
+        områdekort, peker ut det — og velger IKKE en mappe i det.
      9. Mappe: bytter område + mappe, lukker nav-modalen, markerer breadcrumben.
     10. Liste i en ANNEN mappe: navigerer, ruller kortet inn i visningen og
         markerer det.
@@ -75,7 +75,9 @@ function buildDB(lang) {
     _rolesBackfilled: true,
     profiles: [{ id: uid, email: 'n@x.no', display_name: 'Navigatør', user_metadata: meta }],
     passwords: { 'n@x.no': 'x' },
-    universes: [uni(id.UA, 'Arbeid'), uni(id.UB, 'Hjemme', { pos: 1 })],
+    // «Hjemme» er KOLLAPSET: et kollapset områdekort viser ingen mapper, så
+    // navigeringen må folde det ut for at man skal ha kommet fram til noe.
+    universes: [uni(id.UA, 'Arbeid'), uni(id.UB, 'Hjemme', { pos: 1, collapsed: true })],
     groups: [
       grp(id.GA, id.UA, 'Klinikk'),
       grp(id.GB, id.UA, 'Administrasjon', { pos: 1 }),
@@ -242,7 +244,12 @@ async function run(label, viewport, mobile) {
     esc.lukket && esc.fokus === 'search-btn', JSON.stringify(esc));
 
   /* ---------- 8) Område: nav-modalen, uten å velge mappe ---------- */
-  const førUni = await p.evaluate(() => ({ u: window.__huskis.state.activeUniverse, g: window.__huskis.state.activeGroup }));
+  const førUni = await p.evaluate((ub) => {
+    const H = window.__huskis;
+    return { u: H.state.activeUniverse, g: H.state.activeGroup,
+      kollapset: !!H.state.universes.find((x) => x.id === ub).collapsed };
+  }, fx.id.UB);
+  log(label + ' 8-før: målområdet er kollapset før navigeringen', førUni.kollapset, JSON.stringify(førUni));
   await search(p, 'hjemme');
   await p.keyboard.press('Enter');
   await p.waitForTimeout(900);
@@ -256,12 +263,17 @@ async function run(label, viewport, mobile) {
       flash: !!head && head.classList.contains('nav-flash'),
       fokus: !!head && document.activeElement === head,
       u: H.state.activeUniverse, g: H.state.activeGroup,
+      kollapset: !!H.state.universes.find((x) => x.id === ub).collapsed,
+      domKollapset: !!document.querySelector('.uni-card[data-id="' + ub + '"].collapsed'),
+      mapper: document.querySelectorAll('.uni-card[data-id="' + ub + '"] .item.group-row').length,
     };
   }, fx.id.UB);
   log(label + ' 8a: søket lukket seg og nav-modalen åpnet seg', uni.søk && uni.nav, JSON.stringify(uni));
   log(label + ' 8b: områdekortet er markert og fokusert', uni.finnes && uni.flash && uni.fokus, JSON.stringify(uni));
   log(label + ' 8c: ingen mappe ble valgt automatisk',
     uni.u === førUni.u && uni.g === førUni.g, JSON.stringify({ før: førUni, etter: { u: uni.u, g: uni.g } }));
+  log(label + ' 8e: det kollapsede området ble foldet ut, med mappene synlige',
+    !uni.kollapset && !uni.domKollapset && uni.mapper > 0, JSON.stringify(uni));
   const uniSyn = await p.evaluate((ub) => {
     const head = document.querySelector('.uni-card[data-id="' + ub + '"] > .card-head');
     const box = document.getElementById('nav-modal-body').getBoundingClientRect();

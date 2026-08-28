@@ -149,7 +149,7 @@ man havnet.
 
 | Type | Handling |
 |---|---|
-| **område** | Åpner **nav-modalen** og peker ut kortet der. Området finnes ikke på hovedsiden — det ER nav-modalen. |
+| **område** | Folder ut kortet hvis det er kollapset, åpner **nav-modalen** og peker det ut der. Området finnes ikke på hovedsiden — det ER nav-modalen. |
 | **mappe** | `goToGroup()` (bytter både område og mappe), lukker nav-modalen, markerer breadcrumben. |
 | **liste** | Går til mappen, ruller kortet inn i visningen og markerer det. |
 | **kategori / listepunkt** | Går til mappen, folder ut det som må foldes ut, ruller målet inn i visningen og markerer det. |
@@ -160,12 +160,13 @@ To valg som er verdt å vite om:
 brukeren bort fra mappen hen står i, og det er ikke det man ba om ved å søke
 opp et område.
 
-**Navigeringen endrer bare data der den MÅ.** En kollapset liste (og kategori)
-foldes ut når målet ligger inne i den — ellers finnes ikke raden å rulle til.
+**Navigeringen endrer bare data der den MÅ.** Rullgardinen går opp der målet
+ellers ikke ville vært å se: et kollapset OMRÅDEKORT (som bare viser
+overskriften sin), og en kollapset liste eller kategori målet ligger inne i.
 Kollapstilstanden er en visnings-preferanse som synkes som alt annet
 (`docs/data-model.md`), og et frosset objekt foldes ut lokalt uten å skrives,
 som `toggleCardCollapsed`. Er selve LISTEN målet, foldes den ikke ut: korthodet
-er synlig uansett.
+er synlig uansett, og det er hele objektet man søkte opp.
 
 ### Rulling og markering
 

@@ -4931,6 +4931,25 @@
     return { top: tall('top'), right: tall('right'), bottom: tall('bottom'), left: tall('left') };
   }
 
+  /* Bredden på gruppens SISTE rad. Det er den ene raden som ligger ved siden av
+     toppmenyens linje (de øvrige er skjøvet over den, se
+     --corner-btns-overflow), og dermed den eneste bredden menyen må holde av.
+     Er gruppen én rad — alltid i dag — er de to det samme. Radene er
+     høyrestilte, så raden strekker seg fra sitt venstreste element til
+     gruppens høyrekant. */
+  function cornerLastRowWidth(corner) {
+    const kids = cornerControls ? cornerControls.children : null;
+    if (!kids || !kids.length) return corner.width;
+    const lastTop = kids[kids.length - 1].getBoundingClientRect().top;
+    let left = corner.right;
+    for (let i = kids.length - 1; i >= 0; i--) {
+      const r = kids[i].getBoundingClientRect();
+      if (Math.abs(r.top - lastTop) > 1) break;
+      left = Math.min(left, r.left);
+    }
+    return corner.right - left;
+  }
+
   /* Toppmenyen OG toppkontrollgruppen er `position: fixed` og dermed ute av
      flyten. Board-et må få klaring under det laveste av de to, og toppmenyens
      linje må holde av plassen gruppen tar til høyre. Begge deler MÅLES her:
@@ -4948,16 +4967,33 @@
                          (kalender, varsler) ikke krever en ny utregning noe
                          sted. Gruppen er `display: none` før innlogging — da
                          står CSS-startverdien, som er riktig for de knappene
-                         som finnes. */
+                         som finnes.
+       --corner-btns-overflow
+                         høyden gruppen har UTOVER én knapperad. Gruppen ligger
+                         som en høyre KOLONNE oppå toppmenyen, og den
+                         horisontale klaringen (--corner-btns-w) gjelder bare
+                         den raden menyen selv står på. Brytes gruppen til
+                         flere rader, ville de ekstra radene lagt seg oppå
+                         menyens neste rad (listefunksjonene i det stablede
+                         mobiloppsettet). Overskuddet skyves derfor inn i
+                         toppmenyens egen padding-top: da ligger menyens FØRSTE
+                         rad alltid ved siden av gruppens SISTE, og den
+                         horisontale klaringen rekker igjen. */
   function syncTopChrome() {
     const root = document.documentElement.style;
+    const rootCs = getComputedStyle(document.documentElement);
     const gap = parseFloat(getComputedStyle(board).columnGap) || 0;
-    const bar = topbarEl.getBoundingClientRect();
     const corner = cornerControls ? cornerControls.getBoundingClientRect() : null;
     if (corner && corner.width > 0) {
       const btnGap = parseFloat(getComputedStyle(cornerControls).columnGap) || 0;
-      root.setProperty('--corner-btns-w', (corner.width + btnGap) + 'px');
+      root.setProperty('--corner-btns-w', (cornerLastRowWidth(corner) + btnGap) + 'px');
     }
+    const ctrlH = parseFloat(rootCs.getPropertyValue('--control-h')) || 0;
+    root.setProperty('--corner-btns-overflow',
+      Math.max(0, (corner ? corner.height : 0) - ctrlH) + 'px');
+    // ETTER overskuddet: toppmenyens høyde avhenger av det, og rect-lesningen
+    // tvinger fram den nye layouten.
+    const bar = topbarEl.getBoundingClientRect();
     const chromeBottom = Math.max(bar.bottom, corner && corner.height > 0 ? corner.bottom : 0);
     root.setProperty('--board-pad-top', (chromeBottom + gap) + 'px');
   }
@@ -7882,25 +7918,35 @@
   }
 
   /* Åpne det som må åpnes for at målet skal STÅ i DOM-en. Dette er det ene
-     stedet navigeringen endrer data: en kollapset liste (og kategori) må
-     foldes ut, ellers finnes raden ikke å rulle til. Kollapstilstanden er en
+     stedet navigeringen endrer data: er målet et OMRÅDE, eller ligger det inne
+     i en kollapset liste eller kategori, må rullgardinen opp — ellers ser
+     brukeren ingenting av det hen søkte opp. Kollapstilstanden er en
      visnings-preferanse som synkes som alt annet (docs/data-model.md); et
      frosset objekt foldes ut lokalt uten å skrives, som `toggleCardCollapsed`.
      Selve LISTEN som mål foldes ikke ut — korthodet er synlig uansett, og en
      navigering skal ikke endre mer enn den må. */
-  function expandForTarget(loc) {
-    const c = loc.card;
+  // Fold ut ett objekt. `owner` er det objektet låsen henger på (kortet for en
+  // kategori, objektet selv ellers). Returnerer om endringen skal LAGRES.
+  function unfold(obj, owner) {
+    if (!obj || !obj.collapsed) return false;
+    obj.collapsed = false;
+    if (frozen(owner)) return false;   // låst av andre: fold ut lokalt, ikke skriv
+    stampContent(obj);
+    return true;
+  }
+  function expandForTarget(type, loc) {
     let touched = false;
-    if (c && c.collapsed) {
-      c.collapsed = false;
-      if (!frozen(c)) { stampContent(c); touched = true; }
-    }
-    const it = loc.item;
-    const catId = it && !it.isCat ? it.cat : null;
-    const cat = catId ? (c.items || []).find((x) => x.id === catId && x.isCat && live(x)) : null;
-    if (cat && cat.collapsed) {
-      cat.collapsed = false;
-      if (!frozen(c)) { stampContent(cat); touched = true; }
+    if (type === 'universe') {
+      // Et kollapset områdekort viser ingen mapper — bare overskriften. Da har
+      // man ikke kommet fram til noe ved å søke seg dit.
+      touched = unfold(loc.universe, loc.universe);
+    } else {
+      const c = loc.card;
+      touched = unfold(c, c);
+      const it = loc.item;
+      const catId = it && !it.isCat ? it.cat : null;
+      const cat = catId ? (c.items || []).find((x) => x.id === catId && x.isCat && live(x)) : null;
+      if (unfold(cat, c)) touched = true;
     }
     if (touched) save();
   }
@@ -8000,6 +8046,7 @@
        brukeren bort fra mappen hen står i, og det er ikke det man ba om ved å
        søke opp et område. */
     if (type === 'universe') {
+      expandForTarget(type, loc);   // FØR modalen bygges: kortet tegnes fra state
       openNavModal();
       revealTarget(handleSelector('universe', loc.universe.id));
       say();
@@ -8020,7 +8067,7 @@
       return true;
     }
 
-    if (type !== 'card') expandForTarget(loc);
+    if (type !== 'card') expandForTarget(type, loc);
     render();
     revealTarget(handleSelector(type, target.id));
     say();
