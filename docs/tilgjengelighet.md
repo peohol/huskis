@@ -176,6 +176,16 @@ søket står typen i klartekst i raden, og den aktive raden har en pilspiss ved
 siden av kanten og flaten. Autoritativt for resten av søket:
 `sok-og-navigering.md`.
 
+## Lister man bare trykker i (hendelsesradene)
+
+Modalen «Kommende hendelser» har ingen combobox — radene er vanlige knapper, så
+Tab og Enter virker uten særbehandling. Til gjengjeld gjelder de to samme
+kravene som over: **antallet** leses opp fra et visuelt skjult `role="status"`,
+og **statusfargen kan ikke bære gruppen alene** — hver gruppe har overskrift i
+klartekst, hver rad sier type og tidspunkt med ord, og glyfene skiller gruppene
+(varseltrekant, kalender, klokke, start). Start-ikonet er bevisst ikke en hake:
+det ville lest som «utført». Autoritativt: `kommende-hendelser.md`.
+
 ## To bevisste avveininger
 
 **Korthodet er `role="button"`, og det koster `<h2>`-en.** En knapp har

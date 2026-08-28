@@ -4,12 +4,12 @@
   («Toppkontrollene») og docs/design-system.md.
 
   Gruppen erstattet to knapper som hver hadde sin egen `right:`-utregning.
-  Poenget med denne fila er å låse at den TÅLER FLERE: kalenderknappen (PR 2)
-  og varselknappen (PR 3) skal kunne legges til uten en ny utregning noe sted.
+  Poenget med denne fila er å låse at den TÅLER FLERE: kalenderknappen kom til
+  uten en eneste ny utregning, og varselknappen skal kunne gjøre det samme.
 
   Dekker:
-     1. Gruppen finnes, og knappene ligger i rekkefølgen søk → drakt → konto
-        (DOM og visuelt), med kontoknappen ytterst.
+     1. Gruppen finnes, og knappene ligger i rekkefølgen kalender → søk → drakt
+        → konto (DOM og visuelt), med kontoknappen ytterst.
      2. Alle knappene har kontrollhøyden, samme overkant og lik luft mellom seg
         — ingen av dem er mindre enn berøringsmålet.
      3. Kontoknappen flukter fortsatt med toppmenyens høyre kant.
@@ -193,10 +193,11 @@ async function run(label, viewport, mobile) {
   /* ---------- 1–2) Rekkefølge, størrelse, luft ---------- */
   const g = await geo(p);
   const ids = g.kids.map((k) => k.id);
-  log(label + ' 1a: gruppen holder søk, drakt og konto i den rekkefølgen',
-    JSON.stringify(ids) === JSON.stringify(['search-btn', 'theme-toggle-btn', 'account-btn']), JSON.stringify(ids));
+  log(label + ' 1a: gruppen holder kalender, søk, drakt og konto i den rekkefølgen',
+    JSON.stringify(ids) === JSON.stringify(['events-btn', 'search-btn', 'theme-toggle-btn', 'account-btn']),
+    JSON.stringify(ids));
   log(label + ' 1b: kontoknappen er ytterst til høyre',
-    g.kids[2].right >= g.kids[1].right && g.kids[1].right >= g.kids[0].right,
+    g.kids.every((k, i) => i === 0 || k.right >= g.kids[i - 1].right),
     JSON.stringify(g.kids.map((k) => k.right)));
   log(label + ' 2a: alle knappene er kvadratiske og har kontrollhøyden',
     g.kids.every((k) => nær(k.w, g.kontrollH) && nær(k.h, g.kontrollH)),
@@ -278,7 +279,8 @@ async function run(label, viewport, mobile) {
   await ventPåMåling(p, førBredde);
   const f = await geo(p);
   log(label + ' 8a: de nye knappene står først, konto fortsatt ytterst',
-    f.kids.length === 5 && f.kids[0].id === 'fremtid-1' && f.kids[4].id === 'account-btn',
+    f.kids.length === g.kids.length + 2 && f.kids[0].id === 'fremtid-1' &&
+    f.kids[f.kids.length - 1].id === 'account-btn',
     JSON.stringify(f.kids.map((k) => k.id)));
   log(label + ' 8b: den målte bredden vokste med de to knappene',
     nær(f.token, f.group.w + f.gap) && f.token > g.token,

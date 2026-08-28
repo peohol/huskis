@@ -224,6 +224,22 @@ window.ICONS = {
     '<circle cx="12" cy="18.1" r="0.7" fill="#111" stroke="none"></circle>' +
     '</svg>',
 
+  // Varseltrekant (frist som haster eller er oversittet, i «Kommende
+  // hendelser»): trekant hvit, utropstegn svart — samme papir/strek-par som
+  // resten, så den snur riktig i mørk drakt.
+  alert: '<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="#111" stroke-width="1.05" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
+    '<path d="M12 4.3 L21 19.7 L3 19.7 Z" fill="#ffffff"></path>' +
+    '<path d="M12 10v4"></path>' +
+    '<circle cx="12" cy="17" r="0.7" fill="#111" stroke="none"></circle>' +
+    '</svg>',
+
+  // Start/påbegynt (i «Kommende hendelser»): urskive hvit med en trekant —
+  // bevisst IKKE en hake, som ville lest som «utført».
+  play: '<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="#111" stroke-width="1.05" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
+    '<circle cx="12" cy="12" r="8.5" fill="#ffffff"></circle>' +
+    '<path d="M10.3 8.7 L15.9 12 L10.3 15.3 Z"></path>' +
+    '</svg>',
+
   // Klokke (tidspunkt i dag): urskive hvit, visere svarte.
   clock: '<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="#111" stroke-width="1.05" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
     '<circle cx="12" cy="12" r="8.5" fill="#ffffff"></circle>' +

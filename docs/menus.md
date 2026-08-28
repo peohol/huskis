@@ -189,11 +189,12 @@ det finnes ingen `right:`-kjede å regne om:
 
 | Rekkefølge | Knapp | Åpner |
 |---|---|---|
-| 1 | **Søk** (`.search-btn`, `#search-btn`) | søkemodalen — `docs/sok-og-navigering.md` |
-| 2 | **Drakt** (`.theme-toggle-btn`, `#theme-toggle-btn`) | ingen; bytter lys ↔ mørk i ETT trykk |
-| 3 | **Konto** (`.account-btn`, `#account-btn`) | konto-modalen |
+| 1 | **Kalender** (`.events-btn`, `#events-btn`) | «Kommende hendelser» — `docs/kommende-hendelser.md` |
+| 2 | **Søk** (`.search-btn`, `#search-btn`) | søkemodalen — `docs/sok-og-navigering.md` |
+| 3 | **Drakt** (`.theme-toggle-btn`, `#theme-toggle-btn`) | ingen; bytter lys ↔ mørk i ETT trykk |
+| 4 | **Konto** (`.account-btn`, `#account-btn`) | konto-modalen |
 
-Alle tre bærer `.corner-btn`: samme flate-mønster som søppelkassene
+Alle fire bærer `.corner-btn`: samme flate-mønster som søppelkassene
 (halvgjennomsiktig hvit → hvit ved hover), samme høyde/radius som resten av
 kontrollene, samme fokusring. Kontoknappen har i tillegg den røde badgen
 (`#account-badge`) med antall ventende invitasjoner; draktknappens ikon

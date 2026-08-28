@@ -13,7 +13,7 @@
      samme lys ovenfra som de nedoverforskjøvne skyggene forutsetter.
    • Delte klasser: .panel-head/.panel-title/.panel-actions (menyoverskrift +
      knapperad), .btn-add (grønn ＋), .trashcan (hvit søppelkasse),
-     .corner-controls/.corner-btn (toppkontrollgruppen: søk, drakt, konto),
+     .corner-controls/.corner-btn (toppkontrollgruppen: kalender, søk, drakt, konto),
      .crumb-btn (navigasjonsknappen), delte sletteknapp-, placeholder- og
      håndtak-regler.
    • Flate-mønster: halvgjennomsiktig hvit (--control-bg) som hviletilstand,
@@ -943,7 +943,7 @@ body {
    ÉN fast gruppe i øvre høyre hjørne av VIEWPORTET, utenfor toppmenyens flyt —
    z-index over det faste panelet (30) men under modaler (200). Knappene ligger
    i DOM-rekkefølge og plasseres av flex; ingen av dem kjenner naboens bredde,
-   så en ny knapp (kalender, varsler) legges til ved å sette den FØRST i
+   så en ny knapp (varsler) legges til ved å sette den FØRST i
    gruppen — ingen `right:`-kjede å regne om.
 
    Er det ikke plass til alle på én rad, brytes gruppen til flere rader mot
@@ -966,7 +966,7 @@ body {
   max-width: calc(100vw - var(--safe-left) - var(--safe-right) - var(--toolbar-pad) * 2);
 }
 
-/* Felles flate for hjørneknappene (søk, drakt, konto): flate-mønsteret —
+/* Felles flate for hjørneknappene (kalender, søk, drakt, konto): flate-mønsteret —
    halvgjennomsiktig hvit → hvit ved hover, samme høyde/radius som resten av
    kontrollene. Innloggingsskjermens draktknapp bruker den samme klassen inline
    i språkraden. */
@@ -3005,7 +3005,7 @@ body.tour-demo .trash-row button:not(.tour-live) { opacity: 0.35; }
    ============================================================ */
 
 /* Skjul app-innhold også i kontomodus (før innlogging). Hele
-   toppkontrollgruppen (søk, drakt, konto) går med — innloggingsskjermens egen
+   toppkontrollgruppen (kalender, søk, drakt, konto) går med — innloggingsskjermens egen
    draktknapp (#auth-theme-toggle-btn) dekker draktvalget der. */
 body.no-auth .topbar,
 body.no-auth .app-main,
@@ -3612,6 +3612,138 @@ body.no-auth .corner-controls { display: none; }
   visibility: hidden;
 }
 .search-result.is-active .search-result-cue { visibility: visible; }
+
+/* ---------------- «Kommende hendelser» ----------------
+   Samme modalskall som søket, med den samme delingen: hodet står i ro og
+   INNHOLDET ruller. To seksjoner (frister, starter), hver med opptil tre
+   grupper — overskrift med ikon + antall, og radene under.
+
+   Statusikonet er den eneste fargebæreren, og den er ALDRI alene: gruppen har
+   en overskrift i klartekst, og raden sier både type og tidspunkt med ord
+   (docs/tilgjengelighet.md). Flatene er de samme gradientene som
+   statuschipene, så en ny farge kan ikke snike seg inn ved siden av
+   kontrastkontrakten. */
+.events-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+.events-empty { margin: 0; font-size: var(--fs-sm); color: var(--ink-soft); font-weight: 500; }
+.events-section { display: flex; flex-direction: column; gap: 8px; }
+.events-section-head {
+  margin: 0;
+  font-size: var(--fs-md);
+  font-weight: 700;
+  color: var(--ink);
+}
+.events-group-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 4px;
+  font-size: var(--fs-sm);
+  font-weight: 600;
+  color: var(--ink-soft);
+}
+.events-group-count {
+  margin-left: auto;
+  font-variant-numeric: tabular-nums;
+  font-size: var(--fs-xs);
+  font-weight: 600;
+  color: var(--ink-soft);
+}
+.events-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.event-row {
+  width: 100%;
+  appearance: none;
+  cursor: pointer;
+  text-align: left;
+  font-family: inherit;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 12px;
+  border: 1.5px solid transparent;
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+  transition: background 0.15s, border-color 0.15s;
+}
+.event-row:hover { background: var(--wash); }
+.event-row:focus-visible { outline: var(--focus-w) solid var(--focus); outline-offset: 2px; }
+.event-row-main { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+.event-row-name {
+  font-size: var(--fs-base);
+  font-weight: 600;
+  color: var(--ink);
+  overflow-wrap: anywhere;
+}
+/* Typen i klartekst + kontekststien — dempet, så navnet dominerer raden. */
+.event-row-meta {
+  font-size: var(--fs-xs);
+  font-weight: 500;
+  color: var(--ink-soft);
+  overflow-wrap: anywhere;
+}
+.event-row-when {
+  flex: 0 0 auto;
+  font-size: var(--fs-sm);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  color: var(--ink);
+  white-space: nowrap;
+}
+/* Statusikonet: samme gradienter som .meta-chip-statusene, i en rund plate.
+   Gruppens overskrift bærer det samme ikonet, så farge og form leses sammen. */
+.event-icon {
+  flex: 0 0 auto;
+  width: 26px;
+  height: 26px;
+  display: grid;
+  place-items: center;
+  border-radius: 999px;
+  background: var(--chip-bg);
+  box-shadow: 0 1px 3px rgba(35, 45, 55, 0.16);
+}
+.event-icon .icon { width: 1em; height: 1em; font-size: 15px; }
+.event-icon.is-neutral { background: var(--chip-bg); }
+.event-icon.is-over { background: var(--grad-red); }
+.event-icon.is-started { background: var(--grad-accent); }
+/* GUL OG GRØNN ER UNNTAKENE, som ellers i appen: begge er lyse kontraktsflater
+   som er de samme i begge drakter, så ikonstreken må pinnes MØRK og «papiret»
+   (den hvite flaten under strekene) sammen med den — nøyaktig samme par som
+   .btn-solid og .meta-chip.is-soon pinner. Uten pinningen ville den mørke
+   drakten snudd streken lys og gjort ikonet ulesbart. */
+.event-icon.is-soon {
+  background: var(--grad-yellow);
+  --icon-ink: #111111;
+  --icon-paper: #ffffff;
+}
+.event-icon.is-later {
+  background: var(--grad-green);
+  --icon-ink: #111111;
+  --icon-paper: #ffffff;
+}
+/* Telefon i portrett (samme grense som board-ets én-kolonne-grense): tiden
+   flyttes ned på sin egen linje, på linje med teksten. Da får stien hele
+   bredden i stedet for å brekke over fire linjer ved siden av en kolonne som
+   likevel ikke kan krympe (tidspunktet skal aldri kappes). */
+@media (max-width: 560px) {
+  .event-row { align-items: flex-start; flex-wrap: wrap; }
+  /* Basis 0, ikke `auto`: med innholdsbredden som basis ville navnet brutt ned
+     under ikonet i stedet for å krympe ved siden av det. */
+  .event-row-main { flex-basis: 0; }
+  .event-row-when { width: 100%; padding-left: 36px; }
+}
 
 /* ---------------- Kortvarig markering av et navigasjonsmål ----------------
    Settes av `navigateToObject()` på objektet man nettopp havnet ved (søk i

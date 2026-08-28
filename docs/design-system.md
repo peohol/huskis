@@ -172,6 +172,8 @@ grå = `#c0c4c9`):
 | Liste | hvit flate, svarte punkter/linjer |
 | Listepunkt (item) | hvit plate, svart punkt + linje — samme motiv som lista, én rad i stedet for tre |
 | Forstørrelsesglass (søk) | linsen hvit, skaftet kun strek |
+| Varseltrekant (alert) | trekanten hvit, utropstegnet svart |
+| Start/påbegynt (play) | urskive hvit, trekanten svart — bevisst IKKE en hake |
 | Øye (vis) | hornhinne hvit, pupill svart |
 | Person (mine) | hode + kropp farge 4 |
 | Tre personer (delte) | hver person farge 1 / 2 / 3 |
@@ -298,11 +300,14 @@ Størrelse/form kommer fra egne klasser: `.btn` (modaler), `.btn-small`,
 - `.trashcan`: ALLE søppelkasse-knapper — hvit avrundet beholder, antall i grå
   sirkel (`.trashcan-count`), **skjult (`hidden`) når tom**.
 - `.corner-controls` + `.corner-btn`: toppkontrollgruppen i øvre høyre hjørne
-  (søk, drakt, konto). ÉN fast flex-gruppe med flate-mønsteret på hver knapp;
+  (kalender, søk, drakt, konto). ÉN fast flex-gruppe med flate-mønsteret på hver
+  knapp;
   en ny knapp legges FØRST i gruppen og trenger ingen egen posisjonsregel.
   Bredden gruppen legger beslag på måles i JS (`--corner-btns-w`) — se
   `docs/menus.md` («Toppkontrollene»).
-  Variantene: `.search-btn` (åpner søkemodalen, `docs/sok-og-navigering.md`),
+  Variantene: `.events-btn` (åpner «Kommende hendelser»,
+  `docs/kommende-hendelser.md`), `.search-btn` (åpner søkemodalen,
+  `docs/sok-og-navigering.md`),
   `.theme-toggle-btn` (sol-/måneikon for aktiv drakt, `docs/mork-drakt.md`) og
   `.account-btn` (person-ikon + `.menu-badge` som invitasjons-teller).
   Innloggingsskjermens draktknapp bruker den samme `.corner-btn`-flaten inline
@@ -315,6 +320,13 @@ Størrelse/form kommer fra egne klasser: `.btn` (modaler), `.btn-small`,
   til. Innvendig `box-shadow` i `--focus` — kortene har `overflow: hidden`, og
   fokusringen eier `outline` på det samme elementet. Se
   `docs/sok-og-navigering.md`.
+- `.events-body` (+ `-section`/`-group-head`/`-list`) og `.event-row`/
+  `.event-icon`: modalen «Kommende hendelser». `.event-icon` er statusflaten, og
+  den bruker de SAMME gradientene som `.meta-chip`-statusene (`is-over`,
+  `is-soon`, `is-started`) pluss `is-later` (grønn) og `is-neutral`. Gul og grønn
+  er kontraktsfarger som er like i begge drakter, så begge pinner
+  `--icon-ink`/`--icon-paper` mørkt/lyst — som `.btn-solid` gjør. Se
+  `docs/kommende-hendelser.md`.
 - `.account-form` (+ `-label`/`-row`) og `.account-msg`: endre navn/e-post i
   konto-modalen (etikett over felt, Lagre-knapp på samme rad). «Bilde»-seksjonen
   bruker den samme klassen uten å være et `<form>` — mønsteret er etikett over
