@@ -4026,6 +4026,13 @@
      Kompensasjonen måles på ankerets DOKUMENTposisjon (boks + scroll), som bare
      endrer seg av layout. En scroll — brukerens egen eller dnd-kits auto-scroll
      — går derfor rett gjennom uten å bli tatt for et hopp. */
+  /* Sammentrekningen av et hull som ikke lover noe (`syncHoleSpace`): hvilken
+     container som bærer den, og hvor mye. Ankeret trenger begge for å kunne se
+     bort fra sin egen kompensasjon når det måler korthøyder. */
+  let holeShrunk = null;
+  let holeShrinkPx = 0;
+  let holeCol = null;         // kolonnen som bærer kompensasjonen
+  let holeColPad = 0;
   let anchorPad = 0;          // vår padding-top: innholdet skjøvet ned
   let anchorFloor = 0;        // board-ets hevede min-høyde: rommet vi må ha for å KUNNE scrolle ned
   let anchorScrollOwn = 0;    // hvor mye VI har scrollet, så det kan rulles tilbake
@@ -4079,8 +4086,24 @@
       root.style.minHeight = anchorFloor + 'px';
     }
   }
-  /* Flytt board-innholdet `s` piksler (positivt = nedover). */
+  /* Flytt board-innholdet `s` piksler (positivt = nedover).
+
+     PARET MÅ VÆRE REVERSIBELT. Et negativt skift som polstringen ikke rakk over
+     ble til en scroll nedover; et positivt skift la seg bare på polstringen
+     igjen, og scrollen ble stående. Over mange turer opp og ned krøp siden
+     nedover uten at noe ga den tilbake (MÅLT: 22 px per tur, mens polstringen
+     sto på 0). Et positivt skift ruller derfor VÅR EGEN scroll tilbake først,
+     og går bare til polstring når det ikke er mer scroll å gi tilbake. */
   function anchorShift(s) {
+    if (s > 0 && anchorScrollOwn > 0) {
+      const opp = Math.min(s, anchorScrollOwn);
+      const før = anchorScrollPos();
+      anchorScrollTo(før - opp);
+      const faktisk = før - anchorScrollPos();
+      anchorScrollOwn -= faktisk;
+      s -= faktisk;
+      if (s <= 0.5) return;
+    }
     const pad = Math.max(0, anchorPad + s);
     const rest = s - (pad - anchorPad);   // < 0 bare når padding-en gikk tom
     anchorPad = pad;
@@ -4134,25 +4157,38 @@
     const r = ref.el.getBoundingClientRect();
     return (ref.edge === 'top' ? r.top : r.bottom) + anchorScrollPos();
   }
-  /* Plassen kortet legger beslag på, MARGINEN medregnet. `syncHoleSpace` gir et
-     kort som lukker hullet en `margin-top` på nøyaktig det hullet ga fra seg —
-     boksen krymper og marginen vokser like mye, så YTTERmålet står stille og
-     observatøren ser riktig at ingenting under kortet flyttet seg. Slippes
-     marginen igjen (hullet forlot kortet), er det ytre målet som faller, og da
-     er det en ekte endring. Bare vi setter inline-margin på et kort. */
+  /* Plassen kortet legger beslag på — SETT BORT FRA VÅR EGEN SAMMENTREKNING.
+
+     Observatøren skal se dnd-kits endringer: hullet som flytter seg til en annen
+     liste, en rad som bytter plass. Vår egen komprimering (`syncHoleSpace`) er
+     alt kompensert der den ble gjort, og teller derfor ikke som en høydeendring.
+     Trakk vi den fra ved å nullstille høydene i stedet, svelget vi motorens
+     endring i det samme kortet i den samme frame-en — og da fyrte observatøren
+     aldri (MÅLT: null observerte skift gjennom en hel tur opp og ned, mens
+     polstringen vokste 112 px per runde). */
   function anchorOuterH(el) {
     if (!el.isConnected) return 0;
-    return el.getBoundingClientRect().height + (parseFloat(el.style.marginTop) || 0);
+    const h = el.getBoundingClientRect().height;
+    return h + (holeShrunk && el.contains(holeShrunk) ? holeShrinkPx : 0);
   }
-  // Høydene observatøren måler mot. Settes på nytt etter våre egne endringer, så
-  // de ikke føres to ganger.
-  function anchorNoteHeights() {
+  /* Høydene observatøren måler mot. Settes på nytt etter våre egne endringer, så
+     de ikke føres to ganger — men BARE for kortene vi faktisk rørte. Nullstilte
+     vi alle, svelget vi samtidig dnd-kits egne endringer: motoren flytter hullet
+     til en annen liste i den samme frame-en, observatøren hadde ennå ikke fyrt,
+     og da så den ingen endring å sette av. MÅLT: kortet man svever over rykket
+     56 px opp under fingeren (`dnd-layout-anchor` 4). Uten argument (draget
+     starter) føres alle. */
+  function anchorNoteHeights(els) {
     if (!anchorRO) return;
-    anchorHeights.forEach((_, cEl) => anchorHeights.set(cEl, anchorOuterH(cEl)));
+    if (!els) { anchorHeights.forEach((_, cEl) => anchorHeights.set(cEl, anchorOuterH(cEl))); return; }
+    els.forEach((el) => {
+      const cEl = el && el.closest ? el.closest('.card') : null;
+      if (cEl && anchorHeights.has(cEl)) anchorHeights.set(cEl, anchorOuterH(cEl));
+    });
   }
   /* VÅR EGEN endring: mål kanten FØR, gjør endringen, sett av ETTER — alt i
      samme oppgave, så ingenting rekker å males imellom. */
-  function withAnchor(fn) {
+  function withAnchor(fn, rørte) {
     if (!anchorRO) { fn(); return; }
     const ref = anchorPickRef();
     fn();
@@ -4163,7 +4199,78 @@
         try { anchorShift(-d); } finally { anchorBusy = false; }
       }
     }
-    anchorNoteHeights();
+    anchorNoteHeights(rørte);
+  }
+  /* ------- EN KOMPENSASJON ER ET LÅN, OG LÅN SKAL GJØRES OPP -------
+
+     Ankeret holder én kant i ro ved å skyve board-et, og HVILKEN kant velges av
+     hvor siktet er akkurat da. Går layouten tilbake til en tilstand den har
+     vært i før — hullet åpner seg igjen, kassa er tilbake i lista den startet i
+     — mens siktet har flyttet seg i mellomtiden, ser regelen ingen kant som må
+     stå i ro, og skiftet blir stående. MÅLT: +56 px per lukking av hullet, og
+     ingen tilbakebetaling i det hele tatt — over fire turer opp og ned vokste
+     polstringen til 893 px, med board-ets min-høyde og scrollen etter seg. Det
+     er «luften over den øverste lista» som bare blir større.
+
+     Hver kilde fører derfor sitt eget lån, og gjør det opp i det tilstanden er
+     tilbake der den startet. Da er skiftet en funksjon av layouten, ikke av
+     veien dit: samme tilstand gir samme board, uansett hvor mange ganger man
+     har vært innom. */
+  let anchorTrashOwed = 0;   // lånt for kasserader som har byttet kort
+  let anchorTrashHome = null;
+  // Det EFFEKTIVE skiftet av innholdet: polstring minus vår egen scroll.
+  function anchorNet() { return anchorPad - anchorScrollOwn; }
+  // Gjør en endring og svar med hvor mye ankeret lånte for den.
+  function anchorBorrow(fn, rørte) {
+    const før = anchorNet();
+    withAnchor(fn, rørte);
+    return anchorNet() - før;
+  }
+  /* ------- HULLETS EGEN FLYTTING ER OGSÅ ET LÅN -------
+
+     Forlater hullet et kort som ligger HELT OVER siktet, blir det kortet en
+     radhøyde kortere, og observatøren skyver board-et ned så det man svever
+     over står stille. Kommer raden tilbake til det samme kortet, kan
+     observatøren IKKE føre lånet tilbake: da er siktet inne i kortet, og
+     endringer i kortet man er inni er motorens egen forhåndsvisning — flytter
+     man den, glir radene under fingeren (MÅLT: en rad dratt opp forbi en
+     kategori landet én plass for lavt, `dnd-separators-preview` sjekk 3).
+
+     Uten en motpost blir skiftet stående, og over mange turer opp og ned bygger
+     det seg opp som luft over den øverste lista (MÅLT: +56 px per tur). Vi
+     fører derfor lånet selv, og gjør det opp i det raden er tilbake i kortet
+     den forlot: da er layouten der den var, og skiftet skal være det samme.
+     Hullet vokser da OPP mot fingeren i stedet for å skyve resten ned — samme
+     retning som ellers: det som kommer, kommer mot deg. */
+  let anchorRowCard = null;         // kortet hullet ligger i nå
+  const anchorRowAway = new Map();  // kort raden forlot ovenfra → hva det lånte
+  function anchorNoteRowMove(ph, plass) {
+    if (!anchorRO) return;
+    /* Klonen kan være borte fra DOM-en et øyeblikk mens motoren bygger den om.
+       Det er ingen flytting — bare fravær — og den siste lista vi VET om er
+       fortsatt den riktige å måle neste flytting mot. */
+    const kort = ph ? ph.closest('.card') : null;
+    if (!kort || kort === anchorRowCard) return;
+    const forlot = anchorRowCard;
+    anchorRowCard = kort;
+    if (!forlot) return;
+    /* ETT LÅN PER LISTE. Raden kan gå L1 → L2 → L3 og komme tilbake i motsatt
+       rekkefølge; med bare ett utestående lån ble det første glemt idet det
+       andre ble tatt opp, og de 56 pikslene ble stående (MÅLT: +56 px per tur
+       fra og med tredje runde). */
+    if (anchorRowAway.has(kort)) {
+      anchorRepay(anchorRowAway.get(kort));
+      anchorRowAway.delete(kort);
+    } else if (forlot.getBoundingClientRect().bottom <= anchorAimY() && plass > 0) {
+      anchorRowAway.set(forlot, (anchorRowAway.get(forlot) || 0) + plass);
+    }
+  }
+  function anchorRepay(lån) {
+    if (!anchorRO || Math.abs(lån) < 0.5) return;
+    // Bare polstringen flytter seg; ingen korthøyder endres, så ingenting skal
+    // føres på nytt.
+    anchorBusy = true;
+    try { anchorShift(-lån); } finally { anchorBusy = false; }
   }
   /* dnd-kits egen: et kort HELT OVER siktet endret høyde — typisk hullet som
      forlot lista over. Da skal det man svever over stå stille. Observatøren
@@ -4198,6 +4305,10 @@
     if (!root || (drag.kind !== 'item' && drag.kind !== 'category')) return;
     anchorBasePad = parseFloat(getComputedStyle(root).paddingTop) || 0;
     anchorPad = anchorFloor = anchorScrollOwn = 0;
+    anchorTrashOwed = 0;
+    anchorTrashHome = drag.trashHost || null;
+    anchorRowCard = null;
+    anchorRowAway.clear();
     anchorHeights.clear();
     anchorRO = new ResizeObserver(() => anchorObserved());
     root.querySelectorAll('.card').forEach((cEl) => {
@@ -4220,6 +4331,11 @@
     if (anchorFloor) root.style.minHeight = '';
     if (anchorScrollOwn) anchorScrollTo(anchorScrollPos() - anchorScrollOwn);
     anchorPad = anchorFloor = anchorScrollOwn = 0;
+    anchorTrashOwed = 0;
+    anchorTrashHome = anchorRowCard = null;
+    anchorRowAway.clear();
+    if (holeCol) { holeCol.style.paddingTop = ''; holeCol = null; }
+    holeShrunk = null; holeShrinkPx = holeColPad = 0;
   }
 
   /* ------- SLETT VED Å DRA OBJEKTET I SØPPELKASSEN -------
@@ -4343,7 +4459,7 @@
     setDragTrashTarget(false);
     const forrige = dragTrashBtn();
     const forrigeRad = forrige && forrige.closest('.item-trash');
-    withAnchor(() => {
+    const lånt = anchorBorrow(() => {
       if (forrige) forrige.classList.remove('drag-trash', 'drop-target');
       drag.trashHost = host;
       armDragTrash();
@@ -4351,7 +4467,11 @@
       // krymper med en knapperad, men DRA-ANKERET absorberer det, så verken det
       // man svever over eller terskelen inn i det flytter seg.
       hideRevealedTrash(forrige, forrigeRad);
-    });
+    }, [forrige, host]);
+    // Er kassa tilbake i lista draget startet i, er layouten der den var, og
+    // lånet gjøres opp (se blokken om lån ved `anchorBorrow`).
+    anchorTrashOwed += lånt;
+    if (host === anchorTrashHome) { anchorRepay(anchorTrashOwed); anchorTrashOwed = 0; }
     refreshTrashZones();
   }
   /* Kassene er SONER, og dnd-kit måler en droppable ÉN gang og beholder boksen
@@ -5139,13 +5259,8 @@
      Kortets boks er samtidig ekstraher-linja og kassens plass, så komprimeringen
      må ikke flytte den kanten draget sikter mot. Det er kompensasjonen under
      som holder den i ro — samme regel som dra-ankeret. */
-  let holeShrunk = null;      // containeren som bærer sammentrekningen
-  let holeMarginCard = null;  // kortet som bærer kompensasjonen
-  // Skriv en inline-stil bare når den faktisk endrer seg, og hold rede på hvem
-  // som bærer den, så den alltid kan tas av igjen.
-  function settStil(el, felt, verdi) {
-    if (el && el.style[felt] !== verdi) el.style[felt] = verdi;
-  }
+  // Skriv variabelen bare når den faktisk endrer seg, og hold rede på hvem som
+  // bærer den, så den alltid kan tas av igjen.
   function settVar(el, navn, verdi) {
     if (!el) return;
     if (el.style.getPropertyValue(navn) !== verdi) el.style.setProperty(navn, verdi);
@@ -5159,7 +5274,6 @@
       (kl.contains('is-extracting') || kl.contains('is-over-trash') || kl.contains('is-hole-astray'));
     const ph = drag.active ? dragScope().root.querySelector('[data-dnd-placeholder]') : null;
     const cont = ph ? ph.parentNode : null;
-    const card = ph ? ph.closest('.card') : null;
     kl.toggle('is-hole-gone', vekk && !!ph);
 
     /* PLASSEN tas av en negativ `margin-bottom` PÅ KLONEN — aldri av
@@ -5174,49 +5288,112 @@
        dras, og dnd-kit bygger den om fra originalens `style`-attributt — der vi
        selv maler rotasjonen hver frame (`dndPaintRotation`). MÅLT: attributtet
        ble skrevet i sin helhet, «rotate: …deg; margin-bottom: -56px» ble til
-       «rotate: …deg», og lista sto med en åpen rad igjen til neste runde. Verdien
-       legges derfor på CONTAINEREN, som er VÅR node, og klonen arver den
-       (`--hole-shrink` i styles.css).
-
-       Beløpet regnes ut fra bunnen hver runde, så det ikke kan komme i utakt med
-       de andre tingene som endrer kortets høyde (kasseraden kommer og går i det
-       samme kortet). */
+       «rotate: …deg», og lista sto med en åpen rad igjen til neste runde.
+       Verdien legges derfor på CONTAINEREN, som er VÅR node, og klonen arver den
+       (`--hole-shrink` i styles.css). */
     const boks = ph ? ph.getBoundingClientRect() : null;
     const gap = cont ? (parseFloat(getComputedStyle(cont).rowGap) || 0) : 0;
-    const beløp = vekk && boks ? boks.height + gap : 0;
+    const plass = boks ? boks.height + gap : 0;      // det hullet ville tatt åpent
+    const beløp = vekk ? plass : 0;
+    // Flyttet motoren hullet til en annen liste? Se blokken om lån ved
+    // `anchorNoteRowMove` — den fører motpost for kortet raden forlot.
+    anchorNoteRowMove(ph, plass);
 
-    /* KOMPENSASJONEN ER LOKAL. Kortet krymper med en radhøyde, og alt under det
-       ville rykket oppover midt under fingeren. I stedet får kortet selv en
-       `margin-top` på nøyaktig det samme beløpet: UNDERKANTEN står stille, og
-       bare overkanten flytter seg ned. Ingen andre kort, ingen board-padding og
-       ingen scroll rører seg — og kassa, som ligger nederst i kortet, blir
-       liggende der fingeren allerede sikter.
-
-       Retningen velges av siktet, samme regel som dra-ankeret: ligger siktet
-       UNDER hullet står underkanten stille; ligger det OVER — man drar oppover
-       forbi lista hullet ligger i — krymper kortet nedenfra, og overkanten
-       står. */
-    const komp = beløp && card && anchorAimY() >= boks.top ? beløp : 0;
-
-    /* De to bærerne settes i samme runde, ut fra det samme svaret: en
-       kompensasjon uten en sammentrekning ville vokst kortet med en radhøyde. */
     const nyCont = beløp ? cont : null;
-    const nyttKort = komp ? card : null;
-    if (holeShrunk && holeShrunk !== nyCont) holeShrunk.style.removeProperty('--hole-shrink');
-    if (holeMarginCard && holeMarginCard !== nyttKort) settStil(holeMarginCard, 'marginTop', '');
-    settVar(nyCont, '--hole-shrink', (-beløp) + 'px');
-    settStil(nyttKort, 'marginTop', komp + 'px');
-    const bar = holeMarginCard;
-    holeShrunk = nyCont;
-    holeMarginCard = nyttKort;
-    /* Endret kortets margin seg, endret det YTRE målet seg uten at boksen gjorde
-       det, og observatøren fyrer ikke på margin. Be om runden selv: et kort helt
-       over siktet skal fortsatt ikke dra det man svever over med seg. */
-    if (bar !== holeMarginCard) anchorObserved();
+    const verdi = (-beløp) + 'px';
+    if (holeShrunk !== nyCont ||
+        (nyCont && nyCont.style.getPropertyValue('--hole-shrink') !== verdi)) {
+      if (holeShrunk && holeShrunk !== nyCont) holeShrunk.style.removeProperty('--hole-shrink');
+      settVar(nyCont, '--hole-shrink', verdi);
+      holeShrunk = nyCont;
+    }
+
+    /* KOMPENSASJONEN HØRER TIL KOLONNEN, OG DEN ER EN TILSTAND.
+
+       Kortet krymper med en radhøyde, og alt under det i kolonnen ville rykket
+       opp under fingeren. Kolonnen får derfor en `padding-top` på nøyaktig det
+       hullet ikke lenger tar: alt OVER hullet flyttes ned, alt under står
+       stille, og listene over følger med.
+
+       KOLONNEN, IKKE KORTET. En `margin-top` på kortet selv holdt riktig kant i
+       ro, men bare kortet flyttet seg: listene OVER ble stående, og gapet mellom
+       dem vokste med en hel radhøyde (MÅLT: 28 → 84 px).
+
+       KOLONNEN, IKKE BOARD-ET. Kolonnene er ekte containere som lever
+       uavhengig, så en liste som krymper i kolonne 2 flytter ingenting i
+       kolonne 1. Skyver man board-et, flytter man kolonnene man ikke rørte —
+       MÅLT: ny-liste-stripa forsvant fordi kortet i NABOkolonnen kom ned over
+       siktet (`board-columns` 3 og 4).
+
+       EN TILSTAND, IKKE ET SKIFT. Beløpet regnes ut på nytt hver runde, og
+       polstringen finnes nøyaktig så lenge sammentrekningen finnes. Legger man
+       delta på delta i stedet, teller man med motorens egne flyttinger: hullet
+       tar plassen med seg til en annen liste, og polstringen fra den forrige
+       blir stående som ren luft (MÅLT: kortet man svever over rykket 56 px ned,
+       `dnd-layout-anchor` sjekk 4). Som tilstand kan luft heller ikke bygge seg
+       opp over listene, uansett hvor mange ganger man drar opp og ned.
+
+       RETNINGEN: bare når hullet ligger OVER siktet. Ligger det under — man drar
+       oppover, bort fra det — krymper lista nedenfra, og alt over siktet står
+       stille av seg selv. Kompenserer man likevel, kommer kanten man sikter MOT
+       nærmere fingeren, og ekstraher-terskelen slår inn for tidlig (MÅLT: 30 px,
+       `dnd-extract-thresholds` B3). */
+    const savnet = holeShrunk ? holeMissingPx(holeShrunk, boks.height, gap) : 0;
+    holeShrinkPx = savnet;
+    const kol = holeShrunk && savnet && (!boks || anchorAimY() >= boks.top)
+      ? holeShrunk.closest('.board-col') : null;
+    setHoleColPad(kol, kol ? savnet : 0);
+  }
+  /* Hvor mye MINDRE plass hullet tar nå enn om det sto åpent — nøyaktig det
+     polstringen skal gi tilbake.
+
+     Vanligvis hele raden pluss gapet. Men containeren har en min-høyde (tom
+     listes slippflate), og er raden den eneste i lista, stopper den der: da er
+     svaret bare det som stikker forbi gulvet. Gjettet man hele radhøyden, ble
+     kortet 22 px for langt ned, kassa gled ut under fingeren, hullet kom
+     tilbake — og så igjen: flimring (MÅLT med pekeren i ro). */
+  function holeMissingPx(cont, høyde, gap) {
+    const cs = getComputedStyle(cont);
+    const gulv = parseFloat(cs.minHeight) || 0;
+    const nå = cont.getBoundingClientRect().height;
+    // Ikke klemt mot gulvet: hullet ville tatt hele plassen sin — raden og gapet.
+    if (nå > gulv + 0.5) return høyde + gap;
+    // Klemt: da er lista så godt som tom, og de få radene som står igjen telles.
+    let sum = 0, n = 0;
+    [...cont.children].forEach((k) => {
+      const ks = getComputedStyle(k);
+      // Dra-objektet selv er tatt ut av flyten og fyller ingen rad; klonen er
+      // det vi regner plassen FOR.
+      if (k.hasAttribute('data-dnd-placeholder')) return;
+      if (ks.position === 'fixed' || ks.position === 'absolute' || ks.display === 'none') return;
+      const h = k.getBoundingClientRect().height;
+      if (!h) return;
+      sum += h + (parseFloat(ks.marginTop) || 0) + (parseFloat(ks.marginBottom) || 0);
+      n++;
+    });
+    /* Gapet finnes bare MELLOM rader: er hullet alene i lista, er det ingen
+       gap å gi tilbake, og en plass regnet med gapet ble 8 px for stor — nok
+       til at kassa flyttet seg like langt under fingeren (`dnd-layout-anchor`
+       sjekk 9). */
+    const uten = Math.max(gulv, sum + gap * Math.max(0, n - 1));
+    const med = Math.max(gulv, sum + høyde + gap * n);
+    return Math.max(0, med - uten);
+  }
+  /* Polstringen som holder kolonnen i ro mens hullet er lukket. Bæreren huskes,
+     så den alltid kan tas av igjen — også når hullet flytter seg til en annen
+     kolonne. */
+  function setHoleColPad(kol, px) {
+    if (holeCol && holeCol !== kol) { holeCol.style.paddingTop = ''; holeCol = null; holeColPad = 0; }
+    if (!kol) return;
+    holeCol = kol;
+    holeColPad = px;
+    kol.style.paddingTop = px ? px + 'px' : '';
+    if (!px) { holeCol = null; kol.style.paddingTop = ''; }
   }
   function clearHoleSpace() {
     if (holeShrunk) { holeShrunk.style.removeProperty('--hole-shrink'); holeShrunk = null; }
-    if (holeMarginCard) { settStil(holeMarginCard, 'marginTop', ''); holeMarginCard = null; }
+    if (holeCol) { holeCol.style.paddingTop = ''; holeCol = null; }
+    holeShrinkPx = holeColPad = 0;
     document.body.classList.remove('is-hole-gone');
   }
 
@@ -7189,7 +7366,7 @@
     } finally {
       dndRowPolicyBusy = false;
       // Til slutt, når modusen er avgjort av `update()`: lukk hullet helt om det
-      // ikke lover noe, og la kortet bære kompensasjonen selv.
+      // ikke lover noe, og betal tilbake det ankeret ikke lenger kan skylde.
       syncHoleSpace();
     }
   }

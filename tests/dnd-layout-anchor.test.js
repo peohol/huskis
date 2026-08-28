@@ -29,6 +29,17 @@
        board som vandrer.
     7. Ved slipp er alt ryddet: ingen padding, ingen hevet min-høyde, og
        scrollen tilbake der den var.
+    9. INGEN FLIMRING: med pekeren i ro på kassen i en liste med ÉN rad står
+       tilstanden og knappen bom stille. Kompensasjonen må være det lista
+       FAKTISK krympet — containerens min-høyde gjør at en hel radhøyde er for
+       mye, og da glir kassa ut under fingeren og hullet kommer tilbake.
+   10. INGEN GAP: når en liste komprimerer, følger listene OVER med nedover.
+       Kompensasjonen ligger på kolonnen, ikke på kortet, så avstanden mellom
+       kortene er den samme som i hvile.
+   11. INGEN LUFT SOM BYGGER SEG OPP: fire turer opp og ned over alle listene
+       etterlater like mye polstring som den første. En kompensasjon som ikke kan
+       føres tilbake når siktet har flyttet seg, blir ellers stående, og
+       tomrommet over den øverste lista vokser for hver tur.
     8. MAKSIMAL KOMPRIMERING: ingen liste står med en åpen rad. Gjennom et helt
        drag — ned gjennom lista under, ut mellom kortene, bort på kassene og
        tilbake opp — skal ingen container ha plass som ingen malt rad fyller.
@@ -236,15 +247,25 @@ async function oppover(label, viewport) {
     etter.y > før.y && etter.maks >= etter.y,
     JSON.stringify({ y: [før.y, etter.y], maks: etter.maks, minH: etter.minH }));
 
-  // 6) Fram og tilbake fire ganger: skiftet skal falle inn i en STABIL syklus,
-  //    ikke vandre et hakk for hver runde.
+  /* 6) Fram og tilbake fire ganger: skiftet skal falle inn i en STABIL syklus,
+        ikke vandre et hakk for hver runde.
+
+     Både polstringen OG scrollen måles, hver for seg. Differansen alene lyver:
+     vokser de i takt, står innholdet stille i ruta mens board-et blir høyere og
+     høyere — «luft over den øverste lista» som bare bygger seg opp. MÅLT før
+     lånebokføringen: pad 165 → 389 → 669 → 893 med scrollen etter seg, mens
+     differansen sto stille på ~116. */
   const skift = [];
+  const pad = [];
   for (let runde = 0; runde < 4; runde++) {
     for (let dy = -40; dy >= -260; dy -= 20) await dra(p, x, y + dy, 2);
     for (let dy = -240; dy <= 40; dy += 20) await dra(p, x, y + dy, 2);
     const s = await snap(p);
     skift.push(+(s.anker.pad - s.anker.scroll).toFixed(1));
+    pad.push(+s.anker.pad.toFixed(1));
   }
+  log(label + ' 6: ingen luft bygger seg opp — polstringen vokser ikke per runde',
+    pad.slice(1).every((v) => nær(v, pad[1], 2)), JSON.stringify(pad));
   const sisteTre = skift.slice(1);
   log(label + ' 6: ingen drift — skiftet faller inn i en stabil syklus',
     sisteTre.every((v) => nær(v, sisteTre[0], 2)), JSON.stringify(skift));
@@ -371,6 +392,130 @@ async function komprimert(label, viewport) {
   await p.close(); await b.close();
 }
 
+/* ============ 9) Ingen flimring, og ingen gap mellom listene ============ */
+
+/* Én liste med ÉN rad over en liste med to. Den ene raden er det strengeste
+   tilfellet: lukkes hullet, stopper containeren på sin egen min-høyde, og en
+   kompensasjon regnet ut fra radhøyden blir for stor. */
+async function seedEn(p) {
+  await p.evaluate(() => {
+    const H = window.__huskis, st = H.state;
+    const mk = (o) => Object.assign({ ts: 1, org: 't', pos: 0, posTs: 1, posOrg: 't',
+      trashed: false, _role: 'owner' }, o);
+    st.universes.length = 0;
+    const u = mk({ id: 'UNI', name: 'Hjemme', collapsed: false, groups: [] });
+    const g = mk({ id: 'GRP', uni: 'UNI', name: 'Ukesplan', cat: null, isCat: false, collapsed: false, cards: [] });
+    u.groups.push(g);
+    const a = mk({ id: 'L0', group: 'GRP', title: 'Liste 0', collapsed: false, items: [] });
+    a.items.push(mk({ id: 'X0', home: 'L0', text: 'Over', cat: null, isCat: false }));
+    const b2 = mk({ id: 'L1', group: 'GRP', title: 'Liste A', collapsed: false, items: [], pos: 1 });
+    b2.items.push(mk({ id: 'A1', home: 'L1', text: 'Brød', cat: null, isCat: false }));
+    const c = mk({ id: 'L2', group: 'GRP', title: 'Liste B', collapsed: false, items: [], pos: 2 });
+    c.items.push(mk({ id: 'B0', home: 'L2', text: 'Sykkel', cat: null, isCat: false }));
+    c.items.push(mk({ id: 'B1', home: 'L2', text: 'Sko', cat: null, isCat: false, pos: 1 }));
+    g.cards.push(a, b2, c);
+    st.universes.push(u);
+    st.activeUniverse = 'UNI'; st.activeGroup = 'GRP';
+    H.render();
+  });
+  await p.waitForTimeout(400);
+}
+
+// Kortbokser og gapene mellom dem, i den kolonnen kortene står i.
+const bilde = (p) => p.evaluate(() => {
+  const kort = [...document.querySelectorAll('.card')].map((c) => ({
+    id: c.dataset.id,
+    t: +c.getBoundingClientRect().top.toFixed(1),
+    b: +c.getBoundingClientRect().bottom.toFixed(1),
+  }));
+  const gap = [];
+  for (let i = 1; i < kort.length; i++) gap.push(+(kort[i].t - kort[i - 1].b).toFixed(1));
+  const kn = document.querySelector('.card[data-id="L1"] .item-trash-btn');
+  return {
+    kort, gap,
+    kl: [...document.body.classList].filter((c) => /^is-/.test(c)).join(','),
+    knapp: kn ? +kn.getBoundingClientRect().top.toFixed(1) : null,
+  };
+});
+
+async function iRoOgUtenGap(label, viewport) {
+  const b = await chromium.launch();
+  const p = await b.newPage({ viewport });
+  const errs = []; p.on('pageerror', (e) => errs.push(e.message));
+  await register(p); await seedEn(p);
+  const hvile = await bilde(p);
+
+  const { x, y } = await løft(p, 'A1');
+  // Kassa slik den står FØR komprimeringen: den skal ikke flytte seg en piksel
+  // av at hullet lukkes. Uten fiksen kompenseres hele radhøyden, mens lista bare
+  // krympet til sin egen min-høyde, og kortet vokser med differansen.
+  const kasse = await p.locator('.card[data-id="L1"] .item-trash-btn').boundingBox();
+  const knappFør = +(await bilde(p)).knapp;
+  for (let i = 1; i <= 12; i++) {
+    await dra(p, x, y + (kasse.y + kasse.height / 2 - y) * i / 12, 1);
+  }
+  // Pekeren HELT i ro: ingenting skal røre seg. Uten fiksen slår tilstanden
+  // fram og tilbake fordi kompensasjonen er større enn det lista faktisk
+  // krympet, og kassa glir ut under fingeren.
+  const iRo = [];
+  for (let i = 0; i < 16; i++) {
+    await p.mouse.move(x, kasse.y + kasse.height / 2);
+    await p.waitForTimeout(60);
+    iRo.push(await bilde(p));
+  }
+  const tilstander = [...new Set(iRo.map((s) => s.kl))];
+  const knapper = [...new Set(iRo.map((s) => s.knapp))];
+  log(label + ' 9: pekeren i ro på kassen — ingen flimring (16 prøver)',
+    tilstander.length === 1 && knapper.length === 1,
+    JSON.stringify({ tilstander, knapper }));
+  log(label + ' 9: …og kassa står der den sto før hullet lukket seg',
+    iRo[0].kl.includes('is-over-trash') && nær(knapper[0], knappFør, 1.5),
+    JSON.stringify({ før: knappFør, nå: knapper[0], kl: iRo[0].kl }));
+
+  // 10) Lista komprimerer: gapene i kolonnen skal være DE SAMME som i hvile —
+  //     lista over følger med nedover i stedet for å bli stående igjen.
+  const nå = iRo[iRo.length - 1];
+  log(label + ' 10: ingen gap åpner seg mellom listene når en liste komprimerer',
+    nå.gap.length === hvile.gap.length && nå.gap.every((g, i) => nær(g, hvile.gap[i], 1.5)),
+    JSON.stringify({ hvile: hvile.gap, nå: nå.gap }));
+  /* 11) Turer opp og ned over ALLE listene, mange ganger: polstringen skal ikke
+        vokse. Det er her luften bygger seg opp — hver tur tar opp en
+        kompensasjon som ikke kan føres tilbake når siktet har flyttet seg, og
+        MÅLT uten lånebokføringen vokste den 56–112 px per tur, i det uendelige. */
+  const bunn = (await p.locator('.card[data-id="L2"]').boundingBox());
+  const luft = [];
+  for (let runde = 0; runde < 4; runde++) {
+    for (let ny2 = y; ny2 <= bunn.y + bunn.height + 20; ny2 += 24) await dra(p, x, ny2, 1);
+    for (let ny2 = bunn.y + bunn.height + 20; ny2 >= 90; ny2 -= 24) await dra(p, x, ny2, 1);
+    await dra(p, x, y, 2);
+    const a = await snap(p);
+    /* Ankerets EGNE knapper, ikke `window.scrollY`: dra-motorens auto-scroll
+       flytter siden når fingeren er nær kanten, og den er ikke drift. */
+    luft.push({ pad: +a.anker.pad.toFixed(1), egen: +a.anker.scroll.toFixed(1) });
+  }
+  /* Grensen er hva som FAKTISK kan mangle over siktet: den løftede raden, den
+     komprimerte raden og kasseraden — under 170 px i dette fikstureret. Alt over
+     det er drift, og den vokser per tur: MÅLT 893 px etter fire turer før
+     lånebokføringen. */
+  const tak = 170;
+  log(label + ' 11: ingen luft bygger seg opp over listene (4 turer over alle listene)',
+    luft.every((v) => v.pad + v.egen <= tak),
+    JSON.stringify({ luft, tak }));
+
+  /* Slipp raden INNE i lista igjen: et slipp i lufta mellom kortene lager en ny
+     liste, og da er det en annen layout vi sammenligner med. */
+  const l1 = await p.locator('.card[data-id="L1"]').boundingBox();
+  await dra(p, x, l1.y + l1.height / 2, 4);
+  await dra(p, x, l1.y + l1.height / 2, 2);
+  await p.mouse.up(); await p.waitForTimeout(600);
+  const slutt = await bilde(p);
+  log(label + ' 10: gapene er de samme igjen etter slipp',
+    slutt.gap.every((g, i) => nær(g, hvile.gap[i], 1.5)),
+    JSON.stringify({ hvile: hvile.gap, slutt: slutt.gap }));
+  log(label + ' 9–10: ingen JS-feil', errs.length === 0, errs.join(' | '));
+  await p.close(); await b.close();
+}
+
 (async () => {
   await nedover('desktop', { width: 1280, height: 900 });
   await nedover('mobil', { width: 390, height: 780 });
@@ -378,6 +523,8 @@ async function komprimert(label, viewport) {
   await oppover('mobil', { width: 390, height: 780 });
   await komprimert('desktop', { width: 1280, height: 900 });
   await komprimert('mobil', { width: 390, height: 780 });
+  await iRoOgUtenGap('desktop', { width: 1280, height: 900 });
+  await iRoOgUtenGap('mobil', { width: 390, height: 780 });
   const failed = results.filter((x) => !x).length;
   console.log('\n==== ' + (results.length - failed) + '/' + results.length + ' PASS ====');
   process.exit(failed ? 1 : 0);
