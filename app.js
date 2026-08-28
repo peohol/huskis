@@ -9083,14 +9083,20 @@
     const nameEl = document.createElement('span');
     nameEl.className = 'search-result-name';
     nameEl.textContent = hit.name || tr('common.noName');
-    // Typen i klartekst PLUSS forfedrene: to lister som heter det samme i hver
-    // sin mappe er ikke til å skille på navnet alene, og ikonet sier bare hva
-    // slags objekt det er — ikke hvor det står.
+    // Forfedrene, ikke typen: ikonet sier allerede hva slags objekt raden er,
+    // så «Liste · …» foran stien ville bare gjentatt det. Typen står likevel i
+    // teksten — usynlig for øyet, men til stede for skjermlesere, som ikke ser
+    // ikonet (docs/tilgjengelighet.md, «Lister man velger i»).
     const meta = document.createElement('span');
     meta.className = 'search-result-meta';
-    meta.textContent = hit.path.length
-      ? tr('search.rowMeta', { kind: tr(SEARCH_TYPE_LABEL[hit.type]), path: hit.path.join(SEARCH_PATH_SEP) })
-      : tr(SEARCH_TYPE_LABEL[hit.type]);
+    const kindEl = document.createElement('span');
+    kindEl.className = 'visually-hidden';
+    // Kolon+mellomrom ligger INNI det skjulte spennet: skjermleseren hører et
+    // naturlig skille («Liste: Arbeid › Klinikk»), mens øyet ser ingenting av
+    // det — hele spennet er klippet bort, ikke bare stylet usynlig i farge.
+    kindEl.textContent = tr(SEARCH_TYPE_LABEL[hit.type]) + (hit.path.length ? ': ' : '');
+    meta.appendChild(kindEl);
+    if (hit.path.length) meta.appendChild(document.createTextNode(hit.path.join(SEARCH_PATH_SEP)));
     main.append(nameEl, meta);
 
     // Aktiv rad bæres av mer enn farge (docs/tilgjengelighet.md).

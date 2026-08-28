@@ -171,9 +171,10 @@ skjermleseren sier fram raden av seg selv.
 To ting som er lette å glemme i et slikt mønster, og som gjelder alle framtidige
 valglister: **antallet treff** må leses opp et sted (et visuelt skjult
 `role="status"`), og **den aktive raden kan ikke bæres av farge alene** — i
-søket står typen i klartekst i raden, og den aktive raden har en pilspiss ved
-siden av kanten og flaten. Autoritativt for resten av søket:
-`sok-og-navigering.md`.
+søket bærer ikonet typen visuelt og den aktive raden har en pilspiss ved siden
+av kanten og flaten. Typen er likevel ikke borte for skjermleseren: den ligger
+i et `.visually-hidden`-spenn i raden, siden ikonet er `aria-hidden`.
+Autoritativt for resten av søket: `sok-og-navigering.md`.
 
 ## Lister man bare trykker i (hendelsesradene)
 

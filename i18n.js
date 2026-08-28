@@ -266,9 +266,6 @@
     'search.resultsLabel': ['Søkeresultater', 'Search results'],
     'search.hint':         ['Søket dekker alt du har tilgang til: områder, mapper, lister, kategorier og listepunkter.',
                             'The search covers everything you have access to: workspaces, folders, lists, categories and items.'],
-    // Typen + kontekststien under navnet i et søketreff. Skilletegnet er det
-    // samme i begge språk (som breadcrumbens).
-    'search.rowMeta':      ['{kind} \u00B7 {path}', '{kind} \u00B7 {path}'],
     'search.noHits':       ['Ingen treff på {q}.', 'No matches for {q}.'],
     'search.hits.one':     ['{n} treff.', '{n} match.'],
     'search.hits.other':   ['{n} treff.', '{n} matches.'],
