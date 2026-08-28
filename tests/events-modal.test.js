@@ -30,8 +30,10 @@
         lukkes — og en frist som PASSERER mens modalen står åpen flytter seg
         til «Frist utløpt» uten at noe i tilstanden endret seg.
      9. i18n: modalen finnes på både norsk og engelsk.
-    10. Farge er aldri eneste bærer, og ikonene i modalen ser LIKE ut i lys og
-        mørk drakt — hele modalen pinner ikonstreken og «papiret».
+    10. Farge er aldri eneste bærer. Gruppens statusikon står på en
+        kontraktsflate og pinner derfor streken sin, lik i begge drakter;
+        radens typeikon står rett på modalflaten og FØLGER drakten, så det
+        platefrie kategori-ikonet ikke forsvinner i en mørk rad.
 
   Kjøres på BÅDE desktop- og mobil-viewport: modalen legger tidspunktet på
   egen linje under 560 px, og kalenderknappen skal virke begge steder.
@@ -394,30 +396,67 @@ async function run(label, viewport, touchMode) {
   await seed(p, buildDB());
   await p.locator('#events-btn').click();
   await p.waitForSelector('#events-modal:not([hidden])');
-  const farge = await p.evaluate(() => {
+  const les = () => p.evaluate(() => {
     const strek = (sel) => {
       const el = document.querySelector(sel);
       if (!el) return null;
       const cs = getComputedStyle(el);
       return cs.getPropertyValue('--icon-ink').trim() + '/' + cs.getPropertyValue('--icon-paper').trim();
     };
+    /* Kategori-ikonet er det ENESTE typeikonet uten «papir» under seg — bare
+       streker. Blir de stående mørke i mørk drakt, forsvinner ikonet i raden,
+       så det er akkurat dette paret (strek mot radflate) som må måles. */
+    const katRad = document.querySelector('.event-row[data-type="category"]');
     return {
-      gruppe: strek('.event-icon'), rad: strek('.event-row-icon'), modal: strek('.events-modal'),
+      rot: strek(':root'), gruppe: strek('.event-icon'), rad: strek('.event-row-icon'),
+      kat: {
+        strek: getComputedStyle(katRad.querySelector('.event-row-icon svg path')).stroke,
+        flate: getComputedStyle(katRad).backgroundColor,
+        skygge: getComputedStyle(katRad.querySelector('.event-row-icon .icon')).filter,
+      },
       // Flatene bak gruppeikonene skal være SEKS ulike, ikke gjenbrukte.
       flater: [...new Set([].slice.call(document.querySelectorAll('.event-icon'))
         .map((e) => getComputedStyle(e).backgroundImage))].length,
     };
   });
-  log(label + ' 10a: hele modalen pinner ikonstreken og papiret',
-    farge.modal === '#111111/#ffffff', JSON.stringify(farge));
-  log(label + ' 10b: både gruppe- og radikonene arver pinningen',
-    farge.gruppe === farge.modal && farge.rad === farge.modal, JSON.stringify(farge));
-  log(label + ' 10d: hver gruppe har sin EGEN flate — ingen farge er gjenbrukt',
-    farge.flater === (await modalTree(p)).reduce((n, sec) => n + sec.grupper.length, 0),
-    'ulike flater: ' + farge.flater);
+  const lys = await les();
+  await p.evaluate(() => window.HUSKIS_THEME.setMode('dark'));
+  /* Fast venting med vilje (animasjonsfysikk): `.event-row` toner bakgrunnen
+     over 0,15 s, og en avlesning midt i overgangen gir fortsatt den LYSE
+     flaten — mens streken, som ikke har noen overgang, alt har snudd. */
+  await p.waitForTimeout(300);
+  const mørk = await les();
+  log(label + ' 10a: gruppeikonet pinner streken på sin egen kontraktsflate — likt i begge drakter',
+    lys.gruppe === '#111111/#ffffff' && mørk.gruppe === '#111111/#ffffff',
+    JSON.stringify({ lys: lys.gruppe, mørk: mørk.gruppe }));
+  log(label + ' 10b: radens typeikon står utenfor pinningen — det følger drakten',
+    lys.rad === lys.rot && mørk.rad === mørk.rot && mørk.rad !== mørk.gruppe,
+    JSON.stringify({ lys: lys.rad, mørk: mørk.rad, rotMørk: mørk.rot }));
+  const kontrast = (a, b) => {
+    const rel = (c) => {
+      const [r, g, bl] = c.match(/[\d.]+/g).slice(0, 3).map((v) => {
+        const x = Number(v) / 255;
+        return x <= 0.03928 ? x / 12.92 : Math.pow((x + 0.055) / 1.055, 2.4);
+      });
+      return 0.2126 * r + 0.7152 * g + 0.0722 * bl;
+    };
+    const x = rel(a), y = rel(b);
+    return (Math.max(x, y) + 0.05) / (Math.min(x, y) + 0.05);
+  };
+  for (const [drakt, d] of [['lys', lys], ['mørk', mørk]]) {
+    const v = kontrast(d.kat.strek, d.kat.flate);
+    log(label + ' 10c: det platefrie kategori-ikonet skiller seg fra raden i ' + drakt + ' drakt — '
+      + v.toFixed(2) + ':1 (krav 3:1)', v >= 3, JSON.stringify(d.kat));
+  }
+  log(label + ' 10d: typeikonet kaster en liten skygge, så streken løftes fra raden',
+    /drop-shadow/.test(lys.kat.skygge) && /drop-shadow/.test(mørk.kat.skygge), mørk.kat.skygge);
+  await p.evaluate(() => window.HUSKIS_THEME.setMode('light'));
+  log(label + ' 10e: hver gruppe har sin EGEN flate — ingen farge er gjenbrukt',
+    lys.flater === (await modalTree(p)).reduce((n, sec) => n + sec.grupper.length, 0),
+    'ulike flater: ' + lys.flater);
   const tekstbærere = await p.evaluate(() => [].slice.call(document.querySelectorAll('.events-group-head'))
     .every((h) => h.textContent.replace(/\d+/g, '').trim().length > 3));
-  log(label + ' 10c: hver gruppe sier i KLARTEKST hva den er, ikke bare med farge', tekstbærere);
+  log(label + ' 10f: hver gruppe sier i KLARTEKST hva den er, ikke bare med farge', tekstbærere);
 
   log(label + ': ingen JS-feil', errs.length === 0, errs.join(' | '));
   await browser.close();

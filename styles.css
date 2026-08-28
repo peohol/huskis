@@ -3660,15 +3660,13 @@ body.no-auth .corner-controls { display: none; }
    eneste bærer: overskriften står i klartekst, og radens navn sier typen
    (docs/tilgjengelighet.md).
 
-   IKONENE SNUR IKKE med drakten her. Modalen pinner `--icon-ink`/`--icon-paper`
-   for hele subtreet, som `.btn-solid` gjør: platene under gruppeikonene er
-   kontraktsfarger som er like i begge drakter, og da skal strekene være det
-   også. Det gjør også typeikonene i radene identiske lyst og mørkt. */
-.events-modal {
-  --icon-ink: #111111;
-  --icon-paper: #ffffff;
-  --icon-grey: #c0c4c9;
-}
+   PINNINGEN FØLGER PLATEN, ikke modalen. Gruppens statusikon står på en
+   kontraktsgradient som er den samme i begge drakter, så det pinner
+   `--icon-ink`/`--icon-paper` for seg selv, akkurat som `.btn-solid` gjør.
+   Typeikonet i raden har ingen plate — det står rett på modalflaten, og den
+   SNUR med drakten, så streken må snu med den. Et av typeikonene (kategori) er
+   bare streker, uten «papir» å bli sett på: pinnet mørk ble det nesten
+   usynlig på en mørk rad. */
 .events-body {
   flex: 1 1 auto;
   min-height: 0;
@@ -3735,7 +3733,16 @@ body.no-auth .corner-controls { display: none; }
   display: grid;
   place-items: center;
 }
-.event-row-icon .icon { width: 1em; height: 1em; font-size: 21px; }
+/* Litt skygge, så den lyse streken i mørk drakt løftes fra raden i stedet for
+   å ligge flatt i den. `filter` og ikke `box-shadow`: boksen er gjennomsiktig,
+   det er GLYFEN som skal kaste skyggen. Svart i begge drakter — den mørkner
+   både en lys og en mørk flate. */
+.event-row-icon .icon {
+  width: 1em;
+  height: 1em;
+  font-size: 21px;
+  filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.3));
+}
 .event-row-main { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
 .event-row-name {
   font-size: var(--fs-base);
@@ -3772,6 +3779,12 @@ body.no-auth .corner-controls { display: none; }
   border-radius: 999px;
   background: var(--chip-bg);
   box-shadow: 0 1px 3px rgba(35, 45, 55, 0.16);
+  /* Kontraktsfargene under glyfen er de samme i begge drakter, så glyfen skal
+     stå stille også. Custom properties arver, så pinningen her dekker hele
+     ikonet uten en eneste ekstra selektor — samme grep som `.btn-solid`. */
+  --icon-ink: #111111;
+  --icon-paper: #ffffff;
+  --icon-grey: #c0c4c9;
 }
 .event-icon .icon { width: 1em; height: 1em; font-size: 15px; }
 .event-icon.is-over { background: var(--grad-red); }

@@ -329,10 +329,11 @@ Størrelse/form kommer fra egne klasser: `.btn` (modaler), `.btn-small`,
   (uten flate). Statusflatene er de samme gradientene som `.meta-chip`-statusene
   (`is-over`, `is-soon`, `is-started`) pluss `is-later` (grønn) og de to som
   bare finnes her: `is-startsoon` (`--grad-purple`) og `is-startlater`
-  (`--grad-blue`) — startgruppene skal ikke låne varselfargene. HELE modalen
-  pinner `--icon-ink`/`--icon-paper`, som `.btn-solid` gjør, så ikonene ser like
-  ut i begge drakter. `.events-group + .events-group` legger skillelinjen
-  mellom to grupper. Se `docs/kommende-hendelser.md`.
+  (`--grad-blue`) — startgruppene skal ikke låne varselfargene. `.event-icon`
+  pinner `--icon-ink`/`--icon-paper` for seg selv, som `.btn-solid` gjør, siden
+  platen er den samme i begge drakter; `.event-row-icon` har ingen plate, følger
+  drakten og kaster en liten `drop-shadow`. `.events-group + .events-group`
+  legger skillelinjen mellom to grupper. Se `docs/kommende-hendelser.md`.
 - `.account-form` (+ `-label`/`-row`) og `.account-msg`: endre navn/e-post i
   konto-modalen (etikett over felt, Lagre-knapp på samme rad). «Bilde»-seksjonen
   bruker den samme klassen uten å være et `<form>` — mønsteret er etikett over

@@ -51,10 +51,13 @@ så de to siste startgruppene har sine EGNE flater (`--grad-purple`,
 gradientene som statuschipene (`docs/design-system.md`). Alle seks flatene er
 med i kontrastkontrakten (`docs/tilgjengelighet.md`).
 
-**Ikonene ser like ut i lys og mørk drakt.** Modalen pinner `--icon-ink` og
-`--icon-paper` for hele subtreet, slik `.btn-solid` gjør: platene under
-gruppeikonene er kontraktsfarger som er de samme i begge drakter, og da skal
-strekene være det også — det gjelder også typeikonene i radene.
+**Pinningen følger platen, ikke modalen.** Gruppeikonet står på en
+kontraktsgradient som er den samme i begge drakter, så `.event-icon` pinner
+`--icon-ink` og `--icon-paper` for seg selv, slik `.btn-solid` gjør: er flaten
+den samme lyst og mørkt, skal streken oppå være det også. Radens typeikon står
+derimot rett på modalflaten, og den SNUR med drakten — så streken må snu med
+den. Kategori-ikonet er dessuten det eneste av de tre uten «papir» under seg:
+pinnet mørkt ble det nesten usynlig i en mørk rad.
 
 Bare grupper som HAR rader tegnes, og finnes ingen hendelser i det hele tatt,
 står det én linje om det. Antallet rader i en gruppe telles ikke opp: radene
@@ -71,7 +74,9 @@ så stor som luften inne i én, og grupperingen leses uten å telle rader.
 (`Arbeid › Klinikk`), og tiden i enden. Typen står ikke i teksten — den er
 ikonet: liste, kategori eller listepunkt (`ICONS.list` / `.category` / `.item`;
 listepunktets er listens motiv med én rad i stedet for tre). Radene bærer
-altså IKKE gruppens statusikon: fargen står én gang, i overskriften.
+altså IKKE gruppens statusikon: fargen står én gang, i overskriften. Ikonet har
+ingen plate, men kaster en liten skygge, så den lyse streken i mørk drakt
+løftes fra raden i stedet for å ligge flatt i den.
 
 **Tiden er to linjer.** Øverst avstanden i tid, under den den konkrete datoen.
 Avstanden vises bare innenfor sju døgn hver vei — lenger ut sier datoen alene

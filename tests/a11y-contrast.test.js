@@ -567,18 +567,26 @@ if (darkBlock) {
   }
 
   console.log('\n--- Statusflatene i «Kommende hendelser» ---');
-  /* Modalen pinner ikonstreken MØRK for hele subtreet (`.events-modal`), så
-     ikonene ser like ut i begge drakter — se docs/kommende-hendelser.md. Da
-     må hver eneste gruppeflate bære en svart strek på 3:1, også de to som
-     bare finnes her (startgruppene skal ikke låne varselfargene). */
+  /* PINNINGEN FØLGER PLATEN, ikke modalen: gruppens statusikon (`.event-icon`)
+     står på en kontraktsgradient som er den samme i begge drakter, så det
+     pinner streken mørk for seg selv — se docs/kommende-hendelser.md. Da må
+     hver eneste gruppeflate bære den svarte streken på 3:1, også de to som
+     bare finnes her (startgruppene skal ikke låne varselfargene).
+
+     Modalen som HELHET skal ikke pinne noe. Radens typeikon står rett på
+     modalflaten, som snur med drakten, og kategori-ikonet er bare streker uten
+     «papir» å bli sett på — pinnet mørkt forsvant det i en mørk rad. Streken
+     der er --icon-ink, som allerede måles mot --surface-2 lenger oppe. */
   {
-    const pinned = ((css.match(/\.events-modal\s*\{([^}]*)\}/) || [])[1] || '')
-      .match(/--icon-ink:\s*(#[0-9a-f]{3,8})/i);
-    check('.events-modal pinner en MØRK ikonstrek for hele modalen',
+    const modalRule = (css.match(/\.events-modal\s*\{([^}]*)\}/) || [])[1] || '';
+    check('.events-modal pinner IKKE ikonfargene — radens typeikon følger drakten',
+      !/--icon-(ink|paper|grey)\s*:/.test(modalRule), { regel: modalRule.trim() });
+    const iconRule = (css.match(/\.event-icon\s*\{([^}]*)\}/) || [])[1] || '';
+    const pinned = iconRule.match(/--icon-ink:\s*(#[0-9a-f]{3,8})/i);
+    check('.event-icon pinner en MØRK ikonstrek på sin egen kontraktsflate',
       !!pinned && lum(pinned[1]) < 0.1, { pinned: pinned && pinned[1] });
-    const paper = ((css.match(/\.events-modal\s*\{([^}]*)\}/) || [])[1] || '')
-      .match(/--icon-paper:\s*(#[0-9a-f]{3,8})/i);
-    check('.events-modal pinner «papiret» sammen med streken',
+    const paper = iconRule.match(/--icon-paper:\s*(#[0-9a-f]{3,8})/i);
+    check('.event-icon pinner «papiret» sammen med streken',
       !!paper && lum(paper[1]) > 0.5, { paper: paper && paper[1] });
     const strek = (pinned && pinned[1]) || '#111111';
     const ark = (paper && paper[1]) || '#ffffff';
