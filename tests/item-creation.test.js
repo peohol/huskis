@@ -5,7 +5,8 @@
   står midtstilt nederst i lista og oppretter objektet MED ÉN GANG — det dukker opp
   på plassen sin med navnefeltet blankt og fokusert. Bekrefter man uten å skrive
   noe (Enter på tomt felt, Escape, eller klikk ut), fjernes det nyopprettede
-  objektet igjen. Samme regel gjelder ＋-knappen inne i en kategori.
+  objektet igjen. Når et listepunkt får navn, opprettes neste blanke punkt
+  automatisk. Samme regel gjelder ＋-knappen inne i en kategori.
 
   Kjør:
     python3 -m http.server 8000                     # fra repo-roten, i egen terminal
@@ -119,30 +120,55 @@ async function run(label, vp, mobile) {
 
   await p.keyboard.type('Nytt punkt'); await p.keyboard.press('Enter'); await p.waitForTimeout(250);
   let st = await rows(p);
-  log(label + ' 2: navngitt listepunkt lagret',
-    st.length === 2 && st[1].text === 'Nytt punkt' && !st[1].isCat, JSON.stringify(st));
+  let dom = await domCount(p);
+  log(label + ' 2: navngitt listepunkt lagret og nytt blankt punkt åpnet',
+    st.length === 3 && st[1].text === 'Nytt punkt' && !st[1].isCat && st[2].text === '' && dom.editing === 1,
+    JSON.stringify(st) + ' dom=' + JSON.stringify(dom));
 
-  /* ---------- 3) Tomt navn + Enter → objektet slettes ---------- */
+  await p.keyboard.type('Punkt to'); await p.keyboard.press('Enter'); await p.waitForTimeout(250);
+  st = await rows(p);
+  dom = await domCount(p);
+  log(label + ' 2: også det automatisk opprettede punktet fortsetter kjeden',
+    st.length === 4 && st[2].text === 'Punkt to' && st[3].text === '' && dom.editing === 1,
+    JSON.stringify(st) + ' dom=' + JSON.stringify(dom));
+  await p.keyboard.press('Enter'); await p.waitForTimeout(250);
+  st = await rows(p);
+  log(label + ' 2: automatisk punkt uten navn slettes med Enter', st.length === 3, JSON.stringify(st));
+
+  /* ---------- 3) Klikk ut lagrer navnet, lager neste punkt og fjerner et blankt neste punkt ---------- */
+  await card.locator('.add-item-btn').click(); await p.waitForTimeout(200);
+  await p.keyboard.type('Nytt med klikk');
+  await p.locator('#topbar').click({ position: { x: 5, y: 5 } }); await p.waitForTimeout(250);
+  st = await rows(p); dom = await domCount(p);
+  log(label + ' 3: klikk ut lagrer og åpner et nytt blankt punkt',
+    st.length === 5 && st[3].text === 'Nytt med klikk' && st[4].text === '' && dom.editing === 1,
+    JSON.stringify(st) + ' dom=' + JSON.stringify(dom));
+  await p.locator('#topbar').click({ position: { x: 5, y: 5 } }); await p.waitForTimeout(250);
+  st = await rows(p); dom = await domCount(p);
+  log(label + ' 3: klikk ut fra automatisk punkt uten navn sletter det',
+    st.length === 4 && dom.editing === 0, JSON.stringify(st) + ' dom=' + JSON.stringify(dom));
+
+  /* ---------- 4) Tomt navn + Enter → objektet slettes ---------- */
   await card.locator('.add-item-btn').click(); await p.waitForTimeout(200);
   await p.keyboard.press('Enter'); await p.waitForTimeout(250);
   st = await rows(p);
-  let dom = await domCount(p);
-  log(label + ' 3: tomt listepunkt + Enter → slettet (state + DOM)',
-    st.length === 2 && dom.items === 2 && dom.editing === 0, JSON.stringify(st) + ' dom=' + JSON.stringify(dom));
+  dom = await domCount(p);
+  log(label + ' 4: tomt listepunkt + Enter → slettet (state + DOM)',
+    st.length === 4 && dom.items === 4 && dom.editing === 0, JSON.stringify(st) + ' dom=' + JSON.stringify(dom));
 
   /* ---------- 4) Kategori: navngitt beholdes, tom + Enter slettes ---------- */
   await card.locator('.add-cat-btn').click(); await p.waitForTimeout(200);
   await p.keyboard.type('Min kategori'); await p.keyboard.press('Enter'); await p.waitForTimeout(250);
   st = await rows(p);
   log(label + ' 4: navngitt kategori lagret',
-    st.length === 3 && st[2].isCat && st[2].text === 'Min kategori', JSON.stringify(st));
+    st.length === 5 && st[4].isCat && st[4].text === 'Min kategori', JSON.stringify(st));
 
   await card.locator('.add-cat-btn').click(); await p.waitForTimeout(200);
   await p.keyboard.press('Enter'); await p.waitForTimeout(250);
   st = await rows(p);
   dom = await domCount(p);
   log(label + ' 4: tom kategori + Enter → slettet (state + DOM)',
-    st.length === 3 && dom.cats === 1, JSON.stringify(st) + ' dom=' + JSON.stringify(dom));
+    st.length === 5 && dom.cats === 1, JSON.stringify(st) + ' dom=' + JSON.stringify(dom));
 
   /* ---------- 5) ＋ inne i kategorien: samme regel ---------- */
   await card.locator('.cat-add-btn').first().click(); await p.waitForTimeout(200);
@@ -150,26 +176,31 @@ async function run(label, vp, mobile) {
   st = await rows(p);
   const inCat = st.filter((r) => r.cat);
   log(label + ' 5: navngitt listepunkt i kategorien lagret (med cat-peker)',
-    inCat.length === 1 && inCat[0].text === 'I kategorien', JSON.stringify(st));
+    inCat.length === 2 && inCat[0].text === 'I kategorien' && inCat[1].text === '', JSON.stringify(st));
+
+  await p.keyboard.press('Enter'); await p.waitForTimeout(250);
+  st = await rows(p);
+  log(label + ' 5: automatisk listepunkt i kategorien slettes uten navn',
+    st.filter((r) => r.cat).length === 1 && st.length === 6, JSON.stringify(st));
 
   await card.locator('.cat-add-btn').first().click(); await p.waitForTimeout(200);
   await p.keyboard.press('Enter'); await p.waitForTimeout(250);
   st = await rows(p);
   log(label + ' 5: tomt listepunkt i kategorien + Enter → slettet',
-    st.filter((r) => r.cat).length === 1 && st.length === 4, JSON.stringify(st));
+    st.filter((r) => r.cat).length === 1 && st.length === 6, JSON.stringify(st));
 
   /* ---------- 6) Escape på et tomt, nyopprettet objekt sletter det også ---------- */
   await card.locator('.add-item-btn').click(); await p.waitForTimeout(200);
   await p.keyboard.press('Escape'); await p.waitForTimeout(250);
   st = await rows(p);
-  log(label + ' 6: tomt listepunkt + Escape → slettet', st.length === 4, JSON.stringify(st));
+  log(label + ' 6: tomt listepunkt + Escape → slettet', st.length === 6, JSON.stringify(st));
 
   /* ---------- 7) Escape på et EKSISTERENDE listepunkt beholder det ---------- */
   await card.locator('.item .item-text').first().click(); await p.waitForTimeout(200);
   await p.keyboard.press('Escape'); await p.waitForTimeout(250);
   st = await rows(p);
   log(label + ' 7: Escape ved omdøping av et eksisterende listepunkt sletter det IKKE',
-    st.length === 4 && st[0].text === 'Finnes fra før', JSON.stringify(st));
+    st.length === 6 && st[0].text === 'Finnes fra før', JSON.stringify(st));
 
   /* ---------- 8) Overlever reload (de slettede kommer ikke tilbake) ---------- */
   await p.reload();
@@ -180,7 +211,7 @@ async function run(label, vp, mobile) {
   st = await rows(p);
   const texts = st.map((r) => r.text).sort();
   log(label + ' 8: etter reload står nøyaktig de navngitte igjen',
-    st.length === 4 && JSON.stringify(texts) === JSON.stringify(['Finnes fra før', 'I kategorien', 'Min kategori', 'Nytt punkt']),
+    st.length === 6 && JSON.stringify(texts) === JSON.stringify(['Finnes fra før', 'I kategorien', 'Min kategori', 'Nytt med klikk', 'Nytt punkt', 'Punkt to']),
     JSON.stringify(texts));
 
   log(label + ': ingen JS-feil', errs.length === 0, errs.join(' | '));

@@ -2504,20 +2504,21 @@
     const addCatBtn = addRow.querySelector('.add-cat-btn');
     if (!canEdit) addRow.hidden = true;
 
-    const addRowNow = (obj, rowEl, titleSel) => {
+    const addRowNow = (obj, rowEl, titleSel, onNamed) => {
       obj.pos = level1MaxPos(cardData.items) + 1;
       stampContent(obj);
       stampPos(obj);
       cardData.items.push(obj);
       list.appendChild(rowEl);
       save();
-      nameNewRow(obj, cardData, rowEl, rowEl.querySelector(titleSel), boardScope);
+      nameNewRow(obj, cardData, rowEl, rowEl.querySelector(titleSel), boardScope, onNamed);
     };
-    addBtn.addEventListener('click', () => {
+    const addItemNow = () => {
       if (!canEdit) return;
       const it = makeItem('', cardData.id);
-      addRowNow(it, buildItem(it, cardData), '.item-text');
-    });
+      addRowNow(it, buildItem(it, cardData), '.item-text', addItemNow);
+    };
+    addBtn.addEventListener('click', addItemNow);
     addCatBtn.addEventListener('click', () => {
       if (!canEdit) return;
       const cat = makeCategory('', cardData.id);
@@ -2685,7 +2686,8 @@
     appendToItemsEnd(catEl.querySelector('.cat-items'), rowEl);
     save();
     // Åpne navneredigereren straks (blank felt, fokusert).
-    nameNewRow(row, cont, rowEl, rowEl.querySelector('.item-text'), S);
+    nameNewRow(row, cont, rowEl, rowEl.querySelector('.item-text'), S,
+      S === boardScope ? () => addRowToCategory(catData, cont, catEl, S) : null);
   }
   // Største pos blant en kategoris aktive medlemmer (for å legge et nytt bakerst).
   function catMemberMaxPos(rows, catId) {
@@ -3727,7 +3729,7 @@
   // Enter på et tomt felt, klikk ut, eller Escape — fjernes raden igjen
   // (gravstein + ut av state), for et navnløst objekt er ingenting verdt og skal
   // ikke bli liggende igjen. Brukes av ＋-knappene i lista og i en kategori.
-  function nameNewRow(obj, cont, rowEl, displayEl, scope) {
+  function nameNewRow(obj, cont, rowEl, displayEl, scope, onNamed) {
     const S = scope || boardScope;
     const rows = S.rowsOf(cont);
     const discard = () => {
@@ -3744,6 +3746,10 @@
       stampContent(obj);
       save();
       if (S === navScope) updateCrumbs();
+      // Introduksjonen har egne «opprett neste punkt»-steg og må fortsatt få
+      // demonstrere ＋-knappen. Uten unntaket ville den automatiske raden både
+      // hoppet over steget og blitt liggende navnløs idet drag-steget begynner.
+      if (onNamed && !demoRunning) onNamed();
     }, { onCancel: discard });
   }
 
