@@ -301,6 +301,54 @@
     'events.count.one':    ['{n} hendelse.', '{n} event.'],
     'events.count.other':  ['{n} hendelser.', '{n} events.'],
 
+    /* ---- Varsler (docs/varsler.md) ---- */
+    'notif.title':          ['Varsler', 'Notifications'],
+    // Ulest-antallet hører til knappens NAVN, ikke bare til badgen.
+    'notif.titleUnread':    ['Varsler, {n} uleste', 'Notifications, {n} unread'],
+    'notif.empty':          ['Ingen varsler ennå.', 'No notifications yet.'],
+    'notif.count.one':      ['{n} varsel, {unread} ulest.', '{n} notification, {unread} unread.'],
+    'notif.count.other':    ['{n} varsler, {unread} uleste.', '{n} notifications, {unread} unread.'],
+    'notif.read':           ['Lest', 'Read'],
+    'notif.unread':         ['Ulest', 'Unread'],
+    // De fire typene — også overskriftene i preferansepanelet.
+    'notif.type.dueOver':   ['Frist utløpt', 'Deadline passed'],
+    'notif.type.dueSoon':   ['Frist om mindre enn en uke', 'Deadline in less than a week'],
+    'notif.type.startNow':  ['Begynner nå', 'Starting now'],
+    'notif.type.startSoon': ['Begynner om mindre enn en uke', 'Starts in less than a week'],
+    // Selve meldingen i raden. `{time}` er objektets egen frist/starttid.
+    'notif.msg.dueOver':    ['Fristen {time} er utløpt.', 'The deadline {time} has passed.'],
+    'notif.msg.dueSoon':    ['Frist {time} — mindre enn en uke igjen.',
+                             'Due {time} — less than a week left.'],
+    'notif.msg.startNow':   ['Skulle begynne {time}.', 'Was due to start {time}.'],
+    'notif.msg.startSoon':  ['Begynner {time} — mindre enn en uke til.',
+                             'Starts {time} — less than a week to go.'],
+    'notif.rowMeta':        ['{msg} · {path}', '{msg} · {path}'],
+    'notif.rowGoneMeta':    ['{msg} · Objektet er ikke tilgjengelig lenger.',
+                             '{msg} · That object is no longer available.'],
+    'notif.rowLabel':       ['{state}. {name}, {kind}. {msg} {when}. {path}',
+                             '{state}. {name}, {kind}. {msg} {when}. {path}'],
+    'notif.gone':           ['Objektet er ikke tilgjengelig lenger.',
+                             'That object is no longer available.'],
+    // «Tøm varsler» + angre-vinduet (nedtelling i sekunder).
+    'notif.clear':          ['Tøm varsler', 'Clear notifications'],
+    'notif.undo':           ['Angre · {n}', 'Undo · {n}'],
+    'notif.clearFailed':    ['Varslene ble ikke slettet. Prøv igjen.',
+                             'The notifications were not deleted. Try again.'],
+    // «Utsett» — be om det samme varselet igjen senere.
+    'notif.snooze':         ['Utsett varselet om {name}', 'Snooze the notification about {name}'],
+    'notif.snooze.hour':    ['Om 1 time', 'In 1 hour'],
+    'notif.snooze.sixHours': ['Om 6 timer', 'In 6 hours'],
+    'notif.snooze.day':     ['Om 1 døgn', 'In 1 day'],
+    'notif.snoozedTo':      ['Varsler deg igjen {time}.', 'You will be notified again {time}.'],
+    'notif.snoozeFailed':   ['Varselet ble ikke utsatt. Prøv igjen.',
+                             'The notification was not snoozed. Try again.'],
+    // Preferansene: de styrer om hendelsen i det hele tatt blir til.
+    'notif.settings':       ['Varselinnstillinger', 'Notification settings'],
+    'notif.settingsHint':   ['Velg hva du vil varsles om. En type som er av, lager ingen varsler — heller ikke i historikken.',
+                             'Choose what you want to be notified about. A type that is off creates no notifications — not even in the history.'],
+    'notif.prefFailed':     ['Innstillingen ble ikke lagret. Prøv igjen.',
+                             'The setting was not saved. Try again.'],
+
     /* ---- «Flytt til …» ---- */
     'move.outOfCategory': ['Ut av kategorien (i «{list}»)', 'Out of the category (in “{list}”)'],
     'move.toCategory':    ['Kategorien «{name}»', 'The category “{name}”'],

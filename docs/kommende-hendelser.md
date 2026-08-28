@@ -6,7 +6,10 @@ eller reglene som avgjør hvilke frister og starttider som vises der.
 To ting bor her, og de er bevisst skilt:
 
 1. **Hendelsesmotoren** — `collectUpcomingEvents(state, now)` i `app.js`: en ren
-   funksjon av tilstand + tidspunkt, uten et eneste DOM-oppslag.
+   funksjon av tilstand + tidspunkt, uten et eneste DOM-oppslag. Den har to
+   kallere: modalen under, og varselgeneratoren
+   ([`varsler.md`](varsler.md)), som leser TERSKLER ut av de samme hendelsene.
+   Reglene finnes ÉN gang — trenger varslene noe mer, utvides motoren her.
 2. **Modalen** (`#events-modal`) — som bare TEGNER det motoren returnerte, og
    navigerer via `navigateToObject()` fra
    [`sok-og-navigering.md`](sok-og-navigering.md).
@@ -17,12 +20,12 @@ autoritativ for dem.
 
 ## Kalenderknappen
 
-Første knapp i toppkontrollgruppen (`.corner-btn.events-btn`, `#events-btn` —
-se [`menus.md`](menus.md), «Toppkontrollene»). Den er en `.corner-btn` som de
-andre og trengte ingen ny posisjonsutregning: gruppen plasserer knappene med
-flex, og en ny legges FØRST. Under 560 px ligger den sammen med søkeknappen på
-en rad UNDER drakt og konto, så breadcrumben bare trenger å vike for to knapper
-— se `menus.md`.
+Andre knapp i toppkontrollgruppen, rett til høyre for bjellen
+(`.corner-btn.events-btn`, `#events-btn` — se [`menus.md`](menus.md),
+«Toppkontrollene»). Den er en `.corner-btn` som de andre og trengte ingen ny
+posisjonsutregning: gruppen plasserer knappene med flex, og en ny legges FØRST.
+Under 560 px ligger den sammen med varsel- og søkeknappen på en rad UNDER drakt
+og konto — se `menus.md`.
 
 ## Modalen (`#events-modal`)
 

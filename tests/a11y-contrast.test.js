@@ -605,6 +605,17 @@ if (darkBlock) {
     }
     // Og streken må alltid skille seg fra papiret den faktisk ligger på.
     contrast('den pinnede streken mot det pinnede papiret i modalen', strek, ark, 3);
+
+    /* Varselmodalen (docs/varsler.md) GJENBRUKER de samme statusflatene: et
+       varsel om en utløpt frist skal se ut som gruppen «Frist utløpt» gjør, og
+       arver dermed pinningen og målingene over. Kravet her er bare at modalen
+       selv ikke pinner noe — da ville radenes øvrige tekst og glyfer sluttet å
+       snu med drakten. */
+    const notifRule = (css.match(/\.notif-modal\s*\{([^}]*)\}/) || [])[1] || '';
+    check('.notif-modal pinner IKKE ikonfargene — den arver statusflatene fra .event-icon',
+      !/--icon-(ink|paper|grey)\s*:/.test(notifRule), { regel: notifRule.trim() });
+    const notifIcon = /\.notif-[a-z-]*\s*\{[^}]*--icon-(ink|paper|grey)\s*:/.test(css);
+    check('ingen .notif-regel pinner sine egne ikonfarger', !notifIcon);
   }
 
   console.log('\n--- Kontroller som bytter farge ved hover / under draging ---');

@@ -7980,10 +7980,11 @@
     const delAcc = document.getElementById('delete-account-modal');
     const searchEl = document.getElementById('search-modal');
     const eventsEl = document.getElementById('events-modal');
+    const notifEl = document.getElementById('notif-modal');
     document.body.classList.toggle('modal-open',
       !trashModal.hidden || !navModal.hidden ||
       !accountModal.hidden || (searchEl && !searchEl.hidden) ||
-      (eventsEl && !eventsEl.hidden) ||
+      (eventsEl && !eventsEl.hidden) || (notifEl && !notifEl.hidden) ||
       (share && !share.hidden) || (place && !place.hidden) ||
       (confirmEl && !confirmEl.hidden) || (objMenu && !objMenu.hidden) ||
       (timeSw && !timeSw.hidden) || (avatarEd && !avatarEd.hidden) ||
@@ -8556,6 +8557,8 @@
     if (searchEl && !searchEl.hidden) { closeSearchModal(); return true; }
     const eventsEl = document.getElementById('events-modal');
     if (eventsEl && !eventsEl.hidden) { closeEventsModal(); return true; }
+    const notifEl = document.getElementById('notif-modal');
+    if (notifEl && !notifEl.hidden) { closeNotifModal(); return true; }
     if (!trashModal.hidden) { closeTrash(); return true; }
     if (!navModal.hidden) { closeNavModal(); return true; }
     if (!accountModal.hidden) { closeAccount(); return true; }
@@ -9772,6 +9775,697 @@
     if (i < 0) return;
     ev.preventDefault();
     rows[(i + (ev.key === 'ArrowDown' ? 1 : -1) + rows.length) % rows.length].focus();
+  });
+
+  /* ============================================================
+     VARSLER
+     ------------------------------------------------------------
+     Historikken over de tersklene appen har SETT passere: en frist som gikk
+     ut, en frist som kom innenfor uka, noe som begynte, noe som begynner innen
+     uka. Fire typer, hver med sin av/på-bryter.
+
+     Tre ting bor her:
+
+     1. `collectNotifications(state, now, prefs, cursor)` — generatoren. Den
+        eier ingen egne regler om hva som er aktivt, hva som er arvet eller hva
+        som dedupliseres: den kaller `collectUpcomingEvents()` og leser
+        tersklene ut av hendelsene den får. Terskeltidene er hendelsens
+        tidspunkt og `at - WEEK_MS` — nøyaktig de samme grensene «Kommende
+        hendelser» grupperer på, og den samme `timeMs()`-semantikken for en dato
+        uten klokkeslett (docs/scheduling.md).
+     2. Synkingen — radene ligger i egne per-bruker-tabeller i Supabase, ikke i
+        synk-doc-et: de deles aldri, de flettes ikke, og lest/ulest skal være
+        det samme på alle enhetene mine.
+     3. Modalen (`#notif-modal`) og bjelleknappen med ulest-badgen.
+
+     MARKØREN er hele idempotensen: `cursor` er tidspunktet terskler er vurdert
+     til og med. Bare det som passeres ETTER den kan bli et varsel, og den
+     rykker fram i den SAMME serveroperasjonen som skriver radene. Da kan
+     verken en ny åpning, en annen enhet eller en tømt historikk gjenskape et
+     varsel som allerede er logget. Den unike nøkkelen (bruker + type + objekt +
+     tidsverdi) er det andre laget: to enheter som regner ut det samme varselet
+     i samme øyeblikk skriver den samme raden.
+
+     Autoritativt: docs/varsler.md.
+     ============================================================ */
+
+  const NOTIF_TYPES = ['dueOver', 'dueSoon', 'startNow', 'startSoon'];
+  // Standard PÅ. En badge er ingen avbrytelse, og en funksjon som er av fra
+  // første stund blir aldri sett. Eksterne kanaler får sin egen opt-in.
+  const NOTIF_DEFAULT_PREFS = { dueOver: true, dueSoon: true, startNow: true, startSoon: true };
+  /* Ikonet og flaten er de SAMME som gruppen i «Kommende hendelser» bruker for
+     det samme tidspunktet: et varsel om en utløpt frist skal se ut som «Frist
+     utløpt» gjør. Nøklene står som hele strenger — tests/i18n.test.js finner
+     bare nøkler som er skrevet ut i kildekoden. */
+  const NOTIF_TYPE_ICON = { dueOver: 'alert', dueSoon: 'alert', startNow: 'play', startSoon: 'clock' };
+  const NOTIF_TYPE_TONE = { dueOver: 'is-over', dueSoon: 'is-soon', startNow: 'is-started', startSoon: 'is-startsoon' };
+  const NOTIF_TYPE_MSG = {
+    dueOver: 'notif.msg.dueOver', dueSoon: 'notif.msg.dueSoon',
+    startNow: 'notif.msg.startNow', startSoon: 'notif.msg.startSoon',
+  };
+  const NOTIF_TYPE_LABEL = {
+    dueOver: 'notif.type.dueOver', dueSoon: 'notif.type.dueSoon',
+    startNow: 'notif.type.startNow', startSoon: 'notif.type.startSoon',
+  };
+  /* Taket på hvor mange varsler ÉN runde kan logge. En konto som har ligget
+     ubrukt lenge kan ha passert hundrevis av terskler, og en historikk som
+     åpner med tre hundre rader er ikke en historikk — den er støy. De NYESTE
+     beholdes: det som skjedde sist er det som fortsatt er til å gjøre noe med. */
+  const NOTIF_BATCH_MAX = 50;
+  const NOTIF_BADGE_MAX = 99;      // over dette: «99+», så badgen ikke sprenger knappen
+  const NOTIF_UNDO_S = 10;         // angre-vinduet for «Tøm varsler», i sekunder
+  // «Utsett»: be om det samme varselet igjen om …
+  const NOTIF_SNOOZE = [
+    { ms: HOUR_MS, label: 'notif.snooze.hour' },
+    { ms: 6 * HOUR_MS, label: 'notif.snooze.sixHours' },
+    { ms: DAY_MS, label: 'notif.snooze.day' },
+  ];
+
+  let notifRows = [];        // serverens rader for MEG, nyeste først
+  let notifPrefs = null;     // null til første pull har svart
+  let notifCursor = null;    // null = kontoen har ingen markør ennå (første runde)
+  let notifBusy = false;     // én generator-runde om gangen
+  let notifRetryAt = 0;      // etter en mislykket runde: ikke prøv igjen før dette
+
+  // Millisekunder → den samme tekstformen tidsverdiene har, så visningen kan gå
+  // gjennom `fmtTimeFull()` og få dato + klokkeslett på brukerens språk.
+  function stampValue(ms) {
+    const d = new Date(ms);
+    return localDateStr(d) + 'T' + String(d.getHours()).padStart(2, '0') +
+      ':' + String(d.getMinutes()).padStart(2, '0');
+  }
+
+  /* Varselets logiske identitet. Tidsverdien er MED: flytter brukeren fristen,
+     er det en ny tidsplan, og den nye terskelen skal kunne varsle for seg. Det
+     betyr også at en frist som settes TILBAKE til en verdi det allerede er
+     varslet om, ikke varsler på nytt — varselet finnes allerede. */
+  function notifKey(type, objType, objId, value) {
+    return type + '|' + objType + '|' + objId + '|' + (value || '');
+  }
+
+  /* GENERATOREN. Ren funksjon: tilstand + `now` + preferanser + markør inn,
+     radene som skal logges ut. Ingen DOM, ingen nettverk, ingen klokkeoppslag.
+
+     Hver hendelse fra `collectUpcomingEvents` har nøyaktig to terskler — selve
+     tidspunktet og uka før det — og en terskel er passert når den ligger i det
+     halvåpne vinduet (markør, nå]. Vinduet er det som gjør catch-up til det
+     samme som vanlig drift: har appen vært lukket i ti dager, dekker det ti
+     døgn, og BEGGE tersklene til en frist som først kom innenfor uka og siden
+     gikk ut, logges — hver med sin egen faktiske terskeltid.
+
+     Alt annet — hva som er aktivt, hva som er arvet, hva som dedupliseres bort
+     og hvor raden navigerer — er hendelsesmotorens svar, ikke et nytt sett. */
+  function collectNotifications(st, now, prefs, cursor) {
+    if (cursor == null) return [];
+    const P = prefs || NOTIF_DEFAULT_PREFS;
+    const N = now == null ? Date.now() : (now instanceof Date ? now.getTime() : Number(now));
+    const data = collectUpcomingEvents(st, N);
+    const rows = [];
+    [].concat(data.due.over, data.due.soon, data.due.later,
+      data.start.started, data.start.soon, data.start.later).forEach((ev) => {
+      const thresholds = ev.kind === 'due'
+        ? [['dueOver', ev.at], ['dueSoon', ev.at - WEEK_MS]]
+        : [['startNow', ev.at], ['startSoon', ev.at - WEEK_MS]];
+      thresholds.forEach((t) => {
+        if (!P[t[0]]) return;                   // typen er slått av → hendelsen finnes ikke
+        if (!(t[1] > cursor && t[1] <= N)) return;
+        rows.push({
+          key: notifKey(t[0], ev.type, ev.id, ev.value),
+          type: t[0], obj_type: ev.type, obj_id: ev.id,
+          // Navn og sti er et ØYEBLIKKSBILDE: raden skal kunne vises også etter
+          // at objektet er slettet. Navigasjonen slår alltid opp på id-en.
+          name: ev.name || '', path: ev.path.join(SEARCH_PATH_SEP),
+          value: ev.value, at: t[1],
+        });
+      });
+    });
+    // Eldste først, så en avkortet bunke beholder de nyeste tersklene.
+    rows.sort((a, b) => (a.at - b.at) || (a.key < b.key ? -1 : a.key > b.key ? 1 : 0));
+    return rows.length > NOTIF_BATCH_MAX ? rows.slice(rows.length - NOTIF_BATCH_MAX) : rows;
+  }
+
+  /* ---------------- Serversiden ----------------
+     `applyNotifications(my)` tar imot doc-ets varselgren; `runNotifications()`
+     kjører generatoren og logger. Begge kalles fra `cloudCycle`. */
+  function applyNotifications(my) {
+    const rows = (my && my.notifications) || [];
+    notifRows = rows.slice();
+    // Radene vi har bedt serveren slette, men ennå ikke sett forsvinne. Er de
+    // borte i doc-et, er slettingen bekreftet og settet kan tømmes for dem.
+    if (notifPurged.size) {
+      const here = new Set(notifRows.map((r) => r.id));
+      [...notifPurged].forEach((id) => { if (!here.has(id)) notifPurged.delete(id); });
+    }
+    const prefs = my && my.notify_prefs;
+    notifPrefs = prefs ? {
+      dueOver: prefs.dueOver !== false, dueSoon: prefs.dueSoon !== false,
+      startNow: prefs.startNow !== false, startSoon: prefs.startSoon !== false,
+    } : null;
+    // Serveren eier markøren; klienten speiler den. En klient med klokka foran
+    // serverens får en lavere verdi tilbake enn den nettopp brukte, men det
+    // koster ingenting: kandidatene den da regner ut igjen har allerede en rad,
+    // og lukes bort i `runNotifications`.
+    notifCursor = prefs && prefs.cursor != null ? Number(prefs.cursor) : null;
+    paintNotifBadge();
+    refreshNotifModal();
+  }
+
+  const NOTIF_RETRY_MS = 60 * 1000;
+  async function runNotifications() {
+    const client = acli();
+    if (!client || !authUser || demoActive || notifBusy) return;
+    const now = Date.now();
+    /* Etter en mislykket runde venter vi et minutt. Pollet går hvert femte
+       sekund, og en database som ennå ikke har fått denne rundens migrering
+       ville ellers fått det samme avviste kallet tolv ganger i minuttet — helt
+       stille, siden generatoren aldri kaster videre. */
+    if (now < notifRetryAt) return;
+    /* FØRSTE RUNDE på kontoen (markør = null): sett markøren til nå og logg
+       ingenting. Uten den ville hver eneste frist som noen gang er gått ut
+       blitt et ulest varsel i det brukeren logget inn — en historikk over alt
+       som har skjedd, ikke over det som skjedde mens appen fantes.
+
+       Ellers: kandidater vi ALT har en rad for lukes bort HER, ikke i
+       generatoren — den skal være en ren funksjon av tilstand, tid og markør.
+       Serveren avviser en dublett stille uansett, men klientens klokke kan gå
+       foran serverens: da leverer neste pull en markør som ligger bak vår egen
+       `now`, og de samme tersklene ville blitt sendt om igjen hver runde. */
+    const kjent = new Set(notifRows.map((r) => r.key));
+    const rows = notifCursor == null ? []
+      : collectNotifications(state, now, notifPrefs, notifCursor).filter((r) => !kjent.has(r.key));
+    if (notifCursor != null && !rows.length) return;
+    notifBusy = true;
+    try {
+      const { data, error } = await client.rpc('notify_record', { p_rows: rows, p_cursor: now });
+      if (error) throw error;
+      // Optimistisk: neste pull bekrefter. Kom kallet ikke fram, står markøren
+      // igjen der den var, og runden tas om igjen — vinduet er fortsatt åpent.
+      notifCursor = Math.max(notifCursor || 0, now);
+      // Bare en runde som FAKTISK la inn noe er verdt en ekstra pull. Uten den
+      // vakten ville en runde som bare traff dubletter planlagt seg selv igjen.
+      if (Number(data) > 0) scheduleCloud(150);
+    } catch (e) {
+      /* Stille: vinduet er fortsatt åpent, og runden tas om igjen — men først
+         etter pausen over. */
+      notifRetryAt = Date.now() + NOTIF_RETRY_MS;
+    } finally {
+      notifBusy = false;
+    }
+  }
+
+  /* ---------------- Modalen «Varsler» ---------------- */
+  const notifBtn = document.getElementById('notif-btn');
+  const notifBadge = document.getElementById('notif-badge');
+  const notifModal = document.getElementById('notif-modal');
+  const notifCloseBtn = document.getElementById('notif-close');
+  const notifSettingsBtn = document.getElementById('notif-settings-btn');
+  const notifBodyEl = document.getElementById('notif-body');
+  const notifFootEl = document.getElementById('notif-foot');
+  const notifClearBtn = document.getElementById('notif-clear');
+  const notifCountEl = document.getElementById('notif-count');
+
+  const notifPurged = new Set();  // committet sletting, ennå ikke bekreftet av en pull
+  let notifClear = null;          // { ids: Set, left, timer } — angre-vinduet
+  let notifJustRead = null;       // id-ene ÅPNINGEN merket lest — se `notifIsNew`
+  let notifSnoozeFor = null;      // id-en som har utsett-valgene utfoldet
+  let notifSettings = false;      // står panelet på preferansene?
+  let notifSig = null;            // signaturen som er tegnet nå
+  let notifTimer = null;          // vekking når et utsatt varsel forfaller
+
+  /* Et varsel er SYNLIG når tidspunktet er passert (et utsatt varsel ligger i
+     framtiden til det forfaller) og det ikke er skjult av en pågående eller
+     nettopp committet tømming. */
+  function notifVisible(now) {
+    const N = now == null ? Date.now() : now;
+    return notifRows.filter((r) => r.at <= N && !notifPurged.has(r.id) &&
+      !(notifClear && notifClear.ids.has(r.id)));
+  }
+  /* Badgen teller det som er ULEST og som brukeren ikke nettopp har sett: åpner
+     man modalen, er merkingen optimistisk lokalt, og en pull som lander før
+     serveren har svart ville ellers blinket antallet tilbake. */
+  function notifUnread(now) {
+    return notifVisible(now).filter((r) => !r.readAt &&
+      !(notifJustRead && notifJustRead.has(r.id)));
+  }
+  /* «Nytt for deg» er ikke det samme som «ulest på serveren». Åpningen merker
+     alt lest med én gang (badgen skal forsvinne uten en egen knapp), men da
+     ville hele listen blitt grå i det samme øyeblikket, og brukeren mistet
+     nettopp det badgen lovte: hvilke rader som var nye. De radene åpningen
+     merket lest beholder derfor markeringen til modalen lukkes. */
+  function notifIsNew(row) {
+    return !row.readAt || !!(notifJustRead && notifJustRead.has(row.id));
+  }
+
+  function paintNotifBadge() {
+    if (!notifBtn || !notifBadge) return;
+    const n = notifUnread().length;
+    notifBadge.hidden = n === 0;
+    notifBadge.textContent = n > NOTIF_BADGE_MAX ? NOTIF_BADGE_MAX + '+' : String(n);
+    // Ulest-antallet hører til NAVNET, ikke bare til badgen: badgen er
+    // `aria-hidden`, og en skjermleser ville ellers aldri fått vite om det.
+    const label = n ? tr('notif.titleUnread', { n: n }) : tr('notif.title');
+    notifBtn.setAttribute('aria-label', label);
+    notifBtn.setAttribute('title', label);
+  }
+
+  // Statusikonet: den samme runde platen «Kommende hendelser» bruker, med den
+  // samme tonen — og dermed den samme pinningen og kontrastkontrakten.
+  function notifIconEl(type) {
+    const el = document.createElement('span');
+    el.className = 'event-icon ' + NOTIF_TYPE_TONE[type];
+    el.setAttribute('aria-hidden', 'true');
+    el.innerHTML = ICONS[NOTIF_TYPE_ICON[type]];
+    return el;
+  }
+
+  function notifRowEl(row, now) {
+    const li = document.createElement('li');
+    li.className = 'notif-item';
+    li.dataset.id = row.id;
+
+    // Finnes objektet fortsatt, og har jeg fortsatt tilgang? Oppslaget er rent
+    // lokalt — en id jeg ikke har tilgang til finnes ikke i `state`, så en rad
+    // kan verken navigere til eller røpe noe om et objekt jeg ikke ser.
+    const target = locateObject(row.objType, row.objId);
+    const gone = !target;
+
+    const line = document.createElement('div');
+    line.className = 'notif-line';
+
+    const nyt = notifIsNew(row);
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'notif-row' + (nyt ? ' is-unread' : '') + (gone ? ' is-gone' : '');
+    btn.dataset.id = row.id;
+    btn.dataset.type = row.type;
+
+    const main = document.createElement('span');
+    main.className = 'notif-main';
+    const nameRow = document.createElement('span');
+    nameRow.className = 'notif-name-row';
+    const nameEl = document.createElement('span');
+    nameEl.className = 'notif-name';
+    nameEl.textContent = row.name || tr('common.noName');
+    nameRow.appendChild(nameEl);
+    if (nyt) {
+      const dot = document.createElement('span');
+      dot.className = 'notif-dot';
+      dot.setAttribute('aria-hidden', 'true');
+      nameRow.appendChild(dot);
+    }
+    // Meldingen sier hva som skjedde OG når objektet forfaller/begynner —
+    // fargen er aldri eneste bærer (docs/tilgjengelighet.md). Er målet borte,
+    // sier linjen det i stedet for å la et dødt trykk forklare det.
+    const msg = document.createElement('span');
+    msg.className = 'notif-meta';
+    // Tidsverdien er objektets egen frist/starttid. Mangler den (en rad fra en
+    // eldre klient), står varselets eget tidspunkt der i stedet — meldingen
+    // skal aldri bli halv.
+    const body = tr(NOTIF_TYPE_MSG[row.type],
+      { time: fmtTimeFull(row.value || stampValue(row.at)) });
+    msg.textContent = gone
+      ? tr('notif.rowGoneMeta', { msg: body })
+      : (row.path ? tr('notif.rowMeta', { msg: body, path: row.path }) : body);
+    main.append(nameRow, msg);
+
+    const when = document.createElement('span');
+    when.className = 'notif-when';
+    when.textContent = fmtTimeFull(stampValue(row.at));
+
+    btn.append(notifIconEl(row.type), main, when);
+    btn.setAttribute('aria-label', tr('notif.rowLabel', {
+      state: tr(nyt ? 'notif.unread' : 'notif.read'),
+      kind: tr(NOTIF_TYPE_LABEL[row.type]),
+      name: row.name || tr('common.noName'),
+      msg: body,
+      when: fmtTimeFull(stampValue(row.at)),
+      path: gone ? tr('notif.gone') : row.path,
+    }));
+    btn.addEventListener('click', () => openNotifTarget(row));
+    line.appendChild(btn);
+
+    // «Utsett»: be om det samme varselet igjen senere. Egen knapp ved siden av
+    // raden — en knapp inne i en knapp finnes ikke.
+    const snoozeBtn = document.createElement('button');
+    snoozeBtn.type = 'button';
+    snoozeBtn.className = 'notif-snooze-btn';
+    snoozeBtn.innerHTML = ICONS.snooze;
+    snoozeBtn.setAttribute('aria-expanded', notifSnoozeFor === row.id ? 'true' : 'false');
+    labelBtn(snoozeBtn, tr('notif.snooze', { name: row.name || tr('common.noName') }));
+    snoozeBtn.addEventListener('click', () => {
+      notifSnoozeFor = notifSnoozeFor === row.id ? null : row.id;
+      refreshNotifModal(true);
+      const next = notifBodyEl.querySelector('.notif-item[data-id="' + row.id + '"] .notif-snooze-btn');
+      if (next) try { next.focus(); } catch (e) { /* ignorer */ }
+    });
+    line.appendChild(snoozeBtn);
+    li.appendChild(line);
+
+    const choices = document.createElement('div');
+    choices.className = 'notif-snooze-row';
+    choices.hidden = notifSnoozeFor !== row.id;
+    NOTIF_SNOOZE.forEach((opt) => {
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.className = 'btn btn-ghost btn-small';
+      b.textContent = tr(opt.label);
+      b.addEventListener('click', () => snoozeNotif(row, opt.ms));
+      choices.appendChild(b);
+    });
+    li.appendChild(choices);
+    void now;
+    return li;
+  }
+
+  function paintNotifSettings() {
+    notifBodyEl.innerHTML = '';
+    const wrap = document.createElement('div');
+    wrap.className = 'notif-settings';
+    const hint = document.createElement('p');
+    hint.className = 'notif-settings-hint';
+    hint.textContent = tr('notif.settingsHint');
+    wrap.appendChild(hint);
+    const prefs = notifPrefs || NOTIF_DEFAULT_PREFS;
+    NOTIF_TYPES.forEach((type) => {
+      const rowEl = document.createElement('div');
+      rowEl.className = 'menu-setting';
+      const label = document.createElement('span');
+      label.className = 'menu-setting-label';
+      const icon = document.createElement('span');
+      icon.className = 'event-icon ' + NOTIF_TYPE_TONE[type];
+      icon.setAttribute('aria-hidden', 'true');
+      icon.innerHTML = ICONS[NOTIF_TYPE_ICON[type]];
+      const text = document.createElement('span');
+      text.textContent = tr(NOTIF_TYPE_LABEL[type]);
+      label.append(icon, text);
+      const toggle = document.createElement('button');
+      toggle.type = 'button';
+      toggle.className = 'toggle-switch';
+      toggle.dataset.pref = type;
+      toggle.setAttribute('role', 'switch');
+      toggle.setAttribute('aria-checked', prefs[type] ? 'true' : 'false');
+      toggle.setAttribute('aria-label', tr(NOTIF_TYPE_LABEL[type]));
+      const knob = document.createElement('span');
+      knob.className = 'toggle-knob';
+      knob.setAttribute('aria-hidden', 'true');
+      toggle.appendChild(knob);
+      toggle.addEventListener('click', () => setNotifPref(type, !prefs[type]));
+      rowEl.append(label, toggle);
+      wrap.appendChild(rowEl);
+    });
+    notifBodyEl.appendChild(wrap);
+  }
+
+  function paintNotifList(now) {
+    notifBodyEl.innerHTML = '';
+    const rows = notifVisible(now);
+    if (!rows.length) {
+      const empty = document.createElement('p');
+      empty.className = 'notif-empty';
+      empty.textContent = tr('notif.empty');
+      notifBodyEl.appendChild(empty);
+      return;
+    }
+    const ul = document.createElement('ul');
+    ul.className = 'notif-list';
+    ul.setAttribute('aria-label', tr('notif.title'));
+    // Nyeste øverst. `at` er hendelsens tidspunkt og er den samme på alle
+    // enheter; id-en bryter uavgjort, så rekkefølgen aldri hopper.
+    rows.slice().sort((a, b) => (b.at - a.at) ||
+      (a.id < b.id ? 1 : a.id > b.id ? -1 : 0))
+      .forEach((r) => ul.appendChild(notifRowEl(r, now)));
+    notifBodyEl.appendChild(ul);
+  }
+
+  // Foten: «Tøm varsler», eller nedtellingen mens angre-vinduet står åpent.
+  function paintNotifFoot(now) {
+    const rows = notifVisible(now);
+    if (notifSettings) {
+      notifFootEl.hidden = true;
+      return;
+    }
+    notifFootEl.hidden = false;
+    if (notifClear) {
+      notifClearBtn.textContent = tr('notif.undo', { n: notifClear.left });
+      notifClearBtn.disabled = false;
+      return;
+    }
+    notifClearBtn.textContent = tr('notif.clear');
+    notifClearBtn.disabled = rows.length === 0;
+  }
+
+  function notifSignature(now) {
+    const rows = notifVisible(now);
+    return (notifSettings ? 'S' + NOTIF_TYPES.map((t) => (notifPrefs || NOTIF_DEFAULT_PREFS)[t] ? 1 : 0).join('') : 'L') +
+      '|' + (notifClear ? 'u' + notifClear.left : '-') + '|' + (notifSnoozeFor || '-') + '|' +
+      rows.map((r) => r.id + ':' + (notifIsNew(r) ? 0 : 1) + ':' + r.at + ':' + r.name + ':' +
+        (locateObject(r.objType, r.objId) ? 1 : 0)).join(';');
+  }
+
+  function refreshNotifModal(force) {
+    const modal = document.getElementById('notif-modal');
+    if (!modal || modal.hidden) return;
+    const now = Date.now();
+    scheduleNotifWake(now);
+    const sig = notifSignature(now);
+    if (!force && sig === notifSig) return;
+    notifSig = sig;
+    if (notifSettings) paintNotifSettings();
+    else paintNotifList(now);
+    paintNotifFoot(now);
+    notifSettingsBtn.setAttribute('aria-pressed', notifSettings ? 'true' : 'false');
+  }
+
+  /* Et utsatt varsel forfaller på et bestemt tidspunkt. Vi puls-sjekker ikke:
+     vi sover til det FØRSTE som ennå ligger i framtiden, og regner ut på nytt
+     der. Taket og `visibilitychange` er der av samme grunn som i «Kommende
+     hendelser» — en `setTimeout` er ikke til å stole på over en sovende enhet. */
+  const NOTIF_MAX_SLEEP_MS = 6 * 60 * 60 * 1000;
+  function scheduleNotifWake(now) {
+    clearTimeout(notifTimer);
+    notifTimer = null;
+    let next = Infinity;
+    notifRows.forEach((r) => { if (r.at > now && r.at < next) next = r.at; });
+    if (next === Infinity) return;
+    notifTimer = setTimeout(() => {
+      paintNotifBadge();
+      refreshNotifModal();
+    }, Math.min(next - now + 50, NOTIF_MAX_SLEEP_MS));
+  }
+
+  function openNotifModal() {
+    notifSig = null;
+    notifSettings = false;
+    notifSnoozeFor = null;
+    notifModal.hidden = false;
+    /* ÅPNINGEN MARKERER LEST — men bare det som faktisk sto der da modalen ble
+       åpnet. Grensen er et sett av ID-er, ikke et tidspunkt: et varsel som
+       ankommer (eller et utsatt som forfaller) mens modalen står åpen skal
+       fortsatt være ulest til brukeren har åpnet den på nytt. */
+    const rows = notifVisible();
+    const unread = rows.filter((r) => !r.readAt);
+    notifJustRead = new Set(unread.map((r) => r.id));
+    refreshNotifModal(true);
+    updateModalOpenClass();
+    notifCountEl.textContent = !rows.length ? tr('notif.empty')
+      : tr(rows.length === 1 ? 'notif.count.one' : 'notif.count.other',
+        { n: rows.length, unread: unread.length });
+    markNotifRead(unread.map((r) => r.id));
+  }
+  function closeNotifModal() {
+    notifModal.hidden = true;
+    clearTimeout(notifTimer);
+    notifTimer = null;
+    notifSig = null;
+    notifSnoozeFor = null;
+    notifJustRead = null;
+    // Lukking committer tømmingen med én gang: angre-vinduet hører til den
+    // åpne modalen, og en bunke som blir liggende «halvveis slettet» bak en
+    // lukket modal er ingen tilstand brukeren kan se eller styre.
+    commitNotifClear();
+    updateModalOpenClass();
+  }
+
+  // Raden er en snarvei til objektet: lukk FØRST, så navigeringen får eie
+  // fokuset. Er målet borte, blir modalen stående — det er ingenting å gå til.
+  function openNotifTarget(row) {
+    if (!locateObject(row.objType, row.objId)) {
+      showToast(tr('notif.gone'));
+      announce(tr('notif.gone'));
+      return;
+    }
+    closeNotifModal();
+    navigateToObject({ type: row.objType, id: row.objId });
+  }
+
+  /* Lest/ulest. Optimistisk lokalt, og idempotent på serveren: `read_at`
+     settes bare på rader som ennå er uleste, så to enheter kan gjøre det
+     samtidig uten å slåss. Feiler skrivingen, står raden ulest på serveren og
+     merkes igjen neste gang modalen åpnes. */
+  async function markNotifRead(ids) {
+    if (!ids || !ids.length) return;
+    const now = Date.now();
+    const mine = new Set(ids);
+    notifRows.forEach((r) => { if (mine.has(r.id) && !r.readAt) r.readAt = now; });
+    paintNotifBadge();
+    refreshNotifModal();
+    const client = acli();
+    if (!client || !authUser) return;
+    try {
+      await client.from('notifications').update({ read_at: now }).in('id', ids);
+    } catch (e) { /* neste åpning prøver igjen */ }
+  }
+
+  /* «TØM VARSLER» MED ANGRE.
+     1. øyeblikksbildet er de ID-ene som er synlige NÅ — et varsel som ankommer
+        etterpå er ikke med, og blir ikke slettet med bunken;
+     2. de skjules med én gang (settet filtreres bort i `notifVisible`);
+     3. knappen blir «Angre · 10» og teller ned;
+     4. etter ti sekunder — eller når modalen lukkes — committes slettingen;
+     5. går serveroperasjonen i vasken, later vi ikke som noe annet: radene er
+        fortsatt på serveren, og neste runde henter dem tilbake. */
+  function startNotifClear() {
+    const ids = notifVisible().map((r) => r.id);
+    if (!ids.length) return;
+    notifClear = { ids: new Set(ids), left: NOTIF_UNDO_S, timer: null };
+    tickNotifClear();
+    refreshNotifModal(true);
+  }
+  function tickNotifClear() {
+    if (!notifClear) return;
+    notifClear.timer = setTimeout(() => {
+      if (!notifClear) return;
+      notifClear.left -= 1;
+      if (notifClear.left <= 0) { commitNotifClear(); return; }
+      refreshNotifModal();
+      tickNotifClear();
+    }, 1000);
+  }
+  function undoNotifClear() {
+    if (!notifClear) return;
+    clearTimeout(notifClear.timer);
+    notifClear = null;
+    refreshNotifModal(true);
+  }
+  async function commitNotifClear() {
+    const g = notifClear;
+    if (!g) return;
+    notifClear = null;
+    clearTimeout(g.timer);
+    const ids = [...g.ids];
+    ids.forEach((id) => notifPurged.add(id));
+    paintNotifBadge();
+    refreshNotifModal(true);
+    const client = acli();
+    if (!client || !authUser) return;
+    try {
+      const { error } = await client.from('notifications').delete().in('id', ids);
+      if (error) throw error;
+      // Slettingen landet: radene forsvinner fra doc-et, og `notifPurged`
+      // tømmes for dem ved neste pull.
+      scheduleCloud(150);
+    } catch (e) {
+      // Den gikk IKKE gjennom. Vis dem igjen med en gang, og si fra.
+      ids.forEach((id) => notifPurged.delete(id));
+      paintNotifBadge();
+      refreshNotifModal(true);
+      showToast(tr('notif.clearFailed'));
+    }
+  }
+
+  /* «Utsett»: det samme varselet én gang til, senere. Det logges som en ny rad
+     med et tidspunkt i framtiden — den er usynlig til den forfaller — og med
+     `snoozed`, så identiteten ikke kolliderer med det opprinnelige varselet.
+     Markøren røres ikke (`p_cursor` utelates): ingen terskler er vurdert her.
+     Å utsette er samtidig en kvittering, så det opprinnelige merkes lest. */
+  async function snoozeNotif(row, ms) {
+    const at = Date.now() + ms;
+    notifSnoozeFor = null;
+    markNotifRead([row.id]);
+    const client = acli();
+    if (!client || !authUser) return;
+    try {
+      const { error } = await client.rpc('notify_record', {
+        p_rows: [{
+          key: row.key + '|s' + at, type: row.type, obj_type: row.objType,
+          obj_id: row.objId, name: row.name, path: row.path, value: row.value,
+          at: at, snoozed: true,
+        }],
+      });
+      if (error) throw error;
+      showToast(tr('notif.snoozedTo', { time: fmtTimeFull(stampValue(at)) }));
+      scheduleCloud(150);
+    } catch (e) {
+      showToast(tr('notif.snoozeFailed'));
+    }
+  }
+
+  /* Preferansene. De styrer om hendelsen GENERERES, ikke bare om den vises —
+     og et bytte flytter markøren til nå, både her og på serveren: en terskel
+     som passerte mens typen var av skal ikke velte inn i det den slås på. */
+  async function setNotifPref(type, on) {
+    const prev = notifPrefs;
+    notifPrefs = Object.assign({}, notifPrefs || NOTIF_DEFAULT_PREFS);
+    notifPrefs[type] = on;
+    notifCursor = Date.now();
+    refreshNotifModal(true);
+    const client = acli();
+    if (!client || !authUser) return;
+    const patch = {};
+    patch[type] = on;
+    try {
+      const { error } = await client.rpc('notify_set_prefs', { p_prefs: patch });
+      if (error) throw error;
+      scheduleCloud(150);
+    } catch (e) {
+      notifPrefs = prev;
+      refreshNotifModal(true);
+      showToast(tr('notif.prefFailed'));
+    }
+  }
+
+  // Utlogging/kontobytte: historikken hørte til den forrige brukeren.
+  function resetNotifications() {
+    notifRows = [];
+    notifPrefs = null;
+    notifCursor = null;
+    notifRetryAt = 0;
+    notifPurged.clear();
+    if (notifClear) { clearTimeout(notifClear.timer); notifClear = null; }
+    clearTimeout(notifTimer);
+    notifTimer = null;
+    notifSig = null;
+    paintNotifBadge();
+    refreshNotifModal(true);
+  }
+
+  if (notifBtn) notifBtn.addEventListener('click', openNotifModal);
+  if (notifCloseBtn) notifCloseBtn.addEventListener('click', closeNotifModal);
+  if (notifSettingsBtn) {
+    notifSettingsBtn.addEventListener('click', () => {
+      notifSettings = !notifSettings;
+      notifSnoozeFor = null;
+      refreshNotifModal(true);
+    });
+  }
+  if (notifClearBtn) {
+    notifClearBtn.addEventListener('click', () => {
+      if (notifClear) undoNotifClear();
+      else startNotifClear();
+    });
+  }
+  if (notifModal) {
+    notifModal.addEventListener('click', (ev) => { if (ev.target === notifModal) closeNotifModal(); });
+  }
+  /* Som hendelsesmodalen: en timer er ikke til å stole på over en fane i
+     bakgrunnen, så forgrunnen regner ut på nytt med én gang. Og som den
+     buffrede slettingen (docs/trash.md): forsvinner fanen mens angre-vinduet
+     står åpent, committes tømmingen — vinduet hører til en modal brukeren
+     faktisk ser. */
+  document.addEventListener('visibilitychange', () => {
+    if (document.hidden) { commitNotifClear(); return; }
+    paintNotifBadge();
+    refreshNotifModal();
   });
 
   /* ============================================================
@@ -12530,6 +13224,12 @@
       // Alt lokalt som fantes da staten ble lest, ligger nå på serveren.
       if (allPushed) syncedSeq = seq;
       updateInbox(my);
+      // Varslene rir på den samme runden: doc-et bærer historikken og
+      // preferansene, og generatoren logger tersklene som er passert siden
+      // markøren (docs/varsler.md). Den kaster aldri — en runde som ikke når
+      // fram lar markøren stå, og vinduet er fortsatt åpent neste gang.
+      applyNotifications(my);
+      await runNotifications();
       refreshOpenShare(); // en åpen del-modal følger samme runde (medlemmer, invitasjoner, lås)
       maybeOfferMigration(my);
     } catch (e) {
@@ -14083,6 +14783,9 @@
     if (cloudChan && aclient) { try { aclient.removeChannel(cloudChan); } catch (e) {} }
     cloudChan = null; cloudRt = false; lastMy = null; lastViewSig = null;
     cloudStartedFor = null;
+    // Varselhistorikken tilhørte den utloggede kontoen — badgen skal ikke stå
+    // igjen og telle en annen brukers uleste.
+    resetNotifications();
     shareGroupCache.clear(); shareGroupLoading.clear();
     // Køede operasjoner tilhører den utloggede sesjonen — dropp dem (de ville
     // uansett blitt avvist uten sesjon) og nullstill de optimistiske overlayene.
@@ -15772,6 +16475,13 @@
        `now`, så grensetilfellene kan testes uten systemklokken — og
        `setObjectTime` er den ene setteren fristinvarianten håndheves i. */
     openEventsModal, closeEventsModal, collectUpcomingEvents, setObjectTime,
+    /* Varsler. `collectNotifications(state, now, prefs, cursor)` er ren, som
+       hendelsesmotoren: eksplisitt `now` og eksplisitt markør, så terskler,
+       catch-up og preferanser kan testes uten systemklokken og uten server. */
+    openNotifModal, closeNotifModal, collectNotifications, runNotifications,
+    get notifRows() { return notifRows; },
+    get notifPrefs() { return notifPrefs; },
+    get notifCursor() { return notifCursor; },
     // Nav-scopets dra-og-slipp-board (dnd-kit gjennom Smett). Bygges først når
     // modalen åpnes; testene bruker dem til å lese motorens egen tilstand
     // (`dropTarget`, `manager.dragOperation`) i stedet for å gjette fra DOM-en.

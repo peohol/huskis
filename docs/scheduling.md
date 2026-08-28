@@ -76,8 +76,9 @@ døgnet som gjelder følger av FELTET:
 
 `timeMs(verdi, felt)` i `app.js` er den ENESTE omregningen, og alt som
 sammenligner tid går gjennom den: chip-statusene, «utenfor tidsrommet»-hintet,
-fristinvarianten og hendelsesmotoren
-([`kommende-hendelser.md`](kommende-hendelser.md)). Da kan ikke to steder i
+fristinvarianten, hendelsesmotoren
+([`kommende-hendelser.md`](kommende-hendelser.md)) og varseltersklene
+([`varsler.md`](varsler.md)). Da kan ikke to steder i
 appen mene forskjellige ting om den samme datoen — en frist som står «innen 7
 dager» i hendelsesoversikten kan ikke samtidig være rød i lista.
 

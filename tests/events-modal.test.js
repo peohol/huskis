@@ -9,8 +9,9 @@
   ikke kan vippe over en bøttegrense mens den kjører.
 
   Dekker:
-     1. Kalenderknappen er skjult før innlogging, synlig etter, og ligger
-        FØRST i toppkontrollgruppen (geometrien er `corner-controls.test.js`).
+     1. Kalenderknappen er skjult før innlogging, synlig etter, og ligger rett
+        etter bjellen i toppkontrollgruppen (geometrien er
+        `corner-controls.test.js`).
      2. Modalen åpner med tittel, og seksjonene kommer i rekkefølgen
         «Tidsfrister» → «Starttider».
      3. Gruppene har overskrift og statusikon — og bare de som har rader. Fra
@@ -198,13 +199,17 @@ async function run(label, viewport, touchMode) {
     const g = document.getElementById('corner-controls');
     return {
       synlig: !!b.offsetParent,
-      først: g.firstElementChild === b,
+      // Rekkefølgen i gruppen: en ny knapp legges FØRST, så kalenderen står nå
+      // rett etter bjellen (docs/menus.md, «Toppkontrollene»).
+      plass: [...g.children].indexOf(b),
+      foran: g.children[0] && g.children[0].id,
       navn: b.getAttribute('aria-label'),
       dialog: b.getAttribute('aria-haspopup'),
     };
   });
-  log(label + ' 1b: knappen er synlig etter innlogging, ligger FØRST i gruppen og har navn',
-    knapp.synlig && knapp.først && !!knapp.navn && knapp.dialog === 'dialog', JSON.stringify(knapp));
+  log(label + ' 1b: knappen er synlig etter innlogging, står rett etter bjellen og har navn',
+    knapp.synlig && knapp.plass === 1 && knapp.foran === 'notif-btn' &&
+    !!knapp.navn && knapp.dialog === 'dialog', JSON.stringify(knapp));
 
   /* ---------- 2–4) Modalen ---------- */
   await p.locator('#events-btn').click();

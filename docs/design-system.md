@@ -302,12 +302,13 @@ Størrelse/form kommer fra egne klasser: `.btn` (modaler), `.btn-small`,
 - `.trashcan`: ALLE søppelkasse-knapper — hvit avrundet beholder, antall i grå
   sirkel (`.trashcan-count`), **skjult (`hidden`) når tom**.
 - `.corner-controls` + `.corner-btn`: toppkontrollgruppen i øvre høyre hjørne
-  (kalender, søk, drakt, konto). ÉN fast flex-gruppe med flate-mønsteret på hver
-  knapp;
+  (varsler, kalender, søk, drakt, konto). ÉN fast flex-gruppe med
+  flate-mønsteret på hver knapp;
   en ny knapp legges FØRST i gruppen og trenger ingen egen posisjonsregel.
   Bredden gruppen legger beslag på måles i JS (`--corner-btns-w`) — se
   `docs/menus.md` («Toppkontrollene»).
-  Variantene: `.events-btn` (åpner «Kommende hendelser»,
+  Variantene: `.notif-btn` (bjelle + `.menu-badge` som ulest-teller, åpner
+  varselmodalen, `docs/varsler.md`), `.events-btn` (åpner «Kommende hendelser»,
   `docs/kommende-hendelser.md`), `.search-btn` (åpner søkemodalen,
   `docs/sok-og-navigering.md`),
   `.theme-toggle-btn` (sol-/måneikon for aktiv drakt, `docs/mork-drakt.md`) og
@@ -334,6 +335,14 @@ Størrelse/form kommer fra egne klasser: `.btn` (modaler), `.btn-small`,
   platen er den samme i begge drakter; `.event-row-icon` har ingen plate, følger
   drakten og kaster en liten `drop-shadow`. `.events-group + .events-group`
   legger skillelinjen mellom to grupper. Se `docs/kommende-hendelser.md`.
+- `.notif-body` (+ `-list`/`-item`/`-line`/`-empty`/`-settings`), `.notif-row`
+  (+ `-main`/`-name`/`-dot`/`-meta`/`-when`) og `.notif-snooze-btn`/
+  `-snooze-row`: varselmodalen. Radens statusikon er `.event-icon` med gruppens
+  tone — GJENBRUKT, ikke kopiert: et varsel om en utløpt frist skal se ut som
+  gruppen «Frist utløpt» gjør, og arver dermed pinningen og kontrastkontrakten.
+  Ulest bæres av både kant/flate (`is-unread`) og en prikk, aldri av farge
+  alene. `.modal-head-actions` holder tannhjulet og lukkeknappen sammen i enden
+  av modalhodet. Se `docs/varsler.md`.
 - `.account-form` (+ `-label`/`-row`) og `.account-msg`: endre navn/e-post i
   konto-modalen (etikett over felt, Lagre-knapp på samme rad). «Bilde»-seksjonen
   bruker den samme klassen uten å være et `<form>` — mønsteret er etikett over
