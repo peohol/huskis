@@ -5091,10 +5091,8 @@
      ikke vår, og motoren flytter den bare ved å bytte med en RAD. Vist samtidig
      er de to hull som lover hver sin plassering, og bare det ene holder.
 
-     Klonen tas derfor UT AV FLYTEN mens modusen står på, så lista lukker seg
-     over hullet slik den gjør når raden faktisk forlater den. Hoppet det gir
-     går i «bli der du er»-retning: sonen krymper bort fra objektet som nettopp
-     forlot den, aldri mot det. */
+     Klonen males derfor ikke mens modusen står på, og `syncHoleSpace` lukker
+     også plassen: lista står ikke åpen for en rad som er på vei ut av den. */
   function setExtracting(on) {
     document.body.classList.toggle('is-extracting', !!on);
   }
@@ -5113,8 +5111,9 @@
      både ny-liste-stripa og hullet raden kom fra ville lovet en plassering som
      ikke skjer. Hullet kan til og med ligge i en HELT ANNEN liste enn den man
      sikter i — kassen ligger utenfor radene, så det finnes ingen rad å bytte med
-     på veien tilbake dit. Kun malingen; plassen beholdes, så modusen og kortene
-     under står i ro. Se `body.is-over-trash` i styles.css. */
+     på veien tilbake dit. Hullet mister også PLASSEN (`syncHoleSpace`), og
+     kompensasjonen der holder kortets underkant — og dermed kassa — i ro.
+     Se `body.is-over-trash` i styles.css. */
   function setTrashHold(on) {
     document.body.classList.toggle('is-over-trash', !!on);
   }
@@ -5129,79 +5128,94 @@
     document.body.classList.toggle('is-hole-astray', !!on);
   }
 
-  /* ------- HULLET SOM IKKE LOVER NOE: MALING, OG NOEN GANGER PLASSEN -------
+  /* ------- HULLET SOM IKKE LOVER NOE: VERKEN MALING ELLER PLASS -------
 
-     MALINGEN skrus av i alle tre tilfellene (`is-hole-gone`). PLASSEN tas i det
-     ene der den kan tas trygt: når hullet ligger i en ANNEN liste enn den
-     slippet gjelder. Den lista har ingen grunn til å stå med en åpen rad, og
-     kortet som krymper er ikke det terskelen leses av.
+     LISTENE ER ALLTID MAKSIMALT KOMPRIMERT. Et hull som ikke lover en
+     plassering males ikke (`is-hole-gone`) — og da skal raden heller ikke stå
+     igjen som et åpent mellomrom. Alle tre tilfellene behandles likt:
+     ekstrahering, sikte på en kasse, og et hull som ligger igjen i en ANNEN
+     liste enn den slippet gjelder.
 
-     Ligger hullet i lista man selv er i, blir plassen stående. Kortets boks er
-     der samtidig ekstraher-linja OG kassens plass, og å ta radhøyden ut av den
-     flytter begge — MÅLT: kassen glapp under fingeren og sonen slo om til
-     `extract` før man var framme ved knappen (`dnd-trash` 10/11/12).
-
-     Beløpet regnes ut fra bunnen hver runde, så det ikke kan komme i utakt med
-     de andre tingene som endrer kortets høyde (kasseraden kommer og går i det
-     samme kortet). */
-  let holeShrunk = null;      // klonen som bærer den negative marginen
+     Kortets boks er samtidig ekstraher-linja og kassens plass, så komprimeringen
+     må ikke flytte den kanten draget sikter mot. Det er kompensasjonen under
+     som holder den i ro — samme regel som dra-ankeret. */
+  let holeShrunk = null;      // containeren som bærer sammentrekningen
   let holeMarginCard = null;  // kortet som bærer kompensasjonen
   // Skriv en inline-stil bare når den faktisk endrer seg, og hold rede på hvem
   // som bærer den, så den alltid kan tas av igjen.
   function settStil(el, felt, verdi) {
     if (el && el.style[felt] !== verdi) el.style[felt] = verdi;
   }
+  function settVar(el, navn, verdi) {
+    if (!el) return;
+    if (el.style.getPropertyValue(navn) !== verdi) el.style.setProperty(navn, verdi);
+  }
   function syncHoleSpace() {
     const kl = document.body.classList;
-    // MALINGEN skrus av i alle tre tilfellene der hullet ikke lover noe.
+    /* Ett spørsmål, ett svar: lover hullet ingenting, males det ikke OG tar det
+       ingen plass. En liste med en åpen rad ingen plassholder fyller lover en
+       plassering som ikke finnes. */
     const vekk = !!drag.active &&
       (kl.contains('is-extracting') || kl.contains('is-over-trash') || kl.contains('is-hole-astray'));
-    // PLASSEN bare der den kan tas trygt — se blokken over.
-    const komprimer = !!drag.active && kl.contains('is-hole-astray');
     const ph = drag.active ? dragScope().root.querySelector('[data-dnd-placeholder]') : null;
+    const cont = ph ? ph.parentNode : null;
     const card = ph ? ph.closest('.card') : null;
     kl.toggle('is-hole-gone', vekk && !!ph);
 
-    /* PLASSEN tas av en negativ `margin-bottom` på klonen — aldri av
+    /* PLASSEN tas av en negativ `margin-bottom` PÅ KLONEN — aldri av
        `display: none` eller `height: 0`. KLONENS BOKS ER DRA-OBJEKTETS
        GEOMETRI: dnd-kit speiler mål, plassering OG viewport-klemme fra den hver
        frame. En klone uten boks krympet dra-objektet til 12×12 px, og klemmen
        slapp det 269 px utenfor skjermkanten — begge MÅLT. En margin-bottom rører
        verken størrelsen eller plasseringen; den trekker bare radene ETTER
-       klonen opp, og containeren krymper med raden og gapet. */
+       klonen opp, og containeren krymper med raden og gapet.
+
+       Men beløpet kan ikke SKRIVES på klonen. Klonen er en kopi av raden som
+       dras, og dnd-kit bygger den om fra originalens `style`-attributt — der vi
+       selv maler rotasjonen hver frame (`dndPaintRotation`). MÅLT: attributtet
+       ble skrevet i sin helhet, «rotate: …deg; margin-bottom: -56px» ble til
+       «rotate: …deg», og lista sto med en åpen rad igjen til neste runde. Verdien
+       legges derfor på CONTAINEREN, som er VÅR node, og klonen arver den
+       (`--hole-shrink` i styles.css).
+
+       Beløpet regnes ut fra bunnen hver runde, så det ikke kan komme i utakt med
+       de andre tingene som endrer kortets høyde (kasseraden kommer og går i det
+       samme kortet). */
     const boks = ph ? ph.getBoundingClientRect() : null;
-    const gap = ph ? (parseFloat(getComputedStyle(ph.parentNode).rowGap) || 0) : 0;
-    const beløp = komprimer && boks ? boks.height + gap : 0;
-    if (holeShrunk && holeShrunk !== ph) { settStil(holeShrunk, 'marginBottom', ''); holeShrunk = null; }
-    if (ph) {
-      settStil(ph, 'marginBottom', beløp ? (-beløp) + 'px' : '');
-      holeShrunk = beløp ? ph : null;
-    }
+    const gap = cont ? (parseFloat(getComputedStyle(cont).rowGap) || 0) : 0;
+    const beløp = vekk && boks ? boks.height + gap : 0;
 
     /* KOMPENSASJONEN ER LOKAL. Kortet krymper med en radhøyde, og alt under det
        ville rykket oppover midt under fingeren. I stedet får kortet selv en
        `margin-top` på nøyaktig det samme beløpet: UNDERKANTEN står stille, og
        bare overkanten flytter seg ned. Ingen andre kort, ingen board-padding og
-       ingen scroll rører seg.
+       ingen scroll rører seg — og kassa, som ligger nederst i kortet, blir
+       liggende der fingeren allerede sikter.
 
        Retningen velges av siktet, samme regel som dra-ankeret: ligger siktet
        UNDER hullet står underkanten stille; ligger det OVER — man drar oppover
        forbi lista hullet ligger i — krymper kortet nedenfra, og overkanten
        står. */
     const komp = beløp && card && anchorAimY() >= boks.top ? beløp : 0;
+
+    /* De to bærerne settes i samme runde, ut fra det samme svaret: en
+       kompensasjon uten en sammentrekning ville vokst kortet med en radhøyde. */
+    const nyCont = beløp ? cont : null;
+    const nyttKort = komp ? card : null;
+    if (holeShrunk && holeShrunk !== nyCont) holeShrunk.style.removeProperty('--hole-shrink');
+    if (holeMarginCard && holeMarginCard !== nyttKort) settStil(holeMarginCard, 'marginTop', '');
+    settVar(nyCont, '--hole-shrink', (-beløp) + 'px');
+    settStil(nyttKort, 'marginTop', komp + 'px');
     const bar = holeMarginCard;
-    if (holeMarginCard && holeMarginCard !== card) { settStil(holeMarginCard, 'marginTop', ''); holeMarginCard = null; }
-    if (card) {
-      settStil(card, 'marginTop', komp ? komp + 'px' : '');
-      holeMarginCard = komp ? card : null;
-    }
+    holeShrunk = nyCont;
+    holeMarginCard = nyttKort;
     /* Endret kortets margin seg, endret det YTRE målet seg uten at boksen gjorde
        det, og observatøren fyrer ikke på margin. Be om runden selv: et kort helt
        over siktet skal fortsatt ikke dra det man svever over med seg. */
     if (bar !== holeMarginCard) anchorObserved();
   }
   function clearHoleSpace() {
-    if (holeShrunk) { settStil(holeShrunk, 'marginBottom', ''); holeShrunk = null; }
+    if (holeShrunk) { holeShrunk.style.removeProperty('--hole-shrink'); holeShrunk = null; }
     if (holeMarginCard) { settStil(holeMarginCard, 'marginTop', ''); holeMarginCard = null; }
     document.body.classList.remove('is-hole-gone');
   }
@@ -7129,8 +7143,8 @@
          pekeren streifer kassen ville flyttet kortene under den én gang per
          streif. Det som skjer er de to tingene som gjør slippet ærlig: INGEN
          plassholder males (`setTrashHold` — verken ny-liste-stripa eller hullet
-         raden kom fra; begge beholder plassen sin, så ingenting rykker), og
-         kassen markeres. Hva slippet BETYR står i `*CommitRow`: i denne sonen
+         raden kom fra; hullet mister også plassen, men kortets underkant står
+         stille, så kassa ikke flytter seg under fingeren), og kassen markeres. Hva slippet BETYR står i `*CommitRow`: i denne sonen
          sletter det.
 
          Sonen er litt større enn knappen (`DRAG_TRASH_PAD`) — knappen er et

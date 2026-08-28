@@ -518,12 +518,10 @@ Rommet som blir til overs legger seg øverst i board-et, og rommet som trengs ta
 derfra igjen når draget snur. `dnd-layout-anchor` måler alle fire radene, på
 desktop og mobil.
 
-**Det ankeret IKKE gjør:** hullet beholder plassen sin også når slippet ikke
-legger raden tilbake i lista (på kassen, og i ekstraheringsmodus). Å lukke det
-ble prøvd: ekstraher-terskelen flyttet seg 10–27 px og kolonnen begynte å flimre
-mellom `reorder` og `extract` (`dnd-extract-thresholds` A4/B3/C1/C4). Hullet som
-blir stående er fortsatt det ærlige — det er plassen raden kommer tilbake til om
-man går inn igjen.
+**Ankeret bærer også komprimeringen.** Når hullet lukker seg fordi det ikke
+lover noe (`syncHoleSpace`, under), er det den samme regelen som avgjør hvilken
+kant som står stille — der som en `margin-top` på kortet selv, så bare det ene
+kortet flytter seg.
 
 ## Ekstrahering til ny container (rad → nytt kort)
 
@@ -582,16 +580,26 @@ i lista over. Der males den ikke.
 
 `dnd-trash` sjekk 13 måler hele turen — ned i lista under, opp igjen og fram til
 knappen: aldri rødvask og malt hull samtidig, og males hullet, ligger det i lista
-slippet faktisk lander i.
+slippet faktisk lander i. Males det ikke, tar det heller ingen plass (under).
 
-### Et hull i FEIL liste tar heller ingen plass (`syncHoleSpace`)
+### Et hull som ikke lover noe tar heller ingen plass (`syncHoleSpace`)
 
-Ligger hullet i en annen liste enn den slippet gjelder, lukker det seg helt: den
-lista har ingen grunn til å stå med en åpen rad. Plassen tas av en negativ
-`margin-bottom` på klonen, og kortet får en `margin-top` på nøyaktig det samme —
+**Listene er alltid maksimalt komprimert.** Males hullet ikke, står lista heller
+ikke åpen for det: en rad uten en plassholder i lover en plassering som ikke
+finnes. Regelen gjelder alle tre tilfellene likt — ekstrahering, sikte på en
+kasse, og et hull som ligger igjen i en annen liste.
+
+Plassen tas av en negativ `margin-bottom` på klonen, like stor som radhøyden
+pluss containerens `row-gap`. Kortet får en `margin-top` på nøyaktig det samme:
 UNDERKANTEN står stille, og bare overkanten flytter seg ned. Ingen andre kort,
 ingen board-padding og ingen scroll rører seg. Kortets margin teller som en del
 av høyden for ankeret (`anchorOuterH`), så alt under kortet står også stille.
+Retningen velges av siktet, samme regel som ankeret: ligger siktet over hullet,
+krymper kortet nedenfra i stedet, og overkanten står.
+
+Det er kompensasjonen som gjør at komprimeringen kan gjøres i lista man selv
+sikter i: kortets boks er der samtidig ekstraher-linja OG kassens plass, og
+begge ligger ved UNDERKANTEN, som ikke flytter seg.
 
 **Klonens boks er DRA-OBJEKTETS GEOMETRI**, og derfor må plassen tas med margin
 og ingenting annet. dnd-kit speiler mål, plassering OG viewport-klemme fra
@@ -600,16 +608,32 @@ fryser man målene i stedet, slipper klemmen objektet 269 px utenfor skjermkante
 (`dnd-viewport-clamp`). En `margin-bottom` rører verken størrelse eller
 plassering — den trekker bare radene ETTER klonen opp.
 
-**De to andre tilfellene beholder plassen.** Er hullet i lista man selv er i —
-ekstraheringsmodus, eller sikte på kortets egen kasse — er kortets boks
-samtidig ekstraher-linja og kassens plass, og å ta radhøyden ut av den flytter
-begge. MÅLT: `dnd-trash` 10/11/12 mister kassen, og sonen slår om til `extract`
-før pekeren er framme ved knappen. Hullet blir da stående usynlig, og det er
-ærlig nok: det er plassen raden kommer tilbake til om man går inn igjen.
+**Men beløpet kan ikke SKRIVES på klonen.** Klonen er en kopi av raden som dras,
+og dnd-kit bygger den om fra originalens `style`-attributt — det samme
+attributtet Huskis maler rotasjonen i hver frame (`dndPaintRotation`). MÅLT:
+attributtet ble skrevet i sin helhet, «rotate: …deg; margin-bottom: -56px» ble
+til «rotate: …deg», og lista sto med en åpen rad til neste runde. Verre: kortets
+kompensasjon ble stående alene, kortet vokste 56 px, og kassa flyttet seg like
+langt ned under fingeren som nettopp siktet på den. Beløpet legges derfor på
+CONTAINEREN, som er Huskis' egen node, og klonen ARVER det (`--hole-shrink`).
 
-`dnd-trash` sjekk 13 måler begge deler — at et hull i feil liste ikke tar plass
-der, og at kantene draget nærmer seg står stille gjennom hele turen. Sjekk A5 i
-`dnd-extract-thresholds.test.js` måler at bare ett hull males.
+Det var den samme vaskingen som i sin tid ble lest som at plassen ikke KUNNE tas
+i egen liste: tersklene flimret fordi marginen forsvant og kom tilbake, ikke
+fordi regelen var feil.
+
+**Marginene på et skjult hull er Huskis'.** Kategoriens skillemarger
+(`.sep-above`/`.sep-below`, 25 px) er en del av løftet om hvor raden lander, og
+et hull som ikke lover noe skal ikke bære dem — linja males uansett ikke, men de
+25 pikslene ville stått igjen som nettopp den åpne raden. Regelen nullstiller
+derfor `margin-top` og eier `margin-bottom`, med `!important` av samme grunn som
+for det løftede objektet: skillelinje-reglene har tre klasser.
+
+`dnd-layout-anchor` sjekk 8 måler hele draget — ned gjennom lista under, ut
+mellom kortene, bort på begge kassene og tilbake opp, med og uten en kategori i
+lista: ingen container har plass som ingen malt rad fyller. `dnd-trash` sjekk 13
+måler at et skjult hull ikke tar plass i NOEN liste, og at kantene draget nærmer
+seg står stille gjennom hele turen. Sjekk A5 i `dnd-extract-thresholds.test.js`
+måler at bare ett hull males.
 
 `placeNewListPlaceholder` plasserer stripa:
 

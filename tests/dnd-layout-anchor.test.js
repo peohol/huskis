@@ -29,6 +29,12 @@
        board som vandrer.
     7. Ved slipp er alt ryddet: ingen padding, ingen hevet min-høyde, og
        scrollen tilbake der den var.
+    8. MAKSIMAL KOMPRIMERING: ingen liste står med en åpen rad. Gjennom et helt
+       drag — ned gjennom lista under, ut mellom kortene, bort på kassene og
+       tilbake opp — skal ingen container ha plass som ingen malt rad fyller.
+       Et hull som ikke lover en plassering males ikke, og da tar det heller
+       ingen plass. Måles også med en KATEGORI i lista, som har sin egen
+       container.
 
   Kjør:
     python3 -m http.server 8000                     # fra repo-roten, i egen terminal
@@ -252,11 +258,126 @@ async function oppover(label, viewport) {
   await p.close(); await b.close();
 }
 
+/* ============ 8) Ingen liste står med en åpen rad ============ */
+
+/* Åpen plass i en liste: containerens høyde minus det de MALTE radene fyller.
+   Dra-objektet selv er tatt ut av flyten og fyller ingen rad; containerens egen
+   min-høyde er tom-listas slippflate og står der like fullt i hvile. */
+const åpneRader = (p) => p.evaluate(() => {
+  const malt = (el) => {
+    const cs = getComputedStyle(el);
+    if (cs.position === 'fixed' || cs.position === 'absolute') return false;
+    return cs.visibility === 'visible' && cs.display !== 'none' &&
+      +cs.opacity > 0.01 && el.getBoundingClientRect().height > 0.5;
+  };
+  const åpne = [];
+  let radeteller = 0;
+  document.querySelectorAll('.items-container').forEach((cont) => {
+    const cs = getComputedStyle(cont);
+    const gap = parseFloat(cs.rowGap) || 0;
+    const pad = (parseFloat(cs.paddingTop) || 0) + (parseFloat(cs.paddingBottom) || 0);
+    const gulv = (parseFloat(cs.minHeight) || 0) + pad;
+    let sum = 0, n = 0;
+    [...cont.children].forEach((k) => {
+      if (!malt(k)) return;
+      const ks = getComputedStyle(k);
+      // Marginene teller med: kategoriens skillelinje males i en 25 px marg på
+      // raden ved siden av, og den er en malt ting, ikke en åpen rad.
+      sum += k.getBoundingClientRect().height +
+        (parseFloat(ks.marginTop) || 0) + (parseFloat(ks.marginBottom) || 0);
+      n++;
+    });
+    radeteller += n;
+    const brutto = cont.getBoundingClientRect().height;
+    const åpen = brutto - Math.max(gulv, pad + sum + gap * Math.max(0, n - 1));
+    const kort = cont.closest('.card');
+    if (åpen > 4) åpne.push((kort ? kort.dataset.id : '?') + '=' + åpen.toFixed(0) + 'px');
+  });
+  const ph = document.querySelector('[data-dnd-placeholder]');
+  const phMalt = ph ? malt(ph) : false;
+  return {
+    åpne,
+    malteRader: radeteller,
+    hull: ph ? (phMalt ? 'malt' : 'skjult') : 'ingen',
+    klasser: [...document.body.classList].filter((c) => /^is-/.test(c)).join(','),
+  };
+});
+
+async function komprimert(label, viewport) {
+  const b = await chromium.launch();
+  const p = await b.newPage({ viewport });
+  const errs = []; p.on('pageerror', (e) => errs.push(e.message));
+  await register(p);
+
+  for (const variant of ['flat', 'kategori']) {
+    /* Forrige runde skrev til skyen (et slipp er et slipp). Vent til køen er
+       tom før fiksturet settes på nytt, ellers rendrer svaret board-et etterpå
+       og tar seeden med seg. */
+    await p.waitForFunction(() => {
+      const el = document.querySelector('#sync-status');
+      return !el || el.dataset.state !== 'saving';
+    }, null, { timeout: 15000, polling: 200 });
+    await seed(p);
+    if (variant === 'kategori') {
+      // Liste B får en kategori med ett medlem: en container til, med sin egen
+      // min-høyde og sitt eget gap.
+      await p.evaluate(() => {
+        const H = window.__huskis, st = H.state;
+        const l2 = st.universes[0].groups[0].cards.find((c) => c.id === 'L2');
+        const mk = (o) => Object.assign({ ts: 1, org: 't', pos: 0, posTs: 1, posOrg: 't',
+          trashed: false, _role: 'owner' }, o);
+        l2.items.push(mk({ id: 'K1', home: 'L2', text: 'Sport', cat: null, isCat: true, pos: 2 }));
+        l2.items.push(mk({ id: 'B2', home: 'L2', text: 'Ski', cat: 'K1', isCat: false, pos: 3 }));
+        H.render();
+      });
+      await p.waitForTimeout(350);
+    }
+    await p.waitForSelector('.item[data-id="A1"]', { timeout: 15000 });
+
+    const { x, y } = await løft(p, 'A1');
+    const L2 = await p.locator('.card[data-id="L2"]').boundingBox();
+    const bunn = L2.y + L2.height + 40 - y;   // forbi hele liste B
+    const prøver = [];
+    for (let dy = 12; dy <= bunn; dy += 12) { await dra(p, x, y + dy, 2); prøver.push(await åpneRader(p)); }
+    for (let dy = bunn; dy >= -60; dy -= 12) { await dra(p, x, y + dy, 2); prøver.push(await åpneRader(p)); }
+    // Kassene: begge vertene, der hullet før beholdt plassen i sin EGEN liste.
+    for (const id of ['L2', 'L1']) {
+      const k = await p.locator('.card[data-id="' + id + '"] .item-trash-btn').boundingBox();
+      if (!k) continue;
+      for (let i = 0; i < 3; i++) {
+        await p.mouse.move(k.x + k.width / 2, k.y + k.height / 2, { steps: 2 });
+        await p.waitForTimeout(70);
+        prøver.push(await åpneRader(p));
+      }
+    }
+    /* Slipp raden der den ble løftet — ikke på kassen: en sletting her ville
+       fjernet fiksturet for neste variant. */
+    await p.mouse.move(x, y, { steps: 6 }); await p.waitForTimeout(120);
+    await p.mouse.up(); await p.waitForTimeout(700);
+    prøver.push(await åpneRader(p));
+
+    const med = prøver.filter((s) => s.åpne.length);
+    log(label + ' 8 (' + variant + '): ingen liste står med en åpen rad (' + prøver.length + ' prøver)',
+      med.length === 0,
+      JSON.stringify(med.slice(0, 3).map((s) => ({ åpne: s.åpne, hull: s.hull, kl: s.klasser }))));
+    /* Uten dette er sjekken over tom: turen SKAL ha vært innom et skjult hull —
+       det er da plassen måtte tas — og et malt hull skal fortsatt fylle en rad. */
+    const skjulte = prøver.filter((s) => s.hull === 'skjult').length;
+    const malte = prøver.filter((s) => s.hull === 'malt').length;
+    log(label + ' 8 (' + variant + '): turen var innom både malt og skjult hull',
+      skjulte > 3 && malte > 3, JSON.stringify({ skjulte, malte }));
+  }
+  log(label + ' 8: ingen JS-feil', errs.length === 0, errs.join(' | '));
+  await p.close(); await b.close();
+}
+
 (async () => {
   await nedover('desktop', { width: 1280, height: 900 });
   await nedover('mobil', { width: 390, height: 780 });
   await oppover('desktop', { width: 1280, height: 900 });
   await oppover('mobil', { width: 390, height: 780 });
+  await komprimert('desktop', { width: 1280, height: 900 });
+  await komprimert('mobil', { width: 390, height: 780 });
   const failed = results.filter((x) => !x).length;
   console.log('\n==== ' + (results.length - failed) + '/' + results.length + ' PASS ====');
   process.exit(failed ? 1 : 0);

@@ -2264,31 +2264,34 @@ body.is-dragging * { cursor: grabbing !important; }
    lav rad fikk et hull dobbelt så høyt som seg selv). */
 .board [data-dnd-placeholder] { rotate: none !important; scale: none !important; }
 .board [data-dnd-placeholder] > * { visibility: hidden; }
-/* EKSTRAHERING: raden er på vei ut av lista, og ny-liste-placeholderen er
-   plassen den skal til. dnd-kits klone blir liggende igjen der raden lå —
-   motoren flytter den bare ved å bytte med en RAD, og i denne modusen tar ingen
-   container imot. To MARKERTE hull som lover hver sin plassering er ett for
-   mye, og det er det utenfor lista som holder: klonen males derfor ikke mens
-   modusen står på (dnd-kits egen standard, som regelen over slår av).
+/* HULLET SOM IKKE LOVER NOE: verken maling eller plass.
 
-   Den beholder PLASSEN sin. Å ta den ut av flyten var det første forsøket, og
-   det er lista selv som forbyr det: uten radhøyden krymper kortet forbi
-   `MIN_BAND_SLACK`, sonen slår om til hele kortet, objektet er inne igjen,
-   klonen kommer tilbake — én runde per piksel. Målt som 10 gjentakelser av
-   samme tilstand gjennom 320 px (`board-columns` sjekk 6) og som flimring i
-   fire av `dnd-extract-thresholds`. Prøvd på nytt etter at DRA-ANKERET kom, som
-   holder det man sikter på i ro: terskelen flyttet seg fortsatt 10–27 px, og
-   kolonnen flimret (`dnd-extract-thresholds` A4/B3/C1/C4). Hullet som blir
-   stående er ærlig: det er plassen raden kommer tilbake til om man går inn
-   igjen. Se `setExtracting` og docs/drag-and-drop.md. */
-/* Hullet males ikke når det ikke lover noe — i ekstraheringsmodus, på kassen,
-   eller når det ligger i en annen liste enn slippet gjelder. Ligger det i en
-   ANNEN liste, lukker `syncHoleSpace` også PLASSEN med en negativ
-   `margin-bottom` på klonen, og gir kortet en like stor `margin-top` så
-   underkanten står stille. Aldri `display: none` eller `height: 0`: klonens boks
-   er dra-objektets geometri, og dnd-kit speiler mål, plassering og
-   viewport-klemme fra den. Se `syncHoleSpace` i app.js. */
+   Et malt hull sier «her lander raden». Tre ganger sier det ikke det:
+   i ekstraheringsmodus (ny-liste-stripa er plassen raden skal til), når pekeren
+   står på en kasse (slippet sletter), og når klonen ligger igjen i en ANNEN
+   liste enn den slippet gjelder. Da males den ikke — og LISTA STÅR HELLER IKKE
+   ÅPEN: en rad uten en plassholder i lover en plassering som ikke finnes.
+
+   Plassen tas av en negativ `margin-bottom` på klonen. Aldri `display: none`
+   eller `height: 0`: klonens boks ER dra-objektets geometri, og dnd-kit speiler
+   mål, plassering og viewport-klemme fra den (`display: none` krympet
+   dra-objektet til 12×12 px; frosne mål slapp det 269 px utenfor skjermkanten).
+
+   Beløpet kommer som en ARVET variabel fra containeren, ikke som en inline-stil
+   på klonen: klonen er en kopi av raden som dras, og dnd-kit bygger den om fra
+   originalens `style`-attributt — det samme attributtet vi maler rotasjonen i
+   (se regelen over). En inline `margin-bottom` ble vasket bort med den.
+   Containeren er VÅR node, og klonen arver. Se `syncHoleSpace` i app.js. */
 body.is-hole-gone .board [data-dnd-placeholder] { visibility: hidden; }
+/* Marginene på et hull som ikke lover noe er VÅRE. `!important` av samme grunn
+   som for det løftede objektet lenger opp: kategoriens skillemarger står i en
+   regel med tre klasser (`.items-container.seps-managed > .sep-above`), og 25 px
+   tom marg er nettopp den åpne raden komprimeringen skal fjerne. Linja i margen
+   males uansett ikke — hullet er `visibility: hidden`. */
+body.is-hole-gone [data-dnd-placeholder] {
+  margin-top: 0 !important;
+  margin-bottom: var(--hole-shrink, 0px) !important;
+}
 /* Pekeren på kassen: der SLETTER slippet, så ny-liste-stripa skal ikke love en
    ny liste. Stripa tar ingen plass, så her er det bare malingen. */
 body.is-over-trash .new-list-placeholder { visibility: hidden; }

@@ -38,9 +38,9 @@
        heller ikke hullet raden kom fra, som kan ligge igjen i en HELT ANNEN
        liste enn den man sikter i. Rødvasken på det som dras og et malt hull
        utelukker hverandre, og males hullet i det hele tatt, ligger det i lista
-       slippet faktisk lander i. Et hull i FEIL liste tar heller ingen plass
-       der — den lista komprimeres — og kantene draget nærmer seg står likevel
-       stille, så terskelen ikke flytter seg.
+       slippet faktisk lander i. Et hull som IKKE males tar heller ingen plass —
+       i noen liste, også den man selv sikter i — og kantene draget nærmer seg
+       står likevel stille, så terskelen ikke flytter seg.
 
   Kjør:
     python3 -m http.server 8000                     # fra repo-roten, i egen terminal
@@ -684,17 +684,19 @@ async function runEttHull(label, viewport) {
   log(label + ' 13: på kassen males verken hullet eller ny-liste-stripa',
     påKassen.rød === true && påKassen.hull === false && påKassen.stripe === false,
     JSON.stringify(påKassen));
-  /* Og et hull som ligger i FEIL liste tar heller ingen plass der: den lista har
-     ingen grunn til å stå med en åpen rad. Måles på CONTAINEREN — klonens egen
-     boks er dra-objektets geometri og skal stå urørt.
-
-     Ligger hullet i lista slippet gjelder (samme kort som kassen), beholder det
-     plassen: der er kortets boks samtidig ekstraher-linja og kassens plass. */
-  const iFeil = [...new Set(prøver.filter((s) => s.hullIKort !== s.vert).map((s) => s.listeH))];
-  const iEgen = [...new Set(prøver.filter((s) => s.hullIKort === s.vert).map((s) => s.listeH))];
-  log(label + ' 13: et hull i feil liste tar heller ingen plass der',
-    iFeil.length === 1 && iEgen.length === 1 && iEgen[0] - iFeil[0] >= 40,
-    JSON.stringify({ iFeil, iEgen, klonH: [...new Set(prøver.map((s) => s.hullH))] }));
+  /* Males hullet ikke, tar det heller INGEN PLASS — uansett hvilken liste det
+     ligger i. Lista har ingen grunn til å stå med en åpen rad for en plassering
+     som ikke skjer, og det gjelder like fullt lista man selv sikter i (på
+     kassen) som en annen. Måles på CONTAINEREN — klonens egen boks er
+     dra-objektets geometri og skal stå urørt. */
+  const malt = [...new Set(prøver.filter((s) => s.hull).map((s) => s.listeH))];
+  const skjult = [...new Set(prøver.filter((s) => !s.hull).map((s) => s.listeH))];
+  // Den strengeste prøven er hullet i EGEN liste: det var det som før beholdt
+  // plassen. Turen skal ha vært innom den tilstanden med hullet skjult.
+  const egenSkjult = prøver.filter((s) => !s.hull && s.hullIKort === s.vert).length;
+  log(label + ' 13: et hull som ikke males tar heller ingen plass — i NOEN liste',
+    malt.length === 1 && skjult.length === 1 && malt[0] - skjult[0] >= 40 && egenSkjult > 0,
+    JSON.stringify({ malt, skjult, egenSkjult, klonH: [...new Set(prøver.map((s) => s.hullH))] }));
   /* Kortene krymper med en radhøyde når hullet lukkes — men kantene draget
      NÆRMER SEG står stille: kompensasjonen er en `margin-top` på kortet selv, så
      underkanten (og dermed terskelen) er urørt, og kortet man forlater slipper
