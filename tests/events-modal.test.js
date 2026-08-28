@@ -13,8 +13,12 @@
         FØRST i toppkontrollgruppen (geometrien er `corner-controls.test.js`).
      2. Modalen åpner med tittel, og seksjonene kommer i rekkefølgen
         «Tidsfrister» → «Starttider».
-     3. Gruppene har overskrift, ikon og antall — og bare de som har rader.
-     4. Raden viser navn, type + kontekststi og et konkret tidspunkt.
+     3. Gruppene har overskrift og statusikon — og bare de som har rader. Fra
+        og med den ANDRE gruppen skiller en linje dem, med lik luft på hver
+        side.
+     4. Raden viser objekttypens ikon, navnet, kontekststien (uten typen i
+        tekst) og et konkret tidspunkt — med avstanden i tid over datoen når
+        hendelsen er innenfor sju døgn.
      5. Tomtilstand når ingenting har tider.
      6. Tastatur og fokus: fokus flyttes inn i dialogen, Tab holdes inne,
         Escape lukker og gir fokus tilbake til kalenderknappen.
@@ -26,8 +30,8 @@
         lukkes — og en frist som PASSERER mens modalen står åpen flytter seg
         til «Frist utløpt» uten at noe i tilstanden endret seg.
      9. i18n: modalen finnes på både norsk og engelsk.
-    10. Farge er aldri eneste bærer, og den gule/grønne statusflaten pinner en
-        MØRK ikonstrek (kontraktsfargene er de samme i begge drakter).
+    10. Farge er aldri eneste bærer, og ikonene i modalen ser LIKE ut i lys og
+        mørk drakt — hele modalen pinner ikonstreken og «papiret».
 
   Kjøres på BÅDE desktop- og mobil-viewport: modalen legger tidspunktet på
   egen linje under 560 px, og kalenderknappen skal virke begge steder.
@@ -46,12 +50,21 @@ const eq = (a, b) => JSON.stringify(a) === JSON.stringify(b);
 const U = () => 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
   const r = Math.random() * 16 | 0; return (c === 'x' ? r : (r & 0x3 | 0x8)).toString(16);
 });
+const pad = (n) => String(n).padStart(2, '0');
 // Dato n døgn fra i dag, i lokal tid — samme format som appen lagrer.
 const dag = (off) => {
   const x = new Date();
   x.setDate(x.getDate() + off);
-  return x.getFullYear() + '-' + String(x.getMonth() + 1).padStart(2, '0') + '-' + String(x.getDate()).padStart(2, '0');
+  return x.getFullYear() + '-' + pad(x.getMonth() + 1) + '-' + pad(x.getDate());
 };
+/* Tidspunkt n TIMER fra nå, med klokkeslett. Halve timer med vilje: da faller
+   nedtellingen («3 t») midt i sitt eget intervall, og testen kan ikke tippe
+   over til nabotallet mens den kjører. */
+const klokke = (timer) => {
+  const x = new Date(Date.now() + timer * 3600000);
+  return dagAv(x) + 'T' + pad(x.getHours()) + ':' + pad(x.getMinutes());
+};
+const dagAv = (x) => x.getFullYear() + '-' + pad(x.getMonth() + 1) + '-' + pad(x.getDate());
 
 /* Fikstur:
      Arbeid > Klinikk    > Vaktdager   (frist for 30 dager siden, start −20)
@@ -60,11 +73,17 @@ const dag = (off) => {
                             Skrive
               Kontoret   > Ferie       (start om 30 dager, frist om 40)
                             Bestille
+              Kontoret   > Nettopp     (frist for 3,5 timer siden)
+              Kontoret   > Straks      (frist om 3,5 timer)
+              Kontoret   > Underlag    (frist om 4 dager, start om 2)
+                            Forarbeid (kategori, frist om 2 dager)
+                              Skisse  (frist om 1 dag)
      Den aktive mappen er Klinikk, så en rad i Kontoret må BYTTE mappe. */
 function buildDB(lang) {
   const uid = 'uM';
   const id = {};
-  ['UA', 'GA', 'GB', 'L1', 'L2', 'L3', 'I1', 'I2', 'I3'].forEach((k) => { id[k] = U(); });
+  ['UA', 'GA', 'GB', 'L1', 'L2', 'L3', 'L4', 'L5', 'L6',
+    'C1', 'I1', 'I2', 'I3', 'I4', 'I5', 'I6'].forEach((k) => { id[k] = U(); });
   const base = (x) => Object.assign({
     trashed: false, locked: false, unlocked: false, invite_policy: 'inherit',
     collapsed: false, is_cat: false, cat_id: null,
@@ -90,11 +109,21 @@ function buildDB(lang) {
       card(id.L1, id.GA, 'Vaktdager', { due_at: dag(-30), start_at: dag(-20) }),
       card(id.L2, id.GB, 'Rapport', { due_at: dag(3) }),
       card(id.L3, id.GB, 'Ferie', { pos: 1, start_at: dag(30), due_at: dag(40) }),
+      // De to med klokkeslett bærer den relative teksten (punkt 4c/4d).
+      card(id.L4, id.GB, 'Nettopp', { pos: 2, due_at: klokke(-3.5) }),
+      card(id.L5, id.GB, 'Straks', { pos: 3, due_at: klokke(3.5) }),
+      // Liste → kategori → listepunkt med hver sin tidligere frist: alle tre
+      // vises, så alle tre radikonene finnes å sammenligne (punkt 4b).
+      card(id.L6, id.GB, 'Underlag', { pos: 4, due_at: dag(4), start_at: dag(2) }),
     ],
     items: [
       item(id.I1, id.L1, 'Mandag'),
       item(id.I2, id.L2, 'Skrive'),
       item(id.I3, id.L3, 'Bestille'),
+      item(id.I4, id.L4, 'Rydde'),
+      item(id.I5, id.L5, 'Ringe'),
+      item(id.C1, id.L6, 'Forarbeid', { is_cat: true, due_at: dag(2) }),
+      item(id.I6, id.L6, 'Skisse', { pos: 1, cat_id: id.C1, due_at: dag(1) }),
     ],
     memberships: [{ id: U(), user_id: uid, universe_id: id.UA, group_id: null, role: 'owner', pos: 0, created_at: 1 }],
     share_invites: [], tombstones: [],
@@ -120,16 +149,24 @@ const modalTree = (p) => p.evaluate(() => {
   const body = document.getElementById('events-body');
   return [].slice.call(body.querySelectorAll('.events-section')).map((sec) => ({
     tittel: sec.querySelector('.events-section-head').textContent,
-    grupper: [].slice.call(sec.querySelectorAll('.events-group-head')).map((h) => ({
-      navn: h.childNodes.length ? h.children[1].textContent : '',
-      antall: h.querySelector('.events-group-count').textContent,
-      ikon: !!h.querySelector('.event-icon svg'),
-      tone: (h.querySelector('.event-icon').className.match(/is-[a-z]+/) || [])[0],
-    })),
+    grupper: [].slice.call(sec.querySelectorAll('.events-group')).map((gr) => {
+      const h = gr.querySelector('.events-group-head');
+      return {
+        navn: h.children[1].textContent,
+        ikon: !!h.querySelector('.event-icon svg'),
+        tone: (h.querySelector('.event-icon').className.match(/is-[a-z]+/) || [])[0],
+        antallElementer: gr.querySelectorAll('.events-group-count').length,
+        linje: parseFloat(getComputedStyle(gr).borderTopWidth) || 0,
+        luftOver: parseFloat(getComputedStyle(gr.parentElement).rowGap) || 0,
+        luftUnder: parseFloat(getComputedStyle(gr).paddingTop) || 0,
+      };
+    }),
     rader: [].slice.call(sec.querySelectorAll('.event-row')).map((r) => ({
       navn: r.querySelector('.event-row-name').textContent,
       meta: r.querySelector('.event-row-meta').textContent,
-      tid: r.querySelector('.event-row-when').textContent,
+      rel: (r.querySelector('.event-row-rel') || {}).textContent || null,
+      dato: r.querySelector('.event-row-date').textContent,
+      ikon: r.querySelector('.event-row-icon').innerHTML,
       type: r.dataset.type,
     })),
   }));
@@ -176,21 +213,51 @@ async function run(label, viewport, touchMode) {
   const tre = await modalTree(p);
   log(label + ' 2b: seksjonene kommer i rekkefølgen Tidsfrister → Starttider',
     eq(tre.map((s) => s.tittel), ['Tidsfrister', 'Starttider']), JSON.stringify(tre.map((s) => s.tittel)));
-  log(label + ' 3a: bare gruppene som HAR rader tegnes, med ikon og antall',
-    eq(tre[0].grupper, [
-      { navn: 'Frist utløpt', antall: '1', ikon: true, tone: 'is-over' },
-      { navn: 'Frist innen 7 dager', antall: '1', ikon: true, tone: 'is-soon' },
-      { navn: 'Frist om 7 dager eller mer', antall: '1', ikon: true, tone: 'is-later' },
-    ]), JSON.stringify(tre[0].grupper));
+  log(label + ' 3a: bare gruppene som HAR rader tegnes, med statusikon og uten antall',
+    eq(tre[0].grupper.map((g) => g.navn + '/' + g.tone + '/' + g.ikon + '/' + g.antallElementer),
+      ['Frist utløpt/is-over/true/0', 'Frist innen 7 dager/is-soon/true/0',
+        'Frist om 7 dager eller mer/is-later/true/0']),
+    JSON.stringify(tre[0].grupper));
   // Startgruppene bærer IKKE varselfargene: at noe begynner er ingen advarsel.
-  log(label + ' 3b: startseksjonen har «Har begynt» (aksent) og en NØYTRAL fremtidsgruppe',
+  log(label + ' 3b: startgruppene har sine EGNE farger, ikke varselfargene',
     eq(tre[1].grupper.map((g) => g.navn + '/' + g.tone),
-      ['Har begynt/is-started', 'Begynner om 7 dager eller mer/is-neutral']),
+      ['Har begynt/is-started', 'Begynner innen 7 dager/is-startsoon',
+        'Begynner om 7 dager eller mer/is-startlater']),
     JSON.stringify(tre[1].grupper));
-  const rad = tre[0].rader[0];
-  log(label + ' 4: raden viser navn, type + kontekststi og et konkret tidspunkt',
-    rad.navn === 'Vaktdager' && rad.meta === 'Liste · Arbeid › Klinikk' &&
-    /\d/.test(rad.tid) && rad.type === 'card', JSON.stringify(rad));
+  /* Skillelinjen mellom to grupper, med LIK luft på hver side: den første
+     gruppen i en seksjon har ingen linje, resten har. */
+  const linjer = tre[0].grupper.map((g) => g.linje);
+  log(label + ' 3c: linje mellom gruppene, men ikke over den første',
+    linjer[0] === 0 && linjer.slice(1).every((x) => x > 0), JSON.stringify(linjer));
+  const g2 = tre[0].grupper[1];
+  log(label + ' 3d: like mye luft over og under linjen',
+    g2.luftOver === g2.luftUnder && g2.luftOver > 0,
+    'over ' + g2.luftOver + ', under ' + g2.luftUnder);
+
+  const rad = tre[0].rader.find((r) => r.navn === 'Vaktdager');
+  log(label + ' 4a: raden viser navn, kontekststi UTEN typen, og en konkret dato',
+    rad.navn === 'Vaktdager' && rad.meta === 'Arbeid › Klinikk' &&
+    /\d/.test(rad.dato) && rad.type === 'card', JSON.stringify(rad));
+  /* Typen bæres nå av ikonet foran raden: listens ikon har tre rader, listepunktets
+     én, kategorien er klammen. Vi sammenligner mot ikonet en rad av HVER type har,
+     så en ombytting blir synlig uten å låse fast selve tegningen. */
+  const ikoner = {};
+  tre.forEach((sec) => sec.rader.forEach((r) => { ikoner[r.type] = r.ikon; }));
+  log(label + ' 4b: hver objekttype har sitt eget ikon i raden',
+    !!ikoner.card && !!ikoner.item && !!ikoner.category &&
+    ikoner.card !== ikoner.item && ikoner.card !== ikoner.category && ikoner.item !== ikoner.category,
+    JSON.stringify(Object.keys(ikoner)));
+  // Nedtellingen: eksakt der fiksturen har klokkeslett (3,5 timer hver vei).
+  const nettopp = tre[0].rader.find((r) => r.navn === 'Nettopp');
+  const straks = tre[0].rader.find((r) => r.navn === 'Straks');
+  log(label + ' 4c: en hendelse som nettopp passerte viser hvor lenge siden',
+    !!nettopp && nettopp.rel === '3 t siden', nettopp && nettopp.rel);
+  log(label + ' 4d: en hendelse som kommer viser hvor lenge til',
+    !!straks && straks.rel === 'Om 3 t', straks && straks.rel);
+  log(label + ' 4e: lenger unna enn sju døgn står uten nedtelling — datoen sier nok',
+    tre[0].rader.find((r) => r.navn === 'Ferie').rel === null &&
+    tre[0].rader.find((r) => r.navn === 'Vaktdager').rel === null,
+    JSON.stringify(tre[0].rader.map((r) => r.navn + '=' + r.rel)));
 
   /* ---------- 6) Tastatur og fokus ---------- */
   const fokus = await p.evaluate(() => {
@@ -328,15 +395,26 @@ async function run(label, viewport, touchMode) {
   await p.locator('#events-btn').click();
   await p.waitForSelector('#events-modal:not([hidden])');
   const farge = await p.evaluate(() => {
-    const gul = document.querySelector('.event-icon.is-soon');
-    const grønn = document.querySelector('.event-icon.is-later');
-    const strek = (el) => el && getComputedStyle(el).getPropertyValue('--icon-ink').trim();
-    return { gul: strek(gul), grønn: strek(grønn) };
+    const strek = (sel) => {
+      const el = document.querySelector(sel);
+      if (!el) return null;
+      const cs = getComputedStyle(el);
+      return cs.getPropertyValue('--icon-ink').trim() + '/' + cs.getPropertyValue('--icon-paper').trim();
+    };
+    return {
+      gruppe: strek('.event-icon'), rad: strek('.event-row-icon'), modal: strek('.events-modal'),
+      // Flatene bak gruppeikonene skal være SEKS ulike, ikke gjenbrukte.
+      flater: [...new Set([].slice.call(document.querySelectorAll('.event-icon'))
+        .map((e) => getComputedStyle(e).backgroundImage))].length,
+    };
   });
-  log(label + ' 10a: den gule statusflaten pinner en MØRK ikonstrek',
-    farge.gul === '#111111', JSON.stringify(farge));
-  log(label + ' 10b: den grønne gjør det samme (samme kontraktsfarge i begge drakter)',
-    farge.grønn === '#111111', JSON.stringify(farge));
+  log(label + ' 10a: hele modalen pinner ikonstreken og papiret',
+    farge.modal === '#111111/#ffffff', JSON.stringify(farge));
+  log(label + ' 10b: både gruppe- og radikonene arver pinningen',
+    farge.gruppe === farge.modal && farge.rad === farge.modal, JSON.stringify(farge));
+  log(label + ' 10d: hver gruppe har sin EGEN flate — ingen farge er gjenbrukt',
+    farge.flater === (await modalTree(p)).reduce((n, sec) => n + sec.grupper.length, 0),
+    'ulike flater: ' + farge.flater);
   const tekstbærere = await p.evaluate(() => [].slice.call(document.querySelectorAll('.events-group-head'))
     .every((h) => h.textContent.replace(/\d+/g, '').trim().length > 3));
   log(label + ' 10c: hver gruppe sier i KLARTEKST hva den er, ikke bare med farge', tekstbærere);
@@ -359,12 +437,16 @@ async function english() {
     seksjoner: [].slice.call(document.querySelectorAll('.events-section-head')).map((h) => h.textContent),
     grupper: [].slice.call(document.querySelectorAll('.events-group-head')).map((h) => h.children[1].textContent),
     rad: (document.querySelector('.event-row-meta') || {}).textContent,
+    rel: [].slice.call(document.querySelectorAll('.event-row-rel')).map((e) => e.textContent),
   }));
   log('9a: modalen finnes på engelsk', en.tittel === 'Upcoming events', en.tittel);
   log('9b: seksjonene er oversatt', eq(en.seksjoner, ['Deadlines', 'Start times']), JSON.stringify(en.seksjoner));
   log('9c: gruppene er oversatt',
     en.grupper.includes('Overdue') && en.grupper.includes('Due within 7 days'), JSON.stringify(en.grupper));
-  log('9d: radens type er oversatt', /^List · /.test(en.rad || ''), en.rad);
+  log('9d: radens sti står uten typen, som på norsk', /^Arbeid/.test(en.rad || ''), en.rad);
+  // «t» heter «h» på engelsk — enheten er en egen nøkkel, ikke en del av tallet.
+  log('9e: nedtellingen er oversatt, med engelsk tidsenhet',
+    en.rel.includes('In 3 h') && en.rel.includes('3 h ago'), JSON.stringify(en.rel));
   log('engelsk: ingen JS-feil', errs.length === 0, errs.join(' | '));
   await browser.close();
 }

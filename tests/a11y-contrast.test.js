@@ -566,6 +566,40 @@ if (darkBlock) {
     }
   }
 
+  console.log('\n--- Statusflatene i «Kommende hendelser» ---');
+  /* Modalen pinner ikonstreken MØRK for hele subtreet (`.events-modal`), så
+     ikonene ser like ut i begge drakter — se docs/kommende-hendelser.md. Da
+     må hver eneste gruppeflate bære en svart strek på 3:1, også de to som
+     bare finnes her (startgruppene skal ikke låne varselfargene). */
+  {
+    const pinned = ((css.match(/\.events-modal\s*\{([^}]*)\}/) || [])[1] || '')
+      .match(/--icon-ink:\s*(#[0-9a-f]{3,8})/i);
+    check('.events-modal pinner en MØRK ikonstrek for hele modalen',
+      !!pinned && lum(pinned[1]) < 0.1, { pinned: pinned && pinned[1] });
+    const paper = ((css.match(/\.events-modal\s*\{([^}]*)\}/) || [])[1] || '')
+      .match(/--icon-paper:\s*(#[0-9a-f]{3,8})/i);
+    check('.events-modal pinner «papiret» sammen med streken',
+      !!paper && lum(paper[1]) > 0.5, { paper: paper && paper[1] });
+    const strek = (pinned && pinned[1]) || '#111111';
+    const ark = (paper && paper[1]) || '#ffffff';
+    /* Ikonene her er PLATE-ikoner: en hvit flate med mørke streker oppå. Streken
+       tegnes altså på «papiret», ikke rett på gruppeflaten, og det er derfor
+       ikke streken alene som må skille seg fra flaten — det holder at ÉN av de
+       to gjør det. På de lyse flatene (gul, grønn, lilla, blå) er det streken,
+       på de mørke (rød, blågrønn) er det papiret. Kravet er at hver eneste
+       gruppeflate har minst én av delene på 3:1, ellers blir glyfen en klatt. */
+    for (const g of ['grad-red', 'grad-yellow', 'grad-green', 'grad-accent', 'grad-purple', 'grad-blue']) {
+      for (const stop of gradientStops(g)) {
+        const vStrek = ratio(strek, stop);
+        const vArk = ratio(ark, stop);
+        check(`--${g} (${stop}) skiller seg fra ikonet — strek ${vStrek.toFixed(2)}:1 / papir ${vArk.toFixed(2)}:1 (krav 3:1 på én av dem)`,
+          Math.max(vStrek, vArk) >= 3, { strek: +vStrek.toFixed(2), papir: +vArk.toFixed(2) });
+      }
+    }
+    // Og streken må alltid skille seg fra papiret den faktisk ligger på.
+    contrast('den pinnede streken mot det pinnede papiret i modalen', strek, ark, 3);
+  }
+
   console.log('\n--- Kontroller som bytter farge ved hover / under draging ---');
   /* To signaler tegnes med en FAST farge oppå noe som skifter med drakten, og
      begge falt igjennom da paletten ble mørk. Kravet her er ikke bare 3:1 der

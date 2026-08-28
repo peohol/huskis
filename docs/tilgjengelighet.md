@@ -182,9 +182,19 @@ Modalen «Kommende hendelser» har ingen combobox — radene er vanlige knapper,
 Tab og Enter virker uten særbehandling. Til gjengjeld gjelder de to samme
 kravene som over: **antallet** leses opp fra et visuelt skjult `role="status"`,
 og **statusfargen kan ikke bære gruppen alene** — hver gruppe har overskrift i
-klartekst, hver rad sier type og tidspunkt med ord, og glyfene skiller gruppene
-(varseltrekant, kalender, klokke, start). Start-ikonet er bevisst ikke en hake:
-det ville lest som «utført». Autoritativt: `kommende-hendelser.md`.
+klartekst, glyfene skiller gruppene (varseltrekant, kalender, klokke, start), og
+en skillelinje mellom dem er en form, ikke en farge. Start-ikonet er bevisst
+ikke en hake: det ville lest som «utført».
+
+Radens objekttype er BARE et ikon visuelt, og må derfor stå i klartekst i
+`aria-label` — det gjør den, sammen med navn, tidspunkt og sti.
+
+Ikonene i modalen står på fargede plater som er de samme i begge drakter, og
+modalen pinner derfor ikonstreken og «papiret» for hele subtreet. Kravet til de
+seks gruppeflatene er at MINST ÉN av de to (den mørke streken eller det lyse
+papiret) når 3:1 mot flaten — på de lyse flatene er det streken, på de mørke
+papiret. Vokter: `tests/a11y-contrast.test.js`. Autoritativt for resten:
+`kommende-hendelser.md`.
 
 ## To bevisste avveininger
 

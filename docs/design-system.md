@@ -29,7 +29,9 @@ står fortsatt som px.
 
 `--control-h` (49px), `--control-radius` (14px), `--control-bg`
 (rgba(255,255,255,.75)), `--toolbar-pad`, `--text-shadow`,
-`--grad-green/-accent/-red/-yellow` (knappe-gradienter), `--danger`/`--warn`
+`--grad-green/-accent/-red/-yellow` (knappe-gradienter, pluss
+`--grad-purple/-blue` som bare brukes av startgruppene i «Kommende
+hendelser»), `--danger`/`--warn`
 (fare/advarsel som flate- og signalfarge), skygge- og radius-variablene. Nye
 kontroller skal bruke disse — aldri egne ad hoc-verdier. Endres et token, skal
 hele appen følge med.
@@ -320,13 +322,17 @@ Størrelse/form kommer fra egne klasser: `.btn` (modaler), `.btn-small`,
   til. Innvendig `box-shadow` i `--focus` — kortene har `overflow: hidden`, og
   fokusringen eier `outline` på det samme elementet. Se
   `docs/sok-og-navigering.md`.
-- `.events-body` (+ `-section`/`-group-head`/`-list`) og `.event-row`/
-  `.event-icon`: modalen «Kommende hendelser». `.event-icon` er statusflaten, og
-  den bruker de SAMME gradientene som `.meta-chip`-statusene (`is-over`,
-  `is-soon`, `is-started`) pluss `is-later` (grønn) og `is-neutral`. Gul og grønn
-  er kontraktsfarger som er like i begge drakter, så begge pinner
-  `--icon-ink`/`--icon-paper` mørkt/lyst — som `.btn-solid` gjør. Se
-  `docs/kommende-hendelser.md`.
+- `.events-body` (+ `-section`/`-group`/`-group-head`/`-list`), `.event-row`
+  (+ `-icon`/`-main`/`-meta`/`-when`/`-rel`/`-date`) og `.event-icon`: modalen
+  «Kommende hendelser». Arbeidsdelingen: `.event-icon` i gruppens overskrift
+  bærer STATUS (farget plate), `.event-row-icon` i raden bærer OBJEKTTYPEN
+  (uten flate). Statusflatene er de samme gradientene som `.meta-chip`-statusene
+  (`is-over`, `is-soon`, `is-started`) pluss `is-later` (grønn) og de to som
+  bare finnes her: `is-startsoon` (`--grad-purple`) og `is-startlater`
+  (`--grad-blue`) — startgruppene skal ikke låne varselfargene. HELE modalen
+  pinner `--icon-ink`/`--icon-paper`, som `.btn-solid` gjør, så ikonene ser like
+  ut i begge drakter. `.events-group + .events-group` legger skillelinjen
+  mellom to grupper. Se `docs/kommende-hendelser.md`.
 - `.account-form` (+ `-label`/`-row`) og `.account-msg`: endre navn/e-post i
   konto-modalen (etikett over felt, Lagre-knapp på samme rad). «Bilde»-seksjonen
   bruker den samme klassen uten å være et `<form>` — mønsteret er etikett over

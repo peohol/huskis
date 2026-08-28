@@ -182,8 +182,14 @@ async function run(label, viewport, touchMode) {
     return { top: b.top, right: window.innerWidth - b.right };
   });
   const main0 = await css(p, '.app-main', ['paddingBottom']);
+  /* 12 px PLUSS gruppens overskudd over én knapperad: brytes hjørnegruppen til
+     flere rader (som den gjør på smal skjerm, se docs/menus.md), skyves
+     overskuddet inn i panelets padding-top slik at panelets første rad ligger
+     ved siden av gruppens siste. Uten sone er det hele polstringen. */
+  const overskudd0 = await p.evaluate(() => parseFloat(
+    getComputedStyle(document.documentElement).getPropertyValue('--corner-btns-overflow')) || 0);
   log(label + ': toppmenyen står på sin vanlige polstring uten sone',
-    bar0.paddingTop === 12, 'padding-top ' + bar0.paddingTop);
+    bar0.paddingTop === 12 + overskudd0, 'padding-top ' + bar0.paddingTop + ' (overskudd ' + overskudd0 + ')');
   log(label + ': kontoknappen står på sin vanlige avstand uten sone',
     nær(konto0.top, 12), 'top ' + Math.round(konto0.top));
   log(label + ': board-ets bunn er fortsatt 0 uten sone',

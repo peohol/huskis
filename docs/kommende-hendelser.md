@@ -20,7 +20,9 @@ autoritativ for dem.
 Første knapp i toppkontrollgruppen (`.corner-btn.events-btn`, `#events-btn` —
 se [`menus.md`](menus.md), «Toppkontrollene»). Den er en `.corner-btn` som de
 andre og trengte ingen ny posisjonsutregning: gruppen plasserer knappene med
-flex, og en ny legges FØRST.
+flex, og en ny legges FØRST. Under 560 px ligger den sammen med søkeknappen på
+en rad UNDER drakt og konto, så breadcrumben bare trenger å vike for to knapper
+— se `menus.md`.
 
 ## Modalen (`#events-modal`)
 
@@ -34,8 +36,8 @@ seksjoner, hver med opptil tre grupper:
 | | Frist innen 7 dager | `now <= due < now + 7 døgn` | varseltrekant, gul |
 | | Frist om 7 dager eller mer | `due >= now + 7 døgn` | kalender m/utropstegn, grønn |
 | **Starttider** | Har begynt | `start <= now` | start-/play-ikon, blågrønn |
-| | Begynner innen 7 dager | `now < start < now + 7 døgn` | klokke, nøytral |
-| | Begynner om 7 dager eller mer | `start >= now + 7 døgn` | kalender, nøytral |
+| | Begynner innen 7 dager | `now < start < now + 7 døgn` | klokke, lilla |
+| | Begynner om 7 dager eller mer | `start >= now + 7 døgn` | kalender, blå |
 
 Grensene er **uttømmende og møtes uten hull**: nøyaktig 7 døgn havner i den
 siste gruppen, ikke mellom to. Ved `now` skiller de to seksjonene lag med
@@ -43,20 +45,44 @@ vilje — en frist som er nøyaktig nå er ennå ikke oversittet, mens en start 
 er nøyaktig nå HAR begynt. Ett døgn er 24 timer (`WEEK_MS`), ikke syv
 kalenderdager.
 
-**Startgruppene bærer ikke varselfargene.** At noe begynner er ingen advarsel;
-gruppene skilles av glyfen (play → klokke → kalender), og bare «Har begynt» får
-en farget flate. Fristgruppene bruker de samme gradientene som statuschipene
-(`docs/design-system.md`), så kontrastkontrakten dekker dem.
+**Startgruppene bærer ikke varselfargene.** At noe begynner er ingen advarsel,
+så de to siste startgruppene har sine EGNE flater (`--grad-purple`,
+`--grad-blue`) i stedet for å låne gult og grønt. Fristgruppene bruker de samme
+gradientene som statuschipene (`docs/design-system.md`). Alle seks flatene er
+med i kontrastkontrakten (`docs/tilgjengelighet.md`).
+
+**Ikonene ser like ut i lys og mørk drakt.** Modalen pinner `--icon-ink` og
+`--icon-paper` for hele subtreet, slik `.btn-solid` gjør: platene under
+gruppeikonene er kontraktsfarger som er de samme i begge drakter, og da skal
+strekene være det også — det gjelder også typeikonene i radene.
 
 Bare grupper som HAR rader tegnes, og finnes ingen hendelser i det hele tatt,
-står det én linje om det.
+står det én linje om det. Antallet rader i en gruppe telles ikke opp: radene
+står der og kan telles.
+
+**Skillelinje mellom gruppene.** Fra og med den andre gruppen i en seksjon
+skiller en linje den fra den forrige, med LIK luft på hver side (seksjonens gap
+over, gruppens padding under). Avstanden mellom to grupper blir dermed dobbelt
+så stor som luften inne i én, og grupperingen leses uten å telle rader.
 
 ### Raden
 
-`[statusikon] navn` med en dempet linje under seg som gir **objekttypen i
-klartekst + kontekststien** (`Liste · Arbeid › Klinikk`, samme form som i
-søket), og det konkrete tidspunktet i enden. Under 560 px flyttes tidspunktet
-ned på sin egen linje, slik at stien får hele bredden.
+`[typeikon] navn` med en dempet linje under seg som gir **kontekststien**
+(`Arbeid › Klinikk`), og tiden i enden. Typen står ikke i teksten — den er
+ikonet: liste, kategori eller listepunkt (`ICONS.list` / `.category` / `.item`;
+listepunktets er listens motiv med én rad i stedet for tre). Radene bærer
+altså IKKE gruppens statusikon: fargen står én gang, i overskriften.
+
+**Tiden er to linjer.** Øverst avstanden i tid, under den den konkrete datoen.
+Avstanden vises bare innenfor sju døgn hver vei — lenger ut sier datoen alene
+mer enn et tall gjør — og teller HELE enheter nedover: «om 3 d» betyr minst tre
+hele døgn igjen. Under ett døgn byttes enheten til timer («om 5 t», «3 t
+siden»), aldri under 1. Under 560 px legges begge på én linje under teksten,
+slik at stien får hele bredden.
+
+At enhetene telles ned til hele har en teknisk side også: teksten bytter da på
+eksakte tidspunkter (`at ± n · enhet`), som `nextEventBoundary` kan sove fram
+til uten å regne på halve enheter.
 
 Trykk på raden lukker modalen og kaller `navigateToObject({ type, id })` — som
 går til riktig mappe, folder ut det som må foldes ut, ruller målet fram,
@@ -72,8 +98,9 @@ bakgrunnssynk som ikke rørte noen av hendelsene.
 
 Gruppene avhenger også av `now`, ikke bare av tilstanden. Modalen PULSER likevel
 ikke: hver hendelse har nøyaktig to øyeblikk der den kan bytte gruppe —
-tidspunktet selv, og 7-døgnsgrensen (`at - WEEK_MS`) — så `refreshEventsModal()`
-sover til den FØRSTE av dem (`nextEventBoundary`). En frist som passerer mens
+tidspunktet selv og de to 7-døgnsgrensene (`at ± WEEK_MS`) — pluss hver hele
+enhet nedtellingen tikker på, så `refreshEventsModal()` sover til den FØRSTE av
+dem (`nextEventBoundary`). En frist som passerer mens
 modalen står åpen flytter seg dermed til «Frist utløpt» av seg selv. Søvnen har
 et tak på seks timer, og en `visibilitychange` regner ut på nytt med én gang:
 `setTimeout` er ikke til å stole på over en fane i bakgrunnen eller en enhet som
@@ -148,19 +175,22 @@ samme tilstand bytter derfor aldri om på to rader.
   kalenderknappen ved lukking (unntatt når en rad ble åpnet — da eier
   navigeringen fokuset).
 - Radene er vanlige knapper, så Tab og Enter virker uten særbehandling. Hver
-  rad har et `aria-label` med navn, type, tidspunkt og sti.
+  rad har et `aria-label` med navn, type, tidspunkt (med avstanden når den
+  finnes) og sti — typen står der i KLARTEKST, siden den visuelt bare er et
+  ikon.
 - Antall hendelser leses opp fra et visuelt skjult `role="status"`.
-- Farge er aldri eneste bærer: gruppen har overskrift i klartekst, raden sier
-  type og tidspunkt med ord, og glyfene skiller gruppene fra hverandre.
-  Start-ikonet er bevisst IKKE en hake — det ville lest som «utført».
+- Farge er aldri eneste bærer: gruppen har overskrift i klartekst, glyfene
+  skiller gruppene fra hverandre, og linjen mellom dem er en form, ikke en
+  farge. Start-ikonet er bevisst IKKE en hake — det ville lest som «utført».
 
 Kravene er de samme som ellers — se [`tilgjengelighet.md`](tilgjengelighet.md).
 
 ## Språk
 
 Alle tekstene ligger i ordboken under `events.*` (pluss `kind.*` for typenavnene
-og `search.rowMeta` for «type · sti», som er nøyaktig samme sammensetning som i
-søket). Se [`sprak.md`](sprak.md).
+i opplesningen). Tidsenheten i nedtellingen er en EGEN nøkkel — «t» heter «h» på
+engelsk — så tallet og enheten kan settes sammen av oversettelsen. Se
+[`sprak.md`](sprak.md).
 
 ## Voktere
 

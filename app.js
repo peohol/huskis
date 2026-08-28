@@ -2845,7 +2845,8 @@
     const p = dateStr.split('-').map(Number);
     return localDateStr(new Date(p[0], p[1] - 1, p[2] + days));
   }
-  const DAY_MS = 24 * 60 * 60 * 1000;
+  const HOUR_MS = 60 * 60 * 1000;
+  const DAY_MS = 24 * HOUR_MS;
   const WEEK_MS = 7 * DAY_MS;
   /* Tidsverdi → millisekunder i lokal veggtid, eller null når verdien er tom.
      `field` er 'start' eller 'due' og avgjør hvilken ende av døgnet en dato
@@ -5132,17 +5133,26 @@
      Er gruppen én rad — alltid i dag — er de to det samme. Radene er
      høyrestilte, så raden strekker seg fra sitt venstreste element til
      gruppens høyrekant. */
-  function cornerLastRowWidth(corner) {
+  /* Bredden på den BREDESTE raden i hjørnegruppen. Toppmenyen kan ha flere
+     rader selv (breadcrumb + listefunksjoner under 560 px), og da ligger det en
+     gruppe-rad ved siden av hver av dem — klaringen må derfor holde for den
+     bredeste, ikke bare for den nederste.
+
+     Radene finnes ved å gruppere på `top`, ikke ved å gå gjennom DOM-en: en
+     `order` kan legge en knapp på en annen rad enn DOM-rekkefølgen tilsier
+     (smal skjerm løfter drakt og konto opp, se styles.css). */
+  function cornerWidestRowWidth(corner) {
     const kids = cornerControls ? cornerControls.children : null;
     if (!kids || !kids.length) return corner.width;
-    const lastTop = kids[kids.length - 1].getBoundingClientRect().top;
-    let left = corner.right;
-    for (let i = kids.length - 1; i >= 0; i--) {
+    const left = new Map();
+    for (let i = 0; i < kids.length; i++) {
       const r = kids[i].getBoundingClientRect();
-      if (Math.abs(r.top - lastTop) > 1) break;
-      left = Math.min(left, r.left);
+      const row = Math.round(r.top);
+      left.set(row, Math.min(left.has(row) ? left.get(row) : Infinity, r.left));
     }
-    return corner.right - left;
+    let widest = 0;
+    left.forEach((l) => { widest = Math.max(widest, corner.right - l); });
+    return widest;
   }
 
   /* Toppmenyen OG toppkontrollgruppen er `position: fixed` og dermed ute av
@@ -5181,11 +5191,19 @@
     const corner = cornerControls ? cornerControls.getBoundingClientRect() : null;
     if (corner && corner.width > 0) {
       const btnGap = parseFloat(getComputedStyle(cornerControls).columnGap) || 0;
-      root.setProperty('--corner-btns-w', (cornerLastRowWidth(corner) + btnGap) + 'px');
+      root.setProperty('--corner-btns-w', (cornerWidestRowWidth(corner) + btnGap) + 'px');
     }
-    const ctrlH = parseFloat(rootCs.getPropertyValue('--control-h')) || 0;
+    /* Overskuddet er de gruppe-radene toppmenyen IKKE har en egen rad ved siden
+       av. Panelets egne rader holder alle av den samme klaringen (styles.css),
+       så det er panelets innholdshøyde — ikke én kontrollhøyde — gruppen måles
+       mot. Måles på innholdsboksen, som er uavhengig av paddingen dette tallet
+       selv går inn i; ellers hadde utregningen bitt seg selv i halen. */
+    const barCs = getComputedStyle(topbarEl);
+    const barContent = Math.max(
+      parseFloat(rootCs.getPropertyValue('--control-h')) || 0,
+      topbarEl.clientHeight - (parseFloat(barCs.paddingTop) || 0) - (parseFloat(barCs.paddingBottom) || 0));
     root.setProperty('--corner-btns-overflow',
-      Math.max(0, (corner ? corner.height : 0) - ctrlH) + 'px');
+      Math.max(0, (corner ? corner.height : 0) - barContent) + 'px');
     // ETTER overskuddet: toppmenyens høyde avhenger av det, og rect-lesningen
     // tvinger fram den nye layouten.
     const bar = topbarEl.getBoundingClientRect();
@@ -8442,6 +8460,10 @@
   // Nøklene står som hele strenger (ikke `'kind.' + type`): tests/i18n.test.js
   // finner bare nøkler som er skrevet ut i kildekoden.
   const EVENT_TYPE_LABEL = { card: 'kind.card', category: 'kind.category', item: 'kind.item' };
+  /* Radens ikon sier hva slags OBJEKT dette er — status ligger i gruppens
+     overskrift, ikke på hver rad. Listepunkt-ikonet er det samme motivet som
+     listens, bare én rad i stedet for tre (`icons.js`). */
+  const EVENT_ROW_ICON = { card: 'list', category: 'category', item: 'item' };
 
   /* AKTIVT/UFULLFØRT — hva som i det hele tatt kan gi en hendelse:
        listepunkt: levende, ikke kategori, ikke avkrysset;
@@ -8606,20 +8628,44 @@
     ] },
     { field: 'start', title: 'events.startTitle', groups: [
       { key: 'started', label: 'events.startStarted', icon: 'play', tone: 'is-started' },
-      { key: 'soon', label: 'events.startSoon', icon: 'clock', tone: 'is-neutral' },
-      { key: 'later', label: 'events.startLater', icon: 'calendar', tone: 'is-neutral' },
+      { key: 'soon', label: 'events.startSoon', icon: 'clock', tone: 'is-startsoon' },
+      { key: 'later', label: 'events.startLater', icon: 'calendar', tone: 'is-startlater' },
     ] },
   ];
   let eventsSig = null;   // signaturen som står tegnet nå
 
-  function eventIconEl(icon, tone) {
+  function eventIconEl(icon, cls) {
     const el = document.createElement('span');
-    el.className = 'event-icon ' + tone;
+    el.className = cls;
     el.setAttribute('aria-hidden', 'true');
     el.innerHTML = ICONS[icon];
     return el;
   }
-  function eventRow(ev, group) {
+
+  /* «Om 3 d» / «3 d siden» — hvor langt unna tidspunktet er, men BARE innenfor
+     sju døgn: lenger ut sier datoen alene mer enn et tall gjør. Under ett døgn
+     byttes enheten til timer.
+
+     Enhetene telles NEDOVER til hele (3 d = minst tre hele døgn igjen), ikke
+     avrundet. To grunner: det er den ærlige lesningen av en nedtelling, og
+     teksten bytter da på eksakte tidspunkter (`e.at ± n · enhet`), som
+     `nextEventBoundary` kan sove fram til uten å regne på halve enheter.
+     Gulvet er 1 — noe tjue minutter unna er «om 1 t», ikke «om 0 t». */
+  function relParts(at, now) {
+    const diff = at - now;
+    const abs = Math.abs(diff);
+    if (abs > WEEK_MS) return null;
+    const unit = abs < DAY_MS ? HOUR_MS : DAY_MS;
+    return { diff: diff, unit: unit, n: Math.max(1, Math.floor(abs / unit)) };
+  }
+  function fmtRelative(at, now) {
+    const p = relParts(at, now);
+    if (!p) return null;
+    return tr(p.diff >= 0 ? 'events.relIn' : 'events.relAgo',
+      { n: p.n, unit: tr(p.unit === DAY_MS ? 'events.unitDay' : 'events.unitHour') });
+  }
+
+  function eventRow(ev, now) {
     const li = document.createElement('li');
     const btn = document.createElement('button');
     btn.type = 'button';
@@ -8632,25 +8678,36 @@
     const nameEl = document.createElement('span');
     nameEl.className = 'event-row-name';
     nameEl.textContent = ev.name || tr('common.noName');
-    // Typen i klartekst + kontekststien — nøyaktig som i søket, og av samme
-    // grunn: to lister som heter det samme er ikke til å skille på navnet.
+    // Bare kontekststien: typen står ikke lenger i teksten, den er ikonet foran
+    // raden. Stien er det som skiller to objekter med samme navn.
     const meta = document.createElement('span');
     meta.className = 'event-row-meta';
-    meta.textContent = tr('search.rowMeta', {
-      kind: tr(EVENT_TYPE_LABEL[ev.type]), path: ev.path.join(SEARCH_PATH_SEP),
-    });
+    meta.textContent = ev.path.join(SEARCH_PATH_SEP);
     main.append(nameEl, meta);
 
+    // Høyre side: den relative avstanden over den konkrete datoen.
     const when = document.createElement('span');
     when.className = 'event-row-when';
-    when.textContent = fmtTimeFull(ev.value);
+    const rel = fmtRelative(ev.at, now);
+    if (rel) {
+      const relEl = document.createElement('span');
+      relEl.className = 'event-row-rel';
+      relEl.textContent = rel;
+      when.appendChild(relEl);
+    }
+    const abs = document.createElement('span');
+    abs.className = 'event-row-date';
+    abs.textContent = fmtTimeFull(ev.value);
+    when.appendChild(abs);
 
-    btn.append(eventIconEl(group.icon, group.tone), main, when);
-    // Farge er aldri eneste bærer: raden sier tid og type i klartekst, og
-    // gruppens overskrift står over den.
+    btn.append(eventIconEl(EVENT_ROW_ICON[ev.type], 'event-row-icon'), main, when);
+    /* Ikonet er nå den eneste VISUELLE bæreren av objekttypen, så navnet må si
+       den i klartekst (docs/tilgjengelighet.md). */
+    const whenText = tr(ev.kind === 'due' ? 'time.dueLabel' : 'time.startLabel',
+      { time: fmtTimeFull(ev.value) });
     btn.setAttribute('aria-label', tr('events.rowLabel', {
       name: ev.name || tr('common.noName'), kind: tr(EVENT_TYPE_LABEL[ev.type]),
-      when: tr(ev.kind === 'due' ? 'time.dueLabel' : 'time.startLabel', { time: fmtTimeFull(ev.value) }),
+      when: rel ? tr('events.whenRel', { when: whenText, rel: rel }) : whenText,
       path: ev.path.join(SEARCH_PATH_SEP),
     }));
     btn.addEventListener('click', () => openEventTarget(ev.type, ev.id));
@@ -8677,22 +8734,25 @@
       h.className = 'events-section-head';
       h.textContent = tr(sec.title);
       section.appendChild(h);
+      /* Hver gruppe er sitt eget element, så skillelinjen mellom to grupper kan
+         henge på den andre (`.events-group + .events-group`) i stedet for å
+         være en egen node i strømmen. */
       sec.groups.forEach((g) => {
         const list = data[sec.field][g.key];
         if (!list.length) return;
+        const group = document.createElement('div');
+        group.className = 'events-group';
         const head = document.createElement('div');
         head.className = 'events-group-head';
         const label = document.createElement('span');
         label.textContent = tr(g.label);
-        const count = document.createElement('span');
-        count.className = 'events-group-count';
-        count.textContent = String(list.length);
-        head.append(eventIconEl(g.icon, g.tone), label, count);
+        head.append(eventIconEl(g.icon, 'event-icon ' + g.tone), label);
         const ul = document.createElement('ul');
         ul.className = 'events-list';
         ul.setAttribute('aria-label', tr(g.label));
-        list.forEach((ev) => ul.appendChild(eventRow(ev, g)));
-        section.append(head, ul);
+        list.forEach((ev) => ul.appendChild(eventRow(ev, data.now)));
+        group.append(head, ul);
+        section.appendChild(group);
       });
       eventsBodyEl.appendChild(section);
     });
@@ -8713,7 +8773,16 @@
     const consider = (t) => { if (t > now && t < best) best = t; };
     [data.due.over, data.due.soon, data.due.later,
       data.start.started, data.start.soon, data.start.later].forEach((rows) => {
-      rows.forEach((e) => { consider(e.at); consider(e.at - WEEK_MS); });
+      rows.forEach((e) => {
+        consider(e.at);
+        // De to 7-døgnsgrensene: gruppen bytter på den ene, og den relative
+        // teksten dukker opp/forsvinner på hver sin.
+        consider(e.at - WEEK_MS);
+        consider(e.at + WEEK_MS);
+        // … og teksten selv bytter på hver hele enhet (se `relParts`).
+        const p = relParts(e.at, now);
+        if (p) consider(p.diff >= 0 ? e.at - p.n * p.unit : e.at + (p.n + 1) * p.unit);
+      });
     });
     return best;
   }
@@ -8728,7 +8797,8 @@
 
   // Signaturen fanger alt raden viser: endres ingenting av det, står DOM-en.
   function eventsSignature(data) {
-    const one = (e) => e.kind + '|' + e.bucket + '|' + e.type + '|' + e.id + '|' + e.at + '|' + e.name + '|' + e.path.join('/');
+    const one = (e) => e.kind + '|' + e.bucket + '|' + e.type + '|' + e.id + '|' + e.at + '|' +
+      e.name + '|' + e.path.join('/') + '|' + fmtRelative(e.at, data.now);
     return EVENT_SECTIONS.map((sec) => sec.groups
       .map((g) => data[sec.field][g.key].map(one).join(';')).join('#')).join('##');
   }

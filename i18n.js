@@ -290,6 +290,14 @@
     'events.startLater':   ['Begynner om 7 dager eller mer', 'Starts in 7 days or more'],
     // Radens opplesning: navnet først, så type, tid og sti.
     'events.rowLabel':     ['{name}, {kind}. {when}. {path}', '{name}, {kind}. {when}. {path}'],
+    /* Avstanden i tid, vist over datoen på radens høyre side — kun innenfor sju
+       døgn. Enheten er egen nøkkel: «t» heter «h» på engelsk. */
+    'events.relIn':        ['Om {n} {unit}', 'In {n} {unit}'],
+    'events.relAgo':       ['{n} {unit} siden', '{n} {unit} ago'],
+    'events.unitDay':      ['d', 'd'],
+    'events.unitHour':     ['t', 'h'],
+    // Tid + avstand i ÉN opplesning («Frist: 5. jan — om 3 d»).
+    'events.whenRel':      ['{when} \u2014 {rel}', '{when} \u2014 {rel}'],
     'events.count.one':    ['{n} hendelse.', '{n} event.'],
     'events.count.other':  ['{n} hendelser.', '{n} events.'],
 
