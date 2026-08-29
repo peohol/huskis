@@ -4207,6 +4207,24 @@ body.no-auth .corner-controls { display: none; }
    når den slås på igjen. */
 .notif-settings { display: flex; flex-direction: column; gap: 4px; }
 .notif-settings .menu-setting { margin-top: 4px; }
+
+/* KANALEN — «Varsler på denne enheten» (docs/varsler.md). Den er et annet slag
+   valg enn de fire typene over: typene sier hva som blir et varsel, kanalen om
+   det også forlater appen. Derfor en tynn skillelinje og en forklarende linje
+   under bryteren — den ene teksten som får stå i dette panelet, fordi den er
+   det som forklarer tillatelsen FØR systemdialogen dukker opp. */
+.notif-channel {
+  margin-top: 10px;
+  padding-top: 8px;
+  border-top: 1px solid var(--line);
+}
+.notif-channel .menu-setting { margin-top: 0; }
+.notif-channel-note {
+  margin: 4px 0 0;
+  font-size: var(--fs-xs);
+  line-height: 1.35;
+  color: var(--ink-soft);
+}
 /* Nedtellingen i «Angre · 10» skal ikke få knappen til å hoppe i bredde. */
 #notif-clear { font-variant-numeric: tabular-nums; }
 

@@ -113,6 +113,32 @@ for (const [jobb, avhenger] of kjede) {
 check('«tester» gjenbruker ci.yml',
   !!relJobs.tester && /uses:\s*\.\/\.github\/workflows\/ci\.yml/.test(relJobs.tester));
 
+/* Web push-senderen (docs/varsler.md) deployes etter smoke-testen — den kaller
+   `push_claim()`, som må finnes — men den er BEVISST ikke en port for
+   frontenden: web push er en valgfri kanal, og en feilet funksjonsdeploy skal
+   ikke holde en release tilbake. Begge halvdelene låses her, for det er
+   nettopp en `needs`-linje som ellers kunne skli inn og gjøre kanalen til en
+   port ingen har bestemt. */
+check('«pushfunksjon» venter på smoke-testen (den kaller RPC-er migreringen lager)',
+  !!relJobs.pushfunksjon && /needs:\s*smoke\s*$/m.test(relJobs.pushfunksjon));
+check('… og deployjobben venter IKKE på den (web push er ikke en port for frontenden)',
+  !!relJobs.deploy && !/needs:[\s\S]*pushfunksjon/.test(relJobs.deploy),
+  (relJobs.deploy.match(/needs:.*/) || [''])[0].trim());
+check('pushfunksjon-jobben deployer nøyaktig funksjonen push-send',
+  !!relJobs.pushfunksjon &&
+  /supabase functions deploy push-send --project-ref/.test(relJobs.pushfunksjon));
+check('… med en LÅST Supabase-CLI (ingen @latest i en produksjonsflyt)',
+  !!relJobs.pushfunksjon && /npm install -g supabase@\d+\.\d+\.\d+/.test(relJobs.pushfunksjon),
+  ((relJobs.pushfunksjon || '').match(/supabase@[^\s]*/) || [''])[0]);
+check('… og hopper stille over når secretene ikke er satt (kanalen er valgfri)',
+  !!relJobs.pushfunksjon && /SUPABASE_ACCESS_TOKEN/.test(relJobs.pushfunksjon) &&
+  /exit 0/.test(relJobs.pushfunksjon));
+// Selve funksjonen og krypteringen den bruker skal finnes i treet — ellers
+// deployer jobben over ingenting.
+['supabase/functions/push-send/index.ts', 'supabase/functions/push-send/webpush.mjs']
+  .forEach((f) => check(f + ' finnes',
+    fs.existsSync(path.join(ROOT, f))));
+
 /* ---- 3. Hva jobbene faktisk gjør ---- */
 check('migreringsjobben kjører setup.sql',
   !!relJobs.migrering && /supabase\/setup\.sql/.test(relJobs.migrering));

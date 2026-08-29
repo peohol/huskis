@@ -28,6 +28,7 @@ $PSQL --no-psqlrc --echo-errors -f tests/test-email-sharing.sql
 $PSQL --no-psqlrc --echo-errors -f tests/test-tombstones.sql
 $PSQL --no-psqlrc --echo-errors -f tests/test-account-deletion.sql
 $PSQL --no-psqlrc --echo-errors -f tests/test-notifications.sql
+$PSQL --no-psqlrc --echo-errors -f tests/test-push.sql
 
 # Smoke-testen som produksjonsdeployen henger på (release.yml) må bevises her:
 # den skal være GRØNN mot et ferdig migrert skjema. Er den det ikke lokalt,
@@ -44,5 +45,5 @@ $PSQL --no-psqlrc --echo-errors -f tests/test-list-share-migration.sql
 $PSQL --no-psqlrc --echo-errors -f smoke-test.sql
 
 echo "✅ Alle SQL-tester grønne (roller, capabilities, mappeflytting, e-postvarsel,"
-echo "   gravsteiner, kontosletting, varsler, migrering av gamle listedelinger og"
-echo "   deploy-smoke-testen — begge løp)."
+echo "   gravsteiner, kontosletting, varsler, web push, migrering av gamle"
+echo "   listedelinger og deploy-smoke-testen — begge løp)."

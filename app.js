@@ -9974,6 +9974,15 @@
      åpner med tre hundre rader er ikke en historikk — den er støy. De NYESTE
      beholdes: det som skjedde sist er det som fortsatt er til å gjøre noe med. */
   const NOTIF_BATCH_MAX = 50;
+  /* PLANEN framover, som de eksterne kanalene leverer (docs/varsler.md).
+     Horisonten er hvor lenge appen kan være lukket og fortsatt varsle: en
+     terskel lenger unna er ikke planlagt ennå, og planlegges den dagen appen
+     er åpen innenfor horisonten. En måned er valgt fordi det dekker en normal
+     pause fra en huskeliste uten å fylle historikken med framtid — taket
+     holder antallet planlagte rader nede uansett hvor mange datoer brukeren
+     har, og det er de NÆRMESTE tersklene som beholdes. */
+  const NOTIF_PLAN_HORIZON_MS = 30 * DAY_MS;
+  const NOTIF_PLAN_MAX = 40;
   const NOTIF_BADGE_MAX = 99;      // over dette: «99+», så badgen ikke sprenger knappen
   const NOTIF_UNDO_S = 10;         // angre-vinduet for «Tøm varsler», i sekunder
   // «Utsett»: be om det samme varselet igjen om …
@@ -9989,6 +9998,46 @@
   let notifBusy = false;     // én generator-runde om gangen
   let notifRetryAt = 0;      // etter en mislykket runde: ikke prøv igjen før dette
   let notifErrorLogged = false;  // én linje i konsollen per feilklasse, ikke én per runde
+  let notifPlanTz = null;    // IANA-sonen planen på serveren tilhører
+  let notifPlanTzAt = 0;     // da den sist ble hevdet
+  let notifTzClaiming = false;   // ett hevdeforsøk om gangen
+  let notifTzRetryAt = 0;    // etter et mislykket hevdeforsøk: pause
+  let notifPushDevices = 0;  // hvor mange nettlesere som har web push på
+  /* Kanalstatusen på DENNE enheten: 'unsupported' | 'prompt' | 'off' | 'on' |
+     'denied'. Den står her, sammen med resten av varseltilstanden, fordi både
+     malingen av innstillingspanelet og signaturen den sammenlignes på leser den
+     — begge deler kan kjøre før kanal-seksjonen lenger nede er nådd. */
+  let notifChState = 'unsupported';
+  let notifChBusy = false;   // ett tillatelsesforsøk om gangen
+
+  /* Enhetens tidssone, slik plattformen selv navngir den. Terskeltidene er
+     absolutte millisekunder regnet ut av `timeMs()` fra lokal veggtid, så de
+     hører til ÉN sone: den samme datoen gir et annet tidspunkt i Tokyo enn i
+     Oslo. En enhet som ikke kan si hvilken sone den står i får `null`, og
+     planlegger da ikke — men logger fortsatt historikk som før. */
+  function deviceTz() {
+    try {
+      const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
+      return tz && tz.length <= 64 ? tz : null;
+    } catch (e) { return null; }
+  }
+
+  /* HOLDER denne enheten planen? Bare den som holder sonen planlegger og rydder
+     i planlagte rader. Uten den regelen ville to enheter i ulike soner regnet
+     ut hver sine terskeltider for de samme datoene og slettet hverandres plan i
+     hver eneste synk-runde. Er sonen ikke hevdet ennå (ny konto), holder den
+     første enheten som prøver. */
+  function notifHoldsTz() {
+    const tz = deviceTz();
+    if (!tz) return false;
+    return notifPlanTz == null || notifPlanTz === tz;
+  }
+  /* Hvor lenge en hevdelse er «fersk». En enhet i en annen sone overtar først
+     når den forrige er blitt så gammel — reiser man, er den forrige enheten
+     som regel ikke i bruk, og overtakelsen skjer med det samme. Står to enheter
+     i hver sin sone og synker samtidig, veksler planen mellom dem én gang i
+     halvdøgnet i stedet for tolv ganger i minuttet. */
+  const NOTIF_TZ_CLAIM_MS = 6 * 60 * 60 * 1000;
 
   // Millisekunder → den samme tekstformen tidsverdiene har, så visningen kan gå
   // gjennom `fmtTimeFull()` og få dato + klokkeslett på brukerens språk.
@@ -10006,23 +10055,19 @@
     return type + '|' + objType + '|' + objId + '|' + (value || '');
   }
 
-  /* GENERATOREN. Ren funksjon: tilstand + `now` + preferanser + markør inn,
-     radene som skal logges ut. Ingen DOM, ingen nettverk, ingen klokkeoppslag.
+  /* MOTOREN, i én enumerasjon. Hver hendelse fra `collectUpcomingEvents` har
+     nøyaktig to terskler — selve tidspunktet og uka før det — og her er de,
+     alle sammen, uten noe vindu. De to funksjonene under er samme motor sett
+     gjennom hvert sitt vindu, ikke to nesten like motorer:
 
-     Hver hendelse fra `collectUpcomingEvents` har nøyaktig to terskler — selve
-     tidspunktet og uka før det — og en terskel er passert når den ligger i det
-     halvåpne vinduet (markør, nå]. Vinduet er det som gjør catch-up til det
-     samme som vanlig drift: har appen vært lukket i ti dager, dekker det ti
-     døgn, og BEGGE tersklene til en frist som først kom innenfor uka og siden
-     gikk ut, logges — hver med sin egen faktiske terskeltid.
+       collectNotifications(…, cursor)  ser BAKOVER  — (markør, nå]
+       planNotifications(…)             ser FRAMOVER — (nå, nå + horisont]
 
      Alt annet — hva som er aktivt, hva som er arvet, hva som dedupliseres bort
      og hvor raden navigerer — er hendelsesmotorens svar, ikke et nytt sett. */
-  function collectNotifications(st, now, prefs, cursor) {
-    if (cursor == null) return [];
+  function notifThresholds(st, now, prefs) {
     const P = prefs || NOTIF_DEFAULT_PREFS;
-    const N = now == null ? Date.now() : (now instanceof Date ? now.getTime() : Number(now));
-    const data = collectUpcomingEvents(st, N);
+    const data = collectUpcomingEvents(st, now);
     const rows = [];
     [].concat(data.due.over, data.due.soon, data.due.later,
       data.start.started, data.start.soon, data.start.later).forEach((ev) => {
@@ -10031,7 +10076,6 @@
         : [['startNow', ev.at], ['startSoon', ev.at - WEEK_MS]];
       thresholds.forEach((t) => {
         if (!P[t[0]]) return;                   // typen er slått av → hendelsen finnes ikke
-        if (!(t[1] > cursor && t[1] <= N)) return;
         rows.push({
           key: notifKey(t[0], ev.type, ev.id, ev.value),
           type: t[0], obj_type: ev.type, obj_id: ev.id,
@@ -10042,9 +10086,51 @@
         });
       });
     });
+    return rows;
+  }
+  function notifNow(now) {
+    return now == null ? Date.now() : (now instanceof Date ? now.getTime() : Number(now));
+  }
+
+  /* GENERATOREN. Ren funksjon: tilstand + `now` + preferanser + markør inn,
+     radene som skal logges ut. Ingen DOM, ingen nettverk, ingen klokkeoppslag.
+
+     En terskel er passert når den ligger i det halvåpne vinduet (markør, nå].
+     Vinduet er det som gjør catch-up til det samme som vanlig drift: har appen
+     vært lukket i ti dager, dekker det ti døgn, og BEGGE tersklene til en frist
+     som først kom innenfor uka og siden gikk ut, logges — hver med sin egen
+     faktiske terskeltid. */
+  function collectNotifications(st, now, prefs, cursor) {
+    if (cursor == null) return [];
+    const N = notifNow(now);
+    const rows = notifThresholds(st, N, prefs).filter((r) => r.at > cursor && r.at <= N);
     // Eldste først, så en avkortet bunke beholder de nyeste tersklene.
     rows.sort((a, b) => (a.at - b.at) || (a.key < b.key ? -1 : a.key > b.key ? 1 : 0));
     return rows.length > NOTIF_BATCH_MAX ? rows.slice(rows.length - NOTIF_BATCH_MAX) : rows;
+  }
+
+  /* PLANEN. Nøyaktig de samme tersklene, sett framover: de som ENNÅ ikke er
+     passert, men som kommer innen horisonten. Rader herfra logges med `at`
+     fram i tid, og er dermed usynlige i appen til de forfaller — akkurat som et
+     utsatt varsel (`snoozed`) alltid har vært.
+
+     Det er DETTE som svarer på hvor generatoren kjører når appen er lukket:
+     den kjørte sist appen var åpen, og la planen fra seg. Android planlegger
+     sine lokale varsler fra den samme listen, og web push leverer den fra
+     serveren. En push er derfor en LEVERING av en rad som allerede er logget,
+     aldri en egen generator.
+
+     Prisen står i horisonten: terskler lenger unna enn den er ikke planlagt, og
+     en app som ikke har vært åpen på en måned har derfor ingenting å levere.
+     Den dagen den åpnes, logges de passerte tersklene som vanlig (vinduet
+     bakover) og en ny plan legges. */
+  function planNotifications(st, now, prefs) {
+    const N = notifNow(now);
+    const grense = N + NOTIF_PLAN_HORIZON_MS;
+    const rows = notifThresholds(st, N, prefs).filter((r) => r.at > N && r.at <= grense);
+    // Nærmest først: blir det for mange, er det de nærmeste som betyr noe.
+    rows.sort((a, b) => (a.at - b.at) || (a.key < b.key ? -1 : a.key > b.key ? 1 : 0));
+    return rows.slice(0, NOTIF_PLAN_MAX);
   }
 
   /* ---------------- Serversiden ----------------
@@ -10069,12 +10155,23 @@
     // koster ingenting: kandidatene den da regner ut igjen har allerede en rad,
     // og lukes bort i `runNotifications`.
     notifCursor = prefs && prefs.cursor != null ? Number(prefs.cursor) : null;
+    notifPlanTz = (prefs && prefs.tz) || null;
+    notifPlanTzAt = Number((prefs && prefs.tzAt) || 0);
+    notifPushDevices = Number((my && my.push_devices) || 0);
     paintNotifBadge();
     refreshNotifModal();
+    /* ÉTT øyeblikk for hele runden: opprydningen og speilingen måler mot den
+       samme planen, og et millisekund mellom dem skal ikke kunne gi to. */
+    const nå = Date.now();
     // Rader som ikke gjelder lenger ryddes bort før de rekker å bli sett.
-    purgeStaleNotifs();
+    purgeStaleNotifs(nå);
     // … og de radene som er NYE for denne økten springer ut som toaster.
-    announceNotifs();
+    announceNotifs(nå);
+    // Til slutt: speil planen ut i enhetens egen kanal (Android-varsler). Web
+    // push trenger ingenting her — serveren har planen.
+    syncNotifChannel(nå);
+    // Ble appen åpnet AV et varsel, er dette runden der målet finnes.
+    flushNotifPendingTarget();
   }
 
   const NOTIF_RETRY_MS = 60 * 1000;
@@ -10107,8 +10204,17 @@
        foran serverens: da leverer neste pull en markør som ligger bak vår egen
        `now`, og de samme tersklene ville blitt sendt om igjen hver runde. */
     const kjent = new Set(notifRows.map((r) => r.key));
+    /* Historikken bakover OG planen framover i den samme skrivingen. Planen er
+       det de eksterne kanalene leverer (docs/varsler.md): rader med `at` fram i
+       tid, usynlige til de forfaller. Den legges bare av enheten som HOLDER
+       tidssonen planen tilhører — se `notifHoldsTz()`. */
     const rows = notifCursor == null ? []
-      : collectNotifications(state, now, notifPrefs, notifCursor).filter((r) => !kjent.has(r.key));
+      : collectNotifications(state, now, notifPrefs, notifCursor)
+        .concat(notifHoldsTz() ? planNotifications(state, now, notifPrefs) : [])
+        .filter((r) => !kjent.has(r.key));
+    // En enhet i en annen sone hevder sonen når den forrige hevdelsen er
+    // gammel nok. Det er ett kall, og først NESTE runde planlegger den.
+    claimNotifTz();
     // Ingenting å logge, og markøren er fersk nok → ingen grunn til å skrive.
     if (notifCursor != null && !rows.length && now - notifCursor < NOTIF_CURSOR_MAX_LAG_MS) return;
     notifBusy = true;
@@ -10681,7 +10787,64 @@
       rowEl.append(label, toggle);
       wrap.appendChild(rowEl);
     });
+    wrap.appendChild(buildNotifChannelRow());
     notifBodyEl.appendChild(wrap);
+  }
+
+  /* KANALEN — «Varsler på denne enheten». Den står under de fire typene og er
+     et annet slag valg: typene sier hva som blir et varsel (per bruker),
+     kanalen sier om det også forlater appen (per enhet). Derfor en egen
+     seksjon med en forklarende linje — den ene teksten som FÅR stå her, fordi
+     den er det som forklarer tillatelsen FØR systemdialogen dukker opp. */
+  function buildNotifChannelRow() {
+    const sec = document.createElement('section');
+    sec.className = 'notif-channel';
+    const head = document.createElement('div');
+    head.className = 'menu-setting';
+    const label = document.createElement('span');
+    label.className = 'menu-setting-label';
+    const text = document.createElement('span');
+    text.textContent = tr('notif.channel.title');
+    label.appendChild(text);
+    head.appendChild(label);
+
+    const st = notifChState;
+    const på = st === 'on';
+    if (st !== 'unsupported') {
+      const toggle = document.createElement('button');
+      toggle.type = 'button';
+      toggle.className = 'toggle-switch';
+      toggle.id = 'notif-channel-toggle';
+      toggle.setAttribute('role', 'switch');
+      toggle.setAttribute('aria-checked', på ? 'true' : 'false');
+      toggle.setAttribute('aria-label', tr('notif.channel.title'));
+      toggle.setAttribute('aria-describedby', 'notif-channel-note');
+      // Blokkert: bryteren er ikke veien tilbake — enhetens innstillinger er.
+      // En bryter som lot seg slå på uten å virke ville løyet.
+      if (st === 'denied') toggle.disabled = true;
+      const knob = document.createElement('span');
+      knob.className = 'toggle-knob';
+      knob.setAttribute('aria-hidden', 'true');
+      toggle.appendChild(knob);
+      toggle.addEventListener('click', () => setNotifChannel(!på));
+      head.appendChild(toggle);
+    }
+
+    const note = document.createElement('p');
+    note.className = 'notif-channel-note';
+    note.id = 'notif-channel-note';
+    note.textContent =
+      st === 'unsupported' ? tr('notif.channel.unsupported')
+      : st === 'denied' ? tr('notif.channel.denied')
+      : !på ? tr('notif.channel.lead')
+      // Andre enheter: web push går til ALLE brukerens aktive nettlesere, og
+      // det er verdt å si — ellers er «på» et løfte man ikke vet omfanget av.
+      : notifPushDevices > 1
+        ? tr(notifPushDevices === 2 ? 'notif.channel.onMore.one' : 'notif.channel.onMore.other',
+             { n: notifPushDevices - 1 })
+        : tr('notif.channel.on');
+    sec.append(head, note);
+    return sec;
   }
 
   /* Radene samles i BUNKER per døgn, med datoen som overskrift over bunken —
@@ -10747,7 +10910,8 @@
     /* Dagens dato er med fordi datooverskriftene avhenger av den og ikke bare
        av radene: står modalen åpen over midnatt, blir «I dag» til «I går» uten
        at en eneste rad har endret seg. */
-    return (notifSettings ? 'S' + NOTIF_TYPES.map((t) => (notifPrefs || NOTIF_DEFAULT_PREFS)[t] ? 1 : 0).join('') : 'L') +
+    return (notifSettings ? 'S' + NOTIF_TYPES.map((t) => (notifPrefs || NOTIF_DEFAULT_PREFS)[t] ? 1 : 0).join('') +
+      notifChState + notifPushDevices : 'L') +
       '|' + localDateStr(new Date(now == null ? Date.now() : now)) +
       '|' + (notifClear ? 'u' + notifClear.left : '-') + '|' + (notifSnoozeFor || '-') + '|' +
       rows.map((r) => r.id + ':' + (notifIsNew(r) ? 0 : 1) + ':' + r.at + ':' + r.name + ':' +
@@ -11009,10 +11173,31 @@
         tider, så en rad om et listepunkt måles mot den tiden som FAKTISK
         gjelder for det.
 
-     Merk hva som IKKE er ugyldig: at listepunktet er krysset av. Varselet
-     beskriver noe som skjedde, og historikken beholdes (docs/varsler.md). */
-  function staleNotifIds() {
+     Merk hva som IKKE er ugyldig: at et listepunkt det ALT er varslet om,
+     krysses av. Varselet beskriver noe som skjedde, og historikken beholdes
+     (docs/varsler.md).
+
+     PLANLAGTE rader (`at` fram i tid, ikke utsatt) måles mot noe strengere:
+     de skal fortsatt stå i planen, med nøyaktig den samme terskeltiden. Det er
+     den regelen som avlyser en framtidig levering når listepunktet fullføres —
+     for da finnes hendelsen ikke lenger i «Kommende hendelser», selv om tiden
+     på objektet står urørt. Den fanger tidssonebytter i samme slengen: en ny
+     sone gir en annen terskeltid for den samme datoen, og den gamle raden
+     beskriver da et tidspunkt planen ikke lenger har.
+
+     En utsatt rad (`snoozed`) er brukerens egen bestilling og står ikke i
+     planen — den måles bare mot objektet, som før. Og holder ikke denne enheten
+     tidssonen, rører den ikke planen i det hele tatt: den ville regnet ut andre
+     terskeltider enn den som la planen. */
+  function staleNotifIds(now) {
+    const N = notifNow(now);
     const out = [];
+    /* Planen regnes bare ut når det FINNES en planlagt rad å måle mot: uten
+       den vakten ville hver eneste pull kjørt hendelsesmotoren en ekstra gang
+       for en konto uten en eneste dato. */
+    const harPlan = notifRows.some((r) => r.at > N && !r.snoozed && !notifPurged.has(r.id));
+    const plan = (harPlan && notifHoldsTz()) ? planNotifications(state, N, notifPrefs) : null;
+    const planAt = plan ? new Map(plan.map((r) => [r.key, r.at])) : null;
     notifRows.forEach((r) => {
       if (notifPurged.has(r.id)) return;
       const field = NOTIF_TYPE_FIELD[r.type];
@@ -11022,12 +11207,13 @@
       const obj = t.item || t.card;
       if (!obj) return;
       const eff = effectiveTime(t.card || null, obj, field);
-      if ((eff.value || '') !== (r.value || '')) out.push(r.id);
+      if ((eff.value || '') !== (r.value || '')) { out.push(r.id); return; }
+      if (planAt && r.at > N && !r.snoozed && planAt.get(r.key) !== r.at) out.push(r.id);
     });
     return out;
   }
-  async function purgeStaleNotifs() {
-    const ids = staleNotifIds();
+  async function purgeStaleNotifs(now) {
+    const ids = staleNotifIds(now);
     if (!ids.length) return;
     const client = acli();
     if (!client || !authUser) return;
@@ -11043,6 +11229,38 @@
       ids.forEach((id) => notifPurged.delete(id));
       paintNotifBadge();
       refreshNotifModal();
+    }
+  }
+
+  /* TIDSSONEN planen tilhører. Klienten hevder den bare når den er en ANNEN
+     enn sin egen, og serveren håndhever ventetiden — to enheter kan ellers
+     hevde i samme øyeblikk. Etter en vellykket hevdelse planlegger denne
+     enheten fra og med neste runde (doc-et bærer den nye sonen tilbake). */
+  async function claimNotifTz() {
+    const tz = deviceTz();
+    if (!tz || notifTzClaiming || !notifPrefs) return;
+    if (notifPlanTz === tz) return;                       // vi holder den alt
+    if (Date.now() < notifTzRetryAt) return;
+    if (notifPlanTz != null && Date.now() - notifPlanTzAt < NOTIF_TZ_CLAIM_MS) return;
+    const client = acli();
+    if (!client || !authUser) return;
+    notifTzClaiming = true;
+    try {
+      const { data, error } = await client.rpc('notify_claim_tz',
+        { p_tz: tz, p_min_age_ms: NOTIF_TZ_CLAIM_MS });
+      if (error) throw error;
+      /* Svaret ER den gjeldende sonen, så den speiles her og ingen ekstra pull
+         bestilles. En `scheduleCloud()` ville kostet en runde til rett etter
+         innlogging — for en verdi vi allerede har fått. */
+      notifPlanTz = data || notifPlanTz;
+      notifPlanTzAt = Date.now();
+    } catch (e) {
+      // Stille: planen blir stående i den forrige sonen, og historikken går som
+      // før. Et minutts pause, så pollet ikke gjentar et avvist kall tolv
+      // ganger i minuttet (samme grunn som `notifRetryAt`).
+      notifTzRetryAt = Date.now() + NOTIF_RETRY_MS;
+    } finally {
+      notifTzClaiming = false;
     }
   }
 
@@ -11070,6 +11288,378 @@
     }
   }
 
+  /* ============================================================
+     DE EKSTERNE KANALENE — Android-varsler og web push
+     ------------------------------------------------------------
+     Ingen ny varselmodell. Kanalene LEVERER de samme radene generatoren alt
+     har logget, og planen framover (`planNotifications`) er det de leverer når
+     appen er lukket. Historikken i appen er fortsatt fasiten for hva som er
+     varslet; en push som ikke kommer fram endrer ingenting i den.
+
+     De to kanalene er teknisk helt forskjellige, og holdes derfor adskilt:
+
+       Android  — LOKALE varsler planlagt på selve enheten
+                  (@capacitor/local-notifications). Ingen pushserver er
+                  involvert i det hele tatt: telefonen har planen og vekker seg
+                  selv. Alarmene er UPRESISE med vilje (`isExactNotification:
+                  false`), så appen slipper å be om SCHEDULE_EXACT_ALARM —
+                  «fristen er utløpt» og «begynner innen en uke» tåler at
+                  systemet flytter varselet noen minutter, og en tillatelse
+                  Huskis ikke trenger skal den ikke be om.
+       Web      — Web Push: serveren sender fra utboksen, service workeren
+                  viser varselet. Det er den eneste veien til et varsel fra en
+                  LUKKET nettleser, og krever derfor både en abonnementsrad og
+                  en sender (docs/varsler.md).
+
+     Kanalen er per ENHET (som drakten), ikke per bruker: at telefonen skal
+     buzze er ikke det samme valget som at den bærbare skal det. De fire
+     typebryterne er per bruker og styrer om hendelsen i det hele tatt blir til
+     — kanalen styrer bare om den også forlater appen.
+
+     Tillatelsen spørres ALDRI av seg selv. Den kommer først når brukeren slår
+     på bryteren i varselinnstillingene, og teksten over bryteren sier hvorfor
+     før systemdialogen dukker opp.
+     ============================================================ */
+
+  const NOTIF_CH_KEY = 'hk-notif-channel';   // 'on' = brukeren vil ha kanalen her
+
+  function notifChannelWanted() {
+    try { return localStorage.getItem(NOTIF_CH_KEY) === 'on'; } catch (e) { return false; }
+  }
+  function setNotifChannelWanted(on) {
+    try {
+      if (on) localStorage.setItem(NOTIF_CH_KEY, 'on');
+      else localStorage.removeItem(NOTIF_CH_KEY);
+    } catch (e) { /* privat modus: valget gjelder da bare denne økten */ }
+  }
+
+  /* Den native varsel-ID-en er et Java-`int`, mens Huskis' identitet er
+     nøkkelen (type|objekttype|objekt-id|tidsverdi). Broen mellom dem er en ren
+     hashfunksjon (FNV-1a), og den må være DETERMINISTISK: det er den som gjør
+     at den samme planen speilet to ganger gir det samme varselet, ikke to.
+     31 bits, så tallet aldri blir negativt på den andre siden. */
+  function nativeNotifId(key) {
+    let h = 0x811c9dc5;
+    for (let i = 0; i < key.length; i++) {
+      h ^= key.charCodeAt(i);
+      h = Math.imul(h, 0x01000193);
+    }
+    return (h >>> 0) & 0x7fffffff;
+  }
+
+  /* Teksten i et EKSTERNT varsel: objektets navn som overskrift, varseltypen i
+     klartekst som kropp. Bevisst kortere enn radens melding — et varsel på en
+     låseskjerm skal si hva det gjelder og ikke mer. Ingen sti, ingen kontekst
+     om hvem som deler hva, ingen id-er i teksten, ingen token. */
+  function notifExternalTitle(row) { return row.name || tr('common.noName'); }
+  function notifExternalBody(row) { return tr(NOTIF_TYPE_LABEL[row.type]); }
+  // De fire kroppene, som web push-abonnementet bærer med seg: service workeren
+  // har ingen ordbok, og SQL skal ikke ha en. Språket følger dermed enheten.
+  function notifExternalLabels() {
+    const out = {};
+    NOTIF_TYPES.forEach((t) => { out[t] = tr(NOTIF_TYPE_LABEL[t]); });
+    return out;
+  }
+
+  /* ---------------- Android: lokale varsler på enheten ---------------- */
+  const androidChannel = {
+    id: 'native',
+    supported() { return !!nativePlugins.LocalNotifications; },
+    async state() {
+      const ln = nativePlugins.LocalNotifications;
+      if (!ln) return 'unsupported';
+      const p = await ln.checkPermissions();
+      if (p && p.display === 'denied') return 'denied';
+      if (p && p.display !== 'granted') return 'prompt';
+      return notifChannelWanted() ? 'on' : 'off';
+    },
+    async enable() {
+      const ln = nativePlugins.LocalNotifications;
+      const p = await ln.requestPermissions();
+      return !!(p && p.display === 'granted');
+    },
+    async disable() {
+      await this.sync([]);       // planen tas ned; tillatelsen beholdes
+      return true;
+    },
+    /* Speiler planen ut på enheten: avlys det som ikke lenger står i den, og
+       legg inn det som mangler. DIFFEN er hele poenget — uten den ville hver
+       synk-runde lagt inn de samme varslene på nytt, og en endret frist ville
+       blitt liggende ved siden av den nye i stedet for å erstatte den. */
+    async sync(plan) {
+      const ln = nativePlugins.LocalNotifications;
+      if (!ln) return;
+      const vil = new Map();
+      plan.forEach((r) => vil.set(nativeNotifId(r.key), r));
+      const pending = await ln.getPending();
+      const finnes = new Set(((pending && pending.notifications) || []).map((n) => Number(n.id)));
+      const avlys = [...finnes].filter((id) => !vil.has(id)).map((id) => ({ id }));
+      if (avlys.length) await ln.cancel({ notifications: avlys });
+      const nye = [...vil.entries()].filter(([id]) => !finnes.has(id)).map(([id, r]) => ({
+        id,
+        title: notifExternalTitle(r),
+        body: notifExternalBody(r),
+        /* ISO-strengen eksplisitt, ikke et Date-objekt: pluginen parser
+           nøyaktig `yyyy-MM-dd'T'HH:mm:ss.SSS'Z'`, og da skal formatet komme
+           herfra og ikke fra brobibliotekets serialisering. */
+        schedule: { at: new Date(r.at).toISOString(), allowWhileIdle: true },
+        isExactNotification: false,
+        extra: { objType: r.obj_type, objId: r.obj_id, key: r.key },
+      }));
+      if (nye.length) await ln.schedule({ notifications: nye });
+    },
+  };
+
+  /* ---------------- Nettleser: Web Push ---------------- */
+  const PUSH_PUBLIC_KEY = (window.HUSKIS_CONFIG && window.HUSKIS_CONFIG.pushPublicKey) || '';
+
+  // base64url → Uint8Array. `applicationServerKey` tar bytes, ikke tekst.
+  function b64urlBytes(s) {
+    const pad = '='.repeat((4 - (s.length % 4)) % 4);
+    const raw = atob((s + pad).replace(/-/g, '+').replace(/_/g, '/'));
+    const out = new Uint8Array(raw.length);
+    for (let i = 0; i < raw.length; i++) out[i] = raw.charCodeAt(i);
+    return out;
+  }
+  function bytesB64url(buf) {
+    const b = new Uint8Array(buf);
+    let s = '';
+    for (let i = 0; i < b.length; i++) s += String.fromCharCode(b[i]);
+    return btoa(s).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+  }
+
+  const webChannel = {
+    id: 'web',
+    /* Alle fire leddene må være der. Uten en avsendernøkkel finnes det ingen
+       sender å melde seg på hos, og da er kanalen ikke «av» — den finnes ikke
+       (docs/varsler.md, «Nøkkelparet»). */
+    supported() {
+      return !nativeShell && 'serviceWorker' in navigator &&
+        typeof window.PushManager === 'function' &&
+        typeof window.Notification === 'function' && !!PUSH_PUBLIC_KEY;
+    },
+    async state() {
+      if (!this.supported()) return 'unsupported';
+      if (Notification.permission === 'denied') return 'denied';
+      if (!notifChannelWanted()) return Notification.permission === 'granted' ? 'off' : 'prompt';
+      return 'on';
+    },
+    async enable() {
+      // Tillatelsen FØRST, og bare her: dette er den ene stedet et
+      // brukertrykk har bedt om den.
+      const perm = await Notification.requestPermission();
+      if (perm !== 'granted') return false;
+      await this.register(await this.ensure());
+      return true;
+    },
+    /* Registrer service workeren og skaff et abonnement — eller finn det som
+       alt finnes. Skiller ikke på «første gang» og «på nytt»: det er nettopp
+       det som gjør fornyelsen selvhelbredende. Nettleseren kan rullere et
+       endepunkt, og en utlogging melder abonnementet av; begge deler tas igjen
+       her uten at brukeren blir spurt om noe (tillatelsen er allerede gitt). */
+    async ensure() {
+      const reg = (await navigator.serviceWorker.getRegistration()) ||
+        (await navigator.serviceWorker.register('sw.js'));
+      await navigator.serviceWorker.ready;
+      return (await reg.pushManager.getSubscription()) || (await reg.pushManager.subscribe({
+        // Nettleseren KREVER løftet: hver push blir et synlig varsel. Vi holder
+        // det i sw.js, og det er samtidig riktig oppførsel her — en usynlig
+        // push ville vært en bakgrunnskanal ingen ba om.
+        userVisibleOnly: true,
+        applicationServerKey: b64urlBytes(PUSH_PUBLIC_KEY),
+      }));
+    },
+    async disable() {
+      if (!('serviceWorker' in navigator)) return true;
+      const reg = await navigator.serviceWorker.getRegistration();
+      if (!reg) return true;
+      const sub = reg.pushManager && await reg.pushManager.getSubscription();
+      if (sub) {
+        // Serveren først: blir raden stående mens nettleseren har glemt
+        // abonnementet, sender vi til et endepunkt ingen leser.
+        const client = acli();
+        if (client && authUser) {
+          const { error } = await client.rpc('push_unsubscribe', { p_endpoint: sub.endpoint });
+          if (error) throw error;
+        }
+        await sub.unsubscribe();
+      }
+      await reg.unregister();
+      return true;
+    },
+    /* Fornyelse. Et abonnement kan bytte endepunkt (nettleseren rullerer, eller
+       `pushsubscriptionchange` fyrer), og etikettene skal følge språket
+       brukeren står i NÅ. Idempotent på endepunktet, så dette kan kjøres så
+       ofte det passer. */
+    async register(sub) {
+      const client = acli();
+      if (!client || !authUser || !sub) return;
+      const keys = {
+        p256dh: sub.getKey ? bytesB64url(sub.getKey('p256dh')) : '',
+        auth: sub.getKey ? bytesB64url(sub.getKey('auth')) : '',
+      };
+      const { error } = await client.rpc('push_subscribe', {
+        p_endpoint: sub.endpoint, p_p256dh: keys.p256dh, p_auth: keys.auth,
+        p_labels: notifExternalLabels(), p_tz: deviceTz(),
+      });
+      if (error) throw error;
+    },
+    /* Planen ligger allerede på serveren (`notify_record` fyller utboksen), så
+       kanalen har ingenting å speile. Runden brukes i stedet til å fornye
+       abonnementet: nye etiketter etter et språkbytte, et endepunkt
+       nettleseren har byttet, og et `seen_at` som viser at enheten lever. */
+    async sync() {
+      if (!notifChannelWanted() || !this.supported()) return;
+      if (Notification.permission !== 'granted') return;
+      const sub = await this.ensure();
+      const merke = sub.endpoint + '|' + I18N.lang();
+      if (merke === notifPushMark) return;      // uendret siden sist
+      await this.register(sub);
+      notifPushMark = merke;
+    },
+  };
+  let notifPushMark = null;   // endepunkt + språk sist vi meldte fra om
+
+  /* ÉN kanal per enhet: den native når vi kjører i appen, nettleserens ellers.
+     De to er aldri aktive samtidig — inne i APK-en finnes det ingen pushtjeneste
+     å melde seg på, og i en nettleser finnes det ingen native plugin. */
+  function notifChannel() {
+    if (androidChannel.supported()) return androidChannel;
+    if (webChannel.supported()) return webChannel;
+    return null;
+  }
+
+  async function refreshNotifChannelState() {
+    const ch = notifChannel();
+    let next = 'unsupported';
+    try { next = ch ? await ch.state() : 'unsupported'; } catch (e) { next = 'unsupported'; }
+    if (next === notifChState) return next;
+    notifChState = next;
+    if (notifSettings) refreshNotifModal(true);
+    return next;
+  }
+
+  async function setNotifChannel(on) {
+    const ch = notifChannel();
+    if (!ch || notifChBusy) return;
+    notifChBusy = true;
+    // Optimistisk maling: systemdialogen kan stå oppe en stund, og bryteren
+    // skal ikke se død ut imens.
+    notifChState = on ? 'on' : 'off';
+    refreshNotifModal(true);
+    try {
+      const ok = on ? await ch.enable() : await ch.disable();
+      if (on && !ok) {
+        // Avslått i systemdialogen. Ikke spør igjen av seg selv — veien videre
+        // går gjennom enhetens innstillinger, og det sier teksten.
+        setNotifChannelWanted(false);
+        notifChState = 'denied';
+      } else {
+        setNotifChannelWanted(on);
+        notifChSig = null;      // neste speiling skal gjøre hele jobben
+        notifPushMark = null;
+        if (on) await syncNotifChannel();
+      }
+    } catch (e) {
+      /* Bare et mislykket PÅ trekker valget tilbake. Feiler avslåingen, står
+         abonnementet fortsatt på serveren — og et valg som sa «av» ville løyet
+         OG lukket veien til å prøve igjen (`syncNotifChannel` hopper over en
+         kanal ingen vil ha). */
+      if (on) setNotifChannelWanted(false);
+      showToast(tr(on ? 'notif.channel.failed' : 'notif.channel.offFailed'));
+    } finally {
+      notifChBusy = false;
+      await refreshNotifChannelState();
+      refreshNotifModal(true);
+      scheduleCloud(150);
+    }
+  }
+
+  /* Kjøres etter hver pull: speil planen ut i kanalen. Stille — dette er ikke
+     noe brukeren ba om akkurat nå, og en enhet uten tillatelse skal ikke få en
+     feilmelding for hver synk-runde. */
+  let notifChSig = null;      // planen kanalen sist ble speilet med
+  async function syncNotifChannel(now) {
+    const ch = notifChannel();
+    if (!ch || !notifChannelWanted() || !authUser) return;
+    /* Android får PLANEN å speile; web push tar ingen — der har serveren
+       planen allerede, og runden brukes til å fornye abonnementet. En enhet
+       som ikke holder tidssonen speiler ingenting: den ville regnet ut andre
+       terskeltider enn den som la planen. */
+    const plan = notifHoldsTz() ? planNotifications(state, notifNow(now), notifPrefs) : [];
+    /* Er planen uendret siden forrige speiling, er det ingenting å gjøre — og
+       for den native kanalen betyr det to rundturer over pluginbroen
+       (`checkPermissions` + `getPending`) som ikke går hvert femte sekund for
+       ingenting. Signaturen bærer kanal-id-en, så et bytte av kanal aldri kan
+       leses som «uendret». */
+    const sig = ch.id + '|' + plan.map((r) => r.key + '@' + r.at).join(',');
+    if (sig === notifChSig) return;
+    try {
+      if (await ch.state() !== 'on') return;
+      await ch.sync(plan);
+      notifChSig = sig;
+    } catch (e) {
+      // Stille: neste runde prøver igjen — og signaturen står urørt, så den
+      // gjør det med en gang og ikke først når planen endrer seg.
+    }
+  }
+
+  /* ---------------- Trykk på et eksternt varsel ----------------
+     Begge kanalene ender her, med den samme kontrakten: en PEKER (type + id),
+     aldri et bevis. `navigateToObject` slår den opp i gjeldende tilstand, så
+     en id vi ikke har tilgang til finnes ikke og fører ingen steder. */
+  let notifPendingTarget = null;
+
+  function openNotifTargetFromChannel(objType, objId) {
+    if (!objType || !objId) return;
+    // Appen er kanskje ikke innlogget og synket ennå (kaldstart fra et varsel).
+    // Da parkeres pekeren og tas når doc-et er inne.
+    if (!authUser || !lastMy) { notifPendingTarget = { type: objType, id: objId }; return; }
+    closeTopLayer(false);
+    navigateToObject({ type: objType, id: objId });
+  }
+  function flushNotifPendingTarget() {
+    if (!notifPendingTarget || !authUser || !lastMy) return;
+    const t = notifPendingTarget;
+    notifPendingTarget = null;
+    navigateToObject(t);
+  }
+
+  /* Adressen er den andre veien inn: service workeren åpner appen med
+     `?notif=<type>:<id>` når det ikke fantes en fane å gi meldingen til.
+     Parameteren fjernes med det samme — en reload skal ikke navigere igjen. */
+  function readNotifParam() {
+    let raw = null;
+    try { raw = new URLSearchParams(location.search).get('notif'); } catch (e) { return; }
+    if (!raw) return;
+    try {
+      const url = new URL(location.href);
+      url.searchParams.delete('notif');
+      history.replaceState(null, '', url.pathname + url.search + url.hash);
+    } catch (e) { /* ignorer */ }
+    const i = raw.indexOf(':');
+    if (i < 1) return;
+    notifPendingTarget = { type: raw.slice(0, i), id: raw.slice(i + 1) };
+  }
+  readNotifParam();
+
+  if ('serviceWorker' in navigator && navigator.serviceWorker.addEventListener) {
+    navigator.serviceWorker.addEventListener('message', (ev) => {
+      const d = ev && ev.data;
+      if (!d || d.type !== 'huskis-notif-open') return;
+      openNotifTargetFromChannel(d.objType, d.objId);
+    });
+  }
+  if (androidChannel.supported()) {
+    // Trykket på et native varsel. Lytteren settes opp ÉN gang, ved oppstart:
+    // Android leverer hendelsen så snart web-laget er der, også når appen ble
+    // startet av selve varselet.
+    nativePlugins.LocalNotifications.addListener('localNotificationActionPerformed', (ev) => {
+      const x = (ev && ev.notification && ev.notification.extra) || {};
+      openNotifTargetFromChannel(x.objType, x.objId);
+    });
+  }
+
   // Utlogging/kontobytte: historikken hørte til den forrige brukeren.
   function resetNotifications() {
     closeNotifSnooze();
@@ -11078,6 +11668,16 @@
     notifRows = [];
     notifPrefs = null;
     notifCursor = null;
+    notifPlanTz = null;
+    notifPlanTzAt = 0;
+    notifTzRetryAt = 0;
+    notifPushDevices = 0;
+    // Kanalen er enhetens, ikke kontoens: den blir stående. Men abonnementet
+    // og den native planen hørte til den forrige brukeren, og skal bort.
+    notifPushMark = null;
+    notifChSig = null;
+    notifPendingTarget = null;
+    if (androidChannel.supported()) androidChannel.sync([]).catch(() => {});
     notifRetryAt = 0;
     notifErrorLogged = false;
     notifPurged.clear();
@@ -11097,6 +11697,10 @@
       notifSettings = true;
       closeNotifSnooze();
       refreshNotifModal(true);
+      // Tillatelsen kan ha blitt endret i systeminnstillingene mens appen sto
+      // åpen. Statusen leses derfor på nytt hver gang panelet åpnes, ikke bare
+      // ved oppstart — ellers ville bryteren vist noe som ikke er sant lenger.
+      refreshNotifChannelState();
       try { notifBackBtn.focus(); } catch (e) { /* ignorer */ }
     });
   }
@@ -12168,9 +12772,25 @@
       okLabel: tr('account.logout') })) logout();
   });
 
-  function logout() {
+  const LOGOUT_UNSUB_MS = 3000;   // så lenge utloggingen venter på avmeldingen
+  async function logout() {
     closeAccount();
     const client = acli();
+    /* Meld av web push FØR sesjonen slippes: `push_unsubscribe` krever en
+       innlogget bruker, og et abonnement som ble stående ville sendt varsler
+       med objektnavn til en nettleser ingen er logget inn i.
+
+       Med en frist, og den er ikke pynt: dette er det eneste nettverkskallet
+       som står MELLOM brukeren og utloggingen. Svarer serveren tregt eller
+       ikke i det hele tatt, skal utloggingen skje likevel — å bli hengende
+       igjen innlogget er verre enn et abonnement som blir stående (og som
+       uansett ryddes når en ny bruker melder seg på i samme nettleser). */
+    try {
+      await Promise.race([
+        webChannel.disable(),
+        new Promise((r) => setTimeout(r, LOGOUT_UNSUB_MS)),
+      ]);
+    } catch (e) { /* ignorer */ }
     cloudStop();
     if (client) { try { client.auth.signOut(); } catch (e) { /* ignore */ } }
   }
@@ -17160,6 +17780,17 @@
     get notifRows() { return notifRows; },
     get notifPrefs() { return notifPrefs; },
     get notifCursor() { return notifCursor; },
+    /* De eksterne kanalene (docs/varsler.md). `planNotifications` er den samme
+       rene funksjonen sett framover, `nativeNotifId` er broen til Androids
+       heltalls-id-er, og adapterne eksponeres så testene kan kjøre
+       tilstandsmaskinen — tillatelse, av/på, diff — uten en telefon. */
+    planNotifications, nativeNotifId, deviceTz,
+    notifChannel, setNotifChannel, syncNotifChannel, refreshNotifChannelState,
+    notifChannelWanted, setNotifChannelWanted, notifExternalLabels,
+    androidChannel, webChannel,
+    get notifChState() { return notifChState; },
+    get notifPlanTz() { return notifPlanTz; },
+    get notifPushDevices() { return notifPushDevices; },
     // Nav-scopets dra-og-slipp-board (dnd-kit gjennom Smett). Bygges først når
     // modalen åpnes; testene bruker dem til å lese motorens egen tilstand
     // (`dropTarget`, `manager.dragOperation`) i stedet for å gjette fra DOM-en.

@@ -3,25 +3,26 @@
 Les denne når oppgaven berører bjelleknappen, varselmodalen, hva som blir et
 varsel, eller hvordan varselhistorikken lagres og synkes.
 
-Tre ting bor her, og de er bevisst skilt:
+Fire ting bor her, og de er bevisst skilt:
 
-1. **Generatoren** — `collectNotifications(state, now, prefs, cursor)` i
-   `app.js`: en ren funksjon som leser TERSKLER ut av hendelsene
-   [`kommende-hendelser.md`](kommende-hendelser.md) allerede regner ut. Den har
+1. **Generatoren** — `notifThresholds()` i `app.js`, sett gjennom to vinduer:
+   `collectNotifications(state, now, prefs, cursor)` ser BAKOVER (det som har
+   passert) og `planNotifications(state, now, prefs)` ser FRAMOVER (det som
+   kommer). Begge leser TERSKLER ut av hendelsene
+   [`kommende-hendelser.md`](kommende-hendelser.md) allerede regner ut, og har
    ingen egne regler om hva som er aktivt, hva som er arvet eller hva som
    dedupliseres.
-2. **Lagringen** — to per-bruker-tabeller i Supabase (`notifications`,
-   `notification_prefs`). Varsler er ikke innhold: de deles aldri, de flettes
-   ikke, og de ligger utenfor synk-doc-et.
+2. **Lagringen** — per-bruker-tabeller i Supabase (`notifications`,
+   `notification_prefs`, `push_subscriptions`, `push_deliveries`). Varsler er
+   ikke innhold: de deles aldri, de flettes ikke, og de ligger utenfor
+   synk-doc-et.
 3. **Flaten** — bjelleknappen med ulest-badgen, modalen `#notif-modal`, og
    **varsel-toasten** som springer ut fra knappen når et varsel dukker opp.
+4. **Leveringskanalene** — native Android-varsler og web push. De er
+   LEVERINGER av rader generatoren allerede har logget, aldri egne generatorer.
 
 Tidsverdiene og semantikken for dato uten klokkeslett er beskrevet i
 [`scheduling.md`](scheduling.md), som er autoritativ for dem.
-
-Dette dokumentet dekker **in-app**-varslene. Native Android-varsler og Web Push
-kommer som egne leveringskanaler oppå den samme hendelsesmodellen — se
-«Forholdet til de eksterne kanalene» nederst.
 
 ## De fire varseltypene
 
@@ -46,12 +47,15 @@ kontrastkontrakten ([`tilgjengelighet.md`](tilgjengelighet.md)).
 ## Generatoren
 
 ```js
-collectNotifications(state, now, prefs, cursor)   // → rader som skal logges
+collectNotifications(state, now, prefs, cursor)   // → rader som skal logges (fortid)
+planNotifications(state, now, prefs)              // → rader som skal logges (framtid)
 ```
 
-Ren funksjon: tilstand, tidspunkt, preferanser og markør inn — radene ut. Ingen
-DOM, ingen nettverk, ingen klokkeoppslag. Den kaller `collectUpcomingEvents()`
-og leser to terskler ut av hver hendelse (tidspunktet selv, og uka før det).
+Rene funksjoner: tilstand, tidspunkt, preferanser og markør inn — radene ut.
+Ingen DOM, ingen nettverk, ingen klokkeoppslag. Begge kaller den samme
+`notifThresholds()`, som kaller `collectUpcomingEvents()` og leser to terskler
+ut av hver hendelse (tidspunktet selv, og uka før det). De er altså ÉN motor
+sett gjennom hvert sitt vindu, ikke to nesten like motorer.
 
 Alt annet er hendelsesmotorens svar, ikke et nytt regelsett:
 
@@ -104,6 +108,70 @@ er passert — den ER passert, så det er ikke galt.
 Én runde logger maksimalt `NOTIF_BATCH_MAX` (50) rader, og beholder de nyeste
 tersklene: en historikk som åpner med tre hundre rader er ikke en historikk.
 
+### Planen framover
+
+Markøren over svarer på hva som HAR skjedd. Det som gjør at et varsel kan nå
+fram når appen er **lukket**, er at generatoren også ser den andre veien.
+
+`planNotifications()` er den samme motoren med vinduet snudd: tersklene som
+ligger i `(nå, nå + 30 døgn]`, nærmest først, maksimalt
+`NOTIF_PLAN_MAX` (40). De logges med `notify_record()` som alle andre rader —
+med `at` FRAM I TID.
+
+Det er hele mekanismen, og den er billig fordi den låner en form som allerede
+fantes: **en rad med `at` i framtiden er usynlig og teller ikke som ulest før
+den forfaller** — nøyaktig som et utsatt varsel («Utsett», under). Modalen,
+badgen, vekkingen og toasten trengte derfor ingen ny regel.
+
+Svaret på «hvor kjører generatoren når appen er lukket» er dermed: **den gjør
+ikke det.** Den kjørte sist appen var åpen, og la planen fra seg. Android
+planlegger sine lokale varsler fra den listen; web push leverer den fra
+serveren. Ingen av kanalene tolker en terskel — de leverer rader som allerede er
+logget.
+
+Prisen står i horisonten, og den er eksplisitt: **en terskel lenger unna enn 30
+døgn er ikke planlagt.** Har appen ikke vært åpen på en måned, er det ingenting
+å levere — og den dagen den åpnes, logges de passerte tersklene som vanlig
+(vinduet bakover) og en ny plan legges. Taket på 40 er det andre leddet: en
+konto med hundrevis av datoer får de NÆRMESTE tersklene planlagt, og resten
+kommer inn etter hvert som tiden går.
+
+**Planen er ikke historikk.** Forskjellen er hva som gjør en rad ugyldig, og den
+står under «Varsler som ikke gjelder lenger».
+
+### Tidssonen planen tilhører
+
+Terskeltidene er absolutte millisekunder, regnet ut av `timeMs()` fra **lokal
+veggtid**. En frist «14. mars kl. 09:00» er derfor et annet tidspunkt i Tokyo
+enn i Oslo, og en plan hører til ÉN sone.
+
+`notification_prefs.tz` er den sonen, og `tz_at` er når den sist ble hevdet.
+Regelen har tre ledd:
+
+- **Bare enheten som HOLDER sonen planlegger** — og bare den rydder i planlagte
+  rader. En enhet i en annen sone logger historikk som før, men lar planen være.
+- En enhet i en annen sone **hevder** sonen (`notify_claim_tz`) og planlegger
+  fra og med neste runde.
+- Hevdelsen går bare gjennom når den forrige er **eldre enn seks timer**
+  (`NOTIF_TZ_CLAIM_MS`), og ventetiden håndheves av serveren, ikke av klienten.
+  Uten den ville to enheter i hver sin sone slettet og gjenskapt hverandres plan
+  i hver eneste synk-runde. Reiser man, står den forrige enheten som regel
+  ubrukt, og overtakelsen skjer med det samme.
+
+**Sommertid trenger ingen regel.** `new Date(år, måned, dag, time, minutt)` gir
+riktig instans for den lokale datoen på begge sider av en overgang; det er bare
+sonebytter som gjør en plan ugyldig.
+
+**Delt innhold får hver sin tid.** En delt liste med frist kl. 09:00 varsler
+hvert medlem kl. 09:00 i MEDLEMMETS egen sone — planen er per bruker, og hver
+klient regner den ut i sin egen. Veggtiden er den samme for alle; øyeblikket er
+det ikke.
+
+Selve `start`/`due`-feltene er fortsatt lokal veggtid som tekst
+([`scheduling.md`](scheduling.md)) og konverteres ikke til UTC. Serveren regner
+ingen terskler og trenger derfor ingen sone til det; feltet er der for å si
+hvilken sone planen tilhører — og for at en feil skal være mulig å se.
+
 ### Identitet
 
 Nøkkelen er `type|objekttype|objekt-id|tidsverdi`, og den unike indeksen
@@ -135,8 +203,10 @@ navnene sier hva de gjør, og hva en avslått type betyr står her, ikke i UI-et
 
 Innstillingene er et NIVÅ inne i varselmodalen, ikke en egen modal: Androids
 tilbakeknapp går ett nivå tilbake til varslene (samme mønster som del-modalens
-← i [`menus.md`](menus.md)), mens Escape fortsatt lukker helt — «lukk = ferdig». En badge er ingen avbrytelse, og en funksjon som er av fra første
-stund blir aldri sett; eksterne kanaler får sin egen opt-in på toppen av dette.
+← i [`menus.md`](menus.md)), mens Escape fortsatt lukker helt — «lukk = ferdig».
+En badge er ingen avbrytelse, og en funksjon som er av fra første stund blir
+aldri sett. De eksterne kanalene har sin egen opt-in oppå dette, som en femte
+rad i det samme panelet (se «De eksterne kanalene»).
 
 Bryterne styrer om hendelsen **genereres i det hele tatt** — ikke om den vises.
 En avslått type lager ingen rad, heller ikke i historikken. Det er den regelen
@@ -159,7 +229,9 @@ lest/ulest skal være det samme på alle mine enheter.
 | Tabell | Innhold |
 |---|---|
 | `notifications` | én rad per logisk varsel: `user_id`, `key`, `type`, `obj_type`/`obj_id`, `name`, `path`, `value`, `at`, `snoozed`, `created_at`, `read_at` |
-| `notification_prefs` | én rad per bruker: de fire bryterne + `cursor_at` |
+| `notification_prefs` | én rad per bruker: de fire bryterne, `cursor_at` og sonen planen tilhører (`tz`, `tz_at`) |
+| `push_subscriptions` | ett abonnement per nettleser: `endpoint` (globalt unikt), `p256dh`/`auth`, `labels`, `tz`, `disabled_at` |
+| `push_deliveries` | utboksen: én rad per (varsel, abonnement) med `due_at`, `status`, `attempts` |
 
 - **RLS: kun egne rader**, hele veien (select/update/delete). Andres varsler kan
   ikke leses, merkes eller slettes — heller ikke for et objekt vi deler.
@@ -167,6 +239,13 @@ lest/ulest skal være det samme på alle mine enheter.
   (security definer), som setter `user_id` fra `auth.uid()` selv. Update er
   kolonne-avgrenset til `read_at`: lest/ulest er det eneste klienten eier på en
   eksisterende rad. Preferansene skrives kun av `notify_set_prefs()`.
+- **Abonnementene** leses og slettes av eieren, men skrives kun av
+  `push_subscribe()` — ellers kunne en klient skrevet en rad på en annens
+  bruker-id og fått den brukerens varsler sendt til seg.
+- **Utboksen er låst.** RLS på, ingen policyer, ingen grants: verken `anon`
+  eller `authenticated` når `push_deliveries` gjennom PostgREST. Den leses og
+  skrives kun av `push_claim()`/`push_report()`, som er avgrenset til
+  `service_role` — både med grants og med en rollesjekk inne i funksjonen.
 - `name` og `path` er et **øyeblikksbilde** fra genereringstidspunktet, så raden
   kan vises også etter at objektet er slettet. Navigasjonen bruker dem aldri —
   den slår alltid opp `obj_id` i gjeldende tilstand.
@@ -191,10 +270,28 @@ den ikke bli stående og be om oppmerksomhet. Den **slettes**.
 `purgeStaleNotifs()` kjøres rett etter hver pull (`applyNotifications`) og
 sletter radene der:
 
-| Tilstand | Hvorfor |
-|---|---|
-| objektet finnes ikke i `state` (slettet, i papirkurven, eller utenfor tilgangen min) | det er ingenting igjen å varsle om |
-| objektets **effektive** tid for feltet er en annen enn radens `value` | den gamle tidsplanen finnes ikke lenger |
+| Tilstand | Gjelder | Hvorfor |
+|---|---|---|
+| objektet finnes ikke i `state` (slettet, i papirkurven, eller utenfor tilgangen min) | alle rader | det er ingenting igjen å varsle om |
+| objektets **effektive** tid for feltet er en annen enn radens `value` | alle rader | den gamle tidsplanen finnes ikke lenger |
+| raden står ikke lenger i planen, eller står der med en annen terskeltid | kun PLANLAGTE rader (`at` fram i tid, ikke utsatt) | en plan som ikke er planen lenger |
+
+**Den siste raden er forskjellen på en plan og en historikk**, og den er det som
+avlyser en framtidig levering:
+
+- **fullføres listepunktet**, forsvinner hendelsen fra «Kommende hendelser» —
+  selv om tiden på objektet står urørt. Den planlagte raden er da ikke i planen,
+  og slettes. Kaskaden tar leveringene i utboksen med seg, og Android-adapteren
+  kansellerer det native varselet ved neste runde;
+- **byttes tidssonen**, gir den samme datoen en annen terskeltid. Raden beskriver
+  da et tidspunkt planen ikke lenger har, og erstattes.
+
+En **utsatt** rad er brukerens egen bestilling og står ikke i planen — den måles
+bare mot objektet, som før. Og en enhet som ikke holder tidssonen rører ikke
+planlagte rader i det hele tatt (se «Tidssonen planen tilhører»).
+
+Merk at et varsel som ALLEREDE har forfalt ikke rammes av den siste raden: det
+er historikk, og historikk beskriver noe som skjedde.
 
 To ting gjør dette trygt å kjøre automatisk:
 
@@ -207,8 +304,9 @@ To ting gjør dette trygt å kjøre automatisk:
 Feiler slettingen, står radene igjen på serveren og runden tas om igjen ved
 neste pull. Ingen toast — brukeren ba ikke om dette.
 
-**Merk hva som IKKE er ugyldig:** at listepunktet er krysset av. Varselet
-beskriver noe som faktisk skjedde, og historikken beholdes.
+**Merk hva som IKKE er ugyldig:** at et listepunkt som ALT er varslet om, krysses
+av. Varselet beskriver noe som faktisk skjedde, og historikken beholdes. Det er
+bare den framtidige planen fullføringen avlyser.
 
 Konsekvensen av at markøren er permanent (se «Markøren er hele idempotensen»)
 gjelder her også: gjenoppretter man objektet fra papirkurven, kommer ikke
@@ -245,7 +343,10 @@ det badgen lovte: hvilke rader som var nye.
    for den buffrede slettingen ([`trash.md`](trash.md)).
 
 Et varsel som ankommer etter øyeblikksbildet er ikke med i settet og blir ikke
-slettet med det.
+slettet med det. **Planen framover røres heller ikke:** øyeblikksbildet er de
+SYNLIGE radene, og en planlagt rad er usynlig til den forfaller. Å tømme
+historikken slår altså ikke av de eksterne varslene — det gjør bryteren i
+innstillingene.
 
 Går serveroperasjonen i vasken, later appen **ikke** som noe annet: radene er
 fortsatt på serveren, de vises igjen straks, og en toast sier fra.
@@ -446,7 +547,7 @@ Begge ytterpunktene (helt hvitt og helt svart bak) er med i kontrastkontrakten
 
 | Hva som skjer | Følgen |
 |---|---|
-| listepunktet fullføres FØR terskelen | ingen hendelse, altså heller ikke noe varsel |
+| listepunktet fullføres FØR terskelen | ingen hendelse, altså heller ikke noe varsel — og en PLANLAGT rad om den terskelen avlyses ved neste pull, med den eksterne leveringen |
 | det fullføres ETTER at varselet finnes | historikken beholdes urørt |
 | objektet slettes eller tilgangen forsvinner | raden SLETTES ved neste pull (se «Varsler som ikke gjelder lenger»). Fram til den runden står den merket i teksten sin, og et klikk gir en beskjed i stedet for en navigering |
 | objektet flyttes | historikken følger objekt-ID-en, ikke stien — `navigateToObject` slår opp hvor det ligger NÅ |
@@ -489,21 +590,228 @@ døgn. Overskriftene «I dag»/«I går» har sine egne nøkler med stor forboks
 (`notif.day.*`), fordi de er overskrifter og ikke setningsledd.
 Se [`sprak.md`](sprak.md).
 
-## Forholdet til de eksterne kanalene
+## De eksterne kanalene
 
-De fire preferansene styrer HENDELSEN, ikke visningen. Når native
-Android-varsler og Web Push kommer, blir de to nye **leveringskanaler** for
-nøyaktig de hendelsene som allerede genereres her — med sin egen opt-in
-(operativsystemets tillatelse) på toppen. Ingen ny hendelsesmodell, ingen ny
-terskeltolkning, og in-app-historikken er fortsatt fasiten for hva som er
-varslet.
+De fire preferansene styrer HENDELSEN, ikke visningen. De to eksterne kanalene
+er derfor ikke fire nye valg, men **én bryter per enhet** oppå de samme
+hendelsene:
+
+| | Android (i appen) | Nettleser |
+|---|---|---|
+| Mekanisme | LOKALE varsler planlagt på selve enheten (`@capacitor/local-notifications`) | Web Push: serveren sender, service workeren viser |
+| Trenger en server? | **nei** — telefonen har planen og vekker seg selv | ja, både en abonnementsrad og en sender |
+| Hva som leveres | planen (`planNotifications`) | planen, gjennom utboksen |
+| Tillatelse | POST_NOTIFICATIONS (Android 13+) | `Notification.requestPermission()` |
+
+Kanalen velges av plattformen og er aldri begge: inne i APK-en finnes det ingen
+pushtjeneste å melde seg på, og i en nettleser finnes det ingen native plugin.
+
+**Valget ligger på ENHETEN** (`localStorage`, som drakten), ikke på brukeren. At
+telefonen skal buzze er ikke det samme valget som at den bærbare skal det. De
+fire typebryterne ligger fortsatt på brukeren og gjelder alle kanaler — det er
+den ene innstillingen som gjør in-app og eksternt varsel til to leveringer av
+det samme valget i stedet for to uavhengige.
+
+### Tillatelsen spørres aldri av seg selv
+
+Systemdialogen kommer **kun** etter et trykk på bryteren i
+varselinnstillingene, og linjen under bryteren forklarer hvorfor før den
+utløses. Panelet har fire tilstander, og de sier hver sin sanne ting:
+
+| Tilstand | Bryteren | Teksten |
+|---|---|---|
+| ikke støttet | finnes ikke | «Denne enheten kan ikke vise varsler utenfor Huskis. Varslene står fortsatt i listen her.» |
+| av | av | forklaringen — hva du får, og at enheten kommer til å spørre |
+| på | på | «På. Varslene kommer også når Huskis er lukket.» — eller «På her og på N andre enheter.» når web push er på flere |
+| blokkert | av og **deaktivert** | «Blokkert. Slå på varsler for Huskis i enhetens innstillinger, og prøv igjen.» |
+
+**Blokkert er en blindvei, ikke et nytt forsøk.** En bryter som lot seg slå på
+uten å virke ville løyet, og en app som spurte igjen ville maset om noe
+operativsystemet allerede har bestemt. Veien tilbake går gjennom enhetens
+innstillinger, og det er det teksten sier.
+
+Statusen leses på nytt hver gang panelet åpnes: tillatelsen kan ha blitt endret
+i systeminnstillingene mens appen sto åpen.
+
+### Teksten i et eksternt varsel
+
+**Overskriften er objektets navn, kroppen er varseltypen i klartekst** — de
+samme fire ordene som står over bryterne. Ikke radens melding, og ikke toastens:
+et varsel på en låseskjerm skal si hva det gjelder og ikke mer.
+
+Det som IKKE er med, er med vilje: ingen sti, ingen kontekst om hvem som deler
+hva, ingen id-er i teksten, og aldri et token. Kroppen som sendes over nettet er
+dessuten kryptert ende-til-ende (RFC 8291), så push-tjenesten ser bare et
+endepunkt og en ugjennomsiktig blokk.
+
+Pekeren i varselet (`{ objType, objId }`) er nettopp en peker — **aldri et
+bevis**. Trykket kaller `navigateToObject()`, som slår id-en opp i gjeldende
+tilstand; en id vi ikke har tilgang til finnes ikke der, og fører ingen steder.
+
+### Android: lokale varsler
+
+Adapteren speiler planen ut på enheten som en **diff** mot `getPending()`:
+avlys det som ikke lenger står i planen, legg inn det som mangler. Uten diffen
+ville hver synk-runde lagt inn de samme varslene på nytt, og en endret frist
+blitt liggende ved siden av den nye.
+
+Broen mellom Huskis' identitet og Androids er ren: `nativeNotifId(key)` er en
+FNV-1a-hash av nøkkelen, klippet til et positivt 31-bits heltall (Androids
+varsel-ID er et Java-`int`). Determinismen er hele poenget — det er den som gjør
+at den samme planen speilet to ganger gir det samme varselet, ikke to.
+
+**Alarmene er upresise med vilje.** Hvert varsel planlegges med
+`isExactNotification: false`, som gir `AlarmManager.setAndAllowWhileIdle()`:
+systemet kan flytte det noen minutter, men det fyrer også i dvale. Tersklene er
+«fristen er utløpt» og «begynner innen en uke», ikke alarmer på sekundet, og
+SCHEDULE_EXACT_ALARM er derfor **trukket tilbake** fra pluginens manifest med
+`tools:node="remove"`. En tillatelse Huskis ikke trenger — og som Google Play
+krever et eget skjema for — skal appen ikke be om.
+
+Ikonet i statuslinjen er `ic_stat_huskis`: merkets tre kortkonturer som maske.
+Uten det bruker pluginen Androids egen `ic_dialog_info`, og hvert varsel ville
+sett ut som ingens.
+
+### Nettleser: web push
+
+Fire ledd, og alle fire må finnes for at kanalen skal eksistere:
+`serviceWorker`, `PushManager`, `Notification` og en **avsendernøkkel**
+(`pushPublicKey` i `config.js`). Står nøkkelen tom, finnes kanalen ikke — det er
+ikke «av», for det er ingen sender å melde seg på hos.
+
+**Nøkkelparet.** VAPID (RFC 8292) identifiserer SENDEREN overfor
+push-tjenesten. Den offentlige halvdelen ligger i `config.js` og er ment å ligge
+der; den private ligger i Supabase Vault og finnes ingen steder i repoet. Bare
+den private kan lage en gyldig signatur, så den offentlige gir ingen tilgang til
+noe. Paret lages én gang, manuelt — stegene står i [`../TODO.md`](../TODO.md).
+
+**Abonnementet er nettleseren.** `endpoint` er globalt unikt, så en ny
+innlogging i samme nettleser FLYTTER abonnementet til den nye brukeren i stedet
+for å lage en dublett. `push_subscribe()` er idempotent på endepunktet og
+kjøres på nytt hver synk-runde det er noe å oppdatere: et endepunkt nettleseren
+har rullert, nye etiketter etter et språkbytte, eller et abonnement som ble
+meldt av ved utlogging. Fornyelsen er dermed selvhelbredende og spør aldri om
+tillatelse på nytt.
+
+**Etikettene følger med abonnementet.** De fire typetekstene lagres i
+`labels`, på brukerens språk. Service workeren har ingen ordbok, og SQL skal
+ikke ha en — uten dette leddet måtte i18n ha ligget to steder til.
+
+**Utlogging melder av.** `push_unsubscribe()` kjøres FØR sesjonen slippes: et
+abonnement som ble stående ville sendt varsler med objektnavn til en nettleser
+ingen er logget inn i.
+
+### Service workeren (`sw.js`)
+
+Den finnes for én grunn: en nettleser kan ikke kjøre en timer når fanen er
+lukket, så Web Push krever en service worker. Alt annet den KUNNE gjort, gjør
+den ikke:
+
+- **ingen `fetch`-lytter.** Huskis er ikke en PWA, og caching av appens egne
+  filer ligger i cache-headerne og build-ID-en i URL-ene
+  ([`auto-update.md`](auto-update.md)). En service worker som svarte på
+  forespørsler ville lagt seg MELLOM nettleseren og de headerne, og blitt et nytt
+  sted en gammel versjon kunne bli hengende. Uten `fetch`-lytteren er
+  oppdateringsmodellen nøyaktig som før den ble registrert;
+- ingen cache, ingen IndexedDB, ingen nettverkskall, ingen tilstand.
+
+Den registreres først når brukeren har slått på kanalen, og avregistreres når
+den slås av.
+
+`push` viser varselet med `tag = <nøkkelen>`, så det samme varselet ERSTATTER
+seg selv i stedet for å stable seg — samme regel som den unike nøkkelen i
+databasen. En push uten lesbar kropp blir likevel et synlig varsel:
+`userVisibleOnly: true` er et løfte til nettleseren, og brytes det, straffer den
+abonnementet.
+
+`notificationclick` **fokuserer en åpen Huskis-fane** og gir den pekeren som en
+melding — fanen navigerer selv, med sin vanlige tilgangskontroll. Finnes ingen
+åpen fane, åpnes appen med `?notif=<type>:<id>`; app.js plukker den opp når den
+er innlogget og synket, og fjerner den fra adressen, så en reload ikke navigerer
+igjen.
+
+### Senderen
+
+Databasen eier køen, rekkefølgen og idempotensen. Edge-funksjonen
+`supabase/functions/push-send` eier HTTP-kallet — og bare det.
+
+1. `notify_record()` fyller utboksen (`push_enqueue`): én rad per (planlagt
+   varsel, aktivt abonnement), `due_at = varselets terskeltid`. Den unike
+   indeksen `(notification_id, subscription_id)` er idempotensen: det samme
+   logiske varselet kan ikke sendes to ganger til det samme abonnementet,
+   uansett hvor mange ganger generatoren kjører.
+2. `pg_cron` kaller `push_tick()` hvert minutt, som dytter Edge-funksjonen i
+   gang med `pg_net` — nøyaktig det oppsettet e-postvarselet ved deling allerede
+   bruker, med hemmeligheten i Vault og adressen i `app_config`. Uten
+   konfigurasjon gjør tikket ingenting og feiler ikke.
+3. `push_claim()` henter forfalte leveringer og LÅSER dem (`claimed_at`,
+   `for update skip locked`). To samtidige kjøringer kan derfor ikke sende det
+   samme, og en kjøring som dør halvveis blir hentet inn igjen av den neste i
+   stedet for å bli stående.
+4. Funksjonen signerer (VAPID), krypterer (RFC 8291) og sender.
+5. `push_report()` tar imot utfallet: levert, **dødt** (404/410 — abonnementet
+   slås av for godt) eller midlertidig (prøves igjen, opptil fem forsøk).
+
+Kryptografien er skrevet for hånd i `push-send/webpush.mjs`, uten npm-pakker:
+Huskis har ingen avhengigheter ([`sikkerhetsheadere.md`](sikkerhetsheadere.md)),
+og en pushsender som drakk inn et avhengighetstre ville vært det første stedet
+den regelen sprakk. Modulen kjører uendret i Deno og i Node, og
+`tests/push-crypto.test.js` kjører den mot et fast vektor regnet ut av
+`http_ece` — referanseimplementasjonen `web-push` selv bruker.
+
+Et tapt tikk koster forsinkelse, ikke leveranser: all tilstand ligger i
+utboksen, og neste tikk tar det samme arbeidet.
+
+### Flere enheter per bruker
+
+- **Web push** fanner ut til ALLE brukerens aktive abonnementer — én
+  utbokslinje per abonnement, hver med sitt eget utfall. Et dødt endepunkt slås
+  av uten å røre de andre. `get_my_doc()` teller de aktive og gir tallet til
+  panelet, så «på» sier hvor mange enheter det gjelder.
+- **Android** trenger ingen fan-ut: hver installasjon planlegger sine egne
+  lokale varsler fra den samme planen, med de samme deterministiske ID-ene.
+- **To enheter varsler begge.** Det er normalt og forventet, som e-post på både
+  telefon og laptop.
+- **Planen** legges derimot av ÉN enhet av gangen — den som holder tidssonen (se
+  «Tidssonen planen tilhører»).
+
+### Levert/ikke levert mot lest/ulest
+
+De to henger sammen på nøyaktig ett punkt, og ellers ikke:
+
+- **Leveringen er per enhet** og lever i utboksen (`push_deliveries.status`)
+  eller i Androids alarmkø. **Lest/ulest er per bruker** og lever på
+  varselraden (`read_at`), delt mellom alle enhetene.
+- **En levert push merker ingenting som lest.** En push kan sveipes bort fra en
+  låseskjerm uten at noen har lest noe. Raden blir stående ulest til
+  varselmodalen åpnes — det er fortsatt den ene handlingen som markerer lest.
+- **Lest/ulest gater aldri en levering**, og trenger ikke gjøre det: en rad kan
+  først bli lest etter at den har forfalt, og da er den allerede levert. Det
+  finnes ikke et vindu der «lest på laptopen» kunne rukket å avlyse en push som
+  ennå ikke er sendt.
+- **En push som ikke kommer fram, endrer ingenting.** Raden er der, ulest, og
+  in-app-kanalen viser den. De eksterne kanalene er best effort; historikken i
+  appen er fasiten for hva som er varslet.
+- Det ene punktet de møtes i: **å utsette et varsel merker det lest** (det er en
+  kvittering), og den utsatte raden er en ny, planlagt rad — som dermed også
+  leveres eksternt når den forfaller.
 
 ## Voktere
 
-- `tests/notifications.test.js` — generatoren: tersklene og de eksakte grensene,
-  dato uten klokkeslett, markøren, catch-up, preferansene, fullføring, arv,
-  identitet, hele veien gjennom serveren, to enheter uten duplikater, og at en
-  tømt historikk ikke gjenskapes.
+- `tests/notifications.test.js` — generatoren bakover: tersklene og de eksakte
+  grensene, dato uten klokkeslett, markøren, catch-up, preferansene, fullføring,
+  arv, identitet, hele veien gjennom serveren, to enheter uten duplikater, og at
+  en tømt historikk ikke gjenskapes.
+- `tests/notif-plan.test.js` — generatoren framover: horisonten og taket, at
+  planen er de samme tersklene med samme nøkkel, at den er usynlig og ikke
+  teller som ulest, utboksen for web push, at fullføring og en endret frist
+  avlyser den, og tidssone-hevdelsen med begge utfallene.
+- `tests/notif-channels.test.js` — kanalene: den deterministiske native ID-en,
+  Android-adapterens diff og upresise alarm, at tillatelsen aldri spørres av seg
+  selv, web push-påmeldingen og avmeldingen, blokkert tillatelse, panelets fire
+  tilstander, service workerens push- og klikkruting, og `?notif=` i adressen.
+- `tests/push-crypto.test.js` — VAPID-signaturen og RFC 8291-krypteringen, mot
+  et fast vektor fra `http_ece` og med signaturen faktisk verifisert.
 - `tests/notif-modal.test.js` — knappen og badgen, modalen, nyeste øverst,
   datooverskriftene og meldingsformene, lest/ulest-grensen, angresletting,
   «Utsett»-popoveren (inkludert den egendefinerte skuffen, at et passert
@@ -520,5 +828,16 @@ varslet.
 - `tests/a11y-contrast.test.js` — at modalen ikke pinner ikonfargene (den
   arver statusflatene fra `.event-icon`), og at varsel-toastenes tekst klarer
   4.5:1 mot den halvgjennomsiktige flaten over BEGGE ytterpunktene.
+- `tests/capacitor-android.test.js` — varselpluginen som pinnet
+  runtime-avhengighet, at pluginbroen bare leses for de kjente pluginene, og at
+  SCHEDULE_EXACT_ALARM er det ENESTE merger-direktivet i manifestet.
+- `tests/security-headers.test.js` + `tests/build-version.test.js` — at
+  `worker-src 'self'` står likt i begge policyene, og at `sw.js` publiseres.
+- `tests/release-pipeline.test.js` — at senderen deployes etter smoke-testen og
+  IKKE er en port for frontenden.
 - `supabase/tests/test-notifications.sql` — RLS, idempotent logging, markøren,
   preferansene og kontosletting.
+- `supabase/tests/test-push.sql` — abonnementene og RLS-en rundt dem, utboksens
+  idempotens, kaskaden som avlyser en levering, at senderens funksjoner er
+  stengt for klienten, hent/send/meld-runden med alle tre utfallene, og
+  tidssone-hevdelsen.

@@ -25,6 +25,7 @@ node tests/release-pipeline.test.js   # rekkefølgen migrering → smoke → dep
 node tests/db-contract.test.js        # smoke-test.sql i takt med app.js
 node tests/security-headers.test.js   # CSP + sikkerhetsheaderne, låst Supabase-versjon
 node tests/i18n.test.js               # språkordboken + at ingen norsk tekst står igjen i koden
+node tests/push-crypto.test.js        # VAPID-signaturen + RFC 8291-krypteringen (web push)
 ```
 
 Hele suiten i én runde (starter en lokal server selv hvis ingen svarer) —

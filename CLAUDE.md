@@ -15,7 +15,8 @@ dnd-kits; hva et slipp BETYR er Huskis', og den politikken er DELT mellom
 scopene — en endring treffer begge. Autoritativt: `docs/drag-and-drop.md`.
 
 **Kildekode** (det som deployes): `index.html`, `styles.css`, `app.js`,
-`icons.js`, `i18n.js`, `theme.js`, `config.js`, `update-check.js`, `assets/`,
+`icons.js`, `i18n.js`, `theme.js`, `config.js`, `update-check.js`, `sw.js`
+(service workeren — KUN varsler, ingen caching), `assets/`,
 `vendor/`
 (supabase-js og Smett som innsjekkede, låste kopier —
 `docs/sikkerhetsheadere.md`).
@@ -36,7 +37,9 @@ toolingen deployes aldri — `SKIP`-listen i `build.js` holder den utenfor `dist
 Autoritativt for fremdrift og neste steg: `docs/mobilapp-plan.md`.
 
 **Serversiden** er `supabase/users-and-sharing.sql` — én idempotent fil med
-tabeller, RLS, triggere og RPC-er.
+tabeller, RLS, triggere og RPC-er. `supabase/functions/push-send/` er den ene
+tingen som ikke får plass der: senderen for web push, som trenger kryptografi
+SQL ikke har (`docs/varsler.md`).
 
 **Releaseprosessen**: ved merge til `main` kjører `.github/workflows/release.yml`
 tester → migrering → smoke-test → Vercel-deploy, i den rekkefølgen. Frontenden
@@ -124,6 +127,7 @@ Kjør den minste verifikasjonen som gir troverdig evidens for endringen:
 | Brukerrettet UI | ekte nettleser (Playwright), + skjermbilde ved visuell endring |
 | Responsiv eller pekeravhengig oppførsel | både desktop- og mobil-viewport |
 | Auth, synk eller deling | mock-backend (`?mock=1`) + den relevante flerbrukerflyten |
+| Varsler, planen framover eller de eksterne kanalene | `node tests/push-crypto.test.js` + `tests/notif-plan.test.js`, `tests/notif-channels.test.js`, `tests/notif-modal.test.js` og SQL-suiten (`test-push.sql`) |
 | Deploy, caching, build-output | `node build.js` og `node tests/build-version.test.js` |
 | Capacitor, `android/`, npm-tooling | `node tests/capacitor-android.test.js` + `node tests/build-version.test.js`, og Android debug-APK-workflowen |
 | Sikkerhetsheadere, CSP, tredjepartsressurser | `node tests/security-headers.test.js` + `node tests/csp-enforced.test.js` |

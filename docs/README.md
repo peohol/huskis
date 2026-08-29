@@ -22,7 +22,7 @@ Ved motstrid gjelder det dokumentet som er merket autoritativt for feltet — og
 | [menus.md](menus.md) | toppmenyen, toppkontrollene (varsler/kalender/søk/drakt/konto), navigasjonsmodalen (områder + mapper), konto-modalen og **objektmenyen** på alle seks nivåene | **ja** — navigasjon og menyer |
 | [sok-og-navigering.md](sok-og-navigering.md) | globalt søk (indeks, normalisering, rangering, søkemodalen) og den generelle `navigateToObject()` som sender brukeren til et bestemt objekt | **ja** — søk og objekt-navigering |
 | [kommende-hendelser.md](kommende-hendelser.md) | kalenderknappen, modalen «Kommende hendelser», hendelsesmotoren (`collectUpcomingEvents`), gruppene/grensene og den hierarkiske dedupliseringen | **ja** — hendelsesoversikten |
-| [varsler.md](varsler.md) | varselknappen og ulest-badgen, varselmodalen (bunker per døgn), varsel-toasten, de fire varseltypene og tersklene, varselidentitet/idempotens, hvor historikken lagres, lest/ulest, «Tøm varsler» med angre og «Utsett» | **ja** — varselmodellen |
+| [varsler.md](varsler.md) | varselknappen og ulest-badgen, varselmodalen (bunker per døgn), varsel-toasten, de fire varseltypene og tersklene, varselidentitet/idempotens, planen framover, hvor historikken lagres, lest/ulest, «Tøm varsler» med angre, «Utsett» — og de eksterne kanalene: native Android-varsler, web push, service workeren og senderen | **ja** — varselmodellen |
 | [drag-and-drop.md](drag-and-drop.md) | reorder, flytting mellom lister/mapper/områder, ekstrahering, peek, skillelinjer, kassene som slippmål, de to dra-scopene og de fire dnd-kit-board-ene | **ja** — dra-og-slipp |
 | [board-layout.md](board-layout.md) | kolonnefordelingen i listevisningen og avstander/padding/gap der | **ja** — board-layouten |
 | [trash.md](trash.md) | sletting (menyen og **slipp i kassen**), gjenoppretting og tømming på alle fire nivåene, buffret sletting, angre | **ja** — søppelkassene |
@@ -43,6 +43,11 @@ Ved motstrid gjelder det dokumentet som er merket autoritativt for feltet — og
 - `mock-backend.js` — speiler serverens regler for testing (`?mock=1`), lastet av
   `dev-mock.js`. Begge er kun kildekode: `build.js` holder dem utenfor deployen
   (`sikkerhetsheadere.md`).
+- `sw.js` — service workeren, og KUN varsler: `push` og `notificationclick`,
+  ingen `fetch`-lytter og ingen cache. Registreres først når brukeren slår på
+  varsler i nettleseren. Arbeidsregler: `varsler.md`.
+- `supabase/functions/push-send/` — senderen for web push (Deno Edge Function)
+  og den avhengighetsfrie kryptografien den bruker. Arbeidsregler: `varsler.md`.
 - `i18n.js` — ordboken (norsk/engelsk) og `t()`. Arbeidsregler: `sprak.md`.
 - `tests/` — regresjonstestene; kommentarblokken i hver fil sier hva den dekker.
   Arbeidsregler: `tests/CLAUDE.md`.

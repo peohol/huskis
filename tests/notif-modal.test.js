@@ -656,8 +656,9 @@ async function runEngelsk() {
     .map((r) => r.querySelector('.menu-setting-label span:last-child').textContent));
   log('12f: innstillingsoverskriften er engelsk',
     (await p.evaluate(() => document.getElementById('notif-title-text').textContent)) === 'Notification settings');
-  log('12d: preferansene er engelske',
-    eq(prefs, ['Deadline passed', 'Deadline in less than a week', 'Starting now', 'Starts in less than a week']),
+  log('12d: preferansene og kanalraden er engelske',
+    eq(prefs, ['Deadline passed', 'Deadline in less than a week', 'Starting now',
+      'Starts in less than a week', 'Notifications on this device']),
     JSON.stringify(prefs));
   log('engelsk: ingen JS-feil', errs.length === 0, errs.join(' | '));
   await browser.close();

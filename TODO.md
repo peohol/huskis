@@ -19,6 +19,68 @@ Google Play Developer-kontoen, upload-nøkkelen, de fire `ANDROID_UPLOAD_*`-
 secretene og første opplasting. Stegene i rekkefølge står i
 `docs/mobilapp-plan.md`, fase 6.
 
+## Web push: nøkkelpar, secrets og kjøreplan
+
+Native Android-varsler virker uten noe av dette — de er lokale alarmer på
+enheten. **Web push** trenger derimot en sender, og senderen trenger et
+nøkkelpar og et sted å kjøre. Koden er på plass (`sw.js`,
+`supabase/functions/push-send/`, tabellene og RPC-ene); det som gjenstår er
+manuelt og kan ikke gjøres herfra. Modellen står i `docs/varsler.md`.
+
+Uten stegene under er kanalen inert: `pushPublicKey` i `config.js` er tom,
+bryteren «Varsler på denne enheten» melder seg selv som ikke støttet i
+nettleseren, og `push_tick()` gjør ingenting.
+
+1. **Lag VAPID-nøkkelparet** (P-256, base64url). Den offentlige halvdelen er
+   ment å ligge i frontend; den private skal aldri inn i repoet, en PR, en logg
+   eller en chat:
+
+   ```bash
+   node -e '
+   const c = require("crypto");
+   const e = c.createECDH("prime256v1"); e.generateKeys();
+   console.log("public :", e.getPublicKey().toString("base64url"));
+   console.log("private:", e.getPrivateKey().toString("base64url"));'
+   ```
+
+2. **Legg den offentlige halvdelen inn i `config.js`** (`pushPublicKey`) og
+   merge. Verdien må være NØYAKTIG den samme som senderen signerer med — ellers
+   avviser push-tjenesten hver eneste melding.
+
+3. **Sett funksjonens secrets** i Supabase (Edge Functions → Secrets), eller
+   med CLI-en:
+
+   ```bash
+   supabase secrets set --project-ref <ref> \
+     VAPID_PUBLIC_KEY=<public> VAPID_PRIVATE_KEY=<private> \
+     VAPID_SUBJECT=mailto:<en adresse som kan nås>
+   ```
+
+4. **Legg inn GitHub-secretene** `SUPABASE_ACCESS_TOKEN` (Supabase → Account →
+   Access Tokens) og `SUPABASE_PROJECT_REF`. Da deployer «Release» funksjonen
+   ved hver merge til `main`; uten dem hopper jobben over med en advarsel og
+   releasen er fortsatt grønn (`docs/release-og-deploy.md`).
+
+5. **Slå på `pg_cron`** i Supabase (Database → Extensions). Skjemafila
+   registrerer da jobben `huskis-push-tick` selv, ett tikk i minuttet, ved neste
+   migrering. Er utvidelsen ikke på, hoppes registreringen over uten å feile.
+
+6. **Fortell `push_tick()` hvor funksjonen bor.** Adressen er ikke hemmelig og
+   ligger i `app_config`; service-nøkkelen hører hjemme i Vault, som
+   Resend-nøkkelen:
+
+   ```sql
+   insert into public.app_config (key, value)
+   values ('push_function_url', 'https://<ref>.supabase.co/functions/v1/push-send')
+   on conflict (key) do update set value = excluded.value;
+   -- og i Vault (Dashboard → Project Settings → Vault):
+   --   navn: push_service_key   verdi: service_role-nøkkelen
+   ```
+
+Kontroll etterpå: `select public.push_tick();` skal gi en request-id (eller
+`null` når køen er tom), og `select * from net._http_response order by id desc
+limit 5;` viser hva funksjonen svarte.
+
 ## Diagnostikk: når en delingsinvitasjon ikke kommer fram
 
 Oppsettet er verifisert i produksjon (pg_net aktivert, nøkkel i Vault,
