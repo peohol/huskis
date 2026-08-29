@@ -8672,7 +8672,18 @@
     const eventsEl = document.getElementById('events-modal');
     if (eventsEl && !eventsEl.hidden) { closeEventsModal(); return true; }
     const notifEl = document.getElementById('notif-modal');
-    if (notifEl && !notifEl.hidden) { closeNotifModal(); return true; }
+    if (notifEl && !notifEl.hidden) {
+      /* Innstillingene er et NIVÅ inne i varselmodalen, ikke en egen modal: et
+         tilbaketrykk der hører hjemme på varslene, ikke ute av modalen. Escape
+         lukker fortsatt helt («lukk = ferdig»), som i del-modalen. */
+      if (viaBack && notifSettings) {
+        notifSettings = false;
+        refreshNotifModal(true);
+        return true;
+      }
+      closeNotifModal();
+      return true;
+    }
     if (!trashModal.hidden) { closeTrash(); return true; }
     if (!navModal.hidden) { closeNavModal(); return true; }
     if (!accountModal.hidden) { closeAccount(); return true; }
@@ -9947,6 +9958,11 @@
     dueOver: 'notif.type.dueOver', dueSoon: 'notif.type.dueSoon',
     startNow: 'notif.type.startNow', startSoon: 'notif.type.startSoon',
   };
+  /* Hvilken av objektets tider varselet gjelder. Brukes til å avgjøre om raden
+     fortsatt beskriver en tidsplan som FINNES (se `staleNotifIds`). */
+  const NOTIF_TYPE_FIELD = {
+    dueOver: 'due', dueSoon: 'due', startNow: 'start', startSoon: 'start',
+  };
   /* Toasten sier det samme som raden, men kortere: den skal leses i
      forbifarten. Derfor en egen setning per type — ikke radens, forkortet. */
   const NOTIF_TOAST_MSG = {
@@ -10055,6 +10071,8 @@
     notifCursor = prefs && prefs.cursor != null ? Number(prefs.cursor) : null;
     paintNotifBadge();
     refreshNotifModal();
+    // Rader som ikke gjelder lenger ryddes bort før de rekker å bli sett.
+    purgeStaleNotifs();
     // … og de radene som er NYE for denne økten springer ut som toaster.
     announceNotifs();
   }
@@ -10129,6 +10147,10 @@
   const notifModal = document.getElementById('notif-modal');
   const notifCloseBtn = document.getElementById('notif-close');
   const notifSettingsBtn = document.getElementById('notif-settings-btn');
+  const notifBackBtn = document.getElementById('notif-back');
+  const notifTitleBell = document.getElementById('notif-title-bell');
+  const notifTitleGear = document.getElementById('notif-title-gear');
+  const notifTitleText = document.getElementById('notif-title-text');
   const notifBodyEl = document.getElementById('notif-body');
   const notifFootEl = document.getElementById('notif-foot');
   const notifClearBtn = document.getElementById('notif-clear');
@@ -10330,6 +10352,28 @@
     fresh.slice(-NOTIF_TOAST_MAX).forEach((r) => showNotifToast(r, N));
   }
 
+  /* Er det alt bestilt et NYTT varsel om denne raden? Utsettelsen logges som en
+     egen rad med nøkkelen `<original>|s<tidspunkt>` (se `snoozeNotif`), og det
+     er den lenken tilbake — ingen ny kolonne trengs. Suffikset må være rene
+     siffer, ellers ville en utsettelse av utsettelsen (`…|s1|s2`) også armert
+     den opprinnelige raden. */
+  function pendingSnooze(row, now) {
+    const N = now == null ? Date.now() : now;
+    const prefix = (row.key || '') + '|s';
+    return notifRows.find((r) => r.at > N && !notifPurged.has(r.id) &&
+      String(r.key || '').indexOf(prefix) === 0 &&
+      /^\d+$/.test(String(r.key).slice(prefix.length))) || null;
+  }
+  // «kl. 17:00», og datoen i tillegg når det er et annet døgn enn i dag.
+  function snoozeWhenText(at) {
+    const d = new Date(at);
+    const clock = String(d.getHours()).padStart(2, '0') + ':' +
+      String(d.getMinutes()).padStart(2, '0');
+    const day = localDateStr(d);
+    return day === todayStr() ? tr('notif.snoozedFor', { clock: clock })
+      : tr('notif.snoozedForDate', { clock: clock, date: fmtDay(day) });
+  }
+
   /* Datooverskriften en bunke varsler samles under. «I dag» og «I går» har
      egne navn — de er det brukeren tenker i — og alt eldre står med ukedagen
      foran den fulle datoen («Torsdag 27. august»), som er nok til å plassere
@@ -10426,16 +10470,31 @@
        ikke til å se hvilket av de to nabokortene valgene hørte til. */
     const snoozeBtn = document.createElement('button');
     snoozeBtn.type = 'button';
-    snoozeBtn.className = 'notif-snooze-btn';
+    /* ARMERT: er et nytt varsel alt bestilt, sier knappen det med farge og
+       navn — ellers var utsettelsen usynlig i det sekundet toasten forsvant.
+       Popoveren tilbyr da ikke ett til; den sier når det kommer. */
+    const armed = !!pendingSnooze(row, now);
+    snoozeBtn.className = 'notif-snooze-btn' + (armed ? ' is-armed' : '');
     snoozeBtn.innerHTML = ICONS.snooze;
     snoozeBtn.setAttribute('aria-expanded', notifSnoozeFor === row.id ? 'true' : 'false');
     snoozeBtn.setAttribute('aria-haspopup', 'dialog');
-    labelBtn(snoozeBtn, tr('notif.snooze', { name: row.name || tr('common.noName') }));
+    labelBtn(snoozeBtn, tr(armed ? 'notif.snoozeArmed' : 'notif.snooze',
+      { name: row.name || tr('common.noName') }));
     snoozeBtn.addEventListener('click', () => {
       if (notifSnoozeFor === row.id) { closeNotifSnooze(); return; }
       openNotifSnooze(row, snoozeBtn);
     });
     line.appendChild(snoozeBtn);
+
+    // Slett ÉN rad. «Tøm varsler» tar bunken; dette er den ene man er ferdig med.
+    const delBtn = document.createElement('button');
+    delBtn.type = 'button';
+    delBtn.className = 'notif-del-btn';
+    delBtn.innerHTML = ICONS.xmark;
+    labelBtn(delBtn, tr('notif.delete', { name: row.name || tr('common.noName') }));
+    delBtn.addEventListener('click', () => deleteNotif(row));
+    line.appendChild(delBtn);
+
     li.appendChild(line);
     return li;
   }
@@ -10518,6 +10577,32 @@
     notifSnoozePanel.innerHTML = '';
     notifSnoozePanel.style.top = '';
     notifSnoozePanel.style.left = '';
+    /* Er et nytt varsel ALT bestilt, er det ingen ny utsettelse å be om — to
+       varsler om det samme er ikke det noen mente. Panelet sier da når det
+       kommer, og tilbyr den ene handlingen som gir mening: å avbryte det. */
+    const pending = pendingSnooze(row);
+    if (pending) {
+      const note = document.createElement('p');
+      note.className = 'notif-snooze-note';
+      note.textContent = snoozeWhenText(pending.at);
+      const cancel = document.createElement('button');
+      cancel.type = 'button';
+      cancel.className = 'btn btn-ghost btn-small';
+      cancel.textContent = tr('notif.snoozeCancel');
+      cancel.addEventListener('click', () => {
+        closeNotifSnooze();
+        deleteNotif(pending, { toast: tr('notif.snoozeCancelled') });
+      });
+      notifSnoozePanel.append(note, cancel);
+      notifSnoozeOverlay.hidden = false;
+      updateModalOpenClass();
+      rememberAnchor(notifSnoozePanel, btn);
+      if (btn && btn.isConnected && window.matchMedia('(min-width: 561px)').matches) {
+        positionSwitcherPanel(notifSnoozePanel, btn);
+      }
+      if (btn) btn.setAttribute('aria-expanded', 'true');
+      return;
+    }
     const head = document.createElement('div');
     head.className = 'notif-snooze-title';
     head.textContent = tr('notif.snoozeTitle');
@@ -10568,10 +10653,6 @@
     notifBodyEl.innerHTML = '';
     const wrap = document.createElement('div');
     wrap.className = 'notif-settings';
-    const hint = document.createElement('p');
-    hint.className = 'notif-settings-hint';
-    hint.textContent = tr('notif.settingsHint');
-    wrap.appendChild(hint);
     const prefs = notifPrefs || NOTIF_DEFAULT_PREFS;
     NOTIF_TYPES.forEach((type) => {
       const rowEl = document.createElement('div');
@@ -10670,6 +10751,10 @@
       '|' + localDateStr(new Date(now == null ? Date.now() : now)) +
       '|' + (notifClear ? 'u' + notifClear.left : '-') + '|' + (notifSnoozeFor || '-') + '|' +
       rows.map((r) => r.id + ':' + (notifIsNew(r) ? 0 : 1) + ':' + r.at + ':' + r.name + ':' +
+        /* Den armerte utsett-knappen henger på en rad som IKKE er synlig (den
+           ligger i framtiden), så uten dette leddet ville et bestilt — eller
+           avbrutt — varsel ikke malt om knappen. */
+        (pendingSnooze(r) ? 1 : 0) + ':' +
         (locateObject(r.objType, r.objId) ? 1 : 0)).join(';');
   }
 
@@ -10684,7 +10769,19 @@
     if (notifSettings) paintNotifSettings();
     else paintNotifList(now);
     paintNotifFoot(now);
-    notifSettingsBtn.setAttribute('aria-pressed', notifSettings ? 'true' : 'false');
+    paintNotifHead();
+  }
+
+  /* Hodet har to tilstander, og aldri begge utgangene samtidig: tannhjulet er
+     veien INN i innstillingene og forsvinner der, og tilbakeknappen til
+     venstre for overskriften er veien ut. Overskriften sier selv hvor man er,
+     med feltets eget ikon foran. */
+  function paintNotifHead() {
+    notifBackBtn.hidden = !notifSettings;
+    notifSettingsBtn.hidden = notifSettings;
+    notifTitleBell.hidden = notifSettings;
+    notifTitleGear.hidden = !notifSettings;
+    notifTitleText.textContent = tr(notifSettings ? 'notif.settings' : 'notif.title');
   }
 
   /* Et utsatt varsel forfaller på et bestemt tidspunkt. Vi puls-sjekker ikke:
@@ -10870,6 +10967,85 @@
     }
   }
 
+  /* SLETT ÉN RAD. «Tøm varsler» tar bunken med et angre-vindu; dette er den ene
+     man er ferdig med, og den går rett. Optimistisk lokalt (`notifPurged`
+     skjuler den til pullen bekrefter), og feiler skrivingen kommer raden
+     tilbake med det samme — vi later ikke som noe annet.
+     `opts.toast` lar kalleren si HVA som ble slettet (et avbrutt, planlagt
+     varsel er ikke det samme som en rad man ryddet bort). */
+  async function deleteNotif(row, opts) {
+    if (!row || notifPurged.has(row.id)) return;
+    if (notifSnoozeRow && notifSnoozeRow.id === row.id) closeNotifSnooze();
+    notifPurged.add(row.id);
+    paintNotifBadge();
+    refreshNotifModal(true);
+    const client = acli();
+    if (!client || !authUser) return;
+    try {
+      const { error } = await client.from('notifications').delete().in('id', [row.id]);
+      if (error) throw error;
+      if (opts && opts.toast) showToast(opts.toast);
+      scheduleCloud(150);
+    } catch (e) {
+      notifPurged.delete(row.id);
+      paintNotifBadge();
+      refreshNotifModal(true);
+      showToast(tr('notif.deleteFailed'));
+    }
+  }
+
+  /* VARSLER SOM IKKE GJELDER LENGER.
+     Et varsel beskriver ÉN tidsplan for ETT objekt. Forsvinner objektet, eller
+     endres tiden varselet gjaldt, beskriver raden noe som ikke finnes — og da
+     skal den ikke bli stående og be om oppmerksomhet. Den slettes.
+
+     To ting gjør dette trygt å kjøre automatisk:
+
+     1. Det kjøres KUN rett etter en pull (`applyNotifications`), altså med et
+        ferskt doc flettet inn i `state`. Et halvlastet tre ville sett ut som om
+        alt var slettet.
+     2. Sammenligningen går på den EFFEKTIVE tiden (`effectiveTime`), samme
+        presedens som resten av appen: en låst liste styrer listepunktenes
+        tider, så en rad om et listepunkt måles mot den tiden som FAKTISK
+        gjelder for det.
+
+     Merk hva som IKKE er ugyldig: at listepunktet er krysset av. Varselet
+     beskriver noe som skjedde, og historikken beholdes (docs/varsler.md). */
+  function staleNotifIds() {
+    const out = [];
+    notifRows.forEach((r) => {
+      if (notifPurged.has(r.id)) return;
+      const field = NOTIF_TYPE_FIELD[r.type];
+      if (!field) return;                       // ukjent type fra en nyere klient
+      const t = locateObject(r.objType, r.objId);
+      if (!t) { out.push(r.id); return; }       // slettet, i papirkurven, eller utenfor tilgangen
+      const obj = t.item || t.card;
+      if (!obj) return;
+      const eff = effectiveTime(t.card || null, obj, field);
+      if ((eff.value || '') !== (r.value || '')) out.push(r.id);
+    });
+    return out;
+  }
+  async function purgeStaleNotifs() {
+    const ids = staleNotifIds();
+    if (!ids.length) return;
+    const client = acli();
+    if (!client || !authUser) return;
+    ids.forEach((id) => notifPurged.add(id));
+    paintNotifBadge();
+    refreshNotifModal(true);
+    try {
+      const { error } = await client.from('notifications').delete().in('id', ids);
+      if (error) throw error;
+    } catch (e) {
+      /* Stille: radene er fortsatt på serveren, de dukker opp igjen ved neste
+         pull, og runden tas om igjen. Ingen toast — brukeren ba ikke om dette. */
+      ids.forEach((id) => notifPurged.delete(id));
+      paintNotifBadge();
+      refreshNotifModal();
+    }
+  }
+
   /* Preferansene. De styrer om hendelsen GENERERES, ikke bare om den vises —
      og et bytte flytter markøren til nå, både her og på serveren: en terskel
      som passerte mens typen var av skal ikke velte inn i det den slås på. */
@@ -10918,9 +11094,18 @@
   if (notifCloseBtn) notifCloseBtn.addEventListener('click', closeNotifModal);
   if (notifSettingsBtn) {
     notifSettingsBtn.addEventListener('click', () => {
-      notifSettings = !notifSettings;
+      notifSettings = true;
       closeNotifSnooze();
       refreshNotifModal(true);
+      try { notifBackBtn.focus(); } catch (e) { /* ignorer */ }
+    });
+  }
+  if (notifBackBtn) {
+    notifBackBtn.addEventListener('click', () => {
+      notifSettings = false;
+      refreshNotifModal(true);
+      // Fokus tilbake dit man kom fra: knappen som førte inn hit.
+      try { notifSettingsBtn.focus(); } catch (e) { /* ignorer */ }
     });
   }
   if (notifClearBtn) {

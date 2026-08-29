@@ -17,8 +17,8 @@
      4. Åpning markerer lest — men bare det som sto der da modalen ble åpnet.
         Et varsel som ankommer ETTERPÅ forblir ulest, også med modalen åpen.
      5. Trykk på en rad navigerer via `navigateToObject()`.
-     6. Et slettet mål: raden står, klikk verken feiler eller navigerer, og
-        modalen blir stående med en beskjed.
+     6. Et varsel som ikke gjelder lenger SLETTES: målet er borte, eller tiden
+        varselet gjaldt er endret.
      7. «Tøm varsler»: øyeblikksbildet skjules straks, knappen blir «Angre · 10»
         og teller ned, «Angre» gjenoppretter, og et varsel som ankommer ETTER
         øyeblikksbildet blir ikke slettet med det.
@@ -28,7 +28,9 @@
         skuffen avviser et tidspunkt som alt er passert og logger ett varsel på
         nøyaktig det tidspunktet som velges — usynlig til det forfaller, og med
         det opprinnelige kvittert som lest.
-    10. Preferansepanelet: fire brytere, og et bytte lagres på kontoen.
+    10. Preferansepanelet: fire brytere, et bytte lagres på kontoen, og hodets
+        to tilstander — tannhjulet inn, tilbakeknappen til venstre for
+        overskriften ut, og ingen forklaringstekst over bryterne.
     11. Tastatur og fokus: Escape lukker, og fokus går tilbake til bjellen.
     12. i18n: hele flaten på engelsk.
     13. Kontobytte UTEN utlogging (Supabase kan gå rett fra én bruker til en
@@ -44,6 +46,12 @@
     16. Midnatt: en modal som står ÅPEN over midnatt maler seg om av seg selv
         («I dag» → «I går»), også når appen ligger stille og ingen synk-runde
         rører den. Playwrights klokke settes rett før midnatt og spoles forbi.
+    17. Slett-knappen på raden tar ÉN rad, også fra kontoen.
+
+  MERK om fiksturen: objektene BÆRER tidene varslene handler om. En rad hvis
+  verdi ikke lenger stemmer med objektets tid ryddes bort av appen selv
+  (docs/varsler.md), så et tidløst objekt ville tømt historikken i første
+  synk-runde. `settTid()` holder de to i takt der en test endrer tid.
 
   Kjøres på BÅDE desktop- og mobil-viewport.
 
@@ -71,9 +79,10 @@ function buildDB() {
     start_at: null, due_at: null, lock_times: false,
     ts: 1, org: 'm', pos: 0, pos_ts: 1, pos_org: 'm',
   }, x);
-  const card = (i, t, pos) => base({ id: i, owner_id: uid, group_id: id.GA, title: t, pos: pos,
-    k: true, p: true, lab_ts: 0, lab_org: '' });
-  const item = (i, c, t) => base({ id: i, owner_id: uid, card_id: c, text: t, done: false });
+  const card = (i, t, pos, tid) => base(Object.assign({ id: i, owner_id: uid, group_id: id.GA,
+    title: t, pos: pos, k: true, p: true, lab_ts: 0, lab_org: '' }, tid || {}));
+  const item = (i, c, t, tid) => base(Object.assign({ id: i, owner_id: uid, card_id: c,
+    text: t, done: false }, tid || {}));
   return { id, uid, db: {
     _rolesBackfilled: true,
     // Bruker B finnes bare for kontobytte-testen nederst: Supabase kan gå rett
@@ -85,8 +94,20 @@ function buildDB() {
     passwords: { 'm@x.no': 'x', 'b@x.no': 'x' },
     universes: [base({ id: id.UA, owner_id: uid, name: 'Arbeid' })],
     groups: [base({ id: id.GA, owner_id: uid, universe_id: id.UA, name: 'Klinikk' })],
-    cards: [card(id.C1, 'Skattemelding', 0), card(id.C2, 'Sykkeltur', 1), card(id.C3, 'Flyttedag', 2)],
-    items: [item(id.I1, id.C1, 'Levere'), item(id.I2, id.C2, 'Pumpe dekk'), item(id.I3, id.C3, 'Pakke')],
+    /* Objektene BÆRER tidene varslene handler om. Et varsel beskriver én
+       tidsplan for ett objekt, og en rad hvis verdi ikke lenger stemmer med
+       objektets tid ryddes bort av appen (docs/varsler.md) — en fikstur med
+       tidløse objekter ville derfor blitt tømt i det første synk-rundet. */
+    cards: [
+      card(id.C1, 'Skattemelding', 0, { due_at: '2026-06-14T12:00' }),
+      card(id.C2, 'Sykkeltur', 1, { due_at: '2026-06-20' }),
+      card(id.C3, 'Flyttedag', 2, { start_at: '2026-06-25' }),
+    ],
+    items: [
+      item(id.I1, id.C1, 'Levere'),
+      item(id.I2, id.C2, 'Pumpe dekk'),
+      item(id.I3, id.C3, 'Pakke', { start_at: '2026-06-10T08:00' }),
+    ],
     memberships: [{ id: U(), user_id: uid, universe_id: id.UA, group_id: null, role: 'owner', pos: 0, created_at: 1 }],
     share_invites: [], tombstones: [], notifications: [], notification_prefs: [],
   } };
@@ -127,6 +148,26 @@ async function addNotifs(p, rows) {
     }, r)));
     window.HK_MOCK._saveDB(db);
   }, rows);
+}
+
+/* Sett en tid på et objekt gjennom appens egen setter (den stempler og
+   lagrer). Brukes fordi objektets tid MÅ stemme med varselets verdi: en rad om
+   en tidsplan som ikke finnes lenger ryddes bort av appen (docs/varsler.md). */
+async function settTid(p, objId, field, value) {
+  await p.evaluate(({ objId, field, value }) => {
+    const H = window.__huskis;
+    for (const u of H.state.universes) {
+      for (const g of (u.groups || [])) {
+        for (const c of (g.cards || [])) {
+          if (c.id === objId) { H.setObjectTime({ kind: 'card', obj: c, card: c }, field, value); return; }
+          for (const it of (c.items || [])) {
+            if (it.id === objId) { H.setObjectTime({ kind: 'item', obj: it, card: c }, field, value); return; }
+          }
+        }
+      }
+    }
+  }, { objId: objId, field: field, value: value });
+  await p.waitForTimeout(250);
 }
 
 async function cycle(p) {
@@ -326,6 +367,44 @@ async function run(label, viewport, mobile) {
   log(label + ' 9e: det utsatte varselet er usynlig til det forfaller, og teller ikke som ulest',
     utsatt.synlige === 4 && utsatt.badge === true, JSON.stringify(utsatt));
 
+  /* ARMERT: knappen på raden man utsatte skal si at et nytt varsel er bestilt,
+     og popoveren skal da ikke tilby ett til — den sier når det kommer. */
+  const armert = await p.evaluate(() => {
+    const b = document.querySelector('#notif-body .notif-item:first-child .notif-snooze-btn');
+    return { klasse: b.classList.contains('is-armed'), navn: b.getAttribute('aria-label') };
+  });
+  log(label + ' 9f: utsett-knappen er ARMERT når et nytt varsel er bestilt',
+    armert.klasse === true && /planlagt/.test(armert.navn || ''), JSON.stringify(armert));
+  await p.click('#notif-body .notif-item:first-child .notif-snooze-btn');
+  await p.waitForSelector('#notif-snooze-switcher:not([hidden])');
+  const armertPanel = await p.evaluate(() => ({
+    note: (document.querySelector('#notif-snooze-panel .notif-snooze-note') || {}).textContent || '',
+    valg: document.querySelectorAll('#notif-snooze-panel .notif-snooze-choice').length,
+    avbryt: (document.querySelector('#notif-snooze-panel .btn') || {}).textContent || '',
+  }));
+  log(label + ' 9g: popoveren sier NÅR varselet kommer, og tilbyr ingen ny utsettelse',
+    /^Du vil bli varslet igjen kl\. \d{2}:\d{2}/.test(armertPanel.note) &&
+    armertPanel.valg === 0 && armertPanel.avbryt === 'Avbryt det planlagte varselet',
+    JSON.stringify(armertPanel));
+  await p.click('#notif-snooze-panel .btn');
+  await p.waitForTimeout(700);
+  await cycle(p);
+  const avbrutt = await p.evaluate(() => ({
+    snoozed: window.HK_MOCK._loadDB().notifications.filter((n) => n.snoozed).length,
+    armert: document.querySelector('#notif-body .notif-item:first-child .notif-snooze-btn')
+      .classList.contains('is-armed'),
+  }));
+  log(label + ' 9h: «Avbryt» sletter det planlagte varselet, og knappen faller tilbake',
+    avbrutt.snoozed === 0 && avbrutt.armert === false, JSON.stringify(avbrutt));
+
+  // Bestill det på nytt (den raske veien), så tilstanden inn i «Tøm varsler»
+  // er den samme som før: fire synlige rader og ett utsatt varsel i framtiden.
+  await p.click('#notif-body .notif-item:first-child .notif-snooze-btn');
+  await p.waitForSelector('#notif-snooze-switcher:not([hidden])');
+  await p.click('#notif-snooze-panel .notif-snooze-choice:nth-child(3)');   // 1 døgn
+  await p.waitForTimeout(600);
+  await cycle(p);
+
   /* ---------- 7) «Tøm varsler» med angre ---------- */
   const idFørTømming = (await rowsOf(p)).map((r) => r.id);
   await p.click('#notif-clear');
@@ -345,7 +424,7 @@ async function run(label, viewport, mobile) {
 
   // Et varsel som ankommer ETTER øyeblikksbildet skal ikke slettes med det.
   await addNotifs(p, [{ type: 'dueOver', obj_type: 'card', obj_id: id.C2,
-    name: 'Etterpå', at: Date.now() - 1000, value: '2026-07-01' }]);
+    name: 'Etterpå', at: Date.now() - 1000, value: '2026-06-20' }]);
   await cycle(p);
   const underAngre = await rowsOf(p);
   log(label + ' 7d: et varsel som ankommer under angre-vinduet vises …',
@@ -393,6 +472,22 @@ async function run(label, viewport, mobile) {
   log(label + ' 10a: fire brytere, alle PÅ som standard',
     eq(brytere, ['dueOver=true', 'dueSoon=true', 'startNow=true', 'startSoon=true']),
     JSON.stringify(brytere));
+  // Hodet bytter tilstand: tannhjulet er veien INN og forsvinner der, og
+  // tilbakeknappen til venstre for overskriften er veien ut.
+  const hode = await p.evaluate(() => ({
+    tittel: document.getElementById('notif-title-text').textContent,
+    tilbake: !document.getElementById('notif-back').hidden,
+    tannhjul: !document.getElementById('notif-settings-btn').hidden,
+    bjelle: !document.getElementById('notif-title-bell').hidden,
+    gear: !document.getElementById('notif-title-gear').hidden,
+    // Tilbakeknappen står FØR overskriften i hodet.
+    førstIHodet: document.querySelector('.notif-modal .modal-head').children[0].id,
+    hint: document.querySelectorAll('#notif-body .notif-settings-hint').length,
+  }));
+  log(label + ' 10c: innstillingene har egen overskrift med tannhjul, tilbakeknapp til venstre, og ingen forklaringstekst',
+    hode.tittel === 'Varselinnstillinger' && hode.tilbake === true &&
+    hode.tannhjul === false && hode.bjelle === false && hode.gear === true &&
+    hode.førstIHodet === 'notif-back' && hode.hint === 0, JSON.stringify(hode));
   await p.click('#notif-body .toggle-switch[data-pref="dueSoon"]');
   await p.waitForTimeout(500);
   const lagret = await p.evaluate(() => {
@@ -404,8 +499,18 @@ async function run(label, viewport, mobile) {
   log(label + ' 10b: et bytte lagres på kontoen (ikke bare i denne fanen)',
     lagret.due_soon === false && lagret.klient === false && lagret.aria === 'false',
     JSON.stringify(lagret));
-  await p.click('#notif-settings-btn');
-  await p.waitForTimeout(200);
+  await p.click('#notif-back');
+  await p.waitForTimeout(250);
+  const tilbake = await p.evaluate(() => ({
+    tittel: document.getElementById('notif-title-text').textContent,
+    tilbake: !document.getElementById('notif-back').hidden,
+    tannhjul: !document.getElementById('notif-settings-btn').hidden,
+    liste: document.querySelectorAll('#notif-body .notif-list').length > 0 ||
+      document.querySelectorAll('#notif-body .notif-empty').length > 0,
+  }));
+  log(label + ' 10d: tilbakeknappen fører tilbake til varslene',
+    tilbake.tittel === 'Varsler' && tilbake.tilbake === false &&
+    tilbake.tannhjul === true && tilbake.liste === true, JSON.stringify(tilbake));
 
   /* ---------- 5–6) Navigering og et slettet mål ---------- */
   await p.click('#notif-close');
@@ -417,22 +522,32 @@ async function run(label, viewport, mobile) {
   await cycle(p);
   await p.click('#notif-btn');
   await p.waitForTimeout(300);
+  /* Et varsel om et objekt som ikke finnes lenger beskriver en tidsplan som
+     ikke finnes — det ryddes bort ved synk-runden, ikke stående merket. */
   const medBorte = await rowsOf(p);
-  const borte = medBorte.find((r) => r.name === 'Borte');
-  log(label + ' 6a: en rad hvis mål er borte står fortsatt i historikken, merket som utilgjengelig',
-    !!borte && borte.gone === true && borte.meta.indexOf('ikke tilgjengelig') > -1,
-    JSON.stringify(borte));
-  await p.click('#notif-body .notif-item .notif-row.is-gone');
-  await p.waitForTimeout(400);
-  const etterDødtKlikk = await p.evaluate(() => ({
-    åpen: !document.getElementById('notif-modal').hidden,
-    toast: (document.getElementById('toast') || {}).textContent || '',
-  }));
-  log(label + ' 6b: klikket verken feiler eller navigerer — modalen står, og beskjeden kommer',
-    etterDødtKlikk.åpen === true && etterDødtKlikk.toast.indexOf('ikke tilgjengelig') > -1,
-    JSON.stringify(etterDødtKlikk));
+  const iDbEtterpå = await p.evaluate(() =>
+    window.HK_MOCK._loadDB().notifications.some((n) => n.name === 'Borte'));
+  log(label + ' 6a: et varsel hvis mål er borte slettes — både lokalt og på kontoen',
+    !medBorte.some((r) => r.name === 'Borte') && iDbEtterpå === false,
+    JSON.stringify({ rader: medBorte.map((r) => r.name), iDb: iDbEtterpå }));
 
-  await p.click('#notif-body .notif-item:not(:has(.is-gone)) .notif-row');
+  /* … og det samme gjelder når TIDEN varselet gjaldt blir en annen: den gamle
+     tidsplanen finnes ikke lenger, og raden om den skal ikke bli stående. */
+  const førEndring = (await rowsOf(p)).filter((r) => r.name === 'Skattemelding').length;
+  await settTid(p, id.C1, 'due', '2026-06-30');
+  await cycle(p);
+  await p.waitForTimeout(400);
+  const etterEndring = await rowsOf(p);
+  log(label + ' 6b: endres fristen, slettes varselet om den gamle',
+    førEndring > 0 && !etterEndring.some((r) => r.name === 'Skattemelding'),
+    JSON.stringify({ før: førEndring, etter: etterEndring.map((r) => r.name) }));
+
+  // Sett fristen tilbake, så resten av løpet står på den samme fiksturen.
+  await settTid(p, id.C1, 'due', '2026-06-14T12:00');
+  await addNotifs(p, [{ type: 'dueOver', obj_type: 'card', obj_id: id.C1,
+    name: 'Skattemelding', at: Date.now() - 5000, value: '2026-06-14T12:00' }]);
+  await cycle(p);
+  await p.click('#notif-body .notif-item .notif-row');
   await p.waitForFunction(() => document.getElementById('notif-modal').hidden, null, { timeout: 4000 });
   await p.waitForTimeout(900);
   const navigert = await p.evaluate((cid) => {
@@ -453,6 +568,26 @@ async function run(label, viewport, mobile) {
   const stor = await badgeInfo(p);
   log(label + ' 1d: svært mange uleste vises som «99+», og antallet står i navnet',
     stor.text === '99+' && /^Varsler, \d+ uleste$/.test(stor.label), JSON.stringify(stor));
+
+  /* ---------- 17) Slett ÉN rad ---------- */
+  await p.click('#notif-btn');
+  await p.waitForTimeout(300);
+  const førSlett = await p.evaluate(() => ({
+    antall: document.querySelectorAll('#notif-body .notif-item').length,
+    navn: (document.querySelector('#notif-body .notif-name') || {}).textContent,
+  }));
+  await p.click('#notif-body .notif-item:first-child .notif-del-btn');
+  await p.waitForTimeout(700);
+  const etterSlett = await p.evaluate((navn) => ({
+    antall: document.querySelectorAll('#notif-body .notif-item').length,
+    første: (document.querySelector('#notif-body .notif-name') || {}).textContent,
+    iDb: window.HK_MOCK._loadDB().notifications.some((n) => n.name === navn),
+  }), førSlett.navn);
+  log(label + ' 17: slett-knappen fjerner ÉN rad — også fra kontoen',
+    etterSlett.antall === førSlett.antall - 1 && etterSlett.første !== førSlett.navn &&
+    etterSlett.iDb === false, JSON.stringify({ før: førSlett, etter: etterSlett }));
+  await p.click('#notif-close');
+  await p.waitForTimeout(250);
 
   /* ---------- 11) Tastatur og fokus ---------- */
   await p.evaluate(() => document.getElementById('notif-btn').focus());
@@ -519,6 +654,8 @@ async function runEngelsk() {
   await p.waitForTimeout(250);
   const prefs = await p.evaluate(() => [...document.querySelectorAll('#notif-body .menu-setting')]
     .map((r) => r.querySelector('.menu-setting-label span:last-child').textContent));
+  log('12f: innstillingsoverskriften er engelsk',
+    (await p.evaluate(() => document.getElementById('notif-title-text').textContent)) === 'Notification settings');
   log('12d: preferansene er engelske',
     eq(prefs, ['Deadline passed', 'Deadline in less than a week', 'Starting now', 'Starts in less than a week']),
     JSON.stringify(prefs));
@@ -580,8 +717,8 @@ async function runKontobytte() {
   await addNotifs(p, [
     { type: 'dueOver', obj_type: 'card', obj_id: id.C1, name: 'Skattemelding',
       at: Date.now() - 60000, value: '2026-06-14T12:00' },
-    { type: 'startNow', obj_type: 'card', obj_id: id.C2, name: 'Sykkeltur',
-      at: Date.now() - 90000, value: '2026-06-10T08:00' },
+    { type: 'dueSoon', obj_type: 'card', obj_id: id.C2, name: 'Sykkeltur',
+      at: Date.now() - 90000, value: '2026-06-20' },
   ]);
   await p.evaluate(() => window.__huskis.cloudCycle());
   await p.waitForFunction(() => window.__huskis.notifRows.length === 2, null,
@@ -638,6 +775,13 @@ async function runDatoer() {
   const midnatt = new Date().setHours(0, 0, 0, 0);
   const nettopp = (k) => Math.max(midnatt + 3000, Date.now() - 10000) - k * 1000;
 
+  // Objektenes tider settes FØRST: en rad hvis verdi ikke stemmer med objektet
+  // ryddes bort (docs/varsler.md), så fiksturen må være i takt med varslene.
+  await settTid(p, id.C1, 'due', dStr(dagen(0)) + 'T09:00');
+  await settTid(p, id.C2, 'start', dStr(dagen(0)));
+  await settTid(p, id.I3, 'start', dStr(dagen(1)) + 'T17:00');
+  await settTid(p, id.I1, 'start', dStr(dagen(-1)) + 'T06:10');
+  await settTid(p, id.I2, 'start', dStr(dagen(-5)) + 'T06:00');
   await addNotifs(p, [
     // I dag: en utløpt frist med klokkeslett, og en start uten klokkeslett.
     { type: 'dueOver', obj_type: 'card', obj_id: id.C1, name: 'Skattemelding',
@@ -724,7 +868,9 @@ async function runToasts() {
   log('15a: historikken som alt lå der gir ingen toast',
     (await p.locator('.notif-toast').count()) === 0);
 
-  // … men et varsel som kommer ETTERPÅ gjør det.
+  // … men et varsel som kommer ETTERPÅ gjør det. Objektet får først den tiden
+  // varselet handler om — ellers rydder appen raden bort som ugyldig.
+  await settTid(p, id.C2, 'due', dStr(dagen(3)));
   await addNotifs(p, [{ type: 'dueSoon', obj_type: 'card', obj_id: id.C2, name: 'Sykkeltur',
     at: Date.now() - 500, value: dStr(dagen(3)) }]);
   await cycle(p);
@@ -769,6 +915,7 @@ async function runToasts() {
     (await p.locator('.notif-toast').count()) === 0);
 
   // Et nytt varsel → trykk på toasten skal åpne modalen ved NØYAKTIG det varselet.
+  await settTid(p, id.I3, 'start', dStr(dagen(0)) + 'T07:00');
   await addNotifs(p, [{ type: 'startNow', obj_type: 'item', obj_id: id.I3, name: 'Pakke',
     at: Date.now() - 300, value: dStr(dagen(0)) + 'T07:00' }]);
   await cycle(p);
@@ -794,6 +941,7 @@ async function runToasts() {
 
   /* Står modalen åpen, ER varselet allerede synlig der — da skal ingen toast
      legge seg oppå og peke på noe brukeren ser. */
+  await settTid(p, id.C3, 'due', dStr(dagen(0)) + 'T08:00');
   await addNotifs(p, [{ type: 'dueOver', obj_type: 'card', obj_id: id.C3, name: 'Flyttedag',
     at: Date.now() - 200, value: dStr(dagen(0)) + 'T08:00' }]);
   await cycle(p);
@@ -811,9 +959,10 @@ async function runToasts() {
      det underste først. */
   await p.keyboard.press('Escape');
   await p.waitForTimeout(300);
+  await settTid(p, id.I1, 'start', dStr(dagen(0)) + 'T08:00');
   await p.click('#events-btn');
   await p.waitForSelector('#events-modal:not([hidden])');
-  await addNotifs(p, [{ type: 'dueOver', obj_type: 'card', obj_id: id.C1, name: 'Under kalenderen',
+  await addNotifs(p, [{ type: 'startNow', obj_type: 'item', obj_id: id.I1, name: 'Under kalenderen',
     at: Date.now() - 30000, value: dStr(dagen(0)) + 'T08:00' }]);
   await cycle(p);
   // Raden MÅ ha kommet fram mens kalendermodalen sto åpen — ellers ville
@@ -831,8 +980,8 @@ async function runToasts() {
      mens synligheten (`at <= now`) måles av SIDENS klokke, og et par hundre
      millisekunders avvik mellom dem ville gjort den ene raden usynlig ennå. */
   await addNotifs(p, [
-    { type: 'dueOver', obj_type: 'card', obj_id: id.C1, name: 'Første', at: Date.now() - 30000, value: dStr(dagen(0)) + 'T08:00' },
-    { type: 'startNow', obj_type: 'card', obj_id: id.C2, name: 'Andre', at: Date.now() - 20000, value: dStr(dagen(0)) + 'T07:00' },
+    { type: 'dueOver', obj_type: 'card', obj_id: id.C1, name: 'Første', at: Date.now() - 30000, value: '2026-06-14T12:00' },
+    { type: 'dueSoon', obj_type: 'card', obj_id: id.C2, name: 'Andre', at: Date.now() - 20000, value: dStr(dagen(3)) },
   ]);
   await cycle(p);
   await p.waitForFunction(() => {
@@ -873,6 +1022,14 @@ async function runMidnatt() {
   const { id, uid, db } = buildDB();
   await seed(p, db, uid);
 
+  /* Objektets frist må stemme med varselets verdi, ellers rydder appen raden
+     bort. Begge dateres av SIDENS klokke, ikke testprosessens. */
+  const fiktivDag = await p.evaluate(() => {
+    const n = new Date();
+    const pad = (x) => String(x).padStart(2, '0');
+    return n.getFullYear() + '-' + pad(n.getMonth() + 1) + '-' + pad(n.getDate());
+  });
+  await settTid(p, id.C1, 'due', fiktivDag + 'T09:00');
   // Raden må dateres av SIDENS klokke, ikke testprosessens.
   await p.evaluate((cid) => {
     const db = window.HK_MOCK._loadDB();

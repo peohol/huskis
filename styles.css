@@ -4004,7 +4004,15 @@ body.no-auth .corner-controls { display: none; }
 /* To ikonknapper i modalhodet (tannhjul + lukk): `.modal-head` er
    space-between, så de må ligge i én boks for å holde sammen i enden. */
 .modal-head-actions { flex: 0 0 auto; display: flex; align-items: center; gap: 2px; }
-#notif-settings-btn[aria-pressed="true"] { background: var(--primary-soft); color: var(--ink); }
+/* Hodet har TRE barn når innstillingene står framme (tilbake, overskrift,
+   lukk). `space-between` ville da dyttet overskriften til midten — `auto`-
+   margin holder tilbakeknappen og overskriften samlet i venstre ende. */
+.notif-back-btn { flex: 0 0 auto; }
+.notif-modal .modal-head h2 { margin-right: auto; }
+/* Bjellen og tannhjulet ligger begge i overskriften og veksles med `hidden`;
+   ikonet er da markup og ikke en streng i JS. */
+.notif-title-icon { display: inline-flex; flex: 0 0 auto; }
+.notif-title-icon[hidden] { display: none; }
 
 .notif-empty { margin: 0; font-size: var(--fs-sm); color: var(--ink-soft); font-weight: 500; }
 /* Én bunke per døgn, med datoen som overskrift over den. Datoen står da ÉN
@@ -4105,6 +4113,38 @@ body.no-auth .corner-controls { display: none; }
 .notif-snooze-btn:focus-visible { outline: var(--focus-w) solid var(--focus); outline-offset: 2px; }
 .notif-snooze-btn[aria-expanded="true"] { border-color: var(--primary); background: var(--primary-soft); color: var(--ink); }
 .notif-snooze-btn .icon { width: 20px; height: 20px; }
+/* ARMERT: et nytt varsel er alt bestilt. Knappen er da en TILSTAND, ikke bare
+   en handling, og bærer aksentflaten med hvit glyf — den samme «på»-fargen
+   bryterne bruker. Fargen er ikke eneste bærer: knappens navn sier det samme,
+   og popoveren forteller når varselet kommer. */
+.notif-snooze-btn.is-armed {
+  border-color: transparent;
+  background: var(--grad-accent);
+  /* Klokkeglyfen tegnes med `currentColor` (ICONS.snooze), så fargen her er
+     alt som trengs — ingen `--icon-*`-pinning i varselmodalen. */
+  color: #fff;
+}
+.notif-snooze-btn.is-armed:hover { background: var(--grad-accent); }
+/* Slett ÉN rad: samme boks som utsett-knappen, men uten flate i hvile — den
+   er den stille av de to, og skal ikke konkurrere med selve raden. */
+.notif-del-btn {
+  flex: 0 0 auto;
+  align-self: center;
+  appearance: none;
+  cursor: pointer;
+  width: var(--control-h);
+  height: var(--control-h);
+  border: 1.5px solid transparent;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--ink-soft);
+  display: grid;
+  place-items: center;
+  transition: background 0.15s, border-color 0.15s, color 0.15s;
+}
+.notif-del-btn:hover { background: var(--danger-soft); border-color: var(--danger); color: var(--danger-ink); }
+.notif-del-btn:focus-visible { outline: var(--focus-w) solid var(--focus); outline-offset: 2px; }
+.notif-del-btn .icon { width: 18px; height: 18px; }
 
 /* Utsett-popoveren (arver `.switcher-panel`: popover på desktop, sentrert ark
    på mobil). Overskriften bærer «om», så valgene er rene varigheter. */
@@ -4147,6 +4187,16 @@ body.no-auth .corner-controls { display: none; }
    stedet for å utsette med én gang. En hårstrek over sier det uten et ord. */
 .notif-snooze-more { border-top: 1px solid var(--line); border-radius: 0 0 var(--control-radius) var(--control-radius); }
 .notif-snooze-more[aria-expanded="true"] { background: var(--primary-soft); }
+/* Er et nytt varsel alt bestilt, sier panelet NÅR — og tilbyr det ene som
+   gir mening: å avbryte det. Ingen ny utsettelse oppå den forrige. */
+.notif-snooze-note {
+  margin: 0;
+  padding: 0 2px;
+  font-size: var(--fs-sm);
+  font-weight: 600;
+  color: var(--ink);
+}
+.notif-snooze-panel > .btn { align-self: flex-start; }
 /* Skuffen: dato + klokkeslett og én knapp som bekrefter. */
 .notif-snooze-custom { display: flex; flex-direction: column; gap: 8px; padding: 2px 2px 0; }
 .notif-snooze-custom[hidden] { display: none; }
@@ -4156,12 +4206,6 @@ body.no-auth .corner-controls { display: none; }
    den vises — hinten sier det, så ingen tror en avslått type kommer tilbake
    når den slås på igjen. */
 .notif-settings { display: flex; flex-direction: column; gap: 4px; }
-.notif-settings-hint {
-  margin: 0 0 4px;
-  font-size: var(--fs-sm);
-  font-weight: 500;
-  color: var(--ink-soft);
-}
 .notif-settings .menu-setting { margin-top: 4px; }
 /* Nedtellingen i «Angre · 10» skal ikke få knappen til å hoppe i bredde. */
 #notif-clear { font-variant-numeric: tabular-nums; }

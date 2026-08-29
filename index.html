@@ -516,13 +516,21 @@
        innstilling. «Tøm varsler» i foten har 10 sekunders angre. -->
   <div class="modal-overlay" id="notif-modal" hidden>
     <div class="modal notif-modal" role="dialog" aria-modal="true" aria-labelledby="notif-modal-title">
+      <!-- Hodet har TO tilstander, og aldri begge utgangene samtidig: i listen
+           står bjellen + «Varsler» med tannhjulet til høyre, i innstillingene
+           står tannhjulet + «Varselinnstillinger» med en tilbakeknapp til
+           VENSTRE for overskriften. Begge ikonene ligger her og veksles av
+           paintNotifHead() — ikonene er markup, ikke strenger i JS. -->
       <header class="modal-head">
+        <button class="icon-btn notif-back-btn" id="notif-back" type="button" hidden
+                data-i18n-title="notif.backToList" data-i18n-aria-label="notif.backToList"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.05" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 12H4.5"></path><path d="M11 5.5 4.5 12l6.5 6.5"></path></svg></button>
         <h2 id="notif-modal-title">
-          <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="#111" stroke-width="1.05" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6.8 16.4v-4.6a5.2 5.2 0 0 1 10.4 0v4.6z" fill="#ffffff"></path><path d="M4.8 16.4h14.4"></path><path d="M12 4.2v2.4"></path><path d="M10.2 19a2 2 0 0 0 3.6 0"></path></svg>
-          <span data-i18n="notif.title">Varsler</span>
+          <span class="notif-title-icon" id="notif-title-bell" aria-hidden="true"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="#111" stroke-width="1.05" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6.8 16.4v-4.6a5.2 5.2 0 0 1 10.4 0v4.6z" fill="#ffffff"></path><path d="M4.8 16.4h14.4"></path><path d="M12 4.2v2.4"></path><path d="M10.2 19a2 2 0 0 0 3.6 0"></path></svg></span>
+          <span class="notif-title-icon" id="notif-title-gear" aria-hidden="true" hidden><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.05" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="6.3"></circle><circle cx="12" cy="12" r="2.4"></circle><path d="M12 2.7v2.3"></path><path d="M12 19v2.3"></path><path d="M21.3 12H19"></path><path d="M5 12H2.7"></path><path d="M18.6 5.4 17 7"></path><path d="M7 17l-1.6 1.6"></path><path d="M18.6 18.6 17 17"></path><path d="M7 7 5.4 5.4"></path></svg></span>
+          <span id="notif-title-text" data-i18n="notif.title">Varsler</span>
         </h2>
         <div class="modal-head-actions">
-          <button class="icon-btn" id="notif-settings-btn" type="button" aria-pressed="false"
+          <button class="icon-btn" id="notif-settings-btn" type="button"
                   aria-controls="notif-body"
                   data-i18n-title="notif.settings" data-i18n-aria-label="notif.settings"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.05" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="6.3"></circle><circle cx="12" cy="12" r="2.4"></circle><path d="M12 2.7v2.3"></path><path d="M12 19v2.3"></path><path d="M21.3 12H19"></path><path d="M5 12H2.7"></path><path d="M18.6 5.4 17 7"></path><path d="M7 17l-1.6 1.6"></path><path d="M18.6 18.6 17 17"></path><path d="M7 7 5.4 5.4"></path></svg></button>
           <button class="icon-btn" id="notif-close" type="button" data-i18n-title="common.close" data-i18n-aria-label="common.close"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.05" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6.5 6.5 17.5 17.5"></path><path d="M17.5 6.5 6.5 17.5"></path></svg></button>

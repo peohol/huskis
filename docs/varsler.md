@@ -124,7 +124,18 @@ varselet finnes allerede.
 ## Preferansene
 
 Fire brytere, én per type, bak tannhjulet i modalens hode. **Standard er PÅ for
-alle fire.** En badge er ingen avbrytelse, og en funksjon som er av fra første
+alle fire.**
+
+**Hodet har to tilstander, og aldri begge utgangene samtidig.** I listen står
+bjellen + «Varsler» med tannhjulet til høyre; i innstillingene står tannhjulet
++ «Varselinnstillinger», tannhjul-knappen er borte, og en tilbakeknapp til
+VENSTRE for overskriften er veien ut. Overskriften sier dermed selv hvor man er,
+og det finnes én vei inn og én vei ut. Ingen forklaringstekst over bryterne:
+navnene sier hva de gjør, og hva en avslått type betyr står her, ikke i UI-et.
+
+Innstillingene er et NIVÅ inne i varselmodalen, ikke en egen modal: Androids
+tilbakeknapp går ett nivå tilbake til varslene (samme mønster som del-modalens
+← i [`menus.md`](menus.md)), mens Escape fortsatt lukker helt — «lukk = ferdig». En badge er ingen avbrytelse, og en funksjon som er av fra første
 stund blir aldri sett; eksterne kanaler får sin egen opt-in på toppen av dette.
 
 Bryterne styrer om hendelsen **genereres i det hele tatt** — ikke om den vises.
@@ -170,6 +181,39 @@ gammel klient som ikke kjenner grenene ignorerer dem.
 finnes ingen lokal kopi i `localStorage`. En generator-runde som ikke når fram
 lar markøren stå, og vinduet er fortsatt åpent ved neste forsøk — feilen er
 selvlegende, ikke tapt.
+
+## Varsler som ikke gjelder lenger
+
+Et varsel beskriver ÉN tidsplan for ETT objekt. Forsvinner objektet, eller blir
+tiden varselet gjaldt en annen, beskriver raden noe som ikke finnes — og da skal
+den ikke bli stående og be om oppmerksomhet. Den **slettes**.
+
+`purgeStaleNotifs()` kjøres rett etter hver pull (`applyNotifications`) og
+sletter radene der:
+
+| Tilstand | Hvorfor |
+|---|---|
+| objektet finnes ikke i `state` (slettet, i papirkurven, eller utenfor tilgangen min) | det er ingenting igjen å varsle om |
+| objektets **effektive** tid for feltet er en annen enn radens `value` | den gamle tidsplanen finnes ikke lenger |
+
+To ting gjør dette trygt å kjøre automatisk:
+
+1. Det kjøres **kun rett etter en pull**, altså med et ferskt doc flettet inn i
+   `state`. Et halvlastet tre ville sett ut som om alt var slettet.
+2. Sammenligningen går på den **effektive** tiden (`effectiveTime`), samme
+   presedens som resten av appen: en låst liste styrer listepunktenes tider, så
+   en rad om et listepunkt måles mot den tiden som FAKTISK gjelder for det.
+
+Feiler slettingen, står radene igjen på serveren og runden tas om igjen ved
+neste pull. Ingen toast — brukeren ba ikke om dette.
+
+**Merk hva som IKKE er ugyldig:** at listepunktet er krysset av. Varselet
+beskriver noe som faktisk skjedde, og historikken beholdes.
+
+Konsekvensen av at markøren er permanent (se «Markøren er hele idempotensen»)
+gjelder her også: gjenoppretter man objektet fra papirkurven, kommer ikke
+varslene tilbake — terskelen er brukt opp. Det er det samme svaret «Tøm varsler»
+gir.
 
 ## Lest/ulest
 
@@ -231,8 +275,24 @@ det samme — da har «utsett» ikke betydd noe. Begge deler avvises i panelet m
 en kort beskjed i stedet for å bli logget.
 
 Valget logger det samme varselet på nytt med et tidspunkt i framtiden
-(`snoozed`), og nøkkelen får utsettelsestidspunktet med seg, så identiteten ikke
-kolliderer med det opprinnelige.
+(`snoozed`), og nøkkelen får utsettelsestidspunktet med seg (`<original>|s<tid>`),
+så identiteten ikke kolliderer med det opprinnelige.
+
+### Knappen er ARMERT når noe er bestilt
+
+Nøkkelformen over er samtidig **lenken tilbake**: `pendingSnooze(row)` finner en
+rad som ennå ligger i framtiden og hvis nøkkel er radens egen pluss `|s` og rene
+siffer. (Sifferkravet er der for at en utsettelse av utsettelsen — `…|s1|s2` —
+ikke skal armere den opprinnelige raden også.) Ingen ny kolonne trengs.
+
+Er noe bestilt, bærer utsett-knappen aksentflaten med hvit glyf, den samme
+«på»-fargen bryterne bruker — ellers var utsettelsen usynlig i det sekundet
+toasten forsvant. Fargen er ikke eneste bærer: knappens navn sier det samme.
+
+Og popoveren tilbyr da **ikke** en ny utsettelse — to varsler om det samme er
+ikke det noen mente. Den sier når varselet kommer («Du vil bli varslet igjen kl.
+17:00», med datoen i tillegg når det er et annet døgn), og tilbyr det ene som
+gir mening: å avbryte det. Å avbryte er å slette den planlagte raden.
 
 Et varsel med `at` i framtiden er **usynlig og teller ikke som ulest** før det
 forfaller. Modalen og badgen sover fram til det første slike tidspunktet
@@ -312,7 +372,15 @@ finnes på.
 | `startNow` | «Begynte {tid}.» |
 | `startSoon` | «Begynner {tid}.» |
 
-Er målet borte, sier meldingen det i stedet for å la et dødt trykk forklare det.
+Er målet borte, sier meldingen det i stedet for å la et dødt trykk forklare det
+— men det er en kort tilstand: en rad uten gyldig objekt ryddes bort ved neste
+synk-runde (se «Varsler som ikke gjelder lenger»).
+
+Til høyre for raden står to knapper: **utsett** (klokka) og **slett** (✕).
+Slett-knappen tar ÉN rad, uten angre-vindu — «Tøm varsler» er den som tar
+bunken, og der er angre-vinduet prisen for at det er mange. Slettingen er
+optimistisk lokalt og går rett på serveren; feiler den, kommer raden tilbake med
+det samme og en toast sier fra.
 
 Bjelleknappen står **først** i toppkontrollgruppen, til venstre for kalenderen
 ([`menus.md`](menus.md), «Toppkontrollene»).
@@ -380,9 +448,9 @@ Begge ytterpunktene (helt hvitt og helt svart bak) er med i kontrastkontrakten
 |---|---|
 | listepunktet fullføres FØR terskelen | ingen hendelse, altså heller ikke noe varsel |
 | det fullføres ETTER at varselet finnes | historikken beholdes urørt |
-| objektet slettes eller tilgangen forsvinner | raden står, men fører ingen steder: den er merket i teksten sin, klikk gir en beskjed i stedet for en navigering, og modalen blir stående |
+| objektet slettes eller tilgangen forsvinner | raden SLETTES ved neste pull (se «Varsler som ikke gjelder lenger»). Fram til den runden står den merket i teksten sin, og et klikk gir en beskjed i stedet for en navigering |
 | objektet flyttes | historikken følger objekt-ID-en, ikke stien — `navigateToObject` slår opp hvor det ligger NÅ |
-| start/frist endres | den gamle tidsplanens terskler er brukt opp (nøkkelen bar den gamle verdien); den nye planen varsler for seg |
+| start/frist endres | raden om den GAMLE tiden slettes ved neste pull; den nye planens terskler varsler for seg (nøkkelen bar den gamle verdien, så den nye kan varsle) |
 
 Et mål som er borte oppdages med et rent lokalt oppslag i `state`. En id vi ikke
 har tilgang til finnes ikke der, så en rad kan verken navigere til eller røpe noe
@@ -438,11 +506,15 @@ varslet.
   tømt historikk ikke gjenskapes.
 - `tests/notif-modal.test.js` — knappen og badgen, modalen, nyeste øverst,
   datooverskriftene og meldingsformene, lest/ulest-grensen, angresletting,
-  «Utsett»-popoveren (inkludert den egendefinerte skuffen og at et passert
-  tidspunkt avvises), varsel-toastene (at historikken ikke toaster, tonen og
-  teksten, at den springer ut fra bjellen, sveip, trykk til varselet, og at
-  ingen toast kommer mens modalen står åpen), preferansepanelet, navigering,
-  slettet mål, tastatur/fokus og i18n.
+  «Utsett»-popoveren (inkludert den egendefinerte skuffen, at et passert
+  tidspunkt avvises, den ARMERTE knappen, panelet som sier når varselet kommer
+  og at det kan avbrytes), slett-knappen på raden, varsel-toastene (at
+  historikken ikke toaster, tonen og teksten, at den springer ut fra bjellen,
+  sveip, trykk til varselet, og at ingen toast kommer oppå et åpent lag),
+  preferansepanelet og hodets to tilstander, at et varsel slettes når målet
+  eller tiden forsvinner, navigering, tastatur/fokus og i18n.
+- `tests/system-back.test.js` — at varselinnstillingene er et NIVÅ inne i
+  modalen: tilbakeknappen går til varslene, Escape lukker helt.
 - `tests/corner-controls.test.js` — at bjelleknappen ikke rørte
   toppkontrollenes geometri.
 - `tests/a11y-contrast.test.js` — at modalen ikke pinner ikonfargene (den

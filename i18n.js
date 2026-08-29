@@ -349,10 +349,25 @@
     'notif.snoozedTo':      ['Varsler deg igjen {time}.', 'You will be notified again {time}.'],
     'notif.snoozeFailed':   ['Varselet ble ikke utsatt. Prøv igjen.',
                              'The notification was not snoozed. Try again.'],
+    /* Er et nytt varsel alt bestilt, sier knappen det — og popoveren tilbyr da
+       ikke ett til, men forteller når det kommer og lar deg avbryte det. */
+    'notif.snoozeArmed':    ['Et nytt varsel om {name} er planlagt',
+                             'A new notification about {name} is scheduled'],
+    'notif.snoozedFor':     ['Du vil bli varslet igjen kl. {clock}.',
+                             'You will be notified again at {clock}.'],
+    'notif.snoozedForDate': ['Du vil bli varslet igjen kl. {clock}, {date}.',
+                             'You will be notified again at {clock}, {date}.'],
+    'notif.snoozeCancel':   ['Avbryt det planlagte varselet', 'Cancel the scheduled notification'],
+    'notif.snoozeCancelled': ['Det planlagte varselet er avbrutt.',
+                              'The scheduled notification is cancelled.'],
+    // Slett ÉN rad (mot «Tøm varsler», som tar bunken).
+    'notif.delete':         ['Slett varselet om {name}', 'Delete the notification about {name}'],
+    'notif.deleteFailed':   ['Varselet ble ikke slettet. Prøv igjen.',
+                             'The notification was not deleted. Try again.'],
+    // Tilbake fra innstillingene til selve varslene.
+    'notif.backToList':     ['Tilbake til varslene', 'Back to the notifications'],
     // Preferansene: de styrer om hendelsen i det hele tatt blir til.
     'notif.settings':       ['Varselinnstillinger', 'Notification settings'],
-    'notif.settingsHint':   ['Velg hva du vil varsles om. En type som er av, lager ingen varsler — heller ikke i historikken.',
-                             'Choose what you want to be notified about. A type that is off creates no notifications — not even in the history.'],
     'notif.prefFailed':     ['Innstillingen ble ikke lagret. Prøv igjen.',
                              'The setting was not saved. Try again.'],
     /* Varsel-toasten: samme hendelse som raden, men kortere — den skal leses i
