@@ -13,7 +13,8 @@ Tre ting bor her, og de er bevisst skilt:
 2. **Lagringen** — to per-bruker-tabeller i Supabase (`notifications`,
    `notification_prefs`). Varsler er ikke innhold: de deles aldri, de flettes
    ikke, og de ligger utenfor synk-doc-et.
-3. **Flaten** — bjelleknappen med ulest-badgen og modalen `#notif-modal`.
+3. **Flaten** — bjelleknappen med ulest-badgen, modalen `#notif-modal`, og
+   **varsel-toasten** som springer ut fra knappen når et varsel dukker opp.
 
 Tidsverdiene og semantikken for dato uten klokkeslett er beskrevet i
 [`scheduling.md`](scheduling.md), som er autoritativ for dem.
@@ -207,10 +208,31 @@ fortsatt på serveren, de vises igjen straks, og en toast sier fra.
 
 ## «Utsett»
 
-Hver rad har en liten klokke ved siden av seg som folder ut tre valg: **om 1
-time, om 6 timer, om 1 døgn**. Valget logger det samme varselet på nytt med et
-tidspunkt i framtiden (`snoozed`), og nøkkelen får utsettelsestidspunktet med
-seg, så identiteten ikke kolliderer med det opprinnelige.
+Hver rad har en liten klokke ved siden av seg. Den åpner en **popover forankret
+i knappen** — ikke en rad under kortet: der lå valgene mellom to kort, og det
+var ikke til å se hvilket av dem de hørte til. Popoveren har overskriften
+**«Varsle på nytt om»**, og fordi overskriften bærer «om» er valgene rene
+varigheter:
+
+| Valg | Betydning |
+|---|---|
+| **1 time** / **6 timer** / **1 døgn** | et fast sprang fra nå |
+| **Egendefinert** | folder ut en liten skuff med **dato + klokkeslett** |
+
+Skallet er det samme som bytterne og tids-popoveren bruker (`.switcher-*`):
+popover ved knappen på desktop, sentrert ark på mobil, felles fokusfelle og
+felles plass i Escape-stigen (`closeTopLayer`) — den ligger over varselmodalen.
+Panelet er så bredt innholdet krever, så det er smalt med bare fire varigheter
+og vokser når skuffen åpnes.
+
+**Skuffen krever begge feltene, og et tidspunkt fram i tid.** Et utsatt varsel er
+ET TIDSPUNKT, ikke et døgn, og et tidspunkt som alt er passert ville forfalt med
+det samme — da har «utsett» ikke betydd noe. Begge deler avvises i panelet med
+en kort beskjed i stedet for å bli logget.
+
+Valget logger det samme varselet på nytt med et tidspunkt i framtiden
+(`snoozed`), og nøkkelen får utsettelsestidspunktet med seg, så identiteten ikke
+kolliderer med det opprinnelige.
 
 Et varsel med `at` i framtiden er **usynlig og teller ikke som ulest** før det
 forfaller. Modalen og badgen sover fram til det første slike tidspunktet
@@ -227,8 +249,8 @@ Vanlig `.modal-overlay`-skall (fokusfelle, Escape via `closeTopLayer`,
 
 - **nyeste øverst**, sortert på hendelsens tidspunkt (`at`) — det er det samme
   på alle enheter — med id-en som tie-breaker, så rekkefølgen aldri hopper;
-- raden: `[statusikon] navn`, en dempet linje med meldingen og kontekststien, og
-  et diskret dato + klokkeslett i enden;
+- radene samlet i **bunker per døgn**, med datoen som overskrift (under);
+- raden i **tre linjer** (under);
 - en tomtilstand når historikken er tom;
 - «Tøm varsler» i foten;
 - tannhjulet i hodet, som vender panelet til de fire preferansene.
@@ -236,8 +258,109 @@ Vanlig `.modal-overlay`-skall (fokusfelle, Escape via `closeTopLayer`,
 Trykk på en rad lukker modalen og kaller `navigateToObject({ type, id })`
 ([`sok-og-navigering.md`](sok-og-navigering.md)).
 
+### Datoen står over bunken, ikke på raden
+
+Varslene som kom samme døgn ligger under ÉN datooverskrift. Datoen sies dermed
+én gang der den betyr noe, i stedet for som et tidsstempel på hver eneste rad —
+og raden får plassen til det den faktisk sier.
+
+| Døgnet | Overskrift |
+|---|---|
+| i dag | «I dag» |
+| i går | «I går» |
+| eldre | ukedag + full dato: «Torsdag 27. august» (med årstall når det ikke er inneværende) |
+
+Bunkene skilles av luft (`.notif-body`s gap), ikke av en strek — samme grep som
+gruppene i «Kommende hendelser».
+
+Datoen er en del av tilstanden malingen avhenger av, ikke bare radene: står
+modalen åpen over midnatt, blir «I dag» til «I går» uten at en eneste rad har
+endret seg. Dagens dato er derfor med i signaturen `refreshNotifModal()`
+sammenligner på.
+
+### Raden
+
+Tre linjer over hverandre, med statusikonet til venstre:
+
+```
+[ikon]  Testområde › Testmappe            ← kontekststien, svært liten og dempet
+        Testliste                          ← objektets navn
+        Fristen er utløpt – den var i dag kl. 09:00.
+```
+
+Stien er et **øyeblikksbilde** fra genereringstidspunktet (se «Lagringen») og
+plasserer objektet uten å konkurrere med navnet, som er det man leter etter.
+
+**Meldingen navngir de tre nærmeste døgnene.** `fmtTimeRelDay()` skriver «i dag»,
+«i går» og «i morgen» i stedet for datoen, og faller tilbake på den vanlige
+datoen lenger ut («5. sep kl. 17:00»). Uten klokkeslett står dagen alene
+(«Begynte i dag.») — en dato uten klokkeslett er et DØGN
+([`scheduling.md`](scheduling.md)), og et klokkeslett vi ikke har skal ikke
+finnes på.
+
+| Type | Melding |
+|---|---|
+| `dueOver` | «Fristen er utløpt – den var {tid}.» |
+| `dueSoon` | «Fristen utløper {tid}.» |
+| `startNow` | «Begynte {tid}.» |
+| `startSoon` | «Begynner {tid}.» |
+
+Er målet borte, sier meldingen det i stedet for å la et dødt trykk forklare det.
+
 Bjelleknappen står **først** i toppkontrollgruppen, til venstre for kalenderen
 ([`menus.md`](menus.md), «Toppkontrollene»).
+
+## Varsel-toasten
+
+Et varsel som dukker opp mens appen står åpen skal SES, ikke bare telles. En
+liten toast **springer ut fra bjelleknappen** (`transform-origin` øverst til
+høyre, stabelen posisjoneres i JS fra knappens faktiske plass — gruppen brytes
+til flere rader på smale skjermer), står i **tre sekunder** og forsvinner.
+
+**Formatet er et annet enn radens**, med vilje: `[ikon] **navn** · én kort
+setning`. Ingen sti, ingen dato — en toast leses i forbifarten.
+
+| Type | Toastens setning |
+|---|---|
+| `dueOver` | «Fristen er utløpt» |
+| `dueSoon` | «Fristen utløper {avstand}» |
+| `startNow` | «Starter nå» |
+| `startSoon` | «Starter {avstand}» |
+
+`{avstand}` er hele KALENDERDØGN (`fmtDaysAway()`): «i dag», «i morgen», «om 3
+dager». Kalenderdøgn og ikke 24-timers bolker — «i morgen» skal bety i morgen,
+også når det er tjue minutter unna.
+
+**Flaten er varseltypens egen farge**, halvgjennomsiktig med `backdrop-filter:
+blur(…)`, så toasten sier hva den gjelder før man har lest et ord. Tinten er den
+MØRKESTE enden av den samme gradienten ikonet står på: en toast er en liten flate
+der gradienten uansett ikke leses, og det mørke stoppet er det som bærer
+tekstfargen sin med margin også når det gjennomsiktige laget legger seg over en
+hvit bakgrunn. Tekstfargen pinnes per tone, som på chipene — hvit på rødt og
+blågrønt, mørk på gult og lilla. Selve ikonet er den vanlige `.event-icon`-platen
+med sin tone, altså det ene toasten IKKE gjør på sin egen måte.
+Begge ytterpunktene (helt hvitt og helt svart bak) er med i kontrastkontrakten
+([`tilgjengelighet.md`](tilgjengelighet.md)).
+
+- **Trykk** fører til varselet: modalen åpnes, raden rulles fram og fokuseres.
+- **Sveip til høyre** fjerner toasten før de tre sekundene er ute — nøyaktig
+  samme gest og samme motor (`attachToastSwipe`) som den vanlige toasten
+  ([`design-system.md`](design-system.md)).
+
+### Hva som er «dukket opp»
+
+`notifSeen` er de radene ØKTEN allerede har presentert, og det er hele regelen:
+
+- **Første runde etter innlogging seeder settet uten å vise noe.** Ellers ville
+  en innlogging gitt en vegg av toaster — historikken er opptil 200 rader.
+- Et **utsatt** varsel er ikke med i settet før det FORFALLER, og toaster derfor
+  når det blir synlig.
+- Toaster vises ikke mens **varselmodalen står åpen**: raden er allerede synlig
+  der, og toastens eneste handling ville pekt på noe brukeren ser. Runden
+  oppdaterer settet likevel, så den ikke kommer igjen etterpå.
+- Én runde viser maksimalt tre toaster (de nyeste). En catch-up-runde kan ha
+  dusinvis av rader, og en kø av toaster er ingen kø — badgen og modalen har
+  resten.
 
 ## Fullførte, slettede, flyttede og omplanlagte objekter
 
@@ -260,7 +383,14 @@ om et objekt vi ikke ser.
   fokuset).
 - Radene er vanlige knapper, så Tab og Enter virker uten særbehandling. Hver rad
   har et `aria-label` med lest/ulest, varseltypen i KLARTEKST, navnet, meldingen,
-  tidspunktet og stien — eller beskjeden om at objektet er borte.
+  bunkens dato og stien — eller beskjeden om at objektet er borte. Datoen står
+  visuelt utenfor knappen, i overskriften over bunken, men opplesningen tar den
+  med: en rad skal kunne leses alene.
+- Utsett-knappen har `aria-haspopup="dialog"` og `aria-expanded`, og popoveren
+  arver `.switcher-overlay`-skallets fokusfelle og Escape.
+- Toastene ligger i et `role="status"`-live-område, så de også NÅR en
+  skjermleser, og hver toast har et `aria-label` med typen, navnet og meldingen.
+  De er dessuten ikke eneste kanal: badgen og modalen har det samme.
 - Antallet og hvor mange som er uleste leses opp fra et visuelt skjult
   `role="status"` ved åpning.
 - Farge er aldri eneste bærer: typen står i meldingen, ulest bæres av både en
@@ -272,7 +402,12 @@ Kravene er de samme som ellers — se
 
 ## Språk
 
-Alle tekstene ligger i ordboken under `notif.*`. Se [`sprak.md`](sprak.md).
+Alle tekstene ligger i ordboken under `notif.*`. Datoformene deles med resten av
+appen og ligger under `date.*` — månedsnavn (korte og fulle), ukedagene, «i dag»/
+«i går»/«i morgen» (små forbokstaver, de står midt i en setning) og avstanden i
+døgn. Overskriftene «I dag»/«I går» har sine egne nøkler med stor forbokstav
+(`notif.day.*`), fordi de er overskrifter og ikke setningsledd.
+Se [`sprak.md`](sprak.md).
 
 ## Forholdet til de eksterne kanalene
 
@@ -290,11 +425,16 @@ varslet.
   identitet, hele veien gjennom serveren, to enheter uten duplikater, og at en
   tømt historikk ikke gjenskapes.
 - `tests/notif-modal.test.js` — knappen og badgen, modalen, nyeste øverst,
-  lest/ulest-grensen, angresletting, «Utsett», preferansepanelet, navigering,
+  datooverskriftene og meldingsformene, lest/ulest-grensen, angresletting,
+  «Utsett»-popoveren (inkludert den egendefinerte skuffen og at et passert
+  tidspunkt avvises), varsel-toastene (at historikken ikke toaster, tonen og
+  teksten, at den springer ut fra bjellen, sveip, trykk til varselet, og at
+  ingen toast kommer mens modalen står åpen), preferansepanelet, navigering,
   slettet mål, tastatur/fokus og i18n.
 - `tests/corner-controls.test.js` — at bjelleknappen ikke rørte
   toppkontrollenes geometri.
 - `tests/a11y-contrast.test.js` — at modalen ikke pinner ikonfargene (den
-  arver statusflatene fra `.event-icon`).
+  arver statusflatene fra `.event-icon`), og at varsel-toastenes tekst klarer
+  4.5:1 mot den halvgjennomsiktige flaten over BEGGE ytterpunktene.
 - `supabase/tests/test-notifications.sql` — RLS, idempotent logging, markøren,
   preferansene og kontosletting.

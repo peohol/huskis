@@ -2912,6 +2912,43 @@
     const day = fmtDay(timeDatePart(v));
     return clock ? tr('date.at', { date: day, clock: clock }) : day;
   }
+  // Døgnet `off` dager fra `now`, som datostreng — grunnlaget for «i dag»,
+  // «i går» og «i morgen». Går gjennom Date, så månedsskifte og sommertid
+  // regnes av kalenderen og ikke av oss.
+  function dayOffsetStr(now, off) {
+    const d = new Date(now == null ? Date.now() : now);
+    d.setDate(d.getDate() + off);
+    return localDateStr(d);
+  }
+  /* Som `fmtTimeFull`, men de tre nærmeste døgnene får NAVN: «i dag kl. 09:00»,
+     «i morgen kl. 17:00», ellers «5. sep kl. 17:00». Brukt i varselmeldingene,
+     der tidspunktet nesten alltid ligger tett på nå og en dato da sier mindre
+     enn ordet gjør. Uten klokkeslett står dagen alene («Begynte i dag.»). */
+  function fmtTimeRelDay(v, now) {
+    const day = timeDatePart(v);
+    if (!day) return '';
+    const named = day === dayOffsetStr(now, 0) ? tr('date.today')
+      : day === dayOffsetStr(now, -1) ? tr('date.yesterday')
+        : day === dayOffsetStr(now, 1) ? tr('date.tomorrow') : fmtDay(day);
+    const clock = timeClockPart(v);
+    return clock ? tr('date.at', { date: named, clock: clock }) : named;
+  }
+  /* Avstand i HELE døgn, som ord: «i dag», «i morgen», «om 3 dager». Kalender-
+     døgn, ikke 24-timers bolker — «i morgen» skal bety i morgen, også når det
+     er tjue minutter unna. Brukt i varsel-toastene, som skal leses i
+     forbifarten. */
+  function fmtDaysAway(v, now) {
+    const day = timeDatePart(v);
+    if (!day) return '';
+    if (day === dayOffsetStr(now, 0)) return tr('date.today');
+    if (day === dayOffsetStr(now, 1)) return tr('date.tomorrow');
+    if (day === dayOffsetStr(now, -1)) return tr('date.yesterday');
+    const base = new Date(now == null ? Date.now() : now);
+    base.setHours(0, 0, 0, 0);
+    const p = day.split('-').map(Number);
+    const n = Math.round((new Date(p[0], p[1] - 1, p[2]).getTime() - base.getTime()) / DAY_MS);
+    return n > 0 ? tr('date.inDays', { n: n }) : tr('date.daysAgo', { n: -n });
+  }
   /* BØTTENE — den ENE inndelingen av tid i appen. Både indikator-chipene under
      navnet og gruppene i «Kommende hendelser» (docs/kommende-hendelser.md)
      bruker disse, så en frist som står «innen 7 dager» der ikke kan være rød i
@@ -5957,6 +5994,10 @@
     // En popover som står åpen er forankret i koordinater fra viewportet den
     // ble åpnet i — den må regnes ut på nytt her, ikke først ved neste åpning.
     repositionOpenPopovers();
+    // Samme sak for varsel-toastene, som henger under bjelleknappen: den kan
+    // ha byttet rad i toppkontrollgruppen da bredden endret seg.
+    const toasts = document.getElementById('notif-toasts');
+    if (toasts && toasts.children.length) positionNotifToasts(toasts);
   });
 
   // Bunn-luft etter siste kort — uansett hvilken kolonne som ender opp høyest.
@@ -8046,6 +8087,7 @@
     const confirmEl = document.getElementById('confirm-modal');
     const objMenu = document.getElementById('obj-menu');
     const timeSw = document.getElementById('time-switcher');
+    const snoozeSw = document.getElementById('notif-snooze-switcher');
     const avatarEd = document.getElementById('avatar-modal');
     const delAcc = document.getElementById('delete-account-modal');
     const searchEl = document.getElementById('search-modal');
@@ -8057,7 +8099,8 @@
       (eventsEl && !eventsEl.hidden) || (notifEl && !notifEl.hidden) ||
       (share && !share.hidden) || (place && !place.hidden) ||
       (confirmEl && !confirmEl.hidden) || (objMenu && !objMenu.hidden) ||
-      (timeSw && !timeSw.hidden) || (avatarEd && !avatarEd.hidden) ||
+      (timeSw && !timeSw.hidden) || (snoozeSw && !snoozeSw.hidden) ||
+      (avatarEd && !avatarEd.hidden) ||
       (delAcc && !delAcc.hidden) || respOpen);
   }
 
@@ -8607,6 +8650,7 @@
 
      Returnerer true når et lag faktisk ble lukket. */
   function closeTopLayer(viaBack) {
+    if (notifSnoozeRow) { closeNotifSnooze(); return true; } // utsett-popoveren ligger over varselmodalen
     if (timeQuickOpen) { closeTimeQuick(); return true; } // tids-popoveren ligger øverst
     if (respOpen) { closeResponsible(); return true; } // ansvarlig-velgeren ligger øverst
     if (confirmModalEl && !confirmModalEl.hidden) { closeConfirm(false); return true; } // øverst
@@ -9427,12 +9471,15 @@
   // Seksjonene og gruppene, i visningsrekkefølge. Nøklene er hele strenger av
   // samme grunn som ellers (tests/i18n.test.js leser kildekoden).
   const EVENT_SECTIONS = [
-    { field: 'due', title: 'events.dueTitle', groups: [
+    // `icon` er seksjonens eget merke, og det er NØYAKTIG det samme ikonet
+    // frist-/starttid-chipene bruker på lister, kategorier og listepunkter
+    // (`appendTimeChip`, `buildTimeEditor`): feltet ser likt ut overalt.
+    { field: 'due', title: 'events.dueTitle', icon: 'calendarDue', groups: [
       { key: 'over', label: 'events.dueOver', icon: 'alert', tone: 'is-over' },
       { key: 'soon', label: 'events.dueSoon', icon: 'alert', tone: 'is-soon' },
       { key: 'later', label: 'events.dueLater', icon: 'calendarDue', tone: 'is-later' },
     ] },
-    { field: 'start', title: 'events.startTitle', groups: [
+    { field: 'start', title: 'events.startTitle', icon: 'calendar', groups: [
       { key: 'started', label: 'events.startStarted', icon: 'play', tone: 'is-started' },
       { key: 'soon', label: 'events.startSoon', icon: 'clock', tone: 'is-startsoon' },
       { key: 'later', label: 'events.startLater', icon: 'calendar', tone: 'is-startlater' },
@@ -9538,11 +9585,15 @@
       section.className = 'events-section';
       const h = document.createElement('h3');
       h.className = 'events-section-head';
-      h.textContent = tr(sec.title);
+      const hTxt = document.createElement('span');
+      hTxt.textContent = tr(sec.title);
+      // Feltets eget ikon til venstre for overskriften — samme motiv som
+      // chipene i board-et bruker for den samme tiden.
+      h.append(eventIconEl(sec.icon, 'events-section-icon'), hTxt);
       section.appendChild(h);
-      /* Hver gruppe er sitt eget element, så skillelinjen mellom to grupper kan
-         henge på den andre (`.events-group + .events-group`) i stedet for å
-         være en egen node i strømmen. */
+      /* Hver gruppe er sitt eget element. Gruppene skilles av LUFT alene
+         (`.events-section` sitt gap), ikke av en linje: avstanden bærer
+         inndelingen, og en linje i tillegg ble bare støy. */
       sec.groups.forEach((g) => {
         const list = data[sec.field][g.key];
         if (!list.length) return;
@@ -9701,7 +9752,9 @@
   }
   function repositionOpenPopovers() {
     [[respSwitcherOverlay, respSwitcherPanel], [timeSwitcherOverlay, timeSwitcherPanel],
-      [objMenuOverlay, objMenuPanel]].forEach(([overlay, panel]) => {
+      [objMenuOverlay, objMenuPanel],
+      [document.getElementById('notif-snooze-switcher'), document.getElementById('notif-snooze-panel')],
+    ].forEach(([overlay, panel]) => {
       if (!overlay || overlay.hidden || !panel) return;
       // Modal-varianten (mobil) plasseres av CSS — inline-koordinatene fra
       // desktop ville låst den fast i hjørnet.
@@ -9894,6 +9947,12 @@
     dueOver: 'notif.type.dueOver', dueSoon: 'notif.type.dueSoon',
     startNow: 'notif.type.startNow', startSoon: 'notif.type.startSoon',
   };
+  /* Toasten sier det samme som raden, men kortere: den skal leses i
+     forbifarten. Derfor en egen setning per type — ikke radens, forkortet. */
+  const NOTIF_TOAST_MSG = {
+    dueOver: 'notif.toast.dueOver', dueSoon: 'notif.toast.dueSoon',
+    startNow: 'notif.toast.startNow', startSoon: 'notif.toast.startSoon',
+  };
   /* Taket på hvor mange varsler ÉN runde kan logge. En konto som har ligget
      ubrukt lenge kan ha passert hundrevis av terskler, og en historikk som
      åpner med tre hundre rader er ikke en historikk — den er støy. De NYESTE
@@ -9996,6 +10055,8 @@
     notifCursor = prefs && prefs.cursor != null ? Number(prefs.cursor) : null;
     paintNotifBadge();
     refreshNotifModal();
+    // … og de radene som er NYE for denne økten springer ut som toaster.
+    announceNotifs();
   }
 
   const NOTIF_RETRY_MS = 60 * 1000;
@@ -10127,7 +10188,164 @@
     return el;
   }
 
-  function notifRowEl(row, now) {
+  /* ---------------- VARSEL-TOASTENE ----------------
+     Et varsel som dukker opp mens appen står åpen skal SES, ikke bare telles:
+     en liten toast springer ut fra bjelleknappen, står i tre sekunder og fører
+     til varselet hvis man trykker på den. Formatet er bevisst et annet enn
+     radens — navn + én kort setning, ingen sti og ingen dato — og flaten er
+     varseltypens EGEN farge, halvgjennomsiktig med backdrop-blur, så toasten
+     sier hva den gjelder før man har lest et ord.
+
+     Hva som er «dukket opp» avgjøres av ett sett: `notifSeen` er de radene
+     denne økten allerede har presentert. Første runde etter innlogging SEEDER
+     settet uten å vise noe — ellers ville hele historikken (opptil 200 rader)
+     kommet som toaster i det brukeren logget inn. Et utsatt varsel er ikke med
+     før det FORFALLER, og toaster dermed når det blir synlig.
+
+     Autoritativt: docs/varsler.md. */
+  const NOTIF_TOAST_MS = 3000;      // så lenge en toast står
+  const NOTIF_TOAST_MAX = 3;        // så mange får stå samtidig
+  const NOTIF_TOAST_OUT_MS = 200;   // matcher .notif-toast.is-leaving/.toast-swipe-out
+  let notifSeen = null;             // id-ene økten har presentert (null = ingen runde ennå)
+
+  function clearNotifToasts() {
+    const host = document.getElementById('notif-toasts');
+    if (!host) return;
+    [].slice.call(host.children).forEach(removeNotifToast);
+  }
+  function removeNotifToast(el) {
+    if (!el) return;
+    clearTimeout(el.__notifTimer);
+    if (el.parentNode) el.parentNode.removeChild(el);
+  }
+  /* Stabelen henger under bjellen, som er `position: fixed` i hjørnet og kan
+     bryte til en ny rad på smale skjermer — posisjonen leses derfor av knappen
+     og settes her, ikke i CSS. Den klemmes til den SIKRE sonen, som alt annet
+     som ligger fast mot en viewport-kant. */
+  function positionNotifToasts(host) {
+    const btn = document.getElementById('notif-btn');
+    const safe = safeInsets();
+    if (!btn || !btn.offsetParent) return;
+    const r = btn.getBoundingClientRect();
+    host.style.top = Math.max(safe.top + 10, r.bottom + 10) + 'px';
+    host.style.right = Math.max(safe.right + 10, window.innerWidth - r.right) + 'px';
+  }
+  function notifToastMsg(row, now) {
+    return tr(NOTIF_TOAST_MSG[row.type],
+      { when: fmtDaysAway(row.value || stampValue(row.at), now) });
+  }
+  // Ut av veien: en myk uttoning på plass (timeren), eller et kast til høyre
+  // (sveipet). Begge rydder noden når overgangen er malt ferdig.
+  function fadeNotifToast(el) {
+    if (!el.parentNode) return;
+    clearTimeout(el.__notifTimer);
+    el.classList.add('is-leaving');
+    el.__notifTimer = setTimeout(() => removeNotifToast(el), NOTIF_TOAST_OUT_MS);
+  }
+  function swipeNotifToastOut(el) {
+    clearTimeout(el.__notifTimer);
+    el.classList.remove('toast-dragging');
+    el.classList.add('toast-swipe-out');
+    el.style.transform = 'translateX(' + (window.innerWidth + 40) + 'px)';
+    el.style.opacity = '0';
+    el.__notifTimer = setTimeout(() => removeNotifToast(el), NOTIF_TOAST_OUT_MS);
+  }
+
+  function showNotifToast(row, now) {
+    const host = document.getElementById('notif-toasts');
+    if (!host) return;
+    positionNotifToasts(host);
+    const el = document.createElement('button');
+    el.type = 'button';
+    el.className = 'notif-toast ' + NOTIF_TYPE_TONE[row.type];
+    el.dataset.id = row.id;
+    el.dataset.type = row.type;
+    const text = document.createElement('span');
+    text.className = 'notif-toast-text';
+    const nameEl = document.createElement('span');
+    nameEl.className = 'notif-toast-name';
+    nameEl.textContent = row.name || tr('common.noName');
+    const msgEl = document.createElement('span');
+    msgEl.className = 'notif-toast-msg';
+    const body = notifToastMsg(row, now);
+    msgEl.textContent = body;
+    text.append(nameEl, msgEl);
+    // Samme runde plate og samme tone som raden og «Kommende hendelser» —
+    // ikonet er det ene elementet toasten IKKE gjør på sin egen måte.
+    el.append(notifIconEl(row.type), text);
+    el.setAttribute('aria-label', tr('notif.toastLabel', {
+      kind: tr(NOTIF_TYPE_LABEL[row.type]),
+      name: row.name || tr('common.noName'),
+      msg: body,
+    }));
+    // Trykk → varselet selv, i modalen (raden rulles fram og fokuseres).
+    el.addEventListener('click', () => {
+      removeNotifToast(el);
+      openNotifModal({ focusId: row.id });
+    });
+    /* Sveip til høyre lukker, som for den vanlige toasten — samme motor, bare
+       uten sentreringen i transformen (denne står i en høyrestilt stabel). */
+    attachToastSwipe(el, {
+      ready: () => !!el.parentNode,
+      moveTo: (dx) => { el.style.transform = 'translateX(' + dx + 'px)'; },
+      out: () => swipeNotifToastOut(el),
+      reset: () => resetToastTransform(el),
+    });
+    host.insertBefore(el, host.firstChild);
+    while (host.children.length > NOTIF_TOAST_MAX) removeNotifToast(host.lastElementChild);
+    el.__notifTimer = setTimeout(() => fadeNotifToast(el), NOTIF_TOAST_MS);
+  }
+
+  /* Hvilke rader er NYE for denne økten? Kalles etter hver pull og hver gang et
+     utsatt varsel forfaller. Settet oppdateres alltid; toastene vises bare når
+     det er noe å vise dem for. */
+  function announceNotifs(now) {
+    const N = now == null ? Date.now() : now;
+    const visible = notifVisible(N);
+    if (notifSeen == null) {           // første runde: seed, ikke vis
+      notifSeen = new Set(visible.map((r) => r.id));
+      return;
+    }
+    const fresh = visible.filter((r) => !notifSeen.has(r.id) && !r.readAt);
+    visible.forEach((r) => notifSeen.add(r.id));
+    if (!fresh.length) return;
+    /* Står modalen åpen, ER varselet allerede synlig der — en toast oppå ville
+       bare pekt på noe brukeren ser. Demonstrasjonen bytter ut hele tilstanden
+       og skal ikke avbrytes av noe som helst. */
+    if (demoActive || (notifModal && !notifModal.hidden)) return;
+    // Eldste først, og bare de siste: en catch-up-runde kan ha dusinvis av
+    // rader, og en kø av toaster er ingen kø — badgen og modalen har resten.
+    fresh.sort((a, b) => (a.at - b.at) || (a.id < b.id ? -1 : 1));
+    fresh.slice(-NOTIF_TOAST_MAX).forEach((r) => showNotifToast(r, N));
+  }
+
+  /* Datooverskriften en bunke varsler samles under. «I dag» og «I går» har
+     egne navn — de er det brukeren tenker i — og alt eldre står med ukedagen
+     foran den fulle datoen («Torsdag 27. august»), som er nok til å plassere
+     bunken uten å telle dager. Året kommer med når det ikke er inneværende. */
+  function notifDayLabel(dayStr, now) {
+    if (dayStr === dayOffsetStr(now, 0)) return tr('notif.day.today');
+    if (dayStr === dayOffsetStr(now, -1)) return tr('notif.day.yesterday');
+    const p = dayStr.split('-').map(Number);
+    const wd = tr('date.weekdays').split(' ')[new Date(p[0], p[1] - 1, p[2]).getDay()] || '';
+    const yr = p[0] !== new Date(now == null ? Date.now() : now).getFullYear() ? String(p[0]) : '';
+    return tr(yr ? 'date.weekdayDateYear' : 'date.weekdayDate',
+      { wd: wd, d: p[2], mon: tr('date.monthsLong').split(' ')[p[1] - 1] || '', y: yr });
+  }
+  /* Meldingen i raden: hva som skjedde, og NÅR objektet forfaller/begynner.
+     Fargen er aldri eneste bærer (docs/tilgjengelighet.md). Tidsverdien er
+     objektets egen frist/starttid; mangler den (en rad fra en eldre klient),
+     står varselets eget tidspunkt der i stedet — meldingen skal aldri bli halv. */
+  function notifMessage(row, now) {
+    return tr(NOTIF_TYPE_MSG[row.type],
+      { time: fmtTimeRelDay(row.value || stampValue(row.at), now) });
+  }
+
+  /* Raden er tre linjer over hverandre: kontekststien (svært liten, dempet),
+     objektets navn, og meldingen. Tidspunktet står IKKE i raden — det bæres av
+     datooverskriften bunken ligger under, og alt raden trenger å si om tiden
+     er hvilken frist/starttid meldingen gjelder. */
+  function notifRowEl(row, now, dayLabel) {
     const li = document.createElement('li');
     li.className = 'notif-item';
     li.dataset.id = row.id;
@@ -10150,6 +10368,14 @@
 
     const main = document.createElement('span');
     main.className = 'notif-main';
+    // Stien øverst og subtil: den plasserer objektet, men det er navnet man
+    // leter etter. `path` er et øyeblikksbilde fra genereringstidspunktet.
+    if (row.path) {
+      const pathEl = document.createElement('span');
+      pathEl.className = 'notif-path';
+      pathEl.textContent = row.path;
+      main.appendChild(pathEl);
+    }
     const nameRow = document.createElement('span');
     nameRow.className = 'notif-name-row';
     const nameEl = document.createElement('span');
@@ -10162,68 +10388,169 @@
       dot.setAttribute('aria-hidden', 'true');
       nameRow.appendChild(dot);
     }
-    // Meldingen sier hva som skjedde OG når objektet forfaller/begynner —
-    // fargen er aldri eneste bærer (docs/tilgjengelighet.md). Er målet borte,
-    // sier linjen det i stedet for å la et dødt trykk forklare det.
     const msg = document.createElement('span');
     msg.className = 'notif-meta';
-    // Tidsverdien er objektets egen frist/starttid. Mangler den (en rad fra en
-    // eldre klient), står varselets eget tidspunkt der i stedet — meldingen
-    // skal aldri bli halv.
-    const body = tr(NOTIF_TYPE_MSG[row.type],
-      { time: fmtTimeFull(row.value || stampValue(row.at)) });
-    msg.textContent = gone
-      ? tr('notif.rowGoneMeta', { msg: body })
-      : (row.path ? tr('notif.rowMeta', { msg: body, path: row.path }) : body);
+    const body = notifMessage(row, now);
+    // Er målet borte, sier linjen det i stedet for å la et dødt trykk forklare det.
+    msg.textContent = gone ? tr('notif.rowGoneMeta', { msg: body }) : body;
     main.append(nameRow, msg);
 
-    const when = document.createElement('span');
-    when.className = 'notif-when';
-    when.textContent = fmtTimeFull(stampValue(row.at));
-
-    btn.append(notifIconEl(row.type), main, when);
+    btn.append(notifIconEl(row.type), main);
+    /* Datoen står visuelt i overskriften over bunken, altså utenfor knappen.
+       Opplesningen får den likevel med seg her: en rad skal kunne leses alene. */
     btn.setAttribute('aria-label', tr('notif.rowLabel', {
       state: tr(nyt ? 'notif.unread' : 'notif.read'),
       kind: tr(NOTIF_TYPE_LABEL[row.type]),
       name: row.name || tr('common.noName'),
       msg: body,
-      when: fmtTimeFull(stampValue(row.at)),
-      path: gone ? tr('notif.gone') : row.path,
+      when: dayLabel || '',
+      path: gone ? tr('notif.gone') : (row.path || ''),
     }));
     btn.addEventListener('click', () => openNotifTarget(row));
     line.appendChild(btn);
 
-    // «Utsett»: be om det samme varselet igjen senere. Egen knapp ved siden av
-    // raden — en knapp inne i en knapp finnes ikke.
+    /* «Utsett»: be om det samme varselet igjen senere. Egen knapp ved siden av
+       raden — en knapp inne i en knapp finnes ikke — og valgene ligger i en
+       popover FORANKRET I KNAPPEN, ikke som en rad under kortet: der var det
+       ikke til å se hvilket av de to nabokortene valgene hørte til. */
     const snoozeBtn = document.createElement('button');
     snoozeBtn.type = 'button';
     snoozeBtn.className = 'notif-snooze-btn';
     snoozeBtn.innerHTML = ICONS.snooze;
     snoozeBtn.setAttribute('aria-expanded', notifSnoozeFor === row.id ? 'true' : 'false');
+    snoozeBtn.setAttribute('aria-haspopup', 'dialog');
     labelBtn(snoozeBtn, tr('notif.snooze', { name: row.name || tr('common.noName') }));
     snoozeBtn.addEventListener('click', () => {
-      notifSnoozeFor = notifSnoozeFor === row.id ? null : row.id;
-      refreshNotifModal(true);
-      const next = notifBodyEl.querySelector('.notif-item[data-id="' + row.id + '"] .notif-snooze-btn');
-      if (next) try { next.focus(); } catch (e) { /* ignorer */ }
+      if (notifSnoozeFor === row.id) { closeNotifSnooze(); return; }
+      openNotifSnooze(row, snoozeBtn);
     });
     line.appendChild(snoozeBtn);
     li.appendChild(line);
+    return li;
+  }
+  /* ---------------- «Utsett»-popoveren ----------------
+     Valgene sto tidligere som en rad UNDER kortet, mellom det og kortet under —
+     og da var det ikke til å se hvilket av de to de hørte til. De ligger nå i
+     en liten popover forankret i knappen, med overskriften som bærer «om», så
+     valgene selv er rene varigheter. Skallet er det samme som bytterne bruker
+     (`.switcher-*`): popover på desktop, sentrert ark på mobil, felles
+     fokusfelle og felles Escape-stige. */
+  const notifSnoozeOverlay = document.getElementById('notif-snooze-switcher');
+  const notifSnoozePanel = document.getElementById('notif-snooze-panel');
+  let notifSnoozeRow = null;      // raden popoveren gjelder (null = lukket)
 
-    const choices = document.createElement('div');
-    choices.className = 'notif-snooze-row';
-    choices.hidden = notifSnoozeFor !== row.id;
+  function closeNotifSnooze() {
+    if (!notifSnoozeRow) return;
+    const id = notifSnoozeRow.id;
+    notifSnoozeRow = null;
+    notifSnoozeFor = null;
+    notifSnoozeOverlay.hidden = true;
+    notifSnoozePanel.innerHTML = '';
+    updateModalOpenClass();
+    const btn = notifBodyEl.querySelector('.notif-item[data-id="' + id + '"] .notif-snooze-btn');
+    if (btn) btn.setAttribute('aria-expanded', 'false');
+  }
+
+  /* «Egendefinert»: en liten skuff under valgene med dato + klokkeslett.
+     Begge kreves — et utsatt varsel er ET TIDSPUNKT, ikke et døgn — og
+     tidspunktet må ligge fram i tid, ellers ville raden dukket opp med det
+     samme og «utsett» ikke betydd noe. */
+  function buildNotifSnoozeCustom(row) {
+    const wrap = document.createElement('div');
+    wrap.className = 'notif-snooze-custom';
+    const fields = document.createElement('div');
+    fields.className = 'time-row';
+    const dateIn = document.createElement('input');
+    dateIn.type = 'date';
+    dateIn.className = 'field time-date';
+    dateIn.placeholder = tr('time.datePlaceholder');
+    dateIn.setAttribute('aria-label', tr('notif.snoozeDate'));
+    const clockIcon = document.createElement('span');
+    clockIcon.className = 'time-clock-icon';
+    clockIcon.setAttribute('aria-hidden', 'true');
+    clockIcon.innerHTML = ICONS.clock;
+    const timeIn = document.createElement('input');
+    timeIn.type = 'time';
+    timeIn.className = 'field time-clock';
+    timeIn.setAttribute('aria-label', tr('notif.snoozeClock'));
+    // Én time fram som utgangspunkt: noe å justere fra slår to tomme felter.
+    const def = new Date(Date.now() + HOUR_MS);
+    dateIn.value = localDateStr(def);
+    timeIn.value = String(def.getHours()).padStart(2, '0') + ':' +
+      String(def.getMinutes()).padStart(2, '0');
+    fields.append(dateIn, clockIcon, timeIn);
+    const note = document.createElement('p');
+    note.className = 'time-note';
+    note.hidden = true;
+    const ok = document.createElement('button');
+    ok.type = 'button';
+    ok.className = 'btn btn-solid btn-accent btn-small';
+    ok.textContent = tr('notif.snoozeOk');
+    ok.addEventListener('click', () => {
+      const at = dateIn.value && timeIn.value
+        ? timeMs(dateIn.value + 'T' + timeIn.value.slice(0, 5), 'start') : null;
+      if (at == null || at <= Date.now()) {
+        note.textContent = tr('notif.snoozePast');
+        note.hidden = false;
+        return;
+      }
+      closeNotifSnooze();
+      snoozeNotif(row, at);
+    });
+    wrap.append(fields, note, ok);
+    return wrap;
+  }
+
+  function openNotifSnooze(row, btn) {
+    notifSnoozeRow = row;
+    notifSnoozeFor = row.id;
+    notifSnoozePanel.innerHTML = '';
+    notifSnoozePanel.style.top = '';
+    notifSnoozePanel.style.left = '';
+    const head = document.createElement('div');
+    head.className = 'notif-snooze-title';
+    head.textContent = tr('notif.snoozeTitle');
+    const list = document.createElement('div');
+    list.className = 'notif-snooze-list';
     NOTIF_SNOOZE.forEach((opt) => {
       const b = document.createElement('button');
       b.type = 'button';
-      b.className = 'btn btn-ghost btn-small';
+      b.className = 'notif-snooze-choice';
       b.textContent = tr(opt.label);
-      b.addEventListener('click', () => snoozeNotif(row, opt.ms));
-      choices.appendChild(b);
+      b.addEventListener('click', () => { closeNotifSnooze(); snoozeNotif(row, Date.now() + opt.ms); });
+      list.appendChild(b);
     });
-    li.appendChild(choices);
-    void now;
-    return li;
+    const drawer = buildNotifSnoozeCustom(row);
+    drawer.hidden = true;
+    const custom = document.createElement('button');
+    custom.type = 'button';
+    custom.className = 'notif-snooze-choice notif-snooze-more';
+    custom.textContent = tr('notif.snooze.custom');
+    custom.setAttribute('aria-expanded', 'false');
+    custom.addEventListener('click', () => {
+      drawer.hidden = !drawer.hidden;
+      custom.setAttribute('aria-expanded', drawer.hidden ? 'false' : 'true');
+      // Panelet vokser når skuffen åpnes — plasseringen må regnes ut på nytt,
+      // ellers kan bunnen havne utenfor skjermen.
+      repositionOpenPopovers();
+      if (drawer.hidden) return;
+      const f = drawer.querySelector('input');
+      if (f) try { f.focus(); } catch (e) { /* ignorer */ }
+    });
+    list.appendChild(custom);
+    notifSnoozePanel.append(head, list, drawer);
+    notifSnoozeOverlay.hidden = false;
+    updateModalOpenClass();
+    rememberAnchor(notifSnoozePanel, btn);
+    if (btn && btn.isConnected && window.matchMedia('(min-width: 561px)').matches) {
+      positionSwitcherPanel(notifSnoozePanel, btn);
+    }
+    if (btn) btn.setAttribute('aria-expanded', 'true');
+  }
+  if (notifSnoozeOverlay) {
+    notifSnoozeOverlay.addEventListener('click', (ev) => {
+      if (ev.target === notifSnoozeOverlay) closeNotifSnooze();
+    });
   }
 
   function paintNotifSettings() {
@@ -10265,6 +10592,10 @@
     notifBodyEl.appendChild(wrap);
   }
 
+  /* Radene samles i BUNKER per døgn, med datoen som overskrift over bunken —
+     i stedet for et tidsstempel på hver eneste rad. Datoen står da én gang der
+     den betyr noe, og radene får plassen til det de faktisk sier.
+     Rekkefølgen er uendret: nyeste øverst, altså også nyeste bunke øverst. */
   function paintNotifList(now) {
     notifBodyEl.innerHTML = '';
     const rows = notifVisible(now);
@@ -10275,15 +10606,31 @@
       notifBodyEl.appendChild(empty);
       return;
     }
-    const ul = document.createElement('ul');
-    ul.className = 'notif-list';
-    ul.setAttribute('aria-label', tr('notif.title'));
     // Nyeste øverst. `at` er hendelsens tidspunkt og er den samme på alle
     // enheter; id-en bryter uavgjort, så rekkefølgen aldri hopper.
-    rows.slice().sort((a, b) => (b.at - a.at) ||
-      (a.id < b.id ? 1 : a.id > b.id ? -1 : 0))
-      .forEach((r) => ul.appendChild(notifRowEl(r, now)));
-    notifBodyEl.appendChild(ul);
+    const sorted = rows.slice().sort((a, b) => (b.at - a.at) ||
+      (a.id < b.id ? 1 : a.id > b.id ? -1 : 0));
+    let day = null;
+    let ul = null;
+    let label = '';
+    sorted.forEach((r) => {
+      const d = localDateStr(new Date(r.at));
+      if (d !== day) {
+        day = d;
+        label = notifDayLabel(d, now);
+        const sec = document.createElement('section');
+        sec.className = 'notif-day';
+        const h = document.createElement('h3');
+        h.className = 'notif-day-head';
+        h.textContent = label;
+        ul = document.createElement('ul');
+        ul.className = 'notif-list';
+        ul.setAttribute('aria-label', label);
+        sec.append(h, ul);
+        notifBodyEl.appendChild(sec);
+      }
+      ul.appendChild(notifRowEl(r, now, label));
+    });
   }
 
   // Foten: «Tøm varsler», eller nedtellingen mens angre-vinduet står åpent.
@@ -10305,7 +10652,11 @@
 
   function notifSignature(now) {
     const rows = notifVisible(now);
+    /* Dagens dato er med fordi datooverskriftene avhenger av den og ikke bare
+       av radene: står modalen åpen over midnatt, blir «I dag» til «I går» uten
+       at en eneste rad har endret seg. */
     return (notifSettings ? 'S' + NOTIF_TYPES.map((t) => (notifPrefs || NOTIF_DEFAULT_PREFS)[t] ? 1 : 0).join('') : 'L') +
+      '|' + localDateStr(new Date(now == null ? Date.now() : now)) +
       '|' + (notifClear ? 'u' + notifClear.left : '-') + '|' + (notifSnoozeFor || '-') + '|' +
       rows.map((r) => r.id + ':' + (notifIsNew(r) ? 0 : 1) + ':' + r.at + ':' + r.name + ':' +
         (locateObject(r.objType, r.objId) ? 1 : 0)).join(';');
@@ -10339,10 +10690,16 @@
     notifTimer = setTimeout(() => {
       paintNotifBadge();
       refreshNotifModal();
+      // Et utsatt varsel som nettopp forfalt «dukker opp» nå — og toaster nå.
+      announceNotifs();
     }, Math.min(next - now + 50, NOTIF_MAX_SLEEP_MS));
   }
 
-  function openNotifModal() {
+  /* `opts.focusId` er raden modalen ble åpnet FOR — en varsel-toast man trykket
+     på. Den rulles fram og fokuseres når malingen er ferdig, så trykket ender
+     ved varselet og ikke bare i historikken. */
+  function openNotifModal(opts) {
+    const focusId = opts && opts.focusId;
     notifSig = null;
     notifSettings = false;
     notifSnoozeFor = null;
@@ -10360,8 +10717,14 @@
       : tr(rows.length === 1 ? 'notif.count.one' : 'notif.count.other',
         { n: rows.length, unread: unread.length });
     markNotifRead(unread.map((r) => r.id));
+    if (!focusId) return;
+    const target = notifBodyEl.querySelector('.notif-item[data-id="' + focusId + '"] .notif-row');
+    if (!target) return;
+    try { target.scrollIntoView({ block: 'nearest' }); } catch (e) { /* ignorer */ }
+    try { target.focus(); } catch (e) { /* ignorer */ }
   }
   function closeNotifModal() {
+    closeNotifSnooze();
     notifModal.hidden = true;
     clearTimeout(notifTimer);
     notifTimer = null;
@@ -10467,8 +10830,7 @@
      `snoozed`, så identiteten ikke kolliderer med det opprinnelige varselet.
      Markøren røres ikke (`p_cursor` utelates): ingen terskler er vurdert her.
      Å utsette er samtidig en kvittering, så det opprinnelige merkes lest. */
-  async function snoozeNotif(row, ms) {
-    const at = Date.now() + ms;
+  async function snoozeNotif(row, at) {
     notifSnoozeFor = null;
     markNotifRead([row.id]);
     const client = acli();
@@ -10515,6 +10877,9 @@
 
   // Utlogging/kontobytte: historikken hørte til den forrige brukeren.
   function resetNotifications() {
+    closeNotifSnooze();
+    clearNotifToasts();
+    notifSeen = null;
     notifRows = [];
     notifPrefs = null;
     notifCursor = null;
@@ -10529,12 +10894,13 @@
     refreshNotifModal(true);
   }
 
-  if (notifBtn) notifBtn.addEventListener('click', openNotifModal);
+  // Uten wrapperen ville klikk-eventet blitt lest som `opts`.
+  if (notifBtn) notifBtn.addEventListener('click', () => openNotifModal());
   if (notifCloseBtn) notifCloseBtn.addEventListener('click', closeNotifModal);
   if (notifSettingsBtn) {
     notifSettingsBtn.addEventListener('click', () => {
       notifSettings = !notifSettings;
-      notifSnoozeFor = null;
+      closeNotifSnooze();
       refreshNotifModal(true);
     });
   }
@@ -11509,7 +11875,18 @@
      umiddelbart — timeren ventes ikke ut. */
   const TOAST_SWIPE_START_PX = 8;   // slark før draget «tar tak»
   const TOAST_SWIPE_OUT_MS = 180;   // matcher .toast-swipe-out-transisjonen
-  function attachToastSwipe(t) {
+  /* `opts` finnes fordi varsel-toastene (docs/varsler.md) skal ha nøyaktig den
+     samme gesten, men står i en høyrestilt stabel og har derfor ingen
+     sentrering å legge draget inn i. Uten opts er oppførselen den samme som
+     før: den midtstilte `#toast`. */
+  function attachToastSwipe(t, opts) {
+    opts = opts || {};
+    const ready = opts.ready || (() => t.classList.contains('show'));
+    const moveTo = opts.moveTo || ((dx) => {
+      t.style.transform = 'translate(calc(-50% + ' + dx + 'px), 0)';
+    });
+    const out = opts.out || (() => swipeToastOut(t));
+    const reset = opts.reset || (() => resetToastTransform(t));
     let sw = null;            // { id, x0, y0, dx, active }
     let swallowClick = false; // et fullført drag skal ikke også trykke «Angre»
     const threshold = () => Math.max(56, t.offsetWidth * 0.3);
@@ -11533,7 +11910,7 @@
         try { t.setPointerCapture(sw.id); } catch (e) { /* ikke-aktiv peker */ }
       }
       sw.dx = Math.max(0, dx);   // kun høyre: venstre drag står stille på 0
-      t.style.transform = 'translate(calc(-50% + ' + sw.dx + 'px), 0)';
+      moveTo(sw.dx);
       // Toner svakt ut underveis, men holder seg godt synlig til slippet avgjør.
       t.style.opacity = String(Math.max(0.35, 1 - sw.dx / (threshold() * 3)));
     }
@@ -11542,16 +11919,16 @@
       const past = sw.active && sw.dx >= threshold();
       swallowClick = sw.active;
       end();
-      if (past) swipeToastOut(t);
-      else resetToastTransform(t);
+      if (past) out();
+      else reset();
     }
     function onCancel(ev) {
       if (!sw || ev.pointerId !== sw.id) return;
       end();
-      resetToastTransform(t);
+      reset();
     }
     t.addEventListener('pointerdown', (ev) => {
-      if (sw || ev.button > 0 || !t.classList.contains('show')) return;
+      if (sw || ev.button > 0 || !ready()) return;
       swallowClick = false;
       sw = { id: ev.pointerId, x0: ev.clientX, y0: ev.clientY, dx: 0, active: false };
       window.addEventListener('pointermove', onMove);

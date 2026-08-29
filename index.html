@@ -720,6 +720,13 @@
     <div class="switcher-panel time-panel" id="time-switcher-panel" role="dialog" data-i18n-aria-label="time.edit" tabindex="-1"></div>
   </div>
 
+  <!-- «Utsett»-popover: valgene for når det samme varselet skal komme igjen,
+       forankret i utsett-knappen på varselraden (samme skall som bytterne, så
+       den blir et sentrert ark på mobil). Bygges i openNotifSnooze(). -->
+  <div class="switcher-overlay" id="notif-snooze-switcher" hidden>
+    <div class="switcher-panel notif-snooze-panel" id="notif-snooze-panel" role="dialog" data-i18n-aria-label="notif.snoozeTitle" tabindex="-1"></div>
+  </div>
+
   <!-- Del-modal: eier inviterer, ser medlemmer/ventende, kaster ut, låser (fase 2).
        Mottaker ser eier + låst-status + «Forlat deling». Brukes for område/
        mappe; listers deling ligger i innstillingsmodalen. Tilbakeknappen
@@ -924,6 +931,13 @@
     <span class="sync-status-text" id="sync-status-text"></span>
     <button class="sync-status-action" id="sync-retry-btn" type="button" data-i18n="common.retry" hidden>Prøv igjen</button>
   </div>
+
+  <!-- Varsel-toastene (docs/varsler.md): når et nytt varsel dukker opp springer
+       en liten, farget toast ut fra bjelleknappen og står i tre sekunder.
+       Stabelen forankres i knappen (posisjonen settes i JS), er tom i hvile og
+       er et `role="status"`-live-område, så toasten også NÅR en skjermleser.
+       Toastene selv bygges i showNotifToast(). -->
+  <div class="notif-toasts" id="notif-toasts" role="status" aria-live="polite"></div>
 
   <!-- Opplesningsområde for skjermlesere (app.js → announce()). Her havner det
        som skjer UTEN at fokus flytter seg — en tastaturflytting, en sortering —

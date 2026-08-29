@@ -698,6 +698,14 @@ side-margin som kansellerer den omsluttende paddingen.
   dessuten et `role="status"`-live-område, så både tips og kvitteringer når
   skjermlesere. Semantikken (når et tips vises, og alt det aldri skal
   fortrenge) er `docs/introduksjon.md`.
+- **Varsel-toast** (`.notif-toast`, `showNotifToast`): et NYTT VARSEL som dukker
+  opp mens appen står åpen springer ut fra bjelleknappen, ikke opp fra bunnen —
+  den hører til knappen, ikke til noe brukeren nettopp gjorde. Formen er en
+  pille som den vanlige toasten og gesten er den samme (`attachToastSwipe`, med
+  `opts` fordi stabelen er høyrestilt og ikke har noen sentrering å legge draget
+  inn i), men flaten er varseltypens EGEN farge — halvgjennomsiktig med blur, og
+  med tekstfargen pinnet per tone. Semantikken (hva som er «dukket opp», hvor
+  mange som vises, og hvorfor historikken ikke toaster) er `docs/varsler.md`.
 - **Toast eller status?** En toast er en HENDELSE som nettopp skjedde og som
   det er greit å gå glipp av. En TILSTAND som varer — og som brukeren må kunne
   finne igjen etterpå — hører hjemme i lagringsstatusen (under), aldri i en

@@ -10,8 +10,9 @@
      1. Bjelleknappen ligger FØRST i toppkontrollgruppen, og badgen viser
         antall uleste — skjult ved 0, «99+» over hundre, og antallet er med i
         knappens ARIA-navn (badgen selv er aria-hidden).
-     2. Modalen: dialogsemantikk, nyeste ØVERST, ikon/flate per varseltype,
-        objektnavn, melding, kontekststi og diskret dato + klokkeslett.
+     2. Modalen: dialogsemantikk, nyeste ØVERST, ikon/flate per varseltype, og
+        raden i tre linjer — kontekststi (svært liten), objektnavn og melding.
+        Ingen rad bærer et eget tidsstempel; datoen står over bunken.
      3. Tomtilstand.
      4. Åpning markerer lest — men bare det som sto der da modalen ble åpnet.
         Et varsel som ankommer ETTERPÅ forblir ulest, også med modalen åpen.
@@ -22,14 +23,23 @@
         og teller ned, «Angre» gjenoppretter, og et varsel som ankommer ETTER
         øyeblikksbildet blir ikke slettet med det.
      8. Lukking av modalen committer slettingen med én gang.
-     9. «Utsett» 1 time / 6 timer / 1 døgn lager et nytt varsel som er USYNLIG
-        til det forfaller, og kvitterer det opprinnelige som lest.
+     9. «Utsett» åpner en POPOVER forankret i knappen, med overskrift og fire
+        valg (1 time / 6 timer / 1 døgn / Egendefinert). Den egendefinerte
+        skuffen avviser et tidspunkt som alt er passert og logger ett varsel på
+        nøyaktig det tidspunktet som velges — usynlig til det forfaller, og med
+        det opprinnelige kvittert som lest.
     10. Preferansepanelet: fire brytere, og et bytte lagres på kontoen.
     11. Tastatur og fokus: Escape lukker, og fokus går tilbake til bjellen.
     12. i18n: hele flaten på engelsk.
     13. Kontobytte UTEN utlogging (Supabase kan gå rett fra én bruker til en
         annen): historikken og badgen nullstilles med én gang, ikke først når
         den nye brukerens pull svarer — den kan utebli helt offline.
+    14. Datooverskriftene («I dag», «I går», ukedag + full dato) og meldingene,
+        som navngir de tre nærmeste døgnene i stedet for å skrive datoen ut.
+    15. Varsel-toastene: historikken toaster ikke, et nytt varsel gjør det —
+        med typens tone, halvgjennomsiktig flate og blur, ut fra bjelleknappen.
+        Sveip fjerner den, trykk fører til varselet i modalen, og ingen toast
+        kommer mens modalen står åpen.
 
   Kjøres på BÅDE desktop- og mobil-viewport.
 
@@ -129,11 +139,15 @@ const badgeInfo = (p) => p.evaluate(() => {
 
 const rowsOf = (p) => p.evaluate(() => [...document.querySelectorAll('#notif-body .notif-item')].map((li) => {
   const btn = li.querySelector('.notif-row');
+  const dag = li.closest('.notif-day');
   return {
     id: li.dataset.id,
     name: btn.querySelector('.notif-name').textContent,
     meta: btn.querySelector('.notif-meta').textContent,
-    when: btn.querySelector('.notif-when').textContent,
+    // Stien er nå en egen, svært liten linje ØVERST i raden.
+    path: (btn.querySelector('.notif-path') || {}).textContent || '',
+    // … og datoen står i overskriften over bunken, ikke i raden.
+    dag: dag ? dag.querySelector('.notif-day-head').textContent : null,
     tone: [...btn.querySelector('.event-icon').classList].filter((c) => c.indexOf('is-') === 0).join(''),
     unread: btn.classList.contains('is-unread'),
     gone: btn.classList.contains('is-gone'),
@@ -195,11 +209,18 @@ async function run(label, viewport, mobile) {
   log(label + ' 2d: hver rad har flaten som hører til varseltypen',
     eq(rader.map((r) => r.tone), ['is-over', 'is-soon', 'is-started']),
     JSON.stringify(rader.map((r) => r.tone)));
-  log(label + ' 2e: meldingen sier hva som skjedde, og stien hvor objektet står',
-    rader[0].meta.indexOf('Fristen') === 0 && rader[0].meta.indexOf('Arbeid › Klinikk') > -1,
-    rader[0].meta);
-  log(label + ' 2f: raden viser dato + klokkeslett for varselet',
-    /\d/.test(rader[0].when) && rader[0].when.indexOf('kl.') > -1, rader[0].when);
+  log(label + ' 2e: meldingen sier hva som skjedde, uten sti og uten tidsstempel',
+    rader[0].meta.indexOf('Fristen er utløpt') === 0 &&
+    rader[0].meta.indexOf('Arbeid › Klinikk') === -1, rader[0].meta);
+  log(label + ' 2f: stien står som en egen, subtil linje øverst i raden',
+    rader[0].path === 'Arbeid › Klinikk' &&
+    parseFloat(await p.evaluate(() => getComputedStyle(document.querySelector('.notif-path')).fontSize)) <
+      parseFloat(await p.evaluate(() => getComputedStyle(document.querySelector('.notif-name')).fontSize)),
+    rader[0].path);
+  log(label + ' 2i: radene som kom i dag ligger under datooverskriften «I dag»',
+    rader.every((r) => r.dag === 'I dag'), JSON.stringify(rader.map((r) => r.dag)));
+  log(label + ' 2j: ingen rad bærer et eget tidsstempel lenger',
+    (await p.locator('#notif-body .notif-when').count()) === 0);
   log(label + ' 2g: opplesningen bærer tilstand, type, navn og sti i klartekst',
     rader[0].label.indexOf('Ulest') === 0 && rader[0].label.indexOf('Frist utløpt') > -1 &&
     rader[0].label.indexOf('Skattemelding') > -1 &&
@@ -231,27 +252,74 @@ async function run(label, viewport, mobile) {
     JSON.stringify({ ulest: ulestPåKontoen, badge: nyBadge.text }));
 
   /* ---------- 9) «Utsett» ---------- */
-  await p.click('.notif-item:first-child .notif-snooze-btn');
+  await p.click('#notif-body .notif-item:first-child .notif-snooze-btn');
+  await p.waitForSelector('#notif-snooze-switcher:not([hidden])');
+  const meny = await p.evaluate(() => ({
+    tittel: document.querySelector('#notif-snooze-panel .notif-snooze-title').textContent,
+    valg: [...document.querySelectorAll('#notif-snooze-panel .notif-snooze-choice')].map((b) => b.textContent),
+    // Valgene ligger i en popover, ikke lenger som en rad mellom to kort.
+    iBody: document.querySelectorAll('#notif-body .notif-snooze-choice').length,
+    utfoldet: document.querySelector('#notif-body .notif-item:first-child .notif-snooze-btn')
+      .getAttribute('aria-expanded'),
+  }));
+  log(label + ' 9a: «Utsett» åpner en popover med overskrift og fire valg',
+    meny.tittel === 'Varsle på nytt om' && meny.iBody === 0 && meny.utfoldet === 'true' &&
+    eq(meny.valg, ['1 time', '6 timer', '1 døgn', 'Egendefinert']), JSON.stringify(meny));
+  if (!mobile) {
+    // Popoveren skal stå I DIREKTE TILKNYTNING til knappen — det var nettopp
+    // det raden under kortet ikke gjorde. (På mobil er skallet et sentrert ark.)
+    const nær = await p.evaluate(() => {
+      const b = document.querySelector('#notif-body .notif-item:first-child .notif-snooze-btn')
+        .getBoundingClientRect();
+      const pn = document.getElementById('notif-snooze-panel').getBoundingClientRect();
+      return { dx: Math.round(Math.min(Math.abs(pn.left - b.right), Math.abs(b.left - pn.right))),
+        dy: Math.round(Math.abs(pn.top - b.top)) };
+    });
+    log(label + ' 9b: popoveren er forankret i knappen', nær.dx <= 24 && nær.dy <= 40, JSON.stringify(nær));
+  }
+
+  // «Egendefinert»: en skuff med dato + klokkeslett. Et tidspunkt som alt er
+  // passert er ingen utsettelse, og skal avvises i stedet for å logges.
+  await p.click('#notif-snooze-panel .notif-snooze-more');
   await p.waitForTimeout(200);
-  const valg = await p.evaluate(() => [...document.querySelectorAll('.notif-item:first-child .notif-snooze-row button')].map((b) => b.textContent));
-  log(label + ' 9a: «Utsett» tilbyr 1 time, 6 timer og 1 døgn',
-    eq(valg, ['Om 1 time', 'Om 6 timer', 'Om 1 døgn']), JSON.stringify(valg));
+  const iGår = new Date(Date.now() - 24 * 3600 * 1000);
+  const pad2 = (n) => String(n).padStart(2, '0');
+  const dStr = (d) => d.getFullYear() + '-' + pad2(d.getMonth() + 1) + '-' + pad2(d.getDate());
+  await p.fill('#notif-snooze-panel input[type="date"]', dStr(iGår));
+  await p.fill('#notif-snooze-panel input[type="time"]', '09:00');
   const førUtsett = await p.evaluate(() => window.HK_MOCK._loadDB().notifications.length);
-  await p.click('.notif-item:first-child .notif-snooze-row button:nth-child(3)');  // 1 døgn
+  await p.click('#notif-snooze-panel .btn');
+  await p.waitForTimeout(400);
+  const avvist = await p.evaluate(() => ({
+    åpen: !document.getElementById('notif-snooze-switcher').hidden,
+    note: (document.querySelector('#notif-snooze-panel .time-note') || {}).textContent || '',
+    antall: window.HK_MOCK._loadDB().notifications.length,
+  }));
+  log(label + ' 9c: «Egendefinert» avviser et tidspunkt som alt er passert',
+    avvist.åpen === true && avvist.note === 'Velg et tidspunkt fram i tid.' &&
+    avvist.antall === førUtsett, JSON.stringify(avvist));
+
+  // … og et tidspunkt fram i tid logger varselet på nøyaktig det tidspunktet.
+  const iMorgen = new Date(Date.now() + 24 * 3600 * 1000);
+  await p.fill('#notif-snooze-panel input[type="date"]', dStr(iMorgen));
+  await p.fill('#notif-snooze-panel input[type="time"]', '07:30');
+  await p.click('#notif-snooze-panel .btn');
   await p.waitForTimeout(600);
   await cycle(p);
-  const utsatt = await p.evaluate(() => {
+  const utsatt = await p.evaluate((d) => {
     const db = window.HK_MOCK._loadDB();
     const ny = db.notifications.filter((n) => n.snoozed);
+    const mål = new Date(d + 'T07:30:00').getTime();
     return { antall: db.notifications.length, snoozed: ny.length,
-      framITid: ny.every((n) => n.at > Date.now() + 20 * 3600 * 1000),
+      lukket: document.getElementById('notif-snooze-switcher').hidden,
+      treffer: ny.length === 1 && Math.abs(ny[0].at - mål) < 60000,
       synlige: document.querySelectorAll('#notif-body .notif-item').length,
       badge: document.getElementById('notif-badge').hidden };
-  });
-  log(label + ' 9b: utsettelsen lager ETT nytt varsel med et tidspunkt et døgn fram',
-    utsatt.antall === førUtsett + 1 && utsatt.snoozed === 1 && utsatt.framITid,
+  }, dStr(iMorgen));
+  log(label + ' 9d: et egendefinert tidspunkt logger ETT varsel på akkurat det tidspunktet',
+    utsatt.antall === førUtsett + 1 && utsatt.snoozed === 1 && utsatt.treffer && utsatt.lukket,
     JSON.stringify(utsatt));
-  log(label + ' 9c: det utsatte varselet er usynlig til det forfaller, og teller ikke som ulest',
+  log(label + ' 9e: det utsatte varselet er usynlig til det forfaller, og teller ikke som ulest',
     utsatt.synlige === 4 && utsatt.badge === true, JSON.stringify(utsatt));
 
   /* ---------- 7) «Tøm varsler» med angre ---------- */
@@ -422,12 +490,23 @@ async function runEngelsk() {
   const tekst = await p.evaluate(() => ({
     tittel: document.getElementById('notif-modal-title').textContent.trim(),
     melding: document.querySelector('.notif-meta').textContent,
+    dag: document.querySelector('.notif-day-head').textContent,
     tøm: document.getElementById('notif-clear').textContent,
   }));
   log('12a: knappens navn er engelsk', knapp.label === 'Notifications, 1 unread', knapp.label);
   log('12b: modalen er engelsk', tekst.tittel === 'Notifications' &&
-    tekst.tøm === 'Clear notifications' && tekst.melding.indexOf('The deadline') === 0,
-    JSON.stringify(tekst));
+    tekst.tøm === 'Clear notifications' && tekst.melding.indexOf('The deadline') === 0 &&
+    tekst.dag === 'Today', JSON.stringify(tekst));
+  await p.click('#notif-body .notif-item:first-child .notif-snooze-btn');
+  await p.waitForSelector('#notif-snooze-switcher:not([hidden])');
+  const snoozeEn = await p.evaluate(() => ({
+    tittel: document.querySelector('#notif-snooze-panel .notif-snooze-title').textContent,
+    valg: [...document.querySelectorAll('#notif-snooze-panel .notif-snooze-choice')].map((b) => b.textContent),
+  }));
+  log('12e: utsett-popoveren er engelsk', snoozeEn.tittel === 'Notify me again in' &&
+    eq(snoozeEn.valg, ['1 hour', '6 hours', '1 day', 'Custom']), JSON.stringify(snoozeEn));
+  await p.keyboard.press('Escape');
+  await p.waitForTimeout(200);
   await p.click('#notif-clear');
   await p.waitForTimeout(250);
   const undo = await p.evaluate(() => document.getElementById('notif-clear').textContent);
@@ -527,9 +606,211 @@ async function runKontobytte() {
   await browser.close();
 }
 
+/* DATOOVERSKRIFTENE og MELDINGENE. Varslene samles i bunker per døgn — «I dag»,
+   «I går», og ellers ukedagen foran den fulle datoen — og selve meldingen
+   navngir de tre nærmeste døgnene i stedet for å skrive datoen ut («Begynte i
+   dag kl. 07:00»). Radene seedes på faste avstander fra nå, så testen ikke er
+   avhengig av hvilken dato den kjøres på. */
+async function runDatoer() {
+  const browser = await chromium.launch();
+  const ctx = await browser.newContext({ viewport: { width: 1200, height: 900 },
+    timezoneId: 'Europe/Oslo', locale: 'nb-NO' });
+  const p = await ctx.newPage();
+  const errs = [];
+  p.on('pageerror', (e) => errs.push(e.message));
+  console.log('\n== datoer ==');
+  const { id, uid, db } = buildDB();
+  await seed(p, db, uid);
+
+  const pad2 = (n) => String(n).padStart(2, '0');
+  const dStr = (d) => d.getFullYear() + '-' + pad2(d.getMonth() + 1) + '-' + pad2(d.getDate());
+  const dagen = (off) => { const x = new Date(); x.setDate(x.getDate() + off); return x; };
+  // Kl. 12 lokalt på hvert døgn: et varsel logget midt på dagen kan ikke skli
+  // over til nabodøgnet uansett når testen kjøres.
+  const kl12 = (off) => { const x = dagen(off); x.setHours(12, 0, 0, 0); return x.getTime(); };
+  /* Dagens rader må være PASSERT (et varsel fram i tid er usynlig) og samtidig
+     ligge innenfor dagens døgn — også hvis testen skulle kjøre like etter
+     midnatt. Derfor «for et øyeblikk siden, men tidligst rett etter midnatt». */
+  const midnatt = new Date().setHours(0, 0, 0, 0);
+  const nettopp = (k) => Math.max(midnatt + 3000, Date.now() - 10000) - k * 1000;
+
+  await addNotifs(p, [
+    // I dag: en utløpt frist med klokkeslett, og en start uten klokkeslett.
+    { type: 'dueOver', obj_type: 'card', obj_id: id.C1, name: 'Skattemelding',
+      at: nettopp(0), value: dStr(dagen(0)) + 'T09:00' },
+    { type: 'startNow', obj_type: 'card', obj_id: id.C2, name: 'Sykkeltur',
+      at: nettopp(1), value: dStr(dagen(0)) },
+    // … og et varsel om noe som begynner i MORGEN, logget i dag.
+    { type: 'startSoon', obj_type: 'item', obj_id: id.I3, name: 'Pakke',
+      at: nettopp(2), value: dStr(dagen(1)) + 'T17:00' },
+    // I går.
+    { type: 'startNow', obj_type: 'item', obj_id: id.I1, name: 'Levere',
+      at: kl12(-1), value: dStr(dagen(-1)) + 'T06:10' },
+    // Og en eldre bunke, som skal få ukedag + full dato.
+    { type: 'startNow', obj_type: 'item', obj_id: id.I2, name: 'Pumpe dekk',
+      at: kl12(-5), value: dStr(dagen(-5)) + 'T06:00' },
+  ]);
+  await cycle(p);
+  await p.click('#notif-btn');
+  await p.waitForTimeout(300);
+
+  const bunker = await p.evaluate(() => [...document.querySelectorAll('#notif-body .notif-day')]
+    .map((sec) => ({
+      dag: sec.querySelector('.notif-day-head').textContent,
+      rader: [...sec.querySelectorAll('.notif-item')].map((li) => ({
+        navn: li.querySelector('.notif-name').textContent,
+        melding: li.querySelector('.notif-meta').textContent,
+      })),
+    })));
+  log('14a: varslene samles i bunker per døgn, nyeste bunke øverst',
+    bunker.length === 3 && bunker[0].dag === 'I dag' && bunker[1].dag === 'I går',
+    JSON.stringify(bunker.map((b) => b.dag)));
+  const eldre = new Date(); eldre.setDate(eldre.getDate() - 5);
+  const ukedager = ['Søndag', 'Mandag', 'Tirsdag', 'Onsdag', 'Torsdag', 'Fredag', 'Lørdag'];
+  const måneder = ('januar februar mars april mai juni juli august september oktober ' +
+    'november desember').split(' ');
+  const ventet = ukedager[eldre.getDay()] + ' ' + eldre.getDate() + '. ' + måneder[eldre.getMonth()];
+  log('14b: eldre bunker står med ukedag foran den fulle datoen',
+    bunker[2].dag === ventet, bunker[2].dag + ' (ventet ' + ventet + ')');
+
+  const m = {};
+  bunker.forEach((b) => b.rader.forEach((r) => { m[r.navn] = r.melding; }));
+  log('14c: en utløpt frist sier hva som skjedde og når den var',
+    m.Skattemelding === 'Fristen er utløpt – den var i dag kl. 09:00.', m.Skattemelding);
+  log('14d: en start uten klokkeslett nevner ikke noe klokkeslett',
+    m.Sykkeltur === 'Begynte i dag.', m.Sykkeltur);
+  log('14e: et døgn fram heter «i morgen», ikke en dato',
+    m.Pakke === 'Begynner i morgen kl. 17:00.', m.Pakke);
+  log('14f: gårsdagen heter «i går»', m.Levere === 'Begynte i går kl. 06:10.', m.Levere);
+  const eldreDag = eldre.getDate() + '. ' + ('jan feb mar apr mai jun jul aug sep okt nov des'
+    .split(' ')[eldre.getMonth()]);
+  log('14g: lenger tilbake står den faktiske datoen i meldingen',
+    m['Pumpe dekk'] === 'Begynte ' + eldreDag + ' kl. 06:00.', m['Pumpe dekk']);
+
+  log('datoer: ingen JS-feil', errs.length === 0, errs.join(' | '));
+  await browser.close();
+}
+
+/* VARSEL-TOASTENE. Et varsel som dukker opp mens appen står åpen springer ut
+   fra bjelleknappen: farget etter typen, i tre sekunder, med trykk til
+   varselet og sveip-til-høyre for å fjerne den før tiden er ute. */
+async function runToasts() {
+  const browser = await chromium.launch();
+  const ctx = await browser.newContext({ viewport: { width: 1200, height: 900 },
+    timezoneId: 'Europe/Oslo', locale: 'nb-NO' });
+  const p = await ctx.newPage();
+  const errs = [];
+  p.on('pageerror', (e) => errs.push(e.message));
+  console.log('\n== toasts ==');
+  const { id, uid, db } = buildDB();
+  /* HISTORIKKEN SKAL IKKE TOASTE. Raden ligger på kontoen FØR appen åpnes, og
+     den første runden seeder «sett»-settet uten å vise noe — ellers ville en
+     innlogging gitt en vegg av toaster. */
+  db.notifications.push({ id: U(), user_id: uid, key: 'k-gammel', snoozed: false,
+    type: 'dueOver', obj_type: 'card', obj_id: id.C1, name: 'Gammel',
+    path: 'Arbeid › Klinikk', value: '2026-06-14T12:00',
+    at: Date.now() - 3600000, created_at: Date.now() - 3600000, read_at: null });
+  await seed(p, db, uid);
+  await p.waitForTimeout(500);
+
+  const pad2 = (n) => String(n).padStart(2, '0');
+  const dStr = (d) => d.getFullYear() + '-' + pad2(d.getMonth() + 1) + '-' + pad2(d.getDate());
+  const dagen = (off) => { const x = new Date(); x.setDate(x.getDate() + off); return x; };
+
+  log('15a: historikken som alt lå der gir ingen toast',
+    (await p.locator('.notif-toast').count()) === 0);
+
+  // … men et varsel som kommer ETTERPÅ gjør det.
+  await addNotifs(p, [{ type: 'dueSoon', obj_type: 'card', obj_id: id.C2, name: 'Sykkeltur',
+    at: Date.now() - 500, value: dStr(dagen(3)) }]);
+  await cycle(p);
+  await p.waitForSelector('.notif-toast', { timeout: 4000 });
+  const toast = await p.evaluate(() => {
+    const t = document.querySelector('.notif-toast');
+    const r = t.getBoundingClientRect();
+    const b = document.getElementById('notif-btn').getBoundingClientRect();
+    const bg = getComputedStyle(t).backgroundColor;
+    return {
+      navn: t.querySelector('.notif-toast-name').textContent,
+      melding: t.querySelector('.notif-toast-msg').textContent,
+      tone: [...t.classList].filter((c) => c.indexOf('is-') === 0).join(''),
+      ikon: !!t.querySelector('.event-icon svg'),
+      label: t.getAttribute('aria-label'),
+      // Springer ut fra bjellen: stabelen henger rett under knappen.
+      underBjellen: r.top >= b.bottom && r.top - b.bottom < 40 && Math.abs(r.right - b.right) < 40,
+      // Flaten er typens egen farge — halvgjennomsiktig, med blur bak.
+      alfa: (bg.match(/rgba?\(([^)]*)\)/) || ['', ''])[1].split(',').map((x) => x.trim())[3],
+      blur: getComputedStyle(t).backdropFilter || getComputedStyle(t).webkitBackdropFilter,
+    };
+  });
+  log('15b: toasten viser navn og en kort setning, ikke radens fulle melding',
+    toast.navn === 'Sykkeltur' && toast.melding === 'Fristen utløper om 3 dager' && toast.ikon,
+    JSON.stringify(toast));
+  log('15c: flaten bærer varseltypens tone, halvgjennomsiktig og med blur bak',
+    toast.tone === 'is-soon' && parseFloat(toast.alfa) > 0 && parseFloat(toast.alfa) < 1 &&
+    /blur/.test(toast.blur || ''), JSON.stringify({ tone: toast.tone, alfa: toast.alfa, blur: toast.blur }));
+  log('15d: toasten springer ut fra bjelleknappen', toast.underBjellen === true,
+    JSON.stringify(toast.underBjellen));
+  log('15e: opplesningen bærer type, navn og melding',
+    /^Frist om mindre enn en uke: Sykkeltur\./.test(toast.label || ''), toast.label);
+
+  // Sveip til høyre fjerner den før de tre sekundene er gått.
+  const boks = await p.locator('.notif-toast').boundingBox();
+  await p.mouse.move(boks.x + 20, boks.y + boks.height / 2);
+  await p.mouse.down();
+  await p.mouse.move(boks.x + 260, boks.y + boks.height / 2, { steps: 12 });
+  await p.mouse.up();
+  await p.waitForTimeout(400);
+  log('15f: sveip til høyre fjerner toasten før tiden er ute',
+    (await p.locator('.notif-toast').count()) === 0);
+
+  // Et nytt varsel → trykk på toasten skal åpne modalen ved NØYAKTIG det varselet.
+  await addNotifs(p, [{ type: 'startNow', obj_type: 'item', obj_id: id.I3, name: 'Pakke',
+    at: Date.now() - 300, value: dStr(dagen(0)) + 'T07:00' }]);
+  await cycle(p);
+  await p.waitForSelector('.notif-toast', { timeout: 4000 });
+  const toast2 = await p.evaluate(() => ({
+    melding: document.querySelector('.notif-toast .notif-toast-msg').textContent,
+    tone: [...document.querySelector('.notif-toast').classList].filter((c) => c.indexOf('is-') === 0)[0],
+  }));
+  log('15g: «Starter nå» har startgruppens egen tone, ikke en varselfarge',
+    toast2.melding === 'Starter nå' && toast2.tone === 'is-started', JSON.stringify(toast2));
+  await p.click('.notif-toast');
+  await p.waitForSelector('#notif-modal:not([hidden])');
+  await p.waitForTimeout(400);
+  const truffet = await p.evaluate(() => {
+    const a = document.activeElement;
+    return { iModalen: !!document.getElementById('notif-modal').contains(a),
+      navn: a && a.querySelector ? (a.querySelector('.notif-name') || {}).textContent : null,
+      toasterIgjen: document.querySelectorAll('.notif-toast').length };
+  });
+  log('15h: trykk på toasten åpner modalen ved det varselet toasten gjaldt',
+    truffet.iModalen === true && truffet.navn === 'Pakke' && truffet.toasterIgjen === 0,
+    JSON.stringify(truffet));
+
+  /* Står modalen åpen, ER varselet allerede synlig der — da skal ingen toast
+     legge seg oppå og peke på noe brukeren ser. */
+  await addNotifs(p, [{ type: 'dueOver', obj_type: 'card', obj_id: id.C3, name: 'Flyttedag',
+    at: Date.now() - 200, value: dStr(dagen(0)) + 'T08:00' }]);
+  await cycle(p);
+  await p.waitForTimeout(500);
+  const medÅpenModal = await p.evaluate(() => ({
+    toaster: document.querySelectorAll('.notif-toast').length,
+    rader: [...document.querySelectorAll('#notif-body .notif-name')].map((e) => e.textContent),
+  }));
+  log('15i: ingen toast mens varselmodalen står åpen — raden er der allerede',
+    medÅpenModal.toaster === 0 && medÅpenModal.rader.indexOf('Flyttedag') > -1,
+    JSON.stringify(medÅpenModal));
+
+  log('toasts: ingen JS-feil', errs.length === 0, errs.join(' | '));
+  await browser.close();
+}
+
 (async () => {
   await run('desktop', { width: 1200, height: 900 }, false);
   await run('mobil', { width: 390, height: 780 }, true);
+  await runDatoer();
+  await runToasts();
   await runEngelsk();
   await runKontobytte();
   const ok = results.filter(Boolean).length;
