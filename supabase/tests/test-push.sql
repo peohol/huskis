@@ -173,6 +173,45 @@ select public.t_check('… men aldri en annen brukers endepunkt',
   (select count(*) from public.push_subscriptions where user_id = :'B') = 1);
 select set_config('request.jwt.claim.sub', :'A', false); set role authenticated;
 
+-- ---------- 5b. EIERSKIFTE: køen tilhører den forrige brukeren ----------
+-- Endepunktet ER nettleseren. Logger noen andre inn i den samme nettleseren,
+-- flyttes abonnementet — og da skal ikke den forrige brukerens køede varsler,
+-- som hver bærer et objektnavn, bli levert til den nye.
+select public.push_subscribe('https://push.example.com/delt', 'p256-d', 'auth-d',
+  '{"dueSoon": "Frist innen en uke"}'::jsonb, 'Europe/Oslo') as sub_delt \gset
+select public.notify_record(jsonb_build_array(
+  jsonb_build_object('key', 'dueSoon|card|' || :'AC' || '|2027-06-01', 'type', 'dueSoon',
+    'obj_type', 'card', 'obj_id', :'AC', 'name', 'Hemmelig avtale', 'path', 'x',
+    'value', '2027-06-01', 'at', :'fram'::bigint)));
+select public.t_check('A har en køet levering til den delte nettleseren',
+  public.t_deliveries(:'A'::uuid, 'pending') > 0);
+
+reset role; select set_config('request.jwt.claim.sub', :'B', false); set role authenticated;
+select public.push_subscribe('https://push.example.com/delt', 'p256-d2', 'auth-d2',
+  '{"dueSoon": "Deadline within a week"}'::jsonb, 'America/New_York');
+reset role;
+select public.t_check('B overtar endepunktet — og A sin kø til det er borte',
+  (select count(*) from public.push_deliveries d
+    where d.subscription_id = :'sub_delt'::uuid and d.user_id = :'A'::uuid) = 0);
+select public.t_check('… mens abonnementet nå står på B',
+  (select user_id from public.push_subscriptions where id = :'sub_delt'::uuid) = :'B'::uuid);
+-- Andre lag: en levering som LIKEVEL skulle blitt hengende igjen etter et
+-- eierskifte skal være inert for senderen, ikke leveres til feil bruker.
+insert into public.push_deliveries (notification_id, subscription_id, user_id, due_at)
+select n.id, :'sub_delt'::uuid, :'A'::uuid, :'bak'::bigint
+  from public.notifications n where n.user_id = :'A' limit 1;
+select set_config('request.jwt.claims', '{"role":"service_role"}', false);
+select public.t_check('senderen plukker aldri opp en levering som ikke hører til abonnementets eier',
+  not exists (
+    select 1 from jsonb_array_elements(public.push_claim(50, 0)) x
+     where (x ->> 'endpoint') = 'https://push.example.com/delt'));
+delete from public.push_deliveries where subscription_id = :'sub_delt'::uuid;
+delete from public.push_subscriptions where id = :'sub_delt'::uuid;
+-- Rydd fiksturen tilbake dit seksjon 6 forventer den.
+delete from public.notifications where user_id = :'A' and name = 'Hemmelig avtale';
+select set_config('request.jwt.claims', '', false);
+select set_config('request.jwt.claim.sub', :'A', false); set role authenticated;
+
 -- ---------- 6. senderens funksjoner er stengt for klienten ----------
 select public.t_fails('push_claim() er ikke kallbar som innlogget bruker',
   $$select public.push_claim(10)$$);

@@ -89,6 +89,29 @@ function fakePlattform() {
   window.__kanal = { schedule: [], cancel: [], pending: [], perm: q.get('perm') || 'prompt',
     spurt: 0, vist: [], meldt: [] };
 
+  /* Ett RPC-kall kan tvinges til å feile: `window.__kanal.rpcFeil = '<navn>'`.
+     Klienten app.js bruker lages ved oppstart, så innpakningen må sitte på
+     `createClient` FØR mock-backenden blir tatt i bruk. */
+  Object.defineProperty(window, 'HK_MOCK', {
+    configurable: true,
+    set(v) {
+      const lagKlient = v.createClient;
+      v.createClient = function () {
+        const c = lagKlient.apply(this, arguments);
+        const ekte = c.rpc.bind(c);
+        c.rpc = function (navn, params) {
+          if (window.__kanal && window.__kanal.rpcFeil === navn) {
+            return Promise.resolve({ data: null, error: { message: 'nettverksfeil (test)' } });
+          }
+          return ekte(navn, params);
+        };
+        return c;
+      };
+      Object.defineProperty(window, 'HK_MOCK', { value: v, writable: true, configurable: true });
+    },
+    get() { return undefined; },
+  });
+
   if (q.get('nokkel') !== '0') {
     // config.js setter HUSKIS_CONFIG; vi tar imot den og legger nøkkelen inn
     // FØR app.js leser den.
@@ -461,6 +484,44 @@ async function run() {
   log('4m: historikken og planen er urørt — kanalen er en LEVERING, ikke modellen',
     w2.notifications.length === w1.notifications.length,
     w2.notifications.length + ' av ' + w1.notifications.length);
+
+  /* ---------- 4n) Å slå av OFFLINE rigger likevel ned lokalt ----------
+     Det er avmeldingen i nettleseren som faktisk stopper et varsel. Svarer
+     serveren feil — en utlogging uten nett er nettopp det tilfellet — skal den
+     lokale nedriggingen skje likevel; ellers ville en utlogget nettleser
+     fortsatt vist varsler med objektnavn. */
+  await pw.evaluate(() => { window.__kanal.avregistrert = false; });
+  await pw.evaluate(() => window.__huskis.setNotifChannel(true));
+  await pw.waitForFunction(() => window.HK_MOCK._loadDB().push_subscriptions.length > 0,
+    null, { timeout: 8000, polling: 100 });
+  await pw.evaluate(() => { window.__kanal.rpcFeil = 'push_unsubscribe'; });
+  // `setNotifChannel` returnerer et promise, og evaluate venter på det — så
+  // avslåingen er FERDIG når linjen under er det, uansett hvordan den gikk.
+  await pw.evaluate(() => window.__huskis.setNotifChannel(false));
+  const offline = await pw.evaluate(async () => {
+    const reg = await navigator.serviceWorker.getRegistration();
+    return {
+      avregistrert: window.__kanal.avregistrert,
+      abo: reg ? await reg.pushManager.getSubscription() : null,
+      serverrad: window.HK_MOCK._loadDB().push_subscriptions.length,
+      kanal: window.__huskis.notifChState,
+      vil: window.__huskis.notifChannelWanted(),
+    };
+  });
+  log('4n: en avslåing der serveren svarer feil melder likevel av lokalt',
+    offline.abo === null && offline.avregistrert === true, JSON.stringify(offline));
+  log('4o: … kanalen er av her, for uten service worker finnes det ingen som kan vise et varsel',
+    offline.kanal === 'off' && offline.vil === false, JSON.stringify(offline));
+  log('4p: … og at serverraden ble stående er nettopp det som gjorde sjekken ekte',
+    offline.serverrad === 1, offline.serverrad);
+  // Ryddet: i drift gjør første sending det (410 → raden slås av).
+  await pw.evaluate(() => {
+    window.__kanal.rpcFeil = null;
+    const d = window.HK_MOCK._loadDB();
+    d.push_subscriptions = [];
+    d.push_deliveries = [];
+    window.HK_MOCK._saveDB(d);
+  });
 
   /* ---------- 5) Blokkert tillatelse ---------- */
   await pw.evaluate(() => { window.__kanal.svar = 'denied'; });

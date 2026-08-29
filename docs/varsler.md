@@ -693,13 +693,33 @@ har rullert, nye etiketter etter et språkbytte, eller et abonnement som ble
 meldt av ved utlogging. Fornyelsen er dermed selvhelbredende og spør aldri om
 tillatelse på nytt.
 
+**Et eierskifte tømmer køen.** Flyttingen over gjelder raden — men køen som lå
+på den er den FORRIGE brukerens, og hver levering bærer et objektnavn. Uten en
+tømming ville den nye brukerens nettleser vist forrige brukers varsler i det de
+forfalt. `push_subscribe()` sletter dem derfor i den samme operasjonen som
+flytter raden, og `push_claim()` plukker aldri opp en levering der
+abonnementets eier ikke lenger er leveringens: andre lag gjør en rad som
+likevel skulle bli hengende igjen INERT i stedet for feillevert.
+
+**Avmeldingen går lokalt FØRST.** Det er avmeldingen i nettleseren som faktisk
+stopper et varsel: uten service worker finnes det ingen som kan vise et, og et
+avmeldt endepunkt gir 410 ved neste sending — som slår raden av på serveren av
+seg selv. Ble serveren spurt først og svarte feil, ville hele den lokale
+nedriggingen blitt hoppet over, og en utlogging UTEN NETT hadde gitt det
+motsatte av hensikten: en utlogget nettleser som fortsetter å vise varsler med
+objektnavn. Serveropprydningen er derfor best effort, og skjer etterpå.
+
 **Etikettene følger med abonnementet.** De fire typetekstene lagres i
 `labels`, på brukerens språk. Service workeren har ingen ordbok, og SQL skal
 ikke ha en — uten dette leddet måtte i18n ha ligget to steder til.
 
-**Utlogging melder av.** `push_unsubscribe()` kjøres FØR sesjonen slippes: et
-abonnement som ble stående ville sendt varsler med objektnavn til en nettleser
-ingen er logget inn i.
+**Utlogging melder av.** Avmeldingen kjøres FØR sesjonen slippes: et abonnement
+som ble stående ville sendt varsler med objektnavn til en nettleser ingen er
+logget inn i. Med en frist på tre sekunder, og den er ikke pynt — dette er det
+eneste nettverkskallet som står mellom brukeren og utloggingen, og en treg
+server skal ikke kunne holde noen innlogget. Den lokale nedriggingen ligger
+først i rekkefølgen nettopp derfor: den er ferdig lenge før fristen kan løpe
+ut.
 
 ### Service workeren (`sw.js`)
 
@@ -838,6 +858,7 @@ De to henger sammen på nøyaktig ett punkt, og ellers ikke:
 - `supabase/tests/test-notifications.sql` — RLS, idempotent logging, markøren,
   preferansene og kontosletting.
 - `supabase/tests/test-push.sql` — abonnementene og RLS-en rundt dem, utboksens
-  idempotens, kaskaden som avlyser en levering, at senderens funksjoner er
-  stengt for klienten, hent/send/meld-runden med alle tre utfallene, og
-  tidssone-hevdelsen.
+  idempotens, kaskaden som avlyser en levering, at et EIERSKIFTE tømmer køen og
+  at senderen aldri plukker opp en levering som ikke hører til abonnementets
+  eier, at senderens funksjoner er stengt for klienten, hent/send/meld-runden
+  med alle tre utfallene, og tidssone-hevdelsen.

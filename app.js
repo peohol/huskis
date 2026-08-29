@@ -11469,22 +11469,32 @@
         applicationServerKey: b64urlBytes(PUSH_PUBLIC_KEY),
       }));
     },
+    /* LOKALT FØRST, og alltid. Det er avmeldingen i nettleseren som faktisk
+       stopper et varsel: uten service worker finnes det ingen som kan vise et,
+       og et avmeldt endepunkt gir 410 ved neste sending — som slår raden av på
+       serveren av seg selv.
+
+       Ble serveren spurt først og svarte feil, ville vi hoppet over hele den
+       lokale nedriggingen. En utlogging OFFLINE er nettopp det tilfellet, og
+       resultatet ville vært det motsatte av hensikten: en utlogget nettleser
+       som fortsetter å vise varsler med objektnavn. Serveropprydningen er
+       derfor best effort, og skjer ETTERPÅ. */
     async disable() {
       if (!('serviceWorker' in navigator)) return true;
       const reg = await navigator.serviceWorker.getRegistration();
       if (!reg) return true;
-      const sub = reg.pushManager && await reg.pushManager.getSubscription();
-      if (sub) {
-        // Serveren først: blir raden stående mens nettleseren har glemt
-        // abonnementet, sender vi til et endepunkt ingen leser.
-        const client = acli();
-        if (client && authUser) {
-          const { error } = await client.rpc('push_unsubscribe', { p_endpoint: sub.endpoint });
-          if (error) throw error;
-        }
-        await sub.unsubscribe();
-      }
+      const sub = (reg.pushManager && await reg.pushManager.getSubscription()) || null;
+      const endpoint = sub && sub.endpoint;
+      // Avmeldingen snakker med pushtjenesten og kan feile uten nett. Den
+      // står derfor for seg: avregistreringen under er den harde garantien.
+      try { if (sub) await sub.unsubscribe(); } catch (e) { /* dekkes av linjen under */ }
       await reg.unregister();
+      if (endpoint) {
+        const client = acli();
+        // Feiler denne, er kanalen likevel av her — og endepunktet er dødt, så
+        // første sending rydder raden. Ingen grunn til å kalle avslåingen mislykket.
+        if (client && authUser) await client.rpc('push_unsubscribe', { p_endpoint: endpoint });
+      }
       return true;
     },
     /* Fornyelse. Et abonnement kan bytte endepunkt (nettleseren rullerer, eller

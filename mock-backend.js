@@ -541,9 +541,14 @@
       row = { id: newUuid(), endpoint: p.p_endpoint, created_at: Date.now() };
       db.push_subscriptions.push(row);
     }
-    // Som serveren: endepunktet ER nettleseren, så en ny innlogging flytter
-    // abonnementet i stedet for å lage en dublett — og et endepunkt som var
-    // slått av våkner, siden nettleseren nettopp sa at det virker.
+    /* EIERSKIFTE (som serveren): endepunktet ER nettleseren, så en ny
+       innlogging flytter abonnementet i stedet for å lage en dublett — og et
+       endepunkt som var slått av våkner, siden nettleseren nettopp sa at det
+       virker. Men køen som lå der er den FORRIGE brukerens, og hver levering
+       bærer et objektnavn. Den tømmes i samme operasjon. */
+    if (row.user_id && row.user_id !== uid) {
+      db.push_deliveries = db.push_deliveries.filter(function (d) { return d.subscription_id !== row.id; });
+    }
     row.user_id = uid;
     row.p256dh = p.p_p256dh;
     row.auth = p.p_auth;

@@ -2707,9 +2707,10 @@ create or replace function public.push_subscribe(p_endpoint text, p_p256dh text,
                                                  p_tz text default null)
 returns uuid language plpgsql security definer set search_path = public as $$
 declare
-  uid    uuid   := auth.uid();
-  now_ms bigint := (extract(epoch from now()) * 1000)::bigint;
-  sub_id uuid;
+  uid     uuid   := auth.uid();
+  now_ms  bigint := (extract(epoch from now()) * 1000)::bigint;
+  sub_id  uuid;
+  forrige uuid;
 begin
   if uid is null then raise exception 'ikke innlogget'; end if;
   if p_endpoint is null or p_endpoint = '' then raise exception 'mangler endepunkt'; end if;
@@ -2720,6 +2721,10 @@ begin
     raise exception 'ugyldig endepunkt';
   end if;
   if p_p256dh is null or p_auth is null then raise exception 'mangler nøkler'; end if;
+
+  -- Hvem eide endepunktet FØR dette kallet? Svaret avgjør om køen som ligger
+  -- der fortsatt er ment for den som nå bruker nettleseren.
+  select user_id into forrige from public.push_subscriptions where endpoint = p_endpoint;
 
   insert into public.push_subscriptions (user_id, endpoint, p256dh, auth, labels, tz)
   values (uid, p_endpoint, p_p256dh, p_auth, coalesce(p_labels, '{}'::jsonb), p_tz)
@@ -2732,6 +2737,15 @@ begin
          seen_at     = now_ms,
          disabled_at = null
   returning id into sub_id;
+
+  /* EIERSKIFTE. Endepunktet er nettleseren, og raden flyttes til den som
+     logger inn i den — men køen som lå der er den FORRIGE brukerens, og hver
+     av de leveringene bærer et objektnavn. Uten denne slettingen ville den nye
+     brukerens nettleser vist forrige brukers varsler i det de forfalt. Køen
+     tømmes derfor i den SAMME operasjonen som flytter raden. */
+  if forrige is not null and forrige <> uid then
+    delete from public.push_deliveries where subscription_id = sub_id;
+  end if;
 
   perform public.push_enqueue(uid);
   return sub_id;
@@ -2772,6 +2786,12 @@ begin
      where d.status = 'pending'
        and d.due_at <= now_ms
        and (d.claimed_at is null or now_ms - d.claimed_at >= coalesce(p_lock_ms, 300000))
+       /* Leveringen må fortsatt gjelde den som EIER abonnementet nå.
+          push_subscribe() tømmer køen ved et eierskifte, så dette er andre
+          lag — en rad som likevel skulle bli hengende igjen blir INERT i
+          stedet for å bli levert til feil bruker. */
+       and exists (select 1 from public.push_subscriptions s
+                    where s.id = d.subscription_id and s.user_id = d.user_id)
      order by d.due_at
      limit greatest(coalesce(p_limit, 50), 1)
        for update skip locked
