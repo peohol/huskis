@@ -239,6 +239,13 @@ forfaller. Modalen og badgen sover fram til det første slike tidspunktet
 (`scheduleNotifWake`), med samme tak og samme `visibilitychange` som
 hendelsesmodalen.
 
+**Neste midnatt er alltid en grense der også.** Datooverskriftene og
+dagsnavnene i meldingene avhenger av hvilket døgn vi står i, ikke av radene:
+uten den vekkingen ville en modal som står åpen over midnatt uten at noe annet
+skjer — appen ligger stille, ingen synk-runde, ingen utsatte varsler — blitt
+stående med gårsdagens ord. Datoen i signaturen sørger for at malingen faktisk
+skjer når vekkingen kommer.
+
 Å utsette er samtidig en kvittering: det opprinnelige varselet merkes lest.
 Markøren røres ikke — ingen terskler er vurdert.
 
@@ -355,9 +362,14 @@ Begge ytterpunktene (helt hvitt og helt svart bak) er med i kontrastkontrakten
   en innlogging gitt en vegg av toaster — historikken er opptil 200 rader.
 - Et **utsatt** varsel er ikke med i settet før det FORFALLER, og toaster derfor
   når det blir synlig.
-- Toaster vises ikke mens **varselmodalen står åpen**: raden er allerede synlig
-  der, og toastens eneste handling ville pekt på noe brukeren ser. Runden
-  oppdaterer settet likevel, så den ikke kommer igjen etterpå.
+- Toaster vises ikke mens **et lag står åpent** (`body.modal-open`). Er det
+  varselmodalen, er raden allerede synlig der. Er det noe annet, ville et trykk
+  på toasten stablet varselmodalen oppå et lag brukeren står midt i — og
+  Escape-stigen (`closeTopLayer`) hadde lukket det underste først. Runden
+  oppdaterer settet likevel, så toasten ikke kommer igjen når laget lukkes.
+- Å følge ÉN toast inn i modalen rydder **hele stabelen**: søsknene viser rader
+  modalen nå selv har. Et lag som rakk å åpne seg etter at toasten kom, lukkes
+  først, av samme grunn som over.
 - Én runde viser maksimalt tre toaster (de nyeste). En catch-up-runde kan ha
   dusinvis av rader, og en kø av toaster er ingen kø — badgen og modalen har
   resten.

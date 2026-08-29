@@ -10278,9 +10278,15 @@
       name: row.name || tr('common.noName'),
       msg: body,
     }));
-    // Trykk → varselet selv, i modalen (raden rulles fram og fokuseres).
+    /* Trykk → varselet selv, i modalen (raden rulles fram og fokuseres).
+       HELE stabelen ryddes: søsknene viser rader modalen nå selv har, og de
+       ville blitt liggende oppå den ut timeren sin. Og et lag som rakk å åpne
+       seg etter at toasten kom, lukkes først — varselmodalen skal ikke stables
+       oppå det. Løkken har et tak, ikke fordi stigen kan være uendelig, men
+       fordi ingen løkke over en tilstand andre kan endre skal være det. */
     el.addEventListener('click', () => {
-      removeNotifToast(el);
+      clearNotifToasts();
+      for (let i = 0; i < 8 && closeTopLayer(false); i++) { /* tøm stigen */ }
       openNotifModal({ focusId: row.id });
     });
     /* Sveip til høyre lukker, som for den vanlige toasten — samme motor, bare
@@ -10309,10 +10315,15 @@
     const fresh = visible.filter((r) => !notifSeen.has(r.id) && !r.readAt);
     visible.forEach((r) => notifSeen.add(r.id));
     if (!fresh.length) return;
-    /* Står modalen åpen, ER varselet allerede synlig der — en toast oppå ville
-       bare pekt på noe brukeren ser. Demonstrasjonen bytter ut hele tilstanden
-       og skal ikke avbrytes av noe som helst. */
-    if (demoActive || (notifModal && !notifModal.hidden)) return;
+    /* Ligger det et lag over appen, skal ingen toast legge seg oppå det. Står
+       VARSELMODALEN åpen, er raden allerede synlig der. Står noe ANNET åpent —
+       en modal, en popover — ville et trykk på toasten stablet varselmodalen
+       oppå et lag brukeren står midt i, og Escape-stigen (`closeTopLayer`)
+       hadde lukket det underste først. `body.modal-open` er den ene fasiten på
+       at et lag står åpent (`updateModalOpenClass`). Settet er alt oppdatert
+       over, så toasten kommer ikke igjen når laget lukkes.
+       Demonstrasjonen bytter ut hele tilstanden og skal ikke avbrytes. */
+    if (demoActive || document.body.classList.contains('modal-open')) return;
     // Eldste først, og bare de siste: en catch-up-runde kan ha dusinvis av
     // rader, og en kø av toaster er ingen kø — badgen og modalen har resten.
     fresh.sort((a, b) => (a.at - b.at) || (a.id < b.id ? -1 : 1));
@@ -10684,9 +10695,17 @@
   function scheduleNotifWake(now) {
     clearTimeout(notifTimer);
     notifTimer = null;
-    let next = Infinity;
+    /* NESTE MIDNATT er alltid en grense, uavhengig av radene: datooverskriftene
+       («I dag» → «I går») og dagsnavnene i meldingene («i morgen» → «i dag»)
+       avhenger av hvilket døgn vi står i. Uten den ville en modal som står åpen
+       over midnatt uten at noe annet skjer — offline, ingen utsatte varsler —
+       blitt stående med gårsdagens ord til noe helt annet malte om. Datoen i
+       signaturen sørger for at malingen da faktisk skjer. */
+    const midnight = new Date(now);
+    midnight.setHours(24, 0, 0, 0);
+    let next = midnight.getTime();
+    // … og et utsatt varsel som forfaller før det.
     notifRows.forEach((r) => { if (r.at > now && r.at < next) next = r.at; });
-    if (next === Infinity) return;
     notifTimer = setTimeout(() => {
       paintNotifBadge();
       refreshNotifModal();

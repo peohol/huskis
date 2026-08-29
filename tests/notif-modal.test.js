@@ -38,8 +38,12 @@
         som navngir de tre nærmeste døgnene i stedet for å skrive datoen ut.
     15. Varsel-toastene: historikken toaster ikke, et nytt varsel gjør det —
         med typens tone, halvgjennomsiktig flate og blur, ut fra bjelleknappen.
-        Sveip fjerner den, trykk fører til varselet i modalen, og ingen toast
-        kommer mens modalen står åpen.
+        Sveip fjerner den, trykk fører til varselet i modalen og rydder hele
+        stabelen, og ingen toast kommer oppå et lag som alt står åpent
+        (varselmodalen selv eller en annen modal).
+    16. Midnatt: en modal som står ÅPEN over midnatt maler seg om av seg selv
+        («I dag» → «I går»), også når appen ligger stille og ingen synk-runde
+        rører den. Playwrights klokke settes rett før midnatt og spoles forbi.
 
   Kjøres på BÅDE desktop- og mobil-viewport.
 
@@ -802,7 +806,122 @@ async function runToasts() {
     medÅpenModal.toaster === 0 && medÅpenModal.rader.indexOf('Flyttedag') > -1,
     JSON.stringify(medÅpenModal));
 
+  /* … og ingen toast oppå et ANNET lag heller. Et trykk på den ville stablet
+     varselmodalen oppå laget brukeren står i, og Escape-stigen hadde lukket
+     det underste først. */
+  await p.keyboard.press('Escape');
+  await p.waitForTimeout(300);
+  await p.click('#events-btn');
+  await p.waitForSelector('#events-modal:not([hidden])');
+  await addNotifs(p, [{ type: 'dueOver', obj_type: 'card', obj_id: id.C1, name: 'Under kalenderen',
+    at: Date.now() - 30000, value: dStr(dagen(0)) + 'T08:00' }]);
+  await cycle(p);
+  // Raden MÅ ha kommet fram mens kalendermodalen sto åpen — ellers ville
+  // fraværet av en toast bevist ingenting.
+  const levert = await p.evaluate(() =>
+    window.__huskis.notifRows.some((r) => r.name === 'Under kalenderen'));
+  log('15j: ingen toast oppå en annen åpen modal',
+    levert === true && (await p.locator('.notif-toast').count()) === 0, 'levert ' + levert);
+  await p.keyboard.press('Escape');
+  await p.waitForTimeout(300);
+
+  /* Følger man ÉN toast inn i modalen, skal søsknene ikke bli liggende oppå
+     den ut timeren sin — de viser rader modalen nå selv har. */
+  /* Tidspunktene settes godt tilbake i tid: `at` regnes her i testprosessen,
+     mens synligheten (`at <= now`) måles av SIDENS klokke, og et par hundre
+     millisekunders avvik mellom dem ville gjort den ene raden usynlig ennå. */
+  await addNotifs(p, [
+    { type: 'dueOver', obj_type: 'card', obj_id: id.C1, name: 'Første', at: Date.now() - 30000, value: dStr(dagen(0)) + 'T08:00' },
+    { type: 'startNow', obj_type: 'card', obj_id: id.C2, name: 'Andre', at: Date.now() - 20000, value: dStr(dagen(0)) + 'T07:00' },
+  ]);
+  await cycle(p);
+  await p.waitForFunction(() => {
+    const n = new Set(window.__huskis.notifRows.map((r) => r.name));
+    return n.has('Første') && n.has('Andre');
+  }, null, { timeout: 5000, polling: 100 });
+  const toFør = await p.locator('.notif-toast').count();
+  await p.locator('.notif-toast').first().click();
+  await p.waitForSelector('#notif-modal:not([hidden])');
+  await p.waitForTimeout(400);
+  log('15k: å følge én toast inn i modalen rydder hele stabelen',
+    toFør === 2 && (await p.locator('.notif-toast').count()) === 0,
+    'før ' + toFør);
+
   log('toasts: ingen JS-feil', errs.length === 0, errs.join(' | '));
+  await browser.close();
+}
+
+/* MIDNATT. Datooverskriftene og dagsnavnene i meldingene avhenger av hvilket
+   DØGN vi står i, ikke av radene: en modal som står åpen over midnatt uten at
+   noe annet skjer må male seg om av seg selv. Playwrights klokke settes rett
+   før midnatt og spoles forbi den. */
+async function runMidnatt() {
+  const browser = await chromium.launch();
+  const ctx = await browser.newContext({ viewport: { width: 1200, height: 900 },
+    timezoneId: 'Europe/Oslo', locale: 'nb-NO' });
+  const p = await ctx.newPage();
+  const errs = [];
+  p.on('pageerror', (e) => errs.push(e.message));
+  console.log('\n== midnatt ==');
+  /* 20. mai 2026, 20 sekunder før midnatt i SIDENS tidssone (Europa/Oslo, som
+     er UTC+2 i mai — ingen sommertidsovergang i nærheten). Tidspunktet må
+     skrives som et UTC-øyeblikk: `new Date(år, mnd, …)` her ville blitt tolket
+     i testprosessens sone, som ikke er sidens. `resume()` lar tiden gå normalt
+     derfra, så innlogging og synk oppfører seg som ellers. */
+  await p.clock.install({ time: new Date('2026-05-20T21:59:40Z') });
+  await p.clock.resume();
+  const { id, uid, db } = buildDB();
+  await seed(p, db, uid);
+
+  // Raden må dateres av SIDENS klokke, ikke testprosessens.
+  await p.evaluate((cid) => {
+    const db = window.HK_MOCK._loadDB();
+    const uuid = () => 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
+      const r = Math.random() * 16 | 0; return (c === 'x' ? r : (r & 0x3 | 0x8)).toString(16);
+    });
+    const n = new Date();
+    const pad = (x) => String(x).padStart(2, '0');
+    const dag = n.getFullYear() + '-' + pad(n.getMonth() + 1) + '-' + pad(n.getDate());
+    db.notifications.push({ id: uuid(), user_id: window.__huskis.authUser.id,
+      key: 'k-midnatt', snoozed: false, type: 'dueOver', obj_type: 'card', obj_id: cid,
+      name: 'Skattemelding', path: 'Arbeid › Klinikk', value: dag + 'T09:00',
+      at: Date.now() - 3600000, created_at: Date.now() - 3600000, read_at: null });
+    window.HK_MOCK._saveDB(db);
+  }, id.C1);
+  await cycle(p);
+  await p.click('#notif-btn');
+  await p.waitForTimeout(300);
+  const før = await p.evaluate(() => ({
+    dag: (document.querySelector('.notif-day-head') || {}).textContent || '',
+    melding: (document.querySelector('.notif-meta') || {}).textContent || '',
+  }));
+  log('16a: før midnatt står bunken under «I dag»',
+    før.dag === 'I dag' && før.melding === 'Fristen er utløpt – den var i dag kl. 09:00.',
+    JSON.stringify(før));
+
+  /* Legg appen STILLE først. Synk-pollet hopper over runder når siden er
+     skjult (`startCloudPoll`), så ingen pull maler modalen om — og det er
+     nettopp det tilfellet som betyr noe: en modal som står åpen over midnatt
+     uten at noe annet skjer. Uten midnattsvekkingen ville en synk-runde skjult
+     hullet, og testen bevist ingenting. */
+  await p.evaluate(() => {
+    Object.defineProperty(document, 'hidden', { configurable: true, get: () => true });
+  });
+  // Forbi midnatt. Ingen synk, ingen utsatte varsler, ingen `visibilitychange`
+  // — bare klokka.
+  await p.clock.fastForward('00:40');
+  await p.waitForTimeout(600);
+  const etter = await p.evaluate(() => ({
+    åpen: !document.getElementById('notif-modal').hidden,
+    dag: (document.querySelector('.notif-day-head') || {}).textContent || '',
+    melding: (document.querySelector('.notif-meta') || {}).textContent || '',
+  }));
+  log('16b: modalen maler seg om ved midnatt — «I dag» blir «I går»',
+    etter.åpen === true && etter.dag === 'I går' &&
+    etter.melding === 'Fristen er utløpt – den var i går kl. 09:00.',
+    JSON.stringify(etter));
+
+  log('midnatt: ingen JS-feil', errs.length === 0, errs.join(' | '));
   await browser.close();
 }
 
@@ -811,6 +930,7 @@ async function runToasts() {
   await run('mobil', { width: 390, height: 780 }, true);
   await runDatoer();
   await runToasts();
+  await runMidnatt();
   await runEngelsk();
   await runKontobytte();
   const ok = results.filter(Boolean).length;
