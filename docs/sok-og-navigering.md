@@ -50,10 +50,13 @@ treff ble åpnet: da eier navigeringen fokuset og setter det på selve målet.
 ### Raden
 
 `[typeikon] navn` som primærtekst, og under den en dempet linje med
-**objekttypen i klartekst + kontekststien**: `Liste · Arbeid › Klinikk`.
-Ikonet sier hva slags objekt det er, men ikke hvor det står — og to lister som
-heter det samme i hver sin mappe er ikke til å skille på navnet alene. Stien er
-FORFEDRENE; objektets eget navn står allerede over den.
+**kontekststien**: `Arbeid › Klinikk`. Ikonet sier hva slags objekt det er,
+men ikke hvor det står — og to lister som heter det samme i hver sin mappe er
+ikke til å skille på navnet alene. Stien er FORFEDRENE; objektets eget navn
+står allerede over den. Objekttypen står IKKE lenger i klartekst i raden —
+ikonet dekker det visuelt — men ligger fortsatt i et `.visually-hidden`-spenn
+foran stien, for skjermlesere som ikke ser ikonet
+(`docs/tilgjengelighet.md`).
 
 Den aktive raden bæres av mer enn farge (`docs/tilgjengelighet.md`): kant,
 flate OG en pilspiss i enden av raden.
