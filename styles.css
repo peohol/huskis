@@ -2635,10 +2635,13 @@ body.modal-open { overflow: hidden; }
 }
 /* … men interaktiv når den vises: hele flaten kan dras til høyre for å lukke. */
 .toast.show { opacity: 1; transform: translate(-50%, 0); pointer-events: auto; }
-/* Mens fingeren/musen drar: ingen transisjon (JS setter transform per bevegelse). */
-.toast.toast-dragging { transition: none; cursor: grabbing; }
+/* Mens fingeren/musen drar: ingen transisjon (JS setter transform per bevegelse).
+   Varsel-toastene deler gesten, og dermed disse to tilstandene. */
+.toast.toast-dragging,
+.notif-toast.toast-dragging { transition: none; cursor: grabbing; }
 /* Utkast til høyre etter et fullført sveip (JS rydder inline-stilene etterpå). */
-.toast.toast-swipe-out { transition: opacity 0.18s ease, transform 0.18s ease; }
+.toast.toast-swipe-out,
+.notif-toast.toast-swipe-out { transition: opacity 0.18s ease, transform 0.18s ease; }
 /* Beskjeden brekker over flere linjer i stedet for å kappes med ellipsis: den
    sier hva som skjedde med brukerens innhold, og en toast som stopper på
    «Lagt i søppelkassen: «Ukens gjø…» har mistet nettopp det den skulle si.
@@ -2680,6 +2683,95 @@ body.modal-open { overflow: hidden; }
 }
 .toast-action:hover { background: rgba(255, 255, 255, 0.3); }
 .toast-action:focus-visible { outline: var(--focus-w) solid var(--focus-on-dark); outline-offset: 2px; }
+
+/* ---------------- Varsel-toastene (docs/varsler.md) ----------------
+   Et nytt varsel skal SES, ikke bare telles: en liten toast springer ut fra
+   bjelleknappen og står i tre sekunder. Den er bevisst et annet format enn den
+   midtstilte `.toast` — den hører til KNAPPEN, ikke til noe brukeren nettopp
+   gjorde — og et annet format enn varselraden: navn + én kort setning.
+
+   FLATEN ER VARSELTYPENS EGEN FARGE, halvgjennomsiktig med backdrop-blur, så
+   toasten sier hva den gjelder før man har lest et ord. Fargen er den MØRKESTE
+   enden av den samme gradienten ikonet står på: en toast er en liten flate der
+   gradienten ikke leses uansett, og det mørke stoppet er det som bærer
+   tekstfargen sin med margin også når det halvgjennomsiktige laget legger seg
+   over en hvit bakgrunn (verst tenkelige tilfelle). Tekstfargen pinnes per
+   tone, som på chipene: hvitt på rødt og blågrønt, mørkt på gult og lilla —
+   en gul flate som bærer hvit tekst er ikke gul lenger.
+   `tests/a11y-contrast.test.js` regner begge ytterpunktene ut på nytt. */
+.notif-toasts {
+  position: fixed;
+  /* `top`/`right` settes i JS fra bjelleknappens faktiske plass — gruppen
+     brytes til flere rader på smale skjermer. */
+  top: 0;
+  right: 0;
+  z-index: 305;                      /* over den vanlige toasten (300) */
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 8px;
+  pointer-events: none;              /* stabelen selv tar ikke imot klikk … */
+  max-width: min(340px, calc(100vw - 24px - var(--safe-left) - var(--safe-right)));
+}
+.notif-toast {
+  pointer-events: auto;              /* … men hver toast gjør det */
+  appearance: none;
+  cursor: pointer;
+  font-family: inherit;
+  text-align: left;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  max-width: 100%;
+  padding: 9px 14px 9px 10px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  box-shadow: var(--shadow-md);
+  -webkit-backdrop-filter: blur(14px) saturate(1.3);
+  backdrop-filter: blur(14px) saturate(1.3);
+  color: var(--toast-ink);
+  /* Sveip til høyre lukker, som den vanlige toasten. */
+  touch-action: pan-y;
+  user-select: none;
+  -webkit-user-select: none;
+  /* «Springer ut fra knappen»: origo øverst til høyre, altså der bjellen står. */
+  transform-origin: top right;
+  animation: notif-toast-in 0.22s cubic-bezier(0.2, 1.2, 0.4, 1);
+  transition: opacity 0.2s ease, transform 0.2s ease;
+}
+@keyframes notif-toast-in {
+  from { opacity: 0; transform: translate(6px, -10px) scale(0.72); }
+  to   { opacity: 1; transform: none; }
+}
+/* Timeren løper ut: en myk uttoning PÅ PLASS (sveipet kaster derimot ut). */
+.notif-toast.is-leaving { opacity: 0; transform: translateY(-6px) scale(0.96); }
+/* Ringen ligger UTENFOR pillen (offset), altså på board-flaten — ikke på
+   toastens egen farge. Den hvite er derfor riktig for alle fire tonene, som på
+   de andre mørke flatene appen har. */
+.notif-toast:focus-visible { outline: var(--focus-w) solid var(--focus-on-dark); outline-offset: 2px; }
+.notif-toast-text {
+  min-width: 0;
+  font-size: var(--fs-sm);
+  font-weight: 600;
+  /* Toasten er en kvittering i forbifarten, ikke en tekst å lese: to linjer,
+     så et langt objektnavn ikke kan vokse den ut over halve skjermen. */
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  overflow: hidden;
+}
+.notif-toast-name { font-weight: 800; }
+/* Skilletegnet hører til formen, ikke til setningen — derfor i CSS og ikke i
+   ordboken (det er likt på begge språk). */
+.notif-toast-msg::before { content: ' · '; }
+/* Tonene: flaten er typens egen farge, teksten pinnet til det flaten bærer. */
+.notif-toast.is-over { background: rgba(168, 43, 64, 0.85); --toast-ink: #ffffff; }
+.notif-toast.is-soon { background: rgba(217, 165, 44, 0.85); --toast-ink: #111111; }
+.notif-toast.is-started { background: rgba(56, 98, 98, 0.85); --toast-ink: #ffffff; }
+.notif-toast.is-startsoon { background: rgba(173, 133, 173, 0.85); --toast-ink: #111111; }
+/* De to lyse flatene bærer heller ingen lys kant. */
+.notif-toast.is-soon, .notif-toast.is-startsoon { border-color: rgba(0, 0, 0, 0.16); }
 
 /* ---------------- Lagringsstatus (diskret, vedvarende) ----------------
    Motstykket til toasten: der toasten er et FORBIGÅENDE varsel om noe som
@@ -3732,30 +3824,43 @@ body.no-auth .corner-controls { display: none; }
    SNUR med drakten, så streken må snu med den. Et av typeikonene (kategori) er
    bare streker, uten «papir» å bli sett på: pinnet mørk ble det nesten
    usynlig på en mørk rad. */
+/* Luften bærer inndelingen. Gapet er det samme i begge ledd (30 px), så
+   avstanden mellom to SEKSJONER er den samme som mellom to grupper og mellom
+   en seksjonsoverskrift og gruppene under den — mens luften inne i en gruppe
+   (8 px mellom radene) er en helt annen størrelsesorden. Da leses grupperingen
+   uten en eneste strek; en skillelinje i tillegg ble bare støy. */
 .events-body {
   flex: 1 1 auto;
   min-height: 0;
   overflow-y: auto;
   display: flex;
   flex-direction: column;
-  gap: 18px;
+  gap: 30px;
 }
 .events-empty { margin: 0; font-size: var(--fs-sm); color: var(--ink-soft); font-weight: 500; }
-.events-section { display: flex; flex-direction: column; gap: 12px; }
+.events-section { display: flex; flex-direction: column; gap: 30px; }
 .events-section-head {
   margin: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
   font-size: var(--fs-md);
   font-weight: 700;
   color: var(--ink);
 }
-.events-group { display: flex; flex-direction: column; gap: 8px; }
-/* Skillelinje mellom to grupper, med LIK luft på hver side: seksjonens gap står
-   over linjen og paddingen under den. Avstanden mellom to grupper blir dermed
-   dobbelt så stor som inne i én, og grupperingen leses uten å telle rader. */
-.events-group + .events-group {
-  border-top: 1px solid var(--line);
-  padding-top: 12px;
+/* Feltets eget ikon foran overskriften — det SAMME motivet chipene i board-et
+   bruker for den samme tiden (kalender for start, kalender med utropstegn for
+   frist). Ingen plate: seksjonen er ikke en status, den sier hvilket FELT dette
+   er, og uten plate følger streken drakten som radenes typeikon gjør. */
+.events-section-icon {
+  flex: 0 0 auto;
+  width: 22px;
+  height: 22px;
+  display: grid;
+  place-items: center;
 }
+.events-section-icon .icon { width: 1em; height: 1em; font-size: 20px; }
+.events-group { display: flex; flex-direction: column; gap: 8px; }
 .events-group-head {
   display: flex;
   align-items: center;
@@ -3892,14 +3997,34 @@ body.no-auth .corner-controls { display: none; }
   overflow-y: auto;
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  /* Luften mellom to døgnbunker. Som i «Kommende hendelser» er det avstanden
+     som bærer inndelingen — ingen strek mellom bunkene. */
+  gap: 26px;
 }
 /* To ikonknapper i modalhodet (tannhjul + lukk): `.modal-head` er
    space-between, så de må ligge i én boks for å holde sammen i enden. */
 .modal-head-actions { flex: 0 0 auto; display: flex; align-items: center; gap: 2px; }
-#notif-settings-btn[aria-pressed="true"] { background: var(--primary-soft); color: var(--ink); }
+/* Hodet har TRE barn når innstillingene står framme (tilbake, overskrift,
+   lukk). `space-between` ville da dyttet overskriften til midten — `auto`-
+   margin holder tilbakeknappen og overskriften samlet i venstre ende. */
+.notif-back-btn { flex: 0 0 auto; }
+.notif-modal .modal-head h2 { margin-right: auto; }
+/* Bjellen og tannhjulet ligger begge i overskriften og veksles med `hidden`;
+   ikonet er da markup og ikke en streng i JS. */
+.notif-title-icon { display: inline-flex; flex: 0 0 auto; }
+.notif-title-icon[hidden] { display: none; }
 
 .notif-empty { margin: 0; font-size: var(--fs-sm); color: var(--ink-soft); font-weight: 500; }
+/* Én bunke per døgn, med datoen som overskrift over den. Datoen står da ÉN
+   gang der den betyr noe, i stedet for som et tidsstempel på hver eneste rad,
+   og bunkene skilles av luft (modalens `gap`) framfor av en strek. */
+.notif-day { display: flex; flex-direction: column; gap: 8px; }
+.notif-day-head {
+  margin: 0;
+  font-size: var(--fs-sm);
+  font-weight: 700;
+  color: var(--ink-soft);
+}
 .notif-list {
   list-style: none;
   margin: 0;
@@ -3918,9 +4043,10 @@ body.no-auth .corner-controls { display: none; }
   text-align: left;
   font-family: inherit;
   display: flex;
-  /* Meldingen er en hel setning og brekker ofte over to linjer. Toppstilt, så
-     ikonet og tidspunktet står på linje med NAVNET og ikke midt i teksten. */
-  align-items: flex-start;
+  /* Raden er tre linjer (sti, navn, melding) og meldingen kan brekke videre.
+     Ikonet midtstilles mot hele blokken — toppstilt ville det stått på linje
+     med den lille stien i stedet for med innholdet. */
+  align-items: center;
   gap: 10px;
   padding: 9px 12px;
   border: 1.5px solid transparent;
@@ -3938,6 +4064,17 @@ body.no-auth .corner-controls { display: none; }
 .notif-row.is-gone { cursor: default; opacity: 0.72; }
 .notif-row.is-gone:hover { background: var(--surface-2); }
 .notif-main { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+/* Kontekststien øverst i raden, og bevisst SVÆRT liten: den plasserer objektet
+   uten å konkurrere med navnet, som er det man leter etter. */
+.notif-path {
+  font-size: 10px;
+  line-height: 1.35;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  color: var(--ink-soft);
+  opacity: 0.85;
+  overflow-wrap: anywhere;
+}
 .notif-name-row { display: flex; align-items: center; gap: 6px; min-width: 0; }
 .notif-name {
   font-size: var(--fs-base);
@@ -3956,16 +4093,6 @@ body.no-auth .corner-controls { display: none; }
   font-weight: 500;
   color: var(--ink-soft);
   overflow-wrap: anywhere;
-}
-/* Tidspunktet varselet gjelder — diskret, i enden av raden. */
-.notif-when {
-  flex: 0 0 auto;
-  padding-top: 2px;
-  font-size: var(--fs-xs);
-  font-weight: 600;
-  color: var(--ink-soft);
-  font-variant-numeric: tabular-nums;
-  white-space: nowrap;
 }
 .notif-snooze-btn {
   flex: 0 0 auto;
@@ -3986,31 +4113,107 @@ body.no-auth .corner-controls { display: none; }
 .notif-snooze-btn:focus-visible { outline: var(--focus-w) solid var(--focus); outline-offset: 2px; }
 .notif-snooze-btn[aria-expanded="true"] { border-color: var(--primary); background: var(--primary-soft); color: var(--ink); }
 .notif-snooze-btn .icon { width: 20px; height: 20px; }
-/* Utsett-valgene: tre knapper på rad, innrykket til teksten i raden over. */
-.notif-snooze-row { display: flex; flex-wrap: wrap; gap: 6px; padding-left: 12px; }
-.notif-snooze-row[hidden] { display: none; }
+/* ARMERT: et nytt varsel er alt bestilt. Knappen er da en TILSTAND, ikke bare
+   en handling, og bærer aksentflaten med hvit glyf — den samme «på»-fargen
+   bryterne bruker. Fargen er ikke eneste bærer: knappens navn sier det samme,
+   og popoveren forteller når varselet kommer. */
+.notif-snooze-btn.is-armed {
+  border-color: transparent;
+  background: var(--grad-accent);
+  /* Klokkeglyfen tegnes med `currentColor` (ICONS.snooze), så fargen her er
+     alt som trengs — ingen `--icon-*`-pinning i varselmodalen. */
+  color: #fff;
+}
+.notif-snooze-btn.is-armed:hover { background: var(--grad-accent); }
+/* Slett ÉN rad: samme boks som utsett-knappen, men uten flate i hvile — den
+   er den stille av de to, og skal ikke konkurrere med selve raden. */
+.notif-del-btn {
+  flex: 0 0 auto;
+  align-self: center;
+  appearance: none;
+  cursor: pointer;
+  width: var(--control-h);
+  height: var(--control-h);
+  border: 1.5px solid transparent;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--ink-soft);
+  display: grid;
+  place-items: center;
+  transition: background 0.15s, border-color 0.15s, color 0.15s;
+}
+.notif-del-btn:hover { background: var(--danger-soft); border-color: var(--danger); color: var(--danger-ink); }
+.notif-del-btn:focus-visible { outline: var(--focus-w) solid var(--focus); outline-offset: 2px; }
+.notif-del-btn .icon { width: 18px; height: 18px; }
+
+/* Utsett-popoveren (arver `.switcher-panel`: popover på desktop, sentrert ark
+   på mobil). Overskriften bærer «om», så valgene er rene varigheter. */
+.notif-snooze-panel {
+  gap: 8px;
+  /* Panelet er så bredt innholdet krever (`.switcher-panel` er `max-content`):
+     smalt mens det bare er fire varigheter, og bredt nok til dato + klokkeslett
+     på én linje i det «Egendefinert»-skuffen åpnes — den er da det bredeste
+     barnet. Minstebredden er bare et gulv for menyen alene, og trekker fra den
+     sikre sonen slik `.switcher-panel`s maks-bredde gjør: en min-width VINNER
+     over max-width, og uten leddet kunne panelet blitt liggende under et hakk
+     på en smal skjerm. */
+  min-width: min(184px, calc(100vw - 20px - var(--safe-left) - var(--safe-right)));
+}
+.notif-snooze-title {
+  padding: 0 2px;
+  font-size: var(--fs-sm);
+  font-weight: 700;
+  color: var(--ink-soft);
+}
+.notif-snooze-list { display: flex; flex-direction: column; gap: 2px; }
+.notif-snooze-choice {
+  appearance: none;
+  border: none;
+  cursor: pointer;
+  width: 100%;
+  padding: 8px 10px;
+  border-radius: var(--control-radius);
+  background: transparent;
+  color: var(--ink);
+  font-family: inherit;
+  font-size: var(--fs-md);
+  font-weight: 600;
+  text-align: left;
+  transition: background 0.15s;
+}
+.notif-snooze-choice:hover { background: var(--primary-soft); }
+.notif-snooze-choice:focus-visible { outline: var(--focus-w) solid var(--focus); outline-offset: -2px; }
+/* «Egendefinert» skiller seg fra de faste varighetene: den åpner en skuff i
+   stedet for å utsette med én gang. En hårstrek over sier det uten et ord. */
+.notif-snooze-more { border-top: 1px solid var(--line); border-radius: 0 0 var(--control-radius) var(--control-radius); }
+.notif-snooze-more[aria-expanded="true"] { background: var(--primary-soft); }
+/* Er et nytt varsel alt bestilt, sier panelet NÅR — og tilbyr det ene som
+   gir mening: å avbryte det. Ingen ny utsettelse oppå den forrige. */
+.notif-snooze-note {
+  margin: 0;
+  padding: 0 2px;
+  font-size: var(--fs-sm);
+  font-weight: 600;
+  color: var(--ink);
+}
+.notif-snooze-panel > .btn { align-self: flex-start; }
+/* Skuffen: dato + klokkeslett og én knapp som bekrefter. */
+.notif-snooze-custom { display: flex; flex-direction: column; gap: 8px; padding: 2px 2px 0; }
+.notif-snooze-custom[hidden] { display: none; }
+.notif-snooze-custom .btn { align-self: flex-start; }
 
 /* Preferansene (tannhjulet). De styrer om hendelsen GENERERES, ikke bare om
    den vises — hinten sier det, så ingen tror en avslått type kommer tilbake
    når den slås på igjen. */
 .notif-settings { display: flex; flex-direction: column; gap: 4px; }
-.notif-settings-hint {
-  margin: 0 0 4px;
-  font-size: var(--fs-sm);
-  font-weight: 500;
-  color: var(--ink-soft);
-}
 .notif-settings .menu-setting { margin-top: 4px; }
 /* Nedtellingen i «Angre · 10» skal ikke få knappen til å hoppe i bredde. */
 #notif-clear { font-variant-numeric: tabular-nums; }
 
 @media (max-width: 560px) {
-  /* Som hendelsesradene: tiden ned på sin egen linje, så navnet og meldingen
-     får hele bredden i stedet for å brekke ved siden av en kolonne som ikke
-     kan krympe. */
-  .notif-row { flex-wrap: wrap; }
+  /* Raden har ingen tidskolonne lenger — teksten har hele bredden, og
+     `flex-basis: 0` holder navnet ved siden av ikonet i stedet for under det. */
   .notif-main { flex-basis: 0; }
-  .notif-when { width: 100%; padding-left: 36px; padding-top: 0; }
 }
 
 /* ---------------- Kortvarig markering av et navigasjonsmål ----------------

@@ -31,7 +31,14 @@ og konto — se `menus.md`.
 
 Vanlig `.modal-overlay`-skall (fokusfelle, Escape via `closeTopLayer`,
 `body.modal-open`, fokus tilbake til kalenderknappen ved lukking) med to
-seksjoner, hver med opptil tre grupper:
+seksjoner, hver med opptil tre grupper.
+
+**Seksjonsoverskriften bærer feltets eget ikon** til venstre for teksten —
+nøyaktig det ikonet start-/fristchipene bruker på lister, kategorier og
+listepunkter (`ICONS.calendar` / `ICONS.calendarDue`). Feltet ser dermed likt ut
+overalt i appen. Ikonet har ingen plate: seksjonen er ikke en status, den sier
+hvilket FELT dette er, og uten plate følger streken drakten slik radenes
+typeikon gjør.
 
 | Seksjon | Gruppe | Grense | Ikon/flate |
 |---|---|---|---|
@@ -66,10 +73,12 @@ Bare grupper som HAR rader tegnes, og finnes ingen hendelser i det hele tatt,
 står det én linje om det. Antallet rader i en gruppe telles ikke opp: radene
 står der og kan telles.
 
-**Skillelinje mellom gruppene.** Fra og med den andre gruppen i en seksjon
-skiller en linje den fra den forrige, med LIK luft på hver side (seksjonens gap
-over, gruppens padding under). Avstanden mellom to grupper blir dermed dobbelt
-så stor som luften inne i én, og grupperingen leses uten å telle rader.
+**Luften skiller gruppene, ikke en strek.** Gapet er 30 px i begge ledd
+(`.events-body` mellom seksjonene, `.events-section` mellom overskriften og
+gruppene og mellom gruppene), mens luften inne i en gruppe er 8 px mellom
+radene. Avstanden er altså i en helt annen størrelsesorden enn den innvendige,
+og grupperingen leses uten å telle rader — og uten en skillelinje, som ved siden
+av den avstanden bare ble støy.
 
 ### Raden
 
@@ -188,7 +197,7 @@ samme tilstand bytter derfor aldri om på to rader.
   ikon.
 - Antall hendelser leses opp fra et visuelt skjult `role="status"`.
 - Farge er aldri eneste bærer: gruppen har overskrift i klartekst, glyfene
-  skiller gruppene fra hverandre, og linjen mellom dem er en form, ikke en
+  skiller gruppene fra hverandre, og avstanden mellom dem er en form, ikke en
   farge. Start-ikonet er bevisst IKKE en hake — det ville lest som «utført».
 
 Kravene er de samme som ellers — se [`tilgjengelighet.md`](tilgjengelighet.md).

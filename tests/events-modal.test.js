@@ -14,9 +14,9 @@
         `corner-controls.test.js`).
      2. Modalen åpner med tittel, og seksjonene kommer i rekkefølgen
         «Tidsfrister» → «Starttider».
-     3. Gruppene har overskrift og statusikon — og bare de som har rader. Fra
-        og med den ANDRE gruppen skiller en linje dem, med lik luft på hver
-        side.
+     3. Gruppene har overskrift og statusikon — og bare de som har rader. De
+        skilles av LUFT alene, ikke av en linje, og seksjonsoverskriftene bærer
+        feltets eget ikon (det samme chipene i board-et bruker).
      4. Raden viser objekttypens ikon, navnet, kontekststien (uten typen i
         tekst) og et konkret tidspunkt — med avstanden i tid over datoen når
         hendelsen er innenfor sju døgn.
@@ -152,6 +152,8 @@ const modalTree = (p) => p.evaluate(() => {
   const body = document.getElementById('events-body');
   return [].slice.call(body.querySelectorAll('.events-section')).map((sec) => ({
     tittel: sec.querySelector('.events-section-head').textContent,
+    // Feltets eget ikon foran overskriften (samme motiv som chipene i board-et).
+    ikon: (sec.querySelector('.events-section-icon svg') || {}).outerHTML || null,
     grupper: [].slice.call(sec.querySelectorAll('.events-group')).map((gr) => {
       const h = gr.querySelector('.events-group-head');
       return {
@@ -160,8 +162,9 @@ const modalTree = (p) => p.evaluate(() => {
         tone: (h.querySelector('.event-icon').className.match(/is-[a-z]+/) || [])[0],
         antallElementer: gr.querySelectorAll('.events-group-count').length,
         linje: parseFloat(getComputedStyle(gr).borderTopWidth) || 0,
-        luftOver: parseFloat(getComputedStyle(gr.parentElement).rowGap) || 0,
-        luftUnder: parseFloat(getComputedStyle(gr).paddingTop) || 0,
+        // Luften rundt gruppen (seksjonens gap) mot luften INNE i den (radgapet).
+        luftMellom: parseFloat(getComputedStyle(gr.parentElement).rowGap) || 0,
+        luftInne: parseFloat(getComputedStyle(gr).rowGap) || 0,
       };
     }),
     rader: [].slice.call(sec.querySelectorAll('.event-row')).map((r) => ({
@@ -231,15 +234,19 @@ async function run(label, viewport, touchMode) {
       ['Har begynt/is-started', 'Begynner innen 7 dager/is-startsoon',
         'Begynner om 7 dager eller mer/is-startlater']),
     JSON.stringify(tre[1].grupper));
-  /* Skillelinjen mellom to grupper, med LIK luft på hver side: den første
-     gruppen i en seksjon har ingen linje, resten har. */
+  /* LUFTEN bærer inndelingen: ingen strek mellom gruppene, men en avstand som
+     er i en helt annen størrelsesorden enn luften mellom to rader i én gruppe. */
   const linjer = tre[0].grupper.map((g) => g.linje);
-  log(label + ' 3c: linje mellom gruppene, men ikke over den første',
-    linjer[0] === 0 && linjer.slice(1).every((x) => x > 0), JSON.stringify(linjer));
+  log(label + ' 3c: ingen skillelinje mellom gruppene',
+    linjer.every((x) => x === 0), JSON.stringify(linjer));
   const g2 = tre[0].grupper[1];
-  log(label + ' 3d: like mye luft over og under linjen',
-    g2.luftOver === g2.luftUnder && g2.luftOver > 0,
-    'over ' + g2.luftOver + ', under ' + g2.luftUnder);
+  log(label + ' 3d: luften MELLOM to grupper er langt større enn luften inne i én',
+    g2.luftMellom >= 30 && g2.luftMellom >= g2.luftInne * 3,
+    'mellom ' + g2.luftMellom + ', inne ' + g2.luftInne);
+  // Seksjonene bærer feltets eget ikon, og de to feltene har hvert sitt.
+  log(label + ' 3e: hver seksjonsoverskrift har feltets ikon foran seg',
+    !!tre[0].ikon && !!tre[1].ikon && tre[0].ikon !== tre[1].ikon,
+    JSON.stringify(tre.map((x) => !!x.ikon)));
 
   const rad = tre[0].rader.find((r) => r.navn === 'Vaktdager');
   log(label + ' 4a: raden viser navn, kontekststi UTEN typen, og en konkret dato',

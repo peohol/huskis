@@ -294,7 +294,7 @@
     'events.unitDay':      ['d', 'd'],
     'events.unitHour':     ['t', 'h'],
     // Tid + avstand i ÉN opplesning («Frist: 5. jan — om 3 d»).
-    'events.whenRel':      ['{when} \u2014 {rel}', '{when} \u2014 {rel}'],
+    'events.whenRel':      ['{when} — {rel}', '{when} — {rel}'],
     'events.count.one':    ['{n} hendelse.', '{n} event.'],
     'events.count.other':  ['{n} hendelser.', '{n} events.'],
 
@@ -312,39 +312,72 @@
     'notif.type.dueSoon':   ['Frist om mindre enn en uke', 'Deadline in less than a week'],
     'notif.type.startNow':  ['Begynner nå', 'Starting now'],
     'notif.type.startSoon': ['Begynner om mindre enn en uke', 'Starts in less than a week'],
-    // Selve meldingen i raden. `{time}` er objektets egen frist/starttid.
-    'notif.msg.dueOver':    ['Fristen {time} er utløpt.', 'The deadline {time} has passed.'],
-    'notif.msg.dueSoon':    ['Frist {time} — mindre enn en uke igjen.',
-                             'Due {time} — less than a week left.'],
-    'notif.msg.startNow':   ['Skulle begynne {time}.', 'Was due to start {time}.'],
-    'notif.msg.startSoon':  ['Begynner {time} — mindre enn en uke til.',
-                             'Starts {time} — less than a week to go.'],
-    'notif.rowMeta':        ['{msg} · {path}', '{msg} · {path}'],
-    'notif.rowGoneMeta':    ['{msg} · Objektet er ikke tilgjengelig lenger.',
-                             '{msg} · That object is no longer available.'],
+    /* Selve meldingen i raden. `{time}` er objektets egen frist/starttid, og de
+       tre nærmeste døgnene skrives med navn («i dag kl. 09:00»). */
+    'notif.msg.dueOver':    ['Fristen er utløpt – den var {time}.',
+                             'The deadline has passed – it was {time}.'],
+    'notif.msg.dueSoon':    ['Fristen utløper {time}.', 'The deadline is {time}.'],
+    'notif.msg.startNow':   ['Begynte {time}.', 'Started {time}.'],
+    'notif.msg.startSoon':  ['Begynner {time}.', 'Starts {time}.'],
+    'notif.rowGoneMeta':    ['{msg} Objektet er ikke tilgjengelig lenger.',
+                             '{msg} That object is no longer available.'],
     'notif.rowLabel':       ['{state}. {name}, {kind}. {msg} {when}. {path}',
                              '{state}. {name}, {kind}. {msg} {when}. {path}'],
     'notif.gone':           ['Objektet er ikke tilgjengelig lenger.',
                              'That object is no longer available.'],
+    // Datooverskriftene som samler varslene som kom samme døgn.
+    'notif.day.today':      ['I dag', 'Today'],
+    'notif.day.yesterday':  ['I går', 'Yesterday'],
     // «Tøm varsler» + angre-vinduet (nedtelling i sekunder).
     'notif.clear':          ['Tøm varsler', 'Clear notifications'],
     'notif.undo':           ['Angre · {n}', 'Undo · {n}'],
     'notif.clearFailed':    ['Varslene ble ikke slettet. Prøv igjen.',
                              'The notifications were not deleted. Try again.'],
-    // «Utsett» — be om det samme varselet igjen senere.
+    /* «Utsett» — be om det samme varselet igjen senere. Valgene ligger i en
+       popover ved knappen, under en overskrift som bærer «om», så selve valgene
+       er rene varigheter. */
     'notif.snooze':         ['Utsett varselet om {name}', 'Snooze the notification about {name}'],
-    'notif.snooze.hour':    ['Om 1 time', 'In 1 hour'],
-    'notif.snooze.sixHours': ['Om 6 timer', 'In 6 hours'],
-    'notif.snooze.day':     ['Om 1 døgn', 'In 1 day'],
+    'notif.snoozeTitle':    ['Varsle på nytt om', 'Notify me again in'],
+    'notif.snooze.hour':    ['1 time', '1 hour'],
+    'notif.snooze.sixHours': ['6 timer', '6 hours'],
+    'notif.snooze.day':     ['1 døgn', '1 day'],
+    'notif.snooze.custom':  ['Egendefinert', 'Custom'],
+    'notif.snoozeDate':     ['Dato for neste varsel', 'Date of the next notification'],
+    'notif.snoozeClock':    ['Klokkeslett for neste varsel', 'Time of the next notification'],
+    'notif.snoozeOk':       ['Varsle meg da', 'Notify me then'],
+    'notif.snoozePast':     ['Velg et tidspunkt fram i tid.', 'Choose a time in the future.'],
     'notif.snoozedTo':      ['Varsler deg igjen {time}.', 'You will be notified again {time}.'],
     'notif.snoozeFailed':   ['Varselet ble ikke utsatt. Prøv igjen.',
                              'The notification was not snoozed. Try again.'],
+    /* Er et nytt varsel alt bestilt, sier knappen det — og popoveren tilbyr da
+       ikke ett til, men forteller når det kommer og lar deg avbryte det. */
+    'notif.snoozeArmed':    ['Et nytt varsel om {name} er planlagt',
+                             'A new notification about {name} is scheduled'],
+    'notif.snoozedFor':     ['Du vil bli varslet igjen kl. {clock}.',
+                             'You will be notified again at {clock}.'],
+    'notif.snoozedForDate': ['Du vil bli varslet igjen kl. {clock}, {date}.',
+                             'You will be notified again at {clock}, {date}.'],
+    'notif.snoozeCancel':   ['Avbryt det planlagte varselet', 'Cancel the scheduled notification'],
+    'notif.snoozeCancelled': ['Det planlagte varselet er avbrutt.',
+                              'The scheduled notification is cancelled.'],
+    // Slett ÉN rad (mot «Tøm varsler», som tar bunken).
+    'notif.delete':         ['Slett varselet om {name}', 'Delete the notification about {name}'],
+    'notif.deleteFailed':   ['Varselet ble ikke slettet. Prøv igjen.',
+                             'The notification was not deleted. Try again.'],
+    // Tilbake fra innstillingene til selve varslene.
+    'notif.backToList':     ['Tilbake til varslene', 'Back to the notifications'],
     // Preferansene: de styrer om hendelsen i det hele tatt blir til.
     'notif.settings':       ['Varselinnstillinger', 'Notification settings'],
-    'notif.settingsHint':   ['Velg hva du vil varsles om. En type som er av, lager ingen varsler — heller ikke i historikken.',
-                             'Choose what you want to be notified about. A type that is off creates no notifications — not even in the history.'],
     'notif.prefFailed':     ['Innstillingen ble ikke lagret. Prøv igjen.',
                              'The setting was not saved. Try again.'],
+    /* Varsel-toasten: samme hendelse som raden, men kortere — den skal leses i
+       forbifarten, ikke studeres. `{when}` er avstanden i hele døgn. */
+    'notif.toast.dueOver':   ['Fristen er utløpt', 'The deadline has passed'],
+    'notif.toast.dueSoon':   ['Fristen utløper {when}', 'The deadline is {when}'],
+    'notif.toast.startNow':  ['Starter nå', 'Starting now'],
+    'notif.toast.startSoon': ['Starter {when}', 'Starts {when}'],
+    'notif.toastLabel':      ['{kind}: {name}. {msg}. Åpne varselet.',
+                              '{kind}: {name}. {msg}. Open the notification.'],
 
     /* ---- «Flytt til …» ---- */
     'move.outOfCategory': ['Ut av kategorien (i «{list}»)', 'Out of the category (in “{list}”)'],
@@ -453,9 +486,29 @@
     // Tolv forkortede månedsnavn, atskilt med mellomrom, i kalenderrekkefølge.
     'date.monthsShort':  ['jan feb mar apr mai jun jul aug sep okt nov des',
                           'Jan Feb Mar Apr May Jun Jul Aug Sep Oct Nov Dec'],
+    // … og de fulle, til datooverskriftene i varselmodalen. Samme form: én
+    // streng med mellomrom mellom, tolv nøkler ville vært tolv å glemme.
+    'date.monthsLong':   ['januar februar mars april mai juni juli august september oktober november desember',
+                          'January February March April May June July August September October November December'],
+    // Ukedagene i JS-rekkefølge (0 = søndag). Store forbokstaver: de brukes
+    // KUN som overskrift, aldri midt i en setning.
+    'date.weekdays':     ['Søndag Mandag Tirsdag Onsdag Torsdag Fredag Lørdag',
+                          'Sunday Monday Tuesday Wednesday Thursday Friday Saturday'],
     'date.dayMonth':     ['{d}. {mon}', '{d} {mon}'],
     'date.dayMonthYear': ['{d}. {mon} {y}', '{d} {mon} {y}'],
+    // Ukedag foran den fulle datoen — datooverskriften i varselmodalen.
+    'date.weekdayDate':     ['{wd} {d}. {mon}', '{wd} {d} {mon}'],
+    'date.weekdayDateYear': ['{wd} {d}. {mon} {y}', '{wd} {d} {mon} {y}'],
     'date.at':           ['{date} kl. {clock}', '{date} at {clock}'],
+    /* De tre nærmeste døgnene har NAVN i stedet for en dato. Små forbokstaver:
+       disse står midt i en setning («Begynte i dag kl. 07:00»). Overskriftene
+       i varselmodalen har sine egne, store, under `notif.day.*`. */
+    'date.today':        ['i dag', 'today'],
+    'date.yesterday':    ['i går', 'yesterday'],
+    'date.tomorrow':     ['i morgen', 'tomorrow'],
+    // Avstand i hele døgn — varsel-toastene sier hvor langt unna noe er.
+    'date.inDays':       ['om {n} dager', 'in {n} days'],
+    'date.daysAgo':      ['for {n} dager siden', '{n} days ago'],
 
     /* ---- Indikator-chips ---- */
     'time.startLabel':  ['Start: {time}', 'Start: {time}'],

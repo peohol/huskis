@@ -16,7 +16,9 @@
     4. Søppelkasse- og konto-modalen lukkes av ett trykk.
     5. Del-modalen er den ene forskjellen mot Escape: med `backTo` går
        tilbakeknappen ETT NIVÅ tilbake (nav-modalen åpnes igjen), mens Escape
-       fortsatt lukker helt — «lukk = ferdig» (docs/menus.md).
+       fortsatt lukker helt — «lukk = ferdig» (docs/menus.md). Varsel-
+       innstillingene er det samme mønsteret ett hakk ned: et nivå INNE i
+       varselmodalen, ikke en egen modal (docs/varsler.md).
     6. En pågående inline-redigering avbrytes, og trykket når ikke laget bak:
        uten dette ville appen kunne avsluttes midt i en navngiving.
     7. Demonstrasjonen: tilbakeknappen rører den ikke (samme regel som Escape i
@@ -196,6 +198,39 @@ async function run(label, viewport, touchMode) {
   const etterEsc = await lag(p);
   log(label + ': Escape lukker del-modalen HELT (ingen nav-modal bak)',
     !etterEsc.del && !etterEsc.nav, JSON.stringify(etterEsc));
+
+  /* ---------- 5b) Varselinnstillingene: ETT nivå tilbake, som del-modalen ----------
+     Innstillingene er et nivå INNE i varselmodalen, ikke en egen modal, så et
+     tilbaketrykk der hører hjemme på varslene. Escape lukker fortsatt helt. */
+  await p.evaluate(() => window.__huskis.openNotifModal());
+  await p.waitForTimeout(250);
+  await p.locator('#notif-settings-btn').click();
+  await p.waitForTimeout(250);
+  const iInnstillinger = await p.evaluate(() => ({
+    åpen: !document.getElementById('notif-modal').hidden,
+    tittel: document.getElementById('notif-title-text').textContent,
+  }));
+  const t6b = await back(p); await p.waitForTimeout(250);
+  const etterInnst = await p.evaluate(() => ({
+    åpen: !document.getElementById('notif-modal').hidden,
+    tittel: document.getElementById('notif-title-text').textContent,
+  }));
+  log(label + ': tilbakeknappen tar varselinnstillingene ETT nivå tilbake (varslene igjen)',
+    iInnstillinger.tittel === 'Varselinnstillinger' && t6b === true &&
+    etterInnst.åpen === true && etterInnst.tittel === 'Varsler', JSON.stringify(etterInnst));
+  const t6c = await back(p); await p.waitForTimeout(250);
+  log(label + ': neste trykk lukker varselmodalen',
+    t6c === true && (await p.evaluate(() => document.getElementById('notif-modal').hidden)) === true);
+
+  // Escape fra innstillingene lukker HELT, som i del-modalen.
+  await p.evaluate(() => window.__huskis.openNotifModal());
+  await p.waitForTimeout(250);
+  await p.locator('#notif-settings-btn').click();
+  await p.waitForTimeout(250);
+  await p.keyboard.press('Escape');
+  await p.waitForTimeout(250);
+  log(label + ': Escape lukker varselmodalen HELT, også fra innstillingene',
+    (await p.evaluate(() => document.getElementById('notif-modal').hidden)) === true);
 
   /* ---------- 6) Inline-redigering ---------- */
   await p.locator('.item[data-id="I1"] .item-text').click();

@@ -42,6 +42,7 @@ tokenene ut av fila og regner ratioene på nytt, så en endret farge fanges med
 | `--primary` (kun ikon-/kantfarge) på hvit | ≥ 3:1 |
 | `--focus` mot enhver flate ringen kan havne på | ≥ 3:1 |
 | `--focus-on-dark` mot toast/oppdateringsbanner | ≥ 3:1 |
+| Teksten på en varsel-toast (`docs/varsler.md`) | ≥ 4.5:1 mot flaten **over både hvit og svart bakgrunn** — flaten er halvgjennomsiktig, så den er ikke en kjent verdi |
 | Ikonstreken `#111` mot enhver flate | ≥ 3:1 |
 
 **Hvorfor det finnes to grønnaktige farger.** ＋-knappene har ingen tekst — de er

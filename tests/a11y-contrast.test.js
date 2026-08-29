@@ -37,12 +37,16 @@
        på korthodene gjorde.
     8. De pensjonerte fargeverdiene er borte fra hele kildetreet, så en gammel
        hardkodet gul/rød/grønn ikke kan snike seg inn igjen.
-    9. LYSRETNINGEN: alle knappe-gradientene er loddrette (180deg) med den
+    9. VARSEL-TOASTENE (docs/varsler.md) bærer varseltypens egen farge,
+       halvgjennomsiktig — flaten er altså ikke en kjent verdi. Teksten måles
+       derfor mot begge ytterpunktene (hvitt og svart bak), og tinten må være
+       den mørkeste enden av den samme gradienten ikonet står på.
+   10. LYSRETNINGEN: alle knappe-gradientene er loddrette (180deg) med den
        LYSESTE enden først, altså øverst. Skyggene i appen er forskjøvet
        nedover — lys skrått ovenfra — og en flate som lysner nedover ville
        lyssatt seg motsatt av sin egen skygge. Regnet ut på samme relative
        luminans som ratioene over, så «lysest» er målt og ikke øyemål.
-   10. DEN MØRKE DRAKTEN har sin egen halvdel av kontrakten (docs/mork-drakt.md).
+   11. DEN MØRKE DRAKTEN har sin egen halvdel av kontrakten (docs/mork-drakt.md).
        Kravene er de samme, flatene er andre — og noen av dem er blandinger, så
        de regnes ut her i stedet for å stå som en verdi noen kan glemme å
        oppdatere:
@@ -632,6 +636,47 @@ if (darkBlock) {
       !/--icon-(ink|paper|grey)\s*:/.test(notifRule), { regel: notifRule.trim() });
     const notifIcon = /\.notif-[a-z-]*\s*\{[^}]*--icon-(ink|paper|grey)\s*:/.test(css);
     check('ingen .notif-regel pinner sine egne ikonfarger', !notifIcon);
+  }
+
+  console.log('\n--- Varsel-toastene ---');
+  /* Toasten som springer ut fra bjellen (docs/varsler.md) bærer varseltypens
+     EGEN farge, halvgjennomsiktig med backdrop-blur. Da er flaten ikke lenger
+     en kjent verdi: den blandes med hva som enn ligger under. Kravet regnes
+     derfor på begge ytterpunktene — helt hvitt og helt svart bak — og teksten
+     må klare 4.5:1 mot BEGGE. Tinten skal dessuten være den MØRKESTE enden av
+     den samme gradienten ikonet står på: det er den som bærer tekstfargen sin
+     med margin, og det er den som knytter toasten til statusflaten. */
+  {
+    const TONES = [['is-over', 'grad-red'], ['is-soon', 'grad-yellow'],
+      ['is-started', 'grad-accent'], ['is-startsoon', 'grad-purple']];
+    const hex2 = (n) => Math.round(n).toString(16).padStart(2, '0');
+    const composite = (tint, alpha, backdrop) => {
+      const C = rgb(tint), B = rgb(backdrop);
+      return '#' + [0, 1, 2].map((i) => hex2(alpha * C[i] + (1 - alpha) * B[i])).join('');
+    };
+    for (const [tone, grad] of TONES) {
+      const rule = (css.match(new RegExp('\\.notif-toast\\.' + tone + '\\s*\\{([^}]*)\\}')) || [])[1] || '';
+      const bg = rule.match(/background:\s*rgba\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*,\s*([\d.]+)\s*\)/);
+      const ink = (rule.match(/--toast-ink:\s*(#[0-9a-f]{3,8})/i) || [])[1];
+      check(`.notif-toast.${tone} har en halvgjennomsiktig flate og en pinnet tekstfarge`,
+        !!bg && !!ink, { regel: rule.replace(/\s+/g, ' ').trim() });
+      if (!bg || !ink) continue;
+      const tint = '#' + [1, 2, 3].map((i) => hex2(+bg[i])).join('');
+      const alpha = parseFloat(bg[4]);
+      check(`.notif-toast.${tone} bruker den mørkeste enden av --${grad} (${tint})`,
+        gradientStops(grad).slice(-1)[0].toLowerCase() === tint.toLowerCase(),
+        { tint, gradient: gradientStops(grad) });
+      // Delvis gjennomsiktig, men ikke så mye at flaten forsvinner.
+      check(`.notif-toast.${tone} er faktisk gjennomsiktig (alfa ${alpha})`,
+        alpha > 0 && alpha < 1, { alpha });
+      for (const [navn, backdrop] of [['hvit bakgrunn', '#ffffff'], ['svart bakgrunn', '#000000']]) {
+        contrast(`teksten (${ink}) på .notif-toast.${tone} over ${navn}`,
+          ink, composite(tint, alpha, backdrop), 4.5);
+      }
+    }
+    // Fokusringen på toasten er den samme som på de andre mørke flatene.
+    check('varsel-toasten bruker --focus-on-dark som fokusring',
+      /\.notif-toast:focus-visible\s*\{[^}]*--focus-on-dark/.test(css));
   }
 
   console.log('\n--- Kontroller som bytter farge ved hover / under draging ---');
