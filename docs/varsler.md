@@ -54,7 +54,11 @@ og leser to terskler ut av hver hendelse (tidspunktet selv, og uka før det).
 
 Alt annet er hendelsesmotorens svar, ikke et nytt regelsett:
 
-- hva som er **aktivt/ufullført** (tom liste, alt avkrysset, papirkurven);
+- hva som er **aktivt/ufullført** (tom liste, alt avkrysset, papirkurven).
+  Merk konsekvensen: **en liste uten listepunkter varsler ikke**, heller ikke
+  når den har en frist — den har ingen hendelse i «Kommende hendelser» heller,
+  fordi det ikke er noe igjen å rekke fristen med
+  ([`kommende-hendelser.md`](kommende-hendelser.md), «Hva som er aktivt»);
 - **effektiv, egen og arvet** tid — et listepunkt med rent arvet frist får ingen
   egen rad, bare forelderen;
 - den **hierarkiske dedupliseringen**;

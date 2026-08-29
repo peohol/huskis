@@ -327,10 +327,10 @@ Størrelse/form kommer fra egne klasser: `.btn` (modaler), `.btn-small`,
   (+ `-icon`/`-main`/`-meta`/`-when`/`-rel`/`-date`) og `.event-icon`: modalen
   «Kommende hendelser». Arbeidsdelingen: `.event-icon` i gruppens overskrift
   bærer STATUS (farget plate), `.event-row-icon` i raden bærer OBJEKTTYPEN
-  (uten flate). Statusflatene er de samme gradientene som `.meta-chip`-statusene
-  (`is-over`, `is-soon`, `is-started`) pluss `is-later` (grønn) og de to som
-  bare finnes her: `is-startsoon` (`--grad-purple`) og `is-startlater`
-  (`--grad-blue`) — startgruppene skal ikke låne varselfargene. `.event-icon`
+  (uten flate). Statusflatene er de SAMME seks som `.meta-chip` bruker under
+  navnet — `is-over`/`is-soon`/`is-later` for frister, `is-started`/
+  `is-startsoon`/`is-startlater` for starter — fordi det er de samme seks
+  bøttene (`docs/scheduling.md`); startene låner ikke varselfargene. `.event-icon`
   pinner `--icon-ink`/`--icon-paper` for seg selv, som `.btn-solid` gjør, siden
   platen er den samme i begge drakter; `.event-row-icon` har ingen plate, følger
   drakten og kaster en liten `drop-shadow`. `.events-group + .events-group`
@@ -559,9 +559,11 @@ Størrelse/form kommer fra egne klasser: `.btn` (modaler), `.btn-small`,
   `docs/menus.md`. `.trashcan.drag-trash` + `.to-trash`: søppelkassen som
   drop-mål mens et drag pågår (`docs/trash.md`).
   `.meta-row` + `.meta-chip`: indikator-chipene under navnet (delt/ansvarlig/
-  start/frist — status-farger via `--grad-*`; `.is-conflict` legger på en
+  start/frist). Seks statustoner via `--grad-*`, de samme bøttene og flatene som
+  «Kommende hendelser» (`docs/scheduling.md`); `paintTimeChip` males på nytt av
+  seg selv når en grense passeres, uten en rendring. `.is-conflict` legger på en
   stiplet kant i chipens EGEN tekstfarge når fristen bryter invarianten, mens
-  glyfen og teksten bærer meningen). `.resp-avatar` / `.resp-row`:
+  glyfen og teksten bærer meningen. `.resp-avatar` / `.resp-row`:
   ansvarlig-sirkler og velger-rader; sirkelfargen settes inline fra paletten
   (`colorForIndex`, personens alfabetiske plass i delegruppen). Se
   `docs/scheduling.md` og `docs/accounts.md`.

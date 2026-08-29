@@ -147,14 +147,16 @@ som alle andre ikoner. Pinner man hele modalen i stedet, tar man med seg ikoner
 som ikke har noen kontraktsfarge under seg, og de forsvinner
 ([`kommende-hendelser.md`](kommende-hendelser.md)).
 
-Statuschipene under navnet (`.meta-chip.is-started/-soon/-over`) er fargede
-flater som ikke er `.btn-solid`, og de fanges derfor ikke av knappenes pinning.
-Der er den lyse streken en **forbedring** på blågrønt (3,90 → 3,95/5,54) og på
-rødt (3,52 → 4,38/5,56), så bare den gule chipen pinnes mørk — 1,47:1 med lys
-strek mot 10,48:1 med mørk. Samme regel som `.btn-yellow`: en gul flate bærer
-mørke merker. Streken og «papiret» pinnes **sammen**: kalender- og
-klokkeikonene har en hvit flate under strekene, og med bare streken pinnet ville
-mørk strek møtt mørkt papir og ikonet blitt en ulesbar klatt.
+Statuschipene under navnet (`.meta-chip`, seks toner —
+[`scheduling.md`](scheduling.md)) er fargede flater som ikke er `.btn-solid`, og
+de fanges derfor ikke av knappenes pinning. Skillet går på hvor LYS flaten er:
+på de to mørke er den lyse streken en **forbedring** (blågrønt 3,90 →
+3,95/5,54, rødt 3,52 → 4,38/5,56), mens de fire lyse — gul, grønn, lilla, blå —
+pinnes mørke. Gult er det tydeligste tilfellet: 1,47:1 med lys strek mot
+10,48:1 med mørk. Samme regel som `.btn-yellow`: en lys flate bærer mørke
+merker. Streken og «papiret» pinnes **sammen**: kalender- og klokkeikonene har
+en hvit flate under strekene, og med bare streken pinnet ville mørk strek møtt
+mørkt papir og ikonet blitt en ulesbar klatt.
 
 **De seks palettfyllene i ikonene** (globusens felter, mappene i logoen) står
 uendret i begge drakter. De er den lyse palettens første sett (S=20 %, L=60 %)

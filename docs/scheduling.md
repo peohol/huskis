@@ -189,16 +189,43 @@ Chipene er KNAPPER for hurtigendring:
 
 Chip-innhold: datoen (`fmtDay`: «14. jul», + årstall når ≠ i år) — MEN hvis
 datoen er I DAG og et klokkeslett er definert, vises i stedet klokkeslettet
-med klokkeikon. Fargestatus (`startStatus`/`dueStatus`, regnet med `timeMs` mot
-samme `now` som resten):
+med klokkeikon.
 
-- start: nøytral (uten farge) til starttidspunktet er passert → **grønn** f.o.m.
-  det. En dato uten klokkeslett begynner 00:00, altså grønn hele startdagen.
-- frist: nøytral → **gul** dagen før OG på selve fristdagen → **rød** først når
-  fristen faktisk er passert. En dato uten klokkeslett varer ut døgnet, så den
-  er ikke overskredet før dagen etter.
+### Fargen er de samme seks bøttene som «Kommende hendelser»
 
-Fargene bruker knappesystemets gradienter (`--grad-green/-yellow/-red`).
+`dueBucket`/`startBucket` er den ENE inndelingen av tid i appen, og både
+chipene (`dueStatus`/`startStatus`) og gruppene i hendelsesmodalen leser dem.
+En frist som står «innen 7 dager» der kan derfor ikke være rød i lista.
+
+| Felt | Bøtte | Grense | Chip |
+|---|---|---|---|
+| **frist** | utløpt | `due < now` | rød (`--grad-red`) |
+| | innen 7 dager | `now <= due < now + 7 døgn` | gul (`--grad-yellow`) |
+| | om 7 dager eller mer | `due >= now + 7 døgn` | grønn (`--grad-green`) |
+| **start** | har begynt | `start <= now` | blågrønn (`--grad-accent`) |
+| | innen 7 dager | `now < start < now + 7 døgn` | lilla (`--grad-purple`) |
+| | om 7 dager eller mer | `start >= now + 7 døgn` | blå (`--grad-blue`) |
+
+Grensene er uttømmende og møtes uten hull, og ett døgn er 24 timer
+(`WEEK_MS`) — ikke syv kalenderdager. **Startene låner ikke varselfargene:** at
+noe begynner er ingen advarsel, så de har sine egne flater, som i modalen
+([`kommende-hendelser.md`](kommende-hendelser.md)).
+
+De fire LYSE flatene (gul, grønn, lilla, blå) pinner en mørk ikonstrek og et
+lyst «papir» for seg selv; de to mørke (rød, blågrønn) beholder streken som
+snur med drakten. Se [`mork-drakt.md`](mork-drakt.md) og
+[`tilgjengelighet.md`](tilgjengelighet.md).
+
+### Chipen lever i tid, ikke bare i tilstand
+
+En frist som passerer mens brukeren ser på skjermen blir rød der og da — uten
+en rendring. `paintTimeChip` eier ALT som avhenger av klokka (tonen, glyfen og
+teksten), så den kan kalles på nytt alene, og `refreshTimeChips` sover til den
+FØRSTE grensen som kan endre noe: hver chips tidspunkt, dens sju-døgnsgrense,
+og midnatt (da «i dag kl. 14» blir «14. jul»). Taket er seks timer, og en
+`visibilitychange` maler på nytt med én gang — en `setTimeout` er ikke til å
+stole på over en fane i bakgrunnen eller en enhet som har sovet. Samme mekanikk
+som hendelsesmodalen.
 
 Bryter fristen invarianten (`.meta-chip.is-conflict`), bytter chipen glyf til
 varseltrekanten og forteller i teksten sin hvilken forelder som er brutt — se

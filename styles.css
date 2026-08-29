@@ -4117,25 +4117,35 @@ body.no-auth .corner-controls { display: none; }
 /* Ansvarlig-chipen er kun sirkelen (navnet ligger i title/aria). */
 .meta-chip.meta-resp { padding: 0 3px; background: transparent; box-shadow: none; }
 .meta-chip .resp-avatar { width: 22px; height: 22px; font-size: 11px; }
-/* Statusfarger (samme gradienter som knappesystemet). */
+/* STATUSFARGER — de samme seks flatene som gruppene i «Kommende hendelser»
+   (docs/kommende-hendelser.md), og de samme seks bøttene: fristen går rød →
+   gul → grønn, starten blågrønn → lilla → blå. At noe BEGYNNER er ingen
+   advarsel, så startene låner ikke varselfargene.
+
+   LYSE FLATER PINNER MØRKE MERKER. I mørk drakt snur ikonstreken til
+   --icon-ink, og det er en forbedring på de MØRKE flatene (blågrønt 3,90 →
+   3,95/5,54, rødt 3,52 → 4,38/5,56) — men en katastrofe på de lyse (gult
+   10,48 → 1,47). Samme regel som for .btn-yellow: gult, grønt, lilla og blått
+   bærer mørke merker, blågrønt og rødt beholder gevinsten av den lyse.
+   «Papiret» pinnes SAMMEN med streken: kalender-/klokkeikonene har en hvit
+   flate under strekene (fill="#ffffff"), og med bare streken pinnet ville mørk
+   strek møtt mørkt papir og ikonet blitt en ulesbar klatt. Nøyaktig samme par
+   som .btn-solid pinner. */
+.meta-chip.is-over { background: var(--grad-red); color: #fff; text-shadow: var(--text-shadow); }
 .meta-chip.is-started { background: var(--grad-accent); color: #fff; text-shadow: var(--text-shadow); }
-/* GUL ER UNNTAKET, også her. I mørk drakt snur ikonstreken til --icon-ink, og
-   det er en forbedring på blågrønt (3,90 → 3,95/5,54) og på rødt (3,52 →
-   4,38/5,56) — men en katastrofe på gult (10,48 → 1,47). Samme regel som for
-   .btn-yellow: en gul flate bærer MØRKE merker. Pinnes bare her, så de to
-   andre chipene beholder gevinsten. */
-.meta-chip.is-soon {
-  background: var(--grad-yellow);
+.meta-chip.is-soon,
+.meta-chip.is-later,
+.meta-chip.is-startsoon,
+.meta-chip.is-startlater {
   color: #fff;
   text-shadow: var(--text-shadow);
   --icon-ink: #111111;
-  /* «Papiret» må pinnes SAMMEN med streken. Kalender- og klokkeikonene har en
-     hvit flate under strekene (fill="#ffffff"); med bare streken pinnet ville
-     mørk strek møtt mørkt papir og ikonet blitt en ulesbar klatt. Nøyaktig
-     samme par som .btn-solid pinner. */
   --icon-paper: #ffffff;
 }
-.meta-chip.is-over { background: var(--grad-red); color: #fff; text-shadow: var(--text-shadow); }
+.meta-chip.is-soon { background: var(--grad-yellow); }
+.meta-chip.is-later { background: var(--grad-green); }
+.meta-chip.is-startsoon { background: var(--grad-purple); }
+.meta-chip.is-startlater { background: var(--grad-blue); }
 /* Fristen ligger etter forelderens (docs/scheduling.md). Meningen bæres av
    varseltrekanten og av chipens tekst (`title`/`aria-label`) — statusfargen
    under sier fortsatt hvor fristen står i tid. Kanten er ren forsterkning og

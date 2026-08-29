@@ -481,6 +481,8 @@
     // gjøre listen utdatert mens modalen står åpen. Kallet er en no-op når den
     // er lukket, og maler bare om når noe faktisk ble annerledes.
     refreshEventsModal();
+    // Nye/endrede chips kan flytte den neste grensen timeren skal våkne på.
+    scheduleChipTick();
     if (applyingRemote) return;
     if (authUser) { saveSeq++; scheduleCloud(); syncStatus.refresh(); }
   }
@@ -1640,6 +1642,7 @@
     applyFocusIntent();
     paintNavFlash();       // markeringen av et navigasjonsmål overlever ombyggingen
     refreshEventsModal();  // en synk-runde kan ha endret hendelsene under modalen
+    scheduleChipTick();    // … og hvilke tids-chips som står på skjermen
     // Ombyggingen har byttet ut hvert eneste kort — og dermed hver eneste rad —
     // og dnd-kit sitter igjen med de gamle nodene. Meld den; samme grunn som
     // `renderNav` har, se `boardSyncBoards`.
@@ -2875,10 +2878,6 @@
       '-' + String(d.getDate()).padStart(2, '0');
   }
   function todayStr() { return localDateStr(new Date()); }
-  function addDaysStr(dateStr, days) {
-    const p = dateStr.split('-').map(Number);
-    return localDateStr(new Date(p[0], p[1] - 1, p[2] + days));
-  }
   const HOUR_MS = 60 * 60 * 1000;
   const DAY_MS = 24 * HOUR_MS;
   const WEEK_MS = 7 * DAY_MS;
@@ -2913,26 +2912,31 @@
     const day = fmtDay(timeDatePart(v));
     return clock ? tr('date.at', { date: day, clock: clock }) : day;
   }
-  /* Chip-statusene. Begge regnes med `timeMs` mot samme `now`, så en frist som
-     står «innen 7 dager» i Kommende hendelser aldri kan være rød i lista:
-       start:  nøytral til starttidspunktet er passert, grønn f.o.m. det — en
-               dato uten klokkeslett begynner 00:00, altså grønn hele startdagen.
-       frist:  nøytral → gul dagen før OG på selve fristdagen → rød først når
-               fristen faktisk er passert (en dato uten klokkeslett varer ut
-               døgnet, så den er ikke overskredet før dagen etter). */
-  function startStatus(v, now) { // 'future' | 'started'
-    const t = timeMs(v, 'start');
-    return t != null && t <= (now == null ? Date.now() : now) ? 'started' : 'future';
+  /* BØTTENE — den ENE inndelingen av tid i appen. Både indikator-chipene under
+     navnet og gruppene i «Kommende hendelser» (docs/kommende-hendelser.md)
+     bruker disse, så en frist som står «innen 7 dager» der ikke kan være rød i
+     lista. Grensene er UTTØMMENDE og møtes uten hull: nøyaktig 7 døgn havner i
+     «om 7 døgn eller mer», nøyaktig nå i «innen 7 dager».
+
+     Starten speiler IKKE fristen ved `now`: et tidspunkt som er nøyaktig nå HAR
+     begynt, mens en frist som er nøyaktig nå ennå ikke er oversittet. */
+  function dueBucket(at, now) {   // 'over' | 'soon' | 'later'
+    if (at < now) return 'over';
+    return at < now + WEEK_MS ? 'soon' : 'later';
   }
-  function dueStatus(v, now) { // 'later' | 'soon' | 'over'
+  function startBucket(at, now) { // 'started' | 'soon' | 'later'
+    if (at <= now) return 'started';
+    return at < now + WEEK_MS ? 'soon' : 'later';
+  }
+  /* Chip-statusene er nøyaktig de samme bøttene, regnet med `timeMs` mot samme
+     `now`. Null når feltet er tomt. */
+  function startStatus(v, now) {
+    const t = timeMs(v, 'start');
+    return t == null ? null : startBucket(t, now == null ? Date.now() : now);
+  }
+  function dueStatus(v, now) {
     const t = timeMs(v, 'due');
-    if (t == null) return 'later';
-    const n = now == null ? Date.now() : now;
-    if (t < n) return 'over';
-    // «Snart» er kalenderbasert (i dag eller i morgen), ikke et døgn målt i
-    // millisekunder: en frist i morgen skal være gul uansett hvor sent i dag
-    // brukeren ser på den.
-    return timeDatePart(v) <= addDaysStr(localDateStr(new Date(n)), 1) ? 'soon' : 'later';
+    return t == null ? null : dueBucket(t, now == null ? Date.now() : now);
   }
   // Er elementets start/frist utenfor tidsrommet til containeren (liste eller
   // kategori)? Subtil beskjed i tidsmodulen — for START er dette fullt lovlig
@@ -3109,18 +3113,47 @@
     b.dataset.dndIgnore = '';
     return b;
   }
+  /* Chipens seks toner er de samme seks gruppene «Kommende hendelser» deler
+     tiden i, med de samme flatene (docs/kommende-hendelser.md): fristen går
+     rød → gul → grønn, starten blågrønn → lilla → blå. At noe BEGYNNER er
+     ingen advarsel, så startene låner ikke varselfargene. */
+  const CHIP_TONES = ['is-over', 'is-soon', 'is-later', 'is-started', 'is-startsoon', 'is-startlater'];
+  const CHIP_TONE = {
+    due: { over: 'is-over', soon: 'is-soon', later: 'is-later' },
+    start: { started: 'is-started', soon: 'is-startsoon', later: 'is-startlater' },
+  };
+
+  /* Maler chipen fra `data-time`/`data-field`. ALT som avhenger av klokka står
+     her og ingen andre steder, så den samme funksjonen kan kalles igjen når en
+     grense passerer — uten å tegne board-et på nytt (`refreshTimeChips`). */
+  function paintTimeChip(chip, now) {
+    const v = chip.dataset.time;
+    const field = chip.dataset.field;
+    if (!v || !field) return;
+    const isDue = field === 'due';
+    const N = now == null ? Date.now() : now;
+    const bucket = isDue ? dueStatus(v, N) : startStatus(v, N);
+    CHIP_TONES.forEach((c) => chip.classList.remove(c));
+    if (bucket) chip.classList.add(CHIP_TONE[field][bucket]);
+
+    const conflict = chip.dataset.conflict || '';
+    const clock = timeClockPart(v);
+    const showClock = clock && timeDatePart(v) === todayStr();
+    chip.innerHTML = (conflict ? ICONS.alert : (showClock ? ICONS.clock : (isDue ? ICONS.calendarDue : ICONS.calendar))) +
+      '<span>' + (showClock ? clock : fmtDay(timeDatePart(v))) + '</span>';
+    chip.title = conflict || tr(isDue ? 'time.dueLabel' : 'time.startLabel', { time: fmtTimeFull(v) });
+    chip.setAttribute('aria-label',
+      chip.dataset.readonly ? chip.title : tr('chip.tapToChange', { text: chip.title }));
+  }
+
   function appendTimeChip(row, target, field, canEdit) {
     const v = target.obj[field];
     if (!v) return;
     const isDue = field === 'due';
     const chip = metaChipEl(isDue ? 'meta-due' : 'meta-start');
-    if (isDue) {
-      const st = dueStatus(v);
-      if (st === 'soon') chip.classList.add('is-soon');
-      else if (st === 'over') chip.classList.add('is-over');
-    } else if (startStatus(v) === 'started') {
-      chip.classList.add('is-started');
-    }
+    chip.dataset.time = v;
+    chip.dataset.field = field;
+    if (!canEdit) chip.dataset.readonly = '1';
     /* Ligger fristen etter forelderens (docs/scheduling.md)? Setteren hindrer at
        det OPPSTÅR ved en tidsendring, men et bytte av forelder — et drag, en
        tastaturflytting, «Flytt til …» — flytter taket uten å gå gjennom den, og
@@ -3131,24 +3164,61 @@
        ikke fargen: statusfargen sier fortsatt hvor fristen står i tid, og den
        skal den fortsette å si. Den stiplede kanten er bare forsterkning, og
        arver chipens egen tekstfarge — den kan dermed aldri bli svakere enn
-       teksten som allerede står der. */
+       teksten som allerede står der.
+
+       Bruddet avhenger av TILSTANDEN, ikke av klokka, så det regnes ut her og
+       bæres videre som ferdig tekst — `paintTimeChip` skal ikke måtte slå opp
+       et objekt for å male en farge om igjen. */
     const conflict = isDue ? dueLegacyConflict(target.card, target.obj) : null;
-    const clock = timeClockPart(v);
-    const showClock = clock && timeDatePart(v) === todayStr();
-    if (conflict) chip.classList.add('is-conflict');
-    chip.innerHTML = (conflict ? ICONS.alert : (showClock ? ICONS.clock : (isDue ? ICONS.calendarDue : ICONS.calendar))) +
-      '<span>' + (showClock ? clock : fmtDay(timeDatePart(v))) + '</span>';
-    chip.title = conflict
-      ? tr('time.dueConflict', {
+    if (conflict) {
+      chip.classList.add('is-conflict');
+      chip.dataset.conflict = tr('time.dueConflict', {
         kind: tr(conflict.kind === 'category' ? 'kindDef.category' : 'kindDef.card'),
         name: timeObjName(conflict.obj), time: fmtTimeFull(conflict.obj.due),
-      })
-      : tr(isDue ? 'time.dueLabel' : 'time.startLabel', { time: fmtTimeFull(v) });
-    chip.setAttribute('aria-label', canEdit ? tr('chip.tapToChange', { text: chip.title }) : chip.title);
+      });
+    }
+    paintTimeChip(chip);
     if (canEdit) chip.addEventListener('click', (ev) => { ev.stopPropagation(); openTimeQuick(target, field, chip); });
     else chip.disabled = true;
     row.appendChild(chip);
   }
+
+  /* CHIPENE LEVER I TID, ikke bare i tilstand. En frist som passerer mens
+     brukeren ser på skjermen skal bli rød der og da — ikke først ved neste
+     rendring (som kan komme timer senere, eller aldri). Vi puls-sjekker likevel
+     ikke: hver chip har nøyaktig to øyeblikk der tonen kan skifte
+     (tidspunktet selv og sju-døgnsgrensen), pluss midnatt, som er når datoen
+     under navnet bytter form («i dag kl. 14» → «14. jul»). Vi sover til den
+     FØRSTE av dem. Samme mekanikk — og samme begrunnelse for taket og
+     `visibilitychange` — som hendelsesmodalen (docs/kommende-hendelser.md). */
+  const CHIP_MAX_SLEEP_MS = 6 * 60 * 60 * 1000;
+  let chipTimer = null;
+  function nextChipBoundary(now) {
+    const d = new Date(now);
+    let best = new Date(d.getFullYear(), d.getMonth(), d.getDate() + 1).getTime();
+    document.querySelectorAll('.meta-chip[data-time]').forEach((chip) => {
+      const at = timeMs(chip.dataset.time, chip.dataset.field);
+      if (at == null) return;
+      [at, at - WEEK_MS].forEach((t) => { if (t > now && t < best) best = t; });
+    });
+    return best;
+  }
+  function scheduleChipTick() {
+    clearTimeout(chipTimer);
+    const now = Date.now();
+    const next = nextChipBoundary(now);
+    // +50 ms: vi skal våkne SÅ VIDT etter grensen, ikke nøyaktig på den.
+    chipTimer = setTimeout(refreshTimeChips, Math.min(next - now + 50, CHIP_MAX_SLEEP_MS));
+  }
+  function refreshTimeChips() {
+    const now = Date.now();
+    document.querySelectorAll('.meta-chip[data-time]').forEach((chip) => paintTimeChip(chip, now));
+    scheduleChipTick();
+  }
+  /* En timer er ikke til å stole på over en fane i bakgrunnen eller en enhet
+     som har sovet — kommer vi tilbake i forgrunnen, males chipene på nytt med
+     én gang. */
+  document.addEventListener('visibilitychange', () => { if (!document.hidden) refreshTimeChips(); });
   // Fyll meta-raden for en liste eller et element. target = { kind, obj, card }
   // (for lister er obj === card). Raden skjules når ingen chips er satt.
   function fillMetaRow(row, target, canEdit) {
@@ -9229,18 +9299,9 @@
     return { value: obj[field] || null, own: true };
   }
 
-  /* Fristbøttene. Grensene er UTTØMMENDE og møtes uten hull — nøyaktig 7 døgn
-     havner i «om 7 døgn eller mer», nøyaktig nå i «innen 7 dager». */
-  function dueBucket(at, now) {
-    if (at < now) return 'over';
-    return at < now + WEEK_MS ? 'soon' : 'later';
-  }
-  /* Startbøttene. Speiler IKKE fristene ved `now`: et tidspunkt som er nøyaktig
-     nå HAR begynt, mens en frist som er nøyaktig nå ennå ikke er oversittet. */
-  function startBucket(at, now) {
-    if (at <= now) return 'started';
-    return at < now + WEEK_MS ? 'soon' : 'later';
-  }
+  /* Bøttene bor i tids-seksjonen: de deles med indikator-chipene
+     (`dueStatus`/`startStatus`), og det er hele poenget — en frist som står
+     «innen 7 dager» her kan ikke samtidig være rød i lista. */
 
   /* HOVEDMOTOREN. `st` er tilstanden (standard: appens egen), `now` er
      millisekunder eller en Date (standard: nå).
@@ -9846,6 +9907,7 @@
   let notifCursor = null;    // null = kontoen har ingen markør ennå (første runde)
   let notifBusy = false;     // én generator-runde om gangen
   let notifRetryAt = 0;      // etter en mislykket runde: ikke prøv igjen før dette
+  let notifErrorLogged = false;  // én linje i konsollen per feilklasse, ikke én per runde
 
   // Millisekunder → den samme tekstformen tidsverdiene har, så visningen kan gå
   // gjennom `fmtTimeFull()` og få dato + klokkeslett på brukerens språk.
@@ -9971,12 +10033,23 @@
       // Optimistisk: neste pull bekrefter. Kom kallet ikke fram, står markøren
       // igjen der den var, og runden tas om igjen — vinduet er fortsatt åpent.
       notifCursor = Math.max(notifCursor || 0, now);
+      notifErrorLogged = false;
       // Bare en runde som FAKTISK la inn noe er verdt en ekstra pull. Uten den
       // vakten ville en runde som bare traff dubletter planlagt seg selv igjen.
       if (Number(data) > 0) scheduleCloud(150);
     } catch (e) {
-      /* Stille: vinduet er fortsatt åpent, og runden tas om igjen — men først
-         etter pausen over. */
+      /* Stille for BRUKEREN: vinduet er fortsatt åpent, og runden tas om igjen
+         etter pausen over. Men ikke usynlig for den som feilsøker. Den mest
+         sannsynlige varige feilen er at databasen ikke har fått denne rundens
+         migrering ennå — en preview-deploy peker på produksjonsskjemaet, og da
+         finnes ikke `notify_record`. Uten denne linjen er hele funksjonen død
+         uten et eneste signal noe sted. Konsollen, ikke en toast: det er en
+         tilstand for utvikleren, ikke en hendelse for brukeren. */
+      if (!notifErrorLogged) {
+        notifErrorLogged = true;
+        console.warn('[huskis] notify_record failed - notifications are off:',
+          (e && e.message) || e);
+      }
       notifRetryAt = Date.now() + NOTIF_RETRY_MS;
     } finally {
       notifBusy = false;
@@ -10440,6 +10513,7 @@
     notifPrefs = null;
     notifCursor = null;
     notifRetryAt = 0;
+    notifErrorLogged = false;
     notifPurged.clear();
     if (notifClear) { clearTimeout(notifClear.timer); notifClear = null; }
     clearTimeout(notifTimer);
@@ -16489,6 +16563,9 @@
        `now`, så grensetilfellene kan testes uten systemklokken — og
        `setObjectTime` er den ene setteren fristinvarianten håndheves i. */
     openEventsModal, closeEventsModal, collectUpcomingEvents, setObjectTime,
+    /* Bøttene indikator-chipene og hendelsesgruppene DELER (docs/scheduling.md).
+       Eksplisitt `now`, så grensene kan måles uten systemklokken. */
+    dueStatus, startStatus,
     /* Varsler. `collectNotifications(state, now, prefs, cursor)` er ren, som
        hendelsesmotoren: eksplisitt `now` og eksplisitt markør, så terskler,
        catch-up og preferanser kan testes uten systemklokken og uten server. */
