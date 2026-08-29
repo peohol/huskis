@@ -13,7 +13,7 @@
      samme lys ovenfra som de nedoverforskjøvne skyggene forutsetter.
    • Delte klasser: .panel-head/.panel-title/.panel-actions (menyoverskrift +
      knapperad), .btn-add (grønn ＋), .trashcan (hvit søppelkasse),
-     .corner-controls/.corner-btn (toppkontrollgruppen: kalender, søk, drakt, konto),
+     .corner-controls/.corner-btn (toppkontrollgruppen: varsler, kalender, søk, drakt, konto),
      .crumb-btn (navigasjonsknappen), delte sletteknapp-, placeholder- og
      håndtak-regler.
    • Flate-mønster: halvgjennomsiktig hvit (--control-bg) som hviletilstand,
@@ -976,31 +976,28 @@ body {
 }
 
 /* Telefon i portrett (samme grense som resten av appen): gruppen deles i TO
-   rader — drakt og konto øverst, kalender og søk under. Klaringen panelet må
-   holde av blir dermed to knapper i stedet for fire, og breadcrumben får
-   plassen. Panelet er også to rader så smalt, så den andre gruppe-raden legger
-   seg ved siden av listefunksjonene i stedet for å skyve panelet nedover — se
+   rader — drakt og konto øverst, de tre innholdsknappene (varsler, kalender,
+   søk) under. Gruppen er dermed to rader uansett om den har fire eller fem
+   knapper, og board-ets klaring står stille når en ny kommer til. Panelet er
+   også to rader så smalt, så den andre gruppe-raden legger seg ved siden av
+   listefunksjonene i stedet for å skyve panelet nedover — se
    `--corner-btns-overflow` ved `.topbar`.
 
-   Rekkefølgen styres av `order`, ikke av DOM-en: DOM-rekkefølgen er fortsatt
-   den brede (kalender → søk → drakt → konto), og en ny knapp legges FØRST der
-   som før — den havner da i den nederste raden av seg selv. Maks-bredden er
-   nøyaktig to knapper + luften mellom dem, så bruddet skjer av seg selv i
-   stedet for av et usynlig hjelpeelement. */
+   DELINGEN GJØRES AV `wrap-reverse`, ikke av `order`. DOM-rekkefølgen er
+   fortsatt den brede (varsler → kalender → søk → drakt → konto): flex fyller
+   den første linjen med de tre første, den andre med drakt og konto — og
+   `wrap-reverse` legger den SISTE linjen øverst. Da havner drakt og konto i
+   hjørnet, innholdsknappene på raden under, og regelen «en ny knapp legges
+   FØRST i gruppen» holder fortsatt uten en eneste ny utregning. Et usynlig
+   bruddelement ville kostet en ekstra flex-linje — altså høyde. */
 @media (max-width: 560px) {
   .corner-controls {
-    max-width: calc(var(--control-h) * 2 + var(--corner-btns-gap));
+    max-width: calc(var(--control-h) * 3 + var(--corner-btns-gap) * 2);
+    flex-wrap: wrap-reverse;
   }
-  /* Bare drakt og konto løftes opp; ALT annet i gruppen faller under dem i
-     DOM-rekkefølge. Da holder regelen fra den brede visningen fortsatt: en ny
-     knapp legges FØRST i gruppen, og havner i verktøyraden av seg selv.
-     Scopet til gruppen — `.theme-toggle-btn` finnes også inline i
-     innloggingsskjermens språkrad, og en `order` der ville flyttet den. */
-  .corner-controls > .theme-toggle-btn,
-  .corner-controls > .account-btn { order: -1; }
 }
 
-/* Felles flate for hjørneknappene (kalender, søk, drakt, konto): flate-mønsteret —
+/* Felles flate for hjørneknappene (varsler, kalender, søk, drakt, konto): flate-mønsteret —
    halvgjennomsiktig hvit → hvit ved hover, samme høyde/radius som resten av
    kontrollene. Innloggingsskjermens draktknapp bruker den samme klassen inline
    i språkraden. */
@@ -3879,6 +3876,143 @@ body.no-auth .corner-controls { display: none; }
   }
 }
 
+/* ---------------- Varselmodalen ----------------
+   Samme modalskall som «Kommende hendelser», og BEVISST de samme statusflatene:
+   et varsel om en utløpt frist skal se ut som gruppen «Frist utløpt» gjør —
+   `.event-icon` med sin tone gjenbrukes derfor rått, med pinningen og
+   kontrastkontrakten den allerede har (docs/mork-drakt.md,
+   docs/tilgjengelighet.md). Modalen selv pinner INGENTING.
+
+   Raden er to knapper, ikke én: hele venstresiden navigerer til objektet, og
+   den lille klokka til høyre folder ut «Utsett». En `<button>` inne i en annen
+   er ulovlig, så de er søsken i en flex-linje. */
+.notif-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+/* To ikonknapper i modalhodet (tannhjul + lukk): `.modal-head` er
+   space-between, så de må ligge i én boks for å holde sammen i enden. */
+.modal-head-actions { flex: 0 0 auto; display: flex; align-items: center; gap: 2px; }
+#notif-settings-btn[aria-pressed="true"] { background: var(--primary-soft); color: var(--ink); }
+
+.notif-empty { margin: 0; font-size: var(--fs-sm); color: var(--ink-soft); font-weight: 500; }
+.notif-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.notif-item { display: flex; flex-direction: column; gap: 6px; }
+.notif-line { display: flex; align-items: center; gap: 6px; }
+.notif-row {
+  flex: 1 1 auto;
+  min-width: 0;
+  appearance: none;
+  cursor: pointer;
+  text-align: left;
+  font-family: inherit;
+  display: flex;
+  /* Meldingen er en hel setning og brekker ofte over to linjer. Toppstilt, så
+     ikonet og tidspunktet står på linje med NAVNET og ikke midt i teksten. */
+  align-items: flex-start;
+  gap: 10px;
+  padding: 9px 12px;
+  border: 1.5px solid transparent;
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+  transition: background 0.15s, border-color 0.15s;
+}
+.notif-row:hover { background: var(--wash); }
+.notif-row:focus-visible { outline: var(--focus-w) solid var(--focus); outline-offset: 2px; }
+/* Ulest bæres av mer enn farge: en prikk i enden av navnet OG en kant
+   (docs/tilgjengelighet.md). Lest er den rolige tilstanden, ikke omvendt. */
+.notif-row.is-unread { border-color: var(--primary); background: var(--primary-soft); }
+/* Målet er slettet eller utenfor tilgangen min: raden står, men den fører
+   ingen steder — og sier det i teksten sin, ikke bare med tonen. */
+.notif-row.is-gone { cursor: default; opacity: 0.72; }
+.notif-row.is-gone:hover { background: var(--surface-2); }
+.notif-main { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+.notif-name-row { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.notif-name {
+  font-size: var(--fs-base);
+  font-weight: 600;
+  color: var(--ink);
+  overflow-wrap: anywhere;
+}
+.notif-dot {
+  flex: 0 0 auto;
+  width: 8px; height: 8px;
+  border-radius: 999px;
+  background: var(--primary);
+}
+.notif-meta {
+  font-size: var(--fs-xs);
+  font-weight: 500;
+  color: var(--ink-soft);
+  overflow-wrap: anywhere;
+}
+/* Tidspunktet varselet gjelder — diskret, i enden av raden. */
+.notif-when {
+  flex: 0 0 auto;
+  padding-top: 2px;
+  font-size: var(--fs-xs);
+  font-weight: 600;
+  color: var(--ink-soft);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.notif-snooze-btn {
+  flex: 0 0 auto;
+  align-self: center;
+  appearance: none;
+  cursor: pointer;
+  width: var(--control-h);
+  height: var(--control-h);
+  border: 1.5px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+  color: var(--ink-soft);
+  display: grid;
+  place-items: center;
+  transition: background 0.15s, border-color 0.15s, color 0.15s;
+}
+.notif-snooze-btn:hover { background: var(--wash); color: var(--ink); }
+.notif-snooze-btn:focus-visible { outline: var(--focus-w) solid var(--focus); outline-offset: 2px; }
+.notif-snooze-btn[aria-expanded="true"] { border-color: var(--primary); background: var(--primary-soft); color: var(--ink); }
+.notif-snooze-btn .icon { width: 20px; height: 20px; }
+/* Utsett-valgene: tre knapper på rad, innrykket til teksten i raden over. */
+.notif-snooze-row { display: flex; flex-wrap: wrap; gap: 6px; padding-left: 12px; }
+.notif-snooze-row[hidden] { display: none; }
+
+/* Preferansene (tannhjulet). De styrer om hendelsen GENERERES, ikke bare om
+   den vises — hinten sier det, så ingen tror en avslått type kommer tilbake
+   når den slås på igjen. */
+.notif-settings { display: flex; flex-direction: column; gap: 4px; }
+.notif-settings-hint {
+  margin: 0 0 4px;
+  font-size: var(--fs-sm);
+  font-weight: 500;
+  color: var(--ink-soft);
+}
+.notif-settings .menu-setting { margin-top: 4px; }
+/* Nedtellingen i «Angre · 10» skal ikke få knappen til å hoppe i bredde. */
+#notif-clear { font-variant-numeric: tabular-nums; }
+
+@media (max-width: 560px) {
+  /* Som hendelsesradene: tiden ned på sin egen linje, så navnet og meldingen
+     får hele bredden i stedet for å brekke ved siden av en kolonne som ikke
+     kan krympe. */
+  .notif-row { flex-wrap: wrap; }
+  .notif-main { flex-basis: 0; }
+  .notif-when { width: 100%; padding-left: 36px; padding-top: 0; }
+}
+
 /* ---------------- Kortvarig markering av et navigasjonsmål ----------------
    Settes av `navigateToObject()` på objektet man nettopp havnet ved (søk i
    dag, kommende hendelser og varsler senere) og fjernes igjen etter
@@ -3983,25 +4117,35 @@ body.no-auth .corner-controls { display: none; }
 /* Ansvarlig-chipen er kun sirkelen (navnet ligger i title/aria). */
 .meta-chip.meta-resp { padding: 0 3px; background: transparent; box-shadow: none; }
 .meta-chip .resp-avatar { width: 22px; height: 22px; font-size: 11px; }
-/* Statusfarger (samme gradienter som knappesystemet). */
+/* STATUSFARGER — de samme seks flatene som gruppene i «Kommende hendelser»
+   (docs/kommende-hendelser.md), og de samme seks bøttene: fristen går rød →
+   gul → grønn, starten blågrønn → lilla → blå. At noe BEGYNNER er ingen
+   advarsel, så startene låner ikke varselfargene.
+
+   LYSE FLATER PINNER MØRKE MERKER. I mørk drakt snur ikonstreken til
+   --icon-ink, og det er en forbedring på de MØRKE flatene (blågrønt 3,90 →
+   3,95/5,54, rødt 3,52 → 4,38/5,56) — men en katastrofe på de lyse (gult
+   10,48 → 1,47). Samme regel som for .btn-yellow: gult, grønt, lilla og blått
+   bærer mørke merker, blågrønt og rødt beholder gevinsten av den lyse.
+   «Papiret» pinnes SAMMEN med streken: kalender-/klokkeikonene har en hvit
+   flate under strekene (fill="#ffffff"), og med bare streken pinnet ville mørk
+   strek møtt mørkt papir og ikonet blitt en ulesbar klatt. Nøyaktig samme par
+   som .btn-solid pinner. */
+.meta-chip.is-over { background: var(--grad-red); color: #fff; text-shadow: var(--text-shadow); }
 .meta-chip.is-started { background: var(--grad-accent); color: #fff; text-shadow: var(--text-shadow); }
-/* GUL ER UNNTAKET, også her. I mørk drakt snur ikonstreken til --icon-ink, og
-   det er en forbedring på blågrønt (3,90 → 3,95/5,54) og på rødt (3,52 →
-   4,38/5,56) — men en katastrofe på gult (10,48 → 1,47). Samme regel som for
-   .btn-yellow: en gul flate bærer MØRKE merker. Pinnes bare her, så de to
-   andre chipene beholder gevinsten. */
-.meta-chip.is-soon {
-  background: var(--grad-yellow);
+.meta-chip.is-soon,
+.meta-chip.is-later,
+.meta-chip.is-startsoon,
+.meta-chip.is-startlater {
   color: #fff;
   text-shadow: var(--text-shadow);
   --icon-ink: #111111;
-  /* «Papiret» må pinnes SAMMEN med streken. Kalender- og klokkeikonene har en
-     hvit flate under strekene (fill="#ffffff"); med bare streken pinnet ville
-     mørk strek møtt mørkt papir og ikonet blitt en ulesbar klatt. Nøyaktig
-     samme par som .btn-solid pinner. */
   --icon-paper: #ffffff;
 }
-.meta-chip.is-over { background: var(--grad-red); color: #fff; text-shadow: var(--text-shadow); }
+.meta-chip.is-soon { background: var(--grad-yellow); }
+.meta-chip.is-later { background: var(--grad-green); }
+.meta-chip.is-startsoon { background: var(--grad-purple); }
+.meta-chip.is-startlater { background: var(--grad-blue); }
 /* Fristen ligger etter forelderens (docs/scheduling.md). Meningen bæres av
    varseltrekanten og av chipens tekst (`title`/`aria-label`) — statusfargen
    under sier fortsatt hvor fristen står i tid. Kanten er ren forsterkning og

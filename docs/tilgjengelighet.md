@@ -196,6 +196,14 @@ papiret) når 3:1 mot flaten — på de lyse flatene er det streken, på de mør
 papiret. Vokter: `tests/a11y-contrast.test.js`. Autoritativt for resten:
 `kommende-hendelser.md`.
 
+**Varselmodalen arver hele dette avsnittet.** Radene der er også vanlige
+knapper, statusflatene er de samme `.event-icon`-tonene, og de samme to kravene
+gjelder: antallet (og hvor mange som er uleste) leses opp fra et skjult
+`role="status"`, og varseltypen står i klartekst i `aria-label` — visuelt er den
+bare et ikon. Ulest bæres av både en kant og en prikk, og et varsel hvis mål er
+slettet sier det i teksten sin, ikke bare med en dempet farge. Badgen på bjellen
+er `aria-hidden`; antallet ligger i knappens navn. Autoritativt: `varsler.md`.
+
 ## To bevisste avveininger
 
 **Korthodet er `role="button"`, og det koster `<h2>`-en.** En knapp har

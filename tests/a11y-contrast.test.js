@@ -529,34 +529,50 @@ if (darkBlock) {
   }
 
   console.log('\n--- Ikonene på de fargede statuschipene ---');
-  /* `.meta-chip.is-started/-soon/-over` er fargede flater som IKKE er
-     .btn-solid, så de fanges ikke av knappenes pinning. I mørk drakt snur
-     ikonstreken til --icon-ink, og det er en forbedring på blågrønt og rødt —
-     men gult kan like lite bære en lys strek som en hvit tekst. Chipen pinner
-     derfor streken mørk, som .btn-yellow gjør. */
+  /* Chipen har seks toner — de samme seks bøttene som «Kommende hendelser»
+     (docs/scheduling.md). De er fargede flater som IKKE er .btn-solid, så de
+     fanges ikke av knappenes pinning. I mørk drakt snur ikonstreken til
+     --icon-ink, og det er en forbedring på de MØRKE flatene (blågrønt, rødt) —
+     men de LYSE (gul, grønn, lilla, blå) kan like lite bære en lys strek som en
+     hvit tekst. De pinner derfor streken mørk, som .btn-yellow gjør. */
   {
-    const yellow = gradientStops('grad-yellow');
-    const soonRule = (css.match(/\.meta-chip\.is-soon\s*\{([^}]*)\}/) || [])[1] || '';
-    const pinned = (soonRule.match(/--icon-ink:\s*(#[0-9a-f]{3,8})/i) || [])[1];
-    check('.meta-chip.is-soon pinner en MØRK ikonstrek (gult bærer ikke lyse merker)',
-      !!pinned && lum(pinned) < 0.1, { regel: soonRule.replace(/\s+/g, ' ').trim(), pinned });
+    // De fire lyse flatene pinner; de to mørke gjør det ikke.
+    const LYSE = [['is-soon', 'grad-yellow'], ['is-later', 'grad-green'],
+      ['is-startsoon', 'grad-purple'], ['is-startlater', 'grad-blue']];
+    // Pinningen står i den DELTE regelen (alle fire i én selektorliste), så den
+    // leses ut derfra og ikke fra hver enkelt flate-regel.
+    const pinRule = (css.match(/\.meta-chip\.is-soon,[\s\S]*?\{([^}]*)\}/) || [])[1] || '';
+    const pinned = (pinRule.match(/--icon-ink:\s*(#[0-9a-f]{3,8})/i) || [])[1];
+    const paper = (pinRule.match(/--icon-paper:\s*(#[0-9a-f]{3,8})/i) || [])[1];
+    check('de LYSE chipene pinner en MØRK ikonstrek (en lys flate bærer ikke lyse merker)',
+      !!pinned && lum(pinned) < 0.1, { regel: pinRule.replace(/\s+/g, ' ').trim(), pinned });
     /* Og «papiret» sammen med den: kalender-/klokkeikonene har en hvit flate
        under strekene. Pinnes bare streken, møter mørk strek mørkt papir. */
-    const paper = (soonRule.match(/--icon-paper:\s*(#[0-9a-f]{3,8})/i) || [])[1];
-    check('.meta-chip.is-soon pinner «papiret» sammen med streken',
+    check('de LYSE chipene pinner «papiret» sammen med streken',
       !!paper && lum(paper) > 0.5, { paper });
     if (paper && pinned) {
-      contrast(`den pinnede streken mot det pinnede papiret på .meta-chip.is-soon`, pinned, paper, 3);
+      contrast('den pinnede streken mot det pinnede papiret på chipene', pinned, paper, 3);
     }
-    for (const stop of yellow) {
-      contrast(`den pinnede streken (${pinned}) på .meta-chip.is-soon (${stop})`, pinned || '#111111', stop, 3);
+    for (const [navn, g] of LYSE) {
+      // Flaten må være med i den pinnede selektorlisten — en ny tone som glemmes
+      // der ville fått en lys strek på en lys flate uten at noe annet sa fra.
+      check(`.meta-chip.${navn} er med i den pinnede regelen`,
+        new RegExp('\\.meta-chip\\.' + navn + '[,\\s]').test(pinRule ? css.slice(0, css.indexOf(pinRule)) : ''),
+        { tone: navn });
+      const stops = gradientStops(g);
+      for (const stop of stops) {
+        contrast(`den pinnede streken (${pinned}) på .meta-chip.${navn} (${stop})`, pinned || '#111111', stop, 3);
+      }
+      /* …og BEGRUNNELSEN for pinningen: en lys strek ville falt igjennom et
+         sted på flaten. Kravet er per GRADIENT, ikke per stopp — en gradient
+         males som én flate, og faller streken på det lyseste stoppet, er hele
+         flaten uegnet. (På grønt klarer det mørkeste stoppet så vidt 3:1 med
+         lys strek; det lyseste gjør det ikke, og da pinnes begge.) */
+      const verst = Math.min(...stops.map((stop) => ratio(dtoken('icon-ink'), stop)));
+      check(`lys strek ville falt igjennom på .meta-chip.${navn} (svakeste ${verst.toFixed(2)}:1) — derfor pinningen`,
+        verst < 3, +verst.toFixed(2));
     }
-    // …og at en lys strek der ville vært ulovlig — begrunnelsen for pinningen.
-    for (const stop of yellow) {
-      const v = ratio(dtoken('icon-ink'), stop);
-      check(`lys strek på den gule chipen ville vært ulovlig (${v.toFixed(2)}:1) — derfor pinningen`, v < 3, +v.toFixed(2));
-    }
-    // De to andre chipene beholder den lyse streken, og skal være BEDRE enn
+    // De to MØRKE chipene beholder den lyse streken, og skal være BEDRE enn
     // den svarte de har i lys drakt.
     for (const [navn, g] of [['is-started', 'grad-accent'], ['is-over', 'grad-red']]) {
       for (const stop of gradientStops(g)) {
@@ -605,6 +621,17 @@ if (darkBlock) {
     }
     // Og streken må alltid skille seg fra papiret den faktisk ligger på.
     contrast('den pinnede streken mot det pinnede papiret i modalen', strek, ark, 3);
+
+    /* Varselmodalen (docs/varsler.md) GJENBRUKER de samme statusflatene: et
+       varsel om en utløpt frist skal se ut som gruppen «Frist utløpt» gjør, og
+       arver dermed pinningen og målingene over. Kravet her er bare at modalen
+       selv ikke pinner noe — da ville radenes øvrige tekst og glyfer sluttet å
+       snu med drakten. */
+    const notifRule = (css.match(/\.notif-modal\s*\{([^}]*)\}/) || [])[1] || '';
+    check('.notif-modal pinner IKKE ikonfargene — den arver statusflatene fra .event-icon',
+      !/--icon-(ink|paper|grey)\s*:/.test(notifRule), { regel: notifRule.trim() });
+    const notifIcon = /\.notif-[a-z-]*\s*\{[^}]*--icon-(ink|paper|grey)\s*:/.test(css);
+    check('ingen .notif-regel pinner sine egne ikonfarger', !notifIcon);
   }
 
   console.log('\n--- Kontroller som bytter farge ved hover / under draging ---');

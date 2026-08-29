@@ -1,15 +1,16 @@
 /*
   Regresjonstest: TOPPKONTROLLGRUPPEN i øvre høyre hjørne
-  (`.corner-controls` — søk, drakt, konto). Se docs/menus.md
-  («Toppkontrollene») og docs/design-system.md.
+  (`.corner-controls` — varsler, kalender, søk, drakt, konto). Se
+  docs/menus.md («Toppkontrollene») og docs/design-system.md.
 
   Gruppen erstattet to knapper som hver hadde sin egen `right:`-utregning.
-  Poenget med denne fila er å låse at den TÅLER FLERE: kalenderknappen kom til
-  uten en eneste ny utregning, og varselknappen skal kunne gjøre det samme.
+  Poenget med denne fila er å låse at den TÅLER FLERE: både kalender- og
+  varselknappen kom til uten en eneste ny utregning, og gruppen er fortsatt
+  nøyaktig to rader under 560 px — en femte knapp koster ikke board-et høyde.
 
   Dekker:
-     1. Gruppen finnes, og knappene ligger i rekkefølgen kalender → søk → drakt
-        → konto (DOM og visuelt), med kontoknappen ytterst.
+     1. Gruppen finnes, og knappene ligger i rekkefølgen varsler → kalender →
+        søk → drakt → konto (DOM og visuelt), med kontoknappen ytterst.
      2. Alle knappene har kontrollhøyden, samme overkant og lik luft mellom seg
         — ingen av dem er mindre enn berøringsmålet.
      3. Kontoknappen flukter fortsatt med toppmenyens høyre kant.
@@ -206,8 +207,8 @@ async function run(label, viewport, mobile) {
   /* ---------- 1–2) Rekkefølge, størrelse, luft ---------- */
   const g = await geo(p);
   const ids = g.kids.map((k) => k.id);
-  log(label + ' 1a: gruppen holder kalender, søk, drakt og konto i den rekkefølgen',
-    JSON.stringify(ids) === JSON.stringify(['events-btn', 'search-btn', 'theme-toggle-btn', 'account-btn']),
+  log(label + ' 1a: gruppen holder varsler, kalender, søk, drakt og konto i den rekkefølgen',
+    JSON.stringify(ids) === JSON.stringify(['notif-btn', 'events-btn', 'search-btn', 'theme-toggle-btn', 'account-btn']),
     JSON.stringify(ids));
   const rader0 = radvis(g.kids);
   log(label + ' 1b: kontoknappen ligger ytterst til høyre i sin rad',
@@ -218,12 +219,13 @@ async function run(label, viewport, mobile) {
     g.kids.every((k) => nær(k.w, g.kontrollH) && nær(k.h, g.kontrollH)),
     JSON.stringify(g.kids.map((k) => k.w + 'x' + k.h)) + ' vs ' + g.kontrollH);
   /* Oppsettet er ULIKT i de to bredene, med vilje: på bred skjerm står alle
-     fire på én linje, på smal deles gruppen i to rader — drakt og konto
-     øverst, kalender og søk under. Det er den SISTE raden toppmenyen viker
-     for, så breadcrumben får plassen til to knapper i stedet for fire. */
+     fem på én linje, på smal deles gruppen i to rader — drakt og konto øverst,
+     de tre innholdsknappene under. Delingen gjøres av `wrap-reverse`, ikke av
+     `order`: flex fyller den første linjen med de tre første i DOM-en, og
+     `wrap-reverse` legger den SISTE linjen (drakt + konto) øverst. */
   const forventet = mobile
-    ? [['theme-toggle-btn', 'account-btn'], ['events-btn', 'search-btn']]
-    : [['events-btn', 'search-btn', 'theme-toggle-btn', 'account-btn']];
+    ? [['theme-toggle-btn', 'account-btn'], ['notif-btn', 'events-btn', 'search-btn']]
+    : [['notif-btn', 'events-btn', 'search-btn', 'theme-toggle-btn', 'account-btn']];
   log(label + ' 2b: knappene står i forventet rad-oppsett',
     JSON.stringify(rader0.map((rad) => rad.map((k) => k.id))) === JSON.stringify(forventet),
     JSON.stringify(rader0.map((rad) => rad.map((k) => k.id))));
@@ -288,8 +290,8 @@ async function run(label, viewport, mobile) {
   void førSone;
 
   /* ---------- 8) Gruppen skalerer ---------- */
-  // To knapper til — nøyaktig det PR 2 (kalender) og PR 3 (varsler) gjør: en
-  // ny `.corner-btn` FØRST i gruppen. Ingen CSS-verdi skal måtte endres.
+  // To knapper til — nøyaktig det kalender- og varselknappen gjorde: en ny
+  // `.corner-btn` FØRST i gruppen. Ingen CSS-verdi skal måtte endres.
   const førBredde = await p.evaluate(() => document.documentElement.style.getPropertyValue('--corner-btns-w'));
   await p.evaluate(() => {
     const g = document.getElementById('corner-controls');

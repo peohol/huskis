@@ -191,15 +191,17 @@ det finnes ingen `right:`-kjede å regne om:
 
 | Rekkefølge | Knapp | Åpner |
 |---|---|---|
-| 1 | **Kalender** (`.events-btn`, `#events-btn`) | «Kommende hendelser» — `docs/kommende-hendelser.md` |
-| 2 | **Søk** (`.search-btn`, `#search-btn`) | søkemodalen — `docs/sok-og-navigering.md` |
-| 3 | **Drakt** (`.theme-toggle-btn`, `#theme-toggle-btn`) | ingen; bytter lys ↔ mørk i ETT trykk |
-| 4 | **Konto** (`.account-btn`, `#account-btn`) | konto-modalen |
+| 1 | **Varsler** (`.notif-btn`, `#notif-btn`) | varselmodalen — `docs/varsler.md` |
+| 2 | **Kalender** (`.events-btn`, `#events-btn`) | «Kommende hendelser» — `docs/kommende-hendelser.md` |
+| 3 | **Søk** (`.search-btn`, `#search-btn`) | søkemodalen — `docs/sok-og-navigering.md` |
+| 4 | **Drakt** (`.theme-toggle-btn`, `#theme-toggle-btn`) | ingen; bytter lys ↔ mørk i ETT trykk |
+| 5 | **Konto** (`.account-btn`, `#account-btn`) | konto-modalen |
 
-Alle fire bærer `.corner-btn`: samme flate-mønster som søppelkassene
+Alle fem bærer `.corner-btn`: samme flate-mønster som søppelkassene
 (halvgjennomsiktig hvit → hvit ved hover), samme høyde/radius som resten av
-kontrollene, samme fokusring. Kontoknappen har i tillegg den røde badgen
-(`#account-badge`) med antall ventende invitasjoner; draktknappens ikon
+kontrollene, samme fokusring. To av dem har en rød badge (`.menu-badge`):
+kontoknappen teller ventende invitasjoner (`#account-badge`), bjellen uleste
+varsler (`#notif-badge`, skjult ved 0, `99+` over hundre). Draktknappens ikon
 (sol/måne) og tittel viser drakten som ER aktiv, ikke den man bytter til
 (`setTheme`, `docs/mork-drakt.md`) — det finnes ingen «følg systemet».
 
@@ -208,11 +210,14 @@ av innloggingsskjermens egen knapp (`#auth-theme-toggle-btn`, samme
 `.corner-btn`-flate og samme maling — bare inline i språkraden i stedet for
 fast i hjørnet).
 
-**Under 560 px deles gruppen i to rader:** drakt og konto øverst, kalender og
-søk under (`order: -1` på de to første — alt annet faller under dem i
-DOM-rekkefølge, så regelen «en ny knapp legges FØRST» holder fortsatt). Poenget
-er breadcrumben: det er gruppens SISTE rad toppmenyens linje viker for, så den
-trenger bare å holde av plass til to knapper i stedet for fire.
+**Under 560 px deles gruppen i to rader:** drakt og konto øverst, de tre
+innholdsknappene (varsler, kalender, søk) under. Delingen gjøres av
+`flex-wrap: wrap-reverse`, ikke av `order`: flex fyller den første linjen med de
+tre første i DOM-rekkefølgen, og `wrap-reverse` legger den SISTE linjen øverst.
+Regelen «en ny knapp legges FØRST i gruppen» holder dermed fortsatt, og gruppen
+er nøyaktig to rader enten den har fire eller fem knapper — en ny knapp koster
+ikke board-et høyde. Et usynlig bruddelement ville kostet en ekstra flex-linje,
+altså nettopp den høyden.
 
 Gruppen bryter til **flere rader** mot høyre kant når raden ikke rekker
 (`flex-wrap`); knappene krymper aldri under kontrollhøyden. Gruppen er en

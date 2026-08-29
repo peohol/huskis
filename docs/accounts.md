@@ -189,6 +189,17 @@ samme nested `state` som før; synken går slik (`cloudCycle`):
    Det var nettopp en usynlig, evig avvist skriving (et listepunkt som pekte på
    en kategori serveren ikke hadde) som låste synken i praksis — se
    rekkefølge-/prune-avsnittet over og `tests/sync-dangling-category.test.js`.
+   **Varslene rir på den samme runden.** Doc-et bærer to per-bruker-grener
+   (`notifications`, `notify_prefs`) som IKKE er innhold og ikke flettes:
+   `applyNotifications(my)` tar dem rått imot, og deretter kjører
+   `runNotifications()` generatoren og logger tersklene som er passert siden
+   markøren. Runden kaster aldri på det — en generering som ikke når fram lar
+   markøren stå, og vinduet er fortsatt åpent neste gang. Se
+   [`varsler.md`](varsler.md). Varselhistorikken nullstilles
+   sammen med resten av den lokale synk-tilstanden — både ved utlogging og i
+   `cloudStart`s gren for et kontobytte UTEN `SIGNED_OUT`, siden den nye
+   brukerens første pull kan utebli helt offline.
+
 4. **Det som starter en runde** (`scheduleCloud`, 300 ms debounce): en lokal
    endring (`save()`), **realtime** `postgres_changes` på de seks tabellene,
    **pollet** (5 s — det hopper over runder mens siden er skjult, så en app i

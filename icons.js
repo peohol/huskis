@@ -246,6 +246,16 @@ window.ICONS = {
     '<path d="M12 7.5V12l3 2.2"></path>' +
     '</svg>',
 
+  /* «Utsett» i varselraden: klokka med en pil rundt seg — samme motiv som
+     `clock`, men med retningen som skiller «vent litt» fra «klokkeslett».
+     Streken følger drakten (currentColor): den står på selve raden, ikke på en
+     kontraktsflate (docs/mork-drakt.md). */
+  snooze: '<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
+    '<path d="M20 12a8 8 0 1 1-2.4-5.7"></path>' +
+    '<path d="M20 4v3.4h-3.4"></path>' +
+    '<path d="M12 7.6V12l2.9 2.1"></path>' +
+    '</svg>',
+
   // Kategori (venstre klamme rundt en liten liste): brukes i navne-seksjonen i
   // kategoriens innstillingsmodal — svarte streker, ingen egen fyllflate.
   category: '<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="#111" stroke-width="1.05" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +

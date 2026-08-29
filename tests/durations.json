@@ -40,6 +40,8 @@
   "tests/locked-group-creation.test.js": 25,
   "tests/nav-modal.test.js": 63,
   "tests/no-legacy-domain.test.js": 0,
+  "tests/notif-modal.test.js": 35,
+  "tests/notifications.test.js": 6,
   "tests/object-menu.test.js": 38,
   "tests/onboarding.test.js": 48,
   "tests/ota-fetch.test.js": 4,
@@ -60,6 +62,7 @@
   "tests/sync-shared-resurrection.test.js": 15,
   "tests/sync-status.test.js": 28,
   "tests/system-back.test.js": 16,
+  "tests/time-chips.test.js": 15,
   "tests/toast-swipe.test.js": 20,
   "tests/trash-modal-layout.test.js": 11
 }

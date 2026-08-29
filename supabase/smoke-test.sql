@@ -55,6 +55,7 @@ begin
   foreach t in array array[
     'profiles', 'universes', 'groups', 'cards', 'items',
     'memberships', 'share_invites', 'tombstones',
+    'notifications', 'notification_prefs',
     'migration_log', 'app_config', 'email_send_log'
   ] loop
     if to_regclass('public.' || t) is null then
@@ -111,7 +112,19 @@ begin
     'share_invites:group_id', 'share_invites:role', 'share_invites:status',
     'share_invites:created_at',
 
-    'tombstones:resource_type', 'tombstones:resource_id', 'tombstones:ts'
+    'tombstones:resource_type', 'tombstones:resource_id', 'tombstones:ts',
+
+    -- Varsler (docs/varsler.md): klienten skriver `read_at` direkte og leser
+    -- resten gjennom get_my_doc(); notify_record() fyller radene.
+    'notifications:id', 'notifications:user_id', 'notifications:key',
+    'notifications:type', 'notifications:obj_type', 'notifications:obj_id',
+    'notifications:name', 'notifications:path', 'notifications:value',
+    'notifications:at', 'notifications:snoozed',
+    'notifications:created_at', 'notifications:read_at',
+
+    'notification_prefs:user_id', 'notification_prefs:due_over',
+    'notification_prefs:due_soon', 'notification_prefs:start_now',
+    'notification_prefs:start_soon', 'notification_prefs:cursor_at'
   ] loop
     tbl := split_part(spec, ':', 1);
     col := split_part(spec, ':', 2);
@@ -138,6 +151,7 @@ begin
   foreach t in array array[
     'profiles', 'universes', 'groups', 'cards', 'items',
     'memberships', 'share_invites', 'tombstones',
+    'notifications', 'notification_prefs',
     'migration_log', 'app_config', 'email_send_log'
   ] loop
     select relrowsecurity into paa from pg_class
@@ -173,7 +187,10 @@ begin
     'memberships:memberships_select', 'memberships:memberships_update',
     'memberships:memberships_delete',
     'share_invites:share_invites_select', 'share_invites:share_invites_delete',
-    'tombstones:tombstones_select'
+    'tombstones:tombstones_select',
+    'notifications:notifications_select', 'notifications:notifications_update',
+    'notifications:notifications_delete',
+    'notification_prefs:notification_prefs_select'
   ] loop
     select count(*) into n from pg_policies
      where schemaname = 'public'
@@ -187,7 +204,7 @@ begin
     perform set_config('huskis.smoke_feil',
       current_setting('huskis.smoke_feil', true) || array_to_string(feil, E'\n') || E'\n', false);
   else
-    raise notice '  ✓ alle 24 policyene finnes';
+    raise notice '  ✓ alle 28 policyene finnes';
   end if;
 end $$;
 
@@ -214,7 +231,9 @@ begin
     'public.set_invite_policy(text, uuid, text)',
     'public.get_members(text, uuid)',
     'public.move_group(uuid, uuid, uuid, double precision)',
-    'public.delete_account()'
+    'public.delete_account()',
+    'public.notify_record(jsonb, bigint)',
+    'public.notify_set_prefs(jsonb)'
   ] loop
     oid_ := to_regprocedure(fn);
     if oid_ is null then
@@ -232,7 +251,7 @@ begin
     perform set_config('huskis.smoke_feil',
       current_setting('huskis.smoke_feil', true) || array_to_string(feil, E'\n') || E'\n', false);
   else
-    raise notice '  ✓ alle 15 RPC-ene finnes med riktig signatur og rettigheter';
+    raise notice '  ✓ alle 17 RPC-ene finnes med riktig signatur og rettigheter';
   end if;
 end $$;
 
@@ -265,7 +284,8 @@ begin
   -- Interne hjelpere skal IKKE kunne kalles som RPC.
   foreach fn in array array[
     'public.purge_universe_access(uuid, uuid)',
-    'public.purge_group_access(uuid, uuid)'
+    'public.purge_group_access(uuid, uuid)',
+    'public.notify_prefs_row(uuid)'
   ] loop
     oid_ := to_regprocedure(fn);
     if oid_ is null then
@@ -355,10 +375,36 @@ begin
     end if;
   end loop;
 
+  -- Varsler: SELECT + DELETE, UPDATE kun på `read_at`, og ALDRI INSERT —
+  -- rader lages av notify_record(), som setter user_id selv (docs/varsler.md).
+  if not has_table_privilege('authenticated', 'public.notifications', 'SELECT, DELETE') then
+    feil := array_append(feil, 'authenticated mangler SELECT/DELETE på notifications (historikk + «Tøm varsler»)');
+  end if;
+  if not has_column_privilege('authenticated', 'public.notifications', 'read_at', 'UPDATE') then
+    feil := array_append(feil, 'authenticated mangler UPDATE(read_at) på notifications (lest/ulest)');
+  end if;
+  if has_table_privilege('authenticated', 'public.notifications', 'INSERT') then
+    feil := array_append(feil, 'authenticated KAN INSERT på notifications (skal kun gå via notify_record())');
+  end if;
+  foreach t in array array['key', 'type', 'at', 'user_id'] loop
+    if has_column_privilege('authenticated', 'public.notifications', t, 'UPDATE') then
+      feil := array_append(feil, 'authenticated KAN skrive notifications.' || t || ' (kun read_at skal være skrivbar)');
+    end if;
+  end loop;
+  if not has_table_privilege('authenticated', 'public.notification_prefs', 'SELECT') then
+    feil := array_append(feil, 'authenticated mangler SELECT på notification_prefs');
+  end if;
+  foreach t in array array['INSERT', 'UPDATE', 'DELETE'] loop
+    if has_table_privilege('authenticated', 'public.notification_prefs', t) then
+      feil := array_append(feil, 'authenticated KAN ' || t || ' på notification_prefs (skal kun gå via notify_set_prefs())');
+    end if;
+  end loop;
+
   -- anon skal ikke se noe som helst.
   foreach t in array array[
     'profiles', 'universes', 'groups', 'cards', 'items',
-    'memberships', 'share_invites', 'tombstones'
+    'memberships', 'share_invites', 'tombstones',
+    'notifications', 'notification_prefs'
   ] loop
     if has_table_privilege('anon', 'public.' || t, 'SELECT') then
       feil := array_append(feil, 'anon har SELECT på public.' || t);

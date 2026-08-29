@@ -302,12 +302,13 @@ Størrelse/form kommer fra egne klasser: `.btn` (modaler), `.btn-small`,
 - `.trashcan`: ALLE søppelkasse-knapper — hvit avrundet beholder, antall i grå
   sirkel (`.trashcan-count`), **skjult (`hidden`) når tom**.
 - `.corner-controls` + `.corner-btn`: toppkontrollgruppen i øvre høyre hjørne
-  (kalender, søk, drakt, konto). ÉN fast flex-gruppe med flate-mønsteret på hver
-  knapp;
+  (varsler, kalender, søk, drakt, konto). ÉN fast flex-gruppe med
+  flate-mønsteret på hver knapp;
   en ny knapp legges FØRST i gruppen og trenger ingen egen posisjonsregel.
   Bredden gruppen legger beslag på måles i JS (`--corner-btns-w`) — se
   `docs/menus.md` («Toppkontrollene»).
-  Variantene: `.events-btn` (åpner «Kommende hendelser»,
+  Variantene: `.notif-btn` (bjelle + `.menu-badge` som ulest-teller, åpner
+  varselmodalen, `docs/varsler.md`), `.events-btn` (åpner «Kommende hendelser»,
   `docs/kommende-hendelser.md`), `.search-btn` (åpner søkemodalen,
   `docs/sok-og-navigering.md`),
   `.theme-toggle-btn` (sol-/måneikon for aktiv drakt, `docs/mork-drakt.md`) og
@@ -326,14 +327,22 @@ Størrelse/form kommer fra egne klasser: `.btn` (modaler), `.btn-small`,
   (+ `-icon`/`-main`/`-meta`/`-when`/`-rel`/`-date`) og `.event-icon`: modalen
   «Kommende hendelser». Arbeidsdelingen: `.event-icon` i gruppens overskrift
   bærer STATUS (farget plate), `.event-row-icon` i raden bærer OBJEKTTYPEN
-  (uten flate). Statusflatene er de samme gradientene som `.meta-chip`-statusene
-  (`is-over`, `is-soon`, `is-started`) pluss `is-later` (grønn) og de to som
-  bare finnes her: `is-startsoon` (`--grad-purple`) og `is-startlater`
-  (`--grad-blue`) — startgruppene skal ikke låne varselfargene. `.event-icon`
+  (uten flate). Statusflatene er de SAMME seks som `.meta-chip` bruker under
+  navnet — `is-over`/`is-soon`/`is-later` for frister, `is-started`/
+  `is-startsoon`/`is-startlater` for starter — fordi det er de samme seks
+  bøttene (`docs/scheduling.md`); startene låner ikke varselfargene. `.event-icon`
   pinner `--icon-ink`/`--icon-paper` for seg selv, som `.btn-solid` gjør, siden
   platen er den samme i begge drakter; `.event-row-icon` har ingen plate, følger
   drakten og kaster en liten `drop-shadow`. `.events-group + .events-group`
   legger skillelinjen mellom to grupper. Se `docs/kommende-hendelser.md`.
+- `.notif-body` (+ `-list`/`-item`/`-line`/`-empty`/`-settings`), `.notif-row`
+  (+ `-main`/`-name`/`-dot`/`-meta`/`-when`) og `.notif-snooze-btn`/
+  `-snooze-row`: varselmodalen. Radens statusikon er `.event-icon` med gruppens
+  tone — GJENBRUKT, ikke kopiert: et varsel om en utløpt frist skal se ut som
+  gruppen «Frist utløpt» gjør, og arver dermed pinningen og kontrastkontrakten.
+  Ulest bæres av både kant/flate (`is-unread`) og en prikk, aldri av farge
+  alene. `.modal-head-actions` holder tannhjulet og lukkeknappen sammen i enden
+  av modalhodet. Se `docs/varsler.md`.
 - `.account-form` (+ `-label`/`-row`) og `.account-msg`: endre navn/e-post i
   konto-modalen (etikett over felt, Lagre-knapp på samme rad). «Bilde»-seksjonen
   bruker den samme klassen uten å være et `<form>` — mønsteret er etikett over
@@ -550,9 +559,11 @@ Størrelse/form kommer fra egne klasser: `.btn` (modaler), `.btn-small`,
   `docs/menus.md`. `.trashcan.drag-trash` + `.to-trash`: søppelkassen som
   drop-mål mens et drag pågår (`docs/trash.md`).
   `.meta-row` + `.meta-chip`: indikator-chipene under navnet (delt/ansvarlig/
-  start/frist — status-farger via `--grad-*`; `.is-conflict` legger på en
+  start/frist). Seks statustoner via `--grad-*`, de samme bøttene og flatene som
+  «Kommende hendelser» (`docs/scheduling.md`); `paintTimeChip` males på nytt av
+  seg selv når en grense passeres, uten en rendring. `.is-conflict` legger på en
   stiplet kant i chipens EGEN tekstfarge når fristen bryter invarianten, mens
-  glyfen og teksten bærer meningen). `.resp-avatar` / `.resp-row`:
+  glyfen og teksten bærer meningen. `.resp-avatar` / `.resp-row`:
   ansvarlig-sirkler og velger-rader; sirkelfargen settes inline fra paletten
   (`colorForIndex`, personens alfabetiske plass i delegruppen). Se
   `docs/scheduling.md` og `docs/accounts.md`.

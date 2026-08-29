@@ -9,8 +9,10 @@ To ting bor her, og de er bevisst skilt:
 1. **Søket** — en indeks over gjeldende klienttilstand og en deterministisk
    rangering av treffene (`buildSearchIndex` / `searchObjects` i `app.js`).
 2. **`navigateToObject(target)`** — den ENE veien fra «her er et objekt» til
-   «nå står brukeren ved det». Søket er første kaller; alt annet som skal
-   peke på et objekt skal bruke den samme.
+   «nå står brukeren ved det». Søket var første kaller; «Kommende hendelser»
+   ([`kommende-hendelser.md`](kommende-hendelser.md)) og varslene
+   ([`varsler.md`](varsler.md)) bruker den samme, og alt annet som skal peke på
+   et objekt skal også gjøre det.
 
 Toppkontrollgruppen søkeknappen står i er beskrevet i
 [`menus.md`](menus.md) («Toppkontrollene»).

@@ -59,6 +59,12 @@ Fire objekttabeller — `universes` > `groups` > `cards` (= «lister» i UI-et)
   `on delete set null`): ansvarlig bruker. Kandidatene er mappens **effektive**
   medlemsliste. Rir på innholds-registeret.
 
+**To tabeller hører til BRUKEREN, ikke til treet:** `notifications`
+(varselhistorikken) og `notification_prefs` (de fire varselvalgene + generator-
+markøren). De har ingen forelder å arve tilgang fra — RLS er `user_id =
+auth.uid()` hele veien, og de deles aldri, heller ikke for et objekt to brukere
+har sammen. Se [`varsler.md`](varsler.md).
+
 ### Roller (`memberships`)
 
 Én rad = én brukers ROLLE på ETT delbart objekt (område **eller** mappe):
@@ -111,6 +117,8 @@ PostgREST — og ikke hva som «kunne vært nyttig»:
 | `memberships` | SELECT, UPDATE | roller lages/slettes av RPC-ene og opprettelses-triggerne; UPDATE er kun den personlige `pos` |
 | `share_invites` | SELECT | alt går via `create`/`accept`/`decline`/`revoke_share_invite` |
 | `tombstones` | SELECT | skrives kun av `write_tombstone()`-triggerne |
+| `notifications` | SELECT, UPDATE(`read_at`), DELETE | rader lages kun av `notify_record()`; DELETE er «Tøm varsler» |
+| `notification_prefs` | SELECT | skrives kun av `notify_set_prefs()` og `notify_record()` (markøren) |
 
 SELECT på `memberships` og `share_invites` trengs også av
 realtime-abonnementet, som lytter på `postgres_changes` for begge.
@@ -245,12 +253,13 @@ Full modell: [`rettigheter-og-deling.md`](rettigheter-og-deling.md).
 | Kall | Rolle |
 |---|---|
 | `supabase.auth.signUp/signInWithPassword/…` | registrering/innlogging (bekreftelses-e-post håndteres av Supabase) |
-| `get_my_doc()` | hele brukerens datasett som ETT flatt jsonb-doc: universes/groups/cards/items + `role`, `free`, `personalPos`, `ownerKey`, `shared` og `caps` + invitasjoner |
+| `get_my_doc()` | hele brukerens datasett som ETT flatt jsonb-doc: universes/groups/cards/items + `role`, `free`, `personalPos`, `ownerKey`, `shared` og `caps` + invitasjoner + varsler/varselvalg |
 | vanlige `insert/update/delete` på tabellene | CRUD med RLS + server-side LWW; klienten stempler `ts/org`-registrene som i dag |
 | `import_doc(doc)` | engangs-migrering av lokalt/legacy doc til egne data (deterministiske id-er per bruker, idempotent) |
 | `create_share_invite(type, id, email, role)` / `accept_share_invite(invite)` / `decline_share_invite` / `revoke_share_invite` | delingsflyt, medlem eller eierskap; aksept krever ingen plassering |
 | `revoke_share` / `set_member_role` / `leave_share` / `set_locked` / `set_unlocked` / `set_invite_policy` / `get_members` | administrasjon (roller, låsing + unntak, invitasjonspolicy; `get_members` gir `viewer.caps`) |
 | `move_group(group, universe, cat, pos)` | ATOMISK mappeflytting: reorder / reparent / kopier-og-slett med id-mapping |
+| `notify_record(rows, cursor)` / `notify_set_prefs(prefs)` | varselhistorikken: logg passerte terskler idempotent (unik `(user_id, key)`) og flytt generator-markøren; de fire av/på-valgene (`varsler.md`) |
 | `update memberships set pos` (egen rad) | personlig rekkefølge (toppnivå-områder + frie mapper) |
 | Realtime `postgres_changes` på tabellene | live-oppdatering (tabellene ligger i `supabase_realtime`-publikasjonen) |
 

@@ -64,6 +64,7 @@
         profiles: [], passwords: {},
         universes: [], groups: [], cards: [], items: [],
         memberships: [], share_invites: [], tombstones: [],
+        notifications: [], notification_prefs: [],
       };
     }
     return migrateRoles(db);
@@ -75,6 +76,11 @@
   function migrateRoles(db) {
     db.memberships = db.memberships || [];
     db.share_invites = db.share_invites || [];
+    // Varseltabellene kom til etter at testene begynte å seede `hk-mock-db`;
+    // en seedet database uten dem skal virke som en tom (som `add column if
+    // not exists` i users-and-sharing.sql).
+    db.notifications = db.notifications || [];
+    db.notification_prefs = db.notification_prefs || [];
     if (db._rolesBackfilled) return db;
     db._rolesBackfilled = true;
     var has = function (uid, col, id) {
@@ -452,6 +458,50 @@
     });
   }
 
+  /* ---------------- Varsler (docs/varsler.md) ----------------
+     Speiler notify_record()/notify_set_prefs() i users-and-sharing.sql:
+     radene skrives KUN her (klienten har ingen insert-rett), identiteten er
+     (user_id, key), og markøren går bare framover — aldri forbi «serverens»
+     klokke. Taket er det samme som get_my_doc() leverer. */
+  var NOTIF_KEEP = 200;
+  var NOTIF_TYPES = { dueOver: 1, dueSoon: 1, startNow: 1, startSoon: 1 };
+  var NOTIF_OBJ_TYPES = { card: 1, category: 1, item: 1 };
+  function notifPrefsRow(db, uid) {
+    var row = db.notification_prefs.find(function (x) { return x.user_id === uid; });
+    if (row) return row;
+    row = { user_id: uid, due_over: true, due_soon: true, start_now: true, start_soon: true,
+            cursor_at: 0, updated_at: Date.now() };
+    db.notification_prefs.push(row);
+    return row;
+  }
+  function notifRecord(db, uid, rows, cursor) {
+    var prefs = notifPrefsRow(db, uid);
+    var now = Date.now();
+    var lagt = 0;
+    (rows || []).forEach(function (r) {
+      if (!r || !r.key || r.at == null) return;
+      if (!NOTIF_TYPES[r.type] || !NOTIF_OBJ_TYPES[r.obj_type]) return;
+      if (db.notifications.some(function (n) { return n.user_id === uid && n.key === r.key; })) return;
+      lagt++;
+      db.notifications.push({
+        id: newUuid(), user_id: uid, key: String(r.key), type: r.type,
+        obj_type: r.obj_type, obj_id: r.obj_id || null,
+        name: r.name || '', path: r.path || '', value: r.value == null ? null : r.value,
+        at: r.at, snoozed: !!r.snoozed, created_at: now, read_at: null,
+      });
+    });
+    prefs.cursor_at = Math.max(prefs.cursor_at || 0, Math.min(cursor || 0, now));
+    prefs.updated_at = now;
+    var mine = db.notifications.filter(function (n) { return n.user_id === uid; })
+      .sort(function (a, b) { return (b.created_at - a.created_at) || (a.id < b.id ? 1 : -1); });
+    var doomed = {};
+    mine.slice(NOTIF_KEEP).forEach(function (n) { doomed[n.id] = 1; });
+    if (mine.length > NOTIF_KEEP) {
+      db.notifications = db.notifications.filter(function (n) { return !doomed[n.id]; });
+    }
+    return lagt;   // som serveren: hvor mange rader som FAKTISK ble lagt inn
+  }
+
   function getMyDoc(db, uid) {
     var myUni = db.universes.filter(function (u) { return isUniverseMember(db, u.id, uid); });
     var myUniIds = {}; myUni.forEach(function (u) { myUniIds[u.id] = 1; });
@@ -536,6 +586,22 @@
                  target_id: s.universe_id || s.group_id,
                  email: s.invitee_email, created_at: s.created_at };
       }),
+      // Varsler: KUN mine egne rader, nyeste først og med det samme taket som
+      // serveren (docs/varsler.md). RLS-en i produksjon gjør det samme.
+      notifications: db.notifications.filter(function (n) { return n.user_id === uid; })
+        .sort(function (a, b) {
+          return (b.at - a.at) || (b.created_at - a.created_at) || (a.id < b.id ? 1 : -1);
+        }).slice(0, NOTIF_KEEP).map(function (n) {
+          return { id: n.id, key: n.key, type: n.type, objType: n.obj_type, objId: n.obj_id,
+                   name: n.name, path: n.path, value: n.value, at: n.at,
+                   snoozed: !!n.snoozed, createdAt: n.created_at, readAt: n.read_at == null ? null : n.read_at };
+        }),
+      notify_prefs: (function () {
+        var p = db.notification_prefs.find(function (x) { return x.user_id === uid; });
+        return p ? { dueOver: !!p.due_over, dueSoon: !!p.due_soon,
+                     startNow: !!p.start_now, startSoon: !!p.start_soon,
+                     cursor: p.cursor_at } : null;
+      })(),
     };
   }
 
@@ -720,6 +786,12 @@
         if ('avatar' in patch) row.avatar = patch.avatar;
         return;
       }
+      if (table === 'notifications') {
+        // Som kolonne-granten + RLS: kun mine egne rader, og kun `read_at`.
+        if (row.user_id !== uid) return;
+        if ('read_at' in patch) row.read_at = patch.read_at;
+        return;
+      }
       if (table === 'memberships') {
         // Kun egen rad, og kun den PERSONLIGE posisjonen. Roller endres via RPC.
         if (row.user_id !== uid) return;
@@ -792,6 +864,14 @@
     db.tombstones.push({ resource_type: type, resource_id: id, ts: Date.now() });
   }
   function applyDelete(db, table, uid, filters) {
+    // «Tøm varsler»: en ren sletting av MINE egne rader — ingen gravstein, og
+    // ingen annen brukers historikk kan røres (RLS i produksjon).
+    if (table === 'notifications') {
+      db.notifications = db.notifications.filter(function (row) {
+        return !(row.user_id === uid && matches(row, filters));
+      });
+      return;
+    }
     var type = table === 'universes' ? 'universe' : table === 'groups' ? 'group' : table === 'cards' ? 'card' : 'item';
     if (table === 'memberships') {
       db.memberships = db.memberships.filter(function (row) {
@@ -852,6 +932,20 @@
   function rpcHandlers(db, uid) {
     return {
       get_my_doc: function () { return getMyDoc(db, uid); },
+      notify_record: function (p) { return notifRecord(db, uid, p.p_rows || [], p.p_cursor || 0); },
+      notify_set_prefs: function (p) {
+        var row = notifPrefsRow(db, uid);
+        var want = p.p_prefs || {};
+        if ('dueOver' in want) row.due_over = !!want.dueOver;
+        if ('dueSoon' in want) row.due_soon = !!want.dueSoon;
+        if ('startNow' in want) row.start_now = !!want.startNow;
+        if ('startSoon' in want) row.start_soon = !!want.startSoon;
+        // Som serveren: et bytte flytter markøren til nå, så en terskel som
+        // passerte mens typen var av ikke velter inn når den slås på igjen.
+        row.cursor_at = Math.max(row.cursor_at || 0, Date.now());
+        row.updated_at = Date.now();
+        return null;
+      },
       import_doc: function (p) {
         var doc = p.p_doc || {};
         var imported = {};

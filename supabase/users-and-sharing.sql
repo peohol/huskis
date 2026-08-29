@@ -489,6 +489,69 @@ create trigger items_insert_guard before insert on public.items
   for each row execute function public.guard_object_insert();
 
 -- ------------------------------------------------------------
+-- 4b. VARSLER — per-bruker varselhistorikk og preferanser
+--
+--    Varsler er IKKE innhold. De hører til én bruker, deles aldri, og ligger
+--    derfor utenfor synk-doc-ets 3-veis fletting: `notifications` er en flat
+--    logg av hendelser klienten har OBSERVERT, og `notification_prefs` er
+--    brukerens fire av/på-valg pluss generator-markøren. Autoritativt:
+--    docs/varsler.md.
+--
+--    IDENTITET. `key` er varselets logiske identitet — varseltype, objekttype,
+--    objekt-id og den planlagte tidsverdien slått sammen av klienten. Den
+--    unike indeksen (user_id, key) er det som gjør generatoren idempotent:
+--    to enheter som regner ut det samme varselet skriver den samme raden, og
+--    den andre skrivingen faller stille bort (`on conflict do nothing`).
+--
+--    RADENE SKRIVES KUN AV notify_record(). Klienten har ingen INSERT-rett;
+--    den kan lese sine egne rader, sette `read_at` på dem og slette dem.
+--    Preferansene skrives kun av notify_set_prefs().
+-- ------------------------------------------------------------
+
+create table if not exists public.notifications (
+  id         uuid primary key default gen_random_uuid(),
+  user_id    uuid not null references auth.users (id) on delete cascade,
+  key        text not null,
+  type       text not null check (type in ('dueOver', 'dueSoon', 'startNow', 'startSoon')),
+  obj_type   text not null check (obj_type in ('card', 'category', 'item')),
+  obj_id     uuid,
+  -- Navn og sti er et ØYEBLIKKSBILDE fra genereringstidspunktet: historikken skal
+  -- kunne vises også etter at objektet er slettet eller tilgangen er borte.
+  -- Navigasjonen slår derimot alltid opp objektet på nytt på `obj_id`.
+  name       text not null default '',
+  path       text not null default '',
+  value      text,                                  -- objektets egen tidsverdi (lokal veggtid som tekst)
+  at         bigint not null,                       -- hendelsens tidspunkt (terskelen), ms
+  snoozed    boolean not null default false,        -- bestilt på nytt via «Utsett»
+  created_at bigint not null default (extract(epoch from now()) * 1000)::bigint,
+  read_at    bigint
+);
+
+create unique index if not exists notifications_user_key_idx on public.notifications (user_id, key);
+create index if not exists notifications_user_at_idx on public.notifications (user_id, at desc);
+
+alter table public.notifications enable row level security;
+
+create table if not exists public.notification_prefs (
+  user_id    uuid primary key references auth.users (id) on delete cascade,
+  -- De fire typene. Standard PÅ: in-app-historikken er en badge, ikke en
+  -- avbrytelse, og en funksjon som er av fra første stund blir aldri sett.
+  -- Eksterne kanaler (PR 3B) har sin egen opt-in på toppen av dette.
+  due_over   boolean not null default true,
+  due_soon   boolean not null default true,
+  start_now  boolean not null default true,
+  start_soon boolean not null default true,
+  -- Generator-markøren: siste tidspunkt terskler er vurdert til og med. Alt som
+  -- passeres etter den — og bare det — kan bli et varsel. Den er per BRUKER, så
+  -- en enhet som har vært av i ti dager tar igjen nøyaktig de tersklene ingen
+  -- annen enhet allerede har logget.
+  cursor_at  bigint not null default 0,
+  updated_at timestamptz not null default now()
+);
+
+alter table public.notification_prefs enable row level security;
+
+-- ------------------------------------------------------------
 -- 5. ROLLER, LÅSER og CAPABILITIES
 --
 -- ============================================================================
@@ -1423,6 +1486,26 @@ drop policy if exists tombstones_select on public.tombstones;
 create policy tombstones_select on public.tombstones
   for select using (auth.uid() is not null);
 
+-- notifications: KUN egne rader — hele veien. Ingen insert-policy: rader lages
+-- utelukkende av notify_record() (security definer, som selv setter user_id fra
+-- auth.uid()). `with check` på update-en er det som hindrer at en rad kan
+-- skyves over på en annen bruker.
+drop policy if exists notifications_select on public.notifications;
+create policy notifications_select on public.notifications
+  for select using (user_id = auth.uid());
+drop policy if exists notifications_update on public.notifications;
+create policy notifications_update on public.notifications
+  for update using (user_id = auth.uid()) with check (user_id = auth.uid());
+drop policy if exists notifications_delete on public.notifications;
+create policy notifications_delete on public.notifications
+  for delete using (user_id = auth.uid());
+
+-- notification_prefs: egen rad, lesbar. Skrives kun av notify_set_prefs()/
+-- notify_record() — ingen insert-/update-policy for klienten.
+drop policy if exists notification_prefs_select on public.notification_prefs;
+create policy notification_prefs_select on public.notification_prefs
+  for select using (user_id = auth.uid());
+
 -- ------------------------------------------------------------
 -- 8. DELINGS-RPC-ER (security definer)
 --    Deling finnes KUN på områder og mapper. Alt som gjelder lister,
@@ -2313,6 +2396,10 @@ begin
   update public.items set responsible = null, ts = greatest(now_ms, ts + 1), org = 'server'
    where responsible = uid;
   delete from public.memberships where user_id = uid;
+  -- Varselhistorikken og preferansene er mine alene. Kaskaden fra auth.users
+  -- ville tatt dem uansett; de står her fordi ryddingen skal være lesbar.
+  delete from public.notifications where user_id = uid;
+  delete from public.notification_prefs where user_id = uid;
 
   -- 5. Profilen og selve kontoen.
   delete from public.profiles where id = uid;
@@ -2322,6 +2409,99 @@ begin
 end;
 $$;
 
+
+-- ------------------------------------------------------------
+-- 8d. VARSEL-RPC-ER
+--
+--    To innganger, begge SECURITY DEFINER fordi de setter `user_id` selv:
+--
+--    notify_record(rows, cursor)  — logg terskler klienten har sett passere,
+--      og flytt generator-markøren. Idempotent gjennom (user_id, key): to
+--      enheter som regner ut det samme varselet gir én rad. Markøren kan bare
+--      gå FRAMOVER, og aldri forbi serverens klokke — en enhet med feil klokke
+--      skal ikke kunne blende varslene for de andre. `p_cursor = 0` (standard)
+--      lar markøren stå: det er «Utsett»-veien, som legger inn en rad uten å
+--      ha vurdert noen terskler.
+--
+--    notify_set_prefs(prefs)      — de fire av/på-valgene. Et bytte flytter
+--      markøren til NÅ: en terskel som passerte mens typen var AV skal ikke
+--      komme veltende inn i det den slås på igjen.
+--
+--    Historikken har et tak på 200 rader per bruker: de eldste utover det
+--    ryddes bort ved hver logging, så tabellen ikke vokser uten grense.
+-- ------------------------------------------------------------
+
+create or replace function public.notify_prefs_row(p_uid uuid)
+returns void language plpgsql security definer set search_path = public as $$
+begin
+  insert into public.notification_prefs (user_id) values (p_uid)
+  on conflict (user_id) do nothing;
+end;
+$$;
+
+create or replace function public.notify_record(p_rows jsonb default '[]'::jsonb,
+                                                p_cursor bigint default 0)
+returns integer language plpgsql security definer set search_path = public as $$
+declare
+  uid    uuid   := auth.uid();
+  now_ms bigint := (extract(epoch from now()) * 1000)::bigint;
+  lagt   integer := 0;
+begin
+  if uid is null then raise exception 'ikke innlogget'; end if;
+  perform public.notify_prefs_row(uid);
+
+  insert into public.notifications
+    (user_id, key, type, obj_type, obj_id, name, path, value, at, snoozed)
+  select uid, r.key, r.type, r.obj_type, r.obj_id,
+         coalesce(r.name, ''), coalesce(r.path, ''), r.value, r.at,
+         coalesce(r.snoozed, false)
+    from jsonb_to_recordset(coalesce(p_rows, '[]'::jsonb)) as r(
+           key text, type text, obj_type text, obj_id uuid,
+           name text, path text, value text, at bigint, snoozed boolean)
+   where r.key is not null and r.at is not null
+     and r.type in ('dueOver', 'dueSoon', 'startNow', 'startSoon')
+     and r.obj_type in ('card', 'category', 'item')
+  on conflict (user_id, key) do nothing;
+  get diagnostics lagt = row_count;
+
+  update public.notification_prefs
+     set cursor_at  = greatest(cursor_at, least(coalesce(p_cursor, 0), now_ms)),
+         updated_at = now()
+   where user_id = uid;
+
+  delete from public.notifications n
+   where n.user_id = uid
+     and n.id in (select x.id from public.notifications x
+                   where x.user_id = uid
+                   order by x.created_at desc, x.id desc
+                  offset 200);
+
+  /* Hvor mange rader som FAKTISK ble lagt inn. Klienten trenger tallet: en
+     kandidat som allerede finnes faller stille bort her, og uten svaret ville
+     den ikke visst forskjell på «det kom noe nytt» og «alt var alt logget» —
+     og planlagt en ny runde i det uendelige. */
+  return lagt;
+end;
+$$;
+
+create or replace function public.notify_set_prefs(p_prefs jsonb)
+returns void language plpgsql security definer set search_path = public as $$
+declare
+  uid    uuid   := auth.uid();
+  now_ms bigint := (extract(epoch from now()) * 1000)::bigint;
+begin
+  if uid is null then raise exception 'ikke innlogget'; end if;
+  perform public.notify_prefs_row(uid);
+  update public.notification_prefs
+     set due_over   = coalesce((p_prefs ->> 'dueOver')::boolean, due_over),
+         due_soon   = coalesce((p_prefs ->> 'dueSoon')::boolean, due_soon),
+         start_now  = coalesce((p_prefs ->> 'startNow')::boolean, start_now),
+         start_soon = coalesce((p_prefs ->> 'startSoon')::boolean, start_soon),
+         cursor_at  = greatest(cursor_at, now_ms),
+         updated_at = now()
+   where user_id = uid;
+end;
+$$;
 
 -- ------------------------------------------------------------
 -- 9. MEDLEMSLISTE — deduplisert, kategorisert og med capabilities
@@ -2558,7 +2738,30 @@ begin
         'email', s.invitee_email, 'created_at', s.created_at) order by s.created_at)
       from public.share_invites s
       where s.status = 'pending' and s.inviter_id = uid
-        and (s.universe_id is not null or s.group_id is not null)), '[]'::jsonb)
+        and (s.universe_id is not null or s.group_id is not null)), '[]'::jsonb),
+    -- Varsler: brukerens EGNE rader (docs/varsler.md). De hører ikke til
+    -- innholds-doc-et og flettes ikke — klienten bare viser dem. Nyeste først,
+    -- med det samme taket som notify_record() rydder etter, så en lang historikk
+    -- ikke gjør hver eneste synk-runde tyngre.
+    'notifications', coalesce((select jsonb_agg(jsonb_build_object(
+        'id', n.id, 'key', n.key, 'type', n.type,
+        'objType', n.obj_type, 'objId', n.obj_id,
+        'name', n.name, 'path', n.path, 'value', n.value,
+        'at', n.at, 'snoozed', n.snoozed,
+        'createdAt', n.created_at, 'readAt', n.read_at)
+        order by n.at desc, n.created_at desc, n.id desc)
+      from (select * from public.notifications
+             where user_id = uid
+             order by at desc, created_at desc, id desc
+             limit 200) n), '[]'::jsonb),
+    -- Preferansene + generator-markøren. `null` betyr «ingen rad ennå», og da
+    -- er dette brukerens FØRSTE runde: klienten setter markøren til nå i stedet
+    -- for å logge hver terskel som noen gang er passert.
+    'notify_prefs', (select jsonb_build_object(
+        'dueOver', p.due_over, 'dueSoon', p.due_soon,
+        'startNow', p.start_now, 'startSoon', p.start_soon,
+        'cursor', p.cursor_at)
+      from public.notification_prefs p where p.user_id = uid)
   ) into result;
 
   return result;
@@ -3069,7 +3272,8 @@ drop index if exists public.share_invites_card_pending_key;
 
 revoke all on public.profiles, public.universes, public.groups, public.cards,
               public.items, public.memberships, public.share_invites,
-              public.tombstones from anon;
+              public.tombstones, public.notifications,
+              public.notification_prefs from anon;
 
 -- profiles: e-posten speiles KUN fra auth.users (triggerne over) og er
 -- skrivebeskyttet for klienter — ellers kunne en bruker kapre ventende
@@ -3107,6 +3311,11 @@ grant select, insert, update, delete on public.universes, public.groups,
 --   tombstones     | ✓ | – | – | – | skrives KUN av write_tombstone()-
 --                  |   |   |   |   |  triggerne. Klienten leser dem i
 --                  |   |   |   |   |  fetchServerTombs().
+--   notifications  | ✓ | – | ✓*| ✓ | *kun `read_at` (kolonne-grant). Rader
+--                  |   |   |   |   |  lages av notify_record(); DELETE er
+--                  |   |   |   |   |  «Tøm varsler» (docs/varsler.md).
+--   notification_  | ✓ | – | – | – | skrives kun av notify_set_prefs() og
+--     prefs        |   |   |   |   |  notify_record() (markøren).
 --
 -- Kolonnene uten ✓ er trukket tilbake under. `tests/db-contract.test.js` og
 -- smoke-testen holder matrisen og virkeligheten i takt.
@@ -3119,6 +3328,16 @@ revoke insert, update, delete on public.share_invites from authenticated;
 grant select on public.share_invites to authenticated;
 revoke insert, update, delete on public.tombstones from authenticated;
 grant select on public.tombstones to authenticated;
+-- notifications: klienten leser sine egne rader, merker dem lest og sletter
+-- dem («Tøm varsler»). Den skal ALDRI kunne skrive en ny rad — den veien går
+-- gjennom notify_record(), som setter user_id selv. Update er kolonne-avgrenset
+-- til `read_at`: lest/ulest er det eneste klienten eier på en eksisterende rad.
+revoke all on public.notifications from authenticated;
+grant select, delete on public.notifications to authenticated;
+grant update (read_at) on public.notifications to authenticated;
+-- notification_prefs leses direkte, men skrives kun av notify_set_prefs().
+revoke all on public.notification_prefs from authenticated;
+grant select on public.notification_prefs to authenticated;
 
 do $$
 declare fn text;
@@ -3138,7 +3357,9 @@ begin
     'public.get_my_doc()',
     'public.move_group(uuid, uuid, uuid, double precision)',
     'public.import_doc(jsonb)',
-    'public.delete_account()'
+    'public.delete_account()',
+    'public.notify_record(jsonb, bigint)',
+    'public.notify_set_prefs(jsonb)'
   ] loop
     execute format('revoke execute on function %s from public, anon', fn);
     execute format('grant execute on function %s to authenticated', fn);
@@ -3149,6 +3370,7 @@ end $$;
 -- opprydninger uten egen autorisasjonssjekk — kallerne kontrollerer myndighet).
 revoke all on function public.purge_universe_access(uuid, uuid) from public, anon, authenticated;
 revoke all on function public.purge_group_access(uuid, uuid) from public, anon, authenticated;
+revoke all on function public.notify_prefs_row(uuid) from public, anon, authenticated;
 
 -- ------------------------------------------------------------
 -- 13. REALTIME — legg tabellene i supabase_realtime-publikasjonen.
