@@ -2,72 +2,81 @@
 
 ## Prosjekt
 
-Huskis er en statisk vanilla-JS-app uten bundler, rammeverk eller
-klientavhengigheter. Innholdet er hierarkisk: **Område > Mappe > Liste >
-Listepunkt**, der en liste i tillegg kan ha ett nivå med **kategorier**.
+Huskis er en statisk vanilla-JS-app uten bundler eller rammeverk. Innholdet er
+hierarkisk: **Område > Mappe > Liste > Listepunkt**, der en liste i tillegg kan
+ha ett nivå med **kategorier**.
 
-De to øverste nivåene er bygget av nøyaktig samme komponenter som de to
-nederste: et område ER et kort, en mappe ER en rad, og de deler CSS-klasser,
-maler og politikk. Dra-og-slipp kjører i to scope — `boardScope`
-(listevisningen) og `navScope` (navigasjonsmodalen) — og **alle fem nivåene
-kjøres av dnd-kit gjennom Smett** (`vendor/smett-0.2.0.js`). Selve gesten er
-dnd-kits; hva et slipp BETYR er Huskis', og den politikken er DELT mellom
-scopene — en endring treffer begge. Autoritativt: `docs/drag-and-drop.md`.
+De to øverste nivåene er bygget av samme komponenter som de to nederste: et
+område ER et kort, en mappe ER en rad. Dra-og-slipp kjører i to scope —
+`boardScope` og `navScope` — og **alle fem nivåene kjøres av dnd-kit gjennom
+Smett** (`vendor/smett-0.2.0.js`). Selve gesten er dnd-kits; hva et slipp BETYR
+er Huskis', og den politikken er delt mellom scopene. Autoritativt:
+`docs/drag-and-drop.md`.
 
-**Kildekode** (det som deployes): `index.html`, `styles.css`, `app.js`,
-`icons.js`, `i18n.js`, `theme.js`, `config.js`, `update-check.js`, `sw.js`
-(service workeren — KUN varsler, ingen caching), `assets/`,
-`vendor/`
-(supabase-js og Smett som innsjekkede, låste kopier —
-`docs/sikkerhetsheadere.md`).
-`dev-mock.js` og
-`mock-backend.js` er testmodus (`?mock=1`) og blir IKKE med i produksjons-
-deployen — `build.js` fjerner både filene og taggen som laster dem. Kun
-preview-deployer beholder dem (`docs/sikkerhetsheadere.md`).
+`dist/` er generert output fra `node build.js` og skal aldri redigeres direkte.
+Mobilskallet (Capacitor + `android/`) pakker den samme `dist/`-en inn i native
+appen; webkoden har fortsatt ingen bundler. Autoritativt for mobil:
+`docs/mobilapp-plan.md`.
 
-**Generert output**: `dist/`, laget av `node build.js` — ikke sjekket inn, og
-ingenting skal redigeres der. Byggesteget kopierer kildefilene og stempler en
-build-ID inn i `index.html` + `version.json`; i repoet står build-ID-en på `dev`
-med vilje, slik at lokal utvikling ikke trigger auto-oppdatering.
-
-**Mobilskallet**: `package.json` + lockfila, `capacitor.config.json` og
-`android/` finnes kun for å pakke den samme `dist/`-en inn i en native app.
-Webappen har fortsatt ingen bundler og ingen klientavhengigheter, og denne
-toolingen deployes aldri — `SKIP`-listen i `build.js` holder den utenfor `dist/`.
-Autoritativt for fremdrift og neste steg: `docs/mobilapp-plan.md`.
-
-**Serversiden** er `supabase/users-and-sharing.sql` — én idempotent fil med
-tabeller, RLS, triggere og RPC-er. `supabase/functions/push-send/` er den ene
-tingen som ikke får plass der: senderen for web push, som trenger kryptografi
-SQL ikke har (`docs/varsler.md`).
-
-**Releaseprosessen**: ved merge til `main` kjører `.github/workflows/release.yml`
-tester → migrering → smoke-test → Vercel-deploy, i den rekkefølgen. Frontenden
-publiseres aldri før skjemaet er migrert og verifisert. Autoritativt:
+Serversiden er `supabase/users-and-sharing.sql`, med senderen for web push i
+`supabase/functions/push-send/` — den ene tingen som trenger kryptografi SQL
+ikke har. Service workeren `sw.js` gjør KUN varsler, ingen caching.
+Autoritativt: `docs/varsler.md`. Tilstanden ligger i `localStorage` per konto og
+synkes mot Supabase (Auth + relasjonelle tabeller med RLS). Appen har ingen
+anonym modus. Releaseflyten er dokumentert i
 `docs/release-og-deploy.md`.
 
-Tilstanden ligger i `localStorage` per konto og synkes mot Supabase (Auth +
-relasjonelle tabeller med RLS). Appen har ingen anonym modus.
-
-UI-et finnes på **norsk og engelsk**, og brukeren velger selv (også før
-innlogging). All brukerrettet tekst går gjennom ordboken i `i18n.js` —
-`tr('nøkkel')` i `app.js`, `data-i18n` i `index.html`. En norsk streng skrevet
-rett inn i koden finnes ikke på engelsk, og `tests/i18n.test.js` stopper den.
-Autoritativt: `docs/sprak.md`.
-
-UI-et finnes også i **lys og mørk drakt**, og brukeren velger selv (også før
-innlogging). Drakten er ÉN blokk med fargetokens i `styles.css` pluss ett
-speilet L-sett i paletten — ingen egne mørke regler, ingen duplisert geometri.
-Valget lagres kun på enheten (`theme.js`, lastet i `<head>` så attributtet står
-der før første maling). Autoritativt: `docs/mork-drakt.md`.
+UI-et finnes på norsk og engelsk, og all brukerrettet tekst går gjennom
+`i18n.js`; se `docs/sprak.md`. Lys/mørk drakt følger `docs/mork-drakt.md`.
 
 De norske ordene i UI-et og dokumentasjonen er **område** og **mappe**;
-identifikatorene i koden og databasen heter fortsatt `universe` og `group`
-(kolonner, tabeller, CSS-klasser, funksjonsnavn). Døp dem ikke om — det er
-databasekontrakten.
+identifikatorene i koden og databasen heter fortsatt `universe` og `group`.
+Døp dem ikke om — det er databasekontrakten.
 
 Autoritativt for hvem som får gjøre hva: `docs/rettigheter-og-deling.md`. Kart
-over resten av dokumentasjonen: `docs/README.md`.
+over resten av dokumentasjonen: `docs/README.md`. Les bare dokumentene oppgaven
+faktisk berører.
+
+## Samarbeid med repo-eier
+
+- Repo-eieren er kliniker, ikke programvarearkitekt. Anta ingen
+  programvarefaglig bakgrunn når du ber om beslutninger eller forklarer arbeid.
+- Ikke be eieren ta stilling til tekniske spørsmål — arkitektur,
+  databasedesign, biblioteker, implementasjonsmønstre, filstruktur eller
+  teststrategi — når du kan velge en forsvarlig løsning selv.
+- Ved teknisk usikkerhet: velg som hovedregel den sikreste og mest reversible
+  løsningen som passer eksisterende kode og dokumentasjon. Implementer den, og
+  beskriv relevante tekniske avveiinger i PR-beskrivelsen for kode-review.
+- Eskaler bare når avgjørelsen faktisk krever eieren: produktvalg, kostnad,
+  ekstern konto/tilgang, en irreversibel eller destruktiv handling, eller noe
+  som ikke kan avgjøres trygt fra repoet.
+- Når du må spørre, still ett konkret spørsmål på enkelt norsk og forklar
+  konsekvensen for produktet, ikke for koden.
+
+## Kommunikasjon med repo-eier
+
+- Skriv kort og enkelt på norsk (Bokmål). Ikke gi lange tekniske forklaringer
+  med mindre eieren ber om dem.
+- Unngå navn på interne komponenter, filer, databasemekanismer og teknologier
+  når de ikke trengs for å forstå resultatet eller ta en beslutning.
+- Oppsummer ferdig arbeid som standard under:
+  - **Hva er gjort?**
+  - **Hva betyr det for appen?**
+  - **Kan jeg teste noe nå?**
+  - **Er det noe jeg faktisk må ta stilling til?** — svar «Nei» når det ikke er
+    noe reelt valg.
+  - **Hva er naturlig neste steg?**
+- Hvis endringen ennå ikke gir noe meningsfullt å teste i UI-et, si det
+  eksplisitt.
+- Ikke rapporter tekniske observasjoner som ikke krever handling fra eieren,
+  som eksisterende warnings, oppryddingsmuligheter, refaktorering eller
+  tooling-detaljer. Hvis noe bør gjøres senere, opprett heller en GitHub-issue
+  med prefikset `[teknisk]`; hvis det er lite og hører til gjeldende oppgave,
+  gjør det nå.
+- Tekniske avveiinger hører hjemme i PR-beskrivelsen for reviewer, ikke i
+  eieroppsummeringen.
+- Unntak: sikkerhet, personvern og risiko for datatap skal alltid synliggjøres
+  for eieren med en gang.
 
 ## Kommandoer
 
