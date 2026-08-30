@@ -506,7 +506,65 @@ async function run() {
     JSON.stringify(etter.pending) === JSON.stringify(etter.plan.map((r) => r.id).sort()),
     JSON.stringify({ pending: etter.pending.length, plan: etter.plan.length }));
 
-  /* ---------- 2s) Nytt navn på objektet: alarmen skal si det nye ----------
+  /* ---------- 2s–2v) NORMALTILFELLET: en fersk lease, og telefonen reiser ----
+     Over ble hevdelsen gjort gammel med vilje, så serverplanen kunne overtas.
+     Det er ikke det som skjer når noen tar et fly: da er hevdelsen FERSK, og
+     serveren nekter overtakelse i opptil seks timer. Dempingen er riktig — to
+     enheter i hver sin sone ville ellers skrevet om hverandres plan i hver
+     eneste synk-runde — men den skal ikke ramme telefonens EGNE alarmer.
+
+     Her flyttes enheten en gang til, uten at `tz_at` røres. Forventningen:
+     serverplanen blir stående i den forrige sonen (leasen holder), mens de
+     lokale alarmene følger klokka der telefonen faktisk er — med det samme, og
+     uten et hull. */
+  const tredjeSone = 'America/Sao_Paulo';                       // UTC−3
+  const førReise = await pn.evaluate(() => ({
+    planTz: window.__huskis.notifPlanTz,
+    tzAt: window.HK_MOCK._loadDB().notification_prefs.map((r) => r.tz_at),
+    pending: window.__kanal.pending.map((n) => n.id).sort(),
+    serverAt: window.HK_MOCK._loadDB().notifications.map((n) => n.at).sort(),
+  }));
+  await pn.evaluate(() => { window.__kanal.schedule.length = 0; window.__kanal.cancel.length = 0; });
+  await settSone(tredjeSone);
+  for (let i = 0; i < 4; i++) await cycle(pn);
+  await pn.waitForFunction((gamle) => {
+    const nå = window.__kanal.pending.map((n) => n.id).sort();
+    return nå.length > 0 && JSON.stringify(nå) !== JSON.stringify(gamle);
+  }, førReise.pending, { timeout: 15000, polling: 200 }).catch(() => {});
+
+  const reise = await pn.evaluate(() => ({
+    tz: window.__huskis.deviceTz(),
+    planTz: window.__huskis.notifPlanTz,
+    tzAt: window.HK_MOCK._loadDB().notification_prefs.map((r) => r.tz_at),
+    pending: window.__kanal.pending.map((n) => n.id).sort(),
+    lagt: window.__kanal.schedule.flat().map((n) => ({
+      key: n.extra.key, at: new Date(n.schedule.at).getTime() })),
+    plan: window.__huskis.planNotifications(window.__huskis.state, Date.now(),
+      window.__huskis.notifPrefs).map((r) => ({ key: r.key, at: r.at,
+        id: window.__huskis.nativeNotifId(window.__huskis.nativeNotifSig(r)) })),
+    serverAt: window.HK_MOCK._loadDB().notifications.map((n) => n.at).sort(),
+  }));
+  log('2s: serverplanen blir stående i den forrige sonen — leasen er fersk',
+    reise.tz === tredjeSone && reise.planTz === sonebytte.til &&
+    JSON.stringify(reise.tzAt) === JSON.stringify(førReise.tzAt),
+    JSON.stringify({ enhet: reise.tz, plan: reise.planTz }));
+  log('2t: … og serverradene er urørt, så den andre enheten planlegger videre',
+    JSON.stringify(reise.serverAt) === JSON.stringify(førReise.serverAt),
+    JSON.stringify({ før: førReise.serverAt.length, nå: reise.serverAt.length }));
+  log('2u: MEN telefonen står ikke uten alarmer mens den venter på leasen',
+    reise.pending.length > 0 && reise.plan.length > 0, JSON.stringify(
+      { pending: reise.pending.length, plan: reise.plan.length }));
+  log('2v: … de er lagt på nytt etter klokka der telefonen faktisk er',
+    JSON.stringify(reise.pending) === JSON.stringify(reise.plan.map((r) => r.id).sort()) &&
+    reise.lagt.length > 0 &&
+    reise.lagt.every((n) => {
+      const p = reise.plan.find((x) => x.key === n.key);
+      return p && p.at === n.at;
+    }) &&
+    førReise.pending.every((g) => reise.pending.indexOf(g) === -1),
+    JSON.stringify(reise.lagt.map((n) => new Date(n.at).toISOString())));
+
+  /* ---------- 2w) Nytt navn på objektet: alarmen skal si det nye ----------
      Teksten i et native varsel er objektets navn. Det navnet kan endre seg uten
      at hverken nøkkelen eller terskeltiden gjør det — og da skal alarmen som
      alt ligger på telefonen erstattes, ikke bli stående og si det gamle. */
@@ -523,7 +581,7 @@ async function run() {
     avlyst: window.__kanal.cancel.flat().map((n) => n.id),
     pending: window.__kanal.pending.map((n) => n.id).sort(),
   }));
-  log('2s: et nytt objektnavn erstatter alarmen i stedet for å fryse teksten',
+  log('2w: et nytt objektnavn erstatter alarmen i stedet for å fryse teksten',
     navn.lagt.length > 0 && navn.lagt.every((t) => t === 'Legetime') &&
     førNavn.every((g) => navn.avlyst.indexOf(g) !== -1) &&
     førNavn.every((g) => navn.pending.indexOf(g) === -1),

@@ -12,9 +12,26 @@
    minuttet. Funksjonen kan også kalles for hånd; den er idempotent, for
    `push_claim()` LÅSER det den leverer ut.
 
-   Hemmeligheter kommer fra funksjonens miljø og finnes ingen steder i repoet:
+   AUTENTISERING. Dette er et service-to-service-kall (pg_cron → pg_net → hit),
+   og Supabase har ett mønster for nettopp det: send en SECRET KEY på
+   `apikey`-headeren, og slå av plattformens JWT-verifisering
+   (`--no-verify-jwt`), siden en secret key ikke er et JWT. Sjekken under er da
+   den eneste porten, og den sammenligner hele nøkkelen i konstant tid.
 
-     SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY   (settes av plattformen)
+   Nøkkelen leses av miljøet, i den rekkefølgen Supabase selv anbefaler:
+
+     SUPABASE_SECRET_KEYS      — JSON-ordbok med de NYE nøklene
+                                 (`sb_secret_…`). Den anbefalte veien.
+     SUPABASE_SERVICE_ROLE_KEY — den gamle JWT-nøkkelen. Merket «legacy» i
+                                 Supabases egen dokumentasjon og på vei ut,
+                                 men fortsatt satt i eldre prosjekter.
+
+   Begge veier virker, og koden foretrekker den nye. Ingen av dem finnes i
+   repoet — de settes som funksjonens secrets.
+
+   De øvrige hemmelighetene:
+
+     SUPABASE_URL       (settes av plattformen)
      VAPID_PUBLIC_KEY   — base64url, 65 byte. Samme verdi som `pushPublicKey`
                           i config.js; stemmer de ikke, avviser push-tjenesten
                           hver eneste melding.
@@ -38,9 +55,49 @@ function env(navn: string): string {
   return v;
 }
 
-async function rpc(navn: string, args: unknown) {
+/* Prosjektets secret keys, nye først. `SUPABASE_SECRET_KEYS` er en JSON-ordbok
+   (`{"default": "sb_secret_…"}`) — plattformen kan ha flere navngitte nøkler,
+   og alle er gyldige avsendere. Den gamle `SUPABASE_SERVICE_ROLE_KEY` tas med
+   sist, så et eldre prosjekt fortsatt virker uten endringer.
+
+   Rekkefølgen betyr noe ett sted til: den FØRSTE er den funksjonen selv bruker
+   mot PostgREST. Da flytter et prosjekt seg til den nye modellen ved å sette
+   secrets, uten at koden røres. */
+function hemmeligeNøkler(): string[] {
+  const ut: string[] = [];
+  const rå = Deno.env.get('SUPABASE_SECRET_KEYS');
+  if (rå) {
+    try {
+      const d = JSON.parse(rå);
+      if (d && typeof d === 'object') {
+        // `default` først når den finnes; ellers ordbokens egen rekkefølge.
+        if (typeof d.default === 'string' && d.default) ut.push(d.default);
+        for (const [k, v] of Object.entries(d)) {
+          if (k !== 'default' && typeof v === 'string' && v) ut.push(v);
+        }
+      }
+    } catch { /* en ugyldig ordbok skal ikke felle den gamle veien */ }
+  }
+  const gammel = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
+  if (gammel) ut.push(gammel);
+  if (!ut.length) {
+    throw new Error('mangler SUPABASE_SECRET_KEYS eller SUPABASE_SERVICE_ROLE_KEY');
+  }
+  return ut;
+}
+
+/* Sammenligning uten tidslekkasje. Verdien er en hemmelighet, og en `===` på
+   strenger stopper ved første ulike tegn — det er nok til å gjette den tegn for
+   tegn. Lengden lekker fortsatt, og det er greit: nøkkelformatene er kjente. */
+function likeHemmeligheter(a: string, b: string): boolean {
+  if (a.length !== b.length) return false;
+  let d = 0;
+  for (let i = 0; i < a.length; i++) d |= a.charCodeAt(i) ^ b.charCodeAt(i);
+  return d === 0;
+}
+
+async function rpc(navn: string, key: string, args: unknown) {
   const url = env('SUPABASE_URL') + '/rest/v1/rpc/' + navn;
-  const key = env('SUPABASE_SERVICE_ROLE_KEY');
   const res = await fetch(url, {
     method: 'POST',
     headers: {
@@ -63,13 +120,21 @@ async function iBiter<T, R>(liste: T[], n: number, fn: (x: T) => Promise<R>): Pr
 }
 
 Deno.serve(async (req) => {
-  /* Plattformen verifiserer JWT-et før vi kommer hit (`verify_jwt`, standard).
-     Sjekken her er det andre laget, og den er billig: bare service_role-nøkkelen
-     får sende. `push_claim()` avviser uansett alt annet. */
-  const auth = req.headers.get('authorization') || '';
-  if (auth !== 'Bearer ' + env('SUPABASE_SERVICE_ROLE_KEY')) {
+  /* PORTEN. Funksjonen deployes med `--no-verify-jwt` (se toppen), så
+     plattformen slipper alle gjennom og denne sjekken er den som gjelder:
+     kalleren må vise en av prosjektets secret keys.
+
+     `apikey` er headeren Supabase dokumenterer for service-to-service; vi tar
+     også imot den på `Authorization: Bearer`, siden `pg_net` sender begge og en
+     PostgREST-klient gjør det samme. `push_claim()` avviser uansett alt annet
+     enn service_role, så dette er den ytre av to porter. */
+  const nøkler = hemmeligeNøkler();
+  const vist = (req.headers.get('apikey') || '')
+    || (req.headers.get('authorization') || '').replace(/^Bearer\s+/i, '');
+  if (!vist || !nøkler.some((k) => likeHemmeligheter(vist, k))) {
     return new Response('nei', { status: 401 });
   }
+  const nøkkel = nøkler[0];      // den funksjonen selv bruker mot PostgREST
 
   const vapid = {
     publicKey: env('VAPID_PUBLIC_KEY'),
@@ -77,7 +142,7 @@ Deno.serve(async (req) => {
     subject: env('VAPID_SUBJECT'),
   };
 
-  const due = await rpc('push_claim', { p_limit: BATCH });
+  const due = await rpc('push_claim', nøkkel, { p_limit: BATCH });
   if (!Array.isArray(due) || due.length === 0) {
     return Response.json({ claimed: 0, sent: 0 });
   }
@@ -95,7 +160,7 @@ Deno.serve(async (req) => {
     }
   });
 
-  await rpc('push_report', { p_results: results });
+  await rpc('push_report', nøkkel, { p_results: results });
   return Response.json({
     claimed: due.length,
     sent: results.filter((r) => r.ok).length,

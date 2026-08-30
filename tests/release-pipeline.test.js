@@ -146,6 +146,30 @@ check('… med en Supabase-CLI som faktisk lar seg kjøre (ikke global install)'
 check('… kjørt med npx og en LÅST versjon (ingen @latest i en produksjonsflyt)',
   !!relJobs.pushfunksjon && /npx\s+(--yes\s+|-y\s+)?supabase@\d+\.\d+\.\d+\s/.test(pushKjør),
   (pushKjør.match(/supabase@[^\s]*/) || [''])[0]);
+/* Senderen kalles av pg_cron gjennom pg_net, ikke av en innlogget bruker, og
+   Supabases mønster for det er en secret key på `apikey`-headeren. En secret
+   key er ikke et JWT, så plattformens JWT-verifisering må være AV — ellers
+   avvises tikket før funksjonen får se nøkkelen. Porten er funksjonens egen
+   sjekk. Uten flagget her ville web push stille sluttet å virke den dagen
+   prosjektet går over til de nye nøklene. */
+check('… og med JWT-verifisering AV (service-to-service, ikke en brukersesjon)',
+  /--no-verify-jwt/.test(pushKjør), (pushKjør.match(/--no-verify-jwt/) || ['—'])[0]);
+/* … og funksjonen må faktisk godta begge nøkkelgenerasjonene, ellers er
+   flagget over bare et hull. */
+const pushFn = fs.readFileSync(
+  path.join(ROOT, 'supabase', 'functions', 'push-send', 'index.ts'), 'utf8');
+check('senderen leser de NYE secret keys (SUPABASE_SECRET_KEYS) …',
+  /SUPABASE_SECRET_KEYS/.test(pushFn));
+check('… og faller tilbake på den gamle service_role-nøkkelen',
+  /SUPABASE_SERVICE_ROLE_KEY/.test(pushFn));
+check('… og tar imot nøkkelen på apikey-headeren',
+  /headers\.get\('apikey'\)/.test(pushFn));
+check('… og sammenligner den uten tidslekkasje (ingen === på hemmeligheten)',
+  /likeHemmeligheter/.test(pushFn) &&
+  !/!==\s*'Bearer '/.test(pushFn));
+check('push_tick() sender nøkkelen på apikey, ikke bare Authorization',
+  /'apikey', svc_key/.test(fs.readFileSync(
+    path.join(ROOT, 'supabase', 'users-and-sharing.sql'), 'utf8')));
 check('… og hopper stille over når secretene ikke er satt (kanalen er valgfri)',
   !!relJobs.pushfunksjon && /SUPABASE_ACCESS_TOKEN/.test(relJobs.pushfunksjon) &&
   /exit 0/.test(relJobs.pushfunksjon));

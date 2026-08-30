@@ -310,7 +310,9 @@ begin
   foreach fn in array array[
     'public.purge_universe_access(uuid, uuid)',
     'public.purge_group_access(uuid, uuid)',
-    'public.notify_prefs_row(uuid)'
+    'public.notify_prefs_row(uuid)',
+    -- Senderens kø-teller: leser ALLE brukeres leveringer.
+    'public.push_due_count()'
   ] loop
     oid_ := to_regprocedure(fn);
     if oid_ is null then

@@ -484,7 +484,21 @@
     (rows || []).forEach(function (r) {
       if (!r || !r.key || r.at == null) return;
       if (!NOTIF_TYPES[r.type] || !NOTIF_OBJ_TYPES[r.obj_type]) return;
-      if (db.notifications.some(function (n) { return n.user_id === uid && n.key === r.key; })) return;
+      var finnes = db.notifications.find(function (n) {
+        return n.user_id === uid && n.key === r.key;
+      });
+      if (finnes) {
+        /* Som serveren: en PLANLAGT rad (ennå ikke forfalt, ikke utsatt) skal
+           bære et ferskt øyeblikksbilde av navn og sti — det er den teksten web
+           push leverer når den forfaller. Historikk skrives aldri om. */
+        if (finnes.at > now && !finnes.snoozed &&
+            (finnes.name !== (r.name || '') || finnes.path !== (r.path || ''))) {
+          finnes.name = r.name || '';
+          finnes.path = r.path || '';
+          lagt++;
+        }
+        return;
+      }
       lagt++;
       db.notifications.push({
         id: newUuid(), user_id: uid, key: String(r.key), type: r.type,

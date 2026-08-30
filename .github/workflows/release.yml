@@ -221,7 +221,15 @@ jobs:
           # er satt, og jobben ville dødd på installasjonssteget uansett hvor
           # riktig resten var. `npx` installerer i sitt eget område, og
           # versjonen står fortsatt eksakt.
+          #
+          # `--no-verify-jwt`: dette er et service-to-service-kall (pg_cron →
+          # pg_net → funksjonen), og Supabases eget mønster for det er en
+          # SECRET KEY på `apikey`-headeren. En secret key (`sb_secret_…`) er
+          # ikke et JWT, så plattformens JWT-verifisering ville avvist den før
+          # funksjonen fikk se den. Porten er da funksjonens egen sjekk, som
+          # sammenligner hele nøkkelen i konstant tid (index.ts).
           npx --yes supabase@2.60.0 functions deploy push-send \
+            --no-verify-jwt \
             --project-ref "$SUPABASE_PROJECT_REF"
 
   # ---- 4. Produksjonsdeploy -------------------------------------------

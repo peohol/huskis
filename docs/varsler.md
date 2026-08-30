@@ -154,7 +154,17 @@ historikken for alle, for en gevinst bare en konto med svært mange datoer i
 samme måned ville merket.
 
 **Planen er ikke historikk.** Forskjellen er hva som gjør en rad ugyldig, og den
-står under «Varsler som ikke gjelder lenger».
+står under «Varsler som ikke gjelder lenger». Men den viser seg ett sted til:
+**en planlagt rad bærer et FERSKT øyeblikksbilde.** Navnet og stien på en rad
+er tatt da raden ble logget, og for historikk er det riktig — et varsel
+beskriver hva som het hva da det skjedde. En planlagt rad kan derimot ligge en
+måned før den forfaller, og det er DEN teksten web push leverer
+(`push_claim()` bygger kroppen av `notifications.name`). Døpes objektet om i
+mellomtiden, oppdaterer generatoren raden: `notify_record()` gjør en
+`on conflict … do update` som bare treffer rader med `at` fram i tid og som ikke
+er utsatt. Historikk skrives aldri om. Uten det ville nettleseren sagt det gamle
+navnet mens Android sa det nye — Android bygger sin tekst av gjeldende tilstand
+(«Android: lokale varsler»).
 
 ### Tidssonen planen tilhører
 
@@ -162,18 +172,33 @@ Terskeltidene er absolutte millisekunder, regnet ut av `timeMs()` fra **lokal
 veggtid**. En frist «14. mars kl. 09:00» er derfor et annet tidspunkt i Tokyo
 enn i Oslo, og en plan hører til ÉN sone.
 
-`notification_prefs.tz` er den sonen, og `tz_at` er når den sist ble hevdet.
-Regelen har tre ledd:
+Men det er TO spørsmål her, ikke ett, og de har hvert sitt svar:
 
-- **Bare enheten som HOLDER sonen planlegger** — og bare den rydder i planlagte
-  rader. En enhet i en annen sone logger historikk som før, men lar planen være.
-- En enhet i en annen sone **hevder** sonen (`notify_claim_tz`) og planlegger
-  fra og med neste runde.
+| Spørsmål | Hvem bestemmer | Hvorfor |
+|---|---|---|
+| Hvem skriver SERVERPLANEN — radene i `notifications`, som web push leverer? | Én enhet av gangen, med en lease | To enheter i hver sin sone ville ellers slettet og gjenskapt hverandres plan i hver eneste synk-runde |
+| Hvilke alarmer skal DENNE telefonen ha? | Telefonen selv, alltid, i sin egen sone | Ingen andre ser dem, ingen server leser dem — og en telefon skal varsle etter klokka der den faktisk er |
+
+**Leasen** er `notification_prefs.tz` (sonen) og `tz_at` (når den sist ble
+hevdet), og den har tre ledd:
+
+- **Bare enheten som HOLDER sonen skriver planen** — og bare den rydder i
+  planlagte rader. En enhet i en annen sone logger historikk som før, men lar
+  serverplanen være.
+- En enhet i en annen sone **hevder** sonen (`notify_claim_tz`) og skriver
+  planen fra og med neste runde.
 - Hevdelsen går bare gjennom når den forrige er **eldre enn seks timer**
   (`NOTIF_TZ_CLAIM_MS`), og ventetiden håndheves av serveren, ikke av klienten.
-  Uten den ville to enheter i hver sin sone slettet og gjenskapt hverandres plan
-  i hver eneste synk-runde. Reiser man, står den forrige enheten som regel
-  ubrukt, og overtakelsen skjer med det samme.
+  Uten den ville de to enhetene skrevet om hverandre i hver runde.
+
+**Leasen gjelder IKKE de lokale Android-alarmene.** `syncNotifChannel()` regner
+alltid planen ut i enhetens egen sone og speiler den ut på telefonen — også når
+serverplanen tilhører en annen sone. Bandt vi de to sammen, ville en telefon som
+lander et nytt sted fått alarmene sine avlyst og stått uten dem til leasen løp
+ut: **opptil seks timer uten varsler, som straff for å ha reist.** Nå skjer det
+motsatte — alarmene flytter seg med det samme, og serverplanen følger etter når
+leasen kan overtas. At de to er ulike i mellomtiden er uproblematisk: en enhet
+har ÉN kanal (`notifChannel()`), aldri begge.
 
 **Sommertid trenger ingen regel.** `new Date(år, måned, dag, time, minutt)` gir
 riktig instans for den lokale datoen på begge sider av en overgang; det er bare
@@ -813,14 +838,49 @@ Databasen eier køen, rekkefølgen og idempotensen. Edge-funksjonen
 2. `pg_cron` kaller `push_tick()` hvert minutt, som dytter Edge-funksjonen i
    gang med `pg_net` — nøyaktig det oppsettet e-postvarselet ved deling allerede
    bruker, med hemmeligheten i Vault og adressen i `app_config`. Uten
-   konfigurasjon gjør tikket ingenting og feiler ikke.
+   konfigurasjon gjør tikket ingenting og feiler ikke. Tikket dytter bare når
+   det finnes arbeid som FAKTISK kan sendes (`push_due_count()`).
 3. `push_claim()` henter forfalte leveringer og LÅSER dem (`claimed_at`,
    `for update skip locked`). To samtidige kjøringer kan derfor ikke sende det
    samme, og en kjøring som dør halvveis blir hentet inn igjen av den neste i
    stedet for å bli stående.
 4. Funksjonen signerer (VAPID), krypterer (RFC 8291) og sender.
-5. `push_report()` tar imot utfallet: levert, **dødt** (404/410 — abonnementet
-   slås av for godt) eller midlertidig (prøves igjen, opptil fem forsøk).
+5. `push_report()` tar imot utfallet: levert, **dødt** (404/410) eller
+   midlertidig (prøves igjen, opptil fem forsøk).
+
+**Et dødt endepunkt tar KØEN sin med seg.** 404/410 betyr at endepunktet ikke
+finnes lenger, og da er ikke bare den ene leveringen tapt — alt som ligger i kø
+til det samme endepunktet er like usendbart. `push_report()` slår derfor av
+abonnementet OG avslutter resten av køen til det (`status = 'gone'`), og
+`push_claim()` plukker aldri opp en levering til et avslått abonnement. To lag,
+og de svarer på hver sin ting: opprydningen gjør at `push_tick()` ikke våkner
+hvert minutt for arbeid som aldri kan lykkes (`push_due_count()` teller bare det
+som faktisk kan sendes), og sjekken i `push_claim()` gjør en rad som likevel
+skulle bli stående INERT i stedet for forsøkt igjen.
+
+**Hvordan senderen autentiserer seg.** Kallet fra `pg_cron` er
+service-to-service, ikke en brukersesjon, og Supabase har ett mønster for
+nettopp det: en **secret key** på `apikey`-headeren, med plattformens
+JWT-verifisering slått av (`--no-verify-jwt` i deployjobben). Porten er da
+funksjonens egen sjekk, som sammenligner hele nøkkelen i konstant tid.
+
+Nøkkelen leses av funksjonens miljø i denne rekkefølgen:
+
+| Variabel | Hva | Status |
+|---|---|---|
+| `SUPABASE_SECRET_KEYS` | JSON-ordbok med de nye nøklene (`sb_secret_…`) | Den anbefalte veien |
+| `SUPABASE_SERVICE_ROLE_KEY` | den gamle JWT-nøkkelen | Merket «legacy» hos Supabase, fases ut |
+
+Begge virker, og koden foretrekker den nye — den FØRSTE nøkkelen den finner er
+også den funksjonen selv bruker mot PostgREST. Et prosjekt flytter seg derfor
+til den nye modellen ved å sette secrets, uten at koden røres. `push_tick()`
+sender nøkkelen på begge headere (`apikey` og `Authorization`), siden en gammel
+service_role-nøkkel er et JWT og en ny secret key ikke er det.
+
+Ingen av nøklene finnes i repoet, og ingen av dem når klienten. `push_claim()`
+og `push_report()` er dessuten stengt for alle andre enn `service_role` — både
+med grants og med en rollesjekk inne i funksjonene — så nøkkelen er den ytre av
+to porter, ikke den eneste.
 
 Kryptografien er skrevet for hånd i `push-send/webpush.mjs`, uten npm-pakker:
 Huskis har ingen avhengigheter ([`sikkerhetsheadere.md`](sikkerhetsheadere.md)),
@@ -875,14 +935,17 @@ De to henger sammen på nøyaktig ett punkt, og ellers ikke:
 - `tests/notif-plan.test.js` — generatoren framover: horisonten og taket, at
   planen er de samme tersklene med samme nøkkel, at den er usynlig og ikke
   teller som ulest, utboksen for web push, at fullføring og en endret frist
-  avlyser den, og tidssone-hevdelsen med begge utfallene.
-- `tests/notif-channels.test.js` — kanalene: den deterministiske native ID-en
-  (og at et TIDSSONEBYTTE faktisk flytter alarmen — samme varsel, ny absolutt
-  tid, gammel alarm avlyst), Android-adapterens diff og upresise alarm, at
-  tillatelsen aldri spørres av seg selv, web push-påmeldingen og avmeldingen,
-  grensene for hva et abonnement får være (speilet i mock-backenden), blokkert
-  tillatelse, panelets fire tilstander, service workerens push- og klikkruting,
-  og `?notif=` i adressen.
+  avlyser den, at en PLANLAGT rad får et ferskt navn mens historikken ikke
+  skrives om, og tidssone-hevdelsen med begge utfallene.
+- `tests/notif-channels.test.js` — kanalene: den deterministiske native ID-en,
+  at et TIDSSONEBYTTE faktisk flytter alarmen (samme varsel, ny absolutt tid,
+  gammel alarm avlyst) — både når leasen kan overtas OG når den er fersk, der
+  telefonen skal ha riktige alarmer med det samme mens serverplanen står
+  urørt — Android-adapterens diff og upresise alarm, at tillatelsen aldri
+  spørres av seg selv, web push-påmeldingen og avmeldingen, grensene for hva et
+  abonnement får være (speilet i mock-backenden), blokkert tillatelse, panelets
+  fire tilstander, service workerens push- og klikkruting, og `?notif=` i
+  adressen.
 - `tests/push-crypto.test.js` — VAPID-signaturen og RFC 8291-krypteringen, mot
   et fast vektor fra `http_ece` og med signaturen faktisk verifisert.
 - `tests/notif-modal.test.js` — knappen og badgen, modalen, nyeste øverst,
@@ -907,13 +970,17 @@ De to henger sammen på nøyaktig ett punkt, og ellers ikke:
 - `tests/security-headers.test.js` + `tests/build-version.test.js` — at
   `worker-src 'self'` står likt i begge policyene, og at `sw.js` publiseres.
 - `tests/release-pipeline.test.js` — at senderen deployes etter smoke-testen,
-  IKKE er en port for frontenden, og at Supabase-CLI-en kjøres på en måte som
-  faktisk virker (`npx` med låst versjon — pakken nekter en global install).
+  IKKE er en port for frontenden, at Supabase-CLI-en kjøres på en måte som
+  faktisk virker (`npx` med låst versjon — pakken nekter en global install), og
+  at nøkkelmodellen henger sammen: `--no-verify-jwt`, begge nøkkelgenerasjonene,
+  `apikey`-headeren og en sammenligning uten tidslekkasje.
 - `supabase/tests/test-notifications.sql` — RLS, idempotent logging, markøren,
   preferansene og kontosletting.
 - `supabase/tests/test-push.sql` — abonnementene og RLS-en rundt dem, utboksens
   idempotens, kaskaden som avlyser en levering, at et EIERSKIFTE tømmer køen og
   at senderen aldri plukker opp en levering som ikke hører til abonnementets
   eier, grensene for hva et abonnement får være (endepunkt, nøkkelform og taket
-  på antall enheter), at senderens funksjoner er stengt for klienten,
-  hent/send/meld-runden med alle tre utfallene, og tidssone-hevdelsen.
+  på antall enheter), at en PLANLAGT rad får et ferskt navn mens historikken
+  ikke skrives om, at et dødt endepunkt tar hele køen sin med seg, at senderens
+  funksjoner er stengt for klienten, hent/send/meld-runden med alle tre
+  utfallene, og tidssone-hevdelsen.

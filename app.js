@@ -10032,6 +10032,11 @@
     if (!tz) return false;
     return notifPlanTz == null || notifPlanTz === tz;
   }
+  /* Merk hva dette IKKE gjelder: de lokale Android-alarmene. De regnes alltid
+     ut i enhetens egen sone (`syncNotifChannel`) — en telefon som har landet et
+     annet sted skal varsle etter klokka der den er, uten å vente på at
+     dempingen over løper ut. Leasen her gjelder bare hvem som skriver
+     SERVERPLANEN, altså radene web push leverer. */
   /* Hvor lenge en hevdelse er «fersk». En enhet i en annen sone overtar først
      når den forrige er blitt så gammel — reiser man, er den forrige enheten
      som regel ikke i bruk, og overtakelsen skjer med det samme. Står to enheter
@@ -10203,7 +10208,27 @@
        Serveren avviser en dublett stille uansett, men klientens klokke kan gå
        foran serverens: da leverer neste pull en markør som ligger bak vår egen
        `now`, og de samme tersklene ville blitt sendt om igjen hver runde. */
-    const kjent = new Set(notifRows.map((r) => r.key));
+    const kjent = new Map(notifRows.map((r) => [r.key, r]));
+    /* Én kandidat er verdt å sende hvis raden ikke finnes — eller hvis den
+       finnes, men er PLANLAGT og bærer et foreldet øyeblikksbilde.
+
+       Navnet på raden er et øyeblikksbilde tatt da raden ble logget, og for
+       historikk er det riktig: et varsel beskriver hva som het hva DA det
+       skjedde. En planlagt rad er ikke historikk. Den kan ligge en måned før
+       den forfaller, og det er DEN teksten web push leverer når den gjør det
+       (`push_claim()` bygger kroppen av `notifications.name`). Døper brukeren
+       om listen i mellomtiden, skal varselet si det nye navnet — ellers ville
+       telefonen og nettleseren sagt hver sin ting om det samme varselet, siden
+       Android bygger teksten sin av gjeldende tilstand.
+
+       Serveren håndhever det samme skillet: `notify_record()` oppdaterer bare
+       rader som ennå ikke har forfalt. Historikk skrives aldri om. */
+    const fersk = (r) => {
+      const finnes = kjent.get(r.key);
+      if (!finnes) return true;
+      if (!(finnes.at > now) || finnes.snoozed) return false;   // historikk / utsatt: urørt
+      return (finnes.name || '') !== (r.name || '') || (finnes.path || '') !== (r.path || '');
+    };
     /* Historikken bakover OG planen framover i den samme skrivingen. Planen er
        det de eksterne kanalene leverer (docs/varsler.md): rader med `at` fram i
        tid, usynlige til de forfaller. Den legges bare av enheten som HOLDER
@@ -10211,7 +10236,7 @@
     const rows = notifCursor == null ? []
       : collectNotifications(state, now, notifPrefs, notifCursor)
         .concat(notifHoldsTz() ? planNotifications(state, now, notifPrefs) : [])
-        .filter((r) => !kjent.has(r.key));
+        .filter(fersk);
     // En enhet i en annen sone hevder sonen når den forrige hevdelsen er
     // gammel nok. Det er ett kall, og først NESTE runde planlegger den.
     claimNotifTz();
@@ -11634,10 +11659,25 @@
     const ch = notifChannel();
     if (!ch || !notifChannelWanted() || !authUser) return;
     /* Android får PLANEN å speile; web push tar ingen — der har serveren
-       planen allerede, og runden brukes til å fornye abonnementet. En enhet
-       som ikke holder tidssonen speiler ingenting: den ville regnet ut andre
-       terskeltider enn den som la planen. */
-    const plan = notifHoldsTz() ? planNotifications(state, notifNow(now), notifPrefs) : [];
+       planen allerede, og runden brukes til å fornye abonnementet.
+
+       PLANEN REGNES UT I ENHETENS EGEN SONE, alltid — også når serverplanen
+       tilhører en annen. De to er ikke det samme spørsmålet:
+
+         · Hvem eier SERVERPLANEN (radene i `notifications`, som web push
+           leverer)? Én enhet av gangen, med en seks timers demping, ellers
+           ville to enheter i hver sin sone skrevet om hverandres plan i hver
+           eneste synk-runde. Det er `notifHoldsTz()`, og den gjelder
+           `runNotifications` og opprydningen.
+         · Hvilke alarmer skal DENNE telefonen ha? De som passer klokka på
+           veggen der telefonen faktisk er. Ingen andre enheter ser dem, ingen
+           server leser dem, og ingenting går i stykker av at de er en annen
+           sone enn serverplanen.
+
+       Bandt vi de to sammen, ville en telefon som lander i en ny sone fått
+       alarmene sine AVLYST og stått uten dem til dempingen løp ut — opptil
+       seks timer uten varsler, som straff for å ha reist. */
+    const plan = planNotifications(state, notifNow(now), notifPrefs);
     /* KANALEN avgjør selv om runden er verdt noe: `sig(plan)` er det den sist
        ble speilet med, og `null` betyr «spør meg hver gang». Signaturen bærer
        kanal-id-en i tillegg, så et bytte av kanal aldri kan leses som

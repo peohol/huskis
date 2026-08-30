@@ -210,6 +210,33 @@ select public.notify_record(jsonb_build_array(
 select public.t_check('en ny generator-runde dupliserer ikke utboksen',
   public.t_deliveries(:'A'::uuid) = 2);
 
+-- ---------- 2b. et PLANLAGT varsel bærer et FERSKT navn ----------
+/* Navnet på en varselrad er et øyeblikksbilde. For HISTORIKK er det riktig: et
+   varsel beskriver hva som het hva da det skjedde. En PLANLAGT rad er ikke
+   historikk — den kan ligge en måned før den forfaller, og det er DEN teksten
+   web push leverer (`push_claim()` bygger kroppen av `notifications.name`).
+   Døpes objektet om i mellomtiden, skal varselet si det nye navnet. */
+select public.notify_record(jsonb_build_array(
+  jsonb_build_object('key', 'dueSoon|card|' || :'AC' || '|2026-09-01', 'type', 'dueSoon',
+    'obj_type', 'card', 'obj_id', :'AC', 'name', 'Legetime', 'path', 'y',
+    'value', '2026-09-01', 'at', :'fram'::bigint),
+  jsonb_build_object('key', 'dueOver|card|' || :'AC' || '|2026-01-10', 'type', 'dueOver',
+    'obj_type', 'card', 'obj_id', :'AC', 'name', 'Legetime', 'path', 'y',
+    'value', '2026-01-10', 'at', :'bak'::bigint)));
+select public.t_check('en PLANLAGT rad får det nye navnet og den nye stien',
+  (select name = 'Legetime' and path = 'y' from public.notifications
+    where user_id = :'A' and key like 'dueSoon|%'));
+select public.t_check('… mens historikken beholder navnet den ble logget med',
+  (select name = 'Frist-liste' and path = 'x' from public.notifications
+    where user_id = :'A' and key like 'dueOver|%'));
+select public.t_check('… og oppdateringen lager ingen dublett i utboksen',
+  public.t_deliveries(:'A'::uuid) = 2);
+-- Tilbake til navnet seksjonene under forventer.
+select public.notify_record(jsonb_build_array(
+  jsonb_build_object('key', 'dueSoon|card|' || :'AC' || '|2026-09-01', 'type', 'dueSoon',
+    'obj_type', 'card', 'obj_id', :'AC', 'name', 'Frist-liste', 'path', 'x',
+    'value', '2026-09-01', 'at', :'fram'::bigint)));
+
 -- ---------- 3. et nytt abonnement får det som ALT er planlagt ----------
 select public.push_subscribe('https://push.example.com/a3', :'k_c', :'s_c',
   '{"dueSoon": "Frist innen en uke"}'::jsonb, 'Europe/Oslo');
@@ -356,6 +383,68 @@ update public.push_deliveries set attempts = 5, claimed_at = null where id = :'d
 select public.push_report(jsonb_build_array(jsonb_build_object('id', :'d3'::bigint, 'error', '500')));
 select public.t_check('etter fem forsøk gis leveringen opp',
   (select status from public.push_deliveries where id = :'d3'::bigint) = 'failed');
+
+-- ---------- 7b. et dødt endepunkt tar KØEN sin med seg ----------
+/* 404/410 betyr at endepunktet ikke finnes lenger. Da er ikke bare DEN ene
+   leveringen tapt — hele køen til det endepunktet er like usendbar. Blir den
+   liggende som `pending`, vekker den senderen hvert minutt for arbeid som
+   aldri kan lykkes. Her tar den slutt, og i to lag: køen avsluttes, OG
+   `push_claim()` plukker aldri opp en levering til et avslått abonnement. */
+reset role; select set_config('request.jwt.claims', '', false);
+select set_config('request.jwt.claim.sub', :'A', false); set role authenticated;
+select public.push_subscribe('https://push.example.com/dodt', :'k_bb', :'s_bb',
+  '{"dueOver": "Frist utløpt"}'::jsonb, 'Europe/Oslo') as sub_d \gset
+select public.notify_record(jsonb_build_array(
+  jsonb_build_object('key', 'dueOver|card|' || :'AC' || '|2027-03-01', 'type', 'dueOver',
+    'obj_type', 'card', 'obj_id', :'AC', 'name', 'Mars 1', 'path', 'x',
+    'value', '2027-03-01', 'at', :'fram'::bigint),
+  jsonb_build_object('key', 'dueOver|card|' || :'AC' || '|2027-03-02', 'type', 'dueOver',
+    'obj_type', 'card', 'obj_id', :'AC', 'name', 'Mars 2', 'path', 'x',
+    'value', '2027-03-02', 'at', :'fram'::bigint),
+  jsonb_build_object('key', 'dueOver|card|' || :'AC' || '|2027-03-03', 'type', 'dueOver',
+    'obj_type', 'card', 'obj_id', :'AC', 'name', 'Mars 3', 'path', 'x',
+    'value', '2027-03-03', 'at', :'fram'::bigint)));
+reset role;
+select count(*)::int as ko_d from public.push_deliveries
+ where subscription_id = :'sub_d'::uuid and status = 'pending' \gset
+select public.t_check('det nye abonnementet har flere ventende leveringer', :'ko_d' >= 3);
+update public.push_deliveries set due_at = :'bak'::bigint where subscription_id = :'sub_d'::uuid;
+select set_config('request.jwt.claims', '{"role":"service_role"}', false);
+select id as dd from public.push_deliveries
+ where subscription_id = :'sub_d'::uuid and status = 'pending' order by id limit 1 \gset
+select public.push_report(jsonb_build_array(
+  jsonb_build_object('id', :'dd'::bigint, 'gone', true)));
+select public.t_check('endepunktet er slått av etter 410',
+  (select disabled_at is not null from public.push_subscriptions where id = :'sub_d'::uuid));
+select public.t_check('… og RESTEN av køen til det er avsluttet, ikke liggende',
+  (select count(*) from public.push_deliveries
+    where subscription_id = :'sub_d'::uuid and status = 'pending') = 0);
+select public.t_check('… ingen ventende levering peker på et avslått abonnement',
+  (select count(*) from public.push_deliveries d
+     join public.push_subscriptions s on s.id = d.subscription_id
+    where d.status = 'pending' and s.disabled_at is not null) = 0);
+
+/* ANDRE LAG. En rad som likevel skulle bli stående — en eldre klient, en
+   halvveis migrering — skal være INERT, ikke levert. Her settes køen tilbake
+   til `pending` med vilje, og alt annet ryddes vekk, så tellingen er entydig. */
+reset role;
+update public.push_deliveries set status = 'sent', done_at = 0
+ where subscription_id <> :'sub_d'::uuid and status = 'pending';
+update public.push_deliveries set status = 'pending', claimed_at = null, done_at = null
+ where subscription_id = :'sub_d'::uuid;
+select set_config('request.jwt.claims', '{"role":"service_role"}', false);
+select public.t_check('senderen henter aldri en levering til et avslått abonnement',
+  not exists (select 1 from jsonb_array_elements(public.push_claim(50, 0)) e
+               where (e ->> 'endpoint') = 'https://push.example.com/dodt'));
+reset role;
+select count(*)::int as ko_igjen from public.push_deliveries
+ where subscription_id = :'sub_d'::uuid and status = 'pending' \gset
+select set_config('request.jwt.claims', '{"role":"service_role"}', false);
+select public.t_check('… og tikket ser ikke arbeid som aldri kan lykkes',
+  public.push_due_count() = 0 and :'ko_igjen' >= 3);
+reset role;
+update public.push_deliveries set status = 'gone', done_at = 0
+ where subscription_id = :'sub_d'::uuid;
 
 -- ---------- 8. tidssonen planen tilhører ----------
 reset role; select set_config('request.jwt.claims', '', false);

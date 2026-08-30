@@ -2566,7 +2566,25 @@ begin
    where r.key is not null and r.at is not null
      and r.type in ('dueOver', 'dueSoon', 'startNow', 'startSoon')
      and r.obj_type in ('card', 'category', 'item')
-  on conflict (user_id, key) do nothing;
+  /* En rad som alt finnes røres ikke — MED ETT UNNTAK: en PLANLAGT rad (ennå
+     ikke forfalt, ikke utsatt) skal bære et ferskt øyeblikksbilde av navn og
+     sti. Det er den teksten web push leverer når raden forfaller, kanskje en
+     måned senere, og et objekt som er døpt om i mellomtiden skal varsle med
+     det navnet det HAR. Historikk skrives aldri om: en forfalt rad beskriver
+     hva som het hva da det skjedde, og `where`-en under er hele forskjellen.
+
+     Merk at `at` ikke oppdateres her. En endret terskeltid betyr at PLANEN er
+     en annen, ikke bare teksten — og den ryddes av opprydningen i klienten,
+     som måler hver planlagt rad mot planen og sletter den som ikke lenger står
+     der (docs/varsler.md). Å flytte tiden i en rad utenom den regelen ville
+     omgått den vurderingen. */
+  on conflict (user_id, key) do update
+     set name = excluded.name,
+         path = excluded.path
+   where notifications.at > now_ms
+     and not notifications.snoozed
+     and (notifications.name is distinct from excluded.name
+          or notifications.path is distinct from excluded.path);
   get diagnostics lagt = row_count;
 
   update public.notification_prefs
@@ -2834,12 +2852,16 @@ begin
      where d.status = 'pending'
        and d.due_at <= now_ms
        and (d.claimed_at is null or now_ms - d.claimed_at >= coalesce(p_lock_ms, 300000))
-       /* Leveringen må fortsatt gjelde den som EIER abonnementet nå.
-          push_subscribe() tømmer køen ved et eierskifte, så dette er andre
-          lag — en rad som likevel skulle bli hengende igjen blir INERT i
-          stedet for å bli levert til feil bruker. */
+       /* Abonnementet må fortsatt gjelde: eid av den samme brukeren, og ikke
+          slått av. Eierskiftet er andre lag — push_subscribe() tømmer køen —
+          så en rad som likevel skulle bli hengende igjen blir INERT i stedet
+          for å bli levert til feil bruker. `disabled_at` er svaret fra
+          push-tjenesten selv: 404/410 betyr at endepunktet er borte, og da er
+          resten av køen til det endepunktet like usendbar som den første. */
        and exists (select 1 from public.push_subscriptions s
-                    where s.id = d.subscription_id and s.user_id = d.user_id)
+                    where s.id = d.subscription_id
+                      and s.user_id = d.user_id
+                      and s.disabled_at is null)
      order by d.due_at
      limit greatest(coalesce(p_limit, 50), 1)
        for update skip locked
@@ -2915,6 +2937,22 @@ begin
     from oppdatert o
    where s.id = o.subscription_id and o.gone and s.disabled_at is null;
 
+  /* … og køen til et dødt endepunkt AVSLUTTES, den blir ikke bare liggende.
+     `push_claim()` ville aldri plukket den opp igjen (se der), men en rad som
+     står som `pending` i det uendelige er arbeid `push_tick()` våkner av hvert
+     minutt uten at noe kan lykkes. Her tar den slutt, eksplisitt.
+
+     Sveipet går over ALLE døde abonnementer, ikke bare det som nettopp ble
+     slått av: da rydder den også opp etter en rad som skulle ha blitt hengende
+     igjen fra før. */
+  update public.push_deliveries d
+     set status  = 'gone',
+         done_at = now_ms,
+         error   = coalesce(nullif(d.error, ''), 'abonnementet er dødt')
+   where d.status = 'pending'
+     and exists (select 1 from public.push_subscriptions s
+                  where s.id = d.subscription_id and s.disabled_at is not null);
+
   select count(*) into rørt from jsonb_array_elements(coalesce(p_results, '[]'::jsonb));
   return rørt;
 end;
@@ -2928,17 +2966,32 @@ $$;
    valgfri kanal, og en database uten nøkkel skal fungere som før. Den er
    dessuten en ren dytt — all tilstand ligger i utboksen, så et tapt tikk
    koster forsinkelse, ikke leveranser. Neste tikk tar det samme arbeidet. */
+/* Hvor mye arbeid som FAKTISK kan sendes akkurat nå. Ikke bare «pending og
+   forfalt»: en levering til et abonnement som er slått av (404/410) eller som
+   har byttet eier kan aldri lykkes, og skal derfor ikke vekke senderen. Står
+   som en egen funksjon fordi `push_tick()` og testene må måle det SAMME.
+   INTERN: ingen EXECUTE til klientroller (se grants nederst). */
+create or replace function public.push_due_count()
+returns bigint language sql stable set search_path = public as $$
+  select count(*)
+    from public.push_deliveries d
+    join public.push_subscriptions s on s.id = d.subscription_id
+   where d.status = 'pending'
+     and d.due_at <= (extract(epoch from now()) * 1000)::bigint
+     and s.user_id = d.user_id
+     and s.disabled_at is null;
+$$;
+
 create or replace function public.push_tick()
 returns bigint language plpgsql security definer
 set search_path = public, extensions, net as $$
 declare
   fn_url  text;
   svc_key text;
-  ventende integer;
+  ventende bigint;
   req_id  bigint;
 begin
-  select count(*) into ventende from public.push_deliveries
-   where status = 'pending' and due_at <= (extract(epoch from now()) * 1000)::bigint;
+  ventende := public.push_due_count();
   if ventende = 0 then return null; end if;
 
   select value into fn_url from public.app_config where key = 'push_function_url';
@@ -2954,10 +3007,16 @@ begin
   end if;
   if svc_key is null or svc_key = '' then return null; end if;
 
+  /* `apikey` er headeren Supabase dokumenterer for service-to-service-kall, og
+     den eneste som virker med de NYE secret keys (`sb_secret_…`) — de er ikke
+     JWT-er, så de hører ikke hjemme på `Authorization`. Begge sendes likevel:
+     den gamle service_role-nøkkelen er et JWT, og et prosjekt som ennå bruker
+     den skal virke uendret. Funksjonen godtar begge (se index.ts). */
   select net.http_post(
       url := fn_url,
       headers := jsonb_build_object(
         'Content-Type', 'application/json',
+        'apikey', svc_key,
         'Authorization', 'Bearer ' || svc_key),
       body := jsonb_build_object('reason', 'cron'),
       timeout_milliseconds := 20000)
@@ -3878,6 +3937,7 @@ revoke all on function public.purge_universe_access(uuid, uuid) from public, ano
 revoke all on function public.purge_group_access(uuid, uuid) from public, anon, authenticated;
 revoke all on function public.notify_prefs_row(uuid) from public, anon, authenticated;
 revoke all on function public.push_enqueue(uuid) from public, anon, authenticated;
+revoke all on function public.push_due_count() from public, anon, authenticated;
 
 -- SENDERENS to funksjoner leser og skriver ANDRE brukeres leveringer. De skal
 -- derfor ikke kunne kalles med anon-nøkkelen eller av en innlogget bruker —

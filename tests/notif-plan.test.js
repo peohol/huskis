@@ -288,6 +288,49 @@ async function run() {
   log('8b: … og den nye tidsplanen er lagt', nøklerEtter.length === nøklerFør.length,
     nøklerEtter.length + ' av ' + nøklerFør.length);
 
+  /* ---------- 8c) Et PLANLAGT varsel bærer et FERSKT navn ----------
+     Navnet på en varselrad er et øyeblikksbilde, og for HISTORIKK er det
+     riktig: varselet beskriver hva som het hva da det skjedde. En PLANLAGT rad
+     er ikke historikk — den kan ligge en måned før den forfaller, og det er
+     DEN teksten web push leverer (`push_claim()` bygger kroppen av
+     `notifications.name`). Blir listen døpt om i mellomtiden, ville
+     nettleseren sagt det gamle navnet mens Android sa det nye, om ikke raden
+     ble oppdatert.
+
+     Én av radene trekkes med vilje tilbake i tid først, så den ER historikk.
+     Den skal stå urørt: det er grensen som gjør oppdateringen trygg. */
+  const førNavn = await p.evaluate((lid) => {
+    const d = window.HK_MOCK._loadDB();
+    const mine = d.notifications.filter((n) => n.obj_id === lid).sort((a, b) => a.at - b.at);
+    // Den nærmeste terskelen gjøres til historikk; resten er fortsatt plan.
+    mine[0].at = Date.now() - 60000;
+    window.HK_MOCK._saveDB(d);
+    return { historikk: mine[0].key, plan: mine.slice(1).map((n) => n.key),
+      navn: mine[0].name };
+  }, id.L10);
+  await p.evaluate((lid) => {
+    const H = window.__huskis;
+    const c = H.state.universes[0].groups[0].cards.find((x) => x.id === lid);
+    c.title = 'Om ti (nytt navn)';
+    H.save();
+  }, id.L10);
+  await cycle(p);
+  await cycle(p);
+  const d8c = await db(p);
+  const rad = (k) => d8c.notifications.find((n) => n.key === k);
+  log('8c: fikstur — én rad som historikk og minst én som plan',
+    !!rad(førNavn.historikk) && førNavn.plan.length > 0 && førNavn.navn === 'Om ti',
+    JSON.stringify({ historikk: 1, plan: førNavn.plan.length }));
+  log('8d: en PLANLAGT rad har fått det nye navnet — det er den web push leverer',
+    førNavn.plan.every((k) => rad(k) && rad(k).name === 'Om ti (nytt navn)'),
+    JSON.stringify(førNavn.plan.map((k) => rad(k) && rad(k).name)));
+  log('8e: … mens historikken beholder navnet den ble logget med',
+    rad(førNavn.historikk).name === 'Om ti', rad(førNavn.historikk).name);
+  log('8f: … og oppdateringen lagde ingen dubletter',
+    d8c.notifications.filter((n) => n.obj_id === id.L10).length ===
+      1 + førNavn.plan.length,
+    d8c.notifications.filter((n) => n.obj_id === id.L10).length);
+
   /* ---------- 9) Tidssonen planen tilhører ---------- */
   const sone = await p.evaluate(() => ({
     min: window.__huskis.deviceTz(), planens: window.__huskis.notifPlanTz,

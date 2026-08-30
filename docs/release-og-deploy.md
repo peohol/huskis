@@ -65,6 +65,17 @@ kreve det. ER den satt opp, er en feil her ekte og skal være rød.
 `tests/release-pipeline.test.js` låser begge halvdelene — at jobben venter på
 smoke, og at deployen ikke venter på den.
 
+To detaljer i selve kommandoen er også låst der, for begge er stille feil:
+
+- **CLI-en kjøres med `npx`, ikke `npm install -g`.** Supabase-pakken nekter en
+  global installasjon (postinstall kaster), så jobben ville dødd på
+  installasjonssteget. Versjonen står fortsatt eksakt.
+- **`--no-verify-jwt`.** Kallet inn til funksjonen er service-to-service
+  (`pg_cron` → `pg_net`), og Supabases mønster for det er en secret key på
+  `apikey`-headeren. En secret key er ikke et JWT, så plattformens
+  JWT-verifisering ville avvist tikket før funksjonen fikk se nøkkelen. Porten
+  er funksjonens egen sjekk ([`varsler.md`](varsler.md)).
+
 **OTA-bundelen for Android bygges i det samme leddet, rett før opplastingen.**
 `.github/scripts/ota-bundle.js` pakker `dist/` til `ota/bundles/<buildId>.zip`,
 signerer ZIP-en med `OTA_SIGNING_KEY` (`SHA256withRSA`, base64), verifiserer

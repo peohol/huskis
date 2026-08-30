@@ -76,8 +76,16 @@ nettleseren, og `push_tick()` gjør ingenting.
    values ('push_function_url', 'https://<ref>.supabase.co/functions/v1/push-send')
    on conflict (key) do update set value = excluded.value;
    -- og i Vault (Dashboard → Project Settings → Vault):
-   --   navn: push_service_key   verdi: service_role-nøkkelen
+   --   navn: push_service_key   verdi: en SECRET KEY (sb_secret_…)
    ```
+
+   **Bruk en `sb_secret_…`-nøkkel**, ikke den gamle `service_role`-nøkkelen.
+   Lag den under Settings → API Keys → Secret keys. Supabase har merket
+   `anon`/`service_role` som «legacy» og faser dem ut, og nye prosjekter får dem
+   ikke i det hele tatt. Funksjonen tar imot begge (`SUPABASE_SECRET_KEYS` først,
+   `SUPABASE_SERVICE_ROLE_KEY` som fallback), så et gammelt prosjekt virker
+   uendret — men det som settes opp NÅ bør settes opp på den nye modellen.
+   Nøkkelen skal aldri inn i repoet, en PR, en logg eller frontend.
 
 Kontroll etterpå: `select public.push_tick();` skal gi en request-id (eller
 `null` når køen er tom), og `select * from net._http_response order by id desc
