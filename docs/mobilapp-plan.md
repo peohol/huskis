@@ -2731,7 +2731,9 @@ ferdigkriterium, og de skal ikke krysses av før de faktisk er kjørt:
 - [ ] en endret frist avlyser den gamle planen og legger en ny;
 - [ ] fullføring avlyser den framtidige planen;
 - [ ] offline ved tidspunktet: alarmen er lokal og skal fyre uansett;
-- [ ] en DST-overgang og et tidssonebytte;
+- [ ] en DST-overgang og et tidssonebytte — at den gamle alarmen faktisk er
+      BORTE etter byttet, ikke bare at en ny er lagt inn (maskinelt dekket av
+      `tests/notif-channels.test.js` 2n–2r, men bare mot en fake pluginbro);
 - [ ] en OTA-oppdatering ødelegger ikke adapteren.
 
 Fram til den runden er kjørt, står varselkanalen som **innført, ikke

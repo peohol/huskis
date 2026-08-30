@@ -126,10 +126,26 @@ check('… og deployjobben venter IKKE på den (web push er ikke en port for fro
   (relJobs.deploy.match(/needs:.*/) || [''])[0].trim());
 check('pushfunksjon-jobben deployer nøyaktig funksjonen push-send',
   !!relJobs.pushfunksjon &&
-  /supabase functions deploy push-send --project-ref/.test(relJobs.pushfunksjon));
-check('… med en LÅST Supabase-CLI (ingen @latest i en produksjonsflyt)',
-  !!relJobs.pushfunksjon && /npm install -g supabase@\d+\.\d+\.\d+/.test(relJobs.pushfunksjon),
-  ((relJobs.pushfunksjon || '').match(/supabase@[^\s]*/) || [''])[0]);
+  /functions deploy push-send[\s\S]{0,60}--project-ref/.test(relJobs.pushfunksjon));
+/* CLI-en kjøres med `npx` og en EKSAKT versjon. Begge halvdelene er ekte krav:
+
+     · `npm install -g supabase@…` er ikke bare uvanlig — pakken NEKTER det.
+       Postinstall-skriptet kaster «Installing Supabase CLI as a global module
+       is not supported» så snart `npm_config_global` er satt, og jobben ville
+       dødd på installasjonssteget. Den feilen er usynlig i CI så lenge
+       secretene mangler (jobben hopper av før den kommer dit), så den må
+       fanges her.
+     · `@latest` i en produksjonsflyt gjør deployen uforutsigbar. */
+// Kommentarlinjene ut først: jobben FORKLARER hvorfor den ikke gjør en global
+// install, og den forklaringen skal ikke kunne leses som at den gjør det.
+const pushKjør = (relJobs.pushfunksjon || '').split('\n')
+  .filter((l) => !/^\s*#/.test(l)).join('\n');
+check('… med en Supabase-CLI som faktisk lar seg kjøre (ikke global install)',
+  !!relJobs.pushfunksjon && !/npm\s+(install|i)\b[^\n]*\bsupabase/i.test(pushKjør),
+  (pushKjør.match(/npm[^\n]*supabase[^\n]*/i) || ['—'])[0]);
+check('… kjørt med npx og en LÅST versjon (ingen @latest i en produksjonsflyt)',
+  !!relJobs.pushfunksjon && /npx\s+(--yes\s+|-y\s+)?supabase@\d+\.\d+\.\d+\s/.test(pushKjør),
+  (pushKjør.match(/supabase@[^\s]*/) || [''])[0]);
 check('… og hopper stille over når secretene ikke er satt (kanalen er valgfri)',
   !!relJobs.pushfunksjon && /SUPABASE_ACCESS_TOKEN/.test(relJobs.pushfunksjon) &&
   /exit 0/.test(relJobs.pushfunksjon));

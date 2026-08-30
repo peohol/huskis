@@ -12,17 +12,22 @@
   diffen, RPC-ene, panelet og rutingen.
 
   Dekker:
-     1. Den deterministiske native ID-en: samme nøkkel gir samme heltall, ulike
-        nøkler gir ulike, og tallet er alltid et positivt 31-bits int (Androids
-        varsel-ID er et Java-`int`).
+     1. Den deterministiske native ID-en: den er hashen av SIGNATUREN — nøkkel,
+        terskeltid og tekst — så samme alarm gir samme heltall, mens en ny tid
+        eller et nytt navn gir et nytt. Tallet er alltid et positivt 31-bits int
+        (Androids varsel-ID er et Java-`int`).
      2. Android-adapteren: tillatelse spørres kun etter et brukertrykk, planen
         speiles som en DIFF (ingen dubletter ved gjentatt synk), en avlyst
-        terskel kanselleres, og alarmen er UPRESIS — appen ber aldri om
-        SCHEDULE_EXACT_ALARM.
+        terskel kanselleres, alarmen er UPRESIS — appen ber aldri om
+        SCHEDULE_EXACT_ALARM — og en alarm som har flyttet seg ERSTATTES: et
+        tidssonebytte gir samme varsel en ny absolutt tid, et nytt objektnavn gir
+        det ny tekst, og i begge tilfeller er den gamle alarmen borte etterpå.
      3. Trykk på et native varsel navigerer til objektet.
      4. Web push-kanalen: uten avsendernøkkel finnes den ikke; med nøkkel kan
         den slås på, den skriver et abonnement, den fornyer seg selv, og den
-        slås av igjen — abonnementet forsvinner fra serveren.
+        slås av igjen — abonnementet forsvinner fra serveren. Og grensene for
+        hva et abonnement får være (endepunkt, nøkkelform, taket på antall
+        enheter) er speilet i mock-backenden, ikke bare i SQL-en.
      5. Blokkert tillatelse: bryteren maser ikke, den forklarer.
      6. Panelet: bryteren og statusteksten for hver av tilstandene, og at de
         fire typebryterne er urørt.
@@ -230,9 +235,13 @@ async function cycle(p) {
 
 const db = (p) => p.evaluate(() => window.HK_MOCK._loadDB());
 
-async function nyKontekst(browser) {
-  const ctx = await browser.newContext({ viewport: { width: 1200, height: 900 },
-    timezoneId: 'Europe/Oslo', locale: 'nb-NO' });
+/* `utenSone` lar tidssonen settes over CDP i stedet. Playwrights egen
+   `timezoneId` ER en `Emulation.setTimezoneOverride`, og Chromium tar bare én:
+   skal en test flytte enheten underveis (2n–2r), må den eie overriden selv. */
+async function nyKontekst(browser, opts) {
+  const o = { viewport: { width: 1200, height: 900 }, locale: 'nb-NO' };
+  if (!(opts && opts.utenSone)) o.timezoneId = 'Europe/Oslo';
+  const ctx = await browser.newContext(o);
   await ctx.addInitScript(fakePlattform);
   return ctx;
 }
@@ -311,9 +320,16 @@ async function run() {
   const errs = [];
 
   /* ================= Android ================= */
-  const ctxN = await nyKontekst(browser);
+  const ctxN = await nyKontekst(browser, { utenSone: true });
   const pn = await ctxN.newPage();
   pn.on('pageerror', (e) => errs.push('native: ' + e.message));
+  const sonebytte = { fra: 'Europe/Oslo', til: 'Pacific/Kiritimati' };   // +02 → +14
+  const cdp = await ctxN.newCDPSession(pn);
+  const settSone = async (tz) => {
+    await cdp.send('Emulation.setTimezoneOverride', { timezoneId: '' });
+    await cdp.send('Emulation.setTimezoneOverride', { timezoneId: tz });
+  };
+  await settSone(sonebytte.fra);
   const NURL = BASE + '/?mock=1&ch=native';
   await pn.goto(NURL);
   const due = await pn.evaluate(() => {
@@ -325,19 +341,30 @@ async function run() {
 
   /* ---------- 1) Den deterministiske ID-en ---------- */
   const ider = await pn.evaluate(() => {
-    const f = window.__huskis.nativeNotifId;
-    const a = f('dueOver|card|abc|2026-01-01');
+    const H = window.__huskis;
+    const f = H.nativeNotifId;
+    const rad = (x) => Object.assign({ key: 'dueOver|card|abc|2026-01-01', type: 'dueOver',
+      at: 1767200000000, name: 'Tannlegetime' }, x);
+    const a = f(H.nativeNotifSig(rad()));
     return {
-      stabil: a === f('dueOver|card|abc|2026-01-01'),
-      ulik: a !== f('dueSoon|card|abc|2026-01-01') && a !== f('dueOver|card|abd|2026-01-01'),
+      stabil: a === f(H.nativeNotifSig(rad())),
+      ulik: a !== f(H.nativeNotifSig(rad({ key: 'dueSoon|card|abc|2026-01-01' }))) &&
+        a !== f(H.nativeNotifSig(rad({ key: 'dueOver|card|abd|2026-01-01' }))),
+      // Samme nøkkel, ny terskeltid → en annen alarm. Dette ER tidssonebyttet.
+      tid: a !== f(H.nativeNotifSig(rad({ at: 1767200000000 + 12 * 3600000 }))),
+      // … og samme nøkkel, nytt navn på objektet, likeså.
+      tekst: a !== f(H.nativeNotifSig(rad({ name: 'Legetime' }))),
       heltall: Number.isInteger(a) && a >= 0 && a <= 0x7fffffff,
-      spredning: new Set([...Array(500)].map((_, i) => f('dueOver|item|x' + i + '|2026-01-01'))).size,
+      spredning: new Set([...Array(500)].map((_, i) =>
+        f(H.nativeNotifSig(rad({ key: 'dueOver|item|x' + i + '|2026-01-01' }))))).size,
     };
   });
-  log('1a: samme nøkkel gir samme native ID', ider.stabil);
+  log('1a: samme signatur gir samme native ID', ider.stabil);
   log('1b: ulike nøkler gir ulike ID-er', ider.ulik);
-  log('1c: ID-en er et positivt 31-bits heltall (Androids varsel-ID er et int)', ider.heltall);
-  log('1d: 500 nøkler gir 500 ulike ID-er', ider.spredning === 500, ider.spredning);
+  log('1c: samme nøkkel med NY terskeltid gir en annen ID', ider.tid);
+  log('1d: samme nøkkel med nytt objektnavn gir en annen ID', ider.tekst);
+  log('1e: ID-en er et positivt 31-bits heltall (Androids varsel-ID er et int)', ider.heltall);
+  log('1f: 500 nøkler gir 500 ulike ID-er', ider.spredning === 500, ider.spredning);
 
   /* ---------- 2) Adapteren ---------- */
   log('2a: kanalen er den native når pluginbroen finnes',
@@ -368,8 +395,13 @@ async function run() {
   log('2j: varselet bærer pekeren til objektet, ikke noe mer',
     s1.every((n) => n.extra.objId && n.extra.objType && n.extra.key &&
       Object.keys(n.extra).length === 3), JSON.stringify(s1[0].extra));
-  log('2k: ID-en er den deterministiske fra nøkkelen',
-    await pn.evaluate((ns) => ns.every((n) => n.id === window.__huskis.nativeNotifId(n.extra.key)), s1));
+  /* ID-en er hashen av SIGNATUREN — nøkkelen, terskeltiden og teksten — ikke av
+     nøkkelen alene. Det er den forskjellen som gjør at et varsel som flytter seg
+     i tid (en ny tidssone) blir en ANNEN alarm og dermed faktisk erstattes;
+     2n–2r under viser hele veien. */
+  log('2k: ID-en er den deterministiske hashen av nøkkel + tid + tekst',
+    await pn.evaluate((ns) => ns.every((n) => n.id === window.__huskis.nativeNotifId(
+      n.extra.key + '@' + new Date(n.schedule.at).getTime() + '|' + n.title + '|' + n.body)), s1));
 
   // Ny runde med samme plan: ingenting skal skje.
   await pn.evaluate(() => { window.__kanal.schedule.length = 0; window.__kanal.cancel.length = 0; });
@@ -393,6 +425,118 @@ async function run() {
     pending: window.__kanal.pending.length }));
   log('2m: fullføring avlyser den native planen', avlyst.cancel > 0 && avlyst.pending === 0,
     JSON.stringify(avlyst));
+
+  /* ---------- 2n–2r) TIDSSONEBYTTE: samme varsel, ny absolutt tid ----------
+     Terskeltiden er lokal veggtid gjort om til et absolutt millisekund, så den
+     følger enhetens tidssone. Nøkkelen gjør den ikke: den bærer objektets
+     tidsVERDI, som står stille. En telefon som reiser får derfor det SAMME
+     logiske varselet på et NYTT tidspunkt — og det er nøyaktig tilfellet der en
+     diff på nøkkelen alene ville latt den gamle alarmen bli stående og ringt
+     på gammelt klokkeslett.
+
+     Her er hele veien: planlegg i sone A, flytt enheten til sone B (ekte
+     tidssonebytte i renderer-en, ikke et påklistret `Intl`), la sonen hevdes,
+     og se etter at den gamle alarmen er BORTE og bare den nye står igjen. */
+  await pn.evaluate((iid) => {
+    const H = window.__huskis;
+    const c = H.state.universes[0].groups[0].cards[0];
+    c.items.find((i) => i.id === iid).done = false;
+    H.save();
+  }, id.IA);
+  await cycle(pn);
+  await cycle(pn);
+  await pn.waitForFunction(() => window.__kanal.pending.length > 0, null,
+    { timeout: 8000, polling: 100 });
+  const førSone = await pn.evaluate(() => ({
+    tz: window.__huskis.deviceTz(),
+    planTz: window.__huskis.notifPlanTz,
+    pending: window.__kanal.pending.map((n) => n.id).sort(),
+    alarmer: window.__kanal.schedule.flat().map((n) => ({
+      id: n.id, key: n.extra.key, at: new Date(n.schedule.at).getTime() })),
+  }));
+
+  /* Hevdelsen av en ny sone har en ventetid på serveren (seks timer), og den
+     er meningen: uten den ville to enheter i hver sin sone planlagt om
+     hverandre i hver runde. Her er reisen gjort — hevdelsen er gammel nok. */
+  await pn.evaluate(() => {
+    const db = window.HK_MOCK._loadDB();
+    db.notification_prefs.forEach((r) => { r.tz_at = Date.now() - 7 * 3600 * 1000; });
+    window.HK_MOCK._saveDB(db);
+  });
+  await settSone(sonebytte.til);
+  await pn.evaluate(() => { window.__kanal.schedule.length = 0; window.__kanal.cancel.length = 0; });
+  log('2n: enheten står nå i en annen tidssone enn den planen ble lagt i',
+    (await pn.evaluate(() => window.__huskis.deviceTz())) === sonebytte.til &&
+    førSone.tz === sonebytte.fra, førSone.tz + ' → ' + sonebytte.til);
+
+  // Første runde hevder sonen, de neste planlegger og speiler i den.
+  for (let i = 0; i < 5; i++) await cycle(pn);
+  await pn.waitForFunction((gamle) => {
+    const nå = window.__kanal.pending.map((n) => n.id).sort();
+    return nå.length > 0 && JSON.stringify(nå) !== JSON.stringify(gamle);
+  }, førSone.pending, { timeout: 15000, polling: 200 }).catch(() => {});
+
+  const etter = await pn.evaluate(() => ({
+    planTz: window.__huskis.notifPlanTz,
+    pending: window.__kanal.pending.map((n) => n.id).sort(),
+    lagt: window.__kanal.schedule.flat().map((n) => ({
+      id: n.id, key: n.extra.key, at: new Date(n.schedule.at).getTime() })),
+    avlyst: window.__kanal.cancel.flat().map((n) => n.id),
+    plan: window.__huskis.planNotifications(window.__huskis.state, Date.now(),
+      window.__huskis.notifPrefs).map((r) => ({ key: r.key, at: r.at,
+        id: window.__huskis.nativeNotifId(window.__huskis.nativeNotifSig(r)) })),
+  }));
+  const parvis = etter.lagt.map((n) => {
+    const gammel = førSone.alarmer.find((g) => g.key === n.key);
+    return gammel ? { key: n.key, gammelAt: gammel.at, nyAt: n.at, gammelId: gammel.id } : null;
+  }).filter(Boolean);
+
+  log('2o: serveren har gitt planen til den nye sonen', etter.planTz === sonebytte.til,
+    etter.planTz);
+  log('2p: det SAMME logiske varselet har fått en ny absolutt tid',
+    parvis.length > 0 && parvis.every((x) => x.nyAt !== x.gammelAt),
+    JSON.stringify(parvis.map((x) => (x.nyAt - x.gammelAt) / 3600000 + ' t')));
+  log('2q: den gamle alarmen er AVLYST, ikke bare liggende ved siden av',
+    parvis.length > 0 && parvis.every((x) => etter.avlyst.indexOf(x.gammelId) !== -1) &&
+    førSone.pending.every((gid) => etter.pending.indexOf(gid) === -1),
+    JSON.stringify({ avlyst: etter.avlyst.length, gamleIgjen:
+      førSone.pending.filter((g) => etter.pending.indexOf(g) !== -1) }));
+  log('2r: bare den nye planen står igjen på telefonen',
+    etter.plan.length > 0 &&
+    JSON.stringify(etter.pending) === JSON.stringify(etter.plan.map((r) => r.id).sort()),
+    JSON.stringify({ pending: etter.pending.length, plan: etter.plan.length }));
+
+  /* ---------- 2s) Nytt navn på objektet: alarmen skal si det nye ----------
+     Teksten i et native varsel er objektets navn. Det navnet kan endre seg uten
+     at hverken nøkkelen eller terskeltiden gjør det — og da skal alarmen som
+     alt ligger på telefonen erstattes, ikke bli stående og si det gamle. */
+  await pn.evaluate(() => { window.__kanal.schedule.length = 0; window.__kanal.cancel.length = 0; });
+  const førNavn = await pn.evaluate(() => window.__kanal.pending.map((n) => n.id).sort());
+  await pn.evaluate(() => {
+    const H = window.__huskis;
+    H.state.universes[0].groups[0].cards[0].title = 'Legetime';
+    H.save();
+  });
+  for (let i = 0; i < 3; i++) await cycle(pn);
+  const navn = await pn.evaluate(() => ({
+    lagt: window.__kanal.schedule.flat().map((n) => n.title),
+    avlyst: window.__kanal.cancel.flat().map((n) => n.id),
+    pending: window.__kanal.pending.map((n) => n.id).sort(),
+  }));
+  log('2s: et nytt objektnavn erstatter alarmen i stedet for å fryse teksten',
+    navn.lagt.length > 0 && navn.lagt.every((t) => t === 'Legetime') &&
+    førNavn.every((g) => navn.avlyst.indexOf(g) !== -1) &&
+    førNavn.every((g) => navn.pending.indexOf(g) === -1),
+    JSON.stringify({ lagt: navn.lagt, avlyst: navn.avlyst.length }));
+  await pn.evaluate(() => {
+    const H = window.__huskis;
+    H.state.universes[0].groups[0].cards[0].title = 'Tannlegetime';
+    H.save();
+  });
+  await cycle(pn);
+
+  await settSone(sonebytte.fra);
+  await cdp.detach();
 
   /* ---------- 3) Trykk på et native varsel ---------- */
   await pn.evaluate((iid) => {
@@ -517,6 +661,56 @@ async function run() {
   // Ryddet: i drift gjør første sending det (410 → raden slås av).
   await pw.evaluate(() => {
     window.__kanal.rpcFeil = null;
+    const d = window.HK_MOCK._loadDB();
+    d.push_subscriptions = [];
+    d.push_deliveries = [];
+    window.HK_MOCK._saveDB(d);
+  });
+
+  /* ---------- 4q–4s) Hva et abonnement FÅR være ----------
+     Reglene håndheves på serveren (`supabase/tests/test-push.sql` er fasiten),
+     men nettlesertestene kjører mot mock-backenden — og en mock som ikke
+     speiler regelen ville stille latt en test bevise noe databasen forbyr.
+     Her prøves speilingen direkte: et endepunkt som ikke er en pushtjeneste,
+     en nøkkel av feil form, og taket på antall enheter. */
+  const grenser = await pw.evaluate(async () => {
+    const c = window.HK_MOCK.createClient();
+    const k = 'BP' + 'k'.repeat(85), a = 's'.repeat(22);
+    const prøv = async (ep, p256, auth) => {
+      const { error } = await c.rpc('push_subscribe',
+        { p_endpoint: ep, p_p256dh: p256 == null ? k : p256, p_auth: auth == null ? a : auth });
+      return !!error;
+    };
+    const ut = {
+      ip: await prøv('https://10.0.0.5/x'),
+      local: await prøv('https://localhost:8000/x'),
+      utenHttps: await prøv('http://push.test/x'),
+      kortNøkkel: await prøv('https://push.test/k1', 'kort'),
+      raddenNøkkel: await prøv('https://push.test/k2', 'a'.repeat(86) + '!'),
+      gyldig: !(await prøv('https://push.test/ok')),
+    };
+    // Taket: langt flere enn en bruker har nettlesere.
+    for (let i = 0; i < 30; i++) {
+      await c.rpc('push_subscribe', { p_endpoint: 'https://push.test/tak-' + i,
+        p_p256dh: k, p_auth: a });
+    }
+    const db = window.HK_MOCK._loadDB();
+    ut.antall = db.push_subscriptions.length;
+    ut.sisteStårIgjen = db.push_subscriptions.some((x) => x.endpoint === 'https://push.test/tak-29');
+    ut.foreldreløseLeveringer = db.push_deliveries.filter((d) =>
+      !db.push_subscriptions.some((x) => x.id === d.subscription_id)).length;
+    return ut;
+  });
+  log('4q: mocken avviser et endepunkt som ikke er en pushtjeneste',
+    grenser.ip && grenser.local && grenser.utenHttps && grenser.gyldig,
+    JSON.stringify(grenser));
+  log('4r: … og en nøkkel som ikke har RFC 8291-formen',
+    grenser.kortNøkkel && grenser.raddenNøkkel);
+  log('4s: … og taket på antall enheter per bruker holder, med den siste i behold',
+    grenser.antall === 20 && grenser.sisteStårIgjen &&
+    grenser.foreldreløseLeveringer === 0, JSON.stringify(
+      { antall: grenser.antall, siste: grenser.sisteStårIgjen }));
+  await pw.evaluate(() => {
     const d = window.HK_MOCK._loadDB();
     d.push_subscriptions = [];
     d.push_deliveries = [];

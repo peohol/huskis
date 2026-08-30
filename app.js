@@ -11333,18 +11333,40 @@
     } catch (e) { /* privat modus: valget gjelder da bare denne økten */ }
   }
 
-  /* Den native varsel-ID-en er et Java-`int`, mens Huskis' identitet er
-     nøkkelen (type|objekttype|objekt-id|tidsverdi). Broen mellom dem er en ren
+  /* Den native varsel-ID-en er et Java-`int`. Broen fra Huskis' side er en ren
      hashfunksjon (FNV-1a), og den må være DETERMINISTISK: det er den som gjør
      at den samme planen speilet to ganger gir det samme varselet, ikke to.
      31 bits, så tallet aldri blir negativt på den andre siden. */
-  function nativeNotifId(key) {
+  function nativeNotifId(sig) {
     let h = 0x811c9dc5;
-    for (let i = 0; i < key.length; i++) {
-      h ^= key.charCodeAt(i);
+    for (let i = 0; i < sig.length; i++) {
+      h ^= sig.charCodeAt(i);
       h = Math.imul(h, 0x01000193);
     }
     return (h >>> 0) & 0x7fffffff;
+  }
+
+  /* … og det som hashes er ikke nøkkelen alene, men ALT ved alarmen som
+     telefonen har lagret: hvilket varsel det er, NÅR det ringer, og hva det
+     sier. Grunnen er at de tre kan skille lag.
+
+     Nøkkelen bærer objektets TIDSVERDI («2026-09-02T09:00»), som er lokal
+     veggtid. Terskeltiden `at` er det absolutte millisekundet den veggtiden
+     peker på — og det avhenger av tidssonen. Reiser telefonen til en annen
+     sone, får det SAMME varselet et nytt `at` uten at nøkkelen rører seg. En
+     diff på nøkkelen alene ville da sett en alarm som «allerede finnes» og
+     latt den stå igjen på det gamle klokkeslettet. Det samme gjelder teksten:
+     et objekt som får nytt navn, eller et språkbytte, endrer det telefonen
+     skal si uten å endre hvilket varsel det er.
+
+     Med tid og tekst inne i signaturen får en endret alarm en ny ID, og da
+     gjør diffen i `sync()` nøyaktig det den skal: den gamle avlyses og den nye
+     legges inn. `getPending()` trenger derfor aldri å levere mer enn ID-er —
+     og på Android er det klokt, for `schedule.at` kommer tilbake som en
+     serialisert Java-`Date` og ikke som noe man kan sammenligne på. */
+  function nativeNotifSig(row) {
+    return row.key + '@' + row.at + '|' +
+      notifExternalTitle(row) + '|' + notifExternalBody(row);
   }
 
   /* Teksten i et EKSTERNT varsel: objektets navn som overskrift, varseltypen i
@@ -11382,15 +11404,27 @@
       await this.sync([]);       // planen tas ned; tillatelsen beholdes
       return true;
     },
+    /* Hva kanalen sist ble speilet med. Er den uendret, er det ingenting å
+       gjøre — og her koster «ingenting» to rundturer over pluginbroen
+       (`checkPermissions` + `getPending`), som ikke skal gå hvert femte sekund
+       for ingenting. Signaturen må derfor bære ALT alarmene avhenger av, og
+       det er nøyaktig det `nativeNotifSig` gjør: nøkkel, tidspunkt og tekst.
+       Et objekt som får nytt navn, eller et språkbytte, når dermed telefonen —
+       uten den ville teksten på en alarm som alt var planlagt frosset fast. */
+    sig(plan) { return plan.map(nativeNotifSig).join(','); },
     /* Speiler planen ut på enheten: avlys det som ikke lenger står i den, og
        legg inn det som mangler. DIFFEN er hele poenget — uten den ville hver
        synk-runde lagt inn de samme varslene på nytt, og en endret frist ville
-       blitt liggende ved siden av den nye i stedet for å erstatte den. */
+       blitt liggende ved siden av den nye i stedet for å erstatte den.
+
+       Diffen går på ID-en, og ID-en er signaturen (se `nativeNotifSig`): et
+       varsel som har flyttet seg i tid eller fått ny tekst er derfor et ANNET
+       tall, og blir avlyst og lagt inn på nytt i den samme runden. */
     async sync(plan) {
       const ln = nativePlugins.LocalNotifications;
       if (!ln) return;
       const vil = new Map();
-      plan.forEach((r) => vil.set(nativeNotifId(r.key), r));
+      plan.forEach((r) => vil.set(nativeNotifId(nativeNotifSig(r)), r));
       const pending = await ln.getPending();
       const finnes = new Set(((pending && pending.notifications) || []).map((n) => Number(n.id)));
       const avlys = [...finnes].filter((id) => !vil.has(id)).map((id) => ({ id }));
@@ -11514,6 +11548,13 @@
       });
       if (error) throw error;
     },
+    /* `null` = «spør meg hver runde». Kanalen har sin EGEN markør
+       (`notifPushMark`), og den måler noe planen ikke sier noe om: at
+       nettleseren har byttet endepunkt. Ble runden hoppet over fordi planen
+       sto stille, ville et rullert endepunkt blitt uoppdaget til neste gang en
+       terskel flyttet seg — kanskje dager. Rundene her er dessuten billige:
+       ingen pluginbro, ingen nettverkskall før markøren faktisk har endret seg. */
+    sig() { return null; },
     /* Planen ligger allerede på serveren (`notify_record` fyller utboksen), så
        kanalen har ingenting å speile. Runden brukes i stedet til å fornye
        abonnementet: nye etiketter etter et språkbytte, et endepunkt
@@ -11588,7 +11629,7 @@
   /* Kjøres etter hver pull: speil planen ut i kanalen. Stille — dette er ikke
      noe brukeren ba om akkurat nå, og en enhet uten tillatelse skal ikke få en
      feilmelding for hver synk-runde. */
-  let notifChSig = null;      // planen kanalen sist ble speilet med
+  let notifChSig = null;      // det kanalen sist ble speilet med
   async function syncNotifChannel(now) {
     const ch = notifChannel();
     if (!ch || !notifChannelWanted() || !authUser) return;
@@ -11597,13 +11638,13 @@
        som ikke holder tidssonen speiler ingenting: den ville regnet ut andre
        terskeltider enn den som la planen. */
     const plan = notifHoldsTz() ? planNotifications(state, notifNow(now), notifPrefs) : [];
-    /* Er planen uendret siden forrige speiling, er det ingenting å gjøre — og
-       for den native kanalen betyr det to rundturer over pluginbroen
-       (`checkPermissions` + `getPending`) som ikke går hvert femte sekund for
-       ingenting. Signaturen bærer kanal-id-en, så et bytte av kanal aldri kan
-       leses som «uendret». */
-    const sig = ch.id + '|' + plan.map((r) => r.key + '@' + r.at).join(',');
-    if (sig === notifChSig) return;
+    /* KANALEN avgjør selv om runden er verdt noe: `sig(plan)` er det den sist
+       ble speilet med, og `null` betyr «spør meg hver gang». Signaturen bærer
+       kanal-id-en i tillegg, så et bytte av kanal aldri kan leses som
+       «uendret». */
+    const egen = ch.sig(plan);
+    const sig = egen == null ? null : ch.id + '|' + egen;
+    if (sig !== null && sig === notifChSig) return;
     try {
       if (await ch.state() !== 'on') return;
       await ch.sync(plan);
@@ -17791,10 +17832,10 @@
     get notifPrefs() { return notifPrefs; },
     get notifCursor() { return notifCursor; },
     /* De eksterne kanalene (docs/varsler.md). `planNotifications` er den samme
-       rene funksjonen sett framover, `nativeNotifId` er broen til Androids
-       heltalls-id-er, og adapterne eksponeres så testene kan kjøre
+       rene funksjonen sett framover, `nativeNotifSig`/`nativeNotifId` er broen
+       til Androids heltalls-id-er, og adapterne eksponeres så testene kan kjøre
        tilstandsmaskinen — tillatelse, av/på, diff — uten en telefon. */
-    planNotifications, nativeNotifId, deviceTz,
+    planNotifications, nativeNotifId, nativeNotifSig, deviceTz,
     notifChannel, setNotifChannel, syncNotifChannel, refreshNotifChannelState,
     notifChannelWanted, setNotifChannelWanted, notifExternalLabels,
     androidChannel, webChannel,

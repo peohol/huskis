@@ -533,9 +533,29 @@
     });
     return lagt;
   }
+  /* Som serveren: en bruker får ha en håndfull nettlesere, ikke tusen. Uten
+     taket multipliserer hvert endepunkt både utboksen og antallet HTTP-kall
+     senderen gjør. */
+  var PUSH_SUB_MAX = 20;
   function pushSubscribe(db, uid, p) {
-    if (!p.p_endpoint || !/^https:\/\//.test(p.p_endpoint)) throw new Error('ugyldig endepunkt');
+    var e = p.p_endpoint;
+    /* Endepunktet blir målet for et HTTP-kall senderen gjør. Kravene er
+       standardens egne — https, et vertsnavn, ingen kontrolltegn — pluss ett:
+       verten skal være et NAVN. En bar IP eller `localhost` er ingen
+       push-tjeneste. Ingen liste over pushleverandører: Web Push har ingen. */
+    if (!e || !/^https:\/\/[A-Za-z0-9._~%-]+(:[0-9]{1,5})?([/?#]|$)/.test(e) ||
+        /[\s\u0000-\u001f\u007f]/.test(e) || e.length > 2000) {
+      throw new Error('ugyldig endepunkt');
+    }
+    var vert = (/^https:\/\/([^/?#]+)/.exec(e)[1] || '').split(':')[0].toLowerCase();
+    if (/^[0-9.]+$/.test(vert) || vert === 'localhost' ||
+        /\.(localhost|local)$/.test(vert)) throw new Error('ugyldig endepunkt');
     if (p.p_p256dh == null || p.p_auth == null) throw new Error('mangler nøkler');
+    // RFC 8291-formen, romslig nok til padding: 65 byte og 16 byte, base64url.
+    if (!/^[A-Za-z0-9_-]+=*$/.test(p.p_p256dh) || p.p_p256dh.length < 80 || p.p_p256dh.length > 200 ||
+        !/^[A-Za-z0-9_-]+=*$/.test(p.p_auth) || p.p_auth.length < 16 || p.p_auth.length > 40) {
+      throw new Error('ugyldige nøkler');
+    }
     var row = db.push_subscriptions.find(function (x) { return x.endpoint === p.p_endpoint; });
     if (!row) {
       row = { id: newUuid(), endpoint: p.p_endpoint, created_at: Date.now() };
@@ -556,6 +576,18 @@
     row.tz = p.p_tz || null;
     row.seen_at = Date.now();
     row.disabled_at = null;
+    /* TAKET, som serveren: den eldst sette ryker, og den som NETTOPP meldte
+       seg på ryker aldri — den er den brukeren står med i hånden. */
+    var mine = db.push_subscriptions.filter(function (x) {
+      return x.user_id === uid && x.id !== row.id;
+    }).sort(function (a, b) { return (b.seen_at || 0) - (a.seen_at || 0) ||
+        (b.created_at || 0) - (a.created_at || 0); });
+    if (mine.length > PUSH_SUB_MAX - 1) {
+      var vekk = {};
+      mine.slice(PUSH_SUB_MAX - 1).forEach(function (x) { vekk[x.id] = 1; });
+      db.push_subscriptions = db.push_subscriptions.filter(function (x) { return !vekk[x.id]; });
+      db.push_deliveries = db.push_deliveries.filter(function (d) { return !vekk[d.subscription_id]; });
+    }
     pushEnqueue(db, uid);
     return row.id;
   }

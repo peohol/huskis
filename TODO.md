@@ -51,7 +51,9 @@ nettleseren, og `push_tick()` gjør ingenting.
    med CLI-en:
 
    ```bash
-   supabase secrets set --project-ref <ref> \
+   # `npx`, ikke `npm install -g supabase`: pakken nekter en global
+   # installasjon (det samme gjelder deployjobben i release.yml).
+   npx --yes supabase@2.60.0 secrets set --project-ref <ref> \
      VAPID_PUBLIC_KEY=<public> VAPID_PRIVATE_KEY=<private> \
      VAPID_SUBJECT=mailto:<en adresse som kan nås>
    ```

@@ -60,6 +60,19 @@ grant execute on function public.t_deliveries(uuid, text) to public;
 -- fast tall: utboksen fylles av `n.at > now_ms`, der now_ms er now(). Faste
 -- millisekunder fra 2026 ville blitt fortid før eller siden, og testen ville
 -- da stille sluttet å teste det den heter.
+-- NØKLENE har en fast form i RFC 8291 — `p256dh` er et ukomprimert P-256-punkt
+-- (65 byte → 87 base64url-tegn) og `auth` er 16 byte (22 tegn) — og
+-- push_subscribe() håndhever den (seksjon 1b). Fiksturen bruker derfor ekte
+-- lengder, ikke «p256-a».
+select 'BP' || repeat('k', 83) || 'a1' as k_a1, 'BP' || repeat('k', 83) || 'a2' as k_a2,
+       'BP' || repeat('k', 83) || 'b0' as k_b,  'BP' || repeat('k', 83) || 'c0' as k_c,
+       'BP' || repeat('k', 83) || 'b1' as k_bb, 'BP' || repeat('k', 83) || 'd0' as k_d,
+       'BP' || repeat('k', 83) || 'd2' as k_d2,
+       repeat('s', 20) || 'a1' as s_a1, repeat('s', 20) || 'a2' as s_a2,
+       repeat('s', 20) || 'b0' as s_b,  repeat('s', 20) || 'c0' as s_c,
+       repeat('s', 20) || 'b1' as s_bb, repeat('s', 20) || 'd0' as s_d,
+       repeat('s', 20) || 'd2' as s_d2 \gset
+
 select ((extract(epoch from now()) * 1000)::bigint + 3600000)::text as fram \gset
 select ((extract(epoch from now()) * 1000)::bigint - 3600000)::text as bak \gset
 
@@ -76,36 +89,97 @@ insert into public.cards  (id, owner_id, group_id, title, due_at, ts, org)
 insert into public.items  (id, owner_id, card_id, text, ts, org) values (:'AI', :'A', :'AC', 'Punkt', 1, 'a');
 
 -- ---------- 1. abonnementet registreres og fornyes idempotent ----------
-select public.push_subscribe('https://push.example.com/a1', 'p256-a', 'auth-a',
+select public.push_subscribe('https://push.example.com/a1', :'k_a1', :'s_a1',
   jsonb_build_object('dueOver', 'Frist utløpt', 'dueSoon', 'Frist innen en uke',
                      'startNow', 'Begynner nå', 'startSoon', 'Begynner innen en uke'),
   'Europe/Oslo') as sub_a \gset
 select public.t_check('abonnementet ble registrert på den innloggede brukeren',
   (select user_id from public.push_subscriptions where id = :'sub_a'::uuid) = :'A'::uuid);
 select public.t_check('… med nøklene, etikettene og sonen',
-  (select p256dh = 'p256-a' and auth = 'auth-a' and tz = 'Europe/Oslo'
+  (select p256dh = :'k_a1' and auth = :'s_a1' and tz = 'Europe/Oslo'
           and labels ->> 'dueOver' = 'Frist utløpt'
      from public.push_subscriptions where id = :'sub_a'::uuid));
 
 -- Fornyelse: den SAMME nettleseren melder seg på nytt (nye nøkler etter en
 -- pushsubscriptionchange). Én rad, ikke to.
-select public.push_subscribe('https://push.example.com/a1', 'p256-a2', 'auth-a2',
+select public.push_subscribe('https://push.example.com/a1', :'k_a2', :'s_a2',
   '{"dueOver": "Frist utløpt"}'::jsonb, 'Europe/Oslo');
 select public.t_check('samme endepunkt to ganger gir ÉN rad (fornyelse, ikke dublett)',
   (select count(*) from public.push_subscriptions where user_id = :'A') = 1);
 select public.t_check('… og nøklene ble oppdatert',
-  (select p256dh from public.push_subscriptions where user_id = :'A') = 'p256-a2');
+  (select p256dh from public.push_subscriptions where user_id = :'A') = :'k_a2');
 
 -- En bruker kan ha flere nettlesere.
-select public.push_subscribe('https://push.example.com/a2', 'p256-b', 'auth-b',
+select public.push_subscribe('https://push.example.com/a2', :'k_b', :'s_b',
   '{"dueOver": "Frist utløpt"}'::jsonb, 'Europe/Oslo');
 select public.t_check('flere enheter per bruker: to endepunkter, to rader',
   (select count(*) from public.push_subscriptions where user_id = :'A') = 2);
 
--- Endepunktet er ugyldig hvis det ikke er https: feltet ender opp som mål for
--- et HTTP-kall fra senderen.
+-- ---------- 1b. hva et abonnement FÅR være ----------
+-- Endepunktet blir målet for et HTTP-kall senderen gjør på vegne av serveren,
+-- og en innlogget konto er hele inngangsbilletten. Uten grensene under er
+-- push_subscribe() en forsterker: vilkårlig mange rader, hver med sitt eget
+-- mål, og hver av dem multipliserer både utboksen og antall HTTP-kall.
 select public.t_fails('et endepunkt uten https avvises',
-  $$select public.push_subscribe('http://push.example.com/x', 'k', 'a')$$);
+  format($$select public.push_subscribe('http://push.example.com/x', %L, %L)$$, :'k_c', :'s_c'));
+select public.t_fails('… en bar IP-adresse er ingen pushtjeneste',
+  format($$select public.push_subscribe('https://10.0.0.5/x', %L, %L)$$, :'k_c', :'s_c'));
+select public.t_fails('… og heller ikke localhost',
+  format($$select public.push_subscribe('https://localhost:8000/x', %L, %L)$$, :'k_c', :'s_c'));
+select public.t_fails('et endepunkt uten vertsnavn avvises',
+  format($$select public.push_subscribe('https:///x', %L, %L)$$, :'k_c', :'s_c'));
+select public.t_fails('et endepunkt med kontrolltegn avvises',
+  format($$select public.push_subscribe(%L, %L, %L)$$,
+         'https://push.example.com/' || chr(10) || 'x', :'k_c', :'s_c'));
+select public.t_fails('et endepunkt over 2000 tegn avvises',
+  format($$select public.push_subscribe('https://push.example.com/' || repeat('x', 2000), %L, %L)$$,
+         :'k_c', :'s_c'));
+
+-- Nøklene har en fast form i RFC 8291. Serveren krever den ikke på byten (en
+-- nettleser kan kode med padding), men søppel skal ikke inn i en tabell
+-- senderen leser fra.
+select public.t_fails('en p256dh-nøkkel av feil lengde avvises',
+  format($$select public.push_subscribe('https://push.example.com/x1', 'kort', %L)$$, :'s_c'));
+select public.t_fails('en auth-nøkkel av feil lengde avvises',
+  format($$select public.push_subscribe('https://push.example.com/x2', %L, 'kort')$$, :'k_c'));
+select public.t_fails('en nøkkel som ikke er base64url avvises',
+  format($$select public.push_subscribe('https://push.example.com/x3', %L, %L)$$,
+         repeat('a', 86) || '!', :'s_c'));
+
+-- TAKET. En bruker har en håndfull nettlesere. Her melder A på langt flere enn
+-- taket, og resultatet skal være at taket holder, at den SISTE påmeldingen er
+-- den som står igjen (det er den brukeren faktisk sitter med), og at køen til
+-- dem som røk forsvant med dem.
+do $$
+declare i integer;
+begin
+  for i in 1..(public.push_sub_max() + 6) loop
+    perform public.push_subscribe('https://push.example.com/tak-' || i,
+      'BP' || repeat('t', 83) || lpad(i::text, 2, '0'),
+      repeat('u', 20) || lpad(i::text, 2, '0'));
+  end loop;
+end $$;
+select public.t_check('taket holder: en bruker får ikke flere aktive abonnementer enn maks',
+  (select count(*) from public.push_subscriptions where user_id = :'A') = public.push_sub_max());
+select public.t_check('… og det er den SISTE påmeldingen som står igjen',
+  exists (select 1 from public.push_subscriptions
+           where user_id = :'A'
+             and endpoint = 'https://push.example.com/tak-' || (public.push_sub_max() + 6)));
+reset role;
+select public.t_check('… og utboksen har ingen levering til et abonnement som er kastet ut',
+  (select count(*) from public.push_deliveries d
+    where not exists (select 1 from public.push_subscriptions s where s.id = d.subscription_id)) = 0);
+select set_config('request.jwt.claim.sub', :'A', false); set role authenticated;
+
+-- Tilbake til fiksturen seksjon 2 og utover forventer: nøyaktig de to
+-- endepunktene a1 og a2, og ingenting annet.
+delete from public.push_subscriptions where user_id = :'A';
+select public.push_subscribe('https://push.example.com/a1', :'k_a2', :'s_a2',
+  '{"dueOver": "Frist utløpt"}'::jsonb, 'Europe/Oslo');
+select public.push_subscribe('https://push.example.com/a2', :'k_b', :'s_b',
+  '{"dueOver": "Frist utløpt"}'::jsonb, 'Europe/Oslo');
+select public.t_check('fiksturen er tilbake til to abonnementer',
+  (select count(*) from public.push_subscriptions where user_id = :'A') = 2);
 
 -- ---------- 2. utboksen fylles av notify_record(), og bare for PLANLAGTE rader ----------
 select public.notify_record(jsonb_build_array(
@@ -137,7 +211,7 @@ select public.t_check('en ny generator-runde dupliserer ikke utboksen',
   public.t_deliveries(:'A'::uuid) = 2);
 
 -- ---------- 3. et nytt abonnement får det som ALT er planlagt ----------
-select public.push_subscribe('https://push.example.com/a3', 'p256-c', 'auth-c',
+select public.push_subscribe('https://push.example.com/a3', :'k_c', :'s_c',
   '{"dueSoon": "Frist innen en uke"}'::jsonb, 'Europe/Oslo');
 select public.t_check('en enhet som melder seg på ETTER planleggingen får de planlagte varslene',
   public.t_deliveries(:'A'::uuid) = 3);
@@ -149,7 +223,7 @@ select public.t_check('en avlyst plan tar leveringene med seg (kaskade)',
 
 -- ---------- 5. RLS: ingen ser eller rører en annens abonnement ----------
 reset role; select set_config('request.jwt.claim.sub', :'B', false); set role authenticated;
-select public.push_subscribe('https://push.example.com/b1', 'p256-b1', 'auth-b1',
+select public.push_subscribe('https://push.example.com/b1', :'k_bb', :'s_bb',
   '{"dueOver": "Deadline passed"}'::jsonb, 'America/New_York');
 select public.t_check('B ser bare sitt eget abonnement',
   (select count(*) from public.push_subscriptions) = 1);
@@ -177,7 +251,7 @@ select set_config('request.jwt.claim.sub', :'A', false); set role authenticated;
 -- Endepunktet ER nettleseren. Logger noen andre inn i den samme nettleseren,
 -- flyttes abonnementet — og da skal ikke den forrige brukerens køede varsler,
 -- som hver bærer et objektnavn, bli levert til den nye.
-select public.push_subscribe('https://push.example.com/delt', 'p256-d', 'auth-d',
+select public.push_subscribe('https://push.example.com/delt', :'k_d', :'s_d',
   '{"dueSoon": "Frist innen en uke"}'::jsonb, 'Europe/Oslo') as sub_delt \gset
 select public.notify_record(jsonb_build_array(
   jsonb_build_object('key', 'dueSoon|card|' || :'AC' || '|2027-06-01', 'type', 'dueSoon',
@@ -187,7 +261,7 @@ select public.t_check('A har en køet levering til den delte nettleseren',
   public.t_deliveries(:'A'::uuid, 'pending') > 0);
 
 reset role; select set_config('request.jwt.claim.sub', :'B', false); set role authenticated;
-select public.push_subscribe('https://push.example.com/delt', 'p256-d2', 'auth-d2',
+select public.push_subscribe('https://push.example.com/delt', :'k_d2', :'s_d2',
   '{"dueSoon": "Deadline within a week"}'::jsonb, 'America/New_York');
 reset role;
 select public.t_check('B overtar endepunktet — og A sin kø til det er borte',

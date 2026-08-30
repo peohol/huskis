@@ -297,7 +297,10 @@ begin
     'public.universe_member_count(uuid)', 'public.group_member_count(uuid)',
     'public.universe_owner_count(uuid)', 'public.universe_owner_set(uuid)',
     'public.write_tombstone()', 'public.guard_object_insert()',
-    'public.handle_new_user()', 'public.send_invite_email()'
+    'public.handle_new_user()', 'public.send_invite_email()',
+    -- Taket på antall abonnementer per bruker. push_subscribe() kaller den for
+    -- hver påmelding; mangler den, feiler hver eneste påmelding.
+    'public.push_sub_max()'
   ] loop
     oid_ := to_regprocedure(fn);
     if oid_ is null then feil := array_append(feil, 'funksjon ' || fn || ' mangler'); end if;

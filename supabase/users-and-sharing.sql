@@ -2702,6 +2702,12 @@ begin
 end;
 $$;
 
+/* Hvor mange aktive abonnementer én bruker får ha. Tallet står som en funksjon
+   og ikke som et magisk tall inne i push_subscribe(), slik at testene kan lese
+   det samme tallet som regelen bruker. */
+create or replace function public.push_sub_max()
+returns integer language sql immutable set search_path = public as $$ select 20 $$;
+
 create or replace function public.push_subscribe(p_endpoint text, p_p256dh text,
                                                  p_auth text, p_labels jsonb default '{}'::jsonb,
                                                  p_tz text default null)
@@ -2711,16 +2717,40 @@ declare
   now_ms  bigint := (extract(epoch from now()) * 1000)::bigint;
   sub_id  uuid;
   forrige uuid;
+  vert    text;
 begin
   if uid is null then raise exception 'ikke innlogget'; end if;
   if p_endpoint is null or p_endpoint = '' then raise exception 'mangler endepunkt'; end if;
-  -- Endepunktet skal være en https-URL og av rimelig lengde. Feltet ender opp
-  -- som mål for et HTTP-kall fra senderen; en ikke-https-verdi har ingenting
-  -- der å gjøre.
-  if p_endpoint !~ '^https://' or length(p_endpoint) > 2000 then
+  /* HVA ET ENDEPUNKT ER. Verdien her blir målet for et HTTP-kall senderen gjør
+     på vegne av serveren, med brukerens konto som eneste inngangsbillett. Den
+     skal derfor se ut som en push-tjeneste, ikke som hva som helst.
+
+     Ingen liste over Google, Mozilla og Apple: Web Push har ingen fast
+     tjenesteliste, og en slik liste ville låst appen ute fra enhver nettleser
+     som ikke sto på den. Kravene under er dem standarden selv setter — https,
+     et vertsnavn, ingen kontrolltegn — pluss ett til: verten skal være et
+     NAVN. En bar IP-adresse eller `localhost` er ingen push-tjeneste; det er
+     en måte å be serveren banke på en dør på innsiden. */
+  if p_endpoint !~ '^https://[A-Za-z0-9._~%-]+(:[0-9]{1,5})?([/?#]|$)'
+     or p_endpoint ~ '[[:space:][:cntrl:]]'
+     or length(p_endpoint) > 2000 then
+    raise exception 'ugyldig endepunkt';
+  end if;
+  vert := lower(split_part(substring(p_endpoint from '^https://([^/?#]+)'), ':', 1));
+  if vert ~ '^[0-9.]+$' or vert = 'localhost' or vert like '%.localhost'
+     or vert like '%.local' then
     raise exception 'ugyldig endepunkt';
   end if;
   if p_p256dh is null or p_auth is null then raise exception 'mangler nøkler'; end if;
+  /* NØKLENE har en fast form i RFC 8291: `p256dh` er et ukomprimert P-256-punkt
+     (65 byte) og `auth` er 16 byte, begge base64url fra `PushSubscription.
+     getKey()`. Grensene under er romsligere enn det — de skal ikke kunne låse
+     ute en nettleser som koder litt annerledes (padding) — men de holder
+     søppel og fyllmasse ute av en tabell senderen leser fra. */
+  if p_p256dh !~ '^[A-Za-z0-9_-]+=*$' or length(p_p256dh) not between 80 and 200
+     or p_auth !~ '^[A-Za-z0-9_-]+=*$' or length(p_auth) not between 16 and 40 then
+    raise exception 'ugyldige nøkler';
+  end if;
 
   -- Hvem eide endepunktet FØR dette kallet? Svaret avgjør om køen som ligger
   -- der fortsatt er ment for den som nå bruker nettleseren.
@@ -2746,6 +2776,24 @@ begin
   if forrige is not null and forrige <> uid then
     delete from public.push_deliveries where subscription_id = sub_id;
   end if;
+
+  /* TAKET. En bruker har en håndfull nettlesere, ikke tusen. Uten et tak kan
+     en innlogget konto registrere vilkårlig mange endepunkter, og hvert av dem
+     multipliserer BÅDE utboksen (én levering per planlagt varsel per
+     abonnement) og antallet HTTP-kall senderen gjør. Det er en forsterker med
+     en konto som eneste inngangsbillett, og den lukkes her.
+
+     Taket kaster ut den ELDST SETTE, ikke den nyeste: den som nettopp meldte
+     seg på er alltid den brukeren står med i hånden, og en bruker med mange
+     nettlesere skal miste den de sluttet å bruke — ikke bli stengt ute fra
+     den de bruker nå. Kaskaden tar utboksen til den som ryker med seg. */
+  delete from public.push_subscriptions s
+   where s.user_id = uid
+     and s.id <> sub_id                     -- den som nettopp meldte seg på ryker aldri
+     and s.id not in (select x.id from public.push_subscriptions x
+                       where x.user_id = uid and x.id <> sub_id
+                       order by x.seen_at desc, x.created_at desc, x.id desc
+                       limit greatest(public.push_sub_max() - 1, 0));
 
   perform public.push_enqueue(uid);
   return sub_id;

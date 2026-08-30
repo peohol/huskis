@@ -129,12 +129,29 @@ planlegger sine lokale varsler fra den listen; web push leverer den fra
 serveren. Ingen av kanalene tolker en terskel — de leverer rader som allerede er
 logget.
 
-Prisen står i horisonten, og den er eksplisitt: **en terskel lenger unna enn 30
-døgn er ikke planlagt.** Har appen ikke vært åpen på en måned, er det ingenting
-å levere — og den dagen den åpnes, logges de passerte tersklene som vanlig
-(vinduet bakover) og en ny plan legges. Taket på 40 er det andre leddet: en
-konto med hundrevis av datoer får de NÆRMESTE tersklene planlagt, og resten
-kommer inn etter hvert som tiden går.
+**Planen har to tall, og begge koster noe.** Konsekvensen av hvert av dem:
+
+**Horisonten (30 døgn).** En terskel lenger unna enn horisonten er ikke
+planlagt, og kan derfor ikke leveres eksternt. Har appen ikke vært åpen på en
+måned, er det ingenting å levere. Den dagen den åpnes, logges de passerte
+tersklene som vanlig (vinduet bakover) og en ny plan legges — altså: varselet
+uteblir som PUSH, ikke fra appen.
+
+**Taket (40 rader).** Planen tar de NÆRMESTE 40 tersklene innenfor horisonten.
+Ligger det flere der, rykker nummer 41 inn i planen i den samme synk-runden som
+nummer 1 forfaller — planen legges på nytt hver runde, så køen er selvgående så
+lenge appen brukes. Det eneste tilfellet der en terskel faktisk ikke blir
+levert, er derfor: appen står lukket sammenhengende, OG det lå mer enn 40
+terskler foran den i horisonten. Også da står raden i historikken neste gang
+appen åpnes.
+
+Tallet er 40 og ikke høyere fordi planen deler budsjett med historikken:
+`get_my_doc()` sender de 200 nyeste varselradene sortert på `at`, og planlagte
+rader har den største `at`-en — de ligger altså først i de 200, og hver plass
+planen tar er en plass historikken mister. Klienten henter det doc-et hvert
+femte sekund. 40 er en femtedel av budsjettet; en plan på hundre ville halvert
+historikken for alle, for en gevinst bare en konto med svært mange datoer i
+samme måned ville merket.
 
 **Planen er ikke historikk.** Forskjellen er hva som gjør en rad ugyldig, og den
 står under «Varsler som ikke gjelder lenger».
@@ -655,10 +672,26 @@ avlys det som ikke lenger står i planen, legg inn det som mangler. Uten diffen
 ville hver synk-runde lagt inn de samme varslene på nytt, og en endret frist
 blitt liggende ved siden av den nye.
 
-Broen mellom Huskis' identitet og Androids er ren: `nativeNotifId(key)` er en
-FNV-1a-hash av nøkkelen, klippet til et positivt 31-bits heltall (Androids
-varsel-ID er et Java-`int`). Determinismen er hele poenget — det er den som gjør
-at den samme planen speilet to ganger gir det samme varselet, ikke to.
+Broen mellom Huskis' identitet og Androids er ren: `nativeNotifId()` er en
+FNV-1a-hash klippet til et positivt 31-bits heltall (Androids varsel-ID er et
+Java-`int`). Determinismen er hele poenget — det er den som gjør at den samme
+planen speilet to ganger gir det samme varselet, ikke to.
+
+Det som hashes er ikke nøkkelen, men **signaturen** (`nativeNotifSig()`):
+nøkkelen, terskeltiden og teksten. Grunnen er at de tre kan skille lag.
+Nøkkelen bærer objektets tidsVERDI («2026-09-02T09:00»), som er lokal veggtid,
+mens terskeltiden `at` er det absolutte millisekundet den veggtiden peker på —
+og det avhenger av tidssonen. Reiser telefonen til en annen sone, får det SAMME
+logiske varselet et nytt `at` uten at nøkkelen rører seg. En diff på nøkkelen
+alene ville da sett en alarm som «finnes allerede» og latt den bli stående og
+ringe på gammelt klokkeslett. Med tiden inne i signaturen blir den flyttede
+alarmen et annet tall, og diffen gjør det den skal: den gamle avlyses, den nye
+legges inn. Teksten er med av samme grunn — et objekt som får nytt navn, eller
+et språkbytte, endrer hva telefonen skal si uten å endre hvilket varsel det er.
+
+Det betyr også at `getPending()` aldri trenger å levere mer enn ID-er, og på
+Android er det klokt: `schedule.at` kommer tilbake derfra som en serialisert
+Java-`Date`, ikke som noe man kan sammenligne på.
 
 **Alarmene er upresise med vilje.** Hvert varsel planlegges med
 `isExactNotification: false`, som gir `AlarmManager.setAndAllowWhileIdle()`:
@@ -708,6 +741,23 @@ seg selv. Ble serveren spurt først og svarte feil, ville hele den lokale
 nedriggingen blitt hoppet over, og en utlogging UTEN NETT hadde gitt det
 motsatte av hensikten: en utlogget nettleser som fortsetter å vise varsler med
 objektnavn. Serveropprydningen er derfor best effort, og skjer etterpå.
+
+**Hva et abonnement får være.** `endpoint` blir målet for et HTTP-kall senderen
+gjør på vegne av serveren, og en innlogget konto er hele inngangsbilletten.
+`push_subscribe()` setter derfor tre grenser, alle på serveren:
+
+| Grense | Regel | Hvorfor |
+|---|---|---|
+| Endepunktet | `https://`, et vertsNAVN (ikke en bar IP, ikke `localhost`), ingen kontrolltegn, maks 2000 tegn | En vilkårlig URL ville gjort senderen til en måte å banke på dører på innsiden |
+| Nøklene | base64url, `p256dh` 80–200 tegn og `auth` 16–40 | RFC 8291 sier 65 og 16 byte; grensene er romsligere (padding), men holder søppel ute av en tabell senderen leser fra |
+| Antall | maks `push_sub_max()` (20) rader per bruker | Hvert abonnement multipliserer BÅDE utboksen og antallet HTTP-kall. Uten et tak er RPC-en en forsterker |
+
+Ingen liste over pushleverandører: Web Push har ingen fast tjenesteliste, og en
+slik liste ville låst appen ute fra enhver nettleser som ikke sto på den.
+
+Taket kaster ut den **eldst sette**, aldri den som nettopp meldte seg på — den
+er den brukeren står med i hånden. Kaskaden tar utboksen til den som ryker med
+seg.
 
 **Etikettene følger med abonnementet.** De fire typetekstene lagres i
 `labels`, på brukerens språk. Service workeren har ingen ordbok, og SQL skal
@@ -826,10 +876,13 @@ De to henger sammen på nøyaktig ett punkt, og ellers ikke:
   planen er de samme tersklene med samme nøkkel, at den er usynlig og ikke
   teller som ulest, utboksen for web push, at fullføring og en endret frist
   avlyser den, og tidssone-hevdelsen med begge utfallene.
-- `tests/notif-channels.test.js` — kanalene: den deterministiske native ID-en,
-  Android-adapterens diff og upresise alarm, at tillatelsen aldri spørres av seg
-  selv, web push-påmeldingen og avmeldingen, blokkert tillatelse, panelets fire
-  tilstander, service workerens push- og klikkruting, og `?notif=` i adressen.
+- `tests/notif-channels.test.js` — kanalene: den deterministiske native ID-en
+  (og at et TIDSSONEBYTTE faktisk flytter alarmen — samme varsel, ny absolutt
+  tid, gammel alarm avlyst), Android-adapterens diff og upresise alarm, at
+  tillatelsen aldri spørres av seg selv, web push-påmeldingen og avmeldingen,
+  grensene for hva et abonnement får være (speilet i mock-backenden), blokkert
+  tillatelse, panelets fire tilstander, service workerens push- og klikkruting,
+  og `?notif=` i adressen.
 - `tests/push-crypto.test.js` — VAPID-signaturen og RFC 8291-krypteringen, mot
   et fast vektor fra `http_ece` og med signaturen faktisk verifisert.
 - `tests/notif-modal.test.js` — knappen og badgen, modalen, nyeste øverst,
@@ -853,12 +906,14 @@ De to henger sammen på nøyaktig ett punkt, og ellers ikke:
   SCHEDULE_EXACT_ALARM er det ENESTE merger-direktivet i manifestet.
 - `tests/security-headers.test.js` + `tests/build-version.test.js` — at
   `worker-src 'self'` står likt i begge policyene, og at `sw.js` publiseres.
-- `tests/release-pipeline.test.js` — at senderen deployes etter smoke-testen og
-  IKKE er en port for frontenden.
+- `tests/release-pipeline.test.js` — at senderen deployes etter smoke-testen,
+  IKKE er en port for frontenden, og at Supabase-CLI-en kjøres på en måte som
+  faktisk virker (`npx` med låst versjon — pakken nekter en global install).
 - `supabase/tests/test-notifications.sql` — RLS, idempotent logging, markøren,
   preferansene og kontosletting.
 - `supabase/tests/test-push.sql` — abonnementene og RLS-en rundt dem, utboksens
   idempotens, kaskaden som avlyser en levering, at et EIERSKIFTE tømmer køen og
   at senderen aldri plukker opp en levering som ikke hører til abonnementets
-  eier, at senderens funksjoner er stengt for klienten, hent/send/meld-runden
-  med alle tre utfallene, og tidssone-hevdelsen.
+  eier, grensene for hva et abonnement får være (endepunkt, nøkkelform og taket
+  på antall enheter), at senderens funksjoner er stengt for klienten,
+  hent/send/meld-runden med alle tre utfallene, og tidssone-hevdelsen.

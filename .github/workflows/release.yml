@@ -213,9 +213,16 @@ jobs:
             exit 0
           fi
           # CLI-en er LÅST til en eksakt versjon, av samme grunn som Vercel-CLI-en
-          # over: en deploy skal være reproduserbar.
-          npm install -g supabase@2.60.0
-          supabase functions deploy push-send --project-ref "$SUPABASE_PROJECT_REF"
+          # i deployjobben: en deploy skal være reproduserbar.
+          #
+          # `npx`, ikke `npm install -g`: Supabase-pakken NEKTER en global
+          # installasjon. Postinstall-skriptet kaster «Installing Supabase CLI
+          # as a global module is not supported» så snart `npm_config_global`
+          # er satt, og jobben ville dødd på installasjonssteget uansett hvor
+          # riktig resten var. `npx` installerer i sitt eget område, og
+          # versjonen står fortsatt eksakt.
+          npx --yes supabase@2.60.0 functions deploy push-send \
+            --project-ref "$SUPABASE_PROJECT_REF"
 
   # ---- 4. Produksjonsdeploy -------------------------------------------
   deploy:
