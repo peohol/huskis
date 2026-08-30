@@ -87,6 +87,11 @@ nettleseren, og `push_tick()` gjør ingenting.
    uendret — men det som settes opp NÅ bør settes opp på den nye modellen.
    Nøkkelen skal aldri inn i repoet, en PR, en logg eller frontend.
 
+   Headerne trenger du ikke tenke på: databasen kjenner igjen hva slags nøkkel
+   den har fått, og sender en `sb_secret_…` KUN på `apikey` (den er ikke et JWT
+   — ligger den også på `Authorization`, avviser Supabase hele kallet med
+   «Invalid JWT»), mens en gammel `service_role`-nøkkel får begge som før.
+
 Kontroll etterpå: `select public.push_tick();` skal gi en request-id (eller
 `null` når køen er tom), og `select * from net._http_response order by id desc
 limit 5;` viser hva funksjonen svarte.

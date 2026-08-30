@@ -162,20 +162,32 @@ check('senderen leser de NYE secret keys (SUPABASE_SECRET_KEYS) …',
   /SUPABASE_SECRET_KEYS/.test(pushFn));
 check('… og faller tilbake på den gamle service_role-nøkkelen',
   /SUPABASE_SERVICE_ROLE_KEY/.test(pushFn));
+const pushAuth = fs.readFileSync(
+  path.join(ROOT, 'supabase', 'functions', 'push-send', 'auth.mjs'), 'utf8');
 check('… og tar imot nøkkelen på apikey-headeren',
-  /headers\.get\('apikey'\)/.test(pushFn));
+  /godkjentKaller\(req\.headers/.test(pushFn) && /headers\?\.\[n\]|les\('apikey'\)/.test(pushAuth));
 check('… og sammenligner den uten tidslekkasje (ingen === på hemmeligheten)',
-  /likeHemmeligheter/.test(pushFn) &&
-  !/!==\s*'Bearer '/.test(pushFn));
-check('push_tick() sender nøkkelen på apikey, ikke bare Authorization',
-  /'apikey', svc_key/.test(fs.readFileSync(
-    path.join(ROOT, 'supabase', 'users-and-sharing.sql'), 'utf8')));
+  /likeHemmeligheter/.test(pushAuth) && !/!==\s*'Bearer '/.test(pushFn));
+/* De to nøkkelgenerasjonene skal IKKE ha de samme headerne: en `sb_secret_…`
+   er ikke et JWT, og sendes den også på `Authorization: Bearer`, avviser
+   plattformen hele kallet med «Invalid JWT». Avgjørelsen ligger ETT sted i
+   hvert lag — `auth.mjs` og `push_headers()` — nettopp for at den skal kunne
+   kjøres av en test. Den kjøringen er `tests/push-auth.test.js` og seksjon 11
+   i `test-push.sql`; her låses bare at deployen ikke omgår dem. */
+const pushSql = fs.readFileSync(
+  path.join(ROOT, 'supabase', 'users-and-sharing.sql'), 'utf8');
+check('push_tick() sender headerne push_headers() bestemmer',
+  /headers := public\.push_headers\(svc_key\)/.test(pushSql));
+check('… og hardkoder ikke en Authorization-header ved siden av',
+  !/'Authorization', 'Bearer ' \|\| svc_key/.test(pushSql),
+  (pushSql.match(/'Authorization'[^\n]*svc_key[^\n]*/) || ['—'])[0]);
 check('… og hopper stille over når secretene ikke er satt (kanalen er valgfri)',
   !!relJobs.pushfunksjon && /SUPABASE_ACCESS_TOKEN/.test(relJobs.pushfunksjon) &&
   /exit 0/.test(relJobs.pushfunksjon));
 // Selve funksjonen og krypteringen den bruker skal finnes i treet — ellers
 // deployer jobben over ingenting.
-['supabase/functions/push-send/index.ts', 'supabase/functions/push-send/webpush.mjs']
+['supabase/functions/push-send/index.ts', 'supabase/functions/push-send/webpush.mjs',
+ 'supabase/functions/push-send/auth.mjs']
   .forEach((f) => check(f + ' finnes',
     fs.existsSync(path.join(ROOT, f))));
 

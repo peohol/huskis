@@ -26,6 +26,12 @@
                                  Supabases egen dokumentasjon og på vei ut,
                                  men fortsatt satt i eldre prosjekter.
 
+   De to har IKKE de samme headerne, og det er ikke en detalj: en `sb_secret_…`
+   som også sendes på `Authorization: Bearer` blir forsøkt tolket som JWT og
+   avvist med «Invalid JWT» — hele kallet, ikke bare den headeren. `auth.mjs`
+   eier den avgjørelsen, for både det funksjonen tar imot og det den sender
+   videre til PostgREST.
+
    Begge veier virker, og koden foretrekker den nye. Ingen av dem finnes i
    repoet — de settes som funksjonens secrets.
 
@@ -41,6 +47,7 @@
    Oppsettet (nøkkelpar, secrets, pg_cron, app_config) står i TODO.md.
    ============================================================ */
 import { sendPush } from './webpush.mjs';
+import { godkjentKaller, tjenesteHeadere } from './auth.mjs';
 
 // Ett tikk tar høyst så mange leveringer. Resten venter til neste minutt —
 // køen er persistent, så et tak koster forsinkelse, ikke leveranser.
@@ -86,25 +93,14 @@ function hemmeligeNøkler(): string[] {
   return ut;
 }
 
-/* Sammenligning uten tidslekkasje. Verdien er en hemmelighet, og en `===` på
-   strenger stopper ved første ulike tegn — det er nok til å gjette den tegn for
-   tegn. Lengden lekker fortsatt, og det er greit: nøkkelformatene er kjente. */
-function likeHemmeligheter(a: string, b: string): boolean {
-  if (a.length !== b.length) return false;
-  let d = 0;
-  for (let i = 0; i < a.length; i++) d |= a.charCodeAt(i) ^ b.charCodeAt(i);
-  return d === 0;
-}
-
 async function rpc(navn: string, key: string, args: unknown) {
   const url = env('SUPABASE_URL') + '/rest/v1/rpc/' + navn;
   const res = await fetch(url, {
     method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      apikey: key,
-      Authorization: 'Bearer ' + key,
-    },
+    // `tjenesteHeadere` avgjør: en `sb_secret_…` går KUN på `apikey`, en
+    // legacy service_role-JWT på begge. Sender vi den nye nøkkelen som
+    // Bearer, tolker plattformen den som JWT og svarer «Invalid JWT».
+    headers: { 'Content-Type': 'application/json', ...tjenesteHeadere(key) },
     body: JSON.stringify(args),
   });
   if (!res.ok) throw new Error(navn + ' svarte ' + res.status + ': ' + (await res.text()).slice(0, 200));
@@ -122,16 +118,12 @@ async function iBiter<T, R>(liste: T[], n: number, fn: (x: T) => Promise<R>): Pr
 Deno.serve(async (req) => {
   /* PORTEN. Funksjonen deployes med `--no-verify-jwt` (se toppen), så
      plattformen slipper alle gjennom og denne sjekken er den som gjelder:
-     kalleren må vise en av prosjektets secret keys.
-
-     `apikey` er headeren Supabase dokumenterer for service-to-service; vi tar
-     også imot den på `Authorization: Bearer`, siden `pg_net` sender begge og en
-     PostgREST-klient gjør det samme. `push_claim()` avviser uansett alt annet
-     enn service_role, så dette er den ytre av to porter. */
+     kalleren må vise en av prosjektets secret keys — på `apikey`, eller på
+     `Authorization: Bearer` hvis det er den gamle JWT-nøkkelen (auth.mjs).
+     `push_claim()` avviser uansett alt annet enn service_role, så dette er den
+     ytre av to porter. */
   const nøkler = hemmeligeNøkler();
-  const vist = (req.headers.get('apikey') || '')
-    || (req.headers.get('authorization') || '').replace(/^Bearer\s+/i, '');
-  if (!vist || !nøkler.some((k) => likeHemmeligheter(vist, k))) {
+  if (!godkjentKaller(req.headers, nøkler)) {
     return new Response('nei', { status: 401 });
   }
   const nøkkel = nøkler[0];      // den funksjonen selv bruker mot PostgREST

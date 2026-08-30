@@ -479,5 +479,33 @@ select public.t_check('B sine abonnementer og leveringer er borte med kontoen',
   (select count(*) from public.push_subscriptions where user_id = :'B') = 0
   and public.t_deliveries(:'B'::uuid) = 0);
 
+-- ---------- 11. headerne tikket sender ----------
+/* De to nøkkeltypene skal IKKE ha like headere. En `sb_secret_…` er ikke et
+   JWT, og sendes den SAMTIDIG på `Authorization: Bearer`, prøver plattformen å
+   tolke den som JWT og avviser hele kallet med «Invalid JWT» — altså nettopp
+   den veien Supabase nå anbefaler. Den gamle service_role-nøkkelen er et JWT og
+   skal fortsatt ha begge. Her kjøres avgjørelsen, den leses ikke. */
+reset role;
+select public.t_check('en ny secret key sendes på apikey',
+  public.push_headers('sb_secret_v1_QmVyZ2VuUmVnbmVyTWVzdA') ->> 'apikey'
+    = 'sb_secret_v1_QmVyZ2VuUmVnbmVyTWVzdA');
+select public.t_check('… og ligger IKKE i Authorization',
+  not (public.push_headers('sb_secret_v1_QmVyZ2VuUmVnbmVyTWVzdA') ? 'Authorization'));
+select public.t_check('… og finnes bare i den ene headeren',
+  (select count(*) from jsonb_each_text(
+     public.push_headers('sb_secret_v1_QmVyZ2VuUmVnbmVyTWVzdA'))
+    where value like '%QmVyZ2VuUmVnbmVyTWVzdA%') = 1);
+select public.t_check('en legacy service_role-nøkkel sendes på begge, som før',
+  public.push_headers('eyJhbGciOiJIUzI1NiJ9.eyJyb2xlIjoic2VydmljZV9yb2xlIn0.c2ln')
+    = jsonb_build_object(
+        'Content-Type', 'application/json',
+        'apikey', 'eyJhbGciOiJIUzI1NiJ9.eyJyb2xlIjoic2VydmljZV9yb2xlIn0.c2ln',
+        'Authorization', 'Bearer eyJhbGciOiJIUzI1NiJ9.eyJyb2xlIjoic2VydmljZV9yb2xlIn0.c2ln'));
+select public.t_check('begge veier bærer Content-Type',
+  public.push_headers('sb_secret_x') ->> 'Content-Type' = 'application/json');
+set role authenticated;
+select public.t_fails('push_headers() er stengt for vanlige brukere',
+  $$select public.push_headers('sb_secret_x')$$);
+
 reset role;
 \echo '✅ test-push.sql: alle sjekker grønne'

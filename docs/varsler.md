@@ -873,9 +873,26 @@ Nøkkelen leses av funksjonens miljø i denne rekkefølgen:
 
 Begge virker, og koden foretrekker den nye — den FØRSTE nøkkelen den finner er
 også den funksjonen selv bruker mot PostgREST. Et prosjekt flytter seg derfor
-til den nye modellen ved å sette secrets, uten at koden røres. `push_tick()`
-sender nøkkelen på begge headere (`apikey` og `Authorization`), siden en gammel
-service_role-nøkkel er et JWT og en ny secret key ikke er det.
+til den nye modellen ved å sette secrets, uten at koden røres.
+
+**De to nøkkeltypene har IKKE de samme headerne**, og det er ikke en detalj man
+kan runde av. En `sb_secret_…` er ikke et JWT: ligger den også på
+`Authorization: Bearer`, prøver plattformen å tolke den som et token og avviser
+HELE kallet med «Invalid JWT». Å sende begge for sikkerhets skyld ødelegger
+altså nettopp den veien Supabase anbefaler.
+
+| Nøkkelen er | `apikey` | `Authorization: Bearer` |
+|---|---|---|
+| `sb_secret_…` (ny) | nøkkelen | **ingenting** |
+| `service_role` (legacy JWT) | nøkkelen | nøkkelen — PostgREST leser rollen der |
+
+Avgjørelsen ligger ETT sted i hvert lag, slik at den kan kjøres av en test og
+ikke bare leses: `push-send/auth.mjs` for det funksjonen tar imot og sender
+videre til PostgREST, og `push_headers()` for det `push_tick()` sender. Kjenne-
+tegnet er formen — tre base64url-segmenter med punktum mellom er et JWT.
+Innkommende godtas en legacy-nøkkel derfor på begge headere, mens en
+`sb_secret_…` på `Authorization` avvises: den veien er en feilkonfigurasjon, og
+å godta den ville skjult feilen til plattformen selv begynte å si nei.
 
 Ingen av nøklene finnes i repoet, og ingen av dem når klienten. `push_claim()`
 og `push_report()` er dessuten stengt for alle andre enn `service_role` — både
@@ -973,7 +990,12 @@ De to henger sammen på nøyaktig ett punkt, og ellers ikke:
   IKKE er en port for frontenden, at Supabase-CLI-en kjøres på en måte som
   faktisk virker (`npx` med låst versjon — pakken nekter en global install), og
   at nøkkelmodellen henger sammen: `--no-verify-jwt`, begge nøkkelgenerasjonene,
-  `apikey`-headeren og en sammenligning uten tidslekkasje.
+  og at hverken senderen eller `push_tick()` bygger headerne utenom `auth.mjs`
+  og `push_headers()`.
+- `tests/push-auth.test.js` — headerne, KJØRT: en ny secret key havner kun på
+  `apikey` og ingen andre steder, en legacy-nøkkel får fortsatt begge, og en
+  `sb_secret_…` på `Authorization` slipper ikke inn. Testen feiler hvis noen
+  gjeninnfører «send begge for sikkerhets skyld».
 - `supabase/tests/test-notifications.sql` — RLS, idempotent logging, markøren,
   preferansene og kontosletting.
 - `supabase/tests/test-push.sql` — abonnementene og RLS-en rundt dem, utboksens
@@ -983,4 +1005,5 @@ De to henger sammen på nøyaktig ett punkt, og ellers ikke:
   på antall enheter), at en PLANLAGT rad får et ferskt navn mens historikken
   ikke skrives om, at et dødt endepunkt tar hele køen sin med seg, at senderens
   funksjoner er stengt for klienten, hent/send/meld-runden med alle tre
-  utfallene, og tidssone-hevdelsen.
+  utfallene, tidssone-hevdelsen, og `push_headers()` — kjørt, ikke lest: en ny
+  secret key får ingen `Authorization`-header i det hele tatt.

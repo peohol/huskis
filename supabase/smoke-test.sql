@@ -312,7 +312,9 @@ begin
     'public.purge_group_access(uuid, uuid)',
     'public.notify_prefs_row(uuid)',
     -- Senderens kø-teller: leser ALLE brukeres leveringer.
-    'public.push_due_count()'
+    'public.push_due_count()',
+    -- Headerne tikket sender. Tar imot selve secret key-en som argument.
+    'public.push_headers(text)'
   ] loop
     oid_ := to_regprocedure(fn);
     if oid_ is null then

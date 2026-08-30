@@ -2982,6 +2982,36 @@ returns bigint language sql stable set search_path = public as $$
      and s.disabled_at is null;
 $$;
 
+/* HEADERNE tikket sender. Egen funksjon av samme grunn som `push_due_count()`:
+   `push_tick()` og testene må se det SAMME — og dette er lett å få galt.
+
+   De to nøkkeltypene skal IKKE ha like headere:
+
+     sb_secret_…    De nye API-nøklene er ikke JWT-er. Supabase dokumenterer at
+                    de sendes på `apikey`, og at en nøkkel som SAMTIDIG ligger
+                    på `Authorization: Bearer` blir forsøkt tolket som JWT og
+                    avvist med «Invalid JWT». Å sende begge for sikkerhets
+                    skyld ødelegger altså nettopp den veien vi vil bruke.
+
+     service_role   Den gamle nøkkelen ER et JWT, og pg_net har alltid sendt
+                    den på `Authorization`. Den får begge, uendret.
+
+   Kjennetegnet er formen: tre base64url-segmenter med punktum mellom er et
+   JWT. Signaturen sjekkes ikke — spørsmålet er bare om plattformen kommer til
+   å prøve å tolke verdien som et token.
+   INTERN: ingen EXECUTE til klientroller (se grants nederst). */
+create or replace function public.push_headers(p_key text)
+returns jsonb language sql immutable as $$
+  select case
+    when p_key ~ '^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$'
+      then jsonb_build_object('Content-Type', 'application/json',
+                              'apikey', p_key,
+                              'Authorization', 'Bearer ' || p_key)
+    else jsonb_build_object('Content-Type', 'application/json',
+                            'apikey', p_key)
+  end;
+$$;
+
 create or replace function public.push_tick()
 returns bigint language plpgsql security definer
 set search_path = public, extensions, net as $$
@@ -3007,17 +3037,9 @@ begin
   end if;
   if svc_key is null or svc_key = '' then return null; end if;
 
-  /* `apikey` er headeren Supabase dokumenterer for service-to-service-kall, og
-     den eneste som virker med de NYE secret keys (`sb_secret_…`) — de er ikke
-     JWT-er, så de hører ikke hjemme på `Authorization`. Begge sendes likevel:
-     den gamle service_role-nøkkelen er et JWT, og et prosjekt som ennå bruker
-     den skal virke uendret. Funksjonen godtar begge (se index.ts). */
   select net.http_post(
       url := fn_url,
-      headers := jsonb_build_object(
-        'Content-Type', 'application/json',
-        'apikey', svc_key,
-        'Authorization', 'Bearer ' || svc_key),
+      headers := public.push_headers(svc_key),
       body := jsonb_build_object('reason', 'cron'),
       timeout_milliseconds := 20000)
     into req_id;
@@ -3945,10 +3967,12 @@ revoke all on function public.push_due_count() from public, anon, authenticated;
 -- er det andre laget; dette er det første.
 revoke all on function public.push_claim(integer, bigint) from public, anon, authenticated;
 revoke all on function public.push_report(jsonb) from public, anon, authenticated;
+revoke all on function public.push_headers(text) from public, anon, authenticated;
 revoke all on function public.push_tick() from public, anon, authenticated;
 do $$ begin
   grant execute on function public.push_claim(integer, bigint) to service_role;
   grant execute on function public.push_report(jsonb) to service_role;
+  grant execute on function public.push_headers(text) to service_role;
   grant execute on function public.push_tick() to service_role;
 exception when undefined_object then null;  -- ingen service_role utenfor Supabase
 end $$;
