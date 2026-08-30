@@ -92,6 +92,20 @@ nettleseren, og `push_tick()` gjør ingenting.
    — ligger den også på `Authorization`, avviser Supabase hele kallet med
    «Invalid JWT»), mens en gammel `service_role`-nøkkel får begge som før.
 
+7. **Kjør «Release» én gang til, manuelt** — Actions → «Release» → «Run
+   workflow» på `main`. Dette er steget som faktisk SLÅR PÅ de to tingene
+   stegene over bare gjorde mulige, og det er lett å tro at det er unødvendig:
+
+   - migreringen kjøres på nytt, og NÅ registrerer den `huskis-push-tick` i
+     pg_cron. Steg 5 slår bare PÅ utvidelsen; selve registreringen skjer i
+     skjemafila, altså ved neste migrering;
+   - `push-send` deployes, fordi GitHub-secretene fra steg 4 nå finnes. Jobben
+     hopper over seg selv med en advarsel når de mangler, og det gjorde den
+     sist den kjørte.
+
+   Merge-en i steg 2 utløser riktignok en release, men den skjer FØR steg 3–6.
+   Uten denne siste runden står alt riktig satt opp uten at noe tikker.
+
 Kontroll etterpå: `select public.push_tick();` skal gi en request-id (eller
 `null` når køen er tom), og `select * from net._http_response order by id desc
 limit 5;` viser hva funksjonen svarte.
