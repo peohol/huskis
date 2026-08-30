@@ -18,9 +18,12 @@ Mobilskallet (Capacitor + `android/`) pakker den samme `dist/`-en inn i native
 appen; webkoden har fortsatt ingen bundler. Autoritativt for mobil:
 `docs/mobilapp-plan.md`.
 
-Serversiden er `supabase/users-and-sharing.sql`. Tilstanden ligger i
-`localStorage` per konto og synkes mot Supabase (Auth + relasjonelle tabeller
-med RLS). Appen har ingen anonym modus. Releaseflyten er dokumentert i
+Serversiden er `supabase/users-and-sharing.sql`, med senderen for web push i
+`supabase/functions/push-send/` — den ene tingen som trenger kryptografi SQL
+ikke har. Service workeren `sw.js` gjør KUN varsler, ingen caching.
+Autoritativt: `docs/varsler.md`. Tilstanden ligger i `localStorage` per konto og
+synkes mot Supabase (Auth + relasjonelle tabeller med RLS). Appen har ingen
+anonym modus. Releaseflyten er dokumentert i
 `docs/release-og-deploy.md`.
 
 UI-et finnes på norsk og engelsk, og all brukerrettet tekst går gjennom
@@ -133,6 +136,7 @@ Kjør den minste verifikasjonen som gir troverdig evidens for endringen:
 | Brukerrettet UI | ekte nettleser (Playwright), + skjermbilde ved visuell endring |
 | Responsiv eller pekeravhengig oppførsel | både desktop- og mobil-viewport |
 | Auth, synk eller deling | mock-backend (`?mock=1`) + den relevante flerbrukerflyten |
+| Varsler, planen framover eller de eksterne kanalene | `node tests/push-crypto.test.js` + `tests/notif-plan.test.js`, `tests/notif-channels.test.js`, `tests/notif-modal.test.js` og SQL-suiten (`test-push.sql`) |
 | Deploy, caching, build-output | `node build.js` og `node tests/build-version.test.js` |
 | Capacitor, `android/`, npm-tooling | `node tests/capacitor-android.test.js` + `node tests/build-version.test.js`, og Android debug-APK-workflowen |
 | Sikkerhetsheadere, CSP, tredjepartsressurser | `node tests/security-headers.test.js` + `node tests/csp-enforced.test.js` |

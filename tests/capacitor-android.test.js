@@ -196,6 +196,19 @@ check(OTA + ' er pinnet eksakt (ingen ^, ~ eller latest)',
 check(OTA + ' står på majoren som er verifisert mot Capacitor 8',
   /^8\./.test(alleDeps[OTA] || ''), alleDeps[OTA] || 'mangler');
 
+/* PR 3Bs varselplugin. Samme krav som OTA-pluginen: runtime-avhengighet, pinnet
+   eksakt, og på majoren som er verifisert mot Capacitor 8. Den er kanalen som
+   leverer varslene på Android — LOKALE alarmer planlagt på selve enheten, ingen
+   pushserver (docs/varsler.md). */
+const LOKALVARSLER = '@capacitor/local-notifications';
+check(LOKALVARSLER + ' er en runtime-avhengighet (dependencies, ikke devDependencies)',
+  typeof (pkg.dependencies || {})[LOKALVARSLER] === 'string',
+  (pkg.dependencies || {})[LOKALVARSLER] || 'mangler i dependencies');
+check(LOKALVARSLER + ' er pinnet eksakt (ingen ^, ~ eller latest)',
+  /^\d+\.\d+\.\d+$/.test(alleDeps[LOKALVARSLER] || ''), alleDeps[LOKALVARSLER] || '');
+check(LOKALVARSLER + ' står på majoren som er verifisert mot Capacitor 8',
+  /^8\./.test(alleDeps[LOKALVARSLER] || ''), alleDeps[LOKALVARSLER] || 'mangler');
+
 /* Huskis er fortsatt vanilla HTML/CSS/JS. Mobilprosjektet skal ikke være
    bakveien inn for en bundler eller et frontendrammeverk
    (docs/mobilapp-plan.md, arkitekturregel 1). */
@@ -248,6 +261,11 @@ const NATIV_KILDE = [
   'android/app/build.gradle',
   'android/app/src/main/AndroidManifest.xml',
   'android/app/src/main/java/no/huskis/app/MainActivity.java',
+  // Tidssonebytte mens appen er lukket (docs/varsler.md). Uten disse to ringer
+  // en alarm som var ment kl. 09:00 på det gamle klokkeslettet etter en reise.
+  'android/app/src/main/java/no/huskis/app/TimeZoneAlarmReceiver.java',
+  'android/app/src/main/java/no/huskis/app/HuskisWallClock.java',
+  'android/app/src/test/java/no/huskis/app/HuskisWallClockTest.java',
   'android/app/src/main/res/values/strings.xml',
   'android/app/src/main/res/xml/data_extraction_rules.xml',
 ];
@@ -388,6 +406,10 @@ const AVHENGIGHETER = [
   'implementation "androidx.core:core-splashscreen:$coreSplashScreenVersion"',
   "implementation project(':capacitor-android')",
   'testImplementation "junit:junit:$junitVersion"',
+  // Kun testklassestien: android.jar-stubben lar hver org.json-metode kaste
+  // «not mocked», og HuskisWallClockTest leser ekte JSON. Pakkes ikke i appen
+  // og bidrar med intet manifest.
+  'testImplementation "org.json:json:$orgJsonVersion"',
   'androidTestImplementation "androidx.test.ext:junit:$androidxJunitVersion"',
   'androidTestImplementation "androidx.test.espresso:espresso-core:$androidxEspressoCoreVersion"',
   "implementation project(':capacitor-cordova-android-plugins')",
@@ -415,7 +437,10 @@ check('ingen nye Gradle-avhengigheter i appmodulen (et nytt bibliotek merger sit
    bibliotekene merger inn i manifestet»). Steget som leser den ut er låst i
    del 8. */
 const APPLIERT_DEP = {
-  'android/app/capacitor.build.gradle': ["implementation project(':capawesome-capacitor-live-update')"],
+  'android/app/capacitor.build.gradle': [
+    "implementation project(':capacitor-local-notifications')",
+    "implementation project(':capawesome-capacitor-live-update')",
+  ],
 };
 const applierteAvvik = [];
 for (const rel of Object.keys(APPLIERT_DEP)) {
@@ -436,13 +461,14 @@ check('de applierte Gradle-skriptene legger ikke til andre avhengigheter enn OTA
    Gradle-lista, så ingen `implementation`-linje endres. Filteret ville da
    havnet i APK-en uten at noen av de to låsene over så det. Lista må derfor
    være uttømmende. */
-const KJENTE_PAKKER = ['@capacitor/android', '@capacitor/cli', '@capacitor/core', OTA];
+const KJENTE_PAKKER = ['@capacitor/android', '@capacitor/cli', '@capacitor/core',
+  LOKALVARSLER, OTA];
 const ukjentePakker = Object.keys(alleDeps).filter((d) => KJENTE_PAKKER.indexOf(d) === -1);
-check('ingen andre npm-avhengigheter enn de tre Capacitor-pakkene og OTA-pluginen (en Cordova-plugin merger sitt eget manifest)',
+check('ingen andre npm-avhengigheter enn Capacitor-pakkene, varselpluginen og OTA-pluginen (en Cordova-plugin merger sitt eget manifest)',
   ukjentePakker.length === 0, ukjentePakker.join(', ') || KJENTE_PAKKER.join(', '));
 const capPakker = Object.keys(alleDeps).filter((d) => d.startsWith('@capacitor/'));
-check('ingen native Capacitor-plugins utover kjerne, cli og android',
-  capPakker.every((d) => CAP.indexOf(d) > -1), capPakker.join(', '));
+check('ingen native Capacitor-plugins utover kjerne, cli, android og lokalvarsler',
+  capPakker.every((d) => CAP.indexOf(d) > -1 || d === LOKALVARSLER), capPakker.join(', '));
 
 /* ---- 8. Workflowen som produserer debug-APK-en ---- */
 const WF = path.join(ROOT, '.github', 'workflows', 'android-debug.yml');
@@ -528,7 +554,11 @@ check('workflowen laster opp det sammenslåtte manifestet som artifact',
    Auth-siden av (b) — at `authRedirectUrl()` ikke tar WebView-originet for en
    utviklingsserver — testes i ekte nettleser (tests/auth-redirect.test.js),
    det samme gjør guardens oppførsel (tests/canonical-origin.test.js). */
-const WEB_KILDE = ['index.html', 'app.js', 'config.js', 'i18n.js', 'theme.js', 'icons.js', 'update-check.js', 'styles.css'];
+/* `sw.js` lastes ikke av index.html — den registreres i kjøretid, og bare når
+   brukeren har slått på varsler i nettleseren (docs/varsler.md). Den KOPIERES
+   likevel ut av build.js og kjører i produksjon, så den skal skannes som
+   enhver annen produksjonskilde. */
+const WEB_KILDE = ['index.html', 'app.js', 'config.js', 'i18n.js', 'theme.js', 'icons.js', 'update-check.js', 'styles.css', 'sw.js'];
 const NEVNER_CAP = /\bCapacitor\b|@capacitor|capacitor\.js|cordova/i;
 /* Alle andre web-kildefiler enn app.js skal fortsatt være helt uvitende om at
    det finnes en native runtime. */
@@ -806,8 +836,23 @@ check('pluginbroen kalles kun med de seks kjente metodene',
     otaKall.filter((k) => k === m).length === 1,
     otaKall.filter((k) => k === m).length + ' kall');
 });
-check('pluginbroen brukes kun av readiness-punktet, hentingen, klargjøringen og byttet',
-  (appKode.match(/nativePlugins/g) || []).length === 5,
+/* Hvilke PLUGINER broen i det hele tatt leses for. Et rått antall ville måtte
+   økes hver gang en linje flyttet seg; navnene er det som betyr noe — en ny
+   plugin er en ny native avhengighet, og den skal ikke kunne snike seg inn
+   bak en telling. To er kjent: OTA-pluginen (fase 5) og varselpluginen
+   (PR 3B, docs/varsler.md). */
+const KJENTE_BROER = { LiveUpdate: 4, LocalNotifications: 5 };
+const broOppslag = (appKode.match(/nativePlugins\.(\w+)/g) || []).map((m) => m.slice(14));
+const ukjenteBroer = [...new Set(broOppslag)].filter((n) => !(n in KJENTE_BROER));
+check('pluginbroen leses kun for de kjente pluginene',
+  ukjenteBroer.length === 0, ukjenteBroer.join(', ') || [...new Set(broOppslag)].join(', '));
+Object.keys(KJENTE_BROER).forEach((navn) => {
+  const n = broOppslag.filter((x) => x === navn).length;
+  check('nativePlugins.' + navn + ' leses fra nøyaktig ' + KJENTE_BROER[navn] + ' steder',
+    n === KJENTE_BROER[navn], n + ' forekomster');
+});
+check('broen deklareres ett sted, og leses ellers bare gjennom de oppslagene',
+  (appKode.match(/nativePlugins/g) || []).length === broOppslag.length + 1,
   (appKode.match(/nativePlugins/g) || []).length + ' forekomster i kjørende kode');
 
 /* Oppstillingen: `setNextBundle()` konsulterer ALDRI pluginens blokkliste selv
@@ -2177,12 +2222,25 @@ function mergerDirektiv(tekst) {
   return [...prefikser].some((p) =>
     new RegExp('(?:^|[^\\w.-])' + p.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + ':' + MERGER_ATTR).test(tekst));
 }
+/* ÉN dokumentert unntak, og den er en ALLELISTE på nøyaktig én tekst:
+   varselpluginen erklærer SCHEDULE_EXACT_ALARM i sitt eget manifest, og Huskis
+   trekker den tilbake fordi appen ikke bruker eksakte alarmer
+   (docs/varsler.md). Unntaket rører ingen komponent og intet intent-filter —
+   det er nettopp DET forbudet over finnes for — så det klippes ut av teksten
+   før den leses, og kreves samtidig å stå der. Faller unntaket bort, feiler
+   sjekken under; kommer det et direktiv til, feiler den over. */
+const TILLATT_DIREKTIV =
+  /<uses-permission\s+android:name="android\.permission\.SCHEDULE_EXACT_ALARM"\s+tools:node="remove"\s*\/>/;
+const raaManifest = (p) => utenXmlKommentarer(fs.readFileSync(p, 'utf8'));
+const hovedManifest = path.join(NATIV_SRC, 'main', 'AndroidManifest.xml');
+check('SCHEDULE_EXACT_ALARM trekkes tilbake fra varselpluginens manifest (appen bruker upresise alarmer)',
+  fs.existsSync(hovedManifest) && TILLATT_DIREKTIV.test(raaManifest(hovedManifest)));
 const medDirektiv = manifestFiler
-  .filter((p) => mergerDirektiv(utenXmlKommentarer(fs.readFileSync(p, 'utf8'))))
+  .filter((p) => mergerDirektiv(raaManifest(p).replace(TILLATT_DIREKTIV, '')))
   .map((p) => path.relative(ROOT, p));
-check('ingen av produksjonsmanifestene bruker merger-direktiver (teksten er da det APK-en får)',
+check('ingen andre merger-direktiver i produksjonsmanifestene (teksten er da det APK-en får)',
   medDirektiv.length === 0,
-  medDirektiv.join(', ') || manifestFiler.length + ' manifest uten tools:-direktiver');
+  medDirektiv.join(', ') || manifestFiler.length + ' manifest uten andre tools:-direktiver');
 /* Hvilken KOMPONENT filteret sitter på avgjør om lenken i det hele tatt når
    Huskis. Et komplett filter på en annen aktivitet, en `activity-alias`, en
    receiver eller en service tilfredsstiller hver eneste sjekk under uten at

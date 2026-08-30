@@ -165,7 +165,8 @@ const lekkasjer = alle.filter((f) => /(^|\/)(package(-lock)?\.json|capacitor\.co
 check('ingen tooling-filer noe sted i dist/ [' + (lekkasjer.join(', ') || 'ingen') + ']',
   lekkasjer.length === 0);
 
-['app.js', 'styles.css', 'icons.js', 'i18n.js', 'theme.js', 'config.js', 'update-check.js', 'favicon.svg', 'assets', 'vendor']
+['app.js', 'styles.css', 'icons.js', 'i18n.js', 'theme.js', 'config.js', 'update-check.js',
+  'favicon.svg', 'sw.js', 'assets', 'vendor']
   .forEach((n) => check('publiserer ' + n, names.indexOf(n) > -1));
 
 /* Og INGENTING ELLERS. Nektelistene over fanger bare det de nevner ved navn,
@@ -176,7 +177,7 @@ check('ingen tooling-filer noe sted i dist/ [' + (lekkasjer.join(', ') || 'ingen
    preview-deploy (`security-headers`, `csp-enforced`). Legger du til en ekte
    kildefil, hører den hjemme her. */
 const FASIT = ['index.html', 'version.json', 'favicon.svg', 'app.js', 'styles.css',
-  'icons.js', 'i18n.js', 'theme.js', 'config.js', 'update-check.js', 'assets', 'vendor'];
+  'icons.js', 'i18n.js', 'theme.js', 'config.js', 'update-check.js', 'sw.js', 'assets', 'vendor'];
 const uventet = names.filter((n) => FASIT.indexOf(n) === -1);
 check('publiserer ingenting utenom kildekoden [' + (uventet.join(', ') || 'ingen') + ']',
   uventet.length === 0);

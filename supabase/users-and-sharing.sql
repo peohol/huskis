@@ -551,6 +551,94 @@ create table if not exists public.notification_prefs (
 
 alter table public.notification_prefs enable row level security;
 
+-- Planens TIDSSONE (IANA, f.eks. 'Europe/Oslo') og når den sist ble hevdet.
+-- Terskeltidene i `notifications.at` er ABSOLUTTE millisekunder, regnet ut av
+-- klienten fra lokal veggtid — de hører derfor til ÉN sone. Feltene er ikke en
+-- inngang til serverside-beregning (serveren regner ingen terskler); de sier
+-- hvilken sone planen tilhører, og de er dempingen som hindrer to enheter i
+-- ulike soner fra å planlegge om hverandre hver eneste synk-runde.
+-- Autoritativt: docs/varsler.md, «Tidssonen planen tilhører».
+alter table public.notification_prefs add column if not exists tz text;
+alter table public.notification_prefs add column if not exists tz_at bigint not null default 0;
+
+-- ------------------------------------------------------------
+-- 4c. WEB PUSH — abonnementer og leveringskø
+--
+--    Den EKSTERNE leveringskanalen for nettleseren. Ingen ny varselmodell:
+--    en push er en LEVERING av en rad som allerede ligger i `notifications`
+--    (planlagt fram i tid av den samme generatoren), aldri en egen generator.
+--    Serveren tolker ingen terskler — den sender det klienten alt har logget,
+--    når radens `at` er nådd. Autoritativt: docs/varsler.md.
+--
+--    push_subscriptions — ett abonnement per nettleserprofil. `endpoint` er
+--      globalt unikt (det ER nettleserinstansen), så en ny innlogging i samme
+--      nettleser flytter abonnementet til den nye brukeren i stedet for å lage
+--      en dublett. `labels` er de fire typenavnene i BRUKERENS språk, hentet
+--      fra ordboken idet abonnementet ble skrevet: uten dem måtte enten SQL-en
+--      eller service workeren hatt sin egen kopi av i18n.
+--
+--    push_deliveries — utboksen: én rad per (varsel, abonnement). Den unike
+--      indeksen er idempotensen: det samme logiske varselet kan ikke sendes to
+--      ganger til det samme abonnementet, uansett hvor mange ganger
+--      notify_record() kjører. Kaskaden fra `notifications` er avlysningen:
+--      forsvinner raden (objektet slettet, fullført, tiden endret), forsvinner
+--      leveringen med den.
+--
+--    Utboksen er en LÅST tabell: RLS på, ingen policyer, ingen grants. Verken
+--    anon eller authenticated når den gjennom PostgREST. Den leses og skrives
+--    kun av push_claim()/push_report(), som er avgrenset til service_role.
+-- ------------------------------------------------------------
+
+create table if not exists public.push_subscriptions (
+  id          uuid primary key default gen_random_uuid(),
+  user_id     uuid not null references auth.users (id) on delete cascade,
+  endpoint    text not null,
+  -- Nøklene fra PushSubscription.getKey(), base64url uten padding. De er
+  -- nettleserens OFFENTLIGE mottakernøkler: de gjør det mulig å KRYPTERE til
+  -- abonnementet (RFC 8291), ikke å lese noe.
+  p256dh      text not null,
+  auth        text not null,
+  -- De fire typenavnene i klartekst på brukerens språk: {"dueOver": "…", …}.
+  labels      jsonb  not null default '{}'::jsonb,
+  tz          text,
+  created_at  bigint not null default (extract(epoch from now()) * 1000)::bigint,
+  seen_at     bigint not null default (extract(epoch from now()) * 1000)::bigint,
+  -- Satt når push-tjenesten svarer 404/410: endepunktet finnes ikke lenger.
+  -- Raden blir stående som et spor, men får aldri en ny levering.
+  disabled_at bigint
+);
+
+create unique index if not exists push_subscriptions_endpoint_idx
+  on public.push_subscriptions (endpoint);
+create index if not exists push_subscriptions_user_idx
+  on public.push_subscriptions (user_id) where disabled_at is null;
+
+alter table public.push_subscriptions enable row level security;
+
+create table if not exists public.push_deliveries (
+  id              bigint generated always as identity primary key,
+  notification_id uuid not null references public.notifications (id) on delete cascade,
+  subscription_id uuid not null references public.push_subscriptions (id) on delete cascade,
+  user_id         uuid not null references auth.users (id) on delete cascade,
+  due_at          bigint not null,
+  status          text   not null default 'pending'
+                    check (status in ('pending', 'sent', 'failed', 'gone')),
+  attempts        smallint not null default 0,
+  claimed_at      bigint,
+  done_at         bigint,
+  -- Kort feilkode/statuslinje fra push-tjenesten. ALDRI kroppen, aldri
+  -- endepunktet, aldri noe av varselets innhold.
+  error           text
+);
+
+create unique index if not exists push_deliveries_once_idx
+  on public.push_deliveries (notification_id, subscription_id);
+create index if not exists push_deliveries_due_idx
+  on public.push_deliveries (due_at) where status = 'pending';
+
+alter table public.push_deliveries enable row level security;
+revoke all on public.push_deliveries from public, anon, authenticated;
+
 -- ------------------------------------------------------------
 -- 5. ROLLER, LÅSER og CAPABILITIES
 --
@@ -1506,6 +1594,18 @@ drop policy if exists notification_prefs_select on public.notification_prefs;
 create policy notification_prefs_select on public.notification_prefs
   for select using (user_id = auth.uid());
 
+-- push_subscriptions: KUN egne rader, og kun lesing + sletting. Å opprette og
+-- fornye et abonnement går gjennom push_subscribe() (security definer, som
+-- setter user_id fra auth.uid() selv) — ellers kunne en klient skrevet et
+-- abonnement på en annens bruker-id og fått den brukerens varsler sendt til seg.
+-- Sletting er «slå av i denne nettleseren», og treffer bare mine egne rader.
+drop policy if exists push_subscriptions_select on public.push_subscriptions;
+create policy push_subscriptions_select on public.push_subscriptions
+  for select using (user_id = auth.uid());
+drop policy if exists push_subscriptions_delete on public.push_subscriptions;
+create policy push_subscriptions_delete on public.push_subscriptions
+  for delete using (user_id = auth.uid());
+
 -- ------------------------------------------------------------
 -- 8. DELINGS-RPC-ER (security definer)
 --    Deling finnes KUN på områder og mapper. Alt som gjelder lister,
@@ -2400,6 +2500,11 @@ begin
   -- ville tatt dem uansett; de står her fordi ryddingen skal være lesbar.
   delete from public.notifications where user_id = uid;
   delete from public.notification_prefs where user_id = uid;
+  -- Web push-abonnementene og det som ennå ligger i utboksen. Kaskaden ville
+  -- tatt dem uansett; de står her fordi ryddingen skal være lesbar — og fordi
+  -- et abonnement som ble stående ville sendt en push til en slettet konto.
+  delete from public.push_deliveries where user_id = uid;
+  delete from public.push_subscriptions where user_id = uid;
 
   -- 5. Profilen og selve kontoen.
   delete from public.profiles where id = uid;
@@ -2461,7 +2566,25 @@ begin
    where r.key is not null and r.at is not null
      and r.type in ('dueOver', 'dueSoon', 'startNow', 'startSoon')
      and r.obj_type in ('card', 'category', 'item')
-  on conflict (user_id, key) do nothing;
+  /* En rad som alt finnes røres ikke — MED ETT UNNTAK: en PLANLAGT rad (ennå
+     ikke forfalt, ikke utsatt) skal bære et ferskt øyeblikksbilde av navn og
+     sti. Det er den teksten web push leverer når raden forfaller, kanskje en
+     måned senere, og et objekt som er døpt om i mellomtiden skal varsle med
+     det navnet det HAR. Historikk skrives aldri om: en forfalt rad beskriver
+     hva som het hva da det skjedde, og `where`-en under er hele forskjellen.
+
+     Merk at `at` ikke oppdateres her. En endret terskeltid betyr at PLANEN er
+     en annen, ikke bare teksten — og den ryddes av opprydningen i klienten,
+     som måler hver planlagt rad mot planen og sletter den som ikke lenger står
+     der (docs/varsler.md). Å flytte tiden i en rad utenom den regelen ville
+     omgått den vurderingen. */
+  on conflict (user_id, key) do update
+     set name = excluded.name,
+         path = excluded.path
+   where notifications.at > now_ms
+     and not notifications.snoozed
+     and (notifications.name is distinct from excluded.name
+          or notifications.path is distinct from excluded.path);
   get diagnostics lagt = row_count;
 
   update public.notification_prefs
@@ -2475,6 +2598,11 @@ begin
                    where x.user_id = uid
                    order by x.created_at desc, x.id desc
                   offset 200);
+
+  -- PLANLAGTE rader (`at` fram i tid) er det web push leverer. Utboksen fylles
+  -- her, i den samme operasjonen som logget raden: en push er en levering av en
+  -- rad som allerede finnes, aldri en egen generator.
+  perform public.push_enqueue(uid);
 
   /* Hvor mange rader som FAKTISK ble lagt inn. Klienten trenger tallet: en
      kandidat som allerede finnes faller stille bort her, og uten svaret ville
@@ -2502,6 +2630,440 @@ begin
    where user_id = uid;
 end;
 $$;
+
+/* Hevder TIDSSONEN planen tilhører. Terskeltidene er absolutte millisekunder
+   regnet ut fra lokal veggtid, så de gjelder én sone; en enhet i en annen sone
+   ville regnet ut andre tider for de samme datoene. Klienten hevder sonen sin
+   FØR den planlegger, og bare når den forrige hevdelsen er blitt gammel — det
+   er dempingen som hindrer to enheter i ulike soner fra å planlegge om
+   hverandre i det uendelige (docs/varsler.md). Serveren håndhever ventetiden,
+   ikke bare klienten: to enheter kan ellers hevde i samme øyeblikk.
+   Returnerer sonen som gjelder ETTER kallet. */
+create or replace function public.notify_claim_tz(p_tz text, p_min_age_ms bigint default 0)
+returns text language plpgsql security definer set search_path = public as $$
+declare
+  uid    uuid   := auth.uid();
+  now_ms bigint := (extract(epoch from now()) * 1000)::bigint;
+  gjeldende text;
+begin
+  if uid is null then raise exception 'ikke innlogget'; end if;
+  if p_tz is null or p_tz = '' or length(p_tz) > 64 then raise exception 'ugyldig tidssone'; end if;
+  perform public.notify_prefs_row(uid);
+  update public.notification_prefs
+     set tz    = p_tz,
+         tz_at = now_ms
+   where user_id = uid
+     and (tz is null or tz = p_tz or now_ms - tz_at >= coalesce(p_min_age_ms, 0));
+  select tz into gjeldende from public.notification_prefs where user_id = uid;
+  return gjeldende;
+end;
+$$;
+
+-- ------------------------------------------------------------
+-- 8e. WEB PUSH-RPC-ER
+--
+--    To innganger for klienten (begge SECURITY DEFINER, begge setter user_id
+--    fra auth.uid() selv), og to for SENDEREN (avgrenset til service_role):
+--
+--    push_subscribe(endpoint, p256dh, auth, labels, tz)
+--      Registrerer ELLER fornyer denne nettleserens abonnement. Idempotent på
+--      `endpoint`: den samme nettleseren som melder seg på nytt (etter en
+--      `pushsubscriptionchange`, en ny innlogging eller bare en ny økt) får den
+--      samme raden oppdatert, ikke en ny. Et endepunkt som var slått av
+--      (404/410) våkner igjen — nettleseren har nettopp sagt at det virker.
+--      Etterpå fylles utboksen med de allerede planlagte varslene, så en helt
+--      ny enhet ikke må vente på neste generator-runde.
+--
+--    push_unsubscribe(endpoint)  — «slå av i denne nettleseren».
+--
+--    push_claim(limit)   — senderen henter og LÅSER forfalte leveringer.
+--    push_report(results)— senderen melder tilbake hva som skjedde.
+--
+--    Selve sendingen skjer utenfor databasen (Supabase Edge Function
+--    `push-send`): Web Push krever ES256-signering og RFC 8291-kryptering, som
+--    ikke finnes i SQL. Databasen eier køen, rekkefølgen og idempotensen;
+--    funksjonen eier HTTP-kallet. Se docs/varsler.md.
+-- ------------------------------------------------------------
+
+/* Er kalleren senderen? Rollen leses av det VERIFISERTE JWT-et PostgREST
+   legger i `request.jwt.claims` — ikke av `current_user`, som inne i en
+   SECURITY DEFINER-funksjon alltid er funksjonens eier og dermed ikke sier
+   noe om hvem som ringte. Grantene er det første laget; denne er det andre. */
+create or replace function public.is_service_role()
+returns boolean language sql stable set search_path = public as $$
+  select coalesce(
+    nullif(current_setting('request.jwt.claims', true), '')::jsonb ->> 'role',
+    '') = 'service_role';
+$$;
+
+/* Fyller utboksen for én bruker: én rad per (planlagt varsel, aktivt
+   abonnement). Bare rader med `at` FRAM I TID — en rad som logges etter at
+   terskelen passerte, ble observert av en app som sto åpen, og da har brukeren
+   allerede fått den i appen. Idempotent gjennom den unike indeksen.
+   INTERN: ingen EXECUTE til klientroller (se grants nederst). */
+create or replace function public.push_enqueue(p_uid uuid)
+returns integer language plpgsql security definer set search_path = public as $$
+declare
+  now_ms bigint := (extract(epoch from now()) * 1000)::bigint;
+  lagt   integer := 0;
+begin
+  if p_uid is null then return 0; end if;
+  insert into public.push_deliveries (notification_id, subscription_id, user_id, due_at)
+  select n.id, s.id, p_uid, n.at
+    from public.notifications n
+    join public.push_subscriptions s
+      on s.user_id = p_uid and s.disabled_at is null
+   where n.user_id = p_uid and n.at > now_ms
+  on conflict (notification_id, subscription_id) do nothing;
+  get diagnostics lagt = row_count;
+  return lagt;
+end;
+$$;
+
+/* Hvor mange aktive abonnementer én bruker får ha. Tallet står som en funksjon
+   og ikke som et magisk tall inne i push_subscribe(), slik at testene kan lese
+   det samme tallet som regelen bruker. */
+create or replace function public.push_sub_max()
+returns integer language sql immutable set search_path = public as $$ select 20 $$;
+
+create or replace function public.push_subscribe(p_endpoint text, p_p256dh text,
+                                                 p_auth text, p_labels jsonb default '{}'::jsonb,
+                                                 p_tz text default null)
+returns uuid language plpgsql security definer set search_path = public as $$
+declare
+  uid     uuid   := auth.uid();
+  now_ms  bigint := (extract(epoch from now()) * 1000)::bigint;
+  sub_id  uuid;
+  forrige uuid;
+  vert    text;
+begin
+  if uid is null then raise exception 'ikke innlogget'; end if;
+  if p_endpoint is null or p_endpoint = '' then raise exception 'mangler endepunkt'; end if;
+  /* HVA ET ENDEPUNKT ER. Verdien her blir målet for et HTTP-kall senderen gjør
+     på vegne av serveren, med brukerens konto som eneste inngangsbillett. Den
+     skal derfor se ut som en push-tjeneste, ikke som hva som helst.
+
+     Ingen liste over Google, Mozilla og Apple: Web Push har ingen fast
+     tjenesteliste, og en slik liste ville låst appen ute fra enhver nettleser
+     som ikke sto på den. Kravene under er dem standarden selv setter — https,
+     et vertsnavn, ingen kontrolltegn — pluss ett til: verten skal være et
+     NAVN. En bar IP-adresse eller `localhost` er ingen push-tjeneste; det er
+     en måte å be serveren banke på en dør på innsiden. */
+  if p_endpoint !~ '^https://[A-Za-z0-9._~%-]+(:[0-9]{1,5})?([/?#]|$)'
+     or p_endpoint ~ '[[:space:][:cntrl:]]'
+     or length(p_endpoint) > 2000 then
+    raise exception 'ugyldig endepunkt';
+  end if;
+  vert := lower(split_part(substring(p_endpoint from '^https://([^/?#]+)'), ':', 1));
+  if vert ~ '^[0-9.]+$' or vert = 'localhost' or vert like '%.localhost'
+     or vert like '%.local' then
+    raise exception 'ugyldig endepunkt';
+  end if;
+  if p_p256dh is null or p_auth is null then raise exception 'mangler nøkler'; end if;
+  /* NØKLENE har en fast form i RFC 8291: `p256dh` er et ukomprimert P-256-punkt
+     (65 byte) og `auth` er 16 byte, begge base64url fra `PushSubscription.
+     getKey()`. Grensene under er romsligere enn det — de skal ikke kunne låse
+     ute en nettleser som koder litt annerledes (padding) — men de holder
+     søppel og fyllmasse ute av en tabell senderen leser fra. */
+  if p_p256dh !~ '^[A-Za-z0-9_-]+=*$' or length(p_p256dh) not between 80 and 200
+     or p_auth !~ '^[A-Za-z0-9_-]+=*$' or length(p_auth) not between 16 and 40 then
+    raise exception 'ugyldige nøkler';
+  end if;
+
+  -- Hvem eide endepunktet FØR dette kallet? Svaret avgjør om køen som ligger
+  -- der fortsatt er ment for den som nå bruker nettleseren.
+  select user_id into forrige from public.push_subscriptions where endpoint = p_endpoint;
+
+  insert into public.push_subscriptions (user_id, endpoint, p256dh, auth, labels, tz)
+  values (uid, p_endpoint, p_p256dh, p_auth, coalesce(p_labels, '{}'::jsonb), p_tz)
+  on conflict (endpoint) do update
+     set user_id     = uid,
+         p256dh      = excluded.p256dh,
+         auth        = excluded.auth,
+         labels      = excluded.labels,
+         tz          = excluded.tz,
+         seen_at     = now_ms,
+         disabled_at = null
+  returning id into sub_id;
+
+  /* EIERSKIFTE. Endepunktet er nettleseren, og raden flyttes til den som
+     logger inn i den — men køen som lå der er den FORRIGE brukerens, og hver
+     av de leveringene bærer et objektnavn. Uten denne slettingen ville den nye
+     brukerens nettleser vist forrige brukers varsler i det de forfalt. Køen
+     tømmes derfor i den SAMME operasjonen som flytter raden. */
+  if forrige is not null and forrige <> uid then
+    delete from public.push_deliveries where subscription_id = sub_id;
+  end if;
+
+  /* TAKET. En bruker har en håndfull nettlesere, ikke tusen. Uten et tak kan
+     en innlogget konto registrere vilkårlig mange endepunkter, og hvert av dem
+     multipliserer BÅDE utboksen (én levering per planlagt varsel per
+     abonnement) og antallet HTTP-kall senderen gjør. Det er en forsterker med
+     en konto som eneste inngangsbillett, og den lukkes her.
+
+     Taket kaster ut den ELDST SETTE, ikke den nyeste: den som nettopp meldte
+     seg på er alltid den brukeren står med i hånden, og en bruker med mange
+     nettlesere skal miste den de sluttet å bruke — ikke bli stengt ute fra
+     den de bruker nå. Kaskaden tar utboksen til den som ryker med seg. */
+  delete from public.push_subscriptions s
+   where s.user_id = uid
+     and s.id <> sub_id                     -- den som nettopp meldte seg på ryker aldri
+     and s.id not in (select x.id from public.push_subscriptions x
+                       where x.user_id = uid and x.id <> sub_id
+                       order by x.seen_at desc, x.created_at desc, x.id desc
+                       limit greatest(public.push_sub_max() - 1, 0));
+
+  perform public.push_enqueue(uid);
+  return sub_id;
+end;
+$$;
+
+create or replace function public.push_unsubscribe(p_endpoint text)
+returns void language plpgsql security definer set search_path = public as $$
+declare uid uuid := auth.uid();
+begin
+  if uid is null then raise exception 'ikke innlogget'; end if;
+  delete from public.push_subscriptions where user_id = uid and endpoint = p_endpoint;
+end;
+$$;
+
+/* SENDERENS side. Begge er avgrenset til service_role — de leser andres rader
+   og må derfor aldri være kallbare med anon-nøkkelen (se grants nederst). Rolle-
+   sjekken står i tillegg til grantene: et bom i en senere grant-runde skal ikke
+   åpne dem stille.
+
+   push_claim() LÅSER det den leverer: `claimed_at` settes, og en levering
+   plukkes ikke opp igjen før låsen er blitt eldre enn p_lock_ms. Dermed kan to
+   samtidige kjøringer ikke sende det samme varselet to ganger, og en kjøring
+   som dør halvveis blir hentet inn igjen av den neste i stedet for å bli
+   stående. `for update skip locked` gjør det samme innenfor ett øyeblikk. */
+create or replace function public.push_claim(p_limit integer default 50,
+                                             p_lock_ms bigint default 300000)
+returns jsonb language plpgsql security definer set search_path = public as $$
+declare
+  now_ms bigint := (extract(epoch from now()) * 1000)::bigint;
+  result jsonb;
+begin
+  if not public.is_service_role() then raise exception 'kun service_role'; end if;
+
+  with forfalt as (
+    select d.id
+      from public.push_deliveries d
+     where d.status = 'pending'
+       and d.due_at <= now_ms
+       and (d.claimed_at is null or now_ms - d.claimed_at >= coalesce(p_lock_ms, 300000))
+       /* Abonnementet må fortsatt gjelde: eid av den samme brukeren, og ikke
+          slått av. Eierskiftet er andre lag — push_subscribe() tømmer køen —
+          så en rad som likevel skulle bli hengende igjen blir INERT i stedet
+          for å bli levert til feil bruker. `disabled_at` er svaret fra
+          push-tjenesten selv: 404/410 betyr at endepunktet er borte, og da er
+          resten av køen til det endepunktet like usendbar som den første. */
+       and exists (select 1 from public.push_subscriptions s
+                    where s.id = d.subscription_id
+                      and s.user_id = d.user_id
+                      and s.disabled_at is null)
+     order by d.due_at
+     limit greatest(coalesce(p_limit, 50), 1)
+       for update skip locked
+  ), tatt as (
+    update public.push_deliveries d
+       set claimed_at = now_ms, attempts = d.attempts + 1
+      from forfalt f
+     where d.id = f.id
+    returning d.id, d.notification_id, d.subscription_id
+  )
+  select coalesce(jsonb_agg(jsonb_build_object(
+           'id', t.id,
+           'endpoint', s.endpoint,
+           'p256dh', s.p256dh,
+           'auth', s.auth,
+           /* Kroppen service workeren viser. Navnet på objektet og
+              varseltypen i klartekst på brukerens språk — ingen sti, ingen
+              kontekst, ingen token, ingen id-er utover pekeren klikket
+              trenger. Kroppen krypteres ende-til-ende (RFC 8291), så
+              push-tjenesten ser den aldri. */
+           'payload', jsonb_build_object(
+             'k', n.key, 't', n.type, 'n', n.name,
+             'b', coalesce(s.labels ->> n.type, ''),
+             'ot', n.obj_type, 'oi', n.obj_id, 'at', n.at)
+         )), '[]'::jsonb)
+    into result
+    from tatt t
+    join public.notifications n on n.id = t.notification_id
+    join public.push_subscriptions s on s.id = t.subscription_id;
+
+  return result;
+end;
+$$;
+
+/* Resultatet av forsøket, per levering:
+     { "id": 12, "ok": true }                → sendt
+     { "id": 12, "gone": true }              → 404/410: abonnementet er dødt,
+                                               og slås av for godt
+     { "id": 12, "error": "503" }            → midlertidig; prøves igjen til
+                                               forsøkene er brukt opp
+   Et abonnement som er dødt slås av HER, ikke i senderen: da er avgjørelsen
+   ett sted, og en senere sender arver den uten å vite noe om HTTP. */
+create or replace function public.push_report(p_results jsonb)
+returns integer language plpgsql security definer set search_path = public as $$
+declare
+  now_ms bigint  := (extract(epoch from now()) * 1000)::bigint;
+  rørt   integer := 0;
+begin
+  if not public.is_service_role() then raise exception 'kun service_role'; end if;
+
+  with r as (
+    select x.id, coalesce(x.ok, false) as ok, coalesce(x.gone, false) as gone,
+           left(coalesce(x.error, ''), 200) as error
+      from jsonb_to_recordset(coalesce(p_results, '[]'::jsonb))
+        as x(id bigint, ok boolean, gone boolean, error text)
+     where x.id is not null
+  ), oppdatert as (
+    update public.push_deliveries d
+       set status  = case when r.ok then 'sent'
+                          when r.gone then 'gone'
+                          when d.attempts >= 5 then 'failed'
+                          else 'pending' end,
+           done_at = case when r.ok or r.gone or d.attempts >= 5 then now_ms else null end,
+           error   = nullif(r.error, ''),
+           -- En midlertidig feil skal kunne plukkes opp igjen med en gang.
+           claimed_at = case when r.ok or r.gone then d.claimed_at else null end
+      from r
+     where d.id = r.id
+    returning d.subscription_id, r.gone
+  )
+  update public.push_subscriptions s
+     set disabled_at = now_ms
+    from oppdatert o
+   where s.id = o.subscription_id and o.gone and s.disabled_at is null;
+
+  /* … og køen til et dødt endepunkt AVSLUTTES, den blir ikke bare liggende.
+     `push_claim()` ville aldri plukket den opp igjen (se der), men en rad som
+     står som `pending` i det uendelige er arbeid `push_tick()` våkner av hvert
+     minutt uten at noe kan lykkes. Her tar den slutt, eksplisitt.
+
+     Sveipet går over ALLE døde abonnementer, ikke bare det som nettopp ble
+     slått av: da rydder den også opp etter en rad som skulle ha blitt hengende
+     igjen fra før. */
+  update public.push_deliveries d
+     set status  = 'gone',
+         done_at = now_ms,
+         error   = coalesce(nullif(d.error, ''), 'abonnementet er dødt')
+   where d.status = 'pending'
+     and exists (select 1 from public.push_subscriptions s
+                  where s.id = d.subscription_id and s.disabled_at is not null);
+
+  select count(*) into rørt from jsonb_array_elements(coalesce(p_results, '[]'::jsonb));
+  return rørt;
+end;
+$$;
+
+/* KJØREPLANEN: pg_cron kaller denne, og den dytter Edge-funksjonen i gang med
+   pg_net — nøyaktig det samme oppsettet e-postvarselet allerede bruker
+   (8b), med hemmeligheten i Vault og adressen i app_config.
+
+   Uten konfigurasjon gjør den INGENTING og feiler ikke: web push er en
+   valgfri kanal, og en database uten nøkkel skal fungere som før. Den er
+   dessuten en ren dytt — all tilstand ligger i utboksen, så et tapt tikk
+   koster forsinkelse, ikke leveranser. Neste tikk tar det samme arbeidet. */
+/* Hvor mye arbeid som FAKTISK kan sendes akkurat nå. Ikke bare «pending og
+   forfalt»: en levering til et abonnement som er slått av (404/410) eller som
+   har byttet eier kan aldri lykkes, og skal derfor ikke vekke senderen. Står
+   som en egen funksjon fordi `push_tick()` og testene må måle det SAMME.
+   INTERN: ingen EXECUTE til klientroller (se grants nederst). */
+create or replace function public.push_due_count()
+returns bigint language sql stable set search_path = public as $$
+  select count(*)
+    from public.push_deliveries d
+    join public.push_subscriptions s on s.id = d.subscription_id
+   where d.status = 'pending'
+     and d.due_at <= (extract(epoch from now()) * 1000)::bigint
+     and s.user_id = d.user_id
+     and s.disabled_at is null;
+$$;
+
+/* HEADERNE tikket sender. Egen funksjon av samme grunn som `push_due_count()`:
+   `push_tick()` og testene må se det SAMME — og dette er lett å få galt.
+
+   De to nøkkeltypene skal IKKE ha like headere:
+
+     sb_secret_…    De nye API-nøklene er ikke JWT-er. Supabase dokumenterer at
+                    de sendes på `apikey`, og at en nøkkel som SAMTIDIG ligger
+                    på `Authorization: Bearer` blir forsøkt tolket som JWT og
+                    avvist med «Invalid JWT». Å sende begge for sikkerhets
+                    skyld ødelegger altså nettopp den veien vi vil bruke.
+
+     service_role   Den gamle nøkkelen ER et JWT, og pg_net har alltid sendt
+                    den på `Authorization`. Den får begge, uendret.
+
+   Kjennetegnet er formen: tre base64url-segmenter med punktum mellom er et
+   JWT. Signaturen sjekkes ikke — spørsmålet er bare om plattformen kommer til
+   å prøve å tolke verdien som et token.
+   INTERN: ingen EXECUTE til klientroller (se grants nederst). */
+create or replace function public.push_headers(p_key text)
+returns jsonb language sql immutable as $$
+  select case
+    when p_key ~ '^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$'
+      then jsonb_build_object('Content-Type', 'application/json',
+                              'apikey', p_key,
+                              'Authorization', 'Bearer ' || p_key)
+    else jsonb_build_object('Content-Type', 'application/json',
+                            'apikey', p_key)
+  end;
+$$;
+
+create or replace function public.push_tick()
+returns bigint language plpgsql security definer
+set search_path = public, extensions, net as $$
+declare
+  fn_url  text;
+  svc_key text;
+  ventende bigint;
+  req_id  bigint;
+begin
+  ventende := public.push_due_count();
+  if ventende = 0 then return null; end if;
+
+  select value into fn_url from public.app_config where key = 'push_function_url';
+  if fn_url is null or fn_url = '' then return null; end if;
+
+  begin
+    select decrypted_secret into svc_key from vault.decrypted_secrets
+     where name = 'push_service_key' limit 1;
+  exception when others then svc_key := null;
+  end;
+  if svc_key is null then
+    select value into svc_key from public.app_config where key = 'push_service_key';
+  end if;
+  if svc_key is null or svc_key = '' then return null; end if;
+
+  select net.http_post(
+      url := fn_url,
+      headers := public.push_headers(svc_key),
+      body := jsonb_build_object('reason', 'cron'),
+      timeout_milliseconds := 20000)
+    into req_id;
+  return req_id;
+exception when others then
+  -- Aldri kast: tikket er en dytt, ikke en transaksjon noen venter på.
+  return null;
+end;
+$$;
+
+/* KJØREPLANEN, hvis pg_cron er skrudd på i prosjektet. Ett tikk i minuttet er
+   den oppløsningen varslene trenger: tersklene er «frist utløpt» og «innen en
+   uke», ikke alarmer på sekundet, og et forsinket tikk taper ingenting —
+   utboksen står der til den er tømt.
+
+   Hoppes over uten pg_cron (lokal PostgreSQL, testsuiten). Idempotent:
+   `cron.schedule` med samme navn erstatter den forrige planen. */
+do $$
+begin
+  if exists (select 1 from pg_extension where extname = 'pg_cron') then
+    perform cron.schedule('huskis-push-tick', '* * * * *', 'select public.push_tick()');
+  end if;
+exception when others then null;   -- manglende rettighet skal ikke velte migreringen
+end $$;
 
 -- ------------------------------------------------------------
 -- 9. MEDLEMSLISTE — deduplisert, kategorisert og med capabilities
@@ -2760,8 +3322,16 @@ begin
     'notify_prefs', (select jsonb_build_object(
         'dueOver', p.due_over, 'dueSoon', p.due_soon,
         'startNow', p.start_now, 'startSoon', p.start_soon,
-        'cursor', p.cursor_at)
-      from public.notification_prefs p where p.user_id = uid)
+        'cursor', p.cursor_at,
+        -- Tidssonen planen tilhører, og når den sist ble hevdet. Klienten
+        -- planlegger kun når den holder sonen (docs/varsler.md).
+        'tz', p.tz, 'tzAt', p.tz_at)
+      from public.notification_prefs p where p.user_id = uid),
+    -- Hvor mange nettlesere som har web push på akkurat nå. Ett tall, ikke
+    -- endepunktene: innstillingen skal kunne si «og 2 andre» uten at doc-et
+    -- bærer adresser en annen fane kunne lest.
+    'push_devices', (select count(*) from public.push_subscriptions
+                      where user_id = uid and disabled_at is null)
   ) into result;
 
   return result;
@@ -3273,7 +3843,7 @@ drop index if exists public.share_invites_card_pending_key;
 revoke all on public.profiles, public.universes, public.groups, public.cards,
               public.items, public.memberships, public.share_invites,
               public.tombstones, public.notifications,
-              public.notification_prefs from anon;
+              public.notification_prefs, public.push_subscriptions from anon;
 
 -- profiles: e-posten speiles KUN fra auth.users (triggerne over) og er
 -- skrivebeskyttet for klienter — ellers kunne en bruker kapre ventende
@@ -3314,8 +3884,14 @@ grant select, insert, update, delete on public.universes, public.groups,
 --   notifications  | ✓ | – | ✓*| ✓ | *kun `read_at` (kolonne-grant). Rader
 --                  |   |   |   |   |  lages av notify_record(); DELETE er
 --                  |   |   |   |   |  «Tøm varsler» (docs/varsler.md).
---   notification_  | ✓ | – | – | – | skrives kun av notify_set_prefs() og
---     prefs        |   |   |   |   |  notify_record() (markøren).
+--   notification_  | ✓ | – | – | – | skrives kun av notify_set_prefs(),
+--     prefs        |   |   |   |   |  notify_record() (markøren) og
+--                  |   |   |   |   |  notify_claim_tz() (tidssonen).
+--   push_subscrip- | ✓ | – | – | ✓ | rader lages/fornyes av push_subscribe();
+--     tions        |   |   |   |   |  DELETE er «slå av i denne nettleseren».
+--   push_          | – | – | – | – | LÅST tabell: ingen policy, ingen grant.
+--     deliveries   |   |   |   |   |  Kun push_claim()/push_report()
+--                  |   |   |   |   |  (service_role).
 --
 -- Kolonnene uten ✓ er trukket tilbake under. `tests/db-contract.test.js` og
 -- smoke-testen holder matrisen og virkeligheten i takt.
@@ -3338,6 +3914,14 @@ grant update (read_at) on public.notifications to authenticated;
 -- notification_prefs leses direkte, men skrives kun av notify_set_prefs().
 revoke all on public.notification_prefs from authenticated;
 grant select on public.notification_prefs to authenticated;
+-- push_subscriptions: klienten ser sine egne abonnementer og kan slette dem
+-- («slå av i denne nettleseren»). Å OPPRETTE eller fornye et abonnement går
+-- gjennom push_subscribe(): uten den avgrensningen kunne en klient skrevet en
+-- rad med en annen bruker-id og fått den brukerens varsler sendt til seg.
+revoke all on public.push_subscriptions from authenticated;
+grant select, delete on public.push_subscriptions to authenticated;
+-- push_deliveries er utboksen og har ingen klientvei i det hele tatt.
+revoke all on public.push_deliveries from public, anon, authenticated;
 
 do $$
 declare fn text;
@@ -3359,7 +3943,10 @@ begin
     'public.import_doc(jsonb)',
     'public.delete_account()',
     'public.notify_record(jsonb, bigint)',
-    'public.notify_set_prefs(jsonb)'
+    'public.notify_set_prefs(jsonb)',
+    'public.notify_claim_tz(text, bigint)',
+    'public.push_subscribe(text, text, text, jsonb, text)',
+    'public.push_unsubscribe(text)'
   ] loop
     execute format('revoke execute on function %s from public, anon', fn);
     execute format('grant execute on function %s to authenticated', fn);
@@ -3371,6 +3958,24 @@ end $$;
 revoke all on function public.purge_universe_access(uuid, uuid) from public, anon, authenticated;
 revoke all on function public.purge_group_access(uuid, uuid) from public, anon, authenticated;
 revoke all on function public.notify_prefs_row(uuid) from public, anon, authenticated;
+revoke all on function public.push_enqueue(uuid) from public, anon, authenticated;
+revoke all on function public.push_due_count() from public, anon, authenticated;
+
+-- SENDERENS to funksjoner leser og skriver ANDRE brukeres leveringer. De skal
+-- derfor ikke kunne kalles med anon-nøkkelen eller av en innlogget bruker —
+-- kun av service_role, som bare senderen har. Rollesjekken inne i funksjonene
+-- er det andre laget; dette er det første.
+revoke all on function public.push_claim(integer, bigint) from public, anon, authenticated;
+revoke all on function public.push_report(jsonb) from public, anon, authenticated;
+revoke all on function public.push_headers(text) from public, anon, authenticated;
+revoke all on function public.push_tick() from public, anon, authenticated;
+do $$ begin
+  grant execute on function public.push_claim(integer, bigint) to service_role;
+  grant execute on function public.push_report(jsonb) to service_role;
+  grant execute on function public.push_headers(text) to service_role;
+  grant execute on function public.push_tick() to service_role;
+exception when undefined_object then null;  -- ingen service_role utenfor Supabase
+end $$;
 
 -- ------------------------------------------------------------
 -- 13. REALTIME — legg tabellene i supabase_realtime-publikasjonen.

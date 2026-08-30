@@ -26,4 +26,18 @@ window.SUPABASE_CONFIG = {
    å forgrene på. */
 window.HUSKIS_CONFIG = {
   canonicalAppUrl: 'https://huskis.no',
+
+  /* Web Push: den OFFENTLIGE halvdelen av VAPID-nøkkelparet (base64url, P-256).
+     Den er ment å ligge her — nettleseren trenger den for å melde seg på, og
+     den gir ingen tilgang til noe: den er identiteten senderen SIGNERER seg med
+     (RFC 8292), og bare den private halvdelen kan lage en gyldig signatur.
+     Den private ligger i Supabase Vault og finnes ingen steder i repoet.
+
+     TOM = kanalen finnes ikke. Uten en avsendernøkkel er det ingen sender å
+     melde seg på hos, og «Varsler på denne enheten» melder seg selv som ikke
+     støttet i stedet for å love noe som aldri kommer. Nøkkelparet lages én gang
+     og legges inn manuelt — stegene står i TODO.md. Android-varsler er upåvirket:
+     de er lokale på enheten og trenger ingen nøkkel.
+     Autoritativt: docs/varsler.md. */
+  pushPublicKey: '',
 };

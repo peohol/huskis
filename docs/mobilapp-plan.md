@@ -15,6 +15,7 @@ autoritative dokumentet for fagfeltet.
 |---|---|
 | Målarkitektur | Én HTML/CSS/JS-kodebase + Capacitor for Android/iOS |
 | Nåværende fase | **Fase 6 — Android intern distribusjon.** Repo-siden er innført: stabil release-signering, reproducerbar release-AAB fra CI, endelig package ID og butikkregelen for `versionCode`. Det som gjenstår er manuelt i Google Play Console. |
+| Native kapabiliteter | Systemets tilbakeknapp, safe areas, lifecycle-/network-signaler, OTA — og **lokale systemvarsler** (`@capacitor/local-notifications`, se «Native varsler» under). Ingen andre native plugins. |
 | Status — fase 3 | **Ferdigkriteriet er nådd.** Alle seks punktene er avgjort: systemets tilbakeknapp og safe areas/systemfeltene/skjermtastaturet, begge verifisert på fysisk telefon; eksterne lenker og auth-/e-postlenker, som begge er beslutninger uten kode og derfor ikke har noe å prøve på en telefon; sikker lagring/`android:allowBackup`, der sikkerhetskopien av WebView-lagringen er slått av; og lifecycle-/network-signalene, målt på enhet med sonden. `navigator.onLine` er bekreftet dødt uten `ACCESS_NETWORK_STATE`, og tillatelsen er lagt inn med vakt. Gjenopptakelsen er tilskrevet: et `get_my_doc` står i enhetsloggen merket `by: 'visibilitychange'`. Målingen viste samtidig at hendelsen IKKE leveres når Android har fryst prosessen — der starter pollets forfalte tikk runden i samme øyeblikk som opptiningen. Begge ledd er dermed bærende, hvert i sitt regime (se seksjonen). Ingen native plugin er innført. Automatisk dekket av `tests/safe-area.test.js`, `tests/landscape-chrome.test.js`, `tests/system-back.test.js`, `tests/sync-foreground.test.js` (del 2 og del 6 kjører hvert sitt regime) og `tests/capacitor-android.test.js`. |
 | Status — fase 4 | Fase 4s ferdigkriterium er **oppfylt**: en kjørende APK og en Vercel-preview bygget av samme commit rapporterte den samme `releaseId` (`d10867a7c0a6`) med hver sin `buildId`, lest på telefon. Alle sju punktene er avgjort. Fem er implementert: kartleggingen av dagens release-identiteter, `releaseId` er definert og generert i `build.js`, web og Android bygget fra samme commit rapporterer den samme verdien, `version.json` er utvidet additivt uten at cache- eller reload-sikkerheten er rørt, og kompatibilitetsregelen mellom klientrelease og databaseskjema er skrevet ned ([`release-og-deploy.md`](release-og-deploy.md)). De to siste er beslutninger, ikke kode — `minimumSupportedRelease` og valget mellom byte-identisk artifact og separate builds — sto åpne til OTA ga dem en konsekvens, og er nå avgjort i fase 5: ingen nedre grense, og separate builds med samme `releaseId` (se «De to punktene fra fase 4 får sitt svar her»). Automatisk dekket av `tests/build-version.test.js`, `tests/auto-update.test.js` og `tests/capacitor-android.test.js`. |
 | Status — fase 5 | **Ferdigkriteriet er oppfylt på fysisk Android.** Installasjon A beviste produksjonskjeden: et `versionCode 3`-skall fra `0ebb737` lastet ned og stilte opp en senere produksjonsbundle, Java godtok produksjonssignaturen, `updateSafety()` blokkerte byttet offline og under synk, origin/sesjon/data overlevde byttet, OTA-aktiveringen var varig, og fire flymodus-kaldstarter nådde `ready()` på 249–314 ms mot `readyTimeout = 10000` ms — også med token nær utløp. Installasjon B beviste fallbacken på måleriggen: både `rig-broken-1` (`throw`) og `rig-broken-2` (`blank`) ble rullet tilbake til innebygd bundle og sperret varig; for `rig-broken-2` ble hele signaturen lest direkte som `rollback: true`, `previousBundleId: 'rig-broken-2'`, klientkarantene og pluginblokkliste. Råmålingene står i fase 5-seksjonen. |
@@ -24,7 +25,9 @@ autoritative dokumentet for fagfeltet.
 | Neste praktiske steg — fase 4 | Ingen. Fasen er ferdig; de to «vurder …»-punktene fikk sitt svar i fase 5 |
 | Neste praktiske steg — fase 5 | Ingen. Fasen er ferdig; produksjons-OTA, readiness, rollback og karantene er målt på fysisk Android |
 | Neste praktiske steg — fase 6 | Opprett Google Play Developer-kontoen, lag upload-nøkkelen og legg inn de fire `ANDROID_UPLOAD_*`-secretene — så kan «Android release-AAB» kjøres og AAB-en lastes opp til internt testspor (fase 6, «Slik lager du upload-nøkkelen»). Butikkoppføringens egen grafikk (512×512-ikon, screenshots) lages i Play Console; appikonet i binæren er på plass |
+| Neste praktiske steg — varsler | Kjør den fysiske Android-runden for varselkanalen (se «Native varsler», «Det som MÅ prøves på telefon»). Koden og de automatiske vaktene er på plass; ingenting av den native leveringen er prøvd på en enhet ennå. Det tyngste punktet er tidssonebyttet med appen HELT lukket — framgangsmåten står i listen |
 | OTA | Innført ende til ende og verifisert på fysisk Android: signert produksjonsbundle, manifest per native nivå, native nedlasting, oppstilling, trygg aktivering, varig aktivering, readiness, rollback og karantene. Ferdigkriteriet er oppfylt |
+| Varsler | **Innført, ikke fysisk verifisert.** Android får lokale systemvarsler planlagt på enheten; nettleseren får web push. Begge leverer den samme planen generatoren allerede logger ([`varsler.md`](varsler.md)) — ingen ny varselmodell. Alarmene følger telefonens tidssone også når appen er lukket, gjennom en `TIMEZONE_CHANGED`-mottaker som regner om de planlagte alarmene og skriver den korrigerte tiden tilbake til pluginens lagring (`varsler.md`, «Når sonen endres mens appen ikke kjører»). Automatisk dekket av `tests/notif-channels.test.js`, `tests/notif-plan.test.js`, `tests/notif-timezone-native.test.js`, `tests/push-crypto.test.js`, `tests/push-auth.test.js`, `tests/capacitor-android.test.js` og `android/app/src/test/…/HuskisWallClockTest.java`. Den fysiske runden gjenstår |
 | iOS | Senere fase; ikke en del av første implementering |
 
 ### Slik holdes planen levende
@@ -2673,12 +2676,105 @@ krever egne butikkbinaries.
 
 ---
 
+# Native varsler
+
+**Mål:** levere de samme varslene Huskis allerede genererer også når appen er
+lukket — uten en ny varselmodell, og uten en pushserver på Android.
+
+Modellen, tersklene, planen, tillatelsene og teksten er dokumentert i
+[`varsler.md`](varsler.md), som er autoritativ. Her står bare det som er
+NATIVT, og hva som gjenstår å prøve på en telefon.
+
+## Hva som er innført
+
+`@capacitor/local-notifications` er den fjerde og siste native avhengigheten
+(etter `@capacitor/core`, `@capacitor/android` og OTA-pluginen), pinnet eksakt
+som de andre. Web-laget kaller den gjennom den samme pluginbroen fase 5 bruker,
+bak den samme gaten — `tests/capacitor-android.test.js` låser at broen bare
+leses for de to kjente pluginene.
+
+Valget er LOKALE alarmer, ikke push: telefonen har planen selv og vekker seg
+selv. Det gir tre ting på én gang — ingen pushserver i kjeden, riktig lokal
+veggtid uten en sone å oversette til, og ingenting som må ut av enheten for at
+et varsel skal komme fram.
+
+**SCHEDULE_EXACT_ALARM er trukket tilbake** med `tools:node="remove"`.
+Pluginen erklærer den i sitt eget manifest, og uten linjen ville
+manifest-fletteren tatt den inn i binæren. Tillatelsen er «special access»:
+Google Play krever et eget skjema for at en app skal få be om den. Huskis
+trenger den ikke — hvert varsel planlegges med `isExactNotification: false`,
+som gir `AlarmManager.setAndAllowWhileIdle()`: upresist, men det fyrer også i
+dvale, og «fristen er utløpt» tåler noen minutter. Dette er det ENESTE
+merger-direktivet i produksjonsmanifestet, og vakten i
+`tests/capacitor-android.test.js` er skrevet som en alleliste på nøyaktig den
+teksten.
+
+POST_NOTIFICATIONS (Android 13+) flettes derimot INN fra pluginen og skal det:
+den er selve varseltillatelsen, og adapteren ber om den bak et brukertrykk i
+varselinnstillingene — aldri ved oppstart.
+
+Statuslinje-ikonet er `ic_stat_huskis` (`res/drawable/`), merkets tre
+kortkonturer som maske. Uten et konfigurert ikon bruker pluginen Androids egen
+`ic_dialog_info`.
+
+## Det som MÅ prøves på telefon
+
+**Ingenting av dette er prøvd på en enhet.** Punktene under er fasen sitt
+ferdigkriterium, og de skal ikke krysses av før de faktisk er kjørt:
+
+- [ ] tillatelsesdialogen kommer ved bryteren, og bare der;
+- [ ] varsel i forgrunn, i bakgrunn, og etter at prosessen er drept;
+- [ ] varsel etter en telefonrestart (pluginens `BOOT_COMPLETED`-mottaker skal
+      stille opp igjen det som var planlagt);
+- [ ] trykk på varselet åpner riktig Huskis-objekt — også fra kaldstart, der
+      pekeren må vente på at innlogging og første synk er ferdige;
+- [ ] en endret frist avlyser den gamle planen og legger en ny;
+- [ ] fullføring avlyser den framtidige planen;
+- [ ] offline ved tidspunktet: alarmen er lokal og skal fyre uansett;
+- [ ] et tidssonebytte MENS APPEN KJØRER — at den gamle alarmen faktisk er
+      BORTE etter byttet, ikke bare at en ny er lagt inn (maskinelt dekket av
+      `tests/notif-channels.test.js` 2n–2v, men bare mot en fake pluginbro);
+- [ ] et tidssonebytte MENS APPEN ER HELT LUKKET — den vanskelige, og den
+      eneste som krever et bestemt oppsett. Framgangsmåte:
+      1. planlegg et varsel et par dager fram med et klokkeslett du kjenner
+         (f.eks. en frist kl. 09:00), og la Huskis synke;
+      2. **tving prosessen ut av minnet** — «Recents» → sveip appen bort. Ikke
+         «Tving stopp» i innstillingene: en app i *stopped state* får ingen
+         kringkastinger i det hele tatt, og da prøver du Androids regel, ikke
+         Huskis' kode;
+      3. Innstillinger → System → Dato og tid: slå AV automatisk tidssone og
+         velg en annen sone med en tydelig forskyvning (Oslo → Tokyo);
+      4. **åpne ikke Huskis.** Kontroller i stedet at alarmen er flyttet:
+         `adb shell dumpsys alarm | grep -A 3 no.huskis.app` viser det nye
+         tidspunktet;
+      5. **restart telefonen**, uten å åpne Huskis, og se på `dumpsys alarm`
+         igjen: tidspunktet skal fortsatt være det korrigerte, ikke det gamle
+         (pluginens oppstartsgjenoppretting leser den korrigerte tiden fra
+         lagringen);
+      6. la varselet forfalle og bekreft at det kommer på riktig lokal klokke,
+         med riktig tekst, og at det bare kommer ÉN gang.
+      Selve omregningen er maskinelt dekket av
+      `android/app/src/test/…/HuskisWallClockTest.java` (kjøres av
+      `./gradlew testDebugUnitTest` i debug-APK-jobben) og koblingen mellom
+      lagene av `tests/notif-timezone-native.test.js`. Det ingen av dem kan se,
+      er om Android faktisk LEVERER kringkastingen til akkurat denne appen på
+      akkurat denne telefonen — det er dette punktet;
+- [ ] en DST-overgang — at et varsel planlagt før overgangen kommer på riktig
+      klokkeslett etter den. Dette skal virke UTEN noe ekstra ledd: veggtiden
+      ble regnet om til riktig instans allerede da planen ble lagt
+      ([`varsler.md`](varsler.md));
+- [ ] en OTA-oppdatering ødelegger ikke adapteren.
+
+Fram til den runden er kjørt, står varselkanalen som **innført, ikke
+verifisert** i statustabellen øverst.
+
+---
+
 ## Senere muligheter — ikke del av minimumsløypa
 
 Disse vurderes først etter stabil offentlig mobilrelease og bare dersom de gir
 konkret brukerverdi:
 
-- pushvarsler;
 - haptisk feedback;
 - biometrisk opplåsing;
 - widgets/shortcuts;

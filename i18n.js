@@ -379,6 +379,27 @@
     'notif.toastLabel':      ['{kind}: {name}. {msg}. Åpne varselet.',
                               '{kind}: {name}. {msg}. Open the notification.'],
 
+    /* ---- De EKSTERNE kanalene: Android-varsler og web push ----
+       Kanalen er per ENHET (nettleser eller app-installasjon), mens de fire
+       typene over er per BRUKER. Teksten under bryteren forklarer hvorfor
+       tillatelsen trengs FØR systemdialogen utløses — den skal aldri komme
+       som et overraskelsesangrep ved første sidevisning. */
+    'notif.channel.title':   ['Varsler på denne enheten', 'Notifications on this device'],
+    'notif.channel.lead':    ['Få de samme varslene som systemvarsler, også når Huskis er lukket. Enheten spør om tillatelse når du slår det på.',
+                              'Get the same notifications as system notifications, also when Huskis is closed. Your device will ask for permission when you turn this on.'],
+    'notif.channel.on':      ['På. Varslene kommer også når Huskis er lukket.',
+                              'On. Notifications arrive even when Huskis is closed.'],
+    'notif.channel.onMore.one':   ['På her og på {n} annen enhet.', 'On here and on {n} other device.'],
+    'notif.channel.onMore.other': ['På her og på {n} andre enheter.', 'On here and on {n} other devices.'],
+    'notif.channel.denied':  ['Blokkert. Slå på varsler for Huskis i enhetens innstillinger, og prøv igjen.',
+                              'Blocked. Allow notifications for Huskis in your device settings, then try again.'],
+    'notif.channel.unsupported': ['Denne enheten kan ikke vise varsler utenfor Huskis. Varslene står fortsatt i listen her.',
+                                  'This device cannot show notifications outside Huskis. They are still listed here.'],
+    'notif.channel.failed':  ['Varslene ble ikke slått på. Prøv igjen.',
+                              'Notifications were not turned on. Try again.'],
+    'notif.channel.offFailed': ['Varslene ble ikke slått av. Prøv igjen.',
+                                'Notifications were not turned off. Try again.'],
+
     /* ---- «Flytt til …» ---- */
     'move.outOfCategory': ['Ut av kategorien (i «{list}»)', 'Out of the category (in “{list}”)'],
     'move.toCategory':    ['Kategorien «{name}»', 'The category “{name}”'],

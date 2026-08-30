@@ -36,6 +36,8 @@ utenfor migreringen og produksjonsdeployen.
                                           tre forsøk med økende pause)
 3. smoke       psql: supabase/smoke-test.sql
                  ↓ needs                 (read-only transaksjon mot produksjon)
+                 ├───────────────→ 3b. pushfunksjon (VED SIDEN AV, ikke en port)
+                 ↓ needs                    supabase functions deploy push-send
 4. deploy      preflight mot Vercels API → OTA-bundle (bygget + signert)
                → vercel deploy --prod
 ```
@@ -44,6 +46,35 @@ Builden i ledd 4 kjører HOS Vercel, ikke på runneren — altså som da
 git-integrasjonen deployet `main`, bare startet fra denne jobben i stedet.
 Porten er uendret: jobben ligger bak `needs: smoke`, så opplastingen skjer
 først etter at migreringen er verifisert.
+
+### Ledd 3b: web push-senderen
+
+Edge-funksjonen `push-send` er senderen for web push
+([`varsler.md`](varsler.md)). Den hører til SERVERSIDEN, ikke til frontenden, og
+deployes derfor etter smoke-testen: den kaller `push_claim()`/`push_report()`,
+som migreringen lager.
+
+Den er bevisst **ikke en port for ledd 4.** Web push er en valgfri kanal som
+ingenting annet i appen avhenger av — in-app-varslene virker uansett — og en
+feilet funksjonsdeploy skal ikke holde en frontend tilbake. Rekkefølgen
+migrering → smoke → deploy er dermed uendret.
+
+Uten `SUPABASE_ACCESS_TOKEN` og `SUPABASE_PROJECT_REF` hopper jobben stille over
+og er grønn: web push er ikke satt opp i alle miljøer, og en release skal ikke
+kreve det. ER den satt opp, er en feil her ekte og skal være rød.
+`tests/release-pipeline.test.js` låser begge halvdelene — at jobben venter på
+smoke, og at deployen ikke venter på den.
+
+To detaljer i selve kommandoen er også låst der, for begge er stille feil:
+
+- **CLI-en kjøres med `npx`, ikke `npm install -g`.** Supabase-pakken nekter en
+  global installasjon (postinstall kaster), så jobben ville dødd på
+  installasjonssteget. Versjonen står fortsatt eksakt.
+- **`--no-verify-jwt`.** Kallet inn til funksjonen er service-to-service
+  (`pg_cron` → `pg_net`), og Supabases mønster for det er en secret key på
+  `apikey`-headeren. En secret key er ikke et JWT, så plattformens
+  JWT-verifisering ville avvist tikket før funksjonen fikk se nøkkelen. Porten
+  er funksjonens egen sjekk ([`varsler.md`](varsler.md)).
 
 **OTA-bundelen for Android bygges i det samme leddet, rett før opplastingen.**
 `.github/scripts/ota-bundle.js` pakker `dist/` til `ota/bundles/<buildId>.zip`,
@@ -298,9 +329,16 @@ pågående release.
 | `VERCEL_ORG_ID` | `.vercel/project.json` etter `vercel link` | deploy |
 | `VERCEL_PROJECT_ID` | samme fil | deploy |
 | `OTA_SIGNING_KEY` | privat RSA-nøkkel, PKCS#8 PEM (`openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:4096`). Den offentlige halvdelen står som `publicKey` i `capacitor.config.json` og er pakket inn i APK-en | deploy (OTA-signeringen) |
+| `SUPABASE_ACCESS_TOKEN` | Supabase → Account → Access Tokens | pushfunksjon (**valgfri**) |
+| `SUPABASE_PROJECT_REF` | prosjekt-ref-en fra Supabase-URL-en | pushfunksjon (**valgfri**) |
 
-Mangler en av dem, feiler jobben med en eksplisitt melding om hvilken — den
-feiler ALDRI stille videre til neste ledd. `OTA_SIGNING_KEY` behandles likt:
+Mangler en av de fem første, feiler jobben med en eksplisitt melding om hvilken
+— den feiler ALDRI stille videre til neste ledd. De to siste er unntaket, og
+det er bevisst: web push er en valgfri kanal, og uten dem hopper ledd 3b over
+med en advarsel i stedet for å stoppe en release som ikke trenger den
+([`varsler.md`](varsler.md)). Selve VAPID-privatnøkkelen er ikke en
+GitHub-secret i det hele tatt — den bor i Supabase Vault, der senderen leser
+den. `OTA_SIGNING_KEY` behandles likt:
 uten den stopper releasen, i stedet for å publisere en bundle ingen telefon kan
 verifisere (pluginen er fail closed på signatur). Privatnøkkelen forlater aldri
 runneren — den leses ett sted, som miljøvariabel, og skrives aldri ut. Merk at siden Vercels git-deploy for

@@ -6,6 +6,9 @@
     "SystemBars": {
       "style": "DEFAULT"
     },
+    "LocalNotifications": {
+      "smallIcon": "ic_stat_huskis"
+    },
     "LiveUpdate": {
       "autoUpdateStrategy": "none",
       "autoBlockRolledBackBundles": true,

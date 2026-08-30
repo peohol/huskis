@@ -40,6 +40,7 @@ style-src 'self' 'sha256-…';
 font-src 'self';
 img-src 'self' data: blob:;
 connect-src 'self' https://<prosjekt>.supabase.co wss://<prosjekt>.supabase.co https://huskis.no;
+worker-src 'self';
 form-action 'self';
 frame-ancestors 'none'          ← kun som HTTP-header
 ```
@@ -70,6 +71,20 @@ i `connect-src`.
 ([`auto-update.md`](auto-update.md)). `form-action 'self'` er med fordi
 skjemaene i appen (innlogging, navn, e-post, passord) sendes med JavaScript og
 `preventDefault()`; en injisert `<form action="https://…">` kommer ingen vei.
+
+`worker-src 'self'` er skrevet ut selv om `script-src` ville dekket det gjennom
+CSP-ens tilbakefallskjede. Direktivet gjelder én ting og bare én: service
+workeren `sw.js`, som registreres når brukeren slår på varsler i nettleseren
+([`varsler.md`](varsler.md)). Skrevet ut står regelen der noen som leter etter
+den ser den, i stedet for å måtte utlede den fra en fallback — og en senere
+endring i `script-src` kan ikke stille åpne eller stenge for arbeidere.
+
+Service workeren gjør ingen forespørsler: den har ingen `fetch`-lytter, ingen
+cache og ingen nettverkskall, bare `showNotification` og `clients`. Den utvider
+altså ikke policyen med noe som helst. Selve pushen kommer INN gjennom
+nettleserens egen pushtjeneste og er ikke en forespørsel siden gjør, så den er
+ikke CSP-ens bord; avsendernøkkelen i `config.js` er en offentlig VAPID-nøkkel og
+ikke en adresse ([`varsler.md`](varsler.md), «Nøkkelparet»).
 
 ### OTA-manifestet leses på tvers av origin — derfor har det en CORS-header
 

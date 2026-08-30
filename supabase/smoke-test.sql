@@ -56,6 +56,7 @@ begin
     'profiles', 'universes', 'groups', 'cards', 'items',
     'memberships', 'share_invites', 'tombstones',
     'notifications', 'notification_prefs',
+    'push_subscriptions', 'push_deliveries',
     'migration_log', 'app_config', 'email_send_log'
   ] loop
     if to_regclass('public.' || t) is null then
@@ -124,7 +125,22 @@ begin
 
     'notification_prefs:user_id', 'notification_prefs:due_over',
     'notification_prefs:due_soon', 'notification_prefs:start_now',
-    'notification_prefs:start_soon', 'notification_prefs:cursor_at'
+    'notification_prefs:start_soon', 'notification_prefs:cursor_at',
+    'notification_prefs:tz', 'notification_prefs:tz_at',
+
+    -- Web push (docs/varsler.md): klienten leser sine egne abonnementer og
+    -- sletter dem; rader lages av push_subscribe(). Utboksen er serverens.
+    'push_subscriptions:id', 'push_subscriptions:user_id',
+    'push_subscriptions:endpoint', 'push_subscriptions:p256dh',
+    'push_subscriptions:auth', 'push_subscriptions:labels',
+    'push_subscriptions:tz', 'push_subscriptions:created_at',
+    'push_subscriptions:seen_at', 'push_subscriptions:disabled_at',
+
+    'push_deliveries:id', 'push_deliveries:notification_id',
+    'push_deliveries:subscription_id', 'push_deliveries:user_id',
+    'push_deliveries:due_at', 'push_deliveries:status',
+    'push_deliveries:attempts', 'push_deliveries:claimed_at',
+    'push_deliveries:done_at', 'push_deliveries:error'
   ] loop
     tbl := split_part(spec, ':', 1);
     col := split_part(spec, ':', 2);
@@ -152,6 +168,7 @@ begin
     'profiles', 'universes', 'groups', 'cards', 'items',
     'memberships', 'share_invites', 'tombstones',
     'notifications', 'notification_prefs',
+    'push_subscriptions', 'push_deliveries',
     'migration_log', 'app_config', 'email_send_log'
   ] loop
     select relrowsecurity into paa from pg_class
@@ -190,7 +207,9 @@ begin
     'tombstones:tombstones_select',
     'notifications:notifications_select', 'notifications:notifications_update',
     'notifications:notifications_delete',
-    'notification_prefs:notification_prefs_select'
+    'notification_prefs:notification_prefs_select',
+    'push_subscriptions:push_subscriptions_select',
+    'push_subscriptions:push_subscriptions_delete'
   ] loop
     select count(*) into n from pg_policies
      where schemaname = 'public'
@@ -204,7 +223,7 @@ begin
     perform set_config('huskis.smoke_feil',
       current_setting('huskis.smoke_feil', true) || array_to_string(feil, E'\n') || E'\n', false);
   else
-    raise notice '  ✓ alle 28 policyene finnes';
+    raise notice '  ✓ alle 30 policyene finnes';
   end if;
 end $$;
 
@@ -233,7 +252,10 @@ begin
     'public.move_group(uuid, uuid, uuid, double precision)',
     'public.delete_account()',
     'public.notify_record(jsonb, bigint)',
-    'public.notify_set_prefs(jsonb)'
+    'public.notify_set_prefs(jsonb)',
+    'public.notify_claim_tz(text, bigint)',
+    'public.push_subscribe(text, text, text, jsonb, text)',
+    'public.push_unsubscribe(text)'
   ] loop
     oid_ := to_regprocedure(fn);
     if oid_ is null then
@@ -251,7 +273,7 @@ begin
     perform set_config('huskis.smoke_feil',
       current_setting('huskis.smoke_feil', true) || array_to_string(feil, E'\n') || E'\n', false);
   else
-    raise notice '  ✓ alle 17 RPC-ene finnes med riktig signatur og rettigheter';
+    raise notice '  ✓ alle 20 RPC-ene finnes med riktig signatur og rettigheter';
   end if;
 end $$;
 
@@ -275,7 +297,10 @@ begin
     'public.universe_member_count(uuid)', 'public.group_member_count(uuid)',
     'public.universe_owner_count(uuid)', 'public.universe_owner_set(uuid)',
     'public.write_tombstone()', 'public.guard_object_insert()',
-    'public.handle_new_user()', 'public.send_invite_email()'
+    'public.handle_new_user()', 'public.send_invite_email()',
+    -- Taket på antall abonnementer per bruker. push_subscribe() kaller den for
+    -- hver påmelding; mangler den, feiler hver eneste påmelding.
+    'public.push_sub_max()'
   ] loop
     oid_ := to_regprocedure(fn);
     if oid_ is null then feil := array_append(feil, 'funksjon ' || fn || ' mangler'); end if;
@@ -285,7 +310,11 @@ begin
   foreach fn in array array[
     'public.purge_universe_access(uuid, uuid)',
     'public.purge_group_access(uuid, uuid)',
-    'public.notify_prefs_row(uuid)'
+    'public.notify_prefs_row(uuid)',
+    -- Senderens kø-teller: leser ALLE brukeres leveringer.
+    'public.push_due_count()',
+    -- Headerne tikket sender. Tar imot selve secret key-en som argument.
+    'public.push_headers(text)'
   ] loop
     oid_ := to_regprocedure(fn);
     if oid_ is null then
@@ -400,11 +429,42 @@ begin
     end if;
   end loop;
 
+  -- Web push: SELECT + DELETE på egne abonnementer, aldri INSERT/UPDATE (den
+  -- veien går gjennom push_subscribe(), som setter user_id selv). Utboksen har
+  -- ingen klientvei i det hele tatt, og senderens to funksjoner må være stengt
+  -- for både anon og authenticated — de leser ANDRE brukeres leveringer.
+  if not has_table_privilege('authenticated', 'public.push_subscriptions', 'SELECT, DELETE') then
+    feil := array_append(feil, 'authenticated mangler SELECT/DELETE på push_subscriptions');
+  end if;
+  foreach t in array array['INSERT', 'UPDATE'] loop
+    if has_table_privilege('authenticated', 'public.push_subscriptions', t) then
+      feil := array_append(feil, 'authenticated KAN ' || t || ' på push_subscriptions (skal kun gå via push_subscribe())');
+    end if;
+  end loop;
+  foreach t in array array['SELECT', 'INSERT', 'UPDATE', 'DELETE'] loop
+    if has_table_privilege('authenticated', 'public.push_deliveries', t) then
+      feil := array_append(feil, 'authenticated KAN ' || t || ' på push_deliveries (utboksen er serverens)');
+    end if;
+  end loop;
+  foreach t in array array['public.push_claim(integer, bigint)', 'public.push_report(jsonb)',
+                           'public.push_tick()', 'public.push_enqueue(uuid)'] loop
+    if to_regprocedure(t) is null then
+      feil := array_append(feil, 'funksjon ' || t || ' mangler');
+    else
+      if has_function_privilege('authenticated', to_regprocedure(t), 'EXECUTE') then
+        feil := array_append(feil, t || ': authenticated HAR EXECUTE (skal være trukket tilbake)');
+      end if;
+      if has_function_privilege('anon', to_regprocedure(t), 'EXECUTE') then
+        feil := array_append(feil, t || ': anon HAR EXECUTE (skal være trukket tilbake)');
+      end if;
+    end if;
+  end loop;
+
   -- anon skal ikke se noe som helst.
   foreach t in array array[
     'profiles', 'universes', 'groups', 'cards', 'items',
     'memberships', 'share_invites', 'tombstones',
-    'notifications', 'notification_prefs'
+    'notifications', 'notification_prefs', 'push_subscriptions', 'push_deliveries'
   ] loop
     if has_table_privilege('anon', 'public.' || t, 'SELECT') then
       feil := array_append(feil, 'anon har SELECT på public.' || t);

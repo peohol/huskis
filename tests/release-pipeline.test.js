@@ -113,6 +113,84 @@ for (const [jobb, avhenger] of kjede) {
 check('«tester» gjenbruker ci.yml',
   !!relJobs.tester && /uses:\s*\.\/\.github\/workflows\/ci\.yml/.test(relJobs.tester));
 
+/* Web push-senderen (docs/varsler.md) deployes etter smoke-testen — den kaller
+   `push_claim()`, som må finnes — men den er BEVISST ikke en port for
+   frontenden: web push er en valgfri kanal, og en feilet funksjonsdeploy skal
+   ikke holde en release tilbake. Begge halvdelene låses her, for det er
+   nettopp en `needs`-linje som ellers kunne skli inn og gjøre kanalen til en
+   port ingen har bestemt. */
+check('«pushfunksjon» venter på smoke-testen (den kaller RPC-er migreringen lager)',
+  !!relJobs.pushfunksjon && /needs:\s*smoke\s*$/m.test(relJobs.pushfunksjon));
+check('… og deployjobben venter IKKE på den (web push er ikke en port for frontenden)',
+  !!relJobs.deploy && !/needs:[\s\S]*pushfunksjon/.test(relJobs.deploy),
+  (relJobs.deploy.match(/needs:.*/) || [''])[0].trim());
+check('pushfunksjon-jobben deployer nøyaktig funksjonen push-send',
+  !!relJobs.pushfunksjon &&
+  /functions deploy push-send[\s\S]{0,60}--project-ref/.test(relJobs.pushfunksjon));
+/* CLI-en kjøres med `npx` og en EKSAKT versjon. Begge halvdelene er ekte krav:
+
+     · `npm install -g supabase@…` er ikke bare uvanlig — pakken NEKTER det.
+       Postinstall-skriptet kaster «Installing Supabase CLI as a global module
+       is not supported» så snart `npm_config_global` er satt, og jobben ville
+       dødd på installasjonssteget. Den feilen er usynlig i CI så lenge
+       secretene mangler (jobben hopper av før den kommer dit), så den må
+       fanges her.
+     · `@latest` i en produksjonsflyt gjør deployen uforutsigbar. */
+// Kommentarlinjene ut først: jobben FORKLARER hvorfor den ikke gjør en global
+// install, og den forklaringen skal ikke kunne leses som at den gjør det.
+const pushKjør = (relJobs.pushfunksjon || '').split('\n')
+  .filter((l) => !/^\s*#/.test(l)).join('\n');
+check('… med en Supabase-CLI som faktisk lar seg kjøre (ikke global install)',
+  !!relJobs.pushfunksjon && !/npm\s+(install|i)\b[^\n]*\bsupabase/i.test(pushKjør),
+  (pushKjør.match(/npm[^\n]*supabase[^\n]*/i) || ['—'])[0]);
+check('… kjørt med npx og en LÅST versjon (ingen @latest i en produksjonsflyt)',
+  !!relJobs.pushfunksjon && /npx\s+(--yes\s+|-y\s+)?supabase@\d+\.\d+\.\d+\s/.test(pushKjør),
+  (pushKjør.match(/supabase@[^\s]*/) || [''])[0]);
+/* Senderen kalles av pg_cron gjennom pg_net, ikke av en innlogget bruker, og
+   Supabases mønster for det er en secret key på `apikey`-headeren. En secret
+   key er ikke et JWT, så plattformens JWT-verifisering må være AV — ellers
+   avvises tikket før funksjonen får se nøkkelen. Porten er funksjonens egen
+   sjekk. Uten flagget her ville web push stille sluttet å virke den dagen
+   prosjektet går over til de nye nøklene. */
+check('… og med JWT-verifisering AV (service-to-service, ikke en brukersesjon)',
+  /--no-verify-jwt/.test(pushKjør), (pushKjør.match(/--no-verify-jwt/) || ['—'])[0]);
+/* … og funksjonen må faktisk godta begge nøkkelgenerasjonene, ellers er
+   flagget over bare et hull. */
+const pushFn = fs.readFileSync(
+  path.join(ROOT, 'supabase', 'functions', 'push-send', 'index.ts'), 'utf8');
+check('senderen leser de NYE secret keys (SUPABASE_SECRET_KEYS) …',
+  /SUPABASE_SECRET_KEYS/.test(pushFn));
+check('… og faller tilbake på den gamle service_role-nøkkelen',
+  /SUPABASE_SERVICE_ROLE_KEY/.test(pushFn));
+const pushAuth = fs.readFileSync(
+  path.join(ROOT, 'supabase', 'functions', 'push-send', 'auth.mjs'), 'utf8');
+check('… og tar imot nøkkelen på apikey-headeren',
+  /godkjentKaller\(req\.headers/.test(pushFn) && /headers\?\.\[n\]|les\('apikey'\)/.test(pushAuth));
+check('… og sammenligner den uten tidslekkasje (ingen === på hemmeligheten)',
+  /likeHemmeligheter/.test(pushAuth) && !/!==\s*'Bearer '/.test(pushFn));
+/* De to nøkkelgenerasjonene skal IKKE ha de samme headerne: en `sb_secret_…`
+   er ikke et JWT, og sendes den også på `Authorization: Bearer`, avviser
+   plattformen hele kallet med «Invalid JWT». Avgjørelsen ligger ETT sted i
+   hvert lag — `auth.mjs` og `push_headers()` — nettopp for at den skal kunne
+   kjøres av en test. Den kjøringen er `tests/push-auth.test.js` og seksjon 11
+   i `test-push.sql`; her låses bare at deployen ikke omgår dem. */
+const pushSql = fs.readFileSync(
+  path.join(ROOT, 'supabase', 'users-and-sharing.sql'), 'utf8');
+check('push_tick() sender headerne push_headers() bestemmer',
+  /headers := public\.push_headers\(svc_key\)/.test(pushSql));
+check('… og hardkoder ikke en Authorization-header ved siden av',
+  !/'Authorization', 'Bearer ' \|\| svc_key/.test(pushSql),
+  (pushSql.match(/'Authorization'[^\n]*svc_key[^\n]*/) || ['—'])[0]);
+check('… og hopper stille over når secretene ikke er satt (kanalen er valgfri)',
+  !!relJobs.pushfunksjon && /SUPABASE_ACCESS_TOKEN/.test(relJobs.pushfunksjon) &&
+  /exit 0/.test(relJobs.pushfunksjon));
+// Selve funksjonen og krypteringen den bruker skal finnes i treet — ellers
+// deployer jobben over ingenting.
+['supabase/functions/push-send/index.ts', 'supabase/functions/push-send/webpush.mjs',
+ 'supabase/functions/push-send/auth.mjs']
+  .forEach((f) => check(f + ' finnes',
+    fs.existsSync(path.join(ROOT, f))));
+
 /* ---- 3. Hva jobbene faktisk gjør ---- */
 check('migreringsjobben kjører setup.sql',
   !!relJobs.migrering && /supabase\/setup\.sql/.test(relJobs.migrering));

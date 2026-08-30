@@ -65,6 +65,7 @@
         universes: [], groups: [], cards: [], items: [],
         memberships: [], share_invites: [], tombstones: [],
         notifications: [], notification_prefs: [],
+        push_subscriptions: [], push_deliveries: [],
       };
     }
     return migrateRoles(db);
@@ -81,6 +82,8 @@
     // not exists` i users-and-sharing.sql).
     db.notifications = db.notifications || [];
     db.notification_prefs = db.notification_prefs || [];
+    db.push_subscriptions = db.push_subscriptions || [];
+    db.push_deliveries = db.push_deliveries || [];
     if (db._rolesBackfilled) return db;
     db._rolesBackfilled = true;
     var has = function (uid, col, id) {
@@ -470,7 +473,7 @@
     var row = db.notification_prefs.find(function (x) { return x.user_id === uid; });
     if (row) return row;
     row = { user_id: uid, due_over: true, due_soon: true, start_now: true, start_soon: true,
-            cursor_at: 0, updated_at: Date.now() };
+            cursor_at: 0, tz: null, tz_at: 0, updated_at: Date.now() };
     db.notification_prefs.push(row);
     return row;
   }
@@ -481,7 +484,21 @@
     (rows || []).forEach(function (r) {
       if (!r || !r.key || r.at == null) return;
       if (!NOTIF_TYPES[r.type] || !NOTIF_OBJ_TYPES[r.obj_type]) return;
-      if (db.notifications.some(function (n) { return n.user_id === uid && n.key === r.key; })) return;
+      var finnes = db.notifications.find(function (n) {
+        return n.user_id === uid && n.key === r.key;
+      });
+      if (finnes) {
+        /* Som serveren: en PLANLAGT rad (ennå ikke forfalt, ikke utsatt) skal
+           bære et ferskt øyeblikksbilde av navn og sti — det er den teksten web
+           push leverer når den forfaller. Historikk skrives aldri om. */
+        if (finnes.at > now && !finnes.snoozed &&
+            (finnes.name !== (r.name || '') || finnes.path !== (r.path || ''))) {
+          finnes.name = r.name || '';
+          finnes.path = r.path || '';
+          lagt++;
+        }
+        return;
+      }
       lagt++;
       db.notifications.push({
         id: newUuid(), user_id: uid, key: String(r.key), type: r.type,
@@ -499,7 +516,103 @@
     if (mine.length > NOTIF_KEEP) {
       db.notifications = db.notifications.filter(function (n) { return !doomed[n.id]; });
     }
+    pushEnqueue(db, uid);
     return lagt;   // som serveren: hvor mange rader som FAKTISK ble lagt inn
+  }
+
+  /* ---------------- Web push (docs/varsler.md) ----------------
+     Speiler push_enqueue()/push_subscribe()/push_unsubscribe(): utboksen får
+     én rad per (PLANLAGT varsel, aktivt abonnement), og den unike paret er
+     idempotensen. Serveren tolker ingen terskler — den leverer det klienten
+     alt har logget. Selve sendingen finnes ikke i mock-backenden: det er en
+     Edge-funksjon, og nettlesertestene har ingen pushtjeneste å sende til. */
+  function pushEnqueue(db, uid) {
+    var now = Date.now();
+    var lagt = 0;
+    db.notifications.forEach(function (n) {
+      if (n.user_id !== uid || !(n.at > now)) return;
+      db.push_subscriptions.forEach(function (sub) {
+        if (sub.user_id !== uid || sub.disabled_at) return;
+        var finnes = db.push_deliveries.some(function (d) {
+          return d.notification_id === n.id && d.subscription_id === sub.id;
+        });
+        if (finnes) return;
+        lagt++;
+        db.push_deliveries.push({
+          id: db.push_deliveries.length + 1, notification_id: n.id,
+          subscription_id: sub.id, user_id: uid, due_at: n.at,
+          status: 'pending', attempts: 0, claimed_at: null, done_at: null, error: null,
+        });
+      });
+    });
+    return lagt;
+  }
+  /* Som serveren: en bruker får ha en håndfull nettlesere, ikke tusen. Uten
+     taket multipliserer hvert endepunkt både utboksen og antallet HTTP-kall
+     senderen gjør. */
+  var PUSH_SUB_MAX = 20;
+  function pushSubscribe(db, uid, p) {
+    var e = p.p_endpoint;
+    /* Endepunktet blir målet for et HTTP-kall senderen gjør. Kravene er
+       standardens egne — https, et vertsnavn, ingen kontrolltegn — pluss ett:
+       verten skal være et NAVN. En bar IP eller `localhost` er ingen
+       push-tjeneste. Ingen liste over pushleverandører: Web Push har ingen. */
+    if (!e || !/^https:\/\/[A-Za-z0-9._~%-]+(:[0-9]{1,5})?([/?#]|$)/.test(e) ||
+        /[\s\u0000-\u001f\u007f]/.test(e) || e.length > 2000) {
+      throw new Error('ugyldig endepunkt');
+    }
+    var vert = (/^https:\/\/([^/?#]+)/.exec(e)[1] || '').split(':')[0].toLowerCase();
+    if (/^[0-9.]+$/.test(vert) || vert === 'localhost' ||
+        /\.(localhost|local)$/.test(vert)) throw new Error('ugyldig endepunkt');
+    if (p.p_p256dh == null || p.p_auth == null) throw new Error('mangler nøkler');
+    // RFC 8291-formen, romslig nok til padding: 65 byte og 16 byte, base64url.
+    if (!/^[A-Za-z0-9_-]+=*$/.test(p.p_p256dh) || p.p_p256dh.length < 80 || p.p_p256dh.length > 200 ||
+        !/^[A-Za-z0-9_-]+=*$/.test(p.p_auth) || p.p_auth.length < 16 || p.p_auth.length > 40) {
+      throw new Error('ugyldige nøkler');
+    }
+    var row = db.push_subscriptions.find(function (x) { return x.endpoint === p.p_endpoint; });
+    if (!row) {
+      row = { id: newUuid(), endpoint: p.p_endpoint, created_at: Date.now() };
+      db.push_subscriptions.push(row);
+    }
+    /* EIERSKIFTE (som serveren): endepunktet ER nettleseren, så en ny
+       innlogging flytter abonnementet i stedet for å lage en dublett — og et
+       endepunkt som var slått av våkner, siden nettleseren nettopp sa at det
+       virker. Men køen som lå der er den FORRIGE brukerens, og hver levering
+       bærer et objektnavn. Den tømmes i samme operasjon. */
+    if (row.user_id && row.user_id !== uid) {
+      db.push_deliveries = db.push_deliveries.filter(function (d) { return d.subscription_id !== row.id; });
+    }
+    row.user_id = uid;
+    row.p256dh = p.p_p256dh;
+    row.auth = p.p_auth;
+    row.labels = p.p_labels || {};
+    row.tz = p.p_tz || null;
+    row.seen_at = Date.now();
+    row.disabled_at = null;
+    /* TAKET, som serveren: den eldst sette ryker, og den som NETTOPP meldte
+       seg på ryker aldri — den er den brukeren står med i hånden. */
+    var mine = db.push_subscriptions.filter(function (x) {
+      return x.user_id === uid && x.id !== row.id;
+    }).sort(function (a, b) { return (b.seen_at || 0) - (a.seen_at || 0) ||
+        (b.created_at || 0) - (a.created_at || 0); });
+    if (mine.length > PUSH_SUB_MAX - 1) {
+      var vekk = {};
+      mine.slice(PUSH_SUB_MAX - 1).forEach(function (x) { vekk[x.id] = 1; });
+      db.push_subscriptions = db.push_subscriptions.filter(function (x) { return !vekk[x.id]; });
+      db.push_deliveries = db.push_deliveries.filter(function (d) { return !vekk[d.subscription_id]; });
+    }
+    pushEnqueue(db, uid);
+    return row.id;
+  }
+  function pushUnsubscribe(db, uid, endpoint) {
+    var doomed = {};
+    db.push_subscriptions = db.push_subscriptions.filter(function (x) {
+      if (x.user_id === uid && x.endpoint === endpoint) { doomed[x.id] = 1; return false; }
+      return true;
+    });
+    db.push_deliveries = db.push_deliveries.filter(function (d) { return !doomed[d.subscription_id]; });
+    return null;
   }
 
   function getMyDoc(db, uid) {
@@ -600,8 +713,12 @@
         var p = db.notification_prefs.find(function (x) { return x.user_id === uid; });
         return p ? { dueOver: !!p.due_over, dueSoon: !!p.due_soon,
                      startNow: !!p.start_now, startSoon: !!p.start_soon,
-                     cursor: p.cursor_at } : null;
+                     cursor: p.cursor_at, tz: p.tz || null, tzAt: p.tz_at || 0 } : null;
       })(),
+      // Antall nettlesere med web push PÅ — ett tall, ikke endepunktene.
+      push_devices: db.push_subscriptions.filter(function (x) {
+        return x.user_id === uid && !x.disabled_at;
+      }).length,
     };
   }
 
@@ -867,9 +984,23 @@
     // «Tøm varsler»: en ren sletting av MINE egne rader — ingen gravstein, og
     // ingen annen brukers historikk kan røres (RLS i produksjon).
     if (table === 'notifications') {
+      var borte = {};
       db.notifications = db.notifications.filter(function (row) {
-        return !(row.user_id === uid && matches(row, filters));
+        if (row.user_id === uid && matches(row, filters)) { borte[row.id] = 1; return false; }
+        return true;
       });
+      // Som fremmednøkkelens kaskade: en avlyst plan tar leveringen med seg.
+      db.push_deliveries = db.push_deliveries.filter(function (d) { return !borte[d.notification_id]; });
+      return;
+    }
+    // «Slå av i denne nettleseren» — kun mine egne rader (RLS i produksjon).
+    if (table === 'push_subscriptions') {
+      var vekk = {};
+      db.push_subscriptions = db.push_subscriptions.filter(function (row) {
+        if (row.user_id === uid && matches(row, filters)) { vekk[row.id] = 1; return false; }
+        return true;
+      });
+      db.push_deliveries = db.push_deliveries.filter(function (d) { return !vekk[d.subscription_id]; });
       return;
     }
     var type = table === 'universes' ? 'universe' : table === 'groups' ? 'group' : table === 'cards' ? 'card' : 'item';
@@ -933,6 +1064,22 @@
     return {
       get_my_doc: function () { return getMyDoc(db, uid); },
       notify_record: function (p) { return notifRecord(db, uid, p.p_rows || [], p.p_cursor || 0); },
+      push_subscribe: function (p) { return pushSubscribe(db, uid, p); },
+      push_unsubscribe: function (p) { return pushUnsubscribe(db, uid, p.p_endpoint); },
+      /* Tidssonen planen tilhører. Som serveren: hevdelsen går bare gjennom når
+         sonen er tom, er vår egen, eller den forrige er gammel nok — det er den
+         som hindrer to enheter i ulike soner fra å planlegge om hverandre. */
+      notify_claim_tz: function (p) {
+        var row = notifPrefsRow(db, uid);
+        var tz = p.p_tz;
+        if (!tz || tz.length > 64) throw new Error('ugyldig tidssone');
+        var now = Date.now();
+        if (row.tz == null || row.tz === tz || now - (row.tz_at || 0) >= (p.p_min_age_ms || 0)) {
+          row.tz = tz;
+          row.tz_at = now;
+        }
+        return row.tz;
+      },
       notify_set_prefs: function (p) {
         var row = notifPrefsRow(db, uid);
         var want = p.p_prefs || {};
@@ -1217,6 +1364,12 @@
           if (i.responsible === uid) { i.responsible = null; stamp(i); }
         });
         db.memberships = db.memberships.filter(function (m) { return m.user_id !== uid; });
+        // 4b. varselhistorikken, preferansene, push-abonnementene og utboksen —
+        //     alt sammen mitt alene (som kaskaden i delete_account()).
+        db.notifications = db.notifications.filter(function (n) { return n.user_id !== uid; });
+        db.notification_prefs = db.notification_prefs.filter(function (n) { return n.user_id !== uid; });
+        db.push_deliveries = db.push_deliveries.filter(function (d) { return d.user_id !== uid; });
+        db.push_subscriptions = db.push_subscriptions.filter(function (x) { return x.user_id !== uid; });
         // 5. profilen og selve kontoen (mocken har ingen auth.users-tabell —
         //    profilen + passordet ER kontoen her)
         db.profiles = db.profiles.filter(function (x) { return x.id !== uid; });
