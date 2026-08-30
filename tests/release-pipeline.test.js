@@ -184,6 +184,22 @@ check('… og hardkoder ikke en Authorization-header ved siden av',
 check('… og hopper stille over når secretene ikke er satt (kanalen er valgfri)',
   !!relJobs.pushfunksjon && /SUPABASE_ACCESS_TOKEN/.test(relJobs.pushfunksjon) &&
   /exit 0/.test(relJobs.pushfunksjon));
+/* Web push slås PÅ utenfor repoet, men de to bryterne virker først ved NESTE
+   release-kjøring: funksjonsdeployen over hopper over seg selv til
+   GitHub-secretene finnes, og `huskis-push-tick` registreres av skjemafila,
+   altså av migreringsjobben, først når pg_cron er slått på. Følger man
+   runbooken i TODO.md uten en avsluttende kjøring, står derfor alt riktig satt
+   opp uten at noe tikker. Det siste steget må finnes — og workflowen må
+   faktisk kunne startes for hånd, ellers er steget en instruksjon ingen kan
+   følge. */
+const todo = fs.readFileSync(path.join(ROOT, 'TODO.md'), 'utf8');
+check('skjemafila registrerer pg_cron-jobben (den skjer i migreringen, ikke i Supabase-UI-et)',
+  /cron\.schedule\('huskis-push-tick'/.test(pushSql));
+check('… release.yml kan startes manuelt, som TODO.md sitt siste push-steg krever',
+  /^\s{2}workflow_dispatch:/m.test(release));
+check('… og TODO.md ber faktisk om den avsluttende kjøringen',
+  /Kjør «Release» én gang til, manuelt/.test(todo) && /huskis-push-tick/.test(todo));
+
 // Selve funksjonen og krypteringen den bruker skal finnes i treet — ellers
 // deployer jobben over ingenting.
 ['supabase/functions/push-send/index.ts', 'supabase/functions/push-send/webpush.mjs',
