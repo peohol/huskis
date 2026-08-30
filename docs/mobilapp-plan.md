@@ -25,9 +25,9 @@ autoritative dokumentet for fagfeltet.
 | Neste praktiske steg — fase 4 | Ingen. Fasen er ferdig; de to «vurder …»-punktene fikk sitt svar i fase 5 |
 | Neste praktiske steg — fase 5 | Ingen. Fasen er ferdig; produksjons-OTA, readiness, rollback og karantene er målt på fysisk Android |
 | Neste praktiske steg — fase 6 | Opprett Google Play Developer-kontoen, lag upload-nøkkelen og legg inn de fire `ANDROID_UPLOAD_*`-secretene — så kan «Android release-AAB» kjøres og AAB-en lastes opp til internt testspor (fase 6, «Slik lager du upload-nøkkelen»). Butikkoppføringens egen grafikk (512×512-ikon, screenshots) lages i Play Console; appikonet i binæren er på plass |
-| Neste praktiske steg — varsler | Kjør den fysiske Android-runden for varselkanalen (se «Native varsler», «Det som MÅ prøves på telefon»). Koden og de automatiske vaktene er på plass; ingenting av den native leveringen er prøvd på en enhet ennå |
+| Neste praktiske steg — varsler | Kjør den fysiske Android-runden for varselkanalen (se «Native varsler», «Det som MÅ prøves på telefon»). Koden og de automatiske vaktene er på plass; ingenting av den native leveringen er prøvd på en enhet ennå. Det tyngste punktet er tidssonebyttet med appen HELT lukket — framgangsmåten står i listen |
 | OTA | Innført ende til ende og verifisert på fysisk Android: signert produksjonsbundle, manifest per native nivå, native nedlasting, oppstilling, trygg aktivering, varig aktivering, readiness, rollback og karantene. Ferdigkriteriet er oppfylt |
-| Varsler | **Innført, ikke fysisk verifisert.** Android får lokale systemvarsler planlagt på enheten; nettleseren får web push. Begge leverer den samme planen generatoren allerede logger ([`varsler.md`](varsler.md)) — ingen ny varselmodell. Automatisk dekket av `tests/notif-channels.test.js`, `tests/notif-plan.test.js`, `tests/push-crypto.test.js` og `tests/capacitor-android.test.js`. Den fysiske runden gjenstår |
+| Varsler | **Innført, ikke fysisk verifisert.** Android får lokale systemvarsler planlagt på enheten; nettleseren får web push. Begge leverer den samme planen generatoren allerede logger ([`varsler.md`](varsler.md)) — ingen ny varselmodell. Alarmene følger telefonens tidssone også når appen er lukket, gjennom en `TIMEZONE_CHANGED`-mottaker som regner om de planlagte alarmene og skriver den korrigerte tiden tilbake til pluginens lagring (`varsler.md`, «Når sonen endres mens appen ikke kjører»). Automatisk dekket av `tests/notif-channels.test.js`, `tests/notif-plan.test.js`, `tests/notif-timezone-native.test.js`, `tests/push-crypto.test.js`, `tests/push-auth.test.js`, `tests/capacitor-android.test.js` og `android/app/src/test/…/HuskisWallClockTest.java`. Den fysiske runden gjenstår |
 | iOS | Senere fase; ikke en del av første implementering |
 
 ### Slik holdes planen levende
@@ -2731,9 +2731,38 @@ ferdigkriterium, og de skal ikke krysses av før de faktisk er kjørt:
 - [ ] en endret frist avlyser den gamle planen og legger en ny;
 - [ ] fullføring avlyser den framtidige planen;
 - [ ] offline ved tidspunktet: alarmen er lokal og skal fyre uansett;
-- [ ] en DST-overgang og et tidssonebytte — at den gamle alarmen faktisk er
+- [ ] et tidssonebytte MENS APPEN KJØRER — at den gamle alarmen faktisk er
       BORTE etter byttet, ikke bare at en ny er lagt inn (maskinelt dekket av
-      `tests/notif-channels.test.js` 2n–2r, men bare mot en fake pluginbro);
+      `tests/notif-channels.test.js` 2n–2v, men bare mot en fake pluginbro);
+- [ ] et tidssonebytte MENS APPEN ER HELT LUKKET — den vanskelige, og den
+      eneste som krever et bestemt oppsett. Framgangsmåte:
+      1. planlegg et varsel et par dager fram med et klokkeslett du kjenner
+         (f.eks. en frist kl. 09:00), og la Huskis synke;
+      2. **tving prosessen ut av minnet** — «Recents» → sveip appen bort. Ikke
+         «Tving stopp» i innstillingene: en app i *stopped state* får ingen
+         kringkastinger i det hele tatt, og da prøver du Androids regel, ikke
+         Huskis' kode;
+      3. Innstillinger → System → Dato og tid: slå AV automatisk tidssone og
+         velg en annen sone med en tydelig forskyvning (Oslo → Tokyo);
+      4. **åpne ikke Huskis.** Kontroller i stedet at alarmen er flyttet:
+         `adb shell dumpsys alarm | grep -A 3 no.huskis.app` viser det nye
+         tidspunktet;
+      5. **restart telefonen**, uten å åpne Huskis, og se på `dumpsys alarm`
+         igjen: tidspunktet skal fortsatt være det korrigerte, ikke det gamle
+         (pluginens oppstartsgjenoppretting leser den korrigerte tiden fra
+         lagringen);
+      6. la varselet forfalle og bekreft at det kommer på riktig lokal klokke,
+         med riktig tekst, og at det bare kommer ÉN gang.
+      Selve omregningen er maskinelt dekket av
+      `android/app/src/test/…/HuskisWallClockTest.java` (kjøres av
+      `./gradlew testDebugUnitTest` i debug-APK-jobben) og koblingen mellom
+      lagene av `tests/notif-timezone-native.test.js`. Det ingen av dem kan se,
+      er om Android faktisk LEVERER kringkastingen til akkurat denne appen på
+      akkurat denne telefonen — det er dette punktet;
+- [ ] en DST-overgang — at et varsel planlagt før overgangen kommer på riktig
+      klokkeslett etter den. Dette skal virke UTEN noe ekstra ledd: veggtiden
+      ble regnet om til riktig instans allerede da planen ble lagt
+      ([`varsler.md`](varsler.md));
 - [ ] en OTA-oppdatering ødelegger ikke adapteren.
 
 Fram til den runden er kjørt, står varselkanalen som **innført, ikke

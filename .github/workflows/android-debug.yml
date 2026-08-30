@@ -34,6 +34,7 @@ on:
       # selv, så en PR som bare rører denne fila ville endret dem uten at noen
       # jobb kjørte dem.
       - 'tests/capacitor-android.test.js'
+      - 'tests/notif-timezone-native.test.js'
 
 concurrency:
   group: android-debug-${{ github.event.pull_request.number || github.ref }}
@@ -104,6 +105,16 @@ jobs:
           yes | "$sdkmanager" --licenses > /dev/null
           set -o pipefail
           "$sdkmanager" "platforms;android-$sdk"
+
+      # Det native laget har én ting JS ikke kan prøve: at en alarm som alt er
+      # planlagt flytter seg til riktig LOKAL veggtid når telefonen bytter
+      # tidssone mens Huskis er lukket (docs/varsler.md). Omregningen er ren
+      # Java og kjører derfor på JVM-en, uten emulator — men den må faktisk
+      # KJØRES, ellers er den bare en fil. `tests/notif-timezone-native.test.js`
+      # vokter at dette steget står her.
+      - name: Kjør de native enhetstestene
+        working-directory: android
+        run: ./gradlew --no-daemon testDebugUnitTest
 
       - name: Bygg debug-APK
         working-directory: android

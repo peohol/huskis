@@ -261,6 +261,11 @@ const NATIV_KILDE = [
   'android/app/build.gradle',
   'android/app/src/main/AndroidManifest.xml',
   'android/app/src/main/java/no/huskis/app/MainActivity.java',
+  // Tidssonebytte mens appen er lukket (docs/varsler.md). Uten disse to ringer
+  // en alarm som var ment kl. 09:00 på det gamle klokkeslettet etter en reise.
+  'android/app/src/main/java/no/huskis/app/TimeZoneAlarmReceiver.java',
+  'android/app/src/main/java/no/huskis/app/HuskisWallClock.java',
+  'android/app/src/test/java/no/huskis/app/HuskisWallClockTest.java',
   'android/app/src/main/res/values/strings.xml',
   'android/app/src/main/res/xml/data_extraction_rules.xml',
 ];
@@ -401,6 +406,10 @@ const AVHENGIGHETER = [
   'implementation "androidx.core:core-splashscreen:$coreSplashScreenVersion"',
   "implementation project(':capacitor-android')",
   'testImplementation "junit:junit:$junitVersion"',
+  // Kun testklassestien: android.jar-stubben lar hver org.json-metode kaste
+  // «not mocked», og HuskisWallClockTest leser ekte JSON. Pakkes ikke i appen
+  // og bidrar med intet manifest.
+  'testImplementation "org.json:json:$orgJsonVersion"',
   'androidTestImplementation "androidx.test.ext:junit:$androidxJunitVersion"',
   'androidTestImplementation "androidx.test.espresso:espresso-core:$androidxEspressoCoreVersion"',
   "implementation project(':capacitor-cordova-android-plugins')",

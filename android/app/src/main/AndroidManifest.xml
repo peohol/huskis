@@ -48,6 +48,36 @@
 
         </activity>
 
+        <!-- TIMEZONE_CHANGED: alarmene skal følge telefonens klokke, også når
+             Huskis er helt lukket.
+
+             @capacitor/local-notifications planlegger med
+             AlarmManager.RTC_WAKEUP og et ABSOLUTT millisekund, og lytter bare
+             på oppstart (BOOT_COMPLETED og slektningene). Bytter telefonen
+             sone mens appen ikke kjører, blir en alarm som var ment kl. 09:00
+             stående på det gamle instantet og ringer på feil klokkeslett —
+             helt til appen åpnes og synker på nytt.
+
+             Denne mottakeren regner de planlagte alarmene om til den nye sonen
+             og skriver den korrigerte tiden tilbake til pluginens egen lagring,
+             så den også overlever en omstart. Se
+             no.huskis.app.TimeZoneAlarmReceiver og docs/varsler.md.
+
+             android:exported="false": bare systemet sender denne, og den skal
+             ikke kunne utløses av en annen app.
+
+             Ingen ny tillatelse: TIMEZONE_CHANGED krever ingen, og den er en av
+             de få implisitte kringkastingene Android eksplisitt unntar fra
+             bakgrunnsbegrensningene i 8.0 — nettopp for at apper skal kunne
+             oppdatere alarmer når sonen endres. -->
+        <receiver
+            android:name=".TimeZoneAlarmReceiver"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="android.intent.action.TIMEZONE_CHANGED" />
+            </intent-filter>
+        </receiver>
+
         <provider
             android:name="androidx.core.content.FileProvider"
             android:authorities="${applicationId}.fileprovider"

@@ -11394,6 +11394,32 @@
       notifExternalTitle(row) + '|' + notifExternalBody(row);
   }
 
+  /* Alarmens tiltenkte LOKALE VEGGTID, som tekst.
+
+     `at` er et absolutt millisekund, og en Android-alarm settes med
+     `AlarmManager.RTC_WAKEUP` — også absolutt. Bytter telefonen tidssone mens
+     Huskis ikke kjører, blir alarmen derfor stående på det samme instantet, og
+     ringer på feil klokkeslett. Huskis' semantikk er den motsatte: «kl. 09:00»
+     betyr kl. 09:00 der telefonen ER.
+
+     Derfor følger veggtiden MED alarmen, i `extra`. Den native mottakeren
+     (`TimeZoneAlarmReceiver`) regner den om til et nytt absolutt tidspunkt i
+     den nye sonen — uten å kjenne én eneste varselregel. Formen er lokal
+     ISO uten sone, med millisekunder, fordi presisjonen betyr noe: en
+     dato-frist uten klokkeslett har terskel 23:59:59.999, og et minuttavrundet
+     felt ville flyttet den nesten et minutt fram.
+
+     Sommertid trenger ingenting av dette: `new Date(år, …)` gir allerede
+     riktig instans for datoen det gjelder, uansett hvilken side av en
+     overgang den ligger på. Det denne løser er BYTTE AV SONE. */
+  function notifWallClock(ms) {
+    const d = new Date(ms);
+    const p2 = (n) => String(n).padStart(2, '0');
+    return d.getFullYear() + '-' + p2(d.getMonth() + 1) + '-' + p2(d.getDate()) +
+      'T' + p2(d.getHours()) + ':' + p2(d.getMinutes()) + ':' + p2(d.getSeconds()) +
+      '.' + String(d.getMilliseconds()).padStart(3, '0');
+  }
+
   /* Teksten i et EKSTERNT varsel: objektets navn som overskrift, varseltypen i
      klartekst som kropp. Bevisst kortere enn radens melding — et varsel på en
      låseskjerm skal si hva det gjelder og ikke mer. Ingen sti, ingen kontekst
@@ -11463,7 +11489,10 @@
            herfra og ikke fra brobibliotekets serialisering. */
         schedule: { at: new Date(r.at).toISOString(), allowWhileIdle: true },
         isExactNotification: false,
-        extra: { objType: r.obj_type, objId: r.obj_id, key: r.key },
+        /* `wall` er alarmens tiltenkte lokale veggtid. Den native
+           tidssonemottakeren leser NØYAKTIG dette feltet og regner om — se
+           `notifWallClock`. */
+        extra: { objType: r.obj_type, objId: r.obj_id, key: r.key, wall: notifWallClock(r.at) },
       }));
       if (nye.length) await ln.schedule({ notifications: nye });
     },
@@ -17875,7 +17904,7 @@
        rene funksjonen sett framover, `nativeNotifSig`/`nativeNotifId` er broen
        til Androids heltalls-id-er, og adapterne eksponeres så testene kan kjøre
        tilstandsmaskinen — tillatelse, av/på, diff — uten en telefon. */
-    planNotifications, nativeNotifId, nativeNotifSig, deviceTz,
+    planNotifications, nativeNotifId, nativeNotifSig, notifWallClock, deviceTz,
     notifChannel, setNotifChannel, syncNotifChannel, refreshNotifChannelState,
     notifChannelWanted, setNotifChannelWanted, notifExternalLabels,
     androidChannel, webChannel,

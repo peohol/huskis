@@ -10,6 +10,10 @@ ext {
     coreSplashScreenVersion = '1.2.0'
     androidxWebkitVersion = '1.14.0'
     junitVersion = '4.13.2'
+    // Kun for JVM-enhetstestene: android.jar på testkompileringsstien er en
+    // STUBB der hver org.json-metode kaster «not mocked». HuskisWallClock
+    // leser ekte JSON, så testen trenger den ekte implementasjonen.
+    orgJsonVersion = '20250517'
     androidxJunitVersion = '1.3.0'
     androidxEspressoCoreVersion = '3.7.0'
     cordovaAndroidVersion = '14.0.1'

@@ -392,9 +392,21 @@ async function run() {
   log('2i: tidspunktet er terskelens, som ISO-streng (pluginens eget format)',
     s1.every((n) => /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/.test(n.schedule.at) &&
       new Date(n.schedule.at).getTime() > Date.now()), s1[0].schedule.at);
-  log('2j: varselet bærer pekeren til objektet, ikke noe mer',
-    s1.every((n) => n.extra.objId && n.extra.objType && n.extra.key &&
-      Object.keys(n.extra).length === 3), JSON.stringify(s1[0].extra));
+  log('2j: varselet bærer pekeren til objektet og sin egen veggtid, ikke noe mer',
+    s1.every((n) => n.extra.objId && n.extra.objType && n.extra.key && n.extra.wall &&
+      Object.keys(n.extra).length === 4), JSON.stringify(s1[0].extra));
+  /* `wall` er alarmens tiltenkte LOKALE veggtid, og den er der for det ene
+     tilfellet JS ikke kan nå: at telefonen bytter tidssone mens Huskis er helt
+     lukket. Da leser `TimeZoneAlarmReceiver` nøyaktig dette feltet og regner om
+     (docs/varsler.md). Her prøves bare at feltet er RIKTIG — at det beskriver
+     den samme alarmen som `schedule.at`, sett med rendererens klokke. */
+  log('2j2: veggtiden er den lokale klokka for alarmens eget tidspunkt',
+    await pn.evaluate((ns) => ns.every((n) =>
+      n.extra.wall === window.__huskis.notifWallClock(new Date(n.schedule.at).getTime())), s1),
+    s1[0].extra.wall + ' ↔ ' + s1[0].schedule.at);
+  log('2j3: veggtiden bærer ingen sone — det er hele poenget',
+    s1.every((n) => /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}$/.test(n.extra.wall)),
+    s1[0].extra.wall);
   /* ID-en er hashen av SIGNATUREN — nøkkelen, terskeltiden og teksten — ikke av
      nøkkelen alene. Det er den forskjellen som gjør at et varsel som flytter seg
      i tid (en ny tidssone) blir en ANNEN alarm og dermed faktisk erstattes;

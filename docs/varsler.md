@@ -195,14 +195,76 @@ hevdet), og den har tre ledd:
 alltid planen ut i enhetens egen sone og speiler den ut på telefonen — også når
 serverplanen tilhører en annen sone. Bandt vi de to sammen, ville en telefon som
 lander et nytt sted fått alarmene sine avlyst og stått uten dem til leasen løp
-ut: **opptil seks timer uten varsler, som straff for å ha reist.** Nå skjer det
-motsatte — alarmene flytter seg med det samme, og serverplanen følger etter når
-leasen kan overtas. At de to er ulike i mellomtiden er uproblematisk: en enhet
-har ÉN kanal (`notifChannel()`), aldri begge.
+ut: **opptil seks timer uten varsler, som straff for å ha reist.** Nå følger
+alarmene telefonen, og serverplanen følger etter når leasen kan overtas. At de
+to er ulike i mellomtiden er uproblematisk: en enhet har ÉN kanal
+(`notifChannel()`), aldri begge.
 
-**Sommertid trenger ingen regel.** `new Date(år, måned, dag, time, minutt)` gir
-riktig instans for den lokale datoen på begge sider av en overgang; det er bare
-sonebytter som gjør en plan ugyldig.
+#### Når sonen endres mens appen ikke kjører
+
+Det er to helt ulike tilfeller her, og de løses av hvert sitt lag.
+
+**Appen kjører.** `syncNotifChannel()` speiler planen på nytt i enhetens egen
+sone. Alarm-ID-en er en hash av signaturen (nøkkel + tid + tekst), så en alarm
+som har flyttet seg er et annet tall: diffen avlyser den gamle og legger inn den
+nye i samme runde.
+
+**Appen er lukket.** Da kjører ingenting av Huskis, og alarmen står der
+`@capacitor/local-notifications` satte den: `AlarmManager.RTC_WAKEUP` med et
+**absolutt** millisekund. Android dokumenterer den alarmtypen som basert på
+`System.currentTimeMillis()`, altså UTC — den flytter seg ikke av seg selv. Og
+pluginen har ingen mekanisme for det: manifestet dens lytter bare på oppstart
+(`BOOT_COMPLETED` og slektningene), ikke på `TIMEZONE_CHANGED`. Uten et ekstra
+ledd ville en alarm som var ment kl. 09:00 i Oslo ringt kl. 17:00 etter en reise
+til Tokyo, og først blitt rettet neste gang appen ble åpnet.
+
+Det ekstra leddet er `no.huskis.app.TimeZoneAlarmReceiver`, og det er så lite
+som det kan bli:
+
+1. **Alarmen bærer sin egen tiltenkte veggtid.** `notifWallClock()` legger
+   `extra.wall` (`«2026-09-04T09:00:00.000»`, lokal, uten sone) ved hvert
+   planlagte varsel. Millisekundene er med fordi presisjonen betyr noe: en
+   dato-frist uten klokkeslett har terskel 23:59:59.999.
+2. **Android kringkaster `TIMEZONE_CHANGED`** — én av de få implisitte
+   kringkastingene som er UNNTATT bakgrunnsbegrensningene i Android 8.0,
+   nettopp for at apper skal kunne oppdatere alarmer. Systemet starter
+   prosessen for å levere den; WebView-en, JS-motoren og synken kjøres ikke.
+3. **`HuskisWallClock` regner om.** Veggtid + gjeldende sone → nytt absolutt
+   tidspunkt. Ingen terskler, ingen frister, ingen tilstand — én
+   kalenderoperasjon på ett tidspunkt. Varselmodellen er fortsatt bare
+   generatoren i `app.js`.
+4. **Den korrigerte tiden skrives TILBAKE til pluginens egen lagring, før
+   alarmen settes.** Det er dette som gjør den robust mot en omstart: pluginens
+   oppstartsgjenoppretting leser `schedule.at` fra lagringen, og ville ellers
+   satt alarmen tilbake der den var.
+
+Vi hverken forker eller kopierer pluginen: receiveren bruker dens egen
+`NotificationStorage` og `LocalNotificationManager`, akkurat som dens egen
+`LocalNotificationRestoreReceiver` gjør etter en omstart. Ingen ny tillatelse —
+`TIMEZONE_CHANGED` krever ingen, og alarmene settes fortsatt med
+`isExactNotification: false`.
+
+To ting røres ALDRI: en alarm som allerede har ringt (å sette den på nytt ville
+gitt et duplikat), og en alarm der det nye tidspunktet er det samme som det
+gamle. At det nye tidspunktet kan ligge i FORTIDEN er derimot riktig — reiser
+man østover, kan klokkeslettet alt være passert, og pluginen leverer da varselet
+med det samme, som for et varsel som forfalt mens telefonen var avslått.
+
+Identiteten følger med uendret: samme ID, samme tekst, samme `extra`. Neste
+gang appen kjører, regner den planen ut i den nye sonen og får en ny signatur —
+diffen avlyser da den korrigerte alarmen og legger inn den nye. Sluttilstanden
+er den samme; brukeren merker ingenting, for varselet har hele veien stått på
+riktig klokkeslett.
+
+**Sommertid er en ANNEN sak, og trenger ingenting av dette.**
+`new Date(år, måned, dag, time, minutt)` gir riktig instans for den lokale
+datoen på begge sider av en overgang — en frist 4. september planlagt i februar
+får sommertidens forskyvning, ikke vinterens. Overgangen endrer ikke hvilken
+sone telefonen står i, så `TIMEZONE_CHANGED` fyrer ikke, og det skal den ikke:
+det absolutte tidspunktet er allerede riktig. Det receiveren løser er BYTTE AV
+SONE. (En endring i selve tidssonedatabasen — et land som legger om
+DST-reglene — fanges ikke av noen av delene; den retter seg neste gang appen
+kjører.)
 
 **Delt innhold får hver sin tid.** En delt liste med frist kl. 09:00 varsler
 hvert medlem kl. 09:00 i MEDLEMMETS egen sone — planen er per bruker, og hver
@@ -992,6 +1054,16 @@ De to henger sammen på nøyaktig ett punkt, og ellers ikke:
   at nøkkelmodellen henger sammen: `--no-verify-jwt`, begge nøkkelgenerasjonene,
   og at hverken senderen eller `push_tick()` bygger headerne utenom `auth.mjs`
   og `push_headers()`.
+- `tests/notif-timezone-native.test.js` — at de to lagene henger sammen: JS
+  legger veggtiden ved hver alarm i den formen Java parser, manifestet
+  registrerer receiveren for `TIMEZONE_CHANGED`, den korrigerte tiden skrives
+  til lagringen FØR alarmen settes, ingen ny tillatelse er kommet til, og CI
+  kjører faktisk JVM-testen.
+- `android/app/src/test/…/HuskisWallClockTest.java` — selve omregningen, KJØRT
+  på produksjonskoden uten emulator (`./gradlew testDebugUnitTest`): Oslo →
+  Tokyo gir nytt absolutt tidspunkt og samme veggtid, ID og tekst er urørt, en
+  alarm som alt har ringt røres ikke, uendret sone gir ingen skriving, og
+  sommertid tas av kalenderen.
 - `tests/push-auth.test.js` — headerne, KJØRT: en ny secret key havner kun på
   `apikey` og ingen andre steder, en legacy-nøkkel får fortsatt begge, og en
   `sb_secret_…` på `Authorization` slipper ikke inn. Testen feiler hvis noen
