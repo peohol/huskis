@@ -683,6 +683,24 @@ check('android: versionCode er et helt tall over 1 (grensen kan ikke være 1)',
    release.yml, voktet i tests/release-pipeline.test.js). */
 check('android: versionCode er økt etter at karantenefeltet kom inn i konfigurasjonen',
   versionCode > 2, String(versionCode));
+/* Og over 3: varselrunden la EGEN native kode inn i skallet — lokale varsler,
+   varselikonet `ic_stat_huskis`, tillatelsen POST_NOTIFICATIONS og
+   `TimeZoneAlarmReceiver`/`HuskisWallClock`, som regner om planlagte alarmer
+   når telefonen bytter tidssone mens appen er lukket (docs/varsler.md). Alt
+   sammen er bakt inn i APK-en, og et skall uten det er native forskjellig.
+   Sjekken har to halvdeler, så den ikke kan bli stående og passere av seg selv
+   om koden en dag tas ut igjen: FINNES den native varselkoden, MÅ nivået være
+   over 3. */
+const NATIV_VARSELKODE = [
+  'android/app/src/main/java/no/huskis/app/TimeZoneAlarmReceiver.java',
+  'android/app/src/main/java/no/huskis/app/HuskisWallClock.java',
+  'android/app/src/main/res/drawable/ic_stat_huskis.xml',
+];
+const nativVarsler = NATIV_VARSELKODE.filter((f) => finnes(f));
+check('android: den native varselkoden ligger i skallet',
+  nativVarsler.length === NATIV_VARSELKODE.length, nativVarsler.length + ' av ' + NATIV_VARSELKODE.length);
+check('android: versionCode er økt etter at den native varselkoden kom inn',
+  nativVarsler.length < NATIV_VARSELKODE.length || versionCode > 3, String(versionCode));
 
 /* `publicKey` er den OFFENTLIGE halvdelen, og er FRA OG MED signeringsrunden et
    krav, ikke et valgfritt felt — den runden la den inn sammen med
