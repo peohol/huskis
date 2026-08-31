@@ -28,9 +28,10 @@
         skuffen avviser et tidspunkt som alt er passert og logger ett varsel på
         nøyaktig det tidspunktet som velges — usynlig til det forfaller, og med
         det opprinnelige kvittert som lest.
-    10. Preferansepanelet: fire brytere, et bytte lagres på kontoen, og hodets
-        to tilstander — tannhjulet inn, tilbakeknappen til venstre for
-        overskriften ut, og ingen forklaringstekst over bryterne.
+    10. Preferansepanelet: fire varseltypebrytere, et bytte lagres på kontoen,
+        en separat enhetskanal kan komme i tillegg, og hodets to tilstander —
+        tannhjulet inn, tilbakeknappen til venstre for overskriften ut, og ingen
+        forklaringstekst over bryterne.
     11. Tastatur og fokus: Escape lukker, og fokus går tilbake til bjellen.
     12. i18n: hele flaten på engelsk.
     13. Kontobytte UTEN utlogging (Supabase kan gå rett fra én bruker til en
@@ -467,9 +468,9 @@ async function run(label, viewport, mobile) {
   /* ---------- 10) Preferansene ---------- */
   await p.click('#notif-settings-btn');
   await p.waitForTimeout(250);
-  const brytere = await p.evaluate(() => [...document.querySelectorAll('#notif-body .toggle-switch')]
+  const brytere = await p.evaluate(() => [...document.querySelectorAll('#notif-body .toggle-switch[data-pref]')]
     .map((b) => b.dataset.pref + '=' + b.getAttribute('aria-checked')));
-  log(label + ' 10a: fire brytere, alle PÅ som standard',
+  log(label + ' 10a: fire varseltypebrytere, alle PÅ som standard',
     eq(brytere, ['dueOver=true', 'dueSoon=true', 'startNow=true', 'startSoon=true']),
     JSON.stringify(brytere));
   // Hodet bytter tilstand: tannhjulet er veien INN og forsvinner der, og
