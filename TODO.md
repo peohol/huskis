@@ -19,35 +19,17 @@ Google Play Developer-kontoen, upload-nøkkelen, de fire `ANDROID_UPLOAD_*`-
 secretene og første opplasting. Stegene i rekkefølge står i
 `docs/mobilapp-plan.md`, fase 6.
 
-## Web push: nøkkelpar, secrets og kjøreplan
+## Web push: secrets og kjøreplan
 
 Native Android-varsler virker uten noe av dette — de er lokale alarmer på
-enheten. **Web push** trenger derimot en sender, og senderen trenger et
-nøkkelpar og et sted å kjøre. Koden er på plass (`sw.js`,
-`supabase/functions/push-send/`, tabellene og RPC-ene); det som gjenstår er
-manuelt og kan ikke gjøres herfra. Modellen står i `docs/varsler.md`.
+enheten. **Web push** trenger derimot en sender og et sted å kjøre. Koden er på
+plass (`sw.js`, `supabase/functions/push-send/`, tabellene og RPC-ene),
+VAPID-nøkkelparet er laget, og den offentlige halvdelen ligger i `config.js`.
+Den private halvdelen skal aldri inn i repoet, en PR, en logg eller en chat.
+Det som gjenstår er manuelt og kan ikke gjøres herfra. Modellen står i
+`docs/varsler.md`.
 
-Uten stegene under er kanalen inert: `pushPublicKey` i `config.js` er tom,
-bryteren «Varsler på denne enheten» melder seg selv som ikke støttet i
-nettleseren, og `push_tick()` gjør ingenting.
-
-1. **Lag VAPID-nøkkelparet** (P-256, base64url). Den offentlige halvdelen er
-   ment å ligge i frontend; den private skal aldri inn i repoet, en PR, en logg
-   eller en chat:
-
-   ```bash
-   node -e '
-   const c = require("crypto");
-   const e = c.createECDH("prime256v1"); e.generateKeys();
-   console.log("public :", e.getPublicKey().toString("base64url"));
-   console.log("private:", e.getPrivateKey().toString("base64url"));'
-   ```
-
-2. **Legg den offentlige halvdelen inn i `config.js`** (`pushPublicKey`) og
-   merge. Verdien må være NØYAKTIG den samme som senderen signerer med — ellers
-   avviser push-tjenesten hver eneste melding.
-
-3. **Sett funksjonens secrets** i Supabase (Edge Functions → Secrets), eller
+1. **Sett funksjonens secrets** i Supabase (Edge Functions → Secrets), eller
    med CLI-en:
 
    ```bash
@@ -58,16 +40,16 @@ nettleseren, og `push_tick()` gjør ingenting.
      VAPID_SUBJECT=mailto:<en adresse som kan nås>
    ```
 
-4. **Legg inn GitHub-secretene** `SUPABASE_ACCESS_TOKEN` (Supabase → Account →
+2. **Legg inn GitHub-secretene** `SUPABASE_ACCESS_TOKEN` (Supabase → Account →
    Access Tokens) og `SUPABASE_PROJECT_REF`. Da deployer «Release» funksjonen
    ved hver merge til `main`; uten dem hopper jobben over med en advarsel og
    releasen er fortsatt grønn (`docs/release-og-deploy.md`).
 
-5. **Slå på `pg_cron`** i Supabase (Database → Extensions). Skjemafila
+3. **Slå på `pg_cron`** i Supabase (Database → Extensions). Skjemafila
    registrerer da jobben `huskis-push-tick` selv, ett tikk i minuttet, ved neste
    migrering. Er utvidelsen ikke på, hoppes registreringen over uten å feile.
 
-6. **Fortell `push_tick()` hvor funksjonen bor.** Adressen er ikke hemmelig og
+4. **Fortell `push_tick()` hvor funksjonen bor.** Adressen er ikke hemmelig og
    ligger i `app_config`; service-nøkkelen hører hjemme i Vault, som
    Resend-nøkkelen:
 
@@ -92,19 +74,20 @@ nettleseren, og `push_tick()` gjør ingenting.
    — ligger den også på `Authorization`, avviser Supabase hele kallet med
    «Invalid JWT»), mens en gammel `service_role`-nøkkel får begge som før.
 
-7. **Kjør «Release» én gang til, manuelt** — Actions → «Release» → «Run
+5. **Kjør «Release» én gang til, manuelt** — Actions → «Release» → «Run
    workflow» på `main`. Dette er steget som faktisk SLÅR PÅ de to tingene
    stegene over bare gjorde mulige, og det er lett å tro at det er unødvendig:
 
    - migreringen kjøres på nytt, og NÅ registrerer den `huskis-push-tick` i
-     pg_cron. Steg 5 slår bare PÅ utvidelsen; selve registreringen skjer i
+     pg_cron. Steg 3 slår bare PÅ utvidelsen; selve registreringen skjer i
      skjemafila, altså ved neste migrering;
-   - `push-send` deployes, fordi GitHub-secretene fra steg 4 nå finnes. Jobben
+   - `push-send` deployes, fordi GitHub-secretene fra steg 2 nå finnes. Jobben
      hopper over seg selv med en advarsel når de mangler, og det gjorde den
      sist den kjørte.
 
-   Merge-en i steg 2 utløser riktignok en release, men den skjer FØR steg 3–6.
-   Uten denne siste runden står alt riktig satt opp uten at noe tikker.
+   Merge-en som la den offentlige VAPID-nøkkelen i `config.js` utløser riktignok
+   en release, men den skjer FØR steg 1–4. Uten denne siste runden står alt riktig
+   satt opp uten at noe tikker.
 
 Kontroll etterpå: `select public.push_tick();` skal gi en request-id (eller
 `null` når køen er tom), og `select * from net._http_response order by id desc
