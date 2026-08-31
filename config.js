@@ -39,5 +39,5 @@ window.HUSKIS_CONFIG = {
      og legges inn manuelt — stegene står i TODO.md. Android-varsler er upåvirket:
      de er lokale på enheten og trenger ingen nøkkel.
      Autoritativt: docs/varsler.md. */
-  pushPublicKey: '',
+  pushPublicKey: 'BKPiCPrvTYHZFSlDf-RiaEvFpocXkk4BvsAMPRqgJpHzy96UZs-1b0KVFGndqnoVFc1-oonhHQqupdhw4bEbdvg',
 };
