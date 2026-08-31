@@ -4575,7 +4575,11 @@ body.no-auth .corner-controls { display: none; }
 .time-clock-icon { display: inline-flex; flex: 0 0 auto; color: var(--ink-soft); }
 .time-clock-icon .icon { font-size: 15px; }
 .time-clock-icon:has(+ .time-clock:disabled) { opacity: 0.55; }
-.time-clock { flex: 0 1 88px; min-width: 72px; }
+/* min-width er bevisst lavere enn flex-basis: på de trangeste mobilene (den
+   smale objektmenyen) må feltet fortsatt kunne krympe forbi «tt:mm»-bredden
+   for at fjern-krysset (.time-clear) ikke skal klippes av `.obj-menu-sub`s
+   overflow: hidden — se PR-diskusjon. */
+.time-clock { flex: 0 1 104px; min-width: 72px; }
 .time-clear {
   flex: 0 0 auto;
   width: 30px;
