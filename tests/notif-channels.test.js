@@ -85,9 +85,9 @@ function buildDB(due) {
 }
 
 /* Plattformen, og bare den. `?ch=native` gir pluginbroen, `?ch=web` gir
-   Notification + serviceWorker. Uten `?nokkel=0` settes avsendernøkkelen inn i
-   konfigurasjonen — den står tom i repoet (den lages én gang, manuelt), og uten
-   den melder web push-kanalen seg selv som ikke støttet. */
+   Notification + serviceWorker. `?nokkel=0` tvinger avsendernøkkelen tom;
+   ellers setter testen inn sin egen faste nøkkel. Dermed tester begge grenene
+   eksplisitt og uavhengig av hvilken nøkkel som står i produksjons-config.js. */
 function fakePlattform() {
   const q = new URLSearchParams(location.search);
   const ch = q.get('ch');
@@ -117,18 +117,18 @@ function fakePlattform() {
     get() { return undefined; },
   });
 
-  if (q.get('nokkel') !== '0') {
-    // config.js setter HUSKIS_CONFIG; vi tar imot den og legger nøkkelen inn
-    // FØR app.js leser den.
-    Object.defineProperty(window, 'HUSKIS_CONFIG', {
-      configurable: true,
-      set(v) {
-        v.pushPublicKey = 'BKf-0z47jqWLUVd_3r4-JbyhdGwgWERsrt1l0Cfur7vPXM7644P_EyKSDC1aGhvm7kr5plt9zOpvdaz_WTuJoII';
-        Object.defineProperty(window, 'HUSKIS_CONFIG', { value: v, writable: true, configurable: true });
-      },
-      get() { return undefined; },
-    });
-  }
+  // config.js setter HUSKIS_CONFIG; testen eier nøkkeltilstanden FØR app.js
+  // leser den, slik at «med nøkkel» og «uten nøkkel» ikke avhenger av prod.
+  Object.defineProperty(window, 'HUSKIS_CONFIG', {
+    configurable: true,
+    set(v) {
+      v.pushPublicKey = q.get('nokkel') === '0'
+        ? ''
+        : 'BKf-0z47jqWLUVd_3r4-JbyhdGwgWERsrt1l0Cfur7vPXM7644P_EyKSDC1aGhvm7kr5plt9zOpvdaz_WTuJoII';
+      Object.defineProperty(window, 'HUSKIS_CONFIG', { value: v, writable: true, configurable: true });
+    },
+    get() { return undefined; },
+  });
 
   if (ch === 'native') {
     window.Capacitor = {
@@ -352,7 +352,7 @@ async function run() {
         a !== f(H.nativeNotifSig(rad({ key: 'dueOver|card|abd|2026-01-01' }))),
       // Samme nøkkel, ny terskeltid → en annen alarm. Dette ER tidssonebyttet.
       tid: a !== f(H.nativeNotifSig(rad({ at: 1767200000000 + 12 * 3600000 }))),
-      // … og samme nøkkel, nytt navn på objektet, likeså.
+      // … og samme nøkkel, nytt objektnavn, likeså.
       tekst: a !== f(H.nativeNotifSig(rad({ name: 'Legetime' }))),
       heltall: Number.isInteger(a) && a >= 0 && a <= 0x7fffffff,
       spredning: new Set([...Array(500)].map((_, i) =>
