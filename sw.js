@@ -33,7 +33,12 @@
 self.addEventListener('install', () => self.skipWaiting());
 self.addEventListener('activate', (ev) => ev.waitUntil(self.clients.claim()));
 
-var IKON = 'assets/email/huskis-logo-v1.png';   // appens merke, 192×192
+/* Appens merke, 192×192 med GJENNOMSIKTIG bakgrunn: favicon.svg rasterisert.
+   Kilden til logoen er `favicon.svg` — PNG-en finnes bare fordi Notification
+   API-et vil ha et rasterformat. Gjennomsiktig og ikke en flate, fordi
+   `badge` er en ALFAMASKE hos Android: en bakgrunn ville blitt en solid
+   firkant i statuslinjen i stedet for merket. */
+var IKON = 'assets/notif/huskis-logo-192.png';
 
 function lesKropp(ev) {
   if (!ev.data) return null;
@@ -73,7 +78,11 @@ self.addEventListener('notificationclick', function (ev) {
       for (var i = 0; i < klienter.length; i++) {
         var k = klienter[i];
         if (k.url.indexOf(scope) !== 0) continue;
-        k.postMessage({ type: 'huskis-notif-open', objType: d.objType, objId: d.objId });
+        /* Nøkkelen følger med pekeren: den er varselets logiske identitet, og
+           fanen bruker den til å la VÆRE å toaste akkurat det varselet en gang
+           til — brukeren trykket nettopp på det i systemets varselpanel. */
+        k.postMessage({ type: 'huskis-notif-open', objType: d.objType, objId: d.objId,
+          key: d.key });
         return 'focus' in k ? k.focus() : undefined;
       }
       // Ingen åpen fane: åpne appen med pekeren i adressen. app.js plukker den

@@ -10468,6 +10468,15 @@
     const fresh = visible.filter((r) => !notifSeen.has(r.id) && !r.readAt);
     visible.forEach((r) => notifSeen.add(r.id));
     if (!fresh.length) return;
+    /* Kom brukeren INN via nettopp dette varselet — et trykk i systemets
+       varselpanel, fra web push eller et native varsel — er toasten redundant:
+       appen navigerte til objektet i det samme trykket. Bare det ene varselet
+       holdes tilbake (nøkkelen er dets logiske identitet), og nøkkelen tas ut
+       av settet nå som raden er presentert. Alle andre nye varsler toaster som
+       før. */
+    const vises = fresh.filter((r) => !notifChannelTapped.has(r.key));
+    fresh.forEach((r) => notifChannelTapped.delete(r.key));
+    if (!vises.length) return;
     /* Ligger det et lag over appen, skal ingen toast legge seg oppå det. Står
        VARSELMODALEN åpen, er raden allerede synlig der. Står noe ANNET åpent —
        en modal, en popover — ville et trykk på toasten stablet varselmodalen
@@ -10479,8 +10488,8 @@
     if (demoActive || document.body.classList.contains('modal-open')) return;
     // Eldste først, og bare de siste: en catch-up-runde kan ha dusinvis av
     // rader, og en kø av toaster er ingen kø — badgen og modalen har resten.
-    fresh.sort((a, b) => (a.at - b.at) || (a.id < b.id ? -1 : 1));
-    fresh.slice(-NOTIF_TOAST_MAX).forEach((r) => showNotifToast(r, N));
+    vises.sort((a, b) => (a.at - b.at) || (a.id < b.id ? -1 : 1));
+    vises.slice(-NOTIF_TOAST_MAX).forEach((r) => showNotifToast(r, N));
   }
 
   /* Er det alt bestilt et NYTT varsel om denne raden? Utsettelsen logges som en
@@ -11730,8 +11739,28 @@
      en id vi ikke har tilgang til finnes ikke og fører ingen steder. */
   let notifPendingTarget = null;
 
-  function openNotifTargetFromChannel(objType, objId) {
+  /* Varsler brukeren nettopp trykket på UTENFOR appen (systemets varselpanel),
+     og som derfor ikke skal toaste inne i appen når raden lander i neste pull:
+     toasten ville pekt på det brukeren nettopp trykket på, og som appen i det
+     samme øyeblikket navigerte til. Nøkkelen er varselets logiske identitet, så
+     settet treffer NØYAKTIG det ene varselet — et annet nytt varsel om det
+     samme objektet toaster fortsatt.
+
+     Nøkler, ikke rad-id-er: raden er ofte ikke pullet ned ennå når trykket
+     kommer. Den blir stående til varselet faktisk er presentert (`announceNotifs`
+     tar den ut), og taket under er den vanlige vakten mot et sett som bare
+     vokser i en lang økt. */
+  const notifChannelTapped = new Set();
+  const NOTIF_TAPPED_MAX = 50;
+
+  function openNotifTargetFromChannel(objType, objId, key) {
     if (!objType || !objId) return;
+    if (key) {
+      notifChannelTapped.add(key);
+      while (notifChannelTapped.size > NOTIF_TAPPED_MAX) {
+        notifChannelTapped.delete(notifChannelTapped.values().next().value);
+      }
+    }
     // Appen er kanskje ikke innlogget og synket ennå (kaldstart fra et varsel).
     // Da parkeres pekeren og tas når doc-et er inne.
     if (!authUser || !lastMy) { notifPendingTarget = { type: objType, id: objId }; return; }
@@ -11767,7 +11796,7 @@
     navigator.serviceWorker.addEventListener('message', (ev) => {
       const d = ev && ev.data;
       if (!d || d.type !== 'huskis-notif-open') return;
-      openNotifTargetFromChannel(d.objType, d.objId);
+      openNotifTargetFromChannel(d.objType, d.objId, d.key);
     });
   }
   if (androidChannel.supported()) {
@@ -11776,7 +11805,7 @@
     // startet av selve varselet.
     nativePlugins.LocalNotifications.addListener('localNotificationActionPerformed', (ev) => {
       const x = (ev && ev.notification && ev.notification.extra) || {};
-      openNotifTargetFromChannel(x.objType, x.objId);
+      openNotifTargetFromChannel(x.objType, x.objId, x.key);
     });
   }
 
@@ -11797,6 +11826,7 @@
     notifPushMark = null;
     notifChSig = null;
     notifPendingTarget = null;
+    notifChannelTapped.clear();
     if (androidChannel.supported()) androidChannel.sync([]).catch(() => {});
     notifRetryAt = 0;
     notifErrorLogged = false;

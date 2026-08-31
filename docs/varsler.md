@@ -646,6 +646,15 @@ Begge ytterpunktene (helt hvitt og helt svart bak) er med i kontrastkontrakten
 - Én runde viser maksimalt tre toaster (de nyeste). En catch-up-runde kan ha
   dusinvis av rader, og en kø av toaster er ingen kø — badgen og modalen har
   resten.
+- Et varsel brukeren **nettopp trykket på i systemets varselpanel** toaster
+  ikke. Trykket navigerte appen til objektet, og en toast om nøyaktig det
+  varselet ville pekt på det brukeren allerede står i. Begge de eksterne
+  kanalene sender varselets NØKKEL sammen med pekeren, og nøkkelen er varselets
+  logiske identitet: bare det ene varselet holdes tilbake, mens et annet nytt
+  varsel — også om det samme objektet — toaster som før. Nøkkelen holdes til
+  raden faktisk er kommet ned og presentert, for ved et web push-trykk har
+  fanen som regel ikke sett raden ennå. En KALDSTART fra et varsel trenger
+  ingen egen regel: første runde seeder settet uten å vise noe.
 
 ## Fullførte, slettede, flyttede og omplanlagte objekter
 
@@ -881,11 +890,17 @@ databasen. En push uten lesbar kropp blir likevel et synlig varsel:
 `userVisibleOnly: true` er et løfte til nettleseren, og brytes det, straffer den
 abonnementet.
 
-`notificationclick` **fokuserer en åpen Huskis-fane** og gir den pekeren som en
-melding — fanen navigerer selv, med sin vanlige tilgangskontroll. Finnes ingen
-åpen fane, åpnes appen med `?notif=<type>:<id>`; app.js plukker den opp når den
-er innlogget og synket, og fjerner den fra adressen, så en reload ikke navigerer
-igjen.
+**Ikonet** (`icon` og `badge`) er appens merke: `assets/notif/huskis-logo-192.png`.
+Kilden til merket er fortsatt `favicon.svg` — PNG-en finnes bare fordi
+Notification API-et vil ha et rasterformat. Bakgrunnen er GJENNOMSIKTIG, og det
+er ikke smak: `badge` brukes som en ALFAMASKE i Androids statuslinje, så en
+flate bak merket ville blitt en solid firkant der.
+
+`notificationclick` **fokuserer en åpen Huskis-fane** og gir den pekeren OG
+nøkkelen som en melding — fanen navigerer selv, med sin vanlige
+tilgangskontroll. Finnes ingen åpen fane, åpnes appen med `?notif=<type>:<id>`;
+app.js plukker den opp når den er innlogget og synket, og fjerner den fra
+adressen, så en reload ikke navigerer igjen.
 
 ### Senderen
 
@@ -1023,8 +1038,10 @@ De to henger sammen på nøyaktig ett punkt, og ellers ikke:
   urørt — Android-adapterens diff og upresise alarm, at tillatelsen aldri
   spørres av seg selv, web push-påmeldingen og avmeldingen, grensene for hva et
   abonnement får være (speilet i mock-backenden), blokkert tillatelse, panelets
-  fire tilstander, service workerens push- og klikkruting, og `?notif=` i
-  adressen.
+  fire tilstander, service workerens push- og klikkruting, `?notif=` i
+  adressen, at et trykk på et systemvarsel IKKE gir en toast for nettopp det
+  varselet mens et annet nytt varsel fortsatt toaster (begge kanalene), og at
+  varselikonet er dagens logo med gjennomsiktig bakgrunn.
 - `tests/push-crypto.test.js` — VAPID-signaturen og RFC 8291-krypteringen, mot
   et fast vektor fra `http_ece` og med signaturen faktisk verifisert.
 - `tests/notif-modal.test.js` — knappen og badgen, modalen, nyeste øverst,

@@ -36,6 +36,14 @@
         varselet ikke stabler seg), og et klikk fokuserer en åpen fane med
         pekeren — eller åpner appen med `?notif=<type>:<id>`.
      8. `?notif=` i adressen navigerer til objektet og fjernes fra adressen.
+     9. Trykk på et SYSTEMvarsel gir ingen redundant in-app-toast for nettopp
+        det varselet — appen navigerte dit i det samme trykket. Gjelder begge
+        kanalene, og bare det ene varselet: et annet nytt varsel, om det samme
+        objektet, toaster fortsatt.
+    10. Varselikonet: `sw.js` peker på merket rasterisert fra `favicon.svg`,
+        192×192 med GJENNOMSIKTIG bakgrunn — `badge` er en alfamaske hos
+        Android, så en bakgrunnsflate ville blitt en solid firkant i
+        statuslinjen.
 
   Kjør:
     python3 -m http.server 8000                        # fra repo-roten, i egen terminal
@@ -202,7 +210,9 @@ function fakePlattform() {
       register: async (url) => { window.__kanal.registrerte = url; registrert = reg; return reg; },
       getRegistration: async () => registrert,
       get ready() { return Promise.resolve(registrert || reg); },
-      addEventListener() {},
+      /* Meldingen `sw.js` sender ved et klikk kommer inn her i ekte drift.
+         Lytteren tas vare på, så testen kan levere den samme meldingen. */
+      addEventListener(navn, fn) { if (navn === 'message') window.__kanal.swMelding = fn; },
     },
   });
 }
@@ -234,6 +244,95 @@ async function cycle(p) {
 }
 
 const db = (p) => p.evaluate(() => window.HK_MOCK._loadDB());
+
+/* Rader rett i «databasen» — som om generatoren hadde logget dem. Brukt av 9:
+   der er poenget hva FLATEN gjør med en rad som ankommer, ikke hvordan raden
+   ble til (det dekker `notifications.test.js` og `notif-plan.test.js`). */
+async function leggVarsler(p, rows) {
+  await p.evaluate((rows) => {
+    const d = window.HK_MOCK._loadDB();
+    const uid = window.__huskis.authUser.id;
+    const uuid = () => 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
+      const r = Math.random() * 16 | 0; return (c === 'x' ? r : (r & 0x3 | 0x8)).toString(16);
+    });
+    rows.forEach((r) => d.notifications.push(Object.assign({
+      id: uuid(), user_id: uid, snoozed: false, path: 'Kanalområde › Mappe',
+      created_at: Date.now(), read_at: null,
+    }, r)));
+    window.HK_MOCK._saveDB(d);
+  }, rows);
+}
+
+/* Objektet må BÆRE tiden varselet handler om: en rad hvis verdi ikke lenger
+   stemmer med objektets tid ryddes bort av appen selv (docs/varsler.md). */
+async function settTid(p, objId, field, value) {
+  await p.evaluate(({ objId, field, value }) => {
+    const H = window.__huskis;
+    for (const u of H.state.universes) {
+      for (const g of (u.groups || [])) {
+        for (const c of (g.cards || [])) {
+          if (c.id === objId) { H.setObjectTime({ kind: 'card', obj: c, card: c }, field, value); return; }
+          for (const it of (c.items || [])) {
+            if (it.id === objId) { H.setObjectTime({ kind: 'item', obj: it, card: c }, field, value); return; }
+          }
+        }
+      }
+    }
+  }, { objId, field, value });
+  await p.waitForTimeout(250);
+}
+
+/* ---------- 9) Trykk på et systemvarsel skal ikke gi en toast i tillegg ----
+   Varselet ble VIST utenfor appen, og brukeren trykket på det. Appen navigerer
+   til objektet — og en toast om nøyaktig det varselet ville pekt på det
+   brukeren nettopp trykket på og allerede står i.
+
+   Rekkefølgen er den fra virkeligheten: pushen kom fra SERVEREN, så fanen har
+   som regel ikke sett raden ennå når trykket kommer. Suppresjonen må derfor
+   holde til raden lander i en senere pull.
+
+   Kjøres for BEGGE kanalene — det eneste kanalspesifikke er hvordan trykket
+   kommer inn (`trykk`). */
+async function ingenRedundantToast(p, prefiks, iid, trykk) {
+  const verdi = await p.evaluate(() => {
+    const d = new Date();
+    const to = (n) => String(n).padStart(2, '0');
+    return d.getFullYear() + '-' + to(d.getMonth() + 1) + '-' + to(d.getDate()) + 'T07:00';
+  });
+  await settTid(p, iid, 'start', verdi);
+  const trykket = 'startNow|item|' + iid + '|' + verdi;
+  const annet = 'startSoon|item|' + iid + '|' + verdi;
+
+  await trykk({ objType: 'item', objId: iid, key: trykket });
+  await p.waitForTimeout(300);
+  await leggVarsler(p, [{ type: 'startNow', obj_type: 'item', obj_id: iid, name: 'Punkt',
+    key: trykket, value: verdi, at: Date.now() - 30000 }]);
+  await cycle(p);
+  await p.waitForTimeout(500);
+  /* Raden MÅ ha kommet fram, og ingen lag stå åpent — ellers ville fraværet av
+     en toast bevist ingenting (den samme rigorøsiteten som 15j i
+     notif-modal.test.js). */
+  const etterTrykk = await p.evaluate((k) => ({
+    levert: window.__huskis.notifRows.some((r) => r.key === k),
+    lag: document.body.classList.contains('modal-open'),
+    toaster: document.querySelectorAll('.notif-toast').length,
+  }), trykket);
+  log(prefiks + 'a: varselet brukeren nettopp trykket på i systemet toaster ikke i appen',
+    etterTrykk.levert === true && etterTrykk.lag === false && etterTrykk.toaster === 0,
+    JSON.stringify(etterTrykk));
+
+  await leggVarsler(p, [{ type: 'startSoon', obj_type: 'item', obj_id: iid, name: 'Punkt',
+    key: annet, value: verdi, at: Date.now() - 20000 }]);
+  await cycle(p);
+  await p.waitForSelector('.notif-toast', { timeout: 4000 }).catch(() => {});
+  const etterAnnet = await p.evaluate(() => [...document.querySelectorAll('.notif-toast')]
+    .map((t) => t.querySelector('.notif-toast-msg').textContent));
+  log(prefiks + 'b: … men et ANNET nytt varsel om det samme objektet toaster som før',
+    etterAnnet.length === 1, JSON.stringify(etterAnnet));
+  await p.evaluate(() => {
+    [...document.querySelectorAll('.notif-toast')].forEach((t) => t.remove());
+  });
+}
 
 /* `utenSone` lar tidssonen settes over CDP i stedet. Playwrights egen
    `timezoneId` ER en `Emulation.setTimezoneOverride`, og Chromium tar bare én:
@@ -306,10 +405,13 @@ async function swSjekker() {
       { objType: 'card', objId: 'abc', key: 'dueOver|card|abc|2026-01-01' }), JSON.stringify(data));
   log('7e: uten en åpen fane åpnes appen med pekeren i adressen',
     utenFane === scope + '?notif=card%3Aabc', utenFane);
-  log('7f: med en åpen fane fokuseres DEN, og får pekeren som en melding',
+  /* Nøkkelen er MED i meldingen: fanen bruker den til å la være å toaste
+     nettopp det varselet en gang til (9 under). */
+  log('7f: med en åpen fane fokuseres DEN, og får pekeren og nøkkelen som en melding',
     fokusert === true && medFane === null &&
     JSON.stringify(meldt) === JSON.stringify(
-      [{ type: 'huskis-notif-open', objType: 'card', objId: 'abc' }]), JSON.stringify(meldt));
+      [{ type: 'huskis-notif-open', objType: 'card', objId: 'abc',
+        key: 'dueOver|card|abc|2026-01-01' }]), JSON.stringify(meldt));
   log('7g: en push uten lesbar kropp blir likevel et synlig varsel',
     vist.length === 2 && vist[1].t === 'Huskis' && vist[1].o.tag === 'huskis',
     JSON.stringify(vist[1] && { t: vist[1].t, tag: vist[1].o.tag }));
@@ -623,6 +725,12 @@ async function run() {
   }, id.LA);
   log('3: et trykk på varselet navigerer til objektet', truffet.finnes, JSON.stringify(truffet));
 
+  /* 9 for den native kanalen: nøkkelen ligger i `extra` og følger med trykket. */
+  await ingenRedundantToast(pn, '9n', id.IA, (peker) => pn.evaluate((x) => {
+    window.__kanal.trykk({ notification: { extra:
+      { objType: x.objType, objId: x.objId, key: x.key } } });
+  }, peker));
+
   await ctxN.close();
 
   /* ================= Nettleser: uten avsendernøkkel ================= */
@@ -859,6 +967,65 @@ async function run() {
   log('8a: pekeren i adressen navigerer til objektet', rute.fant, JSON.stringify(rute));
   log('8b: … og fjernes fra adressen, så en reload ikke navigerer igjen',
     rute.adresse.indexOf('notif=') === -1, rute.adresse);
+
+  /* 9 for web push: `sw.js` gir den åpne fanen pekeren OG nøkkelen som en
+     melding — nøyaktig den meldingen leveres her. */
+  await ingenRedundantToast(pw, '9w', id.IA, (peker) => pw.evaluate((x) => {
+    window.__kanal.swMelding({ data: Object.assign({ type: 'huskis-notif-open' }, x) });
+  }, peker));
+
+  /* ---------- 10) Varselikonet ----------
+     Ikonet i systemvarselet er appens merke, og kilden til merket er
+     `favicon.svg`. PNG-en finnes bare fordi Notification API-et vil ha et
+     rasterformat, og bakgrunnen er GJENNOMSIKTIG: `badge` er en alfamaske hos
+     Android, så en flate bak merket ville blitt en solid firkant i
+     statuslinjen. */
+  const swKilde = fs.readFileSync(path.join(__dirname, '..', 'sw.js'), 'utf8');
+  const ikonSti = (swKilde.match(/var IKON = '([^']+)'/) || [])[1];
+  log('10a: service workeren peker på et ikon som ligger i repoet',
+    !!ikonSti && fs.existsSync(path.join(__dirname, '..', ikonSti)), ikonSti || 'mangler');
+  /* Fasiten på hva merket ER: fyllfargene i favicon.svg. Byttes PNG-en ut med
+     en annen logo — den gamle e-postlogoen med flate bak, for eksempel — vil
+     de ikke lenger finnes i bildet. */
+  const faviconKilde = fs.readFileSync(path.join(__dirname, '..', 'favicon.svg'), 'utf8');
+  const merkefarger = [...new Set((faviconKilde.match(/fill="#[0-9a-f]{6}"/g) || [])
+    .map((f) => f.slice(6, -1)))];
+  const ikon = await pw.evaluate(async ({ sti, farger }) => {
+    const im = await new Promise((ok, nei) => {
+      const i = new Image();
+      i.onload = () => ok(i); i.onerror = () => nei(new Error('lastet ikke'));
+      i.src = sti;
+    });
+    const c = document.createElement('canvas');
+    c.width = im.naturalWidth; c.height = im.naturalHeight;
+    c.getContext('2d').drawImage(im, 0, 0);
+    const d = c.getContext('2d').getImageData(0, 0, c.width, c.height).data;
+    const px = (x, y) => [...d.slice((y * c.width + x) * 4, (y * c.width + x) * 4 + 4)];
+    let gjennomsiktige = 0;
+    for (let i = 3; i < d.length; i += 4) if (d[i] === 0) gjennomsiktige++;
+    const treff = farger.map((f) => {
+      const r = parseInt(f.slice(1, 3), 16), g = parseInt(f.slice(3, 5), 16),
+        b = parseInt(f.slice(5, 7), 16);
+      let n = 0;
+      for (let i = 0; i < d.length; i += 4) {
+        if (d[i + 3] === 255 && Math.abs(d[i] - r) < 8 && Math.abs(d[i + 1] - g) < 8
+          && Math.abs(d[i + 2] - b) < 8) n++;
+      }
+      return { farge: f, piksler: n };
+    });
+    return { w: c.width, h: c.height, gjennomsiktige, andel: gjennomsiktige / (c.width * c.height),
+      hjørner: [px(0, 0), px(c.width - 1, 0), px(0, c.height - 1), px(c.width - 1, c.height - 1)],
+      treff };
+  }, { sti: ikonSti, farger: merkefarger });
+  log('10b: ikonet er 192×192 — størrelsen Notification API-et vil ha',
+    ikon.w === 192 && ikon.h === 192, ikon.w + '×' + ikon.h);
+  log('10c: bakgrunnen er gjennomsiktig, ikke en flate bak merket',
+    ikon.hjørner.every((p) => p[3] === 0) && ikon.andel > 0.2,
+    JSON.stringify({ hjørner: ikon.hjørner.map((p) => p[3]),
+      andel: Math.round(ikon.andel * 100) + '%' }));
+  log('10d: … og det ER dagens logo: fyllfargene fra favicon.svg finnes i bildet',
+    merkefarger.length >= 3 && ikon.treff.every((t) => t.piksler > 200),
+    JSON.stringify(ikon.treff));
 
   await ctxW.close();
   log('ingen JS-feil', errs.length === 0, errs.join(' | ') || 'ingen');

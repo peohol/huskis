@@ -67,13 +67,20 @@ android {
         // ett uten er native forskjellige, og kan derfor ikke melde det samme
         // nivået.
         //
+        // 3 → 4: varselrunden la EGEN native kode inn i skallet — lokale
+        // varsler (@capacitor/local-notifications), varselikonet
+        // `ic_stat_huskis`, tillatelsen POST_NOTIFICATIONS og
+        // `TimeZoneAlarmReceiver`/`HuskisWallClock`, som regner om planlagte
+        // alarmer ved et tidssonebytte. Ingenting av det finnes i et
+        // `versionCode 3`-skall, og de to kan derfor ikke melde samme nivå.
+        //
         // REGELEN VIDERE: tallet økes med 1 i den endringen som produserer en
         // ny butikkopplasting, og gjenbrukes eller senkes ALDRI. Play avviser
         // en opplasting som gjenbruker et nummer, og OTA-manifestspennet
         // (OTA_MIN_VERSION_CODE i release.yml → dette tallet) utvides av seg
         // selv. `.github/workflows/android-release.yml` sjekker på hver PR at
         // tallet ikke er senket.
-        versionCode 3
+        versionCode 4
         // Butikkens visningsnavn, og ikke en produktversjon: Huskis' identitet
         // er `releaseId` (docs/auto-update.md), som utledes av commiten og
         // dessuten byttes av OTA — den kan derfor ikke bakes inn i binæren.
@@ -82,7 +89,7 @@ android {
         // fra hverandre i konsollen. Derfor: fast prefiks + versionCode, altså
         // fortsatt ETT tall. Prefikset er en etikett og økes ikke — dette er
         // ikke SemVer.
-        versionName "1.0.3"
+        versionName "1.0.4"
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         aaptOptions {
              // Files and dirs to omit from the packaged assets dir, modified to accommodate modern web apps.
