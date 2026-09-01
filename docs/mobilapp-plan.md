@@ -2736,11 +2736,21 @@ badgen bærer nøyaktig de samme banene. Autoritativt: `docs/varsler.md`.
 
 ## Det som MÅ prøves på telefon
 
-**Ingenting av dette er prøvd på en enhet.** Punktene under er fasen sitt
-ferdigkriterium, og de skal ikke krysses av før de faktisk er kjørt:
+Punktene under er fasen sitt ferdigkriterium, og de skal ikke krysses av før
+de faktisk er kjørt på en enhet. De avkryssede er observert på fysisk
+Android (Samsung, rein installasjon); resten står igjen.
 
-- [ ] tillatelsesdialogen kommer ved bryteren, og bare der;
-- [ ] varsel i forgrunn, i bakgrunn, og etter at prosessen er drept;
+- [x] tillatelsesdialogen kommer ved bryteren, og bare der — Android spør ikke
+      ved oppstart, dialogen kommer først når systemvarsler slås PÅ i Huskis,
+      og tillatelsen beholdes etterpå;
+- [x] **med appen i forgrunnen: in-app-toasten leveres; et redundant
+      systemvarsel er IKKE påkrevd.** Dette er produktregelen, ikke en mangel:
+      terskelen som nettopp passerte er ute av den framtidige native planen, og
+      diffen avlyser den armerte alarmen i den samme runden som toasten vises
+      ([`varsler.md`](varsler.md), «Én synlig varsling»). Maskinelt låst av
+      `tests/notif-channels.test.js` 12;
+- [x] med appen i bakgrunnen: Android-systemvarselet leveres;
+- [ ] med prosessen fjernet fra Recents: Android-systemvarselet leveres;
 - [ ] varsel etter en telefonrestart (pluginens `BOOT_COMPLETED`-mottaker skal
       stille opp igjen det som var planlagt);
 - [ ] trykk på varselet åpner riktig Huskis-objekt — også fra kaldstart, der

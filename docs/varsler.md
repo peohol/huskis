@@ -807,6 +807,59 @@ uten nett finnes det ingen neste runde, og debouncen til endringen som køet
 seg har alt fyrt. Falt den køede runden bort sammen med den som feilet, kostet
 ett hikst i broen nøyaktig den alarmen.
 
+#### Én synlig varsling: appen åpen vs. appen borte
+
+**Produktregel:** brukeren skal normalt få ÉN synlig varsling per hendelse på
+en telefon — ikke en in-app-toast og et systemvarsel om det samme.
+
+| Appen er | Varslingen er |
+|---|---|
+| åpen og aktiv | **in-app-toasten.** Et systemvarsel i tillegg er ikke påkrevd — og kommer normalt ikke |
+| i bakgrunnen, eller prosessen er borte | **den lokale Android-alarmen.** Den er armert på forhånd og leverer uten at en eneste linje JS kjører |
+
+Regelen faller ut av at `applyNotifications()` bruker ÉTT øyeblikk (`nå`) for
+hele runden, to steder, tre linjer fra hverandre:
+
+```js
+announceNotifs(nå);      // notifVisible → radene med at <= nå   ⇒ TOASTER
+syncNotifChannel(nå);    // planNotifications → tersklene med at > nå
+                         //   ⇒ terskelen er UTE av planen, og diffen avlyser alarmen
+```
+
+Det samme millisekundet legger altså den nettopp passerte terskelen på hver sin
+side av de to vinduene: synlig i appen, borte fra den framtidige native planen.
+Neste speiling ser en armert alarm som ikke står i planen, og avlyser den — som
+regel før Android har rukket å vise den, fordi alarmene er UPRESISE med vilje
+mens synk-runden går hvert femte sekund i forgrunnen.
+
+To presiseringer, fordi de er lette å lese feil:
+
+- **Toasten «spiser» ikke alarmen.** Begge deler følger av at terskelen er
+  passert mens appen kjører. Holdes toasten tilbake (varselmodalen står åpen,
+  brukeren trykket seg inn via nettopp det varselet), avlyses alarmen likevel —
+  raden er uansett synlig i modalen og telles i badgen.
+- **Ingenting går tapt.** Raden er historikk nå, og historikk ryddes ikke bort
+  av planen (se «Varsler som ikke gjelder lenger»). Varselet står i modalen og
+  i badgen enten Android rakk å vise det eller ikke.
+
+At Android likevel skulle rekke å levere før runden avlyser, er ikke en feil —
+det er et kappløp vi ikke styrer, og et ekstra systemvarsel er ufarlig. Men
+**et systemvarsel i forgrunnen er ikke et ferdigkriterium**, og skal ikke
+tvinges fram: `foreground`-flagg, egen kanal-importance eller en ekstra
+levering ville gitt nøyaktig den doble varslingen regelen finnes for å unngå.
+
+**Web push er ikke symmetrisk her, og kan ikke være det.** Der eier SERVEREN
+sendingen: leveringen ligger i utboksen med `due_at` og går ut når den
+forfaller. Det finnes ingen lokal diff som kan trekke den tilbake i det appen
+selv presenterer raden. En åpen fane kan derfor få både systemvarselet og
+toasten. Den native kanalen har planen på enheten, og det er nettopp derfor den
+kan gjøre dette.
+
+Låst av `tests/notif-channels.test.js` 12, som lar klokka faktisk passere
+terskelen: alarmen er armert mens terskelen ennå er i framtiden (bakgrunns-
+kontrakten), og når den passerer med appen i forgrunnen kommer toasten, mens
+terskelen forsvinner fra planen og alarmen avlyses.
+
 Broen mellom Huskis' identitet og Androids er ren: `nativeNotifId()` er en
 FNV-1a-hash klippet til et positivt 31-bits heltall (Androids varsel-ID er et
 Java-`int`). Determinismen er hele poenget — det er den som gjør at den samme
@@ -1109,6 +1162,11 @@ uttrykkelig har slått på, leverer.** Vil man ha bare ett varsel på telefonen,
 slår man av det ene stedet — bryteren er per enhet, og i Chrome er den per
 nettleser.
 
+Merk at dette handler om TO KANALER på samme telefon. Det er noe annet enn
+regelen om én synlig varsling i den native kanalen alene («Én synlig
+varsling»): der er in-app-toasten varslingen når appen er åpen, og et
+systemvarsel i tillegg er verken påkrevd eller forventet.
+
 ### Levert/ikke levert mot lest/ulest
 
 De to henger sammen på nøyaktig ett punkt, og ellers ikke:
@@ -1159,7 +1217,12 @@ De to henger sammen på nøyaktig ett punkt, og ellers ikke:
   en ny terskel blir en alarm SELV NÅR serveren ikke svarer og uten at noe
   manuelt kjøres, at to overlappende speilinger etterlater telefonen med
   nøyaktig planen — ikke én alarm for mye — og at en runde som står i kø bak en
-  som FEILET i broen likevel blir kjørt.
+  som FEILET i broen likevel blir kjørt. Og PRODUKTREGELEN «én synlig
+  varsling»: klokka får faktisk passere terskelen, og testen viser at alarmen
+  var armert på forhånd (bakgrunnskontrakten), at toasten kommer når terskelen
+  passerer med appen i forgrunnen, at terskelen da er ute av den framtidige
+  native planen, at den armerte alarmen avlyses — og at raden likevel står i
+  historikken.
 - `tests/push-crypto.test.js` — VAPID-signaturen og RFC 8291-krypteringen, mot
   et fast vektor fra `http_ece` og med signaturen faktisk verifisert.
 - `tests/notif-modal.test.js` — knappen og badgen, modalen, nyeste øverst,

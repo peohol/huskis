@@ -50,6 +50,11 @@
         pluginens lagring, og det neste skal likevel bli en alarm — også når
         serveren ikke svarer, og uten at noe manuelt kjøres. To overlappende
         speilinger etterlater nøyaktig planen, ikke én alarm for mye.
+    12. ÉN synlig varsling, ikke to. Er appen åpen når terskelen passerer, er
+        in-app-toasten varslingen, og den armerte Android-alarmen avlyses av
+        diffen — et systemvarsel i tillegg er IKKE et ferdigkriterium. Er appen
+        ikke åpen, er alarmen sikkerhetsnettet, og den skal være armert på
+        forhånd. Klokka får faktisk passere terskelen her.
 
   Kjør:
     python3 -m http.server 8000                        # fra repo-roten, i egen terminal
@@ -960,6 +965,144 @@ async function run() {
     JSON.stringify(hikst));
 
   await ctxR.close();
+
+  /* ================= 12) ÉN SYNLIG VARSLING, IKKE TO ==================
+     PRODUKTREGEL, ikke en tilfeldighet: står Huskis åpen når terskelen
+     passerer, er IN-APP-TOASTEN varslingen. Er appen ikke åpen, er den
+     lokale Android-alarmen det.
+
+     Mekanismen er tettere enn den ser ut. `applyNotifications()` tar ÉTT
+     øyeblikk (`nå`) for hele runden og bruker det to steder, tre linjer fra
+     hverandre:
+
+       announceNotifs(nå)   → `notifVisible` er radene med `at <= nå`
+                              ⇒ den nettopp passerte terskelen er SYNLIG, og toaster
+       syncNotifChannel(nå) → `planNotifications` er tersklene med `at > nå`
+                              ⇒ den samme terskelen er UTE av framtidsplanen,
+                                og Android-diffen avlyser den armerte alarmen
+
+     Det samme millisekundet legger altså terskelen på hver sin side av de to
+     vinduene. Toasten «spiser» ikke alarmen — begge deler følger av at
+     terskelen er passert, og appen kjører.
+
+     Om Android likevel rekker å vise systemvarselet før runden avlyser det, er
+     et kappløp: alarmene er UPRESISE med vilje (`setAndAllowWhileIdle`), mens
+     runden går hvert femte sekund i forgrunnen. Derfor prøver denne testen
+     TILSTANDEN, ikke Androids UI: at toasten kom, og at den passerte terskelen
+     er ute av den framtidige native planen. **Et systemvarsel i tillegg er
+     IKKE et ferdigkriterium** — det er nettopp det regelen skal unngå.
+
+     Klokka får faktisk passere terskelen her. Terskeltidene ligger på hele
+     minutter (`timeMs` av et `HH:MM`-felt), så testen venter på det neste
+     minuttskiftet i stedet for å jukse med tiden — det er den ene måten den
+     SAMME terskelen kan gå fra framtid til fortid uten å bytte nøkkel. */
+  const ctxF = await nyKontekst(browser);
+  const pf = await ctxF.newPage();
+  pf.on('pageerror', (e) => errs.push('forgrunn: ' + e.message));
+  const FURL = BASE + '/?mock=1&ch=native';
+  await seed(pf, FURL, buildDB(null));
+  await pf.evaluate(() => window.__huskis.setNotifChannel(true));
+  await pf.waitForFunction(() => window.__huskis.notifChState === 'on',
+    null, { timeout: 8000, polling: 100 });
+
+  /* Toastene står i tre sekunder. En observatør fanger dem når de kommer, så
+     et poll ikke kan gå glipp av en som rakk å forsvinne. */
+  await pf.evaluate(() => {
+    window.__toaster = [];
+    new MutationObserver((muts) => muts.forEach((m) => [...m.addedNodes].forEach((n) => {
+      if (n.nodeType !== 1 || !n.classList || !n.classList.contains('notif-toast')) return;
+      const msg = n.querySelector('.notif-toast-msg');
+      window.__toaster.push((n.getAttribute('aria-label') || '') + ' | ' +
+        (msg ? msg.textContent : n.textContent));
+    }))).observe(document.body, { childList: true, subtree: true });
+  });
+
+  // Neste hele minutt, med klaring nok til at alarmen rekker å bli armert.
+  const grense = await pf.evaluate(() => {
+    const d = new Date();
+    d.setSeconds(0, 0);
+    d.setMinutes(d.getMinutes() + 1);
+    if (d.getTime() - Date.now() < 9000) d.setMinutes(d.getMinutes() + 1);
+    const to = (n) => String(n).padStart(2, '0');
+    return {
+      verdi: d.getFullYear() + '-' + to(d.getMonth() + 1) + '-' + to(d.getDate()) +
+        'T' + to(d.getHours()) + ':' + to(d.getMinutes()),
+      at: d.getTime(),
+    };
+  });
+
+  /* ---------- SCENARIO B: alarmen er armert FØR appen kan forsvinne ----------
+     Ferdigkriteriet er ikke at JS gjør noe når tiden kommer — det gjør den
+     ikke når appen er borte. Det er at Android HAR alarmen på forhånd, og kan
+     levere den helt alene. */
+  await settTid(pf, id.LA, 'due', grense.verdi);
+  await pf.waitForFunction(() => window.__kanal.alarmer.length > 0,
+    null, { timeout: 10000, polling: 100 });
+  const armert = await pf.evaluate(() => ({
+    alarmer: window.__kanal.alarmer.map((n) => ({ id: n.id, at: new Date(n.at).getTime() })),
+    plan: window.__huskis.planNotifications(window.__huskis.state, Date.now(),
+      window.__huskis.notifPrefs).map((r) => ({
+        at: r.at, key: r.key,
+        id: window.__huskis.nativeNotifId(window.__huskis.nativeNotifSig(r)),
+      })),
+    nå: Date.now(),
+  }));
+  log('12a: terskelen ligger som armert Android-alarm mens den ennå er i framtiden',
+    armert.alarmer.length === 1 && armert.plan.length === 1 &&
+    armert.alarmer[0].id === armert.plan[0].id && armert.nå < grense.at,
+    JSON.stringify({ alarmer: armert.alarmer.length, plan: armert.plan.length,
+      igjen: Math.round((grense.at - armert.nå) / 1000) + ' s' }));
+  log('12b: … på nøyaktig terskelens tidspunkt, så Android kan levere den uten JS',
+    armert.alarmer.length === 1 && armert.alarmer[0].at === grense.at &&
+    armert.plan[0].at === grense.at,
+    JSON.stringify({ alarm: armert.alarmer[0] && armert.alarmer[0].at, terskel: grense.at }));
+  const armertId = armert.alarmer[0] && armert.alarmer[0].id;
+  const armertKey = armert.plan[0] && armert.plan[0].key;
+
+  /* ---------- SCENARIO A: terskelen passerer med appen i forgrunnen ---------- */
+  await pf.evaluate(() => { window.__kanal.cancel.length = 0; });
+  // Klokka får gå. Dette er en TIDSVINDU-observasjon (tests/CLAUDE.md): det
+  // er nettopp klokkeskiftet som er hendelsen.
+  await pf.waitForFunction((t) => Date.now() > t + 300, grense.at,
+    { timeout: 90000, polling: 500 });
+  // Runden som logger den passerte terskelen, og runden som henter den ned.
+  for (let i = 0; i < 3; i++) await cycle(pf);
+  await pf.waitForFunction((k) => window.__huskis.notifRows.some((r) => r.key === k),
+    armertKey, { timeout: 10000, polling: 200 }).catch(() => {});
+  await pf.waitForTimeout(600);
+
+  const etterpå = await pf.evaluate(({ k, id }) => ({
+    toaster: window.__toaster.slice(),
+    rad: window.__huskis.notifRows.filter((r) => r.key === k)
+      .map((r) => ({ at: r.at, name: r.name })),
+    plan: window.__huskis.planNotifications(window.__huskis.state, Date.now(),
+      window.__huskis.notifPrefs).map((r) => r.key),
+    alarmer: window.__kanal.alarmer.map((n) => n.id),
+    avlyst: window.__kanal.cancel.flat().map((n) => n.id),
+    lag: document.body.classList.contains('modal-open'),
+  }), { k: armertKey, id: armertId });
+
+  log('12c: terskelen passerte, og varselet ble presentert som IN-APP-TOAST',
+    etterpå.rad.length === 1 && etterpå.toaster.length >= 1 &&
+    etterpå.toaster.some((t) => /Tannlegetime/.test(t)) && etterpå.lag === false,
+    JSON.stringify({ rad: etterpå.rad, toaster: etterpå.toaster }));
+  log('12d: … den passerte terskelen er ikke lenger i den framtidige native planen',
+    etterpå.plan.indexOf(armertKey) === -1, JSON.stringify(etterpå.plan));
+  /* DETTE er regelen, og den er bevisst: den armerte alarmen avlyses av
+     diffen, så brukeren ikke får BÅDE toast og systemvarsel for det samme.
+     Et systemvarsel i tillegg er ikke et ferdigkriterium — fraværet av det er
+     produktregelen. */
+  log('12e: … og den armerte alarmen ble AVLYST — ingen toast + systemvarsel for det samme',
+    etterpå.alarmer.indexOf(armertId) === -1 && etterpå.avlyst.indexOf(armertId) !== -1,
+    JSON.stringify({ armertId: armertId, alarmerIgjen: etterpå.alarmer,
+      avlyst: etterpå.avlyst }));
+  /* Ingenting er tapt: raden står i historikken, så badgen og modalen har
+     varselet selv om ingen systemvarsel ble vist. */
+  log('12f: … mens raden står i historikken, så varselet ikke er tapt',
+    etterpå.rad.length === 1 && etterpå.rad[0].at === grense.at,
+    JSON.stringify(etterpå.rad));
+
+  await ctxF.close();
 
   /* ================= Nettleser: uten avsendernøkkel ================= */
   const ctxU = await nyKontekst(browser);
