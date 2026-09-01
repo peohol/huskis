@@ -872,11 +872,27 @@ raden.
   forskjellige utfall, og ingenting som skilte dem. `retargetDragTrash` spør
   derfor `S.refusesRow` — det SAMME spørsmålet slippet stiller
   (`navRejectTarget` / `boardRejectTarget`: låst, virtuell, uten
-  opprettelsesrett) — og lar kassen bli stående i den siste containeren som
-  faktisk kunne tatt imot raden. Samme regel som når raden forlater alle
-  containere. Det er en regel om MÅL-containeren; radens egen slette-rett
-  (`draggedCanBeTrashed`) er uendret. MÅLT i begge scopene: `dnd-trash` sjekk
-  14 og `nav-modal` sjekk 9.
+  opprettelsesrett). Det er en regel om MÅL-containeren; radens egen
+  slette-rett (`draggedCanBeTrashed`) er uendret.
+
+  Verten velges i tre trinn, og spørsmålet stilles på nytt hver politikkrunde —
+  også om VERTEN, ikke bare om den man svever over:
+
+  1. containeren raden svever over, når den tar imot raden;
+  2. ellers der kassen står — men bare så lenge DEN fortsatt tar imot raden.
+     Et mål kan bli låst MENS draget pågår (en synk-runde), og det er nettopp
+     det commit-vakten finnes for. Uten trinnet ville en vert som begynte å
+     avvise raden ETTER at kassen flyttet dit blitt stående med et slette-mål
+     slippet ikke kan lande i — den samme fella, bare med en annen rekkefølge;
+  3. ellers hjem til kilden, som aldri avvises (`*RejectTarget` svarer null for
+     containeren raden kom fra). Er kilden borte fra DOM-en, svarer
+     `dragTrashBtn()` null og ingenting armes: ingen kasse er det riktige
+     svaret når ingen container kan ha den.
+
+  Trinn 2 er også regelen om at kassen aldri slippes helt: forlater raden alle
+  containere, blir den stående der den er. MÅLT i begge scopene: `dnd-trash`
+  sjekk 14 (både mål som er låst på forhånd og vert som låses midt i draget) og
+  `nav-modal` sjekk 9.
 
   **Raden den forlot forsvinner helt** (`hideRevealedTrash`) — den holder ingen
   plass. Kortet krymper med en hel knapperad, og alt under det ville rykket

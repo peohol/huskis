@@ -40,8 +40,9 @@ Detaljer som er lette å bryte:
   flyttet av `retargetDragTrash`) — men aldri i en container som ikke tar imot
   raden, som en låst liste eller et låst område: der blir slippet avvist, og en
   kasse som foldet seg ut ville gjort et bom på noen piksler til en sletting.
-  Slettingen legger uansett raden i KILDENS kasse; verten er bare hvor knappen
-  sto mens man dro.
+  Det gjelder også når verten blir låst ETTER at kassen flyttet dit — da faller
+  kassen hjem til kilden. Slettingen legger uansett raden i KILDENS kasse;
+  verten er bare hvor knappen sto mens man dro.
 - **Slippet SLETTER, det flytter ikke.** Draget rulles tilbake som et avbrutt
   drag (ingen ny `pos`, ingen lagring, ingen flytte-velger) før slettingen
   kjøres, så objektet ikke også blir omrokkert eller overført.
