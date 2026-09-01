@@ -3071,10 +3071,13 @@ declare
 begin
   if uid is null then raise exception 'ikke innlogget'; end if;
   if p_id is null then return false; end if;
+  /* IDEMPOTENT: `coalesce` holder det opprinnelige tidspunktet, og en rad som
+     alt er tilbakekalt svarer `true`. To faner som slår av den samme enheten
+     samtidig har begge fått viljen sin — det er ingen feil å melde. */
   update public.push_subscriptions
      set revoked_at = coalesce(revoked_at, now_ms),
          p256dh = '', auth = '', labels = '{}'::jsonb, tz = null
-   where id = p_id and user_id = uid and revoked_at is null;
+   where id = p_id and user_id = uid;
   get diagnostics traff = row_count;
   if traff = 0 then return false; end if;
   perform public.push_end_queue(p_id, now_ms, 'slått av av brukeren');

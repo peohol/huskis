@@ -665,10 +665,14 @@
        BRUKEREN satte blir stående for godt — ryddet vi det, ville den avslåtte
        nettleseren meldt seg på igjen av seg selv den dagen den ble åpnet. */
     var grense = Date.now() - PUSH_KEEP_DAYS * 86400000;
+    var ryddet = {};
     db.push_subscriptions = db.push_subscriptions.filter(function (x) {
-      return !(x.user_id === uid && x.id !== row.id && !x.revoked_at &&
-               x.disabled_at && x.disabled_at < grense);
+      if (x.user_id === uid && x.id !== row.id && !x.revoked_at &&
+          x.disabled_at && x.disabled_at < grense) { ryddet[x.id] = 1; return false; }
+      return true;
     });
+    // Kaskaden fra `push_deliveries.subscription_id`, som i Postgres.
+    db.push_deliveries = db.push_deliveries.filter(function (d) { return !ryddet[d.subscription_id]; });
     pushEnqueue(db, uid);
     return { id: row.id, revoked: false };
   }
@@ -684,11 +688,11 @@
     });
   }
   function pushRevoke(db, uid, id) {
-    var row = db.push_subscriptions.find(function (x) {
-      return x.id === id && x.user_id === uid && !x.revoked_at;
-    });
+    var row = db.push_subscriptions.find(function (x) { return x.id === id && x.user_id === uid; });
     if (!row) return false;      // en fremmed id røper aldri at raden finnes
-    row.revoked_at = Date.now();
+    // Idempotent, som serveren: en rad som alt er tilbakekalt beholder
+    // tidspunktet sitt og svarer `true`.
+    row.revoked_at = row.revoked_at || Date.now();
     /* Nøklene tømmes, som serveren: raden trenger bare endepunktet (identiteten
        fornyelsen kjennes igjen på), og et abonnement brukeren har slått av skal
        ikke bli liggende med mottakernøklene sine i det uendelige. */

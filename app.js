@@ -11854,37 +11854,53 @@
      innlogging og skal skje med det samme, mens serverraden trenger en økt.
      Endepunktet tas vare på mellom dem — etter `unregister()` finnes det ikke
      å hente lenger. */
-  let blockedPushSwept = false;    // den lokale nedriggingen er gjort
+  let blockedPushSweep = null;     // den lokale nedriggingen, som løfte
   let blockedPushEndpoint = null;  // … og serverraden som ennå ikke er ryddet
+  async function tearDownBlockedPush() {
+    /* Bryteren er per ORIGIN (`localStorage`), så dette valget gjelder bare
+       forhåndsvisningen — produksjonens egen bryter står urørt. */
+    setNotifChannelWanted(false);
+    notifPushMark = null; notifPushMarkAt = 0;
+    try {
+      const reg = await navigator.serviceWorker.getRegistration();
+      if (reg) {
+        const sub = (reg.pushManager && await reg.pushManager.getSubscription()) || null;
+        blockedPushEndpoint = (sub && sub.endpoint) || null;
+        // Avmeldingen snakker med pushtjenesten og kan feile uten nett;
+        // avregistreringen under er den harde garantien.
+        try { if (sub) await sub.unsubscribe(); } catch (e) { /* dekkes under */ }
+        await reg.unregister();
+      }
+    } catch (e) { /* best effort — previewen skal fortsatt virke */ }
+    await refreshNotifChannelState();
+    refreshNotifModal(true);
+  }
+  /* Ingen av de to kallerne venter på svaret, så løftet må aldri avvises:
+     en ubehandlet avvisning ville blitt en JS-feil på en side der hele
+     poenget er at opprydningen ikke skal kunne ødelegge noe. */
   async function sweepBlockedPush() {
+    try { await sweepBlockedPushInner(); } catch (e) { /* best effort */ }
+  }
+  async function sweepBlockedPushInner() {
     if (pushDeployAllowed() || !webChannel.capable()) return;
-    if (!blockedPushSwept) {
-      blockedPushSwept = true;
-      /* Bryteren er per ORIGIN (`localStorage`), så dette valget gjelder bare
-         forhåndsvisningen — produksjonens egen bryter står urørt. */
-      setNotifChannelWanted(false);
-      notifPushMark = null; notifPushMarkAt = 0;
-      try {
-        const reg = await navigator.serviceWorker.getRegistration();
-        if (reg) {
-          const sub = (reg.pushManager && await reg.pushManager.getSubscription()) || null;
-          blockedPushEndpoint = (sub && sub.endpoint) || null;
-          // Avmeldingen snakker med pushtjenesten og kan feile uten nett;
-          // avregistreringen under er den harde garantien.
-          try { if (sub) await sub.unsubscribe(); } catch (e) { /* dekkes under */ }
-          await reg.unregister();
-        }
-      } catch (e) { /* best effort — previewen skal fortsatt virke */ }
-      await refreshNotifChannelState();
-      refreshNotifModal(true);
-    }
+    /* Nedriggingen holdes som et LØFTE, ikke et flagg. Den kalles fra to
+       steder — oppstart og `cloudStart()` — og et flagg satt før første `await`
+       ville fått den andre til å hoppe over ventingen og lese `endpoint` mens
+       den fortsatt var `null`. Da hadde serverraden blitt stående i akkurat
+       den økten som endelig kunne ryddet den. */
+    if (!blockedPushSweep) blockedPushSweep = tearDownBlockedPush();
+    await blockedPushSweep;
     if (!blockedPushEndpoint) return;
     const client = acli();
     if (!client || !authUser) return;   // serverraden venter til økten er der
     const endpoint = blockedPushEndpoint;
     blockedPushEndpoint = null;
     try { await client.rpc('push_unsubscribe', { p_endpoint: endpoint }); }
-    catch (e) { /* best effort: et avmeldt endepunkt dør uansett av 410 */ }
+    catch (e) {
+      // Best effort — men la endepunktet stå, så neste runde kan prøve igjen.
+      // Et avmeldt endepunkt dør uansett av 410 ved første sending.
+      blockedPushEndpoint = endpoint;
+    }
   }
 
   /* Serveren har tilbakekalt abonnementet vårt. Den lokale nedriggingen er den
