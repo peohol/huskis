@@ -66,6 +66,10 @@
         memberships: [], share_invites: [], tombstones: [],
         notifications: [], notification_prefs: [],
         push_subscriptions: [], push_deliveries: [],
+        // Supabase Auth eier `auth.sessions`; mocken må ha noe å eie den MED,
+        // ellers kan ikke fjern-utlogging testes i det hele tatt. Sidebordet
+        // (`device_sessions`) er vårt eget, som i users-and-sharing.sql.
+        auth_sessions: [], device_sessions: [],
       };
     }
     return migrateRoles(db);
@@ -84,6 +88,8 @@
     db.notification_prefs = db.notification_prefs || [];
     db.push_subscriptions = db.push_subscriptions || [];
     db.push_deliveries = db.push_deliveries || [];
+    db.auth_sessions = db.auth_sessions || [];
+    db.device_sessions = db.device_sessions || [];
     if (db._rolesBackfilled) return db;
     db._rolesBackfilled = true;
     var has = function (uid, col, id) {
@@ -147,7 +153,12 @@
     return String(aOrg || '') > String(bOrg || '');
   }
 
-  /* ---------------- Sesjon (per fane) ---------------- */
+  /* ---------------- Sesjon (per fane) ----------------
+     Som ekte Supabase har hver innlogging en ØKT med sin egen id
+     (`session_id`-claimet i access-tokenet), og den lever i den delte
+     «databasen» — ikke bare i fanen. Det er nettopp fordi den er delt at
+     fjern-utlogging kan testes: én fane sletter øktraden, og den andre fanen
+     oppdager det i sin neste synk-runde (docs/accounts.md). */
   var SESS_KEY = 'hk-mock-session';
   function getSess() {
     try { return JSON.parse(sessionStorage.getItem(SESS_KEY) || 'null'); } catch (e) { return null; }
@@ -155,6 +166,34 @@
   function setSess(user) {
     if (user) sessionStorage.setItem(SESS_KEY, JSON.stringify(user));
     else sessionStorage.removeItem(SESS_KEY);
+  }
+  /* Øktens id for DENNE fanen. En seedet sesjon uten `session_id` (testene fra
+     før øktlaget) får en når den først brukes, så gamle fiksturer virker.
+
+     Raden opprettes KUN i det øyeblikket id-en er ny. En økt som er slettet —
+     fjern-utlogget fra en annen fane — skal ikke våkne igjen av at fanen
+     ringer serveren; det er nettopp den situasjonen appen må oppdage. */
+  function sessionId(db, u) {
+    if (!u || u.session_id) return u ? u.session_id : null;
+    u.session_id = newUuid();
+    setSess(u);
+    if (db) {
+      db.auth_sessions.push({
+        id: u.session_id, user_id: u.id,
+        created_at: Date.now(), refreshed_at: Date.now(),
+        // Ekte auth.sessions har begge. De ligger her nettopp fordi de ALDRI
+        // skal komme ut igjen gjennom list_my_devices().
+        user_agent: String(navigator.userAgent || ''), ip: '203.0.113.1',
+      });
+    }
+    return u.session_id;
+  }
+  function sessionAlive(db, u) {
+    if (!u) return false;
+    if (!u.session_id) return true;   // ukjent økt er ikke en tilbakekalt økt
+    return db.auth_sessions.some(function (x) {
+      return x.id === u.session_id && x.user_id === u.id;
+    });
   }
 
   /* ---------------- Rolle- og tilgangsmodell (speiler users-and-sharing.sql) ----------------
@@ -532,7 +571,7 @@
     db.notifications.forEach(function (n) {
       if (n.user_id !== uid || !(n.at > now)) return;
       db.push_subscriptions.forEach(function (sub) {
-        if (sub.user_id !== uid || sub.disabled_at) return;
+        if (sub.user_id !== uid || sub.disabled_at || sub.revoked_at) return;
         var finnes = db.push_deliveries.some(function (d) {
           return d.notification_id === n.id && d.subscription_id === sub.id;
         });
@@ -571,6 +610,13 @@
       throw new Error('ugyldige nøkler');
     }
     var row = db.push_subscriptions.find(function (x) { return x.endpoint === p.p_endpoint; });
+    /* TILBAKEKALT AV BRUKEREN (som serveren): den automatiske fornyelsen skal
+       ikke kunne oppheve et valg tatt på en annen enhet. Bare et EKSPLISITT
+       «slå på varsler» på nettopp denne klienten tar det tilbake — og et
+       eierskifte, siden tilbakekallingen var forrige brukers valg. */
+    if (row && row.revoked_at && !p.p_explicit && (!row.user_id || row.user_id === uid)) {
+      return { id: row.id, revoked: true };
+    }
     if (!row) {
       row = { id: newUuid(), endpoint: p.p_endpoint, created_at: Date.now() };
       db.push_subscriptions.push(row);
@@ -588,8 +634,14 @@
     row.auth = p.p_auth;
     row.labels = p.p_labels || {};
     row.tz = p.p_tz || null;
+    // Gjenkjennelig metadata — aldri hele user-agenten (docs/accounts.md).
+    if (p.p_browser != null) row.browser = p.p_browser;
+    if (p.p_platform != null) row.platform = p.p_platform;
+    if (p.p_origin != null) row.origin = p.p_origin;
+    if (p.p_device_id != null) row.device_id = p.p_device_id;
     row.seen_at = Date.now();
     row.disabled_at = null;
+    row.revoked_at = null;
     /* TAKET, som serveren: den eldst sette ryker, og den som NETTOPP meldte
        seg på ryker aldri — den er den brukeren står med i hånden. */
     var mine = db.push_subscriptions.filter(function (x) {
@@ -603,7 +655,36 @@
       db.push_deliveries = db.push_deliveries.filter(function (d) { return !vekk[d.subscription_id]; });
     }
     pushEnqueue(db, uid);
-    return row.id;
+    return { id: row.id, revoked: false };
+  }
+  /* FJERN-AVSLÅING (push_revoke/push_revoke_others): raden blir stående som et
+     spor, men er ikke aktiv — og det som lå i kø til den AVSLUTTES, ellers
+     kom et varsel brukeren nettopp slo av fram noen minutter senere. */
+  function pushEndQueue(db, subId) {
+    db.push_deliveries.forEach(function (d) {
+      if (d.subscription_id === subId && d.status === 'pending') {
+        d.status = 'gone'; d.done_at = Date.now();
+        d.error = d.error || 'slått av av brukeren';
+      }
+    });
+  }
+  function pushRevoke(db, uid, id) {
+    var row = db.push_subscriptions.find(function (x) { return x.id === id && x.user_id === uid; });
+    if (!row) return false;      // en fremmed id røper aldri at raden finnes
+    row.revoked_at = row.revoked_at || Date.now();
+    pushEndQueue(db, row.id);
+    return true;
+  }
+  function pushRevokeOthers(db, uid, endpoint) {
+    var n = 0;
+    db.push_subscriptions.forEach(function (x) {
+      if (x.user_id !== uid || x.revoked_at) return;
+      if (endpoint && x.endpoint === endpoint) return;
+      x.revoked_at = Date.now();
+      pushEndQueue(db, x.id);
+      n++;
+    });
+    return n;
   }
   function pushUnsubscribe(db, uid, endpoint) {
     var doomed = {};
@@ -717,9 +798,88 @@
       })(),
       // Antall nettlesere med web push PÅ — ett tall, ikke endepunktene.
       push_devices: db.push_subscriptions.filter(function (x) {
-        return x.user_id === uid && !x.disabled_at;
+        return x.user_id === uid && !x.disabled_at && !x.revoked_at;
       }).length,
+      /* Lever økten vår ennå? Som serveren legger vi svaret i det pollede
+         doc-et: det er slik en fjern-utlogget fane oppdager tilstanden uten å
+         vente på at tokenet utløper (docs/accounts.md). */
+      session_ok: sessionAlive(db, getSess()),
     };
+  }
+
+  /* ---------------- Enheter og økter (docs/accounts.md) ----------------
+     Speiler list_my_devices()/session_touch()/revoke_my_session(): to lister,
+     «denne enheten» satt av serveren, og ALDRI et endepunkt, en IP eller en
+     hel user-agent den andre veien. */
+  function sessionTouch(db, uid, p) {
+    var u = getSess();
+    var sid = u && u.session_id;
+    if (!sessionAlive(db, u)) return { ok: false, session: sid };
+    if (sid) {
+      var row = db.device_sessions.find(function (x) { return x.session_id === sid; });
+      if (!row) {
+        row = { session_id: sid, user_id: uid, created_at: Date.now() };
+        db.device_sessions.push(row);
+      }
+      row.user_id = uid;
+      if (p.p_browser != null) row.browser = p.p_browser;
+      if (p.p_platform != null) row.platform = p.p_platform;
+      if (p.p_origin != null) row.origin = p.p_origin;
+      if (p.p_device_id != null) row.device_id = p.p_device_id;
+      row.seen_at = Date.now();
+    }
+    pruneDeviceSessions(db, uid);
+    return { ok: true, session: sid };
+  }
+  function pruneDeviceSessions(db, uid) {
+    var levende = {};
+    db.auth_sessions.forEach(function (x) { levende[x.id] = 1; });
+    db.device_sessions = db.device_sessions.filter(function (d) {
+      return d.user_id !== uid || levende[d.session_id];
+    });
+  }
+  function listMyDevices(db, uid, endpoint) {
+    // Ingen luking her (som serveren): listen leses fra «auth.sessions», så en
+    // foreldreløs sidebordsrad er allerede usynlig. session_touch() luker.
+    var u = getSess();
+    var sid = u && u.session_id;
+    var sessions = db.auth_sessions.filter(function (x) { return x.user_id === uid; })
+      .map(function (x) {
+        var d = db.device_sessions.find(function (y) { return y.session_id === x.id; }) || {};
+        return {
+          id: x.id, current: !!sid && x.id === sid,
+          browser: d.browser || null, platform: d.platform || null,
+          origin: d.origin || null,
+          createdAt: Math.min(d.created_at || x.created_at, x.created_at),
+          seenAt: Math.max(d.seen_at || 0, x.refreshed_at || x.created_at || 0),
+        };
+      })
+      .sort(function (a, b) {
+        return (b.current ? 1 : 0) - (a.current ? 1 : 0) || (b.seenAt - a.seenAt) ||
+          (a.id < b.id ? -1 : 1);
+      });
+    var push = db.push_subscriptions
+      .filter(function (x) { return x.user_id === uid && !x.disabled_at && !x.revoked_at; })
+      .map(function (x) {
+        return {
+          id: x.id, current: !!endpoint && x.endpoint === endpoint,
+          browser: x.browser || null, platform: x.platform || null,
+          origin: x.origin || null,
+          createdAt: x.created_at || 0, seenAt: x.seen_at || 0,
+        };
+      })
+      .sort(function (a, b) {
+        return (b.current ? 1 : 0) - (a.current ? 1 : 0) || (b.seenAt - a.seenAt) ||
+          (a.id < b.id ? -1 : 1);
+      });
+    return { sessions: sessions, push: push };
+  }
+  function revokeMySession(db, uid, id) {
+    var finnes = db.auth_sessions.some(function (x) { return x.id === id && x.user_id === uid; });
+    if (!finnes) return false;   // en fremmed id svarer det samme som en ukjent
+    db.auth_sessions = db.auth_sessions.filter(function (x) { return x.id !== id; });
+    db.device_sessions = db.device_sessions.filter(function (d) { return d.session_id !== id; });
+    return true;
   }
 
   // Deduplisert, kategorisert medlemsliste. Presedens:
@@ -1066,6 +1226,11 @@
       notify_record: function (p) { return notifRecord(db, uid, p.p_rows || [], p.p_cursor || 0); },
       push_subscribe: function (p) { return pushSubscribe(db, uid, p); },
       push_unsubscribe: function (p) { return pushUnsubscribe(db, uid, p.p_endpoint); },
+      push_revoke: function (p) { return pushRevoke(db, uid, p.p_id); },
+      push_revoke_others: function (p) { return pushRevokeOthers(db, uid, p.p_endpoint); },
+      session_touch: function (p) { return sessionTouch(db, uid, p); },
+      list_my_devices: function (p) { return listMyDevices(db, uid, p && p.p_endpoint); },
+      revoke_my_session: function (p) { return revokeMySession(db, uid, p.p_session_id); },
       /* Tidssonen planen tilhører. Som serveren: hevdelsen går bare gjennom når
          sonen er tom, er vår egen, eller den forrige er gammel nok — det er den
          som hindrer to enheter i ulike soner fra å planlegge om hverandre. */
@@ -1370,6 +1535,9 @@
         db.notification_prefs = db.notification_prefs.filter(function (n) { return n.user_id !== uid; });
         db.push_deliveries = db.push_deliveries.filter(function (d) { return d.user_id !== uid; });
         db.push_subscriptions = db.push_subscriptions.filter(function (x) { return x.user_id !== uid; });
+        // 4c. øktene og den gjenkjennelige metadataen om dem.
+        db.auth_sessions = db.auth_sessions.filter(function (x) { return x.user_id !== uid; });
+        db.device_sessions = db.device_sessions.filter(function (x) { return x.user_id !== uid; });
         // 5. profilen og selve kontoen (mocken har ingen auth.users-tabell —
         //    profilen + passordet ER kontoen her)
         db.profiles = db.profiles.filter(function (x) { return x.id !== uid; });
@@ -1527,6 +1695,9 @@
           }
           var user = { id: p.id, email: email, user_metadata: clone(p.user_metadata) || {} };
           setSess(user);
+          // Innloggingen ER en ny økt, som hos Supabase.
+          sessionId(db, user);
+          saveDB(db);
           setTimeout(function () { emitAuth('SIGNED_IN', { user: user }); }, 0);
           return Promise.resolve({ data: { user: user, session: { user: user } }, error: null });
         },
@@ -1567,7 +1738,34 @@
           }
           return Promise.resolve({ data: { user: u }, error: null });
         },
-        signOut: function () { setSess(null); setTimeout(function () { emitAuth('SIGNED_OUT', null); }, 0); return Promise.resolve({ error: null }); },
+        /* SCOPE, som i supabase-js: `local` avslutter BARE denne økten,
+           `others` alle de andre og lar denne stå, `global` (standarden i
+           biblioteket) alle. Huskis kaller alltid `local` fra «Logg ut», og
+           `others` fra «Logg ut på alle andre enheter» — og at de to faktisk
+           gjør forskjellig ting er noe testene skal kunne bevise. */
+        signOut: function (opts) {
+          var scope = (opts && opts.scope) || 'global';
+          var db = loadDB();
+          var u = getSess();
+          var sid = u && u.session_id;
+          if (u) {
+            db.auth_sessions = db.auth_sessions.filter(function (x) {
+              if (x.user_id !== u.id) return true;
+              if (scope === 'local') return x.id !== sid;
+              if (scope === 'others') return x.id === sid;
+              return false;   // global
+            });
+            var levende = {};
+            db.auth_sessions.forEach(function (x) { levende[x.id] = 1; });
+            db.device_sessions = db.device_sessions.filter(function (d) { return levende[d.session_id]; });
+            saveDB(db);
+          }
+          // `others` logger IKKE ut her — det er hele forskjellen fra global.
+          if (scope === 'others') return Promise.resolve({ error: null });
+          setSess(null);
+          setTimeout(function () { emitAuth('SIGNED_OUT', null); }, 0);
+          return Promise.resolve({ error: null });
+        },
         getSession: function () {
           if (!AUTH_LAG) return Promise.resolve({ data: { session: sessionObj() }, error: null });
           return new Promise(function (resolve) {
@@ -1628,6 +1826,11 @@
           // Databasen leses FØRST når kallet «når serveren» (etter forsinkelsen),
           // så serialiserte kall ser hverandres skrivinger — som ekte Postgres.
           var db = loadDB();
+          /* Økten registreres når den først RØRER serveren. En test som seedet
+             `hk-mock-session` selv (tests/CLAUDE.md) har ingen `session_id`;
+             her får den en, slik at «Innloggede enheter» virker uten at hver
+             eneste fikstur må kjenne øktlaget. */
+          sessionId(db, u);
           var h = rpcHandlers(db, u.id)[name];
           if (!h) return { data: null, error: { message: 'ukjent rpc: ' + name } };
           var data = h(params || {});

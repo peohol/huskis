@@ -60,6 +60,10 @@ function metaReleaseId(html) {
   const m = /<meta\s+name="huskis-release"\s+content="([^"]*)"/.exec(html);
   return m ? m[1] : null;
 }
+function metaDeploy(html) {
+  const m = /<meta\s+name="huskis-deploy"\s+content="([^"]*)"/.exec(html);
+  return m ? m[1] : null;
+}
 
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'huskis-build-'));
 const outA = path.join(tmp, 'a'), outB = path.join(tmp, 'b'), outC = path.join(tmp, 'c');
@@ -212,6 +216,24 @@ check('langtidscache på /vendor/(.*)',
 // ikke fra HTML-en, og versjonen står i filnavnet.
 check('langtidscache på /assets/fonts/(.*)',
   /immutable/.test(headerFor('/assets/fonts/(.*)')) && /max-age=31536000/.test(headerFor('/assets/fonts/(.*)')));
+
+/* Deploy-stempelet: hvilken DEPLOY builden er, som ett ord i HTML-en. Web push
+   leser det (`pushDeployAllowed()` i app.js) — en flyktig preview-deploy har
+   sitt eget origin og skal ikke kunne legge igjen et abonnement i
+   produksjonskontoens enhetsliste. Se docs/domains-and-urls.md.
+
+   Regelen er EKSPLISITT begge veier: bare `VERCEL_ENV=preview` blir «preview»,
+   bare `production` blir «production», og alt annet — et lokalt bygg, CI, en
+   variabel som mangler — blir «dev». */
+const outF = path.join(tmp, 'f'), outG = path.join(tmp, 'g');
+const prev = runBuild(outF, { VERCEL_ENV: 'preview' });
+const prod = runBuild(outG, { VERCEL_ENV: 'production' });
+check('kildekoden står på «dev» før build', metaDeploy(src) === 'dev');
+check('et bygg uten VERCEL_ENV stemples «dev»', metaDeploy(a.html) === 'dev');
+check('VERCEL_ENV=preview stemples «preview»', metaDeploy(prev.html) === 'preview');
+check('VERCEL_ENV=production stemples «production»', metaDeploy(prod.html) === 'production');
+check('et ukjent miljø leses ALDRI som preview',
+  metaDeploy(runBuild(path.join(tmp, 'h'), { VERCEL_ENV: 'noe-annet' }).html) === 'dev');
 
 fs.rmSync(tmp, { recursive: true, force: true });
 console.log(`\n${passed} passed, ${failed} failed`);

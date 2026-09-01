@@ -20,6 +20,30 @@ create table if not exists auth.users (
   raw_user_meta_data jsonb not null default '{}'::jsonb
 );
 
+-- Minimal auth.sessions (kolonnene økt-RPC-ene våre leser). Supabase Auth
+-- eier tabellen i produksjon; her stubbes den så økt-testene kan kjøre uten
+-- Supabase. `user_agent`/`ip` er med fordi de FINNES i produksjon — og fordi
+-- testene skal kunne bevise at de aldri forlater databasen.
+create table if not exists auth.sessions (
+  id           uuid primary key default gen_random_uuid(),
+  user_id      uuid not null references auth.users (id) on delete cascade,
+  created_at   timestamptz not null default now(),
+  updated_at   timestamptz not null default now(),
+  refreshed_at timestamptz,
+  user_agent   text,
+  ip           text,
+  not_after    timestamptz
+);
+
+-- Kaskaden fra auth.sessions, som i GoTrue. `revoke_my_session()` sletter
+-- radene eksplisitt først, men tabellen skal finnes så den veien faktisk
+-- kjøres i test.
+create table if not exists auth.refresh_tokens (
+  id         bigint generated always as identity primary key,
+  session_id uuid references auth.sessions (id) on delete cascade,
+  token      text
+);
+
 -- Som Supabase: auth.uid() leser sub-claimet fra JWT-en.
 -- Testene setter det via set_config('request.jwt.claim.sub', ...).
 create or replace function auth.uid()

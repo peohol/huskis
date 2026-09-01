@@ -56,7 +56,7 @@ begin
     'profiles', 'universes', 'groups', 'cards', 'items',
     'memberships', 'share_invites', 'tombstones',
     'notifications', 'notification_prefs',
-    'push_subscriptions', 'push_deliveries',
+    'push_subscriptions', 'push_deliveries', 'device_sessions',
     'migration_log', 'app_config', 'email_send_log'
   ] loop
     if to_regclass('public.' || t) is null then
@@ -135,6 +135,16 @@ begin
     'push_subscriptions:auth', 'push_subscriptions:labels',
     'push_subscriptions:tz', 'push_subscriptions:created_at',
     'push_subscriptions:seen_at', 'push_subscriptions:disabled_at',
+    -- Gjenkjennelig metadata + brukerens EGEN avslåing (skilt fra 404/410).
+    'push_subscriptions:browser', 'push_subscriptions:platform',
+    'push_subscriptions:origin', 'push_subscriptions:device_id',
+    'push_subscriptions:revoked_at',
+
+    -- Innloggede økter: sidebordet til auth.sessions (docs/accounts.md).
+    'device_sessions:session_id', 'device_sessions:user_id',
+    'device_sessions:browser', 'device_sessions:platform',
+    'device_sessions:origin', 'device_sessions:device_id',
+    'device_sessions:created_at', 'device_sessions:seen_at',
 
     'push_deliveries:id', 'push_deliveries:notification_id',
     'push_deliveries:subscription_id', 'push_deliveries:user_id',
@@ -168,7 +178,7 @@ begin
     'profiles', 'universes', 'groups', 'cards', 'items',
     'memberships', 'share_invites', 'tombstones',
     'notifications', 'notification_prefs',
-    'push_subscriptions', 'push_deliveries',
+    'push_subscriptions', 'push_deliveries', 'device_sessions',
     'migration_log', 'app_config', 'email_send_log'
   ] loop
     select relrowsecurity into paa from pg_class
@@ -254,8 +264,13 @@ begin
     'public.notify_record(jsonb, bigint)',
     'public.notify_set_prefs(jsonb)',
     'public.notify_claim_tz(text, bigint)',
-    'public.push_subscribe(text, text, text, jsonb, text)',
-    'public.push_unsubscribe(text)'
+    'public.push_subscribe(text, text, text, jsonb, text, text, text, text, text, boolean)',
+    'public.push_unsubscribe(text)',
+    'public.push_revoke(uuid)',
+    'public.push_revoke_others(text)',
+    'public.session_touch(text, text, text, text)',
+    'public.list_my_devices(text)',
+    'public.revoke_my_session(uuid)'
   ] loop
     oid_ := to_regprocedure(fn);
     if oid_ is null then
@@ -273,7 +288,7 @@ begin
     perform set_config('huskis.smoke_feil',
       current_setting('huskis.smoke_feil', true) || array_to_string(feil, E'\n') || E'\n', false);
   else
-    raise notice '  ✓ alle 20 RPC-ene finnes med riktig signatur og rettigheter';
+    raise notice '  ✓ alle RPC-ene finnes med riktig signatur og rettigheter';
   end if;
 end $$;
 
@@ -300,7 +315,10 @@ begin
     'public.handle_new_user()', 'public.send_invite_email()',
     -- Taket på antall abonnementer per bruker. push_subscribe() kaller den for
     -- hver påmelding; mangler den, feiler hver eneste påmelding.
-    'public.push_sub_max()'
+    'public.push_sub_max()',
+    -- Hvor lenge et dødt/tilbakekalt spor blir liggende. push_subscribe()
+    -- kaller den for hver påmelding.
+    'public.push_keep_days()'
   ] loop
     oid_ := to_regprocedure(fn);
     if oid_ is null then feil := array_append(feil, 'funksjon ' || fn || ' mangler'); end if;
@@ -314,7 +332,15 @@ begin
     -- Senderens kø-teller: leser ALLE brukeres leveringer.
     'public.push_due_count()',
     -- Headerne tikket sender. Tar imot selve secret key-en som argument.
-    'public.push_headers(text)'
+    'public.push_headers(text)',
+    -- Avslutter køen til ett abonnement — skriver i utboksen.
+    'public.push_end_queue(uuid, bigint, text)',
+    -- Øktlaget: byggeklosser, ikke RPC-er. `session_alive` og
+    -- `current_session_id` leser KALLERENS eget claim, men skal likevel ikke
+    -- være en inngang klienten kan kalle direkte.
+    'public.session_alive(uuid)',
+    'public.current_session_id()',
+    'public.prune_device_sessions(uuid)'
   ] loop
     oid_ := to_regprocedure(fn);
     if oid_ is null then
@@ -445,6 +471,11 @@ begin
     if has_table_privilege('authenticated', 'public.push_deliveries', t) then
       feil := array_append(feil, 'authenticated KAN ' || t || ' på push_deliveries (utboksen er serverens)');
     end if;
+    -- Sidebordet til auth.sessions er like låst som utboksen: en direkte vei
+    -- ville latt en klient navngi en økt hen ikke eier.
+    if has_table_privilege('authenticated', 'public.device_sessions', t) then
+      feil := array_append(feil, 'authenticated KAN ' || t || ' på device_sessions (skal kun gå via session_touch())');
+    end if;
   end loop;
   foreach t in array array['public.push_claim(integer, bigint)', 'public.push_report(jsonb)',
                            'public.push_tick()', 'public.push_enqueue(uuid)'] loop
@@ -464,7 +495,8 @@ begin
   foreach t in array array[
     'profiles', 'universes', 'groups', 'cards', 'items',
     'memberships', 'share_invites', 'tombstones',
-    'notifications', 'notification_prefs', 'push_subscriptions', 'push_deliveries'
+    'notifications', 'notification_prefs', 'push_subscriptions', 'push_deliveries',
+    'device_sessions'
   ] loop
     if has_table_privilege('anon', 'public.' || t, 'SELECT') then
       feil := array_append(feil, 'anon har SELECT på public.' || t);
@@ -506,6 +538,43 @@ begin
       current_setting('huskis.smoke_feil', true) || array_to_string(feil, E'\n') || E'\n', false);
   else
     raise notice '  ✓ alle seks tabellene er i supabase_realtime';
+  end if;
+end $$;
+
+\echo '──────── 8b. Rekker vi auth.sessions? ────────'
+/* Fjern-utlogging virker bare hvis EIEREN av `revoke_my_session()` faktisk kan
+   lese og slette i `auth.sessions`. Den tabellen tilhører Supabase Auth, ikke
+   oss, og rettigheten der er den ENE forutsetningen ingen annen test kan se:
+   funksjonen finnes, granten ser riktig ut, og likevel ville hvert kall feilet.
+
+   Dette er en ADVARSEL, ikke en port. Grunnen er hva som faktisk ryker: appen
+   kjører uansett — `session_alive()` svarer «levende» om den ikke får lese, og
+   klienten viser en feil på selve knappen — så det er ÉN funksjon som mangler,
+   ikke en halvmigrert database. Å stanse hele releasen for det ville vært
+   uforholdsmessig, og verre for brukeren enn den knappen den gjelder.
+
+   Sjekken kjøres som migreringsrollen — den samme som eier funksjonene, siden
+   det er den som kjørte `create function`. */
+do $$
+declare mangler text[] := '{}'; n bigint;
+begin
+  if to_regclass('auth.sessions') is null then
+    mangler := array_append(mangler, 'auth.sessions finnes ikke (ingen Supabase Auth?)');
+  else
+    begin
+      execute 'select count(*) from auth.sessions' into n;
+    exception when others then
+      mangler := array_append(mangler, 'kan ikke LESE auth.sessions (' || sqlerrm || ')');
+    end;
+    if not has_table_privilege(current_user, 'auth.sessions', 'DELETE') then
+      mangler := array_append(mangler, 'mangler DELETE på auth.sessions');
+    end if;
+  end if;
+  if array_length(mangler, 1) > 0 then
+    raise warning E'«Innloggede enheter» virker ikke fullt ut som %: %\n  Resten av appen er upåvirket. Se docs/accounts.md.',
+      current_user, array_to_string(mangler, '; ');
+  else
+    raise notice '  ✓ auth.sessions er lesbar og slettbar for %', current_user;
   end if;
 end $$;
 

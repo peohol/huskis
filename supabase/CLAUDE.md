@@ -52,10 +52,18 @@ PGHOST=/tmp/hkpg PGPORT=5433 PGUSER=postgres PGDATABASE=hk_test \
   supabase/tests/run-tests.sh
 ```
 
-`tests/local-stub.sql` stubber `auth`-skjemaet, så fila kan kjøres helt uten
-Supabase. En ny serverside-regel skal ha en ny sjekk i den testfilen som dekker
-området (roller/deling, mappeflytting, gravsteiner, kontosletting,
-e-postvarsel, migrering av gamle listedelinger).
+`tests/local-stub.sql` stubber `auth`-skjemaet — inkludert `auth.sessions` og
+`auth.refresh_tokens`, som øktlaget leser og sletter i — så fila kan kjøres helt
+uten Supabase. En ny serverside-regel skal ha en ny sjekk i den testfilen som
+dekker området (roller/deling, mappeflytting, gravsteiner, kontosletting,
+e-postvarsel, varsler, web push, innloggede økter, migrering av gamle
+listedelinger).
+
+**Funksjoner som rører `auth`-skjemaet** (i praksis `revoke_my_session()` og
+`list_my_devices()`) er SECURITY DEFINER og kjører som EIEREN — altså rollen som
+kjørte migreringen. At den rollen faktisk kan lese og slette i `auth.sessions`
+er ikke noe koden kan se; `smoke-test.sql` seksjon 8b sjekker det eksplisitt, og
+stopper deployen hvis rettigheten mangler.
 
 Begge løp avsluttes med `smoke-test.sql` — deploy-porten fra
 `docs/release-og-deploy.md`. Den skal være grønn mot et ferdig migrert skjema;

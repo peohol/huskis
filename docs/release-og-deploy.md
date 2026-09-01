@@ -194,13 +194,21 @@ nye frontenden trenger?** Kontrakten er hentet fra klienten, ikke fra skjemafila
 1. tabellene i `TABLE`-mappingen i `app.js`
 2. hver kolonne `insertPayload()`/`updatePayload()` sender — mangler én,
    avviser PostgREST HVER skriving for radtypen, usynlig
-3. at RLS er på, og at alle 24 policyene finnes
-4. de 15 RPC-ene klienten kaller, med riktig signatur, `execute` for
+3. at RLS er på, og at alle policyene finnes
+4. RPC-ene klienten kaller, med riktig signatur, `execute` for
    `authenticated` og ikke for `anon`
 5. capability-funksjonene, vaktene og gravsteinstriggerne
 6. tabellrettighetene for `authenticated` og `anon`
 7. at de seks tabellene klienten abonnerer på ligger i `supabase_realtime`
-8. **funksjonelt**: `get_my_doc()` kalt som en innlogget, ukjent bruker
+8. at migreringsrollen faktisk kan LESE og SLETTE i `auth.sessions` — den
+   tabellen er Supabase Auth sin, ikke vår, og fjern-utlogging
+   (`revoke_my_session()`) kjører som eieren av funksjonen. Mangler
+   rettigheten, finnes funksjonen likevel og granten ser riktig ut, mens hvert
+   eneste kall feiler. Ingen annen test kan se det. Dette er den ene sjekken
+   som er en **advarsel og ikke en port**: appen kjører uansett (`session_alive()`
+   svarer «levende» om den ikke får lese, og klienten viser en feil på selve
+   knappen), så det er én funksjon som mangler — ikke en halvmigrert database
+9. **funksjonelt**: `get_my_doc()` kalt som en innlogget, ukjent bruker
    returnerer et komplett, tomt doc — og `anon` avvises på både tabeller og RPC
 
 Den kjører i ÉN `read only`-transaksjon som avsluttes med `rollback`, med

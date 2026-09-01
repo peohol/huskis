@@ -17,6 +17,7 @@
   "tests/db-contract.test.js": 1,
   "tests/delete-account.test.js": 12,
   "tests/delete-all-done.test.js": 24,
+  "tests/devices-sessions.test.js": 8,
   "tests/dnd-activation.test.js": 34,
   "tests/dnd-collapse-scroll.test.js": 10,
   "tests/dnd-drop-animation.test.js": 32,

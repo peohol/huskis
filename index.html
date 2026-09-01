@@ -84,6 +84,13 @@
        over. «dev» = ubygget kildekode eller ukjent commit.
        Se docs/auto-update.md. -->
   <meta name="huskis-release" content="dev" />
+  <!-- Hvilken DEPLOY dette er: `preview` for en Vercel preview-deploy,
+       `production` for produksjonsdeployen, `dev` for ubygget kildekode.
+       Byttes ut av build.js, samme sted som de to over. Web push leser den:
+       en flyktig forhåndsvisning har sitt eget origin og skal ikke kunne
+       legge igjen et abonnement i produksjonskontoens enhetsliste.
+       Se docs/domains-and-urls.md og docs/varsler.md. -->
+  <meta name="huskis-deploy" content="dev" />
   <title>Huskis</title>
   <link rel="icon" type="image/svg+xml" href="favicon.svg" />
   <!-- Webfonten (Atkinson Hyperlegible Next) hentes IKKE fra Google Fonts:
@@ -378,7 +385,50 @@
             </div>
           </section>
 
-          <!-- 3. Å forlate kontoen: utlogging (gul: reversibel) og kontosletting
+          <!-- 3. Enheter og økter: hvor kontoen er innlogget, og hvilke
+               nettlesere som mottar varsler. To seksjoner, fordi det er to
+               ulike ting — se docs/accounts.md. Listene fylles av app.js når
+               skuffen åpnes. -->
+          <section class="menu-acc-group">
+            <button class="menu-acc-head" id="acc-devices-head" type="button"
+                    aria-expanded="false" aria-controls="acc-devices" data-acc-head="devices">
+              <span class="menu-acc-icon" aria-hidden="true"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="#111" stroke-width="1.05" stroke-linecap="round" stroke-linejoin="round"><rect x="2.5" y="5" width="13" height="9.5" rx="1.6" fill="#85adad"></rect><path d="M2.5 17h13"></path><rect x="17" y="9" width="4.5" height="10" rx="1.2" fill="#adad85"></rect></svg></span>
+              <span class="menu-acc-label" data-i18n="devices.section">Enheter og økter</span>
+              <span class="menu-acc-chev" aria-hidden="true"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M9.5 5.5 16 12l-6.5 6.5"></path></svg></span>
+            </button>
+            <div class="menu-acc-sub is-closed" id="acc-devices" data-acc="devices"
+                 role="region" aria-labelledby="acc-devices-head" inert>
+              <div class="menu-acc-body">
+                <p class="device-error" id="devices-error" role="status" hidden></p>
+
+                <section class="device-group">
+                  <div class="panel-head">
+                    <span class="panel-title" data-i18n="devices.sessions">Innloggede enheter</span>
+                  </div>
+                  <p class="device-lead" data-i18n="devices.sessionsLead">Her har Huskis-kontoen din tilgang nå.</p>
+                  <ul class="device-list" id="session-list" data-i18n-aria-label="devices.sessions"></ul>
+                  <button class="btn btn-solid btn-yellow btn-small device-others" id="logout-others-btn" type="button" hidden>
+                    <span data-i18n="devices.logOutOthers">Logg ut på alle andre enheter</span>
+                  </button>
+                </section>
+
+                <hr class="menu-divider" />
+
+                <section class="device-group">
+                  <div class="panel-head">
+                    <span class="panel-title" data-i18n="devices.push">Enheter med varsler</span>
+                  </div>
+                  <p class="device-lead" data-i18n="devices.pushLead">Her kommer varslene også når Huskis er lukket.</p>
+                  <ul class="device-list" id="push-device-list" data-i18n-aria-label="devices.push"></ul>
+                  <button class="btn btn-solid btn-yellow btn-small device-others" id="push-off-others-btn" type="button" hidden>
+                    <span data-i18n="devices.pushOffOthers">Slå av varsler på alle andre enheter</span>
+                  </button>
+                </section>
+              </div>
+            </div>
+          </section>
+
+          <!-- 4. Å forlate kontoen: utlogging (gul: reversibel) og kontosletting
                (rød: endelig) i hver sin ende av samme rad — like lette å finne,
                umulige å forveksle. Bak en lukket skuff treffes ingen av dem ved
                et uhell på vei til noe annet. -->

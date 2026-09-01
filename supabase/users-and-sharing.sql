@@ -610,8 +610,48 @@ create table if not exists public.push_subscriptions (
 
 create unique index if not exists push_subscriptions_endpoint_idx
   on public.push_subscriptions (endpoint);
-create index if not exists push_subscriptions_user_idx
-  on public.push_subscriptions (user_id) where disabled_at is null;
+
+/* GJENKJENNELIG METADATA. Et abonnement er en NETTLESERKONTEKST, ikke en
+   fysisk maskin: den samme telefonen kan ha ett abonnement på www.huskis.no og
+   ett på en forhåndsvisning, og de er to uavhengige mottakere. Uten noe å
+   kjenne dem igjen på er «På her og på 2 andre enheter» det eneste appen kan
+   si — og en liste med bare tall er ikke noe man kan rydde i.
+
+   Feltene er derfor det MINSTE som gjør en rad gjenkjennelig for eieren, og
+   ikke ett tegn mer: en klassifikasjon av nettleseren («Chrome»), en av
+   plattformen («Android»), vertsnavnet abonnementet ble laget på og enhetens
+   egen lokale id. Hele user-agenten lagres ALDRI — den er en signatur, og vi
+   trenger et navn. Ingen IP, ingen skjermmål, ingenting som kan settes sammen
+   til et fingeravtrykk. Klienten sender verdiene selv (docs/varsler.md). */
+alter table public.push_subscriptions add column if not exists browser   text;
+alter table public.push_subscriptions add column if not exists platform  text;
+alter table public.push_subscriptions add column if not exists origin    text;
+alter table public.push_subscriptions add column if not exists device_id text;
+
+/* TO MÅTER Å VÆRE AV PÅ, og de betyr ikke det samme:
+
+     disabled_at  push-tjenesten svarte 404/410 — endepunktet finnes ikke
+                  lenger. En nettleser som melder seg på igjen har nettopp
+                  BEVIST at endepunktet lever, og raden våkner av seg selv.
+
+     revoked_at   BRUKEREN slo av varslene for denne nettleseren fra en annen
+                  enhet. Da er det et valg, ikke en feil, og det skal ikke
+                  kunne omgjøres av at den avslåtte nettleseren fornyer
+                  abonnementet sitt i neste synk-runde. Bare et EKSPLISITT
+                  «slå på varsler» på nettopp den klienten tar det tilbake
+                  (`push_subscribe(..., p_explicit => true)`).
+
+   Begge er «ikke aktiv»: hverken utboksen, senderen eller telleren i
+   get_my_doc() ser en rad som har en av dem satt. */
+alter table public.push_subscriptions add column if not exists revoked_at bigint;
+
+-- Indeksen dekker det aktive settet, og «aktiv» har fått et ledd til.
+-- Definisjonen endret seg, så den gamle må vekk: `create index if not exists`
+-- ville latt den stå med det gamle predikatet.
+drop index if exists public.push_subscriptions_user_idx;
+create index if not exists push_subscriptions_active_idx
+  on public.push_subscriptions (user_id)
+  where disabled_at is null and revoked_at is null;
 
 alter table public.push_subscriptions enable row level security;
 
@@ -638,6 +678,79 @@ create index if not exists push_deliveries_due_idx
 
 alter table public.push_deliveries enable row level security;
 revoke all on public.push_deliveries from public, anon, authenticated;
+
+-- ------------------------------------------------------------
+-- 4d. INNLOGGEDE ØKTER — gjenkjennelig metadata om `auth.sessions`
+--
+--    Supabase Auth eier øktene selv: hver innlogging gir en rad i
+--    `auth.sessions`, og hvert access-token bærer `session_id`-claimet som
+--    peker på den. Vi bygger ALDRI en egen auth-modell ved siden av — det
+--    ville vært to sannheter om hvem som er logget inn.
+--
+--    Det `auth.sessions` ikke har, er noe brukeren kan KJENNE IGJEN. Den har
+--    hele user-agenten og IP-adressen, og ingen av delene skal ut til
+--    klienten: den første er en signatur, den andre er posisjon. Denne
+--    tabellen er derfor et lite sidebord med nøyaktig det som gjør en linje
+--    lesbar for eieren — «Chrome · Android, www.huskis.no» — skrevet av
+--    klienten selv gjennom `session_touch()`.
+--
+--    Tabellen er LÅST på samme måte som utboksen: RLS på, ingen policyer,
+--    ingen grants. Alt går gjennom RPC-ene under, som setter `user_id` fra
+--    `auth.uid()` og slår opp økten i `auth.sessions` selv. Ingen
+--    fremmednøkkel til `auth.sessions` — den tabellen ryddes av Supabase på
+--    sin egen rytme, og en FK dit ville bundet migreringen vår til et skjema
+--    vi ikke eier. En rad uten en levende økt er allerede USYNLIG (listen
+--    leses fra `auth.sessions` og venstre-joiner hit), og `session_touch()`
+--    luker den bort i forbifarten.
+-- ------------------------------------------------------------
+
+create table if not exists public.device_sessions (
+  -- Primærnøkkelen ER Supabase-øktens id (`session_id`-claimet).
+  session_id uuid primary key,
+  user_id    uuid not null references auth.users (id) on delete cascade,
+  -- Klassifikasjoner, aldri råtekst: «Chrome», «Android», «www.huskis.no».
+  browser    text,
+  platform   text,
+  origin     text,
+  -- Enhetens egen lokale id (`mine-lister-device`). Den er ORIGIN-avgrenset,
+  -- så den identifiserer en nettleserkontekst — ikke en fysisk maskin.
+  device_id  text,
+  created_at bigint not null default (extract(epoch from now()) * 1000)::bigint,
+  seen_at    bigint not null default (extract(epoch from now()) * 1000)::bigint
+);
+
+create index if not exists device_sessions_user_idx
+  on public.device_sessions (user_id);
+
+alter table public.device_sessions enable row level security;
+revoke all on public.device_sessions from public, anon, authenticated;
+
+/* ØKTEN KALLEREN STÅR I. Supabase legger `session_id` i access-tokenet, og
+   PostgREST gir oss de verifiserte claimene. Begge formene leses: den
+   samlede `request.jwt.claims` (produksjon) og den enkeltvise
+   `request.jwt.claim.session_id` (eldre form, og den testene setter).
+
+   `null` betyr «ukjent økt», ikke «ingen økt»: et token uten claimet skal
+   aldri kunne leses som en tilbakekalt økt. Alle kallerne under feiler
+   ÅPENT på null (ingen utlogging), og lukket på alt annet. */
+create or replace function public.current_session_id()
+returns uuid language plpgsql stable set search_path = public as $$
+declare raw text;
+begin
+  begin
+    raw := nullif(current_setting('request.jwt.claims', true), '')::jsonb ->> 'session_id';
+  exception when others then raw := null;
+  end;
+  if raw is null or raw = '' then
+    raw := nullif(current_setting('request.jwt.claim.session_id', true), '');
+  end if;
+  if raw is null or raw = '' then return null; end if;
+  begin
+    return raw::uuid;
+  exception when others then return null;
+  end;
+end;
+$$;
 
 -- ------------------------------------------------------------
 -- 5. ROLLER, LÅSER og CAPABILITIES
@@ -2505,6 +2618,9 @@ begin
   -- et abonnement som ble stående ville sendt en push til en slettet konto.
   delete from public.push_deliveries where user_id = uid;
   delete from public.push_subscriptions where user_id = uid;
+  -- Den gjenkjennelige metadataen om øktene mine. Kaskaden ville tatt den
+  -- uansett (auth.users), men ryddingen skal være lesbar.
+  delete from public.device_sessions where user_id = uid;
 
   -- 5. Profilen og selve kontoen.
   delete from public.profiles where id = uid;
@@ -2676,6 +2792,14 @@ $$;
 --
 --    push_unsubscribe(endpoint)  — «slå av i denne nettleseren».
 --
+--    push_revoke(id)             — «slå av varslene på DEN andre enheten».
+--      Fjern-avslåing: brukeren står på én nettleser og slår av en annen.
+--      Setter `revoked_at`, avslutter køen til abonnementet og lar raden bli
+--      stående som et spor. Den avslåtte klienten kan ikke fornye seg tilbake
+--      til på — bare et eksplisitt «slå på varsler» der tar det tilbake.
+--
+--    push_revoke_others(endpoint) — det samme for alle unntatt denne.
+--
 --    push_claim(limit)   — senderen henter og LÅSER forfalte leveringer.
 --    push_report(results)— senderen melder tilbake hva som skjedde.
 --
@@ -2712,7 +2836,7 @@ begin
   select n.id, s.id, p_uid, n.at
     from public.notifications n
     join public.push_subscriptions s
-      on s.user_id = p_uid and s.disabled_at is null
+      on s.user_id = p_uid and s.disabled_at is null and s.revoked_at is null
    where n.user_id = p_uid and n.at > now_ms
   on conflict (notification_id, subscription_id) do nothing;
   get diagnostics lagt = row_count;
@@ -2726,15 +2850,37 @@ $$;
 create or replace function public.push_sub_max()
 returns integer language sql immutable set search_path = public as $$ select 20 $$;
 
+/* Hvor lenge et DØDT spor blir liggende. Et abonnement som er slått av — av
+   push-tjenesten eller av brukeren — har fortsatt en verdi en stund: det er
+   det som gjør at en klient kan oppdage at den ble slått av, og det er
+   historikken i listen. Etter dette er det bare en rad som vokser.
+
+   Merk hva regelen IKKE er: den rører aldri et AKTIVT abonnement. En enhet
+   skal kunne motta varsler selv om Huskis ikke har vært åpnet der på et år —
+   det er nettopp da et varsel er verdt mest. Se docs/varsler.md. */
+create or replace function public.push_keep_days()
+returns integer language sql immutable set search_path = public as $$ select 90 $$;
+
+/* Signaturen utvides med metadata og med `p_explicit`, og den GAMLE må
+   droppes: PostgREST velger overlast ut fra navngitte argumenter, og to
+   varianter av samme funksjon ville gjort valget tvetydig. */
+drop function if exists public.push_subscribe(text, text, text, jsonb, text);
+
 create or replace function public.push_subscribe(p_endpoint text, p_p256dh text,
                                                  p_auth text, p_labels jsonb default '{}'::jsonb,
-                                                 p_tz text default null)
-returns uuid language plpgsql security definer set search_path = public as $$
+                                                 p_tz text default null,
+                                                 p_browser text default null,
+                                                 p_platform text default null,
+                                                 p_origin text default null,
+                                                 p_device_id text default null,
+                                                 p_explicit boolean default false)
+returns jsonb language plpgsql security definer set search_path = public as $$
 declare
   uid     uuid   := auth.uid();
   now_ms  bigint := (extract(epoch from now()) * 1000)::bigint;
   sub_id  uuid;
   forrige uuid;
+  tilbake bigint;
   vert    text;
 begin
   if uid is null then raise exception 'ikke innlogget'; end if;
@@ -2770,20 +2916,44 @@ begin
     raise exception 'ugyldige nøkler';
   end if;
 
-  -- Hvem eide endepunktet FØR dette kallet? Svaret avgjør om køen som ligger
-  -- der fortsatt er ment for den som nå bruker nettleseren.
-  select user_id into forrige from public.push_subscriptions where endpoint = p_endpoint;
+  -- Hvem eide endepunktet FØR dette kallet, og hadde brukeren slått det av?
+  -- Det første avgjør om køen som ligger der fortsatt er ment for den som nå
+  -- bruker nettleseren; det andre om raden i det hele tatt får våkne.
+  select user_id, revoked_at into forrige, tilbake
+    from public.push_subscriptions where endpoint = p_endpoint;
 
-  insert into public.push_subscriptions (user_id, endpoint, p256dh, auth, labels, tz)
-  values (uid, p_endpoint, p_p256dh, p_auth, coalesce(p_labels, '{}'::jsonb), p_tz)
+  /* TILBAKEKALT AV BRUKEREN. Fornyelsen som kjører hver synk-runde skal ikke
+     kunne oppheve et valg brukeren tok på en annen enhet — da hadde
+     «slå av» vart til neste gang klienten så seg om, altså i praksis ikke i
+     det hele tatt. Raden står urørt, og svaret sier hva som skjedde, slik at
+     klienten kan rigge ned sin egen ende og slutte å melde seg på.
+
+     Et EIERSKIFTE er unntaket: tilbakekallingen var forrige brukers valg om
+     forrige brukers varsler, og den skal ikke følge nettleseren over til
+     neste konto. Da behandles raden som ny (under). */
+  if tilbake is not null and not coalesce(p_explicit, false)
+     and (forrige is null or forrige = uid) then
+    select id into sub_id from public.push_subscriptions where endpoint = p_endpoint;
+    return jsonb_build_object('id', sub_id, 'revoked', true);
+  end if;
+
+  insert into public.push_subscriptions (user_id, endpoint, p256dh, auth, labels, tz,
+                                         browser, platform, origin, device_id)
+  values (uid, p_endpoint, p_p256dh, p_auth, coalesce(p_labels, '{}'::jsonb), p_tz,
+          p_browser, p_platform, p_origin, p_device_id)
   on conflict (endpoint) do update
      set user_id     = uid,
          p256dh      = excluded.p256dh,
          auth        = excluded.auth,
          labels      = excluded.labels,
          tz          = excluded.tz,
+         browser     = coalesce(excluded.browser, public.push_subscriptions.browser),
+         platform    = coalesce(excluded.platform, public.push_subscriptions.platform),
+         origin      = coalesce(excluded.origin, public.push_subscriptions.origin),
+         device_id   = coalesce(excluded.device_id, public.push_subscriptions.device_id),
          seen_at     = now_ms,
-         disabled_at = null
+         disabled_at = null,
+         revoked_at  = null
   returning id into sub_id;
 
   /* EIERSKIFTE. Endepunktet er nettleseren, og raden flyttes til den som
@@ -2813,8 +2983,89 @@ begin
                        order by x.seen_at desc, x.created_at desc, x.id desc
                        limit greatest(public.push_sub_max() - 1, 0));
 
+  /* OPPRYDNING av brukerens EGNE døde spor, mens vi likevel er inne på
+     radene hans. Ingen global feiing og ingen egen kjøreplan: den som melder
+     seg på rydder etter seg selv, og et aktivt abonnement røres aldri
+     (`push_keep_days()`). */
+  delete from public.push_subscriptions s
+   where s.user_id = uid
+     and s.id <> sub_id
+     and greatest(coalesce(s.disabled_at, 0), coalesce(s.revoked_at, 0)) > 0
+     and greatest(coalesce(s.disabled_at, 0), coalesce(s.revoked_at, 0))
+         < now_ms - public.push_keep_days() * 86400000::bigint;
+
   perform public.push_enqueue(uid);
-  return sub_id;
+  return jsonb_build_object('id', sub_id, 'revoked', false);
+end;
+$$;
+
+/* Avslutter det som ligger i kø til ett abonnement. Egen funksjon fordi to
+   veier trenger nøyaktig den samme avslutningen, og fordi «ventende for
+   alltid» er arbeid `push_tick()` ellers våkner av hvert minutt.
+   INTERN: ingen EXECUTE til klientroller (se grants nederst). */
+create or replace function public.push_end_queue(p_sub uuid, p_now bigint, p_why text)
+returns integer language plpgsql security definer set search_path = public as $$
+declare rørt integer;
+begin
+  update public.push_deliveries
+     set status = 'gone', done_at = coalesce(p_now, (extract(epoch from now()) * 1000)::bigint),
+         error = coalesce(nullif(error, ''), p_why)
+   where subscription_id = p_sub and status = 'pending';
+  get diagnostics rørt = row_count;
+  return rørt;
+end;
+$$;
+
+/* FJERN-AVSLÅING. Brukeren står på én nettleser og slår av en annen. Raden
+   blir stående som et spor (den er historikken i listen, og det er den som
+   gjør at den avslåtte klienten kan oppdage hva som skjedde), men den er ikke
+   aktiv lenger: utboksen får ingen nye rader, senderen plukker ingen opp, og
+   det som allerede lå i kø AVSLUTTES her — ellers ville et varsel brukeren
+   nettopp slo av kommet fram noen minutter senere.
+
+   Autorisasjonen er hele poenget: `user_id = auth.uid()`. En id som ikke er
+   min treffer ingen rad, og svaret er `false` — ikke en feil som ville
+   fortalt at raden finnes. */
+create or replace function public.push_revoke(p_id uuid)
+returns boolean language plpgsql security definer set search_path = public as $$
+declare
+  uid    uuid   := auth.uid();
+  now_ms bigint := (extract(epoch from now()) * 1000)::bigint;
+  traff  integer;
+begin
+  if uid is null then raise exception 'ikke innlogget'; end if;
+  if p_id is null then return false; end if;
+  update public.push_subscriptions
+     set revoked_at = coalesce(revoked_at, now_ms)
+   where id = p_id and user_id = uid;
+  get diagnostics traff = row_count;
+  if traff = 0 then return false; end if;
+  perform public.push_end_queue(p_id, now_ms, 'slått av av brukeren');
+  return true;
+end;
+$$;
+
+/* «Slå av varsler på alle andre enheter.» Endepunktet som skal BLI stående er
+   nettleserens eget — den brukeren står med i hånden. Uten et endepunkt slås
+   alle av, som er den riktige tolkningen fra en klient som ikke har et. */
+create or replace function public.push_revoke_others(p_endpoint text default null)
+returns integer language plpgsql security definer set search_path = public as $$
+declare
+  uid    uuid   := auth.uid();
+  now_ms bigint := (extract(epoch from now()) * 1000)::bigint;
+  r      record;
+  antall integer := 0;
+begin
+  if uid is null then raise exception 'ikke innlogget'; end if;
+  for r in select id from public.push_subscriptions
+            where user_id = uid and revoked_at is null
+              and (p_endpoint is null or endpoint <> p_endpoint)
+  loop
+    update public.push_subscriptions set revoked_at = now_ms where id = r.id;
+    perform public.push_end_queue(r.id, now_ms, 'slått av av brukeren');
+    antall := antall + 1;
+  end loop;
+  return antall;
 end;
 $$;
 
@@ -2861,7 +3112,8 @@ begin
        and exists (select 1 from public.push_subscriptions s
                     where s.id = d.subscription_id
                       and s.user_id = d.user_id
-                      and s.disabled_at is null)
+                      and s.disabled_at is null
+                      and s.revoked_at is null)
      order by d.due_at
      limit greatest(coalesce(p_limit, 50), 1)
        for update skip locked
@@ -2951,7 +3203,8 @@ begin
          error   = coalesce(nullif(d.error, ''), 'abonnementet er dødt')
    where d.status = 'pending'
      and exists (select 1 from public.push_subscriptions s
-                  where s.id = d.subscription_id and s.disabled_at is not null);
+                  where s.id = d.subscription_id
+                    and (s.disabled_at is not null or s.revoked_at is not null));
 
   select count(*) into rørt from jsonb_array_elements(coalesce(p_results, '[]'::jsonb));
   return rørt;
@@ -2979,7 +3232,8 @@ returns bigint language sql stable set search_path = public as $$
    where d.status = 'pending'
      and d.due_at <= (extract(epoch from now()) * 1000)::bigint
      and s.user_id = d.user_id
-     and s.disabled_at is null;
+     and s.disabled_at is null
+     and s.revoked_at is null;
 $$;
 
 /* HEADERNE tikket sender. Egen funksjon av samme grunn som `push_due_count()`:
@@ -3064,6 +3318,208 @@ begin
   end if;
 exception when others then null;   -- manglende rettighet skal ikke velte migreringen
 end $$;
+
+-- ------------------------------------------------------------
+-- 8f. ØKT-RPC-ER — «hvor er jeg logget inn?» og fjern-utlogging
+--
+--    Supabase Auth eier øktene. Disse tre legger bare et lesbart lag over
+--    dem, og all autorisasjon er den samme setningen tre ganger:
+--    `user_id = auth.uid()`. En økt-id som ikke er min treffer ingen rad.
+--
+--    session_touch(browser, platform, origin, device_id)
+--      Klienten melder seg levende og skriver den gjenkjennelige metadataen
+--      for SIN EGEN økt (aldri en annens — id-en tas fra claimet, ikke fra
+--      et argument). Svaret sier også om økten fortsatt finnes; en klient som
+--      er fjern-utlogget lærer det her.
+--
+--    list_my_devices(endpoint)
+--      Én runde som svarer på begge spørsmålene UI-et stiller: hvor er
+--      kontoen innlogget, og hvilke nettlesere har varsler på. Endepunktet er
+--      klientens eget og brukes KUN til å merke «denne enheten» — det er
+--      derfor ingen endepunkter går den andre veien.
+--
+--    revoke_my_session(session_id)
+--      Fjern-utlogging av ÉN økt. Sletter raden i `auth.sessions`, som er det
+--      som faktisk avslutter økten hos Supabase: refresh-tokenet virker ikke
+--      lenger, og klienten kan ikke fornye seg. Et allerede utstedt
+--      access-token lever til `exp` — det er Supabases egen semantikk, og
+--      Huskis bygger ikke et nytt auth-lag for å omgå den. I praksis oppdager
+--      klienten tilstanden i neste synk-runde (`get_my_doc().session_ok`).
+--
+--    «Logg ut på alle andre enheter» finnes IKKE her: supabase-js har
+--    `signOut({ scope: 'others' })`, som er plattformens egen støttede vei.
+--    Autoritativt: docs/accounts.md.
+-- ------------------------------------------------------------
+
+/* Finnes økten fortsatt hos Supabase, og er den min? `null` inn (ukjent
+   claim) svarer `true`: en manglende opplysning skal aldri kunne leses som
+   en tilbakekalling og logge noen ut. */
+create or replace function public.session_alive(p_session uuid)
+returns boolean language plpgsql stable security definer set search_path = public as $$
+declare uid uuid := auth.uid(); finnes boolean;
+begin
+  if uid is null or p_session is null then return true; end if;
+  begin
+    select exists (select 1 from auth.sessions x
+                    where x.id = p_session and x.user_id = uid) into finnes;
+  exception when others then
+    /* `auth.sessions` er Supabase Auth sin tabell, ikke vår. Skulle rettigheten
+       dit mangle i et prosjekt, er svaret «vi vet ikke» — og det leses som
+       LEVENDE. `get_my_doc()` kaller denne hver eneste synk-runde: en feil her
+       ville ellers veltet hele doc-et og tatt appen ned for alle, for en
+       opplysning som bare gjelder én knapp. */
+    return true;
+  end;
+  return finnes;
+end;
+$$;
+
+/* Rader uten en levende økt. Supabase rydder `auth.sessions` på sin egen
+   rytme (utløpte økter slettes en stund etter at de gikk ut), og et sidebord
+   uten fremmednøkkel må derfor luke selv. Kjøres av `session_touch()` — bundet
+   til ÉN bruker, aldri som en global feiing, og aldri fra listingen, som en
+   åpen skuff kaller hver synk-runde.
+   INTERN: ingen EXECUTE til klientroller (se grants nederst). */
+create or replace function public.prune_device_sessions(p_uid uuid)
+returns integer language plpgsql security definer set search_path = public as $$
+declare rørt integer;
+begin
+  if p_uid is null then return 0; end if;
+  delete from public.device_sessions d
+   where d.user_id = p_uid
+     and not exists (select 1 from auth.sessions x where x.id = d.session_id);
+  get diagnostics rørt = row_count;
+  return rørt;
+end;
+$$;
+
+create or replace function public.session_touch(p_browser text default null,
+                                                p_platform text default null,
+                                                p_origin text default null,
+                                                p_device_id text default null)
+returns jsonb language plpgsql security definer set search_path = public as $$
+declare
+  uid    uuid   := auth.uid();
+  sid    uuid   := public.current_session_id();
+  now_ms bigint := (extract(epoch from now()) * 1000)::bigint;
+begin
+  if uid is null then raise exception 'ikke innlogget'; end if;
+  -- Er økten borte, skal ingenting skrives: en rad for en død økt ville stått
+  -- igjen i listen som en enhet brukeren ikke kan logge ut.
+  if not public.session_alive(sid) then
+    return jsonb_build_object('ok', false, 'session', sid);
+  end if;
+  if sid is not null then
+    insert into public.device_sessions (session_id, user_id, browser, platform, origin, device_id)
+    values (sid, uid, left(p_browser, 40), left(p_platform, 40),
+            left(p_origin, 120), left(p_device_id, 60))
+    on conflict (session_id) do update
+       set user_id   = uid,
+           browser   = coalesce(left(p_browser, 40), public.device_sessions.browser),
+           platform  = coalesce(left(p_platform, 40), public.device_sessions.platform),
+           origin    = coalesce(left(p_origin, 120), public.device_sessions.origin),
+           device_id = coalesce(left(p_device_id, 60), public.device_sessions.device_id),
+           seen_at   = now_ms;
+  end if;
+  perform public.prune_device_sessions(uid);
+  return jsonb_build_object('ok', true, 'session', sid);
+end;
+$$;
+
+create or replace function public.list_my_devices(p_endpoint text default null)
+returns jsonb language plpgsql security definer set search_path = public as $$
+declare
+  uid  uuid := auth.uid();
+  sid  uuid := public.current_session_id();
+  res  jsonb;
+begin
+  if uid is null then raise exception 'ikke innlogget'; end if;
+  /* Ingen luking her. Listen leses fra `auth.sessions` og venstre-joiner
+     sidebordet, så en foreldreløs rad er allerede usynlig — og en åpen skuff
+     kaller denne hver synk-runde. En DELETE hvert femte sekund ville vært
+     skriving uten en eneste ny opplysning. `session_touch()` luker, hvert
+     tiende minutt. */
+
+  select jsonb_build_object(
+    /* ØKTENE. Sannheten er `auth.sessions`; sidebordet gir bare navnene. En
+       økt uten en `device_sessions`-rad er en ekte økt (den kan være
+       opprettet av en eldre klient) og skal med — uten navn, men med tid.
+       `seenAt` tar det ferskeste av de to kildene: Supabase stempler
+       `refreshed_at` når tokenet fornyes, klienten stempler `seen_at` når den
+       er i bruk. Hverken IP eller user-agent forlater databasen. */
+    'sessions', coalesce((
+      select jsonb_agg(jsonb_build_object(
+               'id', x.id,
+               'current', (sid is not null and x.id = sid),
+               'browser', d.browser, 'platform', d.platform, 'origin', d.origin,
+               'createdAt', least(
+                  coalesce(d.created_at, (extract(epoch from x.created_at) * 1000)::bigint),
+                  (extract(epoch from x.created_at) * 1000)::bigint),
+               'seenAt', greatest(
+                  coalesce(d.seen_at, 0),
+                  (extract(epoch from coalesce(x.refreshed_at, x.updated_at, x.created_at)) * 1000)::bigint))
+             order by (sid is not null and x.id = sid) desc,
+                      greatest(coalesce(d.seen_at, 0),
+                        (extract(epoch from coalesce(x.refreshed_at, x.updated_at, x.created_at)) * 1000)::bigint) desc,
+                      x.id)
+        from auth.sessions x
+        left join public.device_sessions d on d.session_id = x.id
+       where x.user_id = uid), '[]'::jsonb),
+
+    /* ABONNEMENTENE. Bare de AKTIVE: en rad som er død (404/410) eller
+       tilbakekalt er ikke en enhet brukeren kan slå av, den er et spor. Og
+       aldri endepunktet — det er adressen varslene sendes til, og den har
+       ingenting i et UI å gjøre. «Denne enheten» avgjøres av at klientens
+       eget endepunkt matcher, altså uten at endepunktet går ut. */
+    'push', coalesce((
+      select jsonb_agg(jsonb_build_object(
+               'id', s.id,
+               'current', (p_endpoint is not null and s.endpoint = p_endpoint),
+               'browser', s.browser, 'platform', s.platform, 'origin', s.origin,
+               'createdAt', s.created_at, 'seenAt', s.seen_at)
+             order by (p_endpoint is not null and s.endpoint = p_endpoint) desc,
+                      s.seen_at desc, s.id)
+        from public.push_subscriptions s
+       where s.user_id = uid and s.disabled_at is null and s.revoked_at is null), '[]'::jsonb)
+  ) into res;
+
+  return res;
+end;
+$$;
+
+/* FJERN-UTLOGGING av én økt. Sletter raden i `auth.sessions` — det er den som
+   holder refresh-tokenet i live, og uten den kan klienten ikke fornye seg.
+   Refresh-tokenene slettes eksplisitt først: kaskaden i auth-skjemaet gjør
+   det samme, men vi eier ikke det skjemaet og skal ikke anta fasongen på det.
+
+   `false` når id-en ikke er min — samme svar som for en id som ikke finnes.
+   En feilmelding ville i seg selv fortalt at raden eksisterte. */
+create or replace function public.revoke_my_session(p_session_id uuid)
+returns boolean language plpgsql security definer set search_path = public as $$
+declare uid uuid := auth.uid(); traff integer;
+begin
+  if uid is null then raise exception 'ikke innlogget'; end if;
+  if p_session_id is null then return false; end if;
+  if not exists (select 1 from auth.sessions x
+                  where x.id = p_session_id and x.user_id = uid) then
+    return false;
+  end if;
+  /* Refresh-tokenene først. Kaskaden i auth-skjemaet gjør det samme, men vi
+     eier ikke det skjemaet og skal ikke anta fasongen på det. At vi mangler
+     rettighet nettopp der er derimot ingen grunn til å la økten leve videre:
+     slettingen under er den som teller, og kaskaden rydder resten. */
+  if to_regclass('auth.refresh_tokens') is not null then
+    begin
+      execute 'delete from auth.refresh_tokens where session_id = $1' using p_session_id;
+    exception when insufficient_privilege then null;
+    end;
+  end if;
+  delete from auth.sessions where id = p_session_id and user_id = uid;
+  get diagnostics traff = row_count;
+  delete from public.device_sessions where session_id = p_session_id and user_id = uid;
+  return traff > 0;
+end;
+$$;
 
 -- ------------------------------------------------------------
 -- 9. MEDLEMSLISTE — deduplisert, kategorisert og med capabilities
@@ -3329,9 +3785,19 @@ begin
       from public.notification_prefs p where p.user_id = uid),
     -- Hvor mange nettlesere som har web push på akkurat nå. Ett tall, ikke
     -- endepunktene: innstillingen skal kunne si «og 2 andre» uten at doc-et
-    -- bærer adresser en annen fane kunne lest.
+    -- bærer adresser en annen fane kunne lest. Listen (uten adresser) hentes
+    -- av list_my_devices() når brukeren faktisk åpner den.
     'push_devices', (select count(*) from public.push_subscriptions
-                      where user_id = uid and disabled_at is null)
+                      where user_id = uid and disabled_at is null
+                        and revoked_at is null),
+    /* LEVER ØKTEN ENNÅ? Ett indeksoppslag på primærnøkkelen i `auth.sessions`,
+       og den ene grunnen til at det står i det pollede doc-et: et allerede
+       utstedt access-token er gyldig til det utløper, så en fjern-utlogget
+       klient ville ellers ha stått igjen med kontoens innhold på skjermen i
+       opptil en time. Her ser den det i neste runde (5 s) og går til
+       innloggingssiden selv. `true` når claimet mangler — en manglende
+       opplysning er ikke en tilbakekalling. Se docs/accounts.md. */
+    'session_ok', public.session_alive(public.current_session_id())
   ) into result;
 
   return result;
@@ -3843,7 +4309,8 @@ drop index if exists public.share_invites_card_pending_key;
 revoke all on public.profiles, public.universes, public.groups, public.cards,
               public.items, public.memberships, public.share_invites,
               public.tombstones, public.notifications,
-              public.notification_prefs, public.push_subscriptions from anon;
+              public.notification_prefs, public.push_subscriptions,
+              public.device_sessions from anon;
 
 -- profiles: e-posten speiles KUN fra auth.users (triggerne over) og er
 -- skrivebeskyttet for klienter — ellers kunne en bruker kapre ventende
@@ -3892,6 +4359,10 @@ grant select, insert, update, delete on public.universes, public.groups,
 --   push_          | – | – | – | – | LÅST tabell: ingen policy, ingen grant.
 --     deliveries   |   |   |   |   |  Kun push_claim()/push_report()
 --                  |   |   |   |   |  (service_role).
+--   device_        | – | – | – | – | LÅST tabell: ingen policy, ingen grant.
+--     sessions     |   |   |   |   |  Kun session_touch()/list_my_devices()/
+--                  |   |   |   |   |  revoke_my_session(), som alle setter
+--                  |   |   |   |   |  user_id fra auth.uid() selv.
 --
 -- Kolonnene uten ✓ er trukket tilbake under. `tests/db-contract.test.js` og
 -- smoke-testen holder matrisen og virkeligheten i takt.
@@ -3922,6 +4393,11 @@ revoke all on public.push_subscriptions from authenticated;
 grant select, delete on public.push_subscriptions to authenticated;
 -- push_deliveries er utboksen og har ingen klientvei i det hele tatt.
 revoke all on public.push_deliveries from public, anon, authenticated;
+-- device_sessions er sidebordet til auth.sessions. Klienten ser det gjennom
+-- list_my_devices() og skriver det gjennom session_touch() — begge setter
+-- user_id fra auth.uid(). En direkte vei ville latt en klient skrive en rad
+-- for en annen brukers økt-id, og dermed navngi en økt hen ikke eier.
+revoke all on public.device_sessions from public, anon, authenticated;
 
 do $$
 declare fn text;
@@ -3945,8 +4421,13 @@ begin
     'public.notify_record(jsonb, bigint)',
     'public.notify_set_prefs(jsonb)',
     'public.notify_claim_tz(text, bigint)',
-    'public.push_subscribe(text, text, text, jsonb, text)',
-    'public.push_unsubscribe(text)'
+    'public.push_subscribe(text, text, text, jsonb, text, text, text, text, text, boolean)',
+    'public.push_unsubscribe(text)',
+    'public.push_revoke(uuid)',
+    'public.push_revoke_others(text)',
+    'public.session_touch(text, text, text, text)',
+    'public.list_my_devices(text)',
+    'public.revoke_my_session(uuid)'
   ] loop
     execute format('revoke execute on function %s from public, anon', fn);
     execute format('grant execute on function %s to authenticated', fn);
@@ -3960,6 +4441,12 @@ revoke all on function public.purge_group_access(uuid, uuid) from public, anon, 
 revoke all on function public.notify_prefs_row(uuid) from public, anon, authenticated;
 revoke all on function public.push_enqueue(uuid) from public, anon, authenticated;
 revoke all on function public.push_due_count() from public, anon, authenticated;
+revoke all on function public.push_end_queue(uuid, bigint, text) from public, anon, authenticated;
+revoke all on function public.prune_device_sessions(uuid) from public, anon, authenticated;
+-- session_alive()/current_session_id() svarer bare om KALLERENS egen økt, men
+-- de er byggeklosser inne i RPC-ene — ikke en RPC klienten skal kalle selv.
+revoke all on function public.session_alive(uuid) from public, anon, authenticated;
+revoke all on function public.current_session_id() from public, anon, authenticated;
 
 -- SENDERENS to funksjoner leser og skriver ANDRE brukeres leveringer. De skal
 -- derfor ikke kunne kalles med anon-nøkkelen eller av en innlogget bruker —
