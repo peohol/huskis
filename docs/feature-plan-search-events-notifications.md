@@ -864,8 +864,8 @@ Hvis appen åpnes via varsel til et objekt i en annen mappe, bruk samme `navigat
 
 Test og dokumenter:
 
-- app i forgrunn;
-- app i bakgrunn;
+- app i forgrunn (in-app-toast; systemvarsel i tillegg er ikke påkrevd);
+- app i bakgrunn (systemvarsel);
 - app prosess drept;
 - telefon restartet;
 - offline ved tidspunktet;
@@ -955,7 +955,10 @@ Anbefalt UI:
 Må verifiseres eksplisitt:
 
 - tillatelsesdialog;
-- varsel i forgrunn/bakgrunn;
+- varsel i forgrunn/bakgrunn — merk at ferdigkriteriet IKKE er likt for de
+  to: i forgrunnen er in-app-toasten varslingen og et systemvarsel i tillegg
+  er ikke påkrevd, i bakgrunnen er systemvarselet det som skal komme
+  ([`varsler.md`](varsler.md), «Én synlig varsling»);
 - varsel etter app-kill;
 - tap på varsel åpner riktig Huskis-objekt;
 - endret frist avlyser gammel plan og oppretter ny;

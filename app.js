@@ -484,7 +484,16 @@
     // Nye/endrede chips kan flytte den neste grensen timeren skal våkne på.
     scheduleChipTick();
     if (applyingRemote) return;
-    if (authUser) { saveSeq++; scheduleCloud(); syncStatus.refresh(); }
+    if (authUser) {
+      saveSeq++;
+      scheduleCloud();
+      /* … og speil planen ut i en kanal som eier den selv. Android planlegger
+         alarmene sine LOKALT, så en ny eller endret frist skal bli en alarm
+         med det samme — ikke først når en synk-runde har vært hos serveren og
+         kommet tilbake (docs/varsler.md, «Android: lokale varsler»). */
+      scheduleNotifChannelSync();
+      syncStatus.refresh();
+    }
   }
   // Som save(), men uten å planlegge en synk-runde: brukes av synken selv når
   // den skriver ned resultatet sitt (innhold + base) og altså nettopp har vært
@@ -11446,6 +11455,11 @@
   /* ---------------- Android: lokale varsler på enheten ---------------- */
   const androidChannel = {
     id: 'native',
+    /* Kanalen eier planen sin SELV: alarmene ligger på telefonen, ingen server
+       leser dem, og ingen server trengs for å legge dem. Det er derfor den også
+       speiles rett etter en lokal endring, ikke bare etter en synk-runde — se
+       `scheduleNotifChannelSync`. */
+    local: true,
     supported() { return !!nativePlugins.LocalNotifications; },
     async state() {
       const ln = nativePlugins.LocalNotifications;
@@ -11498,6 +11512,16 @@
            herfra og ikke fra brobibliotekets serialisering. */
         schedule: { at: new Date(r.at).toISOString(), allowWhileIdle: true },
         isExactNotification: false,
+        /* Det STORE ikonet i varselet: merket i full farge.
+
+           `smallIcon` (statuslinjen, `ic_stat_huskis` i
+           capacitor.config.json) er en alfamaske — Android kaster fargene —
+           og står støtt alene. Men et varsel uten stort ikon viser bare den
+           maskede glyfen, og da er merket borte. Ressursen er en PNG og ikke
+           en vector drawable fordi pluginen dekoder den med
+           `BitmapFactory.decodeResource`, som ikke kan lese en vector.
+           Navnet er ressursnavnet, uten mappe og uten filtype. */
+        largeIcon: 'ic_huskis_notification',
         /* `wall` er alarmens tiltenkte lokale veggtid. Den native
            tidssonemottakeren leser NØYAKTIG dette feltet og regner om — se
            `notifWallClock`. */
@@ -11527,6 +11551,10 @@
 
   const webChannel = {
     id: 'web',
+    /* Motsatt av den native: SERVEREN eier planen her, og en levering krever
+       både en abonnementsrad og en sender. En lokal endring uten en synk-runde
+       er derfor ingenting å speile. */
+    local: false,
     /* Alle fire leddene må være der. Uten en avsendernøkkel finnes det ingen
        sender å melde seg på hos, og da er kanalen ikke «av» — den finnes ikke
        (docs/varsler.md, «Nøkkelparet»). */
@@ -11689,13 +11717,47 @@
     }
   }
 
-  /* Kjøres etter hver pull: speil planen ut i kanalen. Stille — dette er ikke
-     noe brukeren ba om akkurat nå, og en enhet uten tillatelse skal ikke få en
-     feilmelding for hver synk-runde. */
+  /* Kjøres etter hver pull OG etter hver lokale endring: speil planen ut i
+     kanalen. Stille — dette er ikke noe brukeren ba om akkurat nå, og en enhet
+     uten tillatelse skal ikke få en feilmelding for hver synk-runde. */
   let notifChSig = null;      // det kanalen sist ble speilet med
+  let notifChSyncing = false; // én speiling om gangen
+  let notifChAgain = false;   // en runde kom mens den forrige lå i broen
   async function syncNotifChannel(now) {
     const ch = notifChannel();
     if (!ch || !notifChannelWanted() || !authUser) return;
+    /* ÉN speiling om gangen, og den som kommer imens tas ETTERPÅ.
+
+       Uten denne serialiseringen kan to runder ligge i pluginbroen samtidig —
+       poll-runden og runden brukerens egen endring utløste rett etterpå — og
+       da skriver den som svarer SIST signaturen sin. Svarer den eldste sist,
+       står `notifChSig` og sier at planen er speilet, mens telefonen mangler
+       alarmen den nyeste la inn. Vakten under leser da «uendret» i hver eneste
+       senere runde, og alarmen kommer aldri: kanalen er låst til planen endrer
+       seg på nytt. */
+    if (notifChSyncing) { notifChAgain = true; return; }
+    notifChSyncing = true;
+    try {
+      for (let runde = 0; ; runde++) {
+        notifChAgain = false;
+        // Bare den FØRSTE runden arver rundens øyeblikk; en ekstra runde er en
+        // ny hendelse og skal måles mot klokka nå.
+        await syncNotifChannelOnce(ch, runde ? null : now);
+        /* UTFALLET avgjør ikke om den KØEDE runden skal kjøres. En runde som
+           feilet lot signaturen stå, så neste forsøk gjør hele jobben — men
+           «neste forsøk» er ikke gitt: uten nett finnes det ingen synk-runde
+           som tar den igjen, og debouncen til endringen som satte flagget har
+           allerede fyrt. Falt den køede runden bort her, ville en forbigående
+           feil i broen kostet nøyaktig den alarmen. */
+        if (!notifChAgain) return;
+      }
+    } finally {
+      notifChSyncing = false;
+    }
+  }
+  /* Én speiling. Kaster aldri: en bro som feiler lar signaturen stå urørt, så
+     neste runde gjør hele jobben og gjør det med en gang. */
+  async function syncNotifChannelOnce(ch, now) {
     /* Android får PLANEN å speile; web push tar ingen — der har serveren
        planen allerede, og runden brukes til å fornye abonnementet.
 
@@ -11731,6 +11793,34 @@
       // Stille: neste runde prøver igjen — og signaturen står urørt, så den
       // gjør det med en gang og ikke først når planen endrer seg.
     }
+  }
+
+  /* DEN LOKALE KANALEN VENTER IKKE PÅ SERVEREN.
+
+     Speilingen over kjørte lenge bare fra `applyNotifications`, altså først
+     etter en VELLYKKET pull. For web push er det riktig — der ER serveren
+     kanalen. For Android er det galt: telefonen har planen selv og vekker seg
+     selv, og ingen server er involvert i det hele tatt (docs/varsler.md, «De
+     eksterne kanalene»). Var nettet borte, eller svarte serveren feil, ble en
+     nyopprettet eller endret frist derfor ALDRI en alarm — telefonen ble
+     stående med den forrige planen, helt stille, til en runde kom fram.
+
+     Derfor denne: en liten forsinkelse etter en lokal endring, slik at en
+     bunke endringer blir én speiling. Den gjelder bare kanaler som eier planen
+     sin selv (`local`), og `syncNotifChannel` gjør ingenting når kanalen er av
+     eller planen står stille. */
+  const NOTIF_CH_LOCAL_MS = 600;
+  let notifChLocalTimer = null;
+  function scheduleNotifChannelSync() {
+    if (notifChLocalTimer) return;
+    notifChLocalTimer = setTimeout(() => {
+      notifChLocalTimer = null;
+      const ch = notifChannel();
+      // Web push henter planen fra serveren; der er en lokal endring uten en
+      // synk-runde ingenting å speile.
+      if (!ch || !ch.local) return;
+      syncNotifChannel();
+    }, NOTIF_CH_LOCAL_MS);
   }
 
   /* ---------------- Trykk på et eksternt varsel ----------------
@@ -14742,6 +14832,10 @@
   document.addEventListener('visibilitychange', () => {
     if (document.hidden || !authUser) return;
     scheduleCloud(0);
+    /* Og den lokale varselkanalen for seg: runden over kan komme til å feile
+       (uten nett gjør den det), og da ville telefonen stått med planen fra sist
+       den var på nett. Alarmene er telefonens egne og trenger ingen server. */
+    scheduleNotifChannelSync();
   });
 
   /* ---------------- Migreringsflyt (lokale data → import_doc) ---------------- */

@@ -33,12 +33,25 @@
 self.addEventListener('install', () => self.skipWaiting());
 self.addEventListener('activate', (ev) => ev.waitUntil(self.clients.claim()));
 
-/* Appens merke, 192×192 med GJENNOMSIKTIG bakgrunn: favicon.svg rasterisert.
-   Kilden til logoen er `favicon.svg` — PNG-en finnes bare fordi Notification
-   API-et vil ha et rasterformat. Gjennomsiktig og ikke en flate, fordi
-   `badge` er en ALFAMASKE hos Android: en bakgrunn ville blitt en solid
-   firkant i statuslinjen i stedet for merket. */
-var IKON = 'assets/notif/huskis-logo-192.png';
+/* Varselet har TO ikoner, og de er to forskjellige tegninger av det samme
+   merket. Begge er rasterisert fra `favicon.svg` av
+   `tests/lag-varselikoner.js`, fordi Notification API-et vil ha et
+   rasterformat.
+
+   `icon` er det store, fargelagte merket. Bakgrunnen er gjennomsiktig, og
+   merket er skalert ned om sitt eget sentrum: Android — og Samsungs One UI
+   særlig — maskerer det store varselikonet til en SIRKEL, og et merke som
+   fyller kvadratet får da hjørnene klippet av.
+
+   `badge` er det lille i statuslinjen, og der er bildet en ALFAMASKE: Android
+   kaster fargene og tegner formen i sin egen. Den fargelagte logoen ble derfor
+   en hvit klump — alt som ikke var gjennomsiktig ble hvitt, og de mørke
+   konturene som BÆRER motivet forsvant. Badgen er derfor en egen, monokrom
+   tegning: bare konturer, med de tre punktene og linjene i det fremste kortet
+   og to kort delvis synlige bak det. Den samme masken er `ic_stat_huskis` på
+   Android (docs/varsler.md). */
+var IKON = 'assets/notif/huskis-icon-192.png';
+var BADGE = 'assets/notif/huskis-badge-96.png';
 
 function lesKropp(ev) {
   if (!ev.data) return null;
@@ -56,7 +69,7 @@ self.addEventListener('push', function (ev) {
   ev.waitUntil(self.registration.showNotification(tittel, {
     body: tekst,
     icon: IKON,
-    badge: IKON,
+    badge: BADGE,
     // Nøkkelen er varselets logiske identitet: kommer det samme varselet to
     // ganger (to leveringsforsøk), ERSTATTER det seg selv i stedet for å legge
     // seg oppå. Samme regel som den unike nøkkelen i databasen.
