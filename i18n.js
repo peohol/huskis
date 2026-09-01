@@ -434,6 +434,8 @@
     'devices.loggedOutOthers': ['De andre enhetene er logget ut.', 'The other devices are signed out.'],
     'devices.pushOffOthers': ['Slå av på alle andre enheter',
                               'Turn off on all other devices'],
+    'devices.pushOffOthersAria': ['Slå av varsler på alle andre enheter',
+                                  'Turn off notifications on all other devices'],
     'devices.pushOffOthersMsg': ['De andre enhetene slutter å få varsler utenfor Huskis. Denne enheten beholder sine.',
                                  'The other devices stop getting notifications outside Huskis. This device keeps its own.'],
     'devices.turnedOff':    ['Varslene er slått av på den enheten.',
