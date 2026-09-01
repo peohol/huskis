@@ -815,5 +815,110 @@ select public.t_check('en ANNEN bruker i samme nettleser arver ikke avslåingen'
   (:'annen_bruker'::jsonb ->> 'revoked') = 'false');
 select public.push_unsubscribe('https://push.example.com/e4');
 
+-- ---------- 12g. AVSLÅINGEN GJELDER ENHETEN, IKKE URL-EN ----------
+/* Etter en endepunktrullering kan den SAMME klienten ha to rader en liten
+   stund: `E1` fra før, og `E2` som den automatiske fornyelsen nettopp
+   opprettet. Slår brukeren av «enheten» fra en annen enhet, peker listen på én
+   av dem — og slo vi bare av nettopp den raden, ville nettleseren fortsatt fått
+   varsler etter at brukeren slo den av.
+
+   Det krever ingen samtidighet for å skje; det holder at begge radene finnes.
+   `push_revoke()` slår derfor av hele klientkonteksten `user_id` +
+   `device_id` + `origin`. */
+reset role;
+select set_config('request.jwt.claim.sub', :'A', false); set role authenticated;
+delete from public.push_subscriptions where user_id = :'A';
+delete from public.notifications where user_id = :'A';
+
+-- To endepunkter i SAMME klientkontekst (en rullering som ikke er ryddet ennå).
+select (public.push_subscribe('https://push.example.com/g1', :'k_a1', :'s_a1',
+  '{"dueOver": "Frist utløpt"}'::jsonb, 'Europe/Oslo',
+  'Chrome', 'Android', 'www.huskis.no', 'd-tvilling') ->> 'id') as g1 \gset
+select (public.push_subscribe('https://push.example.com/g2', :'k_a2', :'s_a2',
+  '{"dueOver": "Frist utløpt"}'::jsonb, 'Europe/Oslo',
+  'Chrome', 'Android', 'www.huskis.no', 'd-tvilling') ->> 'id') as g2 \gset
+-- … og en HELT annen enhet, som ikke skal røres av noe av dette.
+select (public.push_subscribe('https://push.example.com/g3', :'k_b', :'s_b',
+  '{"dueOver": "Frist utløpt"}'::jsonb, 'Europe/Oslo',
+  'Chrome', 'Windows', 'www.huskis.no', 'd-annen') ->> 'id') as g3 \gset
+select public.t_check('tre aktive abonnementer, to av dem samme klient',
+  (select count(*) from public.push_subscriptions
+    where user_id = :'A' and disabled_at is null and revoked_at is null) = 3);
+
+select public.notify_record(jsonb_build_array(
+  jsonb_build_object('key', 'dueOver|card|' || :'AC' || '|2029-03-03', 'type', 'dueOver',
+    'obj_type', 'card', 'obj_id', :'AC', 'name', 'Mars', 'path', 'x',
+    'value', '2029-03-03', 'at', :'fram'::bigint)));
+select public.t_check('alle tre har en ventende levering',
+  public.t_deliveries(:'A'::uuid, 'pending') = 3);
+
+-- Brukeren slår av ENHETEN, og treffer raden listen tilfeldigvis viste (E1).
+select public.push_revoke(:'g1'::uuid) as rv_g \gset
+select public.t_check('«slå av» på den ene raden slo av HELE klienten',
+  :'rv_g' = 't'
+  and (select revoked_at is not null from public.push_subscriptions where id = :'g1'::uuid)
+  and (select revoked_at is not null from public.push_subscriptions where id = :'g2'::uuid));
+select public.t_check('… mens den andre enheten står urørt',
+  (select revoked_at is null and disabled_at is null
+     from public.push_subscriptions where id = :'g3'::uuid));
+select public.t_check('… nøklene er tømt på BEGGE radene i klienten',
+  (select p256dh = '' and auth = '' from public.push_subscriptions where id = :'g1'::uuid)
+  and (select p256dh = '' and auth = '' from public.push_subscriptions where id = :'g2'::uuid));
+select public.t_check('… og de ventende leveringene til begge er avsluttet',
+  public.t_sub_deliveries(:'g1'::uuid, 'pending') = 0
+  and public.t_sub_deliveries(:'g2'::uuid, 'pending') = 0
+  and public.t_sub_deliveries(:'g3'::uuid, 'pending') = 1);
+
+-- Den automatiske fornyelsen fra den klienten blir avvist — på begge adressene.
+select public.push_subscribe('https://push.example.com/g2', :'k_a2', :'s_a2',
+  '{"dueOver": "Frist utløpt"}'::jsonb, 'Europe/Oslo',
+  'Chrome', 'Android', 'www.huskis.no', 'd-tvilling') as g_auto \gset
+select public.t_check('den automatiske fornyelsen av det NYE endepunktet blir avvist',
+  (:'g_auto'::jsonb ->> 'revoked') = 'true');
+select public.t_check('… og ingen rad i klienten er aktiv',
+  (select count(*) from public.push_subscriptions
+    where user_id = :'A' and device_id = 'd-tvilling' and origin = 'www.huskis.no'
+      and disabled_at is null and revoked_at is null) = 0);
+
+-- Et eksplisitt «slå på varsler» på den klienten tar det tilbake.
+select public.push_subscribe('https://push.example.com/g2', :'k_a2', :'s_a2',
+  '{"dueOver": "Frist utløpt"}'::jsonb, 'Europe/Oslo',
+  'Chrome', 'Android', 'www.huskis.no', 'd-tvilling', true) as g_eksp \gset
+select public.t_check('et eksplisitt «slå på» der aktiverer klienten igjen',
+  (:'g_eksp'::jsonb ->> 'revoked') = 'false'
+  and (select count(*) from public.push_subscriptions
+        where user_id = :'A' and device_id = 'd-tvilling' and origin = 'www.huskis.no'
+          and disabled_at is null and revoked_at is null) = 1);
+select public.push_subscribe('https://push.example.com/g2', :'k_a2', :'s_a2',
+  '{"dueOver": "Frist utløpt"}'::jsonb, 'Europe/Oslo',
+  'Chrome', 'Android', 'www.huskis.no', 'd-tvilling') as g_etter \gset
+select public.t_check('… og den neste automatiske fornyelsen går som normalt',
+  (:'g_etter'::jsonb ->> 'revoked') = 'false');
+
+/* «SLÅ AV ALLE ANDRE» sparer HELE denne klienten, ikke bare adressen den
+   ringte fra. Ellers ville en rullering på brukerens egen nettleser gjort at
+   hun slo av seg selv. */
+select public.push_subscribe('https://push.example.com/g4', :'k_c', :'s_c',
+  '{"dueOver": "Frist utløpt"}'::jsonb, 'Europe/Oslo',
+  'Chrome', 'Android', 'www.huskis.no', 'd-tvilling');
+select public.push_revoke_others('https://push.example.com/g2') as g_andre \gset
+select public.t_check('«slå av alle andre» talte ENHETER, ikke rader', :'g_andre'::int = 1);
+select public.t_check('… og lot begge adressene til DENNE klienten stå på',
+  (select count(*) from public.push_subscriptions
+    where user_id = :'A' and device_id = 'd-tvilling' and origin = 'www.huskis.no'
+      and disabled_at is null and revoked_at is null) = 2);
+select public.t_check('… mens den andre enheten ble slått av',
+  (select revoked_at is not null from public.push_subscriptions where id = :'g3'::uuid));
+
+/* EN ANNEN BRUKER med den samme enhets-id-en og verten er upåvirket: grensen
+   er `user_id`, og den ligger i begge spørsmålene. */
+reset role; select set_config('request.jwt.claim.sub', :'C', false); set role authenticated;
+select public.push_subscribe('https://push.example.com/g5', :'k_bb', :'s_bb',
+  '{"dueOver": "Deadline passed"}'::jsonb, 'America/New_York',
+  'Chrome', 'Android', 'www.huskis.no', 'd-tvilling') as g_annen \gset
+select public.t_check('en annen bruker med samme enhets-id er upåvirket',
+  (:'g_annen'::jsonb ->> 'revoked') = 'false');
+select public.push_unsubscribe('https://push.example.com/g5');
+
 reset role;
 \echo '✅ test-push.sql: alle sjekker grønne'

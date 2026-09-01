@@ -43,8 +43,9 @@
         hamrer ikke, men en senere runde rydder raden når serveren er i orden.
     14. Opprydningen virker også i en build UTEN avsendernøkkel — å rydde et
         abonnement krever mindre enn å lage et.
-    15. Mock-backenden avviser et RULLERT endepunkt fra en avslått klient på
-        samme måte som databasen gjør (test-push.sql, seksjon 12f).
+    15. Mock-backenden holder databasens kontrakt: et RULLERT endepunkt fra en
+        avslått klient avvises (test-push.sql 12f), og et «slå av» slår av HELE
+        klientkonteksten — også en rad fra en rullering (12g).
 
   Kjør:
     python3 -m http.server 8000                        # fra repo-roten, i egen terminal
@@ -835,6 +836,41 @@ async function bekreft(p) {
       kontrakt.påSlått.revoked === false && kontrakt.e2Aktiv && !kontrakt.e1Igjen, kontrakt);
     log('15d … og den neste automatiske fornyelsen går som normalt',
       kontrakt.etterpå.revoked === false, kontrakt.etterpå);
+
+    /* «Slå av» gjelder ENHETEN, ikke URL-en: etter en rullering kan den samme
+       klienten ha to rader en stund, og begge skal av. Det krever ingen
+       samtidighet — det holder at begge finnes. */
+    const enhet = await p.evaluate(async () => {
+      const c = window.HK_MOCK.createClient();
+      const K = 'BP' + 'k'.repeat(83) + 'r2';
+      const A = 't'.repeat(22);
+      const kall = (ende, mer) => c.rpc('push_subscribe', Object.assign({
+        p_endpoint: ende, p_p256dh: K, p_auth: A, p_labels: {}, p_tz: 'Europe/Oslo',
+        p_browser: 'Chrome', p_platform: 'Android', p_origin: 'www.huskis.no',
+        p_device_id: 'd-tvilling' }, mer || {}));
+      const t1 = await kall('https://push.test/t1');
+      const t2 = await kall('https://push.test/t2');            // samme klient, rullert
+      const annen = await kall('https://push.test/t3', { p_device_id: 'd-annen' });
+      await c.rpc('push_revoke', { p_id: t1.data.id });         // brukeren slår av ENHETEN
+      const db = window.HK_MOCK._loadDB();
+      const rad = (e) => db.push_subscriptions.find((x) => x.endpoint === e) || null;
+      const auto = await kall('https://push.test/t2');
+      return {
+        t1: !!(rad('https://push.test/t1') || {}).revoked_at,
+        t2: !!(rad('https://push.test/t2') || {}).revoked_at,
+        t2Nøkler: (rad('https://push.test/t2') || {}).p256dh,
+        annen: !!(rad('https://push.test/t3') || {}).revoked_at,
+        annenId: annen.data && annen.data.revoked,
+        auto: auto.data && auto.data.revoked,
+      };
+    });
+    log('15e «slå av» på den ene raden slo av HELE klienten, også det rullerte endepunktet',
+      enhet.t1 === true && enhet.t2 === true, enhet);
+    log('15f … med nøklene tømt på begge', enhet.t2Nøkler === '');
+    log('15g … mens en annen enhet står urørt',
+      enhet.annen === false && enhet.annenId === false);
+    log('15h … og den neste automatiske fornyelsen av det rullerte endepunktet blir avvist',
+      enhet.auto === true);
     log('15: ingen JS-feil i konsollen', feil.length === 0, feil.join(' | '));
     await ctx.close();
   }

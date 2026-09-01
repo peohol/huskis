@@ -1131,17 +1131,43 @@ Et eksplisitt «slå på varsler» gjelder tilsvarende KLIENTEN, ikke bare
 endepunktet: brukeren står ved nettopp denne nettleseren og har sagt fra, og da
 slettes sporene i konteksten — de har gjort jobben sin.
 
+**«Slå av» gjelder ENHETEN, ikke URL-en.** Brukeren trykker på en rad som sier
+«Chrome · Android» og mener nettleseren — ikke det tekniske endepunktet raden
+tilfeldigvis bærer nå. Forskjellen er ikke akademisk: like etter en rullering
+kan den samme klienten ha TO rader (`E1` fra før, `E2` fra fornyelsen), og slo
+vi bare av den ene, fikk enheten fortsatt varsler etter at brukeren slo den av.
+`push_revoke()` slår derfor av hele klientkonteksten: alle aktive rader med
+samme `user_id` + `device_id` + `origin`, med køene deres avsluttet og nøklene
+tømt. En eldre rad uten kontekst faller tilbake til seg selv — det er alt vi vet
+om den. «Slå av på alle andre enheter» speiler det: den sparer HELE konteksten
+til nettleseren som ringte, og slår resten av.
+
 **De to operasjonene kan ikke passere hverandre.** En automatisk fornyelse og
-et «slå av» fra en annen enhet kan treffe den samme raden samtidig, og uten en
-lås ville dette vært mulig: fornyelsen leser `revoked_at = null`, avslåingen
+et «slå av» fra en annen enhet kan treffe den samme klienten samtidig, og uten
+en lås ville dette vært mulig: fornyelsen leser `revoked_at = null`, avslåingen
 setter feltet og committer, fornyelsen skriver videre og UPSERT-en nullstiller
-det igjen. Valget hadde vært borte, og ingen gjorde noe galt. `push_subscribe()`
-låser derfor raden (`select … for update`) FØR den leser tilstanden: kommer
-avslåingen først, venter fornyelsen og leser den nye verdien; kommer fornyelsen
-først, venter avslåingen og vinner til slutt. Begge rekkefølgene ender med AV,
-som er det brukeren ba om. Garantien ligger i databasen, ikke i klientens
-timing — `supabase/tests/test-push-race.sh` kjører begge rekkefølgene med to
-ekte, samtidige databaseøkter.
+det igjen. Valget hadde vært borte, og ingen gjorde noe galt.
+
+`push_subscribe()` låser derfor raden (`select … for update`) FØR den leser
+tilstanden. Men radlåsen er ikke nok, for den farlige varianten har ikke ÉN
+rad: ruller nettleseren endepunktet sitt, oppretter fornyelsen `E2` mens
+avslåingen tar `E1` — to rader, ingen felles lås, og `E2` finnes kanskje ikke
+ennå. «Slå av på alle andre enheter» har det samme problemet på tvers av
+kontekster.
+
+Låsen ligger derfor på BRUKEREN (`push_lock()`, en advisory lock som varer
+transaksjonen ut), og tas av alle tre operasjonene som kan endre hva som er
+aktivt: `push_subscribe()`, `push_revoke()` og `push_revoke_others()`. Da er
+rekkefølgen et avgjort spørsmål: kommer avslåingen først, venter fornyelsen og
+møter sporet; kommer fornyelsen først, venter avslåingen og tar hele konteksten
+— også raden fornyelsen nettopp lagde. Alle rekkefølgene ender med AV, som er
+det brukeren ba om. Granulariteten koster ingenting: en bruker har en håndfull
+nettlesere, og hver av dem rører dette hvert kvarter.
+
+Garantien ligger i databasen, ikke i klientens timing —
+`supabase/tests/test-push-race.sh` kjører begge rekkefølgene i begge variantene
+(samme endepunkt, og to ulike i samme kontekst) med to ekte, samtidige
+databaseøkter.
 
 #### Opprydning
 
@@ -1473,8 +1499,10 @@ De to henger sammen på nøyaktig ett punkt, og ellers ikke:
   før et eksplisitt «slå på varsler» på nettopp den klienten.
 - `supabase/tests/test-push-race.sh` — samtidigheten, med TO ekte
   databaseøkter: en automatisk fornyelse og et «slå av» kjøres mot hverandre i
-  begge rekkefølger, og begge må ende med AV. Uten låsen i `push_subscribe()`
-  slår fornyelsen varslene på igjen, og testen sier fra.
+  begge rekkefølger, både på det samme endepunktet og på to ULIKE i den samme
+  klientkonteksten (en rullering). Alle fire må ende med AV. Uten radlåsen slår
+  fornyelsen varslene på igjen; uten brukerlåsen slipper det rullerte
+  endepunktet gjennom — testen sier fra i begge tilfeller.
 - `supabase/tests/test-sessions.sql` — øktlaget serverside: hvem som ser hvilke
   økter, at en annen brukers økt ikke kan termineres, at fjern-utlogging faktisk
   sletter øktraden OG refresh-tokenet, at `session_ok` melder tilstanden, og at
@@ -1488,7 +1516,9 @@ De to henger sammen på nøyaktig ett punkt, og ellers ikke:
   at sporet OVERLEVER både opprydningshorisonten og taket — en sovende enhet som
   våkner etter 200 dager og fornyer seg blir fortsatt avvist — at et RULLERT
   endepunkt fra den samme klientkonteksten avvises på samme måte mens en annen
-  kontekst og en annen bruker er upåvirket, at en PLANLAGT rad
+  kontekst og en annen bruker er upåvirket, at et «slå av» tar HELE klienten —
+  også raden fra en rullering, med køen avsluttet og nøklene tømt — mens «slå av
+  alle andre» sparer hele den klienten som ringte, at en PLANLAGT rad
   får et ferskt navn mens historikken ikke skrives om, at et dødt endepunkt tar hele køen sin med seg, at senderens
   funksjoner er stengt for klienten, hent/send/meld-runden med alle tre
   utfallene, tidssone-hevdelsen, og `push_headers()` — kjørt, ikke lest: en ny

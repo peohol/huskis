@@ -335,6 +335,9 @@ begin
     'public.push_headers(text)',
     -- Avslutter køen til ett abonnement — skriver i utboksen.
     'public.push_end_queue(uuid, bigint, text)',
+    -- Serialiserer én brukers abonnementer (advisory lock). En klient som kunne
+    -- kalle den, kunne holdt sine egne synk-runder i kø.
+    'public.push_lock(uuid)',
     -- Øktlaget: byggeklosser, ikke RPC-er. `session_alive` og
     -- `current_session_id` leser KALLERENS eget claim, men skal likevel ikke
     -- være en inngang klienten kan kalle direkte.

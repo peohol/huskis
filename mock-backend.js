@@ -718,11 +718,17 @@
       }
     });
   }
-  function pushRevoke(db, uid, id) {
-    var row = db.push_subscriptions.find(function (x) { return x.id === id && x.user_id === uid; });
-    if (!row) return false;      // en fremmed id røper aldri at raden finnes
+  /* Er de to radene den SAMME klienten? Konteksten er `user_id` + `device_id`
+     + `origin` (serveren avgjør det samme spørsmålet i `push_revoke()`). En rad
+     uten kontekst — en eldre klient sendte den ikke — er bare seg selv. */
+  function sammeKlient(a, b) {
+    return !!(a && b && a.user_id === b.user_id &&
+      a.device_id != null && a.origin != null &&
+      a.device_id === b.device_id && a.origin === b.origin);
+  }
+  function pushRevokeRad(db, row) {
     // Idempotent, som serveren: en rad som alt er tilbakekalt beholder
-    // tidspunktet sitt og svarer `true`.
+    // tidspunktet sitt.
     row.revoked_at = row.revoked_at || Date.now();
     /* Nøklene tømmes, som serveren: et abonnement brukeren har slått av skal
        ikke bli liggende med mottakernøklene sine i det uendelige. `endpoint`,
@@ -730,16 +736,37 @@
        på, også når nettleseren har rullert endepunktet. */
     row.p256dh = ''; row.auth = ''; row.labels = {}; row.tz = null;
     pushEndQueue(db, row.id);
+  }
+  /* «Slå av» gjelder ENHETEN, ikke URL-en (som serveren). Etter en
+     endepunktrullering kan den samme klienten ha to rader en stund; slo vi bare
+     av den listen tilfeldigvis pekte på, ville nettleseren fortsatt fått
+     varsler. Ingen lås her: mock-backenden kjører ett kall om gangen i én
+     nettlesertråd, mens serveren må ta `push_lock()` for den samme garantien. */
+  function pushRevoke(db, uid, id) {
+    var row = db.push_subscriptions.find(function (x) { return x.id === id && x.user_id === uid; });
+    if (!row) return false;      // en fremmed id røper aldri at raden finnes
+    pushRevokeRad(db, row);
+    db.push_subscriptions.forEach(function (x) {
+      // De andre i konteksten: bare de AKTIVE. En rad som alt er død (404/410)
+      // skal ikke gjøres om til et brukerinitiert, permanent spor.
+      if (x.id !== row.id && pushActive(x) && sammeKlient(row, x)) pushRevokeRad(db, x);
+    });
     return true;
   }
   function pushRevokeOthers(db, uid, endpoint) {
     var n = 0;
-    // Bare de AKTIVE, som serveren: en rad som alt er død skal ikke gjøres om
-    // til et brukerinitiert, permanent spor.
+    /* Det som BLIR STÅENDE er klienten, ikke bare adressen den ringte fra:
+       ellers ville en helt vanlig endepunktrullering på brukerens egen
+       nettleser slått av hennes egen enhet. */
+    var min = endpoint ? db.push_subscriptions.find(function (x) {
+      return x.user_id === uid && x.endpoint === endpoint; }) : null;
     db.push_subscriptions.slice().forEach(function (x) {
       if (x.user_id !== uid || !pushActive(x)) return;
       if (endpoint && x.endpoint === endpoint) return;
-      if (pushRevoke(db, uid, x.id)) n++;
+      if (min && sammeKlient(min, x)) return;
+      // Tallet er ENHETER, ikke rader: en rad som alt ble slått av sammen med
+      // konteksten sin er allerede talt.
+      if (pushActive(x) && pushRevoke(db, uid, x.id)) n++;
     });
     return n;
   }

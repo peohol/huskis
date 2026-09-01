@@ -2853,6 +2853,37 @@ begin
 end;
 $$;
 
+/* SERIALISERINGEN AV ÉN BRUKERS ABONNEMENTER.
+
+   Invarianten er ikke lenger en rad, men en KLIENTKONTEKST: slår brukeren av
+   varslene for en nettleser, skal ingen rad i den konteksten være aktiv
+   etterpå. `for update` på endepunktets egen rad holder ikke for det, av to
+   grunner:
+
+     · raden det gjelder finnes kanskje ikke ennå. Nettleseren kan ha rullert
+       endepunktet, og fornyelsen er i ferd med å OPPRETTE `E2` mens avslåingen
+       tar `E1`. To ulike rader — ingen felles lås;
+     · «slå av på alle andre enheter» spenner over flere kontekster på én gang,
+       og en samtidig registrering fra en av dem ville sneket seg inn etter at
+       løkken leste listen sin.
+
+   Låsen tas derfor på BRUKEREN, ikke på raden: hver operasjon som kan endre
+   hvilke abonnementer som er aktive (`push_subscribe`, `push_revoke`,
+   `push_revoke_others`) tar den først, og holder den ut transaksjonen.
+   Granulariteten koster ingenting — en bruker har en håndfull nettlesere, og
+   hver av dem rører dette hvert kvarter — og den gjør rekkefølgen mellom to
+   samtidige kall til et avgjort spørsmål i stedet for et kappløp.
+
+   `pg_advisory_xact_lock` og ikke en radlås: låsen skal finnes også når det
+   ikke er noen rad å låse. Kollisjoner mellom to brukeres hashverdier er
+   ufarlige — da serialiseres to brukere som ikke hadde noe med hverandre å
+   gjøre, og ingen av dem merker det.
+   INTERN: ingen EXECUTE til klientroller (se grants nederst). */
+create or replace function public.push_lock(p_uid uuid)
+returns void language sql volatile set search_path = public as $$
+  select pg_advisory_xact_lock(hashtextextended('huskis.push:' || coalesce(p_uid::text, ''), 0));
+$$;
+
 /* Hvor mange aktive abonnementer én bruker får ha. Tallet står som en funksjon
    og ikke som et magisk tall inne i push_subscribe(), slik at testene kan lese
    det samme tallet som regelen bruker. */
@@ -2949,6 +2980,11 @@ begin
      vinner til slutt; kommer avslåingen først, venter fornyelsen og LESER DEN
      NYE verdien når låsen slippes (`for update` leser raden på nytt). Begge
      rekkefølgene ender med AV, som er det brukeren ba om. */
+  /* Låsen på BRUKEREN først (se `push_lock()`): den dekker også det `for
+     update` ikke kan se — en samtidig avslåing av en ANNEN rad i den samme
+     klientkonteksten, eller av en rad som ikke finnes ennå. */
+  perform public.push_lock(uid);
+
   select id, user_id, revoked_at into sub_id, forrige, tilbake
     from public.push_subscriptions where endpoint = p_endpoint
     for update;
@@ -3133,26 +3169,59 @@ returns boolean language plpgsql security definer set search_path = public as $$
 declare
   uid    uuid   := auth.uid();
   now_ms bigint := (extract(epoch from now()) * 1000)::bigint;
-  traff  integer;
+  d      text;
+  o      text;
+  r      record;
+  traff  integer := 0;
 begin
   if uid is null then raise exception 'ikke innlogget'; end if;
   if p_id is null then return false; end if;
-  /* IDEMPOTENT: `coalesce` holder det opprinnelige tidspunktet, og en rad som
+  /* Finnes raden, og er den min? Et fremmed id svarer `false` og røper ikke at
+     raden finnes. Konteksten leses her fordi den avgjør HVOR LANGT
+     avslåingen rekker; låsen tas rett etter, og da leses radene på nytt. */
+  select device_id, origin into d, o
+    from public.push_subscriptions where id = p_id and user_id = uid;
+  if not found then return false; end if;
+
+  perform public.push_lock(uid);
+
+  /* HANDLINGEN GJELDER ENHETEN, IKKE URL-EN. Brukeren trykker «Slå av» på en
+     rad som sier «Chrome · Android», og mener nettleseren — ikke det tekniske
+     endepunktet raden tilfeldigvis bærer nå. Forskjellen er ikke akademisk:
+     ruller nettleseren endepunktet sitt, kan den SAMME klienten i en periode ha
+     to rader (`E1` fra før, `E2` fra fornyelsen). Slo vi bare av den ene, ville
+     enheten fortsatt fått varsler etter at brukeren slo den av.
+
+     Derfor slås hele klientkonteksten av: `user_id` + `device_id` + `origin`.
+     For en eldre rad uten kontekst (klienten sendte den ikke) faller vi tilbake
+     til nettopp den raden — det er alt vi vet om den.
+
+     IDEMPOTENT: `coalesce` holder det opprinnelige tidspunktet, og en rad som
      alt er tilbakekalt svarer `true`. To faner som slår av den samme enheten
      samtidig har begge fått viljen sin — det er ingen feil å melde.
 
-     MOTTAKERNØKLENE tømmes: raden skal ikke bli liggende med det som gjør det
+     MOTTAKERNØKLENE tømmes: ingen rad skal bli liggende med det som gjør det
      mulig å kryptere til nettleseren. `endpoint`, `device_id` og `origin` blir
      derimot stående — det er dem `push_subscribe()` kjenner sporet igjen på,
      og tømte vi dem, ville avslåingen sluttet å gjelde et rullert endepunkt. */
-  update public.push_subscriptions
-     set revoked_at = coalesce(revoked_at, now_ms),
-         p256dh = '', auth = '', labels = '{}'::jsonb, tz = null
-   where id = p_id and user_id = uid;
-  get diagnostics traff = row_count;
-  if traff = 0 then return false; end if;
-  perform public.push_end_queue(p_id, now_ms, 'slått av av brukeren');
-  return true;
+  for r in select s.id from public.push_subscriptions s
+            where s.user_id = uid
+              and (s.id = p_id
+                   or (d is not null and o is not null
+                       and s.device_id = d and s.origin = o
+                       /* de andre i konteksten: bare de AKTIVE. En rad som alt
+                          er død (404/410) skal ikke gjøres om til et
+                          brukerinitiert, permanent spor. */
+                       and s.revoked_at is null and s.disabled_at is null))
+  loop
+    update public.push_subscriptions
+       set revoked_at = coalesce(revoked_at, now_ms),
+           p256dh = '', auth = '', labels = '{}'::jsonb, tz = null
+     where id = r.id;
+    perform public.push_end_queue(r.id, now_ms, 'slått av av brukeren');
+    traff := traff + 1;
+  end loop;
+  return traff > 0;
 end;
 $$;
 
@@ -3162,20 +3231,46 @@ $$;
 
    Bare de AKTIVE slås av — det er dem listen viser, og det er dem handlingen
    heter. En rad som alt er død (404/410) skal ikke gjøres om til et
-   brukerinitiert, permanent spor av en handling brukeren mente om noe annet. */
+   brukerinitiert, permanent spor av en handling brukeren mente om noe annet.
+
+   DET SOM BLIR STÅENDE ER KLIENTEN, ikke bare URL-en. Kjenner vi konteksten
+   til endepunktet som ringte (`device_id` + `origin`), spares HELE den — ellers
+   ville en helt vanlig endepunktrullering på nettopp denne nettleseren slått av
+   brukerens egen enhet mens hun trykket «alle andre». Uten kontekst faller vi
+   tilbake til endepunktet, som før.
+
+   Låsen tas FØR listen leses. Uten den kunne en samtidig fornyelse fra en av de
+   andre kontekstene ha opprettet en ny, aktiv rad rett etter at løkken leste
+   listen sin — og enheten brukeren nettopp slo av hadde stått igjen som på. */
 create or replace function public.push_revoke_others(p_endpoint text default null)
 returns integer language plpgsql security definer set search_path = public as $$
 declare
   uid    uuid   := auth.uid();
   antall integer := 0;
+  d      text;
+  o      text;
   r      record;
 begin
   if uid is null then raise exception 'ikke innlogget'; end if;
-  for r in select id from public.push_subscriptions
-            where user_id = uid and revoked_at is null and disabled_at is null
-              and (p_endpoint is null or endpoint <> p_endpoint)
+  perform public.push_lock(uid);
+  if p_endpoint is not null then
+    select device_id, origin into d, o
+      from public.push_subscriptions where user_id = uid and endpoint = p_endpoint;
+  end if;
+  for r in select id from public.push_subscriptions s
+            where s.user_id = uid and s.revoked_at is null and s.disabled_at is null
+              and (p_endpoint is null or s.endpoint <> p_endpoint)
+              and (d is null or o is null
+                   or s.device_id is distinct from d or s.origin is distinct from o)
   loop
-    if public.push_revoke(r.id) then antall := antall + 1; end if;
+    /* Tallet er ENHETER, ikke rader: slo avslåingen av forrige rad allerede av
+       hele konteksten denne raden hører til (et rullert endepunkt), er den
+       enheten alt talt. */
+    if exists (select 1 from public.push_subscriptions
+                where id = r.id and revoked_at is null)
+       and public.push_revoke(r.id) then
+      antall := antall + 1;
+    end if;
   end loop;
   return antall;
 end;
@@ -4554,6 +4649,7 @@ revoke all on function public.notify_prefs_row(uuid) from public, anon, authenti
 revoke all on function public.push_enqueue(uuid) from public, anon, authenticated;
 revoke all on function public.push_due_count() from public, anon, authenticated;
 revoke all on function public.push_end_queue(uuid, bigint, text) from public, anon, authenticated;
+revoke all on function public.push_lock(uuid) from public, anon, authenticated;
 revoke all on function public.prune_device_sessions(uuid) from public, anon, authenticated;
 -- session_alive()/current_session_id() svarer bare om KALLERENS egen økt, men
 -- de er byggeklosser inne i RPC-ene — ikke en RPC klienten skal kalle selv.
