@@ -729,14 +729,19 @@ det samme valget i stedet for to uavhengige.
 
 Systemdialogen kommer **kun** etter et trykk på bryteren i
 varselinnstillingene, og linjen under bryteren forklarer hvorfor før den
-utløses. Panelet har fire tilstander, og de sier hver sin sanne ting:
+utløses. Panelet har fem tilstander, og de sier hver sin sanne ting:
 
 | Tilstand | Bryteren | Teksten |
 |---|---|---|
 | ikke støttet | finnes ikke | «Denne enheten kan ikke vise varsler utenfor Huskis. Varslene står fortsatt i listen her.» |
+| forhåndsvisning | finnes ikke | «Eksterne varsler er slått av i forhåndsvisninger. Varslene står fortsatt i listen her.» |
 | av | av | forklaringen — hva du får, og at enheten kommer til å spørre |
-| på | på | «På. Varslene kommer også når Huskis er lukket.» — eller «På her og på N andre enheter.» når web push er på flere |
+| på | på | «På. Varslene kommer også når Huskis er lukket.» — eller «På her og på N andre enheter.» når web push er på flere, med «Vis enheter» under (se «Enhetene med varsler») |
 | blokkert | av og **deaktivert** | «Blokkert. Slå på varsler for Huskis i enhetens innstillinger, og prøv igjen.» |
+
+**Forhåndsvisning er ikke «støttes ikke».** Nettleseren kan godt vise varsler;
+det er DEPLOYEN som ikke får melde seg på (se «Hvilke deployer som får melde seg
+på» under). Teksten må derfor si nettopp det — den andre ville vært usann.
 
 **Blokkert er en blindvei, ikke et nytt forsøk.** En bryter som lot seg slå på
 uten å virke ville løyet, og en app som spurte igjen ville maset om noe
@@ -966,6 +971,215 @@ server skal ikke kunne holde noen innlogget. Den lokale nedriggingen ligger
 først i rekkefølgen nettopp derfor: den er ferdig lenge før fristen kan løpe
 ut.
 
+### Hvilke deployer som får melde seg på
+
+Et push-abonnement hører til en nettleserkontekst på ET ORIGIN, ikke til en
+maskin. Hver Vercel preview-deploy har sitt eget origin, og hver av dem kan
+derfor legge igjen sitt eget abonnement på den ekte kontoen — «enheter»
+brukeren aldri har bedt om, i produksjonens egen liste.
+
+`pushDeployAllowed()` lukker det, i to lag, akkurat som redirecten til det
+kanoniske originet:
+
+1. **build-stempelet.** `build.js` skriver `<meta name="huskis-deploy">` ut fra
+   `VERCEL_ENV`: `preview`, `production` eller `dev`. Sier det `preview`, er
+   porten stengt uansett host.
+2. **verten.** Ellers må verten være en Huskis kjenner: det kanoniske originet,
+   en av hostene som redirecter dit (`www.huskis.no`, `huskis.vercel.app`), eller
+   den lokale serveren (`localhost`/`127.0.0.1` — som også er verten
+   mobilappens WebView serverer fra). Alt annet er nei.
+
+Regelen **feiler lukket**: en ukjent vert er nettopp det en flyktig
+preview-adresse er. Domenelisten står ETT sted — guarden øverst i `index.html`
+(`window.__huskisCanonical`) — og leses derfra;
+[`domains-and-urls.md`](domains-and-urls.md) er autoritativ.
+
+Testene er upåvirket: de kjører på `localhost`, og `?mock=1` bytter hele
+backenden. Det trengs ingen egen testmodus for dette.
+
+**Porten rydder også opp etter seg.** Den stopper NYE påmeldinger, men sier
+ingenting om det som allerede ligger der: en forhåndsvisning som ble åpnet før
+porten fantes, har en service worker og et abonnement på sitt eget origin — og
+det abonnementet lever videre og teller som en enhet i produksjonskontoens
+liste, mens panelet på nettopp den siden sier at varsler er slått av her. To
+påstander som ikke kan være sanne samtidig.
+
+`sweepBlockedPush()` rigger det derfor ned ved oppstart på en deploy porten
+stenger: abonnementet meldes av, service workeren avregistreres, bryteren for
+DETTE originet settes av, og serverraden fjernes (`push_unsubscribe`) så snart
+det finnes en økt å gjøre det med — nedriggingen venter ikke på en innlogging,
+men serverkallet må. Endepunktet tas vare på mellom de to skrittene; etter
+`unregister()` finnes det ikke å hente lenger.
+
+Alt er **best effort**: en forhåndsvisning skal ikke bli ubrukelig av at
+opprydningen feilet, så hvert ledd står for seg. Og bare VÅRT ryddes —
+`getRegistration()` uten argument gir registreringen som dekker dette
+dokumentet, altså Huskis' egen på Huskis' eget origin.
+
+**Best effort er ikke det samme som å gi opp.** PostgREST melder en avvist RPC i
+`error`, ikke som et unntak, så svaret leses eksplisitt: går serverkallet galt,
+BEHOLDES endepunktet, og et nytt forsøk kommer med en senere synk-runde —
+tidligst etter et minutt, og med ett forsøk om gangen. Uten pausen ville hver
+runde (5 s) hamret på en server som nettopp sa nei; uten at endepunktet ble
+beholdt, var raden fanget for godt, siden `unregister()` allerede har fjernet
+den lokale kilden.
+
+**Å rydde krever mindre enn å lage.** Et nytt abonnement trenger en
+VAPID-nøkkel og Notification-API-et; å fjerne et gammelt trenger bare service
+worker-registeret. De to spørsmålene står derfor hver for seg
+(`webChannel.capable()` mot `pushCleanupPossible()`) — ellers ville en build
+uten avsendernøkkel gjort det umulig å bli kvitt abonnementet en tidligere
+build la igjen, altså nettopp den situasjonen opprydningen finnes for.
+
+### Enhetene med varsler
+
+Panelet sier hvor mange nettlesere som har varsler på, og «Vis enheter» åpner
+listen — den bor i konto-modalens skuff «Enheter og økter», sammen med de
+innloggede øktene ([`accounts.md`](accounts.md) er autoritativ for den skuffen).
+Brukeren skal ikke trenge å vite hva et endepunkt, en service worker eller et
+origin er; raden sier «Chrome · Android», verten, og når den sist ble sett.
+
+**Metadataen er en klassifikasjon, ikke en måling.** `push_subscriptions` bærer
+`browser`, `platform`, `origin` og `device_id` — et fast, lite ordforråd,
+vertsnavnet, og enhetens egen lokale id. Hele user-agenten lagres ALDRI, og det
+finnes ingen skjermmål, ingen fonter, ingenting som kan settes sammen til et
+fingeravtrykk. Klienten sender verdiene selv, og fornyelsen holder dem — og
+`seen_at` — ferske: `push_subscribe()` kjøres når endepunktet eller språket har
+endret seg, og ellers minst hvert kvarter.
+
+**Endepunktene forlater aldri serveren.** `list_my_devices()` tar klientens eget
+endepunkt INN og bruker det til å merke «denne enheten»; ingen adresse går den
+andre veien.
+
+#### Fjern-avslåing er varig
+
+Å slå av varslene for en annen nettleser må bety noe. Var det bare en
+midlertidig avslåing på serveren, ville den avslåtte nettleseren meldt seg på
+igjen i neste synk-runde — og valget hadde i praksis ikke betydd noe.
+
+Derfor har et abonnement TO måter å være av på, og de er ikke det samme:
+
+| Felt | Hva det betyr | Hvordan det oppheves |
+|---|---|---|
+| `disabled_at` | push-tjenesten svarte 404/410 — endepunktet finnes ikke lenger | av seg selv: en nettleser som melder seg på igjen har nettopp bevist at endepunktet lever |
+| `revoked_at` | BRUKEREN slo av varslene for denne nettleseren, fra en annen enhet | kun av et EKSPLISITT «slå på varsler» på nettopp den klienten (`push_subscribe(..., p_explicit => true)`) |
+
+Begge betyr «ikke aktiv»: hverken utboksen, senderen eller telleren i
+`get_my_doc()` ser en rad som har en av dem satt. `push_revoke(id)` og
+`push_revoke_others(endpoint)` setter `revoked_at` OG avslutter det som ligger i
+kø til abonnementet — ellers ville et varsel brukeren nettopp slo av kommet fram
+noen minutter senere.
+
+**Klienten får vite det.** Faller telleren i doc-et, går fornyelsen med én gang i
+stedet for å vente ut vinduet sitt. Svarer `push_subscribe()` at abonnementet er
+tilbakekalt, rigger klienten ned sin egen ende: service workeren avregistreres,
+bryteren går av, og ingen ny påmelding skjer før brukeren selv slår den på.
+Nedriggingen lar raden BLI STÅENDE på serveren (`disable({ keepRow: true })`) —
+det er `revoked_at` som holder et gjenbrukt endepunkt fra å våkne som aktivt, og
+sletter vi raden, kaster vi den garantien.
+
+**Sporet er selve håndhevelsen, og det står for godt.** Den avslåtte nettleseren
+har ikke lovet å bli åpnet igjen. Blir den liggende ubrukt, oppdager den aldri
+tilbakekallingen lokalt — og den dagen den ÅPNES, gjør den det den alltid gjør:
+fornyer abonnementet sitt. Fantes ikke raden lenger, ville den fornyelsen vært
+en helt vanlig påmelding, og varslene hadde vært tilbake uten at brukeren rørte
+noe. Avslåingen ville altså hatt en utløpsdato ingen ba om.
+
+Derfor rører **verken opprydningen eller taket** en rad med `revoked_at` satt:
+
+- opprydningen under gjelder kun 404/410-spor;
+- taket (`push_sub_max()`) telles og håndheves på det AKTIVE settet. Det følger
+  av hva taket er til for — forsterkeren er sendingen, og et tilbakekalt spor
+  koster ingenting der. Telte det med, kunne tjue nye påmeldinger ha kastet ut
+  nettopp raden som håndhever en avslåing.
+
+**Nøklene tømmes når raden tilbakekalles.** `p256dh`/`auth` er mottakernøklene
+som gjør det mulig å KRYPTERE til nettleseren, og et abonnement brukeren har
+slått av skal ikke bli liggende med dem i det uendelige. Raden trenger bare
+endepunktet og klientkonteksten — det er dem fornyelsen kjennes igjen på (se
+under) — og `push_subscribe()` skriver ferske nøkler den dagen brukeren slår
+varslene på igjen der.
+
+**Sporet kjenner både endepunktet og klienten.** Et push-endepunkt er ikke
+evig: nettleseren eller push-tjenesten kan rullere det
+(`pushsubscriptionchange`), og en klient som lå ubrukt mens den ble slått av
+oppdager aldri avslåingen lokalt. Åpnes den da med et NYTT endepunkt, ville et
+spor som bare kjente det gamle vært blindt — og den helt vanlige, automatiske
+fornyelsen hadde slått varslene på igjen uten at brukeren rørte noe.
+
+`push_subscribe()` stiller derfor to spørsmål, ikke ett:
+
+1. **er ENDEPUNKTET slått av?** Det vanlige tilfellet: den samme nettleseren
+   melder seg på igjen med den samme adressen, og raden sier at brukeren slo
+   den av.
+2. **er hele KLIENTKONTEKSTEN slått av?** Konteksten er `user_id` +
+   `device_id` + `origin`: kontoen, Huskis' egen tilfeldige id for denne
+   nettleserkonteksten, og verten. Finnes det et tilbakekalt spor i den samme
+   konteksten, avvises også et rullert endepunkt — og et endepunkt som rakk å
+   bli registrert før sporet ble lest, tilbakekalles på stedet, så invarianten
+   reparerer seg selv.
+
+Dette er **ikke fingerprinting**. `device_id` er et tilfeldig tall Huskis selv
+skrev i `localStorage` på dette originet; ingenting måles på maskinen. En
+bruker som tømmer nettleserdataene sine får med rette en ny kontekst, og det er
+greit — sporet er en robusthet mot rullerte endepunkter, ikke en
+sikkerhetsgrense. Grensen er `user_id`, og den håndheves i begge spørsmålene:
+logger noen andre inn i den samme nettleseren, arver de ikke forrige brukers
+valg. En klient som ikke sender kontekst (en eldre versjon) får bare spørsmål 1.
+
+Et eksplisitt «slå på varsler» gjelder tilsvarende KLIENTEN, ikke bare
+endepunktet: brukeren står ved nettopp denne nettleseren og har sagt fra, og da
+slettes sporene i konteksten — de har gjort jobben sin.
+
+**«Slå av» gjelder ENHETEN, ikke URL-en.** Brukeren trykker på en rad som sier
+«Chrome · Android» og mener nettleseren — ikke det tekniske endepunktet raden
+tilfeldigvis bærer nå. Forskjellen er ikke akademisk: like etter en rullering
+kan den samme klienten ha TO rader (`E1` fra før, `E2` fra fornyelsen), og slo
+vi bare av den ene, fikk enheten fortsatt varsler etter at brukeren slo den av.
+`push_revoke()` slår derfor av hele klientkonteksten: alle aktive rader med
+samme `user_id` + `device_id` + `origin`, med køene deres avsluttet og nøklene
+tømt. En eldre rad uten kontekst faller tilbake til seg selv — det er alt vi vet
+om den. «Slå av på alle andre enheter» speiler det: den sparer HELE konteksten
+til nettleseren som ringte, og slår resten av.
+
+**De to operasjonene kan ikke passere hverandre.** En automatisk fornyelse og
+et «slå av» fra en annen enhet kan treffe den samme klienten samtidig, og uten
+en lås ville dette vært mulig: fornyelsen leser `revoked_at = null`, avslåingen
+setter feltet og committer, fornyelsen skriver videre og UPSERT-en nullstiller
+det igjen. Valget hadde vært borte, og ingen gjorde noe galt.
+
+`push_subscribe()` låser derfor raden (`select … for update`) FØR den leser
+tilstanden. Men radlåsen er ikke nok, for den farlige varianten har ikke ÉN
+rad: ruller nettleseren endepunktet sitt, oppretter fornyelsen `E2` mens
+avslåingen tar `E1` — to rader, ingen felles lås, og `E2` finnes kanskje ikke
+ennå. «Slå av på alle andre enheter» har det samme problemet på tvers av
+kontekster.
+
+Låsen ligger derfor på BRUKEREN (`push_lock()`, en advisory lock som varer
+transaksjonen ut), og tas av alle tre operasjonene som kan endre hva som er
+aktivt: `push_subscribe()`, `push_revoke()` og `push_revoke_others()`. Da er
+rekkefølgen et avgjort spørsmål: kommer avslåingen først, venter fornyelsen og
+møter sporet; kommer fornyelsen først, venter avslåingen og tar hele konteksten
+— også raden fornyelsen nettopp lagde. Alle rekkefølgene ender med AV, som er
+det brukeren ba om. Granulariteten koster ingenting: en bruker har en håndfull
+nettlesere, og hver av dem rører dette hvert kvarter.
+
+Garantien ligger i databasen, ikke i klientens timing —
+`supabase/tests/test-push-race.sh` kjører begge rekkefølgene i begge variantene
+(samme endepunkt, og to ulike i samme kontekst) med to ekte, samtidige
+databaseøkter.
+
+#### Opprydning
+
+Et spor som døde AV SEG SELV — push-tjenesten svarte 404/410 — blir liggende i
+`push_keep_days()` (90 dager) og ryddes så bort av `push_subscribe()` mens den
+likevel er inne på brukerens egne rader (ingen global feiing, ingen egen
+kjøreplan).
+
+Regelen rører **aldri et aktivt abonnement**. En enhet skal kunne motta varsler
+selv om Huskis ikke har vært åpnet der på et år — det er nettopp da et varsel er
+verdt mest. Og den rører **aldri et spor brukeren satte** (se over).
+
 ### Service workeren (`sw.js`)
 
 Den finnes for én grunn: en nettleser kan ikke kjøre en timer når fanen er
@@ -1127,7 +1341,8 @@ utboksen, og neste tikk tar det samme arbeidet.
 - **Web push** fanner ut til ALLE brukerens aktive abonnementer — én
   utbokslinje per abonnement, hver med sitt eget utfall. Et dødt endepunkt slås
   av uten å røre de andre. `get_my_doc()` teller de aktive og gir tallet til
-  panelet, så «på» sier hvor mange enheter det gjelder.
+  panelet, så «på» sier hvor mange enheter det gjelder — og «Vis enheter» åpner
+  listen over dem (se «Enhetene med varsler»).
 - **Android** trenger ingen fan-ut: hver installasjon planlegger sine egne
   lokale varsler fra den samme planen, med de samme deterministiske ID-ene.
 - **To enheter varsler begge.** Det er normalt og forventet, som e-post på både
@@ -1206,7 +1421,7 @@ De to henger sammen på nøyaktig ett punkt, og ellers ikke:
   urørt — Android-adapterens diff og upresise alarm, at tillatelsen aldri
   spørres av seg selv, web push-påmeldingen og avmeldingen, grensene for hva et
   abonnement får være (speilet i mock-backenden), blokkert tillatelse, panelets
-  fire tilstander, service workerens push- og klikkruting, `?notif=` i
+  tilstander, service workerens push- og klikkruting, `?notif=` i
   adressen, at et trykk på et systemvarsel IKKE gir en toast for nettopp det
   varselet mens et annet nytt varsel fortsatt toaster (begge kanalene), at
   varselets TO ikoner er to ulike bilder — det store i farge, innenfor den
@@ -1268,12 +1483,43 @@ De to henger sammen på nøyaktig ett punkt, og ellers ikke:
   gjeninnfører «send begge for sikkerhets skyld».
 - `supabase/tests/test-notifications.sql` — RLS, idempotent logging, markøren,
   preferansene og kontosletting.
+- `tests/devices-sessions.test.js` — de to listene i konto-modalen, KJØRT:
+  preview-porten (produksjonsdomenet og `huskis.vercel.app` slipper gjennom, en
+  flyktig preview-host og et `preview`-stempel gjør det ikke), at et abonnement
+  som ALLEREDE lå på en forhåndsvisning ryddes når siden åpnes — meldt av,
+  service workeren avregistrert, bryteren av, serverraden borte, og ingen ny
+  påmelding etterpå, mens andre enheters abonnementer står urørt — at
+  opprydningen tåler at SERVEREN sier nei (endepunktet beholdes, klienten
+  hamrer ikke, og en senere runde rydder raden) og at den virker i en build
+  UTEN avsendernøkkel, at mock-backenden avviser et rullert endepunkt akkurat
+  som databasen gjør — panelets preview-tekst, «denne enheten» øverst i begge listene, fjern-utlogging av én
+  økt og av alle andre, at vanlig «Logg ut» er LOKAL, at en fjern-utlogget klient
+  som står åpen går til innloggingssiden uten å miste bufferen, og at et
+  fjern-avslått abonnement verken teller som aktivt eller melder seg på igjen —
+  før et eksplisitt «slå på varsler» på nettopp den klienten.
+- `supabase/tests/test-push-race.sh` — samtidigheten, med TO ekte
+  databaseøkter: en automatisk fornyelse og et «slå av» kjøres mot hverandre i
+  begge rekkefølger, både på det samme endepunktet og på to ULIKE i den samme
+  klientkonteksten (en rullering). Alle fire må ende med AV. Uten radlåsen slår
+  fornyelsen varslene på igjen; uten brukerlåsen slipper det rullerte
+  endepunktet gjennom — testen sier fra i begge tilfeller.
+- `supabase/tests/test-sessions.sql` — øktlaget serverside: hvem som ser hvilke
+  økter, at en annen brukers økt ikke kan termineres, at fjern-utlogging faktisk
+  sletter øktraden OG refresh-tokenet, at `session_ok` melder tilstanden, og at
+  hverken IP eller hele user-agenten forlater databasen.
 - `supabase/tests/test-push.sql` — abonnementene og RLS-en rundt dem, utboksens
   idempotens, kaskaden som avlyser en levering, at et EIERSKIFTE tømmer køen og
   at senderen aldri plukker opp en levering som ikke hører til abonnementets
   eier, grensene for hva et abonnement får være (endepunkt, nøkkelform og taket
-  på antall enheter), at en PLANLAGT rad får et ferskt navn mens historikken
-  ikke skrives om, at et dødt endepunkt tar hele køen sin med seg, at senderens
+  på antall enheter), fjern-avslåingen (riktig rad, nøklene tømt, køen avsluttet,
+  ingen automatisk gjenpåmelding, og at et eksplisitt «slå på» tar den tilbake),
+  at sporet OVERLEVER både opprydningshorisonten og taket — en sovende enhet som
+  våkner etter 200 dager og fornyer seg blir fortsatt avvist — at et RULLERT
+  endepunkt fra den samme klientkonteksten avvises på samme måte mens en annen
+  kontekst og en annen bruker er upåvirket, at et «slå av» tar HELE klienten —
+  også raden fra en rullering, med køen avsluttet og nøklene tømt — mens «slå av
+  alle andre» sparer hele den klienten som ringte, at en PLANLAGT rad
+  får et ferskt navn mens historikken ikke skrives om, at et dødt endepunkt tar hele køen sin med seg, at senderens
   funksjoner er stengt for klienten, hent/send/meld-runden med alle tre
   utfallene, tidssone-hevdelsen, og `push_headers()` — kjørt, ikke lest: en ny
   secret key får ingen `Authorization`-header i det hele tatt.

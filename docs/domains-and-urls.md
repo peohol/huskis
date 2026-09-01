@@ -3,7 +3,8 @@
 Les denne når oppgaven berører produksjonsdomener, redirecten til det
 kanoniske originet, Supabase Auth-redirects (registrering/glemt
 passord/e-postendring), Resend-e-postenes lenker, eksterne lenker ut av appen,
-eller det pensjonerte domenet `huskekurv.vercel.app`. Dette er det
+skillet mellom produksjon og preview i klienten, eller det pensjonerte domenet
+`huskekurv.vercel.app`. Dette er det
 **autoritative** stedet for domenekonfigurasjon — andre dokumenter
 (`docs/accounts.md`, `docs/arkitektur-brukere-deling.md`,
 `docs/auto-update.md`) lenker hit i stedet for å gjenta detaljene.
@@ -224,6 +225,48 @@ Sjekkliste (Peder):
 En auth-lenke som mot formodning skulle peke til et alternativt domene, blir
 uansett 308-et videre til `huskis.no` med `?code=`/`#access_token=` i behold
 — redirecten er også et sikkerhetsnett for gamle e-poster i innboksene.
+
+## Preview mot produksjon i klienten
+
+To ting i appen må vite hvilken DEPLOY de kjører i — ikke bare hvilken vert. Én
+kilde svarer på begge: `build.js` stempler `<meta name="huskis-deploy">` med
+`VERCEL_ENV`, samme sted og samme steg som build-ID-en og release-ID-en
+([`auto-update.md`](auto-update.md)):
+
+| `VERCEL_ENV` | Stempel | Hva det betyr |
+|---|---|---|
+| `preview` | `preview` | en PR-/gren-deploy på sin egen flyktige adresse |
+| `production` | `production` | produksjonsdeployen |
+| (ikke satt) | `dev` | ubygget kildekode, et lokalt bygg eller CI |
+
+Regelen er den samme som for testmodusen: **eksplisitt eller ikke i det hele
+tatt.** Et miljø som ikke sier `preview` blir aldri lest som en preview.
+
+**Web push leser stempelet** (`pushDeployAllowed()` i `app.js`). Et
+push-abonnement hører til en nettleserkontekst på ET ORIGIN, så hver
+preview-deploy kan legge igjen sitt eget abonnement på den ekte kontoen —
+«enheter» i produksjonens liste som brukeren aldri har bedt om. Porten er derfor
+stengt der, og åpen bare for:
+
+- det kanoniske originet (`huskis.no`),
+- de hostene som redirecter dit (`www.huskis.no`, `huskis.vercel.app`, det
+  pensjonerte domenet) — de kjører aldri appen, men skal ikke være en
+  spesialtilfelle-felle om noen en gang lander der,
+- `localhost`/`127.0.0.1` — den lokale serveren og mobilappens WebView.
+
+Alt annet er nei; regelen **feiler lukket**. Hostlisten skrives ikke opp på
+nytt: den leses fra guardens `window.__huskisCanonical` (over), som er den ene
+kilden. Semantikken for hva brukeren ser i varselpanelet ligger i
+[`varsler.md`](varsler.md).
+
+Porten rydder også opp etter seg: en forhåndsvisning som ble åpnet FØR porten
+fantes, kan ha et abonnement og en service worker liggende, og det abonnementet
+ville stått som en enhet i produksjonskontoens liste. Det rigges ned ved
+oppstart, best effort. Semantikken ligger i [`varsler.md`](varsler.md)
+(«Hvilke deployer som får melde seg på»).
+
+`?mock=1` er upåvirket — preview-deployer BEHOLDER testmodusen, og
+nettlesertestene kjører på `localhost`.
 
 ## Lokal utvikling
 
@@ -577,6 +620,15 @@ aktiv på samme måte som for de to andre — kontrollert mot produksjon
 
 ## Testene
 
+- `tests/devices-sessions.test.js` — preview-porten for web push, KJØRT i den
+  ekte appen: produksjonsdomenet og `huskis.vercel.app` slipper gjennom, en
+  flyktig `huskis-*-peohols-projects.vercel.app` gjør det ikke, `localhost` er
+  åpen, og et `preview`-stempel stenger porten uansett host. Stempelet settes
+  ved å skrive om HTML-en i transporten — nøyaktig slik `build.js` gjør det —
+  ikke i DOM-et etterpå, som ville kappløpt med parseren. Del 12 dekker
+  opprydningen av et abonnement som lå der fra før.
+- `tests/build-version.test.js` — at `build.js` stempler `huskis-deploy` med
+  `VERCEL_ENV`, og at et ukjent miljø blir `dev`.
 - `tests/canonical-origin.test.js` — 308-reglene i `vercel.json` (én per
   domene, path bevart, ingen løkke, preview-adresser urørt), at guarden i
   `index.html` står før alt som kjører, at de to lagene navngir de samme

@@ -3638,6 +3638,48 @@ body.no-auth .corner-controls { display: none; }
 }
 .invite-actions { display: flex; gap: 6px; }
 
+/* ---------------- Enheter og økter (konto-modalen) ----------------
+   To lister med samme form: en rad per nettleserkontekst, med navnet øverst,
+   verten under og «sist sett» sist. Formspråket er innboksens (`.invite-row`)
+   — en myk flate, tekst til venstre, handlingen til høyre — fordi det er den
+   samme slags rad: noe som gjelder kontoen, med én knapp ved siden av.
+   Se docs/accounts.md. */
+.device-group { display: flex; flex-direction: column; gap: 6px; }
+.device-lead { margin: 0; font-size: var(--fs-xs); color: var(--ink-soft); font-weight: 500; }
+.device-list { list-style: none; margin: 2px 0 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.device-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding: 11px;
+  border-radius: var(--radius-sm);
+  background: var(--primary-soft);
+}
+/* «Denne enheten» får den samme aksentflaten som andre «du er her»-markører,
+   så raden kjennes igjen før teksten er lest. */
+.device-row.is-current { background: var(--primary-soft-hover); }
+.device-text { flex: 1 1 160px; min-width: 0; display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 8px; }
+.device-name { font-weight: 700; font-size: var(--fs-md); color: var(--ink); }
+/* Merkelappen står ved navnet, ikke som en egen rad: den er en egenskap ved
+   enheten, ikke en opplysning til. */
+.device-here {
+  font-size: 14px; font-weight: 700; text-transform: uppercase;
+  letter-spacing: 0.03em; color: var(--primary-ink);
+}
+.device-origin { flex: 1 0 100%; font-size: 16px; color: var(--ink-soft); font-weight: 500; word-break: break-word; }
+.device-seen { flex: 1 0 100%; font-size: var(--fs-xs); color: var(--ink-soft); font-weight: 500; }
+.device-action { flex: 0 0 auto; }
+.device-empty { font-size: var(--fs-sm); color: var(--ink-soft); font-weight: 500; }
+.device-others { align-self: flex-start; margin-top: 2px; }
+.device-others[hidden] { display: none; }
+.device-error { margin: 0; font-size: var(--fs-xs); color: var(--danger-ink); font-weight: 600; }
+.device-error[hidden] { display: none; }
+/* Inngangen fra varselpanelet: «Vis enheter» under linjen som teller dem.
+   `.notif-channel` er ikke en flex-beholder, så knappen gjøres til en blokk med
+   automatisk høyremarg — ellers ville den strukket seg over hele bredden. */
+.notif-channel-devices { display: block; margin: 8px auto 0 0; }
+
 /* ---------------- Del-modal ---------------- */
 /* Tilbakeknappen (vises når del-modalen ble åpnet fra område-/mappe-
    modalen) står før tittelen; tittelen tar resten av bredden. Overskriften

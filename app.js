@@ -8832,6 +8832,12 @@
      skjermleserens tre, uten å røre høyde-animasjonen. */
   const accHeads = [].slice.call(document.querySelectorAll('#account-acc .menu-acc-head'));
   function setAccordionOpen(key) {
+    /* «Enheter og økter» er den ene skuffen som spør SERVEREN når den åpnes:
+       listene er ferskvare, og de skal ikke hentes for enhver som bare åpner
+       konto-modalen. `devicesOpen` gjør dessuten at hver synk-runde holder en
+       ÅPEN liste i takt (`refreshOpenDevices`) uten å røre en lukket. */
+    devicesOpen = key === 'devices';
+    if (devicesOpen) { paintDevices(); loadDevices(); }
     accHeads.forEach((head) => {
       const sub = document.getElementById(head.getAttribute('aria-controls'));
       if (!sub) return;
@@ -8850,12 +8856,14 @@
     });
   });
 
-  function openAccount() {
+  function openAccount(section) {
     paintAccountForms(true);
     // Nullstill FØR modalen vises: en `display:none`-flate animerer ikke, så
     // skuffene er lukket allerede i det modalen kommer opp. Menyen skal starte
-    // sammenslått hver gang — det er hele poenget med å dele den opp.
-    setAccordionOpen(null);
+    // sammenslått hver gang — det er hele poenget med å dele den opp. Unntaket
+    // er når noen ÅPNER en bestemt skuff (varselpanelets «Vis enheter»): da er
+    // skuffen målet, ikke modalen.
+    setAccordionOpen(section || null);
     accountModal.hidden = false;
     updateModalOpenClass();
   }
@@ -8866,7 +8874,11 @@
   navCrumbBtn.addEventListener('click', openNavModal);
   themeToggleBtn.addEventListener('click', () => setTheme(THEME.mode() === 'dark' ? 'light' : 'dark'));
   authThemeToggleBtn.addEventListener('click', () => setTheme(THEME.mode() === 'dark' ? 'light' : 'dark'));
-  accountBtn.addEventListener('click', openAccount);
+  accountBtn.addEventListener('click', () => openAccount());
+  const logoutOthersBtn = document.getElementById('logout-others-btn');
+  const pushOffOthersBtn = document.getElementById('push-off-others-btn');
+  if (logoutOthersBtn) logoutOthersBtn.addEventListener('click', logoutOtherSessions);
+  if (pushOffOthersBtn) pushOffOthersBtn.addEventListener('click', pushOffOtherDevices);
   navModalClose.addEventListener('click', closeNavModal);
   accountClose.addEventListener('click', closeAccount);
   navModal.addEventListener('click', (ev) => { if (ev.target === navModal) closeNavModal(); });
@@ -10043,6 +10055,10 @@
   let notifTzClaiming = false;   // ett hevdeforsøk om gangen
   let notifTzRetryAt = 0;    // etter et mislykket hevdeforsøk: pause
   let notifPushDevices = 0;  // hvor mange nettlesere som har web push på
+  /* Serveren har tilbakekalt DETTE abonnementet (brukeren slo det av fra en
+     annen enhet). Da skal kanalen rigges ned her og ikke meldes på igjen —
+     se `webChannel.register`. */
+  let notifPushRevoked = false;
   /* Kanalstatusen på DENNE enheten: 'unsupported' | 'prompt' | 'off' | 'on' |
      'denied'. Den står her, sammen med resten av varseltilstanden, fordi både
      malingen av innstillingspanelet og signaturen den sammenlignes på leser den
@@ -10060,6 +10076,76 @@
       const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
       return tz && tz.length <= 64 ? tz : null;
     } catch (e) { return null; }
+  }
+
+  /* ---------- Hvem er DENNE klienten? (docs/accounts.md) ----------
+     Én linje brukeren kan kjenne igjen — «Chrome · Android, www.huskis.no» —
+     og ikke ett tegn mer. Det er bevisst en KLASSIFIKASJON, ikke en måling:
+     et fast, lite ordforråd som treffer de vanlige nettleserne og
+     plattformene, og `null` når vi ikke vet. Hele user-agenten sendes aldri,
+     og det finnes ingen skjermmål, ingen fonter, ingen tidssone-i-kombinasjon
+     — ingenting som kan settes sammen til et fingeravtrykk.
+
+     `navigator.userAgentData` er den moderne, hintbaserte kilden og brukes når
+     den finnes; ellers leses de samme få ordene ut av user-agent-strengen. */
+  const CLIENT_BROWSERS = [
+    // Rekkefølgen er hele logikken: Edge og Opera sier også «Chrome», og
+    // Chrome på iOS sier «Safari». Den mest spesifikke må derfor spørres først.
+    { navn: 'Edge', re: /\bEdg(?:e|A|iOS)?\// },
+    { navn: 'Opera', re: /\bOPR\/|\bOpera\// },
+    { navn: 'Samsung Internet', re: /\bSamsungBrowser\// },
+    { navn: 'Firefox', re: /\bFirefox\/|\bFxiOS\// },
+    { navn: 'Chrome', re: /\bCriOS\/|\bChrome\/|\bChromium\// },
+    { navn: 'Safari', re: /\bSafari\// },
+  ];
+  const CLIENT_PLATFORMS = [
+    { navn: 'Android', re: /\bAndroid\b/ },
+    { navn: 'iPadOS', re: /\biPad\b/ },
+    { navn: 'iOS', re: /\biPhone\b|\biPod\b/ },
+    { navn: 'Windows', re: /\bWindows\b/ },
+    { navn: 'ChromeOS', re: /\bCrOS\b/ },
+    { navn: 'macOS', re: /\bMac OS X\b|\bMacintosh\b/ },
+    { navn: 'Linux', re: /\bLinux\b/ },
+  ];
+  function clientBrowser() {
+    /* I appen er det ingen nettleser å navngi — det er Huskis selv. Navnet er
+       et PRODUKTNAVN og ikke en oversatt frase: verdien lagres i databasen og
+       leses av alle enhetene, så den skal ikke bære språket til den enheten som
+       tilfeldigvis skrev den. */
+    if (nativeShell) return 'Huskis';
+    const d = navigator.userAgentData;
+    const merker = (d && Array.isArray(d.brands) ? d.brands : []).map((b) => String(b.brand || ''));
+    for (const b of CLIENT_BROWSERS) {
+      if (merker.some((m) => b.re.test(m + '/'))) return b.navn;
+    }
+    const ua = String(navigator.userAgent || '');
+    for (const b of CLIENT_BROWSERS) if (b.re.test(ua)) return b.navn;
+    return null;
+  }
+  function clientPlatform() {
+    const d = navigator.userAgentData;
+    const p = d && typeof d.platform === 'string' ? d.platform : '';
+    if (p) {
+      const treff = CLIENT_PLATFORMS.find((x) => x.re.test(p) || x.navn === p);
+      if (treff) return treff.navn;
+      if (p === 'macOS' || p === 'Windows' || p === 'Android' || p === 'Linux') return p;
+    }
+    const ua = String(navigator.userAgent || '');
+    const t = CLIENT_PLATFORMS.find((x) => x.re.test(ua));
+    return t ? t.navn : null;
+  }
+  // Vertsnavnet, ikke hele adressen: det er dette som skiller
+  // «www.huskis.no» fra en forhåndsvisning, og det er alt raden trenger.
+  function clientOriginHost() {
+    return String(location.hostname || '').slice(0, 120) || null;
+  }
+  // Den samme lille pakken til begge tabellene, så en rad i «Innloggede
+  // enheter» og en i «Enheter med varsler» beskriver seg likt.
+  function clientDescriptor() {
+    return {
+      browser: clientBrowser(), platform: clientPlatform(),
+      origin: clientOriginHost(), deviceId: deviceId,
+    };
   }
 
   /* HOLDER denne enheten planen? Bare den som holder sonen planlegger og rydder
@@ -10202,7 +10288,14 @@
     notifCursor = prefs && prefs.cursor != null ? Number(prefs.cursor) : null;
     notifPlanTz = (prefs && prefs.tz) || null;
     notifPlanTzAt = Number((prefs && prefs.tzAt) || 0);
+    /* FALT TELLEREN? Da har noen slått av et abonnement — kanskje VÅRT, fra en
+       annen enhet. Fornyelsen får derfor gå med én gang i stedet for å vente
+       ut vinduet sitt: er det vårt som er tilbakekalt, sier serveren det, og
+       kanalen rigges ned her (`notifChannelRevokedHere`). Er det en annens, er
+       runden et billig no-op. */
+    const førPush = notifPushDevices;
     notifPushDevices = Number((my && my.push_devices) || 0);
+    if (notifPushDevices < førPush) { notifPushMark = null; notifPushMarkAt = 0; }
     paintNotifBadge();
     refreshNotifModal();
     /* ÉTT øyeblikk for hele runden: opprydningen og speilingen måler mot den
@@ -10884,7 +10977,9 @@
 
     const st = notifChState;
     const på = st === 'on';
-    if (st !== 'unsupported') {
+    // Verken «støttes ikke» eller «forhåndsvisning» har en bryter å trykke på:
+    // den ene fordi nettleseren ikke kan, den andre fordi deployen ikke skal.
+    if (st !== 'unsupported' && st !== 'preview') {
       const toggle = document.createElement('button');
       toggle.type = 'button';
       toggle.className = 'toggle-switch';
@@ -10909,6 +11004,7 @@
     note.id = 'notif-channel-note';
     note.textContent =
       st === 'unsupported' ? tr('notif.channel.unsupported')
+      : st === 'preview' ? tr('notif.channel.preview')
       : st === 'denied' ? tr('notif.channel.denied')
       : !på ? tr('notif.channel.lead')
       // Andre enheter: web push går til ALLE brukerens aktive nettlesere, og
@@ -10918,6 +11014,19 @@
              { n: notifPushDevices - 1 })
         : tr('notif.channel.on');
     sec.append(head, note);
+    /* … og fra og med nå er tallet en INNGANG, ikke bare en opplysning:
+       «hvilke andre?» er det naturlige neste spørsmålet, og svaret ligger i
+       konto-modalens «Enheter og økter» — det ene stedet begge listene bor
+       (docs/accounts.md). */
+    if (på && notifPushDevices > 0) {
+      const åpne = document.createElement('button');
+      åpne.type = 'button';
+      åpne.className = 'btn btn-ghost btn-small notif-channel-devices';
+      åpne.id = 'notif-devices-btn';
+      åpne.textContent = tr('devices.showPush');
+      åpne.addEventListener('click', () => openDevicesPanel());
+      sec.appendChild(åpne);
+    }
     return sec;
   }
 
@@ -11588,11 +11697,19 @@
     local: false,
     /* Alle fire leddene må være der. Uten en avsendernøkkel finnes det ingen
        sender å melde seg på hos, og da er kanalen ikke «av» — den finnes ikke
-       (docs/varsler.md, «Nøkkelparet»). */
-    supported() {
+       (docs/varsler.md, «Nøkkelparet»). Skilt fra `supported()` fordi panelet
+       må kunne si noe ANNET enn «støttes ikke» når nettleseren KAN, men
+       deployen ikke får melde seg på (se `pushPreviewBlocked`). */
+    capable() {
       return !nativeShell && 'serviceWorker' in navigator &&
         typeof window.PushManager === 'function' &&
         typeof window.Notification === 'function' && !!PUSH_PUBLIC_KEY;
+    },
+    /* … og den femte: DEPLOYEN. En flyktig preview har sitt eget origin, og et
+       abonnement derfra ville blitt stående som en enhet i produksjonskontoens
+       liste (docs/domains-and-urls.md). */
+    supported() {
+      return this.capable() && pushDeployAllowed();
     },
     async state() {
       if (!this.supported()) return 'unsupported';
@@ -11605,7 +11722,10 @@
       // brukertrykk har bedt om den.
       const perm = await Notification.requestPermission();
       if (perm !== 'granted') return false;
-      await this.register(await this.ensure());
+      // EKSPLISITT: dette er brukeren som slår på varslene på denne klienten,
+      // og det er den ene handlingen som tar tilbake en fjern-avslåing.
+      notifPushRevoked = false;
+      await this.register(await this.ensure(), true);
       return true;
     },
     /* Registrer service workeren og skaff et abonnement — eller finn det som
@@ -11635,7 +11755,7 @@
        resultatet ville vært det motsatte av hensikten: en utlogget nettleser
        som fortsetter å vise varsler med objektnavn. Serveropprydningen er
        derfor best effort, og skjer ETTERPÅ. */
-    async disable() {
+    async disable(opts) {
       if (!('serviceWorker' in navigator)) return true;
       const reg = await navigator.serviceWorker.getRegistration();
       if (!reg) return true;
@@ -11645,7 +11765,13 @@
       // står derfor for seg: avregistreringen under er den harde garantien.
       try { if (sub) await sub.unsubscribe(); } catch (e) { /* dekkes av linjen under */ }
       await reg.unregister();
-      if (endpoint) {
+      /* `keepRow` er nedriggingen etter en FJERN-AVSLÅING: da er raden allerede
+         merket tilbakekalt på serveren, og det merket er det som holder et
+         gjenbrukt endepunkt fra å våkne som aktivt. Slettet vi raden her,
+         ville vi kastet nettopp den garantien — og bare det lokale valget sto
+         igjen. Alle andre veier ut (bryteren, utloggingen) fjerner raden som
+         før: der er det brukeren på DENNE klienten som har sagt fra. */
+      if (endpoint && !(opts && opts.keepRow)) {
         const client = acli();
         // Feiler denne, er kanalen likevel av her — og endepunktet er dødt, så
         // første sending rydder raden. Ingen grunn til å kalle avslåingen mislykket.
@@ -11657,18 +11783,32 @@
        `pushsubscriptionchange` fyrer), og etikettene skal følge språket
        brukeren står i NÅ. Idempotent på endepunktet, så dette kan kjøres så
        ofte det passer. */
-    async register(sub) {
+    async register(sub, explicit) {
       const client = acli();
       if (!client || !authUser || !sub) return;
       const keys = {
         p256dh: sub.getKey ? bytesB64url(sub.getKey('p256dh')) : '',
         auth: sub.getKey ? bytesB64url(sub.getKey('auth')) : '',
       };
-      const { error } = await client.rpc('push_subscribe', {
+      const d = clientDescriptor();
+      const { data, error } = await client.rpc('push_subscribe', {
         p_endpoint: sub.endpoint, p_p256dh: keys.p256dh, p_auth: keys.auth,
         p_labels: notifExternalLabels(), p_tz: deviceTz(),
+        p_browser: d.browser, p_platform: d.platform, p_origin: d.origin,
+        p_device_id: d.deviceId,
+        /* `p_explicit` er hele forskjellen på en FORNYELSE og et VALG. Den
+           automatiske fornyelsen (hver synk-runde) skal ikke kunne oppheve at
+           brukeren slo av varslene her fra en annen enhet — bare et trykk på
+           bryteren på nettopp denne klienten gjør det. */
+        p_explicit: !!explicit,
       });
       if (error) throw error;
+      /* Serveren sier at abonnementet er tilbakekalt. Da er valget tatt et
+         annet sted, og denne nettleseren skal rigge seg ned: bryteren av, og
+         ingen ny påmelding før brukeren selv slår den på igjen. */
+      if (data && data.revoked) { notifPushRevoked = true; return { revoked: true }; }
+      notifPushRevoked = false;
+      return { revoked: false };
     },
     /* `null` = «spør meg hver runde». Kanalen har sin EGEN markør
        (`notifPushMark`), og den måler noe planen ikke sier noe om: at
@@ -11686,12 +11826,25 @@
       if (Notification.permission !== 'granted') return;
       const sub = await this.ensure();
       const merke = sub.endpoint + '|' + I18N.lang();
-      if (merke === notifPushMark) return;      // uendret siden sist
-      await this.register(sub);
+      // Uendret siden sist OG ferskt nok. Fornyelsen har to jobber utover å
+      // fange et rullert endepunkt: den holder `seen_at` levende (det er den
+      // «sist sett» i enhetslisten viser), og den er måten denne klienten
+      // OPPDAGER at abonnementet er tilbakekalt fra en annen enhet. Begge
+      // trenger at runden går innom serveren nå og da, ikke bare når noe
+      // lokalt endrer seg.
+      if (merke === notifPushMark && Date.now() - notifPushMarkAt < PUSH_RENEW_MS) return;
+      const svar = await this.register(sub);
       notifPushMark = merke;
+      notifPushMarkAt = Date.now();
+      // Fjern-avslått. Rigg ned lokalt — service workeren avregistreres og
+      // bryteren går av — så nettleseren verken viser varsler eller melder seg
+      // på igjen ved neste runde.
+      if (svar && svar.revoked) await notifChannelRevokedHere();
     },
   };
   let notifPushMark = null;   // endepunkt + språk sist vi meldte fra om
+  let notifPushMarkAt = 0;    // da vi sist meldte fra
+  const PUSH_RENEW_MS = 15 * 60 * 1000;   // hvor lenge en fornyelse holder
 
   /* ÉN kanal per enhet: den native når vi kjører i appen, nettleserens ellers.
      De to er aldri aktive samtidig — inne i APK-en finnes det ingen pushtjeneste
@@ -11702,10 +11855,133 @@
     return null;
   }
 
+  /* Nettleseren KUNNE vist varsler, men deployen får ikke melde seg på: en
+     Vercel preview-deploy har sitt eget origin, og et abonnement derfra ville
+     blitt stående som en enhet i produksjonens liste
+     (`pushDeployAllowed`, docs/domains-and-urls.md). Panelet skal si nettopp
+     det — ikke «denne enheten kan ikke vise varsler», som ville vært usant. */
+  function pushPreviewBlocked() {
+    return webChannel.capable() && !pushDeployAllowed();
+  }
+
+  /* EN DEPLOY SOM IKKE FÅR HA WEB PUSH, SKAL HELLER IKKE HA ET.
+
+     Porten over stopper NYE påmeldinger, men den sier ingenting om det som
+     allerede ligger der. En forhåndsvisning som ble åpnet før porten fantes,
+     har en service worker og et abonnement på sitt eget origin — og det
+     abonnementet lever videre og teller som en enhet i produksjonskontoens
+     liste, mens panelet på nettopp den siden sier at varsler er slått av her.
+     To påstander som ikke kan være sanne samtidig.
+
+     Derfor rigges den ned. Best effort hele veien: en forhåndsvisning skal
+     ikke bli ubrukelig av at opprydningen feilet, så hvert ledd står for seg.
+
+     BARE VÅRT. `getRegistration()` uten argument gir registreringen som dekker
+     DETTE dokumentet — Huskis' egen på Huskis' eget origin. En annen apps
+     service worker ligger på et annet origin og er utenfor rekkevidde, og
+     `getRegistrations()` (som ville sett alle våre) brukes ikke.
+
+     To skritt, fordi de trenger hver sin ting: nedriggingen trenger ingen
+     innlogging og skal skje med det samme, mens serverraden trenger en økt.
+     Endepunktet tas vare på mellom dem — etter `unregister()` finnes det ikke
+     å hente lenger. */
+  /* KAN VI I DET HELE TATT RYDDE? Et annet spørsmål enn `capable()`, og det er
+     poenget med at det står for seg: å OPPRETTE et abonnement krever en
+     avsendernøkkel og Notification-API-et, å RYDDE et krever bare service
+     worker-registeret. En build uten VAPID-nøkkel — nøkkelen er tom, eller
+     konfigurasjonen har endret seg — skal fortsatt kunne fjerne et abonnement
+     en tidligere build la igjen. Ellers ville nettopp den builden gjort det
+     umulig å bli kvitt det. */
+  function pushCleanupPossible() {
+    return !nativeShell && 'serviceWorker' in navigator && !!navigator.serviceWorker &&
+      typeof navigator.serviceWorker.getRegistration === 'function';
+  }
+
+  let blockedPushSweep = null;     // den lokale nedriggingen, som løfte
+  let blockedPushEndpoint = null;  // … og serverraden som ennå ikke er ryddet
+  let blockedPushBusy = false;     // ett serverforsøk om gangen
+  let blockedPushNextTry = 0;      // tidligst neste forsøk etter en feil
+  const BLOCKED_PUSH_RETRY_MS = 60 * 1000;
+  async function tearDownBlockedPush() {
+    /* Bryteren er per ORIGIN (`localStorage`), så dette valget gjelder bare
+       forhåndsvisningen — produksjonens egen bryter står urørt. */
+    setNotifChannelWanted(false);
+    notifPushMark = null; notifPushMarkAt = 0;
+    try {
+      const reg = await navigator.serviceWorker.getRegistration();
+      if (reg) {
+        const sub = (reg.pushManager && await reg.pushManager.getSubscription()) || null;
+        blockedPushEndpoint = (sub && sub.endpoint) || null;
+        // Avmeldingen snakker med pushtjenesten og kan feile uten nett;
+        // avregistreringen under er den harde garantien.
+        try { if (sub) await sub.unsubscribe(); } catch (e) { /* dekkes under */ }
+        await reg.unregister();
+      }
+    } catch (e) { /* best effort — previewen skal fortsatt virke */ }
+    await refreshNotifChannelState();
+    refreshNotifModal(true);
+  }
+  /* Ingen av de to kallerne venter på svaret, så løftet må aldri avvises:
+     en ubehandlet avvisning ville blitt en JS-feil på en side der hele
+     poenget er at opprydningen ikke skal kunne ødelegge noe. */
+  async function sweepBlockedPush() {
+    try { await sweepBlockedPushInner(); } catch (e) { /* best effort */ }
+  }
+  async function sweepBlockedPushInner() {
+    if (pushDeployAllowed() || !pushCleanupPossible()) return;
+    /* Nedriggingen holdes som et LØFTE, ikke et flagg. Den kalles fra flere
+       steder — oppstart, `cloudStart()` og hver synk-runde — og et flagg satt
+       før første `await` ville fått den neste til å hoppe over ventingen og
+       lese `endpoint` mens den fortsatt var `null`. Da hadde serverraden blitt
+       stående i akkurat den økten som endelig kunne ryddet den. */
+    if (!blockedPushSweep) blockedPushSweep = tearDownBlockedPush();
+    await blockedPushSweep;
+    if (!blockedPushEndpoint) return;
+    const client = acli();
+    if (!client || !authUser) return;   // serverraden venter til økten er der
+    if (blockedPushBusy || Date.now() < blockedPushNextTry) return;
+    blockedPushBusy = true;
+    try {
+      const { error } = await client.rpc('push_unsubscribe',
+        { p_endpoint: blockedPushEndpoint });
+      /* PostgREST melder en avvist RPC i `error`, ikke som et unntak. Leste vi
+         bare `catch`, ville en helt vanlig serverfeil sett ut som en suksess —
+         og hadde vi nullstilt endepunktet på forhånd, var det borte for godt
+         og raden ble stående som en aktiv enhet i listen. Endepunktet slippes
+         derfor FØRST når serveren har bekreftet. */
+      if (error) throw error;
+      blockedPushEndpoint = null;
+    } catch (e) {
+      /* Best effort, men ikke oppgitt: et nytt forsøk kommer med neste
+         synk-runde, tidligst om `BLOCKED_PUSH_RETRY_MS`. Uten pausen ville
+         hver runde (5 s) hamret på en server som nettopp sa nei. */
+      blockedPushNextTry = Date.now() + BLOCKED_PUSH_RETRY_MS;
+    } finally {
+      blockedPushBusy = false;
+    }
+  }
+
+  /* Serveren har tilbakekalt abonnementet vårt. Den lokale nedriggingen er den
+     som faktisk stopper varslene (docs/varsler.md, «Avmeldingen går lokalt
+     FØRST»), og bryteren settes av så `syncNotifChannel` ikke melder oss på
+     igjen i neste runde. Ingen toast: dette er et valg brukeren selv tok på en
+     annen enhet, og panelet viser sluttilstanden. */
+  async function notifChannelRevokedHere() {
+    notifPushRevoked = true;
+    setNotifChannelWanted(false);
+    notifPushMark = null; notifPushMarkAt = 0;
+    notifChSig = null;
+    try { await webChannel.disable({ keepRow: true }); } catch (e) { /* nedriggingen er best effort */ }
+    await refreshNotifChannelState();
+    refreshNotifModal(true);
+  }
+
   async function refreshNotifChannelState() {
     const ch = notifChannel();
     let next = 'unsupported';
-    try { next = ch ? await ch.state() : 'unsupported'; } catch (e) { next = 'unsupported'; }
+    try {
+      next = ch ? await ch.state() : (pushPreviewBlocked() ? 'preview' : 'unsupported');
+    } catch (e) { next = 'unsupported'; }
     if (next === notifChState) return next;
     notifChState = next;
     if (notifSettings) refreshNotifModal(true);
@@ -11730,7 +12006,7 @@
       } else {
         setNotifChannelWanted(on);
         notifChSig = null;      // neste speiling skal gjøre hele jobben
-        notifPushMark = null;
+        notifPushMark = null; notifPushMarkAt = 0;
         if (on) await syncNotifChannel();
       }
     } catch (e) {
@@ -11912,6 +12188,10 @@
     notifPendingTarget = { type: raw.slice(0, i), id: raw.slice(i + 1) };
   }
   readNotifParam();
+  /* … og rydd et abonnement som ligger igjen på en deploy som ikke får ha et.
+     Uten innlogging her: den lokale nedriggingen skal skje med det samme, og
+     serverraden tas av `cloudStart()` når økten er der. */
+  sweepBlockedPush();
 
   if ('serviceWorker' in navigator && navigator.serviceWorker.addEventListener) {
     navigator.serviceWorker.addEventListener('message', (ev) => {
@@ -11942,9 +12222,10 @@
     notifPlanTzAt = 0;
     notifTzRetryAt = 0;
     notifPushDevices = 0;
+    notifPushRevoked = false;
     // Kanalen er enhetens, ikke kontoens: den blir stående. Men abonnementet
     // og den native planen hørte til den forrige brukeren, og skal bort.
-    notifPushMark = null;
+    notifPushMark = null; notifPushMarkAt = 0;
     notifChSig = null;
     notifPendingTarget = null;
     notifChannelTapped.clear();
@@ -13044,6 +13325,17 @@
   });
 
   const LOGOUT_UNSUB_MS = 3000;   // så lenge utloggingen venter på avmeldingen
+  /* «Logg ut» er LOKAL, og det er et bevisst valg.
+
+     supabase-js sitt `signOut()` har `global` som standard, og global betyr
+     ALLE brukerens økter — telefonen, jobbmaskinen, nettbrettet. Knappen sier
+     «Logg ut», og det brukeren mener med den er «logg ut her». En knapp som
+     stille også kastet ut de andre enhetene ville vært en helt annen handling
+     enn den den heter.
+
+     De to andre finnes som egne handlinger, med hver sin knapp:
+     «Logg ut på alle andre enheter» (`scope: 'others'`) og fjern-utlogging av
+     én bestemt økt (`revoke_my_session`). Se docs/accounts.md. */
   async function logout() {
     closeAccount();
     const client = acli();
@@ -13063,7 +13355,350 @@
       ]);
     } catch (e) { /* ignorer */ }
     cloudStop();
-    if (client) { try { client.auth.signOut(); } catch (e) { /* ignore */ } }
+    if (client) { try { client.auth.signOut({ scope: 'local' }); } catch (e) { /* ignore */ } }
+  }
+
+  /* FJERN-UTLOGGET. Serveren sier at økten vår er borte (`session_ok` i
+     doc-et), og da skal denne fanen slutte å bruke tokenet sitt og gå til
+     innloggingssiden — ikke bli stående med kontoens innhold på skjermen til
+     JWT-en utløper av seg selv.
+
+     Nedriggingen er NØYAKTIG den vanlige utloggingens: `logout()` stopper
+     synken, tømmer minnet og lar den brukerspesifikke bufferen på disken
+     ligge. Det siste er poenget her — lokale endringer som ennå ikke er
+     synket, ligger i den posten og kommer tilbake ved neste innlogging. En
+     fjern-utlogging skal ikke kunne bli et datatap.
+
+     Én gang per sesjon: doc-et pollet hvert 5. sekund, og uten vakten ville
+     hver runde startet en ny utlogging. */
+  let remoteSignOutDone = false;
+  function remoteSignOut() {
+    if (remoteSignOutDone || !authUser) return;
+    remoteSignOutDone = true;
+    // Kvitteringen settes FØR utloggingen: den males av `setAuthMode`, som
+    // kjøres to ganger på vei ut (docs/accounts.md).
+    authNotice = tr('devices.signedOutRemotely');
+    logout();
+  }
+
+
+  /* ============================================================
+     ENHETER OG ØKTER (konto-modalen)
+     ------------------------------------------------------------
+     To lister med hvert sitt spørsmål, og de er bevisst IKKE slått sammen til
+     én rad per «enhet»:
+
+       · Innlogget      — denne nettleseren/appen har tilgang til kontoen.
+                          Sannheten er `auth.sessions` hos Supabase.
+       · Varsler på     — denne nettleseren/appen mottar eksterne varsler.
+                          Sannheten er `push_subscriptions`.
+
+     De to er ikke det samme, og de faller ikke alltid sammen: man kan være
+     innlogget uten varsler, og et push-abonnement kan overleve en økt. Å binde
+     dem til én linje ville krevd en kobling som bare NESTEN stemmer — og den
+     eneste måten å gjøre den sikker på er å måle enheten, altså nettopp det
+     denne funksjonen ikke gjør. To tydelige seksjoner er det ærlige svaret
+     (docs/accounts.md).
+
+     Begge listene kommer fra ÉN RPC (`list_my_devices`), som setter
+     «denne enheten» selv: øktens id fra tokenet, abonnementet ved at
+     endepunktet vi sender inn matcher. Ingen adresser og ingen id-er brukeren
+     ikke trenger går den andre veien.
+     ============================================================ */
+  let devicesRows = null;      // siste svar, eller null før første runde
+  let devicesBusy = false;     // ett kall om gangen
+  let devicesError = false;
+  let devicesOpen = false;     // skuffen er den åpne i trekkspillet
+  /* Bumpes ved hver inn- og utlogging. Et kall som allerede var i lufta da
+     kontoen byttet, bærer den FORRIGE brukerens økter og enheter — og ville
+     ellers landet i listene til den nye. Samme grep som `shareGroupEpoch`.
+     Bumpingen frigjør også `devicesBusy`, så den nye kontoen kan hente med én
+     gang i stedet for å vente på et svar den uansett skal forkaste. */
+  let devicesEpoch = 0;
+  function resetDevices() {
+    devicesEpoch++;
+    devicesRows = null;
+    devicesError = false;
+    devicesBusy = false;
+  }
+
+  // Endepunktet til DENNE nettleseren, om den har et. Kun til «denne enheten»-
+  // merkingen; det forlater aldri klienten på noen annen måte.
+  async function myPushEndpoint() {
+    if (!pushCleanupPossible()) return null;
+    try {
+      const reg = await navigator.serviceWorker.getRegistration();
+      const sub = reg && reg.pushManager && await reg.pushManager.getSubscription();
+      return (sub && sub.endpoint) || null;
+    } catch (e) { return null; }
+  }
+
+  async function loadDevices() {
+    const client = acli();
+    if (!client || !authUser || devicesBusy) return;
+    const epoke = devicesEpoch;
+    devicesBusy = true;
+    try {
+      const { data, error } = await client.rpc('list_my_devices',
+        { p_endpoint: await myPushEndpoint() });
+      if (epoke !== devicesEpoch) return;   // kontoen byttet mens vi ventet
+      if (error) throw error;
+      devicesRows = {
+        sessions: (data && data.sessions) || [],
+        push: (data && data.push) || [],
+      };
+      devicesError = false;
+    } catch (e) {
+      // Frakoblet eller avvist: behold det vi hadde (en tom liste ville løyet
+      // om at det ikke finnes andre enheter) og si fra at det ikke er ferskt.
+      if (epoke === devicesEpoch) devicesError = true;
+    } finally {
+      // `devicesBusy` slippes bare av den som fortsatt eier epoken: en runde
+      // som ble foreldet, ble allerede sluppet av selve bumpingen, og skal
+      // ikke rive låsen ut av hendene på den nye kontoens runde.
+      if (epoke === devicesEpoch) {
+        devicesBusy = false;
+        paintDevices();
+      }
+    }
+  }
+
+  /* «Sist sett»: relativt der det betyr noe, og med full tid i tittelen — det
+     samme mønsteret som resten av appen bruker for tidspunkter nær nå.
+     `SEEN_NOW_MS` er ikke pynt: en økt som nettopp fornyet tokenet sitt er
+     «aktiv nå», og et klokkeslett på sekundet ville sagt mindre. */
+  const SEEN_NOW_MS = 5 * 60 * 1000;
+  function msTimeValue(ms) {
+    const d = new Date(ms);
+    return localDateStr(d) + 'T' + String(d.getHours()).padStart(2, '0') + ':' +
+      String(d.getMinutes()).padStart(2, '0');
+  }
+  function deviceSeenLabel(ms, now, kind) {
+    const nå = now == null ? Date.now() : now;
+    if (!ms) return '';
+    if (nå - ms < SEEN_NOW_MS) return tr(kind === 'push' ? 'devices.seenNow' : 'devices.activeNow');
+    return tr(kind === 'push' ? 'devices.seen' : 'devices.lastActive',
+      { when: fmtTimeRelDay(msTimeValue(ms), nå) });
+  }
+  // «Chrome · Android», eller det vi vet av det. Vet vi ingenting, sier raden
+  // det i stedet for å stå navnløs.
+  function deviceTitle(r) {
+    const deler = [r.browser, r.platform].filter(Boolean);
+    return deler.length ? deler.join(' · ') : tr('devices.unknown');
+  }
+
+  function deviceRowEl(r, kind, now) {
+    const li = document.createElement('li');
+    li.className = 'device-row' + (r.current ? ' is-current' : '');
+    li.dataset.id = String(r.id);
+
+    const tekst = document.createElement('div');
+    tekst.className = 'device-text';
+    const navn = document.createElement('span');
+    navn.className = 'device-name';
+    navn.textContent = deviceTitle(r);
+    tekst.appendChild(navn);
+    if (r.current) {
+      const her = document.createElement('span');
+      her.className = 'device-here';
+      her.textContent = tr('devices.thisDevice');
+      tekst.appendChild(her);
+    }
+    if (r.origin) {
+      const o = document.createElement('span');
+      o.className = 'device-origin';
+      o.textContent = r.origin;
+      tekst.appendChild(o);
+    }
+    const sett = document.createElement('span');
+    sett.className = 'device-seen';
+    sett.textContent = deviceSeenLabel(Number(r.seenAt || 0), now, kind);
+    if (r.seenAt) sett.title = fmtTimeFull(msTimeValue(Number(r.seenAt)));
+    tekst.appendChild(sett);
+    li.appendChild(tekst);
+
+    /* Handlingen finnes bare på de ANDRE. Å logge ut denne enheten er «Logg
+       ut»-knappen, og å slå av varslene her er bryteren i varselpanelet — to
+       steder som allerede finnes, og som sier hva de gjør. */
+    if (!r.current) {
+      const knapp = document.createElement('button');
+      knapp.type = 'button';
+      knapp.className = 'btn btn-ghost btn-small device-action';
+      knapp.textContent = tr(kind === 'push' ? 'devices.turnOff' : 'account.logout');
+      knapp.addEventListener('click', () => {
+        if (kind === 'push') revokePushDevice(r);
+        else revokeSession(r);
+      });
+      li.appendChild(knapp);
+    }
+    return li;
+  }
+
+  function paintDeviceList(el, rows, kind, tomNøkkel, now) {
+    if (!el) return;
+    el.innerHTML = '';
+    if (!rows || !rows.length) {
+      const tom = document.createElement('li');
+      tom.className = 'device-empty';
+      tom.textContent = tr(devicesRows ? tomNøkkel : 'devices.loading');
+      el.appendChild(tom);
+      return;
+    }
+    rows.forEach((r) => el.appendChild(deviceRowEl(r, kind, now)));
+  }
+
+  function paintDevices() {
+    const sessEl = document.getElementById('session-list');
+    const pushEl = document.getElementById('push-device-list');
+    if (!sessEl || !pushEl) return;
+    const now = Date.now();
+    const d = devicesRows || { sessions: [], push: [] };
+    paintDeviceList(sessEl, d.sessions, 'session', 'devices.noSessions', now);
+    paintDeviceList(pushEl, d.push, 'push', 'devices.noPush', now);
+
+    // Knappene for «alle andre» gir bare mening når det FINNES andre.
+    const andreØkter = d.sessions.filter((r) => !r.current).length;
+    const andrePush = d.push.filter((r) => !r.current).length;
+    const sOthers = document.getElementById('logout-others-btn');
+    const pOthers = document.getElementById('push-off-others-btn');
+    if (sOthers) sOthers.hidden = andreØkter === 0;
+    if (pOthers) pOthers.hidden = andrePush === 0;
+
+    const feil = document.getElementById('devices-error');
+    if (feil) {
+      feil.hidden = !devicesError;
+      feil.textContent = devicesError ? tr('devices.loadFailed') : '';
+    }
+  }
+
+  /* Fjern-utlogging av ÉN økt. Bekreftelse, men den lette sorten: dette er en
+     vanlig, reversibel handling (enheten kan logge inn igjen), og skal ikke ha
+     samme dramatiske gest som kontosletting. */
+  async function revokeSession(r) {
+    const client = acli();
+    if (!client || !authUser) return;
+    if (!await askConfirm({
+      title: tr('devices.logOutDevice'),
+      message: tr('devices.logOutDeviceMsg', { name: deviceTitle(r) }),
+      okLabel: tr('account.logout') })) return;
+    try {
+      const { data, error } = await client.rpc('revoke_my_session', { p_session_id: r.id });
+      if (error) throw error;
+      // `false` = ingen rad ble truffet. Da er økten enten borte fra før eller
+      // ikke min, og kvitteringen ville løyet.
+      if (data === false) throw new Error('ingen slik økt');
+      showToast(tr('devices.loggedOutDevice'));
+    } catch (e) {
+      showToast(tr('devices.actionFailed'));
+    }
+    await loadDevices();
+  }
+
+  /* «Logg ut på alle andre enheter» går gjennom supabase-js sin egen
+     `others`-semantikk — plattformens støttede vei, ikke en løkke over
+     `revoke_my_session`. Denne økten står igjen; det er hele forskjellen fra
+     `global`. */
+  async function logoutOtherSessions() {
+    const client = acli();
+    if (!client || !authUser) return;
+    if (!await askConfirm({
+      title: tr('devices.logOutOthers'),
+      message: tr('devices.logOutOthersMsg'),
+      okLabel: tr('devices.logOutOthers') })) return;
+    try {
+      const { error } = await client.auth.signOut({ scope: 'others' });
+      if (error) throw error;
+      showToast(tr('devices.loggedOutOthers'));
+    } catch (e) {
+      showToast(tr('devices.actionFailed'));
+    }
+    await loadDevices();
+  }
+
+  async function revokePushDevice(r) {
+    const client = acli();
+    if (!client || !authUser) return;
+    try {
+      const { data, error } = await client.rpc('push_revoke', { p_id: r.id });
+      if (error) throw error;
+      if (data === false) throw new Error('ingen slikt abonnement');
+      showToast(tr('devices.turnedOff'));
+    } catch (e) {
+      showToast(tr('devices.actionFailed'));
+    }
+    await loadDevices();
+    scheduleCloud(150);   // telleren i varselpanelet leses av doc-et
+  }
+
+  async function pushOffOtherDevices() {
+    const client = acli();
+    if (!client || !authUser) return;
+    if (!await askConfirm({
+      title: tr('devices.pushOffOthers'),
+      message: tr('devices.pushOffOthersMsg'),
+      okLabel: tr('devices.pushOffOthers') })) return;
+    try {
+      const { error } = await client.rpc('push_revoke_others',
+        { p_endpoint: await myPushEndpoint() });
+      if (error) throw error;
+      showToast(tr('devices.turnedOffOthers'));
+    } catch (e) {
+      showToast(tr('devices.actionFailed'));
+    }
+    await loadDevices();
+    scheduleCloud(150);
+  }
+
+  /* En SYNLIG liste følger synk-runden, som del-modalen gjør
+     (`refreshOpenShare` i docs/accounts.md): slår en annen enhet av varslene
+     sine, eller logger den seg ut, skal raden forsvinne herfra uten at
+     brukeren må lukke og åpne skuffen.
+
+     Synlig betyr BEGGE deler: skuffen er den åpne i trekkspillet OG modalen
+     står oppe. `devicesOpen` alene holder ikke — trekkspillet nullstilles
+     først neste gang konto-modalen åpnes, så en bruker som åpnet skuffen og
+     lukket modalen ville fått et `list_my_devices`-kall hvert femte sekund,
+     resten av økten, for en liste ingen ser. */
+  function devicesPanelVisible() {
+    return devicesOpen && !accountModal.hidden;
+  }
+  function refreshOpenDevices() {
+    if (devicesPanelVisible()) loadDevices();
+  }
+
+  // Veien inn fra varselpanelet: lukk varselmodalen, åpne konto-modalen på
+  // riktig skuff. Ett sted for begge listene — ikke to halve.
+  function openDevicesPanel() {
+    closeNotifModal();
+    openAccount('devices');
+  }
+
+  /* ØKTEN MELDER SEG LEVENDE — og får samtidig vite om den fortsatt finnes.
+     Sjelden med vilje: `seen_at` er «sist brukt», ikke en puls, og en skriving
+     hvert femte sekund ville vært en skriving per synk-runde uten at listen
+     ble et hakk mer sann. Revokasjonen oppdages uansett av `session_ok` i
+     doc-et, som pollet allerede henter. */
+  const SESSION_TOUCH_MS = 10 * 60 * 1000;
+  let sessionTouchedAt = 0;
+  async function touchSession(force) {
+    const client = acli();
+    if (!client || !authUser) return;
+    const nå = Date.now();
+    if (!force && nå - sessionTouchedAt < SESSION_TOUCH_MS) return;
+    sessionTouchedAt = nå;
+    const d = clientDescriptor();
+    try {
+      const { data, error } = await client.rpc('session_touch', {
+        p_browser: d.browser, p_platform: d.platform,
+        p_origin: d.origin, p_device_id: d.deviceId,
+      });
+      if (error) throw error;
+      if (data && data.ok === false) remoteSignOut();
+    } catch (e) {
+      // Stille: neste runde prøver igjen. En feilet puls er ikke et signal om
+      // at økten er borte — bare at vi ikke fikk svar.
+      sessionTouchedAt = 0;
+    }
   }
 
   /* ---------- Slett konto (i konto-modalen) ----------
@@ -13422,6 +14057,52 @@
   function authRedirectUrl(origin) {
     const o = (origin != null ? origin : location.origin).replace(/\/+$/, '');
     return isLocalDevOrigin(o) ? o + '/' : canonicalAppUrl();
+  }
+
+  /* ---------- Hvilken DEPLOY kjører vi i? ----------
+     Build-steget stempler `<meta name="huskis-deploy">`: `preview` for en
+     Vercel preview-deploy, `production` for produksjonsdeployen, `dev` for
+     ubygget kildekode. Samme kilde som build-ID-en, altså ingen ny
+     konfigurasjon å holde i takt (docs/auto-update.md, docs/release-og-deploy.md). */
+  function deployKind() {
+    const m = document.querySelector('meta[name="huskis-deploy"]');
+    const v = (m && m.getAttribute('content') || '').trim().toLowerCase();
+    return v || 'dev';
+  }
+  /* De hostene Huskis ER. Listen finnes ETT sted i frontend — guarden øverst i
+     `index.html` (`window.__huskisCanonical`) — og leses herfra i stedet for å
+     bli skrevet opp igjen. Se docs/domains-and-urls.md (autoritativ). */
+  function huskisHosts() {
+    const c = window.__huskisCanonical || {};
+    const ut = [];
+    try { ut.push(new URL(c.origin || canonicalAppUrl()).host.toLowerCase()); } catch (e) { /* ignorer */ }
+    (c.redirectHosts || []).forEach((h) => ut.push(String(h).toLowerCase()));
+    return ut;
+  }
+  /* FÅR DENNE DEPLOYEN MELDE SEG PÅ WEB PUSH?
+
+     Et push-abonnement hører til en nettleserkontekst på ET ORIGIN, ikke til en
+     maskin. Hver Vercel preview-deploy har sitt eget origin, og hver av dem kan
+     derfor legge igjen et eget abonnement på den ekte kontoen — enheter
+     brukeren aldri har bedt om, i produksjonens egen liste. Det er den ene
+     grunnen til at regelen finnes.
+
+     To lag, som redirecten til det kanoniske originet:
+       1. build-stempelet sier eksplisitt `preview` → nei, uansett host;
+       2. ellers må verten være en Huskis KJENNER: det kanoniske originet, en
+          av de hostene som redirecter dit, eller den lokale serveren
+          (`localhost`/`127.0.0.1` — som også er verten mobilappens WebView
+          serverer fra, docs/mobilapp-plan.md).
+     Alt annet er nei. Regelen FEILER LUKKET: en ukjent vert er nettopp det en
+     flyktig preview-adresse er.
+
+     Testene er upåvirket: de kjører på `localhost`, og `?mock=1` bytter hele
+     backenden (tests/CLAUDE.md) — det trengs ingen egen testmodus for dette. */
+  function pushDeployAllowed(host, kind) {
+    if ((kind != null ? kind : deployKind()) === 'preview') return false;
+    const h = String(host != null ? host : location.hostname).toLowerCase();
+    if (h === 'localhost' || h === '127.0.0.1' || h === '[::1]') return true;
+    return huskisHosts().indexOf(h) !== -1;
   }
 
   function friendlyAuthError(err) {
@@ -14786,6 +15467,20 @@
       // Alt lokalt som fantes da staten ble lest, ligger nå på serveren.
       if (allPushed) syncedSeq = seq;
       updateInbox(my);
+      /* ER ØKTEN VÅR FJERN-UTLOGGET? Doc-et bærer svaret (`session_ok`), og
+         det er derfor pollet — som allerede går hvert 5. sekund — er det som
+         oppdager det. Uten dette ville et allerede utstedt access-token latt
+         fanen stå med kontoens innhold på skjermen til JWT-en utløp.
+         `false` er det ENESTE som logger ut: `null`/`undefined` er en eldre
+         server eller et token uten claim, og en manglende opplysning skal
+         aldri kunne kaste noen ut (docs/accounts.md). */
+      if (my && my.session_ok === false) { remoteSignOut(); return; }
+      touchSession();
+      /* Rydder en deploy som ikke får ha web push. På alle andre deployer er
+         dette et umiddelbart no-op; her er det runden som gir et mislykket
+         serverkall et nytt forsøk (med pause — se `BLOCKED_PUSH_RETRY_MS`). */
+      sweepBlockedPush();
+      refreshOpenDevices();
       // Varslene rir på den samme runden: doc-et bærer historikken og
       // preferansene, og generatoren logger tersklene som er passert siden
       // markøren (docs/varsler.md). Den kaster aldri — en runde som ikke når
@@ -16335,12 +17030,23 @@
     // innom der. Alt under her spør serveren.
     markAppReady();
     lastViewSig = null; // tving en full første render ved (ny) innlogging
+    // Øktlaget tilhører DENNE innloggingen: pulsen skal gå med én gang, og en
+    // fjern-utlogging fra forrige økt skal ikke stå i veien for den nye.
+    remoteSignOutDone = false;
+    sessionTouchedAt = 0;
+    resetDevices();
     migrationChecked = false;
     navRestored = false; // gjenopprett husket posisjon ved neste (første) pull
     loadMyAvatar();      // eget kall: bildet ligger ikke i det pollede doc-et
     startCloudRealtime();
     startCloudPoll();
     syncStatus.start();
+    // Meld økten levende med det samme, så «Innloggede enheter» kan navngi
+    // den fra første runde og ikke først etter et kvarter.
+    touchSession(true);
+    // Nå finnes det en økt: er dette en deploy som ikke får ha web push, kan
+    // serverraden til et gammelt abonnement herfra endelig ryddes.
+    sweepBlockedPush();
     await cloudCycle();
     // Demoen kommer FØR pollet rekker en ny runde, men etter at første pull har
     // malt board-et — ellers ville en runde landet midt i simuleringen. Den
@@ -16357,6 +17063,11 @@
     // igjen og telle en annen brukers uleste.
     resetNotifications();
     shareGroupCache.clear(); shareGroupLoading.clear();
+    // Enhetslistene tilhørte den utloggede kontoen — og et kall som fortsatt
+    // er i lufta bærer dem, så epoken bumpes med.
+    resetDevices();
+    devicesOpen = false;
+    sessionTouchedAt = 0;
     // Køede operasjoner tilhører den utloggede sesjonen — dropp dem (de ville
     // uansett blitt avvist uten sesjon) og nullstill de optimistiske overlayene.
     opQueue.clear();
@@ -18061,6 +18772,13 @@
        tilstandsmaskinen — tillatelse, av/på, diff — uten en telefon. */
     planNotifications, nativeNotifId, nativeNotifSig, notifWallClock, deviceTz,
     notifChannel, setNotifChannel, syncNotifChannel, refreshNotifChannelState,
+    // Enheter og økter (docs/accounts.md) — oppsett og inspeksjon i tester.
+    pushDeployAllowed, deployKind, pushPreviewBlocked,
+    clientBrowser, clientPlatform, clientOriginHost,
+    loadDevices, openDevicesPanel, logoutOtherSessions, touchSession,
+    sweepBlockedPush,
+    get devices() { return devicesRows; },
+    get pushRevokedHere() { return notifPushRevoked; },
     notifChannelWanted, setNotifChannelWanted, notifExternalLabels,
     androidChannel, webChannel,
     get notifChState() { return notifChState; },

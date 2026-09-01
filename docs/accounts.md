@@ -1,8 +1,8 @@
 # Brukerkontoer og deling — klienten
 
-Les denne når oppgaven berører innlogging med e-post/passord, synk mot de
-relasjonelle tabellene, rolle-/capability-rendring, delings-UI, e-postvarsel
-eller innboks. Databasesiden: `docs/arkitektur-brukere-deling.md`. All koden
+Les denne når oppgaven berører innlogging med e-post/passord, innloggede økter
+og fjern-utlogging, synk mot de relasjonelle tabellene, rolle-/capability-
+rendring, delings-UI, e-postvarsel eller innboks. Databasesiden: `docs/arkitektur-brukere-deling.md`. All koden
 ligger i `app.js`, seksjonen «BRUKERKONTOER OG DELING».
 
 Appen kjører KUN på ekte kontoer — mønster-låsen og synk-doc v1 er fjernet.
@@ -21,7 +21,8 @@ Ett skjema (`#auth-screen`) med tre modi (`login`/`register`/`forgot`):
 - **Innlogging**: `signInWithPassword`.
 - **Glemt passord**: `resetPasswordForEmail` → «sjekk innboksen». Retur via
   e-postlenken gir en `PASSWORD_RECOVERY`-hendelse → prompt om nytt passord.
-- **Logg ut**: `signOut` (i konto-modalen).
+- **Logg ut**: `signOut({ scope: 'local' })` (i konto-modalen) — se
+  «Enheter og økter» under for hvorfor scopet står der.
 
 Alle tre Supabase Auth-kall som tar en returadresse (`signUp`,
 `resetPasswordForEmail`, og `updateUser({ email })` i konto-modalen) sender
@@ -120,6 +121,104 @@ det er valgt slik, og hvorfor det ikke koster noe: `docs/mobilapp-plan.md`
 
 Serveren er kanonisk. En ny enhet trenger derfor ingenting med seg: brukeren
 logger inn, og `get_my_doc()` fyller den.
+
+## Enheter og økter
+
+Kontoen kan være innlogget flere steder, og flere nettlesere kan ha varsler på.
+Det er **to ulike ting**, og appen sier dem hver for seg — i konto-modalens
+skuff «Enheter og økter», som to seksjoner med samme form:
+
+| Seksjon | Spørsmålet den svarer på | Sannheten ligger i |
+|---|---|---|
+| **Innloggede enheter** | hvor har Huskis-kontoen min tilgang nå? | `auth.sessions` hos Supabase |
+| **Enheter med varsler** | hvor kommer varslene også når Huskis er lukket? | `push_subscriptions` |
+
+De er ikke slått sammen til én rad per «enhet», og det er et valg. Man kan være
+innlogget uten varsler, og et push-abonnement kan overleve en økt. Den eneste
+måten å binde dem sikkert sammen på ville vært å MÅLE enheten — altså
+fingerprinting. To tydelige seksjoner er det ærlige svaret.
+
+**Én rad er en nettleserkontekst, ikke en maskin.** Både `localStorage` og et
+push-abonnement er origin-avgrensede: den samme telefonen kan ha én rad på
+`huskis.no` og én på en gammel adresse, og de er to uavhengige ting. Derfor
+står **verten** på hver rad — det er den som skiller dem.
+
+### Hva som lagres, og hva som ikke gjør det
+
+`auth.sessions` har både hele user-agenten og IP-adressen. Ingen av delene
+forlater databasen: den første er en signatur, den andre er posisjon, og ingen
+av dem trengs for å kjenne igjen en økt. Sidebordet `public.device_sessions`
+bærer i stedet nøyaktig det som gjør en linje lesbar for eieren:
+
+- en klassifikasjon av nettleseren («Chrome») og av plattformen («Android») —
+  et fast, lite ordforråd, aldri råtekst;
+- vertsnavnet økten ble opprettet på;
+- enhetens egen lokale id (`mine-lister-device`);
+- opprettet og sist sett.
+
+Klienten sender dem selv (`session_touch`, maks hvert 10. minutt — `seen_at` er
+«sist brukt», ikke en puls). Tabellen er LÅST på samme måte som push-utboksen:
+RLS på, ingen policyer, ingen grants. Alt går gjennom RPC-er som setter
+`user_id` fra `auth.uid()` og slår opp økten selv, så ingen klient kan navngi en
+økt hen ikke eier.
+
+### De fire utloggingene
+
+| Handling | Hva den gjør | Mekanisme |
+|---|---|---|
+| **Logg ut** (konto-modalen) | avslutter BARE denne økten | `signOut({ scope: 'local' })` |
+| **Logg ut** på en rad | avslutter én bestemt annen økt | `revoke_my_session(session_id)` |
+| **Logg ut på alle andre enheter** | avslutter alle unntatt denne | `signOut({ scope: 'others' })` |
+| Kontosletting | tar kontoen, og dermed alle øktene | `delete_account()` |
+
+**Scopet på den vanlige utloggingen er ikke en detalj.** supabase-js har
+`global` som standard, og global betyr ALLE brukerens økter — telefonen,
+jobbmaskinen, nettbrettet. Knappen sier «Logg ut», og det brukeren mener med
+den er «logg ut her». En knapp som stille også kastet ut de andre enhetene ville
+vært en helt annen handling enn den den heter.
+
+`revoke_my_session()` sletter raden i `auth.sessions` (og refresh-tokenene til
+den) i en SECURITY DEFINER-funksjon: det er det som faktisk avslutter økten hos
+Supabase, og klienten kan ikke fornye seg etterpå. En økt-id som ikke er min
+treffer ingen rad og svarer `false` — samme svar som en id som ikke finnes, for
+en feilmelding ville i seg selv fortalt at raden eksisterte.
+
+`auth.sessions` er Supabase Auth sin tabell, og funksjonene som rører den kjører
+som EIEREN sin (migreringsrollen). Skulle rettigheten dit mangle i et prosjekt,
+faller ingenting annet: `session_alive()` svarer «levende» når den ikke får
+lese — `get_my_doc()` kaller den hver synk-runde, og en feil der ville tatt hele
+appen ned for en opplysning som gjelder én knapp — og klienten viser en feil på
+selve knappen. Smoke-testen advarer om det ved deploy
+([`release-og-deploy.md`](release-og-deploy.md), punkt 8).
+
+### Et allerede utstedt access-token lever til det utløper
+
+Det er Supabases egen semantikk, og Huskis bygger ikke et nytt auth-lag for å
+omgå den. Men en fane som står åpen skal ikke bli stående med kontoens innhold
+på skjermen i opptil en time: `get_my_doc()` bærer derfor `session_ok`, ett
+indeksoppslag på økt-id-en fra tokenet. Er den `false`, går klienten samme vei
+som en vanlig utlogging — i praksis innen én synk-runde (5 s).
+
+**Fjern-utlogging er ikke datatap.** Nedriggingen er NØYAKTIG `logout()`:
+synken stoppes, minnet tømmes, og den brukerspesifikke bufferen på disken blir
+liggende. Lokale endringer som ennå ikke er synket ligger i den posten og kommer
+tilbake ved neste innlogging. Beskjeden («Du ble logget ut fra en annen enhet.»)
+males på innloggingssiden via `authNotice`, som kontoslettingens kvittering.
+
+`session_ok` er `true` når økt-claimet mangler. En manglende opplysning er ikke
+en tilbakekalling, og skal aldri kunne logge noen ut.
+
+### Varsler per enhet
+
+«Enheter med varsler» er den andre halvdelen, og semantikken ligger i
+[`varsler.md`](varsler.md) («Enhetene med varsler»). Herfra er det verdt å vite
+to ting: listen kommer fra den samme RPC-en (`list_my_devices`), og
+**endepunktene forlater aldri serveren** — «denne enheten» avgjøres ved at
+klientens eget endepunkt sendes INN og sammenlignes der.
+
+Begge listene sorteres likt: denne enheten først, resten etter `seen_at` med
+nyeste øverst. En åpen skuff følger synk-runden (`refreshOpenDevices`), som
+del-modalen gjør, så en rad som forsvinner et annet sted forsvinner her også.
 
 ## Synk-motor v2
 

@@ -78,6 +78,21 @@ function keepTestMode(env) {
   return (env || process.env).VERCEL_ENV === 'preview';
 }
 
+/* Hvilken DEPLOY dette er, som ett ord i HTML-en. Samme kilde som over
+   (`VERCEL_ENV`), og samme regel: FAIL CLOSED for det som gir rettigheter.
+   Her er «preview» det som TAR bort en rettighet (web push), så et ukjent
+   miljø skal ikke bli «preview» ved et uhell — et lokalt bygg og et CI-bygg er
+   `dev`, og bare Vercels eksplisitte `production` er `production`.
+
+   Klienten leser stempelet i `pushDeployAllowed()`: en flyktig preview-deploy
+   har sitt eget origin, og et push-abonnement derfra ville blitt stående som
+   en enhet i produksjonskontoens liste (docs/domains-and-urls.md,
+   docs/varsler.md). Host-sjekken i app.js er det andre laget. */
+function deployKind(env) {
+  const v = (env || process.env).VERCEL_ENV;
+  return v === 'preview' ? 'preview' : v === 'production' ? 'production' : 'dev';
+}
+
 // Filene index.html laster lokalt, og som derfor får `?b=<build-ID>`.
 const VERSIONED = ['theme.js', 'config.js', 'icons.js', 'i18n.js', 'app.js', 'update-check.js', 'styles.css'];
 
@@ -156,8 +171,12 @@ function stripDevOnly(html) {
 // preview-deployer, se keepTestMode).
 function stampMeta(html, name, value) {
   const re = new RegExp('(<meta\\s+name="' + name + '"\\s+content=")[^"]*(")');
-  const out = html.replace(re, (m, a, b) => a + value + b);
-  if (out === html) throw new Error('Fant ikke <meta name="' + name + '"> i index.html');
+  // Vakten måler at taggen FANTES, ikke at teksten ble en annen: et stempel
+  // kan gjerne være likt plassholderen (`huskis-deploy` er «dev» i et lokalt
+  // bygg), og et uendret resultat er da riktig — ikke en manglende tagg.
+  let truffet = false;
+  const out = html.replace(re, (m, a, b) => { truffet = true; return a + value + b; });
+  if (!truffet) throw new Error('Fant ikke <meta name="' + name + '"> i index.html');
   return out;
 }
 function stampHtml(html, ids, keep) {
@@ -166,6 +185,7 @@ function stampHtml(html, ids, keep) {
   // Ukjent release stemples som «dev» — samme plassholder som ubygget kilde,
   // og dermed noe ingen klient kan lese som en ekte release.
   out = stampMeta(out, 'huskis-release', ids.releaseId || 'dev');
+  out = stampMeta(out, 'huskis-deploy', ids.deploy || deployKind());
   for (const f of VERSIONED) {
     const re = new RegExp('((?:src|href)=")' + reEscape(f) + '(")', 'g');
     out = out.replace(re, (m, a, b) => a + f + '?b=' + ids.buildId + b);
@@ -177,6 +197,7 @@ function build(outDir) {
   const at = new Date();
   const buildId = makeBuildId(at.getTime());
   const releaseId = makeReleaseId();
+  const deploy = deployKind();
   const out = path.resolve(ROOT, outDir);
   const keep = keepTestMode();
 
@@ -187,7 +208,7 @@ function build(outDir) {
   copyDir(ROOT, out, true, out, skip);
 
   const html = fs.readFileSync(path.join(ROOT, 'index.html'), 'utf8');
-  fs.writeFileSync(path.join(out, 'index.html'), stampHtml(html, { buildId, releaseId }, keep));
+  fs.writeFileSync(path.join(out, 'index.html'), stampHtml(html, { buildId, releaseId, deploy }, keep));
 
   /* Feltene er ADDITIVE: en telefon kan kjøre en gammel release lenge
      (arkitekturregel 7 i docs/mobilapp-plan.md), og den leser denne fila. Nye

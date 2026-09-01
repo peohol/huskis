@@ -13,7 +13,7 @@ Ved motstrid gjelder det dokumentet som er merket autoritativt for feltet — og
 | [rettigheter-og-deling.md](rettigheter-og-deling.md) | hvem som får redigere, dele, låse, flytte, slette; roller (`owner`/`member`), capabilities, arvet lås + unntak, invitasjonspolicy | **ja** — fasiten for rettighetsmodellen |
 | [data-model.md](data-model.md) | state-strukturen, foreldre-pekere, kategorier, id-er, hva som lagres lokalt vs. i databasen | **ja** — klientens datamodell |
 | [arkitektur-brukere-deling.md](arkitektur-brukere-deling.md) | tabellene, RLS-policyene, triggerne, RPC-ene, LWW-stemplingen, gravsteinene, e-postvarsel-triggeren | **ja** — databasearkitekturen |
-| [accounts.md](accounts.md) | auth-UI, sesjonen og resten av det enheten lagrer, synk-motoren (`get_my_doc` → fletting → rad-CRUD), operasjonskøen, delings-UI, innboks, mock-backenden | **ja** — klientsiden av kontoer og synk |
+| [accounts.md](accounts.md) | auth-UI, sesjonen og resten av det enheten lagrer, **innloggede enheter og økter** (fjern-utlogging, utloggings-scopene), synk-motoren (`get_my_doc` → fletting → rad-CRUD), operasjonskøen, delings-UI, innboks, mock-backenden | **ja** — klientsiden av kontoer og synk |
 | [sprak.md](sprak.md) | språkvalget (norsk/engelsk): hvor det lagres, hvem som vinner, ordboken i `i18n.js`, hvordan en tekst kommer inn i UI-et, og hvilket språk e-postene får | **ja** — språkmodellen |
 | [design-system.md](design-system.md) | `styles.css`, nye knapper/kontroller, delte klasser, toast, modaler, animasjon | **ja** — designsystemet |
 | [mork-drakt.md](mork-drakt.md) | lys/mørk drakt: hvor valget lagres, `theme.js` i `<head>`, de to token-familiene, ikonfargene, og hvordan palettens L-sett speiles | **ja** — draktmodellen |
@@ -29,7 +29,7 @@ Ved motstrid gjelder det dokumentet som er merket autoritativt for feltet — og
 | [scheduling.md](scheduling.md) | tids-editoren (objektmenyens tidsskuff + tids-popoveren), start-/fristtider, semantikken for dato uten klokkeslett, den harde fristinvarianten, indikator-chipene | **ja** — tidsplanlegging |
 | [feature-plan-search-events-notifications.md](feature-plan-search-events-notifications.md) | planlagt implementering av globalt søk, kommende hendelser, fristinvariant og varsler | **ja** — arbeidsplanen for denne funksjonsserien |
 | [colors-and-labels.md](colors-and-labels.md) | posisjonsbasert HSL-farge på kort/rader, de gamle K/P-feltene | **ja** — fargesystemet |
-| [domains-and-urls.md](domains-and-urls.md) | det kanoniske originet og 308-redirecten fra de alternative domenene, auth-redirects, lenker i utsendte e-poster | **ja** — domener og URL-generering |
+| [domains-and-urls.md](domains-and-urls.md) | det kanoniske originet og 308-redirecten fra de alternative domenene, auth-redirects, lenker i utsendte e-poster, skillet produksjon/preview i klienten | **ja** — domener og URL-generering |
 | [auto-update.md](auto-update.md) | build-ID, release-ID, `/version.json`, cache-headerne i `vercel.json`, automatisk reload av åpne faner | **ja** — build og auto-oppdatering |
 | [mobilapp-plan.md](mobilapp-plan.md) | Capacitor, Android/iOS, native builds, OTA og hvor mobilprosjektet står | **ja** — mobilplan, fremdrift og neste steg |
 | [sikkerhetsheadere.md](sikkerhetsheadere.md) | innholdssikkerhetspolicyen (CSP) og unntakene i den, de øvrige sikkerhetsheaderne, den låste Supabase-versjonen, hvorfor testmodusen ikke finnes i produksjon | **ja** — responsheadere og CSP |

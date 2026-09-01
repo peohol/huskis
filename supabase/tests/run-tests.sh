@@ -29,6 +29,12 @@ $PSQL --no-psqlrc --echo-errors -f tests/test-tombstones.sql
 $PSQL --no-psqlrc --echo-errors -f tests/test-account-deletion.sql
 $PSQL --no-psqlrc --echo-errors -f tests/test-notifications.sql
 $PSQL --no-psqlrc --echo-errors -f tests/test-push.sql
+$PSQL --no-psqlrc --echo-errors -f tests/test-sessions.sql
+
+# Låsen i push_subscribe() kan ikke bevises fra ÉN databaseøkt: den handler om
+# to samtidige. Denne kjører fornyelse og «slå av» mot hverandre i begge
+# rekkefølger, med to ekte tilkoblinger.
+tests/test-push-race.sh
 
 # Smoke-testen som produksjonsdeployen henger på (release.yml) må bevises her:
 # den skal være GRØNN mot et ferdig migrert skjema. Er den det ikke lokalt,
@@ -45,5 +51,5 @@ $PSQL --no-psqlrc --echo-errors -f tests/test-list-share-migration.sql
 $PSQL --no-psqlrc --echo-errors -f smoke-test.sql
 
 echo "✅ Alle SQL-tester grønne (roller, capabilities, mappeflytting, e-postvarsel,"
-echo "   gravsteiner, kontosletting, varsler, web push, migrering av gamle"
-echo "   listedelinger og deploy-smoke-testen — begge løp)."
+echo "   gravsteiner, kontosletting, varsler, web push (òg samtidighet), økter,"
+echo "   migrering av gamle listedelinger og deploy-smoke-testen — begge løp)."

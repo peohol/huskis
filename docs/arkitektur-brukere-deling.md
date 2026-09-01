@@ -59,11 +59,32 @@ Fire objekttabeller — `universes` > `groups` > `cards` (= «lister» i UI-et)
   `on delete set null`): ansvarlig bruker. Kandidatene er mappens **effektive**
   medlemsliste. Rir på innholds-registeret.
 
-**To tabeller hører til BRUKEREN, ikke til treet:** `notifications`
-(varselhistorikken) og `notification_prefs` (de fire varselvalgene + generator-
-markøren). De har ingen forelder å arve tilgang fra — RLS er `user_id =
-auth.uid()` hele veien, og de deles aldri, heller ikke for et objekt to brukere
-har sammen. Se [`varsler.md`](varsler.md).
+**Flere tabeller hører til BRUKEREN, ikke til treet.** De har ingen forelder å
+arve tilgang fra — `user_id` ER autorisasjonen — og de deles aldri, heller ikke
+for et objekt to brukere har sammen:
+
+| Tabell | Hva den er | Klientvei |
+|---|---|---|
+| `notifications` | varselhistorikken | RLS `user_id = auth.uid()` |
+| `notification_prefs` | de fire varselvalgene + generator-markøren | RLS `user_id = auth.uid()` |
+| `push_subscriptions` | ett abonnement per nettleserkontekst, med gjenkjennelig metadata | RLS på egne rader; skrives kun av RPC-ene |
+| `push_deliveries` | utboksen for web push | **låst** — ingen policy, ingen grant |
+| `device_sessions` | gjenkjennelig metadata om `auth.sessions` | **låst** — ingen policy, ingen grant |
+
+De to låste tabellene har ingen klientvei i det hele tatt: `push_deliveries`
+røres kun av senderens funksjoner (`service_role`), og `device_sessions` kun av
+`session_touch()`/`list_my_devices()`/`revoke_my_session()`, som alle setter
+`user_id` fra `auth.uid()` selv. En direkte vei til den siste ville latt en
+klient navngi en økt hen ikke eier.
+
+Se [`varsler.md`](varsler.md) og [`accounts.md`](accounts.md).
+
+**`auth.sessions` er Supabases, ikke vår.** Huskis bygger ingen egen
+auth-modell ved siden av: øktene lever der, `session_id`-claimet i access-tokenet
+peker på dem, og fjern-utlogging sletter raden der (`revoke_my_session()`,
+SECURITY DEFINER). `device_sessions` er bare et sidebord med det som gjør en økt
+gjenkjennelig for eieren — nettleser, plattform, vert, enhets-id. Hverken IP
+eller hele user-agenten forlater databasen.
 
 ### Roller (`memberships`)
 
@@ -119,6 +140,9 @@ PostgREST — og ikke hva som «kunne vært nyttig»:
 | `tombstones` | SELECT | skrives kun av `write_tombstone()`-triggerne |
 | `notifications` | SELECT, UPDATE(`read_at`), DELETE | rader lages kun av `notify_record()`; DELETE er «Tøm varsler» |
 | `notification_prefs` | SELECT | skrives kun av `notify_set_prefs()` og `notify_record()` (markøren) |
+| `push_subscriptions` | SELECT, DELETE | rader lages/fornyes av `push_subscribe()`; DELETE er «slå av i denne nettleseren» |
+| `push_deliveries` | – | låst tabell: kun `push_claim()`/`push_report()` (`service_role`) |
+| `device_sessions` | – | låst tabell: kun `session_touch()`/`list_my_devices()`/`revoke_my_session()` |
 
 SELECT på `memberships` og `share_invites` trengs også av
 realtime-abonnementet, som lytter på `postgres_changes` for begge.
