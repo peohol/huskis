@@ -866,6 +866,7 @@ async function run() {
   await pr.evaluate(() => {
     const ln = window.Capacitor.Plugins.LocalNotifications;
     const ekte = ln.schedule;
+    window.__kanal.ekteSchedule = ekte;      // 11g legger tregheten tilbake
     let n = 0;
     ln.schedule = function () {
       const vent = n++ === 0 ? 100 : 200;   // første inn, første ut
@@ -904,6 +905,59 @@ async function run() {
   log('11f: to overlappende speilinger etterlater telefonen med NØYAKTIG planen',
     treg.plan.length > 0 && JSON.stringify(treg.armert) === JSON.stringify(treg.plan),
     JSON.stringify(treg));
+
+  /* 11g) EN KØET RUNDE FALLER IKKE MED DEN SOM FEILET.
+
+     Broen kan feile forbigående. Signaturen står da urørt, så «neste runde»
+     gjør hele jobben — men uten nett FINNES det ingen neste runde: ingen pull
+     kommer fram, og debouncen til endringen som køet seg har allerede fyrt.
+     Falt den køede runden bort sammen med den som feilet, kostet ett hikst i
+     broen nøyaktig den alarmen.
+
+     Her feiler den første runden med vilje, mens en annen står i kø bak den.
+     Tidene settes rett i `state` — uten `save()`, så ingen debounce kan komme
+     og redde det som skal prøves. */
+  await pr.evaluate(() => {
+    const ln = window.Capacitor.Plugins.LocalNotifications;
+    ln.schedule = window.__kanal.ekteSchedule || ln.schedule;   // fjern tregheten fra 11f
+    const ekte = ln.getPending;
+    let n = 0;
+    ln.getPending = function () {
+      const args = arguments;
+      // Første runde: svar sent, og feil. De neste går som normalt.
+      if (n++ === 0) {
+        return new Promise((_, nei) => setTimeout(() => nei(new Error('bro-hikst (test)')), 200));
+      }
+      return ekte.apply(ln, args);
+    };
+    window.__kanal.schedule.length = 0;
+  });
+  const hikst = await pr.evaluate(async (lid) => {
+    const H = window.__huskis;
+    let kort = null;
+    for (const u of H.state.universes) for (const g of (u.groups || []))
+      for (const c of (g.cards || [])) if (c.id === lid) kort = c;
+    const to = (x) => String(x).padStart(2, '0');
+    const klokke = (m) => {
+      const d = new Date(Date.now() + m * 60000);
+      return d.getFullYear() + '-' + to(d.getMonth() + 1) + '-' + to(d.getDate()) +
+        'T' + to(d.getHours()) + ':' + to(d.getMinutes());
+    };
+    kort.due = klokke(19);
+    const r1 = H.syncNotifChannel();        // denne feiler i broen
+    kort.due = klokke(24);
+    const r2 = H.syncNotifChannel();        // denne står i kø bak den
+    await Promise.all([r1, r2]);
+    await new Promise((r) => setTimeout(r, 800));
+    return {
+      armert: window.__kanal.alarmer.map((n) => n.at).sort(),
+      plan: H.planNotifications(H.state, Date.now(), H.notifPrefs)
+        .map((r) => new Date(r.at).toISOString()).sort(),
+    };
+  }, id.LA);
+  log('11g: en runde som står i kø bak en som FEILET blir likevel kjørt',
+    hikst.plan.length > 0 && JSON.stringify(hikst.armert) === JSON.stringify(hikst.plan),
+    JSON.stringify(hikst));
 
   await ctxR.close();
 

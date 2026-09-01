@@ -801,6 +801,12 @@ sin mangler, og telefonen sitter igjen med én alarm for mye — den som ble tat
 UT av planen ringer likevel. Signaturen den siste runden skriver sier da
 «speilet», og den overflødige alarmen blir aldri ryddet bort.
 
+Den køede runden kjøres uansett hvordan den foregående gikk. En runde som
+feilet i broen lar signaturen stå, så «neste runde» gjør hele jobben — men
+uten nett finnes det ingen neste runde, og debouncen til endringen som køet
+seg har alt fyrt. Falt den køede runden bort sammen med den som feilet, kostet
+ett hikst i broen nøyaktig den alarmen.
+
 Broen mellom Huskis' identitet og Androids er ren: `nativeNotifId()` er en
 FNV-1a-hash klippet til et positivt 31-bits heltall (Androids varsel-ID er et
 Java-`int`). Determinismen er hele poenget — det er den som gjør at den samme
@@ -1151,8 +1157,9 @@ De to henger sammen på nøyaktig ett punkt, og ellers ikke:
   banene som badgen. Og til sist scenariet fra den fysiske testen: at et varsel
   som har RINGT blir stående i pluginens lagring uten å blokkere det neste, at
   en ny terskel blir en alarm SELV NÅR serveren ikke svarer og uten at noe
-  manuelt kjøres, og at to overlappende speilinger etterlater telefonen med
-  nøyaktig planen — ikke én alarm for mye.
+  manuelt kjøres, at to overlappende speilinger etterlater telefonen med
+  nøyaktig planen — ikke én alarm for mye — og at en runde som står i kø bak en
+  som FEILET i broen likevel blir kjørt.
 - `tests/push-crypto.test.js` — VAPID-signaturen og RFC 8291-krypteringen, mot
   et fast vektor fra `http_ece` og med signaturen faktisk verifisert.
 - `tests/notif-modal.test.js` — knappen og badgen, modalen, nyeste øverst,

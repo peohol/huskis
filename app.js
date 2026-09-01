@@ -11742,16 +11742,21 @@
         notifChAgain = false;
         // Bare den FØRSTE runden arver rundens øyeblikk; en ekstra runde er en
         // ny hendelse og skal måles mot klokka nå.
-        if (!await syncNotifChannelOnce(ch, runde ? null : now)) return;
+        await syncNotifChannelOnce(ch, runde ? null : now);
+        /* UTFALLET avgjør ikke om den KØEDE runden skal kjøres. En runde som
+           feilet lot signaturen stå, så neste forsøk gjør hele jobben — men
+           «neste forsøk» er ikke gitt: uten nett finnes det ingen synk-runde
+           som tar den igjen, og debouncen til endringen som satte flagget har
+           allerede fyrt. Falt den køede runden bort her, ville en forbigående
+           feil i broen kostet nøyaktig den alarmen. */
         if (!notifChAgain) return;
       }
     } finally {
       notifChSyncing = false;
     }
   }
-  /* Én speiling. Svarer `false` når runden er ferdig uansett hva som måtte ha
-     kommet imens: kanalen er av, eller broen feilet (og signaturen står urørt,
-     så neste runde prøver igjen med det samme). */
+  /* Én speiling. Kaster aldri: en bro som feiler lar signaturen stå urørt, så
+     neste runde gjør hele jobben og gjør det med en gang. */
   async function syncNotifChannelOnce(ch, now) {
     /* Android får PLANEN å speile; web push tar ingen — der har serveren
        planen allerede, og runden brukes til å fornye abonnementet.
@@ -11779,17 +11784,15 @@
        «uendret». */
     const egen = ch.sig(plan);
     const sig = egen == null ? null : ch.id + '|' + egen;
-    if (sig !== null && sig === notifChSig) return true;
+    if (sig !== null && sig === notifChSig) return;
     try {
-      if (await ch.state() !== 'on') return false;
+      if (await ch.state() !== 'on') return;
       await ch.sync(plan);
       notifChSig = sig;
     } catch (e) {
       // Stille: neste runde prøver igjen — og signaturen står urørt, så den
       // gjør det med en gang og ikke først når planen endrer seg.
-      return false;
     }
-    return true;
   }
 
   /* DEN LOKALE KANALEN VENTER IKKE PÅ SERVEREN.
