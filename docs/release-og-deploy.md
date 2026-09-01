@@ -206,8 +206,9 @@ nye frontenden trenger?** Kontrakten er hentet fra klienten, ikke fra skjemafila
    rettigheten, finnes funksjonen likevel og granten ser riktig ut, mens hvert
    eneste kall feiler. Ingen annen test kan se det. Dette er den ene sjekken
    som er en **advarsel og ikke en port**: appen kjører uansett (`session_alive()`
-   svarer «levende» om den ikke får lese, og klienten viser en feil på selve
-   knappen), så det er én funksjon som mangler — ikke en halvmigrert database
+   svarer «levende» om den ikke får lese, `native_notif_active()` svarer med de
+   samme radene uten øktkravet, og klienten viser en feil på selve knappen), så
+   det er én funksjon som mangler — ikke en halvmigrert database
 9. **funksjonelt**: `get_my_doc()` kalt som en innlogget, ukjent bruker
    returnerer et komplett, tomt doc — og `anon` avvises på både tabeller og RPC
 

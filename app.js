@@ -10295,7 +10295,12 @@
        runden et billig no-op. */
     const førPush = notifPushDevices;
     notifPushDevices = Number((my && my.push_devices) || 0);
-    if (notifPushDevices < førPush) { notifPushMark = null; notifPushMarkAt = 0; }
+    if (notifPushDevices < førPush) {
+      notifPushMark = null; notifPushMarkAt = 0;
+      // … og den native statusrunden, som er DEN veien en Android-app oppdager
+      // at noen slo den av. Uten dette ville telefonen ventet ut kvarteret sitt.
+      notifNativeMark = null; notifNativeMarkAt = 0; notifNativeRetryAt = 0;
+    }
     paintNotifBadge();
     refreshNotifModal();
     /* ÉTT øyeblikk for hele runden: opprydningen og speilingen måler mot den
@@ -11612,7 +11617,12 @@
     async enable() {
       const ln = nativePlugins.LocalNotifications;
       const p = await ln.requestPermissions();
-      return !!(p && p.display === 'granted');
+      if (!(p && p.display === 'granted')) return false;
+      // EKSPLISITT: brukeren står ved nettopp denne telefonen og slår varslene
+      // på. Det er den ene handlingen som tar tilbake en fjern-avslåing — som
+      // i web push-kanalen (`webChannel.enable`).
+      notifPushRevoked = false;
+      return true;
     },
     async disable() {
       await this.sync([]);       // planen tas ned; tillatelsen beholdes
@@ -11846,6 +11856,71 @@
   let notifPushMarkAt = 0;    // da vi sist meldte fra
   const PUSH_RENEW_MS = 15 * 60 * 1000;   // hvor lenge en fornyelse holder
 
+  /* ---------------- Android: kanalens STATUS på serveren ----------------
+
+     Alarmene er telefonens egne og trenger ingen server. «Enheter med varsler»
+     gjør: uten en status ville en telefon som varsler helt korrekt vært
+     usynlig fra huskis.no, og ingen annen enhet kunne slått den av. Det som
+     meldes er derfor det MINSTE som gjør raden sann — er kanalen på her, og
+     hvilken klientkontekst er «her» — aldri noe som måler telefonen.
+
+     SJELDEN MED VILJE. Statusen endrer seg bare når brukeren rører bryteren
+     eller tillatelsen, så runden går ved innlogging, ved hvert på/av, i det
+     statusen faktisk endrer seg — og ellers som en puls hvert kvarter, så
+     metadataen ikke blir permanent foreldet. Ingen skriving hvert femte sekund.
+
+     Runden er også måten denne telefonen OPPDAGER at en annen enhet slo den
+     av: svarer serveren `revoked`, rigges kanalen ned her. */
+  let notifNativeMark = null;    // kanalstatusen sist vi meldte fra om
+  let notifNativeMarkAt = 0;     // … og da vi meldte den
+  let notifNativeRetryAt = 0;    // etter et mislykket kall: ikke mas
+  async function syncNativeNotifDevice(opts) {
+    if (!androidChannel.supported()) return;
+    const client = acli();
+    if (!client || !authUser) return;
+    /* Et EKSPLISITT valg går alltid gjennom. Det er den ene handlingen som
+       opphever en fjern-avslåing, og den skal ikke kunne dempes bort av
+       hverken vinduet eller en tidligere feil. */
+    const eksplisitt = !!(opts && opts.explicit);
+    if (!eksplisitt && Date.now() < notifNativeRetryAt) return;
+    /* BILLIG FØRST. Bryteren ligger i `localStorage`; er den av, er kanalen av
+       uansett hva tillatelsen sier. Er den på, avgjør tillatelsen — men
+       `androidChannel.state()` er en tur over pluginbroen
+       (`checkPermissions`), og den skal ikke gå hvert femte sekund for
+       ingenting. Runden spør derfor broen først når den faktisk har noe å
+       melde; en tillatelse som ble trukket i systeminnstillingene fanges av
+       pulsen (og av panelet, som leser statusen på nytt hver gang det åpnes). */
+    const antatt = notifChannelWanted() ? 'on' : 'off';
+    if (!eksplisitt && antatt === notifNativeMark &&
+        Date.now() - notifNativeMarkAt < PUSH_RENEW_MS) return;
+    let på = false;
+    try { på = (await androidChannel.state()) === 'on'; } catch (e) { return; }
+    const merke = på ? 'on' : 'off';
+    if (!eksplisitt && merke === notifNativeMark &&
+        Date.now() - notifNativeMarkAt < PUSH_RENEW_MS) return;
+    const d = clientDescriptor();
+    try {
+      const { data, error } = await client.rpc('native_notif_touch', {
+        p_enabled: på, p_browser: d.browser, p_platform: d.platform,
+        p_origin: d.origin, p_device_id: d.deviceId, p_explicit: eksplisitt,
+      });
+      if (error) throw error;
+      notifNativeMark = merke;
+      notifNativeMarkAt = Date.now();
+      notifNativeRetryAt = 0;
+      /* Fjern-avslått fra en annen enhet. Da rigges kanalen ned her — de
+         planlagte alarmene avlyses og bryteren går av — og ingen automatisk
+         runde kan slå dem på igjen. */
+      if (data && data.revoked && (notifChannelWanted() || !notifPushRevoked)) {
+        await notifChannelRevokedHere();
+      }
+    } catch (e) {
+      // Stille: neste runde prøver igjen, med en pause så en server som
+      // nettopp sa nei ikke blir spurt hvert femte sekund. Merket står urørt.
+      notifNativeRetryAt = Date.now() + NOTIF_RETRY_MS;
+    }
+  }
+
   /* ÉN kanal per enhet: den native når vi kjører i appen, nettleserens ellers.
      De to er aldri aktive samtidig — inne i APK-en finnes det ingen pushtjeneste
      å melde seg på, og i en nettleser finnes det ingen native plugin. */
@@ -11961,17 +12036,32 @@
     }
   }
 
-  /* Serveren har tilbakekalt abonnementet vårt. Den lokale nedriggingen er den
-     som faktisk stopper varslene (docs/varsler.md, «Avmeldingen går lokalt
-     FØRST»), og bryteren settes av så `syncNotifChannel` ikke melder oss på
-     igjen i neste runde. Ingen toast: dette er et valg brukeren selv tok på en
-     annen enhet, og panelet viser sluttilstanden. */
+  /* Serveren har slått av varslene for DENNE klienten (brukeren gjorde det fra
+     en annen enhet). Den lokale nedriggingen er den som faktisk stopper
+     varslene (docs/varsler.md, «Avmeldingen går lokalt FØRST»), og bryteren
+     settes av så ingen automatisk runde melder oss på igjen. Ingen toast:
+     dette er et valg brukeren selv tok på en annen enhet, og panelet viser
+     sluttilstanden.
+
+     NEDRIGGINGEN ER KANALENS EGEN, og de to gjør ikke det samme:
+
+       · ANDROID avlyser de planlagte alarmene på telefonen
+         (`androidChannel.disable()`). Det er nettopp dem serveren ikke kan
+         røre — de ligger i operativsystemets alarmkø — så dette er stedet
+         fjern-avslåingen faktisk GJENNOMFØRES.
+       · NETTLESEREN avregistrerer service workeren og lar serverraden bli
+         stående (`keepRow`): det er `revoked_at` som holder et gjenbrukt
+         endepunkt fra å våkne som aktivt. */
   async function notifChannelRevokedHere() {
     notifPushRevoked = true;
     setNotifChannelWanted(false);
     notifPushMark = null; notifPushMarkAt = 0;
+    notifNativeMark = null; notifNativeMarkAt = 0;
     notifChSig = null;
-    try { await webChannel.disable({ keepRow: true }); } catch (e) { /* nedriggingen er best effort */ }
+    try {
+      if (androidChannel.supported()) await androidChannel.disable();
+      else await webChannel.disable({ keepRow: true });
+    } catch (e) { /* nedriggingen er best effort */ }
     await refreshNotifChannelState();
     refreshNotifModal(true);
   }
@@ -12007,7 +12097,12 @@
         setNotifChannelWanted(on);
         notifChSig = null;      // neste speiling skal gjøre hele jobben
         notifPushMark = null; notifPushMarkAt = 0;
+        notifNativeMark = null; notifNativeMarkAt = 0; notifNativeRetryAt = 0;
         if (on) await syncNotifChannel();
+        /* Den native kanalen har ingen serverrad som faller på plass av seg
+           selv — statusen må meldes. Og et «slå på» HER er eksplisitt: det er
+           det ene som tar tilbake en fjern-avslåing fra en annen enhet. */
+        await syncNativeNotifDevice({ explicit: on });
       }
     } catch (e) {
       /* Bare et mislykket PÅ trekker valget tilbake. Feiler avslåingen, står
@@ -12226,6 +12321,7 @@
     // Kanalen er enhetens, ikke kontoens: den blir stående. Men abonnementet
     // og den native planen hørte til den forrige brukeren, og skal bort.
     notifPushMark = null; notifPushMarkAt = 0;
+    notifNativeMark = null; notifNativeMarkAt = 0; notifNativeRetryAt = 0;
     notifChSig = null;
     notifPendingTarget = null;
     notifChannelTapped.clear();
@@ -13325,6 +13421,24 @@
   });
 
   const LOGOUT_UNSUB_MS = 3000;   // så lenge utloggingen venter på avmeldingen
+
+  /* UTLOGGINGEN TAR VARSELSTATUSEN MED SEG. En app som ikke er innlogget skal
+     ikke stå igjen som en «enhet med varsler» på kontoen — og de planlagte
+     alarmene tas ned av `resetNotifications()`, som utloggingen kjører
+     uansett. Best effort og innenfor den samme fristen som avmeldingen av web
+     push: å bli hengende igjen innlogget er verre enn en rad som listen
+     uansett skjuler (den krever en levende økt i klientkonteksten). */
+  async function reportNativeNotifOff() {
+    if (!androidChannel.supported()) return;
+    const client = acli();
+    if (!client || !authUser) return;
+    const d = clientDescriptor();
+    const { error } = await client.rpc('native_notif_touch', {
+      p_enabled: false, p_browser: d.browser, p_platform: d.platform,
+      p_origin: d.origin, p_device_id: d.deviceId, p_explicit: false,
+    });
+    if (error) throw error;
+  }
   /* «Logg ut» er LOKAL, og det er et bevisst valg.
 
      supabase-js sitt `signOut()` har `global` som standard, og global betyr
@@ -13350,7 +13464,7 @@
        uansett ryddes når en ny bruker melder seg på i samme nettleser). */
     try {
       await Promise.race([
-        webChannel.disable(),
+        Promise.all([webChannel.disable(), reportNativeNotifOff()]),
         new Promise((r) => setTimeout(r, LOGOUT_UNSUB_MS)),
       ]);
     } catch (e) { /* ignorer */ }
@@ -13439,8 +13553,13 @@
     const epoke = devicesEpoch;
     devicesBusy = true;
     try {
+      /* Klientkonteksten går INN, som endepunktet: den er det «denne enheten»
+         avgjøres av for en native rad (en Android-app har ikke noe endepunkt).
+         Ingenting går den andre veien. */
+      const meg = clientDescriptor();
       const { data, error } = await client.rpc('list_my_devices',
-        { p_endpoint: await myPushEndpoint() });
+        { p_endpoint: await myPushEndpoint(),
+          p_device_id: meg.deviceId, p_origin: meg.origin });
       if (epoke !== devicesEpoch) return;   // kontoen byttet mens vi ventet
       if (error) throw error;
       devicesRows = {
@@ -13491,6 +13610,9 @@
     const li = document.createElement('li');
     li.className = 'device-row' + (r.current ? ' is-current' : '');
     li.dataset.id = String(r.id);
+    // Kanaltypen ('web' | 'native') på varselradene — den avgjør hvilken vei
+    // «Slå av» går, og hva kvitteringen kan love (se `revokePushDevice`).
+    if (r.kind) li.dataset.kind = String(r.kind);
 
     const tekst = document.createElement('div');
     tekst.className = 'device-text';
@@ -13615,14 +13737,33 @@
     await loadDevices();
   }
 
+  /* «Slå av» på en varselrad. TO KANALTYPER, to veier ut — og de kan ikke love
+     det samme:
+
+       · et ABONNEMENT slås av på serveren, og da er det av. Utboksen tømmes,
+         senderen plukker ingenting opp, og nettleseren melder seg ikke på igjen.
+       · en NATIV klient har alarmene sine liggende i telefonens egen alarmkø.
+         Serveren kan registrere valget, men ikke nå inn og avlyse dem: uten en
+         pushkanal (FCM) finnes det ingen vei til en app som ikke kjører. En
+         ÅPEN app gjennomfører det i sin neste synk-runde; en lukket gjør det
+         neste gang den er i bruk.
+
+     Kvitteringen sier nettopp det, så ingen tror at en telefon som ligger i
+     lomma ble stille i samme sekund (docs/varsler.md). */
   async function revokePushDevice(r) {
     const client = acli();
     if (!client || !authUser) return;
+    const nativ = r.kind === 'native';
     try {
-      const { data, error } = await client.rpc('push_revoke', { p_id: r.id });
+      // Hvert navn skrevet ut: `tests/db-contract.test.js` leser dem ut av
+      // kilden og holder smoke-testen (deploy-porten) i takt med klienten.
+      const svar = await (nativ
+        ? client.rpc('native_notif_revoke', { p_id: r.id })
+        : client.rpc('push_revoke', { p_id: r.id }));
+      const { data, error } = svar;
       if (error) throw error;
-      if (data === false) throw new Error('ingen slikt abonnement');
-      showToast(tr('devices.turnedOff'));
+      if (data === false) throw new Error('ingen slik varselenhet');
+      showToast(tr(nativ ? 'devices.turnedOffApp' : 'devices.turnedOff'));
     } catch (e) {
       showToast(tr('devices.actionFailed'));
     }
@@ -13637,11 +13778,20 @@
       title: tr('devices.pushOffOthers'),
       message: tr('devices.pushOffOthersMsg'),
       okLabel: tr('devices.pushOffOthers') })) return;
+    /* Var en av de andre en Android-app, kan ikke kvitteringen love at det er
+       gjort — appen tar ned alarmene sine neste gang den er i bruk. */
+    const nativeAndre = ((devicesRows && devicesRows.push) || [])
+      .some((x) => !x.current && x.kind === 'native');
     try {
-      const { error } = await client.rpc('push_revoke_others',
-        { p_endpoint: await myPushEndpoint() });
+      const meg = clientDescriptor();
+      /* Én handling for begge kanaltypene: abonnementene tilbakekalles som før,
+         de native klientene merkes avslått. Gjeldende klient spares uansett
+         hvilken type den er — derfor går både endepunktet og konteksten inn. */
+      const { error } = await client.rpc('notif_revoke_others',
+        { p_endpoint: await myPushEndpoint(),
+          p_device_id: meg.deviceId, p_origin: meg.origin });
       if (error) throw error;
-      showToast(tr('devices.turnedOffOthers'));
+      showToast(tr(nativeAndre ? 'devices.turnedOffOthersApp' : 'devices.turnedOffOthers'));
     } catch (e) {
       showToast(tr('devices.actionFailed'));
     }
@@ -15487,6 +15637,16 @@
       // fram lar markøren stå, og vinduet er fortsatt åpent neste gang.
       applyNotifications(my);
       await runNotifications();
+      /* … og den native varselkanalens status, med sin egen demping. Uten den
+         ville en Android-app vært usynlig i «Enheter med varsler», og en
+         fjern-avslåing hadde aldri nådd telefonen.
+
+         ETTER `applyNotifications`, og det er ikke tilfeldig: det er der
+         telleren fra doc-et leses, og et FALL i den nullstiller dempingen.
+         Rekkefølgen gjør at den samme runden som SER at noen slo av en enhet,
+         også er den som spør serveren om det var oss — altså én synk-runde fra
+         valget til alarmene er avlyst, ikke to. */
+      syncNativeNotifDevice();
       refreshOpenShare(); // en åpen del-modal følger samme runde (medlemmer, invitasjoner, lås)
       maybeOfferMigration(my);
     } catch (e) {
@@ -17034,6 +17194,10 @@
     // fjern-utlogging fra forrige økt skal ikke stå i veien for den nye.
     remoteSignOutDone = false;
     sessionTouchedAt = 0;
+    /* Den native varselstatusen hører til DENNE innloggingen og skal meldes med
+       det samme — ellers er telefonen usynlig i «Enheter med varsler» fram til
+       pulsen går, et kvarter senere. */
+    notifNativeMark = null; notifNativeMarkAt = 0; notifNativeRetryAt = 0;
     resetDevices();
     migrationChecked = false;
     navRestored = false; // gjenopprett husket posisjon ved neste (første) pull
@@ -18772,6 +18936,9 @@
        tilstandsmaskinen — tillatelse, av/på, diff — uten en telefon. */
     planNotifications, nativeNotifId, nativeNotifSig, notifWallClock, deviceTz,
     notifChannel, setNotifChannel, syncNotifChannel, refreshNotifChannelState,
+    // Den native kanalens status på serveren (docs/varsler.md, «Android i
+    // enhetslisten») — testene kjører runden uten å vente ut kvarteret.
+    syncNativeNotifDevice,
     // Enheter og økter (docs/accounts.md) — oppsett og inspeksjon i tester.
     pushDeployAllowed, deployKind, pushPreviewBlocked,
     clientBrowser, clientPlatform, clientOriginHost,

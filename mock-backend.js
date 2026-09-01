@@ -70,6 +70,9 @@
         // ellers kan ikke fjern-utlogging testes i det hele tatt. Sidebordet
         // (`device_sessions`) er vårt eget, som i users-and-sharing.sql.
         auth_sessions: [], device_sessions: [],
+        // Android-appens varselkanal: statusen som gjør «Enheter med varsler»
+        // sann også for native (docs/varsler.md).
+        native_notif_devices: [],
       };
     }
     return migrateRoles(db);
@@ -90,6 +93,7 @@
     db.push_deliveries = db.push_deliveries || [];
     db.auth_sessions = db.auth_sessions || [];
     db.device_sessions = db.device_sessions || [];
+    db.native_notif_devices = db.native_notif_devices || [];
     if (db._rolesBackfilled) return db;
     db._rolesBackfilled = true;
     var has = function (uid, col, id) {
@@ -770,6 +774,87 @@
     });
     return n;
   }
+  /* ---------------- Native varselenheter (docs/varsler.md) ----------------
+     Speiler native_notif_touch()/_revoke()/notif_revoke_others(): Android
+     planlegger LOKALE alarmer og har intet abonnement, så det serveren har er
+     en STATUS per klientkontekst (`user_id` + `device_id` + `origin`) — den
+     samme trekanten et avslått abonnement kjennes igjen på. */
+  var nativeCtx = function (x, dev, org) {
+    return !!(dev && org && x.device_id === dev && x.origin === org);
+  };
+  /* DE AKTIVE. Tre ledd, og det tredje er det som gjør listen sann: kanalen er
+     på, brukeren har ikke slått den av fra en annen enhet, OG konteksten har
+     fortsatt en levende økt. Uten det siste ville en app som ble logget ut
+     blitt stående som en «enhet med varsler» til den ble åpnet igjen. */
+  function nativeNotifActive(db, uid) {
+    var levende = {};
+    db.auth_sessions.forEach(function (x) { levende[x.id] = 1; });
+    return db.native_notif_devices.filter(function (n) {
+      if (n.user_id !== uid || !n.enabled || n.revoked_at) return false;
+      return db.device_sessions.some(function (d) {
+        return d.user_id === uid && levende[d.session_id] &&
+               nativeCtx(d, n.device_id, n.origin);
+      });
+    });
+  }
+  function nativeNotifTouch(db, uid, p) {
+    var dev = p.p_device_id, org = p.p_origin;
+    if (!dev || !org) throw new Error('mangler klientkontekst');
+    var vil = !!p.p_enabled;
+    var row = db.native_notif_devices.find(function (x) {
+      return x.user_id === uid && nativeCtx(x, dev, org);
+    });
+    /* FJERN-AVSLÅTT, og runden er ikke et eksplisitt «slå på». Da står valget:
+       raden blir liggende avslått, og svaret sier fra slik at appen kan rigge
+       ned sin egen ende (avlyse alarmene, sette bryteren av). */
+    if (row && row.revoked_at && !p.p_explicit) {
+      row.enabled = false;
+      if (p.p_browser != null) row.browser = p.p_browser;
+      if (p.p_platform != null) row.platform = p.p_platform;
+      row.seen_at = Date.now();
+      return { id: row.id, revoked: true, enabled: false };
+    }
+    // En klient som aldri har hatt varsler på trenger ingen rad (som serveren).
+    if (!row && !vil) return { id: null, revoked: false, enabled: false };
+    if (!row) {
+      row = { id: newUuid(), user_id: uid, device_id: dev, origin: org,
+              created_at: Date.now(), revoked_at: null };
+      db.native_notif_devices.push(row);
+    }
+    if (p.p_browser != null) row.browser = p.p_browser;
+    if (p.p_platform != null) row.platform = p.p_platform;
+    row.enabled = vil;
+    row.seen_at = Date.now();
+    // Bare et eksplisitt «slå PÅ» opphever en fjern-avslåing.
+    if (p.p_explicit && vil) row.revoked_at = null;
+    return { id: row.id, revoked: false, enabled: vil };
+  }
+  /* Fjern-avslåing av ÉN native klient — som pushRevoke(), men uten løkke over
+     konteksten: én kontekst ER én rad her (den unike indeksen i SQL-en).
+     Idempotent: en rad som alt er avslått beholder tidspunktet sitt. */
+  function nativeNotifRevoke(db, uid, id) {
+    var row = db.native_notif_devices.find(function (x) {
+      return x.id === id && x.user_id === uid;
+    });
+    if (!row) return false;   // en fremmed id røper aldri at raden finnes
+    row.revoked_at = row.revoked_at || Date.now();
+    row.enabled = false;
+    return true;
+  }
+  /* «Slå av varsler på alle andre enheter» — begge kanaltypene i én handling.
+     Nettleserne tas av pushRevokeOthers(), som eier hele den semantikken fra
+     før; her legges de native klientene til, alle unntatt kallerens egen. */
+  function notifRevokeOthers(db, uid, p) {
+    var n = pushRevokeOthers(db, uid, p && p.p_endpoint);
+    var dev = p && p.p_device_id, org = p && p.p_origin;
+    db.native_notif_devices.slice().forEach(function (x) {
+      if (x.user_id !== uid || !x.enabled || x.revoked_at) return;
+      if (nativeCtx(x, dev, org)) return;   // gjeldende klient beholdes
+      if (nativeNotifRevoke(db, uid, x.id)) n++;
+    });
+    return n;
+  }
+
   function pushUnsubscribe(db, uid, endpoint) {
     var doomed = {};
     db.push_subscriptions = db.push_subscriptions.filter(function (x) {
@@ -880,10 +965,13 @@
                      startNow: !!p.start_now, startSoon: !!p.start_soon,
                      cursor: p.cursor_at, tz: p.tz || null, tzAt: p.tz_at || 0 } : null;
       })(),
-      // Antall nettlesere med web push PÅ — ett tall, ikke endepunktene.
+      /* Antall ENHETER med varsler på — nettlesere med web push OG
+         Android-apper med den native kanalen på. Ett tall, ikke endepunktene.
+         Begge teller, og det er ikke kosmetikk: tallet er også SIGNALET
+         klientene bruker til å oppdage at noen slo dem av. */
       push_devices: db.push_subscriptions.filter(function (x) {
         return x.user_id === uid && !x.disabled_at && !x.revoked_at;
-      }).length,
+      }).length + nativeNotifActive(db, uid).length,
       /* Lever økten vår ennå? Som serveren legger vi svaret i det pollede
          doc-et: det er slik en fjern-utlogget fane oppdager tilstanden uten å
          vente på at tokenet utløper (docs/accounts.md). */
@@ -922,7 +1010,8 @@
       return d.user_id !== uid || levende[d.session_id];
     });
   }
-  function listMyDevices(db, uid, endpoint) {
+  function listMyDevices(db, uid, p) {
+    var endpoint = p && p.p_endpoint;
     // Ingen luking her (som serveren): listen leses fra «auth.sessions», så en
     // foreldreløs sidebordsrad er allerede usynlig. session_touch() luker.
     var u = getSess();
@@ -942,16 +1031,28 @@
         return (b.current ? 1 : 0) - (a.current ? 1 : 0) || (b.seenAt - a.seenAt) ||
           (a.id < b.id ? -1 : 1);
       });
+    /* VARSELENHETENE — begge kanaltypene i ÉN liste, som serveren. `origin` er
+       `null` på en native rad: appens vert er en KONTEKSTNØKKEL, ikke en
+       adresse brukeren har vært på. `kind` er det klienten dispatcher på når
+       raden slås av. */
     var push = db.push_subscriptions
       .filter(function (x) { return x.user_id === uid && !x.disabled_at && !x.revoked_at; })
       .map(function (x) {
         return {
-          id: x.id, current: !!endpoint && x.endpoint === endpoint,
+          id: x.id, kind: 'web', current: !!endpoint && x.endpoint === endpoint,
           browser: x.browser || null, platform: x.platform || null,
           origin: x.origin || null,
           createdAt: x.created_at || 0, seenAt: x.seen_at || 0,
         };
       })
+      .concat(nativeNotifActive(db, uid).map(function (x) {
+        return {
+          id: x.id, kind: 'native',
+          current: nativeCtx(x, p && p.p_device_id, p && p.p_origin),
+          browser: x.browser || null, platform: x.platform || null, origin: null,
+          createdAt: x.created_at || 0, seenAt: x.seen_at || 0,
+        };
+      }))
       .sort(function (a, b) {
         return (b.current ? 1 : 0) - (a.current ? 1 : 0) || (b.seenAt - a.seenAt) ||
           (a.id < b.id ? -1 : 1);
@@ -1312,8 +1413,11 @@
       push_unsubscribe: function (p) { return pushUnsubscribe(db, uid, p.p_endpoint); },
       push_revoke: function (p) { return pushRevoke(db, uid, p.p_id); },
       push_revoke_others: function (p) { return pushRevokeOthers(db, uid, p.p_endpoint); },
+      native_notif_touch: function (p) { return nativeNotifTouch(db, uid, p); },
+      native_notif_revoke: function (p) { return nativeNotifRevoke(db, uid, p.p_id); },
+      notif_revoke_others: function (p) { return notifRevokeOthers(db, uid, p); },
       session_touch: function (p) { return sessionTouch(db, uid, p); },
-      list_my_devices: function (p) { return listMyDevices(db, uid, p && p.p_endpoint); },
+      list_my_devices: function (p) { return listMyDevices(db, uid, p); },
       revoke_my_session: function (p) { return revokeMySession(db, uid, p.p_session_id); },
       /* Tidssonen planen tilhører. Som serveren: hevdelsen går bare gjennom når
          sonen er tom, er vår egen, eller den forrige er gammel nok — det er den
@@ -1619,6 +1723,9 @@
         db.notification_prefs = db.notification_prefs.filter(function (n) { return n.user_id !== uid; });
         db.push_deliveries = db.push_deliveries.filter(function (d) { return d.user_id !== uid; });
         db.push_subscriptions = db.push_subscriptions.filter(function (x) { return x.user_id !== uid; });
+        // … og statusen til de native varselkanalene: en rad som ble stående
+        // ville vært en «enhet med varsler» for en konto som ikke finnes.
+        db.native_notif_devices = db.native_notif_devices.filter(function (x) { return x.user_id !== uid; });
         // 4c. øktene og den gjenkjennelige metadataen om dem.
         db.auth_sessions = db.auth_sessions.filter(function (x) { return x.user_id !== uid; });
         db.device_sessions = db.device_sessions.filter(function (x) { return x.user_id !== uid; });

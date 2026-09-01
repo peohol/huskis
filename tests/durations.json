@@ -43,6 +43,7 @@
   "tests/no-legacy-domain.test.js": 0,
   "tests/notif-channels.test.js": 91,
   "tests/notif-modal.test.js": 35,
+  "tests/notif-native-devices.test.js": 7,
   "tests/notif-plan.test.js": 7,
   "tests/notifications.test.js": 6,
   "tests/object-menu.test.js": 38,
