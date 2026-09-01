@@ -2,20 +2,21 @@
 <!--
   STATUSLINJE-IKONET for native varsler (docs/varsler.md).
 
+  GENERERT av tests/lag-varselikoner.js — rediger geometrien der, ikke her.
+  Den samme masken rasteriseres til assets/notif/huskis-badge-96.png, som web
+  push bruker som `badge`. Begge steder er motivet det samme, og
+  tests/notif-channels.test.js sjekker at banene er identiske.
+
   Uten dette bruker @capacitor/local-notifications Androids egen
   `ic_dialog_info` — et fremmed systemikon i statuslinjen på hvert eneste
-  Huskis-varsel. Ikonet er derfor ikke pynt: det er forskjellen på at varselet
-  ser ut som appens og at det ser ut som ingens.
+  Huskis-varsel.
 
-  Et statuslinje-ikon er en MASKE: Android kaster fargene og tegner formen i sin
-  egen farge. Derfor er merket her redusert til de tre kortenes KONTURER — de
-  samme rammene som i `ic_launcher_foreground.xml` og `favicon.svg`, men uten
-  fyll og uten avkryssingslista, som ville gått i ett ved 24 dp.
-
-  Koordinatene står i favicon-ens eget 24-rutenett; `<group>` skalerer merket
-  (som spenner 3.3–20.7) opp til de ytre 22 dp av flaten, slik at de to kan
-  sammenlignes linje for linje. Streken er tykkere enn favicon-ens av samme
-  grunn som fyllet er borte: en 0.9-strek forsvinner i statuslinjen.
+  Et statuslinje-ikon er en MASKE: Android kaster fargene og tegner formen i
+  sin egen. Derfor ingen fyllflater — en fylt logo blir en uformelig klump —
+  men KONTURER: det fremste kortet med sine tre punkter og linjer, og to
+  kortHJØRNER bak det. Målene er favicon-ens motiv tilpasset 24 dp, ikke
+  favicon-ens egne mål: der dekker de fylte kortene hverandre, her må hvert
+  synlig ledd tegnes for seg og ha luft rundt seg.
 -->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     android:width="24dp"
@@ -23,28 +24,49 @@
     android:viewportWidth="24"
     android:viewportHeight="24"
     android:tint="#FFFFFF">
-    <group
-        android:scaleX="1.264"
-        android:scaleY="1.264"
-        android:translateX="-3.168"
-        android:translateY="-3.168">
-        <path
-            android:pathData="M6.1,3.3 H11.9 A2.8,2.8 0 0 1 14.7,6.1 V11.9 A2.8,2.8 0 0 1 11.9,14.7 H6.1 A2.8,2.8 0 0 1 3.3,11.9 V6.1 A2.8,2.8 0 0 1 6.1,3.3 Z"
-            android:strokeColor="#FFFFFF"
-            android:strokeWidth="1.3"
-            android:strokeLineCap="round"
-            android:strokeLineJoin="round" />
-        <path
-            android:pathData="M9.1,6.3 H14.9 A2.8,2.8 0 0 1 17.7,9.1 V14.9 A2.8,2.8 0 0 1 14.9,17.7 H9.1 A2.8,2.8 0 0 1 6.3,14.9 V9.1 A2.8,2.8 0 0 1 9.1,6.3 Z"
-            android:strokeColor="#FFFFFF"
-            android:strokeWidth="1.3"
-            android:strokeLineCap="round"
-            android:strokeLineJoin="round" />
-        <path
-            android:pathData="M12.1,9.3 H17.9 A2.8,2.8 0 0 1 20.7,12.1 V17.9 A2.8,2.8 0 0 1 17.9,20.7 H12.1 A2.8,2.8 0 0 1 9.3,17.9 V12.1 A2.8,2.8 0 0 1 12.1,9.3 Z"
-            android:strokeColor="#FFFFFF"
-            android:strokeWidth="1.3"
-            android:strokeLineCap="round"
-            android:strokeLineJoin="round" />
-    </group>
+    <path
+        android:pathData="M10,2 H5 A3,3 0 0 0 2,5 V10"
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="1.6"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round" />
+    <path
+        android:pathData="M13,5 H8 A3,3 0 0 0 5,8 V13"
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="1.6"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round" />
+    <path
+        android:pathData="M11,8 H19 A3,3 0 0 1 22,11 V19 A3,3 0 0 1 19,22 H11 A3,3 0 0 1 8,19 V11 A3,3 0 0 1 11,8 Z"
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="1.6"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round" />
+    <path
+        android:pathData="M10.75,11.8 a0.85,0.85 0 1,0 1.7,0 a0.85,0.85 0 1,0 -1.7,0 Z"
+        android:fillColor="#FFFFFF" />
+    <path
+        android:pathData="M10.75,15 a0.85,0.85 0 1,0 1.7,0 a0.85,0.85 0 1,0 -1.7,0 Z"
+        android:fillColor="#FFFFFF" />
+    <path
+        android:pathData="M10.75,18.2 a0.85,0.85 0 1,0 1.7,0 a0.85,0.85 0 1,0 -1.7,0 Z"
+        android:fillColor="#FFFFFF" />
+    <path
+        android:pathData="M14.2,11.8 H19.2"
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="1.5"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round" />
+    <path
+        android:pathData="M14.2,15 H19.2"
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="1.5"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round" />
+    <path
+        android:pathData="M14.2,18.2 H19.2"
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="1.5"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round" />
 </vector>

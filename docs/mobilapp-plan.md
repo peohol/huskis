@@ -1204,7 +1204,7 @@ svarte på «hvilken Huskis-release er dette?» før `releaseId` kom til.
 | `buildId` | «hvilken build/deploy kjører denne klienten?» | `build.js`, én gang per bygg | Vercels deploy-ID i produksjon, ellers `<sha12>-<tid i base36>`. Stemplet i `<meta name="huskis-build">` OG `/version.json`, og hektet på JS/CSS-URL-ene som `?b=` |
 | `version.json.version` | «hvilken SemVer?» — ingenting, med vilje | `package.json` | `null`. `package.json` finnes kun for Capacitor-skallet og har ikke noe `version`-felt, så SemVer skal ikke måtte økes per PR |
 | Vercels deployment-ID | «hvilken deploy i Vercels infrastruktur?» | Vercel | Brukes som `buildId` i produksjonsbygget, og ALDRI til noe annet. Den er leverandørens identitet, ikke produktets |
-| `versionCode` / `versionName` | «hvilken butikkbinær?» | `android/app/build.gradle` | `4` / `"1.0.4"` — ett tall i to roller: OTA-ens kompatibilitetsnivå (fase 5) og Google Plays monotone opplastingsnummer (fase 6). `versionName` utledes av det samme tallet. Et krav fra butikken og fra OTA, ikke en produktversjon |
+| `versionCode` / `versionName` | «hvilken butikkbinær?» | `android/app/build.gradle` | `5` / `"1.0.5"` — ett tall i to roller: OTA-ens kompatibilitetsnivå (fase 5) og Google Plays monotone opplastingsnummer (fase 6). `versionName` utledes av det samme tallet. Et krav fra butikken og fra OTA, ikke en produktversjon |
 
 Hullet: `buildId` er unik per BYGG. Web og Android bygges av hver sin kjøring av
 `node build.js` over det samme treet, så de kan ikke ha samme `buildId` — og
@@ -1699,7 +1699,7 @@ karantenen kan prøves i praksis.
 | `tests/capacitor-android.test.js` | de to låsene som måtte utvides, pluss invariantene: at `LiveUpdate`-blokken finnes, at `readyTimeout` er positiv, at `autoUpdateStrategy` ikke er slått på, at `autoBlockRolledBackBundles` ER slått på, at ingen sky-felter er satt, at `ready()` står bak gaten og kalles fra begge skjermene, at `appReady` ikke settes før promisen er avgjort. Og de to native halvdelene av signeringen: at `versionCode` er over `2` (feltet over pakkes inn i APK-en), og at `publicKey` er en RSA-nøkkel som overlever PLUGINENS egen parsing — base64 uten PEM-hoder, lest som `X509EncodedKeySpec`. Fra hente-runden: at broen kalles med kun de seks kjente metodene, at hentingen står bak gaten, at URL-en bygges av `canonicalAppUrl()` + `versionCode` uten tallparsing, ett `fetch` med `no-store`, validering før bruk, `===` mot meta-taggen, og `downloadBundle` uten `checksum`. Fra oppstillingsrunden: at `downloadBundle`/`setNextBundle`/`reload` hver kalles fra nøyaktig ETT sted, at karantenen spørres FØR `setNextBundle` og er fail closed, at «klargjort» dekker en bundle som alt ligger i lageret, at rollback føres i en VARIG liste, at `live.reload()` bare kalles når noe faktisk er stilt opp — og at `update-check.js` fortsatt ikke kjenner et eneste pluginnavn: at ett-forsøk-vakten kun skrives i `autoReload()`, at `evaluate()` returnerer før alt annet når målet ikke er klargjort, og at banneret kun vises fra klargjøringens ja-gren |
 | `tests/ota-fetch.test.js` | flyten KJØRT i ekte nettleser, med broen faket slik skallet injiserer den og manifest-URL-en rutet: i nettleser skjer ingenting; 404 og nettverksfeil er stille no-op med nøyaktig ett oppslag på riktig URL; ugyldige manifester (ikke-JSON, fremmed `url`-vert, feil `versionCode`) stopper ved systemgrensen; lik `releaseId` laster ingenting; ulik `releaseId` gir nøyaktig ett `downloadBundle` med nøyaktig de tre feltene, og deretter ett `setNextBundle` med manifestets `bundleId` — etter at karantenen er spurt. En avvist nedlasting stiller ingenting opp; `ERROR_BUNDLE_EXISTS` leses som `already-downloaded` og stilles LIKEVEL opp; en blokkert `bundleId` lastes ikke engang ned; en blokkliste som ikke kan leses er også et nei; en feilet oppstilling er stille. Ingenting kaller `reload()` av seg selv |
 | `tests/auto-update.test.js` | klargjøringen KJØRT i ekte nettleser med injisert `prepare`: et uklargjort mål gir verken banner eller reload og brenner ikke ett-forsøk-vakten, en feilet klargjøring prøves igjen ved neste kontroll, en vellykket klargjøring viser banneret og gjennomfører reloaden med nøyaktig ett registrert forsøk, og «Oppdater nå» laster ikke noe som ikke er stilt opp — men gjennomføres straks klargjøringen har lykkes |
-| `android/app/build.gradle` | `versionCode 4`. Nivået ble `3` i denne fasen, fordi `autoBlockRolledBackBundles` pakkes inn i APK-en, og `4` da varselrunden la egen native kode inn i skallet (lokale varsler, varselikonet, `TimeZoneAlarmReceiver`). Tallet ER kompatibilitetsgrensen (se under) |
+| `android/app/build.gradle` | `versionCode 5`. Nivået ble `3` i denne fasen, fordi `autoBlockRolledBackBundles` pakkes inn i APK-en, `4` da varselrunden la egen native kode inn i skallet (lokale varsler, varselikonet, `TimeZoneAlarmReceiver`), og `5` da varselikonene ble tegnet om — native RESSURSER, som ligger i binæren og ikke i OTA-pakken. Tallet ER kompatibilitetsgrensen (se under) |
 | `.github/scripts/ota-bundle.js` | pakker `dist/` til `ota/bundles/<buildId>.zip`, signerer ZIP-bytene (`crypto.createSign('sha256')`, base64), VERIFISERER signaturen mot den innebygde `publicKey` før noe skrives, og skriver ett manifest per støttet nivå. Ren Node — `fs`, `path`, `crypto`, `child_process` — så byggesteget får ingen avhengighet |
 | `.github/workflows/release.yml` | steget kjører i deployjobben, altså bak `needs: smoke`, på den samme `github.sha` som ble migrert og smoke-testet, og legger utdataene i treet FØR `vercel deploy`. `OTA_MIN_VERSION_CODE` står i workflow-env som det laveste native nivået bundelen støttes i, og er `3` (se under). Mangler `OTA_SIGNING_KEY`, stopper releasen — den publiserer ikke en bundle ingen kan verifisere |
 | `vercel.json` | `/ota/android/*.json` → `no-store` (manifestet navngir bundelen som gjelder NÅ), `/ota/bundles/*.zip` → `immutable` (build-ID-en står i navnet) |
@@ -2713,9 +2713,26 @@ POST_NOTIFICATIONS (Android 13+) flettes derimot INN fra pluginen og skal det:
 den er selve varseltillatelsen, og adapteren ber om den bak et brukertrykk i
 varselinnstillingene — aldri ved oppstart.
 
-Statuslinje-ikonet er `ic_stat_huskis` (`res/drawable/`), merkets tre
-kortkonturer som maske. Uten et konfigurert ikon bruker pluginen Androids egen
-`ic_dialog_info`.
+### Varselets to ikoner
+
+Statuslinje-ikonet er `ic_stat_huskis` (`res/drawable/`), og uten et
+konfigurert ikon bruker pluginen Androids egen `ic_dialog_info`. Et
+statuslinje-ikon er en MASKE: Android kaster fargene og tegner formen i sin
+egen, så bare alfakanalen betyr noe. Ikonet er derfor merket tegnet som
+KONTURER — det fremste kortet med sine tre punkter og linjer, og to
+kortHJØRNER bak det. Målene er favicon-ens motiv tilpasset 24 dp og ikke
+favicon-ens egne mål: der dekker de fylte kortene hverandre, her må hvert
+synlige ledd tegnes for seg og ha luft rundt seg, ellers går strekene i ett.
+
+Det STORE ikonet er `ic_huskis_notification` (`res/drawable-nodpi/`), merket i
+full farge. Det er en PNG og ikke en vector drawable fordi pluginen dekoder
+ressursen med `BitmapFactory.decodeResource`, som ikke kan lese en vector.
+Uten det viser varselet bare den maskede glyfen, og merket er borte.
+
+Begge er rasterisert fra `favicon.svg` av `tests/lag-varselikoner.js`, som
+også skriver `ic_stat_huskis.xml` — geometrien står ETT sted, og
+`tests/notif-channels.test.js` (10i–10m) sjekker at drawable-en og web push-
+badgen bærer nøyaktig de samme banene. Autoritativt: `docs/varsler.md`.
 
 ## Det som MÅ prøves på telefon
 
@@ -2731,6 +2748,9 @@ ferdigkriterium, og de skal ikke krysses av før de faktisk er kjørt:
 - [ ] en endret frist avlyser den gamle planen og legger en ny;
 - [ ] fullføring avlyser den framtidige planen;
 - [ ] offline ved tidspunktet: alarmen er lokal og skal fyre uansett;
+- [ ] offline NÅR FRISTEN SETTES: alarmen skal legges inn selv om ingen
+      synk-runde når fram (planen speiles av `save()`, ikke bare av en
+      vellykket pull — `tests/notif-channels.test.js` 11);
 - [ ] et tidssonebytte MENS APPEN KJØRER — at den gamle alarmen faktisk er
       BORTE etter byttet, ikke bare at en ny er lagt inn (maskinelt dekket av
       `tests/notif-channels.test.js` 2n–2v, men bare mot en fake pluginbro);

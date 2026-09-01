@@ -40,10 +40,16 @@
         det varselet — appen navigerte dit i det samme trykket. Gjelder begge
         kanalene, og bare det ene varselet: et annet nytt varsel, om det samme
         objektet, toaster fortsatt.
-    10. Varselikonet: `sw.js` peker på merket rasterisert fra `favicon.svg`,
-        192×192 med GJENNOMSIKTIG bakgrunn — `badge` er en alfamaske hos
-        Android, så en bakgrunnsflate ville blitt en solid firkant i
-        statuslinjen.
+    10. Varselikonene, som er TO og ikke ett: `icon` er merket i farge,
+        rasterisert fra `favicon.svg`, gjennomsiktig og skalert slik at en
+        sirkulær maske ikke klipper hjørnene av kortene; `badge` er en egen
+        MONOKROM tegning, fordi Android bruker den som alfamaske. Og at
+        Androids `ic_stat_huskis` er nøyaktig den samme masken — det fremste
+        kortet med tre punkter og linjer, og to kort bak.
+    11. Den native planen er TELEFONENS: et varsel som har ringt blir stående i
+        pluginens lagring, og det neste skal likevel bli en alarm — også når
+        serveren ikke svarer, og uten at noe manuelt kjøres. To overlappende
+        speilinger etterlater nøyaktig planen, ikke én alarm for mye.
 
   Kjør:
     python3 -m http.server 8000                        # fra repo-roten, i egen terminal
@@ -99,8 +105,23 @@ function buildDB(due) {
 function fakePlattform() {
   const q = new URLSearchParams(location.search);
   const ch = q.get('ch');
-  window.__kanal = { schedule: [], cancel: [], pending: [], perm: q.get('perm') || 'prompt',
-    spurt: 0, vist: [], meldt: [] };
+  /* `pending` er pluginens LAGRING (det `getPending()` svarer med), `alarmer`
+     er de faktisk armerte alarmene, og `levert` er de som har ringt.
+
+     De tre er ikke det samme, og det er ikke en detalj:
+     @capacitor/local-notifications BEHOLDER en rad i lagringen etter at den
+     har ringt (`TimedNotificationPublisher` skriver ikke, og `cancel()` gjør
+     `setCancelled` i stedet for å slette når varselet er levert). Et levert
+     varsel står altså igjen i `getPending()` mens alarmen er borte, og
+     adapterens diff må tåle det. Fakes den bort, beviser en test noe
+     telefonen ikke gjør. */
+  window.__kanal = { schedule: [], cancel: [], pending: [], alarmer: [], levert: [],
+    perm: q.get('perm') || 'prompt', spurt: 0, vist: [], meldt: [] };
+  // Kalles av testen: alarmen ringte. Raden blir stående i lagringen.
+  window.__kanal.lever = function (id) {
+    window.__kanal.levert.push(id);
+    window.__kanal.alarmer = window.__kanal.alarmer.filter((n) => n.id !== id);
+  };
 
   /* Ett RPC-kall kan tvinges til å feile: `window.__kanal.rpcFeil = '<navn>'`.
      Klienten app.js bruker lages ved oppstart, så innpakningen må sitte på
@@ -152,12 +173,20 @@ function fakePlattform() {
           getPending: async () => ({ notifications: window.__kanal.pending.slice() }),
           schedule: async (o) => {
             window.__kanal.schedule.push(o.notifications);
-            o.notifications.forEach((n) => window.__kanal.pending.push({ id: n.id }));
+            o.notifications.forEach((n) => {
+              window.__kanal.pending.push({ id: n.id });
+              window.__kanal.alarmer.push({ id: n.id, at: n.schedule.at });
+            });
           },
           cancel: async (o) => {
             window.__kanal.cancel.push(o.notifications);
             const vekk = new Set(o.notifications.map((n) => n.id));
-            window.__kanal.pending = window.__kanal.pending.filter((n) => !vekk.has(n.id));
+            window.__kanal.alarmer = window.__kanal.alarmer.filter((n) => !vekk.has(n.id));
+            // Et LEVERT varsel blir stående i lagringen (`setCancelled`); bare
+            // et som ennå ikke har ringt slettes.
+            const levert = new Set(window.__kanal.levert);
+            window.__kanal.pending = window.__kanal.pending.filter(
+              (n) => !vekk.has(n.id) || levert.has(n.id));
           },
           addListener: async (navn, fn) => {
             if (navn === 'localNotificationActionPerformed') window.__kanal.trykk = fn;
@@ -733,6 +762,151 @@ async function run() {
 
   await ctxN.close();
 
+  /* ================= 11) Den native planen er TELEFONENS ==================
+     Scenariet er det fra den fysiske testen på Android: et varsel kom, det
+     forfalt — og det neste kom aldri.
+
+     Kanalen er LOKAL. Alarmene ligger på telefonen, ingen server leser dem, og
+     ingen server trengs for å legge dem (docs/varsler.md, «De eksterne
+     kanalene»). Speilingen kjørte likevel bare fra `applyNotifications`, altså
+     først etter en VELLYKKET pull: var nettet borte eller svarte serveren
+     feil, ble en nyopprettet eller endret frist aldri en alarm, og telefonen
+     ble stående med den forrige planen — helt stille.
+
+     Hele veien prøves her, og med vilje UTEN et eneste manuelt `cloudCycle()`:
+     appen skal ordne dette selv. Web push finnes ikke i denne konteksten (det
+     er en native runtime), så ingenting av det som virker kan komme derfra. */
+  const ctxR = await nyKontekst(browser);
+  const pr = await ctxR.newPage();
+  pr.on('pageerror', (e) => errs.push('lokal: ' + e.message));
+  const RURL = BASE + '/?mock=1&ch=native';
+  await seed(pr, RURL, buildDB(null));
+
+  // Klokkeslettet «om N minutter», i det tekstformatet tidsfeltene har.
+  const omMin = (n) => pr.evaluate((m) => {
+    const d = new Date(Date.now() + m * 60000);
+    const to = (x) => String(x).padStart(2, '0');
+    return d.getFullYear() + '-' + to(d.getMonth() + 1) + '-' + to(d.getDate()) +
+      'T' + to(d.getHours()) + ':' + to(d.getMinutes());
+  }, n);
+  const alarmer = () => pr.evaluate(() => ({
+    armert: window.__kanal.alarmer.map((n) => n.at).sort(),
+    plan: window.__huskis.planNotifications(window.__huskis.state, Date.now(),
+      window.__huskis.notifPrefs).map((r) => new Date(r.at).toISOString()).sort(),
+    lagring: window.__kanal.pending.length,
+  }));
+
+  log('11a: i appen finnes bare den native kanalen — web push kan ikke redde noe her',
+    (await pr.evaluate(() => window.__huskis.notifChannel().id)) === 'native' &&
+    (await pr.evaluate(() => window.HK_MOCK._loadDB().push_subscriptions.length)) === 0);
+
+  await pr.evaluate(() => window.__huskis.setNotifChannel(true));
+  await pr.waitForFunction(() => window.__huskis.notifChState === 'on',
+    null, { timeout: 8000, polling: 100 });
+
+  // (1) Varsel A: en frist noen minutter fram. Ingen manuell synk-runde.
+  await settTid(pr, id.LA, 'due', await omMin(4));
+  await pr.waitForFunction(() => window.__kanal.alarmer.length > 0,
+    null, { timeout: 8000, polling: 100 }).catch(() => {});
+  const a11 = await alarmer();
+  log('11b: en ny frist blir en alarm på telefonen, uten at noe manuelt kjøres',
+    a11.armert.length > 0 && JSON.stringify(a11.armert) === JSON.stringify(a11.plan),
+    JSON.stringify(a11));
+
+  // (2) A RINGER. Pluginen beholder raden i lagringen etterpå — den er borte
+  //     som alarm, men står igjen i `getPending()`.
+  await pr.evaluate(() => window.__kanal.alarmer.slice().forEach((n) => window.__kanal.lever(n.id)));
+  // (3) … og terskelen er passert.
+  await settTid(pr, id.LA, 'due', await omMin(-3));
+  await pr.waitForTimeout(1800);
+  const a12 = await alarmer();
+  log('11c: … og etter at den har ringt står ingen alarm igjen',
+    a12.armert.length === 0 && a12.plan.length === 0 && a12.lagring > 0,
+    JSON.stringify(a12));
+
+  /* (4) NYTT FORSØK — og nå er serveren utilgjengelig. Det er nettopp her den
+         gamle koden ble stille: `applyNotifications` kjøres først etter en
+         vellykket pull, så speilingen kjørte aldri. */
+  await pr.evaluate(() => {
+    window.__kanal.rpcFeil = 'get_my_doc';
+    window.__kanal.schedule.length = 0;
+    window.__kanal.cancel.length = 0;
+  });
+  await settTid(pr, id.LA, 'due', await omMin(6));
+  await pr.waitForFunction(() => window.__kanal.alarmer.length > 0,
+    null, { timeout: 8000, polling: 100 }).catch(() => {});
+  const a13 = await pr.evaluate(() => ({
+    armert: window.__kanal.alarmer.map((n) => n.at).sort(),
+    plan: window.__huskis.planNotifications(window.__huskis.state, Date.now(),
+      window.__huskis.notifPrefs).map((r) => new Date(r.at).toISOString()).sort(),
+    lagt: window.__kanal.schedule.flat().length,
+    // Ingen runde nådde serveren: rådataene er urørt siden forrige forsøk.
+    serverrader: window.HK_MOCK._loadDB().notifications.length,
+  }));
+  // (5) B SKAL ligge på telefonen.
+  log('11d: en ny terskel blir en alarm SELV NÅR serveren ikke svarer',
+    a13.lagt > 0 && a13.armert.length > 0 &&
+    JSON.stringify(a13.armert) === JSON.stringify(a13.plan), JSON.stringify(a13));
+  log('11e: … og den gamle, leverte raden blokkerer den ikke',
+    a13.armert.length === a13.plan.length && a13.plan.length > 0,
+    JSON.stringify({ armert: a13.armert.length, plan: a13.plan.length }));
+
+  /* 11f) SPEILINGEN ER SERIALISERT.
+
+     To runder kan ligge i pluginbroen samtidig — poll-runden, og runden
+     brukerens egen endring utløste rett etterpå. Begge leser `getPending()`
+     FØR noen av dem har skrevet, så begge tror alarmen sin mangler og legger
+     den inn, mens ingen av dem ser den andres. Telefonen sitter da igjen med
+     ÉN alarm for mye: den som ble tatt ut av planen ringer likevel. Og fordi
+     den runden som svarer sist skriver signaturen sin, står vakten etterpå og
+     sier «uendret» — den overflødige alarmen blir aldri ryddet bort.
+
+     Her tvinges nøyaktig den rekkefølgen: broen svarer på den FØRSTE
+     planleggingen før den andre, mens begge har lest lagringen på forhånd. */
+  await pr.evaluate(() => {
+    const ln = window.Capacitor.Plugins.LocalNotifications;
+    const ekte = ln.schedule;
+    let n = 0;
+    ln.schedule = function () {
+      const vent = n++ === 0 ? 100 : 200;   // første inn, første ut
+      const args = arguments;
+      return new Promise((ok) => setTimeout(() => ok(ekte.apply(ln, args)), vent));
+    };
+    window.__kanal.schedule.length = 0;
+  });
+  const treg = await pr.evaluate(async (lid) => {
+    const H = window.__huskis;
+    let kort = null;
+    for (const u of H.state.universes) for (const g of (u.groups || []))
+      for (const c of (g.cards || [])) if (c.id === lid) kort = c;
+    const to = (x) => String(x).padStart(2, '0');
+    const klokke = (m) => {
+      const d = new Date(Date.now() + m * 60000);
+      return d.getFullYear() + '-' + to(d.getMonth() + 1) + '-' + to(d.getDate()) +
+        'T' + to(d.getHours()) + ':' + to(d.getMinutes());
+    };
+    /* To ULIKE planer i lufta samtidig. Planen beregnes synkront, før første
+       await, så tiden endres mellom de to kallene: runde 1 bærer den ene,
+       runde 2 den andre, og begge har lest lagringen før noen av dem skriver. */
+    H.setObjectTime({ kind: 'card', obj: kort, card: kort }, 'due', klokke(9));
+    const r1 = H.syncNotifChannel();
+    H.setObjectTime({ kind: 'card', obj: kort, card: kort }, 'due', klokke(14));
+    const r2 = H.syncNotifChannel();
+    await Promise.all([r1, r2]);
+    // Godt forbi både broen og den lokale etterspeilingen (600 ms).
+    await new Promise((r) => setTimeout(r, 1500));
+    return {
+      armert: window.__kanal.alarmer.map((n) => n.at).sort(),
+      plan: H.planNotifications(H.state, Date.now(), H.notifPrefs)
+        .map((r) => new Date(r.at).toISOString()).sort(),
+    };
+  }, id.LA);
+  log('11f: to overlappende speilinger etterlater telefonen med NØYAKTIG planen',
+    treg.plan.length > 0 && JSON.stringify(treg.armert) === JSON.stringify(treg.plan),
+    JSON.stringify(treg));
+
+  await ctxR.close();
+
   /* ================= Nettleser: uten avsendernøkkel ================= */
   const ctxU = await nyKontekst(browser);
   const pu = await ctxU.newPage();
@@ -974,23 +1148,46 @@ async function run() {
     window.__kanal.swMelding({ data: Object.assign({ type: 'huskis-notif-open' }, x) });
   }, peker));
 
-  /* ---------- 10) Varselikonet ----------
-     Ikonet i systemvarselet er appens merke, og kilden til merket er
-     `favicon.svg`. PNG-en finnes bare fordi Notification API-et vil ha et
-     rasterformat, og bakgrunnen er GJENNOMSIKTIG: `badge` er en alfamaske hos
-     Android, så en flate bak merket ville blitt en solid firkant i
-     statuslinjen. */
+  /* ---------- 10) VARSELIKONENE ----------
+     Et varsel har TO ikoner, og de er ikke det samme bildet:
+
+       `icon`  — det store, fargelagte merket. Android (og Samsungs One UI
+                 særlig) maskerer det til en SIRKEL, så merket må ligge
+                 innenfor den innskrevne sirkelen. Ellers klippes hjørnene av
+                 kortene bort.
+       `badge` — det lille i statuslinjen, og der er bildet en ALFAMASKE:
+                 Android kaster fargene og tegner formen i sin egen. Den
+                 fargelagte logoen ble derfor en hvit klump — alt som ikke var
+                 gjennomsiktig ble hvitt, og de mørke konturene som BÆRER
+                 motivet forsvant.
+
+     Begge er rasterisert fra `favicon.svg` av `tests/lag-varselikoner.js`, og
+     den samme masken er `ic_stat_huskis` på Android. Det er de to tingene som
+     prøves her: at bildene faktisk ER det de skal være, og at de to
+     plattformene tegner det SAMME motivet. */
+  const ikoner = require('./lag-varselikoner.js');
   const swKilde = fs.readFileSync(path.join(__dirname, '..', 'sw.js'), 'utf8');
-  const ikonSti = (swKilde.match(/var IKON = '([^']+)'/) || [])[1];
-  log('10a: service workeren peker på et ikon som ligger i repoet',
-    !!ikonSti && fs.existsSync(path.join(__dirname, '..', ikonSti)), ikonSti || 'mangler');
+  const stier = {
+    icon: (swKilde.match(/var IKON = '([^']+)'/) || [])[1],
+    badge: (swKilde.match(/var BADGE = '([^']+)'/) || [])[1],
+  };
+  log('10a: service workeren peker på to ULIKE filer for `icon` og `badge`',
+    !!stier.icon && !!stier.badge && stier.icon !== stier.badge &&
+    fs.existsSync(path.join(__dirname, '..', stier.icon)) &&
+    fs.existsSync(path.join(__dirname, '..', stier.badge)) &&
+    /icon: IKON/.test(swKilde) && /badge: BADGE/.test(swKilde),
+    JSON.stringify(stier));
   /* Fasiten på hva merket ER: fyllfargene i favicon.svg. Byttes PNG-en ut med
      en annen logo — den gamle e-postlogoen med flate bak, for eksempel — vil
      de ikke lenger finnes i bildet. */
   const faviconKilde = fs.readFileSync(path.join(__dirname, '..', 'favicon.svg'), 'utf8');
   const merkefarger = [...new Set((faviconKilde.match(/fill="#[0-9a-f]{6}"/g) || [])
     .map((f) => f.slice(6, -1)))];
-  const ikon = await pw.evaluate(async ({ sti, farger }) => {
+  /* Leser bildet piksel for piksel: målene, hvor mye som er gjennomsiktig,
+     hvor langt inn fra kanten den ytterste ugjennomsiktige pikselen ligger
+     (padding), hvor mange piksler som har hver av merkefargene, og om noe i
+     det hele tatt er farget (en maske skal være hvit). */
+  const les = (sti) => pw.evaluate(async ({ sti, farger }) => {
     const im = await new Promise((ok, nei) => {
       const i = new Image();
       i.onload = () => ok(i); i.onerror = () => nei(new Error('lastet ikke'));
@@ -1001,8 +1198,21 @@ async function run() {
     c.getContext('2d').drawImage(im, 0, 0);
     const d = c.getContext('2d').getImageData(0, 0, c.width, c.height).data;
     const px = (x, y) => [...d.slice((y * c.width + x) * 4, (y * c.width + x) * 4 + 4)];
-    let gjennomsiktige = 0;
-    for (let i = 3; i < d.length; i += 4) if (d[i] === 0) gjennomsiktige++;
+    let gjennomsiktige = 0, kulørt = 0, blekk = 0;
+    let minX = c.width, maxX = -1, minY = c.height, maxY = -1;
+    for (let y = 0; y < c.height; y++) {
+      for (let x = 0; x < c.width; x++) {
+        const i = (y * c.width + x) * 4;
+        if (d[i + 3] === 0) { gjennomsiktige++; continue; }
+        if (d[i + 3] > 128) {
+          blekk++;
+          if (x < minX) minX = x; if (x > maxX) maxX = x;
+          if (y < minY) minY = y; if (y > maxY) maxY = y;
+          // Kulørt = ikke gråtone. En alfamaske skal bare ha hvitt.
+          if (Math.max(d[i], d[i + 1], d[i + 2]) - Math.min(d[i], d[i + 1], d[i + 2]) > 12) kulørt++;
+        }
+      }
+    }
     const treff = farger.map((f) => {
       const r = parseInt(f.slice(1, 3), 16), g = parseInt(f.slice(3, 5), 16),
         b = parseInt(f.slice(5, 7), 16);
@@ -1013,11 +1223,13 @@ async function run() {
       }
       return { farge: f, piksler: n };
     });
-    return { w: c.width, h: c.height, gjennomsiktige, andel: gjennomsiktige / (c.width * c.height),
+    return { w: c.width, h: c.height, andel: gjennomsiktige / (c.width * c.height),
       hjørner: [px(0, 0), px(c.width - 1, 0), px(0, c.height - 1), px(c.width - 1, c.height - 1)],
-      treff };
-  }, { sti: ikonSti, farger: merkefarger });
-  log('10b: ikonet er 192×192 — størrelsen Notification API-et vil ha',
+      boks: { minX, maxX, minY, maxY }, kulørt, blekk, treff };
+  }, { sti, farger: merkefarger });
+
+  const ikon = await les(stier.icon);
+  log('10b: `icon` er 192×192 — størrelsen Notification API-et vil ha',
     ikon.w === 192 && ikon.h === 192, ikon.w + '×' + ikon.h);
   log('10c: bakgrunnen er gjennomsiktig, ikke en flate bak merket',
     ikon.hjørner.every((p) => p[3] === 0) && ikon.andel > 0.2,
@@ -1026,6 +1238,65 @@ async function run() {
   log('10d: … og det ER dagens logo: fyllfargene fra favicon.svg finnes i bildet',
     merkefarger.length >= 3 && ikon.treff.every((t) => t.piksler > 200),
     JSON.stringify(ikon.treff));
+  /* Merket må ligge innenfor den INNSKREVNE SIRKELEN, ikke bare innenfor
+     kvadratet: One UI maskerer det store varselikonet rundt. Halve diagonalen
+     av merkets egen boks må derfor være kortere enn radien. Uten denne vakten
+     kan noen legge inn en logo som fyller flaten, og hjørnene av kortene blir
+     klippet vekk uten at en eneste test sier fra. */
+  const radius = ikon.w / 2;
+  const halvDiagonal = Math.hypot(
+    Math.max(radius - ikon.boks.minX, ikon.boks.maxX + 1 - radius),
+    Math.max(radius - ikon.boks.minY, ikon.boks.maxY + 1 - radius));
+  log('10e: hele merket ligger innenfor den innskrevne sirkelen (One UI maskerer rundt)',
+    halvDiagonal < radius,
+    'halv diagonal ' + Math.round(halvDiagonal) + ' px < radius ' + radius + ' px');
+
+  const badge = await les(stier.badge);
+  log('10f: `badge` er en egen fil i 96×96 — ikke den samme PNG-en som `icon`',
+    badge.w === 96 && badge.h === 96, badge.w + '×' + badge.h);
+  log('10g: … og den er MONOKROM: Android bruker den som alfamaske',
+    badge.kulørt === 0 && badge.blekk > 0 && badge.hjørner.every((p) => p[3] === 0),
+    JSON.stringify({ kulørt: badge.kulørt, blekk: badge.blekk }));
+  /* En maske av fylte flater blir en klump. Andelen blekk sier at motivet er
+     konturer og punkter, ikke tre solide firkanter: merket spenner over
+     ~60 % av flaten, og fylt ville det gitt langt over 30 % dekning. */
+  log('10h: … og den er tegnet som konturer, ikke som fylte flater',
+    badge.blekk / (badge.w * badge.h) > 0.02 && badge.blekk / (badge.w * badge.h) < 0.30,
+    Math.round(1000 * badge.blekk / (badge.w * badge.h)) / 10 + '% dekning');
+
+  /* Androids statuslinje-ikon er den SAMME masken, som vector drawable.
+     Banene kommer fra ett sted (`tests/lag-varselikoner.js`), og her prøves at
+     drawable-en faktisk bærer dem — tre kort OG tre punkter OG tre linjer. Den
+     forrige utgaven hadde bare kortkonturene, og ble tre sammenfiltrede
+     firkanter på skjerm. */
+  const statXml = fs.readFileSync(path.join(__dirname, '..', 'android', 'app', 'src',
+    'main', 'res', 'drawable', 'ic_stat_huskis.xml'), 'utf8');
+  const baner = ikoner.badgeBaner();
+  const alle = baner.kort.concat(baner.prikker, baner.linjer);
+  log('10i: Androids `ic_stat_huskis` er nøyaktig den samme masken som badgen',
+    alle.every((d) => statXml.indexOf('android:pathData="' + d + '"') !== -1),
+    alle.filter((d) => statXml.indexOf('android:pathData="' + d + '"') === -1).join(' | ') ||
+      alle.length + ' baner');
+  log('10j: … altså det fremste kortet MED tre punkter og linjer, og to kort bak',
+    baner.kort.length === 3 && baner.prikker.length === 3 && baner.linjer.length === 3 &&
+    (statXml.match(/android:pathData/g) || []).length === 9,
+    (statXml.match(/android:pathData/g) || []).length + ' baner i drawable-en');
+  log('10k: … og ingen fylte kortflater — Android tegner en maske, ikke en logo',
+    !/android:fillColor="#FFFFFF"[\s\S]{0,80}?A3,3/.test(statXml) &&
+    baner.kort.every((d) => statXml.indexOf('android:pathData="' + d + '"\n' +
+      '        android:strokeColor=') !== -1));
+  const capCfg = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'capacitor.config.json'), 'utf8'));
+  log('10l: capacitor.config.json peker fortsatt på den — ellers blir det Androids eget ikon',
+    capCfg.plugins.LocalNotifications.smallIcon === 'ic_stat_huskis',
+    capCfg.plugins.LocalNotifications.smallIcon);
+  /* Det STORE ikonet i et native varsel. Pluginen dekoder det med
+     `BitmapFactory.decodeResource`, som ikke kan lese en vector drawable —
+     derfor en PNG, og `nodpi` fordi den skal brukes som den er. */
+  const appJs = fs.readFileSync(path.join(__dirname, '..', 'app.js'), 'utf8');
+  const stort = (appJs.match(/largeIcon: '([^']+)'/) || [])[1];
+  log('10m: det native varselet har også merket i farge som stort ikon',
+    !!stort && fs.existsSync(path.join(__dirname, '..', 'android', 'app', 'src', 'main',
+      'res', 'drawable-nodpi', stort + '.png')), stort || 'mangler');
 
   await ctxW.close();
   log('ingen JS-feil', errs.length === 0, errs.join(' | ') || 'ingen');

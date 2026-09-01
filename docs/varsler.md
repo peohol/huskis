@@ -768,6 +768,39 @@ avlys det som ikke lenger står i planen, legg inn det som mangler. Uten diffen
 ville hver synk-runde lagt inn de samme varslene på nytt, og en endret frist
 blitt liggende ved siden av den nye.
 
+**`getPending()` er pluginens LAGRING, ikke de armerte alarmene.**
+`@capacitor/local-notifications` beholder raden etter at varselet har ringt —
+den slettes først når brukeren sveiper varselet bort, og et `cancel()` av en
+levert rad merker den bare som avlyst. Et levert varsel står altså igjen i
+svaret mens alarmen er borte. Diffen tåler det: signaturen bærer terskeltiden,
+så en rad som har ringt kan aldri kollidere med en alarm fram i tid.
+
+#### Speilingen er telefonens egen, ikke serverens
+
+Kanalen er LOKAL. Alarmene ligger på telefonen, ingen server leser dem, og
+ingen server trengs for å legge dem. Speilingen kjøres derfor fra tre steder,
+og de dekker hver sin vei inn:
+
+| Utløser | Dekker |
+|---|---|
+| `save()` — en lokal endring | en frist som opprettes eller flyttes. Debounced (`NOTIF_CH_LOCAL_MS`), så en bunke endringer blir én speiling |
+| tilbake i forgrunnen (`visibilitychange`) | terskler som har passert eller kommet innenfor horisonten mens appen lå stille |
+| `applyNotifications()` — etter hver pull | alt en annen enhet gjorde |
+
+**Bare den siste av dem trenger nett**, og det er poenget: gjorde vi som før
+og speilet kun etter en VELLYKKET pull, ble en nyopprettet eller endret frist
+aldri en alarm når nettet var borte eller serveren svarte feil — telefonen ble
+stående med den forrige planen, helt stille, til en runde kom fram. Web push
+speiles ikke slik: der ER serveren kanalen, og en lokal endring uten en
+synk-runde er ingenting å levere (`local` på kanalobjektet skiller de to).
+
+**Én speiling om gangen.** `syncNotifChannel()` serialiserer seg selv, og en
+runde som kommer imens tas etterpå i stedet for ved siden av. Uten det leser to
+samtidige runder `getPending()` før noen av dem har skrevet, begge tror alarmen
+sin mangler, og telefonen sitter igjen med én alarm for mye — den som ble tatt
+UT av planen ringer likevel. Signaturen den siste runden skriver sier da
+«speilet», og den overflødige alarmen blir aldri ryddet bort.
+
 Broen mellom Huskis' identitet og Androids er ren: `nativeNotifId()` er en
 FNV-1a-hash klippet til et positivt 31-bits heltall (Androids varsel-ID er et
 Java-`int`). Determinismen er hele poenget — det er den som gjør at den samme
@@ -791,15 +824,22 @@ Java-`Date`, ikke som noe man kan sammenligne på.
 
 **Alarmene er upresise med vilje.** Hvert varsel planlegges med
 `isExactNotification: false`, som gir `AlarmManager.setAndAllowWhileIdle()`:
-systemet kan flytte det noen minutter, men det fyrer også i dvale. Tersklene er
+systemet kan flytte det, men det fyrer også i dvale. Tersklene er
 «fristen er utløpt» og «begynner innen en uke», ikke alarmer på sekundet, og
 SCHEDULE_EXACT_ALARM er derfor **trukket tilbake** fra pluginens manifest med
-`tools:node="remove"`. En tillatelse Huskis ikke trenger — og som Google Play
+`tools:node="remove"`.
+
+Prisen står i Androids egen kvote, og den er verdt å kjenne når man tester:
+en app får **én slik alarm levert per ni minutter mens telefonen er i dvale**
+(skjermen av, ingen bruk). To varsler som er planlagt tett etter hverandre
+kommer derfor ikke tett etter hverandre på en telefon som ligger stille — det
+andre venter til kvoten løper ut. Med skjermen på og telefonen i bruk er
+telefonen ikke i dvale, og alarmene fyrer som planlagt. Dette er
+plattformoppførsel, ikke en feil i Huskis, og det er prisen for å slippe en
+tillatelse Google Play krever et eget skjema for. En tillatelse Huskis ikke trenger — og som Google Play
 krever et eget skjema for — skal appen ikke be om.
 
-Ikonet i statuslinjen er `ic_stat_huskis`: merkets tre kortkonturer som maske.
-Uten det bruker pluginen Androids egen `ic_dialog_info`, og hvert varsel ville
-sett ut som ingens.
+Ikonene står under «Ikonene i et systemvarsel».
 
 ### Nettleser: web push
 
@@ -890,17 +930,54 @@ databasen. En push uten lesbar kropp blir likevel et synlig varsel:
 `userVisibleOnly: true` er et løfte til nettleseren, og brytes det, straffer den
 abonnementet.
 
-**Ikonet** (`icon` og `badge`) er appens merke: `assets/notif/huskis-logo-192.png`.
-Kilden til merket er fortsatt `favicon.svg` — PNG-en finnes bare fordi
-Notification API-et vil ha et rasterformat. Bakgrunnen er GJENNOMSIKTIG, og det
-er ikke smak: `badge` brukes som en ALFAMASKE i Androids statuslinje, så en
-flate bak merket ville blitt en solid firkant der.
+**Ikonene** (`icon` og `badge`) står under «Ikonene i et systemvarsel».
 
 `notificationclick` **fokuserer en åpen Huskis-fane** og gir den pekeren OG
 nøkkelen som en melding — fanen navigerer selv, med sin vanlige
 tilgangskontroll. Finnes ingen åpen fane, åpnes appen med `?notif=<type>:<id>`;
 app.js plukker den opp når den er innlogget og synket, og fjerner den fra
 adressen, så en reload ikke navigerer igjen.
+
+### Ikonene i et systemvarsel
+
+Et systemvarsel har TO ikoner, og de er ikke det samme bildet. Begge er
+rasterisert fra `favicon.svg` av `tests/lag-varselikoner.js` — merket har ÉN
+kilde — men de tegnes på hver sin måte, fordi Android bruker dem på hver sin
+måte:
+
+| | Hva det er | Hvor det ligger |
+|---|---|---|
+| Det store, i FARGE | merket slik det ser ut | web push: `assets/notif/huskis-icon-192.png` (`icon`) · Android: `ic_huskis_notification` (`largeIcon`) |
+| Det lille, som MASKE | merket som konturer, monokromt | web push: `assets/notif/huskis-badge-96.png` (`badge`) · Android: `ic_stat_huskis` (`smallIcon`) |
+
+**Det lille er en ALFAMASKE.** Android kaster fargene og tegner formen i
+statuslinjens egen — bare alfakanalen betyr noe. Brukes den fargelagte logoen
+der, blir alt som ikke er gjennomsiktig hvitt, og de mørke konturene som BÆRER
+motivet forsvinner: resultatet er en hvit klump. Masken er derfor en egen
+tegning av det samme motivet: det fremste kortet med sine tre punkter og
+linjer, og to kortHJØRNER bak det. Motivet er favicon-ens, målene er det ikke —
+i favicon-en dekker de fylte kortene hverandre, mens en maske ikke har noe fyll
+å dekke med. Hvert synlige ledd må derfor tegnes for seg og ha luft rundt seg,
+ellers går strekene i ett ved 24 dp.
+
+**Det store maskeres til en SIRKEL.** Android — og Samsungs One UI særlig —
+runder av det store varselikonet, så et merke som fyller kvadratet får hjørnene
+av kortene klippet vekk. Merket skaleres derfor ned om sitt eget sentrum til
+det ligger innenfor den innskrevne sirkelen. Bakgrunnen er gjennomsiktig.
+
+Den native `largeIcon` er en PNG og ikke en vector drawable fordi pluginen
+dekoder ressursen med `BitmapFactory.decodeResource`, som ikke kan lese en
+vector. `smallIcon` skal stå støtt alene uansett: et varsel i statuslinjen har
+bare den.
+
+Geometrien til masken står ETT sted — `tests/lag-varselikoner.js` — og skriver
+både PNG-en og `ic_stat_huskis.xml`. Redigeres den, kjøres skriptet på nytt;
+`tests/notif-channels.test.js` (10) sjekker at de to ikke har skilt lag, og at
+det store ikonet fortsatt bærer favicon-ens fyllfarger.
+
+**Native ressurser kan ikke leveres over OTA.** Ikonene ligger i binæren, ikke
+i web-pakken, så en endring i dem krever et nytt Android-skall og et nytt
+`versionCode` ([`mobilapp-plan.md`](mobilapp-plan.md)).
 
 ### Senderen
 
@@ -999,6 +1076,33 @@ utboksen, og neste tikk tar det samme arbeidet.
 - **Planen** legges derimot av ÉN enhet av gangen — den som holder tidssonen (se
   «Tidssonen planen tilhører»).
 
+#### Appen OG nettleseren på den samme telefonen
+
+Slår brukeren på varsler både i Android-appen og i Chrome på den samme
+telefonen, kommer det to systemvarsler per hendelse. Det er ikke en feil, og det
+er heller ikke noe Huskis kan se:
+
+- Kanalen velges av PLATTFORMEN og er aldri begge på én gang (`notifChannel()`).
+  Inne i APK-en finnes det ingen pushtjeneste å melde seg på, og i en nettleser
+  finnes det ingen native plugin. De to kanalene er altså allerede gjensidig
+  utelukkende — per KJØRENDE app.
+- Men APK-en og Chrome er to forskjellige installasjoner. De deler ingen
+  lagring, intet abonnement og ingen identitet; det eneste de har felles er
+  kontoen. Et web push-abonnement bærer et endepunkt hos en pushtjeneste, og
+  det sier ingenting om hvilken fysisk enhet nettleseren står på.
+
+Å deduplisere ville derfor kreve en NY, eksplisitt enhets-ID som appen og
+nettleseren begge kunne skrive og kjenne igjen — en identitetsmodell Huskis
+ikke har. Alternativene er verre: å gjette på enhet ut fra brukeragent eller
+tidssone er fingeravtrykk og feiler både falskt positivt og falskt negativt, og
+å slå av web push for hele kontoen når appen er installert ville tatt varslene
+fra brukerens laptop.
+
+Regelen er derfor den samme som for to enheter: **hver kanal brukeren
+uttrykkelig har slått på, leverer.** Vil man ha bare ett varsel på telefonen,
+slår man av det ene stedet — bryteren er per enhet, og i Chrome er den per
+nettleser.
+
 ### Levert/ikke levert mot lest/ulest
 
 De to henger sammen på nøyaktig ett punkt, og ellers ikke:
@@ -1040,8 +1144,15 @@ De to henger sammen på nøyaktig ett punkt, og ellers ikke:
   abonnement får være (speilet i mock-backenden), blokkert tillatelse, panelets
   fire tilstander, service workerens push- og klikkruting, `?notif=` i
   adressen, at et trykk på et systemvarsel IKKE gir en toast for nettopp det
-  varselet mens et annet nytt varsel fortsatt toaster (begge kanalene), og at
-  varselikonet er dagens logo med gjennomsiktig bakgrunn.
+  varselet mens et annet nytt varsel fortsatt toaster (begge kanalene), at
+  varselets TO ikoner er to ulike bilder — det store i farge, innenfor den
+  innskrevne sirkelen, med favicon-ens fyllfarger, og det lille monokromt og
+  tegnet som konturer — og at Androids `ic_stat_huskis` bærer nøyaktig de samme
+  banene som badgen. Og til sist scenariet fra den fysiske testen: at et varsel
+  som har RINGT blir stående i pluginens lagring uten å blokkere det neste, at
+  en ny terskel blir en alarm SELV NÅR serveren ikke svarer og uten at noe
+  manuelt kjøres, og at to overlappende speilinger etterlater telefonen med
+  nøyaktig planen — ikke én alarm for mye.
 - `tests/push-crypto.test.js` — VAPID-signaturen og RFC 8291-krypteringen, mot
   et fast vektor fra `http_ece` og med signaturen faktisk verifisert.
 - `tests/notif-modal.test.js` — knappen og badgen, modalen, nyeste øverst,

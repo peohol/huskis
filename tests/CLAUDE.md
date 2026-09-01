@@ -36,6 +36,18 @@ tests/run-all.sh
 SHARD_INDEX=1 SHARD_TOTAL=4 tests/run-all.sh   # slik CI deler den opp
 ```
 
+Én fil her er ikke en test, men en GENERATOR:
+
+```bash
+NODE_PATH=$(npm root -g) node tests/lag-varselikoner.js   # varselikonene, av favicon.svg
+```
+
+Den skriver `assets/notif/*.png`, `res/drawable-nodpi/ic_huskis_notification.png`
+og `res/drawable/ic_stat_huskis.xml`. Geometrien til masken står der, og
+`notif-channels.test.js` (10) sjekker at filene og drawable-en ikke har skilt
+lag. Den ligger her fordi den deler verktøy med testene og fordi `build.js`
+holder `tests/` utenfor `dist/`.
+
 - `NODE_PATH=$(npm root -g)` trengs fordi Playwright er installert globalt.
 - `HUSKIS_URL` overstyrer `http://localhost:8000` hvis serveren kjører et annet
   sted.
