@@ -41,6 +41,9 @@
        slippet faktisk lander i. Et hull som IKKE males tar heller ingen plass —
        i noen liste, også den man selv sikter i — og kantene draget nærmer seg
        står likevel stille, så terskelen ikke flytter seg.
+   14. Kassen følger raden inn i en annen container — men ALDRI inn i en som
+       ikke tar imot den. En låst liste avviser slippet; en kasse som foldet seg
+       ut der ville gjort et avvist slipp til en sletting.
 
   Kjør:
     python3 -m http.server 8000                     # fra repo-roten, i egen terminal
@@ -724,6 +727,86 @@ async function runEttHull(label, viewport) {
   await b.close();
 }
 
+/* ---------- 14) Kassen følger ikke inn i en LÅST liste ----------
+   Kassen følger raden (sjekk 12) — men bare inn i lister som faktisk kan ta
+   imot den. En låst liste avviser slippet og ruller raden tilbake med en
+   beskjed; foldet kassen seg likevel ut der, sto slette-målet rett under
+   siktet i nettopp den lista slippet blir avvist i, og et bom på noen piksler
+   SLETTET raden i stedet. Samme regel i nav-modalen (`nav-modal` sjekk 9). */
+async function runTrashLockedTarget(label, viewport) {
+  const b = await chromium.launch();
+  const p = await b.newPage({ viewport });
+  const errs = [];
+  p.on('pageerror', (e) => errs.push(e.message));
+  await register(p);
+  // Pullen ville skrevet over låsen fikstureret setter direkte på state.
+  await p.evaluate(() => {
+    const c = window.__huskis.client, ekte = c.rpc.bind(c);
+    c.rpc = (name, params) => (name === 'get_my_doc'
+      ? Promise.resolve({ data: null, error: { message: 'pull pauset i test' } }) : ekte(name, params));
+  });
+  // Liste A er min; liste B er LÅST for meg. Mappen er det ikke — ellers kunne
+  // ikke raden i A løftes i det hele tatt (og ingen kasse ville vært armert).
+  await p.evaluate(() => {
+    const H = window.__huskis, st = H.state;
+    const mk = (o) => Object.assign({ ts: 1, org: 't', pos: 0, posTs: 1, posOrg: 't', trashed: false }, o);
+    st.universes.length = 0;
+    const u = mk({ id: 'UNI', name: 'Hjemme', collapsed: false, groups: [], _role: 'member' });
+    const g = mk({ id: 'GRP', uni: 'UNI', name: 'Ukesplan', cat: null, isCat: false, collapsed: false,
+      cards: [], _role: 'member', _caps: { editContent: true, delete: true, createList: true } });
+    u.groups.push(g); g._parent = u;
+    const a = mk({ id: 'L1', group: 'GRP', title: 'Liste A', collapsed: false, items: [] });
+    a.items.push(mk({ id: 'A0', home: 'L1', text: 'Melk', cat: null, isCat: false }));
+    a.items.push(mk({ id: 'A1', home: 'L1', text: 'Brød', cat: null, isCat: false, pos: 1 }));
+    const c = mk({ id: 'L2', group: 'GRP', title: 'Liste B', collapsed: false, items: [], pos: 1,
+      _locked: true, _caps: { editContent: false, delete: false } });
+    c.items.push(mk({ id: 'B0', home: 'L2', text: 'Sykkel', cat: null, isCat: false }));
+    g.cards.push(a, c);
+    a._parent = g; c._parent = g;
+    a.items.forEach((i) => { i._parent = a; }); c.items.forEach((i) => { i._parent = c; });
+    st.universes.push(u); st.activeUniverse = 'UNI'; st.activeGroup = 'GRP';
+    H.render();
+  });
+  await p.waitForTimeout(400);
+  const laast = await p.evaluate(() =>
+    document.querySelector('.card[data-id="L2"]').classList.contains('is-locked'));
+  log(label + ' 14: fiksturet stemmer — liste B er låst for meg', laast === true);
+
+  const verter = () => p.evaluate(() => [...document.querySelectorAll('.trashcan.drag-trash')]
+    .map((t) => { const c = t.closest('.card'); return c ? c.dataset.id : 'TOPP'; }));
+
+  const src = await p.locator('.item[data-id="A1"]').boundingBox();
+  const sx = src.x + Math.min(src.width / 2, 120), sy = src.y + src.height / 2;
+  await p.mouse.move(sx, sy);
+  await p.mouse.down(); await p.waitForTimeout(60);
+  await p.mouse.move(sx + 12, sy + 12); await p.waitForTimeout(140);
+  const mål = await p.locator('.item[data-id="B0"]').boundingBox();
+  await p.mouse.move(mål.x + Math.min(mål.width / 2, 120), mål.y + mål.height / 2, { steps: 14 });
+  await p.waitForTimeout(300);
+  const overB = await verter();
+  const kasseIB = await p.evaluate(() => {
+    const el = document.querySelector('.card[data-id="L2"] .item-trash-btn');
+    return !!el && !el.hidden && !el.closest('[hidden]');
+  });
+  log(label + ' 14: kassen blir i lista raden kom fra — den låste får ingen',
+    overB.join() === 'L1' && kasseIB === false,
+    JSON.stringify({ armerte: overB, kasseIB }));
+
+  await p.mouse.up(); await p.waitForTimeout(800);
+  const etter = await p.evaluate(() => {
+    const g = window.__huskis.state.universes[0].groups[0];
+    const it = g.cards.flatMap((c) => c.items).find((x) => x.id === 'A1');
+    return { slettet: !!(it && (it.trashed || it._pendingDelete)), home: it && it.home,
+      toast: (document.querySelector('.toast') || {}).textContent || '' };
+  });
+  log(label + ' 14: slippet i den låste lista sletter ingenting, og sier hvorfor',
+    etter.slettet === false && etter.home === 'L1' && /låst/i.test(etter.toast),
+    JSON.stringify(etter));
+  log(label + ' 14: ingen JS-feil', errs.length === 0, errs.join(' | '));
+  await p.close();
+  await b.close();
+}
+
 (async () => {
   await run('desktop', { width: 1280, height: 900 });
   await run('mobil', { width: 390, height: 780 });
@@ -733,6 +816,8 @@ async function runEttHull(label, viewport) {
   await runTrashFollows('mobil', { width: 390, height: 780 });
   await runEttHull('desktop', { width: 1280, height: 900 });
   await runEttHull('mobil', { width: 390, height: 780 });
+  await runTrashLockedTarget('desktop', { width: 1280, height: 900 });
+  await runTrashLockedTarget('mobil', { width: 390, height: 780 });
   const failed = results.filter((x) => !x).length;
   console.log('\n==== ' + (results.length - failed) + '/' + results.length + ' PASS ====');
   process.exit(failed ? 1 : 0);

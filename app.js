@@ -1355,6 +1355,9 @@
     afterDrop: () => { /* board-et er allerede riktig */ },
     reindexColors: () => reindexContainerColors(boardScope),
     lockedTargetMsg: tr('dnd.listLocked'),  // avvist slipp i en frossen mål-container
+    // Ville slippet i denne containeren blitt avvist? Samme spørsmål som ved
+    // slippet (`boardRejectTarget`), stilt UNDER draget — se `retargetDragTrash`.
+    refusesRow: (targetCardId) => !!boardRejectTarget(targetCardId, boardRowSourceCardId),
   };
   const navScope = {
     key: 'nav',
@@ -1400,6 +1403,7 @@
     afterDrop: () => { updateCrumbs(); renderBoard(); },
     reindexColors: () => reindexContainerColors(navScope),
     lockedTargetMsg: tr('dnd.universeLocked'),
+    refusesRow: (targetCardId) => !!navRejectTarget(targetCardId, navSourceCardId),
   };
   const dragScope = () => drag.scope || boardScope;
 
@@ -4764,7 +4768,15 @@
      den forsvinner ikke.
 
      Bare rader har en vert å bytte. En LISTE og et OMRÅDE slippes i kassen i
-     topplinja respektive nav-modalens bunnrad — én kasse, ingen vert. */
+     topplinja respektive nav-modalens bunnrad — én kasse, ingen vert.
+
+     EN CONTAINER SOM IKKE TAR IMOT RADEN FÅR HELLER INGEN KASSE. Sikter man mot
+     en låst liste / et låst område, blir slippet der avvist og rullet tilbake
+     med en beskjed — men kassen fulgte etter og foldet seg ut rett under
+     siktet, og et slipp som bommet med noen piksler SLETTET i stedet. Én gest,
+     to helt forskjellige utfall, uten noe som skilte dem. Kassen blir stående
+     i den siste containeren som faktisk kunne tatt imot raden — samme regel som
+     når raden forlater alle containere. */
   function retargetDragTrash() {
     if (!drag.trashArmed || drag.kind !== 'item') return;
     // «Hvilken liste er objektet i?» besvares ÉTT sted (`dragOverCard`:
@@ -4774,6 +4786,9 @@
     // liste enn den raden ville landet i.
     const host = dragOverCard();
     if (!host || host === drag.trashHost) return;
+    // Avviser containeren raden (låst, virtuell, uten opprettelsesrett), er den
+    // ikke et sted raden kan lande — og da skal den heller ikke tilby en kasse.
+    if (dragScope().refusesRow(host.dataset.id)) return;
     // Siktemarkeringen tas av FØR knappen forlates: `setDragTrashTarget` er
     // kantstyrt, så et flagg som ble nullstilt bak ryggen på den ville latt
     // objektet stå rødt.
