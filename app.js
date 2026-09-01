@@ -13276,7 +13276,19 @@
   let devicesRows = null;      // siste svar, eller null før første runde
   let devicesBusy = false;     // ett kall om gangen
   let devicesError = false;
-  let devicesOpen = false;     // skuffen står åpen (da holdes listen fersk)
+  let devicesOpen = false;     // skuffen er den åpne i trekkspillet
+  /* Bumpes ved hver inn- og utlogging. Et kall som allerede var i lufta da
+     kontoen byttet, bærer den FORRIGE brukerens økter og enheter — og ville
+     ellers landet i listene til den nye. Samme grep som `shareGroupEpoch`.
+     Bumpingen frigjør også `devicesBusy`, så den nye kontoen kan hente med én
+     gang i stedet for å vente på et svar den uansett skal forkaste. */
+  let devicesEpoch = 0;
+  function resetDevices() {
+    devicesEpoch++;
+    devicesRows = null;
+    devicesError = false;
+    devicesBusy = false;
+  }
 
   // Endepunktet til DENNE nettleseren, om den har et. Kun til «denne enheten»-
   // merkingen; det forlater aldri klienten på noen annen måte.
@@ -13292,10 +13304,12 @@
   async function loadDevices() {
     const client = acli();
     if (!client || !authUser || devicesBusy) return;
+    const epoke = devicesEpoch;
     devicesBusy = true;
     try {
       const { data, error } = await client.rpc('list_my_devices',
         { p_endpoint: await myPushEndpoint() });
+      if (epoke !== devicesEpoch) return;   // kontoen byttet mens vi ventet
       if (error) throw error;
       devicesRows = {
         sessions: (data && data.sessions) || [],
@@ -13305,10 +13319,15 @@
     } catch (e) {
       // Frakoblet eller avvist: behold det vi hadde (en tom liste ville løyet
       // om at det ikke finnes andre enheter) og si fra at det ikke er ferskt.
-      devicesError = true;
+      if (epoke === devicesEpoch) devicesError = true;
     } finally {
-      devicesBusy = false;
-      paintDevices();
+      // `devicesBusy` slippes bare av den som fortsatt eier epoken: en runde
+      // som ble foreldet, ble allerede sluppet av selve bumpingen, og skal
+      // ikke rive låsen ut av hendene på den nye kontoens runde.
+      if (epoke === devicesEpoch) {
+        devicesBusy = false;
+        paintDevices();
+      }
     }
   }
 
@@ -13498,12 +13517,21 @@
     scheduleCloud(150);
   }
 
-  /* En ÅPEN liste følger synk-runden, som del-modalen gjør (`refreshOpenShare`
-     i docs/accounts.md): slår en annen enhet av varslene sine, eller logger
-     den seg ut, skal raden forsvinne herfra uten at brukeren må lukke og åpne
-     skuffen. En lukket skuff spør aldri. */
+  /* En SYNLIG liste følger synk-runden, som del-modalen gjør
+     (`refreshOpenShare` i docs/accounts.md): slår en annen enhet av varslene
+     sine, eller logger den seg ut, skal raden forsvinne herfra uten at
+     brukeren må lukke og åpne skuffen.
+
+     Synlig betyr BEGGE deler: skuffen er den åpne i trekkspillet OG modalen
+     står oppe. `devicesOpen` alene holder ikke — trekkspillet nullstilles
+     først neste gang konto-modalen åpnes, så en bruker som åpnet skuffen og
+     lukket modalen ville fått et `list_my_devices`-kall hvert femte sekund,
+     resten av økten, for en liste ingen ser. */
+  function devicesPanelVisible() {
+    return devicesOpen && !accountModal.hidden;
+  }
   function refreshOpenDevices() {
-    if (devicesOpen) loadDevices();
+    if (devicesPanelVisible()) loadDevices();
   }
 
   // Veien inn fra varselpanelet: lukk varselmodalen, åpne konto-modalen på
@@ -16870,7 +16898,7 @@
     // fjern-utlogging fra forrige økt skal ikke stå i veien for den nye.
     remoteSignOutDone = false;
     sessionTouchedAt = 0;
-    devicesRows = null; devicesError = false;
+    resetDevices();
     migrationChecked = false;
     navRestored = false; // gjenopprett husket posisjon ved neste (første) pull
     loadMyAvatar();      // eget kall: bildet ligger ikke i det pollede doc-et
@@ -16896,8 +16924,10 @@
     // igjen og telle en annen brukers uleste.
     resetNotifications();
     shareGroupCache.clear(); shareGroupLoading.clear();
-    // Enhetslistene tilhørte den utloggede kontoen.
-    devicesRows = null; devicesError = false; devicesOpen = false;
+    // Enhetslistene tilhørte den utloggede kontoen — og et kall som fortsatt
+    // er i lufta bærer dem, så epoken bumpes med.
+    resetDevices();
+    devicesOpen = false;
     sessionTouchedAt = 0;
     // Køede operasjoner tilhører den utloggede sesjonen — dropp dem (de ville
     // uansett blitt avvist uten sesjon) og nullstill de optimistiske overlayene.

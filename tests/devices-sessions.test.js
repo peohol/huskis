@@ -31,6 +31,10 @@
     10. Et abonnement som er fjern-avslått kommer IKKE tilbake av seg selv:
         klienten oppdager tilbakekallingen i neste runde og rigger ned kanalen
         sin, og først et eksplisitt «slå på varsler» her aktiverer den igjen.
+    11. Listen spør bare når noen ser den: en åpen skuff følger synk-runden, en
+        LUKKET modal gjør det ikke (trekkspillet nullstilles først ved neste
+        åpning), og et svar som var i lufta da kontoen byttet forkastes i
+        stedet for å male forrige brukers enheter.
 
   Kjør:
     python3 -m http.server 8000                        # fra repo-roten, i egen terminal
@@ -117,6 +121,36 @@ function buildDB(now) {
 function fakePlattform() {
   const q = new URLSearchParams(location.search);
   window.__kanal = { perm: q.get('perm') || 'granted', spurt: 0 };
+
+  /* RPC-laget instrumenteres: `__kanal.kall` teller kall per navn, og
+     `__kanal.hold` holder ETT svar tilbake til testen slipper det.
+     Innpakningen må sitte på `createClient` FØR mock-backenden tas i bruk. */
+  window.__kanal.kall = {};
+  window.__kanal.hold = null;
+  Object.defineProperty(window, 'HK_MOCK', {
+    configurable: true,
+    set(v) {
+      const lagKlient = v.createClient;
+      v.createClient = function () {
+        const c = lagKlient.apply(this, arguments);
+        const ekte = c.rpc.bind(c);
+        c.rpc = function (navn, params) {
+          window.__kanal.kall[navn] = (window.__kanal.kall[navn] || 0) + 1;
+          const svar = ekte(navn, params);
+          if (window.__kanal.hold === navn) {
+            window.__kanal.hold = null;
+            return new Promise((slipp) => {
+              window.__kanal.slippSvar = () => svar.then(slipp);
+            });
+          }
+          return svar;
+        };
+        return c;
+      };
+      Object.defineProperty(window, 'HK_MOCK', { value: v, writable: true, configurable: true });
+    },
+    get() { return undefined; },
+  });
 
   class FakeNotification {
     static get permission() { return window.__kanal.perm; }
@@ -493,6 +527,53 @@ async function bekreft(p) {
 
   await kjør('desktop', { width: 1200, height: 900 }, false);
   await kjør('mobil', { width: 390, height: 780 }, true);
+
+  /* ---------- Del 11: listen spør ikke når ingen ser den ---------- */
+  {
+    const ctx = await browser.newContext({ viewport: { width: 1200, height: 900 } });
+    const p = await ctx.newPage();
+    const feil = [];
+    p.on('pageerror', (e) => feil.push(String(e)));
+    await p.addInitScript(fakePlattform);
+    await seed(p, BASE + '/index.html?mock=1', buildDB(Date.now()));
+
+    await åpneEnheter(p);
+    const åpen = await p.evaluate(() => window.__kanal.kall.list_my_devices || 0);
+    await p.evaluate(async () => {
+      await window.__huskis.cloudCycle();
+    });
+    const mensÅpen = await p.evaluate(() => window.__kanal.kall.list_my_devices || 0);
+    log('11a en ÅPEN liste følger synk-runden', mensÅpen > åpen, { før: åpen, etter: mensÅpen });
+
+    /* Modalen lukkes med krysset. Trekkspillet nullstilles først neste gang
+       modalen ÅPNES, så uten en synlighetssjekk ville hver synk-runde resten
+       av økten hentet en liste ingen ser. */
+    await p.evaluate(() => window.__huskis.closeAccount());
+    const førLukket = await p.evaluate(() => window.__kanal.kall.list_my_devices || 0);
+    await p.evaluate(async () => {
+      await window.__huskis.cloudCycle();
+      await window.__huskis.cloudCycle();
+    });
+    const etterLukket = await p.evaluate(() => window.__kanal.kall.list_my_devices || 0);
+    log('11b … men en LUKKET modal spør ikke, runde etter runde',
+      etterLukket === førLukket, { før: førLukket, etter: etterLukket });
+
+    /* Et svar som var i lufta da kontoen byttet, bærer den FORRIGE brukerens
+       økter og enheter. Det skal forkastes, ikke males. */
+    await p.evaluate(() => { window.__kanal.hold = 'list_my_devices'; });
+    await p.evaluate(() => window.__huskis.openAccount('devices'));
+    await p.waitForFunction(() => typeof window.__kanal.slippSvar === 'function',
+      null, { timeout: 10000, polling: 50 });
+    await p.evaluate(() => { window.__huskis.logout(); });
+    await p.waitForFunction(() => !window.__huskis.authUser,
+      null, { timeout: 10000, polling: 100 });
+    await p.evaluate(async () => { await window.__kanal.slippSvar(); });
+    log('11c et svar fra forrige konto forkastes i stedet for å fylle listene',
+      await p.evaluate(() => window.__huskis.devices === null),
+      JSON.stringify(await p.evaluate(() => window.__huskis.devices)));
+    log('11: ingen JS-feil i konsollen', feil.length === 0, feil.join(' | '));
+    await ctx.close();
+  }
 
   /* ---------- Del 7: fjern-utlogget klient som står åpen ---------- */
   {
