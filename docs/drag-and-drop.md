@@ -863,6 +863,37 @@ raden.
   omrokkere den. `*ZoneDrop` sammenligner sone-id-en med `dragTrashBtn()`, som
   leser den nye verten, så vakten holder uendret.
 
+  **En container som ikke tar imot raden får heller ingen kasse.** Sikter man
+  mot en LÅST liste eller et låst område, blir slippet der avvist og rullet
+  tilbake med en beskjed (se [«Slipp i en LÅST
+  mål-container»](#slipp-i-en-låst-mål-container)) — men kassen fulgte etter
+  dit og foldet seg ut som et slippmål rett under siktet, og et slipp som
+  bommet med noen piksler SLETTET raden i stedet. Én gest, to helt
+  forskjellige utfall, og ingenting som skilte dem. `retargetDragTrash` spør
+  derfor `S.refusesRow` — det SAMME spørsmålet slippet stiller
+  (`navRejectTarget` / `boardRejectTarget`: låst, virtuell, uten
+  opprettelsesrett). Det er en regel om MÅL-containeren; radens egen
+  slette-rett (`draggedCanBeTrashed`) er uendret.
+
+  Verten velges i tre trinn, og spørsmålet stilles på nytt hver politikkrunde —
+  også om VERTEN, ikke bare om den man svever over:
+
+  1. containeren raden svever over, når den tar imot raden;
+  2. ellers der kassen står — men bare så lenge DEN fortsatt tar imot raden.
+     Et mål kan bli låst MENS draget pågår (en synk-runde), og det er nettopp
+     det commit-vakten finnes for. Uten trinnet ville en vert som begynte å
+     avvise raden ETTER at kassen flyttet dit blitt stående med et slette-mål
+     slippet ikke kan lande i — den samme fella, bare med en annen rekkefølge;
+  3. ellers hjem til kilden, som aldri avvises (`*RejectTarget` svarer null for
+     containeren raden kom fra). Er kilden borte fra DOM-en, svarer
+     `dragTrashBtn()` null og ingenting armes: ingen kasse er det riktige
+     svaret når ingen container kan ha den.
+
+  Trinn 2 er også regelen om at kassen aldri slippes helt: forlater raden alle
+  containere, blir den stående der den er. MÅLT i begge scopene: `dnd-trash`
+  sjekk 14 (både mål som er låst på forhånd og vert som låses midt i draget) og
+  `nav-modal` sjekk 9.
+
   **Raden den forlot forsvinner helt** (`hideRevealedTrash`) — den holder ingen
   plass. Kortet krymper med en hel knapperad, og alt under det ville rykket
   OPPOVER midt under fingeren; det er nettopp den bevegelsen
@@ -955,6 +986,12 @@ vakten for containeren som ble låst MENS draget pågikk. Den **kaster**: Smett
 ruller da rekkefølgen tilbake til der draget startet, og en toast sier fra —
 `S.lockedTargetMsg`, «Listen er låst – du kan ikke flytte noe hit» på board-et og
 «Området er låst – du kan ikke flytte noe hit» i nav-modalen.
+
+Det samme svaret gjelder SØPPELKASSEN: en container som avviser raden får ingen
+kasse mens draget varer (`S.refusesRow` i `retargetDragTrash`, se [«Søppelkassen
+er et slippmål mens draget
+varer»](#søppelkassen-er-et-slippmål-mens-draget-varer)). Ellers sto slette-målet
+midt i det ene stedet slippet uansett blir avvist.
 
 ## `pos`-regnestykket ved slippet
 

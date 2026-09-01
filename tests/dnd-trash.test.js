@@ -41,6 +41,12 @@
        slippet faktisk lander i. Et hull som IKKE males tar heller ingen plass —
        i noen liste, også den man selv sikter i — og kantene draget nærmer seg
        står likevel stille, så terskelen ikke flytter seg.
+   14. Kassen følger raden inn i en annen container — men ALDRI inn i en som
+       ikke tar imot den. En låst liste avviser slippet; en kasse som foldet seg
+       ut der ville gjort et avvist slipp til en sletting. Det gjelder også når
+       verten blir låst ETTER at kassen flyttet dit (en synk midt i draget): da
+       må kassen ut igjen, og et slipp der den sto sletter ingenting. Begge
+       scopene.
 
   Kjør:
     python3 -m http.server 8000                     # fra repo-roten, i egen terminal
@@ -724,6 +730,258 @@ async function runEttHull(label, viewport) {
   await b.close();
 }
 
+/* ---------- 14) Kassen følger ikke inn i en LÅST liste ----------
+   Kassen følger raden (sjekk 12) — men bare inn i lister som faktisk kan ta
+   imot den. En låst liste avviser slippet og ruller raden tilbake med en
+   beskjed; foldet kassen seg likevel ut der, sto slette-målet rett under
+   siktet i nettopp den lista slippet blir avvist i, og et bom på noen piksler
+   SLETTET raden i stedet. Samme regel i nav-modalen (`nav-modal` sjekk 9). */
+async function runTrashLockedTarget(label, viewport) {
+  const b = await chromium.launch();
+  const p = await b.newPage({ viewport });
+  const errs = [];
+  p.on('pageerror', (e) => errs.push(e.message));
+  await register(p);
+  // Pullen ville skrevet over låsen fikstureret setter direkte på state.
+  await p.evaluate(() => {
+    const c = window.__huskis.client, ekte = c.rpc.bind(c);
+    c.rpc = (name, params) => (name === 'get_my_doc'
+      ? Promise.resolve({ data: null, error: { message: 'pull pauset i test' } }) : ekte(name, params));
+  });
+  // Liste A er min; liste B er LÅST for meg. Mappen er det ikke — ellers kunne
+  // ikke raden i A løftes i det hele tatt (og ingen kasse ville vært armert).
+  await p.evaluate(() => {
+    const H = window.__huskis, st = H.state;
+    const mk = (o) => Object.assign({ ts: 1, org: 't', pos: 0, posTs: 1, posOrg: 't', trashed: false }, o);
+    st.universes.length = 0;
+    const u = mk({ id: 'UNI', name: 'Hjemme', collapsed: false, groups: [], _role: 'member' });
+    const g = mk({ id: 'GRP', uni: 'UNI', name: 'Ukesplan', cat: null, isCat: false, collapsed: false,
+      cards: [], _role: 'member', _caps: { editContent: true, delete: true, createList: true } });
+    u.groups.push(g); g._parent = u;
+    const a = mk({ id: 'L1', group: 'GRP', title: 'Liste A', collapsed: false, items: [] });
+    a.items.push(mk({ id: 'A0', home: 'L1', text: 'Melk', cat: null, isCat: false }));
+    a.items.push(mk({ id: 'A1', home: 'L1', text: 'Brød', cat: null, isCat: false, pos: 1 }));
+    const c = mk({ id: 'L2', group: 'GRP', title: 'Liste B', collapsed: false, items: [], pos: 1,
+      _locked: true, _caps: { editContent: false, delete: false } });
+    c.items.push(mk({ id: 'B0', home: 'L2', text: 'Sykkel', cat: null, isCat: false }));
+    g.cards.push(a, c);
+    a._parent = g; c._parent = g;
+    a.items.forEach((i) => { i._parent = a; }); c.items.forEach((i) => { i._parent = c; });
+    st.universes.push(u); st.activeUniverse = 'UNI'; st.activeGroup = 'GRP';
+    H.render();
+  });
+  await p.waitForTimeout(400);
+  const laast = await p.evaluate(() =>
+    document.querySelector('.card[data-id="L2"]').classList.contains('is-locked'));
+  log(label + ' 14: fiksturet stemmer — liste B er låst for meg', laast === true);
+
+  const verter = () => p.evaluate(() => [...document.querySelectorAll('.trashcan.drag-trash')]
+    .map((t) => { const c = t.closest('.card'); return c ? c.dataset.id : 'TOPP'; }));
+
+  const src = await p.locator('.item[data-id="A1"]').boundingBox();
+  const sx = src.x + Math.min(src.width / 2, 120), sy = src.y + src.height / 2;
+  await p.mouse.move(sx, sy);
+  await p.mouse.down(); await p.waitForTimeout(60);
+  await p.mouse.move(sx + 12, sy + 12); await p.waitForTimeout(140);
+  const mål = await p.locator('.item[data-id="B0"]').boundingBox();
+  await p.mouse.move(mål.x + Math.min(mål.width / 2, 120), mål.y + mål.height / 2, { steps: 14 });
+  await p.waitForTimeout(300);
+  const overB = await verter();
+  const kasseIB = await p.evaluate(() => {
+    const el = document.querySelector('.card[data-id="L2"] .item-trash-btn');
+    return !!el && !el.hidden && !el.closest('[hidden]');
+  });
+  log(label + ' 14: kassen blir i lista raden kom fra — den låste får ingen',
+    overB.join() === 'L1' && kasseIB === false,
+    JSON.stringify({ armerte: overB, kasseIB }));
+
+  await p.mouse.up(); await p.waitForTimeout(800);
+  const etter = await p.evaluate(() => {
+    const g = window.__huskis.state.universes[0].groups[0];
+    const it = g.cards.flatMap((c) => c.items).find((x) => x.id === 'A1');
+    return { slettet: !!(it && (it.trashed || it._pendingDelete)), home: it && it.home,
+      toast: (document.querySelector('.toast') || {}).textContent || '' };
+  });
+  log(label + ' 14: slippet i den låste lista sletter ingenting, og sier hvorfor',
+    etter.slettet === false && etter.home === 'L1' && /låst/i.test(etter.toast),
+    JSON.stringify(etter));
+  log(label + ' 14: ingen JS-feil', errs.length === 0, errs.join(' | '));
+  await p.close();
+  await b.close();
+}
+
+/* ---------- 14) Verten som blir LÅST mens draget pågår ----------
+   Kassen følger raden inn i lister/områder som tar imot den. Blir en slik vert
+   låst ETTER at kassen flyttet dit — en synk-runde kan gjøre det midt i et drag,
+   og både `*RejectTarget` og dokumentasjonen regner med nettopp det — må kassen
+   ut igjen. Ellers står slette-målet i den ene containeren slippet uansett blir
+   avvist i, og et slipp der blir en utilsiktet sletting.
+
+   Måles i BEGGE scopene: `refusesRow` er delt, men de to svarene kommer fra
+   hver sin vakt (`boardRejectTarget` / `navRejectTarget`). */
+async function runTrashHostLockedMidDrag(label, viewport) {
+  const b = await chromium.launch();
+  const p = await b.newPage({ viewport });
+  const errs = [];
+  p.on('pageerror', (e) => errs.push(e.message));
+  await register(p);
+  // Pullen ville skrevet over låsene fiksturene setter direkte på state.
+  await p.evaluate(() => {
+    const c = window.__huskis.client, ekte = c.rpc.bind(c);
+    c.rpc = (name, params) => (name === 'get_my_doc'
+      ? Promise.resolve({ data: null, error: { message: 'pull pauset i test' } })
+      : name === 'move_group'
+        ? Promise.resolve({ data: { mode: 'reparent', group: params.p_group, mapping: {} }, error: null })
+        : ekte(name, params));
+  });
+
+  const verter = (rot) => p.evaluate((r) => [...document.querySelectorAll(r + ' .trashcan.drag-trash')]
+    .map((t) => { const c = t.closest('.card'); return c ? c.dataset.id : 'TOPP'; }), rot);
+
+  /* ===== Board-scopet: listepunkt fra L1 til L2, så låses L2 ===== */
+  await p.evaluate(() => {
+    const H = window.__huskis, st = H.state;
+    const mk = (o) => Object.assign({ ts: 1, org: 't', pos: 0, posTs: 1, posOrg: 't', trashed: false }, o);
+    st.universes.length = 0;
+    // Ikke eier på noe nivå over lista — ellers omgår låsen på L2 seg selv.
+    const u = mk({ id: 'UNI', name: 'Hjemme', collapsed: false, groups: [], _role: 'member' });
+    const g = mk({ id: 'GRP', uni: 'UNI', name: 'Ukesplan', cat: null, isCat: false, collapsed: false,
+      cards: [], _role: 'member', _caps: { editContent: true, delete: true, createList: true } });
+    u.groups.push(g); g._parent = u;
+    const a = mk({ id: 'L1', group: 'GRP', title: 'Liste A', collapsed: false, items: [] });
+    a.items.push(mk({ id: 'A0', home: 'L1', text: 'Melk', cat: null, isCat: false }));
+    a.items.push(mk({ id: 'A1', home: 'L1', text: 'Brød', cat: null, isCat: false, pos: 1 }));
+    const c = mk({ id: 'L2', group: 'GRP', title: 'Liste B', collapsed: false, items: [], pos: 1 });
+    c.items.push(mk({ id: 'B0', home: 'L2', text: 'Sykkel', cat: null, isCat: false }));
+    g.cards.push(a, c);
+    a._parent = g; c._parent = g;
+    a.items.forEach((i) => { i._parent = a; }); c.items.forEach((i) => { i._parent = c; });
+    st.universes.push(u); st.activeUniverse = 'UNI'; st.activeGroup = 'GRP';
+    H.render();
+  });
+  await p.waitForTimeout(400);
+
+  const src = await p.locator('.item[data-id="A1"]').boundingBox();
+  const sx = src.x + Math.min(src.width / 2, 120), sy = src.y + src.height / 2;
+  await p.mouse.move(sx, sy);
+  await p.mouse.down(); await p.waitForTimeout(60);
+  await p.mouse.move(sx + 12, sy + 12); await p.waitForTimeout(140);
+  const mål = await p.locator('.item[data-id="B0"]').boundingBox();
+  const mx = mål.x + Math.min(mål.width / 2, 120), my = mål.y + mål.height / 2;
+  await p.mouse.move(mx, my, { steps: 14 });
+  await p.waitForTimeout(300);
+  const flyttet = await verter('body');
+  // Der kassa STO da L2 fortsatt tok imot raden — punktet et bom ville truffet.
+  const kasseboks = await p.locator('.card[data-id="L2"] .item-trash-btn').boundingBox().catch(() => null);
+  log(label + ' 14: fiksturet stemmer — kassa fulgte raden til liste B',
+    flyttet.join() === 'L2' && !!kasseboks, JSON.stringify({ verter: flyttet, kasseboks: !!kasseboks }));
+
+  // Lås L2 MENS draget pågår. Ingen render(): en ombygging midt i en gest ville
+  // revet vekk dnd-kits elementer — synken setter uansett låsen på state-objektet,
+  // og det er den `refusesRow` leser.
+  await p.evaluate(() => {
+    const g = window.__huskis.state.universes[0].groups[0];
+    const c = g.cards.find((x) => x.id === 'L2');
+    c._locked = true; c._caps = { editContent: false, delete: false };
+  });
+  // Én liten bevegelse, så politikkrunden faktisk kjører.
+  await p.mouse.move(mx + 2, my, { steps: 2 }); await p.waitForTimeout(80);
+  await p.mouse.move(mx, my, { steps: 2 }); await p.waitForTimeout(220);
+  const etterLås = await verter('body');
+  const kasseIB = await p.evaluate(() => {
+    const el = document.querySelector('.card[data-id="L2"] .item-trash-btn');
+    return !!el && !el.hidden && !el.closest('[hidden]');
+  });
+  log(label + ' 14: verten som blir låst midt i draget mister kassa (board)',
+    etterLås.join() === 'L1' && kasseIB === false,
+    JSON.stringify({ verter: etterLås, kasseIB }));
+
+  /* Slipp NØYAKTIG der kassa sto før låsen — punktet et bom på noen piksler ville
+     truffet. Invarianten som måles er at det punktet ikke lenger SLETTER, og at
+     raden ikke havner i den låste lista. Hva slippet ellers betyr avgjøres av de
+     vanlige reglene ut fra hvor punktet ligger etter at kortet krympet (inne i
+     kortet: rullback med «låst»; i board-lufta under: ekstrahering) — og det er
+     regler denne sjekken ikke handler om. */
+  await p.mouse.move(kasseboks.x + kasseboks.width / 2, kasseboks.y + kasseboks.height / 2, { steps: 8 });
+  await p.waitForTimeout(150);
+  await p.mouse.up(); await p.waitForTimeout(800);
+  const etterSlipp = await p.evaluate(() => {
+    const g = window.__huskis.state.universes[0].groups[0];
+    const it = g.cards.flatMap((c) => c.items).find((x) => x.id === 'A1');
+    const l2 = g.cards.find((c) => c.id === 'L2');
+    return { slettet: !!(it && (it.trashed || it._pendingDelete)), home: it && it.home,
+      iLaastListe: !!(l2 && l2.items.some((x) => x.id === 'A1')),
+      toast: (document.querySelector('.toast') || {}).textContent || '' };
+  });
+  log(label + ' 14: slipp der kassa STO sletter ingenting, og lander ikke i den låste lista (board)',
+    etterSlipp.slettet === false && etterSlipp.iLaastListe === false,
+    JSON.stringify(etterSlipp));
+
+  /* ===== Nav-scopet: mappe fra uni-A til uni-B, så låses uni-B ===== */
+  await p.evaluate(() => {
+    const H = window.__huskis, st = H.state;
+    const mk = (o) => Object.assign({ ts: 1, org: 't', pos: 0, posTs: 1, posOrg: 't',
+      trashed: false, _role: 'owner' }, o);
+    st.universes.length = 0;
+    const uA = mk({ id: 'uni-A', name: 'Hjemme', collapsed: false, groups: [] });
+    const uB = mk({ id: 'uni-B', name: 'Jobb', collapsed: false, groups: [], pos: 1 });
+    uA.groups.push(mk({ id: 'g-a1', uni: 'uni-A', name: 'Ukesplan', cat: null, isCat: false, collapsed: false, cards: [] }));
+    uB.groups.push(mk({ id: 'g-b1', uni: 'uni-B', name: 'Møter', cat: null, isCat: false, collapsed: false, cards: [] }));
+    st.universes.push(uA, uB);
+    st.activeUniverse = 'uni-A'; st.activeGroup = 'g-a1';
+    H.render(); H.openNavModal();
+  });
+  await p.waitForTimeout(450);
+
+  const nSrc = await p.locator('#nav-board .card[data-id="uni-A"] .item[data-id="g-a1"]').boundingBox();
+  const nsx = nSrc.x + Math.min(nSrc.width / 2, 120), nsy = nSrc.y + nSrc.height / 2;
+  await p.mouse.move(nsx, nsy);
+  await p.mouse.down(); await p.waitForTimeout(60);
+  await p.mouse.move(nsx + 12, nsy + 12); await p.waitForTimeout(140);
+  const nMål = await p.locator('#nav-board .card[data-id="uni-B"] .item[data-id="g-b1"]').boundingBox();
+  const nmx = nMål.x + Math.min(nMål.width / 2, 120), nmy = nMål.y + nMål.height / 2;
+  await p.mouse.move(nmx, nmy, { steps: 14 });
+  await p.waitForTimeout(300);
+  const nFlyttet = await verter('#nav-board');
+  const nKasseboks = await p.locator('#nav-board .card[data-id="uni-B"] .group-trash-btn').boundingBox().catch(() => null);
+  log(label + ' 14: fiksturet stemmer — kassa fulgte mappa til område B',
+    nFlyttet.join() === 'uni-B' && !!nKasseboks,
+    JSON.stringify({ verter: nFlyttet, kasseboks: !!nKasseboks }));
+
+  await p.evaluate(() => {
+    const u = window.__huskis.state.universes.find((x) => x.id === 'uni-B');
+    u._role = 'member'; u._locked = true;
+    u._caps = { editContent: false, createGroup: false, delete: false, leave: true };
+  });
+  await p.mouse.move(nmx + 2, nmy, { steps: 2 }); await p.waitForTimeout(80);
+  await p.mouse.move(nmx, nmy, { steps: 2 }); await p.waitForTimeout(220);
+  const nEtterLås = await verter('#nav-board');
+  const nKasseIB = await p.evaluate(() => {
+    const el = document.querySelector('#nav-board .card[data-id="uni-B"] .group-trash-btn');
+    return !!el && !el.hidden && !el.closest('[hidden]');
+  });
+  log(label + ' 14: verten som blir låst midt i draget mister kassa (nav)',
+    nEtterLås.join() === 'uni-A' && nKasseIB === false,
+    JSON.stringify({ verter: nEtterLås, kasseIB: nKasseIB }));
+
+  // Samme punkt og samme invariant som i board-scopet.
+  await p.mouse.move(nKasseboks.x + nKasseboks.width / 2, nKasseboks.y + nKasseboks.height / 2, { steps: 8 });
+  await p.waitForTimeout(150);
+  await p.mouse.up(); await p.waitForTimeout(800);
+  const nEtterSlipp = await p.evaluate(() => {
+    const g = window.__huskis.state.universes.flatMap((u) => u.groups).find((x) => x.id === 'g-a1');
+    return { slettet: !!(g && (g.trashed || g._pendingDelete)), uni: g && g.uni,
+      toast: (document.querySelector('.toast') || {}).textContent || '' };
+  });
+  log(label + ' 14: slipp der kassa STO sletter ingenting, og lander ikke i det låste området (nav)',
+    nEtterSlipp.slettet === false && nEtterSlipp.uni !== 'uni-B',
+    JSON.stringify(nEtterSlipp));
+
+  log(label + ' 14: ingen JS-feil', errs.length === 0, errs.join(' | '));
+  await p.close();
+  await b.close();
+}
+
 (async () => {
   await run('desktop', { width: 1280, height: 900 });
   await run('mobil', { width: 390, height: 780 });
@@ -733,6 +991,10 @@ async function runEttHull(label, viewport) {
   await runTrashFollows('mobil', { width: 390, height: 780 });
   await runEttHull('desktop', { width: 1280, height: 900 });
   await runEttHull('mobil', { width: 390, height: 780 });
+  await runTrashLockedTarget('desktop', { width: 1280, height: 900 });
+  await runTrashLockedTarget('mobil', { width: 390, height: 780 });
+  await runTrashHostLockedMidDrag('desktop', { width: 1280, height: 900 });
+  await runTrashHostLockedMidDrag('mobil', { width: 390, height: 780 });
   const failed = results.filter((x) => !x).length;
   console.log('\n==== ' + (results.length - failed) + '/' + results.length + ' PASS ====');
   process.exit(failed ? 1 : 0);

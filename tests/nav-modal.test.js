@@ -18,7 +18,8 @@
        mappe inn i en mappekategori.
     7. Drar man mappa man STÅR i til et annet område, følger lokasjonen med.
     8. Tastatur: Enter/Mellomrom navigerer og kollapser uten peker.
-    9. Slipp i et LÅST område rulles tilbake (DB-guarden ville avvist det).
+    9. Slipp i et LÅST område rulles tilbake (DB-guarden ville avvist det), og
+       mappe-kassen følger ikke med inn i et område som ikke tar imot mappa.
    10. [område-/mappe-ikon][delt-ikon]Navn, og ingen lys innerkant på kortet.
    11. Mappe-søppelkassen ligger i områdekortet; område-søppelkassen nederst.
 
@@ -98,9 +99,39 @@ const model = (p) => p.evaluate(() => window.__huskis.state.universes
 
 const open = async (p) => { await p.evaluate(() => window.__huskis.openNavModal()); await p.waitForTimeout(350); };
 
+/* Står layouten i modalen i RO? Alle boksene måles i hver animasjonsramme, og
+   løftet svarer først når `stille` påfølgende rammer er identiske.
+
+   Hvorfor rammer og ikke stikkprøver: layouten flytter seg mens draget står på
+   — kassene foldes ut som slippmål, kort kollapser, og modalen er loddrett
+   sentrert, så den re-sentrerer hver gang innholdet endrer høyde. To målinger
+   med 100 ms mellom kunne være like og boksen likevel i bevegelse. */
+async function layoutIRo(p, stille = 3, maksRammer = 120) {
+  return p.evaluate(([n, maks]) => new Promise((res) => {
+    const snap = () => [].slice.call(document.querySelectorAll(
+      '#nav-modal .card, #nav-modal .item, #nav-modal .category, #nav-modal .trashcan'))
+      .map((el) => {
+        const r = el.getBoundingClientRect();
+        return [r.top, r.left, r.width, r.height].map(Math.round).join(',');
+      }).join('|');
+    let forrige = null, like = 0, rammer = 0;
+    const tick = () => {
+      const naa = snap();
+      like = (forrige !== null && naa === forrige) ? like + 1 : 0;
+      forrige = naa;
+      if (like >= n || ++rammer >= maks) return res({ rammer, iRo: like >= n });
+      requestAnimationFrame(tick);
+    };
+    requestAnimationFrame(tick);
+  }), [stille, maksRammer]);
+}
+
 // Musedrag (desktop starter draget umiddelbart på bevegelse). `to` kan være en
 // funksjon som måler målet på nytt underveis — layouten flytter seg mens man drar.
-async function drag(p, fromSel, to, rounds = 8) {
+// `opts.beforeDrop` kjøres når pekeren står på målet og layouten er i ro, rett
+// før slippet — der måles tilstanden MIDT i draget.
+async function drag(p, fromSel, to, opts = {}) {
+  const rounds = opts.rounds || 8;
   // Modalen er høyere enn mobilskjermen (tre seksjoner), så raden man drar fra
   // kan ligge delvis under modal-headeren. Rull den fram først — ellers treffer
   // pointerdown headeren i stedet for raden.
@@ -111,11 +142,24 @@ async function drag(p, fromSel, to, rounds = 8) {
   await p.mouse.down();
   await p.mouse.move(a.x + a.width / 2 + 8, a.y + a.height / 2 + 8, { steps: 3 });
   await p.waitForTimeout(90);
+  let siste = null;
   for (let i = 0; i < rounds; i++) {
-    const t = typeof to === 'function' ? await to() : to;
-    await p.mouse.move(t.x, t.y, { steps: 5 });
+    siste = typeof to === 'function' ? await to() : to;
+    await p.mouse.move(siste.x, siste.y, { steps: 5 });
     await p.waitForTimeout(80);
   }
+  /* Slipp først når layouten faktisk står stille OG pekeren står på det målet
+     har NÅ. Mellom siste måling og slippet lå det før et ventevindu der boksen
+     fortsatt kunne bevege seg — og et slipp noen piksler feil betyr noe helt
+     annet (en rad over, eller søppelkassen under). */
+  for (let i = 0; i < 6; i++) {
+    await layoutIRo(p);
+    const t = typeof to === 'function' ? await to() : to;
+    if (siste && Math.abs(t.x - siste.x) < 1 && Math.abs(t.y - siste.y) < 1) break;
+    await p.mouse.move(t.x, t.y, { steps: 2 });
+    siste = t;
+  }
+  if (opts.beforeDrop) await opts.beforeDrop();
   await p.mouse.up();
   await p.waitForTimeout(650);
 }
@@ -449,10 +493,29 @@ async function run(label, vp, mobile) {
     window.__huskis.render();
   });
   await open(p);
+  // Mappe-kassen FØLGER raden mellom områdene — men ikke inn i et område som
+  // ikke tar imot den. Gjorde den det, foldet den seg ut rett under siktet i
+  // nettopp det området slippet blir avvist i, og et slipp som bommet med noen
+  // piksler SLETTET mappa i stedet for å si «låst». Måles MIDT i draget.
+  let kasser = null;
   await drag(p, '#nav-board .card[data-id="uni-A"] .item[data-id="g-a1"]', async () => {
     const t = await p.locator('#nav-board .card[data-id="uni-B"] .item[data-id="g-b1"]').boundingBox();
     return { x: t.x + t.width / 2, y: t.y + t.height / 2 + 6 };
+  }, {
+    beforeDrop: async () => {
+      kasser = await p.evaluate(() => {
+        const synlig = (sel) => { const b = document.querySelector(sel); return !!b && !b.hidden && !b.closest('[hidden]'); };
+        return {
+          armerte: [].slice.call(document.querySelectorAll('#nav-board .trashcan.drag-trash'))
+            .map((t) => (t.closest('.card') || { dataset: {} }).dataset.id || 'MODAL'),
+          synligIUniB: synlig('#nav-board .card[data-id="uni-B"] .group-trash-btn'),
+        };
+      });
+    },
   });
+  log(label + ' 9: kassen foldes ikke ut i et område som ikke tar imot mappa',
+    !!kasser && kasser.armerte.join() === 'uni-A' && kasser.synligIUniB === false,
+    JSON.stringify(kasser));
   const locked = await p.evaluate(() => ({
     uni: window.__huskis.state.universes.flatMap((u) => u.groups).find((g) => g.id === 'g-a1').uni,
     iKildekortet: !!document.querySelector('#nav-board .card[data-id="uni-A"] .item[data-id="g-a1"]'),
